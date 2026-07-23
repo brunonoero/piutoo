@@ -1,0 +1,154 @@
+{21.11.2011 Attention: indexes modifies with respect to original by AU 
+15.02.2017 Modified by Andrea Nebiolo under Michael Bruns's suggestion:
+	- specular pattern order
+	- using functions created by Michael Bruns
+	- changed code structure from "else if" to "switch => case:"} 
+
+[LegacyColorValue = true]; 
+
+input: numeropattern(numericsimple), ohlcValues[X](NumericArray);
+
+var: opend0(0),opend1(0),opend2(0),opend3(0),opend4(0), opend5(0);
+var: highd0(0),highd1(0),highd2(0),highd3(0),highd4(0), highd5(0);
+var: lowd0(0),lowd1(0),lowd2(0),lowd3(0),lowd4(0), lowd5(0);
+var: closed0(0),closed1(0),closed2(0),closed3(0),closed4(0), closed5(0);
+var: range1d(0);
+
+opend0 = ohlcValues[0]; highd0 = ohlcValues[1]; lowd0 = ohlcValues[2]; closed0 = ohlcValues[3];  
+opend1 = ohlcValues[4]; highd1 = ohlcValues[5]; lowd1 = ohlcValues[6]; closed1 = ohlcValues[7];
+opend2 = ohlcValues[8]; highd2 = ohlcValues[9]; lowd2 = ohlcValues[10]; closed2 = ohlcValues[11];  
+opend3 = ohlcValues[12]; highd3 = ohlcValues[13]; lowd3 = ohlcValues[14]; closed3 = ohlcValues[15];
+opend4 = ohlcValues[16]; highd4 = ohlcValues[17]; lowd4 = ohlcValues[18]; closed4 = ohlcValues[19];  
+opend5 = ohlcValues[20]; highd5 = ohlcValues[21]; lowd5 = ohlcValues[22]; closed5 = ohlcValues[23];
+
+range1d = (highd1-lowd1);
+
+Switch(numeropattern) Begin
+	case 1: 		PatternDirectionalFast = (highd0-opend0)> ((highd1-opend1)*0.25);
+	case -1:	 	PatternDirectionalFast = (opend0-lowd0)> ((opend1-lowd1)*0.25);
+	case 2: 		PatternDirectionalFast = (highd0-opend0)> ((highd1-opend1)*0.5);
+	case -2:	 	PatternDirectionalFast = (opend0-lowd0)> ((opend1-lowd1)*0.5);
+	case 3: 		PatternDirectionalFast = (highd0-opend0)> ((highd1-opend1)*0.75);
+	case -3:		PatternDirectionalFast = (opend0-lowd0)> ((opend1-lowd1)*0.75);
+	case 4: 		PatternDirectionalFast = (highd0-opend0)> ((highd1-opend1)*1);
+	case -4:		PatternDirectionalFast = (opend0-lowd0)> ((opend1-lowd1)*1);
+	case 5:	 	PatternDirectionalFast = (highd0-opend0)> ((highd1-opend1)*1.5);
+	case -5: 		PatternDirectionalFast = (opend0-lowd0)> ((opend1-lowd1)*1.5);
+	case 6: 		PatternDirectionalFast = (highd0-opend0)> ((highd1-opend1)*2);
+	case -6: 		PatternDirectionalFast = (opend0-lowd0)> ((opend1-lowd1)*2);
+	case 7:	 	PatternDirectionalFast = (highd0-opend0)> ((highd1-opend1)*2.5);
+	case -7: 		PatternDirectionalFast = (opend0-lowd0)> ((opend1-lowd1)*2.5); 
+	case 8: 		PatternDirectionalFast = (highd0-opend0)> ((highd1-opend1)*3);
+	case -8: 		PatternDirectionalFast = (opend0-lowd0)> ((opend1-lowd1)*3);
+
+	case 9: 		PatternDirectionalFast = (highd0-opend0)< (highd1-opend1);
+	case -9: 		PatternDirectionalFast = (opend0-lowd0)< (opend1-lowd1);
+
+	case 10:	 	PatternDirectionalFast = closed1>closed2 and closed2>closed3 and closed3>closed4;
+	case -10:		PatternDirectionalFast = closed1<closed2 and closed2<closed3 and closed3<closed4;
+	case 11: 		PatternDirectionalFast = closed1>closed2 and closed2>closed3 and closed3>closed4 and closed4>closed5;
+	case -11:		PatternDirectionalFast = closed1<closed2 and closed2<closed3 and closed3<closed4 and closed4<closed5;
+	case 12:		PatternDirectionalFast = highd1>highd2 and lowd1>lowd2;
+	case -12:		PatternDirectionalFast = highd1<highd2 and lowd1<lowd2;
+
+	case 13:	 	PatternDirectionalFast = closed1>closed2;
+	case -13:		PatternDirectionalFast = closed1<closed2;
+	case 14:		PatternDirectionalFast = closed1>opend1;
+	case -14:		PatternDirectionalFast = closed1<opend1;
+
+
+	case 15: 		PatternDirectionalFast = closed1>(closed2+closed2*0.5*0.01);
+	case -15:		PatternDirectionalFast = closed1<(closed2-closed2*0.5*0.01);
+	case 16: 		PatternDirectionalFast = closed1>(closed2+closed2*1  *0.01);
+	case -16:		PatternDirectionalFast = closed1<(closed2-closed2*1  *0.01);
+	case 17: 		PatternDirectionalFast = closed1>(closed2+closed2*1.5*0.01);
+	case -17:		PatternDirectionalFast = closed1<(closed2-closed2*1.5*0.01);
+	case 18:		PatternDirectionalFast = closed1>(closed2+closed2*2  *0.01);
+	case -18:		PatternDirectionalFast = closed1<(closed2-closed2*2  *0.01);
+	case 19:		PatternDirectionalFast = closed1>(closed2+closed2*2.5*0.01);
+	case -19:		PatternDirectionalFast = closed1<(closed2-closed2*2.5*0.01);
+	case 20:		PatternDirectionalFast = closed1>(closed2+closed2*3  *0.01);
+	case -20:		PatternDirectionalFast = closed1<(closed2-closed2*3  *0.01);
+
+
+	case 21:		PatternDirectionalFast = highd0>highd1;
+	case -21:		PatternDirectionalFast = lowd0<lowd1;	
+	case 22:		PatternDirectionalFast = highd0>(highd1+highd1*0.25*0.01);
+	case -22:		PatternDirectionalFast = lowd0<(lowd1-lowd1*0.25*0.01);	
+	case 23:		PatternDirectionalFast = highd0>(highd1+highd1*0.5 *0.01);
+	case -23:		PatternDirectionalFast = lowd0<(lowd1-lowd1*0.5 *0.01);	
+	case 24:		PatternDirectionalFast = highd0>(highd1+highd1*0.75*0.01);
+	case -24:		PatternDirectionalFast = lowd0<(lowd1-lowd1*0.75*0.01);	
+	case 25:		PatternDirectionalFast = highd0>(highd1+highd1*1   *0.01);
+	case -25:		PatternDirectionalFast = lowd0<(lowd1-lowd1*1   *0.01);	
+	case 26:		PatternDirectionalFast = highd0>(highd1+highd1*1.5 *0.01);
+	case -26:		PatternDirectionalFast = lowd0<(lowd1-lowd1*1.5   *0.01);
+	
+	case 27:		PatternDirectionalFast = lowd0>lowd1;
+	case -27:		PatternDirectionalFast = highd0<highd1;
+	
+	case 28:		PatternDirectionalFast = lowd0>(lowd1+lowd1*0.5*0.01);	
+	case -28:		PatternDirectionalFast = highd0<(highd1-highd1*0.5*0.01);
+	case 29:		PatternDirectionalFast = lowd0>(lowd1+lowd1*1  *0.01);	
+	case -29:		PatternDirectionalFast = highd0<(highd1-highd1*1  *0.01);
+	case 30:		PatternDirectionalFast = lowd0>(lowd1+lowd1*1.5*0.01);	
+	case -30:		PatternDirectionalFast = highd0<(highd1-highd1*1.5*0.01);
+	case 31:		PatternDirectionalFast = lowd0>(lowd1+lowd1*2  *0.01);		
+	case -31:		PatternDirectionalFast = highd0<(highd1-highd1*2  *0.01);
+	case 32:		PatternDirectionalFast = lowd0>(lowd1+lowd1*2.5*0.01);	
+	case -32:		PatternDirectionalFast = highd0<(highd1-highd1*2.5*0.01);
+
+	case 33:		PatternDirectionalFast = highd1>highd5;
+	case -33:		PatternDirectionalFast = lowd1<lowd5;	
+	
+	case 34:		PatternDirectionalFast = highd1<highd5;
+	case -34:		PatternDirectionalFast = lowd1>lowd5;
+
+	case 35:		PatternDirectionalFast = highd1> highd2 and highd1> highd3 and highd1> highd4;
+	case -35:		PatternDirectionalFast = lowd1 < lowd2 and lowd1 < lowd3 and lowd1 < lowd4;	
+	case 36:		PatternDirectionalFast = lowd1 > lowd2 and lowd1 > lowd3 and lowd1 > lowd4;
+	case -36:		PatternDirectionalFast = highd1< highd2 and highd1< highd3 and highd1< highd4;
+
+	case 37:		PatternDirectionalFast = closed1>closed2 and closed2>closed3 and opend0>closed1;
+	case -37:		PatternDirectionalFast = closed1<closed2 and closed2<closed3 and opend0<closed1;
+
+	case 38:		PatternDirectionalFast = (highd1-closed1)<0.20*range1d;
+	case -38:		PatternDirectionalFast = (closed1-lowd1)<0.20*range1d;
+
+	case 39:		PatternDirectionalFast = opend0>highd1;
+	case -39:		PatternDirectionalFast = opend0<lowd1;
+	
+	case 40:		PatternDirectionalFast = opend0>(closed1+closed1*0.25*0.01);	 
+	case -40:		PatternDirectionalFast = opend0<(closed1-closed1*0.25*0.01);
+	case 41:		PatternDirectionalFast = opend0>(closed1+closed1*0.5 *0.01);
+	case -41:		PatternDirectionalFast = opend0<(closed1-closed1*0.5 *0.01);
+	case 42:		PatternDirectionalFast = opend0>(closed1+closed1*0.75*0.01);	
+	case -42:		PatternDirectionalFast = opend0<(closed1-closed1*0.75*0.01);
+	case 43:		PatternDirectionalFast = opend0>(closed1+closed1*1   *0.01);	
+	case -43:		PatternDirectionalFast = opend0<(closed1-closed1*1   *0.01);
+
+	case 44:		PatternDirectionalFast = lowd1>lowd2;
+	case -44:		PatternDirectionalFast = highd1<highd2;
+
+	case 45:		PatternDirectionalFast = closed1 > opend1 and  closed2 > opend2;
+	case -45:		PatternDirectionalFast = closed1 < opend1 and  closed2 < opend2;	
+	case 46:		PatternDirectionalFast = closed1 > opend1 and  closed2 < opend2;	
+	case -46:		PatternDirectionalFast = closed1 < opend1 and  closed2 > opend2;
+
+
+	case 47:		PatternDirectionalFast = C>opend0*0.99;
+	case -47:		PatternDirectionalFast = C<opend0*1.01;	
+	case 48:		PatternDirectionalFast = C>opend0*0.995;
+	case -48:		PatternDirectionalFast = C<opend0*1.005;	
+	case 49:		PatternDirectionalFast = C>opend0;
+	case -49:		PatternDirectionalFast = C<opend0;	
+	case 50:		PatternDirectionalFast = C>opend0*1.005;
+	case -50:		PatternDirectionalFast = C<opend0*0.995;	
+	case 51:		PatternDirectionalFast = C>opend0*1.01;
+	case -51:		PatternDirectionalFast = C<opend0*0.99;
+
+	case 52:		PatternDirectionalFast = true;
+	case -52:		PatternDirectionalFast = true;
+	case >52:		PatternDirectionalFast = false;
+	case <-52:		PatternDirectionalFast = false;
+end;

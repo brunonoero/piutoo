@@ -1,0 +1,23 @@
+inputs: MySize(1), EMA1_Len(50), EMA2_Len(100), DailyFactorValue(0.50), MaxTradesPerDay(4);
+input: StopLoss(0), Breakeven(0), TakeProfit(0);
+
+var: myhigh(0), mylow(0), myopen(0), myclose(0), DailyFactor(false);
+var: EMA1_var(0), EMA2_var(0);
+
+myhigh = HighS(1);
+mylow = LowS(1);
+myopen = OpenS(1);
+myclose = CloseS(1);
+EMA1_var = XAverage(c, EMA1_Len);
+EMA2_var = XAverage(C, EMA2_Len);
+DailyFactor = absvalue(myopen-myclose)>DailyFactorValue*(myhigh-mylow);
+
+if EntriesToday(d)<MaxTradesPerDay and DailyFactor then begin
+	if EMA1_var Crosses Over EMA2_var then buy("LE") MySize contracts next bar market;
+	if EMA1_var Crosses Under EMA2_var then sellshort("SE") MySize contracts next bar market;
+end;
+
+setstopcontract;
+if StopLoss>0 then setstoploss(stoploss);
+if Breakeven>0 then setbreakeven(breakeven);
+if TakeProfit>0 then setprofittarget(takeprofit);

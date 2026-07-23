@@ -1,0 +1,81 @@
+// PP_SW01Y_01D_BTCUSDT - 01D - Binance/BTCUSDT dal 01/05/2021 (verificata su Bitfinex/BTCUSD dal 01/01/2017)
+// Strategia Multi strumento CRYPTO: modulando ADX/ATR/MAXBARS/STOP/PROFIT si ottengono discreti risultati da rifinire con i pattern.
+// Provata su BTC / ETH / SOL / XRP / ADA / IOTA, ecc.
+// Attivando il Bar Magnifier ad 1 minuto la strategia perde profitto e impone dei cambi di parametro ma rimane efficace
+// Rif.: Spunto trading da video F.Placci / Crypto multistrumento
+
+Inputs: Periods(7), ADXLimit(22), MaxBarsInTrade(5);
+Inputs: PtnNeutYes(34), PtnNeutNo(56), PtnDirYes(52), PtnDirNo(53);
+Inputs: MyCapital(10000), MyPerc(2), MyStopLX(0.2), MyStopSX(0.2), MyProfitLX(5), MyProfitSX(1), MyTrail(0), test(0);
+
+{ Variabili per strategia }
+Vars : UpperChannel(0), LowerChannel(0), AverageChannel(0);
+Vars: ADXValue(0), ATRValue(0), MySize(0);
+
+{ Indicatori }
+ADXValue = ADX(5);				// Valore (5) ottimizzato di ADX
+ATRValue = AvgTrueRange(3);		// Valore (3) ottimizzato per ATR	
+
+UpperChannel = highest(High, Periods);
+LowerChannel = lowest(Low, Periods);
+AverageChannel = (UpperChannel + LowerChannel) / 2;
+
+// Position Sizing: Impostazione del capitale in funzione di un rischio calcolato in percentuale fissa su valore di stop funzione della volatilita'
+// Con un rischio del 2% la perdita massima (dovuta in generale agli stop sulla prima barra) arriva al 4/5%
+if MyPerc > 0 then begin
+	MySize = IntPortion( (MyCapital {+ NetProfit}) * MyPerc * 0.01 / (ATRValue * BigPointValue * Maxlist(MyStopLX, MyStopSX) ) );
+end else
+	MySize = (MyCapital {+ NetProfit}) / (Close[1] * bigpointvalue);
+
+// Il pattern neutrale / direzionale simmetrico sembra funzionare meglio dei pattern Fast asimmetrici
+// Spesso basta solo il pattern NeutralYes / DirectionalYes per filtrare adeguatamente i trade perdenti
+if EntriesToday(Date) = 0 and PatternNeutralFastSa(PtnNeutYes) and PatternNeutralFastSa(PtnNeutNo) = false then begin
+	if Marketposition <= 0 and ADXValue >= ADXLimit and PatternDirectionalFastSa(PtnDirYes) and PatternDirectionalFastSa(PtnDirNo) = false then begin
+		Buy ( "BUY" ) MySize contracts On next bar at UpperChannel stop;
+	end;
+	
+	if MarketPosition >= 0 and ADXValue >= ADXLimit and PatternDirectionalFastSa(-PtnDirYes) and PatternDirectionalFastSa(-PtnDirNo) = false then Begin
+		Sellshort ( "SSH" ) MySize contracts On next bar at LowerChannel stop;
+	end;
+end;
+
+// Utilizzo come stop i precedenti high/low. Scelgo[2] perche' porta a risultati migliori
+if Marketposition < 0 then begin
+	BuytoCover("SX") next bar at high[2] stop;
+end;
+if MarketPosition > 0 then Begin
+	Sell("LX") next bar at low[2] stop;
+end;
+
+// Sto a mercato un numero massimo di barre/giorni.
+if MaxBarsInTrade > 0 and barssinceentry(0) >= MaxBarsInTrade then begin
+	buytocover("MSX") next bar at market;
+	sell("MLX") next bar at market;
+end;
+
+setstopposition;
+//print(Date," ",MySize," ",ATRValue," ",bigpointvalue," ",MyStopLX," ",MyCapital * MyStopLX * 0.01," ",MySize * (ATRValue * bigpointvalue) * MyStopLX);
+
+// Sulla barra di ingresso non applico lo stop fisso ma lascio lo stop LX/SX, maggiore rischio ma notevole guadagno
+// Stop e Profit differenziati per acquisto e vendita. 
+if barssinceentry > 0 then begin
+	if MarketPosition > 0 and MyStopLX > 0 then setstoploss((MySize * ATRValue * bigpointvalue) * MyStopLX );
+	if MarketPosition < 0 and MyStopSX > 0 then setstoploss((MySize * ATRValue * bigpointvalue) * MyStopSX );
+	if MarketPosition > 0 and MyProfitLX > 0 then setprofittarget((MySize * ATRValue * bigpointvalue) * MyProfitLX );
+	if MarketPosition < 0 and MyProfitSX > 0 then setprofittarget((MySize * ATRValue * bigpointvalue) * MyProfitSX );
+	if MyTrail> 0 then setdollartrailing((MySize * ATRValue * bigpointvalue) * MyTrail);
+end;
+
+{
+// Versione con stop a percentuale fissa su capitale. Non funziona bene con le crypto: troppa volatilita'
+if barssinceentry > 0 then begin
+	if MyStopLX > 0 then setstoploss((MyCapital ) * MyStopLX * 0.01 );
+	if MyStopSX > 0 then setstoploss((MyCapital ) * MyStopSX * 0.01 );
+	if MyProfitLX > 0 then setprofittarget((MyCapital ) * MyProfitLX * 0.01);
+	if MyProfitSX > 0 then setprofittarget((MyCapital ) * MyProfitSX * 0.01);
+	if MyTrail> 0 then setdollartrailing((MyCapital ) * MyTrail * 0.01);
+end;
+}
+//TITAN FAST EXPORT (mette il report direttamente in C:\Titan\Reports
+input: TitanExportMode(0);
+if TitanExportMode=1 then WriteDailiesCTitanReports(1080101, TitanExportMode);

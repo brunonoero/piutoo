@@ -1,0 +1,10 @@
+input:count_start(numericsimple),period(numericsimple);
+
+value2=0;
+
+for value99=count_start to period begin
+	value1=HighS(value99);
+	if value1>value2 then value2=value1 else value2=value2;
+end;
+
+Algoritmica_Workshop_Highest_HighS = value2;

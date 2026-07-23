@@ -1,0 +1,14 @@
+[LegacyColorValue = TRUE];
+
+external method: "ELCollections.dll", int, "ELC_DirectoryCreate", LPSTR;
+
+Inputs:
+	Directory(StringSimple);
+
+Vars:
+	vDirectory("");
+
+vDirectory = Directory;
+ELC_DirectoryCreate(vDirectory);
+
+ELC.DirectoryCreate = 0;

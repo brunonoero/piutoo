@@ -1,0 +1,101 @@
+{21.11.2011 Attention: indexes modifies with respect to original by AU 
+13.01.2017 Modified by Andrea Nebiolo:
+	- using functions created by Michael Bruns
+	- changed code structure from "else if" to "switch => case:"
+	- only neutral pattern function} 
+
+[LegacyColorValue = true]; 
+
+input: numeropattern(numericsimple), ohlcValues[X](NumericArray);
+
+var: opend0(0),opend1(0),opend2(0),opend3(0),opend4(0), opend5(0);
+var: highd0(0),highd1(0),highd2(0),highd3(0),highd4(0), highd5(0);
+var: lowd0(0),lowd1(0),lowd2(0),lowd3(0),lowd4(0), lowd5(0);
+var: closed0(0),closed1(0),closed2(0),closed3(0),closed4(0), closed5(0);
+var: body1d(0),range1d(0),body5d(0),range5d(0);
+
+opend0 = ohlcValues[0]; highd0 = ohlcValues[1]; lowd0 = ohlcValues[2]; closed0 = ohlcValues[3];  
+opend1 = ohlcValues[4]; highd1 = ohlcValues[5]; lowd1 = ohlcValues[6]; closed1 = ohlcValues[7];
+opend2 = ohlcValues[8]; highd2 = ohlcValues[9]; lowd2 = ohlcValues[10]; closed2 = ohlcValues[11];  
+opend3 = ohlcValues[12]; highd3 = ohlcValues[13]; lowd3 = ohlcValues[14]; closed3 = ohlcValues[15];
+opend4 = ohlcValues[16]; highd4 = ohlcValues[17]; lowd4 = ohlcValues[18]; closed4 = ohlcValues[19];  
+opend5 = ohlcValues[20]; highd5 = ohlcValues[21]; lowd5 = ohlcValues[22]; closed5 = ohlcValues[23];
+
+body1d = absvalue(opend1-closed1);
+range1d = (highd1-lowd1);
+body5d = absvalue(opend5-closed1);
+range5d = maxlist(highd1, highd2, highd3, highd4, highd5) - minlist(lowd1, lowd2, lowd3, lowd4, lowd5);
+
+
+Switch(numeropattern) Begin
+	case 1: PatternNeutralFast  = body1d < 0.1  * range1d;
+	case 2: PatternNeutralFast  = body1d < 0.25 * range1d;  
+	case 3: PatternNeutralFast  = body1d < 0.5  * range1d ;   
+	case 4: PatternNeutralFast  = body1d < 0.75 * range1d  ;
+
+	case 5: PatternNeutralFast  = body1d > 0.25 * range1d   ;
+	case 6: PatternNeutralFast  = body1d > 0.5  * range1d ;
+	case 7: PatternNeutralFast  = body1d > 0.75 * range1d  ;  
+	case 8: PatternNeutralFast  = body1d > 0.9  * range1d ;
+
+	case 9: PatternNeutralFast  = body5d < 0.1  * (highd5-lowd1)   ;
+	case 10: PatternNeutralFast = body5d < 0.25 * (highd5-lowd1)  ;
+	case 11: PatternNeutralFast = body5d < 0.5  * (highd5-lowd1)   ; 
+	case 12: PatternNeutralFast = body5d < 0.75 * (highd5-lowd1)  ;
+	case 13: PatternNeutralFast = body5d < 1    * (highd5-lowd1)   ;
+	case 14: PatternNeutralFast = body5d < 1.5  * (highd5-lowd1)  ;
+	case 15: PatternNeutralFast = body5d < 2    * (highd5-lowd1)   ;
+
+	case 16: PatternNeutralFast = body5d > 0.25 * (highd5-lowd1)   ;
+	case 17: PatternNeutralFast = body5d > 0.5  * (highd5-lowd1)  ;
+	case 18: PatternNeutralFast = body5d > 0.75 * (highd5-lowd1)   ; 
+	case 19: PatternNeutralFast = body5d > 1    * (highd5-lowd1)  ;
+	case 20: PatternNeutralFast = body5d > 1.5  * (highd5-lowd1)  ;
+	case 21: PatternNeutralFast = body5d > 2    * (highd5-lowd1)  ;
+	case 22: PatternNeutralFast = body5d > 2.5  * (highd5-lowd1)   ;
+
+	case 23: PatternNeutralFast = body5d < 0.1  * range5d  ;
+	case 24: PatternNeutralFast = body5d < 0.25 * range5d ;
+	case 25: PatternNeutralFast = body5d < 0.5  * range5d  ;
+	case 26: PatternNeutralFast = body5d < 0.75 * range5d   ;
+
+	case 27: PatternNeutralFast = body5d > 0.9  * range5d  ;
+	case 28: PatternNeutralFast = body5d > 0.25 * range5d  ;
+	case 29: PatternNeutralFast = body5d > 0.5  * range5d  ;
+	case 30: PatternNeutralFast = body5d > 0.75 * range5d   ;
+
+	case 31: PatternNeutralFast = ((highd0>(lowd0+lowd0*0.5 *0.01)));
+	case 32: PatternNeutralFast = ((highd0>(lowd0+lowd0*0.75*0.01)));
+	case 33: PatternNeutralFast = ((highd0>(lowd0+lowd0*1   *0.01)));
+	case 34: PatternNeutralFast = ((highd0>(lowd0+lowd0*1.5 *0.01)));
+	case 35: PatternNeutralFast = ((highd0>(lowd0+lowd0*2   *0.01)));
+	case 36: PatternNeutralFast = ((highd0>(lowd0+lowd0*2.5 *0.01)));	
+	case 37: PatternNeutralFast = ((highd0>(lowd0+lowd0*3   *0.01)));
+
+	case 38: PatternNeutralFast = ((highd0<(lowd0+lowd0*0.5 *0.01)));
+	case 39: PatternNeutralFast = ((highd0<(lowd0+lowd0*0.75*0.01)));
+	case 40: PatternNeutralFast = ((highd0<(lowd0+lowd0*1   *0.01)));
+	case 41: PatternNeutralFast = ((highd0<(lowd0+lowd0*1.5 *0.01)));
+	case 42: PatternNeutralFast = ((highd0<(lowd0+lowd0*2   *0.01)));
+	case 43: PatternNeutralFast = ((highd0<(lowd0+lowd0*2.5 *0.01)));
+	case 44: PatternNeutralFast = ((highd0<(lowd0+lowd0*3   *0.01)));
+
+	case 45: PatternNeutralFast = (opend0<lowd1 or opend0>highd1);
+
+	case 46: PatternNeutralFast = (highd0<highd1 and lowd0>lowd1);
+	case 47: PatternNeutralFast = range1d < (((highd2-lowd2)+(highd3-lowd3))/3);
+	case 48: PatternNeutralFast = range1d < (highd2-lowd2) and (highd2-lowd2) < (highd3-lowd3) ;
+	case 49: PatternNeutralFast = (highd1<highd2 and lowd1>lowd2);
+	
+	case 50: PatternNeutralFast = (highd1<highd2 or lowd1>lowd2);
+	case 51: PatternNeutralFast = (highd1>highd2 and lowd1<lowd2);
+	case 52: PatternNeutralFast = (highd0>highd1 and lowd0<lowd1);
+
+	
+	case 53: PatternNeutralFast = (range1d)<(highd2-lowd2);
+	case 54: PatternNeutralFast = (range1d)>(highd2-lowd2);
+
+
+	case 55: PatternNeutralFast = true;
+	case >55: PatternNeutralFast = false;
+end;

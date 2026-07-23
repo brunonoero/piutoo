@@ -1,0 +1,60 @@
+//Works on @hg 30 minutes exchange time
+
+inputs:
+
+MyrangeS(0.1),myrangeL(0),length(20), numdevs(2),
+
+Skipday(0),MyStop(1800), MyProfit(2200);
+
+variable: LETimewindow(false), SETimewindow(false),deltaL(0),deltas(0),mp(0);
+
+mp=marketposition;
+
+deltaL=(h-l)*MyRangeL;
+
+deltas=(h-l)*MyRangeS;
+
+variables:
+
+UpperBand( 0 ),LowerBand( 0 );
+
+UpperBand = BollingerBand( c, length, numdevs ) ;
+
+LowerBand = BollingerBand( c, length,-numdevs) ;
+
+LETimewindow=time>300 and time<2000;
+
+SETimewindow=time>1200 or time<700;
+
+if dayofweek(date)<>Skipday and dayofweek(date)<>4 and month(date)<>0 and SETimewindow and (time<1600 or time > 1800)then begin
+
+if C > UpperBand and((highd(0)<(highd(1)))or absvalue(opend(5)-closed(1))> 2*(highd(5)-lowd(1)) or opend(0)>highd(1))
+
+and ((opend(0)-lowd(0))> ((opend(1)-lowd(1))*1)) =false
+
+then Sellshort next bar (highd(0)-deltas) limit;
+
+End;
+
+if dayofweek(date)<>Skipday and month(date)<>0 and LETimewindow and (time<400 or time > 800)then begin
+
+if C < LowerBand and absvalue(opend(5)-closed(1)) <1.5* (highd(5)-lowd(1)) and( (closed(1)<closed(2) and closed(2)<closed(3))
+
+and opend(0)<closed(1))=false
+
+then Buy next bar lowd(0)+deltal limit;
+
+end;
+
+setstopcontract;
+
+if MyStop > 0 then setstoploss(MyStop);
+
+If MyProfit > 0 then setprofittarget(MyProfit);
+
+if time= 2200 then sell("EODLX") next bar at market;
+
+if time = 800 then buy to cover ("EODSX") next bar at market;
+
+input: TitanExportMode(0);
+if TitanExportMode=1 then WriteDailiesCTitanReports(1100101, TitanExportMode);

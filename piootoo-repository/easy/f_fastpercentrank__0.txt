@@ -1,0 +1,17 @@
+
+inputs:
+value(numericsimple),
+dataSet(numericseries),
+length(numericsimple);
+variables:
+r(0),
+x(0);
+r = 0;
+for x = 1 to length begin
+if dataSet[x-1] <= value then
+r = r + 1;
+end;
+value1=r / (length-1);
+if value1>1 then value1=1;
+if value1<0 then value1=0;
+fastpercentrank = value1;

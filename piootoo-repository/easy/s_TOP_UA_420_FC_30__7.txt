@@ -1,0 +1,99 @@
+// >>>>>>>>>>>>>>>>HEADER INFORMATION>>>>>>>>>>>>>>>>
+// Created on:		15/02/2023
+// Author:			Alessandro Puntin
+// Instrument:		Future
+// Underlying:		Feeder Cattle (CME)
+// Session:			Exchange Time (Mon-Fri 8.30-13.05)
+// Data source:		ASCII MAPPING
+// Description:		Mirrored Trend Following Multiday
+// In-sample:			2010 - 2022
+// Out-of-sample:		not used
+// Time frame:		30 minutes
+
+// >>>>>>>>>>>>>>>>IN-SAMPLE RESULTS>>>>>>>>>>>>>>>>
+// IS total trades:		255
+// IS net profit:		$ 135.412,50
+// IS drawdown:		$ 8.987,50
+// IS avgtrade:		$ 531,03
+// IS profit factor:		3,23
+
+// >>>>>>>>>>>>>>OUT-OF-SAMPLE RESULTS>>>>>>>>>>>>>>
+// OOS total trades:		-
+// OOS net profit:		$ -
+// OOS drawdown:		$ -
+// OOS avgtrade:		$ -
+// OOS profit factor:	-
+
+// >>>>>>>>>>>>>START MICHAEL FUNCTION>>>>>>>>>>>>>
+Input: sessionStartTimeC(830),sessionEndTimeC(1305);
+Vars:	IsStartOfSession(true);
+Vars:	highd0(0), lowd0(0);
+Array: ohlcValues[23](0);
+
+IsStartOfSession = _OHLCMulti5(sessionStartTimeC, sessionEndTimeC, ohlcValues);
+
+highd0 = ohlcValues[1]; lowd0 = ohlcValues[2];
+// >>>>>>>>>>>>>>END MICHAEL FUNCTION>>>>>>>>>>>>>>
+
+Input: MyContracts(1);
+Input: PtnNeutYes(3), PtnNeutNo(48), PtnDirYes(-33), PtnDirNo(-12);
+Input: MyStartTrade(1000), MyEndTrade(1200), MyStartPause(1200), MyEndPause(1100);
+input: ID(1), DayToFilterLong(0), DayToFilterShort(0);
+Input: MyStop(600), MyProfit(10000), MyBreakEven(600);
+Input: MaxDaysInTrade(7), FlatTime(1200);
+
+Vars:	SessAcross2Days(False), FlatTimeFixed(0), DaysInTrade(0), OkLong(True), OkShort(True), mp(0);
+
+mp = MarketPosition;
+
+once begin
+	// Verifies if the session is across 2 calendar days
+	SessAcross2Days = sessionStartTimeC > sessionEndTimeC;
+	
+	// Determines the correct flat time according to the session type
+	if SessAcross2Days then FlatTimeFixed = sessionStartTimeC
+	else FlatTimeFixed = sessionEndTimeC;
+	if sessionStartTimeC = 0 and sessionEndTimeC = 0 then FlatTimeFixed = 2359;
+end;
+
+if isStartOfSession and mp <> 0 then DaysInTrade = DaysInTrade + 1;
+
+if IsStartOfSession then begin
+	OkLong = True;
+	OkShort = True;
+end;
+
+If tw(MyStartTrade,MyEndTrade) and (Time < MyStartPause or Time > MyEndPause)
+and PatternNeutralFast(PtnNeutYes, ohlcValues) and PatternNeutralFast(PtnNeutNo, ohlcValues) = False then begin
+
+	If PatternDirectionalFast(+PtnDirYes, ohlcValues) and PatternDirectionalFast(+PtnDirNo, ohlcValues) = False 
+	and dayofweek(Date) <> DayToFilterLong then Buy MyContracts contracts next bar at highd0 Stop;
+	
+	If PatternDirectionalFast(-PtnDirYes, ohlcValues) and PatternDirectionalFast(-PtnDirNo, ohlcValues) = False 
+	and dayofweek(Date) <> DayToFilterShort then SellShort MyContracts contracts next bar at lowd0 Stop;
+
+end;
+
+if mp = 1 then OkLong = False;
+if mp = -1 then OkShort = False;
+
+setstopcontract;
+if MyStop > 0 then setstoploss(MyStop);
+if MyProfit > 0 then setprofittarget(MyProfit);
+if MyBreakEven > 0 then setbreakeven(MyBreakEven);
+
+if ID = 0 then setexitonclose;
+
+if mp <> mp[1] and mp <> 0 then DaysInTrade = 1;
+
+if DaysInTrade >= MaxDaysInTrade and MaxDaysInTrade > 0 then begin
+	setexitonclose;
+	if Time >= FlatTime and Time < FlatTimeFixed then begin
+		if mp = 1 then Sell("LX_MaxDays") next bar at Market;
+		if mp = -1 then BuyToCover("SX_MaxDays") next bar at Market;
+	end;
+end;
+//TITAN FAST EXPORT (mette il report direttamente in C:\Titan\Reports
+input: TitanExportMode(0);
+if TitanExportMode=1 then WriteDailiesCTitanReports(1080101, TitanExportMode);
+

@@ -1,0 +1,56 @@
+//@PL 5min exchange default ID BIAS
+input: StartTradeThuH(200), StartTradeThuM(45), EndTradeThuH(900), EndTradeThuM(45);
+input: StartTradeMonH(2000), StartTradeMonM(15), EndTradeMonH(900), EndTradeMonM(15);
+input: MyPtnSY(87), MyPtnSN(77);
+input: SkipMonth(8);
+input: MyStop(1400), MyBreak(0), MyProfit(0);
+input: MyContracts(1);
+
+var: StartTradeThu(0), EndTradeThu(0), StartTradeMon(0), EndTradeMon(0);
+
+vars: IsStartOfSession(true);
+inputs: sessionStartTimeC(1800),sessionEndTimeC(1700); // has to be set correctly to trading session times !
+array: ohlcValues[23](0);
+
+IsStartOfSession = _OHLCMulti5(sessionStartTimeC, sessionEndTimeC, ohlcValues);
+
+StartTradeThu=StartTradeThuH+StartTradeThuM;
+EndTradeThu=EndTradeThuH+EndTradeThuM;
+
+StartTradeMon=StartTradeMonH+StartTradeMonM;
+EndTradeMon=EndTradeMonH+EndTradeMonM;
+
+// SHORT #1 (Giovedi) **********************************************************************
+if t>=StartTradeThu and t<StartTradeThu+15
+and dayofweek(date)=4
+and month(date)<>SkipMonth
+and PatternFast(MyPtnSY, ohlcValues) and PatternFast(MyPtnSN, ohlcValues)=False
+	then sellshort("SE_1") MyContracts contracts next bar market;
+	
+if t>=EndTradeThu
+and dayofweek(date)=4 
+	then buytocover("SX_1") MyContracts contracts next bar market;
+
+// SHORT #2 (Domenica sera-Lunedi) **********************************************************************
+if t>=StartTradeMon and t<StartTradeMon+15
+and dayofweek(date)=0 {Domenica}
+and month(date)<>SkipMonth
+and PatternFast(MyPtnSY, ohlcValues) and PatternFast(MyPtnSN, ohlcValues)=False
+	then sellshort("SE_2") MyContracts contracts next bar market;
+	
+if t>=EndTradeMon
+and dayofweek(date)=1 {Lunedi}
+	then buytocover("SX_2") MyContracts contracts next bar market;
+
+
+Setstopcontract;
+If MyStop > 0 then setstoploss(MyStop);
+if MyBreak > 0 then setbreakeven(MyBreak);
+If MyProfit > 0 then setprofittarget(MyProfit);
+
+
+
+//TITAN FAST EXPORT (mette il report direttamente in C:\Titan\Reports
+input: TitanExportMode(0);
+if TitanExportMode=1 then WriteDailiesCTitanReports(1100101, TitanExportMode);
+

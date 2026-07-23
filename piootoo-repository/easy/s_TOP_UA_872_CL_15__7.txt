@@ -1,0 +1,53 @@
+//Trend following strategy using separate windows taken from CL_HourlyBiasMod21_UABIASExplorer
+inputs: MyStartLETrade(1045),MyEndLETrade(1430), MyStartLPause(1200), MyEndLPause(1100), MyLXTime(1645),
+	MyStartSETrade(445),MyEndSETrade(700), MyStartSPause(1200), MyEndSPause(1100), MySXTime(200),
+	MyPtnLY(25), MyPtnSY(39), MyPtnLN(8), MyPtnSN(7),
+	MyNotLEDay(0), MyNotSEDay(0),
+	MyStop(1500), MyProfit(0),
+	mycontracts(1);
+	
+input: sessionStartTimeA(1800), sessionEndTimeA(1700);
+
+variables:
+	LETimewindow(false), SETimewindow(false),chosenfitnessvalue(0);
+
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>	Michael OHLC Calculation begin
+
+array: ohlcValues[23](0);
+var: isStartOfSession(false),highsess(0),lowsess(0);
+
+isStartOfSession = _OHLCMulti5(sessionStartTimeA, sessionEndTimeA, ohlcValues);
+highsess=ohlcValues[1];
+lowsess=ohlcValues[2];
+
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>	Michael OHLC Calculation end
+
+if MyStartLETrade > MyEndLETrade then LETimewindow = time > MyStartLETrade or time < MyEndLETrade;
+if MyStartLETrade < MyEndLETrade then LETimewindow = time > MyStartLETrade and time < MyEndLETrade;
+if MyStartSETrade > MyEndSETrade then SETimewindow = time > MyStartSETrade or time < MyEndSETrade;
+if MyStartSETrade < MyEndSETrade then SETimewindow = time > MyStartSETrade and time < MyEndSETrade;
+
+If LETimewindow and (Time < MyStartLPause or Time > MyEndLPause) then begin
+	if PtnBaseSA2(MyPtnLY,ohlcvalues) and PtnBaseSA2(MyPtnLN,ohlcvalues) = false then
+		buy next bar at highsess stop;
+end;
+If SETimewindow and (Time < MyStartSPause or Time > MyEndSPause) then begin
+	if PtnBaseSA2(MyPtnSY,ohlcvalues) and PtnBaseSA2(MyPtnSN,ohlcvalues) = false then
+		sellshort next bar at lowsess stop;
+end;
+
+if time = MyLXTime then sell("EODLX") next bar at market;
+if time = MySXTime then buytocover("EODSX") next bar at market;
+
+setstopcontract;
+if MyStop > 0   then setstoploss(MyStop);
+If MyProfit > 0 then setprofittarget(MyProfit);
+
+{if LastBarOnChart_s then begin
+	chosenfitnessvalue = MySXTime;
+	value1 = chosenfitnessvalue-(100*IntPortion(chosenfitnessvalue/100));
+	SetCustomFitnessValue(value1);
+end;}
+//TITAN FAST EXPORT (mette il report direttamente in C:\Titan\Reports
+input: TitanExportMode(0);
+if TitanExportMode=1 then WriteDailiesCTitanReports(1080101, TitanExportMode);

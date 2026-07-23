@@ -1,0 +1,65 @@
+var: IsStartOfSession(true);
+array: ohlcValues[23](0);
+
+
+inputs: sessionStartTimeC(0),sessionEndTimeC(2359);	
+IsStartOfSession = _OHLCMulti5(sessionStartTimeC, sessionEndTimeC, ohlcValues);
+
+
+
+Inputs:MyCapital(10000),Length( 75 ), PctUp( 2 ), MYTrail(0),
+       MyRisk(2.5),MyStop(3), MyProfit(0), max_ptfValue(2500),
+       MyStartTrade(0), MyEndTrade(2359), MyStartPause(1200), MyEndPause(1100), 
+       PtnNeutYes(25), PtnNeutNo(51),
+       MaxDaysInTrade(7), MaxTradeInDay(1), AveSell(200);
+       
+variable: DaysInTrade(0), MP(0), Myportfolio(10000), mycontracts(1),
+          MyStopLoss(0), MyDollarTrailing(0), MyTakeProfit(0);       
+
+condition1 = RateOfChange( Close, Length ) >= PctUp;
+condition2 = MP=1 and C<AverageFC( Close,AveSell );
+
+If tw(MyStartTrade,MyEndTrade) and (Time<MyStartPause or t>MyEndPause) and TradesToday(date)<MaxTradeInDay and MaxTradeInDay>0 and 
+    PatternNeutralFast(PtnNeutYes,ohlcvalues) and 
+       PatternNeutralFast(PtnNeutNo,ohlcvalues)=False Then begin
+
+       //myportfolio = GetRTCashBalance("Spot USDT");
+	//MyPortfolio = _AN_ReadBalanceFromTxt("AndreaN");
+	myportfolio = InitialCapital + NetProfit + OpenPositionProfit;//for single system backtesting
+	//myportfolio = InitialCapital + Portfolio_NetProfit + Portfolio_OpenPositionProfit;//for portfolio trader backtesting
+
+	//mycontracts = UA_Crypto_PosSize(myportfolio,Myrisk,MyStop,Closed(1),max_ptfValue);
+	mycontracts = MyCapital/C;
+	MyStopLoss = myportfolio*MyRisk/100;
+	MyTakeProfit = (MyStopLoss/MyStop)*MyProfit;
+	MyDollarTrailing = (MyStopLoss/MyStop)*MYTrail;
+	
+      if condition1 
+       then buy mycontracts contracts next bar at market;
+      if condition2
+       then sell this bar on C;
+	 
+     	end; 
+
+
+ MP = marketposition;
+If Date <> Date[1] and MP <> 0 then 
+DaysInTrade = DaysInTrade+1;// Per ogni giorno passato DaysInTrade aumenta il suo valore; 
+
+If MP <> MP[1] and MP = 1 then
+DaysInTrade = 1;
+
+If DaysInTrade >= MaxDaysInTrade and MaxDaysInTrade > 0 then begin
+   if Time >= 2330 and Time < 2359 then begin
+   sell this bar on c;
+
+end;
+end;
+
+setstopposition;
+If MyStop > 0 then setstoploss( MyStopLoss );
+If MyTrail > 0 then setdollartrailing(MyDollarTrailing);
+If MyProfit > 0 then setprofittarget( MyTakeProfit );    
+//TITAN FAST EXPORT (mette il report direttamente in C:\Titan\Reports
+input: TitanExportMode(0);
+if TitanExportMode=1 then WriteDailiesCTitanReports(1080101, TitanExportMode);

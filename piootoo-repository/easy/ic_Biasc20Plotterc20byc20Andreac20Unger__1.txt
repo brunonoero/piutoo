@@ -1,0 +1,65 @@
+{
+Copyright (c) 2019 Andrea Unger
+Note: use with 60 mins chart
+Video "How to use the indicator": https://autc.pro/BiasMC
+}
+
+if barinterval<>60 then raiseruntimeerror("Change chart resolution to 60 minutes");
+
+input: PlotMode(1);
+array: hourlydelta[23](0), OccCounter[23](0), avgData[23](0), cumData[23](0);
+var: BarOfDayCounter(0), k(0), barsPerSession(0), MaxBarsPerSession(0), reset(false);
+
+reset = d<>d[1];
+
+if reset then BarOfDayCounter=-1;
+BarOfDayCounter = BarOfDayCounter+1;
+
+OccCounter[BarOfDayCounter] = OccCounter[BarOfDayCounter]+1;
+hourlydelta[BarOfDayCounter] = hourlydelta[BarOfDayCounter]+C-C[1];
+
+if reset then begin
+	MaxBarsPerSession = maxlist(barsPerSession,MaxBarsPerSession);
+	barsPerSession = 0;
+	if MaxBarsPerSession>0 then begin
+		for k=0 to maxbarspersession begin
+			if OccCounter[k]>0 then avgData[k] = hourlydelta[k]/OccCounter[k];
+			if k>0 then begin
+				cumData[k] = avgData[k]+cumData[k-1];
+			end;
+		end;
+		
+		switch(PlotMode) begin
+			//average difference in monetary value
+			case 1:
+				for k=0 to maxbarspersession begin
+					if OccCounter[k]>0 then begin
+						plot1[maxbarspersession-k+1](avgData[k]*bigpointvalue,"Avg $ Movement");
+						plot99[maxbarspersession-k+1](0,"Zero line");
+					end;
+				end;
+			//average difference in variation value
+			case 2:
+				for k=0 to maxbarspersession begin
+					if OccCounter[k]>0 then begin
+						plot2[maxbarspersession-k+1](avgData[k],"Avg Movement");
+						plot99[maxbarspersession-k+1](0,"Zero line");
+					end;
+				end;
+			//cumulative average in monetary value
+			case 3:
+				for k=0 to maxbarspersession begin
+					if OccCounter[k]>0 then plot3[maxbarspersession-k](cumData[k]*bigpointvalue,"Cumulated $ movement");
+				end;
+			//cumulative average in value variation
+			case 4:
+				for k=0 to maxbarspersession begin
+					if OccCounter[k]>0 then plot4[maxbarspersession-k](cumData[k],"Cumulated movement");
+				end;
+			//error popup if invalid value
+			case <0: raiseruntimeerror("Invalid plotMode, choose between 1 and 4");
+			case >4: raiseruntimeerror("Invalid plotMode, choose between 1 and 4");
+		end;
+	end;
+end;
+barsPerSession = barsPerSession+1;

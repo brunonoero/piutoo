@@ -1,0 +1,348 @@
+<div class="optimization-container">
+  <header class="page-header">
+    <h1>🎯 Ottimizzazione Strategie</h1>
+    <p>Configura e ottimizza i parametri delle strategie di trading</p>
+  </header>
+
+  <!-- Tabs -->
+  <div class="tabs">
+    <button [class.active]="activeTab === 'params'" (click)="activeTab = 'params'">
+      📊 Parametri
+    </button>
+    <button [class.active]="activeTab === 'risk'" (click)="activeTab = 'risk'">
+      ⚠️ Rischio
+    </button>
+    <button [class.active]="activeTab === 'algorithm'" (click)="activeTab = 'algorithm'">
+      ⚙️ Algoritmo
+    </button>
+    <button [class.active]="activeTab === 'results'" (click)="activeTab = 'results'" *ngIf="response">
+      📈 Risultati
+    </button>
+  </div>
+
+  <!-- Error message -->
+  <div class="error-message" *ngIf="error">
+    ❌ {{ error }}
+    <button class="close-btn" (click)="error = null">×</button>
+  </div>
+
+  <!-- Tab: Parametri -->
+  <div class="tab-content" *ngIf="activeTab === 'params'">
+    <div class="form-grid">
+      <!-- Setup Info -->
+      <div class="card">
+        <h3>📝 Informazioni Setup</h3>
+        <div class="form-group">
+          <label>Nome Setup *</label>
+          <input type="text" [(ngModel)]="setupName" placeholder="Es: Aggressivo ES Weekly">
+        </div>
+        <div class="form-group">
+          <label>Descrizione</label>
+          <textarea [(ngModel)]="description" rows="2" placeholder="Descrizione opzionale..."></textarea>
+        </div>
+      </div>
+
+      <!-- Periodo -->
+      <div class="card">
+        <h3>📅 Periodo di Valutazione</h3>
+        <div class="form-group">
+          <label>Tipo</label>
+          <select [(ngModel)]="evaluationPeriod.type">
+            <option [value]="periodTypes.Weeks">Settimane</option>
+            <option [value]="periodTypes.Months">Mesi</option>
+            <option [value]="periodTypes.DateRange">Range Date</option>
+          </select>
+        </div>
+        <div class="form-group" *ngIf="evaluationPeriod.type === periodTypes.Weeks">
+          <label>Ultime N Settimane</label>
+          <input type="number" [(ngModel)]="evaluationPeriod.weeks" min="1" max="52">
+        </div>
+        <div class="form-group" *ngIf="evaluationPeriod.type === periodTypes.Months">
+          <label>Ultimi N Mesi</label>
+          <input type="number" [(ngModel)]="evaluationPeriod.months" min="1" max="12">
+        </div>
+      </div>
+
+      <!-- Simboli -->
+      <div class="card symbols-card">
+        <h3>💹 Simboli e Timeframe da Ottimizzare
+          <span class="symbols-count">({{ selectedSymbols.length }}/{{ symbols.length }} selezionati)</span>
+        </h3>
+        
+        <!-- Azioni rapide -->
+        <div class="symbols-actions">
+          <button type="button" class="action-btn" (click)="selectAllSymbols()">Seleziona tutti</button>
+          <button type="button" class="action-btn" (click)="deselectAllSymbols()">Deseleziona tutti</button>
+        </div>
+
+        <!-- Lista con checkbox -->
+        <div class="symbols-list" *ngIf="symbols.length > 0">
+          <label *ngFor="let sym of symbols" class="symbol-checkbox" [class.selected]="isSymbolSelected(sym)">
+            <input 
+              type="checkbox" 
+              [checked]="isSymbolSelected(sym)"
+              (change)="toggleSymbol(sym)">
+            <span class="symbol-info">
+              <span class="symbol-header">
+                <span class="symbol-name">{{ sym.symbol }}</span>
+                <span class="symbol-timeframe">{{ formatBarType(sym.barType) }}</span>
+              </span>
+              <span class="symbol-details">
+                <span class="symbol-days">{{ sym.totalDays }} giorni</span>
+                <span class="symbol-dates">{{ sym.firstDate | date:'dd/MM/yy' }} - {{ sym.lastDate | date:'dd/MM/yy' }}</span>
+              </span>
+            </span>
+          </label>
+        </div>
+        
+        <p class="hint" *ngIf="symbols.length === 0">Caricamento simboli...</p>
+        <p class="warning-hint" *ngIf="symbols.length > 0 && selectedSymbols.length === 0">
+          ⚠️ Seleziona almeno un simbolo per l'ottimizzazione
+        </p>
+      </div>
+
+      <!-- Preset -->
+      <div class="card">
+        <h3>🎨 Preset</h3>
+        <div class="presets-grid">
+          <button *ngFor="let preset of presets" 
+                  (click)="applyPreset(preset)" 
+                  class="preset-btn">
+            <strong>{{ preset.name }}</strong>
+            <small>{{ preset.description }}</small>
+          </button>
+        </div>
+      </div>
+
+      <!-- Pesi Ottimizzazione -->
+      <div class="card full-width">
+        <h3>⚖️ Pesi Ottimizzazione 
+          <span class="weight-total" [class.invalid]="Math.abs(getTotalWeight() - 1) > 0.01">
+            (Totale: {{ formatPercent(getTotalWeight()) }})
+          </span>
+          <button class="normalize-btn" (click)="normalizeWeights()">Normalizza</button>
+        </h3>
+        
+        <div class="form-group">
+          <label>Obiettivo Principale</label>
+          <select [(ngModel)]="optimizationParams.primaryObjective">
+            <option [value]="objectives.MaxReturn">Max Return</option>
+            <option [value]="objectives.SharpeRatio">Sharpe Ratio</option>
+            <option [value]="objectives.ProfitDrawdownRatio">Profit/Drawdown</option>
+            <option [value]="objectives.MinDrawdown">Min Drawdown</option>
+            <option [value]="objectives.CalmarRatio">Calmar Ratio</option>
+            <option [value]="objectives.WeightedMultiObjective">Multi-Obiettivo</option>
+          </select>
+        </div>
+
+        <div class="weights-grid">
+          <div class="weight-item">
+            <label>Return</label>
+            <input type="range" [(ngModel)]="optimizationParams.returnWeight" min="0" max="1" step="0.05">
+            <span>{{ formatPercent(optimizationParams.returnWeight) }}</span>
+          </div>
+          <div class="weight-item">
+            <label>Sharpe</label>
+            <input type="range" [(ngModel)]="optimizationParams.sharpeWeight" min="0" max="1" step="0.05">
+            <span>{{ formatPercent(optimizationParams.sharpeWeight) }}</span>
+          </div>
+          <div class="weight-item">
+            <label>Profit/DD</label>
+            <input type="range" [(ngModel)]="optimizationParams.profitDrawdownRatioWeight" min="0" max="1" step="0.05">
+            <span>{{ formatPercent(optimizationParams.profitDrawdownRatioWeight) }}</span>
+          </div>
+          <div class="weight-item">
+            <label>Win Rate</label>
+            <input type="range" [(ngModel)]="optimizationParams.winRateWeight" min="0" max="1" step="0.05">
+            <span>{{ formatPercent(optimizationParams.winRateWeight) }}</span>
+          </div>
+          <div class="weight-item">
+            <label>Profit Factor</label>
+            <input type="range" [(ngModel)]="optimizationParams.profitFactorWeight" min="0" max="1" step="0.05">
+            <span>{{ formatPercent(optimizationParams.profitFactorWeight) }}</span>
+          </div>
+          <div class="weight-item">
+            <label>Consistenza</label>
+            <input type="range" [(ngModel)]="optimizationParams.consistencyWeight" min="0" max="1" step="0.05">
+            <span>{{ formatPercent(optimizationParams.consistencyWeight) }}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tab: Rischio -->
+  <div class="tab-content" *ngIf="activeTab === 'risk'">
+    <div class="form-grid">
+      <div class="card">
+        <h3>📉 Limiti Drawdown</h3>
+        <div class="form-group">
+          <label>Max Drawdown (%)</label>
+          <input type="number" [(ngModel)]="riskParams.maxDrawdown" step="0.01" min="-1" max="0">
+          <span class="hint">Es: -0.15 = -15%</span>
+        </div>
+        <div class="form-group">
+          <label>Stop Loss (%)</label>
+          <input type="number" [(ngModel)]="riskParams.stopLossPercent" step="0.01" min="-1" max="0">
+        </div>
+        <div class="form-group">
+          <label>Max Perdite Consecutive</label>
+          <input type="number" [(ngModel)]="riskParams.maxConsecutiveLosses" min="1" max="20">
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>📊 Soglie Minime</h3>
+        <div class="form-group">
+          <label>Min Win Rate</label>
+          <input type="number" [(ngModel)]="riskParams.minWinRate" step="0.01" min="0" max="1">
+          <span class="hint">Es: 0.45 = 45%</span>
+        </div>
+        <div class="form-group">
+          <label>Min Sharpe Ratio</label>
+          <input type="number" [(ngModel)]="riskParams.minSharpeRatio" step="0.1" min="0">
+        </div>
+        <div class="form-group">
+          <label>Min Profit Factor</label>
+          <input type="number" [(ngModel)]="riskParams.minProfitFactor" step="0.1" min="0">
+        </div>
+        <div class="form-group">
+          <label>Min Trades</label>
+          <input type="number" [(ngModel)]="riskParams.minTrades" min="1">
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>🛡️ Protezioni</h3>
+        <div class="form-group checkbox">
+          <label>
+            <input type="checkbox" [(ngModel)]="riskParams.requirePositiveBalance">
+            Richiedi Balance Sempre Positivo
+          </label>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tab: Algoritmo -->
+  <div class="tab-content" *ngIf="activeTab === 'algorithm'">
+    <div class="form-grid">
+      <div class="card">
+        <h3>🔄 Iterazioni</h3>
+        <div class="form-group">
+          <label>Numero Iterazioni</label>
+          <input type="number" [(ngModel)]="algorithmSettings.iterations" min="10" max="1000">
+        </div>
+        <div class="form-group">
+          <label>Popolazione</label>
+          <input type="number" [(ngModel)]="algorithmSettings.populationSize" min="10" max="200">
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>⚡ Performance</h3>
+        <div class="form-group checkbox">
+          <label>
+            <input type="checkbox" [(ngModel)]="algorithmSettings.parallelize">
+            Parallelizza Esecuzione
+          </label>
+        </div>
+        <div class="form-group checkbox">
+          <label>
+            <input type="checkbox" [(ngModel)]="algorithmSettings.useWalkForward">
+            Walk-Forward Optimization
+          </label>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tab: Risultati -->
+  <div class="tab-content" *ngIf="activeTab === 'results' && response">
+    <div class="results-header">
+      <h2>✅ {{ response.setupName }}</h2>
+      <small>Data: {{ response.optimizationDate | date:'dd/MM/yyyy HH:mm' }}</small>
+    </div>
+
+    <!-- Metriche Principali -->
+    <div class="metrics-grid">
+      <div class="metric-card" [class.positive]="response.totalProfit >= 0" [class.negative]="response.totalProfit < 0">
+        <span class="metric-label">Profit Totale</span>
+        <span class="metric-value">${{ response.totalProfit?.toFixed(2) }}</span>
+      </div>
+      <div class="metric-card">
+        <span class="metric-label">Equity Finale</span>
+        <span class="metric-value">${{ response.finalEquity?.toFixed(2) }}</span>
+      </div>
+      <div class="metric-card negative">
+        <span class="metric-label">Max Drawdown</span>
+        <span class="metric-value">{{ formatPercent(response.maxDrawdown) }}</span>
+      </div>
+      <div class="metric-card">
+        <span class="metric-label">Win Rate</span>
+        <span class="metric-value">{{ formatPercent(response.winRate) }}</span>
+      </div>
+      <div class="metric-card">
+        <span class="metric-label">Return %</span>
+        <span class="metric-value">{{ response.totalReturn?.toFixed(2) }}%</span>
+      </div>
+      <div class="metric-card">
+        <span class="metric-label">Total Trades</span>
+        <span class="metric-value">{{ response.totalTrades }}</span>
+      </div>
+    </div>
+
+    <!-- Strategie per Prossima Settimana -->
+    <div class="card" *ngIf="response.enabledStrategiesForNextWeek?.length">
+      <h3>🎯 Strategie per Prossima Settimana</h3>
+      <div class="strategies-list">
+        <div *ngFor="let alloc of response.enabledStrategiesForNextWeek" class="strategy-item">
+          <span class="strategy-tag">{{ alloc.strategyName }}</span>
+          <span class="multiplier">{{ alloc.sizeMultiplier?.toFixed(2) }}x</span>
+          <span class="allocation">{{ alloc.allocationPercent?.toFixed(1) }}%</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Statistiche Confronto -->
+    <div class="card" *ngIf="response.stats">
+      <h3>📊 Confronto Originale vs Filtrato</h3>
+      <div class="stats-grid">
+        <div><strong>Strategie Totali:</strong> {{ response.stats.totalStrategiesInBacktesting }}</div>
+        <div><strong>Media Attive/Sett.:</strong> {{ response.stats.averageActiveStrategiesPerWeek?.toFixed(1) }}</div>
+        <div><strong>Settimane Analizzate:</strong> {{ response.stats.weeksAnalyzed }}</div>
+        <div><strong>Lookback:</strong> {{ response.stats.lookbackWeeks }} settimane</div>
+        <div><strong>Profit Originale:</strong> ${{ response.stats.originalTotalProfit?.toFixed(2) }}</div>
+        <div><strong>Profit Filtrato:</strong> ${{ response.stats.filteredTotalProfit?.toFixed(2) }}</div>
+        <div><strong>Differenza:</strong> {{ response.stats.profitDifferencePercent?.toFixed(1) }}%</div>
+        <div><strong>DD Originale:</strong> {{ formatPercent(response.stats.originalMaxDrawdown) }}</div>
+        <div><strong>DD Filtrato:</strong> {{ formatPercent(response.stats.filteredMaxDrawdown) }}</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Setup Salvati -->
+  <div class="saved-setups" *ngIf="savedSetups.length > 0">
+    <h3>💾 Setup Salvati</h3>
+    <div class="setups-list">
+      <div *ngFor="let setup of savedSetups" class="setup-item">
+        <div class="setup-info">
+          <strong>{{ setup.name }}</strong>
+          <small>Score: {{ formatNumber(setup.finalScore) }} | {{ formatSetupSymbols(setup.symbols) }}</small>
+        </div>
+        <div class="setup-actions">
+          <button (click)="loadSetup(setup)" title="Carica">📂</button>
+          <button (click)="deleteSetup(setup.id)" title="Elimina">🗑️</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bottone Ottimizza -->
+  <div class="action-bar">
+    <button class="primary-btn" (click)="runOptimization()" [disabled]="isOptimizing">
+      <span *ngIf="!isOptimizing">🚀 Avvia Ottimizzazione</span>
+      <span *ngIf="isOptimizing">⏳ Ottimizzazione in corso...</span>
+    </button>
+  </div>
+</div>

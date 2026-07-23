@@ -1,0 +1,79 @@
+// Multicharts
+// 5minutes bars on Feeder Cattle Future - TS data IS PERIOD from 01.2008 to 12.2017 - OOS PERIOD from 01.2018 to 01.2020
+// SESSION 8:30-13:05 CST MON-FRI - TimeZone Exchange
+{}
+
+// <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< OHLC CALCULATION >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+array: ohlcValues[23](0);
+var: isStartOfSession(false), sessionStartTimeA(0830), sessionEndTimeA(1305);	//Set here your session Time!!!
+isStartOfSession = _OHLCMulti5(sessionStartTimeA, sessionEndTimeA, ohlcValues);
+
+var: opend0(0),opend1(0),opend2(0),opend3(0),opend4(0), opend5(0);
+var: highd0(0),highd1(0),highd2(0),highd3(0),highd4(0), highd5(0);
+var: lowd0(0),lowd1(0),lowd2(0),lowd3(0),lowd4(0), lowd5(0);
+var: closed0(0),closed1(0),closed2(0),closed3(0),closed4(0), closed5(0);
+var: body1d(0),body5d(0),range1d(0),range5d(0); 
+
+opend0 = ohlcValues[0]; highd0 = ohlcValues[1]; lowd0 = ohlcValues[2]; closed0 = ohlcValues[3]; 
+opend1 = ohlcValues[4]; highd1 = ohlcValues[5]; lowd1 = ohlcValues[6]; closed1 = ohlcValues[7];
+opend2 = ohlcValues[8]; highd2 = ohlcValues[9]; lowd2 = ohlcValues[10]; closed2 = ohlcValues[11]; 
+opend3 = ohlcValues[12]; highd3 = ohlcValues[13]; lowd3 = ohlcValues[14]; closed3 = ohlcValues[15];
+opend4 = ohlcValues[16]; highd4 = ohlcValues[17]; lowd4 = ohlcValues[18]; closed4 = ohlcValues[19]; 
+opend5 = ohlcValues[20]; highd5 = ohlcValues[21]; lowd5 = ohlcValues[22]; closed5 = ohlcValues[23];
+
+body1d = absvalue(opend1-closed1);
+range1d = (highd1-lowd1);
+body5d = absvalue(opend5-closed1);
+range5d = maxlist(highd1, highd2, highd3, highd4, highd5) - minlist(lowd1, lowd2, lowd3, lowd4, lowd5);
+
+// <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< INPUTS & VARS DEFINITION >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+inputs:
+	MyPtnLY(15), MyPtnSY(14),
+
+	MyStop(1000), MyProfit(0);
+
+variables:
+	conditionLE1(true), conditionLE2(true), conditionLE3(true), conditionLE4(true),
+	conditionLE(true),
+	
+	conditionSE1(true), conditionSE2(true), conditionSE3(true), conditionSE4(true),
+	conditionSE(true);
+	
+// <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< VARS CALCULATION >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+
+
+// <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< TESTING PHASE >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+
+
+// <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< LONG ENTRIES CONDITIONS >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+conditionLE1 = ptnbasesa2(MyPtnLY, ohlcvalues);
+
+conditionLE = conditionLE1 AND conditionLE2 AND conditionLE3 AND conditionLE4;
+
+// <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< SHORT ENTRIES CONDITIONS >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+conditionSE1 = ptnbasesa2(MyPtnSY, ohlcvalues);
+
+conditionSE = conditionSE1 AND conditionSE2 AND conditionSE3 AND conditionSE4;
+
+// <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< ORDERS >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+if EntriesToday(date) = 0 AND conditionLE then buy next bar at highW(0) stop;
+if EntriesToday(date) = 0 AND conditionSE then sellshort next bar at lowW(0) stop;
+
+setstopcontract;
+If MyStop > 0 then setstoploss(MyStop);
+If MyProfit > 0 then setprofittarget(MyProfit);
+
+// <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< IMPROVEMENTS >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+
+
+// <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< RESULTS >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+//TITAN FAST EXPORT (mette il report direttamente in C:\Titan\Reports
+input: TitanExportMode(0);
+if TitanExportMode=1 then WriteDailiesCTitanReports(1080101, TitanExportMode);

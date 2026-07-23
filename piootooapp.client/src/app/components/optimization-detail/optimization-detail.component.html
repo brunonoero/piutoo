@@ -1,0 +1,335 @@
+<div class="optimization-detail-container">
+  <!-- Header -->
+  <div class="header">
+    <button class="btn-back" (click)="navigateToList()">
+      ← Torna alla lista
+    </button>
+    <h1 *ngIf="result">{{ result.setupName }}</h1>
+  </div>
+
+  <!-- Loading -->
+  <div *ngIf="isLoading" class="loading">
+    <div class="spinner"></div>
+    <p>Caricamento in corso...</p>
+  </div>
+
+  <!-- Error -->
+  <div *ngIf="error" class="error-message">
+    {{ error }}
+  </div>
+
+  <!-- Content -->
+  <div *ngIf="result && !isLoading" class="content">
+    
+    <!-- Summary Cards -->
+    <div class="summary-cards">
+      <div class="card metric-card profit" [class.positive]="result.totalProfit >= 0" [class.negative]="result.totalProfit < 0">
+        <div class="metric-label">Profit Totale</div>
+        <div class="metric-value">{{ formatCurrency(result.totalProfit) }}</div>
+        <div class="metric-sub">{{ formatPercent(result.totalReturn / 100) }}</div>
+      </div>
+      <div class="card metric-card">
+        <div class="metric-label">Equity Finale</div>
+        <div class="metric-value">{{ formatCurrency(result.finalEquity) }}</div>
+        <div class="metric-sub">da {{ formatCurrency(result.initialCapital) }}</div>
+      </div>
+      <div class="card metric-card drawdown">
+        <div class="metric-label">Max Drawdown</div>
+        <div class="metric-value">{{ formatPercent(result.maxDrawdown) }}</div>
+      </div>
+      <div class="card metric-card">
+        <div class="metric-label">Win Rate</div>
+        <div class="metric-value">{{ formatPercent(result.winRate) }}</div>
+        <div class="metric-sub">{{ result.totalTrades }} trade</div>
+      </div>
+    </div>
+
+    <!-- Stats Comparison -->
+    <div class="card stats-comparison" *ngIf="result.stats">
+      <h3>Confronto Originale vs Filtrato</h3>
+      <div class="comparison-grid">
+        <div class="comparison-item">
+          <span class="label">Profit Originale</span>
+          <span class="value">{{ formatCurrency(result.stats.originalTotalProfit) }}</span>
+        </div>
+        <div class="comparison-item">
+          <span class="label">Profit Filtrato</span>
+          <span class="value" [class.positive]="result.stats.filteredTotalProfit > result.stats.originalTotalProfit">
+            {{ formatCurrency(result.stats.filteredTotalProfit) }}
+          </span>
+        </div>
+        <div class="comparison-item">
+          <span class="label">Differenza</span>
+          <span class="value" [class.positive]="result.stats.profitDifferencePercent > 0" [class.negative]="result.stats.profitDifferencePercent < 0">
+            {{ result.stats.profitDifferencePercent > 0 ? '+' : '' }}{{ result.stats.profitDifferencePercent.toFixed(1) }}%
+          </span>
+        </div>
+        <div class="comparison-item">
+          <span class="label">Settimane Analizzate</span>
+          <span class="value">{{ result.stats.weeksAnalyzed }}</span>
+        </div>
+        <div class="comparison-item">
+          <span class="label">Lookback</span>
+          <span class="value">{{ result.stats.lookbackWeeks }} settimane</span>
+        </div>
+        <div class="comparison-item">
+          <span class="label">Media Strategie Attive</span>
+          <span class="value">{{ result.stats.averageActiveStrategiesPerWeek.toFixed(1) }}</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tabs -->
+    <div class="tabs">
+      <button [class.active]="activeTab === 'overview'" (click)="activeTab = 'overview'">Performance</button>
+      <button [class.active]="activeTab === 'allocations'" (click)="activeTab = 'allocations'">Allocazioni</button>
+      <button [class.active]="activeTab === 'weekly'" (click)="activeTab = 'weekly'">Settimanale</button>
+      <button [class.active]="activeTab === 'strategies'" (click)="activeTab = 'strategies'">Strategie</button>
+    </div>
+
+    <!-- Tab: Performance -->
+    <div *ngIf="activeTab === 'overview'" class="tab-content">
+      <!-- Equity/Drawdown Chart -->
+      <div class="card chart-card" *ngIf="hasChartData">
+        <h3>Equity e Drawdown</h3>
+        <div class="chart-container">
+          <canvas baseChart
+            [type]="lineChartType"
+            [data]="lineChartData"
+            [options]="lineChartOptions">
+          </canvas>
+        </div>
+      </div>
+
+      <!-- Weekly Profit Chart -->
+      <div class="card chart-card" *ngIf="hasWeeklyData">
+        <h3>Profit Settimanale</h3>
+        <div class="chart-container small">
+          <canvas baseChart
+            [type]="barChartType"
+            [data]="barChartData"
+            [options]="barChartOptions">
+          </canvas>
+        </div>
+      </div>
+
+      <div class="card no-data" *ngIf="!hasChartData">
+        <p>Nessun dato di performance disponibile</p>
+      </div>
+    </div>
+
+    <!-- Tab: Allocazioni per prossima settimana -->
+    <div *ngIf="activeTab === 'allocations'" class="tab-content">
+      <div class="card">
+        <h3>Strategie Attive per la Prossima Settimana</h3>
+        <p class="description">Queste sono le strategie che hanno superato i filtri con i relativi moltiplicatori delle size.</p>
+        
+        <div class="allocations-table" *ngIf="hasAllocations">
+          <table>
+            <thead>
+              <tr>
+                <th>Rank</th>
+                <th>Strategia</th>
+                <th>Simbolo</th>
+                <th>TF</th>
+                <th>Moltiplicatore</th>
+                <th>Allocazione</th>
+                <th>Score</th>
+                <th>Win Rate</th>
+                <th>Profit</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr *ngFor="let alloc of result.enabledStrategiesForNextWeek">
+                <td class="rank">#{{ alloc.rank }}</td>
+                <td class="strategy-name">{{ alloc.strategyName }}</td>
+                <td>{{ alloc.symbol || '-' }}</td>
+                <td>{{ alloc.timeframeMinutes ? alloc.timeframeMinutes + 'm' : '-' }}</td>
+                <td>
+                  <span class="multiplier" [ngClass]="getMultiplierClass(alloc.sizeMultiplier)">
+                    {{ formatMultiplier(alloc.sizeMultiplier) }}
+                  </span>
+                </td>
+                <td>{{ alloc.allocationPercent.toFixed(1) }}%</td>
+                <td>{{ alloc.score.toFixed(2) }}</td>
+                <td>{{ formatPercent(alloc.metrics?.winRate || 0) }}</td>
+                <td [class.positive]="(alloc.metrics?.totalProfit || 0) >= 0" [class.negative]="(alloc.metrics?.totalProfit || 0) < 0">
+                  {{ formatCurrency(alloc.metrics?.totalProfit || 0) }}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        
+        <div class="no-data" *ngIf="!hasAllocations">
+          <p>Nessuna strategia attiva</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tab: Risultati Settimanali -->
+    <div *ngIf="activeTab === 'weekly'" class="tab-content">
+      <div class="card">
+        <h3>Dettaglio Settimanale</h3>
+        
+        <div class="weekly-detail" *ngIf="hasWeeklyData">
+          <div class="week-card" *ngFor="let week of result.weeklyResults; let i = index">
+            <!-- Week Header -->
+            <div class="week-header" (click)="toggleWeekExpand(i)" [class.expanded]="expandedWeeks.has(i)">
+              <div class="week-summary">
+                <span class="week-label">W{{ week.week }}/{{ week.year }}</span>
+                <span class="week-profit" [class.positive]="week.weeklyProfit >= 0" [class.negative]="week.weeklyProfit < 0">
+                  {{ formatCurrency(week.weeklyProfit) }}
+                </span>
+                <span class="week-equity">Equity: {{ formatCurrency(week.weeklyEquity) }}</span>
+                <span class="week-dd drawdown">DD: {{ formatPercent(week.weeklyDrawdown) }}</span>
+                <span class="week-trades">{{ week.totalTrades }} trade</span>
+                <span class="week-strategies">{{ week.activeStrategies?.length || 0 }} strategie</span>
+              </div>
+              <span class="expand-icon">{{ expandedWeeks.has(i) ? '▼' : '▶' }}</span>
+            </div>
+            
+            <!-- Week Details (Expanded) -->
+            <div class="week-details" *ngIf="expandedWeeks.has(i)">
+              <!-- Strategie Attive -->
+              <div class="strategies-section active-strategies">
+                <h4>✓ Strategie Attive ({{ week.activeStrategies?.length || 0 }})</h4>
+                <div class="strategy-chips" *ngIf="week.activeStrategies?.length">
+                  <span class="strategy-chip active" *ngFor="let name of week.activeStrategies">
+                    {{ name }}
+                    <span class="multiplier-badge" *ngIf="getMultiplierForStrategy(week, name) !== 1">
+                      {{ getMultiplierForStrategy(week, name) }}x
+                    </span>
+                  </span>
+                </div>
+                <p *ngIf="!week.activeStrategies?.length" class="empty-msg">Nessuna strategia attiva</p>
+              </div>
+              
+              <!-- Allocazioni per settimana successiva -->
+              <div class="strategies-section allocations-section" *ngIf="week.allocationsForNextWeek?.length">
+                <h4>📊 Allocazioni per Settimana Successiva</h4>
+                <table class="mini-table">
+                  <thead>
+                    <tr>
+                      <th>Strategia</th>
+                      <th>Simbolo</th>
+                      <th>Multiplier</th>
+                      <th>Score</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr *ngFor="let alloc of week.allocationsForNextWeek">
+                      <td>{{ alloc.strategyName }}</td>
+                      <td>{{ alloc.symbol || '-' }}</td>
+                      <td>
+                        <span class="multiplier" [ngClass]="getMultiplierClass(alloc.sizeMultiplier)">
+                          {{ formatMultiplier(alloc.sizeMultiplier) }}
+                        </span>
+                      </td>
+                      <td>{{ alloc.score?.toFixed(2) || '-' }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              
+              <!-- Strategie Disabilitate -->
+              <div class="strategies-section disabled-strategies" *ngIf="week.disabledStrategies?.length">
+                <h4>✗ Strategie Disabilitate ({{ week.disabledStrategies.length }})</h4>
+                <div class="disabled-list">
+                  <div class="disabled-item" *ngFor="let disabled of week.disabledStrategies">
+                    <span class="strategy-name">{{ disabled.strategyName }}</span>
+                    <span class="reasons">
+                      <span class="reason" *ngFor="let reason of disabled.reasons">{{ reason }}</span>
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="no-data" *ngIf="!hasWeeklyData">
+          <p>Nessun dato settimanale disponibile</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tab: Status Strategie -->
+    <div *ngIf="activeTab === 'strategies'" class="tab-content">
+      <div class="card">
+        <h3>Status Strategie nel Periodo</h3>
+        
+        <div class="strategies-table" *ngIf="result.strategyStatuses?.length">
+          <table>
+            <thead>
+              <tr>
+                <th>Strategia</th>
+                <th>Simbolo</th>
+                <th>TF</th>
+                <th>Sett. Attive</th>
+                <th>Sett. Disab.</th>
+                <th>Profit (Attiva)</th>
+                <th>Profit (Sempre)</th>
+                <th>Prossima</th>
+                <th>Multiplier</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr *ngFor="let status of result.strategyStatuses" [class.enabled]="status.isEnabledForNextWeek">
+                <td class="strategy-name">{{ status.strategyName }}</td>
+                <td>{{ status.symbol || '-' }}</td>
+                <td>{{ status.timeframeMinutes ? status.timeframeMinutes + 'm' : '-' }}</td>
+                <td class="active-weeks">{{ status.activeWeeks?.length || 0 }}</td>
+                <td class="disabled-weeks">{{ status.disabledWeeks?.length || 0 }}</td>
+                <td [class.positive]="status.totalProfitWhenActive >= 0" [class.negative]="status.totalProfitWhenActive < 0">
+                  {{ formatCurrency(status.totalProfitWhenActive) }}
+                </td>
+                <td [class.positive]="status.totalProfitIfAlwaysActive >= 0" [class.negative]="status.totalProfitIfAlwaysActive < 0">
+                  {{ formatCurrency(status.totalProfitIfAlwaysActive) }}
+                </td>
+                <td>
+                  <span *ngIf="status.isEnabledForNextWeek" class="badge enabled">✓ Attiva</span>
+                  <span *ngIf="!status.isEnabledForNextWeek" class="badge disabled">✗ Disab.</span>
+                </td>
+                <td>
+                  <span *ngIf="status.isEnabledForNextWeek" class="multiplier" [ngClass]="getMultiplierClass(status.sizeMultiplier)">
+                    {{ formatMultiplier(status.sizeMultiplier) }}
+                  </span>
+                  <span *ngIf="!status.isEnabledForNextWeek">-</span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="no-data" *ngIf="!result.strategyStatuses?.length">
+          <p>Nessun dato sulle strategie disponibile</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Filter Parameters -->
+    <div class="card filter-params" *ngIf="result.filterParameters">
+      <h3>Parametri di Filtro Usati</h3>
+      <div class="params-grid">
+        <div class="param-item">
+          <span class="label">Min Win Rate</span>
+          <span class="value">{{ formatPercent(result.filterParameters.minWinRate || 0) }}</span>
+        </div>
+        <div class="param-item">
+          <span class="label">Max Drawdown</span>
+          <span class="value">{{ formatPercent(result.filterParameters.maxDrawdown || 0) }}</span>
+        </div>
+        <div class="param-item">
+          <span class="label">Min Trade</span>
+          <span class="value">{{ result.filterParameters.minTrades || 0 }}</span>
+        </div>
+        <div class="param-item">
+          <span class="label">Require Positive</span>
+          <span class="value">{{ result.filterParameters.requirePositiveBalance ? 'Sì' : 'No' }}</span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>

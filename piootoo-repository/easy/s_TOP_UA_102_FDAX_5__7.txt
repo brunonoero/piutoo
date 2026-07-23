@@ -1,0 +1,33 @@
+var: IsStartOfSession(true), highd0(0), lowd0(0); // high and low of current session
+array: ohlcValues[23](0);
+
+inputs: sessionStartTimeC(800),sessionEndTimeC(2200);
+IsStartOfSession = _OHLCMulti5(sessionStartTimeC, sessionEndTimeC, ohlcValues);
+highd0 = ohlcvalues[1]; lowd0 = ohlcvalues[2]; //trigger= high and low of current session
+
+//Works using 60-minute bars but can also work down to 5 minutes bars
+
+Input: MyPtnLY(4), MyPtnSY(106), MyPtnLN(73), MyPtnSN(38);
+Input: MyStartTrade(1100), MyEndTrade(1700), MyStartPause(1200), MyEndPause(1100),Texit(2145);
+Input: MyStop(2000), MyProfit(3750);
+vars: MP(0);
+
+MP=marketposition;
+
+//here the patterns are picked for each direction in an independent way so that the whole setup can be unmirrored
+//in fact the general function Patternfast is used
+If Time > MyStartTrade And time < MyEndTrade and (Time < MyStartPause or time > MyEndPause) then begin
+	If PatternFast(MyPtnLY, ohlcValues) and PatternFast(MyPtnLN, ohlcValues)=False then buy next bar at highd0 stop;
+	If PatternFast(MyPtnSY, ohlcValues) and PatternFast(MyPtnSN, ohlcValues)=False then sellshort next bar at lowd0 stop;
+end;
+
+If time=Texit and MP=1 then sell next bar at market;
+If time=Texit and MP=-1 then buytocover next bar at market;
+
+
+Setstopcontract;
+If MyStop > 0 then setstoploss(MyStop);
+If MyProfit > 0 then setprofittarget(MyProfit);
+//TITAN FAST EXPORT (mette il report direttamente in C:\Titan\Reports
+input: TitanExportMode(0);
+if TitanExportMode=1 then WriteDailiesCTitanReports(1100101, TitanExportMode);

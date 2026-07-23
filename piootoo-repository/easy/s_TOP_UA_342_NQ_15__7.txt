@@ -1,0 +1,56 @@
+// Rif. BBBB ("EB4B") - UNMIRRORED TEMPLATE (works using 5 or 15 minute bars, can be MD or ID).
+// NQ INDEX: MD 15 min, breakout "C(0)_Vs_Opend0 +/- porzione di ATR(200)" con
+// con TW, TimeExit, SL, TP, PP, BE. 
+
+vars: Opend0(0), Highd1(0), Lowd1(0), IsStartOfSession(true);
+array: ohlcValues[23](0);
+
+Input: MyContracts(1);
+input: sessionStartTimeC(1700),sessionEndTimeC(1600); // valori dell' Exchange 
+Input: MyStartTrade(1800), MyEndTrade(1500); // prima ipotesi 1h dopo inizio ed 1h prima fine sessione 
+Input: MyStartPause(1200), MyEndPause(1100); // nessuna pausa
+Input: MaxDaysInTrade(7); // tutti i 6 giorni operativi di NQ
+Input: MaxEntriesPerDay(1); // non pi? di 1 solo ingresso a giornata
+Input: ID(1); // 1=MD - 0=ID
+Input: MyPtnLY(26);   // "weekly factor" al 75%, per relativa calma mercato
+Input: MyPtnSY(39); // calo di espansione oggi rispetto ieri
+Input: MyPtnLN(134);   // ieri era una outside bar, da evitare
+Input: MyPtnSN(88);  // downtrend 0,5% del Max oggi Vs ieri
+Input: MyStop(1600); // 0-3.000$ NB da UA: 1300$_3000$ se in MD oppure 800$_1200$ se in ID
+Input: MyProfit(0); // 0-10.000$
+Input: MyBreakEven(1000); // 0-.TP
+Input: PP(0); // 0-8.000$ - Open Position Profit valori con stesso range di TP e BE
+Input: PortATRpiu(4); // 1-10
+Input: PortATRMeno(9.5); // 1-10
+Vars: DaysInTrade(0), MP(0);
+MP = marketposition;
+IsStartOfSession = _OHLCMulti5(sessionStartTimeC, sessionEndTimeC, ohlcValues);
+Opend0 = ohlcvalues[0]; Highd1 = ohlcValues[5]; Lowd1 = ohlcValues[6];
+
+//ENTRIES 
+If tw(MyStartTrade,MyEndTrade) and (Time < MyStartPause or time > MyEndPause) and EntriesToday(date)<MaxEntriesPerDay then begin
+If PatternFast(MyPtnLY, ohlcValues) and PatternFast(MyPtnLN, ohlcValues)=False and         (C>opend0+PortATRpiu*AvgTrueRange(200)) then
+   	buy("LE") MyContracts contracts next bar market;
+If PatternFast(MyPtnSY, ohlcValues) and PatternFast(MyPtnSN, ohlcValues)=False and 
+(C<opend0- PortATRmeno*AvgTrueRange(200)) then sellshort("SE") MyContracts contracts next bar market;
+end;
+
+//EXITS 
+if MP = 1 and openpositionprofit > PP and PP>0 then sell ("LX PP") MyContracts contract next bar at market;
+if MP = -1 and openpositionprofit > PP and PP>0 then buy to cover ("SX PP") MyContracts contract next bar at market;
+//POSITION MANAGEMENT
+if MP <> MP[1] then daysintrade = 0;
+if MP <> 0 and d>d[1] then daysintrade = daysintrade + 1;
+if daysintrade >= MaxDaysInTrade and MaxDaysInTrade > 0 then begin
+   if MP = 1 then sell ("LX_MaxDays") next bar market;
+   if MP = -1 then buytocover ("SX_MaxDays") next bar market;
+end;
+
+Setstopcontract;
+If MyStop > 0 then setstoploss(MyStop);
+If MyProfit > 0 then setprofittarget(MyProfit);
+if MyBreakEven>0 then setbreakeven(MyBreakEven);
+if ID=0 then setexitonclose;
+//TITAN FAST EXPORT (mette il report direttamente in C:\Titan\Reports
+input: TitanExportMode(0);
+if TitanExportMode=1 then WriteDailiesCTitanReports(1080101, TitanExportMode);

@@ -1,0 +1,37 @@
+// iADXOnArray() return type == numeric
+// calculates ADX
+// Inputs: ADXPeriod and actual HLC and previous HLC
+// Ref array for static storage of caculated values
+// Written by Michael Bruns; Copyright by Andrea Unger and Michael Bruns
+
+input: ADXPeriod(numericsimple), curHigh(numericsimple), curLow(numericsimple), curClose(numericsimple), prevHigh(numericsimple), prevLow(numericsimple), prevC(numericsimple), calcValues[X](NumericArrayRef);
+var: pdm(0.0),mdm(0.0),atrVal(0.0),pdmAvg(0.0),mdmAvg(0.0),atrValAvg(0.0),pdi(0.0),mdi(0.0),dx(0.0),adxVal(0.0);
+//lastAdx(0), lastATRAvg(1), lastPDMAvg(2), lastMDMAvg(3);
+
+atrVal = Maxlist(Absvalue(curHigh-curLow), Absvalue(curHigh-prevC));
+atrVal = Maxlist(atrVal, Absvalue(curLow-prevC));
+atrValAvg = calcValues[1] - (calcValues[1]/ADXPeriod) + atrVal;
+
+pdm=curHigh-prevHigh;
+mdm=prevLow-curLow;
+if(pdm<0) then pdm=0; if(mdm<0) then mdm=0;
+
+if(pdm=mdm or atrVal = 0) then begin
+pdm=0; mdm=0;
+end else begin
+if(pdm<mdm) then begin
+pdm=0;
+end else if(mdm<pdm) then mdm=0;
+end;
+pdmAvg = calcValues[2] - (calcValues[2]/ADXPeriod) + pdm;
+mdmAvg = calcValues[3] - (calcValues[3]/ADXPeriod) + mdm;
+
+if atrValAvg <>0 then pdi = (pdmAvg / atrValAvg)*100;
+if atrValAvg <>0 then mdi = (mdmAvg / atrValAvg)*100;
+if pdi+mdi <>0 then dx = Absvalue((pdi-mdi)/(pdi+mdi));
+adxVal = (calcValues[0]*(ADXPeriod-1)+dx)/ADXPeriod;
+
+calcValues[1] = atrValAvg; calcValues[2] = pdmAvg; calcValues[3] = mdmAvg; calcValues[0] = adxVal;
+iADXOnArray = calcValues[0];
+
+//Read more: http://skilledacademy.proboards.com/thread/252/crude-oil-intraday-breakout-strategy#ixzz4PY5NXCFg

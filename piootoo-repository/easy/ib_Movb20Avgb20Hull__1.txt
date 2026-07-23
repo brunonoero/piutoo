@@ -1,0 +1,23 @@
+inputs:
+	Price( Close ),
+	Length( 16 ),
+	Displace( 0 ),
+	UpColor( Green ),                                  
+	DnColor( Red );
+
+variables:
+	HullMovingAvg( 0 ), PlotColor( Yellow );
+
+HullMovingAvg = HMA( Price, Length );
+PlotColor = iff(HullMovingAvg >= HullMovingAvg[1], UpColor, DnColor);
+
+plot1[Displace](HullMovingAvg, "HMA", PlotColor);
+
+{ alert criteria }
+if AlertEnabled and Displace = 0 then 
+begin
+	if Price crosses over HullMovingAvg then
+		Alert( "Price crossing over Hull average" )
+	else if Price crosses under HullMovingAvg then
+		Alert( "Price crossing under Hull average" );
+end;

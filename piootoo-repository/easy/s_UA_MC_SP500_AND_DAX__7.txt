@@ -1,0 +1,10 @@
+// Strategy example with multiple data series
+// Chart settings: LOCAL TIME
+// Data1: CME MiniS&P500 15 minutes (IQFEED: @ES#C)
+// Data2: EUREX DAX Future 15 minutes (IQFEED: XG#C)
+
+// Strategy: go long on Mini SP if Dax breaks high of yesterday.
+// Exit: NO SL, NO TP, NO BE, EXIT ENDOFDAY
+
+if high data2 > HighS(1) data2 then buy("LONG on ES") next bar market;
+setexitonclose;

@@ -1,0 +1,13 @@
+var: opend0(0), highd1(0), lowd1(0), closed1(0);
+
+if date<>date[1] then begin
+	opend0 = OpenD(0);
+	highd1 = HighD(1);
+	lowd1 = LowD(1);
+	closed1 = CloseD(1);
+end;
+
+plot1(opend0, "opend0");
+plot2(highd1, "highd1");
+plot3(lowd1, "lowd1");
+plot4(closed1, "closed1");

@@ -1,0 +1,364 @@
+ {pattern baseSa2 originali di Andrea Unger del 21/11/2011 rispettati nel contenuto e nell'ordine
+ con aggiunta di nuovi pattern dal 41 al 61 di Marco Carreras nel 05/05/2021 e resi 
+ speculari alla maniera dei DirectionalFast di Andrea Nebiolo 
+ tutto usa la funzione creata da Michael Brusns }
+ 
+ [LegacyColorValue = true]; 
+
+input: numeropattern(numericsimple), ohlcValues[X](NumericArrayRef);
+
+var: opend0(0),opend1(0),opend2(0),opend3(0),opend4(0), opend5(0);
+var: highd0(0),highd1(0),highd2(0),highd3(0),highd4(0), highd5(0);
+var: lowd0(0),lowd1(0),lowd2(0),lowd3(0),lowd4(0), lowd5(0);
+var: closed0(0),closed1(0),closed2(0),closed3(0),closed4(0), closed5(0);
+
+opend0 = ohlcValues[0]; highd0 = ohlcValues[1]; lowd0 = ohlcValues[2]; closed0 = ohlcValues[3];  opend1 = ohlcValues[4]; highd1 = ohlcValues[5]; lowd1 = ohlcValues[6]; closed1 = ohlcValues[7];
+opend2 = ohlcValues[8]; highd2 = ohlcValues[9]; lowd2 = ohlcValues[10]; closed2 = ohlcValues[11];  opend3 = ohlcValues[12]; highd3 = ohlcValues[13]; lowd3 = ohlcValues[14]; closed3 = ohlcValues[15];
+opend4 = ohlcValues[16]; highd4 = ohlcValues[17]; lowd4 = ohlcValues[18]; closed4 = ohlcValues[19];  opend5 = ohlcValues[20]; highd5 = ohlcValues[21]; lowd5 = ohlcValues[22]; closed5 = ohlcValues[23];
+
+
+Switch(numeropattern)
+Begin
+	
+	case 1:
+	PtnPSpecchio= absvalue(opend1-closed1)<0.5*(highd1-lowd1)  ;  
+	 case -1:
+	PtnPSpecchio= absvalue(opend1-closed1)<0.5*(highd1-lowd1)  ;
+	
+	case 2:
+	PtnPSpecchio= absvalue(opend1-closed5)<0.5*(highd5-closed1)  ;
+	  case -2:
+	PtnPSpecchio= absvalue(opend1-closed5)<0.5*(highd5-closed1)  ;
+	
+	case 3:
+	PtnPSpecchio= absvalue(opend5-closed1) <0.5*(maxlist(highd1,highd2,highd3,highd4,highd5) - minlist(lowd1,lowd2,lowd3,lowd4,lowd5))  ;
+	 case -3:
+	PtnPSpecchio= absvalue(opend5-closed1) <0.5*(maxlist(highd1,highd2,highd3,highd4,highd5) - minlist(lowd1,lowd2,lowd3,lowd4,lowd5))  ;
+	
+	case 4:
+	PtnPSpecchio= ((highd0-opend0)> ((highd1-opend1)*1))  ;
+	case -4://che corrisponde al 6
+	PtnPSpecchio=  ((opend0-lowd0)> ((opend1-lowd1)*1)) ;
+ 	
+ 	case 5:
+	PtnPSpecchio= ((highd0-opend0)> ((highd1-opend1)*1.5)) ; 
+	case -5://che corrisponde al 7
+	PtnPSpecchio=  ((opend0-lowd0)> ((opend1-lowd1)*1.5))  ; 
+	
+	case 6:
+	PtnPSpecchio=  ((opend0-lowd0)> ((opend1-lowd1)*1)) ;
+	case -6://che corrisponde al 4
+	PtnPSpecchio= ((highd0-opend0)> ((highd1-opend1)*1))  ;
+	
+	case 7:
+	PtnPSpecchio=  ((opend0-lowd0)> ((opend1-lowd1)*1.5))  ; 
+	case -7://che corrisponde al 5
+	PtnPSpecchio= ((highd0-opend0)> ((highd1-opend1)*1.5)) ;
+	
+	case 8:
+	PtnPSpecchio=  closed1>closed2 and closed2>closed3 and closed3>closed4;
+	case -8://che corrisponde al 9
+	PtnPSpecchio=  closed1<closed2 and closed2<closed3 and closed3<closed4;
+	
+	case 9:
+	PtnPSpecchio=  closed1<closed2 and closed2<closed3 and closed3<closed4;
+	case -9://che corrisponde al 8
+	PtnPSpecchio=  closed1>closed2 and closed2>closed3 and closed3>closed4;
+	
+	case 10:
+	PtnPSpecchio=  highd1>highd2 and lowd1>lowd2;
+	case -10://che corrisponde al 11
+	PtnPSpecchio=  highd1<highd2 and lowd1<lowd2;
+	
+	case 11:
+	PtnPSpecchio=  highd1<highd2 and lowd1<lowd2;
+	case -11://che corrisponde al 10
+	PtnPSpecchio=  highd1>highd2 and lowd1>lowd2;
+	
+	case 12:
+	PtnPSpecchio= ((highd0>(lowd0+lowd0*0.75/100)));
+	case -12://che corrisponde al 13
+	PtnPSpecchio= ((highd0<(lowd0+lowd0*0.75/100)));
+	
+	case 13:
+	PtnPSpecchio= ((highd0<(lowd0+lowd0*0.75/100)));
+	case -13://che corrisponde al 12
+	PtnPSpecchio= ((highd0>(lowd0+lowd0*0.75/100)));
+	
+	case 14:
+	PtnPSpecchio= (closed1>closed2);
+	case -14://che corrisponde al 15
+	PtnPSpecchio= (closed1<closed2);
+	
+	case 15:
+	PtnPSpecchio= (closed1<closed2);
+	case -15://che corrisponde al 14
+	PtnPSpecchio= (closed1>closed2);
+	
+	case 16:
+	PtnPSpecchio= (closed1<opend1);
+	case -16://che corrisponde al 17
+	PtnPSpecchio= (closed1>opend1);
+
+	case 17:
+	PtnPSpecchio= (closed1>opend1);
+	case -17://che corrisponde al 16
+	PtnPSpecchio= (closed1<opend1);
+
+	case 18:
+	PtnPSpecchio= ((closed1<(closed2-closed2*0.5/100)));
+	case -18://che corrisponde al 19
+	PtnPSpecchio= ((closed1>(closed2+closed2*0.5/100)));
+
+	case 19:
+	PtnPSpecchio= ((closed1>(closed2+closed2*0.5/100)));
+	case -19://che corrisponde al 18
+	PtnPSpecchio= ((closed1<(closed2-closed2*0.5/100)));
+
+	case 20:
+	PtnPSpecchio= (highd0>(highd1));
+	case -20://che corrisponde al 22
+	PtnPSpecchio=(lowd0<lowd1);
+
+	case 21:
+	PtnPSpecchio= (highd1>highd5);
+	case -21://che corrisponde al 23
+	PtnPSpecchio=(lowd1<lowd5);
+
+	case 22:
+	PtnPSpecchio=(lowd0<lowd1);
+	case -22://che corrisponde al 20
+	PtnPSpecchio= (highd0>(highd1));
+	
+	case 23:
+	PtnPSpecchio=(lowd1<lowd5);
+	case -23://che corrisponde al 21
+	PtnPSpecchio= (highd1>highd5);
+
+	case 24:
+	PtnPSpecchio=(highd1> highd2) and (highd1> highd3) and (highd1> highd4); 
+	case -24://che corrisponde al 26
+	PtnPSpecchio=((lowd1 < lowd2) and (lowd1 < lowd3) and (lowd1 < lowd4));
+
+	case 25:
+	PtnPSpecchio=(highd1< highd2) and (highd1< highd3) and (highd1< highd4); 
+	case -25://che corrisponde al 27
+	PtnPSpecchio=((lowd1 > lowd2) and (lowd1 > lowd3) and (lowd1 > lowd4));
+
+	case 26:
+	PtnPSpecchio=((lowd1 < lowd2) and (lowd1 < lowd3) and (lowd1 < lowd4));
+	case -26://che corrisponde al 24
+	PtnPSpecchio=(highd1> highd2) and (highd1> highd3) and (highd1> highd4); 
+	
+	case 27:
+	PtnPSpecchio=((lowd1 > lowd2) and (lowd1 > lowd3) and (lowd1 > lowd4));
+	case -27://che corrisponde al 25
+	PtnPSpecchio=(highd1< highd2) and (highd1< highd3) and (highd1< highd4); 
+
+	case 28:
+	PtnPSpecchio=(closed1>closed2 and closed2>closed3 and opend0>closed1);
+	case -28://che corrisponde al 29
+	PtnPSpecchio=(closed1<closed2 and closed2<closed3 and opend0<closed1);
+
+	case 29:
+	PtnPSpecchio=(closed1<closed2 and closed2<closed3 and opend0<closed1);
+	case -29://che corrisponde al 28
+	PtnPSpecchio=(closed1>closed2 and closed2>closed3 and opend0>closed1);
+
+	case 30:
+	PtnPSpecchio=((highd1-closed1)<0.20*(highd1-lowd1));
+	case -30://che corrisponde al 31
+	PtnPSpecchio=((closed1-lowd1)<0.20*(highd1-lowd1));
+
+	case 31:
+	PtnPSpecchio=((closed1-lowd1)<0.20*(highd1-lowd1));
+	case -31://che corrisponde al 30
+	PtnPSpecchio=((highd1-closed1)<0.20*(highd1-lowd1));
+
+	case 32:
+	PtnPSpecchio=(opend0<lowd1 or opend0>highd1);
+	case -32://che corrisponde al 32
+	PtnPSpecchio=(opend0<lowd1 or opend0>highd1);
+
+	case 33:
+	PtnPSpecchio=((opend0<(closed1-closed1*0.5/100)));
+	case -33://che corrisponde al 34
+	PtnPSpecchio=((opend0>(closed1+closed1*0.5/100)));
+
+	case 34:
+	PtnPSpecchio=((opend0>(closed1+closed1*0.5/100)));
+	case -34://che corrisponde al 33
+	PtnPSpecchio=((opend0<(closed1-closed1*0.5/100)));
+	
+	case 35:
+	PtnPSpecchio=(highd0<highd1 and lowd0>lowd1);
+	case -35://che corrisponde al 35
+	PtnPSpecchio=(highd0<highd1 and lowd0>lowd1);
+
+	case 36:
+	PtnPSpecchio=(highd1-lowd1)< (((highd2-lowd2)+ (highd3-lowd3))/3);
+	case -36://che corrisponde al 36
+	PtnPSpecchio=(highd1-lowd1)< (((highd2-lowd2)+ (highd3-lowd3))/3);
+
+	case 37:
+	PtnPSpecchio=(highd1-lowd1)< (highd2-lowd2) and (highd2-lowd2) < (highd3-lowd3); 
+	case -37://che corrisponde al 37
+	PtnPSpecchio=(highd1-lowd1)< (highd2-lowd2) and (highd2-lowd2) < (highd3-lowd3); 
+	
+
+	case 38:
+	PtnPSpecchio=(highd2>highd1 and lowd2<lowd1);
+	case -38://che corrisponde al 38
+	PtnPSpecchio=(highd2>highd1 and lowd2<lowd1);
+	
+
+	case 39:
+	PtnPSpecchio=(highd1<highd2 or lowd1>lowd2);
+	case -39://che corrisponde al 41
+	PtnPSpecchio=(highd1>highd2 or lowd1<lowd2);
+	
+	case 40:
+	PtnPSpecchio=(highd2<highd1 and lowd2>lowd1);
+	case -40://che corrisponde al 38
+	PtnPSpecchio=(highd2>highd1 and lowd2<lowd1);
+
+
+	case 41:
+	PtnPSpecchio=(highd1>highd2 or lowd1<lowd2); //ieri non inside bar//
+	case -41://che corrisponde al 39
+	PtnPSpecchio=(highd1<highd2 or lowd1>lowd2);
+
+	case 42:
+	PtnPSpecchio= absvalue(opend0-closed0)>absvalue(((opend1-closed1)+(opend2-closed2)+(opend3-closed3))*2);//espansione neutro
+	case -42://che corrisponde al 42
+	PtnPSpecchio= absvalue(opend0-closed0)>absvalue(((opend1-closed1)+(opend2-closed2)+(opend3-closed3))*2);//espansione neutro
+
+	case 43:
+	PtnPSpecchio= (opend0>closed0)and(opend1>closed1)and(opend2>closed2)and(opend3>closed3);//oggi rossa dopo tre rosse//
+	case -43://che corrisponde al 45
+	PtnPSpecchio= (opend0<closed0)and(opend1<closed1)and(opend2<closed2)and(opend3<closed3);//oggi verde dopo tre verdi//
+
+	case 44:
+	PtnPSpecchio= absvalue(opend1-closed1)>absvalue(((opend2-closed2)+(opend3-closed3)+(opend4-closed4))*2);//espansione neutro
+	case -44://che corrisponde al 45
+	PtnPSpecchio= absvalue(opend1-closed1)>absvalue(((opend2-closed2)+(opend3-closed3)+(opend4-closed4))*2);//espansione neutro
+	
+	case 45:
+	PtnPSpecchio= (opend0<closed0)and(opend1<closed1)and(opend2<closed2)and(opend3<closed3);//oggi verde dopo tre verdi//
+	case -45://che corrisponde al 43
+	PtnPSpecchio= (opend0>closed0)and(opend1>closed1)and(opend2>closed2)and(opend3>closed3);//oggi rossa dopo tre rosse//
+	
+	case 46:
+	PtnPSpecchio= absvalue(opend0-closed0)>absvalue((opend1-closed1)+(opend2-closed2)+(opend3-closed3));//espansione neutro
+	case -46://che corrisponde al 46
+	PtnPSpecchio= absvalue(opend0-closed0)>absvalue((opend1-closed1)+(opend2-closed2)+(opend3-closed3));//espansione neutro
+
+	
+	case 47:  
+	PtnPSpecchio= absvalue(opend1-closed1)>absvalue((opend2-closed2)+(opend3-closed3)+(opend4-closed4));//espansione neutro
+	case -47://che corrisponde al 47  
+	PtnPSpecchio= absvalue(opend1-closed1)>absvalue((opend2-closed2)+(opend3-closed3)+(opend4-closed4));//espansione neutro
+	
+
+		
+	case 48:
+	PtnPSpecchio=  ((highd1+lowd1)/2) >((highd2+lowd2)/2)and ((highd2+lowd2)/2)>((highd3+lowd3)/2)
+		and ((highd3+lowd3)/2) >((highd4+lowd4)/2)and ((highd4+lowd4)/2)>((highd5+lowd5)/2);//media dei range in salita 5 giorni da ieri//
+	case -48://che corrisponde al 49  
+	PtnPSpecchio=  ((highd1+lowd1)/2) <((highd2+lowd2)/2)and ((highd2+lowd2)/2)<((highd3+lowd3)/2)//media dei range in discesada 5 giorni da ieri//
+		and ((highd3+lowd3)/2) <((highd4+lowd4)/2)and ((highd4+lowd4)/2)<((highd5+lowd5)/2);
+
+	
+	case 49://che corrisponde al 49  
+	PtnPSpecchio=  ((highd1+lowd1)/2) <((highd2+lowd2)/2)and ((highd2+lowd2)/2)<((highd3+lowd3)/2)//media dei range in discesada 5 giorni da ieri//
+		and ((highd3+lowd3)/2) <((highd4+lowd4)/2)and ((highd4+lowd4)/2)<((highd5+lowd5)/2);
+	case -49://che corrisponde al 48
+	PtnPSpecchio=  ((highd1+lowd1)/2) >((highd2+lowd2)/2)and ((highd2+lowd2)/2)>((highd3+lowd3)/2)
+		and ((highd3+lowd3)/2) >((highd4+lowd4)/2)and ((highd4+lowd4)/2)>((highd5+lowd5)/2);//media dei range in salita 5 giorni da ieri//
+
+	case 50:
+	PtnPSpecchio=  ((highd1+lowd1)/2) >((highd2+lowd2)/2)and ((highd2+lowd2)/2)>((highd3+lowd3)/2)//media dei range in salita 4 giorni da ieri//
+		and ((highd3+lowd3)/2) >((highd4+lowd4)/2);
+	case -50:// che corrisponde al 51  
+	PtnPSpecchio=  ((highd1+lowd1)/2) <((highd2+lowd2)/2)and ((highd2+lowd2)/2)<((highd3+lowd3)/2)//media dei range in discesa da 4 giorni da ieri//
+		and ((highd3+lowd3)/2) <((highd4+lowd4)/2);
+
+	case 51://che corrisponde al  51  
+	PtnPSpecchio=  ((highd1+lowd1)/2) <((highd2+lowd2)/2)and ((highd2+lowd2)/2)<((highd3+lowd3)/2)//media dei range in discesa da 4 giorni da ieri//
+		and ((highd3+lowd3)/2) <((highd4+lowd4)/2);
+	case -51://50
+	PtnPSpecchio=  ((highd1+lowd1)/2) >((highd2+lowd2)/2)and ((highd2+lowd2)/2)>((highd3+lowd3)/2)//media dei range in salita 4 giorni da ieri//
+		and ((highd3+lowd3)/2) >((highd4+lowd4)/2);
+
+	case 52:
+	PtnPSpecchio= (highd1-opend1)>absvalue((opend2-closed2)+(opend3-closed3)+(opend4-closed4));//dall'apert al max di ieri =somma  corpi di 3 giorni prima//
+	case -52: //che corrisponde al 52  
+	PtnPSpecchio= (highd1-opend1)>absvalue((opend2-closed2)+(opend3-closed3)+(opend4-closed4));//dall'apert al max di ieri =somma  corpi di 3 giorni prima//
+
+	case 53:
+	PtnPSpecchio= (highd0-opend0)>absvalue((opend1-closed1)+(opend2-closed2)+(opend3-closed3)+(opend4-closed4));//dall'apert al max di oggi =somma corpi di 4 giorni prima//
+	case -53://che corrisponde al 53 
+	PtnPSpecchio= (highd0-opend0)>absvalue((opend1-closed1)+(opend2-closed2)+(opend3-closed3)+(opend4-closed4));//dall'apert al max di oggi =somma corpi di 4 giorni prima//
+
+	case 54:
+	PtnPSpecchio= (highd0-opend0)>absvalue((opend1-closed1)+(opend2-closed2)+(opend3-closed3));//dall'apert al max di  di oggi =somma corpi di 3 giorni prima//
+	case -54://che corrisponde al 54 
+	PtnPSpecchio= (highd0-opend0)>absvalue((opend1-closed1)+(opend2-closed2)+(opend3-closed3));//dall'apert al max di  di oggi =somma corpi di 3 giorni prima//
+
+	case 55: 
+	PtnPSpecchio= (closed0>highd1) or (closed0<lowd1); //normale salita o discesa o super gap//
+	case -55:// che corrisponde al 55
+	PtnPSpecchio= (closed0>highd1) or (closed0<lowd1); //normale salita o discesa o super gap//
+
+	
+	case 56:
+	PtnPSpecchio= (closed0>highd1) and (closed1>highd2) and (closed2>highd3); // lenta salita//
+	case -56: // che corrisponde al 57 
+	PtnPSpecchio= (closed0<lowd1) and (closed1<lowd2) and (closed2<lowd3);  //lenta discesa//
+	
+
+	case 57:  
+	PtnPSpecchio= (closed0<lowd1) and (closed1<lowd2) and (closed2<lowd3);  //lenta discesa//
+	case -57://che corrisponde al 56
+	PtnPSpecchio= (closed0>highd1) and (closed1>highd2) and (closed2>highd3); // lenta salita//
+	
+	case 58:
+	PtnPSpecchio= (opend0<closed0)and(opend1>closed1)and(opend2>closed2)and(opend3>closed3);//oggi verde dopo tre rosse//
+	case -58://che corrisponde al  59  
+	PtnPSpecchio= (opend0>closed0)and(opend1<closed1)and(opend2<closed2)and(opend3<closed3);//oggi rossa dopo tre verdi//
+
+
+	case 59:
+	PtnPSpecchio= (opend0>closed0)and(opend1<closed1)and(opend2<closed2)and(opend3<closed3);//oggi rossa dopo tre verdi//
+	case -59://che corrisponde al 58
+	PtnPSpecchio= (opend0<closed0)and(opend1>closed1)and(opend2>closed2)and(opend3>closed3);//oggi verde dopo tre rosse//
+	
+	case 60:
+	PtnPSpecchio= (opend1<closed1)and(opend2>closed2)and(opend2>closed2)and(opend4>closed4);//ieri verde dopo tre rosse//
+	case -60:// che corrisponde al 61 
+	PtnPSpecchio= (opend1>closed1)and(opend2<closed2)and(opend3<closed3)and(opend4<closed4);//ieri rossa dopo tre verdi//
+	
+	case 61:
+	PtnPSpecchio= (opend1>closed1)and(opend2<closed2)and(opend3<closed3)and(opend4<closed4);//ieri rossa dopo tre verdi//
+	case -61://che corrisponde al 60
+	PtnPSpecchio= (opend1<closed1)and(opend2>closed2)and(opend2>closed2)and(opend4>closed4);//ieri verde dopo tre rosse//
+	
+	//(OpenS(0)>CloseS(0))and(OpenS(1)>CloseS(1))and(OpenS(2)<CloseS(2))and(OpenS(3)<CloseS(3))and  AbsValue( OpenS(0)- CloseS(0) )>AbsValue( OpenS(1)- CloseS(1) )and CloseS(0)<opens(5);
+	//(OpenS(0)<CloseS(0))and(OpenS(1)<CloseS(1))and(OpenS(2)>CloseS(2))and(OpenS(3)>CloseS(3));
+
+	
+	case 62:
+	PtnPSpecchio=true;
+	case -62:
+	PtnPSpecchio=true;
+
+	case 63:
+	PtnPSpecchio=false;
+	case -63:
+	PtnPSpecchio=false;
+
+	case is > 63:
+	PtnPSpecchio=false;
+
+end;
+

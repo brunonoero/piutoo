@@ -1,0 +1,70 @@
+
+var: IsStartOfSession(true), highd1(0), lowd1(0), highd0(0), lowd0(0),  mp(0),
+	avg(0) , countSessioneIntrade(0), Guadagno(0), vendita(false),	adxVal(0);
+array: ohlcValues[23](0), adxCalcValues[3](0);
+
+inputs: sessionStartTimeC(1800),sessionEndTimeC(1700),
+PtnNeutYes(4), PtnNeutNo(30), PtnDirYes(52), PtnDirNo(-28),
+MyStartTrade(2300), MyEndTrade(1000), MyStartPause(1200), MyEndPause(1100),
+MyStop(2000), MyProfit(0), Lunghezza(200), Mybreakeven(3000),
+Numbarre(3), ADXLen(5), ADXTH(60);
+
+IsStartOfSession = _OHLCMulti5(sessionStartTimeC, sessionEndTimeC, ohlcValues); 
+//adx
+If isStartOfSession then adxVal = iADXOnArray(ADXLen, ohlcValues[5], ohlcValues[6], ohlcValues[7], ohlcValues[9], ohlcValues[10], ohlcValues[11], adxCalcValues)*100;
+
+highd1 = ohlcvalues[5]; lowd1 = ohlcvalues[6]; highd0 = ohlcValues[1]; lowd0 = ohlcValues[2];
+mp= MarketPosition;
+avg= averageFC(close,Lunghezza);
+
+////////serve a contare il numero di sessioni in trade////
+if IsStartOfSession and mp<>0 then countSessioneIntrade = countSessioneIntrade +1;
+if mp<>mp[1] and mp<>0 then countSessioneIntrade =1;
+if mp=0 then countSessioneIntrade=0;
+
+
+if tw(MyStartTrade,MyEndTrade ) and (Time < MyStartPause or time > MyEndPause) and adxVal<adxth //time window
+and PatternNeutralFast(PtnNeutYes, ohlcValues) and PatternNeutralFast(PtnNeutNo, ohlcValues)=false then begin
+
+	If mp=0 and close >=avg  and PatternDirectionalFast(+PtnDirYes, ohlcValues) and PatternDirectionalFast(+PtnDirNo, ohlcValues)=False 
+	then buy next bar at highd0 stop;
+	
+	If mp=0 and close <avg   and  PatternDirectionalFast(-PtnDirYes, ohlcValues) and PatternDirectionalFast(-PtnDirNo, ohlcValues)=False
+	then sellshort next bar at lowd0 stop;
+
+end;
+
+if time =1630 and mp<>0 then Guadagno=Openpositionprofit;
+if guadagno<guadagno[1] then vendita =true else vendita=false;
+
+///alla prima sessione si vende se è im perdita
+if time =1645 and countSessioneIntrade =1 and Guadagno<0 then begin
+if mp=1 then sell next bar  at market;
+if mp=-1 then buy to cover next bar at market;
+end;
+
+///alla  sessione successiva si vende se il profitto è più basso di quello della sessione precedente 
+
+if vendita and countSessioneIntrade >1  then begin
+if mp=1 then sell ("LongDaGuadagno") next bar  at market;
+if mp=-1 then buy to cover ("ShortDaGuadagno")next bar at market;
+end;
+ 
+ 
+ //serve a fissare un numero massimo di sessioni in trade
+ if time =1645 and Numbarre>0 and countSessioneIntrade = Numbarre then begin
+if mp=1 then sell ("longMaxGG")next bar  at market;
+if mp=-1 then buy to cover("ShortMaxGG") next bar at market;
+end; 
+ 
+
+setstopcontract;
+If MyStop > 0 then setstoploss(MyStop);
+If MyProfit > 0 then setprofittarget(MyProfit);
+If Mybreakeven > 0 then setbreakeven(Mybreakeven);
+
+//TITAN FAST EXPORT (mette il report direttamente in C:\Titan\Reports
+input: TitanExportMode(0);
+if TitanExportMode=1 then WriteDailiesCTitanReports(1080101, TitanExportMode);
+
+

@@ -1,0 +1,51 @@
+var: IsStartOfSession(true);
+array: ohlcValues[23](0);
+
+inputs: sessionStartTimeC(1800),sessionEndTimeC(1700);	//
+IsStartOfSession = _OHLCMulti5(sessionStartTimeC, sessionEndTimeC, ohlcValues);
+
+inputs:
+	Mycontracts(1),
+	PtnNeutYes(16), PtnNeutNo(48), PtnDirYes(-1), PtnDirNo(37),
+	MyStartTime(1900), MyEndTime(0200),
+	DaytoFilter(-1),
+	MyStop(1800), MyProfit(0),
+	Length( 20 ), NumDevs( 2), MaxDaysInTrade(5);
+
+variables:
+	UpperBand( 0 ),LowerBand( 0 ), MP(0), DaysIntrade(0);
+
+UpperBand = BollingerBand( c, Length, +NumDevs ) ;
+LowerBand = BollingerBand( c, Length, -NumDevs ) ;
+MP=marketposition;
+If IsStartOfSession and MP<>0 then DaysIntrade=DaysIntrade+1;
+If MP<>MP[1] and MP<>0 then DaysIntrade=1;
+
+If DaysIntrade>=MaxDaysInTrade and MaxDaysInTrade>0 then begin
+   if time>=1630 and time<=1700 then begin
+   if MP=1 then sell next bar at market;
+   if MP=-1 then buytocover next bar at market;
+end;
+
+end;
+
+if dayofweek(date) <> DaytoFilter and tw(MyStartTime,MyEndTime)
+and PatternNeutralFast(PtnNeutYes, ohlcValues) and PatternNeutralFast(PtnNeutNo, ohlcValues)=false then begin
+
+	if C crosses under UpperBand and PatternDirectionalFast(-PtnDirYes, ohlcValues) 
+	and PatternDirectionalFast(-PtnDirNo, ohlcValues)=False then SellShort MyContracts contracts next bar at market ;
+	
+	if C crosses over LowerBand  and PatternDirectionalFast(+PtnDirYes, ohlcValues) 
+	and PatternDirectionalFast(+PtnDirNo, ohlcValues)=False then Buy MyContracts contracts next bar at market ;
+
+End;
+
+setstopcontract;
+if MyStop > 0 then setstoploss(MyStop);
+If MyProfit > 0 then setprofittarget(MyProfit);
+
+/////////////////////////////////////////////////////////////////////////
+
+//TITAN FAST EXPORT (mette il report direttamente in C:\Titan\Reports
+input: TitanExportMode(0);
+if TitanExportMode=1 then WriteDailiesCTitanReports(1080101, TitanExportMode);

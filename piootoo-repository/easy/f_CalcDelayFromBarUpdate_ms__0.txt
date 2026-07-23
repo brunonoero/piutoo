@@ -1,0 +1,2 @@
+
+CalcDelayFromBarUpdate_ms = GetTotalMilliseconds(calcdatetime - updatedatetime);

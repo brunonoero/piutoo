@@ -1,0 +1,134 @@
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>	Michael OHLC Calculation begin
+input: sessionStartTimeA(1700), sessionEndTimeA(1559);
+array: ohlcValues[23](0);
+
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>	Michael OHLC Calculation end
+
+_OHLCMulti5(sessionStartTimeA, sessionEndTimeA, ohlcValues);
+
+input: perc_TR_long(0.1), Perc_Rank_long(100), trigger_MR_long(0.6);
+input: perc_TR_short(0.1), Perc_Rank_short(100), trigger_MR_short(0.75);
+input: MyStop_long(1900),MyProfit_long(2700),MyBE_long(1000);
+input: MyStop_short(1600),MyProfit_short(5000),MyBE_short(1600);
+input: DaytoFilter(0);
+input: MaxTradesPerDay(1);
+input: MyStartTradeHour(0), MyStartTradeMin(0), MyEndTradeHour(0), MyEndTradeMin(0), CloseAtTimeHour(0), CloseAtTimeMin(0), sesstest(0);
+input: PtnDirYes(-1), PtnNeutYes(50), PtnNeutNo(56); 
+inputs: MyPtnLY(21),	MyPtnSY(15), MyPtnLN(2), MyPtnSN(24);
+
+var: MyStartTrade(0),MyEndTrade(0),CloseAtTime(0);
+var: TradeNumberSession(0),endsession(0), MyEndTime(0);
+var: calcstart(0), calcend(0),timewindow(false);
+var: closed0(0),FastPercenRankValue(0);
+
+MyStartTrade=MyStartTradeHour+MyStartTradeMin;
+MyEndTrade=MyEndTradeHour+MyEndTradeMin;
+CloseAtTime=CloseAtTimeHour+CloseAtTimeMin;
+
+{// setting of time to close positions on ID trading
+if (time > time[1]) and (Time[1]<endsession and Time>=endsession) then begin 
+	MyEndtime = t[2];
+end
+else begin
+	if (time < time[1]) and (time >= endsession) then begin
+		MyEndtime = t[2];
+	end;
+end;
+
+if CloseAtTime <> 2500 then MyEndTime = CloseAtTime; // only if we want a specific time to close trades
+////////////////////////////////////////////////
+
+// setting of time window depending on a number of conditions
+if sesstest = 0 then begin //during normal test we set them as inputs
+	calcstart = MyStartTrade;
+	calcend = MyEndTrade;
+end
+else begin // with sesstest = 1 we set start and end 2 hours after start and 2 hours before end of session
+	calcstart = sessionStartTimeA + 200; //2 hours after session start
+	if calcstart > 2359 then calcstart = calcstart - 2400;
+	calcend = endsession - 200; //2 hours before session end
+	if calcend < 0 then calcend = calcend + 2400;
+end;
+
+if (calcstart > calcend ) then begin
+	if ((time >= calcstart ) or (time <= calcend )) then begin
+		timewindow = true;
+	end
+	else begin 
+		timewindow = false;
+	end;
+end
+else begin
+	if  ((time >= calcstart ) and (time <= calcend )) then begin
+		timewindow = true;
+	end
+	else begin
+		timewindow = false;
+	end;
+End;
+////////////////////////////////////////////////}
+
+if sessionlastbar then begin
+	closed0 = ohlcValues[3];
+	FastPercenRankValue = FastPercentRank(truerange data2,truerange data2,Perc_Rank_long);
+	value2= closed0 - perc_TR_long*truerange data2;
+	value3= closed0 + perc_TR_short*truerange data2;
+	condition2 = FastPercenRankValue<trigger_MR_long;
+	condition3 = FastPercenRankValue>trigger_MR_short;
+end;
+
+TradeNumberSession = EntriesTodaySession(sessionStartTimeA, sessionEndTimeA, TradeNumberSession);		//This is needed to compute the max trade number druring the market session instead of during the day (from 00:00 to 23:59) which doesn't make sense to me
+
+if dayofweek(date) <> DaytoFilter
+//and timewindow=true
+and TradeNumberSession <= MaxTradesPerDay-1
+and PatternNeutralFast(PtnNeutYes,ohlcvalues)
+and (PatternNeutralFast(PtnNeutno,ohlcvalues) = false)
+then begin
+	if condition3 and (t>=1730 or t<=1500) and PtnBaseSA2(MyPtnSY,ohlcvalues) and PtnBaseSA2(MyPtnSN,ohlcvalues)=false and PatternDirectionalFast(-PtnDirYes,ohlcvalues)
+	then sellshort ("MR_Short") next bar at value3 limit;
+	if condition2 and (t>=2300 or t<=230) and PtnBaseSA2(MyPtnLY,ohlcvalues) and PtnBaseSA2(MyPtnLN,ohlcvalues)=false and PatternDirectionalFast(+PtnDirYes,ohlcvalues)
+	then buy ("MR_Long") next bar at value2 limit;
+end;
+
+setstopcontract;
+if marketposition = 1 then begin;
+	if MyStop_long>0 then setstoploss(MyStop_long);
+	if MyProfit_long>0 then setprofittarget(MyProfit_long);
+	if MyBE_long>0 then setbreakeven(MyBE_long);
+end;
+if marketposition = -1 then begin;
+	if MyStop_short>0 then setstoploss(MyStop_short);
+	if MyProfit_short>0 then setprofittarget(MyProfit_short);
+	if MyBE_short>0 then setbreakeven(MyBE_short);
+end;
+
+{if time =MyEndTime then begin
+	buytocover("EOSessSX") next bar at market;
+	sell("EOSessLX") next bar at market;
+end;}
+if time=0030 then buytocover("EOSessSX") next bar at market;
+
+if t>=1530 and t<1600 then begin
+	sell next bar market;
+	buytocover next bar market;
+	
+end;
+setexitonclose;
+#BEGINCMTRY
+	atcommentarybar;
+	commentaryenabled;
+	commentarycl("Market Position = ", marketposition);
+	commentarycl("EntriesTodaySession = ",TradeNumberSession);
+	{commentarycl("Close = ", c);
+	commentarycl("Close data2 = ", c data2);
+	commentarycl("truerange data2 = ", truerange data2);
+	commentarycl(perc_TR_long*100,"%*truerange data2 = ", perc_TR_long*truerange data2);	
+	commentarycl("c - ",perc_TR_long*100,"%*truerange data2 = ", value2);
+	commentarycl("c data2 - ",perc_TR_long*100,"%*truerange data2 = ", value3);
+	commentarycl("FastPercentRank(truerange data2,truerange data2,",Perc_Rank_long,")<",trigger_MR_long*100,"% = ", condition2);
+	commentarycl("FastPercentRank = ",FastPercentRank(truerange data2,truerange data2,Perc_Rank_long)*100,"%");}
+#END
+//TITAN FAST EXPORT (mette il report direttamente in C:\Titan\Reports
+input: TitanExportMode(0);
+if TitanExportMode=1 then WriteDailiesCTitanReports(1080101, TitanExportMode);

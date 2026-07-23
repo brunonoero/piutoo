@@ -1,0 +1,28 @@
+var: yclose(0);
+input: MyStop(1300), MyProfit(3500), MyContracts(1);
+
+if time = 2300
+then begin
+yclose = Close;
+end;
+
+
+if time = 1000 and close > yclose+0.05
+then Buy MyContracts contracts next bar at market;
+
+if time = 1000 and close < yclose-0.05
+then sellshort MyContracts contracts next bar at market;
+
+if  Marketposition(0) = -1 and time =800  then begin
+	buytocover("EOSessSX") next bar at market;
+		end;
+		if  Marketposition(0) = 1 and time =800 then begin
+	sell("EOSessLX") next bar at market;
+		end;
+		
+setstopcontract;
+if   MyStop > 0   then setstoploss(MyStop);
+If MyProfit > 0 then setprofittarget(MyProfit);
+//TITAN FAST EXPORT (mette il report direttamente in C:\Titan\Reports
+input: TitanExportMode(0);
+if TitanExportMode=1 then WriteDailiesCTitanReports(1080101, TitanExportMode);

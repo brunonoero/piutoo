@@ -1,0 +1,27 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\Piootoo.Shared\Piootoo.Shared.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Update="TitanoForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Update="TitanoForm.Designer.cs">
+      <DependentUpon>TitanoForm.cs</DependentUpon>
+    </Compile>
+    <EmbeddedResource Update="TitanoForm.resx">
+      <DependentUpon>TitanoForm.cs</DependentUpon>
+    </EmbeddedResource>
+  </ItemGroup>
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+</Project>

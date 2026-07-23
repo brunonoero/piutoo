@@ -1,0 +1,64 @@
+//Michael formula calculation begin
+Input:SessionStartTimeA(1700), sessionEndTimeA(1600); //Set here your session time!
+array:ohlcvalues[23](0);
+var:IsStartOfSession(false);
+
+IsStartOfSession=_ohlcmulti5(SessionStartTimeA,sessionEndTimeA,ohlcvalues); //Michael formula calculation end
+
+Inputs:MyContracts(1), //Choose with how many contracts you want to work
+	MyStartTime(1200), MyEndTime(1600), MyStartPause(1200), MyEndPause(1100),ID(1), //Time window and pause
+	MyPtnLY(41), MyPtnSY(19), MyPtnLN(36), MyPtnSN(35),
+       mydayNoshort(-1),mydayNolong(-1),maxdaysintrade(4),NoTradingMonthLong(6),NoTradingMonthshort(4),
+	NSessions(1), //set the number of sessions ago for breakout trigger - max 5!
+	MyStop(1800), //Set here your stoploss! (0=disabled)
+	MyBreakeven (0), //Set here your breakeven! (0=disabled)
+	MyProfit(2500); //Set here your profit target! (0=disabled)
+
+vars:longLevel(0), shortLevel(0);
+//VARIABLES' CALCULATION
+longLevel = ohlcvalues[1+4*NSessions];
+shortLevel = ohlcvalues[2+4*NSessions];
+
+vars: DaysInTrade(0), OKL(true),OKS(true),mp(0);
+
+if IsStartOfSession then begin
+//Reset permission to work long and short at every session reset (N.B. if you go overnight OKL/OKS will become false at next bar!)
+OKL = true;	OKS = true;
+//days in position counter increases
+if marketposition<>0 then DaysInTrade = DaysInTrade+1;
+end;
+
+//ENTRIES
+if tw(MyStartTime,MyEndTime) and (Time<MyStartPause or Time>MyEndPause) then begin
+
+	If OKL and PtnBaseSA2(MyPtnLY,ohlcvalues) and PtnBaseSA2(MyPtnLN,ohlcvalues)=false
+	and dayofweek(date) <> mydayNolong and month(date) <> NoTradingMonthLong then buy("LE") MyContracts contracts next bar longLevel stop;
+		
+	
+	If OKS and PtnBaseSA2(MyPtnSY,ohlcvalues) and PtnBaseSA2(MYPtnSN,ohlcvalues)=false 
+	and dayofweek(date) <> mydayNoshort and month(date) <> NoTradingMonthshort then sellshort("SE") MyContracts contracts next bar shortLevel stop;
+end;
+
+//POSITION MANAGEMENT
+mp = marketposition;
+if mp<>mp[1] and mp<>0 then DaysInTrade = 1;
+if marketposition=1 then okl = false;
+if marketposition=-1 then oks = false;
+
+if maxdaysintrade>0 and DaysInTrade>=maxdaysintrade then begin
+	setexitonclose;
+end;
+
+If ID=0 then setexitonclose;
+
+
+setstopcontract;
+if mystop>0 then setstoploss(MyStop);
+if MyProfit>0 then setprofittarget(MyProfit);
+If MyBreakeven > 0 then setbreakeven(Mybreakeven);
+
+
+//TITAN EXPORT
+input: TitanExportMode(0);
+if TitanExportMode=1 then WriteDailiesCTitanReports(1080101, TitanExportMode);
+

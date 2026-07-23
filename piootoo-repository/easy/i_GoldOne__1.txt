@@ -1,0 +1,33 @@
+Inputs:
+    VolumeThresholdMultiplier(1.5),  // Moltiplicatore per determinare la soglia del volume
+    PriceChangeThresholdMultiplier(1.0);  // Moltiplicatore per determinare la soglia della variazione di prezzo
+
+Variables:
+    VolumeThreshold(0),
+    PriceChangeThreshold(0),
+    AvgVolume(0),
+    AvgClose(0);
+
+// Calcolare la soglia di volume e la soglia di variazione del prezzo basate sui dati storici
+AvgVolume = Average(Ticks, 20);
+AvgClose = Average(Close, 20);
+VolumeThreshold = AvgVolume * VolumeThresholdMultiplier;
+PriceChangeThreshold = AvgClose * PriceChangeThresholdMultiplier / 100;
+
+If CurrentBar > 2 Then Begin
+    // Verificare se il bar precedente ? un massimo locale
+    If High[1] > High[2] and High[1] > High[0] Then Begin
+        // Condizioni per una discesa significativa
+        If Ticks[1] > VolumeThreshold and (Close[0] - Close[1]) < -PriceChangeThreshold Then Begin
+            Plot1[1](High[1], "DownArrow", Red);
+        End;
+    End;
+
+    // Verificare se il bar precedente ? un minimo locale
+    If Low[1] < Low[2] and Low[1] < Low[0] Then Begin
+        // Condizioni per una salita significativa
+        If Ticks[1] > VolumeThreshold and (Close[0] - Close[1]) > PriceChangeThreshold Then Begin
+            Plot2[1](Low[1], "UpArrow", Green);
+        End;
+    End;
+End;

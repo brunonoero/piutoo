@@ -1,0 +1,79 @@
+// Timeframe 1hour; trend following strategy for BUND/RX: if Prices break above yesterday's Extremes, then follow trend. 
+// Begin Time optimized (if last breaches CloseD1); Filters in script on both legs; Patterns optimized
+// Time Exits on Barcount & Exits on Patterns Optimized. Separate Stops/Profits for Long/short legs.
+
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>	Michael OHLC Calculation begin
+array: ohlcValues[23](0);
+
+var: isStartOfSession(false);
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>	Michael OHLC Calculation end
+input: sessionStartTimeA(800), sessionEndTimeA(2159);
+
+isStartOfSession = _OHLCMulti5(sessionStartTimeA, sessionEndTimeA, ohlcValues);
+
+
+//INPUTS
+input: MySize(1);
+input: BeginTime(1400);
+Input: BarsLong(161), BarsShort(41);
+input: MyPtnLY(17), MyPtnLN(37), MyPtnSY(21), MyPtnSN(29);
+input: StopS(1300), StopL(1000), ProfitS(5600), ProfitL(4400);
+input: PtnXitL(34), PtnXitS(28);
+
+//VARIABLES
+var: OkLong(true);
+var: OkShort(true);
+var: MyClose(0);
+var: LimitUP(0);
+var: LimitDWN(0);
+var: MP(0);
+var: BarCount(0);
+
+//DEFINITIONS
+OkLong= true;
+OkSHort= true;
+MyClose= CloseD(1);
+LimitUP= highD(1);
+LimitDWN= LowD(1);
+MP= marketposition;
+if MP= +1 then begin;
+	OkLong= false;
+end;
+if MP= -1 then begin;
+	OkShort= false;
+end;
+if MP<>MP[1] and MP<> 0 then BarCount= 0;
+BarCount= BarCount+ 1;
+
+//CONDITIONS
+if time= BeginTime then begin;
+	if OkLong and OpenD(0)> CloseD(1) and  PtnBaseSA2(MyPtnLY,ohlcvalues) and PtnBaseSA2(MyPtnLN,ohlcvalues)= false then buy ("LE_Uptrend") MySize contracts next bar at LimitUP stop;
+	if OkShort and HighD(0)< CloseD(1) and PtnBaseSA2(MyPtnSY,ohlcvalues) and PtnBaseSA2(MyPtnSN,ohlcvalues)= false then sellshort ("Se_DwnTrend") MySize contracts next bar at LimitDWN stop;
+end;
+
+//TIME Exit
+if MP<> 0 then begin;
+	if MP= +1 and BarCount>= BarsLong then sell ("LX_BarsLong") MySize contracts next bar CloseD(1) stop;
+	if MP= -1 and BarCount>= BarsShort then buytocover ("SE_BarsShort") MySize contracts next bar CloseD(1) stop;
+end;
+
+//PATTERNS Exit
+if MP<>0 then begin;
+	if MP= +1 and BarCount< BarsLong and Ptnbasesa2(PtnXitL,ohlcvalues) then sell ("LX_Patterns") MySize contracts next bar market;
+	if MP= -1 and BarCount< BarsShort and Ptnbasesa2(PtnXitS,ohlcvalues) then buytocover ("SX_Patterns") MySize contracts next bar market;
+end;
+
+
+setstopcontract;
+if MP= -1 then begin;
+	if StopS>0 then setstoploss(StopS);
+	if ProfitS>0 then setprofittarget(ProfitS);
+end;
+if MP= +1 then begin;
+	if StopL>0 then setstoploss(StopL);
+	if ProfitL>0 then setprofittarget(ProfitL);
+end;
+//TITAN FAST EXPORT (mette il report direttamente in C:\Titan\Reports
+input: TitanExportMode(0);
+if TitanExportMode=1 then WriteDailiesCTitanReports(1080101, TitanExportMode);
+

@@ -1,0 +1,74 @@
+{
+Platform: multicharts
+session: default timezone: exchange
+timeframe: 60M
+type: trend following
+IS: 01.01.2010 to 01.01.2019
+OS: 01.01.2019 to today
+}
+
+
+
+
+//INPUT STARTS HERE****************************************************************************************************
+
+Input: MyStartTime(0000), MyEndTime(1500), 
+ 	DaytoFilterLng(0),DaytoFilterSht(5),
+ 	Target_MyProfit(2800),STOP_MyStop(1800),mycontracts(1);
+
+
+
+//VARIABLES STARTS HERE**********************************************************************************************
+
+var: 		sessionStartTimeC(1700),sessionEndTimeC(1600), // has to be set correctly to trading session times ! 
+    		 filter_1L(true),Filter_1S(true),filter_2L(true),Filter_2S(true),ret(true);
+
+array: ohlcValues[23](0){,adxCalcValues[3](0.001)};
+ret = _OHLCMulti5((sessionStartTimeC), (sessionEndTimeC), ohlcValues);
+
+
+var: opend0(0),opend1(0),opend2(0),opend3(0),opend4(0), opend5(0);
+var: highd0(0),highd1(0),highd2(0),highd3(		0),highd4(0), highd5(0);
+var: lowd0(0),lowd1(0),lowd2(0),lowd3(0),lowd4(0), lowd5(0);
+var: closed0(0),closed1(0),closed2(0),closed3(0),closed4(0), closed5(0);	
+
+opend0 = ohlcValues[0]; highd0 = ohlcValues[1]; lowd0 = ohlcValues[2]; closed0 = ohlcValues[3]; 
+opend1 = ohlcValues[4]; highd1 = ohlcValues[5]; lowd1 = ohlcValues[6]; closed1 = ohlcValues[7];
+opend2 = ohlcValues[8]; highd2 = ohlcValues[9]; lowd2 = ohlcValues[10]; closed2 = ohlcValues[11]; 
+opend3 = ohlcValues[12]; highd3 = ohlcValues[13]; lowd3 = ohlcValues[14]; closed3 = ohlcValues[15];
+opend4 = ohlcValues[16]; highd4 = ohlcValues[17]; lowd4 = ohlcValues[18]; closed4 = ohlcValues[19]; 
+opend5 = ohlcValues[20]; highd5 = ohlcValues[21]; lowd5 = ohlcValues[22]; closed5 = ohlcValues[23];
+
+
+
+
+//FILTERS STARTS HERE***************************************************************************************************
+
+
+
+	filter_1L = closed1 > (lowd1+ ((highd1-lowd1)*0.20)); // Close of yesterday in the upper 20% of the range
+	filter_1S = closed1 < (highd1- ((highd1-lowd1)*0.20)); // Close of yesterday in the bottom 20% of the range
+
+//ENTRY STARTS HERE***************************************************************************************************
+
+
+If Time > MyStartTime And time < MyEndTime then begin
+	
+	If filter_1L  and dayofweek(date) <> DaytoFilterLng 
+	then buy ("LE") mycontracts contracts next bar at highd0{HighS(0)} stop;
+			
+	If filter_1S  and dayofweek(date) <> DaytoFilterSht 
+	
+	then sellshort ("SE") mycontracts contracts next bar at lowd0{ LowS(0)} stop;
+end;
+
+
+
+//EXITs ****************************************************************************************************
+
+setstopcontract;
+	If Target_MyProfit > 0 then setprofittarget(Target_MyProfit);
+	if STOP_MyStop > 0 then setstoploss(STOP_MyStop);
+//TITAN FAST EXPORT (mette il report direttamente in C:\Titan\Reports
+input: TitanExportMode(0);
+if TitanExportMode=1 then WriteDailiesCTitanReports(1080101, TitanExportMode);

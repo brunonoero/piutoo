@@ -1,0 +1,55 @@
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>	Michael OHLC Calculation begin
+array: ohlcValues[23](0), adxCalcValues[3](0);
+var: isStartOfSession(false), adxVal(0), sessionStartTimeA(1800), sessionEndTimeA(1715);
+var: opend0(0), highd0(0), lowd0(0), closed0(0), opend1(0), highd1(0), lowd1(0), closed1(0), opend2(0), highd2(0), lowd2(0), closed2(0),highd3(0), lowd3(0),highd4(0), lowd4(0),opend5(0), highd5(0), lowd5(0);
+
+isStartOfSession = _OHLCMulti5(sessionStartTimeA, sessionEndTimeA, ohlcValues);
+
+//If (isStartOfSession) then adxVal = iADXOnArray(5, ohlcValues[5], ohlcValues[6], ohlcValues[7], ohlcValues[9], ohlcValues[10], ohlcValues[11], adxCalcValues)*100;
+	opend0 = ohlcValues[0]; highd0 = ohlcValues[1]; lowd0 = ohlcValues[2]; closed0 = ohlcValues[3]; 
+	opend1 = ohlcValues[4]; highd1 = ohlcValues[5]; lowd1 = ohlcValues[6]; closed1 = ohlcValues[7]; 
+	opend2 = ohlcValues[8]; highd2 = ohlcValues[9]; lowd2 = ohlcValues[10]; closed2 = ohlcValues[11];
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>	Michael OHLC Calculation end
+
+
+//set 5 min chart exchange
+input: MyContracts(1), StopLoss(7.5), BreakEven(15), TakeProfit(45), MonthUno(7), MonthDue(8);
+vars: okl(true), oks(true), MyDOW(0);
+
+if isStartOfSession[1] then begin 
+	okl = true;
+	oks = true;
+	MyDOW = dayofweek(d)+1;
+end;
+
+if month(d)<>MonthUno and month(d)<>MonthDue and (Time<1530 or Time>=2100) 
+and not (((closed1<(closed2-closed2*0.5/100))) or ((closed1>(closed2+closed2*0.5/100)))) then begin
+	if ((highd0-opend0)>((highd1-opend1)*0.75)) and okl and {dayofweek(d)}MyDOW<>1 then buy("LE") MyContracts contracts next bar at highd1 stop;
+	if ((opend0-lowd0)>((opend1-lowd1)*0.75)) and oks and {dayofweek(d)}MyDOW<>4 then sellshort("SE") MyContracts contracts next bar at lowd1 stop;
+end;
+
+if marketposition = 1 then begin
+	okl = false;
+	sell("LX stop") next bar (entryprice-StopLoss) stop;
+end;
+
+if marketposition = -1 then begin
+	oks = false;
+	buytocover("SX stop") next bar (entryprice+StopLoss) stop;
+end;
+
+setstopcontract;
+setstoploss(StopLoss*1.2*bigpointvalue);
+setbreakeven(BreakEven*bigpointvalue);
+setprofittarget(TakeProfit*bigpointvalue);
+
+if (time>=1654 and Time<1800) or isStartOfSession then begin    /// to avoid miss close in festivities
+	if marketposition = 1 then sell ("LX") next bar at open;
+	if marketposition = -1 then buytocover ("SX") next bar at open;
+end;
+
+setexitonclose;
+
+//TITAN FAST EXPORT (mette il report direttamente in C:\Titan\Reports
+input: TitanExportMode(0);
+if TitanExportMode=1 then WriteDailiesCTitanReports(1080101, TitanExportMode);

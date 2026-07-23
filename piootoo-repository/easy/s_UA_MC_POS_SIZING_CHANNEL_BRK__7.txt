@@ -1,0 +1,46 @@
+input: MM_Mode(0), MM0_FixedContracts(1), MM1_delta(5000), MM1_BaseContracts(1);
+input: MM2_PercentFRisk(2), MM3_PercentVol(2), MM_All_MyBalance(100000);
+inputs: MyLenght(20), DailyFactorValue(0.75);
+input: StopLoss(1500), Breakeven(0), TakeProfit(0), UseDonchianTrailing(1);
+
+var: myhigh(0), mylow(0), myopen(0), myclose(0), DailyFactor(false);
+var: MySize(1), UpperChannel(0), LowerChannel(0), ATRValue(1);
+
+{Position Sizing Rules
+MM_Mode = 0 => Fixed Size
+MM_Mode = 1 => Fixed Ratio: set delta value and base contracts value
+MM_Mode = 2 => Fixed Fractional: set percent risk
+MM_Mode = 3 => Percent Volatility: set volatility parameter and ADD DATA2 FOR ATR CALCULATION: 1440 MIN CHART!}
+
+if MM_Mode=0 then MySize = MM0_FixedContracts
+else if MM_Mode=1 then MySize = intportion((MM1_BaseContracts+SquareRoot(1+8*(maxlist(1,netprofit)/MM1_delta)))/2)
+else if MM_Mode=2 then MySize = intportion(((MM_All_MyBalance+netprofit)*MM2_PercentFRisk*0.01)/(StopLoss))
+else if MM_Mode=3 then begin
+	ATRValue = averagetruerange(5) data2;
+	MySize = intportion(((MM_All_MyBalance+netprofit)*MM3_PercentVol*0.01)/(ATRValue*bigpointvalue));
+end;
+
+
+myhigh = HighS(1);
+mylow = LowS(1);
+myopen = OpenS(1);
+myclose = CloseS(1);
+UpperChannel = HighestFC(h, MyLenght);
+LowerChannel = LowestFC(l, Mylenght);
+DailyFactor = absvalue(myopen-myclose)<DailyFactorValue*(myhigh-mylow);
+
+if EntriesToday(d)=0 and DailyFactor then begin
+	buy("LE") MySize contracts next bar UpperChannel stop;
+	sellshort("SE") MySize contracts next bar LowerChannel stop;
+end;
+
+if UseDonchianTrailing=1 then begin
+	if marketposition=1 then sell("LXx") next bar LowerChannel stop;
+	if marketposition=-1 then buytocover("SXx") next bar UpperChannel stop;
+end;
+
+setstopcontract;
+if StopLoss>0 then setstoploss(stoploss);
+if Breakeven>0 then setbreakeven(breakeven);
+if TakeProfit>0 then setprofittarget(takeprofit);
+

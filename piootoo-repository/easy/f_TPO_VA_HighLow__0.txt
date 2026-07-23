@@ -1,0 +1,89 @@
+
+inputs:
+	VAPercent(NumericSimple),
+	VAHigh(NumericRef),
+	VALow(NumericRef);
+
+
+if (VAPercent < 0 or VAPercent > 100) then
+	raiseruntimeerror("Incorrect VAPercent input value! Supported values are from 0 to 100.");
+
+if (TPO_POC < 0) then
+	raiseruntimeerror("TPO_VA_HighLow function can be applied to TPO resolution only!");
+
+vars: _total(0), _target(0), _upLvlSearch(0), _dnLvlSearch(0), _summBlocks(0), _ticksize(TickSize), _candidateUp(0), _candidateUpPrice(0), _candidateDn(0), _candidateDnPrice(0), _skipZeroIdx(0);
+
+TPO_VA_HighLow = 0;
+
+_total = TPO_TotalBlocks;
+_target = intportion(_total * VAPercent * 0.01);
+
+if (TPO_POC_Value >= _target) then begin
+	VAHigh = TPO_POC;
+	VALow = TPO_POC;
+	#return;
+end;
+
+if (_target > _total - minlist(TPO_Levels_Value(TPO_Levels_Low, 0), TPO_Levels_Value(TPO_Levels_High, 0))) then begin
+	VAHigh = TPO_Levels_High;
+	VALow = TPO_Levels_Low;
+	#return;
+end;
+
+_upLvlSearch = TPO_POC;
+_dnLvlSearch = TPO_POC;
+_summBlocks = TPO_POC_Value;
+
+while _summBlocks < _target begin
+	// can move up
+	if (_upLvlSearch < TPO_Levels_High) then begin
+
+		// can move down
+		if (_dnLvlSearch > TPO_Levels_Low ) then begin
+
+			_candidateUpPrice = _upLvlSearch + _ticksize;
+			_candidateUp = TPO_Levels_Value(_candidateUpPrice, 0);
+			
+			// skip possible zero blocks
+			_skipZeroIdx = 2;
+			while (_candidateUp <= 0 and _upLvlSearch + _skipZeroIdx * _ticksize <= TPO_Levels_High) begin
+				_candidateUpPrice = _upLvlSearch + _skipZeroIdx * _ticksize;
+				_candidateUp = TPO_Levels_Value(_candidateUpPrice, 0);
+				_skipZeroIdx += 1;
+			end;
+
+			_candidateDnPrice = _dnLvlSearch - _ticksize;
+			_candidateDn = TPO_Levels_Value(_candidateDnPrice, 0);
+
+			// skip possible zero blocks
+			_skipZeroIdx = 2;
+			while (_candidateDn <= 0 and _dnLvlSearch - _skipZeroIdx * _ticksize >= TPO_Levels_Low) begin
+				_candidateDnPrice = _dnLvlSearch - _skipZeroIdx * _ticksize;
+				_candidateDn = TPO_Levels_Value(_candidateDnPrice, 0);
+				_skipZeroIdx += 1;
+			end;
+
+			// If both 'next'/adjacent prices have the same number of TPO's we choose the higher price.
+			if (_candidateUp >= _candidateDn) then begin
+				_upLvlSearch = _candidateUpPrice;
+				_summBlocks += _candidateUp;
+			end
+			else begin
+				_dnLvlSearch = _candidateDnPrice;
+				_summBlocks += _candidateDn;
+			end;
+		end
+		else begin
+			_upLvlSearch += _ticksize;
+			_summBlocks += TPO_Levels_Value(_upLvlSearch, 0);
+		end;
+	end
+	else begin
+		_dnLvlSearch -= _ticksize;
+		_summBlocks += TPO_Levels_Value(_dnLvlSearch, 0);
+	end;
+end;
+
+VAHigh = _upLvlSearch;
+VALow = _dnLvlSearch;
+

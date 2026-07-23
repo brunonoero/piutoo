@@ -1,0 +1,32 @@
+vars: highd1 (0), lowd1 (0), IsStartOfSession(true);
+Input: sessionStartTimeC(1700),sessionEndTimeC(1659);
+array: ohlcValues[23](0);
+
+IsStartOfSession = _OHLCMulti5(sessionStartTimeC, sessionEndTimeC, ohlcValues);
+highd1 = ohlcvalues[5]; lowd1 = ohlcvalues[6]; //these are picked depending on the chosen trigger, in this example high and low of last session
+
+//Works using 5 or 15 minute bars
+
+Input: MyContracts(1);
+Input: PtnNeutYes(55), PtnNeutNo(56), PtnDirYes(52), PtnDirNo(53);
+Input: MyStartTrade(0000), MyEndTrade(2400), MyStartPause(1200), MyEndPause(1100);
+input: ID(0);
+Input: MyStop(0), MyProfit(0);
+
+
+If tw(MyStartTrade,MyEndTrade) and (Time < MyStartPause or time > MyEndPause) 
+and PatternNeutralFast(PtnNeutYes, ohlcValues) and PatternNeutralFast(PtnNeutNo, ohlcValues)=false then begin
+
+	If PatternDirectionalFast(+PtnDirYes, ohlcValues) and PatternDirectionalFast(+PtnDirNo, ohlcValues)=False 
+	then buy MyContracts contracts next bar at highd1 stop;
+	
+	If PatternDirectionalFast(-PtnDirYes, ohlcValues) and PatternDirectionalFast(-PtnDirNo, ohlcValues)=False 
+	then sellshort MyContracts contracts next bar at lowd1 stop;
+
+end;
+
+Setstopcontract;
+If MyStop > 0 then setstoploss(MyStop);
+If MyProfit > 0 then setprofittarget(MyProfit);
+
+if ID=0 then setexitonclose;

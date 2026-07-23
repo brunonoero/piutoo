@@ -1,0 +1,53 @@
+//Works using 60-minute bars
+
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>	Michael OHLC Calculation begin
+array: ohlcValues[23](0);
+
+var: isStartOfSession(false);
+
+
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>	Michael OHLC Calculation end
+input: sessionStartTimeA(1800), sessionEndTimeA(1700);
+
+isStartOfSession = _OHLCMulti5(sessionStartTimeA, sessionEndTimeA, ohlcValues);
+
+var: mybar(0);
+
+inputs:
+	MyPtnLY(25), MyPtnSY(31),
+	MyPtnLN(24), MyPtnSN(17),
+	MyLEbar(21), MyLXbar(6),
+	MySEbar(10), MySXbar(20),
+	MyNotLEDay(1), MyNotSEDay(1),
+	MyStop(1600), MyProfit(0),
+	mycounter(0),
+	testphase(0);
+
+variables:
+	mycount(0) ;
+
+
+if Time[1]<sessionStartTimeA and Time>=sessionStartTimeA then begin
+mycount = 1;
+end;
+mycount= mycount +1;
+
+if testphase = 1 then begin
+	if mycounter = mycount then buy next bar at market;
+	if marketposition = 1 then sell next bar at market;
+end;
+
+if testphase = 0 then begin
+	if mycount = MyLEbar and PtnBaseSA2(MyptnLY,ohlcvalues) and (ptnbasesa2(myptnlN,ohlcvalues) = false) and dayofweek(date) <> MyNotLEDay then buy next bar at market;
+	if mycount = MyLXbar then sell next bar at market;
+
+	if mycount = MySEbar and PtnBaseSA2(MyptnSY,ohlcvalues) and (ptnbasesa2(myptnSN,ohlcvalues) = false)  and dayofweek(date) <> MyNotSEDay then sellshort next bar at market;
+	if mycount = MySXbar then buytocover next bar at market;
+end;
+
+setstopcontract;
+if   MyStop > 0   then setstoploss(MyStop);
+If MyProfit > 0 then setprofittarget(MyProfit);
+//TITAN FAST EXPORT (mette il report direttamente in C:\Titan\Reports
+input: TitanExportMode(0);
+if TitanExportMode=1 then WriteDailiesCTitanReports(1080101, TitanExportMode);

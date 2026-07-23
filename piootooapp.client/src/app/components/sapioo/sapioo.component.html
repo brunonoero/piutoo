@@ -1,0 +1,471 @@
+<div class="sapioo-container">
+  <!-- Vista Lista -->
+  <div *ngIf="viewMode === 'list'" class="list-view">
+    <div class="list-header">
+      <h2>⚡ Ottimizzazione Sapioo</h2>
+      <button class="btn-primary" (click)="showNewOptimizationForm()">
+        ➕ Nuova Ottimizzazione
+      </button>
+    </div>
+
+    <div *ngIf="isLoading" class="loading">
+      ⏳ Caricamento...
+    </div>
+
+    <div *ngIf="!isLoading && optimizationList.length === 0" class="empty-state">
+      <p>Nessuna ottimizzazione trovata</p>
+    </div>
+
+    <div *ngIf="!isLoading && optimizationList.length > 0" class="list-content">
+      <div class="list-actions">
+        <button 
+          class="btn-secondary" 
+          (click)="selectAllOptimizations()"
+          [disabled]="selectedOptimizationIds.size === optimizationList.length">
+          ✓ Seleziona tutti
+        </button>
+        <button 
+          class="btn-secondary" 
+          (click)="deselectAllOptimizations()"
+          [disabled]="selectedOptimizationIds.size === 0">
+          ✗ Deseleziona tutti
+        </button>
+        <button 
+          class="btn-danger" 
+          (click)="deleteSelectedOptimizations()"
+          [disabled]="selectedOptimizationIds.size === 0">
+          🗑️ Elimina selezionati ({{ selectedOptimizationIds.size }})
+        </button>
+      </div>
+
+      <div class="optimization-table">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th style="width: 40px;">
+                <input 
+                  type="checkbox" 
+                  [checked]="selectedOptimizationIds.size === optimizationList.length && optimizationList.length > 0"
+                  (change)="selectedOptimizationIds.size === optimizationList.length ? deselectAllOptimizations() : selectAllOptimizations()">
+              </th>
+              <th>Backtesting</th>
+              <th>Data</th>
+              <th>Equity Finale</th>
+              <th>Profitto</th>
+              <th>Drawdown</th>
+              <th>Azioni</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr 
+              *ngFor="let optimization of optimizationList" 
+              class="optimization-row"
+              [class.selected]="isOptimizationSelected(optimization)"
+              (dblclick)="viewOptimizationDetail(optimization)">
+              <td>
+                <input 
+                  type="checkbox" 
+                  [checked]="isOptimizationSelected(optimization)"
+                  (click)="$event.stopPropagation(); toggleOptimizationSelection(optimization)">
+              </td>
+              <td class="name-cell">{{ optimization.backtestingName }}</td>
+              <td>{{ formatDate(optimization.finalResult?.dateTime ?? '') }}</td>
+              <td>{{ formatCurrency(optimization.finalResult?.equity ?? 0) }}</td>
+              <td [class.positive]="(optimization.finalResult?.profit ?? 0) > 0" [class.negative]="(optimization.finalResult?.profit ?? 0) < 0">
+                {{ formatCurrency(optimization.finalResult?.profit ?? 0) }}
+              </td>
+              <td [class.negative]="(optimization.finalResult?.drawdown ?? 0) < 0">
+                {{ formatPercent(optimization.finalResult?.drawdown ?? 0) }}
+              </td>
+              <td class="actions-cell">
+                <button 
+                  class="btn-icon" 
+                  (click)="$event.stopPropagation(); viewOptimizationDetail(optimization)"
+                  title="Visualizza dettagli">
+                  👁️
+                </button>
+                <button 
+                  class="btn-icon btn-danger-icon" 
+                  (click)="$event.stopPropagation(); deleteOptimization(optimization)"
+                  title="Elimina">
+                  🗑️
+                </button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Vista Form (Nuova Ottimizzazione) -->
+  <div *ngIf="viewMode === 'form'" class="form-view">
+    <div class="form-header">
+      <h2>⚡ Nuova Ottimizzazione</h2>
+      <button class="btn-secondary" (click)="backToList()">
+        ← Torna alla lista
+      </button>
+    </div>
+
+    <div class="tabs">
+      <button 
+        class="tab-button" 
+        [class.active]="activeTab === 'config'"
+        (click)="activeTab = 'config'">
+        Configurazione
+      </button>
+      <button 
+        class="tab-button" 
+        [class.active]="activeTab === 'results'"
+        (click)="activeTab = 'results'"
+        [disabled]="!result">
+        Risultati
+      </button>
+    </div>
+
+    <!-- Tab Configurazione -->
+    <div *ngIf="activeTab === 'config'" class="config-tab">
+      <div class="form-group">
+        <label>Backtesting:</label>
+        <select [(ngModel)]="selectedBacktesting" (change)="name = 'Sapioo - ' + selectedBacktesting">
+          <option value="">-- Seleziona Backtesting --</option>
+          <option *ngFor="let bt of availableBacktestings" [value]="bt">
+            {{ bt }}
+          </option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label>Nome Ottimizzazione:</label>
+        <input type="text" [(ngModel)]="name" placeholder="Nome dell'ottimizzazione">
+      </div>
+
+      <div class="form-group">
+        <label>Periodo di Valutazione (settimane):</label>
+        <input type="number" [(ngModel)]="evaluationPeriodWeeks" min="1" max="52" step="1" placeholder="Es. 4">
+        <small>Numero di settimane da utilizzare per valutare le strategie</small>
+      </div>
+
+      <!-- Preset -->
+      <div class="presets-section">
+        <h3>🎨 Preset Configurazioni</h3>
+        <div class="presets-grid">
+          <button *ngFor="let preset of presets" 
+                  (click)="applyPreset(preset)" 
+                  class="preset-btn">
+            <strong>{{ preset.name }}</strong>
+            <small>{{ preset.description }}</small>
+          </button>
+        </div>
+      </div>
+
+      <h3>🛡️ Parametri Risk Management</h3>
+
+      <div class="risk-params-grid">
+        <div class="form-group">
+          <label>
+            Max Drawdown %:
+            <span class="info-icon" title="Massimo drawdown percentuale consentito. Esempio: 20% significa che una strategia con drawdown superiore al 20% verrà esclusa. Range consigliato: 10-30%">ℹ️</span>
+          </label>
+          <input type="number" [(ngModel)]="riskParams.maxDrawdownPercent" min="5" max="50" step="1">
+          <small class="field-description">Massimo drawdown percentuale consentito. Esempio: 20% significa che una strategia con drawdown superiore al 20% verrà esclusa. Range consigliato: 10-30%</small>
+        </div>
+
+        <div class="form-group">
+          <label>
+            Min Win Rate %:
+            <span class="info-icon" title="Percentuale minima di trade vincenti. Esempio: 40% significa che almeno il 40% dei trade deve essere profittevole. Range consigliato: 35-55%">ℹ️</span>
+          </label>
+          <input type="number" [(ngModel)]="riskParams.minWinRate" min="0" max="100" step="1">
+          <small class="field-description">Percentuale minima di trade vincenti. Esempio: 40% significa che almeno il 40% dei trade deve essere profittevole. Range consigliato: 35-55%</small>
+        </div>
+
+        <div class="form-group">
+          <label>
+            Min Profit Factor:
+            <span class="info-icon" title="Rapporto minimo tra profitti totali e perdite totali. Esempio: 1.2 significa che i profitti devono essere almeno 1.2 volte le perdite. Range consigliato: 1.1-2.0">ℹ️</span>
+          </label>
+          <input type="number" [(ngModel)]="riskParams.minProfitFactor" min="1" max="5" step="0.1">
+          <small class="field-description">Rapporto minimo tra profitti totali e perdite totali. Esempio: 1.2 significa che i profitti devono essere almeno 1.2 volte le perdite. Range consigliato: 1.1-2.0</small>
+        </div>
+
+        <div class="form-group">
+          <label>
+            Max Consecutive Losses:
+            <span class="info-icon" title="Numero massimo di perdite consecutive tollerate. Esempio: 5 significa che dopo 5 perdite consecutive la strategia viene disabilitata. Range consigliato: 3-7">ℹ️</span>
+          </label>
+          <input type="number" [(ngModel)]="riskParams.maxConsecutiveLosses" min="1" max="20" step="1">
+          <small class="field-description">Numero massimo di perdite consecutive tollerate. Esempio: 5 significa che dopo 5 perdite consecutive la strategia viene disabilitata. Range consigliato: 3-7</small>
+        </div>
+
+        <div class="form-group">
+          <label>
+            Min Sharpe Ratio:
+            <span class="info-icon" title="Rapporto Sharpe minimo (misura rischio-rendimento). Esempio: 0.5 indica una performance moderata rispetto al rischio. Range consigliato: 0.3-1.5">ℹ️</span>
+          </label>
+          <input type="number" [(ngModel)]="riskParams.minSharpeRatio" min="0" max="5" step="0.1">
+          <small class="field-description">Rapporto Sharpe minimo (misura rischio-rendimento). Esempio: 0.5 indica una performance moderata rispetto al rischio. Range consigliato: 0.3-1.5</small>
+        </div>
+
+        <div class="form-group">
+          <label>
+            Min Recovery Factor:
+            <span class="info-icon" title="Rapporto minimo tra profitto netto e drawdown massimo. Esempio: 1.0 significa che il profitto deve essere almeno uguale al drawdown. Range consigliato: 0.5-3.0">ℹ️</span>
+          </label>
+          <input type="number" [(ngModel)]="riskParams.minRecoveryFactor" min="0" max="10" step="0.1">
+          <small class="field-description">Rapporto minimo tra profitto netto e drawdown massimo. Esempio: 1.0 significa che il profitto deve essere almeno uguale al drawdown. Range consigliato: 0.5-3.0</small>
+        </div>
+
+        <div class="form-group">
+          <label>
+            Max Volatility %:
+            <span class="info-icon" title="Volatilità massima percentuale consentita. Misura la variabilità dei rendimenti. Esempio: 30% significa che strategie con volatilità superiore al 30% vengono escluse. Range consigliato: 15-50%">ℹ️</span>
+          </label>
+          <input type="number" [(ngModel)]="riskParams.maxVolatility" min="0" max="100" step="1">
+          <small class="field-description">Volatilità massima percentuale consentita. Misura la variabilità dei rendimenti. Esempio: 30% significa che strategie con volatilità superiore al 30% vengono escluse. Range consigliato: 15-50%</small>
+        </div>
+
+        <div class="form-group">
+          <label>
+            Weeks Lookback:
+            <span class="info-icon" title="Numero di settimane di dati storici da analizzare per valutare le strategie. Esempio: 4 significa che vengono analizzate le ultime 4 settimane. Range consigliato: 2-8 settimane">ℹ️</span>
+          </label>
+          <input type="number" [(ngModel)]="riskParams.weeksLookback" min="1" max="12" step="1">
+          <small class="field-description">Numero di settimane di dati storici da analizzare per valutare le strategie. Esempio: 4 significa che vengono analizzate le ultime 4 settimane. Range consigliato: 2-8 settimane</small>
+        </div>
+      </div>
+
+      <div class="form-actions">
+        <button 
+          class="btn-primary" 
+          (click)="startOptimization()"
+          [disabled]="isRunning || !selectedBacktesting">
+          <span *ngIf="!isRunning">🚀 Avvia Ottimizzazione</span>
+          <span *ngIf="isRunning">⏳ Esecuzione in corso...</span>
+        </button>
+      </div>
+
+      <!-- Progress Bar -->
+      <div *ngIf="isRunning && currentJob" class="progress-section">
+        <div class="progress-bar">
+          <div class="progress-fill" [style.width.%]="currentJob.progressPercent"></div>
+        </div>
+        <p>Progresso: {{ currentJob.progressPercent }}%</p>
+      </div>
+
+      <!-- Error Message -->
+      <div *ngIf="error" class="error-message">
+        {{ error }}
+      </div>
+    </div>
+
+    <!-- Tab Risultati -->
+    <div *ngIf="activeTab === 'results' && result" class="results-tab">
+      <div class="summary-section">
+        <h3>📊 Riepilogo Ottimizzazione</h3>
+        <div class="summary-grid">
+          <div class="summary-item">
+            <label>Equity Finale:</label>
+            <span>{{ formatCurrency(result.finalResult.equity) }}</span>
+          </div>
+          <div class="summary-item">
+            <label>Profitto:</label>
+            <span>{{ formatCurrency(result.finalResult.profit) }}</span>
+          </div>
+          <div class="summary-item">
+            <label>Drawdown:</label>
+            <span>{{ formatPercent(result.finalResult.drawdown) }}</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Chart placeholder -->
+      <div class="chart-section">
+        <h3>📈 Equity Curve Filtrata</h3>
+        <p style="color: rgba(255,255,255,0.6);">Chart da implementare con libreria grafici (es. Chart.js, ng2-charts)</p>
+        <!-- TODO: Implementare chart comparativo filtrato vs originale -->
+      </div>
+
+      <!-- Tabella Settimanale -->
+      <div class="weekly-table-section">
+        <h3>📅 Risultati Settimanali</h3>
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Settimana</th>
+              <th>Profit</th>
+              <th>Equity</th>
+              <th>Drawdown</th>
+              <th>Strategie Abilitate</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr *ngFor="let week of result.weeklyResults">
+              <td>{{ week.year }}-W{{ week.week }}</td>
+              <td>{{ formatCurrency(week.weeklyProfit) }}</td>
+              <td>{{ formatCurrency(week.weeklyEquity) }}</td>
+              <td>{{ formatPercent(week.weeklyDrawdown) }}</td>
+              <td>
+                <span *ngFor="let strategy of week.enabledStrategies; let last = last">
+                  {{ strategy.strategyName }} ({{ strategy.multiplier.toFixed(2) }}x)<span *ngIf="!last">, </span>
+                </span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Dettaglio Strategie per Settimana -->
+      <div class="strategies-detail-section">
+        <h3>🎯 Dettaglio Strategie per Settimana</h3>
+        <div *ngFor="let week of result.weeklyResults" class="week-detail">
+          <h4>Settimana {{ week.year }}-W{{ week.week }}</h4>
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Strategia</th>
+                <th>Abilitata</th>
+                <th>Moltiplicatore</th>
+                <th>Win Rate</th>
+                <th>Profit Factor</th>
+                <th>Sharpe</th>
+                <th>Max DD</th>
+                <th>Motivo Esclusione</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr *ngFor="let strategy of week.enabledStrategies">
+                <td>{{ strategy.strategyName }}</td>
+                <td>{{ strategy.isEnabled ? 'Sì' : 'No' }}</td>
+                <td>{{ strategy.multiplier.toFixed(2) }}x</td>
+                <td>{{ formatPercent(strategy.winRate) }}</td>
+                <td>{{ strategy.profitFactor.toFixed(2) }}</td>
+                <td>{{ strategy.sharpeRatio.toFixed(2) }}</td>
+                <td>{{ formatPercent(strategy.maxDrawdown) }}</td>
+                <td>{{ strategy.disabledReason || '-' }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Vista Dettaglio -->
+  <div *ngIf="viewMode === 'detail' && result" class="detail-view">
+    <div class="detail-header">
+      <h2>⚡ Dettaglio Ottimizzazione: {{ result.backtestingName }}</h2>
+      <div class="detail-actions">
+        <button class="btn-secondary" (click)="backToList()">
+          ← Torna alla lista
+        </button>
+        <button 
+          class="btn-danger" 
+          (click)="deleteOptimization(result)"
+          *ngIf="result">
+          🗑️ Elimina
+        </button>
+      </div>
+    </div>
+
+    <div class="summary-section">
+      <h3>📊 Riepilogo Ottimizzazione</h3>
+      <div class="summary-grid">
+        <div class="summary-item">
+          <label>Backtesting:</label>
+          <span>{{ result.backtestingName }}</span>
+        </div>
+        <div class="summary-item">
+          <label>Data:</label>
+          <span>{{ formatDate(result.finalResult?.dateTime ?? '') }}</span>
+        </div>
+        <div class="summary-item">
+          <label>Equity Finale:</label>
+          <span>{{ formatCurrency(result.finalResult?.equity ?? 0) }}</span>
+        </div>
+        <div class="summary-item">
+          <label>Profitto:</label>
+          <span [class.positive]="(result.finalResult?.profit ?? 0) > 0" [class.negative]="(result.finalResult?.profit ?? 0) < 0">
+            {{ formatCurrency(result.finalResult?.profit ?? 0) }}
+          </span>
+        </div>
+        <div class="summary-item">
+          <label>Drawdown:</label>
+          <span [class.negative]="(result.finalResult?.drawdown ?? 0) < 0">
+            {{ formatPercent(result.finalResult?.drawdown ?? 0) }}
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Chart placeholder -->
+    <div class="chart-section">
+      <h3>📈 Equity Curve Filtrata</h3>
+      <p style="color: rgba(255,255,255,0.6);">Chart da implementare con libreria grafici (es. Chart.js, ng2-charts)</p>
+      <!-- TODO: Implementare chart comparativo filtrato vs originale -->
+    </div>
+
+    <!-- Tabella Settimanale -->
+    <div class="weekly-table-section">
+      <h3>📅 Risultati Settimanali</h3>
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Settimana</th>
+            <th>Profit</th>
+            <th>Equity</th>
+            <th>Drawdown</th>
+            <th>Strategie Abilitate</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr *ngFor="let week of result.weeklyResults">
+            <td>{{ week.year }}-W{{ week.week }}</td>
+            <td>{{ formatCurrency(week.weeklyProfit) }}</td>
+            <td>{{ formatCurrency(week.weeklyEquity) }}</td>
+            <td>{{ formatPercent(week.weeklyDrawdown) }}</td>
+            <td>
+              <span *ngFor="let strategy of week.enabledStrategies; let last = last">
+                {{ strategy.strategyName }} ({{ strategy.multiplier.toFixed(2) }}x)<span *ngIf="!last">, </span>
+              </span>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Dettaglio Strategie per Settimana -->
+    <div class="strategies-detail-section">
+      <h3>🎯 Dettaglio Strategie per Settimana</h3>
+      <div *ngFor="let week of result.weeklyResults" class="week-detail">
+        <h4>Settimana {{ week.year }}-W{{ week.week }}</h4>
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Strategia</th>
+              <th>Abilitata</th>
+              <th>Moltiplicatore</th>
+              <th>Win Rate</th>
+              <th>Profit Factor</th>
+              <th>Sharpe</th>
+              <th>Max DD</th>
+              <th>Motivo Esclusione</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr *ngFor="let strategy of week.enabledStrategies">
+              <td>{{ strategy.strategyName }}</td>
+              <td>{{ strategy.isEnabled ? 'Sì' : 'No' }}</td>
+              <td>{{ strategy.multiplier.toFixed(2) }}x</td>
+              <td>{{ formatPercent(strategy.winRate) }}</td>
+              <td>{{ strategy.profitFactor.toFixed(2) }}</td>
+              <td>{{ strategy.sharpeRatio.toFixed(2) }}</td>
+              <td>{{ formatPercent(strategy.maxDrawdown) }}</td>
+              <td>{{ strategy.disabledReason || '-' }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>

@@ -1,0 +1,109 @@
+//ENTRATA INCROCIO AROON INDICATOR SIA LONG CHE SHORT, CL 5 MIN IS  ////
+
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>Michael OHLC Calculation begin
+array: ohlcValues[23](0);
+var: IsStartOfSession(false);
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>Michael OHLC Calculation end
+
+/////////   INPUT   ///////////
+
+input: MyStop(2100), MyProfit(3000), MyBreakEven(1100), tolerance(0.1),MyBreakevenOffset(5);
+input: MyPtnLY(41), MyPtnSY(41), MyPtnLN(7), MyPtnSN(5);
+input: MyStarttime(0100), MyendTime(1515), MyNoLongDay(-1), MyNoShortDay(-1);
+input: SessionStartTimeA(1800), SessionEndTimeA(1700);
+input: numbar(660);
+
+////////  VARIABILI  /////////
+var: highd0(0),lowd0(0), highd1(0),lowd1(0);
+var: TimeWindow(false),endsession(0);
+var: MySize(0), ATRValue(1);
+var: DaysinTrade(0),MP(0);
+
+////////////////////////////////////////////////
+{if SessionStartTimeA>=2400 then begin
+		endsession=SessionStartTimeA;
+end
+else begin
+		endsession=SessionEndTimeA;
+end;}
+
+isStartOfSession = _ohlcmulti5(sessionStartTimeA, endsession, ohlcValues);
+
+highd0 = ohlcValues[1]; lowd0 = ohlcValues[2];  
+highd1 = ohlcValues[5]; lowd1 = ohlcValues[6];  
+
+
+///////   TIMEWINDOW  ////////
+if MyStarttime>MyendTime then TimeWindow = Time>MyStarttime or Time<MyendTime;
+if MyStarttime<MyendTime then TimeWindow = Time>MyStarttime and Time<MyendTime;
+
+
+///////  ASSEGNAZIONI  ///////
+input: mylenght(22);
+var: aroonup(0,data2), aroondown(0,data2);
+
+aroonup = ((mylenght-HighestBar(high of data2,mylenght))/mylenght)*100 ;
+aroondown = ((mylenght-LowestBar(low of data2,mylenght))/mylenght)*100;
+
+condition3=aroonup cross over aroondown;
+condition4=aroonup cross under aroondown;
+
+//////  END OF SESSION SETTING  //////
+if SessionStartTimeA>=2400 then begin
+		endsession=SessionStartTimeA;
+end
+else begin
+		endsession=SessionEndTimeA;
+end;
+//////////////////////////////////////
+
+/////////  TRADING  /////////
+if TimeWindow and marketposition=0 then begin
+
+	if condition3 and dayofweek(d)<>MyNoLongDay  then 
+			if ptnbasesa2(MyPtnLY,ohlcvalues) and (ptnbasesa2(MyPtnLN,ohlcvalues)=false) then  begin 
+				buy ("LE") next bar at market;
+			end;
+		
+	if condition4 and dayofweek(d)<>MyNoShortDay  then 
+			if ptnbasesa2(MyPtnSY,ohlcvalues) and (ptnbasesa2(MyPtnSN,ohlcvalues)=false) then begin 
+				sellshort ("SE") next bar at market;
+			end;
+end;
+
+Setstopcontract;
+if mystop > 0 then begin 
+if marketposition=1 then sell ("LX_Stop") next bar entryprice-MyStop/bigpointvalue stop ;
+if marketposition=-1 then buytocover ("SX_Stop") next bar entryprice+MyStop/bigpointvalue stop;
+setstoploss (MyStop*(1+tolerance));
+end;
+if MyProfit> 0 then begin
+if marketposition=1 then sell ("LX_Profit") next bar entryprice+MyProfit/bigpointvalue limit ;
+if marketposition=-1 then buytocover ("SX_Profit") next bar entryprice-MyProfit/bigpointvalue limit;
+Setprofittarget(MyProfit*(1+tolerance));
+end;
+
+if MyBreakEven>0 and OpenEntryMaxProfitPerContract>=MyBreakeven then begin
+sell("LX_BE") next bar entryprice+MyBreakevenOffset*TickSize stop;
+buytocover("SX_BE") next bar entryprice-MyBreakevenOffset*TickSize stop;
+end;
+
+///////  EXIT BARNUMBER  ///////////
+if marketposition=1 and barssinceentry>(numbar) then sell ("LX_Time") next bar market ;
+if marketposition=-1 and barssinceentry>(numbar) then buytocover ("SX_Time") next  bar market ;
+
+
+//// TITAN EXPORT //////
+{input: TitanExportMode(0);
+var: bin(0);
+
+if TitanExportMode=1 then 
+	bin=writedailiesCTitanReports(1090101,TitanExportMode);}
+
+
+//print(endsession);
+input: TitanExportMode(0);
+if TitanExportMode=1 then WriteDailiesCTitanReports(1100101, TitanExportMode);
+
+
+

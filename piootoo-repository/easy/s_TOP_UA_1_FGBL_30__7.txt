@@ -1,0 +1,32 @@
+//Works using 30-minute bars
+
+inputs:
+	MyPtnLY(13), MyPtnSY(26),
+	MyPtnLN(32), MyPtnSN(42),
+	MyStartTime(900), duration(11), MyEndTime(2200),
+	DaytoFilter(1),
+	MyStop(1200), MyProfit(2000),
+	Length( 20 ), NumDevs( 2);
+
+variables:
+	UpperBand( 0 ),LowerBand( 0 ), mycount(0) ;
+
+UpperBand = BollingerBand( c, Length, +NumDevs ) ;
+LowerBand = BollingerBand( c, Length, -NumDevs ) ;
+
+if time = MyStartTime then mycount = 0;
+mycount= mycount +1;
+
+{}
+if dayofweek(date) <> DaytoFilter and time > MyStartTime and mycount < duration then begin
+	if C crosses under UpperBand and PtnBaseSA(MyptnSY) and (PtnBaseSA(myptnsn)=false) then Sell Short next bar at market ;
+	if C crosses over LowerBand  and PtnBaseSA(MyptnLY) and (PtnBaseSA(myptnLn)=false) then Buy next bar at market ;
+End;
+
+setstopcontract;
+if MyStop > 0 then setstoploss(MyStop);
+If MyProfit > 0 then setprofittarget(MyProfit);
+
+//TITAN FAST EXPORT (mette il report direttamente in C:\Titan\Reports
+input: TitanExportMode(0);
+if TitanExportMode=1 then WriteDailiesCTitanReports(1100101, TitanExportMode);

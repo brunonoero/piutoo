@@ -1,0 +1,2039 @@
+// ============================================================================
+// MODELLI DATI
+// ============================================================================
+
+public class OhlcvData
+{
+    public DateTime Date { get; set; }
+    public decimal Open { get; set; }
+    public decimal High { get; set; }
+    public decimal Low { get; set; }
+    public decimal Close { get; set; }
+    public decimal Volume { get; set; }
+}
+
+public class TradeSignal
+{
+    public DateTime Date { get; set; }
+    public SignalType Type { get; set; }
+    public decimal Price { get; set; }
+    public string StrategyName { get; set; }
+    public string? Reason { get; set; }
+    public decimal Quantity { get; set; }
+}
+
+public enum SignalType
+{
+    Buy,
+    Sell,
+    Hold
+}
+
+// ============================================================================
+// TRADING RESULT - Risultato di un singolo trade
+// ============================================================================
+
+public class TradingResult
+{
+    public string StrategyName { get; set; } = "";
+    public DateTime EntryDate { get; set; }
+    public DateTime ExitDate { get; set; }
+    public decimal EntryPrice { get; set; }
+    public decimal ExitPrice { get; set; }
+    public decimal Quantity { get; set; }
+    public SignalType Direction { get; set; } // Buy = Long, Sell = Short
+    
+    // Calcoli automatici
+    public decimal GrossProfit => Direction == SignalType.Buy 
+        ? (ExitPrice - EntryPrice) * Quantity 
+        : (EntryPrice - ExitPrice) * Quantity;
+    
+    public decimal Commission { get; set; }
+    public decimal NetProfit => GrossProfit - Commission;
+    public decimal ReturnPercent => EntryPrice != 0 ? (NetProfit / (EntryPrice * Quantity)) * 100 : 0;
+    public bool IsWinner => NetProfit > 0;
+    public TimeSpan Duration => ExitDate - EntryDate;
+}
+
+// ============================================================================
+// INTERFACCIA STRATEGIA
+// ============================================================================
+
+public interface ITradingStrategy
+{
+    string Name { get; }
+    string Description { get; }
+    
+    /// <summary>
+    /// Genera un segnale di trading basato sui dati storici
+    /// </summary>
+    /// <param name="data">Array di dati OHLCV ordinati cronologicamente</param>
+    /// <param name="currentDate">Data corrente per il calcolo</param>
+    /// <returns>Segnale di trading generato</returns>
+    TradeSignal GenerateSignal(OhlcvData[] data, DateTime currentDate);
+    
+    /// <summary>
+    /// Inizializza la strategia con parametri specifici
+    /// </summary>
+    void Initialize(Dictionary<string, object>? parameters = null);
+}
+
+// ============================================================================
+// ESEMPIO DI STRATEGIA: MEDIA MOBILE
+// ============================================================================
+
+public class MovingAverageStrategy : ITradingStrategy
+{
+    private int _shortPeriod = 10;
+    private int _longPeriod = 30;
+    
+    public string Name => "Moving Average Crossover";
+    public string Description => "Strategia basata sull'incrocio di medie mobili";
+
+    public void Initialize(Dictionary<string, object>? parameters = null)
+    {
+        if (parameters != null)
+        {
+            if (parameters.ContainsKey("ShortPeriod"))
+                _shortPeriod = Convert.ToInt32(parameters["ShortPeriod"]);
+            if (parameters.ContainsKey("LongPeriod"))
+                _longPeriod = Convert.ToInt32(parameters["LongPeriod"]);
+        }
+    }
+
+    public TradeSignal GenerateSignal(OhlcvData[] data, DateTime currentDate)
+    {
+        var currentIndex = Array.FindIndex(data, d => d.Date == currentDate);
+        
+        if (currentIndex < _longPeriod)
+        {
+            return new TradeSignal
+            {
+                Date = currentDate,
+                Type = SignalType.Hold,
+                Price = data[currentIndex].Close,
+                StrategyName = Name,
+                Reason = "Dati insufficienti per il calcolo"
+            };
+        }
+
+        var shortMA = CalculateMA(data, currentIndex, _shortPeriod);
+        var longMA = CalculateMA(data, currentIndex, _longPeriod);
+        var prevShortMA = CalculateMA(data, currentIndex - 1, _shortPeriod);
+        var prevLongMA = CalculateMA(data, currentIndex - 1, _longPeriod);
+
+        SignalType signal = SignalType.Hold;
+        string? reason = null;
+
+        // Golden Cross: MA corta incrocia sopra MA lunga
+        if (prevShortMA <= prevLongMA && shortMA > longMA)
+        {
+            signal = SignalType.Buy;
+            reason = $"Golden Cross (MA{_shortPeriod} > MA{_longPeriod})";
+        }
+        // Death Cross: MA corta incrocia sotto MA lunga
+        else if (prevShortMA >= prevLongMA && shortMA < longMA)
+        {
+            signal = SignalType.Sell;
+            reason = $"Death Cross (MA{_shortPeriod} < MA{_longPeriod})";
+        }
+
+        return new TradeSignal
+        {
+            Date = currentDate,
+            Type = signal,
+            Price = data[currentIndex].Close,
+            StrategyName = Name,
+            Reason = reason
+        };
+    }
+
+    private decimal CalculateMA(OhlcvData[] data, int endIndex, int period)
+    {
+        decimal sum = 0;
+        for (int i = endIndex - period + 1; i <= endIndex; i++)
+        {
+            sum += data[i].Close;
+        }
+        return sum / period;
+    }
+}
+
+// ============================================================================
+// ESEMPIO DI STRATEGIA: RSI
+// ============================================================================
+
+public class RsiStrategy : ITradingStrategy
+{
+    private int _period = 14;
+    private decimal _oversoldLevel = 30;
+    private decimal _overboughtLevel = 70;
+    
+    public string Name => "RSI Strategy";
+    public string Description => "Strategia basata sull'indicatore RSI";
+
+    public void Initialize(Dictionary<string, object>? parameters = null)
+    {
+        if (parameters != null)
+        {
+            if (parameters.ContainsKey("Period"))
+                _period = Convert.ToInt32(parameters["Period"]);
+            if (parameters.ContainsKey("OversoldLevel"))
+                _oversoldLevel = Convert.ToDecimal(parameters["OversoldLevel"]);
+            if (parameters.ContainsKey("OverboughtLevel"))
+                _overboughtLevel = Convert.ToDecimal(parameters["OverboughtLevel"]);
+        }
+    }
+
+    public TradeSignal GenerateSignal(OhlcvData[] data, DateTime currentDate)
+    {
+        var currentIndex = Array.FindIndex(data, d => d.Date == currentDate);
+        
+        if (currentIndex < _period + 1)
+        {
+            return new TradeSignal
+            {
+                Date = currentDate,
+                Type = SignalType.Hold,
+                Price = data[currentIndex].Close,
+                StrategyName = Name
+            };
+        }
+
+        var rsi = CalculateRSI(data, currentIndex, _period);
+        
+        SignalType signal = SignalType.Hold;
+        string? reason = null;
+
+        if (rsi < _oversoldLevel)
+        {
+            signal = SignalType.Buy;
+            reason = $"RSI in oversold ({rsi:F2} < {_oversoldLevel})";
+        }
+        else if (rsi > _overboughtLevel)
+        {
+            signal = SignalType.Sell;
+            reason = $"RSI in overbought ({rsi:F2} > {_overboughtLevel})";
+        }
+
+        return new TradeSignal
+        {
+            Date = currentDate,
+            Type = signal,
+            Price = data[currentIndex].Close,
+            StrategyName = Name,
+            Reason = reason
+        };
+    }
+
+    private decimal CalculateRSI(OhlcvData[] data, int endIndex, int period)
+    {
+        decimal gainSum = 0;
+        decimal lossSum = 0;
+
+        for (int i = endIndex - period + 1; i <= endIndex; i++)
+        {
+            var change = data[i].Close - data[i - 1].Close;
+            if (change > 0)
+                gainSum += change;
+            else
+                lossSum -= change;
+        }
+
+        var avgGain = gainSum / period;
+        var avgLoss = lossSum / period;
+
+        if (avgLoss == 0) return 100;
+
+        var rs = avgGain / avgLoss;
+        return 100 - (100 / (1 + rs));
+    }
+}
+
+// ============================================================================
+// PERFORMANCE CALCULATOR - Calcola metriche da TradingResults
+// ============================================================================
+
+public class PerformanceCalculator
+{
+    private readonly decimal _initialBalance;
+    private readonly decimal _commissionPerTrade;
+
+    public PerformanceCalculator(decimal initialBalance = 10000m, decimal commissionPerTrade = 0m)
+    {
+        _initialBalance = initialBalance;
+        _commissionPerTrade = commissionPerTrade;
+    }
+
+    /// <summary>
+    /// Calcola tutte le metriche di performance da una lista di TradingResult
+    /// </summary>
+    public StrategyPerformance CalculatePerformance(
+        string strategyName, 
+        List<TradingResult> results, 
+        int week, 
+        int year)
+    {
+        if (results.Count == 0)
+        {
+            return new StrategyPerformance
+            {
+                StrategyName = strategyName,
+                Week = week,
+                Year = year
+            };
+        }
+
+        // Calcola equity curve e drawdown
+        var equityCurve = CalculateEquityCurve(results);
+        var drawdownData = CalculateDrawdown(equityCurve);
+        
+        // Separa trade vincenti e perdenti
+        var winners = results.Where(r => r.IsWinner).ToList();
+        var losers = results.Where(r => !r.IsWinner).ToList();
+
+        // Calcola metriche base
+        var totalReturn = equityCurve.Last().Balance - _initialBalance;
+        var returnPercent = (_initialBalance != 0) ? (totalReturn / _initialBalance) * 100 : 0;
+        
+        var winRate = results.Count > 0 ? (decimal)winners.Count / results.Count : 0;
+        var avgWin = winners.Any() ? winners.Average(w => w.NetProfit) : 0;
+        var avgLoss = losers.Any() ? losers.Average(l => l.NetProfit) : 0;
+
+        // Calcola volatilità e Sharpe
+        var returns = results.Select(r => r.ReturnPercent).ToList();
+        var volatility = CalculateStandardDeviation(returns);
+        var sharpeRatio = CalculateSharpeRatio(returns, volatility);
+        var sortinoRatio = CalculateSortinoRatio(returns);
+
+        // Calcola perdite consecutive
+        var (maxConsecutiveWins, maxConsecutiveLosses) = CalculateConsecutiveStats(results);
+
+        return new StrategyPerformance
+        {
+            StrategyName = strategyName,
+            Week = week,
+            Year = year,
+            
+            // Rendimento
+            Return = returnPercent,
+            CumulativeReturn = returnPercent,
+            
+            // Rischio
+            MaxDrawdown = drawdownData.MaxDrawdownPercent,
+            MaxDrawdownValue = drawdownData.MaxDrawdownValue,
+            Volatility = volatility,
+            SharpeRatio = sharpeRatio,
+            SortinoRatio = sortinoRatio,
+            
+            // Trading
+            TotalTrades = results.Count,
+            WinningTrades = winners.Count,
+            LosingTrades = losers.Count,
+            AverageWin = avgWin,
+            AverageLoss = avgLoss,
+            
+            // Consistenza
+            ConsecutiveWins = maxConsecutiveWins,
+            ConsecutiveLosses = maxConsecutiveLosses,
+            
+            // Balance
+            InitialBalance = _initialBalance,
+            FinalBalance = equityCurve.Last().Balance,
+            PeakBalance = equityCurve.Max(e => e.Balance),
+            
+            // Metriche aggiuntive
+            MaxConsecutiveDrawdown = drawdownData.MaxConsecutiveDrawdown,
+            DaysInMarket = (int)(results.Sum(r => r.Duration.TotalDays)),
+            LargestWin = winners.Any() ? winners.Max(w => w.NetProfit) : 0,
+            LargestLoss = losers.Any() ? losers.Min(l => l.NetProfit) : 0,
+            
+            // Equity curve per analisi dettagliate
+            EquityCurve = equityCurve
+        };
+    }
+
+    private List<EquityPoint> CalculateEquityCurve(List<TradingResult> results)
+    {
+        var equity = new List<EquityPoint>();
+        var balance = _initialBalance;
+        
+        // Ordina per data di uscita
+        var sortedResults = results.OrderBy(r => r.ExitDate).ToList();
+
+        foreach (var trade in sortedResults)
+        {
+            balance += trade.NetProfit;
+            equity.Add(new EquityPoint
+            {
+                Date = trade.ExitDate,
+                Balance = balance,
+                Trade = trade
+            });
+        }
+
+        return equity;
+    }
+
+    private DrawdownData CalculateDrawdown(List<EquityPoint> equityCurve)
+    {
+        decimal maxDrawdown = 0;
+        decimal maxDrawdownValue = 0;
+        decimal peak = _initialBalance;
+        int consecutiveDrawdown = 0;
+        int maxConsecutiveDrawdown = 0;
+
+        foreach (var point in equityCurve)
+        {
+            if (point.Balance > peak)
+            {
+                peak = point.Balance;
+                consecutiveDrawdown = 0;
+            }
+            else
+            {
+                consecutiveDrawdown++;
+                maxConsecutiveDrawdown = Math.Max(maxConsecutiveDrawdown, consecutiveDrawdown);
+            }
+
+            var drawdownValue = peak - point.Balance;
+            var drawdownPercent = peak != 0 ? (drawdownValue / peak) : 0;
+
+            if (drawdownPercent > maxDrawdown)
+            {
+                maxDrawdown = drawdownPercent;
+                maxDrawdownValue = drawdownValue;
+            }
+        }
+
+        return new DrawdownData
+        {
+            MaxDrawdownPercent = -maxDrawdown,
+            MaxDrawdownValue = maxDrawdownValue,
+            MaxConsecutiveDrawdown = maxConsecutiveDrawdown
+        };
+    }
+
+    private decimal CalculateStandardDeviation(List<decimal> returns)
+    {
+        if (returns.Count < 2) return 0;
+
+        var avg = returns.Average();
+        var sumOfSquares = returns.Sum(r => (r - avg) * (r - avg));
+        return (decimal)Math.Sqrt((double)(sumOfSquares / (returns.Count - 1)));
+    }
+
+    private decimal CalculateSharpeRatio(List<decimal> returns, decimal volatility, decimal riskFreeRate = 0)
+    {
+        if (volatility == 0 || returns.Count == 0) return 0;
+        
+        var avgReturn = returns.Average();
+        var excessReturn = avgReturn - riskFreeRate;
+        
+        // Annualizza assumendo ~52 settimane/anno
+        var annualizedReturn = excessReturn * (decimal)Math.Sqrt(52);
+        var annualizedVolatility = volatility * (decimal)Math.Sqrt(52);
+        
+        return annualizedVolatility != 0 ? annualizedReturn / annualizedVolatility : 0;
+    }
+
+    private decimal CalculateSortinoRatio(List<decimal> returns, decimal riskFreeRate = 0)
+    {
+        if (returns.Count < 2) return 0;
+
+        var avgReturn = returns.Average();
+        var negativeReturns = returns.Where(r => r < riskFreeRate).ToList();
+        
+        if (negativeReturns.Count == 0) return avgReturn > 0 ? 100 : 0;
+
+        var downsideDeviation = CalculateStandardDeviation(negativeReturns);
+        
+        if (downsideDeviation == 0) return 0;
+        
+        return (avgReturn - riskFreeRate) / downsideDeviation;
+    }
+
+    private (int MaxWins, int MaxLosses) CalculateConsecutiveStats(List<TradingResult> results)
+    {
+        int currentWins = 0, maxWins = 0;
+        int currentLosses = 0, maxLosses = 0;
+
+        var sortedResults = results.OrderBy(r => r.ExitDate).ToList();
+
+        foreach (var trade in sortedResults)
+        {
+            if (trade.IsWinner)
+            {
+                currentWins++;
+                maxWins = Math.Max(maxWins, currentWins);
+                currentLosses = 0;
+            }
+            else
+            {
+                currentLosses++;
+                maxLosses = Math.Max(maxLosses, currentLosses);
+                currentWins = 0;
+            }
+        }
+
+        return (maxWins, maxLosses);
+    }
+}
+
+public class EquityPoint
+{
+    public DateTime Date { get; set; }
+    public decimal Balance { get; set; }
+    public TradingResult? Trade { get; set; }
+}
+
+public class DrawdownData
+{
+    public decimal MaxDrawdownPercent { get; set; }
+    public decimal MaxDrawdownValue { get; set; }
+    public int MaxConsecutiveDrawdown { get; set; }
+}
+
+// ============================================================================
+// PERFORMANCE TRACKING - VERSIONE ESTESA
+// ============================================================================
+
+public class StrategyPerformance
+{
+    public string StrategyName { get; set; } = "";
+    public int Week { get; set; }
+    public int Year { get; set; }
+    
+    // Metriche di rendimento
+    public decimal Return { get; set; }
+    public decimal CumulativeReturn { get; set; }
+    
+    // Metriche di rischio
+    public decimal MaxDrawdown { get; set; }
+    public decimal MaxDrawdownValue { get; set; }
+    public decimal Volatility { get; set; }
+    public decimal SharpeRatio { get; set; }
+    public decimal SortinoRatio { get; set; }
+    
+    // Metriche di trading
+    public int TotalTrades { get; set; }
+    public int WinningTrades { get; set; }
+    public int LosingTrades { get; set; }
+    public decimal WinRate => TotalTrades > 0 ? (decimal)WinningTrades / TotalTrades : 0;
+    
+    public decimal AverageWin { get; set; }
+    public decimal AverageLoss { get; set; }
+    public decimal ProfitFactor => AverageLoss != 0 ? Math.Abs(AverageWin / AverageLoss) : 0;
+    
+    // Metriche di consistenza
+    public decimal ConsecutiveWins { get; set; }
+    public decimal ConsecutiveLosses { get; set; }
+    
+    // Balance tracking
+    public decimal InitialBalance { get; set; }
+    public decimal FinalBalance { get; set; }
+    public decimal PeakBalance { get; set; }
+    public decimal NetProfit => FinalBalance - InitialBalance;
+    public decimal NetProfitPercent => InitialBalance != 0 ? (NetProfit / InitialBalance) * 100 : 0;
+    
+    // Metriche aggiuntive
+    public decimal CalmarRatio => MaxDrawdown != 0 ? Return / Math.Abs(MaxDrawdown) : 0;
+    public decimal RecoveryFactor => MaxDrawdown != 0 ? Return / Math.Abs(MaxDrawdown) : 0;
+    public int DaysInMarket { get; set; }
+    public int MaxConsecutiveDrawdown { get; set; }
+    
+    // Dettaglio trade
+    public decimal LargestWin { get; set; }
+    public decimal LargestLoss { get; set; }
+    
+    // Equity curve (opzionale, per analisi dettagliate)
+    public List<EquityPoint> EquityCurve { get; set; } = new();
+    
+    // Verifica balance minimo raggiunto
+    public decimal MinBalance => EquityCurve.Any() ? EquityCurve.Min(e => e.Balance) : InitialBalance;
+    public bool HitStopLoss { get; set; }
+    public decimal StopLossLevel { get; set; }
+}
+
+// ============================================================================
+// CONFIGURAZIONE SCORING SYSTEM
+// ============================================================================
+
+public class ScoringConfiguration
+{
+    // Pesi per il calcolo dello score (devono sommare a 1.0)
+    public decimal ReturnWeight { get; set; } = 0.25m;
+    public decimal SharpeRatioWeight { get; set; } = 0.20m;
+    public decimal DrawdownWeight { get; set; } = 0.15m;
+    public decimal WinRateWeight { get; set; } = 0.10m;
+    public decimal ProfitFactorWeight { get; set; } = 0.10m;
+    public decimal ConsistencyWeight { get; set; } = 0.10m;
+    public decimal CalmarRatioWeight { get; set; } = 0.10m;
+    
+    // Soglie minime per considerare una strategia
+    public decimal MinWinRate { get; set; } = 0.40m; // 40%
+    public int MinTotalTrades { get; set; } = 5;
+    public decimal MinSharpeRatio { get; set; } = 0.5m;
+    public decimal MaxDrawdown { get; set; } = -0.20m; // -20%
+    
+    // SOGLIE BASATE SU BALANCE
+    public decimal MinFinalBalance { get; set; } = 0;
+    public decimal MinNetProfit { get; set; } = 0;
+    public decimal MinNetProfitPercent { get; set; } = 0;
+    public bool RequirePositiveBalance { get; set; } = true;
+    public decimal StopLossPercent { get; set; } = -0.30m;
+    
+    // Numero di settimane da valutare (aggiunto qui per completezza)
+    public int? EvaluationWeeks { get; set; } = null;
+    
+    // Penalità
+    public bool PenalizeHighVolatility { get; set; } = true;
+    public bool PenalizeConsecutiveLosses { get; set; } = true;
+    public bool PenalizeDrawdownRecovery { get; set; } = true;
+    public decimal ConsecutiveLossesPenalty { get; set; } = 0.1m;
+    public decimal DrawdownRecoveryPenalty { get; set; } = 0.05m;
+    
+    // Normalizzazione
+    public bool UseNormalization { get; set; } = true;
+    public bool UseRankBasedScoring { get; set; } = false;
+
+    public void ValidateWeights()
+    {
+        var totalWeight = ReturnWeight + SharpeRatioWeight + DrawdownWeight + 
+                         WinRateWeight + ProfitFactorWeight + ConsistencyWeight + CalmarRatioWeight;
+        
+        if (Math.Abs(totalWeight - 1.0m) > 0.01m)
+        {
+            throw new InvalidOperationException(
+                $"I pesi devono sommare a 1.0. Totale corrente: {totalWeight}");
+        }
+    }
+}
+
+// ============================================================================
+// STRATEGY EVALUATION RESULT
+// ============================================================================
+
+public class StrategyEvaluationResult
+{
+    public string StrategyName { get; set; } = "";
+    public decimal FinalScore { get; set; }
+    public bool IsEnabled { get; set; }
+    public int Rank { get; set; }
+    
+    // Score componenti
+    public Dictionary<string, decimal> ComponentScores { get; set; } = new();
+    
+    // Metriche aggregate
+    public decimal AvgReturn { get; set; }
+    public decimal AvgSharpeRatio { get; set; }
+    public decimal AvgDrawdown { get; set; }
+    public decimal AvgWinRate { get; set; }
+    public decimal AvgProfitFactor { get; set; }
+    public int TotalTrades { get; set; }
+    
+    // Ragioni per inclusione/esclusione
+    public List<string> QualificationReasons { get; set; } = new();
+    public List<string> DisqualificationReasons { get; set; } = new();
+    
+    public string Summary => 
+        $"{StrategyName} - Score: {FinalScore:F2} - Rank: {Rank} - " +
+        $"{(IsEnabled ? "✓ ABILITATA" : "✗ DISABILITATA")}";
+}
+
+// ============================================================================
+// STRATEGY ROTATION MANAGER - VERSIONE AVANZATA
+// ============================================================================
+
+public class StrategyRotationManager
+{
+    private readonly List<StrategyPerformance> _performanceHistory = new();
+    private readonly Dictionary<string, bool> _strategyStatus = new();
+    private ScoringConfiguration _config;
+    
+    public int EvaluationWeeks { get; set; } = 4;
+    public int TopStrategiesToEnable { get; set; } = 3;
+
+    public StrategyRotationManager(ScoringConfiguration? config = null)
+    {
+        _config = config ?? new ScoringConfiguration();
+        _config.ValidateWeights();
+    }
+
+    /// <summary>
+    /// Ottiene la configurazione corrente
+    /// </summary>
+    public ScoringConfiguration GetCurrentConfiguration()
+    {
+        return _config;
+    }
+
+    /// <summary>
+    /// Aggiorna la configurazione dello scoring
+    /// </summary>
+    public void UpdateScoringConfiguration(ScoringConfiguration config)
+    {
+        config.ValidateWeights();
+        _config = config;
+    }
+
+    /// <summary>
+    /// Registra la performance di una strategia per una settimana
+    /// </summary>
+    public void RecordWeeklyPerformance(StrategyPerformance performance)
+    {
+        _performanceHistory.Add(performance);
+    }
+
+    /// <summary>
+    /// Valuta e ruota le strategie con sistema di scoring avanzato
+    /// </summary>
+    public List<StrategyEvaluationResult> EvaluateAndRotateStrategies(DateTime currentDate)
+    {
+        var currentWeek = GetWeekNumber(currentDate);
+        var currentYear = currentDate.Year;
+        
+        // Filtra le performance delle ultime N settimane
+        var recentPerformances = _performanceHistory
+            .Where(p => IsWithinLastNWeeks(p.Year, p.Week, currentYear, currentWeek, EvaluationWeeks))
+            .ToList();
+
+        if (recentPerformances.Count == 0)
+        {
+            // Nessuna performance disponibile, abilita tutte
+            return _strategyStatus.Keys.Select(strategyName => new StrategyEvaluationResult
+            {
+                StrategyName = strategyName,
+                FinalScore = 0,
+                IsEnabled = true,
+                Rank = 1,
+                QualificationReasons = new List<string> { "Nessuna performance storica disponibile" }
+            }).ToList();
+        }
+
+        // Calcola metriche aggregate per strategia
+        var strategyMetrics = recentPerformances
+            .GroupBy(p => p.StrategyName)
+            .Select(g => new
+            {
+                StrategyName = g.Key,
+                AvgReturn = g.Average(p => p.Return),
+                AvgSharpeRatio = g.Average(p => p.SharpeRatio),
+                AvgDrawdown = g.Average(p => p.MaxDrawdown),
+                AvgWinRate = g.Average(p => p.WinRate),
+                AvgProfitFactor = g.Average(p => p.ProfitFactor),
+                AvgCalmarRatio = g.Average(p => p.CalmarRatio),
+                AvgVolatility = g.Average(p => p.Volatility),
+                TotalTrades = g.Sum(p => p.TotalTrades),
+                MaxConsecutiveLosses = g.Max(p => p.ConsecutiveLosses),
+                WeeksCount = g.Count(),
+                
+                // NUOVE METRICHE BASATE SU BALANCE
+                AvgInitialBalance = g.Average(p => p.InitialBalance),
+                AvgFinalBalance = g.Average(p => p.FinalBalance),
+                AvgPeakBalance = g.Average(p => p.PeakBalance),
+                AvgNetProfit = g.Average(p => p.NetProfit),
+                AvgNetProfitPercent = g.Average(p => p.NetProfitPercent),
+                MinBalance = g.Min(p => p.MinBalance),
+                AvgMaxDrawdownValue = g.Average(p => p.MaxDrawdownValue),
+                TotalNetProfit = g.Sum(p => p.NetProfit)
+            })
+            .ToList();
+
+        // Valori per normalizzazione
+        var maxReturn = strategyMetrics.Max(s => s.AvgReturn);
+        var minReturn = strategyMetrics.Min(s => s.AvgReturn);
+        var maxSharpe = strategyMetrics.Max(s => s.AvgSharpeRatio);
+        var maxProfitFactor = strategyMetrics.Max(s => s.AvgProfitFactor);
+        var maxCalmar = strategyMetrics.Max(s => s.AvgCalmarRatio);
+        var minDrawdown = strategyMetrics.Min(s => s.AvgDrawdown);
+
+        // Calcola score per ogni strategia
+        var evaluationResults = new List<StrategyEvaluationResult>();
+
+        foreach (var metric in strategyMetrics)
+        {
+            var result = new StrategyEvaluationResult
+            {
+                StrategyName = metric.StrategyName,
+                AvgReturn = metric.AvgReturn,
+                AvgSharpeRatio = metric.AvgSharpeRatio,
+                AvgDrawdown = metric.AvgDrawdown,
+                AvgWinRate = metric.AvgWinRate,
+                AvgProfitFactor = metric.AvgProfitFactor,
+                TotalTrades = metric.TotalTrades
+            };
+
+            // Verifica soglie minime
+            var qualifies = CheckQualificationThresholds(metric, result);
+            
+            if (!qualifies)
+            {
+                result.FinalScore = 0;
+                result.IsEnabled = false;
+                evaluationResults.Add(result);
+                continue;
+            }
+
+            // Calcola score componenti
+            decimal returnScore = 0, sharpeScore = 0, drawdownScore = 0;
+            decimal winRateScore = 0, profitFactorScore = 0, consistencyScore = 0, calmarScore = 0;
+
+            if (_config.UseNormalization)
+            {
+                // Normalizza i valori tra 0 e 1
+                returnScore = Normalize(metric.AvgReturn, minReturn, maxReturn);
+                sharpeScore = Normalize(metric.AvgSharpeRatio, 0, maxSharpe);
+                drawdownScore = 1 - Normalize(Math.Abs(metric.AvgDrawdown), 0, Math.Abs(minDrawdown));
+                winRateScore = metric.AvgWinRate;
+                profitFactorScore = Normalize(metric.AvgProfitFactor, 0, maxProfitFactor);
+                calmarScore = Normalize(metric.AvgCalmarRatio, 0, maxCalmar);
+                
+                // Consistency: combinazione di win rate e basse perdite consecutive
+                consistencyScore = metric.AvgWinRate * (1 - (metric.MaxConsecutiveLosses / 10m));
+                consistencyScore = Math.Max(0, Math.Min(1, consistencyScore));
+            }
+            else
+            {
+                // Usa valori raw
+                returnScore = metric.AvgReturn * 10; // Scala per rendere più significativo
+                sharpeScore = metric.AvgSharpeRatio;
+                drawdownScore = -metric.AvgDrawdown * 10;
+                winRateScore = metric.AvgWinRate * 100;
+                profitFactorScore = metric.AvgProfitFactor;
+                calmarScore = metric.AvgCalmarRatio;
+                consistencyScore = metric.AvgWinRate * 50;
+            }
+
+            // Applica penalità
+            if (_config.PenalizeHighVolatility && metric.AvgVolatility > 0.03m)
+            {
+                var volatilityPenalty = (metric.AvgVolatility - 0.03m) * 2;
+                sharpeScore -= volatilityPenalty;
+                result.QualificationReasons.Add($"Penalità volatilità: {volatilityPenalty:F2}");
+            }
+
+            if (_config.PenalizeConsecutiveLosses && metric.MaxConsecutiveLosses > 3)
+            {
+                var lossesOverThreshold = metric.MaxConsecutiveLosses - 3;
+                var lossPenalty = lossesOverThreshold * _config.ConsecutiveLossesPenalty;
+                consistencyScore -= lossPenalty;
+                result.QualificationReasons.Add($"Penalità perdite consecutive: {lossPenalty:F2}");
+            }
+
+            // Salva score componenti
+            result.ComponentScores["Return"] = returnScore;
+            result.ComponentScores["Sharpe"] = sharpeScore;
+            result.ComponentScores["Drawdown"] = drawdownScore;
+            result.ComponentScores["WinRate"] = winRateScore;
+            result.ComponentScores["ProfitFactor"] = profitFactorScore;
+            result.ComponentScores["Consistency"] = consistencyScore;
+            result.ComponentScores["Calmar"] = calmarScore;
+
+            // Calcola score finale pesato
+            result.FinalScore = 
+                returnScore * _config.ReturnWeight +
+                sharpeScore * _config.SharpeRatioWeight +
+                drawdownScore * _config.DrawdownWeight +
+                winRateScore * _config.WinRateWeight +
+                profitFactorScore * _config.ProfitFactorWeight +
+                consistencyScore * _config.ConsistencyWeight +
+                calmarScore * _config.CalmarRatioWeight;
+
+            evaluationResults.Add(result);
+        }
+
+        // Ranking
+        if (_config.UseRankBasedScoring)
+        {
+            // Assegna score basato sul rank in ogni metrica
+            evaluationResults = ApplyRankBasedScoring(evaluationResults);
+        }
+
+        // Ordina per score e assegna rank
+        evaluationResults = evaluationResults.OrderByDescending(r => r.FinalScore).ToList();
+        
+        for (int i = 0; i < evaluationResults.Count; i++)
+        {
+            evaluationResults[i].Rank = i + 1;
+            evaluationResults[i].IsEnabled = i < TopStrategiesToEnable && 
+                                            evaluationResults[i].DisqualificationReasons.Count == 0;
+        }
+
+        // Aggiorna stato strategie
+        foreach (var result in evaluationResults)
+        {
+            _strategyStatus[result.StrategyName] = result.IsEnabled;
+        }
+
+        return evaluationResults;
+    }
+
+    private bool CheckQualificationThresholds(dynamic metric, StrategyEvaluationResult result)
+    {
+        bool qualifies = true;
+
+        // Soglie tradizionali
+        if (metric.AvgWinRate < _config.MinWinRate)
+        {
+            result.DisqualificationReasons.Add(
+                $"Win rate troppo basso: {metric.AvgWinRate:P2} < {_config.MinWinRate:P2}");
+            qualifies = false;
+        }
+
+        if (metric.TotalTrades < _config.MinTotalTrades)
+        {
+            result.DisqualificationReasons.Add(
+                $"Trade insufficienti: {metric.TotalTrades} < {_config.MinTotalTrades}");
+            qualifies = false;
+        }
+
+        if (metric.AvgSharpeRatio < _config.MinSharpeRatio)
+        {
+            result.DisqualificationReasons.Add(
+                $"Sharpe ratio troppo basso: {metric.AvgSharpeRatio:F2} < {_config.MinSharpeRatio:F2}");
+            qualifies = false;
+        }
+
+        if (metric.AvgDrawdown < _config.MaxDrawdown)
+        {
+            result.DisqualificationReasons.Add(
+                $"Drawdown eccessivo: {metric.AvgDrawdown:P2} < {_config.MaxDrawdown:P2}");
+            qualifies = false;
+        }
+
+        // NUOVE SOGLIE BASATE SU BALANCE E PROFIT
+        if (metric.AvgFinalBalance < _config.MinFinalBalance)
+        {
+            result.DisqualificationReasons.Add(
+                $"Balance finale insufficiente: ${metric.AvgFinalBalance:F2} < ${_config.MinFinalBalance:F2}");
+            qualifies = false;
+        }
+
+        if (metric.AvgNetProfit < _config.MinNetProfit)
+        {
+            result.DisqualificationReasons.Add(
+                $"Profit netto insufficiente: ${metric.AvgNetProfit:F2} < ${_config.MinNetProfit:F2}");
+            qualifies = false;
+        }
+
+        if (metric.AvgNetProfitPercent < _config.MinNetProfitPercent)
+        {
+            result.DisqualificationReasons.Add(
+                $"Profit % insufficiente: {metric.AvgNetProfitPercent:F2}% < {_config.MinNetProfitPercent:F2}%");
+            qualifies = false;
+        }
+
+        // Verifica balance sempre positivo
+        if (_config.RequirePositiveBalance && metric.MinBalance < 0)
+        {
+            result.DisqualificationReasons.Add(
+                $"Balance sceso sotto zero: ${metric.MinBalance:F2}");
+            qualifies = false;
+        }
+
+        // Verifica stop loss sul balance
+        if (metric.MaxDrawdownValue > 0)
+        {
+            var drawdownFromInitial = -metric.MaxDrawdownValue / metric.AvgInitialBalance;
+            if (drawdownFromInitial < _config.StopLossPercent)
+            {
+                result.DisqualificationReasons.Add(
+                    $"Hit stop loss: {drawdownFromInitial:P2} < {_config.StopLossPercent:P2}");
+                qualifies = false;
+            }
+        }
+
+        if (qualifies)
+        {
+            result.QualificationReasons.Add("✓ Supera tutte le soglie minime");
+            
+            // Aggiungi info positive sul balance
+            result.QualificationReasons.Add(
+                $"✓ Balance: ${metric.AvgInitialBalance:F0} → ${metric.AvgFinalBalance:F0} " +
+                $"(+{metric.AvgNetProfitPercent:F1}%)");
+            
+            result.QualificationReasons.Add(
+                $"✓ Max DD: {metric.AvgDrawdown:P2} (${metric.AvgMaxDrawdownValue:F2})");
+        }
+
+        return qualifies;
+    }
+
+    private List<StrategyEvaluationResult> ApplyRankBasedScoring(List<StrategyEvaluationResult> results)
+    {
+        var metrics = new[] { "Return", "Sharpe", "Drawdown", "WinRate", "ProfitFactor", "Consistency", "Calmar" };
+        
+        foreach (var metric in metrics)
+        {
+            var ranked = results.OrderByDescending(r => r.ComponentScores[metric]).ToList();
+            for (int i = 0; i < ranked.Count; i++)
+            {
+                ranked[i].ComponentScores[metric] = ranked.Count - i;
+            }
+        }
+
+        foreach (var result in results)
+        {
+            result.FinalScore = 
+                result.ComponentScores["Return"] * _config.ReturnWeight +
+                result.ComponentScores["Sharpe"] * _config.SharpeRatioWeight +
+                result.ComponentScores["Drawdown"] * _config.DrawdownWeight +
+                result.ComponentScores["WinRate"] * _config.WinRateWeight +
+                result.ComponentScores["ProfitFactor"] * _config.ProfitFactorWeight +
+                result.ComponentScores["Consistency"] * _config.ConsistencyWeight +
+                result.ComponentScores["Calmar"] * _config.CalmarRatioWeight;
+        }
+
+        return results;
+    }
+
+    private decimal Normalize(decimal value, decimal min, decimal max)
+    {
+        if (max == min) return 0.5m;
+        return (value - min) / (max - min);
+    }
+
+    /// <summary>
+    /// Ottimizza i pesi della configurazione testando diverse combinazioni
+    /// </summary>
+    public OptimizationResult OptimizeWeights(DateTime startDate, DateTime endDate, 
+        int optimizationRuns = 100)
+    {
+        var random = new Random();
+        var bestScore = decimal.MinValue;
+        ScoringConfiguration? bestConfig = null;
+        var results = new List<(ScoringConfiguration Config, decimal Score)>();
+
+        for (int run = 0; run < optimizationRuns; run++)
+        {
+            // Genera pesi casuali che sommano a 1.0
+            var weights = GenerateRandomWeights(random, 7);
+            
+            var testConfig = new ScoringConfiguration
+            {
+                ReturnWeight = weights[0],
+                SharpeRatioWeight = weights[1],
+                DrawdownWeight = weights[2],
+                WinRateWeight = weights[3],
+                ProfitFactorWeight = weights[4],
+                ConsistencyWeight = weights[5],
+                CalmarRatioWeight = weights[6],
+                MinWinRate = _config.MinWinRate,
+                MinTotalTrades = _config.MinTotalTrades,
+                MinSharpeRatio = _config.MinSharpeRatio,
+                MaxDrawdown = _config.MaxDrawdown
+            };
+
+            UpdateScoringConfiguration(testConfig);
+            
+            // Simula il periodo e calcola performance
+            var score = SimulatePerformance(startDate, endDate);
+            
+            results.Add((testConfig, score));
+
+            if (score > bestScore)
+            {
+                bestScore = score;
+                bestConfig = testConfig;
+            }
+        }
+
+        return new OptimizationResult
+        {
+            BestConfiguration = bestConfig!,
+            BestScore = bestScore,
+            AllResults = results.OrderByDescending(r => r.Score).ToList()
+        };
+    }
+
+    private decimal[] GenerateRandomWeights(Random random, int count)
+    {
+        var weights = new decimal[count];
+        var sum = 0m;
+
+        for (int i = 0; i < count; i++)
+        {
+            weights[i] = (decimal)random.NextDouble();
+            sum += weights[i];
+        }
+
+        // Normalizza per sommare a 1.0
+        for (int i = 0; i < count; i++)
+        {
+            weights[i] /= sum;
+        }
+
+        return weights;
+    }
+
+    private decimal SimulatePerformance(DateTime startDate, DateTime endDate)
+    {
+        // Questa è una simulazione semplificata
+        // In un caso reale, dovresti eseguire un backtest completo
+        
+        var relevantPerformances = _performanceHistory
+            .Where(p => 
+            {
+                var date = GetDateFromWeek(p.Year, p.Week);
+                return date >= startDate && date <= endDate;
+            })
+            .ToList();
+
+        if (relevantPerformances.Count == 0) return 0;
+
+        // Calcola il rendimento totale delle strategie selezionate
+        var totalReturn = 0m;
+        var weeksProcessed = relevantPerformances.Select(p => (p.Year, p.Week)).Distinct().Count();
+
+        foreach (var weekGroup in relevantPerformances.GroupBy(p => (p.Year, p.Week)))
+        {
+            var weekDate = GetDateFromWeek(weekGroup.Key.Year, weekGroup.Key.Week);
+            var evaluation = EvaluateAndRotateStrategies(weekDate);
+            
+            var enabledStrategies = evaluation.Where(e => e.IsEnabled).Select(e => e.StrategyName).ToHashSet();
+            var weekReturn = weekGroup
+                .Where(p => enabledStrategies.Contains(p.StrategyName))
+                .Average(p => p.Return);
+            
+            totalReturn += weekReturn;
+        }
+
+        return totalReturn / weeksProcessed;
+    }
+
+    /// <summary>
+    /// Registra una nuova strategia nel sistema
+    /// </summary>
+    public void RegisterStrategy(string strategyName, bool initiallyEnabled = true)
+    {
+        if (!_strategyStatus.ContainsKey(strategyName))
+        {
+            _strategyStatus[strategyName] = initiallyEnabled;
+        }
+    }
+
+    /// <summary>
+    /// Verifica se una strategia è abilitata
+    /// </summary>
+    public bool IsStrategyEnabled(string strategyName)
+    {
+        return _strategyStatus.TryGetValue(strategyName, out var enabled) && enabled;
+    }
+
+    private int GetWeekNumber(DateTime date)
+    {
+        var culture = System.Globalization.CultureInfo.CurrentCulture;
+        return culture.Calendar.GetWeekOfYear(date, 
+            System.Globalization.CalendarWeekRule.FirstFourDayWeek, 
+            DayOfWeek.Monday);
+    }
+
+    private bool IsWithinLastNWeeks(int perfYear, int perfWeek, int currentYear, 
+        int currentWeek, int nWeeks)
+    {
+        var perfDate = GetDateFromWeek(perfYear, perfWeek);
+        var currentDate = GetDateFromWeek(currentYear, currentWeek);
+        var weeksDiff = (currentDate - perfDate).Days / 7;
+        
+        return weeksDiff >= 0 && weeksDiff < nWeeks;
+    }
+
+    private DateTime GetDateFromWeek(int year, int week)
+    {
+        var jan1 = new DateTime(year, 1, 1);
+        var daysOffset = DayOfWeek.Monday - jan1.DayOfWeek;
+        var firstMonday = jan1.AddDays(daysOffset);
+        return firstMonday.AddDays((week - 1) * 7);
+    }
+
+    public List<StrategyPerformance> GetPerformanceHistory(string? strategyName = null, 
+        int? lastNWeeks = null)
+    {
+        var query = _performanceHistory.AsQueryable();
+        
+        if (strategyName != null)
+            query = query.Where(p => p.StrategyName == strategyName);
+            
+        if (lastNWeeks.HasValue)
+        {
+            var now = DateTime.Now;
+            var currentWeek = GetWeekNumber(now);
+            var currentYear = now.Year;
+            query = query.Where(p => IsWithinLastNWeeks(p.Year, p.Week, 
+                currentYear, currentWeek, lastNWeeks.Value));
+        }
+        
+        return query.OrderByDescending(p => p.Year).ThenByDescending(p => p.Week).ToList();
+    }
+}
+
+public class OptimizationResult
+{
+    public ScoringConfiguration BestConfiguration { get; set; } = new();
+    public decimal BestScore { get; set; }
+    public List<(ScoringConfiguration Config, decimal Score)> AllResults { get; set; } = new();
+}
+
+// ============================================================================
+// WEEKLY ROTATION SCHEDULER - Gestione automatica rotazione settimanale
+// ============================================================================
+
+public class WeeklyRotationScheduler
+{
+    private readonly StrategyRotationManager _rotationManager;
+    private readonly Dictionary<DateTime, WeeklySetup> _weeklySetups = new();
+    private WeeklySetup? _currentSetup;
+
+    public WeeklyRotationScheduler(StrategyRotationManager rotationManager)
+    {
+        _rotationManager = rotationManager;
+    }
+
+    /// <summary>
+    /// Esegue la rotazione settimanale e produce il setup per la settimana
+    /// Da chiamare ogni weekend
+    /// </summary>
+    public WeeklySetup ExecuteWeeklyRotation(DateTime weekendDate)
+    {
+        // Valuta le strategie basandosi sulle ultime N settimane
+        var evaluation = _rotationManager.EvaluateAndRotateStrategies(weekendDate);
+
+        var setup = new WeeklySetup
+        {
+            GenerationDate = weekendDate,
+            Week = GetWeekNumber(weekendDate),
+            Year = weekendDate.Year,
+            StartDate = GetWeekStartDate(weekendDate),
+            EndDate = GetWeekEndDate(weekendDate),
+            EnabledStrategies = evaluation
+                .Where(e => e.IsEnabled)
+                .Select(e => e.StrategyName)
+                .ToList(),
+            StrategyEvaluations = evaluation,
+            Configuration = _rotationManager.GetCurrentConfiguration()
+        };
+
+        // Salva il setup
+        _weeklySetups[setup.StartDate] = setup;
+        _currentSetup = setup;
+
+        return setup;
+    }
+
+    /// <summary>
+    /// Ottiene il setup per una data specifica (per backtesting)
+    /// </summary>
+    public WeeklySetup GetSetupForDate(DateTime date)
+    {
+        var weekStart = GetWeekStartDate(date);
+        
+        if (_weeklySetups.TryGetValue(weekStart, out var setup))
+        {
+            return setup;
+        }
+
+        // Se non esiste, genera il setup per quella settimana
+        var previousWeekend = weekStart.AddDays(-1); // Domenica precedente
+        return ExecuteWeeklyRotation(previousWeekend);
+    }
+
+    /// <summary>
+    /// Ottiene il setup corrente (per real-time)
+    /// </summary>
+    public WeeklySetup GetCurrentSetup()
+    {
+        if (_currentSetup != null && IsSetupValid(_currentSetup))
+        {
+            return _currentSetup;
+        }
+
+        // Genera nuovo setup se necessario
+        var now = DateTime.Now;
+        var lastWeekend = GetLastWeekend(now);
+        return ExecuteWeeklyRotation(lastWeekend);
+    }
+
+    /// <summary>
+    /// Verifica se una data è nel weekend (per triggering automatico)
+    /// </summary>
+    public bool IsWeekend(DateTime date)
+    {
+        return date.DayOfWeek == DayOfWeek.Saturday || date.DayOfWeek == DayOfWeek.Sunday;
+    }
+
+    /// <summary>
+    /// Verifica se è necessario eseguire una nuova rotazione
+    /// </summary>
+    public bool NeedsRotation(DateTime currentDate)
+    {
+        if (_currentSetup == null) return true;
+        
+        return currentDate > _currentSetup.EndDate;
+    }
+
+    /// <summary>
+    /// Ottiene lo storico dei setup settimanali
+    /// </summary>
+    public List<WeeklySetup> GetSetupHistory(int? lastNWeeks = null)
+    {
+        var setups = _weeklySetups.Values.OrderByDescending(s => s.StartDate).ToList();
+        
+        if (lastNWeeks.HasValue)
+        {
+            return setups.Take(lastNWeeks.Value).ToList();
+        }
+        
+        return setups;
+    }
+
+    private bool IsSetupValid(WeeklySetup setup)
+    {
+        var now = DateTime.Now;
+        return now >= setup.StartDate && now <= setup.EndDate;
+    }
+
+    private DateTime GetLastWeekend(DateTime date)
+    {
+        // Trova la domenica precedente o corrente
+        var daysToSubtract = (int)date.DayOfWeek;
+        if (daysToSubtract == 0) // È già domenica
+            return date;
+        
+        return date.AddDays(-daysToSubtract);
+    }
+
+    private DateTime GetWeekStartDate(DateTime date)
+    {
+        // Lunedì della settimana
+        var daysToSubtract = (int)date.DayOfWeek - (int)DayOfWeek.Monday;
+        if (daysToSubtract < 0) daysToSubtract += 7;
+        
+        return date.AddDays(-daysToSubtract).Date;
+    }
+
+    private DateTime GetWeekEndDate(DateTime date)
+    {
+        // Domenica della settimana
+        var weekStart = GetWeekStartDate(date);
+        return weekStart.AddDays(6).Date.AddHours(23).AddMinutes(59).AddSeconds(59);
+    }
+
+    private int GetWeekNumber(DateTime date)
+    {
+        var culture = System.Globalization.CultureInfo.CurrentCulture;
+        return culture.Calendar.GetWeekOfYear(date, 
+            System.Globalization.CalendarWeekRule.FirstFourDayWeek, 
+            DayOfWeek.Monday);
+    }
+}
+
+public class WeeklySetup
+{
+    public DateTime GenerationDate { get; set; }
+    public int Week { get; set; }
+    public int Year { get; set; }
+    public DateTime StartDate { get; set; }
+    public DateTime EndDate { get; set; }
+    public List<string> EnabledStrategies { get; set; } = new();
+    public List<StrategyEvaluationResult> StrategyEvaluations { get; set; } = new();
+    public ScoringConfiguration Configuration { get; set; } = new();
+
+    public string Summary => 
+        $"Setup Settimana {Week}/{Year} ({StartDate:dd/MM} - {EndDate:dd/MM}): " +
+        $"{EnabledStrategies.Count} strategie abilitate";
+
+    public void PrintReport()
+    {
+        Console.WriteLine($"\n{'=',60}");
+        Console.WriteLine($"SETUP SETTIMANALE - Settimana {Week}/{Year}");
+        Console.WriteLine($"Periodo: {StartDate:dd/MM/yyyy} - {EndDate:dd/MM/yyyy}");
+        Console.WriteLine($"Generato il: {GenerationDate:dd/MM/yyyy HH:mm}");
+        Console.WriteLine($"{'=',60}\n");
+
+        Console.WriteLine($"STRATEGIE ABILITATE ({EnabledStrategies.Count}):");
+        foreach (var strategy in EnabledStrategies)
+        {
+            var eval = StrategyEvaluations.First(e => e.StrategyName == strategy);
+            Console.WriteLine($"  ✓ {strategy}");
+            Console.WriteLine($"    Score: {eval.FinalScore:F2} | Rank: {eval.Rank}");
+            Console.WriteLine($"    Return: {eval.AvgReturn:F2}% | Sharpe: {eval.AvgSharpeRatio:F2}");
+            Console.WriteLine($"    DD: {eval.AvgDrawdown:P2} | Win Rate: {eval.AvgWinRate:P2}");
+        }
+
+        var disabled = StrategyEvaluations.Where(e => !e.IsEnabled).ToList();
+        if (disabled.Any())
+        {
+            Console.WriteLine($"\nSTRATEGIE DISABILITATE ({disabled.Count}):");
+            foreach (var eval in disabled)
+            {
+                Console.WriteLine($"  ✗ {eval.StrategyName} (Score: {eval.FinalScore:F2})");
+                if (eval.DisqualificationReasons.Any())
+                {
+                    Console.WriteLine($"    Motivo: {eval.DisqualificationReasons.First()}");
+                }
+            }
+        }
+
+        Console.WriteLine($"\nCONFIGURAZIONE RISK MANAGEMENT:");
+        Console.WriteLine($"  - Evaluation Weeks: {Configuration.EvaluationWeeks ?? 4}");
+        Console.WriteLine($"  - Min Win Rate: {Configuration.MinWinRate:P0}");
+        Console.WriteLine($"  - Max Drawdown: {Configuration.MaxDrawdown:P0}");
+        Console.WriteLine($"  - Stop Loss: {Configuration.StopLossPercent:P0}");
+        Console.WriteLine($"  - Min Net Profit: ${Configuration.MinNetProfit:F0}");
+        Console.WriteLine($"{'=',60}\n");
+    }
+}
+
+// ============================================================================
+// TRADING ENGINE - CON GESTIONE AUTOMATICA SETUP SETTIMANALE
+// ============================================================================
+
+public class TradingEngine
+{
+    private readonly List<ITradingStrategy> _strategies = new();
+    private readonly StrategyRotationManager _rotationManager;
+    private readonly WeeklyRotationScheduler _scheduler;
+    private readonly PerformanceCalculator _performanceCalculator;
+    private readonly Dictionary<string, List<TradingResult>> _weeklyResults = new();
+
+    public TradingEngine(StrategyRotationManager rotationManager, 
+                        decimal initialBalance = 10000m,
+                        decimal commissionPerTrade = 2m)
+    {
+        _rotationManager = rotationManager;
+        _scheduler = new WeeklyRotationScheduler(rotationManager);
+        _performanceCalculator = new PerformanceCalculator(initialBalance, commissionPerTrade);
+    }
+
+    public void AddStrategy(ITradingStrategy strategy)
+    {
+        _strategies.Add(strategy);
+        _rotationManager.RegisterStrategy(strategy.Name);
+    }
+
+    /// <summary>
+    /// MODALITÀ BACKTESTING: Esegue backtest con rotazione automatica settimanale
+    /// </summary>
+    public BacktestResult RunBacktestWithWeeklyRotation(
+        OhlcvData[] data, 
+        DateTime startDate, 
+        DateTime endDate)
+    {
+        var result = new BacktestResult
+        {
+            StartDate = startDate,
+            EndDate = endDate
+        };
+
+        // Raggruppa dati per settimana
+        var dataByWeek = data
+            .Where(d => d.Date >= startDate && d.Date <= endDate)
+            .GroupBy(d => GetWeekStartDate(d.Date))
+            .OrderBy(g => g.Key)
+            .ToList();
+
+        Console.WriteLine($"\n=== BACKTEST CON ROTAZIONE SETTIMANALE ===");
+        Console.WriteLine($"Periodo: {startDate:dd/MM/yyyy} - {endDate:dd/MM/yyyy}");
+        Console.WriteLine($"Numero settimane: {dataByWeek.Count}\n");
+
+        foreach (var weekData in dataByWeek)
+        {
+            var weekStart = weekData.Key;
+            var weekEnd = weekStart.AddDays(6);
+            var weekend = weekEnd; // Domenica
+
+            Console.WriteLine($"\n--- Settimana {GetWeekNumber(weekStart)}/{weekStart.Year} ---");
+
+            // 1. WEEKEND: Esegue rotazione e genera setup
+            Console.WriteLine($"[Weekend {weekend:dd/MM}] Esecuzione rotazione...");
+            var setup = _scheduler.ExecuteWeeklyRotation(weekend);
+            result.WeeklySetups.Add(setup);
+
+            Console.WriteLine($"Strategie abilitate: {string.Join(", ", setup.EnabledStrategies)}");
+
+            // 2. SETTIMANA: Trading con le strategie abilitate
+            var weekResults = new Dictionary<string, List<TradingResult>>();
+
+            foreach (var date in weekData.Select(d => d.Date).OrderBy(d => d))
+            {
+                var historicalData = data.Where(d => d.Date <= date).ToArray();
+                
+                // Esegue solo le strategie abilitate dal setup
+                foreach (var strategy in _strategies.Where(s => setup.EnabledStrategies.Contains(s.Name)))
+                {
+                    var signal = strategy.GenerateSignal(historicalData, date);
+                    
+                    if (signal.Type != SignalType.Hold)
+                    {
+                        result.AllSignals.Add(signal);
+                        
+                        // Simula esecuzione trade (semplificato)
+                        // In un caso reale, gestiresti l'entry/exit completo
+                    }
+                }
+            }
+
+            // 3. FINE SETTIMANA: Calcola performance
+            foreach (var strategyName in setup.EnabledStrategies)
+            {
+                if (_weeklyResults.TryGetValue(strategyName, out var trades) && trades.Any())
+                {
+                    var performance = _performanceCalculator.CalculatePerformance(
+                        strategyName,
+                        trades,
+                        GetWeekNumber(weekStart),
+                        weekStart.Year
+                    );
+
+                    _rotationManager.RecordWeeklyPerformance(performance);
+                    result.WeeklyPerformances.Add(performance);
+
+                    Console.WriteLine($"  {strategyName}: {performance.NetProfitPercent:F2}% " +
+                        $"({performance.WinningTrades}/{performance.TotalTrades} win)");
+                }
+            }
+        }
+
+        result.CalculateSummary();
+        return result;
+    }
+
+    /// <summary>
+    /// MODALITÀ REAL-TIME: Esegue strategie con setup corrente
+    /// </summary>
+    public List<TradeSignal> ExecuteRealTime(OhlcvData[] data, DateTime currentDate)
+    {
+        var signals = new List<TradeSignal>();
+
+        // Verifica se è weekend e serve nuova rotazione
+        if (_scheduler.IsWeekend(currentDate) && _scheduler.NeedsRotation(currentDate))
+        {
+            Console.WriteLine($"\n[WEEKEND {currentDate:dd/MM/yyyy}] Esecuzione rotazione settimanale...");
+            var setup = _scheduler.ExecuteWeeklyRotation(currentDate);
+            setup.PrintReport();
+        }
+
+        // Ottiene setup corrente
+        var currentSetup = _scheduler.GetCurrentSetup();
+        
+        Console.WriteLine($"\n[{currentDate:dd/MM/yyyy HH:mm}] Trading con setup settimana {currentSetup.Week}/{currentSetup.Year}");
+        Console.WriteLine($"Strategie attive: {string.Join(", ", currentSetup.EnabledStrategies)}");
+
+        // Esegue solo le strategie abilitate
+        foreach (var strategy in _strategies.Where(s => currentSetup.EnabledStrategies.Contains(s.Name)))
+        {
+            var signal = strategy.GenerateSignal(data, currentDate);
+            
+            if (signal.Type != SignalType.Hold)
+            {
+                signals.Add(signal);
+                Console.WriteLine($"  {signal.StrategyName}: {signal.Type} @ {signal.Price}");
+            }
+        }
+
+        return signals;
+    }
+
+    /// <summary>
+    /// Registra un trade completato per tracking performance
+    /// </summary>
+    public void RecordTrade(TradingResult trade)
+    {
+        if (!_weeklyResults.ContainsKey(trade.StrategyName))
+        {
+            _weeklyResults[trade.StrategyName] = new List<TradingResult>();
+        }
+        
+        _weeklyResults[trade.StrategyName].Add(trade);
+    }
+
+    /// <summary>
+    /// Finalizza la settimana e calcola performance (chiamato alla fine di ogni settimana)
+    /// </summary>
+    public void FinalizeWeek(DateTime weekEnd)
+    {
+        var weekStart = GetWeekStartDate(weekEnd);
+        var week = GetWeekNumber(weekStart);
+        var year = weekStart.Year;
+
+        Console.WriteLine($"\n=== FINALIZZAZIONE SETTIMANA {week}/{year} ===\n");
+
+        foreach (var (strategyName, trades) in _weeklyResults)
+        {
+            if (trades.Any())
+            {
+                var performance = _performanceCalculator.CalculatePerformance(
+                    strategyName,
+                    trades,
+                    week,
+                    year
+                );
+
+                _rotationManager.RecordWeeklyPerformance(performance);
+
+                Console.WriteLine($"{strategyName}:");
+                Console.WriteLine($"  Trades: {performance.TotalTrades}");
+                Console.WriteLine($"  Net Profit: ${performance.NetProfit:F2} ({performance.NetProfitPercent:F2}%)");
+                Console.WriteLine($"  Win Rate: {performance.WinRate:P2}");
+                Console.WriteLine($"  Max DD: {performance.MaxDrawdown:P2}\n");
+            }
+        }
+
+        // Pulisce i risultati per la settimana successiva
+        _weeklyResults.Clear();
+    }
+
+    /// <summary>
+    /// Forza una rotazione manuale (per testing o situazioni eccezionali)
+    /// </summary>
+    public WeeklySetup ForceRotation(DateTime date)
+    {
+        Console.WriteLine($"\n[ROTAZIONE FORZATA] {date:dd/MM/yyyy}");
+        return _scheduler.ExecuteWeeklyRotation(date);
+    }
+
+    /// <summary>
+    /// Ottiene il setup corrente
+    /// </summary>
+    public WeeklySetup GetCurrentSetup()
+    {
+        return _scheduler.GetCurrentSetup();
+    }
+
+    /// <summary>
+    /// Ottiene lo storico dei setup
+    /// </summary>
+    public List<WeeklySetup> GetSetupHistory(int? lastNWeeks = null)
+    {
+        return _scheduler.GetSetupHistory(lastNWeeks);
+    }
+
+    private DateTime GetWeekStartDate(DateTime date)
+    {
+        var daysToSubtract = (int)date.DayOfWeek - (int)DayOfWeek.Monday;
+        if (daysToSubtract < 0) daysToSubtract += 7;
+        return date.AddDays(-daysToSubtract).Date;
+    }
+
+    private int GetWeekNumber(DateTime date)
+    {
+        var culture = System.Globalization.CultureInfo.CurrentCulture;
+        return culture.Calendar.GetWeekOfYear(date,
+            System.Globalization.CalendarWeekRule.FirstFourDayWeek,
+            DayOfWeek.Monday);
+    }
+}
+
+public class BacktestResult
+{
+    public DateTime StartDate { get; set; }
+    public DateTime EndDate { get; set; }
+    public List<WeeklySetup> WeeklySetups { get; set; } = new();
+    public List<TradeSignal> AllSignals { get; set; } = new();
+    public List<StrategyPerformance> WeeklyPerformances { get; set; } = new();
+    
+    // Metriche aggregate
+    public decimal TotalReturn { get; set; }
+    public decimal AverageSharpe { get; set; }
+    public decimal MaxDrawdown { get; set; }
+    public int TotalTrades { get; set; }
+    public decimal WinRate { get; set; }
+
+    public void CalculateSummary()
+    {
+        if (WeeklyPerformances.Any())
+        {
+            TotalReturn = WeeklyPerformances.Sum(p => p.Return);
+            AverageSharpe = WeeklyPerformances.Average(p => p.SharpeRatio);
+            MaxDrawdown = WeeklyPerformances.Min(p => p.MaxDrawdown);
+            TotalTrades = WeeklyPerformances.Sum(p => p.TotalTrades);
+            
+            var totalWins = WeeklyPerformances.Sum(p => p.WinningTrades);
+            WinRate = TotalTrades > 0 ? (decimal)totalWins / TotalTrades : 0;
+        }
+    }
+
+    public void PrintSummary()
+    {
+        Console.WriteLine($"\n{'=',60}");
+        Console.WriteLine("RIEPILOGO BACKTEST");
+        Console.WriteLine($"{'=',60}");
+        Console.WriteLine($"Periodo: {StartDate:dd/MM/yyyy} - {EndDate:dd/MM/yyyy}");
+        Console.WriteLine($"Settimane testate: {WeeklySetups.Count}");
+        Console.WriteLine($"\nPERFORMANCE TOTALE:");
+        Console.WriteLine($"  Return totale: {TotalReturn:F2}%");
+        Console.WriteLine($"  Sharpe medio: {AverageSharpe:F2}");
+        Console.WriteLine($"  Max Drawdown: {MaxDrawdown:P2}");
+        Console.WriteLine($"  Total Trades: {TotalTrades}");
+        Console.WriteLine($"  Win Rate: {WinRate:P2}");
+        
+        Console.WriteLine($"\nROTAZIONI SETTIMANALI:");
+        foreach (var setup in WeeklySetups.OrderBy(s => s.StartDate))
+        {
+            Console.WriteLine($"  Sett. {setup.Week}/{setup.Year}: " +
+                $"{string.Join(", ", setup.EnabledStrategies)}");
+        }
+        Console.WriteLine($"{'=',60}\n");
+    }
+}
+
+// ============================================================================
+// ESEMPIO DI UTILIZZO
+// ============================================================================
+
+public class Program
+{
+    public static void Main()
+    {
+        Console.WriteLine("╔════════════════════════════════════════════════════════════╗");
+        Console.WriteLine("║     SISTEMA DI TRADING CON ROTAZIONE SETTIMANALE          ║");
+        Console.WriteLine("╚════════════════════════════════════════════════════════════╝\n");
+
+        // ===================================================================
+        // SETUP INIZIALE
+        // ===================================================================
+        
+        decimal initialBalance = 10000m;
+        decimal commissionPerTrade = 2m;
+
+        var config = new ScoringConfiguration
+        {
+            // Pesi
+            ReturnWeight = 0.30m,
+            SharpeRatioWeight = 0.25m,
+            DrawdownWeight = 0.15m,
+            WinRateWeight = 0.10m,
+            ProfitFactorWeight = 0.10m,
+            ConsistencyWeight = 0.05m,
+            CalmarRatioWeight = 0.05m,
+            
+            // Risk Management
+            EvaluationWeeks = 4,              // Ultime 4 settimane
+            MinWinRate = 0.45m,
+            MinSharpeRatio = 0.8m,
+            MaxDrawdown = -0.15m,
+            MinNetProfit = 50m,
+            RequirePositiveBalance = true,
+            StopLossPercent = -0.20m
+        };
+
+        var rotationManager = new StrategyRotationManager(config)
+        {
+            EvaluationWeeks = 4,
+            TopStrategiesToEnable = 2
+        };
+
+        var engine = new TradingEngine(rotationManager, initialBalance, commissionPerTrade);
+
+        // Aggiungi strategie
+        var maStrategy = new MovingAverageStrategy();
+        maStrategy.Initialize(new Dictionary<string, object>
+        {
+            { "ShortPeriod", 10 },
+            { "LongPeriod", 30 }
+        });
+        engine.AddStrategy(maStrategy);
+
+        var rsiStrategy = new RsiStrategy();
+        rsiStrategy.Initialize();
+        engine.AddStrategy(rsiStrategy);
+
+        // ===================================================================
+        // ESEMPIO 1: BACKTESTING CON ROTAZIONE AUTOMATICA
+        // ===================================================================
+        
+        Console.WriteLine("╔════════════════════════════════════════════════════════════╗");
+        Console.WriteLine("║               MODALITÀ BACKTESTING                         ║");
+        Console.WriteLine("╚════════════════════════════════════════════════════════════╝\n");
+
+        // Genera dati di esempio per 12 settimane
+        var backtestData = GenerateBacktestData(12);
+
+        // Simula alcuni trade settimanali per popolare la storia
+        SeedWeeklyPerformances(rotationManager, initialBalance);
+
+        // Esegui backtest con rotazione automatica ogni weekend
+        var backtestResult = engine.RunBacktestWithWeeklyRotation(
+            backtestData,
+            new DateTime(2024, 1, 1),
+            new DateTime(2024, 3, 24)
+        );
+
+        backtestResult.PrintSummary();
+
+        // Mostra dettaglio setup settimanali
+        Console.WriteLine("\n╔════════════════════════════════════════════════════════════╗");
+        Console.WriteLine("║           DETTAGLIO SETUP SETTIMANALI                      ║");
+        Console.WriteLine("╚════════════════════════════════════════════════════════════╝\n");
+
+        foreach (var setup in backtestResult.WeeklySetups.Take(3))
+        {
+            setup.PrintReport();
+        }
+
+        // ===================================================================
+        // ESEMPIO 2: MODALITÀ REAL-TIME
+        // ===================================================================
+        
+        Console.WriteLine("\n╔════════════════════════════════════════════════════════════╗");
+        Console.WriteLine("║               MODALITÀ REAL-TIME                           ║");
+        Console.WriteLine("╚════════════════════════════════════════════════════════════╝\n");
+
+        // Simula settimana di trading real-time
+        var currentData = GenerateBacktestData(1);
+        
+        // WEEKEND - Sabato: esegue rotazione
+        var saturday = new DateTime(2024, 3, 30); // Sabato
+        Console.WriteLine($"📅 {saturday:dddd dd/MM/yyyy} - WEEKEND");
+        
+        if (engine.GetCurrentSetup() == null || 
+            saturday > engine.GetCurrentSetup().EndDate)
+        {
+            var setup = engine.ForceRotation(saturday);
+            setup.PrintReport();
+        }
+
+        // SETTIMANA - Lunedì-Venerdì: usa il setup generato nel weekend
+        var tradingDays = new[]
+        {
+            new DateTime(2024, 4, 1),  // Lunedì
+            new DateTime(2024, 4, 2),  // Martedì
+            new DateTime(2024, 4, 3),  // Mercoledì
+            new DateTime(2024, 4, 4),  // Giovedì
+            new DateTime(2024, 4, 5)   // Venerdì
+        };
+
+        foreach (var day in tradingDays)
+        {
+            Console.WriteLine($"\n📈 {day:dddd dd/MM/yyyy} - TRADING");
+            
+            var signals = engine.ExecuteRealTime(currentData, day);
+            
+            if (signals.Any())
+            {
+                Console.WriteLine($"Segnali generati: {signals.Count}");
+                foreach (var signal in signals)
+                {
+                    Console.WriteLine($"  {signal.Type} - {signal.StrategyName} @ {signal.Price:F2}");
+                    
+                    // Simula esecuzione trade
+                    if (signal.Type == SignalType.Buy)
+                    {
+                        var trade = new TradingResult
+                        {
+                            StrategyName = signal.StrategyName,
+                            EntryDate = day,
+                            ExitDate = day.AddDays(1),
+                            EntryPrice = signal.Price,
+                            ExitPrice = signal.Price * 1.02m, // +2% simulato
+                            Quantity = 10,
+                            Direction = SignalType.Buy,
+                            Commission = commissionPerTrade
+                        };
+                        engine.RecordTrade(trade);
+                        Console.WriteLine($"    Trade eseguito: Profit {trade.NetProfit:F2}");
+                    }
+                }
+            }
+            else
+            {
+                Console.WriteLine("Nessun segnale oggi.");
+            }
+        }
+
+        // FINE SETTIMANA - Domenica: finalizza e calcola performance
+        var sunday = new DateTime(2024, 4, 7);
+        Console.WriteLine($"\n📊 {sunday:dddd dd/MM/yyyy} - FINE SETTIMANA");
+        engine.FinalizeWeek(sunday);
+
+        // ===================================================================
+        // ESEMPIO 3: STORICO SETUP E ROTAZIONI
+        // ===================================================================
+        
+        Console.WriteLine("\n╔════════════════════════════════════════════════════════════╗");
+        Console.WriteLine("║           STORICO SETUP E ROTAZIONI                        ║");
+        Console.WriteLine("╚════════════════════════════════════════════════════════════╝\n");
+
+        var history = engine.GetSetupHistory(lastNWeeks: 4);
+        
+        Console.WriteLine($"Ultime {history.Count} settimane:\n");
+        foreach (var setup in history)
+        {
+            Console.WriteLine($"Settimana {setup.Week}/{setup.Year} " +
+                $"({setup.StartDate:dd/MM} - {setup.EndDate:dd/MM})");
+            Console.WriteLine($"  Strategie: {string.Join(", ", setup.EnabledStrategies)}");
+            
+            var topStrategy = setup.StrategyEvaluations
+                .Where(e => e.IsEnabled)
+                .OrderByDescending(e => e.FinalScore)
+                .FirstOrDefault();
+            
+            if (topStrategy != null)
+            {
+                Console.WriteLine($"  Top: {topStrategy.StrategyName} " +
+                    $"(Score: {topStrategy.FinalScore:F2})");
+            }
+            Console.WriteLine();
+        }
+
+        // ===================================================================
+        // ESEMPIO 4: TEST SCENARI DIVERSI
+        // ===================================================================
+        
+        Console.WriteLine("\n╔════════════════════════════════════════════════════════════╗");
+        Console.WriteLine("║        TEST SCENARI DI RISK MANAGEMENT                     ║");
+        Console.WriteLine("╚════════════════════════════════════════════════════════════╝\n");
+
+        TestScenario("CONSERVATIVO", new ScoringConfiguration
+        {
+            ReturnWeight = 0.15m,
+            SharpeRatioWeight = 0.30m,
+            DrawdownWeight = 0.25m,
+            WinRateWeight = 0.15m,
+            ProfitFactorWeight = 0.10m,
+            ConsistencyWeight = 0.05m,
+            CalmarRatioWeight = 0.00m,
+            
+            EvaluationWeeks = 4,
+            MinWinRate = 0.55m,
+            MaxDrawdown = -0.10m,
+            StopLossPercent = -0.10m,
+            RequirePositiveBalance = true
+        }, rotationManager);
+
+        TestScenario("AGGRESSIVO", new ScoringConfiguration
+        {
+            ReturnWeight = 0.50m,
+            SharpeRatioWeight = 0.15m,
+            DrawdownWeight = 0.10m,
+            WinRateWeight = 0.10m,
+            ProfitFactorWeight = 0.10m,
+            ConsistencyWeight = 0.05m,
+            CalmarRatioWeight = 0.00m,
+            
+            EvaluationWeeks = 2,  // Reazione più veloce
+            MinWinRate = 0.40m,
+            MaxDrawdown = -0.25m,
+            StopLossPercent = -0.30m,
+            RequirePositiveBalance = false
+        }, rotationManager);
+
+        Console.WriteLine("\n╔════════════════════════════════════════════════════════════╗");
+        Console.WriteLine("║                    FINE ESEMPI                             ║");
+        Console.WriteLine("╚════════════════════════════════════════════════════════════╝\n");
+    }
+
+    private static void TestScenario(string name, ScoringConfiguration config, 
+        StrategyRotationManager manager)
+    {
+        Console.WriteLine($"\n🔬 SCENARIO: {name}");
+        Console.WriteLine($"├─ Evaluation Weeks: {config.EvaluationWeeks}");
+        Console.WriteLine($"├─ Min Win Rate: {config.MinWinRate:P0}");
+        Console.WriteLine($"├─ Max Drawdown: {config.MaxDrawdown:P0}");
+        Console.WriteLine($"└─ Stop Loss: {config.StopLossPercent:P0}");
+        
+        manager.UpdateScoringConfiguration(config);
+        var results = manager.EvaluateAndRotateStrategies(DateTime.Now);
+        
+        var enabled = results.Where(r => r.IsEnabled).ToList();
+        Console.WriteLine($"\n  Risultato: {enabled.Count} strategie abilitate");
+        
+        foreach (var r in enabled)
+        {
+            Console.WriteLine($"    ✓ {r.StrategyName} (Score: {r.FinalScore:F2}, Rank: {r.Rank})");
+        }
+        
+        var disabled = results.Where(r => !r.IsEnabled).ToList();
+        if (disabled.Any())
+        {
+            Console.WriteLine($"\n  Disabilitate: {disabled.Count}");
+            foreach (var r in disabled)
+            {
+                var reason = r.DisqualificationReasons.FirstOrDefault() ?? "Score insufficiente";
+                Console.WriteLine($"    ✗ {r.StrategyName} ({reason})");
+            }
+        }
+    }
+
+    private static void SeedWeeklyPerformances(StrategyRotationManager manager, 
+        decimal initialBalance)
+    {
+        var calculator = new PerformanceCalculator(initialBalance);
+        var random = new Random(42);
+
+        // Genera 8 settimane di dati storici
+        for (int week = 1; week <= 8; week++)
+        {
+            // MA Strategy
+            var maTrades = GenerateRandomTrades("Moving Average Crossover", 
+                week, random, 12, 0.6m);
+            var maPerf = calculator.CalculatePerformance(
+                "Moving Average Crossover", maTrades, week, 2024);
+            manager.RecordWeeklyPerformance(maPerf);
+
+            // RSI Strategy
+            var rsiTrades = GenerateRandomTrades("RSI Strategy", 
+                week, random, 15, 0.55m);
+            var rsiPerf = calculator.CalculatePerformance(
+                "RSI Strategy", rsiTrades, week, 2024);
+            manager.RecordWeeklyPerformance(rsiPerf);
+        }
+    }
+
+    private static List<TradingResult> GenerateRandomTrades(string strategyName, 
+        int week, Random random, int count, decimal winRate)
+    {
+        var trades = new List<TradingResult>();
+        var startDate = new DateTime(2024, 1, 1).AddDays((week - 1) * 7);
+
+        for (int i = 0; i < count; i++)
+        {
+            var isWinner = random.NextDouble() < (double)winRate;
+            var entryPrice = 100m + (decimal)(random.NextDouble() * 20 - 10);
+            var exitPrice = isWinner 
+                ? entryPrice * (1 + (decimal)random.NextDouble() * 0.05m)
+                : entryPrice * (1 - (decimal)random.NextDouble() * 0.03m);
+
+            trades.Add(new TradingResult
+            {
+                StrategyName = strategyName,
+                EntryDate = startDate.AddDays(i % 5),
+                ExitDate = startDate.AddDays((i % 5) + 1),
+                EntryPrice = entryPrice,
+                ExitPrice = exitPrice,
+                Quantity = 10,
+                Direction = SignalType.Buy,
+                Commission = 2m
+            });
+        }
+
+        return trades;
+    }
+
+    private static OhlcvData[] GenerateBacktestData(int weeks)
+    {
+        var random = new Random(42);
+        var data = new List<OhlcvData>();
+        var basePrice = 100m;
+        var startDate = new DateTime(2024, 1, 1);
+
+        for (int i = 0; i < weeks * 7; i++)
+        {
+            var change = (decimal)(random.NextDouble() - 0.5) * 2;
+            basePrice += change;
+            
+            data.Add(new OhlcvData
+            {
+                Date = startDate.AddDays(i),
+                Open = basePrice,
+                High = basePrice + (decimal)random.NextDouble(),
+                Low = basePrice - (decimal)random.NextDouble(),
+                Close = basePrice + change,
+                Volume = random.Next(1000000, 10000000)
+            });
+        }
+
+        return data.ToArray();
+    }
+}

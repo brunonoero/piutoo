@@ -1,0 +1,172 @@
+
+// Questo codice e' di tipo mean reverting e sfrutta i falsi breakout del max/min di ieri. 
+// Entra a mercato solo dopo che i prezzo, dopo il breakout, torna indietro e chiude al di sotto/sopra del livello di trigger (max  o min di ieri).
+
+// NB: per usare efficacemente il Level Fader il timeframe deve essere 15 minuti. 
+
+
+
+// Reversal on last-session highest high / lowest low
+// Ticker: FDAX
+// Chart: 15 mins - exchange time
+// Coding date: Novembre - 10 - 2022
+
+input: mycontracts(1), //# of contracts
+	
+	sessionStartTimeA(0800), sessionEndTimeA(2200),
+	
+	LevelShift(7),MyTick(1), //  NB: in base allo strumento inserisco il valore del tick ed ottimizzo il levelShift da -10 a +10;
+	
+	MaxTradesPerDay(2),
+	
+	PtnLY(41), PtnLN(42), PtnSY(41), PtnSN(42),  
+	PtnLY_ext(26), PtnLN_ext(74), //NB: UNGER consiglia di essere molto prudenti con i pattern estesi per evitare l'overfitting;
+	PtnSY_ext(40), PtnSN_ext(9), 
+
+	
+	MyStartTime(0800), MyEndTime(1445), MyStartPause(1200),MyEndPause(1100), 
+	
+	MaxDaysLong(6), MaxDaysShort(6),  flatTime(2145), //Maximum # of days to keep long and short position (1=intraday, 0=no limit)
+	
+	SkipSessL(5), SkipSessS(5), //Session of the week to skip
+      
+      MyStopL(3000), MyStopS (4000), MyBreakevenL(0), MyBreakevenS (0), MyProfitL(0), MyProfitS (5000);
+      
+      
+      
+vars:   OKL(true), OKS(true), DaysInTrade(0), SoW(0), mp(0), SessAcross2Days(false), FlatTimeFixed(0), MySessionEntries(0), 
+	   
+	  endsession(0),
+	  
+	  mypivot(0), myR1(0), myS1(0), myR2(0), myS2(0),
+	  MyLETrigger(0), MySETrigger(99999),
+
+
+	  // per gestire gli SL PT con MP=0 inserisco:
+	    MyFlatStop(0);
+	
+
+
+
+//end of session setting////////////////////////un valore di 2500 ad esempio creerebbe una sessione di 24 ore
+if sessionEndTimeA >= 2400 then endsession = sessionStartTimeA
+else endsession = sessionEndTimeA;
+
+
+
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>	Michael OHLC Calculation begin
+array: ohlcValues[23](0);
+var: isStartOfSession(false), highd1(0), lowd1(0); 
+isStartOfSession = _OHLCMulti5(sessionStartTimeA, endsession, ohlcValues);
+highd1 = ohlcValues[5]; lowd1 = ohlcValues[6]; 
+
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>	Michael OHLC Calculation end
+
+
+//UNGER dice che la parte sottostante serve solo per scrupolo e per coprire tutti i possibili sottostanti, sia quelli a cavallo tra due sessioni che quelli che non lo sono:
+once begin
+	SessAcross2Days = sessionStartTimeA>sessionEndTimeA; //Verifies if the session is across 2 calendar days (cosa che succede per la maggior parte dei sottostanti)
+	
+	//Determines the correct flat time according to the session type; 
+	if SessAcross2Days then FlatTimeFixed = sessionStartTimeA
+	else FlatTimeFixed = sessionEndTimeA;
+	if sessionStartTimeA=0 and sessionEndTimeA=0 then FlatTimeFixed = 2359;
+end;
+
+
+If isStartOfSession then begin
+	//Reset permission to work long and short at every session reset (N.B. if you go overnight OKL/OKS will become false at next bar!)
+	OKL = true;	OKS = true;
+	
+	if marketposition<>0 then daysintrade = daysintrade+1;
+	
+	// variabile usata al posto di EntriesToday per lavoraee con i sottostanti americani; viene azzerata ad inizio sessione:
+	MySessionEntries = 0;
+	
+	//Actual session count within the trading week
+	//sow = session of week - e' una finezza da codice avanzato che permette di gestire il giorno di skip session nel caso di sottostante a cavallo di due sessioni; 
+	//infatti la variabile SoW la troviamo piu' in basso nel momento nelle condizioni di entrata;
+
+	if SessAcross2Days then sow = dayofweek(d)+1
+	else sow = dayofweek(d);
+	
+	MySETrigger = highd1+LevelShift*MyTick;
+	MyLETrigger = lowd1-LevelShift*MyTick;	
+	
+end;
+
+
+// ponendo qui queste due condizioni evito di rientrare long o short se sono gia' long o short dalla sessione precedente ed in questa sessione prendo uno SL o un TP:
+if marketposition=1 then okl = false;
+if marketposition=-1 then oks = false;
+
+mp = marketposition;
+if mp<>mp[1] and mp<>0 then MySessionEntries = MySessionEntries + 1;
+
+
+
+                                                           
+                                                                 // CONDIZIONI OPERATIVE:
+
+
+if tw(MyStartTime,MyEndTime) and (t<MyStartPause or t>MyEndPause) and {EntriesToday(d)}MySessionEntries<MaxTradesPerDay then begin
+
+	if okl and UAPtnBase(PtnLY,ohlcvalues) and UAPtnBase(PtnLN,ohlcvalues)=false and PatternFast(PtnLY_ext,ohlcvalues) and PatternFast(PtnLN_ext,ohlcvalues)=false  
+	and sow<>SkipSessL   and c[1]<MyLETrigger and c>MyLETrigger then Buy("LE") mycontracts contracts next bar at the market; 
+		
+	if oks and UAPtnBase(PtnSY,ohlcvalues) and UAPtnBase(PtnSN,ohlcvalues)=false and PatternFast(PtnSY_ext,ohlcvalues) and PatternFast(PtnSN_ext,ohlcvalues)=false 
+	and sow<>SkipSessS   and c[1]>MySETrigger and c<MySETrigger then Sellshort("SE") mycontracts contracts next bar at the market;
+end;
+
+    
+
+
+if mp<>mp[1] and mp<>0 then DaysInTrade = 1;  
+
+
+{ Con le condizioni poste OKL e OKS possiamo reversare ma non rientrare nella stessa direzione long o short se prendiamo uno SL o un TP. Infatti se ad inizio sessione sono gia' ad 
+ esempio long e prendo uno SL o un TP non posso piu' rientrare long nella stessa sessione; posso solamente entrare short se triggera la condizione per lo short.
+ Pertanto faccio solamente un trade o massimo 2 trade al giorno.
+    
+ Piu' in basso inoltre imposto l'uscita nei giorni del maxdayslong e maxdaysshort oppure in base al numero di barre: }
+
+if marketposition=1 then begin
+	//okl = false;
+	if MaxDaysLong>0 and DaysInTrade>=MaxDaysLong then begin
+		setexitonclose;
+		if t>=flatTime and t<FlatTimeFixed then sell("LX_MaxDays") next bar market;
+	end;
+end;
+
+if marketposition=-1 then begin
+	//oks = false;
+	if MaxDaysShort>0 and DaysInTrade>=MaxDaysShort then begin
+		setexitonclose;
+		if t>=flatTime and t<FlatTimeFixed then buytocover("SX_MaxDays") next bar market;
+	end;
+end;
+
+
+{aggiungo questi inputs per gestire l'eventualita' di uno SL o TP con entrata ed uscita all'interno della stessa barra; pertanto qui vanno inseriti il massimo tra i due SL 
+long o short} 
+MyFlatStop = maxlist(MyStopL,MyStopS);
+//MyFlatProfit = maxlist(MyProfitL,MyProfitS);
+
+
+{N.B. devo inserire entrambi gli SL long e short negli inputs alla fine della fase di ottimizzazione altrimenti se da flat entro in posizione lo SL della barra in cui 
+sono entrato non ci sara' e rischio di prendere SL piu' ampi di quelli preventivati}
+setstopcontract;
+if mp=1 then begin
+	if MyStopL>0 then setstoploss(MyStopL);
+	if MyBreakevenL>0 then setbreakeven(MybreakEvenL);
+	if MyProfitL>0 then setprofittarget(MyProfitL);
+end;
+if mp=-1 then begin
+	if MyStopS>0  then setstoploss(MyStopS);
+	if MyBreakevenS>0 then setbreakeven(MybreakEvenS);
+	if MyProfitS>0 then setprofittarget(MyProfitS);
+end;
+//TITAN FAST EXPORT (mette il report direttamente in C:\Titan\Reports
+input: TitanExportMode(0);
+if TitanExportMode=1 then WriteDailiesCTitanReports(1080101, TitanExportMode);
+

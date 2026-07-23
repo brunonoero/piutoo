@@ -1,0 +1,17 @@
+Input: _Account(StringSimple), _PositionID(Numeric);
+Variables: counter(0);
+
+begin
+GetPositionBrokerSymbol = "";
+counter = 0;
+for value1 = 1 to tm_positions_count begin
+	if 	_Account = tm_position_str_value(value1, 2001) then begin
+		counter = counter + 1;
+		if counter = _PositionID then begin
+			GetPositionBrokerSymbol = tm_position_str_value(value1, 2002);
+			break;
+		end;	
+	end;
+end; 
+	
+end

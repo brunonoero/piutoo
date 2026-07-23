@@ -1,0 +1,32 @@
+// UA DAILY PIVOTS ON SESSION FUNCTION
+// RETURN TYPE: NUMERIC
+
+input: PivotLevel(NumericSimple);
+var: CloseS1(0), HighS1(0), LowS1(0);
+var: PP(0), S1(0), S2(0), S3(0), R1(0), R2(0), R3(0);
+
+CloseS1= CloseS(1);
+HighS1 = HighS(1);
+LowS1 = LowS(1);
+
+if (PivotLevel<-3 or PivotLevel>3) then raiseruntimeerror("Invalid Pivot Level!! Choose from -3 to +3")
+else if PivotLevel>=-3 and PivotLevel<=3 then begin
+	// Assignement of the correct values to each variable
+	PP = (CloseS1+HighS1+LowS1)/3;
+	S1=2*PP-HighS1;
+	R1=2*PP-LowS1;
+	S2=PP-(R1-S1);
+	R2=PP+S1+R1;
+	S3=PP-R2+S2;
+	R3=PP-S2+R2;
+	
+	// Assignement of the user's input to each corresponding variable
+	if PivotLevel=0 then UA_DailyPivotsOnSession=PP
+	else if PivotLevel=-1 then UA_DailyPivotsOnSession=S1
+	else if PivotLevel=+1 then UA_DailyPivotsOnSession=R1
+	else if PivotLevel=-2 then UA_DailyPivotsOnSession=S2
+	else if PivotLevel=+2 then UA_DailyPivotsOnSession=R2
+	else if PivotLevel=-3 then UA_DailyPivotsOnSession=S3
+	else if PivotLevel=+3 then UA_DailyPivotsOnSession=R3;
+	
+end;

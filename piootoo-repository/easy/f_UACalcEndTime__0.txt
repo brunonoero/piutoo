@@ -1,0 +1,25 @@
+//Unger Academy - Feb. 28th 2022
+//Type: function
+//Return type: numeric
+//Storage: simple or auto-detect
+//It helps to find the proper time prior to the session end where you can close the trade. It should run under the statement "if isstartofsession then..." (Michael's formula)
+
+input: sessionStartTimeC(numeric),sessionEndTimeC(numeric);
+var: maxBarsPerSession (0);
+
+once begin
+	if bartype<>1 or (bartype=1 and barinterval=1440) then raiseruntimeerror("Invalid timeframe: please choose an intraday minute resolution!");
+	maxBarsPerSession = ceiling(1440/barinterval);
+end;
+
+if BarNumber>maxBarsPerSession*2 then begin
+	for value1=0 to maxBarsPerSession begin
+		if (sessionStartTimeC>=sessionEndTimeC and t[value1+1]<sessionStartTimeC and t[value1]>=sessionStartTimeC) or
+		((sessionStartTimeC = 0 or sessionStartTimeC =2400) and (sessionEndTimeC = 0 or sessionEndTimeC =2400) and (time[value1] < time[value1+1])) or
+		(sessionStartTimeC<sessionEndTimeC and t[value1]>=sessionStartTimeC and t[value1]<sessionEndTimeC and t[value1]<t[value1+1]) then 
+		begin
+			UACalcEndTime = t[value1+2]; //+1 = takes the latest bar, better +2 for safety
+			break;
+		end;
+	end;
+end;

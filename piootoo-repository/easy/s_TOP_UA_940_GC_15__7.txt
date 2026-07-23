@@ -1,0 +1,83 @@
+// 15 Minutes time frame Exchange Time
+input: MyContracts(1),
+	sessionStartTimeA(1800), sessionEndTimeA(1700),
+	LevelChoice(2), LevelShift(0),MyTick(0.1),
+	PtnDirYes(-49), PtnNeutYes(4), PtnNeutNo(1), 
+	PtnLY(41), PtnLN(42), PtnSY(41), PtnSN(42), 
+	MyStop(1100), MyProfit(5000), ID(1),
+	mydayNolong(1), mydayNoshort(5), 
+	MyStartTrade(2300), MyEndTrade(1600), CloseAtTime(2500), sesstest(0);
+	
+vars:  endsession(0), calcstart(0), calcend(0),timewindow(false),
+	mypivot(0), myR1(0), myS1(0), myR2(0), myS2(0),
+	MyLETrigger(0), MySETrigger(99999), MyEndTime(0),
+	isStartOfSession(false),highd1(0),lowd1(0),closed1(0);
+
+// end of session setting
+if sessionEndTimeA >= 2400 then endsession = sessionStartTimeA 
+else endsession = sessionEndTimeA;
+
+// setting of time to close positions on ID trading
+if isStartOfSession then MyEndtime = UACalcEndTime(sessionStartTimeA,endsession );
+
+if CloseAtTime <> 2500 then MyEndTime = CloseAtTime;//only if we want a specific time of the day to close trades
+
+// setting of time window depending on a number of conditions
+if sesstest = 0 then begin //during normal test we set them as inputs
+	calcstart = MyStartTrade;
+	calcend = MyEndTrade;
+end
+else begin // with sesstest = 1 we set start and end 2 hours after start and 2 hours before end of session
+	calcstart = sessionStartTimeA + 200; //2 hours after session start
+	if calcstart > 2359 then calcstart = calcstart - 2400;
+	calcend = endsession - 200; //2 hours before session end
+	if calcend < 0 then calcend = calcend + 2400;
+end;
+
+timewindow = tw(calcstart,calcend);
+
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>	Michael OHLC Calculation begin
+array: ohlcValues[23](0);
+isStartOfSession = _OHLCMulti5(sessionStartTimeA, endsession, ohlcValues);
+highd1 = ohlcValues[5]; lowd1 = ohlcValues[6]; ;closed1 = ohlcValues[7];
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>	Michael OHLC Calculation end
+
+if isstartofsession then begin
+	mypivot = (highd1+lowd1+closed1)/3;
+	myR1 = 2*mypivot-lowd1;
+	myS1 = 2*mypivot-highd1;
+	myR2 = mypivot+highd1-lowd1;
+	myS2 = mypivot-highd1+lowd1;
+	
+	// levels choice
+	if LevelChoice = 1 then begin
+		MySETrigger = myR1+LevelShift*MyTick;
+		MyLETrigger = myS1-LevelShift*MyTick;
+	end;
+
+	if LevelChoice = 2 then begin
+		MySETrigger = highd1+LevelShift*MyTick;
+		MyLETrigger = lowd1-LevelShift*MyTick;
+	end;
+end;
+
+if PatternNeutralFast(PtnNeutYes,ohlcvalues) and PatternNeutralFast(PtnNeutno,ohlcvalues)=false and timewindow then begin
+
+	If dayofweek(d)<>mydayNolong and UAPtnBase(PtnLY,ohlcvalues) and UAPtnBase(PtnLN,ohlcvalues)=false and PatternDirectionalFast(+PtnDirYes,ohlcvalues) 
+	and c[1]<MyLETrigger and c>MyLETrigger then Buy("LE") MyContracts contracts next bar at the market;
+   
+	If dayofweek(d)<>mydayNoshort and UAPtnBase(PtnSY,ohlcvalues) and UAPtnBase(PtnSN,ohlcvalues)=false and PatternDirectionalFast(-PtnDirYes,ohlcvalues)
+	and c[1]>MySETrigger and c<MySETrigger then Sellshort("SE") MyContracts contracts next bar at the market;
+end;
+
+if ID=0 and time=MyEndTime then begin
+	buytocover("SX_EOSess") next bar at market;
+	sell("LX_EOSess") next bar at market;
+end;
+
+Setstopcontract;
+if mystop > 0 then setstoploss(mystop);
+if MyProfit> 0 then Setprofittarget(MyProfit);
+//TITAN FAST EXPORT (mette il report direttamente in C:\Titan\Reports
+input: TitanExportMode(0);
+if TitanExportMode=1 then WriteDailiesCTitanReports(1080101, TitanExportMode);

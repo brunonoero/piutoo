@@ -1,0 +1,81 @@
+[LegacyColorValue = true]; 
+
+input: numeropattern(numericsimple);
+array: definizioneptn[200](false);
+var: opend0(0),opend1(0),opend2(0),opend3(0),opend4(0), opend5(0);
+var: highd0(0),highd1(0),highd2(0),highd3(0),highd4(0), highd5(0);
+var: lowd0(0),lowd1(0),lowd2(0),lowd3(0),lowd4(0), lowd5(0);
+var: closed0(0),closed1(0),closed2(0),closed3(0),closed4(0), closed5(0);
+
+opend0 = opend(0);
+opend1= opend(1);
+opend2= opend(2);
+opend3= opend(3);
+opend4= opend(4);
+opend5= opend(5);
+
+highd0 = highd(0);
+highd1= highd(1);
+highd2= highd(2);
+highd3= highd(3);
+highd4= highd(4);
+highd5= highd(5);
+
+lowd0 = lowd(0);
+lowd1= lowd(1);
+lowd2= lowd(2);
+lowd3= lowd(3);
+lowd4= lowd(4);
+lowd5= lowd(5);
+
+closed0 = closed(0);
+closed1= closed(1);
+closed2= closed(2);
+closed3= closed(3);
+closed4= closed(4);
+closed5= closed(5);
+
+definizioneptn[1 ]  = absvalue(opend1-closed1)<0.5*(highd1-lowd1)  ;  
+definizioneptn[2 ]  = absvalue(opend1-closed5)<0.5*(highd5-lowd1)  ;  
+definizioneptn[3 ]  = absvalue(opend5-closed1) <0.5*(maxlist(highd1,highd2, highd3, highd4,highd5) - minlist(lowd1, lowd2, lowd3, lowd4, lowd5))  ;
+definizioneptn[4 ]  = ((highd0-opend0)> ((highd1-opend1)*1))  ; 
+definizioneptn[5 ]  = ((highd0-opend0)> ((highd1-opend1)*1.5)) ; 
+definizioneptn[6 ]  =  ((opend0-lowd0)> ((opend1-lowd1)*1)) ;
+definizioneptn[7 ]  =  ((opend0-lowd0)> ((opend1-lowd1)*1.5))  ; 
+definizioneptn[8]  =  closed1>closed2 and closed2>closed3 and closed3>closed4; 
+definizioneptn[9]  =  closed1<closed2 and closed2<closed3 and closed3<closed4;
+definizioneptn[10]  =  highd1>highd2 and lowd1>lowd2;
+definizioneptn[11]  =  highd1<highd2 and lowd1<lowd2;
+definizioneptn[12]  = ((highd0>(lowd0+lowd0*0.75/100)));
+definizioneptn[13]  = ((highd0<(lowd0+lowd0*0.75/100)));
+definizioneptn[14]  = (closed1>closed2);
+definizioneptn[15]  = (closed1<closed2);
+definizioneptn[16]  = (closed1<opend1);
+definizioneptn[17]  = (closed1>opend1);
+definizioneptn[18]  = ((closed1<(closed2-closed2*0.5/100)));
+definizioneptn[19]  = ((closed1>(closed2+closed2*0.5/100)));
+definizioneptn[20]  = (highd0>(highd1));
+definizioneptn[21]  = (highd1>highd5);
+definizioneptn[22]  =(lowd0<lowd1);
+definizioneptn[23]  =(lowd1<lowd5);
+definizioneptn[24]  =(highd1> highd2) and (highd1> highd3) and (highd1> highd4); 
+definizioneptn[25]  =(highd1< highd2) and (highd1< highd3) and (highd1< highd4); 
+definizioneptn[26]  =((lowd1 < lowd2) and (lowd1 < lowd3) and (lowd1 < lowd4));
+definizioneptn[27]  =((lowd1 > lowd2) and (lowd1 > lowd3) and (lowd1 > lowd4));
+definizioneptn[28]  = (closed1>closed2 and closed2>closed3 and opend0>closed1);
+definizioneptn[29]  =(closed1<closed2 and closed2<closed3 and opend0<closed1);
+definizioneptn[30]  =((highd1-closed1)<0.20*(highd1-lowd1));
+definizioneptn[31]  =((closed1-lowd1)<0.20*(highd1-lowd1));
+definizioneptn[32]  =(opend0<lowd1 or opend0>highd1);
+definizioneptn[33]  =((opend0<(closed1-closed1*0.5/100)));
+definizioneptn[34]  =((opend0>(closed1+closed1*0.5/100)));
+definizioneptn[35]  =(highd0<highd1 and lowd0>lowd1);
+definizioneptn[36]  =(highd1-lowd1)< (((highd2-lowd2)+ (highd3-lowd3))/3);
+definizioneptn[37]  =(highd1-lowd1)< (highd2-lowd2) and (highd2-lowd2) < (highd3-lowd3); 
+definizioneptn[38]  =(highd2>highd1 and lowd2<lowd1);
+definizioneptn[39]  =(highd1<highd2 or lowd1>lowd2);
+definizioneptn[40]  =(highd2<highd1 and lowd2>lowd1);
+definizioneptn[41]  =true;
+definizioneptn[42]  =false;
+
+PtnBase = definizioneptn[numeropattern];

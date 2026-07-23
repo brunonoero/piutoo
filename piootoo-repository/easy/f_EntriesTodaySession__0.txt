@@ -1,0 +1,26 @@
+// This function is needed to count the number of trades within a session (standard or custom as well)
+// You need to call the function by assigning the same variable both to output result variable and 3rd input
+// Example in calling signal code:
+// var: TradeNumberSession(0);
+// TradeNumberSession = EntriesTodaySession(sessionStartTimeA, sessionEndTimeA, TradeNumberSession);
+
+// It is not counting trades opened and closed in the same bar, so pay attention!
+
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>	Michael OHLC Calculation begin
+input: sessionStartTimeA(NumericSimple), sessionEndTimeA(NumericSimple), TradesNumber(NumericRef);
+array: ohlcValues[23](0);
+var: isStartOfSession(false);
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>	Michael OHLC Calculation end
+
+isStartOfSession = _OHLCMulti5(sessionStartTimeA, sessionEndTimeA, ohlcValues);                              
+
+var: NewTrade(0);
+
+if marketposition<>0 and BarsSinceEntry=0 then TradesNumber=TradesNumber+1;
+
+if isStartOfSession then begin
+	TradesNumber = 0;
+	if marketposition<>0 and BarsSinceEntry=0 then TradesNumber=TradesNumber+1;
+end;
+
+EntriesTodaySession = TradesNumber;

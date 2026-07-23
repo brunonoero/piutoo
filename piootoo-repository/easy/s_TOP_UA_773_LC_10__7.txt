@@ -1,0 +1,134 @@
+// 15 Minutes time frame Exchange Time
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>	Michael OHLC Calculation begin
+array: ohlcValues[23](0);
+
+
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>	Michael OHLC Calculation end
+
+input: sessionStartTimeA(830), sessionEndTimeA(1305);
+Input: LevelChoice{ 1 pivot 2 masmin di ieri spostati di levelshi}(2), LevelShift(-2),MyTick(0.025);
+input: PtnDirYes(52), PtnNeutYes(55), PtnNeutNo(8); 
+input: PtnSPY(16), PtnSPN(63); 
+Input: MyStop(500), MyProfit(3000), ID(1),WFOstarter(0);
+inputs: mydayNolong(-1), mydayNoshort(-1), MyContracts(1);
+input: MyStartTrade(840), MyEndTrade(1200), CloseAtTime(2500), sesstest(0),maxtempoperd(-1),MeseNo(0);
+var:  endsession(0);
+var: calcstart(0), calcend(0),timewindow(false);
+var: mypivot(0), myR1(0), myS1(0), myR2(0), myS2(0);
+var: MyLETrigger(0), MySETrigger(99999), MyEndTime(0);
+vars: isStartOfSession(false), hDay0(0),lDay0(0),hDay1(0),lDay1(0),cDay1(0),hDay2(0),lDay2(0), closed1(0), oDay0(0), oDay1(0);
+
+//end of session setting////////////////////////
+if sessionEndTimeA >= 2400 then begin
+	endsession = sessionStartTimeA;
+end
+else begin
+	endsession = sessionEndTimeA;
+end;
+////////////////////////////////////////////////
+
+
+// setting of time to close positions on ID trading
+if (time > time[1]) and (Time[1]<endsession and Time>=endsession) then begin
+	MyEndtime = t[2];
+end
+else begin
+if (time < time[1]) and (time >= endsession) then begin
+	MyEndtime = t[2];
+end;
+end;
+
+if CloseAtTime <> 2500 then MyEndTime = CloseAtTime;//only if we want a specific time of the day to close trades
+////////////////////////////////////////////////
+
+// setting of time window depending on a number of conditions
+if sesstest = 0 then begin //during normal test we set them as inputs
+	calcstart = MyStartTrade;
+	calcend = MyEndTrade;
+end
+else begin // with sesstest = 1 we set start and end 2 hours after start and 2 hours before end of session
+	calcstart = sessionStartTimeA + 200; //2 hours after session start
+	if calcstart > 2359 then calcstart = calcstart - 2400;
+	calcend = endsession - 200; //2 hours before session end
+	if calcend < 0 then calcend = calcend + 2400;
+end;
+
+if (calcstart > calcend ) then begin
+	if ((time >= calcstart ) or (time <= calcend )) then begin
+		timewindow = true;
+	end
+	else begin
+		timewindow = false;
+	end;
+end
+else begin
+	if  ((time >= calcstart ) and (time <= calcend )) then begin
+		timewindow = true;
+	end
+	else begin
+		timewindow = false;
+	end;
+End;
+////////////////////////////////////////////////
+
+isStartOfSession = _OHLCMulti5(sessionStartTimeA, endsession, ohlcValues);
+
+
+hDay0 = ohlcValues[1]; lDay0 = ohlcValues[2]; hDay1 = ohlcValues[5]; lDay1 = ohlcValues[6]; cDay1 = ohlcValues[7]; hDay2 = ohlcValues[9]; lDay2 = ohlcValues[10];
+closed1 = ohlcValues[7]; oDay0 = ohlcValues[0]; oDay1 = ohlcValues[4];
+
+
+//levels choice/////////////////////////////////
+
+if isstartofsession then begin//T[1]<sessionStartTimeA and T>=sessionStartTimeA then begin
+    mypivot  = (hDay1+lDay1+cDay1)/3;
+    myR1 = 2*mypivot - lDay1;
+    myS1 = 2*mypivot - hDay1;
+    myR2 = mypivot + (hDay1-lDay1);
+    myS2 = mypivot - (hDay1-lDay1);
+
+end;
+
+if LevelChoice = 1 then begin
+    MySETrigger= myR1 + LevelShift*MyTick;
+    MyLETrigger= myS1- LevelShift*MyTick;
+end;
+
+if LevelChoice = 2 then begin
+    MySETrigger = hDay1 + LevelShift*MyTick;
+    MyLETrigger = lDay1 - LevelShift*MyTick;
+end;
+////////////////////////////////////////////////
+
+
+if  PatternNeutralFast(PtnNeutYes,ohlcvalues) and (PatternNeutralFast(PtnNeutno,ohlcvalues)  =false) and timewindow and  month(date)<>MeseNo then begin 
+
+	If dayofweek(date) <> mydayNolong  and
+	PtnPSpecchio(PtnSPY,ohlcvalues) and PtnPSpecchio(PtnSPN,ohlcvalues)=false and PatternDirectionalFast(+PtnDirYes,ohlcvalues)
+	and  (c[1] < MyLETrigger  and	
+	c > MyLETrigger) then
+    	Buy ("BUY")MyContracts contracts next bar at the market;
+   
+	If dayofweek(date) <> mydayNoshort and 
+	PtnPSpecchio(-PtnSPY,ohlcvalues) and PtnPSpecchio(-PtnSPN,ohlcvalues)=false and PatternDirectionalFast(-PtnDirYes,ohlcvalues)
+	and ( c[1] > MySETrigger and 
+	c < MySETrigger ) then
+    	Sellshort("SELLSHORT") MyContracts contracts next bar at the market;
+end;
+
+if ID = 0 then begin
+	if  time =MyEndTime then begin
+		buytocover("EOSessSX") next bar at market;
+		sell("EOSessLX") next bar at market;
+	end;
+
+end;
+If marketposition = 1 and openpositionprofit < 0 and barssinceentry =(maxtempoperd)then sell("SELLATEMPO") MyContracts contracts next bar at the market;
+If marketposition = -1 and openpositionprofit< 0 and barssinceentry =(maxtempoperd)then buytocover("BUYTOCOVERATEMPO") MyContracts contracts next bar at the market;
+
+
+Setstopcontract;
+if mystop > 0 then setstoploss(mystop);
+if MyProfit> 0 then Setprofittarget(MyProfit);
+input: TitanExportMode(0);
+if TitanExportMode=1 then WriteDailiesCTitanReports(1100101, TitanExportMode);

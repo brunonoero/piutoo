@@ -1,0 +1,9 @@
+input: PeriodsAgo(numericsimple);
+
+var: 	cl(0),hi(0),lo(0);
+
+cl = CloseD(PeriodsAgo+1);
+hi = HighD(PeriodsAgo);
+lo = LowD(PeriodsAgo);
+
+TrueRangeD = maxlist(cl,hi) - minlist(cl,lo);

@@ -1,0 +1,437 @@
+<div class="backtesting-container">
+  <!-- Vista Lista -->
+  <div *ngIf="viewMode === 'list'" class="list-view">
+    <div class="list-header">
+      <h2>📊 Backtesting</h2>
+      <button class="btn-primary" (click)="showNewBacktestingForm()">
+        ➕ Nuovo Backtesting
+      </button>
+    </div>
+
+    <!-- Error Message -->
+    <div *ngIf="error" class="error-message">
+      ⚠️ {{ error }}
+    </div>
+
+    <div *ngIf="isLoading" class="loading">
+      ⏳ Caricamento...
+    </div>
+
+    <div *ngIf="!isLoading && backtestingList.length === 0" class="empty-state">
+      <p>Nessun backtesting trovato</p>
+      <p *ngIf="error" class="error-message">{{ error }}</p>
+    </div>
+
+    <div *ngIf="!isLoading && backtestingList.length > 0" class="list-content">
+      <div class="list-actions">
+        <button 
+          class="btn-secondary" 
+          (click)="selectAllBacktestings()"
+          [disabled]="selectedBacktestingIds.size === backtestingList.length">
+          ✓ Seleziona tutti
+        </button>
+        <button 
+          class="btn-secondary" 
+          (click)="deselectAllBacktestings()"
+          [disabled]="selectedBacktestingIds.size === 0">
+          ✗ Deseleziona tutti
+        </button>
+        <button 
+          class="btn-danger" 
+          (click)="deleteSelectedBacktestings()"
+          [disabled]="selectedBacktestingIds.size === 0">
+          🗑️ Elimina selezionati ({{ selectedBacktestingIds.size }})
+        </button>
+      </div>
+
+      <div class="backtesting-table">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th style="width: 40px;">
+                <input 
+                  type="checkbox" 
+                  [checked]="selectedBacktestingIds.size === backtestingList.length && backtestingList.length > 0"
+                  (change)="selectedBacktestingIds.size === backtestingList.length ? deselectAllBacktestings() : selectAllBacktestings()">
+              </th>
+              <th>Nome</th>
+              <th>Data Inizio</th>
+              <th>Data Fine</th>
+              <th>Capitale Iniziale</th>
+              <th>Capitale Finale</th>
+              <th>Profitto</th>
+              <th>Ritorno %</th>
+              <th>Max Drawdown</th>
+              <th>Azioni</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr 
+              *ngFor="let backtesting of backtestingList" 
+              class="backtesting-row"
+              [class.selected]="isBacktestingSelected(backtesting)"
+              (dblclick)="viewBacktestingDetail(backtesting)">
+              <td>
+                <input 
+                  type="checkbox" 
+                  [checked]="isBacktestingSelected(backtesting)"
+                  (click)="$event.stopPropagation(); toggleBacktestingSelection(backtesting)">
+              </td>
+              <td class="name-cell">{{ backtesting.setupName }}</td>
+              <td>{{ formatDate(backtesting.startDate) }}</td>
+              <td>{{ formatDate(backtesting.endDate) }}</td>
+              <td>{{ formatCurrency(backtesting.initialCapital) }}</td>
+              <td>{{ formatCurrency(backtesting.finalEquity) }}</td>
+              <td [class.positive]="backtesting.totalProfit > 0" [class.negative]="backtesting.totalProfit < 0">
+                {{ formatCurrency(backtesting.totalProfit) }}
+              </td>
+              <td [class.positive]="backtesting.totalReturn > 0" [class.negative]="backtesting.totalReturn < 0">
+                {{ formatPercent(backtesting.totalReturn) }}
+              </td>
+              <td [class.negative]="backtesting.maxDrawdown < 0">
+                {{ formatPercent(backtesting.maxDrawdown) }}
+              </td>
+              <td class="actions-cell">
+                <button 
+                  class="btn-icon" 
+                  (click)="$event.stopPropagation(); viewBacktestingDetail(backtesting)"
+                  title="Visualizza dettagli">
+                  👁️
+                </button>
+                <button 
+                  class="btn-icon btn-danger-icon" 
+                  (click)="$event.stopPropagation(); deleteBacktesting(backtesting)"
+                  title="Elimina">
+                  🗑️
+                </button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Vista Form (Nuovo Backtesting) -->
+  <div *ngIf="viewMode === 'form'" class="form-view">
+    <div class="form-header">
+      <h2>📊 Nuovo Backtesting</h2>
+      <button class="btn-secondary" (click)="backToList()">
+        ← Torna alla lista
+      </button>
+    </div>
+
+    <div class="tabs">
+      <button 
+        class="tab-button" 
+        [class.active]="activeTab === 'config'"
+        (click)="activeTab = 'config'">
+        Configurazione
+      </button>
+      <button 
+        class="tab-button" 
+        [class.active]="activeTab === 'results'"
+        (click)="activeTab = 'results'"
+        [disabled]="!result">
+        Risultati
+      </button>
+    </div>
+
+    <!-- Tab Configurazione -->
+    <div *ngIf="activeTab === 'config'" class="config-tab">
+      <div class="form-group">
+        <label>Nome Backtesting:</label>
+        <input type="text" [(ngModel)]="name" placeholder="Nome del backtesting">
+      </div>
+
+      <div class="form-group">
+        <label>Simboli:</label>
+        <div class="symbols-selection">
+          <div class="symbols-actions">
+            <button type="button" class="btn-link" (click)="selectAllSymbols()">Seleziona tutti</button>
+            <button type="button" class="btn-link" (click)="deselectAllSymbols()">Deseleziona tutti</button>
+          </div>
+          <div class="symbols-list">
+            <label *ngFor="let symbol of availableSymbols" class="symbol-checkbox">
+              <input 
+                type="checkbox" 
+                [checked]="isSymbolSelected(symbol)"
+                (change)="toggleSymbol(symbol)">
+              <span>{{ symbol }}</span>
+            </label>
+            <p *ngIf="availableSymbols.length === 0" class="no-symbols-message">
+              ⚠️ Nessun simbolo disponibile. Verifica che i dati siano stati caricati correttamente.
+            </p>
+          </div>
+          <p *ngIf="selectedSymbols.length > 0" class="selected-count">
+            {{ selectedSymbols.length }} simbolo/i selezionato/i
+          </p>
+          <p *ngIf="availableSymbols.length > 0 && selectedSymbols.length === 0" class="info-message">
+            ℹ️ Seleziona almeno un simbolo per procedere
+          </p>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>Data Inizio:</label>
+        <input type="date" [(ngModel)]="startDate">
+      </div>
+
+      <div class="form-group">
+        <label>Data Fine:</label>
+        <input type="date" [(ngModel)]="endDate">
+      </div>
+
+      <div class="form-group">
+        <label>Capitale Iniziale:</label>
+        <input type="number" [(ngModel)]="initialCapital" min="1000" step="1000">
+      </div>
+
+      <div class="form-group">
+        <label>Commissione per Contratto:</label>
+        <input type="number" [(ngModel)]="commissionPerContract" min="0" step="0.01">
+      </div>
+
+      <div class="form-actions">
+        <button 
+          class="btn-primary" 
+          (click)="startBacktesting()"
+          [disabled]="isRunning || selectedSymbols.length === 0 || !name.trim() || !startDate || !endDate">
+          <span *ngIf="!isRunning">🚀 Avvia Backtesting</span>
+          <span *ngIf="isRunning">⏳ Esecuzione in corso...</span>
+        </button>
+        <div *ngIf="selectedSymbols.length === 0" class="validation-hint">
+          ⚠️ Seleziona almeno un simbolo
+        </div>
+        <div *ngIf="!name.trim()" class="validation-hint">
+          ⚠️ Inserisci un nome per il backtesting
+        </div>
+        <div *ngIf="!startDate || !endDate" class="validation-hint">
+          ⚠️ Seleziona le date di inizio e fine
+        </div>
+      </div>
+
+      <!-- Progress Bar -->
+      <div *ngIf="isRunning && currentJob" class="progress-section">
+        <div class="progress-bar">
+          <div class="progress-fill" [style.width.%]="currentJob.progressPercent"></div>
+        </div>
+        <p>Progresso: {{ currentJob.progressPercent }}%</p>
+      </div>
+
+      <!-- Error Message -->
+      <div *ngIf="error" class="error-message">
+        {{ error }}
+      </div>
+    </div>
+
+    <!-- Tab Risultati -->
+    <div *ngIf="activeTab === 'results' && result" class="results-tab">
+      <div class="summary-section">
+        <h3>Riepilogo</h3>
+        <div class="summary-grid">
+          <div class="summary-item">
+            <label>Capitale Finale:</label>
+            <span>{{ formatCurrency(result.finalEquity) }}</span>
+          </div>
+          <div class="summary-item">
+            <label>Profitto Totale:</label>
+            <span>{{ formatCurrency(result.totalProfit) }}</span>
+          </div>
+          <div class="summary-item">
+            <label>Ritorno:</label>
+            <span>{{ formatPercent(result.totalReturn) }}</span>
+          </div>
+          <div class="summary-item">
+            <label>Max Drawdown:</label>
+            <span>{{ formatPercent(result.maxDrawdown) }}</span>
+          </div>
+          <div class="summary-item">
+            <label>Win Rate:</label>
+            <span>{{ formatPercent(result.winRate) }}</span>
+          </div>
+          <div class="summary-item">
+            <label>Total Trades:</label>
+            <span>{{ result.totalTrades }}</span>
+          </div>
+        </div>
+        
+        <!-- Strategie Utilizzate -->
+        <div class="strategies-summary">
+          <h4>Strategie Utilizzate:</h4>
+          <div class="strategies-list">
+            <span *ngFor="let strategy of getStrategiesDisplay(result)" class="strategy-badge">
+              <span *ngIf="strategy.symbol && strategy.timeframe > 0">
+                {{ strategy.name }} ({{ strategy.symbol }} {{ strategy.timeframe }}m)
+              </span>
+              <span *ngIf="!strategy.symbol || strategy.timeframe === 0">
+                {{ strategy.name }}
+              </span>
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Chart placeholder -->
+      <div class="chart-section">
+        <h3>Equity Curve</h3>
+        <p>Chart da implementare con libreria grafici (es. Chart.js, ng2-charts)</p>
+        <!-- TODO: Implementare chart con equity, drawdown, profit -->
+      </div>
+
+      <!-- Tabella Settimanale -->
+      <div class="weekly-table-section">
+        <h3>Risultati Settimanali</h3>
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Settimana</th>
+              <th>Data From</th>
+              <th>Data To</th>
+              <th>Profit</th>
+              <th>Equity</th>
+              <th>Drawdown</th>
+              <th>Win Rate</th>
+              <th>Trades</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr *ngFor="let week of result.weeklyResults">
+              <td>{{ week.year }}-W{{ week.week }}</td>
+              <td>{{ formatDate(week.weekStart) }}</td>
+              <td>{{ formatDate(week.weekEnd) }}</td>
+              <td>{{ formatCurrency(week.weeklyProfit) }}</td>
+              <td>{{ formatCurrency(week.weeklyEquity) }}</td>
+              <td>{{ formatPercent(week.weeklyDrawdown) }}</td>
+              <td>{{ formatPercent(week.winRate) }}</td>
+              <td>{{ week.totalTrades }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Vista Dettaglio -->
+  <div *ngIf="viewMode === 'detail' && result" class="detail-view">
+    <div class="detail-header">
+      <h2>📊 Dettaglio Backtesting: {{ result.setupName }}</h2>
+      <div class="detail-actions">
+        <button class="btn-secondary" (click)="backToList()">
+          ← Torna alla lista
+        </button>
+        <button 
+          class="btn-danger" 
+          (click)="deleteBacktesting(result)"
+          *ngIf="result">
+          🗑️ Elimina
+        </button>
+      </div>
+    </div>
+
+    <div class="summary-section">
+      <h3>Riepilogo</h3>
+      <div class="summary-grid">
+        <div class="summary-item">
+          <label>Nome:</label>
+          <span>{{ result.setupName }}</span>
+        </div>
+        <div class="summary-item">
+          <label>Data Inizio:</label>
+          <span>{{ formatDate(result.startDate) }}</span>
+        </div>
+        <div class="summary-item">
+          <label>Data Fine:</label>
+          <span>{{ formatDate(result.endDate) }}</span>
+        </div>
+        <div class="summary-item">
+          <label>Capitale Iniziale:</label>
+          <span>{{ formatCurrency(result.initialCapital) }}</span>
+        </div>
+        <div class="summary-item">
+          <label>Capitale Finale:</label>
+          <span>{{ formatCurrency(result.finalEquity) }}</span>
+        </div>
+        <div class="summary-item">
+          <label>Profitto Totale:</label>
+          <span [class.positive]="result.totalProfit > 0" [class.negative]="result.totalProfit < 0">
+            {{ formatCurrency(result.totalProfit) }}
+          </span>
+        </div>
+        <div class="summary-item">
+          <label>Ritorno:</label>
+          <span [class.positive]="result.totalReturn > 0" [class.negative]="result.totalReturn < 0">
+            {{ formatPercent(result.totalReturn) }}
+          </span>
+        </div>
+        <div class="summary-item">
+          <label>Max Drawdown:</label>
+          <span [class.negative]="result.maxDrawdown < 0">
+            {{ formatPercent(result.maxDrawdown) }}
+          </span>
+        </div>
+        <div class="summary-item">
+          <label>Win Rate:</label>
+          <span>{{ formatPercent(result.winRate) }}</span>
+        </div>
+        <div class="summary-item">
+          <label>Total Trades:</label>
+          <span>{{ result.totalTrades }}</span>
+        </div>
+      </div>
+      
+      <!-- Strategie Utilizzate -->
+      <div class="strategies-summary">
+        <h4>Strategie Utilizzate:</h4>
+        <div class="strategies-list">
+          <span *ngFor="let strategy of getStrategiesDisplay(result)" class="strategy-badge">
+            <span *ngIf="strategy.symbol && strategy.timeframe > 0">
+              {{ strategy.name }} ({{ strategy.symbol }} {{ strategy.timeframe }}m)
+            </span>
+            <span *ngIf="!strategy.symbol || strategy.timeframe === 0">
+              {{ strategy.name }}
+            </span>
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Chart placeholder -->
+    <div class="chart-section">
+      <h3>Equity Curve</h3>
+      <p>Chart da implementare con libreria grafici (es. Chart.js, ng2-charts)</p>
+      <!-- TODO: Implementare chart con equity, drawdown, profit -->
+    </div>
+
+    <!-- Tabella Settimanale -->
+    <div class="weekly-table-section">
+      <h3>Risultati Settimanali</h3>
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Settimana</th>
+            <th>Data From</th>
+            <th>Data To</th>
+            <th>Profit</th>
+            <th>Equity</th>
+            <th>Drawdown</th>
+            <th>Win Rate</th>
+            <th>Trades</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr *ngFor="let week of result.weeklyResults">
+            <td>{{ week.year }}-W{{ week.week }}</td>
+            <td>{{ formatDate(week.weekStart) }}</td>
+            <td>{{ formatDate(week.weekEnd) }}</td>
+            <td>{{ formatCurrency(week.weeklyProfit) }}</td>
+            <td>{{ formatCurrency(week.weeklyEquity) }}</td>
+            <td>{{ formatPercent(week.weeklyDrawdown) }}</td>
+            <td>{{ formatPercent(week.winRate) }}</td>
+            <td>{{ week.totalTrades }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>

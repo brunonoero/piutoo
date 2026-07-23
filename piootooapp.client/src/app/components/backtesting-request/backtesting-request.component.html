@@ -1,0 +1,138 @@
+<div class="backtesting-request-container">
+  <!-- Header -->
+  <div class="request-header">
+    <h2>📊 Nuovo Backtesting</h2>
+    <button class="btn-secondary" (click)="navigateToList()">
+      ← Torna alla lista
+    </button>
+  </div>
+
+  <!-- Error Message -->
+  <div *ngIf="error" class="error-message">
+    ⚠️ {{ error }}
+  </div>
+
+  <!-- Form Section (visible when not running) -->
+  <div *ngIf="!isRunning" class="form-section">
+    <div class="form-group">
+      <label>Nome Backtesting:</label>
+      <input type="text" [(ngModel)]="name" placeholder="Nome del backtesting">
+    </div>
+
+    <div class="form-group">
+      <label>Simboli:</label>
+      <div class="symbols-selection">
+        <div class="symbols-actions">
+          <button type="button" class="btn-link" (click)="selectAllSymbols()">Seleziona tutti</button>
+          <button type="button" class="btn-link" (click)="deselectAllSymbols()">Deseleziona tutti</button>
+        </div>
+        <div class="symbols-list">
+          <label *ngFor="let symbol of availableSymbols" class="symbol-checkbox">
+            <input 
+              type="checkbox" 
+              [checked]="isSymbolSelected(symbol)"
+              (change)="toggleSymbol(symbol)">
+            <span>{{ symbol }}</span>
+          </label>
+          <p *ngIf="availableSymbols.length === 0" class="no-symbols-message">
+            ⚠️ Nessun simbolo disponibile.
+          </p>
+        </div>
+        <p *ngIf="selectedSymbols.length > 0" class="selected-count">
+          {{ selectedSymbols.length }} simbolo/i selezionato/i
+        </p>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label>Filtro strategie test libero:</label>
+      <input
+        type="text"
+        [(ngModel)]="strategyTextFilter"
+        placeholder="Es. ClaudioUnger, BIAS, NQ, 1440, nome file">
+      <div class="strategies-selection">
+        <div class="symbols-actions">
+          <button type="button" class="btn-link" (click)="selectFilteredStrategies()">Seleziona visibili</button>
+          <button type="button" class="btn-link" (click)="deselectFilteredStrategies()">Deseleziona visibili</button>
+        </div>
+        <div class="strategies-list">
+          <label *ngFor="let strategy of getFilteredStrategies()" class="strategy-checkbox">
+            <input
+              type="checkbox"
+              [checked]="isStrategySelected(strategy.id)"
+              (change)="toggleStrategy(strategy.id)">
+            <span>{{ strategy.symbol }} | {{ strategy.name }} | {{ strategy.timeframeMinutes }}m</span>
+          </label>
+          <p *ngIf="getFilteredStrategies().length === 0" class="no-symbols-message">
+            ⚠️ Nessuna strategia trovata con il filtro corrente.
+          </p>
+        </div>
+        <p class="selected-count">
+          {{ selectedStrategyIds.length }} strategia/e selezionata/e.
+          Se lasci a 0, il backtesting usa tutte le strategie dei simboli selezionati.
+        </p>
+      </div>
+    </div>
+
+    <div class="form-row">
+      <div class="form-group">
+        <label>Data Inizio:</label>
+        <input type="date" [(ngModel)]="startDate">
+      </div>
+
+      <div class="form-group">
+        <label>Data Fine:</label>
+        <input type="date" [(ngModel)]="endDate">
+      </div>
+    </div>
+
+    <div class="form-row">
+      <div class="form-group">
+        <label>Capitale Iniziale:</label>
+        <input type="number" [(ngModel)]="initialCapital" min="1000" step="1000">
+      </div>
+
+      <div class="form-group">
+        <label>Commissione per Contratto:</label>
+        <input type="number" [(ngModel)]="commissionPerContract" min="0" step="0.01">
+      </div>
+    </div>
+
+    <div class="form-actions">
+      <button 
+        class="btn-primary btn-large" 
+        (click)="startBacktesting()"
+        [disabled]="selectedSymbols.length === 0 || !name.trim() || !startDate || !endDate">
+        🚀 Avvia Backtesting
+      </button>
+    </div>
+  </div>
+
+  <!-- Progress Section (visible when running) -->
+  <div *ngIf="isRunning" class="progress-section">
+    <div class="progress-card">
+      <div class="progress-icon">⏳</div>
+      <h3>Backtesting in corso...</h3>
+      <p class="progress-name">{{ name }}</p>
+      
+      <div *ngIf="currentJob" class="progress-details">
+        <div class="progress-bar">
+          <div class="progress-fill" [style.width.%]="currentJob.progressPercent"></div>
+        </div>
+        <p class="progress-percent">{{ currentJob.progressPercent }}%</p>
+        <p class="progress-operation">{{ currentJob.status }}</p>
+      </div>
+
+      <div *ngIf="!currentJob" class="progress-details">
+        <div class="progress-bar">
+          <div class="progress-fill indeterminate"></div>
+        </div>
+        <p class="progress-operation">Inizializzazione...</p>
+      </div>
+
+      <button class="btn-secondary btn-cancel" (click)="cancelBacktesting()">
+        ✕ Annulla
+      </button>
+    </div>
+  </div>
+</div>

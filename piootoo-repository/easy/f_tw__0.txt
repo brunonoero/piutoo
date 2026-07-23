@@ -1,0 +1,8 @@
+//function name: tw
+//return type: true/false (bool)
+//storage: simple or auto-detect
+
+input: MyStartTrade(Numeric), MyEndTrade(Numeric);
+
+if MyStartTrade>MyEndTrade then tw = t>=MyStartTrade or t<MyEndTrade
+else tw = t>=MyStartTrade and t<MyEndTrade;

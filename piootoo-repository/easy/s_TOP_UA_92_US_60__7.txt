@@ -1,0 +1,59 @@
+//Works using 60-minute bars
+
+Input:kcount(10),kprf(2.5),kstp(5.5),entr2(1);
+
+Input: MyStartTrade(1600);
+
+Input: MyStop(1400), MyProfit(0),dow(5);
+
+vars : count(0),ncon(0),mp(0);
+
+mp = marketposition;
+
+If c < opend(0) and entr2 =1 then
+
+ncon = 2
+
+Else
+
+ncon = 1 ;
+
+{}
+
+If Time = MyStartTrade and dayofweek(date) <> dow and mp = 0 then
+
+If (PtnBaseSA(16) or ptnbasesa(29) or ptnbasesa(18)) then
+
+buy("1Le") ncon contract next bar at c limit ;
+
+if mp<>0 and mp[1] = 0 then
+
+count = 0 ;
+
+count = count +1 ;
+
+////////////////// EXITS ///////////////////////////////////////
+
+if mp = 1 then begin
+
+if count >= kcount then
+
+sell ("Texit") next bar at market ;
+
+sell("Prfatr") next bar at L + kprf*avgtruerange(3) limit;
+
+sell("STPatr") next bar at H- kstp*avgtruerange(3) stop;
+
+end;
+
+
+
+Setstopcontract;
+
+{If MyStop > 0 then setstoploss(MyStop);
+
+If MyProfit > 0 then setprofittarget(MyProfit);
+
+}
+input: TitanExportMode(0);
+if TitanExportMode=1 then WriteDailiesCTitanReports(1100101, TitanExportMode);

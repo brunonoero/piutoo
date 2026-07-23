@@ -1,0 +1,66 @@
+//@CL_BIAS_OnlyShort_TF5Min
+
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>	Michael OHLC Calculation begin
+array: ohlcValues[23](0);
+
+var: isStartOfSession(false);
+
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>	Michael OHLC Calculation end
+input: sessionStartTimeA(1800), sessionEndTimeA(1700);
+
+isStartOfSession = _OHLCMulti5(sessionStartTimeA, sessionEndTimeA, ohlcValues);
+
+
+
+input: MyContracts(1),
+	MyStop(1600), BreakEven(0), MyProfit(2100),
+	EntryShort1Beg(1945), EntryShort1End(2000),
+	ExitShort1Beg(0945), ExitShort1End(1030);
+	Input:NoTradingMonth(0);
+
+	
+Var:	//slb(False),
+	ConditionShort1 (False), 
+	EntryShort1(False), ExitFromSH1(False);
+	
+Input: PtnFastShortYes1(100), PtnFastShortNo1(36), PtnFastShortNo2(1);//PtnFastShortYes2(152),
+
+
+ConditionShort1 = dayofweek(d)=0;
+
+
+EntryShort1 = Time>=EntryShort1Beg and Time<=EntryShort1End;
+ExitFromSH1 = Time>=ExitShort1Beg and Time<=ExitShort1End;
+
+//Trading
+if entriestoday(d)=0 and month(date) <> NoTradingMonth
+
+then begin
+	
+	//Sellshort
+	if ConditionShort1 and EntryShort1
+	and PatternFast (PtnFastShortYes1,ohlcvalues) //and PatternFast (PtnFastShortYes2,ohlcvalues) 
+	and (PatternFast (PtnFastShortNo1,ohlcvalues)  =false) and  (PatternFast (PtnFastShortNo2,ohlcvalues)  =false)
+	then sellshort("SeWBias") MyContracts contracts next bar market; 
+end;
+
+//Setting of ExitOrders.1
+				
+if ConditionShort1 =False and ExitFromSH1 and Mp=-1 then buytocover("WBiasSX") next bar market;                 
+
+
+//Setting of ExitOrders.2
+setstopcontract;
+if MyStop>0 then setstoploss (MyStop);
+if breakeven>0 then setbreakeven(breakeven);
+if MyProfit>0 then setprofittarget(MyProfit);
+
+
+//////////////////
+// EQUITY_SHAPE(1);
+//////////////////
+//TITAN FAST EXPORT (mette il report direttamente in C:\Titan\Reports
+input: TitanExportMode(0);
+if TitanExportMode=1 then WriteDailiesCTitanReports(1080101, TitanExportMode);
+
+

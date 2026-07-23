@@ -1,0 +1,5 @@
+// UA EVEN-ODD DAY OF MONTH FUNCTION
+// RETURN TYPE: TRUE/FALSE (BOOL)
+
+
+UA_TodayIsAEvenDay = dayofmonth(date) = 2*IntPortion(dayofmonth(date)/2);

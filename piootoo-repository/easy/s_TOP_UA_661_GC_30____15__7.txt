@@ -1,0 +1,118 @@
+var: IsStartOfSession(true);
+array: ohlcValues[23](0);
+
+inputs: sessionStartTimeC(1800),sessionEndTimeC(1700);	// has to be set correctly to trading session times !
+IsStartOfSession = _OHLCMulti5(sessionStartTimeC, sessionEndTimeC, ohlcValues);
+
+//Works using 30-minute bars data1 + 15-minutes bars data2
+//Sessione ridotta 1800-1659 (setexitonclose)
+
+inputs:
+	Mycontracts(1),
+	PtnNeutYes(55), PtnNeutNo(27), PtnDirYes(52), PtnDirNo(35),
+	MyStartTime(1830), MyEndTime(1630), dist(30),
+	MyStop(0), MyProfit(50),mybreakeven(30), //MyStop(0), MyProfit(5000),mybreakeven(3000)
+	Length( 20 ), NumDevs( 2),maxdaysintrade(2);
+
+variables:
+daysintrade(0),mp(0),
+oklong(false),oklong2(false),oklong1(false),
+okshort(false),okshort2(false),okshort1(false),
+pnt(0),pnt2(0),pnt3(0),
+OkLongShort(true),
+MaxTradeLong(true),MaxTradeShort(true); 
+	
+
+mp=marketposition;
+
+      If isStartOfSession then begin
+
+      	if marketposition<>0 then daysintrade = daysintrade+1;
+      	
+end;
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////
+if sessionlastbar data2 and c data2>o data2 then oklong1 = true;//se l ultima barra del data2 e rialzista ok 
+if sessionlastbar data2 and c data2<o data2 then oklong1 = false;//se l ultima barra del data2 e ribassista no
+
+if sessionlastbar data2 and c data2<o data2 then okshort1 = true;//se l ultima barra del data2 e ribassista ok
+if sessionlastbar data2 and c data2>o data2 then okshort1 = false;//se l ultima barra del data2 e rialzista no
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+//massimo un trade per sessione
+if mp=1 then maxtradeLong=false;
+if time = 1900 then maxtradelong=true;
+
+if mp=-1 then maxtradeshort=false;
+if time = 1900 then maxtradeshort=true;
+////////////////////////////////////////
+
+
+if time  = 1900 then pnt=o;
+if sessionlastbar then pnt=0;
+
+
+
+
+//////////////////////////////////////////////////////////////////////////
+
+//se il prezzo scende sotto l open di sessione e poi risale sopra l open ok
+if time  > 1900 and c < pnt and oklong1=true then oklong=true; 
+                                                                       
+if oklong = true and c > pnt  then oklong2=true; 
+
+if sessionlastbar then oklong=false;                                                      
+if sessionlastbar then oklong2=false;
+
+if pnt=0 then oklongshort=false;
+if pnt>0 then oklongshort=true;
+////////////////////////////////////////
+
+//se il prezzo sale sopra l open di sessione e poi scende sotto l open ok
+if time > 1900 and c > pnt and okshort1=true then okshort=true;
+
+if sessionlastbar then okshort=false;
+
+if okshort = true and c < pnt  then okshort2=true;
+if sessionlastbar then okshort2=false;
+/////////////////////////////////////
+//Being a mirrorerd script we use the patterns that are either neutral or opposite for opposite directions
+if  tw(MyStartTime,MyEndTime)
+and PatternNeutralFast(PtnNeutYes, ohlcValues) and PatternNeutralFast(PtnNeutNo, ohlcValues)=false then begin
+
+	if oklongshort=true and okshort2=true  and maxtradeshort=true and PatternDirectionalFast(-PtnDirYes, ohlcValues) 
+	and PatternDirectionalFast(-PtnDirNo, ohlcValues)=False then SellShort MyContracts contracts next bar at market ;
+	
+	if oklongshort=true and oklong2=true and maxtradelong=true and PatternDirectionalFast(+PtnDirYes, ohlcValues) 
+	and PatternDirectionalFast(+PtnDirNo, ohlcValues)=False then Buy MyContracts contracts next bar at market ;
+End;
+
+//se il prezzo supera il massimo delle 1900 +dist punti per lo short o il minimo delle 1900 -dist punti  per il long  chiude le posizioni
+
+       if time  = 1900 and mp <> 1 then pnt3=l-dist;
+       if time  = 1900 and mp <> -1 then pnt2=h+dist;
+
+       if sessionlastbar and mp <> 1 then pnt3=0;
+       if sessionlastbar and mp <> -1 then pnt2=0;
+
+       if c > pnt2 then buytocover next bar at market;
+       if c < pnt3 then sell next bar at market;
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+//quante giornate al amassimo devono rimanere aperti i trade    
+if maxdaysintrade>0 and daysintrade>=maxdaysintrade and T>=1630 and T<1700 then begin
+	sell next bar market;
+	buytocover next bar market;
+	setexitonclose; //usare sessione ridotta 1800-1659
+end;
+if mp<>mp[1] and mp<>0 then daysintrade = 1;
+/////////////////////////////////////////////////////////////////////////////////////////////////
+setstopcontract;
+if MyStop > 0 then setstoploss(MyStop*bigpointvalue);
+If MyProfit > 0 then setprofittarget(MyProfit*bigpointvalue);
+if mybreakeven>0 then setbreakeven(mybreakeven*bigpointvalue);
+//////////////////////////////////////////////////////
+
+//TITAN FAST EXPORT (mette il report direttamente in C:\Titan\Reports
+input: TitanExportMode(0);
+if TitanExportMode=1 then WriteDailiesCTitanReports(1080101, TitanExportMode);

@@ -1,0 +1,50 @@
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>	Michael OHLC Calculation begin
+array: ohlcValues[23](0);
+input: sessionStartTimeA(0930), sessionEndTimeA(1600);
+
+var: isStartOfSession(false);
+isStartOfSession = _OHLCMulti5(sessionStartTimeA, sessionEndTimeA, ohlcValues);
+
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>	Michael OHLC Calculation end
+
+input: MyCapital(100000),StopLoss(2.5),TakeProfit(5.3);
+//input: FastSMAFilterLen(16),SlowSMAFilterLen(50),SMADiffThreshold(0);
+input: StartH(1000),StartM(30),EndH(1300),EndM(45),DF(0.6);
+input: MyPtnLY(152),MyPtnLN(153);
+//Input: MyADXLen(14), MyADXThreshold(30);
+input: Nticks(1);
+//input: ATRLen(5),ATRThreshold(0);
+var: MySize(0),ranged1(0),okTrade(true);
+//var:FastSMAvalue(0),SlowSMAvalue(0),ATRvalue(0);
+
+MySize = MyCapital/c;
+
+ranged1= highS(1)-lowS(1);
+//ATRvalue=averagetruerange(ATRLen) data2;
+//FastSMAvalue=AverageFC(c,FastSMAFilterLen) ;
+//SlowSMAvalue=AverageFC(c,SlowSMAFilterLen) ;
+
+if t=945 then okTrade = true;
+if marketposition<>0 then okTrade = false;
+if ranged1 <> 0 then
+condition1 = absvalue(closeS(1)-openS(1))/ ranged1 <= DF;
+
+if condition1
+and t>= (StartH + StartM) and t < (EndH + EndM)
+and PatternFast(MyPtnLY,ohlcValues)
+and PatternFast(MyPtnLN,ohlcValues)=false
+//and ATRvalue/Close data2 <= ATRThreshold/100
+//and ADX(MyADXLen) data2<=MyADXThreshold
+//and (FastSMAvalue-SlowSMAvalue)/SlowSMAvalue > SMADiffThreshold/100
+then begin
+	if okTrade then buy("LE") MySize contracts next bar HighS(0)+NTicks*TickSize stop;
+end;
+
+if t>= (StartH+StartM) then sell("SE") next bar LowS(0)-NTicks*TickSize stop;
+
+setstopposition;
+if StopLoss>0 then setstoploss(MyCapital*stoploss/100);
+if TakeProfit>0 then setprofittarget(MyCapital*takeprofit/100);
+//TITAN FAST EXPORT (mette il report direttamente in C:\Titan\Reports
+input: TitanExportMode(0);
+if TitanExportMode=1 then WriteDailiesCTitanReports(1080101, TitanExportMode);

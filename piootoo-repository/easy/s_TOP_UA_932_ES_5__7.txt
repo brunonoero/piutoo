@@ -1,0 +1,139 @@
+// Platform: Tradestation
+// Symbol: ES
+// Settings: 5 min chart, exchange time, regular session
+
+
+Input: MyStartTrade(2245), MyEndTrade(0930), RangeMultiplier(0.1), MyContracts(1);
+Input: MyStop(1000), MyProfit(2500);
+input: extime(1030);
+input: dow(0);
+
+variables:
+	minSetup(0), maxSetup(0), timewindow(false);
+	
+	//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>    Michael OHLC & ADX Calculation begin
+array: ohlcValues[23](0), adxCalcValues[3](0);
+var: adxVal(0), isStartOfSession(false);
+var: sessionStartTimeA(1700), sessionEndTimeA(1600);
+var: body1d(0), range1d(0);
+var: checkdow(0);
+isStartOfSession = _OHLCMulti5(sessionStartTimeA, sessionEndTimeA, ohlcValues);
+
+var: opend0(0),opend1(0),opend2(0),opend3(0),opend4(0), opend5(0);
+var: highd0(0),highd1(0),highd2(0),highd3(0),highd4(0), highd5(0);
+var: lowd0(0),lowd1(0),lowd2(0),lowd3(0),lowd4(0), lowd5(0);
+var: closed0(0),closed1(0),closed2(0),closed3(0),closed4(0), closed5(0);
+
+opend0 = ohlcValues[0]; highd0 = ohlcValues[1]; lowd0 = ohlcValues[2]; closed0 = ohlcValues[3]; 
+opend1 = ohlcValues[4]; highd1 = ohlcValues[5]; lowd1 = ohlcValues[6]; closed1 = ohlcValues[7];
+opend2 = ohlcValues[8]; highd2 = ohlcValues[9]; lowd2 = ohlcValues[10]; closed2 = ohlcValues[11]; 
+opend3 = ohlcValues[12]; highd3 = ohlcValues[13]; lowd3 = ohlcValues[14]; closed3 = ohlcValues[15];
+opend4 = ohlcValues[16]; highd4 = ohlcValues[17]; lowd4 = ohlcValues[18]; closed4 = ohlcValues[19]; 
+opend5 = ohlcValues[20]; highd5 = ohlcValues[21]; lowd5 = ohlcValues[22]; closed5 = ohlcValues[23];
+
+range1d = (highd1-lowd1);
+body1d = absvalue(opend1-closed1);
+	
+
+	
+	If Time = 1705 then begin
+	maxSetup = 0;
+	minSetup = 0;
+	end;
+	
+	if time = 1705
+	and dayofweek(date) = 0
+	then Begin
+	checkdow = 1;
+	end;
+	
+	if time = 1705
+	and dayofweek(date) = 1
+	then Begin
+	checkdow = 2;
+	end;
+	if time = 1705
+	and dayofweek(date) = 2
+	then Begin
+	checkdow = 3;
+	end;
+	if time = 1705
+	and dayofweek(date) = 3
+	then Begin
+	checkdow = 4;
+	end;
+	if time = 1705
+	and dayofweek(date) = 4
+	then Begin
+	checkdow = 5;
+	end;
+	
+			
+		if (MyStartTrade > MyEndTrade ) then begin
+	if ((time > MyStartTrade ) or (time <= MyEndTrade )) then begin
+		timewindow = true;
+	end
+	else begin
+		timewindow = false;
+	end;
+end
+else begin
+	if  ((time > MyStartTrade ) and (time <= MyEndTrade )) then begin
+		timewindow = true;
+	end
+	else begin
+		timewindow = false;
+	end;
+End;
+
+If  time > 1700 
+	and 
+	time <= MyStartTrade 
+	then begin
+	maxSetup = (HighS(0)+((HighS(0)-lows(0))*RangeMultiplier)); 
+	end;
+	
+	If  time > 1700 
+	and 
+	time <= MyStartTrade
+	then begin
+		minSetup = (lowS(0)-((HighS(0)-lows(0))*RangeMultiplier)); 
+		end;
+
+
+
+
+if 
+timewindow = true
+and checkdow <> 1
+and ( 
+absvalue(opend1-closed1)>0.5*(highd1-lowd1)
+And
+(HighS(1)-lowS(1)) > (HighS(2)-lowS(2))
+     )
+then begin
+if C crosses over  maxSetup
+then Sell Short MyContracts contracts next bar at market ;
+
+if C crosses under minSetup
+then Buy MyContracts contracts next bar at market;
+end;
+
+setstopcontract;
+if   MyStop > 0   then setstoploss(MyStop);
+If MyProfit > 0 then setprofittarget(MyProfit);
+
+
+if  Marketposition(0) = -1 and time =extime  then begin
+	buytocover("EOSessSX") next bar at market;
+		end;
+if  Marketposition(0) = 1 and time =extime then begin
+	sell("EOSessLX") next bar at market;
+		end;
+
+
+		
+//TITAN FAST EXPORT (mette il report direttamente in C:\Titan\Reports
+input: TitanExportMode(0);
+if TitanExportMode=1 then WriteDailiesCTitanReports(1080101, TitanExportMode);
+

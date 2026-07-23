@@ -1,0 +1,59 @@
+//MultiCharts/TradeStation code generator by Unger Academy. All rights reserved.
+//Script generation datetime: 23-Dec-2023 17:30:13
+
+//Michael formula calculation begin
+Input:SessionStartTimeA(830), sessionEndTimeA(1305); //Set here your session time!
+array:ohlcvalues[23](0), adxCalcValues[3](0);
+var:IsStartOfSession(false);
+
+IsStartOfSession=_ohlcmulti5(SessionStartTimeA,sessionEndTimeA,ohlcvalues);
+//Michael formula calculation end
+
+Inputs: MyContracts(1), //Choose with how many contracts you want to work
+	MyStartTime(930), MyEndTime(1305), MyStartPause(1200), MyEndPause(1100), //Time window and pause
+	PtnNeutYes(55),PtnNeutNo(56),PtnDirYes(4),PtnDirNo(-4), //optimize Neutral from 1 to 55 (55=true, 56=false). Directional from -52 to 52 (52=true, 53=false)
+	MaxEntriesPerDay(1), //Set maximum entries per calendar day
+	EMA_len(2), //Exponential Moving Average length
+	nBars(160), //set here the number of bars for channel breakout strategy
+	MaxDaysInTrade(2), FlatTime(1245), //Set here the maximum number of days to stay in the market and the flat time!
+	MyStop(1000), //Set here your stoploss! (0=disabled)
+	MyBreakEven(0), //Set here your breakeven stop!(0=disabled)
+	MyProfit(4000); //Set here your profit target! (0=disabled)
+
+vars:EMA_val(0),upperchannel(0), lowerchannel(0),DaysInTrade(0), mp(0); 
+
+if isStartOfSession then begin
+	//Keep track of how many days the strategy has been in position
+	if marketposition<>0 then daysintrade=daysintrade+1;
+end;
+
+//VARIABLES' CALCULATION
+EMA_val = XAverage(C,EMA_len);
+upperchannel = highest(h,nBars);
+lowerchannel = lowest(l,nBars);
+mp = marketposition;
+
+//ENTRIES
+if tw(MyStartTime,MyEndTime) and (Time<MyStartPause or Time>MyEndPause) and PatternNeutralFast(PtnNeutYes,ohlcvalues) and PatternNeutralFast(PtnNeutNo,ohlcvalues)=false and entriestoday(date)<MaxEntriesPerDay then begin
+	if PatternDirectionalFast(PtnDirYes,ohlcvalues) and PatternDirectionalFast(PtnDirNo,ohlcvalues)=false and C>EMA_val then buy("LE") MyContracts contracts next bar upperchannel stop;
+	if PatternDirectionalFast(-PtnDirYes,ohlcvalues) and PatternDirectionalFast(-PtnDirNo,ohlcvalues)=false and C<EMA_val then sellshort("SE") MyContracts contracts next bar lowerchannel stop;
+end;
+
+if mp<>mp[1] and mp<>0 then daysintrade=1;
+
+//POSITION MANAGEMENT
+if daysintrade>=maxDaysInTrade and maxDaysInTrade>0 then begin
+	setexitonclose;
+	if Time=FlatTime then begin
+		if marketposition=1 then sell("LX_MaxDays") next bar market;
+		if marketposition=-1 then buytocover("SX_MaxDays") next bar market;
+	end;
+end;
+setstopcontract;
+if MyStop>0 then setstoploss(MyStop);
+if MyBreakEven>0 then setbreakeven(MyBreakEven);
+if MyProfit>0 then setprofittarget(MyProfit);
+
+//TITAN FAST EXPORT (mette il report direttamente in C:\Titan\Reports)
+input: TitanExportMode(0);
+if TitanExportMode=1 then WriteDailiesCTitanReports(1100101, TitanExportMode);

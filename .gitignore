@@ -1,0 +1,118 @@
+# Visual Studio / .NET
+.vs/
+**/[Bb]in/
+**/[Oo]bj/
+**/[Aa]rtifacts/
+Debug/
+Release/
+x64/
+x86/
+[Ww][Ii][Nn]32/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+bld/
+[Bb]uild/
+[Bb]uilds/
+
+# User-specific IDE state
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*.slnLaunch.user
+*.rsuser
+*.userprefs
+
+# Rider and local VS Code settings
+.idea/
+*.sln.iml
+.vscode/
+
+# .NET tooling, packages, and generated metadata
+*.nupkg
+*.snupkg
+**/[Pp]ackages/*
+!**/[Pp]ackages/build/
+*.nuget.props
+*.nuget.targets
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
+# Test, benchmark, and coverage output
+[Tt]est[Rr]esult*/
+[Tt]est[Rr]esults/
+[Cc]overage/
+coverage.*/
+*.coverage
+*.coveragexml
+*.coverage.json
+*.trx
+*.testlog
+BenchmarkDotNet.Artifacts/
+
+# Workspace-local build verification output
+.build-check/
+.buildcheck/
+.build-*/
+.buildcheck-*/
+
+# Angular / Node generated content
+**/node_modules/
+**/.angular/
+**/dist/
+**/.cache/
+**/.npm/
+**/.eslintcache
+**/coverage/
+**/.nyc_output/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Local secrets and machine-specific configuration
+.env
+.env.*
+!.env.example
+!.env.*.example
+**/appsettings.Development.local.json
+**/appsettings.*.local.json
+
+# Logs, temporary files, and operating-system metadata
+*.log
+logs/
+*.tmp
+*.temp
+*.bak
+*.swp
+*.pid
+*.user
+[Tt]emp/
+[Tt]mp/
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Generated application runtime data (paths defined by appsettings/code)
+/piootoo-repository/settings/results/
+/piootoo-repository/workspaces/*/backtests/
+/piootoo-repository/workspaces/*/sessions/
+
+# Large market data, archives, and local databases
+/piootoo-repository/datafeed*/
+/piootoo-repository/*.zip
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+
+# macOS archive metadata
+._*
+
+# Local configuration containing credentials
+/Piootoo.FeedWorker/appsettings.json
+
+# Local application state
+/piootoo-repository/settings/
+/piootoo-repository/workspaces/

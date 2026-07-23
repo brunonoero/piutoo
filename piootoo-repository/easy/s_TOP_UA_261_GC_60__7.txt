@@ -1,0 +1,37 @@
+//Works using 60-minute bars
+
+inputs:
+	MyPtnLY(5), MyPtnSY(25),
+	MyPtnLN(1), MyPtnSN(4),
+	MyLEbar(23), MyLXbar(5),
+	MySEbar(9), MySXbar(14),
+	MyNotLEDay(4), MyNotSEDay(4),
+	MyStop(1500), MyProfit(0),
+	mycounter(0),
+	testphase(0);
+
+variables:
+	mycount(0) ;
+	
+if sessionlastbar[1] then mycount = 0; //starts from 1 instead of 0 because "sessionlastbar" cannot be referenced to previous values...
+mycount= mycount +1;
+
+if testphase = 1 then begin
+	if mycounter = mycount then buy next bar at market;
+	if marketposition = 1 then sell next bar at market;
+end;
+
+if testphase = 0 then begin
+	if mycount = MyLEbar and PtnBaseSA(MyptnLY) and (ptnbasesa(myptnlN) = false) and dayofweek(date) <> MyNotLEDay then buy next bar at market;
+	if mycount = MyLXbar then sell next bar at market;
+
+	if mycount = MySEbar and PtnBaseSA(MyptnSY) and (ptnbasesa(myptnSN) = false)  and dayofweek(date) <> MyNotSEDay then sellshort next bar at market;
+	if mycount = MySXbar then buytocover next bar at market;
+end;
+
+setstopcontract;
+if   MyStop > 0   then setstoploss(MyStop);
+If MyProfit > 0 then setprofittarget(MyProfit);
+//TITAN FAST EXPORT (mette il report direttamente in C:\Titan\Reports
+input: TitanExportMode(0);
+if TitanExportMode=1 then WriteDailiesCTitanReports(1080101, TitanExportMode);

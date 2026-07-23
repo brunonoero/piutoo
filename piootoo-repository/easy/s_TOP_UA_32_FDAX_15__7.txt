@@ -1,0 +1,56 @@
+//NG_Trend following strategy DAX30 Fut - 2 hours breackout
+
+//INPUT
+Input: MyStartTime(1000), MyEndTime(1300);
+Input: MyPtnLY(1), MyPtnSY(20), MyPtnLN(6), MyPtnSN(4);
+Input: MyPauseDay(5);
+Input: MycheckTime(1700), MycheckGain(1500);
+Input: MaxBarsinTrade_Long(100), MaxBarsinTrade_Short(100);
+Input: MySize(1);
+Input: MyStop(1450), MyProfit(0);
+
+//VARIABLES
+var: MyEntryLevelLong(0);
+var: MyEntryLevelShort(0);
+var: MyExitLevelLong(0);
+var: MyExitLevelShort(0); 
+var: ExitID(0);
+
+//DEFINITIONS
+If Time <= MyStartTime then begin 
+	MyEntryLevelLong = HighD(0);
+	MyEntryLevelShort = LowD(0);
+	MyExitLevelLong = LowD(0);
+	MyExitLevelShort = HighD(0); 
+End;
+
+if time =  MyEndTime then ExitID = 0;
+
+//CONDITIONS
+if  dayofweek(date) <> MyPauseDay and Time > MyStartTime and Time <= MyEndTime then begin
+	if PtnBaseSA(MyPtnLY) = True and PtnBaseSA(MyPtnLN) = False then buy MySize contract next bar at MyEntryLevelLong stop;
+	if PtnBaseSA(MyPtnSY) = True and PtnBaseSA(MyPtnSN) = False then sellshort MySize contract next bar at MyEntryLevelShort stop;
+End;
+
+if time = MycheckTime then begin
+	if openpositionprofit >= MycheckGain then ExitID = 1;
+End;
+
+if ExitID = 0 then begin
+	if T>=2145 and T<2200 then sell next bar market;
+	if T>=2145 and T<2200 then buytocover next bar market;
+	setexitonclose;
+end;
+
+if marketposition = 1 then sell next bar at MyExitLevelLong stop;
+if marketposition = -1 then buytocover next bar at MyExitLevelShort stop;
+
+if marketposition = 1 and barssinceentry >= MaxBarsinTrade_Long then sell next bar market;
+if marketposition = -1 and barssinceentry >= MaxBarsinTrade_Short then buytocover next bar market;
+
+setstopcontract;
+if MyStop > 0 then setstoploss(MyStop);
+if myProfit > 0 then setprofittarget(MyProfit);
+//TITAN FAST EXPORT (mette il report direttamente in C:\Titan\Reports
+input: TitanExportMode(0);
+if TitanExportMode=1 then WriteDailiesCTitanReports(1080101, TitanExportMode);

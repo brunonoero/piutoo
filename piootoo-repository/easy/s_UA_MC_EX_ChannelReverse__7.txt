@@ -1,0 +1,8 @@
+inputs: MyLenght(20);
+var: UpperChannel(0), LowerChannel(0);
+
+UpperChannel = HighestFC(h, MyLenght);
+LowerChannel = LowestFC(l, Mylenght);
+
+buy("LE") next bar UpperChannel stop;
+sellshort("SE") next bar LowerChannel stop;

@@ -1,0 +1,62 @@
+//DAILY BIAS COPPER: Short Beginning of week until tuesday, Long end of week. TimeFrame 15'
+
+
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>	Michael OHLC Calculation begin
+array: ohlcValues[23](0);
+
+var: isStartOfSession(false);
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>	Michael OHLC Calculation end
+input: sessionStartTimeA(1800), sessionEndTimeA(1659);
+
+isStartOfSession = _OHLCMulti5(sessionStartTimeA, sessionEndTimeA, ohlcValues);
+
+
+//INPUTS
+input: MySize(1);
+input: MyStartTime(1800), MyEndTime(1700);
+input: LEntryDay(4), LExitDay(5);
+Input: MyEntryLong(1145), MyXitLong(1615);
+input: SEntryDay(0), SExitDay(2);
+input: MyEntryShort(2300), MyExitShort(730);
+input: LongDirYes(52), LongNeutYes(32), LongNeutNo(49);
+input: MyPtnSY(21), MyPtnSN(22);
+input: MyStopL(1300), MyStopS(1300), MyProfitL(4300), MyProfitS(2400);
+
+//VARIABLES
+var: MyTimeW(true);
+var: MP(0);
+var: OkLong(true);
+var: OkShort(true);
+
+//DEFINITIONS
+MyTimeW= TW(MyStartTime, MyEndTime);
+MP= marketposition;
+if MP= +1 then OKLong= false;
+if MP= -1 then OkShort= false;
+OKLong= true;
+OKShort= true;
+
+// CONDITIONS, LongDayBias
+if MyTimeW and dayofweek(d)= LEntryDay and OkLong and  time= (MyEntryLong) then begin;
+	if (PatternNeutralFast(LongNeutYes,ohlcvalues) and (PatternNeutralFast(LongNeutNo,ohlcvalues)= false)) and PatternDirectionalFast(+LongDirYes,ohlcvalues)
+	then buy  MySize contracts next bar market;
+end;
+if MP= +1 and dayofweek(d)= LExitDay and time= (MyXitLong) then sell MySize contracts next bar market;
+
+//CONDITIONS, ShortBias
+if MyTimeW and dayofweek(d)= SEntryDay and OkShort and  time= (MyEntryShort) then begin;
+	if PtnBaseSA2(MyPtnSY,ohlcvalues) and (PtnBaseSA2(MyPtnSN,ohlcvalues)=false) then sellshort MySize contracts next bar market;
+end;
+if MP= -1 and dayofweek(d)= SExitDay and time= (MyExitShort) then buytocover MySize contracts next bar market;
+
+
+//SPLITTED STOPS
+setstopcontract;
+if MP= +1 and MyStopL>0 then setstoploss(MyStopL);
+if MP= +1 and MyProfitL>0 then setprofittarget(MyProfitL);
+if MP= -1 and MyStopS>0 then setstoploss(MyStopS);
+if MP= -1 and MyProfitS>0 then setprofittarget(MyProfitS);
+//TITAN FAST EXPORT (mette il report direttamente in C:\Titan\Reports
+input: TitanExportMode(0);
+if TitanExportMode=1 then WriteDailiesCTitanReports(1080101, TitanExportMode);
+

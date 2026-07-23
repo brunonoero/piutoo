@@ -1,0 +1,57 @@
+//
+//             Dax 15 min breakout Donchian Channel
+
+vars: IsStartOfSession(true);
+inputs: sessionStartTimeC(800),sessionEndTimeC(2200); // has to be set correctly to trading session times !
+array: ohlcValues[23](0);
+
+IsStartOfSession = _OHLCMulti5(sessionStartTimeC, sessionEndTimeC, ohlcValues);
+
+input: MySize(1);
+input: BeginTime(1600), EndTime(1700), DonchianPeriod(20);
+input: StopLoss(3500), BreakEven(0), TakeProfit(0);
+
+inputs: MyPtnLY(26); // 152
+inputs: MyPtnSY(64); // 152 
+inputs: MyPtnLN(23); // 153
+inputs: MyPtnSN(61); // 153
+inputs: MyPtnLx(-46);  //  52
+inputs: MyPtnSx(34); //  52
+inputs: PP(2400) ;
+
+
+//VARIABLES
+var: MyDonchianUpper(0), MyDonchianLower(0);
+
+//DEFINITIONS
+MyDonchianUpper = HighestFC(high,DonchianPeriod);
+MyDonchianLower = LowestFC(low,DonchianPeriod);
+
+//CONDITIONS
+if Time>=BeginTime and Time<EndTime then begin
+
+  if sessionlastbar = false and PatternFast(MyPtnLY, ohlcValues) and PatternFast(MyPtnLN, ohlcValues)=False then 
+  buy MySize contracts next bar MyDonchianUpper stop;
+  
+  if PatternFast(MyPtnSY, ohlcValues) and PatternFast(MyPtnSN, ohlcValues)=False then
+  sellshort MySize contracts next bar MyDonchianLower stop;
+end;
+
+if marketposition = 1 and openPositionprofit > PP and PP>0 and PatterndirectionalFast(MyPtnLx, ohlcValues) then sell next bar at market;
+
+if marketposition = -1 and openpositionprofit > PP and PP>0 and PatterndirectionalFast(MyPtnSx, ohlcValues) then buy to cover next bar at market;
+
+
+setstopcontract;
+if StopLoss>0 then setstoploss(stoploss);
+if BreakEven>0 then setbreakeven(breakeven);
+if TakeProfit>0 then setprofittarget(takeprofit);
+
+if barssinceentry > 280 then begin // 5 giorni a 15 min, 14 ore x giorno 8/22
+sell next bar at market;
+buy to cover next bar at market;
+end;
+//TITAN FAST EXPORT (mette il report direttamente in C:\Titan\Reports
+input: TitanExportMode(0);
+if TitanExportMode=1 then WriteDailiesCTitanReports(1100101, TitanExportMode);
+

@@ -1,0 +1,47 @@
+var: IsStartOfSession(true), highd1(0), lowd1(0); //here we use as an example high and low of previous sessions
+array: ohlcValues[23](0);
+
+
+inputs: sessionStartTimeC(1800),sessionEndTimeC(1700);
+IsStartOfSession = _OHLCMulti5(sessionStartTimeC, sessionEndTimeC, ohlcValues);
+highd1 = ohlcvalues[5]; lowd1 = ohlcvalues[6]; //these are picked depending on the chosen trigger, in this example high and low of last session
+
+//Works using 60-minute bars but can also work down to 5 minutes bars
+
+Input: Mycontracts (1);
+Input: PtnNeutYes(3), PtnNeutNo(35), PtnDirYes(-27), PtnDirNo(8);
+Input: MyStartTrade(0000), MyEndTrade(1500), MyStartPause(1200), MyEndPause(1100);
+Input: ID(0);
+Input: MyStop(1800), MyProfit(0);
+
+
+
+//here below we use patterns in a mirrorerd setup so that the same or opposite condition appliy to long or short
+// to do so either neutral patterns or mirrored directional patterns are used
+If tw(MyStartTrade,MyEndTrade) and (Time < MyStartPause or time > MyEndPause) //time window
+and PatternNeutralFast(PtnNeutYes, ohlcValues) and PatternNeutralFast(PtnNeutNo, ohlcValues)=false then begin
+
+	If PatternDirectionalFast(+PtnDirYes, ohlcValues) and PatternDirectionalFast(+PtnDirNo, ohlcValues)=False 
+	then buy mycontracts contracts next bar at highd1 stop;
+	
+	If PatternDirectionalFast(-PtnDirYes, ohlcValues) and PatternDirectionalFast(-PtnDirNo, ohlcValues)=False 
+	then sellshort mycontracts contracts next bar at lowd1 stop;
+
+end;
+
+setstopcontract;
+If MyStop > 0 then setstoploss(MyStop);
+If MyProfit > 0 then setprofittarget(MyProfit);
+
+If ID=0 then begin
+if t = 1655 then begin
+sell next bar market;
+buytocover next bar market;
+end;
+setexitonclose;
+end;
+
+/////////////////////////////////////////////////////////////////////////
+input: TitanExportMode(0); // se =1 viene attivato import in TITAN
+var: bin(0);
+If TitanExportMode=1 then bin = writedailiesCTitanReports(1100101, TitanExportMode);

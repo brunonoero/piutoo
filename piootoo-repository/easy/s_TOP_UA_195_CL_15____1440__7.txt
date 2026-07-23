@@ -1,0 +1,90 @@
+//Michael>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+Input:StartSessionTimeC(1800),EndSessionTimeC(1700);
+array:ohlcvalues[23](0);
+
+var:Isstartofsession(False),highd1(0),lowd1(0);
+
+Isstartofsession = _OHLCMulti5(StartSessionTimeC,EndSessionTimeC,ohlcvalues);
+highd1 = ohlcvalues[5];
+lowd1 = ohlcvalues[6];
+
+//Inputs e vars>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+Input: MySize(1);
+Input: LevelShiftL(5),LevelShiftS(9),TickSize(0.01);
+Input: StartTrade(2000),EndTrade(1200),StartPause(100),EndPause(400);
+Input: PtnNeutYes(26),PtnNeutNo(1),PtnDirYes(27),PtnDirNo(8);
+Input: Compression_Lenght(2),Compression_Trigger(0.6),Multi_atr(1);
+Input: SkipDayLong(0),SkipDayShort(2);
+Input: MaxDaysInTrade(3),ExitTime(1630),SL(1400),BE(1300),TP(2400);
+
+Var: Daysintrade(0),MP(0),timewindow(false);
+Var: Trigger_long(0),Trigger_short(0);
+Var: Compression_condition(false),Volatility_condition(false);
+
+//Time window>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+if StartTrade > EndTrade then timewindow = time >= StartTrade or time < EndTrade 
+else if StartTrade < EndTrade then timewindow = time >= StartTrade and time < EndTrade ;
+
+//Trigger>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+If Isstartofsession then 
+          
+          Trigger_long = highd1 - LevelShiftL * TickSize ; 
+          Trigger_short = lowd1 + LevelShiftS * TickSize ; 
+
+//Filter>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+Compression_condition = absvalue(opens(Compression_Lenght)-closes(1)) < (Algoritmica_Workshop_Highest_Highs(1,Compression_Lenght)-Algoritmica_Workshop_Lowest_Lows(1,Compression_Lenght))*Compression_trigger ;         
+
+Volatility_condition = TrueRange of data2 < AvgTrueRange(5)[1] of data2 * Multi_atr ;
+
+//Trading>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+if timewindow and (time < StartPause or time > EndPause) and Compression_condition and Volatility_condition 
+and PatternNeutralFast(PtnNeutYes,ohlcvalues) and PatternNeutralFast(PtnNeutNo,ohlcvalues) = false then begin
+
+             if dayofweek(d) <> SkipDayLong and PatternDirectionalFast(+PtnDirYes,ohlcvalues) and PatternDirectionalFast(+PtnDirNo,ohlcvalues) = false
+             then buy ("LE") MySize contract next bar at Trigger_long stop ;
+             
+             If dayofweek(d) <> SkipDayShort and PatternDirectionalFast(-PtnDirYes,ohlcvalues) and PatternDirectionalFast(-PtnDirNo,ohlcvalues) = false
+             then sellshort ("SE") MySize contract next bar at Trigger_short stop ;
+             
+   end;
+   
+//Counter>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>   
+
+MP = marketposition ;
+
+if MP <> MP[1] and MP <> 0 then Daysintrade = 1 ;
+if date <> date[1] and MP <> 0 then Daysintrade = Daysintrade +1 ;
+
+//Exit>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+If MaxDaysInTrade > 0 and Daysintrade >= MaxDaysInTrade and time >= ExitTime then begin
+
+           if MP >= 1 then sell ("LX") MySize contract next bar at market;
+           if MP <= -1 then buytocover ("SX") MySize contract next bar at market;
+           
+           end;
+           
+setstopcontract;
+
+if SL > 0 then setstoploss(SL);
+if BE > 0 then setbreakeven(BE);
+if TP > 0 then setprofittarget(TP);               
+
+             
+//TITAN EXPORT
+input: TitanExportMode(0);
+if TitanExportMode=1 then WriteDailiesCTitanReports(1080101, TitanExportMode);
+
+
+
+
+
+
+
+

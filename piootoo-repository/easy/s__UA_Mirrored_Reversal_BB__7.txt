@@ -1,0 +1,37 @@
+var: IsStartOfSession(true);
+array: ohlcValues[23](0);
+
+inputs: sessionStartTimeC(1700),sessionEndTimeC(1659);	// has to be set correctly to trading session times !
+IsStartOfSession = _OHLCMulti5(sessionStartTimeC, sessionEndTimeC, ohlcValues);
+
+//Works using 30-minute bars
+
+inputs:
+	Mycontracts(1),
+	PtnNeutYes(55), PtnNeutNo(56), PtnDirYes(52), PtnDirNo(53),
+	MyStartTime(0), MyEndTime(2300),
+	DaytoFilter(-1),
+	MyStop(0), MyProfit(0),
+	Length( 20 ), NumDevs( 2);
+
+variables:
+	UpperBand( 0 ),LowerBand( 0 ); 
+
+UpperBand = BollingerBand( c, Length, +NumDevs ) ;
+LowerBand = BollingerBand( c, Length, -NumDevs ) ;
+
+//Being a mirrorerd script we use the patterns that are either neutral or opposite for opposite directions
+if dayofweek(date) <> DaytoFilter and tw(MyStartTime,MyEndTime)
+and PatternNeutralFast(PtnNeutYes, ohlcValues) and PatternNeutralFast(PtnNeutNo, ohlcValues)=false then begin
+
+	if C crosses under UpperBand and PatternDirectionalFast(-PtnDirYes, ohlcValues) 
+	and PatternDirectionalFast(-PtnDirNo, ohlcValues)=False then SellShort MyContracts contracts next bar at market ;
+	
+	if C crosses over LowerBand  and PatternDirectionalFast(+PtnDirYes, ohlcValues) 
+	and PatternDirectionalFast(+PtnDirNo, ohlcValues)=False then Buy MyContracts contracts next bar at market ;
+
+End;
+
+setstopcontract;
+if MyStop > 0 then setstoploss(MyStop);
+If MyProfit > 0 then setprofittarget(MyProfit);

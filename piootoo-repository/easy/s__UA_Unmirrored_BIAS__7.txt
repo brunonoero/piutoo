@@ -1,0 +1,42 @@
+//BIAS script is normally unmirrored as entries take place at different times of the day
+
+vars: IsStartOfSession(true);
+inputs: sessionStartTimeC(1700),sessionEndTimeC(1659); // has to be set correctly to trading session times !
+array: ohlcValues[23](0);
+
+IsStartOfSession = _OHLCMulti5(sessionStartTimeC, sessionEndTimeC, ohlcValues);
+
+//Works using 60-minute bars
+
+inputs:	MyContracts(1),
+		MyPtnLY(152), MyPtnSY(152), MyPtnLN(153), MyPtnSN(153),
+		MyLEbar(0), MyLXbar(0),	MySEbar(0), MySXbar(0),
+		MyNotLEDay(-1), MyNotSEDay(-1), MyStop(0), MyProfit(0),
+		mycounter(0), testphase(0);
+
+vars:	mycount(0) ;
+
+if IsStartOfSession then mycount = 0;
+mycount= mycount+1;
+
+if testphase = 1 then begin //testphase set to 1 goes through the routine of buying or selling every hour
+	if mycounter = mycount then buy MyContracts contracts next bar at market;
+	if marketposition = 1 then sell next bar at market;
+end;
+
+if testphase = 0 then begin //testphase = 0 means we are non longer testing the single hours but building trading instructions
+
+	if mycount = MyLEbar and PatternFast(MyPtnLY, ohlcValues) and PatternFast(MyPtnLN, ohlcValues)=False 
+	and dayofweek(date) <> MyNotLEDay then buy MyContracts contracts next bar at market;
+	
+	if mycount = MySEbar and PatternFast(MyPtnSY, ohlcValues) and PatternFast(MyPtnSN, ohlcValues)=False 
+	and dayofweek(date) <> MyNotSEDay then sellshort MyContracts contracts next bar at market;
+	
+	if mycount = MyLXbar then sell next bar at market;
+	if mycount = MySXbar then buytocover next bar at market;
+	
+end;
+
+setstopcontract;
+if MyStop > 0   then setstoploss(MyStop);
+If MyProfit > 0 then setprofittarget(MyProfit);

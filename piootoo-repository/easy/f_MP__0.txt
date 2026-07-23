@@ -1,0 +1,4 @@
+[LegacyColorValue = true]; 
+
+MP = 0;
+MP = MarketPosition;

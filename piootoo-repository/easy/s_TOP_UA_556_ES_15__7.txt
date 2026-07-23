@@ -1,0 +1,41 @@
+//  File  SP500_AP_Long_3.es.1  @ES E-mini S&P500 Continuous Contract 15 Minutes  Session 17:00 16:00 
+//  Works using 15-minute bars - 
+
+
+input: MySize(1);                                           { Trading System S&P500 Only_Long }
+
+Input:  MyPtnLN(25);    Input:  MyPtnLLN(2);          
+Input: LongStartTime(1730), LongEndTime(1530);  input: SecondTime(1930);   input: checkTime(2245);
+Input: MyStop(1100), MyProfit(3200);       input: mycheckprofit(1150);
+input: coeffL(1.01), coeffH(0.96);     input: myMonth(9), myDay(5);                 
+
+          var: mp(0);   mp=marketposition;
+
+
+
+if month(date) <> myMonth and dayofweek(date)<>myDay then begin
+if Time = LongStartTime and (CloseS(1)< CloseS(2) or CloseS(1)<coeffL*OpenS(1)) and PtnbaseSA(MyPtnLN)=false
+	then buy MySize contracts next bar at LowS(0) limit;
+
+
+
+if mp=0 and time >= SecondTime and (CloseS(1)>CloseS(2) or CloseS(1)>coeffH*OpenS(1)) and PtnbaseSA(MyPtnLLN)=false
+	then buy MySize contracts next bar at HighS(0) stop;
+end;
+
+if mp=1 and time =checkTime and openpositionprofit >=mycheckprofit then sell MySize contracts next bar at market;
+if mp=1 and time =LongEndTime then sell MySize contracts next bar at market;
+
+
+Setstopcontract;
+If MyStop > 0 then setstoploss(MyStop);
+If MyProfit > 0 then setprofittarget(MyProfit);
+
+if T>=1545 and T<1600 then begin
+	sell next bar market;
+	buytocover next bar market;
+end;
+setexitonclose;
+//TITAN FAST EXPORT (mette il report direttamente in C:\Titan\Reports
+input: TitanExportMode(0);
+if TitanExportMode=1 then WriteDailiesCTitanReports(1080101, TitanExportMode);

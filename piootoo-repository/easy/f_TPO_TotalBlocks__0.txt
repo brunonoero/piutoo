@@ -1,0 +1,14 @@
+
+
+var:
+	nextPrice(0), summBlocks(0);
+
+summBlocks = TPO_Levels_Value(TPO_Levels_Low, 0);
+nextPrice = TPO_Levels_Low + ticksize;
+
+while nextprice <= TPO_Levels_High begin
+	summBlocks += TPO_Levels_Value(nextprice, 0);
+	nextPrice = nextprice + ticksize;
+end;
+
+TPO_TotalBlocks = summBlocks;

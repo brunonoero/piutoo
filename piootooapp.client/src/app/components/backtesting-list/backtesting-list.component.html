@@ -1,0 +1,110 @@
+<div class="backtesting-list-container">
+  <div class="list-header">
+    <h2>📊 Backtesting</h2>
+    <button class="btn-primary" (click)="navigateToNew()">
+      ➕ Nuovo Backtesting
+    </button>
+  </div>
+
+  <!-- Error Message -->
+  <div *ngIf="error" class="error-message">
+    ⚠️ {{ error }}
+  </div>
+
+  <div *ngIf="isLoading" class="loading">
+    ⏳ Caricamento...
+  </div>
+
+  <div *ngIf="!isLoading && backtestingList.length === 0" class="empty-state">
+    <p>Nessun backtesting trovato</p>
+  </div>
+
+  <div *ngIf="!isLoading && backtestingList.length > 0" class="list-content">
+    <div class="list-actions">
+      <button 
+        class="btn-secondary" 
+        (click)="selectAllBacktestings()"
+        [disabled]="selectedBacktestingIds.size === backtestingList.length">
+        ✓ Seleziona tutti
+      </button>
+      <button 
+        class="btn-secondary" 
+        (click)="deselectAllBacktestings()"
+        [disabled]="selectedBacktestingIds.size === 0">
+        ✗ Deseleziona tutti
+      </button>
+      <button 
+        class="btn-danger" 
+        (click)="deleteSelectedBacktestings()"
+        [disabled]="selectedBacktestingIds.size === 0">
+        🗑️ Elimina selezionati ({{ selectedBacktestingIds.size }})
+      </button>
+    </div>
+
+    <div class="backtesting-table">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th style="width: 40px;">
+              <input 
+                type="checkbox" 
+                [checked]="selectedBacktestingIds.size === backtestingList.length && backtestingList.length > 0"
+                (change)="selectedBacktestingIds.size === backtestingList.length ? deselectAllBacktestings() : selectAllBacktestings()">
+            </th>
+            <th>Nome</th>
+            <th>Data Inizio</th>
+            <th>Data Fine</th>
+            <th>Capitale Iniziale</th>
+            <th>Capitale Finale</th>
+            <th>Profitto</th>
+            <th>Ritorno %</th>
+            <th>Max Drawdown</th>
+            <th>Azioni</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr 
+            *ngFor="let backtesting of backtestingList" 
+            class="backtesting-row clickable"
+            [class.selected]="isBacktestingSelected(backtesting)"
+            (click)="navigateToDetail(backtesting)">
+            <td (click)="$event.stopPropagation()">
+              <input 
+                type="checkbox" 
+                [checked]="isBacktestingSelected(backtesting)"
+                (change)="toggleBacktestingSelection(backtesting)">
+            </td>
+            <td class="name-cell">{{ backtesting.setupName }}</td>
+            <td>{{ formatDate(backtesting.startDate) }}</td>
+            <td>{{ formatDate(backtesting.endDate) }}</td>
+            <td>{{ formatCurrency(backtesting.initialCapital) }}</td>
+            <td>{{ formatCurrency(backtesting.finalEquity) }}</td>
+            <td [class.positive]="backtesting.totalProfit > 0" [class.negative]="backtesting.totalProfit < 0">
+              {{ formatCurrency(backtesting.totalProfit) }}
+            </td>
+            <td [class.positive]="backtesting.totalReturn > 0" [class.negative]="backtesting.totalReturn < 0">
+              {{ formatPercent(backtesting.totalReturn) }}
+            </td>
+            <td [class.negative]="backtesting.maxDrawdown < 0">
+              {{ formatPercent(backtesting.maxDrawdown) }}
+            </td>
+            <td class="actions-cell" (click)="$event.stopPropagation()">
+              <button 
+                class="btn-icon" 
+                (click)="navigateToDetail(backtesting)"
+                title="Visualizza dettagli">
+                👁️
+              </button>
+              <button 
+                class="btn-icon btn-danger-icon" 
+                (click)="deleteBacktesting(backtesting, $event)"
+                title="Elimina">
+                🗑️
+              </button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>

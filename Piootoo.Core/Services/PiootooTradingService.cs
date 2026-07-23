@@ -1,0 +1,1085 @@
+using Piootoo.Core.Services.Interfaces;
+using Piootoo.Shared.Enums;
+using Piootoo.Shared.Models;
+using Piootoo.Shared.Models.Backtesting;
+using Piootoo.Shared.Models.Trading;
+using Piootoo.Shared.Utilities;
+
+namespace Piootoo.Core.Services;
+
+/// <summary>
+/// Servizio per l'emulazione del trading
+/// </summary>
+public class PiootooTradingService : IPiootooTradingService
+{
+    private static readonly Dictionary<string, decimal> ContractPointValues = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["ES"] = 50m,
+        ["MES"] = 5m,
+        ["NQ"] = 20m,
+        ["MNQ"] = 2m,
+        ["YM"] = 5m,
+        ["MYM"] = 0.5m,
+        ["RTY"] = 50m,
+        ["M2K"] = 5m,
+        ["CL"] = 1000m,
+        ["MCL"] = 100m,
+        ["GC"] = 100m,
+        ["MGC"] = 10m,
+        ["SI"] = 5000m,
+        ["FDAX"] = 25m,
+        ["FDXM"] = 5m,
+        ["FDXS"] = 1m
+    };
+
+    private TradingState _state = new();
+    private decimal _commissionPerContract = 2.0m; // Commissione per contratto
+    private decimal _initialCapital = 0m; // Capitale iniziale per calcolare il profit totale
+    private readonly List<TradingResult> _closedTrades = new();
+    private readonly Dictionary<string, decimal> _strategyCashAdjustments = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, decimal> _lastPrices = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, IReadOnlyDictionary<string, object?>> _strategyRuntimeStates = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, PendingOrder> _pendingOrders = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, (DateTime Day, int Count)> _entriesByDay = new(StringComparer.OrdinalIgnoreCase);
+
+    private sealed class PendingOrder
+    {
+        public required string PositionKey { get; init; }
+        public required TradeSignal Signal { get; set; }
+    }
+
+    public void Initialize(decimal initialCapital, decimal commissionPerContract = 2.0m)
+    {
+        _commissionPerContract = commissionPerContract;
+        _initialCapital = initialCapital;
+        _state = new TradingState
+        {
+            Equity = initialCapital,
+            Balance = initialCapital,
+            MaxEquity = initialCapital,
+            Drawdown = 0,
+            OpenPositions = new Dictionary<string, OpenPosition>()
+        };
+        _closedTrades.Clear();
+        _strategyCashAdjustments.Clear();
+        _lastPrices.Clear();
+        _strategyRuntimeStates.Clear();
+        _pendingOrders.Clear();
+        _entriesByDay.Clear();
+    }
+
+    public TradingSnapshot ProcessSignals(List<TradeSignal> signals, decimal currentPrice, DateTime currentTime)
+    {
+        var currentPrices = BuildCurrentPrices(signals, currentPrice);
+        return ProcessSignals(signals, currentPrices, currentTime);
+    }
+
+    public StrategyExecutionSnapshot GetExecutionSnapshot(string strategyCode, string symbol, DateTime barTimeUtc)
+    {
+        var normalizedSymbol = NormalizeSymbol(symbol);
+        var positionKey = MakePositionKey(normalizedSymbol, strategyCode);
+        _state.OpenPositions.TryGetValue(positionKey, out var position);
+        var day = TradingDateTime.ToFeedUtc(barTimeUtc).Date;
+        var entriesToday = 0;
+        if (_entriesByDay.TryGetValue(positionKey, out var tracked) && tracked.Day == day)
+        {
+            entriesToday = tracked.Count;
+        }
+
+        return new StrategyExecutionSnapshot
+        {
+            StrategyCode = strategyCode,
+            Symbol = normalizedSymbol,
+            BarTimeUtc = TradingDateTime.ToFeedUtc(barTimeUtc),
+            DollarsPerPoint = GetContractPointValue(normalizedSymbol),
+            EntriesToday = entriesToday,
+            Position = position is null
+                ? null
+                : new StrategyPositionSnapshot
+                {
+                    Direction = position.Direction,
+                    EntryPrice = position.EntryPrice,
+                    EntryTimeUtc = position.EntryTime,
+                    Contracts = position.Contracts,
+                    BarsInPosition = position.BarsInPosition
+                },
+            RuntimeState = _strategyRuntimeStates.TryGetValue(positionKey, out var state)
+                ? state
+                : new Dictionary<string, object?>(StringComparer.Ordinal)
+        };
+    }
+
+    public void CaptureStrategyRuntimeState(string strategyCode, string symbol, IReadOnlyDictionary<string, object?> runtimeState)
+    {
+        var key = MakePositionKey(NormalizeSymbol(symbol), strategyCode);
+        _strategyRuntimeStates[key] = new Dictionary<string, object?>(runtimeState, StringComparer.Ordinal);
+    }
+
+    public TradingSnapshot ProcessSignals(List<TradeSignal> signals, Dictionary<string, decimal> currentPrices, DateTime currentTime)
+    {
+        return ProcessSignals(signals, currentPrices, new Dictionary<string, OhlcvData>(StringComparer.OrdinalIgnoreCase), currentTime);
+    }
+
+    public TradingSnapshot ProcessSignals(List<TradeSignal> signals, Dictionary<string, decimal> currentPrices, Dictionary<string, OhlcvData> currentBars, DateTime currentTime)
+    {
+        currentTime = TradingDateTime.ToFeedUtc(currentTime);
+        foreach (var signal in signals)
+        {
+            TradingDateTime.NormalizeSignalToUtc(signal);
+        }
+
+        currentPrices = NormalizeCurrentPrices(currentPrices);
+        currentBars = NormalizeCurrentBars(currentBars);
+        var closedByOppositeSignal = new HashSet<string>();
+
+        CheckStopLossAndTakeProfit(currentPrices, currentBars, 0m, currentTime);
+        CheckTimeExits(currentPrices, currentBars, 0m, currentTime);
+        TryFillPendingOrders(currentPrices, currentBars, currentTime);
+
+        // Chiudi posizioni se necessario (es. segnale opposto)
+        foreach (var signal in signals)
+        {
+            if (!IsSignalActive(signal, currentTime))
+            {
+                continue;
+            }
+
+            var signalSymbol = ResolveSignalSymbol(signal, currentPrices);
+            var positionKey = MakePositionKey(signalSymbol, GetSignalStrategyCode(signal));
+            if (_state.OpenPositions.TryGetValue(positionKey, out var position))
+            {
+                // Un segnale opposto chiude la posizione esistente e viene consumato.
+                if ((position.Direction == SignalType.Buy && signal.Type == SignalType.Sell) ||
+                    (position.Direction == SignalType.Sell && signal.Type == SignalType.Buy))
+                {
+                    if (signal.OrderType == TradeOrderType.Stop)
+                    {
+                        // Gli stop di entry/reversal restano pendenti e non chiudono a mercato subito.
+                        continue;
+                    }
+
+                    ClosePosition(positionKey, ResolveSignalPrice(signal, currentPrices), currentTime);
+                    closedByOppositeSignal.Add(positionKey);
+                    CancelPendingOrders(positionKey);
+                }
+            }
+        }
+
+        // Apri nuove posizioni o accoda intent stop/next-bar
+        foreach (var signal in signals)
+        {
+            if (signal.Type != SignalType.Buy && signal.Type != SignalType.Sell)
+            {
+                continue;
+            }
+
+            var signalSymbol = ResolveSignalSymbol(signal, currentPrices);
+            if (string.IsNullOrEmpty(signalSymbol))
+            {
+                continue;
+            }
+
+            var positionKey = MakePositionKey(signalSymbol, GetSignalStrategyCode(signal));
+            if (closedByOppositeSignal.Contains(positionKey) && signal.CloseOnly)
+            {
+                continue;
+            }
+
+            if (signal.CloseOnly && !_state.OpenPositions.ContainsKey(positionKey))
+            {
+                continue;
+            }
+
+            if (RequiresDeferredExecution(signal, currentTime))
+            {
+                EnqueuePendingOrder(positionKey, signal);
+                continue;
+            }
+
+            if (signal.CloseOnly)
+            {
+                if (_state.OpenPositions.ContainsKey(positionKey))
+                {
+                    ClosePosition(positionKey, ResolveSignalPrice(signal, currentPrices), currentTime);
+                    CancelPendingOrders(positionKey);
+                }
+
+                continue;
+            }
+
+            // Se non c'è già una posizione aperta per questa strategia, aprine una
+            if (!_state.OpenPositions.ContainsKey(positionKey))
+            {
+                OpenFromSignal(positionKey, signal, signalSymbol, currentPrices, currentBars, currentTime);
+            }
+            else if (signal.OrderType == TradeOrderType.Stop)
+            {
+                // Posizione già aperta: mantieni lo stop come pending per un eventuale reverse fill.
+                EnqueuePendingOrder(positionKey, signal);
+            }
+        }
+
+        TryFillPendingOrders(currentPrices, currentBars, currentTime);
+
+        // Verifica stop loss e take profit per posizioni aperte
+        CheckStopLossAndTakeProfit(currentPrices, currentBars, 0m, currentTime);
+
+        // Aggiorna equity con unrealized P&L
+        UpdateEquity(currentPrices, 0m);
+
+        return GetSnapshot();
+    }
+
+    private static bool IsSignalActive(TradeSignal signal, DateTime currentTime)
+    {
+        if (signal.ExpiresAtUtc.HasValue && currentTime > signal.ExpiresAtUtc.Value)
+        {
+            return false;
+        }
+
+        if (signal.ValidFromUtc.HasValue && currentTime < signal.ValidFromUtc.Value)
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    private static bool RequiresDeferredExecution(TradeSignal signal, DateTime currentTime)
+    {
+        if (signal.ExpiresAtUtc.HasValue && currentTime > signal.ExpiresAtUtc.Value)
+        {
+            return false;
+        }
+
+        if (signal.ValidFromUtc.HasValue && currentTime < signal.ValidFromUtc.Value)
+        {
+            return true;
+        }
+
+        return signal.OrderType == TradeOrderType.Stop;
+    }
+
+    private void EnqueuePendingOrder(string positionKey, TradeSignal signal)
+    {
+        // Chiave per direzione: long e short stop possono coesistere (OCO logico).
+        var pendingKey = $"{positionKey}|{(int)signal.Type}|{(int)signal.OrderType}";
+        _pendingOrders[pendingKey] = new PendingOrder
+        {
+            PositionKey = positionKey,
+            Signal = signal
+        };
+    }
+
+    private void CancelPendingOrders(string positionKey)
+    {
+        foreach (var key in _pendingOrders.Keys.Where(k => k.StartsWith(positionKey + "|", StringComparison.OrdinalIgnoreCase)).ToList())
+        {
+            _pendingOrders.Remove(key);
+        }
+    }
+
+    private void TryFillPendingOrders(
+        Dictionary<string, decimal> currentPrices,
+        Dictionary<string, OhlcvData> currentBars,
+        DateTime currentTime)
+    {
+        foreach (var pendingKey in _pendingOrders.Keys.ToList())
+        {
+            if (!_pendingOrders.TryGetValue(pendingKey, out var pending))
+            {
+                continue;
+            }
+
+            var signal = pending.Signal;
+            if (signal.ExpiresAtUtc.HasValue && currentTime > signal.ExpiresAtUtc.Value)
+            {
+                _pendingOrders.Remove(pendingKey);
+                continue;
+            }
+
+            if (signal.ValidFromUtc.HasValue && currentTime < signal.ValidFromUtc.Value)
+            {
+                continue;
+            }
+
+            var signalSymbol = ResolveSignalSymbol(signal, currentPrices);
+            if (string.IsNullOrEmpty(signalSymbol))
+            {
+                continue;
+            }
+
+            currentBars.TryGetValue(NormalizeSymbol(signalSymbol), out var bar);
+            currentPrices.TryGetValue(NormalizeSymbol(signalSymbol), out var markPrice);
+
+            if (signal.CloseOnly)
+            {
+                if (_state.OpenPositions.ContainsKey(pending.PositionKey))
+                {
+                    var exitPrice = ResolveFillPrice(signal, bar, markPrice);
+                    ClosePosition(pending.PositionKey, exitPrice, currentTime);
+                    CancelPendingOrders(pending.PositionKey);
+                }
+                else
+                {
+                    _pendingOrders.Remove(pendingKey);
+                }
+
+                continue;
+            }
+
+            if (signal.OrderType == TradeOrderType.Stop)
+            {
+                if (bar is null)
+                {
+                    continue;
+                }
+
+                var touched = signal.Type == SignalType.Buy
+                    ? bar.High >= signal.Price
+                    : bar.Low <= signal.Price;
+
+                if (!touched)
+                {
+                    continue;
+                }
+
+                var fillPrice = signal.Type == SignalType.Buy
+                    ? Math.Max(bar.Open, signal.Price)
+                    : Math.Min(bar.Open, signal.Price);
+
+                if (_state.OpenPositions.TryGetValue(pending.PositionKey, out var existing))
+                {
+                    if (existing.Direction == signal.Type)
+                    {
+                        _pendingOrders.Remove(pendingKey);
+                        continue;
+                    }
+
+                    ClosePosition(pending.PositionKey, fillPrice, currentTime);
+                }
+
+                OpenFromSignal(pending.PositionKey, signal, signalSymbol, currentPrices, currentBars, currentTime, fillPrice);
+                // Dopo un fill cancelliamo entrambi gli stop della stessa strategia (comportamento OCO).
+                CancelPendingOrders(pending.PositionKey);
+                continue;
+            }
+
+            // Market deferred (ValidFromUtc raggiunto)
+            if (signal.OrderType == TradeOrderType.Market)
+            {
+                if (_state.OpenPositions.ContainsKey(pending.PositionKey))
+                {
+                    _pendingOrders.Remove(pendingKey);
+                    continue;
+                }
+
+                var fillPrice = ResolveFillPrice(signal, bar, markPrice);
+                OpenFromSignal(pending.PositionKey, signal, signalSymbol, currentPrices, currentBars, currentTime, fillPrice);
+                _pendingOrders.Remove(pendingKey);
+            }
+        }
+    }
+
+    private static decimal ResolveFillPrice(TradeSignal signal, OhlcvData? bar, decimal markPrice)
+    {
+        if (signal.OrderType == TradeOrderType.Market)
+        {
+            return bar?.Open ?? (signal.Price != 0 ? signal.Price : markPrice);
+        }
+
+        return signal.Price != 0 ? signal.Price : (bar?.Close ?? markPrice);
+    }
+
+    private void OpenFromSignal(
+        string positionKey,
+        TradeSignal signal,
+        string signalSymbol,
+        Dictionary<string, decimal> currentPrices,
+        Dictionary<string, OhlcvData> currentBars,
+        DateTime currentTime,
+        decimal? explicitFillPrice = null)
+    {
+        var dollarsPerPoint = GetContractPointValue(signalSymbol);
+        var stopLossPoints = signal.StopLoss
+            ?? (signal.StopLossMoneyPerFutureContract.HasValue
+                ? signal.StopLossMoneyPerFutureContract.Value / dollarsPerPoint
+                : null);
+        var takeProfitPoints = signal.TakeProfit
+            ?? (signal.TakeProfitMoneyPerFutureContract.HasValue
+                ? signal.TakeProfitMoneyPerFutureContract.Value / dollarsPerPoint
+                : null);
+
+        currentBars.TryGetValue(NormalizeSymbol(signalSymbol), out var bar);
+        currentPrices.TryGetValue(NormalizeSymbol(signalSymbol), out var markPrice);
+        var entryPrice = explicitFillPrice ?? ResolveFillPrice(signal, bar, markPrice);
+
+        OpenPosition(
+            positionKey,
+            signal.StrategyName,
+            GetSignalStrategyCode(signal),
+            signalSymbol,
+            signal.Type,
+            entryPrice,
+            currentTime,
+            signal.Quantity,
+            stopLossPoints,
+            takeProfitPoints,
+            signal.BreakEven,
+            signal.MaxBarsInPosition,
+            signal.CloseAtUtc);
+
+        RecordEntry(positionKey, currentTime);
+    }
+
+    private void RecordEntry(string positionKey, DateTime entryTime)
+    {
+        var day = entryTime.Date;
+        if (_entriesByDay.TryGetValue(positionKey, out var tracked) && tracked.Day == day)
+        {
+            _entriesByDay[positionKey] = (day, tracked.Count + 1);
+        }
+        else
+        {
+            _entriesByDay[positionKey] = (day, 1);
+        }
+    }
+
+    public TradingSnapshot UpdateMarketPrices(Dictionary<string, decimal> currentPrices, DateTime currentTime)
+    {
+        return UpdateMarketPrices(currentPrices, new Dictionary<string, OhlcvData>(StringComparer.OrdinalIgnoreCase), currentTime);
+    }
+
+    public TradingSnapshot UpdateMarketPrices(Dictionary<string, decimal> currentPrices, Dictionary<string, OhlcvData> currentBars, DateTime currentTime)
+    {
+        currentTime = TradingDateTime.ToFeedUtc(currentTime);
+        currentPrices = NormalizeCurrentPrices(currentPrices);
+        currentBars = NormalizeCurrentBars(currentBars);
+        CheckStopLossAndTakeProfit(currentPrices, currentBars, 0m, currentTime);
+        CheckTimeExits(currentPrices, currentBars, 0m, currentTime);
+        TryFillPendingOrders(currentPrices, currentBars, currentTime);
+        UpdateEquity(currentPrices, 0m);
+
+        return GetSnapshot();
+    }
+
+    public TradingSnapshot CloseAllOpenPositions(Dictionary<string, decimal> currentPrices, Dictionary<string, OhlcvData> currentBars, DateTime currentTime)
+    {
+        currentTime = TradingDateTime.ToFeedUtc(currentTime);
+        currentPrices = NormalizeCurrentPrices(currentPrices);
+        currentBars = NormalizeCurrentBars(currentBars);
+        RecordCurrentPrices(currentPrices);
+
+        foreach (var positionKey in _state.OpenPositions.Keys.ToList())
+        {
+            if (!_state.OpenPositions.TryGetValue(positionKey, out var position))
+            {
+                continue;
+            }
+
+            var exitPrice = GetCurrentBar(position, currentBars)?.Close ?? GetCurrentPrice(position, currentPrices, 0m);
+            if (exitPrice.HasValue)
+            {
+                ClosePosition(positionKey, exitPrice.Value, currentTime);
+            }
+        }
+
+        UpdateEquity(currentPrices, 0m);
+        return GetSnapshot();
+    }
+
+    public TradingSnapshot GetSnapshot()
+    {
+        // Il profit totale è la differenza tra equity corrente e capitale iniziale
+        // Non Equity - Balance (che è solo unrealized P&L)
+        return new TradingSnapshot
+        {
+            DateTime = DateTime.UtcNow,
+            Equity = _state.Equity,
+            Balance = _state.Balance,
+            Drawdown = _state.Drawdown,
+            Profit = _state.Equity - _initialCapital,
+            OpenPositionsCount = _state.OpenPositions.Count,
+            StrategyEquities = GetStrategyEquities()
+        };
+    }
+
+    public IReadOnlyList<TradingResult> GetClosedTrades() => _closedTrades.ToArray();
+
+    public BacktestingResult ApplyStrategyFilter(BacktestingResult result, List<string> enabledStrategies, Dictionary<string, decimal> multipliers)
+    {
+        // Filtra i risultati per strategia
+        var filteredStrategyResults = result.StrategyResults
+            .Where(sr => enabledStrategies.Contains(sr.StrategyName))
+            .ToList();
+
+        // Applica i moltiplicatori
+        foreach (var strategyResult in filteredStrategyResults)
+        {
+            if (multipliers.TryGetValue(strategyResult.StrategyName, out var multiplier))
+            {
+                strategyResult.Profit *= multiplier;
+                strategyResult.Contracts = (int)(strategyResult.Contracts * multiplier);
+            }
+        }
+
+        // Ricalcola i risultati orari aggregati
+        var filteredHourlyResults = filteredStrategyResults
+            .GroupBy(sr => sr.DateTime)
+            .Select(g => new HourlyResult
+            {
+                DateTime = g.Key,
+                Profit = g.Sum(sr => sr.Profit),
+                Equity = result.InitialCapital + g.Sum(sr => sr.Profit),
+                Balance = result.InitialCapital + g.Sum(sr => sr.Profit),
+                Drawdown = 0 // Ricalcolato dopo
+            })
+            .OrderBy(hr => hr.DateTime)
+            .ToList();
+
+        // Calcola drawdown
+        decimal maxEquity = result.InitialCapital;
+        foreach (var hr in filteredHourlyResults)
+        {
+            if (hr.Equity > maxEquity)
+                maxEquity = hr.Equity;
+            
+            hr.Drawdown = maxEquity > 0 ? ((maxEquity - hr.Equity) / maxEquity) * 100m : 0;
+        }
+
+        // Crea nuovo risultato filtrato
+        var filteredResult = new BacktestingResult
+        {
+            JobId = result.JobId,
+            SetupName = result.SetupName,
+            SetupId = result.SetupId,
+            StartDate = result.StartDate,
+            EndDate = result.EndDate,
+            InitialCapital = result.InitialCapital,
+            HourlyResults = filteredHourlyResults,
+            StrategyResults = filteredStrategyResults,
+            FinalEquity = filteredHourlyResults.LastOrDefault()?.Equity ?? result.InitialCapital,
+            TotalProfit = filteredHourlyResults.Sum(hr => hr.Profit),
+            MaxDrawdown = filteredHourlyResults.Max(hr => hr.Drawdown),
+            StrategiesUsed = enabledStrategies
+        };
+
+        return filteredResult;
+    }
+
+    public void Reset()
+    {
+        _state = new TradingState
+        {
+            Equity = 0,
+            Balance = 0,
+            MaxEquity = 0,
+            Drawdown = 0,
+            OpenPositions = new Dictionary<string, OpenPosition>()
+        };
+        _closedTrades.Clear();
+        _strategyCashAdjustments.Clear();
+        _lastPrices.Clear();
+        _strategyRuntimeStates.Clear();
+        _pendingOrders.Clear();
+        _entriesByDay.Clear();
+    }
+
+    private void OpenPosition(string positionKey, string strategyName, string strategyCode, string symbol, SignalType direction, decimal entryPrice, DateTime entryTime, decimal quantity, decimal? stopLoss, decimal? takeProfit, decimal? breakEven = null, int? maxBarsInPosition = null, DateTime? closeAtUtc = null)
+    {
+        var contracts = Math.Max(1, (int)quantity);
+        var position = new OpenPosition
+        {
+            StrategyName = strategyName,
+            StrategyCode = strategyCode,
+            Symbol = NormalizeSymbol(symbol),
+            Direction = direction,
+            EntryPrice = entryPrice,
+            EntryTime = entryTime,
+            Contracts = contracts,
+            ContractPointValue = GetContractPointValue(symbol),
+            StopLoss = stopLoss,
+            TakeProfit = takeProfit,
+            BreakEven = breakEven,
+            MaxBarsInPosition = maxBarsInPosition,
+            CloseAtUtc = closeAtUtc,
+            BarsInPosition = 0,
+            LastProcessedBarTime = entryTime,
+            BreakEvenActivated = false
+        };
+
+        _state.OpenPositions[positionKey] = position;
+        
+        // Sottrai commissione dal balance
+        var entryCommission = _commissionPerContract * position.Contracts;
+        _state.Balance -= entryCommission;
+        AddStrategyCashAdjustment(positionKey, -entryCommission);
+    }
+    
+    private void CheckStopLossAndTakeProfit(Dictionary<string, decimal> currentPrices, Dictionary<string, OhlcvData> currentBars, decimal fallbackPrice, DateTime currentTime)
+    {
+        var positionsToClose = new List<(string PositionKey, decimal ExitPrice)>();
+        
+        foreach (var (positionKey, position) in _state.OpenPositions)
+        {
+            if (position.EntryTime == currentTime)
+            {
+                continue;
+            }
+
+            var currentPrice = GetCurrentPrice(position, currentPrices, fallbackPrice);
+            if (!currentPrice.HasValue)
+            {
+                continue;
+            }
+
+            decimal favorableMove = 0;
+            var currentBar = GetCurrentBar(position, currentBars);
+            
+            if (position.Direction == SignalType.Buy)
+            {
+                favorableMove = currentPrice.Value - position.EntryPrice;
+                var favorableHighMove = (currentBar?.High ?? currentPrice.Value) - position.EntryPrice;
+                var adverseLowMove = (currentBar?.Low ?? currentPrice.Value) - position.EntryPrice;
+                
+                // Gestione Break Even per Long
+                if (!position.BreakEvenActivated && position.BreakEven.HasValue && 
+                    favorableHighMove >= position.BreakEven.Value)
+                {
+                    // Sposta stop loss al prezzo di entry (break even)
+                    position.StopLoss = 0;
+                    position.BreakEvenActivated = true;
+                }
+                
+                // Verifica Stop Loss (perdita o break even)
+                decimal effectiveStopLoss = position.BreakEvenActivated ? 0 : (position.StopLoss ?? decimal.MaxValue);
+                if (adverseLowMove <= -effectiveStopLoss)
+                {
+                    positionsToClose.Add((positionKey, position.EntryPrice - effectiveStopLoss));
+                    continue;
+                }
+                
+                // Verifica Take Profit (profitto)
+                if (position.TakeProfit.HasValue && favorableHighMove >= position.TakeProfit.Value)
+                {
+                    positionsToClose.Add((positionKey, position.EntryPrice + position.TakeProfit.Value));
+                    continue;
+                }
+            }
+            else if (position.Direction == SignalType.Sell)
+            {
+                favorableMove = position.EntryPrice - currentPrice.Value;
+                var favorableLowMove = position.EntryPrice - (currentBar?.Low ?? currentPrice.Value);
+                var adverseHighMove = (currentBar?.High ?? currentPrice.Value) - position.EntryPrice;
+                
+                // Gestione Break Even per Short
+                if (!position.BreakEvenActivated && position.BreakEven.HasValue && 
+                    favorableLowMove >= position.BreakEven.Value)
+                {
+                    // Sposta stop loss al prezzo di entry (break even)
+                    position.StopLoss = 0;
+                    position.BreakEvenActivated = true;
+                }
+                
+                // Verifica Stop Loss (perdita o break even)
+                decimal effectiveStopLoss = position.BreakEvenActivated ? 0 : (position.StopLoss ?? decimal.MaxValue);
+                if (adverseHighMove >= effectiveStopLoss)
+                {
+                    positionsToClose.Add((positionKey, position.EntryPrice + effectiveStopLoss));
+                    continue;
+                }
+                
+                // Verifica Take Profit (profitto)
+                if (position.TakeProfit.HasValue && favorableLowMove >= position.TakeProfit.Value)
+                {
+                    positionsToClose.Add((positionKey, position.EntryPrice - position.TakeProfit.Value));
+                    continue;
+                }
+            }
+        }
+        
+        // Chiudi posizioni che hanno raggiunto stop loss o take profit
+        foreach (var (positionKey, exitPrice) in positionsToClose)
+        {
+            if (_state.OpenPositions.ContainsKey(positionKey))
+            {
+                ClosePosition(positionKey, exitPrice, currentTime);
+            }
+        }
+    }
+
+    private void CheckTimeExits(Dictionary<string, decimal> currentPrices, Dictionary<string, OhlcvData> currentBars, decimal fallbackPrice, DateTime currentTime)
+    {
+        var positionsToClose = new List<(string PositionKey, decimal ExitPrice)>();
+
+        foreach (var (positionKey, position) in _state.OpenPositions)
+        {
+            if (position.CloseAtUtc.HasValue && currentTime >= position.CloseAtUtc.Value)
+            {
+                var timedExitPrice = GetCurrentBar(position, currentBars)?.Close
+                    ?? GetCurrentPrice(position, currentPrices, fallbackPrice);
+                if (timedExitPrice.HasValue)
+                {
+                    positionsToClose.Add((positionKey, timedExitPrice.Value));
+                }
+                continue;
+            }
+
+            if (!position.MaxBarsInPosition.HasValue || position.MaxBarsInPosition.Value <= 0)
+            {
+                continue;
+            }
+
+            if (position.EntryTime == currentTime || position.LastProcessedBarTime == currentTime)
+            {
+                continue;
+            }
+
+            position.BarsInPosition++;
+            position.LastProcessedBarTime = currentTime;
+
+            if (position.BarsInPosition < position.MaxBarsInPosition.Value)
+            {
+                continue;
+            }
+
+            var currentBar = GetCurrentBar(position, currentBars);
+            var currentPrice = GetCurrentPrice(position, currentPrices, fallbackPrice);
+            var exitPrice = currentBar?.Close ?? currentPrice;
+            if (exitPrice.HasValue)
+            {
+                positionsToClose.Add((positionKey, exitPrice.Value));
+            }
+        }
+
+        foreach (var (positionKey, exitPrice) in positionsToClose)
+        {
+            if (_state.OpenPositions.ContainsKey(positionKey))
+            {
+                ClosePosition(positionKey, exitPrice, currentTime);
+            }
+        }
+    }
+
+    private void ClosePosition(string positionKey, decimal exitPrice, DateTime exitTime)
+    {
+        if (!_state.OpenPositions.TryGetValue(positionKey, out var position))
+            return;
+
+        var trade = new TradingResult
+        {
+            StrategyName = position.StrategyName,
+            StrategyCode = position.StrategyCode,
+            Symbol = position.Symbol,
+            EntryDate = position.EntryTime,
+            ExitDate = exitTime,
+            EntryPrice = position.EntryPrice,
+            ExitPrice = exitPrice,
+            Quantity = position.Contracts,
+            Direction = position.Direction,
+            ContractPointValue = position.ContractPointValue,
+            Commission = _commissionPerContract * position.Contracts * 2 // Entry + Exit
+        };
+
+        // Calcola profit
+        var grossProfit = trade.GrossProfit;
+        var exitCommission = _commissionPerContract * position.Contracts;
+        _state.Balance += grossProfit - exitCommission;
+        AddStrategyCashAdjustment(positionKey, grossProfit - exitCommission);
+        
+        // Aggiorna equity: balance + unrealized P&L di eventuali altre posizioni aperte
+        // Non impostare semplicemente Equity = Balance perché potrebbero esserci altre posizioni aperte
+        // L'equity verrà aggiornata dalla chiamata a UpdateEquity dopo la chiusura
+        
+        // Aggiorna max equity e drawdown
+        // Nota: l'equity verrà aggiornata correttamente da UpdateEquity chiamato dopo
+        // ma dobbiamo aggiornare subito per il calcolo del drawdown
+        _state.Equity = _state.Balance; // Temporaneo, verrà aggiornato da UpdateEquity
+        
+        if (_state.Equity > _state.MaxEquity)
+            _state.MaxEquity = _state.Equity;
+        
+        _state.UpdateDrawdown();
+
+        _closedTrades.Add(trade);
+        _state.OpenPositions.Remove(positionKey);
+    }
+
+    private void UpdateEquity(Dictionary<string, decimal> currentPrices, decimal fallbackPrice)
+    {
+        RecordCurrentPrices(currentPrices);
+        decimal unrealizedPnL = 0;
+
+        foreach (var position in _state.OpenPositions.Values)
+        {
+            var currentPrice = GetCurrentPrice(position, currentPrices, fallbackPrice);
+            if (!currentPrice.HasValue)
+            {
+                continue;
+            }
+
+            if (position.Direction == SignalType.Buy)
+            {
+                unrealizedPnL += (currentPrice.Value - position.EntryPrice) * position.Contracts * position.ContractPointValue;
+            }
+            else if (position.Direction == SignalType.Sell)
+            {
+                unrealizedPnL += (position.EntryPrice - currentPrice.Value) * position.Contracts * position.ContractPointValue;
+            }
+        }
+
+        _state.Equity = _state.Balance + unrealizedPnL;
+
+        if (_state.Equity > _state.MaxEquity)
+            _state.MaxEquity = _state.Equity;
+
+        _state.UpdateDrawdown();
+    }
+
+    private Dictionary<string, decimal> GetStrategyEquities()
+    {
+        var strategyEquities = new Dictionary<string, decimal>(_strategyCashAdjustments, StringComparer.OrdinalIgnoreCase);
+
+        foreach (var (positionKey, position) in _state.OpenPositions)
+        {
+            if (!strategyEquities.ContainsKey(positionKey))
+            {
+                strategyEquities[positionKey] = 0m;
+            }
+
+            strategyEquities[positionKey] += CalculateUnrealizedProfit(position);
+        }
+
+        return strategyEquities.ToDictionary(
+            item => item.Key,
+            item => _initialCapital + item.Value,
+            StringComparer.OrdinalIgnoreCase);
+    }
+
+    private decimal CalculateUnrealizedProfit(OpenPosition position)
+    {
+        var currentPrice = GetCurrentPrice(position, _lastPrices, 0m);
+        if (!currentPrice.HasValue)
+        {
+            return 0m;
+        }
+
+        return position.Direction == SignalType.Buy
+            ? (currentPrice.Value - position.EntryPrice) * position.Contracts * position.ContractPointValue
+            : (position.EntryPrice - currentPrice.Value) * position.Contracts * position.ContractPointValue;
+    }
+
+    private static Dictionary<string, decimal> BuildCurrentPrices(IEnumerable<TradeSignal> signals, decimal fallbackPrice)
+    {
+        var prices = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
+        foreach (var signal in signals)
+        {
+            var symbol = NormalizeSymbol(signal.Symbol);
+            if (!string.IsNullOrEmpty(symbol) && signal.Price > 0)
+            {
+                prices[symbol] = signal.Price;
+            }
+        }
+
+        if (!prices.Any() && fallbackPrice > 0)
+        {
+            prices[string.Empty] = fallbackPrice;
+        }
+
+        return prices;
+    }
+
+    private static decimal ResolveSignalPrice(TradeSignal signal, Dictionary<string, decimal> currentPrices)
+    {
+        if (signal.Price > 0)
+        {
+            return signal.Price;
+        }
+
+        var symbol = NormalizeSymbol(signal.Symbol);
+        if (!string.IsNullOrEmpty(symbol) && currentPrices.TryGetValue(symbol, out var symbolPrice))
+        {
+            return symbolPrice;
+        }
+
+        return currentPrices.Count == 1 ? currentPrices.Values.First() : 0m;
+    }
+
+    private static decimal? GetCurrentPrice(OpenPosition position, Dictionary<string, decimal> currentPrices, decimal fallbackPrice)
+    {
+        if (!string.IsNullOrEmpty(position.Symbol) && currentPrices.TryGetValue(position.Symbol, out var symbolPrice))
+        {
+            return symbolPrice;
+        }
+
+        if (!string.IsNullOrEmpty(position.Symbol))
+        {
+            return null;
+        }
+
+        if (currentPrices.TryGetValue(string.Empty, out var defaultPrice))
+        {
+            return defaultPrice;
+        }
+
+        return fallbackPrice > 0 ? fallbackPrice : null;
+    }
+
+    private static OhlcvData? GetCurrentBar(OpenPosition position, Dictionary<string, OhlcvData> currentBars)
+    {
+        if (!string.IsNullOrEmpty(position.Symbol) && currentBars.TryGetValue(position.Symbol, out var symbolBar))
+        {
+            return symbolBar;
+        }
+
+        if (!string.IsNullOrEmpty(position.Symbol))
+        {
+            return null;
+        }
+
+        if (currentBars.TryGetValue(string.Empty, out var defaultBar))
+        {
+            return defaultBar;
+        }
+
+        return currentBars.Count == 1 ? currentBars.Values.First() : null;
+    }
+
+    private void AddStrategyCashAdjustment(string positionKey, decimal amount)
+    {
+        if (!_strategyCashAdjustments.ContainsKey(positionKey))
+        {
+            _strategyCashAdjustments[positionKey] = 0m;
+        }
+
+        _strategyCashAdjustments[positionKey] += amount;
+    }
+
+    private void RecordCurrentPrices(Dictionary<string, decimal> currentPrices)
+    {
+        foreach (var (symbol, price) in currentPrices)
+        {
+            if (!string.IsNullOrEmpty(symbol) && price > 0)
+            {
+                _lastPrices[NormalizeSymbol(symbol)] = price;
+            }
+        }
+    }
+
+    private string ResolveSignalSymbol(TradeSignal signal, Dictionary<string, decimal> currentPrices)
+    {
+        var symbol = NormalizeSymbol(signal.Symbol);
+        if (!string.IsNullOrEmpty(symbol))
+        {
+            return symbol;
+        }
+
+        var strategyCode = GetSignalStrategyCode(signal);
+        var matchingPosition = _state.OpenPositions.Values.FirstOrDefault(position =>
+            position.StrategyCode.Equals(strategyCode, StringComparison.OrdinalIgnoreCase) ||
+            position.StrategyName.Equals(signal.StrategyName, StringComparison.OrdinalIgnoreCase));
+        if (matchingPosition != null)
+        {
+            return matchingPosition.Symbol;
+        }
+
+        var symbolKeys = currentPrices.Keys.Where(key => !string.IsNullOrEmpty(key)).ToList();
+        return symbolKeys.Count == 1 ? symbolKeys[0] : string.Empty;
+    }
+
+    private static Dictionary<string, decimal> NormalizeCurrentPrices(Dictionary<string, decimal> currentPrices)
+    {
+        var normalized = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (symbol, price) in currentPrices)
+        {
+            if (price <= 0)
+            {
+                continue;
+            }
+
+            var normalizedSymbol = NormalizeSymbol(symbol);
+            if (!string.IsNullOrEmpty(normalizedSymbol))
+            {
+                normalized[normalizedSymbol] = price;
+            }
+            else if (!normalized.Any())
+            {
+                normalized[string.Empty] = price;
+            }
+        }
+
+        if (normalized.Keys.Any(key => !string.IsNullOrEmpty(key)))
+        {
+            normalized.Remove(string.Empty);
+        }
+
+        return normalized;
+    }
+
+    private static Dictionary<string, OhlcvData> NormalizeCurrentBars(Dictionary<string, OhlcvData> currentBars)
+    {
+        var normalized = new Dictionary<string, OhlcvData>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (symbol, bar) in currentBars)
+        {
+            if (bar == null)
+            {
+                continue;
+            }
+
+            var normalizedSymbol = NormalizeSymbol(symbol);
+            if (!string.IsNullOrEmpty(normalizedSymbol))
+            {
+                normalized[normalizedSymbol] = bar;
+            }
+            else if (!normalized.Any())
+            {
+                normalized[string.Empty] = bar;
+            }
+        }
+
+        if (normalized.Keys.Any(key => !string.IsNullOrEmpty(key)))
+        {
+            normalized.Remove(string.Empty);
+        }
+
+        return normalized;
+    }
+
+    private static string MakePositionKey(string symbol, string strategyCode)
+    {
+        var normalizedSymbol = NormalizeSymbol(symbol);
+        var normalizedStrategyCode = strategyCode.Trim();
+
+        if (string.IsNullOrEmpty(normalizedSymbol))
+        {
+            return normalizedStrategyCode;
+        }
+
+        if (string.IsNullOrEmpty(normalizedStrategyCode))
+        {
+            return normalizedSymbol;
+        }
+
+        return $"{normalizedSymbol}|{normalizedStrategyCode}";
+    }
+
+    private static string GetSignalStrategyCode(TradeSignal signal)
+    {
+        return !string.IsNullOrWhiteSpace(signal.StrategyCode)
+            ? signal.StrategyCode
+            : signal.StrategyName;
+    }
+
+    private static string NormalizeSymbol(string symbol)
+    {
+        return symbol.Trim().TrimStart('@').ToUpperInvariant();
+    }
+
+    private static decimal GetContractPointValue(string symbol)
+    {
+        var normalizedSymbol = NormalizeSymbol(symbol);
+        return ContractPointValues.TryGetValue(normalizedSymbol, out var pointValue)
+            ? pointValue
+            : 1m;
+    }
+}

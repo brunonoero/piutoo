@@ -1,0 +1,12 @@
+[LegacyColorValue = TRUE];
+
+external: "ELCollections.dll", BOOL, "ELC_PathExists", LPSTR;
+
+Inputs:
+	FilePath(StringSimple);
+
+Vars:
+	vFilePath("");
+
+vFilePath = FilePath;
+ELC.PathExists = ELC_PathExists(vFilePath);

@@ -1,0 +1,35 @@
+<div class="app-container" [class.menu-collapsed]="!menuOpen">
+  <!-- Sidebar Menu -->
+  <nav class="sidebar">
+    <div class="sidebar-header">
+      <h1 class="logo">🎯 Piootoo</h1>
+      <button class="toggle-btn" (click)="toggleMenu()">
+        {{ menuOpen ? '◀' : '▶' }}
+      </button>
+    </div>
+
+    <ul class="nav-menu">
+      <li>
+        <a routerLink="/backtesting" routerLinkActive="active">
+          <span class="icon">📊</span>
+          <span class="label" *ngIf="menuOpen">Backtesting</span>
+        </a>
+      </li>
+      <li>
+        <a routerLink="/optimization" routerLinkActive="active">
+          <span class="icon">🎯</span>
+          <span class="label" *ngIf="menuOpen">Ottimizzazione</span>
+        </a>
+      </li>
+    </ul>
+
+    <div class="sidebar-footer" *ngIf="menuOpen">
+      <small>Piootoo Trading System v1.0</small>
+    </div>
+  </nav>
+
+  <!-- Main Content -->
+  <main class="main-content">
+    <router-outlet></router-outlet>
+  </main>
+</div>

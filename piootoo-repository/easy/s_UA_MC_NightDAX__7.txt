@@ -1,0 +1,10 @@
+input: BeginTime(1800), 
+	EndTime(2155), 
+	FlatTime(0900);
+input: MySize(1), StopLoss(3000);
+
+if Time>=BeginTime and Time<EndTime and EntriesToday(date)=0 then buy("LE") MySize contracts next bar market;
+if marketposition=1 and Time>=FlatTime and Time<BeginTime then sell("LX") next bar market;
+
+setstopcontract;
+setstoploss(stoploss);

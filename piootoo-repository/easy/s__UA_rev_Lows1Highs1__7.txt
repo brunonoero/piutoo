@@ -1,0 +1,83 @@
+// >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>	Michael OHLC Calculation begin
+input: SessBegin(1700), SessEnd(1600);
+array: ohlcValues[23](0), adxCalcValues[3](0);
+var: isStartOfSession(false), highd1(0), lowd1(0), adxVal(0);
+
+isStartOfSession = _OHLCMulti5(SessBegin,SessEnd,ohlcValues);
+highd1 = ohlcValues[5]; lowd1 = ohlcValues[6];
+// >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>	Michael OHLC Calculation end
+
+// Reversal on 1 session ago high/low
+// Ticker: XX (e.g.: "@ES")
+// Chart: XX mins - XX time (e.g.: 15 mins - exchange time)
+// Coding date: XXX-XX-XXXX (e.g.: Jan-01-2021)
+
+input: mycontracts(1), //# of contracts
+	MyStartTime(1800), MyEndTime(1700), MyStartPause(1200), MyEndPause(1100), //Time window
+	PtnLY(41), PtnLN(42), PtnLY_ext(152), PtnLN_ext(153), //optimization ranges: LY (1-41), LN (1-42), LY_ext (1-152), LN_ext (1-153)
+	PtnSY(41), PtnSN(42), PtnSY_ext(152), PtnSN_ext(153), //optimization ranges: SY (1-41), SN (1-42), SY_ext (1-152), SN_ext (1-153)
+	longLevelOffsetTicks(0), shortLevelOffsetTicks(0), //choose the offset for long/short entries (# ticks. positive values => anticipate / negative values => posticipate)
+	SkipSessL(0), SkipSessS(0), //Session of the week to skip
+	flatTime(1630), //Decide the flat time of the position
+	MaxDaysLong(1), MaxDaysShort(1), //Maximum # of days to keep long and short positions
+	MyStop(0), MyBreakeven(0), MyProfit(0); //Stoploss, breakeven, takeprofit (cash amount per contract)
+	
+var: OKL(true), OKS(true), mp(0), DaysInTrade(0), SoW(0), SessAcross2Days(false), FlatTimeFixed(0);
+
+once begin
+	SessAcross2Days = SessBegin>SessEnd; //Verifies if the session is across 2 calendar days
+	
+	//Determines the correct flat time according to the session type
+	if SessAcross2Days then FlatTimeFixed = SessBegin
+	else FlatTimeFixed = SessEnd;
+	if SessBegin=0 and SessEnd=0 then FlatTimeFixed = 2359;
+	
+end;
+
+If isStartOfSession then begin
+	//Reset permission to work long and short at every session reset (N.B. if you go overnight OKL/OKS will become false at next bar!)
+	OKL = true;	OKS = true;
+	
+	if marketposition<>0 then daysintrade = daysintrade+1;
+		
+	//Actual session count within the trading week
+	if SessAcross2Days then sow = dayofweek(d)+1
+	else sow = dayofweek(d);
+end;
+
+if tw(MyStartTime,MyEndTime) and (t<MyStartPause or t>MyEndPause) then begin
+	if okl and UAPtnBase(PtnLY,ohlcvalues) and UAPtnBase(PtnLN,ohlcvalues)=false and PatternFast(PtnLY_ext,ohlcvalues) and PatternFast(PtnLN_ext,ohlcvalues)=false 
+	and sow<>SkipSessL then buy("LE") mycontracts contracts next bar lowd1+longLevelOffsetTicks*TickSize limit;
+	
+	if oks and UAPtnBase(PtnSY,ohlcvalues) and UAPtnBase(PtnSN,ohlcvalues)=false and PatternFast(PtnSY_ext,ohlcvalues) and PatternFast(PtnSN_ext,ohlcvalues)=false 
+	and sow<>SkipSessS then sellshort("SE") mycontracts contracts next bar highd1-shortLevelOffsetTicks*TickSize limit;
+end;
+
+mp = marketposition;
+if mp<>mp[1] and mp<>0 then DaysInTrade = 1;
+
+if marketposition=1 then begin
+	okl = false;
+	if MaxDaysLong>0 and DaysInTrade>=MaxDaysLong then begin
+		setexitonclose;
+		if t>=flatTime and t<FlatTimeFixed then sell("LX_MaxDays") next bar market;
+	end;
+end;
+
+if marketposition=-1 then begin
+	oks = false;
+	if MaxDaysShort>0 and DaysInTrade>=MaxDaysShort then begin
+		setexitonclose;
+		if t>=flatTime and t<FlatTimeFixed then buytocover("SX_MaxDays") next bar market;
+	end;
+end;
+
+setstopcontract;
+if MyStop>0 then setstoploss(MyStop);
+if MyBreakeven>0 then setbreakeven(MyBreakeven);
+if MyProfit>0 then setprofittarget(MyProfit);
+
+{// Titan Export
+input: TitanExportActive(0), TitanExportFirstDateYYYYMMDD(20080101);
+once value91 = TitanExportFirstDateYYYYMMDD-19*Power(10,6);
+if TitanExportActive=1 then value92 = WriteDailiesCTitanReports(TitanExportActive,value91);}

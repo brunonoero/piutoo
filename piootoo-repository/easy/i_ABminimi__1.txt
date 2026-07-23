@@ -1,0 +1,38 @@
+inputs:
+    Period(14);
+
+variables:
+    VolUpChange(0),
+    VolDnChange(0),
+    UpVol(0),
+    DnVol(0),
+    PrevUpVol(0),
+    PrevDnVol(0),
+    counter(0);
+
+UpVol = 0;
+DnVol = 0;
+PrevUpVol = 0;
+PrevDnVol = 0;
+
+for counter = 0 to Period - 1 begin
+    if Close[counter] > Close[counter + 1] then
+        UpVol = UpVol + Volume[counter]
+    else if Close[counter] < Close[counter + 1] then
+        DnVol = DnVol + Volume[counter];
+    
+    if counter > 0 then begin
+        if Close[counter + 1] > Close[counter + 2] then
+            PrevUpVol = PrevUpVol + Volume[counter + 1]
+        else if Close[counter + 1] < Close[counter + 2] then
+            PrevDnVol = PrevDnVol + Volume[counter + 1];
+    end;
+end;
+
+VolUpChange = UpVol - PrevUpVol;
+VolDnChange = DnVol - PrevDnVol;
+
+if VolUpChange > VolDnChange and Close > Close[1] then begin
+    Plot1(High, "LongEntry");
+    Alert("Long Entry detected");
+end;

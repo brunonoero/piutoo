@@ -1,0 +1,104 @@
+// 5 Minutes time frame Exchange Time
+
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>	Michael OHLC Calculation begin 
+array: ohlcValues[23](0);
+var: isStartOfSession(false);
+
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>	Michael OHLC Calculation end
+
+input: sessionStartTimeA(0830), sessionEndTimeA(1530);
+input: MaxTradesPerDay(3);
+input: mydayNolong(0), mydayNoshort(0);
+Input: LevelShift(0),MyTick(0.1);
+input: PtnDirYes(27), PtnNeutYes(55), PtnNeutNo(54); 
+input: PtnLY(41), PtnLN(42), PtnSY(12), PtnSN(42); 
+Input: MyStop(1100), MyProfit(3500); 
+input: MyStartTrade(900), MyEndTrade(1500), MyContracts(1); 
+
+input: MaxDaysInTrade(11);
+Input: XMinutesStart(0), XMinutesEnd(0);  // input per poter ottimizzare minuti TW
+Input: ShortPreviousC_NumberMod(3), LongPreviousC_NumberMode(1); // Input per poter ottimizzare nr. "barre di conferma"
+var: 	ShortEntrySetup(False), LongEntrySetup(False);   //var create per poter ottimizzare nr. "barre di conferma"
+
+var: 	MyPP(0), MyS1(0), MyS2(0), MyR1(0), MyR2(0);
+var:   LowS1(0), CloseS1(0), HighS1(0), myLe(0), MySe(0);
+var:   timewindow(false); 
+var: 	MyLETrigger(0), MySETrigger(0), MyEndTime(0);
+var: 	DaysInTrade(0), MP(0);
+
+isStartOfSession = _OHLCMulti5(sessionStartTimeA, sessionEndTimeA, ohlcValues);
+
+highS1 = ohlcValues[5]; lowS1 = ohlcValues[6]; closeS1 = ohlcValues[7];
+
+
+//Setting of Pivot Points Levels 
+
+If isStartOfSession then begin
+	MyPP = (HighS1+LowS1+CloseS1)/3;
+	MyR1 = 2*MyPP - LowS1;
+	MyS1 = 2*MyPP - HighS1;
+     //MyR2 = MyPP + (HighD1-LowD1); 
+     //MyS2 = MyPP - (HighD1-LowD1);
+
+end;
+
+//Setting of Pivot Entry Triggers
+
+MyLETrigger= MyR1 + LevelShift*MyTick;  
+MySETrigger= MyS1 - LevelShift*MyTick;  						
+
+//Setting of Entry Setup Choices
+	
+If LongPreviousC_NumberMode=1 then LongEntrySetup= (c[1] < MyLETrigger and c > MyLETrigger);
+If LongPreviousC_NumberMode=2 then LongEntrySetup= (c[2] < MyLETrigger and c[1] > MyLETrigger and c > MyLETrigger);	
+If LongPreviousC_NumberMode=3 then LongEntrySetup= (c[3] < MyLETrigger and c[2] > MyLETrigger and c[1] > MyLETrigger and c > MyLETrigger);	
+If LongPreviousC_NumberMode=4 then LongEntrySetup= (c[4] < MyLETrigger and c[3] > MyLETrigger and c[2] > MyLETrigger and c[1] > MyLETrigger and c > MyLETrigger);
+If LongPreviousC_NumberMode=5 then LongEntrySetup= (c[5] < MyLETrigger and c[4] > MyLETrigger and c[3] > MyLETrigger and c[2] > MyLETrigger and c[1] > MyLETrigger and c > MyLETrigger);
+If LongPreviousC_NumberMode <= 0 or LongPreviousC_NumberMode >5 then RaiseRuntimeError("Please enter LongPreviousC_NumberMode value between 1-5");
+
+
+If ShortPreviousC_NumberMod=1 then ShortEntrySetup= (c[1] > MySETrigger and c    < MySETrigger);
+If ShortPreviousC_NumberMod=2 then ShortEntrySetup= (c[2] > MySETrigger and c[1] < MySETrigger and c    < MySETrigger);
+If ShortPreviousC_NumberMod=3 then ShortEntrySetup= (c[3] > MySETrigger and c[2] < MySETrigger and c[1] < MySETrigger and c    < MySETrigger);
+If ShortPreviousC_NumberMod=4 then ShortEntrySetup= (C[4] > MySETrigger and c[3] < MySETrigger and c[2] < MySETrigger and c[1] < MySETrigger and c    < MySETrigger);
+If ShortPreviousC_NumberMod=5 then ShortEntrySetup= (c[5] > MySETrigger and c[4] < MySETrigger and c[3] > MySETrigger and c[2] < MySETrigger and c[1] < MySETrigger and c < MySETrigger);	
+If ShortPreviousC_NumberMod <= 0 or ShortPreviousC_NumberMod >5 then RaiseRuntimeError("Please enter ShortPreviousC_NumberMod value between 1-5");
+
+
+//Setting of TimeWindow (con funzione per lavorare a cavallo della mezzanotte)+ ottmizzazione anche minuti
+if MyStartTrade+XMinutesStart>myEndtrade+XMinutesEnd then timewindow= T>=MyStartTrade+XMinutesStart OR T<myEndtrade+XMinutesEnd
+else timewindow= T>MyStartTrade+XMinutesStart AND T<myEndtrade+XMinutesEnd;
+
+
+//Trading
+
+if PatternNeutralFast(PtnNeutYes,ohlcvalues) and (PatternNeutralFast(PtnNeutno,ohlcvalues)  =false) and timewindow and EntriesToday(d)<MaxTradesPerDay then begin 
+	
+	If dayofweek(date) <> mydayNolong and  
+	PtnBaseSA2(PtnLY,ohlcvalues) and PtnBaseSA2(PtnLN,ohlcvalues)=false and PatternDirectionalFast(+PtnDirYes,ohlcvalues)
+	and LongEntrySetup
+	then buy ("LE") MyContracts contracts next bar at the market;   
+	
+   	
+	If dayofweek(date) <> mydayNoshort and
+	PtnBaseSA2(PtnSY,ohlcvalues) and PtnBaseSA2(PtnSN,ohlcvalues)=false and PatternDirectionalFast(-PtnDirYes,ohlcvalues)
+	and ShortEntrySetup
+	then Sellshort ("SE") MyContracts contracts next bar at the market;   	
+    	
+end;
+
+MP = marketposition;
+if date<>date[1] and MP<>0 then DaysInTrade=DaysInTrade+1;
+if MP<>MP[1] and MP<>0 then DaysInTrade=1;
+if DaysInTrade>=MaxDaysInTrade and MaxDaysInTrade>0 then begin
+	setexitonclose;
+	if T>=1555 and T<1600 then sell next bar market;
+	if T>=1555 and T<1600 then buytocover next bar market;
+end;
+
+Setstopcontract;
+if mystop > 0 then setstoploss(mystop);
+if MyProfit> 0 then Setprofittarget(MyProfit);
+//TITAN FAST EXPORT (mette il report direttamente in C:\Titan\Reports
+input: TitanExportMode(0);
+if TitanExportMode=1 then WriteDailiesCTitanReports(1080101, TitanExportMode);

@@ -1,0 +1,9 @@
+//Andrea Nebiolo - Feb. 25th 2022
+//function name: twBars
+//return type: true/false (bool)
+//storage: simple or auto-detect
+
+input: MyStartTrade(Numeric), MyEndTrade(Numeric),mycount(numeric);
+
+if MyStartTrade>MyEndTrade then twbars = mycount>=MyStartTrade or mycount<MyEndTrade
+else twbars = mycount>=MyStartTrade and mycount<MyEndTrade;

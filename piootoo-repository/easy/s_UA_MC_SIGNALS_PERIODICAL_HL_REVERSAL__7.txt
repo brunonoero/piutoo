@@ -1,0 +1,26 @@
+input: MySize(1);
+input: BegTime(0000), EndTime(2359), BegPause(1200), EndPause(1200);
+input: StopLoss(0), Breakeven(0), TakeProfit(0);
+
+var: RangePattern(false), MyTimeWindow(false);
+var: LowD1(0), HighD1(0), LowD2(0), HighD2(0), Myhigh(0), MyLow(0);
+var: OpenW1(0), CloseW1(0);
+
+lowd1 = LowS(1); HighD1 = HighS(1);
+lowd2 = LowS(2); HighD2 = HighS(2);
+MyHigh = maxlist(highd1, highd2);
+MyLow = minlist(lowd1, lowd2);
+CloseW1 = CloseW(1); OpenW1 = OpenW(1);
+
+RangePattern = (HighD1-lowd1)<(HighD2-lowd2);
+MyTimeWindow = Time>=BegTime and Time<EndTime and (Time<BegPause or Time>endPause);
+
+if MyTimeWindow then begin
+	if CloseW1<OpenW1 and RangePattern=true then buy("LE") MySize contracts next bar MyLow limit;
+	if CloseW1>OpenW1 and RangePattern=false then sellshort("SE") MySize contracts next bar Myhigh limit;
+end;
+
+setstopcontract;
+if StopLoss>0 then setstoploss(stoploss);
+if Breakeven>0 then setbreakeven(breakeven);
+if TakeProfit>0 then setprofittarget(takeprofit);

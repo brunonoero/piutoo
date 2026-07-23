@@ -1,0 +1,51 @@
+//counter trend strategy Emini S&P500 (15 min bars, intraday)
+
+//Input
+input:	endtime(1100);
+input: myrangeportion_LONG(0.6), myrangeportion_SHORT(0.8);
+input: MyPtnLY(41), MyPtnSY(26);
+input:	MyPtnLN(20), MyPtnSN(42);
+input: myduration(24);
+input: daytofilter(1);
+Input: Mysize(1);
+input:	MyStop(1100), MyProfit(3100);
+input: MyCheckGain(0), MyCheckTime(1500);
+
+//variables
+var: Myentrylevellong(0), Myentrylevelshort(0), mycounter(0), slb(false), ExitID(0);
+
+//definitions
+slb = sessionlastbar;
+
+if slb[1] then mycounter = 0;
+mycounter = mycounter +1;
+
+if mycounter <= myduration then begin
+	Myentrylevellong = lowS(0) - (highS(0)-lowS(0))*myrangeportion_LONG;
+	Myentrylevelshort = highS(0) + (highS(0)-lowS(0))*myrangeportion_SHORT;
+End;
+
+if time = endtime then ExitID = 0;
+
+//conditions
+if mycounter > myduration and time <= endtime and dayofweek(date) <> daytofilter then begin
+	if close > Myentrylevellong and PtnBaseSA(MyptnLY) and (PtnBaseSA(myptnLn)=false)then buy Mysize contract next bar at Myentrylevellong limit;
+	if close < Myentrylevelshort and PtnBaseSA(MyptnSY) and (PtnBaseSA(myptnsn)=false) then sellshort Mysize contract next bar at Myentrylevelshort limit; 
+End;
+
+if time = MyCheckTime then begin
+	if openpositionprofit > MyCheckGain then ExitID = 1;
+End;
+
+if ExitID = 0 then begin
+	setexitonclose;
+	if t>=1545 and T<1600 then sell next bar market;
+	if t>=1545 and T<1600 then buytocover next bar market;
+end;
+
+setstopcontract;
+if MyStop > 0 then setstoploss(MyStop);
+If MyProfit > 0 then setprofittarget(MyProfit);
+input: TitanExportMode(0);
+if TitanExportMode=1 then WriteDailiesCTitanReports(1100101, TitanExportMode);
+

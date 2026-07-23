@@ -1,0 +1,1752 @@
+using System.Collections.Concurrent;
+using System.Globalization;
+using System.Text;
+using System.Text.Json;
+using Piootoo.Core.Services.Interfaces;
+using Piootoo.Shared.Configuration;
+using Piootoo.Shared.Enums;
+using Piootoo.Shared.Interfaces;
+using Piootoo.Shared.Models;
+using Piootoo.Shared.Models.Backtesting;
+using Piootoo.Shared.Models.Trading;
+using Piootoo.Shared.Utilities;
+
+namespace Piootoo.Core.Services;
+
+/// <summary>
+/// Servizio per l'esecuzione del backtesting
+/// </summary>
+public class PiootooBacktestingService : IPiootooBacktestingService
+{
+    private readonly ConcurrentDictionary<string, BacktestingJob> _jobs = new();
+    private readonly ConcurrentDictionary<string, CancellationTokenSource> _jobCancellations = new();
+    private readonly ConcurrentDictionary<string, string> _activeOutputPaths =
+        new(StringComparer.OrdinalIgnoreCase);
+    private readonly IPiootooSettingsService _settingsService;
+    private readonly IPiootooDataFeedService _dataFeedService;
+    private readonly IPiootooTradingService _tradingService;
+    private readonly IBacktestingExecutionHook _executionHook;
+    private readonly PiootooSettings _settings;
+    private readonly string _resultsPath;
+    private readonly JsonSerializerOptions _jsonOptions;
+
+    public PiootooBacktestingService(
+        IPiootooSettingsService settingsService,
+        IPiootooDataFeedService dataFeedService,
+        IPiootooTradingService tradingService,
+        PiootooSettings settings,
+        IBacktestingExecutionHook executionHook)
+    {
+        _settingsService = settingsService;
+        _dataFeedService = dataFeedService;
+        _tradingService = tradingService;
+        _executionHook = executionHook;
+        _settings = settings;
+        
+        _resultsPath = Path.Combine(settings.GetSettingsPath(), "results");
+        if (!Directory.Exists(_resultsPath))
+        {
+            Directory.CreateDirectory(_resultsPath);
+        }
+
+        _jsonOptions = new JsonSerializerOptions
+        {
+            PropertyNameCaseInsensitive = true,
+            WriteIndented = true
+        };
+    }
+
+    public string StartBacktesting(BacktestingRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(request.WorkspaceId))
+        {
+            throw new ArgumentException("WorkspaceId è obbligatorio.", nameof(request));
+        }
+
+        if (request.SelectedStrategyIds == null || request.SelectedStrategyIds.Count == 0)
+        {
+            throw new ArgumentException(
+                "Il workspace non contiene strategie abilitate nel masterfilter.",
+                nameof(request));
+        }
+
+        request.BacktestFolderName = WorkspaceBacktestPaths.NormalizeFolderName(request.BacktestFolderName);
+        var workspacePath = ResolveWorkspacePath(request.WorkspaceId);
+        var outputPath = WorkspaceBacktestPaths.ResolveBacktestPath(workspacePath, request.BacktestFolderName);
+        var jobId = Guid.NewGuid().ToString();
+        if (!_activeOutputPaths.TryAdd(outputPath, jobId))
+            throw new InvalidOperationException(
+                $"Il backtest '{request.BacktestFolderName}' è già in esecuzione.");
+
+        try
+        {
+        if (Directory.Exists(outputPath))
+        {
+            if (!request.OverwriteExistingBacktest)
+                throw new InvalidOperationException(
+                    $"Il backtest '{request.BacktestFolderName}' esiste già nel workspace. Conferma esplicitamente la sostituzione.");
+            Directory.Delete(outputPath, recursive: true);
+        }
+        Directory.CreateDirectory(outputPath);
+
+        var job = new BacktestingJob
+        {
+            JobId = jobId,
+            Status = BacktestingJobStatus.Pending,
+            Phase = "Pending",
+            ProgressMessage = "In attesa di avvio"
+        };
+        var cancellation = new CancellationTokenSource();
+
+        _jobs[job.JobId] = job;
+        _jobCancellations[job.JobId] = cancellation;
+
+        // Avvia il backtesting in background
+        _ = Task.Run(() => ExecuteBacktesting(job, request, outputPath, cancellation.Token));
+
+        return job.JobId;
+        }
+        catch
+        {
+            _activeOutputPaths.TryRemove(outputPath, out _);
+            throw;
+        }
+    }
+
+    public BacktestingJob? GetJobStatus(string jobId)
+    {
+        if (!_jobs.TryGetValue(jobId, out var job))
+            return null;
+
+        lock (job)
+        {
+            return new BacktestingJob
+            {
+                JobId = job.JobId,
+                Status = job.Status,
+                ProgressPercent = job.ProgressPercent,
+                Phase = job.Phase,
+                ProgressMessage = job.ProgressMessage,
+                CancellationRequested = job.CancellationRequested,
+                StartedAt = job.StartedAt,
+                CompletedAt = job.CompletedAt,
+                // Lo status deve restare leggero: le serie complete sono disponibili
+                // esclusivamente tramite l'endpoint result/output.
+                Result = null,
+                ErrorMessage = job.ErrorMessage
+            };
+        }
+    }
+
+    public BacktestingJob? CancelBacktesting(string jobId)
+    {
+        if (!_jobs.TryGetValue(jobId, out var job))
+            return null;
+
+        _jobCancellations.TryGetValue(jobId, out var cancellation);
+        lock (job)
+        {
+            if (job.Status is BacktestingJobStatus.Completed
+                or BacktestingJobStatus.Failed
+                or BacktestingJobStatus.Cancelled)
+                return GetJobStatus(jobId);
+
+            job.CancellationRequested = true;
+            job.ProgressMessage = "Interruzione in corso…";
+            if (cancellation != null)
+            {
+                try { cancellation.Cancel(); }
+                catch (ObjectDisposedException) { }
+            }
+        }
+
+        return GetJobStatus(jobId);
+    }
+
+    public BacktestingResult? GetResult(string jobId)
+    {
+        // Prova prima a ottenere dal job attivo
+        var job = GetJobStatus(jobId);
+        if (job?.Result != null)
+        {
+            Console.WriteLine($"Risultato trovato nel job attivo per JobId: {jobId}");
+            return job.Result;
+        }
+        if (job != null && job.Status != BacktestingJobStatus.Completed)
+        {
+            return null;
+        }
+
+        // Se non trovato nel job, cerca nei file salvati
+        Console.WriteLine($"Cercando risultato nei file salvati per JobId: {jobId}");
+        var resultFromFileId = GetResultByFileId(jobId);
+        if (resultFromFileId != null)
+        {
+            Console.WriteLine($"Risultato trovato tramite nome file per id: {jobId}");
+            return resultFromFileId;
+        }
+
+        var completedBacktestings = GetCompletedBacktestings();
+        Console.WriteLine($"Trovati {completedBacktestings.Count} backtesting completati");
+        
+        // Log dei primi 10 risultati per debug
+        foreach (var result in completedBacktestings.Take(10))
+        {
+            Console.WriteLine($"Backtesting trovato - JobId: '{result.JobId}' (lunghezza: {result.JobId?.Length ?? 0}), SetupName: '{result.SetupName}', StartDate: {result.StartDate}");
+        }
+        
+        // Cerca per JobId esatto (case-sensitive)
+        var found = completedBacktestings.FirstOrDefault(r => 
+            !string.IsNullOrEmpty(r.JobId) && 
+            string.Equals(r.JobId, jobId, StringComparison.OrdinalIgnoreCase));
+            
+        if (found != null)
+        {
+            Console.WriteLine($"Risultato trovato nei file per JobId: {jobId}");
+            // Popola StrategiesInfo se non presente (per retrocompatibilità)
+            if ((found.StrategiesInfo == null || !found.StrategiesInfo.Any()) && found.StrategiesUsed.Any())
+            {
+                found.StrategiesInfo = PopulateStrategiesInfo(found.StrategiesUsed);
+            }
+            return found;
+        }
+        
+        Console.WriteLine($"Risultato NON trovato nei file per JobId: {jobId}");
+        return null;
+    }
+
+    public List<BacktestingResult> GetCompletedBacktestings()
+    {
+        var results = new List<BacktestingResult>();
+
+        var files = EnumerateResultFiles().ToArray();
+        Console.WriteLine($"Trovati {files.Length} file di backtesting");
+        
+        foreach (var file in files)
+        {
+            try
+            {
+                var json = File.ReadAllText(file);
+                var result = JsonSerializer.Deserialize<BacktestingResult>(json, _jsonOptions);
+                if (result != null)
+                {
+                    result.ResultFilePath = file;
+                    // Popola StrategiesInfo se non presente (per retrocompatibilità)
+                    if ((result.StrategiesInfo == null || !result.StrategiesInfo.Any()) && result.StrategiesUsed.Any())
+                    {
+                        result.StrategiesInfo = PopulateStrategiesInfo(result.StrategiesUsed);
+                    }
+                    // Se il JobId è vuoto, prova a estrarlo dal nome del file o usa un valore di default
+                    if (string.IsNullOrEmpty(result.JobId))
+                    {
+                        Console.WriteLine($"Attenzione: JobId vuoto nel file {file}, SetupName: {result.SetupName}");
+                    }
+                    results.Add(result);
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Errore durante la deserializzazione del file {file}: {ex.Message}");
+                // Ignora file corrotti
+            }
+        }
+
+        // Ordina per CreatedAt (data di creazione del risultato) discendente
+        // Fallback a StartDate per vecchi risultati senza CreatedAt
+        return results.OrderByDescending(r => r.CreatedAt != default ? r.CreatedAt : r.StartDate).ToList();
+    }
+
+    public List<BacktestingResult> GetCompletedBacktestingSummaries()
+    {
+        return EnumerateResultFiles()
+            .Select(CreateBacktestingSummaryFromFile)
+            .OrderByDescending(result => result.CreatedAt)
+            .ToList();
+    }
+
+    private BacktestingResult CreateBacktestingSummaryFromFile(string file)
+    {
+        var fileId = Path.GetFileNameWithoutExtension(file);
+        var (setupName, createdAt) = ParseBacktestFileId(fileId);
+        var htmlPath = Path.ChangeExtension(file, ".html");
+        var tradeSignalsPath = Path.Combine(
+            Path.GetDirectoryName(file) ?? _resultsPath,
+            $"{Path.GetFileNameWithoutExtension(file)}_signals.json");
+
+        return new BacktestingResult
+        {
+            JobId = fileId,
+            SetupName = setupName,
+            CreatedAt = createdAt == default ? File.GetLastWriteTimeUtc(file) : createdAt,
+            ResultFilePath = file,
+            HtmlReportFilePath = File.Exists(htmlPath) ? htmlPath : null,
+            TradeSignalsFilePath = File.Exists(tradeSignalsPath) ? tradeSignalsPath : null
+        };
+    }
+
+    private BacktestingResult? GetResultByFileId(string fileId)
+    {
+        if (string.IsNullOrWhiteSpace(fileId))
+        {
+            return null;
+        }
+
+        var normalizedFileId = Path.GetFileNameWithoutExtension(fileId.Trim());
+        var file = EnumerateResultFiles()
+            .FirstOrDefault(candidate => Path.GetFileNameWithoutExtension(candidate)
+                .Equals(normalizedFileId, StringComparison.OrdinalIgnoreCase));
+
+        if (file == null)
+        {
+            return null;
+        }
+
+        try
+        {
+            var json = File.ReadAllText(file);
+            var result = JsonSerializer.Deserialize<BacktestingResult>(json, _jsonOptions);
+            if (result == null)
+            {
+                return null;
+            }
+
+            result.ResultFilePath = file;
+            if ((result.StrategiesInfo == null || !result.StrategiesInfo.Any()) && result.StrategiesUsed.Any())
+            {
+                result.StrategiesInfo = PopulateStrategiesInfo(result.StrategiesUsed);
+            }
+
+            return result;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Errore durante la lettura del file {file}: {ex.Message}");
+            return null;
+        }
+    }
+
+    private static (string SetupName, DateTime CreatedAt) ParseBacktestFileId(string fileId)
+    {
+        const string prefix = "backtest_";
+        var nameAndTimestamp = fileId.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+            ? fileId[prefix.Length..]
+            : fileId;
+
+        var lastSeparator = nameAndTimestamp.LastIndexOf('_');
+        if (lastSeparator > 0)
+        {
+            var timestamp = nameAndTimestamp[(lastSeparator + 1)..];
+            if (DateTime.TryParseExact(
+                    timestamp,
+                    "yyyyMMddHHmmss",
+                    CultureInfo.InvariantCulture,
+                    DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
+                    out var createdAt))
+            {
+                return (nameAndTimestamp[..lastSeparator], createdAt);
+            }
+        }
+
+        return (nameAndTimestamp, default);
+    }
+
+    public bool DeleteBacktesting(string jobId)
+    {
+        try
+        {
+            // Cerca il file del risultato
+            var files = EnumerateResultFiles().ToArray();
+            
+            foreach (var file in files)
+            {
+                try
+                {
+                    var json = File.ReadAllText(file);
+                    var result = JsonSerializer.Deserialize<BacktestingResult>(json, _jsonOptions);
+                    if (result != null && result.JobId == jobId)
+                    {
+                        File.Delete(file);
+                        var htmlFile = Path.ChangeExtension(file, ".html");
+                        if (File.Exists(htmlFile))
+                        {
+                            File.Delete(htmlFile);
+                        }
+
+                        var tradeSignalsFile = Path.Combine(
+                            Path.GetDirectoryName(file) ?? _resultsPath,
+                            $"{Path.GetFileNameWithoutExtension(file)}_signals.json");
+                        if (File.Exists(tradeSignalsFile))
+                        {
+                            File.Delete(tradeSignalsFile);
+                        }
+
+                        Console.WriteLine($"Backtesting eliminato: {file}");
+                        return true;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Errore durante la lettura del file {file}: {ex.Message}");
+                }
+            }
+            
+            Console.WriteLine($"Backtesting con JobId {jobId} non trovato");
+            return false;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Errore durante l'eliminazione del backtesting: {ex.Message}");
+            return false;
+        }
+    }
+
+    private async Task ExecuteBacktesting(
+        BacktestingJob job,
+        BacktestingRequest request,
+        string outputPath,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            lock (job)
+            {
+                job.Status = BacktestingJobStatus.Running;
+                job.Phase = "LoadingData";
+                job.ProgressMessage = "Preparazione strategie e caricamento dati";
+                job.StartedAt = DateTime.UtcNow;
+            }
+            await _executionHook.OnJobRunningAsync(job.JobId, cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+
+            request.StartDate = TradingDateTime.ToFeedUtc(request.StartDate);
+            request.EndDate = TradingDateTime.ToFeedUtc(request.EndDate);
+
+            Console.WriteLine($"[Backtesting] Range UTC: {request.StartDate:yyyy-MM-dd HH:mm}Z -> {request.EndDate:yyyy-MM-dd HH:mm}Z");
+
+            // Gli ID ricevuti sono già il masterfilter risolto dal chiamante/controller:
+            // sono l'unica fonte autorevole della selezione esecutiva.
+            var selectedStrategyIds = request.SelectedStrategyIds
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var strategies = StrategyFactory.GetRegisteredStrategies()
+                .Where(strategy => selectedStrategyIds.Contains(strategy.Id))
+                .ToList();
+            var resolvedIds = strategies
+                .Select(strategy => strategy.Id)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var missingStrategyIds = selectedStrategyIds
+                .Where(id => !resolvedIds.Contains(id))
+                .OrderBy(id => id, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            if (missingStrategyIds.Count > 0)
+            {
+                throw new InvalidOperationException(
+                    $"Strategie del masterfilter non presenti nel catalogo: {string.Join(", ", missingStrategyIds)}");
+            }
+
+            request.SelectedSymbols = strategies
+                .Select(strategy => strategy.Symbol)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            Console.WriteLine($"[Backtesting] Strategie risolte dal masterfilter: {strategies.Count}");
+            
+            if (!strategies.Any())
+            {
+                // Log dei simboli disponibili per debug
+                var allStrategies = StrategyFactory.GetRegisteredStrategies();
+                var availableSymbols = allStrategies.Select(s => s.Symbol).Distinct().ToList();
+                Console.WriteLine($"[Backtesting] Simboli disponibili nelle strategie C# registrate: {string.Join(", ", availableSymbols)}");
+                throw new InvalidOperationException("Nessuna strategia del masterfilter è disponibile nel catalogo.");
+            }
+
+            // Log delle strategie trovate
+            foreach (var strategyDef in strategies)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                Console.WriteLine($"[Backtesting] Strategia trovata: Name='{strategyDef.Name}', Symbol='{strategyDef.Symbol}', Timeframe={strategyDef.TimeframeMinutes}, FileName='{strategyDef.FileName}'");
+            }
+
+            // Crea istanze delle strategie C# o EasyLanguage convertite
+            var createdStrategies = new List<(StrategyDefinition Definition, ITradingStrategy Instance)>();
+            foreach (var strategyDef in strategies)
+            {
+                Console.WriteLine($"[Backtesting] Tentativo di creare strategia: Name='{strategyDef.Name}', Symbol='{strategyDef.Symbol}', Timeframe={strategyDef.TimeframeMinutes}");
+                
+                // Prova a creare la strategia usando il nome dalla definizione
+                var strategy = StrategyFactory.CreateStrategy(strategyDef.Name, strategyDef.Symbol, strategyDef.TimeframeMinutes, strategyDef.Parameters);
+                
+                if (strategy == null)
+                {
+                    throw new InvalidOperationException(
+                        $"Impossibile creare la strategia '{strategyDef.Id}' ({strategyDef.Name}) del masterfilter.");
+                }
+
+                Console.WriteLine($"[Backtesting] Strategia creata con successo: {strategy.Name} (Type: {strategy.GetType().Name}), Symbol: {strategy.Symbol}, Timeframe: {strategy.TimeframeMinutes}");
+                createdStrategies.Add((strategyDef, strategy));
+            }
+
+            var strategyInstances = createdStrategies.Select(item => item.Instance).ToList();
+            if (!strategyInstances.Any())
+            {
+                throw new InvalidOperationException("Nessuna strategia C# disponibile");
+            }
+            
+            Console.WriteLine($"[Backtesting] Totale strategie create: {strategyInstances.Count}");
+
+            // Calcola il minimo timeframe tra tutte le strategie
+            var minTimeframeMinutes = strategyInstances.Min(s => s.TimeframeMinutes);
+            Console.WriteLine($"Timeframe minimo calcolato: {minTimeframeMinutes} minuti per {strategyInstances.Count} strategie");
+
+            Directory.CreateDirectory(outputPath);
+            var tradingJsonStore = new TradingJsonStore(outputPath);
+            tradingJsonStore.Initialize();
+
+            // Inizializza trading service
+            _tradingService.Initialize(request.InitialCapital, request.CommissionPerContract);
+
+            var result = new BacktestingResult
+            {
+                JobId = job.JobId,
+                SetupName = request.Name,
+                SetupId = string.Empty,
+                StartDate = request.StartDate,
+                EndDate = request.EndDate,
+                InitialCapital = request.InitialCapital,
+                CreatedAt = DateTime.UtcNow,
+                StrategiesUsed = createdStrategies.Select(item => item.Definition.Name).ToList(),
+                StrategiesInfo = createdStrategies.Select(item => new Piootoo.Shared.Models.Backtesting.StrategyInfo
+                {
+                    Name = item.Definition.Name,
+                    StrategyCode = item.Definition.Id,
+                    Symbol = item.Definition.Symbol,
+                    TimeframeMinutes = item.Definition.TimeframeMinutes
+                }).DistinctBy(s => new { s.StrategyCode, s.Symbol, s.TimeframeMinutes }).ToList()
+            };
+            var strategyEquityCache = result.StrategiesInfo
+                .GroupBy(info => MakeStrategyKey(info.Symbol, GetStrategyCode(info)), StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(group => group.Key, _ => result.InitialCapital, StringComparer.OrdinalIgnoreCase);
+            var emittedTradeSignals = new List<TradeSignal>();
+
+            // Arrotonda StartDate al timeframe minimo più vicino (verso il basso)
+            var roundedStartDate = TradingDateTime.RoundDownToTimeframeUtc(request.StartDate, minTimeframeMinutes);
+            Console.WriteLine($"[Backtesting] Date UTC: Start={request.StartDate:yyyy-MM-dd HH:mm}Z, End={request.EndDate:yyyy-MM-dd HH:mm}Z, RoundedStart={roundedStartDate:yyyy-MM-dd HH:mm}Z");
+            
+            // ========== PREFILL DATASOURCE CACHE ==========
+            // Identifica combinazioni uniche di (Symbol, Timeframe) e pre-carica i dati
+            var dataSourceCache = new Dictionary<(string Symbol, int Timeframe), OhlcvData[]>();
+            var uniqueDataSources = strategyInstances
+                .SelectMany(GetStrategyDataRequirements)
+                .GroupBy(x => (x.Symbol, x.Timeframe))
+                .Select(g => (g.Key.Symbol, g.Key.Timeframe, MaxRequiredCandles: g.Max(x => x.RequiredCandles)))
+                .ToList();
+            
+            Console.WriteLine($"[Backtesting] Pre-caricamento {uniqueDataSources.Count} datasource unici...");
+            
+            foreach (var ds in uniqueDataSources)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                Console.WriteLine($"[Backtesting] Pre-caricamento: Symbol={ds.Symbol}, Timeframe={ds.Timeframe}m, MaxCandles={ds.MaxRequiredCandles}");
+                
+                // Carica tutti i dati per l'intero periodo di backtesting + buffer per lookback
+                var allCandles = await _dataFeedService.GetCandlesAsync(
+                    ds.Symbol, 
+                    request.EndDate, 
+                    ds.MaxRequiredCandles + (int)((request.EndDate - request.StartDate).TotalMinutes / ds.Timeframe) + 100,
+                    ds.Timeframe);
+                
+                dataSourceCache[(ds.Symbol, ds.Timeframe)] = allCandles;
+                Console.WriteLine($"[Backtesting] Pre-caricati {allCandles.Length} candele per {ds.Symbol}/{ds.Timeframe}m");
+            }
+            Console.WriteLine($"[Backtesting] Pre-caricamento completato. Cache size: {dataSourceCache.Count}");
+            // ========== FINE PREFILL ==========
+            
+            // Iterazione usando il timeframe minimo
+            var currentDate = roundedStartDate;
+            var totalMinutes = (int)(request.EndDate - roundedStartDate).TotalMinutes;
+            var totalIterations = totalMinutes > 0 ? totalMinutes / minTimeframeMinutes : 0;
+            var processedIterations = 0;
+            var iterationCount = 0; // Contatore per calcolare l'allineamento delle strategie
+            
+            Console.WriteLine($"[Backtesting] Loop configurato: TotalMinutes={totalMinutes}, TotalIterations={totalIterations}, MinTimeframe={minTimeframeMinutes}");
+
+            while (currentDate <= request.EndDate)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (job.Phase != "Running")
+                {
+                    lock (job)
+                    {
+                        job.Phase = "Running";
+                        job.ProgressMessage = "Esecuzione strategie";
+                    }
+                }
+                // Skip weekend
+                if (currentDate.DayOfWeek == DayOfWeek.Saturday || currentDate.DayOfWeek == DayOfWeek.Sunday)
+                {
+                    currentDate = currentDate.AddMinutes(minTimeframeMinutes);
+                    iterationCount++;
+                    continue;
+                }
+
+                // Per ogni strategia, genera segnale solo se il suo timeframe è un multiplo del timeframe minimo
+                // e se siamo all'inizio del suo periodo
+                var signals = new List<TradeSignal>();
+                var currentPrices = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
+                var currentBars = new Dictionary<string, OhlcvData>(StringComparer.OrdinalIgnoreCase);
+                var currentPrice = 0m;
+
+                foreach (var strategy in strategyInstances)
+                {
+                    try
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        // Verifica se questa strategia deve essere valutata a questo punto
+                        // Una strategia viene valutata quando il numero di iterazioni è un multiplo del rapporto tra il suo timeframe e il minimo
+                        var shouldEvaluate = ShouldEvaluateStrategy(currentDate, iterationCount, strategy.TimeframeMinutes, minTimeframeMinutes);
+                        if (!shouldEvaluate)
+                        {
+                            continue;
+                        }
+
+                        // Usa la cache dei datasource invece di caricare ogni volta
+                        var requiredCandles = (int)(strategy.RequiredCandles * 1.2);
+                        var cacheKey = (strategy.Symbol, strategy.TimeframeMinutes);
+                        
+                        OhlcvData[] candles;
+                        if (dataSourceCache.TryGetValue(cacheKey, out var cachedData))
+                        {
+                            // Filtra i dati dalla cache fino alla data corrente e prendi gli ultimi N
+                            candles = cachedData
+                                .Where(d => d.DateTime <= currentDate)
+                                .OrderByDescending(d => d.DateTime)
+                                .Take(requiredCandles)
+                                .OrderBy(d => d.DateTime)
+                                .ToArray();
+                        }
+                        else
+                        {
+                            // Fallback: carica direttamente se non in cache (non dovrebbe accadere)
+                            Console.WriteLine($"[Backtesting] WARNING: Cache miss per {strategy.Symbol}/{strategy.TimeframeMinutes}m");
+                            candles = await _dataFeedService.GetCandlesAsync(strategy.Symbol, currentDate, requiredCandles, strategy.TimeframeMinutes);
+                        }
+                        
+                        if (processedIterations % 500 == 0) // Log meno frequente
+                        {
+                            Console.WriteLine($"[Backtesting] Iterazione {processedIterations}: {strategy.Name} - {candles.Length} candele dalla cache");
+                        }
+                        
+                        if (candles.Length >= strategy.RequiredCandles)
+                        {
+                            var currentBar = candles.Last();
+                            if (IsStrategyCandleStale(strategy.TimeframeMinutes, currentBar.DateTime, currentDate))
+                            {
+                                if (processedIterations % 500 == 0)
+                                {
+                                    Console.WriteLine($"[Backtesting] Skip {strategy.Name}: candela stale ({currentBar.DateTime:yyyy-MM-dd}) vs {currentDate:yyyy-MM-dd}");
+                                }
+                                continue;
+                            }
+
+                            currentPrice = currentBar.Close;
+                            var normalizedSymbol = NormalizeSymbol(strategy.Symbol);
+                            currentPrices[normalizedSymbol] = currentPrice;
+                            currentBars[normalizedSymbol] = currentBar;
+                            var execution = _tradingService.GetExecutionSnapshot(strategy.Name, strategy.Symbol, currentDate);
+                            var signal = strategy is IMultiTimeframeTradingStrategy multiTimeframeStrategy
+                                ? multiTimeframeStrategy.GenerateSignal(
+                                    candles,
+                                    GetAdditionalTimeframeData(multiTimeframeStrategy, dataSourceCache, currentDate),
+                                    currentDate)
+                                : strategy.Evaluate(new StrategyEvaluationRequest
+                                {
+                                    Ohlcv = candles,
+                                    BarTimeUtc = currentDate,
+                                    Execution = execution
+                                });
+
+                            if (signal?.RuntimeState is not null)
+                            {
+                                _tradingService.CaptureStrategyRuntimeState(strategy.Name, strategy.Symbol, signal.RuntimeState);
+                            }
+
+                            if (signal != null)
+                            {
+                                TradingDateTime.NormalizeSignalToUtc(signal);
+                            }
+
+                            if (signal != null && signal.Type != SignalType.Hold)
+                            {
+                                if (string.IsNullOrWhiteSpace(signal.Symbol))
+                                {
+                                    signal.Symbol = strategy.Symbol;
+                                }
+
+                                if (string.IsNullOrWhiteSpace(signal.StrategyCode))
+                                {
+                                    signal.StrategyCode = strategy.Name;
+                                }
+
+                                ScaleSignalMaxBarsInPosition(signal, strategy.TimeframeMinutes, minTimeframeMinutes);
+
+                                Console.WriteLine($"[Backtesting] Segnale generato: {strategy.Name} a {currentDate:yyyy-MM-dd HH:mm}Z - Tipo: {signal.Type}, Prezzo: {signal.Price}");
+                                signals.Add(signal);
+                                emittedTradeSignals.Add(CloneTradeSignal(signal));
+
+                                if (signal.CompanionSignals is not null)
+                                {
+                                    foreach (var companion in signal.CompanionSignals)
+                                    {
+                                        if (string.IsNullOrWhiteSpace(companion.Symbol))
+                                        {
+                                            companion.Symbol = strategy.Symbol;
+                                        }
+
+                                        if (string.IsNullOrWhiteSpace(companion.StrategyCode))
+                                        {
+                                            companion.StrategyCode = strategy.Name;
+                                        }
+
+                                        ScaleSignalMaxBarsInPosition(companion, strategy.TimeframeMinutes, minTimeframeMinutes);
+                                        signals.Add(companion);
+                                        emittedTradeSignals.Add(CloneTradeSignal(companion));
+                                    }
+                                }
+                            }
+                            else if (processedIterations % 100 == 0)
+                            {
+                                Console.WriteLine($"[Backtesting] Iterazione {processedIterations}: Nessun segnale da {strategy.Name} (signal={(signal != null ? signal.Type.ToString() : "null")})");
+                            }
+                        }
+                        else
+                        {
+                            if (processedIterations % 100 == 0)
+                            {
+                                Console.WriteLine($"[Backtesting] Iterazione {processedIterations}: Dati insufficienti per {strategy.Name} (richiesti: {strategy.RequiredCandles}, disponibili: {candles.Length})");
+                            }
+                        }
+                    }
+                    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                    {
+                        throw;
+                    }
+                    catch (Exception ex)
+                    {
+                        // Log errore ma continua
+                        Console.WriteLine($"[Backtesting] ERRORE strategia {strategy.Name} a {currentDate:yyyy-MM-dd HH:mm}: {ex.Message}");
+                        Console.WriteLine($"[Backtesting] Stack trace: {ex.StackTrace}");
+                    }
+                }
+
+                // Processa segnali nel trading service
+                TradingSnapshot snapshot;
+                if (signals.Any() && currentPrices.Any())
+                {
+                    _tradingService.ProcessSignals(signals, currentPrices, currentBars, currentDate);
+                    snapshot = _tradingService.UpdateMarketPrices(currentPrices, currentBars, currentDate);
+                    AppendStrategyEquityResults(result, snapshot, currentDate, signals, strategyEquityCache);
+                }
+                else if (currentPrices.Any())
+                {
+                    snapshot = _tradingService.UpdateMarketPrices(currentPrices, currentBars, currentDate);
+                    AppendStrategyEquityResults(result, snapshot, currentDate, signals, strategyEquityCache);
+                }
+                else
+                {
+                    currentDate = currentDate.AddMinutes(minTimeframeMinutes);
+                    iterationCount++;
+                    processedIterations++;
+                    continue;
+                }
+
+                if (signals.Count != 0)
+                    tradingJsonStore.WriteSignals(ToPersistedSignals(job.JobId, emittedTradeSignals));
+                tradingJsonStore.WriteTrades(ToPersistedTrades(job.JobId, _tradingService.GetClosedTrades()));
+
+                var nextTradingDate = GetNextTradingDateUtc(currentDate, minTimeframeMinutes);
+                if (request.CloseAllPositionsAtWeekEnd &&
+                    IsLastBarOfTradingWeek(currentDate, nextTradingDate) &&
+                    snapshot.OpenPositionsCount > 0 &&
+                    currentPrices.Any())
+                {
+                    snapshot = _tradingService.CloseAllOpenPositions(currentPrices, currentBars, currentDate);
+                    AppendStrategyEquityResults(result, snapshot, currentDate, signals, strategyEquityCache);
+                }
+
+                result.HourlyResults.Add(new HourlyResult
+                {
+                    DateTime = TradingDateTime.ToFeedUtc(currentDate),
+                    Equity = snapshot.Equity,
+                    Balance = snapshot.Balance,
+                    Drawdown = snapshot.Drawdown,
+                    Profit = snapshot.Profit,
+                    OpenPositionsCount = snapshot.OpenPositionsCount
+                });
+
+                // Aggiorna progresso
+                processedIterations++;
+                iterationCount++;
+                if (totalIterations > 0)
+                {
+                    var progress = Math.Clamp((int)((processedIterations * 100.0) / totalIterations), 0, 99);
+                    if (progress != job.ProgressPercent)
+                    {
+                        lock (job)
+                        {
+                            job.ProgressPercent = progress;
+                            job.ProgressMessage = $"Elaborazione {progress}%";
+                        }
+                    }
+                }
+
+                currentDate = currentDate.AddMinutes(minTimeframeMinutes);
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
+            lock (job)
+            {
+                job.Phase = "WritingArtifacts";
+                job.ProgressMessage = "Scrittura artifact";
+            }
+
+            // Calcola aggregati settimanali
+            CalculateWeeklyResults(result);
+
+            // Calcola metriche finali
+            result.FinalEquity = result.HourlyResults.LastOrDefault()?.Equity ?? request.InitialCapital;
+            result.TotalProfit = result.FinalEquity - request.InitialCapital;
+            result.MaxDrawdown = result.HourlyResults.Max(hr => hr.Drawdown);
+            result.TotalTrades = result.StrategyResults.Count(sr => sr.Signal.HasValue && sr.Signal != SignalType.Hold);
+
+            // Salva risultato su file
+            var fileNamePrefix = $"backtest_{request.BacktestFolderName}_{DateTime.UtcNow:yyyyMMddHHmmss}";
+            var fileName = $"{fileNamePrefix}.json";
+            var filePath = Path.Combine(outputPath, fileName);
+            var htmlReportPath = Path.Combine(outputPath, $"{fileNamePrefix}.html");
+            GenerateStrategyEquityHtmlReport(result, htmlReportPath);
+            result.HtmlReportFilePath = htmlReportPath;
+            tradingJsonStore.WriteSignals(ToPersistedSignals(job.JobId, emittedTradeSignals));
+            tradingJsonStore.WriteTrades(ToPersistedTrades(job.JobId, _tradingService.GetClosedTrades()));
+            result.TradeSignalsFilePath = tradingJsonStore.SignalsPath;
+            result.ResultFilePath = filePath;
+            
+            // Assicurati che il JobId sia impostato prima di salvare
+            if (string.IsNullOrEmpty(result.JobId))
+            {
+                result.JobId = job.JobId;
+                Console.WriteLine($"JobId impostato nel risultato prima del salvataggio: {job.JobId}");
+            }
+            
+            Console.WriteLine($"Salvando risultato per JobId: {result.JobId} in file: {filePath}");
+            var json = JsonSerializer.Serialize(result, _jsonOptions);
+            cancellationToken.ThrowIfCancellationRequested();
+            AtomicFileWriter.WriteAllText(filePath, json);
+            
+            // Verifica che il file sia stato salvato correttamente
+            if (File.Exists(filePath))
+            {
+                Console.WriteLine($"File salvato correttamente: {filePath}");
+                // Verifica che il JobId sia presente nel file salvato
+                var savedJson = File.ReadAllText(filePath);
+                if (savedJson.Contains(result.JobId))
+                {
+                    Console.WriteLine($"JobId '{result.JobId}' verificato nel file salvato");
+                }
+                else
+                {
+                    Console.WriteLine($"ATTENZIONE: JobId '{result.JobId}' NON trovato nel file salvato!");
+                }
+            }
+            else
+            {
+                Console.WriteLine($"ERRORE: File non salvato correttamente: {filePath}");
+            }
+
+            lock (job)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                job.Result = result;
+                job.Status = BacktestingJobStatus.Completed;
+                job.Phase = "Completed";
+                job.ProgressMessage = "Backtest completato";
+                job.CompletedAt = DateTime.UtcNow;
+                job.ProgressPercent = 100;
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // Gli artifact incrementali (signals/trades) sono sempre scritti atomicamente e
+            // restano utilizzabili; un report/risultato finale eventualmente prodotto nella
+            // stretta race con Cancel non deve essere pubblicato come completato.
+            foreach (var path in Directory.EnumerateFiles(outputPath, "backtest_*", SearchOption.TopDirectoryOnly))
+            {
+                try { File.Delete(path); }
+                catch (IOException) { }
+                catch (UnauthorizedAccessException) { }
+            }
+            lock (job)
+            {
+                job.Result = null;
+                job.Status = BacktestingJobStatus.Cancelled;
+                job.Phase = "Cancelled";
+                job.ProgressMessage = "Backtest interrotto";
+                job.CompletedAt = DateTime.UtcNow;
+                job.CancellationRequested = true;
+            }
+        }
+        catch (Exception ex)
+        {
+            lock (job)
+            {
+                job.Status = BacktestingJobStatus.Failed;
+                job.Phase = "Failed";
+                job.ProgressMessage = "Backtest fallito";
+                job.ErrorMessage = $"{ex.GetType().Name}: {ex.Message}";
+                job.CompletedAt = DateTime.UtcNow;
+            }
+            Console.Error.WriteLine(
+                $"[Backtesting] Job {job.JobId} fallito in {RedactPath(outputPath)}: {ex}");
+        }
+        finally
+        {
+            _activeOutputPaths.TryRemove(outputPath, out _);
+            if (_jobCancellations.TryRemove(job.JobId, out var cancellation))
+                cancellation.Dispose();
+        }
+    }
+
+    private static string RedactPath(string path)
+        => Path.Combine("...", Path.GetFileName(Path.GetDirectoryName(path)) ?? "workspace", Path.GetFileName(path));
+
+    private string ResolveWorkspacePath(string workspaceId)
+    {
+        var workspaceService = new WorkspaceService(_settings);
+        var path = workspaceService.GetWorkspacePath(workspaceId);
+        if (!Directory.Exists(path))
+            throw new DirectoryNotFoundException($"Workspace '{workspaceId}' non trovato.");
+        return path;
+    }
+
+    private IEnumerable<string> EnumerateResultFiles()
+    {
+        if (Directory.Exists(_resultsPath))
+        {
+            foreach (var file in Directory.EnumerateFiles(_resultsPath, "backtest_*.json", SearchOption.TopDirectoryOnly))
+                yield return file;
+        }
+
+        var workspacesPath = _settings.GetWorkspacesPath();
+        if (!Directory.Exists(workspacesPath))
+            yield break;
+
+        foreach (var file in Directory.EnumerateFiles(
+                     workspacesPath,
+                     "backtest_*.json",
+                     SearchOption.AllDirectories))
+            yield return file;
+    }
+
+    private void CalculateWeeklyResults(BacktestingResult result)
+    {
+        var hourlyByWeek = result.HourlyResults
+            .GroupBy(hr => GetWeekStart(hr.DateTime))
+            .ToList();
+
+        foreach (var weekGroup in hourlyByWeek)
+        {
+            var weekStart = weekGroup.Key;
+            var weekEnd = weekStart.AddDays(6);
+            var weekData = weekGroup.OrderBy(hr => hr.DateTime).ToList();
+
+            var weeklyResult = new WeeklyResult
+            {
+                Year = weekStart.Year,
+                Week = GetWeekNumber(weekStart),
+                WeekStart = weekStart,
+                WeekEnd = weekEnd,
+                WeeklyProfit = weekData.Last().Equity - weekData.First().Equity,
+                WeeklyEquity = weekData.Last().Equity,
+                WeeklyDrawdown = weekData.Max(hr => hr.Drawdown)
+            };
+
+            // Calcola win rate dai trade delle strategie
+            var weekStrategyResults = result.StrategyResults
+                .Where(sr => sr.DateTime >= weekStart && sr.DateTime <= weekEnd)
+                .ToList();
+
+            var profitableHours = weekStrategyResults.Count(sr => sr.Profit > 0);
+            weeklyResult.TotalTrades = weekStrategyResults.Count(sr => sr.Signal.HasValue && sr.Signal != SignalType.Hold);
+            weeklyResult.WinningTrades = profitableHours;
+            weeklyResult.WinRate = weeklyResult.TotalTrades > 0 
+                ? (decimal)weeklyResult.WinningTrades / weeklyResult.TotalTrades 
+                : 0;
+
+            result.WeeklyResults.Add(weeklyResult);
+        }
+    }
+
+    private void AppendStrategyEquityResults(
+        BacktestingResult result,
+        TradingSnapshot snapshot,
+        DateTime currentDate,
+        IEnumerable<TradeSignal> signals,
+        Dictionary<string, decimal> strategyEquityCache)
+    {
+        var signalsByKey = signals
+            .GroupBy(signal => MakeStrategyKey(signal.Symbol, GetSignalStrategyCode(signal)))
+            .ToDictionary(group => group.Key, group => group.Last(), StringComparer.OrdinalIgnoreCase);
+
+        var strategyInfos = result.StrategiesInfo
+            .GroupBy(info => MakeStrategyKey(info.Symbol, GetStrategyCode(info)), StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.First())
+            .OrderBy(info => info.Symbol)
+            .ThenBy(info => GetStrategyCode(info));
+
+        foreach (var strategyInfo in strategyInfos)
+        {
+            var strategyKey = MakeStrategyKey(strategyInfo.Symbol, GetStrategyCode(strategyInfo));
+            signalsByKey.TryGetValue(strategyKey, out var signal);
+            strategyEquityCache.TryGetValue(strategyKey, out var previousEquity);
+            if (previousEquity == 0)
+            {
+                previousEquity = result.InitialCapital;
+            }
+
+            var equity = snapshot.StrategyEquities.TryGetValue(strategyKey, out var snapshotEquity)
+                ? snapshotEquity
+                : previousEquity;
+            strategyEquityCache[strategyKey] = equity;
+
+            result.StrategyResults.Add(new StrategyHourlyResult
+            {
+                StrategyName = strategyInfo.Name,
+                StrategyCode = GetStrategyCode(strategyInfo),
+                Symbol = strategyInfo.Symbol,
+                DateTime = currentDate,
+                Equity = equity,
+                Profit = equity - previousEquity,
+                Contracts = signal != null ? Math.Max(1, (int)signal.Quantity) : 0,
+                Signal = signal?.Type,
+                EntryPrice = signal?.Price
+            });
+        }
+    }
+
+    private static IEnumerable<PersistedSignal> ToPersistedSignals(
+        string jobId,
+        IReadOnlyList<TradeSignal> signals) =>
+        signals.Select((signal, index) => new PersistedSignal
+        {
+            SignalId = $"{jobId}-signal-{index + 1:D10}",
+            CorrelationId = jobId,
+            TimestampUtc = TradingDateTime.ToFeedUtc(signal.Date),
+            StrategyCode = signal.StrategyCode,
+            StrategyName = signal.StrategyName,
+            Symbol = NormalizeSymbol(signal.Symbol),
+            Side = signal.Type,
+            OrderType = signal.OrderType,
+            TriggerPrice = signal.Price,
+            Quantity = signal.Quantity,
+            ValidFromUtc = signal.ValidFromUtc,
+            ExpiresAtUtc = signal.ExpiresAtUtc,
+            StopLoss = signal.StopLoss,
+            TakeProfit = signal.TakeProfit,
+            TimeExitUtc = signal.CloseAtUtc,
+            Reason = signal.Reason,
+            CloseOnly = signal.CloseOnly
+        });
+
+    private static IEnumerable<PersistedTrade> ToPersistedTrades(
+        string jobId,
+        IReadOnlyList<TradingResult> trades) =>
+        trades.Select((trade, index) => new PersistedTrade
+        {
+            TradeId = $"{jobId}-trade-{index + 1:D10}",
+            CorrelationId = jobId,
+            StrategyCode = trade.StrategyCode,
+            StrategyName = trade.StrategyName,
+            Symbol = NormalizeSymbol(trade.Symbol),
+            Direction = trade.Direction,
+            Quantity = trade.Quantity,
+            EntryTimeUtc = TradingDateTime.ToFeedUtc(trade.EntryDate),
+            ExitTimeUtc = TradingDateTime.ToFeedUtc(trade.ExitDate),
+            EntryPrice = trade.EntryPrice,
+            ExitPrice = trade.ExitPrice,
+            GrossProfit = trade.GrossProfit,
+            NetProfit = trade.NetProfit,
+            Commission = trade.Commission
+        });
+
+    private static TradeSignal CloneTradeSignal(TradeSignal signal)
+    {
+        var clone = new TradeSignal
+        {
+            Date = signal.Date,
+            Type = signal.Type,
+            Price = signal.Price,
+            Symbol = signal.Symbol,
+            StrategyCode = signal.StrategyCode,
+            StrategyName = signal.StrategyName,
+            Reason = signal.Reason,
+            Quantity = signal.Quantity,
+            OrderType = signal.OrderType,
+            ValidFromUtc = signal.ValidFromUtc,
+            ExpiresAtUtc = signal.ExpiresAtUtc,
+            CloseAtUtc = signal.CloseAtUtc,
+            StopLossMoneyPerFutureContract = signal.StopLossMoneyPerFutureContract,
+            TakeProfitMoneyPerFutureContract = signal.TakeProfitMoneyPerFutureContract,
+            IsPositionCloseDependent = signal.IsPositionCloseDependent,
+            StopLoss = signal.StopLoss,
+            TakeProfit = signal.TakeProfit,
+            BreakEven = signal.BreakEven,
+            MaxBarsInPosition = signal.MaxBarsInPosition,
+            CloseOnly = signal.CloseOnly
+        };
+        TradingDateTime.NormalizeSignalToUtc(clone);
+        return clone;
+    }
+
+    private void GenerateStrategyEquityHtmlReport(BacktestingResult result, string filePath)
+    {
+        var series = result.StrategyResults
+            .Where(row => row.Equity != 0)
+            .GroupBy(row => MakeStrategyKey(row.Symbol, GetStrategyCode(row)))
+            .Select(group => new
+            {
+                key = group.Key,
+                label = group.Key,
+                points = group
+                    .OrderBy(row => row.DateTime)
+                    .Select(row => new
+                    {
+                        t = row.DateTime.ToString("O"),
+                        equity = row.Equity,
+                        profit = row.Profit,
+                        signal = row.Signal?.ToString()
+                    })
+                    .ToList()
+            })
+            .Where(group => group.points.Any())
+            .ToList();
+
+        var chartJson = JsonSerializer.Serialize(series, _jsonOptions);
+        var globalSeries = result.HourlyResults
+            .OrderBy(row => row.DateTime)
+            .Select(row => new
+            {
+                t = row.DateTime.ToString("O"),
+                equity = row.Equity,
+                profit = row.Profit,
+                drawdown = row.Drawdown
+            })
+            .ToList();
+        var globalChartJson = JsonSerializer.Serialize(globalSeries, _jsonOptions);
+        var strategyCountSeries = BuildStrategyCountTimeline(result);
+        var strategyCountChartJson = JsonSerializer.Serialize(strategyCountSeries, _jsonOptions);
+        var title = System.Net.WebUtility.HtmlEncode($"{result.SetupName} - Equity per strategia");
+        var symbols = result.StrategiesInfo
+            .Select(info => NormalizeSymbol(info.Symbol))
+            .Where(symbol => !string.IsNullOrWhiteSpace(symbol))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(symbol => symbol)
+            .ToList();
+        if (!symbols.Any())
+        {
+            symbols = result.StrategyResults
+                .Select(row => NormalizeSymbol(row.Symbol))
+                .Where(symbol => !string.IsNullOrWhiteSpace(symbol))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(symbol => symbol)
+                .ToList();
+        }
+        var symbolsText = symbols.Any() ? string.Join(", ", symbols) : "N/D";
+        var totalTrades = result.StrategyResults.Count(row => row.Signal.HasValue && row.Signal != SignalType.Hold);
+        var strategyCount = result.StrategiesInfo
+            .Select(info => MakeStrategyKey(info.Symbol, GetStrategyCode(info)))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Count();
+        if (strategyCount == 0)
+        {
+            strategyCount = series.Count;
+        }
+        var html = new StringBuilder();
+
+        if (!series.Any() && !globalSeries.Any())
+        {
+            html.AppendLine("<!doctype html>");
+            html.AppendLine("<html lang=\"it\"><head><meta charset=\"utf-8\">");
+            html.AppendLine($"<title>{title}</title>");
+            html.AppendLine("<style>body{font-family:Arial,Helvetica,sans-serif;margin:24px;background:#0f172a;color:#e5e7eb}.card{background:#111827;border:1px solid #334155;border-radius:12px;padding:18px;margin-bottom:16px}.muted{color:#94a3b8}.metrics{display:flex;flex-wrap:wrap;gap:10px;margin:14px 0}.metric{background:#020617;border:1px solid #334155;border-radius:10px;padding:10px 12px}.metric b{display:block;color:#f8fafc}.summary-table{width:100%;border-collapse:collapse;margin-top:10px}.summary-table th,.summary-table td{border-bottom:1px solid #334155;padding:9px 10px;text-align:right}.summary-table th:first-child,.summary-table td:first-child{text-align:left}.positive{color:#22c55e}.negative{color:#fb7185}</style>");
+            html.AppendLine("</head><body>");
+            html.AppendLine($"<h1>{title}</h1>");
+            AppendBacktestSummaryHtml(html, result, symbolsText, totalTrades, strategyCount);
+            AppendYearlySummaryHtml(html, result);
+        AppendMonthlySummaryHtml(html, result);
+            html.AppendLine("<div class=\"card\"><p class=\"muted\">Nessuna equity per strategia disponibile: il backtest non ha prodotto trade gestiti dal motore.</p></div>");
+            html.AppendLine("</body></html>");
+            AtomicFileWriter.WriteAllText(filePath, html.ToString());
+            return;
+        }
+
+        html.AppendLine("<!doctype html>");
+        html.AppendLine("<html lang=\"it\">");
+        html.AppendLine("<head>");
+        html.AppendLine("  <meta charset=\"utf-8\">");
+        html.AppendLine("  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">");
+        html.AppendLine($"  <title>{title}</title>");
+        html.AppendLine("  <style>");
+        html.AppendLine("    body{font-family:Arial,Helvetica,sans-serif;margin:24px;background:#0f172a;color:#e5e7eb}");
+        html.AppendLine("    .card{background:#111827;border:1px solid #334155;border-radius:12px;padding:18px;margin-bottom:16px}");
+        html.AppendLine("    canvas{width:100%;height:560px;background:#020617;border-radius:10px}");
+        html.AppendLine("    .legend{display:flex;flex-wrap:wrap;gap:12px;margin-top:14px}");
+        html.AppendLine("    .legend span{display:inline-flex;align-items:center;gap:6px;font-size:13px}");
+        html.AppendLine("    .swatch{width:14px;height:3px;display:inline-block}");
+        html.AppendLine("    .muted{color:#94a3b8}");
+        html.AppendLine("    .metrics{display:flex;flex-wrap:wrap;gap:10px;margin:14px 0 18px}");
+        html.AppendLine("    .metric{background:#020617;border:1px solid #334155;border-radius:10px;padding:10px 12px;min-width:150px}");
+        html.AppendLine("    .metric span{display:block;color:#94a3b8;font-size:12px}");
+        html.AppendLine("    .metric b{display:block;color:#f8fafc;font-size:15px;margin-top:3px}");
+        html.AppendLine("    .summary-table{width:100%;border-collapse:collapse;margin-top:10px}");
+        html.AppendLine("    .summary-table th,.summary-table td{border-bottom:1px solid #334155;padding:9px 10px;text-align:right}");
+        html.AppendLine("    .summary-table th:first-child,.summary-table td:first-child{text-align:left}");
+        html.AppendLine("    .positive{color:#22c55e}");
+        html.AppendLine("    .negative{color:#fb7185}");
+        html.AppendLine("  </style>");
+        html.AppendLine("</head>");
+        html.AppendLine("<body>");
+        html.AppendLine($"  <h1>{title}</h1>");
+        AppendBacktestSummaryHtml(html, result, symbolsText, totalTrades, strategyCount);
+        AppendYearlySummaryHtml(html, result);
+        AppendMonthlySummaryHtml(html, result);
+        html.AppendLine("  <div class=\"card\">");
+        html.AppendLine("    <h2>Numero strategie nel tempo</h2>");
+        html.AppendLine("    <p class=\"muted\">Totale strategie in simulazione e strategie che hanno emesso almeno un trade (cumulativo).</p>");
+        html.AppendLine("    <canvas id=\"strategyCountChart\" width=\"1400\" height=\"420\"></canvas>");
+        html.AppendLine("    <div id=\"strategyCountLegend\" class=\"legend\"></div>");
+        html.AppendLine("  </div>");
+        html.AppendLine("  <div class=\"card\">");
+        html.AppendLine("    <h2>Equity globale</h2>");
+        html.AppendLine("    <canvas id=\"globalEquityChart\" width=\"1400\" height=\"560\"></canvas>");
+        html.AppendLine("    <div id=\"globalLegend\" class=\"legend\"></div>");
+        html.AppendLine("  </div>");
+        html.AppendLine("  <div class=\"card\">");
+        html.AppendLine("    <h2>Equity per strategia</h2>");
+        html.AppendLine("    <canvas id=\"equityChart\" width=\"1400\" height=\"560\"></canvas>");
+        html.AppendLine("    <div id=\"legend\" class=\"legend\"></div>");
+        html.AppendLine("  </div>");
+        html.AppendLine("  <script>");
+        html.AppendLine($"    const series = {chartJson};");
+        html.AppendLine($"    const globalSeries = {globalChartJson};");
+        html.AppendLine($"    const strategyCountSeries = {strategyCountChartJson};");
+        html.AppendLine("    const colors = ['#38bdf8','#f97316','#22c55e','#e879f9','#facc15','#fb7185','#a78bfa','#2dd4bf','#c084fc','#f87171'];");
+        html.AppendLine("    function drawCountChart(canvasId, legendId, chartSeries) {");
+        html.AppendLine("      const canvas = document.getElementById(canvasId);");
+        html.AppendLine("      const legend = document.getElementById(legendId);");
+        html.AppendLine("      if (!chartSeries.length) { legend.innerHTML = '<span>Nessun dato disponibile</span>'; return; }");
+        html.AppendLine("      const ctx = canvas.getContext('2d');");
+        html.AppendLine("      const pad = {left: 74, right: 24, top: 28, bottom: 54};");
+        html.AppendLine("      const points = chartSeries.map(p => ({...p, time: new Date(p.t).getTime()}));");
+        html.AppendLine("      const minTime = Math.min(...points.map(p => p.time));");
+        html.AppendLine("      const maxTime = Math.max(...points.map(p => p.time));");
+        html.AppendLine("      const maxCount = Math.max(...points.flatMap(p => [p.total, p.traded, p.signalsThisBar || 0]), 1);");
+        html.AppendLine("      const yMin = 0; const yMax = maxCount;");
+        html.AppendLine("      const x = t => pad.left + ((t - minTime) / Math.max(1, maxTime - minTime)) * (canvas.width - pad.left - pad.right);");
+        html.AppendLine("      const y = v => canvas.height - pad.bottom - ((v - yMin) / Math.max(1, yMax - yMin)) * (canvas.height - pad.top - pad.bottom);");
+        html.AppendLine("      ctx.clearRect(0,0,canvas.width,canvas.height);");
+        html.AppendLine("      ctx.strokeStyle = '#334155'; ctx.lineWidth = 1; ctx.fillStyle = '#94a3b8'; ctx.font = '12px Arial';");
+        html.AppendLine("      const step = Math.max(1, Math.ceil(maxCount / 6));");
+        html.AppendLine("      for (let v = 0; v <= maxCount; v += step){ const yy = y(v); ctx.beginPath(); ctx.moveTo(pad.left,yy); ctx.lineTo(canvas.width-pad.right,yy); ctx.stroke(); ctx.fillText(String(v), 12, yy+4); }");
+        html.AppendLine("      function drawLine(key, color, width, dash){ ctx.strokeStyle = color; ctx.lineWidth = width; ctx.setLineDash(dash || []); ctx.beginPath(); points.forEach((p,i)=>{ const xx=x(p.time); const yy=y(p[key]); if(i===0) ctx.moveTo(xx,yy); else ctx.lineTo(xx,yy); }); ctx.stroke(); ctx.setLineDash([]); }");
+        html.AppendLine("      drawLine('total', '#64748b', 2, [8,6]);");
+        html.AppendLine("      drawLine('traded', '#38bdf8', 2.5, []);");
+        html.AppendLine("      drawLine('signalsThisBar', '#f97316', 1.5, [4,4]);");
+        html.AppendLine("      legend.innerHTML = '<span><i class=\"swatch\" style=\"background:#64748b\"></i>Totale strategie</span><span><i class=\"swatch\" style=\"background:#38bdf8\"></i>Con almeno 1 trade</span><span><i class=\"swatch\" style=\"background:#f97316\"></i>Segnali in barra</span>';");
+        html.AppendLine("    }");
+        html.AppendLine("    function drawChart(canvasId, legendId, chartSeries) {");
+        html.AppendLine("      const canvas = document.getElementById(canvasId);");
+        html.AppendLine("      const legend = document.getElementById(legendId);");
+        html.AppendLine("      if (!chartSeries.length) { legend.innerHTML = '<span>Nessun dato disponibile</span>'; return; }");
+        html.AppendLine("      const ctx = canvas.getContext('2d');");
+        html.AppendLine("      const pad = {left: 74, right: 24, top: 28, bottom: 54};");
+        html.AppendLine("      const allPoints = chartSeries.flatMap(s => s.points.map(p => ({...p, time: new Date(p.t).getTime()})));");
+        html.AppendLine("      const minTime = Math.min(...allPoints.map(p => p.time));");
+        html.AppendLine("      const maxTime = Math.max(...allPoints.map(p => p.time));");
+        html.AppendLine("      const minEquity = Math.min(...allPoints.map(p => p.equity));");
+        html.AppendLine("      const maxEquity = Math.max(...allPoints.map(p => p.equity));");
+        html.AppendLine("      const yMin = minEquity === maxEquity ? minEquity - 1 : minEquity;");
+        html.AppendLine("      const yMax = minEquity === maxEquity ? maxEquity + 1 : maxEquity;");
+        html.AppendLine("      const x = t => pad.left + ((t - minTime) / Math.max(1, maxTime - minTime)) * (canvas.width - pad.left - pad.right);");
+        html.AppendLine("      const y = v => canvas.height - pad.bottom - ((v - yMin) / Math.max(1, yMax - yMin)) * (canvas.height - pad.top - pad.bottom);");
+        html.AppendLine("      ctx.clearRect(0,0,canvas.width,canvas.height);");
+        html.AppendLine("      ctx.strokeStyle = '#334155'; ctx.lineWidth = 1; ctx.fillStyle = '#94a3b8'; ctx.font = '12px Arial';");
+        html.AppendLine("      for (let i=0;i<=5;i++){ const yy = pad.top + i*(canvas.height-pad.top-pad.bottom)/5; ctx.beginPath(); ctx.moveTo(pad.left,yy); ctx.lineTo(canvas.width-pad.right,yy); ctx.stroke(); const val = yMax - i*(yMax-yMin)/5; ctx.fillText(val.toFixed(2), 8, yy+4); }");
+        html.AppendLine("      chartSeries.forEach((s, idx) => { const color = colors[idx % colors.length]; ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.beginPath(); s.points.forEach((p, i) => { const xx = x(new Date(p.t).getTime()); const yy = y(p.equity); if(i===0) ctx.moveTo(xx, yy); else ctx.lineTo(xx, yy); }); ctx.stroke(); });");
+        html.AppendLine("      legend.innerHTML = chartSeries.map((s,idx)=>`<span><i class=\"swatch\" style=\"background:${colors[idx % colors.length]}\"></i>${s.label}</span>`).join('');");
+        html.AppendLine("    }");
+        html.AppendLine("    drawCountChart('strategyCountChart', 'strategyCountLegend', strategyCountSeries);");
+        html.AppendLine("    drawChart('globalEquityChart', 'globalLegend', [{ label: 'Equity globale', points: globalSeries }]);");
+        html.AppendLine("    drawChart('equityChart', 'legend', series);");
+        html.AppendLine("  </script>");
+        html.AppendLine("</body>");
+        html.AppendLine("</html>");
+
+        AtomicFileWriter.WriteAllText(filePath, html.ToString());
+    }
+
+    private static List<object> BuildStrategyCountTimeline(BacktestingResult result)
+    {
+        var totalCount = result.StrategiesInfo
+            .Select(info => MakeStrategyKey(info.Symbol, GetStrategyCode(info)))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Count();
+
+        if (totalCount == 0)
+        {
+            totalCount = result.StrategyResults
+                .Select(row => MakeStrategyKey(row.Symbol, GetStrategyCode(row)))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Count();
+        }
+
+        var tradeEvents = result.StrategyResults
+            .Where(row => row.Signal.HasValue && row.Signal != SignalType.Hold)
+            .OrderBy(row => row.DateTime)
+            .ToList();
+
+        var tradedKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var eventIndex = 0;
+        var points = new List<object>();
+
+        foreach (var hour in result.HourlyResults.OrderBy(row => row.DateTime))
+        {
+            while (eventIndex < tradeEvents.Count && tradeEvents[eventIndex].DateTime <= hour.DateTime)
+            {
+                tradedKeys.Add(MakeStrategyKey(tradeEvents[eventIndex].Symbol, GetStrategyCode(tradeEvents[eventIndex])));
+                eventIndex++;
+            }
+
+            var signalsThisBar = result.StrategyResults.Count(row =>
+                TradingDateTime.ToFeedUtc(row.DateTime) == TradingDateTime.ToFeedUtc(hour.DateTime) &&
+                row.Signal.HasValue &&
+                row.Signal != SignalType.Hold);
+
+            points.Add(new
+            {
+                t = hour.DateTime.ToString("O"),
+                total = totalCount,
+                traded = tradedKeys.Count,
+                signalsThisBar
+            });
+        }
+
+        return points;
+    }
+
+    private static void AppendBacktestSummaryHtml(
+        StringBuilder html,
+        BacktestingResult result,
+        string symbolsText,
+        int totalTrades,
+        int strategyCount)
+    {
+        html.AppendLine("  <div class=\"card\">");
+        html.AppendLine("    <h2>Riepilogo simulazione</h2>");
+        html.AppendLine("    <div class=\"metrics\">");
+        html.AppendLine($"      <div class=\"metric\"><span>Range simulazione</span><b>{result.StartDate:yyyy-MM-dd HH:mm} - {result.EndDate:yyyy-MM-dd HH:mm}</b></div>");
+        html.AppendLine($"      <div class=\"metric\"><span>Symbol usati</span><b>{System.Net.WebUtility.HtmlEncode(symbolsText)}</b></div>");
+        html.AppendLine($"      <div class=\"metric\"><span>Strategie</span><b>{strategyCount}</b></div>");
+        html.AppendLine($"      <div class=\"metric\"><span>Trade effettuati</span><b>{totalTrades}</b></div>");
+        html.AppendLine($"      <div class=\"metric\"><span>Capitale iniziale</span><b>{result.InitialCapital:F2}</b></div>");
+        html.AppendLine($"      <div class=\"metric\"><span>Profit totale</span><b>{result.TotalProfit:F2}</b></div>");
+        html.AppendLine("    </div>");
+        html.AppendLine("  </div>");
+    }
+
+    private static void AppendYearlySummaryHtml(StringBuilder html, BacktestingResult result)
+    {
+        var orderedRows = result.HourlyResults
+            .Where(row => row.Equity != 0)
+            .OrderBy(row => row.DateTime)
+            .ToList();
+
+        if (!orderedRows.Any())
+        {
+            return;
+        }
+
+        var previousYearEndEquity = result.InitialCapital;
+        var strategyRows = result.StrategyResults
+            .Where(row => row.Signal.HasValue && row.Signal != SignalType.Hold)
+            .ToList();
+        var yearlyRows = new List<(int Year, decimal StartEquity, decimal EndEquity, decimal Profit, decimal MaxDrawdown, decimal ReturnPct, int WinningTrades, int LosingTrades)>();
+
+        foreach (var yearGroup in orderedRows.GroupBy(row => row.DateTime.Year).OrderBy(group => group.Key))
+        {
+            var yearRows = yearGroup.OrderBy(row => row.DateTime).ToList();
+            var endEquity = yearRows.Last().Equity;
+            var profit = endEquity - previousYearEndEquity;
+            var maxDrawdown = CalculateMaxDrawdown(yearRows, previousYearEndEquity);
+            var returnPct = previousYearEndEquity != 0 ? profit / previousYearEndEquity * 100m : 0m;
+            var yearTradeRows = strategyRows.Where(row => row.DateTime.Year == yearGroup.Key).ToList();
+            var winningTrades = yearTradeRows.Count(row => row.Profit > 0);
+            var losingTrades = yearTradeRows.Count(row => row.Profit < 0);
+
+            yearlyRows.Add((yearGroup.Key, previousYearEndEquity, endEquity, profit, maxDrawdown, returnPct, winningTrades, losingTrades));
+            previousYearEndEquity = endEquity;
+        }
+
+        html.AppendLine("  <div class=\"card\">");
+        html.AppendLine("    <h2>Resoconto annuale</h2>");
+        html.AppendLine("    <table class=\"summary-table\">");
+        html.AppendLine("      <thead><tr><th>Anno</th><th>Equity iniziale</th><th>Equity finale</th><th>Profit</th><th>Return %</th><th>Max DD anno</th><th>Trade win</th><th>Trade persi</th></tr></thead>");
+        html.AppendLine("      <tbody>");
+
+        foreach (var row in yearlyRows)
+        {
+            var profitClass = row.Profit >= 0 ? "positive" : "negative";
+            html.AppendLine(
+                $"        <tr><td>{row.Year}</td><td>{row.StartEquity:F2}</td><td>{row.EndEquity:F2}</td><td class=\"{profitClass}\">{row.Profit:F2}</td><td class=\"{profitClass}\">{row.ReturnPct:F2}%</td><td class=\"negative\">{row.MaxDrawdown:F2}</td><td>{row.WinningTrades}</td><td>{row.LosingTrades}</td></tr>");
+        }
+
+        html.AppendLine("      </tbody>");
+        html.AppendLine("    </table>");
+        html.AppendLine("  </div>");
+    }
+
+    private static void AppendMonthlySummaryHtml(StringBuilder html, BacktestingResult result)
+    {
+        var orderedRows = result.HourlyResults
+            .Where(row => row.Equity != 0)
+            .OrderBy(row => row.DateTime)
+            .ToList();
+
+        if (!orderedRows.Any())
+        {
+            return;
+        }
+
+        var strategyRows = result.StrategyResults
+            .Where(row => row.Signal.HasValue && row.Signal != SignalType.Hold)
+            .ToList();
+        var previousMonthEndEquity = result.InitialCapital;
+
+        html.AppendLine("  <div class=\"card\">");
+        html.AppendLine("    <h2>Resoconto mensile</h2>");
+        html.AppendLine("    <table class=\"summary-table\">");
+        html.AppendLine("      <thead><tr><th>Mese</th><th>Equity iniziale</th><th>Equity finale</th><th>Profit</th><th>Return %</th><th>Max DD mese</th><th>Trade win</th><th>Trade persi</th></tr></thead>");
+        html.AppendLine("      <tbody>");
+
+        foreach (var monthGroup in orderedRows.GroupBy(row => new { row.DateTime.Year, row.DateTime.Month }).OrderBy(group => group.Key.Year).ThenBy(group => group.Key.Month))
+        {
+            var monthRows = monthGroup.OrderBy(row => row.DateTime).ToList();
+            var endEquity = monthRows.Last().Equity;
+            var profit = endEquity - previousMonthEndEquity;
+            var maxDrawdown = CalculateMaxDrawdown(monthRows, previousMonthEndEquity);
+            var returnPct = previousMonthEndEquity != 0 ? profit / previousMonthEndEquity * 100m : 0m;
+            var monthTradeRows = strategyRows
+                .Where(row => row.DateTime.Year == monthGroup.Key.Year && row.DateTime.Month == monthGroup.Key.Month)
+                .ToList();
+            var profitClass = profit >= 0 ? "positive" : "negative";
+
+            html.AppendLine(
+                $"        <tr><td>{monthGroup.Key.Year}-{monthGroup.Key.Month:00}</td><td>{previousMonthEndEquity:F2}</td><td>{endEquity:F2}</td><td class=\"{profitClass}\">{profit:F2}</td><td class=\"{profitClass}\">{returnPct:F2}%</td><td class=\"negative\">{maxDrawdown:F2}</td><td>{monthTradeRows.Count(row => row.Profit > 0)}</td><td>{monthTradeRows.Count(row => row.Profit < 0)}</td></tr>");
+
+            previousMonthEndEquity = endEquity;
+        }
+
+        html.AppendLine("      </tbody>");
+        html.AppendLine("    </table>");
+        html.AppendLine("  </div>");
+    }
+
+    private static decimal CalculateMaxDrawdown(IEnumerable<HourlyResult> yearRows, decimal initialPeak)
+    {
+        var peak = initialPeak;
+        var maxDrawdown = 0m;
+
+        foreach (var row in yearRows.OrderBy(item => item.DateTime))
+        {
+            if (row.Equity > peak)
+            {
+                peak = row.Equity;
+            }
+
+            var drawdown = peak - row.Equity;
+            if (drawdown > maxDrawdown)
+            {
+                maxDrawdown = drawdown;
+            }
+        }
+
+        return maxDrawdown;
+    }
+
+    private DateTime GetWeekStart(DateTime date)
+    {
+        var daysToSubtract = (int)date.DayOfWeek - (int)DayOfWeek.Monday;
+        if (daysToSubtract < 0) daysToSubtract += 7;
+        return date.AddDays(-daysToSubtract).Date;
+    }
+
+    private static string NormalizeSymbol(string symbol)
+    {
+        return symbol.Trim().TrimStart('@').ToUpperInvariant();
+    }
+
+    private static string NormalizeSymbolWithPrefix(string symbol)
+    {
+        var normalized = NormalizeSymbol(symbol);
+        return string.IsNullOrEmpty(normalized) ? normalized : $"@{normalized}";
+    }
+
+    private static string MakeStrategyKey(string symbol, string strategyCode)
+    {
+        var normalizedSymbol = NormalizeSymbol(symbol);
+        var normalizedStrategyCode = strategyCode.Trim();
+
+        if (string.IsNullOrEmpty(normalizedSymbol))
+        {
+            return normalizedStrategyCode;
+        }
+
+        if (string.IsNullOrEmpty(normalizedStrategyCode))
+        {
+            return normalizedSymbol;
+        }
+
+        return $"{normalizedSymbol}|{normalizedStrategyCode}";
+    }
+
+    private static string ExtractSymbol(string strategyKey)
+    {
+        var parts = strategyKey.Split('|', 2);
+        return parts.Length == 2 ? parts[0] : string.Empty;
+    }
+
+    private static string ExtractStrategyCode(string strategyKey)
+    {
+        var parts = strategyKey.Split('|', 2);
+        return parts.Length == 2 ? parts[1] : strategyKey;
+    }
+
+    private static string GetSignalStrategyCode(TradeSignal signal)
+    {
+        return !string.IsNullOrWhiteSpace(signal.StrategyCode)
+            ? signal.StrategyCode
+            : signal.StrategyName;
+    }
+
+    private static string GetStrategyCode(StrategyHourlyResult result)
+    {
+        return !string.IsNullOrWhiteSpace(result.StrategyCode)
+            ? result.StrategyCode
+            : result.StrategyName;
+    }
+
+    private static string GetStrategyCode(Piootoo.Shared.Models.Backtesting.StrategyInfo result)
+    {
+        return !string.IsNullOrWhiteSpace(result.StrategyCode)
+            ? result.StrategyCode
+            : result.Name;
+    }
+
+    private int GetWeekNumber(DateTime date)
+    {
+        var culture = System.Globalization.CultureInfo.CurrentCulture;
+        return culture.Calendar.GetWeekOfYear(date,
+            System.Globalization.CalendarWeekRule.FirstFourDayWeek,
+            DayOfWeek.Monday);
+    }
+
+    /// <summary>
+    /// Determina se una strategia deve essere valutata all'iterazione corrente
+    /// Una strategia viene valutata quando il numero di iterazioni è un multiplo del rapporto tra il suo timeframe e il minimo
+    /// </summary>
+    private bool ShouldEvaluateStrategy(DateTime currentDate, int iterationCount, int strategyTimeframeMinutes, int minTimeframeMinutes)
+    {
+        // Se il timeframe della strategia è uguale al minimo, valuta sempre
+        if (strategyTimeframeMinutes == minTimeframeMinutes)
+        {
+            return true;
+        }
+
+        // Verifica se il timeframe della strategia è un multiplo del minimo
+        if (strategyTimeframeMinutes % minTimeframeMinutes != 0)
+        {
+            // Log solo quando necessario per evitare spam
+            if (iterationCount % 1000 == 0)
+            {
+                Console.WriteLine($"[Backtesting] Strategia con timeframe {strategyTimeframeMinutes} non è multiplo di {minTimeframeMinutes}, skip");
+            }
+            return false;
+        }
+
+        // Strategie daily+ : allinea alla mezzanotte UTC (evita drift da iterazioni weekend)
+        if (strategyTimeframeMinutes >= 1440)
+        {
+            return currentDate is { Hour: 0, Minute: 0 };
+        }
+
+        // Calcola quanti periodi minimi corrispondono a un periodo della strategia
+        var multiplier = strategyTimeframeMinutes / minTimeframeMinutes;
+        
+        // Valuta la strategia quando il numero di iterazioni è un multiplo del multiplier
+        var shouldEvaluate = iterationCount % multiplier == 0;
+        
+        // Log solo quando necessario
+        if (shouldEvaluate && iterationCount % 100 == 0)
+        {
+            Console.WriteLine($"[Backtesting] Valutazione strategia: iterationCount={iterationCount}, strategyTF={strategyTimeframeMinutes}, minTF={minTimeframeMinutes}, multiplier={multiplier}, evaluate={shouldEvaluate}");
+        }
+        
+        return shouldEvaluate;
+    }
+
+    private static IEnumerable<(string Symbol, int Timeframe, int RequiredCandles)> GetStrategyDataRequirements(ITradingStrategy strategy)
+    {
+        yield return (strategy.Symbol, strategy.TimeframeMinutes, (int)(strategy.RequiredCandles * 1.2));
+
+        if (strategy is not IMultiTimeframeTradingStrategy multiTimeframeStrategy)
+        {
+            yield break;
+        }
+
+        foreach (var timeframe in multiTimeframeStrategy.AdditionalTimeframes.Where(timeframe => timeframe != strategy.TimeframeMinutes))
+        {
+            var requiredCandles = timeframe >= 1440 ? 8 : (int)(strategy.RequiredCandles * 1.2);
+            yield return (strategy.Symbol, timeframe, requiredCandles);
+        }
+    }
+
+    private static IReadOnlyDictionary<int, OhlcvData[]> GetAdditionalTimeframeData(
+        IMultiTimeframeTradingStrategy strategy,
+        Dictionary<(string Symbol, int Timeframe), OhlcvData[]> dataSourceCache,
+        DateTime currentDate)
+    {
+        var result = new Dictionary<int, OhlcvData[]>();
+
+        foreach (var timeframe in strategy.AdditionalTimeframes.Where(timeframe => timeframe != strategy.TimeframeMinutes))
+        {
+            if (!dataSourceCache.TryGetValue((strategy.Symbol, timeframe), out var cachedData))
+            {
+                result[timeframe] = Array.Empty<OhlcvData>();
+                continue;
+            }
+
+            result[timeframe] = cachedData
+                .Where(d => d.DateTime <= currentDate)
+                .OrderBy(d => d.DateTime)
+                .ToArray();
+        }
+
+        return result;
+    }
+
+    private static bool IsStrategyCandleStale(int timeframeMinutes, DateTime lastCandleTime, DateTime currentDate)
+    {
+        if (timeframeMinutes < 1440)
+        {
+            return false;
+        }
+
+        var maxAgeDays = timeframeMinutes >= 10080 ? 10 : 4;
+        return (currentDate.Date - lastCandleTime.Date).TotalDays > maxAgeDays;
+    }
+
+    private static void ScaleSignalMaxBarsInPosition(TradeSignal signal, int strategyTimeframeMinutes, int minTimeframeMinutes)
+    {
+        if (!signal.MaxBarsInPosition.HasValue || signal.MaxBarsInPosition.Value <= 0)
+        {
+            return;
+        }
+
+        if (strategyTimeframeMinutes <= minTimeframeMinutes)
+        {
+            return;
+        }
+
+        if (strategyTimeframeMinutes % minTimeframeMinutes != 0)
+        {
+            return;
+        }
+
+        var scale = strategyTimeframeMinutes / minTimeframeMinutes;
+        signal.MaxBarsInPosition = signal.MaxBarsInPosition.Value * scale;
+    }
+
+    private static DateTime GetNextTradingDateUtc(DateTime currentDate, int minTimeframeMinutes)
+    {
+        var next = currentDate.AddMinutes(minTimeframeMinutes);
+        while (next.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday)
+        {
+            next = next.AddMinutes(minTimeframeMinutes);
+        }
+
+        return next;
+    }
+
+    private static bool IsLastBarOfTradingWeek(DateTime currentDate, DateTime nextTradingDate)
+    {
+        return GetWeekStartUtc(currentDate) != GetWeekStartUtc(nextTradingDate);
+    }
+
+    private static DateTime GetWeekStartUtc(DateTime date)
+    {
+        var daysToSubtract = ((int)date.DayOfWeek - (int)DayOfWeek.Monday + 7) % 7;
+        return date.Date.AddDays(-daysToSubtract);
+    }
+
+    /// <summary>
+    /// Popola StrategiesInfo cercando le strategie nel repository basandosi sui nomi
+    /// </summary>
+    private List<Piootoo.Shared.Models.Backtesting.StrategyInfo> PopulateStrategiesInfo(List<string> strategyNames)
+    {
+        var strategiesInfo = new List<Piootoo.Shared.Models.Backtesting.StrategyInfo>();
+        
+        if (strategyNames == null || !strategyNames.Any())
+            return strategiesInfo;
+
+        // Ottieni tutte le strategie C# registrate disponibili
+        var allStrategies = StrategyFactory.GetRegisteredStrategies();
+        
+        // Per ogni nome strategia, cerca corrispondenze nel repository
+        var uniqueStrategyNames = strategyNames.Distinct().ToList();
+        foreach (var strategyName in uniqueStrategyNames)
+        {
+            // Cerca strategie che corrispondono al nome (case-insensitive)
+            var matchingStrategies = allStrategies
+                .Where(s => s.Name.Equals(strategyName, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            
+            if (matchingStrategies.Any())
+            {
+                // Aggiungi tutte le varianti (potrebbero esserci più strategie con lo stesso nome ma symbol/timeframe diversi)
+                foreach (var strategy in matchingStrategies)
+                {
+                    strategiesInfo.Add(new Piootoo.Shared.Models.Backtesting.StrategyInfo
+                    {
+                        Name = strategy.Name,
+                        StrategyCode = strategy.Name,
+                        Symbol = strategy.Symbol.Replace("@", ""), // Rimuovi @ per consistenza
+                        TimeframeMinutes = strategy.TimeframeMinutes
+                    });
+                }
+            }
+            else
+            {
+                // Se non trovata, aggiungi comunque con informazioni vuote
+                strategiesInfo.Add(new Piootoo.Shared.Models.Backtesting.StrategyInfo
+                {
+                    Name = strategyName,
+                    StrategyCode = strategyName,
+                    Symbol = "",
+                    TimeframeMinutes = 0
+                });
+            }
+        }
+        
+        // Rimuovi duplicati (stesso nome, symbol e timeframe)
+        return strategiesInfo
+            .DistinctBy(s => new { s.Name, s.Symbol, s.TimeframeMinutes })
+            .ToList();
+    }
+}

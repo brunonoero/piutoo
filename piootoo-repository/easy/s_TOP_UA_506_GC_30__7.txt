@@ -1,0 +1,83 @@
+var: IsStartOfSession(true);
+array: ohlcValues[23](0);
+
+inputs: sessionStartTimeC(1800),sessionEndTimeC(1700);	
+IsStartOfSession = _OHLCMulti5(sessionStartTimeC, sessionEndTimeC, ohlcValues);
+
+//Works using 30-minute bars
+
+inputs:
+	Mycontracts(1),
+	periodol(38),periodos(32),
+	Highestperiodl(61),lowestperiodl(61),
+	Highestperiods(48),lowestperiods(64),
+	MyPtnLY(152), MyPtnSY(4), MyPtnLN(8), MyPtnSN(98),
+	MyStartTime(0), MyEndTime(2300),
+	maxdaysintrade(5),
+	MyStopl(1100), MyStops(1100),MyProfitl(3800),MyProfits(3500), MyBreakeven(2000),
+	Length( 20 ), NumDevs( 2),
+	multl(0.8),mults(0.8);
+	
+
+variables:
+	UpperBand( 0 ),LowerBand( 0 ),okl(false),oks(false), rangl(0),rangs(0), Highestl(0),lowestl(0),Highests(0),lowests(0),
+       mp(0), DaysInTrade(0);
+             
+      mp=marketposition;
+      
+      If isStartOfSession then begin
+
+      	if marketposition<>0 then DaysInTrade = DaysInTrade+1;
+end;
+      
+      Highestl=Highest(high,Highestperiodl);
+      lowestl=lowest(low,lowestperiodl);
+      Highests=Highest(high,Highestperiods);
+      lowests=lowest(low,lowestperiods);
+
+       rangl=Highestl-lowestl;
+       rangs= Highests-lowests;
+
+if  low[1]>Highest(high,periodol)-rangl*multl and low<Highest(high,periodol)-rangl*multl then okl=true;
+if  h[1]<lowest(low,periodos)+rangs*mults and h>Lowest(low,periodos)+rangs*mults then oks=true;
+
+if mp=1 then okl=false;
+if mp=-1 then oks=false;
+
+if mp<>0 then begin 
+okl=false;
+oks=false;
+rangl=0;
+rangs=0;
+end;
+
+UpperBand = BollingerBand( c, Length, +NumDevs ) ;
+LowerBand = BollingerBand( c, Length, -NumDevs ) ;
+
+if tw(MyStartTime,MyEndTime) then begin
+
+	if oks=true and C crosses under UpperBand and PatternFast(MyPtnSY, ohlcValues) and PatternFast(MyPtnSN, ohlcValues)=False then Sellshort MyContracts contracts next bar at market ;
+	if okl=true and C crosses over LowerBand  and PatternFast(MyPtnLY, ohlcValues) and PatternFast(MyPtnLN, ohlcValues)=False then Buy MyContracts contracts next bar at market ;
+
+End;
+
+setstopcontract;
+if mp<>mp[1] and mp<>0 then DaysInTrade = 1;
+
+if maxdaysintrade>0 and DaysInTrade>=maxdaysintrade and T>=1630 and T<1700 then begin
+	buytocover next bar market;
+	sell next bar market;
+end;
+if maxdaysintrade>0 and DaysInTrade>=maxdaysintrade then setexitonclose;
+
+setstopcontract;
+if mp=1 and MyStopl > 0 then setstoploss(MyStopl);
+if mp=-1 and  MyStops > 0 then setstoploss(MyStops);
+
+If mp=1 and MyProfitl > 0 then setprofittarget(MyProfitl);
+If mp=-1 and MyProfits > 0 then setprofittarget(MyProfits);
+if MyBreakeven>0 then setbreakeven(MyBreakeven);
+//TITAN FAST EXPORT (mette il report direttamente in C:\Titan\Reports
+input: TitanExportMode(0);
+if TitanExportMode=1 then WriteDailiesCTitanReports(1080101, TitanExportMode);
+

@@ -1,0 +1,76 @@
+
+
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>	
+
+
+
+array: ohlcValues[23](0);
+var: isStartOfSession(false);
+
+
+
+
+
+input: MaxTradesPerDay(1);
+input: sessionStartTimeA(1700), sessionEndTimeA(1600);
+input: PtnNeutYes(55), PtnNeutNo(56) ; 
+input: PtnLY(68), PtnLN(59), PtnSY(68), PtnSN(44),PtnSN2(69); 
+Input: MyStopL(1500),MyStopS(1500), MyProfitL(1400),MyProfitS(3500);
+input: MyContracts(1);
+Input: giornoingressolong(2),giornouscitalong(4),giornoingressoshort(4),giornouscitashort(1);
+input: tempingressolong1(600),tempingressolong2(700), tempouscitalong1(730),tempouscitalong2(830),
+tempingressoshort1(700),tempingressoshort2(800),tempouscitashort1(500),tempouscitashort2(700);
+input: meseNOL(0),meseNOS(0),profitvenerd (-1);
+
+var: endsession(0);
+
+//end of session setting////////////////////////
+if sessionEndTimeA >= 2400 then begin
+	endsession = sessionStartTimeA ;
+end
+else begin
+	endsession = sessionEndTimeA;
+end;
+////////////////////////////////////////////////
+
+isStartOfSession = _OHLCMulti5(sessionStartTimeA, endsession, ohlcValues);
+
+// T R A D I N G ////////////////////////////////
+
+if  PatternNeutralFast(PtnNeutYes,ohlcvalues) and (PatternNeutralFast(PtnNeutno,ohlcvalues)=false) and
+EntriesToday(d)<MaxTradesPerDay then begin 
+
+	if PtnBasep(PtnLY,ohlcvalues) and PtnBasep(PtnLN,ohlcvalues)=false and dayofweek(date)=giornoingressolong 
+	and time>=tempingressolong1 and time<=tempingressolong2
+	and month(date)<>meseNOL then buy ("LE")MyContracts contracts next bar market;
+		
+
+	
+	if PtnBasep(PtnSY,ohlcvalues) and PtnBasep(PtnSN,ohlcvalues)=false and PtnBasep(PtnSN2,ohlcvalues)=false and dayofweek(date)=giornoingressoshort 
+	and time>=tempingressoshort1 and time<=tempingressoshort2
+	and month(date)<>meseNOS then sellshort("SE") MyContracts contracts next bar market;
+	
+end;
+
+if dayofweek(date)=giornouscitalong and time>= tempouscitalong1 and time<=tempouscitalong2 
+	then sell ("LX")MyContracts contracts next bar market;
+if dayofweek(date)=giornouscitashort and time>=tempouscitashort1 and time<=tempouscitashort2
+	then buytocover("SX") MyContracts contracts next bar market;
+
+{if dayofweek(d)=5 and Time>=1500 and openpositionprofit= profitvenerd then begin
+sell ("sellVenerdi")MyContracts contracts next bar market;
+buytocover ("buytocoverVenerdi")MyContracts contracts next bar market;
+end;}
+
+
+Setstopcontract;
+If MyStopL > 0   and MP=1 then setstoploss(MyStopL);
+If MyStopS > 0   and MP=-1 then setstoploss(MyStopS);
+
+If MyProfitL > 0 and MP=1 then setprofittarget(MyProfitL);
+If MyProfitS > 0 and MP=-1 then setprofittarget(MyProfitS);
+
+
+input: TitanExportMode(0);
+if TitanExportMode=1 then WriteDailiesCTitanReports(1100101, TitanExportMode);
+

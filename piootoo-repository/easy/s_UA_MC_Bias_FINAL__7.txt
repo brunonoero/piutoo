@@ -1,0 +1,15 @@
+input: MySize(1);
+input: TimeLE(0000), TimeLX(1200), TimeSE(1315), TimeSX(2330);
+input: NoLongDay(-1), NoShortDay(-1);
+input: StopLoss(0), Breakeven(0), TakeProfit(0);
+
+if Time=TimeLE and dayofweek(d)<>NoLongDay then buy("LE") mySize contracts next bar market;
+if Time=TimeLX then sell("LX") next bar market;
+
+if Time=TimeSE and dayofweek(d)<>NoShortDay then sellshort("SE") mysize contracts next bar market;
+if Time=TimeSX then buytocover("SX") next bar market;
+
+setstopcontract;
+if StopLoss>0 then setstoploss(stoploss);
+if Breakeven>0 then setbreakeven(breakeven);
+if TakeProfit>0 then setprofittarget(takeprofit);

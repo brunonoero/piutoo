@@ -1,0 +1,179 @@
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>	Michael OHLC Calculation begin
+array: ohlcValues[23](0);
+
+var: isStartOfSession(false);
+
+
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>	Michael OHLC Calculation end
+
+input: sessionStartTimeAHour(1700), sessionStartTimeAMin(0000), sessionEndTimeAHour(1500), sessionEndTimeAMin(0059);
+//input: sessionStartTimeA(1700), sessionEndTimeA(1559);
+input: MaxTradesPerDay(4);
+input: PtnDirYes(52), PtnNeutYes(33), PtnNeutNo(23); 
+input: PtnLY(41), PtnLN(42), PtnSY(19), PtnSN(32); 
+Input: MyStop(2120), MyProfit(5160), MyBE(3130), ID(1), MyTrigger(1);
+input: MyStartTradeHour(700),MyStartTradeMin(30), MyEndTradeHour(1500),MyEndTradeMin(30), CloseAtTimeHour(2500), CloseAtTimeMin(0), sesstest(0), MyContracts(1);
+//input: MyStartTrade(730), MyEndTrade(0015), CloseAtTime(2500), sesstest(0), MyContracts(1);
+input: ATRLength(23),ATRLengthID(9),ATRThreshold(35),ATRMult(0.35);
+input: MaxDaysInTrade(9),ExitModeDaysMax(1);
+var: highd0(0),lowd0(0), mybar(0), myle(99999),mySE(0),opend0(0), highd1(0),lowd1(0), MyEndTime(0), endsession(0);
+var: calcstart(0), calcend(0),timewindow(false);
+var: ATRvalue(0),ATRvalueID(0);
+var: maxdaysopenprofit(0);
+
+var: sessionStartTimeA(0), sessionEndTimeA(0),MyStartTrade(0), MyEndTrade(0), CloseAtTime(0);
+sessionStartTimeA=sessionStartTimeAHour+sessionStartTimeAMin;
+sessionEndTimeA=sessionEndTimeAHour+sessionEndTimeAMin;
+MyStartTrade=MyStartTradeHour+MyStartTradeMin;
+MyEndTrade=MyEndTradeHour+MyEndTradeMin;
+CloseAtTime=CloseAtTimeHour+CloseAtTimeMin;
+ATRvalue=averagetruerange(ATRLength) data2;
+ATRvalueID=averagetruerange(ATRLengthID);
+
+//end of session setting////////////////////////
+if sessionEndTimeA >= 2400 then begin
+	endsession = sessionStartTimeA;
+end
+else begin
+	endsession = sessionEndTimeA;
+end;
+////////////////////////////////////////////////
+
+isStartOfSession = _OHLCMulti5(sessionStartTimeA, endsession, ohlcValues);
+
+
+opend0 = ohlcValues[0]; 
+highd0 = ohlcValues[1]; lowd0 = ohlcValues[2];  
+highd1 = ohlcValues[5]; lowd1 = ohlcValues[6];  
+
+// setting of time to close positions on ID trading
+if (time > time[1]) and (Time[1]<endsession and Time>=endsession) then begin
+	MyEndtime = t[2];
+end
+else begin
+if (time < time[1]) and (time >= endsession) then begin
+	MyEndtime = t[2];
+end;
+end;
+
+if CloseAtTime <> 2500 then MyEndTime = CloseAtTime; // only if we want a specific time to close trades
+////////////////////////////////////////////////
+
+//levels choice/////////////////////////////////
+if Mytrigger = 0 then begin
+	myle = highs(0);//highsession(0,0);
+	MySe= lows(0);//lowsession(0,0);
+end;
+if Mytrigger = 1 then begin
+	myle = highd0;
+	MySe= lowd0;
+end;
+if Mytrigger = 2 then begin
+	myle = highd1;
+	MySe= lowd1;
+end;
+////////////////////////////////////////////////
+
+// setting of time window depending on a number of conditions
+if sesstest = 0 then begin //during normal test we set them as inputs
+	calcstart = MyStartTrade;
+	calcend = MyEndTrade;
+end
+else begin // with sesstest = 1 we set start and end 2 hours after start and 2 hours before end of session
+	calcstart = sessionStartTimeA + 200; //2 hours after session start
+	if calcstart > 2359 then calcstart = calcstart - 2400;
+	calcend = endsession - 200; //2 hours before session end
+	if calcend < 0 then calcend = calcend + 2400;
+end;
+
+if (calcstart > calcend ) then begin
+	if ((time >= calcstart ) or (time <= calcend )) then begin
+		timewindow = true;
+	end
+	else begin
+		timewindow = false;
+	end;
+end
+else begin
+	if  ((time >= calcstart ) and (time <= calcend )) then begin
+		timewindow = true;
+	end
+	else begin
+		timewindow = false;
+	end;
+End;
+////////////////////////////////////////////////
+
+// T R A D I N G ////////////////////////////////
+if timewindow=true and
+EntriesToday(d)<MaxTradesPerDay 
+and PatternNeutralFast(PtnNeutYes,ohlcvalues)
+and (PatternNeutralFast(PtnNeutno,ohlcvalues)= false)
+
+then begin
+	if PtnBaseSA2(PtnLY,ohlcvalues) and PtnBaseSA2(PtnLN,ohlcvalues)=false 
+	and PatternDirectionalFast(+PtnDirYes,ohlcvalues)
+	and close >= (opend0 + ATRvalue*ATRMult)
+	and ATRvalueID<=ATRThreshold
+	then buy MyContracts contracts next bar at market;
+	if PtnBaseSA2(PtnSY,ohlcvalues) and PtnBaseSA2(PtnSN,ohlcvalues)=false
+	and PatternDirectionalFast(-PtnDirYes,ohlcvalues)
+	and close <= (opend0 - ATRvalue*ATRMult)
+	and ATRvalueID<=ATRThreshold
+	then sellshort MyContracts contracts next bar at market;
+end;
+
+setstopcontract;
+if MyStop> 0 then setstoploss(mystop);
+if MyProfit > 0 then setprofittarget(Myprofit);
+if MyBE>0 then setbreakeven(MyBE);
+
+if ExitModeDaysMax = 0 then begin
+	if maxdaysopenprofit=0 and marketposition<>0 and (date - entrydate) >= MaxDaysinTrade then maxdaysopenprofit=openpositionprofit;
+
+	#BEGINCMTRY
+		atcommentarybar;
+		commentarycl("Over Max Days in trade? ",(date - entrydate) >= MaxDaysinTrade);
+		commentarycl("In position? ",marketposition<>0);
+		commentarycl("maxdaysopenprofit= ",maxdaysopenprofit);
+		commentarycl("openpositionprofit= ",openpositionprofit);
+	#END
+
+	if maxdaysopenprofit<>0 and marketposition<>0 and (date - entrydate) > MaxDaysinTrade then begin
+		if (openpositionprofit<=maxdaysopenprofit or openpositionprofit<=0) then begin
+			//setexitonclose;
+			if marketposition=1 then sell ("LXMaxDays") next bar at market;
+			if marketposition=-1 then buytocover ("SXMaxDays") next bar at market;
+			maxdaysopenprofit=0;
+		end;
+	end;
+end;
+
+if ExitModeDaysMax=1 then begin
+	if (date - entrydate) >= MaxDaysinTrade then begin
+		if T>=1545 and T<1600 then sell next bar market;
+		if T>=1545 and T<1600 then buytocover next bar market;
+		setexitonclose;
+	end;
+end;
+
+if ExitModeDaysMax=2 then begin
+	if (date - entrydate) >= MaxDaysinTrade then begin
+		if marketposition=1 then sell ("LXMaxDays") next bar at market;
+		if marketposition=-1 then buytocover ("SXMaxDays") next bar at market;
+	end;
+end;
+
+
+if ID = 0 then begin
+	if MyTrigger = 0 then  setexitonclose;
+	if MyTrigger >= 1 and time =MyEndTime then begin
+		buytocover("EOSessSX") next bar at market;
+		sell("EOSessLX") next bar at market;
+	end;
+end;
+
+////////////////////////////////////////////////
+//TITAN FAST EXPORT (mette il report direttamente in C:\Titan\Reports
+input: TitanExportMode(0);
+if TitanExportMode=1 then WriteDailiesCTitanReports(1080101, TitanExportMode);

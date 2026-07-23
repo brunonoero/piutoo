@@ -1,0 +1,74 @@
+//Strategia Trend medio periodo; ingresso su Breakout max/min di periodo; TimeFrame 1h
+
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>	Michael OHLC Calculation begin
+array: ohlcValues[23](0);
+
+var: isStartOfSession(false);
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>	Michael OHLC Calculation end
+input: sessionStartTimeA(800), sessionEndTimeA(2159);
+
+isStartOfSession = _OHLCMulti5(sessionStartTimeA, sessionEndTimeA, ohlcValues);
+
+//INPUTS
+input: MySize(1);
+input: MybeginTime(1500);
+input: PtnNeutYes(16), PtnNeutNo(10); 
+input: MyPtnLY(39), MyPtnLN(40), MyPtnSY(41), MyPtnSN(33);
+input: MyLenght(4); 
+input: MultUp(0.1), MultDwn(0.1);
+input: BarsL(50), BarsS(34);
+input: MyStopL(3000), MyProfitL(0);
+input: MyStopS(3400), MyProfitS(4700), MyBEShort(3900);
+input: NoDayShort(1);
+
+//VARIABLES
+var: OkLong(true);
+var: OkShort(true);
+var: HighRange(0), LowRange(0);
+var: DayO(0), DayH(0), DayL(0);
+var: PastO(0), PastH(0), PastL(0);
+var: MP(0);
+var: MyCount(0);
+
+//DEFINITIONS
+OkLong= true;
+OkSHort= true;
+HighRange= HighestFC(h, MyLenght);
+LowRange= LowestFC(l, MyLenght);
+DayO= openD(0); DayH= highD(0); DayL= LowD(0);
+PastO= openD(1); PastH= HighD(1); PastL= LowD(1);
+MP= marketposition;
+if MP<>MP[1] and MP<> 0 then MyCount= 1;
+MyCount= MyCount +1;
+
+if MP= +1 then OkLong= false;
+if MP= -1 then OKShort= false;
+
+//CONDITIONS
+if time= MybeginTime and EntriesToday(date) = 0
+and PatternNeutralFast(PtnNeutYes,ohlcvalues) and (PatternNeutralFast(PtnNeutno,ohlcvalues)= false) then begin;
+	if OkLong and (DayH - DayO)> ((PastH - PastO)* MultUp) and PtnBaseSA2(MyPtnLY,ohlcvalues) and PtnBaseSA2(MyPtnLN,ohlcvalues)=false then buy ("LE Trend") MySize contracts next bar at HighRange stop;
+	if OkSHort and dayofweek(d)<> NoDayShort and (DayO - DayL)> ((PastO - PastL)* MultDwn) and PtnBaseSA2(MyPtnSY,ohlcvalues) and PtnBaseSA2(MyPtnSN,ohlcvalues)=false then sellshort ("SE Trend") MySize contracts next bar at LowRange stop;
+end;
+
+//EXIT ON BARCOUNT
+if MyCount<>0 then begin;
+	if MP= +1 and MyCount = BarsL then sell ("LX-MaxBars") MySize contracts next bar at market;
+	if MP= -1 and MyCount = BarsS then buytocover ("SX-MaxBars") MySize contracts next bar at market;
+end;
+
+//SPLITTED STOPS
+setstopcontract;
+if MP= +1 then begin;
+	if MyStopL> 0 then setstoploss(MyStopL);
+	if MyProfitL> 0 then setprofittarget(MyProfitL);
+end;
+setstopcontract;
+if MP= -1 then begin;
+	if MyStopS> 0 then setstoploss(MyStopS);
+	if MyProfitS> 0 then setprofittarget(MyProfitS);
+	if MyBEShort> 0 then setbreakeven(MyBEShort);
+end;
+//TITAN FAST EXPORT (mette il report direttamente in C:\Titan\Reports
+input: TitanExportMode(0);
+if TitanExportMode=1 then WriteDailiesCTitanReports(1080101, TitanExportMode);

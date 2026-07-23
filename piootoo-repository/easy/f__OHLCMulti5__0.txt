@@ -1,0 +1,85 @@
+// _OHLCMulti5()
+// Transforms past prices in Session-OHCL-Prices for the last 5 sessions plus the actual session
+// Inputs: Start and end time of session
+//         Ref array for returning caculated values
+// Written by Michael Bruns; Copyright by Andrea Unger and Michael Bruns
+
+input: StartTime(numericsimple), EndTimeParameter(numericsimple), ohlcValues[X](NumericArrayRef);
+
+vars: 	actO(0), actH(0), actL(0), actC(0), actDayIdx(0), EndTime0(0),t0(0), retIdx(0), lastCurrentBar(-1);
+vars: isBarTimeEndTime(True), oneDaySession(true), inSessionTime(false),isStartOfSession(false);
+vars: splitBrokenSessions(True); // if true a session is split in two, if a) in a oneDaySession the day changes b) in a twoDaySession a missing day is in session
+vars: isBrokenSession(false), timeStarted(false), timeNotEnded(false), prevTimeLessSTime(false);
+vars: EndTime(EndTimeParameter);
+vars: dayRef(0),valRef(0),Counter(0);
+vars: overrideWithOldMode(False);
+vars: dayShift(0);
+array: pastdays[4, 20](0); // max 20 days back
+
+if BarType > 1 then RaiseRuntimeError("Function just makes sense on intraday bars");
+{if (StartTime = EndTime) then begin 
+	EndTime = EndTime-1;
+	if (EndTime = -1) then EndTime = 2359;
+	if (Mod(EndTime,100) = 99) then EndTime = EndTime - 40;
+end;}
+
+oneDaySession = StartTime < EndTime; // if it's not a oneDaySession(e.g. 8 till 20 o'clock), it's a twoDaySession(e.g. 17 till 1659 o'clock)
+
+if actO=0 then begin // init prices on first time
+	actO = O; actH = H; actL = L; actC = C;
+end;
+
+if(isBarTimeEndTime) then begin
+	timeStarted = t > StartTime;	timeNotEnded = t <= EndTime;	prevTimeLessSTime = t[1] <= StartTime;
+end else begin
+	timeStarted = t >= StartTime;	timeNotEnded = t < EndTime;	prevTimeLessSTime = t[1] < StartTime;
+end;
+
+// old mode (mixture of barEndtime and barStarttime logic)
+if(overrideWithOldMode) then begin
+	timeStarted = t >= StartTime;	timeNotEnded = t <= EndTime;	prevTimeLessSTime = t[1] < StartTime;
+end;
+
+if (oneDaySession) then begin
+	inSessionTime = timeStarted And timeNotEnded;
+end else begin // session goes over 2 days becaus EndTime <= StartTime
+	inSessionTime = timeStarted Or timeNotEnded;
+end;
+isStartOfSession = inSessionTime And timeStarted And prevTimeLessSTime;
+
+if (not oneDaySession) then begin // if 2 day session and previous day had no prices for it
+	isStartOfSession = isStartOfSession Or (inSessionTime And d<>d[1] And prevTimeLessSTime);
+end;
+
+// A session is split in two, if a) in a oneDaySession the day changes b) in a twoDaySession a missing day occours in session
+if (oneDaySession) then begin
+	isStartOfSession = isStartOfSession Or (inSessionTime And d<>d[1]);
+end else begin
+	isStartOfSession = isStartOfSession Or (inSessionTime And d>CalcDate(d[1],1));
+end;
+
+
+pastdays[1, actDayIdx]=actO; pastdays[2, actDayIdx]=actH; pastdays[3, actDayIdx]=actL; pastdays[4, actDayIdx]=actC;
+
+// update high-low-close of the day
+if inSessionTime then begin
+	actL = minlist(actL, L); actH = maxlist(actH, H); actC = C;
+end;
+
+// resets on session start
+if (isStartOfSession) then begin
+	actO = O; actH = H; actL = L; actC = C;
+	actDayIdx = mod(actDayIdx+1,20); // move pointer to next day slot
+	isBrokenSession = false;
+end;
+
+// fill return values
+ohlcValues[0] = actO; ohlcValues[1] = actH; ohlcValues[2] = actL; ohlcValues[3] = actC;
+for dayRef=1 to 5 Begin
+	retIdx = mod(20+actDayIdx-dayRef+(5*dayShift),20);
+	for valRef=1 to 4 Begin
+		ohlcValues[4*dayRef+valRef-1] = pastdays[valRef,retIdx];
+	end;
+end;
+
+_OHLCMulti5 = isStartOfSession;

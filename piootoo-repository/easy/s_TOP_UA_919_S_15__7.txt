@@ -1,0 +1,27 @@
+//Works using 15-minute bars
+
+Input: MyPtnLY(12), MyPtnSY(12), MyPtnLN(35), MyPtnSN(35);
+Input: MyStartTrade(400), MyEndTrade(900), MyStartPause(1200), MyEndPause(1100);
+Input: MyStop(1250), MyProfit(3000);
+
+vars: highTillMidnight(0), lowTillMidnight(0), ret(true);
+array: ohlcValues[23](0);
+
+input: LevelStartTime(1900), LevelEndTime(1320);
+ret = _OHLCMulti5(LevelStartTime, LevelEndTime, ohlcValues);
+highTillMidnight = ohlcValues[1]; lowTillMidnight = ohlcValues[2];
+
+input: startSess(1900),endSess(1320);
+ret = _OHLCMulti5(startSess, endSess, ohlcValues);
+
+If tw(MyStartTrade,MyEndTrade) and (Time < MyStartPause or time > MyEndPause) then begin
+	If PtnBaseSA2(MyPtnLY, ohlcValues) and PtnBaseSA2(MyPtnLN, ohlcValues)=False and mp[1]<>1 and mp[2]<>1 then buy next bar at highTillMidnight stop;
+	If PtnBaseSA2(MyPtnSY, ohlcValues) and PtnBaseSA2(MyPtnSN, ohlcValues)=False and mp[1]<>-1 and mp[2]<>-1 then sellshort next bar at lowTillMidnight stop;
+end;
+
+Setstopcontract;
+If MyStop > 0 then setstoploss(MyStop);
+If MyProfit > 0 then setprofittarget(MyProfit);
+//TITAN FAST EXPORT
+Input: TitanExportMode(0);
+if TitanExportMode=1 then WriteDailiesCTitanReports(1080101,TitanExportMode);

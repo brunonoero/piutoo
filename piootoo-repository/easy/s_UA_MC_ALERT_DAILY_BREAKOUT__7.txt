@@ -1,0 +1,41 @@
+input: MySize(1), DailyFactorValue(1);
+input: StopLoss(0), Breakeven(0), TakeProfit(0);
+var: myhigh(0), mylow(0), myopen(0), myclose(0), DailyFactor(false);
+
+myhigh = HighS(1);
+mylow = LowS(1);
+myopen = OpenS(1);
+myclose = CloseS(1);
+
+DailyFactor = absvalue(myopen-myclose)<DailyFactorValue*(myhigh-mylow);
+
+if DailyFactor then begin
+	buy("LE") MySize contracts next bar myhigh stop;
+	sellshort("SE") MySize contracts next bar mylow stop;
+end;
+
+setstopcontract;
+if StopLoss>0 then setstoploss(stoploss);
+if Breakeven>0 then setbreakeven(breakeven);
+if TakeProfit>0 then setprofittarget(takeprofit);
+
+// EMAIL ALERT
+var: MP(0), StopMov(0);
+if alertenabled then begin
+	MP = marketposition;
+	StopMov = StopLoss/BigPointvalue;
+	
+	if MP[1]<>MP and MP<>0 then begin
+		if MP = +1 then 
+			alert(Text("Long Entry ",entryname," size: ",currentcontracts,"  Entry Price: ",entryprice," Stoploss price: ",entryprice-StopMov));
+		if MP = -1 then 
+			alert(Text("Short Entry ",entryname," size: ",currentcontracts,"  Entry Price: ",entryprice," Stoploss price: ",entryprice+StopMov));
+	end;
+	
+	if MP[1]<>MP and MP[1]<>0 then begin
+		if MP[1] = +1 then 
+			alert(Text("Long Exit ",entryname(1)," Exit Price: ",exitprice(1)," Exit name: ",exitname(1)," P/L: ",positionprofit(1)));
+		if MP[1] = -1 then 
+			alert(Text("Short Exit ",entryname(1)," Exit Price: ",exitprice(1)," Exit name: ",exitname(1)," P/L: ",positionprofit(1)));
+	end;
+end;

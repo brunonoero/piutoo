@@ -1,0 +1,99 @@
+// >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>	Michael OHLC Calculation begin
+input: SessBegin(1800), SessEnd(1700);
+array: ohlcValues[23](0), adxCalcValues[3](0);
+var: isStartOfSession(false),adxVal(0);
+
+isStartOfSession = _OHLCMulti5(SessBegin,SessEnd,ohlcValues);
+// >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>	Michael OHLC Calculation end
+
+// Breakout on N-sessions highest high / lowest low
+// Ticker: XX (e.g.: "@GC")
+// Chart: XX mins - XX time (e.g.: 15 mins - exchange time)
+// Coding date: XXX-XX-XXXX (e.g.: Jan-01-2021)
+
+input: mycontracts(1), //# of contracts
+	nSess(1), levIncludeSess0(1), //# of sessions on which calculate highest high / lowest low. levIncludeSess0 => if 1 calculation consider also actual session
+	ADXLen(5), ADXTH(55), //ADX length (range=1-5) and max ADX threshold value (range=0-100)
+	MyStartTime(100), MyEndTime(1700), MyStartPause(600),MyEndPause(800), //Time window
+	PtnNeutYes(4), PtnNeutYes2(55), //Neutral patterns (optimize Yes from 1 to 55, No from 1 to 56. 55 = true, 56 = false)
+	PtnNeutNo(45), ptnDirYes(1), ptnDirNo(10), //Directional patterns (optimize from -52 to +52. +/-52 = true, 0 = false)
+	SkipSessL(0), SkipSessS(3), //Session of the week to skip
+	maxdaysintrade(0), flatTime(1630), //Max days in position (1=intraday, 0=no limit)
+	MyStop(2500), MyBreakeven(2250), MyProfit(5500); //Stoploss, breakeven, takeprofit (cash amount per contract)
+	
+var: hh(0), ll(0), OKL(true), OKS(true), DaysInTrade(0), SoW(0), mp(0), SessAcross2Days(false), FlatTimeFixed(0);
+
+once begin
+	SessAcross2Days = SessBegin>SessEnd; //Verifies if the session is across 2 calendar days
+	
+	//Determines the correct flat time according to the session type
+	if SessAcross2Days then FlatTimeFixed = SessBegin
+	else FlatTimeFixed = SessEnd;
+	if SessBegin=0 and SessEnd=0 then FlatTimeFixed = 2359;
+end;
+
+If isStartOfSession then begin
+	//ADX Calculation using Michael's formula
+	adxVal = iADXOnArray(ADXLen, ohlcValues[5], ohlcValues[6], ohlcValues[7], ohlcValues[9], ohlcValues[10], ohlcValues[11], adxCalcValues)*100;
+	
+	//N-sessions Highest High/Lowest Low calculation
+	hh = -99999999999;	ll = 99999999999;
+	if nSess>1 then begin
+		for value90 = 1 to nSess begin
+			hh = maxlist(hh,ohlcvalues[1+value90*4]);
+			ll = minlist(ll,ohlcvalues[2+value90*4]);
+		end;
+	end
+	else if nSess=1 then begin
+		hh = ohlcValues[5];
+		ll = ohlcValues[6];
+	end;
+	//Reset permission to work long and short at every session reset (N.B. if you go overnight OKL/OKS will become false at next bar!)
+	OKL = true;	OKS = true;
+	
+	//days in position counter increases
+	if marketposition<>0 then DaysInTrade = DaysInTrade+1;
+	
+	//Actual session count within the trading week
+	if SessAcross2Days then sow = dayofweek(d)+1
+	else sow = dayofweek(d);
+end;
+
+if levIncludeSess0=1 then begin
+	hh = maxlist(hh,h);
+	ll = minlist(ll,l);
+end;
+
+if tw(MyStartTime,MyEndTime) and (t<MyStartPause or t>MyEndPause) and adxVal<adxth and PatternNeutralFast(PtnNeutYes,ohlcvalues) and 
+PatternNeutralFast(PtnNeutYes2,ohlcvalues) and PatternNeutralFast(PtnNeutNo,ohlcvalues)=False then begin
+
+	if okl and PatternDirectionalFast(+ptnDirYes,ohlcvalues) and PatternDirectionalFast(+ptnDirNo,ohlcvalues)=false and sow<>SkipSessL then
+	buy("LE") mycontracts contracts next bar hh stop;
+	
+	if oks and PatternDirectionalFast(-ptnDirYes,ohlcvalues) and PatternDirectionalFast(-ptnDirNo,ohlcvalues)=false and sow<>SkipSessS then
+	sellshort("SE") mycontracts contracts next bar ll stop;
+end;
+
+mp = marketposition;
+if mp<>mp[1] and mp<>0 then DaysInTrade = 1;
+
+if marketposition=1 then okl = false;
+if marketposition=-1 then oks = false;
+
+if maxdaysintrade>0 and DaysInTrade>=maxdaysintrade then begin
+	setexitonclose;
+	if t>=flatTime and t<FlatTimeFixed then begin
+		sell("LX_MaxDays") next bar market;
+		buytocover("SX_MaxDays") next bar market;
+	end;
+end;
+
+setstopcontract;
+if MyStop>0 then setstoploss(MyStop);
+if MyBreakeven>0 then setbreakeven(MyBreakeven);
+if MyProfit>0 then setprofittarget(MyProfit);
+
+//TITAN FAST EXPORT
+input: TitanExportMode(0);
+var: bin(0);
+If TitanExportMode=1 then bin = writedailiesCTitanReports(1100101, TitanExportMode);

@@ -1,0 +1,4 @@
+input: MyTime(0);
+
+if Time>=MyTime and Time<MyTime+55 then buy("LE") next bar market;
+if Time>=MyTime+55 then sell("LX") next bar market;

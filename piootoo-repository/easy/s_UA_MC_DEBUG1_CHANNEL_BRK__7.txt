@@ -1,0 +1,10 @@
+inputs: MyLenght(20), DebugMode(0);
+var: UpperChannel(0), LowerChannel(0);
+
+UpperChannel = HighestFC(h, MyLenght);
+LowerChannel = LowestFC(l, Mylenght);
+
+buy("LE") next bar UpperChannel stop;
+sellshort("SE") next bar LowerChannel stop;
+
+if DebugMode=1 then print(datetimetostring(datetime),"    ", UpperChannel,"   ", LowerChannel);

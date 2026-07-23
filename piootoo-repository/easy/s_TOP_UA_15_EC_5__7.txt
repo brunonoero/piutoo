@@ -1,0 +1,44 @@
+// BIAS Weekly 5min TF
+// Market = EC, exchange timezone
+// Long trades only
+// IS = Jan 2010 - Dec 2019
+// OOS = Jan 2020 - Oct 2023
+// Tradable on Micro (M6E)reducing 1/10 the stop & profit values
+
+
+var: IsStartOfSession(true), highd1(0), lowd1(0); 
+array: ohlcValues[23](0);
+
+inputs: sessionStartTimeC(1700),sessionEndTimeC(1600);{insert session time}
+IsStartOfSession = _OHLCMulti5(sessionStartTimeC, sessionEndTimeC, ohlcValues);
+highd1 = ohlcvalues[5]; lowd1 = ohlcvalues[6];
+
+Input: PtnNeutYes(40), PtnNeutNo(2), PtnDirYes(52), PtnDirNo(10);{optimize pattern after have choosen day and time of bias}
+Input: Mysize(1);
+Input: MyStop(1500), MyProfit(1400);
+Input: MyBuyTime(0700), MySellTime(0300);
+if PatternNeutralFast(PtnNeutYes, ohlcValues)and PatternNeutralFast(PtnNeutNo, ohlcValues)=false then 
+
+begin
+
+If PatternDirectionalFast(+PtnDirYes, ohlcValues) and PatternDirectionalFast(+PtnDirNo, ohlcValues)=False 
+and dayofweek(d)=1 {insert day of week long from Bias Finder}
+and time=MyBuyTime {insert time long from Bias Finder in INPUT}
+then buy ("LE") MySize contracts next bar market;
+
+end;
+	
+if mp=1 and dayofweek(d)=2 {insert day sell from Bias Finder} 
+and time=MySellTime {insert time sell from Bias Finder}
+then sell ("LX") MySize contracts next bar market;
+
+
+setstopcontract;
+If MyStop>0 then 
+sell ("Trail SL") next bar at highest(close, barssinceentry+1)-Mystop/bigpointvalue Stop;
+
+                    // setstoploss(MyStop);
+If MyProfit>0 then setprofittarget(MyProfit);
+
+input: TitanExportMode(0);
+if TitanExportMode=1 then WriteDailiesCTitanReports(1100101, TitanExportMode);

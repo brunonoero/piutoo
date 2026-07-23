@@ -1,0 +1,39 @@
+//Works using 30-minute bars
+
+inputs:
+	MyPtnLY(31), MyPtnSY(14),
+	MyPtnLN(34), MyPtnSN(30),
+	MyLEbar(21), MyLXbar(8),
+	MySEbar(8), MySXbar(16),
+	MyNotLEDay(3), MyNotSEDay(0),
+	MyStop(3000), MyProfit(0),
+	mycounter(0),
+	testphase(0);
+
+variables:
+	mycount(0),slb(false) ;
+
+slb=sessionlastbar;
+
+if slb[1] then mycount = 0;
+mycount= mycount+1;
+
+if testphase = 1 then begin
+	if mycounter = mycount then buy next bar at market;
+	if marketposition = 1 then sell next bar at market;
+	//print("Session last bar: ",slb," Session last bar[1]: ",slb[1]," Date: ",FormatDate("dd/MM/yyyy", datetime)," ",FormatTime(" HH:mm", datetime)," mycounter: ",mycounter," mycount: ",mycount," marketposition: ",marketposition);
+end;
+
+if testphase = 0 then begin
+	if mycount = MyLEbar and PtnBaseSA(MyptnLY) and (ptnbasesa(myptnlN) = false) and dayofweek(date) <> MyNotLEDay then buy next bar at market;
+	if mycount = MyLXbar then sell next bar at market;
+
+	if mycount = MySEbar and PtnBaseSA(MyptnSY) and (ptnbasesa(myptnSN) = false)  and dayofweek(date) <> MyNotSEDay then sellshort next bar at market;
+	if mycount = MySXbar then buytocover next bar at market;
+end;
+
+setstopcontract;
+if MyStop > 0 then setstoploss(MyStop);
+If MyProfit > 0 then setprofittarget(MyProfit);
+input: TitanExportMode(0);
+if TitanExportMode=1 then WriteDailiesCTitanReports(1100101, TitanExportMode);

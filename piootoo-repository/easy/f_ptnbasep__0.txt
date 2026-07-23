@@ -1,0 +1,207 @@
+  {21.11.2011 Attention: indexes modifies with respect to original by AU 
+15.02.2017 Modified by Andrea Nebiolo under Michael Bruns's suggestion:
+	- specular pattern order
+	- using functions created by Michael Bruns
+	- changed code structure from "else if" to "switch => case:"
+	05/05/2021 con aggiunta dei pattern dal 41 al 61 di Marco Carreras} 
+
+  [LegacyColorValue = true]; 
+
+input: numeropattern(numericsimple), ohlcValues[X](NumericArrayRef);
+
+var: opend0(0),opend1(0),opend2(0),opend3(0),opend4(0), opend5(0) ;
+var: highd0(0),highd1(0),highd2(0),highd3(0),highd4(0), highd5(0);
+var: lowd0(0),lowd1(0),lowd2(0),lowd3(0),lowd4(0), lowd5(0);
+var: closed0(0),closed1(0),closed2(0),closed3(0),closed4(0), closed5(0);
+
+opend0 = ohlcValues[0]; highd0 = ohlcValues[1]; lowd0 = ohlcValues[2]; closed0 = ohlcValues[3];  opend1 = ohlcValues[4]; highd1 = ohlcValues[5]; lowd1 = ohlcValues[6]; closed1 = ohlcValues[7];
+opend2 = ohlcValues[8]; highd2 = ohlcValues[9]; lowd2 = ohlcValues[10]; closed2 = ohlcValues[11];  opend3 = ohlcValues[12]; highd3 = ohlcValues[13]; lowd3 = ohlcValues[14]; closed3 = ohlcValues[15];
+opend4 = ohlcValues[16]; highd4 = ohlcValues[17]; lowd4 = ohlcValues[18]; closed4 = ohlcValues[19];  opend5 = ohlcValues[20]; highd5 = ohlcValues[21]; lowd5 = ohlcValues[22]; closed5 = ohlcValues[23];
+
+
+Switch(numeropattern)
+Begin
+	
+	case 1:
+	PtnBasep= absvalue(opend1-closed1)<0.5*(highd1-lowd1)  ;  
+	case 2:
+	PtnBasep= absvalue(opend1-closed5)<0.5*(highd5-closed1)  ;  
+	case 3:
+	PtnBasep= absvalue(opend5-closed1) <0.5*(maxlist(highd1,highd2,highd3,highd4,highd5) - minlist(lowd1,lowd2,lowd3,lowd4,lowd5))  ;
+	case 4:
+	PtnBasep= ((highd0-opend0)> ((highd1-opend1)*1))  ; 
+	case 5:
+	PtnBasep= ((highd0-opend0)> ((highd1-opend1)*1.5)) ; 
+	case 6:
+	PtnBasep=  ((opend0-lowd0)> ((opend1-lowd1)*1)) ;
+	case 7:
+	PtnBasep=  ((opend0-lowd0)> ((opend1-lowd1)*1.5))  ; 
+	case 8:
+	PtnBasep=  closed1>closed2 and closed2>closed3 and closed3>closed4; 
+	case 9:
+	PtnBasep=  closed1<closed2 and closed2<closed3 and closed3<closed4;
+	case 10:
+	PtnBasep=  highd1>highd2 and lowd1>lowd2;
+	case 11:
+	PtnBasep=  highd1<highd2 and lowd1<lowd2;
+	case 12:
+	PtnBasep= ((highd0>(lowd0+lowd0*0.75/100)));
+	case 13:
+	PtnBasep= ((highd0<(lowd0+lowd0*0.75/100)));
+	case 14:
+	PtnBasep= (closed1>closed2);
+	case 15:
+	PtnBasep= (closed1<closed2);
+	case 16:
+	PtnBasep= (closed1<opend1);
+	case 17:
+	PtnBasep= (closed1>opend1);
+	case 18:
+	PtnBasep= ((closed1<(closed2-closed2*0.5/100)));
+	case 19:
+	PtnBasep= ((closed1>(closed2+closed2*0.5/100)));
+	case 20:
+	PtnBasep= (highd0>(highd1));
+	case 21:
+	PtnBasep= (highd1>highd5);
+	case 22:
+	PtnBasep=(lowd0<lowd1);
+	case 23:
+	PtnBasep=(lowd1<lowd5);
+	case 24:
+	PtnBasep=(highd1> highd2) and (highd1> highd3) and (highd1> highd4); 
+	case 25:
+	PtnBasep=(highd1< highd2) and (highd1< highd3) and (highd1< highd4); 
+	case 26:
+	PtnBasep=((lowd1 < lowd2) and (lowd1 < lowd3) and (lowd1 < lowd4));
+	case 27:
+	PtnBasep=((lowd1 > lowd2) and (lowd1 > lowd3) and (lowd1 > lowd4));
+	case 28:
+	PtnBasep=(closed1>closed2 and closed2>closed3 and opend0>closed1);
+	case 29:
+	PtnBasep=(closed1<closed2 and closed2<closed3 and opend0<closed1);
+	case 30:
+	PtnBasep=((highd1-closed1)<0.20*(highd1-lowd1));
+	case 31:
+	PtnBasep=((closed1-lowd1)<0.20*(highd1-lowd1));
+	case 32:
+	PtnBasep=(opend0<lowd1 or opend0>highd1);
+	case 33:
+	PtnBasep=((opend0<(closed1-closed1*0.5/100)));
+	case 34:
+	PtnBasep=((opend0>(closed1+closed1*0.5/100)));
+	case 35:
+	PtnBasep=(highd0<highd1 and lowd0>lowd1);
+	case 36:
+	PtnBasep=(highd1-lowd1)< (((highd2-lowd2)+ (highd3-lowd3))/3);
+	case 37:
+	PtnBasep=(highd1-lowd1)< (highd2-lowd2) and (highd2-lowd2) < (highd3-lowd3); 
+	case 38:
+	PtnBasep=(highd2>highd1 and lowd2<lowd1);
+	case 39:
+	PtnBasep=(highd1<highd2 or lowd1>lowd2);
+	case 40:
+	PtnBasep=(highd2<highd1 and lowd2>lowd1);
+
+
+	case 41:
+	PtnBasep=(highd1>highd2 or lowd1<lowd2); //ieri non inside bar//
+	
+	case 42:
+	PtnBasep=absvalue(opend0-closed0)>absvalue(((opend1-closed1)+(opend2-closed2)+(opend3-closed3))*2);//espansione neutro
+	
+	case 43:
+	PtnBasep=(opend0>closed0)and(opend1>closed1)and(opend2>closed2)and(opend3>closed3);//oggi rossa dopo tre rosse//
+	
+	case 44:
+	PtnBasep=absvalue(opend1-closed1)>absvalue(((opend2-closed2)+(opend3-closed3)+(opend4-closed4))*2);//espansione neutro
+	
+	case 45:
+	PtnBasep=(opend0<closed0)and(opend1<closed1)and(opend2<closed2)and(opend3<closed3);//oggi verde dopo tre verdi//
+	
+	case 46:
+	PtnBasep= absvalue(opend0-closed0)>absvalue((opend1-closed1)+(opend2-closed2)+(opend3-closed3));//espansione neutro
+
+	case 47://47  47
+	PtnBasep= absvalue(opend1-closed1)>absvalue((opend2-closed2)+(opend3-closed3)+(opend4-closed4));//espansione neutro
+	
+		
+	case 48:////48  49
+	PtnBasep=  ((highd1+lowd1)/2) >((highd2+lowd2)/2)and ((highd2+lowd2)/2)>((highd3+lowd3)/2)
+		and ((highd3+lowd3)/2) >((highd4+lowd4)/2)and ((highd4+lowd4)/2)>((highd5+lowd5)/2);//media dei range in salita 5 giorni da ieri//
+
+	
+	case 49://49  48
+	PtnBasep=  ((highd1+lowd1)/2) <((highd2+lowd2)/2)and ((highd2+lowd2)/2)<((highd3+lowd3)/2)//media dei range in discesada 5 giorni da ieri//
+		and ((highd3+lowd3)/2) <((highd4+lowd4)/2)and ((highd4+lowd4)/2)<((highd5+lowd5)/2);
+
+	case 50:// 50  51
+	PtnBasep=  ((highd1+lowd1)/2) >((highd2+lowd2)/2)and ((highd2+lowd2)/2)>((highd3+lowd3)/2)//media dei range in salita 4 giorni da ieri//
+		and ((highd3+lowd3)/2) >((highd4+lowd4)/2);
+	
+	case 51:// 51  50
+	PtnBasep=  ((highd1+lowd1)/2) <((highd2+lowd2)/2)and ((highd2+lowd2)/2)<((highd3+lowd3)/2)//media dei range in discesa da 4 giorni da ieri//
+	and ((highd3+lowd3)/2) <((highd4+lowd4)/2);
+	
+	case 52: //52  52
+	PtnBasep= (highd1-opend1)>absvalue((opend2-closed2)+(opend3-closed3)+(opend4-closed4));//dall'ap al max di ieri =somma  corpi di 3 giorni prima//
+
+	case 53://  53  53
+	PtnBasep= (highd0-opend0)>absvalue((opend1-closed1)+(opend2-closed2)+(opend3-closed3)+(opend4-closed4));//dall'ap al max di oggi =somma corpi di 4 giorni prima//
+
+	case 54:// 54  54
+	PtnBasep= (highd0-opend0)>absvalue((opend1-closed1)+(opend2-closed2)+(opend3-closed3));//dall'ap al max di  di oggi =somma corpi di 3 giorni prima//
+	
+	case 55:// 55  55
+	PtnBasep= (closed0>highd1) or (closed0<lowd1); //normale salita o discesa o super gap//
+	
+	case 56: //56  57
+	PtnBasep= (closed0>highd1) and (closed1>highd2) and (closed2>highd3); // lenta salita//
+	
+	case 57: // 57  56 
+	PtnBasep= (closed0<lowd1) and (closed1<lowd2) and (closed2<lowd3);  //lenta discesa//
+	
+	case 58:// 58  59
+	PtnBasep= (opend0<closed0)and(opend1>closed1)and(opend2>closed2)and(opend3>closed3);//oggi verde dopo tre rosse//
+	
+	case 59:// 59  58
+	PtnBasep= (opend0>closed0)and(opend1<closed1)and(opend2<closed2)and(opend3<closed3);//oggi rossa dopo tre verdi//
+
+	case 60:// 60  61
+	PtnBasep= (opend1<closed1)and(opend2>closed2)and(opend2>closed2)and(opend4>closed4);//ieri verde dopo tre rosse//
+	
+	case 61:// 61  60
+	PtnBasep= (opend1>closed1)and(opend2<closed2)and(opend3<closed3)and(opend4<closed4);//ieri rossa dopo tre verdi//
+	
+	case 62://62  63		
+	PtnBasep= (opend0>closed0) and(opend1>closed1) and(opend2<closed2)and(opend3<closed3)and  AbsValue( opend0- closed0 )>AbsValue( opend1- closed1 )and closed0<opend5;//oggi e ieri rossa prima due verdi candela di oggi piu lunga dui ieri con chiusura inferire a 5 giorni fa
+	
+	case 63://63  62		
+	PtnBasep= (opend0<closed0) and(opend1<closed1) and(opend2>closed2)and(opend3>closed3)and  AbsValue( opend0- closed0 )>AbsValue( opend1- closed1 )and closed0>opend5;//oggi e ieri verde prima due rosse candela di oggi piu lunga dui ieri con chiusura inferire a 5 giorni fa
+	
+	case 64://64  65		
+	PtnBasep= (opend0>closed0) and(opend1>closed1) and(opend2<closed2)and(opend3<closed3)and  AbsValue( opend0- closed0 )>AbsValue( opend1- closed1 );//oggi e ieri rossa i due giorni prima verdi e corpo di oggi maggiore corpo di ieri
+
+	case 65://65  64		
+	PtnBasep= (opend0<closed0) and(opend1<closed1) and(opend2>closed2)and(opend3>closed3)and  AbsValue( opend0- closed0 )>AbsValue( opend1- closed1 );//oggi e ieri verdi i due giorni prima rossi e corpo di oggi maggiore corpo di ieri
+
+	case 66://66  67		
+	PtnBasep= (opend0>closed0) and(opend1>closed1) and(opend2<closed2)and(opend3<closed3); //oggi e ieri rossa i due giorni prima verdi	
+	
+	case 67://67  66
+	PtnBasep= (opend0<closed0) and(opend1<closed1) and(opend2>closed2)and(opend3>closed3);//oggi e ieri verdi i due giorni prima rossi
+
+	//case 68: (highd1 -lowd1)<(highd2-lowd2)and (highd0>highd1) and (closed0<highd1); // range di ieri inferiore al range del giorno prima e massimo di oggi va sopra il massimo di ieri e la close torna sotto
+	
+	//case 69: (highd1 -lowd1)<(highd2-lowd2)and (lowd0<lowd1) and (closed0>lowd1); // range di ieri inferiore al range del giorno prima  e minimo di oggi va sotto il minimo di ieri e la close torna sopra
+
+	case 68:
+	PtnBasep=true;
+
+	case 69:
+	PtnBasep=false;
+	case is > 69:
+	PtnBasep=false;
+
+end;
+

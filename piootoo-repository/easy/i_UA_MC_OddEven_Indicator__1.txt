@@ -1,0 +1,6 @@
+var: EvenToday(false);
+
+if date<>date[1] then EvenToday = UA_TodayIsAEvenDay;
+
+if EvenToday = true then plot1(+100, "EVEN DAY")
+else if EvenToday = false then plot2(-100, "ODD DAY");

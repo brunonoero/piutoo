@@ -1,0 +1,90 @@
+{
+INstrument: Gold (GC)
+Platform: multicharts
+session: default 
+timezone: exchange
+timeframe: 60M
+type: trend following
+data: tradestation
+IS: 01.01.2010 to 01.01.2019
+OS: 01.01.2019 to today
+}
+
+
+
+//INPUT STARTS HERE****************************************************************************************************
+
+Input:	MyStartTime(1000), MyEndTime(1600), 
+ 		DaytoFilterLng(2),DaytoFilterSht(5),
+ 		TE_Day_close(5) ,Target_MyProfit(2300), 
+ 		STOP_MyStop(2200),mycontracts(1);
+
+
+//VARIABLES STARTS HERE**********************************************************************************************
+//*******************************************************************************************************************
+
+var: 	sessionStartTimeC(1800),sessionEndTimeC(1700), // has to be set correctly to trading session times ! 
+     	MP(0), daysintrade(0),finestraoraria (false),
+	ret(true);
+
+array: ohlcValues[23](0),adxCalcValues[3](0.001);
+ret = _OHLCMulti5((sessionStartTimeC), (sessionEndTimeC), ohlcValues);
+
+{
+var: opend0(0),opend1(0),opend2(0),opend3(0),opend4(0), opend5(0);
+var: highd0(0),highd1(0),highd2(0),highd3(		0),highd4(0), highd5(0);
+var: lowd0(0),lowd1(0),lowd2(0),lowd3(0),lowd4(0), lowd5(0);
+var: closed0(0),closed1(0),closed2(0),closed3(0),closed4(0), closed5(0);	
+
+opend0 = ohlcValues[0]; highd0 = ohlcValues[1]; lowd0 = ohlcValues[2]; closed0 = ohlcValues[3]; 
+opend1 = ohlcValues[4]; highd1 = ohlcValues[5]; lowd1 = ohlcValues[6]; closed1 = ohlcValues[7];
+opend2 = ohlcValues[8]; highd2 = ohlcValues[9]; lowd2 = ohlcValues[10]; closed2 = ohlcValues[11]; 
+opend3 = ohlcValues[12]; highd3 = ohlcValues[13]; lowd3 = ohlcValues[14]; closed3 = ohlcValues[15];
+opend4 = ohlcValues[16]; highd4 = ohlcValues[17]; lowd4 = ohlcValues[18]; closed4 = ohlcValues[19]; 
+opend5 = ohlcValues[20]; highd5 = ohlcValues[21]; lowd5 = ohlcValues[22]; closed5 = ohlcValues[23];
+}
+
+//FILTERS STARTS HERE***************************************************************************************************
+//*******************************************************************************************************************
+
+if MyStartTime >MyEndTime then finestraoraria = Time > MyStartTime or Time<MyEndTime 
+else if MyStartTime <MyEndTime then finestraoraria = Time >  MyStartTime and Time<MyEndTime ;
+
+//using the equal changes a lot (my mistake) but generate better result in last 2 years)
+
+
+condition1= HighD(0) > (LowD(1) +(highD(1) - lowd(1))*0.5);
+condition2= LowD(0) < (HighD(1) - (highD(1) - lowd(1))*0.5);
+
+//ENTRY 
+//*******************************************************************************************************************
+
+var: tradetoday(0);
+if dayofweek(date) <> dayofweek(date)[1] and  mp = 0 then tradetoday =0;
+if dayofweek(date) <> dayofweek(date)[1] and  mp <>0 then tradetoday =1;
+if dayofweek(date) = dayofweek(date)[1] and  mp<>MP[1] and MP<>0 then tradetoday = tradetoday +1;
+
+	If finestraoraria and condition1 then buy ("LE") mycontracts contracts next bar at HighD(0) stop;
+	If finestraoraria and condition2 then sellshort ("SE") mycontracts contracts next bar at LowD(0) stop;
+
+//EXIT
+//*******************************************************************************************************************
+
+MP = marketposition;
+if MP<>MP[1] and MP<>0 then daysintrade=1;
+If time[1]<1600 and time>=1600 and MP<>0 then daysintrade=daysintrade+1;
+setstopcontract;
+
+// exit based on days (session_close>0)
+if marketposition<>0 and daysintrade>=TE_Day_close and TE_Day_close>0 then begin
+	setexitonclose;
+	if T>=1600 and T<1700 then sell next bar market;
+	if T>=1600 and T<1700 then buytocover next bar market;
+end;
+if STOP_MyStop > 0 then setstoploss(STOP_MyStop);
+If Target_MyProfit > 0 then setprofittarget(Target_MyProfit);
+//TITAN FAST EXPORT (mette il report direttamente in C:\Titan\Reports
+input: TitanExportMode(0);
+if TitanExportMode=1 then WriteDailiesCTitanReports(1080101, TitanExportMode);
+
+

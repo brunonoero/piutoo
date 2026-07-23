@@ -1,0 +1,54 @@
+//@NQ 15min default session exchange time
+
+//Michael formula calculation begin
+Input:SessionStartTimeA(1700), sessionEndTimeA(1600); //Set here your session time!
+array:ohlcvalues[23](0);
+var:IsStartOfSession(false);
+vars: highd1(0),lowd1(0);
+IsStartOfSession=_ohlcmulti5(SessionStartTimeA,sessionEndTimeA,ohlcvalues);
+//Michael formula calculation end
+highd1 = ohlcvalues[5]; lowd1 = ohlcvalues[6];
+Inputs: MyContracts(1), //Choose with how many contracts you want to work
+ MyStartTime(1100), MyEndTime(1500), //Time window and pause
+ MaxDaysInTrade(8), FlatTime(1500), //Set here the maximum number of days to stay in the market and the flat time!
+ MaxEntriesPerDay(1), //Set maximum entries per calendar day
+ MyStop(1300), //Set here your stoploss! (0=disabled)
+ MyProfit(3000), //Set here your profit target! (0=disabled)
+ PtnNeutYes(32),PtnNeutNo(45),MyPtnSY(25),MyPtnSN(61);
+ 
+vars: DaysInTrade(0); 
+
+ //Keep track of how many days the strategy has been in position
+
+if time = 1800 and  Mp<>0 then daysintrade=daysintrade+1;
+if Mp = 0 or Mp <> Mp[1] then DaysInTrade = 0;
+
+
+
+//ENTRIES
+if tw(MyStartTime,MyEndTime) and entriestoday(date)<MaxEntriesPerDay then begin
+ 
+ if (Close>AverageFC(Close,65)) and 
+ PatternNeutralFast(PtnNeutYes, ohlcvalues) and PatternNeutralFast(PtnNeutNo, ohlcvalues)=false then 
+ buy("LE") MyContracts contracts next bar (highd1-10)stop;
+ 
+ if (Close<AverageFC(Close,5)) and  (C crosses under lowd1+35)and 
+ PatternFast(MyPtnSY, ohlcvalues) and PatternFast(MyPtnSN, ohlcvalues)=False then 
+ sellshort("SE") MyContracts contracts next bar at market; // ingresso a mercato su close x evitarre falsi segnali (spike)
+end;
+
+
+//POSITION MANAGEMENT
+if (daysintrade>=maxDaysInTrade) and maxDaysInTrade>0 then begin
+ setexitonclose;
+  	if Time>=FlatTime and time <= sessionEndTimeA then sell("LX_MaxDays") next bar market;
+ 	if Time>=FlatTime and time <= sessionEndTimeA then buytocover("SX_MaxDays") next bar market;
+end;
+
+setstopcontract;
+if mystop>0 then setstoploss(MyStop);
+if MyProfit>0 then setprofittarget(MyProfit);
+
+///Titan export///
+input: TitanExportMode(0);
+if TitanExportMode=1 then WriteDailiesCTitanReports(1100101, TitanExportMode);

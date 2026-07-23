@@ -1,0 +1,29 @@
+// UA DAILY PIVOTS ON SESSION FUNCTION
+// RETURN TYPE: ANY
+
+input: PP(NumericRef), S1(NumericRef), S2(NumericRef), S3(NumericRef);
+input: R1(NumericRef), R2(NumericRef), R3(NumericRef);
+var: CloseS1(0), HighS1(0), LowS1(0);
+var: PP_var(0), S1_var(0), S2_var(0), S3_var(0), R1_var(0), R2_var(0), R3_var(0);
+
+CloseS1= CloseS(1);
+HighS1 = HighS(1);
+LowS1 = LowS(1);
+
+// Assignement of the correct values to each variable
+PP_var = (CloseS1+HighS1+LowS1)/3;
+S1_var=2*PP_var-HighS1;
+R1_var=2*PP_var-LowS1;
+S2_var=PP_var-(R1_var-S1_var);
+R2_var=PP_var+S1_var+R1_var;
+S3_var=PP_var-R2_var+S2_var;
+R3_var=PP_var-S2_var+R2_var;
+
+// Fill all NumericRef inputs with calculated values
+PP = PP_var;
+S1 = S1_var;
+S2 = S2_var;
+S3 = S3_var;
+R1 = R1_var;
+R2 = R2_var;
+R3 = R3_var;

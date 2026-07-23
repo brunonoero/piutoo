@@ -1,0 +1,22 @@
+//INPUTS
+input: MySize(1);
+input: BeginTime(0900), EndTime(1000), DonchianPeriod(20);
+input: StopLoss(1200), BreakEven(1000), TakeProfit(4000);
+
+//VARIABLES
+var: MyDonchianUpper(0), MyDonchianLower(0);
+
+//DEFINITIONS
+MyDonchianUpper = HighestFC(high,DonchianPeriod);
+MyDonchianLower = LowestFC(low,DonchianPeriod);
+
+//CONDITIONS
+if Time>=BeginTime and Time<EndTime then begin
+  if sessionlastbar = false then buy MySize contracts next bar MyDonchianUpper stop;
+  sellshort MySize contracts next bar MyDonchianLower stop;
+end;
+
+setstopcontract;
+if StopLoss>0 then setstoploss(stoploss);
+if BreakEven>0 then setbreakeven(breakeven);
+if TakeProfit>0 then setprofittarget(takeprofit);

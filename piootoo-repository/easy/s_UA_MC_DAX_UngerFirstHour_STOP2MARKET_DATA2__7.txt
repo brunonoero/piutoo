@@ -1,0 +1,62 @@
+// EasyLanguage (TradeStation) / PowerLanguage (MultiCharts) code
+// DAX, 5min time frame, 24/7 settings, exchange time
+
+// MINI DAX Future / DAX CFD as Data1
+// DAX Future as data2
+
+input: 
+	RangeMultiplier(0.95),
+	BegTime(0900),
+	EndTime(1000),
+	CloseTime(2155),
+	SkipDay(Friday),
+	MyContracts(1),
+	StopLoss(40);	//stoploss max in points!
+
+variables:
+	minSetup(0), maxSetup(0),
+	slLong(0), slShort(0),
+	daily_factor(false);
+
+
+If Date <> Date[1] then begin
+	maxSetup = 0;
+	minSetup = 0;
+
+	daily_factor = absvalue(opend(1) data2-closed(1) data2)<0.75*(highd(1) data2-lowd(1) data2);
+end;
+
+If daily_factor and Time >= BegTime and Time <= EndTime and Dayofweek(date) <> SkipDay and EntriesToday(date) = 0 then begin
+
+	If maxSetup = 0 then begin
+		// do once @ BegTime
+		maxSetup = HighD(0) data2 + RangeMultiplier * (HighD(0) data2 - LowD(0) data2);
+		slLong = HighD(0) data2;
+	end;
+
+	if high data2>=maxsetup then Buy("LEx") MyContracts contracts Next Bar at market;
+
+
+	If minSetup = 0 then begin
+		// do once @ BegTime
+		minSetup = LowD(0) data2 - RangeMultiplier * (HighD(0) data2 - LowD(0) data2);
+		slShort = LowD(0) data2;
+	end;
+
+	if low data2<=minsetup then SellShort("SEx") MyContracts contracts Next Bar at market;
+
+end;
+
+if marketposition=1 and l data2<=slLong then Sell("LXx") from entry("LEx") Next Bar at market;
+if marketposition=-1 and h data2>=slShort then BuyToCover("SXx") from entry("SEx") Next Bar at market;
+
+If Time >= CloseTime then begin
+	Sell("TimeLXx") from entry("LEx") Next Bar market;
+	BuyToCover("TimeSXx") from entry("SEx") Next Bar at market;
+end;
+
+//Stoploss 40 points per contract
+If marketposition=+1 and (entryprice-Low data2)>=Stoploss then sell("LX StopMax") next bar market;
+If marketposition=-1 and (High data2-entryprice)>=Stoploss then buytocover("SX StopMax") next bar market;
+
+SetExitOnClose;

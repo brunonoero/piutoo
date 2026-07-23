@@ -1,0 +1,22 @@
+{
+Underlying: DAX Future
+Strategy: BIAS Overnight
+TF: 15min chart exchange time
+}
+
+input: MyStop(120),MyPtnLN(42), MyEntryHour(1745), MyExitHour(900), Amt(0.4);
+vars: MP(0), Massimocondition(False), Andreacondition(False), Carloscondition(False);
+
+MP = marketposition(0);
+
+Massimocondition = closed(0)<highd(1) and closed(0)>lowd(1);
+Andreacondition = closed(0) >(closed(1)-closed(1)* Amt/100);
+Carloscondition = PtnBase(MyPtnLN)=False;
+
+if T=MyEntryHour and Massimocondition and Andreacondition and Carloscondition and DayofWeek(Date)<>5 then buy next bar at Open;
+
+if MP=1 and T=MyExitHour then sell this bar on Close;
+setstopcontract;
+if MyStop>0 then setstoploss(MyStop*Bigpointvalue);
+input: TitanExportMode(0);
+if TitanExportMode=1 then WriteDailiesCTitanReports(1100101, TitanExportMode);

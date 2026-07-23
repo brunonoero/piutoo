@@ -1,0 +1,41 @@
+//@ES 30min exchange default MD
+var:IsStartOfSession(true);
+array: ohlcValues[23](0);
+
+inputs: sessionStartTimeC(1700),sessionEndTimeC(1659);	// has to be set correctly to trading session times !
+IsStartOfSession = _OHLCMulti5(sessionStartTimeC, sessionEndTimeC, ohlcValues);
+
+// INPUTS
+input: SMA1Length(20), SMA2Length(50), MyStop(2000), MyProfit(3000), MyBreakEven (1000),
+PtnNeutYes(31), PtnNeutNo(56), PtnDirYes(52), PtnDirNo(29),MyStartTime(900), duration(48), MyEndTime(1500),
+	DaytoFilter(0);
+
+// VARIABLES
+var: SMA1_var(0), SMA2_var(0), mycount(0);
+if time = MyStartTime then mycount = 0; //here when we start a new trade window we also reset the counter
+mycount= mycount +1;
+
+
+// DEFINITIONS
+SMA1_var = AverageFC(C, SMA1Length);
+SMA2_var = AverageFC(C, SMA2Length);
+
+
+// CONDITIONS
+if dayofweek(date) <> DaytoFilter and mycount < duration 
+and PatternNeutralFast(PtnNeutYes, ohlcValues) and PatternNeutralFast(PtnNeutNo, ohlcValues)=false then begin
+
+if SMA1_var crosses over SMA2_var and PatternDirectionalFast(+PtnDirYes, ohlcValues) 
+	and PatternDirectionalFast(+PtnDirNo, ohlcValues)=False then buy("LE Cross") next bar market;
+if SMA1_var crosses under SMA2_var and PatternDirectionalFast(-PtnDirYes, ohlcValues) 
+	and PatternDirectionalFast(-PtnDirNo, ohlcValues)=False then sellshort("SE Cross") next bar market;
+
+
+end;
+setstopcontract;
+if mystop>0 then setstoploss(MyStop);
+if MyBreakEven>0 then setbreakeven(MyBreakEven);
+if MyProfit>0 then setprofittarget(MyProfit);
+//TITAN FAST EXPORT (mette il report direttamente in C:\Titan\Reports
+input: TitanExportMode(0);
+if TitanExportMode=1 then WriteDailiesCTitanReports(1100101, TitanExportMode);

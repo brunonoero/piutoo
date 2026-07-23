@@ -1,0 +1,28 @@
+inputs: MyLenght(20), MySize(1) , DailyFactorValue(0.75);
+input: StopLoss(0), Breakeven(0), TakeProfit(0), UseDonchianTrailing(1);
+
+var: myhigh(0), mylow(0), myopen(0), myclose(0), DailyFactor(false);
+var: UpperChannel(0), LowerChannel(0);
+
+myhigh = HighS(1);
+mylow = LowS(1);
+myopen = OpenS(1);
+myclose = CloseS(1);
+UpperChannel = HighestFC(h, MyLenght);
+LowerChannel = LowestFC(l, Mylenght);
+DailyFactor = absvalue(myopen-myclose)<DailyFactorValue*(myhigh-mylow);
+
+if EntriesToday(d)=0 and DailyFactor then begin
+	buy("LE") MySize contracts next bar UpperChannel stop;
+	sellshort("SE")  MySize contracts next bar LowerChannel stop;
+end;
+
+if UseDonchianTrailing=1 then begin
+	if marketposition=1 then sell("LXx") next bar LowerChannel stop;
+	if marketposition=-1 then buytocover("SXx") next bar UpperChannel stop;
+end;
+
+setstopcontract;
+if StopLoss>0 then setstoploss(stoploss);
+if Breakeven>0 then setbreakeven(breakeven);
+if TakeProfit>0 then setprofittarget(takeprofit);

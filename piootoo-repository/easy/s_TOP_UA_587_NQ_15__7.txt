@@ -1,0 +1,87 @@
+// >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>	Michael OHLC Calculation begin
+input: SessBegin(1700), SessEnd(1600);
+array: ohlcValues[23](0), adxCalcValues[3](0);
+var: isStartOfSession(false),adxVal(0);
+
+isStartOfSession = _OHLCMulti5(SessBegin,SessEnd,ohlcValues);
+// >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>	Michael OHLC Calculation end
+
+input: mycontracts(1), //# of contracts
+	MyStartTime(0800), MyEndTime(1300), MyStartPause(1200),MyEndPause(1100), //Time window
+	ADXLen(5), ADXTH(50), ADXTL(20), //ADX length (range=1-5) and max ADX threshold value (range=0-100)
+	AVGMoltip(17), // Average True Range factor
+	PtnNeutYes(32), PtnNeutNo(8),//Neutral patterns (optimize Yes from 1 to 56, 55 = true, 56 = false)
+	ptnDirYes(49), ptnDirNo(16), //Directional patterns (optimize from -52 to +52. +/-52 = true, 0 = false)
+	maxdaysintrade(2), flatTime(1530), //Max days in position (1=intraday, 0=no limit)
+	MyStop(2500), MyBreakeven(2000), MyProfit(0); //Stoploss, breakeven, takeprofit (cash amount per contract)
+	
+var: hh(0), ll(0), OKL(true), OKS(true), DaysInTrade(0), SoW(0), mp(0), SessAcross2Days(false), FlatTimeFixed(0);
+
+once begin
+	SessAcross2Days = SessBegin>SessEnd; //Verifies if the session is across 2 calendar days
+	
+	//Determines the correct flat time according to the session type
+	if SessAcross2Days then FlatTimeFixed = SessBegin
+	else FlatTimeFixed = SessEnd;
+	if SessBegin=0 and SessEnd=0 then FlatTimeFixed = 2359;
+end;
+
+If isStartOfSession then begin
+	//ADX Calculation using Michael's formula
+	if ADXLen > 1 then
+		adxVal = iADXOnArray(ADXLen, ohlcValues[5], ohlcValues[6], ohlcValues[7], ohlcValues[9], ohlcValues[10], ohlcValues[11], adxCalcValues)*100
+	else
+		adxVal = 50;
+	
+	//N-sessions Highest High/Lowest Low calculation
+	//hh = -99999999999;	ll = 99999999999;
+	//Reset permission to work long and short at every session reset (N.B. if you go overnight OKL/OKS will become false at next bar!)
+	OKL = true;	OKS = true;
+	
+	//days in position counter increases
+	if marketposition<>0 then DaysInTrade = DaysInTrade+1;
+	
+	//Actual session count within the trading week
+	if SessAcross2Days then sow = dayofweek(d)+1
+	else sow = dayofweek(d);
+end;
+
+hh = AverageFC(close, 5) + (AVGMoltip/10) * AVGTrueRange(5);
+ll = AverageFC(close, 5) - (AVGMoltip/10) * AVGTrueRange(5);
+
+
+////////////////////////////////////////////////
+
+
+if tw(MyStartTime,MyEndTime) and (t<MyStartPause or t>MyEndPause) and adxVal<adxth and adxVal>adxtl and PatternNeutralFast(PtnNeutYes,ohlcvalues) and 
+	PatternNeutralFast(PtnNeutNo,ohlcvalues)=False then begin
+
+	if okl and PatternDirectionalFast(+ptnDirYes,ohlcvalues) and PatternDirectionalFast(+ptnDirNo,ohlcvalues)=false then
+	buy("LE") mycontracts contracts next bar hh stop;
+	
+	if oks and PatternDirectionalFast(-ptnDirYes,ohlcvalues) and PatternDirectionalFast(-ptnDirNo,ohlcvalues)=false then
+	sellshort("SE") mycontracts contracts next bar ll stop;
+end;
+
+mp = marketposition;
+if mp<>mp[1] and mp<>0 then DaysInTrade = 1;
+
+if marketposition=1 then okl = false;
+if marketposition=-1 then oks = false;
+
+if maxdaysintrade>0 and DaysInTrade>=maxdaysintrade then begin
+	setexitonclose;
+	if t>=flatTime and t<FlatTimeFixed then begin
+		sell("LX_MaxDays") next bar market;
+		buytocover("SX_MaxDays") next bar market;
+	end;
+end;
+
+setstopcontract;
+if MyStop>0 then setstoploss(MyStop);
+if MyBreakeven>0 then setbreakeven(MyBreakeven);
+if MyProfit>0 then setprofittarget(MyProfit);
+
+//TITAN FAST EXPORT (mette il report direttamente in C:\Titan\Reports
+input: TitanExportMode(0);
+if TitanExportMode=1 then WriteDailiesCTitanReports(1080101, TitanExportMode);

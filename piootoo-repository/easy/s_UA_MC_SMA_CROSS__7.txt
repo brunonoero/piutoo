@@ -1,0 +1,13 @@
+// INPUTS
+input: SMA1Lenght(50), SMA2Lenght(200);
+
+// VARIABLES
+var: SMA1_var(0), SMA2_var(0);
+
+// DEFINITIONS
+SMA1_var = AverageFC(Close, SMA1Lenght);
+SMA2_var = AverageFC(Close, SMA2Lenght);
+
+// CONDITIONS
+if SMA1_var Crosses Over SMA2_var then buy("LE Cross") next bar market;
+if SMA1_var Crosses Under SMA2_var then sellshort("SE Cross") next bar market;

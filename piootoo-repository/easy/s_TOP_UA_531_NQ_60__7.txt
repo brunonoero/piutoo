@@ -1,0 +1,41 @@
+//works on 60 minutes bars fatto per il gold partendo dal codice jumper
+
+input: MyTime(800);
+var: IsStartOfSession(true);
+array: ohlcValues[23](0);
+Input: Mycontracts(1);
+inputs: sessionStartTimeC(1700),sessionEndTimeC(1600);
+inputs: MyPtnLY(142), MyPtnSY(64), MyPtnLN(92), MyPtnSN(87), MyNotLEDay(-1), MyNotSEDay(-1), MyStop(2500), MyProfit(6000);
+inputs: MaxdaysIntrade(10),NoMonthLE(-1),NoMonthSE(-1);
+
+
+
+
+IsStartOfSession = _OHLCMulti5(sessionStartTimeC, sessionEndTimeC, ohlcValues);
+
+if time = MyTime then begin //We look for a time in the day when the 60 minute bar breakout is effective
+	if PatternFast(MyPtnLY, ohlcValues) and PatternFast(MyPtnLN, ohlcValues)=False and dayofweek(date) <> MyNotLEDay and month(d)<>NoMonthLE then 
+		buy("LE") Mycontracts contracts next bar h stop;
+	if PatternFast(MyPtnSY, ohlcValues) and PatternFast(MyPtnSN, ohlcValues)=False and dayofweek(date) <> MyNotSEDay and month(d)<>NoMonthSE then 
+		sellshort ("SE") Mycontracts contracts next bar l stop;
+end;
+
+setstopcontract;
+if MyStop > 0   then setstoploss(MyStop);
+If MyProfit > 0 then setprofittarget(MyProfit);
+
+var: MarkPos(0),DaysInTr(0);
+MarkPos = marketposition;
+if MarkPos<> MarkPos[1] then DaysInTr=0;
+if MarkPos<> 0 and d>d[1] then DaysInTr=DaysInTr+1;
+
+if maxdaysintrade>0 and DaysInTr>=maxdaysintrade and time=(sessionEndTimeC-200) then begin
+	if marketposition=1 then sell("LX_EndDay") next bar market;
+	if marketposition=-1 then buytocover("SX_EndDay") next bar market;
+end;
+
+//if LastBarOnChart then print (OpenEntryTime," ",OpenEntrydate," ",tradetime," ",tradedate)
+//TITAN FAST EXPORT (mette il report direttamente in C:\Titan\Reports
+input: TitanExportMode(0);
+if TitanExportMode=1 then WriteDailiesCTitanReports(1080101, TitanExportMode);
+

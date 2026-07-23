@@ -1,0 +1,121 @@
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>	Michael OHLC Calculation begin
+array: ohlcValues[23](0);
+
+var: isStartOfSession(false);
+
+
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>	Michael OHLC Calculation end
+
+input: sessionStartTimeA(1700), sessionEndTimeA(1559);
+input: MaxTradesPerDay(3);
+input: PtnDirYes(52), PtnNeutYes(3), PtnNeutNo(23); 
+input: PtnLY(12), PtnLN(40), PtnSY(12), PtnSN(40); 
+Input: MyStop(1200), MyProfit(0), ID(0), MyTrigger(1);
+inputs: mydayNolong(2), mydayNoshort(2), MyContracts(1);
+input: MyStartTrade(930), MyEndTrade(1530), CloseAtTime(1555), sesstest(0);
+var: highd0(0),lowd0(0), mybar(0), myle(99999),mySE(0),highd1(0),lowd1(0), MyEndTime(0), endsession(0);
+var: calcstart(0), calcend(0),timewindow(false);
+
+//end of session setting////////////////////////
+if sessionEndTimeA >= 2400 then begin
+	endsession = sessionStartTimeA;
+end
+else begin
+	endsession = sessionEndTimeA;
+end;
+////////////////////////////////////////////////
+
+isStartOfSession = _OHLCMulti5(sessionStartTimeA, endsession, ohlcValues);
+
+
+highd0 = ohlcValues[1]; lowd0 = ohlcValues[2];  
+highd1 = ohlcValues[5]; lowd1 = ohlcValues[6];  
+
+// setting of time to close positions on ID trading
+if (time > time[1]) and (Time[1]<endsession and Time>=endsession) then begin
+	MyEndtime = t[2];
+end
+else begin
+if (time < time[1]) and (time >= endsession) then begin
+	MyEndtime = t[2];
+end;
+end;
+
+if CloseAtTime <> 2500 then MyEndTime = CloseAtTime; // only if we want a specific time to close trades
+////////////////////////////////////////////////
+
+//levels choice/////////////////////////////////
+if Mytrigger = 0 then begin
+	myle = highs(0);//highsession(0,0);
+	MySe= lows(0);//lowsession(0,0);
+end;
+if Mytrigger = 1 then begin
+	myle = highd0;
+	MySe= lowd0;
+end;
+if Mytrigger = 2 then begin
+	myle = highd1;
+	MySe= lowd1;
+end;
+////////////////////////////////////////////////
+
+// setting of time window depending on a number of conditions
+if sesstest = 0 then begin //during normal test we set them as inputs
+	calcstart = MyStartTrade;
+	calcend = MyEndTrade;
+end
+else begin // with sesstest = 1 we set start and end 2 hours after start and 2 hours before end of session
+	calcstart = sessionStartTimeA + 200; //2 hours after session start
+	if calcstart > 2359 then calcstart = calcstart - 2400;
+	calcend = endsession - 200; //2 hours before session end
+	if calcend < 0 then calcend = calcend + 2400;
+end;
+
+if (calcstart > calcend ) then begin
+	if ((time >= calcstart ) or (time <= calcend )) then begin
+		timewindow = true;
+	end
+	else begin
+		timewindow = false;
+	end;
+end
+else begin
+	if  ((time >= calcstart ) and (time <= calcend )) then begin
+		timewindow = true;
+	end
+	else begin
+		timewindow = false;
+	end;
+End;
+////////////////////////////////////////////////
+
+// T R A D I N G ////////////////////////////////
+if timewindow=true and
+EntriesToday(d)<MaxTradesPerDay 
+and PatternNeutralFast(PtnNeutYes,ohlcvalues)
+and (PatternNeutralFast(PtnNeutno,ohlcvalues)= false)
+
+then begin
+	if PtnBaseSA2(PtnLY,ohlcvalues) and PtnBaseSA2(PtnLN,ohlcvalues)=false and dayofweek(date) <> mydayNolong
+	and PatternDirectionalFast(+PtnDirYes,ohlcvalues) then buy MyContracts contracts next bar at myle  stop;
+	if PtnBaseSA2(PtnSY,ohlcvalues) and PtnBaseSA2(PtnSN,ohlcvalues)=false and dayofweek(date) <> mydayNoshort
+	and PatternDirectionalFast(-PtnDirYes,ohlcvalues) then sellshort MyContracts contracts next bar at MySe stop;
+end;
+
+setstopcontract;
+if MyStop> 0 then setstoploss(mystop);
+if MyProfit > 0 then setprofittarget(Myprofit);
+
+if ID = 0 then begin
+	if MyTrigger = 0 then  setexitonclose;
+	if mytrigger >= 1 and time =MyEndTime then begin
+		buytocover("EOSessSX") next bar at market;
+		sell("EOSessLX") next bar at market;
+	end;
+end;
+
+////////////////////////////////////////////////
+
+//TITAN FAST EXPORT (mette il report direttamente in C:\Titan\Reports
+input: TitanExportMode(0);
+if TitanExportMode=1 then WriteDailiesCTitanReports(1100101, TitanExportMode);

@@ -1,0 +1,13 @@
+// Avg types: 0 - simple, 1 - exponential, 2 - weighted, 3 - triangular
+inputs: Len( numericsimple ), AvgType(numericsimple) ;
+
+if (AvgType = 1) then
+	AvgTrueRangeTyped = XAverage( TrueRange, Len )
+else
+if (AvgType = 2) then
+	AvgTrueRangeTyped = WAverage( TrueRange, Len )
+else
+if (AvgType = 3) then
+	AvgTrueRangeTyped = TriAverage( TrueRange, Len )
+else
+	AvgTrueRangeTyped = Average( TrueRange, Len ) ;

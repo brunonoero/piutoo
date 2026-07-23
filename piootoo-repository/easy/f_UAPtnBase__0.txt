@@ -1,0 +1,103 @@
+[LegacyColorValue = true]; 
+
+input: numeropattern(numericsimple), ohlcValues[X](NumericArrayRef);
+
+var: opend0(0),opend1(0),opend2(0),opend3(0),opend4(0), opend5(0);
+var: highd0(0),highd1(0),highd2(0),highd3(0),highd4(0), highd5(0);
+var: lowd0(0),lowd1(0),lowd2(0),lowd3(0),lowd4(0), lowd5(0);
+var: closed0(0),closed1(0),closed2(0),closed3(0),closed4(0), closed5(0);
+
+opend0 = ohlcValues[0]; highd0 = ohlcValues[1]; lowd0 = ohlcValues[2]; closed0 = ohlcValues[3];  opend1 = ohlcValues[4]; highd1 = ohlcValues[5]; lowd1 = ohlcValues[6]; closed1 = ohlcValues[7];
+opend2 = ohlcValues[8]; highd2 = ohlcValues[9]; lowd2 = ohlcValues[10]; closed2 = ohlcValues[11];  opend3 = ohlcValues[12]; highd3 = ohlcValues[13]; lowd3 = ohlcValues[14]; closed3 = ohlcValues[15];
+opend4 = ohlcValues[16]; highd4 = ohlcValues[17]; lowd4 = ohlcValues[18]; closed4 = ohlcValues[19];  opend5 = ohlcValues[20]; highd5 = ohlcValues[21]; lowd5 = ohlcValues[22]; closed5 = ohlcValues[23];
+
+
+Switch(numeropattern)
+Begin
+	case 1:
+	UAPtnBase = absvalue(opend1-closed1)<0.5*(highd1-lowd1)  ;  
+	case 2:
+	UAPtnBase = absvalue(opend1-closed5)<0.5*(highd5-closed1)  ;  
+	case 3:
+	UAPtnBase = absvalue(opend5-closed1) <0.5*(maxlist(highd1,highd2,highd3,highd4,highd5) - minlist(lowd1,lowd2,lowd3,lowd4,lowd5))  ;
+	case 4:
+	UAPtnBase = ((highd0-opend0)> ((highd1-opend1)*1))  ; 
+	case 5:
+	UAPtnBase = ((highd0-opend0)> ((highd1-opend1)*1.5)) ; 
+	case 6:
+	UAPtnBase =  ((opend0-lowd0)> ((opend1-lowd1)*1)) ;
+	case 7:
+	UAPtnBase =  ((opend0-lowd0)> ((opend1-lowd1)*1.5))  ; 
+	case 8:
+	UAPtnBase =  closed1>closed2 and closed2>closed3 and closed3>closed4; 
+	case 9:
+	UAPtnBase =  closed1<closed2 and closed2<closed3 and closed3<closed4;
+	case 10:
+	UAPtnBase =  highd1>highd2 and lowd1>lowd2;
+	case 11:
+	UAPtnBase =  highd1<highd2 and lowd1<lowd2;
+	case 12:
+	UAPtnBase = ((highd0>(lowd0+lowd0*0.75/100)));
+	case 13:
+	UAPtnBase = ((highd0<(lowd0+lowd0*0.75/100)));
+	case 14:
+	UAPtnBase = (closed1>closed2);
+	case 15:
+	UAPtnBase = (closed1<closed2);
+	case 16:
+	UAPtnBase = (closed1<opend1);
+	case 17:
+	UAPtnBase = (closed1>opend1);
+	case 18:
+	UAPtnBase = ((closed1<(closed2-closed2*0.5/100)));
+	case 19:
+	UAPtnBase = ((closed1>(closed2+closed2*0.5/100)));
+	case 20:
+	UAPtnBase = (highd0>(highd1));
+	case 21:
+	UAPtnBase = (highd1>highd5);
+	case 22:
+	UAPtnBase =(lowd0<lowd1);
+	case 23:
+	UAPtnBase =(lowd1<lowd5);
+	case 24:
+	UAPtnBase =(highd1> highd2) and (highd1> highd3) and (highd1> highd4); 
+	case 25:
+	UAPtnBase =(highd1< highd2) and (highd1< highd3) and (highd1< highd4); 
+	case 26:
+	UAPtnBase =((lowd1 < lowd2) and (lowd1 < lowd3) and (lowd1 < lowd4));
+	case 27:
+	UAPtnBase =((lowd1 > lowd2) and (lowd1 > lowd3) and (lowd1 > lowd4));
+	case 28:
+	UAPtnBase =(closed1>closed2 and closed2>closed3 and opend0>closed1);
+	case 29:
+	UAPtnBase =(closed1<closed2 and closed2<closed3 and opend0<closed1);
+	case 30:
+	UAPtnBase =((highd1-closed1)<0.20*(highd1-lowd1));
+	case 31:
+	UAPtnBase =((closed1-lowd1)<0.20*(highd1-lowd1));
+	case 32:
+	UAPtnBase =(opend0<lowd1 or opend0>highd1);
+	case 33:
+	UAPtnBase =((opend0<(closed1-closed1*0.5/100)));
+	case 34:
+	UAPtnBase =((opend0>(closed1+closed1*0.5/100)));
+	case 35:
+	UAPtnBase =(highd0<highd1 and lowd0>lowd1);
+	case 36:
+	UAPtnBase =(highd1-lowd1)< (((highd2-lowd2)+ (highd3-lowd3))/3);
+	case 37:
+	UAPtnBase =(highd1-lowd1)< (highd2-lowd2) and (highd2-lowd2) < (highd3-lowd3); 
+	case 38:
+	UAPtnBase =(highd2>highd1 and lowd2<lowd1);
+	case 39:
+	UAPtnBase =(highd1<highd2 or lowd1>lowd2);
+	case 40:
+	UAPtnBase =(highd2<highd1 and lowd2>lowd1);
+	case 41:
+	UAPtnBase =true;
+	case 42:
+	UAPtnBase =false;
+	case is > 42:
+	UAPtnBase =false;
+end;

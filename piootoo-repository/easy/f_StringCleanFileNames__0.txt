@@ -1,0 +1,58 @@
+{Andrea Nebiolo - 22/05/2020
+it cleans a string from special characters contained in "DelList" variable, then remove also spaces at the beginning and at the end of the string
+
+Study type: Function
+Function name: StringCleanFileNames
+Return Type: String
+Function storage: Auto-detect
+
+INPUT: 
+	"MyString": original string that should be cleaned
+	"Enabled": to enable this script (sometimes MC run function even if it shouldn't). 0=disabled, 1=enabled)
+	
+OUTPUT (direct): cleaned string}
+
+input: MyString(StringSimple), Enabled(NumericSimple);
+
+if Enabled=1 then begin
+	var: DelList("\/:*?<>|"), out(""), CurrChr("");
+
+	out = Mystring;
+
+	//this removes special characters contained in "DelList" variable
+	value93 = StrLen(DelList);
+	for value67 = 1 to value93 begin
+		CurrChr = MidStr(DelList,value67,1);
+		value1 = InStr(out,CurrChr);
+		while value1>0 begin
+			out = LeftStr(out,value1-1) + RightStr(out,strlen(out)-value1);
+			value1 = InStr(out,CurrChr);
+			if value1=0 then break;
+		end;
+	end;
+	
+	
+	//this removes spaces from beginning and end of the string
+	if MidStr(out,1,1)=" " then begin
+		value99 = StrLen(out);
+		for value1 = 1 to value99-1 begin
+			if MidStr(out,value1+1,1)<>" " then begin
+				out = RightStr(out,value99-value1);
+				break;
+			end;
+		end;
+	end;
+
+	value99 = StrLen(out);
+	if MidStr(out,value99,1)=" " then begin
+		for value1 = value99 downto 2 begin
+			if MidStr(out,value1-1,1)<>" " then begin
+				out = LeftStr(out,value1-1);
+				break;
+			end;
+		end;
+	end;
+
+	StringCleanFileNames = out;
+	//if LastBarOnChart then print(">>" + out + "<<");
+end;

@@ -1,0 +1,40 @@
+{Strategy coded on January 3rd 2022
+Instrument: Crude Oil - 60 minute - Exchange Time}
+
+input: myTimeframe(60), myFastLength(12), mySlowLength(24), myGradientLength(2), myDailyFactor(0.5), myGradientFactor(1.6), myStop(1500);
+variable: FastSMA(0), SlowSMA(0), DailySetupLong(false), DailySetupShort(false), GradientCheck(false);
+
+FastSMA = Average(close, myFastLength);
+SlowSMA = Average(close, mySlowLength);
+
+if currentbar > 1440/myTimeframe then begin	//To not divide by 0 on the first bars
+	
+	DailySetupLong = absvalue(CloseS(1)-OpenS(1))/(HighS(1)-LowS(1)) <= myDailyFactor and CloseS(1) > OpenS(1);				//Long entry after a day of indecision but positive
+	DailySetupShort = absvalue(CloseS(1)-OpenS(1))/(HighS(1)-LowS(1)) <= myDailyFactor and CloseS(1) < OpenS(1);				//Short entry after a day of indecision but negative
+	GradientCheck = absvalue(FastSMA - FastSMA[myGradientLength]) >= myGradientFactor*absvalue(SlowSMA - SlowSMA[myGradientLength]);	//Entry when FastSMA has high gradient to avoid flat crossings
+
+end;
+
+if marketposition = 0 and DailySetupLong = true and GradientCheck = true and FastSMA crosses above SlowSMA then
+	buy("LE") next bar at market;
+
+if FastSMA crosses below SlowSMA then
+	sell("LX") next bar at market;
+
+if marketposition = 0 and DailySetupShort = true and GradientCheck = true and FastSMA crosses below SlowSMA then
+	sellshort("SE") next bar at market;
+
+if FastSMA crosses above SlowSMA then
+	buytocover("SX") next bar at market;
+
+if dayofweek(date) = 5 then begin
+	setexitonclose;	
+	if t>=1600 and t<1700 then sell next bar market;
+	if t>=1600 and t<1700 then buytocover next bar market;
+end;
+
+setstopcontract;
+if myStop > 0 then setstoploss(myStop);
+//TITAN FAST EXPORT (mette il report direttamente in C:\Titan\Reports
+input: TitanExportMode(0);
+if TitanExportMode=1 then WriteDailiesCTitanReports(1080101, TitanExportMode);

@@ -1,0 +1,29 @@
+inputs:
+	FastLength( 14 ),
+	SlowLength( 28 ),
+	UpColor( Green ),                                                             
+	DnColor( Red );
+ 	
+variables:
+	var1( 0 );
+
+var1 = VolumeOsc( FastLength, SlowLength ) ;
+
+Plot1( var1, "VolOsc" ) ;  
+
+condition1 = UpColor >= 0 and DnColor >= 0 ;
+if var1 > 0 then
+		SetPlotColor( 1, UpColor)
+	else 
+		SetPlotColor( 1, DnColor) ;
+
+condition2 = var1 crosses over 0 ;                  
+if condition2 then
+	Alert( "Indicator turning positive" )
+else 
+begin 
+condition2 = var1 crosses under 0 ;
+if condition1 then
+	Alert( "Indicator turning negative" ) ;
+end;
+

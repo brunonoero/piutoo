@@ -1,0 +1,38 @@
+{S2 E-Mini NASDAQ 100 (Micro MES)
+Unger Academy: Unmirrored Trend Following
+DataFeed: ASCII Mapping Unger Academy 01/01/2008 - 30/12/2022
+Last Check: 13/02/2023
+TimeFrame: 15min}
+
+vars: highd1 (0), lowd1 (0), IsStartOfSession(true);
+array: ohlcValues[23](0);
+
+//Works using 5 or 15 minute bars (consigliato da Unger non superare i 30min per il rischio di aver minor definizione dei movimenti)
+Input: Mycontracts(1);
+input: sessionStartTimeC(1700),sessionEndTimeC(1600);
+Input: MyPtnLY(54), MyPtnSY(111), MyPtnLN(75), MyPtnSN(31);
+Input: MyStartTrade(1000), MyEndTrade(1500), ID(0);
+Input: MyStop(1750), MyProfit(4500);
+
+IsStartOfSession = _OHLCMulti5(sessionStartTimeC, sessionEndTimeC, ohlcValues);
+highd1 = ohlcvalues[5]; lowd1 = ohlcvalues[6]; //these are picked depending on the chosen trigger, in this example high and low of last session
+
+//here the patterns are picked for each direction in an independent way so that the whole setup can be unmirrored
+//in fact the general function Patternfast is used
+If tw(MyStartTrade,MyEndTrade) then begin //una pausa avrebbe molto piu' senso se si va a prendere highd0 e lowd0, quindi se si prendono i livelli della sessione attuale e non quella precedente.
+	If PatternFast(MyPtnLY, ohlcValues) and PatternFast(MyPtnLN, ohlcValues)=False then buy MyContracts contracts next bar at highd1 stop;
+	If PatternFast(MyPtnSY, ohlcValues) and PatternFast(MyPtnSN, ohlcValues)=False then sellshort MyContracts contracts next bar at lowd1 stop;
+end;
+
+Setstopcontract;
+If MyStop > 0 then setstoploss(MyStop);
+If MyProfit > 0 then setprofittarget(MyProfit);
+
+if ID=0 then begin
+	setexitonclose; // In Live il comando "setexitonclose" puo' dare dei problemi, nel caso lo si voglia usare mettere un exit ad un orario pre-chiusura.
+	if T>=1545 and T<1600 then sell next bar market;
+	if T>=1545 and T<1600 then buytocover next bar market;
+end;
+///Titan export///
+input: TitanExportMode(0);
+if TitanExportMode=1 then WriteDailiesCTitanReports(1100101, TitanExportMode);

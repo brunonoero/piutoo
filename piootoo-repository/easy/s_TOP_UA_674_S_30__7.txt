@@ -1,0 +1,44 @@
+// Entry:		Brkout H/L MaxHighs & MinLows last 2 sess
+// Ticker: 		@S
+// Chart: 		30 mins - exchange time
+// Type:		Trend - Multiday
+// OOS:			Jan-1-2021
+// Coding date:	Jun-1-2023
+
+var:	isStartOfSession(true);
+array:	ohlcValues[23](0);	
+
+Inputs:
+		MyContracts(1),	
+		sessionStartTimeC(1900), sessionEndTimeC(1300),
+		MyStartTrade(200), MyEndTrade(2200),
+		MyStartPause(1200), MyEndPause(1100),		
+		PtnNeutYes(55), PtnNeutNo(56), PtnDirYes(52), PtnDirNo(14),
+		MyStop(1100), MyProfit(2250),
+		MaxdaysIntrade(4);
+	
+isStartOfSession = _OHLCMulti5(sessionStartTimeC, sessionEndTimeC, ohlcValues); 	
+
+If tw(MyStartTrade,MyEndTrade) and (Time < MyStartPause or time > MyEndPause) 
+and PatternNeutralFast(PtnNeutYes, ohlcValues) and PatternNeutralFast(PtnNeutNo, ohlcValues)=false then begin
+	if EntriesToday(date) = 0 and PatternDirectionalFast(+PtnDirYes, ohlcValues) and PatternDirectionalFast(+PtnDirNo, ohlcValues)=False  then Buy MyContracts contracts next bar at maxList(HighD(0), HighD(1)) stop;
+	if EntriesToday(date) = 0 and PatternDirectionalFast(-PtnDIrYes, ohlcValues) and PatternDirectionalFast(-PtnDirNo, ohlcValues)=False then Sellshort MyContracts contracts next bar at minList(LowD(0), LowD(1)) stop;
+end;
+
+Setstopcontract;
+If MyStop > 0 then setstoploss(MyStop);
+If MyProfit > 0 then setprofittarget(MyProfit);
+
+var: MarkPos(0),DaysInTr(0);
+MarkPos = marketposition;
+if MarkPos<> MarkPos[1] then DaysInTr=0;
+if MarkPos<> 0 and d>d[1] then DaysInTr=DaysInTr+1;
+
+if maxdaysintrade>0 and DaysInTr>=maxdaysintrade and time=(sessionEndTimeC-200) then begin
+	if marketposition=1 then sell("LX_EndDay") next bar market;
+	if marketposition=-1 then buytocover("SX_EndDay") next bar market;
+end;
+
+//TITAN FAST EXPORT (mette il report direttamente in C:\Titan\Reports
+input: TitanExportMode(0);
+if TitanExportMode=1 then WriteDailiesCTitanReports(1080101, TitanExportMode);

@@ -1,0 +1,21 @@
+input: MySize(1), BB_Devs(2), BB_Period(20);
+input: BegTime(0000), EndTime(2359), BegPause(1200), EndPause(1200);
+input: StopLoss(0), Breakeven(0), TakeProfit(0);
+
+var: BB_Upper(0), BB_Lower(0);
+var: RangePattern(false), MyTimeWindow(false);
+
+BB_Upper = BollingerBand(c,BB_Period,+BB_Devs);
+BB_Lower = BollingerBand(c,BB_Period,-BB_Devs);
+RangePattern = (HighS(1)-LowS(1))<(HighS(2)-LowS(2));
+MyTimeWindow = Time>=BegTime and Time<EndTime and (Time<BegPause or Time>endPause);
+
+if RangePattern=false and MyTimeWindow then begin
+	if Close Crosses Over BB_Lower then buy("LE") MySize contracts next bar market;
+	if Close Crosses Under BB_Upper then sellshort("SE") MySize contracts next bar market;
+end;
+
+setstopcontract;
+if StopLoss>0 then setstoploss(stoploss);
+if Breakeven>0 then setbreakeven(breakeven);
+if TakeProfit>0 then setprofittarget(takeprofit);

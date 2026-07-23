@@ -1,0 +1,75 @@
+//Works using 30 minute bars (or other taking the number of daily bars into account)
+inputs:
+	mycontracts(1),
+	testphase(0),
+	mycounter(0),
+	MyLEBar(32), MyLXBar(16), 
+	MySEBar(16),	MySXBar(32),
+	MyPtnLY(152), MyPtnSY(152),
+	MyPtnLN(153), MyPtnSN(153),
+	MyNotLEDay(-1), MyNotSEDay(-1),
+	MyStop(0), MyProfit(0),
+	entrytype(1),
+	NHigh(1),
+	NLow(1),
+	endlong(15), endshort(31),
+	sessionStartTimeA(1800), sessionEndTimeA(1700);
+	
+vars: mycount(0), entrywindowL(false), entrywindowS(false), OKLong(false), OKShort(false);
+
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>	Michael OHLC Calculation begin
+array: ohlcValues[23](0);
+var: isStartOfSession(false);
+isStartOfSession = _OHLCMulti5(sessionStartTimeA, sessionEndTimeA, ohlcValues);
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>	Michael OHLC Calculation end
+
+if isStartOfSession then begin
+	mycount = 0;
+	OKLong = false;
+	OKShort = false;
+end;
+
+mycount = mycount+1;
+
+if testphase=1 then begin
+	if mycounter=mycount then buy("LE_TEST") mycontracts contracts next bar at market;
+	if marketposition = 1 then sell("LX_TEST") next bar at market;
+end;
+
+if testphase=0 then begin  //using inputs discovered during previous routine we now develop
+	if entrytype>1 then begin
+		entrywindowL = twBars(MyLEBar,endlong,mycount);
+		entrywindowS = twBars(MySEBar,endshort,mycount);
+
+		if mycount=MyLEBar and PatternFast(MyPtnLY, ohlcValues) and PatternFast(MyPtnLN, ohlcValues)=False and dayofweek(date)<>MyNotLEDay  then OKLOng = true;
+		If mycount=MySEBar and PatternFast(MyPtnSY, ohlcValues) and PatternFast(MyPtnSN, ohlcValues)=False and dayofweek(date)<>MyNotSEDay then OKSHort = true;
+	 
+	 	if entrywindowl and marketposition=1 then oklong = false;
+	 	if entrywindows and marketposition=-1 then oKShort = false;
+	 end;
+
+	switch(entrytype) begin
+		case 1: //this is the typical entry on time of BIAS
+			if mycount = MyLEBar and PatternFast(MyPtnLY, ohlcValues) and PatternFast(MyPtnLN, ohlcValues)=False and dayofweek(date) <> MyNotLEDay then 
+				buy("LE_MKT") mycontracts contracts next bar at market;
+			if mycount = MySEBar and PatternFast(MyPtnSY, ohlcValues) and PatternFast(MyPtnSN, ohlcValues)=False and dayofweek(date) <> MyNotSEDay then 
+				sellshort("SE_MKT") mycontracts contracts next bar at market;
+
+		case 2: //here we look for a breakout entry inside BIAS windows
+			if entrywindowL and OKLong then buy("LE_STP") mycontracts contracts next bar at highest(h,Nhigh)stop;
+			if entrywindowS and OKShort then sellshort("SE_STP") mycontracts contracts next bar at lowest(l,NLow) stop;
+		
+		case 3: //here we look for a retracement entry inside BIAS windows
+			if entrywindowL and OKLong then buy("LE_LMT") mycontracts contracts next bar at lowest(l,NLow) limit;
+			if entrywindowS and OKShort then sellshort("SE_LMT") mycontracts contracts next bar at highest(h,Nhigh) limit;
+		
+		case <1, >4: raiseruntimeerror("Invalid 'entrytype' input: please choose it between 1 and 3");
+	end;
+	
+	if mycount = MyLXBar then sell("LX") next bar at market;
+	if mycount = MySXBar then buytocover("SX") next bar at market;
+end;
+
+setstopcontract;
+if MyStop>0 then setstoploss(MyStop);
+If MyProfit>0 then setprofittarget(MyProfit);

@@ -1,0 +1,8 @@
+input: MyContracts(1);
+
+Buy MyContracts contracts next bar lows(1) limit;
+Sellshort mycontracts contracts next bar highs(1) limit;
+
+input: TitanExportMode(0);
+var: bin(0);
+If TitanExportMode=1 then bin = writedailiesCTitanReports(1080101, TitanExportMode);

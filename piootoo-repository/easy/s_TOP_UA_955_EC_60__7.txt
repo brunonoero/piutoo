@@ -1,0 +1,69 @@
+//MultiCharts/TradeStation code generator by Unger Academy. All rights reserved.
+//Script generation datetime: 28-Aug-2022 09:21:43
+
+//Michael formula calculation begin
+Input:SessionStartTimeA(1700), sessionEndTimeA(1600); //Set here your session time!
+array:ohlcvalues[23](0), adxCalcValues[3](0);
+var:IsStartOfSession(false);
+
+IsStartOfSession=_OHLCMulti5(SessionStartTimeA,sessionEndTimeA,ohlcvalues);
+//Michael formula calculation end
+
+Inputs: MyContracts(1), //Choose with how many contracts you want to work
+	MyStartTime(1900), MyEndTime(1200), MyStartPause(800), MyEndPause(800), //Time window and pause
+	PtnNeutYes(55),PtnNeutNo(56),PtnDirYes(1),PtnDirNo(33), //optimize Neutral from 1 to 55 (55=true, 56=false). Directional from -152 to 152 (152=true, 153=false)
+	MaxEntriesPerDay(2), //Set maximum entries per calendar day
+	ADX_TH(45), //Set maximum ADX value
+	BollingerLen(20), BollingerDevs(2), //Set here Bollinger length and deviations
+	MaxDaysInTrade(5), FlatTime(1200), //Set here the maximum number of days to stay in the market and the flat time!
+	MyStop(1500), //Set here your stoploss! (0=disabled)
+	MyBreakEven(0), //Set here your breakeven stop!(0=disabled)
+	MyProfit(3400), //Set here your profit target! (0=disabled)
+	TrailTrigger(2500), TrailPercentDistance(50), TrailingEnabled(0); //Set here trailing stop trigger and percentage distance from runup
+
+vars:ADXval(0), bbup(0), bbdn(0),DaysInTrade(0), mp(0), DistOpenRunup(0); 
+
+if isStartOfSession then begin
+	ADXval = iADXOnArray(5, ohlcvalues[5], ohlcvalues[6], ohlcvalues[7], ohlcvalues[9], ohlcvalues[10], ohlcvalues[11], adxCalcValues)*100;
+	//Keep track of how many days the strategy has been in position
+	if marketposition<>0 then daysintrade=daysintrade+1;
+end;
+
+//VARIABLES' CALCULATION
+bbup = BollingerBand(c,BollingerLen,BollingerDevs);
+bbdn = BollingerBand(c,BollingerLen,-BollingerDevs);
+mp = marketposition;
+
+//ENTRIES
+if tw(MyStartTime,MyEndTime) and (Time<MyStartPause or Time>MyEndPause) and PatternNeutralFast(PtnNeutYes,ohlcvalues) and PatternNeutralFast(PtnNeutNo,ohlcvalues)=false and entriestoday(date)<MaxEntriesPerDay and ADXVal<ADX_TH then begin
+	if PatternDirectionalFast(PtnDirYes,ohlcvalues) and PatternDirectionalFast(PtnDirNo,ohlcvalues)=false and C crosses over bbdn then buy("LE") MyContracts contracts next bar market;
+	if PatternDirectionalFast(-PtnDirYes,ohlcvalues) and PatternDirectionalFast(-PtnDirNo,ohlcvalues)=false and C crosses under bbup then sellshort("SE") MyContracts contracts next bar market;
+end;
+
+if mp<>mp[1] and mp<>0 then daysintrade=1;
+
+//POSITION MANAGEMENT
+if daysintrade>=maxDaysInTrade and maxDaysInTrade>0 then begin
+	setexitonclose;
+	if Time=FlatTime then begin
+		if marketposition=1 then sell("LX_MaxDays") next bar market;
+		if marketposition=-1 then buytocover("SX_MaxDays") next bar market;
+	end;
+end;
+setstopcontract;
+if mystop>0 then setstoploss(MyStop);
+if MyBreakEven>0 then setbreakeven(MyBreakEven);
+if MyProfit>0 then setprofittarget(MyProfit);
+
+//Trailing stop
+DistOpenRunup = OpenEntryMaxProfitPerContract/bigpointvalue;
+if TrailingEnabled=1 and OpenEntryMaxProfitPerContract>=TrailTrigger and TrailTrigger>0 and TrailPercentDistance>0 and barssinceentry>1 then begin
+	if marketposition=1 then sell("LX_trail") next bar entryprice + DistOpenRunup*(1-TrailPercentDistance/100) stop;
+	if marketposition=-1 then buytocover("SX_trail") next bar entryprice - DistOpenRunup*(1-TrailPercentDistance/100) stop;
+end;
+
+//TITAN FAST EXPORT (mette il report direttamente in C:\Titan\Reports
+input: TitanExportMode(0);
+if TitanExportMode=1 then WriteDailiesCTitanReports(1080101, TitanExportMode);
+
+

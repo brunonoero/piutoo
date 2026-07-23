@@ -1,0 +1,15 @@
+input: DaysMode(0);	// 0 = all days, 1 = only even days, 2 = only odd days
+var: EvenToday(false), LastBarOfYestTime(0);
+
+if date<>date[1] then begin
+	EvenToday = UA_TodayIsAEvenDay;
+	LastBarOfYestTime = Time[1];
+end;
+
+if Time<LastBarOfYestTime then begin
+	if DaysMode = 0 then buy next bar market
+	else if DaysMode = 1 and EvenToday = true then buy next bar market
+	else if DaysMode = 2 and EvenToday = false then buy next bar market;
+end;
+
+setexitonclose;	// exit at the end of trading session!

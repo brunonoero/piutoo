@@ -1,0 +1,216 @@
+{21.11.2011 Attention: indexes modifies with respect to original by AU 
+29.12.2016 Modified by Andrea Nebiolo:
+	- using functions created by Michael Bruns
+	- changed code structure from "else if" to "switch => case:"
+	- corrected and renumbered from Pattern 40 (repeated twice in previous version)
+	- added Patterns 140 to 151} 
+
+[LegacyColorValue = true]; 
+
+input: numeropattern(numericsimple), ohlcValues[X](NumericArray);
+
+var: opend0(0),opend1(0),opend2(0),opend3(0),opend4(0), opend5(0);
+var: highd0(0),highd1(0),highd2(0),highd3(0),highd4(0), highd5(0);
+var: lowd0(0),lowd1(0),lowd2(0),lowd3(0),lowd4(0), lowd5(0);
+var: closed0(0),closed1(0),closed2(0),closed3(0),closed4(0), closed5(0);
+var: body1d(0),range1d(0),body5d(0),range5d(0);
+
+opend0 = ohlcValues[0]; highd0 = ohlcValues[1]; lowd0 = ohlcValues[2]; closed0 = ohlcValues[3];  
+opend1 = ohlcValues[4]; highd1 = ohlcValues[5]; lowd1 = ohlcValues[6]; closed1 = ohlcValues[7];
+opend2 = ohlcValues[8]; highd2 = ohlcValues[9]; lowd2 = ohlcValues[10]; closed2 = ohlcValues[11];  
+opend3 = ohlcValues[12]; highd3 = ohlcValues[13]; lowd3 = ohlcValues[14]; closed3 = ohlcValues[15];
+opend4 = ohlcValues[16]; highd4 = ohlcValues[17]; lowd4 = ohlcValues[18]; closed4 = ohlcValues[19];  
+opend5 = ohlcValues[20]; highd5 = ohlcValues[21]; lowd5 = ohlcValues[22]; closed5 = ohlcValues[23];
+
+body1d = absvalue(opend1-closed1);
+range1d = (highd1-lowd1);
+body5d = absvalue(opend5-closed1);
+range5d = maxlist(highd1, highd2, highd3, highd4, highd5) - minlist(lowd1, lowd2, lowd3, lowd4, lowd5);
+
+
+Switch(numeropattern) Begin
+	case 1: PatternFast  = body1d < 0.1  * range1d;
+	case 2: PatternFast  = body1d < 0.25 * range1d;  
+	case 3: PatternFast  = body1d < 0.5  * range1d ;   
+	case 4: PatternFast  = body1d < 0.75 * range1d  ;
+
+	case 5: PatternFast  = body1d > 0.25 * range1d   ;
+	case 6: PatternFast  = body1d > 0.5  * range1d ;
+	case 7: PatternFast  = body1d > 0.75 * range1d  ;  
+	case 8: PatternFast  = body1d > 0.9  * range1d ;
+
+	case 9: PatternFast  = body5d < 0.1  * (highd5-lowd1)   ;
+	case 10: PatternFast = body5d < 0.25 * (highd5-lowd1)  ;
+	case 11: PatternFast = body5d < 0.5  * (highd5-lowd1)   ; 
+	case 12: PatternFast = body5d < 0.75 * (highd5-lowd1)  ;
+	case 13: PatternFast = body5d < 1    * (highd5-lowd1)   ;
+	case 14: PatternFast = body5d < 1.5  * (highd5-lowd1)  ;
+	case 15: PatternFast = body5d < 2    * (highd5-lowd1)   ;
+
+	case 16: PatternFast = body5d > 0.25 * (highd5-lowd1)   ;
+	case 17: PatternFast = body5d > 0.5  * (highd5-lowd1)  ;
+	case 18: PatternFast = body5d > 0.75 * (highd5-lowd1)   ; 
+	case 19: PatternFast = body5d > 1    * (highd5-lowd1)  ;
+	case 20: PatternFast = body5d > 1.5  * (highd5-lowd1)  ;
+	case 21: PatternFast = body5d > 2    * (highd5-lowd1)  ;
+	case 22: PatternFast = body5d > 2.5  * (highd5-lowd1)   ;
+
+	case 23: PatternFast = body5d < 0.1  * range5d  ;
+	case 24: PatternFast = body5d < 0.25 * range5d ;
+	case 25: PatternFast = body5d < 0.5  * range5d  ;
+	case 26: PatternFast = body5d < 0.75 * range5d   ;
+
+	case 27: PatternFast = body5d > 0.9  * range5d  ;
+	case 28: PatternFast = body5d > 0.25 * range5d  ;
+	case 29: PatternFast = body5d > 0.5  * range5d  ;
+	case 30: PatternFast = body5d > 0.75 * range5d   ;
+
+	case 31: PatternFast = ((highd0-opend0)> ((highd1-opend1)*0.25))  ;
+	case 32: PatternFast = ((highd0-opend0)> ((highd1-opend1)*0.5))   ;
+	case 33: PatternFast = ((highd0-opend0)> ((highd1-opend1)*0.75))   ;
+	case 34: PatternFast = ((highd0-opend0)> ((highd1-opend1)*1))   ;
+	case 35: PatternFast = ((highd0-opend0)> ((highd1-opend1)*1.5))  ;
+	case 36: PatternFast = ((highd0-opend0)> ((highd1-opend1)*2))   ;
+	case 37: PatternFast = ((highd0-opend0)> ((highd1-opend1)*2.5))  ;
+	case 38: PatternFast = ((highd0-opend0)> ((highd1-opend1)*3))   ;
+
+	case 39: PatternFast = ((highd0-opend0)< ((highd1-opend1)))   ;
+	case 40: PatternFast = ((opend0-lowd0)< ((opend1-lowd1))) ;
+
+	case 41: PatternFast = ((opend0-lowd0)> ((opend1-lowd1)*0.5))   ;
+	case 42: PatternFast = ((opend0-lowd0)> ((opend1-lowd1)*1)) ;
+	case 43: PatternFast = ((opend0-lowd0)> ((opend1-lowd1)*1.5));   
+	case 44: PatternFast = ((opend0-lowd0)> ((opend1-lowd1)*2)) ;
+	case 45: PatternFast = ((opend0-lowd0)> ((opend1-lowd1)*2.5));   
+	case 46: PatternFast = ((opend0-lowd0)> ((opend1-lowd1)*3)) ;
+
+	case 47: PatternFast = closed1>closed2 and closed2>closed3 and closed3>closed4 ;
+	case 48: PatternFast = closed1<closed2 and closed2<closed3 and closed3<closed4;
+	case 49: PatternFast = closed1>closed2 and closed2>closed3 and closed3>closed4 and closed4 > closed5;
+	case 50: PatternFast = closed1<closed2 and closed2<closed3 and closed3<closed4 and closed4<closed5;
+	case 51: PatternFast = highd1>highd2 and lowd1>lowd2;
+	case 52: PatternFast = highd1<highd2 and lowd1<lowd2;
+
+	case 53: PatternFast = ((highd0>(lowd0+lowd0*0.5 *0.01)));
+	case 54: PatternFast = ((highd0>(lowd0+lowd0*0.75*0.01)));
+	case 55: PatternFast = ((highd0>(lowd0+lowd0*1   *0.01)));
+	case 56: PatternFast = ((highd0>(lowd0+lowd0*1.5 *0.01)));
+	case 57: PatternFast = ((highd0>(lowd0+lowd0*2   *0.01)));
+	case 58: PatternFast = ((highd0>(lowd0+lowd0*2.5 *0.01)));	
+	case 59: PatternFast = ((highd0>(lowd0+lowd0*3   *0.01)));
+
+	case 60: PatternFast = ((highd0<(lowd0+lowd0*0.5 *0.01)));
+	case 61: PatternFast = ((highd0<(lowd0+lowd0*0.75*0.01)));
+	case 62: PatternFast = ((highd0<(lowd0+lowd0*1   *0.01)));
+	case 63: PatternFast = ((highd0<(lowd0+lowd0*1.5 *0.01)));
+	case 64: PatternFast = ((highd0<(lowd0+lowd0*2   *0.01)));
+	case 65: PatternFast = ((highd0<(lowd0+lowd0*2.5 *0.01)));
+	case 66: PatternFast = ((highd0<(lowd0+lowd0*3   *0.01)));
+
+	case 67: PatternFast = (closed1>closed2);
+	case 68: PatternFast = (closed1<closed2);
+	case 69: PatternFast = (closed1<opend1);
+	case 70: PatternFast = (closed1>opend1);
+
+	case 71: PatternFast = ((closed1<(closed2-closed2*0.5*0.01)));
+	case 72: PatternFast = ((closed1<(closed2-closed2*1  *0.01)));
+	case 73: PatternFast = ((closed1<(closed2-closed2*1.5*0.01)));
+	case 74: PatternFast = ((closed1<(closed2-closed2*2  *0.01)));
+	case 75: PatternFast = ((closed1<(closed2-closed2*2.5*0.01)));
+	case 76: PatternFast = ((closed1<(closed2-closed2*3  *0.01)));
+
+	case 77: PatternFast = ((closed1>(closed2+closed2*0.5*0.01)));
+	case 78: PatternFast = ((closed1>(closed2+closed2*1  *0.01)));
+	case 79: PatternFast = ((closed1>(closed2+closed2*1.5*0.01)));
+	case 80: PatternFast = ((closed1>(closed2+closed2*2  *0.01)));
+
+	case 81: PatternFast = (highd0>(highd1));
+	case 82: PatternFast = (highd0>(highd1+highd1*0.25*0.01));
+	case 83: PatternFast = (highd0>(highd1+highd1*0.5 *0.01));
+	case 84: PatternFast = (highd0>(highd1+highd1*0.75*0.01));
+	case 85: PatternFast = (highd0>(highd1+highd1*1   *0.01));
+	case 86: PatternFast = (highd0>(highd1+highd1*1.5 *0.01));
+
+	case 87: PatternFast = (highd0<(highd1));
+	case 88: PatternFast = (highd0<(highd1-highd1*0.5*0.01));
+	case 89: PatternFast = (highd0<(highd1-highd1*1  *0.01));
+	case 90: PatternFast = (highd0<(highd1-highd1*1.5*0.01));
+	case 91: PatternFast = (highd0<(highd1-highd1*2  *0.01));
+	case 92: PatternFast = (highd0<(highd1-highd1*2.5*0.01));
+
+	case 93: PatternFast = (highd1>highd5);
+	case 94: PatternFast = (highd1<highd5);
+
+	case 95: PatternFast = (lowd0<lowd1);
+	case 96: PatternFast = (lowd0<(lowd1-lowd1*0.25*0.01));
+	case 97: PatternFast = (lowd0<(lowd1-lowd1*0.5 *0.01));
+	case 98: PatternFast = (lowd0<(lowd1-lowd1*0.75*0.01));
+	case 99: PatternFast = (lowd0<(lowd1-lowd1*1   *0.01));
+
+	case 100: PatternFast  = (lowd0>lowd1);
+	case 101: PatternFast = (lowd0>(lowd1+lowd1*0.5*0.01));
+	case 102: PatternFast = (lowd0>(lowd1+lowd1*1  *0.01));
+	case 103: PatternFast = (lowd0>(lowd1+lowd1*1.5*0.01));
+	case 104: PatternFast = (lowd0>(lowd1+lowd1*2  *0.01));
+	case 105: PatternFast = (lowd0>(lowd1+lowd1*2.5*0.01));
+
+	case 106: PatternFast = (lowd1<lowd5);
+	case 107: PatternFast = (lowd1>lowd5);
+
+	case 108: PatternFast = (highd1> highd2) and (highd1> highd3) and (highd1> highd4) ;
+	case 109: PatternFast = (highd1< highd2) and (highd1< highd3) and (highd1< highd4) ;
+	case 110: PatternFast = ((lowd1 < lowd2) and (lowd1 < lowd3) and (lowd1 < lowd4));
+	case 111: PatternFast = ((lowd1 > lowd2) and (lowd1 > lowd3) and (lowd1 > lowd4));
+	case 112: PatternFast = (closed1>closed2 and closed2>closed3 and opend0>closed1);
+	case 113: PatternFast = (closed1<closed2 and closed2<closed3 and opend0<closed1);
+
+	case 114: PatternFast = ((highd1-closed1)<0.20*range1d);
+	case 115: PatternFast = ((closed1-lowd1)<0.20*range1d);
+
+	case 116: PatternFast = (opend0<lowd1 or opend0>highd1);
+	case 117: PatternFast = (opend0<lowd1) ;
+	case 118: PatternFast = (opend0>highd1);
+	 
+	case 119: PatternFast = ((opend0<(closed1-closed1*0.25*0.01)));
+	case 120: PatternFast = ((opend0<(closed1-closed1*0.5 *0.01)));
+	case 121: PatternFast = ((opend0<(closed1-closed1*0.75*0.01)));
+	case 122: PatternFast = ((opend0<(closed1-closed1*1   *0.01)));
+
+	case 123: PatternFast = ((opend0>(closed1+closed1*0.25*0.01)));
+	case 124: PatternFast = ((opend0>(closed1+closed1*0.5 *0.01)));
+	case 125: PatternFast = ((opend0>(closed1+closed1*0.75*0.01)));
+	case 126: PatternFast = ((opend0>(closed1+closed1*1   *0.01)));
+
+	case 127: PatternFast = (highd0<highd1 and lowd0>lowd1);
+	case 128: PatternFast = range1d < (((highd2-lowd2)+(highd3-lowd3))/3);
+	case 129: PatternFast = range1d < (highd2-lowd2) and (highd2-lowd2) < (highd3-lowd3) ;
+	case 130: PatternFast = (highd2>highd1 and lowd2<lowd1);
+	case 131: PatternFast = (highd1<highd2);
+	case 132: PatternFast = (lowd1>lowd2);
+	case 133: PatternFast = (highd1<highd2 or lowd1>lowd2);
+	case 134: PatternFast = (highd2<highd1 and lowd2>lowd1);
+	case 135: PatternFast = (highd0>highd1 and lowd0<lowd1);
+
+	case 136: PatternFast = (closed1 > opend1 and  closed2 > opend2);
+	case 137: PatternFast = (closed1 < opend1 and  closed2 > opend2);
+	case 138: PatternFast = (closed1 > opend1 and  closed2 < opend2);
+	case 139: PatternFast = (closed1 < opend1 and  closed2 < opend2);
+	
+	case 140: PatternFast = (highd1-lowd1)<(highd2-lowd2);
+	case 141: PatternFast = (highd1-lowd1)>(highd2-lowd2);
+
+	case 142: PatternFast = (C>opend0*0.99);
+	case 143: PatternFast = (C>opend0*0.995);
+	case 144: PatternFast = (C>opend0);
+	case 145: PatternFast = (C>opend0*1.005);
+	case 146: PatternFast = (C>opend0*1.01);
+
+	case 147: PatternFast = (C<opend0*1.01);
+	case 148: PatternFast = (C<opend0*1.005);
+	case 149: PatternFast = (C<opend0);
+	case 150: PatternFast = (C<opend0*0.995);
+	case 151: PatternFast = (C<opend0*0.99);
+
+	case 152: PatternFast = true;
+	case >152: PatternFast = false;
+end;

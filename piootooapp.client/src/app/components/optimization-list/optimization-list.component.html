@@ -1,0 +1,85 @@
+<div class="optimization-list-container">
+  <div class="list-header">
+    <h2>🎯 Ottimizzazioni</h2>
+    <button class="btn-primary" (click)="navigateToNew()">
+      ➕ Nuova Ottimizzazione
+    </button>
+  </div>
+
+  <div *ngIf="error" class="error-message">
+    ⚠️ {{ error }}
+  </div>
+
+  <div *ngIf="isLoading" class="loading">
+    ⏳ Caricamento...
+  </div>
+
+  <div *ngIf="!isLoading && optimizations.length === 0" class="empty-state">
+    <p>Nessuna ottimizzazione trovata</p>
+    <p class="hint">Clicca "Nuova Ottimizzazione" per iniziare</p>
+  </div>
+
+  <div *ngIf="!isLoading && optimizations.length > 0" class="list-content">
+    <div class="list-actions">
+      <button class="btn-secondary" (click)="selectAll()" 
+              [disabled]="selectedIds.size === optimizations.length">
+        ✓ Seleziona tutti
+      </button>
+      <button class="btn-secondary" (click)="deselectAll()" 
+              [disabled]="selectedIds.size === 0">
+        ✗ Deseleziona
+      </button>
+      <button class="btn-danger" (click)="deleteSelected()" 
+              [disabled]="selectedIds.size === 0">
+        🗑️ Elimina ({{ selectedIds.size }})
+      </button>
+    </div>
+
+    <div class="table-container">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th style="width: 40px;">
+              <input type="checkbox" 
+                     [checked]="selectedIds.size === optimizations.length && optimizations.length > 0"
+                     (change)="selectedIds.size === optimizations.length ? deselectAll() : selectAll()">
+            </th>
+            <th>Nome</th>
+            <th>Data</th>
+            <th>Profit</th>
+            <th>Drawdown</th>
+            <th>Win Rate</th>
+            <th>Strategie Attive</th>
+            <th>Azioni</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr *ngFor="let opt of optimizations" 
+              class="clickable"
+              [class.selected]="isSelected(opt)"
+              (click)="navigateToDetail(opt)">
+            <td (click)="$event.stopPropagation()">
+              <input type="checkbox" 
+                     [checked]="isSelected(opt)"
+                     (change)="toggleSelection(opt)">
+            </td>
+            <td class="name-cell">
+              <strong>{{ opt.setupName }}</strong>
+            </td>
+            <td>{{ formatDate(opt.optimizationDate) }}</td>
+            <td [class.positive]="opt.totalProfit > 0" [class.negative]="opt.totalProfit < 0">
+              {{ formatCurrency(opt.totalProfit) }}
+            </td>
+            <td class="negative">{{ formatPercent(opt.maxDrawdown) }}</td>
+            <td>{{ formatPercent(opt.winRate) }}</td>
+            <td>{{ opt.enabledStrategiesForNextWeek?.length || 0 }}</td>
+            <td class="actions-cell" (click)="$event.stopPropagation()">
+              <button class="btn-icon" (click)="navigateToDetail(opt)" title="Dettagli">👁️</button>
+              <button class="btn-icon btn-danger-icon" (click)="deleteOptimization(opt, $event)" title="Elimina">🗑️</button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>

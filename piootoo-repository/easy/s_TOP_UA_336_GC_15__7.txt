@@ -1,0 +1,41 @@
+//Ntanos 28/12/2020 to Riccardo Albano
+//Script: EasyLanguage
+//Platform: TradeStation
+//Instrument: Gold
+//Time Frame: 15 min
+
+Input: ADXLenght(5), MyADXLimit(50), MyLenght(155), UseDonchianTrailing(1), MyStartTrade(300), MyEndTrade(1545);  //MyPtnYes(41)
+Input: MyStop(2500), MyProfit(4300);
+Input: MyNoShortDay(5), DF(0.40);
+inputs: mycontracts(1); 
+
+var: MyADXValue(0), UpperChannel(0), LowerChannel(0), Range1(0);       
+
+MyADXValue = ADX(ADXLenght);
+
+UpperChannel = HighestFC(h, MyLenght);
+LowerChannel = LowestFC(l, Mylenght);
+
+Range1 = HighS(1)-LowS(1); 
+
+If Range1 <> 0 then
+condition1 = absvalue(CloseS(1)-OpenS(1)) / Range1 <= DF;
+
+If (time > MyStartTrade and time < MyEndTrade) and MyADXValue < MyADXLimit and condition1 then begin  //PtnBaseSA (1) and PtnBaseSA(39))
+	buy mycontracts contracts next bar at Highd(0) stop;
+	If dayofweek (date) <> MyNoShortDay then sellshort mycontracts contracts next bar at Lowd(0) stop;
+end;
+
+if UseDonchianTrailing=1 then begin
+	if marketposition=1 then sell("LXx") next bar LowerChannel stop;
+	if marketposition=-1 then buytocover("SXx") next bar UpperChannel stop;
+end;
+
+Setstopcontract;
+setstoploss(MyStop);
+setprofittarget(MyProfit);
+
+//TITAN FAST EXPORT
+input: TitanExportMode(0);
+var: bin(0);
+If TitanExportMode=1 then bin = writedailiesCTitanReports(1100101, TitanExportMode);

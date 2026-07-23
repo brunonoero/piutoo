@@ -1,0 +1,35 @@
+// BIAS Weekly 5min TF
+// Market = EC, exchange timezone
+// Short trades only
+// IS = Jan 2010 - Dec 2019
+// OOS = Jan 2020 - Oct 2023
+// Tradable on Micro (M6E)reducing 1/10 the stop & profit values
+
+var: IsStartOfSession(true);
+array: ohlcValues[23](0);
+
+inputs: sessionStartTimeC(1700),sessionEndTimeC(1600);
+IsStartOfSession = _OHLCMulti5(sessionStartTimeC, sessionEndTimeC, ohlcValues);
+
+Input: PtnNeutYes(40), PtnNeutNo(33),PtnNeutNo2(47), PtnDirYes(-33), PtnDirNo(40), PtnDirNo2(36);{optimize pattern after have choosen day and time of bias}
+Input: Mysize(1);
+Input: MyStop(2000), MyBreakeven(0),MyProfit(1000);
+Input: Mytimeentry(0015),Mytimeexit(0810);
+
+if PatternNeutralFast(PtnNeutYes, ohlcValues) and PatternNeutralFast(PtnNeutNo, ohlcValues)=false and PatternNeutralFast(PtnNeutNo2, ohlcValues)=false then 
+
+	If PatternDirectionalFast(-PtnDirYes, ohlcValues) and PatternDirectionalFast(-PtnDirNo, ohlcValues)=False and PatternDirectionalFast(-PtnDirNo2, ohlcValues)=False
+	and dayofweek(d)=5  
+	and time=Mytimeentry 
+	then sellshort ("SE5") MySize contracts next bar market;
+
+if mp=-1 and dayofweek(d)=5 
+and time=Mytimeexit then buytocover ("SX5") MySize contracts next bar market;
+	
+setstopcontract;
+If MyStop>0 then setstoploss(MyStop);
+If MyBreakeven>0 then setbreakeven(MyBreakeven);
+If MyProfit>0 then setprofittarget(MyProfit);
+
+input: TitanExportMode(0);
+if TitanExportMode=1 then WriteDailiesCTitanReports(1100101, TitanExportMode);

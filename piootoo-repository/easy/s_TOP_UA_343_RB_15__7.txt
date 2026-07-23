@@ -1,0 +1,70 @@
+// 15minutes bars on RBOB Future - TS data IS PERIOD from 01.2010 to 12.2017 - SESSION 18:00-17:00 ET SUN-FRI - TimeZone Exchange//
+{}
+
+// <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< OHLC & ADX CALCULATION >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+array: ohlcValues[23](0);
+array: AdxCalcValues[3](0);
+var: isStartOfSession(false), sessionStartTimeA(1800), sessionEndTimeA(1700);	//Set here your session Time!
+isStartOfSession = _OHLCMulti5(sessionStartTimeA, sessionEndTimeA, ohlcValues);
+
+var: opend0(0),opend1(0),opend2(0),opend3(0),opend4(0), opend5(0);
+var: highd0(0),highd1(0),highd2(0),highd3(0),highd4(0), highd5(0);
+var: lowd0(0),lowd1(0),lowd2(0),lowd3(0),lowd4(0), lowd5(0);
+var: closed0(0),closed1(0),closed2(0),closed3(0),closed4(0), closed5(0);
+var: body1d(0),body5d(0),range1d(0),range5d(0);
+var: Adxval(0);
+
+If (isStartOfSession) then adxVal = iADXOnArray(5, ohlcValues[5], ohlcValues[6], ohlcValues[7], ohlcValues[9], ohlcValues[10], ohlcValues[11], adxCalcValues)*100;
+
+opend0 = ohlcValues[0]; highd0 = ohlcValues[1]; lowd0 = ohlcValues[2]; closed0 = ohlcValues[3]; 
+opend1 = ohlcValues[4]; highd1 = ohlcValues[5]; lowd1 = ohlcValues[6]; closed1 = ohlcValues[7];
+opend2 = ohlcValues[8]; highd2 = ohlcValues[9]; lowd2 = ohlcValues[10]; closed2 = ohlcValues[11]; 
+opend3 = ohlcValues[12]; highd3 = ohlcValues[13]; lowd3 = ohlcValues[14]; closed3 = ohlcValues[15];
+opend4 = ohlcValues[16]; highd4 = ohlcValues[17]; lowd4 = ohlcValues[18]; closed4 = ohlcValues[19]; 
+opend5 = ohlcValues[20]; highd5 = ohlcValues[21]; lowd5 = ohlcValues[22]; closed5 = ohlcValues[23];
+
+body1d = absvalue(opend1-closed1);
+range1d = (highd1-lowd1);
+body5d = absvalue(opend5-closed1);
+range5d = maxlist(highd1, highd2, highd3, highd4, highd5) - minlist(lowd1, lowd2, lowd3, lowd4, lowd5);
+
+// <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< INPUTS & VARS DEFINITION >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+inputs:
+	LEDay(3), LXDay(5),
+	LETime(500), LXTime(1630), x(0),
+	PtnLY(31), PtnLN(153),
+
+	SEDay(0), SXDay(1),
+	SETime(1815), SXTime(1700),
+	PtnSY(152), PtnSN(153),
+
+	MyLEStop(2000), MySEStop(1800),
+	MyLEProfit(5250), MySEProfit(0);
+vars:
+	MP(0);
+	MP = marketposition;
+	
+// <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< ENGINE >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+if dayofweek(date) = LEDay and Time = LETime and PatternFast(PtnLY, ohlcvalues) and PatternFast(PtnLN, ohlcvalues) = false then buy next bar at market;
+if dayofweek(date) = LXDay and Time = LXTime then sell next bar at market;
+
+if dayofweek(date) = SEDay and Time = SETime and PatternFast(PtnSY, ohlcvalues) and PatternFast(PtnSN, ohlcvalues) = false then sellshort next bar at market;
+if dayofweek(date) = SXDay and Time = SXTime then buytocover next bar at market;
+
+setstopcontract;
+If MP = 1 and MyLEProfit > 0 then setprofittarget(MyLEProfit);
+If MP = 1 and MyLEStop > 0 then setstoploss(MyLEStop);
+
+If MP = -1 and MySEProfit > 0 then setprofittarget(MySEProfit);
+If MP = -1 and MySEStop > 0 then setstoploss(MySEStop);
+
+//TITAN FAST EXPORT (mette il report direttamente in C:\Titan\Reports
+{input: TitanExportMode(0);
+if TitanExportMode=1 then WriteDailiesCTitanReports(1100101, TitanExportMode);}
+
+//TITAN FAST EXPORT (mette il report direttamente in C:\Titan\Reports
+input: TitanExportMode(0);
+if TitanExportMode=1 then WriteDailiesCTitanReports(1080101, TitanExportMode);

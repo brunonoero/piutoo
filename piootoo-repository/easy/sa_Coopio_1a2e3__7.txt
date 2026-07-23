@@ -1,0 +1,195 @@
+Variables:
+   IntraBarPersist contractsCurrent(0),
+   IntraBarPersist contractsPrev(0),
+   IntraBarPersist myname(""),
+   IntraBarPersist buyorsell(""),
+   IntraBarPersist pForClean(0),
+   IntraBarPersist cleanSymbol(""),
+   IntraBarPersist prevTs(0),
+   IntraBarPersist currentTs(0),
+   //currentTsForFile(0), 
+   IntraBarPersist oneMinuteDT(0),
+   IntraBarPersist timeInterval(0), 
+   IntraBarPersist isFirstLoop(1),
+   IntraBarPersist minutesTimeInterval(0),
+   IntraBarPersist haveToCheckAtBroker(0), 
+   IntraBarPersist haveContractsPrev(0),
+   IntraBarPersist contractsIsChanged(0),
+   IntraBarPersist dateReadable(""),
+   IntraBarPersist dateForFile(""),
+   IntraBarPersist timeReadable(""),
+   IntraBarPersist timeForFile(""),
+   IntraBarPersist entryPrice(0),
+   IntraBarPersist tradeSize(0),  
+   IntraBarPersist positiondate(""),
+   IntraBarPersist currentordername(""),
+   IntraBarPersist currentorderfilename(""),
+   IntraBarPersist outputfilename(""),
+   IntraBarPersist currentTradeType(""),
+   IntraBarPersist fileCounter(0),   
+   IntraBarPersist fileCounterFormatted(""), 
+   IntraBarPersist ctimems(""),
+   IntraBarPersist staystill(0)
+   ;
+
+   
+	//1.0 version with verify at broker 
+	//1.1 at first loop send synch file with tradetype: "align-position"
+	//1.3 refactor file name with counter (avoid order time switch)
+	//1.4 replace file count with ts in millisec
+	//1.5 add IntraBarPersist bug
+	//file with currentime prefix
+	haveToCheckAtBroker = 0;
+	myname = "coo+br";  
+	//remove @ on symbol 
+	if LastBarOnChart then begin
+		//Print("LastBarOnChart = true!!!!");
+	End;
+	//Print("current bar: " & NumToStr(currentBar,1 ));   
+	if LastBarOnChart then begin
+		//currentTsForFile =  ELTimeToDateTime(CurrentTime) + ELDateToDateTime(CurrentDate); 
+		//Print("tsss!!" & NumToStr(CurrentTime,3) );
+		if isFirstLoop = 1 then begin
+			//init first loop values 
+			//Print("first loop");
+			isFirstLoop = 0;
+			//remove @ from symbol 
+		      	pForClean = Instr(symbol,"@"); 
+		    	if pForClean > 0 then begin
+				cleanSymbol =  RightStr(symbol,StrLen(symbol)-1);  
+		    	End; 
+		    	if pForClean = 0 then begin
+				cleanSymbol =  symbol;   
+		    	End;
+			//isFirstLoop = 0;
+		  	oneMinuteDT = ELTimeToDateTime(1); 
+	      		currentTs =  ELTimeToDateTime(CurrentTime) + ELDateToDateTime(CurrentDate);
+	      		prevTs =  ELTimeToDateTime(CurrentTime) + ELDateToDateTime(CurrentDate);
+	      		haveContractsPrev = 0;
+	      		haveToCheckAtBroker = 0;
+			//haveToCheckAtBroker = 1; //at first loop have check at broker => create file wirh align-positions instead modify-position
+		End;
+		//if isFirstLoop = 0 then begin
+		//	Print("XXXX");
+		//End;
+      		//run code each 1 minutes  
+		currentTs =  ELTimeToDateTime(CurrentTime) + ELDateToDateTime(CurrentDate);
+      		timeInterval = currentTs - prevTs;
+      		minutesTimeInterval = timeInterval / oneMinuteDT;
+      		//Print("check time - current time: " & FormatTime("HH:mm", currentTs ));
+      		//Print("TIME INTERVAL: " & NumToStr(minutesTimeInterval ,2));
+      		if minutesTimeInterval >= 1 then begin
+      			//each 1 minutes 
+      			haveToCheckAtBroker = 1;
+      			prevTs = currentTs; 
+      		End;
+	End;
+    
+	// Check if auto trading is off
+	staystill = 0;
+	//autoTradingOff = (GetAppInfo(aiStrategyAuto) <> 1);
+	if GetAppInfo(aiStrategyAuto) <> 1  then begin
+		staystill = 1;//disabled
+	End
+	else begin
+		staystill = 0;//enabled
+	End;
+	
+    if haveToCheckAtBroker = 1 and staystill = 0 then begin
+	
+	contractsIsChanged = 0;
+	contractsCurrent = MarketPosition_at_Broker; 
+	//Print("total at broker:" & NumToStr(contractsCurrent,2));
+	//Print("symbol dimmmerda:" & cleanSymbol);
+
+    	if haveContractsPrev = 0 then begin
+       	//Print("NOT contracts info before");
+       	contractsIsChanged = 1;
+       	haveContractsPrev = 1;
+       	contractsPrev = contractsCurrent ;
+    	End
+	else begin
+	       	//Print("HAVE contracts info before");  
+	       	if contractsCurrent <> contractsPrev then begin
+	       		//Print("contracts CHANGED current: " & NumToStr(contractsCurrent ,2) & " before: " & NumToStr(contractsPrev ,2) );
+	       		contractsIsChanged = 1;
+	       		contractsPrev = contractsCurrent;
+	       	End;
+       	End;
+
+       	
+		
+		if(contractsIsChanged = 1) then begin
+			//Print("contracts IS changed - WRITE FILE");
+			fileCounter = fileCounter +1;
+			//fileCounterFormatted = "00000" +  NumToStr(fileCounter ,0);
+			//fileCounterFormatted = RightStr(fileCounterFormatted,5);  
+			ctimems = DateTimeToString_ms(ComputerDateTime);
+
+			fileCounterFormatted = FormatDate("yyyy-MM-dd", ComputerDateTime)
+				       + "-" + MidStr(ctimems, 11, 2) 
+					+ "-" + MidStr(ctimems, 14, 2) 
+					+ "-" + MidStr(ctimems, 17, 2) 
+					+ "-" + MidStr(ctimems, 20,3) ; 
+
+			if contractsCurrent = 0  then begin
+				//Print(myname + " flat: " & NumToStr(contractsCurrent ,2));
+				buyorsell = "flat";
+			End;
+
+			if contractsCurrent > 0   then begin
+				//Print(myname + " long total contracts: " & NumToStr(contractsCurrent ,2));
+				buyorsell = "buy";
+			End;
+
+			if contractsCurrent < 0   then begin
+				//Print(myname + " short total contracts: " & NumToStr(contractsCurrent ,2));
+				buyorsell = "sell";
+			End;
+			
+			dateReadable = FormatDate("yyyy-MM-dd", currentTs );
+			dateForFile = FormatDate("yyyyMMdd", currentTs );
+			timeReadable = FormatTime("HH:mm", currentTs );
+			timeForFile = FormatTime("HHmm", currentTs );
+			//Print("The current date in a readable format is: ", dateReadable ,timeReadable );
+
+			entryPrice = Q_Ask;
+			tradeSize = contractsCurrent;  
+			
+			positiondate = dateReadable & " " & timeReadable & ":00" ;
+			currentordername =  buyorsell & "-" & cleanSymbol  ;
+			currentorderfilename = fileCounterFormatted & "-" & currentordername ;
+			
+			
+			if isFirstLoop = 1 then begin
+				isFirstLoop = 0; 
+				currentTradeType = "align-position";
+			End
+			else begin
+				currentTradeType = "modify-position"; 
+			End;
+
+			//write file each time check at broker  
+			outputfilename = "C:\coopioo-agent-publisher-files\producer\" & currentorderfilename & ".txt";
+			FileDelete(outputfilename);
+			//FileAppend("C:\coopioo-agent-publisher-files\producer\testbrun.txt","BrokerPositionCode:fixcode,Comment:no-comment,Label:no-label");
+			Print("write file subscriber:" & cleanSymbol & " contracts:" & NumToStr(contractsCurrent,2));
+			FileAppend(outputfilename ,
+						"BrokerPositionCode:fixcode"
+						& ",Comment:" & buyorsell & "-" & cleanSymbol
+						& ",Label:" & fileCounterFormatted
+						& ",Symbol:" & symbol 
+						& ",EntryTime:" &  positiondate  //& "-" & FormatTime("hh:mm:ss",PosTradeEntryDateTime(1,0))
+						& ",EntryPrice:" & NumToStr(entryPrice,2)
+						& ",TradeType:" & currentTradeType
+						& ",OrderType:" & buyorsell 
+						& ",Quantity:" & NumToStr(AbsValue(tradeSize),2)  
+						& ";"
+						) ; 
+			FileClose(outputfilename );
+		End; //end contractsIsChanged 	  	  		
+	 
+	End;//end haveToCheckAtBroker = 1
+	
+
+

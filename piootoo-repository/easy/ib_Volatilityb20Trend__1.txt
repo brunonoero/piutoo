@@ -1,0 +1,37 @@
+
+inputs:
+	ATRLength(14),
+	ATRMultiplier(2),
+	MaxDynamicPeriod(10),
+	InputData(Close),
+
+	MovAvgValidTypesInfo("0_Simple_1_eXponential_2_Weighted_3_Triangular"),
+	ATRMovAvgType(2),
+	
+	UpColor(green),
+	DnColor(red);
+
+variables:
+	_atr(0), _VTI_values(0), _Direction(0), _period1(0), _period2(0), _period3(0);
+
+// _VTI_values - volatility trend indicator (VTI) results
+// _Direction - direction index of the VTI movement for MaxDynamicPeriod bars
+
+_Direction = Iff(InputData > _VTI_values, 1, -1);
+
+_period1 = _period3[1];
+_period2 = iff(_Direction <> _Direction[1], 0, _period1);
+_period3 = iff(_period2 < MaxDynamicPeriod, _period2 + 1, _period2);
+
+_atr = AvgTrueRangeTyped(ATRLength, ATRMovAvgType);
+
+_VTI_values = iff(
+	_Direction > 0,
+	Highest(InputData, _period3) - ATRMultiplier * _atr,
+	Lowest(InputData, _period3) + ATRMultiplier * _atr
+);
+
+plot1(_VTI_values, "VTI", iff(_Direction > 0, UpColor, DnColor));
+
+
+

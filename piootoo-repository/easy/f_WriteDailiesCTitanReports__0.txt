@@ -1,0 +1,84 @@
+{User function: WriteDailies6
+Use this function to write out the daily profits of openequity
+
+INPUTS:
+TitanDir :    fill path of file; e.g. "C:\Titan\Reports\" (changed to variable as it's always the same)
+
+OUTPUT:
+The function writes the date and profits.
+last update: 22.05.2020}
+
+input:
+	firstdate(NumericSimple), { starting date to write results }
+	exportactive(NumericSimple); {activate export input}
+
+		
+var:	
+     fullFN(""), TitanDir(""), start(false), OE(0),DOE(0),dailyprofit(0),cc(0),gap(0),trange(0),
+	Ntrades(0), MP(0), lastWrittenDate(0), lastWrittenNtrades(0), LastBarVar(0);
+
+if exportactive = 1 then begin
+	once begin
+		TitanDir = "C:\TitanOpen\reports\";		//here you can change "reports" folder path. Default path is TitanDir = "C:\Titan\reports\";
+		fullFN = TitanDir + StringCleanFileNames(symbolroot + "_" + getstrategyname,exportactive) + ".txt";
+		filedelete(fullFN);
+		lastWrittenDate = CalcDate(firstdate,-1);
+		LastBarVar = 0;
+	end;
+
+	OE = i_openequity;
+	cc = i_currentcontracts*i_marketposition;
+
+	MP = i_marketposition;
+	if d>=firstdate then begin
+		if d=firstdate and d<>d[1] and MP<>0 then Ntrades=1
+		else if MP<>MP[1] and MP<>0 then Ntrades = Ntrades+1;
+	end;
+
+	// only on a new starting of the day
+	if d>d[1] and BarStatus(1) = 2 then begin
+		// gap yesterday-today (it's written on today!)
+		gap = (open-close[1])*cc[1]*bigpointvalue;
+		
+		// TrueRange of yesterday
+		trange = TrueRangeD(1)*bigpointvalue;
+
+		// daily profit of yesterday
+		DOE = OE[1];
+		dailyprofit = DOE - DOE[1];  // profits of today at 23.59 Local time
+		
+		if start=false and d>firstdate and dailyprofit<>0 then start = true; // prints only after the first day of profits
+		
+		if start then begin
+			while (lastWrittenDate < date[1]) begin
+				lastWrittenDate = CalcDate(lastWrittenDate,1);
+				if (lastWrittenDate = date[1]) then begin
+					Print(File(fullFN),Date2String(date[1])," ",dailyprofit:0:5," ",cc[1]:0:0," ",gap[1]:0:5," ",trange:0:5," ",Ntrades:0:0);
+					lastWrittenNtrades = Ntrades;
+				end else
+					Print(File(fullFN),Date2String(lastWrittenDate)," ",0:0:5," ",0:0:0," ",0:0:5," ",0:0:5," ",lastWrittenNtrades:0:0);
+			end;
+		end;
+	end;
+
+	// only if it's the last bar of the chart and it's a Saturday or Sunday
+	if LastBarOnChart and CurrentDate>d and LastBarVar = 0 then begin
+		LastBarVar = 1;
+		// TrueRange of today
+		trange = TrueRangeD(0)*bigpointvalue;
+		
+		// daily profit of today
+		DOE = OE;
+		dailyprofit = DOE - DOE[1];
+		
+		Print(File(fullFN),Date2String(date)," ",dailyprofit:0:5," ",cc:0:0," ",gap:0:5," ",trange:0:5," ",Ntrades:0:0);
+		
+		// if it's Saturday or Sunday, add an extra line saying the market it's closed
+		lastWrittenDate = CalcDate(d,1);
+		Print(File(fullFN),Date2String(lastWrittenDate)," ",0:0:5," ",0:0:0," ",0:0:5," ",0:0:5," ",Ntrades:0:0);
+	end;
+	
+	//if MP<>MP[1] and MP[1]<>0 then Print(File(fullFN2),Date2String(date[1])," ",positionprofit(1):0:5," ");
+	
+	WriteDailiesCTitanReports = 0;
+end;

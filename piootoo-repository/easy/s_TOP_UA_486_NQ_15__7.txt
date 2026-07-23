@@ -1,0 +1,89 @@
+//Da video UA Ale Ntanos https://www.youtube.com/watch?v=3KEK-pr5nbE&t=165s
+//IntraDay Nasdaq a 15 mincon BO Atr e senza data2
+
+
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>	Michael OHLC Calculation begin
+array: ohlcValues[23](0);
+
+var: isStartOfSession(false);
+
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>	Michael OHLC Calculation end
+input: sessionStartTimeA(1700), sessionEndTimeA(1600);
+
+isStartOfSession = _OHLCMulti5(sessionStartTimeA, sessionEndTimeA, ohlcValues);
+
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>	OHLC Vars declaration and Assignment
+VaR: OpenS0(0);
+
+
+OpenS0 = ohlcValues[0];
+
+Var: MyATR(0);
+Var: TimeWindow (False);
+Var: L_EntryLevel(0), S_EntryLevel(0);
+var:  MyExitTime(False);
+
+
+input: MySize(1);
+Input: TW_ON(1), MyStartTrade(0900), MyEndTrade(1300);
+Input: ATRFactorL(6), ATRFactorS(8.5), MyAtrLen(500);
+Input: ExitBeg(1530), ExitEnd(1545), StopLoss(1300), TakeProfit(4000);//, Breakeven(0);
+Input: PtnFastLongYes(26), PtnFastShortYes(57), PtnFastLongNo(62), PtnFastShortNo(23);
+
+MyATR=AvgTrueRange(MyAtrLen);
+
+
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>	Settin' of TimeWindow 
+
+If TW_ON = 0 then TimeWindow=True
+else begin
+	if MyStartTrade>MyEndTrade then TimeWindow = T>=MyStartTrade or T<MyEndTrade
+	else TimeWindow  = T>=MyStartTrade and T<MyEndTrade;
+End;
+
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>	Setting of Entry Levels & Threshold
+
+L_EntryLevel = OpenS0 + (MyATR*ATRFactorL);  
+
+S_EntryLevel = OpenS0 - (MyATR*ATRFactorS);
+
+
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>	Trading
+
+if EntriesToday(d)=0 and TimeWindow then begin
+
+	//Buy
+	if c >  L_EntryLevel
+	and PatternFast (PtnFastLongYes,ohlcvalues) and (PatternFast (PtnFastLongNo,ohlcvalues)  =false) 
+	then buy("LE_ATR_BO-TF") MySize contracts next bar market;	
+	
+	//SellShort
+	If C < S_EntryLevel
+	and PatternFast (PtnFastShortYes,ohlcvalues) and (PatternFast (PtnFastShortNo,ohlcvalues)  =false) 
+	then sellshort ("SE_ATR_BO-TF") MySize contracts next bar market;
+end;
+
+
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> Setting Of Exit Orders.1 "SL, TP"	
+
+setstopcontract;
+if StopLoss>0 then setstoploss(stoploss);
+if TakeProfit>0 then setprofittarget(takeprofit);
+
+
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>Setting of Exit Orders.2 Exit Before EndOfSession
+MyExitTime = Time>=ExitBeg and Time<=ExitEnd;
+
+
+If MyExitTime then Begin
+	If Mp=1 then Sell("EodLXx_ATR_BO-TF") MySize contracts next bar market; 
+	If Mp=-1 then buytocover("EodSXx_ATR_BO-TF") MySize contracts next bar market;
+
+end;
+
+//////////////////
+//EQUITY_SHAPE(1);
+//////////////////
+//TITAN FAST EXPORT (mette il report direttamente in C:\Titan\Reports
+input: TitanExportMode(0);
+if TitanExportMode=1 then WriteDailiesCTitanReports(1080101, TitanExportMode);

@@ -1,0 +1,309 @@
+<div class="backtesting-container">
+  <header class="page-header">
+    <h1>📊 Backtesting con Rotazione Settimanale</h1>
+    <p>Testa le strategie su dati storici con ottimizzazione settimanale</p>
+  </header>
+
+  <!-- Error -->
+  <div class="error-message" *ngIf="error">
+    ❌ {{ error }}
+    <button class="close-btn" (click)="error = null">×</button>
+  </div>
+
+  <!-- Tabs -->
+  <div class="tabs">
+    <button [class.active]="activeTab === 'config'" (click)="activeTab = 'config'">
+      ⚙️ Configurazione
+    </button>
+    <button [class.active]="activeTab === 'chart'" (click)="activeTab = 'chart'; drawChart()" *ngIf="result">
+      📈 Chart
+    </button>
+    <button [class.active]="activeTab === 'table'" (click)="activeTab = 'table'" *ngIf="result">
+      📋 Tabella Settimanale
+    </button>
+    <button [class.active]="activeTab === 'trades'" (click)="activeTab = 'trades'" *ngIf="result">
+      💹 Trades
+    </button>
+  </div>
+
+  <!-- Tab: Configurazione -->
+  <div class="tab-content" *ngIf="activeTab === 'config'">
+    <div class="config-grid">
+      <!-- Setup Selection -->
+      <div class="card">
+        <h3>🎯 Setup di Ottimizzazione</h3>
+        <div class="form-group">
+          <label>Seleziona Setup *</label>
+          <select [(ngModel)]="selectedSetupId" (change)="onSetupSelect()">
+            <option value="">-- Seleziona un setup --</option>
+            <option *ngFor="let setup of savedSetups" [value]="setup.id">
+              {{ setup.name }} (Score: {{ formatNumber(setup.finalScore) }})
+            </option>
+          </select>
+          <span class="hint">Il setup definisce i parametri di ottimizzazione</span>
+        </div>
+        <div class="form-group">
+          <label>Nome Backtest</label>
+          <input type="text" [(ngModel)]="setupName">
+        </div>
+      </div>
+
+      <!-- Symbol & Period -->
+      <div class="card">
+        <h3>📅 Periodo e Simbolo</h3>
+        <div class="form-group">
+          <label>Simbolo</label>
+          <select [(ngModel)]="selectedSymbol">
+            <option *ngFor="let sym of symbols" [value]="sym.symbol">
+              {{ sym.symbol }}
+            </option>
+          </select>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Data Inizio</label>
+            <input type="date" [(ngModel)]="startDate">
+          </div>
+          <div class="form-group">
+            <label>Data Fine</label>
+            <input type="date" [(ngModel)]="endDate">
+          </div>
+        </div>
+      </div>
+
+      <!-- Trading Parameters -->
+      <div class="card">
+        <h3>💰 Parametri Trading</h3>
+        <div class="form-group">
+          <label>Balance Iniziale ($)</label>
+          <input type="number" [(ngModel)]="initialBalance" min="1000">
+        </div>
+        <div class="form-group">
+          <label>Commissione per Trade ($)</label>
+          <input type="number" [(ngModel)]="commissionPerTrade" min="0" step="0.5">
+        </div>
+      </div>
+
+      <!-- Weekly Rotation -->
+      <div class="card">
+        <h3>🔄 Rotazione Settimanale</h3>
+        <div class="form-group checkbox">
+          <label>
+            <input type="checkbox" [(ngModel)]="useWeeklyRotation">
+            Abilita rotazione settimanale strategie
+          </label>
+        </div>
+        <div class="form-group" *ngIf="useWeeklyRotation">
+          <label>Settimane di Lookback per Ottimizzazione</label>
+          <input type="number" [(ngModel)]="optimizationLookbackWeeks" min="1" max="52">
+          <span class="hint">Quante settimane di dati usare per l'ottimizzazione ad ogni rotazione</span>
+        </div>
+        <div class="info-box">
+          <strong>Come funziona:</strong><br>
+          Ad ogni inizio settimana, il sistema:
+          <ol>
+            <li>Esegue l'ottimizzazione sulle ultime N settimane</li>
+            <li>Seleziona le strategie migliori da attivare</li>
+            <li>Esegue il trading con le strategie attive</li>
+          </ol>
+        </div>
+      </div>
+    </div>
+
+    <!-- Run Button -->
+    <div class="action-bar">
+      <button class="primary-btn" (click)="runBacktest()" [disabled]="isRunning || !selectedSetupId">
+        <span *ngIf="!isRunning">▶️ Esegui Backtest</span>
+        <span *ngIf="isRunning">⏳ Backtest in corso...</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Tab: Chart -->
+  <div class="tab-content chart-tab" *ngIf="activeTab === 'chart' && result">
+    <!-- Summary Cards -->
+    <div class="summary-grid">
+      <div class="summary-card" [class.positive]="result.summary.totalReturn > 0" [class.negative]="result.summary.totalReturn < 0">
+        <span class="label">Return Totale</span>
+        <span class="value">{{ formatCurrency(result.summary.totalReturn) }}</span>
+        <span class="sub">{{ formatPercent(result.summary.totalReturnPercent / 100) }}</span>
+      </div>
+      <div class="summary-card negative">
+        <span class="label">Max Drawdown</span>
+        <span class="value">{{ formatCurrency(result.summary.maxDrawdown) }}</span>
+        <span class="sub">{{ formatPercent(result.summary.maxDrawdownPercent / 100) }}</span>
+      </div>
+      <div class="summary-card">
+        <span class="label">Sharpe Ratio</span>
+        <span class="value">{{ formatNumber(result.summary.sharpeRatio) }}</span>
+      </div>
+      <div class="summary-card">
+        <span class="label">Win Rate</span>
+        <span class="value">{{ formatPercent(result.summary.winRate) }}</span>
+      </div>
+      <div class="summary-card">
+        <span class="label">Profit Factor</span>
+        <span class="value">{{ formatNumber(result.summary.profitFactor) }}</span>
+      </div>
+      <div class="summary-card">
+        <span class="label">Total Trades</span>
+        <span class="value">{{ result.summary.totalTrades }}</span>
+      </div>
+    </div>
+
+    <!-- Chart Controls -->
+    <div class="chart-controls">
+      <label [class.active]="chartConfig.showEquity">
+        <input type="checkbox" [checked]="chartConfig.showEquity" (change)="toggleChartSeries('equity')">
+        <span class="color-box equity"></span> Equity
+      </label>
+      <label [class.active]="chartConfig.showProfit">
+        <input type="checkbox" [checked]="chartConfig.showProfit" (change)="toggleChartSeries('profit')">
+        <span class="color-box profit"></span> Cumulative Return
+      </label>
+      <label [class.active]="chartConfig.showDrawdown">
+        <input type="checkbox" [checked]="chartConfig.showDrawdown" (change)="toggleChartSeries('drawdown')">
+        <span class="color-box drawdown"></span> Drawdown
+      </label>
+    </div>
+
+    <!-- Chart Canvas -->
+    <div class="chart-container">
+      <canvas #chartCanvas [width]="chartWidth" [height]="chartHeight"></canvas>
+    </div>
+
+    <!-- Period Info -->
+    <div class="period-info">
+      <span>📅 {{ formatDate(result.startDate) }} - {{ formatDate(result.endDate) }}</span>
+      <span>📊 {{ result.totalWeeks }} settimane</span>
+      <span>💰 {{ formatCurrency(result.initialBalance) }} → {{ formatCurrency(result.finalBalance) }}</span>
+    </div>
+  </div>
+
+  <!-- Tab: Tabella Settimanale -->
+  <div class="tab-content" *ngIf="activeTab === 'table' && result">
+    <div class="table-container">
+      <table class="weekly-table">
+        <thead>
+          <tr>
+            <th>Settimana</th>
+            <th>Strategie Attive</th>
+            <th>Equity Inizio</th>
+            <th>Equity Fine</th>
+            <th>Profit</th>
+            <th>Profit %</th>
+            <th>Drawdown</th>
+            <th>Trades</th>
+            <th>Win Rate</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr *ngFor="let week of result.weeklyResults" [class]="getProfitClass(week.weeklyProfit)">
+            <td class="week-cell">
+              <strong>{{ getWeekLabel(week) }}</strong>
+              <small>{{ formatDate(week.weekStart) }}</small>
+            </td>
+            <td class="strategies-cell">
+              <span *ngFor="let s of week.enabledStrategies" class="strategy-chip active">{{ s }}</span>
+              <span *ngFor="let s of week.disabledStrategies" class="strategy-chip disabled">{{ s }}</span>
+            </td>
+            <td>{{ formatCurrency(week.startEquity) }}</td>
+            <td>{{ formatCurrency(week.endEquity) }}</td>
+            <td [class]="getProfitClass(week.weeklyProfit)">
+              <strong>{{ formatCurrency(week.weeklyProfit) }}</strong>
+            </td>
+            <td [class]="getProfitClass(week.weeklyProfitPercent)">
+              {{ formatPercent(week.weeklyProfitPercent / 100) }}
+            </td>
+            <td class="negative">{{ formatPercent(week.weeklyDrawdownPercent / 100) }}</td>
+            <td>{{ week.tradesCount }}</td>
+            <td>{{ formatPercent(week.winRate) }}</td>
+          </tr>
+        </tbody>
+        <tfoot>
+          <tr class="total-row">
+            <td colspan="2"><strong>TOTALE</strong></td>
+            <td>{{ formatCurrency(result.initialBalance) }}</td>
+            <td>{{ formatCurrency(result.finalBalance) }}</td>
+            <td [class]="getProfitClass(result.summary.totalReturn)">
+              <strong>{{ formatCurrency(result.summary.totalReturn) }}</strong>
+            </td>
+            <td [class]="getProfitClass(result.summary.totalReturnPercent)">
+              <strong>{{ formatPercent(result.summary.totalReturnPercent / 100) }}</strong>
+            </td>
+            <td class="negative">{{ formatPercent(result.summary.maxDrawdownPercent / 100) }}</td>
+            <td>{{ result.summary.totalTrades }}</td>
+            <td>{{ formatPercent(result.summary.winRate) }}</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  </div>
+
+  <!-- Tab: Trades -->
+  <div class="tab-content" *ngIf="activeTab === 'trades' && result">
+    <div class="trades-summary">
+      <div class="stat">
+        <span class="label">Winning Trades</span>
+        <span class="value positive">{{ result.summary.winningTrades }}</span>
+      </div>
+      <div class="stat">
+        <span class="label">Losing Trades</span>
+        <span class="value negative">{{ result.summary.losingTrades }}</span>
+      </div>
+      <div class="stat">
+        <span class="label">Avg Win</span>
+        <span class="value positive">{{ formatCurrency(result.summary.averageWin) }}</span>
+      </div>
+      <div class="stat">
+        <span class="label">Avg Loss</span>
+        <span class="value negative">{{ formatCurrency(result.summary.averageLoss) }}</span>
+      </div>
+      <div class="stat">
+        <span class="label">Largest Win</span>
+        <span class="value positive">{{ formatCurrency(result.summary.largestWin) }}</span>
+      </div>
+      <div class="stat">
+        <span class="label">Largest Loss</span>
+        <span class="value negative">{{ formatCurrency(result.summary.largestLoss) }}</span>
+      </div>
+    </div>
+
+    <div class="table-container">
+      <table class="trades-table">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Data</th>
+            <th>Settimana</th>
+            <th>Strategia</th>
+            <th>Direzione</th>
+            <th>Entry</th>
+            <th>Exit</th>
+            <th>P/L</th>
+            <th>P/L %</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr *ngFor="let trade of result.trades" [class]="trade.isWin ? 'win-row' : 'loss-row'">
+            <td>{{ trade.id }}</td>
+            <td>{{ formatDate(trade.date) }}</td>
+            <td>W{{ trade.week }}/{{ trade.year }}</td>
+            <td>{{ trade.strategyName }}</td>
+            <td [class]="trade.direction === 'Long' ? 'long' : 'short'">
+              {{ trade.direction }}
+            </td>
+            <td>{{ formatNumber(trade.entryPrice) }}</td>
+            <td>{{ formatNumber(trade.exitPrice) }}</td>
+            <td [class]="getProfitClass(trade.netProfit)">
+              <strong>{{ formatCurrency(trade.netProfit) }}</strong>
+            </td>
+            <td [class]="getProfitClass(trade.profitPercent)">
+              {{ formatPercent(trade.profitPercent / 100) }}
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
