@@ -48,7 +48,7 @@ public partial class WorkspaceBacktestingForm : Form
     private readonly ComboBox _titanoBacktestCombo = new();
     private readonly Label _titanoPathLabel = new();
     private readonly Button _refreshTitanoBacktestsButton = new();
-    private readonly Button _openTitanoFolderButton = new();
+    private readonly Button _openTitanoReportButton = new();
     private readonly ComboBox _titanoPeriodCombo = new();
     private readonly DateTimePicker _titanoStartPicker = new();
     private readonly DateTimePicker _titanoEndPicker = new();
@@ -374,10 +374,10 @@ public partial class WorkspaceBacktestingForm : Form
         _refreshTitanoBacktestsButton.Text = "Aggiorna backtest";
         _refreshTitanoBacktestsButton.AutoSize = true;
         _refreshTitanoBacktestsButton.Click += async (_, _) => await LoadTitanoBacktestsAsync(showErrors: true);
-        _openTitanoFolderButton.Text = "Apri cartella risultati";
-        _openTitanoFolderButton.AutoSize = true;
-        _openTitanoFolderButton.Enabled = false;
-        _openTitanoFolderButton.Click += (_, _) => OpenSelectedTitanoFolder();
+        _openTitanoReportButton.Text = "Visualizza report HTML";
+        _openTitanoReportButton.AutoSize = true;
+        _openTitanoReportButton.Enabled = false;
+        _openTitanoReportButton.Click += async (_, _) => await OpenTitanoReportAsync();
         root.Controls.Add(new FlowLayoutPanel
         {
             Dock = DockStyle.Top,
@@ -387,7 +387,7 @@ public partial class WorkspaceBacktestingForm : Form
                 new Label { Text = "Backtest:", AutoSize = true, Padding = new Padding(0, 7, 8, 0) },
                 _titanoBacktestCombo,
                 _refreshTitanoBacktestsButton,
-                _openTitanoFolderButton
+                _openTitanoReportButton
             }
         }, 0, 1);
 
@@ -641,10 +641,10 @@ public partial class WorkspaceBacktestingForm : Form
         _cancelBacktestButton.Enabled = false;
         _cancelBacktestButton.Click += async (_, _) => await CancelBacktestingAsync();
 
-        _openReportButton.Text = "Apri report HTML";
+        _openReportButton.Text = "Visualizza report HTML";
         _openReportButton.AutoSize = true;
         _openReportButton.Enabled = false;
-        _openReportButton.Click += (_, _) => OpenLastReport();
+        _openReportButton.Click += async (_, _) => await OpenLastReportAsync();
 
         _progressBar.Width = 240;
         _progressBar.Style = ProgressBarStyle.Continuous;
@@ -680,7 +680,7 @@ public partial class WorkspaceBacktestingForm : Form
         {
             _basePathTextBox.Text = "Gestito dal server";
             _basePathTextBox.ReadOnly = true;
-            await LoadStrategiesAsync();
+            await WaitForServerAndLoadStrategiesAsync();
             PopulateWorkspaceStrategiesChecklist(Array.Empty<string>());
             Log("Client inizializzato.");
             await ReloadWorkspacesAsync(showErrors: false);
@@ -690,6 +690,32 @@ public partial class WorkspaceBacktestingForm : Form
             Log($"Errore inizializzazione: {ex.Message}");
             MessageBox.Show(ex.Message, "Errore", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
+    }
+
+    private async Task WaitForServerAndLoadStrategiesAsync()
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(30);
+        Exception? lastError = null;
+        _statusLabel.Text = "Attesa API…";
+
+        while (DateTime.UtcNow < deadline)
+        {
+            try
+            {
+                await LoadStrategiesAsync();
+                _statusLabel.Text = "Pronto";
+                return;
+            }
+            catch (Exception ex) when (ex is HttpRequestException or InvalidOperationException or TaskCanceledException)
+            {
+                lastError = ex;
+                await Task.Delay(500);
+            }
+        }
+
+        throw new InvalidOperationException(
+            "Il server API non è diventato disponibile entro 30 secondi.",
+            lastError);
     }
 
     private async void ReloadSettingsAndStrategies()
@@ -1357,7 +1383,7 @@ public partial class WorkspaceBacktestingForm : Form
         Close();
     }
 
-    private void OpenLastReport()
+    private async Task OpenLastReportAsync()
     {
         if (string.IsNullOrWhiteSpace(_lastJobId))
         {
@@ -1365,17 +1391,25 @@ public partial class WorkspaceBacktestingForm : Form
             return;
         }
 
-        Process.Start(new ProcessStartInfo
+        try
         {
-            FileName = _workspaceApi.GetBacktestingReportUri(_lastJobId).ToString(),
-            UseShellExecute = true
-        });
+            await HtmlReportViewerForm.ShowFromUriAsync(
+                this,
+                _httpClient,
+                _workspaceApi.GetBacktestingReportUri(_lastJobId),
+                "Risultati backtest");
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(ex.Message, "Report backtest", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
     }
 
     private async Task LoadTitanoBacktestsAsync(bool showErrors = false)
     {
         _titanoBacktestCombo.Items.Clear();
-        _openTitanoFolderButton.Enabled = false;
+        _openTitanoReportButton.Enabled = false;
+        _lastTitanoManifest = null;
 
         if (_titanoWorkspaceCombo.SelectedItem is not WorkspaceListItem workspace)
         {
@@ -1412,14 +1446,14 @@ public partial class WorkspaceBacktestingForm : Form
     {
         if (_titanoBacktestCombo.SelectedItem is not WorkspaceBacktestItem item)
         {
-            _openTitanoFolderButton.Enabled = false;
+            _openTitanoReportButton.Enabled = false;
             return;
         }
 
         _titanoPathLabel.Text = item.Info.HasResults
-            ? $"Input/base selezionato:{Environment.NewLine}{item.Info.FullPath}"
-            : $"La cartella selezionata non contiene risultati backtest:{Environment.NewLine}{item.Info.FullPath}";
-        _openTitanoFolderButton.Enabled = item.Info.HasResults && Directory.Exists(item.Info.FullPath);
+            ? $"Input/base selezionato: {item.Info.FolderName}"
+            : $"Il backtest '{item.Info.FolderName}' non contiene risultati.";
+        _openTitanoReportButton.Enabled = false;
     }
 
     private async Task CreateTradingSessionAsync()
@@ -1562,10 +1596,11 @@ public partial class WorkspaceBacktestingForm : Form
                 ?? throw new InvalidOperationException("Manifest Titano non ricevuto.");
             _lastTitanoManifest = manifest;
             _titanoResetHardStopButton.Enabled = manifest.Periods.SelectMany(x => x.Strategies).Any(x => x.HardStopped);
+            _openTitanoReportButton.Enabled = true;
             var lines = new List<string>
             {
                 $"RunId: {manifest.RunId}",
-                $"Manifest: {Path.Combine(backtest.Info.FullPath, "titano", manifest.RunId, "manifest.json")}",
+                "Manifest e report sono gestiti dal server tramite API.",
                 "TitanoRunId può essere associato a sessioni ServerSimulated o ExternalBroker."
             };
             foreach (var period in manifest.Periods)
@@ -1630,16 +1665,31 @@ public partial class WorkspaceBacktestingForm : Form
         Log($"Reset hard-stop auditato per {strategy}; efficace dal periodo successivo.");
     }
 
-    private void OpenSelectedTitanoFolder()
+    private async Task OpenTitanoReportAsync()
     {
-        if (_titanoBacktestCombo.SelectedItem is not WorkspaceBacktestItem item ||
-            !Directory.Exists(item.Info.FullPath))
+        if (_lastTitanoManifest is null ||
+            _titanoWorkspaceCombo.SelectedItem is not WorkspaceListItem workspace ||
+            _titanoBacktestCombo.SelectedItem is not WorkspaceBacktestItem backtest)
         {
-            MessageBox.Show("Cartella risultati non disponibile.", "Titano", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            MessageBox.Show("Esegui prima Titano per generare il report.", "Titano",
+                MessageBoxButtons.OK, MessageBoxIcon.Information);
             return;
         }
 
-        Process.Start(new ProcessStartInfo { FileName = item.Info.FullPath, UseShellExecute = true });
+        try
+        {
+            NormalizeBaseAddress();
+            var uri = new Uri(_httpClient.BaseAddress!,
+                $"api/Titano/rotations/{Uri.EscapeDataString(_lastTitanoManifest.RunId)}/report" +
+                $"?workspaceId={Uri.EscapeDataString(workspace.Info.Id)}" +
+                $"&backtestFolder={Uri.EscapeDataString(backtest.Info.FolderName)}");
+            await HtmlReportViewerForm.ShowFromUriAsync(
+                this, _httpClient, uri, $"Risultati Titano · {_lastTitanoManifest.RunId}");
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(ex.Message, "Report Titano", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
     }
 
     private void Log(string message)

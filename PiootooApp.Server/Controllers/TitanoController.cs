@@ -123,6 +123,19 @@ public class TitanoController : ControllerBase
         catch (ArgumentException ex) { return BadRequest(new { error = ex.Message }); }
     }
 
+    [HttpGet("rotations/{runId}/report")]
+    public IActionResult GetRotationReport(
+        string runId, [FromQuery] string workspaceId, [FromQuery] string backtestFolder)
+    {
+        try
+        {
+            var path = _rotationService.GetHtmlReportPath(workspaceId, backtestFolder, runId);
+            return PhysicalFile(path, "text/html; charset=utf-8");
+        }
+        catch (FileNotFoundException ex) { return NotFound(new { error = ex.Message }); }
+        catch (ArgumentException ex) { return BadRequest(new { error = ex.Message }); }
+    }
+
     [HttpPost("rotations/{runId}/hard-stop-reset")]
     public ActionResult<TitanoHardStopReset> ResetHardStop(
         string runId, [FromQuery] string workspaceId, [FromQuery] string backtestFolder,

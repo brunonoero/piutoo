@@ -1,11 +1,14 @@
 using System.Text;
+using System.Collections.Concurrent;
 
 namespace Piootoo.Core.Services;
 
 /// <summary>Scrive file completi tramite un temporaneo univoco nella stessa directory.</summary>
 public static class AtomicFileWriter
 {
-    private const int MaxAttempts = 10;
+    private const int MaxAttempts = 30;
+    private static readonly ConcurrentDictionary<string, object> CommitGates =
+        new(StringComparer.OrdinalIgnoreCase);
 
     public static void WriteAllText(string path, string contents, Encoding? encoding = null)
     {
@@ -32,7 +35,10 @@ public static class AtomicFileWriter
                 stream.Flush(flushToDisk: true);
             }
 
-            CommitWithRetry(tempPath, fullPath);
+            lock (CommitGates.GetOrAdd(fullPath, _ => new object()))
+            {
+                CommitWithRetry(tempPath, fullPath);
+            }
         }
         finally
         {
@@ -64,7 +70,10 @@ public static class AtomicFileWriter
                 stream.Flush(flushToDisk: true);
             }
 
-            CommitWithRetry(tempPath, fullPath);
+            lock (CommitGates.GetOrAdd(fullPath, _ => new object()))
+            {
+                CommitWithRetry(tempPath, fullPath);
+            }
         }
         finally
         {
@@ -126,11 +135,18 @@ public static class AtomicFileWriter
 
                 return;
             }
-            catch (IOException ex) when (attempt < MaxAttempts && IsSharingViolation(ex))
+            catch (IOException ex) when (attempt < MaxAttempts && IsTransientCommitError(ex))
             {
-                Thread.Sleep(TimeSpan.FromMilliseconds(Math.Min(100, 25 * attempt)));
+                Thread.Sleep(TimeSpan.FromMilliseconds(Math.Min(250, 25 * attempt)));
             }
         }
+    }
+
+    private static bool IsTransientCommitError(IOException exception)
+    {
+        var errorCode = exception.HResult & 0xFFFF;
+        return IsSharingViolation(exception) ||
+               errorCode is 5 or 1175 or 1176 or 1177;
     }
 
     private static bool IsSharingViolation(IOException exception)

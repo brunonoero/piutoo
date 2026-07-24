@@ -1,4 +1,6 @@
 using System.Collections.Concurrent;
+using System.Globalization;
+using System.Net;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -44,7 +46,12 @@ public sealed class TitanoRotationService
 
         lock (Gates.GetOrAdd(manifestPath, _ => new object()))
         {
-            if (File.Exists(manifestPath)) return ReadManifest(manifestPath);
+            if (File.Exists(manifestPath))
+            {
+                var existing = ReadManifest(manifestPath);
+                EnsureHtmlReport(runPath, existing);
+                return existing;
+            }
             var trades = JsonSerializer.Deserialize<List<PersistedTrade>>(sourceBytes, JsonOptions) ?? [];
             ValidateTrades(trades);
             var periods = BuildPeriods(request).ToList();
@@ -66,6 +73,7 @@ public sealed class TitanoRotationService
             foreach (var decision in decisions)
                 WriteNewAtomic(Path.Combine(runPath, $"period-{decision.PeriodId}.json"), decision);
             WriteNewAtomic(manifestPath, manifest);
+            EnsureHtmlReport(runPath, manifest);
             return manifest;
         }
     }
@@ -92,6 +100,83 @@ public sealed class TitanoRotationService
         var manifest = ReadManifest(path);
         manifest.HardStopResets.AddRange(ReadResets(Path.GetDirectoryName(path)!));
         return manifest;
+    }
+
+    public string GetHtmlReportPath(string workspaceId, string backtestFolder, string runId)
+    {
+        var safeRunId = SafeSegment(runId);
+        var runPath = Path.Combine(
+            _workspaces.GetBacktestPath(workspaceId, backtestFolder), "titano", safeRunId);
+        var manifestPath = Path.Combine(runPath, "manifest.json");
+        if (!File.Exists(manifestPath)) throw new FileNotFoundException($"Run Titano '{runId}' non trovato.");
+        EnsureHtmlReport(runPath, ReadManifest(manifestPath));
+        return Path.Combine(runPath, "report.html");
+    }
+
+    private static void EnsureHtmlReport(string runPath, TitanoRotationManifest manifest)
+    {
+        var path = Path.Combine(runPath, "report.html");
+        if (File.Exists(path)) return;
+
+        static string H(object? value) =>
+            WebUtility.HtmlEncode(Convert.ToString(value, CultureInfo.InvariantCulture)) ?? string.Empty;
+        static string Money(decimal value) => value.ToString("N2", CultureInfo.InvariantCulture);
+        static string Percent(decimal value) => value.ToString("P2", CultureInfo.InvariantCulture);
+
+        var finalBalance = manifest.FilteredEquity.LastOrDefault()?.Balance ?? manifest.Config.InitialCapital;
+        var netProfit = finalBalance - manifest.Config.InitialCapital;
+        var enabledStates = manifest.Periods.SelectMany(x => x.Strategies).Count(x => x.Enabled);
+        var html = new StringBuilder();
+        html.Append("""
+            <!doctype html><html><head><meta charset="utf-8"><title>Report Titano</title>
+            <style>
+            body{font-family:Segoe UI,Arial,sans-serif;margin:0;background:#f3f5f8;color:#172033}
+            main{max-width:1400px;margin:auto;padding:28px}.cards{display:flex;gap:14px;flex-wrap:wrap}
+            .card{background:white;border-radius:9px;padding:16px;min-width:180px;box-shadow:0 1px 5px #ccd2dc}
+            .value{font-size:24px;font-weight:650;margin-top:6px}h1,h2{margin:0 0 18px}
+            h2{margin-top:28px}table{width:100%;border-collapse:collapse;background:white;font-size:13px}
+            th,td{padding:9px 10px;border-bottom:1px solid #e3e7ed;text-align:left;white-space:nowrap}
+            th{background:#202b40;color:white;position:sticky;top:0}.enabled{color:#08783e;font-weight:600}
+            .disabled,.hardstopped{color:#b42318;font-weight:600}.reduced{color:#a15c00;font-weight:600}
+            .scroll{overflow:auto;max-height:520px;border-radius:8px;box-shadow:0 1px 5px #ccd2dc}
+            </style></head><body><main>
+            """);
+        html.Append($"<h1>Report Titano</h1><p>Run <strong>{H(manifest.RunId)}</strong> · generato {H(manifest.GeneratedAtUtc.ToString("u"))}</p>");
+        html.Append("<section class=\"cards\">");
+        html.Append($"<div class=\"card\">Capitale finale<div class=\"value\">{H(Money(finalBalance))}</div></div>");
+        html.Append($"<div class=\"card\">Profitto netto<div class=\"value\">{H(Money(netProfit))}</div></div>");
+        html.Append($"<div class=\"card\">Periodi<div class=\"value\">{manifest.Periods.Count}</div></div>");
+        html.Append($"<div class=\"card\">Stati abilitati<div class=\"value\">{enabledStates}</div></div>");
+        html.Append($"<div class=\"card\">Trade filtrati<div class=\"value\">{manifest.FilteredEquity.Count}</div></div></section>");
+
+        html.Append("<h2>Decisioni per periodo</h2><div class=\"scroll\"><table><thead><tr>" +
+                    "<th>Periodo effettivo</th><th>Strategia</th><th>Stato</th><th>Allocazione</th>" +
+                    "<th>Score</th><th>Voti</th><th>Return breve</th><th>Return lungo</th>" +
+                    "<th>Drawdown</th><th>Motivo</th></tr></thead><tbody>");
+        foreach (var period in manifest.Periods)
+        foreach (var state in period.Strategies)
+        {
+            var css = state.State.ToString().ToLowerInvariant();
+            html.Append($"<tr><td>{H(period.EffectiveFromUtc.ToString("u"))} – {H(period.EffectiveToUtc.ToString("u"))}</td>" +
+                        $"<td>{H(state.StrategyCode)}</td><td class=\"{css}\">{H(state.State)}</td>" +
+                        $"<td>{H(Percent(state.AllocationMultiplier))}</td><td>{H(state.Score.ToString("F3", CultureInfo.InvariantCulture))}</td>" +
+                        $"<td>{state.PassingFilters}/{state.TotalFilters}</td><td>{H(Percent(state.Metrics.ShortReturn))}</td>" +
+                        $"<td>{H(Percent(state.Metrics.LongReturn))}</td><td>{H(Percent(state.Metrics.CurrentDrawdown))}</td>" +
+                        $"<td>{H(state.Reason)}</td></tr>");
+        }
+        html.Append("</tbody></table></div><h2>Walk-forward</h2><div class=\"scroll\"><table><thead><tr>" +
+                    "<th>Periodo</th><th>Calibrazione</th><th>Valutazione</th><th>Profitto IS</th><th>Profitto OOS</th><th>Avviso</th>" +
+                    "</tr></thead><tbody>");
+        foreach (var item in manifest.WalkForward)
+            html.Append($"<tr><td>{H(item.EvaluationPeriodId)}</td><td>{H(item.CalibrationFromUtc.ToString("u"))} – {H(item.CalibrationToUtc.ToString("u"))}</td>" +
+                        $"<td>{H(item.EvaluationFromUtc.ToString("u"))} – {H(item.EvaluationToUtc.ToString("u"))}</td>" +
+                        $"<td>{H(Money(item.InSampleNetProfit))}</td><td>{H(Money(item.OutOfSampleNetProfit))}</td>" +
+                        $"<td>{(item.InSampleOnlyImprovementWarning ? "Migliora solo in-sample" : "")}</td></tr>");
+        html.Append("</tbody></table></div></main></body></html>");
+
+        var tempPath = path + $".{Guid.NewGuid():N}.tmp";
+        File.WriteAllText(tempPath, html.ToString(), new UTF8Encoding(false));
+        File.Move(tempPath, path);
     }
 
     public TitanoHardStopReset ResetHardStop(
