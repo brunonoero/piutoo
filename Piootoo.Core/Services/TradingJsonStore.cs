@@ -28,15 +28,18 @@ public sealed class TradingJsonStore
 
     public string SignalsPath => Path.Combine(_directory, TradingPersistenceSchema.SignalsFileName);
     public string TradesPath => Path.Combine(_directory, TradingPersistenceSchema.TradesFileName);
+    public string RotationLogPath => Path.Combine(_directory, DiagnosticsSchema.RotationLogFileName);
 
     public void Initialize()
     {
         WriteSignals([]);
         WriteTrades([]);
+        WriteRotationLog([]);
     }
 
     public IReadOnlyList<PersistedSignal> ReadSignals() => Read<PersistedSignal>(SignalsPath);
     public IReadOnlyList<PersistedTrade> ReadTrades() => Read<PersistedTrade>(TradesPath);
+    public IReadOnlyList<RotationLogEntry> ReadRotationLog() => Read<RotationLogEntry>(RotationLogPath);
 
     public void UpsertSignals(IEnumerable<PersistedSignal> values)
     {
@@ -65,6 +68,10 @@ public sealed class TradingJsonStore
         ValidateTrades(materialized);
         WriteDistinct(TradesPath, materialized, value => value.TradeId);
     }
+
+    /// <summary>Sostituisce l'intero log di rotazione (una riga per barra) con l'elenco fornito, deduplicato per EntryId.</summary>
+    public void WriteRotationLog(IEnumerable<RotationLogEntry> values) =>
+        WriteDistinct(RotationLogPath, values.ToArray(), value => value.EntryId);
 
     private static void ValidateSignals(IEnumerable<PersistedSignal> values)
     {

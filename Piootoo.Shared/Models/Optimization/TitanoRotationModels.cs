@@ -111,6 +111,21 @@ public sealed class TitanoStrategyState
     public required string Reason { get; init; }
     public IReadOnlyList<string> Reasons { get; init; } = [];
     public TitanoPeriodMetrics Metrics { get; init; } = new();
+    /// <summary>Stato dello stesso periodo precedente per questa strategia; null se è il primo periodo osservato.</summary>
+    public TitanoStrategyStatus? PreviousState { get; init; }
+    /// <summary>
+    /// Descrive il cambio di stato rispetto al periodo precedente: "NewlyTracked", "Unchanged",
+    /// "EnabledToDisabled", "DisabledToEnabled", "HardStopTriggered", "HardStopReleased", "AllocationChanged".
+    /// Pensato per individuare a colpo d'occhio (o via script) le rotazioni dove una strategia ha cambiato
+    /// comportamento, senza dover fare il diff manuale di due periodi.
+    /// </summary>
+    public required string TransitionType { get; init; }
+    /// <summary>
+    /// Incongruenze rilevate automaticamente in questo stato (es. Enabled=true con AllocationMultiplier=0,
+    /// oppure HardStopped=true con Enabled=true). Vuoto se nessuna anomalia è stata rilevata; utile per
+    /// individuare rapidamente bug nel calcolo della rotazione senza rileggere tutta la logica.
+    /// </summary>
+    public IReadOnlyList<string> AnomalyFlags { get; init; } = [];
 }
 
 public sealed class TitanoFilterVote
@@ -190,6 +205,12 @@ public sealed class TitanoEffectiveStrategy
     public TitanoStrategyStatus State { get; init; }
     public int CooldownRemaining { get; init; }
     public bool HardStopped { get; init; }
+    /// <summary>Motivo sintetico della decisione nel periodo corrente (copiato da TitanoStrategyState.Reason).</summary>
+    public string? Reason { get; init; }
+    public decimal Score { get; init; }
+    public int PassingFilters { get; init; }
+    public int TotalFilters { get; init; }
+    public int ConsecutiveOnPeriods { get; init; }
 }
 
 public sealed class TitanoEffectiveStrategies

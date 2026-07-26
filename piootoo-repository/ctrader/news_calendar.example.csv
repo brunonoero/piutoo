@@ -1,0 +1,22 @@
+# Calendario news per PiootooRiskGuardianBot.
+# Formato: DateTimeUtc,Symbols,Impact,Title
+#   DateTimeUtc : data/ora UTC in formato ISO 8601 (es. 2026-08-01T12:30:00Z)
+#   Symbols     : simboli coinvolti separati da ; oppure ALL / * per tutti i simboli
+#   Impact      : Low, Medium, High
+#   Title       : descrizione libera (facoltativa)
+#
+# Il bot ricarica questo file automaticamente quando la sua data di modifica cambia:
+# basta salvarlo (anche a mano, o generato da uno script che scarica il calendario economico)
+# mentre il bot e' in esecuzione.
+#
+# Percorso di default: %AppData%\PiootooRiskGuardian\news_calendar.csv
+# (rinominare questo file e copiarlo li', oppure impostare il parametro "File calendario news CSV"
+# con un percorso assoluto a piacere).
+#
+# Esempi (sostituire con le date reali della settimana):
+DateTimeUtc,Symbols,Impact,Title
+2026-08-01T12:30:00Z,ALL,High,US Non-Farm Payrolls
+2026-08-01T14:00:00Z,ALL,High,US ISM Manufacturing PMI
+2026-08-05T18:00:00Z,ALL,High,FOMC Interest Rate Decision
+2026-08-06T11:45:00Z,EURUSD;EURGBP,Medium,ECB Press Conference
+2026-08-07T08:30:00Z,XAUUSD;USOIL,Low,US Weekly Jobless Claims

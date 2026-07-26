@@ -137,7 +137,11 @@ public sealed class TitanoRotationService
                 State = x.HardStopped && resets.ContainsKey(x.StrategyCode)
                     ? TitanoStrategyStatus.Reduced : x.State,
                 CooldownRemaining = x.CooldownRemaining,
-                HardStopped = x.HardStopped && !resets.ContainsKey(x.StrategyCode)
+                HardStopped = x.HardStopped && !resets.ContainsKey(x.StrategyCode),
+                Reason = x.HardStopped && resets.ContainsKey(x.StrategyCode)
+                    ? $"hard stop resettato manualmente ({resets[x.StrategyCode]:O})" : x.Reason,
+                Score = x.Score, PassingFilters = x.PassingFilters, TotalFilters = x.TotalFilters,
+                ConsecutiveOnPeriods = x.ConsecutiveOnPeriods
             }).OrderBy(x => x.StrategyCode, StringComparer.Ordinal).ToArray() ?? [];
         enabled = states.Where(x => x.AllocationMultiplier > 0).Select(x => x.StrategyCode).ToArray();
         return new TitanoEffectiveStrategies
@@ -203,18 +207,24 @@ public sealed class TitanoRotationService
                 if (hardStopped) reasons.Insert(0, $"hard stop drawdown {metrics.CurrentDrawdown:P2} >= {request.HardStopDrawdown:P2}");
                 else if (!on && cooldown > 0) reasons.Add($"cooldown: {cooldown} periodi residui");
                 if (reasons.Count == 0) reasons.Add($"voto {passing}/{votes.Count}, score {score:F3}");
+                var newStatus = hardStopped ? TitanoStrategyStatus.HardStopped :
+                    multiplier == 0 ? TitanoStrategyStatus.Disabled :
+                    multiplier == 1 ? TitanoStrategyStatus.Enabled : TitanoStrategyStatus.Reduced;
+                var transitionType = ClassifyTransition(prior, newStatus);
+                var anomalies = DetectAnomalies(multiplier > 0, multiplier, newStatus, hardStopped, passing, request.MinimumPassingFilters);
                 var state = new TitanoStrategyState
                 {
                     StrategyCode = code, Enabled = multiplier > 0, AllocationMultiplier = multiplier,
-                    State = hardStopped ? TitanoStrategyStatus.HardStopped :
-                        multiplier == 0 ? TitanoStrategyStatus.Disabled :
-                        multiplier == 1 ? TitanoStrategyStatus.Enabled : TitanoStrategyStatus.Reduced,
+                    State = newStatus,
                     CooldownRemaining = cooldown,
                     ConsecutiveOnPeriods = multiplier > 0 ? (prior?.ConsecutiveOnPeriods ?? 0) + 1 : 0,
                     HardStopped = hardStopped, PassingFilters = passing, TotalFilters = votes.Count,
                     Votes = votes, Score = score,
                     Reason = string.Join("; ", reasons), Reasons = reasons,
-                    Metrics = metrics
+                    Metrics = metrics,
+                    PreviousState = prior?.State,
+                    TransitionType = transitionType,
+                    AnomalyFlags = anomalies
                 };
                 previous[code] = state;
                 return state;
@@ -374,6 +384,50 @@ public sealed class TitanoRotationService
             });
         }
         return result;
+    }
+
+    /// <summary>
+    /// Classifica il cambio di stato di una strategia rispetto al periodo precedente, per rendere
+    /// immediatamente visibili le transizioni rilevanti senza dover confrontare manualmente due periodi.
+    /// </summary>
+    private static string ClassifyTransition(TitanoStrategyState? prior, TitanoStrategyStatus newStatus)
+    {
+        if (prior is null) return "NewlyTracked";
+        if (prior.State == newStatus) return "Unchanged";
+        if (newStatus == TitanoStrategyStatus.HardStopped) return "HardStopTriggered";
+        if (prior.State == TitanoStrategyStatus.HardStopped) return "HardStopReleased";
+        var priorOn = prior.State is TitanoStrategyStatus.Enabled or TitanoStrategyStatus.Reduced;
+        var nowOn = newStatus is TitanoStrategyStatus.Enabled or TitanoStrategyStatus.Reduced;
+        if (priorOn && !nowOn) return "EnabledToDisabled";
+        if (!priorOn && nowOn) return "DisabledToEnabled";
+        return "AllocationChanged"; // es. Enabled <-> Reduced
+    }
+
+    /// <summary>
+    /// Controlli di coerenza automatici sullo stato calcolato, per intercettare bug di calcolo nella
+    /// rotazione (es. contraddizioni tra Enabled/AllocationMultiplier/HardStopped) senza dover rileggere
+    /// tutta la logica di BuildDecisions ogni volta.
+    /// </summary>
+    private static List<string> DetectAnomalies(
+        bool enabled, decimal multiplier, TitanoStrategyStatus state, bool hardStopped,
+        int passingFilters, int minimumPassingFilters)
+    {
+        var anomalies = new List<string>();
+        if (enabled && multiplier <= 0)
+            anomalies.Add($"Enabled=true ma AllocationMultiplier={multiplier} (dovrebbe essere > 0)");
+        if (!enabled && multiplier > 0)
+            anomalies.Add($"Enabled=false ma AllocationMultiplier={multiplier} (dovrebbe essere 0)");
+        if (hardStopped && enabled)
+            anomalies.Add("HardStopped=true ma Enabled=true (una strategia in hard stop non dovrebbe essere abilitata)");
+        if (state == TitanoStrategyStatus.HardStopped && !hardStopped)
+            anomalies.Add("State=HardStopped ma HardStopped=false");
+        if (state == TitanoStrategyStatus.Enabled && multiplier != 1m)
+            anomalies.Add($"State=Enabled ma AllocationMultiplier={multiplier} (atteso 1)");
+        if (state == TitanoStrategyStatus.Disabled && multiplier != 0m)
+            anomalies.Add($"State=Disabled ma AllocationMultiplier={multiplier} (atteso 0)");
+        if (enabled && passingFilters < minimumPassingFilters)
+            anomalies.Add($"Enabled=true con soli {passingFilters}/{minimumPassingFilters} filtri minimi superati");
+        return anomalies;
     }
 
     private static decimal PopulationStdDev(IReadOnlyCollection<decimal> values)

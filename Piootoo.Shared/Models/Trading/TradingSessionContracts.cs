@@ -130,6 +130,10 @@ public sealed class OrderIntent
     public OrderIntentStatus Status { get; set; } = OrderIntentStatus.Pending;
     public decimal FilledQuantity { get; set; }
     public string? ExternalOrderId { get; set; }
+    /// <summary>Account cTrader a cui questo intent concreto è stato assegnato. Null per i template non ancora reclamati da nessun gruppo.</summary>
+    public string? AssignedAccountNumber { get; set; }
+    /// <summary>Gruppo (prop firm) a cui appartiene l'account assegnato.</summary>
+    public string? AssignedGroupId { get; set; }
 }
 
 public sealed class ExternalExecutionReport
@@ -157,6 +161,8 @@ public sealed class TradingPositionSnapshot
     public required SignalType Direction { get; init; }
     public decimal Quantity { get; init; }
     public decimal EntryPrice { get; init; }
+    /// <summary>Account cTrader proprietario della posizione. Vuoto in modalità legacy senza gruppi.</summary>
+    public string AccountNumber { get; init; } = string.Empty;
 }
 
 public sealed class TradingSessionSnapshot
@@ -170,4 +176,54 @@ public sealed class TradingSessionSnapshot
     public int Fills { get; init; }
     public IReadOnlyList<TradingPositionSnapshot> Positions { get; init; } = [];
     public IReadOnlyList<OrderIntent> PendingIntents { get; init; } = [];
+    /// <summary>Mappa account -> gruppo configurata per la distribuzione dei segnali (anti copy-trading).</summary>
+    public IReadOnlyList<AccountGroupMapping> AccountGroups { get; init; } = [];
+}
+
+/// <summary>
+/// Associa un account cTrader a un gruppo (tipicamente una prop firm): gli account dello stesso
+/// gruppo non ricevono mai lo stesso segnale di ingresso, account di gruppi diversi sì.
+/// </summary>
+public sealed class AccountGroupMapping
+{
+    public required string AccountNumber { get; init; }
+    public required string GroupId { get; init; }
+}
+
+public sealed class SetAccountGroupsRequest
+{
+    public required string SessionToken { get; init; }
+    public required IReadOnlyList<AccountGroupMapping> Accounts { get; init; }
+}
+
+/// <summary>Risposta al polling di un account per il prossimo segnale da eseguire.</summary>
+public sealed class AccountSignalResponse
+{
+    /// <summary>Intent da eseguire ora, oppure null se non c'è nulla per questo account.</summary>
+    public OrderIntent? Intent { get; init; }
+    /// <summary>
+    /// Motivo diagnostico quando Intent è null: "NoSignal" (nessun segnale libero per i simboli non
+    /// occupati dall'account) o "SessionNotRunning" (la sessione non è in esecuzione).
+    /// </summary>
+    public string? Reason { get; init; }
+}
+
+/// <summary>
+/// Richiesta di un client ExternalBroker (tipicamente un cBot) che ha già deciso in locale di chiudere
+/// una posizione senza che il server abbia emesso un OrderIntent CloseOnly corrispondente: succede per
+/// condizioni meccaniche gestite lato client (Stop Loss/Take Profit nativi del broker, limite di barre).
+/// Il server registra un intent CloseOnly "client-originated" per la posizione aperta corrispondente,
+/// così il client può referenziarlo nel normale POST /execution-reports per completare la chiusura e
+/// generare un PersistedTrade (usato anche dalle rotazioni Titano).
+/// </summary>
+public sealed class CreateExternalCloseIntentRequest
+{
+    public required string SessionToken { get; init; }
+    public required string StrategyCode { get; init; }
+    public required string Symbol { get; init; }
+    /// <summary>Account cTrader che ha deciso la chiusura in locale. Obbligatorio se la sessione ha gruppi account configurati.</summary>
+    public string? AccountNumber { get; init; }
+    /// <summary>Quantità da chiudere; se omessa o &lt;= 0 il server usa l'intera quantità della posizione aperta.</summary>
+    public decimal Quantity { get; init; }
+    public string? Reason { get; init; }
 }

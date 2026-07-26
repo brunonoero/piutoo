@@ -97,8 +97,13 @@ public partial class WorkspaceBacktestingForm : Form
     private readonly Button _sessionSnapshot = new();
     private readonly TextBox _sessionOutput = new();
     private TradingSessionDescriptor? _activeSession;
+    private readonly DataGridView _sessionAccountGroups = new();
+    private readonly Button _sessionAddAccountGroupRow = new();
+    private readonly Button _sessionSaveAccountGroups = new();
+    private readonly Button _sessionReloadAccountGroups = new();
     private readonly Button _runTitanoButton = new();
     private readonly TextBox _titanoResultsTextBox = new();
+    private readonly ToolTip _formToolTip = new() { AutoPopDelay = 25000, InitialDelay = 350, ReshowDelay = 100, ShowAlways = true, IsBalloon = true };
     private readonly Label _backtestingWorkspaceHint = new();
     private readonly Label _backtestingMasterFilterSummary = new();
     private readonly ListBox _backtestingMasterFilterStrategies = new();
@@ -286,7 +291,8 @@ public partial class WorkspaceBacktestingForm : Form
 
     private Control BuildTradingSessionTab()
     {
-        var root = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 3, Padding = new Padding(12) };
+        var root = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 4, Padding = new Padding(12) };
+        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
@@ -303,19 +309,41 @@ public partial class WorkspaceBacktestingForm : Form
         _sessionTitanoRunId.Width = 240;
         _sessionTitanoBacktest.Width = 160;
 
+        _formToolTip.SetToolTip(_sessionAtrEnabled,
+            "Attiva il sizing basato su volatilità di mercato (ATR): dimensiona ogni posizione in base al rischio in dollari desiderato.");
+        _formToolTip.SetToolTip(_sessionPortfolioEnabled,
+            "Attiva i limiti di rischio a livello di portafoglio (drawdown massimo) che riducono l'esposizione quando superati.");
+        _formToolTip.SetToolTip(_sessionCppiEnabled,
+            "Attiva l'overlay CPPI (Constant Proportion Portfolio Insurance): protegge un floor di capitale scalando l'esposizione sul cuscinetto residuo.");
+
         var config = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, WrapContents = true };
         config.Controls.AddRange(new Control[]
         {
-            TitanoLabel("Workspace"), _sessionWorkspaceCombo,
-            TitanoLabel("Modalità"), _sessionModeCombo,
-            TitanoLabel("Titano RunId (opz.)"), _sessionTitanoRunId,
-            TitanoLabel("Backtest Titano"), _sessionTitanoBacktest,
-            TitanoLabel("Metadata symbol,DPP,min,step,mode"), _sessionMetadata,
-            _sessionAtrEnabled, TitanoLabel("Periodi ATR"), _sessionAtrPeriods,
-            TitanoLabel("Rischio target $"), _sessionTargetRisk,
-            _sessionPortfolioEnabled, TitanoLabel("DD cap %"), _sessionDrawdownCap,
-            _sessionCppiEnabled, TitanoLabel("Floor %"), _sessionCppiFloor,
-            TitanoLabel("Moltiplicatore"), _sessionCppiMultiplier
+            TitanoLabel("Workspace", "Workspace per cui viene creata e gestita la sessione di trading."),
+            WithHelp(_sessionWorkspaceCombo, "Workspace per cui viene creata e gestita la sessione di trading."),
+            TitanoLabel("Modalità", "ServerSimulated: esecuzione simulata lato server. ExternalBroker: gli ordini vengono inoltrati a un broker esterno."),
+            WithHelp(_sessionModeCombo, "ServerSimulated: esecuzione simulata lato server. ExternalBroker: gli ordini vengono inoltrati a un broker esterno."),
+            TitanoLabel("Titano RunId (opz.)", "RunId di una rotazione Titano da collegare alla sessione, per abilitare/disabilitare strategie dinamicamente."),
+            WithHelp(_sessionTitanoRunId, "RunId di una rotazione Titano da collegare alla sessione, per abilitare/disabilitare strategie dinamicamente."),
+            TitanoLabel("Backtest Titano", "Cartella del backtest sorgente associata al RunId Titano indicato sopra."),
+            WithHelp(_sessionTitanoBacktest, "Cartella del backtest sorgente associata al RunId Titano indicato sopra."),
+            TitanoLabel("Metadata symbol,DPP,min,step,mode",
+                "Elenco strumenti nel formato simbolo,dollari-per-punto,quantità-minima,step-quantità,modalità-arrotondamento; più strumenti separati da ';'."),
+            WithHelp(_sessionMetadata,
+                "Elenco strumenti nel formato simbolo,dollari-per-punto,quantità-minima,step-quantità,modalità-arrotondamento; più strumenti separati da ';'."),
+            _sessionAtrEnabled,
+            TitanoLabel("Periodi ATR", "Numero di barre usate per calcolare l'ATR (Average True Range) su cui basare il sizing per volatilità."),
+            WithHelp(_sessionAtrPeriods, "Numero di barre usate per calcolare l'ATR (Average True Range) su cui basare il sizing per volatilità."),
+            TitanoLabel("Rischio target $", "Rischio in dollari che ogni posizione deve rappresentare quando il sizing ATR è attivo."),
+            WithHelp(_sessionTargetRisk, "Rischio in dollari che ogni posizione deve rappresentare quando il sizing ATR è attivo."),
+            _sessionPortfolioEnabled,
+            TitanoLabel("DD cap %", "Drawdown massimo di portafoglio tollerato prima che i limiti di rischio riducano l'esposizione."),
+            WithHelp(_sessionDrawdownCap, "Drawdown massimo di portafoglio tollerato prima che i limiti di rischio riducano l'esposizione."),
+            _sessionCppiEnabled,
+            TitanoLabel("Floor %", "Percentuale del capitale iniziale da proteggere come floor nell'overlay CPPI."),
+            WithHelp(_sessionCppiFloor, "Percentuale del capitale iniziale da proteggere come floor nell'overlay CPPI."),
+            TitanoLabel("Moltiplicatore", "Moltiplicatore CPPI applicato al cuscinetto (capitale sopra il floor) per determinare l'esposizione consentita."),
+            WithHelp(_sessionCppiMultiplier, "Moltiplicatore CPPI applicato al cuscinetto (capitale sopra il floor) per determinare l'esposizione consentita.")
         });
         root.Controls.Add(config, 0, 0);
 
@@ -330,89 +358,246 @@ public partial class WorkspaceBacktestingForm : Form
         root.Controls.Add(new FlowLayoutPanel
         {
             Dock = DockStyle.Top, AutoSize = true,
-            Controls = { _sessionCreate, _sessionStart, _sessionStop, _sessionResume, _sessionSnapshot }
+            Controls =
+            {
+                WithHelp(_sessionCreate, "Crea la sessione sul server con la configurazione impostata sopra (workspace, modalità, sizing)."),
+                WithHelp(_sessionStart, "Avvia la sessione creata: da questo momento accetta barre e genera/esegue ordini."),
+                WithHelp(_sessionStop, "Ferma la sessione attiva, interrompendo la generazione di nuovi ordini."),
+                WithHelp(_sessionResume, "Riprende una sessione precedentemente fermata."),
+                WithHelp(_sessionSnapshot, "Richiede al server lo stato corrente della sessione: saldo, equity, posizioni e ordini in sospeso.")
+            }
         }, 0, 1);
+        root.Controls.Add(BuildAccountGroupsPanel(), 0, 2);
+
         _sessionOutput.Dock = DockStyle.Fill;
         _sessionOutput.Multiline = true;
         _sessionOutput.ReadOnly = true;
         _sessionOutput.ScrollBars = ScrollBars.Both;
-        root.Controls.Add(_sessionOutput, 0, 2);
+        _formToolTip.SetToolTip(_sessionOutput,
+            "Mostra in formato JSON lo stato della sessione e, dopo 'Aggiorna snapshot', saldo/equity/posizioni/ordini in sospeso.");
+        root.Controls.Add(_sessionOutput, 0, 3);
         return root;
+    }
+
+    private Control BuildAccountGroupsPanel()
+    {
+        var panel = new GroupBox
+        {
+            Text = "Gruppi account (anti copy-trading)",
+            Dock = DockStyle.Top,
+            AutoSize = true,
+            Padding = new Padding(8)
+        };
+        var layout = new TableLayoutPanel { Dock = DockStyle.Top, RowCount = 2, AutoSize = true };
+        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+
+        _sessionAccountGroups.Width = 460;
+        _sessionAccountGroups.Height = 140;
+        _sessionAccountGroups.AllowUserToAddRows = true;
+        _sessionAccountGroups.AllowUserToDeleteRows = true;
+        _sessionAccountGroups.RowHeadersVisible = false;
+        _sessionAccountGroups.AutoGenerateColumns = false;
+        _sessionAccountGroups.Columns.Add(new DataGridViewTextBoxColumn
+        {
+            Name = "AccountNumber", HeaderText = "Account cTrader", FillWeight = 50
+        });
+        _sessionAccountGroups.Columns.Add(new DataGridViewTextBoxColumn
+        {
+            Name = "GroupId", HeaderText = "Gruppo (prop firm)", FillWeight = 50
+        });
+        _formToolTip.SetToolTip(_sessionAccountGroups,
+            "Un account per riga. Account con lo stesso 'Gruppo' (es. la stessa prop firm) non ricevono mai lo stesso segnale di ingresso; account di gruppi diversi sì.");
+        layout.Controls.Add(_sessionAccountGroups, 0, 0);
+
+        _sessionAddAccountGroupRow.Text = "Aggiungi riga";
+        _sessionSaveAccountGroups.Text = "Salva gruppi account";
+        _sessionReloadAccountGroups.Text = "Ricarica gruppi account";
+        _sessionAddAccountGroupRow.Click += (_, _) => _sessionAccountGroups.Rows.Add();
+        _sessionSaveAccountGroups.Click += async (_, _) => await SaveAccountGroupsAsync();
+        _sessionReloadAccountGroups.Click += async (_, _) => await ReloadAccountGroupsAsync();
+        layout.Controls.Add(new FlowLayoutPanel
+        {
+            Dock = DockStyle.Top, AutoSize = true,
+            Controls =
+            {
+                WithHelp(_sessionAddAccountGroupRow, "Aggiunge una riga vuota alla griglia."),
+                WithHelp(_sessionSaveAccountGroups,
+                    "Invia al server l'intera mappa account->gruppo mostrata in griglia (sostituisce quella precedente)."),
+                WithHelp(_sessionReloadAccountGroups, "Ricarica dalla sessione attiva la mappa account->gruppo corrente.")
+            }
+        }, 0, 1);
+
+        panel.Controls.Add(layout);
+        return panel;
+    }
+
+    private async Task SaveAccountGroupsAsync()
+    {
+        if (_activeSession is null)
+        {
+            MessageBox.Show("Crea prima una sessione ExternalBroker.", "Gruppi account", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+        try
+        {
+            NormalizeBaseAddress();
+            var accounts = _sessionAccountGroups.Rows.Cast<DataGridViewRow>()
+                .Where(r => !r.IsNewRow)
+                .Select(r => new AccountGroupMapping
+                {
+                    AccountNumber = Convert.ToString(r.Cells["AccountNumber"].Value ?? string.Empty)!.Trim(),
+                    GroupId = Convert.ToString(r.Cells["GroupId"].Value ?? string.Empty)!.Trim()
+                })
+                .Where(a => a.AccountNumber.Length > 0 && a.GroupId.Length > 0)
+                .ToList();
+
+            using var request = new HttpRequestMessage(HttpMethod.Put,
+                $"api/v1/trading-sessions/{Uri.EscapeDataString(_activeSession.SessionId)}/account-groups")
+            {
+                Content = JsonContent.Create(new SetAccountGroupsRequest
+                {
+                    SessionToken = _activeSession.SessionToken,
+                    Accounts = accounts
+                }, options: _jsonOptions)
+            };
+            var response = await _httpClient.SendAsync(request);
+            response.EnsureSuccessStatusCode();
+            var snapshot = await response.Content.ReadFromJsonAsync<TradingSessionSnapshot>(_jsonOptions);
+            ShowSession($"Gruppi account salvati ({accounts.Count} account).");
+            if (snapshot != null)
+                _sessionOutput.Text += Environment.NewLine +
+                    JsonSerializer.Serialize(snapshot, new JsonSerializerOptions(_jsonOptions) { WriteIndented = true });
+        }
+        catch (Exception ex) { MessageBox.Show(ex.Message, "Errore gruppi account", MessageBoxButtons.OK, MessageBoxIcon.Error); }
+    }
+
+    private async Task ReloadAccountGroupsAsync()
+    {
+        if (_activeSession is null) return;
+        try
+        {
+            NormalizeBaseAddress();
+            using var request = new HttpRequestMessage(HttpMethod.Get,
+                $"api/v1/trading-sessions/{Uri.EscapeDataString(_activeSession.SessionId)}/account-groups");
+            request.Headers.Add("X-Session-Token", _activeSession.SessionToken);
+            var response = await _httpClient.SendAsync(request);
+            response.EnsureSuccessStatusCode();
+            var accounts = await response.Content.ReadFromJsonAsync<List<AccountGroupMapping>>(_jsonOptions) ?? [];
+            _sessionAccountGroups.Rows.Clear();
+            foreach (var mapping in accounts)
+                _sessionAccountGroups.Rows.Add(mapping.AccountNumber, mapping.GroupId);
+            ShowSession($"Caricati {accounts.Count} account configurati.");
+        }
+        catch (Exception ex) { MessageBox.Show(ex.Message, "Errore gruppi account", MessageBoxButtons.OK, MessageBoxIcon.Error); }
     }
 
     private Control BuildTitanoTab()
     {
-        var root = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 5, Padding = new Padding(12) };
+        var root = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 4, Padding = new Padding(12) };
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        root.RowStyles.Add(new RowStyle(SizeType.Percent, 55));
+        root.RowStyles.Add(new RowStyle(SizeType.Percent, 45));
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
-        _titanoWorkspaceCombo.DropDownStyle = ComboBoxStyle.DropDownList;
-        _titanoWorkspaceCombo.Width = 360;
-        _titanoWorkspaceCombo.DisplayMember = nameof(WorkspaceListItem.DisplayText);
-        _titanoWorkspaceCombo.SelectedIndexChanged += async (_, _) =>
-        {
-            if (!_suppressWorkspaceEvents)
-                await LoadTitanoBacktestsAsync();
-        };
-        root.Controls.Add(new FlowLayoutPanel
-        {
-            Dock = DockStyle.Top,
-            AutoSize = true,
-            Controls =
-            {
-                new Label { Text = "Workspace obbligatorio:", AutoSize = true, Padding = new Padding(0, 7, 8, 0) },
-                _titanoWorkspaceCombo
-            }
-        }, 0, 0);
-
-        _titanoBacktestCombo.DropDownStyle = ComboBoxStyle.DropDownList;
-        _titanoBacktestCombo.Width = 430;
-        _titanoBacktestCombo.SelectedIndexChanged += (_, _) => UpdateTitanoPath();
-        _refreshTitanoBacktestsButton.Text = "Aggiorna backtest";
-        _refreshTitanoBacktestsButton.AutoSize = true;
-        _refreshTitanoBacktestsButton.Click += async (_, _) => await LoadTitanoBacktestsAsync(showErrors: true);
-        _openTitanoFolderButton.Text = "Apri cartella risultati";
-        _openTitanoFolderButton.AutoSize = true;
-        _openTitanoFolderButton.Enabled = false;
-        _openTitanoFolderButton.Click += (_, _) => OpenSelectedTitanoFolder();
-        root.Controls.Add(new FlowLayoutPanel
-        {
-            Dock = DockStyle.Top,
-            AutoSize = true,
-            Controls =
-            {
-                new Label { Text = "Backtest:", AutoSize = true, Padding = new Padding(0, 7, 8, 0) },
-                _titanoBacktestCombo,
-                _refreshTitanoBacktestsButton,
-                _openTitanoFolderButton
-            }
-        }, 0, 1);
+        root.Controls.Add(BuildTitanoSourceGroup(), 0, 0);
 
         ConfigureTitanoControls();
-        var config = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, WrapContents = true };
-        config.Controls.AddRange(new Control[]
+        var settingsScroll = new Panel { Dock = DockStyle.Fill, AutoScroll = true };
+        var settingsStack = new FlowLayoutPanel
         {
-            TitanoLabel("Periodo"), _titanoPeriodCombo,
-            TitanoLabel("Start UTC"), _titanoStartPicker, TitanoLabel("End UTC"), _titanoEndPicker,
-            TitanoLabel("Breve gg"), _titanoShortDays, TitanoLabel("Lunga gg"), _titanoLongDays,
-            TitanoLabel("Media gg"), _titanoMaDays, TitanoLabel("Min breve %"), _titanoMinShortReturn,
-            TitanoLabel("Min lunga %"), _titanoMinLongReturn, TitanoLabel("Z min"), _titanoMinZ,
-            TitanoLabel("Z max"), _titanoMaxZ, TitanoLabel("DD corrente %"), _titanoMaxCurrentDd,
-            TitanoLabel("DD max %"), _titanoMaxDd, TitanoLabel("Volatilità %"), _titanoMaxVolatility,
-            TitanoLabel("DD riattiva %"), _titanoReenableDd,
-            TitanoLabel("Score OFF"), _titanoDisableScore, TitanoLabel("Score ON"), _titanoReenableScore,
-            TitanoLabel("Cooldown"), _titanoCooldown, TitanoLabel("Min ON"), _titanoMinOn,
-            TitanoLabel("Voti min"), _titanoMinVotes, TitanoLabel("Hard stop %"), _titanoHardStop,
-            TitanoLabel("Tier sizing"), _titanoSizingTiers,
-            TitanoLabel("Commissione/unità"), _titanoCommission, TitanoLabel("Slippage/unità"), _titanoSlippage,
-            TitanoLabel("Calibrazione"), _titanoCalibration, TitanoLabel("OOS"), _titanoEvaluation,
-            TitanoLabel("Walk-forward"), _titanoWalkForwardMode,
-            _runTitanoButton, _titanoResetHardStopButton
-        });
-        root.Controls.Add(config, 0, 2);
+            FlowDirection = FlowDirection.TopDown,
+            WrapContents = false,
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink
+        };
+
+        settingsStack.Controls.Add(BuildTitanoGroup("Periodo di rotazione", new Control[]
+        {
+            TitanoField("Periodo", _titanoPeriodCombo,
+                "Frequenza con cui Titano ricalcola i pesi delle strategie: settimanale, bisettimanale o mensile."),
+            TitanoField("Start UTC", _titanoStartPicker,
+                "Inizio dell'intervallo storico su cui simulare la rotazione (UTC)."),
+            TitanoField("End UTC", _titanoEndPicker,
+                "Fine dell'intervallo storico su cui simulare la rotazione (UTC).")
+        }));
+
+        settingsStack.Controls.Add(BuildTitanoGroup("Finestre di analisi (momentum)", new Control[]
+        {
+            TitanoField("Breve gg", _titanoShortDays,
+                "Giorni della finestra 'breve' usata per misurare la performance recente di ogni strategia."),
+            TitanoField("Lunga gg", _titanoLongDays,
+                "Giorni della finestra 'lunga' usata per misurare il trend di fondo di ogni strategia."),
+            TitanoField("Media gg", _titanoMaDays,
+                "Giorni della finestra usata per calcolare la media mobile dell'equity, base per lo z-score."),
+            TitanoField("Min breve %", _titanoMinShortReturn,
+                "Rendimento minimo nella finestra breve richiesto perché la strategia resti idonea."),
+            TitanoField("Min lunga %", _titanoMinLongReturn,
+                "Rendimento minimo nella finestra lunga richiesto perché la strategia resti idonea."),
+            TitanoField("Z min", _titanoMinZ,
+                "Limite inferiore accettabile per lo z-score dell'equity rispetto alla sua media mobile."),
+            TitanoField("Z max", _titanoMaxZ,
+                "Limite superiore accettabile per lo z-score dell'equity rispetto alla sua media mobile.")
+        }));
+
+        settingsStack.Controls.Add(BuildTitanoGroup("Controllo rischio e drawdown", new Control[]
+        {
+            TitanoField("DD corrente %", _titanoMaxCurrentDd,
+                "Drawdown corrente massimo tollerato: oltre questa soglia la strategia viene disattivata."),
+            TitanoField("DD max %", _titanoMaxDd,
+                "Drawdown massimo osservato tollerato nella finestra di analisi."),
+            TitanoField("Volatilità %", _titanoMaxVolatility,
+                "Volatilità massima dei rendimenti recenti tollerata prima di escludere la strategia."),
+            TitanoField("DD riattiva %", _titanoReenableDd,
+                "Soglia di drawdown corrente sotto la quale una strategia disattivata può tornare attiva."),
+            TitanoField("Hard stop %", _titanoHardStop,
+                "Drawdown oltre il quale la strategia viene bloccata definitivamente: serve un reset manuale per ripartire.")
+        }));
+
+        settingsStack.Controls.Add(BuildTitanoGroup("Scoring e isteresi ON/OFF", new Control[]
+        {
+            TitanoField("Score OFF", _titanoDisableScore,
+                "Punteggio composito sotto il quale una strategia attiva viene disattivata."),
+            TitanoField("Score ON", _titanoReenableScore,
+                "Punteggio composito sopra il quale una strategia disattivata può essere riattivata."),
+            TitanoField("Cooldown", _titanoCooldown,
+                "Periodi di attesa obbligatoria dopo una disattivazione, prima che la strategia possa rientrare."),
+            TitanoField("Min ON", _titanoMinOn,
+                "Periodi minimi consecutivi attivi richiesti prima che la strategia possa essere disattivata di nuovo."),
+            TitanoField("Voti min", _titanoMinVotes,
+                "Numero minimo di filtri superati (su 5) perché la strategia resti/diventi idonea.")
+        }));
+
+        settingsStack.Controls.Add(BuildTitanoGroup("Sizing e costi", new Control[]
+        {
+            TitanoField("Tier sizing", _titanoSizingTiers,
+                "Tabella soglia punteggio=percentuale allocazione, es. 0.80=100%; 0.60=50%; 0.40=25%; 0=0%."),
+            TitanoField("Commissione/unità", _titanoCommission,
+                "Commissione applicata per unità nella simulazione dell'equity filtrata da Titano."),
+            TitanoField("Slippage/unità", _titanoSlippage,
+                "Slippage applicato per unità nella simulazione dell'equity filtrata da Titano.")
+        }));
+
+        settingsStack.Controls.Add(BuildTitanoGroup("Validazione walk-forward", new Control[]
+        {
+            TitanoField("Calibrazione", _titanoCalibration,
+                "Numero di periodi usati per calibrare la rotazione prima di ogni finestra di verifica."),
+            TitanoField("OOS", _titanoEvaluation,
+                "Numero di periodi di verifica out-of-sample valutati dopo ogni calibrazione."),
+            TitanoField("Walk-forward", _titanoWalkForwardMode,
+                "Modalità di ricalibrazione: Rolling (finestra scorrevole) o Expanding (finestra che si allarga nel tempo).")
+        }));
+
+        settingsStack.Controls.Add(BuildTitanoGroup("Azioni", new Control[]
+        {
+            WithHelp(_runTitanoButton,
+                "Invia la configurazione al server ed esegue la rotazione Titano sul backtest selezionato."),
+            WithHelp(_titanoResetHardStopButton,
+                "Rimuove il blocco hard-stop di una strategia dal prossimo periodo, richiedendo motivo e responsabile.")
+        }));
+
+        settingsScroll.Controls.Add(settingsStack);
+        root.Controls.Add(settingsScroll, 0, 1);
 
         _titanoPathLabel.Text = "Seleziona workspace e backtest per collegare Titano ai risultati.";
         _titanoPathLabel.AutoSize = true;
@@ -428,14 +613,106 @@ public partial class WorkspaceBacktestingForm : Form
             Dock = DockStyle.Fill,
             Padding = new Padding(12),
             Controls = { _titanoResultsTextBox, _titanoPathLabel }
-        }, 0, 3);
+        }, 0, 2);
         root.Controls.Add(new Label
         {
             Text = "Titano usa come input/base la cartella risultati del backtest selezionato; i suoi report sono salvati nella sottocartella titano.",
             AutoSize = true,
             Dock = DockStyle.Bottom
-        }, 0, 4);
+        }, 0, 3);
         return root;
+    }
+
+    private Control BuildTitanoSourceGroup()
+    {
+        _titanoWorkspaceCombo.DropDownStyle = ComboBoxStyle.DropDownList;
+        _titanoWorkspaceCombo.Width = 360;
+        _titanoWorkspaceCombo.DisplayMember = nameof(WorkspaceListItem.DisplayText);
+        _titanoWorkspaceCombo.SelectedIndexChanged += async (_, _) =>
+        {
+            if (!_suppressWorkspaceEvents)
+                await LoadTitanoBacktestsAsync();
+        };
+        _titanoBacktestCombo.DropDownStyle = ComboBoxStyle.DropDownList;
+        _titanoBacktestCombo.Width = 430;
+        _titanoBacktestCombo.SelectedIndexChanged += (_, _) => UpdateTitanoPath();
+        _refreshTitanoBacktestsButton.Text = "Aggiorna backtest";
+        _refreshTitanoBacktestsButton.AutoSize = true;
+        _refreshTitanoBacktestsButton.Click += async (_, _) => await LoadTitanoBacktestsAsync(showErrors: true);
+        _openTitanoFolderButton.Text = "Apri cartella risultati";
+        _openTitanoFolderButton.AutoSize = true;
+        _openTitanoFolderButton.Enabled = false;
+        _openTitanoFolderButton.Click += (_, _) => OpenSelectedTitanoFolder();
+
+        var stack = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, AutoSize = true, WrapContents = false };
+        stack.Controls.Add(TitanoField("Workspace obbligatorio", _titanoWorkspaceCombo,
+            "Workspace da cui Titano legge il master filter e a cui appartiene il backtest selezionato."));
+        stack.Controls.Add(new FlowLayoutPanel
+        {
+            AutoSize = true,
+            WrapContents = true,
+            Controls =
+            {
+                TitanoField("Backtest", _titanoBacktestCombo,
+                    "Backtest sorgente: Titano usa i trade salvati in questa cartella come base per la rotazione."),
+                WithHelp(_refreshTitanoBacktestsButton,
+                    "Ricarica l'elenco dei backtest disponibili per il workspace selezionato."),
+                WithHelp(_openTitanoFolderButton,
+                    "Apre la cartella dei risultati del backtest/rotazione selezionata in Esplora file.")
+            }
+        });
+
+        return new GroupBox
+        {
+            Text = "Sorgente dati",
+            Dock = DockStyle.Top,
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            Padding = new Padding(8, 18, 8, 8),
+            Controls = { stack }
+        };
+    }
+
+    private static GroupBox BuildTitanoGroup(string title, IEnumerable<Control> fields)
+    {
+        var flow = new FlowLayoutPanel
+        {
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            WrapContents = true,
+            Width = 1080
+        };
+        flow.Controls.AddRange(fields.ToArray());
+        return new GroupBox
+        {
+            Text = title,
+            Dock = DockStyle.Top,
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            Width = 1100,
+            Padding = new Padding(8, 18, 8, 8),
+            Controls = { flow }
+        };
+    }
+
+    private Control TitanoField(string label, Control control, string help)
+    {
+        _formToolTip.SetToolTip(control, help);
+        var panel = new FlowLayoutPanel
+        {
+            AutoSize = true,
+            WrapContents = false,
+            Margin = new Padding(2, 2, 14, 8)
+        };
+        panel.Controls.Add(TitanoLabel(label, help));
+        panel.Controls.Add(control);
+        return panel;
+    }
+
+    private Control WithHelp(Control control, string help)
+    {
+        _formToolTip.SetToolTip(control, help);
+        return control;
     }
 
     private void ConfigureTitanoControls()
@@ -479,7 +756,12 @@ public partial class WorkspaceBacktestingForm : Form
         _titanoResetHardStopButton.Click += async (_, _) => await ResetTitanoHardStopAsync();
     }
 
-    private static Label TitanoLabel(string text) => new() { Text = text, AutoSize = true, Padding = new Padding(6, 7, 2, 0) };
+    private Label TitanoLabel(string text, string? help = null)
+    {
+        var label = new Label { Text = text, AutoSize = true, Padding = new Padding(6, 7, 2, 0) };
+        if (!string.IsNullOrEmpty(help)) _formToolTip.SetToolTip(label, help);
+        return label;
+    }
     private static void ConfigureTitanoDate(DateTimePicker picker, DateTime value)
     {
         picker.Format = DateTimePickerFormat.Custom;

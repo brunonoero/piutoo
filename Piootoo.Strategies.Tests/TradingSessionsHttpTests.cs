@@ -107,6 +107,89 @@ public sealed class TradingSessionsHttpTests : IDisposable
     }
 
     [Fact]
+    public async Task ExternalCloseIntentAllowsReportingLocallyDecidedExit()
+    {
+        var descriptor = await Create(ExecutionMode.ExternalBroker);
+        descriptor = await Status(descriptor, "start", HttpStatusCode.OK);
+
+        var pushed = await Push(descriptor, 1, "close-external-entry");
+        var entryIntent = Assert.Single(pushed.Intents);
+
+        var entryReport = new ExecutionReportRequest
+        {
+            SessionToken = descriptor.SessionToken,
+            Report = new ExternalExecutionReport
+            {
+                ReportId = "entry-fill", IntentId = entryIntent.IntentId, Status = ExecutionReportStatus.Filled,
+                CumulativeFilledQuantity = entryIntent.FinalQuantity, FillPrice = 100,
+                EventTimeUtc = Utc(2026, 1, 5)
+            }
+        };
+        var entryResponse = await _client.PostAsJsonAsync(
+            $"api/v1/trading-sessions/{descriptor.SessionId}/execution-reports", entryReport);
+        entryResponse.EnsureSuccessStatusCode();
+
+        // Il cBot ha deciso in locale di chiudere (es. Stop Loss nativo o limite di barre): non esiste
+        // un OrderIntent CloseOnly del server, quindi registra prima l'intent client-originated...
+        var closeIntentRequest = new CreateExternalCloseIntentRequest
+        {
+            SessionToken = descriptor.SessionToken,
+            StrategyCode = entryIntent.StrategyCode,
+            Symbol = entryIntent.Symbol,
+            Reason = "LocalMaxBars"
+        };
+        var closeIntentResponse = await _client.PostAsJsonAsync(
+            $"api/v1/trading-sessions/{descriptor.SessionId}/intents/close-external", closeIntentRequest);
+        closeIntentResponse.EnsureSuccessStatusCode();
+        var closeIntent = (await closeIntentResponse.Content.ReadFromJsonAsync<OrderIntent>(JsonOptions))!;
+        Assert.True(closeIntent.CloseOnly);
+        Assert.Equal(entryIntent.FinalQuantity, closeIntent.FinalQuantity);
+
+        // ...e poi lo referenzia nel normale execution-report, esattamente come per un intent CloseOnly
+        // emesso dal server.
+        var closeReport = new ExecutionReportRequest
+        {
+            SessionToken = descriptor.SessionToken,
+            Report = new ExternalExecutionReport
+            {
+                ReportId = "close-fill", IntentId = closeIntent.IntentId, Status = ExecutionReportStatus.Filled,
+                CumulativeFilledQuantity = closeIntent.FinalQuantity, FillPrice = 105,
+                EventTimeUtc = Utc(2026, 1, 6)
+            }
+        };
+        var closeResponse = await _client.PostAsJsonAsync(
+            $"api/v1/trading-sessions/{descriptor.SessionId}/execution-reports", closeReport);
+        closeResponse.EnsureSuccessStatusCode();
+
+        using var tradesRequest = Authorized(HttpMethod.Get,
+            $"api/v1/trading-sessions/{descriptor.SessionId}/trades", descriptor.SessionToken);
+        var tradesResponse = await _client.SendAsync(tradesRequest);
+        tradesResponse.EnsureSuccessStatusCode();
+        var trades = (await tradesResponse.Content.ReadFromJsonAsync<List<PersistedTrade>>(JsonOptions))!;
+        var trade = Assert.Single(trades);
+        Assert.Equal(entryIntent.StrategyCode, trade.StrategyCode);
+        Assert.Equal(100m, trade.EntryPrice);
+        Assert.Equal(105m, trade.ExitPrice);
+    }
+
+    [Fact]
+    public async Task ExternalCloseIntentRejectedWithoutOpenPosition()
+    {
+        var descriptor = await Create(ExecutionMode.ExternalBroker);
+        descriptor = await Status(descriptor, "start", HttpStatusCode.OK);
+
+        var request = new CreateExternalCloseIntentRequest
+        {
+            SessionToken = descriptor.SessionToken,
+            StrategyCode = _strategy.Id,
+            Symbol = _strategy.Symbol
+        };
+        var response = await _client.PostAsJsonAsync(
+            $"api/v1/trading-sessions/{descriptor.SessionId}/intents/close-external", request);
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
     public async Task TitanoRunFiltersSignalsThroughHttpBoundary()
     {
         var workspaces = _factory.Services.GetRequiredService<WorkspaceService>();

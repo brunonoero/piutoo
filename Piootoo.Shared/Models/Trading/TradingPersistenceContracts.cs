@@ -40,6 +40,10 @@ public sealed class PersistedSignal
     public OrderIntentStatus? Status { get; init; }
     public decimal FilledQuantity { get; init; }
     public string? ExternalOrderId { get; init; }
+    /// <summary>Account cTrader a cui è stato assegnato (multi-account/gruppi); null in modalità legacy.</summary>
+    public string? AssignedAccountNumber { get; init; }
+    /// <summary>Gruppo (prop firm) dell'account assegnato.</summary>
+    public string? AssignedGroupId { get; init; }
 }
 
 public sealed class PersistedTrade
@@ -65,4 +69,6 @@ public sealed class PersistedTrade
     public decimal Commission { get; init; }
     public decimal? StopLoss { get; init; }
     public decimal? TakeProfit { get; init; }
+    /// <summary>Account cTrader che ha eseguito il trade (multi-account/gruppi); null in modalità legacy.</summary>
+    public string? AccountNumber { get; init; }
 }
