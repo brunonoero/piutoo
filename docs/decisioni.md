@@ -11,3 +11,30 @@ in ordine cronologico. Non è un changelog di codice: quello resta nei commit.
   riorganizzati in gruppi tematici con tooltip per ogni campo, per rendere
   esplicite le regole (già documentate in `domini/titano-rotation.md` e
   `domini/trading-sessions-api.md`) anche a chi non legge il codice.
+- **2026-07-27** — **Il codice di esecuzione di una strategia è `ITradingStrategy.Name`**
+  (es. `TOP_UA_218`), non l'Id di classe (`Easy_218_GC_60`). L'Id resta la chiave di
+  selezione del masterfilter e del catalogo; ogni confronto tra masterfilter e dati di
+  esecuzione passa da `StrategyCatalog.ResolveExecutionCodes`. Prima i due venivano
+  confrontati direttamente e non combaciavano mai: il report di backtest mostrava zero
+  trade ed equity piatte, Titano non trovava un solo trade e disabilitava tutto, le
+  sessioni collegate a una rotazione non valutavano alcuna strategia.
+- **2026-07-27** — Il backtest **non scrive più `signals.json`/`trades.json` a ogni barra**.
+  Erano una riserializzazione completa più un fsync per barra: da sola la voce di costo
+  dominante del run. Ora c'è un checkpoint non-durabile ogni 5.000 barre e una scrittura
+  durabile finale.
+- **2026-07-27** — Le finestre di candele nel loop si ottengono da `CandleWindowCursor`
+  invece che da `Where().OrderBy().Take()`: la serie è ordinata e l'orologio del loop è
+  monotono, quindi il costo passa da O(candele totali) a O(RequiredCandles) per chiamata.
+- **2026-07-27** — `UpdateMarketPrices` viene chiamato a **ogni** barra con i prezzi di
+  tutti i simboli, non solo di quelli con una strategia allineata: stop loss, take profit
+  e time exit venivano altrimenti verificati in ritardo.
+- **2026-07-27** — Ogni job di backtest istanzia il **proprio** `PiootooTradingService`.
+  Il singleton condiviso faceva mescolare posizioni e trade tra backtest concorrenti.
+- **2026-07-27** — Un datasource vuoto **fa fallire** il backtest invece di far saltare in
+  silenzio le strategie interessate.
+- **2026-07-27** — Aggiunti `backtest-log.jsonl` (eventi) e `backtest-summary.json`
+  (contatori per strategia + diagnosi automatiche). Gli skip ad alta frequenza sono
+  contati, non loggati riga per riga.
+- **2026-07-27** — Le sessioni hanno un flag esplicito `ApplyTitanoFilters`, e Titano
+  distingue "nessun periodo attivo" da "tutte le strategie disabilitate": un manifest
+  storico usato in live azzerava il portafoglio senza dirlo.

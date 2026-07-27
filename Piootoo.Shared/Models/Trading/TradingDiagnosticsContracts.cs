@@ -31,8 +31,18 @@ public sealed class RotationLogEntry
     public IReadOnlyList<string> SkippedByTitano { get; init; } = [];
     /// <summary>Stato/motivo Titano per ciascuna strategia del masterfilter in questa barra.</summary>
     public IReadOnlyList<RotationStrategyState> StrategyStates { get; init; } = [];
-    /// <summary>Segnali realmente generati in questa barra, come "STRATEGYCODE:SignalType" (es. "EASY_218_GC_60:Buy"). Vuoto se nessun segnale.</summary>
+    /// <summary>Segnali realmente generati in questa barra, come "STRATEGYCODE:SignalType" (es. "TOP_UA_218:Buy"). Vuoto se nessun segnale.</summary>
     public IReadOnlyList<string> SignalsEmitted { get; init; } = [];
+
+    /// <summary>
+    /// true se la rotazione ha davvero filtrato le strategie valutate in questa barra.
+    /// false quando è stata solo calcolata a scopo diagnostico: perché l'utente ha disattivato i
+    /// filtri, oppure perché nessun periodo del manifest copre questo istante.
+    /// </summary>
+    public bool FiltersApplied { get; init; }
+
+    /// <summary>Spiegazione quando <see cref="FiltersApplied"/> è false.</summary>
+    public string? Note { get; init; }
 }
 
 /// <summary>Stato Titano di una singola strategia al momento della valutazione di una barra.</summary>

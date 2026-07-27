@@ -54,6 +54,21 @@ public sealed class CreateTradingSessionRequest
     public string? ClientSessionToken { get; init; }
     public string? TitanoRunId { get; init; }
     public string? TitanoBacktestFolder { get; init; }
+
+    /// <summary>
+    /// Interruttore esplicito dei filtri Titano.
+    ///
+    /// true (default quando è indicato un <see cref="TitanoRunId"/>): la rotazione decide quali
+    /// strategie vengono valutate e con quale allocazione.
+    /// false: le strategie del masterfilter vengono valutate tutte, ma la rotazione viene comunque
+    /// risolta e registrata nel rotation-log — utile per confrontare "cosa avrebbe fatto Titano"
+    /// senza subirne gli effetti.
+    ///
+    /// Prima l'unico modo per disattivare Titano era non passare il RunId, e quindi rinunciare
+    /// anche alla diagnostica.
+    /// </summary>
+    public bool ApplyTitanoFilters { get; init; } = true;
+
     public PositionSizingConfig PositionSizing { get; init; } = new();
     public IReadOnlyList<InstrumentMetadata> Instruments { get; init; } = [];
 }
@@ -66,6 +81,10 @@ public sealed class TradingSessionDescriptor
     public required ExecutionMode ExecutionMode { get; init; }
     public required TradingSessionStatus Status { get; init; }
     public string? TitanoRunId { get; init; }
+
+    /// <summary>Se i filtri Titano sono realmente applicati o solo registrati in diagnostica.</summary>
+    public bool ApplyTitanoFilters { get; init; }
+
     public PositionSizingConfig PositionSizing { get; init; } = new();
     public IReadOnlyList<InstrumentMetadata> InstrumentMetadata { get; init; } = [];
     public IReadOnlyList<TradingInstrument> Instruments { get; init; } = [];

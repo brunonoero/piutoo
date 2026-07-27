@@ -222,4 +222,20 @@ public sealed class TitanoEffectiveStrategies
     public IReadOnlyList<string> TitanoEnabledStrategies { get; init; } = [];
     public IReadOnlyList<string> EffectiveStrategies { get; init; } = [];
     public IReadOnlyList<TitanoEffectiveStrategy> StrategyStates { get; init; } = [];
+
+    /// <summary>
+    /// true quando l'istante richiesto cade dentro un periodo del manifest, cioè quando esiste
+    /// davvero una decisione di rotazione. false significa "Titano non ha nulla da dire adesso":
+    /// tipicamente perché il manifest è stato costruito su un backtest storico e il tempo live è
+    /// oltre l'ultimo periodo, oppure perché si è nel primo periodo, che non ha storia su cui
+    /// calibrare. Va distinto da "tutte le strategie disabilitate": senza questo flag una sessione
+    /// live smetteva silenziosamente di valutare qualsiasi strategia.
+    /// </summary>
+    public bool HasActivePeriod { get; init; }
+
+    /// <summary>Intervallo coperto dal manifest, per spiegare un <see cref="HasActivePeriod"/> false.</summary>
+    public DateTime? ManifestFromUtc { get; init; }
+
+    /// <summary>Intervallo coperto dal manifest, per spiegare un <see cref="HasActivePeriod"/> false.</summary>
+    public DateTime? ManifestToUtc { get; init; }
 }

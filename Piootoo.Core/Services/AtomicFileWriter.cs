@@ -2,12 +2,20 @@ using System.Text;
 
 namespace Piootoo.Core.Services;
 
-/// <summary>Scrive file completi tramite un temporaneo univoco nella stessa directory.</summary>
+/// <summary>
+/// Scrive file completi tramite un temporaneo univoco nella stessa directory.
+///
+/// La modalità predefinita è <b>durabile</b>: <see cref="FileOptions.WriteThrough"/> più
+/// <c>Flush(flushToDisk: true)</c>, cioè una sincronizzazione forzata su disco. È corretta per
+/// gli artefatti finali, ma costa millisecondi per chiamata: <b>non va usata dentro un loop</b>.
+/// Per i checkpoint intermedi esiste <c>durable: false</c>, che resta atomico rispetto ai lettori
+/// (scrittura su temporaneo + rename) ma delega al sistema operativo il momento del flush.
+/// </summary>
 public static class AtomicFileWriter
 {
     private const int MaxAttempts = 10;
 
-    public static void WriteAllText(string path, string contents, Encoding? encoding = null)
+    public static void WriteAllText(string path, string contents, Encoding? encoding = null, bool durable = true)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
         var fullPath = Path.GetFullPath(path);
@@ -24,12 +32,12 @@ public static class AtomicFileWriter
                        FileAccess.Write,
                        FileShare.Read,
                        64 * 1024,
-                       FileOptions.WriteThrough))
+                       durable ? FileOptions.WriteThrough : FileOptions.SequentialScan))
             using (var writer = new StreamWriter(stream, encoding ?? new UTF8Encoding(false)))
             {
                 writer.Write(contents);
                 writer.Flush();
-                stream.Flush(flushToDisk: true);
+                stream.Flush(flushToDisk: durable);
             }
 
             CommitWithRetry(tempPath, fullPath);
@@ -40,7 +48,7 @@ public static class AtomicFileWriter
         }
     }
 
-    public static void Write(string path, Action<Stream> write)
+    public static void Write(string path, Action<Stream> write, bool durable = true)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
         ArgumentNullException.ThrowIfNull(write);
@@ -58,10 +66,10 @@ public static class AtomicFileWriter
                        FileAccess.Write,
                        FileShare.Read,
                        64 * 1024,
-                       FileOptions.WriteThrough))
+                       durable ? FileOptions.WriteThrough : FileOptions.SequentialScan))
             {
                 write(stream);
-                stream.Flush(flushToDisk: true);
+                stream.Flush(flushToDisk: durable);
             }
 
             CommitWithRetry(tempPath, fullPath);

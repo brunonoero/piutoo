@@ -126,6 +126,7 @@ public sealed class TradingSessionService : ITradingSessionService
         public required TradingJsonStore Store { get; init; }
         public string? TitanoRunId { get; init; }
         public string? TitanoBacktestFolder { get; init; }
+        public bool ApplyTitanoFilters { get; init; }
         public required PositionSizingConfig PositionSizing { get; init; }
         public required Dictionary<string, InstrumentMetadata> InstrumentMetadata { get; init; }
         public decimal PeakEquity { get; set; }
@@ -239,6 +240,7 @@ public sealed class TradingSessionService : ITradingSessionService
             Store = store,
             TitanoRunId = request.TitanoRunId,
             TitanoBacktestFolder = request.TitanoBacktestFolder,
+            ApplyTitanoFilters = request.ApplyTitanoFilters,
             PositionSizing = request.PositionSizing,
             InstrumentMetadata = instrumentMetadata,
             PeakEquity = request.InitialCapital,
@@ -305,6 +307,7 @@ public sealed class TradingSessionService : ITradingSessionService
                 IReadOnlyList<ITradingStrategy> evaluationStrategies = session.Strategies;
                 var allocations = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
                 TitanoEffectiveStrategies? effective = null;
+                string? rotationNote = null;
                 if (!string.IsNullOrWhiteSpace(session.TitanoRunId))
                 {
                     var service = _titano ?? throw new InvalidOperationException("Servizio Titano non disponibile.");
@@ -312,8 +315,32 @@ public sealed class TradingSessionService : ITradingSessionService
                         session.TitanoRunId, bar.BarTimeUtc);
                     foreach (var state in effective.StrategyStates)
                         allocations[state.StrategyCode] = state.AllocationMultiplier;
-                    evaluationStrategies = session.Strategies
-                        .Where(x => effective.EffectiveStrategies.Contains(x.Name, StringComparer.OrdinalIgnoreCase)).ToArray();
+
+                    if (!session.ApplyTitanoFilters)
+                    {
+                        // Rotazione risolta e registrata, ma non applicata: le allocazioni restano
+                        // neutre e tutte le strategie del masterfilter vengono valutate.
+                        allocations.Clear();
+                        rotationNote = "filtri Titano non applicati (ApplyTitanoFilters=false): rotazione solo diagnostica";
+                    }
+                    else if (!effective.HasActivePeriod)
+                    {
+                        // Nessun periodo di rotazione copre questa barra: quasi sempre significa
+                        // manifest costruito su un backtest storico e usato oltre il suo intervallo.
+                        // Interpretarlo come "tutto disabilitato" azzerava la sessione in silenzio;
+                        // qui si prosegue con il masterfilter completo e lo si dichiara nel log.
+                        allocations.Clear();
+                        rotationNote =
+                            $"nessun periodo Titano attivo per {bar.BarTimeUtc:O}: il manifest copre " +
+                            $"{effective.ManifestFromUtc:O} → {effective.ManifestToUtc:O}. " +
+                            "Valutazione proseguita senza filtri; rigenera la rotazione su un backtest aggiornato.";
+                    }
+                    else
+                    {
+                        evaluationStrategies = session.Strategies
+                            .Where(x => effective.EffectiveStrategies.Contains(x.Name, StringComparer.OrdinalIgnoreCase))
+                            .ToArray();
+                    }
                 }
                 var signals = _evaluation.Evaluate(
                     evaluationStrategies,
@@ -322,7 +349,8 @@ public sealed class TradingSessionService : ITradingSessionService
                     strategy => GetExecution(session, strategy, bar.BarTimeUtc));
 
                 if (effective is not null)
-                    session.RotationLog.Add(BuildRotationLogEntry(session, bar.BarTimeUtc, effective, evaluationStrategies, signals));
+                    session.RotationLog.Add(BuildRotationLogEntry(
+                        session, bar.BarTimeUtc, effective, evaluationStrategies, signals, rotationNote));
                 var sized = new Dictionary<TradeSignal, PositionSizingResult>();
                 foreach (var signal in signals.Where(x => !x.CloseOnly))
                 {
@@ -893,7 +921,8 @@ public sealed class TradingSessionService : ITradingSessionService
     /// </summary>
     private static RotationLogEntry BuildRotationLogEntry(
         Session session, DateTime barTimeUtc, TitanoEffectiveStrategies effective,
-        IReadOnlyList<ITradingStrategy> evaluationStrategies, IReadOnlyList<TradeSignal> signals)
+        IReadOnlyList<ITradingStrategy> evaluationStrategies, IReadOnlyList<TradeSignal> signals,
+        string? note = null)
     {
         var masterStrategies = session.Strategies.Select(s => s.Name)
             .Distinct(StringComparer.OrdinalIgnoreCase).Order(StringComparer.Ordinal).ToArray();
@@ -933,7 +962,9 @@ public sealed class TradingSessionService : ITradingSessionService
             EvaluatedStrategies = evaluatedNames,
             SkippedByTitano = skipped,
             StrategyStates = strategyStates,
-            SignalsEmitted = signals.Select(s => $"{s.StrategyCode}:{s.Type}").ToArray()
+            SignalsEmitted = signals.Select(s => $"{s.StrategyCode}:{s.Type}").ToArray(),
+            FiltersApplied = session.ApplyTitanoFilters && effective.HasActivePeriod,
+            Note = note
         };
     }
 
@@ -982,6 +1013,7 @@ public sealed class TradingSessionService : ITradingSessionService
         ExecutionMode = session.Mode,
         Status = session.Status,
         TitanoRunId = session.TitanoRunId,
+        ApplyTitanoFilters = session.ApplyTitanoFilters,
         PositionSizing = session.PositionSizing,
         InstrumentMetadata = session.InstrumentMetadata.Values.OrderBy(x => x.Symbol).ToArray(),
         Instruments = session.Strategies.GroupBy(s => Normalize(s.Symbol))

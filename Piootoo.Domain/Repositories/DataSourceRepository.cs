@@ -5,12 +5,75 @@ using Piootoo.Shared.Utilities;
 namespace Piootoo.Domain.Repositories;
 
 /// <summary>
-/// Repository per accedere ai datasource OHLCV dal repository locale
+/// Repository per accedere ai datasource OHLCV dal repository locale.
+///
+/// Struttura attuale (allineata a piootoo-repository/datafeed-downloader/core.py):
+/// un file "flat" per ogni combinazione symbol+timeframe, direttamente dentro
+/// RepositoryPath (es. "datafeed"), con nome
+///
+///     {tickerSenzaCaratteriSpeciali}_{timeframeMinutes}.json   (es. "GCF_15.json")
+///
+/// e schema:
+///
+///     {
+///       "symbol": "GC=F",
+///       "timeframeMinutes": 15,
+///       "source": "yahoo-finance",
+///       "generatedAtUtc": "...",
+///       "requestedStartUtc": "...",
+///       "effectiveStartUtc": "...",
+///       "note": "..." | null,
+///       "bars": [ { "dateTime", "open", "high", "low", "close", "volume" }, ... ]
+///     }
+///
+/// Le strategie (Piootoo.Strategies) usano un simbolo "root future" con prefisso
+/// "@" (es. "@GC"), che non coincide col ticker Yahoo Finance usato per il nome
+/// file (es. "GC=F" -> "GCF"): la mappatura è in <see cref="RootSymbolToTicker"/>
+/// (vedi anche piootoo-repository/datafeed-downloader/README.md).
 /// </summary>
 public class DataSourceRepository
 {
     private readonly string _repositoryPath;
     private readonly JsonSerializerOptions _jsonOptions;
+
+    /// <summary>Mappatura indicativa root future strategia -> ticker Yahoo Finance.</summary>
+    private static readonly Dictionary<string, string> RootSymbolToTicker = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["GC"] = "GC=F",       // Gold
+        ["CL"] = "CL=F",       // Crude Oil
+        ["NQ"] = "NQ=F",       // Nasdaq
+        ["ES"] = "ES=F",       // S&P 500
+        ["HG"] = "HG=F",       // Copper
+        ["PL"] = "PL=F",       // Platinum
+        ["NG"] = "NG=F",       // Natural Gas
+        ["RB"] = "RB=F",       // RBOB Gasoline
+        ["HO"] = "HO=F",       // Heating Oil
+        ["S"] = "ZS=F",        // Soybeans
+        ["US"] = "ZB=F",       // 30y T-Bond
+        ["EC"] = "6E=F",       // Euro FX
+        ["BP"] = "6B=F",       // British Pound
+        ["JY"] = "6J=F",       // Japanese Yen
+        ["LC"] = "LE=F",       // Live Cattle
+        ["FC"] = "GF=F",       // Feeder Cattle
+        ["FDAX"] = "^GDAXI",   // DAX (indice, non il future)
+        ["BTCUSDT"] = "BTC-USD",
+        ["ETHUSDT"] = "ETH-USD",
+        ["TSLA"] = "TSLA",
+    };
+
+    /// <summary>Conversione barType (usato dalle API) -> timeframe in minuti.</summary>
+    private static readonly Dictionary<string, int> BarTypeToTimeframeMinutes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["OneMinute"] = 1,
+        ["FiveMinute"] = 5,
+        ["FifteenMinute"] = 15,
+        ["ThirtyMinute"] = 30,
+        ["OneHour"] = 60,
+        ["FourHour"] = 240,
+        ["FourHours"] = 240,
+        ["Daily"] = 1440,
+        ["Weekly"] = 10080,
+    };
 
     public DataSourceRepository(string repositoryPath)
     {
@@ -21,289 +84,223 @@ public class DataSourceRepository
         };
     }
 
+    /// <summary>Converte un barType (es. "OneHour") nel timeframe in minuti (es. 60).</summary>
+    private static int ConvertBarTypeToMinutes(string barType)
+    {
+        if (BarTypeToTimeframeMinutes.TryGetValue(barType, out var minutes))
+            return minutes;
+
+        // Fallback: il chiamante potrebbe già passare un numero di minuti come stringa.
+        return int.TryParse(barType, out var parsed) ? parsed : 60;
+    }
+
+    /// <summary>Rimuove il prefisso "@" e normalizza il simbolo strategia (es. "@GC" -> "GC").</summary>
+    private static string NormalizeRootSymbol(string symbol)
+        => symbol.Trim().TrimStart('@').ToUpperInvariant();
+
+    /// <summary>Risolve il ticker feed (Yahoo Finance) a partire dal simbolo root della strategia.</summary>
+    private static string ResolveTicker(string symbol)
+    {
+        var root = NormalizeRootSymbol(symbol);
+        return RootSymbolToTicker.TryGetValue(root, out var ticker) ? ticker : root;
+    }
+
+    /// <summary>Stessa normalizzazione di datafeed-downloader/core.py:safe_filename.</summary>
+    private static string BuildSafeFileSymbol(string ticker)
+        => ticker.Replace("=", string.Empty).Replace("^", string.Empty).Replace("/", "-");
+
+    /// <summary>Nome file feed per symbol+timeframe, es. "@GC" + 15 -> "GCF_15.json".</summary>
+    private static string BuildFeedFileName(string symbol, int timeframeMinutes)
+        => $"{BuildSafeFileSymbol(ResolveTicker(symbol))}_{timeframeMinutes}.json";
+
+    private string GetFeedFilePath(string symbol, int timeframeMinutes)
+        => Path.Combine(_repositoryPath, BuildFeedFileName(symbol, timeframeMinutes));
+
+    /// <summary>Estrae il "safe symbol" (es. "GCF") dal nome file "GCF_15" (senza estensione).</summary>
+    private static string? ExtractSafeSymbolFromFileName(string fileNameWithoutExtension)
+    {
+        var lastUnderscore = fileNameWithoutExtension.LastIndexOf('_');
+        if (lastUnderscore <= 0 || lastUnderscore == fileNameWithoutExtension.Length - 1)
+            return null;
+
+        var minutesPart = fileNameWithoutExtension[(lastUnderscore + 1)..];
+        return int.TryParse(minutesPart, out _) ? fileNameWithoutExtension[..lastUnderscore] : null;
+    }
+
+    private FeedFileDto? ReadFeedFile(string symbol, int timeframeMinutes)
+    {
+        var path = GetFeedFilePath(symbol, timeframeMinutes);
+        if (!File.Exists(path))
+            return null;
+
+        var json = File.ReadAllText(path);
+        return JsonSerializer.Deserialize<FeedFileDto>(json, _jsonOptions);
+    }
+
+    private async Task<FeedFileDto?> ReadFeedFileAsync(string symbol, int timeframeMinutes)
+    {
+        var path = GetFeedFilePath(symbol, timeframeMinutes);
+        if (!File.Exists(path))
+            return null;
+
+        var json = await File.ReadAllTextAsync(path);
+        return JsonSerializer.Deserialize<FeedFileDto>(json, _jsonOptions);
+    }
+
+    private static List<OhlcvData> ConvertToOhlcv(FeedFileDto? feed)
+    {
+        if (feed?.Bars == null || feed.Bars.Count == 0)
+            return new List<OhlcvData>();
+
+        var candles = feed.Bars.Select(bar =>
+        {
+            var utcDateTime = DateTime.SpecifyKind(bar.DateTime, DateTimeKind.Utc);
+            return new OhlcvData
+            {
+                Timestamp = new DateTimeOffset(utcDateTime).ToUnixTimeSeconds(),
+                DateTime = utcDateTime,
+                DateTimeFormatted = utcDateTime.ToString("yyyy-MM-ddTHH:mm:ssZ"),
+                Open = (decimal)bar.Open,
+                High = (decimal)bar.High,
+                Low = (decimal)bar.Low,
+                Close = (decimal)bar.Close,
+                Volume = (decimal)bar.Volume
+            };
+        }).ToList();
+
+        TradingDateTime.NormalizeCandlesToUtc(candles);
+        return candles;
+    }
+
     /// <summary>
-    /// Ottiene la lista dei simboli disponibili nel repository
-    /// Cerca sia nella struttura vecchia (ds-[symbol]) che nuova ([interval]/[symbol])
+    /// Ottiene la lista dei simboli (root strategia, quando mappabili) per cui esiste
+    /// almeno un file feed nel repository.
     /// </summary>
     public IEnumerable<string> GetAvailableSymbols()
     {
         if (!Directory.Exists(_repositoryPath))
             return Enumerable.Empty<string>();
 
-        var symbols = new HashSet<string>();
+        var tickerToRoot = RootSymbolToTicker
+            .GroupBy(pair => BuildSafeFileSymbol(pair.Value), StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.First().Key, StringComparer.OrdinalIgnoreCase);
 
-        // Cerca nella struttura vecchia: ds-[symbol]
-        var oldStructureDirs = Directory.GetDirectories(_repositoryPath)
-            .Select(d => Path.GetFileName(d))
-            .Where(name => name.StartsWith("ds-"))
-            .Select(name => name.Substring(3)); // Rimuove "ds-"
-        foreach (var symbol in oldStructureDirs)
+        var symbols = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var file in Directory.GetFiles(_repositoryPath, "*_*.json"))
         {
-            symbols.Add(symbol);
-        }
+            var safeSymbol = ExtractSafeSymbolFromFileName(Path.GetFileNameWithoutExtension(file));
+            if (safeSymbol == null)
+                continue;
 
-        // Cerca nella struttura nuova: [interval]/[symbol] o [interval]-calculate/[symbol]
-        var intervalDirs = Directory.GetDirectories(_repositoryPath)
-            .Select(d => Path.GetFileName(d));
-        
-        foreach (var intervalDir in intervalDirs)
-        {
-            var intervalPath = Path.Combine(_repositoryPath, intervalDir);
-            if (Directory.Exists(intervalPath))
-            {
-                var symbolDirs = Directory.GetDirectories(intervalPath)
-                    .Select(d => Path.GetFileName(d));
-                foreach (var symbol in symbolDirs)
-                {
-                    symbols.Add(symbol);
-                }
-            }
+            symbols.Add(tickerToRoot.TryGetValue(safeSymbol, out var root) ? root : safeSymbol);
         }
 
         return symbols;
     }
 
-    /// <summary>
-    /// Ottiene i tipi di bar disponibili per un simbolo
-    /// Cerca sia nella struttura vecchia che nuova
-    /// </summary>
+    /// <summary>Ottiene i timeframe (in minuti, come stringa) disponibili per un simbolo.</summary>
     public IEnumerable<string> GetAvailableBarTypes(string symbol)
     {
-        var barTypes = new HashSet<string>();
+        if (!Directory.Exists(_repositoryPath))
+            return Enumerable.Empty<string>();
 
-        // Cerca nella struttura vecchia: ds-[symbol]/[barType]
-        var oldSymbolPath = Path.Combine(_repositoryPath, $"ds-{symbol}");
-        if (Directory.Exists(oldSymbolPath))
-        {
-            var oldBarTypes = Directory.GetDirectories(oldSymbolPath)
-                .Select(d => Path.GetFileName(d));
-            foreach (var barType in oldBarTypes)
-            {
-                barTypes.Add(barType);
-            }
-        }
+        var safeSymbol = BuildSafeFileSymbol(ResolveTicker(symbol));
+        var prefix = safeSymbol + "_";
 
-        // Cerca nella struttura nuova: [interval]/[symbol] o [interval]-calculate/[symbol]
-        var intervalDirs = Directory.GetDirectories(_repositoryPath)
-            .Select(d => Path.GetFileName(d));
-        
-        foreach (var intervalDir in intervalDirs)
-        {
-            var symbolPath = Path.Combine(_repositoryPath, intervalDir, symbol);
-            if (Directory.Exists(symbolPath))
-            {
-                // Estrai il barType dal nome della cartella (rimuovi -calculate se presente)
-                var barType = intervalDir.Replace("-calculate", "");
-                barTypes.Add(barType);
-            }
-        }
-
-        return barTypes;
+        return Directory.GetFiles(_repositoryPath, $"{safeSymbol}_*.json")
+            .Select(f => Path.GetFileNameWithoutExtension(f))
+            .Where(name => name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            .Select(name => name[prefix.Length..])
+            .Where(minutes => int.TryParse(minutes, out _))
+            .ToList();
     }
 
     /// <summary>
-    /// Ottiene le date disponibili per un simbolo e tipo di bar
-    /// Cerca prima nelle cartelle -calculate, poi nelle cartelle normali
+    /// Ottiene le date (giorno) disponibili per un simbolo e tipo di bar, ricavandole
+    /// dalle candele contenute nel file feed corrispondente.
     /// </summary>
+    /// <param name="preferCalculated">Mantenuto per compatibilità con i chiamanti esistenti;
+    /// non più applicabile con la struttura "flat" attuale (nessuna cartella -calculate).</param>
     public IEnumerable<DateTime> GetAvailableDates(string symbol, string barType = "OneMinute", bool preferCalculated = true)
     {
-        var dates = new HashSet<DateTime>();
-
-        // Converte barType nel formato cartella (es. "OneHour" -> "1h")
-        var folderName = ConvertBarTypeToFolderName(barType);
-        
-        // Cerca prima nelle cartelle -calculate se preferito
-        if (preferCalculated)
-        {
-            var calculatedPath = Path.Combine(_repositoryPath, $"{folderName}-calculate", symbol);
-            if (Directory.Exists(calculatedPath))
-            {
-                var calculatedDates = GetDatesFromPath(calculatedPath);
-                foreach (var date in calculatedDates)
-                {
-                    dates.Add(date);
-                }
-            }
-        }
-
-        // Cerca nelle cartelle normali
-        var normalPath = Path.Combine(_repositoryPath, folderName, symbol);
-        if (Directory.Exists(normalPath))
-        {
-            var normalDates = GetDatesFromPath(normalPath);
-            foreach (var date in normalDates)
-            {
-                dates.Add(date);
-            }
-        }
-
-
-        return dates.OrderBy(d => d);
+        var timeframeMinutes = ConvertBarTypeToMinutes(barType);
+        var feed = ReadFeedFile(symbol, timeframeMinutes);
+        var candles = ConvertToOhlcv(feed);
+        return candles.Select(c => c.DateTime.Date).Distinct().OrderBy(d => d);
     }
 
     /// <summary>
-    /// Estrae le date dai file JSON in un percorso
+    /// Carica i dati per una specifica data dal file feed corrispondente a symbol+barType.
     /// </summary>
-    private IEnumerable<DateTime> GetDatesFromPath(string path)
+    public async Task<DataSource?> LoadDataAsync(string symbol, DateTime date, string barType = "OneMinute", bool preferCalculated = true)
     {
-        return Directory.GetFiles(path, "*.json")
-            .Select(f => Path.GetFileNameWithoutExtension(f))
-            .Select(name =>
-            {
-                // Formato: @ES-20260116 o symbol-20260116
-                var datePart = name.Split('-').LastOrDefault();
-                if (datePart != null && datePart.Length == 8 &&
-                    DateTime.TryParseExact(datePart, "yyyyMMdd", null, 
-                        System.Globalization.DateTimeStyles.None, out var date))
-                {
-                    return date;
-                }
-                return DateTime.MinValue;
-            })
-            .Where(d => d != DateTime.MinValue);
-    }
+        var timeframeMinutes = ConvertBarTypeToMinutes(barType);
+        var feed = await ReadFeedFileAsync(symbol, timeframeMinutes);
+        if (feed == null)
+            return null;
 
-    /// <summary>
-    /// Converte un barType (es. "OneHour") nel formato cartella (es. "1h")
-    /// </summary>
-    private string ConvertBarTypeToFolderName(string barType)
-    {
-        return barType switch
+        var targetDate = TradingDateTime.ToFeedUtc(date).Date;
+        var candles = ConvertToOhlcv(feed).Where(c => c.DateTime.Date == targetDate).ToList();
+        if (candles.Count == 0)
+            return null;
+
+        return new DataSource
         {
-            "OneMinute" => "1m",
-            "FiveMinute" => "5m",
-            "FifteenMinute" => "15m",
-            "ThirtyMinute" => "30m",
-            "OneHour" => "1h",
-            "FourHours" => "4h",
-            "Daily" => "D",
-            "Weekly" => "W",
-            _ => barType.ToLower()
+            Symbol = feed.Symbol,
+            BarType = barType,
+            LastUpdate = feed.GeneratedAtUtc,
+            CandleCount = candles.Count,
+            Candles = candles
         };
     }
 
     /// <summary>
-    /// Carica i dati per una specifica data
-    /// Cerca prima nelle cartelle -calculate, poi nelle cartelle normali
+    /// Carica i dati per un range di date dal file feed corrispondente a symbol+barType.
     /// </summary>
-    public async Task<DataSource?> LoadDataAsync(string symbol, DateTime date, string barType = "OneMinute", bool preferCalculated = true)
-    {
-        var fileName = $"{symbol}-{date:yyyyMMdd}.json";
-        var folderName = ConvertBarTypeToFolderName(barType);
-
-        // Cerca prima nelle cartelle -calculate se preferito
-        if (preferCalculated)
-        {
-            var calculatedPath = Path.Combine(_repositoryPath, $"{folderName}-calculate", symbol, fileName);
-            if (File.Exists(calculatedPath))
-            {
-                var json = await File.ReadAllTextAsync(calculatedPath);
-                // Prova a deserializzare come AggregatedCandleResponseDto
-                try
-                {
-                    var aggregatedResponse = JsonSerializer.Deserialize<AggregatedCandleResponseDto>(json, _jsonOptions);
-                    if (aggregatedResponse != null && aggregatedResponse.Candles != null)
-                    {
-                        // Converte AggregatedCandleDto in DataSource
-                        return FinalizeDataSource(ConvertAggregatedToDataSource(aggregatedResponse, symbol, barType));
-                    }
-                }
-                catch
-                {
-                    // Se fallisce, prova come DataSource normale
-                }
-                // Fallback: prova a deserializzare come DataSource normale
-                return FinalizeDataSource(JsonSerializer.Deserialize<DataSource>(json, _jsonOptions));
-            }
-        }
-
-        // Cerca nelle cartelle normali
-        var normalPath = Path.Combine(_repositoryPath, folderName, symbol, fileName);
-        if (File.Exists(normalPath))
-        {
-            var json = await File.ReadAllTextAsync(normalPath);
-            return FinalizeDataSource(JsonSerializer.Deserialize<DataSource>(json, _jsonOptions));
-        }
-
-        // Fallback alla struttura vecchia: ds-[symbol]/[barType]
-        var oldPath = Path.Combine(_repositoryPath, $"ds-{symbol}", barType, fileName);
-        if (File.Exists(oldPath))
-        {
-            var json = await File.ReadAllTextAsync(oldPath);
-            return FinalizeDataSource(JsonSerializer.Deserialize<DataSource>(json, _jsonOptions));
-        }
-
-        return null;
-    }
-
-    /// <summary>
-    /// Carica i dati per un range di date
-    /// Cerca prima nelle cartelle -calculate, poi nelle cartelle normali
-    /// </summary>
+    /// <param name="preferCalculated">Mantenuto per compatibilità con i chiamanti esistenti;
+    /// non più applicabile con la struttura "flat" attuale (nessuna cartella -calculate).</param>
     public async Task<List<OhlcvData>> LoadDataRangeAsync(string symbol, DateTime startDate, DateTime endDate, string barType = "OneMinute", bool preferCalculated = true)
     {
         startDate = TradingDateTime.ToFeedUtc(startDate);
         endDate = TradingDateTime.ToFeedUtc(endDate);
 
-        var allCandles = new List<OhlcvData>();
-        var availableDates = GetAvailableDates(symbol, barType, preferCalculated)
-            .Where(d => d >= startDate.Date && d <= endDate.Date)
+        var timeframeMinutes = ConvertBarTypeToMinutes(barType);
+        var feed = await ReadFeedFileAsync(symbol, timeframeMinutes);
+        var candles = ConvertToOhlcv(feed);
+
+        return candles
+            .Where(c => c.DateTime >= startDate && c.DateTime <= endDate)
+            .OrderBy(c => c.DateTime)
             .ToList();
-
-        foreach (var date in availableDates)
-        {
-            var dataSource = await LoadDataAsync(symbol, date, barType, preferCalculated);
-            if (dataSource?.Candles != null)
-            {
-                allCandles.AddRange(dataSource.Candles);
-            }
-        }
-
-        return allCandles.OrderBy(c => c.DateTime).ToList();
     }
 
     /// <summary>
-    /// Carica tutti i dati disponibili per un simbolo
+    /// Carica tutti i dati disponibili per un simbolo dal file feed corrispondente a symbol+barType.
     /// </summary>
     public async Task<List<OhlcvData>> LoadAllDataAsync(string symbol, string barType = "OneMinute")
     {
-        var allCandles = new List<OhlcvData>();
-        var availableDates = GetAvailableDates(symbol, barType).ToList();
-
-        foreach (var date in availableDates)
-        {
-            var dataSource = await LoadDataAsync(symbol, date, barType);
-            if (dataSource?.Candles != null)
-            {
-                allCandles.AddRange(dataSource.Candles);
-            }
-        }
-
-        return allCandles.OrderBy(c => c.DateTime).ToList();
+        var timeframeMinutes = ConvertBarTypeToMinutes(barType);
+        var feed = await ReadFeedFileAsync(symbol, timeframeMinutes);
+        return ConvertToOhlcv(feed).OrderBy(c => c.DateTime).ToList();
     }
 
     /// <summary>
-    /// Carica i dati per le ultime N sessioni
+    /// Carica i dati per le ultime N sessioni (giorni) disponibili nel file feed.
     /// </summary>
     public async Task<List<OhlcvData>> LoadLastSessionsAsync(string symbol, int sessions, string barType = "OneMinute")
     {
-        var allCandles = new List<OhlcvData>();
-        var availableDates = GetAvailableDates(symbol, barType)
+        var allCandles = await LoadAllDataAsync(symbol, barType);
+        var lastDates = allCandles
+            .Select(c => c.DateTime.Date)
+            .Distinct()
             .OrderByDescending(d => d)
             .Take(sessions)
-            .OrderBy(d => d)
+            .ToHashSet();
+
+        return allCandles
+            .Where(c => lastDates.Contains(c.DateTime.Date))
+            .OrderBy(c => c.DateTime)
             .ToList();
-
-        foreach (var date in availableDates)
-        {
-            var dataSource = await LoadDataAsync(symbol, date, barType);
-            if (dataSource?.Candles != null)
-            {
-                allCandles.AddRange(dataSource.Candles);
-            }
-        }
-
-        return allCandles.OrderBy(c => c.DateTime).ToList();
     }
 
     /// <summary>
@@ -338,74 +335,32 @@ public class DataSourceRepository
 
         return info;
     }
-
-    /// <summary>
-    /// Converte AggregatedCandleResponseDto in DataSource
-    /// </summary>
-    private DataSource ConvertAggregatedToDataSource(AggregatedCandleResponseDto aggregatedResponse, string symbol, string barType)
-    {
-        var candles = aggregatedResponse.Candles.Select(ac => new OhlcvData
-        {
-            Timestamp = (long)ac.Timestamp,
-            DateTime = ac.DateTime,
-            DateTimeFormatted = ac.DateTimeFormatted,
-            Open = (decimal)ac.Open,
-            High = (decimal)ac.High,
-            Low = (decimal)ac.Low,
-            Close = (decimal)ac.Close,
-            Volume = (decimal)ac.Volume
-        }).ToList();
-
-        TradingDateTime.NormalizeCandlesToUtc(candles);
-
-        return new DataSource
-        {
-            Symbol = symbol,
-            BarType = barType,
-            LastUpdate = aggregatedResponse.LastUpdate,
-            CandleCount = candles.Count,
-            Candles = candles
-        };
-    }
-
-    private static DataSource? FinalizeDataSource(DataSource? dataSource)
-    {
-        if (dataSource?.Candles != null)
-        {
-            TradingDateTime.NormalizeCandlesToUtc(dataSource.Candles);
-        }
-
-        return dataSource;
-    }
 }
 
 /// <summary>
-/// DTO per leggere le risposte dalle cartelle -calculate
+/// DTO per il file feed "flat" prodotto da datafeed-downloader/core.py.
 /// </summary>
-internal class AggregatedCandleResponseDto
+internal class FeedFileDto
 {
     public string Symbol { get; set; } = string.Empty;
-    public string BarType { get; set; } = string.Empty;
-    public int CandleCount { get; set; }
-    public List<AggregatedCandleDto> Candles { get; set; } = new();
-    public DateTime LastUpdate { get; set; }
+    public int TimeframeMinutes { get; set; }
+    public string Source { get; set; } = string.Empty;
+    public DateTime GeneratedAtUtc { get; set; }
+    public DateTime RequestedStartUtc { get; set; }
+    public DateTime EffectiveStartUtc { get; set; }
+    public string? Note { get; set; }
+    public List<FeedBarDto> Bars { get; set; } = new();
 }
 
-/// <summary>
-/// DTO per candela aggregata con Volume High e Volume Low
-/// </summary>
-internal class AggregatedCandleDto
+/// <summary>DTO per una singola barra OHLCV del file feed (schema OhlcvDto).</summary>
+internal class FeedBarDto
 {
-    public double Timestamp { get; set; }
     public DateTime DateTime { get; set; }
-    public string DateTimeFormatted { get; set; } = string.Empty;
     public double Open { get; set; }
     public double High { get; set; }
     public double Low { get; set; }
     public double Close { get; set; }
     public double Volume { get; set; }
-    public double VolumeHigh { get; set; }
-    public double VolumeLow { get; set; }
 }
 
 /// <summary>

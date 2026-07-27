@@ -4,10 +4,17 @@ Indice. Ogni file copre un concetto autoconsistente, non un progetto della
 solution. Stato: **stabile** = contenuto verificato contro il codice,
 **bozza** = solo scheletro/titoli, da scrivere.
 
+## Da leggere per primo
+
+- [`PROGETTO.md`](PROGETTO.md) — descrizione del progetto: cosa fa il sistema,
+  moduli, flussi, invarianti da non rompere, trappole note. *Stabile.*
+- [`verifica-codice-2026-07-27.md`](verifica-codice-2026-07-27.md) — audit del
+  codice con evidenze e riferimenti puntuali. *Stabile.*
+
 ## Architettura
 
 - [`architettura/overview.md`](architettura/overview.md) — mappa dei moduli
-  della solution e flusso dati end-to-end. *Bozza.*
+  della solution e flusso dati end-to-end. *Bozza, superato da `PROGETTO.md` §2.*
 
 ## Domini
 

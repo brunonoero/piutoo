@@ -19,9 +19,33 @@ public sealed class TitanoRotationService
         Converters = { new JsonStringEnumConverter() }
     };
     private static readonly ConcurrentDictionary<string, object> Gates = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Cache dei manifest già letti, invalidata sul timestamp del file.
+    ///
+    /// <see cref="Resolve"/> viene invocato una volta per barra da ogni sessione live e a ogni
+    /// polling di ogni account: senza cache ogni chiamata rileggeva e deserializzava l'intero
+    /// manifest da disco, più l'enumerazione della cartella degli override.
+    /// </summary>
+    private static readonly ConcurrentDictionary<string, (DateTime WrittenAtUtc, TitanoRotationManifest Manifest)>
+        ManifestCache = new(StringComparer.OrdinalIgnoreCase);
+
     private readonly WorkspaceService _workspaces;
 
     public TitanoRotationService(WorkspaceService workspaces) => _workspaces = workspaces;
+
+    /// <summary>
+    /// Codici di esecuzione (ITradingStrategy.Name) delle strategie del masterfilter.
+    ///
+    /// Il masterfilter contiene Id di classe (<c>Easy_218_GC_60</c>) mentre i trade persistiti
+    /// portano il codice di esecuzione (<c>TOP_UA_218</c>). Confrontarli direttamente — come
+    /// faceva la versione precedente — significa non trovare mai un trade per nessuna strategia:
+    /// tutte le metriche restano a zero e la rotazione disabilita tutto per sempre.
+    /// Vedi docs/PROGETTO.md §3.2.
+    /// </summary>
+    private string[] GetMasterExecutionCodes(string workspaceId) =>
+        StrategyCatalog.ResolveExecutionCodes(
+            _workspaces.GetMasterFilter(workspaceId).StrategiesFilter.Where(x => !string.IsNullOrWhiteSpace(x)));
 
     public TitanoRotationManifest Run(TitanoRotationRequest request)
     {
@@ -33,9 +57,7 @@ public sealed class TitanoRotationService
 
         var sourceBytes = File.ReadAllBytes(tradesPath);
         var sourceHash = Sha(sourceBytes);
-        var master = _workspaces.GetMasterFilter(request.WorkspaceId).StrategiesFilter
-            .Where(x => !string.IsNullOrWhiteSpace(x)).Distinct(StringComparer.OrdinalIgnoreCase)
-            .Order(StringComparer.Ordinal).ToArray();
+        var master = GetMasterExecutionCodes(request.WorkspaceId);
         var masterHash = Sha(Encoding.UTF8.GetBytes(string.Join("\n", master)));
         var configHash = Sha(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(request, JsonOptions)));
         var runId = $"{request.RotationPeriod.ToString().ToLowerInvariant()}-{sourceHash[..12]}-{masterHash[..8]}-{configHash[..12]}";
@@ -89,8 +111,23 @@ public sealed class TitanoRotationService
         var safeRunId = SafeSegment(runId);
         var path = Path.Combine(_workspaces.GetBacktestPath(workspaceId, backtestFolder), "titano", safeRunId, "manifest.json");
         if (!File.Exists(path)) throw new FileNotFoundException($"Run Titano '{runId}' non trovato.");
+
+        // Un manifest è immutabile una volta scritto (il runId è l'hash dei suoi input), ma la
+        // cartella può ricevere nuovi file di hard-stop-reset: la chiave di cache tiene conto sia
+        // del manifest sia dell'ultima modifica della directory.
+        var writtenAtUtc = File.GetLastWriteTimeUtc(path);
+        var directory = Path.GetDirectoryName(path)!;
+        var directoryTouchedAtUtc = Directory.GetLastWriteTimeUtc(directory);
+        var stamp = writtenAtUtc > directoryTouchedAtUtc ? writtenAtUtc : directoryTouchedAtUtc;
+
+        if (ManifestCache.TryGetValue(path, out var cached) && cached.WrittenAtUtc == stamp)
+        {
+            return cached.Manifest;
+        }
+
         var manifest = ReadManifest(path);
-        manifest.HardStopResets.AddRange(ReadResets(Path.GetDirectoryName(path)!));
+        manifest.HardStopResets.AddRange(ReadResets(directory));
+        ManifestCache[path] = (stamp, manifest);
         return manifest;
     }
 
@@ -120,8 +157,7 @@ public sealed class TitanoRotationService
     {
         RequireUtc(timestampUtc, nameof(timestampUtc));
         var manifest = Get(workspaceId, backtestFolder, runId);
-        var master = _workspaces.GetMasterFilter(workspaceId).StrategiesFilter
-            .Distinct(StringComparer.OrdinalIgnoreCase).Order(StringComparer.Ordinal).ToArray();
+        var master = GetMasterExecutionCodes(workspaceId);
         var period = manifest.Periods.SingleOrDefault(x => timestampUtc >= x.EffectiveFromUtc && timestampUtc < x.EffectiveToUtc);
         var enabled = period?.Strategies.Where(x => x.Enabled).Select(x => x.StrategyCode)
             .Order(StringComparer.Ordinal).ToArray() ?? [];
@@ -149,7 +185,13 @@ public sealed class TitanoRotationService
             RunId = runId, TimestampUtc = timestampUtc, PeriodId = period?.PeriodId,
             MasterStrategies = master, TitanoEnabledStrategies = enabled,
             EffectiveStrategies = master.Intersect(enabled, StringComparer.OrdinalIgnoreCase).Order(StringComparer.Ordinal).ToArray(),
-            StrategyStates = states
+            StrategyStates = states,
+            // Distingue "Titano ha deciso di disabilitare tutto" da "Titano non copre questo
+            // istante": senza il flag, un manifest storico usato in live azzerava in silenzio
+            // l'intero portafoglio.
+            HasActivePeriod = period is not null,
+            ManifestFromUtc = manifest.Periods.Count == 0 ? null : manifest.Periods.Min(x => x.EffectiveFromUtc),
+            ManifestToUtc = manifest.Periods.Count == 0 ? null : manifest.Periods.Max(x => x.EffectiveToUtc)
         };
     }
 
