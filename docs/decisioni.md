@@ -51,6 +51,22 @@ in ordine cronologico. Non è un changelog di codice: quello resta nei commit.
   interno e sessioni. Una modalità filtrata non degrada più in silenzio a "nessun filtro":
   senza run la sessione non parte, e una barra fuori dai periodi del manifest ferma il run
   con un errore. Prima si proseguiva senza filtri, cioè l'opposto di quanto richiesto.
+- **2026-07-27** — Titano assegna le allocazioni per **percentile** fra le strategie del periodo,
+  con curva continua fra 25% e 100%, invece che per soglie assolute sui tier. Su un run reale a 52
+  periodi l'81% delle assegnazioni finiva al 50%: quattro voti su cinque erano quasi costanti
+  (performance lunga 0,499–0,556, drawdown 0,913–1, volatilità 0,962–1, z-score binario) perché
+  normalizzati su intervalli molto più larghi della variazione reale, e lo score composito viveva
+  tutto fra 0,595 e 0,808. Nessuna taratura dei tier poteva risolverlo: con varianza quasi nulla
+  ogni soglia produce un unico scaglione. L'ON/OFF resta ai cancelli assoluti — un rango dice "è la
+  peggiore del gruppo", non "va male" — e `rawScore` conserva il giudizio assoluto per diagnosi.
+- **2026-07-27** — `EasyLib.PatternDirectionalFast` faceva il dispatch dello `switch` sul valore
+  **con segno** mentre tutti i `case` sono range positivi (`>= 1 and <= 8`, `9`, `>= 10 and <= 12`,
+  …). Un pattern negativo non entrava in nessun ramo e cadeva nel default `false`: i rami short,
+  scritti come `numeroPattern > 0 ? long : short`, erano irraggiungibili. L'unico negativo gestito
+  era `-52`, a mano. Dispatch spostato su `Math.Abs(numeroPattern)`. Effetto: le strategie che
+  usano pattern direzionali negativi non emettevano **mai** un segnale — TOP_UA_303 (`-47`, `-9`),
+  TOP_UA_416, TOP_UA_695, TOP_UA_851, TOP_UA_940, più il lato short di TOP_UA_291 (`-48`, `-13`).
+  Trovato indagando un backtest a zero trade sul workspace gold-one.
 - **2026-07-27** — Il client dichiara il proprio contesto di esecuzione (`ClientRunMode`) alla
   creazione della sessione, e il cBot lo legge da `Robot.IsBacktesting` invece di esporlo come
   parametro. Il server incrocia contesto e modalità Titano e rifiuta `Realtime` in backtest e

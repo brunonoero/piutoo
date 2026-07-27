@@ -344,6 +344,12 @@ public sealed class TradingGroupRow
     /// <summary>
     /// true: al polling account il manifest del gruppo filtra i template e scala la quantità.
     /// false: il gruppo riceve tutti i template compatibili con l'anti copy-trading, indipendentemente dal manifest.
+    ///
+    /// <para>Non va confuso con <see cref="CreateTradingSessionRequest.TitanoMode"/>: la modalità dice
+    /// <i>dove</i> si sta girando ed è della sessione, questo flag dice soltanto se <i>questo</i> gruppo
+    /// subisce il filtro del proprio run. Un gruppo senza <see cref="TitanoRunId"/> proprio eredita la
+    /// decisione della sessione — filtrata in tutte le modalità tranne
+    /// <see cref="TitanoFilterMode.Disabled"/>.</para>
     /// </summary>
     public bool ApplyTitanoFilters { get; init; } = true;
 }

@@ -341,6 +341,18 @@ public sealed class TitanoRotationService
         var manifest = Get(workspaceId, backtestFolder, runId);
         var master = GetMasterExecutionCodes(workspaceId);
         var period = manifest.Periods.SingleOrDefault(x => timestampUtc >= x.EffectiveFromUtc && timestampUtc < x.EffectiveToUtc);
+
+        var usedLatestPeriod = false;
+        if (period is null && mode == TitanoFilterMode.Realtime && manifest.Periods.Count > 0)
+        {
+            var last = manifest.Periods.OrderBy(x => x.EffectiveToUtc).Last();
+            if (timestampUtc >= last.EffectiveToUtc)
+            {
+                period = last;
+                usedLatestPeriod = true;
+            }
+        }
+
         var enabled = period?.Strategies.Where(x => x.Enabled).Select(x => x.StrategyCode)
             .Order(StringComparer.Ordinal).ToArray() ?? [];
         var resets = manifest.HardStopResets.Where(x => x.EffectiveFromUtc <= timestampUtc)
@@ -351,7 +363,7 @@ public sealed class TitanoRotationService
             {
                 StrategyCode = x.StrategyCode,
                 AllocationMultiplier = x.HardStopped && resets.ContainsKey(x.StrategyCode)
-                    ? SelectMultiplier(x.Score, manifest.Config.SizingTiers) : x.AllocationMultiplier,
+                    ? ComputeAllocation(x.Score, manifest.Config) : x.AllocationMultiplier,
                 State = x.HardStopped && resets.ContainsKey(x.StrategyCode)
                     ? TitanoStrategyStatus.Reduced : x.State,
                 CooldownRemaining = x.CooldownRemaining,
@@ -404,35 +416,62 @@ public sealed class TitanoRotationService
         {
             var source = periods[i];
             var effective = periods[i + 1];
-            var states = master.Select(code =>
+            // PRIMA PASSATA: metriche e voti di tutte le strategie del periodo. Il sizing per
+            // percentile confronta le strategie fra loro, quindi nessuno score è calcolabile finché
+            // non si conoscono tutti gli altri.
+            var measured = master.Select(code =>
             {
                 var rows = trades.Where(t => t.StrategyCode.Equals(code, StringComparison.OrdinalIgnoreCase) &&
                                              t.ExitTimeUtc < source.End)
                     .OrderBy(t => t.ExitTimeUtc).ThenBy(t => t.TradeId, StringComparer.Ordinal).ToList();
                 var metrics = CalculateMetrics(rows, source.End, request);
-                previous.TryGetValue(code, out var prior);
                 var votes = EvaluateVotes(metrics, request);
+                return (Code: code, Metrics: metrics, Votes: votes,
+                        RawScore: votes.Count == 0 ? 0m : votes.Average(x => x.Score));
+            }).ToList();
+
+            // Percentile per singolo voto, poi media: un voto quasi costante fra le strategie
+            // (drawdown, volatilità) smette di pesare come una costante e torna a discriminare
+            // solo per quel poco che effettivamente varia.
+            var percentileScores = ComputePercentileScores(measured
+                .Select(x => (IReadOnlyList<TitanoFilterVote>)x.Votes).ToList());
+
+            // SECONDA PASSATA: decisione per strategia.
+            var states = measured.Select((measurement, index) =>
+            {
+                var code = measurement.Code;
+                var metrics = measurement.Metrics;
+                var votes = measurement.Votes;
+                previous.TryGetValue(code, out var prior);
                 var passing = votes.Count(x => x.Passed);
-                var score = votes.Count == 0 ? 0 : votes.Average(x => x.Score);
+                var rawScore = measurement.RawScore;
+                var score = request.CrossSectionalSizing ? percentileScores[index] : rawScore;
                 var hardStopped = prior?.HardStopped == true || metrics.CurrentDrawdown >= request.HardStopDrawdown;
                 var cooldown = prior?.Enabled == false
                     ? Math.Max(0, prior.CooldownRemaining - 1)
                     : 0;
                 var eligible = passing >= request.MinimumPassingFilters;
                 var mayDisable = prior is null || prior.ConsecutiveOnPeriods >= request.MinimumOnPeriods;
-                var disable = score < request.DisableCompositeScore ||
-                              metrics.CurrentDrawdown > request.MaximumCurrentDrawdown || !eligible;
-                var reenable = score >= request.ReenableCompositeScore &&
-                               metrics.CurrentDrawdown <= request.ReenableMaximumCurrentDrawdown &&
-                               eligible && cooldown == 0;
+
+                // Con il sizing per percentile lo score è un RANGO, non un giudizio: usarlo per
+                // accendere e spegnere significherebbe spegnere sempre la peggiore del gruppo anche
+                // quando va benissimo. L'ON/OFF resta quindi ai soli cancelli assoluti.
+                var disable = metrics.CurrentDrawdown > request.MaximumCurrentDrawdown || !eligible ||
+                              (!request.CrossSectionalSizing && rawScore < request.DisableCompositeScore);
+                var reenable = metrics.CurrentDrawdown <= request.ReenableMaximumCurrentDrawdown &&
+                               eligible && cooldown == 0 &&
+                               (request.CrossSectionalSizing || rawScore >= request.ReenableCompositeScore);
                 var on = prior is null ? !disable : prior.Enabled ? (!disable || !mayDisable) : reenable;
                 if (hardStopped) on = false;
                 if (prior?.Enabled == true && !on) cooldown = request.CooldownPeriodsAfterOff;
-                var multiplier = on ? SelectMultiplier(score, request.SizingTiers) : 0m;
+                var multiplier = on ? ComputeAllocation(score, request) : 0m;
                 var reasons = votes.Where(x => !x.Passed).Select(x => x.Reason).ToList();
                 if (hardStopped) reasons.Insert(0, $"hard stop drawdown {metrics.CurrentDrawdown:P2} >= {request.HardStopDrawdown:P2}");
                 else if (!on && cooldown > 0) reasons.Add($"cooldown: {cooldown} periodi residui");
-                if (reasons.Count == 0) reasons.Add($"voto {passing}/{votes.Count}, score {score:F3}");
+                if (reasons.Count == 0)
+                    reasons.Add(request.CrossSectionalSizing
+                        ? $"voto {passing}/{votes.Count}, percentile {score:F3} (score assoluto {rawScore:F3})"
+                        : $"voto {passing}/{votes.Count}, score {score:F3}");
                 var newStatus = hardStopped ? TitanoStrategyStatus.HardStopped :
                     multiplier == 0 ? TitanoStrategyStatus.Disabled :
                     multiplier == 1 ? TitanoStrategyStatus.Enabled : TitanoStrategyStatus.Reduced;
@@ -445,7 +484,7 @@ public sealed class TitanoRotationService
                     CooldownRemaining = cooldown,
                     ConsecutiveOnPeriods = multiplier > 0 ? (prior?.ConsecutiveOnPeriods ?? 0) + 1 : 0,
                     HardStopped = hardStopped, PassingFilters = passing, TotalFilters = votes.Count,
-                    Votes = votes, Score = score,
+                    Votes = votes, Score = score, RawScore = rawScore,
                     Reason = string.Join("; ", reasons), Reasons = reasons,
                     Metrics = metrics,
                     PreviousState = prior?.State,
@@ -688,6 +727,71 @@ public sealed class TitanoRotationService
     public static decimal SelectMultiplier(decimal score, IReadOnlyList<TitanoSizingTier> tiers) =>
         tiers.OrderByDescending(x => x.MinimumScore).FirstOrDefault(x => score >= x.MinimumScore)?.AllocationMultiplier ?? 0m;
 
+    /// <summary>
+    /// Traduce lo score in allocazione. Con <see cref="TitanoRotationRequest.CrossSectionalSizing"/>
+    /// è una curva continua tra il minimo e il massimo configurati, arrotondata al passo: una
+    /// strategia che peggiora viene ridotta gradualmente invece di saltare da 100% a 50%.
+    /// Altrimenti si ricade sugli scaglioni storici.
+    /// </summary>
+    public static decimal ComputeAllocation(decimal score, TitanoRotationRequest request)
+    {
+        if (!request.CrossSectionalSizing)
+            return SelectMultiplier(score, request.SizingTiers);
+
+        var floor = request.MinimumAllocationMultiplier;
+        var cap = Math.Max(floor, request.MaximumAllocationMultiplier);
+        var value = floor + (cap - floor) * Math.Clamp(score, 0m, 1m);
+
+        if (request.AllocationStep > 0)
+            value = Math.Round(value / request.AllocationStep, MidpointRounding.AwayFromZero) * request.AllocationStep;
+
+        return Math.Clamp(value, floor, cap);
+    }
+
+    /// <summary>
+    /// Score composito come media dei percentili dei singoli voti, calcolati fra le strategie dello
+    /// stesso periodo.
+    ///
+    /// <para>Il punto è la scala. I voti assoluti sono normalizzati su intervalli molto più larghi
+    /// della variazione reale — la performance è misurata su ±50% quando i rendimenti veri sono
+    /// pochi punti percentuali, il drawdown è rapportato al proprio tetto — quindi restano
+    /// schiacciati vicino a un valore fisso e la loro media non discrimina nulla. Il percentile
+    /// ridà a ciascun voto l'intera scala 0..1 <i>indipendentemente da quanto poco vari in
+    /// assoluto</i>.</para>
+    ///
+    /// <para>I pari merito ricevono il rango medio, così due strategie identiche prendono la stessa
+    /// allocazione. Con una sola strategia il rango non ha significato e si restituisce 1: non
+    /// avrebbe senso dimezzare l'unica strategia del portafoglio per il solo fatto di essere anche
+    /// la peggiore.</para>
+    /// </summary>
+    private static IReadOnlyList<decimal> ComputePercentileScores(
+        IReadOnlyList<IReadOnlyList<TitanoFilterVote>> votesByStrategy)
+    {
+        var count = votesByStrategy.Count;
+        if (count == 0) return [];
+        if (count == 1) return [1m];
+
+        var voteCount = votesByStrategy.Max(x => x.Count);
+        var totals = new decimal[count];
+
+        for (var vote = 0; vote < voteCount; vote++)
+        {
+            var values = votesByStrategy
+                .Select(x => vote < x.Count ? x[vote].Score : 0m)
+                .ToArray();
+
+            for (var i = 0; i < count; i++)
+            {
+                var below = values.Count(v => v < values[i]);
+                var equal = values.Count(v => v == values[i]);
+                // Rango medio dei pari merito, normalizzato su [0,1].
+                totals[i] += (below + (equal - 1) / 2m) / (count - 1);
+            }
+        }
+
+        return totals.Select(x => Math.Clamp(voteCount == 0 ? 0m : x / voteCount, 0m, 1m)).ToArray();
+    }
+
     public static decimal RoundQuantity(decimal quantity, decimal multiplier, decimal step, decimal minimum)
     {
         if (quantity <= 0 || multiplier <= 0) return 0;
@@ -816,7 +920,11 @@ public sealed class TitanoRotationService
             request.MinimumOnPeriods < 0 || request.HardStopDrawdown <= request.MaximumCurrentDrawdown ||
             request.QuantityStep <= 0 || request.MinimumIntentQuantity < 0 ||
             request.CalibrationPeriods <= 0 || request.EvaluationPeriods <= 0 ||
-            request.SizingTiers.Count == 0 || request.SizingTiers.Any(x => x.AllocationMultiplier is < 0 or > 1))
+            request.SizingTiers.Count == 0 || request.SizingTiers.Any(x => x.AllocationMultiplier is < 0 or > 1) ||
+            request.MinimumAllocationMultiplier is < 0 or > 1 ||
+            request.MaximumAllocationMultiplier is < 0 or > 1 ||
+            request.MinimumAllocationMultiplier > request.MaximumAllocationMultiplier ||
+            request.AllocationStep < 0 || request.AllocationStep > 1)
             throw new ArgumentException("Configurazione Titano non valida.");
     }
 

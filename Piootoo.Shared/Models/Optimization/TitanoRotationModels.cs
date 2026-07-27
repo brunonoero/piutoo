@@ -36,6 +36,41 @@ public sealed class TitanoRotationRequest
     public int CooldownPeriodsAfterOff { get; init; } = 2;
     public int MinimumOnPeriods { get; init; } = 1;
     public decimal HardStopDrawdown { get; init; } = 0.35m;
+    /// <summary>
+    /// Sizing per percentile invece che per soglie assolute.
+    ///
+    /// <para>true (default): lo score usato per il sizing è il <b>rango</b> della strategia rispetto
+    /// alle altre dello stesso periodo, e l'allocazione è una curva continua tra
+    /// <see cref="MinimumAllocationMultiplier"/> e <see cref="MaximumAllocationMultiplier"/>. È ciò
+    /// che serve a una rotazione: ordinare le strategie, non giudicarle in assoluto.</para>
+    ///
+    /// <para>false: comportamento storico, media dei voti assoluti mappata sui
+    /// <see cref="SizingTiers"/>. Con le scale attuali i voti sono quasi costanti — drawdown e
+    /// volatilità restano sopra 0.9, la performance lunga è inchiodata a 0.5 — quindi lo score si
+    /// concentra in una banda strettissima e finisce quasi sempre nello stesso scaglione.</para>
+    ///
+    /// <para><b>L'accensione e lo spegnimento non passano da qui.</b> Restano governati dai cancelli
+    /// assoluti (filtri minimi superati, drawdown, hard stop, isteresi, cooldown): il percentile
+    /// decide solo <i>quanto</i> allocare a una strategia già ritenuta eleggibile. Altrimenti in un
+    /// portafoglio piccolo la peggiore verrebbe spenta sempre, per definizione di rango.</para>
+    /// </summary>
+    public bool CrossSectionalSizing { get; init; } = true;
+
+    /// <summary>
+    /// Allocazione della strategia eleggibile peggiore del periodo. Non è zero: una strategia che
+    /// supera i cancelli assoluti resta operativa, solo con size ridotta.
+    /// </summary>
+    public decimal MinimumAllocationMultiplier { get; init; } = 0.25m;
+
+    /// <summary>Allocazione della strategia migliore del periodo.</summary>
+    public decimal MaximumAllocationMultiplier { get; init; } = 1m;
+
+    /// <summary>
+    /// Granularità dell'allocazione: la curva continua viene arrotondata a questo passo, così i
+    /// moltiplicatori restano leggibili e confrontabili tra periodi. 0 = nessun arrotondamento.
+    /// </summary>
+    public decimal AllocationStep { get; init; } = 0.05m;
+
     public decimal CommissionPerUnit { get; init; }
     public decimal SlippagePerUnit { get; init; }
     public decimal MinimumIntentQuantity { get; init; } = 1m;
@@ -155,7 +190,19 @@ public sealed class TitanoStrategyState
     public int PassingFilters { get; init; }
     public int TotalFilters { get; init; }
     public IReadOnlyList<TitanoFilterVote> Votes { get; init; } = [];
+
+    /// <summary>
+    /// Score usato per il sizing. Con <c>CrossSectionalSizing</c> è il percentile della strategia
+    /// nel periodo (0 = peggiore, 1 = migliore); altrimenti è la media dei voti assoluti.
+    /// </summary>
     public decimal Score { get; init; }
+
+    /// <summary>
+    /// Media dei voti assoluti, sempre valorizzata anche quando il sizing usa il percentile.
+    /// Serve a distinguere "è la peggiore del gruppo" da "va male": un percentile basso in un
+    /// periodo in cui vanno tutte bene non è un allarme, un RawScore basso sì.
+    /// </summary>
+    public decimal RawScore { get; init; }
     public required string Reason { get; init; }
     public IReadOnlyList<string> Reasons { get; init; } = [];
     public TitanoPeriodMetrics Metrics { get; init; } = new();

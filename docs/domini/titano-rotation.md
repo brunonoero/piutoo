@@ -36,9 +36,34 @@ performance breve, performance lunga, z-score, drawdown e volatilità; servono
 almeno `minimumPassingFilters` voti. Score e dettaglio di ogni voto sono nel
 manifest.
 
-Lo score seleziona deterministicamente il primo tier ordinato per soglia
-decrescente. I default sono 100%, 50%, 25%, 0%. `Enabled` resta equivalente a
-`AllocationMultiplier > 0`. In offline `NetProfit` è moltiplicato per
+## Sizing per percentile
+
+Il sizing di default (`crossSectionalSizing`) usa il **rango** della strategia fra
+quelle dello stesso periodo, non un giudizio assoluto: per ciascun voto si calcola
+il percentile (rango medio per i pari merito) e lo score è la media dei percentili.
+L'allocazione è poi una curva continua fra `minimumAllocationMultiplier` (0,25 di
+default) e `maximumAllocationMultiplier` (1), arrotondata ad `allocationStep` (0,05).
+
+Il motivo è la scala dei voti assoluti. Misurati su un run reale a 52 periodi, i
+voti stanno quasi fermi: performance lunga fra 0,499 e 0,556, drawdown fra 0,913 e
+1, volatilità fra 0,962 e 1, z-score binario. Lo score composito ne risultava
+compresso fra 0,595 e 0,808 — e con soglie tier a 0,80/0,60/0,40 l'81% delle
+assegnazioni finiva sullo stesso scaglione al 50%. Il percentile restituisce a
+ciascun voto l'intera scala 0..1 a prescindere da quanto vari in assoluto.
+
+**L'accensione e lo spegnimento non passano dal percentile.** Restano governati dai
+cancelli assoluti — filtri minimi superati, drawdown corrente, hard stop, isteresi,
+cooldown — perché un rango dice "è la peggiore del gruppo", non "va male": usarlo
+per spegnere significherebbe spegnere sempre qualcuno, anche in un periodo in cui
+vanno tutte bene. Il percentile decide solo *quanto* allocare a una strategia già
+ritenuta eleggibile. `rawScore` conserva la media dei voti assoluti, così un
+percentile basso resta distinguibile da un peggioramento reale.
+
+Con `crossSectionalSizing = false` si torna al comportamento storico: media dei voti
+assoluti mappata sui `sizingTiers`. Lo score seleziona deterministicamente il primo
+tier ordinato per soglia decrescente; i default sono 100%, 50%, 25%, 0%. In quella
+modalità `disableCompositeScore` e `reenableCompositeScore` tornano a partecipare
+all'accensione. `Enabled` resta equivalente a `AllocationMultiplier > 0`. In offline `NetProfit` è moltiplicato per
 l'allocazione e si sottraggono
 `(CommissionPerUnit + SlippagePerUnit) * Quantity * AllocationMultiplier`.
 Non vengono inventati fill. Live/server arrotondano la quantità per difetto a

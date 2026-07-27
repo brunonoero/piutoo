@@ -935,7 +935,10 @@ public sealed class TradingSessionService : ITradingSessionService
             profile?.RotationSetupId,
             usesGroupRun ? groupRunId : session.TitanoRunId,
             usesGroupRun ? groupFolder : session.TitanoBacktestFolder,
-            usesGroupRun ? profile!.ApplyTitanoFilters : session.ApplyTitanoFilters);
+            // La MODALITÀ (dove si sta girando) è della sessione; il gruppo può solo scegliere se
+            // subire o no il filtro del proprio run. Un gruppo senza run proprio eredita quindi la
+            // decisione della sessione: filtrata in tutto tranne che in Disabled.
+            usesGroupRun ? profile!.ApplyTitanoFilters : session.TitanoMode != TitanoFilterMode.Disabled);
     }
 
     private TitanoEffectiveStrategies? TryResolveGroupTitano(Session session, string groupId)
@@ -953,7 +956,9 @@ public sealed class TradingSessionService : ITradingSessionService
 
     private bool IsTemplateEligibleForGroup(Session session, string groupId, OrderIntent template)
     {
-        if (template.CloseOnly)
+        // Un intent di chiusura non è mai un template da reclamare (il server non ne emette), ma se
+        // ne arrivasse uno non va comunque filtrato: chiudere una posizione aperta è sempre lecito.
+        if (template.IsClose)
             return true;
 
         var profile = ResolveGroupTitano(session, groupId);
@@ -1033,36 +1038,76 @@ public sealed class TradingSessionService : ITradingSessionService
         return intent;
     }
 
-    /// <summary>Clona un template di ingresso in un intent concreto assegnato a un account/gruppo specifico.</summary>
-    private static OrderIntent CloneForClaim(OrderIntent template, string accountNumber, string groupId) => new()
+    /// <summary>
+    /// Clona un template di ingresso in un intent concreto assegnato a un account/gruppo specifico,
+    /// applicando l'allocazione Titano <b>del gruppo</b>: gruppi diversi possono avere run distinti e
+    /// quindi ricevere lo stesso segnale con size diverse.
+    ///
+    /// <para>La quantità viene arrotondata per difetto al passo dello strumento e azzerata sotto la
+    /// quantità minima: un intent con <c>FinalQuantity</c> a zero non viene consegnato all'account
+    /// (vedi il chiamante). Meglio nessun ordine che un ordine di taglia non eseguibile.</para>
+    ///
+    /// <para>L'intera specifica di uscita viaggia con il clone: è l'unica cosa con cui il client
+    /// chiuderà la posizione.</para>
+    /// </summary>
+    private OrderIntent CloneForClaim(Session session, OrderIntent template, string accountNumber, string groupId)
     {
-        IntentId = $"{template.IntentId}::{groupId}",
-        SessionId = template.SessionId,
-        StrategyCode = template.StrategyCode,
-        StrategyName = template.StrategyName,
-        Symbol = template.Symbol,
-        CreatedAtUtc = template.CreatedAtUtc,
-        Side = template.Side,
-        OrderType = template.OrderType,
-        Quantity = template.Quantity,
-        AllocationMultiplier = template.AllocationMultiplier,
-        BaseQuantity = template.BaseQuantity,
-        StrategyEquityMultiplier = template.StrategyEquityMultiplier,
-        MarketVolatilityMultiplier = template.MarketVolatilityMultiplier,
-        PortfolioRiskMultiplier = template.PortfolioRiskMultiplier,
-        FinalQuantity = template.FinalQuantity,
-        SizingReason = template.SizingReason,
-        Price = template.Price,
-        CloseOnly = false,
-        StopLoss = template.StopLoss,
-        TakeProfit = template.TakeProfit,
-        ValidFromUtc = template.ValidFromUtc,
-        ExpiresAtUtc = template.ExpiresAtUtc,
-        CloseAtUtc = template.CloseAtUtc,
-        Reason = template.Reason,
-        AssignedAccountNumber = accountNumber,
-        AssignedGroupId = groupId
-    };
+        var groupAllocation = GetGroupStrategyAllocation(session, groupId, template.StrategyCode);
+        var quantity = ApplyGroupAllocation(session, template.Symbol, template.FinalQuantity, groupAllocation);
+
+        return new OrderIntent
+        {
+            IntentId = $"{template.IntentId}::{groupId}",
+            SessionId = template.SessionId,
+            StrategyCode = template.StrategyCode,
+            StrategyName = template.StrategyName,
+            Symbol = template.Symbol,
+            CreatedAtUtc = template.CreatedAtUtc,
+            Side = template.Side,
+            OrderType = template.OrderType,
+            Quantity = quantity,
+            AllocationMultiplier = template.AllocationMultiplier * groupAllocation,
+            BaseQuantity = template.BaseQuantity,
+            StrategyEquityMultiplier = template.StrategyEquityMultiplier * groupAllocation,
+            MarketVolatilityMultiplier = template.MarketVolatilityMultiplier,
+            PortfolioRiskMultiplier = template.PortfolioRiskMultiplier,
+            FinalQuantity = quantity,
+            SizingReason = groupAllocation == 1m
+                ? template.SizingReason
+                : $"{template.SizingReason} | allocazione gruppo {groupId}: {groupAllocation:0.###}",
+            Price = template.Price,
+            Kind = OrderIntentKind.Entry,
+            StopLoss = template.StopLoss,
+            TakeProfit = template.TakeProfit,
+            BreakEven = template.BreakEven,
+            MaxBarsInPosition = template.MaxBarsInPosition,
+            ValidFromUtc = template.ValidFromUtc,
+            ExpiresAtUtc = template.ExpiresAtUtc,
+            CloseAtUtc = template.CloseAtUtc,
+            Reason = template.Reason,
+            AssignedAccountNumber = accountNumber,
+            AssignedGroupId = groupId
+        };
+    }
+
+    /// <summary>
+    /// Scala una quantità per l'allocazione di gruppo rispettando i vincoli dello strumento:
+    /// arrotondamento per difetto al passo, zero sotto la quantità minima.
+    /// </summary>
+    private decimal ApplyGroupAllocation(Session session, string symbol, decimal quantity, decimal allocation)
+    {
+        if (allocation >= 1m) return quantity;
+        if (allocation <= 0m) return 0m;
+
+        var scaled = quantity * allocation;
+        if (!session.InstrumentMetadata.TryGetValue(Normalize(symbol), out var metadata))
+            return scaled;
+
+        if (metadata.QuantityStep > 0)
+            scaled = Math.Floor(scaled / metadata.QuantityStep) * metadata.QuantityStep;
+
+        return scaled < metadata.MinimumQuantity ? 0m : scaled;
+    }
 
     private static string SlotKey(string groupId, string strategyCode, string symbol) =>
         $"{groupId}|{strategyCode}|{Normalize(symbol)}";

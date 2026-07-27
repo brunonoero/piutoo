@@ -562,8 +562,16 @@ public static class EasyLib
         
         decimal range1d = highd1 - lowd1;
         decimal currentClose = closed0;
-        
-        return numeroPattern switch
+
+        // Il segno di numeroPattern sceglie il VERSO (positivo = long, negativo = short), il valore
+        // assoluto sceglie il PATTERN. Il dispatch va quindi fatto sul valore assoluto: fatto sul
+        // valore con segno, un pattern negativo non entrava in nessun case (sono tutti range
+        // positivi) e cadeva nel default `false`, rendendo irraggiungibili tutti i rami short
+        // scritti qui sotto. Le strategie che usano pattern direzionali negativi non emettevano mai
+        // un segnale — vedi TOP_UA_303 (-47 e -9), TOP_UA_416, TOP_UA_695, TOP_UA_851, TOP_UA_940.
+        var magnitude = Math.Abs(numeroPattern);
+
+        return magnitude switch
         {
             >= 1 and <= 8 => numeroPattern > 0 
                 ? (highd0 - opend0) > ((highd1 - opend1) * (Math.Abs(numeroPattern) switch { 1 => 0.25m, 2 => 0.5m, 3 => 0.75m, 4 => 1m, 5 => 1.5m, 6 => 2m, 7 => 2.5m, 8 => 3m, _ => 0 }))
@@ -640,7 +648,6 @@ public static class EasyLib
                 ? currentClose > opend0 * (Math.Abs(numeroPattern) switch { 47 => 0.99m, 48 => 0.995m, 49 => 1m, 50 => 1.005m, 51 => 1.01m, _ => 0 })
                 : currentClose < opend0 * (Math.Abs(numeroPattern) switch { 47 => 1.01m, 48 => 1.005m, 49 => 1m, 50 => 0.995m, 51 => 0.99m, _ => 0 }),
             52 => true,
-            -52 => true,
             _ => false
         };
     }

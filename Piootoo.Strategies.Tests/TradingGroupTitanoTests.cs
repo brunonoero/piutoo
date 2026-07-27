@@ -132,7 +132,8 @@ public sealed class TradingGroupTitanoTests
             {
                 WorkspaceId = workspace.Id,
                 ExecutionMode = ExecutionMode.ExternalBroker,
-                ApplyTitanoFilters = false
+                // Nessun filtro a livello di sessione: qui si verificano i profili PER GRUPPO.
+                TitanoMode = TitanoFilterMode.Disabled
             });
             sessions.SetTradingGroups(descriptor.SessionId, descriptor.SessionToken,
             [
@@ -214,7 +215,8 @@ public sealed class TradingGroupTitanoTests
             {
                 WorkspaceId = workspace.Id,
                 ExecutionMode = ExecutionMode.ExternalBroker,
-                ApplyTitanoFilters = false,
+                // Nessun filtro a livello di sessione: qui si verificano i profili PER GRUPPO.
+                TitanoMode = TitanoFilterMode.Disabled,
                 Instruments =
                 [
                     new InstrumentMetadata
