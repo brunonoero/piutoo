@@ -46,6 +46,11 @@ public class TradingEngine
             EndDate = endDate
         };
 
+        // Serie completa ordinata una volta sola: serve come base per la finestra storica
+        // passata alle strategie, che avanza insieme al tempo del backtest.
+        var sortedData = data.OrderBy(d => d.DateTime).ToArray();
+        var historyCursor = new Services.CandleWindowCursor(sortedData);
+
         // Raggruppa dati per settimana
         var dataByWeek = data
             .Where(d => d.DateTime >= startDate && d.DateTime <= endDate)
@@ -75,8 +80,11 @@ public class TradingEngine
             // 2. SETTIMANA: Trading con le strategie abilitate
             foreach (var date in weekData.Select(d => d.DateTime).OrderBy(d => d))
             {
-                var historicalData = data.Where(d => d.DateTime <= date).ToArray();
-                
+                // Cursore invece di un Where+ToArray su tutta la serie a ogni barra: quello era
+                // quadratico nel numero di candele.
+                var historicalData = historyCursor.Window(date, sortedData.Length);
+
+
                 // Esegue solo le strategie abilitate dal setup
                 foreach (var strategy in _strategies.Where(s => setup.EnabledStrategies.Contains(s.Name)))
                 {

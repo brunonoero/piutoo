@@ -57,9 +57,57 @@ public sealed class TradingSessionsController : ControllerBase
         => ExecuteResult<IReadOnlyList<PersistedTrade>>(
             () => Ok(_sessions.GetPersistedTrades(sessionId, token)));
 
+    /// <summary>
+    /// Log diagnostico di rotazione (una riga per barra) per sessioni collegate a un run Titano: spiega
+    /// per ciascuna strategia se è stata inclusa nella valutazione e perché, incrociato con i segnali
+    /// effettivamente generati. Utile per verificare che le esclusioni Titano siano corrette e che le
+    /// strategie eseguano trade coerentemente con quanto progettato.
+    /// </summary>
+    [HttpGet("{sessionId}/rotation-log")]
+    public ActionResult<IReadOnlyList<RotationLogEntry>> RotationLog(
+        string sessionId,
+        [FromHeader(Name = "X-Session-Token")] string token)
+        => ExecuteResult<IReadOnlyList<RotationLogEntry>>(
+            () => Ok(_sessions.GetRotationLog(sessionId, token)));
+
     [HttpPost("{sessionId}/execution-reports")]
     public ActionResult<TradingSessionSnapshot> Report(string sessionId, ExecutionReportRequest request)
         => ExecuteResult<TradingSessionSnapshot>(() => Ok(_sessions.ApplyReport(sessionId, request)));
+
+    /// <summary>Configura (sostituendola) la mappa account -> gruppo usata per l'anti copy-trading.</summary>
+    [HttpPut("{sessionId}/account-groups")]
+    public ActionResult<TradingSessionSnapshot> SetAccountGroups(string sessionId, SetAccountGroupsRequest request)
+        => ExecuteResult<TradingSessionSnapshot>(() =>
+        {
+            _sessions.SetAccountGroups(sessionId, request.SessionToken, request.Accounts);
+            return Ok(_sessions.GetSnapshot(sessionId, request.SessionToken));
+        });
+
+    /// <summary>Legge la mappa account -> gruppo corrente.</summary>
+    [HttpGet("{sessionId}/account-groups")]
+    public ActionResult<IReadOnlyList<AccountGroupMapping>> GetAccountGroups(
+        string sessionId, [FromHeader(Name = "X-Session-Token")] string token)
+        => ExecuteResult<IReadOnlyList<AccountGroupMapping>>(() => Ok(_sessions.GetAccountGroups(sessionId, token)));
+
+    /// <summary>
+    /// Chiamata dal cBot di un singolo account cTrader: restituisce il prossimo segnale da eseguire
+    /// (chiusura di una posizione già assegnata, oppure un nuovo ingresso libero nel proprio gruppo,
+    /// in ordine di priorità), oppure nessun segnale se l'account è già occupato o non c'è nulla libero.
+    /// </summary>
+    [HttpPost("{sessionId}/accounts/{accountNumber}/signal")]
+    public ActionResult<AccountSignalResponse> NextSignal(
+        string sessionId, string accountNumber, [FromHeader(Name = "X-Session-Token")] string token)
+        => ExecuteResult<AccountSignalResponse>(() => Ok(_sessions.GetNextSignalForAccount(sessionId, token, accountNumber)));
+
+    /// <summary>
+    /// Registra un intent CloseOnly "client-originated" per una posizione che un cBot ExternalBroker ha
+    /// già deciso di chiudere in locale (Stop Loss/Take Profit nativi del broker, limite di barre) e per
+    /// cui non esiste un OrderIntent CloseOnly emesso dal server. Il client referenzia l'IntentId
+    /// restituito nel normale POST /execution-reports per completare la chiusura.
+    /// </summary>
+    [HttpPost("{sessionId}/intents/close-external")]
+    public ActionResult<OrderIntent> CreateExternalCloseIntent(string sessionId, CreateExternalCloseIntentRequest request)
+        => ExecuteResult<OrderIntent>(() => Ok(_sessions.CreateExternalCloseIntent(sessionId, request)));
 
     [HttpGet("{sessionId}/snapshot")]
     public ActionResult<TradingSessionSnapshot> Snapshot(

@@ -22,6 +22,8 @@ builder.Services.AddSingleton<PiootooSettings>(sp =>
 // per permettere il mantenimento dei job in memoria
 builder.Services.AddSingleton<IPiootooSettingsService, PiootooSettingsService>();
 builder.Services.AddSingleton<IPiootooDataFeedService, PiootooDataFeedService>();
+// NB: questa istanza è condivisa. Il backtesting NON la usa: crea un motore per job, perché
+// PiootooTradingService è mutabile e due backtest concorrenti si corromperebbero a vicenda.
 builder.Services.AddSingleton<IPiootooTradingService, PiootooTradingService>();
 builder.Services.AddSingleton<IBacktestingExecutionHook, NoOpBacktestingExecutionHook>();
 builder.Services.AddSingleton<PiootooBacktestingService>();

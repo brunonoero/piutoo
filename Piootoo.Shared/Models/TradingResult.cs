@@ -1,4 +1,5 @@
 using Piootoo.Shared.Enums;
+using Piootoo.Shared.Models.Trading;
 
 namespace Piootoo.Shared.Models;
 
@@ -17,7 +18,18 @@ public class TradingResult
     public decimal Quantity { get; set; }
     public SignalType Direction { get; set; } // Buy = Long, Sell = Short
     public decimal ContractPointValue { get; set; } = 1m;
-    
+
+    /// <summary>
+    /// Perché l'engine ha chiuso la posizione. Serve a distinguere, in analisi, un trade uscito
+    /// per stop loss da uno uscito per fine settimana o per limite di barre: senza questo campo
+    /// due trade con lo stesso P&amp;L sono indistinguibili.
+    /// </summary>
+    public TradeExitReason ExitReason { get; set; } = TradeExitReason.Unknown;
+
+    /// <summary>Barre trascorse in posizione, come contate dall'engine.</summary>
+    public int BarsInPosition { get; set; }
+
+
     // Calcoli automatici
     public decimal GrossProfit => Direction == SignalType.Buy 
         ? (ExitPrice - EntryPrice) * Quantity * ContractPointValue

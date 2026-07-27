@@ -48,6 +48,15 @@ public class PiootooTradingService : IPiootooTradingService
         public required TradeSignal Signal { get; set; }
     }
 
+    /// <summary>
+    /// Notifica di apertura posizione. L'engine non conosce la diagnostica: espone un hook e chi
+    /// esegue il backtest ci collega il logger. Null = nessun osservatore, costo zero.
+    /// </summary>
+    public Action<PositionOpenedEvent>? PositionOpened { get; set; }
+
+    /// <summary>Notifica di chiusura posizione, con il motivo dell'uscita.</summary>
+    public Action<PositionClosedEvent>? PositionClosed { get; set; }
+
     public void Initialize(decimal initialCapital, decimal commissionPerContract = 2.0m)
     {
         _commissionPerContract = commissionPerContract;
@@ -158,7 +167,8 @@ public class PiootooTradingService : IPiootooTradingService
                         continue;
                     }
 
-                    ClosePosition(positionKey, ResolveSignalPrice(signal, currentPrices), currentTime);
+                    ClosePosition(positionKey, ResolveSignalPrice(signal, currentPrices), currentTime,
+                        signal.CloseOnly ? TradeExitReason.CloseOnly : TradeExitReason.OppositeSignal);
                     closedByOppositeSignal.Add(positionKey);
                     CancelPendingOrders(positionKey);
                 }
@@ -200,7 +210,8 @@ public class PiootooTradingService : IPiootooTradingService
             {
                 if (_state.OpenPositions.ContainsKey(positionKey))
                 {
-                    ClosePosition(positionKey, ResolveSignalPrice(signal, currentPrices), currentTime);
+                    ClosePosition(positionKey, ResolveSignalPrice(signal, currentPrices), currentTime,
+                        TradeExitReason.CloseOnly);
                     CancelPendingOrders(positionKey);
                 }
 
@@ -317,7 +328,7 @@ public class PiootooTradingService : IPiootooTradingService
                 if (_state.OpenPositions.ContainsKey(pending.PositionKey))
                 {
                     var exitPrice = ResolveFillPrice(signal, bar, markPrice);
-                    ClosePosition(pending.PositionKey, exitPrice, currentTime);
+                    ClosePosition(pending.PositionKey, exitPrice, currentTime, TradeExitReason.CloseOnly);
                     CancelPendingOrders(pending.PositionKey);
                 }
                 else
@@ -356,7 +367,7 @@ public class PiootooTradingService : IPiootooTradingService
                         continue;
                     }
 
-                    ClosePosition(pending.PositionKey, fillPrice, currentTime);
+                    ClosePosition(pending.PositionKey, fillPrice, currentTime, TradeExitReason.OppositeSignal);
                 }
 
                 OpenFromSignal(pending.PositionKey, signal, signalSymbol, currentPrices, currentBars, currentTime, fillPrice);
@@ -427,7 +438,8 @@ public class PiootooTradingService : IPiootooTradingService
             takeProfitPoints,
             signal.BreakEven,
             signal.MaxBarsInPosition,
-            signal.CloseAtUtc);
+            signal.CloseAtUtc,
+            signal.Reason);
 
         RecordEntry(positionKey, currentTime);
     }
@@ -464,6 +476,18 @@ public class PiootooTradingService : IPiootooTradingService
     }
 
     public TradingSnapshot CloseAllOpenPositions(Dictionary<string, decimal> currentPrices, Dictionary<string, OhlcvData> currentBars, DateTime currentTime)
+        => CloseAllOpenPositions(currentPrices, currentBars, currentTime, TradeExitReason.EndOfRun);
+
+    /// <summary>
+    /// Chiude tutte le posizioni aperte al prezzo corrente attribuendo un motivo esplicito
+    /// (fine settimana, fine run): senza di esso in analisi non si distingue una chiusura
+    /// tecnica da un'uscita decisa dalla strategia.
+    /// </summary>
+    public TradingSnapshot CloseAllOpenPositions(
+        Dictionary<string, decimal> currentPrices,
+        Dictionary<string, OhlcvData> currentBars,
+        DateTime currentTime,
+        TradeExitReason reason)
     {
         currentTime = TradingDateTime.ToFeedUtc(currentTime);
         currentPrices = NormalizeCurrentPrices(currentPrices);
@@ -480,7 +504,7 @@ public class PiootooTradingService : IPiootooTradingService
             var exitPrice = GetCurrentBar(position, currentBars)?.Close ?? GetCurrentPrice(position, currentPrices, 0m);
             if (exitPrice.HasValue)
             {
-                ClosePosition(positionKey, exitPrice.Value, currentTime);
+                ClosePosition(positionKey, exitPrice.Value, currentTime, reason);
             }
         }
 
@@ -585,7 +609,7 @@ public class PiootooTradingService : IPiootooTradingService
         _entriesByDay.Clear();
     }
 
-    private void OpenPosition(string positionKey, string strategyName, string strategyCode, string symbol, SignalType direction, decimal entryPrice, DateTime entryTime, decimal quantity, decimal? stopLoss, decimal? takeProfit, decimal? breakEven = null, int? maxBarsInPosition = null, DateTime? closeAtUtc = null)
+    private void OpenPosition(string positionKey, string strategyName, string strategyCode, string symbol, SignalType direction, decimal entryPrice, DateTime entryTime, decimal quantity, decimal? stopLoss, decimal? takeProfit, decimal? breakEven = null, int? maxBarsInPosition = null, DateTime? closeAtUtc = null, string? reason = null)
     {
         var contracts = Math.Max(1, (int)quantity);
         var position = new OpenPosition
@@ -609,17 +633,31 @@ public class PiootooTradingService : IPiootooTradingService
         };
 
         _state.OpenPositions[positionKey] = position;
-        
+
         // Sottrai commissione dal balance
         var entryCommission = _commissionPerContract * position.Contracts;
         _state.Balance -= entryCommission;
         AddStrategyCashAdjustment(positionKey, -entryCommission);
+
+        PositionOpened?.Invoke(new PositionOpenedEvent
+        {
+            StrategyCode = position.StrategyCode,
+            StrategyName = position.StrategyName,
+            Symbol = position.Symbol,
+            Direction = position.Direction,
+            EntryTimeUtc = position.EntryTime,
+            EntryPrice = position.EntryPrice,
+            Contracts = position.Contracts,
+            StopLossPoints = position.StopLoss,
+            TakeProfitPoints = position.TakeProfit,
+            Reason = reason
+        });
     }
     
     private void CheckStopLossAndTakeProfit(Dictionary<string, decimal> currentPrices, Dictionary<string, OhlcvData> currentBars, decimal fallbackPrice, DateTime currentTime)
     {
-        var positionsToClose = new List<(string PositionKey, decimal ExitPrice)>();
-        
+        var positionsToClose = new List<(string PositionKey, decimal ExitPrice, TradeExitReason Reason)>();
+
         foreach (var (positionKey, position) in _state.OpenPositions)
         {
             if (position.EntryTime == currentTime)
@@ -655,14 +693,14 @@ public class PiootooTradingService : IPiootooTradingService
                 decimal effectiveStopLoss = position.BreakEvenActivated ? 0 : (position.StopLoss ?? decimal.MaxValue);
                 if (adverseLowMove <= -effectiveStopLoss)
                 {
-                    positionsToClose.Add((positionKey, position.EntryPrice - effectiveStopLoss));
+                    positionsToClose.Add((positionKey, position.EntryPrice - effectiveStopLoss, TradeExitReason.StopLoss));
                     continue;
                 }
-                
+
                 // Verifica Take Profit (profitto)
                 if (position.TakeProfit.HasValue && favorableHighMove >= position.TakeProfit.Value)
                 {
-                    positionsToClose.Add((positionKey, position.EntryPrice + position.TakeProfit.Value));
+                    positionsToClose.Add((positionKey, position.EntryPrice + position.TakeProfit.Value, TradeExitReason.TakeProfit));
                     continue;
                 }
             }
@@ -685,32 +723,32 @@ public class PiootooTradingService : IPiootooTradingService
                 decimal effectiveStopLoss = position.BreakEvenActivated ? 0 : (position.StopLoss ?? decimal.MaxValue);
                 if (adverseHighMove >= effectiveStopLoss)
                 {
-                    positionsToClose.Add((positionKey, position.EntryPrice + effectiveStopLoss));
+                    positionsToClose.Add((positionKey, position.EntryPrice + effectiveStopLoss, TradeExitReason.StopLoss));
                     continue;
                 }
-                
+
                 // Verifica Take Profit (profitto)
                 if (position.TakeProfit.HasValue && favorableLowMove >= position.TakeProfit.Value)
                 {
-                    positionsToClose.Add((positionKey, position.EntryPrice - position.TakeProfit.Value));
+                    positionsToClose.Add((positionKey, position.EntryPrice - position.TakeProfit.Value, TradeExitReason.TakeProfit));
                     continue;
                 }
             }
         }
         
         // Chiudi posizioni che hanno raggiunto stop loss o take profit
-        foreach (var (positionKey, exitPrice) in positionsToClose)
+        foreach (var (positionKey, exitPrice, reason) in positionsToClose)
         {
             if (_state.OpenPositions.ContainsKey(positionKey))
             {
-                ClosePosition(positionKey, exitPrice, currentTime);
+                ClosePosition(positionKey, exitPrice, currentTime, reason);
             }
         }
     }
 
     private void CheckTimeExits(Dictionary<string, decimal> currentPrices, Dictionary<string, OhlcvData> currentBars, decimal fallbackPrice, DateTime currentTime)
     {
-        var positionsToClose = new List<(string PositionKey, decimal ExitPrice)>();
+        var positionsToClose = new List<(string PositionKey, decimal ExitPrice, TradeExitReason Reason)>();
 
         foreach (var (positionKey, position) in _state.OpenPositions)
         {
@@ -720,7 +758,7 @@ public class PiootooTradingService : IPiootooTradingService
                     ?? GetCurrentPrice(position, currentPrices, fallbackPrice);
                 if (timedExitPrice.HasValue)
                 {
-                    positionsToClose.Add((positionKey, timedExitPrice.Value));
+                    positionsToClose.Add((positionKey, timedExitPrice.Value, TradeExitReason.TimeExit));
                 }
                 continue;
             }
@@ -748,20 +786,20 @@ public class PiootooTradingService : IPiootooTradingService
             var exitPrice = currentBar?.Close ?? currentPrice;
             if (exitPrice.HasValue)
             {
-                positionsToClose.Add((positionKey, exitPrice.Value));
+                positionsToClose.Add((positionKey, exitPrice.Value, TradeExitReason.MaxBars));
             }
         }
 
-        foreach (var (positionKey, exitPrice) in positionsToClose)
+        foreach (var (positionKey, exitPrice, reason) in positionsToClose)
         {
             if (_state.OpenPositions.ContainsKey(positionKey))
             {
-                ClosePosition(positionKey, exitPrice, currentTime);
+                ClosePosition(positionKey, exitPrice, currentTime, reason);
             }
         }
     }
 
-    private void ClosePosition(string positionKey, decimal exitPrice, DateTime exitTime)
+    private void ClosePosition(string positionKey, decimal exitPrice, DateTime exitTime, TradeExitReason exitReason)
     {
         if (!_state.OpenPositions.TryGetValue(positionKey, out var position))
             return;
@@ -778,6 +816,8 @@ public class PiootooTradingService : IPiootooTradingService
             Quantity = position.Contracts,
             Direction = position.Direction,
             ContractPointValue = position.ContractPointValue,
+            ExitReason = exitReason,
+            BarsInPosition = position.BarsInPosition,
             Commission = _commissionPerContract * position.Contracts * 2 // Entry + Exit
         };
 
@@ -803,6 +843,25 @@ public class PiootooTradingService : IPiootooTradingService
 
         _closedTrades.Add(trade);
         _state.OpenPositions.Remove(positionKey);
+
+        PositionClosed?.Invoke(new PositionClosedEvent
+        {
+            StrategyCode = position.StrategyCode,
+            StrategyName = position.StrategyName,
+            Symbol = position.Symbol,
+            Direction = position.Direction,
+            EntryTimeUtc = position.EntryTime,
+            ExitTimeUtc = exitTime,
+            EntryPrice = position.EntryPrice,
+            ExitPrice = exitPrice,
+            Contracts = position.Contracts,
+            ExitReason = exitReason,
+            GrossProfit = trade.GrossProfit,
+            NetProfit = trade.NetProfit,
+            Commission = trade.Commission,
+            BarsInPosition = position.BarsInPosition,
+            BalanceAfter = _state.Balance
+        });
     }
 
     private void UpdateEquity(Dictionary<string, decimal> currentPrices, decimal fallbackPrice)

@@ -21,9 +21,33 @@ public sealed class TitanoRotationService
         Converters = { new JsonStringEnumConverter() }
     };
     private static readonly ConcurrentDictionary<string, object> Gates = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Cache dei manifest già letti, invalidata sul timestamp del file.
+    ///
+    /// <see cref="Resolve"/> viene invocato una volta per barra da ogni sessione live e a ogni
+    /// polling di ogni account: senza cache ogni chiamata rileggeva e deserializzava l'intero
+    /// manifest da disco, più l'enumerazione della cartella degli override.
+    /// </summary>
+    private static readonly ConcurrentDictionary<string, (DateTime WrittenAtUtc, TitanoRotationManifest Manifest)>
+        ManifestCache = new(StringComparer.OrdinalIgnoreCase);
+
     private readonly WorkspaceService _workspaces;
 
     public TitanoRotationService(WorkspaceService workspaces) => _workspaces = workspaces;
+
+    /// <summary>
+    /// Codici di esecuzione (ITradingStrategy.Name) delle strategie del masterfilter.
+    ///
+    /// Il masterfilter contiene Id di classe (<c>Easy_218_GC_60</c>) mentre i trade persistiti
+    /// portano il codice di esecuzione (<c>TOP_UA_218</c>). Confrontarli direttamente — come
+    /// faceva la versione precedente — significa non trovare mai un trade per nessuna strategia:
+    /// tutte le metriche restano a zero e la rotazione disabilita tutto per sempre.
+    /// Vedi docs/PROGETTO.md §3.2.
+    /// </summary>
+    private string[] GetMasterExecutionCodes(string workspaceId) =>
+        StrategyCatalog.ResolveExecutionCodes(
+            _workspaces.GetMasterFilter(workspaceId).StrategiesFilter.Where(x => !string.IsNullOrWhiteSpace(x)));
 
     public TitanoRotationManifest Run(TitanoRotationRequest request)
     {
@@ -35,9 +59,7 @@ public sealed class TitanoRotationService
 
         var sourceBytes = File.ReadAllBytes(tradesPath);
         var sourceHash = Sha(sourceBytes);
-        var master = _workspaces.GetMasterFilter(request.WorkspaceId).StrategiesFilter
-            .Where(x => !string.IsNullOrWhiteSpace(x)).Distinct(StringComparer.OrdinalIgnoreCase)
-            .Order(StringComparer.Ordinal).ToArray();
+        var master = GetMasterExecutionCodes(request.WorkspaceId);
         var masterHash = Sha(Encoding.UTF8.GetBytes(string.Join("\n", master)));
         var configHash = Sha(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(request, JsonOptions)));
         var runId = $"{request.RotationPeriod.ToString().ToLowerInvariant()}-{sourceHash[..12]}-{masterHash[..8]}-{configHash[..12]}";
@@ -97,8 +119,23 @@ public sealed class TitanoRotationService
         var safeRunId = SafeSegment(runId);
         var path = Path.Combine(_workspaces.GetBacktestPath(workspaceId, backtestFolder), "titano", safeRunId, "manifest.json");
         if (!File.Exists(path)) throw new FileNotFoundException($"Run Titano '{runId}' non trovato.");
+
+        // Un manifest è immutabile una volta scritto (il runId è l'hash dei suoi input), ma la
+        // cartella può ricevere nuovi file di hard-stop-reset: la chiave di cache tiene conto sia
+        // del manifest sia dell'ultima modifica della directory.
+        var writtenAtUtc = File.GetLastWriteTimeUtc(path);
+        var directory = Path.GetDirectoryName(path)!;
+        var directoryTouchedAtUtc = Directory.GetLastWriteTimeUtc(directory);
+        var stamp = writtenAtUtc > directoryTouchedAtUtc ? writtenAtUtc : directoryTouchedAtUtc;
+
+        if (ManifestCache.TryGetValue(path, out var cached) && cached.WrittenAtUtc == stamp)
+        {
+            return cached.Manifest;
+        }
+
         var manifest = ReadManifest(path);
-        manifest.HardStopResets.AddRange(ReadResets(Path.GetDirectoryName(path)!));
+        manifest.HardStopResets.AddRange(ReadResets(directory));
+        ManifestCache[path] = (stamp, manifest);
         return manifest;
     }
 
@@ -205,8 +242,7 @@ public sealed class TitanoRotationService
     {
         RequireUtc(timestampUtc, nameof(timestampUtc));
         var manifest = Get(workspaceId, backtestFolder, runId);
-        var master = _workspaces.GetMasterFilter(workspaceId).StrategiesFilter
-            .Distinct(StringComparer.OrdinalIgnoreCase).Order(StringComparer.Ordinal).ToArray();
+        var master = GetMasterExecutionCodes(workspaceId);
         var period = manifest.Periods.SingleOrDefault(x => timestampUtc >= x.EffectiveFromUtc && timestampUtc < x.EffectiveToUtc);
         var enabled = period?.Strategies.Where(x => x.Enabled).Select(x => x.StrategyCode)
             .Order(StringComparer.Ordinal).ToArray() ?? [];
@@ -222,7 +258,11 @@ public sealed class TitanoRotationService
                 State = x.HardStopped && resets.ContainsKey(x.StrategyCode)
                     ? TitanoStrategyStatus.Reduced : x.State,
                 CooldownRemaining = x.CooldownRemaining,
-                HardStopped = x.HardStopped && !resets.ContainsKey(x.StrategyCode)
+                HardStopped = x.HardStopped && !resets.ContainsKey(x.StrategyCode),
+                Reason = x.HardStopped && resets.ContainsKey(x.StrategyCode)
+                    ? $"hard stop resettato manualmente ({resets[x.StrategyCode]:O})" : x.Reason,
+                Score = x.Score, PassingFilters = x.PassingFilters, TotalFilters = x.TotalFilters,
+                ConsecutiveOnPeriods = x.ConsecutiveOnPeriods
             }).OrderBy(x => x.StrategyCode, StringComparer.Ordinal).ToArray() ?? [];
         enabled = states.Where(x => x.AllocationMultiplier > 0).Select(x => x.StrategyCode).ToArray();
         return new TitanoEffectiveStrategies
@@ -230,7 +270,13 @@ public sealed class TitanoRotationService
             RunId = runId, TimestampUtc = timestampUtc, PeriodId = period?.PeriodId,
             MasterStrategies = master, TitanoEnabledStrategies = enabled,
             EffectiveStrategies = master.Intersect(enabled, StringComparer.OrdinalIgnoreCase).Order(StringComparer.Ordinal).ToArray(),
-            StrategyStates = states
+            StrategyStates = states,
+            // Distingue "Titano ha deciso di disabilitare tutto" da "Titano non copre questo
+            // istante": senza il flag, un manifest storico usato in live azzerava in silenzio
+            // l'intero portafoglio.
+            HasActivePeriod = period is not null,
+            ManifestFromUtc = manifest.Periods.Count == 0 ? null : manifest.Periods.Min(x => x.EffectiveFromUtc),
+            ManifestToUtc = manifest.Periods.Count == 0 ? null : manifest.Periods.Max(x => x.EffectiveToUtc)
         };
     }
 
@@ -288,18 +334,24 @@ public sealed class TitanoRotationService
                 if (hardStopped) reasons.Insert(0, $"hard stop drawdown {metrics.CurrentDrawdown:P2} >= {request.HardStopDrawdown:P2}");
                 else if (!on && cooldown > 0) reasons.Add($"cooldown: {cooldown} periodi residui");
                 if (reasons.Count == 0) reasons.Add($"voto {passing}/{votes.Count}, score {score:F3}");
+                var newStatus = hardStopped ? TitanoStrategyStatus.HardStopped :
+                    multiplier == 0 ? TitanoStrategyStatus.Disabled :
+                    multiplier == 1 ? TitanoStrategyStatus.Enabled : TitanoStrategyStatus.Reduced;
+                var transitionType = ClassifyTransition(prior, newStatus);
+                var anomalies = DetectAnomalies(multiplier > 0, multiplier, newStatus, hardStopped, passing, request.MinimumPassingFilters);
                 var state = new TitanoStrategyState
                 {
                     StrategyCode = code, Enabled = multiplier > 0, AllocationMultiplier = multiplier,
-                    State = hardStopped ? TitanoStrategyStatus.HardStopped :
-                        multiplier == 0 ? TitanoStrategyStatus.Disabled :
-                        multiplier == 1 ? TitanoStrategyStatus.Enabled : TitanoStrategyStatus.Reduced,
+                    State = newStatus,
                     CooldownRemaining = cooldown,
                     ConsecutiveOnPeriods = multiplier > 0 ? (prior?.ConsecutiveOnPeriods ?? 0) + 1 : 0,
                     HardStopped = hardStopped, PassingFilters = passing, TotalFilters = votes.Count,
                     Votes = votes, Score = score,
                     Reason = string.Join("; ", reasons), Reasons = reasons,
-                    Metrics = metrics
+                    Metrics = metrics,
+                    PreviousState = prior?.State,
+                    TransitionType = transitionType,
+                    AnomalyFlags = anomalies
                 };
                 previous[code] = state;
                 return state;
@@ -459,6 +511,50 @@ public sealed class TitanoRotationService
             });
         }
         return result;
+    }
+
+    /// <summary>
+    /// Classifica il cambio di stato di una strategia rispetto al periodo precedente, per rendere
+    /// immediatamente visibili le transizioni rilevanti senza dover confrontare manualmente due periodi.
+    /// </summary>
+    private static string ClassifyTransition(TitanoStrategyState? prior, TitanoStrategyStatus newStatus)
+    {
+        if (prior is null) return "NewlyTracked";
+        if (prior.State == newStatus) return "Unchanged";
+        if (newStatus == TitanoStrategyStatus.HardStopped) return "HardStopTriggered";
+        if (prior.State == TitanoStrategyStatus.HardStopped) return "HardStopReleased";
+        var priorOn = prior.State is TitanoStrategyStatus.Enabled or TitanoStrategyStatus.Reduced;
+        var nowOn = newStatus is TitanoStrategyStatus.Enabled or TitanoStrategyStatus.Reduced;
+        if (priorOn && !nowOn) return "EnabledToDisabled";
+        if (!priorOn && nowOn) return "DisabledToEnabled";
+        return "AllocationChanged"; // es. Enabled <-> Reduced
+    }
+
+    /// <summary>
+    /// Controlli di coerenza automatici sullo stato calcolato, per intercettare bug di calcolo nella
+    /// rotazione (es. contraddizioni tra Enabled/AllocationMultiplier/HardStopped) senza dover rileggere
+    /// tutta la logica di BuildDecisions ogni volta.
+    /// </summary>
+    private static List<string> DetectAnomalies(
+        bool enabled, decimal multiplier, TitanoStrategyStatus state, bool hardStopped,
+        int passingFilters, int minimumPassingFilters)
+    {
+        var anomalies = new List<string>();
+        if (enabled && multiplier <= 0)
+            anomalies.Add($"Enabled=true ma AllocationMultiplier={multiplier} (dovrebbe essere > 0)");
+        if (!enabled && multiplier > 0)
+            anomalies.Add($"Enabled=false ma AllocationMultiplier={multiplier} (dovrebbe essere 0)");
+        if (hardStopped && enabled)
+            anomalies.Add("HardStopped=true ma Enabled=true (una strategia in hard stop non dovrebbe essere abilitata)");
+        if (state == TitanoStrategyStatus.HardStopped && !hardStopped)
+            anomalies.Add("State=HardStopped ma HardStopped=false");
+        if (state == TitanoStrategyStatus.Enabled && multiplier != 1m)
+            anomalies.Add($"State=Enabled ma AllocationMultiplier={multiplier} (atteso 1)");
+        if (state == TitanoStrategyStatus.Disabled && multiplier != 0m)
+            anomalies.Add($"State=Disabled ma AllocationMultiplier={multiplier} (atteso 0)");
+        if (enabled && passingFilters < minimumPassingFilters)
+            anomalies.Add($"Enabled=true con soli {passingFilters}/{minimumPassingFilters} filtri minimi superati");
+        return anomalies;
     }
 
     private static decimal PopulationStdDev(IReadOnlyCollection<decimal> values)

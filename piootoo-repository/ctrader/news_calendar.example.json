@@ -1,0 +1,32 @@
+[
+  {
+    "TimeUtc": "2026-08-01T12:30:00Z",
+    "Symbols": ["ALL"],
+    "Impact": "High",
+    "Title": "US Non-Farm Payrolls"
+  },
+  {
+    "TimeUtc": "2026-08-01T14:00:00Z",
+    "Symbols": ["ALL"],
+    "Impact": "High",
+    "Title": "US ISM Manufacturing PMI"
+  },
+  {
+    "TimeUtc": "2026-08-05T18:00:00Z",
+    "Symbols": ["ALL"],
+    "Impact": "High",
+    "Title": "FOMC Interest Rate Decision"
+  },
+  {
+    "TimeUtc": "2026-08-06T11:45:00Z",
+    "Symbols": ["EURUSD", "EURGBP"],
+    "Impact": "Medium",
+    "Title": "ECB Press Conference"
+  },
+  {
+    "TimeUtc": "2026-08-07T08:30:00Z",
+    "Symbols": ["XAUUSD", "USOIL"],
+    "Impact": "Low",
+    "Title": "US Weekly Jobless Claims"
+  }
+]

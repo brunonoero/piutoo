@@ -48,4 +48,16 @@ public class BacktestingResult
 
     // File JSON con tutti i TradeSignal emessi dalle strategie
     public string? TradeSignalsFilePath { get; set; }
+
+    /// <summary>
+    /// Log eventi JSONL del run (segnali, ingressi, uscite, anomalie).
+    /// Vedi <see cref="Trading.BacktestDiagnosticsSchema"/>.
+    /// </summary>
+    public string? DiagnosticsLogFilePath { get; set; }
+
+    /// <summary>
+    /// Riepilogo diagnostico del run: contatori per strategia e diagnosi automatiche.
+    /// È il file da leggere per capire perché un backtest non ha prodotto trade.
+    /// </summary>
+    public string? DiagnosticsSummaryFilePath { get; set; }
 }

@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Reflection;
 using Piootoo.Shared.Enums;
 using Piootoo.Shared.Interfaces;
@@ -10,9 +11,26 @@ namespace Piootoo.Strategies.Easy;
 /// Adapter per le strategie EasyLanguage convertite. Ogni valutazione usa una
 /// nuova istanza temporanea: i campi runtime vengono letti/scritti solo nello
 /// snapshot posseduto dall'engine, mai nell'istanza registrata della strategia.
+///
+/// <para>
+/// <b>Nota sulle performance.</b> Questo è il punto più caldo dell'intero sistema: viene
+/// attraversato una volta per barra per strategia, quindi milioni di volte in un backtest.
+/// Tutti i metadati di riflessione (field, metodi, proprietà) sono cacheati per tipo nelle
+/// mappe statiche qui sotto. Prima lo erano zero: ogni valutazione faceva cinque scansioni
+/// complete dei field più due lookup di membri, ed era il costo dominante del loop.
+/// Non aggiungere chiamate a <c>GetType().GetProperty(...)</c> o <c>GetMethod(...)</c> nel
+/// percorso di valutazione senza passare dalle cache.
+/// </para>
 /// </summary>
 public abstract class StatelessEasyStrategyBase : ITradingStrategy
 {
+    private static readonly ConcurrentDictionary<Type, FieldInfo[]> InstanceFieldCache = new();
+    private static readonly ConcurrentDictionary<Type, FieldInfo[]> MarketPositionFieldCache = new();
+    private static readonly ConcurrentDictionary<Type, FieldInfo[]> EntriesTodayFieldCache = new();
+    private static readonly ConcurrentDictionary<Type, (FieldInfo? Stop, FieldInfo? Profit)> MoneyRiskFieldCache = new();
+    private static readonly ConcurrentDictionary<(Type Type, string Member), PropertyInfo?> PropertyCache = new();
+    private static readonly ConcurrentDictionary<(Type Type, string Member), MethodInfo?> MethodCache = new();
+
     public virtual bool IsPositionCloseDependent => false;
 
     string ITradingStrategy.Name => ReadProperty<string>(nameof(ITradingStrategy.Name));
@@ -22,10 +40,15 @@ public abstract class StatelessEasyStrategyBase : ITradingStrategy
     int ITradingStrategy.RequiredCandles => ReadProperty<int>(nameof(ITradingStrategy.RequiredCandles));
 
     void ITradingStrategy.Initialize(Dictionary<string, object>? parameters)
-        => InvokeLegacy(nameof(ITradingStrategy.Initialize), new[] { typeof(Dictionary<string, object>) }, parameters);
+    {
+        var method = ResolveMethod(GetType(), nameof(ITradingStrategy.Initialize),
+            [typeof(Dictionary<string, object>)])
+            ?? throw new InvalidOperationException($"{GetType().Name} does not expose Initialize.");
+        method.Invoke(this, [parameters]);
+    }
 
     TradeSignal ITradingStrategy.GenerateSignal(OhlcvData[] data, DateTime currentDate)
-        => InvokeLegacy<TradeSignal>(nameof(ITradingStrategy.GenerateSignal), new[] { typeof(OhlcvData[]), typeof(DateTime) }, data, currentDate);
+        => InvokeGenerateSignal(this, data, currentDate);
 
     /// <summary>
     /// Esegue il codice legacy su un clone effimero, sincronizzando la posizione
@@ -33,20 +56,18 @@ public abstract class StatelessEasyStrategyBase : ITradingStrategy
     /// </summary>
     public TradeSignal Evaluate(StrategyEvaluationRequest request)
     {
-        var evaluationInstance = (StatelessEasyStrategyBase?)Activator.CreateInstance(GetType())
-            ?? throw new InvalidOperationException($"Cannot instantiate {GetType().FullName}.");
+        var type = GetType();
+        var evaluationInstance = (StatelessEasyStrategyBase?)Activator.CreateInstance(type)
+            ?? throw new InvalidOperationException($"Cannot instantiate {type.FullName}.");
 
-        CopyFields(this, evaluationInstance);
-        RestoreRuntimeState(evaluationInstance, request.Execution.RuntimeState);
-        SetMarketPositionFields(evaluationInstance, request.Execution.Position?.Direction);
-        SetEntriesTodayFields(evaluationInstance, request.Execution.EntriesToday);
+        var fields = GetInstanceFields(type);
+        CopyFields(fields, this, evaluationInstance);
+        RestoreRuntimeState(fields, evaluationInstance, request.Execution.RuntimeState);
+        SetMarketPositionFields(type, evaluationInstance, request.Execution.Position?.Direction);
+        SetEntriesTodayFields(type, evaluationInstance, request.Execution.EntriesToday);
 
-        var signal = evaluationInstance.InvokeLegacy<TradeSignal>(
-            nameof(ITradingStrategy.GenerateSignal),
-            new[] { typeof(OhlcvData[]), typeof(DateTime) },
-            request.Ohlcv,
-            request.BarTimeUtc);
-        signal.RuntimeState = CaptureRuntimeState(evaluationInstance);
+        var signal = InvokeGenerateSignal(evaluationInstance, request.Ohlcv, request.BarTimeUtc);
+        signal.RuntimeState = CaptureRuntimeState(fields, evaluationInstance);
 
         if (signal.Type is SignalType.Buy or SignalType.Sell)
         {
@@ -78,48 +99,72 @@ public abstract class StatelessEasyStrategyBase : ITradingStrategy
         AttachMoneyRiskFromEasyInputs(evaluationInstance, signal);
     }
 
+    // ------------------------------------------------------------------ riflessione cacheata
+
     private T ReadProperty<T>(string propertyName)
     {
-        var property = GetType().GetProperty(propertyName, BindingFlags.Instance | BindingFlags.Public);
+        var type = GetType();
+        var property = PropertyCache.GetOrAdd(
+            (type, propertyName),
+            key => key.Type.GetProperty(key.Member, BindingFlags.Instance | BindingFlags.Public));
+
         return property?.GetValue(this) is T value
             ? value
-            : throw new InvalidOperationException($"{GetType().Name} does not expose {propertyName}.");
+            : throw new InvalidOperationException($"{type.Name} does not expose {propertyName}.");
     }
 
-    private object? InvokeLegacy(string methodName, Type[] parameterTypes, params object?[] arguments)
+    private static MethodInfo? ResolveMethod(Type type, string methodName, Type[] parameterTypes) =>
+        MethodCache.GetOrAdd(
+            (type, methodName),
+            _ => type.GetMethod(methodName, BindingFlags.Instance | BindingFlags.Public, parameterTypes));
+
+    private static TradeSignal InvokeGenerateSignal(object instance, OhlcvData[] data, DateTime currentDate)
     {
-        var method = GetType().GetMethod(methodName, BindingFlags.Instance | BindingFlags.Public, parameterTypes);
-        return method?.Invoke(this, arguments)
-            ?? throw new InvalidOperationException($"{GetType().Name} does not expose {methodName}.");
+        var type = instance.GetType();
+        var method = ResolveMethod(type, nameof(ITradingStrategy.GenerateSignal),
+            [typeof(OhlcvData[]), typeof(DateTime)])
+            ?? throw new InvalidOperationException($"{type.Name} does not expose GenerateSignal.");
+
+        return (TradeSignal?)method.Invoke(instance, [data, currentDate])
+            ?? throw new InvalidOperationException($"{type.Name}.GenerateSignal returned null.");
     }
 
-    private T InvokeLegacy<T>(string methodName, Type[] parameterTypes, params object?[] arguments)
-        => (T)InvokeLegacy(methodName, parameterTypes, arguments)!;
-
-    private static void CopyFields(object source, object target)
+    private static void CopyFields(FieldInfo[] fields, object source, object target)
     {
-        foreach (var field in GetInstanceFields(source.GetType()))
-        {
+        foreach (var field in fields)
             field.SetValue(target, field.GetValue(source));
-        }
     }
 
-    private static void RestoreRuntimeState(object target, IReadOnlyDictionary<string, object?> state)
+    private static void RestoreRuntimeState(
+        FieldInfo[] fields, object target, IReadOnlyDictionary<string, object?> state)
     {
-        foreach (var field in GetInstanceFields(target.GetType()))
+        if (state.Count == 0) return;
+        foreach (var field in fields)
         {
             if (state.TryGetValue(field.Name, out var value) && value is not null && field.FieldType.IsInstanceOfType(value))
-            {
                 field.SetValue(target, value);
-            }
         }
     }
 
-    private static IReadOnlyDictionary<string, object?> CaptureRuntimeState(object source)
-        => GetInstanceFields(source.GetType()).ToDictionary(field => field.Name, field => field.GetValue(source), StringComparer.Ordinal);
-
-    private static void SetMarketPositionFields(object target, SignalType? direction)
+    private static IReadOnlyDictionary<string, object?> CaptureRuntimeState(FieldInfo[] fields, object source)
     {
+        var state = new Dictionary<string, object?>(fields.Length, StringComparer.Ordinal);
+        foreach (var field in fields)
+            state[field.Name] = field.GetValue(source);
+        return state;
+    }
+
+    private static void SetMarketPositionFields(Type type, object target, SignalType? direction)
+    {
+        var fields = MarketPositionFieldCache.GetOrAdd(type, static key => GetInstanceFields(key)
+            .Where(field => field.FieldType == typeof(int) &&
+                (field.Name.Equals("_currentMP", StringComparison.OrdinalIgnoreCase) ||
+                 field.Name.Equals("_marketPosition", StringComparison.OrdinalIgnoreCase) ||
+                 field.Name.Equals("_mp", StringComparison.OrdinalIgnoreCase)))
+            .ToArray());
+
+        if (fields.Length == 0) return;
+
         var marketPosition = direction switch
         {
             SignalType.Buy => 1,
@@ -127,31 +172,33 @@ public abstract class StatelessEasyStrategyBase : ITradingStrategy
             _ => 0
         };
 
-        foreach (var field in GetInstanceFields(target.GetType())
-                     .Where(field => field.FieldType == typeof(int) &&
-                         (field.Name.Equals("_currentMP", StringComparison.OrdinalIgnoreCase) ||
-                          field.Name.Equals("_marketPosition", StringComparison.OrdinalIgnoreCase) ||
-                          field.Name.Equals("_mp", StringComparison.OrdinalIgnoreCase))))
-        {
+        foreach (var field in fields)
             field.SetValue(target, marketPosition);
-        }
     }
 
-    private static void SetEntriesTodayFields(object target, int entriesToday)
+    private static void SetEntriesTodayFields(Type type, object target, int entriesToday)
     {
-        foreach (var field in GetInstanceFields(target.GetType())
-                     .Where(field => field.FieldType == typeof(int) &&
-                         field.Name.Equals("_entriesToday", StringComparison.OrdinalIgnoreCase)))
-        {
+        var fields = EntriesTodayFieldCache.GetOrAdd(type, static key => GetInstanceFields(key)
+            .Where(field => field.FieldType == typeof(int) &&
+                field.Name.Equals("_entriesToday", StringComparison.OrdinalIgnoreCase))
+            .ToArray());
+
+        foreach (var field in fields)
             field.SetValue(target, entriesToday);
-        }
     }
 
     private static void AttachMoneyRiskFromEasyInputs(object source, TradeSignal signal)
     {
-        var fields = GetInstanceFields(source.GetType());
-        var stop = ReadPositiveNumber(fields, source, "_myStop");
-        var profit = ReadPositiveNumber(fields, source, "_myProfit");
+        var (stopField, profitField) = MoneyRiskFieldCache.GetOrAdd(source.GetType(), static type =>
+        {
+            var fields = GetInstanceFields(type);
+            return (
+                fields.FirstOrDefault(f => f.Name.Equals("_myStop", StringComparison.OrdinalIgnoreCase)),
+                fields.FirstOrDefault(f => f.Name.Equals("_myProfit", StringComparison.OrdinalIgnoreCase)));
+        });
+
+        var stop = ReadPositiveNumber(stopField, source);
+        var profit = ReadPositiveNumber(profitField, source);
 
         // Le sorgenti EasyLanguage usano SetStopContract: MyStop/MyProfit
         // sono dollari per contratto. Non sovrascrivere valori già dichiarati
@@ -177,26 +224,21 @@ public abstract class StatelessEasyStrategyBase : ITradingStrategy
         }
     }
 
-    private static decimal? ReadPositiveNumber(IEnumerable<FieldInfo> fields, object source, string name)
+    private static decimal? ReadPositiveNumber(FieldInfo? field, object source)
     {
-        var field = fields.FirstOrDefault(field => field.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
-        if (field?.GetValue(source) is null)
-        {
-            return null;
-        }
+        var raw = field?.GetValue(source);
+        if (raw is null) return null;
 
-        var value = Convert.ToDecimal(field.GetValue(source));
+        var value = Convert.ToDecimal(raw);
         return value > 0 ? value : null;
     }
 
-    private static IEnumerable<FieldInfo> GetInstanceFields(Type type)
-    {
-        for (var current = type; current is not null && current != typeof(StatelessEasyStrategyBase); current = current.BaseType)
+    private static FieldInfo[] GetInstanceFields(Type type) =>
+        InstanceFieldCache.GetOrAdd(type, static key =>
         {
-            foreach (var field in current.GetFields(BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.DeclaredOnly))
-            {
-                yield return field;
-            }
-        }
-    }
+            var fields = new List<FieldInfo>();
+            for (var current = key; current is not null && current != typeof(StatelessEasyStrategyBase); current = current.BaseType)
+                fields.AddRange(current.GetFields(BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.DeclaredOnly));
+            return fields.ToArray();
+        });
 }
