@@ -151,7 +151,7 @@ public sealed class TitanoRotationService
         return Path.Combine(runPath, "report.html");
     }
 
-    private const string EquityChartMarker = "<th>Backtesting</th><th>Titano</th>";
+    private const string EquityChartMarker = "id=\"equityComparisonTable\"";
 
     private static void EnsureHtmlReport(string runPath, TitanoRotationManifest manifest)
     {
@@ -205,25 +205,18 @@ public sealed class TitanoRotationService
         html.Append($"<div class=\"card\">Trade originali<div class=\"value\">{originalEquity.Count}</div></div>");
         html.Append($"<div class=\"card\">Trade filtrati<div class=\"value\">{filteredEquity.Count}</div></div></section>");
 
-        html.Append("<h2>Confronto equity</h2><section class=\"cards\">");
-        html.Append($"<div class=\"card\">Capitale finale originale<div class=\"value\">{H(Money(originalFinal))}</div></div>");
-        html.Append($"<div class=\"card\">Capitale finale filtrato<div class=\"value\">{H(Money(filteredFinal))}</div></div>");
-        html.Append($"<div class=\"card\">Profitto originale<div class=\"value\">{H(Money(originalProfit))}</div></div>");
-        html.Append($"<div class=\"card\">Profitto filtrato<div class=\"value\">{H(Money(filteredProfit))}</div></div>");
-        html.Append($"<div class=\"card\">Max drawdown originale<div class=\"value\">{H(Percent(originalMaxDrawdown))}</div></div>");
-        html.Append($"<div class=\"card\">Max drawdown filtrato<div class=\"value\">{H(Percent(filteredMaxDrawdown))}</div></div></section>");
+        html.Append("<h2>Confronto equity</h2>");
+        html.Append("<div class=\"card\" style=\"margin-top:18px;padding:18px;background:white;border-radius:9px;box-shadow:0 1px 5px #ccd2dc\">");
+        html.Append("<table id=\"equityComparisonTable\"><tr><th>Metrica</th><th>Backtesting</th><th>Titano</th></tr>");
+        html.Append($"<tr><td>Capitale finale</td><td>{H(Money(originalFinal))}</td><td class=\"{(filteredFinal >= originalFinal ? "good" : "bad")}\">{H(Money(filteredFinal))}</td></tr>");
+        html.Append($"<tr><td>Profitto netto</td><td>{H(Money(originalProfit))}</td><td class=\"{(filteredProfit >= originalProfit ? "good" : "bad")}\">{H(Money(filteredProfit))}</td></tr>");
+        html.Append($"<tr><td>Max drawdown</td><td>{H(Percent(originalMaxDrawdown))}</td><td>{H(Percent(filteredMaxDrawdown))}</td></tr>");
+        html.Append($"<tr><td>Trade contabilizzati</td><td>{originalEquity.Count}</td><td>{filteredEquity.Count}</td></tr></table></div>");
         html.Append("<div class=\"card\" style=\"margin-top:18px;padding:18px;background:white;border-radius:9px;box-shadow:0 1px 5px #ccd2dc\">");
         html.Append("<h2>Equity trade-level — originale vs filtrato Titano</h2>");
         html.Append("<p class=\"muted\">Curva cumulativa sui trade chiusi del master filter: originale (100% allocazione, senza costi Titano) vs filtrata (allocazione e costi simulati).</p>");
         html.Append("<canvas id=\"equityComparisonChart\" data-drawdown-bars=\"true\" width=\"1400\" height=\"560\"></canvas>");
         html.Append("<div id=\"equityComparisonLegend\" class=\"legend\"></div></div>");
-        html.Append("<div class=\"card\" style=\"margin-top:18px;padding:18px;background:white;border-radius:9px;box-shadow:0 1px 5px #ccd2dc\">");
-        html.Append("<table><tr><th>Metrica</th><th>Backtesting</th><th>Titano</th></tr>");
-        html.Append($"<tr><td>Capitale finale</td><td>{H(Money(originalFinal))}</td><td class=\"{(filteredFinal >= originalFinal ? "good" : "bad")}\">{H(Money(filteredFinal))}</td></tr>");
-        html.Append($"<tr><td>Profitto netto</td><td>{H(Money(originalProfit))}</td><td class=\"{(filteredProfit >= originalProfit ? "good" : "bad")}\">{H(Money(filteredProfit))}</td></tr>");
-        html.Append($"<tr><td>Max drawdown</td><td>{H(Percent(originalMaxDrawdown))}</td><td>{H(Percent(filteredMaxDrawdown))}</td></tr>");
-        html.Append($"<tr><td>Trade contabilizzati</td><td>{originalEquity.Count}</td><td>{filteredEquity.Count}</td></tr></table></div>");
-
         html.Append("<h2>Decisioni per periodo</h2><div class=\"scroll\"><table><thead><tr>" +
                     "<th>Periodo effettivo</th><th>Strategia</th><th>Stato</th><th>Allocazione</th>" +
                     "<th>Score</th><th>Voti</th><th>Return breve</th><th>Return lungo</th>" +

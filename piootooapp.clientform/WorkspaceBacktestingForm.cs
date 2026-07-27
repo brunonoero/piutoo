@@ -2326,7 +2326,7 @@ public partial class WorkspaceBacktestingForm : Form
             NormalizeBaseAddress();
             _runTitanoButton.Enabled = false;
             var response = await _httpClient.PostAsJsonAsync("api/Titano/rotations", request, _jsonOptions);
-            response.EnsureSuccessStatusCode();
+            await EnsureSuccessWithDetailsAsync(response, "Avvio Titano");
             var manifest = await response.Content.ReadFromJsonAsync<TitanoRotationManifest>(_jsonOptions)
                 ?? throw new InvalidOperationException("Manifest Titano non ricevuto.");
             _lastTitanoManifest = manifest;
@@ -2360,6 +2360,34 @@ public partial class WorkspaceBacktestingForm : Form
             MessageBox.Show(ex.Message, "Errore Titano", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally { _runTitanoButton.Enabled = true; }
+    }
+
+    private static async Task EnsureSuccessWithDetailsAsync(HttpResponseMessage response, string operation)
+    {
+        if (response.IsSuccessStatusCode)
+            return;
+
+        var body = await response.Content.ReadAsStringAsync();
+        string? detail = null;
+        try
+        {
+            using var document = JsonDocument.Parse(body);
+            var root = document.RootElement;
+            if (root.TryGetProperty("error", out var error))
+                detail = error.GetString();
+            else if (root.TryGetProperty("detail", out var problemDetail))
+                detail = problemDetail.GetString();
+            else if (root.TryGetProperty("title", out var title))
+                detail = title.GetString();
+        }
+        catch (JsonException)
+        {
+            detail = body;
+        }
+
+        throw new InvalidOperationException(
+            $"{operation} fallito: HTTP {(int)response.StatusCode} ({response.ReasonPhrase}). " +
+            (string.IsNullOrWhiteSpace(detail) ? "Il server non ha restituito dettagli." : detail));
     }
 
     private async Task OpenTitanoReportAsync()
