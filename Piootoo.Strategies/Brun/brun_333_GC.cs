@@ -125,6 +125,9 @@ public abstract class Brun333GcBase : ITradingStrategy
     public int TimeframeMinutes => _timeframeMinutes;
     public int RequiredCandles => 120;
 
+    /// <summary>Uscita decisa a runtime (pattern di uscita): strategia esclusa dal catalogo.</summary>
+    public bool IsPositionCloseDependent => true;
+
     private void ApplyProfile(Brun333Profile profile)
     {
         switch (profile)
@@ -693,7 +696,7 @@ public abstract class Brun333GcBase : ITradingStrategy
             StrategyName = Name,
             Quantity = _contracts,
             Reason = reason,
-            CloseOnly = closeOnly
+            
         };
     }
 

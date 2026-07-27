@@ -4,7 +4,17 @@ using System.Text.Json.Serialization;
 namespace Piootoo.Shared.Models;
 
 /// <summary>
-/// Rappresenta un segnale di trading generato da una strategia
+/// Rappresenta un segnale di trading generato da una strategia.
+///
+/// <para><b>Invariante — uscita autocontenuta.</b> Un segnale di ingresso deve descrivere per
+/// intero come si esce dalla posizione: <see cref="StopLoss"/> /
+/// <see cref="StopLossMoneyPerFutureContract"/>, <see cref="TakeProfit"/> /
+/// <see cref="TakeProfitMoneyPerFutureContract"/>, <see cref="CloseAtUtc"/> e
+/// <see cref="MaxBarsInPosition"/>. L'engine (interno o esterno) chiude in autonomia usando
+/// queste sole informazioni: non esiste più un segnale di sola chiusura emesso dalla strategia.</para>
+///
+/// <para>Le strategie che decidono l'uscita a runtime (verifica di un pattern di uscita) sono
+/// dichiarate <c>IsPositionCloseDependent</c> e vengono escluse dal catalogo.</para>
 /// </summary>
 public class TradeSignal
 {
@@ -48,13 +58,6 @@ public class TradeSignal
     public decimal? TakeProfitMoneyPerFutureContract { get; set; }
 
     /// <summary>
-    /// Copia del requisito dichiarato dalla strategia. Quando è true e
-    /// <see cref="CloseOnly"/> è true, l'engine/cTrader esegue la chiusura solo
-    /// dopo avere verificato una posizione reale per StrategyCode e Symbol.
-    /// </summary>
-    public bool IsPositionCloseDependent { get; set; }
-    
-    /// <summary>
     /// Stop Loss in punti (valore assoluto, non percentuale)
     /// Se null, nessuno stop loss definito
     /// </summary>
@@ -78,11 +81,6 @@ public class TradeSignal
     /// Se null o 0, nessun limite temporale definito.
     /// </summary>
     public int? MaxBarsInPosition { get; set; }
-
-    /// <summary>
-    /// Se true, il segnale serve solo a chiudere una posizione esistente e non deve aprire la direzione opposta.
-    /// </summary>
-    public bool CloseOnly { get; set; }
 
     /// <summary>
     /// Intent aggiuntivi generati sulla stessa barra (es. stop long e short

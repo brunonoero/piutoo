@@ -100,9 +100,9 @@ public sealed class TradingSessionsController : ControllerBase
         => ExecuteResult<AccountSignalResponse>(() => Ok(_sessions.GetNextSignalForAccount(sessionId, token, accountNumber)));
 
     /// <summary>
-    /// Registra un intent CloseOnly "client-originated" per una posizione che un cBot ExternalBroker ha
+    /// Registra un intent di chiusura (OrderIntentKind.Close) per una posizione che un cBot ExternalBroker ha
     /// già deciso di chiudere in locale (Stop Loss/Take Profit nativi del broker, limite di barre) e per
-    /// cui non esiste un OrderIntent CloseOnly emesso dal server. Il client referenzia l'IntentId
+    /// gia' chiuso applicando la specifica di uscita dell'intent di ingresso. Il client referenzia l'IntentId
     /// restituito nel normale POST /execution-reports per completare la chiusura.
     /// </summary>
     [HttpPost("{sessionId}/intents/close-external")]

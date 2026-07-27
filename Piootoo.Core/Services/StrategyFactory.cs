@@ -17,6 +17,11 @@ public static class StrategyFactory
     /// <summary>
     /// Restituisce tutte le strategie C# registrate che implementano ITradingStrategy.
     /// Questa e' la sorgente ufficiale per UI/backtesting: i file EasyLanguage sono solo sorgenti/metadati.
+    ///
+    /// <para>Le strategie <see cref="ITradingStrategy.IsPositionCloseDependent"/> sono ESCLUSE: decidono
+    /// l'uscita a runtime e non possono descriverla nel segnale di ingresso, mentre l'engine gestisce
+    /// solo uscite autonome (SL, TP, CloseAtUtc, MaxBarsInPosition). Vedi
+    /// <see cref="GetCloseDependentStrategyIds"/> per l'elenco degli esclusi.</para>
     /// </summary>
     public static List<StrategyDefinition> GetRegisteredStrategies(string? name = null, string? symbol = null)
     {
@@ -30,6 +35,12 @@ public static class StrategyFactory
             var instance = CreateStrategyInstance(strategyType, string.Empty, 0, null);
             if (instance == null)
             {
+                continue;
+            }
+
+            if (instance.IsPositionCloseDependent)
+            {
+                // Uscita decisa a runtime (pattern di uscita): non esprimibile nel segnale di ingresso.
                 continue;
             }
 
@@ -67,6 +78,22 @@ public static class StrategyFactory
             .OrderBy(strategy => strategy.Symbol)
             .ThenBy(strategy => strategy.TimeframeMinutes)
             .ThenBy(strategy => strategy.Name)
+            .ToList();
+    }
+
+    /// <summary>
+    /// Id delle strategie escluse dal catalogo perché close-dependent. Serve a spiegare all'utente
+    /// perché un Id presente nei sorgenti non compare più tra le strategie selezionabili, invece di
+    /// farlo sparire in silenzio.
+    /// </summary>
+    public static List<string> GetCloseDependentStrategyIds()
+    {
+        InitializeEasyStrategyCache();
+
+        return _easyStrategyCache
+            .Where(item => CreateStrategyInstance(item.Value, string.Empty, 0, null)?.IsPositionCloseDependent == true)
+            .Select(item => item.Key)
+            .OrderBy(id => id, StringComparer.Ordinal)
             .ToList();
     }
 
@@ -136,7 +163,17 @@ public static class StrategyFactory
                 }
             }
 
-            return CreateStrategyInstance(strategyType, symbol, timeframeMinutes, parameters);
+            var created = CreateStrategyInstance(strategyType, symbol, timeframeMinutes, parameters);
+            if (created?.IsPositionCloseDependent == true)
+            {
+                // Esclusa dal catalogo: non deve poter rientrare da un masterfilter salvato in passato.
+                throw new InvalidOperationException(
+                    $"La strategia '{className}' è close-dependent (uscita decisa a runtime) e non è più " +
+                    "eseguibile: l'engine gestisce solo uscite descritte nel segnale di ingresso " +
+                    "(StopLoss, TakeProfit, CloseAtUtc, MaxBarsInPosition). Rimuovila dal masterfilter.");
+            }
+
+            return created;
         }
 
         return null;

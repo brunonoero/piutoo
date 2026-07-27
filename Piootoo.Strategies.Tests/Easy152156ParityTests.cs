@@ -1,3 +1,4 @@
+using System;
 using Piootoo.Shared.Enums;
 using Piootoo.Shared.Models;
 using Piootoo.Shared.Models.Trading;
@@ -359,7 +360,10 @@ public class EasyReplayValidationTests
 
                 Assert.NotNull(intent.ValidFromUtc);
                 Assert.True(intent.ValidFromUtc >= bar.DateTime.AddMinutes(5).AddMinutes(-1));
-                if (!intent.CloseOnly)
+                // L'uscita di fine sessione e' a mercato; gli ingressi restano ordini stop.
+                var isSessionExit = intent.Reason is not null &&
+                                    intent.Reason.StartsWith("EOSess", StringComparison.Ordinal);
+                if (!isSessionExit)
                 {
                     Assert.Equal(TradeOrderType.Stop, intent.OrderType);
                 }

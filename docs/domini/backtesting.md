@@ -17,8 +17,15 @@ Oltre a `signals.json` e `trades.json`, ogni backtest produce:
   backtest non ha prodotto trade.
 
 Ogni trade chiuso porta un `ExitReason` (`StopLoss`, `TakeProfit`, `TimeExit`,
-`MaxBars`, `OppositeSignal`, `CloseOnly`, `WeekEnd`, `EndOfRun`): senza di esso due
-trade con lo stesso P&L sono indistinguibili in analisi.
+`MaxBars`, `OppositeSignal`, `WeekEnd`, `EndOfRun`): senza di esso due trade con lo
+stesso P&L sono indistinguibili in analisi. `CloseOnly` non viene più prodotto — le
+strategie non emettono segnali di chiusura — ma il valore resta nell'enum per non
+rinumerare i backtest già archiviati.
+
+Il summary conta anche `signalsWithoutExitSpec`: ingressi emessi senza alcuna
+condizione di uscita (`StopLoss`, `TakeProfit`, `CloseAtUtc`, `MaxBarsInPosition`).
+L'engine non può chiuderli, quindi restano aperti fino alla chiusura tecnica di fine
+settimana o fine run: è un difetto della strategia, non del motore.
 
 Riferimenti: `Piootoo.Core/Services/BacktestDiagnosticsLogger.cs`,
 `Piootoo.Shared/Models/Trading/BacktestDiagnosticsContracts.cs`.

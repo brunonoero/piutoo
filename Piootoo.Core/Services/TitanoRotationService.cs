@@ -153,12 +153,32 @@ public sealed class TitanoRotationService
         return reset;
     }
 
-    public TitanoEffectiveStrategies Resolve(string workspaceId, string backtestFolder, string runId, DateTime timestampUtc)
+    /// <param name="mode">
+    /// Cambia una cosa sola: cosa fare quando nessun periodo copre <paramref name="timestampUtc"/>.
+    /// In <see cref="TitanoFilterMode.Realtime"/> una barra oltre la fine del manifest ricade
+    /// sull'ultimo periodo calcolato — è la rotazione in vigore finché non se ne produce una nuova.
+    /// Nelle altre modalità resta scoperta, e il chiamante deve trattarlo come condizione esplicita.
+    /// </param>
+    public TitanoEffectiveStrategies Resolve(
+        string workspaceId, string backtestFolder, string runId, DateTime timestampUtc,
+        TitanoFilterMode mode = TitanoFilterMode.BacktestRotationFile)
     {
         RequireUtc(timestampUtc, nameof(timestampUtc));
         var manifest = Get(workspaceId, backtestFolder, runId);
         var master = GetMasterExecutionCodes(workspaceId);
         var period = manifest.Periods.SingleOrDefault(x => timestampUtc >= x.EffectiveFromUtc && timestampUtc < x.EffectiveToUtc);
+
+        var usedLatestPeriod = false;
+        if (period is null && mode == TitanoFilterMode.Realtime && manifest.Periods.Count > 0)
+        {
+            var last = manifest.Periods.OrderBy(x => x.EffectiveToUtc).Last();
+            if (timestampUtc >= last.EffectiveToUtc)
+            {
+                period = last;
+                usedLatestPeriod = true;
+            }
+        }
+
         var enabled = period?.Strategies.Where(x => x.Enabled).Select(x => x.StrategyCode)
             .Order(StringComparer.Ordinal).ToArray() ?? [];
         var resets = manifest.HardStopResets.Where(x => x.EffectiveFromUtc <= timestampUtc)
@@ -190,6 +210,9 @@ public sealed class TitanoRotationService
             // istante": senza il flag, un manifest storico usato in live azzerava in silenzio
             // l'intero portafoglio.
             HasActivePeriod = period is not null,
+            UsedLatestPeriod = usedLatestPeriod,
+            PeriodFromUtc = period?.EffectiveFromUtc,
+            PeriodToUtc = period?.EffectiveToUtc,
             ManifestFromUtc = manifest.Periods.Count == 0 ? null : manifest.Periods.Min(x => x.EffectiveFromUtc),
             ManifestToUtc = manifest.Periods.Count == 0 ? null : manifest.Periods.Max(x => x.EffectiveToUtc)
         };

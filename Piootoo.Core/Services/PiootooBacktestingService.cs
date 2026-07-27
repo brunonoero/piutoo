@@ -33,6 +33,12 @@ public class PiootooBacktestingService : IPiootooBacktestingService
     private readonly IPiootooSettingsService _settingsService;
     private readonly IPiootooDataFeedService _dataFeedService;
     private readonly IBacktestingExecutionHook _executionHook;
+
+    /// <summary>
+    /// Serve solo alla modalità <see cref="TitanoFilterMode.BacktestRotationFile"/>. Opzionale: un
+    /// backtest senza filtro non deve dipendere da Titano.
+    /// </summary>
+    private readonly TitanoRotationService? _titano;
     private readonly PiootooSettings _settings;
     private readonly string _resultsPath;
     private readonly JsonSerializerOptions _jsonOptions;
@@ -41,11 +47,13 @@ public class PiootooBacktestingService : IPiootooBacktestingService
         IPiootooSettingsService settingsService,
         IPiootooDataFeedService dataFeedService,
         PiootooSettings settings,
-        IBacktestingExecutionHook executionHook)
+        IBacktestingExecutionHook executionHook,
+        TitanoRotationService? titano = null)
     {
         _settingsService = settingsService;
         _dataFeedService = dataFeedService;
         _executionHook = executionHook;
+        _titano = titano;
         _settings = settings;
 
         _resultsPath = Path.Combine(settings.GetSettingsPath(), "results");
@@ -662,6 +670,9 @@ public class PiootooBacktestingService : IPiootooBacktestingService
             }
             // ========== FINE PREFILL ==========
 
+            // Filtro Titano del run: null in modalità Disabled.
+            var titanoFilter = CreateTitanoFilter(request);
+
             // Iterazione usando il timeframe minimo
             var currentDate = roundedStartDate;
             var totalMinutes = (int)(request.EndDate - roundedStartDate).TotalMinutes;
@@ -709,10 +720,24 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                     currentBars[symbol] = bar;
                 }
 
+                // Filtro Titano della barra corrente. In Disabled resta null e vengono valutate tutte
+                // le strategie del masterfilter; in BacktestRotationFile contiene i codici abilitati
+                // dal periodo di rotazione che copre questa barra.
+                var titanoEnabled = titanoFilter?.EnabledCodesAt(currentDate);
+
                 foreach (var strategy in strategyInstances)
                 {
                     var strategySymbol = strategy.Symbol;
                     var strategyCode = strategy.Name;
+
+                    if (titanoEnabled is not null &&
+                        !titanoEnabled.Contains(strategyCode, StringComparer.OrdinalIgnoreCase))
+                    {
+                        // Disabilitata dalla rotazione su questo periodo: non è uno skip tecnico,
+                        // è una decisione. Non viene contata tra le valutazioni mancate.
+                        continue;
+                    }
+
                     try
                     {
                         cancellationToken.ThrowIfCancellationRequested();
@@ -1168,6 +1193,74 @@ public class PiootooBacktestingService : IPiootooBacktestingService
         }
     }
 
+    /// <summary>
+    /// Applica la rotazione Titano al loop di backtest. Risolve una volta per periodo, non una volta
+    /// per barra: il periodo è un blocco di giorni e ririsolverlo a ogni barra costerebbe una lookup
+    /// nel manifest per ciascuna delle centinaia di migliaia di iterazioni del loop.
+    /// </summary>
+    private sealed class TitanoBacktestFilter
+    {
+        private readonly TitanoRotationService _titano;
+        private readonly string _workspaceId;
+        private readonly string _backtestFolder;
+        private readonly string _runId;
+
+        private DateTime _validFromUtc = DateTime.MaxValue;
+        private DateTime _validToUtc = DateTime.MinValue;
+        private HashSet<string> _enabled = new(StringComparer.OrdinalIgnoreCase);
+
+        public TitanoBacktestFilter(
+            TitanoRotationService titano, string workspaceId, string backtestFolder, string runId)
+        {
+            _titano = titano;
+            _workspaceId = workspaceId;
+            _backtestFolder = backtestFolder;
+            _runId = runId;
+        }
+
+        public IReadOnlySet<string> EnabledCodesAt(DateTime timestampUtc)
+        {
+            if (timestampUtc >= _validFromUtc && timestampUtc < _validToUtc)
+                return _enabled;
+
+            var effective = _titano.Resolve(
+                _workspaceId, _backtestFolder, _runId, TradingDateTime.ToFeedUtc(timestampUtc),
+                TitanoFilterMode.BacktestRotationFile);
+
+            if (!effective.HasActivePeriod)
+                throw new InvalidOperationException(
+                    $"Nessun periodo Titano copre la barra {timestampUtc:O}: il run '{_runId}' copre " +
+                    $"{effective.ManifestFromUtc:O} → {effective.ManifestToUtc:O}. Rigenera la rotazione " +
+                    "su un backtest che copra l'intervallo richiesto, oppure esegui in modalità Disabled.");
+
+            _enabled = new HashSet<string>(effective.EffectiveStrategies, StringComparer.OrdinalIgnoreCase);
+
+            // La finestra di validità della cache è il periodo stesso: fuori da qui si ririsolve.
+            _validFromUtc = effective.PeriodFromUtc ?? timestampUtc;
+            _validToUtc = effective.PeriodToUtc ?? timestampUtc.AddTicks(1);
+            return _enabled;
+        }
+    }
+
+    private TitanoBacktestFilter? CreateTitanoFilter(BacktestingRequest request)
+    {
+        if (request.TitanoMode == TitanoFilterMode.Disabled)
+            return null;
+
+        if (request.TitanoMode == TitanoFilterMode.Realtime)
+            throw new ArgumentException(
+                "TitanoFilterMode.Realtime non è applicabile a un backtest: usa BacktestRotationFile " +
+                "per filtrare con le rotazioni calcolate offline, oppure Disabled per non filtrare.");
+
+        if (string.IsNullOrWhiteSpace(request.TitanoRunId) || string.IsNullOrWhiteSpace(request.TitanoBacktestFolder))
+            throw new ArgumentException(
+                "La modalità BacktestRotationFile richiede TitanoRunId e TitanoBacktestFolder.");
+
+        var titano = _titano ?? throw new InvalidOperationException("Servizio Titano non disponibile.");
+        return new TitanoBacktestFilter(
+            titano, request.WorkspaceId, request.TitanoBacktestFolder!, request.TitanoRunId!);
+    }
+
     private static IEnumerable<PersistedSignal> ToPersistedSignals(
         string jobId,
         IReadOnlyList<TradeSignal> signals) =>
@@ -1188,8 +1281,8 @@ public class PiootooBacktestingService : IPiootooBacktestingService
             StopLoss = signal.StopLoss,
             TakeProfit = signal.TakeProfit,
             TimeExitUtc = signal.CloseAtUtc,
-            Reason = signal.Reason,
-            CloseOnly = signal.CloseOnly
+            MaxBarsInPosition = signal.MaxBarsInPosition,
+            Reason = signal.Reason
         });
 
     private static IEnumerable<PersistedTrade> ToPersistedTrades(
@@ -1231,12 +1324,10 @@ public class PiootooBacktestingService : IPiootooBacktestingService
             CloseAtUtc = signal.CloseAtUtc,
             StopLossMoneyPerFutureContract = signal.StopLossMoneyPerFutureContract,
             TakeProfitMoneyPerFutureContract = signal.TakeProfitMoneyPerFutureContract,
-            IsPositionCloseDependent = signal.IsPositionCloseDependent,
             StopLoss = signal.StopLoss,
             TakeProfit = signal.TakeProfit,
             BreakEven = signal.BreakEven,
-            MaxBarsInPosition = signal.MaxBarsInPosition,
-            CloseOnly = signal.CloseOnly
+            MaxBarsInPosition = signal.MaxBarsInPosition
         };
         TradingDateTime.NormalizeSignalToUtc(clone);
         return clone;

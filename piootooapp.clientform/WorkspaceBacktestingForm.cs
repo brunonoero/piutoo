@@ -81,10 +81,7 @@ public partial class WorkspaceBacktestingForm : Form
     private readonly ComboBox _sessionModeCombo = new();
     private readonly ComboBox _sessionTitanoRunId = new();
     private readonly Button _sessionLoadTitanoRuns = new();
-    private readonly CheckBox _sessionApplyTitano = new()
-    {
-        Text = "Applica filtri Titano", AutoSize = true, Checked = true
-    };
+    private readonly ComboBox _sessionTitanoMode = new();
     private readonly TextBox _sessionTitanoBacktest = new();
     private readonly TextBox _sessionMetadata = new() { Text = "ES,50,1,1,FuturesContracts", Width = 420 };
     private readonly CheckBox _sessionAtrEnabled = new() { Text = "ATR/target volatility", AutoSize = true };
@@ -317,7 +314,11 @@ public partial class WorkspaceBacktestingForm : Form
         _sessionLoadTitanoRuns.Text = "Carica run";
         _sessionLoadTitanoRuns.AutoSize = true;
         _sessionLoadTitanoRuns.Click += async (_, _) => await LoadTitanoRunsForSessionAsync();
-        _sessionApplyTitano.CheckedChanged += (_, _) => UpdateTitanoSessionControlsState();
+        _sessionTitanoMode.Width = 200;
+        _sessionTitanoMode.DropDownStyle = ComboBoxStyle.DropDownList;
+        _sessionTitanoMode.Items.AddRange(Enum.GetNames<TitanoFilterMode>());
+        _sessionTitanoMode.SelectedItem = nameof(TitanoFilterMode.Disabled);
+        _sessionTitanoMode.SelectedIndexChanged += (_, _) => UpdateTitanoSessionControlsState();
 
         _formToolTip.SetToolTip(_sessionAtrEnabled,
             "Attiva il sizing basato su volatilità di mercato (ATR): dimensiona ogni posizione in base al rischio in dollari desiderato.");
@@ -338,10 +339,8 @@ public partial class WorkspaceBacktestingForm : Form
             TitanoLabel("Setup Titano (run)", "Rotazione Titano salvata da collegare alla sessione. Premi 'Carica run' per elencare quelle disponibili nel backtest indicato."),
             WithHelp(_sessionTitanoRunId, "Rotazione Titano salvata da collegare alla sessione. Lascia vuoto per non collegare alcuna rotazione."),
             WithHelp(_sessionLoadTitanoRuns, "Elenca le rotazioni Titano già calcolate per il workspace e il backtest selezionati."),
-            WithHelp(_sessionApplyTitano,
-                "Spuntato: la rotazione filtra davvero le strategie valutate e ne scala l'allocazione. " +
-                "Non spuntato: tutte le strategie del masterfilter vengono valutate, ma la rotazione viene " +
-                "comunque calcolata e registrata nel rotation-log per confronto."),
+            TitanoLabel("Modalità Titano", TitanoModeHelp),
+            WithHelp(_sessionTitanoMode, TitanoModeHelp),
             TitanoLabel("Metadata symbol,DPP,min,step,mode",
                 "Elenco strumenti nel formato simbolo,dollari-per-punto,quantità-minima,step-quantità,modalità-arrotondamento; più strumenti separati da ';'."),
             WithHelp(_sessionMetadata,
@@ -1772,12 +1771,37 @@ public partial class WorkspaceBacktestingForm : Form
         }
     }
 
+    private const string TitanoModeHelp =
+        "Disabled: nessun filtro, vengono valutate tutte le strategie del masterfilter (è il run che " +
+        "produce i trade su cui Titano calcola le rotazioni). " +
+        "BacktestRotationFile: backtest filtrato con le rotazioni del manifest calcolato offline; " +
+        "per ogni barra vale la decisione del periodo che la contiene. " +
+        "Realtime: vale la decisione del periodo corrente dell'ultima analisi Titano.";
+
+    private TitanoFilterMode SelectedTitanoMode =>
+        Enum.TryParse<TitanoFilterMode>(_sessionTitanoMode.SelectedItem?.ToString(), out var mode)
+            ? mode
+            : TitanoFilterMode.Disabled;
+
     private void UpdateTitanoSessionControlsState()
     {
-        _formToolTip.SetToolTip(_sessionApplyTitano, _sessionApplyTitano.Checked
-            ? "Attivo: la rotazione filtra le strategie valutate e ne scala l'allocazione."
-            : "Disattivo: tutte le strategie del masterfilter vengono valutate; la rotazione viene " +
-              "comunque calcolata e registrata nel rotation-log.");
+        var mode = SelectedTitanoMode;
+        _formToolTip.SetToolTip(_sessionTitanoMode, mode switch
+        {
+            TitanoFilterMode.Disabled =>
+                "Nessun filtro: tutte le strategie del masterfilter vengono valutate. Se indichi comunque " +
+                "un run, la rotazione viene calcolata e registrata nel rotation-log per confronto.",
+            TitanoFilterMode.BacktestRotationFile =>
+                "Backtest filtrato: per ogni barra vale la decisione del periodo del manifest che la " +
+                "contiene. Il manifest deve coprire l'intero intervallo del backtest.",
+            _ =>
+                "Realtime: vale la decisione del periodo corrente. Oltre la fine del manifest resta in " +
+                "vigore l'ultimo periodo calcolato, dichiarandolo nel rotation-log."
+        });
+
+        // Le modalità filtrate senza un run non possono degradare in silenzio: il server le rifiuta.
+        _sessionTitanoRunId.Enabled = true;
+        _sessionTitanoBacktest.Enabled = true;
     }
 
     private async Task CreateTradingSessionAsync()
@@ -1795,12 +1819,14 @@ public partial class WorkspaceBacktestingForm : Form
                 "Trading Session", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
-        if (titanoRunId is null && !_sessionApplyTitano.Checked)
+        var titanoMode = SelectedTitanoMode;
+        if (titanoMode != TitanoFilterMode.Disabled && titanoRunId is null)
         {
-            // Nessuna rotazione collegata: il flag non ha effetto, meglio dirlo che lasciarlo credere.
             MessageBox.Show(
-                "Nessun setup Titano selezionato: i filtri non verrebbero comunque applicati.",
-                "Trading Session", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                $"La modalità {titanoMode} richiede un setup Titano: seleziona una rotazione, " +
+                "oppure passa alla modalità Disabled.",
+                "Trading Session", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
         }
 
         try
@@ -1812,7 +1838,7 @@ public partial class WorkspaceBacktestingForm : Form
                 ExecutionMode = Enum.Parse<ExecutionMode>(_sessionModeCombo.SelectedItem?.ToString() ?? "ServerSimulated"),
                 TitanoRunId = titanoRunId,
                 TitanoBacktestFolder = titanoRunId is null ? null : _sessionTitanoBacktest.Text.Trim(),
-                ApplyTitanoFilters = _sessionApplyTitano.Checked,
+                TitanoMode = titanoMode,
                 Instruments = ParseInstrumentMetadata(_sessionMetadata.Text),
                 PositionSizing = new PositionSizingConfig
                 {

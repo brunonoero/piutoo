@@ -139,8 +139,6 @@ public class PiootooTradingService : IPiootooTradingService
 
         currentPrices = NormalizeCurrentPrices(currentPrices);
         currentBars = NormalizeCurrentBars(currentBars);
-        var closedByOppositeSignal = new HashSet<string>();
-
         CheckStopLossAndTakeProfit(currentPrices, currentBars, 0m, currentTime);
         CheckTimeExits(currentPrices, currentBars, 0m, currentTime);
         TryFillPendingOrders(currentPrices, currentBars, currentTime);
@@ -168,8 +166,7 @@ public class PiootooTradingService : IPiootooTradingService
                     }
 
                     ClosePosition(positionKey, ResolveSignalPrice(signal, currentPrices), currentTime,
-                        signal.CloseOnly ? TradeExitReason.CloseOnly : TradeExitReason.OppositeSignal);
-                    closedByOppositeSignal.Add(positionKey);
+                        TradeExitReason.OppositeSignal);
                     CancelPendingOrders(positionKey);
                 }
             }
@@ -190,31 +187,9 @@ public class PiootooTradingService : IPiootooTradingService
             }
 
             var positionKey = MakePositionKey(signalSymbol, GetSignalStrategyCode(signal));
-            if (closedByOppositeSignal.Contains(positionKey) && signal.CloseOnly)
-            {
-                continue;
-            }
-
-            if (signal.CloseOnly && !_state.OpenPositions.ContainsKey(positionKey))
-            {
-                continue;
-            }
-
             if (RequiresDeferredExecution(signal, currentTime))
             {
                 EnqueuePendingOrder(positionKey, signal);
-                continue;
-            }
-
-            if (signal.CloseOnly)
-            {
-                if (_state.OpenPositions.ContainsKey(positionKey))
-                {
-                    ClosePosition(positionKey, ResolveSignalPrice(signal, currentPrices), currentTime,
-                        TradeExitReason.CloseOnly);
-                    CancelPendingOrders(positionKey);
-                }
-
                 continue;
             }
 
@@ -322,22 +297,6 @@ public class PiootooTradingService : IPiootooTradingService
 
             currentBars.TryGetValue(NormalizeSymbol(signalSymbol), out var bar);
             currentPrices.TryGetValue(NormalizeSymbol(signalSymbol), out var markPrice);
-
-            if (signal.CloseOnly)
-            {
-                if (_state.OpenPositions.ContainsKey(pending.PositionKey))
-                {
-                    var exitPrice = ResolveFillPrice(signal, bar, markPrice);
-                    ClosePosition(pending.PositionKey, exitPrice, currentTime, TradeExitReason.CloseOnly);
-                    CancelPendingOrders(pending.PositionKey);
-                }
-                else
-                {
-                    _pendingOrders.Remove(pendingKey);
-                }
-
-                continue;
-            }
 
             if (signal.OrderType == TradeOrderType.Stop)
             {

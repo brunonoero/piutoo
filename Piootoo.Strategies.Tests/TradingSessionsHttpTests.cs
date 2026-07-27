@@ -130,7 +130,7 @@ public sealed class TradingSessionsHttpTests : IDisposable
         entryResponse.EnsureSuccessStatusCode();
 
         // Il cBot ha deciso in locale di chiudere (es. Stop Loss nativo o limite di barre): non esiste
-        // un OrderIntent CloseOnly del server, quindi registra prima l'intent client-originated...
+        // un intent di chiusura del server, quindi lo registra come OrderIntentKind.Close...
         var closeIntentRequest = new CreateExternalCloseIntentRequest
         {
             SessionToken = descriptor.SessionToken,
@@ -142,10 +142,10 @@ public sealed class TradingSessionsHttpTests : IDisposable
             $"api/v1/trading-sessions/{descriptor.SessionId}/intents/close-external", closeIntentRequest);
         closeIntentResponse.EnsureSuccessStatusCode();
         var closeIntent = (await closeIntentResponse.Content.ReadFromJsonAsync<OrderIntent>(JsonOptions))!;
-        Assert.True(closeIntent.CloseOnly);
+        Assert.True(closeIntent.IsClose);
         Assert.Equal(entryIntent.FinalQuantity, closeIntent.FinalQuantity);
 
-        // ...e poi lo referenzia nel normale execution-report, esattamente come per un intent CloseOnly
+        // ...e poi lo referenzia nel normale execution-report, come qualsiasi altro intent
         // emesso dal server.
         var closeReport = new ExecutionReportRequest
         {
@@ -214,6 +214,8 @@ public sealed class TradingSessionsHttpTests : IDisposable
         {
             WorkspaceId = _workspace.Id, ExecutionMode = mode, TitanoRunId = runId,
             TitanoBacktestFolder = folder,
+            // Con un run collegato la sessione va filtrata: e' lo scopo del test che lo passa.
+            TitanoMode = runId is null ? TitanoFilterMode.Disabled : TitanoFilterMode.BacktestRotationFile,
             Instruments =
             [
                 new InstrumentMetadata

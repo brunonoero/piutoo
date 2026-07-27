@@ -21,38 +21,31 @@ namespace cAlgo.Robots
     //                  metadata dello strumento del grafico corrente, poi la avvia (/start).
     //   2) OnBar    -> ad ogni barra chiusa invia SOLO quella barra (account/simbolo gia legati
     //                  alla sessione) a POST /{sessionId}/bars e riceve gli OrderIntent generati
-    //                  dal server (segnali di ingresso/uscita, incluse le uscite "pattern based"
-    //                  decise interamente lato server).
-    //   3) Ogni OrderIntent viene eseguito cosi com'e: apertura a mercato/pending oppure chiusura
-    //      (CloseOnly). Il cBot NON tenta di replicare pattern di uscita: quella logica resta sul
-    //      server (StrategyEvaluationService). Il cBot gestisce in locale solo le condizioni
-    //      "meccaniche": Stop Loss e Take Profit (applicati come livelli nativi cTrader presi
-    //      dall'intent) e un numero massimo di barre in posizione (parametro locale).
-    //   4) Ogni fill (apertura o chiusura) viene riportato al server via
-    //      POST /{sessionId}/execution-reports. Le chiusure guidate da un intent CloseOnly
-    //      generano un PersistedTrade lato server (GET /{sessionId}/trades), che e il meccanismo
-    //      con cui la sessione "invia" la lista dei trade usata per le rotazioni Titano
+    //                  dal server. Sono SEMPRE e SOLO intent di INGRESSO: il server non decide
+    //                  uscite.
+    //   3) Ogni intent di ingresso porta con se la specifica di uscita completa: StopLoss e
+    //      TakeProfit (applicati come livelli nativi cTrader), CloseAtUtc (uscita a tempo) e
+    //      MaxBarsInPosition (limite di barre). Il bot le applica tutte, senza parametri locali
+    //      e senza interpretazioni. Le strategie che deciderebbero l'uscita a runtime verificando
+    //      un pattern sono close-dependent e sono escluse dal catalogo lato server.
+    //   4) Ogni fill di apertura viene riportato con POST /{sessionId}/execution-reports.
+    //      Ogni CHIUSURA — qualunque ne sia la causa, SL/TP nativo, uscita a tempo o limite barre —
+    //      passa da un canale unico: POST /{sessionId}/intents/close-external registra lato server
+    //      un intent OrderIntentKind.Close per la posizione, che viene poi referenziato nel normale
+    //      execution report (vedi RegisterExternalCloseAndReport). E cosi che nasce il
+    //      PersistedTrade (GET /{sessionId}/trades) che alimenta le rotazioni Titano
     //      (vedi docs/domini/titano-rotation.md, "In ExternalBroker un trade nasce esclusivamente
     //      dai fill di chiusura autorevoli").
-    //
-    // Nota: le uscite decise SOLO in locale (Stop Loss/Take Profit nativi del broker, oppure il limite
-    // di barre) non hanno un OrderIntent CloseOnly del server a cui agganciare direttamente un execution
-    // report (il server rifiuterebbe un report che referenzia un intent con CloseOnly=false, trattandolo
-    // come aggiornamento di apertura anziche di chiusura). Per questi casi il cBot chiama prima
-    // POST {sessionId}/intents/close-external (vedi RegisterExternalCloseAndReport), che registra lato
-    // server un intent CloseOnly "client-originated" per la posizione aperta corrispondente, e poi
-    // riporta il fill contro quell'intent con il normale POST {sessionId}/execution-reports. Cosi anche
-    // queste chiusure confluiscono in trades.json e alimentano le rotazioni Titano.
     //
     //   5) Riavvio: il cBot non tiene lo storico dei segnali su file. All'avvio salva/ricarica solo
     //      SessionId+SessionToken da un piccolo file locale (uno per account/simbolo/timeframe), cosi
     //      un riavvio riprende automaticamente la STESSA sessione lato server senza doverla reimpostare
     //      a mano nei parametri. Una volta nota la sessione, il cBot chiede al controller
     //      (GET {sessionId}/intents) i signal gia emessi e li riconcilia con le Position/PendingOrder
-    //      ancora aperte in cTrader per ricostruire in memoria le condizioni di uscita (entry bar per il
-    //      limite barre; l'intent di apertura per gli ordini pending non ancora eseguiti). Stop
-    //      Loss/Take Profit non vanno ricostruiti: restano attivi come ordini nativi sulla posizione
-    //      anche se il cBot viene riavviato.
+    //      ancora aperte in cTrader. Questa ricostruzione e' NECESSARIA: senza l'intent di apertura il
+    //      bot non conosce piu CloseAtUtc e MaxBarsInPosition della posizione e non saprebbe piu
+    //      chiuderla a tempo. Stop Loss/Take Profit invece non vanno ricostruiti: restano attivi come
+    //      livelli nativi sulla posizione anche se il cBot viene riavviato.
     //
     //   6) Pannello a chart: nome bot, versione (costante BotVersion, da aggiornare ad ogni release),
     //      profit e drawdown percentuale correnti, aggiornati a ogni tick. L'ancora (equity iniziale e
@@ -94,6 +87,26 @@ namespace cAlgo.Robots
         [Parameter("Titano Backtest Folder", DefaultValue = "", Group = "Connessione")]
         public string TitanoBacktestFolder { get; set; }
 
+        // Le tre modalita operative. Il bot si comporta esattamente allo stesso modo in tutte e tre:
+        // manda le barre, riceve i segnali gia filtrati dal server, li esegue e riporta le chiusure.
+        //
+        //   Disabled             -> backtest senza filtro: vengono valutate tutte le strategie del
+        //                           masterfilter. E' il run che produce i trade su cui l'analisi
+        //                           Titano calcola offline le rotazioni.
+        //   BacktestRotationFile -> backtest filtrato con le rotazioni del manifest calcolato offline:
+        //                           per ogni barra vale la decisione del periodo che la contiene.
+        //   Realtime             -> vale la decisione del periodo corrente dell'ultima analisi Titano.
+        //
+        // Le ultime due richiedono Titano Run Id + Titano Backtest Folder: il server rifiuta la
+        // creazione della sessione se mancano, invece di eseguire in silenzio senza filtro.
+        //
+        // Il bot dichiara anche il CONTESTO in cui gira (backtest cTrader o mercato reale), letto da
+        // IsBacktesting e non da un parametro, cosi il server puo' rifiutare le combinazioni
+        // impossibili: Realtime durante un backtest (sarebbe look-ahead) e BacktestRotationFile in
+        // live (il tempo esce subito dall'intervallo del manifest).
+        [Parameter("Titano Mode", DefaultValue = TitanoFilterModeParam.Disabled, Group = "Connessione")]
+        public TitanoFilterModeParam TitanoMode { get; set; }
+
         [Parameter("Http Timeout (s)", DefaultValue = 15, MinValue = 1, Group = "Connessione")]
         public int HttpTimeoutSeconds { get; set; }
 
@@ -126,16 +139,11 @@ namespace cAlgo.Robots
         [Parameter("Volume Per Quantity Unit", DefaultValue = 1.0, MinValue = 0.0001, Group = "Sizing")]
         public double VolumePerQuantityUnit { get; set; }
 
-        // --------------------------------------------------------------- Uscite gestite in locale
-
-        [Parameter("Use Intent Stop Loss", DefaultValue = true, Group = "Uscite locali")]
-        public bool UseIntentStopLoss { get; set; }
-
-        [Parameter("Use Intent Take Profit", DefaultValue = true, Group = "Uscite locali")]
-        public bool UseIntentTakeProfit { get; set; }
-
-        [Parameter("Max Bars In Position (0 = disattivo)", DefaultValue = 0, MinValue = 0, Group = "Uscite locali")]
-        public int MaxBarsInPosition { get; set; }
+        // ------------------------------------------------------------------------------- Uscite
+        //
+        // Non ci sono piu parametri di uscita locali: l'intero comportamento di chiusura arriva
+        // dall'intent di ingresso (StopLoss, TakeProfit, CloseAtUtc, MaxBarsInPosition) e il bot
+        // lo applica sempre, senza interpretazioni. Il server non emette intent di chiusura.
 
         // ------------------------------------------------------------------------------- Stato
 
@@ -157,10 +165,6 @@ namespace cAlgo.Robots
         // barre trascorse (uscita locale "numero di barre").
         private readonly Dictionary<long, OrderIntentDto> _positionIntent = new();
         private readonly Dictionary<long, int> _positionEntryBar = new();
-
-        // Traccia l'intent CloseOnly (se presente) che ha guidato la chiusura di una posizione,
-        // cosi OnPositionClosed sa se puo generare un execution report valido lato server.
-        private readonly Dictionary<long, OrderIntentDto> _closingIntentByPosition = new();
 
         protected override void OnStart()
         {
@@ -315,22 +319,14 @@ namespace cAlgo.Robots
             if (!IsOurs(position))
                 return;
 
-            if (_closingIntentByPosition.TryGetValue(position.Id, out var closingIntent))
-            {
-                ReportClosingFill(closingIntent, position);
-            }
-            else
-            {
-                // Chiusura decisa solo in locale (SL/TP nativo o limite barre): nessun intent CloseOnly dal
-                // server. Registriamo prima un intent CloseOnly "client-originated" (POST
-                // {id}/intents/close-external) e poi lo referenziamo nel report, cosi la chiusura confluisce
-                // comunque in trades.json/Titano.
-                RegisterExternalCloseAndReport(position, args.Reason);
-            }
+            // Canale unico: ogni chiusura e decisa in locale applicando la specifica dell'intent di
+            // ingresso (SL/TP nativi, CloseAtUtc, MaxBarsInPosition). La registriamo lato server con
+            // POST {id}/intents/close-external e poi la referenziamo nell'execution report, cosi
+            // confluisce in trades.json e alimenta le rotazioni Titano.
+            RegisterExternalCloseAndReport(position, args.Reason);
 
             _positionIntent.Remove(position.Id);
             _positionEntryBar.Remove(position.Id);
-            _closingIntentByPosition.Remove(position.Id);
         }
 
         protected override void OnStop()
@@ -493,7 +489,7 @@ namespace cAlgo.Robots
 
         private OrderIntentDto FindLatestMatchingIntent(List<OrderIntentDto> intents, string strategyCode) =>
             intents
-                .Where(i => !i.CloseOnly &&
+                .Where(i => !i.IsClose &&
                             string.Equals(i.StrategyCode, strategyCode, StringComparison.OrdinalIgnoreCase) &&
                             NormalizeSymbol(i.Symbol) == NormalizeSymbol(SymbolName))
                 .OrderByDescending(i => i.CreatedAtUtc)
@@ -523,6 +519,11 @@ namespace cAlgo.Robots
                 ClientSessionToken = $"cTrader-{_accountNumber}",
                 TitanoRunId = string.IsNullOrWhiteSpace(TitanoRunId) ? null : TitanoRunId.Trim(),
                 TitanoBacktestFolder = string.IsNullOrWhiteSpace(TitanoBacktestFolder) ? null : TitanoBacktestFolder.Trim(),
+                TitanoMode = TitanoMode.ToString(),
+                // NON e' un parametro: lo legge la piattaforma. Cosi il server puo' rifiutare le
+                // combinazioni incoerenti (Realtime in backtest, BacktestRotationFile in live)
+                // invece di lasciarle passare e produrre numeri plausibili ma sbagliati.
+                ClientRunMode = IsBacktesting ? "Backtest" : "Realtime",
                 Instruments = new List<InstrumentMetadataDto>
                 {
                     new InstrumentMetadataDto
@@ -602,39 +603,20 @@ namespace cAlgo.Robots
 
         private void ApplyIntent(OrderIntentDto intent)
         {
-            if (string.Equals(intent.Side, "Hold", StringComparison.OrdinalIgnoreCase) && !intent.CloseOnly)
+            if (string.Equals(intent.Side, "Hold", StringComparison.OrdinalIgnoreCase))
                 return;
 
-            var label = MakeLabel(intent.StrategyCode);
-
-            if (intent.CloseOnly)
+            if (intent.IsClose || string.Equals(intent.Kind, "Close", StringComparison.OrdinalIgnoreCase))
             {
-                ApplyCloseIntent(intent, label);
-                return;
-            }
-
-            ApplyOpenIntent(intent, label);
-        }
-
-        private void ApplyCloseIntent(OrderIntentDto intent, string label)
-        {
-            var matches = Positions.FindAll(label, SymbolName);
-            if (matches.Length == 0)
-            {
-                Print("Intent di chiusura {0} ({1}) ricevuto ma nessuna posizione aperta trovata.", intent.IntentId, label);
+                // Un intent di chiusura puo esistere solo come registrazione di una chiusura gia
+                // eseguita da QUESTO bot (POST /intents/close-external): riceverlo da /bars
+                // significherebbe che il server ha deciso un'uscita, cosa non piu prevista.
+                Print("Intent di chiusura {0} ricevuto da /bars e ignorato: le uscite sono gestite in locale " +
+                      "con la specifica dell'intent di ingresso.", intent.IntentId);
                 return;
             }
 
-            foreach (var position in matches)
-            {
-                _closingIntentByPosition[position.Id] = intent;
-                var result = ClosePosition(position);
-                if (!result.IsSuccessful)
-                {
-                    Print("Errore chiusura posizione {0} da intent {1}: {2}", position.Id, intent.IntentId, result.Error);
-                    _closingIntentByPosition.Remove(position.Id);
-                }
-            }
+            ApplyOpenIntent(intent, MakeLabel(intent.StrategyCode));
         }
 
         private void ApplyOpenIntent(OrderIntentDto intent, string label)
@@ -662,8 +644,15 @@ namespace cAlgo.Robots
                 return;
             }
 
-            double? stopLossPips = UseIntentStopLoss ? ToPips(intent.StopLoss) : null;
-            double? takeProfitPips = UseIntentTakeProfit ? ToPips(intent.TakeProfit) : null;
+            // Sempre applicati: sono livelli nativi cTrader e sopravvivono a un riavvio del bot.
+            double? stopLossPips = ToPips(intent.StopLoss);
+            double? takeProfitPips = ToPips(intent.TakeProfit);
+            if (!stopLossPips.HasValue && !takeProfitPips.HasValue &&
+                !intent.CloseAtUtc.HasValue && !(intent.MaxBarsInPosition > 0))
+            {
+                Print("Intent {0} ({1}) non porta alcuna condizione di uscita: la posizione restera aperta " +
+                      "finche non arriva un segnale opposto. Verifica la strategia.", intent.IntentId, intent.StrategyCode);
+            }
 
             _lastOpenIntentByLabel[label] = intent;
 
@@ -693,27 +682,45 @@ namespace cAlgo.Robots
             // evitare doppi execution-report verso il server.
         }
 
+        /// <summary>
+        /// Applica le uscite che il broker non sa gestire nativamente: uscita a tempo
+        /// (<c>CloseAtUtc</c>) e limite di barre (<c>MaxBarsInPosition</c>). Entrambe arrivano
+        /// dall'intent di ingresso, non da parametri del bot. Stop Loss e Take Profit non passano
+        /// di qui: sono livelli nativi gia applicati all'ordine.
+        ///
+        /// Ogni chiusura viene poi registrata lato server da OnPositionClosed tramite
+        /// RegisterExternalCloseAndReport, cosi confluisce in trades.json e alimenta Titano.
+        /// </summary>
         private void CloseExpiredPositions()
         {
-            if (MaxBarsInPosition <= 0)
-                return;
+            var now = Server.TimeInUtc;
 
             foreach (var position in Positions
                 .Where(p => p.SymbolName == SymbolName && p.Label != null && p.Label.StartsWith(LabelPrefix, StringComparison.Ordinal))
                 .ToList())
             {
-                if (!_positionEntryBar.TryGetValue(position.Id, out var entryBar))
+                if (!_positionIntent.TryGetValue(position.Id, out var intent))
                     continue;
 
-                if (Bars.Count - entryBar < MaxBarsInPosition)
+                string reason = null;
+
+                if (intent.CloseAtUtc.HasValue && now >= intent.CloseAtUtc.Value)
+                {
+                    reason = "uscita a tempo (CloseAtUtc)";
+                }
+                else if (intent.MaxBarsInPosition > 0 &&
+                         _positionEntryBar.TryGetValue(position.Id, out var entryBar) &&
+                         Bars.Count - entryBar >= intent.MaxBarsInPosition.Value)
+                {
+                    reason = "limite barre (MaxBarsInPosition)";
+                }
+
+                if (reason == null)
                     continue;
 
-                // Chiusura puramente locale (limite barre): nessun intent CloseOnly dal server.
-                // OnPositionClosed la rilevera e registrera un intent client-originated tramite
-                // RegisterExternalCloseAndReport (vedi commento in testa al file).
                 var result = ClosePosition(position);
                 if (!result.IsSuccessful)
-                    Print("Errore chiusura per limite barre su posizione {0}: {1}", position.Id, result.Error);
+                    Print("Errore chiusura per {0} su posizione {1}: {2}", reason, position.Id, result.Error);
             }
         }
 
@@ -910,6 +917,14 @@ namespace cAlgo.Robots
             BrokerVolumeStep
         }
 
+        /// <summary>Deve restare allineato a Piootoo.Shared.Models.Trading.TitanoFilterMode.</summary>
+        public enum TitanoFilterModeParam
+        {
+            Disabled,
+            BacktestRotationFile,
+            Realtime
+        }
+
         // ----------------------------------------------------------------------- DTO contratto API
         // Copie locali (POCO) dei contratti definiti in Piootoo.Shared.Models.Trading, cosi il cBot
         // resta un singolo file senza riferimenti al progetto server. I campi enum-like (Side,
@@ -926,6 +941,8 @@ namespace cAlgo.Robots
             public string ClientSessionToken { get; set; }
             public string TitanoRunId { get; set; }
             public string TitanoBacktestFolder { get; set; }
+            public string TitanoMode { get; set; } = "Disabled";
+            public string ClientRunMode { get; set; } = "Unknown";
             public List<InstrumentMetadataDto> Instruments { get; set; } = new();
         }
 
@@ -994,10 +1011,16 @@ namespace cAlgo.Robots
             public decimal Quantity { get; set; }
             public decimal FinalQuantity { get; set; }
             public decimal Price { get; set; }
-            public bool CloseOnly { get; set; }
+            /// <summary>"Entry" oppure "Close". Il server emette solo intent di ingresso.</summary>
+            public string Kind { get; set; } = "Entry";
+            public bool IsClose { get; set; }
+            // Specifica di uscita completa: e' l'unica informazione con cui il bot chiude la posizione.
             public decimal? StopLoss { get; set; }
             public decimal? TakeProfit { get; set; }
+            public decimal? BreakEven { get; set; }
+            public int? MaxBarsInPosition { get; set; }
             public DateTime? ExpiresAtUtc { get; set; }
+            public DateTime? CloseAtUtc { get; set; }
             public string Reason { get; set; }
         }
 

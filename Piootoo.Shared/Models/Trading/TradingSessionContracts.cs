@@ -9,6 +9,76 @@ public enum ExecutionReportStatus { Accepted, PartiallyFilled, Filled, Rejected,
 public enum OrderIntentStatus { Pending, Accepted, PartiallyFilled, Filled, Rejected, Cancelled }
 public enum QuantityRoundingMode { FuturesContracts, BrokerVolumeStep }
 
+/// <summary>
+/// Natura di un <see cref="OrderIntent"/>.
+///
+/// <para><see cref="Entry"/> — ingresso deciso dal server a partire da un segnale di strategia. Porta
+/// con sé l'intera specifica di uscita (SL, TP, uscita a tempo, massimo di barre): il client la
+/// applica e chiude in autonomia.</para>
+///
+/// <para><see cref="Close"/> — <b>registrazione</b> di una chiusura già decisa dal client
+/// (SL/TP nativi del broker, uscita a tempo, limite barre). Non è un ordine: serve solo ad avere un
+/// intent a cui agganciare l'execution report e generare il <c>PersistedTrade</c>. Il server non
+/// emette mai intent di chiusura a partire da un segnale: le strategie che avrebbero bisogno di
+/// farlo sono close-dependent e quindi escluse dal catalogo.</para>
+/// </summary>
+public enum OrderIntentKind { Entry, Close }
+
+/// <summary>
+/// Le tre modalità operative dell'engine rispetto al filtro Titano. Valgono identiche per l'engine
+/// interno (backtest in-process, <c>ServerSimulated</c>) e per l'engine esterno cTrader
+/// (<c>ExternalBroker</c>): il cBot invia le barre e riceve i segnali già filtrati, quindi non
+/// conosce Titano e non cambia comportamento tra una modalità e l'altra.
+/// </summary>
+/// <summary>
+/// Contesto in cui sta girando il client che ha creato la sessione. Non è una preferenza: il cBot
+/// lo ricava dalla piattaforma (<c>Robot.IsBacktesting</c>), non da un parametro, quindi non può
+/// sbagliarlo per distrazione.
+///
+/// <para>Serve a rendere verificabile lato server una coerenza che altrimenti resterebbe negli
+/// occhi dell'operatore: una rotazione storica applicata a una sessione live, o una modalità
+/// <see cref="TitanoFilterMode.Realtime"/> usata in backtest, sono errori silenziosi che si notano
+/// solo dai risultati sbagliati. Vedi <c>CreateTradingSessionRequest.ClientRunMode</c>.</para>
+/// </summary>
+public enum ClientRunMode
+{
+    /// <summary>
+    /// Client che non sa dichiararlo (console WinForms, test, integrazioni terze). Le combinazioni
+    /// non vengono verificate: la responsabilità resta di chi configura.
+    /// </summary>
+    Unknown,
+
+    /// <summary>Replay di dati storici: cTrader in backtesting/ottimizzazione, o backtest interno.</summary>
+    Backtest,
+
+    /// <summary>Mercato reale, barre che arrivano man mano che si chiudono.</summary>
+    Realtime
+}
+
+public enum TitanoFilterMode
+{
+    /// <summary>
+    /// Nessun filtro: vengono valutate tutte le strategie del masterfilter. È la modalità con cui si
+    /// produce il <c>trades.json</c> su cui l'analisi Titano calcola offline le rotazioni.
+    /// </summary>
+    Disabled,
+
+    /// <summary>
+    /// Backtest con filtro: le rotazioni sono lette dal manifest calcolato <b>offline</b> sui trade
+    /// di tutte le strategie del workspace. Per ogni barra vale la decisione del periodo che la
+    /// contiene. Una barra fuori dai periodi del manifest è un errore di configurazione (manifest
+    /// non allineato all'intervallo di backtest), non un "tutto abilitato".
+    /// </summary>
+    BacktestRotationFile,
+
+    /// <summary>
+    /// Realtime: vale la decisione del periodo corrente prodotto dall'ultima analisi Titano. Le barre
+    /// successive alla fine del manifest ricadono sull'ultimo periodo disponibile — è la rotazione
+    /// in vigore finché non se ne calcola una nuova — e la cosa viene dichiarata nel rotation-log.
+    /// </summary>
+    Realtime
+}
+
 public sealed class InstrumentMetadata
 {
     public required string Symbol { get; init; }
@@ -56,18 +126,33 @@ public sealed class CreateTradingSessionRequest
     public string? TitanoBacktestFolder { get; init; }
 
     /// <summary>
-    /// Interruttore esplicito dei filtri Titano.
+    /// Modalità operativa rispetto al filtro Titano. Vedi <see cref="TitanoFilterMode"/>.
     ///
-    /// true (default quando è indicato un <see cref="TitanoRunId"/>): la rotazione decide quali
-    /// strategie vengono valutate e con quale allocazione.
-    /// false: le strategie del masterfilter vengono valutate tutte, ma la rotazione viene comunque
-    /// risolta e registrata nel rotation-log — utile per confrontare "cosa avrebbe fatto Titano"
-    /// senza subirne gli effetti.
+    /// <para><see cref="TitanoFilterMode.Disabled"/> non richiede un <see cref="TitanoRunId"/>. Se il
+    /// RunId è comunque indicato, la rotazione viene risolta e registrata nel rotation-log senza
+    /// essere applicata: serve a confrontare "cosa avrebbe fatto Titano" senza subirne gli effetti.</para>
     ///
-    /// Prima l'unico modo per disattivare Titano era non passare il RunId, e quindi rinunciare
-    /// anche alla diagnostica.
+    /// <para>Le altre due modalità richiedono <see cref="TitanoRunId"/> e
+    /// <see cref="TitanoBacktestFolder"/>.</para>
     /// </summary>
-    public bool ApplyTitanoFilters { get; init; } = true;
+    public TitanoFilterMode TitanoMode { get; init; } = TitanoFilterMode.Disabled;
+
+    /// <summary>
+    /// Contesto dichiarato dal client (vedi <see cref="ClientRunMode"/>). Il server lo incrocia con
+    /// <see cref="TitanoMode"/> e rifiuta le combinazioni incoerenti:
+    ///
+    /// <list type="bullet">
+    /// <item><see cref="TitanoFilterMode.Realtime"/> in <see cref="ClientRunMode.Backtest"/>: la
+    /// rotazione "corrente" verrebbe applicata a barre storiche, e oltre la fine del manifest
+    /// resterebbe congelata sull'ultimo periodo — cioè look-ahead mascherato da fallback.</item>
+    /// <item><see cref="TitanoFilterMode.BacktestRotationFile"/> in
+    /// <see cref="ClientRunMode.Realtime"/>: il tempo live esce quasi subito dall'intervallo del
+    /// manifest e la sessione si fermerebbe alla prima barra scoperta.</item>
+    /// </list>
+    ///
+    /// <see cref="TitanoFilterMode.Disabled"/> è legittimo in entrambi i contesti.
+    /// </summary>
+    public ClientRunMode ClientRunMode { get; init; } = ClientRunMode.Unknown;
 
     public PositionSizingConfig PositionSizing { get; init; } = new();
     public IReadOnlyList<InstrumentMetadata> Instruments { get; init; } = [];
@@ -82,8 +167,11 @@ public sealed class TradingSessionDescriptor
     public required TradingSessionStatus Status { get; init; }
     public string? TitanoRunId { get; init; }
 
-    /// <summary>Se i filtri Titano sono realmente applicati o solo registrati in diagnostica.</summary>
-    public bool ApplyTitanoFilters { get; init; }
+    /// <summary>Modalità operativa rispetto al filtro Titano. Vedi <see cref="TitanoFilterMode"/>.</summary>
+    public TitanoFilterMode TitanoMode { get; init; }
+
+    /// <summary>Contesto dichiarato dal client alla creazione. Vedi <see cref="Trading.ClientRunMode"/>.</summary>
+    public ClientRunMode ClientRunMode { get; init; }
 
     public PositionSizingConfig PositionSizing { get; init; } = new();
     public IReadOnlyList<InstrumentMetadata> InstrumentMetadata { get; init; } = [];
@@ -139,11 +227,30 @@ public sealed class OrderIntent
     public decimal FinalQuantity { get; init; }
     public string? SizingReason { get; init; }
     public decimal Price { get; init; }
-    public bool CloseOnly { get; init; }
+
+    /// <summary>Ingresso, oppure registrazione di una chiusura decisa dal client. Vedi <see cref="OrderIntentKind"/>.</summary>
+    public OrderIntentKind Kind { get; init; } = OrderIntentKind.Entry;
+
+    /// <summary>Vero per gli intent che chiudono una posizione. Comodità di lettura su <see cref="Kind"/>.</summary>
+    public bool IsClose => Kind == OrderIntentKind.Close;
+
+    // --- Specifica di uscita completa, copiata dal segnale di ingresso ---
+    // Il client DEVE applicarla per intero: sono le sole informazioni con cui l'engine esterno
+    // chiude la posizione, dato che il server non emette più intent di chiusura.
+
     public decimal? StopLoss { get; init; }
     public decimal? TakeProfit { get; init; }
+
+    /// <summary>Livello di break even in punti: raggiunto il profitto, lo stop va spostato all'entry.</summary>
+    public decimal? BreakEven { get; init; }
+
+    /// <summary>Numero massimo di barre in posizione. Null o 0 = nessun limite.</summary>
+    public int? MaxBarsInPosition { get; init; }
+
     public DateTime? ValidFromUtc { get; init; }
     public DateTime? ExpiresAtUtc { get; init; }
+
+    /// <summary>Istante entro cui la posizione va chiusa (uscita a tempo). Null = nessuna scadenza.</summary>
     public DateTime? CloseAtUtc { get; init; }
     public string? Reason { get; init; }
     public OrderIntentStatus Status { get; set; } = OrderIntentStatus.Pending;
@@ -228,12 +335,14 @@ public sealed class AccountSignalResponse
 }
 
 /// <summary>
-/// Richiesta di un client ExternalBroker (tipicamente un cBot) che ha già deciso in locale di chiudere
-/// una posizione senza che il server abbia emesso un OrderIntent CloseOnly corrispondente: succede per
-/// condizioni meccaniche gestite lato client (Stop Loss/Take Profit nativi del broker, limite di barre).
-/// Il server registra un intent CloseOnly "client-originated" per la posizione aperta corrispondente,
-/// così il client può referenziarlo nel normale POST /execution-reports per completare la chiusura e
-/// generare un PersistedTrade (usato anche dalle rotazioni Titano).
+/// Registrazione di una chiusura che un client ExternalBroker ha già eseguito applicando la specifica
+/// di uscita ricevuta con l'intent di ingresso: Stop Loss/Take Profit nativi del broker, uscita a
+/// tempo (<c>CloseAtUtc</c>) o limite di barre (<c>MaxBarsInPosition</c>).
+///
+/// <para>È l'<b>unico</b> canale di chiusura in ExternalBroker: il server non emette intent di
+/// chiusura. Registra un intent <see cref="OrderIntentKind.Close"/> per la posizione aperta
+/// corrispondente, che il client referenzia nel normale POST /execution-reports per completare la
+/// chiusura e generare il PersistedTrade (input delle rotazioni Titano).</para>
 /// </summary>
 public sealed class CreateExternalCloseIntentRequest
 {

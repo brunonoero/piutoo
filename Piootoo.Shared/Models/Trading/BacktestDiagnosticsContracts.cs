@@ -64,7 +64,11 @@ public enum TradeExitReason
     /// <summary>Segnale opposto della stessa strategia sullo stesso simbolo.</summary>
     OppositeSignal,
 
-    /// <summary>Segnale esplicito di chiusura emesso dalla strategia.</summary>
+    /// <summary>
+    /// Non più prodotto: le strategie non emettono segnali di chiusura. Lo slot resta per non
+    /// rinumerare i valori successivi nei log e nei backtest già archiviati.
+    /// </summary>
+    [Obsolete("Meccanismo CloseOnly rimosso: l'uscita è descritta nel segnale di ingresso.")]
     CloseOnly,
 
     /// <summary>Chiusura forzata all'ultima barra della settimana di trading.</summary>
@@ -176,7 +180,13 @@ public sealed class BacktestStrategySummary
     public long HoldSignals { get; set; }
     public long BuySignals { get; set; }
     public long SellSignals { get; set; }
-    public long CloseOnlySignals { get; set; }
+
+    /// <summary>
+    /// Segnali di ingresso privi di qualsiasi condizione di uscita (StopLoss, TakeProfit,
+    /// CloseAtUtc, MaxBarsInPosition). L'engine non può chiuderli: la posizione resta aperta fino
+    /// alla chiusura tecnica di fine settimana o fine run. Va letto come un difetto della strategia.
+    /// </summary>
+    public long SignalsWithoutExitSpec { get; set; }
 
     public int Trades { get; set; }
     public int WinningTrades { get; set; }

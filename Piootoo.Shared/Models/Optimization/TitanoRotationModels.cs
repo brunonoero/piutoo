@@ -233,6 +233,24 @@ public sealed class TitanoEffectiveStrategies
     /// </summary>
     public bool HasActivePeriod { get; init; }
 
+    /// <summary>
+    /// True quando la decisione non viene dal periodo che contiene il timestamp — che non esiste — ma
+    /// dall'ultimo periodo del manifest. Succede solo in <c>TitanoFilterMode.Realtime</c>: la
+    /// rotazione più recente resta in vigore finché non se ne calcola una nuova. Va registrato,
+    /// perché indica che l'analisi Titano andrebbe rigenerata.
+    /// </summary>
+    public bool UsedLatestPeriod { get; init; }
+
+    /// <summary>
+    /// Estremi [inizio, fine) del periodo di rotazione applicato. Permettono a un chiamante che
+    /// itera nel tempo (il loop di backtest) di sapere fino a quando la decisione resta valida,
+    /// invece di ririsolvere la rotazione a ogni barra.
+    /// </summary>
+    public DateTime? PeriodFromUtc { get; init; }
+
+    /// <summary>Fine esclusiva del periodo applicato. Vedi <see cref="PeriodFromUtc"/>.</summary>
+    public DateTime? PeriodToUtc { get; init; }
+
     /// <summary>Intervallo coperto dal manifest, per spiegare un <see cref="HasActivePeriod"/> false.</summary>
     public DateTime? ManifestFromUtc { get; init; }
 

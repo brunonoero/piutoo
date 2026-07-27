@@ -23,14 +23,13 @@ namespace cAlgo.Robots
     ///  - le condizioni di uscita (Stop Loss, Take Profit, ed eventuale scadenza a tempo CloseAtUtc) sono
     ///    contenute nel segnale di ingresso e vengono gestite interamente dal cBot: SL/TP sono impostati
     ///    come livelli nativi sull'ordine (li applica il broker), CloseAtUtc viene sorvegliato localmente
-    ///    ad ogni OnBar. Il server può comunque inviare un segnale di chiusura esplicito (CloseOnly), che
-    ///    il bot esegue allo stesso modo;
-    ///  - qualunque sia la causa della chiusura (Stop Loss/Take Profit del broker, scadenza CloseAtUtc, o
-    ///    un segnale CloseOnly dal server) l'evento Positions.Closed la intercetta sempre e invia al server
-    ///    l'esito reale del trade (prezzo di chiusura, quantità, commissioni) via execution-report, così i
-    ///    dati confluiscono in trades.json e alimentano le rotazioni Titano. Se la chiusura non è stata
-    ///    richiesta da un intent CloseOnly del server, il bot registra prima un intent CloseOnly
-    ///    "client-originated" (POST intents/close-external) e poi lo referenzia nel report;
+    ///    ad ogni OnBar, come il limite di barre MaxBarsInPosition. Il server NON invia mai segnali di
+    ///    chiusura: le strategie che deciderebbero l'uscita a runtime sono escluse dal catalogo;
+    ///  - qualunque sia la causa della chiusura (Stop Loss/Take Profit del broker, scadenza CloseAtUtc,
+    ///    limite di barre) l'evento Positions.Closed la intercetta sempre: il bot registra un intent
+    ///    di chiusura (POST intents/close-external) e vi riporta contro l'esito reale del trade
+    ///    (prezzo di chiusura, quantità, commissioni) via execution-report, così i dati confluiscono
+    ///    in trades.json e alimentano le rotazioni Titano;
     ///  - il server garantisce che, all'interno dello stesso gruppo (es. stessa prop firm), lo stesso
     ///    segnale non venga mai distribuito a due account diversi (anti copy-trading). Account di gruppi
     ///    diversi possono ricevere lo stesso segnale, ciascuno in modo indipendente.
@@ -104,11 +103,10 @@ namespace cAlgo.Robots
             public string StrategyCode;
             public string Symbol;
             public DateTime? CloseAtUtc;
-            /// <summary>Se valorizzato, la chiusura è stata richiesta da QUESTO intent CloseOnly del
-            /// server: Positions.Closed riporterà l'esito direttamente contro di esso. Se null, la
-            /// chiusura è autonoma (SL/TP del broker o CloseAtUtc) e va prima registrata via
-            /// intents/close-external.</summary>
-            public string PendingServerCloseIntentId;
+            /// <summary>Limite di barre in posizione dichiarato dall'intent di ingresso. 0 = nessun limite.</summary>
+            public int MaxBarsInPosition;
+            /// <summary>Indice di barra all'apertura, per applicare <see cref="MaxBarsInPosition"/>.</summary>
+            public int EntryBarIndex;
         }
 
         // Una serie a timeframe BASE per ciascun simbolo configurato (non per ogni coppia): da qui si
@@ -180,9 +178,12 @@ namespace cAlgo.Robots
         }
 
         /// <summary>
-        /// Uscita a tempo gestita in locale: chiude le posizioni il cui CloseAtUtc (preso dal segnale di
-        /// ingresso) è già passato. La chiusura effettiva viene poi riportata al server da
-        /// OnPositionClosed, come qualunque altra chiusura autonoma.
+        /// Uscite che il broker non sa gestire nativamente, entrambe prese dal segnale di ingresso:
+        /// scadenza a tempo (CloseAtUtc) e limite di barre (MaxBarsInPosition). Stop Loss e Take
+        /// Profit non passano di qui: sono livelli nativi già applicati all'ordine.
+        ///
+        /// La chiusura effettiva viene poi riportata al server da OnPositionClosed, come qualunque
+        /// altra chiusura.
         /// </summary>
         private void CloseExpiredPositions()
         {
@@ -192,7 +193,15 @@ namespace cAlgo.Robots
             var nowUtc = DateTime.SpecifyKind(Server.Time, DateTimeKind.Utc);
             foreach (var kvp in _openPositions.ToArray())
             {
-                if (kvp.Value.CloseAtUtc is not { } closeAt || closeAt > nowUtc)
+                var ctx = kvp.Value;
+
+                string reason = null;
+                if (ctx.CloseAtUtc is { } closeAt && closeAt <= nowUtc)
+                    reason = "scadenza (CloseAtUtc)";
+                else if (ctx.MaxBarsInPosition > 0 && Bars.Count - ctx.EntryBarIndex >= ctx.MaxBarsInPosition)
+                    reason = "limite barre (MaxBarsInPosition)";
+
+                if (reason is null)
                     continue;
 
                 var position = Positions.FirstOrDefault(p => p.Id == kvp.Key);
@@ -204,7 +213,7 @@ namespace cAlgo.Robots
 
                 var result = ClosePosition(position);
                 if (!result.IsSuccessful)
-                    Print("Errore chiusura per scadenza (CloseAtUtc) posizione {0}: {1}", position.Id, result.Error);
+                    Print("Errore chiusura per {0} posizione {1}: {2}", reason, position.Id, result.Error);
             }
         }
 
@@ -308,10 +317,18 @@ namespace cAlgo.Robots
                 if (_submittedIntentIds.Contains(intent.IntentId))
                     return; // già in gestione, aspettiamo l'esito dell'ordine già inviato
 
-                if (intent.CloseOnly)
-                    HandleCloseIntent(intent);
-                else
-                    HandleEntryIntent(intent);
+                if (intent.IsClose || string.Equals(intent.Kind, "Close", StringComparison.OrdinalIgnoreCase))
+                {
+                    // Un intent di chiusura esiste solo come registrazione di una chiusura gia eseguita
+                    // da questo bot: riceverlo dal polling significherebbe che il server ha deciso
+                    // un'uscita, cosa non piu prevista.
+                    if (VerboseLogging)
+                        Print("Intent di chiusura {0} ignorato: le uscite sono gestite in locale con la " +
+                              "specifica dell'intent di ingresso.", intent.IntentId);
+                    return;
+                }
+
+                HandleEntryIntent(intent);
             }
             catch (Exception ex)
             {
@@ -380,43 +397,13 @@ namespace cAlgo.Robots
                 EntryIntentId = intent.IntentId,
                 StrategyCode = intent.StrategyCode,
                 Symbol = intent.Symbol,
-                CloseAtUtc = intent.CloseAtUtc
+                CloseAtUtc = intent.CloseAtUtc,
+                MaxBarsInPosition = intent.MaxBarsInPosition ?? 0,
+                EntryBarIndex = Bars.Count
             };
 
             ReportExecution(intent.IntentId, intent.Symbol, ExecutionReportStatusDto.Filled,
                 (decimal)result.Position.VolumeInUnits, (decimal)result.Position.EntryPrice, result.Position.Id.ToString());
-        }
-
-        private void HandleCloseIntent(OrderIntentDto intent)
-        {
-            var label = MakeLabel(intent.StrategyCode);
-            var position = Positions.FirstOrDefault(p =>
-                p.SymbolName.Equals(intent.Symbol, StringComparison.OrdinalIgnoreCase) && p.Label == label);
-            if (position is null)
-            {
-                // Nessuna posizione locale corrispondente: probabilmente già chiusa in un ciclo precedente
-                // ma la conferma al server non è arrivata. Confermiamo comunque per non bloccare per
-                // sempre lo slot lato server.
-                if (VerboseLogging)
-                    Print("Chiusura {0}/{1} richiesta ma nessuna posizione locale trovata: confermo comunque.", intent.Symbol, intent.StrategyCode);
-                ReportExecution(intent.IntentId, intent.Symbol, ExecutionReportStatusDto.Filled, intent.Quantity, intent.Price);
-                return;
-            }
-
-            _submittedIntentIds.Add(intent.IntentId);
-            // Segnaliamo che QUESTA posizione si sta chiudendo su richiesta esplicita del server: quando
-            // Positions.Closed scatterà, riporterà l'esito direttamente contro questo intent (niente
-            // intents/close-external, che serve solo per le chiusure autonome).
-            if (_openPositions.TryGetValue(position.Id, out var ctx))
-                ctx.PendingServerCloseIntentId = intent.IntentId;
-
-            var result = ClosePosition(position);
-            if (!result.IsSuccessful)
-            {
-                Print("Errore chiusura posizione {0}/{1}: {2}", intent.Symbol, intent.StrategyCode, result.Error);
-                if (ctx != null) ctx.PendingServerCloseIntentId = null;
-                _submittedIntentIds.Remove(intent.IntentId);
-            }
         }
 
         /// <summary>
@@ -436,18 +423,10 @@ namespace cAlgo.Robots
             var quantity = (decimal)(trade?.VolumeInUnits ?? position.VolumeInUnits);
             var commission = (decimal)(trade?.Commissions ?? 0);
 
-            if (ctx.PendingServerCloseIntentId != null)
-            {
-                // Chiusura richiesta da un intent CloseOnly del server: report diretto contro quell'intent.
-                ReportExecution(ctx.PendingServerCloseIntentId, position.SymbolName, ExecutionReportStatusDto.Filled,
-                    quantity, closePrice, null, commission);
-                return;
-            }
-
-            // Chiusura autonoma (Stop Loss/Take Profit del broker, o CloseAtUtc gestito in locale): nessun
-            // intent CloseOnly esiste lato server per questa posizione. Ne registriamo prima uno
-            // "client-originated" e poi riportiamo il fill contro di esso, così il trade confluisce
-            // comunque in trades.json/Titano.
+            // Canale unico: ogni chiusura è decisa in locale applicando la specifica dell'intent di
+            // ingresso (SL/TP nativi del broker, CloseAtUtc, MaxBarsInPosition). La registriamo lato
+            // server con intents/close-external e poi riportiamo il fill contro quell'intent, così il
+            // trade confluisce in trades.json e alimenta le rotazioni Titano.
             RegisterExternalCloseAndReport(ctx, position, quantity, closePrice, commission, args.Reason.ToString());
         }
 
@@ -674,9 +653,14 @@ namespace cAlgo.Robots
             public TradeOrderTypeDto OrderType { get; set; }
             public decimal FinalQuantity { get; set; }
             public decimal Price { get; set; }
-            public bool CloseOnly { get; set; }
+            /// <summary>"Entry" oppure "Close". Il server emette solo intent di ingresso.</summary>
+            public string Kind { get; set; } = "Entry";
+            public bool IsClose { get; set; }
+            // Specifica di uscita completa: e' l'unica informazione con cui il bot chiude la posizione.
             public decimal? StopLoss { get; set; }
             public decimal? TakeProfit { get; set; }
+            public decimal? BreakEven { get; set; }
+            public int? MaxBarsInPosition { get; set; }
             public DateTime? CloseAtUtc { get; set; }
             public string Reason { get; set; }
             public OrderIntentStatusDto Status { get; set; }

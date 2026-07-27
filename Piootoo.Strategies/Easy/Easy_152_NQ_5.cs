@@ -153,8 +153,6 @@ public class Easy_152_NQ_5 : StatelessEasyStrategyBase
                 Quantity = _myContracts,
                 OrderType = TradeOrderType.Market,
                 ValidFromUtc = nextBarUtc,
-                CloseOnly = true,
-                IsPositionCloseDependent = true,
                 Reason = _currentMP == 1 ? "EOSessLX" : "EOSessSX"
             };
         }

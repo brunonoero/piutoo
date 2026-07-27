@@ -111,11 +111,6 @@ namespace cAlgo.Robots
                 }
             }
 
-            if (signal.CloseOnly)
-            {
-                return;
-            }
-
             if (Positions.Find(label, SymbolName, tradeType) != null)
             {
                 return;
@@ -264,7 +259,7 @@ namespace cAlgo.Robots
             public decimal? TakeProfit { get; set; }
             public decimal? BreakEven { get; set; }
             public int? MaxBarsInPosition { get; set; }
-            public bool CloseOnly { get; set; }
+            public DateTime? CloseAtUtc { get; set; }
         }
     }
 }

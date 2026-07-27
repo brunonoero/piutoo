@@ -102,9 +102,7 @@ public class Easy_156_NQ_15 : StatelessEasyStrategyBase
                     Quantity = _myContracts,
                     OrderType = TradeOrderType.Market,
                     ValidFromUtc = nextBarUtc,
-                    CloseOnly = true,
-                    IsPositionCloseDependent = true,
-                    CloseAtUtc = ResolveSessionCloseUtc(barTime, _sessionStartTimeC, _sessionEndTimeC),
+                            CloseAtUtc = ResolveSessionCloseUtc(barTime, _sessionStartTimeC, _sessionEndTimeC),
                     Reason = _currentMP == 1 ? "LX End of Day" : "SX End of Day"
                 };
             }

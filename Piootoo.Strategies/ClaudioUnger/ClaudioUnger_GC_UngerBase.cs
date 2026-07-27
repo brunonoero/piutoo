@@ -57,6 +57,9 @@ public abstract class ClaudioUngerBiasDailyBase : ITradingStrategy
     public int TimeframeMinutes => 1440;
     public int RequiredCandles => 8;
 
+    /// <summary>Uscita decisa a runtime (pattern di uscita): strategia esclusa dal catalogo.</summary>
+    public bool IsPositionCloseDependent => true;
+
     public void Initialize(Dictionary<string, object>? parameters = null)
     {
         if (parameters == null) return;
@@ -171,7 +174,7 @@ public abstract class ClaudioUngerBiasDailyBase : ITradingStrategy
             StrategyCode = Name,
             StrategyName = Name,
             Quantity = _contracts,
-            CloseOnly = closeOnly,
+
             Reason = reason
         };
     }
@@ -223,6 +226,9 @@ public abstract class ClaudioUngerTfUnmirroredBase : ITradingStrategy
     public string Symbol => _symbol;
     public int TimeframeMinutes => _timeframeMinutes;
     public int RequiredCandles => 8;
+
+    /// <summary>Uscita decisa a runtime (pattern di uscita): strategia esclusa dal catalogo.</summary>
+    public bool IsPositionCloseDependent => true;
 
     public void Initialize(Dictionary<string, object>? parameters = null)
     {
@@ -315,7 +321,7 @@ public abstract class ClaudioUngerTfUnmirroredBase : ITradingStrategy
 
     private TradeSignal Signal(DateTime date, SignalType type, decimal price, string reason, bool closeOnly)
     {
-        return new TradeSignal { Date = date, Type = type, Price = price, Symbol = _symbol, StrategyCode = Name, StrategyName = Name, Quantity = _contracts, CloseOnly = closeOnly, Reason = reason };
+        return new TradeSignal { Date = date, Type = type, Price = price, Symbol = _symbol, StrategyCode = Name, StrategyName = Name, Quantity = _contracts, Reason = reason };
     }
 }
 
@@ -369,6 +375,9 @@ public abstract class ClaudioUngerRbbMirroredBase : ITradingStrategy
     public string Symbol => _symbol;
     public int TimeframeMinutes => _timeframeMinutes;
     public int RequiredCandles => Math.Max(60, _bbLength + 8);
+
+    /// <summary>Uscita decisa a runtime (pattern di uscita): strategia esclusa dal catalogo.</summary>
+    public bool IsPositionCloseDependent => true;
 
     public void Initialize(Dictionary<string, object>? parameters = null)
     {
@@ -477,7 +486,7 @@ public abstract class ClaudioUngerRbbMirroredBase : ITradingStrategy
 
     private TradeSignal Signal(DateTime date, SignalType type, decimal price, string reason, bool closeOnly)
     {
-        return new TradeSignal { Date = date, Type = type, Price = price, Symbol = _symbol, StrategyCode = Name, StrategyName = Name, Quantity = _contracts, CloseOnly = closeOnly, Reason = reason };
+        return new TradeSignal { Date = date, Type = type, Price = price, Symbol = _symbol, StrategyCode = Name, StrategyName = Name, Quantity = _contracts, Reason = reason };
     }
 }
 
@@ -531,6 +540,9 @@ public abstract class ClaudioUngerTfMirroredBase : IMultiTimeframeTradingStrateg
     public string Symbol => _symbol;
     public int TimeframeMinutes => _timeframeMinutes;
     public int RequiredCandles => _timeframeMinutes >= 1440 ? 8 : Math.Max(8, 6 * 24 * 60 / _timeframeMinutes);
+
+    /// <summary>Uscita decisa a runtime (pattern di uscita): strategia esclusa dal catalogo.</summary>
+    public bool IsPositionCloseDependent => true;
     public IReadOnlyCollection<int> AdditionalTimeframes => _timeframeMinutes >= 1440 ? Array.Empty<int>() : new[] { 1440 };
 
     public void Initialize(Dictionary<string, object>? parameters = null)
@@ -749,7 +761,7 @@ public abstract class ClaudioUngerTfMirroredBase : IMultiTimeframeTradingStrateg
 
     private TradeSignal Signal(DateTime date, SignalType type, decimal price, string reason, bool closeOnly)
     {
-        return new TradeSignal { Date = date, Type = type, Price = price, Symbol = _symbol, StrategyCode = Name, StrategyName = Name, Quantity = _contracts, CloseOnly = closeOnly, Reason = reason };
+        return new TradeSignal { Date = date, Type = type, Price = price, Symbol = _symbol, StrategyCode = Name, StrategyName = Name, Quantity = _contracts, Reason = reason };
     }
 }
 

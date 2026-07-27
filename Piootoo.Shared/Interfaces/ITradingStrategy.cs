@@ -35,9 +35,18 @@ public interface ITradingStrategy
     int RequiredCandles { get; }
 
     /// <summary>
-    /// True quando la strategia deve ricevere lo snapshot della posizione reale
-    /// per valutare le proprie condizioni di uscita. Non autorizza mai una
-    /// strategia a mantenere una posizione locale.
+    /// True quando la strategia decide l'uscita a runtime — tipicamente verificando un pattern di
+    /// uscita barra per barra — e quindi non è in grado di descrivere l'uscita nel segnale di
+    /// ingresso.
+    ///
+    /// <para><b>Queste strategie sono escluse dal catalogo</b> (<see cref="!:StrategyFactory.GetRegisteredStrategies"/>):
+    /// non sono selezionabili nel masterfilter, non producono segnali e non entrano nei backtest
+    /// né nelle sessioni. L'engine gestisce solo uscite autonome (stop loss, take profit, uscita a
+    /// tempo, numero massimo di barre) descritte nel segnale di ingresso.</para>
+    ///
+    /// <para>Le uscite a tempo (fine sessione, barra N della sessione) NON rendono una strategia
+    /// close-dependent: vanno espresse come <c>CloseAtUtc</c> o <c>MaxBarsInPosition</c> sul
+    /// segnale di ingresso e sono gestite dall'engine.</para>
     /// </summary>
     bool IsPositionCloseDependent => false;
     

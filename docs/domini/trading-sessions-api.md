@@ -24,6 +24,27 @@ catalogo sono rifiutati senza fallback.
 7. `GET /{id}/snapshot` restituisce stato sessione; `DELETE
    /{id}/intents/{intentId}` cancella un intent ancora pendente.
 
+## Intent di ingresso e chiusure
+
+Il server emette **solo** intent `OrderIntentKind.Entry`. Ciascuno porta la specifica di
+uscita completa — `StopLoss`, `TakeProfit`, `BreakEven`, `CloseAtUtc`, `MaxBarsInPosition` —
+e il client la applica: SL/TP come livelli nativi del broker, uscita a tempo e limite barre
+sorvegliati in locale. Le strategie che deciderebbero l'uscita a runtime verificando un
+pattern sono `IsPositionCloseDependent` e vengono escluse dal catalogo.
+
+Le chiusure hanno un canale unico, qualunque ne sia la causa:
+`POST /{id}/intents/close-external` registra un intent `OrderIntentKind.Close` per la
+posizione aperta, che il client referenzia nel normale `POST /{id}/execution-reports`. È così
+che nasce il `PersistedTrade` che alimenta Titano.
+
+## Modalità Titano
+
+`TitanoMode` (`Disabled`, `BacktestRotationFile`, `Realtime`) decide se e come la rotazione
+filtra le strategie valutate; le ultime due richiedono `TitanoRunId` + `TitanoBacktestFolder`
+e la creazione della sessione è rifiutata se mancano. Il client non conosce Titano: riceve i
+segnali già filtrati e si comporta identico in tutte e tre le modalità. Dettaglio in
+`docs/PROGETTO.md` §3.6.
+
 ## Autorità di execution
 
 - `ServerSimulated`: `PiootooTradingService` per-sessione simula ordini, fill,

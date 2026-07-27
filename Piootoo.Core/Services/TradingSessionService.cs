@@ -62,7 +62,6 @@ public sealed class StrategyEvaluationService : IStrategyEvaluationService
         signal.Symbol = string.IsNullOrWhiteSpace(signal.Symbol) ? Normalize(bar.Symbol) : Normalize(signal.Symbol);
         signal.StrategyCode = string.IsNullOrWhiteSpace(signal.StrategyCode) ? strategy.Name : signal.StrategyCode;
         signal.StrategyName = string.IsNullOrWhiteSpace(signal.StrategyName) ? strategy.Name : signal.StrategyName;
-        signal.IsPositionCloseDependent = strategy.IsPositionCloseDependent;
     }
 
     private static string Normalize(string value) => value.Trim().TrimStart('@').ToUpperInvariant();
@@ -103,9 +102,9 @@ public interface ITradingSessionService
     AccountSignalResponse GetNextSignalForAccount(string sessionId, string token, string accountNumber);
 
     /// <summary>
-    /// Registra un intent CloseOnly "client-originated" per una posizione che un client ExternalBroker
-    /// ha già deciso di chiudere in locale (Stop Loss/Take Profit nativi del broker, limite di barre) e
-    /// per cui non esiste un OrderIntent CloseOnly emesso dal server. Richiede che la posizione
+    /// Registra un intent di chiusura (<see cref="OrderIntentKind.Close"/>) per una posizione che un
+    /// client ExternalBroker ha già chiuso applicando la specifica di uscita ricevuta con l'intent di
+    /// ingresso (SL/TP nativi, CloseAtUtc, MaxBarsInPosition). Richiede che la posizione
     /// StrategyCode/Symbol (eventualmente per account, se sono configurati gruppi) risulti aperta lato
     /// sessione. Il client referenzia l'IntentId restituito nel normale ApplyReport.
     /// </summary>
@@ -126,7 +125,8 @@ public sealed class TradingSessionService : ITradingSessionService
         public required TradingJsonStore Store { get; init; }
         public string? TitanoRunId { get; init; }
         public string? TitanoBacktestFolder { get; init; }
-        public bool ApplyTitanoFilters { get; init; }
+        public TitanoFilterMode TitanoMode { get; init; }
+        public ClientRunMode ClientRunMode { get; init; }
         public required PositionSizingConfig PositionSizing { get; init; }
         public required Dictionary<string, InstrumentMetadata> InstrumentMetadata { get; init; }
         public decimal PeakEquity { get; set; }
@@ -193,6 +193,15 @@ public sealed class TradingSessionService : ITradingSessionService
             string.IsNullOrWhiteSpace(request.TitanoBacktestFolder))
             throw new ArgumentException("TitanoRunId richiede TitanoBacktestFolder.");
 
+        // Le modalità filtrate non possono degradare in silenzio a "nessun filtro": senza rotazione
+        // la sessione eseguirebbe tutto il masterfilter, cioè l'opposto di quanto richiesto.
+        if (request.TitanoMode != TitanoFilterMode.Disabled && string.IsNullOrWhiteSpace(request.TitanoRunId))
+            throw new ArgumentException(
+                $"La modalità {request.TitanoMode} richiede TitanoRunId e TitanoBacktestFolder. " +
+                "Usa TitanoFilterMode.Disabled per eseguire senza filtro Titano.");
+
+        RequireCoherentRunMode(request.TitanoMode, request.ClientRunMode);
+
         var filter = _workspaces.GetMasterFilter(request.WorkspaceId);
         if (filter.StrategiesFilter.Count == 0)
             throw new ArgumentException("Il masterfilter del workspace è vuoto.");
@@ -240,7 +249,8 @@ public sealed class TradingSessionService : ITradingSessionService
             Store = store,
             TitanoRunId = request.TitanoRunId,
             TitanoBacktestFolder = request.TitanoBacktestFolder,
-            ApplyTitanoFilters = request.ApplyTitanoFilters,
+            TitanoMode = request.TitanoMode,
+            ClientRunMode = request.ClientRunMode,
             PositionSizing = request.PositionSizing,
             InstrumentMetadata = instrumentMetadata,
             PeakEquity = request.InitialCapital,
@@ -248,6 +258,32 @@ public sealed class TradingSessionService : ITradingSessionService
         };
         _sessions[session.Id] = session;
         return Describe(session);
+    }
+
+    /// <summary>
+    /// Rifiuta le combinazioni modalità Titano / contesto di esecuzione che non possono essere
+    /// corrette. Non è pignoleria: entrambe producono risultati plausibili ma sbagliati, e il primo
+    /// segnale del problema arriverebbe dai numeri, non da un errore.
+    ///
+    /// Con <see cref="ClientRunMode.Unknown"/> non si verifica nulla: il client non ha dichiarato il
+    /// contesto e inventarne uno sarebbe peggio che lasciare la responsabilità a chi configura.
+    /// </summary>
+    private static void RequireCoherentRunMode(TitanoFilterMode titanoMode, ClientRunMode runMode)
+    {
+        if (runMode == ClientRunMode.Unknown) return;
+
+        if (titanoMode == TitanoFilterMode.Realtime && runMode == ClientRunMode.Backtest)
+            throw new ArgumentException(
+                "TitanoFilterMode.Realtime non è utilizzabile da un client in backtest: la rotazione " +
+                "'corrente' verrebbe applicata a barre storiche e, oltre la fine del manifest, resterebbe " +
+                "congelata sull'ultimo periodo calcolato — cioè look-ahead. Usa BacktestRotationFile per " +
+                "filtrare con le rotazioni calcolate offline, oppure Disabled per non filtrare.");
+
+        if (titanoMode == TitanoFilterMode.BacktestRotationFile && runMode == ClientRunMode.Realtime)
+            throw new ArgumentException(
+                "TitanoFilterMode.BacktestRotationFile non è utilizzabile in tempo reale: il manifest " +
+                "copre l'intervallo del backtest da cui è stato generato, quindi il tempo live ne esce " +
+                "quasi subito e la sessione si fermerebbe alla prima barra scoperta. Usa Realtime.");
     }
 
     public TradingSessionDescriptor SetStatus(string sessionId, string token, TradingSessionStatus status)
@@ -312,34 +348,40 @@ public sealed class TradingSessionService : ITradingSessionService
                 {
                     var service = _titano ?? throw new InvalidOperationException("Servizio Titano non disponibile.");
                     effective = service.Resolve(session.WorkspaceId, session.TitanoBacktestFolder!,
-                        session.TitanoRunId, bar.BarTimeUtc);
+                        session.TitanoRunId, bar.BarTimeUtc, session.TitanoMode);
                     foreach (var state in effective.StrategyStates)
                         allocations[state.StrategyCode] = state.AllocationMultiplier;
 
-                    if (!session.ApplyTitanoFilters)
+                    if (session.TitanoMode == TitanoFilterMode.Disabled)
                     {
                         // Rotazione risolta e registrata, ma non applicata: le allocazioni restano
-                        // neutre e tutte le strategie del masterfilter vengono valutate.
+                        // neutre e tutte le strategie del masterfilter vengono valutate. È il run che
+                        // produce i trade su cui l'analisi Titano calcolerà le rotazioni.
                         allocations.Clear();
-                        rotationNote = "filtri Titano non applicati (ApplyTitanoFilters=false): rotazione solo diagnostica";
+                        rotationNote = "modalità Disabled: rotazione risolta solo a scopo diagnostico, nessun filtro applicato";
                     }
                     else if (!effective.HasActivePeriod)
                     {
-                        // Nessun periodo di rotazione copre questa barra: quasi sempre significa
-                        // manifest costruito su un backtest storico e usato oltre il suo intervallo.
-                        // Interpretarlo come "tutto disabilitato" azzerava la sessione in silenzio;
-                        // qui si prosegue con il masterfilter completo e lo si dichiara nel log.
-                        allocations.Clear();
-                        rotationNote =
-                            $"nessun periodo Titano attivo per {bar.BarTimeUtc:O}: il manifest copre " +
-                            $"{effective.ManifestFromUtc:O} → {effective.ManifestToUtc:O}. " +
-                            "Valutazione proseguita senza filtri; rigenera la rotazione su un backtest aggiornato.";
+                        // Nessun periodo copre questa barra. In Realtime il fallback sull'ultimo periodo
+                        // è già stato tentato dentro Resolve, quindi qui siamo davvero scoperti: è un
+                        // manifest non allineato all'intervallo che si sta eseguendo. Fermarsi è meglio
+                        // che eseguire senza filtri una sessione che l'utente ha chiesto filtrata.
+                        throw new InvalidOperationException(
+                            $"Nessun periodo Titano copre la barra {bar.BarTimeUtc:O}: il manifest '{session.TitanoRunId}' " +
+                            $"copre {effective.ManifestFromUtc:O} → {effective.ManifestToUtc:O}. " +
+                            "Rigenera la rotazione su un backtest che copra questo intervallo, oppure " +
+                            "esegui la sessione in modalità Disabled.");
                     }
                     else
                     {
                         evaluationStrategies = session.Strategies
                             .Where(x => effective.EffectiveStrategies.Contains(x.Name, StringComparer.OrdinalIgnoreCase))
                             .ToArray();
+
+                        if (effective.UsedLatestPeriod)
+                            rotationNote =
+                                $"barra {bar.BarTimeUtc:O} oltre la fine del manifest ({effective.ManifestToUtc:O}): " +
+                                "applicata la rotazione dell'ultimo periodo calcolato. Rigenera l'analisi Titano.";
                     }
                 }
                 var signals = _evaluation.Evaluate(
@@ -352,7 +394,7 @@ public sealed class TradingSessionService : ITradingSessionService
                     session.RotationLog.Add(BuildRotationLogEntry(
                         session, bar.BarTimeUtc, effective, evaluationStrategies, signals, rotationNote));
                 var sized = new Dictionary<TradeSignal, PositionSizingResult>();
-                foreach (var signal in signals.Where(x => !x.CloseOnly))
+                foreach (var signal in signals)
                 {
                     var multiplier = allocations.TryGetValue(signal.StrategyCode, out var value) ? value : 1m;
                     var snapshot = Snapshot(session);
@@ -379,24 +421,9 @@ public sealed class TradingSessionService : ITradingSessionService
                             signal.StrategyCode, signal.Symbol, signal.RuntimeState);
                     var result = sized.GetValueOrDefault(signal);
 
-                    if (multiAccount && signal.CloseOnly)
-                    {
-                        // Fan-out: un intent di chiusura indipendente per ciascun account che detiene
-                        // attualmente una posizione su questa strategia/simbolo, in qualunque gruppo.
-                        foreach (var groupId in session.AccountGroups.Values.Distinct(StringComparer.OrdinalIgnoreCase))
-                        {
-                            if (!session.GroupStrategySlots.TryGetValue(
-                                    SlotKey(groupId, signal.StrategyCode, signal.Symbol), out var holder))
-                                continue;
-                            var closeIntent = AddIntent(session, signal, null);
-                            closeIntent.AssignedAccountNumber = holder.AccountNumber;
-                            closeIntent.AssignedGroupId = groupId;
-                            emitted.Add(closeIntent);
-                        }
-                        continue;
-                    }
-
-                    if (multiAccount && !signal.CloseOnly)
+                    // Ogni segnale è un ingresso: le uscite non passano più dal server, ogni intent
+                    // porta con sé la propria specifica di chiusura e il client la esegue.
+                    if (multiAccount)
                     {
                         // Template non assegnato: resta disponibile finché non viene reclamato da un
                         // account libero di un gruppo (vedi GetNextSignalForAccount).
@@ -412,7 +439,7 @@ public sealed class TradingSessionService : ITradingSessionService
                     emitted.Add(intent);
                 }
 
-                var executableSignals = signals.Where(x => x.CloseOnly || x.Quantity > 0).ToList();
+                var executableSignals = signals.Where(x => x.Quantity > 0).ToList();
                 if (session.Mode == ExecutionMode.ServerSimulated && executableSignals.Count != 0)
                 {
                     session.SimulatedEngine.ProcessSignals(executableSignals, prices, bars, bar.BarTimeUtc);
@@ -477,7 +504,7 @@ public sealed class TradingSessionService : ITradingSessionService
                 _ => OrderIntentStatus.Cancelled
             };
 
-            if (!intent.CloseOnly && intent.FilledQuantity == 0 &&
+            if (!intent.IsClose && intent.FilledQuantity == 0 &&
                 intent.Status is OrderIntentStatus.Rejected or OrderIntentStatus.Cancelled &&
                 intent.AssignedAccountNumber is { } rejectedAccount)
             {
@@ -501,7 +528,7 @@ public sealed class TradingSessionService : ITradingSessionService
                     : $"{accountNumber}|{intent.Symbol}|{intent.StrategyCode}";
                 var canonicalKey = $"{intent.Symbol}|{intent.StrategyCode}";
 
-                if (intent.CloseOnly)
+                if (intent.IsClose)
                 {
                     if (session.ExternalPositions.TryGetValue(key, out var position) &&
                         session.ExternalPositionDetails.TryGetValue(key, out var details))
@@ -737,7 +764,7 @@ public sealed class TradingSessionService : ITradingSessionService
                 BaseQuantity = quantity,
                 FinalQuantity = quantity,
                 Price = position.EntryPrice,
-                CloseOnly = true,
+                Kind = OrderIntentKind.Close,
                 Reason = string.IsNullOrWhiteSpace(request.Reason) ? "ClientLocalExit" : request.Reason,
                 AssignedAccountNumber = accountNumber,
                 Status = OrderIntentStatus.Pending
@@ -761,7 +788,7 @@ public sealed class TradingSessionService : ITradingSessionService
             {
                 var effective = _titano.Resolve(
                     session.WorkspaceId, session.TitanoBacktestFolder!, session.TitanoRunId!,
-                    session.LastEvaluatedBarTimeUtc ?? DateTime.UtcNow);
+                    session.LastEvaluatedBarTimeUtc ?? DateTime.UtcNow, session.TitanoMode);
                 var map = effective.StrategyStates.ToDictionary(
                     s => s.StrategyCode, s => s.AllocationMultiplier, StringComparer.OrdinalIgnoreCase);
                 if (map.Count > 0) return map;
@@ -801,9 +828,12 @@ public sealed class TradingSessionService : ITradingSessionService
             FinalQuantity = sizing?.FinalQuantity ?? signal.Quantity,
             SizingReason = sizing?.Reason,
             Price = signal.Price,
-            CloseOnly = signal.CloseOnly,
+            Kind = OrderIntentKind.Entry,
+            // Specifica di uscita completa: e' l'unica cosa con cui il client chiudera' la posizione.
             StopLoss = signal.StopLoss,
             TakeProfit = signal.TakeProfit,
+            BreakEven = signal.BreakEven,
+            MaxBarsInPosition = signal.MaxBarsInPosition,
             ValidFromUtc = signal.ValidFromUtc,
             ExpiresAtUtc = signal.ExpiresAtUtc,
             CloseAtUtc = signal.CloseAtUtc,
@@ -833,9 +863,11 @@ public sealed class TradingSessionService : ITradingSessionService
         FinalQuantity = template.FinalQuantity,
         SizingReason = template.SizingReason,
         Price = template.Price,
-        CloseOnly = false,
+        Kind = OrderIntentKind.Entry,
         StopLoss = template.StopLoss,
         TakeProfit = template.TakeProfit,
+        BreakEven = template.BreakEven,
+        MaxBarsInPosition = template.MaxBarsInPosition,
         ValidFromUtc = template.ValidFromUtc,
         ExpiresAtUtc = template.ExpiresAtUtc,
         CloseAtUtc = template.CloseAtUtc,
@@ -881,7 +913,8 @@ public sealed class TradingSessionService : ITradingSessionService
             TakeProfit = intent.TakeProfit,
             TimeExitUtc = intent.CloseAtUtc,
             Reason = intent.Reason,
-            CloseOnly = intent.CloseOnly,
+            MaxBarsInPosition = intent.MaxBarsInPosition,
+            IsClose = intent.IsClose,
             Status = intent.Status,
             FilledQuantity = intent.FilledQuantity,
             ExternalOrderId = intent.ExternalOrderId,
@@ -963,7 +996,9 @@ public sealed class TradingSessionService : ITradingSessionService
             SkippedByTitano = skipped,
             StrategyStates = strategyStates,
             SignalsEmitted = signals.Select(s => $"{s.StrategyCode}:{s.Type}").ToArray(),
-            FiltersApplied = session.ApplyTitanoFilters && effective.HasActivePeriod,
+            FiltersApplied = session.TitanoMode != TitanoFilterMode.Disabled && effective.HasActivePeriod,
+            TitanoMode = session.TitanoMode,
+            ClientRunMode = session.ClientRunMode,
             Note = note
         };
     }
@@ -1013,7 +1048,8 @@ public sealed class TradingSessionService : ITradingSessionService
         ExecutionMode = session.Mode,
         Status = session.Status,
         TitanoRunId = session.TitanoRunId,
-        ApplyTitanoFilters = session.ApplyTitanoFilters,
+        TitanoMode = session.TitanoMode,
+        ClientRunMode = session.ClientRunMode,
         PositionSizing = session.PositionSizing,
         InstrumentMetadata = session.InstrumentMetadata.Values.OrderBy(x => x.Symbol).ToArray(),
         Instruments = session.Strategies.GroupBy(s => Normalize(s.Symbol))

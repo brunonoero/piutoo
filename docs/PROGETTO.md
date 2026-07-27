@@ -86,7 +86,8 @@ Sorgente: `PiootooTradingService.MakePositionKey`.
 ### 3.4 Segnale, intent, trade
 
 * **`TradeSignal`** — cosa vuole la strategia. Prodotto da `ITradingStrategy.Evaluate`.
-  Non conosce quantità finale né account.
+  Non conosce quantità finale né account. **Descrive per intero anche come si esce**:
+  `StopLoss`, `TakeProfit`, `BreakEven`, `CloseAtUtc`, `MaxBarsInPosition`.
 * **`OrderIntent`** — cosa il server ordina di fare, con quantità già dimensionata
   ed eventuale assegnazione a un account. Esiste solo nelle sessioni.
 * **`PersistedTrade`** — cosa è realmente successo: entry, exit, P&L netto.
@@ -95,7 +96,44 @@ Sorgente: `PiootooTradingService.MakePositionKey`.
 Un intent rifiutato o mai eseguito non genera trade e quindi non entra nei calcoli
 a valle. Questo è voluto.
 
-### 3.5 Strategie stateless
+### 3.5 Uscita autocontenuta — invariante
+
+Un segnale di ingresso deve descrivere da solo come si esce. L'engine — interno o esterno —
+chiude usando **soltanto** quelle informazioni: stop loss, take profit, break even, uscita a
+tempo (`CloseAtUtc`) e numero massimo di barre (`MaxBarsInPosition`).
+
+Non esiste più un segnale di sola chiusura: il meccanismo `CloseOnly` è stato rimosso da
+`TradeSignal`, `OrderIntent`, engine, sessioni e cBot. Le strategie che decidevano l'uscita a
+runtime — verificando un pattern barra per barra — dichiarano `IsPositionCloseDependent => true`
+e sono **escluse dal catalogo**: `StrategyFactory.GetRegisteredStrategies` non le restituisce e
+`CreateStrategy` le rifiuta con un errore esplicito, così un masterfilter salvato in passato non
+può riportarle in esecuzione di nascosto. L'elenco degli esclusi è in
+`StrategyFactory.GetCloseDependentStrategyIds`.
+
+Le uscite a tempo **non** rendono close-dependent una strategia: vanno espresse come `CloseAtUtc`
+o `MaxBarsInPosition` sul segnale di ingresso.
+
+Un ingresso privo di qualsiasi condizione di uscita non è un errore bloccante, ma è un difetto:
+la posizione resterebbe aperta fino alla chiusura tecnica di fine settimana o fine run. Viene
+contato in `backtest-summary.json` (`signalsWithoutExitSpec`) e segnalato tra i `diagnostics`.
+
+### 3.6 Le tre modalità dell'engine
+
+`TitanoFilterMode` vale identica per backtest interno (`BacktestingRequest.TitanoMode`) e per le
+sessioni, quindi anche per l'engine esterno cTrader (`CreateTradingSessionRequest.TitanoMode`):
+
+| Modalità | Cosa fa | Richiede |
+|---|---|---|
+| `Disabled` | Nessun filtro: valuta tutte le strategie del masterfilter. È il run che produce il `trades.json` su cui Titano calcola offline le rotazioni. | — |
+| `BacktestRotationFile` | Per ogni barra valuta solo le strategie abilitate dal periodo di rotazione che la contiene, letto dal manifest calcolato offline. | `TitanoRunId` + `TitanoBacktestFolder` |
+| `Realtime` | Vale la decisione del periodo corrente dell'ultima analisi Titano. Oltre la fine del manifest resta in vigore l'ultimo periodo calcolato, dichiarato nel rotation-log (`UsedLatestPeriod`). | `TitanoRunId` + `TitanoBacktestFolder` |
+
+Una modalità filtrata **non degrada mai in silenzio**: se manca il run la sessione non parte, e se
+nessun periodo copre una barra il run si ferma con un errore che dice quale intervallo copre il
+manifest. Prima si proseguiva senza filtri, ottenendo il contrario di quanto richiesto.
+`Realtime` non è applicabile a un backtest e viene rifiutata.
+
+### 3.7 Strategie stateless
 
 `ITradingStrategy.Evaluate(StrategyEvaluationRequest)` è l'API corretta.
 `GenerateSignal(OhlcvData[], DateTime)` è legacy e marcata `[Obsolete]`.
@@ -150,13 +188,17 @@ cBot esegue → POST /trading-sessions/{id}/execution-reports
     server: aggiorna posizione, e sulla chiusura produce il PersistedTrade
 ```
 
-Uscite, due canali, entrambi finiscono in `trades.json`:
+Il server emette **solo intent di ingresso**, ciascuno con la specifica di uscita completa
+(SL, TP, `CloseAtUtc`, `MaxBarsInPosition`). Il cBot la applica: SL/TP come livelli nativi del
+broker, uscita a tempo e limite barre sorvegliati in locale a ogni barra.
 
-1. **Server** — la strategia emette un segnale `CloseOnly`.
-2. **Client** — SL/TP nativi del broker o limite barre: il cBot registra un intent
-   `CloseOnly` "client-originated" con
-   `POST /trading-sessions/{id}/intents/close-external` e poi lo referenzia nel
-   normale execution report.
+Le uscite hanno quindi **un solo canale**: qualunque ne sia la causa, il cBot registra un intent
+`OrderIntentKind.Close` con `POST /trading-sessions/{id}/intents/close-external` e poi lo
+referenzia nel normale execution report. È così che nasce il `PersistedTrade` in `trades.json`.
+
+Conseguenza pratica sul riavvio del cBot: la ricostruzione degli intent di apertura
+(`GET /{id}/intents`) è **necessaria**, non un'ottimizzazione. Senza di essa il bot perde
+`CloseAtUtc` e `MaxBarsInPosition` delle posizioni aperte e non sa più chiuderle a tempo.
 
 **Autorità:** il server decide *cosa*, il broker decide *se e a che prezzo*.
 Il server non assume mai un fill.
@@ -204,16 +246,13 @@ Resolve(runId, timestamp) → strategie effettive + moltiplicatore di allocazion
 Il `runId` è deterministico: stessi input ⇒ stesso run, riutilizzato invece di
 ricalcolato.
 
-**Modalità:**
+**Modalità:** vedi §3.6. Backtest interno ed engine esterno usano lo stesso `TitanoFilterMode`,
+quindi filtrano allo stesso modo; il cBot non conosce Titano e riceve i segnali già filtrati.
 
-* *Backtest locale* — Titano si applica a posteriori sui trade prodotti dal backtest.
-* *External engine* — la sessione risolve la rotazione a ogni barra e filtra le
-  strategie da valutare. Il flag `ApplyTitanoFilters` decide se applicare
-  effettivamente i filtri o solo registrarli in diagnostica.
-
-**Attenzione:** un manifest costruito su un backtest storico copre solo l'intervallo
-di quel backtest. Fuori dai periodi definiti non esiste una decisione: la sessione
-deve trattarlo come condizione esplicita, non come "tutto disabilitato".
+**Attenzione:** un manifest costruito su un backtest storico copre solo l'intervallo di quel
+backtest. Fuori dai periodi definiti non esiste una decisione. In `BacktestRotationFile` è un
+errore esplicito; in `Realtime` resta in vigore l'ultimo periodo calcolato, dichiarandolo nel
+rotation-log.
 
 ---
 
@@ -266,7 +305,7 @@ Una riga JSON per evento, append-only, mai riscritto. Tipi di evento
 | `DataSource` | dopo il prefill | simbolo, timeframe, candele, primo/ultimo timestamp |
 | `Signal` | segnale non-Hold | strategia, side, prezzo, SL/TP, motivo |
 | `Entry` | apertura posizione | prezzo di fill, contratti, SL/TP in punti |
-| `Exit` | chiusura posizione | prezzo, motivo (`StopLoss`, `TakeProfit`, `TimeExit`, `MaxBars`, `OppositeSignal`, `CloseOnly`, `WeekEnd`, `EndOfRun`), P&L |
+| `Exit` | chiusura posizione | prezzo, motivo (`StopLoss`, `TakeProfit`, `TimeExit`, `MaxBars`, `OppositeSignal`, `WeekEnd`, `EndOfRun`), P&L |
 | `Anomaly` | incoerenza rilevata | descrizione |
 
 Gli **skip** (dati insufficienti, candela stale, timeframe non allineato) non
@@ -318,7 +357,11 @@ server le perde. È un limite noto, non un comportamento voluto.
 
 * Persistenza dello stato di sessione (oggi solo in RAM).
 * Titano in tempo reale che **ricalcoli** dai trade live invece di rileggere un
-  manifest precalcolato.
+  manifest precalcolato (oggi `Realtime` rilegge il manifest e tiene in vigore
+  l'ultimo periodo calcolato).
+* Conversione delle uscite residue: la maggior parte delle strategie del catalogo
+  esce ancora con un segnale opposto deciso barra per barra (`LX`/`SX` su contatore
+  di barre) invece che con `CloseAtUtc`/`MaxBarsInPosition` sul segnale di ingresso.
 * Unificazione dei due modelli di configurazione Titano (filtro e rotazione).
 * `RequiredCandles` hardcoded a 100 nelle strategie generate: va derivato dal
   lookback reale.

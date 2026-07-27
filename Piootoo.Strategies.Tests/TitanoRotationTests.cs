@@ -121,7 +121,8 @@ public sealed class TitanoRotationTests
                 var descriptor = sessions.Create(new CreateTradingSessionRequest
                 {
                     WorkspaceId = workspace.Id, ExecutionMode = mode,
-                    TitanoRunId = manifest.RunId, TitanoBacktestFolder = "source"
+                    TitanoRunId = manifest.RunId, TitanoBacktestFolder = "source",
+                    TitanoMode = TitanoFilterMode.BacktestRotationFile
                 });
                 Assert.Equal(manifest.RunId, descriptor.TitanoRunId);
                 Assert.Equal(mode, descriptor.ExecutionMode);

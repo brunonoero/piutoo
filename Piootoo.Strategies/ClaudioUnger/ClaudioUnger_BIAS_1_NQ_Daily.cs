@@ -36,6 +36,9 @@ public class ClaudioUnger_BIAS_1_NQ_Daily : ITradingStrategy
     public int TimeframeMinutes => _timeframeMinutes;
     public int RequiredCandles => 8;
 
+    /// <summary>Uscita decisa a runtime (pattern di uscita): strategia esclusa dal catalogo.</summary>
+    public bool IsPositionCloseDependent => true;
+
     public void Initialize(Dictionary<string, object>? parameters = null)
     {
         if (parameters == null)
@@ -85,7 +88,6 @@ public class ClaudioUnger_BIAS_1_NQ_Daily : ITradingStrategy
                 StrategyCode = Name,
                 StrategyName = Name,
                 Quantity = _contracts,
-                CloseOnly = true,
                 Reason = $"Max barre in posizione ({_maxBarsInPosition})"
             };
         }

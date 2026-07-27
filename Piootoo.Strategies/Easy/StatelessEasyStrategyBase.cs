@@ -79,11 +79,9 @@ public abstract class StatelessEasyStrategyBase : ITradingStrategy
             foreach (var companion in signal.CompanionSignals)
             {
                 EnrichSignal(evaluationInstance, companion);
-                companion.IsPositionCloseDependent = IsPositionCloseDependent;
             }
         }
 
-        signal.IsPositionCloseDependent = IsPositionCloseDependent;
         return signal;
     }
 

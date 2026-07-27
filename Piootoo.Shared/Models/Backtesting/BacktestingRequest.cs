@@ -1,3 +1,5 @@
+using Piootoo.Shared.Models.Trading;
+
 namespace Piootoo.Shared.Models.Backtesting;
 
 /// <summary>
@@ -21,4 +23,24 @@ public class BacktestingRequest
     public string Name { get; set; } = string.Empty;
     /// <summary>Chiude tutte le posizioni aperte all'ultima barra della settimana di trading (UTC).</summary>
     public bool CloseAllPositionsAtWeekEnd { get; set; } = true;
+
+    /// <summary>
+    /// Modalità rispetto al filtro Titano. Identica a quella delle sessioni
+    /// (<see cref="TitanoFilterMode"/>), così backtest interno ed engine esterno cTrader si
+    /// comportano allo stesso modo.
+    ///
+    /// <para><see cref="TitanoFilterMode.Disabled"/> — nessun filtro: è il run che produce il
+    /// <c>trades.json</c> su cui l'analisi Titano calcola offline le rotazioni.</para>
+    /// <para><see cref="TitanoFilterMode.BacktestRotationFile"/> — per ogni barra vengono valutate
+    /// solo le strategie abilitate dal periodo di rotazione che la contiene. Richiede
+    /// <see cref="TitanoRunId"/> e <see cref="TitanoBacktestFolder"/>.</para>
+    /// <para><see cref="TitanoFilterMode.Realtime"/> non ha senso in backtest e viene rifiutata.</para>
+    /// </summary>
+    public TitanoFilterMode TitanoMode { get; set; } = TitanoFilterMode.Disabled;
+
+    /// <summary>Run Titano da applicare. Obbligatorio con <see cref="TitanoFilterMode.BacktestRotationFile"/>.</summary>
+    public string? TitanoRunId { get; set; }
+
+    /// <summary>Cartella di backtest che contiene il run Titano indicato.</summary>
+    public string? TitanoBacktestFolder { get; set; }
 }

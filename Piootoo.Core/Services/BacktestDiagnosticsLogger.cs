@@ -187,9 +187,10 @@ public sealed class BacktestDiagnosticsLogger : IDisposable
             var s = Find(symbol, strategyCode);
             if (s != null)
             {
-                if (signal.CloseOnly) s.CloseOnlySignals++;
-                else if (signal.Type == SignalType.Buy) s.BuySignals++;
+                if (signal.Type == SignalType.Buy) s.BuySignals++;
                 else if (signal.Type == SignalType.Sell) s.SellSignals++;
+
+                if (!HasExitSpecification(signal)) s.SignalsWithoutExitSpec++;
 
                 s.FirstSignalUtc ??= barTimeUtc;
                 s.LastSignalUtc = barTimeUtc;
@@ -212,11 +213,23 @@ public sealed class BacktestDiagnosticsLogger : IDisposable
             StopLossPoints = signal.StopLoss,
             TakeProfitPoints = signal.TakeProfit,
             Message = signal.Reason,
-            Data = signal.CloseOnly
-                ? new Dictionary<string, string>(StringComparer.Ordinal) { ["closeOnly"] = "true" }
-                : null
+            Data = HasExitSpecification(signal)
+                ? null
+                : new Dictionary<string, string>(StringComparer.Ordinal) { ["exitSpec"] = "missing" }
         });
     }
+
+    /// <summary>
+    /// Un segnale di ingresso deve descrivere da solo come si esce: senza almeno una condizione di
+    /// uscita la posizione resta aperta fino alla chiusura tecnica di fine settimana o fine run.
+    /// </summary>
+    private static bool HasExitSpecification(TradeSignal signal) =>
+        signal.StopLoss.HasValue ||
+        signal.StopLossMoneyPerFutureContract.HasValue ||
+        signal.TakeProfit.HasValue ||
+        signal.TakeProfitMoneyPerFutureContract.HasValue ||
+        signal.CloseAtUtc.HasValue ||
+        (signal.MaxBarsInPosition.HasValue && signal.MaxBarsInPosition.Value > 0);
 
     public void LogEntry(PositionOpenedEvent opened) =>
         Write(new BacktestLogEvent
@@ -386,7 +399,7 @@ public sealed class BacktestDiagnosticsLogger : IDisposable
         if (s.Errors > 0 && s.Errors >= s.Evaluations)
             return "ogni valutazione ha sollevato un'eccezione: vedi gli eventi Anomaly nel log.";
 
-        var signals = s.BuySignals + s.SellSignals + s.CloseOnlySignals;
+        var signals = s.BuySignals + s.SellSignals;
         if (signals == 0)
             return $"valutata {s.Evaluations} volte senza mai emettere un segnale: le condizioni di " +
                    "ingresso non si verificano mai su questi dati.";
@@ -427,12 +440,21 @@ public sealed class BacktestDiagnosticsLogger : IDisposable
                             (mute.Count > 10 ? ", …" : ""));
 
         var silent = strategies
-            .Where(x => x.Evaluations > 0 && x.BuySignals + x.SellSignals + x.CloseOnlySignals == 0)
+            .Where(x => x.Evaluations > 0 && x.BuySignals + x.SellSignals == 0)
             .ToList();
         if (silent.Count > 0)
             diagnostics.Add($"[segnali] {silent.Count} strategie valutate non hanno mai emesso un segnale: " +
                             $"{string.Join(", ", silent.Take(10).Select(x => x.StrategyCode))}" +
                             (silent.Count > 10 ? ", …" : ""));
+
+        // L'engine chiude solo con le informazioni presenti nel segnale: un ingresso senza uscita
+        // resta aperto fino alla chiusura tecnica di fine settimana o fine run.
+        var withoutExit = strategies.Where(x => x.SignalsWithoutExitSpec > 0).ToList();
+        if (withoutExit.Count > 0)
+            diagnostics.Add($"[uscite] {withoutExit.Count} strategie hanno emesso segnali di ingresso senza " +
+                            "alcuna condizione di uscita (StopLoss, TakeProfit, CloseAtUtc, MaxBarsInPosition): " +
+                            $"{string.Join(", ", withoutExit.Take(10).Select(x => x.StrategyCode))}" +
+                            (withoutExit.Count > 10 ? ", …" : ""));
 
         var unfilled = strategies.Where(x => x.BuySignals + x.SellSignals > 0 && x.Trades == 0).ToList();
         if (unfilled.Count > 0)

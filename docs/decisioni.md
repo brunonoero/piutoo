@@ -35,6 +35,19 @@ in ordine cronologico. Non è un changelog di codice: quello resta nei commit.
 - **2026-07-27** — Aggiunti `backtest-log.jsonl` (eventi) e `backtest-summary.json`
   (contatori per strategia + diagnosi automatiche). Gli skip ad alta frequenza sono
   contati, non loggati riga per riga.
-- **2026-07-27** — Le sessioni hanno un flag esplicito `ApplyTitanoFilters`, e Titano
-  distingue "nessun periodo attivo" da "tutte le strategie disabilitate": un manifest
-  storico usato in live azzerava il portafoglio senza dirlo.
+- **2026-07-27** — Le sessioni distinguono "nessun periodo attivo" da "tutte le strategie
+  disabilitate": un manifest storico usato in live azzerava il portafoglio senza dirlo.
+- **2026-07-27** — Rimosso il meccanismo `CloseOnly`. Un segnale di ingresso descrive per
+  intero la propria uscita (`StopLoss`, `TakeProfit`, `BreakEven`, `CloseAtUtc`,
+  `MaxBarsInPosition`) e l'engine chiude in autonomia. Le strategie che decidevano
+  l'uscita a runtime verificando un pattern (`IsPositionCloseDependent`) sono escluse dal
+  catalogo: `CreateStrategy` le rifiuta, così un masterfilter salvato in passato non può
+  riportarle in esecuzione. In ExternalBroker le chiusure hanno un canale unico
+  (`intents/close-external` → `OrderIntentKind.Close`), qualunque ne sia la causa.
+  Motivo: due percorsi di uscita — server e client — significavano due semantiche da
+  tenere allineate a mano e un cBot che doveva indovinare quale delle due stava vivendo.
+- **2026-07-27** — Il flag booleano `ApplyTitanoFilters` è diventato `TitanoFilterMode` a
+  tre valori (`Disabled`, `BacktestRotationFile`, `Realtime`), condiviso da backtest
+  interno e sessioni. Una modalità filtrata non degrada più in silenzio a "nessun filtro":
+  senza run la sessione non parte, e una barra fuori dai periodi del manifest ferma il run
+  con un errore. Prima si proseguiva senza filtri, cioè l'opposto di quanto richiesto.

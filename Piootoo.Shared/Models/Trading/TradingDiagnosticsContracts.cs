@@ -41,7 +41,20 @@ public sealed class RotationLogEntry
     /// </summary>
     public bool FiltersApplied { get; init; }
 
-    /// <summary>Spiegazione quando <see cref="FiltersApplied"/> è false.</summary>
+    /// <summary>Modalità della sessione rispetto al filtro Titano. Vedi <see cref="TitanoFilterMode"/>.</summary>
+    public TitanoFilterMode TitanoMode { get; init; }
+
+    /// <summary>
+    /// Contesto dichiarato dal client alla creazione della sessione. Rileggendo un rotation-log
+    /// mesi dopo è l'unica cosa che dice se quelle decisioni sono state prese su barre storiche o
+    /// su mercato reale.
+    /// </summary>
+    public ClientRunMode ClientRunMode { get; init; }
+
+    /// <summary>
+    /// Spiegazione quando <see cref="FiltersApplied"/> è false, oppure quando la decisione applicata
+    /// non viene dal periodo che contiene la barra ma dall'ultimo periodo del manifest (Realtime).
+    /// </summary>
     public string? Note { get; init; }
 }
 

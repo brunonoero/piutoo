@@ -35,8 +35,17 @@ public sealed class PersistedSignal
     public decimal? StopLoss { get; init; }
     public decimal? TakeProfit { get; init; }
     public DateTime? TimeExitUtc { get; init; }
+
+    /// <summary>Numero massimo di barre in posizione dichiarato dal segnale. Null = nessun limite.</summary>
+    public int? MaxBarsInPosition { get; init; }
+
     public string? Reason { get; init; }
-    public bool CloseOnly { get; init; }
+
+    /// <summary>
+    /// Vero solo per la registrazione di una chiusura eseguita dal client (SL/TP nativi, uscita a
+    /// tempo, limite barre). Le strategie non emettono segnali di chiusura.
+    /// </summary>
+    public bool IsClose { get; init; }
     public OrderIntentStatus? Status { get; init; }
     public decimal FilledQuantity { get; init; }
     public string? ExternalOrderId { get; init; }
