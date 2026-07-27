@@ -133,6 +133,31 @@ nessun periodo copre una barra il run si ferma con un errore che dice quale inte
 manifest. Prima si proseguiva senza filtri, ottenendo il contrario di quanto richiesto.
 `Realtime` non è applicabile a un backtest e viene rifiutata.
 
+#### Contesto dichiarato dal client
+
+La modalità Titano da sola non basta: dice *cosa* si vuole fare, non *dove* si sta girando. Il
+client dichiara quindi il proprio contesto in `CreateTradingSessionRequest.ClientRunMode`
+(`Backtest`, `Realtime`, `Unknown`). Il cBot lo ricava da `Robot.IsBacktesting` — **non** è un
+parametro, quindi non si può sbagliare per distrazione — e il server rifiuta le due combinazioni
+impossibili:
+
+| | `ClientRunMode.Backtest` | `ClientRunMode.Realtime` |
+|---|---|---|
+| `Disabled` | ok | ok |
+| `BacktestRotationFile` | ok | **rifiutata**: il tempo live esce subito dall'intervallo del manifest |
+| `Realtime` | **rifiutata**: rotazione "corrente" su barre storiche, cioè look-ahead | ok |
+
+`Unknown` (console WinForms, test, integrazioni terze) non viene verificato: il client non ha
+dichiarato nulla e inventare un contesto sarebbe peggio che lasciare la responsabilità a chi
+configura.
+
+La validazione è alla **creazione** della sessione, quindi una sessione ripresa la salterebbe: il
+cBot confronta perciò il contesto del descriptor con il proprio e, se non coincide, scarta lo stato
+salvato e ne crea una nuova. È il caso concreto in cui si rilancia in backtest un bot che aveva
+lasciato su file una sessione live — il file di stato è per account/simbolo/timeframe, non per
+contesto. Il `ClientRunMode` finisce anche nel `rotation-log`: rileggendolo mesi dopo è l'unica cosa
+che dice se quelle decisioni sono state prese su dati storici o su mercato reale.
+
 ### 3.7 Strategie stateless
 
 `ITradingStrategy.Evaluate(StrategyEvaluationRequest)` è l'API corretta.

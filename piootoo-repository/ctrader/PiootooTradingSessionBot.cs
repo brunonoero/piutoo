@@ -107,6 +107,12 @@ namespace cAlgo.Robots
         [Parameter("Titano Mode", DefaultValue = TitanoFilterModeParam.Disabled, Group = "Connessione")]
         public TitanoFilterModeParam TitanoMode { get; set; }
 
+        /// <summary>
+        /// Contesto in cui il bot sta girando, letto dalla piattaforma e non da un parametro: e' la
+        /// ragione per cui il server puo' fidarsene per rifiutare le combinazioni incoerenti.
+        /// </summary>
+        private string CurrentClientRunMode => IsBacktesting ? "Backtest" : "Realtime";
+
         [Parameter("Http Timeout (s)", DefaultValue = 15, MinValue = 1, Group = "Connessione")]
         public int HttpTimeoutSeconds { get; set; }
 
@@ -228,7 +234,21 @@ namespace cAlgo.Robots
                     _sessionToken = resumeSessionToken;
                     try
                     {
-                        StartSession();
+                        var descriptor = StartSession();
+
+                        // La validazione modalita/contesto avviene alla CREAZIONE della sessione: una
+                        // sessione ripresa la salterebbe. E' il caso concreto in cui si rilancia in
+                        // backtest un bot che aveva lasciato su file una sessione live (o viceversa):
+                        // il file di stato e' per account/simbolo/timeframe, non per contesto.
+                        var currentRunMode = CurrentClientRunMode;
+                        if (!string.IsNullOrEmpty(descriptor?.ClientRunMode) &&
+                            !string.Equals(descriptor.ClientRunMode, currentRunMode, StringComparison.OrdinalIgnoreCase) &&
+                            !string.Equals(descriptor.ClientRunMode, "Unknown", StringComparison.OrdinalIgnoreCase))
+                        {
+                            throw new InvalidOperationException(
+                                $"la sessione era stata creata in contesto {descriptor.ClientRunMode}, ora si gira in {currentRunMode}");
+                        }
+
                         resumed = true;
                         Print("Sessione {0} ripresa per account {1}.", _sessionId, _accountNumber);
                     }
@@ -523,7 +543,7 @@ namespace cAlgo.Robots
                 // NON e' un parametro: lo legge la piattaforma. Cosi il server puo' rifiutare le
                 // combinazioni incoerenti (Realtime in backtest, BacktestRotationFile in live)
                 // invece di lasciarle passare e produrre numeri plausibili ma sbagliati.
-                ClientRunMode = IsBacktesting ? "Backtest" : "Realtime",
+                ClientRunMode = CurrentClientRunMode,
                 Instruments = new List<InstrumentMetadataDto>
                 {
                     new InstrumentMetadataDto
@@ -543,9 +563,9 @@ namespace cAlgo.Robots
             Print("Sessione creata: {0} (account {1}, workspace {2}).", _sessionId, _accountNumber, WorkspaceId);
         }
 
-        private void StartSession()
+        private SessionDescriptorDto StartSession()
         {
-            SendJson<SessionDescriptorDto>(HttpMethod.Post, $"api/v1/trading-sessions/{_sessionId}/start");
+            return SendJson<SessionDescriptorDto>(HttpMethod.Post, $"api/v1/trading-sessions/{_sessionId}/start");
         }
 
         private void PushClosedBar()
@@ -962,6 +982,9 @@ namespace cAlgo.Robots
             public string WorkspaceId { get; set; } = "";
             public string ExecutionMode { get; set; } = "";
             public string Status { get; set; } = "";
+            public string TitanoRunId { get; set; }
+            public string TitanoMode { get; set; }
+            public string ClientRunMode { get; set; }
         }
 
         private sealed class OhlcvDto

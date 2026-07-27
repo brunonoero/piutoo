@@ -42,8 +42,14 @@ che nasce il `PersistedTrade` che alimenta Titano.
 `TitanoMode` (`Disabled`, `BacktestRotationFile`, `Realtime`) decide se e come la rotazione
 filtra le strategie valutate; le ultime due richiedono `TitanoRunId` + `TitanoBacktestFolder`
 e la creazione della sessione è rifiutata se mancano. Il client non conosce Titano: riceve i
-segnali già filtrati e si comporta identico in tutte e tre le modalità. Dettaglio in
-`docs/PROGETTO.md` §3.6.
+segnali già filtrati e si comporta identico in tutte e tre le modalità.
+
+`ClientRunMode` (`Backtest`, `Realtime`, `Unknown`) è il contesto dichiarato dal client — il cBot
+lo legge da `Robot.IsBacktesting`, non da un parametro. Il server incrocia i due e rifiuta
+`Realtime` in backtest (look-ahead) e `BacktestRotationFile` in tempo reale (il manifest copre solo
+l'intervallo del backtest sorgente). Con `Unknown` non verifica nulla.
+
+Dettaglio in `docs/PROGETTO.md` §3.6.
 
 ## Autorità di execution
 

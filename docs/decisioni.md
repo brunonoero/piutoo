@@ -51,3 +51,10 @@ in ordine cronologico. Non è un changelog di codice: quello resta nei commit.
   interno e sessioni. Una modalità filtrata non degrada più in silenzio a "nessun filtro":
   senza run la sessione non parte, e una barra fuori dai periodi del manifest ferma il run
   con un errore. Prima si proseguiva senza filtri, cioè l'opposto di quanto richiesto.
+- **2026-07-27** — Il client dichiara il proprio contesto di esecuzione (`ClientRunMode`) alla
+  creazione della sessione, e il cBot lo legge da `Robot.IsBacktesting` invece di esporlo come
+  parametro. Il server incrocia contesto e modalità Titano e rifiuta `Realtime` in backtest e
+  `BacktestRotationFile` in live. Motivo: erano le uniche due misconfigurazioni che non davano
+  nessun errore — producevano risultati plausibili ma sbagliati, visibili solo dai numeri. Un
+  parametro manuale avrebbe spostato il problema, non risolto: il contesto lo conosce la
+  piattaforma, non l'operatore.
