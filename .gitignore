@@ -111,9 +111,6 @@ Desktop.ini
 # macOS archive metadata
 ._*
 
-# Local configuration containing credentials
-/Piootoo.FeedWorker/appsettings.json
-
 # Local application state
 /piootoo-repository/settings/
 /piootoo-repository/workspaces/

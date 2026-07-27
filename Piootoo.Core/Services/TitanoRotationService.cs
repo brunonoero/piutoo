@@ -1,4 +1,6 @@
 using System.Collections.Concurrent;
+using System.Globalization;
+using System.Net;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -66,7 +68,12 @@ public sealed class TitanoRotationService
 
         lock (Gates.GetOrAdd(manifestPath, _ => new object()))
         {
-            if (File.Exists(manifestPath)) return ReadManifest(manifestPath);
+            if (File.Exists(manifestPath))
+            {
+                var existing = ReadManifest(manifestPath);
+                EnsureHtmlReport(runPath, existing);
+                return existing;
+            }
             var trades = JsonSerializer.Deserialize<List<PersistedTrade>>(sourceBytes, JsonOptions) ?? [];
             ValidateTrades(trades);
             var periods = BuildPeriods(request).ToList();
@@ -80,6 +87,7 @@ public sealed class TitanoRotationService
                 ConfigSha256 = configHash,
                 GeneratedAtUtc = DateTime.UtcNow,
                 Periods = decisions,
+                OriginalEquity = BuildOriginalEquity(request, trades, master),
                 FilteredEquity = BuildEquity(request, trades, decisions, master),
                 WalkForward = BuildWalkForward(request, periods, trades, decisions, master)
             };
@@ -88,6 +96,7 @@ public sealed class TitanoRotationService
             foreach (var decision in decisions)
                 WriteNewAtomic(Path.Combine(runPath, $"period-{decision.PeriodId}.json"), decision);
             WriteNewAtomic(manifestPath, manifest);
+            EnsureHtmlReport(runPath, manifest);
             return manifest;
         }
     }
@@ -131,6 +140,171 @@ public sealed class TitanoRotationService
         return manifest;
     }
 
+    public string GetHtmlReportPath(string workspaceId, string backtestFolder, string runId)
+    {
+        var safeRunId = SafeSegment(runId);
+        var runPath = Path.Combine(
+            _workspaces.GetBacktestPath(workspaceId, backtestFolder), "titano", safeRunId);
+        var manifestPath = Path.Combine(runPath, "manifest.json");
+        if (!File.Exists(manifestPath)) throw new FileNotFoundException($"Run Titano '{runId}' non trovato.");
+        EnsureHtmlReport(runPath, ReadManifest(manifestPath));
+        return Path.Combine(runPath, "report.html");
+    }
+
+    private const string EquityChartMarker = "id=\"equityComparisonTable\"";
+
+    private static void EnsureHtmlReport(string runPath, TitanoRotationManifest manifest)
+    {
+        var path = Path.Combine(runPath, "report.html");
+        if (File.Exists(path) && File.ReadAllText(path).Contains(EquityChartMarker, StringComparison.Ordinal))
+            return;
+
+        static string H(object? value) =>
+            WebUtility.HtmlEncode(Convert.ToString(value, CultureInfo.InvariantCulture)) ?? string.Empty;
+        static string Money(decimal value) => value.ToString("N2", CultureInfo.InvariantCulture);
+        static string Percent(decimal value) => value.ToString("P2", CultureInfo.InvariantCulture);
+
+        var originalEquity = ResolveOriginalEquity(runPath, manifest);
+        var filteredEquity = manifest.FilteredEquity;
+        var initialCapital = manifest.Config.InitialCapital;
+        var originalFinal = originalEquity.LastOrDefault()?.Balance ?? initialCapital;
+        var filteredFinal = filteredEquity.LastOrDefault()?.Balance ?? initialCapital;
+        var originalProfit = originalFinal - initialCapital;
+        var filteredProfit = filteredFinal - initialCapital;
+        var originalMaxDrawdown = CalculateMaxDrawdown(originalEquity, initialCapital);
+        var filteredMaxDrawdown = CalculateMaxDrawdown(filteredEquity, initialCapital);
+        var enabledStates = manifest.Periods.SelectMany(x => x.Strategies).Count(x => x.Enabled);
+        var equitySeriesJson = JsonSerializer.Serialize(
+            BuildEquityComparisonSeries(initialCapital, manifest.Config.StartUtc, originalEquity, filteredEquity),
+            JsonOptions);
+        var html = new StringBuilder();
+        html.Append("""
+            <!doctype html><html><head><meta charset="utf-8"><title>Report Titano</title>
+            <style>
+            body{font-family:Segoe UI,Arial,sans-serif;margin:0;background:#f3f5f8;color:#172033}
+            main{max-width:1400px;margin:auto;padding:28px}.cards{display:flex;gap:14px;flex-wrap:wrap}
+            .card{background:white;border-radius:9px;padding:16px;min-width:180px;box-shadow:0 1px 5px #ccd2dc}
+            .value{font-size:24px;font-weight:650;margin-top:6px}h1,h2{margin:0 0 18px}
+            h2{margin-top:28px}table{width:100%;border-collapse:collapse;background:white;font-size:13px}
+            th,td{padding:9px 10px;border-bottom:1px solid #e3e7ed;text-align:left;white-space:nowrap}
+            th{background:#202b40;color:white;position:sticky;top:0}.enabled{color:#08783e;font-weight:600}
+            .disabled,.hardstopped{color:#b42318;font-weight:600}.reduced{color:#a15c00;font-weight:600}
+            .scroll{overflow:auto;max-height:520px;border-radius:8px;box-shadow:0 1px 5px #ccd2dc}
+            canvas{width:100%;height:520px;background:white;border-radius:8px;box-shadow:0 1px 5px #ccd2dc}
+            .legend{display:flex;flex-wrap:wrap;gap:12px;margin-top:14px}.legend span{display:inline-flex;align-items:center;gap:6px;font-size:13px}
+            .swatch{width:14px;height:3px;display:inline-block}.muted{color:#5c677d;font-size:13px;margin:0 0 12px}
+            .good{color:#08783e}.bad{color:#b42318}
+            </style></head><body><main>
+            """);
+        html.Append($"<h1>Report Titano</h1><p>Run <strong>{H(manifest.RunId)}</strong> · generato {H(manifest.GeneratedAtUtc.ToString("u"))}</p>");
+        html.Append("<section class=\"cards\">");
+        html.Append($"<div class=\"card\">Capitale finale filtrato<div class=\"value\">{H(Money(filteredFinal))}</div></div>");
+        html.Append($"<div class=\"card\">Profitto netto filtrato<div class=\"value\">{H(Money(filteredProfit))}</div></div>");
+        html.Append($"<div class=\"card\">Periodi<div class=\"value\">{manifest.Periods.Count}</div></div>");
+        html.Append($"<div class=\"card\">Stati abilitati<div class=\"value\">{enabledStates}</div></div>");
+        html.Append($"<div class=\"card\">Trade originali<div class=\"value\">{originalEquity.Count}</div></div>");
+        html.Append($"<div class=\"card\">Trade filtrati<div class=\"value\">{filteredEquity.Count}</div></div></section>");
+
+        html.Append("<h2>Confronto equity</h2>");
+        html.Append("<div class=\"card\" style=\"margin-top:18px;padding:18px;background:white;border-radius:9px;box-shadow:0 1px 5px #ccd2dc\">");
+        html.Append("<table id=\"equityComparisonTable\"><tr><th>Metrica</th><th>Backtesting</th><th>Titano</th></tr>");
+        html.Append($"<tr><td>Capitale finale</td><td>{H(Money(originalFinal))}</td><td class=\"{(filteredFinal >= originalFinal ? "good" : "bad")}\">{H(Money(filteredFinal))}</td></tr>");
+        html.Append($"<tr><td>Profitto netto</td><td>{H(Money(originalProfit))}</td><td class=\"{(filteredProfit >= originalProfit ? "good" : "bad")}\">{H(Money(filteredProfit))}</td></tr>");
+        html.Append($"<tr><td>Max drawdown</td><td>{H(Percent(originalMaxDrawdown))}</td><td>{H(Percent(filteredMaxDrawdown))}</td></tr>");
+        html.Append($"<tr><td>Trade contabilizzati</td><td>{originalEquity.Count}</td><td>{filteredEquity.Count}</td></tr></table></div>");
+        html.Append("<div class=\"card\" style=\"margin-top:18px;padding:18px;background:white;border-radius:9px;box-shadow:0 1px 5px #ccd2dc\">");
+        html.Append("<h2>Equity trade-level — originale vs filtrato Titano</h2>");
+        html.Append("<p class=\"muted\">Curva cumulativa sui trade chiusi del master filter: originale (100% allocazione, senza costi Titano) vs filtrata (allocazione e costi simulati).</p>");
+        html.Append("<canvas id=\"equityComparisonChart\" data-drawdown-bars=\"true\" width=\"1400\" height=\"560\"></canvas>");
+        html.Append("<div id=\"equityComparisonLegend\" class=\"legend\"></div></div>");
+        html.Append("<h2>Decisioni per periodo</h2><div class=\"scroll\"><table><thead><tr>" +
+                    "<th>Periodo effettivo</th><th>Strategia</th><th>Stato</th><th>Allocazione</th>" +
+                    "<th>Score</th><th>Voti</th><th>Return breve</th><th>Return lungo</th>" +
+                    "<th>Drawdown</th><th>Motivo</th></tr></thead><tbody>");
+        foreach (var period in manifest.Periods)
+        foreach (var state in period.Strategies)
+        {
+            var css = state.State.ToString().ToLowerInvariant();
+            html.Append($"<tr><td>{H(period.EffectiveFromUtc.ToString("u"))} – {H(period.EffectiveToUtc.ToString("u"))}</td>" +
+                        $"<td>{H(state.StrategyCode)}</td><td class=\"{css}\">{H(state.State)}</td>" +
+                        $"<td>{H(Percent(state.AllocationMultiplier))}</td><td>{H(state.Score.ToString("F3", CultureInfo.InvariantCulture))}</td>" +
+                        $"<td>{state.PassingFilters}/{state.TotalFilters}</td><td>{H(Percent(state.Metrics.ShortReturn))}</td>" +
+                        $"<td>{H(Percent(state.Metrics.LongReturn))}</td><td>{H(Percent(state.Metrics.CurrentDrawdown))}</td>" +
+                        $"<td>{H(state.Reason)}</td></tr>");
+        }
+        html.Append("</tbody></table></div><h2>Walk-forward</h2><div class=\"scroll\"><table><thead><tr>" +
+                    "<th>Periodo</th><th>Calibrazione</th><th>Valutazione</th><th>Profitto IS</th><th>Profitto OOS</th><th>Avviso</th>" +
+                    "</tr></thead><tbody>");
+        foreach (var item in manifest.WalkForward)
+            html.Append($"<tr><td>{H(item.EvaluationPeriodId)}</td><td>{H(item.CalibrationFromUtc.ToString("u"))} – {H(item.CalibrationToUtc.ToString("u"))}</td>" +
+                        $"<td>{H(item.EvaluationFromUtc.ToString("u"))} – {H(item.EvaluationToUtc.ToString("u"))}</td>" +
+                        $"<td>{H(Money(item.InSampleNetProfit))}</td><td>{H(Money(item.OutOfSampleNetProfit))}</td>" +
+                        $"<td>{(item.InSampleOnlyImprovementWarning ? "Migliora solo in-sample" : "")}</td></tr>");
+        html.Append("</tbody></table></div>");
+        html.Append("<script>");
+        html.Append($"const equityComparisonSeries = {equitySeriesJson};");
+        html.Append("""
+            (function drawEquityComparisonChart() {
+              const canvas = document.getElementById('equityComparisonChart');
+              const legend = document.getElementById('equityComparisonLegend');
+              if (!canvas || !legend) return;
+              if (!equityComparisonSeries.length) {
+                legend.innerHTML = '<span>Nessun trade master nel run: curve piatte al capitale iniziale.</span>';
+                return;
+              }
+              const points = equityComparisonSeries.map(p => ({...p, time: new Date(p.t).getTime()}));
+              const ctx = canvas.getContext('2d');
+              const pad = {left: 74, right: 74, top: 28, bottom: 54};
+              const vals = points.flatMap(p => [p.original, p.filtered]);
+              const min = Math.min(...vals), max = Math.max(...vals);
+              const yMin = min === max ? min - 1 : min;
+              const yMax = min === max ? max + 1 : max;
+              const minTime = Math.min(...points.map(p => p.time));
+              const maxTime = Math.max(...points.map(p => p.time));
+              const x = t => pad.left + ((t - minTime) / Math.max(1, maxTime - minTime)) * (canvas.width - pad.left - pad.right);
+              const y = v => canvas.height - pad.bottom - ((v - yMin) / Math.max(1, yMax - yMin)) * (canvas.height - pad.top - pad.bottom);
+              ctx.clearRect(0, 0, canvas.width, canvas.height);
+              ctx.strokeStyle = '#ccd2dc'; ctx.lineWidth = 1; ctx.fillStyle = '#5c677d'; ctx.font = '12px Segoe UI,Arial,sans-serif';
+              for (let i = 0; i <= 5; i++) {
+                const yy = pad.top + i * (canvas.height - pad.top - pad.bottom) / 5;
+                ctx.beginPath(); ctx.moveTo(pad.left, yy); ctx.lineTo(canvas.width - pad.right, yy); ctx.stroke();
+                ctx.fillText((yMax - i * (yMax - yMin) / 5).toFixed(0), 8, yy + 4);
+              }
+              const maxDd = Math.max(0, ...points.flatMap(p => [p.originalDrawdown, p.filteredDrawdown]));
+              const plotHeight = canvas.height - pad.top - pad.bottom;
+              const slotWidth = (canvas.width - pad.left - pad.right) / Math.max(1, points.length);
+              const barWidth = Math.max(1, slotWidth * 0.36);
+              points.forEach(p => {
+                const originalHeight = maxDd === 0 ? 0 : p.originalDrawdown / maxDd * plotHeight;
+                const filteredHeight = maxDd === 0 ? 0 : p.filteredDrawdown / maxDd * plotHeight;
+                const xx = x(p.time);
+                ctx.fillStyle = 'rgba(239,68,68,0.30)';
+                ctx.fillRect(xx - barWidth, canvas.height - pad.bottom - originalHeight, barWidth, originalHeight);
+                ctx.fillStyle = 'rgba(245,158,11,0.34)';
+                ctx.fillRect(xx, canvas.height - pad.bottom - filteredHeight, barWidth, filteredHeight);
+              });
+              ctx.fillStyle = '#5c677d';
+              for (let i = 0; i <= 5; i++) {
+                const yy = pad.top + i * plotHeight / 5;
+                ctx.fillText((maxDd * (5 - i) / 5 * 100).toFixed(1) + '%', canvas.width - pad.right + 8, yy + 4);
+              }
+              function line(key, color, width) {
+                ctx.strokeStyle = color; ctx.lineWidth = width; ctx.beginPath();
+                points.forEach((p, i) => { const xx = x(p.time); const yy = y(p[key]); if (i === 0) ctx.moveTo(xx, yy); else ctx.lineTo(xx, yy); });
+                ctx.stroke();
+              }
+              line('original', '#1d7afc', 2.5);
+              line('filtered', '#08783e', 2.5);
+              legend.innerHTML = '<span><i class="swatch" style="background:#1d7afc"></i>Equity originale (master)</span><span><i class="swatch" style="background:#08783e"></i>Equity filtrata Titano</span><span><i class="swatch" style="background:rgba(239,68,68,.6)"></i>DD backtest</span><span><i class="swatch" style="background:rgba(245,158,11,.7)"></i>DD Titano (scala destra)</span>';
+            })();
+            </script></main></body></html>
+            """);
+
+        var tempPath = path + $".{Guid.NewGuid():N}.tmp";
+        File.WriteAllText(tempPath, html.ToString(), new UTF8Encoding(false));
+        File.Move(tempPath, path, overwrite: true);
+    }
+
     public TitanoHardStopReset ResetHardStop(
         string workspaceId, string backtestFolder, string runId, TitanoHardStopResetRequest request)
     {
@@ -167,18 +341,6 @@ public sealed class TitanoRotationService
         var manifest = Get(workspaceId, backtestFolder, runId);
         var master = GetMasterExecutionCodes(workspaceId);
         var period = manifest.Periods.SingleOrDefault(x => timestampUtc >= x.EffectiveFromUtc && timestampUtc < x.EffectiveToUtc);
-
-        var usedLatestPeriod = false;
-        if (period is null && mode == TitanoFilterMode.Realtime && manifest.Periods.Count > 0)
-        {
-            var last = manifest.Periods.OrderBy(x => x.EffectiveToUtc).Last();
-            if (timestampUtc >= last.EffectiveToUtc)
-            {
-                period = last;
-                usedLatestPeriod = true;
-            }
-        }
-
         var enabled = period?.Strategies.Where(x => x.Enabled).Select(x => x.StrategyCode)
             .Order(StringComparer.Ordinal).ToArray() ?? [];
         var resets = manifest.HardStopResets.Where(x => x.EffectiveFromUtc <= timestampUtc)
@@ -206,9 +368,8 @@ public sealed class TitanoRotationService
             MasterStrategies = master, TitanoEnabledStrategies = enabled,
             EffectiveStrategies = master.Intersect(enabled, StringComparer.OrdinalIgnoreCase).Order(StringComparer.Ordinal).ToArray(),
             StrategyStates = states,
-            // Distingue "Titano ha deciso di disabilitare tutto" da "Titano non copre questo
-            // istante": senza il flag, un manifest storico usato in live azzerava in silenzio
-            // l'intero portafoglio.
+            // Dopo l'ultimo periodo storico Resolve usa l'ultima decisione come filtro realtime
+            // della rotazione successiva; false resta riservato agli istanti precedenti al manifest.
             HasActivePeriod = period is not null,
             UsedLatestPeriod = usedLatestPeriod,
             PeriodFromUtc = period?.EffectiveFromUtc,
@@ -304,6 +465,26 @@ public sealed class TitanoRotationService
         }
     }
 
+    private static List<TitanoEquityPoint> BuildOriginalEquity(
+        TitanoRotationRequest request, IEnumerable<PersistedTrade> trades, IReadOnlyList<string> master)
+    {
+        var balance = request.InitialCapital;
+        var result = new List<TitanoEquityPoint>();
+        foreach (var trade in trades.OrderBy(x => x.ExitTimeUtc).ThenBy(x => x.TradeId, StringComparer.Ordinal))
+        {
+            if (!master.Contains(trade.StrategyCode, StringComparer.OrdinalIgnoreCase))
+                continue;
+            balance += trade.NetProfit;
+            result.Add(new TitanoEquityPoint
+            {
+                TimestampUtc = trade.ExitTimeUtc, TradeId = trade.TradeId, StrategyCode = trade.StrategyCode,
+                NetProfit = trade.NetProfit, AllocationMultiplier = 1m,
+                Costs = 0m, Balance = balance, Equity = balance
+            });
+        }
+        return result;
+    }
+
     private static List<TitanoEquityPoint> BuildEquity(TitanoRotationRequest request, IEnumerable<PersistedTrade> trades,
         IReadOnlyList<TitanoRotationDecision> decisions, IReadOnlyList<string> master)
     {
@@ -328,6 +509,103 @@ public sealed class TitanoRotationService
             });
         }
         return result;
+    }
+
+    private static List<TitanoEquityPoint> ResolveOriginalEquity(string runPath, TitanoRotationManifest manifest)
+    {
+        if (manifest.OriginalEquity.Count > 0)
+            return manifest.OriginalEquity;
+
+        var trades = TryLoadTrades(runPath);
+        if (trades is null || trades.Count == 0)
+            return [];
+
+        var master = manifest.Periods
+            .SelectMany(period => period.Strategies)
+            .Select(state => state.StrategyCode)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        return master.Length == 0 ? [] : BuildOriginalEquity(manifest.Config, trades, master);
+    }
+
+    private static List<PersistedTrade>? TryLoadTrades(string runPath)
+    {
+        var tradesPath = Path.GetFullPath(Path.Combine(runPath, "..", "..", TradingPersistenceSchema.TradesFileName));
+        if (!File.Exists(tradesPath))
+            return null;
+        return JsonSerializer.Deserialize<List<PersistedTrade>>(File.ReadAllText(tradesPath), JsonOptions) ?? [];
+    }
+
+    private static decimal CalculateMaxDrawdown(IReadOnlyList<TitanoEquityPoint> points, decimal initialCapital)
+    {
+        if (points.Count == 0)
+            return 0m;
+
+        var peak = initialCapital;
+        var maximumDrawdown = 0m;
+        foreach (var point in points)
+        {
+            peak = Math.Max(peak, point.Equity);
+            if (peak == 0)
+                continue;
+            maximumDrawdown = Math.Max(maximumDrawdown, (peak - point.Equity) / Math.Abs(peak));
+        }
+        return maximumDrawdown;
+    }
+
+    private static List<object> BuildEquityComparisonSeries(
+        decimal initialCapital,
+        DateTime startUtc,
+        IReadOnlyList<TitanoEquityPoint> original,
+        IReadOnlyList<TitanoEquityPoint> filtered)
+    {
+        var series = new List<object>
+        {
+            new
+            {
+                t = startUtc.ToString("O", CultureInfo.InvariantCulture),
+                original = initialCapital,
+                filtered = initialCapital,
+                originalDrawdown = 0m,
+                filteredDrawdown = 0m
+            }
+        };
+        if (original.Count == 0 && filtered.Count == 0)
+            return series;
+
+        var origBal = initialCapital;
+        var filtBal = initialCapital;
+        var origPeak = initialCapital;
+        var filtPeak = initialCapital;
+        var events = original.Select(point => (point.TimestampUtc, IsOriginal: true, point))
+            .Concat(filtered.Select(point => (point.TimestampUtc, IsOriginal: false, point)))
+            .OrderBy(item => item.TimestampUtc)
+            .ThenBy(item => item.IsOriginal)
+            .ToList();
+
+        foreach (var group in events.GroupBy(item => item.TimestampUtc))
+        {
+            foreach (var item in group)
+            {
+                if (item.IsOriginal)
+                    origBal = item.point.Equity;
+                else
+                    filtBal = item.point.Equity;
+            }
+            origPeak = Math.Max(origPeak, origBal);
+            filtPeak = Math.Max(filtPeak, filtBal);
+
+            series.Add(new
+            {
+                t = group.Key.ToString("O", CultureInfo.InvariantCulture),
+                original = origBal,
+                filtered = filtBal,
+                originalDrawdown = origPeak == 0 ? 0 : (origPeak - origBal) / Math.Abs(origPeak),
+                filteredDrawdown = filtPeak == 0 ? 0 : (filtPeak - filtBal) / Math.Abs(filtPeak)
+            });
+        }
+
+        return series;
     }
 
     public static TitanoPeriodMetrics CalculateMetrics(

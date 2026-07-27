@@ -89,6 +89,21 @@ public sealed class TradingSessionsController : ControllerBase
         string sessionId, [FromHeader(Name = "X-Session-Token")] string token)
         => ExecuteResult<IReadOnlyList<AccountGroupMapping>>(() => Ok(_sessions.GetAccountGroups(sessionId, token)));
 
+    /// <summary>Configura gruppi, account e profilo Titano per gruppo (sostituisce l'intera configurazione).</summary>
+    [HttpPut("{sessionId}/groups")]
+    public ActionResult<TradingSessionSnapshot> SetTradingGroups(string sessionId, SetTradingGroupsRequest request)
+        => ExecuteResult<TradingSessionSnapshot>(() =>
+        {
+            _sessions.SetTradingGroups(sessionId, request.SessionToken, request.Rows);
+            return Ok(_sessions.GetSnapshot(sessionId, request.SessionToken));
+        });
+
+    /// <summary>Legge la configurazione gruppi/account/Titano corrente.</summary>
+    [HttpGet("{sessionId}/groups")]
+    public ActionResult<IReadOnlyList<TradingGroupRow>> GetTradingGroups(
+        string sessionId, [FromHeader(Name = "X-Session-Token")] string token)
+        => ExecuteResult<IReadOnlyList<TradingGroupRow>>(() => Ok(_sessions.GetTradingGroups(sessionId, token)));
+
     /// <summary>
     /// Chiamata dal cBot di un singolo account cTrader: restituisce il prossimo segnale da eseguire
     /// (chiusura di una posizione già assegnata, oppure un nuovo ingresso libero nel proprio gruppo,

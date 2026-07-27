@@ -22,7 +22,7 @@ public class RepositoryOptions
     /// - [yyyy-MM-dd] - data nel formato yyyy-MM-dd
     /// - [HHmmss] - ora nel formato HHmmss
     /// - [HH-mm-ss] - ora nel formato HH-mm-ss
-    /// Esempio: [basepath]\datafeed\[symbol]\[interval]\[symbol]-[yyyyMMdd].json
+    /// Esempio: [basepath]\datafeed\[interval]\[symbol]\[symbol]-[yyyyMMdd].json
     /// Convenzione interval: 1m (1 minuto), 5m (5 minuti), 15m (15 minuti), 30m (30 minuti), 1h (1 ora), 4h (4 ore), D (Daily), W (Weekly)
     /// </summary>
     public string NameConvention { get; set; } = string.Empty;

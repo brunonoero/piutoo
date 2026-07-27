@@ -9,6 +9,8 @@ public sealed class TitanoRotationRequest
 {
     public required string WorkspaceId { get; init; }
     public required string BacktestFolder { get; init; }
+    public string SetupName { get; init; } = string.Empty;
+    public string Description { get; init; } = string.Empty;
     public TitanoRotationPeriod RotationPeriod { get; init; } = TitanoRotationPeriod.Weekly;
     public required DateTime StartUtc { get; init; }
     public required DateTime EndUtc { get; init; }
@@ -56,6 +58,50 @@ public sealed class TitanoSizingTier
     public decimal AllocationMultiplier { get; init; }
 }
 
+/// <summary>
+/// Parametri riutilizzabili di una rotazione Titano. Il contesto del run
+/// (workspace, backtest e intervallo date) resta escluso dal setup.
+/// </summary>
+public sealed class TitanoRotationSetup
+{
+    public string Id { get; set; } = string.Empty;
+    public string Name { get; set; } = string.Empty;
+    public string Description { get; set; } = string.Empty;
+    public DateTime? UpdatedAt { get; set; }
+    public TitanoRotationPeriod RotationPeriod { get; set; } = TitanoRotationPeriod.Weekly;
+    public int MinimumTrades { get; set; } = 1;
+    public int ShortWindowDays { get; set; } = 90;
+    public int LongWindowDays { get; set; } = 365;
+    public int MovingAverageWindowDays { get; set; } = 90;
+    public decimal MinimumShortReturn { get; set; }
+    public decimal MinimumLongReturn { get; set; }
+    public decimal MinimumZScore { get; set; } = -1.5m;
+    public decimal MaximumZScore { get; set; } = 2.5m;
+    public decimal MaximumCurrentDrawdown { get; set; } = 0.15m;
+    public decimal MaximumObservedDrawdown { get; set; } = 0.25m;
+    public decimal MaximumReturnVolatility { get; set; } = 0.10m;
+    public bool RequireEquityAboveMovingAverage { get; set; } = true;
+    public decimal ReenableMaximumCurrentDrawdown { get; set; } = 0.10m;
+    public decimal DisableCompositeScore { get; set; } = 0.40m;
+    public decimal ReenableCompositeScore { get; set; } = 0.60m;
+    public int MinimumPassingFilters { get; set; } = 4;
+    public int CooldownPeriodsAfterOff { get; set; } = 2;
+    public int MinimumOnPeriods { get; set; } = 1;
+    public decimal HardStopDrawdown { get; set; } = 0.35m;
+    public decimal CommissionPerUnit { get; set; }
+    public decimal SlippagePerUnit { get; set; }
+    public List<TitanoSizingTier> SizingTiers { get; set; } =
+    [
+        new() { MinimumScore = 0.80m, AllocationMultiplier = 1m },
+        new() { MinimumScore = 0.60m, AllocationMultiplier = 0.50m },
+        new() { MinimumScore = 0.40m, AllocationMultiplier = 0.25m },
+        new() { MinimumScore = 0m, AllocationMultiplier = 0m }
+    ];
+    public int CalibrationPeriods { get; set; } = 8;
+    public int EvaluationPeriods { get; set; } = 4;
+    public TitanoWalkForwardMode WalkForwardMode { get; set; } = TitanoWalkForwardMode.Rolling;
+}
+
 public sealed class TitanoRunInfo
 {
     public required string RunId { get; init; }
@@ -78,6 +124,8 @@ public sealed class TitanoRotationManifest
     public required string ConfigSha256 { get; init; }
     public DateTime GeneratedAtUtc { get; init; }
     public List<TitanoRotationDecision> Periods { get; init; } = [];
+    /// <summary>Equity di portafoglio sui soli trade master, senza filtro Titano né costi simulati.</summary>
+    public List<TitanoEquityPoint> OriginalEquity { get; init; } = [];
     public List<TitanoEquityPoint> FilteredEquity { get; init; } = [];
     public List<TitanoWalkForwardResult> WalkForward { get; init; } = [];
     public List<TitanoHardStopReset> HardStopResets { get; init; } = [];

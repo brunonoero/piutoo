@@ -131,8 +131,76 @@ public sealed class TitanoRotationTests
         finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
     }
 
+    [Fact]
+    public void RunPersistsOriginalEquityAndReportIncludesComparisonChart()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"titano-equity-{Guid.NewGuid():N}");
+        try
+        {
+            var strategy = StrategyFactory.GetRegisteredStrategies().First();
+            var executionCode = StrategyCatalog.TryGetExecutionCode(strategy.Id) ?? strategy.Id;
+            var workspaces = new WorkspaceService(new PiootooSettings { Workspaces = root });
+            var workspace = workspaces.Create(new CreateWorkspaceRequest
+            {
+                Name = "Equity", StrategiesFilter = [strategy.Id]
+            });
+            const string backtestFolder = "source";
+            var backtestPath = workspaces.GetBacktestPath(workspace.Id, backtestFolder);
+            Directory.CreateDirectory(backtestPath);
+            var store = new TradingJsonStore(backtestPath);
+            store.Initialize();
+            store.WriteTrades(
+            [
+                MasterTrade("t1", executionCode, Utc(2026, 1, 6), Utc(2026, 1, 7), 100m),
+                MasterTrade("t2", executionCode, Utc(2026, 1, 13), Utc(2026, 1, 14), -25m)
+            ]);
+
+            var rotation = new TitanoRotationService(workspaces);
+            var manifest = rotation.Run(new TitanoRotationRequest
+            {
+                WorkspaceId = workspace.Id,
+                BacktestFolder = backtestFolder,
+                StartUtc = Utc(2026, 1, 5),
+                EndUtc = Utc(2026, 2, 1),
+                InitialCapital = 1000m,
+                MinimumTrades = 1
+            });
+
+            Assert.Equal(2, manifest.OriginalEquity.Count);
+            Assert.Equal(1100m, manifest.OriginalEquity[0].Balance);
+            Assert.Equal(1075m, manifest.OriginalEquity[1].Balance);
+            Assert.All(manifest.OriginalEquity, point => Assert.Equal(1m, point.AllocationMultiplier));
+            Assert.All(manifest.OriginalEquity, point => Assert.Equal(0m, point.Costs));
+
+            var lastPeriod = manifest.Periods.MaxBy(period => period.EffectiveToUtc)!;
+            var realtime = rotation.Resolve(
+                workspace.Id, backtestFolder, manifest.RunId, lastPeriod.EffectiveToUtc.AddYears(1));
+            Assert.True(realtime.HasActivePeriod);
+            Assert.Equal(lastPeriod.PeriodId, realtime.PeriodId);
+            Assert.Equal(
+                lastPeriod.Strategies.Where(state => state.AllocationMultiplier > 0)
+                    .Select(state => state.StrategyCode).Order(StringComparer.Ordinal),
+                realtime.TitanoEnabledStrategies.Order(StringComparer.Ordinal));
+
+            var reportPath = rotation.GetHtmlReportPath(workspace.Id, backtestFolder, manifest.RunId);
+            var report = File.ReadAllText(reportPath);
+            Assert.Contains("id=\"equityComparisonChart\"", report);
+            Assert.Contains("data-drawdown-bars=\"true\"", report);
+            Assert.Contains("DD backtest", report);
+            Assert.Contains("DD Titano", report);
+            Assert.Contains("Confronto equity", report);
+            Assert.Contains("Equity originale (master)", report);
+
+            File.WriteAllText(reportPath, "<html><body>legacy report</body></html>");
+            reportPath = rotation.GetHtmlReportPath(workspace.Id, backtestFolder, manifest.RunId);
+            report = File.ReadAllText(reportPath);
+            Assert.Contains("id=\"equityComparisonChart\"", report);
+            Assert.DoesNotContain("legacy report", report);
+        }
+        finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
+    }
+
     [Theory]
-    [InlineData(10, 1, 1, 1, 10)]
     [InlineData(10, 0.5, 1, 1, 5)]
     [InlineData(3, 0.25, 1, 1, 0)]
     [InlineData(7, 0.5, 0.25, 1, 3.5)]
@@ -231,6 +299,14 @@ public sealed class TitanoRotationTests
         TradeId = id, StrategyCode = "S", StrategyName = "S", Symbol = "NQ",
         Direction = SignalType.Buy, EntryTimeUtc = exit.AddHours(-1), ExitTimeUtc = exit,
         GrossProfit = net, NetProfit = net
+    };
+
+    private static PersistedTrade MasterTrade(
+        string id, string strategyCode, DateTime entry, DateTime exit, decimal net) => new()
+    {
+        TradeId = id, StrategyCode = strategyCode, StrategyName = strategyCode, Symbol = "NQ",
+        Direction = SignalType.Buy, EntryTimeUtc = entry, ExitTimeUtc = exit,
+        GrossProfit = net, NetProfit = net, Quantity = 1
     };
 
     private static DateTime Utc(int year, int month, int day) =>

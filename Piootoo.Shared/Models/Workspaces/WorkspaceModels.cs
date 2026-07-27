@@ -19,6 +19,8 @@ public sealed class WorkspaceBacktestInfo
     public string FullPath { get; set; } = string.Empty;
     public DateTime LastModifiedUtc { get; set; }
     public int ResultsCount { get; set; }
+    public DateTime? StartDateUtc { get; set; }
+    public DateTime? EndDateUtc { get; set; }
     public bool HasResults => ResultsCount > 0;
 }
 

@@ -133,6 +133,21 @@ public sealed class TradingJsonStoreTests : IDisposable
         Assert.Empty(Directory.EnumerateFiles(_root, "*.tmp"));
     }
 
+    [Fact]
+    public async Task AtomicWriter_SerializesConcurrentWritersForSamePath()
+    {
+        var path = Path.Combine(_root, "concurrent.json");
+        AtomicFileWriter.WriteAllText(path, "[0]");
+
+        var writers = Enumerable.Range(1, 20)
+            .Select(value => Task.Run(() => AtomicFileWriter.WriteAllText(path, $"[{value}]")));
+        await Task.WhenAll(writers);
+
+        using var document = JsonDocument.Parse(File.ReadAllText(path));
+        Assert.Equal(JsonValueKind.Array, document.RootElement.ValueKind);
+        Assert.Empty(Directory.EnumerateFiles(_root, "*.tmp", SearchOption.TopDirectoryOnly));
+    }
+
     private static PersistedSignal Signal(string id) => new()
     {
         SignalId = id,

@@ -304,6 +304,9 @@ public sealed class TradingSessionSnapshot
     public IReadOnlyList<OrderIntent> PendingIntents { get; init; } = [];
     /// <summary>Mappa account -> gruppo configurata per la distribuzione dei segnali (anti copy-trading).</summary>
     public IReadOnlyList<AccountGroupMapping> AccountGroups { get; init; } = [];
+
+    /// <summary>Profilo completo gruppo/account/Titano quando configurato via PUT /groups.</summary>
+    public IReadOnlyList<TradingGroupRow> Groups { get; init; } = [];
 }
 
 /// <summary>
@@ -320,6 +323,35 @@ public sealed class SetAccountGroupsRequest
 {
     public required string SessionToken { get; init; }
     public required IReadOnlyList<AccountGroupMapping> Accounts { get; init; }
+}
+
+/// <summary>
+/// Riga di configurazione gruppo/account con profilo Titano opzionale. Più righe con lo stesso
+/// <see cref="GroupId"/> condividono lo stesso profilo Titano del gruppo.
+/// </summary>
+public sealed class TradingGroupRow
+{
+    public required string GroupId { get; init; }
+    public required string AccountNumber { get; init; }
+
+    /// <summary>Riferimento al setup salvato (rotation-setups); metadata per il client, non usato a runtime.</summary>
+    public string? RotationSetupId { get; init; }
+
+    /// <summary>Run Titano eseguibile (manifest). Obbligatorio se si applicano filtri Titano al gruppo.</summary>
+    public string? TitanoRunId { get; init; }
+    public string? TitanoBacktestFolder { get; init; }
+
+    /// <summary>
+    /// true: al polling account il manifest del gruppo filtra i template e scala la quantità.
+    /// false: il gruppo riceve tutti i template compatibili con l'anti copy-trading, indipendentemente dal manifest.
+    /// </summary>
+    public bool ApplyTitanoFilters { get; init; } = true;
+}
+
+public sealed class SetTradingGroupsRequest
+{
+    public required string SessionToken { get; init; }
+    public required IReadOnlyList<TradingGroupRow> Rows { get; init; }
 }
 
 /// <summary>Risposta al polling di un account per il prossimo segnale da eseguire.</summary>
