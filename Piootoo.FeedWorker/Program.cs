@@ -23,10 +23,6 @@ builder.Services.Configure<SymbolsOptions>(
 builder.Services.Configure<RepositoryOptions>(
     builder.Configuration.GetSection("Repository"));
 
-// Configurazione dell'aggregazione
-builder.Services.Configure<AggregationOptions>(
-    builder.Configuration.GetSection("Aggregation"));
-
 // Registrazione di InsightSentryClient
 builder.Services.AddSingleton<InsightSentryClient>(serviceProvider =>
 {
@@ -55,9 +51,6 @@ builder.Services.AddSingleton<InsightSentryClient>(serviceProvider =>
 
 // Registrazione di StorageFeedFacade
 builder.Services.AddSingleton<StorageFeedFacade>();
-
-// Registrazione di CandleAggregationService
-builder.Services.AddSingleton<CandleAggregationService>();
 
 builder.Services.AddHostedService<DataFeedWorker>();
 

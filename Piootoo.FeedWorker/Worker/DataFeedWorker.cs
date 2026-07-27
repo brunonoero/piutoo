@@ -13,7 +13,6 @@ public class DataFeedWorker : BackgroundService
     private readonly SymbolsOptions _symbolsOptions;
     private readonly InsightSentryClient _insightSentryClient;
     private readonly StorageFeedFacade _storageFeedFacade;
-    private readonly CandleAggregationService? _aggregationService;
     private CrontabSchedule? _cronSchedule;
     private DateTime? _nextRun;
 
@@ -21,14 +20,12 @@ public class DataFeedWorker : BackgroundService
         ILogger<DataFeedWorker> logger,
         IOptions<SymbolsOptions> symbolsOptions,
         InsightSentryClient insightSentryClient,
-        StorageFeedFacade storageFeedFacade,
-        CandleAggregationService? aggregationService = null)
+        StorageFeedFacade storageFeedFacade)
     {
         _logger = logger;
         _symbolsOptions = symbolsOptions.Value;
         _insightSentryClient = insightSentryClient;
         _storageFeedFacade = storageFeedFacade;
-        _aggregationService = aggregationService;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -130,19 +127,6 @@ public class DataFeedWorker : BackgroundService
 
             // Salva le candele usando StorageFeedFacade con FutureSymbol per il naming dei file
             await _storageFeedFacade.SaveCandlesAsync(symbolInfo.FutureSymbol, interval, candles);
-            
-            // Se l'intervallo è 1m, aggrega le candele in timeframe superiori
-            if (interval == CandleInterval.OneMinute && _aggregationService != null)
-            {
-                try
-                {
-                    await _aggregationService.AggregateCandlesAsync(symbolInfo.FutureSymbol, candles);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Errore durante l'aggregazione delle candele per {Symbol}", symbolInfo.Name);
-                }
-            }
             
             _logger.LogInformation("Polling e salvataggio completati per il simbolo {Name}", symbolInfo.Name);
         }

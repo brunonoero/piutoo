@@ -7,29 +7,12 @@ namespace Piootoo.Domain.Repositories;
 /// <summary>
 /// Repository per accedere ai datasource OHLCV dal repository locale.
 ///
-/// Struttura attuale (allineata a piootoo-repository/datafeed-downloader/core.py):
-/// un file "flat" per ogni combinazione symbol+timeframe, direttamente dentro
-/// RepositoryPath (es. "datafeed"), con nome
+/// Struttura primaria prodotta da Piootoo.FeedWorker:
 ///
-///     {tickerSenzaCaratteriSpeciali}_{timeframeMinutes}.json   (es. "GCF_15.json")
+///     datafeed/{timeframe}/{symbol}/{symbol}-{yyyyMMdd}.json
 ///
-/// e schema:
-///
-///     {
-///       "symbol": "GC=F",
-///       "timeframeMinutes": 15,
-///       "source": "yahoo-finance",
-///       "generatedAtUtc": "...",
-///       "requestedStartUtc": "...",
-///       "effectiveStartUtc": "...",
-///       "note": "..." | null,
-///       "bars": [ { "dateTime", "open", "high", "low", "close", "volume" }, ... ]
-///     }
-///
-/// Le strategie (Piootoo.Strategies) usano un simbolo "root future" con prefisso
-/// "@" (es. "@GC"), che non coincide col ticker Yahoo Finance usato per il nome
-/// file (es. "GC=F" -> "GCF"): la mappatura è in <see cref="RootSymbolToTicker"/>
-/// (vedi anche piootoo-repository/datafeed-downloader/README.md).
+/// Esempio: datafeed/1h/@GC/@GC-20260724.json. I vecchi file flat Yahoo
+/// restano supportati come fallback durante la migrazione.
 /// </summary>
 public class DataSourceRepository
 {
@@ -73,6 +56,30 @@ public class DataSourceRepository
         ["FourHours"] = 240,
         ["Daily"] = 1440,
         ["Weekly"] = 10080,
+    };
+
+    private static readonly Dictionary<int, string> TimeframeFolders = new()
+    {
+        [1] = "1m",
+        [5] = "5m",
+        [15] = "15m",
+        [30] = "30m",
+        [60] = "1h",
+        [240] = "4h",
+        [1440] = "D",
+        [10080] = "W"
+    };
+
+    private static readonly Dictionary<int, string> CanonicalBarTypes = new()
+    {
+        [1] = "OneMinute",
+        [5] = "FiveMinute",
+        [15] = "FifteenMinute",
+        [30] = "ThirtyMinute",
+        [60] = "OneHour",
+        [240] = "FourHour",
+        [1440] = "Daily",
+        [10080] = "Weekly"
     };
 
     public DataSourceRepository(string repositoryPath)
@@ -172,6 +179,102 @@ public class DataSourceRepository
         return candles;
     }
 
+    private string? GetHierarchicalSymbolDirectory(
+        string symbol,
+        int timeframeMinutes,
+        bool preferCalculated)
+    {
+        if (!TimeframeFolders.TryGetValue(timeframeMinutes, out var timeframeFolder))
+            return null;
+
+        var candidates = preferCalculated
+            ? new[] { timeframeFolder + "-calculate", timeframeFolder }
+            : new[] { timeframeFolder };
+        var normalizedSymbol = "@" + NormalizeRootSymbol(symbol);
+
+        foreach (var candidate in candidates)
+        {
+            var timeframePath = Path.Combine(_repositoryPath, candidate);
+            if (!Directory.Exists(timeframePath))
+                continue;
+
+            var symbolPath = Directory.EnumerateDirectories(timeframePath)
+                .FirstOrDefault(path =>
+                    Path.GetFileName(path).Equals(normalizedSymbol, StringComparison.OrdinalIgnoreCase));
+            if (symbolPath != null)
+                return symbolPath;
+        }
+
+        return null;
+    }
+
+    private async Task<List<OhlcvData>> ReadHierarchicalFeedAsync(
+        string symbol,
+        int timeframeMinutes,
+        bool preferCalculated)
+    {
+        var symbolDirectory = GetHierarchicalSymbolDirectory(symbol, timeframeMinutes, preferCalculated);
+        if (symbolDirectory == null)
+            return new List<OhlcvData>();
+
+        var candles = new List<OhlcvData>();
+        foreach (var path in Directory.EnumerateFiles(symbolDirectory, "*.json", SearchOption.TopDirectoryOnly)
+                     .OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
+        {
+            var json = await File.ReadAllTextAsync(path);
+            var feed = JsonSerializer.Deserialize<WorkerFeedFileDto>(json, _jsonOptions);
+            if (feed?.Candles == null)
+                continue;
+
+            candles.AddRange(feed.Candles.Select(ConvertWorkerCandle));
+        }
+
+        TradingDateTime.NormalizeCandlesToUtc(candles);
+        return candles
+            .GroupBy(candle => candle.Timestamp)
+            .Select(group => group.Last())
+            .OrderBy(candle => candle.DateTime)
+            .ToList();
+    }
+
+    private static OhlcvData ConvertWorkerCandle(WorkerCandleDto candle)
+    {
+        var utcDateTime = candle.DateTime.Kind == DateTimeKind.Unspecified
+            ? DateTime.SpecifyKind(candle.DateTime, DateTimeKind.Utc)
+            : candle.DateTime.ToUniversalTime();
+        var timestamp = candle.Timestamp != 0
+            ? Convert.ToInt64(candle.Timestamp)
+            : new DateTimeOffset(utcDateTime).ToUnixTimeSeconds();
+
+        return new OhlcvData
+        {
+            Timestamp = timestamp,
+            DateTime = utcDateTime,
+            DateTimeFormatted = string.IsNullOrWhiteSpace(candle.DateTimeFormatted)
+                ? utcDateTime.ToString("yyyy-MM-ddTHH:mm:ssZ")
+                : candle.DateTimeFormatted,
+            Open = (decimal)candle.Open,
+            High = (decimal)candle.High,
+            Low = (decimal)candle.Low,
+            Close = (decimal)candle.Close,
+            Volume = (decimal)candle.Volume
+        };
+    }
+
+    private async Task<List<OhlcvData>> ReadCandlesAsync(
+        string symbol,
+        int timeframeMinutes,
+        bool preferCalculated)
+    {
+        var hierarchical = await ReadHierarchicalFeedAsync(symbol, timeframeMinutes, preferCalculated);
+        if (hierarchical.Count != 0)
+            return hierarchical;
+
+        return ConvertToOhlcv(await ReadFeedFileAsync(symbol, timeframeMinutes))
+            .OrderBy(candle => candle.DateTime)
+            .ToList();
+    }
+
     /// <summary>
     /// Ottiene la lista dei simboli (root strategia, quando mappabili) per cui esiste
     /// almeno un file feed nel repository.
@@ -180,6 +283,20 @@ public class DataSourceRepository
     {
         if (!Directory.Exists(_repositoryPath))
             return Enumerable.Empty<string>();
+
+        var hierarchicalSymbols = TimeframeFolders.Values
+            .SelectMany(folder => new[] { folder, folder + "-calculate" })
+            .Select(folder => Path.Combine(_repositoryPath, folder))
+            .Where(Directory.Exists)
+            .SelectMany(path => Directory.EnumerateDirectories(path))
+            .Select(Path.GetFileName)
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .Select(name => name!.StartsWith('@') ? name : "@" + name)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (hierarchicalSymbols.Count != 0)
+            return hierarchicalSymbols;
 
         var tickerToRoot = RootSymbolToTicker
             .GroupBy(pair => BuildSafeFileSymbol(pair.Value), StringComparer.OrdinalIgnoreCase)
@@ -192,7 +309,8 @@ public class DataSourceRepository
             if (safeSymbol == null)
                 continue;
 
-            symbols.Add(tickerToRoot.TryGetValue(safeSymbol, out var root) ? root : safeSymbol);
+            var root = tickerToRoot.TryGetValue(safeSymbol, out var mappedRoot) ? mappedRoot : safeSymbol;
+            symbols.Add("@" + root.TrimStart('@'));
         }
 
         return symbols;
@@ -204,6 +322,14 @@ public class DataSourceRepository
         if (!Directory.Exists(_repositoryPath))
             return Enumerable.Empty<string>();
 
+        var hierarchical = TimeframeFolders
+            .Where(pair =>
+                GetHierarchicalSymbolDirectory(symbol, pair.Key, preferCalculated: true) != null)
+            .Select(pair => CanonicalBarTypes[pair.Key])
+            .ToList();
+        if (hierarchical.Count != 0)
+            return hierarchical;
+
         var safeSymbol = BuildSafeFileSymbol(ResolveTicker(symbol));
         var prefix = safeSymbol + "_";
 
@@ -212,6 +338,9 @@ public class DataSourceRepository
             .Where(name => name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
             .Select(name => name[prefix.Length..])
             .Where(minutes => int.TryParse(minutes, out _))
+            .Select(minutes => CanonicalBarTypes.TryGetValue(int.Parse(minutes), out var barType)
+                ? barType
+                : minutes)
             .ToList();
     }
 
@@ -224,8 +353,8 @@ public class DataSourceRepository
     public IEnumerable<DateTime> GetAvailableDates(string symbol, string barType = "OneMinute", bool preferCalculated = true)
     {
         var timeframeMinutes = ConvertBarTypeToMinutes(barType);
-        var feed = ReadFeedFile(symbol, timeframeMinutes);
-        var candles = ConvertToOhlcv(feed);
+        var candles = ReadCandlesAsync(symbol, timeframeMinutes, preferCalculated)
+            .GetAwaiter().GetResult();
         return candles.Select(c => c.DateTime.Date).Distinct().OrderBy(d => d);
     }
 
@@ -235,20 +364,18 @@ public class DataSourceRepository
     public async Task<DataSource?> LoadDataAsync(string symbol, DateTime date, string barType = "OneMinute", bool preferCalculated = true)
     {
         var timeframeMinutes = ConvertBarTypeToMinutes(barType);
-        var feed = await ReadFeedFileAsync(symbol, timeframeMinutes);
-        if (feed == null)
-            return null;
-
         var targetDate = TradingDateTime.ToFeedUtc(date).Date;
-        var candles = ConvertToOhlcv(feed).Where(c => c.DateTime.Date == targetDate).ToList();
+        var candles = (await ReadCandlesAsync(symbol, timeframeMinutes, preferCalculated))
+            .Where(c => c.DateTime.Date == targetDate)
+            .ToList();
         if (candles.Count == 0)
             return null;
 
         return new DataSource
         {
-            Symbol = feed.Symbol,
+            Symbol = "@" + NormalizeRootSymbol(symbol),
             BarType = barType,
-            LastUpdate = feed.GeneratedAtUtc,
+            LastUpdate = candles.Max(candle => candle.DateTime),
             CandleCount = candles.Count,
             Candles = candles
         };
@@ -265,8 +392,7 @@ public class DataSourceRepository
         endDate = TradingDateTime.ToFeedUtc(endDate);
 
         var timeframeMinutes = ConvertBarTypeToMinutes(barType);
-        var feed = await ReadFeedFileAsync(symbol, timeframeMinutes);
-        var candles = ConvertToOhlcv(feed);
+        var candles = await ReadCandlesAsync(symbol, timeframeMinutes, preferCalculated);
 
         return candles
             .Where(c => c.DateTime >= startDate && c.DateTime <= endDate)
@@ -280,8 +406,9 @@ public class DataSourceRepository
     public async Task<List<OhlcvData>> LoadAllDataAsync(string symbol, string barType = "OneMinute")
     {
         var timeframeMinutes = ConvertBarTypeToMinutes(barType);
-        var feed = await ReadFeedFileAsync(symbol, timeframeMinutes);
-        return ConvertToOhlcv(feed).OrderBy(c => c.DateTime).ToList();
+        return (await ReadCandlesAsync(symbol, timeframeMinutes, preferCalculated: true))
+            .OrderBy(c => c.DateTime)
+            .ToList();
     }
 
     /// <summary>
@@ -335,6 +462,27 @@ public class DataSourceRepository
 
         return info;
     }
+}
+
+/// <summary>DTO del file giornaliero prodotto da Piootoo.FeedWorker.</summary>
+internal sealed class WorkerFeedFileDto
+{
+    public string Symbol { get; set; } = string.Empty;
+    public string BarType { get; set; } = string.Empty;
+    public DateTime? LastUpdate { get; set; }
+    public List<WorkerCandleDto> Candles { get; set; } = new();
+}
+
+internal sealed class WorkerCandleDto
+{
+    public double Timestamp { get; set; }
+    public DateTime DateTime { get; set; }
+    public string DateTimeFormatted { get; set; } = string.Empty;
+    public double Open { get; set; }
+    public double High { get; set; }
+    public double Low { get; set; }
+    public double Close { get; set; }
+    public double Volume { get; set; }
 }
 
 /// <summary>

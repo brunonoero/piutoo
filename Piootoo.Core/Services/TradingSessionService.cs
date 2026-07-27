@@ -95,6 +95,12 @@ public interface ITradingSessionService
     /// <summary>Legge la mappa account -> gruppo corrente.</summary>
     IReadOnlyList<AccountGroupMapping> GetAccountGroups(string sessionId, string token);
 
+    /// <summary>Configura gruppi, account e profilo Titano per gruppo. Solo ExternalBroker.</summary>
+    void SetTradingGroups(string sessionId, string token, IReadOnlyList<TradingGroupRow> rows);
+
+    /// <summary>Legge la configurazione gruppi/account/Titano corrente.</summary>
+    IReadOnlyList<TradingGroupRow> GetTradingGroups(string sessionId, string token);
+
     /// <summary>
     /// Chiamata dal cBot di un singolo account: restituisce il prossimo segnale da eseguire (chiusura di
     /// una posizione già assegnata, oppure un nuovo ingresso libero nel gruppo, in ordine di priorità),
@@ -152,6 +158,10 @@ public sealed class TradingSessionService : ITradingSessionService
         /// <summary>Mappa AccountNumber -> GroupId configurata dal tab Trading Session.</summary>
         public Dictionary<string, string> AccountGroups { get; } = new(StringComparer.OrdinalIgnoreCase);
 
+        /// <summary>Profilo Titano per GroupId (RotationSetupId, run, flag apply).</summary>
+        public Dictionary<string, GroupTitanoProfile> GroupProfiles { get; } =
+            new(StringComparer.OrdinalIgnoreCase);
+
         /// <summary>Template di segnali di apertura non ancora reclamati: ogni gruppo può reclamarne una copia indipendente.</summary>
         public List<OrderIntent> EntryTemplates { get; } = [];
 
@@ -170,6 +180,20 @@ public sealed class TradingSessionService : ITradingSessionService
         public Dictionary<string, TradingPositionSnapshot> CanonicalPositions { get; } = new(StringComparer.OrdinalIgnoreCase);
         public Dictionary<string, int> StrategyHolderCounts { get; } = new(StringComparer.OrdinalIgnoreCase);
     }
+
+    private sealed class GroupTitanoProfile
+    {
+        public string? RotationSetupId { get; init; }
+        public string? TitanoRunId { get; init; }
+        public string? TitanoBacktestFolder { get; init; }
+        public bool ApplyTitanoFilters { get; init; } = true;
+    }
+
+    private readonly record struct ResolvedGroupTitano(
+        string? RotationSetupId,
+        string? TitanoRunId,
+        string? TitanoBacktestFolder,
+        bool ApplyTitanoFilters);
 
     private readonly ConcurrentDictionary<string, Session> _sessions = new();
     private readonly WorkspaceService _workspaces;
@@ -643,6 +667,96 @@ public sealed class TradingSessionService : ITradingSessionService
                 .OrderBy(x => x.GroupId).ThenBy(x => x.AccountNumber).ToArray();
     }
 
+    public void SetTradingGroups(string sessionId, string token, IReadOnlyList<TradingGroupRow> rows)
+    {
+        var session = Get(sessionId, token);
+        lock (session.Gate)
+        {
+            if (session.Mode != ExecutionMode.ExternalBroker)
+                throw new InvalidOperationException("I gruppi sono configurabili solo per sessioni ExternalBroker.");
+            ValidateTradingGroupRows(rows);
+
+            session.AccountGroups.Clear();
+            session.GroupProfiles.Clear();
+            foreach (var group in rows.GroupBy(r => r.GroupId.Trim(), StringComparer.OrdinalIgnoreCase))
+            {
+                var sample = group.First();
+                session.GroupProfiles[group.Key] = new GroupTitanoProfile
+                {
+                    RotationSetupId = string.IsNullOrWhiteSpace(sample.RotationSetupId)
+                        ? null
+                        : sample.RotationSetupId.Trim(),
+                    TitanoRunId = string.IsNullOrWhiteSpace(sample.TitanoRunId) ? null : sample.TitanoRunId.Trim(),
+                    TitanoBacktestFolder = string.IsNullOrWhiteSpace(sample.TitanoBacktestFolder)
+                        ? null
+                        : sample.TitanoBacktestFolder.Trim(),
+                    ApplyTitanoFilters = sample.ApplyTitanoFilters
+                };
+                foreach (var row in group)
+                    session.AccountGroups[row.AccountNumber.Trim()] = group.Key;
+            }
+            Persist(session);
+        }
+    }
+
+    public IReadOnlyList<TradingGroupRow> GetTradingGroups(string sessionId, string token)
+    {
+        var session = Get(sessionId, token);
+        lock (session.Gate)
+            return BuildTradingGroupRows(session);
+    }
+
+    private static void ValidateTradingGroupRows(IReadOnlyList<TradingGroupRow> rows)
+    {
+        if (rows.Count == 0)
+            throw new ArgumentException("Almeno una riga gruppo/account è obbligatoria.");
+
+        foreach (var row in rows)
+        {
+            if (string.IsNullOrWhiteSpace(row.GroupId) || string.IsNullOrWhiteSpace(row.AccountNumber))
+                throw new ArgumentException("GroupId e AccountNumber sono obbligatori per ogni riga.");
+            if (!string.IsNullOrWhiteSpace(row.TitanoRunId) &&
+                string.IsNullOrWhiteSpace(row.TitanoBacktestFolder))
+                throw new ArgumentException($"TitanoRunId richiede TitanoBacktestFolder per il gruppo '{row.GroupId}'.");
+        }
+
+        var duplicatedAccount = rows.GroupBy(r => r.AccountNumber.Trim(), StringComparer.OrdinalIgnoreCase)
+            .FirstOrDefault(g => g.Count() > 1);
+        if (duplicatedAccount != null)
+            throw new ArgumentException($"Account '{duplicatedAccount.Key}' configurato più di una volta.");
+
+        foreach (var group in rows.GroupBy(r => r.GroupId.Trim(), StringComparer.OrdinalIgnoreCase))
+        {
+            var signatures = group.Select(r => (
+                RotationSetupId: (r.RotationSetupId ?? string.Empty).Trim(),
+                TitanoRunId: (r.TitanoRunId ?? string.Empty).Trim(),
+                TitanoBacktestFolder: (r.TitanoBacktestFolder ?? string.Empty).Trim(),
+                r.ApplyTitanoFilters)).Distinct().ToArray();
+            if (signatures.Length > 1)
+                throw new ArgumentException(
+                    $"Profilo Titano inconsistente tra le righe del gruppo '{group.Key}'.");
+        }
+    }
+
+    private static IReadOnlyList<TradingGroupRow> BuildTradingGroupRows(Session session) =>
+        session.AccountGroups
+            .Select(kv =>
+            {
+                session.GroupProfiles.TryGetValue(kv.Value, out var profile);
+                return new TradingGroupRow
+                {
+                    GroupId = kv.Value,
+                    AccountNumber = kv.Key,
+                    RotationSetupId = profile?.RotationSetupId,
+                    TitanoRunId = profile?.TitanoRunId,
+                    TitanoBacktestFolder = profile?.TitanoBacktestFolder,
+                    ApplyTitanoFilters = profile?.ApplyTitanoFilters ?? true
+                };
+            })
+            .OrderBy(x => x.GroupId, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(x => x.AccountNumber, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
     public AccountSignalResponse GetNextSignalForAccount(string sessionId, string token, string accountNumber)
     {
         if (string.IsNullOrWhiteSpace(accountNumber))
@@ -672,7 +786,7 @@ public sealed class TradingSessionService : ITradingSessionService
             //    parallelo posizioni su simboli diversi, mai due ingressi sullo stesso simbolo insieme).
             //    Scartiamo quindi solo i template dei simboli su cui l'account è già occupato.
             var now = DateTime.UtcNow;
-            var priorities = ComputeStrategyPriority(session);
+            var priorities = ComputeStrategyPriority(session, groupId);
             var template = session.EntryTemplates
                 .Where(t => t.Status == OrderIntentStatus.Pending)
                 .Where(t => !t.ExpiresAtUtc.HasValue || t.ExpiresAtUtc.Value >= now)
@@ -680,6 +794,7 @@ public sealed class TradingSessionService : ITradingSessionService
                               && claimed.Contains(groupId)))
                 .Where(t => !session.GroupStrategySlots.ContainsKey(SlotKey(groupId, t.StrategyCode, t.Symbol)))
                 .Where(t => !session.AccountActiveIntent.ContainsKey(ActiveIntentKey(accountNumber, t.Symbol)))
+                .Where(t => IsTemplateEligibleForGroup(session, groupId, t))
                 .OrderByDescending(t => priorities.GetValueOrDefault(t.StrategyCode, 0m))
                 .ThenBy(t => t.CreatedAtUtc)
                 .FirstOrDefault();
@@ -687,7 +802,9 @@ public sealed class TradingSessionService : ITradingSessionService
             if (template is null)
                 return new AccountSignalResponse { Reason = "NoSignal" };
 
-            var claim = CloneForClaim(template, accountNumber, groupId);
+            var claim = CloneForClaim(session, template, accountNumber, groupId);
+            if (claim.FinalQuantity <= 0)
+                return new AccountSignalResponse { Reason = "NoSignal" };
             session.Intents.Add(claim);
             if (!session.TemplateClaimedGroups.TryGetValue(template.IntentId, out var claimedGroups))
                 session.TemplateClaimedGroups[template.IntentId] = claimedGroups = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -750,17 +867,20 @@ public sealed class TradingSessionService : ITradingSessionService
 
     /// <summary>
     /// Priorità per strategia usata per decidere quale segnale offrire per primo quando un account libero
-    /// ha più template di ingresso disponibili in contemporanea: usa il ranking Titano se la sessione è
-    /// collegata a una rotazione, altrimenti il PnL netto live accumulato dalla strategia nella sessione.
+    /// ha più template di ingresso disponibili in contemporanea: usa il ranking Titano del gruppo (o della
+    /// sessione come fallback), altrimenti il PnL netto live accumulato dalla strategia nella sessione.
     /// </summary>
-    private Dictionary<string, decimal> ComputeStrategyPriority(Session session)
+    private Dictionary<string, decimal> ComputeStrategyPriority(Session session, string groupId)
     {
-        if (!string.IsNullOrWhiteSpace(session.TitanoRunId) && _titano != null)
+        var profile = ResolveGroupTitano(session, groupId);
+        if (!string.IsNullOrWhiteSpace(profile.TitanoRunId) &&
+            !string.IsNullOrWhiteSpace(profile.TitanoBacktestFolder) &&
+            _titano != null)
         {
             try
             {
                 var effective = _titano.Resolve(
-                    session.WorkspaceId, session.TitanoBacktestFolder!, session.TitanoRunId!,
+                    session.WorkspaceId, profile.TitanoBacktestFolder, profile.TitanoRunId,
                     session.LastEvaluatedBarTimeUtc ?? DateTime.UtcNow);
                 var map = effective.StrategyStates.ToDictionary(
                     s => s.StrategyCode, s => s.AllocationMultiplier, StringComparer.OrdinalIgnoreCase);
@@ -776,6 +896,76 @@ public sealed class TradingSessionService : ITradingSessionService
         foreach (var trade in session.ExternalTrades)
             pnl[trade.StrategyCode] = pnl.GetValueOrDefault(trade.StrategyCode) + trade.NetProfit;
         return pnl;
+    }
+
+    private ResolvedGroupTitano ResolveGroupTitano(Session session, string groupId)
+    {
+        session.GroupProfiles.TryGetValue(groupId, out var profile);
+        var groupRunId = profile?.TitanoRunId;
+        var groupFolder = profile?.TitanoBacktestFolder;
+        var usesGroupRun = !string.IsNullOrWhiteSpace(groupRunId);
+        return new ResolvedGroupTitano(
+            profile?.RotationSetupId,
+            usesGroupRun ? groupRunId : session.TitanoRunId,
+            usesGroupRun ? groupFolder : session.TitanoBacktestFolder,
+            usesGroupRun ? profile!.ApplyTitanoFilters : session.ApplyTitanoFilters);
+    }
+
+    private TitanoEffectiveStrategies? TryResolveGroupTitano(Session session, string groupId)
+    {
+        var profile = ResolveGroupTitano(session, groupId);
+        if (string.IsNullOrWhiteSpace(profile.TitanoRunId) ||
+            string.IsNullOrWhiteSpace(profile.TitanoBacktestFolder) ||
+            _titano is null)
+            return null;
+
+        return _titano.Resolve(
+            session.WorkspaceId, profile.TitanoBacktestFolder, profile.TitanoRunId,
+            session.LastEvaluatedBarTimeUtc ?? DateTime.UtcNow);
+    }
+
+    private bool IsTemplateEligibleForGroup(Session session, string groupId, OrderIntent template)
+    {
+        if (template.CloseOnly)
+            return true;
+
+        var profile = ResolveGroupTitano(session, groupId);
+        if (!profile.ApplyTitanoFilters ||
+            string.IsNullOrWhiteSpace(profile.TitanoRunId) ||
+            string.IsNullOrWhiteSpace(profile.TitanoBacktestFolder))
+            return true;
+
+        var effective = TryResolveGroupTitano(session, groupId);
+        if (effective is null)
+            return true;
+
+        if (!effective.HasActivePeriod)
+            return true;
+
+        if (!effective.EffectiveStrategies.Contains(template.StrategyCode, StringComparer.OrdinalIgnoreCase))
+            return false;
+
+        var allocation = effective.StrategyStates
+            .FirstOrDefault(s => string.Equals(s.StrategyCode, template.StrategyCode, StringComparison.OrdinalIgnoreCase))
+            ?.AllocationMultiplier ?? 0m;
+        return allocation > 0m;
+    }
+
+    private decimal GetGroupStrategyAllocation(Session session, string groupId, string strategyCode)
+    {
+        var profile = ResolveGroupTitano(session, groupId);
+        if (!profile.ApplyTitanoFilters ||
+            string.IsNullOrWhiteSpace(profile.TitanoRunId) ||
+            string.IsNullOrWhiteSpace(profile.TitanoBacktestFolder))
+            return 1m;
+
+        var effective = TryResolveGroupTitano(session, groupId);
+        if (effective is null || !effective.HasActivePeriod)
+            return 1m;
+
+        return effective.StrategyStates
+            .FirstOrDefault(s => string.Equals(s.StrategyCode, strategyCode, StringComparison.OrdinalIgnoreCase))
+            ?.AllocationMultiplier ?? 0m;
     }
 
     private static OrderIntent AddIntent(
@@ -814,35 +1004,57 @@ public sealed class TradingSessionService : ITradingSessionService
     }
 
     /// <summary>Clona un template di ingresso in un intent concreto assegnato a un account/gruppo specifico.</summary>
-    private static OrderIntent CloneForClaim(OrderIntent template, string accountNumber, string groupId) => new()
+    private OrderIntent CloneForClaim(Session session, OrderIntent template, string accountNumber, string groupId)
     {
-        IntentId = $"{template.IntentId}::{groupId}",
-        SessionId = template.SessionId,
-        StrategyCode = template.StrategyCode,
-        StrategyName = template.StrategyName,
-        Symbol = template.Symbol,
-        CreatedAtUtc = template.CreatedAtUtc,
-        Side = template.Side,
-        OrderType = template.OrderType,
-        Quantity = template.Quantity,
-        AllocationMultiplier = template.AllocationMultiplier,
-        BaseQuantity = template.BaseQuantity,
-        StrategyEquityMultiplier = template.StrategyEquityMultiplier,
-        MarketVolatilityMultiplier = template.MarketVolatilityMultiplier,
-        PortfolioRiskMultiplier = template.PortfolioRiskMultiplier,
-        FinalQuantity = template.FinalQuantity,
-        SizingReason = template.SizingReason,
-        Price = template.Price,
-        CloseOnly = false,
-        StopLoss = template.StopLoss,
-        TakeProfit = template.TakeProfit,
-        ValidFromUtc = template.ValidFromUtc,
-        ExpiresAtUtc = template.ExpiresAtUtc,
-        CloseAtUtc = template.CloseAtUtc,
-        Reason = template.Reason,
-        AssignedAccountNumber = accountNumber,
-        AssignedGroupId = groupId
-    };
+        var allocation = GetGroupStrategyAllocation(session, groupId, template.StrategyCode);
+        var metadata = session.InstrumentMetadata.GetValueOrDefault(Normalize(template.Symbol));
+        var step = metadata?.QuantityStep ?? 1m;
+        var minimum = metadata?.MinimumQuantity ?? 1m;
+        var profile = ResolveGroupTitano(session, groupId);
+        var applyScaling = profile.ApplyTitanoFilters &&
+                           !string.IsNullOrWhiteSpace(profile.TitanoRunId) &&
+                           allocation > 0m &&
+                           allocation != 1m;
+        var strategyEquityMultiplier = applyScaling ? allocation : template.StrategyEquityMultiplier;
+        var allocationMultiplier = applyScaling ? allocation : template.AllocationMultiplier;
+        var finalQuantity = applyScaling
+            ? TitanoRotationService.RoundQuantity(
+                template.BaseQuantity,
+                template.MarketVolatilityMultiplier * template.PortfolioRiskMultiplier * allocation,
+                step,
+                minimum)
+            : template.FinalQuantity;
+
+        return new OrderIntent
+        {
+            IntentId = $"{template.IntentId}::{groupId}",
+            SessionId = template.SessionId,
+            StrategyCode = template.StrategyCode,
+            StrategyName = template.StrategyName,
+            Symbol = template.Symbol,
+            CreatedAtUtc = template.CreatedAtUtc,
+            Side = template.Side,
+            OrderType = template.OrderType,
+            Quantity = finalQuantity,
+            AllocationMultiplier = allocationMultiplier,
+            BaseQuantity = template.BaseQuantity,
+            StrategyEquityMultiplier = strategyEquityMultiplier,
+            MarketVolatilityMultiplier = template.MarketVolatilityMultiplier,
+            PortfolioRiskMultiplier = template.PortfolioRiskMultiplier,
+            FinalQuantity = finalQuantity,
+            SizingReason = template.SizingReason,
+            Price = template.Price,
+            CloseOnly = false,
+            StopLoss = template.StopLoss,
+            TakeProfit = template.TakeProfit,
+            ValidFromUtc = template.ValidFromUtc,
+            ExpiresAtUtc = template.ExpiresAtUtc,
+            CloseAtUtc = template.CloseAtUtc,
+            Reason = template.Reason,
+            AssignedAccountNumber = accountNumber,
+            AssignedGroupId = groupId
+        };
+    }
 
     private static string SlotKey(string groupId, string strategyCode, string symbol) =>
         $"{groupId}|{strategyCode}|{Normalize(symbol)}";
@@ -1041,7 +1253,8 @@ public sealed class TradingSessionService : ITradingSessionService
                 or OrderIntentStatus.Accepted or OrderIntentStatus.PartiallyFilled).ToArray(),
             AccountGroups = session.AccountGroups
                 .Select(kv => new AccountGroupMapping { AccountNumber = kv.Key, GroupId = kv.Value })
-                .OrderBy(x => x.GroupId).ThenBy(x => x.AccountNumber).ToArray()
+                .OrderBy(x => x.GroupId).ThenBy(x => x.AccountNumber).ToArray(),
+            Groups = BuildTradingGroupRows(session)
         };
     }
 

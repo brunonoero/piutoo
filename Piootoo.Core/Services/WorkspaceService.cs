@@ -88,17 +88,50 @@ public sealed class WorkspaceService
         return Directory.EnumerateDirectories(backtestsPath)
             .Select(path =>
             {
-                var results = Directory.EnumerateFiles(path, "backtest_*.json", SearchOption.TopDirectoryOnly).Count();
+                var resultFiles = Directory.EnumerateFiles(path, "backtest_*.json", SearchOption.TopDirectoryOnly)
+                    .OrderByDescending(File.GetLastWriteTimeUtc)
+                    .ToArray();
+                var (startDateUtc, endDateUtc) = ReadBacktestPeriod(resultFiles.FirstOrDefault());
                 return new WorkspaceBacktestInfo
                 {
                     FolderName = Path.GetFileName(path),
                     FullPath = path,
                     LastModifiedUtc = Directory.GetLastWriteTimeUtc(path),
-                    ResultsCount = results
+                    ResultsCount = resultFiles.Length,
+                    StartDateUtc = startDateUtc,
+                    EndDateUtc = endDateUtc
                 };
             })
             .OrderByDescending(backtest => backtest.LastModifiedUtc)
             .ToList();
+    }
+
+    private static (DateTime? StartDateUtc, DateTime? EndDateUtc) ReadBacktestPeriod(string? resultPath)
+    {
+        if (string.IsNullOrWhiteSpace(resultPath))
+            return (null, null);
+        try
+        {
+            using var document = JsonDocument.Parse(File.ReadAllText(resultPath));
+            var root = document.RootElement;
+            var start = root.TryGetProperty("StartDate", out var startValue) &&
+                        startValue.TryGetDateTime(out var parsedStart)
+                ? parsedStart.ToUniversalTime()
+                : (DateTime?)null;
+            var end = root.TryGetProperty("EndDate", out var endValue) &&
+                      endValue.TryGetDateTime(out var parsedEnd)
+                ? parsedEnd.ToUniversalTime()
+                : (DateTime?)null;
+            return (start, end);
+        }
+        catch (JsonException)
+        {
+            return (null, null);
+        }
+        catch (IOException)
+        {
+            return (null, null);
+        }
     }
 
     public string GetBacktestPath(string workspaceId, string folderName)

@@ -12,17 +12,20 @@ public class TitanoController : ControllerBase
     private readonly IPiootooBacktestingService _backtestingService;
     private readonly TitanoFilterService _titanoFilterService;
     private readonly TitanoSetupService _titanoSetupService;
+    private readonly TitanoRotationSetupService _rotationSetupService;
     private readonly TitanoRotationService _rotationService;
 
     public TitanoController(
         IPiootooBacktestingService backtestingService,
         TitanoFilterService titanoFilterService,
         TitanoSetupService titanoSetupService,
+        TitanoRotationSetupService rotationSetupService,
         TitanoRotationService rotationService)
     {
         _backtestingService = backtestingService;
         _titanoFilterService = titanoFilterService;
         _titanoSetupService = titanoSetupService;
+        _rotationSetupService = rotationSetupService;
         _rotationService = rotationService;
     }
 
@@ -71,6 +74,24 @@ public class TitanoController : ControllerBase
 
         var result = _titanoFilterService.Apply(backtesting, request);
         return Ok(result);
+    }
+
+    [HttpGet("rotation-setups")]
+    public ActionResult<IReadOnlyList<TitanoSetupInfo>> ListRotationSetups() =>
+        Ok(_rotationSetupService.ListSetups());
+
+    [HttpGet("rotation-setups/{setupId}")]
+    public ActionResult<TitanoRotationSetup> GetRotationSetup(string setupId)
+    {
+        try { return Ok(_rotationSetupService.GetSetup(setupId)); }
+        catch (FileNotFoundException ex) { return NotFound(new { error = ex.Message }); }
+    }
+
+    [HttpPost("rotation-setups")]
+    public ActionResult<TitanoRotationSetup> SaveRotationSetup([FromBody] TitanoRotationSetup setup)
+    {
+        try { return Ok(_rotationSetupService.SaveSetup(setup)); }
+        catch (ArgumentException ex) { return BadRequest(new { error = ex.Message }); }
     }
 
     [HttpPost("rotations")]

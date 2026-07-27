@@ -1277,8 +1277,6 @@ public class PiootooBacktestingService : IPiootooBacktestingService
             })
             .ToList();
         var globalChartJson = JsonSerializer.Serialize(globalSeries, _jsonOptions);
-        var strategyCountSeries = BuildStrategyCountTimeline(result);
-        var strategyCountChartJson = JsonSerializer.Serialize(strategyCountSeries, _jsonOptions);
         var title = System.Net.WebUtility.HtmlEncode($"{result.SetupName} - Equity per strategia");
         var symbols = result.StrategiesInfo
             .Select(info => NormalizeSymbol(info.Symbol))
@@ -1355,12 +1353,6 @@ public class PiootooBacktestingService : IPiootooBacktestingService
         AppendYearlySummaryHtml(html, result);
         AppendMonthlySummaryHtml(html, result);
         html.AppendLine("  <div class=\"card\">");
-        html.AppendLine("    <h2>Numero strategie nel tempo</h2>");
-        html.AppendLine("    <p class=\"muted\">Totale strategie in simulazione e strategie che hanno emesso almeno un trade (cumulativo).</p>");
-        html.AppendLine("    <canvas id=\"strategyCountChart\" width=\"1400\" height=\"420\"></canvas>");
-        html.AppendLine("    <div id=\"strategyCountLegend\" class=\"legend\"></div>");
-        html.AppendLine("  </div>");
-        html.AppendLine("  <div class=\"card\">");
         html.AppendLine("    <h2>Equity globale</h2>");
         html.AppendLine("    <canvas id=\"globalEquityChart\" width=\"1400\" height=\"560\"></canvas>");
         html.AppendLine("    <div id=\"globalLegend\" class=\"legend\"></div>");
@@ -1373,37 +1365,13 @@ public class PiootooBacktestingService : IPiootooBacktestingService
         html.AppendLine("  <script>");
         html.AppendLine($"    const series = {chartJson};");
         html.AppendLine($"    const globalSeries = {globalChartJson};");
-        html.AppendLine($"    const strategyCountSeries = {strategyCountChartJson};");
         html.AppendLine("    const colors = ['#38bdf8','#f97316','#22c55e','#e879f9','#facc15','#fb7185','#a78bfa','#2dd4bf','#c084fc','#f87171'];");
-        html.AppendLine("    function drawCountChart(canvasId, legendId, chartSeries) {");
+        html.AppendLine("    function drawChart(canvasId, legendId, chartSeries, showDrawdown = false) {");
         html.AppendLine("      const canvas = document.getElementById(canvasId);");
         html.AppendLine("      const legend = document.getElementById(legendId);");
         html.AppendLine("      if (!chartSeries.length) { legend.innerHTML = '<span>Nessun dato disponibile</span>'; return; }");
         html.AppendLine("      const ctx = canvas.getContext('2d');");
-        html.AppendLine("      const pad = {left: 74, right: 24, top: 28, bottom: 54};");
-        html.AppendLine("      const points = chartSeries.map(p => ({...p, time: new Date(p.t).getTime()}));");
-        html.AppendLine("      const minTime = Math.min(...points.map(p => p.time));");
-        html.AppendLine("      const maxTime = Math.max(...points.map(p => p.time));");
-        html.AppendLine("      const maxCount = Math.max(...points.flatMap(p => [p.total, p.traded, p.signalsThisBar || 0]), 1);");
-        html.AppendLine("      const yMin = 0; const yMax = maxCount;");
-        html.AppendLine("      const x = t => pad.left + ((t - minTime) / Math.max(1, maxTime - minTime)) * (canvas.width - pad.left - pad.right);");
-        html.AppendLine("      const y = v => canvas.height - pad.bottom - ((v - yMin) / Math.max(1, yMax - yMin)) * (canvas.height - pad.top - pad.bottom);");
-        html.AppendLine("      ctx.clearRect(0,0,canvas.width,canvas.height);");
-        html.AppendLine("      ctx.strokeStyle = '#334155'; ctx.lineWidth = 1; ctx.fillStyle = '#94a3b8'; ctx.font = '12px Arial';");
-        html.AppendLine("      const step = Math.max(1, Math.ceil(maxCount / 6));");
-        html.AppendLine("      for (let v = 0; v <= maxCount; v += step){ const yy = y(v); ctx.beginPath(); ctx.moveTo(pad.left,yy); ctx.lineTo(canvas.width-pad.right,yy); ctx.stroke(); ctx.fillText(String(v), 12, yy+4); }");
-        html.AppendLine("      function drawLine(key, color, width, dash){ ctx.strokeStyle = color; ctx.lineWidth = width; ctx.setLineDash(dash || []); ctx.beginPath(); points.forEach((p,i)=>{ const xx=x(p.time); const yy=y(p[key]); if(i===0) ctx.moveTo(xx,yy); else ctx.lineTo(xx,yy); }); ctx.stroke(); ctx.setLineDash([]); }");
-        html.AppendLine("      drawLine('total', '#64748b', 2, [8,6]);");
-        html.AppendLine("      drawLine('traded', '#38bdf8', 2.5, []);");
-        html.AppendLine("      drawLine('signalsThisBar', '#f97316', 1.5, [4,4]);");
-        html.AppendLine("      legend.innerHTML = '<span><i class=\"swatch\" style=\"background:#64748b\"></i>Totale strategie</span><span><i class=\"swatch\" style=\"background:#38bdf8\"></i>Con almeno 1 trade</span><span><i class=\"swatch\" style=\"background:#f97316\"></i>Segnali in barra</span>';");
-        html.AppendLine("    }");
-        html.AppendLine("    function drawChart(canvasId, legendId, chartSeries) {");
-        html.AppendLine("      const canvas = document.getElementById(canvasId);");
-        html.AppendLine("      const legend = document.getElementById(legendId);");
-        html.AppendLine("      if (!chartSeries.length) { legend.innerHTML = '<span>Nessun dato disponibile</span>'; return; }");
-        html.AppendLine("      const ctx = canvas.getContext('2d');");
-        html.AppendLine("      const pad = {left: 74, right: 24, top: 28, bottom: 54};");
+        html.AppendLine("      const pad = {left: 74, right: showDrawdown ? 74 : 24, top: 28, bottom: 54};");
         html.AppendLine("      const allPoints = chartSeries.flatMap(s => s.points.map(p => ({...p, time: new Date(p.t).getTime()})));");
         html.AppendLine("      const minTime = Math.min(...allPoints.map(p => p.time));");
         html.AppendLine("      const maxTime = Math.max(...allPoints.map(p => p.time));");
@@ -1416,66 +1384,17 @@ public class PiootooBacktestingService : IPiootooBacktestingService
         html.AppendLine("      ctx.clearRect(0,0,canvas.width,canvas.height);");
         html.AppendLine("      ctx.strokeStyle = '#334155'; ctx.lineWidth = 1; ctx.fillStyle = '#94a3b8'; ctx.font = '12px Arial';");
         html.AppendLine("      for (let i=0;i<=5;i++){ const yy = pad.top + i*(canvas.height-pad.top-pad.bottom)/5; ctx.beginPath(); ctx.moveTo(pad.left,yy); ctx.lineTo(canvas.width-pad.right,yy); ctx.stroke(); const val = yMax - i*(yMax-yMin)/5; ctx.fillText(val.toFixed(2), 8, yy+4); }");
+        html.AppendLine("      if (showDrawdown) { const dd = chartSeries[0].points; const maxDd = Math.max(0, ...dd.map(p => Math.abs(p.drawdown || 0))); const plotH = canvas.height-pad.top-pad.bottom; const barW = Math.max(1, (canvas.width-pad.left-pad.right)/Math.max(1,dd.length)*0.8); ctx.fillStyle='rgba(239,68,68,0.28)'; dd.forEach(p=>{ const h=maxDd===0?0:Math.abs(p.drawdown||0)/maxDd*plotH; ctx.fillRect(x(new Date(p.t).getTime())-barW/2,canvas.height-pad.bottom-h,barW,h); }); ctx.fillStyle='#fca5a5'; for(let i=0;i<=5;i++){ const val=maxDd*(5-i)/5; const yy=pad.top+i*plotH/5; ctx.fillText(val.toFixed(2),canvas.width-pad.right+8,yy+4); } }");
         html.AppendLine("      chartSeries.forEach((s, idx) => { const color = colors[idx % colors.length]; ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.beginPath(); s.points.forEach((p, i) => { const xx = x(new Date(p.t).getTime()); const yy = y(p.equity); if(i===0) ctx.moveTo(xx, yy); else ctx.lineTo(xx, yy); }); ctx.stroke(); });");
-        html.AppendLine("      legend.innerHTML = chartSeries.map((s,idx)=>`<span><i class=\"swatch\" style=\"background:${colors[idx % colors.length]}\"></i>${s.label}</span>`).join('');");
+        html.AppendLine("      legend.innerHTML = chartSeries.map((s,idx)=>`<span><i class=\"swatch\" style=\"background:${colors[idx % colors.length]}\"></i>${s.label}</span>`).join('') + (showDrawdown ? '<span><i class=\"swatch\" style=\"background:rgba(239,68,68,.55)\"></i>Drawdown globale (scala destra)</span>' : '');");
         html.AppendLine("    }");
-        html.AppendLine("    drawCountChart('strategyCountChart', 'strategyCountLegend', strategyCountSeries);");
-        html.AppendLine("    drawChart('globalEquityChart', 'globalLegend', [{ label: 'Equity globale', points: globalSeries }]);");
+        html.AppendLine("    drawChart('globalEquityChart', 'globalLegend', [{ label: 'Equity globale', points: globalSeries }], true);");
         html.AppendLine("    drawChart('equityChart', 'legend', series);");
         html.AppendLine("  </script>");
         html.AppendLine("</body>");
         html.AppendLine("</html>");
 
         AtomicFileWriter.WriteAllText(filePath, html.ToString());
-    }
-
-    private static List<object> BuildStrategyCountTimeline(BacktestingResult result)
-    {
-        var totalCount = result.StrategiesInfo
-            .Select(info => MakeStrategyKey(info.Symbol, GetStrategyCode(info)))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .Count();
-
-        if (totalCount == 0)
-        {
-            totalCount = result.StrategyResults
-                .Select(row => MakeStrategyKey(row.Symbol, GetStrategyCode(row)))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .Count();
-        }
-
-        var tradeEvents = result.StrategyResults
-            .Where(row => row.Signal.HasValue && row.Signal != SignalType.Hold)
-            .OrderBy(row => row.DateTime)
-            .ToList();
-
-        var tradedKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var eventIndex = 0;
-        var points = new List<object>();
-
-        foreach (var hour in result.HourlyResults.OrderBy(row => row.DateTime))
-        {
-            while (eventIndex < tradeEvents.Count && tradeEvents[eventIndex].DateTime <= hour.DateTime)
-            {
-                tradedKeys.Add(MakeStrategyKey(tradeEvents[eventIndex].Symbol, GetStrategyCode(tradeEvents[eventIndex])));
-                eventIndex++;
-            }
-
-            var signalsThisBar = result.StrategyResults.Count(row =>
-                TradingDateTime.ToFeedUtc(row.DateTime) == TradingDateTime.ToFeedUtc(hour.DateTime) &&
-                row.Signal.HasValue &&
-                row.Signal != SignalType.Hold);
-
-            points.Add(new
-            {
-                t = hour.DateTime.ToString("O"),
-                total = totalCount,
-                traded = tradedKeys.Count,
-                signalsThisBar
-            });
-        }
-
-        return points;
     }
 
     private static void AppendBacktestSummaryHtml(
@@ -1485,6 +1404,7 @@ public class PiootooBacktestingService : IPiootooBacktestingService
         int totalTrades,
         int strategyCount)
     {
+        var maxDrawdownPercent = CalculateMaxDrawdownPercent(result.HourlyResults, result.InitialCapital);
         html.AppendLine("  <div class=\"card\">");
         html.AppendLine("    <h2>Riepilogo simulazione</h2>");
         html.AppendLine("    <div class=\"metrics\">");
@@ -1494,6 +1414,7 @@ public class PiootooBacktestingService : IPiootooBacktestingService
         html.AppendLine($"      <div class=\"metric\"><span>Trade effettuati</span><b>{totalTrades}</b></div>");
         html.AppendLine($"      <div class=\"metric\"><span>Capitale iniziale</span><b>{result.InitialCapital:F2}</b></div>");
         html.AppendLine($"      <div class=\"metric\"><span>Profit totale</span><b>{result.TotalProfit:F2}</b></div>");
+        html.AppendLine($"      <div class=\"metric\"><span>Max drawdown</span><b>{result.MaxDrawdown:F2} ({maxDrawdownPercent:F2}%)</b></div>");
         html.AppendLine("    </div>");
         html.AppendLine("  </div>");
     }
@@ -1615,6 +1536,19 @@ public class PiootooBacktestingService : IPiootooBacktestingService
         }
 
         return maxDrawdown;
+    }
+
+    private static decimal CalculateMaxDrawdownPercent(IEnumerable<HourlyResult> rows, decimal initialPeak)
+    {
+        var peak = initialPeak;
+        var maximum = 0m;
+        foreach (var row in rows.OrderBy(item => item.DateTime))
+        {
+            peak = Math.Max(peak, row.Equity);
+            if (peak != 0)
+                maximum = Math.Max(maximum, (peak - row.Equity) / Math.Abs(peak));
+        }
+        return maximum * 100m;
     }
 
     private DateTime GetWeekStart(DateTime date)

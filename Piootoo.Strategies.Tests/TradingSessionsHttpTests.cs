@@ -207,6 +207,52 @@ public sealed class TradingSessionsHttpTests : IDisposable
         Assert.Empty(result.Intents);
     }
 
+    [Fact]
+    public async Task TradingGroupsEndpoint_PersistsProfileAndKeepsAccountGroupsCompatible()
+    {
+        var descriptor = await Create(ExecutionMode.ExternalBroker);
+        using var putRequest = new HttpRequestMessage(HttpMethod.Put,
+            $"api/v1/trading-sessions/{descriptor.SessionId}/groups")
+        {
+            Content = JsonContent.Create(new SetTradingGroupsRequest
+            {
+                SessionToken = descriptor.SessionToken,
+                Rows =
+                [
+                    new TradingGroupRow
+                    {
+                        GroupId = "prop-a",
+                        AccountNumber = "1001",
+                        RotationSetupId = "bilanciato",
+                        TitanoRunId = "run-test",
+                        TitanoBacktestFolder = "titano-source",
+                        ApplyTitanoFilters = true
+                    }
+                ]
+            }, options: JsonOptions)
+        };
+        var putResponse = await _client.SendAsync(putRequest);
+        putResponse.EnsureSuccessStatusCode();
+        var snapshot = await putResponse.Content.ReadFromJsonAsync<TradingSessionSnapshot>(JsonOptions);
+        Assert.NotNull(snapshot);
+        Assert.Single(snapshot!.Groups);
+        Assert.Equal("run-test", snapshot.Groups[0].TitanoRunId);
+
+        using var getGroupsRequest = Authorized(HttpMethod.Get,
+            $"api/v1/trading-sessions/{descriptor.SessionId}/groups", descriptor.SessionToken);
+        var groupsResponse = await _client.SendAsync(getGroupsRequest);
+        groupsResponse.EnsureSuccessStatusCode();
+        var groups = await groupsResponse.Content.ReadFromJsonAsync<List<TradingGroupRow>>(JsonOptions);
+        Assert.Equal("1001", Assert.Single(groups!).AccountNumber);
+
+        using var legacyRequest = Authorized(HttpMethod.Get,
+            $"api/v1/trading-sessions/{descriptor.SessionId}/account-groups", descriptor.SessionToken);
+        var legacyResponse = await _client.SendAsync(legacyRequest);
+        legacyResponse.EnsureSuccessStatusCode();
+        var legacy = await legacyResponse.Content.ReadFromJsonAsync<List<AccountGroupMapping>>(JsonOptions);
+        Assert.Equal("prop-a", Assert.Single(legacy!).GroupId);
+    }
+
     private async Task<TradingSessionDescriptor> Create(
         ExecutionMode mode, string? runId = null, string? folder = null)
     {
