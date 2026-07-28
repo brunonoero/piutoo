@@ -61,8 +61,7 @@ public sealed class WorkspaceController(WorkspaceService workspaceService) : Con
     [HttpPost("{workspaceId}/accounts/default")]
     public ActionResult<WorkspaceAccount> EnsureDefaultAccount(string workspaceId)
     {
-        try { return Ok(workspaceService.EnsureDefaultAccount(workspaceId)); }
-        catch (DirectoryNotFoundException) { return NotFound(); }
+        try { return Ok(workspaceService.EnsureDefaultAccount()); }
         catch (Exception exception) when (exception is ArgumentException or InvalidOperationException)
         {
             return BadRequest(new { error = exception.Message });
@@ -72,16 +71,14 @@ public sealed class WorkspaceController(WorkspaceService workspaceService) : Con
     [HttpGet("{workspaceId}/accounts")]
     public ActionResult<IReadOnlyList<WorkspaceAccount>> ListAccounts(string workspaceId)
     {
-        try { return Ok(workspaceService.ListAccounts(workspaceId)); }
-        catch (DirectoryNotFoundException) { return NotFound(); }
+        try { return Ok(workspaceService.ListAccounts()); }
         catch (ArgumentException exception) { return BadRequest(new { error = exception.Message }); }
     }
 
     [HttpGet("{workspaceId}/accounts/{accountId}")]
     public ActionResult<WorkspaceAccount> GetAccount(string workspaceId, string accountId)
     {
-        try { return Ok(workspaceService.GetAccount(workspaceId, accountId)); }
-        catch (DirectoryNotFoundException) { return NotFound(); }
+        try { return Ok(workspaceService.GetAccount(accountId)); }
         catch (KeyNotFoundException) { return NotFound(); }
         catch (ArgumentException exception) { return BadRequest(new { error = exception.Message }); }
     }
@@ -91,10 +88,9 @@ public sealed class WorkspaceController(WorkspaceService workspaceService) : Con
     {
         try
         {
-            var created = workspaceService.CreateAccount(workspaceId, account);
+            var created = workspaceService.CreateAccount(account);
             return CreatedAtAction(nameof(GetAccount), new { workspaceId, accountId = created.Id }, created);
         }
-        catch (DirectoryNotFoundException) { return NotFound(); }
         catch (Exception exception) when (exception is ArgumentException or InvalidOperationException)
         {
             return BadRequest(new { error = exception.Message });
@@ -104,8 +100,7 @@ public sealed class WorkspaceController(WorkspaceService workspaceService) : Con
     [HttpPut("{workspaceId}/accounts/{accountId}")]
     public ActionResult<WorkspaceAccount> SaveAccount(string workspaceId, string accountId, [FromBody] WorkspaceAccount account)
     {
-        try { return Ok(workspaceService.SaveAccount(workspaceId, accountId, account)); }
-        catch (DirectoryNotFoundException) { return NotFound(); }
+        try { return Ok(workspaceService.SaveAccount(accountId, account)); }
         catch (KeyNotFoundException) { return NotFound(); }
         catch (Exception exception) when (exception is ArgumentException or InvalidOperationException)
         {
@@ -116,8 +111,7 @@ public sealed class WorkspaceController(WorkspaceService workspaceService) : Con
     [HttpDelete("{workspaceId}/accounts/{accountId}")]
     public IActionResult DeleteAccount(string workspaceId, string accountId)
     {
-        try { workspaceService.DeleteAccount(workspaceId, accountId); return NoContent(); }
-        catch (DirectoryNotFoundException) { return NotFound(); }
+        try { workspaceService.DeleteAccount(accountId); return NoContent(); }
         catch (KeyNotFoundException) { return NotFound(); }
         catch (ArgumentException exception) { return BadRequest(new { error = exception.Message }); }
     }

@@ -1,0 +1,82 @@
+{
+  "Accounts": [
+    {
+      "Id": "12345678",
+      "Name": "12345678",
+      "AccountNumber": "12345678",
+      "GroupId": "12345678",
+      "Broker": "12345678",
+      "Currency": "EUR",
+      "InitialBalance": 100000,
+      "Enabled": true,
+      "Notes": "FTMO 1",
+      "CreatedUtc": "2026-07-28T10:10:35.1847811Z",
+      "UpdatedUtc": "2026-07-28T10:11:16.8844451Z",
+      "SymbolMappings": [
+        {
+          "Symbol": "@CL",
+          "AccountSymbol": "@CL",
+          "ContractMultiplier": 1,
+          "Enabled": true
+        },
+        {
+          "Symbol": "@FDAX",
+          "AccountSymbol": "TEC100",
+          "ContractMultiplier": 0.1,
+          "Enabled": true
+        },
+        {
+          "Symbol": "@GC",
+          "AccountSymbol": "@GC",
+          "ContractMultiplier": 1,
+          "Enabled": true
+        },
+        {
+          "Symbol": "@NQ",
+          "AccountSymbol": "@NQ",
+          "ContractMultiplier": 1,
+          "Enabled": true
+        }
+      ]
+    },
+    {
+      "Id": "aaaaa",
+      "Name": "aaaaa",
+      "AccountNumber": "aaaaaaaaaaaa",
+      "GroupId": "aaaaaaaaaaaaaa",
+      "Broker": "aaaaa",
+      "Currency": "EUR",
+      "InitialBalance": 1000000,
+      "Enabled": true,
+      "Notes": "aaaaaa",
+      "CreatedUtc": "2026-07-28T12:31:52.4493064Z",
+      "UpdatedUtc": "2026-07-28T12:31:52.4493064Z",
+      "SymbolMappings": [
+        {
+          "Symbol": "@CL",
+          "AccountSymbol": "@CL",
+          "ContractMultiplier": 1,
+          "Enabled": true
+        },
+        {
+          "Symbol": "@FDAX",
+          "AccountSymbol": "@FDAX",
+          "ContractMultiplier": 1,
+          "Enabled": true
+        },
+        {
+          "Symbol": "@GC",
+          "AccountSymbol": "@GC",
+          "ContractMultiplier": 1,
+          "Enabled": true
+        },
+        {
+          "Symbol": "@NQ",
+          "AccountSymbol": "@NQ",
+          "ContractMultiplier": 1,
+          "Enabled": true
+        }
+      ]
+    }
+  ]
+}

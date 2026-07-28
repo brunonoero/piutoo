@@ -124,11 +124,14 @@ public partial class WorkspaceBacktestingForm : Form
     private TabControl? _mainTabs;
     private TabPage? _workspacesTab;
 
-    private readonly ComboBox _accountsWorkspaceCombo = new();
     private readonly ComboBox _accountsCombo = new();
     private readonly TextBox _accountNameTextBox = new();
     private readonly TextBox _accountNumberTextBox = new();
-    private readonly TextBox _accountGroupIdTextBox = new();
+    private readonly ComboBox _accountGroupIdCombo = new();
+    private readonly ComboBox _accountGroupsCombo = new();
+    private readonly TextBox _newAccountGroupTextBox = new();
+    private readonly Button _addAccountGroupButton = new();
+    private readonly Button _removeAccountGroupButton = new();
     private readonly TextBox _accountBrokerTextBox = new();
     private readonly ComboBox _accountCurrencyCombo = new();
     private readonly NumericUpDown _accountInitialBalance = new();
@@ -146,6 +149,7 @@ public partial class WorkspaceBacktestingForm : Form
     private readonly Button _accountCreateDefaultButton = new();
     private readonly Label _accountStatusLabel = new();
     private List<WorkspaceAccount> _accounts = new();
+    private List<string> _accountGroups = new();
     private WorkspaceAccount? _editingAccount;
     private bool _suppressAccountEvents;
 
@@ -195,8 +199,8 @@ public partial class WorkspaceBacktestingForm : Form
         var accountsTab = new TabPage("Accounts");
         var titanoTab = new TabPage("Titano");
         var sessionsTab = new TabPage("Trading Session");
-        _mainTabs.TabPages.Add(_workspacesTab);
         _mainTabs.TabPages.Add(accountsTab);
+        _mainTabs.TabPages.Add(_workspacesTab);
         _mainTabs.TabPages.Add(backtestingTab);
         _mainTabs.TabPages.Add(titanoTab);
         _mainTabs.TabPages.Add(sessionsTab);
@@ -344,14 +348,6 @@ public partial class WorkspaceBacktestingForm : Form
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
 
-        _accountsWorkspaceCombo.DropDownStyle = ComboBoxStyle.DropDownList;
-        _accountsWorkspaceCombo.Width = 300;
-        _accountsWorkspaceCombo.SelectedIndexChanged += async (_, _) =>
-        {
-            if (_suppressWorkspaceEvents) return;
-            await ReloadAccountsAsync(showErrors: true);
-        };
-
         _accountsCombo.DropDownStyle = ComboBoxStyle.DropDownList;
         _accountsCombo.Width = 420;
         _accountsCombo.SelectedIndexChanged += (_, _) =>
@@ -363,20 +359,32 @@ public partial class WorkspaceBacktestingForm : Form
         var selectors = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true };
         selectors.Controls.Add(new Label
         {
-            Text = "Workspace:",
+            Text = "Account globale:",
             AutoSize = true,
             Padding = new Padding(0, 7, 8, 0)
         });
-        selectors.Controls.Add(WithHelp(_accountsWorkspaceCombo,
-            "Gli account sono salvati in <workspace>/accounts.json, come il masterfilter."));
+        selectors.Controls.Add(WithHelp(_accountsCombo,
+            "Account condivisi da tutti i workspace. Selezionane uno per modificarne anagrafica e tabella di conversione."));
+
+        _accountGroupsCombo.DropDownStyle = ComboBoxStyle.DropDownList;
+        _accountGroupsCombo.Width = 150;
+        _newAccountGroupTextBox.Width = 140;
+        _addAccountGroupButton.Text = "Aggiungi gruppo";
+        _addAccountGroupButton.AutoSize = true;
+        _addAccountGroupButton.Click += async (_, _) => await AddAccountGroupAsync();
+        _removeAccountGroupButton.Text = "Rimuovi gruppo";
+        _removeAccountGroupButton.AutoSize = true;
+        _removeAccountGroupButton.Click += async (_, _) => await RemoveAccountGroupAsync();
         selectors.Controls.Add(new Label
         {
-            Text = "Account:",
+            Text = "Gruppi:",
             AutoSize = true,
             Padding = new Padding(16, 7, 8, 0)
         });
-        selectors.Controls.Add(WithHelp(_accountsCombo,
-            "Account configurati nel workspace. Selezionane uno per modificarne anagrafica e tabella di conversione."));
+        selectors.Controls.Add(WithHelp(_accountGroupsCombo, "Gruppi account globali configurati."));
+        selectors.Controls.Add(WithHelp(_newAccountGroupTextBox, "Codice del nuovo gruppo da aggiungere."));
+        selectors.Controls.Add(_addAccountGroupButton);
+        selectors.Controls.Add(_removeAccountGroupButton);
         root.Controls.Add(selectors, 0, 0);
 
         _accountNewButton.Text = "Nuovo account…";
@@ -413,7 +421,7 @@ public partial class WorkspaceBacktestingForm : Form
             WithHelp(_accountSaveButton, "Salva anagrafica e tabella di conversione dell'account selezionato."),
             WithHelp(_accountCreateDefaultButton,
                 "Crea l'account 'Default': symbol mappati 1 a 1 sul catalogo, moltiplicatore 1 e balance iniziale 1.000.000."),
-            WithHelp(_accountDeleteButton, "Rimuove l'account selezionato dal workspace."),
+            WithHelp(_accountDeleteButton, "Rimuove l'account selezionato dal registro globale."),
             WithHelp(_accountsReloadButton, "Rilegge gli account dal server."),
             _accountStatusLabel
         });
@@ -448,7 +456,8 @@ public partial class WorkspaceBacktestingForm : Form
 
         _accountNameTextBox.Width = 200;
         _accountNumberTextBox.Width = 160;
-        _accountGroupIdTextBox.Width = 160;
+        _accountGroupIdCombo.Width = 160;
+        _accountGroupIdCombo.DropDownStyle = ComboBoxStyle.DropDownList;
         _accountBrokerTextBox.Width = 160;
 
         _accountCurrencyCombo.DropDownStyle = ComboBoxStyle.DropDown;
@@ -471,7 +480,7 @@ public partial class WorkspaceBacktestingForm : Form
             "Nome visualizzato dell'account. Determina l'identificativo salvato su disco."));
         layout.Controls.Add(LabeledField("Codice account", _accountNumberTextBox,
             "Codice account del broker, lo stesso usato nei gruppi account della Trading Session."));
-        layout.Controls.Add(LabeledField("Gruppo", _accountGroupIdTextBox,
+        layout.Controls.Add(LabeledField("Gruppo", _accountGroupIdCombo,
             "Gruppo anti copy-trading (tipicamente la prop firm). Account dello stesso gruppo non ricevono lo stesso segnale."));
         layout.Controls.Add(LabeledField("Broker", _accountBrokerTextBox, "Broker o prop firm, campo descrittivo."));
         layout.Controls.Add(LabeledField("Balance iniziale", _accountInitialBalance,
@@ -651,23 +660,16 @@ public partial class WorkspaceBacktestingForm : Form
 
     private async Task EnsureDefaultAccountAsync()
     {
-        var workspaceId = GetSelectedAccountsWorkspaceId();
-        if (string.IsNullOrWhiteSpace(workspaceId))
-        {
-            MessageBox.Show("Seleziona prima un workspace.", "Account", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            return;
-        }
-
         try
         {
             NormalizeBaseAddress();
-            var account = await _workspaceApi.EnsureDefaultAccountAsync(workspaceId);
+            var account = await _workspaceApi.EnsureDefaultAccountAsync();
             _editingAccount = account;
             await ReloadAccountsAsync(showErrors: true);
             _accountStatusLabel.Text =
                 $"Account '{account.Name}' pronto: {account.SymbolMappings.Count} symbol 1 a 1, " +
                 $"balance {account.InitialBalance:N0} {account.Currency}.";
-            Log($"Account di default disponibile nel workspace '{workspaceId}'.");
+            Log("Account di default disponibile nel registro globale.");
         }
         catch (Exception ex)
         {
@@ -675,27 +677,19 @@ public partial class WorkspaceBacktestingForm : Form
         }
     }
 
-    private string? GetSelectedAccountsWorkspaceId()
-        => (_accountsWorkspaceCombo.SelectedItem as WorkspaceListItem)?.Info.Id;
-
-    /// <summary>Popola il selettore account del tab Backtesting con gli account del workspace scelto lì.</summary>
+    /// <summary>Popola il selettore Backtesting con gli account globali.</summary>
     private async Task LoadBacktestingAccountsAsync()
     {
         var previousId = (_backtestingAccountCombo.SelectedItem as AccountListItem)?.Account.Id;
-        var workspaceId = (_backtestingWorkspaceCombo.SelectedItem as WorkspaceListItem)?.Info.Id;
-
         _suppressAccountEvents = true;
         try
         {
             _backtestingAccountCombo.Items.Clear();
             _backtestingAccountCombo.Items.Add(NoAccountItem);
 
-            if (!string.IsNullOrWhiteSpace(workspaceId))
-            {
-                NormalizeBaseAddress();
-                foreach (var account in await _workspaceApi.ListAccountsAsync(workspaceId))
-                    _backtestingAccountCombo.Items.Add(new AccountListItem(account));
-            }
+            NormalizeBaseAddress();
+            foreach (var account in await _workspaceApi.ListAccountsAsync())
+                _backtestingAccountCombo.Items.Add(new AccountListItem(account));
 
             _backtestingAccountCombo.SelectedIndex = 0;
             if (!string.IsNullOrWhiteSpace(previousId))
@@ -721,23 +715,16 @@ public partial class WorkspaceBacktestingForm : Form
 
     private async Task ReloadAccountsAsync(bool showErrors)
     {
-        var workspaceId = GetSelectedAccountsWorkspaceId();
-        if (string.IsNullOrWhiteSpace(workspaceId))
-        {
-            _accounts = new List<WorkspaceAccount>();
-            BindAccountsList(null);
-            _accountStatusLabel.Text = "Seleziona un workspace.";
-            return;
-        }
-
         try
         {
             NormalizeBaseAddress();
             var previousId = _editingAccount?.Id;
-            _accounts = (await _workspaceApi.ListAccountsAsync(workspaceId)).ToList();
+            _accounts = (await _workspaceApi.ListAccountsAsync()).ToList();
+            _accountGroups = (await _workspaceApi.ListAccountGroupsAsync()).ToList();
+            RefreshAccountGroupLookups();
             BindAccountsList(previousId);
-            _accountStatusLabel.Text = $"{_accounts.Count} account nel workspace '{workspaceId}'.";
-            Log($"Caricati {_accounts.Count} account da API per il workspace '{workspaceId}'.");
+            _accountStatusLabel.Text = $"{_accounts.Count} account globali.";
+            Log($"Caricati {_accounts.Count} account globali da API.");
         }
         catch (Exception ex)
         {
@@ -745,6 +732,90 @@ public partial class WorkspaceBacktestingForm : Form
             if (showErrors)
                 MessageBox.Show(ex.Message, "Account", MessageBoxButtons.OK, MessageBoxIcon.Warning);
         }
+    }
+
+    private void RefreshAccountGroupLookups()
+    {
+        var selectedEditorGroup = _accountGroupIdCombo.SelectedItem?.ToString();
+        var selectedManagedGroup = _accountGroupsCombo.SelectedItem?.ToString();
+
+        _accountGroupIdCombo.Items.Clear();
+        _accountGroupIdCombo.Items.Add(string.Empty);
+        _accountGroupsCombo.Items.Clear();
+        foreach (var group in _accountGroups.OrderBy(group => group, StringComparer.OrdinalIgnoreCase))
+        {
+            _accountGroupIdCombo.Items.Add(group);
+            _accountGroupsCombo.Items.Add(group);
+        }
+        SelectComboValue(_accountGroupIdCombo, selectedEditorGroup);
+        SelectComboValue(_accountGroupsCombo, selectedManagedGroup);
+
+        if (_sessionAccountGroups.Columns["GroupId"] is DataGridViewComboBoxColumn groupColumn)
+            groupColumn.DataSource = _accountGroups.ToList();
+        if (_sessionAccountGroups.Columns["AccountNumber"] is DataGridViewComboBoxColumn accountColumn)
+            accountColumn.DataSource = _accounts
+                .Where(account => account.Enabled && !string.IsNullOrWhiteSpace(account.AccountNumber))
+                .Select(account => new AccountNumberListItem(account))
+                .ToList();
+    }
+
+    private async Task AddAccountGroupAsync()
+    {
+        var groupId = _newAccountGroupTextBox.Text.Trim();
+        if (groupId.Length == 0)
+        {
+            MessageBox.Show("Indica il codice del gruppo da aggiungere.", "Gruppi account",
+                MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        try
+        {
+            NormalizeBaseAddress();
+            _accountGroups = (await _workspaceApi.AddAccountGroupAsync(groupId)).ToList();
+            _newAccountGroupTextBox.Clear();
+            RefreshAccountGroupLookups();
+            SelectComboValue(_accountGroupsCombo, groupId);
+            SelectComboValue(_accountGroupIdCombo, groupId);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(ex.Message, "Errore aggiunta gruppo", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+    }
+
+    private async Task RemoveAccountGroupAsync()
+    {
+        var groupId = _accountGroupsCombo.SelectedItem?.ToString();
+        if (string.IsNullOrWhiteSpace(groupId))
+            return;
+        if (MessageBox.Show($"Eliminare il gruppo globale '{groupId}'?", "Gruppi account",
+                MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
+            return;
+
+        try
+        {
+            NormalizeBaseAddress();
+            _accountGroups = (await _workspaceApi.RemoveAccountGroupAsync(groupId)).ToList();
+            RefreshAccountGroupLookups();
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(ex.Message, "Errore eliminazione gruppo", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+    }
+
+    private static void SelectComboValue(ComboBox combo, string? value)
+    {
+        combo.SelectedIndex = -1;
+        for (var index = 0; index < combo.Items.Count; index++)
+            if (string.Equals(combo.Items[index]?.ToString(), value, StringComparison.OrdinalIgnoreCase))
+            {
+                combo.SelectedIndex = index;
+                return;
+            }
+        if (combo.Items.Count > 0)
+            combo.SelectedIndex = 0;
     }
 
     private void BindAccountsList(string? selectAccountId)
@@ -789,7 +860,7 @@ public partial class WorkspaceBacktestingForm : Form
             _editingAccount = null;
             _accountNameTextBox.Text = string.Empty;
             _accountNumberTextBox.Text = string.Empty;
-            _accountGroupIdTextBox.Text = string.Empty;
+            _accountGroupIdCombo.SelectedIndex = _accountGroupIdCombo.Items.Count > 0 ? 0 : -1;
             _accountBrokerTextBox.Text = string.Empty;
             _accountCurrencyCombo.Text = "USD";
             _accountInitialBalance.Value = 0;
@@ -812,13 +883,6 @@ public partial class WorkspaceBacktestingForm : Form
     /// </summary>
     private async Task CreateAccountViaDialogAsync()
     {
-        var workspaceId = GetSelectedAccountsWorkspaceId();
-        if (string.IsNullOrWhiteSpace(workspaceId))
-        {
-            MessageBox.Show("Seleziona prima un workspace.", "Nuovo account", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            return;
-        }
-
         IReadOnlyList<AccountSymbolMapping> identity;
         try
         {
@@ -833,7 +897,7 @@ public partial class WorkspaceBacktestingForm : Form
             return;
         }
 
-        using var dialog = new NewAccountDialog(workspaceId, identity.Count);
+        using var dialog = new NewAccountDialog(identity.Count, _accountGroups);
         if (dialog.ShowDialog(this) != DialogResult.OK) return;
 
         var account = dialog.BuildAccount();
@@ -850,13 +914,13 @@ public partial class WorkspaceBacktestingForm : Form
         try
         {
             NormalizeBaseAddress();
-            var created = await _workspaceApi.CreateAccountAsync(workspaceId, account);
+            var created = await _workspaceApi.CreateAccountAsync(account);
             _editingAccount = created;
             await ReloadAccountsAsync(showErrors: true);
             await LoadBacktestingAccountsAsync();
             _accountStatusLabel.Text =
                 $"Account '{created.Name}' creato con {created.SymbolMappings.Count} symbol 1 a 1.";
-            Log($"Account '{created.Id}' creato nel workspace '{workspaceId}'.");
+            Log($"Account globale '{created.Id}' creato.");
         }
         catch (Exception ex)
         {
@@ -879,7 +943,7 @@ public partial class WorkspaceBacktestingForm : Form
             _editingAccount = account;
             _accountNameTextBox.Text = account.Name;
             _accountNumberTextBox.Text = account.AccountNumber;
-            _accountGroupIdTextBox.Text = account.GroupId;
+            SelectComboValue(_accountGroupIdCombo, account.GroupId);
             _accountBrokerTextBox.Text = account.Broker;
             _accountCurrencyCombo.Text = string.IsNullOrWhiteSpace(account.Currency) ? "USD" : account.Currency;
             _accountInitialBalance.Value = Math.Clamp(
@@ -909,7 +973,7 @@ public partial class WorkspaceBacktestingForm : Form
             Id = _editingAccount?.Id ?? string.Empty,
             Name = _accountNameTextBox.Text.Trim(),
             AccountNumber = _accountNumberTextBox.Text.Trim(),
-            GroupId = _accountGroupIdTextBox.Text.Trim(),
+            GroupId = _accountGroupIdCombo.SelectedItem?.ToString()?.Trim() ?? string.Empty,
             Broker = _accountBrokerTextBox.Text.Trim(),
             Currency = string.IsNullOrWhiteSpace(_accountCurrencyCombo.Text) ? "USD" : _accountCurrencyCombo.Text.Trim(),
             InitialBalance = _accountInitialBalance.Value,
@@ -964,13 +1028,6 @@ public partial class WorkspaceBacktestingForm : Form
 
     private async Task SaveEditingAccountAsync()
     {
-        var workspaceId = GetSelectedAccountsWorkspaceId();
-        if (string.IsNullOrWhiteSpace(workspaceId))
-        {
-            MessageBox.Show("Seleziona prima un workspace.", "Account", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            return;
-        }
-
         if (_editingAccount is null)
         {
             MessageBox.Show(
@@ -983,14 +1040,14 @@ public partial class WorkspaceBacktestingForm : Form
         {
             var account = ReadAccountFromEditor();
             NormalizeBaseAddress();
-            var saved = await _workspaceApi.SaveAccountAsync(workspaceId, _editingAccount.Id, account);
+            var saved = await _workspaceApi.SaveAccountAsync(_editingAccount.Id, account);
 
             _editingAccount = saved;
             await ReloadAccountsAsync(showErrors: true);
             await LoadBacktestingAccountsAsync();
             _accountStatusLabel.Text =
                 $"Account '{saved.Name}' salvato ({saved.SymbolMappings.Count} symbol mappati).";
-            Log($"Account '{saved.Id}' salvato nel workspace '{workspaceId}'.");
+            Log($"Account globale '{saved.Id}' salvato.");
         }
         catch (Exception ex)
         {
@@ -1000,11 +1057,10 @@ public partial class WorkspaceBacktestingForm : Form
 
     private async Task DeleteSelectedAccountAsync()
     {
-        var workspaceId = GetSelectedAccountsWorkspaceId();
-        if (string.IsNullOrWhiteSpace(workspaceId) || _editingAccount is null) return;
+        if (_editingAccount is null) return;
 
         if (MessageBox.Show(
-                $"Eliminare l'account '{_editingAccount.Name}' dal workspace '{workspaceId}'?",
+                $"Eliminare l'account globale '{_editingAccount.Name}'?",
                 "Elimina account",
                 MessageBoxButtons.YesNo,
                 MessageBoxIcon.Question) != DialogResult.Yes)
@@ -1013,8 +1069,8 @@ public partial class WorkspaceBacktestingForm : Form
         try
         {
             NormalizeBaseAddress();
-            await _workspaceApi.DeleteAccountAsync(workspaceId, _editingAccount.Id);
-            Log($"Account '{_editingAccount.Id}' eliminato dal workspace '{workspaceId}'.");
+            await _workspaceApi.DeleteAccountAsync(_editingAccount.Id);
+            Log($"Account globale '{_editingAccount.Id}' eliminato.");
             _editingAccount = null;
             await ReloadAccountsAsync(showErrors: true);
         }
@@ -1145,9 +1201,10 @@ public partial class WorkspaceBacktestingForm : Form
         _sessionAccountGroups.AllowUserToDeleteRows = true;
         _sessionAccountGroups.RowHeadersVisible = false;
         _sessionAccountGroups.AutoGenerateColumns = false;
-        _sessionAccountGroups.Columns.Add(new DataGridViewTextBoxColumn
+        _sessionAccountGroups.Columns.Add(new DataGridViewComboBoxColumn
         {
-            Name = "GroupId", HeaderText = "Codice gruppo", FillWeight = 20
+            Name = "GroupId", HeaderText = "Codice gruppo", FillWeight = 20,
+            DisplayStyle = DataGridViewComboBoxDisplayStyle.DropDownButton
         });
         _sessionAccountGroups.Columns.Add(new DataGridViewComboBoxColumn
         {
@@ -1155,10 +1212,30 @@ public partial class WorkspaceBacktestingForm : Form
             DisplayMember = nameof(TitanoSetupInfo.Name), ValueMember = nameof(TitanoSetupInfo.Id),
             DisplayStyle = DataGridViewComboBoxDisplayStyle.DropDownButton
         });
-        _sessionAccountGroups.Columns.Add(new DataGridViewTextBoxColumn
+        _sessionAccountGroups.Columns.Add(new DataGridViewComboBoxColumn
         {
-            Name = "AccountNumber", HeaderText = "Codice account", FillWeight = 20
+            Name = "AccountNumber", HeaderText = "Codice account", FillWeight = 20,
+            DisplayMember = nameof(AccountNumberListItem.DisplayText),
+            ValueMember = nameof(AccountNumberListItem.AccountNumber),
+            DisplayStyle = DataGridViewComboBoxDisplayStyle.DropDownButton
         });
+        _sessionAccountGroups.DataError += (_, e) => e.ThrowException = false;
+        _sessionAccountGroups.CurrentCellDirtyStateChanged += (_, _) =>
+        {
+            if (_sessionAccountGroups.IsCurrentCellDirty)
+                _sessionAccountGroups.CommitEdit(DataGridViewDataErrorContexts.Commit);
+        };
+        _sessionAccountGroups.CellValueChanged += (_, e) =>
+        {
+            if (e.RowIndex < 0 || _sessionAccountGroups.Columns[e.ColumnIndex].Name != "AccountNumber")
+                return;
+            var row = _sessionAccountGroups.Rows[e.RowIndex];
+            var accountNumber = Convert.ToString(row.Cells["AccountNumber"].Value);
+            var account = _accounts.FirstOrDefault(item =>
+                item.AccountNumber.Equals(accountNumber, StringComparison.OrdinalIgnoreCase));
+            if (account is not null && !string.IsNullOrWhiteSpace(account.GroupId))
+                row.Cells["GroupId"].Value = account.GroupId;
+        };
         _sessionAccountGroups.Columns.Add(new DataGridViewCheckBoxColumn
         {
             Name = "ApplyTitanoFilters", HeaderText = "Applica Titano", FillWeight = 12, TrueValue = true, FalseValue = false
@@ -1720,7 +1797,6 @@ public partial class WorkspaceBacktestingForm : Form
             UpdateBacktestingWorkspaceHint();
             if (_suppressWorkspaceEvents) return;
             await LoadBacktestingMasterFilterSummaryAsync();
-            await LoadBacktestingAccountsAsync();
         };
 
         _backtestingAccountCombo.DropDownStyle = ComboBoxStyle.DropDownList;
@@ -1993,7 +2069,6 @@ public partial class WorkspaceBacktestingForm : Form
             _backtestingWorkspaceCombo.Items.Clear();
             _titanoWorkspaceCombo.Items.Clear();
             _sessionWorkspaceCombo.Items.Clear();
-            _accountsWorkspaceCombo.Items.Clear();
 
             foreach (var workspace in _workspaces)
             {
@@ -2002,7 +2077,6 @@ public partial class WorkspaceBacktestingForm : Form
                 _backtestingWorkspaceCombo.Items.Add(item);
                 _titanoWorkspaceCombo.Items.Add(new WorkspaceListItem(workspace));
                 _sessionWorkspaceCombo.Items.Add(new WorkspaceListItem(workspace));
-                _accountsWorkspaceCombo.Items.Add(new WorkspaceListItem(workspace));
             }
 
             if (!string.IsNullOrWhiteSpace(selectedId) && preserveSelection)
@@ -2022,7 +2096,6 @@ public partial class WorkspaceBacktestingForm : Form
                     _titanoWorkspaceCombo.SelectedIndex = 0;
                 }
                 if (_sessionWorkspaceCombo.Items.Count > 0) _sessionWorkspaceCombo.SelectedIndex = 0;
-                if (_accountsWorkspaceCombo.Items.Count > 0) _accountsWorkspaceCombo.SelectedIndex = 0;
             }
             else
             {
@@ -2058,7 +2131,6 @@ public partial class WorkspaceBacktestingForm : Form
 
         SelectComboWorkspace(_backtestingWorkspaceCombo, workspaceId);
         SelectComboWorkspace(_titanoWorkspaceCombo, workspaceId);
-        SelectComboWorkspace(_accountsWorkspaceCombo, workspaceId);
     }
 
     private static void SelectComboWorkspace(ComboBox combo, string workspaceId)
@@ -3399,15 +3471,15 @@ public partial class WorkspaceBacktestingForm : Form
     {
         private readonly TextBox _name = new() { Width = 260 };
         private readonly TextBox _accountNumber = new() { Width = 260 };
-        private readonly TextBox _groupId = new() { Width = 260 };
+        private readonly ComboBox _groupId = new() { Width = 260, DropDownStyle = ComboBoxStyle.DropDownList };
         private readonly TextBox _broker = new() { Width = 260 };
         private readonly ComboBox _currency = new() { Width = 100 };
         private readonly NumericUpDown _initialBalance = new() { Width = 160 };
         private readonly TextBox _notes = new() { Width = 260, Multiline = true, Height = 52 };
 
-        public NewAccountDialog(string workspaceId, int presetSymbolCount)
+        public NewAccountDialog(int presetSymbolCount, IReadOnlyList<string> groups)
         {
-            Text = $"Nuovo account · workspace {workspaceId}";
+            Text = "Nuovo account globale";
             FormBorderStyle = FormBorderStyle.FixedDialog;
             StartPosition = FormStartPosition.CenterParent;
             MinimizeBox = false;
@@ -3416,6 +3488,10 @@ public partial class WorkspaceBacktestingForm : Form
 
             _currency.Items.AddRange(new object[] { "USD", "EUR", "GBP", "CHF" });
             _currency.Text = "USD";
+            _groupId.Items.Add(string.Empty);
+            foreach (var group in groups.OrderBy(group => group, StringComparer.OrdinalIgnoreCase))
+                _groupId.Items.Add(group);
+            _groupId.SelectedIndex = 0;
 
             _initialBalance.Minimum = 0;
             _initialBalance.Maximum = 1_000_000_000;
@@ -3524,6 +3600,18 @@ public partial class WorkspaceBacktestingForm : Form
             return $"{Account.Name} · {group} · {Account.InitialBalance:N0} {Account.Currency} · " +
                    $"{Account.SymbolMappings.Count} symbol{state}";
         }
+    }
+
+    private sealed class AccountNumberListItem
+    {
+        public AccountNumberListItem(WorkspaceAccount account)
+        {
+            AccountNumber = account.AccountNumber;
+            DisplayText = $"{account.Name} · {account.AccountNumber}";
+        }
+
+        public string AccountNumber { get; }
+        public string DisplayText { get; }
     }
 
     private sealed class WorkspaceBacktestItem

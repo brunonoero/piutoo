@@ -9,6 +9,7 @@ public class PiootooSettings
     public string RepositoryPath { get; set; } = string.Empty;
     public string SettingsPath { get; set; } = string.Empty;
     public string Workspaces { get; set; } = string.Empty;
+    public string Accounts { get; set; } = string.Empty;
     public string StrategiesPath { get; set; } = string.Empty;
 
     /// <summary>
@@ -21,6 +22,7 @@ public class PiootooSettings
             RepositoryPath = ResolvePath(RepositoryPath);
             SettingsPath = ResolvePath(SettingsPath);
             Workspaces = ResolvePath(Workspaces);
+            Accounts = ResolvePath(Accounts);
             StrategiesPath = ResolvePath(StrategiesPath);
         }
     }
@@ -45,6 +47,9 @@ public class PiootooSettings
 
     /// <summary>Ottiene la cartella radice dei workspace applicativi.</summary>
     public string GetWorkspacesPath() => ResolvePath(Workspaces);
+
+    /// <summary>Ottiene la cartella del registro account globale.</summary>
+    public string GetAccountsPath() => ResolvePath(Accounts);
 
     /// <summary>
     /// Ottiene il path completo delle strategie

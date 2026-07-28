@@ -21,14 +21,26 @@ public sealed class WorkspaceService
 
     private readonly string _rootPath;
     private readonly string _settingsPath;
+    private readonly string _accountsPath;
+    private readonly object _accountsGate = new();
     private readonly JsonSerializerOptions _jsonOptions = new() { WriteIndented = true };
 
     public WorkspaceService(PiootooSettings settings)
     {
         _rootPath = settings.GetWorkspacesPath();
-        _settingsPath = settings.GetSettingsPath();
+        var repositoryRoot = Directory.GetParent(Path.GetFullPath(_rootPath))?.FullName
+            ?? throw new InvalidOperationException("Il path dei workspace non ha una cartella radice valida.");
+        _settingsPath = string.IsNullOrWhiteSpace(settings.GetSettingsPath())
+            ? Path.Combine(repositoryRoot, "settings")
+            : settings.GetSettingsPath();
+        _accountsPath = string.IsNullOrWhiteSpace(settings.GetAccountsPath())
+            ? (string.IsNullOrWhiteSpace(settings.BasePath)
+                ? Path.Combine(_rootPath, "accounts")
+                : Path.Combine(repositoryRoot, "accounts"))
+            : settings.GetAccountsPath();
         Directory.CreateDirectory(_rootPath);
         Directory.CreateDirectory(_settingsPath);
+        Directory.CreateDirectory(_accountsPath);
     }
 
     public IReadOnlyList<WorkspaceInfo> List()
@@ -83,63 +95,117 @@ public sealed class WorkspaceService
         return filter;
     }
 
-    /// <summary>Account configurati nel workspace, ordinati per nome.</summary>
-    public IReadOnlyList<WorkspaceAccount> ListAccounts(string workspaceId)
-        => ReadAccountsFile(GetExistingWorkspacePath(workspaceId)).Accounts
-            .OrderBy(account => account.Name, StringComparer.OrdinalIgnoreCase)
-            .ToList();
-
-    public WorkspaceAccount GetAccount(string workspaceId, string accountId)
+    /// <summary>Account globali, condivisi da tutti i workspace e ordinati per nome.</summary>
+    public IReadOnlyList<WorkspaceAccount> ListAccounts()
     {
-        var accounts = ReadAccountsFile(GetExistingWorkspacePath(workspaceId)).Accounts;
-        return FindAccount(accounts, accountId)
-            ?? throw new KeyNotFoundException($"Account '{accountId}' non trovato nel workspace '{workspaceId}'.");
+        lock (_accountsGate)
+            return ReadGlobalAccountsFile().Accounts
+                .OrderBy(account => account.Name, StringComparer.OrdinalIgnoreCase)
+                .ToList();
     }
 
-    public WorkspaceAccount CreateAccount(string workspaceId, WorkspaceAccount account)
+    public WorkspaceAccount GetAccount(string accountId)
     {
-        var path = GetExistingWorkspacePath(workspaceId);
-        var file = ReadAccountsFile(path);
+        lock (_accountsGate)
+        {
+            var accounts = ReadGlobalAccountsFile().Accounts;
+            return FindAccount(accounts, accountId)
+                ?? throw new KeyNotFoundException($"Account globale '{accountId}' non trovato.");
+        }
+    }
 
-        var normalized = NormalizeAccount(account);
-        normalized.Id = ToAccountId(normalized.Name);
-        if (FindAccount(file.Accounts, normalized.Id) is not null)
-            throw new InvalidOperationException($"L'account '{normalized.Id}' esiste già nel workspace '{workspaceId}'.");
+    public WorkspaceAccount CreateAccount(WorkspaceAccount account)
+    {
+        lock (_accountsGate)
+        {
+            var file = ReadGlobalAccountsFile();
 
-        normalized.CreatedUtc = DateTime.UtcNow;
-        normalized.UpdatedUtc = normalized.CreatedUtc;
-        file.Accounts.Add(normalized);
-        WriteAccountsFile(path, file);
-        return normalized;
+            var normalized = NormalizeAccount(account);
+            normalized.Id = ToAccountId(normalized.Name);
+            if (FindAccount(file.Accounts, normalized.Id) is not null)
+                throw new InvalidOperationException($"L'account globale '{normalized.Id}' esiste già.");
+
+            normalized.CreatedUtc = DateTime.UtcNow;
+            normalized.UpdatedUtc = normalized.CreatedUtc;
+            file.Accounts.Add(normalized);
+            if (normalized.GroupId.Length > 0 &&
+                !file.Groups.Contains(normalized.GroupId, StringComparer.OrdinalIgnoreCase))
+                file.Groups.Add(normalized.GroupId);
+            WriteGlobalAccountsFile(file);
+            return normalized;
+        }
     }
 
     /// <summary>Sovrascrive un account esistente, tabella di conversione compresa.</summary>
-    public WorkspaceAccount SaveAccount(string workspaceId, string accountId, WorkspaceAccount account)
+    public WorkspaceAccount SaveAccount(string accountId, WorkspaceAccount account)
     {
-        var path = GetExistingWorkspacePath(workspaceId);
-        var file = ReadAccountsFile(path);
-        var existing = FindAccount(file.Accounts, accountId)
-            ?? throw new KeyNotFoundException($"Account '{accountId}' non trovato nel workspace '{workspaceId}'.");
+        lock (_accountsGate)
+        {
+            var file = ReadGlobalAccountsFile();
+            var existing = FindAccount(file.Accounts, accountId)
+                ?? throw new KeyNotFoundException($"Account globale '{accountId}' non trovato.");
 
-        var normalized = NormalizeAccount(account);
-        normalized.Id = existing.Id;
-        normalized.CreatedUtc = existing.CreatedUtc == default ? DateTime.UtcNow : existing.CreatedUtc;
-        normalized.UpdatedUtc = DateTime.UtcNow;
+            var normalized = NormalizeAccount(account);
+            normalized.Id = existing.Id;
+            normalized.CreatedUtc = existing.CreatedUtc == default ? DateTime.UtcNow : existing.CreatedUtc;
+            normalized.UpdatedUtc = DateTime.UtcNow;
 
-        file.Accounts[file.Accounts.IndexOf(existing)] = normalized;
-        WriteAccountsFile(path, file);
-        return normalized;
+            file.Accounts[file.Accounts.IndexOf(existing)] = normalized;
+            if (normalized.GroupId.Length > 0 &&
+                !file.Groups.Contains(normalized.GroupId, StringComparer.OrdinalIgnoreCase))
+                file.Groups.Add(normalized.GroupId);
+            WriteGlobalAccountsFile(file);
+            return normalized;
+        }
     }
 
-    public void DeleteAccount(string workspaceId, string accountId)
+    public void DeleteAccount(string accountId)
     {
-        var path = GetExistingWorkspacePath(workspaceId);
-        var file = ReadAccountsFile(path);
-        var existing = FindAccount(file.Accounts, accountId)
-            ?? throw new KeyNotFoundException($"Account '{accountId}' non trovato nel workspace '{workspaceId}'.");
+        lock (_accountsGate)
+        {
+            var file = ReadGlobalAccountsFile();
+            var existing = FindAccount(file.Accounts, accountId)
+                ?? throw new KeyNotFoundException($"Account globale '{accountId}' non trovato.");
 
-        file.Accounts.Remove(existing);
-        WriteAccountsFile(path, file);
+            file.Accounts.Remove(existing);
+            WriteGlobalAccountsFile(file);
+        }
+    }
+
+    public IReadOnlyList<string> ListAccountGroups()
+    {
+        lock (_accountsGate)
+            return NormalizeGroups(ReadGlobalAccountsFile()).ToList();
+    }
+
+    public IReadOnlyList<string> AddAccountGroup(string groupId)
+    {
+        var normalized = NormalizeGroupId(groupId);
+        lock (_accountsGate)
+        {
+            var file = ReadGlobalAccountsFile();
+            if (!NormalizeGroups(file).Contains(normalized, StringComparer.OrdinalIgnoreCase))
+                file.Groups.Add(normalized);
+            WriteGlobalAccountsFile(file);
+            return NormalizeGroups(file).ToList();
+        }
+    }
+
+    public IReadOnlyList<string> RemoveAccountGroup(string groupId)
+    {
+        var normalized = NormalizeGroupId(groupId);
+        lock (_accountsGate)
+        {
+            var file = ReadGlobalAccountsFile();
+            if (file.Accounts.Any(account =>
+                    account.GroupId.Equals(normalized, StringComparison.OrdinalIgnoreCase)))
+                throw new InvalidOperationException(
+                    $"Il gruppo '{normalized}' è utilizzato da uno o più account e non può essere eliminato.");
+
+            file.Groups.RemoveAll(group => group.Equals(normalized, StringComparison.OrdinalIgnoreCase));
+            WriteGlobalAccountsFile(file);
+            return NormalizeGroups(file).ToList();
+        }
     }
 
     /// <summary>
@@ -173,21 +239,22 @@ public sealed class WorkspaceService
     }
 
     /// <summary>
-    /// Restituisce l'account di default del workspace creandolo se manca: mappatura identità sui
+    /// Restituisce l'account di default globale creandolo se manca: mappatura identità sui
     /// simboli del catalogo, moltiplicatore 1 e balance iniziale di un milione. È l'account da usare
     /// quando si vuole un backtest senza conversioni.
     /// </summary>
-    public WorkspaceAccount EnsureDefaultAccount(string workspaceId)
+    public WorkspaceAccount EnsureDefaultAccount()
     {
-        var path = GetExistingWorkspacePath(workspaceId);
-        var file = ReadAccountsFile(path);
-        var defaultId = ToAccountId(DefaultAccountName);
-        var existing = FindAccount(file.Accounts, defaultId);
-        if (existing is not null)
-            return existing;
-
-        var account = NormalizeAccount(new WorkspaceAccount
+        lock (_accountsGate)
         {
+            var file = ReadGlobalAccountsFile();
+            var defaultId = ToAccountId(DefaultAccountName);
+            var existing = FindAccount(file.Accounts, defaultId);
+            if (existing is not null)
+                return existing;
+
+            var account = NormalizeAccount(new WorkspaceAccount
+            {
             Name = DefaultAccountName,
             AccountNumber = DefaultAccountName,
             GroupId = DefaultAccountName,
@@ -199,14 +266,17 @@ public sealed class WorkspaceService
             // Identità e non il preset condiviso: l'account 'Default' deve restare 1 a 1 anche se
             // il preset è stato modificato.
             SymbolMappings = BuildIdentityMappings()
-        });
-        account.Id = defaultId;
-        account.CreatedUtc = DateTime.UtcNow;
-        account.UpdatedUtc = account.CreatedUtc;
+            });
+            account.Id = defaultId;
+            account.CreatedUtc = DateTime.UtcNow;
+            account.UpdatedUtc = account.CreatedUtc;
 
-        file.Accounts.Add(account);
-        WriteAccountsFile(path, file);
-        return account;
+            file.Accounts.Add(account);
+            if (!file.Groups.Contains(account.GroupId, StringComparer.OrdinalIgnoreCase))
+                file.Groups.Add(account.GroupId);
+            WriteGlobalAccountsFile(file);
+            return account;
+        }
     }
 
     /// <summary>
@@ -236,24 +306,79 @@ public sealed class WorkspaceService
     private static List<AccountSymbolMapping> NormalizeMappings(List<AccountSymbolMapping> mappings)
         => NormalizeAccount(new WorkspaceAccount { Name = "preset", SymbolMappings = mappings }).SymbolMappings;
 
-    private WorkspaceAccountsFile ReadAccountsFile(string workspacePath)
+    private WorkspaceAccountsFile ReadGlobalAccountsFile()
     {
-        var file = Path.Combine(workspacePath, AccountsFileName);
+        var file = Path.Combine(_accountsPath, AccountsFileName);
+        if (!File.Exists(file))
+            MigrateWorkspaceAccounts(file);
         if (!File.Exists(file))
             return new WorkspaceAccountsFile();
 
-        return JsonSerializer.Deserialize<WorkspaceAccountsFile>(File.ReadAllText(file), _jsonOptions)
+        var result = JsonSerializer.Deserialize<WorkspaceAccountsFile>(File.ReadAllText(file), _jsonOptions)
             ?? new WorkspaceAccountsFile();
+        result.Groups = NormalizeGroups(result).ToList();
+        return result;
     }
 
-    private void WriteAccountsFile(string workspacePath, WorkspaceAccountsFile file)
+    private void WriteGlobalAccountsFile(WorkspaceAccountsFile file)
     {
+        file.Groups = NormalizeGroups(file).ToList();
         file.Accounts = file.Accounts
             .OrderBy(account => account.Name, StringComparer.OrdinalIgnoreCase)
             .ToList();
         AtomicFileWriter.WriteAllText(
-            Path.Combine(workspacePath, AccountsFileName),
+            Path.Combine(_accountsPath, AccountsFileName),
             JsonSerializer.Serialize(file, _jsonOptions));
+    }
+
+    /// <summary>
+    /// Importa una sola volta i vecchi account per-workspace nel registro globale. I file originali
+    /// restano al loro posto come backup; in caso di collisione prevale il record aggiornato più di recente.
+    /// </summary>
+    private void MigrateWorkspaceAccounts(string globalFile)
+    {
+        if (File.Exists(globalFile))
+            return;
+
+        var merged = new Dictionary<string, WorkspaceAccount>(StringComparer.OrdinalIgnoreCase);
+        foreach (var workspacePath in Directory.EnumerateDirectories(_rootPath).OrderBy(path => path))
+        {
+            var legacyFile = Path.Combine(workspacePath, AccountsFileName);
+            if (!File.Exists(legacyFile))
+                continue;
+
+            var legacy = JsonSerializer.Deserialize<WorkspaceAccountsFile>(
+                File.ReadAllText(legacyFile), _jsonOptions) ?? new WorkspaceAccountsFile();
+            foreach (var account in legacy.Accounts)
+            {
+                var normalized = NormalizeAccount(account);
+                normalized.Id = string.IsNullOrWhiteSpace(account.Id)
+                    ? ToAccountId(normalized.Name)
+                    : account.Id.Trim();
+                if (!merged.TryGetValue(normalized.Id, out var existing) ||
+                    normalized.UpdatedUtc > existing.UpdatedUtc)
+                    merged[normalized.Id] = normalized;
+            }
+        }
+
+        if (merged.Count > 0)
+            WriteGlobalAccountsFile(new WorkspaceAccountsFile { Accounts = merged.Values.ToList() });
+    }
+
+    private static IEnumerable<string> NormalizeGroups(WorkspaceAccountsFile file)
+        => (file.Groups ?? new List<string>())
+            .Concat(file.Accounts.Select(account => account.GroupId))
+            .Select(group => group?.Trim() ?? string.Empty)
+            .Where(group => group.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(group => group, StringComparer.OrdinalIgnoreCase);
+
+    private static string NormalizeGroupId(string groupId)
+    {
+        var normalized = groupId?.Trim() ?? string.Empty;
+        if (normalized.Length == 0)
+            throw new ArgumentException("Il codice gruppo è obbligatorio.");
+        return normalized;
     }
 
     private static WorkspaceAccount? FindAccount(List<WorkspaceAccount> accounts, string accountId)

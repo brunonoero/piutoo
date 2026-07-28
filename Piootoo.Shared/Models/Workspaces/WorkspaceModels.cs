@@ -53,10 +53,10 @@ public sealed class AccountSymbolMapping
     public bool Enabled { get; set; } = true;
 }
 
-/// <summary>Account di trading configurato dentro un workspace (<c>accounts.json</c>).</summary>
+/// <summary>Account di trading globale, condiviso da tutti i workspace.</summary>
 public sealed class WorkspaceAccount
 {
-    /// <summary>Slug derivato dal nome; identifica l'account dentro il workspace.</summary>
+    /// <summary>Slug derivato dal nome; identifica univocamente l'account nel registro globale.</summary>
     public string Id { get; set; } = string.Empty;
 
     public string Name { get; set; } = string.Empty;
@@ -86,8 +86,15 @@ public sealed class WorkspaceAccount
     public List<AccountSymbolMapping> SymbolMappings { get; set; } = new();
 }
 
-/// <summary>Contenuto di <c>&lt;workspace&gt;/accounts.json</c>.</summary>
+/// <summary>Contenuto del registro globale <c>accounts/accounts.json</c>.</summary>
 public sealed class WorkspaceAccountsFile
 {
+    public List<string> Groups { get; set; } = new();
     public List<WorkspaceAccount> Accounts { get; set; } = new();
+}
+
+/// <summary>Richiesta di creazione di un gruppo account globale.</summary>
+public sealed class CreateAccountGroupRequest
+{
+    public string GroupId { get; set; } = string.Empty;
 }

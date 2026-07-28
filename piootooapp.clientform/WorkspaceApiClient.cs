@@ -189,48 +189,74 @@ public sealed class WorkspaceApiClient
     }
 
     public async Task<WorkspaceAccount> EnsureDefaultAccountAsync(
-        string workspaceId,
         CancellationToken cancellationToken = default)
     {
-        var encoded = Uri.EscapeDataString(workspaceId);
         using var response = await SendAsync(
-            HttpMethod.Post, $"api/Workspace/{encoded}/accounts/default", null, cancellationToken);
+            HttpMethod.Post, "api/Accounts/default", null, cancellationToken);
         return await response.Content.ReadFromJsonAsync<WorkspaceAccount>(_jsonOptions, cancellationToken)
             ?? throw new InvalidOperationException("Risposta account di default vuota.");
     }
 
     public async Task<IReadOnlyList<WorkspaceAccount>> ListAccountsAsync(
-        string workspaceId,
         CancellationToken cancellationToken = default)
     {
-        var encoded = Uri.EscapeDataString(workspaceId);
-        using var response = await SendAsync(HttpMethod.Get, $"api/Workspace/{encoded}/accounts", null, cancellationToken);
+        using var response = await SendAsync(HttpMethod.Get, "api/Accounts", null, cancellationToken);
         return await response.Content.ReadFromJsonAsync<List<WorkspaceAccount>>(_jsonOptions, cancellationToken)
             ?? new List<WorkspaceAccount>();
     }
 
+    public async Task<IReadOnlyList<string>> ListAccountGroupsAsync(
+        CancellationToken cancellationToken = default)
+    {
+        using var response = await SendAsync(HttpMethod.Get, "api/Accounts/groups", null, cancellationToken);
+        return await response.Content.ReadFromJsonAsync<List<string>>(_jsonOptions, cancellationToken)
+            ?? new List<string>();
+    }
+
+    public async Task<IReadOnlyList<string>> AddAccountGroupAsync(
+        string groupId,
+        CancellationToken cancellationToken = default)
+    {
+        using var response = await SendAsync(
+            HttpMethod.Post,
+            "api/Accounts/groups",
+            new CreateAccountGroupRequest { GroupId = groupId },
+            cancellationToken);
+        return await response.Content.ReadFromJsonAsync<List<string>>(_jsonOptions, cancellationToken)
+            ?? new List<string>();
+    }
+
+    public async Task<IReadOnlyList<string>> RemoveAccountGroupAsync(
+        string groupId,
+        CancellationToken cancellationToken = default)
+    {
+        using var response = await SendAsync(
+            HttpMethod.Delete,
+            $"api/Accounts/groups/{Uri.EscapeDataString(groupId)}",
+            null,
+            cancellationToken);
+        return await response.Content.ReadFromJsonAsync<List<string>>(_jsonOptions, cancellationToken)
+            ?? new List<string>();
+    }
+
     public async Task<WorkspaceAccount> CreateAccountAsync(
-        string workspaceId,
         WorkspaceAccount account,
         CancellationToken cancellationToken = default)
     {
-        var encoded = Uri.EscapeDataString(workspaceId);
-        using var response = await SendAsync(HttpMethod.Post, $"api/Workspace/{encoded}/accounts", account, cancellationToken);
+        using var response = await SendAsync(HttpMethod.Post, "api/Accounts", account, cancellationToken);
         return await response.Content.ReadFromJsonAsync<WorkspaceAccount>(_jsonOptions, cancellationToken)
             ?? throw new InvalidOperationException("Risposta di creazione account vuota.");
     }
 
     public async Task<WorkspaceAccount> SaveAccountAsync(
-        string workspaceId,
         string accountId,
         WorkspaceAccount account,
         CancellationToken cancellationToken = default)
     {
-        var encoded = Uri.EscapeDataString(workspaceId);
         var encodedAccount = Uri.EscapeDataString(accountId);
         using var response = await SendAsync(
             HttpMethod.Put,
-            $"api/Workspace/{encoded}/accounts/{encodedAccount}",
+            $"api/Accounts/{encodedAccount}",
             account,
             cancellationToken);
         return await response.Content.ReadFromJsonAsync<WorkspaceAccount>(_jsonOptions, cancellationToken)
@@ -238,15 +264,13 @@ public sealed class WorkspaceApiClient
     }
 
     public async Task DeleteAccountAsync(
-        string workspaceId,
         string accountId,
         CancellationToken cancellationToken = default)
     {
-        var encoded = Uri.EscapeDataString(workspaceId);
         var encodedAccount = Uri.EscapeDataString(accountId);
         using var response = await SendAsync(
             HttpMethod.Delete,
-            $"api/Workspace/{encoded}/accounts/{encodedAccount}",
+            $"api/Accounts/{encodedAccount}",
             null,
             cancellationToken);
         _ = response;
