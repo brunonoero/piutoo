@@ -106,6 +106,8 @@ public interface ITradingSessionService
     /// oppure nessun segnale se l'account è già occupato o non c'è nulla di disponibile.
     /// </summary>
     AccountSignalResponse GetNextSignalForAccount(string sessionId, string token, string accountNumber);
+    AccountSignalResponse PollSignalForAccount(
+        string sessionId, string accountNumber, AccountSignalPollRequest request);
 
     /// <summary>
     /// Registra un intent di chiusura (<see cref="OrderIntentKind.Close"/>) per una posizione che un
@@ -157,6 +159,8 @@ public sealed class TradingSessionService : ITradingSessionService
 
         /// <summary>Mappa AccountNumber -> GroupId configurata dal tab Trading Session.</summary>
         public Dictionary<string, string> AccountGroups { get; } = new(StringComparer.OrdinalIgnoreCase);
+        public Dictionary<string, int> AccountMaxConcurrentTrades { get; } =
+            new(StringComparer.OrdinalIgnoreCase);
 
         /// <summary>Profilo Titano per GroupId (RotationSetupId, run, flag apply).</summary>
         public Dictionary<string, GroupTitanoProfile> GroupProfiles { get; } =
@@ -679,6 +683,7 @@ public sealed class TradingSessionService : ITradingSessionService
                 throw new ArgumentException($"Account '{duplicated.Key}' configurato più di una volta.");
 
             session.AccountGroups.Clear();
+            session.AccountMaxConcurrentTrades.Clear();
             foreach (var mapping in accounts)
                 session.AccountGroups[mapping.AccountNumber.Trim()] = mapping.GroupId.Trim();
             Persist(session);
@@ -704,6 +709,7 @@ public sealed class TradingSessionService : ITradingSessionService
             ValidateTradingGroupRows(rows);
 
             session.AccountGroups.Clear();
+            session.AccountMaxConcurrentTrades.Clear();
             session.GroupProfiles.Clear();
             foreach (var group in rows.GroupBy(r => r.GroupId.Trim(), StringComparer.OrdinalIgnoreCase))
             {
@@ -720,7 +726,10 @@ public sealed class TradingSessionService : ITradingSessionService
                     ApplyTitanoFilters = sample.ApplyTitanoFilters
                 };
                 foreach (var row in group)
+                {
                     session.AccountGroups[row.AccountNumber.Trim()] = group.Key;
+                    session.AccountMaxConcurrentTrades[row.AccountNumber.Trim()] = row.MaxConcurrentTrades;
+                }
             }
             Persist(session);
         }
@@ -742,6 +751,9 @@ public sealed class TradingSessionService : ITradingSessionService
         {
             if (string.IsNullOrWhiteSpace(row.GroupId) || string.IsNullOrWhiteSpace(row.AccountNumber))
                 throw new ArgumentException("GroupId e AccountNumber sono obbligatori per ogni riga.");
+            if (row.MaxConcurrentTrades < 0)
+                throw new ArgumentException(
+                    $"MaxConcurrentTrades non può essere negativo per l'account '{row.AccountNumber}'.");
             if (!string.IsNullOrWhiteSpace(row.TitanoRunId) &&
                 string.IsNullOrWhiteSpace(row.TitanoBacktestFolder))
                 throw new ArgumentException($"TitanoRunId richiede TitanoBacktestFolder per il gruppo '{row.GroupId}'.");
@@ -774,6 +786,7 @@ public sealed class TradingSessionService : ITradingSessionService
                 {
                     GroupId = kv.Value,
                     AccountNumber = kv.Key,
+                    MaxConcurrentTrades = session.AccountMaxConcurrentTrades.GetValueOrDefault(kv.Key),
                     RotationSetupId = profile?.RotationSetupId,
                     TitanoRunId = profile?.TitanoRunId,
                     TitanoBacktestFolder = profile?.TitanoBacktestFolder,
@@ -785,6 +798,21 @@ public sealed class TradingSessionService : ITradingSessionService
             .ToArray();
 
     public AccountSignalResponse GetNextSignalForAccount(string sessionId, string token, string accountNumber)
+        => GetNextSignalForAccount(sessionId, token, accountNumber, brokerOpenPositions: null);
+
+    public AccountSignalResponse PollSignalForAccount(
+        string sessionId, string accountNumber, AccountSignalPollRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        return GetNextSignalForAccount(
+            sessionId,
+            request.SessionToken,
+            accountNumber,
+            request.Positions?.Count ?? 0);
+    }
+
+    private AccountSignalResponse GetNextSignalForAccount(
+        string sessionId, string token, string accountNumber, int? brokerOpenPositions)
     {
         if (string.IsNullOrWhiteSpace(accountNumber))
             throw new ArgumentException("AccountNumber obbligatorio.");
@@ -808,6 +836,18 @@ public sealed class TradingSessionService : ITradingSessionService
                 .FirstOrDefault();
             if (assigned != null)
                 return new AccountSignalResponse { Intent = assigned };
+
+            var openPositions = brokerOpenPositions ?? CountServerPositionsForAccount(session, accountNumber);
+            var maxConcurrentTrades = session.AccountMaxConcurrentTrades.GetValueOrDefault(accountNumber);
+            if (IsConcurrentTradeLimitActive(session) &&
+                maxConcurrentTrades > 0 &&
+                openPositions >= maxConcurrentTrades)
+                return new AccountSignalResponse
+                {
+                    Reason = "MaxConcurrentTradesExceeded",
+                    OpenPositions = openPositions,
+                    MaxConcurrentTrades = maxConcurrentTrades
+                };
 
             // 2) Autolimitazione lato server: un segnale alla volta PER SIMBOLO (l'account può gestire in
             //    parallelo posizioni su simboli diversi, mai due ingressi sullo stesso simbolo insieme).
@@ -842,6 +882,14 @@ public sealed class TradingSessionService : ITradingSessionService
             return new AccountSignalResponse { Intent = claim };
         }
     }
+
+    private static bool IsConcurrentTradeLimitActive(Session session)
+        => !(session.ClientRunMode == ClientRunMode.Backtest &&
+             session.TitanoMode == TitanoFilterMode.Disabled);
+
+    private static int CountServerPositionsForAccount(Session session, string accountNumber)
+        => session.ExternalPositions.Keys.Count(key =>
+            key.StartsWith($"{accountNumber}|", StringComparison.OrdinalIgnoreCase));
 
     public OrderIntent CreateExternalCloseIntent(string sessionId, CreateExternalCloseIntentRequest request)
     {

@@ -334,6 +334,12 @@ public sealed class TradingGroupRow
     public required string GroupId { get; init; }
     public required string AccountNumber { get; init; }
 
+    /// <summary>
+    /// Massimo numero di posizioni contemporanee per questo account. Zero significa illimitato.
+    /// Ignorato nel backtest senza Titano.
+    /// </summary>
+    public int MaxConcurrentTrades { get; init; }
+
     /// <summary>Riferimento al setup salvato (rotation-setups); metadata per il client, non usato a runtime.</summary>
     public string? RotationSetupId { get; init; }
 
@@ -370,6 +376,31 @@ public sealed class AccountSignalResponse
     /// occupati dall'account) o "SessionNotRunning" (la sessione non è in esecuzione).
     /// </summary>
     public string? Reason { get; init; }
+    public int OpenPositions { get; init; }
+    public int MaxConcurrentTrades { get; init; }
+}
+
+/// <summary>Posizione Piootoo attualmente presente sulla piattaforma del broker.</summary>
+public sealed class BrokerPositionSnapshot
+{
+    public string PositionId { get; init; } = string.Empty;
+    public string Symbol { get; init; } = string.Empty;
+    public string StrategyCode { get; init; } = string.Empty;
+}
+
+/// <summary>Trade Piootoo presente nello storico della piattaforma broker.</summary>
+public sealed class BrokerTradeSnapshot
+{
+    public string PositionId { get; init; } = string.Empty;
+    public DateTime ClosingTimeUtc { get; init; }
+}
+
+/// <summary>Stato broker inviato dal cBot insieme a ogni richiesta del prossimo segnale.</summary>
+public sealed class AccountSignalPollRequest
+{
+    public required string SessionToken { get; init; }
+    public IReadOnlyList<BrokerPositionSnapshot> Positions { get; init; } = [];
+    public IReadOnlyList<BrokerTradeSnapshot> Trades { get; init; } = [];
 }
 
 /// <summary>

@@ -33,6 +33,7 @@ public sealed class TradingGroupTitanoTests
                     RotationSetupId = "bilanciato",
                     TitanoRunId = "run-a",
                     TitanoBacktestFolder = "source",
+                    MaxConcurrentTrades = 3,
                     ApplyTitanoFilters = true
                 },
                 new TradingGroupRow
@@ -42,12 +43,14 @@ public sealed class TradingGroupTitanoTests
                     RotationSetupId = "bilanciato",
                     TitanoRunId = "run-a",
                     TitanoBacktestFolder = "source",
+                    MaxConcurrentTrades = 4,
                     ApplyTitanoFilters = true
                 }
             ]);
 
             var rows = sessions.GetTradingGroups(descriptor.SessionId, descriptor.SessionToken);
             Assert.Equal(2, rows.Count);
+            Assert.Equal([3, 4], rows.Select(row => row.MaxConcurrentTrades).Order().ToArray());
             Assert.All(rows, row =>
             {
                 Assert.Equal("prop-a", row.GroupId);
@@ -59,6 +62,56 @@ public sealed class TradingGroupTitanoTests
 
             var legacy = sessions.GetAccountGroups(descriptor.SessionId, descriptor.SessionToken);
             Assert.Equal(2, legacy.Count);
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
+    [Fact]
+    public void AccountAtCapacity_DoesNotClaimTemplate_SiblingAccountCanReceiveIt()
+    {
+        var root = CreateRoot();
+        try
+        {
+            var (sessions, workspace, _) = CreateSessionStack(root);
+            var descriptor = sessions.Create(new CreateTradingSessionRequest
+            {
+                WorkspaceId = workspace.Id,
+                ExecutionMode = ExecutionMode.ExternalBroker,
+                ClientRunMode = ClientRunMode.Realtime,
+                TitanoMode = TitanoFilterMode.Disabled
+            });
+            sessions.SetTradingGroups(descriptor.SessionId, descriptor.SessionToken,
+            [
+                new TradingGroupRow
+                {
+                    GroupId = "prop-a", AccountNumber = "1001", MaxConcurrentTrades = 1,
+                    ApplyTitanoFilters = false
+                },
+                new TradingGroupRow
+                {
+                    GroupId = "prop-a", AccountNumber = "1002", MaxConcurrentTrades = 1,
+                    ApplyTitanoFilters = false
+                }
+            ]);
+            sessions.SetStatus(descriptor.SessionId, descriptor.SessionToken, TradingSessionStatus.Running);
+            var pushed = sessions.PushBars(Bars(descriptor, Utc(2026, 1, 5)));
+            Assert.NotEmpty(pushed.Intents);
+
+            var full = sessions.PollSignalForAccount(descriptor.SessionId, "1001",
+                new AccountSignalPollRequest
+                {
+                    SessionToken = descriptor.SessionToken,
+                    Positions = [new BrokerPositionSnapshot { PositionId = "open-1" }]
+                });
+            Assert.Null(full.Intent);
+            Assert.Equal("MaxConcurrentTradesExceeded", full.Reason);
+
+            var sibling = sessions.PollSignalForAccount(descriptor.SessionId, "1002",
+                new AccountSignalPollRequest { SessionToken = descriptor.SessionToken });
+            Assert.NotNull(sibling.Intent);
         }
         finally
         {

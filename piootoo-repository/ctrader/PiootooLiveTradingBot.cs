@@ -296,8 +296,31 @@ namespace cAlgo.Robots
         {
             try
             {
-                var response = _http.Send(BuildRequest(HttpMethod.Post,
-                    $"api/v1/trading-sessions/{SessionId}/accounts/{Uri.EscapeDataString(_accountNumber)}/signal"));
+                var platformState = new AccountSignalPollRequestDto
+                {
+                    SessionToken = SessionToken,
+                    Positions = Positions
+                        .Where(p => p.Label != null &&
+                                    p.Label.StartsWith(LabelPrefix + ":", StringComparison.Ordinal))
+                        .Select(p => new BrokerPositionSnapshotDto
+                        {
+                            PositionId = p.Id.ToString(),
+                            Symbol = p.SymbolName,
+                            StrategyCode = p.Label.Substring(LabelPrefix.Length + 1)
+                        })
+                        .ToList(),
+                    Trades = History
+                        .Where(t => t.Label != null &&
+                                    t.Label.StartsWith(LabelPrefix + ":", StringComparison.Ordinal))
+                        .Select(t => new BrokerTradeSnapshotDto
+                        {
+                            PositionId = t.PositionId.ToString()
+                        })
+                        .ToList()
+                };
+                var response = PostJson(
+                    $"api/v1/trading-sessions/{SessionId}/accounts/{Uri.EscapeDataString(_accountNumber)}/signal",
+                    platformState);
 
                 if (!response.IsSuccessStatusCode)
                 {
@@ -683,6 +706,27 @@ namespace cAlgo.Robots
         {
             public OrderIntentDto Intent { get; set; }
             public string Reason { get; set; }
+            public int OpenPositions { get; set; }
+            public int MaxConcurrentTrades { get; set; }
+        }
+
+        private sealed class AccountSignalPollRequestDto
+        {
+            public string SessionToken { get; set; }
+            public List<BrokerPositionSnapshotDto> Positions { get; set; } = new();
+            public List<BrokerTradeSnapshotDto> Trades { get; set; } = new();
+        }
+
+        private sealed class BrokerPositionSnapshotDto
+        {
+            public string PositionId { get; set; }
+            public string Symbol { get; set; }
+            public string StrategyCode { get; set; }
+        }
+
+        private sealed class BrokerTradeSnapshotDto
+        {
+            public string PositionId { get; set; }
         }
 
         private sealed class ExternalExecutionReportDto

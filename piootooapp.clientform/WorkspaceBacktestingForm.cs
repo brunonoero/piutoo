@@ -1219,6 +1219,11 @@ public partial class WorkspaceBacktestingForm : Form
             ValueMember = nameof(AccountNumberListItem.AccountNumber),
             DisplayStyle = DataGridViewComboBoxDisplayStyle.DropDownButton
         });
+        _sessionAccountGroups.Columns.Add(new DataGridViewTextBoxColumn
+        {
+            Name = "MaxConcurrentTrades", HeaderText = "Max trade contemporanei", FillWeight = 15,
+            ToolTipText = "0 = illimitato. Ignorato nel backtest senza Titano; applicato nel backtest Titano e in realtime."
+        });
         _sessionAccountGroups.DataError += (_, e) => e.ThrowException = false;
         _sessionAccountGroups.CurrentCellDirtyStateChanged += (_, _) =>
         {
@@ -1324,6 +1329,7 @@ public partial class WorkspaceBacktestingForm : Form
                     mapping.GroupId,
                     mapping.RotationSetupId,
                     mapping.AccountNumber,
+                    mapping.MaxConcurrentTrades,
                     mapping.ApplyTitanoFilters,
                     mapping.TitanoRunId);
             ShowSession($"Caricati {accounts.Count} account configurati.");
@@ -1345,6 +1351,7 @@ public partial class WorkspaceBacktestingForm : Form
                     ? setupId
                     : null,
                 AccountNumber = Convert.ToString(row.Cells["AccountNumber"].Value ?? string.Empty)!.Trim(),
+                MaxConcurrentTrades = ParseMaxConcurrentTrades(row),
                 ApplyTitanoFilters = row.Cells["ApplyTitanoFilters"].Value is not false,
                 TitanoRunId = Convert.ToString(row.Cells["TitanoRunId"].Value ?? string.Empty)!.Trim() is { Length: > 0 } runId
                     ? runId
@@ -1357,6 +1364,16 @@ public partial class WorkspaceBacktestingForm : Form
         if (rows.Any(row => row.AccountNumber.Length == 0 || row.GroupId.Length == 0))
             throw new InvalidOperationException("Ogni riga deve contenere codice gruppo e codice account.");
         return rows;
+    }
+
+    private static int ParseMaxConcurrentTrades(DataGridViewRow row)
+    {
+        var raw = Convert.ToString(row.Cells["MaxConcurrentTrades"].Value ?? string.Empty)?.Trim();
+        if (string.IsNullOrEmpty(raw))
+            return 0;
+        if (!int.TryParse(raw, out var value) || value < 0)
+            throw new InvalidOperationException("Max trade contemporanei deve essere un intero maggiore o uguale a zero.");
+        return value;
     }
 
     private async Task ApplyTitanoToGroupsAsync()

@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.ModelBinding;
 using Piootoo.Core.Services;
 using Piootoo.Shared.Models.Trading;
 
@@ -111,8 +112,13 @@ public sealed class TradingSessionsController : ControllerBase
     /// </summary>
     [HttpPost("{sessionId}/accounts/{accountNumber}/signal")]
     public ActionResult<AccountSignalResponse> NextSignal(
-        string sessionId, string accountNumber, [FromHeader(Name = "X-Session-Token")] string token)
-        => ExecuteResult<AccountSignalResponse>(() => Ok(_sessions.GetNextSignalForAccount(sessionId, token, accountNumber)));
+        string sessionId,
+        string accountNumber,
+        [FromHeader(Name = "X-Session-Token")] string token,
+        [FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] AccountSignalPollRequest? request)
+        => ExecuteResult<AccountSignalResponse>(() => Ok(request is null
+            ? _sessions.GetNextSignalForAccount(sessionId, token, accountNumber)
+            : _sessions.PollSignalForAccount(sessionId, accountNumber, request)));
 
     /// <summary>
     /// Registra un intent di chiusura (OrderIntentKind.Close) per una posizione che un cBot ExternalBroker ha
