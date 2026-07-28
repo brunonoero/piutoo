@@ -104,10 +104,11 @@ public sealed class TradingGroupTitanoTests
                 new AccountSignalPollRequest
                 {
                     SessionToken = descriptor.SessionToken,
-                    Positions = [new BrokerPositionSnapshot { PositionId = "open-1" }]
+                    Orders = [new BrokerOrderSnapshot { OrderId = "pending-1" }]
                 });
             Assert.Null(full.Intent);
             Assert.Equal("MaxConcurrentTradesExceeded", full.Reason);
+            Assert.Equal(1, full.PendingOrders);
 
             var sibling = sessions.PollSignalForAccount(descriptor.SessionId, "1002",
                 new AccountSignalPollRequest { SessionToken = descriptor.SessionToken });

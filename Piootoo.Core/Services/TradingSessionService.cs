@@ -798,7 +798,8 @@ public sealed class TradingSessionService : ITradingSessionService
             .ToArray();
 
     public AccountSignalResponse GetNextSignalForAccount(string sessionId, string token, string accountNumber)
-        => GetNextSignalForAccount(sessionId, token, accountNumber, brokerOpenPositions: null);
+        => GetNextSignalForAccount(
+            sessionId, token, accountNumber, brokerOpenPositions: null, brokerPendingOrders: null);
 
     public AccountSignalResponse PollSignalForAccount(
         string sessionId, string accountNumber, AccountSignalPollRequest request)
@@ -808,11 +809,16 @@ public sealed class TradingSessionService : ITradingSessionService
             sessionId,
             request.SessionToken,
             accountNumber,
-            request.Positions?.Count ?? 0);
+            request.Positions?.Count ?? 0,
+            request.Orders?.Count ?? 0);
     }
 
     private AccountSignalResponse GetNextSignalForAccount(
-        string sessionId, string token, string accountNumber, int? brokerOpenPositions)
+        string sessionId,
+        string token,
+        string accountNumber,
+        int? brokerOpenPositions,
+        int? brokerPendingOrders)
     {
         if (string.IsNullOrWhiteSpace(accountNumber))
             throw new ArgumentException("AccountNumber obbligatorio.");
@@ -838,14 +844,16 @@ public sealed class TradingSessionService : ITradingSessionService
                 return new AccountSignalResponse { Intent = assigned };
 
             var openPositions = brokerOpenPositions ?? CountServerPositionsForAccount(session, accountNumber);
+            var pendingOrders = brokerPendingOrders ?? 0;
             var maxConcurrentTrades = session.AccountMaxConcurrentTrades.GetValueOrDefault(accountNumber);
             if (IsConcurrentTradeLimitActive(session) &&
                 maxConcurrentTrades > 0 &&
-                openPositions >= maxConcurrentTrades)
+                openPositions + pendingOrders >= maxConcurrentTrades)
                 return new AccountSignalResponse
                 {
                     Reason = "MaxConcurrentTradesExceeded",
                     OpenPositions = openPositions,
+                    PendingOrders = pendingOrders,
                     MaxConcurrentTrades = maxConcurrentTrades
                 };
 

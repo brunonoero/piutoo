@@ -6,6 +6,7 @@ using System.Net.Http;
 using System.Text;
 using System.Text.Json;
 using cAlgo.API;
+using HttpMethod = System.Net.Http.HttpMethod;
 
 namespace cAlgo.Robots
 {

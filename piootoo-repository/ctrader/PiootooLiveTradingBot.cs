@@ -7,6 +7,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using cAlgo.API;
+using HttpMethod = System.Net.Http.HttpMethod;
 
 namespace cAlgo.Robots
 {
@@ -76,6 +77,9 @@ namespace cAlgo.Robots
 
         [Parameter("Http Timeout (secondi)", DefaultValue = 10, MinValue = 1)]
         public int HttpTimeoutSeconds { get; set; }
+
+        [Parameter("History Window (giorni)", DefaultValue = 30, MinValue = 1)]
+        public int HistoryWindowDays { get; set; }
 
         [Parameter("Log dettagliato", DefaultValue = false)]
         public bool VerboseLogging { get; set; }
@@ -296,6 +300,9 @@ namespace cAlgo.Robots
         {
             try
             {
+                var historyFromUtc = DateTime.SpecifyKind(
+                    Server.Time.AddDays(-Math.Max(1, HistoryWindowDays)),
+                    DateTimeKind.Utc);
                 var platformState = new AccountSignalPollRequestDto
                 {
                     SessionToken = SessionToken,
@@ -309,12 +316,24 @@ namespace cAlgo.Robots
                             StrategyCode = p.Label.Substring(LabelPrefix.Length + 1)
                         })
                         .ToList(),
+                    Orders = PendingOrders
+                        .Where(o => o.Label != null &&
+                                    o.Label.StartsWith(LabelPrefix + ":", StringComparison.Ordinal))
+                        .Select(o => new BrokerOrderSnapshotDto
+                        {
+                            OrderId = o.Id.ToString(),
+                            Symbol = o.SymbolName,
+                            StrategyCode = o.Label.Substring(LabelPrefix.Length + 1)
+                        })
+                        .ToList(),
                     Trades = History
                         .Where(t => t.Label != null &&
-                                    t.Label.StartsWith(LabelPrefix + ":", StringComparison.Ordinal))
+                                    t.Label.StartsWith(LabelPrefix + ":", StringComparison.Ordinal) &&
+                                    t.ClosingTime >= historyFromUtc)
                         .Select(t => new BrokerTradeSnapshotDto
                         {
-                            PositionId = t.PositionId.ToString()
+                            PositionId = t.PositionId.ToString(),
+                            ClosingTimeUtc = DateTime.SpecifyKind(t.ClosingTime, DateTimeKind.Utc)
                         })
                         .ToList()
                 };
@@ -707,6 +726,7 @@ namespace cAlgo.Robots
             public OrderIntentDto Intent { get; set; }
             public string Reason { get; set; }
             public int OpenPositions { get; set; }
+            public int PendingOrders { get; set; }
             public int MaxConcurrentTrades { get; set; }
         }
 
@@ -714,6 +734,7 @@ namespace cAlgo.Robots
         {
             public string SessionToken { get; set; }
             public List<BrokerPositionSnapshotDto> Positions { get; set; } = new();
+            public List<BrokerOrderSnapshotDto> Orders { get; set; } = new();
             public List<BrokerTradeSnapshotDto> Trades { get; set; } = new();
         }
 
@@ -727,6 +748,14 @@ namespace cAlgo.Robots
         private sealed class BrokerTradeSnapshotDto
         {
             public string PositionId { get; set; }
+            public DateTime ClosingTimeUtc { get; set; }
+        }
+
+        private sealed class BrokerOrderSnapshotDto
+        {
+            public string OrderId { get; set; }
+            public string Symbol { get; set; }
+            public string StrategyCode { get; set; }
         }
 
         private sealed class ExternalExecutionReportDto

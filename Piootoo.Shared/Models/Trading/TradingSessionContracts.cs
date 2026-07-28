@@ -377,6 +377,7 @@ public sealed class AccountSignalResponse
     /// </summary>
     public string? Reason { get; init; }
     public int OpenPositions { get; init; }
+    public int PendingOrders { get; init; }
     public int MaxConcurrentTrades { get; init; }
 }
 
@@ -384,6 +385,14 @@ public sealed class AccountSignalResponse
 public sealed class BrokerPositionSnapshot
 {
     public string PositionId { get; init; } = string.Empty;
+    public string Symbol { get; init; } = string.Empty;
+    public string StrategyCode { get; init; } = string.Empty;
+}
+
+/// <summary>Ordine Piootoo ancora pendente sulla piattaforma del broker.</summary>
+public sealed class BrokerOrderSnapshot
+{
+    public string OrderId { get; init; } = string.Empty;
     public string Symbol { get; init; } = string.Empty;
     public string StrategyCode { get; init; } = string.Empty;
 }
@@ -400,6 +409,7 @@ public sealed class AccountSignalPollRequest
 {
     public required string SessionToken { get; init; }
     public IReadOnlyList<BrokerPositionSnapshot> Positions { get; init; } = [];
+    public IReadOnlyList<BrokerOrderSnapshot> Orders { get; init; } = [];
     public IReadOnlyList<BrokerTradeSnapshot> Trades { get; init; } = [];
 }
 
