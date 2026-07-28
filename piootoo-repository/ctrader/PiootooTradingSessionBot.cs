@@ -6,6 +6,7 @@ using System.Net.Http;
 using System.Text;
 using System.Text.Json;
 using cAlgo.API;
+using File = System.IO.File;
 using HttpMethod = System.Net.Http.HttpMethod;
 
 namespace cAlgo.Robots
@@ -202,6 +203,8 @@ namespace cAlgo.Robots
 
             var baseUrl = ApiBaseUrl.TrimEnd('/') + "/";
             _http = new HttpClient { BaseAddress = new Uri(baseUrl), Timeout = TimeSpan.FromSeconds(HttpTimeoutSeconds) };
+            Positions.Opened += OnPositionOpened;
+            Positions.Closed += OnPositionClosed;
 
             try
             {
@@ -314,7 +317,7 @@ namespace cAlgo.Robots
             }
         }
 
-        protected override void OnPositionOpened(PositionOpenedEventArgs args)
+        private void OnPositionOpened(PositionOpenedEventArgs args)
         {
             var position = args.Position;
             if (!IsOurs(position))
@@ -334,7 +337,7 @@ namespace cAlgo.Robots
             ReportOpeningFill(intent, position);
         }
 
-        protected override void OnPositionClosed(PositionClosedEventArgs args)
+        private void OnPositionClosed(PositionClosedEventArgs args)
         {
             var position = args.Position;
             if (!IsOurs(position))
@@ -352,8 +355,13 @@ namespace cAlgo.Robots
 
         protected override void OnStop()
         {
+            Positions.Opened -= OnPositionOpened;
+            Positions.Closed -= OnPositionClosed;
             if (!_sessionReady || _http == null)
+            {
+                _http?.Dispose();
                 return;
+            }
 
             try
             {
@@ -362,6 +370,10 @@ namespace cAlgo.Robots
             catch (Exception ex)
             {
                 Print("Impossibile fermare la sessione lato server: {0}", ex.Message);
+            }
+            finally
+            {
+                _http.Dispose();
             }
         }
 
