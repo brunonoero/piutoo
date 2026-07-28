@@ -39,6 +39,12 @@ public class PiootooBacktestingService : IPiootooBacktestingService
     /// backtest senza filtro non deve dipendere da Titano.
     /// </summary>
     private readonly TitanoRotationService? _titano;
+
+    /// <summary>
+    /// Serve solo a risolvere la tabella di conversione dell'account indicato in
+    /// <see cref="BacktestingRequest.AccountId"/>. Opzionale: senza account il run è 1 a 1.
+    /// </summary>
+    private readonly WorkspaceService? _workspaces;
     private readonly PiootooSettings _settings;
     private readonly string _resultsPath;
     private readonly JsonSerializerOptions _jsonOptions;
@@ -48,12 +54,14 @@ public class PiootooBacktestingService : IPiootooBacktestingService
         IPiootooDataFeedService dataFeedService,
         PiootooSettings settings,
         IBacktestingExecutionHook executionHook,
-        TitanoRotationService? titano = null)
+        TitanoRotationService? titano = null,
+        WorkspaceService? workspaces = null)
     {
         _settingsService = settingsService;
         _dataFeedService = dataFeedService;
         _executionHook = executionHook;
         _titano = titano;
+        _workspaces = workspaces;
         _settings = settings;
 
         _resultsPath = Path.Combine(settings.GetSettingsPath(), "results");
@@ -580,6 +588,18 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                     _ => result.InitialCapital, StringComparer.OrdinalIgnoreCase);
             var emittedTradeSignals = new List<TradeSignal>();
 
+            // Tabella di conversione dell'account risolta una volta sola: dentro il loop serve solo
+            // un lookup su dizionario per simbolo.
+            var accountConversion = ResolveAccountConversion(request);
+            if (!accountConversion.IsIdentity)
+                diagnostics.LogRun(
+                    $"Conversione account '{accountConversion.AccountName}' attiva sul run.",
+                    new Dictionary<string, string>
+                    {
+                        ["accountId"] = accountConversion.AccountId,
+                        ["initialBalance"] = accountConversion.InitialBalance.ToString("F2")
+                    });
+
             // Arrotonda StartDate al timeframe minimo più vicino (verso il basso)
             var roundedStartDate = TradingDateTime.RoundDownToTimeframeUtc(request.StartDate, minTimeframeMinutes);
             Console.WriteLine($"[Backtesting] Date UTC: Start={request.StartDate:yyyy-MM-dd HH:mm}Z, End={request.EndDate:yyyy-MM-dd HH:mm}Z, RoundedStart={roundedStartDate:yyyy-MM-dd HH:mm}Z");
@@ -821,6 +841,17 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                         if (string.IsNullOrWhiteSpace(signal.StrategyName)) signal.StrategyName = strategyCode;
                         ScaleSignalMaxBarsInPosition(signal, strategy.TimeframeMinutes, minTimeframeMinutes);
 
+                        // La conversione dell'account scala la size prima che il motore veda il
+                        // segnale, così trade ed equity riflettono i contratti effettivi.
+                        if (!TryApplyAccountConversion(signal, accountConversion))
+                        {
+                            diagnostics.LogAnomaly(
+                                $"Segnale scartato: il symbol '{strategySymbol}' non è operativo sull'account " +
+                                $"'{accountConversion.AccountName}' o la size convertita è nulla.",
+                                currentDate, strategyCode, strategySymbol);
+                            continue;
+                        }
+
                         signals.Add(signal);
                         emittedTradeSignals.Add(CloneTradeSignal(signal));
                         diagnostics.LogSignal(signal, strategyCode, strategySymbol, strategy.TimeframeMinutes, currentDate);
@@ -833,6 +864,8 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                                 if (string.IsNullOrWhiteSpace(companion.StrategyCode)) companion.StrategyCode = strategyCode;
                                 if (string.IsNullOrWhiteSpace(companion.StrategyName)) companion.StrategyName = strategyCode;
                                 ScaleSignalMaxBarsInPosition(companion, strategy.TimeframeMinutes, minTimeframeMinutes);
+                                if (!TryApplyAccountConversion(companion, accountConversion))
+                                    continue;
                                 signals.Add(companion);
                                 emittedTradeSignals.Add(CloneTradeSignal(companion));
                                 diagnostics.LogSignal(companion, strategyCode, strategySymbol, strategy.TimeframeMinutes, currentDate);
@@ -886,7 +919,7 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                 if (processedIterations - lastPersistedIteration >= PersistCheckpointBars)
                 {
                     lastPersistedIteration = processedIterations;
-                    tradingJsonStore.WriteSignals(ToPersistedSignals(job.JobId, emittedTradeSignals), durable: false);
+                    tradingJsonStore.WriteSignals(ToPersistedSignals(job.JobId, emittedTradeSignals, accountConversion), durable: false);
                     tradingJsonStore.WriteTrades(ToPersistedTrades(job.JobId, tradingService.GetClosedTrades()), durable: false);
                     diagnostics.Flush();
                 }
@@ -951,7 +984,7 @@ public class PiootooBacktestingService : IPiootooBacktestingService
             result.HtmlReportFilePath = htmlReportPath;
 
             // Scrittura autorevole: qui sì, durabile.
-            tradingJsonStore.WriteSignals(ToPersistedSignals(job.JobId, emittedTradeSignals));
+            tradingJsonStore.WriteSignals(ToPersistedSignals(job.JobId, emittedTradeSignals, accountConversion));
             tradingJsonStore.WriteTrades(ToPersistedTrades(job.JobId, closedTrades));
             result.TradeSignalsFilePath = tradingJsonStore.SignalsPath;
             result.ResultFilePath = filePath;
@@ -1261,9 +1294,48 @@ public class PiootooBacktestingService : IPiootooBacktestingService
             titano, request.WorkspaceId, request.TitanoBacktestFolder!, request.TitanoRunId!);
     }
 
+    /// <summary>
+    /// Risolve una volta per run la tabella di conversione dell'account richiesto. Un account
+    /// inesistente è un errore esplicito: proseguire 1 a 1 falserebbe silenziosamente le size.
+    /// </summary>
+    private AccountSymbolConversion ResolveAccountConversion(BacktestingRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(request.AccountId))
+            return AccountSymbolConversion.Identity;
+
+        if (_workspaces is null)
+            throw new InvalidOperationException(
+                "Servizio workspace non disponibile: impossibile risolvere la tabella di conversione dell'account.");
+
+        return AccountSymbolConversion.FromAccount(
+            _workspaces.GetAccount(request.WorkspaceId, request.AccountId!));
+    }
+
+    /// <summary>
+    /// Applica la tabella di conversione a un segnale già normalizzato: scala la size con il
+    /// moltiplicatore contratto dell'account. Restituisce false se il simbolo è disabilitato
+    /// sull'account o se la size scalata si annulla, casi in cui il segnale non va emesso.
+    /// </summary>
+    private static bool TryApplyAccountConversion(TradeSignal signal, AccountSymbolConversion conversion)
+    {
+        if (conversion.IsIdentity)
+            return true;
+
+        if (!conversion.IsSymbolEnabled(signal.Symbol))
+            return false;
+
+        var multiplier = conversion.GetContractMultiplier(signal.Symbol);
+        if (multiplier == 1m)
+            return true;
+
+        signal.Quantity *= multiplier;
+        return signal.Quantity > 0;
+    }
+
     private static IEnumerable<PersistedSignal> ToPersistedSignals(
         string jobId,
-        IReadOnlyList<TradeSignal> signals) =>
+        IReadOnlyList<TradeSignal> signals,
+        AccountSymbolConversion conversion) =>
         signals.Select((signal, index) => new PersistedSignal
         {
             SignalId = $"{jobId}-signal-{index + 1:D10}",
@@ -1272,6 +1344,9 @@ public class PiootooBacktestingService : IPiootooBacktestingService
             StrategyCode = signal.StrategyCode,
             StrategyName = signal.StrategyName,
             Symbol = NormalizeSymbol(signal.Symbol),
+            AccountId = conversion.AccountId,
+            AccountSymbol = conversion.GetAccountSymbol(signal.Symbol),
+            ContractMultiplier = conversion.GetContractMultiplier(signal.Symbol),
             Side = signal.Type,
             OrderType = signal.OrderType,
             TriggerPrice = signal.Price,

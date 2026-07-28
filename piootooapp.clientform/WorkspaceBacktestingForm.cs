@@ -44,6 +44,7 @@ public partial class WorkspaceBacktestingForm : Form
     private readonly Button _refreshWorkspacesButton = new();
     private readonly Button _saveMasterFilterButton = new();
     private readonly ComboBox _backtestingWorkspaceCombo = new();
+    private readonly ComboBox _backtestingAccountCombo = new();
     private readonly ComboBox _titanoWorkspaceCombo = new();
     private readonly ComboBox _titanoBacktestCombo = new();
     private readonly Label _titanoPathLabel = new();
@@ -123,6 +124,31 @@ public partial class WorkspaceBacktestingForm : Form
     private TabControl? _mainTabs;
     private TabPage? _workspacesTab;
 
+    private readonly ComboBox _accountsWorkspaceCombo = new();
+    private readonly ComboBox _accountsCombo = new();
+    private readonly TextBox _accountNameTextBox = new();
+    private readonly TextBox _accountNumberTextBox = new();
+    private readonly TextBox _accountGroupIdTextBox = new();
+    private readonly TextBox _accountBrokerTextBox = new();
+    private readonly ComboBox _accountCurrencyCombo = new();
+    private readonly NumericUpDown _accountInitialBalance = new();
+    private readonly CheckBox _accountEnabledCheck = new() { Text = "Account attivo", AutoSize = true, Checked = true };
+    private readonly TextBox _accountNotesTextBox = new();
+    private readonly DataGridView _accountSymbolsGrid = new();
+    private readonly Button _accountNewButton = new();
+    private readonly Button _accountSaveButton = new();
+    private readonly Button _accountDeleteButton = new();
+    private readonly Button _accountsReloadButton = new();
+    private readonly Button _accountAddSymbolRowButton = new();
+    private readonly Button _accountFillSymbolsButton = new();
+    private readonly Button _accountLoadPresetButton = new();
+    private readonly Button _accountSavePresetButton = new();
+    private readonly Button _accountCreateDefaultButton = new();
+    private readonly Label _accountStatusLabel = new();
+    private List<WorkspaceAccount> _accounts = new();
+    private WorkspaceAccount? _editingAccount;
+    private bool _suppressAccountEvents;
+
     private List<StrategyCatalogItem> _strategies = new();
     private List<WorkspaceInfo> _workspaces = new();
     private List<TitanoSetupInfo> _titanoSetups = new();
@@ -166,15 +192,18 @@ public partial class WorkspaceBacktestingForm : Form
         _mainTabs = new TabControl { Dock = DockStyle.Fill };
         _workspacesTab = new TabPage("Workspaces");
         var backtestingTab = new TabPage("Backtesting");
+        var accountsTab = new TabPage("Accounts");
         var titanoTab = new TabPage("Titano");
         var sessionsTab = new TabPage("Trading Session");
         _mainTabs.TabPages.Add(_workspacesTab);
+        _mainTabs.TabPages.Add(accountsTab);
         _mainTabs.TabPages.Add(backtestingTab);
         _mainTabs.TabPages.Add(titanoTab);
         _mainTabs.TabPages.Add(sessionsTab);
         root.Controls.Add(_mainTabs, 0, 1);
 
         _workspacesTab.Controls.Add(BuildWorkspacesTab());
+        accountsTab.Controls.Add(BuildAccountsTab());
         backtestingTab.Controls.Add(BuildBacktestingTab());
         titanoTab.Controls.Add(BuildTitanoTab());
         sessionsTab.Controls.Add(BuildTradingSessionTab());
@@ -300,6 +329,699 @@ public partial class WorkspaceBacktestingForm : Form
             Controls = { _workspaceStrategiesList }
         }, 1, 2);
         return root;
+    }
+
+    private Control BuildAccountsTab()
+    {
+        var root = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 1,
+            RowCount = 3,
+            Padding = new Padding(12)
+        };
+        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+
+        _accountsWorkspaceCombo.DropDownStyle = ComboBoxStyle.DropDownList;
+        _accountsWorkspaceCombo.Width = 300;
+        _accountsWorkspaceCombo.SelectedIndexChanged += async (_, _) =>
+        {
+            if (_suppressWorkspaceEvents) return;
+            await ReloadAccountsAsync(showErrors: true);
+        };
+
+        _accountsCombo.DropDownStyle = ComboBoxStyle.DropDownList;
+        _accountsCombo.Width = 420;
+        _accountsCombo.SelectedIndexChanged += (_, _) =>
+        {
+            if (_suppressAccountEvents) return;
+            BindSelectedAccountToEditor();
+        };
+
+        var selectors = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true };
+        selectors.Controls.Add(new Label
+        {
+            Text = "Workspace:",
+            AutoSize = true,
+            Padding = new Padding(0, 7, 8, 0)
+        });
+        selectors.Controls.Add(WithHelp(_accountsWorkspaceCombo,
+            "Gli account sono salvati in <workspace>/accounts.json, come il masterfilter."));
+        selectors.Controls.Add(new Label
+        {
+            Text = "Account:",
+            AutoSize = true,
+            Padding = new Padding(16, 7, 8, 0)
+        });
+        selectors.Controls.Add(WithHelp(_accountsCombo,
+            "Account configurati nel workspace. Selezionane uno per modificarne anagrafica e tabella di conversione."));
+        root.Controls.Add(selectors, 0, 0);
+
+        _accountNewButton.Text = "Nuovo account…";
+        _accountNewButton.AutoSize = true;
+        _accountNewButton.Click += async (_, _) => await CreateAccountViaDialogAsync();
+
+        _accountSaveButton.Text = "Salva modifiche";
+        _accountSaveButton.AutoSize = true;
+        _accountSaveButton.Enabled = false;
+        _accountSaveButton.Click += async (_, _) => await SaveEditingAccountAsync();
+
+        _accountDeleteButton.Text = "Elimina account";
+        _accountDeleteButton.AutoSize = true;
+        _accountDeleteButton.Enabled = false;
+        _accountDeleteButton.Click += async (_, _) => await DeleteSelectedAccountAsync();
+
+        _accountsReloadButton.Text = "Ricarica";
+        _accountsReloadButton.AutoSize = true;
+        _accountsReloadButton.Click += async (_, _) => await ReloadAccountsAsync(showErrors: true);
+
+        _accountCreateDefaultButton.Text = "Crea account Default";
+        _accountCreateDefaultButton.AutoSize = true;
+        _accountCreateDefaultButton.Click += async (_, _) => await EnsureDefaultAccountAsync();
+
+        _accountStatusLabel.AutoSize = true;
+        _accountStatusLabel.Padding = new Padding(16, 7, 0, 0);
+        _accountStatusLabel.Text = "Nessun account caricato.";
+
+        var commands = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true };
+        commands.Controls.AddRange(new[]
+        {
+            WithHelp(_accountNewButton,
+                "Apre la finestra di creazione: la tabella di conversione parte dal preset identità (@GC = @GC, moltiplicatore 1)."),
+            WithHelp(_accountSaveButton, "Salva anagrafica e tabella di conversione dell'account selezionato."),
+            WithHelp(_accountCreateDefaultButton,
+                "Crea l'account 'Default': symbol mappati 1 a 1 sul catalogo, moltiplicatore 1 e balance iniziale 1.000.000."),
+            WithHelp(_accountDeleteButton, "Rimuove l'account selezionato dal workspace."),
+            WithHelp(_accountsReloadButton, "Rilegge gli account dal server."),
+            _accountStatusLabel
+        });
+        root.Controls.Add(commands, 0, 1);
+
+        var detail = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 1,
+            RowCount = 2
+        };
+        detail.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        detail.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        detail.Controls.Add(BuildAccountDetailPanel(), 0, 0);
+        detail.Controls.Add(BuildAccountSymbolsPanel(), 0, 1);
+        root.Controls.Add(detail, 0, 2);
+
+        ClearAccountEditor();
+        return root;
+    }
+
+    private Control BuildAccountDetailPanel()
+    {
+        var group = new GroupBox
+        {
+            Text = "Anagrafica account",
+            Dock = DockStyle.Top,
+            AutoSize = true,
+            Padding = new Padding(8)
+        };
+        var layout = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, WrapContents = true, Width = 700 };
+
+        _accountNameTextBox.Width = 200;
+        _accountNumberTextBox.Width = 160;
+        _accountGroupIdTextBox.Width = 160;
+        _accountBrokerTextBox.Width = 160;
+
+        _accountCurrencyCombo.DropDownStyle = ComboBoxStyle.DropDown;
+        _accountCurrencyCombo.Width = 90;
+        _accountCurrencyCombo.Items.AddRange(new object[] { "USD", "EUR", "GBP", "CHF" });
+        _accountCurrencyCombo.Text = "USD";
+
+        _accountInitialBalance.Minimum = 0;
+        _accountInitialBalance.Maximum = 1_000_000_000;
+        _accountInitialBalance.DecimalPlaces = 2;
+        _accountInitialBalance.ThousandsSeparator = true;
+        _accountInitialBalance.Increment = 1000;
+        _accountInitialBalance.Width = 140;
+
+        _accountNotesTextBox.Width = 660;
+        _accountNotesTextBox.Multiline = true;
+        _accountNotesTextBox.Height = 44;
+
+        layout.Controls.Add(LabeledField("Nome", _accountNameTextBox,
+            "Nome visualizzato dell'account. Determina l'identificativo salvato su disco."));
+        layout.Controls.Add(LabeledField("Codice account", _accountNumberTextBox,
+            "Codice account del broker, lo stesso usato nei gruppi account della Trading Session."));
+        layout.Controls.Add(LabeledField("Gruppo", _accountGroupIdTextBox,
+            "Gruppo anti copy-trading (tipicamente la prop firm). Account dello stesso gruppo non ricevono lo stesso segnale."));
+        layout.Controls.Add(LabeledField("Broker", _accountBrokerTextBox, "Broker o prop firm, campo descrittivo."));
+        layout.Controls.Add(LabeledField("Balance iniziale", _accountInitialBalance,
+            "Capitale iniziale dell'account nella valuta indicata."));
+        layout.Controls.Add(LabeledField("Valuta", _accountCurrencyCombo, "Valuta del balance."));
+        layout.Controls.Add(LabeledField(" ", _accountEnabledCheck, "Se disattivato l'account resta configurato ma non operativo."));
+        layout.Controls.Add(LabeledField("Note", _accountNotesTextBox, "Annotazioni libere."));
+
+        group.Controls.Add(layout);
+        return group;
+    }
+
+    private Control BuildAccountSymbolsPanel()
+    {
+        var group = new GroupBox
+        {
+            Text = "Tabella di conversione symbol",
+            Dock = DockStyle.Fill,
+            Padding = new Padding(8)
+        };
+        var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 2 };
+        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+
+        _accountSymbolsGrid.Dock = DockStyle.Fill;
+        _accountSymbolsGrid.AllowUserToAddRows = true;
+        _accountSymbolsGrid.AllowUserToDeleteRows = true;
+        _accountSymbolsGrid.RowHeadersVisible = false;
+        _accountSymbolsGrid.AutoGenerateColumns = false;
+        _accountSymbolsGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
+        _accountSymbolsGrid.Columns.Add(new DataGridViewTextBoxColumn
+        {
+            Name = "Symbol", HeaderText = "Symbol Piootoo", FillWeight = 28,
+            ToolTipText = "Simbolo come compare nel catalogo strategie, es. @NQ."
+        });
+        _accountSymbolsGrid.Columns.Add(new DataGridViewTextBoxColumn
+        {
+            Name = "AccountSymbol", HeaderText = "Symbol account", FillWeight = 28,
+            ToolTipText = "Simbolo equivalente sul broker dell'account, es. USDTEC."
+        });
+        _accountSymbolsGrid.Columns.Add(new DataGridViewTextBoxColumn
+        {
+            Name = "ContractMultiplier", HeaderText = "Moltiplicatore contratto", FillWeight = 30,
+            ToolTipText = "1 contratto Piootoo = N contratti account. Es. 0,1 se il contratto broker vale 100k contro 1M."
+        });
+        _accountSymbolsGrid.Columns.Add(new DataGridViewCheckBoxColumn
+        {
+            Name = "Enabled", HeaderText = "Attivo", FillWeight = 14, TrueValue = true, FalseValue = false
+        });
+        _accountSymbolsGrid.DefaultValuesNeeded += (_, e) =>
+        {
+            e.Row.Cells["ContractMultiplier"].Value = "1";
+            e.Row.Cells["Enabled"].Value = true;
+        };
+        _formToolTip.SetToolTip(_accountSymbolsGrid,
+            "Una riga per simbolo: mappatura del simbolo e fattore di scala del contratto usato da questo account.");
+        layout.Controls.Add(_accountSymbolsGrid, 0, 0);
+
+        _accountAddSymbolRowButton.Text = "Aggiungi riga";
+        _accountAddSymbolRowButton.AutoSize = true;
+        _accountAddSymbolRowButton.Click += (_, _) => _accountSymbolsGrid.Rows.Add(string.Empty, string.Empty, "1", true);
+
+        _accountFillSymbolsButton.Text = "Precompila dal catalogo";
+        _accountFillSymbolsButton.AutoSize = true;
+        _accountFillSymbolsButton.Click += (_, _) => FillAccountSymbolsFromCatalog();
+
+        _accountLoadPresetButton.Text = "Carica preset";
+        _accountLoadPresetButton.AutoSize = true;
+        _accountLoadPresetButton.Click += async (_, _) => await LoadSymbolPresetAsync();
+
+        _accountSavePresetButton.Text = "Salva come preset";
+        _accountSavePresetButton.AutoSize = true;
+        _accountSavePresetButton.Click += async (_, _) => await SaveSymbolPresetAsync();
+
+        layout.Controls.Add(new FlowLayoutPanel
+        {
+            Dock = DockStyle.Top,
+            AutoSize = true,
+            Controls =
+            {
+                WithHelp(_accountAddSymbolRowButton, "Aggiunge una riga vuota con moltiplicatore 1."),
+                WithHelp(_accountFillSymbolsButton,
+                    "Aggiunge una riga per ogni symbol distinto del catalogo strategie non ancora presente in tabella."),
+                WithHelp(_accountLoadPresetButton,
+                    "Sostituisce la tabella con il preset condiviso (settings/default-symbol-conversion.json)."),
+                WithHelp(_accountSavePresetButton,
+                    "Salva la tabella corrente come nuovo preset condiviso per tutti i workspace.")
+            }
+        }, 0, 1);
+
+        group.Controls.Add(layout);
+        return group;
+    }
+
+    private Control LabeledField(string label, Control control, string help)
+    {
+        var panel = new FlowLayoutPanel
+        {
+            AutoSize = true,
+            FlowDirection = FlowDirection.TopDown,
+            Margin = new Padding(2, 2, 14, 6)
+        };
+        panel.Controls.Add(new Label { Text = label, AutoSize = true });
+        panel.Controls.Add(WithHelp(control, help));
+        return panel;
+    }
+
+    private void FillAccountSymbolsFromCatalog()
+    {
+        var existing = _accountSymbolsGrid.Rows.Cast<DataGridViewRow>()
+            .Where(row => !row.IsNewRow)
+            .Select(row => Convert.ToString(row.Cells["Symbol"].Value ?? string.Empty)!.Trim())
+            .Where(symbol => symbol.Length > 0)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var added = 0;
+        foreach (var symbol in _strategies
+            .Select(strategy => strategy.Symbol?.Trim() ?? string.Empty)
+            .Where(symbol => symbol.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(symbol => symbol, StringComparer.OrdinalIgnoreCase))
+        {
+            if (!existing.Add(symbol)) continue;
+            // Riga identità: symbol su se stesso e moltiplicatore 1, così aggiungerla non cambia
+            // il comportamento finché non la si modifica.
+            _accountSymbolsGrid.Rows.Add(symbol, symbol, "1", true);
+            added++;
+        }
+
+        _accountStatusLabel.Text = added > 0
+            ? $"Aggiunti {added} symbol dal catalogo, mappati 1 a 1."
+            : "Nessun nuovo symbol da aggiungere dal catalogo.";
+    }
+
+    private void SetAccountSymbolRows(IEnumerable<AccountSymbolMapping> mappings)
+    {
+        _accountSymbolsGrid.Rows.Clear();
+        foreach (var mapping in mappings)
+            _accountSymbolsGrid.Rows.Add(
+                mapping.Symbol,
+                mapping.AccountSymbol,
+                mapping.ContractMultiplier.ToString(System.Globalization.CultureInfo.CurrentCulture),
+                mapping.Enabled);
+    }
+
+    private async Task LoadSymbolPresetAsync()
+    {
+        try
+        {
+            NormalizeBaseAddress();
+            var preset = await _workspaceApi.GetSymbolConversionPresetAsync();
+            SetAccountSymbolRows(preset);
+            _accountStatusLabel.Text = $"Preset caricato: {preset.Count} symbol. Salva l'account per applicarlo.";
+            Log($"Preset di conversione caricato ({preset.Count} symbol).");
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(ex.Message, "Errore preset conversione", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+    }
+
+    private async Task SaveSymbolPresetAsync()
+    {
+        try
+        {
+            var mappings = ReadAccountFromEditorMappings();
+            NormalizeBaseAddress();
+            var saved = await _workspaceApi.SaveSymbolConversionPresetAsync(mappings);
+            _accountStatusLabel.Text = $"Preset condiviso aggiornato con {saved.Count} symbol.";
+            Log($"Preset di conversione salvato ({saved.Count} symbol).");
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(ex.Message, "Errore preset conversione", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+    }
+
+    private async Task EnsureDefaultAccountAsync()
+    {
+        var workspaceId = GetSelectedAccountsWorkspaceId();
+        if (string.IsNullOrWhiteSpace(workspaceId))
+        {
+            MessageBox.Show("Seleziona prima un workspace.", "Account", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        try
+        {
+            NormalizeBaseAddress();
+            var account = await _workspaceApi.EnsureDefaultAccountAsync(workspaceId);
+            _editingAccount = account;
+            await ReloadAccountsAsync(showErrors: true);
+            _accountStatusLabel.Text =
+                $"Account '{account.Name}' pronto: {account.SymbolMappings.Count} symbol 1 a 1, " +
+                $"balance {account.InitialBalance:N0} {account.Currency}.";
+            Log($"Account di default disponibile nel workspace '{workspaceId}'.");
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(ex.Message, "Errore account di default", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+    }
+
+    private string? GetSelectedAccountsWorkspaceId()
+        => (_accountsWorkspaceCombo.SelectedItem as WorkspaceListItem)?.Info.Id;
+
+    /// <summary>Popola il selettore account del tab Backtesting con gli account del workspace scelto lì.</summary>
+    private async Task LoadBacktestingAccountsAsync()
+    {
+        var previousId = (_backtestingAccountCombo.SelectedItem as AccountListItem)?.Account.Id;
+        var workspaceId = (_backtestingWorkspaceCombo.SelectedItem as WorkspaceListItem)?.Info.Id;
+
+        _suppressAccountEvents = true;
+        try
+        {
+            _backtestingAccountCombo.Items.Clear();
+            _backtestingAccountCombo.Items.Add(NoAccountItem);
+
+            if (!string.IsNullOrWhiteSpace(workspaceId))
+            {
+                NormalizeBaseAddress();
+                foreach (var account in await _workspaceApi.ListAccountsAsync(workspaceId))
+                    _backtestingAccountCombo.Items.Add(new AccountListItem(account));
+            }
+
+            _backtestingAccountCombo.SelectedIndex = 0;
+            if (!string.IsNullOrWhiteSpace(previousId))
+                for (var index = 1; index < _backtestingAccountCombo.Items.Count; index++)
+                    if (_backtestingAccountCombo.Items[index] is AccountListItem item &&
+                        item.Account.Id.Equals(previousId, StringComparison.OrdinalIgnoreCase))
+                    {
+                        _backtestingAccountCombo.SelectedIndex = index;
+                        break;
+                    }
+        }
+        catch (Exception ex)
+        {
+            Log($"Errore caricamento account per il backtesting: {ex.Message}");
+        }
+        finally
+        {
+            _suppressAccountEvents = false;
+        }
+    }
+
+    private const string NoAccountItem = "(nessuna conversione — 1 a 1)";
+
+    private async Task ReloadAccountsAsync(bool showErrors)
+    {
+        var workspaceId = GetSelectedAccountsWorkspaceId();
+        if (string.IsNullOrWhiteSpace(workspaceId))
+        {
+            _accounts = new List<WorkspaceAccount>();
+            BindAccountsList(null);
+            _accountStatusLabel.Text = "Seleziona un workspace.";
+            return;
+        }
+
+        try
+        {
+            NormalizeBaseAddress();
+            var previousId = _editingAccount?.Id;
+            _accounts = (await _workspaceApi.ListAccountsAsync(workspaceId)).ToList();
+            BindAccountsList(previousId);
+            _accountStatusLabel.Text = $"{_accounts.Count} account nel workspace '{workspaceId}'.";
+            Log($"Caricati {_accounts.Count} account da API per il workspace '{workspaceId}'.");
+        }
+        catch (Exception ex)
+        {
+            Log($"Errore caricamento account: {ex.Message}");
+            if (showErrors)
+                MessageBox.Show(ex.Message, "Account", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
+    }
+
+    private void BindAccountsList(string? selectAccountId)
+    {
+        _suppressAccountEvents = true;
+        try
+        {
+            _accountsCombo.Items.Clear();
+            foreach (var account in _accounts)
+                _accountsCombo.Items.Add(new AccountListItem(account));
+
+            if (_accountsCombo.Items.Count > 0)
+            {
+                _accountsCombo.SelectedIndex = 0;
+                if (!string.IsNullOrWhiteSpace(selectAccountId))
+                    for (var index = 0; index < _accountsCombo.Items.Count; index++)
+                        if (_accountsCombo.Items[index] is AccountListItem item &&
+                            item.Account.Id.Equals(selectAccountId, StringComparison.OrdinalIgnoreCase))
+                        {
+                            _accountsCombo.SelectedIndex = index;
+                            break;
+                        }
+            }
+        }
+        finally
+        {
+            _suppressAccountEvents = false;
+        }
+
+        if (_accountsCombo.SelectedItem is AccountListItem)
+            BindSelectedAccountToEditor();
+        else
+            ClearAccountEditor();
+    }
+
+    /// <summary>Nessun account selezionato: pannello vuoto e comandi di modifica disattivati.</summary>
+    private void ClearAccountEditor()
+    {
+        _suppressAccountEvents = true;
+        try
+        {
+            _editingAccount = null;
+            _accountNameTextBox.Text = string.Empty;
+            _accountNumberTextBox.Text = string.Empty;
+            _accountGroupIdTextBox.Text = string.Empty;
+            _accountBrokerTextBox.Text = string.Empty;
+            _accountCurrencyCombo.Text = "USD";
+            _accountInitialBalance.Value = 0;
+            _accountEnabledCheck.Checked = true;
+            _accountNotesTextBox.Text = string.Empty;
+            _accountSymbolsGrid.Rows.Clear();
+            _accountDeleteButton.Enabled = false;
+            _accountSaveButton.Enabled = false;
+        }
+        finally
+        {
+            _suppressAccountEvents = false;
+        }
+    }
+
+    /// <summary>
+    /// Creazione account in modale. La tabella di conversione parte sempre dal preset identità
+    /// (ogni symbol su se stesso, moltiplicatore 1): così un account nuovo è idempotente finché non
+    /// lo si modifica, e non serve ricordarsi di popolarlo per avere un run 1 a 1.
+    /// </summary>
+    private async Task CreateAccountViaDialogAsync()
+    {
+        var workspaceId = GetSelectedAccountsWorkspaceId();
+        if (string.IsNullOrWhiteSpace(workspaceId))
+        {
+            MessageBox.Show("Seleziona prima un workspace.", "Nuovo account", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        IReadOnlyList<AccountSymbolMapping> identity;
+        try
+        {
+            NormalizeBaseAddress();
+            identity = await _workspaceApi.GetSymbolIdentityAsync();
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(
+                $"Impossibile leggere la tabella di conversione identità.{Environment.NewLine}{ex.Message}",
+                "Nuovo account", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            return;
+        }
+
+        using var dialog = new NewAccountDialog(workspaceId, identity.Count);
+        if (dialog.ShowDialog(this) != DialogResult.OK) return;
+
+        var account = dialog.BuildAccount();
+        account.SymbolMappings = identity
+            .Select(mapping => new AccountSymbolMapping
+            {
+                Symbol = mapping.Symbol,
+                AccountSymbol = mapping.AccountSymbol,
+                ContractMultiplier = mapping.ContractMultiplier,
+                Enabled = mapping.Enabled
+            })
+            .ToList();
+
+        try
+        {
+            NormalizeBaseAddress();
+            var created = await _workspaceApi.CreateAccountAsync(workspaceId, account);
+            _editingAccount = created;
+            await ReloadAccountsAsync(showErrors: true);
+            await LoadBacktestingAccountsAsync();
+            _accountStatusLabel.Text =
+                $"Account '{created.Name}' creato con {created.SymbolMappings.Count} symbol 1 a 1.";
+            Log($"Account '{created.Id}' creato nel workspace '{workspaceId}'.");
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(ex.Message, "Errore creazione account", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+    }
+
+    private void BindSelectedAccountToEditor()
+    {
+        if (_accountsCombo.SelectedItem is not AccountListItem item)
+        {
+            ClearAccountEditor();
+            return;
+        }
+
+        var account = item.Account;
+        _suppressAccountEvents = true;
+        try
+        {
+            _editingAccount = account;
+            _accountNameTextBox.Text = account.Name;
+            _accountNumberTextBox.Text = account.AccountNumber;
+            _accountGroupIdTextBox.Text = account.GroupId;
+            _accountBrokerTextBox.Text = account.Broker;
+            _accountCurrencyCombo.Text = string.IsNullOrWhiteSpace(account.Currency) ? "USD" : account.Currency;
+            _accountInitialBalance.Value = Math.Clamp(
+                account.InitialBalance,
+                _accountInitialBalance.Minimum,
+                _accountInitialBalance.Maximum);
+            _accountEnabledCheck.Checked = account.Enabled;
+            _accountNotesTextBox.Text = account.Notes;
+
+            SetAccountSymbolRows(account.SymbolMappings);
+            _accountDeleteButton.Enabled = true;
+            _accountSaveButton.Enabled = true;
+        }
+        finally
+        {
+            _suppressAccountEvents = false;
+        }
+    }
+
+    private WorkspaceAccount ReadAccountFromEditor()
+    {
+        if (string.IsNullOrWhiteSpace(_accountNameTextBox.Text))
+            throw new InvalidOperationException("Il nome dell'account è obbligatorio.");
+
+        return new WorkspaceAccount
+        {
+            Id = _editingAccount?.Id ?? string.Empty,
+            Name = _accountNameTextBox.Text.Trim(),
+            AccountNumber = _accountNumberTextBox.Text.Trim(),
+            GroupId = _accountGroupIdTextBox.Text.Trim(),
+            Broker = _accountBrokerTextBox.Text.Trim(),
+            Currency = string.IsNullOrWhiteSpace(_accountCurrencyCombo.Text) ? "USD" : _accountCurrencyCombo.Text.Trim(),
+            InitialBalance = _accountInitialBalance.Value,
+            Enabled = _accountEnabledCheck.Checked,
+            Notes = _accountNotesTextBox.Text.Trim(),
+            SymbolMappings = ReadAccountFromEditorMappings()
+        };
+    }
+
+    private List<AccountSymbolMapping> ReadAccountFromEditorMappings()
+    {
+        var mappings = new List<AccountSymbolMapping>();
+        foreach (var row in _accountSymbolsGrid.Rows.Cast<DataGridViewRow>().Where(row => !row.IsNewRow))
+        {
+            var symbol = Convert.ToString(row.Cells["Symbol"].Value ?? string.Empty)!.Trim();
+            var accountSymbol = Convert.ToString(row.Cells["AccountSymbol"].Value ?? string.Empty)!.Trim();
+            var rawMultiplier = Convert.ToString(row.Cells["ContractMultiplier"].Value ?? string.Empty)!.Trim();
+            if (symbol.Length == 0 && accountSymbol.Length == 0 && rawMultiplier.Length == 0)
+                continue;
+            if (symbol.Length == 0)
+                throw new InvalidOperationException("Ogni riga della tabella di conversione deve indicare il symbol Piootoo.");
+            if (accountSymbol.Length == 0)
+                throw new InvalidOperationException($"Indica il symbol account per '{symbol}'.");
+
+            mappings.Add(new AccountSymbolMapping
+            {
+                Symbol = symbol,
+                AccountSymbol = accountSymbol,
+                ContractMultiplier = ParseMultiplier(symbol, rawMultiplier),
+                Enabled = row.Cells["Enabled"].Value is not false
+            });
+        }
+
+        return mappings;
+    }
+
+    private static decimal ParseMultiplier(string symbol, string rawValue)
+    {
+        if (rawValue.Length == 0)
+            return 1m;
+
+        var normalized = rawValue.Replace(',', '.');
+        if (!decimal.TryParse(
+                normalized,
+                System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture,
+                out var multiplier) || multiplier <= 0)
+            throw new InvalidOperationException(
+                $"Il moltiplicatore contratto per '{symbol}' deve essere un numero maggiore di zero (es. 0,1).");
+        return multiplier;
+    }
+
+    private async Task SaveEditingAccountAsync()
+    {
+        var workspaceId = GetSelectedAccountsWorkspaceId();
+        if (string.IsNullOrWhiteSpace(workspaceId))
+        {
+            MessageBox.Show("Seleziona prima un workspace.", "Account", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        if (_editingAccount is null)
+        {
+            MessageBox.Show(
+                "Seleziona un account dalla combo, oppure creane uno nuovo.",
+                "Account", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        try
+        {
+            var account = ReadAccountFromEditor();
+            NormalizeBaseAddress();
+            var saved = await _workspaceApi.SaveAccountAsync(workspaceId, _editingAccount.Id, account);
+
+            _editingAccount = saved;
+            await ReloadAccountsAsync(showErrors: true);
+            await LoadBacktestingAccountsAsync();
+            _accountStatusLabel.Text =
+                $"Account '{saved.Name}' salvato ({saved.SymbolMappings.Count} symbol mappati).";
+            Log($"Account '{saved.Id}' salvato nel workspace '{workspaceId}'.");
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(ex.Message, "Errore salvataggio account", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+    }
+
+    private async Task DeleteSelectedAccountAsync()
+    {
+        var workspaceId = GetSelectedAccountsWorkspaceId();
+        if (string.IsNullOrWhiteSpace(workspaceId) || _editingAccount is null) return;
+
+        if (MessageBox.Show(
+                $"Eliminare l'account '{_editingAccount.Name}' dal workspace '{workspaceId}'?",
+                "Elimina account",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Question) != DialogResult.Yes)
+            return;
+
+        try
+        {
+            NormalizeBaseAddress();
+            await _workspaceApi.DeleteAccountAsync(workspaceId, _editingAccount.Id);
+            Log($"Account '{_editingAccount.Id}' eliminato dal workspace '{workspaceId}'.");
+            _editingAccount = null;
+            await ReloadAccountsAsync(showErrors: true);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(ex.Message, "Errore eliminazione account", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
     }
 
     private Control BuildTradingSessionTab()
@@ -996,8 +1718,21 @@ public partial class WorkspaceBacktestingForm : Form
         _backtestingWorkspaceCombo.SelectedIndexChanged += async (_, _) =>
         {
             UpdateBacktestingWorkspaceHint();
-            if (!_suppressWorkspaceEvents)
-                await LoadBacktestingMasterFilterSummaryAsync();
+            if (_suppressWorkspaceEvents) return;
+            await LoadBacktestingMasterFilterSummaryAsync();
+            await LoadBacktestingAccountsAsync();
+        };
+
+        _backtestingAccountCombo.DropDownStyle = ComboBoxStyle.DropDownList;
+        _backtestingAccountCombo.Dock = DockStyle.Fill;
+        _backtestingAccountCombo.SelectedIndexChanged += (_, _) =>
+        {
+            if (_suppressAccountEvents) return;
+            if (_backtestingAccountCombo.SelectedItem is AccountListItem item && item.Account.InitialBalance > 0)
+                _initialCapitalInput.Value = Math.Clamp(
+                    item.Account.InitialBalance,
+                    _initialCapitalInput.Minimum,
+                    _initialCapitalInput.Maximum);
         };
 
         _backtestingWorkspaceHint.AutoSize = true;
@@ -1026,6 +1761,12 @@ public partial class WorkspaceBacktestingForm : Form
         layout.Controls.Add(new Label { Text = "Repository base", AutoSize = true, Anchor = AnchorStyles.Left }, 2, 3);
         layout.SetColumnSpan(_basePathTextBox, 3);
         layout.Controls.Add(_basePathTextBox, 3, 3);
+
+        layout.Controls.Add(new Label { Text = "Account", AutoSize = true, Anchor = AnchorStyles.Left }, 0, 4);
+        layout.Controls.Add(WithHelp(_backtestingAccountCombo,
+            "Applica al run la tabella di conversione dell'account: scala la size con il moltiplicatore " +
+            "contratto e riporta il symbol account nei signal. Senza account il run resta 1 a 1."), 1, 4);
+        layout.SetColumnSpan(_backtestingAccountCombo, 3);
 
         _reloadButton.Text = "Ricarica strategie";
         _reloadButton.AutoSize = true;
@@ -1220,6 +1961,8 @@ public partial class WorkspaceBacktestingForm : Form
                 await LoadSelectedWorkspaceDetailsAsync();
             }
             await LoadTitanoBacktestsAsync();
+            await ReloadAccountsAsync(showErrors: false);
+            await LoadBacktestingAccountsAsync();
 
             Log($"Caricati {_workspaces.Count} workspace da API.");
         }
@@ -1250,6 +1993,7 @@ public partial class WorkspaceBacktestingForm : Form
             _backtestingWorkspaceCombo.Items.Clear();
             _titanoWorkspaceCombo.Items.Clear();
             _sessionWorkspaceCombo.Items.Clear();
+            _accountsWorkspaceCombo.Items.Clear();
 
             foreach (var workspace in _workspaces)
             {
@@ -1258,6 +2002,7 @@ public partial class WorkspaceBacktestingForm : Form
                 _backtestingWorkspaceCombo.Items.Add(item);
                 _titanoWorkspaceCombo.Items.Add(new WorkspaceListItem(workspace));
                 _sessionWorkspaceCombo.Items.Add(new WorkspaceListItem(workspace));
+                _accountsWorkspaceCombo.Items.Add(new WorkspaceListItem(workspace));
             }
 
             if (!string.IsNullOrWhiteSpace(selectedId) && preserveSelection)
@@ -1277,6 +2022,7 @@ public partial class WorkspaceBacktestingForm : Form
                     _titanoWorkspaceCombo.SelectedIndex = 0;
                 }
                 if (_sessionWorkspaceCombo.Items.Count > 0) _sessionWorkspaceCombo.SelectedIndex = 0;
+                if (_accountsWorkspaceCombo.Items.Count > 0) _accountsWorkspaceCombo.SelectedIndex = 0;
             }
             else
             {
@@ -1312,6 +2058,7 @@ public partial class WorkspaceBacktestingForm : Form
 
         SelectComboWorkspace(_backtestingWorkspaceCombo, workspaceId);
         SelectComboWorkspace(_titanoWorkspaceCombo, workspaceId);
+        SelectComboWorkspace(_accountsWorkspaceCombo, workspaceId);
     }
 
     private static void SelectComboWorkspace(ComboBox combo, string workspaceId)
@@ -1699,7 +2446,8 @@ public partial class WorkspaceBacktestingForm : Form
             StartDate = DateTime.SpecifyKind(_startDatePicker.Value, DateTimeKind.Utc),
             EndDate = DateTime.SpecifyKind(_endDatePicker.Value, DateTimeKind.Utc),
             InitialCapital = _initialCapitalInput.Value,
-            CommissionPerContract = _commissionInput.Value
+            CommissionPerContract = _commissionInput.Value,
+            AccountId = (_backtestingAccountCombo.SelectedItem as AccountListItem)?.Account.Id
         };
 
         SetRunningState(true);
@@ -2641,6 +3389,141 @@ public partial class WorkspaceBacktestingForm : Form
         public string DisplayText => $"{Info.Name} ({Info.Id}) · {Info.StrategiesCount} strat.";
 
         public override string ToString() => DisplayText;
+    }
+
+    /// <summary>
+    /// Finestra di creazione account. Raccoglie solo l'anagrafica: la tabella di conversione viene
+    /// aggiunta dal chiamante a partire dal preset identità, e si modifica poi nel tab.
+    /// </summary>
+    private sealed class NewAccountDialog : Form
+    {
+        private readonly TextBox _name = new() { Width = 260 };
+        private readonly TextBox _accountNumber = new() { Width = 260 };
+        private readonly TextBox _groupId = new() { Width = 260 };
+        private readonly TextBox _broker = new() { Width = 260 };
+        private readonly ComboBox _currency = new() { Width = 100 };
+        private readonly NumericUpDown _initialBalance = new() { Width = 160 };
+        private readonly TextBox _notes = new() { Width = 260, Multiline = true, Height = 52 };
+
+        public NewAccountDialog(string workspaceId, int presetSymbolCount)
+        {
+            Text = $"Nuovo account · workspace {workspaceId}";
+            FormBorderStyle = FormBorderStyle.FixedDialog;
+            StartPosition = FormStartPosition.CenterParent;
+            MinimizeBox = false;
+            MaximizeBox = false;
+            ClientSize = new Size(460, 380);
+
+            _currency.Items.AddRange(new object[] { "USD", "EUR", "GBP", "CHF" });
+            _currency.Text = "USD";
+
+            _initialBalance.Minimum = 0;
+            _initialBalance.Maximum = 1_000_000_000;
+            _initialBalance.DecimalPlaces = 2;
+            _initialBalance.ThousandsSeparator = true;
+            _initialBalance.Increment = 1000;
+            _initialBalance.Value = 1_000_000;
+
+            var layout = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 2,
+                Padding = new Padding(12),
+                AutoSize = true
+            };
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+
+            AddRow(layout, "Nome *", _name);
+            AddRow(layout, "Codice account", _accountNumber);
+            AddRow(layout, "Gruppo", _groupId);
+            AddRow(layout, "Broker", _broker);
+            AddRow(layout, "Balance iniziale", _initialBalance);
+            AddRow(layout, "Valuta", _currency);
+            AddRow(layout, "Note", _notes);
+
+            var hint = new Label
+            {
+                AutoSize = true,
+                MaximumSize = new Size(420, 0),
+                Text = presetSymbolCount > 0
+                    ? $"La tabella di conversione parte dal preset identità: {presetSymbolCount} symbol " +
+                      "mappati su se stessi (@GC = @GC) con moltiplicatore 1. Nessuna conversione finché non la modifichi."
+                    : "Il preset di conversione è vuoto: l'account verrà creato senza symbol mappati."
+            };
+            layout.Controls.Add(hint, 0, layout.RowCount);
+            layout.SetColumnSpan(hint, 2);
+            layout.RowCount++;
+
+            var okButton = new Button { Text = "Crea", DialogResult = DialogResult.OK, AutoSize = true };
+            var cancelButton = new Button { Text = "Annulla", DialogResult = DialogResult.Cancel, AutoSize = true };
+            okButton.Click += (_, _) =>
+            {
+                if (string.IsNullOrWhiteSpace(_name.Text))
+                {
+                    MessageBox.Show("Il nome dell'account è obbligatorio.", "Nuovo account",
+                        MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    DialogResult = DialogResult.None;
+                }
+            };
+
+            var buttons = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Bottom,
+                FlowDirection = FlowDirection.RightToLeft,
+                AutoSize = true,
+                Padding = new Padding(12, 6, 12, 12)
+            };
+            buttons.Controls.Add(okButton);
+            buttons.Controls.Add(cancelButton);
+
+            Controls.Add(layout);
+            Controls.Add(buttons);
+            AcceptButton = okButton;
+            CancelButton = cancelButton;
+        }
+
+        public WorkspaceAccount BuildAccount() => new()
+        {
+            Name = _name.Text.Trim(),
+            AccountNumber = _accountNumber.Text.Trim(),
+            GroupId = _groupId.Text.Trim(),
+            Broker = _broker.Text.Trim(),
+            Currency = string.IsNullOrWhiteSpace(_currency.Text) ? "USD" : _currency.Text.Trim(),
+            InitialBalance = _initialBalance.Value,
+            Enabled = true,
+            Notes = _notes.Text.Trim()
+        };
+
+        private static void AddRow(TableLayoutPanel layout, string label, Control control)
+        {
+            var row = layout.RowCount;
+            layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            layout.Controls.Add(new Label
+            {
+                Text = label,
+                AutoSize = true,
+                Anchor = AnchorStyles.Left,
+                Padding = new Padding(0, 6, 10, 0)
+            }, 0, row);
+            layout.Controls.Add(control, 1, row);
+            layout.RowCount = row + 1;
+        }
+    }
+
+    private sealed class AccountListItem
+    {
+        public AccountListItem(WorkspaceAccount account) => Account = account;
+
+        public WorkspaceAccount Account { get; }
+
+        public override string ToString()
+        {
+            var group = string.IsNullOrWhiteSpace(Account.GroupId) ? "senza gruppo" : Account.GroupId;
+            var state = Account.Enabled ? string.Empty : " · disattivo";
+            return $"{Account.Name} · {group} · {Account.InitialBalance:N0} {Account.Currency} · " +
+                   $"{Account.SymbolMappings.Count} symbol{state}";
+        }
     }
 
     private sealed class WorkspaceBacktestItem

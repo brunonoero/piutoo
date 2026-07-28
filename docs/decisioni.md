@@ -74,3 +74,12 @@ in ordine cronologico. Non è un changelog di codice: quello resta nei commit.
   nessun errore — producevano risultati plausibili ma sbagliati, visibili solo dai numeri. Un
   parametro manuale avrebbe spostato il problema, non risolto: il contesto lo conosce la
   piattaforma, non l'operatore.
+- **2026-07-28** — La conversione symbol di un account si applica alla **size** dentro il motore ma
+  al **simbolo** solo in uscita, su `signals.json`. Rinominare `@NQ` in `USDTEC` a monte sembrava la
+  cosa ovvia, ma il motore indicizza prezzi correnti, barre e chiavi di posizione sul simbolo
+  Piootoo normalizzato: un segnale con il simbolo del broker resterebbe senza prezzo e non
+  verrebbe mai eseguito. Il simbolo del broker serve a chi inoltra l'ordine, non a chi lo simula,
+  quindi vive in `PersistedSignal.AccountSymbol` accanto al simbolo interno. Il moltiplicatore
+  contratto invece scala `signal.Quantity` prima di `ProcessSignals`, altrimenti equity e drawdown
+  del backtest non sarebbero quelli del conto reale. Un `AccountId` inesistente fa fallire il run:
+  proseguire 1 a 1 sarebbe un errore silenzioso sulle size.

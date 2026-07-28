@@ -160,6 +160,98 @@ public sealed class WorkspaceApiClient
             ?? throw new InvalidOperationException("Risposta di salvataggio masterfilter vuota.");
     }
 
+    public async Task<IReadOnlyList<AccountSymbolMapping>> GetSymbolConversionPresetAsync(
+        CancellationToken cancellationToken = default)
+    {
+        using var response = await SendAsync(HttpMethod.Get, "api/Workspace/accounts/symbol-preset", null, cancellationToken);
+        return await response.Content.ReadFromJsonAsync<List<AccountSymbolMapping>>(_jsonOptions, cancellationToken)
+            ?? new List<AccountSymbolMapping>();
+    }
+
+    /// <summary>Tabella identità dal catalogo: ogni symbol su se stesso, moltiplicatore 1.</summary>
+    public async Task<IReadOnlyList<AccountSymbolMapping>> GetSymbolIdentityAsync(
+        CancellationToken cancellationToken = default)
+    {
+        using var response = await SendAsync(
+            HttpMethod.Get, "api/Workspace/accounts/symbol-identity", null, cancellationToken);
+        return await response.Content.ReadFromJsonAsync<List<AccountSymbolMapping>>(_jsonOptions, cancellationToken)
+            ?? new List<AccountSymbolMapping>();
+    }
+
+    public async Task<IReadOnlyList<AccountSymbolMapping>> SaveSymbolConversionPresetAsync(
+        IReadOnlyList<AccountSymbolMapping> mappings,
+        CancellationToken cancellationToken = default)
+    {
+        using var response = await SendAsync(
+            HttpMethod.Put, "api/Workspace/accounts/symbol-preset", mappings, cancellationToken);
+        return await response.Content.ReadFromJsonAsync<List<AccountSymbolMapping>>(_jsonOptions, cancellationToken)
+            ?? new List<AccountSymbolMapping>();
+    }
+
+    public async Task<WorkspaceAccount> EnsureDefaultAccountAsync(
+        string workspaceId,
+        CancellationToken cancellationToken = default)
+    {
+        var encoded = Uri.EscapeDataString(workspaceId);
+        using var response = await SendAsync(
+            HttpMethod.Post, $"api/Workspace/{encoded}/accounts/default", null, cancellationToken);
+        return await response.Content.ReadFromJsonAsync<WorkspaceAccount>(_jsonOptions, cancellationToken)
+            ?? throw new InvalidOperationException("Risposta account di default vuota.");
+    }
+
+    public async Task<IReadOnlyList<WorkspaceAccount>> ListAccountsAsync(
+        string workspaceId,
+        CancellationToken cancellationToken = default)
+    {
+        var encoded = Uri.EscapeDataString(workspaceId);
+        using var response = await SendAsync(HttpMethod.Get, $"api/Workspace/{encoded}/accounts", null, cancellationToken);
+        return await response.Content.ReadFromJsonAsync<List<WorkspaceAccount>>(_jsonOptions, cancellationToken)
+            ?? new List<WorkspaceAccount>();
+    }
+
+    public async Task<WorkspaceAccount> CreateAccountAsync(
+        string workspaceId,
+        WorkspaceAccount account,
+        CancellationToken cancellationToken = default)
+    {
+        var encoded = Uri.EscapeDataString(workspaceId);
+        using var response = await SendAsync(HttpMethod.Post, $"api/Workspace/{encoded}/accounts", account, cancellationToken);
+        return await response.Content.ReadFromJsonAsync<WorkspaceAccount>(_jsonOptions, cancellationToken)
+            ?? throw new InvalidOperationException("Risposta di creazione account vuota.");
+    }
+
+    public async Task<WorkspaceAccount> SaveAccountAsync(
+        string workspaceId,
+        string accountId,
+        WorkspaceAccount account,
+        CancellationToken cancellationToken = default)
+    {
+        var encoded = Uri.EscapeDataString(workspaceId);
+        var encodedAccount = Uri.EscapeDataString(accountId);
+        using var response = await SendAsync(
+            HttpMethod.Put,
+            $"api/Workspace/{encoded}/accounts/{encodedAccount}",
+            account,
+            cancellationToken);
+        return await response.Content.ReadFromJsonAsync<WorkspaceAccount>(_jsonOptions, cancellationToken)
+            ?? throw new InvalidOperationException("Risposta di salvataggio account vuota.");
+    }
+
+    public async Task DeleteAccountAsync(
+        string workspaceId,
+        string accountId,
+        CancellationToken cancellationToken = default)
+    {
+        var encoded = Uri.EscapeDataString(workspaceId);
+        var encodedAccount = Uri.EscapeDataString(accountId);
+        using var response = await SendAsync(
+            HttpMethod.Delete,
+            $"api/Workspace/{encoded}/accounts/{encodedAccount}",
+            null,
+            cancellationToken);
+        _ = response;
+    }
+
     public async Task DeleteAsync(string workspaceId, CancellationToken cancellationToken = default)
     {
         var encoded = Uri.EscapeDataString(workspaceId);

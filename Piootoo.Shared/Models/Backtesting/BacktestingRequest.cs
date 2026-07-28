@@ -43,4 +43,11 @@ public class BacktestingRequest
 
     /// <summary>Cartella di backtest che contiene il run Titano indicato.</summary>
     public string? TitanoBacktestFolder { get; set; }
+
+    /// <summary>
+    /// Account del workspace la cui tabella di conversione viene applicata al run: il moltiplicatore
+    /// contratto scala la size dei segnali e il simbolo account viene riportato in
+    /// <c>signals.json</c>. Null o vuoto = nessuna conversione (1 a 1).
+    /// </summary>
+    public string? AccountId { get; set; }
 }

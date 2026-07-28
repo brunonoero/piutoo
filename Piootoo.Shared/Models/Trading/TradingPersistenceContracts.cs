@@ -39,6 +39,18 @@ public sealed class PersistedSignal
     /// <summary>Numero massimo di barre in posizione dichiarato dal segnale. Null = nessun limite.</summary>
     public int? MaxBarsInPosition { get; init; }
 
+    /// <summary>Account la cui tabella di conversione ha generato il segnale. Vuoto = nessuna conversione.</summary>
+    public string AccountId { get; init; } = string.Empty;
+
+    /// <summary>
+    /// Simbolo con cui l'engine esterno deve inoltrare l'ordine (es. <c>USDTEC</c>). Coincide con
+    /// <see cref="Symbol"/> quando l'account non ha una mappatura per quel simbolo.
+    /// </summary>
+    public string AccountSymbol { get; init; } = string.Empty;
+
+    /// <summary>Fattore di scala contratto applicato dalla tabella di conversione dell'account.</summary>
+    public decimal ContractMultiplier { get; init; } = 1m;
+
     public string? Reason { get; init; }
 
     /// <summary>
