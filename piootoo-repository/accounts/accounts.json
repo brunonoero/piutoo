@@ -1,4 +1,8 @@
 {
+  "Groups": [
+    "12345678",
+    "aaaaaaaaaaaaaa"
+  ],
   "Accounts": [
     {
       "Id": "12345678",
@@ -11,7 +15,7 @@
       "Enabled": true,
       "Notes": "FTMO 1",
       "CreatedUtc": "2026-07-28T10:10:35.1847811Z",
-      "UpdatedUtc": "2026-07-28T10:11:16.8844451Z",
+      "UpdatedUtc": "2026-07-28T13:23:41.2095243Z",
       "SymbolMappings": [
         {
           "Symbol": "@CL",
@@ -21,7 +25,7 @@
         },
         {
           "Symbol": "@FDAX",
-          "AccountSymbol": "TEC100",
+          "AccountSymbol": "@FDAX",
           "ContractMultiplier": 0.1,
           "Enabled": true
         },
