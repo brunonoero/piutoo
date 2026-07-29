@@ -70,6 +70,7 @@ public sealed class StrategyEvaluationService : IStrategyEvaluationService
 public interface ITradingSessionService
 {
     TradingSessionDescriptor Create(CreateTradingSessionRequest request);
+    TradingSessionDescriptor OpenFromPlan(OpenTradingPlanSessionRequest request);
     TradingSessionDescriptor SetStatus(string sessionId, string token, TradingSessionStatus status);
     PushBarsResponse PushBars(PushBarsRequest request);
     IReadOnlyList<OrderIntent> GetIntents(string sessionId, string token, long after = 0);
@@ -126,6 +127,8 @@ public sealed class TradingSessionService : ITradingSessionService
         public required string Id { get; init; }
         public required string Token { get; init; }
         public required string WorkspaceId { get; init; }
+        public string? PlanCode { get; init; }
+        public string? ExecutionKey { get; init; }
         public required ExecutionMode Mode { get; init; }
         public required decimal InitialCapital { get; init; }
         public required List<ITradingStrategy> Strategies { get; init; }
@@ -200,22 +203,102 @@ public sealed class TradingSessionService : ITradingSessionService
         bool ApplyTitanoFilters);
 
     private readonly ConcurrentDictionary<string, Session> _sessions = new();
+    private readonly ConcurrentDictionary<string, string> _planExecutions =
+        new(StringComparer.OrdinalIgnoreCase);
     private readonly WorkspaceService _workspaces;
+    private readonly TradingPlanService _plans;
     private readonly IStrategyEvaluationService _evaluation;
     private readonly TitanoRotationService? _titano;
     private readonly IPositionSizingService _positionSizing;
 
     public TradingSessionService(
-        WorkspaceService workspaces, IStrategyEvaluationService evaluation,
+        WorkspaceService workspaces, TradingPlanService plans, IStrategyEvaluationService evaluation,
         TitanoRotationService? titano = null, IPositionSizingService? positionSizing = null)
     {
         _workspaces = workspaces;
+        _plans = plans;
         _evaluation = evaluation;
         _titano = titano;
         _positionSizing = positionSizing ?? new PositionSizingService();
     }
 
+    public TradingSessionService(
+        WorkspaceService workspaces, IStrategyEvaluationService evaluation,
+        TitanoRotationService? titano = null, IPositionSizingService? positionSizing = null)
+        : this(workspaces, new TradingPlanService(workspaces), evaluation, titano, positionSizing)
+    {
+    }
+
     public TradingSessionDescriptor Create(CreateTradingSessionRequest request)
+        => CreateCore(request, null, null);
+
+    public TradingSessionDescriptor OpenFromPlan(OpenTradingPlanSessionRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (request.ClientRunMode == ClientRunMode.Unknown)
+            throw new ArgumentException("Il cBot deve dichiarare Backtest oppure Realtime.");
+        if (string.IsNullOrWhiteSpace(request.ExecutionKey))
+            throw new ArgumentException("ExecutionKey è obbligatoria.");
+
+        var plan = _plans.Resolve(request.PlanCode);
+        var account = string.IsNullOrWhiteSpace(request.AccountNumber)
+            ? plan.AccountNumber
+            : request.AccountNumber.Trim();
+        if (!account.Equals(plan.AccountNumber, StringComparison.OrdinalIgnoreCase))
+            throw new ArgumentException(
+                $"L'account '{account}' non coincide con l'account '{plan.AccountNumber}' del piano '{plan.Code}'.");
+
+        var executionKey = $"{plan.Code}|{request.ClientRunMode}|{request.ExecutionKey.Trim()}";
+        if (_planExecutions.TryGetValue(executionKey, out var existingId) &&
+            _sessions.TryGetValue(existingId, out var existing))
+        {
+            lock (existing.Gate)
+            {
+                existing.Status = TradingSessionStatus.Running;
+                Persist(existing);
+                return Describe(existing);
+            }
+        }
+
+        var titanoMode = !plan.ApplyTitanoFilters
+            ? TitanoFilterMode.Disabled
+            : request.ClientRunMode == ClientRunMode.Backtest
+                ? TitanoFilterMode.BacktestRotationFile
+                : TitanoFilterMode.Realtime;
+        var descriptor = CreateCore(new CreateTradingSessionRequest
+        {
+            WorkspaceId = plan.WorkspaceId,
+            ExecutionMode = ExecutionMode.ExternalBroker,
+            InitialCapital = plan.InitialCapital,
+            CommissionPerContract = plan.CommissionPerContract,
+            ClientSessionToken = Convert.ToHexString(Guid.NewGuid().ToByteArray()),
+            TitanoRunId = plan.TitanoRunId,
+            TitanoBacktestFolder = plan.TitanoBacktestFolder,
+            TitanoMode = titanoMode,
+            ClientRunMode = request.ClientRunMode,
+            PositionSizing = plan.PositionSizing,
+            Instruments = plan.Instruments
+        }, plan.Code, request.ExecutionKey.Trim());
+        SetTradingGroups(descriptor.SessionId, descriptor.SessionToken,
+        [
+            new TradingGroupRow
+            {
+                GroupId = plan.GroupId,
+                AccountNumber = plan.AccountNumber,
+                MaxConcurrentTrades = plan.MaxConcurrentTrades,
+                RotationSetupId = plan.RotationSetupId,
+                TitanoRunId = plan.TitanoRunId,
+                TitanoBacktestFolder = plan.TitanoBacktestFolder,
+                ApplyTitanoFilters = plan.ApplyTitanoFilters
+            }
+        ]);
+        SetStatus(descriptor.SessionId, descriptor.SessionToken, TradingSessionStatus.Running);
+        _planExecutions[executionKey] = descriptor.SessionId;
+        return Describe(_sessions[descriptor.SessionId]);
+    }
+
+    private TradingSessionDescriptor CreateCore(
+        CreateTradingSessionRequest request, string? planCode, string? executionKey)
     {
         if (!string.IsNullOrWhiteSpace(request.TitanoRunId) &&
             string.IsNullOrWhiteSpace(request.TitanoBacktestFolder))
@@ -270,6 +353,8 @@ public sealed class TradingSessionService : ITradingSessionService
                 ? Convert.ToHexString(Guid.NewGuid().ToByteArray())
                 : request.ClientSessionToken,
             WorkspaceId = request.WorkspaceId,
+            PlanCode = planCode,
+            ExecutionKey = executionKey,
             Mode = request.ExecutionMode,
             InitialCapital = request.InitialCapital,
             Strategies = strategies,
@@ -1334,6 +1419,8 @@ public sealed class TradingSessionService : ITradingSessionService
         SessionId = session.Id,
         SessionToken = session.Token,
         WorkspaceId = session.WorkspaceId,
+        PlanCode = session.PlanCode,
+        ExecutionKey = session.ExecutionKey,
         ExecutionMode = session.Mode,
         Status = session.Status,
         TitanoRunId = session.TitanoRunId,

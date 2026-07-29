@@ -163,6 +163,8 @@ public sealed class TradingSessionDescriptor
     public required string SessionId { get; init; }
     public required string SessionToken { get; init; }
     public required string WorkspaceId { get; init; }
+    public string? PlanCode { get; init; }
+    public string? ExecutionKey { get; init; }
     public required ExecutionMode ExecutionMode { get; init; }
     public required TradingSessionStatus Status { get; init; }
     public string? TitanoRunId { get; init; }

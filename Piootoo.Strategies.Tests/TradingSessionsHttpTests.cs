@@ -54,6 +54,50 @@ public sealed class TradingSessionsHttpTests : IDisposable
         });
     }
 
+    [Fact]
+    public async Task TradingPlanIsPersistedAndOpensIdempotentSession()
+    {
+        var plan = new SaveTradingPlanRequest
+        {
+            Code = "PLAN_HTTP",
+            Name = "Piano HTTP",
+            GroupId = "PROP-A",
+            AccountNumber = "12345",
+            MaxConcurrentTrades = 2,
+            ApplyTitanoFilters = false
+        };
+        var save = await _client.PutAsJsonAsync(
+            $"api/v1/workspaces/{_workspace.Id}/trading-plans/{plan.Code}", plan);
+        save.EnsureSuccessStatusCode();
+
+        var open = new OpenTradingPlanSessionRequest
+        {
+            PlanCode = plan.Code,
+            ClientRunMode = ClientRunMode.Backtest,
+            ExecutionKey = "run-1",
+            AccountNumber = plan.AccountNumber
+        };
+        var firstResponse = await _client.PostAsJsonAsync("api/v1/trading-sessions/open-plan", open);
+        firstResponse.EnsureSuccessStatusCode();
+        var first = (await firstResponse.Content.ReadFromJsonAsync<TradingSessionDescriptor>(JsonOptions))!;
+        var secondResponse = await _client.PostAsJsonAsync("api/v1/trading-sessions/open-plan", open);
+        secondResponse.EnsureSuccessStatusCode();
+        var second = (await secondResponse.Content.ReadFromJsonAsync<TradingSessionDescriptor>(JsonOptions))!;
+
+        Assert.Equal(first.SessionId, second.SessionId);
+        Assert.Equal(plan.Code, first.PlanCode);
+        Assert.Equal(TradingSessionStatus.Running, first.Status);
+
+        using var groupsRequest = Authorized(HttpMethod.Get,
+            $"api/v1/trading-sessions/{first.SessionId}/groups", first.SessionToken);
+        var groupsResponse = await _client.SendAsync(groupsRequest);
+        groupsResponse.EnsureSuccessStatusCode();
+        var group = Assert.Single(
+            (await groupsResponse.Content.ReadFromJsonAsync<List<TradingGroupRow>>(JsonOptions))!);
+        Assert.Equal(plan.AccountNumber, group.AccountNumber);
+        Assert.Equal(2, group.MaxConcurrentTrades);
+    }
+
     [Theory]
     [InlineData(ExecutionMode.ServerSimulated)]
     [InlineData(ExecutionMode.ExternalBroker)]

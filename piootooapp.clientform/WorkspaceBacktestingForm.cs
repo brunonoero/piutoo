@@ -114,6 +114,13 @@ public partial class WorkspaceBacktestingForm : Form
     private readonly Button _sessionSaveAccountGroups = new();
     private readonly Button _sessionReloadAccountGroups = new();
     private readonly Button _sessionApplyTitanoToGroups = new();
+    private readonly ComboBox _sessionPlanCombo = new();
+    private readonly TextBox _sessionPlanCode = new();
+    private readonly TextBox _sessionPlanName = new();
+    private readonly Button _sessionPlanNew = new();
+    private readonly Button _sessionPlanSave = new();
+    private readonly Button _sessionPlanDelete = new();
+    private List<TradingPlan> _tradingPlans = new();
     private readonly Button _runTitanoButton = new();
     private readonly TextBox _titanoResultsTextBox = new();
     private readonly ToolTip _formToolTip = new() { AutoPopDelay = 25000, InitialDelay = 350, ReshowDelay = 100, ShowAlways = true, IsBalloon = true };
@@ -1089,6 +1096,18 @@ public partial class WorkspaceBacktestingForm : Form
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         _sessionWorkspaceCombo.DropDownStyle = ComboBoxStyle.DropDownList;
         _sessionWorkspaceCombo.Width = 320;
+        _sessionWorkspaceCombo.SelectedIndexChanged += async (_, _) => await LoadTradingPlansAsync();
+        _sessionPlanCombo.DropDownStyle = ComboBoxStyle.DropDownList;
+        _sessionPlanCombo.Width = 220;
+        _sessionPlanCombo.SelectedIndexChanged += (_, _) => LoadSelectedTradingPlan();
+        _sessionPlanCode.Width = 110;
+        _sessionPlanName.Width = 180;
+        _sessionPlanNew.Text = "Nuovo piano";
+        _sessionPlanSave.Text = "Salva piano";
+        _sessionPlanDelete.Text = "Elimina piano";
+        _sessionPlanNew.Click += (_, _) => ClearTradingPlanEditor();
+        _sessionPlanSave.Click += async (_, _) => await SaveTradingPlanAsync();
+        _sessionPlanDelete.Click += async (_, _) => await DeleteTradingPlanAsync();
         _sessionModeCombo.DropDownStyle = ComboBoxStyle.DropDownList;
         _sessionModeCombo.Items.AddRange(Enum.GetNames<ExecutionMode>());
         _sessionModeCombo.SelectedItem = nameof(ExecutionMode.ServerSimulated);
@@ -1119,6 +1138,15 @@ public partial class WorkspaceBacktestingForm : Form
         var config = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, WrapContents = true };
         config.Controls.AddRange(new Control[]
         {
+            TitanoLabel("Piano", "Configurazione operativa riutilizzabile salvata nel workspace."),
+            _sessionPlanCombo,
+            TitanoLabel("Codice piano", "Codice globale inserito nel cBot."),
+            _sessionPlanCode,
+            TitanoLabel("Nome piano", "Nome leggibile del piano."),
+            _sessionPlanName,
+            _sessionPlanNew,
+            _sessionPlanSave,
+            _sessionPlanDelete,
             TitanoLabel("Workspace", "Workspace per cui viene creata e gestita la sessione di trading."),
             WithHelp(_sessionWorkspaceCombo, "Workspace per cui viene creata e gestita la sessione di trading."),
             TitanoLabel("Modalità", "ServerSimulated: esecuzione simulata lato server. ExternalBroker: gli ordini vengono inoltrati a un broker esterno."),
@@ -1378,9 +1406,9 @@ public partial class WorkspaceBacktestingForm : Form
 
     private async Task ApplyTitanoToGroupsAsync()
     {
-        if (_activeSession is null)
+        if (_sessionWorkspaceCombo.SelectedItem is not WorkspaceListItem workspace)
         {
-            MessageBox.Show("Crea prima una sessione ExternalBroker.", "Gruppi Titano",
+            MessageBox.Show("Seleziona un workspace.", "Gruppi Titano",
                 MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
@@ -1412,7 +1440,7 @@ public partial class WorkspaceBacktestingForm : Form
                     ?? throw new InvalidOperationException($"Setup Titano '{setupId}' non trovato.");
                 var rotation = BuildTitanoRequest(
                     setup,
-                    _activeSession.WorkspaceId,
+                    workspace.Info.Id,
                     _sessionTitanoBacktest.Text.Trim());
                 var response = await _httpClient.PostAsJsonAsync("api/Titano/rotations", rotation, _jsonOptions);
                 response.EnsureSuccessStatusCode();
@@ -1426,7 +1454,10 @@ public partial class WorkspaceBacktestingForm : Form
                         gridRow.Cells["TitanoRunId"].Value = manifest.RunId;
             }
 
-            await SaveAccountGroupsAsync();
+            if (_activeSession is not null)
+                await SaveAccountGroupsAsync();
+            else if (!string.IsNullOrWhiteSpace(_sessionPlanCode.Text))
+                await SaveTradingPlanAsync();
             ShowSession("Setup Titano generati e applicati ai gruppi.");
         }
         catch (Exception ex)
@@ -2834,6 +2865,118 @@ public partial class WorkspaceBacktestingForm : Form
         // Le modalità filtrate senza un run non possono degradare in silenzio: il server le rifiuta.
         _sessionTitanoRunId.Enabled = true;
         _sessionTitanoBacktest.Enabled = true;
+    }
+
+    private async Task LoadTradingPlansAsync(string? selectCode = null)
+    {
+        if (_sessionWorkspaceCombo.SelectedItem is not WorkspaceListItem workspace) return;
+        try
+        {
+            NormalizeBaseAddress();
+            _tradingPlans = await _httpClient.GetFromJsonAsync<List<TradingPlan>>(
+                $"api/v1/workspaces/{Uri.EscapeDataString(workspace.Info.Id)}/trading-plans", _jsonOptions) ?? [];
+            _sessionPlanCombo.Items.Clear();
+            foreach (var plan in _tradingPlans)
+                _sessionPlanCombo.Items.Add($"{plan.Code} — {plan.Name}");
+            if (_tradingPlans.Count > 0)
+            {
+                var index = selectCode is null
+                    ? 0
+                    : _tradingPlans.FindIndex(x => x.Code.Equals(selectCode, StringComparison.OrdinalIgnoreCase));
+                _sessionPlanCombo.SelectedIndex = Math.Max(0, index);
+            }
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(ex.Message, "Errore piani", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+    }
+
+    private void LoadSelectedTradingPlan()
+    {
+        var index = _sessionPlanCombo.SelectedIndex;
+        if (index < 0 || index >= _tradingPlans.Count) return;
+        var plan = _tradingPlans[index];
+        _sessionPlanCode.Text = plan.Code;
+        _sessionPlanName.Text = plan.Name;
+        _sessionTitanoBacktest.Text = plan.TitanoBacktestFolder ?? string.Empty;
+        _sessionTitanoRunId.Text = plan.TitanoRunId ?? string.Empty;
+        _sessionMetadata.Text = string.Join(";", plan.Instruments.Select(x =>
+            $"{x.Symbol},{x.DollarsPerPoint},{x.MinimumQuantity},{x.QuantityStep},{x.RoundingMode}"));
+        _sessionAccountGroups.Rows.Clear();
+        _sessionAccountGroups.Rows.Add(
+            plan.GroupId, plan.RotationSetupId, plan.AccountNumber, plan.MaxConcurrentTrades,
+            plan.ApplyTitanoFilters, plan.TitanoRunId);
+    }
+
+    private void ClearTradingPlanEditor()
+    {
+        _sessionPlanCombo.SelectedIndex = -1;
+        _sessionPlanCode.Clear();
+        _sessionPlanName.Clear();
+        _sessionAccountGroups.Rows.Clear();
+    }
+
+    private async Task SaveTradingPlanAsync()
+    {
+        if (_sessionWorkspaceCombo.SelectedItem is not WorkspaceListItem workspace) return;
+        try
+        {
+            var row = ReadTradingGroupRows().SingleOrDefault()
+                ?? throw new InvalidOperationException("Il piano richiede una riga gruppo/account.");
+            var request = new SaveTradingPlanRequest
+            {
+                Code = _sessionPlanCode.Text.Trim(),
+                Name = _sessionPlanName.Text.Trim(),
+                GroupId = row.GroupId,
+                AccountNumber = row.AccountNumber,
+                MaxConcurrentTrades = row.MaxConcurrentTrades,
+                RotationSetupId = row.RotationSetupId,
+                TitanoRunId = row.TitanoRunId,
+                TitanoBacktestFolder = row.TitanoBacktestFolder,
+                ApplyTitanoFilters = row.ApplyTitanoFilters,
+                Instruments = ParseInstrumentMetadata(_sessionMetadata.Text),
+                PositionSizing = new PositionSizingConfig
+                {
+                    MarketVolatility = new MarketVolatilitySizingConfig
+                    {
+                        Enabled = _sessionAtrEnabled.Checked,
+                        AtrPeriods = (int)_sessionAtrPeriods.Value,
+                        TargetRiskDollars = _sessionTargetRisk.Value
+                    },
+                    PortfolioRisk = new PortfolioRiskSizingConfig
+                    {
+                        Enabled = _sessionPortfolioEnabled.Checked,
+                        MaximumDrawdown = _sessionDrawdownCap.Value / 100m,
+                        EnableCppi = _sessionCppiEnabled.Checked,
+                        CppiFloorFraction = _sessionCppiFloor.Value / 100m,
+                        CppiMultiplier = _sessionCppiMultiplier.Value
+                    }
+                }
+            };
+            var uri = $"api/v1/workspaces/{Uri.EscapeDataString(workspace.Info.Id)}/trading-plans/" +
+                      Uri.EscapeDataString(request.Code);
+            var response = await _httpClient.PutAsJsonAsync(uri, request, _jsonOptions);
+            response.EnsureSuccessStatusCode();
+            await LoadTradingPlansAsync(request.Code);
+            ShowSession($"Piano {request.Code} salvato.");
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(ex.Message, "Errore salvataggio piano", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+    }
+
+    private async Task DeleteTradingPlanAsync()
+    {
+        if (_sessionWorkspaceCombo.SelectedItem is not WorkspaceListItem workspace ||
+            string.IsNullOrWhiteSpace(_sessionPlanCode.Text)) return;
+        var response = await _httpClient.DeleteAsync(
+            $"api/v1/workspaces/{Uri.EscapeDataString(workspace.Info.Id)}/trading-plans/" +
+            Uri.EscapeDataString(_sessionPlanCode.Text.Trim()));
+        response.EnsureSuccessStatusCode();
+        ClearTradingPlanEditor();
+        await LoadTradingPlansAsync();
     }
 
     private async Task CreateTradingSessionAsync()

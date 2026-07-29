@@ -16,6 +16,11 @@ public sealed class TradingSessionsController : ControllerBase
     public ActionResult<TradingSessionDescriptor> Create(CreateTradingSessionRequest request)
         => ExecuteResult<TradingSessionDescriptor>(() => Ok(_sessions.Create(request)));
 
+    /// <summary>Crea o riprende idempotentemente una sessione usando il solo codice piano.</summary>
+    [HttpPost("open-plan")]
+    public ActionResult<TradingSessionDescriptor> OpenPlan(OpenTradingPlanSessionRequest request)
+        => ExecuteResult<TradingSessionDescriptor>(() => Ok(_sessions.OpenFromPlan(request)));
+
     [HttpPost("{sessionId}/start")]
     public ActionResult<TradingSessionDescriptor> Start(string sessionId, [FromHeader(Name = "X-Session-Token")] string token)
         => ExecuteResult<TradingSessionDescriptor>(() => Ok(_sessions.SetStatus(sessionId, token, TradingSessionStatus.Running)));

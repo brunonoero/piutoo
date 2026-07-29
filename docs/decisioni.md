@@ -83,3 +83,10 @@ in ordine cronologico. Non è un changelog di codice: quello resta nei commit.
   contratto invece scala `signal.Quantity` prima di `ProcessSignals`, altrimenti equity e drawdown
   del backtest non sarebbero quelli del conto reale. Un `AccountId` inesistente fa fallire il run:
   proseguire 1 a 1 sarebbe un errore silenzioso sulle size.
+- **2026-07-29** — La configurazione operativa riutilizzabile è un **piano di trading** del
+  workspace, distinto dalla sessione mutabile. Il piano ha un codice globale e contiene account,
+  gruppo, limite trade, setup/run Titano, sizing e metadata; il cBot configura soltanto quel
+  codice. La chiave `(PlanCode, ClientRunMode, ExecutionKey)` crea o riprende idempotentemente una
+  sessione e impedisce di confondere backtest e realtime. La sessione acquisisce uno snapshot del
+  piano: successive modifiche non cambiano un'esecuzione già avviata. L'idempotenza è per ora in
+  memoria server; la ricostruzione dopo il riavvio del processo resta un lavoro separato.

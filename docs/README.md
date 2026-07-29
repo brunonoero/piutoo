@@ -31,8 +31,13 @@ solution. Stato: **stabile** = contenuto verificato contro il codice,
   `FinalQuantity` (Titano × ATR × rischio portfolio). *Stabile.*
 - [`domini/trading-sessions-api.md`](domini/trading-sessions-api.md) — ciclo
   di vita di una sessione, endpoint, autorità di execution. *Stabile.*
+- [`domini/trading-plans.md`](domini/trading-plans.md) — configurazioni operative
+  riutilizzabili e apertura idempotente delle sessioni dal cBot. *Stabile.*
 - [`domini/strategie-catalogo.md`](domini/strategie-catalogo.md) —
   `ITradingStrategy`, catalogo, generazione da EasyLanguage. *Bozza.*
+- [`domini/motori-strategie.md`](domini/motori-strategie.md) — regole comuni
+  dei motori Unger e guida di porting, inclusa la specifica `TF_M` NQ 60.
+  *Stabile.*
 - [`domini/feed-worker.md`](domini/feed-worker.md) — `FeedRunner`/
   `FeedWorker`, invio barre chiuse. *Bozza.*
 

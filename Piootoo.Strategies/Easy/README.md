@@ -186,6 +186,22 @@ Genera il codice completo della classe C# con:
 
 ## Limitazioni e Note
 
+### Documentazione di ogni strategia
+
+Ogni nuova classe in `Easy/` deve iniziare con un commento XML `<summary>` in
+italiano che descriva il comportamento atteso, non soltanto l'origine della
+strategia. Il commento deve indicare:
+
+1. simbolo, timeframe e timezone;
+2. sessione e dati storici usati per i livelli o i pattern;
+3. filtri, trigger long/short, tipo e durata dell'ordine;
+4. limite di entrate e comportamento overnight;
+5. uscite dichiarate nel `TradeSignal` (SL/TP, `CloseAtUtc`,
+   `MaxBarsInPosition`, trailing e break-even, se presenti).
+
+La documentazione deve rimanere allineata alla classe quando se ne modificano
+parametri o logica.
+
 ### TODO Manuali
 
 1. **Metodo `GenerateSignal`**: Lo script genera solo uno stub. La logica della strategia deve essere implementata manualmente convertendo le condizioni EasyLanguage (`buy`, `sellshort`, ecc.) in `TradeSignal`.

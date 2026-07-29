@@ -7,7 +7,9 @@ catalogo sono rifiutati senza fallback.
 
 ## Sequenza
 
-1. `POST /api/v1/trading-sessions` crea la sessione e restituisce `SessionId`,
+1. `POST /api/v1/trading-sessions` crea direttamente una sessione, oppure
+   `POST /api/v1/trading-sessions/open-plan` risolve il codice piano e crea/riprende
+   idempotentemente la relativa esecuzione. Entrambi restituiscono `SessionId`,
    token e coppie simbolo/timeframe derivate dal masterfilter.
 2. `POST /{id}/start`, `/stop`, `/resume` controllano il lifecycle. Il token è
    nel payload dove previsto o nell'header `X-Session-Token`.
@@ -23,6 +25,29 @@ catalogo sono rifiutati senza fallback.
    idempotenti Accepted/PartiallyFilled/Filled/Rejected/Cancelled.
 7. `GET /{id}/snapshot` restituisce stato sessione; `DELETE
    /{id}/intents/{intentId}` cancella un intent ancora pendente.
+
+## Apertura tramite piano
+
+`open-plan` è il percorso usato da `PiootooLiveTradingBot`. Il payload contiene `PlanCode`,
+`ClientRunMode`, `ExecutionKey` e il numero account rilevato da cTrader. Il codice piano viene
+risolto globalmente; l'account deve coincidere con quello configurato nel piano.
+
+La chiave `(PlanCode, ClientRunMode, ExecutionKey)` separa le esecuzioni e rende il riavvio del
+cBot idempotente. In backtest il cBot deriva l'execution key dall'istante iniziale della
+simulazione; in realtime usa la chiave stabile `LIVE`.
+
+Il piano decide automaticamente la modalità: senza filtro `Disabled`, con filtro
+`BacktestRotationFile` nel backtest e `Realtime` sul mercato reale. La sessione riceve inoltre
+uno snapshot della riga gruppo/account del piano.
+
+La mappa delle sessioni resta in RAM: l'idempotenza copre il riavvio del cBot, non ancora il
+riavvio del processo server.
+
+Il resume del cBot comprende anche lo stato locale delle uscite: le condizioni
+`CloseAtUtc`/`MaxBarsInPosition` delle posizioni vengono persistite per piano e account e
+riconciliate con le posizioni presenti su cTrader all'avvio. Il file viene ignorato se il server
+ha risolto una sessione diversa, evitando di riportare chiusure contro intent non appartenenti
+alla sessione corrente.
 
 ## Intent di ingresso e chiusure
 

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.IO;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text;
@@ -42,9 +43,8 @@ namespace cAlgo.Robots
     /// live sia in backtest (dove serve comunque abilitare il backtesting multi-simbolo/multi-timeframe in
     /// cTrader se si configurano strumenti diversi da quello del grafico).
     ///
-    /// Un'istanza di questo cBot rappresenta UN account cTrader. Per collegare più account allo stesso
-    /// gruppo/prop-firm basta usare lo stesso SessionId/SessionToken su più cBot (uno per account) e
-    /// configurare Account -> Gruppo nel tab "Trading Session" del client desktop Piootoo.
+    /// Un'istanza di questo cBot rappresenta UN account cTrader. Il codice piano risolve la sessione e
+    /// il profilo account/gruppo; cBot di account diversi possono condividere la sessione del piano.
     /// </summary>
     [Robot(TimeZone = TimeZones.UTC, AccessRights = AccessRights.FullAccess)]
     public class PiootooLiveTradingBot : Robot
@@ -54,20 +54,11 @@ namespace cAlgo.Robots
         [Parameter("Server Base Url", DefaultValue = "https://localhost:7116")]
         public string ServerBaseUrl { get; set; }
 
-        [Parameter("Session Id")]
-        public string SessionId { get; set; }
-
-        [Parameter("Session Token")]
-        public string SessionToken { get; set; }
-
-        [Parameter("Account Number (vuoto = usa Account.Number)", DefaultValue = "")]
-        public string AccountNumberOverride { get; set; }
+        [Parameter("Codice piano")]
+        public string PlanCode { get; set; }
 
         [Parameter("Timeframe base del grafico (minuti)", DefaultValue = 5, MinValue = 1)]
         public int BaseTimeframeMinutes { get; set; }
-
-        [Parameter("Strumenti: SIMBOLO:tf1,tf2;SIMBOLO2:tf3,...", DefaultValue = "XAUUSD:5,15;EURUSD:5,60")]
-        public string InstrumentsConfig { get; set; }
 
         [Parameter("Polling segnali (secondi)", DefaultValue = 2, MinValue = 1)]
         public int PollingSeconds { get; set; }
@@ -86,6 +77,9 @@ namespace cAlgo.Robots
 
         private HttpClient _http;
         private string _accountNumber;
+        private string _sessionId;
+        private string _sessionToken;
+        private string _localStatePath;
         private readonly JsonSerializerOptions _json = new(JsonSerializerDefaults.Web)
         {
             PropertyNameCaseInsensitive = true,
@@ -103,14 +97,23 @@ namespace cAlgo.Robots
         /// <summary>Contesto di una posizione aperta da questo bot, per il reporting alla chiusura.</summary>
         private sealed class OpenPositionContext
         {
-            public string EntryIntentId;
-            public string StrategyCode;
-            public string Symbol;
-            public DateTime? CloseAtUtc;
+            public int PositionId { get; set; }
+            public string EntryIntentId { get; set; }
+            public string StrategyCode { get; set; }
+            public string Symbol { get; set; }
+            public DateTime? CloseAtUtc { get; set; }
             /// <summary>Limite di barre in posizione dichiarato dall'intent di ingresso. 0 = nessun limite.</summary>
-            public int MaxBarsInPosition;
-            /// <summary>Indice di barra all'apertura, per applicare <see cref="MaxBarsInPosition"/>.</summary>
-            public int EntryBarIndex;
+            public int MaxBarsInPosition { get; set; }
+            /// <summary>Barre trascorse, persistite per non perdere il limite dopo un riavvio.</summary>
+            public int BarsInPosition { get; set; }
+        }
+
+        private sealed class LocalSessionState
+        {
+            public string PlanCode { get; set; }
+            public string AccountNumber { get; set; }
+            public string SessionId { get; set; }
+            public List<OpenPositionContext> Positions { get; set; } = new();
         }
 
         // Una serie a timeframe BASE per ciascun simbolo configurato (non per ogni coppia): da qui si
@@ -127,16 +130,14 @@ namespace cAlgo.Robots
 
         protected override void OnStart()
         {
-            if (string.IsNullOrWhiteSpace(SessionId) || string.IsNullOrWhiteSpace(SessionToken))
+            if (string.IsNullOrWhiteSpace(PlanCode))
             {
-                Print("SessionId/SessionToken non impostati.");
+                Print("Codice piano non impostato.");
                 Stop();
                 return;
             }
 
-            _accountNumber = string.IsNullOrWhiteSpace(AccountNumberOverride)
-                ? Account.Number.ToString()
-                : AccountNumberOverride.Trim();
+            _accountNumber = Account.Number.ToString();
 
             _http = new HttpClient
             {
@@ -145,26 +146,51 @@ namespace cAlgo.Robots
             };
             _http.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
-            if (!ParseInstruments(InstrumentsConfig, BaseTimeframeMinutes, out var pairs, out var error))
+            var openResponse = PostJson("api/v1/trading-sessions/open-plan", new OpenTradingPlanSessionRequestDto
             {
-                Print("Configurazione Instruments non valida: {0}", error);
+                PlanCode = PlanCode.Trim(),
+                ClientRunMode = IsBacktesting ? "Backtest" : "Realtime",
+                ExecutionKey = IsBacktesting ? $"BT-{Server.Time:yyyyMMddHHmmss}" : "LIVE",
+                AccountNumber = _accountNumber
+            });
+            if (!openResponse.IsSuccessStatusCode)
+            {
+                Print("Impossibile aprire il piano '{0}': {1}", PlanCode, ReadError(openResponse));
+                Stop();
+                return;
+            }
+            var descriptor = JsonSerializer.Deserialize<TradingSessionDescriptorDto>(ReadBody(openResponse), _json);
+            _sessionId = descriptor?.SessionId;
+            _sessionToken = descriptor?.SessionToken;
+            var pairs = new List<Pair>();
+            var error = "descriptor sessione mancante";
+            if (descriptor == null ||
+                !ParseInstruments(descriptor.InstrumentsConfig, BaseTimeframeMinutes, out pairs, out error))
+            {
+                Print("Configurazione strumenti del piano non valida: {0}", error);
                 Stop();
                 return;
             }
             _pairs.AddRange(pairs);
+            if (!IsBacktesting)
+                _localStatePath = BuildLocalStatePath(PlanCode, _accountNumber);
 
             foreach (var symbol in _pairs.Select(p => p.Symbol).Distinct(StringComparer.OrdinalIgnoreCase))
                 _baseSeriesBySymbol[symbol] = MarketData.GetBars(ToTimeFrame(BaseTimeframeMinutes), symbol);
 
+            RestoreLocalState();
             Positions.Closed += OnPositionClosed;
             Timer.Start(TimeSpan.FromSeconds(Math.Max(1, PollingSeconds)));
 
             Print("Piootoo live bot avviato. Account={0} Session={1} Strumenti={2}",
-                _accountNumber, SessionId, string.Join("; ", _pairs.Select(p => $"{p.Symbol}/{p.TimeframeMinutes}m")));
+                _accountNumber, _sessionId, string.Join("; ", _pairs.Select(p => $"{p.Symbol}/{p.TimeframeMinutes}m")));
         }
 
         protected override void OnBar()
         {
+            foreach (var context in _openPositions.Values)
+                context.BarsInPosition++;
+
             foreach (var pair in _pairs)
             {
                 pair.TickCounter++;
@@ -179,6 +205,7 @@ namespace cAlgo.Robots
             }
 
             CloseExpiredPositions();
+            SaveLocalState();
         }
 
         /// <summary>
@@ -202,7 +229,7 @@ namespace cAlgo.Robots
                 string reason = null;
                 if (ctx.CloseAtUtc is { } closeAt && closeAt <= nowUtc)
                     reason = "scadenza (CloseAtUtc)";
-                else if (ctx.MaxBarsInPosition > 0 && Bars.Count - ctx.EntryBarIndex >= ctx.MaxBarsInPosition)
+                else if (ctx.MaxBarsInPosition > 0 && ctx.BarsInPosition >= ctx.MaxBarsInPosition)
                     reason = "limite barre (MaxBarsInPosition)";
 
                 if (reason is null)
@@ -225,6 +252,7 @@ namespace cAlgo.Robots
 
         protected override void OnStop()
         {
+            SaveLocalState();
             Timer.Stop();
             Positions.Closed -= OnPositionClosed;
             _http?.Dispose();
@@ -277,12 +305,12 @@ namespace cAlgo.Robots
 
                 var request = new PushBarsRequestDto
                 {
-                    SessionId = SessionId,
-                    SessionToken = SessionToken,
+                    SessionId = _sessionId,
+                    SessionToken = _sessionToken,
                     Bars = new[] { closedBar }
                 };
 
-                var response = PostJson($"api/v1/trading-sessions/{SessionId}/bars", request);
+                var response = PostJson($"api/v1/trading-sessions/{_sessionId}/bars", request);
                 if (!response.IsSuccessStatusCode && VerboseLogging)
                     Print("Push barra {0}/{1}m fallito: {2}", pair.Symbol, pair.TimeframeMinutes, ReadError(response));
             }
@@ -305,7 +333,7 @@ namespace cAlgo.Robots
                     DateTimeKind.Utc);
                 var platformState = new AccountSignalPollRequestDto
                 {
-                    SessionToken = SessionToken,
+                    SessionToken = _sessionToken,
                     Positions = Positions
                         .Where(p => p.Label != null &&
                                     p.Label.StartsWith(LabelPrefix + ":", StringComparison.Ordinal))
@@ -338,7 +366,7 @@ namespace cAlgo.Robots
                         .ToList()
                 };
                 var response = PostJson(
-                    $"api/v1/trading-sessions/{SessionId}/accounts/{Uri.EscapeDataString(_accountNumber)}/signal",
+                    $"api/v1/trading-sessions/{_sessionId}/accounts/{Uri.EscapeDataString(_accountNumber)}/signal",
                     platformState);
 
                 if (!response.IsSuccessStatusCode)
@@ -436,13 +464,15 @@ namespace cAlgo.Robots
 
             _openPositions[result.Position.Id] = new OpenPositionContext
             {
+                PositionId = result.Position.Id,
                 EntryIntentId = intent.IntentId,
                 StrategyCode = intent.StrategyCode,
                 Symbol = intent.Symbol,
                 CloseAtUtc = intent.CloseAtUtc,
                 MaxBarsInPosition = intent.MaxBarsInPosition ?? 0,
-                EntryBarIndex = Bars.Count
+                BarsInPosition = 0
             };
+            SaveLocalState();
 
             ReportExecution(intent.IntentId, intent.Symbol, ExecutionReportStatusDto.Filled,
                 (decimal)result.Position.VolumeInUnits, (decimal)result.Position.EntryPrice, result.Position.Id.ToString());
@@ -459,6 +489,7 @@ namespace cAlgo.Robots
             if (!_openPositions.TryGetValue(position.Id, out var ctx))
                 return; // posizione non aperta da questo bot: ignorata
             _openPositions.Remove(position.Id);
+            SaveLocalState();
 
             var trade = History.LastOrDefault(h => h.PositionId == position.Id);
             var closePrice = (decimal?)trade?.ClosingPrice;
@@ -479,14 +510,14 @@ namespace cAlgo.Robots
             {
                 var closeIntentRequest = new CreateExternalCloseIntentRequestDto
                 {
-                    SessionToken = SessionToken,
+                    SessionToken = _sessionToken,
                     StrategyCode = ctx.StrategyCode,
                     Symbol = ctx.Symbol,
                     AccountNumber = _accountNumber,
                     Quantity = quantity,
                     Reason = $"LocalExit:{reason}"
                 };
-                using var request = BuildRequest(HttpMethod.Post, $"api/v1/trading-sessions/{SessionId}/intents/close-external");
+                using var request = BuildRequest(HttpMethod.Post, $"api/v1/trading-sessions/{_sessionId}/intents/close-external");
                 request.Content = new StringContent(JsonSerializer.Serialize(closeIntentRequest, _json), Encoding.UTF8, "application/json");
                 var response = _http.Send(request);
                 if (!response.IsSuccessStatusCode)
@@ -512,7 +543,7 @@ namespace cAlgo.Robots
             {
                 var request = new ExecutionReportRequestDto
                 {
-                    SessionToken = SessionToken,
+                    SessionToken = _sessionToken,
                     Report = new ExternalExecutionReportDto
                     {
                         ReportId = $"{intentId}-{Guid.NewGuid():N}",
@@ -525,7 +556,7 @@ namespace cAlgo.Robots
                         EventTimeUtc = DateTime.SpecifyKind(Server.Time, DateTimeKind.Utc)
                     }
                 };
-                var response = PostJson($"api/v1/trading-sessions/{SessionId}/execution-reports", request);
+                var response = PostJson($"api/v1/trading-sessions/{_sessionId}/execution-reports", request);
                 if (!response.IsSuccessStatusCode)
                     Print("Invio execution report fallito per {0} ({1}): {2}", intentId, symbol, ReadError(response));
             }
@@ -538,6 +569,80 @@ namespace cAlgo.Robots
         // ---------------------------------------------------------------------------------------
         // Helper HTTP / parsing / conversioni
         // ---------------------------------------------------------------------------------------
+
+        private static string BuildLocalStatePath(string planCode, string accountNumber)
+        {
+            var invalid = Path.GetInvalidFileNameChars();
+            string Safe(string value) => new string((value ?? string.Empty)
+                .Select(character => invalid.Contains(character) ? '_' : character).ToArray());
+            var directory = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                "PiootooLiveTradingBot");
+            Directory.CreateDirectory(directory);
+            return Path.Combine(directory, $"state-{Safe(planCode)}-{Safe(accountNumber)}.json");
+        }
+
+        /// <summary>
+        /// Ripristina solo contesti appartenenti alla sessione realtime appena riaperta e ancora
+        /// presenti sulla piattaforma. In questo modo CloseAtUtc e MaxBarsInPosition sopravvivono
+        /// al riavvio del cBot senza associare per errore una posizione a una nuova sessione.
+        /// </summary>
+        private void RestoreLocalState()
+        {
+            if (string.IsNullOrWhiteSpace(_localStatePath) || !File.Exists(_localStatePath))
+                return;
+            try
+            {
+                var state = JsonSerializer.Deserialize<LocalSessionState>(
+                    File.ReadAllText(_localStatePath), _json);
+                if (state == null || !string.Equals(state.SessionId, _sessionId, StringComparison.Ordinal))
+                {
+                    Print("Stato locale ignorato: appartiene a una sessione diversa.");
+                    return;
+                }
+
+                var platformIds = new HashSet<int>(Positions
+                    .Where(position => position.Label != null &&
+                                       position.Label.StartsWith(LabelPrefix + ":", StringComparison.Ordinal))
+                    .Select(position => position.Id));
+                foreach (var context in state.Positions ?? new List<OpenPositionContext>())
+                    if (platformIds.Contains(context.PositionId))
+                        _openPositions[context.PositionId] = context;
+
+                SaveLocalState(); // elimina dal file le posizioni non più presenti sul broker
+                Print("Ripristinate {0} condizioni di uscita dalla sessione locale.", _openPositions.Count);
+            }
+            catch (Exception ex)
+            {
+                Print("Stato locale non leggibile: {0}", ex.Message);
+            }
+        }
+
+        private void SaveLocalState()
+        {
+            if (string.IsNullOrWhiteSpace(_localStatePath))
+                return;
+            try
+            {
+                var state = new LocalSessionState
+                {
+                    PlanCode = PlanCode,
+                    AccountNumber = _accountNumber,
+                    SessionId = _sessionId,
+                    Positions = _openPositions.Values.OrderBy(context => context.PositionId).ToList()
+                };
+                var temporary = _localStatePath + ".tmp";
+                File.WriteAllText(temporary, JsonSerializer.Serialize(state, _json));
+                if (File.Exists(_localStatePath))
+                    File.Replace(temporary, _localStatePath, null);
+                else
+                    File.Move(temporary, _localStatePath);
+            }
+            catch (Exception ex)
+            {
+                Print("Salvataggio stato locale fallito: {0}", ex.Message);
+            }
+        }
 
         private static bool ParseInstruments(string config, int baseMinutes, out List<Pair> pairs, out string error)
         {
@@ -593,7 +698,8 @@ namespace cAlgo.Robots
         private HttpRequestMessage BuildRequest(HttpMethod method, string uri)
         {
             var request = new HttpRequestMessage(method, uri);
-            request.Headers.Add("X-Session-Token", SessionToken);
+            if (!string.IsNullOrWhiteSpace(_sessionToken))
+                request.Headers.Add("X-Session-Token", _sessionToken);
             return request;
         }
 
@@ -684,6 +790,30 @@ namespace cAlgo.Robots
             public string SessionId { get; set; }
             public string SessionToken { get; set; }
             public IReadOnlyList<ClosedBarDto> Bars { get; set; }
+        }
+
+        private sealed class OpenTradingPlanSessionRequestDto
+        {
+            public string PlanCode { get; set; }
+            public string ClientRunMode { get; set; }
+            public string ExecutionKey { get; set; }
+            public string AccountNumber { get; set; }
+        }
+
+        private sealed class TradingSessionDescriptorDto
+        {
+            public string SessionId { get; set; }
+            public string SessionToken { get; set; }
+            public IReadOnlyList<TradingInstrumentDto> Instruments { get; set; }
+            public string InstrumentsConfig => string.Join(";",
+                (Instruments ?? Array.Empty<TradingInstrumentDto>()).Select(instrument =>
+                    $"{instrument.Symbol}:{string.Join(",", instrument.TimeframesMinutes ?? Array.Empty<int>())}"));
+        }
+
+        private sealed class TradingInstrumentDto
+        {
+            public string Symbol { get; set; }
+            public IReadOnlyList<int> TimeframesMinutes { get; set; }
         }
 
         private sealed class OrderIntentDto
