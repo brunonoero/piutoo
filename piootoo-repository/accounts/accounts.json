@@ -1,21 +1,22 @@
 {
   "Groups": [
-    "12345678",
-    "aaaaaaaaaaaaaa"
+    "5Perc",
+    "Fintokey",
+    "FTMO"
   ],
   "Accounts": [
     {
       "Id": "12345678",
-      "Name": "12345678",
-      "AccountNumber": "12345678",
-      "GroupId": "12345678",
-      "Broker": "12345678",
+      "Name": "primo FTMO",
+      "AccountNumber": "1234",
+      "GroupId": "FTMO",
+      "Broker": "xxxxx",
       "Currency": "EUR",
       "InitialBalance": 100000,
       "Enabled": true,
       "Notes": "FTMO 1",
       "CreatedUtc": "2026-07-28T10:10:35.1847811Z",
-      "UpdatedUtc": "2026-07-28T13:23:41.2095243Z",
+      "UpdatedUtc": "2026-07-29T04:37:05.6185808Z",
       "SymbolMappings": [
         {
           "Symbol": "@CL",
@@ -45,16 +46,16 @@
     },
     {
       "Id": "aaaaa",
-      "Name": "aaaaa",
-      "AccountNumber": "aaaaaaaaaaaa",
-      "GroupId": "aaaaaaaaaaaaaa",
+      "Name": "Secondo FTMO",
+      "AccountNumber": "6789",
+      "GroupId": "5Perc",
       "Broker": "aaaaa",
       "Currency": "EUR",
       "InitialBalance": 1000000,
       "Enabled": true,
       "Notes": "aaaaaa",
       "CreatedUtc": "2026-07-28T12:31:52.4493064Z",
-      "UpdatedUtc": "2026-07-28T12:31:52.4493064Z",
+      "UpdatedUtc": "2026-07-29T04:36:19.2530123Z",
       "SymbolMappings": [
         {
           "Symbol": "@CL",
