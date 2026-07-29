@@ -1,210 +1,66 @@
-using System;
-using System.Collections.Generic;
-using Piootoo.Shared.Enums;
-using Piootoo.Shared.Interfaces;
-using Piootoo.Shared.Models;
-using static Piootoo.Strategies.Easy.EasyLib;
+using Piootoo.Strategies.Easy.Engines;
 
 namespace Piootoo.Strategies.Easy;
 
 /// <summary>
-/// Strategia EasyLanguage convertita: TOP_UA_261
-/// Works using 60-minute bars
+/// TOP_UA_261 — BIAS a conteggio barre con ingresso a mercato, su GC a 60 minuti.
+///
+/// <para>Sorgente: <c>piootoo-repository/easy/s_TOP_UA_261_GC_60__7.txt</c>. È la variante più
+/// semplice del motore: nessuna finestra di ingresso, l'armamento e l'ingresso coincidono sulla
+/// barra prevista (<c>entrytype = 1</c>).</para>
+///
+/// <para><b>Sessione.</b> L'originale non ha input di sessione: azzera il contatore su
+/// <c>sessionlastbar[1]</c>, cioè si affida alla definizione di sessione del grafico
+/// TradeStation. Qui va dichiarata esplicitamente, e si usa la sessione GC 18:00–17:00, la
+/// stessa delle altre strategie GC del workspace. La traduzione precedente usava 08:00–22:00,
+/// un valore che non compare né nell'originale né nelle strategie sorelle: con quello il
+/// conteggio barre partiva da un momento diverso e ogni indice — quindi ogni ingresso e ogni
+/// uscita — cadeva su un'altra barra.</para>
+///
+/// <para><b>Pattern.</b> L'originale chiama <c>PtnBaseSA</c>, che legge gli OHLC di sessione dal
+/// grafico. Le 43 formule sono identiche a <c>PtnBaseSA2</c>, che li riceve dall'array di
+/// <c>_OHLCMulti5</c>: la resa è equivalente una volta fissata la sessione corretta.</para>
+///
+/// <para><b>Contratto di riferimento:</b> GC, $100 per punto. Stop $1.500 = 15 punti. Nessun
+/// target (<c>MyProfit = 0</c>): la posizione esce solo per stop o per uscita a tempo.</para>
 /// </summary>
-public class Easy_261_GC_60 : StatelessEasyStrategyBase
+public sealed class Easy_261_GC_60 : BiasBarCountEngine
 {
-    // INPUTS
-    private int _titanExportMode = 0;
-    private int _myPtnLY = 5;
-    private int _myPtnSY = 25;
-    private int _myPtnLN = 1;
-    private int _myPtnSN = 4;
-    private int _myLEbar = 23;
-    private int _myLXbar = 5;
-    private int _mySEbar = 9;
-    private int _mySXbar = 14;
-    private int _myNotLEDay = 4;
-    private int _myNotSEDay = 4;
-    private int _myStop = 1500;
-    private int _myProfit = 0;
-    private int _mycounter = 0;
-    private int _testphase = 0;
-    private int _sessionStartTimeA = 800;
-    private int _sessionEndTimeA = 2200;
+    public override string Name => "Easy_261_GC_60";
+    public override string Description => "BIAS bar-count + market entry, GC 60m";
+    public override string Symbol => "@GC";
+    public override int TimeframeMinutes => 60;
 
-    // VARIABLES
-    private bool _wasSessionLastBar = false;
+    public Easy_261_GC_60()
+    {
+        SessionStartTime = 1800;
+        SessionEndTime = 1700;
+        Contracts = 1;
 
-    // STATE
-    private string _symbol = "@GC";
-    private int _timeframeMinutes = 60;
-    private string _name = "TOP_UA_261";
-    private string _description = "Works using 60-minute bars";
+        ArmBarLong = 23;    // MyLEbar
+        ArmBarShort = 9;    // MySEbar
+        ExitBarLong = 5;    // MyLXbar — barra 5 della sessione successiva
+        ExitBarShort = 14;  // MySXbar
 
-    public string Name => _name;
-    public string Description => _description;
-    public string Symbol => _symbol;
-    public int TimeframeMinutes => _timeframeMinutes;
-    public int RequiredCandles => 100; // TODO: Calcolare in base alla strategia
+        PatternLibrary = EasyPatternLibrary.BaseSA;
+        PatternLongYes = 5;   // MyPtnLY — (highd0-opend0) > (highd1-opend1) * 1.5
+        PatternLongNo = 1;    // MyPtnLN — |opend1-closed1| < 0.5 * range1d
+        PatternShortYes = 25; // MyPtnSY
+        PatternShortNo = 4;   // MyPtnSN — (highd0-opend0) > (highd1-opend1)
+
+        NotEntryDayLong = 4;   // MyNotLEDay — giovedì (0 = domenica)
+        NotEntryDayShort = 4;  // MyNotSEDay
+
+        EntryType = BiasEntryType.MarketOnArmBar;  // entrytype implicito nell'originale
+
+        StopMoney = 1500;  // MyStop, dollari per contratto GC
+        ProfitMoney = 0;   // MyProfit = 0 → nessun target
+    }
 
     public void Initialize(Dictionary<string, object>? parameters = null)
     {
-        if (parameters != null)
-        {
-            if (parameters.TryGetValue("Symbol", out var sym))
-                _symbol = sym?.ToString() ?? _symbol;
-            if (parameters.TryGetValue("TimeframeMinutes", out var tf))
-                _timeframeMinutes = Convert.ToInt32(tf);
-            if (parameters.TryGetValue("TitanExportMode", out var titanexportmode))
-                _titanExportMode = Convert.ToInt32(titanexportmode);
-            if (parameters.TryGetValue("MyPtnLY", out var myptnly))
-                _myPtnLY = Convert.ToInt32(myptnly);
-        }
-    }
-
-    // Stato per tracciare la posizione corrente (MP = marketposition)
-    private int _currentMP = 0; // 0 = nessuna posizione, +1 = long, -1 = short
-    private int _myCount = 0;
-    private DateTime? _lastEntryDate = null;
-
-    public TradeSignal GenerateSignal(OhlcvData[] data, DateTime currentDate)
-    {
-        if (data == null || data.Length < RequiredCandles)
-        {
-            return new TradeSignal
-            {
-                Date = currentDate,
-                Type = SignalType.Hold,
-                Price = data?.LastOrDefault()?.Close ?? 0,
-                StrategyName = Name,
-                Reason = "Dati insufficienti"
-            };
-        }
-
-        var currentPrice = data.Last().Close;
-        var currentTime = currentDate.Hour * 100 + currentDate.Minute;
-        
-        // Calcola OHLC per pattern
-        decimal[] ohlcValues = new decimal[24];
-        bool isStartOfSession = OHLCMulti5(_sessionStartTimeA, _sessionEndTimeA, data, currentDate, out ohlcValues);
-        
-        // Gestione sessionlastbar
-        bool isSessionLastBar = IsSessionLastBar(data, currentDate, _sessionStartTimeA, _sessionEndTimeA);
-        if (_wasSessionLastBar)
-        {
-            _myCount = 0;
-        }
-        _wasSessionLastBar = isSessionLastBar;
-        _myCount++;
-        
-        // Test phase
-        if (_testphase == 1)
-        {
-            if (_mycounter == _myCount)
-            {
-                return new TradeSignal
-                {
-                    Date = currentDate,
-                    Type = SignalType.Buy,
-                    Price = currentPrice,
-                    StrategyName = Name,
-                    Quantity = 1,
-                    Reason = "LE_TEST"
-                };
-            }
-            if (_currentMP == 1)
-            {
-                return new TradeSignal
-                {
-                    Date = currentDate,
-                    Type = SignalType.Sell,
-                    Price = currentPrice,
-                    StrategyName = Name,
-                    Quantity = 1,
-                    Reason = "LX_TEST"
-                };
-            }
-        }
-        
-        // Trading phase
-        if (_testphase == 0)
-        {
-            // BUY condition
-            if (_myCount == _myLEbar && PtnBaseSA2(_myPtnLY, ohlcValues) && 
-                !PtnBaseSA2(_myPtnLN, ohlcValues) && 
-                (int)currentDate.DayOfWeek != _myNotLEDay && _currentMP == 0)
-            {
-                _currentMP = 1;
-                return new TradeSignal
-                {
-                    Date = currentDate,
-                    Type = SignalType.Buy,
-                    Price = currentPrice,
-                    StrategyName = Name,
-                    Quantity = 1,
-                    StopLoss = _myStop > 0 ? (decimal?)_myStop : null,
-                    TakeProfit = _myProfit > 0 ? (decimal?)_myProfit : null,
-                    Reason = "LE"
-                };
-            }
-            
-            // EXIT LONG
-            if (_myCount == _myLXbar && _currentMP == 1)
-            {
-                _currentMP = 0;
-                return new TradeSignal
-                {
-                    Date = currentDate,
-                    Type = SignalType.Sell,
-                    Price = currentPrice,
-                    StrategyName = Name,
-                    Quantity = 1,
-                    Reason = "LX"
-                };
-            }
-            
-            // SELLSHORT condition
-            if (_myCount == _mySEbar && PtnBaseSA2(_myPtnSY, ohlcValues) && 
-                !PtnBaseSA2(_myPtnSN, ohlcValues) && 
-                (int)currentDate.DayOfWeek != _myNotSEDay && _currentMP == 0)
-            {
-                _currentMP = -1;
-                return new TradeSignal
-                {
-                    Date = currentDate,
-                    Type = SignalType.Sell,
-                    Price = currentPrice,
-                    StrategyName = Name,
-                    Quantity = 1,
-                    StopLoss = _myStop > 0 ? (decimal?)_myStop : null,
-                    TakeProfit = _myProfit > 0 ? (decimal?)_myProfit : null,
-                    Reason = "SE"
-                };
-            }
-            
-            // EXIT SHORT
-            if (_myCount == _mySXbar && _currentMP == -1)
-            {
-                _currentMP = 0;
-                return new TradeSignal
-                {
-                    Date = currentDate,
-                    Type = SignalType.Buy,
-                    Price = currentPrice,
-                    StrategyName = Name,
-                    Quantity = 1,
-                    Reason = "SX"
-                };
-            }
-        }
-        
-        return new TradeSignal
-        {
-            Date = currentDate,
-            Type = SignalType.Hold,
-            Price = currentPrice,
-            StrategyName = Name
-        };
+        if (parameters is null) return;
+        if (parameters.TryGetValue("Contracts", out var contracts))
+            Contracts = Convert.ToInt32(contracts);
     }
 }
-

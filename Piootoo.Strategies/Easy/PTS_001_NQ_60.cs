@@ -63,7 +63,7 @@ public sealed class PTS_001_NQ_60 : StatelessEasyStrategyBase
     private string _symbol = "@NQ";
     private int _timeframeMinutes = 60;
 
-    public string Name => "PTS_001";
+    public string Name => "PTS_001_NQ_60";
     public string Description => "TF_M NQ 60: breakout H/L d1, pattern mirrored, multiday";
     public string Symbol => _symbol;
     public int TimeframeMinutes => _timeframeMinutes;

@@ -30,13 +30,13 @@ public sealed class PtsEngineAuditTests
         {
             Ohlcv = bars,
             BarTimeUtc = bar.DateTime,
-            Execution = Snapshot("PTS_001", bar.DateTime)
+            Execution = Snapshot("PTS_001_NQ_60", bar.DateTime)
         });
 
         Assert.True(signal.Type is SignalType.Buy or SignalType.Sell,
             $"Atteso ingresso stop, ottenuto {signal.Type}. Reason={signal.Reason}");
         Assert.Equal(TradeOrderType.Stop, signal.OrderType);
-        Assert.Equal("PTS_001", signal.StrategyCode);
+        Assert.Equal("PTS_001_NQ_60", signal.StrategyCode);
         Assert.Equal("@NQ", signal.Symbol);
         Assert.Equal(1m, signal.Quantity);
         Assert.Equal(StopMoney, signal.StopLossMoneyPerFutureContract);
@@ -64,7 +64,7 @@ public sealed class PtsEngineAuditTests
             Bars(signalTime, stopPrice - 10m, stopPrice - 5m, stopPrice - 15m, stopPrice - 8m),
             signalTime);
 
-        Assert.Null(service.GetExecutionSnapshot("PTS_001", "NQ", signalTime).Position);
+        Assert.Null(service.GetExecutionSnapshot("PTS_001_NQ_60", "NQ", signalTime).Position);
 
         decimal? openedStopPoints = null;
         decimal? openedTakeProfitPoints = null;
@@ -82,7 +82,7 @@ public sealed class PtsEngineAuditTests
             Bars(fillBar, stopPrice - 2m, stopPrice + 5m, stopPrice - 3m, stopPrice + 2m),
             fillBar);
 
-        var open = service.GetExecutionSnapshot("PTS_001", "NQ", fillBar).Position;
+        var open = service.GetExecutionSnapshot("PTS_001_NQ_60", "NQ", fillBar).Position;
         Assert.NotNull(open);
         Assert.Equal(SignalType.Buy, open!.Direction);
         Assert.Equal(1m, open.Contracts);
@@ -127,7 +127,7 @@ public sealed class PtsEngineAuditTests
             Bars(fillBar, stopPrice, stopPrice + 2m, stopPrice - 1m, stopPrice + 1m),
             fillBar);
 
-        var entry = service.GetExecutionSnapshot("PTS_001", "NQ", fillBar).Position!.EntryPrice;
+        var entry = service.GetExecutionSnapshot("PTS_001_NQ_60", "NQ", fillBar).Position!.EntryPrice;
         var slPrice = entry - 50m;
         service.UpdateMarketPrices(
             Prices(slPrice),
@@ -161,7 +161,7 @@ public sealed class PtsEngineAuditTests
             Bars(fillBar, open: 15_020m, high: 15_025m, low: 15_018m, close: 15_022m),
             fillBar);
 
-        var open = service.GetExecutionSnapshot("PTS_001", "NQ", fillBar).Position;
+        var open = service.GetExecutionSnapshot("PTS_001_NQ_60", "NQ", fillBar).Position;
         Assert.NotNull(open);
         Assert.Equal(15_020m, open!.EntryPrice); // max(open, stop)
     }
@@ -200,7 +200,7 @@ public sealed class PtsEngineAuditTests
             Bars(fillBar, 15_000m, 15_110m, 14_990m, 15_100m),
             fillBar);
 
-        var snap = service.GetExecutionSnapshot("PTS_001", "NQ", fillBar);
+        var snap = service.GetExecutionSnapshot("PTS_001_NQ_60", "NQ", fillBar);
         Assert.NotNull(snap.Position);
         Assert.Equal(SignalType.Buy, snap.Position!.Direction);
 
@@ -211,7 +211,7 @@ public sealed class PtsEngineAuditTests
             Bars(later, 15_050m, 15_060m, 14_850m, 14_880m),
             later);
 
-        var after = service.GetExecutionSnapshot("PTS_001", "NQ", later).Position;
+        var after = service.GetExecutionSnapshot("PTS_001_NQ_60", "NQ", later).Position;
         Assert.NotNull(after);
         Assert.Equal(SignalType.Buy, after!.Direction);
         Assert.Empty(service.GetClosedTrades());
@@ -262,7 +262,7 @@ public sealed class PtsEngineAuditTests
             Bars(fillBar, 15_000m, 15_010m, 14_995m, 15_005m),
             fillBar);
 
-        var open = service.GetExecutionSnapshot("PTS_001", "NQ", fillBar).Position;
+        var open = service.GetExecutionSnapshot("PTS_001_NQ_60", "NQ", fillBar).Position;
         Assert.NotNull(open);
         Assert.Equal(0.01m, open!.Contracts);
 
@@ -325,8 +325,8 @@ public sealed class PtsEngineAuditTests
             Type = side,
             Price = price,
             Symbol = "@NQ",
-            StrategyName = "PTS_001",
-            StrategyCode = "PTS_001",
+            StrategyName = "PTS_001_NQ_60",
+            StrategyCode = "PTS_001_NQ_60",
             Quantity = 1m,
             OrderType = TradeOrderType.Stop,
             ValidFromUtc = validFrom,

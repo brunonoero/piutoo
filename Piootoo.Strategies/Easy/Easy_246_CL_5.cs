@@ -1,86 +1,67 @@
-using System;
-using System.Collections.Generic;
-using Piootoo.Shared.Enums;
-using Piootoo.Shared.Interfaces;
 using Piootoo.Shared.Models;
-using static Piootoo.Strategies.Easy.EasyLib;
+using Piootoo.Strategies.Easy.Engines;
 
 namespace Piootoo.Strategies.Easy;
 
 /// <summary>
-/// Strategia EasyLanguage convertita: TOP_UA_246
-/// end of session setting////////////////////////
+/// TOP_UA_246 — Trend Developer sulla rottura degli estremi della sessione precedente, CL 5 minuti.
+///
+/// <para>Sorgente: <c>piootoo-repository/easy/s_TOP_UA_246_CL_5__7.txt</c>.</para>
+///
+/// <para><b>Finestra a cavallo della mezzanotte:</b> <c>tw(2100, 900)</c> ha inizio maggiore
+/// della fine, quindi copre 21:00–09:00 attraversando il cambio di giorno.</para>
+///
+/// <para><b>Uscita di fine sessione.</b> <c>ID = 0</c> e <c>MyTrigger = 2</c> attivano nel
+/// sorgente la chiusura all'ultima barra della sessione, calcolata da <c>UACalcEndTime</c>. Qui è
+/// espressa come <c>CloseAtUtc</c> sull'ingresso, all'orario di fine sessione: nell'originale è
+/// un ordine emesso a runtime, che in <c>ExternalBroker</c> non verrebbe mai eseguito.</para>
+///
+/// <para><b>Contratto di riferimento:</b> CL, 1.000 barili, $1.000 per punto. Stop $1.625 = 1,625
+/// punti, target $2.050 = 2,05 punti.</para>
 /// </summary>
-public class Easy_246_CL_5 : StatelessEasyStrategyBase
+public sealed class Easy_246_CL_5 : TrendDeveloperEngine
 {
-    // INPUTS
-    private int _titanExportMode = 0;
-    private int _myContracts = 1;
+    public override string Name => "Easy_246_CL_5";
+    public override string Description => "Trend Developer, rottura estremi sessione precedente, CL 5m";
+    public override string Symbol => "@CL";
+    public override int TimeframeMinutes => 5;
 
-    // VARIABLES
-    private bool _isStartOfSession = false;
-    private int _highd0 = 0;
+    public Easy_246_CL_5()
+    {
+        SessionStartTime = 1800;  // sessionStartTimeA
+        SessionEndTime = 1700;    // sessionEndTimeA
+        Contracts = 1;
 
-    // STATE
-    private string _symbol = "@CL";
-    private int _timeframeMinutes = 5;
-    private string _name = "TOP_UA_246";
-    private string _description = "end of session setting////////////////////////";
+        Trigger = TrendTrigger.PreviousSessionOhlc;  // MyTrigger = 2 → highd1 / lowd1
 
-    public string Name => _name;
-    public string Description => _description;
-    public string Symbol => _symbol;
-    public int TimeframeMinutes => _timeframeMinutes;
-    public int RequiredCandles => 100; // TODO: Calcolare in base alla strategia
+        StartTrade = 2100;           // MyStartTrade
+        EndTrade = 900;              // MyEndTrade — finestra a cavallo della mezzanotte
+        InclusiveWindowEnd = false;  // l'originale usa tw()
+        MaxTradesPerDay = 4;
+
+        NeutralYes = 4;    // PtnNeutYes
+        NeutralNo = 56;    // PtnNeutNo — sentinella "sempre falso": il gate non filtra
+        DirectionalYes = 52;  // PtnDirYes — sentinella "sempre vero"
+        DirectionalNo = 8;    // PtnDirNo
+
+        BaseYesLong = 38;   // PtnLY
+        BaseNoLong = 42;    // PtnLN — sentinella "sempre falso"
+        BaseYesShort = 41;  // PtnSY — sentinella "sempre vero"
+        BaseNoShort = 42;   // PtnSN
+
+        CloseAtTime = SessionEndTime;  // ID = 0 → chiusura di fine sessione
+
+        StopMoney = 1625;    // MyStop
+        ProfitMoney = 2050;  // MyProfit
+    }
+
+    public TradeSignal GenerateSignal(OhlcvData[] data, DateTime currentDate) =>
+        EvaluateCore(data, currentDate);
 
     public void Initialize(Dictionary<string, object>? parameters = null)
     {
-        if (parameters != null)
-        {
-            if (parameters.TryGetValue("Symbol", out var sym))
-                _symbol = sym?.ToString() ?? _symbol;
-            if (parameters.TryGetValue("TimeframeMinutes", out var tf))
-                _timeframeMinutes = Convert.ToInt32(tf);
-            if (parameters.TryGetValue("TitanExportMode", out var titanexportmode))
-                _titanExportMode = Convert.ToInt32(titanexportmode);
-            if (parameters.TryGetValue("MyContracts", out var mycontracts))
-                _myContracts = Convert.ToInt32(mycontracts);
-        }
-    }
-
-    // Stato per tracciare la posizione corrente (MP = marketposition)
-    private int _currentMP = 0; // 0 = nessuna posizione, +1 = long, -1 = short
-    private int _myCount = 0;
-    private DateTime? _lastEntryDate = null;
-
-    public TradeSignal GenerateSignal(OhlcvData[] data, DateTime currentDate)
-    {
-        if (data == null || data.Length < RequiredCandles)
-        {
-            return new TradeSignal
-            {
-                Date = currentDate,
-                Type = SignalType.Hold,
-                Price = data?.LastOrDefault()?.Close ?? 0,
-                StrategyName = Name,
-                Reason = "Dati insufficienti"
-            };
-        }
-
-        var currentPrice = data.Last().Close;
-        var currentTime = currentDate.Hour * 100 + currentDate.Minute; // Formato HHMM
-
-        // TODO: Implementare logica completa della strategia
-        // Convertire condizioni buy/sellshort in TradeSignal
-        // Per ora restituisce Hold - la logica deve essere implementata manualmente
-
-        return new TradeSignal
-        {
-            Date = currentDate,
-            Type = SignalType.Hold,
-            Price = currentPrice,
-            StrategyName = Name
-        };
+        if (parameters is null) return;
+        if (parameters.TryGetValue("Contracts", out var contracts))
+            Contracts = Convert.ToInt32(contracts);
     }
 }
-

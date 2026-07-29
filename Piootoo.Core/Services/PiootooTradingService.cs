@@ -1,4 +1,5 @@
 using Piootoo.Core.Services.Interfaces;
+using Piootoo.Shared.Configuration;
 using Piootoo.Shared.Enums;
 using Piootoo.Shared.Models;
 using Piootoo.Shared.Models.Backtesting;
@@ -12,26 +13,6 @@ namespace Piootoo.Core.Services;
 /// </summary>
 public class PiootooTradingService : IPiootooTradingService
 {
-    private static readonly Dictionary<string, decimal> ContractPointValues = new(StringComparer.OrdinalIgnoreCase)
-    {
-        ["ES"] = 50m,
-        ["MES"] = 5m,
-        ["NQ"] = 20m,
-        ["MNQ"] = 2m,
-        ["YM"] = 5m,
-        ["MYM"] = 0.5m,
-        ["RTY"] = 50m,
-        ["M2K"] = 5m,
-        ["CL"] = 1000m,
-        ["MCL"] = 100m,
-        ["GC"] = 100m,
-        ["MGC"] = 10m,
-        ["SI"] = 5000m,
-        ["FDAX"] = 25m,
-        ["FDXM"] = 5m,
-        ["FDXS"] = 1m
-    };
-
     private TradingState _state = new();
     private decimal _commissionPerContract = 2.0m; // Commissione per contratto
     private decimal _initialCapital = 0m; // Capitale iniziale per calcolare il profit totale
@@ -1095,11 +1076,12 @@ public class PiootooTradingService : IPiootooTradingService
         return symbol.Trim().TrimStart('@').ToUpperInvariant();
     }
 
-    private static decimal GetContractPointValue(string symbol)
-    {
-        var normalizedSymbol = NormalizeSymbol(symbol);
-        return ContractPointValues.TryGetValue(normalizedSymbol, out var pointValue)
-            ? pointValue
-            : 1m;
-    }
+    /// <summary>
+    /// Denaro per punto dello strumento. Delega alla sorgente unica
+    /// <see cref="InstrumentRegistry"/>, che lancia sui simboli non verificati: la vecchia
+    /// implementazione locale restituiva 1 in silenzio, falsando stop, target e P&amp;L senza
+    /// alcun segnale.
+    /// </summary>
+    private static decimal GetContractPointValue(string symbol) =>
+        InstrumentRegistry.PointValue(symbol);
 }

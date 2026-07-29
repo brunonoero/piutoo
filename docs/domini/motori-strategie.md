@@ -81,7 +81,9 @@ barre sono sempre proprietà del segnale d'ingresso.
 ### Specifica corrente NQ 60
 
 - Id/classe: `PTS_001_NQ_60`;
-- codice di esecuzione (`Name`): `PTS_001`;
+- codice di esecuzione (`Name`): `PTS_001_NQ_60` (coincide con l'Id: deviazione
+  intenzionale dalla convenzione di serie, per un `Name` più leggibile nei
+  report; vedi nota sotto);
 - motore: `TF_M`;
 - simbolo: `@NQ`;
 - timeframe: 60 minuti;
@@ -99,12 +101,17 @@ barre sono sempre proprietà del segnale d'ingresso.
 - `max_bars = 0`.
 
 Questa configurazione determina completamente la logica operativa del motore.
-Le strategie della serie seguono il formato Id
+Le strategie della serie seguono di norma il formato Id
 `PTS_NNN_{SYMBOL}_{TIMEFRAME}` e usano `PTS_NNN` come `Name`, mantenendo così
-distinti l'identificatore di catalogo e il codice di esecuzione. GMT coincide
-con UTC, quindi la finestra `16:00–03:00` non richiede conversioni. Va ancora
-verificato che il calendario di sessione usato per costruire `H_d1` e `L_d1`
-coincida con quello del feed Piootoo.
+distinti l'identificatore di catalogo e il codice di esecuzione. `PTS_001_NQ_60`
+è l'eccezione: `Name` è stato allineato all'Id per avere un codice di esecuzione
+più parlante in `signals.json`/`trades.json`/stati Titano. Chi aggiunge una
+nuova variante della serie (es. `PTS_001_GC_60`) deve scegliere esplicitamente
+se seguire il `PTS_NNN` condiviso (per aggregare le varianti sotto lo stesso
+`Name`) o un `Name` dedicato come qui — non c'è più un default univoco per la
+serie. GMT coincide con UTC, quindi la finestra `16:00–03:00` non richiede
+conversioni. Va ancora verificato che il calendario di sessione usato per
+costruire `H_d1` e `L_d1` coincida con quello del feed Piootoo.
 
 ## Riferimenti codice
 

@@ -12,6 +12,20 @@ public sealed class StrategyEvaluationRequest
     public required OhlcvData[] Ohlcv { get; init; }
     public required DateTime BarTimeUtc { get; init; }
     public required StrategyExecutionSnapshot Execution { get; init; }
+
+    /// <summary>
+    /// Serie aggiuntive richieste dalle strategie multi-timeframe, indicizzate per timeframe in
+    /// minuti (es. 1440 per il giornaliero).
+    ///
+    /// <para><b>Perché vive qui.</b> Prima le strategie multi-timeframe venivano invocate
+    /// direttamente su <c>IMultiTimeframeTradingStrategy.GenerateSignal</c>, saltando
+    /// <c>Evaluate</c> e con esso tutta l'iniezione di stato: posizione corrente, memoria di
+    /// sessione fra le barre e conversione del rischio in denaro. Una strategia MTF non sapeva di
+    /// essere in posizione e ripartiva da zero a ogni barra. Portando le serie aggiuntive dentro
+    /// la request, tutte le strategie percorrono lo stesso cammino.</para>
+    /// </summary>
+    public IReadOnlyDictionary<int, OhlcvData[]> AdditionalOhlcv { get; init; }
+        = new Dictionary<int, OhlcvData[]>();
 }
 
 /// <summary>

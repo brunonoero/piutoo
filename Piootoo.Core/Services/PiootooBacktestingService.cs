@@ -807,17 +807,19 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                         diagnostics.CountEvaluation(strategySymbol, strategyCode);
 
                         var execution = tradingService.GetExecutionSnapshot(strategyCode, strategySymbol, currentDate);
-                        var signal = strategy is IMultiTimeframeTradingStrategy multiTimeframeStrategy
-                            ? multiTimeframeStrategy.GenerateSignal(
-                                candles,
-                                GetAdditionalTimeframeData(multiTimeframeStrategy, cursors, currentDate),
-                                currentDate)
-                            : strategy.Evaluate(new StrategyEvaluationRequest
-                            {
-                                Ohlcv = candles,
-                                BarTimeUtc = currentDate,
-                                Execution = execution
-                            });
+                        // Percorso unico anche per le multi-timeframe: invocarle direttamente su
+                        // GenerateSignal saltava Evaluate, e con esso l'iniezione di posizione
+                        // corrente, RuntimeState e rischio in denaro. Le serie aggiuntive
+                        // viaggiano ora dentro la request.
+                        var signal = strategy.Evaluate(new StrategyEvaluationRequest
+                        {
+                            Ohlcv = candles,
+                            BarTimeUtc = currentDate,
+                            Execution = execution,
+                            AdditionalOhlcv = strategy is IMultiTimeframeTradingStrategy multiTimeframeStrategy
+                                ? GetAdditionalTimeframeData(multiTimeframeStrategy, cursors, currentDate)
+                                : new Dictionary<int, OhlcvData[]>()
+                        });
 
                         if (signal?.RuntimeState is not null)
                         {

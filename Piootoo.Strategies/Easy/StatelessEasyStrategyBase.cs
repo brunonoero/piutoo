@@ -66,7 +66,13 @@ public abstract class StatelessEasyStrategyBase : ITradingStrategy
         SetMarketPositionFields(type, evaluationInstance, request.Execution.Position?.Direction);
         SetEntriesTodayFields(type, evaluationInstance, request.Execution.EntriesToday);
 
-        var signal = InvokeGenerateSignal(evaluationInstance, request.Ohlcv, request.BarTimeUtc);
+        // Le strategie multi-timeframe ricevono anche le serie aggiuntive, ma passano dallo
+        // stesso clone effimero delle altre: è l'unico modo perché vedano posizione corrente e
+        // memoria di sessione.
+        var signal = evaluationInstance is IMultiTimeframeTradingStrategy multiTimeframe
+            ? multiTimeframe.GenerateSignal(request.Ohlcv, request.AdditionalOhlcv, request.BarTimeUtc)
+            : InvokeGenerateSignal(evaluationInstance, request.Ohlcv, request.BarTimeUtc);
+
         signal.RuntimeState = CaptureRuntimeState(fields, evaluationInstance);
 
         if (signal.Type is SignalType.Buy or SignalType.Sell)

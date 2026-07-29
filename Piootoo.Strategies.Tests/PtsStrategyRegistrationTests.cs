@@ -13,7 +13,7 @@ public class PtsStrategyRegistrationTests
             StrategyFactory.GetRegisteredStrategies(),
             strategy => strategy.Id == nameof(PTS_001_NQ_60));
 
-        Assert.Equal("PTS_001", definition.Name);
+        Assert.Equal("PTS_001_NQ_60", definition.Name);
         Assert.Equal("@NQ", definition.Symbol);
         Assert.Equal(60, definition.TimeframeMinutes);
         Assert.True(definition.IsActive);

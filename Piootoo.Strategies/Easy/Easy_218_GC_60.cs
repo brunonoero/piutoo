@@ -1,340 +1,64 @@
-using System;
-using System.Collections.Generic;
-using Piootoo.Shared.Enums;
-using Piootoo.Shared.Interfaces;
-using Piootoo.Shared.Models;
-using static Piootoo.Strategies.Easy.EasyLib;
+using Piootoo.Strategies.Easy.Engines;
 
 namespace Piootoo.Strategies.Easy;
 
 /// <summary>
-/// Strategia EasyLanguage convertita: TOP_UA_218
-/// Works using 30 minute bars (or other taking the number of daily bars into account)
+/// TOP_UA_218 — BIAS a conteggio barre con ingresso breakout, su GC a 60 minuti.
+///
+/// <para>Sorgente: <c>piootoo-repository/easy/s_TOP_UA_218_GC_60__7.txt</c>. Ogni parametro qui
+/// sotto corrisponde uno a uno a un <c>input</c> dell'originale; la logica vive in
+/// <see cref="BiasBarCountEngine"/>.</para>
+///
+/// <para>Le finestre sono volutamente incrociate: <c>twBars(16, 8, ...)</c> ha inizio maggiore
+/// della fine, quindi la finestra long attraversa la chiusura di sessione e resta aperta fino
+/// alla barra 8 di quella successiva — dove cade anche la sua uscita a tempo. È una struttura
+/// overnight, non un errore di parametrizzazione.</para>
+///
+/// <para><b>Contratto di riferimento:</b> GC, 100 once troy, $100 per punto. Stop $2.000 e
+/// target $4.000 per contratto valgono quindi 20 e 40 punti — ed è in punti che vengono
+/// applicati a qualunque strumento di esecuzione, future o CFD.</para>
 /// </summary>
-public class Easy_218_GC_60 : StatelessEasyStrategyBase
+public sealed class Easy_218_GC_60 : BiasBarCountEngine
 {
-    // INPUTS
-    private int _titanExportMode = 0;
-    private int _mycontracts = 1;
-    private int _testphase = 0;
-    private int _mycounter = 0;
-    private int _myLEBar = 16;
-    private int _myLXBar = 8;
-    private int _mySEBar = 8;
-    private int _mySXBar = 16;
-    private int _myPtnLY = 15;
-    private int _myPtnSY = 70;
-    private int _myPtnLN = 44;
-    private int _myPtnSN = 114;
-    private int _myNotLEDay = 3;
-    private int _myNotSEDay = 3;
-    private int _myStop = 2000;
-    private int _myProfit = 4000;
-    private int _entrytype = 2;
-    private int _nHigh = 3;
-    private int _nLow = 1;
-    private int _endlong = 8;
-    private int _endshort = 16;
-    private int _sessionStartTimeA = 1800;
-    private int _sessionEndTimeA = 1700;
+    public override string Name => "Easy_218_GC_60";
+    public override string Description => "BIAS bar-count + breakout stop, GC 60m";
+    public override string Symbol => "@GC";
+    public override int TimeframeMinutes => 60;
 
-    // VARIABLES
-    private bool _isStartOfSession = false;
-    private int _mycount = 0;
-    private bool _entrywindowL = false;
-    private bool _entrywindowS = false;
-    private bool _okLong = false;
-    private bool _okShort = false;
+    public Easy_218_GC_60()
+    {
+        SessionStartTime = 1800;
+        SessionEndTime = 1700;
+        Contracts = 1;
 
-    // STATE
-    private string _symbol = "@GC";
-    private int _timeframeMinutes = 60;
-    private string _name = "TOP_UA_218";
-    private string _description = "Works using 30 minute bars (or other taking the number of daily bars into account)";
+        ArmBarLong = 16;     // MyLEBar
+        ArmBarShort = 8;     // MySEBar
+        ExitBarLong = 8;     // MyLXBar
+        ExitBarShort = 16;   // MySXBar
+        EndLong = 8;         // endlong
+        EndShort = 16;       // endshort
 
-    public string Name => _name;
-    public string Description => _description;
-    public string Symbol => _symbol;
-    public int TimeframeMinutes => _timeframeMinutes;
-    public int RequiredCandles => 100; // TODO: Calcolare in base alla strategia
+        PatternLibrary = EasyPatternLibrary.Fast;
+        PatternLongYes = 15;   // MyPtnLY — body5d < 2 * (highd5 - lowd1)
+        PatternLongNo = 44;    // MyPtnLN — (opend0-lowd0) > (opend1-lowd1) * 2
+        PatternShortYes = 70;  // MyPtnSY — closed1 > opend1
+        PatternShortNo = 114;  // MyPtnSN — (highd1-closed1) < 0.20 * range1d
+
+        NotEntryDayLong = 3;   // MyNotLEDay — mercoledì (0 = domenica)
+        NotEntryDayShort = 3;  // MyNotSEDay
+
+        EntryType = BiasEntryType.BreakoutStop;  // entrytype = 2
+        BreakoutBarsHigh = 3;  // NHigh
+        BreakoutBarsLow = 1;   // NLow
+
+        StopMoney = 2000;      // MyStop, dollari per contratto GC
+        ProfitMoney = 4000;    // MyProfit
+    }
 
     public void Initialize(Dictionary<string, object>? parameters = null)
     {
-        if (parameters != null)
-        {
-            if (parameters.TryGetValue("Symbol", out var sym))
-                _symbol = sym?.ToString() ?? _symbol;
-            if (parameters.TryGetValue("TimeframeMinutes", out var tf))
-                _timeframeMinutes = Convert.ToInt32(tf);
-            if (parameters.TryGetValue("TitanExportMode", out var titanexportmode))
-                _titanExportMode = Convert.ToInt32(titanexportmode);
-            if (parameters.TryGetValue("mycontracts", out var mycontracts))
-                _mycontracts = Convert.ToInt32(mycontracts);
-        }
-    }
-
-    // Stato per tracciare la posizione corrente (MP = marketposition)
-    private int _currentMP = 0; // 0 = nessuna posizione, +1 = long, -1 = short
-    private int _myCount = 0;
-    private DateTime? _lastEntryDate = null;
-
-    public TradeSignal GenerateSignal(OhlcvData[] data, DateTime currentDate)
-    {
-        if (data == null || data.Length < RequiredCandles)
-        {
-            return new TradeSignal
-            {
-                Date = currentDate,
-                Type = SignalType.Hold,
-                Price = data?.LastOrDefault()?.Close ?? 0,
-                StrategyName = Name,
-                Reason = "Dati insufficienti"
-            };
-        }
-
-        var currentPrice = data.Last().Close;
-        var currentTime = currentDate.Hour * 100 + currentDate.Minute;
-        
-        // Calcola OHLC per pattern
-        decimal[] ohlcValues = new decimal[24];
-        _isStartOfSession = OHLCMulti5(_sessionStartTimeA, _sessionEndTimeA, data, currentDate, out ohlcValues);
-        
-        // Reset all'inizio sessione
-        if (_isStartOfSession)
-        {
-            _mycount = 0;
-            _okLong = false;
-            _okShort = false;
-        }
-        _mycount++;
-        
-        // Test phase
-        if (_testphase == 1)
-        {
-            if (_mycounter == _mycount)
-            {
-                return new TradeSignal
-                {
-                    Date = currentDate,
-                    Type = SignalType.Buy,
-                    Price = currentPrice,
-                    StrategyName = Name,
-                    Quantity = _mycontracts,
-                    Reason = "LE_TEST"
-                };
-            }
-            if (_currentMP == 1)
-            {
-                return new TradeSignal
-                {
-                    Date = currentDate,
-                    Type = SignalType.Sell,
-                    Price = currentPrice,
-                    StrategyName = Name,
-                    Quantity = _mycontracts,
-                    Reason = "LX_TEST"
-                };
-            }
-        }
-        
-        // Trading phase
-        if (_testphase == 0)
-        {
-            // Entry windows per entrytype > 1
-            if (_entrytype > 1)
-            {
-                _entrywindowL = TwBars(_myLEBar, _endlong, _mycount);
-                _entrywindowS = TwBars(_mySEBar, _endshort, _mycount);
-                
-                if (_mycount == _myLEBar && PatternFast(_myPtnLY, ohlcValues) && 
-                    !PatternFast(_myPtnLN, ohlcValues) && 
-                    (int)currentDate.DayOfWeek != _myNotLEDay)
-                {
-                    _okLong = true;
-                }
-                
-                if (_mycount == _mySEBar && PatternFast(_myPtnSY, ohlcValues) && 
-                    !PatternFast(_myPtnSN, ohlcValues) && 
-                    (int)currentDate.DayOfWeek != _myNotSEDay)
-                {
-                    _okShort = true;
-                }
-                
-                if (_entrywindowL && _currentMP == 1)
-                {
-                    _okLong = false;
-                }
-                if (_entrywindowS && _currentMP == -1)
-                {
-                    _okShort = false;
-                }
-            }
-            
-            // Entry logic basata su entrytype
-            switch (_entrytype)
-            {
-                case 1: // Entry on time of BIAS
-                    if (_mycount == _myLEBar && PatternFast(_myPtnLY, ohlcValues) && 
-                        !PatternFast(_myPtnLN, ohlcValues) && 
-                        (int)currentDate.DayOfWeek != _myNotLEDay && _currentMP == 0)
-                    {
-                        _currentMP = 1;
-                        return new TradeSignal
-                        {
-                            Date = currentDate,
-                            Type = SignalType.Buy,
-                            Price = currentPrice,
-                            StrategyName = Name,
-                            Quantity = _mycontracts,
-                            StopLoss = _myStop > 0 ? (decimal?)_myStop : null,
-                            TakeProfit = _myProfit > 0 ? (decimal?)_myProfit : null,
-                            Reason = "LE_MKT"
-                        };
-                    }
-                    if (_mycount == _mySEBar && PatternFast(_myPtnSY, ohlcValues) && 
-                        !PatternFast(_myPtnSN, ohlcValues) && 
-                        (int)currentDate.DayOfWeek != _myNotSEDay && _currentMP == 0)
-                    {
-                        _currentMP = -1;
-                        return new TradeSignal
-                        {
-                            Date = currentDate,
-                            Type = SignalType.Sell,
-                            Price = currentPrice,
-                            StrategyName = Name,
-                            Quantity = _mycontracts,
-                            StopLoss = _myStop > 0 ? (decimal?)_myStop : null,
-                            TakeProfit = _myProfit > 0 ? (decimal?)_myProfit : null,
-                            Reason = "SE_MKT"
-                        };
-                    }
-                    break;
-                    
-                case 2: // Breakout entry inside BIAS windows
-                    if (_entrywindowL && _okLong && _currentMP == 0)
-                    {
-                        decimal highestH = Highest(data, _nHigh, d => d.High);
-                        if (currentPrice >= highestH)
-                        {
-                            _currentMP = 1;
-                            _okLong = false;
-                            return new TradeSignal
-                            {
-                                Date = currentDate,
-                                Type = SignalType.Buy,
-                                Price = highestH,
-                                StrategyName = Name,
-                                Quantity = _mycontracts,
-                                StopLoss = _myStop > 0 ? (decimal?)_myStop : null,
-                                TakeProfit = _myProfit > 0 ? (decimal?)_myProfit : null,
-                                Reason = "LE_STP"
-                            };
-                        }
-                    }
-                    if (_entrywindowS && _okShort && _currentMP == 0)
-                    {
-                        decimal lowestL = Lowest(data, _nLow, d => d.Low);
-                        if (currentPrice <= lowestL)
-                        {
-                            _currentMP = -1;
-                            _okShort = false;
-                            return new TradeSignal
-                            {
-                                Date = currentDate,
-                                Type = SignalType.Sell,
-                                Price = lowestL,
-                                StrategyName = Name,
-                                Quantity = _mycontracts,
-                                StopLoss = _myStop > 0 ? (decimal?)_myStop : null,
-                                TakeProfit = _myProfit > 0 ? (decimal?)_myProfit : null,
-                                Reason = "SE_STP"
-                            };
-                        }
-                    }
-                    break;
-                    
-                case 3: // Retracement entry inside BIAS windows
-                    if (_entrywindowL && _okLong && _currentMP == 0)
-                    {
-                        decimal lowestL = Lowest(data, _nLow, d => d.Low);
-                        if (currentPrice <= lowestL)
-                        {
-                            _currentMP = 1;
-                            _okLong = false;
-                            return new TradeSignal
-                            {
-                                Date = currentDate,
-                                Type = SignalType.Buy,
-                                Price = lowestL,
-                                StrategyName = Name,
-                                Quantity = _mycontracts,
-                                StopLoss = _myStop > 0 ? (decimal?)_myStop : null,
-                                TakeProfit = _myProfit > 0 ? (decimal?)_myProfit : null,
-                                Reason = "LE_LMT"
-                            };
-                        }
-                    }
-                    if (_entrywindowS && _okShort && _currentMP == 0)
-                    {
-                        decimal highestH = Highest(data, _nHigh, d => d.High);
-                        if (currentPrice >= highestH)
-                        {
-                            _currentMP = -1;
-                            _okShort = false;
-                            return new TradeSignal
-                            {
-                                Date = currentDate,
-                                Type = SignalType.Sell,
-                                Price = highestH,
-                                StrategyName = Name,
-                                Quantity = _mycontracts,
-                                StopLoss = _myStop > 0 ? (decimal?)_myStop : null,
-                                TakeProfit = _myProfit > 0 ? (decimal?)_myProfit : null,
-                                Reason = "SE_LMT"
-                            };
-                        }
-                    }
-                    break;
-            }
-            
-            // EXIT LONG
-            if (_mycount == _myLXBar && _currentMP == 1)
-            {
-                _currentMP = 0;
-                return new TradeSignal
-                {
-                    Date = currentDate,
-                    Type = SignalType.Sell,
-                    Price = currentPrice,
-                    StrategyName = Name,
-                    Quantity = _mycontracts,
-                    Reason = "LX"
-                };
-            }
-            
-            // EXIT SHORT
-            if (_mycount == _mySXBar && _currentMP == -1)
-            {
-                _currentMP = 0;
-                return new TradeSignal
-                {
-                    Date = currentDate,
-                    Type = SignalType.Buy,
-                    Price = currentPrice,
-                    StrategyName = Name,
-                    Quantity = _mycontracts,
-                    Reason = "SX"
-                };
-            }
-        }
-        
-        return new TradeSignal
-        {
-            Date = currentDate,
-            Type = SignalType.Hold,
-            Price = currentPrice,
-            StrategyName = Name
-        };
+        if (parameters is null) return;
+        if (parameters.TryGetValue("Contracts", out var contracts))
+            Contracts = Convert.ToInt32(contracts);
     }
 }
-

@@ -32,7 +32,7 @@ public sealed class TitanoSizingAuditTests
         try
         {
             var definition = StrategyFactory.GetRegisteredStrategies()
-                .First(x => x.Id == "PTS_001_NQ_60" || x.Name == "PTS_001");
+                .First(x => x.Id == "PTS_001_NQ_60" || x.Name == "PTS_001_NQ_60");
             var executionCode = StrategyCatalog.TryGetExecutionCode(definition.Id) ?? definition.Name;
             var workspaces = new WorkspaceService(new PiootooSettings { Workspaces = root });
             var workspace = workspaces.Create(new CreateWorkspaceRequest
