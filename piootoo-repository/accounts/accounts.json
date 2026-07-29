@@ -12,11 +12,11 @@
       "GroupId": "FTMO",
       "Broker": "xxxxx",
       "Currency": "EUR",
-      "InitialBalance": 100000,
+      "InitialBalance": 1000000,
       "Enabled": true,
       "Notes": "FTMO 1",
       "CreatedUtc": "2026-07-28T10:10:35.1847811Z",
-      "UpdatedUtc": "2026-07-29T04:37:05.6185808Z",
+      "UpdatedUtc": "2026-07-28T13:23:41.2095243Z",
       "SymbolMappings": [
         {
           "Symbol": "@CL",
@@ -27,7 +27,7 @@
         {
           "Symbol": "@FDAX",
           "AccountSymbol": "@FDAX",
-          "ContractMultiplier": 0.1,
+          "ContractMultiplier": 1,
           "Enabled": true
         },
         {

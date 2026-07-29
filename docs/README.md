@@ -10,6 +10,9 @@ solution. Stato: **stabile** = contenuto verificato contro il codice,
   moduli, flussi, invarianti da non rompere, trappole note. *Stabile.*
 - [`verifica-codice-2026-07-27.md`](verifica-codice-2026-07-27.md) — audit del
   codice con evidenze e riferimenti puntuali. *Stabile.*
+- [`verifica-backtest-sizing-titano-2026-07-29.md`](verifica-backtest-sizing-titano-2026-07-29.md)
+  — verifica riproducibile PTS, lotti decimali e applicazione Titano nei due
+  engine. *Stabile.*
 
 ## Architettura
 
@@ -31,8 +34,13 @@ solution. Stato: **stabile** = contenuto verificato contro il codice,
   `FinalQuantity` (Titano × ATR × rischio portfolio). *Stabile.*
 - [`domini/trading-sessions-api.md`](domini/trading-sessions-api.md) — ciclo
   di vita di una sessione, endpoint, autorità di execution. *Stabile.*
+- [`domini/trading-plans.md`](domini/trading-plans.md) — configurazioni operative
+  riutilizzabili e apertura idempotente delle sessioni dal cBot. *Stabile.*
 - [`domini/strategie-catalogo.md`](domini/strategie-catalogo.md) —
   `ITradingStrategy`, catalogo, generazione da EasyLanguage. *Bozza.*
+- [`domini/motori-strategie.md`](domini/motori-strategie.md) — regole comuni
+  dei motori Unger e guida di porting, inclusa la specifica `TF_M` NQ 60.
+  *Stabile.*
 - [`domini/feed-worker.md`](domini/feed-worker.md) — `FeedRunner`/
   `FeedWorker`, invio barre chiuse. *Bozza.*
 

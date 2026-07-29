@@ -13,7 +13,7 @@ public class StrategyHourlyResult
     public DateTime DateTime { get; set; }
     public decimal Equity { get; set; }
     public decimal Profit { get; set; }
-    public int Contracts { get; set; } = 1; // sempre 1 per ora
+    public decimal Contracts { get; set; } = 1m;
     public SignalType? Signal { get; set; }
     public decimal? EntryPrice { get; set; }
     public decimal? ExitPrice { get; set; }

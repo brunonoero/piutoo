@@ -163,6 +163,8 @@ public sealed class TradingSessionDescriptor
     public required string SessionId { get; init; }
     public required string SessionToken { get; init; }
     public required string WorkspaceId { get; init; }
+    public string? PlanCode { get; init; }
+    public string? ExecutionKey { get; init; }
     public required ExecutionMode ExecutionMode { get; init; }
     public required TradingSessionStatus Status { get; init; }
     public string? TitanoRunId { get; init; }
@@ -243,6 +245,13 @@ public sealed class OrderIntent
 
     /// <summary>Livello di break even in punti: raggiunto il profitto, lo stop va spostato all'entry.</summary>
     public decimal? BreakEven { get; init; }
+
+    /// <summary>
+    /// Timeframe della strategia che ha emesso l'intent. Il client usa questa
+    /// informazione per contare <see cref="MaxBarsInPosition"/> sulle barre del
+    /// relativo stream, non sul timeframe del grafico che ospita il cBot.
+    /// </summary>
+    public int TimeframeMinutes { get; init; }
 
     /// <summary>Numero massimo di barre in posizione. Null o 0 = nessun limite.</summary>
     public int? MaxBarsInPosition { get; init; }

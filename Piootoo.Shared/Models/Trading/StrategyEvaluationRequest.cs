@@ -40,6 +40,6 @@ public sealed class StrategyPositionSnapshot
     public SignalType Direction { get; init; }
     public decimal EntryPrice { get; init; }
     public DateTime EntryTimeUtc { get; init; }
-    public int Contracts { get; init; }
+    public decimal Contracts { get; init; }
     public int BarsInPosition { get; init; }
 }

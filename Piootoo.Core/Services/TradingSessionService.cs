@@ -70,6 +70,7 @@ public sealed class StrategyEvaluationService : IStrategyEvaluationService
 public interface ITradingSessionService
 {
     TradingSessionDescriptor Create(CreateTradingSessionRequest request);
+    TradingSessionDescriptor OpenFromPlan(OpenTradingPlanSessionRequest request);
     TradingSessionDescriptor SetStatus(string sessionId, string token, TradingSessionStatus status);
     PushBarsResponse PushBars(PushBarsRequest request);
     IReadOnlyList<OrderIntent> GetIntents(string sessionId, string token, long after = 0);
@@ -126,6 +127,8 @@ public sealed class TradingSessionService : ITradingSessionService
         public required string Id { get; init; }
         public required string Token { get; init; }
         public required string WorkspaceId { get; init; }
+        public string? PlanCode { get; init; }
+        public string? ExecutionKey { get; init; }
         public required ExecutionMode Mode { get; init; }
         public required decimal InitialCapital { get; init; }
         public required List<ITradingStrategy> Strategies { get; init; }
@@ -200,22 +203,97 @@ public sealed class TradingSessionService : ITradingSessionService
         bool ApplyTitanoFilters);
 
     private readonly ConcurrentDictionary<string, Session> _sessions = new();
+    private readonly ConcurrentDictionary<string, string> _planExecutions =
+        new(StringComparer.OrdinalIgnoreCase);
     private readonly WorkspaceService _workspaces;
+    private readonly TradingPlanService _plans;
     private readonly IStrategyEvaluationService _evaluation;
     private readonly TitanoRotationService? _titano;
     private readonly IPositionSizingService _positionSizing;
 
     public TradingSessionService(
-        WorkspaceService workspaces, IStrategyEvaluationService evaluation,
+        WorkspaceService workspaces, TradingPlanService plans, IStrategyEvaluationService evaluation,
         TitanoRotationService? titano = null, IPositionSizingService? positionSizing = null)
     {
         _workspaces = workspaces;
+        _plans = plans;
         _evaluation = evaluation;
         _titano = titano;
         _positionSizing = positionSizing ?? new PositionSizingService();
     }
 
+    public TradingSessionService(
+        WorkspaceService workspaces, IStrategyEvaluationService evaluation,
+        TitanoRotationService? titano = null, IPositionSizingService? positionSizing = null)
+        : this(workspaces, new TradingPlanService(workspaces), evaluation, titano, positionSizing)
+    {
+    }
+
     public TradingSessionDescriptor Create(CreateTradingSessionRequest request)
+        => CreateCore(request, null, null);
+
+    public TradingSessionDescriptor OpenFromPlan(OpenTradingPlanSessionRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (request.ClientRunMode == ClientRunMode.Unknown)
+            throw new ArgumentException("Il cBot deve dichiarare Backtest oppure Realtime.");
+        if (string.IsNullOrWhiteSpace(request.ExecutionKey))
+            throw new ArgumentException("ExecutionKey è obbligatoria.");
+
+        var plan = _plans.Resolve(request.PlanCode);
+        if (plan.Groups.Count == 0)
+            throw new InvalidOperationException($"Il piano '{plan.Code}' non contiene righe gruppo/account.");
+
+        var account = string.IsNullOrWhiteSpace(request.AccountNumber)
+            ? plan.AccountNumber
+            : request.AccountNumber.Trim();
+        if (!plan.Groups.Any(row =>
+                row.AccountNumber.Equals(account, StringComparison.OrdinalIgnoreCase)))
+            throw new ArgumentException(
+                $"L'account '{account}' non appartiene al piano '{plan.Code}'.");
+
+        var executionKey = $"{plan.Code}|{request.ClientRunMode}|{request.ExecutionKey.Trim()}";
+        if (_planExecutions.TryGetValue(executionKey, out var existingId) &&
+            _sessions.TryGetValue(existingId, out var existing))
+        {
+            lock (existing.Gate)
+            {
+                existing.Status = TradingSessionStatus.Running;
+                Persist(existing);
+                return Describe(existing);
+            }
+        }
+
+        // Titano di sessione dalla riga primaria (prima con run, altrimenti la prima): i profili
+        // delle altre righe restano applicati da SetTradingGroups e prevalgono nel claim.
+        var primary = TradingPlanService.SelectPrimaryRow(plan.Groups);
+        var titanoMode = !primary.ApplyTitanoFilters
+            ? TitanoFilterMode.Disabled
+            : request.ClientRunMode == ClientRunMode.Backtest
+                ? TitanoFilterMode.BacktestRotationFile
+                : TitanoFilterMode.Realtime;
+        var descriptor = CreateCore(new CreateTradingSessionRequest
+        {
+            WorkspaceId = plan.WorkspaceId,
+            ExecutionMode = ExecutionMode.ExternalBroker,
+            InitialCapital = plan.InitialCapital,
+            CommissionPerContract = plan.CommissionPerContract,
+            ClientSessionToken = Convert.ToHexString(Guid.NewGuid().ToByteArray()),
+            TitanoRunId = primary.TitanoRunId,
+            TitanoBacktestFolder = primary.TitanoBacktestFolder,
+            TitanoMode = titanoMode,
+            ClientRunMode = request.ClientRunMode,
+            PositionSizing = plan.PositionSizing,
+            Instruments = plan.Instruments
+        }, plan.Code, request.ExecutionKey.Trim());
+        SetTradingGroups(descriptor.SessionId, descriptor.SessionToken, plan.Groups);
+        SetStatus(descriptor.SessionId, descriptor.SessionToken, TradingSessionStatus.Running);
+        _planExecutions[executionKey] = descriptor.SessionId;
+        return Describe(_sessions[descriptor.SessionId]);
+    }
+
+    private TradingSessionDescriptor CreateCore(
+        CreateTradingSessionRequest request, string? planCode, string? executionKey)
     {
         if (!string.IsNullOrWhiteSpace(request.TitanoRunId) &&
             string.IsNullOrWhiteSpace(request.TitanoBacktestFolder))
@@ -270,6 +348,8 @@ public sealed class TradingSessionService : ITradingSessionService
                 ? Convert.ToHexString(Guid.NewGuid().ToByteArray())
                 : request.ClientSessionToken,
             WorkspaceId = request.WorkspaceId,
+            PlanCode = planCode,
+            ExecutionKey = executionKey,
             Mode = request.ExecutionMode,
             InitialCapital = request.InitialCapital,
             Strategies = strategies,
@@ -1047,6 +1127,14 @@ public sealed class TradingSessionService : ITradingSessionService
             string.IsNullOrWhiteSpace(profile.TitanoBacktestFolder))
             return 1m;
 
+        // OpenFromPlan associa il medesimo run sia alla sessione sia al suo unico gruppo.
+        // PushBars ha già applicato quel moltiplicatore nel PositionSizingService: riapplicarlo
+        // qui trasformerebbe 0,5 in 0,25. Il claim deve scalare solo per un run di gruppo diverso.
+        if (session.TitanoMode != TitanoFilterMode.Disabled &&
+            string.Equals(profile.TitanoRunId, session.TitanoRunId, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(profile.TitanoBacktestFolder, session.TitanoBacktestFolder, StringComparison.OrdinalIgnoreCase))
+            return 1m;
+
         var effective = TryResolveGroupTitano(session, groupId);
         if (effective is null || !effective.HasActivePeriod)
             return 1m;
@@ -1059,6 +1147,25 @@ public sealed class TradingSessionService : ITradingSessionService
     private static OrderIntent AddIntent(
         Session session, TradeSignal signal, PositionSizingResult? sizing, bool addToIntents = true)
     {
+        var strategyTimeframe = session.Strategies
+            .FirstOrDefault(strategy => string.Equals(
+                strategy.Name, signal.StrategyCode, StringComparison.OrdinalIgnoreCase))
+            ?.TimeframeMinutes ?? 0;
+        var dollarsPerPoint = session.InstrumentMetadata.TryGetValue(Normalize(signal.Symbol), out var metadata)
+            ? metadata.DollarsPerPoint
+            : 1m;
+        if (dollarsPerPoint <= 0m)
+            dollarsPerPoint = 1m;
+
+        var stopLossPoints = signal.StopLoss
+            ?? (signal.StopLossMoneyPerFutureContract.HasValue
+                ? signal.StopLossMoneyPerFutureContract.Value / dollarsPerPoint
+                : null);
+        var takeProfitPoints = signal.TakeProfit
+            ?? (signal.TakeProfitMoneyPerFutureContract.HasValue
+                ? signal.TakeProfitMoneyPerFutureContract.Value / dollarsPerPoint
+                : null);
+
         session.IntentSequence++;
         var intent = new OrderIntent
         {
@@ -1081,9 +1188,10 @@ public sealed class TradingSessionService : ITradingSessionService
             Price = signal.Price,
             Kind = OrderIntentKind.Entry,
             // Specifica di uscita completa: e' l'unica cosa con cui il client chiudera' la posizione.
-            StopLoss = signal.StopLoss,
-            TakeProfit = signal.TakeProfit,
+            StopLoss = stopLossPoints,
+            TakeProfit = takeProfitPoints,
             BreakEven = signal.BreakEven,
+            TimeframeMinutes = strategyTimeframe,
             MaxBarsInPosition = signal.MaxBarsInPosition,
             ValidFromUtc = signal.ValidFromUtc,
             ExpiresAtUtc = signal.ExpiresAtUtc,
@@ -1136,6 +1244,7 @@ public sealed class TradingSessionService : ITradingSessionService
             StopLoss = template.StopLoss,
             TakeProfit = template.TakeProfit,
             BreakEven = template.BreakEven,
+            TimeframeMinutes = template.TimeframeMinutes,
             MaxBarsInPosition = template.MaxBarsInPosition,
             ValidFromUtc = template.ValidFromUtc,
             ExpiresAtUtc = template.ExpiresAtUtc,
@@ -1200,6 +1309,8 @@ public sealed class TradingSessionService : ITradingSessionService
             ExpiresAtUtc = intent.ExpiresAtUtc,
             StopLoss = intent.StopLoss,
             TakeProfit = intent.TakeProfit,
+            BreakEven = intent.BreakEven,
+            TimeframeMinutes = intent.TimeframeMinutes,
             TimeExitUtc = intent.CloseAtUtc,
             Reason = intent.Reason,
             MaxBarsInPosition = intent.MaxBarsInPosition,
@@ -1334,6 +1445,8 @@ public sealed class TradingSessionService : ITradingSessionService
         SessionId = session.Id,
         SessionToken = session.Token,
         WorkspaceId = session.WorkspaceId,
+        PlanCode = session.PlanCode,
+        ExecutionKey = session.ExecutionKey,
         ExecutionMode = session.Mode,
         Status = session.Status,
         TitanoRunId = session.TitanoRunId,

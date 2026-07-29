@@ -758,6 +758,8 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                         continue;
                     }
 
+                    var titanoAllocation = titanoFilter?.AllocationFor(strategyCode) ?? 1m;
+
                     try
                     {
                         cancellationToken.ThrowIfCancellationRequested();
@@ -840,6 +842,7 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                         if (string.IsNullOrWhiteSpace(signal.StrategyCode)) signal.StrategyCode = strategyCode;
                         if (string.IsNullOrWhiteSpace(signal.StrategyName)) signal.StrategyName = strategyCode;
                         ScaleSignalMaxBarsInPosition(signal, strategy.TimeframeMinutes, minTimeframeMinutes);
+                        signal.Quantity *= titanoAllocation;
 
                         // La conversione dell'account scala la size prima che il motore veda il
                         // segnale, così trade ed equity riflettono i contratti effettivi.
@@ -864,6 +867,7 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                                 if (string.IsNullOrWhiteSpace(companion.StrategyCode)) companion.StrategyCode = strategyCode;
                                 if (string.IsNullOrWhiteSpace(companion.StrategyName)) companion.StrategyName = strategyCode;
                                 ScaleSignalMaxBarsInPosition(companion, strategy.TimeframeMinutes, minTimeframeMinutes);
+                                companion.Quantity *= titanoAllocation;
                                 if (!TryApplyAccountConversion(companion, accountConversion))
                                     continue;
                                 signals.Add(companion);
@@ -980,7 +984,7 @@ public class PiootooBacktestingService : IPiootooBacktestingService
             var fileName = $"{fileNamePrefix}.json";
             var filePath = Path.Combine(outputPath, fileName);
             var htmlReportPath = Path.Combine(outputPath, $"{fileNamePrefix}.html");
-            GenerateStrategyEquityHtmlReport(result, htmlReportPath);
+            GenerateStrategyEquityHtmlReport(result, closedTrades, htmlReportPath);
             result.HtmlReportFilePath = htmlReportPath;
 
             // Scrittura autorevole: qui sì, durabile.
@@ -1219,7 +1223,7 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                 DateTime = currentDate,
                 Equity = equity,
                 Profit = equity - previousEquity,
-                Contracts = signal != null ? Math.Max(1, (int)signal.Quantity) : 0,
+                Contracts = signal?.Quantity ?? 0m,
                 Signal = signal?.Type,
                 EntryPrice = signal?.Price
             });
@@ -1241,6 +1245,7 @@ public class PiootooBacktestingService : IPiootooBacktestingService
         private DateTime _validFromUtc = DateTime.MaxValue;
         private DateTime _validToUtc = DateTime.MinValue;
         private HashSet<string> _enabled = new(StringComparer.OrdinalIgnoreCase);
+        private Dictionary<string, decimal> _allocations = new(StringComparer.OrdinalIgnoreCase);
 
         public TitanoBacktestFilter(
             TitanoRotationService titano, string workspaceId, string backtestFolder, string runId)
@@ -1267,12 +1272,21 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                     "su un backtest che copra l'intervallo richiesto, oppure esegui in modalità Disabled.");
 
             _enabled = new HashSet<string>(effective.EffectiveStrategies, StringComparer.OrdinalIgnoreCase);
+            _allocations = effective.StrategyStates
+                .Where(state => state.AllocationMultiplier > 0m)
+                .ToDictionary(
+                    state => state.StrategyCode,
+                    state => state.AllocationMultiplier,
+                    StringComparer.OrdinalIgnoreCase);
 
             // La finestra di validità della cache è il periodo stesso: fuori da qui si ririsolve.
             _validFromUtc = effective.PeriodFromUtc ?? timestampUtc;
             _validToUtc = effective.PeriodToUtc ?? timestampUtc.AddTicks(1);
             return _enabled;
         }
+
+        public decimal AllocationFor(string strategyCode) =>
+            _allocations.TryGetValue(strategyCode, out var allocation) ? allocation : 0m;
     }
 
     private TitanoBacktestFilter? CreateTitanoFilter(BacktestingRequest request)
@@ -1336,29 +1350,13 @@ public class PiootooBacktestingService : IPiootooBacktestingService
         string jobId,
         IReadOnlyList<TradeSignal> signals,
         AccountSymbolConversion conversion) =>
-        signals.Select((signal, index) => new PersistedSignal
-        {
-            SignalId = $"{jobId}-signal-{index + 1:D10}",
-            CorrelationId = jobId,
-            TimestampUtc = TradingDateTime.ToFeedUtc(signal.Date),
-            StrategyCode = signal.StrategyCode,
-            StrategyName = signal.StrategyName,
-            Symbol = NormalizeSymbol(signal.Symbol),
-            AccountId = conversion.AccountId,
-            AccountSymbol = conversion.GetAccountSymbol(signal.Symbol),
-            ContractMultiplier = conversion.GetContractMultiplier(signal.Symbol),
-            Side = signal.Type,
-            OrderType = signal.OrderType,
-            TriggerPrice = signal.Price,
-            Quantity = signal.Quantity,
-            ValidFromUtc = signal.ValidFromUtc,
-            ExpiresAtUtc = signal.ExpiresAtUtc,
-            StopLoss = signal.StopLoss,
-            TakeProfit = signal.TakeProfit,
-            TimeExitUtc = signal.CloseAtUtc,
-            MaxBarsInPosition = signal.MaxBarsInPosition,
-            Reason = signal.Reason
-        });
+        signals.Select((signal, index) => PersistedSignalMapper.FromTradeSignal(
+            signal,
+            signalId: $"{jobId}-signal-{index + 1:D10}",
+            correlationId: jobId,
+            accountId: conversion.AccountId,
+            accountSymbol: conversion.GetAccountSymbol(signal.Symbol),
+            contractMultiplier: conversion.GetContractMultiplier(signal.Symbol)));
 
     private static IEnumerable<PersistedTrade> ToPersistedTrades(
         string jobId,
@@ -1408,7 +1406,10 @@ public class PiootooBacktestingService : IPiootooBacktestingService
         return clone;
     }
 
-    private void GenerateStrategyEquityHtmlReport(BacktestingResult result, string filePath)
+    private void GenerateStrategyEquityHtmlReport(
+        BacktestingResult result,
+        IReadOnlyList<TradingResult> closedTrades,
+        string filePath)
     {
         var series = result.StrategyResults
             .Where(row => row.Equity != 0)
@@ -1460,7 +1461,10 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                 .ToList();
         }
         var symbolsText = symbols.Any() ? string.Join(", ", symbols) : "N/D";
-        var totalTrades = result.StrategyResults.Count(row => row.Signal.HasValue && row.Signal != SignalType.Hold);
+        // Un segnale non implica un trade: uno stop può scadere senza fill e un ingresso può
+        // restare aperto. Il report usa esclusivamente i trade chiusi dall'engine, che sono poi
+        // persistiti in trades.json.
+        var totalTrades = closedTrades.Count;
         var strategyCount = result.StrategiesInfo
             .Select(info => MakeStrategyKey(info.Symbol, GetStrategyCode(info)))
             .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -1480,8 +1484,8 @@ public class PiootooBacktestingService : IPiootooBacktestingService
             html.AppendLine("</head><body>");
             html.AppendLine($"<h1>{title}</h1>");
             AppendBacktestSummaryHtml(html, result, symbolsText, totalTrades, strategyCount);
-            AppendYearlySummaryHtml(html, result);
-        AppendMonthlySummaryHtml(html, result);
+            AppendYearlySummaryHtml(html, result, closedTrades);
+            AppendMonthlySummaryHtml(html, result, closedTrades);
             html.AppendLine("<div class=\"card\"><p class=\"muted\">Nessuna equity per strategia disponibile: il backtest non ha prodotto trade gestiti dal motore.</p></div>");
             html.AppendLine("</body></html>");
             AtomicFileWriter.WriteAllText(filePath, html.ToString());
@@ -1516,8 +1520,8 @@ public class PiootooBacktestingService : IPiootooBacktestingService
         html.AppendLine("<body>");
         html.AppendLine($"  <h1>{title}</h1>");
         AppendBacktestSummaryHtml(html, result, symbolsText, totalTrades, strategyCount);
-        AppendYearlySummaryHtml(html, result);
-        AppendMonthlySummaryHtml(html, result);
+        AppendYearlySummaryHtml(html, result, closedTrades);
+        AppendMonthlySummaryHtml(html, result, closedTrades);
         html.AppendLine("  <div class=\"card\">");
         html.AppendLine("    <h2>Equity globale</h2>");
         html.AppendLine("    <canvas id=\"globalEquityChart\" width=\"1400\" height=\"560\"></canvas>");
@@ -1585,7 +1589,10 @@ public class PiootooBacktestingService : IPiootooBacktestingService
         html.AppendLine("  </div>");
     }
 
-    private static void AppendYearlySummaryHtml(StringBuilder html, BacktestingResult result)
+    private static void AppendYearlySummaryHtml(
+        StringBuilder html,
+        BacktestingResult result,
+        IReadOnlyList<TradingResult> closedTrades)
     {
         var orderedRows = result.HourlyResults
             .Where(row => row.Equity != 0)
@@ -1598,9 +1605,6 @@ public class PiootooBacktestingService : IPiootooBacktestingService
         }
 
         var previousYearEndEquity = result.InitialCapital;
-        var strategyRows = result.StrategyResults
-            .Where(row => row.Signal.HasValue && row.Signal != SignalType.Hold)
-            .ToList();
         var yearlyRows = new List<(int Year, decimal StartEquity, decimal EndEquity, decimal Profit, decimal MaxDrawdown, decimal ReturnPct, int WinningTrades, int LosingTrades)>();
 
         foreach (var yearGroup in orderedRows.GroupBy(row => row.DateTime.Year).OrderBy(group => group.Key))
@@ -1610,9 +1614,11 @@ public class PiootooBacktestingService : IPiootooBacktestingService
             var profit = endEquity - previousYearEndEquity;
             var maxDrawdown = CalculateMaxDrawdown(yearRows, previousYearEndEquity);
             var returnPct = previousYearEndEquity != 0 ? profit / previousYearEndEquity * 100m : 0m;
-            var yearTradeRows = strategyRows.Where(row => row.DateTime.Year == yearGroup.Key).ToList();
-            var winningTrades = yearTradeRows.Count(row => row.Profit > 0);
-            var losingTrades = yearTradeRows.Count(row => row.Profit < 0);
+            var yearTrades = closedTrades
+                .Where(trade => trade.ExitDate.Year == yearGroup.Key)
+                .ToList();
+            var winningTrades = yearTrades.Count(trade => trade.NetProfit > 0);
+            var losingTrades = yearTrades.Count(trade => trade.NetProfit < 0);
 
             yearlyRows.Add((yearGroup.Key, previousYearEndEquity, endEquity, profit, maxDrawdown, returnPct, winningTrades, losingTrades));
             previousYearEndEquity = endEquity;
@@ -1636,7 +1642,10 @@ public class PiootooBacktestingService : IPiootooBacktestingService
         html.AppendLine("  </div>");
     }
 
-    private static void AppendMonthlySummaryHtml(StringBuilder html, BacktestingResult result)
+    private static void AppendMonthlySummaryHtml(
+        StringBuilder html,
+        BacktestingResult result,
+        IReadOnlyList<TradingResult> closedTrades)
     {
         var orderedRows = result.HourlyResults
             .Where(row => row.Equity != 0)
@@ -1648,9 +1657,6 @@ public class PiootooBacktestingService : IPiootooBacktestingService
             return;
         }
 
-        var strategyRows = result.StrategyResults
-            .Where(row => row.Signal.HasValue && row.Signal != SignalType.Hold)
-            .ToList();
         var previousMonthEndEquity = result.InitialCapital;
 
         html.AppendLine("  <div class=\"card\">");
@@ -1666,13 +1672,13 @@ public class PiootooBacktestingService : IPiootooBacktestingService
             var profit = endEquity - previousMonthEndEquity;
             var maxDrawdown = CalculateMaxDrawdown(monthRows, previousMonthEndEquity);
             var returnPct = previousMonthEndEquity != 0 ? profit / previousMonthEndEquity * 100m : 0m;
-            var monthTradeRows = strategyRows
-                .Where(row => row.DateTime.Year == monthGroup.Key.Year && row.DateTime.Month == monthGroup.Key.Month)
+            var monthTrades = closedTrades
+                .Where(trade => trade.ExitDate.Year == monthGroup.Key.Year && trade.ExitDate.Month == monthGroup.Key.Month)
                 .ToList();
             var profitClass = profit >= 0 ? "positive" : "negative";
 
             html.AppendLine(
-                $"        <tr><td>{monthGroup.Key.Year}-{monthGroup.Key.Month:00}</td><td>{previousMonthEndEquity:F2}</td><td>{endEquity:F2}</td><td class=\"{profitClass}\">{profit:F2}</td><td class=\"{profitClass}\">{returnPct:F2}%</td><td class=\"negative\">{maxDrawdown:F2}</td><td>{monthTradeRows.Count(row => row.Profit > 0)}</td><td>{monthTradeRows.Count(row => row.Profit < 0)}</td></tr>");
+                $"        <tr><td>{monthGroup.Key.Year}-{monthGroup.Key.Month:00}</td><td>{previousMonthEndEquity:F2}</td><td>{endEquity:F2}</td><td class=\"{profitClass}\">{profit:F2}</td><td class=\"{profitClass}\">{returnPct:F2}%</td><td class=\"negative\">{maxDrawdown:F2}</td><td>{monthTrades.Count(trade => trade.NetProfit > 0)}</td><td>{monthTrades.Count(trade => trade.NetProfit < 0)}</td></tr>");
 
             previousMonthEndEquity = endEquity;
         }

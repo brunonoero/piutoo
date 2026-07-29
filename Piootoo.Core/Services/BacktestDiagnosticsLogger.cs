@@ -507,7 +507,7 @@ public sealed class PositionOpenedEvent
     public required SignalType Direction { get; init; }
     public required DateTime EntryTimeUtc { get; init; }
     public required decimal EntryPrice { get; init; }
-    public required int Contracts { get; init; }
+    public required decimal Contracts { get; init; }
     public decimal? StopLossPoints { get; init; }
     public decimal? TakeProfitPoints { get; init; }
     public string? Reason { get; init; }
@@ -524,7 +524,7 @@ public sealed class PositionClosedEvent
     public required DateTime ExitTimeUtc { get; init; }
     public required decimal EntryPrice { get; init; }
     public required decimal ExitPrice { get; init; }
-    public required int Contracts { get; init; }
+    public required decimal Contracts { get; init; }
     public required TradeExitReason ExitReason { get; init; }
     public decimal GrossProfit { get; init; }
     public decimal NetProfit { get; init; }

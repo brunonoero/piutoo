@@ -35,6 +35,7 @@ builder.Services.AddSingleton<TitanoRotationSetupService>();
 builder.Services.AddSingleton<TitanoFilterService>();
 builder.Services.AddSingleton<TitanoRotationService>();
 builder.Services.AddSingleton<WorkspaceService>();
+builder.Services.AddSingleton<TradingPlanService>();
 builder.Services.AddSingleton<IStrategyEvaluationService, StrategyEvaluationService>();
 builder.Services.AddSingleton<IPositionSizingService, PositionSizingService>();
 builder.Services.AddSingleton<ITradingSessionService, TradingSessionService>();

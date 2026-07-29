@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Piootoo.Shared.Configuration;
+using Piootoo.Shared.Models.Trading;
 using Piootoo.Shared.Models.Workspaces;
 
 namespace Piootoo.Core.Services;
@@ -512,6 +513,22 @@ public sealed class WorkspaceService
 
     public string GetBacktestPath(string workspaceId, string folderName)
         => WorkspaceBacktestPaths.ResolveBacktestPath(GetExistingWorkspacePath(workspaceId), folderName);
+
+    /// <summary>
+    /// Legge i trade chiusi prodotti dal backtest indicato. Il path resta risolto e validato
+    /// lato server: il client riceve soltanto il contenuto di <c>trades.json</c>.
+    /// </summary>
+    public IReadOnlyList<PersistedTrade> GetBacktestTrades(string workspaceId, string folderName)
+    {
+        var backtestPath = GetBacktestPath(workspaceId, folderName);
+        if (!Directory.Exists(backtestPath))
+            throw new DirectoryNotFoundException($"Backtest '{folderName}' non trovato nel workspace '{workspaceId}'.");
+
+        return new TradingJsonStore(backtestPath).ReadTrades()
+            .OrderByDescending(trade => trade.ExitTimeUtc)
+            .ThenByDescending(trade => trade.TradeId, StringComparer.Ordinal)
+            .ToList();
+    }
 
     public void Delete(string workspaceId)
         => Directory.Delete(GetExistingWorkspacePath(workspaceId), recursive: true);

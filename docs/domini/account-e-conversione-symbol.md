@@ -68,7 +68,9 @@ la tabella in un `AccountSymbolConversion` (dizionario per simbolo normalizzato:
 costosi nel loop caldo) e la applica in due punti diversi, per due ragioni diverse:
 
 - **Size** — il moltiplicatore scala `signal.Quantity` *prima* che il motore veda il segnale, così
-  trade, equity e drawdown riflettono i contratti realmente inviabili su quel conto.
+  trade, equity e drawdown riflettono i contratti realmente inviabili su quel conto. La quantità
+  resta `decimal` fino a trade e P&L: conversioni come `1 × 0,01 = 0,01` non vengono arrotondate
+  artificialmente a un contratto.
 - **Symbol** — la traduzione finisce solo in `signals.json` (`AccountSymbol`, `AccountId`,
   `ContractMultiplier`). Il simbolo interno **non** viene rinominato: il motore indicizza prezzi,
   barre e chiavi di posizione sul simbolo Piootoo normalizzato, e rinominarlo a monte lo lascerebbe

@@ -50,11 +50,24 @@ non contengono logica: traducono eccezioni in `ProblemDetails` e delegano.
 ### 3.1 Workspace e masterfilter
 
 Un **workspace** è una cartella su disco che contiene un `masterfilter.json`
-(l'elenco delle strategie abilitate), una cartella `backtests/` e una `sessions/`.
+(l'elenco delle strategie abilitate), una cartella `backtests/`, una `plans/` e una `sessions/`.
 
 Il masterfilter contiene **Id di classe** (es. `Easy_218_GC_60`): è la chiave di
 *selezione* dal catalogo. È l'unica fonte autorevole di quali strategie girano —
 sia in backtest sia in sessione.
+
+#### Piani e sessioni
+
+Un **piano di trading** è una configurazione riutilizzabile del workspace: nome e codice,
+gruppo, account, massimo trade concorrenti, setup/run Titano, flag di applicazione, sizing e
+metadata strumenti. Il codice è globale perché è l'unico parametro funzionale configurato nel
+cBot. I piani sono persistiti in `<workspace>/plans/plans.json`.
+
+Una **sessione** resta invece l'istanza mutabile di una singola esecuzione. Alla creazione
+acquisisce uno snapshot del piano: modificare il piano non altera una sessione già aperta.
+`PlanCode + ClientRunMode + ExecutionKey` è la chiave idempotente usata dal cBot per riprendere
+la stessa sessione dopo un'interruzione. Dettaglio in
+[`domini/trading-plans.md`](domini/trading-plans.md).
 
 ### 3.2 Identificazione delle strategie — invariante importante
 
@@ -207,6 +220,8 @@ BacktestingRequest (workspace + range + capitale)
 ### 4.2 Sessione live con cTrader
 
 ```
+cBot OnStart → POST /trading-sessions/open-plan
+    server: risolve piano → riprende oppure crea sessione → restituisce strumenti/timeframe
 cBot OnBar → POST /trading-sessions/{id}/bars   (solo la barra chiusa)
     server: [Titano?] → Evaluate → sizing → OrderIntent[]
 cBot esegue → POST /trading-sessions/{id}/execution-reports
@@ -315,6 +330,8 @@ Sotto `<workspace>/backtests/<nome>/`:
 | `backtest_<nome>_<ts>.json` | `BacktestingResult` completo |
 | `backtest_<nome>_<ts>.html` | report equity per strategia |
 | `titano/<runId>/manifest.json` | manifest di rotazione |
+
+Sotto `<workspace>/plans/`: `plans.json`.
 
 Sotto `<workspace>/sessions/<sessionId>/`: `signals.json`, `trades.json`,
 `rotation-log.json`.

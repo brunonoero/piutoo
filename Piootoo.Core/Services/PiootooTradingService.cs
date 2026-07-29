@@ -502,7 +502,7 @@ public class PiootooTradingService : IPiootooTradingService
             if (multipliers.TryGetValue(strategyResult.StrategyName, out var multiplier))
             {
                 strategyResult.Profit *= multiplier;
-                strategyResult.Contracts = (int)(strategyResult.Contracts * multiplier);
+                strategyResult.Contracts *= multiplier;
             }
         }
 
@@ -570,7 +570,9 @@ public class PiootooTradingService : IPiootooTradingService
 
     private void OpenPosition(string positionKey, string strategyName, string strategyCode, string symbol, SignalType direction, decimal entryPrice, DateTime entryTime, decimal quantity, decimal? stopLoss, decimal? takeProfit, decimal? breakEven = null, int? maxBarsInPosition = null, DateTime? closeAtUtc = null, string? reason = null)
     {
-        var contracts = Math.Max(1, (int)quantity);
+        if (quantity <= 0m)
+            throw new ArgumentOutOfRangeException(nameof(quantity), "La quantità di ingresso deve essere positiva.");
+
         var position = new OpenPosition
         {
             StrategyName = strategyName,
@@ -579,7 +581,7 @@ public class PiootooTradingService : IPiootooTradingService
             Direction = direction,
             EntryPrice = entryPrice,
             EntryTime = entryTime,
-            Contracts = contracts,
+            Contracts = quantity,
             ContractPointValue = GetContractPointValue(symbol),
             StopLoss = stopLoss,
             TakeProfit = takeProfit,
