@@ -241,12 +241,16 @@ public sealed class TradingSessionService : ITradingSessionService
             throw new ArgumentException("ExecutionKey è obbligatoria.");
 
         var plan = _plans.Resolve(request.PlanCode);
+        if (plan.Groups.Count == 0)
+            throw new InvalidOperationException($"Il piano '{plan.Code}' non contiene righe gruppo/account.");
+
         var account = string.IsNullOrWhiteSpace(request.AccountNumber)
             ? plan.AccountNumber
             : request.AccountNumber.Trim();
-        if (!account.Equals(plan.AccountNumber, StringComparison.OrdinalIgnoreCase))
+        if (!plan.Groups.Any(row =>
+                row.AccountNumber.Equals(account, StringComparison.OrdinalIgnoreCase)))
             throw new ArgumentException(
-                $"L'account '{account}' non coincide con l'account '{plan.AccountNumber}' del piano '{plan.Code}'.");
+                $"L'account '{account}' non appartiene al piano '{plan.Code}'.");
 
         var executionKey = $"{plan.Code}|{request.ClientRunMode}|{request.ExecutionKey.Trim()}";
         if (_planExecutions.TryGetValue(executionKey, out var existingId) &&
@@ -260,7 +264,10 @@ public sealed class TradingSessionService : ITradingSessionService
             }
         }
 
-        var titanoMode = !plan.ApplyTitanoFilters
+        // Titano di sessione dalla riga primaria (prima con run, altrimenti la prima): i profili
+        // delle altre righe restano applicati da SetTradingGroups e prevalgono nel claim.
+        var primary = TradingPlanService.SelectPrimaryRow(plan.Groups);
+        var titanoMode = !primary.ApplyTitanoFilters
             ? TitanoFilterMode.Disabled
             : request.ClientRunMode == ClientRunMode.Backtest
                 ? TitanoFilterMode.BacktestRotationFile
@@ -272,26 +279,14 @@ public sealed class TradingSessionService : ITradingSessionService
             InitialCapital = plan.InitialCapital,
             CommissionPerContract = plan.CommissionPerContract,
             ClientSessionToken = Convert.ToHexString(Guid.NewGuid().ToByteArray()),
-            TitanoRunId = plan.TitanoRunId,
-            TitanoBacktestFolder = plan.TitanoBacktestFolder,
+            TitanoRunId = primary.TitanoRunId,
+            TitanoBacktestFolder = primary.TitanoBacktestFolder,
             TitanoMode = titanoMode,
             ClientRunMode = request.ClientRunMode,
             PositionSizing = plan.PositionSizing,
             Instruments = plan.Instruments
         }, plan.Code, request.ExecutionKey.Trim());
-        SetTradingGroups(descriptor.SessionId, descriptor.SessionToken,
-        [
-            new TradingGroupRow
-            {
-                GroupId = plan.GroupId,
-                AccountNumber = plan.AccountNumber,
-                MaxConcurrentTrades = plan.MaxConcurrentTrades,
-                RotationSetupId = plan.RotationSetupId,
-                TitanoRunId = plan.TitanoRunId,
-                TitanoBacktestFolder = plan.TitanoBacktestFolder,
-                ApplyTitanoFilters = plan.ApplyTitanoFilters
-            }
-        ]);
+        SetTradingGroups(descriptor.SessionId, descriptor.SessionToken, plan.Groups);
         SetStatus(descriptor.SessionId, descriptor.SessionToken, TradingSessionStatus.Running);
         _planExecutions[executionKey] = descriptor.SessionId;
         return Describe(_sessions[descriptor.SessionId]);

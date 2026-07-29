@@ -50,18 +50,76 @@ public sealed class TradingGroupTitanoTests
 
             var rows = sessions.GetTradingGroups(descriptor.SessionId, descriptor.SessionToken);
             Assert.Equal(2, rows.Count);
-            Assert.Equal([3, 4], rows.Select(row => row.MaxConcurrentTrades).Order().ToArray());
-            Assert.All(rows, row =>
+            Assert.All(rows, row => Assert.Equal("prop-a", row.GroupId));
+            Assert.Contains(rows, row => row.AccountNumber == "1001" && row.MaxConcurrentTrades == 3);
+            Assert.Contains(rows, row => row.AccountNumber == "1002" && row.MaxConcurrentTrades == 4);
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
+    [Fact]
+    public void OpenFromPlan_AppliesAllGroupRows()
+    {
+        var root = CreateRoot();
+        try
+        {
+            var workspaces = new WorkspaceService(new PiootooSettings { Workspaces = root });
+            var strategyId = StrategyFactory.GetRegisteredStrategies().First().Id;
+            var workspace = workspaces.Create(new CreateWorkspaceRequest
             {
-                Assert.Equal("prop-a", row.GroupId);
-                Assert.Equal("bilanciato", row.RotationSetupId);
-                Assert.Equal("run-a", row.TitanoRunId);
-                Assert.Equal("source", row.TitanoBacktestFolder);
-                Assert.True(row.ApplyTitanoFilters);
+                Name = "MultiPlan", StrategiesFilter = [strategyId]
+            });
+            var plans = new TradingPlanService(workspaces);
+            plans.Save(workspace.Id, new SaveTradingPlanRequest
+            {
+                Code = "MULTI",
+                Name = "Piano multi",
+                Groups =
+                [
+                    new TradingGroupRow
+                    {
+                        GroupId = "prop-a",
+                        AccountNumber = "1001",
+                        MaxConcurrentTrades = 2,
+                        ApplyTitanoFilters = false
+                    },
+                    new TradingGroupRow
+                    {
+                        GroupId = "prop-b",
+                        AccountNumber = "2002",
+                        MaxConcurrentTrades = 5,
+                        ApplyTitanoFilters = false
+                    }
+                ]
             });
 
-            var legacy = sessions.GetAccountGroups(descriptor.SessionId, descriptor.SessionToken);
-            Assert.Equal(2, legacy.Count);
+            var sessions = new TradingSessionService(
+                workspaces, plans, new FixedSignalEvaluationService(), null, new PositionSizingService());
+            var descriptor = sessions.OpenFromPlan(new OpenTradingPlanSessionRequest
+            {
+                PlanCode = "MULTI",
+                ClientRunMode = ClientRunMode.Backtest,
+                ExecutionKey = "open-multi",
+                AccountNumber = "2002"
+            });
+
+            var rows = sessions.GetTradingGroups(descriptor.SessionId, descriptor.SessionToken);
+            Assert.Equal(2, rows.Count);
+            Assert.Contains(rows, row => row.AccountNumber == "1001" && row.GroupId == "prop-a");
+            Assert.Contains(rows, row => row.AccountNumber == "2002" && row.MaxConcurrentTrades == 5);
+
+            var foreign = Assert.Throws<ArgumentException>(() => sessions.OpenFromPlan(
+                new OpenTradingPlanSessionRequest
+                {
+                    PlanCode = "MULTI",
+                    ClientRunMode = ClientRunMode.Backtest,
+                    ExecutionKey = "foreign",
+                    AccountNumber = "9999"
+                }));
+            Assert.Contains("non appartiene", foreign.Message, StringComparison.OrdinalIgnoreCase);
         }
         finally
         {

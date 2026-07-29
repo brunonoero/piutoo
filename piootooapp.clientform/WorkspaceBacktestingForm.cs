@@ -92,13 +92,7 @@ public partial class WorkspaceBacktestingForm : Form
     private readonly ComboBox _sessionTitanoRunId = new();
     private readonly Button _sessionLoadTitanoRuns = new();
     private readonly ComboBox _sessionTitanoMode = new();
-    private readonly TextBox _sessionTitanoBacktest = new();
-    private readonly TextBox _sessionMetadata = new() { Text = "ES,50,1,1,FuturesContracts", Width = 420 };
-    private readonly CheckBox _sessionAtrEnabled = new() { Text = "ATR/target volatility", AutoSize = true };
-    private readonly NumericUpDown _sessionAtrPeriods = new();
-    private readonly NumericUpDown _sessionTargetRisk = new();
-    private readonly CheckBox _sessionPortfolioEnabled = new() { Text = "Limiti portfolio", AutoSize = true };
-    private readonly NumericUpDown _sessionDrawdownCap = new();
+    private readonly ComboBox _sessionTitanoBacktest = new();
     private readonly CheckBox _sessionCppiEnabled = new() { Text = "CPPI (opzionale)", AutoSize = true };
     private readonly NumericUpDown _sessionCppiFloor = new();
     private readonly NumericUpDown _sessionCppiMultiplier = new();
@@ -135,12 +129,14 @@ public partial class WorkspaceBacktestingForm : Form
     private readonly Button _refreshTradingResultsButton = new();
     private readonly DataGridView _tradingResultsGrid = new();
     private readonly Label _tradingResultsSummary = new();
+    private readonly TextBox _tradingResultsFilter = new() { Width = 250, PlaceholderText = "Cerca symbol o strategia..." };
     private readonly ComboBox _rotationsWorkspaceCombo = new();
     private readonly ComboBox _rotationsBacktestCombo = new();
     private readonly ComboBox _rotationsRunCombo = new();
     private readonly Button _refreshRotationsButton = new();
     private readonly DataGridView _rotationsGrid = new();
     private readonly Label _rotationsSummary = new();
+    private readonly TextBox _rotationsFilter = new() { Width = 250, PlaceholderText = "Cerca symbol o strategia..." };
 
     private readonly ComboBox _accountsCombo = new();
     private readonly TextBox _accountNameTextBox = new();
@@ -180,6 +176,7 @@ public partial class WorkspaceBacktestingForm : Form
     private CancellationTokenSource? _pollingCts;
     private bool _backtestRunning;
     private bool _allowClose;
+    private bool _suppressSessionTitanoBacktestEvents;
 
     public WorkspaceBacktestingForm()
     {
@@ -290,6 +287,7 @@ public partial class WorkspaceBacktestingForm : Form
         _refreshTradingResultsButton.Text = "Aggiorna risultati";
         _refreshTradingResultsButton.AutoSize = true;
         _refreshTradingResultsButton.Click += async (_, _) => await LoadTradingResultsAsync();
+        _tradingResultsFilter.TextChanged += (_, _) => ApplySymbolAndStrategyFilter(_tradingResultsGrid, _tradingResultsFilter.Text);
 
         root.Controls.Add(new FlowLayoutPanel
         {
@@ -299,6 +297,7 @@ public partial class WorkspaceBacktestingForm : Form
             {
                 TitanoLabel("Workspace"), _tradingResultsWorkspaceCombo,
                 TitanoLabel("Backtest"), _tradingResultsBacktestCombo,
+                TitanoLabel("Filtro"), _tradingResultsFilter,
                 _refreshTradingResultsButton
             }
         }, 0, 0);
@@ -328,6 +327,7 @@ public partial class WorkspaceBacktestingForm : Form
         _refreshRotationsButton.Text = "Aggiorna rotazioni";
         _refreshRotationsButton.AutoSize = true;
         _refreshRotationsButton.Click += async (_, _) => await LoadTitanoRunsAsync();
+        _rotationsFilter.TextChanged += (_, _) => ApplySymbolAndStrategyFilter(_rotationsGrid, _rotationsFilter.Text);
 
         root.Controls.Add(new FlowLayoutPanel
         {
@@ -338,6 +338,7 @@ public partial class WorkspaceBacktestingForm : Form
                 TitanoLabel("Workspace"), _rotationsWorkspaceCombo,
                 TitanoLabel("Backtest"), _rotationsBacktestCombo,
                 TitanoLabel("Run"), _rotationsRunCombo,
+                TitanoLabel("Filtro"), _rotationsFilter,
                 _refreshRotationsButton
             }
         }, 0, 0);
@@ -402,11 +403,30 @@ public partial class WorkspaceBacktestingForm : Form
         _rotationsGrid.Columns.Add("EffectiveFromUtc", "Dal UTC");
         _rotationsGrid.Columns.Add("EffectiveToUtc", "Al UTC");
         _rotationsGrid.Columns.Add("StrategyCode", "Strategia");
+        _rotationsGrid.Columns.Add("Symbol", "Symbol");
         _rotationsGrid.Columns.Add("State", "Stato");
         _rotationsGrid.Columns.Add("AllocationMultiplier", "Moltiplicatore");
         _rotationsGrid.Columns.Add("TransitionType", "Variazione");
         _rotationsGrid.Columns.Add("Reason", "Motivo");
     }
+
+    private static void ApplySymbolAndStrategyFilter(DataGridView grid, string text)
+    {
+        var terms = text
+            .Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+        foreach (DataGridViewRow row in grid.Rows)
+        {
+            var searchable = $"{row.Cells["Symbol"].Value} {row.Cells["StrategyCode"].Value}";
+            row.Visible = terms.All(term =>
+                searchable.Contains(term, StringComparison.OrdinalIgnoreCase));
+        }
+    }
+
+    private string GetStrategySymbol(string strategyCode) =>
+        _strategies.FirstOrDefault(strategy =>
+            string.Equals(strategy.Name, strategyCode, StringComparison.OrdinalIgnoreCase))?.Symbol
+        ?? string.Empty;
 
     private Control BuildWorkspacesTab()
     {
@@ -1243,7 +1263,11 @@ public partial class WorkspaceBacktestingForm : Form
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         _sessionWorkspaceCombo.DropDownStyle = ComboBoxStyle.DropDownList;
         _sessionWorkspaceCombo.Width = 320;
-        _sessionWorkspaceCombo.SelectedIndexChanged += async (_, _) => await LoadTradingPlansAsync();
+        _sessionWorkspaceCombo.SelectedIndexChanged += async (_, _) =>
+        {
+            await LoadSessionTitanoBacktestsAsync();
+            await LoadTradingPlansAsync();
+        };
         _sessionPlanCombo.DropDownStyle = ComboBoxStyle.DropDownList;
         _sessionPlanCombo.Width = 220;
         _sessionPlanCombo.SelectedIndexChanged += (_, _) => LoadSelectedTradingPlan();
@@ -1258,27 +1282,26 @@ public partial class WorkspaceBacktestingForm : Form
         _sessionModeCombo.DropDownStyle = ComboBoxStyle.DropDownList;
         _sessionModeCombo.Items.AddRange(Enum.GetNames<ExecutionMode>());
         _sessionModeCombo.SelectedItem = nameof(ExecutionMode.ServerSimulated);
-        ConfigureTitanoNumber(_sessionAtrPeriods, 2, 500, 14);
-        ConfigureTitanoNumber(_sessionTargetRisk, 1, 1_000_000, 1000, 2);
-        ConfigureTitanoNumber(_sessionDrawdownCap, 1, 100, 20, 2);
         ConfigureTitanoNumber(_sessionCppiFloor, 0, 100, 80, 2);
         ConfigureTitanoNumber(_sessionCppiMultiplier, 0, 10, 1, 2);
         _sessionTitanoRunId.Width = 260;
         _sessionTitanoRunId.DropDownStyle = ComboBoxStyle.DropDown; // consente anche l'incolla manuale
-        _sessionTitanoBacktest.Width = 160;
+        _sessionTitanoBacktest.Width = 290;
+        _sessionTitanoBacktest.DropDownStyle = ComboBoxStyle.DropDownList;
+        _sessionTitanoBacktest.SelectedIndexChanged += async (_, _) =>
+        {
+            if (!_suppressSessionTitanoBacktestEvents)
+                await LoadTitanoRunsForSessionAsync();
+        };
         _sessionLoadTitanoRuns.Text = "Carica run";
         _sessionLoadTitanoRuns.AutoSize = true;
-        _sessionLoadTitanoRuns.Click += async (_, _) => await LoadTitanoRunsForSessionAsync();
+        _sessionLoadTitanoRuns.Click += async (_, _) => await LoadTitanoRunsForSessionAsync(showValidationError: true);
         _sessionTitanoMode.Width = 200;
         _sessionTitanoMode.DropDownStyle = ComboBoxStyle.DropDownList;
         _sessionTitanoMode.Items.AddRange(Enum.GetNames<TitanoFilterMode>());
         _sessionTitanoMode.SelectedItem = nameof(TitanoFilterMode.Disabled);
         _sessionTitanoMode.SelectedIndexChanged += (_, _) => UpdateTitanoSessionControlsState();
 
-        _formToolTip.SetToolTip(_sessionAtrEnabled,
-            "Attiva il sizing basato su volatilità di mercato (ATR): dimensiona ogni posizione in base al rischio in dollari desiderato.");
-        _formToolTip.SetToolTip(_sessionPortfolioEnabled,
-            "Attiva i limiti di rischio a livello di portafoglio (drawdown massimo) che riducono l'esposizione quando superati.");
         _formToolTip.SetToolTip(_sessionCppiEnabled,
             "Attiva l'overlay CPPI (Constant Proportion Portfolio Insurance): protegge un floor di capitale scalando l'esposizione sul cuscinetto residuo.");
 
@@ -1298,25 +1321,13 @@ public partial class WorkspaceBacktestingForm : Form
             WithHelp(_sessionWorkspaceCombo, "Workspace per cui viene creata e gestita la sessione di trading."),
             TitanoLabel("Modalità", "ServerSimulated: esecuzione simulata lato server. ExternalBroker: gli ordini vengono inoltrati a un broker esterno."),
             WithHelp(_sessionModeCombo, "ServerSimulated: esecuzione simulata lato server. ExternalBroker: gli ordini vengono inoltrati a un broker esterno."),
-            TitanoLabel("Backtest Titano", "Cartella del backtest sorgente da cui è stata generata la rotazione Titano."),
-            WithHelp(_sessionTitanoBacktest, "Cartella del backtest sorgente da cui è stata generata la rotazione Titano."),
+            TitanoLabel("Backtest Titano", "Backtest sorgente da cui è stata generata la rotazione Titano."),
+            WithHelp(_sessionTitanoBacktest, "Elenca i backtest con risultati del workspace selezionato. Scegli quello da cui leggere o generare le rotazioni Titano."),
             TitanoLabel("Setup Titano (run)", "Rotazione Titano salvata da collegare alla sessione. Premi 'Carica run' per elencare quelle disponibili nel backtest indicato."),
             WithHelp(_sessionTitanoRunId, "Rotazione Titano salvata da collegare alla sessione. Lascia vuoto per non collegare alcuna rotazione."),
             WithHelp(_sessionLoadTitanoRuns, "Elenca le rotazioni Titano già calcolate per il workspace e il backtest selezionati."),
             TitanoLabel("Modalità Titano", TitanoModeHelp),
             WithHelp(_sessionTitanoMode, TitanoModeHelp),
-            TitanoLabel("Metadata symbol,DPP,min,step,mode",
-                "Elenco strumenti nel formato simbolo,dollari-per-punto,quantità-minima,step-quantità,modalità-arrotondamento; più strumenti separati da ';'."),
-            WithHelp(_sessionMetadata,
-                "Elenco strumenti nel formato simbolo,dollari-per-punto,quantità-minima,step-quantità,modalità-arrotondamento; più strumenti separati da ';'."),
-            _sessionAtrEnabled,
-            TitanoLabel("Periodi ATR", "Numero di barre usate per calcolare l'ATR (Average True Range) su cui basare il sizing per volatilità."),
-            WithHelp(_sessionAtrPeriods, "Numero di barre usate per calcolare l'ATR (Average True Range) su cui basare il sizing per volatilità."),
-            TitanoLabel("Rischio target $", "Rischio in dollari che ogni posizione deve rappresentare quando il sizing ATR è attivo."),
-            WithHelp(_sessionTargetRisk, "Rischio in dollari che ogni posizione deve rappresentare quando il sizing ATR è attivo."),
-            _sessionPortfolioEnabled,
-            TitanoLabel("DD cap %", "Drawdown massimo di portafoglio tollerato prima che i limiti di rischio riducano l'esposizione."),
-            WithHelp(_sessionDrawdownCap, "Drawdown massimo di portafoglio tollerato prima che i limiti di rischio riducano l'esposizione."),
             _sessionCppiEnabled,
             TitanoLabel("Floor %", "Percentuale del capitale iniziale da proteggere come floor nell'overlay CPPI."),
             WithHelp(_sessionCppiFloor, "Percentuale del capitale iniziale da proteggere come floor nell'overlay CPPI."),
@@ -1514,9 +1525,7 @@ public partial class WorkspaceBacktestingForm : Form
 
     private List<TradingGroupRow> ReadTradingGroupRows()
     {
-        var backtestFolder = string.IsNullOrWhiteSpace(_sessionTitanoBacktest.Text)
-            ? null
-            : _sessionTitanoBacktest.Text.Trim();
+        var backtestFolder = GetSelectedSessionTitanoBacktestFolder();
         var rows = _sessionAccountGroups.Rows.Cast<DataGridViewRow>()
             .Where(row => !row.IsNewRow)
             .Select(row => new TradingGroupRow
@@ -1559,7 +1568,7 @@ public partial class WorkspaceBacktestingForm : Form
                 MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
-        if (string.IsNullOrWhiteSpace(_sessionTitanoBacktest.Text))
+        if (string.IsNullOrWhiteSpace(GetSelectedSessionTitanoBacktestFolder()))
         {
             MessageBox.Show("Indica la cartella Backtest Titano nella configurazione sessione.", "Gruppi Titano",
                 MessageBoxButtons.OK, MessageBoxIcon.Warning);
@@ -1588,7 +1597,7 @@ public partial class WorkspaceBacktestingForm : Form
                 var rotation = BuildTitanoRequest(
                     setup,
                     workspace.Info.Id,
-                    _sessionTitanoBacktest.Text.Trim());
+                    GetSelectedSessionTitanoBacktestFolder()!);
                 var response = await _httpClient.PostAsJsonAsync("api/Titano/rotations", rotation, _jsonOptions);
                 response.EnsureSuccessStatusCode();
                 var manifest = await response.Content.ReadFromJsonAsync<TitanoRotationManifest>(_jsonOptions)
@@ -2893,7 +2902,7 @@ public partial class WorkspaceBacktestingForm : Form
         {
             NormalizeBaseAddress();
             var backtests = await _workspaceApi.ListBacktestsAsync(workspace.Info.Id);
-            foreach (var backtest in backtests)
+            foreach (var backtest in backtests.Where(backtest => backtest.HasResults))
                 _titanoBacktestCombo.Items.Add(new WorkspaceBacktestItem(backtest));
 
             if (_titanoBacktestCombo.Items.Count > 0)
@@ -2970,6 +2979,7 @@ public partial class WorkspaceBacktestingForm : Form
                     trade.NetProfit.ToString("N2"),
                     trade.AccountNumber);
             }
+            ApplySymbolAndStrategyFilter(_tradingResultsGrid, _tradingResultsFilter.Text);
 
             _tradingResultsSummary.Text =
                 $"{backtest.Info.FolderName}: {trades.Count} operazioni chiuse lette da trades.json · " +
@@ -3064,11 +3074,13 @@ public partial class WorkspaceBacktestingForm : Form
                     period.EffectiveFromUtc.ToString("u"),
                     period.EffectiveToUtc.ToString("u"),
                     strategy.StrategyCode,
+                    GetStrategySymbol(strategy.StrategyCode),
                     strategy.Enabled ? "Accesa" : "Spenta",
                     strategy.AllocationMultiplier.ToString("P0"),
                     strategy.TransitionType,
                     strategy.Reason);
             }
+            ApplySymbolAndStrategyFilter(_rotationsGrid, _rotationsFilter.Text);
 
             _rotationsSummary.Text =
                 $"Run {manifest.RunId}: {manifest.Periods.Count} rotazioni, " +
@@ -3104,12 +3116,61 @@ public partial class WorkspaceBacktestingForm : Form
             _titanoEndPicker.Value = end.ToUniversalTime().Date;
     }
 
+    private string? GetSelectedSessionTitanoBacktestFolder() =>
+        (_sessionTitanoBacktest.SelectedItem as WorkspaceBacktestItem)?.Info.FolderName;
+
+    private void SelectSessionTitanoBacktest(string? folderName)
+    {
+        var index = _sessionTitanoBacktest.Items
+            .Cast<WorkspaceBacktestItem>()
+            .ToList()
+            .FindIndex(item => string.Equals(item.Info.FolderName, folderName, StringComparison.OrdinalIgnoreCase));
+        _sessionTitanoBacktest.SelectedIndex = index;
+    }
+
+    private async Task LoadSessionTitanoBacktestsAsync()
+    {
+        var selectedFolder = GetSelectedSessionTitanoBacktestFolder();
+        _suppressSessionTitanoBacktestEvents = true;
+        try
+        {
+            _sessionTitanoBacktest.Items.Clear();
+            _sessionTitanoRunId.Items.Clear();
+
+            if (_sessionWorkspaceCombo.SelectedItem is not WorkspaceListItem workspace)
+                return;
+
+            NormalizeBaseAddress();
+            var backtests = await _workspaceApi.ListBacktestsAsync(workspace.Info.Id);
+            foreach (var backtest in backtests.Where(backtest => backtest.HasResults))
+                _sessionTitanoBacktest.Items.Add(new WorkspaceBacktestItem(backtest));
+
+            if (_sessionTitanoBacktest.Items.Count > 0)
+            {
+                SelectSessionTitanoBacktest(selectedFolder);
+                if (_sessionTitanoBacktest.SelectedIndex < 0)
+                    _sessionTitanoBacktest.SelectedIndex = 0;
+            }
+        }
+        catch (Exception ex)
+        {
+            ShowSession($"Impossibile caricare i backtest Titano: {ex.Message}");
+        }
+        finally
+        {
+            _suppressSessionTitanoBacktestEvents = false;
+        }
+
+        if (_sessionTitanoBacktest.SelectedIndex >= 0)
+            await LoadTitanoRunsForSessionAsync();
+    }
+
     /// <summary>
     /// Popola la combo dei setup Titano con le rotazioni già calcolate per il workspace e il
     /// backtest selezionati. Prima il RunId andava incollato a mano: un refuso significava una
     /// sessione che non applicava alcun filtro senza dirlo.
     /// </summary>
-    private async Task LoadTitanoRunsForSessionAsync()
+    private async Task LoadTitanoRunsForSessionAsync(bool showValidationError = false)
     {
         if (_sessionWorkspaceCombo.SelectedItem is not WorkspaceListItem workspace)
         {
@@ -3117,11 +3178,12 @@ public partial class WorkspaceBacktestingForm : Form
             return;
         }
 
-        var backtestFolder = _sessionTitanoBacktest.Text.Trim();
+        var backtestFolder = GetSelectedSessionTitanoBacktestFolder();
         if (string.IsNullOrWhiteSpace(backtestFolder))
         {
-            MessageBox.Show("Indica la cartella del backtest sorgente.", "Trading Session",
-                MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            if (showValidationError)
+                MessageBox.Show("Seleziona un backtest sorgente.", "Trading Session",
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
 
@@ -3222,14 +3284,30 @@ public partial class WorkspaceBacktestingForm : Form
         var plan = _tradingPlans[index];
         _sessionPlanCode.Text = plan.Code;
         _sessionPlanName.Text = plan.Name;
-        _sessionTitanoBacktest.Text = plan.TitanoBacktestFolder ?? string.Empty;
+        SelectSessionTitanoBacktest(plan.TitanoBacktestFolder);
         _sessionTitanoRunId.Text = plan.TitanoRunId ?? string.Empty;
-        _sessionMetadata.Text = string.Join(";", plan.Instruments.Select(x =>
-            $"{x.Symbol},{x.DollarsPerPoint},{x.MinimumQuantity},{x.QuantityStep},{x.RoundingMode}"));
         _sessionAccountGroups.Rows.Clear();
-        _sessionAccountGroups.Rows.Add(
-            plan.GroupId, plan.RotationSetupId, plan.AccountNumber, plan.MaxConcurrentTrades,
-            plan.ApplyTitanoFilters, plan.TitanoRunId);
+        var rows = plan.Groups.Count > 0
+            ? plan.Groups
+            :
+            [
+                new TradingGroupRow
+                {
+                    GroupId = plan.GroupId,
+                    AccountNumber = plan.AccountNumber,
+                    MaxConcurrentTrades = plan.MaxConcurrentTrades,
+                    RotationSetupId = plan.RotationSetupId,
+                    TitanoRunId = plan.TitanoRunId,
+                    TitanoBacktestFolder = plan.TitanoBacktestFolder,
+                    ApplyTitanoFilters = plan.ApplyTitanoFilters
+                }
+            ];
+        foreach (var row in rows)
+        {
+            _sessionAccountGroups.Rows.Add(
+                row.GroupId, row.RotationSetupId, row.AccountNumber, row.MaxConcurrentTrades,
+                row.ApplyTitanoFilters, row.TitanoRunId);
+        }
     }
 
     private void ClearTradingPlanEditor()
@@ -3245,32 +3323,20 @@ public partial class WorkspaceBacktestingForm : Form
         if (_sessionWorkspaceCombo.SelectedItem is not WorkspaceListItem workspace) return;
         try
         {
-            var row = ReadTradingGroupRows().SingleOrDefault()
-                ?? throw new InvalidOperationException("Il piano richiede una riga gruppo/account.");
+            var rows = ReadTradingGroupRows();
+            if (rows.Count == 0)
+                throw new InvalidOperationException("Il piano richiede almeno una riga gruppo/account.");
             var request = new SaveTradingPlanRequest
             {
                 Code = _sessionPlanCode.Text.Trim(),
                 Name = _sessionPlanName.Text.Trim(),
-                GroupId = row.GroupId,
-                AccountNumber = row.AccountNumber,
-                MaxConcurrentTrades = row.MaxConcurrentTrades,
-                RotationSetupId = row.RotationSetupId,
-                TitanoRunId = row.TitanoRunId,
-                TitanoBacktestFolder = row.TitanoBacktestFolder,
-                ApplyTitanoFilters = row.ApplyTitanoFilters,
-                Instruments = ParseInstrumentMetadata(_sessionMetadata.Text),
+                Groups = rows,
+                Instruments = [],
                 PositionSizing = new PositionSizingConfig
                 {
-                    MarketVolatility = new MarketVolatilitySizingConfig
-                    {
-                        Enabled = _sessionAtrEnabled.Checked,
-                        AtrPeriods = (int)_sessionAtrPeriods.Value,
-                        TargetRiskDollars = _sessionTargetRisk.Value
-                    },
                     PortfolioRisk = new PortfolioRiskSizingConfig
                     {
-                        Enabled = _sessionPortfolioEnabled.Checked,
-                        MaximumDrawdown = _sessionDrawdownCap.Value / 100m,
+                        Enabled = _sessionCppiEnabled.Checked,
                         EnableCppi = _sessionCppiEnabled.Checked,
                         CppiFloorFraction = _sessionCppiFloor.Value / 100m,
                         CppiMultiplier = _sessionCppiMultiplier.Value
@@ -3282,7 +3348,7 @@ public partial class WorkspaceBacktestingForm : Form
             var response = await _httpClient.PutAsJsonAsync(uri, request, _jsonOptions);
             response.EnsureSuccessStatusCode();
             await LoadTradingPlansAsync(request.Code);
-            ShowSession($"Piano {request.Code} salvato.");
+            ShowSession($"Piano {request.Code} salvato ({rows.Count} gruppi/account).");
         }
         catch (Exception ex)
         {
@@ -3310,7 +3376,8 @@ public partial class WorkspaceBacktestingForm : Form
             return;
         }
         var titanoRunId = string.IsNullOrWhiteSpace(_sessionTitanoRunId.Text) ? null : _sessionTitanoRunId.Text.Trim();
-        if (titanoRunId is not null && string.IsNullOrWhiteSpace(_sessionTitanoBacktest.Text))
+        var titanoBacktestFolder = GetSelectedSessionTitanoBacktestFolder();
+        if (titanoRunId is not null && string.IsNullOrWhiteSpace(titanoBacktestFolder))
         {
             MessageBox.Show(
                 "Un setup Titano richiede anche la cartella del backtest sorgente.",
@@ -3335,20 +3402,14 @@ public partial class WorkspaceBacktestingForm : Form
                 WorkspaceId = workspace.Info.Id,
                 ExecutionMode = Enum.Parse<ExecutionMode>(_sessionModeCombo.SelectedItem?.ToString() ?? "ServerSimulated"),
                 TitanoRunId = titanoRunId,
-                TitanoBacktestFolder = titanoRunId is null ? null : _sessionTitanoBacktest.Text.Trim(),
+                TitanoBacktestFolder = titanoRunId is null ? null : titanoBacktestFolder,
                 TitanoMode = titanoMode,
-                Instruments = ParseInstrumentMetadata(_sessionMetadata.Text),
+                Instruments = [],
                 PositionSizing = new PositionSizingConfig
                 {
-                    MarketVolatility = new MarketVolatilitySizingConfig
-                    {
-                        Enabled = _sessionAtrEnabled.Checked, AtrPeriods = (int)_sessionAtrPeriods.Value,
-                        TargetRiskDollars = _sessionTargetRisk.Value
-                    },
                     PortfolioRisk = new PortfolioRiskSizingConfig
                     {
-                        Enabled = _sessionPortfolioEnabled.Checked,
-                        MaximumDrawdown = _sessionDrawdownCap.Value / 100m,
+                        Enabled = _sessionCppiEnabled.Checked,
                         EnableCppi = _sessionCppiEnabled.Checked,
                         CppiFloorFraction = _sessionCppiFloor.Value / 100m,
                         CppiMultiplier = _sessionCppiMultiplier.Value,
@@ -3391,21 +3452,6 @@ public partial class WorkspaceBacktestingForm : Form
 
     private void ShowSession(string message) =>
         _sessionOutput.Text = $"{message}{Environment.NewLine}{JsonSerializer.Serialize(_activeSession, new JsonSerializerOptions(_jsonOptions) { WriteIndented = true })}";
-
-    private static IReadOnlyList<InstrumentMetadata> ParseInstrumentMetadata(string value) =>
-        value.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Select(row =>
-        {
-            var p = row.Split(',', StringSplitOptions.TrimEntries);
-            if (p.Length != 5) throw new FormatException("Metadata: symbol,DollarsPerPoint,minimo,step,modalità; separare strumenti con ';'.");
-            return new InstrumentMetadata
-            {
-                Symbol = p[0],
-                DollarsPerPoint = decimal.Parse(p[1], System.Globalization.CultureInfo.InvariantCulture),
-                MinimumQuantity = decimal.Parse(p[2], System.Globalization.CultureInfo.InvariantCulture),
-                QuantityStep = decimal.Parse(p[3], System.Globalization.CultureInfo.InvariantCulture),
-                RoundingMode = Enum.Parse<QuantityRoundingMode>(p[4], true)
-            };
-        }).ToArray();
 
     private async Task LoadTitanoSetupsAsync(string? selectId = null)
     {

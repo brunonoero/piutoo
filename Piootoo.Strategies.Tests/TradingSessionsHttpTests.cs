@@ -98,6 +98,107 @@ public sealed class TradingSessionsHttpTests : IDisposable
         Assert.Equal(2, group.MaxConcurrentTrades);
     }
 
+    [Fact]
+    public async Task MultiGroupTradingPlan_PersistsAllRowsAndOpensWithAllAccounts()
+    {
+        var plan = new SaveTradingPlanRequest
+        {
+            Code = "PLAN_MULTI",
+            Name = "Piano multi",
+            ApplyTitanoFilters = false,
+            Groups =
+            [
+                new TradingGroupRow
+                {
+                    GroupId = "PROP-A",
+                    AccountNumber = "111",
+                    MaxConcurrentTrades = 2,
+                    ApplyTitanoFilters = false
+                },
+                new TradingGroupRow
+                {
+                    GroupId = "PROP-B",
+                    AccountNumber = "222",
+                    MaxConcurrentTrades = 1,
+                    ApplyTitanoFilters = false
+                }
+            ]
+        };
+        var save = await _client.PutAsJsonAsync(
+            $"api/v1/workspaces/{_workspace.Id}/trading-plans/{plan.Code}", plan);
+        save.EnsureSuccessStatusCode();
+        var saved = (await save.Content.ReadFromJsonAsync<TradingPlan>(JsonOptions))!;
+        Assert.Equal(2, saved.Groups.Count);
+        Assert.Equal("PROP-A", saved.GroupId);
+        Assert.Equal("111", saved.AccountNumber);
+
+        var open = new OpenTradingPlanSessionRequest
+        {
+            PlanCode = plan.Code,
+            ClientRunMode = ClientRunMode.Backtest,
+            ExecutionKey = "multi-1",
+            AccountNumber = "222"
+        };
+        var response = await _client.PostAsJsonAsync("api/v1/trading-sessions/open-plan", open);
+        response.EnsureSuccessStatusCode();
+        var descriptor = (await response.Content.ReadFromJsonAsync<TradingSessionDescriptor>(JsonOptions))!;
+
+        using var groupsRequest = Authorized(HttpMethod.Get,
+            $"api/v1/trading-sessions/{descriptor.SessionId}/groups", descriptor.SessionToken);
+        var groupsResponse = await _client.SendAsync(groupsRequest);
+        groupsResponse.EnsureSuccessStatusCode();
+        var groups = (await groupsResponse.Content.ReadFromJsonAsync<List<TradingGroupRow>>(JsonOptions))!;
+        Assert.Equal(2, groups.Count);
+        Assert.Contains(groups, row => row.AccountNumber == "111" && row.GroupId == "PROP-A");
+        Assert.Contains(groups, row => row.AccountNumber == "222" && row.GroupId == "PROP-B" &&
+                                       row.MaxConcurrentTrades == 1);
+
+        var foreign = await _client.PostAsJsonAsync("api/v1/trading-sessions/open-plan",
+            new OpenTradingPlanSessionRequest
+            {
+                PlanCode = plan.Code,
+                ClientRunMode = ClientRunMode.Backtest,
+                ExecutionKey = "multi-foreign",
+                AccountNumber = "999"
+            });
+        Assert.Equal(HttpStatusCode.BadRequest, foreign.StatusCode);
+    }
+
+    [Fact]
+    public async Task LegacySingleRowPlanJson_IsNormalizedToGroupsOnRead()
+    {
+        var workspaces = _factory.Services.GetRequiredService<WorkspaceService>();
+        var plansDir = Path.Combine(workspaces.GetWorkspacePath(_workspace.Id), "plans");
+        Directory.CreateDirectory(plansDir);
+        await File.WriteAllTextAsync(Path.Combine(plansDir, "plans.json"),
+            $$"""
+            [
+              {
+                "WorkspaceId": "{{_workspace.Id}}",
+                "Code": "LEGACY1",
+                "Name": "Piano legacy",
+                "GroupId": "PROP-L",
+                "AccountNumber": "555",
+                "MaxConcurrentTrades": 3,
+                "ApplyTitanoFilters": false,
+                "InitialCapital": 100000,
+                "CommissionPerContract": 2,
+                "CreatedUtc": "2026-01-01T00:00:00Z",
+                "UpdatedUtc": "2026-01-01T00:00:00Z"
+              }
+            ]
+            """);
+
+        var response = await _client.GetAsync(
+            $"api/v1/workspaces/{_workspace.Id}/trading-plans/LEGACY1");
+        response.EnsureSuccessStatusCode();
+        var plan = (await response.Content.ReadFromJsonAsync<TradingPlan>(JsonOptions))!;
+        var row = Assert.Single(plan.Groups);
+        Assert.Equal("PROP-L", row.GroupId);
+        Assert.Equal("555", row.AccountNumber);
+        Assert.Equal(3, row.MaxConcurrentTrades);
+    }
+
     [Theory]
     [InlineData(ExecutionMode.ServerSimulated)]
     [InlineData(ExecutionMode.ExternalBroker)]

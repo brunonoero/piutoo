@@ -4,23 +4,31 @@ Un piano è una configurazione operativa riutilizzabile salvata nel workspace. I
 univoco tra tutti i workspace perché costituisce l'unico identificatore configurato nel cBot.
 Nome e codice sono distinti.
 
-Il piano contiene gruppo, account, massimo numero di trade concorrenti, setup e run Titano,
-flag di applicazione Titano, sizing e metadata strumenti. I file sono salvati in
-`<workspace>/plans/plans.json`.
+Il piano contiene una o più righe gruppo/account (`Groups`): ciascuna con massimo trade
+concorrenti, setup/run Titano e flag di applicazione. Contiene inoltre sizing e metadata
+strumenti condivisi. I file sono salvati in `<workspace>/plans/plans.json`.
+
+I piani legacy a singola riga (solo `GroupId`/`AccountNumber`) restano leggibili: al
+caricamento vengono normalizzati in una `Groups` da un elemento. In scrittura i campi
+singoli restano popolati come mirror della riga primaria (prima con run Titano, altrimenti
+la prima) per compatibilità.
 
 Il cBot apre una sessione con `POST /api/v1/trading-sessions/open-plan`, indicando codice piano,
-contesto `Backtest`/`Realtime`, account ed `ExecutionKey`. La tripla piano, contesto ed execution
-key è idempotente: richieste ripetute riprendono la stessa sessione; una execution key diversa
-crea una sessione nuova.
+contesto `Backtest`/`Realtime`, account ed `ExecutionKey`. L'account deve appartenere alle
+righe del piano; se omesso si usa il primo. La tripla piano, contesto ed execution key è
+idempotente: richieste ripetute riprendono la stessa sessione; una execution key diversa
+crea una sessione nuova. All'apertura tutte le righe del piano sono applicate come gruppi
+della sessione (anti copy-trading e profili Titano per gruppo).
 
 La sessione acquisisce uno snapshot del piano alla creazione. Modificare il piano non cambia
-sessioni già aperte. Il server sceglie automaticamente la modalità Titano:
+sessioni già aperte. Il server sceglie automaticamente la modalità Titano dalla riga primaria:
 
 - piano senza filtro: `Disabled`;
 - piano filtrato in backtest: `BacktestRotationFile`;
 - piano filtrato live: `Realtime`.
 
-Il cBot non interpreta Titano e riceve soltanto intent già filtrati. Gli strumenti e i timeframe
+I profili Titano delle altre righe restano applicati al claim degli intent per gruppo. Il cBot
+non interpreta Titano e riceve soltanto intent già filtrati. Gli strumenti e i timeframe
 sono derivati dal masterfilter del workspace e restituiti nel descriptor della sessione.
 
 API CRUD: `GET/PUT/DELETE /api/v1/workspaces/{workspaceId}/trading-plans[/{code}]`.

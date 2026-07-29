@@ -50,8 +50,18 @@ public sealed class TradingPlanService
 
     public TradingPlan Save(string workspaceId, SaveTradingPlanRequest request)
     {
-        Validate(request);
+        var groups = NormalizeAndValidateGroups(request);
         var code = NormalizeCode(request.Code);
+        if (string.IsNullOrWhiteSpace(request.Name))
+            throw new ArgumentException("Il nome del piano è obbligatorio.");
+        if (request.InitialCapital <= 0)
+            throw new ArgumentException("InitialCapital deve essere maggiore di zero.");
+        if (request.CommissionPerContract < 0)
+            throw new ArgumentException("CommissionPerContract non può essere negativa.");
+
+        // Mirror della prima riga (e, per Titano di sessione, della prima riga con run) così i
+        // piani multi-gruppo restano leggibili anche dai client che non conoscono ancora Groups.
+        var primary = SelectPrimaryRow(groups);
         lock (_gate)
         {
             var collision = _workspaces.List()
@@ -70,13 +80,14 @@ public sealed class TradingPlanService
                 WorkspaceId = workspaceId,
                 Code = code,
                 Name = request.Name.Trim(),
-                GroupId = request.GroupId.Trim(),
-                AccountNumber = request.AccountNumber.Trim(),
-                MaxConcurrentTrades = request.MaxConcurrentTrades,
-                RotationSetupId = TrimOrNull(request.RotationSetupId),
-                TitanoRunId = TrimOrNull(request.TitanoRunId),
-                TitanoBacktestFolder = TrimOrNull(request.TitanoBacktestFolder),
-                ApplyTitanoFilters = request.ApplyTitanoFilters,
+                Groups = groups,
+                GroupId = primary.GroupId,
+                AccountNumber = primary.AccountNumber,
+                MaxConcurrentTrades = primary.MaxConcurrentTrades,
+                RotationSetupId = primary.RotationSetupId,
+                TitanoRunId = primary.TitanoRunId,
+                TitanoBacktestFolder = primary.TitanoBacktestFolder,
+                ApplyTitanoFilters = primary.ApplyTitanoFilters,
                 InitialCapital = request.InitialCapital,
                 CommissionPerContract = request.CommissionPerContract,
                 PositionSizing = request.PositionSizing,
@@ -107,7 +118,8 @@ public sealed class TradingPlanService
     {
         var file = GetFile(workspaceId);
         if (!File.Exists(file)) return [];
-        return JsonSerializer.Deserialize<List<TradingPlan>>(File.ReadAllText(file), _json) ?? [];
+        var plans = JsonSerializer.Deserialize<List<TradingPlan>>(File.ReadAllText(file), _json) ?? [];
+        return plans.Select(NormalizeLoadedPlan).ToList();
     }
 
     private void Write(string workspaceId, List<TradingPlan> plans)
@@ -127,22 +139,138 @@ public sealed class TradingPlanService
         return plans.FirstOrDefault(x => x.Code.Equals(normalized, StringComparison.OrdinalIgnoreCase));
     }
 
-    private static void Validate(SaveTradingPlanRequest request)
+    /// <summary>
+    /// Accetta <see cref="SaveTradingPlanRequest.Groups"/> oppure i campi legacy singoli;
+    /// valida account univoci e profili Titano coerenti per gruppo.
+    /// </summary>
+    public static IReadOnlyList<TradingGroupRow> NormalizeAndValidateGroups(SaveTradingPlanRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
-        _ = NormalizeCode(request.Code);
-        if (string.IsNullOrWhiteSpace(request.Name)) throw new ArgumentException("Il nome del piano è obbligatorio.");
-        if (string.IsNullOrWhiteSpace(request.GroupId)) throw new ArgumentException("Il gruppo del piano è obbligatorio.");
-        if (string.IsNullOrWhiteSpace(request.AccountNumber)) throw new ArgumentException("Il codice account è obbligatorio.");
-        if (request.MaxConcurrentTrades < 0) throw new ArgumentException("MaxConcurrentTrades non può essere negativo.");
-        if (request.InitialCapital <= 0) throw new ArgumentException("InitialCapital deve essere maggiore di zero.");
-        if (request.CommissionPerContract < 0) throw new ArgumentException("CommissionPerContract non può essere negativa.");
-        if (!string.IsNullOrWhiteSpace(request.TitanoRunId) &&
-            string.IsNullOrWhiteSpace(request.TitanoBacktestFolder))
-            throw new ArgumentException("TitanoRunId richiede TitanoBacktestFolder.");
-        if (request.ApplyTitanoFilters && string.IsNullOrWhiteSpace(request.TitanoRunId))
-            throw new ArgumentException("Applica Titano richiede un run Titano.");
+        var groups = request.Groups.Count > 0
+            ? request.Groups.Select(CloneRow).ToList()
+            : BuildLegacyRows(request);
+
+        if (groups.Count == 0)
+            throw new ArgumentException("Il piano richiede almeno una riga gruppo/account.");
+
+        foreach (var row in groups)
+        {
+            if (string.IsNullOrWhiteSpace(row.GroupId) || string.IsNullOrWhiteSpace(row.AccountNumber))
+                throw new ArgumentException("GroupId e AccountNumber sono obbligatori per ogni riga del piano.");
+            if (row.MaxConcurrentTrades < 0)
+                throw new ArgumentException(
+                    $"MaxConcurrentTrades non può essere negativo per l'account '{row.AccountNumber}'.");
+            if (!string.IsNullOrWhiteSpace(row.TitanoRunId) &&
+                string.IsNullOrWhiteSpace(row.TitanoBacktestFolder))
+                throw new ArgumentException($"TitanoRunId richiede TitanoBacktestFolder per il gruppo '{row.GroupId}'.");
+            if (row.ApplyTitanoFilters && string.IsNullOrWhiteSpace(row.TitanoRunId))
+                throw new ArgumentException(
+                    $"Applica Titano richiede un run Titano per il gruppo '{row.GroupId}'.");
+        }
+
+        var duplicatedAccount = groups.GroupBy(r => r.AccountNumber, StringComparer.OrdinalIgnoreCase)
+            .FirstOrDefault(g => g.Count() > 1);
+        if (duplicatedAccount != null)
+            throw new ArgumentException($"Account '{duplicatedAccount.Key}' configurato più di una volta nel piano.");
+
+        foreach (var group in groups.GroupBy(r => r.GroupId, StringComparer.OrdinalIgnoreCase))
+        {
+            var signatures = group.Select(r => (
+                RotationSetupId: r.RotationSetupId ?? string.Empty,
+                TitanoRunId: r.TitanoRunId ?? string.Empty,
+                TitanoBacktestFolder: r.TitanoBacktestFolder ?? string.Empty,
+                r.ApplyTitanoFilters)).Distinct().ToArray();
+            if (signatures.Length > 1)
+                throw new ArgumentException(
+                    $"Profilo Titano inconsistente tra le righe del gruppo '{group.Key}'.");
+        }
+
+        return groups;
     }
+
+    private static List<TradingGroupRow> BuildLegacyRows(SaveTradingPlanRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(request.GroupId) || string.IsNullOrWhiteSpace(request.AccountNumber))
+            return [];
+
+        return
+        [
+            new TradingGroupRow
+            {
+                GroupId = request.GroupId.Trim(),
+                AccountNumber = request.AccountNumber.Trim(),
+                MaxConcurrentTrades = request.MaxConcurrentTrades,
+                RotationSetupId = TrimOrNull(request.RotationSetupId),
+                TitanoRunId = TrimOrNull(request.TitanoRunId),
+                TitanoBacktestFolder = TrimOrNull(request.TitanoBacktestFolder),
+                ApplyTitanoFilters = request.ApplyTitanoFilters
+            }
+        ];
+    }
+
+    private static TradingPlan NormalizeLoadedPlan(TradingPlan plan)
+    {
+        var groups = plan.Groups.Count > 0
+            ? plan.Groups.Select(CloneRow).ToList()
+            : string.IsNullOrWhiteSpace(plan.GroupId) || string.IsNullOrWhiteSpace(plan.AccountNumber)
+                ? []
+                :
+                [
+                    new TradingGroupRow
+                    {
+                        GroupId = plan.GroupId.Trim(),
+                        AccountNumber = plan.AccountNumber.Trim(),
+                        MaxConcurrentTrades = plan.MaxConcurrentTrades,
+                        RotationSetupId = TrimOrNull(plan.RotationSetupId),
+                        TitanoRunId = TrimOrNull(plan.TitanoRunId),
+                        TitanoBacktestFolder = TrimOrNull(plan.TitanoBacktestFolder),
+                        ApplyTitanoFilters = plan.ApplyTitanoFilters
+                    }
+                ];
+
+        if (groups.Count == 0)
+            return plan;
+
+        var primary = SelectPrimaryRow(groups);
+        return new TradingPlan
+        {
+            WorkspaceId = plan.WorkspaceId,
+            Code = plan.Code,
+            Name = plan.Name,
+            Groups = groups,
+            GroupId = primary.GroupId,
+            AccountNumber = primary.AccountNumber,
+            MaxConcurrentTrades = primary.MaxConcurrentTrades,
+            RotationSetupId = primary.RotationSetupId,
+            TitanoRunId = primary.TitanoRunId,
+            TitanoBacktestFolder = primary.TitanoBacktestFolder,
+            ApplyTitanoFilters = primary.ApplyTitanoFilters,
+            InitialCapital = plan.InitialCapital,
+            CommissionPerContract = plan.CommissionPerContract,
+            PositionSizing = plan.PositionSizing,
+            Instruments = plan.Instruments,
+            CreatedUtc = plan.CreatedUtc,
+            UpdatedUtc = plan.UpdatedUtc
+        };
+    }
+
+    /// <summary>
+    /// Prima riga con run Titano, altrimenti la prima riga: alimenta i campi mirror e la modalità
+    /// Titano di sessione in <c>OpenFromPlan</c>.
+    /// </summary>
+    public static TradingGroupRow SelectPrimaryRow(IReadOnlyList<TradingGroupRow> groups) =>
+        groups.FirstOrDefault(row => !string.IsNullOrWhiteSpace(row.TitanoRunId)) ?? groups[0];
+
+    private static TradingGroupRow CloneRow(TradingGroupRow row) => new()
+    {
+        GroupId = row.GroupId.Trim(),
+        AccountNumber = row.AccountNumber.Trim(),
+        MaxConcurrentTrades = row.MaxConcurrentTrades,
+        RotationSetupId = TrimOrNull(row.RotationSetupId),
+        TitanoRunId = TrimOrNull(row.TitanoRunId),
+        TitanoBacktestFolder = TrimOrNull(row.TitanoBacktestFolder),
+        ApplyTitanoFilters = row.ApplyTitanoFilters
+    };
 
     private static string NormalizeCode(string code)
     {
