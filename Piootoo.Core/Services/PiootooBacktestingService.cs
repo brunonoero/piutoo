@@ -758,6 +758,8 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                         continue;
                     }
 
+                    var titanoAllocation = titanoFilter?.AllocationFor(strategyCode) ?? 1m;
+
                     try
                     {
                         cancellationToken.ThrowIfCancellationRequested();
@@ -840,6 +842,7 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                         if (string.IsNullOrWhiteSpace(signal.StrategyCode)) signal.StrategyCode = strategyCode;
                         if (string.IsNullOrWhiteSpace(signal.StrategyName)) signal.StrategyName = strategyCode;
                         ScaleSignalMaxBarsInPosition(signal, strategy.TimeframeMinutes, minTimeframeMinutes);
+                        signal.Quantity *= titanoAllocation;
 
                         // La conversione dell'account scala la size prima che il motore veda il
                         // segnale, così trade ed equity riflettono i contratti effettivi.
@@ -864,6 +867,7 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                                 if (string.IsNullOrWhiteSpace(companion.StrategyCode)) companion.StrategyCode = strategyCode;
                                 if (string.IsNullOrWhiteSpace(companion.StrategyName)) companion.StrategyName = strategyCode;
                                 ScaleSignalMaxBarsInPosition(companion, strategy.TimeframeMinutes, minTimeframeMinutes);
+                                companion.Quantity *= titanoAllocation;
                                 if (!TryApplyAccountConversion(companion, accountConversion))
                                     continue;
                                 signals.Add(companion);
@@ -1219,7 +1223,7 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                 DateTime = currentDate,
                 Equity = equity,
                 Profit = equity - previousEquity,
-                Contracts = signal != null ? Math.Max(1, (int)signal.Quantity) : 0,
+                Contracts = signal?.Quantity ?? 0m,
                 Signal = signal?.Type,
                 EntryPrice = signal?.Price
             });
@@ -1241,6 +1245,7 @@ public class PiootooBacktestingService : IPiootooBacktestingService
         private DateTime _validFromUtc = DateTime.MaxValue;
         private DateTime _validToUtc = DateTime.MinValue;
         private HashSet<string> _enabled = new(StringComparer.OrdinalIgnoreCase);
+        private Dictionary<string, decimal> _allocations = new(StringComparer.OrdinalIgnoreCase);
 
         public TitanoBacktestFilter(
             TitanoRotationService titano, string workspaceId, string backtestFolder, string runId)
@@ -1267,12 +1272,21 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                     "su un backtest che copra l'intervallo richiesto, oppure esegui in modalità Disabled.");
 
             _enabled = new HashSet<string>(effective.EffectiveStrategies, StringComparer.OrdinalIgnoreCase);
+            _allocations = effective.StrategyStates
+                .Where(state => state.AllocationMultiplier > 0m)
+                .ToDictionary(
+                    state => state.StrategyCode,
+                    state => state.AllocationMultiplier,
+                    StringComparer.OrdinalIgnoreCase);
 
             // La finestra di validità della cache è il periodo stesso: fuori da qui si ririsolve.
             _validFromUtc = effective.PeriodFromUtc ?? timestampUtc;
             _validToUtc = effective.PeriodToUtc ?? timestampUtc.AddTicks(1);
             return _enabled;
         }
+
+        public decimal AllocationFor(string strategyCode) =>
+            _allocations.TryGetValue(strategyCode, out var allocation) ? allocation : 0m;
     }
 
     private TitanoBacktestFilter? CreateTitanoFilter(BacktestingRequest request)
@@ -1336,29 +1350,13 @@ public class PiootooBacktestingService : IPiootooBacktestingService
         string jobId,
         IReadOnlyList<TradeSignal> signals,
         AccountSymbolConversion conversion) =>
-        signals.Select((signal, index) => new PersistedSignal
-        {
-            SignalId = $"{jobId}-signal-{index + 1:D10}",
-            CorrelationId = jobId,
-            TimestampUtc = TradingDateTime.ToFeedUtc(signal.Date),
-            StrategyCode = signal.StrategyCode,
-            StrategyName = signal.StrategyName,
-            Symbol = NormalizeSymbol(signal.Symbol),
-            AccountId = conversion.AccountId,
-            AccountSymbol = conversion.GetAccountSymbol(signal.Symbol),
-            ContractMultiplier = conversion.GetContractMultiplier(signal.Symbol),
-            Side = signal.Type,
-            OrderType = signal.OrderType,
-            TriggerPrice = signal.Price,
-            Quantity = signal.Quantity,
-            ValidFromUtc = signal.ValidFromUtc,
-            ExpiresAtUtc = signal.ExpiresAtUtc,
-            StopLoss = signal.StopLoss,
-            TakeProfit = signal.TakeProfit,
-            TimeExitUtc = signal.CloseAtUtc,
-            MaxBarsInPosition = signal.MaxBarsInPosition,
-            Reason = signal.Reason
-        });
+        signals.Select((signal, index) => PersistedSignalMapper.FromTradeSignal(
+            signal,
+            signalId: $"{jobId}-signal-{index + 1:D10}",
+            correlationId: jobId,
+            accountId: conversion.AccountId,
+            accountSymbol: conversion.GetAccountSymbol(signal.Symbol),
+            contractMultiplier: conversion.GetContractMultiplier(signal.Symbol)));
 
     private static IEnumerable<PersistedTrade> ToPersistedTrades(
         string jobId,

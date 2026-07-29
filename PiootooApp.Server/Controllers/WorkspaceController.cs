@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Piootoo.Core.Services;
+using Piootoo.Shared.Models.Trading;
 using Piootoo.Shared.Models.Workspaces;
 
 namespace PiootooApp.Server.Controllers;
@@ -122,6 +123,20 @@ public sealed class WorkspaceController(WorkspaceService workspaceService) : Con
         try { return Ok(workspaceService.ListBacktests(workspaceId)); }
         catch (DirectoryNotFoundException) { return NotFound(); }
         catch (ArgumentException exception) { return BadRequest(new { error = exception.Message }); }
+    }
+
+    /// <summary>
+    /// Espone i trade realmente chiusi archiviati nel <c>trades.json</c> del backtest.
+    /// </summary>
+    [HttpGet("{workspaceId}/backtests/{backtestFolder}/trades")]
+    public ActionResult<IReadOnlyList<PersistedTrade>> GetBacktestTrades(
+        string workspaceId,
+        string backtestFolder)
+    {
+        try { return Ok(workspaceService.GetBacktestTrades(workspaceId, backtestFolder)); }
+        catch (DirectoryNotFoundException) { return NotFound(); }
+        catch (ArgumentException exception) { return BadRequest(new { error = exception.Message }); }
+        catch (InvalidDataException exception) { return BadRequest(new { error = exception.Message }); }
     }
 
     [HttpDelete("{workspaceId}")]

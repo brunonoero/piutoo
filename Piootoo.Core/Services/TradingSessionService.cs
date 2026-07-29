@@ -1132,6 +1132,14 @@ public sealed class TradingSessionService : ITradingSessionService
             string.IsNullOrWhiteSpace(profile.TitanoBacktestFolder))
             return 1m;
 
+        // OpenFromPlan associa il medesimo run sia alla sessione sia al suo unico gruppo.
+        // PushBars ha già applicato quel moltiplicatore nel PositionSizingService: riapplicarlo
+        // qui trasformerebbe 0,5 in 0,25. Il claim deve scalare solo per un run di gruppo diverso.
+        if (session.TitanoMode != TitanoFilterMode.Disabled &&
+            string.Equals(profile.TitanoRunId, session.TitanoRunId, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(profile.TitanoBacktestFolder, session.TitanoBacktestFolder, StringComparison.OrdinalIgnoreCase))
+            return 1m;
+
         var effective = TryResolveGroupTitano(session, groupId);
         if (effective is null || !effective.HasActivePeriod)
             return 1m;
@@ -1144,6 +1152,25 @@ public sealed class TradingSessionService : ITradingSessionService
     private static OrderIntent AddIntent(
         Session session, TradeSignal signal, PositionSizingResult? sizing, bool addToIntents = true)
     {
+        var strategyTimeframe = session.Strategies
+            .FirstOrDefault(strategy => string.Equals(
+                strategy.Name, signal.StrategyCode, StringComparison.OrdinalIgnoreCase))
+            ?.TimeframeMinutes ?? 0;
+        var dollarsPerPoint = session.InstrumentMetadata.TryGetValue(Normalize(signal.Symbol), out var metadata)
+            ? metadata.DollarsPerPoint
+            : 1m;
+        if (dollarsPerPoint <= 0m)
+            dollarsPerPoint = 1m;
+
+        var stopLossPoints = signal.StopLoss
+            ?? (signal.StopLossMoneyPerFutureContract.HasValue
+                ? signal.StopLossMoneyPerFutureContract.Value / dollarsPerPoint
+                : null);
+        var takeProfitPoints = signal.TakeProfit
+            ?? (signal.TakeProfitMoneyPerFutureContract.HasValue
+                ? signal.TakeProfitMoneyPerFutureContract.Value / dollarsPerPoint
+                : null);
+
         session.IntentSequence++;
         var intent = new OrderIntent
         {
@@ -1166,9 +1193,10 @@ public sealed class TradingSessionService : ITradingSessionService
             Price = signal.Price,
             Kind = OrderIntentKind.Entry,
             // Specifica di uscita completa: e' l'unica cosa con cui il client chiudera' la posizione.
-            StopLoss = signal.StopLoss,
-            TakeProfit = signal.TakeProfit,
+            StopLoss = stopLossPoints,
+            TakeProfit = takeProfitPoints,
             BreakEven = signal.BreakEven,
+            TimeframeMinutes = strategyTimeframe,
             MaxBarsInPosition = signal.MaxBarsInPosition,
             ValidFromUtc = signal.ValidFromUtc,
             ExpiresAtUtc = signal.ExpiresAtUtc,
@@ -1221,6 +1249,7 @@ public sealed class TradingSessionService : ITradingSessionService
             StopLoss = template.StopLoss,
             TakeProfit = template.TakeProfit,
             BreakEven = template.BreakEven,
+            TimeframeMinutes = template.TimeframeMinutes,
             MaxBarsInPosition = template.MaxBarsInPosition,
             ValidFromUtc = template.ValidFromUtc,
             ExpiresAtUtc = template.ExpiresAtUtc,
@@ -1285,6 +1314,8 @@ public sealed class TradingSessionService : ITradingSessionService
             ExpiresAtUtc = intent.ExpiresAtUtc,
             StopLoss = intent.StopLoss,
             TakeProfit = intent.TakeProfit,
+            BreakEven = intent.BreakEven,
+            TimeframeMinutes = intent.TimeframeMinutes,
             TimeExitUtc = intent.CloseAtUtc,
             Reason = intent.Reason,
             MaxBarsInPosition = intent.MaxBarsInPosition,

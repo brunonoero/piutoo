@@ -32,8 +32,33 @@ public sealed class PersistedSignal
     public string? SizingReason { get; init; }
     public DateTime? ValidFromUtc { get; init; }
     public DateTime? ExpiresAtUtc { get; init; }
+
+    /// <summary>Stop loss in punti dal fill. Null se la strategia ha dichiarato solo la forma monetaria.</summary>
     public decimal? StopLoss { get; init; }
+
+    /// <summary>Take profit in punti dal fill. Null se la strategia ha dichiarato solo la forma monetaria.</summary>
     public decimal? TakeProfit { get; init; }
+
+    /// <summary>
+    /// Perdita massima in USD per singolo contratto futures, relativa al fill.
+    /// Alternativa a <see cref="StopLoss"/>; l'engine la converte in punti con
+    /// <c>DollarsPerPoint</c> del simbolo.
+    /// </summary>
+    public decimal? StopLossMoneyPerFutureContract { get; init; }
+
+    /// <summary>
+    /// Profitto target in USD per singolo contratto futures, relativa al fill.
+    /// Alternativa a <see cref="TakeProfit"/>; l'engine la converte in punti con
+    /// <c>DollarsPerPoint</c> del simbolo.
+    /// </summary>
+    public decimal? TakeProfitMoneyPerFutureContract { get; init; }
+
+    /// <summary>Livello di break even in punti dal fill. Null = nessun break even.</summary>
+    public decimal? BreakEven { get; init; }
+
+    /// <summary>Timeframe della strategia che ha generato il segnale.</summary>
+    public int TimeframeMinutes { get; init; }
+
     public DateTime? TimeExitUtc { get; init; }
 
     /// <summary>Numero massimo di barre in posizione dichiarato dal segnale. Null = nessun limite.</summary>

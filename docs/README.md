@@ -10,6 +10,9 @@ solution. Stato: **stabile** = contenuto verificato contro il codice,
   moduli, flussi, invarianti da non rompere, trappole note. *Stabile.*
 - [`verifica-codice-2026-07-27.md`](verifica-codice-2026-07-27.md) — audit del
   codice con evidenze e riferimenti puntuali. *Stabile.*
+- [`verifica-backtest-sizing-titano-2026-07-29.md`](verifica-backtest-sizing-titano-2026-07-29.md)
+  — verifica riproducibile PTS, lotti decimali e applicazione Titano nei due
+  engine. *Stabile.*
 
 ## Architettura
 

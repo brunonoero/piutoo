@@ -13,7 +13,11 @@ public class OpenPosition
     public SignalType Direction { get; set; }
     public decimal EntryPrice { get; set; }
     public DateTime EntryTime { get; set; }
-    public int Contracts { get; set; } = 1;
+    /// <summary>
+    /// Quantità effettivamente aperta. Può essere frazionaria per strumenti o
+    /// conversioni account che consentono lotti decimali (es. 0,01).
+    /// </summary>
+    public decimal Contracts { get; set; } = 1m;
     public decimal ContractPointValue { get; set; } = 1m;
     
     /// <summary>

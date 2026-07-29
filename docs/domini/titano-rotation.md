@@ -150,7 +150,9 @@ I default sono conservativi, non costituiscono garanzia finanziaria e Titano non
 è presentato come algoritmo proprietario Unger.
 
 Titano controlla esclusivamente il coefficiente lento
-`StrategyEquityMultiplier`. ATR/target volatility e rischio di portafoglio sono
+`StrategyEquityMultiplier`. Nel backtest interno `BacktestRotationFile` il
+moltiplicatore scala la `Quantity` del segnale prima dell'engine, con la stessa
+semantica economica delle sessioni. ATR/target volatility e rischio di portafoglio sono
 servizi veloci separati, applicati per barra al confine di esecuzione. Separare
 questi orizzonti evita di ottimizzare Titano sulle oscillazioni di mercato
 intra-periodo, ma non elimina overfitting: soglie, finestre e target devono

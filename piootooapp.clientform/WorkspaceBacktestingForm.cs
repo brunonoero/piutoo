@@ -130,6 +130,17 @@ public partial class WorkspaceBacktestingForm : Form
     private readonly Button _editMasterFilterButton = new();
     private TabControl? _mainTabs;
     private TabPage? _workspacesTab;
+    private readonly ComboBox _tradingResultsWorkspaceCombo = new();
+    private readonly ComboBox _tradingResultsBacktestCombo = new();
+    private readonly Button _refreshTradingResultsButton = new();
+    private readonly DataGridView _tradingResultsGrid = new();
+    private readonly Label _tradingResultsSummary = new();
+    private readonly ComboBox _rotationsWorkspaceCombo = new();
+    private readonly ComboBox _rotationsBacktestCombo = new();
+    private readonly ComboBox _rotationsRunCombo = new();
+    private readonly Button _refreshRotationsButton = new();
+    private readonly DataGridView _rotationsGrid = new();
+    private readonly Label _rotationsSummary = new();
 
     private readonly ComboBox _accountsCombo = new();
     private readonly TextBox _accountNameTextBox = new();
@@ -205,11 +216,15 @@ public partial class WorkspaceBacktestingForm : Form
         var backtestingTab = new TabPage("Backtesting");
         var accountsTab = new TabPage("Accounts");
         var titanoTab = new TabPage("Titano");
+        var tradingResultsTab = new TabPage("Trading Results");
+        var rotationsTab = new TabPage("Titano Rotations");
         var sessionsTab = new TabPage("Trading Session");
         _mainTabs.TabPages.Add(accountsTab);
         _mainTabs.TabPages.Add(_workspacesTab);
         _mainTabs.TabPages.Add(backtestingTab);
         _mainTabs.TabPages.Add(titanoTab);
+        _mainTabs.TabPages.Add(tradingResultsTab);
+        _mainTabs.TabPages.Add(rotationsTab);
         _mainTabs.TabPages.Add(sessionsTab);
         root.Controls.Add(_mainTabs, 0, 1);
 
@@ -217,6 +232,8 @@ public partial class WorkspaceBacktestingForm : Form
         accountsTab.Controls.Add(BuildAccountsTab());
         backtestingTab.Controls.Add(BuildBacktestingTab());
         titanoTab.Controls.Add(BuildTitanoTab());
+        tradingResultsTab.Controls.Add(BuildTradingResultsTab());
+        rotationsTab.Controls.Add(BuildTitanoRotationsTab());
         sessionsTab.Controls.Add(BuildTradingSessionTab());
     }
 
@@ -259,6 +276,136 @@ public partial class WorkspaceBacktestingForm : Form
         root.Controls.Add(BuildActionsPanel(), 0, 2);
         root.Controls.Add(BuildLogPanel(), 0, 3);
         return root;
+    }
+
+    private Control BuildTradingResultsTab()
+    {
+        var root = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 3, Padding = new Padding(12) };
+        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+
+        ConfigureResultsSelector(_tradingResultsWorkspaceCombo, _tradingResultsBacktestCombo,
+            LoadTradingResultsBacktestsAsync, LoadTradingResultsAsync);
+        _refreshTradingResultsButton.Text = "Aggiorna risultati";
+        _refreshTradingResultsButton.AutoSize = true;
+        _refreshTradingResultsButton.Click += async (_, _) => await LoadTradingResultsAsync();
+
+        root.Controls.Add(new FlowLayoutPanel
+        {
+            AutoSize = true,
+            WrapContents = true,
+            Controls =
+            {
+                TitanoLabel("Workspace"), _tradingResultsWorkspaceCombo,
+                TitanoLabel("Backtest"), _tradingResultsBacktestCombo,
+                _refreshTradingResultsButton
+            }
+        }, 0, 0);
+
+        _tradingResultsSummary.AutoSize = true;
+        _tradingResultsSummary.Padding = new Padding(0, 6, 0, 6);
+        _tradingResultsSummary.Text = "Seleziona un workspace e un backtest.";
+        root.Controls.Add(_tradingResultsSummary, 0, 1);
+
+        ConfigureTradingResultsGrid();
+        root.Controls.Add(_tradingResultsGrid, 0, 2);
+        return root;
+    }
+
+    private Control BuildTitanoRotationsTab()
+    {
+        var root = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 3, Padding = new Padding(12) };
+        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+
+        ConfigureResultsSelector(_rotationsWorkspaceCombo, _rotationsBacktestCombo,
+            LoadRotationBacktestsAsync, LoadTitanoRunsAsync);
+        _rotationsRunCombo.DropDownStyle = ComboBoxStyle.DropDownList;
+        _rotationsRunCombo.Width = 310;
+        _rotationsRunCombo.SelectedIndexChanged += async (_, _) => await LoadSelectedTitanoRotationAsync();
+        _refreshRotationsButton.Text = "Aggiorna rotazioni";
+        _refreshRotationsButton.AutoSize = true;
+        _refreshRotationsButton.Click += async (_, _) => await LoadTitanoRunsAsync();
+
+        root.Controls.Add(new FlowLayoutPanel
+        {
+            AutoSize = true,
+            WrapContents = true,
+            Controls =
+            {
+                TitanoLabel("Workspace"), _rotationsWorkspaceCombo,
+                TitanoLabel("Backtest"), _rotationsBacktestCombo,
+                TitanoLabel("Run"), _rotationsRunCombo,
+                _refreshRotationsButton
+            }
+        }, 0, 0);
+
+        _rotationsSummary.AutoSize = true;
+        _rotationsSummary.Padding = new Padding(0, 6, 0, 6);
+        _rotationsSummary.Text = "Seleziona un workspace e un backtest.";
+        root.Controls.Add(_rotationsSummary, 0, 1);
+
+        ConfigureRotationsGrid();
+        root.Controls.Add(_rotationsGrid, 0, 2);
+        return root;
+    }
+
+    private static void ConfigureResultsSelector(
+        ComboBox workspace,
+        ComboBox backtest,
+        Func<Task> loadBacktests,
+        Func<Task> loadData)
+    {
+        workspace.DropDownStyle = ComboBoxStyle.DropDownList;
+        workspace.Width = 280;
+        workspace.DisplayMember = nameof(WorkspaceListItem.DisplayText);
+        workspace.SelectedIndexChanged += async (_, _) => await loadBacktests();
+        backtest.DropDownStyle = ComboBoxStyle.DropDownList;
+        backtest.Width = 290;
+        backtest.SelectedIndexChanged += async (_, _) => await loadData();
+    }
+
+    private static void ConfigureGrid(DataGridView grid)
+    {
+        grid.Dock = DockStyle.Fill;
+        grid.ReadOnly = true;
+        grid.AllowUserToAddRows = false;
+        grid.AllowUserToDeleteRows = false;
+        grid.RowHeadersVisible = false;
+        grid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.DisplayedCells;
+        grid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
+    }
+
+    private void ConfigureTradingResultsGrid()
+    {
+        ConfigureGrid(_tradingResultsGrid);
+        _tradingResultsGrid.Columns.Add("ExitTimeUtc", "Uscita UTC");
+        _tradingResultsGrid.Columns.Add("EntryTimeUtc", "Entrata UTC");
+        _tradingResultsGrid.Columns.Add("StrategyCode", "Strategia");
+        _tradingResultsGrid.Columns.Add("Symbol", "Symbol");
+        _tradingResultsGrid.Columns.Add("Direction", "Direzione");
+        _tradingResultsGrid.Columns.Add("Quantity", "Quantità");
+        _tradingResultsGrid.Columns.Add("EntryPrice", "Prezzo entrata");
+        _tradingResultsGrid.Columns.Add("ExitPrice", "Prezzo uscita");
+        _tradingResultsGrid.Columns.Add("ExitReason", "Motivo uscita");
+        _tradingResultsGrid.Columns.Add("GrossProfit", "P&L lordo");
+        _tradingResultsGrid.Columns.Add("Commission", "Commissioni");
+        _tradingResultsGrid.Columns.Add("NetProfit", "P&L netto");
+        _tradingResultsGrid.Columns.Add("AccountNumber", "Account");
+    }
+
+    private void ConfigureRotationsGrid()
+    {
+        ConfigureGrid(_rotationsGrid);
+        _rotationsGrid.Columns.Add("EffectiveFromUtc", "Dal UTC");
+        _rotationsGrid.Columns.Add("EffectiveToUtc", "Al UTC");
+        _rotationsGrid.Columns.Add("StrategyCode", "Strategia");
+        _rotationsGrid.Columns.Add("State", "Stato");
+        _rotationsGrid.Columns.Add("AllocationMultiplier", "Moltiplicatore");
+        _rotationsGrid.Columns.Add("TransitionType", "Variazione");
+        _rotationsGrid.Columns.Add("Reason", "Motivo");
     }
 
     private Control BuildWorkspacesTab()
@@ -2116,6 +2263,8 @@ public partial class WorkspaceBacktestingForm : Form
             _workspaceList.Items.Clear();
             _backtestingWorkspaceCombo.Items.Clear();
             _titanoWorkspaceCombo.Items.Clear();
+            _tradingResultsWorkspaceCombo.Items.Clear();
+            _rotationsWorkspaceCombo.Items.Clear();
             _sessionWorkspaceCombo.Items.Clear();
 
             foreach (var workspace in _workspaces)
@@ -2124,6 +2273,8 @@ public partial class WorkspaceBacktestingForm : Form
                 _workspaceList.Items.Add(item);
                 _backtestingWorkspaceCombo.Items.Add(item);
                 _titanoWorkspaceCombo.Items.Add(new WorkspaceListItem(workspace));
+                _tradingResultsWorkspaceCombo.Items.Add(new WorkspaceListItem(workspace));
+                _rotationsWorkspaceCombo.Items.Add(new WorkspaceListItem(workspace));
                 _sessionWorkspaceCombo.Items.Add(new WorkspaceListItem(workspace));
             }
 
@@ -2143,6 +2294,10 @@ public partial class WorkspaceBacktestingForm : Form
                 {
                     _titanoWorkspaceCombo.SelectedIndex = 0;
                 }
+                if (_tradingResultsWorkspaceCombo.Items.Count > 0)
+                    _tradingResultsWorkspaceCombo.SelectedIndex = 0;
+                if (_rotationsWorkspaceCombo.Items.Count > 0)
+                    _rotationsWorkspaceCombo.SelectedIndex = 0;
                 if (_sessionWorkspaceCombo.Items.Count > 0) _sessionWorkspaceCombo.SelectedIndex = 0;
             }
             else
@@ -2179,6 +2334,8 @@ public partial class WorkspaceBacktestingForm : Form
 
         SelectComboWorkspace(_backtestingWorkspaceCombo, workspaceId);
         SelectComboWorkspace(_titanoWorkspaceCombo, workspaceId);
+        SelectComboWorkspace(_tradingResultsWorkspaceCombo, workspaceId);
+        SelectComboWorkspace(_rotationsWorkspaceCombo, workspaceId);
     }
 
     private static void SelectComboWorkspace(ComboBox combo, string workspaceId)
@@ -2754,6 +2911,172 @@ public partial class WorkspaceBacktestingForm : Form
             _titanoPathLabel.Text = $"Impossibile caricare i backtest: {ex.Message}";
             if (showErrors)
                 MessageBox.Show(_titanoPathLabel.Text, "Titano", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
+    }
+
+    private async Task LoadTradingResultsBacktestsAsync()
+    {
+        _tradingResultsBacktestCombo.Items.Clear();
+        _tradingResultsGrid.Rows.Clear();
+        if (_tradingResultsWorkspaceCombo.SelectedItem is not WorkspaceListItem workspace)
+        {
+            _tradingResultsSummary.Text = "Seleziona un workspace.";
+            return;
+        }
+
+        try
+        {
+            NormalizeBaseAddress();
+            var backtests = await _workspaceApi.ListBacktestsAsync(workspace.Info.Id);
+            foreach (var backtest in backtests.Where(backtest => backtest.HasResults))
+                _tradingResultsBacktestCombo.Items.Add(new WorkspaceBacktestItem(backtest));
+            _tradingResultsSummary.Text = _tradingResultsBacktestCombo.Items.Count == 0
+                ? "Nessun backtest con risultati disponibile."
+                : "Seleziona un backtest per leggere il suo trades.json.";
+            if (_tradingResultsBacktestCombo.Items.Count > 0)
+                _tradingResultsBacktestCombo.SelectedIndex = 0;
+        }
+        catch (Exception ex)
+        {
+            _tradingResultsSummary.Text = $"Impossibile caricare i backtest: {ex.Message}";
+        }
+    }
+
+    private async Task LoadTradingResultsAsync()
+    {
+        _tradingResultsGrid.Rows.Clear();
+        if (_tradingResultsWorkspaceCombo.SelectedItem is not WorkspaceListItem workspace ||
+            _tradingResultsBacktestCombo.SelectedItem is not WorkspaceBacktestItem backtest)
+            return;
+
+        try
+        {
+            NormalizeBaseAddress();
+            var trades = await _workspaceApi.GetBacktestTradesAsync(workspace.Info.Id, backtest.Info.FolderName);
+            foreach (var trade in trades)
+            {
+                _tradingResultsGrid.Rows.Add(
+                    trade.ExitTimeUtc.ToString("u"),
+                    trade.EntryTimeUtc.ToString("u"),
+                    trade.StrategyCode,
+                    trade.Symbol,
+                    trade.Direction,
+                    trade.Quantity.ToString("N2"),
+                    trade.EntryPrice.ToString("N4"),
+                    trade.ExitPrice.ToString("N4"),
+                    trade.ExitReason,
+                    trade.GrossProfit.ToString("N2"),
+                    trade.Commission.ToString("N2"),
+                    trade.NetProfit.ToString("N2"),
+                    trade.AccountNumber);
+            }
+
+            _tradingResultsSummary.Text =
+                $"{backtest.Info.FolderName}: {trades.Count} operazioni chiuse lette da trades.json · " +
+                $"P&L netto totale {trades.Sum(trade => trade.NetProfit):N2}.";
+        }
+        catch (Exception ex)
+        {
+            _tradingResultsSummary.Text = $"Impossibile leggere trades.json: {ex.Message}";
+        }
+    }
+
+    private async Task LoadRotationBacktestsAsync()
+    {
+        _rotationsBacktestCombo.Items.Clear();
+        _rotationsRunCombo.Items.Clear();
+        _rotationsGrid.Rows.Clear();
+        if (_rotationsWorkspaceCombo.SelectedItem is not WorkspaceListItem workspace)
+        {
+            _rotationsSummary.Text = "Seleziona un workspace.";
+            return;
+        }
+
+        try
+        {
+            NormalizeBaseAddress();
+            var backtests = await _workspaceApi.ListBacktestsAsync(workspace.Info.Id);
+            foreach (var backtest in backtests.Where(backtest => backtest.HasResults))
+                _rotationsBacktestCombo.Items.Add(new WorkspaceBacktestItem(backtest));
+            _rotationsSummary.Text = _rotationsBacktestCombo.Items.Count == 0
+                ? "Nessun backtest con risultati disponibile."
+                : "Seleziona un backtest per elencare le rotazioni Titano.";
+            if (_rotationsBacktestCombo.Items.Count > 0)
+                _rotationsBacktestCombo.SelectedIndex = 0;
+        }
+        catch (Exception ex)
+        {
+            _rotationsSummary.Text = $"Impossibile caricare i backtest: {ex.Message}";
+        }
+    }
+
+    private async Task LoadTitanoRunsAsync()
+    {
+        _rotationsRunCombo.Items.Clear();
+        _rotationsGrid.Rows.Clear();
+        if (_rotationsWorkspaceCombo.SelectedItem is not WorkspaceListItem workspace ||
+            _rotationsBacktestCombo.SelectedItem is not WorkspaceBacktestItem backtest)
+            return;
+
+        try
+        {
+            NormalizeBaseAddress();
+            var runs = await _httpClient.GetFromJsonAsync<List<TitanoRunInfo>>(
+                $"api/Titano/rotations?workspaceId={Uri.EscapeDataString(workspace.Info.Id)}" +
+                $"&backtestFolder={Uri.EscapeDataString(backtest.Info.FolderName)}",
+                _jsonOptions) ?? [];
+            foreach (var run in runs)
+                _rotationsRunCombo.Items.Add(new TitanoRunListItem(run));
+
+            _rotationsSummary.Text = runs.Count == 0
+                ? "Nessuna rotazione Titano disponibile per il backtest selezionato."
+                : $"{runs.Count} rotazioni Titano disponibili. Seleziona un run.";
+            if (_rotationsRunCombo.Items.Count > 0)
+                _rotationsRunCombo.SelectedIndex = 0;
+        }
+        catch (Exception ex)
+        {
+            _rotationsSummary.Text = $"Impossibile caricare le rotazioni: {ex.Message}";
+        }
+    }
+
+    private async Task LoadSelectedTitanoRotationAsync()
+    {
+        _rotationsGrid.Rows.Clear();
+        if (_rotationsWorkspaceCombo.SelectedItem is not WorkspaceListItem workspace ||
+            _rotationsBacktestCombo.SelectedItem is not WorkspaceBacktestItem backtest ||
+            _rotationsRunCombo.SelectedItem is not TitanoRunListItem run)
+            return;
+
+        try
+        {
+            NormalizeBaseAddress();
+            var manifest = await _httpClient.GetFromJsonAsync<TitanoRotationManifest>(
+                $"api/Titano/rotations/{Uri.EscapeDataString(run.Info.RunId)}" +
+                $"?workspaceId={Uri.EscapeDataString(workspace.Info.Id)}" +
+                $"&backtestFolder={Uri.EscapeDataString(backtest.Info.FolderName)}",
+                _jsonOptions) ?? throw new InvalidOperationException("Manifest Titano vuoto.");
+
+            foreach (var period in manifest.Periods)
+            foreach (var strategy in period.Strategies.OrderBy(state => state.StrategyCode, StringComparer.OrdinalIgnoreCase))
+            {
+                _rotationsGrid.Rows.Add(
+                    period.EffectiveFromUtc.ToString("u"),
+                    period.EffectiveToUtc.ToString("u"),
+                    strategy.StrategyCode,
+                    strategy.Enabled ? "Accesa" : "Spenta",
+                    strategy.AllocationMultiplier.ToString("P0"),
+                    strategy.TransitionType,
+                    strategy.Reason);
+            }
+
+            _rotationsSummary.Text =
+                $"Run {manifest.RunId}: {manifest.Periods.Count} rotazioni, " +
+                $"{manifest.Periods.Sum(period => period.Strategies.Count)} decisioni strategia.";
+        }
+        catch (Exception ex)
+        {
+            _rotationsSummary.Text = $"Impossibile leggere il manifest: {ex.Message}";
         }
     }
 
@@ -3780,5 +4103,13 @@ public partial class WorkspaceBacktestingForm : Form
         public WorkspaceBacktestInfo Info { get; }
         public override string ToString()
             => $"{Info.FolderName} · {Info.ResultsCount} risultati · {Info.LastModifiedUtc.ToLocalTime():g}";
+    }
+
+    private sealed class TitanoRunListItem
+    {
+        public TitanoRunListItem(TitanoRunInfo info) => Info = info;
+        public TitanoRunInfo Info { get; }
+        public override string ToString()
+            => $"{Info.RunId[..Math.Min(12, Info.RunId.Length)]}… · {Info.PeriodCount} periodi · {Info.GeneratedAtUtc.ToLocalTime():g}";
     }
 }

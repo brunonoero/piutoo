@@ -90,3 +90,16 @@ in ordine cronologico. Non è un changelog di codice: quello resta nei commit.
   sessione e impedisce di confondere backtest e realtime. La sessione acquisisce uno snapshot del
   piano: successive modifiche non cambiano un'esecuzione già avviata. L'idempotenza è per ora in
   memoria server; la ricostruzione dopo il riavvio del processo resta un lavoro separato.
+- **2026-07-29** — `signals.json` conserva **tutte** le condizioni di uscita del `TradeSignal`:
+  stop/target in punti, stop/target in USD per contratto, break even, uscita a tempo e massimo
+  barre. Prima i limiti monetari (usati da PTS e dalle Easy NQ recenti) andavano persi in
+  persistenza: l'emulatore li convertiva in punti al fill, ma il file non li riportava. Non si
+  convertono in percentuale: restano USD/contratto sul segnale e punti solo dopo la divisione per
+  `DollarsPerPoint` (NQ = 20). Nelle sessioni, `AddIntent` fa la stessa conversione verso
+  `OrderIntent.StopLoss`/`TakeProfit` così il client esterno riceve livelli utilizzabili.
+- **2026-07-29** — `PiootooLiveTradingBot` gira su grafico 5m (configurabile come timeframe base)
+  ma non aggrega barre per simulare timeframe superiori: a ogni `OnBar` legge la serie cTrader
+  nativa di ogni coppia `(simbolo, timeframe)` restituita dal piano e invia al server soltanto la
+  sua ultima barra chiusa non ancora trasmessa. L'intent porta anche il timeframe della strategia:
+  `MaxBarsInPosition` viene quindi contato sulle sole barre di quello stream. Il cBot applica ora
+  anche `BreakEven` spostando lo stop nativo all'entry quando raggiunta la distanza dichiarata.

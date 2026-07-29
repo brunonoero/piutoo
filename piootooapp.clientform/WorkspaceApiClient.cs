@@ -2,6 +2,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using Piootoo.Shared.Models.Backtesting;
 using Piootoo.Shared.Models.Strategies;
+using Piootoo.Shared.Models.Trading;
 using Piootoo.Shared.Models.Workspaces;
 
 namespace piootooapp.clientform;
@@ -293,6 +294,19 @@ public sealed class WorkspaceApiClient
             _jsonOptions,
             cancellationToken);
         return result ?? new List<WorkspaceBacktestInfo>();
+    }
+
+    public async Task<IReadOnlyList<PersistedTrade>> GetBacktestTradesAsync(
+        string workspaceId,
+        string backtestFolder,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await _httpClient.GetFromJsonAsync<List<PersistedTrade>>(
+            $"api/Workspace/{Uri.EscapeDataString(workspaceId)}/backtests/" +
+            $"{Uri.EscapeDataString(backtestFolder)}/trades",
+            _jsonOptions,
+            cancellationToken);
+        return result ?? new List<PersistedTrade>();
     }
 
     private static async Task EnsureSuccessAsync(HttpResponseMessage response)

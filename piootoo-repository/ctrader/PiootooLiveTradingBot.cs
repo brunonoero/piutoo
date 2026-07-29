@@ -15,9 +15,9 @@ namespace cAlgo.Robots
     /// <summary>
     /// cBot "live" collegato al trading system Piootoo (api/v1/trading-sessions):
     ///  - il grafico a cui è agganciato il bot deve avere il timeframe = BaseTimeframeMinutes (default 5
-    ///    min): ad ogni sua barra chiusa (OnBar) il bot aggiorna un contatore per ciascun simbolo/timeframe
-    ///    configurato in "Instruments" e, quando il contatore raggiunge il rapporto timeframe/base, invia
-    ///    al server la candela aggregata di quel timeframe (es. XAUUSD 15min viene inviato ogni 3 OnBar);
+    ///    min): ad ogni sua barra chiusa (OnBar) il bot legge la serie cTrader nativa per ciascuna
+    ///    coppia simbolo/timeframe configurata e inoltra al server ogni sua barra chiusa non ancora
+    ///    trasmessa; non aggrega mai artificialmente barre 5 minuti;
     ///  - fa polling periodico chiedendo al server "qual è il prossimo segnale per il MIO account";
     ///  - apre e chiude posizioni su QUALSIASI simbolo configurato (non solo quello del grafico);
     ///  - si autolimita PER SIMBOLO: mentre ha una posizione aperta su un simbolo non ne chiede/accetta una
@@ -90,8 +90,8 @@ namespace cAlgo.Robots
         {
             public string Symbol;
             public int TimeframeMinutes;
-            public int TicksNeeded;
-            public int TickCounter;
+            public Bars Series;
+            public DateTime? LastPushedBarTimeUtc;
         }
 
         /// <summary>Contesto di una posizione aperta da questo bot, per il reporting alla chiusura.</summary>
@@ -101,6 +101,10 @@ namespace cAlgo.Robots
             public string EntryIntentId { get; set; }
             public string StrategyCode { get; set; }
             public string Symbol { get; set; }
+            /// <summary>Timeframe della strategia: le barre vengono contate solo su questo stream.</summary>
+            public int TimeframeMinutes { get; set; }
+            /// <summary>Soglia in punti per spostare lo stop al prezzo di ingresso.</summary>
+            public decimal? BreakEven { get; set; }
             public DateTime? CloseAtUtc { get; set; }
             /// <summary>Limite di barre in posizione dichiarato dall'intent di ingresso. 0 = nessun limite.</summary>
             public int MaxBarsInPosition { get; set; }
@@ -116,9 +120,6 @@ namespace cAlgo.Robots
             public List<OpenPositionContext> Positions { get; set; } = new();
         }
 
-        // Una serie a timeframe BASE per ciascun simbolo configurato (non per ogni coppia): da qui si
-        // aggregano le candele dei timeframe multipli quando il rispettivo contatore scatta.
-        private readonly Dictionary<string, Bars> _baseSeriesBySymbol = new(StringComparer.OrdinalIgnoreCase);
         private readonly List<Pair> _pairs = new();
 
         // Posizioni attualmente aperte da questo bot, per Id posizione cTrader.
@@ -133,6 +134,14 @@ namespace cAlgo.Robots
             if (string.IsNullOrWhiteSpace(PlanCode))
             {
                 Print("Codice piano non impostato.");
+                Stop();
+                return;
+            }
+
+            if (!TimeFrame.Equals(ToTimeFrame(BaseTimeframeMinutes)))
+            {
+                Print("Il grafico deve usare il timeframe base configurato ({0}m); attuale: {1}.",
+                    BaseTimeframeMinutes, TimeFrame);
                 Stop();
                 return;
             }
@@ -165,7 +174,7 @@ namespace cAlgo.Robots
             var pairs = new List<Pair>();
             var error = "descriptor sessione mancante";
             if (descriptor == null ||
-                !ParseInstruments(descriptor.InstrumentsConfig, BaseTimeframeMinutes, out pairs, out error))
+                !ParseInstruments(descriptor.InstrumentsConfig, out pairs, out error))
             {
                 Print("Configurazione strumenti del piano non valida: {0}", error);
                 Stop();
@@ -175,8 +184,8 @@ namespace cAlgo.Robots
             if (!IsBacktesting)
                 _localStatePath = BuildLocalStatePath(PlanCode, _accountNumber);
 
-            foreach (var symbol in _pairs.Select(p => p.Symbol).Distinct(StringComparer.OrdinalIgnoreCase))
-                _baseSeriesBySymbol[symbol] = MarketData.GetBars(ToTimeFrame(BaseTimeframeMinutes), symbol);
+            foreach (var pair in _pairs)
+                pair.Series = MarketData.GetBars(ToTimeFrame(pair.TimeframeMinutes), pair.Symbol);
 
             RestoreLocalState();
             Positions.Closed += OnPositionClosed;
@@ -188,24 +197,34 @@ namespace cAlgo.Robots
 
         protected override void OnBar()
         {
-            foreach (var context in _openPositions.Values)
-                context.BarsInPosition++;
-
+            var pushedStreams = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var pair in _pairs)
             {
-                pair.TickCounter++;
-                if (pair.TickCounter < pair.TicksNeeded)
+                if (!TryPushClosedBar(pair))
                     continue;
-                pair.TickCounter = 0;
 
-                if (!_baseSeriesBySymbol.TryGetValue(pair.Symbol, out var series) || series.Count < pair.TicksNeeded)
-                    continue; // storico non ancora sufficiente (es. appena avviato)
-
-                PushAggregatedBar(pair, series);
+                pushedStreams.Add(MakeStreamKey(pair.Symbol, pair.TimeframeMinutes));
             }
 
+            foreach (var context in _openPositions.Values)
+                if (pushedStreams.Contains(MakeStreamKey(context.Symbol, context.TimeframeMinutes)))
+                    context.BarsInPosition++;
+
+            // Il server ha appena valutato tutti gli stream che hanno chiuso una barra: reclamare
+            // subito l'eventuale intent, senza aspettare il prossimo polling periodico.
+            if (pushedStreams.Count != 0)
+                PollNextSignal();
+
+            MoveStopsToBreakEven();
             CloseExpiredPositions();
             SaveLocalState();
+        }
+
+        protected override void OnTick()
+        {
+            // Il prezzo può raggiungere e perdere la soglia all'interno della barra 5m:
+            // il break-even va quindi verificato a ogni tick, non solo al bar-close.
+            MoveStopsToBreakEven();
         }
 
         /// <summary>
@@ -248,6 +267,46 @@ namespace cAlgo.Robots
             }
         }
 
+        /// <summary>
+        /// Quando il movimento favorevole raggiunge il break-even dell'intent,
+        /// sposta lo stop nativo del broker al prezzo di ingresso. La distanza
+        /// dell'intent è in unità di prezzo, non in pips.
+        /// </summary>
+        private void MoveStopsToBreakEven()
+        {
+            foreach (var context in _openPositions.Values.ToArray())
+            {
+                var position = Positions.FirstOrDefault(item => item.Id == context.PositionId);
+                if (position is null)
+                    continue;
+
+                if (!context.BreakEven.HasValue || context.BreakEven.Value <= 0)
+                    continue;
+
+                var symbol = Symbols.GetSymbol(position.SymbolName);
+                if (symbol is null)
+                    continue;
+
+                var threshold = (double)context.BreakEven.Value;
+                var favorableMove = position.TradeType == TradeType.Buy
+                    ? symbol.Bid - position.EntryPrice
+                    : position.EntryPrice - symbol.Ask;
+                if (favorableMove < threshold)
+                    continue;
+
+                var stopAlreadyAtEntry = position.TradeType == TradeType.Buy
+                    ? position.StopLoss.HasValue && position.StopLoss.Value >= position.EntryPrice
+                    : position.StopLoss.HasValue && position.StopLoss.Value <= position.EntryPrice;
+                if (stopAlreadyAtEntry)
+                    continue;
+
+                var result = ModifyPosition(position, position.EntryPrice, position.TakeProfit);
+                if (!result.IsSuccessful && VerboseLogging)
+                    Print("Impossibile spostare a break-even {0}/{1}: {2}",
+                        context.Symbol, context.StrategyCode, result.Error);
+            }
+        }
+
         protected override void OnTimer() => PollNextSignal();
 
         protected override void OnStop()
@@ -259,30 +318,25 @@ namespace cAlgo.Robots
         }
 
         // ---------------------------------------------------------------------------------------
-        // Invio barre chiuse al server (aggregate dal timeframe base a quello configurato)
+        // Invio delle barre chiuse native per ogni coppia simbolo/timeframe configurata
         // ---------------------------------------------------------------------------------------
 
-        private void PushAggregatedBar(Pair pair, Bars series)
+        private bool TryPushClosedBar(Pair pair)
         {
             try
             {
-                var count = pair.TicksNeeded;
-                var startIndex = series.Count - count;
-                var lastIndex = series.Count - 1;
-
-                double high = series.HighPrices[startIndex];
-                double low = series.LowPrices[startIndex];
-                decimal volume = 0;
-                for (var i = startIndex; i <= lastIndex; i++)
-                {
-                    high = Math.Max(high, series.HighPrices[i]);
-                    low = Math.Min(low, series.LowPrices[i]);
-                    volume += (decimal)series.TickVolumes[i];
-                }
+                var series = pair.Series;
+                if (series == null || series.Count < 2)
+                    return false;
 
                 // Il [Robot] è agganciato a un grafico con TimeZone=UTC e timeframe=BaseTimeframeMinutes:
-                // gli orari della serie sono già in UTC, manca solo il flag Kind.
-                var barTimeUtc = DateTime.SpecifyKind(series.OpenTimes[startIndex], DateTimeKind.Utc);
+                // gli orari della serie sono già in UTC, manca solo il flag Kind. Last(1) è
+                // l'ultima candela chiusa: Last(0) è quella appena aperta.
+                var nativeClosedBar = series.Last(1);
+                var barTimeUtc = DateTime.SpecifyKind(nativeClosedBar.OpenTime, DateTimeKind.Utc);
+                if (pair.LastPushedBarTimeUtc == barTimeUtc)
+                    return false;
+
                 var closedBar = new ClosedBarDto
                 {
                     Symbol = pair.Symbol,
@@ -295,11 +349,11 @@ namespace cAlgo.Robots
                     Bar = new OhlcvDto
                     {
                         DateTime = barTimeUtc,
-                        Open = (decimal)series.OpenPrices[startIndex],
-                        High = (decimal)high,
-                        Low = (decimal)low,
-                        Close = (decimal)series.ClosePrices[lastIndex],
-                        Volume = volume
+                        Open = (decimal)nativeClosedBar.Open,
+                        High = (decimal)nativeClosedBar.High,
+                        Low = (decimal)nativeClosedBar.Low,
+                        Close = (decimal)nativeClosedBar.Close,
+                        Volume = (decimal)nativeClosedBar.TickVolume
                     }
                 };
 
@@ -311,12 +365,20 @@ namespace cAlgo.Robots
                 };
 
                 var response = PostJson($"api/v1/trading-sessions/{_sessionId}/bars", request);
-                if (!response.IsSuccessStatusCode && VerboseLogging)
-                    Print("Push barra {0}/{1}m fallito: {2}", pair.Symbol, pair.TimeframeMinutes, ReadError(response));
+                if (!response.IsSuccessStatusCode)
+                {
+                    if (VerboseLogging)
+                        Print("Push barra {0}/{1}m fallito: {2}", pair.Symbol, pair.TimeframeMinutes, ReadError(response));
+                    return false;
+                }
+
+                pair.LastPushedBarTimeUtc = barTimeUtc;
+                return true;
             }
             catch (Exception ex)
             {
                 Print("Errore invio barra {0}/{1}m: {2}", pair.Symbol, pair.TimeframeMinutes, ex.Message);
+                return false;
             }
         }
 
@@ -468,6 +530,8 @@ namespace cAlgo.Robots
                 EntryIntentId = intent.IntentId,
                 StrategyCode = intent.StrategyCode,
                 Symbol = intent.Symbol,
+                TimeframeMinutes = intent.TimeframeMinutes,
+                BreakEven = intent.BreakEven,
                 CloseAtUtc = intent.CloseAtUtc,
                 MaxBarsInPosition = intent.MaxBarsInPosition ?? 0,
                 BarsInPosition = 0
@@ -644,7 +708,7 @@ namespace cAlgo.Robots
             }
         }
 
-        private static bool ParseInstruments(string config, int baseMinutes, out List<Pair> pairs, out string error)
+        private static bool ParseInstruments(string config, out List<Pair> pairs, out string error)
         {
             pairs = new List<Pair>();
             error = null;
@@ -671,12 +735,7 @@ namespace cAlgo.Robots
                         error = $"timeframe non valido '{tfText}' per {symbol}.";
                         return false;
                     }
-                    if (tf % baseMinutes != 0)
-                    {
-                        error = $"il timeframe {tf}m di {symbol} non è multiplo del timeframe base ({baseMinutes}m).";
-                        return false;
-                    }
-                    pairs.Add(new Pair { Symbol = symbol, TimeframeMinutes = tf, TicksNeeded = tf / baseMinutes, TickCounter = 0 });
+                    pairs.Add(new Pair { Symbol = symbol, TimeframeMinutes = tf });
                 }
             }
 
@@ -724,6 +783,9 @@ namespace cAlgo.Robots
         }
 
         private static string MakeLabel(string strategyCode) => $"{LabelPrefix}:{strategyCode}";
+
+        private static string MakeStreamKey(string symbol, int timeframeMinutes) =>
+            $"{symbol.Trim().TrimStart('@').ToUpperInvariant()}|{timeframeMinutes}";
 
         private static TimeFrame ToTimeFrame(int minutes) => minutes switch
         {
@@ -832,6 +894,7 @@ namespace cAlgo.Robots
             public decimal? StopLoss { get; set; }
             public decimal? TakeProfit { get; set; }
             public decimal? BreakEven { get; set; }
+            public int TimeframeMinutes { get; set; }
             public int? MaxBarsInPosition { get; set; }
             public DateTime? CloseAtUtc { get; set; }
             public string Reason { get; set; }
