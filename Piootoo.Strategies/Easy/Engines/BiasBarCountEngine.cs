@@ -87,10 +87,10 @@ public abstract class BiasBarCountEngine : EasyEngineBase
     /// <summary>Pattern che impedisce lo short (<c>MyPtnSN</c>).</summary>
     protected int PatternShortNo = 56;
 
-    /// <summary>Giorno della settimana escluso per il long, convenzione 0 = domenica.</summary>
+    /// <summary>Giorno della settimana escluso per il long, convenzione Python/pandas 0 = lunedì.</summary>
     protected int NotEntryDayLong = -1;
 
-    /// <summary>Giorno della settimana escluso per lo short, convenzione 0 = domenica.</summary>
+    /// <summary>Giorno della settimana escluso per lo short, convenzione Python/pandas 0 = lunedì.</summary>
     protected int NotEntryDayShort = -1;
 
     /// <summary>Barre su cui calcolare il massimo per il breakout long (<c>NHigh</c>).</summary>
@@ -141,17 +141,23 @@ public abstract class BiasBarCountEngine : EasyEngineBase
 
         _mycount++;
 
-        // Armamento. Il gate si valuta una volta sola, esattamente alla barra prevista.
-        if (_mycount == ArmBarLong &&
+        var nextBarTime = EasyLib.EstimateNextBarUtc(data, barTime);
+
+        // I tipi 2/3 armano alla barra trigger, poi riemettono l'ordine next-bar finché la
+        // finestra è aperta. Il tipo 1 è gestito sotto: il pattern va letto alla chiusura della
+        // barra precedente, affinché il market fill cada all'open della barra ArmBar.
+        if (EntryType != BiasEntryType.MarketOnArmBar &&
+            _mycount == ArmBarLong &&
             Pattern(PatternLongYes, ohlc) && !Pattern(PatternLongNo, ohlc) &&
-            EasyDayOfWeek(barTime) != NotEntryDayLong)
+            PythonDayOfWeek(barTime) != NotEntryDayLong)
         {
             _okLong = true;
         }
 
-        if (_mycount == ArmBarShort &&
+        if (EntryType != BiasEntryType.MarketOnArmBar &&
+            _mycount == ArmBarShort &&
             Pattern(PatternShortYes, ohlc) && !Pattern(PatternShortNo, ohlc) &&
-            EasyDayOfWeek(barTime) != NotEntryDayShort)
+            PythonDayOfWeek(barTime) != NotEntryDayShort)
         {
             _okShort = true;
         }
@@ -167,21 +173,27 @@ public abstract class BiasBarCountEngine : EasyEngineBase
 
         if (EntryType == BiasEntryType.MarketOnArmBar)
         {
-            // L'armamento e l'ingresso coincidono: mercato sulla barra successiva.
-            if (_okLong && _mycount == ArmBarLong)
+            // Parità Python: mask.shift(1) legge il pattern alla close precedente e riempie
+            // l'open della barra ArmBar. ArmBar = 1 richiede il segnale sull'ultima barra della
+            // sessione precedente, riconoscibile dalla prossima apertura di sessione.
+            if (CurrentMP != 1 &&
+                IsBeforeMarketArmBar(ArmBarLong, nextBarTime) &&
+                Pattern(PatternLongYes, ohlc) && !Pattern(PatternLongNo, ohlc) &&
+                PythonDayOfWeek(nextBarTime) != NotEntryDayLong)
             {
                 entries.Add(WithExit(
                     EntryMarketNextBar(SignalType.Buy, bar.Close, data, barTime, "LE_MKT"),
-                    barTime, ExitBarLong));
-                _okLong = false;
+                    nextBarTime, ExitBarLong));
             }
 
-            if (_okShort && _mycount == ArmBarShort)
+            if (CurrentMP != -1 &&
+                IsBeforeMarketArmBar(ArmBarShort, nextBarTime) &&
+                Pattern(PatternShortYes, ohlc) && !Pattern(PatternShortNo, ohlc) &&
+                PythonDayOfWeek(nextBarTime) != NotEntryDayShort)
             {
                 entries.Add(WithExit(
                     EntryMarketNextBar(SignalType.Sell, bar.Close, data, barTime, "SE_MKT"),
-                    barTime, ExitBarShort));
-                _okShort = false;
+                    nextBarTime, ExitBarShort));
             }
         }
         else
@@ -191,9 +203,10 @@ public abstract class BiasBarCountEngine : EasyEngineBase
             // compito dell'engine, che riempie gap-aware.
             if (windowLong && _okLong)
             {
+                var closedBars = data[..^1];
                 var (side, level, reason) = EntryType == BiasEntryType.BreakoutStop
-                    ? (SignalType.Buy, EasyLib.Highest(data, BreakoutBarsHigh, d => d.High), "LE_STP")
-                    : (SignalType.Buy, EasyLib.Lowest(data, BreakoutBarsLow, d => d.Low), "LE_LMT");
+                    ? (SignalType.Buy, EasyLib.Highest(closedBars, BreakoutBarsHigh, d => d.High), "LE_STP")
+                    : (SignalType.Buy, EasyLib.Lowest(closedBars, BreakoutBarsLow, d => d.Low), "LE_LMT");
 
                 var signal = EntryType == BiasEntryType.BreakoutStop
                     ? EntryStopNextBar(side, level, data, barTime, reason)
@@ -204,9 +217,10 @@ public abstract class BiasBarCountEngine : EasyEngineBase
 
             if (windowShort && _okShort)
             {
+                var closedBars = data[..^1];
                 var (side, level, reason) = EntryType == BiasEntryType.BreakoutStop
-                    ? (SignalType.Sell, EasyLib.Lowest(data, BreakoutBarsLow, d => d.Low), "SE_STP")
-                    : (SignalType.Sell, EasyLib.Highest(data, BreakoutBarsHigh, d => d.High), "SE_LMT");
+                    ? (SignalType.Sell, EasyLib.Lowest(closedBars, BreakoutBarsLow, d => d.Low), "SE_STP")
+                    : (SignalType.Sell, EasyLib.Highest(closedBars, BreakoutBarsHigh, d => d.High), "SE_LMT");
 
                 var signal = EntryType == BiasEntryType.BreakoutStop
                     ? EntryStopNextBar(side, level, data, barTime, reason)
@@ -228,7 +242,12 @@ public abstract class BiasBarCountEngine : EasyEngineBase
     private TradeSignal WithExit(TradeSignal signal, DateTime barTime, int exitBarIndex)
     {
         if (exitBarIndex > 0)
-            signal.CloseAtUtc = SessionBarToUtc(barTime, exitBarIndex);
+        {
+            // BuildSessionOhlc conta la prima candela chiusa dopo SessionStartTime come barra 1
+            // (18:00–19:00 ha timestamp 19:00). Allineare la deadline allo stesso riferimento
+            // evita un'uscita una barra prima del confronto Python bar_num == lx/sx_bar.
+            signal.CloseAtUtc = SessionBarToUtc(barTime, exitBarIndex).AddMinutes(TimeframeMinutes);
+        }
         return signal;
     }
 
@@ -238,4 +257,11 @@ public abstract class BiasBarCountEngine : EasyEngineBase
         EasyPatternLibrary.BaseSA => EasyLib.PtnBaseSA2(number, ohlc),
         _ => false
     };
+
+    private bool IsBeforeMarketArmBar(int armBar, DateTime nextBarTime) =>
+        _mycount == armBar - 1 ||
+        (armBar == 1 && Hhmm(nextBarTime) == SessionStartTime);
+
+    private static int PythonDayOfWeek(DateTime barTime) =>
+        ((int)barTime.DayOfWeek + 6) % 7;
 }

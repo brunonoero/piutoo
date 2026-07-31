@@ -22,6 +22,7 @@ public class PiootooTradingService : IPiootooTradingService
     private readonly Dictionary<string, IReadOnlyDictionary<string, object?>> _strategyRuntimeStates = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, PendingOrder> _pendingOrders = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, (DateTime Day, int Count)> _entriesByDay = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, int> _entriesBySession = new(StringComparer.OrdinalIgnoreCase);
 
     private sealed class PendingOrder
     {
@@ -56,6 +57,7 @@ public class PiootooTradingService : IPiootooTradingService
         _strategyRuntimeStates.Clear();
         _pendingOrders.Clear();
         _entriesByDay.Clear();
+        _entriesBySession.Clear();
     }
 
     public TradingSnapshot ProcessSignals(List<TradeSignal> signals, decimal currentPrice, DateTime currentTime)
@@ -136,13 +138,24 @@ public class PiootooTradingService : IPiootooTradingService
             var positionKey = MakePositionKey(signalSymbol, GetSignalStrategyCode(signal));
             if (_state.OpenPositions.TryGetValue(positionKey, out var position))
             {
+                if (signal.ExitOnly &&
+                    ((position.Direction == SignalType.Buy && signal.Type == SignalType.Sell) ||
+                     (position.Direction == SignalType.Sell && signal.Type == SignalType.Buy)))
+                {
+                    ClosePosition(positionKey, ResolveSignalPrice(signal, currentPrices), currentTime,
+                        TradeExitReason.OppositeSignal);
+                    CancelPendingOrders(positionKey);
+                    continue;
+                }
+
                 // Un segnale opposto chiude la posizione esistente e viene consumato.
                 if ((position.Direction == SignalType.Buy && signal.Type == SignalType.Sell) ||
                     (position.Direction == SignalType.Sell && signal.Type == SignalType.Buy))
                 {
-                    if (signal.OrderType == TradeOrderType.Stop)
+                    if (signal.OrderType is TradeOrderType.Stop or TradeOrderType.Limit)
                     {
-                        // Gli stop di entry/reversal restano pendenti e non chiudono a mercato subito.
+                        // Gli ordini condizionati di entry/reversal restano pendenti e non chiudono
+                        // a mercato subito.
                         continue;
                     }
 
@@ -174,8 +187,14 @@ public class PiootooTradingService : IPiootooTradingService
                 continue;
             }
 
+            if (signal.ExitOnly)
+            {
+                continue;
+            }
+
             // Se non c'è già una posizione aperta per questa strategia, aprine una
-            if (!_state.OpenPositions.ContainsKey(positionKey))
+            if (!_state.OpenPositions.ContainsKey(positionKey) &&
+                CanFillEntry(positionKey, signal))
             {
                 OpenFromSignal(positionKey, signal, signalSymbol, currentPrices, currentBars, currentTime);
             }
@@ -295,6 +314,12 @@ public class PiootooTradingService : IPiootooTradingService
                     continue;
                 }
 
+                if (!CanFillEntry(pending.PositionKey, signal))
+                {
+                    _pendingOrders.Remove(pendingKey);
+                    continue;
+                }
+
                 var fillPrice = signal.Type == SignalType.Buy
                     ? Math.Max(bar.Open, signal.Price)
                     : Math.Min(bar.Open, signal.Price);
@@ -316,10 +341,78 @@ public class PiootooTradingService : IPiootooTradingService
                 continue;
             }
 
+            if (signal.OrderType == TradeOrderType.Limit)
+            {
+                if (bar is null)
+                {
+                    continue;
+                }
+
+                // Un limit deve essere penetrato: il solo contatto non basta, come nel
+                // simulatore Python degli engine RBB. In caso di gap il prezzo di fill è
+                // migliorativo rispetto al limite.
+                var penetrated = signal.Type == SignalType.Buy
+                    ? bar.Low < signal.Price
+                    : bar.High > signal.Price;
+                if (!penetrated)
+                {
+                    continue;
+                }
+
+                if (!CanFillEntry(pending.PositionKey, signal))
+                {
+                    _pendingOrders.Remove(pendingKey);
+                    continue;
+                }
+
+                var fillPrice = signal.Type == SignalType.Buy
+                    ? Math.Min(bar.Open, signal.Price)
+                    : Math.Max(bar.Open, signal.Price);
+
+                if (_state.OpenPositions.TryGetValue(pending.PositionKey, out var existing))
+                {
+                    if (existing.Direction == signal.Type)
+                    {
+                        _pendingOrders.Remove(pendingKey);
+                        continue;
+                    }
+
+                    ClosePosition(pending.PositionKey, fillPrice, currentTime, TradeExitReason.OppositeSignal);
+                }
+
+                OpenFromSignal(pending.PositionKey, signal, signalSymbol, currentPrices, currentBars, currentTime, fillPrice);
+                // I due limit RBB emessi sulla stessa barra sono OCO.
+                CancelPendingOrders(pending.PositionKey);
+                continue;
+            }
+
             // Market deferred (ValidFromUtc raggiunto)
             if (signal.OrderType == TradeOrderType.Market)
             {
+                if (signal.ExitOnly)
+                {
+                    if (_state.OpenPositions.TryGetValue(pending.PositionKey, out var existing) &&
+                        existing.Direction != signal.Type)
+                    {
+                        ClosePosition(pending.PositionKey, ResolveFillPrice(signal, bar, markPrice), currentTime,
+                            TradeExitReason.OppositeSignal);
+                        CancelPendingOrders(pending.PositionKey);
+                    }
+                    else
+                    {
+                        _pendingOrders.Remove(pendingKey);
+                    }
+
+                    continue;
+                }
+
                 if (_state.OpenPositions.ContainsKey(pending.PositionKey))
+                {
+                    _pendingOrders.Remove(pendingKey);
+                    continue;
+                }
+
+                if (!CanFillEntry(pending.PositionKey, signal))
                 {
                     _pendingOrders.Remove(pendingKey);
                     continue;
@@ -360,6 +453,12 @@ public class PiootooTradingService : IPiootooTradingService
             ?? (signal.TakeProfitMoneyPerFutureContract.HasValue
                 ? signal.TakeProfitMoneyPerFutureContract.Value / dollarsPerPoint
                 : null);
+        var trailingStopPoints = signal.TrailingStopMoneyPerFutureContract.HasValue
+            ? (decimal?)(signal.TrailingStopMoneyPerFutureContract.Value / dollarsPerPoint)
+            : null;
+        var breakEvenPoints = signal.BreakEvenMoneyPerFutureContract.HasValue
+            ? (decimal?)(signal.BreakEvenMoneyPerFutureContract.Value / dollarsPerPoint)
+            : signal.BreakEven;
 
         currentBars.TryGetValue(NormalizeSymbol(signalSymbol), out var bar);
         currentPrices.TryGetValue(NormalizeSymbol(signalSymbol), out var markPrice);
@@ -376,17 +475,32 @@ public class PiootooTradingService : IPiootooTradingService
             signal.Quantity,
             stopLossPoints,
             takeProfitPoints,
-            signal.BreakEven,
+            breakEvenPoints,
+            trailingStopPoints,
             signal.MaxBarsInPosition,
             signal.CloseAtUtc,
             signal.Reason,
             signal.TimeExitOnlyIfProfitBelowMoneyPerContract,
             signal.ProfitStallAfterUtc);
 
-        RecordEntry(positionKey, currentTime);
+        RecordEntry(positionKey, currentTime, signal);
     }
 
-    private void RecordEntry(string positionKey, DateTime entryTime)
+    private bool CanFillEntry(string positionKey, TradeSignal signal)
+    {
+        if (!signal.MaxEntriesPerSession.HasValue ||
+            signal.MaxEntriesPerSession.Value <= 0 ||
+            !signal.EntrySessionStartUtc.HasValue)
+        {
+            return true;
+        }
+
+        var sessionKey = MakeEntrySessionKey(positionKey, signal.EntrySessionStartUtc.Value);
+        return !_entriesBySession.TryGetValue(sessionKey, out var entries) ||
+               entries < signal.MaxEntriesPerSession.Value;
+    }
+
+    private void RecordEntry(string positionKey, DateTime entryTime, TradeSignal signal)
     {
         var day = entryTime.Date;
         if (_entriesByDay.TryGetValue(positionKey, out var tracked) && tracked.Day == day)
@@ -397,7 +511,19 @@ public class PiootooTradingService : IPiootooTradingService
         {
             _entriesByDay[positionKey] = (day, 1);
         }
+
+        if (signal.MaxEntriesPerSession.HasValue &&
+            signal.MaxEntriesPerSession.Value > 0 &&
+            signal.EntrySessionStartUtc.HasValue)
+        {
+            var sessionKey = MakeEntrySessionKey(positionKey, signal.EntrySessionStartUtc.Value);
+            _entriesBySession.TryGetValue(sessionKey, out var entries);
+            _entriesBySession[sessionKey] = entries + 1;
+        }
     }
+
+    private static string MakeEntrySessionKey(string positionKey, DateTime sessionStartUtc) =>
+        $"{positionKey}|{TradingDateTime.ToFeedUtc(sessionStartUtc):O}";
 
     public TradingSnapshot UpdateMarketPrices(Dictionary<string, decimal> currentPrices, DateTime currentTime)
     {
@@ -549,9 +675,10 @@ public class PiootooTradingService : IPiootooTradingService
         _strategyRuntimeStates.Clear();
         _pendingOrders.Clear();
         _entriesByDay.Clear();
+        _entriesBySession.Clear();
     }
 
-    private void OpenPosition(string positionKey, string strategyName, string strategyCode, string symbol, SignalType direction, decimal entryPrice, DateTime entryTime, decimal quantity, decimal? stopLoss, decimal? takeProfit, decimal? breakEven = null, int? maxBarsInPosition = null, DateTime? closeAtUtc = null, string? reason = null, decimal? timeExitOnlyIfProfitBelow = null, DateTime? profitStallAfterUtc = null)
+    private void OpenPosition(string positionKey, string strategyName, string strategyCode, string symbol, SignalType direction, decimal entryPrice, DateTime entryTime, decimal quantity, decimal? stopLoss, decimal? takeProfit, decimal? breakEven = null, decimal? trailingStop = null, int? maxBarsInPosition = null, DateTime? closeAtUtc = null, string? reason = null, decimal? timeExitOnlyIfProfitBelow = null, DateTime? profitStallAfterUtc = null)
     {
         if (quantity <= 0m)
             throw new ArgumentOutOfRangeException(nameof(quantity), "La quantità di ingresso deve essere positiva.");
@@ -569,6 +696,7 @@ public class PiootooTradingService : IPiootooTradingService
             StopLoss = stopLoss,
             TakeProfit = takeProfit,
             BreakEven = breakEven,
+            TrailingStop = trailingStop,
             MaxBarsInPosition = maxBarsInPosition,
             CloseAtUtc = closeAtUtc,
             BarsInPosition = 0,
@@ -606,11 +734,6 @@ public class PiootooTradingService : IPiootooTradingService
 
         foreach (var (positionKey, position) in _state.OpenPositions)
         {
-            if (position.EntryTime == currentTime)
-            {
-                continue;
-            }
-
             var currentPrice = GetCurrentPrice(position, currentPrices, fallbackPrice);
             if (!currentPrice.HasValue)
             {
@@ -625,6 +748,9 @@ public class PiootooTradingService : IPiootooTradingService
                 favorableMove = currentPrice.Value - position.EntryPrice;
                 var favorableHighMove = (currentBar?.High ?? currentPrice.Value) - position.EntryPrice;
                 var adverseLowMove = (currentBar?.Low ?? currentPrice.Value) - position.EntryPrice;
+                var favorableHighPrice = currentBar?.High ?? currentPrice.Value;
+                if (!position.PeakFavorablePrice.HasValue || favorableHighPrice > position.PeakFavorablePrice.Value)
+                    position.PeakFavorablePrice = favorableHighPrice;
                 
                 // Gestione Break Even per Long
                 if (!position.BreakEvenActivated && position.BreakEven.HasValue && 
@@ -635,11 +761,24 @@ public class PiootooTradingService : IPiootooTradingService
                     position.BreakEvenActivated = true;
                 }
                 
-                // Verifica Stop Loss (perdita o break even)
-                decimal effectiveStopLoss = position.BreakEvenActivated ? 0 : (position.StopLoss ?? decimal.MaxValue);
-                if (adverseLowMove <= -effectiveStopLoss)
+                decimal? protectiveStopPrice = position.StopLoss.HasValue
+                    ? position.EntryPrice - position.StopLoss.Value
+                    : null;
+                if (position.BreakEvenActivated)
+                    protectiveStopPrice = Math.Max(protectiveStopPrice ?? decimal.MinValue, position.EntryPrice);
+                if (position.TrailingStop.HasValue && position.PeakFavorablePrice.HasValue)
                 {
-                    positionsToClose.Add((positionKey, position.EntryPrice - effectiveStopLoss, TradeExitReason.StopLoss));
+                    var trailingStopPrice = position.PeakFavorablePrice.Value - position.TrailingStop.Value;
+                    protectiveStopPrice = Math.Max(protectiveStopPrice ?? decimal.MinValue, trailingStopPrice);
+                }
+
+                // Politica intrabar conservativa: quando la barra di fill raggiunge sia lo stop
+                // protettivo sia il target, questo controllo precede il TP e attribuisce l'uscita
+                // allo stop. Con sole OHLC non è possibile ricostruire l'ordine reale dei tick.
+                // La stessa regola vale anche per le barre successive.
+                if (protectiveStopPrice.HasValue && (currentBar?.Low ?? currentPrice.Value) <= protectiveStopPrice.Value)
+                {
+                    positionsToClose.Add((positionKey, protectiveStopPrice.Value, TradeExitReason.StopLoss));
                     continue;
                 }
 
@@ -655,6 +794,9 @@ public class PiootooTradingService : IPiootooTradingService
                 favorableMove = position.EntryPrice - currentPrice.Value;
                 var favorableLowMove = position.EntryPrice - (currentBar?.Low ?? currentPrice.Value);
                 var adverseHighMove = (currentBar?.High ?? currentPrice.Value) - position.EntryPrice;
+                var favorableLowPrice = currentBar?.Low ?? currentPrice.Value;
+                if (!position.PeakFavorablePrice.HasValue || favorableLowPrice < position.PeakFavorablePrice.Value)
+                    position.PeakFavorablePrice = favorableLowPrice;
                 
                 // Gestione Break Even per Short
                 if (!position.BreakEvenActivated && position.BreakEven.HasValue && 
@@ -665,11 +807,20 @@ public class PiootooTradingService : IPiootooTradingService
                     position.BreakEvenActivated = true;
                 }
                 
-                // Verifica Stop Loss (perdita o break even)
-                decimal effectiveStopLoss = position.BreakEvenActivated ? 0 : (position.StopLoss ?? decimal.MaxValue);
-                if (adverseHighMove >= effectiveStopLoss)
+                decimal? protectiveStopPrice = position.StopLoss.HasValue
+                    ? position.EntryPrice + position.StopLoss.Value
+                    : null;
+                if (position.BreakEvenActivated)
+                    protectiveStopPrice = Math.Min(protectiveStopPrice ?? decimal.MaxValue, position.EntryPrice);
+                if (position.TrailingStop.HasValue && position.PeakFavorablePrice.HasValue)
                 {
-                    positionsToClose.Add((positionKey, position.EntryPrice + effectiveStopLoss, TradeExitReason.StopLoss));
+                    var trailingStopPrice = position.PeakFavorablePrice.Value + position.TrailingStop.Value;
+                    protectiveStopPrice = Math.Min(protectiveStopPrice ?? decimal.MaxValue, trailingStopPrice);
+                }
+
+                if (protectiveStopPrice.HasValue && (currentBar?.High ?? currentPrice.Value) >= protectiveStopPrice.Value)
+                {
+                    positionsToClose.Add((positionKey, protectiveStopPrice.Value, TradeExitReason.StopLoss));
                     continue;
                 }
 

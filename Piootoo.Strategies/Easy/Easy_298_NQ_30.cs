@@ -30,6 +30,8 @@ public sealed class Easy_298_NQ_30 : SessionBreakoutEngine
 
     public Easy_298_NQ_30()
     {
+        // Questa strategia deriva dal sorgente EasyLanguage, non dal contratto BO Python.
+        UseLegacyVariant = true;
         SessionStartTime = 1700;  // SessionStartTimeA
         SessionEndTime = 1600;    // sessionEndTimeA
         Contracts = 1;

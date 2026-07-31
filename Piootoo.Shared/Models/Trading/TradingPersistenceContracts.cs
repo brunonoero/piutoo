@@ -56,6 +56,21 @@ public sealed class PersistedSignal
     /// <summary>Livello di break even in punti dal fill. Null = nessun break even.</summary>
     public decimal? BreakEven { get; init; }
 
+    /// <summary>Profitto in USD per contratto necessario per attivare il break even.</summary>
+    public decimal? BreakEvenMoneyPerFutureContract { get; init; }
+
+    /// <summary>
+    /// Distanza del trailing stop in USD per singolo contratto futures. Il
+    /// consumer la converte in punti con il valore del contratto.
+    /// </summary>
+    public decimal? TrailingStopMoneyPerFutureContract { get; init; }
+
+    /// <summary>
+    /// Distanza del trailing stop in punti dal picco favorevole. È la forma
+    /// pronta per l'esecuzione quando il server ha già risolto lo strumento.
+    /// </summary>
+    public decimal? TrailingStop { get; init; }
+
     /// <summary>Timeframe della strategia che ha generato il segnale.</summary>
     public int TimeframeMinutes { get; init; }
 

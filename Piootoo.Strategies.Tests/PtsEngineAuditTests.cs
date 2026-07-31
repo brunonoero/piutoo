@@ -3,7 +3,7 @@ using Piootoo.Shared.Enums;
 using Piootoo.Shared.Models;
 using Piootoo.Shared.Models.Trading;
 using Piootoo.Shared.Models.Workspaces;
-using Piootoo.Strategies.Easy;
+using Piootoo.Strategies.PiutooStrategies;
 using Xunit;
 
 namespace Piootoo.Strategies.Tests;

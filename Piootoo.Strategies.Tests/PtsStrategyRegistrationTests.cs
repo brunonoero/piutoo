@@ -1,5 +1,5 @@
 using Piootoo.Core.Services;
-using Piootoo.Strategies.Easy;
+using Piootoo.Strategies.PiutooStrategies;
 using Xunit;
 
 namespace Piootoo.Strategies.Tests;
@@ -27,5 +27,19 @@ public class PtsStrategyRegistrationTests
         Assert.NotNull(strategy);
         Assert.IsType<PTS_001_NQ_60>(strategy);
         Assert.False(strategy.IsPositionCloseDependent);
+    }
+
+    [Theory]
+    [InlineData(nameof(PTS_002_NQ_15))]
+    [InlineData(nameof(PTS_003_NQ_15))]
+    public void PcPtsStrategies_AreRegisteredWithExpectedMetadata(string id)
+    {
+        var definition = Assert.Single(
+            StrategyFactory.GetRegisteredStrategies(),
+            strategy => strategy.Id == id);
+
+        Assert.Equal("@NQ", definition.Symbol);
+        Assert.Equal(15, definition.TimeframeMinutes);
+        Assert.True(definition.IsActive);
     }
 }

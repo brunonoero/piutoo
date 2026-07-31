@@ -43,6 +43,8 @@ public static class PersistedSignalMapper
             StopLossMoneyPerFutureContract = signal.StopLossMoneyPerFutureContract,
             TakeProfitMoneyPerFutureContract = signal.TakeProfitMoneyPerFutureContract,
             BreakEven = signal.BreakEven,
+            BreakEvenMoneyPerFutureContract = signal.BreakEvenMoneyPerFutureContract,
+            TrailingStopMoneyPerFutureContract = signal.TrailingStopMoneyPerFutureContract,
             TimeExitUtc = signal.CloseAtUtc,
             MaxBarsInPosition = signal.MaxBarsInPosition,
             TimeExitOnlyIfProfitBelowMoneyPerContract = signal.TimeExitOnlyIfProfitBelowMoneyPerContract,

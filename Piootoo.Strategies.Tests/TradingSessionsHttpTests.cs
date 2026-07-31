@@ -318,6 +318,38 @@ public sealed class TradingSessionsHttpTests : IDisposable
     }
 
     [Fact]
+    public async Task ExitOnlySignalEmitsBrokerCloseIntentForConfirmedPosition()
+    {
+        var descriptor = await Create(ExecutionMode.ExternalBroker);
+        descriptor = await Status(descriptor, "start", HttpStatusCode.OK);
+
+        var entry = Assert.Single((await Push(descriptor, 1, "exit-only-entry")).Intents);
+        var entryReport = new ExecutionReportRequest
+        {
+            SessionToken = descriptor.SessionToken,
+            Report = new ExternalExecutionReport
+            {
+                ReportId = "exit-only-entry-fill",
+                IntentId = entry.IntentId,
+                Status = ExecutionReportStatus.Filled,
+                CumulativeFilledQuantity = entry.FinalQuantity,
+                FillPrice = 100,
+                EventTimeUtc = Utc(2026, 1, 5)
+            }
+        };
+        (await _client.PostAsJsonAsync(
+            $"api/v1/trading-sessions/{descriptor.SessionId}/execution-reports", entryReport))
+            .EnsureSuccessStatusCode();
+
+        var close = Assert.Single((await Push(descriptor, 2, "exit-only-close")).Intents);
+        Assert.True(close.IsClose);
+        Assert.Equal(OrderIntentKind.Close, close.Kind);
+        Assert.Equal(entry.StrategyCode, close.StrategyCode);
+        Assert.Equal(entry.FinalQuantity, close.FinalQuantity);
+        Assert.Equal(SignalType.Buy, close.Side);
+    }
+
+    [Fact]
     public async Task ExternalCloseIntentRejectedWithoutOpenPosition()
     {
         var descriptor = await Create(ExecutionMode.ExternalBroker);
@@ -476,10 +508,18 @@ public sealed class TradingSessionsHttpTests : IDisposable
             IReadOnlyList<ITradingStrategy> strategies, ClosedBar closedBar,
             IReadOnlyList<OhlcvData> history,
             Func<ITradingStrategy, StrategyExecutionSnapshot> executionSnapshot) =>
-            strategies.Take(1).Select(strategy => new TradeSignal
+            strategies.Take(1).Select(strategy =>
             {
-                StrategyCode = strategy.Name, StrategyName = strategy.Name, Symbol = strategy.Symbol,
-                Date = closedBar.BarTimeUtc, Type = SignalType.Buy, Quantity = 3.9m, Price = closedBar.Bar.Close
+                var inPosition = executionSnapshot(strategy).Position is not null;
+                return new TradeSignal
+                {
+                    StrategyCode = strategy.Name, StrategyName = strategy.Name, Symbol = strategy.Symbol,
+                    Date = closedBar.BarTimeUtc,
+                    Type = inPosition ? SignalType.Sell : SignalType.Buy,
+                    ExitOnly = inPosition,
+                    Quantity = 3.9m,
+                    Price = closedBar.Bar.Close
+                };
             }).ToArray();
     }
 }

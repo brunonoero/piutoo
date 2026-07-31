@@ -152,7 +152,7 @@ public abstract class EasyEngineBase : StatelessEasyStrategyBase
             ExpiresAtUtc = nextBar,
             StopLossMoneyPerFutureContract = StopMoney > 0 ? StopMoney : null,
             TakeProfitMoneyPerFutureContract = ProfitMoney > 0 ? ProfitMoney : null,
-            BreakEven = BreakEvenMoney > 0 ? BreakEvenMoney : null,
+            BreakEvenMoneyPerFutureContract = BreakEvenMoney > 0 ? BreakEvenMoney : null,
             MaxBarsInPosition = MaxBars > 0 ? MaxBars : null,
             CloseAtUtc = MaxDaysInTrade > 0 ? barTime.Date.AddDays(MaxDaysInTrade) : null,
             TimeExitOnlyIfProfitBelowMoneyPerContract = TimeExitOnlyIfProfitBelow,

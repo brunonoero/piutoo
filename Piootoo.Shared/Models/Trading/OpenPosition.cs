@@ -37,6 +37,19 @@ public class OpenPosition
     public decimal? BreakEven { get; set; }
 
     /// <summary>
+    /// Distanza in punti fra il massimo/minimo favorevole osservato e lo stop
+    /// dinamico. Null = nessun trailing stop.
+    /// </summary>
+    public decimal? TrailingStop { get; set; }
+
+    /// <summary>
+    /// Massimo prezzo favorevole raggiunto dalla posizione long o minimo prezzo
+    /// favorevole raggiunto dalla posizione short. È mantenuto dall'engine per
+    /// calcolare il trailing stop senza richiamare la strategia.
+    /// </summary>
+    public decimal? PeakFavorablePrice { get; set; }
+
+    /// <summary>
     /// Numero massimo di barre da mantenere in posizione.
     /// </summary>
     public int? MaxBarsInPosition { get; set; }

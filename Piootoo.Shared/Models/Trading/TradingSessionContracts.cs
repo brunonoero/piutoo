@@ -16,11 +16,10 @@ public enum QuantityRoundingMode { FuturesContracts, BrokerVolumeStep }
 /// con sé l'intera specifica di uscita (SL, TP, uscita a tempo, massimo di barre): il client la
 /// applica e chiude in autonomia.</para>
 ///
-/// <para><see cref="Close"/> — <b>registrazione</b> di una chiusura già decisa dal client
-/// (SL/TP nativi del broker, uscita a tempo, limite barre). Non è un ordine: serve solo ad avere un
-/// intent a cui agganciare l'execution report e generare il <c>PersistedTrade</c>. Il server non
-/// emette mai intent di chiusura a partire da un segnale: le strategie che avrebbero bisogno di
-/// farlo sono close-dependent e quindi escluse dal catalogo.</para>
+/// <para><see cref="Close"/> — chiusura di una posizione esistente. Può registrare una chiusura già
+/// decisa dal client (SL/TP nativi del broker, uscita a tempo, limite barre) oppure essere emesso dal
+/// server per un segnale <see cref="TradeSignal.ExitOnly"/>. Il client esegue l'intent e vi aggancia
+/// l'execution report per generare il <c>PersistedTrade</c>.</para>
 /// </summary>
 public enum OrderIntentKind { Entry, Close }
 
@@ -253,14 +252,20 @@ public sealed class OrderIntent
     public bool IsClose => Kind == OrderIntentKind.Close;
 
     // --- Specifica di uscita completa, copiata dal segnale di ingresso ---
-    // Il client DEVE applicarla per intero: sono le sole informazioni con cui l'engine esterno
-    // chiude la posizione, dato che il server non emette più intent di chiusura.
+    // Il client DEVE applicarla per intero per le uscite locali; il server può inoltre emettere un
+    // intent Close quando una strategia produce un segnale ExitOnly.
 
     public decimal? StopLoss { get; init; }
     public decimal? TakeProfit { get; init; }
 
     /// <summary>Livello di break even in punti: raggiunto il profitto, lo stop va spostato all'entry.</summary>
     public decimal? BreakEven { get; init; }
+
+    /// <summary>
+    /// Distanza in punti dal picco favorevole che il client deve mantenere come
+    /// trailing stop. Null = nessun trailing stop.
+    /// </summary>
+    public decimal? TrailingStop { get; init; }
 
     /// <summary>
     /// Timeframe della strategia che ha emesso l'intent. Il client usa questa
@@ -457,10 +462,11 @@ public sealed class AccountSignalPollRequest
 /// di uscita ricevuta con l'intent di ingresso: Stop Loss/Take Profit nativi del broker, uscita a
 /// tempo (<c>CloseAtUtc</c>) o limite di barre (<c>MaxBarsInPosition</c>).
 ///
-/// <para>È l'<b>unico</b> canale di chiusura in ExternalBroker: il server non emette intent di
-/// chiusura. Registra un intent <see cref="OrderIntentKind.Close"/> per la posizione aperta
+/// <para>Registra un intent <see cref="OrderIntentKind.Close"/> per la posizione aperta
 /// corrispondente, che il client referenzia nel normale POST /execution-reports per completare la
-/// chiusura e generare il PersistedTrade (input delle rotazioni Titano).</para>
+/// chiusura e generare il PersistedTrade (input delle rotazioni Titano). Gli intent Close emessi
+/// dal server per un segnale <see cref="TradeSignal.ExitOnly"/> seguono invece il normale canale
+/// di consegna al client.</para>
 /// </summary>
 public sealed class CreateExternalCloseIntentRequest
 {

@@ -625,6 +625,7 @@ public class PiootooBacktestingService : IPiootooBacktestingService
             Console.WriteLine($"[Backtesting] Pre-caricamento {uniqueDataSources.Count} datasource unici...");
 
             var emptyDataSources = new List<string>();
+            var loadedDataSources = 0;
             foreach (var ds in uniqueDataSources)
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -677,6 +678,15 @@ public class PiootooBacktestingService : IPiootooBacktestingService
 
                 Console.WriteLine($"[Backtesting] {normalizedSymbol}/{ds.Timeframe}m: {candles.Length} candele" +
                                   (warning is null ? "" : $" — {warning}"));
+
+                loadedDataSources++;
+                lock (job)
+                {
+                    job.ProgressPercent = uniqueDataSources.Count == 0
+                        ? 0
+                        : Math.Clamp((int)(loadedDataSources * 5.0 / uniqueDataSources.Count), 0, 5);
+                    job.ProgressMessage = $"Caricamento dati {loadedDataSources}/{uniqueDataSources.Count}";
+                }
             }
 
             // Fail fast: proseguire con un datasource vuoto significa un backtest che gira per ore
@@ -720,6 +730,22 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                 {
                     currentDate = currentDate.AddMinutes(minTimeframeMinutes);
                     iterationCount++;
+                    processedIterations++;
+                    if (totalIterations > 0)
+                    {
+                        var progress = Math.Clamp(
+                            5 + (int)(processedIterations * 94.0 / totalIterations),
+                            5,
+                            99);
+                        if (progress != job.ProgressPercent)
+                        {
+                            lock (job)
+                            {
+                                job.ProgressPercent = progress;
+                                job.ProgressMessage = $"Elaborazione {progress}%";
+                            }
+                        }
+                    }
                     continue;
                 }
 
@@ -945,7 +971,10 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                 iterationCount++;
                 if (totalIterations > 0)
                 {
-                    var progress = Math.Clamp((int)((processedIterations * 100.0) / totalIterations), 0, 99);
+                    var progress = Math.Clamp(
+                        5 + (int)(processedIterations * 94.0 / totalIterations),
+                        5,
+                        99);
                     if (progress != job.ProgressPercent)
                     {
                         lock (job)
@@ -963,6 +992,7 @@ public class PiootooBacktestingService : IPiootooBacktestingService
             lock (job)
             {
                 job.Phase = "WritingArtifacts";
+                job.ProgressPercent = 99;
                 job.ProgressMessage = "Scrittura artifact";
             }
 
@@ -1402,6 +1432,8 @@ public class PiootooBacktestingService : IPiootooBacktestingService
             StopLoss = signal.StopLoss,
             TakeProfit = signal.TakeProfit,
             BreakEven = signal.BreakEven,
+            BreakEvenMoneyPerFutureContract = signal.BreakEvenMoneyPerFutureContract,
+            TrailingStopMoneyPerFutureContract = signal.TrailingStopMoneyPerFutureContract,
             MaxBarsInPosition = signal.MaxBarsInPosition
         };
         TradingDateTime.NormalizeSignalToUtc(clone);

@@ -1,0 +1,18 @@
+---
+description: Implementa strategie Piutoo dai parametri di motore forniti
+globs: Piootoo.Strategies/PiutooStrategies/**/*.cs
+alwaysApply: false
+---
+
+# Strategie Piutoo basate su parametri
+
+- Le nuove strategie vanno sempre in `Piootoo.Strategies/PiutooStrategies/`, una classe pubblica `sealed` per file, con nome file e classe uguali all'Id richiesto.
+- Usa il motore astratto corrispondente (`PriceChannelEngine`, `TfMirroredEngine`, `VolatilityBreakoutEngine`, ecc.); non duplicare `GenerateSignal` se il comportamento è già nel motore.
+- Prima di implementare, richiedi Id, simbolo e timeframe se non sono stati forniti. Ogni parametro fornito deve essere rappresentato esplicitamente nel costruttore; non sostituirlo con un default silenzioso.
+- Tutti gli orari e le date sono UTC. Mantieni la sessione del motore distinta dalla finestra operativa.
+- Gli ingressi sono intent `next bar`: stop, limit e market devono avere validità della sola barra successiva. Canali, medie, livelli d1 e pattern non devono leggere la barra futura.
+- Stop loss, take profit, breakeven e trailing sono USD per contratto: usare i campi `*MoneyPerFutureContract`, mai valori in punti salvo che il parametro lo dichiari esplicitamente.
+- Imposta `MaxEntriesPerSession` quando il motore lo prevede; il limite si applica al fill e non deve impedire la riemissione di uno stop non eseguito.
+- Inserisci un commento XML completo: motore, condizioni di ingresso, no-look-ahead, finestra/sessione, regole di uscita e unità monetarie.
+- Aggiungi o aggiorna un test mirato che verifichi almeno ordine next-bar, livello d'ingresso senza look-ahead e conversione delle uscite monetarie.
+- Se un parametro non è mappabile al motore o è ambiguo, fermati e chiedi chiarimento invece di inventare semantica.

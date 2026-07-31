@@ -9,12 +9,11 @@ namespace Piootoo.Shared.Models;
 /// <para><b>Invariante — uscita autocontenuta.</b> Un segnale di ingresso deve descrivere per
 /// intero come si esce dalla posizione: <see cref="StopLoss"/> /
 /// <see cref="StopLossMoneyPerFutureContract"/>, <see cref="TakeProfit"/> /
-/// <see cref="TakeProfitMoneyPerFutureContract"/>, <see cref="CloseAtUtc"/> e
-/// <see cref="MaxBarsInPosition"/>. L'engine (interno o esterno) chiude in autonomia usando
-/// queste sole informazioni: non esiste più un segnale di sola chiusura emesso dalla strategia.</para>
-///
-/// <para>Le strategie che decidono l'uscita a runtime (verifica di un pattern di uscita) sono
-/// dichiarate <c>IsPositionCloseDependent</c> e vengono escluse dal catalogo.</para>
+/// <see cref="TakeProfitMoneyPerFutureContract"/>,
+/// <see cref="TrailingStopMoneyPerFutureContract"/>, <see cref="CloseAtUtc"/> e
+/// <see cref="MaxBarsInPosition"/>. <see cref="ExitOnly"/> è l'eccezione esplicita per una
+/// condizione di uscita osservabile solo a runtime: chiude la posizione opposta senza aprirne una
+/// nuova.</para>
 /// </summary>
 public class TradeSignal
 {
@@ -31,6 +30,13 @@ public class TradeSignal
     public decimal Quantity { get; set; } = 1m;
 
     /// <summary>
+    /// Chiude esclusivamente la posizione esistente nel verso indicato da <see cref="Type"/>,
+    /// senza aprirne una opposta. Serve alle strategie il cui exit dipende da una condizione
+    /// osservabile solo a runtime, come un reverse crossover.
+    /// </summary>
+    public bool ExitOnly { get; set; }
+
+    /// <summary>
     /// Ordine richiesto dalla strategia. La strategia descrive l'intent; il
     /// broker/engine decide il fill e mantiene l'eventuale ordine pendente.
     /// </summary>
@@ -41,6 +47,20 @@ public class TradeSignal
 
     /// <summary>Scadenza dell'ordine pendente. Null = policy dell'engine.</summary>
     public DateTime? ExpiresAtUtc { get; set; }
+
+    /// <summary>
+    /// Massimo numero di fill consentiti per <see cref="EntrySessionStartUtc"/>.
+    /// Il limite è applicato dall'engine al fill, non alla generazione del
+    /// segnale, così un ordine stop non eseguito può essere riemesso.
+    /// </summary>
+    public int? MaxEntriesPerSession { get; set; }
+
+    /// <summary>
+    /// Inizio UTC della sessione a cui attribuire il fill per
+    /// <see cref="MaxEntriesPerSession"/>. Deve essere valorizzato insieme al
+    /// limite; non descrive una sessione del broker.
+    /// </summary>
+    public DateTime? EntrySessionStartUtc { get; set; }
 
     /// <summary>Deadline in cui l'engine deve chiudere l'eventuale posizione.</summary>
     public DateTime? CloseAtUtc { get; set; }
@@ -75,6 +95,20 @@ public class TradeSignal
     /// Se null, nessun break even definito
     /// </summary>
     public decimal? BreakEven { get; set; }
+
+    /// <summary>
+    /// Profitto minimo in USD per singolo contratto futures necessario per
+    /// spostare lo stop al prezzo di ingresso. Alternativa monetaria a
+    /// <see cref="BreakEven"/>, che resta espressa in punti.
+    /// </summary>
+    public decimal? BreakEvenMoneyPerFutureContract { get; set; }
+
+    /// <summary>
+    /// Distanza del trailing stop in USD per singolo contratto futures. È
+    /// relativa al massimo/minimo favorevole raggiunto dopo il fill, non al
+    /// prezzo del segnale né a un valore CFD.
+    /// </summary>
+    public decimal? TrailingStopMoneyPerFutureContract { get; set; }
 
     /// <summary>
     /// Numero massimo di barre da mantenere in posizione.

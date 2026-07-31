@@ -29,6 +29,8 @@ public sealed class Easy_287_GC_5 : SessionBreakoutEngine
 
     public Easy_287_GC_5()
     {
+        // Questa strategia deriva dal sorgente EasyLanguage, non dal contratto BO Python.
+        UseLegacyVariant = true;
         SessionStartTime = 1800;  // SessBegin
         SessionEndTime = 1700;    // SessEnd
         Contracts = 1;

@@ -539,8 +539,14 @@ public sealed class TradingSessionService : ITradingSessionService
                             signal.StrategyCode, signal.Symbol, signal.RuntimeState);
                     var result = sized.GetValueOrDefault(signal);
 
-                    // Ogni segnale è un ingresso: le uscite non passano più dal server, ogni intent
-                    // porta con sé la propria specifica di chiusura e il client la esegue.
+                    // Un ExitOnly chiude la posizione opposta già confermata dal broker; non viene
+                    // dimensionato né trasformato in un template di ingresso.
+                    if (signal.ExitOnly && session.Mode == ExecutionMode.ExternalBroker)
+                    {
+                        emitted.AddRange(CreateExitOnlyCloseIntents(session, signal));
+                        continue;
+                    }
+
                     if (multiAccount)
                     {
                         // Template non assegnato: resta disponibile finché non viene reclamato da un
@@ -1022,33 +1028,78 @@ public sealed class TradingSessionService : ITradingSessionService
             if (!session.ExternalPositions.TryGetValue(key, out var position))
                 throw new KeyNotFoundException($"Nessuna posizione aperta per '{key}'.");
 
-            var quantity = request.Quantity > 0 ? Math.Min(request.Quantity, position.Quantity) : position.Quantity;
-
-            session.IntentSequence++;
-            var intent = new OrderIntent
-            {
-                IntentId = $"{session.Id}-{session.IntentSequence:D10}",
-                SessionId = session.Id,
-                StrategyCode = request.StrategyCode,
-                StrategyName = request.StrategyCode,
-                Symbol = symbol,
-                CreatedAtUtc = DateTime.UtcNow,
-                Side = position.Direction,
-                OrderType = TradeOrderType.Market,
-                Quantity = quantity,
-                BaseQuantity = quantity,
-                FinalQuantity = quantity,
-                Price = position.EntryPrice,
-                Kind = OrderIntentKind.Close,
-                Reason = string.IsNullOrWhiteSpace(request.Reason) ? "ClientLocalExit" : request.Reason,
-                AssignedAccountNumber = accountNumber,
-                Status = OrderIntentStatus.Pending
-            };
-            session.Intents.Add(intent);
+            var intent = CreateCloseIntent(
+                session, request.StrategyCode, symbol, position, accountNumber,
+                request.Quantity, string.IsNullOrWhiteSpace(request.Reason) ? "ClientLocalExit" : request.Reason,
+                DateTime.UtcNow);
             Persist(session);
             return intent;
         }
     }
+
+    private static IReadOnlyList<OrderIntent> CreateExitOnlyCloseIntents(Session session, TradeSignal signal)
+    {
+        var symbol = Normalize(signal.Symbol);
+        var closes = new List<OrderIntent>();
+        foreach (var position in session.ExternalPositions.Values
+                     .Where(position =>
+                         string.Equals(position.StrategyCode, signal.StrategyCode, StringComparison.OrdinalIgnoreCase) &&
+                         string.Equals(position.Symbol, symbol, StringComparison.OrdinalIgnoreCase) &&
+                         IsOpposite(position.Direction, signal.Type)))
+        {
+            var accountNumber = string.IsNullOrWhiteSpace(position.AccountNumber) ? null : position.AccountNumber;
+            if (HasPendingCloseIntent(session, signal.StrategyCode, symbol, accountNumber))
+                continue;
+
+            closes.Add(CreateCloseIntent(
+                session, signal.StrategyCode, symbol, position, accountNumber,
+                position.Quantity, string.IsNullOrWhiteSpace(signal.Reason) ? "StrategyExitOnly" : signal.Reason,
+                signal.Date));
+        }
+        return closes;
+    }
+
+    private static bool HasPendingCloseIntent(
+        Session session, string strategyCode, string symbol, string? accountNumber) =>
+        session.Intents.Any(intent =>
+            intent.IsClose &&
+            intent.Status is OrderIntentStatus.Pending or OrderIntentStatus.Accepted or OrderIntentStatus.PartiallyFilled &&
+            string.Equals(intent.StrategyCode, strategyCode, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(intent.Symbol, symbol, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(intent.AssignedAccountNumber, accountNumber, StringComparison.OrdinalIgnoreCase));
+
+    private static OrderIntent CreateCloseIntent(
+        Session session, string strategyCode, string symbol, TradingPositionSnapshot position,
+        string? accountNumber, decimal requestedQuantity, string reason, DateTime createdAtUtc)
+    {
+        var quantity = requestedQuantity > 0 ? Math.Min(requestedQuantity, position.Quantity) : position.Quantity;
+        session.IntentSequence++;
+        var intent = new OrderIntent
+        {
+            IntentId = $"{session.Id}-{session.IntentSequence:D10}",
+            SessionId = session.Id,
+            StrategyCode = strategyCode,
+            StrategyName = strategyCode,
+            Symbol = symbol,
+            CreatedAtUtc = createdAtUtc,
+            Side = position.Direction,
+            OrderType = TradeOrderType.Market,
+            Quantity = quantity,
+            BaseQuantity = quantity,
+            FinalQuantity = quantity,
+            Price = position.EntryPrice,
+            Kind = OrderIntentKind.Close,
+            Reason = reason,
+            AssignedAccountNumber = accountNumber,
+            Status = OrderIntentStatus.Pending
+        };
+        session.Intents.Add(intent);
+        return intent;
+    }
+
+    private static bool IsOpposite(SignalType positionDirection, SignalType signalDirection) =>
+        (positionDirection == SignalType.Buy && signalDirection == SignalType.Sell) ||
+        (positionDirection == SignalType.Sell && signalDirection == SignalType.Buy);
 
     /// <summary>
     /// Priorità per strategia usata per decidere quale segnale offrire per primo quando un account libero
@@ -1187,6 +1238,12 @@ public sealed class TradingSessionService : ITradingSessionService
             ?? (signal.TakeProfitMoneyPerFutureContract.HasValue
                 ? signal.TakeProfitMoneyPerFutureContract.Value / dollarsPerPoint
                 : null);
+        var trailingStopPoints = signal.TrailingStopMoneyPerFutureContract.HasValue
+            ? (decimal?)(signal.TrailingStopMoneyPerFutureContract.Value / dollarsPerPoint)
+            : null;
+        var breakEvenPoints = signal.BreakEvenMoneyPerFutureContract.HasValue
+            ? (decimal?)(signal.BreakEvenMoneyPerFutureContract.Value / dollarsPerPoint)
+            : signal.BreakEven;
 
         session.IntentSequence++;
         var intent = new OrderIntent
@@ -1212,7 +1269,8 @@ public sealed class TradingSessionService : ITradingSessionService
             // Specifica di uscita completa: e' l'unica cosa con cui il client chiudera' la posizione.
             StopLoss = stopLossPoints,
             TakeProfit = takeProfitPoints,
-            BreakEven = signal.BreakEven,
+            BreakEven = breakEvenPoints,
+            TrailingStop = trailingStopPoints,
             TimeframeMinutes = strategyTimeframe,
             MaxBarsInPosition = signal.MaxBarsInPosition,
             ValidFromUtc = signal.ValidFromUtc,
@@ -1268,6 +1326,7 @@ public sealed class TradingSessionService : ITradingSessionService
             StopLoss = template.StopLoss,
             TakeProfit = template.TakeProfit,
             BreakEven = template.BreakEven,
+            TrailingStop = template.TrailingStop,
             TimeframeMinutes = template.TimeframeMinutes,
             MaxBarsInPosition = template.MaxBarsInPosition,
             ValidFromUtc = template.ValidFromUtc,
@@ -1336,6 +1395,7 @@ public sealed class TradingSessionService : ITradingSessionService
             StopLoss = intent.StopLoss,
             TakeProfit = intent.TakeProfit,
             BreakEven = intent.BreakEven,
+            TrailingStop = intent.TrailingStop,
             TimeframeMinutes = intent.TimeframeMinutes,
             TimeExitUtc = intent.CloseAtUtc,
             Reason = intent.Reason,

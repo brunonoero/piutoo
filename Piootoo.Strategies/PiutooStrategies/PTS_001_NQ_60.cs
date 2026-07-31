@@ -1,8 +1,9 @@
 using Piootoo.Shared.Enums;
 using Piootoo.Shared.Models;
+using Piootoo.Strategies.Easy;
 using static Piootoo.Strategies.Easy.EasyLib;
 
-namespace Piootoo.Strategies.Easy;
+namespace Piootoo.Strategies.PiutooStrategies;
 
 /// <summary>
 /// PTS_001 — trend following mirrored su NQ a 60 minuti.
@@ -67,7 +68,9 @@ public sealed class PTS_001_NQ_60 : StatelessEasyStrategyBase
     public string Description => "TF_M NQ 60: breakout H/L d1, pattern mirrored, multiday";
     public string Symbol => _symbol;
     public int TimeframeMinutes => _timeframeMinutes;
-    public int RequiredCandles => 100;
+    // OHLCMulti5 e i pattern possono leggere d0..d5: servono sei sessioni
+    // complete, non le sole 100 barre minime usate dalla prima traduzione.
+    public int RequiredCandles => 6 * 1440 / _timeframeMinutes;
 
     public void Initialize(Dictionary<string, object>? parameters = null)
     {
@@ -138,7 +141,7 @@ public sealed class PTS_001_NQ_60 : StatelessEasyStrategyBase
         var startTime = _startHour * 100;
         var endTime = _endHour * 100;
         if (!TimeWindowInclusive(startTime, endTime, barTime) ||
-            (_skipDay >= 0 && ToPythonDayOfWeek(barTime.DayOfWeek) == _skipDay) ||
+            _skipDay >= 0 && ToPythonDayOfWeek(barTime.DayOfWeek) == _skipDay ||
             _currentMP != 0)
         {
             return Hold(bar.Close, barTime);

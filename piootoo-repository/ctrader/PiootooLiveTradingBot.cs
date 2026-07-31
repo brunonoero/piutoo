@@ -105,6 +105,8 @@ namespace cAlgo.Robots
             public int TimeframeMinutes { get; set; }
             /// <summary>Soglia in punti per spostare lo stop al prezzo di ingresso.</summary>
             public decimal? BreakEven { get; set; }
+            /// <summary>Distanza in punti dal massimo/minimo favorevole per il trailing stop.</summary>
+            public decimal? TrailingStop { get; set; }
             public DateTime? CloseAtUtc { get; set; }
             /// <summary>Limite di barre in posizione dichiarato dall'intent di ingresso. 0 = nessun limite.</summary>
             public int MaxBarsInPosition { get; set; }
@@ -128,6 +130,7 @@ namespace cAlgo.Robots
         // Intent già in gestione in questo avvio: evita di ri-eseguire ordini ad ogni poll finché il
         // server non registra l'esito (il poll è idempotente e ripropone lo stesso intent finché Pending).
         private readonly HashSet<string> _submittedIntentIds = new();
+        private readonly Dictionary<int, OrderIntentDto> _serverCloseIntents = new();
 
         protected override void OnStart()
         {
@@ -216,6 +219,7 @@ namespace cAlgo.Robots
                 PollNextSignal();
 
             MoveStopsToBreakEven();
+            MoveTrailingStops();
             CloseExpiredPositions();
             SaveLocalState();
         }
@@ -225,6 +229,7 @@ namespace cAlgo.Robots
             // Il prezzo può raggiungere e perdere la soglia all'interno della barra 5m:
             // il break-even va quindi verificato a ogni tick, non solo al bar-close.
             MoveStopsToBreakEven();
+            MoveTrailingStops();
         }
 
         /// <summary>
@@ -303,6 +308,44 @@ namespace cAlgo.Robots
                 var result = ModifyPosition(position, position.EntryPrice, position.TakeProfit);
                 if (!result.IsSuccessful && VerboseLogging)
                     Print("Impossibile spostare a break-even {0}/{1}: {2}",
+                        context.Symbol, context.StrategyCode, result.Error);
+            }
+        }
+
+        /// <summary>
+        /// Mantiene lo stop nativo del broker alla distanza dichiarata dal
+        /// massimo/minimo favorevole corrente. Il livello viene aggiornato
+        /// soltanto in direzione protettiva, quindi un ritracciamento non
+        /// allarga mai lo stop già piazzato.
+        /// </summary>
+        private void MoveTrailingStops()
+        {
+            foreach (var context in _openPositions.Values.ToArray())
+            {
+                if (!context.TrailingStop.HasValue || context.TrailingStop.Value <= 0)
+                    continue;
+
+                var position = Positions.FirstOrDefault(item => item.Id == context.PositionId);
+                if (position is null)
+                    continue;
+
+                var symbol = Symbols.GetSymbol(position.SymbolName);
+                if (symbol is null)
+                    continue;
+
+                var distance = (double)context.TrailingStop.Value;
+                var candidate = position.TradeType == TradeType.Buy
+                    ? symbol.Bid - distance
+                    : symbol.Ask + distance;
+                var improvesStop = position.TradeType == TradeType.Buy
+                    ? !position.StopLoss.HasValue || candidate > position.StopLoss.Value
+                    : !position.StopLoss.HasValue || candidate < position.StopLoss.Value;
+                if (!improvesStop)
+                    continue;
+
+                var result = ModifyPosition(position, candidate, position.TakeProfit);
+                if (!result.IsSuccessful && VerboseLogging)
+                    Print("Impossibile aggiornare trailing stop {0}/{1}: {2}",
                         context.Symbol, context.StrategyCode, result.Error);
             }
         }
@@ -451,12 +494,7 @@ namespace cAlgo.Robots
 
                 if (intent.IsClose || string.Equals(intent.Kind, "Close", StringComparison.OrdinalIgnoreCase))
                 {
-                    // Un intent di chiusura esiste solo come registrazione di una chiusura gia eseguita
-                    // da questo bot: riceverlo dal polling significherebbe che il server ha deciso
-                    // un'uscita, cosa non piu prevista.
-                    if (VerboseLogging)
-                        Print("Intent di chiusura {0} ignorato: le uscite sono gestite in locale con la " +
-                              "specifica dell'intent di ingresso.", intent.IntentId);
+                    HandleCloseIntent(intent);
                     return;
                 }
 
@@ -532,6 +570,7 @@ namespace cAlgo.Robots
                 Symbol = intent.Symbol,
                 TimeframeMinutes = intent.TimeframeMinutes,
                 BreakEven = intent.BreakEven,
+                TrailingStop = intent.TrailingStop,
                 CloseAtUtc = intent.CloseAtUtc,
                 MaxBarsInPosition = intent.MaxBarsInPosition ?? 0,
                 BarsInPosition = 0
@@ -540,6 +579,28 @@ namespace cAlgo.Robots
 
             ReportExecution(intent.IntentId, intent.Symbol, ExecutionReportStatusDto.Filled,
                 (decimal)result.Position.VolumeInUnits, (decimal)result.Position.EntryPrice, result.Position.Id.ToString());
+        }
+
+        private void HandleCloseIntent(OrderIntentDto intent)
+        {
+            var position = Positions.FirstOrDefault(candidate =>
+                candidate.SymbolName.Equals(intent.Symbol, StringComparison.OrdinalIgnoreCase) &&
+                candidate.Label == MakeLabel(intent.StrategyCode));
+            if (position is null)
+            {
+                ReportExecution(intent.IntentId, intent.Symbol, ExecutionReportStatusDto.Rejected, 0, null);
+                return;
+            }
+
+            _submittedIntentIds.Add(intent.IntentId);
+            _serverCloseIntents[position.Id] = intent;
+            var result = ClosePosition(position);
+            if (!result.IsSuccessful)
+            {
+                _serverCloseIntents.Remove(position.Id);
+                _submittedIntentIds.Remove(intent.IntentId);
+                Print("Errore chiusura posizione {0} per intent {1}: {2}", position.Id, intent.IntentId, result.Error);
+            }
         }
 
         /// <summary>
@@ -560,11 +621,11 @@ namespace cAlgo.Robots
             var quantity = (decimal)(trade?.VolumeInUnits ?? position.VolumeInUnits);
             var commission = (decimal)(trade?.Commissions ?? 0);
 
-            // Canale unico: ogni chiusura è decisa in locale applicando la specifica dell'intent di
-            // ingresso (SL/TP nativi del broker, CloseAtUtc, MaxBarsInPosition). La registriamo lato
-            // server con intents/close-external e poi riportiamo il fill contro quell'intent, così il
-            // trade confluisce in trades.json e alimenta le rotazioni Titano.
-            RegisterExternalCloseAndReport(ctx, position, quantity, closePrice, commission, args.Reason.ToString());
+            if (_serverCloseIntents.Remove(position.Id, out var closeIntent))
+                ReportExecution(closeIntent.IntentId, position.SymbolName, ExecutionReportStatusDto.Filled,
+                    quantity, closePrice, position.Id.ToString(), commission);
+            else
+                RegisterExternalCloseAndReport(ctx, position, quantity, closePrice, commission, args.Reason.ToString());
         }
 
         private void RegisterExternalCloseAndReport(
@@ -887,13 +948,14 @@ namespace cAlgo.Robots
             public TradeOrderTypeDto OrderType { get; set; }
             public decimal FinalQuantity { get; set; }
             public decimal Price { get; set; }
-            /// <summary>"Entry" oppure "Close". Il server emette solo intent di ingresso.</summary>
+            /// <summary>"Entry" oppure "Close"; Close può essere emesso per un segnale ExitOnly.</summary>
             public string Kind { get; set; } = "Entry";
             public bool IsClose { get; set; }
             // Specifica di uscita completa: e' l'unica informazione con cui il bot chiude la posizione.
             public decimal? StopLoss { get; set; }
             public decimal? TakeProfit { get; set; }
             public decimal? BreakEven { get; set; }
+            public decimal? TrailingStop { get; set; }
             public int TimeframeMinutes { get; set; }
             public int? MaxBarsInPosition { get; set; }
             public DateTime? CloseAtUtc { get; set; }

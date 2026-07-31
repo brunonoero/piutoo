@@ -32,13 +32,6 @@ public class PiootooDataFeedService : IPiootooDataFeedService
         _ => "OneHour" // Default
     };
 
-    /// <summary>
-    /// Per timeframe aggregati (15m, 30m, 1h, 4h) preferisci le cartelle -calculate.
-    /// Daily/weekly: usa il feed raw (D-calculate è spesso incompleto e non allineato al raw).
-    /// </summary>
-    private static bool PreferCalculated(int timeframeMinutes) =>
-        timeframeMinutes >= 15 && timeframeMinutes != 5 && timeframeMinutes < 1440;
-
     public async Task<OhlcvData[]> GetCandlesRangeAsync(string symbol, DateTime startUtc, DateTime endUtc, int timeframeMinutes)
     {
         startUtc = TradingDateTime.ToFeedUtc(startUtc);
@@ -49,7 +42,7 @@ public class PiootooDataFeedService : IPiootooDataFeedService
         }
 
         var candles = await _dataRepository.LoadDataRangeAsync(
-            symbol, startUtc, endUtc, ToBarType(timeframeMinutes), PreferCalculated(timeframeMinutes));
+            symbol, startUtc, endUtc, ToBarType(timeframeMinutes), preferCalculated: false);
 
         // LoadDataRangeAsync ordina già cronologicamente: il chiamante (CandleWindowCursor) conta
         // su questa garanzia per poter avanzare con un semplice indice.
@@ -60,7 +53,6 @@ public class PiootooDataFeedService : IPiootooDataFeedService
     {
         currentDate = TradingDateTime.ToFeedUtc(currentDate);
         var barType = ToBarType(timeframeMinutes);
-        var preferCalculated = PreferCalculated(timeframeMinutes);
 
 
         // Carica i dati fino alla data corrente
@@ -69,7 +61,8 @@ public class PiootooDataFeedService : IPiootooDataFeedService
         var daysBack = Math.Max(30, (numberOfCandles * timeframeMinutes) / (24 * 60) + 7); // Almeno 7 giorni extra
         var startDate = endDate.AddDays(-daysBack);
         
-        var allData = await _dataRepository.LoadDataRangeAsync(symbol, startDate, endDate, barType, preferCalculated);
+        var allData = await _dataRepository.LoadDataRangeAsync(
+            symbol, startDate, endDate, barType, preferCalculated: false);
         
         if (!allData.Any())
             return Array.Empty<OhlcvData>();

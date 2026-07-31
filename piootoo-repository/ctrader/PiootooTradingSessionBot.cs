@@ -161,9 +161,9 @@ namespace cAlgo.Robots
 
         // ------------------------------------------------------------------------------- Uscite
         //
-        // Non ci sono piu parametri di uscita locali: l'intero comportamento di chiusura arriva
-        // dall'intent di ingresso (StopLoss, TakeProfit, CloseAtUtc, MaxBarsInPosition) e il bot
-        // lo applica sempre, senza interpretazioni. Il server non emette intent di chiusura.
+        // I parametri di uscita locali arrivano dall'intent di ingresso (StopLoss, TakeProfit,
+        // CloseAtUtc, MaxBarsInPosition). Un intent Close del server rappresenta invece un ExitOnly
+        // della strategia e va eseguito contro la posizione già aperta.
 
         // ------------------------------------------------------------------------------- Stato
 
@@ -180,10 +180,12 @@ namespace cAlgo.Robots
         // Traccia, per label, l'ultimo intent di apertura inviato (serve a risolvere il fill
         // quando la posizione nasce in modo asincrono, es. ordine pending Stop/Limit).
         private readonly Dictionary<string, OrderIntentDto> _lastOpenIntentByLabel = new();
+        private readonly Dictionary<long, OrderIntentDto> _serverCloseIntents = new();
 
         // Traccia l'intent (di apertura) che ha originato ciascuna posizione, per calcolare le
         // barre trascorse (uscita locale "numero di barre").
         private readonly Dictionary<long, OrderIntentDto> _positionIntent = new();
+        private readonly HashSet<string> _submittedCloseIntentIds = new();
         private readonly Dictionary<long, int> _positionEntryBar = new();
 
         /// <summary>
@@ -362,11 +364,10 @@ namespace cAlgo.Robots
             if (!IsOurs(position))
                 return;
 
-            // Canale unico: ogni chiusura e decisa in locale applicando la specifica dell'intent di
-            // ingresso (SL/TP nativi, CloseAtUtc, MaxBarsInPosition). La registriamo lato server con
-            // POST {id}/intents/close-external e poi la referenziamo nell'execution report, cosi
-            // confluisce in trades.json e alimenta le rotazioni Titano.
-            RegisterExternalCloseAndReport(position, args.Reason);
+            if (_serverCloseIntents.Remove(position.Id, out var closeIntent))
+                ReportClosingFill(closeIntent, position);
+            else
+                RegisterExternalCloseAndReport(position, args.Reason);
 
             _positionIntent.Remove(position.Id);
             _positionEntryBar.Remove(position.Id);
@@ -664,11 +665,7 @@ namespace cAlgo.Robots
 
             if (intent.IsClose || string.Equals(intent.Kind, "Close", StringComparison.OrdinalIgnoreCase))
             {
-                // Un intent di chiusura puo esistere solo come registrazione di una chiusura gia
-                // eseguita da QUESTO bot (POST /intents/close-external): riceverlo da /bars
-                // significherebbe che il server ha deciso un'uscita, cosa non piu prevista.
-                Print("Intent di chiusura {0} ricevuto da /bars e ignorato: le uscite sono gestite in locale " +
-                      "con la specifica dell'intent di ingresso.", intent.IntentId);
+                ApplyCloseIntent(intent);
                 return;
             }
 
@@ -736,6 +733,33 @@ namespace cAlgo.Robots
             // Se il risultato porta gia una Position (ordine a mercato), il fill effettivo viene
             // comunque riportato da OnPositionOpened per avere un solo punto di reporting ed
             // evitare doppi execution-report verso il server.
+        }
+
+        private void ApplyCloseIntent(OrderIntentDto intent)
+        {
+            if (!_submittedCloseIntentIds.Add(intent.IntentId))
+                return;
+
+            var position = Positions.FirstOrDefault(candidate =>
+                candidate.SymbolName == SymbolName &&
+                candidate.Label == MakeLabel(intent.StrategyCode));
+            if (position is null)
+            {
+                _submittedCloseIntentIds.Remove(intent.IntentId);
+                Print("Intent di chiusura {0} ignorato: posizione {1}/{2} non trovata.",
+                    intent.IntentId, intent.Symbol, intent.StrategyCode);
+                return;
+            }
+
+            _serverCloseIntents[position.Id] = intent;
+            var result = ClosePosition(position);
+            if (!result.IsSuccessful)
+            {
+                _serverCloseIntents.Remove(position.Id);
+                _submittedCloseIntentIds.Remove(intent.IntentId);
+                Print("Errore chiusura intent {0} sulla posizione {1}: {2}",
+                    intent.IntentId, position.Id, result.Error);
+            }
         }
 
         /// <summary>
@@ -1117,7 +1141,7 @@ namespace cAlgo.Robots
             public decimal Quantity { get; set; }
             public decimal FinalQuantity { get; set; }
             public decimal Price { get; set; }
-            /// <summary>"Entry" oppure "Close". Il server emette solo intent di ingresso.</summary>
+            /// <summary>"Entry" oppure "Close"; Close può essere emesso per un segnale ExitOnly.</summary>
             public string Kind { get; set; } = "Entry";
             public bool IsClose { get; set; }
             // Specifica di uscita completa: e' l'unica informazione con cui il bot chiude la posizione.

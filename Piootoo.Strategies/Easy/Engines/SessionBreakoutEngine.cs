@@ -6,12 +6,10 @@ namespace Piootoo.Strategies.Easy.Engines;
 /// <summary>
 /// Motore breakout sugli estremi delle ultime N sessioni.
 ///
-/// <para>A ogni apertura di sessione fissa i livelli <c>hh</c> e <c>ll</c> sugli estremi delle
-/// ultime <see cref="Sessions"/> sessioni chiuse e ricalcola l'ADX sui valori di sessione.
-/// Durante la sessione, se <see cref="IncludeCurrentSession"/> è attivo, i due livelli si
-/// allargano seguendo gli estremi già toccati. Finché la finestra oraria è aperta, l'ADX resta
-/// sotto soglia e i gate di pattern passano, riemette a ogni barra uno stop buy su <c>hh</c> e
-/// uno stop sell su <c>ll</c>.</para>
+/// <para>Per default replica <c>easy_engine_py/breakout.py</c>: il canale usa solo sessioni
+/// chiuse e, se richiesto, gli estremi della sessione corrente <em>prima</em> della barra in
+/// valutazione. Gli stop sono quindi sempre validi dalla barra successiva e non leggono mai
+/// high/low della barra che li genera.</para>
 ///
 /// <para>Una direzione si disarma appena entra in posizione (<c>OKL</c>/<c>OKS</c>): un solo
 /// ingresso per sessione e per verso, come nell'originale.</para>
@@ -20,6 +18,13 @@ namespace Piootoo.Strategies.Easy.Engines;
 /// </summary>
 public abstract class SessionBreakoutEngine : EasyEngineBase
 {
+    /// <summary>
+    /// Abilita la traduzione EasyLanguage storica della sottoclasse. I suoi gate ADX, pause,
+    /// calendario EasyLanguage e disarmo per verso non appartengono al contratto Python e sono
+    /// disponibili soltanto con questo opt-in esplicito.
+    /// </summary>
+    protected bool UseLegacyVariant;
+
     // ------------------------------------------------------------------ livelli
 
     /// <summary>Numero di sessioni chiuse su cui calcolare massimo e minimo (<c>nSess</c>).</summary>
@@ -30,6 +35,21 @@ public abstract class SessionBreakoutEngine : EasyEngineBase
     /// (<c>levIncludeSess0</c>): il livello si allarga barra dopo barra.
     /// </summary>
     protected bool IncludeCurrentSession = true;
+
+    /// <summary>Offset del livello Python, espresso in tick.</summary>
+    protected int BreakoutOffsetTicks;
+
+    /// <summary>Dimensione tick usata dall'offset Python; il default replica il motore Python.</summary>
+    protected decimal TickSize = 0.1m;
+
+    /// <summary>
+    /// Se true, il trade viene chiuso alla fine della sessione per i timeframe intraday.
+    /// Corrisponde a <c>intraday_only</c> del motore Python.
+    /// </summary>
+    protected bool IntradayOnly = true;
+
+    /// <summary>Giorno da escludere nella convenzione pandas: 0 = lunedì, -1 = nessuno.</summary>
+    protected int SkipDay = -1;
 
     // ------------------------------------------------------------------ filtro ADX
 
@@ -122,6 +142,53 @@ public abstract class SessionBreakoutEngine : EasyEngineBase
 
     public TradeSignal GenerateSignal(OhlcvData[] data, DateTime currentDate)
     {
+        return UseLegacyVariant
+            ? GenerateLegacySignal(data, currentDate)
+            : GeneratePythonParitySignal(data, currentDate);
+    }
+
+    private TradeSignal GeneratePythonParitySignal(OhlcvData[] data, DateTime currentDate)
+    {
+        if (data is null || data.Length < RequiredCandles)
+            return Hold(data?.LastOrDefault()?.Close ?? 0m, currentDate, "Dati insufficienti");
+
+        var bar = data[^1];
+        var barTime = bar.DateTime;
+        BuildSessionOhlc(data, barTime, out var ohlc);
+
+        if (!TryGetPythonLevels(data, barTime, out var longLevel, out var shortLevel))
+            return Hold(bar.Close, barTime, "Livelli BO non disponibili");
+        if (!InPythonTradingWindow(barTime))
+            return Hold(bar.Close, barTime, "Fuori finestra BO");
+        if (PythonDayOfWeek(barTime) == SkipDay)
+            return Hold(bar.Close, barTime, "Giorno BO escluso");
+        if (!EasyLib.PatternNeutralFast(NeutralYes, ohlc) ||
+            EasyLib.PatternNeutralFast(NeutralNo, ohlc))
+        {
+            return Hold(bar.Close, barTime, "Pattern neutro BO non valido");
+        }
+
+        var offset = BreakoutOffsetTicks * TickSize;
+        var entries = new List<TradeSignal>(2);
+        if (EasyLib.PatternDirectionalFast(+DirectionalYes, ohlc) &&
+            !EasyLib.PatternDirectionalFast(+DirectionalNo, ohlc))
+        {
+            entries.Add(WithPythonSettings(
+                EntryStopNextBar(SignalType.Buy, longLevel + offset, data, barTime, "LE BO")));
+        }
+
+        if (EasyLib.PatternDirectionalFast(-DirectionalYes, ohlc) &&
+            !EasyLib.PatternDirectionalFast(-DirectionalNo, ohlc))
+        {
+            entries.Add(WithPythonSettings(
+                EntryStopNextBar(SignalType.Sell, shortLevel - offset, data, barTime, "SE BO")));
+        }
+
+        return Combine(entries, Hold(bar.Close, barTime));
+    }
+
+    private TradeSignal GenerateLegacySignal(OhlcvData[] data, DateTime currentDate)
+    {
         if (data is null || data.Length < RequiredCandles)
             return Hold(data?.LastOrDefault()?.Close ?? 0m, currentDate, "Dati insufficienti");
 
@@ -189,6 +256,104 @@ public abstract class SessionBreakoutEngine : EasyEngineBase
         }
 
         return Combine(entries, Hold(bar.Close, barTime));
+    }
+
+    private bool TryGetPythonLevels(
+        OhlcvData[] data,
+        DateTime barTime,
+        out decimal longLevel,
+        out decimal shortLevel)
+    {
+        var sessions = Math.Clamp(Sessions, 1, 5);
+        longLevel = decimal.MinValue;
+        shortLevel = decimal.MaxValue;
+        var currentSession = SessionKey(barTime);
+        var completed = new List<(DateTime Key, decimal High, decimal Low)>();
+        for (var index = 0; index < data.Length; index++)
+        {
+            var candidate = data[index];
+            var key = SessionKey(candidate.DateTime);
+            if (key >= currentSession)
+                continue;
+
+            if (completed.Count == 0 || completed[^1].Key != key)
+            {
+                completed.Add((key, candidate.High, candidate.Low));
+                continue;
+            }
+
+            var previous = completed[^1];
+            completed[^1] = (key, Math.Max(previous.High, candidate.High), Math.Min(previous.Low, candidate.Low));
+        }
+
+        if (completed.Count < sessions)
+            return false;
+
+        for (var index = completed.Count - sessions; index < completed.Count; index++)
+        {
+            longLevel = Math.Max(longLevel, completed[index].High);
+            shortLevel = Math.Min(shortLevel, completed[index].Low);
+        }
+
+        if (IncludeCurrentSession)
+        {
+            // breakout.py usa cummax/cummin.shift(1): la barra corrente non contribuisce mai.
+            // L'ordine nascerà per la barra seguente, quindi questo è l'unico punto che evita
+            // sia il look-ahead sia un trigger che insegua il massimo appena visto.
+            var hasPriorBar = false;
+            var currentHigh = decimal.MinValue;
+            var currentLow = decimal.MaxValue;
+            for (var index = 0; index < data.Length - 1; index++)
+            {
+                var candidate = data[index];
+                if (SessionKey(candidate.DateTime) != currentSession)
+                    continue;
+
+                hasPriorBar = true;
+                currentHigh = Math.Max(currentHigh, candidate.High);
+                currentLow = Math.Min(currentLow, candidate.Low);
+            }
+
+            if (hasPriorBar)
+            {
+                longLevel = Math.Max(longLevel, currentHigh);
+                shortLevel = Math.Min(shortLevel, currentLow);
+            }
+        }
+
+        return longLevel > decimal.MinValue && shortLevel < decimal.MaxValue;
+    }
+
+    private TradeSignal WithPythonSettings(TradeSignal signal)
+    {
+        // EngineSignals.single_entry_per_session del Python è un limite sul fill, non
+        // sull'emissione dello stop: un ordine non eseguito deve poter essere riemesso.
+        signal.MaxEntriesPerSession = 1;
+        signal.EntrySessionStartUtc = SessionKey(signal.ValidFromUtc!.Value);
+
+        if (IntradayOnly && TimeframeMinutes < 1440)
+            signal.CloseAtUtc = ResolveCloseAtUtc(signal.ValidFromUtc.Value, SessionEndTime);
+
+        return signal;
+    }
+
+    private bool InPythonTradingWindow(DateTime barTime)
+    {
+        if (StartTime < 0 && EndTime < 0)
+            return true;
+
+        var start = StartTime < 0 ? 0 : StartTime / 100;
+        var end = EndTime < 0 ? 23 : EndTime / 100;
+        var hour = barTime.Hour;
+        return start <= end ? hour >= start && hour <= end : hour >= start || hour <= end;
+    }
+
+    private static int PythonDayOfWeek(DateTime value) => ((int)value.DayOfWeek + 6) % 7;
+
+    private DateTime SessionKey(DateTime time)
+    {
+        var start = EasyLib.CombineDateAndHhmm(time.Date, SessionStartTime);
+        return SessionStartTime > SessionEndTime && time < start ? start.AddDays(-1) : start;
     }
 
     private void ResetLevels(decimal[] ohlc)
