@@ -29,16 +29,16 @@ public sealed class StrategyContractConformanceTests(ITestOutputHelper output)
     /// </summary>
     private static readonly HashSet<string> NotYetMigrated = new(StringComparer.OrdinalIgnoreCase)
     {
-        "Easy_102_FDAX_5", "Easy_120_CL_15", "Easy_123_CL_5", "Easy_152_NQ_5",
-        "Easy_156_NQ_15", "Easy_172_FDAX_15", "Easy_181_NQ_30", "Easy_195_CL_15",
+        "Easy_120_CL_15", "Easy_123_CL_5", "Easy_152_NQ_5",
+        "Easy_156_NQ_15", "Easy_181_NQ_30", "Easy_195_CL_15",
         "Easy_228_FDAX_30", "Easy_244_FDAX_15",
-        "Easy_298_NQ_30", "Easy_303_GC_15", "Easy_32_FDAX_15",
-        "Easy_336_GC_15", "Easy_342_NQ_15", "Easy_361_FDAX_30", "Easy_416_GC_30",
+        "Easy_303_GC_15", "Easy_32_FDAX_15",
+        "Easy_336_GC_15", "Easy_361_FDAX_30", "Easy_416_GC_30",
         "Easy_486_NQ_15", "Easy_506_GC_30", "Easy_515_FDAX_15",
         "Easy_531_NQ_60", "Easy_587_NQ_15", "Easy_643_FDAX_60", "Easy_653_GC_60",
-        "Easy_661_GC_30", "Easy_666_GC_5", "Easy_695_GC_5", "Easy_772_CL_60",
-        "Easy_796_NQ_15", "Easy_851_GC_5", "Easy_872_CL_15", "Easy_916_GC_15",
-        "Easy_940_GC_15", "Easy_956_NQ_15", "Easy_99_CL_5",
+        "Easy_661_GC_30", "Easy_666_GC_5", "Easy_772_CL_60",
+        "Easy_796_NQ_15", "Easy_851_GC_5", "Easy_872_CL_15",
+        "Easy_940_GC_15", "Easy_956_NQ_15",
     };
 
     /// <summary>

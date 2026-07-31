@@ -174,6 +174,13 @@ namespace cAlgo.Robots
         private readonly Dictionary<long, OrderIntentDto> _positionIntent = new();
         private readonly Dictionary<long, int> _positionEntryBar = new();
 
+        /// <summary>
+        /// Massimo utile per contratto osservato dopo ProfitStallAfterUtc, per posizione. E'
+        /// memoria di esecuzione locale: non viene ricostruita al riavvio, quindi una posizione
+        /// ripresa riparte a sorvegliare lo stallo dal proprio utile corrente.
+        /// </summary>
+        private readonly Dictionary<long, decimal> _peakProfitAfterStall = new();
+
         protected override void OnStart()
         {
             if (string.IsNullOrWhiteSpace(WorkspaceId))
@@ -351,6 +358,7 @@ namespace cAlgo.Robots
 
             _positionIntent.Remove(position.Id);
             _positionEntryBar.Remove(position.Id);
+            _peakProfitAfterStall.Remove(position.Id);
         }
 
         protected override void OnStop()
@@ -737,15 +745,50 @@ namespace cAlgo.Robots
 
                 string reason = null;
 
+                // Utile aperto per singolo contratto, nella stessa grandezza con cui il server
+                // dichiara le soglie: e' cosi che le strategie EasyLanguage esprimono
+                // openpositionprofit quando e' attivo setstopcontract.
+                var profitPerContract = position.VolumeInUnits > 0
+                    ? (decimal)(position.NetProfit / (position.VolumeInUnits / VolumePerQuantityUnit))
+                    : 0m;
+
                 if (intent.CloseAtUtc.HasValue && now >= intent.CloseAtUtc.Value)
                 {
-                    reason = "uscita a tempo (CloseAtUtc)";
+                    // La chiusura a tempo puo' essere condizionata all'utile: alcune strategie
+                    // escono all'ora prevista solo se sono sotto, altre lasciano correre il
+                    // vincente che ha gia' raggiunto la soglia. Stessa regola, soglia diversa.
+                    if (!intent.TimeExitOnlyIfProfitBelowMoneyPerContract.HasValue ||
+                        profitPerContract < intent.TimeExitOnlyIfProfitBelowMoneyPerContract.Value)
+                    {
+                        reason = "uscita a tempo (CloseAtUtc)";
+                    }
                 }
-                else if (intent.MaxBarsInPosition > 0 &&
-                         _positionEntryBar.TryGetValue(position.Id, out var entryBar) &&
-                         Bars.Count - entryBar >= intent.MaxBarsInPosition.Value)
+
+                if (reason == null && intent.MaxBarsInPosition > 0 &&
+                    _positionEntryBar.TryGetValue(position.Id, out var entryBar) &&
+                    Bars.Count - entryBar >= intent.MaxBarsInPosition.Value)
                 {
                     reason = "limite barre (MaxBarsInPosition)";
+                }
+
+                // Uscita per stallo dell'utile: dopo la deadline si tiene il massimo osservato e
+                // si chiude alla prima barra che non lo supera. Il picco vive in un dizionario
+                // locale perche' e' memoria di esecuzione, non parte dell'intent.
+                if (reason == null && intent.ProfitStallAfterUtc.HasValue && now >= intent.ProfitStallAfterUtc.Value)
+                {
+                    decimal peak;
+                    if (!_peakProfitAfterStall.TryGetValue(position.Id, out peak))
+                    {
+                        _peakProfitAfterStall[position.Id] = profitPerContract;
+                    }
+                    else if (profitPerContract > peak)
+                    {
+                        _peakProfitAfterStall[position.Id] = profitPerContract;
+                    }
+                    else
+                    {
+                        reason = "stallo dell'utile (ProfitStallAfterUtc)";
+                    }
                 }
 
                 if (reason == null)
@@ -1057,6 +1100,12 @@ namespace cAlgo.Robots
             public int? MaxBarsInPosition { get; set; }
             public DateTime? ExpiresAtUtc { get; set; }
             public DateTime? CloseAtUtc { get; set; }
+
+            /// <summary>Soglia di utile per contratto sotto la quale eseguire la chiusura a tempo.</summary>
+            public decimal? TimeExitOnlyIfProfitBelowMoneyPerContract { get; set; }
+
+            /// <summary>Istante da cui sorvegliare lo stallo dell'utile aperto.</summary>
+            public DateTime? ProfitStallAfterUtc { get; set; }
             public string Reason { get; set; }
         }
 

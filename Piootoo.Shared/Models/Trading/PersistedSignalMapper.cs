@@ -45,6 +45,8 @@ public static class PersistedSignalMapper
             BreakEven = signal.BreakEven,
             TimeExitUtc = signal.CloseAtUtc,
             MaxBarsInPosition = signal.MaxBarsInPosition,
+            TimeExitOnlyIfProfitBelowMoneyPerContract = signal.TimeExitOnlyIfProfitBelowMoneyPerContract,
+            ProfitStallAfterUtc = signal.ProfitStallAfterUtc,
             Reason = signal.Reason
         };
     }

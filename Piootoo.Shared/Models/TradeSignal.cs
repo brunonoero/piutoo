@@ -83,6 +83,30 @@ public class TradeSignal
     public int? MaxBarsInPosition { get; set; }
 
     /// <summary>
+    /// Condiziona la chiusura di <see cref="CloseAtUtc"/> all'utile aperto: alla deadline la
+    /// posizione viene chiusa <b>solo se</b> l'utile per contratto è inferiore a questa soglia,
+    /// altrimenti resta aperta.
+    ///
+    /// <para>Esprime due forme ricorrenti nei sorgenti EasyLanguage che sembrano opposte ma sono
+    /// la stessa regola: "se a quest'ora sei sotto, esci" (soglia 0) e "esci a quest'ora, a meno
+    /// che l'utile non abbia già raggiunto X" (soglia X, che lascia correre il vincente).</para>
+    ///
+    /// <para>È in denaro per contratto di riferimento, come stop e target.</para>
+    /// </summary>
+    public decimal? TimeExitOnlyIfProfitBelowMoneyPerContract { get; set; }
+
+    /// <summary>
+    /// Da questo istante in poi la posizione viene chiusa quando l'utile aperto <b>smette di
+    /// migliorare</b>: l'engine memorizza il massimo osservato dopo la deadline e chiude alla
+    /// prima barra in cui l'utile corrente non lo supera.
+    ///
+    /// <para>Traduce l'uscita "max days in trade" con stallo dell'utile: può chiudere in perdita,
+    /// in leggero utile o tenere un vincente finché continua a salire, e quindi non è
+    /// riducibile a un take profit.</para>
+    /// </summary>
+    public DateTime? ProfitStallAfterUtc { get; set; }
+
+    /// <summary>
     /// Intent aggiuntivi generati sulla stessa barra (es. stop long e short
     /// contemporanei). L'engine li tratta come segnali indipendenti.
     /// </summary>

@@ -379,7 +379,9 @@ public class PiootooTradingService : IPiootooTradingService
             signal.BreakEven,
             signal.MaxBarsInPosition,
             signal.CloseAtUtc,
-            signal.Reason);
+            signal.Reason,
+            signal.TimeExitOnlyIfProfitBelowMoneyPerContract,
+            signal.ProfitStallAfterUtc);
 
         RecordEntry(positionKey, currentTime);
     }
@@ -549,7 +551,7 @@ public class PiootooTradingService : IPiootooTradingService
         _entriesByDay.Clear();
     }
 
-    private void OpenPosition(string positionKey, string strategyName, string strategyCode, string symbol, SignalType direction, decimal entryPrice, DateTime entryTime, decimal quantity, decimal? stopLoss, decimal? takeProfit, decimal? breakEven = null, int? maxBarsInPosition = null, DateTime? closeAtUtc = null, string? reason = null)
+    private void OpenPosition(string positionKey, string strategyName, string strategyCode, string symbol, SignalType direction, decimal entryPrice, DateTime entryTime, decimal quantity, decimal? stopLoss, decimal? takeProfit, decimal? breakEven = null, int? maxBarsInPosition = null, DateTime? closeAtUtc = null, string? reason = null, decimal? timeExitOnlyIfProfitBelow = null, DateTime? profitStallAfterUtc = null)
     {
         if (quantity <= 0m)
             throw new ArgumentOutOfRangeException(nameof(quantity), "La quantità di ingresso deve essere positiva.");
@@ -571,7 +573,9 @@ public class PiootooTradingService : IPiootooTradingService
             CloseAtUtc = closeAtUtc,
             BarsInPosition = 0,
             LastProcessedBarTime = entryTime,
-            BreakEvenActivated = false
+            BreakEvenActivated = false,
+            TimeExitOnlyIfProfitBelowMoneyPerContract = timeExitOnlyIfProfitBelow,
+            ProfitStallAfterUtc = profitStallAfterUtc
         };
 
         _state.OpenPositions[positionKey] = position;
@@ -694,15 +698,51 @@ public class PiootooTradingService : IPiootooTradingService
 
         foreach (var (positionKey, position) in _state.OpenPositions)
         {
+            var markPrice = GetCurrentBar(position, currentBars)?.Close
+                ?? GetCurrentPrice(position, currentPrices, fallbackPrice);
+
             if (position.CloseAtUtc.HasValue && currentTime >= position.CloseAtUtc.Value)
             {
-                var timedExitPrice = GetCurrentBar(position, currentBars)?.Close
-                    ?? GetCurrentPrice(position, currentPrices, fallbackPrice);
-                if (timedExitPrice.HasValue)
+                // La chiusura a tempo può essere condizionata all'utile aperto: alcune strategie
+                // escono all'ora prevista solo se sono sotto, altre lasciano correre il vincente
+                // che ha già raggiunto una soglia. È la stessa regola con soglie diverse.
+                var executeTimeExit = true;
+                if (position.TimeExitOnlyIfProfitBelowMoneyPerContract is { } threshold &&
+                    markPrice.HasValue)
                 {
-                    positionsToClose.Add((positionKey, timedExitPrice.Value, TradeExitReason.TimeExit));
+                    executeTimeExit = OpenProfitPerContract(position, markPrice.Value) < threshold;
                 }
-                continue;
+
+                if (executeTimeExit)
+                {
+                    if (markPrice.HasValue)
+                    {
+                        positionsToClose.Add((positionKey, markPrice.Value, TradeExitReason.TimeExit));
+                    }
+                    continue;
+                }
+            }
+
+            // Uscita per stallo dell'utile: dopo la deadline si tiene il massimo osservato e si
+            // chiude alla prima barra che non lo supera.
+            if (position.ProfitStallAfterUtc is { } stallAfter &&
+                currentTime >= stallAfter &&
+                markPrice.HasValue)
+            {
+                var profit = OpenProfitPerContract(position, markPrice.Value);
+                if (position.PeakProfitAfterStallDeadline is not { } peak)
+                {
+                    position.PeakProfitAfterStallDeadline = profit;
+                }
+                else if (profit > peak)
+                {
+                    position.PeakProfitAfterStallDeadline = profit;
+                }
+                else
+                {
+                    positionsToClose.Add((positionKey, markPrice.Value, TradeExitReason.TimeExit));
+                    continue;
+                }
             }
 
             if (!position.MaxBarsInPosition.HasValue || position.MaxBarsInPosition.Value <= 0)
@@ -739,6 +779,20 @@ public class PiootooTradingService : IPiootooTradingService
                 ClosePosition(positionKey, exitPrice, currentTime, reason);
             }
         }
+    }
+
+    /// <summary>
+    /// Utile aperto per singolo contratto, in denaro. È la grandezza con cui le strategie
+    /// EasyLanguage esprimono <c>openpositionprofit</c> quando è attivo <c>setstopcontract</c>,
+    /// quindi confrontabile direttamente con le soglie dichiarate nel segnale.
+    /// </summary>
+    private static decimal OpenProfitPerContract(OpenPosition position, decimal markPrice)
+    {
+        var move = position.Direction == SignalType.Buy
+            ? markPrice - position.EntryPrice
+            : position.EntryPrice - markPrice;
+
+        return move * position.ContractPointValue;
     }
 
     private void ClosePosition(string positionKey, decimal exitPrice, DateTime exitTime, TradeExitReason exitReason)

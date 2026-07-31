@@ -261,6 +261,20 @@ public sealed class OrderIntent
 
     /// <summary>Istante entro cui la posizione va chiusa (uscita a tempo). Null = nessuna scadenza.</summary>
     public DateTime? CloseAtUtc { get; init; }
+
+    /// <summary>
+    /// Condiziona la chiusura a <see cref="CloseAtUtc"/> all'utile aperto per contratto: alla
+    /// deadline il client chiude solo se l'utile è inferiore a questa soglia. Null = chiusura
+    /// incondizionata.
+    /// </summary>
+    public decimal? TimeExitOnlyIfProfitBelowMoneyPerContract { get; init; }
+
+    /// <summary>
+    /// Da questo istante il client sorveglia l'utile aperto e chiude alla prima barra in cui non
+    /// supera il massimo osservato dopo la deadline. Null = nessuna uscita per stallo.
+    /// </summary>
+    public DateTime? ProfitStallAfterUtc { get; init; }
+
     public string? Reason { get; init; }
     public OrderIntentStatus Status { get; set; } = OrderIntentStatus.Pending;
     public decimal FilledQuantity { get; set; }

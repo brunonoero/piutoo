@@ -1196,6 +1196,8 @@ public sealed class TradingSessionService : ITradingSessionService
             ValidFromUtc = signal.ValidFromUtc,
             ExpiresAtUtc = signal.ExpiresAtUtc,
             CloseAtUtc = signal.CloseAtUtc,
+            TimeExitOnlyIfProfitBelowMoneyPerContract = signal.TimeExitOnlyIfProfitBelowMoneyPerContract,
+            ProfitStallAfterUtc = signal.ProfitStallAfterUtc,
             Reason = signal.Reason
         };
         if (addToIntents) session.Intents.Add(intent);
@@ -1249,6 +1251,8 @@ public sealed class TradingSessionService : ITradingSessionService
             ValidFromUtc = template.ValidFromUtc,
             ExpiresAtUtc = template.ExpiresAtUtc,
             CloseAtUtc = template.CloseAtUtc,
+            TimeExitOnlyIfProfitBelowMoneyPerContract = template.TimeExitOnlyIfProfitBelowMoneyPerContract,
+            ProfitStallAfterUtc = template.ProfitStallAfterUtc,
             Reason = template.Reason,
             AssignedAccountNumber = accountNumber,
             AssignedGroupId = groupId

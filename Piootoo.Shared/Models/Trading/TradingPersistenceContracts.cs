@@ -64,6 +64,16 @@ public sealed class PersistedSignal
     /// <summary>Numero massimo di barre in posizione dichiarato dal segnale. Null = nessun limite.</summary>
     public int? MaxBarsInPosition { get; init; }
 
+    /// <summary>
+    /// Soglia di utile per contratto sotto la quale la chiusura a <see cref="TimeExitUtc"/> viene
+    /// eseguita. Persistita perché senza di essa, rileggendo <c>signals.json</c>, non si
+    /// distinguerebbe una chiusura a tempo condizionata da una incondizionata.
+    /// </summary>
+    public decimal? TimeExitOnlyIfProfitBelowMoneyPerContract { get; init; }
+
+    /// <summary>Istante da cui sorvegliare lo stallo dell'utile aperto. Null = nessuna uscita per stallo.</summary>
+    public DateTime? ProfitStallAfterUtc { get; init; }
+
     /// <summary>Account la cui tabella di conversione ha generato il segnale. Vuoto = nessuna conversione.</summary>
     public string AccountId { get; init; } = string.Empty;
 

@@ -35,6 +35,14 @@ public abstract class TrendDeveloperEngine : EasyEngineBase
     /// <summary>Sorgente del livello di ingresso.</summary>
     protected TrendTrigger Trigger = TrendTrigger.CurrentSessionOhlc;
 
+    /// <summary>
+    /// Se true l'ingresso è a mercato sulla barra successiva invece che stop sul livello. Diverse
+    /// varianti del catalogo hanno la stessa struttura di gate ma entrano
+    /// <c>next bar at market</c>: in quel caso il livello di sessione non serve, e non viene
+    /// nemmeno richiesto.
+    /// </summary>
+    protected bool MarketEntry;
+
     // ------------------------------------------------------------------ finestra e limiti
 
     /// <summary>Inizio finestra operativa HHMM (<c>MyStartTrade</c>).</summary>
@@ -52,6 +60,19 @@ public abstract class TrendDeveloperEngine : EasyEngineBase
 
     /// <summary>Numero massimo di ingressi nella giornata (<c>MaxTradesPerDay</c>). 0 = illimitato.</summary>
     protected int MaxTradesPerDay;
+
+    /// <summary>
+    /// Inizio della pausa in cui non si opera (<c>MyStartPause</c>). -1 = nessuna pausa.
+    ///
+    /// <para>Attenzione: diverse sorgenti passano una coppia con inizio maggiore della fine
+    /// (es. 1200/1100). La condizione <c>t &lt; start or t &gt; end</c> è allora sempre vera, e la
+    /// pausa risulta <b>disattivata</b>. È il modo idiomatico con cui quelle strategie la
+    /// spengono senza rimuovere il codice: va riprodotto, non "corretto".</para>
+    /// </summary>
+    protected int PauseStart = -1;
+
+    /// <summary>Fine della pausa (<c>MyEndPause</c>).</summary>
+    protected int PauseEnd = -1;
 
     // ------------------------------------------------------------------ gate di pattern
 
@@ -83,6 +104,18 @@ public abstract class TrendDeveloperEngine : EasyEngineBase
     /// <summary>Mese escluso per lo short (1-12). -1 = nessuno.</summary>
     protected int NotEntryMonthShort = -1;
 
+    /// <summary>Unico giorno in cui è ammesso il long, 0 = domenica. -1 = nessun vincolo.</summary>
+    protected int OnlyEntryDayLong = -1;
+
+    /// <summary>Unico giorno in cui è ammesso lo short, 0 = domenica. -1 = nessun vincolo.</summary>
+    protected int OnlyEntryDayShort = -1;
+
+    /// <summary>Abilita il verso long. Diverse strategie del catalogo operano in un verso solo.</summary>
+    protected bool EnableLong = true;
+
+    /// <summary>Abilita il verso short.</summary>
+    protected bool EnableShort = true;
+
     // ------------------------------------------------------------------ gate PtnBaseSA2
 
     // Molte varianti aggiungono un secondo gate per verso sulla libreria PtnBaseSA2
@@ -100,6 +133,42 @@ public abstract class TrendDeveloperEngine : EasyEngineBase
 
     /// <summary>Pattern PtnBaseSA2 che impedisce lo short (<c>PtnSN</c>).</summary>
     protected int BaseNoShort = 42;
+
+    // ------------------------------------------------------------------ gate PatternFast
+
+    // Alcune varianti non usano la coppia neutro/direzionale ma quattro gate PatternFast, uno per
+    // verso. Le sentinelle sono 152 = sempre vero e 153 (fuori range) = sempre falso.
+
+    /// <summary>Pattern PatternFast richiesto per il long (<c>MyPtnLY</c>).</summary>
+    protected int FastYesLong = 152;
+
+    /// <summary>Pattern PatternFast che impedisce il long (<c>MyPtnLN</c>).</summary>
+    protected int FastNoLong = 153;
+
+    /// <summary>Pattern PatternFast richiesto per lo short (<c>MyPtnSY</c>).</summary>
+    protected int FastYesShort = 152;
+
+    /// <summary>Pattern PatternFast che impedisce lo short (<c>MyPtnSN</c>).</summary>
+    protected int FastNoShort = 153;
+
+    // ------------------------------------------------------------------ gate su ATR
+
+    /// <summary>
+    /// Periodo dell'ATR usato come gate di estensione (<c>AvgTrueRange(N)</c>). 0 = gate spento.
+    /// </summary>
+    protected int AtrGateLength;
+
+    /// <summary>
+    /// Moltiplicatore ATR per il long: si entra solo se il close supera l'apertura di sessione di
+    /// <c>mult × ATR</c> (<c>PortATRpiu</c>). 0 = nessuna condizione sul long.
+    /// </summary>
+    protected decimal AtrGateMultiplierLong;
+
+    /// <summary>
+    /// Moltiplicatore ATR per lo short: si entra solo se il close è sotto l'apertura di sessione
+    /// di <c>mult × ATR</c> (<c>PortATRmeno</c>). 0 = nessuna condizione sullo short.
+    /// </summary>
+    protected decimal AtrGateMultiplierShort;
 
     // ------------------------------------------------------------------ chiusura di fine sessione
 
@@ -144,10 +213,10 @@ public abstract class TrendDeveloperEngine : EasyEngineBase
             _ => (ohlc[1], ohlc[2])                                    // highd0 / lowd0
         };
 
-        if (longLevel <= 0m || shortLevel <= 0m)
+        if (!MarketEntry && (longLevel <= 0m || shortLevel <= 0m))
             return Hold(bar.Close, barTime, "Livelli di sessione non disponibili");
 
-        if (!InWindow(barTime))
+        if (!InWindow(barTime) || !OutsidePause(barTime))
             return Hold(bar.Close, barTime);
 
         if (MaxTradesPerDay > 0 && EntriesTodayCount >= MaxTradesPerDay)
@@ -162,30 +231,51 @@ public abstract class TrendDeveloperEngine : EasyEngineBase
         if (!PassesExtraGates(ohlc, data, barTime))
             return Hold(bar.Close, barTime);
 
+        // Gate di estensione su ATR: misura quanto la sessione si è già mossa dalla propria
+        // apertura in multipli di volatilità. Calcolato una volta per barra, non per verso.
+        var sessionOpen = ohlc[0];
+        var atr = AtrGateLength > 0 ? EasyLib.AvgTrueRange(data, AtrGateLength) : 0m;
+        var atrGateLong = AtrGateLength <= 0 || AtrGateMultiplierLong <= 0m ||
+                          bar.Close > sessionOpen + AtrGateMultiplierLong * atr;
+        var atrGateShort = AtrGateLength <= 0 || AtrGateMultiplierShort <= 0m ||
+                           bar.Close < sessionOpen - AtrGateMultiplierShort * atr;
+
         var entries = new List<TradeSignal>(2);
 
-        if (EasyLib.PatternDirectionalFast(+DirectionalYes, ohlc) &&
+        if (EnableLong &&
+            (OnlyEntryDayLong < 0 || EasyDayOfWeek(barTime) == OnlyEntryDayLong) &&
+            atrGateLong &&
+            EasyLib.PatternDirectionalFast(+DirectionalYes, ohlc) &&
             !EasyLib.PatternDirectionalFast(+DirectionalNo, ohlc) &&
             EasyLib.PtnBaseSA2(BaseYesLong, ohlc) &&
             !EasyLib.PtnBaseSA2(BaseNoLong, ohlc) &&
+            EasyLib.PatternFast(FastYesLong, ohlc) &&
+            !EasyLib.PatternFast(FastNoLong, ohlc) &&
             EasyDayOfWeek(barTime) != NotEntryDayLong &&
             barTime.Month != NotEntryMonthLong &&
             PassesDirectionalExtraGates(SignalType.Buy, ohlc, data, barTime))
         {
-            entries.Add(WithSessionClose(
-                EntryStopNextBar(SignalType.Buy, longLevel, data, barTime, "LE"), barTime));
+            entries.Add(WithSessionClose(MarketEntry
+                ? EntryMarketNextBar(SignalType.Buy, bar.Close, data, barTime, "LE")
+                : EntryStopNextBar(SignalType.Buy, longLevel, data, barTime, "LE"), barTime));
         }
 
-        if (EasyLib.PatternDirectionalFast(-DirectionalYes, ohlc) &&
+        if (EnableShort &&
+            (OnlyEntryDayShort < 0 || EasyDayOfWeek(barTime) == OnlyEntryDayShort) &&
+            atrGateShort &&
+            EasyLib.PatternDirectionalFast(-DirectionalYes, ohlc) &&
             !EasyLib.PatternDirectionalFast(-DirectionalNo, ohlc) &&
             EasyLib.PtnBaseSA2(BaseYesShort, ohlc) &&
             !EasyLib.PtnBaseSA2(BaseNoShort, ohlc) &&
+            EasyLib.PatternFast(FastYesShort, ohlc) &&
+            !EasyLib.PatternFast(FastNoShort, ohlc) &&
             EasyDayOfWeek(barTime) != NotEntryDayShort &&
             barTime.Month != NotEntryMonthShort &&
             PassesDirectionalExtraGates(SignalType.Sell, ohlc, data, barTime))
         {
-            entries.Add(WithSessionClose(
-                EntryStopNextBar(SignalType.Sell, shortLevel, data, barTime, "SE"), barTime));
+            entries.Add(WithSessionClose(MarketEntry
+                ? EntryMarketNextBar(SignalType.Sell, bar.Close, data, barTime, "SE")
+                : EntryStopNextBar(SignalType.Sell, shortLevel, data, barTime, "SE"), barTime));
         }
 
         return Combine(entries, Hold(bar.Close, barTime));
@@ -196,6 +286,13 @@ public abstract class TrendDeveloperEngine : EasyEngineBase
         if (CloseAtTime >= 0)
             signal.CloseAtUtc = ResolveCloseAtUtc(barTime, CloseAtTime);
         return signal;
+    }
+
+    private bool OutsidePause(DateTime barTime)
+    {
+        if (PauseStart < 0 || PauseEnd < 0) return true;
+        var t = Hhmm(barTime);
+        return t < PauseStart || t > PauseEnd;
     }
 
     private bool InWindow(DateTime barTime) => InclusiveWindowEnd

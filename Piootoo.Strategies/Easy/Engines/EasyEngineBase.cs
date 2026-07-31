@@ -49,6 +49,21 @@ public abstract class EasyEngineBase : StatelessEasyStrategyBase
     /// <summary>Numero massimo di barre in posizione. 0 = nessun limite.</summary>
     protected int MaxBars;
 
+    /// <summary>
+    /// Giorni di calendario massimi in posizione (<c>MaxDaysInTrade</c>). 0 = nessun limite.
+    ///
+    /// <para>Nell'originale è un contatore incrementato al cambio di giornata e confrontato a ogni
+    /// barra; qui diventa una deadline <c>CloseAtUtc</c> calcolata all'ingresso, così l'engine e
+    /// il cBot la applicano senza interrogare la strategia.</para>
+    /// </summary>
+    protected int MaxDaysInTrade;
+
+    /// <summary>
+    /// Soglia di utile per contratto sotto la quale eseguire la chiusura a tempo. Null = chiusura
+    /// incondizionata. Vedi <c>TradeSignal.TimeExitOnlyIfProfitBelowMoneyPerContract</c>.
+    /// </summary>
+    protected decimal? TimeExitOnlyIfProfitBelow;
+
     // ------------------------------------------------------------------ stato per barra
 
     // I due campi seguenti sono popolati per riflessione da StatelessEasyStrategyBase prima di
@@ -139,6 +154,8 @@ public abstract class EasyEngineBase : StatelessEasyStrategyBase
             TakeProfitMoneyPerFutureContract = ProfitMoney > 0 ? ProfitMoney : null,
             BreakEven = BreakEvenMoney > 0 ? BreakEvenMoney : null,
             MaxBarsInPosition = MaxBars > 0 ? MaxBars : null,
+            CloseAtUtc = MaxDaysInTrade > 0 ? barTime.Date.AddDays(MaxDaysInTrade) : null,
+            TimeExitOnlyIfProfitBelowMoneyPerContract = TimeExitOnlyIfProfitBelow,
             Reason = reason
         };
     }

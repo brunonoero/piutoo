@@ -61,4 +61,23 @@ public class OpenPosition
     /// Indica se il break even è stato attivato (stop loss spostato a entry price)
     /// </summary>
     public bool BreakEvenActivated { get; set; }
+
+    /// <summary>
+    /// Soglia di utile per contratto sotto la quale la chiusura a
+    /// <see cref="CloseAtUtc"/> viene eseguita. Se l'utile alla deadline è pari o superiore, la
+    /// posizione resta aperta.
+    /// </summary>
+    public decimal? TimeExitOnlyIfProfitBelowMoneyPerContract { get; set; }
+
+    /// <summary>
+    /// Istante da cui l'engine sorveglia lo stallo dell'utile aperto.
+    /// </summary>
+    public DateTime? ProfitStallAfterUtc { get; set; }
+
+    /// <summary>
+    /// Massimo utile per contratto osservato dopo <see cref="ProfitStallAfterUtc"/>. Null finché
+    /// la deadline non è stata superata; è la memoria che rende l'uscita per stallo eseguibile
+    /// dall'engine senza interrogare la strategia.
+    /// </summary>
+    public decimal? PeakProfitAfterStallDeadline { get; set; }
 }

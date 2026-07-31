@@ -76,6 +76,33 @@ public abstract class SessionBreakoutEngine : EasyEngineBase
     /// <summary>Sessione della settimana da saltare per lo short (<c>SkipSessS</c>).</summary>
     protected int SkipSessionShort = -1;
 
+    // Varianti che sostituiscono la coppia neutro/direzionale con quattro gate PtnBaseSA2, uno
+    // per verso. Sentinelle: 41 = sempre vero, 42 = sempre falso.
+
+    /// <summary>Pattern PtnBaseSA2 richiesto per il long (<c>MyPtnLY</c>).</summary>
+    protected int BaseYesLong = 41;
+
+    /// <summary>Pattern PtnBaseSA2 che impedisce il long (<c>MyPtnLN</c>).</summary>
+    protected int BaseNoLong = 42;
+
+    /// <summary>Pattern PtnBaseSA2 richiesto per lo short (<c>MyPtnSY</c>).</summary>
+    protected int BaseYesShort = 41;
+
+    /// <summary>Pattern PtnBaseSA2 che impedisce lo short (<c>MyPtnSN</c>).</summary>
+    protected int BaseNoShort = 42;
+
+    /// <summary>Giorno della settimana escluso per il long, 0 = domenica. -1 = nessuno.</summary>
+    protected int NotEntryDayLong = -1;
+
+    /// <summary>Giorno della settimana escluso per lo short, 0 = domenica. -1 = nessuno.</summary>
+    protected int NotEntryDayShort = -1;
+
+    /// <summary>Mese escluso per il long (1-12). -1 = nessuno.</summary>
+    protected int NotEntryMonthLong = -1;
+
+    /// <summary>Mese escluso per lo short (1-12). -1 = nessuno.</summary>
+    protected int NotEntryMonthShort = -1;
+
     // ------------------------------------------------------------------ stato di sessione
 
     private decimal _hh;
@@ -140,7 +167,11 @@ public abstract class SessionBreakoutEngine : EasyEngineBase
         if (_okLong &&
             EasyLib.PatternDirectionalFast(+DirectionalYes, ohlc) &&
             !EasyLib.PatternDirectionalFast(+DirectionalNo, ohlc) &&
-            _sessionOfWeek != SkipSessionLong)
+            EasyLib.PtnBaseSA2(BaseYesLong, ohlc) &&
+            !EasyLib.PtnBaseSA2(BaseNoLong, ohlc) &&
+            _sessionOfWeek != SkipSessionLong &&
+            EasyDayOfWeek(barTime) != NotEntryDayLong &&
+            barTime.Month != NotEntryMonthLong)
         {
             entries.Add(EntryStopNextBar(SignalType.Buy, _hh, data, barTime, "LE"));
         }
@@ -148,7 +179,11 @@ public abstract class SessionBreakoutEngine : EasyEngineBase
         if (_okShort &&
             EasyLib.PatternDirectionalFast(-DirectionalYes, ohlc) &&
             !EasyLib.PatternDirectionalFast(-DirectionalNo, ohlc) &&
-            _sessionOfWeek != SkipSessionShort)
+            EasyLib.PtnBaseSA2(BaseYesShort, ohlc) &&
+            !EasyLib.PtnBaseSA2(BaseNoShort, ohlc) &&
+            _sessionOfWeek != SkipSessionShort &&
+            EasyDayOfWeek(barTime) != NotEntryDayShort &&
+            barTime.Month != NotEntryMonthShort)
         {
             entries.Add(EntryStopNextBar(SignalType.Sell, _ll, data, barTime, "SE"));
         }
