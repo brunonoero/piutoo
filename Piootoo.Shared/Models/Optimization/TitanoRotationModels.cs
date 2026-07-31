@@ -5,7 +5,12 @@ public enum TitanoRunStatus { Completed, Failed }
 public enum TitanoStrategyStatus { Enabled, Reduced, Disabled, HardStopped }
 public enum TitanoWalkForwardMode { Rolling, Expanding }
 
-public sealed class TitanoRotationRequest
+/// <summary>
+/// Configurazione di un run di rotazione. È un <c>record</c> perché è un oggetto di sola
+/// configurazione: consente <c>with</c> per derivarne varianti senza ripetere tutti i parametri, e
+/// dà uguaglianza per valore — utile quando si confrontano due configurazioni.
+/// </summary>
+public sealed record TitanoRotationRequest
 {
     public required string WorkspaceId { get; init; }
     public required string BacktestFolder { get; init; }
@@ -123,6 +128,19 @@ public sealed class TitanoRotationSetup
     public int CooldownPeriodsAfterOff { get; set; } = 2;
     public int MinimumOnPeriods { get; set; } = 1;
     public decimal HardStopDrawdown { get; set; } = 0.35m;
+
+    /// <summary>Vedi <see cref="TitanoRotationRequest.CrossSectionalSizing"/>.</summary>
+    public bool CrossSectionalSizing { get; set; } = true;
+
+    /// <summary>Vedi <see cref="TitanoRotationRequest.MinimumAllocationMultiplier"/>.</summary>
+    public decimal MinimumAllocationMultiplier { get; set; } = 0.25m;
+
+    /// <summary>Vedi <see cref="TitanoRotationRequest.MaximumAllocationMultiplier"/>.</summary>
+    public decimal MaximumAllocationMultiplier { get; set; } = 1m;
+
+    /// <summary>Vedi <see cref="TitanoRotationRequest.AllocationStep"/>.</summary>
+    public decimal AllocationStep { get; set; } = 0.05m;
+
     public decimal CommissionPerUnit { get; set; }
     public decimal SlippagePerUnit { get; set; }
     public List<TitanoSizingTier> SizingTiers { get; set; } =
@@ -135,6 +153,19 @@ public sealed class TitanoRotationSetup
     public int CalibrationPeriods { get; set; } = 8;
     public int EvaluationPeriods { get; set; } = 4;
     public TitanoWalkForwardMode WalkForwardMode { get; set; } = TitanoWalkForwardMode.Rolling;
+}
+
+/// <summary>
+/// Voce di elenco di un setup di rotazione salvato: quanto basta a popolare una combo senza
+/// deserializzare l'intero <see cref="TitanoRotationSetup"/>.
+/// </summary>
+public class TitanoSetupInfo
+{
+    public string Id { get; set; } = string.Empty;
+    public string Name { get; set; } = string.Empty;
+    public string Description { get; set; } = string.Empty;
+    public string FileName { get; set; } = string.Empty;
+    public DateTime? UpdatedAt { get; set; }
 }
 
 public sealed class TitanoRunInfo
@@ -164,6 +195,20 @@ public sealed class TitanoRotationManifest
     public List<TitanoEquityPoint> FilteredEquity { get; init; } = [];
     public List<TitanoWalkForwardResult> WalkForward { get; init; } = [];
     public List<TitanoHardStopReset> HardStopResets { get; init; } = [];
+
+    /// <summary>
+    /// Spiega un <see cref="WalkForward"/> vuoto o parziale. Vuoto quando la validazione è completa.
+    /// Una tabella vuota nel report era indistinguibile da "nessun problema rilevato".
+    /// </summary>
+    public string WalkForwardNote { get; init; } = string.Empty;
+
+    /// <summary>
+    /// Trade del master filter la cui <c>EntryTimeUtc</c> cade fuori dai periodi efficaci del run —
+    /// il primo periodo è solo osservazione e l'ultimo non produce decisione. Sono presenti in
+    /// <see cref="OriginalEquity"/> e assenti da <see cref="FilteredEquity"/>: senza dichiararlo, il
+    /// confronto fra le due curve sembra a parità di campione e non lo è.
+    /// </summary>
+    public int TradesOutsideCoverage { get; init; }
 }
 
 public sealed class TitanoRotationDecision
@@ -241,6 +286,13 @@ public sealed class TitanoWalkForwardResult
     public decimal InSampleNetProfit { get; init; }
     public decimal OutOfSampleNetProfit { get; init; }
     public bool InSampleOnlyImprovementWarning { get; init; }
+
+    /// <summary>
+    /// true quando la finestra di valutazione è più corta di <c>EvaluationPeriods</c> perché il run
+    /// finisce prima. Il confronto IS/OOS resta valido ma è su un campione ridotto: senza questo
+    /// flag l'ultima riga sembrava confrontabile con le precedenti.
+    /// </summary>
+    public bool EvaluationTruncated { get; init; }
 }
 
 public sealed class TitanoHardStopReset

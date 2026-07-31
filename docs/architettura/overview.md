@@ -17,7 +17,6 @@ Progetti coinvolti:
 - `PiootooApp.Server` — API ASP.NET Core, espone i controller HTTP.
 - `piootooapp.clientform` — console WinForms per workspace/backtest/Titano/
   trading session (client interno di sviluppo).
-- `piootoo.titanoclient` — client WinForms per filtro/setup strategie.
 - `piootooapp.client` — SPA Angular (non collegata al debug F5 del server, vedi
   nota in `../client/`).
 

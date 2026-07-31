@@ -109,6 +109,18 @@ namespace cAlgo.Robots
         [Parameter("Titano Mode", DefaultValue = TitanoFilterModeParam.Disabled, Group = "Connessione")]
         public TitanoFilterModeParam TitanoMode { get; set; }
 
+        // Applica MaxConcurrentTrades nella distribuzione multi-account.
+        //
+        //   Default  -> attivo ovunque tranne nel backtest con Titano Disabled, che deve produrre
+        //               tutti i trade del master filter per alimentare le rotazioni.
+        //   On / Off -> forza il comportamento.
+        //
+        // Serve a isolare i due effetti: confrontando un backtest Disabled con uno
+        // BacktestRotationFile lasciando il default si muovono DUE variabili (rotazione e limite di
+        // concorrenza) e si attribuisce a Titano una differenza che in parte non e' sua.
+        [Parameter("Limite Trade Concorrenti", DefaultValue = ConcurrencyLimitParam.Default, Group = "Connessione")]
+        public ConcurrencyLimitParam ConcurrencyLimit { get; set; }
+
         /// <summary>
         /// Contesto in cui il bot sta girando, letto dalla piattaforma e non da un parametro: e' la
         /// ragione per cui il server puo' fidarsene per rifiutare le combinazioni incoerenti.
@@ -561,6 +573,9 @@ namespace cAlgo.Robots
                 TitanoRunId = string.IsNullOrWhiteSpace(TitanoRunId) ? null : TitanoRunId.Trim(),
                 TitanoBacktestFolder = string.IsNullOrWhiteSpace(TitanoBacktestFolder) ? null : TitanoBacktestFolder.Trim(),
                 TitanoMode = TitanoMode.ToString(),
+                EnforceConcurrencyLimits = ConcurrencyLimit == ConcurrencyLimitParam.Default
+                    ? (bool?)null
+                    : ConcurrencyLimit == ConcurrencyLimitParam.On,
                 // NON e' un parametro: lo legge la piattaforma. Cosi il server puo' rifiutare le
                 // combinazioni incoerenti (Realtime in backtest, BacktestRotationFile in live)
                 // invece di lasciarle passare e produrre numeri plausibili ma sbagliati.
@@ -1001,6 +1016,17 @@ namespace cAlgo.Robots
             Realtime
         }
 
+        /// <summary>
+        /// Mappato su CreateTradingSessionRequest.EnforceConcurrencyLimits (bool?):
+        /// Default = null, On = true, Off = false.
+        /// </summary>
+        public enum ConcurrencyLimitParam
+        {
+            Default,
+            On,
+            Off
+        }
+
         // ----------------------------------------------------------------------- DTO contratto API
         // Copie locali (POCO) dei contratti definiti in Piootoo.Shared.Models.Trading, cosi il cBot
         // resta un singolo file senza riferimenti al progetto server. I campi enum-like (Side,
@@ -1018,6 +1044,7 @@ namespace cAlgo.Robots
             public string TitanoRunId { get; set; }
             public string TitanoBacktestFolder { get; set; }
             public string TitanoMode { get; set; } = "Disabled";
+            public bool? EnforceConcurrencyLimits { get; set; }
             public string ClientRunMode { get; set; } = "Unknown";
             public List<InstrumentMetadataDto> Instruments { get; set; } = new();
         }

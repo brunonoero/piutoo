@@ -36,7 +36,6 @@ l'API ASP.NET Core.
 | `PiootooApp.Server` | API HTTP. Solo controller sottili + DI. | Core |
 | `Piootoo.FeedWorker` | Worker che alimenta le sessioni live con barre chiuse. | Core |
 | `piootooapp.clientform` | Console WinForms a quattro tab. Client HTTP puro. | Shared |
-| `piootoo.titanoclient` | Client WinForms per filtro/setup strategie. | Shared |
 | `piootooapp.client` | SPA Angular, scollegata dal debug F5. | — |
 | `piootoo-repository/` | Dati fuori dal codice: `datafeed/` (JSON OHLCV), `ctrader/` (sorgenti cBot), `easy/` (sorgenti EasyLanguage). | — |
 
@@ -265,16 +264,16 @@ rifiutato con zero riempito.
 
 ### 4.4 Titano
 
-Due modelli distinti, da non confondere:
+Un solo modello: `TitanoRotationService`. Legge `trades.json`, produce un manifest
+di run con periodi e moltiplicatori di allocazione, consumato dal backtest interno
+e dalle sessioni di trading.
 
-| | `TitanoFilterService` | `TitanoRotationService` |
-|---|---|---|
-| Input | `BacktestingResult` (equity settimanale) | `trades.json` |
-| Config | `TitanoFilterRequest` (setup salvabili) | `TitanoRotationRequest` |
-| Output | report di filtro | manifest di run con periodi |
-| Consumato da | `POST /titano/apply-filter` | sessioni di trading |
-
-Il flusso principale è il secondo:
+Fino al 31/07/2026 esisteva un secondo filtro (`TitanoFilterService`, ON/OFF
+settimanale binario su `BacktestingResult`, esposto su `POST /titano/apply-filter`
+e usato dal client `piootoo.titanoclient`). È stato rimosso: mai eseguito, mai
+adottato dalla console principale, e affetto da un lock-out permanente del
+cooldown. Vedi `decisioni.md` (2026-07-31) e
+`titano-analisi-parametri-e-audit-2026-07-31.md`.
 
 ```
 trades.json → Run() → runId = sha(trades + masterfilter + config)

@@ -84,6 +84,11 @@ public partial class WorkspaceBacktestingForm : Form
     private readonly NumericUpDown _titanoEvaluation = new();
     private readonly ComboBox _titanoWalkForwardMode = new();
     private readonly TextBox _titanoSizingTiers = new() { Text = "0.80=100%; 0.60=50%; 0.40=25%; 0=0%" };
+    private readonly CheckBox _titanoCrossSectional =
+        new() { Text = "Sizing per percentile (rango fra le strategie del periodo)", AutoSize = true, Checked = true };
+    private readonly NumericUpDown _titanoMinAllocation = new();
+    private readonly NumericUpDown _titanoMaxAllocation = new();
+    private readonly NumericUpDown _titanoAllocationStep = new();
     private readonly Button _titanoResetHardStopButton = new();
     private readonly Button _openTitanoReportButton = new();
     private TitanoRotationManifest? _lastTitanoManifest;
@@ -1717,8 +1722,22 @@ public partial class WorkspaceBacktestingForm : Form
 
         settingsStack.Controls.Add(BuildTitanoGroup("Sizing e costi", new Control[]
         {
+            WithHelp(_titanoCrossSectional,
+                "Attivo: l'allocazione è il rango della strategia fra quelle del periodo, mappato con " +
+                "curva continua fra allocazione minima e massima. Disattivo: media dei voti assoluti " +
+                "mappata sui tier. La scelta cambia quali campi sottostanti hanno effetto."),
+            TitanoField("Alloc. min %", _titanoMinAllocation,
+                "Allocazione della strategia eleggibile peggiore del periodo. Non è zero: chi supera i " +
+                "cancelli resta operativo, solo con size ridotta. Solo con sizing per percentile."),
+            TitanoField("Alloc. max %", _titanoMaxAllocation,
+                "Allocazione della strategia migliore del periodo. È il tetto rispetto a cui si decide " +
+                "se lo stato è Enabled. Solo con sizing per percentile."),
+            TitanoField("Passo alloc. %", _titanoAllocationStep,
+                "Granularità dell'allocazione: la curva continua viene arrotondata a questo passo. " +
+                "0 = nessun arrotondamento. Solo con sizing per percentile."),
             TitanoField("Tier sizing", _titanoSizingTiers,
-                "Tabella soglia punteggio=percentuale allocazione, es. 0.80=100%; 0.60=50%; 0.40=25%; 0=0%."),
+                "Tabella soglia punteggio=percentuale allocazione, es. 0.80=100%; 0.60=50%; 0.40=25%; 0=0%. " +
+                "Ha effetto SOLO con il sizing per percentile disattivato."),
             TitanoField("Commissione/unità", _titanoCommission,
                 "Commissione applicata per unità nella simulazione dell'equity filtrata da Titano."),
             TitanoField("Slippage/unità", _titanoSlippage,
@@ -1868,6 +1887,25 @@ public partial class WorkspaceBacktestingForm : Form
         return control;
     }
 
+    /// <summary>
+    /// Abilita solo i campi che hanno davvero effetto nella modalità di sizing scelta.
+    ///
+    /// <para>Con il sizing per percentile <c>SizingTiers</c>, <c>DisableCompositeScore</c> e
+    /// <c>ReenableCompositeScore</c> non vengono letti dal server; senza percentile non vengono letti
+    /// i tre moltiplicatori di allocazione. Prima erano tutti sempre modificabili e i tre inerti
+    /// cambiavano il configHash — quindi il runId — senza cambiare di una virgola il manifest.</para>
+    /// </summary>
+    private void ApplySizingModeAvailability()
+    {
+        var percentile = _titanoCrossSectional.Checked;
+        _titanoMinAllocation.Enabled = percentile;
+        _titanoMaxAllocation.Enabled = percentile;
+        _titanoAllocationStep.Enabled = percentile;
+        _titanoSizingTiers.Enabled = !percentile;
+        _titanoDisableScore.Enabled = !percentile;
+        _titanoReenableScore.Enabled = !percentile;
+    }
+
     private void ConfigureTitanoControls()
     {
         _titanoSetupCombo.DropDownStyle = ComboBoxStyle.DropDownList;
@@ -1918,6 +1956,11 @@ public partial class WorkspaceBacktestingForm : Form
         _titanoWalkForwardMode.Items.AddRange(Enum.GetNames<TitanoWalkForwardMode>());
         _titanoWalkForwardMode.SelectedItem = nameof(TitanoWalkForwardMode.Rolling);
         _titanoSizingTiers.Width = 250;
+        ConfigureTitanoNumber(_titanoMinAllocation, 0, 100, 25, 2);
+        ConfigureTitanoNumber(_titanoMaxAllocation, 0, 100, 100, 2);
+        ConfigureTitanoNumber(_titanoAllocationStep, 0, 100, 5, 2);
+        _titanoCrossSectional.CheckedChanged += (_, _) => ApplySizingModeAvailability();
+        ApplySizingModeAvailability();
         _runTitanoButton.Text = "Avvia Titano via HTTP";
         _runTitanoButton.AutoSize = true;
         _runTitanoButton.Click += async (_, _) => await RunTitanoAsync();
@@ -3568,6 +3611,10 @@ public partial class WorkspaceBacktestingForm : Form
         EvaluationPeriods = (int)_titanoEvaluation.Value,
         WalkForwardMode = Enum.Parse<TitanoWalkForwardMode>(
             _titanoWalkForwardMode.SelectedItem?.ToString() ?? "Rolling"),
+        CrossSectionalSizing = _titanoCrossSectional.Checked,
+        MinimumAllocationMultiplier = _titanoMinAllocation.Value / 100m,
+        MaximumAllocationMultiplier = _titanoMaxAllocation.Value / 100m,
+        AllocationStep = _titanoAllocationStep.Value / 100m,
         SizingTiers = ParseSizingTiers(_titanoSizingTiers.Text).ToList()
     };
 
@@ -3609,6 +3656,10 @@ public partial class WorkspaceBacktestingForm : Form
         CalibrationPeriods = setup.CalibrationPeriods,
         EvaluationPeriods = setup.EvaluationPeriods,
         WalkForwardMode = setup.WalkForwardMode,
+        CrossSectionalSizing = setup.CrossSectionalSizing,
+        MinimumAllocationMultiplier = setup.MinimumAllocationMultiplier,
+        MaximumAllocationMultiplier = setup.MaximumAllocationMultiplier,
+        AllocationStep = setup.AllocationStep,
         SizingTiers = setup.SizingTiers
     };
 
@@ -3641,6 +3692,11 @@ public partial class WorkspaceBacktestingForm : Form
         _titanoCalibration.Value = setup.CalibrationPeriods;
         _titanoEvaluation.Value = setup.EvaluationPeriods;
         _titanoWalkForwardMode.SelectedItem = setup.WalkForwardMode.ToString();
+        _titanoCrossSectional.Checked = setup.CrossSectionalSizing;
+        _titanoMinAllocation.Value = setup.MinimumAllocationMultiplier * 100m;
+        _titanoMaxAllocation.Value = setup.MaximumAllocationMultiplier * 100m;
+        _titanoAllocationStep.Value = setup.AllocationStep * 100m;
+        ApplySizingModeAvailability();
         _titanoSizingTiers.Text = string.Join("; ", setup.SizingTiers
             .OrderByDescending(tier => tier.MinimumScore)
             .Select(tier =>
@@ -3693,6 +3749,10 @@ public partial class WorkspaceBacktestingForm : Form
             EvaluationPeriods = (int)_titanoEvaluation.Value,
             WalkForwardMode = Enum.Parse<TitanoWalkForwardMode>(
                 _titanoWalkForwardMode.SelectedItem?.ToString() ?? "Rolling"),
+            CrossSectionalSizing = _titanoCrossSectional.Checked,
+            MinimumAllocationMultiplier = _titanoMinAllocation.Value / 100m,
+            MaximumAllocationMultiplier = _titanoMaxAllocation.Value / 100m,
+            AllocationStep = _titanoAllocationStep.Value / 100m,
             SizingTiers = ParseSizingTiers(_titanoSizingTiers.Text)
         };
 

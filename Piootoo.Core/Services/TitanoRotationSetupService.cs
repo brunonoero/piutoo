@@ -95,6 +95,12 @@ public sealed class TitanoRotationSetupService
             CooldownPeriodsAfterOff = 3,
             MinimumOnPeriods = 2,
             HardStopDrawdown = 0.30m,
+            // Tetto sotto 1: anche la migliore del periodo resta sotto-investita. È la traduzione in
+            // sizing della prudenza dichiarata nella descrizione.
+            CrossSectionalSizing = true,
+            MinimumAllocationMultiplier = 0.20m,
+            MaximumAllocationMultiplier = 0.80m,
+            AllocationStep = 0.05m,
             SizingTiers =
             [
                 new() { MinimumScore = 0.85m, AllocationMultiplier = 1m },
@@ -153,6 +159,11 @@ public sealed class TitanoRotationSetupService
             CooldownPeriodsAfterOff = 1,
             MinimumOnPeriods = 1,
             HardStopDrawdown = 0.28m,
+            // Pavimento più alto e passo più fine: partecipa di più e ridistribuisce più spesso.
+            CrossSectionalSizing = true,
+            MinimumAllocationMultiplier = 0.35m,
+            MaximumAllocationMultiplier = 1m,
+            AllocationStep = 0.05m,
             SizingTiers =
             [
                 new() { MinimumScore = 0.75m, AllocationMultiplier = 1m },
@@ -177,6 +188,12 @@ public sealed class TitanoRotationSetupService
             throw new ArgumentException("L'hard stop deve essere maggiore del drawdown corrente massimo.");
         if (setup.SizingTiers.Count == 0)
             throw new ArgumentException("È richiesto almeno un tier di sizing.");
+        if (setup.MinimumAllocationMultiplier is < 0 or > 1 || setup.MaximumAllocationMultiplier is < 0 or > 1)
+            throw new ArgumentException("I moltiplicatori di allocazione devono essere compresi tra 0 e 1.");
+        if (setup.MinimumAllocationMultiplier > setup.MaximumAllocationMultiplier)
+            throw new ArgumentException("L'allocazione minima non può superare quella massima.");
+        if (setup.AllocationStep is < 0 or > 1)
+            throw new ArgumentException("Il passo di allocazione deve essere compreso tra 0 e 1.");
     }
 
     private static string SafeId(string value)

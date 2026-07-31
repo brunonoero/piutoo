@@ -1,4 +1,9 @@
-# Titano rotation v2
+# Titano rotation
+
+Dal 31/07/2026 esiste un solo Titano: questo. Il vecchio filtro settimanale binario
+(`TitanoFilterService`) è stato rimosso — vedi `../decisioni.md`. Analisi completa dei
+parametri, con esempi numerici e audit, in
+`../titano-analisi-parametri-e-audit-2026-07-31.md`.
 
 Titano è un filtro **Titan-like** sulle equity line delle singole strategie. Non
 è, e non viene dichiarato, una riproduzione dell'algoritmo proprietario Unger.
@@ -15,7 +20,9 @@ Per ogni `StrategyCode`, ordinando i trade chiusi per `(ExitTimeUtc, TradeId)`:
 - performance finestra `W`: `(E(now) - E(now-W)) / abs(E(now-W))`;
 - media mobile: media aritmetica dei punti equity nella finestra configurata;
 - deviazione standard equity: `sqrt(mean((E(i)-mean(E))^2))`;
-- z-score: `(E(now)-mediaMobile)/deviazioneStandard` (zero se deviazione zero);
+- z-score: `(E(now)-mediaMobile)/deviazioneStandard` (zero se deviazione zero); il
+  relativo voto vale 1 al centro della banda ammessa e degrada a 0 ai suoi estremi —
+  il centro è il punto migliore, perché un z troppo alto è surriscaldamento;
 - drawdown corrente: `(peak-E(now))/abs(peak)`;
 - drawdown massimo: massimo drawdown osservato sull'intera storia disponibile;
 - volatilità: deviazione standard popolazione dei rendimenti trade nella finestra breve.
@@ -43,6 +50,8 @@ quelle dello stesso periodo, non un giudizio assoluto: per ciascun voto si calco
 il percentile (rango medio per i pari merito) e lo score è la media dei percentili.
 L'allocazione è poi una curva continua fra `minimumAllocationMultiplier` (0,25 di
 default) e `maximumAllocationMultiplier` (1), arrotondata ad `allocationStep` (0,05).
+Lo stato `Enabled` significa "al tetto configurato", non "moltiplicatore uguale a 1":
+con `maximumAllocationMultiplier = 0,80` il pieno regime è 0,80.
 
 Il motivo è la scala dei voti assoluti. Misurati su un run reale a 52 periodi, i
 voti stanno quasi fermi: performance lunga fra 0,499 e 0,556, drawdown fra 0,913 e
@@ -71,8 +80,16 @@ Non vengono inventati fill. Live/server arrotondano la quantità per difetto a
 Gli intent di chiusura non sono ridotti, per evitare posizioni residue.
 
 Il hard stop usa una soglia drawdown assoluta, è latched e non si azzera da
-solo. Il reset è un evento audit separato e immutabile, efficace soltanto dal
+solo; non arma il cooldown, che per una strategia bloccata non avrebbe significato.
+Il reset è un evento audit separato e immutabile, efficace soltanto dal
 periodo successivo; il manifest storico non viene riscritto.
+
+**Il reset toglie il latch, non riabilita.** `Resolve` riapplica alla strategia la
+stessa condizione `reenable` della rotazione, rivalutata sui dati già persistiti nello
+stato — voti superati, drawdown corrente, cooldown residuo: se non è soddisfatta la
+strategia resta a zero e rientrerà dalla prossima rotazione calcolata. Ricalcolare
+l'allocazione dal solo score significherebbe riammetterla al pavimento (0,25) anche con
+zero voti superati e drawdown al 60%.
 
 ## Calendario e no-look-ahead
 
@@ -98,7 +115,11 @@ master filter. Una richiesta identica restituisce il manifest esistente. I file
 sono creati atomicamente e non sovrascritti:
 
 - `manifest.json`: schema versionato, config, hash sorgenti, tutti i periodi,
-  decisioni complete e curva balance/equity filtrata;
+  decisioni complete e curva balance/equity filtrata. Contiene anche
+  `tradesOutsideCoverage` — i trade entrati fuori dai periodi efficaci, presenti nella
+  curva originale e assenti da quella filtrata, senza i quali il confronto fra le due
+  sembra a parità di campione e non lo è — e `walkForwardNote`, che spiega un
+  walk-forward vuoto o parziale invece di lasciare una tabella muta;
 - `period-<effective-start>-<effective-end>.json`: snapshot immutabile ON/OFF.
 
 Ogni strategia contiene `strategyCode`, `enabled`, score, motivo e metriche.
@@ -140,8 +161,9 @@ valutazione strategia evita una seconda esecuzione o replay dei trade.
 ## Walk-forward e limiti
 
 Le finestre di calibrazione e valutazione sono rolling o expanding. Le metriche
-IS e OOS sono salvate separatamente e viene segnalato il caso in cui il filtro
-migliora solo IS. L'OOS non è usato per scegliere soglie; eventuali sweep
+IS e OOS sono salvate separatamente; viene segnalato il caso in cui il filtro
+migliora solo IS e quello in cui l'ultima finestra OOS è troncata perché il run
+finisce prima (`evaluationTruncated`). L'OOS non è usato per scegliere soglie; eventuali sweep
 parametrici devono restare processi separati.
 
 Isteresi e cooldown riducono il flip-flop ma aumentano il ritardo; tier graduali

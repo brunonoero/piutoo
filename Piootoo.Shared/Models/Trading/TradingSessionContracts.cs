@@ -154,6 +154,22 @@ public sealed class CreateTradingSessionRequest
     /// </summary>
     public ClientRunMode ClientRunMode { get; init; } = ClientRunMode.Unknown;
 
+    /// <summary>
+    /// Applica il limite <c>MaxConcurrentTrades</c> per account nella distribuzione multi-account.
+    ///
+    /// <para>Null = default: attivo ovunque tranne nel run che genera il campione sorgente, cioè
+    /// <see cref="ClientRunMode.Backtest"/> con <see cref="TitanoFilterMode.Disabled"/>. Quel run
+    /// deve produrre tutti i trade del master filter, perché è da lì che Titano calcola le
+    /// rotazioni: limitare la concorrenza eliminerebbe segnali e falserebbe la sorgente.</para>
+    ///
+    /// <para>Il flag esiste perché prima quella regola era cablata su <see cref="TitanoMode"/>, e
+    /// così concorrenza e rotazione si accendevano insieme: confrontare un run <c>Disabled</c> con
+    /// uno <c>BacktestRotationFile</c> significava muovere due variabili e attribuire a Titano una
+    /// differenza che veniva in parte dal limite di trade. Valorizzarlo esplicitamente permette di
+    /// isolare i due effetti.</para>
+    /// </summary>
+    public bool? EnforceConcurrencyLimits { get; init; }
+
     public PositionSizingConfig PositionSizing { get; init; } = new();
     public IReadOnlyList<InstrumentMetadata> Instruments { get; init; } = [];
 }

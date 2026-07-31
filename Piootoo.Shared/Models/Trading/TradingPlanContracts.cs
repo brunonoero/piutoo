@@ -27,6 +27,14 @@ public sealed class TradingPlan
     public string? TitanoBacktestFolder { get; init; }
     public bool ApplyTitanoFilters { get; init; }
 
+    /// <summary>
+    /// Applica <c>MaxConcurrentTrades</c> nella distribuzione multi-account. Null = default storico
+    /// (attivo ovunque tranne nel backtest senza filtro Titano, che deve produrre il campione
+    /// sorgente completo). Esplicito per poter variare concorrenza e rotazione in modo indipendente:
+    /// vedi <c>docs/domini/distribuzione-multi-account.md</c> §4.
+    /// </summary>
+    public bool? EnforceConcurrencyLimits { get; init; }
+
     public decimal InitialCapital { get; init; } = 100_000m;
     public decimal CommissionPerContract { get; init; } = 2m;
     public PositionSizingConfig PositionSizing { get; init; } = new();
@@ -53,6 +61,13 @@ public sealed class SaveTradingPlanRequest
     public string? TitanoRunId { get; init; }
     public string? TitanoBacktestFolder { get; init; }
     public bool ApplyTitanoFilters { get; init; }
+
+    /// <summary>
+    /// Applica <c>MaxConcurrentTrades</c> nella distribuzione multi-account. Null = default storico.
+    /// Vedi <see cref="TradingPlan.EnforceConcurrencyLimits"/>.
+    /// </summary>
+    public bool? EnforceConcurrencyLimits { get; init; }
+
     public decimal InitialCapital { get; init; } = 100_000m;
     public decimal CommissionPerContract { get; init; } = 2m;
     public PositionSizingConfig PositionSizing { get; init; } = new();

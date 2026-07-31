@@ -138,6 +138,13 @@ public sealed class TradingSessionService : ITradingSessionService
         public string? TitanoBacktestFolder { get; init; }
         public TitanoFilterMode TitanoMode { get; init; }
         public ClientRunMode ClientRunMode { get; init; }
+
+        /// <summary>
+        /// Applica MaxConcurrentTrades nella distribuzione multi-account. Indipendente da
+        /// <see cref="TitanoMode"/>: vedi <c>docs/domini/distribuzione-multi-account.md</c> §4.
+        /// </summary>
+        public bool EnforceConcurrencyLimits { get; init; }
+
         public required PositionSizingConfig PositionSizing { get; init; }
         public required Dictionary<string, InstrumentMetadata> InstrumentMetadata { get; init; }
         public decimal PeakEquity { get; set; }
@@ -283,6 +290,7 @@ public sealed class TradingSessionService : ITradingSessionService
             TitanoBacktestFolder = primary.TitanoBacktestFolder,
             TitanoMode = titanoMode,
             ClientRunMode = request.ClientRunMode,
+            EnforceConcurrencyLimits = plan.EnforceConcurrencyLimits,
             PositionSizing = plan.PositionSizing,
             Instruments = plan.Instruments
         }, plan.Code, request.ExecutionKey.Trim());
@@ -359,6 +367,8 @@ public sealed class TradingSessionService : ITradingSessionService
             TitanoBacktestFolder = request.TitanoBacktestFolder,
             TitanoMode = request.TitanoMode,
             ClientRunMode = request.ClientRunMode,
+            EnforceConcurrencyLimits = request.EnforceConcurrencyLimits
+                ?? DefaultEnforceConcurrencyLimits(request.ClientRunMode, request.TitanoMode),
             PositionSizing = request.PositionSizing,
             InstrumentMetadata = instrumentMetadata,
             PeakEquity = request.InitialCapital,
@@ -971,9 +981,21 @@ public sealed class TradingSessionService : ITradingSessionService
         }
     }
 
+    /// <summary>
+    /// Il limite di trade concorrenti è governato da un flag esplicito della sessione, non più
+    /// dedotto da <see cref="TitanoFilterMode"/>. Vedi
+    /// <c>CreateTradingSessionRequest.EnforceConcurrencyLimits</c> e
+    /// <c>docs/domini/distribuzione-multi-account.md</c> §4.
+    /// </summary>
     private static bool IsConcurrentTradeLimitActive(Session session)
-        => !(session.ClientRunMode == ClientRunMode.Backtest &&
-             session.TitanoMode == TitanoFilterMode.Disabled);
+        => session.EnforceConcurrencyLimits;
+
+    /// <summary>
+    /// Default storico del flag: attivo ovunque tranne nel run che produce il <c>trades.json</c>
+    /// sorgente delle rotazioni (backtest senza filtro Titano).
+    /// </summary>
+    public static bool DefaultEnforceConcurrencyLimits(ClientRunMode runMode, TitanoFilterMode titanoMode)
+        => !(runMode == ClientRunMode.Backtest && titanoMode == TitanoFilterMode.Disabled);
 
     private static int CountServerPositionsForAccount(Session session, string accountNumber)
         => session.ExternalPositions.Keys.Count(key =>

@@ -1,6 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
 using Piootoo.Core.Services;
-using Piootoo.Core.Services.Interfaces;
 using Piootoo.Shared.Models.Optimization;
 
 namespace PiootooApp.Server.Controllers;
@@ -9,71 +8,15 @@ namespace PiootooApp.Server.Controllers;
 [Route("api/[controller]")]
 public class TitanoController : ControllerBase
 {
-    private readonly IPiootooBacktestingService _backtestingService;
-    private readonly TitanoFilterService _titanoFilterService;
-    private readonly TitanoSetupService _titanoSetupService;
     private readonly TitanoRotationSetupService _rotationSetupService;
     private readonly TitanoRotationService _rotationService;
 
     public TitanoController(
-        IPiootooBacktestingService backtestingService,
-        TitanoFilterService titanoFilterService,
-        TitanoSetupService titanoSetupService,
         TitanoRotationSetupService rotationSetupService,
         TitanoRotationService rotationService)
     {
-        _backtestingService = backtestingService;
-        _titanoFilterService = titanoFilterService;
-        _titanoSetupService = titanoSetupService;
         _rotationSetupService = rotationSetupService;
         _rotationService = rotationService;
-    }
-
-    [HttpGet("setups")]
-    public ActionResult<IReadOnlyList<TitanoSetupInfo>> ListSetups() =>
-        Ok(_titanoSetupService.ListSetups());
-
-    [HttpGet("setups/{setupId}")]
-    public ActionResult<TitanoFilterSetup> GetSetup(string setupId)
-    {
-        try
-        {
-            return Ok(_titanoSetupService.GetSetup(setupId));
-        }
-        catch (FileNotFoundException ex)
-        {
-            return NotFound(new { error = ex.Message });
-        }
-    }
-
-    [HttpPost("setups")]
-    public ActionResult<TitanoFilterSetup> SaveSetup([FromBody] TitanoFilterSetup setup)
-    {
-        if (string.IsNullOrWhiteSpace(setup.Name))
-        {
-            return BadRequest(new { error = "Name e' obbligatorio" });
-        }
-
-        var saved = _titanoSetupService.SaveSetup(setup);
-        return Ok(saved);
-    }
-
-    [HttpPost("apply-filter")]
-    public ActionResult<TitanoFilterResult> ApplyFilter([FromBody] TitanoFilterRequest request)
-    {
-        if (string.IsNullOrWhiteSpace(request.BacktestingId))
-        {
-            return BadRequest(new { error = "BacktestingId e' obbligatorio" });
-        }
-
-        var backtesting = _backtestingService.GetResult(request.BacktestingId);
-        if (backtesting == null)
-        {
-            return NotFound(new { error = $"Backtesting '{request.BacktestingId}' non trovato" });
-        }
-
-        var result = _titanoFilterService.Apply(backtesting, request);
-        return Ok(result);
     }
 
     [HttpGet("rotation-setups")]

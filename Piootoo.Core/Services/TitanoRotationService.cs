@@ -20,17 +20,88 @@ public sealed class TitanoRotationService
         WriteIndented = true,
         Converters = { new JsonStringEnumConverter() }
     };
-    private static readonly ConcurrentDictionary<string, object> Gates = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>
+    /// Lock per percorso, presi da un array di dimensione fissa indicizzato sull'hash del path.
+    ///
+    /// <para>Prima era un <c>ConcurrentDictionary&lt;string, object&gt;</c> che cresceva a ogni run
+    /// mai più rilasciato. Un dizionario con eviction qui sarebbe pericoloso: rimuovere un lock
+    /// mentre qualcuno lo detiene farebbe ottenere a due thread oggetti diversi per lo stesso
+    /// percorso, cioè nessuna mutua esclusione. L'array a dimensione fissa risolve il problema alla
+    /// radice — la memoria è costante e lo stesso percorso mappa sempre sullo stesso lock.</para>
+    ///
+    /// <para>Il prezzo è che due percorsi diversi possono condividere un lock (1 su
+    /// <see cref="GateCount"/>) e serializzarsi inutilmente. Su un'operazione rara e pesante come
+    /// <see cref="Run"/> è un costo trascurabile rispetto a una perdita di memoria monotona.</para>
+    /// </summary>
+    private const int GateCount = 64;
+
+    private static readonly object[] Gates =
+        Enumerable.Range(0, GateCount).Select(_ => new object()).ToArray();
+
+    private static object GateFor(string path) =>
+        Gates[(int)((uint)StringComparer.OrdinalIgnoreCase.GetHashCode(path) % GateCount)];
 
     /// <summary>
-    /// Cache dei manifest già letti, invalidata sul timestamp del file.
+    /// Numero massimo di manifest tenuti in memoria. Un manifest con un anno di periodi e qualche
+    /// decina di strategie pesa megabyte: senza tetto un server acceso per mesi, su cui si generano
+    /// run nuovi a ogni cambio di parametro, accumulava indefinitamente.
+    /// </summary>
+    public const int ManifestCacheCapacity = 32;
+
+    /// <summary>
+    /// Cache dei manifest già letti, invalidata sul timestamp del file e limitata a
+    /// <see cref="ManifestCacheCapacity"/> voci con politica LRU.
     ///
     /// <see cref="Resolve"/> viene invocato una volta per barra da ogni sessione live e a ogni
     /// polling di ogni account: senza cache ogni chiamata rileggeva e deserializzava l'intero
     /// manifest da disco, più l'enumerazione della cartella degli override.
     /// </summary>
-    private static readonly ConcurrentDictionary<string, (DateTime WrittenAtUtc, TitanoRotationManifest Manifest)>
-        ManifestCache = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly ConcurrentDictionary<string, CachedManifest> ManifestCache =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Contatore monotono per l'ordinamento LRU: non dipende dall'orologio di sistema.</summary>
+    private static long _accessCounter;
+
+    private sealed class CachedManifest
+    {
+        public required DateTime WrittenAtUtc { get; init; }
+        public required TitanoRotationManifest Manifest { get; init; }
+
+        /// <summary>Ultimo accesso, come valore del contatore monotono. Scritto con Interlocked.</summary>
+        public long LastAccess;
+    }
+
+    /// <summary>Voci attualmente in cache. Esposto per i test e per la diagnostica.</summary>
+    public static int CachedManifestCount => ManifestCache.Count;
+
+    /// <summary>Svuota la cache dei manifest. Serve ai test per partire da uno stato noto.</summary>
+    public static void ClearManifestCache() => ManifestCache.Clear();
+
+    private static void Touch(CachedManifest entry) =>
+        Interlocked.Exchange(ref entry.LastAccess, Interlocked.Increment(ref _accessCounter));
+
+    /// <summary>
+    /// Inserisce in cache e riporta la dimensione entro <see cref="ManifestCacheCapacity"/>
+    /// eliminando le voci usate meno di recente.
+    /// </summary>
+    private static void StoreInCache(string path, DateTime stamp, TitanoRotationManifest manifest)
+    {
+        var entry = new CachedManifest { WrittenAtUtc = stamp, Manifest = manifest };
+        Touch(entry);
+        ManifestCache[path] = entry;
+
+        while (ManifestCache.Count > ManifestCacheCapacity)
+        {
+            // Snapshot: fra la scelta della vittima e la rimozione un'altra voce può essere
+            // toccata o rimossa. Non importa — sbagliare vittima costa una rilettura da disco,
+            // non un errore. L'unico invariante che conta è che la cache non cresca all'infinito.
+            var victim = ManifestCache
+                .OrderBy(pair => Interlocked.Read(ref pair.Value.LastAccess))
+                .Select(pair => pair.Key)
+                .FirstOrDefault();
+            if (victim is null || !ManifestCache.TryRemove(victim, out _)) break;
+        }
+    }
 
     private readonly WorkspaceService _workspaces;
 
@@ -66,7 +137,7 @@ public sealed class TitanoRotationService
         var runPath = Path.Combine(backtestPath, "titano", runId);
         var manifestPath = Path.Combine(runPath, "manifest.json");
 
-        lock (Gates.GetOrAdd(manifestPath, _ => new object()))
+        lock (GateFor(manifestPath))
         {
             if (File.Exists(manifestPath))
             {
@@ -78,6 +149,8 @@ public sealed class TitanoRotationService
             ValidateTrades(trades);
             var periods = BuildPeriods(request).ToList();
             var decisions = BuildDecisions(request, periods, trades, master, masterHash).ToList();
+            var filteredEquity = BuildEquity(request, trades, decisions, master, out var outsideCoverage);
+            var walkForward = BuildWalkForward(request, periods, trades, decisions, master);
             var manifest = new TitanoRotationManifest
             {
                 RunId = runId,
@@ -88,8 +161,10 @@ public sealed class TitanoRotationService
                 GeneratedAtUtc = DateTime.UtcNow,
                 Periods = decisions,
                 OriginalEquity = BuildOriginalEquity(request, trades, master),
-                FilteredEquity = BuildEquity(request, trades, decisions, master),
-                WalkForward = BuildWalkForward(request, periods, trades, decisions, master)
+                FilteredEquity = filteredEquity,
+                WalkForward = walkForward,
+                WalkForwardNote = BuildWalkForwardNote(request, periods.Count, walkForward),
+                TradesOutsideCoverage = outsideCoverage
             };
 
             Directory.CreateDirectory(runPath);
@@ -131,13 +206,35 @@ public sealed class TitanoRotationService
 
         if (ManifestCache.TryGetValue(path, out var cached) && cached.WrittenAtUtc == stamp)
         {
+            Touch(cached);
             return cached.Manifest;
         }
 
-        var manifest = ReadManifest(path);
-        manifest.HardStopResets.AddRange(ReadResets(directory));
-        ManifestCache[path] = (stamp, manifest);
-        return manifest;
+        // Resolve viene chiamato una volta per barra da ogni sessione e a ogni polling di ogni
+        // account: qui la concorrenza è reale. La versione precedente leggeva il manifest e poi
+        // faceva AddRange sulla sua List<> di reset fuori da qualsiasi lock — due thread sul
+        // medesimo cache-miss producevano una lista duplicata. Il manifest viene ora composto
+        // interamente dentro il lock del percorso e inserito in cache già completo.
+        lock (GateFor(path))
+        {
+            if (ManifestCache.TryGetValue(path, out var current) && current.WrittenAtUtc == stamp)
+            {
+                Touch(current);
+                return current.Manifest;
+            }
+
+            var manifest = ReadManifest(path);
+            var resets = ReadResets(directory);
+            if (resets.Count > 0)
+            {
+                // Il manifest persistito non contiene reset (sono file separati), ma un manifest
+                // riletto da una versione futura potrebbe: si evita comunque il doppio conteggio.
+                var known = manifest.HardStopResets.Select(x => x.ResetId).ToHashSet(StringComparer.Ordinal);
+                manifest.HardStopResets.AddRange(resets.Where(x => known.Add(x.ResetId)));
+            }
+            StoreInCache(path, stamp, manifest);
+            return manifest;
+        }
     }
 
     public string GetHtmlReportPath(string workspaceId, string backtestFolder, string runId)
@@ -151,7 +248,12 @@ public sealed class TitanoRotationService
         return Path.Combine(runPath, "report.html");
     }
 
-    private const string EquityChartMarker = "id=\"equityComparisonTable\"";
+    /// <summary>
+    /// Marcatore di versione del report. Va cambiato ogni volta che il template HTML cambia:
+    /// <see cref="EnsureHtmlReport"/> rigenera solo i report che non lo contengono, quindi senza
+    /// bump i run già esistenti continuerebbero a mostrare il report vecchio.
+    /// </summary>
+    private const string EquityChartMarker = "data-report-version=\"3\"";
 
     private static void EnsureHtmlReport(string runPath, TitanoRotationManifest manifest)
     {
@@ -207,11 +309,20 @@ public sealed class TitanoRotationService
 
         html.Append("<h2>Confronto equity</h2>");
         html.Append("<div class=\"card\" style=\"margin-top:18px;padding:18px;background:white;border-radius:9px;box-shadow:0 1px 5px #ccd2dc\">");
-        html.Append("<table id=\"equityComparisonTable\"><tr><th>Metrica</th><th>Backtesting</th><th>Titano</th></tr>");
+        html.Append("<table id=\"equityComparisonTable\" data-report-version=\"3\"><tr><th>Metrica</th><th>Backtesting</th><th>Titano</th></tr>");
         html.Append($"<tr><td>Capitale finale</td><td>{H(Money(originalFinal))}</td><td class=\"{(filteredFinal >= originalFinal ? "good" : "bad")}\">{H(Money(filteredFinal))}</td></tr>");
         html.Append($"<tr><td>Profitto netto</td><td>{H(Money(originalProfit))}</td><td class=\"{(filteredProfit >= originalProfit ? "good" : "bad")}\">{H(Money(filteredProfit))}</td></tr>");
         html.Append($"<tr><td>Max drawdown</td><td>{H(Percent(originalMaxDrawdown))}</td><td>{H(Percent(filteredMaxDrawdown))}</td></tr>");
-        html.Append($"<tr><td>Trade contabilizzati</td><td>{originalEquity.Count}</td><td>{filteredEquity.Count}</td></tr></table></div>");
+        html.Append($"<tr><td>Trade contabilizzati</td><td>{originalEquity.Count}</td><td>{filteredEquity.Count}</td></tr></table>");
+        if (manifest.TradesOutsideCoverage > 0)
+            html.Append(
+                $"<p class=\"muted\"><strong>Attenzione: le due colonne non sono a parità di campione.</strong> " +
+                $"{manifest.TradesOutsideCoverage} trade del master filter sono entrati fuori dai periodi " +
+                "efficaci del run — il primo periodo è solo osservazione e l'ultimo non produce decisione — " +
+                "quindi contano nella colonna Backtesting e non in quella Titano. Non sono trade " +
+                "\"eliminati da Titano\": sono trade che Titano non poteva governare. Per un confronto " +
+                "pulito, allarga l'intervallo del run o valuta solo la finestra coperta.</p>");
+        html.Append("</div>");
         html.Append("<div class=\"card\" style=\"margin-top:18px;padding:18px;background:white;border-radius:9px;box-shadow:0 1px 5px #ccd2dc\">");
         html.Append("<h2>Equity trade-level — originale vs filtrato Titano</h2>");
         html.Append("<p class=\"muted\">Curva cumulativa sui trade chiusi del master filter: originale (100% allocazione, senza costi Titano) vs filtrata (allocazione e costi simulati).</p>");
@@ -232,14 +343,22 @@ public sealed class TitanoRotationService
                         $"<td>{H(Percent(state.Metrics.LongReturn))}</td><td>{H(Percent(state.Metrics.CurrentDrawdown))}</td>" +
                         $"<td>{H(state.Reason)}</td></tr>");
         }
-        html.Append("</tbody></table></div><h2>Walk-forward</h2><div class=\"scroll\"><table><thead><tr>" +
+        html.Append("</tbody></table></div><h2>Walk-forward</h2>");
+        if (!string.IsNullOrEmpty(manifest.WalkForwardNote))
+            html.Append($"<p class=\"muted\"><strong>{H(manifest.WalkForwardNote)}</strong></p>");
+        html.Append("<div class=\"scroll\"><table><thead><tr>" +
                     "<th>Periodo</th><th>Calibrazione</th><th>Valutazione</th><th>Profitto IS</th><th>Profitto OOS</th><th>Avviso</th>" +
                     "</tr></thead><tbody>");
         foreach (var item in manifest.WalkForward)
+        {
+            var warnings = new List<string>();
+            if (item.InSampleOnlyImprovementWarning) warnings.Add("Migliora solo in-sample");
+            if (item.EvaluationTruncated) warnings.Add("Finestra OOS troncata");
             html.Append($"<tr><td>{H(item.EvaluationPeriodId)}</td><td>{H(item.CalibrationFromUtc.ToString("u"))} – {H(item.CalibrationToUtc.ToString("u"))}</td>" +
                         $"<td>{H(item.EvaluationFromUtc.ToString("u"))} – {H(item.EvaluationToUtc.ToString("u"))}</td>" +
                         $"<td>{H(Money(item.InSampleNetProfit))}</td><td>{H(Money(item.OutOfSampleNetProfit))}</td>" +
-                        $"<td>{(item.InSampleOnlyImprovementWarning ? "Migliora solo in-sample" : "")}</td></tr>");
+                        $"<td>{H(string.Join("; ", warnings))}</td></tr>");
+        }
         html.Append("</tbody></table></div>");
         html.Append("<script>");
         html.Append($"const equityComparisonSeries = {equitySeriesJson};");
@@ -353,27 +472,40 @@ public sealed class TitanoRotationService
             }
         }
 
-        var enabled = period?.Strategies.Where(x => x.Enabled).Select(x => x.StrategyCode)
-            .Order(StringComparer.Ordinal).ToArray() ?? [];
         var resets = manifest.HardStopResets.Where(x => x.EffectiveFromUtc <= timestampUtc)
             .GroupBy(x => x.StrategyCode, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(x => x.Key, x => x.Max(r => r.EffectiveFromUtc), StringComparer.OrdinalIgnoreCase);
-        var states = period?.Strategies.Where(x => master.Contains(x.StrategyCode, StringComparer.OrdinalIgnoreCase))
-            .Select(x => new TitanoEffectiveStrategy
+        var masterSet = new HashSet<string>(master, StringComparer.OrdinalIgnoreCase);
+        var states = period?.Strategies.Where(x => masterSet.Contains(x.StrategyCode))
+            .Select(x =>
             {
-                StrategyCode = x.StrategyCode,
-                AllocationMultiplier = x.HardStopped && resets.ContainsKey(x.StrategyCode)
-                    ? ComputeAllocation(x.Score, manifest.Config) : x.AllocationMultiplier,
-                State = x.HardStopped && resets.ContainsKey(x.StrategyCode)
-                    ? TitanoStrategyStatus.Reduced : x.State,
-                CooldownRemaining = x.CooldownRemaining,
-                HardStopped = x.HardStopped && !resets.ContainsKey(x.StrategyCode),
-                Reason = x.HardStopped && resets.ContainsKey(x.StrategyCode)
-                    ? $"hard stop resettato manualmente ({resets[x.StrategyCode]:O})" : x.Reason,
-                Score = x.Score, PassingFilters = x.PassingFilters, TotalFilters = x.TotalFilters,
-                ConsecutiveOnPeriods = x.ConsecutiveOnPeriods
+                // Il reset toglie il LATCH dell'hard stop; NON riabilita d'ufficio la strategia.
+                //
+                // La versione precedente ricalcolava l'allocazione dal solo score, e con il sizing
+                // per percentile ComputeAllocation restituisce almeno MinimumAllocationMultiplier per
+                // qualunque punteggio: una strategia con zero voti superati e drawdown al 60% tornava
+                // operativa al 25% appena resettata, scavalcando eleggibilità, drawdown e cooldown.
+                //
+                // Il manifest è immutabile e non si può rieseguire BuildDecisions qui, ma tutto ciò
+                // che serve a rivalutare i cancelli è già persistito nello stato (voti, metriche,
+                // cooldown): si riapplica quindi la stessa condizione `reenable` della rotazione.
+                // Se non è soddisfatta la strategia resta a zero, e rientrerà — se lo merita — dalla
+                // prossima rotazione calcolata.
+                if (!x.HardStopped || !resets.TryGetValue(x.StrategyCode, out var resetAtUtc))
+                    return ToEffective(x, x.AllocationMultiplier, x.State, x.HardStopped, x.Reason);
+
+                var readmitted = IsReenableSatisfied(x, manifest.Config);
+                var allocation = readmitted ? ComputeAllocation(x.Score, manifest.Config) : 0m;
+                var reason = readmitted
+                    ? $"hard stop resettato ({resetAtUtc:O}): cancelli superati, riammessa a {allocation:P0}"
+                    : $"hard stop resettato ({resetAtUtc:O}) ma i cancelli non sono superati " +
+                      $"(voti {x.PassingFilters}/{x.TotalFilters}, drawdown {x.Metrics.CurrentDrawdown:P2}, " +
+                      $"cooldown {x.CooldownRemaining}): resta ferma";
+                return ToEffective(
+                    x, allocation, ClassifyStatus(allocation, hardStopped: false, manifest.Config),
+                    hardStopped: false, reason);
             }).OrderBy(x => x.StrategyCode, StringComparer.Ordinal).ToArray() ?? [];
-        enabled = states.Where(x => x.AllocationMultiplier > 0).Select(x => x.StrategyCode).ToArray();
+        var enabled = states.Where(x => x.AllocationMultiplier > 0).Select(x => x.StrategyCode).ToArray();
         return new TitanoEffectiveStrategies
         {
             RunId = runId, TimestampUtc = timestampUtc, PeriodId = period?.PeriodId,
@@ -390,6 +522,33 @@ public sealed class TitanoRotationService
             ManifestToUtc = manifest.Periods.Count == 0 ? null : manifest.Periods.Max(x => x.EffectiveToUtc)
         };
     }
+
+    private static TitanoEffectiveStrategy ToEffective(
+        TitanoStrategyState state, decimal allocation, TitanoStrategyStatus status,
+        bool hardStopped, string reason) => new()
+    {
+        StrategyCode = state.StrategyCode,
+        AllocationMultiplier = allocation,
+        State = status,
+        CooldownRemaining = state.CooldownRemaining,
+        HardStopped = hardStopped,
+        Reason = reason,
+        Score = state.Score,
+        PassingFilters = state.PassingFilters,
+        TotalFilters = state.TotalFilters,
+        ConsecutiveOnPeriods = state.ConsecutiveOnPeriods
+    };
+
+    /// <summary>
+    /// Stessa condizione di riaccensione usata da <c>BuildDecisions</c>, rivalutata su uno stato già
+    /// persistito. Serve al reset dello hard stop, che deve poter riammettere una strategia senza
+    /// però scavalcare i cancelli assoluti.
+    /// </summary>
+    private static bool IsReenableSatisfied(TitanoStrategyState state, TitanoRotationRequest request) =>
+        state.Metrics.CurrentDrawdown <= request.ReenableMaximumCurrentDrawdown &&
+        state.PassingFilters >= request.MinimumPassingFilters &&
+        state.CooldownRemaining == 0 &&
+        (request.CrossSectionalSizing || state.RawScore >= request.ReenableCompositeScore);
 
     public static IEnumerable<(DateTime Start, DateTime End)> BuildPeriods(TitanoRotationRequest request)
     {
@@ -463,7 +622,12 @@ public sealed class TitanoRotationService
                                (request.CrossSectionalSizing || rawScore >= request.ReenableCompositeScore);
                 var on = prior is null ? !disable : prior.Enabled ? (!disable || !mayDisable) : reenable;
                 if (hardStopped) on = false;
-                if (prior?.Enabled == true && !on) cooldown = request.CooldownPeriodsAfterOff;
+                // Il cooldown si arma solo per uno spegnimento da regole. Sull'hard stop sarebbe
+                // fuorviante: è latched e non scade, quindi un contatore che scende a zero farebbe
+                // leggere come "libera di rientrare" una strategia bloccata a tempo indeterminato.
+                // Con HardStopped = true il campo CooldownRemaining non ha significato.
+                if (prior?.Enabled == true && !on && !hardStopped)
+                    cooldown = request.CooldownPeriodsAfterOff;
                 var multiplier = on ? ComputeAllocation(score, request) : 0m;
                 var reasons = votes.Where(x => !x.Passed).Select(x => x.Reason).ToList();
                 if (hardStopped) reasons.Insert(0, $"hard stop drawdown {metrics.CurrentDrawdown:P2} >= {request.HardStopDrawdown:P2}");
@@ -472,11 +636,10 @@ public sealed class TitanoRotationService
                     reasons.Add(request.CrossSectionalSizing
                         ? $"voto {passing}/{votes.Count}, percentile {score:F3} (score assoluto {rawScore:F3})"
                         : $"voto {passing}/{votes.Count}, score {score:F3}");
-                var newStatus = hardStopped ? TitanoStrategyStatus.HardStopped :
-                    multiplier == 0 ? TitanoStrategyStatus.Disabled :
-                    multiplier == 1 ? TitanoStrategyStatus.Enabled : TitanoStrategyStatus.Reduced;
+                var newStatus = ClassifyStatus(multiplier, hardStopped, request);
                 var transitionType = ClassifyTransition(prior, newStatus);
-                var anomalies = DetectAnomalies(multiplier > 0, multiplier, newStatus, hardStopped, passing, request.MinimumPassingFilters);
+                var anomalies = DetectAnomalies(
+                    multiplier, newStatus, hardStopped, passing, votes.Count, request, mayDisable);
                 var state = new TitanoStrategyState
                 {
                     StrategyCode = code, Enabled = multiplier > 0, AllocationMultiplier = multiplier,
@@ -525,16 +688,41 @@ public sealed class TitanoRotationService
     }
 
     private static List<TitanoEquityPoint> BuildEquity(TitanoRotationRequest request, IEnumerable<PersistedTrade> trades,
-        IReadOnlyList<TitanoRotationDecision> decisions, IReadOnlyList<string> master)
+        IReadOnlyList<TitanoRotationDecision> decisions, IReadOnlyList<string> master,
+        out int tradesOutsideCoverage)
     {
         var balance = request.InitialCapital;
         var result = new List<TitanoEquityPoint>();
+        var masterSet = new HashSet<string>(master, StringComparer.OrdinalIgnoreCase);
+        // Indice periodo -> (strategia -> stato), costruito una volta. Prima ogni trade faceva un
+        // SingleOrDefault su tutte le decisioni e un secondo su tutte le strategie del periodo.
+        var byPeriod = decisions
+            .OrderBy(x => x.EffectiveFromUtc)
+            .Select(decision => (
+                decision.EffectiveFromUtc,
+                decision.EffectiveToUtc,
+                States: decision.Strategies.ToDictionary(
+                    s => s.StrategyCode, s => s, StringComparer.OrdinalIgnoreCase)))
+            .ToList();
+        var outside = 0;
+
         foreach (var trade in trades.OrderBy(x => x.ExitTimeUtc).ThenBy(x => x.TradeId, StringComparer.Ordinal))
         {
-            var period = decisions.SingleOrDefault(x => trade.EntryTimeUtc >= x.EffectiveFromUtc && trade.EntryTimeUtc < x.EffectiveToUtc);
-            var state = period?.Strategies.SingleOrDefault(x => x.StrategyCode.Equals(trade.StrategyCode, StringComparison.OrdinalIgnoreCase));
-            if (period is null || state is null || !master.Contains(trade.StrategyCode, StringComparer.OrdinalIgnoreCase) ||
-                !state.Enabled)
+            if (!masterSet.Contains(trade.StrategyCode)) continue;
+
+            var periodIndex = byPeriod.FindIndex(p =>
+                trade.EntryTimeUtc >= p.EffectiveFromUtc && trade.EntryTimeUtc < p.EffectiveToUtc);
+            if (periodIndex < 0)
+            {
+                // Trade entrato fuori dalla copertura del run: primo periodo (solo osservazione) o
+                // dopo l'ultimo periodo efficace. Non è filtrabile, e va contato perché resta in
+                // OriginalEquity: è la differenza di campione fra le due curve del report.
+                outside++;
+                continue;
+            }
+
+            var state = byPeriod[periodIndex].States.GetValueOrDefault(trade.StrategyCode);
+            if (state is null || !state.Enabled)
                 continue;
             var quantity = trade.Quantity == 0 ? 1m : trade.Quantity;
             var costs = (request.CommissionPerUnit + request.SlippagePerUnit) * quantity * state.AllocationMultiplier;
@@ -547,6 +735,7 @@ public sealed class TitanoRotationService
                 Costs = costs, Balance = balance, Equity = balance
             });
         }
+        tradesOutsideCoverage = outside;
         return result;
     }
 
@@ -668,8 +857,22 @@ public sealed class TitanoRotationService
             points.Add((trade.ExitTimeUtc, equity));
         }
 
-        decimal EquityAt(DateTime time) => points.LastOrDefault(x => x.Time < time).Equity is var value && value != 0
-            ? value : request.InitialCapital;
+        // `points` parte sempre da (DateTime.MinValue, InitialCapital), quindi per qualunque istante
+        // esiste almeno un punto precedente. La versione precedente scartava il risultato quando
+        // valeva zero, per intercettare il `default` di LastOrDefault su una tupla: così un'equity
+        // realmente azzerata — strategia che ha bruciato tutto il capitale — veniva letta come
+        // capitale pieno, e i return della finestra diventavano numeri inventati.
+        decimal EquityAt(DateTime time)
+        {
+            var equityAtTime = request.InitialCapital;
+            for (var i = points.Count - 1; i >= 0; i--)
+            {
+                if (points[i].Time >= time) continue;
+                equityAtTime = points[i].Equity;
+                break;
+            }
+            return equityAtTime;
+        }
         var shortStart = EquityAt(cutoffUtc.AddDays(-request.ShortWindowDays));
         var longStart = EquityAt(cutoffUtc.AddDays(-request.LongWindowDays));
         var movingPoints = points.Where(x => x.Time >= cutoffUtc.AddDays(-request.MovingAverageWindowDays)).Select(x => x.Equity).ToArray();
@@ -714,7 +917,7 @@ public sealed class TitanoRotationService
             Vote("long-performance", metrics.LongReturn >= request.MinimumLongReturn,
                 0.5m + Math.Clamp(metrics.LongReturn - request.MinimumLongReturn, -0.5m, 0.5m),
                 $"return lungo {metrics.LongReturn:P2} < {request.MinimumLongReturn:P2}"),
-            Vote("z-score", zPassed, zPassed ? 1m : 0m,
+            Vote("z-score", zPassed, ZScoreVoteScore(metrics.ZScore, request),
                 $"z-score {metrics.ZScore:F2} fuori [{request.MinimumZScore:F2}, {request.MaximumZScore:F2}]"),
             Vote("drawdown", ddPassed, 1m - metrics.CurrentDrawdown / Math.Max(0.000001m, request.MaximumCurrentDrawdown),
                 $"drawdown corrente/massimo {metrics.CurrentDrawdown:P2}/{metrics.MaximumDrawdown:P2}"),
@@ -722,6 +925,27 @@ public sealed class TitanoRotationService
                 1m - metrics.ReturnVolatility / Math.Max(0.000001m, request.MaximumReturnVolatility),
                 $"volatilità {metrics.ReturnVolatility:P2} > {request.MaximumReturnVolatility:P2}")
         ];
+    }
+
+    /// <summary>
+    /// Punteggio continuo del voto z-score: 1 al centro della banda ammessa, 0 ai suoi estremi.
+    ///
+    /// <para>Il voto <b>booleano</b> resta la semplice appartenenza alla banda. Il punteggio invece
+    /// deve variare, perché è quello che entra nel percentile cross-sezionale. Finché era binario
+    /// (0 o 1) tutte le strategie che superavano la banda risultavano pari merito su questo voto e
+    /// prendevano percentile 0,5: nessuna poteva più raggiungere 1, quindi nessuna arrivava
+    /// all'allocazione massima e lo stato <c>Enabled</c> non compariva mai nel manifest.</para>
+    ///
+    /// <para>Il centro banda è il punto migliore, non il massimo: un z troppo basso è debolezza, un z
+    /// troppo alto è surriscaldamento — <see cref="TitanoRotationRequest.MaximumZScore"/> esiste
+    /// proprio per questo. Fuori banda il punteggio è 0, coerente con il voto fallito.</para>
+    /// </summary>
+    public static decimal ZScoreVoteScore(decimal zScore, TitanoRotationRequest request)
+    {
+        var halfWidth = (request.MaximumZScore - request.MinimumZScore) / 2m;
+        if (halfWidth <= 0) return zScore == request.MinimumZScore ? 1m : 0m;
+        var centre = (request.MaximumZScore + request.MinimumZScore) / 2m;
+        return Math.Clamp(1m - Math.Abs(zScore - centre) / halfWidth, 0m, 1m);
     }
 
     public static decimal SelectMultiplier(decimal score, IReadOnlyList<TitanoSizingTier> tiers) =>
@@ -805,18 +1029,37 @@ public sealed class TitanoRotationService
         IReadOnlyList<string> master)
     {
         var result = new List<TitanoWalkForwardResult>();
+        // Indice (strategia -> intervalli in cui è abilitata), costruito una volta. Prima il test
+        // "questo trade era abilitato?" scandiva tutte le decisioni e tutte le strategie di ognuna,
+        // per ogni trade e per ogni finestra: O(finestre × trade × periodi × strategie).
+        var enabledWindows = BuildEnabledWindows(decisions);
+        var masterSet = new HashSet<string>(master, StringComparer.OrdinalIgnoreCase);
+
+        bool WasEnabled(PersistedTrade trade) =>
+            enabledWindows.TryGetValue(trade.StrategyCode, out var windows) &&
+            windows.Any(w => trade.EntryTimeUtc >= w.From && trade.EntryTimeUtc < w.To);
+
+        decimal Profit(DateTime from, DateTime to, bool filtered)
+        {
+            var total = 0m;
+            foreach (var trade in trades)
+            {
+                if (trade.ExitTimeUtc < from || trade.ExitTimeUtc >= to) continue;
+                if (!masterSet.Contains(trade.StrategyCode)) continue;
+                if (filtered && !WasEnabled(trade)) continue;
+                total += trade.NetProfit;
+            }
+            return total;
+        }
+
         for (var i = request.CalibrationPeriods; i < periods.Count; i += Math.Max(1, request.EvaluationPeriods))
         {
             var calibrationStart = request.WalkForwardMode == TitanoWalkForwardMode.Expanding
                 ? periods[0].Start : periods[i - request.CalibrationPeriods].Start;
             var calibrationEnd = periods[i].Start;
-            var evaluationEnd = periods[Math.Min(periods.Count - 1, i + request.EvaluationPeriods - 1)].End;
-            decimal Profit(DateTime from, DateTime to, bool filtered) => trades.Where(t =>
-                    t.ExitTimeUtc >= from && t.ExitTimeUtc < to &&
-                    master.Contains(t.StrategyCode, StringComparer.OrdinalIgnoreCase) &&
-                    (!filtered || decisions.Any(d => t.EntryTimeUtc >= d.EffectiveFromUtc && t.EntryTimeUtc < d.EffectiveToUtc &&
-                        d.Strategies.Any(s => s.StrategyCode.Equals(t.StrategyCode, StringComparison.OrdinalIgnoreCase) && s.Enabled))))
-                .Sum(t => t.NetProfit);
+            var lastEvaluationIndex = i + request.EvaluationPeriods - 1;
+            var truncated = lastEvaluationIndex > periods.Count - 1;
+            var evaluationEnd = periods[Math.Min(periods.Count - 1, lastEvaluationIndex)].End;
             var isFiltered = Profit(calibrationStart, calibrationEnd, true);
             var isRaw = Profit(calibrationStart, calibrationEnd, false);
             var oosFiltered = Profit(calibrationEnd, evaluationEnd, true);
@@ -827,10 +1070,78 @@ public sealed class TitanoRotationService
                 CalibrationFromUtc = calibrationStart, CalibrationToUtc = calibrationEnd,
                 EvaluationFromUtc = calibrationEnd, EvaluationToUtc = evaluationEnd,
                 InSampleNetProfit = isFiltered, OutOfSampleNetProfit = oosFiltered,
+                EvaluationTruncated = truncated,
                 InSampleOnlyImprovementWarning = isFiltered > isRaw && oosFiltered <= oosRaw
             });
         }
         return result;
+    }
+
+    /// <summary>
+    /// Intervalli in cui ciascuna strategia risulta abilitata, indicizzati per codice. Sostituisce la
+    /// scansione lineare delle decisioni dentro i cicli sui trade.
+    /// </summary>
+    private static Dictionary<string, List<(DateTime From, DateTime To)>> BuildEnabledWindows(
+        IReadOnlyList<TitanoRotationDecision> decisions)
+    {
+        var windows = new Dictionary<string, List<(DateTime From, DateTime To)>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var decision in decisions)
+        foreach (var state in decision.Strategies)
+        {
+            if (!state.Enabled) continue;
+            if (!windows.TryGetValue(state.StrategyCode, out var list))
+                windows[state.StrategyCode] = list = [];
+            list.Add((decision.EffectiveFromUtc, decision.EffectiveToUtc));
+        }
+        return windows;
+    }
+
+    /// <summary>
+    /// Spiega perché il walk-forward è vuoto o parziale. Una tabella vuota nel report era
+    /// indistinguibile da "nessun problema rilevato": qui la differenza viene dichiarata.
+    /// </summary>
+    private static string BuildWalkForwardNote(
+        TitanoRotationRequest request, int periodCount, IReadOnlyList<TitanoWalkForwardResult> results)
+    {
+        if (results.Count == 0)
+            return $"Walk-forward non calcolato: servono più di {request.CalibrationPeriods} periodi " +
+                   $"di calibrazione, il run ne ha {periodCount}. Allarga l'intervallo del run o riduci " +
+                   "CalibrationPeriods.";
+        return results.Any(x => x.EvaluationTruncated)
+            ? "L'ultima finestra di valutazione è più corta di EvaluationPeriods: il run finisce prima. " +
+              "Il confronto IS/OOS su quella finestra è su un campione ridotto."
+            : string.Empty;
+    }
+
+    /// <summary>
+    /// Allocazione massima raggiungibile con la configurazione data. È il riferimento rispetto a cui
+    /// si decide se una strategia è a pieno regime, non la costante 1: con
+    /// <see cref="TitanoRotationRequest.CrossSectionalSizing"/> il tetto è
+    /// <see cref="TitanoRotationRequest.MaximumAllocationMultiplier"/>, che può essere inferiore a 1.
+    /// </summary>
+    public static decimal MaximumAllocation(TitanoRotationRequest request) =>
+        request.CrossSectionalSizing
+            ? Math.Max(request.MinimumAllocationMultiplier, request.MaximumAllocationMultiplier)
+            : request.SizingTiers.Count == 0 ? 0m : request.SizingTiers.Max(x => x.AllocationMultiplier);
+
+    /// <summary>
+    /// Stato di una strategia a partire dall'allocazione calcolata.
+    ///
+    /// <para><c>Enabled</c> significa "a pieno regime", cioè al tetto configurato — non
+    /// "moltiplicatore esattamente 1". Con il sizing per percentile il tetto si raggiunge solo se la
+    /// strategia è prima su tutti i voti, ed è comunque un valore che dipende da
+    /// <see cref="TitanoRotationRequest.MaximumAllocationMultiplier"/> e dall'arrotondamento ad
+    /// <see cref="TitanoRotationRequest.AllocationStep"/>: confrontarlo con 1 rendeva
+    /// <c>Enabled</c> irraggiungibile.</para>
+    /// </summary>
+    public static TitanoStrategyStatus ClassifyStatus(
+        decimal multiplier, bool hardStopped, TitanoRotationRequest request)
+    {
+        if (hardStopped) return TitanoStrategyStatus.HardStopped;
+        if (multiplier <= 0m) return TitanoStrategyStatus.Disabled;
+        return multiplier >= MaximumAllocation(request)
+            ? TitanoStrategyStatus.Enabled
+            : TitanoStrategyStatus.Reduced;
     }
 
     /// <summary>
@@ -856,24 +1167,30 @@ public sealed class TitanoRotationService
     /// tutta la logica di BuildDecisions ogni volta.
     /// </summary>
     private static List<string> DetectAnomalies(
-        bool enabled, decimal multiplier, TitanoStrategyStatus state, bool hardStopped,
-        int passingFilters, int minimumPassingFilters)
+        decimal multiplier, TitanoStrategyStatus state, bool hardStopped,
+        int passingFilters, int totalFilters, TitanoRotationRequest request, bool mayDisable)
     {
+        var enabled = multiplier > 0m;
+        var cap = MaximumAllocation(request);
         var anomalies = new List<string>();
-        if (enabled && multiplier <= 0)
-            anomalies.Add($"Enabled=true ma AllocationMultiplier={multiplier} (dovrebbe essere > 0)");
-        if (!enabled && multiplier > 0)
-            anomalies.Add($"Enabled=false ma AllocationMultiplier={multiplier} (dovrebbe essere 0)");
         if (hardStopped && enabled)
             anomalies.Add("HardStopped=true ma Enabled=true (una strategia in hard stop non dovrebbe essere abilitata)");
         if (state == TitanoStrategyStatus.HardStopped && !hardStopped)
             anomalies.Add("State=HardStopped ma HardStopped=false");
-        if (state == TitanoStrategyStatus.Enabled && multiplier != 1m)
-            anomalies.Add($"State=Enabled ma AllocationMultiplier={multiplier} (atteso 1)");
+        if (state == TitanoStrategyStatus.Enabled && multiplier < cap)
+            anomalies.Add($"State=Enabled ma AllocationMultiplier={multiplier} < tetto {cap}");
         if (state == TitanoStrategyStatus.Disabled && multiplier != 0m)
             anomalies.Add($"State=Disabled ma AllocationMultiplier={multiplier} (atteso 0)");
-        if (enabled && passingFilters < minimumPassingFilters)
-            anomalies.Add($"Enabled=true con soli {passingFilters}/{minimumPassingFilters} filtri minimi superati");
+        if (state == TitanoStrategyStatus.Reduced && (multiplier <= 0m || multiplier >= cap))
+            anomalies.Add($"State=Reduced ma AllocationMultiplier={multiplier} fuori da (0, {cap})");
+
+        // Una strategia sotto la soglia di voti tenuta accesa da MinimumOnPeriods NON è un'anomalia:
+        // è il comportamento voluto dell'isteresi. Segnalarla svuotava di significato il campo,
+        // perché era il caso più frequente. Si segnala solo quando l'isteresi non lo giustifica.
+        if (enabled && passingFilters < request.MinimumPassingFilters && mayDisable)
+            anomalies.Add(
+                $"Enabled=true con {passingFilters}/{totalFilters} voti superati " +
+                $"(minimo {request.MinimumPassingFilters}) senza che MinimumOnPeriods lo trattenga");
         return anomalies;
     }
 

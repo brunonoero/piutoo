@@ -48,7 +48,6 @@ client WinForms, `net9.0-windows` per il progetto di test. Test con xUnit +
 | `PiootooApp.Server` | API HTTP. Solo controller sottili + DI. |
 | `Piootoo.FeedWorker` | Worker che alimenta le sessioni live con barre chiuse. |
 | `piootooapp.clientform` | Console WinForms a quattro tab (Workspaces, Backtesting, Titano, Trading Session). Client HTTP puro. |
-| `piootoo.titanoclient` | Client WinForms per filtro/setup strategie. |
 | `piootooapp.client` | SPA Angular, scollegata dal debug F5. |
 | `piootoo-repository/` | Dati fuori dal codice: `datafeed/` (JSON OHLCV), `ctrader/` (sorgenti cBot), `easy/` (sorgenti EasyLanguage), `datafeed-downloader/` (Python). |
 

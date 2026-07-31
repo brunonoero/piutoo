@@ -34,6 +34,9 @@ solution. Stato: **stabile** = contenuto verificato contro il codice,
   `FinalQuantity` (Titano × ATR × rischio portfolio). *Stabile.*
 - [`domini/trading-sessions-api.md`](domini/trading-sessions-api.md) — ciclo
   di vita di una sessione, endpoint, autorità di execution. *Stabile.*
+- [`domini/distribuzione-multi-account.md`](domini/distribuzione-multi-account.md)
+  — secondo layer di filtro dopo Titano: gruppi, slot, max trade concorrenti,
+  con matrice di esempi verificati. *Stabile.*
 - [`domini/trading-plans.md`](domini/trading-plans.md) — configurazioni operative
   riutilizzabili e apertura idempotente delle sessioni dal cBot. *Stabile.*
 - [`domini/strategie-catalogo.md`](domini/strategie-catalogo.md) —
@@ -48,8 +51,6 @@ solution. Stato: **stabile** = contenuto verificato contro il codice,
 
 - [`client/workspace-console.md`](client/workspace-console.md) — console
   WinForms (`piootooapp.clientform`), i suoi quattro tab. *Bozza.*
-- [`client/titano-client.md`](client/titano-client.md) — client filtro/setup
-  strategie (`piootoo.titanoclient`). *Bozza.*
 
 ## Decisioni
 

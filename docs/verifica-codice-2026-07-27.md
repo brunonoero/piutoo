@@ -362,6 +362,14 @@ in silenzio.
 
 ## 5. Titano
 
+> **Nota 31/07/2026 — questa sezione è storica.** Il primo dei due modelli
+> (`TitanoFilterService` + `TitanoSetupService` + `POST /titano/apply-filter`) è
+> stato **rimosso**, e i setup di rotazione hanno ora persistenza propria
+> (`TitanoRotationSetupService`, `GET/POST /api/Titano/rotation-setups`). Le
+> raccomandazioni che seguono sulla convergenza dei due modelli sono quindi
+> superate. Vedi `decisioni.md` (2026-07-31) e
+> `titano-analisi-parametri-e-audit-2026-07-31.md`.
+
 Esistono **due implementazioni distinte e scollegate** di "Titano":
 
 | | `TitanoFilterService` + `TitanoSetupService` | `TitanoRotationService` |
