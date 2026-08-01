@@ -49,7 +49,7 @@ public enum TradeExitReason
 {
     Unknown,
 
-    /// <summary>Stop loss (o break even attivato) raggiunto.</summary>
+    /// <summary>Stop loss iniziale raggiunto.</summary>
     StopLoss,
 
     /// <summary>Take profit raggiunto.</summary>
@@ -75,7 +75,13 @@ public enum TradeExitReason
     WeekEnd,
 
     /// <summary>Chiusura forzata a fine backtest.</summary>
-    EndOfRun
+    EndOfRun,
+
+    /// <summary>Stop spostato al prezzo di ingresso dopo l'attivazione del break even.</summary>
+    BreakEven,
+
+    /// <summary>Trailing stop protettivo raggiunto.</summary>
+    TrailingStop
 }
 
 /// <summary>

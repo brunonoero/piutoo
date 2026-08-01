@@ -94,7 +94,7 @@ public sealed class Pts002PcTests
             exitTime);
 
         var trade = Assert.Single(service.GetClosedTrades());
-        Assert.Equal(TradeExitReason.StopLoss, trade.ExitReason);
+        Assert.Equal(TradeExitReason.TrailingStop, trade.ExitReason);
         Assert.Equal(120m, trade.ExitPrice); // 170 - ($1.000 / $20 per punto).
         Assert.Equal(400m, trade.GrossProfit);
     }

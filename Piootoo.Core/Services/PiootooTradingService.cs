@@ -772,12 +772,20 @@ public class PiootooTradingService : IPiootooTradingService
                 decimal? protectiveStopPrice = position.StopLoss.HasValue
                     ? position.EntryPrice - position.StopLoss.Value
                     : null;
+                var protectiveExitReason = TradeExitReason.StopLoss;
                 if (position.BreakEvenActivated)
+                {
                     protectiveStopPrice = Math.Max(protectiveStopPrice ?? decimal.MinValue, position.EntryPrice);
+                    protectiveExitReason = TradeExitReason.BreakEven;
+                }
                 if (position.TrailingStop.HasValue && position.PeakFavorablePrice.HasValue)
                 {
                     var trailingStopPrice = position.PeakFavorablePrice.Value - position.TrailingStop.Value;
-                    protectiveStopPrice = Math.Max(protectiveStopPrice ?? decimal.MinValue, trailingStopPrice);
+                    if (!protectiveStopPrice.HasValue || trailingStopPrice > protectiveStopPrice.Value)
+                    {
+                        protectiveStopPrice = trailingStopPrice;
+                        protectiveExitReason = TradeExitReason.TrailingStop;
+                    }
                 }
 
                 // Dalla barra successiva al fill, la policy intrabar conservativa fa precedere lo
@@ -785,7 +793,7 @@ public class PiootooTradingService : IPiootooTradingService
                 // reale dei tick.
                 if (protectiveStopPrice.HasValue && (currentBar?.Low ?? currentPrice.Value) <= protectiveStopPrice.Value)
                 {
-                    positionsToClose.Add((positionKey, protectiveStopPrice.Value, TradeExitReason.StopLoss));
+                    positionsToClose.Add((positionKey, protectiveStopPrice.Value, protectiveExitReason));
                     continue;
                 }
 
@@ -817,17 +825,25 @@ public class PiootooTradingService : IPiootooTradingService
                 decimal? protectiveStopPrice = position.StopLoss.HasValue
                     ? position.EntryPrice + position.StopLoss.Value
                     : null;
+                var protectiveExitReason = TradeExitReason.StopLoss;
                 if (position.BreakEvenActivated)
+                {
                     protectiveStopPrice = Math.Min(protectiveStopPrice ?? decimal.MaxValue, position.EntryPrice);
+                    protectiveExitReason = TradeExitReason.BreakEven;
+                }
                 if (position.TrailingStop.HasValue && position.PeakFavorablePrice.HasValue)
                 {
                     var trailingStopPrice = position.PeakFavorablePrice.Value + position.TrailingStop.Value;
-                    protectiveStopPrice = Math.Min(protectiveStopPrice ?? decimal.MaxValue, trailingStopPrice);
+                    if (!protectiveStopPrice.HasValue || trailingStopPrice < protectiveStopPrice.Value)
+                    {
+                        protectiveStopPrice = trailingStopPrice;
+                        protectiveExitReason = TradeExitReason.TrailingStop;
+                    }
                 }
 
                 if (protectiveStopPrice.HasValue && (currentBar?.High ?? currentPrice.Value) >= protectiveStopPrice.Value)
                 {
-                    positionsToClose.Add((positionKey, protectiveStopPrice.Value, TradeExitReason.StopLoss));
+                    positionsToClose.Add((positionKey, protectiveStopPrice.Value, protectiveExitReason));
                     continue;
                 }
 
