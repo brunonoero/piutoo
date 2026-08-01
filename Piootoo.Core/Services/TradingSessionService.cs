@@ -1424,6 +1424,7 @@ public sealed class TradingSessionService : ITradingSessionService
                 ExitTimeUtc = TradingDateTime.ToFeedUtc(trade.ExitDate),
                 EntryPrice = trade.EntryPrice,
                 ExitPrice = trade.ExitPrice,
+                ExitReason = trade.ExitReason.ToString(),
                 GrossProfit = trade.GrossProfit,
                 NetProfit = trade.NetProfit,
                 Commission = trade.Commission

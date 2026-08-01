@@ -30,6 +30,7 @@ public sealed class PTS_003_NQ_15 : PriceChannelEngine
         ChannelBars = 100;
         EnableLong = true;
         EnableShort = false;
+        Direction = 1;
         OffsetTicks = 2;
         TickSize = 0.25m;
         StartTime = 1300;

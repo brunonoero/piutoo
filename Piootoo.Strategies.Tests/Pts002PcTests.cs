@@ -39,6 +39,7 @@ public sealed class Pts002PcTests
 
         Assert.Equal(SignalType.Buy, signal.Type);
         Assert.Equal(TradeOrderType.Stop, signal.OrderType);
+        Assert.Null(signal.CompanionSignals);
         Assert.Equal("@NQ", signal.Symbol);
         Assert.Equal("PTS_002_NQ_15", signal.StrategyCode);
         Assert.Equal(999.5m, signal.Price); // massimo delle 100 incl. barra corrente (999) + 2 tick NQ.
