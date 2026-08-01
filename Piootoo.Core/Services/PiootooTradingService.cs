@@ -740,6 +740,14 @@ public class PiootooTradingService : IPiootooTradingService
                 continue;
             }
 
+            // Una barra OHLC non dice se il minimo/massimo sia avvenuto prima o dopo il fill
+            // dell'ordine di ingresso. Per non trasformare un'escursione precedente al fill in
+            // uno stop fittizio, SL/TP/BE/trailing iniziano dalla barra successiva.
+            if (position.EntryTime == currentTime)
+            {
+                continue;
+            }
+
             decimal favorableMove = 0;
             var currentBar = GetCurrentBar(position, currentBars);
             
@@ -772,10 +780,9 @@ public class PiootooTradingService : IPiootooTradingService
                     protectiveStopPrice = Math.Max(protectiveStopPrice ?? decimal.MinValue, trailingStopPrice);
                 }
 
-                // Politica intrabar conservativa: quando la barra di fill raggiunge sia lo stop
-                // protettivo sia il target, questo controllo precede il TP e attribuisce l'uscita
-                // allo stop. Con sole OHLC non è possibile ricostruire l'ordine reale dei tick.
-                // La stessa regola vale anche per le barre successive.
+                // Dalla barra successiva al fill, la policy intrabar conservativa fa precedere lo
+                // stop protettivo al target. Con sole OHLC non è possibile ricostruire l'ordine
+                // reale dei tick.
                 if (protectiveStopPrice.HasValue && (currentBar?.Low ?? currentPrice.Value) <= protectiveStopPrice.Value)
                 {
                     positionsToClose.Add((positionKey, protectiveStopPrice.Value, TradeExitReason.StopLoss));
