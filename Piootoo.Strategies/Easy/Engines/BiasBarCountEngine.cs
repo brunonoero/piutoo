@@ -41,8 +41,10 @@ public enum BiasEntryType
 /// dentro una finestra di barre come stop o limit riemesso a ogni barra. L'uscita è a un altro
 /// indice di barra.</para>
 ///
-/// <para>Copre <c>TOP_UA_218</c> (breakout, libreria Fast) e <c>TOP_UA_261</c> (mercato,
-/// libreria BaseSA). Le due differiscono solo per parametri, non per logica.</para>
+/// <para>Copre le varianti BIAS standard a conteggio barre e quelle con filtri proprietari.
+/// Le ultime usano gli hook protetti <see cref="UsesCustomEntryRules"/> e
+/// <see cref="AddCustomEntries"/>: i relativi adattatori dichiarano esplicitamente i parametri
+/// della sorgente senza duplicare la costruzione di ordini e uscite.</para>
 ///
 /// <para><b>Cosa cambia rispetto alla traduzione a mano.</b> Gli ingressi 2 e 3 tornano a essere
 /// veri ordini <c>next bar ... stop/limit</c> valutati dall'engine, invece di un confronto
@@ -123,7 +125,7 @@ public abstract class BiasBarCountEngine : EasyEngineBase
 
     // ------------------------------------------------------------------ valutazione
 
-    public TradeSignal GenerateSignal(OhlcvData[] data, DateTime currentDate)
+    public virtual TradeSignal GenerateSignal(OhlcvData[] data, DateTime currentDate)
     {
         if (data is null || data.Length < RequiredCandles)
             return Hold(data?.LastOrDefault()?.Close ?? 0m, currentDate, "Dati insufficienti");
@@ -142,6 +144,12 @@ public abstract class BiasBarCountEngine : EasyEngineBase
         _mycount++;
 
         var nextBarTime = EasyLib.EstimateNextBarUtc(data, barTime);
+        if (UsesCustomEntryRules)
+        {
+            var customEntries = new List<TradeSignal>(2);
+            AddCustomEntries(data, barTime, nextBarTime, ohlc, customEntries);
+            return Combine(customEntries, Hold(bar.Close, barTime));
+        }
 
         // I tipi 2/3 armano alla barra trigger, poi riemettono l'ordine next-bar finché la
         // finestra è aperta. Il tipo 1 è gestito sotto: il pattern va letto alla chiusura della
@@ -239,7 +247,31 @@ public abstract class BiasBarCountEngine : EasyEngineBase
     /// emesso a runtime, qui diventa una proprietà del segnale d'ingresso, così l'engine la
     /// applica da solo e la stessa strategia funziona identica in backtest e in live.
     /// </summary>
-    private TradeSignal WithExit(TradeSignal signal, DateTime barTime, int exitBarIndex)
+    /// <summary>
+    /// Indica che la variante BIAS usa filtri di ingresso diversi dal conteggio barre.
+    /// L'adattatore deve esprimerli tramite <see cref="AddCustomEntries"/> e non sovrascrivere
+    /// <see cref="GenerateSignal"/>, mantenendo così comune il contratto degli ordini.
+    /// </summary>
+    protected virtual bool UsesCustomEntryRules => false;
+
+    /// <summary>
+    /// Aggiunge gli ingressi delle varianti BIAS con filtri proprietari. Il motore ha già
+    /// ricostruito gli OHLC di sessione; gli ingressi vanno creati con i builder next-bar di
+    /// <see cref="EasyEngineBase"/> e devono includere ogni uscita nota.
+    /// </summary>
+    protected virtual void AddCustomEntries(
+        OhlcvData[] data,
+        DateTime barTime,
+        DateTime nextBarTime,
+        decimal[] ohlc,
+        List<TradeSignal> entries)
+    {
+    }
+
+    /// <summary>
+    /// Applica l'uscita a indice di barra alla specifica dell'ingresso.
+    /// </summary>
+    protected TradeSignal WithExit(TradeSignal signal, DateTime barTime, int exitBarIndex)
     {
         if (exitBarIndex > 0)
         {
@@ -251,7 +283,19 @@ public abstract class BiasBarCountEngine : EasyEngineBase
         return signal;
     }
 
-    private bool Pattern(int number, decimal[] ohlc) => PatternLibrary switch
+    /// <summary>
+    /// Applica una deadline oraria alla specifica dell'ingresso. La risoluzione avviene rispetto
+    /// alla barra di segnale, quindi un'uscita mattutina successiva a un ingresso serale cade il
+    /// giorno seguente.
+    /// </summary>
+    protected static TradeSignal WithExitTime(TradeSignal signal, DateTime barTime, int exitTime)
+    {
+        signal.CloseAtUtc = ResolveCloseAtUtc(barTime, exitTime);
+        return signal;
+    }
+
+    /// <summary>Valuta la libreria pattern configurata dalla variante.</summary>
+    protected bool Pattern(int number, decimal[] ohlc) => PatternLibrary switch
     {
         EasyPatternLibrary.Fast => EasyLib.PatternFast(number, ohlc),
         EasyPatternLibrary.BaseSA => EasyLib.PtnBaseSA2(number, ohlc),
@@ -262,6 +306,6 @@ public abstract class BiasBarCountEngine : EasyEngineBase
         _mycount == armBar - 1 ||
         (armBar == 1 && Hhmm(nextBarTime) == SessionStartTime);
 
-    private static int PythonDayOfWeek(DateTime barTime) =>
+    protected static int PythonDayOfWeek(DateTime barTime) =>
         ((int)barTime.DayOfWeek + 6) % 7;
 }

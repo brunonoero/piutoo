@@ -12,11 +12,39 @@ namespace Piootoo.Strategies.Easy.Engines;
 /// al segnale d'ingresso come <see cref="TradeSignal.CloseAtUtc"/> e non dipende da un
 /// futuro segnale <c>LX</c>/<c>SX</c>.</para>
 ///
-/// <para>I soli gate sono i <c>PatternFast</c> indipendenti long/short, come nel motore
-/// Python: il pattern <c>yes</c> deve essere vero e quello <c>no</c> deve essere falso.</para>
+/// <para>I gate Fast indipendenti long/short coprono la forma standard del motore Python; le
+/// varianti storiche possono aggiungere gate Neutral, Directional e BaseSA, inclusi più divieti
+/// per lo stesso verso. Ogni gate <c>yes</c> deve essere vero e ogni gate <c>no</c> falso.</para>
 /// </summary>
 public abstract class BiasWeeklyEngine : EasyEngineBase
 {
+    /// <summary>Famiglie di pattern presenti nelle varianti EasyLanguage BIASW.</summary>
+    protected enum WeeklyPatternKind
+    {
+        Fast,
+        NeutralFast,
+        DirectionalFast,
+        BaseSA2
+    }
+
+    /// <summary>
+    /// Regola di pattern obbligatoria o di esclusione. I gate sono valutati sulla barra precedente,
+    /// come l'ordine <c>next bar market</c> del sorgente EasyLanguage.
+    /// </summary>
+    protected sealed record WeeklyPatternRule(WeeklyPatternKind Kind, int Number, bool MustMatch);
+
+    /// <summary>
+    /// Programmazione di un ingresso settimanale. Una finestra è inclusiva e permette di riprodurre
+    /// i template che tentano l'ingresso per quindici minuti, non solo a un singolo timestamp.
+    /// </summary>
+    protected sealed record WeeklySchedule(
+        int EntryDay,
+        int EntryStartTime,
+        int EntryEndTime,
+        int ExitDay,
+        int ExitTime,
+        int SkipMonth = 0);
+
     // ------------------------------------------------------------------ abilitazione e calendario
 
     protected bool EnableLong = true;
@@ -30,6 +58,13 @@ public abstract class BiasWeeklyEngine : EasyEngineBase
     protected int EntryTimeLong;
     protected int EntryTimeShort;
 
+    /// <summary>
+    /// Programmazioni aggiuntive. Se vuote, il motore usa i campi singoli storici qui sopra per
+    /// mantenere compatibili le prime strategie e i test del motore.
+    /// </summary>
+    protected IReadOnlyList<WeeklySchedule> LongSchedules = Array.Empty<WeeklySchedule>();
+    protected IReadOnlyList<WeeklySchedule> ShortSchedules = Array.Empty<WeeklySchedule>();
+
     // ------------------------------------------------------------------ gate Fast
 
     /// <summary>Gate <c>ptn_ly_yes</c>/<c>ptn_ly_no</c> del motore Python.</summary>
@@ -39,6 +74,10 @@ public abstract class BiasWeeklyEngine : EasyEngineBase
     /// <summary>Gate <c>ptn_sy_yes</c>/<c>ptn_sy_no</c> del motore Python.</summary>
     protected int FastYesShort = 152;
     protected int FastNoShort = 153;
+
+    /// <summary>Gate aggiuntivi, inclusi i secondi divieti dei template originali.</summary>
+    protected IReadOnlyList<WeeklyPatternRule> LongPatternRules = Array.Empty<WeeklyPatternRule>();
+    protected IReadOnlyList<WeeklyPatternRule> ShortPatternRules = Array.Empty<WeeklyPatternRule>();
 
     // ------------------------------------------------------------------ calendario di uscita
 
@@ -56,6 +95,16 @@ public abstract class BiasWeeklyEngine : EasyEngineBase
     protected decimal StopMoneyShort;
     protected decimal ProfitMoneyLong;
     protected decimal ProfitMoneyShort;
+    protected decimal BreakEvenMoneyLong;
+    protected decimal BreakEvenMoneyShort;
+    protected decimal TrailingMoneyLong;
+    protected decimal TrailingMoneyShort;
+
+    /// <summary>
+    /// Limite di fill nella sessione di mercato. Replica <c>EntriesToday</c> dei template che lo
+    /// dichiarano, lasciando riemettere gli ordini non eseguiti.
+    /// </summary>
+    protected int MaxEntriesPerSession;
 
     public TradeSignal GenerateSignal(OhlcvData[] data, DateTime currentDate)
     {
@@ -70,27 +119,35 @@ public abstract class BiasWeeklyEngine : EasyEngineBase
         BuildSessionOhlc(previousData, previousData[^1].DateTime, out var ohlc);
 
         var entries = new List<TradeSignal>(2);
-        if (CanEnterLong(barTime, ohlc))
-            entries.Add(BuildEntry(SignalType.Buy, bar, barTime));
+        if (CanEnterLong(barTime, ohlc, out var longSchedule))
+            entries.Add(BuildEntry(SignalType.Buy, bar, barTime, longSchedule));
 
-        if (CanEnterShort(barTime, ohlc))
-            entries.Add(BuildEntry(SignalType.Sell, bar, barTime));
+        if (CanEnterShort(barTime, ohlc, out var shortSchedule))
+            entries.Add(BuildEntry(SignalType.Sell, bar, barTime, shortSchedule));
 
         return Combine(entries, Hold(bar.Close, barTime));
     }
 
-    private bool CanEnterLong(DateTime barTime, decimal[] ohlc) =>
-        EnableLong &&
-        IsAtScheduledEntry(barTime, EntryDayLong, EntryTimeLong) &&
-        PassesFastGates(FastYesLong, FastNoLong, ohlc);
+    private bool CanEnterLong(DateTime barTime, decimal[] ohlc, out WeeklySchedule schedule)
+    {
+        schedule = FindSchedule(LongSchedules, EntryDayLong, EntryTimeLong, ExitDayLong, ExitTimeLong, barTime);
+        return EnableLong &&
+               CurrentMP != 1 &&
+               IsInScheduledEntry(barTime, schedule) &&
+               PassesGates(FastYesLong, FastNoLong, LongPatternRules, ohlc);
+    }
 
-    private bool CanEnterShort(DateTime barTime, decimal[] ohlc) =>
-        EnableShort &&
-        IsAtScheduledEntry(barTime, EntryDayShort, EntryTimeShort) &&
-        PassesFastGates(FastYesShort, FastNoShort, ohlc);
+    private bool CanEnterShort(DateTime barTime, decimal[] ohlc, out WeeklySchedule schedule)
+    {
+        schedule = FindSchedule(ShortSchedules, EntryDayShort, EntryTimeShort, ExitDayShort, ExitTimeShort, barTime);
+        return EnableShort &&
+               CurrentMP != -1 &&
+               IsInScheduledEntry(barTime, schedule) &&
+               PassesGates(FastYesShort, FastNoShort, ShortPatternRules, ohlc);
+    }
 
     private TradeSignal BuildEntry(
-        SignalType side, OhlcvData bar, DateTime barTime)
+        SignalType side, OhlcvData bar, DateTime barTime, WeeklySchedule schedule)
     {
         var signal = new TradeSignal
         {
@@ -108,10 +165,18 @@ public abstract class BiasWeeklyEngine : EasyEngineBase
         var isLong = side == SignalType.Buy;
         signal.StopLossMoneyPerFutureContract = ValueForSide(StopMoneyLong, StopMoneyShort, isLong);
         signal.TakeProfitMoneyPerFutureContract = ValueForSide(ProfitMoneyLong, ProfitMoneyShort, isLong);
+        signal.BreakEvenMoneyPerFutureContract = ValueForSide(BreakEvenMoneyLong, BreakEvenMoneyShort, isLong);
+        signal.TrailingStopMoneyPerFutureContract = ValueForSide(TrailingMoneyLong, TrailingMoneyShort, isLong);
 
-        var exitDay = isLong ? ExitDayLong : ExitDayShort;
+        var exitDay = schedule.ExitDay;
         if (exitDay >= 0)
-            signal.CloseAtUtc = ResolveScheduledExitUtc(barTime, exitDay, isLong ? ExitTimeLong : ExitTimeShort);
+            signal.CloseAtUtc = ResolveScheduledExitUtc(barTime, exitDay, schedule.ExitTime);
+
+        if (MaxEntriesPerSession > 0)
+        {
+            signal.MaxEntriesPerSession = MaxEntriesPerSession;
+            signal.EntrySessionStartUtc = GetSessionStartUtc(barTime);
+        }
 
         return signal;
     }
@@ -122,15 +187,67 @@ public abstract class BiasWeeklyEngine : EasyEngineBase
         return value > 0m ? value : null;
     }
 
-    private static bool PassesFastGates(int yes, int no, decimal[] ohlc) =>
-        EasyLib.PatternFast(yes, ohlc) &&
-        !EasyLib.PatternFast(no, ohlc);
-
-    private static bool IsAtScheduledEntry(DateTime barTime, int day, int time)
+    private static bool PassesGates(
+        int fastYes,
+        int fastNo,
+        IReadOnlyList<WeeklyPatternRule> rules,
+        decimal[] ohlc)
     {
-        return day >= 0 &&
-               PythonDayOfWeek(barTime) == day &&
-               Hhmm(barTime) == time;
+        if (!EasyLib.PatternFast(fastYes, ohlc) || EasyLib.PatternFast(fastNo, ohlc))
+            return false;
+
+        foreach (var rule in rules)
+        {
+            var matches = Pattern(rule.Kind, rule.Number, ohlc);
+            if (matches != rule.MustMatch)
+                return false;
+        }
+
+        return true;
+    }
+
+    private static bool Pattern(WeeklyPatternKind kind, int number, decimal[] ohlc) => kind switch
+    {
+        WeeklyPatternKind.Fast => EasyLib.PatternFast(number, ohlc),
+        WeeklyPatternKind.NeutralFast => EasyLib.PatternNeutralFast(number, ohlc),
+        WeeklyPatternKind.DirectionalFast => EasyLib.PatternDirectionalFast(number, ohlc),
+        WeeklyPatternKind.BaseSA2 => EasyLib.PtnBaseSA2(number, ohlc),
+        _ => false
+    };
+
+    private static WeeklySchedule FindSchedule(
+        IReadOnlyList<WeeklySchedule> schedules,
+        int entryDay,
+        int entryTime,
+        int exitDay,
+        int exitTime,
+        DateTime barTime)
+    {
+        if (schedules.Count == 0)
+            return new WeeklySchedule(entryDay, entryTime, entryTime, exitDay, exitTime);
+
+        foreach (var schedule in schedules)
+        {
+            if (IsInScheduledEntry(barTime, schedule))
+                return schedule;
+        }
+
+        return new WeeklySchedule(-1, 0, 0, -1, 0);
+    }
+
+    private static bool IsInScheduledEntry(DateTime barTime, WeeklySchedule schedule) =>
+        schedule.EntryDay >= 0 &&
+        PythonDayOfWeek(barTime) == schedule.EntryDay &&
+        Hhmm(barTime) >= schedule.EntryStartTime &&
+        Hhmm(barTime) <= schedule.EntryEndTime &&
+        (schedule.SkipMonth == 0 || barTime.Month != schedule.SkipMonth);
+
+    private DateTime GetSessionStartUtc(DateTime barTime)
+    {
+        var sessionStart = EasyLib.CombineDateAndHhmm(barTime.Date, SessionStartTime);
+        if (SessionStartTime > SessionEndTime && Hhmm(barTime) < SessionStartTime)
+            sessionStart = sessionStart.AddDays(-1);
+        return sessionStart;
     }
 
     /// <summary>

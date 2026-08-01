@@ -1,88 +1,87 @@
-using System;
-using System.Collections.Generic;
 using Piootoo.Shared.Enums;
-using Piootoo.Shared.Interfaces;
 using Piootoo.Shared.Models;
-using static Piootoo.Strategies.Easy.EasyLib;
+using Piootoo.Strategies.Easy.Engines;
 
 namespace Piootoo.Strategies.Easy;
 
 /// <summary>
-/// Strategia EasyLanguage convertita: TOP_UA_872
-/// Trend following strategy using separate windows taken from CL_HourlyBiasMod21_UABIASExplorer
+/// TOP_UA_872 — BIAS con finestre orarie separate e breakout di sessione, su CL a 15 minuti.
+///
+/// <para>Sorgente: <c>piootoo-repository/easy/s_TOP_UA_872_CL_15__7.txt</c>. Le finestre e le
+/// pause restano esplicite nell'hook BIAS: i confronti stretti sono intenzionali e
+/// <c>MyStartLPause &gt; MyEndLPause</c> è conservato esattamente come nella sorgente.</para>
 /// </summary>
-public class Easy_872_CL_15 : StatelessEasyStrategyBase
+public sealed class Easy_872_CL_15 : BiasBarCountEngine
 {
-    // INPUTS
-    private int _titanExportMode = 0;
-    private int _sessionStartTimeA = 1800;
-    private int _myStartLETrade = 1045;
+    // Input della sorgente.
+    private const int MyStartLETrade = 1045;
+    private const int MyEndLETrade = 1430;
+    private const int MyStartLPause = 1200;
+    private const int MyEndLPause = 1100;
+    private const int MyLXTime = 1645;
+    private const int MyStartSETrade = 445;
+    private const int MyEndSETrade = 700;
+    private const int MyStartSPause = 1200;
+    private const int MyEndSPause = 1100;
+    private const int MySXTime = 200;
+    private const int MyPtnLY = 25;
+    private const int MyPtnSY = 39;
+    private const int MyPtnLN = 8;
+    private const int MyPtnSN = 7;
+    private const int MyNotLEDay = 0;
+    private const int MyNotSEDay = 0;
 
-    // VARIABLES
-    private bool _isStartOfSession = false;
-
-    // STATE
-    private string _symbol = "@CL";
-    private int _timeframeMinutes = 15;
-    private string _name = "TOP_UA_872";
-    private string _description = "Trend following strategy using separate windows taken from CL_HourlyBiasMod21_UABIASExplorer";
-
-    public string Name => _name;
-    public string Description => _description;
-    public string Symbol => _symbol;
-    public int TimeframeMinutes => _timeframeMinutes;
-    public int RequiredCandles => 100; // TODO: Calcolare in base alla strategia
-
-    public void Initialize(Dictionary<string, object>? parameters = null)
+    public Easy_872_CL_15()
     {
-        if (parameters != null)
+        SessionStartTime = 1800;
+        SessionEndTime = 1700;
+        Contracts = 1;
+        PatternLibrary = EasyPatternLibrary.BaseSA;
+        StopMoney = 1500;
+        ProfitMoney = 0;
+    }
+
+    public override string Name => "TOP_UA_872";
+    public override string Description => "BIAS session breakout con finestre separate, CL 15m";
+    public override string Symbol => "@CL";
+    public override int TimeframeMinutes => 15;
+
+    protected override bool UsesCustomEntryRules => true;
+
+    protected override void AddCustomEntries(
+        OhlcvData[] data,
+        DateTime barTime,
+        DateTime nextBarTime,
+        decimal[] ohlc,
+        List<TradeSignal> entries)
+    {
+        // La sorgente dichiara MyNotLEDay/MyNotSEDay ma non li usa nella condizione di ingresso:
+        // non applicarli qui è parte della parità, non un'omissione.
+        if (InSourceWindow(Hhmm(barTime), MyStartLETrade, MyEndLETrade) &&
+            OutsideSourcePause(Hhmm(barTime), MyStartLPause, MyEndLPause) &&
+            Pattern(MyPtnLY, ohlc) && !Pattern(MyPtnLN, ohlc))
         {
-            if (parameters.TryGetValue("Symbol", out var sym))
-                _symbol = sym?.ToString() ?? _symbol;
-            if (parameters.TryGetValue("TimeframeMinutes", out var tf))
-                _timeframeMinutes = Convert.ToInt32(tf);
-            if (parameters.TryGetValue("TitanExportMode", out var titanexportmode))
-                _titanExportMode = Convert.ToInt32(titanexportmode);
-            if (parameters.TryGetValue("sessionStartTimeA", out var sessionstarttimea))
-                _sessionStartTimeA = Convert.ToInt32(sessionstarttimea);
-            if (parameters.TryGetValue("MyStartLETrade", out var mystartletrade))
-                _myStartLETrade = Convert.ToInt32(mystartletrade);
+            entries.Add(WithExitTime(
+                EntryStopNextBar(SignalType.Buy, ohlc[1], data, barTime, "LE_STP"),
+                barTime,
+                MyLXTime));
+        }
+
+        if (InSourceWindow(Hhmm(barTime), MyStartSETrade, MyEndSETrade) &&
+            OutsideSourcePause(Hhmm(barTime), MyStartSPause, MyEndSPause) &&
+            Pattern(MyPtnSY, ohlc) && !Pattern(MyPtnSN, ohlc))
+        {
+            entries.Add(WithExitTime(
+                EntryStopNextBar(SignalType.Sell, ohlc[2], data, barTime, "SE_STP"),
+                barTime,
+                MySXTime));
         }
     }
 
-    // Stato per tracciare la posizione corrente (MP = marketposition)
-    private int _currentMP = 0; // 0 = nessuna posizione, +1 = long, -1 = short
-    private int _myCount = 0;
-    private DateTime? _lastEntryDate = null;
+    private static bool InSourceWindow(int time, int start, int end) =>
+        start > end ? time > start || time < end : time > start && time < end;
 
-    public TradeSignal GenerateSignal(OhlcvData[] data, DateTime currentDate)
-    {
-        if (data == null || data.Length < RequiredCandles)
-        {
-            return new TradeSignal
-            {
-                Date = currentDate,
-                Type = SignalType.Hold,
-                Price = data?.LastOrDefault()?.Close ?? 0,
-                StrategyName = Name,
-                Reason = "Dati insufficienti"
-            };
-        }
-
-        var currentPrice = data.Last().Close;
-        var currentTime = currentDate.Hour * 100 + currentDate.Minute; // Formato HHMM
-
-        // TODO: Implementare logica completa della strategia
-        // Convertire condizioni buy/sellshort in TradeSignal
-        // Per ora restituisce Hold - la logica deve essere implementata manualmente
-
-        return new TradeSignal
-        {
-            Date = currentDate,
-            Type = SignalType.Hold,
-            Price = currentPrice,
-            StrategyName = Name
-        };
-    }
+    private static bool OutsideSourcePause(int time, int start, int end) =>
+        time < start || time > end;
 }
 

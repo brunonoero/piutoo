@@ -19,7 +19,7 @@ namespace Piootoo.Strategies.Easy;
 /// <para><b>Contratto di riferimento:</b> CL, 1.000 barili, $1.000 per punto. Stop $1.600 = 1,6
 /// punti, target $2.100 = 2,1 punti.</para>
 /// </summary>
-public sealed class Easy_99_CL_5 : TrendDeveloperEngine
+public sealed class Easy_99_CL_5 : BiasWeeklyEngine
 {
     public override string Name => "Easy_99_CL_5";
     public override string Description => "Weekly bias short della domenica sera, CL 5m";
@@ -32,35 +32,25 @@ public sealed class Easy_99_CL_5 : TrendDeveloperEngine
         SessionEndTime = 1700;    // sessionEndTimeA
         Contracts = 1;
 
-        MarketEntry = true;   // next bar market
         EnableLong = false;   // la strategia è solo short
         EnableShort = true;
-        OnlyEntryDayShort = 0;  // ConditionShort1 = dayofweek(d) = 0 → domenica
-
-        StartTrade = 1945;           // EntryShort1Beg
-        EndTrade = 2000;             // EntryShort1End
-        InclusiveWindowEnd = true;   // l'originale usa Time >= Beg and Time <= End
-        MaxTradesPerDay = 1;         // entriestoday(d) = 0
-
-        // Nessun gate neutro/direzionale: sentinelle.
-        NeutralYes = 55;
-        NeutralNo = 56;
-        DirectionalYes = 52;
-        DirectionalNo = 53;
+        MaxEntriesPerSession = 1;  // entriestoday(d) = 0
+        ShortSchedules =
+        [
+            // EasyLanguage: domenica = 0; BIASW: lunedì = 0.
+            new WeeklySchedule(6, 1945, 2000, 0, 945)
+        ];
 
         FastYesShort = 100;  // PtnFastShortYes1
         FastNoShort = 36;    // PtnFastShortNo1
-        // PtnFastShortNo2(1) è un secondo divieto: non essendoci uno slot dedicato, resta
-        // documentato qui come scostamento noto dall'originale.
+        ShortPatternRules =
+        [
+            new WeeklyPatternRule(WeeklyPatternKind.Fast, 1, false) // PtnFastShortNo2
+        ];
 
-        CloseAtTime = 945;  // ExitShort1Beg, il mattino successivo
-
-        StopMoney = 1600;    // MyStop
-        ProfitMoney = 2100;  // MyProfit
+        StopMoneyShort = 1600;    // MyStop
+        ProfitMoneyShort = 2100;  // MyProfit
     }
-
-    public TradeSignal GenerateSignal(OhlcvData[] data, DateTime currentDate) =>
-        EvaluateCore(data, currentDate);
 
     public void Initialize(Dictionary<string, object>? parameters = null)
     {

@@ -1,6 +1,7 @@
 using Piootoo.Shared.Enums;
 using Piootoo.Shared.Models;
 using Piootoo.Shared.Models.Trading;
+using Piootoo.Strategies.Easy;
 using Piootoo.Strategies.Easy.Engines;
 
 namespace Piootoo.Strategies.Tests;
@@ -76,6 +77,89 @@ public sealed class PriceChannelEngineTests
         var shortOnly = Evaluate(new PythonPriceChannel { DirectionValue = 2 }, bars);
         Assert.Equal(SignalType.Sell, shortOnly.Type);
         Assert.Null(shortOnly.CompanionSignals);
+    }
+
+    [Fact]
+    public void LegacyPriceChannel_UsesCurrentSessionExtremes_AndFlatTimeAfterMaxDays()
+    {
+        var bars = BuildHourlyBars(new DateTime(2024, 1, 18, 12, 0, 0, DateTimeKind.Utc));
+        foreach (var bar in bars.Where(bar =>
+                     bar.DateTime >= new DateTime(2024, 1, 18, 8, 0, 0, DateTimeKind.Utc)))
+        {
+            bar.High = 250m;
+            bar.Low = 150m;
+        }
+        bars[^1].High = 999m;
+        bars[^1].Low = -999m;
+
+        var signal = Evaluate(new SessionExtremeLegacyPriceChannel(), bars);
+
+        Assert.Equal(SignalType.Buy, signal.Type);
+        Assert.Equal(999m, signal.Price);
+        Assert.Equal(new DateTime(2024, 1, 20, 21, 30, 0, DateTimeKind.Utc), signal.CloseAtUtc);
+        var shortSignal = Assert.Single(signal.CompanionSignals!);
+        Assert.Equal(-999m, shortSignal.Price);
+        Assert.Equal(signal.CloseAtUtc, shortSignal.CloseAtUtc);
+    }
+
+    [Fact]
+    public void LegacyPriceChannel_UpdatesSessionAdxAtSessionOpen()
+    {
+        // OHLCMulti5 considera la barra immediatamente successiva allo start (09:00) come
+        // apertura della sessione 08:00–22:00, coerentemente con le barre time-end.
+        var bars = BuildHourlyBars(new DateTime(2024, 1, 18, 9, 0, 0, DateTimeKind.Utc));
+        foreach (var bar in bars)
+        {
+            if (bar.DateTime.Date == new DateTime(2024, 1, 17).Date)
+            {
+                bar.High = 120m;
+                bar.Low = 100m;
+                bar.Close = 110m;
+            }
+            else if (bar.DateTime.Date == new DateTime(2024, 1, 16).Date)
+            {
+                bar.High = 100m;
+                bar.Low = 80m;
+                bar.Close = 90m;
+            }
+        }
+
+        Assert.Equal(SignalType.Hold, Evaluate(new SessionAdxLegacyPriceChannel(), bars).Type);
+    }
+
+    [Fact]
+    public void Easy336_RemainsCloseDependentBecauseItsSourceUsesDonchianTrail()
+    {
+        Assert.True(new Easy_336_GC_15().IsPositionCloseDependent);
+    }
+
+    [Fact]
+    public void Easy361_DeclaresOriginalRiskAndMaxDaysExitOnNextBarStop()
+    {
+        var strategy = new Easy_361_FDAX_30();
+        strategy.Initialize(new Dictionary<string, object>
+        {
+            ["MyStartTime"] = 0,
+            ["MyEndTime"] = 2359,
+            ["MyStartPause"] = -1,
+            ["MyEndPause"] = -1,
+            ["PtnNeutYes"] = 55,
+            ["PtnNeutNo"] = 56,
+            ["PtnDirYes"] = 52,
+            ["PtnDirNo"] = 53,
+            ["ADX_TH"] = 101
+        });
+        var bars = BuildHourlyBars(new DateTime(2024, 1, 18, 12, 0, 0, DateTimeKind.Utc));
+        bars[^1].High = 999m;
+
+        var signal = Evaluate(strategy, bars);
+
+        Assert.Equal(SignalType.Buy, signal.Type);
+        Assert.Equal(TradeOrderType.Stop, signal.OrderType);
+        Assert.Equal(999m, signal.Price);
+        Assert.Equal(1800m, signal.StopLossMoneyPerFutureContract);
+        Assert.Equal(4800m, signal.TakeProfitMoneyPerFutureContract);
+        Assert.Equal(new DateTime(2024, 1, 20, 21, 30, 0, DateTimeKind.Utc), signal.CloseAtUtc);
     }
 
     private static TradeSignal Evaluate(PriceChannelEngine strategy, OhlcvData[] bars) =>
@@ -180,6 +264,52 @@ public sealed class PriceChannelEngineTests
         public override string Name => "TEST_PYTHON_PC_NQ_60";
         public override string Description => "Strategia di prova Price Channel Python";
         public override string Symbol => "@NQ";
+        public override int TimeframeMinutes => 60;
+    }
+
+    private sealed class SessionExtremeLegacyPriceChannel : PriceChannelEngine
+    {
+        public SessionExtremeLegacyPriceChannel()
+        {
+            UseLegacyVariant = true;
+            SessionStartTime = 800;
+            SessionEndTime = 2200;
+            ChannelBars = 3;
+            UseCurrentSessionExtremesForEntries = true;
+            NeutralYes = 55;
+            NeutralNo = 56;
+            DirectionalYes = 52;
+            DirectionalNo = 53;
+            MaxDaysInTrade = 3;
+            MaxDaysFlatTime = 2130;
+        }
+
+        public override string Name => "TEST_LEGACY_PC_FDAX_60";
+        public override string Description => "Strategia di prova Price Channel legacy";
+        public override string Symbol => "@FDAX";
+        public override int TimeframeMinutes => 60;
+    }
+
+    private sealed class SessionAdxLegacyPriceChannel : PriceChannelEngine
+    {
+        public SessionAdxLegacyPriceChannel()
+        {
+            UseLegacyVariant = true;
+            SessionStartTime = 800;
+            SessionEndTime = 2200;
+            ChannelBars = 3;
+            NeutralYes = 55;
+            NeutralNo = 56;
+            DirectionalYes = 52;
+            DirectionalNo = 53;
+            AdxLength = 5;
+            AdxThreshold = 1m;
+            UseSessionAdx = true;
+        }
+
+        public override string Name => "TEST_ADX_PC_FDAX_60";
+        public override string Description => "Strategia di prova ADX Price Channel";
+        public override string Symbol => "@FDAX";
         public override int TimeframeMinutes => 60;
     }
 }

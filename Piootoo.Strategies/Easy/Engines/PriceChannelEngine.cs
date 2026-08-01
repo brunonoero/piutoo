@@ -19,6 +19,13 @@ namespace Piootoo.Strategies.Easy.Engines;
 public abstract class PriceChannelEngine : EasyEngineBase
 {
     /// <summary>
+    /// Un trail sul canale è un'uscita ricalcolata barra per barra. Non è esprimibile nei termini
+    /// di un <see cref="TradeSignal"/> di ingresso; le sottoclassi che lo abilitano sono quindi
+    /// marcate close-dependent ed escluse dal catalogo eseguibile.
+    /// </summary>
+    public override bool IsPositionCloseDependent => UseDonchianTrailing;
+
+    /// <summary>
     /// Abilita la traduzione EasyLanguage storica della sottoclasse. I suoi filtri daily,
     /// calendario EasyLanguage e limiti configurabili non fanno parte del contratto Python e
     /// restano disponibili soltanto con questo opt-in esplicito.
@@ -48,6 +55,12 @@ public abstract class PriceChannelEngine : EasyEngineBase
     /// <summary>Dimensione del tick dello strumento, necessaria solo per <see cref="OffsetTicks"/>.</summary>
     protected decimal TickSize;
 
+    /// <summary>
+    /// Usa gli estremi della sessione corrente (<c>HighD(0)</c>/<c>LowD(0)</c>) per gli ingressi
+    /// invece del canale rolling. Il canale rimane disponibile, ad esempio, per il trail originale.
+    /// </summary>
+    protected bool UseCurrentSessionExtremesForEntries;
+
     // ------------------------------------------------------------------ gate temporali e daily
 
     /// <summary>Inizio della finestra operativa HHMM.</summary>
@@ -59,6 +72,12 @@ public abstract class PriceChannelEngine : EasyEngineBase
     /// <summary>True per estremi inclusivi; false per la semantica <c>tw()</c> con fine esclusiva.</summary>
     protected bool TradingWindowInclusive = true;
 
+    /// <summary>Inizio pausa intraday. -1 = nessuna pausa.</summary>
+    protected int PauseStart = -1;
+
+    /// <summary>Fine pausa intraday. -1 = nessuna pausa.</summary>
+    protected int PauseEnd = -1;
+
     /// <summary>Giorno EasyLanguage escluso per il long (0 = domenica). -1 = nessuno.</summary>
     protected int NotEntryDayLong = -1;
 
@@ -67,6 +86,20 @@ public abstract class PriceChannelEngine : EasyEngineBase
 
     /// <summary>Giorno pandas escluso: 0 = lunedì, -1 = nessuno.</summary>
     protected int SkipDay = -1;
+
+    // ------------------------------------------------------------------ filtro ADX
+
+    /// <summary>Periodo ADX. 0 disattiva il filtro.</summary>
+    protected int AdxLength;
+
+    /// <summary>Soglia massima ADX oltre la quale non si entra.</summary>
+    protected decimal AdxThreshold = 100m;
+
+    /// <summary>
+    /// Calcola l'ADX una volta all'apertura di sessione da d1/d2, come
+    /// <c>iADXOnArray</c>. False usa l'ADX rolling delle barre del grafico.
+    /// </summary>
+    protected bool UseSessionAdx;
 
     /// <summary>
     /// Soglia minima dell'ATR a 14 sessioni chiuse, espressa in dollari per contratto.
@@ -85,6 +118,16 @@ public abstract class PriceChannelEngine : EasyEngineBase
     /// <c>abs(openD(1) - closeD(1)) &lt; valore × (highD(1) - lowD(1))</c>.
     /// </summary>
     protected decimal? DailyFactorValue;
+
+    /// <summary>
+    /// Replica <c>UseDonchianTrailing</c>: il trail dinamico rende la strategia close-dependent.
+    /// </summary>
+    protected bool UseDonchianTrailing;
+
+    /// <summary>
+    /// Orario HHMM della chiusura dopo <see cref="MaxDaysInTrade"/>. -1 usa la deadline generica.
+    /// </summary>
+    protected int MaxDaysFlatTime = -1;
 
     // ------------------------------------------------------------------ gate pattern
 
@@ -108,6 +151,13 @@ public abstract class PriceChannelEngine : EasyEngineBase
     /// <summary>Trailing stop monetario per contratto di riferimento. 0 = disattivo.</summary>
     protected int TrailingStopMoney;
 
+    // Stato ricorsivo di iADXOnArray sulle sessioni; deve sopravvivere alle valutazioni stateless.
+    private decimal _adxValue;
+    private decimal _adx0;
+    private decimal _adx1;
+    private decimal _adx2;
+    private decimal _adx3;
+
     /// <inheritdoc />
     public override int RequiredCandles => Math.Max(
         Math.Max(base.RequiredCandles, Math.Max(1, ChannelBars) + 1),
@@ -120,10 +170,10 @@ public abstract class PriceChannelEngine : EasyEngineBase
 
         var bar = data[^1];
         var barTime = bar.DateTime;
-        BuildSessionOhlc(data, barTime, out var ohlc);
+        var isStartOfSession = BuildSessionOhlc(data, barTime, out var ohlc);
 
         return UseLegacyVariant
-            ? GenerateLegacySignal(data, bar, barTime, ohlc)
+            ? GenerateLegacySignal(data, bar, barTime, ohlc, isStartOfSession)
             : GeneratePythonParitySignal(data, bar, barTime, ohlc);
     }
 
@@ -166,25 +216,28 @@ public abstract class PriceChannelEngine : EasyEngineBase
         OhlcvData[] data,
         OhlcvData bar,
         DateTime barTime,
-        decimal[] ohlc)
+        decimal[] ohlc,
+        bool isStartOfSession)
     {
         if (CurrentMP != 0 ||
             !InTradingWindow(barTime) ||
             !PassesDailyFactor(ohlc) ||
-            !PassesNeutralGates(ohlc))
+            !PassesNeutralGates(ohlc) ||
+            !PassesAdxGate(data, ohlc, isStartOfSession))
         {
             return Hold(bar.Close, barTime);
         }
 
         var entries = new List<TradeSignal>(2);
         var offset = OffsetPoints + OffsetTicks * TickSize;
+        GetEntryLevels(data, barTime, out var longLevel, out var shortLevel);
 
         if (EnableLong &&
             EasyDayOfWeek(barTime) != NotEntryDayLong &&
             PassesDirectionalGates(+1, ohlc))
         {
             entries.Add(WithLegacySettings(
-                EntryStopNextBar(SignalType.Buy, HighestChannelHigh(data) + offset, data, barTime, "PC_LE")));
+                EntryStopNextBar(SignalType.Buy, longLevel + offset, data, barTime, "PC_LE")));
         }
 
         if (EnableShort &&
@@ -192,7 +245,7 @@ public abstract class PriceChannelEngine : EasyEngineBase
             PassesDirectionalGates(-1, ohlc))
         {
             entries.Add(WithLegacySettings(
-                EntryStopNextBar(SignalType.Sell, LowestChannelLow(data) - offset, data, barTime, "PC_SE")));
+                EntryStopNextBar(SignalType.Sell, shortLevel - offset, data, barTime, "PC_SE")));
         }
 
         return Combine(entries, Hold(bar.Close, barTime));
@@ -220,13 +273,23 @@ public abstract class PriceChannelEngine : EasyEngineBase
             signal.EntrySessionStartUtc = GetSessionStartUtc(signal.ValidFromUtc!.Value);
         }
 
+        if (MaxDaysInTrade > 0 && MaxDaysFlatTime >= 0)
+            signal.CloseAtUtc = ResolveMaxDaysCloseAt(signal.ValidFromUtc!.Value);
+
         return signal;
     }
 
-    private bool InTradingWindow(DateTime barTime) =>
-        TradingWindowInclusive
+    private bool InTradingWindow(DateTime barTime)
+    {
+        var inWindow = TradingWindowInclusive
             ? EasyLib.TimeWindowInclusive(StartTime, EndTime, barTime)
             : EasyLib.TimeWindow(StartTime, EndTime, barTime);
+        if (!inWindow || PauseStart < 0 || PauseEnd < 0)
+            return inWindow;
+
+        var time = Hhmm(barTime);
+        return time < PauseStart || time > PauseEnd;
+    }
 
     private bool PassesNeutralGates(decimal[] ohlc) =>
         EasyLib.PatternNeutralFast(NeutralYes, ohlc) &&
@@ -243,6 +306,56 @@ public abstract class PriceChannelEngine : EasyEngineBase
 
         var range = ohlc[5] - ohlc[6];
         return range > 0m && Math.Abs(ohlc[4] - ohlc[7]) < DailyFactorValue.Value * range;
+    }
+
+    private bool PassesAdxGate(OhlcvData[] data, decimal[] ohlc, bool isStartOfSession)
+    {
+        if (AdxLength <= 0)
+            return true;
+
+        if (UseSessionAdx)
+        {
+            if (isStartOfSession)
+                UpdateSessionAdx(ohlc);
+        }
+        else
+        {
+            _adxValue = CalculateBarAdx(data);
+        }
+
+        return _adxValue < AdxThreshold;
+    }
+
+    private void UpdateSessionAdx(decimal[] ohlc)
+    {
+        var calc = new[] { _adx0, _adx1, _adx2, _adx3 };
+        _adxValue = EasyLib.iADXOnArray(
+            AdxLength,
+            ohlc[5], ohlc[6], ohlc[7],
+            ohlc[9], ohlc[10], ohlc[11],
+            ref calc) * 100m;
+        _adx0 = calc[0];
+        _adx1 = calc[1];
+        _adx2 = calc[2];
+        _adx3 = calc[3];
+    }
+
+    private decimal CalculateBarAdx(OhlcvData[] data)
+    {
+        if (data.Length < 2)
+            return 0m;
+
+        var calc = new decimal[4];
+        for (var index = 1; index < data.Length; index++)
+        {
+            _ = EasyLib.iADXOnArray(
+                AdxLength,
+                data[index].High, data[index].Low, data[index].Close,
+                data[index - 1].High, data[index - 1].Low, data[index - 1].Close,
+                ref calc);
+        }
+
+        return calc[0] * 100m;
     }
 
     private bool PassesDailyVolatilityGate(OhlcvData[] data, DateTime barTime)
@@ -328,6 +441,40 @@ public abstract class PriceChannelEngine : EasyEngineBase
         }
 
         return lowest;
+    }
+
+    private void GetEntryLevels(
+        OhlcvData[] data,
+        DateTime barTime,
+        out decimal longLevel,
+        out decimal shortLevel)
+    {
+        if (!UseCurrentSessionExtremesForEntries)
+        {
+            longLevel = HighestChannelHigh(data);
+            shortLevel = LowestChannelLow(data);
+            return;
+        }
+
+        var session = SessionKey(barTime);
+        longLevel = decimal.MinValue;
+        shortLevel = decimal.MaxValue;
+        foreach (var candidate in data)
+        {
+            if (SessionKey(candidate.DateTime) != session)
+                continue;
+
+            longLevel = Math.Max(longLevel, candidate.High);
+            shortLevel = Math.Min(shortLevel, candidate.Low);
+        }
+    }
+
+    private DateTime ResolveMaxDaysCloseAt(DateTime entryValidFrom)
+    {
+        var target = EasyLib.CombineDateAndHhmm(
+            entryValidFrom.Date.AddDays(Math.Max(0, MaxDaysInTrade - 1)),
+            MaxDaysFlatTime);
+        return target > entryValidFrom ? target : target.AddDays(1);
     }
 
     private DateTime GetSessionStartUtc(DateTime timeUtc)

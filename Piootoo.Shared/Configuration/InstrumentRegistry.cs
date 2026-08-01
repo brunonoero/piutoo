@@ -54,6 +54,12 @@ public static class InstrumentRegistry
             ["NG"] = new() { Symbol = "NG", PointValue = 10000m, Currency = "USD", TickSize = 0.001m, Description = "Natural Gas, 10.000 MMBtu" },
             ["RB"] = new() { Symbol = "RB", PointValue = 42000m, Currency = "USD", TickSize = 0.0001m, Description = "RBOB Gasoline, 42.000 galloni ($/gal)" },
             ["HO"] = new() { Symbol = "HO", PointValue = 42000m, Currency = "USD", TickSize = 0.0001m, Description = "Heating Oil, 42.000 galloni ($/gal)" },
+
+            // --- Valute CME ------------------------------------------------------------
+            // CME 6B: contratto £62.500, quotato USD per GBP; tick 0,0001 = $6,25.
+            ["BP"] = new() { Symbol = "BP", PointValue = 62500m, Currency = "USD", TickSize = 0.0001m, Description = "British Pound GBP/USD (CME 6B), £62.500" },
+            // CME 6E: contratto €125.000, quotato USD per EUR; tick 0,00005 = $6,25.
+            ["EC"] = new() { Symbol = "EC", PointValue = 125000m, Currency = "USD", TickSize = 0.00005m, Description = "Euro FX EUR/USD (CME 6E), €125.000" },
         };
 
     /// <summary>
@@ -65,8 +71,6 @@ public static class InstrumentRegistry
     private static readonly Dictionary<string, string> KnownButUnverified =
         new(StringComparer.OrdinalIgnoreCase)
         {
-            ["BP"] = "British Pound (6B) — verificare se il feed quota in dollari per sterlina",
-            ["EC"] = "Euro FX (6E) — verificare se il feed quota in dollari per euro",
             ["JY"] = "Japanese Yen (6J) — quotazione in unità di 0,000001, particolarmente insidiosa",
             ["AD"] = "Australian Dollar (6A)",
             ["CD"] = "Canadian Dollar (6C)",

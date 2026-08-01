@@ -1,12 +1,23 @@
 using Piootoo.Shared.Enums;
 using Piootoo.Shared.Models;
 using Piootoo.Shared.Models.Trading;
+using Piootoo.Strategies.Easy;
 using Piootoo.Strategies.Easy.Engines;
 
 namespace Piootoo.Strategies.Tests;
 
 public sealed class BiasBarCountEngineTests
 {
+    [Theory]
+    [InlineData(typeof(Easy_218_GC_60))]
+    [InlineData(typeof(Easy_244_FDAX_15))]
+    [InlineData(typeof(Easy_261_GC_60))]
+    [InlineData(typeof(Easy_460_GC_30))]
+    [InlineData(typeof(Easy_872_CL_15))]
+    [InlineData(typeof(Easy_960_GC_60))]
+    public void TopUaBiasStrategies_UseSharedBiasBarCountEngine(Type strategyType) =>
+        Assert.True(typeof(BiasBarCountEngine).IsAssignableFrom(strategyType));
+
     [Fact]
     public void Type1_UsesPreviousClosedBarPattern_AndPythonMondayDayFilter()
     {
@@ -74,6 +85,22 @@ public sealed class BiasBarCountEngineTests
         Assert.Equal(SignalType.Hold, strategy.GenerateSignal(BarsThrough(bars, later), later).Type);
     }
 
+    [Fact]
+    public void CustomEntryHook_UsesCommonNextBarContractAndTimeExit()
+    {
+        var bars = BuildBars(new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc), 9 * 24);
+        var barTime = new DateTime(2024, 1, 8, 17, 0, 0, DateTimeKind.Utc);
+        var strategy = new TestCustomBias();
+
+        var signal = strategy.GenerateSignal(BarsThrough(bars, barTime), barTime);
+
+        Assert.Equal(SignalType.Buy, signal.Type);
+        Assert.Equal(TradeOrderType.Market, signal.OrderType);
+        Assert.Equal(barTime.AddHours(1), signal.ValidFromUtc);
+        Assert.Equal(new DateTime(2024, 1, 9, 9, 0, 0, DateTimeKind.Utc), signal.CloseAtUtc);
+        Assert.Equal(3000m, signal.StopLossMoneyPerFutureContract);
+    }
+
     private static OhlcvData[] BarsThrough(OhlcvData[] bars, DateTime last) =>
         bars.Where(bar => bar.DateTime <= last).ToArray();
 
@@ -123,5 +150,34 @@ public sealed class BiasBarCountEngineTests
         public override int RequiredCandles => 1;
 
         public void SetPosition(int position) => _currentMP = position;
+    }
+
+    private sealed class TestCustomBias : BiasBarCountEngine
+    {
+        public TestCustomBias()
+        {
+            SessionStartTime = 0;
+            SessionEndTime = 2359;
+            StopMoney = 3000;
+        }
+
+        public override string Name => "TEST_CUSTOM_BIAS";
+        public override string Description => "Strategia BIAS di prova con hook";
+        public override string Symbol => "@FDAX";
+        public override int TimeframeMinutes => 60;
+        public override int RequiredCandles => 1;
+
+        protected override bool UsesCustomEntryRules => true;
+
+        protected override void AddCustomEntries(
+            OhlcvData[] data,
+            DateTime barTime,
+            DateTime nextBarTime,
+            decimal[] ohlc,
+            List<TradeSignal> entries) =>
+            entries.Add(WithExitTime(
+                EntryMarketNextBar(SignalType.Buy, data[^1].Close, data, barTime, "LE_CUSTOM"),
+                barTime,
+                900));
     }
 }

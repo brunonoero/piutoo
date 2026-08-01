@@ -12,6 +12,7 @@ namespace Piootoo.Core.Services;
 public static class StrategyFactory
 {
     private static readonly Dictionary<string, Type> _easyStrategyCache = new();
+    private static readonly object CacheInitializationLock = new();
     private static bool _cacheInitialized = false;
 
     /// <summary>
@@ -296,32 +297,37 @@ public static class StrategyFactory
     private static void InitializeEasyStrategyCache()
     {
         if (_cacheInitialized) return;
-        
-        try
+
+        lock (CacheInitializationLock)
         {
-            var assembly = Assembly.GetAssembly(typeof(Easy_643_FDAX_60));
-            if (assembly != null)
+            if (_cacheInitialized) return;
+
+            try
             {
-                var easyTypes = assembly.GetTypes()
-                    .Where(t => t.IsClass && 
-                                !t.IsAbstract && 
-                                typeof(ITradingStrategy).IsAssignableFrom(t))
-                    .ToList();
-                
-                foreach (var type in easyTypes)
+                var assembly = Assembly.GetAssembly(typeof(Easy_643_FDAX_60));
+                if (assembly != null)
                 {
-                    _easyStrategyCache[type.Name] = type;
+                    var easyTypes = assembly.GetTypes()
+                        .Where(t => t.IsClass &&
+                                    !t.IsAbstract &&
+                                    typeof(ITradingStrategy).IsAssignableFrom(t))
+                        .ToList();
+
+                    foreach (var type in easyTypes)
+                    {
+                        _easyStrategyCache[type.Name] = type;
+                    }
+
+                    Console.WriteLine($"[StrategyFactory] Cache inizializzata con {_easyStrategyCache.Count} strategie EasyLanguage");
                 }
-                
-                Console.WriteLine($"[StrategyFactory] Cache inizializzata con {_easyStrategyCache.Count} strategie EasyLanguage");
             }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[StrategyFactory] Errore durante l'inizializzazione della cache: {ex.Message}");
+            }
+
+            _cacheInitialized = true;
         }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"[StrategyFactory] Errore durante l'inizializzazione della cache: {ex.Message}");
-        }
-        
-        _cacheInitialized = true;
     }
 
     /// <summary>

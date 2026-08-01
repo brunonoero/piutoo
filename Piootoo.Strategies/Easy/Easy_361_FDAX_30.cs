@@ -1,238 +1,77 @@
-using System;
-using System.Collections.Generic;
-using Piootoo.Shared.Enums;
-using Piootoo.Shared.Interfaces;
-using Piootoo.Shared.Models;
-using static Piootoo.Strategies.Easy.EasyLib;
+using Piootoo.Strategies.Easy.Engines;
 
 namespace Piootoo.Strategies.Easy;
 
 /// <summary>
-/// Strategia EasyLanguage convertita: TOP_UA_361
-/// MultiCharts/TradeStation code generator by Unger Academy. All rights reserved.
+/// TOP_UA_361 — Price Channel FDAX 30m con pattern, ADX daily e scadenza multiday.
+///
+/// <para>Sorgente: <c>piootoo-repository/easy/s_TOP_UA_361_FDAX_30__7.txt</c>. L'ADX viene
+/// aggiornato una sola volta alla nuova sessione 08:00–22:00 sui valori d1/d2 di
+/// <c>_ohlcmulti5</c>; non è l'ATR-ratio della vecchia traduzione.</para>
 /// </summary>
-public class Easy_361_FDAX_30 : StatelessEasyStrategyBase
+public sealed class Easy_361_FDAX_30 : PriceChannelEngine
 {
-    // INPUTS
-    private int _myContracts = 1;
-    private int _titanExportMode = 0;
-    private int _sessionStartTimeA = 800;
-    private int _sessionEndTimeA = 2200;
-    private int _myStartTime = 1400;
-    private int _myEndTime = 2100;
-    private int _myStartPause = 1200;
-    private int _myEndPause = 1200;
-    private int _ptnNeutYes = 3;
-    private int _ptnNeutNo = 56;
-    private int _ptnDirYes = 52;
-    private int _ptnDirNo = 8;
-    private int _maxEntriesPerDay = 2;
-    private int _adx_TH = 90;
-    private int _nBars = 20;
-    private int _maxDaysInTrade = 3;
-    private int _flatTime = 2130;
-    private int _myStop = 1800;
-    private int _myBreakEven = 0;
-    private int _myProfit = 4800;
-
-    // VARIABLES
-    private int _aDXval = 0;
-    private bool _isStartOfSession = false;
-    private decimal _upperchannel = 0;
-    private decimal _lowerchannel = 0;
-    private int _daysInTrade = 0;
-    private decimal[] _adxCalcValues = new decimal[4];
-    private int _entriesToday = 0;
-
-    // STATE
     private string _symbol = "@FDAX";
     private int _timeframeMinutes = 30;
-    private string _name = "TOP_UA_361";
-    private string _description = "MultiCharts/TradeStation code generator by Unger Academy. All rights reserved.";
 
-    public string Name => _name;
-    public string Description => _description;
-    public string Symbol => _symbol;
-    public int TimeframeMinutes => _timeframeMinutes;
-    public int RequiredCandles => 100; // TODO: Calcolare in base alla strategia
+    public Easy_361_FDAX_30()
+    {
+        UseLegacyVariant = true;
+        SessionStartTime = 800;
+        SessionEndTime = 2200;
+        Contracts = 1;
+        ChannelBars = 20;
+
+        StartTime = 1400;
+        EndTime = 2100;
+        TradingWindowInclusive = false; // tw(): fine esclusiva
+        PauseStart = 1200;
+        PauseEnd = 1200;
+        NeutralYes = 3;
+        NeutralNo = 56;
+        DirectionalYes = 52;
+        DirectionalNo = 8;
+
+        MaxEntriesPerSession = 2;
+        AdxLength = 5;
+        AdxThreshold = 90;
+        UseSessionAdx = true;
+        MaxDaysInTrade = 3;
+        MaxDaysFlatTime = 2130;
+        StopMoney = 1800;
+        BreakEvenMoney = 0;
+        ProfitMoney = 4800;
+    }
+
+    public override string Name => "TOP_UA_361";
+    public override string Description => "Price Channel con ADX sessionale, FDAX 30m";
+    public override string Symbol => _symbol;
+    public override int TimeframeMinutes => _timeframeMinutes;
 
     public void Initialize(Dictionary<string, object>? parameters = null)
     {
-        if (parameters != null)
-        {
-            if (parameters.TryGetValue("Symbol", out var sym))
-                _symbol = sym?.ToString() ?? _symbol;
-            if (parameters.TryGetValue("TimeframeMinutes", out var tf))
-                _timeframeMinutes = Convert.ToInt32(tf);
-            if (parameters.TryGetValue("MyContracts", out var mycontracts))
-                _myContracts = Convert.ToInt32(mycontracts);
-            if (parameters.TryGetValue("TitanExportMode", out var titanexportmode))
-                _titanExportMode = Convert.ToInt32(titanexportmode);
-            if (parameters.TryGetValue("SessionStartTimeA", out var sessionstarttimea))
-                _sessionStartTimeA = Convert.ToInt32(sessionstarttimea);
-        }
-    }
-
-    // Stato per tracciare la posizione corrente (MP = marketposition)
-    private int _currentMP = 0; // 0 = nessuna posizione, +1 = long, -1 = short
-    private int _myCount = 0;
-    private DateTime? _lastEntryDate = null;
-
-    public TradeSignal GenerateSignal(OhlcvData[] data, DateTime currentDate)
-    {
-        if (data == null || data.Length < RequiredCandles)
-        {
-            return new TradeSignal
-            {
-                Date = currentDate,
-                Type = SignalType.Hold,
-                Price = data?.LastOrDefault()?.Close ?? 0,
-                StrategyName = Name,
-                Reason = "Dati insufficienti"
-            };
-        }
-
-        var currentPrice = data.Last().Close;
-        var currentTime = currentDate.Hour * 100 + currentDate.Minute; // Formato HHMM
-        
-        // Calcola OHLC per pattern
-        decimal[] ohlcValues = new decimal[24];
-        _isStartOfSession = OHLCMulti5(_sessionStartTimeA, _sessionEndTimeA, data, currentDate, out ohlcValues);
-        
-        // Calcola ADX all'inizio sessione
-        if (_isStartOfSession)
-        {
-            var highd1 = ohlcValues[5];
-            var lowd1 = ohlcValues[6];
-            var closed1 = ohlcValues[7];
-            var highd2 = ohlcValues[9];
-            var lowd2 = ohlcValues[10];
-            var closed2 = ohlcValues[11];
-            
-            _aDXval = (int)(iADXOnArray(5, highd1, lowd1, closed1, highd2, lowd2, closed2, ref _adxCalcValues) * 100);
-            
-            if (_currentMP != 0)
-            {
-                _daysInTrade++;
-            }
-        }
-        
-        // Calcola channel
-        _upperchannel = HighestFC(data, _nBars, d => d.High);
-        _lowerchannel = LowestFC(data, _nBars, d => d.Low);
-        
-        // Reset entriesToday all'inizio giornata
-        if (_lastEntryDate.HasValue && _lastEntryDate.Value.Date != currentDate.Date)
-        {
-            _entriesToday = 0;
-        }
-        
-        // Reset DaysInTrade quando MP cambia
-        if (_lastEntryDate.HasValue && _lastEntryDate.Value.Date != currentDate.Date && _currentMP != 0)
-        {
-            _daysInTrade = 1;
-        }
-        
-        // Condizioni operative
-        var inTimeWindow = currentTime >= _myStartTime && currentTime <= _myEndTime && 
-                          (currentTime < _myStartPause || currentTime > _myEndPause);
-        
-        // ENTRY CONDITIONS
-        if (inTimeWindow && PatternNeutralFast(_ptnNeutYes, ohlcValues) && !PatternNeutralFast(_ptnNeutNo, ohlcValues) &&
-            _entriesToday < _maxEntriesPerDay && _aDXval < _adx_TH)
-        {
-            // BUY condition: breakout sopra upper channel
-            if (PatternDirectionalFast(_ptnDirYes, ohlcValues) && !PatternDirectionalFast(_ptnDirNo, ohlcValues))
-            {
-                if (currentPrice >= _upperchannel && _currentMP == 0)
-                {
-                    _currentMP = 1;
-                    _daysInTrade = 1;
-                    _entriesToday++;
-                    _lastEntryDate = currentDate;
-                    return new TradeSignal
-                    {
-                        Date = currentDate,
-                        Type = SignalType.Buy,
-                        Price = _upperchannel,
-                        StrategyName = Name,
-                        Quantity = _myContracts,
-                        StopLoss = _myStop > 0 ? (decimal?)_myStop : null,
-                        TakeProfit = _myProfit > 0 ? (decimal?)_myProfit : null,
-                        BreakEven = _myBreakEven > 0 ? (decimal?)_myBreakEven : null,
-                        Reason = "LE"
-                    };
-                }
-            }
-            
-            // SELLSHORT condition: breakout sotto lower channel
-            if (PatternDirectionalFast(-_ptnDirYes, ohlcValues) && !PatternDirectionalFast(-_ptnDirNo, ohlcValues))
-            {
-                if (currentPrice <= _lowerchannel && _currentMP == 0)
-                {
-                    _currentMP = -1;
-                    _daysInTrade = 1;
-                    _entriesToday++;
-                    _lastEntryDate = currentDate;
-                    return new TradeSignal
-                    {
-                        Date = currentDate,
-                        Type = SignalType.Sell,
-                        Price = _lowerchannel,
-                        StrategyName = Name,
-                        Quantity = _myContracts,
-                        StopLoss = _myStop > 0 ? (decimal?)_myStop : null,
-                        TakeProfit = _myProfit > 0 ? (decimal?)_myProfit : null,
-                        BreakEven = _myBreakEven > 0 ? (decimal?)_myBreakEven : null,
-                        Reason = "SE"
-                    };
-                }
-            }
-        }
-        
-        // EXIT per MaxDays
-        if (_daysInTrade >= _maxDaysInTrade && _maxDaysInTrade > 0)
-        {
-            if (currentTime == _flatTime)
-            {
-                if (_currentMP == 1)
-                {
-                    _currentMP = 0;
-                    _daysInTrade = 0;
-                    return new TradeSignal
-                    {
-                        Date = currentDate,
-                        Type = SignalType.Sell,
-                        Price = currentPrice,
-                        StrategyName = Name,
-                        Quantity = _myContracts,
-                        Reason = "LX_MaxDays"
-                    };
-                }
-                if (_currentMP == -1)
-                {
-                    _currentMP = 0;
-                    _daysInTrade = 0;
-                    return new TradeSignal
-                    {
-                        Date = currentDate,
-                        Type = SignalType.Buy,
-                        Price = currentPrice,
-                        StrategyName = Name,
-                        Quantity = _myContracts,
-                        Reason = "SX_MaxDays"
-                    };
-                }
-            }
-        }
-        
-        return new TradeSignal
-        {
-            Date = currentDate,
-            Type = SignalType.Hold,
-            Price = currentPrice,
-            StrategyName = Name
-        };
+        if (parameters is null) return;
+        if (parameters.TryGetValue("Symbol", out var symbol)) _symbol = symbol?.ToString() ?? _symbol;
+        if (parameters.TryGetValue("TimeframeMinutes", out var timeframe)) _timeframeMinutes = Convert.ToInt32(timeframe);
+        if (parameters.TryGetValue("MyContracts", out var contracts)) Contracts = Convert.ToInt32(contracts);
+        if (parameters.TryGetValue("SessionStartTimeA", out var sessionStart)) SessionStartTime = Convert.ToInt32(sessionStart);
+        if (parameters.TryGetValue("SessionEndTimeA", out var sessionEnd)) SessionEndTime = Convert.ToInt32(sessionEnd);
+        if (parameters.TryGetValue("MyStartTime", out var start)) StartTime = Convert.ToInt32(start);
+        if (parameters.TryGetValue("MyEndTime", out var end)) EndTime = Convert.ToInt32(end);
+        if (parameters.TryGetValue("MyStartPause", out var pauseStart)) PauseStart = Convert.ToInt32(pauseStart);
+        if (parameters.TryGetValue("MyEndPause", out var pauseEnd)) PauseEnd = Convert.ToInt32(pauseEnd);
+        if (parameters.TryGetValue("PtnNeutYes", out var neutralYes)) NeutralYes = Convert.ToInt32(neutralYes);
+        if (parameters.TryGetValue("PtnNeutNo", out var neutralNo)) NeutralNo = Convert.ToInt32(neutralNo);
+        if (parameters.TryGetValue("PtnDirYes", out var directionalYes)) DirectionalYes = Convert.ToInt32(directionalYes);
+        if (parameters.TryGetValue("PtnDirNo", out var directionalNo)) DirectionalNo = Convert.ToInt32(directionalNo);
+        if (parameters.TryGetValue("MaxEntriesPerDay", out var entries)) MaxEntriesPerSession = Convert.ToInt32(entries);
+        if (parameters.TryGetValue("ADX_TH", out var adxThreshold)) AdxThreshold = Convert.ToDecimal(adxThreshold);
+        if (parameters.TryGetValue("nBars", out var channelBars)) ChannelBars = Convert.ToInt32(channelBars);
+        if (parameters.TryGetValue("MaxDaysInTrade", out var maxDays)) MaxDaysInTrade = Convert.ToInt32(maxDays);
+        if (parameters.TryGetValue("FlatTime", out var flatTime)) MaxDaysFlatTime = Convert.ToInt32(flatTime);
+        if (parameters.TryGetValue("MyStop", out var stop)) StopMoney = Convert.ToInt32(stop);
+        if (parameters.TryGetValue("MyBreakEven", out var breakEven)) BreakEvenMoney = Convert.ToInt32(breakEven);
+        if (parameters.TryGetValue("MyProfit", out var profit)) ProfitMoney = Convert.ToInt32(profit);
     }
 }
 

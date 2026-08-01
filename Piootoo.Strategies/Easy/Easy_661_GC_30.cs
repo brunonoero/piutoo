@@ -11,6 +11,11 @@ namespace Piootoo.Strategies.Easy;
 /// <summary>
 /// Strategia EasyLanguage convertita: TOP_UA_661
 /// Reversal strategy based on session open cross for Gold 30 min
+///
+/// <para><b>Non eseguibile.</b> I livelli <c>dist</c> sono stop assoluti
+/// calcolati nuovamente a inizio sessione e valutati a ogni barra. Non sono
+/// quindi un'uscita autocontenuta dichiarabile al fill; la strategia resta
+/// close-dependent ed è esclusa dal catalogo operativo.</para>
 /// </summary>
 public class Easy_661_GC_30 : StatelessEasyStrategyBase
 {
@@ -56,6 +61,8 @@ public class Easy_661_GC_30 : StatelessEasyStrategyBase
     private string _description = "Reversal strategy based on session open cross";
     private int _currentMP = 0;
     private int _prevMP = 0;
+
+    public override bool IsPositionCloseDependent => true;
 
     public string Name => _name;
     public string Description => _description;
