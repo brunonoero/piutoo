@@ -14,13 +14,19 @@ rispettare i fill gap-aware: uno stop long è eseguito a
 `max(open, livello)`, mentre un limit richiede la penetrazione stretta del
 livello.
 
-Con dati OHLC, l'ordine reale dei tick nella barra non è ricostruibile. Perciò
-SL, TP, breakeven e trailing non sono controllati sulla barra di fill: il suo
-minimo o massimo potrebbe essere avvenuto prima dell'ingresso. Dalla barra
-successiva il motore applica una policy intrabar conservativa: se sono
-raggiungibili sia stop loss/trailing/breakeven sia take profit, chiude allo stop
-protettivo. Questa regola deve essere replicata da ogni confronto cross-engine;
-per una sequenza reale serve un feed a granularità inferiore o tick.
+Con dati OHLC, l'ordine reale dei tick nella barra non è ricostruibile. Il
+motore interno applica quindi una policy intrabar conservativa anche sulla barra
+di fill: se sono raggiungibili sia stop loss/trailing/breakeven sia take profit,
+chiude allo stop protettivo. Questa regola deve essere replicata da ogni
+confronto cross-engine; per una sequenza reale serve un feed a granularità
+inferiore o tick.
+
+Per evitare di usare un estremo certamente precedente al fill, l'emulatore
+percorre la barra di ingresso con una convenzione fissa: candela rialzista
+`Open → Low → High → Close`, candela ribassista `Open → High → Low → Close`.
+Un buy stop riempito nel tratto ascendente di una barra rialzista non può quindi
+essere chiuso dal suo low; simmetricamente, un sell stop riempito nel tratto
+discendente di una barra ribassista non può essere chiuso dal suo high.
 
 `start_hour` e `end_hour` delimitano la finestra operativa, anche quando
 attraversa la mezzanotte; `-1` disabilita il filtro. I giorni usano

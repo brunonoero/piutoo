@@ -71,4 +71,84 @@ public class PendingStopOrderTests
         Assert.Equal(1, snapAfter.EntriesToday);
         Assert.Equal(20m, snapAfter.DollarsPerPoint); // NQ
     }
+
+    [Fact]
+    public void BullishFillBar_DoesNotUsePreFillLowToCloseLongAtStop()
+    {
+        var service = new PiootooTradingService();
+        service.Initialize(100_000m);
+        var barTime = new DateTime(2024, 1, 3, 10, 5, 0, DateTimeKind.Utc);
+
+        service.ProcessSignals(
+            [new TradeSignal
+            {
+                Date = barTime.AddMinutes(-5),
+                Type = SignalType.Buy,
+                Price = 100m,
+                Symbol = "NQ",
+                StrategyName = "PC",
+                StrategyCode = "PC",
+                Quantity = 1,
+                OrderType = TradeOrderType.Stop,
+                ValidFromUtc = barTime,
+                ExpiresAtUtc = barTime,
+                StopLoss = 10m
+            }],
+            new Dictionary<string, decimal> { ["NQ"] = 102m },
+            new Dictionary<string, OhlcvData>
+            {
+                ["NQ"] = new OhlcvData
+                {
+                    DateTime = barTime,
+                    Open = 95m,
+                    Low = 80m,
+                    High = 105m,
+                    Close = 102m
+                }
+            },
+            barTime);
+
+        Assert.Empty(service.GetClosedTrades());
+        Assert.NotNull(service.GetExecutionSnapshot("PC", "NQ", barTime).Position);
+    }
+
+    [Fact]
+    public void BearishFillBar_DoesNotUsePreFillHighToCloseShortAtStop()
+    {
+        var service = new PiootooTradingService();
+        service.Initialize(100_000m);
+        var barTime = new DateTime(2024, 1, 3, 10, 5, 0, DateTimeKind.Utc);
+
+        service.ProcessSignals(
+            [new TradeSignal
+            {
+                Date = barTime.AddMinutes(-5),
+                Type = SignalType.Sell,
+                Price = 100m,
+                Symbol = "NQ",
+                StrategyName = "PC",
+                StrategyCode = "PC",
+                Quantity = 1,
+                OrderType = TradeOrderType.Stop,
+                ValidFromUtc = barTime,
+                ExpiresAtUtc = barTime,
+                StopLoss = 10m
+            }],
+            new Dictionary<string, decimal> { ["NQ"] = 98m },
+            new Dictionary<string, OhlcvData>
+            {
+                ["NQ"] = new OhlcvData
+                {
+                    DateTime = barTime,
+                    Open = 105m,
+                    High = 120m,
+                    Low = 95m,
+                    Close = 98m
+                }
+            },
+            barTime);
+
+        Assert.Empty(service.GetClosedTrades());
+        Assert.NotNull(service.GetExecutionSnapshot("PC", "NQ", barTime).Position);
+    }
 }

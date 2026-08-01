@@ -100,7 +100,7 @@ public sealed class Pts002PcTests
     }
 
     [Fact]
-    public void Engine_SameFillBarTouchingStopAndTarget_DefersExitUntilNextBar()
+    public void Engine_SameFillBarTouchingStopAndTarget_PrioritizesStopLoss()
     {
         var service = new PiootooTradingService();
         service.Initialize(100_000m, commissionPerContract: 0m);
@@ -123,21 +123,12 @@ public sealed class Pts002PcTests
         };
 
         // La barra raggiunge il livello di ingresso, poi contiene entrambi i livelli di uscita.
-        // Con sole OHLC non si sa se SL/TP siano stati toccati prima del fill: non chiudere qui.
+        // Senza dati tick l'engine applica deliberatamente la politica conservativa: SL prima di TP.
         service.ProcessSignals(
             [signal],
             Prices(100m),
             Bars(barTime, 100m, 115m, 85m, 100m),
             barTime);
-
-        Assert.Empty(service.GetClosedTrades());
-        Assert.Equal(1, service.GetSnapshot().OpenPositionsCount);
-
-        // Dalla barra seguente, se sono toccati entrambi, resta valida la policy conservativa SL prima.
-        service.UpdateMarketPrices(
-            Prices(100m),
-            Bars(barTime.AddMinutes(15), 100m, 115m, 85m, 100m),
-            barTime.AddMinutes(15));
 
         var trade = Assert.Single(service.GetClosedTrades());
         Assert.Equal(TradeExitReason.StopLoss, trade.ExitReason);

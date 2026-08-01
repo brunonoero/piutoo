@@ -740,22 +740,40 @@ public class PiootooTradingService : IPiootooTradingService
                 continue;
             }
 
-            // Una barra OHLC non dice se il minimo/massimo sia avvenuto prima o dopo il fill
-            // dell'ordine di ingresso. Per non trasformare un'escursione precedente al fill in
-            // uno stop fittizio, SL/TP/BE/trailing iniziano dalla barra successiva.
-            if (position.EntryTime == currentTime)
-            {
-                continue;
-            }
-
             decimal favorableMove = 0;
             var currentBar = GetCurrentBar(position, currentBars);
+            var postFillLow = currentBar?.Low ?? currentPrice.Value;
+            var postFillHigh = currentBar?.High ?? currentPrice.Value;
+
+            // Convenzione OHLC deterministica per la barra che ha eseguito un ingresso:
+            // candela rialzista O→L→H→C, candela ribassista O→H→L→C.
+            // L'estremo opposto al verso della candela può quindi precedere il fill stop e
+            // non deve essere usato per simulare uno stop successivo all'ingresso.
+            if (position.EntryTime == currentTime && currentBar is not null)
+            {
+                var isBullishOrDoji = currentBar.Close >= currentBar.Open;
+                if (position.Direction == SignalType.Buy &&
+                    isBullishOrDoji &&
+                    currentBar.Open < position.EntryPrice)
+                {
+                    // Buy stop raggiunto nella tratta L→H: il low è pre-fill, dopo il fill
+                    // il solo minimo osservabile è il close della tratta H→C.
+                    postFillLow = currentBar.Close;
+                }
+                else if (position.Direction == SignalType.Sell &&
+                         !isBullishOrDoji &&
+                         currentBar.Open > position.EntryPrice)
+                {
+                    // Sell stop raggiunto nella tratta H→L: l'high è pre-fill, dopo il fill
+                    // il solo massimo osservabile è il close della tratta L→C.
+                    postFillHigh = currentBar.Close;
+                }
+            }
             
             if (position.Direction == SignalType.Buy)
             {
                 favorableMove = currentPrice.Value - position.EntryPrice;
                 var favorableHighMove = (currentBar?.High ?? currentPrice.Value) - position.EntryPrice;
-                var adverseLowMove = (currentBar?.Low ?? currentPrice.Value) - position.EntryPrice;
                 var favorableHighPrice = currentBar?.High ?? currentPrice.Value;
                 if (!position.PeakFavorablePrice.HasValue || favorableHighPrice > position.PeakFavorablePrice.Value)
                     position.PeakFavorablePrice = favorableHighPrice;
@@ -788,10 +806,10 @@ public class PiootooTradingService : IPiootooTradingService
                     }
                 }
 
-                // Dalla barra successiva al fill, la policy intrabar conservativa fa precedere lo
-                // stop protettivo al target. Con sole OHLC non è possibile ricostruire l'ordine
-                // reale dei tick.
-                if (protectiveStopPrice.HasValue && (currentBar?.Low ?? currentPrice.Value) <= protectiveStopPrice.Value)
+                // Anche nella barra di fill, la policy intrabar conservativa fa precedere lo stop
+                // protettivo al target. Con sole OHLC non è possibile ricostruire l'ordine reale
+                // dei tick.
+                if (protectiveStopPrice.HasValue && postFillLow <= protectiveStopPrice.Value)
                 {
                     positionsToClose.Add((positionKey, protectiveStopPrice.Value, protectiveExitReason));
                     continue;
@@ -808,7 +826,6 @@ public class PiootooTradingService : IPiootooTradingService
             {
                 favorableMove = position.EntryPrice - currentPrice.Value;
                 var favorableLowMove = position.EntryPrice - (currentBar?.Low ?? currentPrice.Value);
-                var adverseHighMove = (currentBar?.High ?? currentPrice.Value) - position.EntryPrice;
                 var favorableLowPrice = currentBar?.Low ?? currentPrice.Value;
                 if (!position.PeakFavorablePrice.HasValue || favorableLowPrice < position.PeakFavorablePrice.Value)
                     position.PeakFavorablePrice = favorableLowPrice;
@@ -841,7 +858,7 @@ public class PiootooTradingService : IPiootooTradingService
                     }
                 }
 
-                if (protectiveStopPrice.HasValue && (currentBar?.High ?? currentPrice.Value) >= protectiveStopPrice.Value)
+                if (protectiveStopPrice.HasValue && postFillHigh >= protectiveStopPrice.Value)
                 {
                     positionsToClose.Add((positionKey, protectiveStopPrice.Value, protectiveExitReason));
                     continue;
