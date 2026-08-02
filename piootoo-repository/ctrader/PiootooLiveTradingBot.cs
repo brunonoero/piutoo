@@ -162,7 +162,7 @@ namespace cAlgo.Robots
             {
                 PlanCode = PlanCode.Trim(),
                 ClientRunMode = IsBacktesting ? "Backtest" : "Realtime",
-                ExecutionKey = IsBacktesting ? $"BT-{Server.Time:yyyyMMddHHmmss}" : "LIVE",
+                ExecutionKey = IsBacktesting ? $"BT-{Server.TimeInUtc:yyyyMMddHHmmss}" : "LIVE",
                 AccountNumber = _accountNumber
             });
             if (!openResponse.IsSuccessStatusCode)
@@ -245,7 +245,10 @@ namespace cAlgo.Robots
             if (_openPositions.Count == 0)
                 return;
 
-            var nowUtc = DateTime.SpecifyKind(Server.Time, DateTimeKind.Utc);
+            // Server.TimeInUtc e' UTC per definizione: non dipende dal TimeZone del [Robot] ne'
+            // dall'impostazione di cTrader, a differenza di SpecifyKind su Server.Time che
+            // etichetterebbe come UTC un orario locale se l'attributo cambiasse.
+            var nowUtc = Server.TimeInUtc;
             foreach (var kvp in _openPositions.ToArray())
             {
                 var ctx = kvp.Value;
@@ -373,8 +376,11 @@ namespace cAlgo.Robots
                     return false;
 
                 // Il [Robot] è agganciato a un grafico con TimeZone=UTC e timeframe=BaseTimeframeMinutes:
-                // gli orari della serie sono già in UTC, manca solo il flag Kind. Last(1) è
-                // l'ultima candela chiusa: Last(0) è quella appena aperta.
+                // gli orari della serie sono già in UTC, manca solo il flag Kind. TimeZone è un
+                // attributo di compilazione, non l'impostazione di visualizzazione di cTrader, quindi
+                // il feed resta UTC comunque sia configurata la piattaforma. Il SpecifyKind non è
+                // cosmetico: senza il flag il JSON parte senza il suffisso "Z" e ValidateBar sul
+                // server rifiuta la barra. Last(1) è l'ultima candela chiusa, Last(0) quella aperta.
                 var nativeClosedBar = series.Last(1);
                 var barTimeUtc = DateTime.SpecifyKind(nativeClosedBar.OpenTime, DateTimeKind.Utc);
                 if (pair.LastPushedBarTimeUtc == barTimeUtc)
@@ -433,9 +439,7 @@ namespace cAlgo.Robots
         {
             try
             {
-                var historyFromUtc = DateTime.SpecifyKind(
-                    Server.Time.AddDays(-Math.Max(1, HistoryWindowDays)),
-                    DateTimeKind.Utc);
+                var historyFromUtc = Server.TimeInUtc.AddDays(-Math.Max(1, HistoryWindowDays));
                 var platformState = new AccountSignalPollRequestDto
                 {
                     SessionToken = _sessionToken,
@@ -678,7 +682,7 @@ namespace cAlgo.Robots
                         CumulativeFilledQuantity = filledQuantity,
                         FillPrice = fillPrice,
                         Commission = commission,
-                        EventTimeUtc = DateTime.SpecifyKind(Server.Time, DateTimeKind.Utc)
+                        EventTimeUtc = Server.TimeInUtc
                     }
                 };
                 var response = PostJson($"api/v1/trading-sessions/{_sessionId}/execution-reports", request);

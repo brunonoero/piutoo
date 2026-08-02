@@ -430,6 +430,57 @@ public sealed class TradingSessionsHttpTests : IDisposable
         Assert.Equal("prop-a", Assert.Single(legacy!).GroupId);
     }
 
+    /// <summary>
+    /// Il cBot serializza <c>Bars.Last(1).OpenTime</c>, che cTrader restituisce senza flag Kind
+    /// anche con <c>[Robot(TimeZone = TimeZones.UTC)]</c>. Senza <c>SpecifyKind</c> il JSON parte
+    /// privo del suffisso "Z", il server rilegge Kind=Unspecified e la barra va rifiutata: se
+    /// passasse, un cBot configurato su un fuso diverso vedrebbe il proprio wall-clock locale
+    /// accettato come UTC da <c>ToFeedUtc</c>, spostando tutto il feed in silenzio.
+    /// </summary>
+    [Theory]
+    [InlineData("2026-01-05T00:00:00", false)]
+    [InlineData("2026-01-05T00:00:00Z", true)]
+    public async Task BarTimeWithoutTheUtcSuffixIsRejectedAtTheHttpBoundary(
+        string barTime, bool accepted)
+    {
+        var descriptor = await Create(ExecutionMode.ServerSimulated);
+        descriptor = await Status(descriptor, "start", HttpStatusCode.OK);
+
+        var payload = $$"""
+        {
+          "sessionId": "{{descriptor.SessionId}}",
+          "sessionToken": "{{descriptor.SessionToken}}",
+          "bars": [
+            {
+              "symbol": "{{_strategy.Symbol}}",
+              "timeframeMinutes": {{_strategy.TimeframeMinutes}},
+              "barTimeUtc": "{{barTime}}",
+              "sequence": 1,
+              "idempotencyKey": "kind-{{barTime}}",
+              "bar": {
+                "dateTime": "{{barTime}}",
+                "open": 100, "high": 101, "low": 99, "close": 100, "volume": 1
+              }
+            }
+          ]
+        }
+        """;
+
+        using var content = new StringContent(payload, System.Text.Encoding.UTF8, "application/json");
+        var response = await _client.PostAsync(
+            $"api/v1/trading-sessions/{descriptor.SessionId}/bars", content);
+
+        if (!accepted)
+        {
+            Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+            return;
+        }
+
+        response.EnsureSuccessStatusCode();
+        var pushed = (await response.Content.ReadFromJsonAsync<PushBarsResponse>(JsonOptions))!;
+        Assert.Equal(1, pushed.AcceptedBars);
+    }
+
     private async Task<TradingSessionDescriptor> Create(
         ExecutionMode mode, string? runId = null, string? folder = null)
     {

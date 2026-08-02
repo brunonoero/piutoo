@@ -451,3 +451,34 @@ in ordine cronologico. Non è un changelog di codice: quello resta nei commit.
   `GetNextSignalForAccount` — così uno stop non eseguito continua a essere riemesso e in
   multi-account il limite di un account non blocca gli altri. Regressione coperta da
   `SessionEntryLimitTests`.
+- **2026-08-02** — **Il feed dei cBot è UTC per l'attributo `[Robot]`, non per l'impostazione di
+  cTrader — ma `PiootooTradingSessionBot` non riusciva a pubblicare nemmeno una barra.**
+  Tutti e quattro i cBot dichiarano `[Robot(TimeZone = TimeZones.UTC)]`, che è un attributo di
+  compilazione: fissa il fuso in cui il robot vede `Server.Time` e `Bars.OpenTimes` e **non**
+  segue il fuso di visualizzazione scelto dall'utente nella piattaforma. La garanzia però veniva
+  soltanto da lì, e il session bot serializzava `Bars.Last(1).OpenTime` senza `SpecifyKind`:
+  cTrader restituisce `Kind` non impostato, `System.Text.Json` scrive quindi
+  `"2026-01-05T00:00:00"` senza suffisso `Z`, il server rilegge `Kind = Unspecified` e
+  `ValidateBar` → `RequireUtc` rifiuta la barra. Il push falliva sempre.
+  `PiootooLiveTradingBot` il `SpecifyKind` lo faceva già.
+
+  La conversione è ora in un unico punto (`BarOpenTimeUtc`), usato sia dal push sia da
+  `ResolveBarIndexForTime`, che prima confrontava un orario senza `Kind` con un UTC del server —
+  corretto solo perché il confronto tra `DateTime` ignora il `Kind` e l'attributo è UTC. Dove
+  serve l'orologio e non una barra, i bot passano a `Server.TimeInUtc`, che è UTC per definizione
+  e resta corretto anche se l'attributo cambiasse: `SpecifyKind(Server.Time, Utc)` in quel caso
+  etichetterebbe un orario locale come UTC, e `TradingDateTime.ToFeedUtc` lo accetterebbe
+  reinterpretando il wall-clock senza spostarlo, cioè spostando tutto il feed in silenzio.
+  Regressione coperta da `TradingSessionsHttpTests.BarTimeWithoutTheUtcSuffixIsRejectedAtTheHttpBoundary`,
+  che pubblica il JSON grezzo nelle due forme e verifica il 400 senza `Z`.
+
+  *Trailing: non è quello nativo di cTrader.* `hasTrailingStop`/`ModifyTrailingStop` non sono mai
+  usati; `MoveTrailingStops` sposta lo **stop loss nativo** via `ModifyPosition`, a ogni tick e a
+  ogni barra. L'ordine protettivo resta quindi sul broker — se il bot muore la protezione tiene
+  l'ultimo livello — ma il trascinamento no: a bot spento lo stop si congela, mentre quello nativo
+  continuerebbe lato server. Il commento parla di distanza «dal massimo/minimo favorevole» mentre
+  il codice usa il `Bid`/`Ask` corrente: coincidono perché l'aggiornamento è monotono e gira su
+  ogni tick, quindi il massimo nel tempo di `Bid − distanza` è `(Bid massimo) − distanza`. È
+  corretto per monotonia, non per costruzione. Restano da valutare: passo minimo prima di muovere
+  lo stop (oggi una `ModifyPosition` sincrona per ogni nuovo estremo), rispetto della distanza
+  minima di stop del broker, e `ModifyPositionAsync` per non bloccare `OnTick`.

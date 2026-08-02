@@ -67,19 +67,22 @@ namespace cAlgo.Robots
 
         protected override void OnBar()
         {
-            ProcessDueSignals(Bars.OpenTimes.LastValue);
+            // Gli orari della serie sono wall-clock UTC per l'attributo [Robot(TimeZone = UTC)],
+            // che e' di compilazione e non segue l'impostazione di visualizzazione di cTrader.
+            ProcessDueSignals(DateTime.SpecifyKind(Bars.OpenTimes.LastValue, DateTimeKind.Utc));
             CloseExpiredPositions();
         }
 
         protected override void OnTick()
         {
-            ProcessDueSignals(Server.Time);
+            // Server.TimeInUtc e' UTC per definizione, quindi non dipende dall'attributo.
+            ProcessDueSignals(Server.TimeInUtc);
             MoveStopsToBreakEven();
         }
 
-        private void ProcessDueSignals(DateTime currentTime)
+        private void ProcessDueSignals(DateTime currentTimeUtc)
         {
-            while (_nextSignalIndex < _signals.Count && _signals[_nextSignalIndex].Date <= currentTime)
+            while (_nextSignalIndex < _signals.Count && _signals[_nextSignalIndex].Date <= currentTimeUtc)
             {
                 var signal = _signals[_nextSignalIndex];
                 _nextSignalIndex++;

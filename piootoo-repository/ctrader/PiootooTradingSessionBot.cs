@@ -611,12 +611,23 @@ namespace cAlgo.Robots
         {
             for (var i = Bars.Count - 1; i >= 0; i--)
             {
-                if (Bars.OpenTimes[i] <= timeUtc)
+                if (BarOpenTimeUtc(Bars.OpenTimes[i]) <= timeUtc)
                     return i;
             }
 
             return 0;
         }
+
+        /// <summary>
+        /// Marca come UTC l'orario di una barra. Il [Robot] dichiara TimeZone=UTC — che e' un
+        /// attributo di compilazione, non l'impostazione di visualizzazione di cTrader, quindi non
+        /// dipende da come l'utente ha configurato la piattaforma — ma la serie restituisce
+        /// DateTime con Kind non impostato. Senza questo passaggio System.Text.Json serializza
+        /// senza il suffisso "Z", il server rilegge Kind=Unspecified e ValidateBar/RequireUtc
+        /// rifiuta la barra: il push fallirebbe sempre. Unico punto di conversione del bot.
+        /// </summary>
+        private static DateTime BarOpenTimeUtc(DateTime barOpenTime) =>
+            DateTime.SpecifyKind(barOpenTime, DateTimeKind.Utc);
 
         // ------------------------------------------------------------------------ Sessione HTTP
 
@@ -686,7 +697,7 @@ namespace cAlgo.Robots
         private void PushClosedBar()
         {
             var closedBar = Bars.Last(1);
-            var openTimeUtc = closedBar.OpenTime;
+            var openTimeUtc = BarOpenTimeUtc(closedBar.OpenTime);
 
             var payload = new PushBarsRequestDto
             {
