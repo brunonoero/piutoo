@@ -50,7 +50,10 @@ public sealed class Pts002PcTests
         Assert.Equal(last.DateTime.AddMinutes(15), signal.ValidFromUtc);
         Assert.Equal(signal.ValidFromUtc, signal.ExpiresAtUtc);
         Assert.Equal(1, signal.MaxEntriesPerSession);
-        Assert.Equal(new DateTime(2024, 1, 7, 17, 0, 0, DateTimeKind.Utc), signal.EntrySessionStartUtc);
+        // La sessione è il giorno di calendario UTC, non la CME 17:00–16:00: con quest'ultima il
+        // secchio sarebbe il 7 gennaio alle 17:00 e un ingresso serale bloccherebbe il pomeriggio
+        // successivo, che nel motore di riferimento è invece una sessione a sé.
+        Assert.Equal(new DateTime(2024, 1, 8, 0, 0, 0, DateTimeKind.Utc), signal.EntrySessionStartUtc);
         Assert.Equal(250m, signal.StopLossMoneyPerFutureContract);
         Assert.Equal(5000m, signal.TakeProfitMoneyPerFutureContract);
         Assert.Equal(1000m, signal.TrailingStopMoneyPerFutureContract);

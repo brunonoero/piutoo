@@ -8,10 +8,22 @@ namespace Piootoo.Strategies.PiutooStrategies;
 /// buffer di 2 tick.
 ///
 /// <para>
-/// Le barre e gli orari sono UTC. Il contesto dei pattern giornalieri usa le
-/// sessioni CME 17:00–16:00 costruite da <see cref="EasyLib.OHLCMulti5"/>; la finestra
-/// di ingresso inclusiva 13:00–04:00 attraversa quindi la mezzanotte. Non sono
-/// esclusi giorni e non è applicato alcun filtro di volatilità daily.
+/// Le barre e gli orari sono UTC. <b>La sessione è il giorno di calendario UTC,
+/// non la sessione CME 17:00–16:00</b>, e la finestra di ingresso inclusiva
+/// 13:00–04:00 la attraversa: un'occorrenza della finestra ricade su due
+/// sessioni. Non sono esclusi giorni e non è applicato alcun filtro di
+/// volatilità daily.
+/// </para>
+///
+/// <para>
+/// Il confine di mezzanotte è misurato sul motore di riferimento, non scelto:
+/// raggruppando i suoi ingressi per giorno di calendario si ottiene esattamente
+/// un ingresso per sessione su 120 trade, mentre con il confine CME sette
+/// sessioni ne mostrerebbero due. Un confine nella zona morta della finestra
+/// (05:00–12:00) non produce lo stesso risultato, quindi la sessione è davvero
+/// il giorno e non l'occorrenza della finestra. Il parametro governa insieme il
+/// secchio di <c>MaxEntriesPerSession</c> e gli OHLC d0..d5 su cui girano i
+/// pattern, quindi vale per entrambi.
 /// </para>
 ///
 /// <para>
@@ -36,8 +48,8 @@ namespace Piootoo.Strategies.PiutooStrategies;
 /// profit $5.000 (250 punti), breakeven $1.000 (50 punti) e trailing stop
 /// $1.000 (50 punti dal massimo favorevole). Le uscite sono autocontenute nel
 /// segnale e vengono gestite dall'engine o dal broker, mai da segnali di uscita
-/// emessi dalla strategia. Al massimo un ordine può essere eseguito in ogni
-/// sessione CME: il limite è verificato dall'engine sul fill, quindi gli stop
+/// emessi dalla strategia. Al massimo un ordine può essere eseguito per giorno
+/// di calendario: il limite è verificato dall'engine sul fill, quindi gli stop
 /// non eseguiti continuano a essere riemessi.
 /// </para>
 ///
@@ -65,8 +77,8 @@ public sealed class PTS_002_NQ_15 : PriceChannelEngine
 
     public PTS_002_NQ_15()
     {
-        SessionStartTime = 1700;
-        SessionEndTime = 1600;
+        SessionStartTime = 0;
+        SessionEndTime = 2359;
         ChannelBars = 100;
         EnableLong = true;
         EnableShort = false;

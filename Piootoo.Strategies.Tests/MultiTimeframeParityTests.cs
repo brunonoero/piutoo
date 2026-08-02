@@ -110,6 +110,63 @@ public class SessionSeriesTests
         Assert.NotEqual(bars[^2].DateTime, previous.DateTime);
     }
 
+    /// <summary>
+    /// Sessione ancorata alla mezzanotte, il confine usato da <c>PTS_002_NQ_15</c> per allinearsi al
+    /// motore di riferimento. Il confronto stretto <c>t &gt; sessionStartTime</c> scarterebbe la barra
+    /// delle 00:00 da ogni sessione, perdendone una al giorno da d0..d5 senza che nulla protesti:
+    /// qui si verifica che entri nel giorno e che le due funzioni segmentino ancora allo stesso modo.
+    /// </summary>
+    [Fact]
+    public void CalendarDaySession_KeepsTheMidnightBarAndSplitsOnTheDate()
+    {
+        var bars = CalendarDays(dayCount: 3);
+        var last = bars[^1].DateTime;
+
+        OHLCMulti5(0, 2359, bars, last, out var ohlc);
+        var sessions = BuildSessionSeries(0, 2359, bars, last);
+
+        Assert.Equal(3, sessions.Length);
+        AssertSameSession(ohlc, dayIndex: 0, sessions[^1]);
+        AssertSameSession(ohlc, dayIndex: 1, sessions[^2]);
+
+        // Nessuna barra fuori da tutte le sessioni: i volumi aggregati sono quelli della serie.
+        Assert.Equal(bars.Sum(bar => bar.Volume), sessions.Sum(session => session.Volume));
+
+        // L'apertura del giorno è quella delle 00:00. Con il confine stretto sarebbe delle 00:15.
+        var midnight = bars.Single(bar => bar.DateTime == bars[0].DateTime.Date.AddDays(1));
+        Assert.Equal(midnight.Open, sessions[1].Open);
+    }
+
+    /// <summary>Serie continua a 15 minuti su giorni di calendario pieni, senza buchi di sessione.</summary>
+    private static OhlcvData[] CalendarDays(int dayCount)
+    {
+        var bars = new List<OhlcvData>();
+        var first = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        for (var day = 0; day < dayCount; day++)
+        {
+            // Ogni giorno su un gradino di prezzo suo, così gli aggregati sono distinguibili.
+            var price = 1000m + day * 100m;
+            var start = first.AddDays(day);
+
+            for (var cursor = start; cursor < start.AddDays(1); cursor = cursor.AddMinutes(15))
+            {
+                bars.Add(new OhlcvData
+                {
+                    DateTime = cursor,
+                    Open = price,
+                    High = price + 3m,
+                    Low = price - 2m,
+                    Close = price + 1m,
+                    Volume = 10m
+                });
+                price += 0.5m;
+            }
+        }
+
+        return bars.ToArray();
+    }
+
     [Fact]
     public void LastBarOfPreviousSession_IsNullWithoutACompletedSession()
     {

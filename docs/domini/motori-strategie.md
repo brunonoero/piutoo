@@ -143,7 +143,12 @@ costruire `H_d1` e `L_d1` coincida con quello del feed Piootoo.
 - simbolo: `@NQ`;
 - timeframe: 15 minuti;
 - timezone del datafeed e degli orari: GMT/UTC;
-- sessione usata dai pattern: CME `17:00–16:00`;
+- sessione usata dai pattern e dal limite di ingressi: **giorno di calendario UTC**
+  (`session_start = 0`), non la sessione CME `17:00–16:00`. Il confine è misurato
+  sul riferimento e non scelto: solo raggruppando per giorno i suoi 120 ingressi
+  danno esattamente un ingresso per sessione. Governa insieme il secchio di
+  `max_entries_per_session` e gli OHLC d0..d5 dei pattern, quindi sbagliarlo
+  sposta *entrambi* — vedi `decisioni.md` alla voce del 2026-08-02;
 - `ptn_neut_yes = 55` (sentinella, sempre attivo);
 - `ptn_neut_no = 24`;
 - `ptn_dir_yes = 2` (long);
@@ -169,7 +174,9 @@ costruire `H_d1` e `L_d1` coincida con quello del feed Piootoo.
 - `stop_loss = 250`, `take_profit = 5000`, `trailing_stop = 1000`,
   `breakeven = 1000` USD per contratto;
 - `max_entries_per_session = 1`, applicato dall'engine al fill usando l'inizio
-  della sessione CME, non al semplice invio dell'ordine;
+  del giorno di calendario, non al semplice invio dell'ordine. La finestra
+  operativa `13:00–04:00` attraversa la mezzanotte, quindi una sua occorrenza
+  ricade su due sessioni e può produrre due ingressi;
 - `max_bars = 0`.
 
 Il PC riemette lo stop buy sulla barra successiva finché resta flat. Per NQ,

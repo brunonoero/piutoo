@@ -39,6 +39,18 @@ public class PiootooTradingService : IPiootooTradingService
     /// <summary>Notifica di chiusura posizione, con il motivo dell'uscita.</summary>
     public Action<PositionClosedEvent>? PositionClosed { get; set; }
 
+    /// <summary>
+    /// Se il picco favorevole include l'estremo della barra in corso.
+    ///
+    /// <para>Con <c>true</c> — comportamento storico dell'engine — il picco viene aggiornato
+    /// <i>prima</i> del controllo dello stop protettivo, quindi lo stop trascinato può scattare
+    /// sulla stessa barra che ha segnato il nuovo massimo: è la politica intrabar conservativa,
+    /// che assume il percorso avverso. Il motore di riferimento Python non esce mai in trailing
+    /// sulla barra del nuovo estremo. Il campo esiste per <b>misurare</b> quanto vale quella
+    /// convenzione a parità di ingressi, non per cambiarla di default.</para>
+    /// </summary>
+    public bool TrailingPeakIncludesCurrentBar { get; set; } = true;
+
     public void Initialize(decimal initialCapital, decimal commissionPerContract = 2.0m)
     {
         _commissionPerContract = commissionPerContract;
@@ -624,6 +636,20 @@ public class PiootooTradingService : IPiootooTradingService
 
     public IReadOnlyList<TradingResult> GetClosedTrades() => _closedTrades.ToArray();
 
+    /// <summary>Alza il picco favorevole di un long. Vedi <see cref="TrailingPeakIncludesCurrentBar"/>.</summary>
+    private static void RaisePeak(OpenPosition position, decimal price)
+    {
+        if (!position.PeakFavorablePrice.HasValue || price > position.PeakFavorablePrice.Value)
+            position.PeakFavorablePrice = price;
+    }
+
+    /// <summary>Abbassa il picco favorevole di uno short. Vedi <see cref="TrailingPeakIncludesCurrentBar"/>.</summary>
+    private static void LowerPeak(OpenPosition position, decimal price)
+    {
+        if (!position.PeakFavorablePrice.HasValue || price < position.PeakFavorablePrice.Value)
+            position.PeakFavorablePrice = price;
+    }
+
     public BacktestingResult ApplyStrategyFilter(BacktestingResult result, List<string> enabledStrategies, Dictionary<string, decimal> multipliers)
     {
         // Filtra i risultati per strategia
@@ -801,8 +827,8 @@ public class PiootooTradingService : IPiootooTradingService
                 favorableMove = currentPrice.Value - position.EntryPrice;
                 var favorableHighMove = (currentBar?.High ?? currentPrice.Value) - position.EntryPrice;
                 var favorableHighPrice = currentBar?.High ?? currentPrice.Value;
-                if (!position.PeakFavorablePrice.HasValue || favorableHighPrice > position.PeakFavorablePrice.Value)
-                    position.PeakFavorablePrice = favorableHighPrice;
+                if (TrailingPeakIncludesCurrentBar)
+                    RaisePeak(position, favorableHighPrice);
                 
                 // Gestione Break Even per Long
                 if (!position.BreakEvenActivated && position.BreakEven.HasValue && 
@@ -847,14 +873,17 @@ public class PiootooTradingService : IPiootooTradingService
                     positionsToClose.Add((positionKey, position.EntryPrice + position.TakeProfit.Value, TradeExitReason.TakeProfit));
                     continue;
                 }
+
+                if (!TrailingPeakIncludesCurrentBar)
+                    RaisePeak(position, favorableHighPrice);
             }
             else if (position.Direction == SignalType.Sell)
             {
                 favorableMove = position.EntryPrice - currentPrice.Value;
                 var favorableLowMove = position.EntryPrice - (currentBar?.Low ?? currentPrice.Value);
                 var favorableLowPrice = currentBar?.Low ?? currentPrice.Value;
-                if (!position.PeakFavorablePrice.HasValue || favorableLowPrice < position.PeakFavorablePrice.Value)
-                    position.PeakFavorablePrice = favorableLowPrice;
+                if (TrailingPeakIncludesCurrentBar)
+                    LowerPeak(position, favorableLowPrice);
                 
                 // Gestione Break Even per Short
                 if (!position.BreakEvenActivated && position.BreakEven.HasValue && 
@@ -895,6 +924,11 @@ public class PiootooTradingService : IPiootooTradingService
                 {
                     positionsToClose.Add((positionKey, position.EntryPrice - position.TakeProfit.Value, TradeExitReason.TakeProfit));
                     continue;
+                }
+
+                if (!TrailingPeakIncludesCurrentBar)
+                {
+                    LowerPeak(position, favorableLowPrice);
                 }
             }
         }

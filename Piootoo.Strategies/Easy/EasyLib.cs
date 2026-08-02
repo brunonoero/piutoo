@@ -58,6 +58,13 @@ public static class EasyLib
             return false;
 
         bool oneDaySession = sessionStartTime < sessionEndTime;
+
+        // Sessione ancorata alla mezzanotte: il confronto stretto t > sessionStartTime
+        // scarterebbe la barra delle 00:00, che su un feed etichettato all'apertura è la prima
+        // della giornata, e la perderebbe da ogni sessione invece di assegnarla al giorno. Con
+        // questo confine la segmentazione è il puro cambio di data.
+        bool calendarDaySession = sessionStartTime == 0;
+
         decimal actO = 0, actH = 0, actL = 0, actC = 0;
         int actDayIdx = 0;
         var pastOpen = new decimal[20];
@@ -80,11 +87,16 @@ public static class EasyLib
             bool timeNotEnded = t <= sessionEndTime;
             bool prevTimeLessSTime = prevT <= sessionStartTime;
 
-            bool inSessionTime = oneDaySession
-                ? timeStarted && timeNotEnded
-                : timeStarted || timeNotEnded;
+            bool inSessionTime = calendarDaySession
+                ? timeNotEnded
+                : oneDaySession
+                    ? timeStarted && timeNotEnded
+                    : timeStarted || timeNotEnded;
 
-            bool isStartOfSession = inSessionTime && timeStarted && prevTimeLessSTime;
+            // Con l'inizio a mezzanotte prevTimeLessSTime è vero solo dopo la barra delle 00:00 e
+            // spezzerebbe la giornata alla seconda barra: resta il solo cambio di data, sotto.
+            bool isStartOfSession = !calendarDaySession
+                && inSessionTime && timeStarted && prevTimeLessSTime;
 
             if (!oneDaySession)
             {
@@ -258,6 +270,12 @@ public static class EasyLib
         int sessionStartTime, int sessionEndTime, OhlcvData[] bars, int count)
     {
         var oneDaySession = sessionStartTime < sessionEndTime;
+
+        // Stessa guardia di OHLCMulti5: con l'inizio a mezzanotte la barra delle 00:00 appartiene
+        // al giorno e la segmentazione è il cambio di data. Le tre funzioni devono restare
+        // d'accordo, altrimenti d0..d5 e le serie derivate parlano di sessioni diverse.
+        var calendarDaySession = sessionStartTime == 0;
+
         var first = true;
 
         for (var i = 0; i < count; i++)
@@ -272,14 +290,16 @@ public static class EasyLib
             var timeNotEnded = t <= sessionEndTime;
             var prevTimeLessSTime = prevT <= sessionStartTime;
 
-            var inSessionTime = oneDaySession
-                ? timeStarted && timeNotEnded
-                : timeStarted || timeNotEnded;
+            var inSessionTime = calendarDaySession
+                ? timeNotEnded
+                : oneDaySession
+                    ? timeStarted && timeNotEnded
+                    : timeStarted || timeNotEnded;
 
             if (!inSessionTime)
                 continue;
 
-            var isStartOfSession = timeStarted && prevTimeLessSTime;
+            var isStartOfSession = !calendarDaySession && timeStarted && prevTimeLessSTime;
             isStartOfSession = oneDaySession
                 ? isStartOfSession || day != prevDay
                 : isStartOfSession ||

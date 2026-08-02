@@ -278,7 +278,34 @@ in ordine cronologico. Non è un changelog di codice: quello resta nei commit.
   sessione su tutte e 149; Python ne fa due in 7 sessioni su 113, quindi quel vincolo o non
   esiste nel motore originale o usa un confine diverso), ma nei **gate**: il C# opera in 63
   sessioni in cui Python resta piatto. Il sospetto è la costruzione delle sessioni su cui girano
-  i pattern (`neut_no = 24`, `dir_yes = 2`), non il Price Channel.
+  i pattern (`neut_no = 24`, `dir_yes = 2`), non il Price Channel. Confermato e risolto nella voce
+  successiva: era il confine di sessione.
+- **2026-08-02** — **La sessione di `PTS_002_NQ_15` è il giorno di calendario UTC, non la sessione
+  CME 17:00–16:00.** Il confine è stato *misurato* sul riferimento, non scelto: raggruppando i 120
+  ingressi di `top01_PC` per ora di taglio, con un confine fra le 00:00 e le 02:00 si ottiene
+  esattamente un ingresso per sessione, zero collisioni. Non è un caso: su ~350 giorni di borsa,
+  120 ingressi liberi darebbero una ventina di giorni doppi per paradosso dei compleanni, quindi
+  zero collisioni dimostra che il vincolo *è* uno per giorno. Un confine nella zona morta della
+  finestra operativa (05:00–12:00) ne lascia due, quindi la sessione è il giorno e non
+  l'occorrenza della finestra 13:00–04:00, che infatti viene tagliata a metà.
+  Il parametro governa **due cose insieme**: il secchio di `MaxEntriesPerSession` via `SessionKey`
+  e gli OHLC d0..d5 di `OHLCMulti5` su cui girano i pattern. Ecco perché le due divergenze che
+  sembravano separate — 29 ingressi bloccati dal limite e 44 negati dai gate — erano lo stesso
+  parametro, e perché nessuno shift di ±1 o ±2 sessioni recuperava l'accordo: un confine sbagliato
+  non sfasa i pattern di un indice, li calcola su aggregati diversi delle stesse barre.
+  Applicare il confine ha richiesto una guardia in `EasyLib`: `timeStarted = t > sessionStartTime`
+  è un confronto stretto, quindi con inizio a `0` la barra delle 00:00 sarebbe stata scartata da
+  ogni sessione, perdendone una al giorno da d0..d5 senza che nulla protestasse. La guardia vale
+  solo per il confine di mezzanotte e `OHLCMulti5`/`InSessionBars` la applicano allo stesso modo,
+  perché devono segmentare identicamente. Nessuna `Easy_*` usa `0` come inizio, quindi il catalogo
+  non è toccato.
+  Effetto sulla finestra 2024-01 → 2025-05: trade da 149 a **118 contro i 120 di Python**,
+  ingressi appaiati sulla stessa barra da 42 a **101**, Jaccard degli ingressi da 0,185 a **0,737**,
+  prezzo identico in 92 dei 101 appaiati, net profit $37.663 contro $37.200 (1,2%).
+  Residuo: 15 ingressi che Python fa e noi no con gate negativo, e 17 nostri non appaiati di cui
+  **12 cadono a una sola barra** da un ingresso Python — cioè sfasamento di barra, non gate.
+  Regressioni `SessionSeriesTests.CalendarDaySession_KeepsTheMidnightBarAndSplitsOnTheDate` e
+  l'asserzione su `EntrySessionStartUtc` in `Pts002PcTests`.
 - **2026-08-02** — **Il feed @NQ copre 5m, 15m, 30m, 1h, 4h e giornaliero; il settimanale no.**
   `aggregate_nq_ascii.py` produceva solo 15m e 1h, mentre le strategie @NQ del catalogo chiedono
   anche 5 minuti (`Easy_152`) e 30 (`Easy_181`, `Easy_298`): quei quattro sono i timeframe di
