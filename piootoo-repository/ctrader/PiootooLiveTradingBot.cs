@@ -75,6 +75,21 @@ namespace cAlgo.Robots
         [Parameter("Log dettagliato", DefaultValue = false)]
         public bool VerboseLogging { get; set; }
 
+        // Regola operativa: nel fine settimana non restano ne' posizioni ne' ordini. Vive nel bot, e
+        // non lato server, perche' e' una regola di sicurezza e deve tenere anche quando il server e'
+        // irraggiungibile.
+        [Parameter("Flat nel fine settimana", DefaultValue = true, Group = "Fine settimana")]
+        public bool FlatAtWeekEnd { get; set; }
+
+        // Un'ora UTC di venerdi invece della chiusura CME reale (16:00 di Chicago): quest'ultima cade
+        // alle 21:00 oppure alle 22:00 UTC secondo l'ora legale americana, quindi un default prudente
+        // prima della piu' presta delle due vale in entrambi i periodi dell'anno senza gestire il fuso.
+        [Parameter("Flat da venerdi (HHMM UTC)", DefaultValue = 2045, MinValue = 0, MaxValue = 2359, Group = "Fine settimana")]
+        public int WeekEndFlatFromUtc { get; set; }
+
+        [Parameter("Operativo da domenica (HHMM UTC)", DefaultValue = 2300, MinValue = 0, MaxValue = 2359, Group = "Fine settimana")]
+        public int WeekEndFlatUntilUtc { get; set; }
+
         private HttpClient _http;
         private string _accountNumber;
         private string _sessionId;
@@ -213,6 +228,15 @@ namespace cAlgo.Robots
                 if (pushedStreams.Contains(MakeStreamKey(context.Symbol, context.TimeframeMinutes)))
                     context.BarsInPosition++;
 
+            // Le barre sono già state pubblicate (la storia del server non deve avere buchi), ma
+            // dentro la finestra di flat non si reclama nessun intent: sarebbe un ingresso che
+            // HandleEntryIntent scarterebbe comunque, e il polling costa una chiamata.
+            if (EnforceWeekEndFlat())
+            {
+                SaveLocalState();
+                return;
+            }
+
             // Il server ha appena valutato tutti gli stream che hanno chiuso una barra: reclamare
             // subito l'eventuale intent, senza aspettare il prossimo polling periodico.
             if (pushedStreams.Count != 0)
@@ -226,6 +250,10 @@ namespace cAlgo.Robots
 
         protected override void OnTick()
         {
+            // Dentro la finestra di fine settimana non c'e' nulla da proteggere: va solo chiuso.
+            if (EnforceWeekEndFlat())
+                return;
+
             // Il prezzo può raggiungere e perdere la soglia all'interno della barra 5m:
             // il break-even va quindi verificato a ogni tick, non solo al bar-close.
             MoveStopsToBreakEven();
@@ -353,7 +381,74 @@ namespace cAlgo.Robots
             }
         }
 
-        protected override void OnTimer() => PollNextSignal();
+        protected override void OnTimer()
+        {
+            // Senza questa guardia il polling periodico continuerebbe a reclamare intent nel fine
+            // settimana: verrebbero scartati da HandleEntryIntent, ma a costo di una chiamata ognuno.
+            if (EnforceWeekEndFlat())
+                return;
+
+            PollNextSignal();
+        }
+
+        /// <summary>
+        /// Porta il conto a flat quando la finestra di fine settimana e' aperta: prima cancella gli
+        /// ordini, poi chiude le posizioni. L'ordine conta: chiudere per primo lascerebbe a mercato
+        /// un ordine che puo' riaprire nel frattempo.
+        ///
+        /// <para>Restituisce true quando la finestra e' attiva, cosi' il chiamante sa che in questa
+        /// passata non si apre nulla. A conto gia' piatto i due cicli sono vuoti e non stampa nulla,
+        /// quindi puo' essere chiamato a ogni tick e a ogni timer senza sporcare il log.</para>
+        /// </summary>
+        private bool EnforceWeekEndFlat()
+        {
+            if (!FlatAtWeekEnd || !IsWeekEndFlatWindow(Server.TimeInUtc))
+                return false;
+
+            foreach (var order in PendingOrders
+                .Where(o => o.Label != null && o.Label.StartsWith(LabelPrefix, StringComparison.Ordinal))
+                .ToList())
+            {
+                var cancel = CancelPendingOrder(order);
+                if (cancel.IsSuccessful)
+                    Print("Ordine pending {0} cancellato per il flat di fine settimana.", order.Id);
+                else
+                    Print("Impossibile cancellare l'ordine {0} per il fine settimana: {1}", order.Id, cancel.Error);
+            }
+
+            foreach (var position in Positions
+                .Where(p => p.Label != null && p.Label.StartsWith(LabelPrefix, StringComparison.Ordinal))
+                .ToList())
+            {
+                var result = ClosePosition(position);
+                if (result.IsSuccessful)
+                    Print("Posizione {0} chiusa per il flat di fine settimana.", position.Id);
+                else
+                    Print("Impossibile chiudere {0} per il fine settimana: {1}", position.Id, result.Error);
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// La finestra va da venerdi all'ora dichiarata fino alla domenica all'ora di riapertura.
+        /// Il sabato e' sempre dentro.
+        /// </summary>
+        private bool IsWeekEndFlatWindow(DateTime nowUtc)
+        {
+            var hhmm = nowUtc.Hour * 100 + nowUtc.Minute;
+            switch (nowUtc.DayOfWeek)
+            {
+                case DayOfWeek.Friday:
+                    return hhmm >= WeekEndFlatFromUtc;
+                case DayOfWeek.Saturday:
+                    return true;
+                case DayOfWeek.Sunday:
+                    return hhmm < WeekEndFlatUntilUtc;
+                default:
+                    return false;
+            }
+        }
 
         protected override void OnStop()
         {
@@ -512,6 +607,16 @@ namespace cAlgo.Robots
 
         private void HandleEntryIntent(OrderIntentDto intent)
         {
+            // Ultima barriera: un intent reclamato appena prima del taglio non deve aprire nulla.
+            // Gli intent di chiusura non passano di qui, quindi la riduzione di rischio resta libera.
+            if (FlatAtWeekEnd && IsWeekEndFlatWindow(Server.TimeInUtc))
+            {
+                Print("Ingresso {0}/{1} scartato: finestra di flat di fine settimana.",
+                    intent.Symbol, intent.StrategyCode);
+                ReportExecution(intent.IntentId, intent.Symbol, ExecutionReportStatusDto.Rejected, 0, null);
+                return;
+            }
+
             // Autolimitazione lato client PER SIMBOLO (oltre a quella già garantita dal server): se il bot
             // ha già una posizione aperta su QUESTO simbolo, non ne apre una seconda; può però tradare in
             // parallelo altri simboli configurati.

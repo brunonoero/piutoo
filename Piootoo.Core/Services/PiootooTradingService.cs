@@ -618,6 +618,22 @@ public class PiootooTradingService : IPiootooTradingService
         return GetSnapshot();
     }
 
+    /// <summary>
+    /// Cancella tutti gli ordini pendenti, restituendo quanti ne sono stati rimossi.
+    /// Serve alla regola di flat settimanale: chiudere le posizioni non basta, perché uno stop
+    /// emesso sull'ultima barra della settimana scade sulla barra successiva, che è la prima
+    /// della settimana dopo, e resterebbe eseguibile sul gap di riapertura.
+    /// </summary>
+    public int CancelAllPendingOrders()
+    {
+        var cancelled = _pendingOrders.Count;
+        _pendingOrders.Clear();
+        return cancelled;
+    }
+
+    /// <summary>Diagnostica: quanti ordini pendenti sono in attesa di riempimento.</summary>
+    public int PendingOrdersCount => _pendingOrders.Count;
+
     public TradingSnapshot GetSnapshot()
     {
         // Il profit totale è la differenza tra equity corrente e capitale iniziale

@@ -185,6 +185,25 @@ namespace cAlgo.Robots
         // MaxBarsInPosition). Un intent Close del server rappresenta invece un ExitOnly della
         // strategia e va eseguito contro la posizione già aperta.
 
+        // ------------------------------------------------------------------------ Fine settimana
+        //
+        // Regola operativa: nel fine settimana non restano ne' posizioni ne' ordini. Vive qui, nel
+        // bot, e non lato server, perche' e' una regola di sicurezza e deve tenere anche quando il
+        // server e' irraggiungibile.
+
+        [Parameter("Flat nel fine settimana", DefaultValue = true, Group = "Fine settimana")]
+        public bool FlatAtWeekEnd { get; set; }
+
+        // Il taglio e' un'ora UTC di venerdi invece della chiusura CME reale (16:00 di Chicago)
+        // perche' quest'ultima cade alle 21:00 oppure alle 22:00 UTC secondo l'ora legale
+        // americana: un default prudente, prima della piu' presta delle due, va bene in entrambi i
+        // periodi dell'anno senza dover gestire il fuso.
+        [Parameter("Flat da venerdi (HHMM UTC)", DefaultValue = 2045, MinValue = 0, MaxValue = 2359, Group = "Fine settimana")]
+        public int WeekEndFlatFromUtc { get; set; }
+
+        [Parameter("Operativo da domenica (HHMM UTC)", DefaultValue = 2300, MinValue = 0, MaxValue = 2359, Group = "Fine settimana")]
+        public int WeekEndFlatUntilUtc { get; set; }
+
         // ------------------------------------------------------------------------------- Stato
 
         private HttpClient _http;
@@ -361,6 +380,14 @@ namespace cAlgo.Robots
             if (!_sessionReady)
                 return;
 
+            // Dentro la finestra di fine settimana non c'e' nulla da proteggere con break-even o
+            // trailing: va solo chiuso, e il flat precede tutto.
+            if (EnforceWeekEndFlat())
+            {
+                UpdateChartDisplay();
+                return;
+            }
+
             // Break-even e trailing stop vanno sorvegliati a ogni tick: il prezzo puo' raggiungere e
             // perdere la soglia dentro la stessa barra, e l'engine di backtest le valuta intrabar.
             MoveStopsToBreakEven();
@@ -375,10 +402,19 @@ namespace cAlgo.Robots
 
             try
             {
+                var weekEndFlat = EnforceWeekEndFlat();
+
                 // Prima si ritira l'ordine della barra appena chiusa, poi si chiede il nuovo signal:
                 // l'ordine "next bar" ha esaurito la sua unica barra di validita.
                 CancelExpiredPendingOrders();
+
+                // La barra va pubblicata anche dentro la finestra di flat: la storia del server e' il
+                // dato su cui girano gli indicatori, e un buco la falserebbe alla riapertura. Gli
+                // intent di apertura che ne tornano sono fermati da ApplyOpenIntent.
                 PushClosedBar();
+                if (weekEndFlat)
+                    return;
+
                 MoveStopsToBreakEven();
                 MoveTrailingStops();
                 CloseExpiredPositions();
@@ -776,6 +812,15 @@ namespace cAlgo.Robots
         {
             var tradeType = string.Equals(intent.Side, "Sell", StringComparison.OrdinalIgnoreCase) ? TradeType.Sell : TradeType.Buy;
 
+            // Gli intent di chiusura passano comunque (riducono rischio): qui si fermano solo le
+            // aperture, altrimenti il flat appena imposto verrebbe disfatto dal signal successivo.
+            if (FlatAtWeekEnd && IsWeekEndFlatWindow(Server.TimeInUtc))
+            {
+                Print("Intent {0} ({1}) ignorato: finestra di flat di fine settimana.",
+                    intent.IntentId, intent.StrategyCode);
+                return;
+            }
+
             if (Positions.Find(label, SymbolName, tradeType) != null)
             {
                 Print("Intent {0} ({1} {2}) ignorato: posizione gia aperta su questa label.", intent.IntentId, tradeType, label);
@@ -905,6 +950,63 @@ namespace cAlgo.Robots
 
                 CancelPendingOrders(entry.Key, "scaduto (valido una barra sola)");
                 _pendingOrderBar.Remove(entry.Key);
+            }
+        }
+
+        /// <summary>
+        /// Porta il conto a flat quando la finestra di fine settimana e' aperta: prima cancella gli
+        /// ordini, poi chiude le posizioni. L'ordine conta: chiudere per primo lascerebbe uno stop a
+        /// mercato che puo' riaprire nel frattempo.
+        ///
+        /// <para>Restituisce true quando la finestra e' attiva, cosi' il chiamante sa che in questa
+        /// passata non si apre nulla.</para>
+        /// </summary>
+        private bool EnforceWeekEndFlat()
+        {
+            if (!FlatAtWeekEnd || !IsWeekEndFlatWindow(Server.TimeInUtc))
+                return false;
+
+            var labels = PendingOrders
+                .Where(o => o.SymbolName == SymbolName && o.Label != null &&
+                            o.Label.StartsWith(LabelPrefix, StringComparison.Ordinal))
+                .Select(o => o.Label)
+                .Distinct()
+                .ToList();
+            foreach (var label in labels)
+            {
+                CancelPendingOrders(label, "flat di fine settimana");
+                _pendingOrderBar.Remove(label);
+            }
+
+            foreach (var position in Positions.Where(IsOurs).ToList())
+            {
+                var result = ClosePosition(position);
+                if (result.IsSuccessful)
+                    Print("Posizione {0} chiusa per il flat di fine settimana.", position.Id);
+                else
+                    Print("Impossibile chiudere {0} per il fine settimana: {1}", position.Id, result.Error);
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// La finestra va da venerdi all'ora dichiarata fino alla domenica all'ora di riapertura.
+        /// Il sabato e' sempre dentro.
+        /// </summary>
+        private bool IsWeekEndFlatWindow(DateTime nowUtc)
+        {
+            var hhmm = nowUtc.Hour * 100 + nowUtc.Minute;
+            switch (nowUtc.DayOfWeek)
+            {
+                case DayOfWeek.Friday:
+                    return hhmm >= WeekEndFlatFromUtc;
+                case DayOfWeek.Saturday:
+                    return true;
+                case DayOfWeek.Sunday:
+                    return hhmm < WeekEndFlatUntilUtc;
+                default:
+                    return false;
             }
         }
 

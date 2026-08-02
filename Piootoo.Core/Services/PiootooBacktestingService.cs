@@ -710,6 +710,7 @@ public class PiootooBacktestingService : IPiootooBacktestingService
             var processedIterations = 0;
             var iterationCount = 0; // Contatore per calcolare l'allineamento delle strategie
             var markedToMarketBars = 0L;
+            var weekEndCancelledOrders = 0L;
             var lastPersistedIteration = 0;
 
             Console.WriteLine($"[Backtesting] Loop configurato: TotalMinutes={totalMinutes}, TotalIterations={totalIterations}, MinTimeframe={minTimeframeMinutes}");
@@ -951,12 +952,21 @@ public class PiootooBacktestingService : IPiootooBacktestingService
 
                 var nextTradingDate = GetNextTradingDateUtc(currentDate, minTimeframeMinutes);
                 if (request.CloseAllPositionsAtWeekEnd &&
-                    IsLastBarOfTradingWeek(currentDate, nextTradingDate) &&
-                    snapshot.OpenPositionsCount > 0)
+                    IsLastBarOfTradingWeek(currentDate, nextTradingDate))
                 {
-                    snapshot = tradingService.CloseAllOpenPositions(
-                        currentPrices, currentBars, currentDate, TradeExitReason.WeekEnd);
-                    AppendStrategyEquityResults(result, snapshot, currentDate, signals, strategyEquityCache, orderedStrategyInfos);
+                    // Anche senza posizioni aperte c'è da fare: uno stop emesso su questa barra
+                    // scade sulla prossima, che è la prima della settimana dopo, e riempirebbe sul
+                    // gap di riapertura. La regola è flat di posizioni *e* di ordini.
+                    var cancelled = tradingService.CancelAllPendingOrders();
+                    if (cancelled > 0)
+                        weekEndCancelledOrders += cancelled;
+
+                    if (snapshot.OpenPositionsCount > 0)
+                    {
+                        snapshot = tradingService.CloseAllOpenPositions(
+                            currentPrices, currentBars, currentDate, TradeExitReason.WeekEnd);
+                        AppendStrategyEquityResults(result, snapshot, currentDate, signals, strategyEquityCache, orderedStrategyInfos);
+                    }
                 }
 
                 // Checkpoint periodico invece di una riscrittura completa (con fsync) a ogni barra:
@@ -1037,6 +1047,14 @@ public class PiootooBacktestingService : IPiootooBacktestingService
             tradingJsonStore.WriteTrades(ToPersistedTrades(job.JobId, closedTrades));
             result.TradeSignalsFilePath = tradingJsonStore.SignalsPath;
             result.ResultFilePath = filePath;
+
+            if (weekEndCancelledOrders > 0)
+                diagnostics.LogRun(
+                    $"Flat settimanale: {weekEndCancelledOrders} ordini pendenti cancellati sull'ultima barra della settimana.",
+                    new Dictionary<string, string>(StringComparer.Ordinal)
+                    {
+                        ["weekEndCancelledOrders"] = weekEndCancelledOrders.ToString(CultureInfo.InvariantCulture)
+                    });
 
             var summary = diagnostics.Complete(new BacktestRunSummary
             {
