@@ -483,10 +483,13 @@ public abstract class PriceChannelEngine : EasyEngineBase
         if (StartTime < 0 && EndTime < 0)
             return true;
 
-        var start = StartTime < 0 ? 0 : StartTime / 100;
-        var end = EndTime < 0 ? 23 : EndTime / 100;
-        var hour = barTime.Hour;
-        return start <= end ? hour >= start && hour <= end : hour >= start || hour <= end;
+        // Il motore Python confronta l'orario completo con gli estremi "HH:00", fine inclusa.
+        // Confrontare le sole ore allargava la finestra fino a HH:59: con end_hour = 4 entravano
+        // anche le barre 04:15–04:45, che nella fonte non producono segnali.
+        var start = StartTime < 0 ? 0 : StartTime;
+        var end = EndTime < 0 ? 2359 : EndTime;
+        var time = Hhmm(barTime);
+        return start <= end ? time >= start && time <= end : time >= start || time <= end;
     }
 
     private static int PythonDayOfWeek(DateTime value) => ((int)value.DayOfWeek + 6) % 7;

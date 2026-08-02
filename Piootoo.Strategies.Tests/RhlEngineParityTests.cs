@@ -76,6 +76,8 @@ public sealed class RhlEngineParityTests
         service.UpdateMarketPrices(Prices(99m), Bars(fillTime, 100m, 101m, 99m, 99m), fillTime);
 
         Assert.True(opened);
+        // Sulla barra di fill (O=100, H=101, L=99, C=99) il limit entra a 100; lo stop
+        // monetario da $20 (= 1 punto NQ) chiude a 99 nella stessa barra.
         var trade = Assert.Single(service.GetClosedTrades());
         Assert.Equal(TradeExitReason.StopLoss, trade.ExitReason);
         Assert.Equal(99m, trade.ExitPrice);
@@ -94,7 +96,7 @@ public sealed class RhlEngineParityTests
             OrderType = TradeOrderType.Limit,
             ValidFromUtc = validFrom,
             ExpiresAtUtc = validFrom,
-            StopLoss = 1m
+            StopLossMoneyPerFutureContract = 20m
         };
 
     private static Dictionary<string, decimal> Prices(decimal price) =>
@@ -122,10 +124,17 @@ public sealed class RhlEngineParityTests
         {
             var sessionDate = current.Date.AddDays(day);
             var basePrice = 100m + (day + 7) * 10m;
-            bars.Add(Bar(sessionDate.AddHours(17).AddMinutes(5), basePrice, basePrice + 8m, basePrice - 4m));
-            bars.Add(Bar(sessionDate.AddDays(1).AddHours(16), basePrice + 2m, basePrice + 6m, basePrice - 2m));
+            var start = sessionDate.AddHours(17).AddMinutes(5);
+            var end = sessionDate.AddDays(1).AddHours(16);
+            // Non includere barre future: altrimenti bars[^1] non è la barra valutata e
+            // EstimateNextBarUtc deriva un timeframe spurio dalla distanza al close di sessione.
+            if (start <= current)
+                bars.Add(Bar(start, basePrice, basePrice + 8m, basePrice - 4m));
+            if (end <= current)
+                bars.Add(Bar(end, basePrice + 2m, basePrice + 6m, basePrice - 2m));
         }
 
+        bars.Add(Bar(current.AddHours(-1), 199m, 204m, 194m));
         bars.Add(Bar(current, 200m, 205m, 195m));
         return bars.OrderBy(bar => bar.DateTime).ToArray();
     }

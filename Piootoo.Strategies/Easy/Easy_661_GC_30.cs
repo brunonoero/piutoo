@@ -19,9 +19,20 @@ namespace Piootoo.Strategies.Easy;
 /// <b>Non eseguibile.</b> I livelli <c>dist</c> sono stop assoluti ricalcolati alle 19:00 e
 /// valutati a ogni barra; non sono un'uscita dichiarabile al fill. Resta su
 /// <see cref="StatelessEasyStrategyBase"/> ed è esclusa dal catalogo operativo.</para>
+///
+/// <para><b>Il secondo flusso a 15 minuti è indispensabile.</b> È l'unica sorgente multi-timeframe
+/// del catalogo in cui <c>data2</c> è più fine del grafico, quindi non si può ricavare aggregando:
+/// da barre da 30 minuti non si sa come si è mossa la seconda metà. L'originale latcha
+/// <c>oklong1</c>/<c>okshort1</c> una volta per sessione, su <c>sessionlastbar data2</c>, dalla
+/// direzione dell'ultima barra da 15 minuti; quel valore resta poi valido per tutta la sessione
+/// successiva. Senza la serie a 15 minuti la strategia si ferma con un motivo esplicito invece di
+/// ripiegare sulla barra a 30 minuti precedente, che cambierebbe il flag più volte al giorno.</para>
 /// </summary>
-public class Easy_661_GC_30 : StatelessEasyStrategyBase
+public class Easy_661_GC_30 : StatelessEasyStrategyBase, IMultiTimeframeTradingStrategy
 {
+    /// <summary>Timeframe di <c>data2</c>, fissato dalla sorgente: "30-minute bars data1 + 15-minutes bars data2".</summary>
+    private const int Data2TimeframeMinutes = 15;
+
     // INPUTS
     private int _sessionStartTimeC = 1800;
     private int _sessionEndTimeC = 1700;
@@ -73,6 +84,16 @@ public class Easy_661_GC_30 : StatelessEasyStrategyBase
     public int TimeframeMinutes => _timeframeMinutes;
     public int RequiredCandles => 100;
 
+    public IReadOnlyCollection<int> AdditionalTimeframes => new[] { Data2TimeframeMinutes };
+
+    public TradeSignal GenerateSignal(
+        OhlcvData[] data, IReadOnlyDictionary<int, OhlcvData[]> additionalData, DateTime currentDate)
+    {
+        OhlcvData[]? data2 = null;
+        additionalData?.TryGetValue(Data2TimeframeMinutes, out data2);
+        return EvaluateCore(data, currentDate, data2);
+    }
+
     public void Initialize(Dictionary<string, object>? parameters = null)
     {
         if (parameters != null)
@@ -95,7 +116,15 @@ public class Easy_661_GC_30 : StatelessEasyStrategyBase
         }
     }
 
-    public TradeSignal GenerateSignal(OhlcvData[] data, DateTime currentDate)
+    /// <summary>
+    /// Percorso senza serie aggiuntive. Non può produrre un ingresso: i gate
+    /// <c>oklong1</c>/<c>okshort1</c> vivono su <c>data2</c>, e senza quella serie l'unica risposta
+    /// corretta è fermarsi.
+    /// </summary>
+    public TradeSignal GenerateSignal(OhlcvData[] data, DateTime currentDate) =>
+        EvaluateCore(data, currentDate, data2: null);
+
+    private TradeSignal EvaluateCore(OhlcvData[] data, DateTime currentDate, OhlcvData[]? data2)
     {
         if (data == null || data.Length < RequiredCandles)
         {
@@ -106,6 +135,20 @@ public class Easy_661_GC_30 : StatelessEasyStrategyBase
                 Price = data?.LastOrDefault()?.Close ?? 0,
                 StrategyName = Name,
                 Reason = "Dati insufficienti"
+            };
+        }
+
+        // I gate oklong1/okshort1 vivono su data2 e non sono ricavabili dalle barre a 30 minuti:
+        // senza quella serie fermarsi è l'unica risposta corretta.
+        if (data2 is null || data2.Length == 0)
+        {
+            return new TradeSignal
+            {
+                Date = currentDate,
+                Type = SignalType.Hold,
+                Price = data[^1].Close,
+                StrategyName = Name,
+                Reason = $"Serie {Data2TimeframeMinutes}m (data2) non disponibile"
             };
         }
 
@@ -126,17 +169,21 @@ public class Easy_661_GC_30 : StatelessEasyStrategyBase
             _daysInTrade++;
         }
 
-        // Track last bar of session for okLong1/okShort1
-        // Simplified: use previous bar close/open comparison
-        if (data.Length > 1)
+        // `if sessionlastbar data2 and c data2 > o data2 then oklong1 = true` e i tre gemelli: il
+        // flag si aggiorna solo alla chiusura della sessione su data2, e vale per tutta la sessione
+        // seguente. Una barra a 15 minuti perfettamente piatta non tocca i flag, esattamente come
+        // nell'originale, dove nessuna delle quattro condizioni è vera.
+        var data2SessionLastBar =
+            LastBarOfPreviousSession(_sessionStartTimeC, _sessionEndTimeC, data2, currentDate);
+
+        if (data2SessionLastBar is not null)
         {
-            var prevBar = data[data.Length - 2];
-            if (prevBar.Close > prevBar.Open)
+            if (data2SessionLastBar.Close > data2SessionLastBar.Open)
             {
                 _okLong1 = true;
                 _okShort1 = false;
             }
-            else if (prevBar.Close < prevBar.Open)
+            else if (data2SessionLastBar.Close < data2SessionLastBar.Open)
             {
                 _okLong1 = false;
                 _okShort1 = true;

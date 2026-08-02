@@ -33,9 +33,12 @@ public class DataFeedWorker : BackgroundService
         // Inizializza la cron expression
         try
         {
+            // La cron è valutata in UTC: il worker alimenta un feed i cui timestamp sono UTC, e
+            // legarne la schedulazione al fuso della macchina sposterebbe l'orario di polling
+            // a ogni deploy su un host diverso, ora legale inclusa.
             _cronSchedule = CrontabSchedule.Parse(_symbolsOptions.CronExpression);
-            _nextRun = _cronSchedule.GetNextOccurrence(DateTime.Now);
-            _logger.LogInformation("Cron expression configurata: {CronExpression}. Prossima esecuzione: {NextRun}",
+            _nextRun = _cronSchedule.GetNextOccurrence(DateTime.UtcNow);
+            _logger.LogInformation("Cron expression configurata: {CronExpression} (UTC). Prossima esecuzione: {NextRun}",
                 _symbolsOptions.CronExpression, _nextRun);
         }
         catch (Exception ex)
@@ -65,13 +68,13 @@ public class DataFeedWorker : BackgroundService
         await PollAllSymbolsAsync(intervals, stoppingToken);
         
         // Calcola la prossima esecuzione dopo il polling iniziale
-        var now = DateTime.Now;
+        var now = DateTime.UtcNow;
         _nextRun = _cronSchedule?.GetNextOccurrence(now);
         _logger.LogInformation("Prossima esecuzione programmata: {NextRun}", _nextRun);
 
         while (!stoppingToken.IsCancellationRequested)
         {
-            now = DateTime.Now;
+            now = DateTime.UtcNow;
 
             // Verifica se è il momento di eseguire il polling
             if (_nextRun.HasValue && now >= _nextRun.Value)

@@ -277,6 +277,20 @@ public sealed class OrderIntent
     /// <summary>Numero massimo di barre in posizione. Null o 0 = nessun limite.</summary>
     public int? MaxBarsInPosition { get; init; }
 
+    /// <summary>
+    /// Massimo numero di fill consentiti nella sessione che inizia a
+    /// <see cref="EntrySessionStartUtc"/>. Null o 0 = nessun limite. Il vincolo è applicato dal
+    /// server sui fill confermati, non sugli ordini inviati: uno stop non eseguito viene
+    /// riemesso. Viaggia sull'intent perché il client possa mostrarlo e diagnosticarlo.
+    /// </summary>
+    public int? MaxEntriesPerSession { get; init; }
+
+    /// <summary>
+    /// Inizio della sessione di trading a cui si riferisce <see cref="MaxEntriesPerSession"/>,
+    /// secondo il calendario della strategia che ha emesso il segnale.
+    /// </summary>
+    public DateTime? EntrySessionStartUtc { get; init; }
+
     public DateTime? ValidFromUtc { get; init; }
     public DateTime? ExpiresAtUtc { get; init; }
 

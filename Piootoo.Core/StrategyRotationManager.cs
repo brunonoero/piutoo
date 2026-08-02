@@ -510,7 +510,7 @@ public class StrategyRotationManager
             
         if (lastNWeeks.HasValue)
         {
-            var now = DateTime.Now;
+            var now = DateTime.UtcNow;
             var currentWeek = GetWeekNumber(now);
             var currentYear = now.Year;
             query = query.Where(p => IsWithinLastNWeeks(p.Year, p.Week, 

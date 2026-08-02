@@ -81,6 +81,7 @@ public sealed class PTS_002_NQ_15 : PriceChannelEngine
         DirectionalYes = 2;
         DirectionalNo = 53;
         NotEntryDayLong = -1;
+        IntradayOnly = false;
         StopMoney = 250;
         ProfitMoney = 5000;
         BreakEvenMoney = 1000;

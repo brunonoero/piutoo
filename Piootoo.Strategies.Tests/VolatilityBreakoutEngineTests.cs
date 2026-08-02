@@ -49,8 +49,10 @@ public sealed class VolatilityBreakoutEngineTests
         var blockedByDay = new TestVbo(volatilitySource: 3, skipDay: 5); // Sabato, convenzione pandas.
         Assert.Equal(SignalType.Hold, Evaluate(blockedByDay, bars).Type);
 
-        var blockedByMomentum = new TestVbo(volatilitySource: 3, momentum: 2);
-        bars.Single(bar => bar.DateTime == new DateTime(2024, 1, 19, 17, 0, 0, DateTimeKind.Utc)).Close = 150m;
+        // Solo long: con C_d1 alzato a 150, O_d0 < C_d1 spegne il momentum long.
+        // Senza Direction=1 lo short resterebbe valido (momentum short invertito).
+        var blockedByMomentum = new TestVbo(volatilitySource: 3, momentum: 2, direction: 1);
+        bars.Single(bar => bar.DateTime == new DateTime(2024, 1, 19, 16, 0, 0, DateTimeKind.Utc)).Close = 150m;
         Assert.Equal(SignalType.Hold, Evaluate(blockedByMomentum, bars).Type);
     }
 
@@ -69,17 +71,9 @@ public sealed class VolatilityBreakoutEngineTests
     }
 
     private static TradeSignal Evaluate(TestVbo strategy, OhlcvData[] bars) =>
-        strategy.Evaluate(new StrategyEvaluationRequest
-        {
-            Ohlcv = bars,
-            BarTimeUtc = bars[^1].DateTime,
-            Execution = new StrategyExecutionSnapshot
-            {
-                StrategyCode = strategy.Name,
-                Symbol = "NQ",
-                BarTimeUtc = bars[^1].DateTime
-            }
-        });
+        // Chiamata diretta: evita il clone di Evaluate che, nei test, non è necessario
+        // e maschera i parametri impostati sul costruttore specializzato.
+        strategy.GenerateSignal(bars, bars[^1].DateTime);
 
     private static OhlcvData[] BuildBars()
     {
@@ -118,15 +112,20 @@ public sealed class VolatilityBreakoutEngineTests
 
     private sealed class TestVbo : VolatilityBreakoutEngine
     {
-        public TestVbo(int volatilitySource, int atrLength = 2, int momentum = 0, int direction = 0,
-            int startHour = -1, int endHour = -1, int skipDay = -1)
+        // Costruttore senza parametri obbligatorio: Evaluate clona via Activator.
+        public TestVbo()
         {
             SessionStartTime = 1700;
             SessionEndTime = 1600;
-            VolatilitySource = volatilitySource;
-            AtrLength = atrLength;
             AtrMultiplierLong = 1m;
             AtrMultiplierShort = -1m;
+        }
+
+        public TestVbo(int volatilitySource, int atrLength = 2, int momentum = 0, int direction = 0,
+            int startHour = -1, int endHour = -1, int skipDay = -1) : this()
+        {
+            VolatilitySource = volatilitySource;
+            AtrLength = atrLength;
             Momentum = momentum;
             Direction = direction;
             StartTrade = startHour < 0 ? -1 : startHour * 100;
@@ -138,5 +137,8 @@ public sealed class VolatilityBreakoutEngineTests
         public override string Description => "Strategia di prova VBO Python";
         public override string Symbol => "@NQ";
         public override int TimeframeMinutes => 60;
+
+        public TradeSignal GenerateSignal(OhlcvData[] data, DateTime currentDate) =>
+            EvaluateCore(data, currentDate);
     }
 }

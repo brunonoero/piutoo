@@ -75,7 +75,7 @@ public class WeeklyRotationScheduler
         }
 
         // Genera nuovo setup se necessario
-        var now = DateTime.Now;
+        var now = DateTime.UtcNow;
         var lastWeekend = GetLastWeekend(now);
         return ExecuteWeeklyRotation(lastWeekend);
     }
@@ -115,7 +115,9 @@ public class WeeklyRotationScheduler
 
     private bool IsSetupValid(WeeklySetup setup)
     {
-        var now = DateTime.Now;
+        // I confini del setup sono UTC come tutto il dominio: confrontarli con l'ora locale
+        // farebbe scadere la settimana con ore di anticipo o di ritardo secondo l'host.
+        var now = DateTime.UtcNow;
         return now >= setup.StartDate && now <= setup.EndDate;
     }
 

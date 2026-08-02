@@ -5,6 +5,10 @@ prodotti dai motori Unger. La fonte autorevole dei motori resta
 `unger/core/engines/ENGINE_REGISTRY`: in caso di differenze prevale il codice
 sorgente del motore.
 
+Per verificare una strategia appena portata contro il suo riferimento esterno —
+cosa è confrontabile, in che ordine cercare le cause di una divergenza — vedi
+[`parita-riferimento-esterno.md`](parita-riferimento-esterno.md).
+
 ## Regole comuni
 
 La condizione di ingresso è valutata alla chiusura della barra corrente e
@@ -64,6 +68,11 @@ Le sentinelle che disabilitano un filtro sono:
 Prima di implementare una strategia bisogna registrare nella specifica almeno:
 motore, numero/codice, simbolo, timeframe, parametri completi del motore,
 timezone degli orari e convenzione temporale delle barre.
+
+Chi parte da un run di ottimizzazione esterno (le cartelle `run_*` con
+`top_final.json`) trova in [`porting-da-report-sweep.md`](porting-da-report-sweep.md)
+la mappa parametro per parametro, le trappole già viste e la procedura per
+verificare il porting contro i trade del report.
 
 ## Porting del motore `TF_M`
 
@@ -140,14 +149,19 @@ costruire `H_d1` e `L_d1` coincida con quello del feed Piootoo.
 - `ptn_dir_yes = 2` (long);
 - `ptn_dir_no = 53` (sentinella, mai escluso);
 - `offset_ticks = 2` = `0,50` punti NQ;
-- `channel_length = 100`, calcolato sulle 100 barre precedenti ed esclusa la
-  barra di segnale;
+- `channel_length = 100`, calcolato sulle ultime 100 barre, **inclusa** quella di
+  segnale, come `highest(high, 100)` EasyLanguage: alla chiusura i suoi OHLC sono
+  noti e l'ordine vale solo dalla barra successiva, quindi non c'è look-ahead;
 - solo long;
 - nessun filtro volatilità daily;
 - `skip_day = -1`;
 - `start_hour = 13`, `end_hour = 4` (finestra inclusiva che attraversa la
   mezzanotte);
-- `intraday_only = 0`: nessuna chiusura di fine sessione;
+- `intraday_only = 0`: nessuna chiusura di fine sessione. Il default di
+  `PriceChannelEngine` è `IntradayOnly = true`, quindi la sottoclasse deve
+  disattivarlo esplicitamente — la classe lo dichiara — perché dimenticarlo mette
+  `CloseAtUtc` alle 16:00 su ogni segnale e trasforma il PC in una strategia di
+  sessione;
 - `stop_loss = 250`, `take_profit = 5000`, `trailing_stop = 1000`,
   `breakeven = 1000` USD per contratto;
 - `max_entries_per_session = 1`, applicato dall'engine al fill usando l'inizio
@@ -170,10 +184,92 @@ BE/trailing $1.000 e un fill per sessione), con una sola variazione intenzionale
 `ptn_dir_no = 6`, quindi l'ingresso long è inibito da `pattern_dir(6)` anziché
 dalla sentinella 53. La classe vive in `Piootoo.Strategies/PiutooStrategies/`.
 
+## Contratto comune C#
+
+Tutti i dodici motori derivano da `EasyEngineBase`:
+
+- ingresso solo tramite `EntryStopNextBar` / `EntryLimitNextBar` /
+  `EntryMarketNextBar` (validità = una sola barra successiva);
+- SL, TP, BE e trailing dichiarati in **denaro per contratto di riferimento**;
+  la conversione in punti avviene in `PiootooTradingService` via
+  `InstrumentRegistry`;
+- `MaxEntriesPerSession` + `EntrySessionStartUtc` sul segnale, applicati al
+  **fill** (uno stop non eseguito può essere riemesso).
+
+Il registro machine-checkable è
+`Piootoo.Strategies.Tests/EngineCatalogMigrationTests.cs`.
+
+## Mappa strategia → motore → sorgente EasyLanguage
+
+Stato: `migrata` = sottoclasse dichiarativa; `ibrida` = motore + override o
+gate custom; `esclusa` = `IsPositionCloseDependent` (fuori catalogo).
+
+| Strategia | Motore | Sorgente EL | Stato |
+|---|---|---|---|
+| Easy_15_EC_5 | BIASW | `s_TOP_UA_15_EC_5__7.txt` | migrata |
+| Easy_99_CL_5 | BIASW | `s_TOP_UA_99_CL_5__7.txt` | migrata |
+| Easy_100_PL_5 | BIASW | `s_TOP_UA_100_PL_5__7.txt` | migrata |
+| Easy_102_FDAX_5 | TrendDeveloper | `s_TOP_UA_102_FDAX_5__7.txt` | migrata |
+| Easy_120_CL_15 | BO | `s_TOP_UA_120_CL_15__7.txt` | migrata |
+| Easy_123_CL_5 | Aroon (ibrido) | `s_TOP_UA_123_CL_5____120__7.txt` | ibrida — richiede data2 120m |
+| Easy_152_NQ_5 | TrendDeveloper | `s_TOP_UA_152_NQ_5__7.txt` | migrata |
+| Easy_156_NQ_15 | TF_U | `s_TOP_UA_156_NQ_15__7.txt` | migrata |
+| Easy_181_NQ_30 | RBB_U | `s_TOP_UA_181_NQ_30__7.txt` | migrata |
+| Easy_195_CL_15 | TrendDeveloper | `s_TOP_UA_195_CL_15____1440__7.txt` | migrata |
+| Easy_196_EC_5 | BIASW | `s_TOP_UA_196_EC_5__7.txt` | migrata |
+| Easy_218_GC_60 | BIAS | `s_TOP_UA_218_GC_60__7.txt` | migrata |
+| Easy_228_FDAX_30 | EasyEngineBase | `s_TOP_UA_228_FDAX_30__7.txt` | ibrida — gap + recross d0 |
+| Easy_244_FDAX_15 | BIAS | `s_TOP_UA_244_FDAX_15__7.txt` | ibrida — hook custom |
+| Easy_246_CL_5 | TrendDeveloper | `s_TOP_UA_246_CL_5__7.txt` | migrata |
+| Easy_261_GC_60 | BIAS | `s_TOP_UA_261_GC_60__7.txt` | migrata |
+| Easy_287_GC_5 | BO | `s_TOP_UA_287_GC_5__7.txt` | migrata |
+| Easy_291_GC_15 | TrendDeveloper | `s_TOP_UA_291_GC_15__7.txt` | migrata |
+| Easy_298_NQ_30 | BO | `s_TOP_UA_298_NQ_30__7.txt` | migrata |
+| Easy_303_GC_15 | TrendDeveloper | `s_TOP_UA_303_GC_15____1440__7.txt` | ibrida — ADX/extra gates |
+| Easy_32_FDAX_15 | TrendDeveloper | `s_TOP_UA_32_FDAX_15__7.txt` | esclusa — uscite strutturali runtime |
+| Easy_336_GC_15 | PC | `s_TOP_UA_336_GC_15__7.txt` | esclusa — Donchian trailing |
+| Easy_342_NQ_15 | VBO | `s_TOP_UA_342_NQ_15__7.txt` | migrata |
+| Easy_361_FDAX_30 | PC | `s_TOP_UA_361_FDAX_30__7.txt` | migrata |
+| Easy_416_GC_30 | RBB_M | `s_TOP_UA_416_GC_30__7.txt` | migrata — EL market vs limit engine |
+| Easy_452_BP_15 | BIASW | `s_TOP_UA_452_BP_15__7.txt` | migrata |
+| Easy_460_GC_30 | BIAS | `s_TOP_UA_460_GC_30__7.txt` | migrata |
+| Easy_486_NQ_15 | VBO legacy | `s_TOP_UA_486_NQ_15__7.txt` | ibrida |
+| Easy_506_GC_30 | EasyEngineBase | `s_TOP_UA_506_GC_30__7.txt` | ibrida — range + BB market |
+| Easy_515_FDAX_15 | LF | `s_TOP_UA_515_FDAX_15__7.txt` | migrata |
+| Easy_531_NQ_60 | EasyEngineBase | `s_TOP_UA_531_NQ_60__7.txt` | ibrida — ingresso a orario fisso |
+| Easy_545_HG_15 | BIASW | `s_TOP_UA_545_HG_15__7.txt` | migrata |
+| Easy_587_NQ_15 | VBO | `s_TOP_UA_587_NQ_15__7.txt` | ibrida — bande MA±ATR |
+| Easy_643_FDAX_60 | VBO legacy | `s_TOP_UA_643_FDAX_60__7.txt` | migrata |
+| Easy_653_GC_60 | TrendDeveloper | `s_TOP_UA_653_GC_60__7.txt` | migrata |
+| Easy_661_GC_30 | — | `s_TOP_UA_661_GC_30____15__7.txt` | esclusa — uscite `dist` dinamiche |
+| Easy_666_GC_5 | VBO legacy | `s_TOP_UA_666_GC_5__7.txt` | migrata |
+| Easy_695_GC_5 | TrendDeveloper | `s_TOP_UA_695_GC_5__7.txt` | migrata |
+| Easy_772_CL_60 | MAC | `s_TOP_UA_772_CL_60__7.txt` | migrata |
+| Easy_796_NQ_15 | TrendDeveloper | `s_TOP_UA_796_NQ_15____1440__7.txt` | migrata |
+| Easy_851_GC_5 | TrendDeveloper | `s_TOP_UA_851_GC_5__7.txt` | esclusa — uscite a orario su P&L |
+| Easy_872_CL_15 | BIAS | `s_TOP_UA_872_CL_15__7.txt` | ibrida — hook custom |
+| Easy_940_GC_15 | LF | `s_TOP_UA_940_GC_15__7.txt` | migrata |
+| Easy_956_NQ_15 | EasyEngineBase | `s_TOP_UA_956_NQ_15__7.txt` | ibrida — long stop / short market |
+| Easy_960_GC_60 | BIAS | `s_TOP_UA_960_GC_60__7.txt` | migrata |
+| PTS_001_NQ_60 | TF_M | (spec PTS, senza `s_TOP_UA_*`) | migrata |
+| PTS_002_NQ_15 | PC | (spec PTS) | migrata |
+| PTS_003_NQ_15 | PC | (spec PTS) | migrata |
+
+### Motori senza istanza Easy_* nel catalogo attuale
+
+- `RHL`: implementato (`RhlEngine`) e coperto da test di parità; nessuna
+  `Easy_*` corrispondente nel set TOP corrente.
+- `TrendDeveloper`: famiglia residua per varianti non catalogate nei 12
+  template Unger standard; resta disponibile ma non è uno dei dodici.
+
 ## Riferimenti codice
 
+- `Piootoo.Strategies/Easy/Engines/EasyEngineBase.cs`
+- `Piootoo.Strategies/Easy/Engines/*.cs` (i 12 motori + TrendDeveloper + Aroon)
 - `Piootoo.Strategies/Easy/StatelessEasyStrategyBase.cs`
 - `Piootoo.Strategies/Easy/EasyLib.cs`
 - `Piootoo.Shared/Models/TradeSignal.cs`
 - `Piootoo.Core/Services/PiootooTradingService.cs`
 - `Piootoo.Core/Services/StrategyFactory.cs`
+- `Piootoo.Strategies.Tests/EngineCatalogMigrationTests.cs`
+- `piootoo-repository/easy/s_TOP_UA_*`

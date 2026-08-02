@@ -69,13 +69,13 @@ public class StrategyRepository
     public List<StrategyDefinition> GetAllStrategies(bool forceRefresh = false)
     {
         if (!forceRefresh && _cachedStrategies != null && 
-            DateTime.Now - _lastCacheUpdate < _cacheExpiration)
+            DateTime.UtcNow - _lastCacheUpdate < _cacheExpiration)
         {
             return _cachedStrategies;
         }
 
         _cachedStrategies = LoadStrategiesFromDisk();
-        _lastCacheUpdate = DateTime.Now;
+        _lastCacheUpdate = DateTime.UtcNow;
         return _cachedStrategies;
     }
 

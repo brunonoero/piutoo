@@ -23,7 +23,8 @@ public sealed class PtsEngineAuditTests
     public void Pts001_EmitsNextBarStop_WithMoneyRiskPerContract()
     {
         var strategy = CreatePtsWithNeutralPatterns();
-        var bars = BuildPtsBars(120);
+        // TfMirroredEngine richiede sei sessioni piene (144 barre a 60m).
+        var bars = BuildPtsBars(200);
         var bar = bars[^1];
 
         var signal = strategy.Evaluate(new StrategyEvaluationRequest

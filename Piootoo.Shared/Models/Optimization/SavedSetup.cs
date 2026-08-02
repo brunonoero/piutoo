@@ -23,12 +23,12 @@ public class SavedSetup
     /// <summary>
     /// Data creazione
     /// </summary>
-    public DateTime CreatedAt { get; set; } = DateTime.Now;
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     /// <summary>
     /// Data ultima modifica
     /// </summary>
-    public DateTime UpdatedAt { get; set; } = DateTime.Now;
+    public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 
     /// <summary>
     /// Stato del setup
@@ -112,7 +112,7 @@ public enum SetupStatus
 public class OptimizationRun
 {
     public string RunId { get; set; } = Guid.NewGuid().ToString();
-    public DateTime ExecutedAt { get; set; } = DateTime.Now;
+    public DateTime ExecutedAt { get; set; } = DateTime.UtcNow;
     public TimeSpan Duration { get; set; }
     public decimal Score { get; set; }
     public PerformanceMetrics? Metrics { get; set; }
@@ -126,6 +126,6 @@ public class OptimizationRun
 public class SetupsFile
 {
     public string Version { get; set; } = "1.0";
-    public DateTime LastUpdated { get; set; } = DateTime.Now;
+    public DateTime LastUpdated { get; set; } = DateTime.UtcNow;
     public List<SavedSetup> Setups { get; set; } = new();
 }

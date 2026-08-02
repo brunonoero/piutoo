@@ -58,7 +58,7 @@ public class SetupRepository
     /// </summary>
     public async Task SaveAsync(SetupsFile setupsFile)
     {
-        setupsFile.LastUpdated = DateTime.Now;
+        setupsFile.LastUpdated = DateTime.UtcNow;
         var json = JsonSerializer.Serialize(setupsFile, _jsonOptions);
         await File.WriteAllTextAsync(_setupsFilePath, json);
         _cache = setupsFile;
@@ -141,8 +141,8 @@ public class SetupRepository
         }
 
         setup.Id = Guid.NewGuid().ToString();
-        setup.CreatedAt = DateTime.Now;
-        setup.UpdatedAt = DateTime.Now;
+        setup.CreatedAt = DateTime.UtcNow;
+        setup.UpdatedAt = DateTime.UtcNow;
 
         file.Setups.Add(setup);
         await SaveAsync(file);
@@ -161,7 +161,7 @@ public class SetupRepository
         if (index < 0)
             throw new KeyNotFoundException($"Setup con ID '{setup.Id}' non trovato");
 
-        setup.UpdatedAt = DateTime.Now;
+        setup.UpdatedAt = DateTime.UtcNow;
         file.Setups[index] = setup;
         await SaveAsync(file);
 
@@ -195,7 +195,7 @@ public class SetupRepository
             throw new KeyNotFoundException($"Setup con ID '{setupId}' non trovato");
 
         setup.OptimizationHistory.Add(run);
-        setup.UpdatedAt = DateTime.Now;
+        setup.UpdatedAt = DateTime.UtcNow;
 
         // Aggiorna anche i risultati principali se è il miglior run
         if (run.Score > setup.FinalScore)
@@ -219,7 +219,7 @@ public class SetupRepository
 
         setup.IsActive = isActive;
         setup.Status = isActive ? SetupStatus.Active : SetupStatus.Paused;
-        setup.UpdatedAt = DateTime.Now;
+        setup.UpdatedAt = DateTime.UtcNow;
 
         return await UpdateAsync(setup);
     }
@@ -247,8 +247,8 @@ public class SetupRepository
 
         // Genera nuovo ID per evitare conflitti
         setup.Id = Guid.NewGuid().ToString();
-        setup.CreatedAt = DateTime.Now;
-        setup.UpdatedAt = DateTime.Now;
+        setup.CreatedAt = DateTime.UtcNow;
+        setup.UpdatedAt = DateTime.UtcNow;
 
         return await CreateAsync(setup);
     }

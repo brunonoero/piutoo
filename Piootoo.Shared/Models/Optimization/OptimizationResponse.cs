@@ -13,7 +13,7 @@ public class OptimizationResponse
     /// <summary>
     /// Data/ora di esecuzione
     /// </summary>
-    public DateTime ExecutionTime { get; set; } = DateTime.Now;
+    public DateTime ExecutionTime { get; set; } = DateTime.UtcNow;
 
     /// <summary>
     /// Durata dell'ottimizzazione

@@ -138,36 +138,9 @@ public class Easy152IntentTests
     public void Easy152_EmitsNextBarStop_NotSameBarFill()
     {
         var strategy = new Easy_152_NQ_5();
-        strategy.Initialize(new Dictionary<string, object>
-        {
-            ["PtnDirYes"] = 52,
-            ["PtnNeutYes"] = 55,
-            ["PtnNeutNo"] = 99,
-            ["PtnLY"] = 41,
-            ["PtnLN"] = 42,
-            ["PtnSY"] = 41,
-            ["PtnSN"] = 42,
-            ["MyTrigger"] = 1,
-            ["mydayNolong"] = 9,
-            ["mydayNoshort"] = 9
-        });
+        var bars = Easy152Series.Build(new DateTime(2024, 1, 3, 10, 0, 0, DateTimeKind.Utc));
 
-        var bars = BuildTradingBarsInWindow(120, new DateTime(2024, 1, 3, 10, 0, 0, DateTimeKind.Utc), 5, 1000, 1500);
-        // Forza highd0 raggiungibile: l'intent non deve comunque dipendere dal touch corrente
-        bars[^1].High = bars.Max(b => b.High) + 50;
-
-        var signal = strategy.Evaluate(new StrategyEvaluationRequest
-        {
-            Ohlcv = bars,
-            BarTimeUtc = bars[^1].DateTime,
-            Execution = new StrategyExecutionSnapshot
-            {
-                StrategyCode = strategy.Name,
-                Symbol = "NQ",
-                BarTimeUtc = bars[^1].DateTime,
-                EntriesToday = 0
-            }
-        });
+        var signal = Evaluate(strategy, bars, entriesToday: 0);
 
         if (signal.Type == SignalType.Hold && (signal.CompanionSignals is null || signal.CompanionSignals.Count == 0))
         {
@@ -179,26 +152,39 @@ public class Easy152IntentTests
         Assert.NotNull(signal.ValidFromUtc);
         Assert.Equal(bars[^1].DateTime.AddMinutes(5), signal.ValidFromUtc);
         Assert.Equal(1200m, signal.StopLossMoneyPerFutureContract);
+        // MyProfit = 0 nella sorgente: nessun target dichiarato.
+        Assert.Null(signal.TakeProfitMoneyPerFutureContract);
+    }
+
+    [Fact]
+    public void Easy152_StopLevelsAreSessionExtremes()
+    {
+        var strategy = new Easy_152_NQ_5();
+        var bars = Easy152Series.Build(new DateTime(2024, 1, 3, 10, 0, 0, DateTimeKind.Utc));
+
+        var signal = Evaluate(strategy, bars, entriesToday: 0);
+        var intents = new[] { signal }.Concat(signal.CompanionSignals ?? []).ToArray();
+
+        // MyTrigger = 1 → i livelli sono gli estremi della sessione corrente, non della d1.
+        Assert.Equal(Easy152Series.CurrentSessionHigh, intents.Single(i => i.Type == SignalType.Buy).Price);
+        Assert.Equal(Easy152Series.CurrentSessionLow, intents.Single(i => i.Type == SignalType.Sell).Price);
     }
 
     [Fact]
     public void Easy152_UsesEngineEntriesToday()
     {
         var strategy = new Easy_152_NQ_5();
-        strategy.Initialize(new Dictionary<string, object>
-        {
-            ["PtnDirYes"] = 52,
-            ["PtnNeutYes"] = 55,
-            ["PtnNeutNo"] = 99,
-            ["PtnLY"] = 41,
-            ["PtnLN"] = 42,
-            ["MaxTradesPerDay"] = 1,
-            ["mydayNolong"] = 9,
-            ["mydayNoshort"] = 9
-        });
+        var bars = Easy152Series.Build(new DateTime(2024, 1, 3, 10, 0, 0, DateTimeKind.Utc));
 
-        var bars = BuildTradingBarsInWindow(120, new DateTime(2024, 1, 3, 10, 0, 0, DateTimeKind.Utc), 5, 1000, 1500);
-        var signal = strategy.Evaluate(new StrategyEvaluationRequest
+        // MaxTradesPerDay = 3 nella sorgente: il tetto scatta al terzo ingresso già registrato.
+        var signal = Evaluate(strategy, bars, entriesToday: 3);
+
+        Assert.Equal(SignalType.Hold, signal.Type);
+        Assert.Equal("Tetto ingressi giornalieri raggiunto", signal.Reason);
+    }
+
+    private static TradeSignal Evaluate(Easy_152_NQ_5 strategy, OhlcvData[] bars, int entriesToday) =>
+        strategy.Evaluate(new StrategyEvaluationRequest
         {
             Ohlcv = bars,
             BarTimeUtc = bars[^1].DateTime,
@@ -207,41 +193,106 @@ public class Easy152IntentTests
                 StrategyCode = strategy.Name,
                 Symbol = "NQ",
                 BarTimeUtc = bars[^1].DateTime,
-                EntriesToday = 1
+                EntriesToday = entriesToday
             }
         });
+}
 
-        Assert.Equal(SignalType.Hold, signal.Type);
-    }
+/// <summary>
+/// Serie sintetica a 5 minuti per <c>Easy_152_NQ_5</c>: sette sessioni 17:00→15:59 con OHLC
+/// giornalieri scelti per soddisfare i gate reali della strategia, senza toccarne i parametri.
+///
+/// <para>I gate da soddisfare sono <c>PtnNeutYes = 3</c> vero, <c>PtnNeutNo = 23</c> falso,
+/// <c>PtnLY/PtnSY = 12</c> vero e <c>PtnLN/PtnSN = 40</c> falso. La lunghezza serve anche a
+/// superare <c>RequiredCandles</c>, che copre sei sessioni piene al timeframe dichiarato.</para>
+/// </summary>
+internal static class Easy152Series
+{
+    private const int TimeframeMinutes = 5;
 
-    private static OhlcvData[] BuildTradingBarsInWindow(int count, DateTime start, int minutes, int windowStart, int windowEnd)
+    /// <summary>Prima sera della serie; la sessione corrente è la settima.</summary>
+    private static readonly DateTime FirstEvening = new(2023, 12, 27, 17, 5, 0, DateTimeKind.Utc);
+
+    // Dalla più vecchia alla corrente: l'ultima è d0, la penultima d1 e così via.
+    private static readonly (decimal Open, decimal High, decimal Low, decimal Close)[] Shapes =
+    [
+        (1000m, 1010m,  990m, 1000m), // oltre d5, serve solo a dare storia
+        (1300m, 1350m, 1250m, 1300m), // d5 — opend5 lontano da closed1, così il neutro 23 è falso
+        (1000m, 1050m,  950m, 1000m), // d4
+        (1000m, 1050m,  950m, 1000m), // d3
+        (1000m, 1200m,  950m, 1000m), // d2 — highd2 > highd1, così PtnBaseSA2 40 è falso
+        (1000m, 1100m,  900m, 1000m), // d1 — corpo nullo su range ampio, così il neutro 3 è vero
+        (1000m, 1050m, 1000m, 1010m)  // d0 — range oltre lo 0,75% del minimo per PtnBaseSA2 12
+    ];
+
+    internal static decimal CurrentSessionHigh => Shapes[^1].High;
+
+    internal static decimal CurrentSessionLow => Shapes[^1].Low;
+
+    /// <summary>
+    /// Ultima barra utile della sessione corrente, un mercoledì: la sorgente esclude il martedì
+    /// (<c>mydayNolong = mydayNoshort = 2</c>, domenica = 0).
+    /// </summary>
+    internal static DateTime FullSessionLastBar => new(2024, 1, 3, 15, 55, 0, DateTimeKind.Utc);
+
+    internal static OhlcvData[] Build(DateTime currentSessionLastBar)
     {
         var bars = new List<OhlcvData>();
-        var cursor = start;
-        decimal price = 15000m;
-        while (bars.Count < count)
+        for (var session = 0; session < Shapes.Length; session++)
         {
-            var t = cursor.Hour * 100 + cursor.Minute;
-            if (t < windowStart || t >= windowEnd)
+            var evening = FirstEvening.AddDays(session);
+            var lastBar = session == Shapes.Length - 1
+                ? currentSessionLastBar
+                : evening.Date.AddDays(1).AddHours(15).AddMinutes(55);
+            bars.AddRange(BuildSession(evening, lastBar, Shapes[session]));
+        }
+
+        return bars.ToArray();
+    }
+
+    private static IEnumerable<OhlcvData> BuildSession(
+        DateTime firstBar, DateTime lastBar, (decimal Open, decimal High, decimal Low, decimal Close) shape)
+    {
+        var times = new List<DateTime>();
+        for (var cursor = firstBar; cursor <= lastBar; cursor = cursor.AddMinutes(TimeframeMinutes))
+            times.Add(cursor);
+
+        var mid = (shape.High + shape.Low) / 2m;
+        var bars = new List<OhlcvData>(times.Count);
+
+        for (var index = 0; index < times.Count; index++)
+        {
+            var (open, high, low, close) = (mid, mid, mid, mid);
+
+            // La prima barra apre la sessione; la seconda e la terza fissano subito gli estremi,
+            // così i gate che leggono il range di d0 valgono per tutta la sessione e non solo
+            // dopo l'ultima barra.
+            if (index == 0)
+                (open, high, low) = (shape.Open, Math.Max(mid, shape.Open), Math.Min(mid, shape.Open));
+            else if (index == 1)
+                low = shape.Low;
+            else if (index == 2)
+                high = shape.High;
+
+            if (index == times.Count - 1)
             {
-                cursor = cursor.Date.AddDays(t >= windowEnd ? 1 : 0).AddHours(windowStart / 100).AddMinutes(windowStart % 100);
-                continue;
+                close = shape.Close;
+                high = Math.Max(high, shape.Close);
+                low = Math.Min(low, shape.Close);
             }
 
             bars.Add(new OhlcvData
             {
-                DateTime = cursor,
-                Open = price,
-                High = price + 5,
-                Low = price - 5,
-                Close = price + 1,
-                Volume = 10
+                DateTime = times[index],
+                Open = open,
+                High = high,
+                Low = low,
+                Close = close,
+                Volume = 10m
             });
-            price += 1;
-            cursor = cursor.AddMinutes(minutes);
         }
 
-        return bars.ToArray();
+        return bars;
     }
 }
 
@@ -318,23 +369,12 @@ public class EasyReplayValidationTests
     public void Replay_Easy152_IntentsAreAlwaysNextBarStopOrHoldOrDeferredExit()
     {
         var strategy = new Easy_152_NQ_5();
-        strategy.Initialize(new Dictionary<string, object>
-        {
-            ["PtnDirYes"] = 52,
-            ["PtnNeutYes"] = 55,
-            ["PtnNeutNo"] = 99,
-            ["PtnLY"] = 41,
-            ["PtnLN"] = 42,
-            ["PtnSY"] = 41,
-            ["PtnSN"] = 42,
-            ["mydayNolong"] = 9,
-            ["mydayNoshort"] = 9
-        });
-
-        var bars = BuildDenseSession(200, new DateTime(2024, 1, 2, 17, 5, 0, DateTimeKind.Utc), 5);
+        var bars = Easy152Series.Build(Easy152Series.FullSessionLastBar);
         var log = new List<string>();
 
-        for (var i = 100; i < bars.Length; i++)
+        // Sotto RequiredCandles la strategia si ferma su "dati insufficienti": il replay parte
+        // dalla prima barra in cui d0..d5 sono ricostruibili per intero.
+        for (var i = strategy.RequiredCandles - 1; i < bars.Length; i++)
         {
             var window = bars.Take(i + 1).ToArray();
             var bar = window[^1];
@@ -391,36 +431,4 @@ public class EasyReplayValidationTests
         }
     }
 
-    private static OhlcvData[] BuildDenseSession(int count, DateTime start, int minutes)
-    {
-        var bars = new List<OhlcvData>();
-        var cursor = start;
-        decimal price = 16000m;
-        for (var i = 0; i < count; i++)
-        {
-            var t = cursor.Hour * 100 + cursor.Minute;
-            if (t > 1559 && t <= 1700)
-            {
-                cursor = cursor.Date.AddHours(17).AddMinutes(5);
-                if (cursor <= bars[^1].DateTime)
-                {
-                    cursor = bars[^1].DateTime.AddDays(1).Date.AddHours(17).AddMinutes(5);
-                }
-            }
-
-            bars.Add(new OhlcvData
-            {
-                DateTime = cursor,
-                Open = price,
-                High = price + 10,
-                Low = price - 10,
-                Close = price + (i % 2 == 0 ? 3 : -2),
-                Volume = 5
-            });
-            price = bars[^1].Close;
-            cursor = cursor.AddMinutes(minutes);
-        }
-
-        return bars.ToArray();
-    }
 }

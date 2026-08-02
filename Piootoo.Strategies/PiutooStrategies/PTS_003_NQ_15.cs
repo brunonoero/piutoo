@@ -4,8 +4,11 @@ namespace Piootoo.Strategies.PiutooStrategies;
 
 /// <summary>
 /// PTS_003 — PC long-only su NQ a 15 minuti. Genera uno stop buy, valido
-/// esclusivamente sulla barra successiva, al massimo delle 100 barre precedenti
-/// più 2 tick. Il canale esclude la barra di segnale, quindi non usa dati futuri.
+/// esclusivamente sulla barra successiva, al massimo delle ultime 100 barre più
+/// 2 tick. Il canale include la barra appena chiusa che produce il segnale, come
+/// <c>highest(high, 100)</c> EasyLanguage e il motore Python: alla chiusura i suoi
+/// OHLC sono noti, quindi non c'è look-ahead, e lo stop resta comunque sopra il
+/// massimo appena formato.
 ///
 /// <para>
 /// Opera tra 13:00 e 04:00 UTC, attraversando la mezzanotte, senza filtro daily
@@ -41,6 +44,7 @@ public sealed class PTS_003_NQ_15 : PriceChannelEngine
         DirectionalYes = 2;
         DirectionalNo = 6;
         NotEntryDayLong = -1;
+        IntradayOnly = false;
         StopMoney = 250;
         ProfitMoney = 5000;
         BreakEvenMoney = 1000;

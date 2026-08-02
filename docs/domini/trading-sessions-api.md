@@ -52,10 +52,36 @@ alla sessione corrente.
 ## Intent di ingresso e chiusure
 
 Il server emette **solo** intent `OrderIntentKind.Entry`. Ciascuno porta la specifica di
-uscita completa — `StopLoss`, `TakeProfit`, `BreakEven`, `CloseAtUtc`, `MaxBarsInPosition` —
-e il client la applica: SL/TP come livelli nativi del broker, uscita a tempo e limite barre
-sorvegliati in locale. Le strategie che deciderebbero l'uscita a runtime verificando un
-pattern sono `IsPositionCloseDependent` e vengono escluse dal catalogo.
+uscita completa — `StopLoss`, `TakeProfit`, `BreakEven`, `TrailingStop`, `CloseAtUtc`,
+`ProfitStallAfterUtc`, `MaxBarsInPosition` — e il client la applica **per intero**: SL/TP come
+livelli nativi del broker, breakeven e trailing come modifiche dello stop nativo sorvegliate a
+ogni tick, uscita a tempo, stallo dell'utile e limite barre valutati a ogni barra. Le strategie
+che deciderebbero l'uscita a runtime verificando un pattern sono `IsPositionCloseDependent` e
+vengono escluse dal catalogo.
+
+Applicarne solo una parte non produce una versione prudente della strategia, ne produce
+un'altra: sulle PC del catalogo il trailing stop è la causa di uscita di circa un trade su tre
+ed è da solo tutto il profitto. Il difetto è invisibile dai contratti — l'intent viene eseguito,
+i trade nascono, i report tornano — e si vede solo confrontando i numeri col backtest.
+
+Il client deve inoltre rispettare tre cose che non sono uscite. **`Status`**: il server consegna
+anche intent che ha già scartato (sizing a zero, allocazione Titano nulla, limite di fill per
+sessione raggiunto), per tracciabilità; solo `Pending` va eseguito. **`FinalQuantity`**: è la
+quantità dopo Titano e sizing, e `Quantity` non è un ripiego quando è zero — ricadere su di essa
+rimette a mercato esattamente i segnali rifiutati. **`ExpiresAtUtc`**: gli ordini dei motori
+Unger sono `next bar at ... stop`, vivono la sola barra successiva al segnale e vengono riemessi
+a ogni barra col livello ricalcolato, quindi l'ordine pending precedente va cancellato, non
+lasciato a mercato accanto al nuovo.
+
+`MaxEntriesPerSession` e `EntrySessionStartUtc` viaggiano sull'intent per diagnostica, ma il
+limite è applicato dal server sui **fill confermati**: in `PushBars` per le sessioni a singolo
+account, in `GetNextSignalForAccount` per account in multi-account. Uno stop non eseguito non
+consuma il limite.
+
+In multi-account `POST /bars` restituisce **template non assegnati**, che vanno reclamati da
+`GET /accounts/{n}/signals`: eseguirli direttamente scavalca slot di gruppo, limite di trade
+concorrenti ed eleggibilità, e lo stesso template finisce su più account. Vedi
+[`distribuzione-multi-account.md`](distribuzione-multi-account.md).
 
 Le chiusure hanno un canale unico, qualunque ne sia la causa:
 `POST /{id}/intents/close-external` registra un intent `OrderIntentKind.Close` per la

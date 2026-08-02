@@ -149,6 +149,179 @@ public static class EasyLib
         return lastIsStartOfSession;
     }
 
+    /// <summary>
+    /// Aggrega la serie intraday nella serie di sessione completa, cioè il <c>data2</c> giornaliero
+    /// che in EasyLanguage accompagna un grafico intraday (i sorgenti <c>..._1440_...</c>).
+    ///
+    /// <para>I confini di sessione sono gli stessi di <see cref="OHLCMulti5"/>: questa funzione
+    /// estende quella logica dai soli d0..d5 a tutto lo storico disponibile, perché un ADX o un ATR
+    /// su data2 hanno bisogno di molte più sessioni di sei.</para>
+    ///
+    /// <para><b>L'ultima barra è la sessione in corso, ancora in formazione.</b> È la semantica di
+    /// TradeStation — su una barra intraday <c>c data2</c> vale la chiusura corrente del giorno che
+    /// si sta formando, non quella dell'ultimo giorno chiuso — ed è la stessa convenzione di d0 in
+    /// <see cref="OHLCMulti5"/>. Chi vuole solo sessioni chiuse deve scartare l'ultimo elemento,
+    /// come fa l'originale quando scrive <c>[1] of data2</c>.</para>
+    ///
+    /// <para><b>La prima barra può essere troncata</b>, perché la finestra ricevuta comincia quasi
+    /// sempre a metà di una sessione. Va tenuto presente nel dimensionare <c>RequiredCandles</c>:
+    /// serve una sessione di margine oltre a quelle che l'indicatore consuma.</para>
+    ///
+    /// <para>Ogni barra aggregata è marcata con l'orario dell'<i>ultima</i> barra intraday che la
+    /// compone, coerente con <c>isBarTimeEndTime = true</c>.</para>
+    /// </summary>
+    public static OhlcvData[] BuildSessionSeries(
+        int sessionStartTime, int sessionEndTime, OhlcvData[] data, DateTime currentDate)
+    {
+        if (data is null || data.Length == 0)
+            return [];
+
+        var (bars, count) = WindowUpTo(data, currentDate);
+        if (count == 0)
+            return [];
+
+        var sessions = new List<OhlcvData>();
+        OhlcvData? current = null;
+
+        foreach (var (bar, startsNewSession) in InSessionBars(sessionStartTime, sessionEndTime, bars, count))
+        {
+            if (current is null || startsNewSession)
+            {
+                if (current is not null)
+                    sessions.Add(current);
+
+                current = new OhlcvData
+                {
+                    DateTime = bar.DateTime,
+                    Open = bar.Open, High = bar.High, Low = bar.Low, Close = bar.Close,
+                    Volume = bar.Volume
+                };
+                continue;
+            }
+
+            current.DateTime = bar.DateTime;
+            current.High = Math.Max(current.High, bar.High);
+            current.Low = Math.Min(current.Low, bar.Low);
+            current.Close = bar.Close;
+            current.Volume += bar.Volume;
+        }
+
+        if (current is not null)
+            sessions.Add(current);
+
+        return sessions.ToArray();
+    }
+
+    /// <summary>
+    /// Ultima barra della sessione più recente fra quelle <b>concluse</b>, cioè il valore che in
+    /// EasyLanguage si legge dopo un latch su <c>sessionlastbar</c>.
+    ///
+    /// <para>Serve alle sorgenti che scrivono <c>if sessionlastbar data2 then flag = c data2 &gt; o
+    /// data2</c>: quel flag viene aggiornato una volta sola, alla chiusura della sessione, e resta
+    /// valido per tutta la sessione seguente. Confrontare invece la barra precedente a ogni barra —
+    /// come è facile fare tradendo l'originale — cambia la condizione di ingresso, perché il flag
+    /// cambierebbe più volte al giorno.</para>
+    ///
+    /// <para>Restituisce <c>null</c> se nella finestra non c'è nemmeno una sessione conclusa.</para>
+    /// </summary>
+    public static OhlcvData? LastBarOfPreviousSession(
+        int sessionStartTime, int sessionEndTime, OhlcvData[] data, DateTime currentDate)
+    {
+        if (data is null || data.Length == 0)
+            return null;
+
+        var (bars, count) = WindowUpTo(data, currentDate);
+        OhlcvData? lastInSession = null;
+        OhlcvData? previousSessionLastBar = null;
+
+        foreach (var (bar, startsNewSession) in InSessionBars(sessionStartTime, sessionEndTime, bars, count))
+        {
+            if (startsNewSession && lastInSession is not null)
+                previousSessionLastBar = lastInSession;
+
+            lastInSession = bar;
+        }
+
+        return previousSessionLastBar;
+    }
+
+    /// <summary>
+    /// Scorre le barre in sessione segnalando quali aprono una sessione nuova.
+    ///
+    /// <para>I confronti con la barra precedente usano la barra che precede nella serie
+    /// <i>completa</i>, anche se fuori sessione: è così che ragiona <see cref="OHLCMulti5"/>, e le
+    /// tre funzioni devono segmentare in modo identico o d0..d5 e le serie derivate finirebbero per
+    /// non parlare più della stessa sessione. La prima barra utile non viene mai segnalata come
+    /// inizio: apre la sessione troncata da cui comincia la finestra.</para>
+    /// </summary>
+    private static IEnumerable<(OhlcvData Bar, bool StartsNewSession)> InSessionBars(
+        int sessionStartTime, int sessionEndTime, OhlcvData[] bars, int count)
+    {
+        var oneDaySession = sessionStartTime < sessionEndTime;
+        var first = true;
+
+        for (var i = 0; i < count; i++)
+        {
+            var bar = bars[i];
+            var t = GetHhmm(bar.DateTime);
+            var prevT = i > 0 ? GetHhmm(bars[i - 1].DateTime) : t;
+            var day = bar.DateTime.Date;
+            var prevDay = i > 0 ? bars[i - 1].DateTime.Date : day;
+
+            var timeStarted = t > sessionStartTime;
+            var timeNotEnded = t <= sessionEndTime;
+            var prevTimeLessSTime = prevT <= sessionStartTime;
+
+            var inSessionTime = oneDaySession
+                ? timeStarted && timeNotEnded
+                : timeStarted || timeNotEnded;
+
+            if (!inSessionTime)
+                continue;
+
+            var isStartOfSession = timeStarted && prevTimeLessSTime;
+            isStartOfSession = oneDaySession
+                ? isStartOfSession || day != prevDay
+                : isStartOfSession ||
+                  (day != prevDay && prevTimeLessSTime) ||
+                  day > prevDay.AddDays(1);
+
+            yield return (bar, !first && isStartOfSession);
+            first = false;
+        }
+    }
+
+    /// <summary>
+    /// Finestra da segmentare, fino a <paramref name="currentDate"/> incluso.
+    ///
+    /// <para>Queste funzioni girano a ogni barra per ogni strategia, su finestre che possono contare
+    /// migliaia di elementi: nel caso normale — serie già ordinata, come la consegna
+    /// <c>CandleWindowCursor</c> — si restituisce l'array originale con la sola lunghezza utile,
+    /// senza copiarlo né riordinarlo. L'ordinamento difensivo di <see cref="OHLCMulti5"/> resta come
+    /// ripiego per una serie fuori ordine, così le tre funzioni continuano a segmentare allo stesso
+    /// modo qualunque cosa riceva la prima.</para>
+    /// </summary>
+    private static (OhlcvData[] Bars, int Count) WindowUpTo(OhlcvData[] data, DateTime currentDate)
+    {
+        var count = 0;
+        for (var i = 0; i < data.Length; i++)
+        {
+            if (i > 0 && data[i].DateTime < data[i - 1].DateTime)
+            {
+                var reordered = data
+                    .Where(d => d.DateTime <= currentDate)
+                    .OrderBy(d => d.DateTime)
+                    .ToArray();
+                return (reordered, reordered.Length);
+            }
+
+            if (data[i].DateTime <= currentDate)
+                count = i + 1;
+        }
+
+        return (data, count);
+    }
+
     public static int GetHhmm(DateTime dateTime) => dateTime.Hour * 100 + dateTime.Minute;
 
     /// <summary>Stima l'inizio della barra successiva dal timeframe dei dati.</summary>
@@ -724,19 +897,32 @@ public static class EasyLib
     /// <summary>
     /// Calcola Average True Range (ATR) con media semplice
     /// </summary>
-    public static decimal AvgTrueRange(OhlcvData[] data, int periods)
+    public static decimal AvgTrueRange(OhlcvData[] data, int periods) =>
+        AvgTrueRange(data, periods, barsAgo: 0);
+
+    /// <summary>
+    /// ATR arretrato di <paramref name="barsAgo"/> barre, cioè l'EasyLanguage
+    /// <c>AvgTrueRange(periods)[barsAgo]</c>. Serve ai filtri che confrontano la barra corrente con
+    /// la media della volatilità <i>precedente</i>, escludendola dalla media.
+    /// </summary>
+    public static decimal AvgTrueRange(OhlcvData[] data, int periods, int barsAgo)
     {
-        if (data == null || data.Length < periods + 1)
+        if (data == null || periods <= 0 || barsAgo < 0)
             return 0;
-        
+
+        // Il true range della prima barra della media ha bisogno della barra che la precede.
+        int end = data.Length - 1 - barsAgo;
+        if (end < periods)
+            return 0;
+
         decimal sum = 0;
-        for (int i = data.Length - periods; i < data.Length; i++)
+        for (int i = end - periods + 1; i <= end; i++)
         {
             OhlcvData? prev = i > 0 ? data[i - 1] : null;
             sum += TrueRange(data[i], prev);
         }
-        
-        return periods > 0 ? sum / periods : 0;
+
+        return sum / periods;
     }
     
     /// <summary>

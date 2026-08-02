@@ -33,7 +33,10 @@ public partial class WorkspaceBacktestingForm : Form
     private readonly Label _statusLabel = new();
     private readonly TextBox _logTextBox = new();
     private readonly TextBox _basePathTextBox = new();
-    private readonly TextBox _backtestNameTextBox = new() { Text = $"backtest-{DateTime.Now:yyyyMMdd-HHmm}" };
+    // Il nome finisce nel percorso dell'artefatto sul server, quindi è datato in UTC come tutto
+    // ciò che il server scrive: con l'ora locale due postazioni in fusi diversi produrrebbero
+    // nomi diversi per lo stesso run.
+    private readonly TextBox _backtestNameTextBox = new() { Text = $"backtest-{DateTime.UtcNow:yyyyMMdd-HHmm}" };
 
     private readonly ListBox _workspaceList = new();
     private readonly FilterableStrategyChecklist _workspaceStrategiesList = new();

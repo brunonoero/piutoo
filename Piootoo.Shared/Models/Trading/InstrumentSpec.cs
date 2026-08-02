@@ -35,6 +35,23 @@ public sealed record InstrumentSpec
     /// <summary>Incremento minimo di prezzo. Serve ad arrotondare i livelli, non al P&amp;L.</summary>
     public decimal TickSize { get; init; } = 0.01m;
 
+    /// <summary>
+    /// Fuso IANA in cui sono corretti gli orari di sessione dichiarati dalle strategie.
+    ///
+    /// <para><b>Non è "la borsa dello strumento", è l'orologio in cui i numeri della sorgente
+    /// tornano.</b> La distinzione conta: le sorgenti NQ dichiarano <c>1700</c>→<c>1600</c> e quelle
+    /// GC <c>1800</c>→<c>1700</c>, che sono lo <i>stesso</i> istante di apertura e chiusura — la
+    /// prima coppia letta in ora di Chicago, la seconda in ora di New York. Il registro conserva il
+    /// fuso che rende vera la coppia così com'è scritta, invece di riscrivere i numeri: riscriverli
+    /// vorrebbe dire reinterpretare 55 sorgenti a mano, ed è esattamente il tipo di traduzione in
+    /// cui si perde fedeltà senza accorgersene.</para>
+    ///
+    /// <para>Va verificato come <see cref="PointValue"/>: si controlla che la finestra dichiarata
+    /// coincida con l'orario reale della borsa in quel fuso. Un fuso sbagliato qui sposta il confine
+    /// di sessione di ore senza produrre alcun errore visibile.</para>
+    /// </summary>
+    public required string SessionTimeZone { get; init; }
+
     /// <summary>Descrizione leggibile, usata nei messaggi di errore.</summary>
     public string Description { get; init; } = string.Empty;
 

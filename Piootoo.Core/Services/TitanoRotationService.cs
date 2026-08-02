@@ -546,6 +546,9 @@ public sealed class TitanoRotationService
     /// </summary>
     private static bool IsReenableSatisfied(TitanoStrategyState state, TitanoRotationRequest request) =>
         state.Metrics.CurrentDrawdown <= request.ReenableMaximumCurrentDrawdown &&
+        // Stessa precondizione di BuildDecisions: il reset dello hard stop non può riammettere una
+        // strategia su cui non ci sono abbastanza trade per esprimere un giudizio.
+        state.Metrics.Trades >= request.MinimumTrades &&
         state.PassingFilters >= request.MinimumPassingFilters &&
         state.CooldownRemaining == 0 &&
         (request.CrossSectionalSizing || state.RawScore >= request.ReenableCompositeScore);
@@ -609,7 +612,14 @@ public sealed class TitanoRotationService
                 var cooldown = prior?.Enabled == false
                     ? Math.Max(0, prior.CooldownRemaining - 1)
                     : 0;
-                var eligible = passing >= request.MinimumPassingFilters;
+                // MinimumTrades è una PRECONDIZIONE, non uno dei cinque voti. Senza trade nella
+                // finestra breve gli altri quattro cancelli passano a vuoto — rendimento, drawdown e
+                // volatilità valgono zero proprio perché non c'è nulla da misurare — e con
+                // MinimumPassingFilters = 4 il conteggio arrivava a soglia: una strategia che non ha
+                // mai operato veniva accesa ad allocazione piena. Su un campione insufficiente
+                // Titano non ha un giudizio, e "nessun giudizio" non può valere "promossa".
+                var hasEnoughTrades = metrics.Trades >= request.MinimumTrades;
+                var eligible = hasEnoughTrades && passing >= request.MinimumPassingFilters;
                 var mayDisable = prior is null || prior.ConsecutiveOnPeriods >= request.MinimumOnPeriods;
 
                 // Con il sizing per percentile lo score è un RANGO, non un giudizio: usarlo per

@@ -560,6 +560,19 @@ public sealed class TradingSessionService : ITradingSessionService
 
                     var intent = AddIntent(session, signal, result);
                     if (result?.Reason is not null) intent.Status = OrderIntentStatus.Cancelled;
+
+                    // Limite di fill per sessione. In ExternalBroker è l'unico punto in cui può
+                    // essere applicato: il motore simulato che lo verifica al fill
+                    // (PiootooTradingService) qui non decide niente. L'intent resta in sessione come
+                    // traccia di audit ma non viene consegnato al client, altrimenti un client che
+                    // ignora Status lo eseguirebbe comunque.
+                    if (session.Mode == ExecutionMode.ExternalBroker &&
+                        MaxEntriesPerSessionReached(session, intent, accountNumber: null))
+                    {
+                        intent.Status = OrderIntentStatus.Cancelled;
+                        continue;
+                    }
+
                     emitted.Add(intent);
                 }
 
@@ -965,6 +978,9 @@ public sealed class TradingSessionService : ITradingSessionService
                               && claimed.Contains(groupId)))
                 .Where(t => !session.GroupStrategySlots.ContainsKey(SlotKey(groupId, t.StrategyCode, t.Symbol)))
                 .Where(t => !session.AccountActiveIntent.ContainsKey(ActiveIntentKey(accountNumber, t.Symbol)))
+                // Il limite di fill per sessione è per account: un template già consumato da un
+                // account resta disponibile per gli altri.
+                .Where(t => !MaxEntriesPerSessionReached(session, t, accountNumber))
                 .Where(t => IsTemplateEligibleForGroup(session, groupId, t))
                 .OrderByDescending(t => priorities.GetValueOrDefault(t.StrategyCode, 0m))
                 .ThenBy(t => t.CreatedAtUtc)
@@ -1273,6 +1289,8 @@ public sealed class TradingSessionService : ITradingSessionService
             TrailingStop = trailingStopPoints,
             TimeframeMinutes = strategyTimeframe,
             MaxBarsInPosition = signal.MaxBarsInPosition,
+            MaxEntriesPerSession = signal.MaxEntriesPerSession,
+            EntrySessionStartUtc = signal.EntrySessionStartUtc,
             ValidFromUtc = signal.ValidFromUtc,
             ExpiresAtUtc = signal.ExpiresAtUtc,
             CloseAtUtc = signal.CloseAtUtc,
@@ -1282,6 +1300,31 @@ public sealed class TradingSessionService : ITradingSessionService
         };
         if (addToIntents) session.Intents.Add(intent);
         return intent;
+    }
+
+    /// <summary>
+    /// Vero quando il limite di fill dichiarato dalla strategia per la sessione di
+    /// <see cref="OrderIntent.EntrySessionStartUtc"/> è già stato raggiunto.
+    ///
+    /// <para>Si contano i <b>fill confermati</b>, non gli intent emessi: è la stessa semantica del
+    /// motore simulato, dove uno stop non eseguito viene riemesso nella stessa sessione. Il
+    /// conteggio è per account quando l'account è noto (multi-account), globale altrimenti.</para>
+    /// </summary>
+    private static bool MaxEntriesPerSessionReached(Session session, OrderIntent intent, string? accountNumber)
+    {
+        if (intent.MaxEntriesPerSession is not > 0 || intent.EntrySessionStartUtc is not { } sessionStart)
+            return false;
+
+        var fills = session.Intents.Count(x =>
+            x.Kind == OrderIntentKind.Entry &&
+            x.FilledQuantity > 0 &&
+            x.EntrySessionStartUtc == sessionStart &&
+            string.Equals(x.StrategyCode, intent.StrategyCode, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(x.Symbol, intent.Symbol, StringComparison.OrdinalIgnoreCase) &&
+            (accountNumber is null ||
+             string.Equals(x.AssignedAccountNumber, accountNumber, StringComparison.OrdinalIgnoreCase)));
+
+        return fills >= intent.MaxEntriesPerSession.Value;
     }
 
     /// <summary>
@@ -1329,6 +1372,8 @@ public sealed class TradingSessionService : ITradingSessionService
             TrailingStop = template.TrailingStop,
             TimeframeMinutes = template.TimeframeMinutes,
             MaxBarsInPosition = template.MaxBarsInPosition,
+            MaxEntriesPerSession = template.MaxEntriesPerSession,
+            EntrySessionStartUtc = template.EntrySessionStartUtc,
             ValidFromUtc = template.ValidFromUtc,
             ExpiresAtUtc = template.ExpiresAtUtc,
             CloseAtUtc = template.CloseAtUtc,

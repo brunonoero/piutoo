@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using Piootoo.Domain.Repositories;
 
@@ -54,9 +55,12 @@ public sealed class DataSourceRepositoryHierarchyTests : IDisposable
             {
                 new
                 {
-                    timestamp = new DateTimeOffset(dateTime).ToUnixTimeSeconds(),
+                    // L'istante va costruito dichiarando UTC: `new DateTimeOffset(dateTime)` su un
+                    // `Kind` non specificato lo leggerebbe nel fuso della macchina, e il feed
+                    // sintetico cambierebbe timestamp secondo dove gira il test.
+                    timestamp = new DateTimeOffset(dateTime, TimeSpan.Zero).ToUnixTimeSeconds(),
                     dateTime,
-                    dateTimeFormatted = dateTime.ToString("yyyy-MM-dd HH:mm:ss"),
+                    dateTimeFormatted = dateTime.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture),
                     open,
                     high = open + 1,
                     low = open - 1,

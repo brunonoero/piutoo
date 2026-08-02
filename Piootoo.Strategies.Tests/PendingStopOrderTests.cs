@@ -112,6 +112,94 @@ public class PendingStopOrderTests
         Assert.NotNull(service.GetExecutionSnapshot("PC", "NQ", barTime).Position);
     }
 
+    /// <summary>
+    /// Sul buco del feed l'engine non ha una barra: l'ordine stop non deve essere riempito,
+    /// altrimenti apre al proprio livello — un prezzo a cui il mercato non ha scambiato.
+    /// </summary>
+    [Fact]
+    public void GapInFeed_DoesNotFillStopWithoutABar()
+    {
+        var service = new PiootooTradingService();
+        service.Initialize(100_000m);
+
+        var signalTime = new DateTime(2024, 1, 3, 23, 0, 0, DateTimeKind.Utc);
+        var gapTime = signalTime.AddMinutes(15);
+        var lastKnownBar = new OhlcvData
+        {
+            DateTime = signalTime,
+            Open = 15000m,
+            High = 15005m,
+            Low = 14995m,
+            Close = 15000m
+        };
+
+        service.ProcessSignals(
+            [new TradeSignal
+            {
+                Date = signalTime,
+                Type = SignalType.Buy,
+                // Livello irraggiungibile per la barra nota: solo una barra nuova potrebbe toccarlo.
+                Price = 15100m,
+                Symbol = "NQ",
+                StrategyName = "PC",
+                StrategyCode = "PC",
+                Quantity = 1,
+                OrderType = TradeOrderType.Stop,
+                ValidFromUtc = gapTime,
+                ExpiresAtUtc = gapTime,
+                StopLossMoneyPerFutureContract = 250m
+            }],
+            new Dictionary<string, decimal> { ["NQ"] = 15000m },
+            new Dictionary<string, OhlcvData> { ["NQ"] = lastKnownBar },
+            signalTime);
+
+        // Tick nel buco: il prezzo di mark-to-market resta l'ultimo noto, la barra non c'è.
+        service.UpdateMarketPrices(
+            new Dictionary<string, decimal> { ["NQ"] = 15000m },
+            new Dictionary<string, OhlcvData>(),
+            gapTime);
+
+        Assert.Null(service.GetExecutionSnapshot("PC", "NQ", gapTime).Position);
+        Assert.Empty(service.GetClosedTrades());
+    }
+
+    /// <summary>
+    /// Rivalutando la stessa barra chiusa la strategia riemette un intent la cui validità è già
+    /// passata. Un intent scaduto va scartato, non eseguito a mercato al livello dello stop.
+    /// </summary>
+    [Fact]
+    public void ExpiredStopIntent_IsDiscardedInsteadOfFilledAtItsLevel()
+    {
+        var service = new PiootooTradingService();
+        service.Initialize(100_000m);
+
+        var lastBarTime = new DateTime(2024, 1, 3, 23, 0, 0, DateTimeKind.Utc);
+        var currentTick = lastBarTime.AddMinutes(30);
+
+        service.ProcessSignals(
+            [new TradeSignal
+            {
+                Date = lastBarTime,
+                Type = SignalType.Buy,
+                Price = 15100m,
+                Symbol = "NQ",
+                StrategyName = "PC",
+                StrategyCode = "PC",
+                Quantity = 1,
+                OrderType = TradeOrderType.Stop,
+                // Ancorata all'ultima barra chiusa, quindi già scaduta a currentTick.
+                ValidFromUtc = lastBarTime.AddMinutes(15),
+                ExpiresAtUtc = lastBarTime.AddMinutes(15),
+                StopLossMoneyPerFutureContract = 250m
+            }],
+            new Dictionary<string, decimal> { ["NQ"] = 15000m },
+            new Dictionary<string, OhlcvData>(),
+            currentTick);
+
+        Assert.Null(service.GetExecutionSnapshot("PC", "NQ", currentTick).Position);
+        Assert.Empty(service.GetClosedTrades());
+    }
+
     [Fact]
     public void BearishFillBar_DoesNotUsePreFillHighToCloseShortAtStop()
     {

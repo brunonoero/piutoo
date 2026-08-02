@@ -67,7 +67,14 @@ sbaglia più spesso:
   `StrategyCatalog.ResolveCodes`. Confondere i due ha già svuotato report e
   rotazioni una volta.
 - **Tutto è UTC.** I contratti delle sessioni rifiutano `DateTime` con
-  `Kind != Utc`: è voluto, non "aggiustarlo" con `SpecifyKind` a valle.
+ `Kind != Utc`: è voluto, non "aggiustarlo" con `SpecifyKind` a valle. E
+ "adesso" è `DateTime.UtcNow`: `DateTime.Now`, `ToLocalTime` e affini sono
+ vietati fuori dalla console WinForms, e `UtcOnlyConformanceTests` lo verifica.
+- **Gli orari di sessione delle strategie non sono UTC.** `SessionStartTime` /
+ `SessionEndTime` sono in ora di borsa, diversa per simbolo, e vanno confrontati
+ passando da `SessionClock` — non con l'ora UTC della barra. Il perché, le
+ misure e cosa controllare quando aggiungi una strategia stanno in
+ `docs/domini/orari-di-sessione-e-fusi.md`.
 - **`UpdateMarketPrices` a ogni barra**, su tutti i simboli della barra, anche
   se nessuna strategia è stata valutata — altrimenti SL/TP/time exit scattano in
   ritardo.
@@ -81,8 +88,14 @@ sbaglia più spesso:
   sistema: ogni `GetType().GetProperty(...)` aggiunto lì si paga
   moltiplicato per (barre × strategie).
 - **Datafeed mancante = errore esplicito.** Se una coppia `(Symbol, Timeframe)`
-  del masterfilter non ha dati, il backtest deve fallire o segnalarlo, mai
-  proseguire in silenzio.
+ del masterfilter non ha dati, il backtest deve fallire o segnalarlo, mai
+ proseguire in silenzio.
+- **Barra di esecuzione ≠ prezzo di mark.** L'orologio del loop è sintetico e sui
+ tick senza barre il cursore restituisce l'ultima barra chiusa. Quel prezzo va
+ usato per il mark-to-market (altrimenti stop e time exit non sono valutabili) ma
+ **non** per riempire un ordine, e un intent scaduto si scarta invece di eseguirsi
+ al proprio livello: è così che nascono i fill fantasma. Vedi
+ `docs/domini/orologio-barre-e-fill.md`.
 - **Il server decide *cosa*, il broker decide *se e a che prezzo*.** Non
   assumere mai un fill.
 
@@ -95,7 +108,10 @@ segnale, segnali senza trade, datasource vuoto). Il dettaglio evento per evento
 è in `backtest-log.jsonl` (append-only, una riga JSON per evento).
 
 Causa frequente: Yahoo Finance fornisce dati intraday solo per ~60 giorni, quindi
-backtest intraday su finestre lunghe restano muti per mancanza di dati.
+backtest intraday su finestre lunghe restano muti per mancanza di dati. Per il
+motivo opposto — un backtest che produce *troppi* trade, o trade a orari in cui il
+feed non ha barre — parti da `coversRequestedRange` nel summary e dai controlli in
+`docs/domini/orologio-barre-e-fill.md`.
 
 ## Convenzioni
 

@@ -47,5 +47,21 @@ public sealed class PTS_001_NQ_60 : TfMirroredEngine
         if (parameters is null) return;
         if (parameters.TryGetValue("Contracts", out var contracts))
             Contracts = Convert.ToInt32(contracts);
+        if (parameters.TryGetValue("PtnNeutYes", out var neutYes))
+            NeutralYes = Convert.ToInt32(neutYes);
+        if (parameters.TryGetValue("PtnNeutNo", out var neutNo))
+            NeutralNo = Convert.ToInt32(neutNo);
+        if (parameters.TryGetValue("PtnDirYes", out var dirYes))
+            DirectionalYes = Convert.ToInt32(dirYes);
+        if (parameters.TryGetValue("PtnDirNo", out var dirNo))
+            DirectionalNo = Convert.ToInt32(dirNo);
+        if (parameters.TryGetValue("StopLoss", out var stop))
+            StopMoney = Convert.ToInt32(stop);
+        if (parameters.TryGetValue("TakeProfit", out var profit))
+            ProfitMoney = Convert.ToInt32(profit);
+        if (parameters.TryGetValue("StartHour", out var startHour))
+            StartHour = Convert.ToInt32(startHour);
+        if (parameters.TryGetValue("EndHour", out var endHour))
+            EndHour = Convert.ToInt32(endHour);
     }
 }

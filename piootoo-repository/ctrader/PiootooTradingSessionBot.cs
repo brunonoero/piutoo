@@ -25,11 +25,30 @@ namespace cAlgo.Robots
     //                  alla sessione) a POST /{sessionId}/bars e riceve gli OrderIntent generati
     //                  dal server. Sono SEMPRE e SOLO intent di INGRESSO: il server non decide
     //                  uscite.
-    //   3) Ogni intent di ingresso porta con se la specifica di uscita completa: StopLoss e
-    //      TakeProfit (applicati come livelli nativi cTrader), CloseAtUtc (uscita a tempo) e
-    //      MaxBarsInPosition (limite di barre). Il bot le applica tutte, senza parametri locali
-    //      e senza interpretazioni. Le strategie che deciderebbero l'uscita a runtime verificando
-    //      un pattern sono close-dependent e sono escluse dal catalogo lato server.
+    //   3) Ogni intent di ingresso porta con se la specifica di uscita completa, e il bot la applica
+    //      PER INTERO, senza parametri locali e senza interpretazioni: StopLoss e TakeProfit come
+    //      livelli nativi cTrader, BreakEven e TrailingStop come modifiche dello stop nativo
+    //      sorvegliate a ogni tick, CloseAtUtc (uscita a tempo), ProfitStallAfterUtc (stallo
+    //      dell'utile) e MaxBarsInPosition (limite di barre) valutati a ogni barra. Applicarne solo
+    //      una parte non produce una versione prudente della strategia, ne produce un'altra: sulle
+    //      PC del catalogo il trailing stop e' la causa di uscita di circa un trade su tre ed e' da
+    //      solo tutto il profitto. Le strategie che deciderebbero l'uscita a runtime verificando un
+    //      pattern sono close-dependent e sono escluse dal catalogo lato server.
+    //
+    //      Un intent con Status diverso da "Pending" e' un intent che il server ha SCARTATO (sizing
+    //      a zero, allocazione Titano nulla, limite di fill per sessione raggiunto): viene
+    //      consegnato per tracciabilita e non va eseguito. La quantita da eseguire e' FinalQuantity,
+    //      mai Quantity.
+    //
+    //      Gli ordini di ingresso dei motori Unger sono "next bar at ... stop": vivono la sola barra
+    //      successiva al segnale (ExpiresAtUtc) e vengono riemessi a ogni barra col livello
+    //      ricalcolato. Il bot quindi cancella l'ordine pending della barra precedente prima di
+    //      piazzare il nuovo, e comunque alla barra dopo la scadenza.
+    //
+    //      Il bot NON e' compatibile con la distribuzione multi-account: se la sessione ha gruppi
+    //      account configurati si ferma all'avvio, perche' POST /bars in quel caso restituisce
+    //      template non assegnati che vanno reclamati da GET /accounts/{n}/signals
+    //      (vedi PiootooLiveTradingBot e docs/domini/distribuzione-multi-account.md).
     //   4) Ogni fill di apertura viene riportato con POST /{sessionId}/execution-reports.
     //      Ogni CHIUSURA — qualunque ne sia la causa, SL/TP nativo, uscita a tempo o limite barre —
     //      passa da un canale unico: POST /{sessionId}/intents/close-external registra lato server
@@ -60,7 +79,7 @@ namespace cAlgo.Robots
     {
         private const string LabelPrefix = "PiootooSession";
         private const string BotName = "PiootooTradingSessionBot";
-        private const string BotVersion = "1.1.0"; // aggiornare qui ad ogni release
+        private const string BotVersion = "1.2.0"; // aggiornare qui ad ogni release
         private const string ChartInfoObjectName = "PiootooTradingSessionBot_InfoPanel";
 
         // ---------------------------------------------------------------- Connessione / sessione
@@ -161,9 +180,10 @@ namespace cAlgo.Robots
 
         // ------------------------------------------------------------------------------- Uscite
         //
-        // I parametri di uscita locali arrivano dall'intent di ingresso (StopLoss, TakeProfit,
-        // CloseAtUtc, MaxBarsInPosition). Un intent Close del server rappresenta invece un ExitOnly
-        // della strategia e va eseguito contro la posizione già aperta.
+        // Non ci sono parametri di uscita: arrivano tutti dall'intent di ingresso (StopLoss,
+        // TakeProfit, BreakEven, TrailingStop, CloseAtUtc, ProfitStallAfterUtc,
+        // MaxBarsInPosition). Un intent Close del server rappresenta invece un ExitOnly della
+        // strategia e va eseguito contro la posizione già aperta.
 
         // ------------------------------------------------------------------------------- Stato
 
@@ -187,6 +207,13 @@ namespace cAlgo.Robots
         private readonly Dictionary<long, OrderIntentDto> _positionIntent = new();
         private readonly HashSet<string> _submittedCloseIntentIds = new();
         private readonly Dictionary<long, int> _positionEntryBar = new();
+
+        /// <summary>
+        /// Barra in cui e stato piazzato l'ordine pending di ciascuna label, per gli intent che
+        /// dichiarano una scadenza. Un ordine "next bar" vive una barra: alla successiva va
+        /// cancellato, altrimenti resta a mercato e se ne accumula uno per barra.
+        /// </summary>
+        private readonly Dictionary<string, int> _pendingOrderBar = new();
 
         /// <summary>
         /// Massimo utile per contratto osservato dopo ProfitStallAfterUtc, per posizione. E'
@@ -298,6 +325,19 @@ namespace cAlgo.Robots
                 _initialEquity = resumed && savedState != null ? savedState.InitialEquity : Account.Equity;
                 _peakEquity = resumed && savedState != null ? Math.Max(savedState.PeakEquity, Account.Equity) : Account.Equity;
 
+                if (HasAccountGroups())
+                {
+                    // In multi-account POST /bars restituisce template NON assegnati, che vanno
+                    // reclamati da GET /accounts/{n}/signals: la' vivono slot di gruppo, limite di
+                    // trade concorrenti ed eleggibilita'. Eseguirli qui scavalcherebbe l'intero
+                    // layer di distribuzione e lo stesso template finirebbe su piu' account.
+                    Print("La sessione {0} ha gruppi account configurati: questo cBot esegue i signal " +
+                          "di POST /bars e non e' compatibile con la distribuzione multi-account. " +
+                          "Usa PiootooLiveTradingBot.", _sessionId);
+                    Stop();
+                    return;
+                }
+
                 SaveSessionState();
                 _sessionReady = true;
                 Print("Sessione {0} attiva su {1} ({2} min), account {3}, workspace {4}.",
@@ -318,8 +358,14 @@ namespace cAlgo.Robots
 
         protected override void OnTick()
         {
-            if (_sessionReady)
-                UpdateChartDisplay();
+            if (!_sessionReady)
+                return;
+
+            // Break-even e trailing stop vanno sorvegliati a ogni tick: il prezzo puo' raggiungere e
+            // perdere la soglia dentro la stessa barra, e l'engine di backtest le valuta intrabar.
+            MoveStopsToBreakEven();
+            MoveTrailingStops();
+            UpdateChartDisplay();
         }
 
         protected override void OnBar()
@@ -329,7 +375,12 @@ namespace cAlgo.Robots
 
             try
             {
+                // Prima si ritira l'ordine della barra appena chiusa, poi si chiede il nuovo signal:
+                // l'ordine "next bar" ha esaurito la sua unica barra di validita.
+                CancelExpiredPendingOrders();
                 PushClosedBar();
+                MoveStopsToBreakEven();
+                MoveTrailingStops();
                 CloseExpiredPositions();
             }
             catch (Exception ex)
@@ -355,6 +406,7 @@ namespace cAlgo.Robots
 
             _positionIntent[position.Id] = intent;
             _positionEntryBar[position.Id] = Bars.Count;
+            _pendingOrderBar.Remove(position.Label);
             ReportOpeningFill(intent, position);
         }
 
@@ -526,6 +578,12 @@ namespace cAlgo.Robots
                     if (matched != null)
                     {
                         _lastOpenIntentByLabel[order.Label] = matched;
+
+                        // L'ordine sopravvissuto al riavvio va comunque ritirato: se il signal aveva
+                        // una scadenza, la barra su cui era valido e' al piu' quella corrente.
+                        if (matched.ExpiresAtUtc.HasValue)
+                            _pendingOrderBar[order.Label] = Bars.Count;
+
                         Print("Riavvio: ordine pending {0} ({1}) ricollegato al signal {2}.", order.Id, order.Label, matched.IntentId);
                     }
                     else
@@ -605,6 +663,26 @@ namespace cAlgo.Robots
             return SendJson<SessionDescriptorDto>(HttpMethod.Post, $"api/v1/trading-sessions/{_sessionId}/start");
         }
 
+        /// <summary>
+        /// Vero se la sessione ha una mappa account -> gruppo, cioe' se usa la distribuzione
+        /// multi-account. In caso di errore di rete si risponde no: bloccare l'avvio per una GET
+        /// fallita sarebbe peggio del rischio che copre.
+        /// </summary>
+        private bool HasAccountGroups()
+        {
+            try
+            {
+                var groups = SendJson<List<AccountGroupMappingDto>>(
+                    HttpMethod.Get, $"api/v1/trading-sessions/{_sessionId}/account-groups");
+                return groups != null && groups.Count > 0;
+            }
+            catch (Exception ex)
+            {
+                Print("Impossibile verificare i gruppi account della sessione: {0}", ex.Message);
+                return false;
+            }
+        }
+
         private void PushClosedBar()
         {
             var closedBar = Bars.Last(1);
@@ -663,6 +741,17 @@ namespace cAlgo.Robots
             if (string.Equals(intent.Side, "Hold", StringComparison.OrdinalIgnoreCase))
                 return;
 
+            // Il server consegna anche gli intent che ha appena scartato: sizing che ha azzerato la
+            // quantita, allocazione Titano nulla, limite di fill per sessione raggiunto. Eseguirli
+            // significa rimettere a mercato esattamente i trade che il server ha rifiutato.
+            if (!string.IsNullOrEmpty(intent.Status) &&
+                !string.Equals(intent.Status, "Pending", StringComparison.OrdinalIgnoreCase))
+            {
+                Print("Intent {0} ({1}) ignorato: stato {2} lato server ({3}).",
+                    intent.IntentId, intent.StrategyCode, intent.Status, intent.Reason);
+                return;
+            }
+
             if (intent.IsClose || string.Equals(intent.Kind, "Close", StringComparison.OrdinalIgnoreCase))
             {
                 ApplyCloseIntent(intent);
@@ -682,10 +771,22 @@ namespace cAlgo.Robots
                 return;
             }
 
-            var rawQuantity = intent.FinalQuantity > 0 ? intent.FinalQuantity : intent.Quantity;
+            // Solo FinalQuantity: e' la quantita dopo Titano e position sizing. Ricadere su
+            // Quantity quando FinalQuantity e' zero rimetterebbe a mercato la size base proprio
+            // nei casi in cui il server ha deciso di non operare.
+            var rawQuantity = intent.FinalQuantity;
             if (rawQuantity <= 0)
             {
-                Print("Intent {0} scartato: quantita non valida ({1}).", intent.IntentId, rawQuantity);
+                Print("Intent {0} ({1}) scartato: quantita finale nulla ({2}).",
+                    intent.IntentId, intent.StrategyCode, intent.Reason);
+                return;
+            }
+
+            if (intent.TimeframeMinutes > 0 && intent.TimeframeMinutes != _timeframeMinutes)
+            {
+                Print("Intent {0} scartato: la strategia lavora su {1} minuti, il grafico su {2}. " +
+                      "MaxBarsInPosition non sarebbe contabile. Usa un grafico dello stesso timeframe.",
+                    intent.IntentId, intent.TimeframeMinutes, _timeframeMinutes);
                 return;
             }
 
@@ -701,11 +802,17 @@ namespace cAlgo.Robots
             double? stopLossPips = ToPips(intent.StopLoss);
             double? takeProfitPips = ToPips(intent.TakeProfit);
             if (!stopLossPips.HasValue && !takeProfitPips.HasValue &&
-                !intent.CloseAtUtc.HasValue && !(intent.MaxBarsInPosition > 0))
+                !(intent.TrailingStop > 0) && !intent.CloseAtUtc.HasValue &&
+                !intent.ProfitStallAfterUtc.HasValue && !(intent.MaxBarsInPosition > 0))
             {
                 Print("Intent {0} ({1}) non porta alcuna condizione di uscita: la posizione restera aperta " +
                       "finche non arriva un segnale opposto. Verifica la strategia.", intent.IntentId, intent.StrategyCode);
             }
+
+            // Il segnale precedente della stessa strategia e' scaduto nel momento in cui ne arriva
+            // uno nuovo: il motore riemette l'ordine a ogni barra col livello ricalcolato, quindi
+            // il vecchio ordine pending non e' un secondo ordine, e' lo stesso ordine da sostituire.
+            CancelPendingOrders(label, "sostituito dal signal successivo");
 
             _lastOpenIntentByLabel[label] = intent;
 
@@ -729,6 +836,13 @@ namespace cAlgo.Robots
                 _lastOpenIntentByLabel.Remove(label);
                 return;
             }
+
+            // Scadenza dell'ordine pending: la barra corrente e' l'unica in cui puo' essere
+            // eseguito, come "next bar at ... stop" di EasyLanguage.
+            if (intent.ExpiresAtUtc.HasValue && result.PendingOrder != null)
+                _pendingOrderBar[label] = Bars.Count;
+            else
+                _pendingOrderBar.Remove(label);
 
             // Se il risultato porta gia una Position (ordine a mercato), il fill effettivo viene
             // comunque riportato da OnPositionOpened per avere un solo punto di reporting ed
@@ -759,6 +873,106 @@ namespace cAlgo.Robots
                 _submittedCloseIntentIds.Remove(intent.IntentId);
                 Print("Errore chiusura intent {0} sulla posizione {1}: {2}",
                     intent.IntentId, position.Id, result.Error);
+            }
+        }
+
+        /// <summary>
+        /// Cancella gli ordini pending la cui barra di validita e' passata. I motori Unger emettono
+        /// ordini "next bar": vivono la sola barra successiva al segnale e vengono riemessi finche'
+        /// la condizione resta valida. Senza questa cancellazione ne resta a mercato uno per ogni
+        /// barra della finestra operativa, a livelli diversi, tutti eseguibili.
+        /// </summary>
+        private void CancelExpiredPendingOrders()
+        {
+            if (_pendingOrderBar.Count == 0)
+                return;
+
+            foreach (var entry in _pendingOrderBar.ToList())
+            {
+                if (Bars.Count <= entry.Value)
+                    continue;
+
+                CancelPendingOrders(entry.Key, "scaduto (valido una barra sola)");
+                _pendingOrderBar.Remove(entry.Key);
+            }
+        }
+
+        private void CancelPendingOrders(string label, string reason)
+        {
+            foreach (var order in PendingOrders
+                .Where(o => o.SymbolName == SymbolName && o.Label == label)
+                .ToList())
+            {
+                var result = CancelPendingOrder(order);
+                if (result.IsSuccessful)
+                    Print("Ordine pending {0} ({1}) cancellato: {2}.", order.Id, label, reason);
+                else
+                    Print("Impossibile cancellare l'ordine pending {0} ({1}): {2}", order.Id, label, result.Error);
+            }
+        }
+
+        /// <summary>
+        /// Quando il movimento favorevole raggiunge il break-even dichiarato dall'intent, sposta lo
+        /// stop nativo al prezzo di ingresso. La soglia e' in punti, non in pip.
+        /// </summary>
+        private void MoveStopsToBreakEven()
+        {
+            foreach (var position in Positions.Where(IsOurs).ToList())
+            {
+                if (!_positionIntent.TryGetValue(position.Id, out var intent))
+                    continue;
+                if (!intent.BreakEven.HasValue || intent.BreakEven.Value <= 0)
+                    continue;
+
+                var favorableMove = position.TradeType == TradeType.Buy
+                    ? Symbol.Bid - position.EntryPrice
+                    : position.EntryPrice - Symbol.Ask;
+                if (favorableMove < (double)intent.BreakEven.Value)
+                    continue;
+
+                var alreadyAtEntry = position.StopLoss.HasValue &&
+                    (position.TradeType == TradeType.Buy
+                        ? position.StopLoss.Value >= position.EntryPrice
+                        : position.StopLoss.Value <= position.EntryPrice);
+                if (alreadyAtEntry)
+                    continue;
+
+                var result = ModifyPosition(position, position.EntryPrice, position.TakeProfit);
+                if (!result.IsSuccessful)
+                    Print("Impossibile spostare a break-even la posizione {0} ({1}): {2}",
+                        position.Id, position.Label, result.Error);
+            }
+        }
+
+        /// <summary>
+        /// Mantiene lo stop nativo alla distanza dichiarata dall'intent rispetto al massimo/minimo
+        /// favorevole corrente. Lo stop viene aggiornato solo in direzione protettiva, quindi un
+        /// ritracciamento non lo allarga mai.
+        /// </summary>
+        private void MoveTrailingStops()
+        {
+            foreach (var position in Positions.Where(IsOurs).ToList())
+            {
+                if (!_positionIntent.TryGetValue(position.Id, out var intent))
+                    continue;
+                if (!intent.TrailingStop.HasValue || intent.TrailingStop.Value <= 0)
+                    continue;
+
+                var distance = (double)intent.TrailingStop.Value;
+                var candidate = position.TradeType == TradeType.Buy
+                    ? Symbol.Bid - distance
+                    : Symbol.Ask + distance;
+                var improves = !position.StopLoss.HasValue ||
+                    (position.TradeType == TradeType.Buy
+                        ? candidate > position.StopLoss.Value
+                        : candidate < position.StopLoss.Value);
+                if (!improves)
+                    continue;
+
+                var result = ModifyPosition(position, candidate, position.TakeProfit);
+                if (!result.IsSuccessful)
+                    Print("Impossibile aggiornare il trailing stop della posizione {0} ({1}): {2}",
+                        position.Id, position.Label, result.Error);
             }
         }
 
@@ -1144,11 +1358,39 @@ namespace cAlgo.Robots
             /// <summary>"Entry" oppure "Close"; Close può essere emesso per un segnale ExitOnly.</summary>
             public string Kind { get; set; } = "Entry";
             public bool IsClose { get; set; }
+
+            /// <summary>
+            /// "Pending", "Accepted", "PartiallyFilled", "Filled", "Rejected", "Cancelled". Il
+            /// server consegna anche intent NON eseguibili (sizing che ha azzerato la quantita,
+            /// allocazione Titano nulla, limite di fill per sessione raggiunto): vanno ignorati.
+            /// </summary>
+            public string Status { get; set; } = "Pending";
+
             // Specifica di uscita completa: e' l'unica informazione con cui il bot chiude la posizione.
             public decimal? StopLoss { get; set; }
             public decimal? TakeProfit { get; set; }
+
+            /// <summary>Movimento favorevole, in punti, dopo il quale lo stop va spostato all'ingresso.</summary>
             public decimal? BreakEven { get; set; }
+
+            /// <summary>Distanza in punti dal picco favorevole da mantenere come trailing stop.</summary>
+            public decimal? TrailingStop { get; set; }
+
+            /// <summary>Timeframe della strategia: le barre di MaxBarsInPosition sono le sue.</summary>
+            public int TimeframeMinutes { get; set; }
+
             public int? MaxBarsInPosition { get; set; }
+
+            /// <summary>Diagnostica: il limite e' applicato dal server, non dal bot.</summary>
+            public int? MaxEntriesPerSession { get; set; }
+            public DateTime? EntrySessionStartUtc { get; set; }
+
+            public DateTime? ValidFromUtc { get; set; }
+
+            /// <summary>
+            /// Ultimo istante di validita dell'ordine. I motori Unger emettono ordini "next bar"
+            /// che vivono una barra sola: alla barra dopo l'ordine pending va cancellato.
+            /// </summary>
             public DateTime? ExpiresAtUtc { get; set; }
             public DateTime? CloseAtUtc { get; set; }
 
@@ -1186,6 +1428,12 @@ namespace cAlgo.Robots
             public string AccountNumber { get; set; }
             public decimal Quantity { get; set; }
             public string Reason { get; set; }
+        }
+
+        private sealed class AccountGroupMappingDto
+        {
+            public string AccountNumber { get; set; } = "";
+            public string GroupId { get; set; } = "";
         }
 
         private sealed class SessionStateFileDto

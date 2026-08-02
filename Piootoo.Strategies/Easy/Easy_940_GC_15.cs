@@ -3,13 +3,13 @@ using Piootoo.Strategies.Easy.Engines;
 namespace Piootoo.Strategies.Easy;
 
 /// <summary>
-/// TOP_UA_940 — Level Fader su pivot S1/R1 della sessione precedente, GC 15 minuti.
+/// TOP_UA_940 — Level Fader sugli estremi della sessione precedente, GC 15 minuti.
 ///
 /// <para>Sorgente: <c>piootoo-repository/easy/s_TOP_UA_940_GC_15__7.txt</c>. La logica vive in
 /// <see cref="LevelFaderEngine"/>; qui restano solo i valori degli <c>input</c>.</para>
 ///
-/// <para><b>Livelli.</b> <c>LevelChoice = 1</c> calcola S1 e R1 dal pivot d1
-/// (<c>2×pivot − high</c> / <c>2×pivot − low</c>), con shift zero e tick 0,1.</para>
+/// <para><b>Livelli.</b> <c>LevelChoice = 2</c> usa <c>highd1</c> e <c>lowd1</c>, gli estremi
+/// della sessione precedente, con shift zero e tick 0,1.</para>
 ///
 /// <para><b>Calendario.</b> <c>ID = 1</c> disattiva la chiusura di fine sessione; restano stop e
 /// target dichiarati all'ingresso. I giorni esclusi seguono la convenzione Python del motore
@@ -20,7 +20,7 @@ namespace Piootoo.Strategies.Easy;
 public sealed class Easy_940_GC_15 : LevelFaderEngine
 {
     public override string Name => "Easy_940_GC_15";
-    public override string Description => "Pivot S1/R1 reversal, GC 15m";
+    public override string Description => "Reversal su estremi sessione precedente, GC 15m";
     public override string Symbol => "@GC";
     public override int TimeframeMinutes => 15;
 
@@ -30,7 +30,7 @@ public sealed class Easy_940_GC_15 : LevelFaderEngine
         SessionEndTime = 1700;    // sessionEndTimeA
         Contracts = 1;
 
-        LevelChoice = LevelFaderLevel.PreviousSessionPivot;  // S1 / R1
+        LevelChoice = LevelFaderLevel.PreviousSessionExtremes;  // LevelChoice = 2 — highd1 / lowd1
         LevelShift = 0;    // LevelShift
         TickSize = 0.1m;   // MyTick
 

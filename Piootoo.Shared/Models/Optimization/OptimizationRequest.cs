@@ -113,7 +113,9 @@ public class EvaluationPeriod
     /// </summary>
     public (DateTime Start, DateTime End) GetDateRange()
     {
-        var end = DateTime.Now;
+        // Le date delimitano barre di feed, che sono UTC: prendere l'ora locale sposterebbe la
+        // finestra di ottimizzazione di ore secondo il fuso dell'host.
+        var end = DateTime.UtcNow;
         DateTime start;
 
         switch (Type)
@@ -126,7 +128,7 @@ public class EvaluationPeriod
                 break;
             case PeriodType.DateRange:
                 start = StartDate ?? end.AddDays(-28);
-                end = EndDate ?? DateTime.Now;
+                end = EndDate ?? DateTime.UtcNow;
                 break;
             default:
                 start = end.AddDays(-28);

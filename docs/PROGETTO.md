@@ -215,6 +215,12 @@ BacktestingRequest (workspace + range + capitale)
   stop loss, take profit e time exit vengono verificati in ritardo.
 * Ogni job usa la **propria istanza** di `PiootooTradingService`: il motore è mutabile
   e non è thread-safe.
+* L'orologio del loop è sintetico e non coincide con le barre del feed. Il prezzo di
+  **mark-to-market** è sempre l'ultimo noto, anche stantio; la barra di **esecuzione**
+  deve invece appartenere al tick corrente, altrimenti un ordine si riempie sui prezzi
+  di un intervallo diverso da quello rappresentato. Un intent scaduto si **scarta**,
+  non si esegue al proprio livello. Dettaglio e casistica in
+  [`domini/orologio-barre-e-fill.md`](domini/orologio-barre-e-fill.md).
 
 ### 4.2 Sessione live con cTrader
 

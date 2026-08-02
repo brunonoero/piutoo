@@ -3,6 +3,11 @@
 > Bozza — contenuto da scrivere. Nel frattempo `../PROGETTO.md` §4.1 e §6 coprono
 > il flusso del loop, le invarianti e gli artefatti prodotti.
 
+Il rapporto fra l'orologio del loop e le barre effettivamente presenti nel feed —
+cioè quando una barra può eseguire un ordine e quando è solo un prezzo di
+mark-to-market — è in [`orologio-barre-e-fill.md`](orologio-barre-e-fill.md), che
+contiene anche i controlli da fare sui trade di un run nuovo.
+
 ## Log diagnostici (2026-07-27)
 
 Oltre a `signals.json` e `trades.json`, ogni backtest produce:

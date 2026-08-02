@@ -181,6 +181,17 @@ public class PiootooTradingService : IPiootooTradingService
             }
 
             var positionKey = MakePositionKey(signalSymbol, GetSignalStrategyCode(signal));
+
+            // Un intent scaduto non è eseguibile: la barra su cui era valido è passata e non
+            // sappiamo a che prezzo il mercato l'avrebbe riempito. Il caso non è teorico —
+            // sui periodi senza barre nel feed la strategia rivaluta l'ultima barra chiusa e
+            // riemette un ordine con ValidFromUtc/ExpiresAtUtc già nel passato: eseguirlo
+            // significa aprire al livello dello stop, un prezzo a cui nessuno ha scambiato.
+            if (signal.ExpiresAtUtc.HasValue && currentTime > signal.ExpiresAtUtc.Value)
+            {
+                continue;
+            }
+
             if (RequiresDeferredExecution(signal, currentTime))
             {
                 EnqueuePendingOrder(positionKey, signal);
@@ -233,11 +244,6 @@ public class PiootooTradingService : IPiootooTradingService
 
     private static bool RequiresDeferredExecution(TradeSignal signal, DateTime currentTime)
     {
-        if (signal.ExpiresAtUtc.HasValue && currentTime > signal.ExpiresAtUtc.Value)
-        {
-            return false;
-        }
-
         if (signal.ValidFromUtc.HasValue && currentTime < signal.ValidFromUtc.Value)
         {
             return true;
@@ -300,7 +306,7 @@ public class PiootooTradingService : IPiootooTradingService
 
             if (signal.OrderType == TradeOrderType.Stop)
             {
-                if (bar is null)
+                if (bar is null || !CanExecuteOnBar(signal, bar))
                 {
                     continue;
                 }
@@ -343,7 +349,7 @@ public class PiootooTradingService : IPiootooTradingService
 
             if (signal.OrderType == TradeOrderType.Limit)
             {
-                if (bar is null)
+                if (bar is null || !CanExecuteOnBar(signal, bar))
                 {
                     continue;
                 }
@@ -412,6 +418,11 @@ public class PiootooTradingService : IPiootooTradingService
                     continue;
                 }
 
+                if (bar is null || !CanExecuteOnBar(signal, bar))
+                {
+                    continue;
+                }
+
                 if (!CanFillEntry(pending.PositionKey, signal))
                 {
                     _pendingOrders.Remove(pendingKey);
@@ -424,6 +435,16 @@ public class PiootooTradingService : IPiootooTradingService
             }
         }
     }
+
+    /// <summary>
+    /// Una barra può eseguire un intent "next bar" solo se è chiusa dopo l'inizio della sua
+    /// validità. Sui periodi in cui il feed non ha barre il cursore del backtest restituisce
+    /// l'ultima barra disponibile, che è la stessa che ha generato il segnale: riempirla
+    /// vorrebbe dire eseguire su un intervallo di cui non conosciamo i prezzi.
+    /// </summary>
+    private static bool CanExecuteOnBar(TradeSignal signal, OhlcvData bar) =>
+        !signal.ValidFromUtc.HasValue ||
+        TradingDateTime.ToFeedUtc(bar.DateTime) >= signal.ValidFromUtc.Value;
 
     private static decimal ResolveFillPrice(TradeSignal signal, OhlcvData? bar, decimal markPrice)
     {
@@ -538,6 +559,11 @@ public class PiootooTradingService : IPiootooTradingService
         CheckStopLossAndTakeProfit(currentPrices, currentBars, 0m, currentTime);
         CheckTimeExits(currentPrices, currentBars, 0m, currentTime);
         TryFillPendingOrders(currentPrices, currentBars, currentTime);
+        // Un ingresso riempito in questa stessa barra deve poter uscire subito (SL/TP
+        // same-bar). Senza questo secondo passaggio, le uscite sulla barra di fill
+        // resterebbero in sospeso fino alla barra successiva.
+        CheckStopLossAndTakeProfit(currentPrices, currentBars, 0m, currentTime);
+        CheckTimeExits(currentPrices, currentBars, 0m, currentTime);
         UpdateEquity(currentPrices, 0m);
 
         return GetSnapshot();

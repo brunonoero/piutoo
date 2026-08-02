@@ -170,6 +170,14 @@ public abstract class TrendDeveloperEngine : EasyEngineBase
     /// </summary>
     protected decimal AtrGateMultiplierShort;
 
+    /// <summary>
+    /// Calcola l'ATR del gate sulla serie di sessione invece che sulle barre del grafico. Serve alle
+    /// sorgenti multi-timeframe che scrivono <c>averagetruerange(N) data2</c> con <c>data2</c>
+    /// giornaliero: un ATR di N giorni e un ATR di N barre da 15 minuti sono grandezze di ordine
+    /// diverso, e usare la seconda al posto della prima tiene il gate praticamente sempre aperto.
+    /// </summary>
+    protected bool AtrGateOnSessionSeries;
+
     // ------------------------------------------------------------------ chiusura di fine sessione
 
     /// <summary>
@@ -234,7 +242,10 @@ public abstract class TrendDeveloperEngine : EasyEngineBase
         // Gate di estensione su ATR: misura quanto la sessione si è già mossa dalla propria
         // apertura in multipli di volatilità. Calcolato una volta per barra, non per verso.
         var sessionOpen = ohlc[0];
-        var atr = AtrGateLength > 0 ? EasyLib.AvgTrueRange(data, AtrGateLength) : 0m;
+        var atrSeries = AtrGateOnSessionSeries
+            ? EasyLib.BuildSessionSeries(SessionStartTime, SessionEndTime, data, barTime)
+            : data;
+        var atr = AtrGateLength > 0 ? EasyLib.AvgTrueRange(atrSeries, AtrGateLength) : 0m;
         var atrGateLong = AtrGateLength <= 0 || AtrGateMultiplierLong <= 0m ||
                           bar.Close > sessionOpen + AtrGateMultiplierLong * atr;
         var atrGateShort = AtrGateLength <= 0 || AtrGateMultiplierShort <= 0m ||

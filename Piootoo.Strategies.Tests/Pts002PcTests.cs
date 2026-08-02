@@ -1,7 +1,9 @@
+using System.Reflection;
 using Piootoo.Core.Services;
 using Piootoo.Shared.Enums;
 using Piootoo.Shared.Models;
 using Piootoo.Shared.Models.Trading;
+using Piootoo.Strategies.Easy.Engines;
 using Piootoo.Strategies.PiutooStrategies;
 using Xunit;
 
@@ -52,6 +54,27 @@ public sealed class Pts002PcTests
         Assert.Equal(1000m, signal.TrailingStopMoneyPerFutureContract);
         Assert.Equal(1000m, signal.BreakEvenMoneyPerFutureContract);
         Assert.Null(signal.MaxBarsInPosition);
+        Assert.Null(signal.CloseAtUtc); // intraday_only = 0: nessuna chiusura di fine sessione.
+    }
+
+    /// <summary>
+    /// <c>PriceChannelEngine.IntradayOnly</c> vale <c>true</c> per default: le PC multiday devono
+    /// disattivarlo esplicitamente. Dimenticarlo mette <c>CloseAtUtc</c> alle 16:00 su ogni segnale
+    /// senza rompere nessun contratto, quindi la regressione passerebbe inosservata nei test e si
+    /// vedrebbe solo nei risultati.
+    /// </summary>
+    [Theory]
+    [InlineData(typeof(PTS_002_NQ_15))]
+    [InlineData(typeof(PTS_003_NQ_15))]
+    public void PcPtsStrategies_DoNotDeclareSessionEndClose(Type strategyType)
+    {
+        var strategy = Activator.CreateInstance(strategyType)!;
+        var field = typeof(PriceChannelEngine).GetField(
+            "IntradayOnly",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+
+        Assert.NotNull(field);
+        Assert.False((bool)field!.GetValue(strategy)!);
     }
 
     [Fact]

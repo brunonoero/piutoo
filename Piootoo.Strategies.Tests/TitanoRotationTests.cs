@@ -172,10 +172,18 @@ public sealed class TitanoRotationTests
             Assert.All(manifest.OriginalEquity, point => Assert.Equal(1m, point.AllocationMultiplier));
             Assert.All(manifest.OriginalEquity, point => Assert.Equal(0m, point.Costs));
 
+            // Il fallback sull'ultimo periodo calcolato esiste solo in Realtime: nelle altre
+            // modalità una barra oltre la fine del manifest resta scoperta, ed è voluto.
             var lastPeriod = manifest.Periods.MaxBy(period => period.EffectiveToUtc)!;
+            var beyondManifestUtc = lastPeriod.EffectiveToUtc.AddYears(1);
             var realtime = rotation.Resolve(
-                workspace.Id, backtestFolder, manifest.RunId, lastPeriod.EffectiveToUtc.AddYears(1));
+                workspace.Id, backtestFolder, manifest.RunId, beyondManifestUtc,
+                TitanoFilterMode.Realtime);
             Assert.True(realtime.HasActivePeriod);
+            Assert.True(realtime.UsedLatestPeriod);
+            Assert.False(rotation.Resolve(
+                    workspace.Id, backtestFolder, manifest.RunId, beyondManifestUtc)
+                .HasActivePeriod);
             Assert.Equal(lastPeriod.PeriodId, realtime.PeriodId);
             Assert.Equal(
                 lastPeriod.Strategies.Where(state => state.AllocationMultiplier > 0)

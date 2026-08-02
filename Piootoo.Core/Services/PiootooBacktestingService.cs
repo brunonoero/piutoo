@@ -762,8 +762,16 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                 {
                     var bar = mark.Cursor.LastCandle(currentDate);
                     if (bar is null) continue;
+
+                    // Il prezzo di mark-to-market è sempre l'ultimo noto, anche stantio: senza
+                    // di esso stop e time exit non potrebbero essere valutati affatto. La barra
+                    // invece entra in currentBars solo se appartiene a questo tick, perché è
+                    // quella che l'esecuzione usa per far scattare trigger e riempimenti.
                     currentPrices[symbol] = bar.Close;
-                    currentBars[symbol] = bar;
+                    if (BelongsToCurrentTick(bar.DateTime, currentDate, minTimeframeMinutes))
+                    {
+                        currentBars[symbol] = bar;
+                    }
                 }
 
                 // Filtro Titano della barra corrente. In Disabled resta null e vengono valutate tutte
@@ -827,6 +835,11 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                         if (!currentPrices.ContainsKey(normalizedSymbol))
                         {
                             currentPrices[normalizedSymbol] = currentBar.Close;
+                        }
+
+                        if (!currentBars.ContainsKey(normalizedSymbol) &&
+                            BelongsToCurrentTick(currentBar.DateTime, currentDate, minTimeframeMinutes))
+                        {
                             currentBars[normalizedSymbol] = currentBar;
                         }
 
@@ -1922,6 +1935,20 @@ public class PiootooBacktestingService : IPiootooBacktestingService
 
         return result;
     }
+
+    /// <summary>
+    /// Una barra appartiene al tick corrente se è stata chiusa dentro l'intervallo che il tick
+    /// rappresenta.
+    ///
+    /// <para>Serve perché l'orologio del loop è una griglia regolare mentre il feed ha buchi
+    /// (pausa di sessione, festivi, giornate corte): sui tick vuoti il cursore restituisce
+    /// l'ultima barra disponibile, indistinguibile da una fresca. Usarla per far scattare uno
+    /// stop significa eseguire su un intervallo di cui non conosciamo i prezzi, e siccome il
+    /// livello di un breakout coincide spesso con l'estremo della barra che lo ha generato, il
+    /// fill risulta a un prezzo mai scambiato.</para>
+    /// </summary>
+    private static bool BelongsToCurrentTick(DateTime barTimeUtc, DateTime currentDate, int tickMinutes) =>
+        (currentDate - barTimeUtc).TotalMinutes < Math.Max(1, tickMinutes);
 
     private static bool IsStrategyCandleStale(int timeframeMinutes, DateTime lastCandleTime, DateTime currentDate)
     {

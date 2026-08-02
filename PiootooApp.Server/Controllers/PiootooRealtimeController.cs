@@ -64,7 +64,7 @@ public class PiootooRealtimeController : ControllerBase
         rotationManager.RegisterStrategy("RSI Strategy");
         
         var scheduler = new WeeklyRotationScheduler(rotationManager);
-        var setup = scheduler.ExecuteWeeklyRotation(DateTime.Now);
+        var setup = scheduler.ExecuteWeeklyRotation(DateTime.UtcNow);
         
         return Ok(setup);
     }
