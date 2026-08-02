@@ -4,8 +4,7 @@ using Piootoo.Strategies.Easy.Engines;
 
 namespace Piootoo.Strategies.Easy;
 
-// HYBRID: ingresso solo all'orario MyTime con stop su H/L della barra corrente; uscita a tempo
-// su sessionEndTimeC-200 non è CloseAtUtc standard.
+// HYBRID: ingresso solo all'orario MyTime con stop su H/L della barra corrente.
 
 /// <summary>
 /// TOP_UA_531 — ingresso a orologio con stop su estremi barra, NQ 60 minuti.
