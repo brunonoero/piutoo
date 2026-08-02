@@ -1,284 +1,147 @@
-using System;
-using System.Collections.Generic;
 using Piootoo.Shared.Enums;
-using Piootoo.Shared.Interfaces;
 using Piootoo.Shared.Models;
-using static Piootoo.Strategies.Easy.EasyLib;
+using Piootoo.Strategies.Easy.Engines;
 
 namespace Piootoo.Strategies.Easy;
 
+// HYBRID: l'originale emette stop di uscita su LowD(0)/HighD(0) rivalutati a ogni barra e
+// disattiva la chiusura di fine giornata quando l'utile aperto supera MycheckGain alle 17:00.
+// Queste uscite non sono dichiarabili all'ingresso; restano in GenerateSignal.
+
 /// <summary>
-/// Strategia EasyLanguage convertita: TOP_UA_32
-/// NG_Trend following strategy DAX30 Fut - 2 hours breackout
+/// TOP_UA_32 — breakout highd0/lowd0 con gate <c>PtnBaseSA2</c>, FDAX 15 minuti.
+///
+/// <para>Sorgente: <c>piootoo-repository/easy/s_TOP_UA_32_FDAX_15__7.txt</c>. L'ingresso è
+/// modellato da <see cref="TrendDeveloperEngine"/>; le uscite strutturali su estremo opposto e
+/// il ramo <c>ExitID</c> restano close-dependent.</para>
+///
+/// <para><b>Contratto di riferimento:</b> FDAX, €25 per punto. Stop €1.450.</para>
 /// </summary>
-public class Easy_32_FDAX_15 : StatelessEasyStrategyBase
+public sealed class Easy_32_FDAX_15 : TrendDeveloperEngine
 {
-    // INPUTS
-    private int _maxBarsinTrade_Long = 100;
-    private int _maxBarsinTrade_Short = 100;
-    private int _mySize = 1;
-    private int _mycheckTime = 1700;
-    private int _mycheckGain = 1500;
-    private int _myPtnLY = 1;
-    private int _myPtnSY = 20;
-    private int _myPtnLN = 6;
-    private int _myPtnSN = 4;
-    private int _myPauseDay = 5;
-    private int _titanExportMode = 0;
-    private int _myStartTime = 1000;
-    private int _myEndTime = 1300;
-    private int _myStop = 1450;
-    private int _myProfit = 0;
+    private const int CheckTime = 1700;
+    private const int CheckGain = 1500;
+    private const int EndDayStart = 2145;
+    private const int EndDayEnd = 2200;
 
-    // VARIABLES
-    private int _myExitLevelShort = 0;
-    private int _myExitLevelLong = 0;
-    private int _myEntryLevelLong = 0;
-    private int _exitID = 0;
-    private int _myEntryLevelShort = 0;
+    private int _exitId;
 
-    // STATE
-    private string _symbol = "@FDAX";
-    private int _timeframeMinutes = 15;
-    private string _name = "TOP_UA_32";
-    private string _description = "NG_Trend following strategy DAX30 Fut - 2 hours breackout";
+    public override string Name => "Easy_32_FDAX_15";
+    public override string Description => "Breakout estremi sessione + uscite strutturali, FDAX 15m";
+    public override string Symbol => "@FDAX";
+    public override int TimeframeMinutes => 15;
 
-    public string Name => _name;
-    public string Description => _description;
-    public string Symbol => _symbol;
-    public int TimeframeMinutes => _timeframeMinutes;
-    public int RequiredCandles => 100; // TODO: Calcolare in base alla strategia
+    public override bool IsPositionCloseDependent => true;
 
-    public void Initialize(Dictionary<string, object>? parameters = null)
+    public Easy_32_FDAX_15()
     {
-        if (parameters != null)
-        {
-            if (parameters.TryGetValue("Symbol", out var sym))
-                _symbol = sym?.ToString() ?? _symbol;
-            if (parameters.TryGetValue("TimeframeMinutes", out var tf))
-                _timeframeMinutes = Convert.ToInt32(tf);
-            if (parameters.TryGetValue("MaxBarsinTrade_Long", out var maxbarsintrade_long))
-                _maxBarsinTrade_Long = Convert.ToInt32(maxbarsintrade_long);
-            if (parameters.TryGetValue("MySize", out var mysize))
-                _mySize = Convert.ToInt32(mysize);
-            if (parameters.TryGetValue("MycheckTime", out var mychecktime))
-                _mycheckTime = Convert.ToInt32(mychecktime);
-            if (parameters.TryGetValue("MyPtnLY", out var myptnly))
-                _myPtnLY = Convert.ToInt32(myptnly);
-            if (parameters.TryGetValue("MyPauseDay", out var mypauseday))
-                _myPauseDay = Convert.ToInt32(mypauseday);
-            if (parameters.TryGetValue("TitanExportMode", out var titanexportmode))
-                _titanExportMode = Convert.ToInt32(titanexportmode);
-            if (parameters.TryGetValue("MyStartTime", out var mystarttime))
-                _myStartTime = Convert.ToInt32(mystarttime);
-            if (parameters.TryGetValue("MyStop", out var mystop))
-                _myStop = Convert.ToInt32(mystop);
-        }
-    }
+        SessionStartTime = 800;
+        SessionEndTime = 2200;
+        Contracts = 1;
 
-    // Stato per tracciare la posizione corrente (MP = marketposition)
-    private int _currentMP = 0; // 0 = nessuna posizione, +1 = long, -1 = short
-    private int _myCount = 0;
-    private DateTime? _lastEntryDate = null;
+        Trigger = TrendTrigger.CurrentSessionOhlc;
+
+        StartTrade = 1000;  // MyStartTime
+        EndTrade = 1300;    // MyEndTime
+        InclusiveWindowEnd = true;
+
+        NeutralYes = 55;
+        NeutralNo = 56;
+        DirectionalYes = 52;
+        DirectionalNo = 53;
+
+        BaseYesLong = 1;    // MyPtnLY
+        BaseNoLong = 6;     // MyPtnLN
+        BaseYesShort = 20;  // MyPtnSY
+        BaseNoShort = 4;    // MyPtnSN
+
+        NotEntryDayLong = 5;   // MyPauseDay — venerdì
+        NotEntryDayShort = 5;
+
+        StopMoney = 1450;  // MyStop
+        ProfitMoney = 0;
+        MaxBars = 100;     // MaxBarsinTrade_Long / _Short
+    }
 
     public TradeSignal GenerateSignal(OhlcvData[] data, DateTime currentDate)
     {
-        if (data == null || data.Length < RequiredCandles)
+        if (data is null || data.Length < RequiredCandles)
+            return Hold(data?.LastOrDefault()?.Close ?? 0m, currentDate, "Dati insufficienti");
+
+        var bar = data[^1];
+        var barTime = bar.DateTime;
+        var time = Hhmm(barTime);
+
+        BuildSessionOhlc(data, barTime, out var ohlc);
+        var exit = EvaluateStructuralExits(bar, time, ohlc);
+        if (exit.Type != SignalType.Hold)
+            return exit;
+
+        if (time == EndTrade)
+            _exitId = 0;
+
+        if (time == CheckTime && CurrentMP != 0)
+            _exitId = 1;
+
+        return EvaluateCore(data, currentDate);
+    }
+
+    private TradeSignal EvaluateStructuralExits(OhlcvData bar, int time, decimal[] ohlc)
+    {
+        if (CurrentMP == 0)
+            return Hold(bar.Close, bar.DateTime);
+
+        if (_exitId == 0 && time >= EndDayStart && time < EndDayEnd)
         {
             return new TradeSignal
             {
-                Date = currentDate,
-                Type = SignalType.Hold,
-                Price = data?.LastOrDefault()?.Close ?? 0,
+                Date = bar.DateTime,
+                Type = CurrentMP == 1 ? SignalType.Sell : SignalType.Buy,
+                Price = bar.Close,
                 StrategyName = Name,
-                Reason = "Dati insufficienti"
+                Quantity = Contracts,
+                OrderType = TradeOrderType.Market,
+                Reason = CurrentMP == 1 ? "LX_EndDay" : "SX_EndDay"
             };
         }
 
-        var currentPrice = data.Last().Close;
-        var currentTime = currentDate.Hour * 100 + currentDate.Minute; // Formato HHMM
-        
-        // Calcola OHLC per pattern
-        decimal[] ohlcValues = new decimal[24];
-        bool isStartOfSession = OHLCMulti5(800, 2200, data, currentDate, out ohlcValues);
-        
-        // DEFINITIONS - Calcola entry/exit levels all'inizio del periodo
-        if (currentTime <= _myStartTime)
+        if (CurrentMP == 1 && bar.Close <= ohlc[2])
         {
-            _myEntryLevelLong = (int)GetDailyHigh(data, currentDate, 0);
-            _myEntryLevelShort = (int)GetDailyLow(data, currentDate, 0);
-            _myExitLevelLong = (int)GetDailyLow(data, currentDate, 0);
-            _myExitLevelShort = (int)GetDailyHigh(data, currentDate, 0);
-        }
-        
-        // Reset ExitID all'end time
-        if (currentTime == _myEndTime)
-        {
-            _exitID = 0;
-        }
-        
-        // CONDITIONS - Entry solo nel periodo specificato
-        if ((int)currentDate.DayOfWeek != _myPauseDay && currentTime > _myStartTime && currentTime <= _myEndTime)
-        {
-            // BUY condition: breakout sopra high del giorno
-            if (PtnBaseSA2(_myPtnLY, ohlcValues) && !PtnBaseSA2(_myPtnLN, ohlcValues))
-            {
-                if (currentPrice >= _myEntryLevelLong && _currentMP == 0)
-                {
-                    _currentMP = 1;
-                    _myCount = 1;
-                    _lastEntryDate = currentDate;
-                    return new TradeSignal
-                    {
-                        Date = currentDate,
-                        Type = SignalType.Buy,
-                        Price = _myEntryLevelLong,
-                        StrategyName = Name,
-                        Quantity = _mySize,
-                        StopLoss = _myStop > 0 ? (decimal?)_myStop : null,
-                        TakeProfit = _myProfit > 0 ? (decimal?)_myProfit : null,
-                        Reason = "LE"
-                    };
-                }
-            }
-            
-            // SELLSHORT condition: breakout sotto low del giorno
-            if (PtnBaseSA2(_myPtnSY, ohlcValues) && !PtnBaseSA2(_myPtnSN, ohlcValues))
-            {
-                if (currentPrice <= _myEntryLevelShort && _currentMP == 0)
-                {
-                    _currentMP = -1;
-                    _myCount = 1;
-                    _lastEntryDate = currentDate;
-                    return new TradeSignal
-                    {
-                        Date = currentDate,
-                        Type = SignalType.Sell,
-                        Price = _myEntryLevelShort,
-                        StrategyName = Name,
-                        Quantity = _mySize,
-                        StopLoss = _myStop > 0 ? (decimal?)_myStop : null,
-                        TakeProfit = _myProfit > 0 ? (decimal?)_myProfit : null,
-                        Reason = "SE"
-                    };
-                }
-            }
-        }
-        
-        // Check gain at check time
-        if (currentTime == _mycheckTime)
-        {
-            // Se profit >= checkGain, set exitID = 1 (semplificato)
-            // In realtÃ  dovremmo calcolare openpositionprofit
-            _exitID = 1; // Semplificato
-        }
-        
-        // EXIT CONDITIONS
-        if (_exitID == 0)
-        {
-            // Exit alla fine della giornata
-            if (currentTime >= 2145 && currentTime < 2200)
-            {
-                if (_currentMP == 1)
-                {
-                    _currentMP = 0;
-                    return new TradeSignal
-                    {
-                        Date = currentDate,
-                        Type = SignalType.Sell,
-                        Price = currentPrice,
-                        StrategyName = Name,
-                        Quantity = _mySize,
-                        Reason = "LX_EndDay"
-                    };
-                }
-                if (_currentMP == -1)
-                {
-                    _currentMP = 0;
-                    return new TradeSignal
-                    {
-                        Date = currentDate,
-                        Type = SignalType.Buy,
-                        Price = currentPrice,
-                        StrategyName = Name,
-                        Quantity = _mySize,
-                        Reason = "SX_EndDay"
-                    };
-                }
-            }
-        }
-        
-        // Exit su stop levels
-        if (_currentMP == 1 && currentPrice <= _myExitLevelLong)
-        {
-            _currentMP = 0;
             return new TradeSignal
             {
-                Date = currentDate,
+                Date = bar.DateTime,
                 Type = SignalType.Sell,
-                Price = _myExitLevelLong,
+                Price = ohlc[2],
                 StrategyName = Name,
-                Quantity = _mySize,
+                Quantity = Contracts,
+                OrderType = TradeOrderType.Stop,
                 Reason = "LX_Stop"
             };
         }
-        
-        if (_currentMP == -1 && currentPrice >= _myExitLevelShort)
+
+        if (CurrentMP == -1 && bar.Close >= ohlc[1])
         {
-            _currentMP = 0;
             return new TradeSignal
             {
-                Date = currentDate,
+                Date = bar.DateTime,
                 Type = SignalType.Buy,
-                Price = _myExitLevelShort,
+                Price = ohlc[1],
                 StrategyName = Name,
-                Quantity = _mySize,
+                Quantity = Contracts,
+                OrderType = TradeOrderType.Stop,
                 Reason = "SX_Stop"
             };
         }
-        
-        // Exit dopo max bars
-        if (_currentMP == 1 && _myCount >= _maxBarsinTrade_Long)
-        {
-            _currentMP = 0;
-            return new TradeSignal
-            {
-                Date = currentDate,
-                Type = SignalType.Sell,
-                Price = currentPrice,
-                StrategyName = Name,
-                Quantity = _mySize,
-                Reason = "LX_MaxBars"
-            };
-        }
-        
-        if (_currentMP == -1 && _myCount >= _maxBarsinTrade_Short)
-        {
-            _currentMP = 0;
-            return new TradeSignal
-            {
-                Date = currentDate,
-                Type = SignalType.Buy,
-                Price = currentPrice,
-                StrategyName = Name,
-                Quantity = _mySize,
-                Reason = "SX_MaxBars"
-            };
-        }
-        
-        // Incrementa counter
-        if (_currentMP != 0)
-        {
-            _myCount++;
-        }
-        
-        return new TradeSignal
-        {
-            Date = currentDate,
-            Type = SignalType.Hold,
-            Price = currentPrice,
-            StrategyName = Name
-        };
+
+        return Hold(bar.Close, bar.DateTime);
+    }
+
+    public void Initialize(Dictionary<string, object>? parameters = null)
+    {
+        if (parameters is null) return;
+        if (parameters.TryGetValue("Contracts", out var contracts))
+            Contracts = Convert.ToInt32(contracts);
+        if (parameters.TryGetValue("MySize", out var size))
+            Contracts = Convert.ToInt32(size);
     }
 }
-

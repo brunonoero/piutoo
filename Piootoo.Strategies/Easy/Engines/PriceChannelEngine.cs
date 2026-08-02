@@ -143,13 +143,8 @@ public abstract class PriceChannelEngine : EasyEngineBase
     /// <summary>Pattern direzionale che blocca l'ingresso. 53 può essere usato come sentinella falsa.</summary>
     protected int DirectionalNo = 53;
 
-    // ------------------------------------------------------------------ entrate e uscite
-
-    /// <summary>Massimo numero di fill per sessione. 0 = nessun limite.</summary>
-    protected int MaxEntriesPerSession;
-
-    /// <summary>Trailing stop monetario per contratto di riferimento. 0 = disattivo.</summary>
-    protected int TrailingStopMoney;
+    // MaxEntriesPerSession e TrailingStopMoney vivono in EasyEngineBase e vengono
+    // applicati da BuildEntry; i helper sotto ne rafforzano solo la policy Python/legacy.
 
     // Stato ricorsivo di iADXOnArray sulle sessioni; deve sopravvivere alle valutazioni stateless.
     private decimal _adxValue;

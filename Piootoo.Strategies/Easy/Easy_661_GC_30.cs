@@ -8,14 +8,17 @@ using static Piootoo.Strategies.Easy.EasyLib;
 
 namespace Piootoo.Strategies.Easy;
 
+// CLOSE_DEPENDENT: uscite su pnt2/pnt3 (high/low 19:00 ± dist) rivalutate a ogni barra e gate
+// su data2 (15m) per oklong1/okshort1. Non mappabile su un motore Unger senza perdere la
+// semantica delle uscite runtime.
+
 /// <summary>
-/// Strategia EasyLanguage convertita: TOP_UA_661
-/// Reversal strategy based on session open cross for Gold 30 min
+/// TOP_UA_661 — reversal su incrocio open di sessione, GC 30 minuti + data2 15m.
 ///
-/// <para><b>Non eseguibile.</b> I livelli <c>dist</c> sono stop assoluti
-/// calcolati nuovamente a inizio sessione e valutati a ogni barra. Non sono
-/// quindi un'uscita autocontenuta dichiarabile al fill; la strategia resta
-/// close-dependent ed è esclusa dal catalogo operativo.</para>
+/// <para>Sorgente: <c>piootoo-repository/easy/s_TOP_UA_661_GC_30____15__7.txt</c>.
+/// <b>Non eseguibile.</b> I livelli <c>dist</c> sono stop assoluti ricalcolati alle 19:00 e
+/// valutati a ogni barra; non sono un'uscita dichiarabile al fill. Resta su
+/// <see cref="StatelessEasyStrategyBase"/> ed è esclusa dal catalogo operativo.</para>
 /// </summary>
 public class Easy_661_GC_30 : StatelessEasyStrategyBase
 {

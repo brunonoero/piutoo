@@ -100,11 +100,7 @@ public abstract class BiasWeeklyEngine : EasyEngineBase
     protected decimal TrailingMoneyLong;
     protected decimal TrailingMoneyShort;
 
-    /// <summary>
-    /// Limite di fill nella sessione di mercato. Replica <c>EntriesToday</c> dei template che lo
-    /// dichiarano, lasciando riemettere gli ordini non eseguiti.
-    /// </summary>
-    protected int MaxEntriesPerSession;
+    // MaxEntriesPerSession è dichiarato in EasyEngineBase.
 
     public TradeSignal GenerateSignal(OhlcvData[] data, DateTime currentDate)
     {

@@ -1,196 +1,132 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
 using Piootoo.Shared.Enums;
-using Piootoo.Shared.Interfaces;
 using Piootoo.Shared.Models;
-using static Piootoo.Strategies.Easy.EasyLib;
+using Piootoo.Strategies.Easy.Engines;
 
 namespace Piootoo.Strategies.Easy;
 
+// HYBRID: long con stop su highd1-10, short a mercato sul cross di lowd1+35.
+
 /// <summary>
-/// Strategia EasyLanguage convertita: TOP_UA_956
-/// Average and pattern based strategy for NQ 15 min
+/// TOP_UA_956 — media mobile + pattern con ingressi asimmetrici, NQ 15 minuti.
+///
+/// <para>Sorgente: <c>piootoo-repository/easy/s_TOP_UA_956_NQ_15__7.txt</c>. Il long usa
+/// <c>next bar (highd1-10) stop</c>; lo short entra a mercato sul cross sotto
+/// <c>lowd1+35</c>.</para>
+///
+/// <para><b>Contratto di riferimento:</b> NQ, $20 per punto. Stop $1.300, target $3.000,
+/// max 8 giorni in posizione con chiusura alle 15:00.</para>
 /// </summary>
-public class Easy_956_NQ_15 : StatelessEasyStrategyBase
+public sealed class Easy_956_NQ_15 : EasyEngineBase
 {
-    // INPUTS
-    private int _sessionStartTimeA = 1700;
-    private int _sessionEndTimeA = 1600;
-    private int _myContracts = 1;
-    private int _myStartTime = 1100;
-    private int _myEndTime = 1500;
-    private int _maxDaysInTrade = 8;
-    private int _flatTime = 1500;
-    private int _maxEntriesPerDay = 1;
-    private int _myStop = 1300;
-    private int _myProfit = 3000;
-    private int _ptnNeutYes = 32;
-    private int _ptnNeutNo = 45;
-    private int _myPtnSY = 25;
-    private int _myPtnSN = 61;
+    private const int AverageLongLength = 65;
+    private const int AverageShortLength = 5;
+    private const int ShortCrossOffset = 35;
+    private const int FlatTime = 1500;
 
-    // VARIABLES
-    private int _daysInTrade = 0;
-    private int _entriesToday = 0;
-    private DateTime? _lastTradeDate = null;
-    private decimal _prevClose = 0;
+    private decimal _prevClose;
 
-    // STATE
-    private string _symbol = "@NQ";
-    private int _timeframeMinutes = 15;
-    private string _name = "TOP_UA_956";
-    private string _description = "Average and pattern based strategy for NQ";
-    private int _currentMP = 0;
-    private int _prevMP = 0;
+    public override string Name => "Easy_956_NQ_15";
+    public override string Description => "MA + pattern, long stop / short market, NQ 15m";
+    public override string Symbol => "@NQ";
+    public override int TimeframeMinutes => 15;
 
-    public string Name => _name;
-    public string Description => _description;
-    public string Symbol => _symbol;
-    public int TimeframeMinutes => _timeframeMinutes;
-    public int RequiredCandles => 100;
+    private int StartTrade { get; set; } = 1100;
+    private int EndTrade { get; set; } = 1500;
+    private int NeutralYes { get; set; } = 32;
+    private int NeutralNo { get; set; } = 45;
+    private int FastYesShort { get; set; } = 25;
+    private int FastNoShort { get; set; } = 61;
 
-    public void Initialize(Dictionary<string, object>? parameters = null)
+    public override int RequiredCandles =>
+        Math.Max(base.RequiredCandles, AverageLongLength + 1);
+
+    public Easy_956_NQ_15()
     {
-        if (parameters != null)
-        {
-            if (parameters.TryGetValue("Symbol", out var sym)) _symbol = sym?.ToString() ?? _symbol;
-            if (parameters.TryGetValue("TimeframeMinutes", out var tf)) _timeframeMinutes = Convert.ToInt32(tf);
-            if (parameters.TryGetValue("SessionStartTimeA", out var sst)) _sessionStartTimeA = Convert.ToInt32(sst);
-            if (parameters.TryGetValue("sessionEndTimeA", out var set)) _sessionEndTimeA = Convert.ToInt32(set);
-            if (parameters.TryGetValue("MyContracts", out var mc)) _myContracts = Convert.ToInt32(mc);
-            if (parameters.TryGetValue("MyStartTime", out var mst)) _myStartTime = Convert.ToInt32(mst);
-            if (parameters.TryGetValue("MyEndTime", out var met)) _myEndTime = Convert.ToInt32(met);
-            if (parameters.TryGetValue("MaxDaysInTrade", out var mdit)) _maxDaysInTrade = Convert.ToInt32(mdit);
-            if (parameters.TryGetValue("FlatTime", out var ft)) _flatTime = Convert.ToInt32(ft);
-            if (parameters.TryGetValue("MaxEntriesPerDay", out var mepd)) _maxEntriesPerDay = Convert.ToInt32(mepd);
-            if (parameters.TryGetValue("MyStop", out var ms)) _myStop = Convert.ToInt32(ms);
-            if (parameters.TryGetValue("MyProfit", out var mp)) _myProfit = Convert.ToInt32(mp);
-            if (parameters.TryGetValue("PtnNeutYes", out var pny)) _ptnNeutYes = Convert.ToInt32(pny);
-            if (parameters.TryGetValue("PtnNeutNo", out var pnn)) _ptnNeutNo = Convert.ToInt32(pnn);
-            if (parameters.TryGetValue("MyPtnSY", out var mpsy)) _myPtnSY = Convert.ToInt32(mpsy);
-            if (parameters.TryGetValue("MyPtnSN", out var mpsn)) _myPtnSN = Convert.ToInt32(mpsn);
-        }
+        SessionStartTime = 1700;  // SessionStartTimeA
+        SessionEndTime = 1600;    // sessionEndTimeA
+        Contracts = 1;
+
+        MaxEntriesPerSession = 1;  // MaxEntriesPerDay
+        StopMoney = 1300;          // MyStop
+        ProfitMoney = 3000;        // MyProfit
+        MaxDaysInTrade = 8;        // MaxDaysInTrade
     }
 
     public TradeSignal GenerateSignal(OhlcvData[] data, DateTime currentDate)
     {
-        if (data == null || data.Length < RequiredCandles)
+        if (data is null || data.Length < RequiredCandles)
+            return Hold(data?.LastOrDefault()?.Close ?? 0m, currentDate, "Dati insufficienti");
+
+        var bar = data[^1];
+        var barTime = bar.DateTime;
+        BuildSessionOhlc(data, barTime, out var ohlc);
+
+        if (!EasyLib.TimeWindow(StartTrade, EndTrade, barTime) ||
+            (MaxEntriesPerSession > 0 && EntriesTodayCount >= MaxEntriesPerSession))
         {
-            return new TradeSignal
-            {
-                Date = currentDate,
-                Type = SignalType.Hold,
-                Price = data?.LastOrDefault()?.Close ?? 0,
-                StrategyName = Name,
-                Reason = "Dati insufficienti"
-            };
+            _prevClose = bar.Close;
+            return Hold(bar.Close, barTime);
         }
 
-        var currentPrice = data.Last().Close;
-        var currentHigh = data.Last().High;
-        var currentLow = data.Last().Low;
-        var currentTime = currentDate.Hour * 100 + currentDate.Minute;
+        var highD1 = ohlc[5];
+        var lowD1 = ohlc[6];
+        var avgLong = AverageClose(data, AverageLongLength);
+        var avgShort = AverageClose(data, AverageShortLength);
+        var entries = new List<TradeSignal>(2);
 
-        // Reset entries on new day
-        if (_lastTradeDate == null || _lastTradeDate.Value.Date != currentDate.Date)
+        if (CurrentMP <= 0 &&
+            bar.Close > avgLong &&
+            EasyLib.PatternNeutralFast(NeutralYes, ohlc) &&
+            !EasyLib.PatternNeutralFast(NeutralNo, ohlc))
         {
-            _entriesToday = 0;
-            _lastTradeDate = currentDate;
+            entries.Add(WithExitSettings(
+                EntryStopNextBar(SignalType.Buy, highD1 - 10m, data, barTime, "LE")));
         }
 
-        // Calcola OHLC
-        decimal[] ohlcValues = new decimal[24];
-        OHLCMulti5(_sessionStartTimeA, _sessionEndTimeA, data, currentDate, out ohlcValues);
-
-        var highd1 = ohlcValues[5];
-        var lowd1 = ohlcValues[6];
-
-        // Days in trade tracking
-        if (currentTime == 1800 && _currentMP != 0)
-            _daysInTrade++;
-        
-        _prevMP = _currentMP;
-        if (_currentMP == 0 || _currentMP != _prevMP)
-            _daysInTrade = 0;
-
-        // Max days exit
-        if (_daysInTrade >= _maxDaysInTrade && _maxDaysInTrade > 0)
+        var shortTrigger = lowD1 + ShortCrossOffset;
+        if (CurrentMP >= 0 &&
+            bar.Close < avgShort &&
+            _prevClose > shortTrigger && bar.Close <= shortTrigger &&
+            EasyLib.PatternFast(FastYesShort, ohlc) && !EasyLib.PatternFast(FastNoShort, ohlc))
         {
-            if (currentTime >= _flatTime && currentTime <= _sessionEndTimeA && _currentMP != 0)
-            {
-                var exitMP = _currentMP;
-                _currentMP = 0;
-                return new TradeSignal
-                {
-                    Date = currentDate,
-                    Type = exitMP == 1 ? SignalType.Sell : SignalType.Buy,
-                    Price = currentPrice,
-                    StrategyName = Name,
-                    Quantity = _myContracts,
-                    Reason = exitMP == 1 ? "LX_MaxDays" : "SX_MaxDays"
-                };
-            }
+            entries.Add(WithExitSettings(
+                EntryMarketNextBar(SignalType.Sell, bar.Close, data, barTime, "SE")));
         }
 
-        // Time window
-        bool inTimeWindow = TimeWindow(_myStartTime, _myEndTime, currentDate);
+        _prevClose = bar.Close;
+        return Combine(entries, Hold(bar.Close, barTime));
+    }
 
-        // Calculate averages
-        var avg65 = data.Skip(Math.Max(0, data.Length - 65)).Select(d => d.Close).Average();
-        var avg5 = data.Skip(Math.Max(0, data.Length - 5)).Select(d => d.Close).Average();
-
-        // Entry conditions
-        if (inTimeWindow && _entriesToday < _maxEntriesPerDay)
+    private TradeSignal WithExitSettings(TradeSignal signal)
+    {
+        if (MaxEntriesPerSession > 0)
         {
-            // Long entry
-            if (_currentMP <= 0 && currentPrice > avg65 &&
-                PatternNeutralFast(_ptnNeutYes, ohlcValues) && !PatternNeutralFast(_ptnNeutNo, ohlcValues))
-            {
-                if (currentHigh >= highd1 - 10)
-                {
-                    _currentMP = 1;
-                    _entriesToday++;
-                    return new TradeSignal
-                    {
-                        Date = currentDate,
-                        Type = SignalType.Buy,
-                        Price = highd1 - 10,
-                        StrategyName = Name,
-                        Quantity = _myContracts,
-                        Reason = "LE Above Avg65"
-                    };
-                }
-            }
-
-            // Short entry
-            if (_currentMP >= 0 && currentPrice < avg5 &&
-                _prevClose > lowd1 + 35 && currentPrice <= lowd1 + 35 &&
-                PatternFast(_myPtnSY, ohlcValues) && !PatternFast(_myPtnSN, ohlcValues))
-            {
-                _currentMP = -1;
-                _entriesToday++;
-                _prevClose = currentPrice;
-                return new TradeSignal
-                {
-                    Date = currentDate,
-                    Type = SignalType.Sell,
-                    Price = currentPrice,
-                    StrategyName = Name,
-                    Quantity = _myContracts,
-                    Reason = "SE Below Avg5 Cross"
-                };
-            }
+            signal.MaxEntriesPerSession = MaxEntriesPerSession;
+            signal.EntrySessionStartUtc = ResolveEntrySessionStartUtc(signal.ValidFromUtc!.Value);
         }
 
-        _prevClose = currentPrice;
+        if (MaxDaysInTrade > 0)
+            signal.CloseAtUtc = ResolveCloseAtUtc(signal.ValidFromUtc!.Value, FlatTime)
+                .AddDays(MaxDaysInTrade - 1);
 
-        return new TradeSignal
-        {
-            Date = currentDate,
-            Type = SignalType.Hold,
-            Price = currentPrice,
-            StrategyName = Name
-        };
+        return signal;
+    }
+
+    private static decimal AverageClose(OhlcvData[] data, int length)
+    {
+        var count = Math.Min(length, data.Length);
+        decimal sum = 0m;
+        for (var index = data.Length - count; index < data.Length; index++)
+            sum += data[index].Close;
+        return sum / count;
+    }
+
+    public void Initialize(Dictionary<string, object>? parameters = null)
+    {
+        if (parameters is null) return;
+        if (parameters.TryGetValue("Contracts", out var contracts))
+            Contracts = Convert.ToInt32(contracts);
+        if (parameters.TryGetValue("MyContracts", out var contractsAlt))
+            Contracts = Convert.ToInt32(contractsAlt);
     }
 }

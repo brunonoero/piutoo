@@ -1,89 +1,66 @@
-using System;
-using System.Collections.Generic;
-using Piootoo.Shared.Enums;
-using Piootoo.Shared.Interfaces;
-using Piootoo.Shared.Models;
-using static Piootoo.Strategies.Easy.EasyLib;
+using Piootoo.Strategies.Easy.Engines;
 
 namespace Piootoo.Strategies.Easy;
 
 /// <summary>
-/// Strategia EasyLanguage convertita: TOP_UA_120
-/// Breakout on N-sessions highest high / lowest low
+/// TOP_UA_120 — breakout sugli estremi di N sessioni con filtro ADX, CL 15 minuti.
+///
+/// <para>Sorgente: <c>piootoo-repository/easy/s_TOP_UA_120_CL_15__7.txt</c>. Variante legacy di
+/// <see cref="SessionBreakoutEngine"/> con livelli fissi d1 (<c>nSess = 1</c>,
+/// <c>levIncludeSess0 = 0</c>).</para>
+///
+/// <para><b>Finestra.</b> Opera tra le 19:00 e le 13:00 con pausa 02:00–07:00. Il filtro ADX(5)
+/// deve restare sotto 50.</para>
+///
+/// <para><b>Uscite.</b> Stop e target monetari più deadline a 4 giorni di calendario
+/// (<c>maxdaysintrade</c>). La chiusura condizionata a <c>flatTime</c> è assorbita dalla
+/// deadline del motore.</para>
+///
+/// <para><b>Contratto di riferimento:</b> CL, $1.000 per punto. Stop $2.200, target $3.200.</para>
 /// </summary>
-public class Easy_120_CL_15 : StatelessEasyStrategyBase
+public sealed class Easy_120_CL_15 : SessionBreakoutEngine
 {
-    // INPUTS
-    private int _titanExportMode = 0;
-    private int _mycontracts = 1;
-    private int _sessBegin = 1800;
+    public override string Name => "Easy_120_CL_15";
+    public override string Description => "Breakout N-sessioni + ADX, CL 15m";
+    public override string Symbol => "@CL";
+    public override int TimeframeMinutes => 15;
 
-    // VARIABLES
-    private int _hh = 0;
-    private bool _isStartOfSession = false;
+    public Easy_120_CL_15()
+    {
+        UseLegacyVariant = true;
+        SessionStartTime = 1800;  // SessBegin
+        SessionEndTime = 1700;    // SessEnd
+        Contracts = 1;
 
-    // STATE
-    private string _symbol = "@CL";
-    private int _timeframeMinutes = 15;
-    private string _name = "TOP_UA_120";
-    private string _description = "Breakout on N-sessions highest high / lowest low";
+        Sessions = 1;                    // nSess
+        IncludeCurrentSession = false;   // levIncludeSess0 = 0
 
-    public string Name => _name;
-    public string Description => _description;
-    public string Symbol => _symbol;
-    public int TimeframeMinutes => _timeframeMinutes;
-    public int RequiredCandles => 100; // TODO: Calcolare in base alla strategia
+        AdxLength = 5;       // ADXLen
+        AdxThreshold = 50m;  // ADXTH
+
+        StartTime = 1900;   // MyStartTime
+        EndTime = 1300;     // MyEndTime
+        PauseStart = 200;   // MyStartPause
+        PauseEnd = 700;     // MyEndPause
+
+        NeutralYes = 26;    // PtnNeutYes
+        NeutralYes2 = 55;   // PtnNeutYes2 — sentinella
+        NeutralNo = 45;     // PtnNeutNo
+        DirectionalYes = -9;   // ptnDirYes
+        DirectionalNo = 12;    // ptnDirNo
+
+        SkipSessionLong = 4;   // SkipSessL
+        SkipSessionShort = 0;  // SkipSessS
+
+        StopMoney = 2200;    // MyStop
+        ProfitMoney = 3200;  // MyProfit
+        MaxDaysInTrade = 4;  // maxdaysintrade
+    }
 
     public void Initialize(Dictionary<string, object>? parameters = null)
     {
-        if (parameters != null)
-        {
-            if (parameters.TryGetValue("Symbol", out var sym))
-                _symbol = sym?.ToString() ?? _symbol;
-            if (parameters.TryGetValue("TimeframeMinutes", out var tf))
-                _timeframeMinutes = Convert.ToInt32(tf);
-            if (parameters.TryGetValue("TitanExportMode", out var titanexportmode))
-                _titanExportMode = Convert.ToInt32(titanexportmode);
-            if (parameters.TryGetValue("mycontracts", out var mycontracts))
-                _mycontracts = Convert.ToInt32(mycontracts);
-            if (parameters.TryGetValue("SessBegin", out var sessbegin))
-                _sessBegin = Convert.ToInt32(sessbegin);
-        }
-    }
-
-    // Stato per tracciare la posizione corrente (MP = marketposition)
-    private int _currentMP = 0; // 0 = nessuna posizione, +1 = long, -1 = short
-    private int _myCount = 0;
-    private DateTime? _lastEntryDate = null;
-
-    public TradeSignal GenerateSignal(OhlcvData[] data, DateTime currentDate)
-    {
-        if (data == null || data.Length < RequiredCandles)
-        {
-            return new TradeSignal
-            {
-                Date = currentDate,
-                Type = SignalType.Hold,
-                Price = data?.LastOrDefault()?.Close ?? 0,
-                StrategyName = Name,
-                Reason = "Dati insufficienti"
-            };
-        }
-
-        var currentPrice = data.Last().Close;
-        var currentTime = currentDate.Hour * 100 + currentDate.Minute; // Formato HHMM
-
-        // TODO: Implementare logica completa della strategia
-        // Convertire condizioni buy/sellshort in TradeSignal
-        // Per ora restituisce Hold - la logica deve essere implementata manualmente
-
-        return new TradeSignal
-        {
-            Date = currentDate,
-            Type = SignalType.Hold,
-            Price = currentPrice,
-            StrategyName = Name
-        };
+        if (parameters is null) return;
+        if (parameters.TryGetValue("Contracts", out var contracts))
+            Contracts = Convert.ToInt32(contracts);
     }
 }
-

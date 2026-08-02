@@ -1,241 +1,172 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
 using Piootoo.Shared.Enums;
-using Piootoo.Shared.Interfaces;
 using Piootoo.Shared.Models;
-using static Piootoo.Strategies.Easy.EasyLib;
+using Piootoo.Strategies.Easy.Engines;
 
 namespace Piootoo.Strategies.Easy;
 
+// HYBRID: filtro range OK_L/OK_S + ingresso a mercato sul cross Bollinger (RBB_U usa limit).
+
 /// <summary>
-/// Strategia EasyLanguage convertita: TOP_UA_506
-/// Bollinger Band cross with range filter for Gold 30 min
+/// TOP_UA_506 — Bollinger cross con filtro di range, GC 30 minuti.
+///
+/// <para>Sorgente: <c>piootoo-repository/easy/s_TOP_UA_506_GC_30__7.txt</c>. Dopo un setup
+/// di compressione (<c>okl</c>/<c>oks</c>) entra a mercato sul cross della banda, non con
+/// limit sulla banda come <see cref="RbbUnmirroredEngine"/>.</para>
+///
+/// <para><b>Contratto di riferimento:</b> GC, $100 per punto. Stop $1.100, target long $3.800 /
+/// short $3.500, breakeven $2.000, max 5 sessioni in posizione.</para>
 /// </summary>
-public class Easy_506_GC_30 : StatelessEasyStrategyBase
+public sealed class Easy_506_GC_30 : EasyEngineBase
 {
-    // INPUTS
-    private int _sessionStartTimeC = 1800;
-    private int _sessionEndTimeC = 1700;
-    private int _myContracts = 1;
-    private int _periodL = 38;
-    private int _periodS = 32;
-    private int _highestPeriodL = 61;
-    private int _lowestPeriodL = 61;
-    private int _highestPeriodS = 48;
-    private int _lowestPeriodS = 64;
-    private int _myPtnLY = 152;
-    private int _myPtnSY = 4;
-    private int _myPtnLN = 8;
-    private int _myPtnSN = 98;
-    private int _myStartTime = 0;
-    private int _myEndTime = 2300;
-    private int _maxDaysInTrade = 5;
-    private int _myStopL = 1100;
-    private int _myStopS = 1100;
-    private int _myProfitL = 3800;
-    private int _myProfitS = 3500;
-    private int _myBreakeven = 2000;
-    private int _length = 20;
-    private int _numDevs = 2;
-    private decimal _multL = 0.8m;
-    private decimal _multS = 0.8m;
+    private const int HighestPeriodLong = 61;
+    private const int LowestPeriodLong = 61;
+    private const int HighestPeriodShort = 48;
+    private const int LowestPeriodShort = 64;
 
-    // VARIABLES
-    private decimal _upperBand = 0;
-    private decimal _lowerBand = 0;
-    private bool _okL = false;
-    private bool _okS = false;
-    private decimal _rangL = 0;
-    private decimal _rangS = 0;
-    private int _daysInTrade = 0;
-    private decimal _prevClose = 0;
+    private bool _okLong;
+    private bool _okShort;
+    private decimal _prevClose;
 
-    // STATE
-    private string _symbol = "@GC";
-    private int _timeframeMinutes = 30;
-    private string _name = "TOP_UA_506";
-    private string _description = "Bollinger Band cross with range filter";
-    private int _currentMP = 0;
-    private int _prevMP = 0;
+    public override string Name => "Easy_506_GC_30";
+    public override string Description => "Bollinger cross con filtro range, GC 30m";
+    public override string Symbol => "@GC";
+    public override int TimeframeMinutes => 30;
 
-    public string Name => _name;
-    public string Description => _description;
-    public string Symbol => _symbol;
-    public int TimeframeMinutes => _timeframeMinutes;
-    public int RequiredCandles => 100;
+    private int PeriodLong { get; set; } = 38;
+    private int PeriodShort { get; set; } = 32;
+    private int FastYesLong { get; set; } = 152;
+    private int FastNoLong { get; set; } = 8;
+    private int FastYesShort { get; set; } = 4;
+    private int FastNoShort { get; set; } = 98;
+    private int StartTrade { get; set; } = 0;
+    private int EndTrade { get; set; } = 2300;
+    private int BollingerLength { get; set; } = 20;
+    private decimal BollingerNumDevs { get; set; } = 2m;
+    private decimal RangeMultiplierLong { get; set; } = 0.8m;
+    private decimal RangeMultiplierShort { get; set; } = 0.8m;
 
-    public void Initialize(Dictionary<string, object>? parameters = null)
+    public override int RequiredCandles =>
+        Math.Max(base.RequiredCandles, Math.Max(BollingerLength + 1, HighestPeriodLong + 1));
+
+    public Easy_506_GC_30()
     {
-        if (parameters != null)
-        {
-            if (parameters.TryGetValue("Symbol", out var sym)) _symbol = sym?.ToString() ?? _symbol;
-            if (parameters.TryGetValue("TimeframeMinutes", out var tf)) _timeframeMinutes = Convert.ToInt32(tf);
-            if (parameters.TryGetValue("sessionStartTimeC", out var sst)) _sessionStartTimeC = Convert.ToInt32(sst);
-            if (parameters.TryGetValue("sessionEndTimeC", out var set)) _sessionEndTimeC = Convert.ToInt32(set);
-            if (parameters.TryGetValue("Mycontracts", out var mc)) _myContracts = Convert.ToInt32(mc);
-            if (parameters.TryGetValue("periodol", out var pl)) _periodL = Convert.ToInt32(pl);
-            if (parameters.TryGetValue("periodos", out var ps)) _periodS = Convert.ToInt32(ps);
-            if (parameters.TryGetValue("MyPtnLY", out var mply)) _myPtnLY = Convert.ToInt32(mply);
-            if (parameters.TryGetValue("MyPtnSY", out var mpsy)) _myPtnSY = Convert.ToInt32(mpsy);
-            if (parameters.TryGetValue("MyPtnLN", out var mpln)) _myPtnLN = Convert.ToInt32(mpln);
-            if (parameters.TryGetValue("MyPtnSN", out var mpsn)) _myPtnSN = Convert.ToInt32(mpsn);
-            if (parameters.TryGetValue("maxdaysintrade", out var mdit)) _maxDaysInTrade = Convert.ToInt32(mdit);
-            if (parameters.TryGetValue("MyStopl", out var msl)) _myStopL = Convert.ToInt32(msl);
-            if (parameters.TryGetValue("MyStops", out var mss)) _myStopS = Convert.ToInt32(mss);
-            if (parameters.TryGetValue("MyProfitl", out var mpl)) _myProfitL = Convert.ToInt32(mpl);
-            if (parameters.TryGetValue("MyProfits", out var mps)) _myProfitS = Convert.ToInt32(mps);
-            if (parameters.TryGetValue("Length", out var l)) _length = Convert.ToInt32(l);
-            if (parameters.TryGetValue("NumDevs", out var nd)) _numDevs = Convert.ToInt32(nd);
-            if (parameters.TryGetValue("multl", out var ml)) _multL = Convert.ToDecimal(ml);
-            if (parameters.TryGetValue("mults", out var ms)) _multS = Convert.ToDecimal(ms);
-        }
+        SessionStartTime = 1800;  // sessionStartTimeC
+        SessionEndTime = 1700;    // sessionEndTimeC
+        Contracts = 1;
+
+        StopMoney = 1100;       // MyStopl / MyStops
+        ProfitMoney = 3800;     // MyProfitl (short 3500 — approssimato al long)
+        BreakEvenMoney = 2000;  // MyBreakeven
+        MaxDaysInTrade = 5;     // maxdaysintrade
     }
 
     public TradeSignal GenerateSignal(OhlcvData[] data, DateTime currentDate)
     {
-        if (data == null || data.Length < RequiredCandles)
+        if (data is null || data.Length < RequiredCandles)
+            return Hold(data?.LastOrDefault()?.Close ?? 0m, currentDate, "Dati insufficienti");
+
+        var bar = data[^1];
+        var barTime = bar.DateTime;
+        BuildSessionOhlc(data, barTime, out var ohlc);
+
+        UpdateRangeFlags(data, bar);
+
+        if (CurrentMP != 0)
         {
-            return new TradeSignal
-            {
-                Date = currentDate,
-                Type = SignalType.Hold,
-                Price = data?.LastOrDefault()?.Close ?? 0,
-                StrategyName = Name,
-                Reason = "Dati insufficienti"
-            };
+            _okLong = false;
+            _okShort = false;
         }
 
-        var currentPrice = data.Last().Close;
-        var currentHigh = data.Last().High;
-        var currentLow = data.Last().Low;
-        var prevLow = data.Length > 1 ? data[data.Length - 2].Low : currentLow;
-        var prevHigh = data.Length > 1 ? data[data.Length - 2].High : currentHigh;
-        var currentTime = currentDate.Hour * 100 + currentDate.Minute;
+        GetBands(data, BollingerLength, BollingerNumDevs, out var upperBand, out var lowerBand);
 
-        // Calcola OHLC
-        decimal[] ohlcValues = new decimal[24];
-        var isStartOfSession = OHLCMulti5(_sessionStartTimeC, _sessionEndTimeC, data, currentDate, out ohlcValues);
-
-        _prevMP = _currentMP;
-
-        if (isStartOfSession && _currentMP != 0)
+        if (!EasyLib.TimeWindow(StartTrade, EndTrade, barTime))
         {
-            _daysInTrade++;
+            _prevClose = bar.Close;
+            return Hold(bar.Close, barTime);
         }
 
-        // Calculate ranges
-        var highestL = Highest(data, _highestPeriodL, d => d.High);
-        var lowestL = Lowest(data, _lowestPeriodL, d => d.Low);
-        var highestS = Highest(data, _highestPeriodS, d => d.High);
-        var lowestS = Lowest(data, _lowestPeriodS, d => d.Low);
-        var highestPeriodL = Highest(data, _periodL, d => d.High);
-        var lowestPeriodS = Lowest(data, _periodS, d => d.Low);
+        var entries = new List<TradeSignal>(2);
 
-        _rangL = highestL - lowestL;
-        _rangS = highestS - lowestS;
-
-        // Check OK signals based on price crossing levels
-        if (prevLow > highestPeriodL - _rangL * _multL && currentLow < highestPeriodL - _rangL * _multL)
-            _okL = true;
-        if (prevHigh < lowestPeriodS + _rangS * _multS && currentHigh > lowestPeriodS + _rangS * _multS)
-            _okS = true;
-
-        if (_currentMP == 1) _okL = false;
-        if (_currentMP == -1) _okS = false;
-
-        if (_currentMP != 0)
+        if (_okShort && _prevClose > upperBand && bar.Close <= upperBand &&
+            EasyLib.PatternFast(FastYesShort, ohlc) && !EasyLib.PatternFast(FastNoShort, ohlc))
         {
-            _okL = false;
-            _okS = false;
-            _rangL = 0;
-            _rangS = 0;
+            _okShort = false;
+            entries.Add(WithExitSettings(
+                EntryMarketNextBar(SignalType.Sell, bar.Close, data, barTime, "SE BB cross")));
         }
 
-        // Calculate Bollinger Bands
-        var closes = data.Skip(Math.Max(0, data.Length - _length)).Select(d => d.Close).ToArray();
-        if (closes.Length >= _length)
+        if (_okLong && _prevClose < lowerBand && bar.Close >= lowerBand &&
+            EasyLib.PatternFast(FastYesLong, ohlc) && !EasyLib.PatternFast(FastNoLong, ohlc))
         {
-            var sma = closes.Average();
-            var stdDev = (decimal)Math.Sqrt((double)closes.Select(c => (c - sma) * (c - sma)).Average());
-            _upperBand = sma + (_numDevs * stdDev);
-            _lowerBand = sma - (_numDevs * stdDev);
+            _okLong = false;
+            entries.Add(WithExitSettings(
+                EntryMarketNextBar(SignalType.Buy, bar.Close, data, barTime, "LE BB cross")));
         }
 
-        // Track MP changes
-        if (_currentMP != _prevMP && _currentMP != 0)
+        _prevClose = bar.Close;
+        return Combine(entries, Hold(bar.Close, barTime));
+    }
+
+    private void UpdateRangeFlags(OhlcvData[] data, OhlcvData bar)
+    {
+        var highestLong = EasyLib.Highest(data, HighestPeriodLong, d => d.High);
+        var lowestLong = EasyLib.Lowest(data, LowestPeriodLong, d => d.Low);
+        var highestShort = EasyLib.Highest(data, HighestPeriodShort, d => d.High);
+        var lowestShort = EasyLib.Lowest(data, LowestPeriodShort, d => d.Low);
+        var rangeLong = highestLong - lowestLong;
+        var rangeShort = highestShort - lowestShort;
+
+        var highestPeriodLong = EasyLib.Highest(data, PeriodLong, d => d.High);
+        var lowestPeriodShort = EasyLib.Lowest(data, PeriodShort, d => d.Low);
+        var prevBar = data[^2];
+
+        if (prevBar.Low > highestPeriodLong - rangeLong * RangeMultiplierLong &&
+            bar.Low < highestPeriodLong - rangeLong * RangeMultiplierLong)
         {
-            _daysInTrade = 1;
+            _okLong = true;
         }
 
-        // Max days in trade exit
-        if (_maxDaysInTrade > 0 && _daysInTrade >= _maxDaysInTrade && currentTime >= 1630 && currentTime < 1700)
+        if (prevBar.High < lowestPeriodShort + rangeShort * RangeMultiplierShort &&
+            bar.High > lowestPeriodShort + rangeShort * RangeMultiplierShort)
         {
-            if (_currentMP != 0)
-            {
-                var exitMP = _currentMP;
-                _currentMP = 0;
-                return new TradeSignal
-                {
-                    Date = currentDate,
-                    Type = exitMP == 1 ? SignalType.Sell : SignalType.Buy,
-                    Price = currentPrice,
-                    StrategyName = Name,
-                    Quantity = _myContracts,
-                    Reason = "Exit MaxDays"
-                };
-            }
+            _okShort = true;
+        }
+    }
+
+    private static void GetBands(OhlcvData[] data, int length, decimal numDevs, out decimal upper, out decimal lower)
+    {
+        var end = data.Length - 1;
+        var start = end - length + 1;
+        decimal sum = 0m;
+        for (var index = start; index <= end; index++)
+            sum += data[index].Close;
+
+        var average = sum / length;
+        decimal squaredDifferenceSum = 0m;
+        for (var index = start; index <= end; index++)
+        {
+            var difference = data[index].Close - average;
+            squaredDifferenceSum += difference * difference;
         }
 
-        bool inTimeWindow = TimeWindow(_myStartTime, _myEndTime, currentDate);
+        var standardDeviation = (decimal)Math.Sqrt((double)(squaredDifferenceSum / length));
+        upper = average + numDevs * standardDeviation;
+        lower = average - numDevs * standardDeviation;
+    }
 
-        if (inTimeWindow)
-        {
-            // Short entry
-            if (_okS && _prevClose > _upperBand && currentPrice <= _upperBand &&
-                PatternFast(_myPtnSY, ohlcValues) && !PatternFast(_myPtnSN, ohlcValues))
-            {
-                _currentMP = -1;
-                _okS = false;
-                _prevClose = currentPrice;
-                return new TradeSignal
-                {
-                    Date = currentDate,
-                    Type = SignalType.Sell,
-                    Price = currentPrice,
-                    StrategyName = Name,
-                    Quantity = _myContracts,
-                    Reason = "SE BB Upper Cross"
-                };
-            }
+    private TradeSignal WithExitSettings(TradeSignal signal)
+    {
+        if (MaxDaysInTrade > 0)
+            signal.CloseAtUtc = signal.ValidFromUtc!.Value.Date.AddDays(MaxDaysInTrade);
+        return signal;
+    }
 
-            // Long entry
-            if (_okL && _prevClose < _lowerBand && currentPrice >= _lowerBand &&
-                PatternFast(_myPtnLY, ohlcValues) && !PatternFast(_myPtnLN, ohlcValues))
-            {
-                _currentMP = 1;
-                _okL = false;
-                _prevClose = currentPrice;
-                return new TradeSignal
-                {
-                    Date = currentDate,
-                    Type = SignalType.Buy,
-                    Price = currentPrice,
-                    StrategyName = Name,
-                    Quantity = _myContracts,
-                    Reason = "LE BB Lower Cross"
-                };
-            }
-        }
-
-        _prevClose = currentPrice;
-
-        return new TradeSignal
-        {
-            Date = currentDate,
-            Type = SignalType.Hold,
-            Price = currentPrice,
-            StrategyName = Name
-        };
+    public void Initialize(Dictionary<string, object>? parameters = null)
+    {
+        if (parameters is null) return;
+        if (parameters.TryGetValue("Contracts", out var contracts))
+            Contracts = Convert.ToInt32(contracts);
+        if (parameters.TryGetValue("Mycontracts", out var contractsAlt))
+            Contracts = Convert.ToInt32(contractsAlt);
     }
 }

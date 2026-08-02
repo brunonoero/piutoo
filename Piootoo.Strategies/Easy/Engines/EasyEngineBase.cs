@@ -46,6 +46,15 @@ public abstract class EasyEngineBase : StatelessEasyStrategyBase
     /// <summary>Soglia di breakeven in denaro per contratto di riferimento. 0 = disattivo.</summary>
     protected int BreakEvenMoney;
 
+    /// <summary>Trailing stop in denaro per contratto di riferimento. 0 = disattivo.</summary>
+    protected int TrailingStopMoney;
+
+    /// <summary>
+    /// Massimo numero di fill per sessione. 0 = nessun limite. Viene dichiarato sul segnale e
+    /// applicato dall'engine al fill, così uno stop non eseguito può essere riemesso.
+    /// </summary>
+    protected int MaxEntriesPerSession;
+
     /// <summary>Numero massimo di barre in posizione. 0 = nessun limite.</summary>
     protected int MaxBars;
 
@@ -137,7 +146,7 @@ public abstract class EasyEngineBase : StatelessEasyStrategyBase
         string reason)
     {
         var nextBar = EasyLib.EstimateNextBarUtc(data, barTime);
-        return new TradeSignal
+        var signal = new TradeSignal
         {
             Date = barTime,
             Type = side,
@@ -153,11 +162,33 @@ public abstract class EasyEngineBase : StatelessEasyStrategyBase
             StopLossMoneyPerFutureContract = StopMoney > 0 ? StopMoney : null,
             TakeProfitMoneyPerFutureContract = ProfitMoney > 0 ? ProfitMoney : null,
             BreakEvenMoneyPerFutureContract = BreakEvenMoney > 0 ? BreakEvenMoney : null,
+            TrailingStopMoneyPerFutureContract = TrailingStopMoney > 0 ? TrailingStopMoney : null,
             MaxBarsInPosition = MaxBars > 0 ? MaxBars : null,
             CloseAtUtc = MaxDaysInTrade > 0 ? barTime.Date.AddDays(MaxDaysInTrade) : null,
             TimeExitOnlyIfProfitBelowMoneyPerContract = TimeExitOnlyIfProfitBelow,
             Reason = reason
         };
+
+        if (MaxEntriesPerSession > 0)
+        {
+            signal.MaxEntriesPerSession = MaxEntriesPerSession;
+            signal.EntrySessionStartUtc = ResolveEntrySessionStartUtc(nextBar);
+        }
+
+        return signal;
+    }
+
+    /// <summary>
+    /// Inizio della sessione di trading che contiene <paramref name="timeUtc"/>. Usa
+    /// <see cref="SessionStartTime"/>/<see cref="SessionEndTime"/> del motore, così il limite
+    /// di fill per sessione coincide con il calendario dei pattern.
+    /// </summary>
+    protected virtual DateTime ResolveEntrySessionStartUtc(DateTime timeUtc)
+    {
+        var sessionStart = EasyLib.CombineDateAndHhmm(timeUtc.Date, SessionStartTime);
+        return SessionStartTime > SessionEndTime && timeUtc < sessionStart
+            ? sessionStart.AddDays(-1)
+            : sessionStart;
     }
 
     /// <summary>

@@ -1,84 +1,49 @@
-using System;
-using System.Collections.Generic;
-using Piootoo.Shared.Enums;
-using Piootoo.Shared.Interfaces;
-using Piootoo.Shared.Models;
-using static Piootoo.Strategies.Easy.EasyLib;
+using Piootoo.Strategies.Easy.Engines;
 
 namespace Piootoo.Strategies.Easy;
 
 /// <summary>
-/// Strategia EasyLanguage convertita: TOP_UA_772
-/// TITAN FAST EXPORT (mette il report direttamente in C:\\\\Titan\\\\Reports
+/// TOP_UA_772 — crossover SMA con filtro daily e pendenza, CL 60 minuti.
+///
+/// <para>Sorgente: <c>piootoo-repository/easy/s_TOP_UA_772_CL_60__7.txt</c>. La logica vive in
+/// <see cref="MovingAverageCrossoverEngine"/>; ingresso solo da flat dopo setup daily della
+/// sessione precedente e controllo del gradiente.</para>
+///
+/// <para><b>Uscite.</b> Stop monetario, reverse sul cross opposto e chiusura del venerdì a fine
+/// sessione sono gestiti dal motore MAC. Nessuna uscita close-dependent sulla strategia.</para>
+///
+/// <para><b>Contratto di riferimento:</b> CL, $1.000 per punto. Stop $1.500.</para>
 /// </summary>
-public class Easy_772_CL_60 : StatelessEasyStrategyBase
+public sealed class Easy_772_CL_60 : MovingAverageCrossoverEngine
 {
-    // INPUTS
-    private int _titanExportMode = 0;
-    private int _myTimeframe = 60;
+    public override string Name => "Easy_772_CL_60";
+    public override string Description => "SMA cross con filtro daily e gradiente, CL 60m";
+    public override string Symbol => "@CL";
+    public override int TimeframeMinutes => 60;
 
-    // VARIABLES
+    public override int RequiredCandles =>
+        Math.Max(base.RequiredCandles, SessionsToCandles(6));
 
-    // STATE
-    private string _symbol = "@CL";
-    private int _timeframeMinutes = 60;
-    private string _name = "TOP_UA_772";
-    private string _description = "TITAN FAST EXPORT (mette il report direttamente in C:\\\\Titan\\\\Reports";
+    public Easy_772_CL_60()
+    {
+        SessionEndTime = 1700;  // chiusura venerdì 16:00–17:00
 
-    public string Name => _name;
-    public string Description => _description;
-    public string Symbol => _symbol;
-    public int TimeframeMinutes => _timeframeMinutes;
-    public int RequiredCandles => 100; // TODO: Calcolare in base alla strategia
+        FastPeriod = 12;   // myFastLength
+        SlowPeriod = 24;   // mySlowLength
+        GradientPeriod = 2;  // myGradientLength
+        GradientFactor = 1.6m;  // myGradientFactor
+
+        RequireFlatPosition = true;
+        UseDailyFilter = true;
+        DailyBodyFactor = 0.5m;  // myDailyFactor
+
+        StopMoney = 1500;  // myStop
+    }
 
     public void Initialize(Dictionary<string, object>? parameters = null)
     {
-        if (parameters != null)
-        {
-            if (parameters.TryGetValue("Symbol", out var sym))
-                _symbol = sym?.ToString() ?? _symbol;
-            if (parameters.TryGetValue("TimeframeMinutes", out var tf))
-                _timeframeMinutes = Convert.ToInt32(tf);
-            if (parameters.TryGetValue("TitanExportMode", out var titanexportmode))
-                _titanExportMode = Convert.ToInt32(titanexportmode);
-            if (parameters.TryGetValue("myTimeframe", out var mytimeframe))
-                _myTimeframe = Convert.ToInt32(mytimeframe);
-        }
-    }
-
-    // Stato per tracciare la posizione corrente (MP = marketposition)
-    private int _currentMP = 0; // 0 = nessuna posizione, +1 = long, -1 = short
-    private int _myCount = 0;
-    private DateTime? _lastEntryDate = null;
-
-    public TradeSignal GenerateSignal(OhlcvData[] data, DateTime currentDate)
-    {
-        if (data == null || data.Length < RequiredCandles)
-        {
-            return new TradeSignal
-            {
-                Date = currentDate,
-                Type = SignalType.Hold,
-                Price = data?.LastOrDefault()?.Close ?? 0,
-                StrategyName = Name,
-                Reason = "Dati insufficienti"
-            };
-        }
-
-        var currentPrice = data.Last().Close;
-        var currentTime = currentDate.Hour * 100 + currentDate.Minute; // Formato HHMM
-
-        // TODO: Implementare logica completa della strategia
-        // Convertire condizioni buy/sellshort in TradeSignal
-        // Per ora restituisce Hold - la logica deve essere implementata manualmente
-
-        return new TradeSignal
-        {
-            Date = currentDate,
-            Type = SignalType.Hold,
-            Price = currentPrice,
-            StrategyName = Name
-        };
+        if (parameters is null) return;
+        if (parameters.TryGetValue("Contracts", out var contracts))
+            Contracts = Convert.ToInt32(contracts);
     }
 }
-

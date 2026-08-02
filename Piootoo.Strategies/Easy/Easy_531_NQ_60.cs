@@ -1,203 +1,98 @@
-using System;
-using System.Collections.Generic;
 using Piootoo.Shared.Enums;
-using Piootoo.Shared.Interfaces;
 using Piootoo.Shared.Models;
-using static Piootoo.Strategies.Easy.EasyLib;
+using Piootoo.Strategies.Easy.Engines;
 
 namespace Piootoo.Strategies.Easy;
 
+// HYBRID: ingresso solo all'orario MyTime con stop su H/L della barra corrente; uscita a tempo
+// su sessionEndTimeC-200 non è CloseAtUtc standard.
+
 /// <summary>
-/// Strategia EasyLanguage convertita: TOP_UA_531
-/// works on 60 minutes bars fatto per il gold partendo dal codice jumper
+/// TOP_UA_531 — ingresso a orologio con stop su estremi barra, NQ 60 minuti.
+///
+/// <para>Sorgente: <c>piootoo-repository/easy/s_TOP_UA_531_NQ_60__7.txt</c>. Alle 08:00 UTC
+/// arma stop long su <c>high</c> e stop short su <c>low</c> della barra corrente, validi solo
+/// sulla barra successiva.</para>
+///
+/// <para><b>Contratto di riferimento:</b> NQ, $20 per punto. Stop $2.500, target $6.000,
+/// uscita forzata dopo 10 giorni alle 14:00.</para>
 /// </summary>
-public class Easy_531_NQ_60 : StatelessEasyStrategyBase
+public sealed class Easy_531_NQ_60 : EasyEngineBase
 {
-    // INPUTS
-    private int _maxdaysIntrade = 10;
-    private int _sessionStartTimeC = 1700;
-    private int _sessionEndTimeC = 1600;
-    private int _myTime = 800;
-    private int _titanExportMode = 0;
-    private int _mycontracts = 1;
-    private int _myPtnLY = 142;
-    private int _myPtnSY = 64;
-    private int _myPtnLN = 92;
-    private int _myPtnSN = 87;
-    private int _myNotLEDay = -1;
-    private int _myNotSEDay = -1;
-    private int _myStop = 2500;
-    private int _myProfit = 6000;
-    private int _noMonthLE = -1;
-    private int _noMonthSE = -1;
+    private const int ExitTime = 1400; // sessionEndTimeC(1600) - 200
 
-    // VARIABLES
-    private int _markPos = 0;
-    private bool _isStartOfSession = true;
-    private int _daysInTr = 0;
-    private int _previousMP = 0;
+    public override string Name => "Easy_531_NQ_60";
+    public override string Description => "Clock-time stop su H/L barra, NQ 60m";
+    public override string Symbol => "@NQ";
+    public override int TimeframeMinutes => 60;
 
-    // STATE
-    private string _symbol = "@NQ";
-    private int _timeframeMinutes = 60;
-    private string _name = "TOP_UA_531";
-    private string _description = "works on 60 minutes bars fatto per il gold partendo dal codice jumper";
+    private int EntryClockTime { get; set; } = 800;
+    private int FastYesLong { get; set; } = 142;
+    private int FastNoLong { get; set; } = 92;
+    private int FastYesShort { get; set; } = 64;
+    private int FastNoShort { get; set; } = 87;
+    private int NotEntryDayLong { get; set; } = -1;
+    private int NotEntryDayShort { get; set; } = -1;
+    private int NotEntryMonthLong { get; set; } = -1;
+    private int NotEntryMonthShort { get; set; } = -1;
 
-    public string Name => _name;
-    public string Description => _description;
-    public string Symbol => _symbol;
-    public int TimeframeMinutes => _timeframeMinutes;
-    public int RequiredCandles => 100; // TODO: Calcolare in base alla strategia
-
-    public void Initialize(Dictionary<string, object>? parameters = null)
+    public Easy_531_NQ_60()
     {
-        if (parameters != null)
-        {
-            if (parameters.TryGetValue("Symbol", out var sym))
-                _symbol = sym?.ToString() ?? _symbol;
-            if (parameters.TryGetValue("TimeframeMinutes", out var tf))
-                _timeframeMinutes = Convert.ToInt32(tf);
-            if (parameters.TryGetValue("MaxdaysIntrade", out var maxdaysintrade))
-                _maxdaysIntrade = Convert.ToInt32(maxdaysintrade);
-            if (parameters.TryGetValue("sessionStartTimeC", out var sessionstarttimec))
-                _sessionStartTimeC = Convert.ToInt32(sessionstarttimec);
-            if (parameters.TryGetValue("MyTime", out var mytime))
-                _myTime = Convert.ToInt32(mytime);
-            if (parameters.TryGetValue("TitanExportMode", out var titanexportmode))
-                _titanExportMode = Convert.ToInt32(titanexportmode);
-            if (parameters.TryGetValue("Mycontracts", out var mycontracts))
-                _mycontracts = Convert.ToInt32(mycontracts);
-            if (parameters.TryGetValue("MyPtnLY", out var myptnly))
-                _myPtnLY = Convert.ToInt32(myptnly);
-        }
-    }
+        SessionStartTime = 1700;  // sessionStartTimeC
+        SessionEndTime = 1600;    // sessionEndTimeC
+        Contracts = 1;
 
-    // Stato per tracciare la posizione corrente (MP = marketposition)
-    private int _currentMP = 0; // 0 = nessuna posizione, +1 = long, -1 = short
-    private int _myCount = 0;
-    private DateTime? _lastEntryDate = null;
+        StopMoney = 2500;    // MyStop
+        ProfitMoney = 6000;  // MyProfit
+        MaxDaysInTrade = 10; // MaxdaysIntrade
+    }
 
     public TradeSignal GenerateSignal(OhlcvData[] data, DateTime currentDate)
     {
-        if (data == null || data.Length < RequiredCandles)
+        if (data is null || data.Length < RequiredCandles)
+            return Hold(data?.LastOrDefault()?.Close ?? 0m, currentDate, "Dati insufficienti");
+
+        var bar = data[^1];
+        var barTime = bar.DateTime;
+        BuildSessionOhlc(data, barTime, out var ohlc);
+
+        if (Hhmm(barTime) != EntryClockTime || CurrentMP != 0)
+            return Hold(bar.Close, barTime);
+
+        var entries = new List<TradeSignal>(2);
+
+        if (EasyDayOfWeek(barTime) != NotEntryDayLong &&
+            barTime.Month != NotEntryMonthLong &&
+            EasyLib.PatternFast(FastYesLong, ohlc) && !EasyLib.PatternFast(FastNoLong, ohlc))
         {
-            return new TradeSignal
-            {
-                Date = currentDate,
-                Type = SignalType.Hold,
-                Price = data?.LastOrDefault()?.Close ?? 0,
-                StrategyName = Name,
-                Reason = "Dati insufficienti"
-            };
+            entries.Add(WithMaxDaysClose(EntryStopNextBar(SignalType.Buy, bar.High, data, barTime, "LE"), barTime));
         }
 
-        var currentPrice = data.Last().Close;
-        var currentTime = currentDate.Hour * 100 + currentDate.Minute;
-        
-        // Calcola OHLC per pattern
-        decimal[] ohlcValues = new decimal[24];
-        _isStartOfSession = OHLCMulti5(_sessionStartTimeC, _sessionEndTimeC, data, currentDate, out ohlcValues);
-        
-        // Gestione DaysInTrade
-        _markPos = _currentMP;
-        if (_markPos != _previousMP)
+        if (EasyDayOfWeek(barTime) != NotEntryDayShort &&
+            barTime.Month != NotEntryMonthShort &&
+            EasyLib.PatternFast(FastYesShort, ohlc) && !EasyLib.PatternFast(FastNoShort, ohlc))
         {
-            _daysInTr = 0;
+            entries.Add(WithMaxDaysClose(EntryStopNextBar(SignalType.Sell, bar.Low, data, barTime, "SE"), barTime));
         }
-        if (_markPos != 0 && _lastEntryDate.HasValue && currentDate.Date > _lastEntryDate.Value.Date)
-        {
-            _daysInTr++;
-        }
-        _previousMP = _markPos;
-        
-        // ENTRY CONDITIONS all'ora specificata
-        if (currentTime == _myTime)
-        {
-            // BUY condition
-            if (PatternFast(_myPtnLY, ohlcValues) && !PatternFast(_myPtnLN, ohlcValues) && 
-                (int)currentDate.DayOfWeek != _myNotLEDay && 
-                (int)currentDate.Month != _noMonthLE && _currentMP == 0)
-            {
-                _currentMP = 1;
-                _lastEntryDate = currentDate;
-                return new TradeSignal
-                {
-                    Date = currentDate,
-                    Type = SignalType.Buy,
-                    Price = data.Last().High, // h stop
-                    StrategyName = Name,
-                    Quantity = _mycontracts,
-                    StopLoss = _myStop > 0 ? (decimal?)_myStop : null,
-                    TakeProfit = _myProfit > 0 ? (decimal?)_myProfit : null,
-                    Reason = "LE"
-                };
-            }
-            
-            // SELLSHORT condition
-            if (PatternFast(_myPtnSY, ohlcValues) && !PatternFast(_myPtnSN, ohlcValues) && 
-                (int)currentDate.DayOfWeek != _myNotSEDay && 
-                (int)currentDate.Month != _noMonthSE && _currentMP == 0)
-            {
-                _currentMP = -1;
-                _lastEntryDate = currentDate;
-                return new TradeSignal
-                {
-                    Date = currentDate,
-                    Type = SignalType.Sell,
-                    Price = data.Last().Low, // l stop
-                    StrategyName = Name,
-                    Quantity = _mycontracts,
-                    StopLoss = _myStop > 0 ? (decimal?)_myStop : null,
-                    TakeProfit = _myProfit > 0 ? (decimal?)_myProfit : null,
-                    Reason = "SE"
-                };
-            }
-        }
-        
-        // EXIT per MaxDays
-        if (_maxdaysIntrade > 0 && _daysInTr >= _maxdaysIntrade)
-        {
-            int exitTime = _sessionEndTimeC - 200;
-            if (currentTime == exitTime)
-            {
-                if (_currentMP == 1)
-                {
-                    _currentMP = 0;
-                    _daysInTr = 0;
-                    return new TradeSignal
-                    {
-                        Date = currentDate,
-                        Type = SignalType.Sell,
-                        Price = currentPrice,
-                        StrategyName = Name,
-                        Quantity = _mycontracts,
-                        Reason = "LX_EndDay"
-                    };
-                }
-                if (_currentMP == -1)
-                {
-                    _currentMP = 0;
-                    _daysInTr = 0;
-                    return new TradeSignal
-                    {
-                        Date = currentDate,
-                        Type = SignalType.Buy,
-                        Price = currentPrice,
-                        StrategyName = Name,
-                        Quantity = _mycontracts,
-                        Reason = "SX_EndDay"
-                    };
-                }
-            }
-        }
-        
-        return new TradeSignal
-        {
-            Date = currentDate,
-            Type = SignalType.Hold,
-            Price = currentPrice,
-            StrategyName = Name
-        };
+
+        return Combine(entries, Hold(bar.Close, barTime));
+    }
+
+    private TradeSignal WithMaxDaysClose(TradeSignal signal, DateTime barTime)
+    {
+        if (MaxDaysInTrade > 0)
+            signal.CloseAtUtc = ResolveCloseAtUtc(barTime.AddDays(MaxDaysInTrade - 1), ExitTime);
+        return signal;
+    }
+
+    public void Initialize(Dictionary<string, object>? parameters = null)
+    {
+        if (parameters is null) return;
+        if (parameters.TryGetValue("Contracts", out var contracts))
+            Contracts = Convert.ToInt32(contracts);
+        if (parameters.TryGetValue("Mycontracts", out var contractsAlt))
+            Contracts = Convert.ToInt32(contractsAlt);
+        if (parameters.TryGetValue("MaxdaysIntrade", out var maxDays))
+            MaxDaysInTrade = Convert.ToInt32(maxDays);
     }
 }
-

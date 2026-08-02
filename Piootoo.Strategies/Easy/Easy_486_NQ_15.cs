@@ -1,187 +1,84 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
 using Piootoo.Shared.Enums;
-using Piootoo.Shared.Interfaces;
 using Piootoo.Shared.Models;
-using static Piootoo.Strategies.Easy.EasyLib;
+using Piootoo.Shared.Models.Trading;
+using Piootoo.Strategies.Easy.Engines;
 
 namespace Piootoo.Strategies.Easy;
 
 /// <summary>
-/// Strategia EasyLanguage convertita: TOP_UA_486
-/// ATR Breakout strategy for NQ 15 min
+/// TOP_UA_486 — VBO legacy: ingresso a mercato quando il close supera <c>OpenS0 ± ATR × k</c>,
+/// NQ 15 minuti.
+///
+/// <para>Sorgente: <c>piootoo-repository/easy/s_TOP_UA_486_NQ_15__7.txt</c>. Un solo ingresso
+/// al giorno nella finestra 09:00–13:00; chiusura forzata alle 15:30 espressa come
+/// <c>CloseAtUtc</c> sull'ingresso.</para>
+///
+/// <para><b>Contratto di riferimento:</b> NQ, $20 per punto. Stop $1.300, target $4.000.</para>
 /// </summary>
-public class Easy_486_NQ_15 : StatelessEasyStrategyBase
+public sealed class Easy_486_NQ_15 : VolatilityBreakoutEngine
 {
-    // INPUTS
-    private int _sessionStartTimeA = 1700;
-    private int _sessionEndTimeA = 1600;
-    private int _mySize = 1;
-    private int _twOn = 1;
-    private int _myStartTrade = 900;
-    private int _myEndTrade = 1300;
-    private decimal _atrFactorL = 6;
-    private decimal _atrFactorS = 8.5m;
-    private int _myAtrLen = 500;
-    private int _exitBeg = 1530;
-    private int _exitEnd = 1545;
-    private int _stopLoss = 1300;
-    private int _takeProfit = 4000;
-    private int _ptnFastLongYes = 26;
-    private int _ptnFastShortYes = 57;
-    private int _ptnFastLongNo = 62;
-    private int _ptnFastShortNo = 23;
+    private const int SessionFlatTime = 1530;
 
-    // VARIABLES
-    private decimal _myATR = 0;
-    private decimal _lEntryLevel = 0;
-    private decimal _sEntryLevel = 0;
-    private int _entriesToday = 0;
-    private DateTime? _lastTradeDate = null;
+    public override string Name => "Easy_486_NQ_15";
+    public override string Description => "Ingresso a mercato su banda ATR da apertura sessione, NQ 15m";
+    public override string Symbol => "@NQ";
+    public override int TimeframeMinutes => 15;
 
-    // STATE
-    private string _symbol = "@NQ";
-    private int _timeframeMinutes = 15;
-    private string _name = "TOP_UA_486";
-    private string _description = "ATR Breakout strategy for NQ";
-    private int _currentMP = 0;
+    public override int RequiredCandles => Math.Max(SessionsToCandles(6), 520);
 
-    public string Name => _name;
-    public string Description => _description;
-    public string Symbol => _symbol;
-    public int TimeframeMinutes => _timeframeMinutes;
-    public int RequiredCandles => 600;
-
-    public void Initialize(Dictionary<string, object>? parameters = null)
+    public Easy_486_NQ_15()
     {
-        if (parameters != null)
-        {
-            if (parameters.TryGetValue("Symbol", out var sym)) _symbol = sym?.ToString() ?? _symbol;
-            if (parameters.TryGetValue("TimeframeMinutes", out var tf)) _timeframeMinutes = Convert.ToInt32(tf);
-            if (parameters.TryGetValue("sessionStartTimeA", out var sst)) _sessionStartTimeA = Convert.ToInt32(sst);
-            if (parameters.TryGetValue("sessionEndTimeA", out var set)) _sessionEndTimeA = Convert.ToInt32(set);
-            if (parameters.TryGetValue("MySize", out var ms)) _mySize = Convert.ToInt32(ms);
-            if (parameters.TryGetValue("TW_ON", out var two)) _twOn = Convert.ToInt32(two);
-            if (parameters.TryGetValue("MyStartTrade", out var mst)) _myStartTrade = Convert.ToInt32(mst);
-            if (parameters.TryGetValue("MyEndTrade", out var met)) _myEndTrade = Convert.ToInt32(met);
-            if (parameters.TryGetValue("ATRFactorL", out var afl)) _atrFactorL = Convert.ToDecimal(afl);
-            if (parameters.TryGetValue("ATRFactorS", out var afs)) _atrFactorS = Convert.ToDecimal(afs);
-            if (parameters.TryGetValue("MyAtrLen", out var mal)) _myAtrLen = Convert.ToInt32(mal);
-            if (parameters.TryGetValue("ExitBeg", out var eb)) _exitBeg = Convert.ToInt32(eb);
-            if (parameters.TryGetValue("ExitEnd", out var ee)) _exitEnd = Convert.ToInt32(ee);
-            if (parameters.TryGetValue("StopLoss", out var sl)) _stopLoss = Convert.ToInt32(sl);
-            if (parameters.TryGetValue("TakeProfit", out var tp)) _takeProfit = Convert.ToInt32(tp);
-            if (parameters.TryGetValue("PtnFastLongYes", out var pfly)) _ptnFastLongYes = Convert.ToInt32(pfly);
-            if (parameters.TryGetValue("PtnFastShortYes", out var pfsy)) _ptnFastShortYes = Convert.ToInt32(pfsy);
-            if (parameters.TryGetValue("PtnFastLongNo", out var pfln)) _ptnFastLongNo = Convert.ToInt32(pfln);
-            if (parameters.TryGetValue("PtnFastShortNo", out var pfsn)) _ptnFastShortNo = Convert.ToInt32(pfsn);
-        }
+        UseLegacyVariant = true;
+        SessionStartTime = 1700;  // sessionStartTimeA
+        SessionEndTime = 1600;    // sessionEndTimeA
+        Contracts = 1;
+
+        EntryOrderType = TradeOrderType.Market;
+        EntryLevel = VolatilityBreakoutLevel.SessionOpenAtrBand;
+        RequireCloseBeyondAtrBand = true;
+
+        StartTrade = 900;   // MyStartTrade
+        EndTrade = 1300;    // MyEndTrade
+        MaxEntriesPerSession = 1;
+
+        NeutralYes = 55;
+        NeutralNo = 56;
+
+        FastYesLong = 26;    // PtnFastLongYes
+        FastNoLong = 62;     // PtnFastLongNo
+        FastYesShort = 57;   // PtnFastShortYes
+        FastNoShort = 23;    // PtnFastShortNo
+
+        AtrLength = 500;            // MyAtrLen
+        AtrMultiplierLong = 6m;     // ATRFactorL
+        AtrMultiplierShort = 8.5m;  // ATRFactorS
+
+        StopMoney = 1300;    // StopLoss
+        ProfitMoney = 4000;  // TakeProfit
     }
 
     public TradeSignal GenerateSignal(OhlcvData[] data, DateTime currentDate)
     {
-        if (data == null || data.Length < RequiredCandles)
+        var signal = EvaluateCore(data, currentDate);
+        if (signal.Type == SignalType.Hold)
+            return signal;
+
+        signal.CloseAtUtc = ResolveCloseAtUtc(signal.Date, SessionFlatTime);
+        if (signal.CompanionSignals is not null)
         {
-            return new TradeSignal
-            {
-                Date = currentDate,
-                Type = SignalType.Hold,
-                Price = data?.LastOrDefault()?.Close ?? 0,
-                StrategyName = Name,
-                Reason = "Dati insufficienti"
-            };
+            foreach (var companion in signal.CompanionSignals)
+                companion.CloseAtUtc = ResolveCloseAtUtc(companion.Date, SessionFlatTime);
         }
 
-        var currentPrice = data.Last().Close;
-        var currentTime = currentDate.Hour * 100 + currentDate.Minute;
+        return signal;
+    }
 
-        // Reset entries on new day
-        if (_lastTradeDate == null || _lastTradeDate.Value.Date != currentDate.Date)
-        {
-            _entriesToday = 0;
-            _lastTradeDate = currentDate;
-        }
-
-        // Calcola OHLC
-        decimal[] ohlcValues = new decimal[24];
-        OHLCMulti5(_sessionStartTimeA, _sessionEndTimeA, data, currentDate, out ohlcValues);
-
-        var openS0 = ohlcValues[0];
-
-        // Calculate ATR
-        _myATR = AvgTrueRange(data, Math.Min(_myAtrLen, data.Length - 1));
-
-        // Calculate entry levels
-        _lEntryLevel = openS0 + (_myATR * _atrFactorL);
-        _sEntryLevel = openS0 - (_myATR * _atrFactorS);
-
-        // Time window
-        bool timeWindow = _twOn == 0 ? true : TimeWindow(_myStartTrade, _myEndTrade, currentDate);
-
-        // Exit time
-        bool myExitTime = currentTime >= _exitBeg && currentTime <= _exitEnd;
-
-        // End of day exit
-        if (myExitTime && _currentMP != 0)
-        {
-            var exitMP = _currentMP;
-            _currentMP = 0;
-            return new TradeSignal
-            {
-                Date = currentDate,
-                Type = exitMP == 1 ? SignalType.Sell : SignalType.Buy,
-                Price = currentPrice,
-                StrategyName = Name,
-                Quantity = _mySize,
-                Reason = exitMP == 1 ? "EodLXx_ATR_BO-TF" : "EodSXx_ATR_BO-TF"
-            };
-        }
-
-        // Entry conditions
-        if (_entriesToday == 0 && timeWindow)
-        {
-            // Long entry
-            if (currentPrice > _lEntryLevel &&
-                PatternFast(_ptnFastLongYes, ohlcValues) && !PatternFast(_ptnFastLongNo, ohlcValues))
-            {
-                _currentMP = 1;
-                _entriesToday++;
-                return new TradeSignal
-                {
-                    Date = currentDate,
-                    Type = SignalType.Buy,
-                    Price = currentPrice,
-                    StrategyName = Name,
-                    Quantity = _mySize,
-                    Reason = "LE_ATR_BO-TF"
-                };
-            }
-
-            // Short entry
-            if (currentPrice < _sEntryLevel &&
-                PatternFast(_ptnFastShortYes, ohlcValues) && !PatternFast(_ptnFastShortNo, ohlcValues))
-            {
-                _currentMP = -1;
-                _entriesToday++;
-                return new TradeSignal
-                {
-                    Date = currentDate,
-                    Type = SignalType.Sell,
-                    Price = currentPrice,
-                    StrategyName = Name,
-                    Quantity = _mySize,
-                    Reason = "SE_ATR_BO-TF"
-                };
-            }
-        }
-
-        return new TradeSignal
-        {
-            Date = currentDate,
-            Type = SignalType.Hold,
-            Price = currentPrice,
-            StrategyName = Name
-        };
+    public void Initialize(Dictionary<string, object>? parameters = null)
+    {
+        if (parameters is null) return;
+        if (parameters.TryGetValue("Contracts", out var contracts))
+            Contracts = Convert.ToInt32(contracts);
+        if (parameters.TryGetValue("MySize", out var size))
+            Contracts = Convert.ToInt32(size);
     }
 }

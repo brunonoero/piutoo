@@ -1,212 +1,113 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
 using Piootoo.Shared.Enums;
-using Piootoo.Shared.Interfaces;
 using Piootoo.Shared.Models;
-using static Piootoo.Strategies.Easy.EasyLib;
+using Piootoo.Strategies.Easy.Engines;
 
 namespace Piootoo.Strategies.Easy;
 
 /// <summary>
-/// Strategia EasyLanguage convertita: TOP_UA_303
-/// Breakout strategy with ADX filter for Gold 15 min (uses Data2 for ADX)
+/// TOP_UA_303 — Trend Developer su rottura highd1/lowd1 con gate ADX, GC 15 minuti.
+///
+/// <para>Sorgente: <c>piootoo-repository/easy/s_TOP_UA_303_GC_15____1440__7.txt</c>.
+/// <c>ID = 1</c> disattiva la chiusura di fine sessione; restano stop, target, breakeven e
+/// uscita a <c>MaxDaysInTrade = 9</c> giorni (<c>ExitModeDaysMax = 1</c>).</para>
+///
+/// <para><b>Gate extra.</b> Oltre ai neutri standard servono il pattern 43, una combinazione
+/// su <c>PtnNeutNo</c>/5/23, ADX sotto soglia e in crescita rispetto a cinque barre fa, e i
+/// pattern direzionali ±9 per verso.</para>
+///
+/// <para><b>Contratto di riferimento:</b> GC, $100 per punto. Stop $2.400, target $4.500,
+/// breakeven $2.650.</para>
 /// </summary>
-public class Easy_303_GC_15 : StatelessEasyStrategyBase
+public sealed class Easy_303_GC_15 : TrendDeveloperEngine
 {
-    // INPUTS
-    private int _sessionStartTimeA = 1800;
-    private int _sessionEndTimeA = 1700;
-    private int _maxTradesPerDay = 1;
-    private int _ptnDirYes = -47;
-    private int _ptnNeutYes = 26;
-    private int _ptnNeutNo = 1;
-    private int _ptnLY = 41;
-    private int _ptnLN = 42;
-    private int _ptnSY = 41;
-    private int _ptnSN = 42;
-    private int _myStop = 2400;
-    private int _myProfit = 4500;
-    private int _myBE = 2650;
-    private int _id = 1;
-    private int _myTrigger = 2;
-    private int _myStartTrade = 0;
-    private int _myEndTrade = 1600;
-    private int _closeAtTime = 2500;
-    private int _myADXLength = 5;
-    private int _myADXThreshold = 60;
-    private int _exitModeDaysMax = 0;
-    private int _maxDaysInTrade = 9;
-    private int _notDayLE = 1;
-    private int _notDaySE = 0;
-    private int _notMonthLE = 11;
-    private int _notMonthSE = 8;
-    private int _myContracts = 1;
+    private const int AdxLength = 5;
+    private const int AdxPastBars = 5;
+    private const int AdxThreshold = 60;
 
-    // VARIABLES
-    private int _endSession = 0;
-    private decimal _myLE = 99999;
-    private decimal _mySE = 0;
-    private int _myEndTime = 0;
-    private int _entriesToday = 0;
-    private DateTime? _lastTradeDate = null;
+    private decimal _adxValue;
+    private decimal _adxPastValue;
 
-    // STATE
-    private string _symbol = "@GC";
-    private int _timeframeMinutes = 15;
-    private string _name = "TOP_UA_303";
-    private string _description = "Breakout strategy with ADX filter";
-    private int _currentMP = 0;
+    public override string Name => "Easy_303_GC_15";
+    public override string Description => "Trend Developer ADX, rottura estremi sessione precedente, GC 15m";
+    public override string Symbol => "@GC";
+    public override int TimeframeMinutes => 15;
 
-    public string Name => _name;
-    public string Description => _description;
-    public string Symbol => _symbol;
-    public int TimeframeMinutes => _timeframeMinutes;
-    public int RequiredCandles => 100;
-
-    public void Initialize(Dictionary<string, object>? parameters = null)
+    public Easy_303_GC_15()
     {
-        if (_sessionEndTimeA >= 2400) _endSession = _sessionStartTimeA;
-        else _endSession = _sessionEndTimeA;
+        SessionStartTime = 1800;  // sessionStartTimeA
+        SessionEndTime = 1700;    // sessionEndTimeA
+        Contracts = 1;
 
-        if (parameters != null)
-        {
-            if (parameters.TryGetValue("Symbol", out var sym)) _symbol = sym?.ToString() ?? _symbol;
-            if (parameters.TryGetValue("TimeframeMinutes", out var tf)) _timeframeMinutes = Convert.ToInt32(tf);
-            if (parameters.TryGetValue("sessionStartTimeA", out var sst)) _sessionStartTimeA = Convert.ToInt32(sst);
-            if (parameters.TryGetValue("sessionEndTimeA", out var set)) _sessionEndTimeA = Convert.ToInt32(set);
-            if (parameters.TryGetValue("MaxTradesPerDay", out var mtpd)) _maxTradesPerDay = Convert.ToInt32(mtpd);
-            if (parameters.TryGetValue("PtnDirYes", out var pdy)) _ptnDirYes = Convert.ToInt32(pdy);
-            if (parameters.TryGetValue("PtnNeutYes", out var pny)) _ptnNeutYes = Convert.ToInt32(pny);
-            if (parameters.TryGetValue("PtnNeutNo", out var pnn)) _ptnNeutNo = Convert.ToInt32(pnn);
-            if (parameters.TryGetValue("MyStop", out var ms)) _myStop = Convert.ToInt32(ms);
-            if (parameters.TryGetValue("MyProfit", out var mp)) _myProfit = Convert.ToInt32(mp);
-            if (parameters.TryGetValue("MyTrigger", out var mt)) _myTrigger = Convert.ToInt32(mt);
-            if (parameters.TryGetValue("MyStartTrade", out var mst)) _myStartTrade = Convert.ToInt32(mst);
-            if (parameters.TryGetValue("MyEndTrade", out var met)) _myEndTrade = Convert.ToInt32(met);
-            if (parameters.TryGetValue("MyADXThreshold", out var mat)) _myADXThreshold = Convert.ToInt32(mat);
-            if (parameters.TryGetValue("MaxDaysInTrade", out var mdit)) _maxDaysInTrade = Convert.ToInt32(mdit);
-            if (parameters.TryGetValue("MyContracts", out var mc)) _myContracts = Convert.ToInt32(mc);
-        }
+        Trigger = TrendTrigger.PreviousSessionOhlc;  // MyTrigger = 2
+
+        StartTrade = 0;              // MyStartTrade
+        EndTrade = 1600;             // MyEndTrade
+        InclusiveWindowEnd = true;   // l'originale include la fine della finestra
+        MaxTradesPerDay = 1;
+
+        NeutralYes = 26;      // PtnNeutYes
+        NeutralNo = 56;       // sentinella — il gate composto è in PassesExtraGates
+        DirectionalYes = -47;   // PtnDirYes
+
+        NotEntryDayLong = 1;        // NotDayLE — lunedì
+        NotEntryDayShort = 0;       // NotDaySE — domenica
+        NotEntryMonthLong = 11;     // NotMonthLE
+        NotEntryMonthShort = 8;     // NotMonthSE
+
+        StopMoney = 2400;       // MyStop
+        ProfitMoney = 4500;     // MyProfit
+        BreakEvenMoney = 2650;  // MyBE
+        MaxDaysInTrade = 9;     // ExitModeDaysMax = 1
     }
 
     public TradeSignal GenerateSignal(OhlcvData[] data, DateTime currentDate)
     {
-        if (data == null || data.Length < RequiredCandles)
+        UpdateAdx(data);
+        return EvaluateCore(data, currentDate);
+    }
+
+    protected override bool PassesExtraGates(decimal[] ohlc, OhlcvData[] data, DateTime barTime) =>
+        EasyLib.PatternNeutralFast(43, ohlc) &&
+        ((!EasyLib.PatternNeutralFast(NeutralNo, ohlc) && !EasyLib.PatternNeutralFast(5, ohlc)) ||
+         !EasyLib.PatternNeutralFast(23, ohlc)) &&
+        _adxValue <= AdxThreshold &&
+        _adxValue > _adxPastValue;
+
+    protected override bool PassesDirectionalExtraGates(
+        SignalType side, decimal[] ohlc, OhlcvData[] data, DateTime barTime) =>
+        side == SignalType.Buy
+            ? EasyLib.PatternDirectionalFast(-9, ohlc)
+            : EasyLib.PatternDirectionalFast(9, ohlc);
+
+    private void UpdateAdx(OhlcvData[] data)
+    {
+        _adxValue = CalculateBarAdx(data, data.Length - 1);
+        var pastIndex = Math.Max(1, data.Length - 1 - AdxPastBars);
+        _adxPastValue = CalculateBarAdx(data, pastIndex);
+    }
+
+    private static decimal CalculateBarAdx(OhlcvData[] data, int endIndex)
+    {
+        if (endIndex < 1)
+            return 0m;
+
+        var calc = new decimal[4];
+        for (var index = 1; index <= endIndex; index++)
         {
-            return new TradeSignal
-            {
-                Date = currentDate,
-                Type = SignalType.Hold,
-                Price = data?.LastOrDefault()?.Close ?? 0,
-                StrategyName = Name,
-                Reason = "Dati insufficienti"
-            };
+            _ = EasyLib.iADXOnArray(
+                AdxLength,
+                data[index].High, data[index].Low, data[index].Close,
+                data[index - 1].High, data[index - 1].Low, data[index - 1].Close,
+                ref calc);
         }
 
-        var currentPrice = data.Last().Close;
-        var currentHigh = data.Last().High;
-        var currentLow = data.Last().Low;
-        var currentTime = currentDate.Hour * 100 + currentDate.Minute;
+        return calc[0] * 100m;
+    }
 
-        // Reset entries on new day
-        if (_lastTradeDate == null || _lastTradeDate.Value.Date != currentDate.Date)
-        {
-            _entriesToday = 0;
-            _lastTradeDate = currentDate;
-        }
-
-        // Calcola OHLC
-        decimal[] ohlcValues = new decimal[24];
-        OHLCMulti5(_sessionStartTimeA, _endSession, data, currentDate, out ohlcValues);
-
-        var highd0 = ohlcValues[1];
-        var lowd0 = ohlcValues[2];
-        var highd1 = ohlcValues[5];
-        var lowd1 = ohlcValues[6];
-
-        // Levels choice based on trigger
-        if (_myTrigger == 0)
-        {
-            _myLE = Highest(data, 24, d => d.High);
-            _mySE = Lowest(data, 24, d => d.Low);
-        }
-        else if (_myTrigger == 1)
-        {
-            _myLE = highd0;
-            _mySE = lowd0;
-        }
-        else if (_myTrigger == 2)
-        {
-            _myLE = highd1;
-            _mySE = lowd1;
-        }
-
-        // Calculate ADX (simplified - using ATR as proxy)
-        var atr = AvgTrueRange(data, _myADXLength);
-        var priceRange = currentHigh - currentLow;
-        var adxValue = priceRange > 0 ? (atr / priceRange) * 100 : 50;
-
-        // Time window calculation
-        int calcStart = _myStartTrade;
-        int calcEnd = _myEndTrade;
-        bool timeWindow = TimeWindow(calcStart, calcEnd, currentDate);
-
-        // Trading conditions
-        if (timeWindow && _entriesToday < _maxTradesPerDay &&
-            PatternNeutralFast(_ptnNeutYes, ohlcValues) && PatternNeutralFast(43, ohlcValues) &&
-            (!PatternNeutralFast(_ptnNeutNo, ohlcValues) || !PatternNeutralFast(23, ohlcValues)) &&
-            adxValue <= _myADXThreshold)
-        {
-            // Long entry
-            if (_currentMP <= 0 && (int)currentDate.DayOfWeek != _notDayLE && currentDate.Month != _notMonthLE &&
-                PtnBaseSA2(_ptnLY, ohlcValues) && !PtnBaseSA2(_ptnLN, ohlcValues) &&
-                PatternDirectionalFast(_ptnDirYes, ohlcValues) && PatternDirectionalFast(-9, ohlcValues))
-            {
-                if (currentHigh >= _myLE)
-                {
-                    _currentMP = 1;
-                    _entriesToday++;
-                    return new TradeSignal
-                    {
-                        Date = currentDate,
-                        Type = SignalType.Buy,
-                        Price = _myLE,
-                        StrategyName = Name,
-                        Quantity = _myContracts,
-                        Reason = "LE ADX Breakout"
-                    };
-                }
-            }
-
-            // Short entry
-            if (_currentMP >= 0 && (int)currentDate.DayOfWeek != _notDaySE && currentDate.Month != _notMonthSE &&
-                PtnBaseSA2(_ptnSY, ohlcValues) && !PtnBaseSA2(_ptnSN, ohlcValues) &&
-                PatternDirectionalFast(-_ptnDirYes, ohlcValues) && PatternDirectionalFast(9, ohlcValues))
-            {
-                if (currentLow <= _mySE)
-                {
-                    _currentMP = -1;
-                    _entriesToday++;
-                    return new TradeSignal
-                    {
-                        Date = currentDate,
-                        Type = SignalType.Sell,
-                        Price = _mySE,
-                        StrategyName = Name,
-                        Quantity = _myContracts,
-                        Reason = "SE ADX Breakout"
-                    };
-                }
-            }
-        }
-
-        return new TradeSignal
-        {
-            Date = currentDate,
-            Type = SignalType.Hold,
-            Price = currentPrice,
-            StrategyName = Name
-        };
+    public void Initialize(Dictionary<string, object>? parameters = null)
+    {
+        if (parameters is null) return;
+        if (parameters.TryGetValue("Contracts", out var contracts))
+            Contracts = Convert.ToInt32(contracts);
     }
 }

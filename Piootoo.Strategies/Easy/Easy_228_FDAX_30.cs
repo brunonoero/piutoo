@@ -1,254 +1,148 @@
-using System;
-using System.Collections.Generic;
 using Piootoo.Shared.Enums;
-using Piootoo.Shared.Interfaces;
 using Piootoo.Shared.Models;
-using static Piootoo.Strategies.Easy.EasyLib;
+using Piootoo.Strategies.Easy.Engines;
 
 namespace Piootoo.Strategies.Easy;
 
+// HYBRID: gap + recross su highd0/lowd0 con gate PatternFast estesi; non mappabile su LevelFader
+// (livelli d1) senza perdere la semantica del gap intraday.
+
 /// <summary>
-/// Strategia EasyLanguage convertita: TOP_UA_228
-/// Sistema mean reverting che entra nella direzione opposta al gap quando viene superato il max o il min di giornata
+/// TOP_UA_228 — mean reversion su gap con recross degli estremi d0, FDAX 30 minuti.
+///
+/// <para>Sorgente: <c>piootoo-repository/easy/s_TOP_UA_228_FDAX_30__7.txt</c>. Dopo un gap
+/// ribassista/rialzista entra al recross di <c>highd0</c>/<c>lowd0</c> a mercato sulla barra
+/// successiva.</para>
+///
+/// <para><b>Contratto di riferimento:</b> FDAX, €25 per punto. Stop long €1.800 / short €1.600,
+/// target €6.500, breakeven long €1.500 / short €2.000, max 1 giorno in posizione.</para>
 /// </summary>
-public class Easy_228_FDAX_30 : StatelessEasyStrategyBase
+public sealed class Easy_228_FDAX_30 : EasyEngineBase
 {
-    // INPUTS
-    private int _titanExportMode = 0;
-    private int _mycontracts = 1;
-    private int _sessionStartTimeA = 800;
-    private int _sessionEndTimeA = 2200;
-    private int _maxTradesPerDay = 1;
-    private int _ptnLY = 41;
-    private int _ptnLN = 42;
-    private int _ptnSY = 41;
-    private int _ptnSN = 42;
-    private int _ptnLY_ext = 26;
-    private int _ptnLN_ext = 43;
-    private int _ptnSY_ext = 152;
-    private int _ptnSN_ext = 153;
-    private int _myStartTime = 800;
-    private int _myEndTime = 1430;
-    private int _myStartPause = 1200;
-    private int _myEndPause = 1100;
-    private int _maxDaysLong = 1;
-    private int _maxDaysShort = 1;
-    private int _flatTime = 1930;
-    private int _skipSessL = -1;
-    private int _skipSessS = 5;
-    private int _myStopL = 1800;
-    private int _myStopS = 1600;
-    private int _myBreakevenL = 1500;
-    private int _myBreakevenS = 2000;
-    private int _myProfitL = 6500;
-    private int _myProfitS = 6500;
+    private bool _gapLong;
+    private bool _gapShort;
+    private decimal _longTrigger;
+    private decimal _shortTrigger;
 
-    // VARIABLES
-    private bool _oKL = true;
-    private bool _okShort = true;
-    private bool _isStartOfSession = false;
-    private int _daysInTrade = 0;
-    private int _mySessionEntries = 0;
-    private decimal _myLETrigger = 0;
-    private decimal _mySETrigger = 0;
-    private bool _gapL = false;
-    private bool _gapS = false;
+    public override string Name => "Easy_228_FDAX_30";
+    public override string Description => "Gap reversal con recross estremi d0, FDAX 30m";
+    public override string Symbol => "@FDAX";
+    public override int TimeframeMinutes => 30;
 
-    // STATE
-    private string _symbol = "@FDAX";
-    private int _timeframeMinutes = 30;
-    private string _name = "TOP_UA_228";
-    private string _description = "Sistema mean reverting che entra nella direzione opposta al gap quando viene superato il max o il min di giornata";
+    private int BaseYesLong { get; set; } = 41;
+    private int BaseNoLong { get; set; } = 42;
+    private int BaseYesShort { get; set; } = 41;
+    private int BaseNoShort { get; set; } = 42;
+    private int FastYesLong { get; set; } = 26;
+    private int FastNoLong { get; set; } = 43;
+    private int FastYesShort { get; set; } = 152;
+    private int FastNoShort { get; set; } = 153;
+    private int StartTrade { get; set; } = 800;
+    private int EndTrade { get; set; } = 1430;
+    private int PauseStart { get; set; } = 1200;
+    private int PauseEnd { get; set; } = 1100;
+    private int SkipSessionLong { get; set; } = -1;
+    private int SkipSessionShort { get; set; } = 5;
 
-    public string Name => _name;
-    public string Description => _description;
-    public string Symbol => _symbol;
-    public int TimeframeMinutes => _timeframeMinutes;
-    public int RequiredCandles => 100; // TODO: Calcolare in base alla strategia
-
-    public void Initialize(Dictionary<string, object>? parameters = null)
+    public Easy_228_FDAX_30()
     {
-        if (parameters != null)
-        {
-            if (parameters.TryGetValue("Symbol", out var sym))
-                _symbol = sym?.ToString() ?? _symbol;
-            if (parameters.TryGetValue("TimeframeMinutes", out var tf))
-                _timeframeMinutes = Convert.ToInt32(tf);
-            if (parameters.TryGetValue("TitanExportMode", out var titanexportmode))
-                _titanExportMode = Convert.ToInt32(titanexportmode);
-            if (parameters.TryGetValue("mycontracts", out var mycontracts))
-                _mycontracts = Convert.ToInt32(mycontracts);
-        }
-    }
+        SessionStartTime = 800;   // sessionStartTimeA
+        SessionEndTime = 2200;    // sessionEndTimeA
+        Contracts = 1;
 
-    // Stato per tracciare la posizione corrente (MP = marketposition)
-    private int _currentMP = 0; // 0 = nessuna posizione, +1 = long, -1 = short
-    private int _myCount = 0;
-    private DateTime? _lastEntryDate = null;
+        MaxEntriesPerSession = 1;  // MaxTradesPerDay
+        MaxDaysInTrade = 1;        // MaxDaysLong / MaxDaysShort
+
+        StopMoney = 1800;       // max(MyStopL, MyStopS)
+        ProfitMoney = 6500;     // MyProfitL / MyProfitS
+        BreakEvenMoney = 2000;  // max(MyBreakevenL, MyBreakevenS)
+    }
 
     public TradeSignal GenerateSignal(OhlcvData[] data, DateTime currentDate)
     {
-        if (data == null || data.Length < RequiredCandles)
+        if (data is null || data.Length < RequiredCandles)
+            return Hold(data?.LastOrDefault()?.Close ?? 0m, currentDate, "Dati insufficienti");
+
+        var bar = data[^1];
+        var barTime = bar.DateTime;
+        var isStartOfSession = BuildSessionOhlc(data, barTime, out var ohlc);
+
+        if (isStartOfSession)
         {
-            return new TradeSignal
-            {
-                Date = currentDate,
-                Type = SignalType.Hold,
-                Price = data?.LastOrDefault()?.Close ?? 0,
-                StrategyName = Name,
-                Reason = "Dati insufficienti"
-            };
+            var openD0 = ohlc[0];
+            var highD1 = ohlc[5];
+            var lowD1 = ohlc[6];
+            _gapLong = openD0 < lowD1;
+            _gapShort = openD0 > highD1;
+            _longTrigger = ohlc[1];
+            _shortTrigger = ohlc[2];
         }
 
-        var currentPrice = data.Last().Close;
-        var currentTime = currentDate.Hour * 100 + currentDate.Minute; // Formato HHMM
-        var endsession = _sessionEndTimeA >= 2400 ? _sessionStartTimeA : _sessionEndTimeA;
-        
-        // Calcola OHLC per le ultime sessioni
-        decimal[] ohlcValues = new decimal[24];
-        _isStartOfSession = OHLCMulti5(_sessionStartTimeA, endsession, data, currentDate, out ohlcValues);
-        
-        var opend0 = ohlcValues[0];
-        var highd0 = ohlcValues[1];
-        var lowd0 = ohlcValues[2];
-        var highd1 = ohlcValues[5];
-        var lowd1 = ohlcValues[6];
-        
-        // Reset OKL/OKS all'inizio sessione
-        if (_isStartOfSession)
+        if (!InTradingWindow(barTime))
+            return Hold(bar.Close, barTime);
+
+        if (MaxEntriesPerSession > 0 && EntriesTodayCount >= MaxEntriesPerSession)
+            return Hold(bar.Close, barTime);
+
+        var previousClose = data[^2].Close;
+        var sow = EasyDayOfWeek(barTime);
+        var entries = new List<TradeSignal>(2);
+
+        var allowLong = CurrentMP != 1;
+        var allowShort = CurrentMP != -1;
+
+        if (allowLong && _gapLong &&
+            EasyLib.UAPtnBase(BaseYesLong, ohlc) && !EasyLib.UAPtnBase(BaseNoLong, ohlc) &&
+            EasyLib.PatternFast(FastYesLong, ohlc) && !EasyLib.PatternFast(FastNoLong, ohlc) &&
+            sow != SkipSessionLong &&
+            previousClose < _longTrigger && bar.Close > _longTrigger)
         {
-            _oKL = true;
-            _okShort = true;
-            if (_currentMP != 0)
-            {
-                _daysInTrade++;
-            }
-            _mySessionEntries = 0;
-            
-            // Calcola gap
-            _gapL = opend0 < lowd1;
-            _gapS = opend0 > highd1;
-            
-            // Set trigger levels
-            _myLETrigger = highd0;
-            _mySETrigger = lowd0;
+            entries.Add(WithSessionSettings(
+                EntryMarketNextBar(SignalType.Buy, bar.Close, data, barTime, "LE")));
         }
-        
-        // Se giÃ  in posizione, disabilita entry nella stessa direzione
-        if (_currentMP == 1) _oKL = false;
-        if (_currentMP == -1) _okShort = false;
-        
-        // Traccia session entries quando MP cambia
-        if (_currentMP != 0 && _lastEntryDate.HasValue && _lastEntryDate.Value.Date != currentDate.Date)
+
+        if (allowShort && _gapShort &&
+            EasyLib.UAPtnBase(BaseYesShort, ohlc) && !EasyLib.UAPtnBase(BaseNoShort, ohlc) &&
+            EasyLib.PatternFast(FastYesShort, ohlc) && !EasyLib.PatternFast(FastNoShort, ohlc) &&
+            sow != SkipSessionShort &&
+            previousClose > _shortTrigger && bar.Close < _shortTrigger)
         {
-            _mySessionEntries++;
+            entries.Add(WithSessionSettings(
+                EntryMarketNextBar(SignalType.Sell, bar.Close, data, barTime, "SE")));
         }
-        
-        // Condizioni operative
-        var inTimeWindow = currentTime >= _myStartTime && currentTime <= _myEndTime && 
-                          (currentTime < _myStartPause || currentTime > _myEndPause);
-        var sow = (int)currentDate.DayOfWeek; // Session of week
-        
-        if (inTimeWindow && _mySessionEntries < _maxTradesPerDay)
+
+        return Combine(entries, Hold(bar.Close, barTime));
+    }
+
+    private bool InTradingWindow(DateTime barTime)
+    {
+        var time = Hhmm(barTime);
+        if (!EasyLib.TimeWindow(StartTrade, EndTrade, barTime))
+            return false;
+
+        return time < PauseStart || time > PauseEnd;
+    }
+
+    private TradeSignal WithSessionSettings(TradeSignal signal)
+    {
+        if (MaxEntriesPerSession > 0)
         {
-            // BUY condition: mean reverting dopo gap down e breakout sopra highd0
-            var prevClose = data.Length > 1 ? data[data.Length - 2].Close : currentPrice;
-            
-            if (_oKL && _gapL && UAPtnBase(_ptnLY, ohlcValues) && !UAPtnBase(_ptnLN, ohlcValues) &&
-                PatternFast(_ptnLY_ext, ohlcValues) && !PatternFast(_ptnLN_ext, ohlcValues) &&
-                sow != _skipSessL && prevClose < _myLETrigger && currentPrice > _myLETrigger)
-            {
-                _currentMP = 1;
-                _daysInTrade = 1;
-                _lastEntryDate = currentDate;
-                return new TradeSignal
-                {
-                    Date = currentDate,
-                    Type = SignalType.Buy,
-                    Price = currentPrice,
-                    StrategyName = Name,
-                    Quantity = _mycontracts,
-                    StopLoss = _myStopL > 0 ? (decimal?)_myStopL : null,
-                    TakeProfit = _myProfitL > 0 ? (decimal?)_myProfitL : null,
-                    BreakEven = _myBreakevenL > 0 ? (decimal?)_myBreakevenL : null,
-                    Reason = "LE"
-                };
-            }
-            
-            // SELLSHORT condition: mean reverting dopo gap up e breakout sotto lowd0
-            if (_okShort && _gapS && UAPtnBase(_ptnSY, ohlcValues) && !UAPtnBase(_ptnSN, ohlcValues) &&
-                PatternFast(_ptnSY_ext, ohlcValues) && !PatternFast(_ptnSN_ext, ohlcValues) &&
-                sow != _skipSessS && prevClose > _mySETrigger && currentPrice < _mySETrigger)
-            {
-                _currentMP = -1;
-                _daysInTrade = 1;
-                _lastEntryDate = currentDate;
-                return new TradeSignal
-                {
-                    Date = currentDate,
-                    Type = SignalType.Sell,
-                    Price = currentPrice,
-                    StrategyName = Name,
-                    Quantity = _mycontracts,
-                    StopLoss = _myStopS > 0 ? (decimal?)_myStopS : null,
-                    TakeProfit = _myProfitS > 0 ? (decimal?)_myProfitS : null,
-                    BreakEven = _myBreakevenS > 0 ? (decimal?)_myBreakevenS : null,
-                    Reason = "SE"
-                };
-            }
+            signal.MaxEntriesPerSession = MaxEntriesPerSession;
+            signal.EntrySessionStartUtc = ResolveEntrySessionStartUtc(signal.ValidFromUtc!.Value);
         }
-        
-        // Reset DaysInTrade quando MP cambia
-        if (_lastEntryDate.HasValue && _lastEntryDate.Value.Date != currentDate.Date && _currentMP != 0)
-        {
-            _daysInTrade = 1;
-        }
-        
-        // Exit conditions per MaxDays
-        var flatTimeFixed = endsession;
-        if (_currentMP == 1 && _maxDaysLong > 0 && _daysInTrade >= _maxDaysLong)
-        {
-            if (currentTime >= _flatTime && currentTime < flatTimeFixed)
-            {
-                _currentMP = 0;
-                _daysInTrade = 0;
-                return new TradeSignal
-                {
-                    Date = currentDate,
-                    Type = SignalType.Sell,
-                    Price = currentPrice,
-                    StrategyName = Name,
-                    Quantity = _mycontracts,
-                    Reason = "LX_MaxDays"
-                };
-            }
-        }
-        
-        if (_currentMP == -1 && _maxDaysShort > 0 && _daysInTrade >= _maxDaysShort)
-        {
-            if (currentTime >= _flatTime && currentTime < flatTimeFixed)
-            {
-                _currentMP = 0;
-                _daysInTrade = 0;
-                return new TradeSignal
-                {
-                    Date = currentDate,
-                    Type = SignalType.Buy,
-                    Price = currentPrice,
-                    StrategyName = Name,
-                    Quantity = _mycontracts,
-                    Reason = "SX_MaxDays"
-                };
-            }
-        }
-        
-        return new TradeSignal
-        {
-            Date = currentDate,
-            Type = SignalType.Hold,
-            Price = currentPrice,
-            StrategyName = Name
-        };
+
+        if (MaxDaysInTrade > 0)
+            signal.CloseAtUtc = signal.ValidFromUtc!.Value.Date.AddDays(MaxDaysInTrade);
+
+        return signal;
+    }
+
+    public void Initialize(Dictionary<string, object>? parameters = null)
+    {
+        if (parameters is null) return;
+        if (parameters.TryGetValue("Contracts", out var contracts))
+            Contracts = Convert.ToInt32(contracts);
+        if (parameters.TryGetValue("mycontracts", out var contractsAlt))
+            Contracts = Convert.ToInt32(contractsAlt);
     }
 }
-

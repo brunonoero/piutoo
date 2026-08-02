@@ -95,8 +95,7 @@ public abstract class VolatilityBreakoutEngine : EasyEngineBase
     /// <summary>Fine pausa HHMM. Una coppia invertita mantiene la pausa inattiva, come le sorgenti.</summary>
     protected int PauseEnd = -1;
 
-    /// <summary>Massimo di ingressi eseguiti nella sessione corrente. 0 = illimitato.</summary>
-    protected int MaxEntriesPerSession;
+    // MaxEntriesPerSession è dichiarato in EasyEngineBase e applicato da BuildEntry.
 
     /// <summary>
     /// Disarma un verso dopo che è entrato fino alla prossima sessione. Replica i flag
