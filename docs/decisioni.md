@@ -261,6 +261,24 @@ in ordine cronologico. Non è un changelog di codice: quello resta nei commit.
   riferimento esterno in `docs/domini/parita-riferimento-esterno.md`; regressioni
   `GapInFeed_DoesNotFillStopWithoutABar` e
   `ExpiredStopIntent_IsDiscardedInsteadOfFilledAtItsLevel` in `PendingStopOrderTests`.
+- **2026-08-02** — Il percorso di parità Python di `PriceChannelEngine` piazza lo stop **un tick
+  oltre** `estremo del canale + offset`: il livello va penetrato, non toccato. Il difetto si
+  vedeva solo confrontando i trade con il riferimento `top01_PC`: a parità di canale l'ingresso
+  Python cadeva sistematicamente un tick sopra il nostro (43 coppie appaiate su 52 con scarto
+  esatto di 0,25 punti), e le 9 eccezioni erano barre che aprivano oltre il livello, dove il
+  fill è `max(open, livello)` e non il livello. Corretto, sulle stesse coppie lo scarto di
+  prezzo diventa 0,00 in 38 casi su 42 e il net profit della finestra 2024-01 → 2025-05 passa
+  da $33.270 a **$37.084 contro i $37.200 di Python**, cioè lo 0,3%. Il tocco riguarda solo
+  `PTS_002_NQ_15` e `PTS_003_NQ_15`: tutte le `Easy_*` su PC impostano `UseLegacyVariant`, il cui
+  offset resta invariato. Regressione in
+  `PriceChannelEngineTests.PythonParity_PlacesStopOneTickBeyondTheChannel`.
+  Resta aperta la **selezione** dei trade, che il tick non spiega: 149 trade contro 120, con
+  ingresso sulla stessa barra fisica solo nel 35% dei casi. La differenza non è nel canale (dove
+  entrambi entrano il prezzo ora coincide) né nel limite per sessione (il C# ne rispetta uno per
+  sessione su tutte e 149; Python ne fa due in 7 sessioni su 113, quindi quel vincolo o non
+  esiste nel motore originale o usa un confine diverso), ma nei **gate**: il C# opera in 63
+  sessioni in cui Python resta piatto. Il sospetto è la costruzione delle sessioni su cui girano
+  i pattern (`neut_no = 24`, `dir_yes = 2`), non il Price Channel.
 - **2026-08-02** — **Il feed @NQ copre 5m, 15m, 30m, 1h, 4h e giornaliero; il settimanale no.**
   `aggregate_nq_ascii.py` produceva solo 15m e 1h, mentre le strategie @NQ del catalogo chiedono
   anche 5 minuti (`Easy_152`) e 30 (`Easy_181`, `Easy_298`): quei quattro sono i timeframe di

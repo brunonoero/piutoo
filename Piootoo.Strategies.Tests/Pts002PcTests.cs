@@ -44,7 +44,9 @@ public sealed class Pts002PcTests
         Assert.Null(signal.CompanionSignals);
         Assert.Equal("@NQ", signal.Symbol);
         Assert.Equal("PTS_002_NQ_15", signal.StrategyCode);
-        Assert.Equal(999.5m, signal.Price); // massimo delle 100 incl. barra corrente (999) + 2 tick NQ.
+        // Massimo delle 100 barre incl. quella corrente (999) + 2 tick di buffer + 1 tick di
+        // penetrazione del livello, che è la convenzione del motore Python.
+        Assert.Equal(999.75m, signal.Price);
         Assert.Equal(last.DateTime.AddMinutes(15), signal.ValidFromUtc);
         Assert.Equal(signal.ValidFromUtc, signal.ExpiresAtUtc);
         Assert.Equal(1, signal.MaxEntriesPerSession);

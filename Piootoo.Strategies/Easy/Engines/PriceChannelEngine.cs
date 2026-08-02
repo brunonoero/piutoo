@@ -188,7 +188,10 @@ public abstract class PriceChannelEngine : EasyEngineBase
         }
 
         var entries = new List<TradeSignal>(2);
-        var offset = OffsetPoints + OffsetTicks * TickSize;
+        // Lo stop va un tick oltre il buffer: il canale deve essere penetrato, non toccato.
+        // È la convenzione del motore Python, non un parametro della strategia, quindi non è
+        // esposta come campo. Con TickSize non configurato la somma resta invariata.
+        var offset = OffsetPoints + (OffsetTicks + 1) * TickSize;
 
         if (Direction != 2 &&
             PassesDirectionalGates(+1, ohlc))

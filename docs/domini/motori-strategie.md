@@ -148,7 +148,11 @@ costruire `H_d1` e `L_d1` coincida con quello del feed Piootoo.
 - `ptn_neut_no = 24`;
 - `ptn_dir_yes = 2` (long);
 - `ptn_dir_no = 53` (sentinella, mai escluso);
-- `offset_ticks = 2` = `0,50` punti NQ;
+- `offset_ticks = 2` = `0,50` punti NQ, **più un tick di penetrazione**: lo stop
+  viene piazzato a `highest(high, N) + offset + 1 tick` perché il livello del
+  canale va superato, non toccato. È la convenzione del motore Python, applicata
+  dal solo percorso di parità di `PriceChannelEngine` (le `Easy_*` PC usano tutte
+  il percorso legacy e non la ereditano);
 - `channel_length = 100`, calcolato sulle ultime 100 barre, **inclusa** quella di
   segnale, come `highest(high, 100)` EasyLanguage: alla chiusura i suoi OHLC sono
   noti e l'ordine vale solo dalla barra successiva, quindi non c'è look-ahead;

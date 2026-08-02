@@ -64,6 +64,23 @@ public sealed class PriceChannelEngineTests
     }
 
     [Fact]
+    public void PythonParity_PlacesStopOneTickBeyondTheChannel()
+    {
+        var bars = BuildHourlyBars(new DateTime(2024, 1, 18, 12, 0, 0, DateTimeKind.Utc));
+
+        var signal = Evaluate(new PythonPriceChannel(), bars);
+
+        // Canale: highest(high, 3) = 110 e lowest(low, 3) = 100, senza buffer configurato.
+        // Il livello va penetrato, non toccato, quindi lo stop sta un tick (0,25) oltre.
+        Assert.Equal(SignalType.Buy, signal.Type);
+        Assert.Equal(110.25m, signal.Price);
+
+        var shortSignal = Assert.Single(signal.CompanionSignals!);
+        Assert.Equal(SignalType.Sell, shortSignal.Type);
+        Assert.Equal(99.75m, shortSignal.Price);
+    }
+
+    [Fact]
     public void PythonParity_UsesMondayZeroSkipDay_AndDirectionSelection()
     {
         var bars = BuildHourlyBars(new DateTime(2024, 1, 22, 12, 0, 0, DateTimeKind.Utc)); // lunedì
