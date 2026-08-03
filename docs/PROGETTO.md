@@ -129,6 +129,14 @@ Un ingresso privo di qualsiasi condizione di uscita non è un errore bloccante, 
 la posizione resterebbe aperta fino alla chiusura tecnica di fine settimana o fine run. Viene
 contato in `backtest-summary.json` (`signalsWithoutExitSpec`) e segnalato tra i `diagnostics`.
 
+**Fine settimana: né posizioni né ordini.** Con `CloseAllPositionsAtWeekEnd` (default `true`) il
+backtest, sull'ultima barra della settimana, chiude le posizioni *e* cancella gli ordini pendenti:
+la sola chiusura non basterebbe, perché uno stop "next bar" emesso il venerdì scade sulla prima
+barra del lunedì e riempirebbe sul gap. In live la stessa regola vive nei cBot
+(`FlatAtWeekEnd`), non nel server, perché deve tenere anche a server irraggiungibile. Attenzione nei
+confronti con il riferimento Python, che invece tiene le posizioni nel weekend: la parità richiede
+il flag spento. Dettaglio e misure in `decisioni.md` (2026-08-02).
+
 ### 3.6 Le tre modalità dell'engine
 
 `TitanoFilterMode` vale identica per backtest interno (`BacktestingRequest.TitanoMode`) e per le
