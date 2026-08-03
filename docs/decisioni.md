@@ -692,4 +692,28 @@ in ordine cronologico. Non è un changelog di codice: quello resta nei commit.
 
   Resta scoperto: gli ordini **pending** e il picco per lo stallo dell'utile non sono persistiti, e
   ripartono rispettivamente dalla riconciliazione col server e dall'utile corrente.
+- **2026-08-04** — I **setup di rotazione Titano** diventano un'anagrafica della shell
+  (*Anagrafiche -> Setup Titano*, lista + dettaglio) invece di una combo con «carica/salva» dentro la
+  schermata operativa. Stavano nel posto sbagliato: un setup e' globale — vive in
+  `settings/titano-rotation-setups/`, non appartiene ad alcun workspace e si applica a quanti se ne
+  vuole — quindi appartiene alle anagrafiche accanto ad account e gruppi. Quello che e' per workspace
+  e' il **run**, che nasce dai `trades.json` di uno specifico backtest. La schermata *Titano* resta
+  operativa: sceglie workspace, cartella e setup, ed esegue.
+
+  Nel dettaglio i circa trenta parametri numerici stanno in un `PropertyGrid` legato a
+  `TitanoRotationSetup`, non in controlli replicati a mano. Replicarli sarebbe una seconda
+  dichiarazione dello stesso modello, e al primo parametro aggiunto la UI resterebbe indietro
+  salvandolo al proprio default senza segnalare nulla. Nome e descrizione restano campi propri
+  perche' sono cio' con cui il setup si sceglie altrove.
+
+  Aggiunta `DELETE /api/Titano/rotation-setups/{id}`. I tre setup predefiniti
+  (`conservativo`, `bilanciato`, `dinamico`) non sono eliminabili: il servizio li ricrea a ogni
+  avvio, quindi cancellarli darebbe una eliminazione riuscita e un setup che riappare al riavvio.
+  Il server rifiuta e la lista tiene il pulsante spento.
+
+  La schermata *Titano* perde i pulsanti «Carica setup» e «Salva setup»: la selezione dalla combo
+  applica direttamente i parametri, e il salvataggio vive solo nell'anagrafica. Poterlo salvare da
+  due punti avrebbe prodotto due versioni della stessa ricetta, con run che portano l'id di una e i
+  parametri dell'altra. I parametri restano modificabili sulla schermata, perche' una rotazione una
+  tantum e' un caso legittimo, ma la modifica vale per quella sola esecuzione.
 

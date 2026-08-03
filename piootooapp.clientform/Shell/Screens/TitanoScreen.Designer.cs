@@ -20,8 +20,6 @@ partial class TitanoScreen
     {
         this._commandsPanel = new System.Windows.Forms.FlowLayoutPanel();
         this._setupCombo = new System.Windows.Forms.ComboBox();
-        this._loadSetupButton = new System.Windows.Forms.Button();
-        this._saveSetupButton = new System.Windows.Forms.Button();
         this._runButton = new System.Windows.Forms.Button();
         this._reportButton = new System.Windows.Forms.Button();
         this._reloadButton = new System.Windows.Forms.Button();
@@ -146,8 +144,6 @@ partial class TitanoScreen
         // 
         this._commandsPanel.AutoSize = true;
         this._commandsPanel.Controls.Add(this._setupCombo);
-        this._commandsPanel.Controls.Add(this._loadSetupButton);
-        this._commandsPanel.Controls.Add(this._saveSetupButton);
         this._commandsPanel.Controls.Add(this._runButton);
         this._commandsPanel.Controls.Add(this._reportButton);
         this._commandsPanel.Controls.Add(this._reloadButton);
@@ -166,26 +162,7 @@ partial class TitanoScreen
         this._setupCombo.Name = "_setupCombo";
         this._setupCombo.Size = new System.Drawing.Size(280, 23);
         this._setupCombo.TabIndex = 0;
-        // 
-        // _loadSetupButton
-        // 
-        this._loadSetupButton.AutoSize = true;
-        this._loadSetupButton.Name = "_loadSetupButton";
-        this._loadSetupButton.Size = new System.Drawing.Size(100, 25);
-        this._loadSetupButton.TabIndex = 1;
-        this._loadSetupButton.Text = "Carica setup";
-        this._loadSetupButton.UseVisualStyleBackColor = true;
-        this._loadSetupButton.Click += new System.EventHandler(this.OnLoadSetupClick);
-        // 
-        // _saveSetupButton
-        // 
-        this._saveSetupButton.AutoSize = true;
-        this._saveSetupButton.Name = "_saveSetupButton";
-        this._saveSetupButton.Size = new System.Drawing.Size(100, 25);
-        this._saveSetupButton.TabIndex = 2;
-        this._saveSetupButton.Text = "Salva setup";
-        this._saveSetupButton.UseVisualStyleBackColor = true;
-        this._saveSetupButton.Click += new System.EventHandler(this.OnSaveSetupClick);
+        this._setupCombo.SelectedIndexChanged += new System.EventHandler(this.OnSetupSelected);
         // 
         // _runButton
         // 
@@ -1244,8 +1221,6 @@ partial class TitanoScreen
 
     private System.Windows.Forms.FlowLayoutPanel _commandsPanel;
     private System.Windows.Forms.ComboBox _setupCombo;
-    private System.Windows.Forms.Button _loadSetupButton;
-    private System.Windows.Forms.Button _saveSetupButton;
     private System.Windows.Forms.Button _runButton;
     private System.Windows.Forms.Button _reportButton;
     private System.Windows.Forms.Button _reloadButton;

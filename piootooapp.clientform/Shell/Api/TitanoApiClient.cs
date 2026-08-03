@@ -29,6 +29,14 @@ public sealed class TitanoApiClient : ApiClientBase
         => SendForAsync<TitanoRotationSetup>(
             HttpMethod.Post, "api/Titano/rotation-setups", setup, cancellationToken);
 
+    /// <summary>I setup predefiniti non sono eliminabili: il server risponde 400 e lo dice.</summary>
+    public async Task DeleteSetupAsync(string setupId, CancellationToken cancellationToken = default)
+    {
+        using var response = await SendAsync(
+            HttpMethod.Delete, $"api/Titano/rotation-setups/{Escape(setupId)}", null, cancellationToken);
+        _ = response;
+    }
+
     public Task<TitanoRotationManifest> RunRotationAsync(
         TitanoRotationRequest request,
         CancellationToken cancellationToken = default)

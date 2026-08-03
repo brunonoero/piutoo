@@ -14,6 +14,9 @@ public partial class TitanoScreen : UserControl, IShellScreen
     private ShellContext? _context;
     private TitanoRotationManifest? _lastManifest;
     private bool _suspendReload;
+
+    /// <summary>Evita che il ripopolamento della combo scateni un caricamento del setup.</summary>
+    private bool _suspendSetupReload;
     private bool _isRunning;
 
     public TitanoScreen()
@@ -58,11 +61,14 @@ public partial class TitanoScreen : UserControl, IShellScreen
                 : _workspaceCombo.Items.Count > 0 ? 0 : -1;
 
             var setups = await _context.Services.Titano.ListSetupsAsync(cancellationToken);
+            _suspendSetupReload = true;
             _setupCombo.Items.Clear();
             foreach (var setup in setups.OrderBy(setup => setup.Name, StringComparer.OrdinalIgnoreCase))
             {
                 _setupCombo.Items.Add(new SetupComboItem(setup));
             }
+
+            _suspendSetupReload = false;
 
             _suspendReload = false;
 
@@ -127,8 +133,7 @@ public partial class TitanoScreen : UserControl, IShellScreen
         }
 
         _runButton.Enabled = !busy;
-        _saveSetupButton.Enabled = !busy;
-        _loadSetupButton.Enabled = !busy;
+        _setupCombo.Enabled = !busy;
         _reloadButton.Enabled = !busy;
         _reportButton.Enabled = !busy && _lastManifest != null;
         Cursor = busy ? Cursors.AppStarting : Cursors.Default;
@@ -354,9 +359,18 @@ public partial class TitanoScreen : UserControl, IShellScreen
 
     private async void OnReloadClick(object? sender, EventArgs e) => await LoadAsync(CancellationToken.None);
 
-    private async void OnLoadSetupClick(object? sender, EventArgs e)
+    /// <summary>
+    /// Applica il setup scelto ai parametri della schermata. Non c'e' piu' un pulsante "carica":
+    /// selezionare un setup e non vederlo applicato sarebbe una scelta senza effetto visibile.
+    ///
+    /// <para>I parametri restano modificabili perche' una rotazione una tantum e' un caso legittimo,
+    /// ma le modifiche non si salvano piu' da qui: il setup e' un'anagrafica e si modifica in
+    /// <em>Anagrafiche -> Setup Titano</em>. Averlo in due posti significherebbe due versioni della
+    /// stessa ricetta, e i run porterebbero l'id di una e i parametri dell'altra.</para>
+    /// </summary>
+    private async void OnSetupSelected(object? sender, EventArgs e)
     {
-        if (_context == null || _setupCombo.SelectedItem is not SetupComboItem selected)
+        if (_context == null || _suspendSetupReload || _setupCombo.SelectedItem is not SetupComboItem selected)
         {
             return;
         }
@@ -366,50 +380,13 @@ public partial class TitanoScreen : UserControl, IShellScreen
         {
             var setup = await _context.Services.Titano.GetSetupAsync(selected.Info.Id);
             ApplyDefaults(setup);
-            _context.Navigation.SetStatus($"Setup '{setup.Name}' caricato.");
+            _context.Navigation.SetStatus(
+                $"Parametri dal setup '{setup.Name}'. Le modifiche qui valgono per questa rotazione: " +
+                "per cambiarlo davvero usa Anagrafiche -> Setup Titano.");
         }
         catch (Exception ex)
         {
             _context.Navigation.SetError(ex.Message);
-        }
-        finally
-        {
-            SetBusy(false);
-        }
-    }
-
-    private async void OnSaveSetupClick(object? sender, EventArgs e)
-    {
-        if (_context == null)
-        {
-            return;
-        }
-
-        var name = _setupNameTextBox.Text.Trim();
-        if (name.Length == 0)
-        {
-            MessageBox.Show(this, "Il nome del setup è obbligatorio.", "Titano",
-                MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            return;
-        }
-
-        // Riusa l'id solo se si sta salvando sopra il setup caricato: altrimenti se ne crea uno nuovo.
-        var existing = _setupCombo.SelectedItem as SetupComboItem;
-        var id = existing != null && string.Equals(existing.Info.Name, name, StringComparison.OrdinalIgnoreCase)
-            ? existing.Info.Id
-            : null;
-
-        SetBusy(true);
-        try
-        {
-            var saved = await _context.Services.Titano.SaveSetupAsync(BuildSetup(id));
-            _context.Navigation.SetStatus($"Setup '{saved.Name}' salvato con id {saved.Id}.");
-            await LoadAsync(CancellationToken.None);
-        }
-        catch (Exception ex)
-        {
-            _context.Navigation.SetError(ex.Message);
-            MessageBox.Show(this, ex.Message, "Salvataggio setup", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally
         {

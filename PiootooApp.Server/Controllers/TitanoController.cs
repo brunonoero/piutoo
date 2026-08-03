@@ -30,6 +30,18 @@ public class TitanoController : ControllerBase
         catch (FileNotFoundException ex) { return NotFound(new { error = ex.Message }); }
     }
 
+    [HttpDelete("rotation-setups/{setupId}")]
+    public IActionResult DeleteRotationSetup(string setupId)
+    {
+        try
+        {
+            _rotationSetupService.DeleteSetup(setupId);
+            return NoContent();
+        }
+        catch (FileNotFoundException ex) { return NotFound(new { error = ex.Message }); }
+        catch (InvalidOperationException ex) { return BadRequest(new { error = ex.Message }); }
+    }
+
     [HttpPost("rotation-setups")]
     public ActionResult<TitanoRotationSetup> SaveRotationSetup([FromBody] TitanoRotationSetup setup)
     {

@@ -58,6 +58,36 @@ public sealed class TitanoRotationSetupService
         return setup;
     }
 
+    /// <summary>
+    /// Elimina un setup salvato.
+    ///
+    /// <para>I tre setup predefiniti non sono eliminabili: il costruttore li ricrea a ogni avvio del
+    /// servizio, quindi cancellarli darebbe una eliminazione riuscita e un setup che riappare al
+    /// riavvio. Meglio rifiutare che mentire.</para>
+    ///
+    /// <para>Un setup eliminato non invalida i run gia' calcolati: il run porta i propri parametri
+    /// nel manifest, e il riferimento nel piano e' solo tracciamento della ricetta usata.</para>
+    /// </summary>
+    public void DeleteSetup(string setupId)
+    {
+        var id = SafeId(setupId);
+        if (SeededSetupIds.Contains(id))
+        {
+            throw new InvalidOperationException(
+                $"Il setup '{id}' e' predefinito e viene ricreato a ogni avvio del server: " +
+                "non e' eliminabile. Creane uno nuovo se ti serve una variante.");
+        }
+
+        var path = Path.Combine(_setupsPath, $"{id}.json");
+        if (!File.Exists(path))
+            throw new FileNotFoundException($"Setup rotazione Titano '{setupId}' non trovato.");
+
+        File.Delete(path);
+    }
+
+    private static readonly HashSet<string> SeededSetupIds =
+        new(StringComparer.OrdinalIgnoreCase) { "conservativo", "bilanciato", "dinamico" };
+
     private TitanoRotationSetup Load(string path) =>
         JsonSerializer.Deserialize<TitanoRotationSetup>(File.ReadAllText(path), _jsonOptions)
         ?? throw new InvalidDataException($"Setup rotazione Titano non valido: {path}");
