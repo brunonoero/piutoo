@@ -20,8 +20,30 @@ idempotente: richieste ripetute riprendono la stessa sessione; una execution key
 crea una sessione nuova. All'apertura tutte le righe del piano sono applicate come gruppi
 della sessione (anti copy-trading e profili Titano per gruppo).
 
+## Distribuzione o esecuzione diretta
+
+`DistributeToAccounts` (default `true`) decide come la sessione consegna i segnali.
+
+Con la distribuzione attiva le righe del piano diventano i gruppi della sessione: `POST /bars`
+restituisce template non assegnati e ogni account li reclama da `GET /accounts/{n}/signals`, dove
+vivono slot di gruppo, limite di trade concorrenti ed eleggibilità Titano. È il percorso di
+`PiootooLiveTradingBot`, e la sessione è condivisa fra gli account del piano.
+
+Con `DistributeToAccounts=false` il server non configura alcun gruppo: `POST /bars` restituisce
+intent già assegnati, che il client esegue direttamente. Serve ai cBot che non implementano il
+claim, come `PiootooTradingSessionBot`. Il piano continua a fornire workspace, capitale,
+commissioni, sizing, metadata strumenti e Titano; cambia soltanto il canale di consegna. La chiave
+idempotente include in questo caso anche l'account e un marcatore di modalità, perché la sessione
+non è condivisibile: due cBot sulla stessa sessione eseguirebbero gli stessi intent due volte.
+
+`MaxConcurrentTrades` è applicato esclusivamente da `GetNextSignalForAccount`, cioè dal percorso di
+claim. In esecuzione diretta non esiste un punto in cui applicarlo, quindi aprire un piano che lo
+dichiara (con `EnforceConcurrencyLimits` attivo) restituisce `400`: meglio rifiutare che operare
+senza il limite che il piano promette.
+
 La sessione acquisisce uno snapshot del piano alla creazione. Modificare il piano non cambia
-sessioni già aperte. Il server sceglie automaticamente la modalità Titano dalla riga primaria:
+sessioni già aperte. Il server sceglie automaticamente la modalità Titano dalla riga primaria (in
+esecuzione diretta, dalla riga dell'account che apre la sessione):
 
 - piano senza filtro: `Disabled`;
 - piano filtrato in backtest: `BacktestRotationFile`;
@@ -56,4 +78,5 @@ dovrà contenere anche il contesto pending fino all'evento di apertura della pos
 `Piootoo.Core/Services/TradingPlanService.cs`,
 `Piootoo.Core/Services/TradingSessionService.cs`,
 `PiootooApp.Server/Controllers/TradingPlansController.cs`,
-`piootoo-repository/ctrader/PiootooLiveTradingBot.cs`.
+`piootoo-repository/ctrader/PiootooLiveTradingBot.cs` (distribuzione),
+`piootoo-repository/ctrader/PiootooTradingSessionBot.cs` (esecuzione diretta).

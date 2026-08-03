@@ -198,6 +198,15 @@ public sealed class TradingSessionDescriptor
 public sealed class TradingInstrument
 {
     public required string Symbol { get; init; }
+
+    /// <summary>
+    /// Nome dello stesso strumento sull'account che esegue la sessione. È il nome che il client
+    /// vede sul proprio grafico e con cui deve riconoscere lo strumento; nelle barre e negli intent
+    /// di chiusura va invece usato <see cref="Symbol"/>, che è la chiave del dominio Piootoo.
+    /// Coincidono quando l'account non mappa quel simbolo o non è noto.
+    /// </summary>
+    public string AccountSymbol { get; init; } = string.Empty;
+
     public required IReadOnlyList<int> TimeframesMinutes { get; init; }
 }
 
@@ -235,7 +244,27 @@ public sealed class OrderIntent
     public required DateTime CreatedAtUtc { get; init; }
     public SignalType Side { get; init; }
     public TradeOrderType OrderType { get; init; }
+    /// <summary>
+    /// Simbolo con cui inoltrare l'ordine sull'account assegnato. È il simbolo su cui il client
+    /// deve fare match: <see cref="Symbol"/> resta quello Piootoo, con cui il server indicizza
+    /// posizioni e valutazioni. Coincidono quando l'account non mappa quel simbolo.
+    /// </summary>
+    public string AccountSymbol { get; init; } = string.Empty;
+
+    /// <summary>Account della tabella di conversione applicata. Vuoto = nessuna conversione.</summary>
+    public string AccountId { get; init; } = string.Empty;
+
+    /// <summary>Rapporto contratto broker / contratto Piootoo, già applicato alle quantità.</summary>
+    public decimal ContractMultiplier { get; init; } = 1m;
+
+    /// <summary>Rapporto capitale del conto / milione di riferimento, già applicato alle quantità.</summary>
+    public decimal AccountBalanceScale { get; init; } = 1m;
+
     public decimal Quantity { get; init; }
+
+    /// <summary>Quantità prima della conversione dell'account, per tracciabilità: non va eseguita.</summary>
+    public decimal QuantityBeforeAccountConversion { get; init; }
+
     public decimal AllocationMultiplier { get; init; } = 1m;
     public decimal BaseQuantity { get; init; }
     public decimal StrategyEquityMultiplier { get; init; } = 1m;

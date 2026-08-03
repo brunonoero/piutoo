@@ -15,7 +15,8 @@ public static class PersistedSignalMapper
         string? correlationId = null,
         string? accountId = null,
         string? accountSymbol = null,
-        decimal contractMultiplier = 1m)
+        decimal contractMultiplier = 1m,
+        decimal accountBalanceScale = 1m)
     {
         ArgumentNullException.ThrowIfNull(signal);
 
@@ -32,10 +33,14 @@ public static class PersistedSignalMapper
                 ? NormalizeSymbol(signal.Symbol)
                 : accountSymbol,
             ContractMultiplier = contractMultiplier,
+            AccountBalanceScale = accountBalanceScale,
             Side = signal.Type,
             OrderType = signal.OrderType,
             TriggerPrice = signal.Price,
             Quantity = signal.Quantity,
+            QuantityBeforeAccountConversion = signal.QuantityBeforeAccountConversion > 0
+                ? signal.QuantityBeforeAccountConversion
+                : signal.Quantity,
             ValidFromUtc = signal.ValidFromUtc,
             ExpiresAtUtc = signal.ExpiresAtUtc,
             StopLoss = signal.StopLoss,

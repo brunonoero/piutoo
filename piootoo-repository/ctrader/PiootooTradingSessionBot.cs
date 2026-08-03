@@ -18,9 +18,13 @@ namespace cAlgo.Robots
     // A differenza di PiootooSignalReplayBot (che rilegge segnali da file), questo cBot dialoga
     // direttamente con PiootooApp.Server:
     //
-    //   1) OnStart  -> crea (o riprende) una trading session in modalita ExternalBroker,
-    //                  inviando l'account number come ClientSessionToken e il simbolo/le
-    //                  metadata dello strumento del grafico corrente, poi la avvia (/start).
+    //   1) OnStart  -> apre la sessione con POST /trading-sessions/open-plan indicando SOLO il
+    //                  codice del piano di trading, l'account e il contesto. Il piano e' la
+    //                  configurazione operativa salvata nel workspace e porta con se workspace,
+    //                  capitale, commissioni, position sizing, metadata degli strumenti, run
+    //                  Titano e modalita di filtro: nessuna di queste cose e' un parametro del
+    //                  cBot, cosi non puo' esistere un bot configurato diversamente dal piano che
+    //                  crede di eseguire. Vedi docs/domini/trading-plans.md.
     //   2) OnBar    -> ad ogni barra chiusa invia SOLO quella barra (account/simbolo gia legati
     //                  alla sessione) a POST /{sessionId}/bars e riceve gli OrderIntent generati
     //                  dal server. Sono SEMPRE e SOLO intent di INGRESSO: il server non decide
@@ -45,10 +49,12 @@ namespace cAlgo.Robots
     //      ricalcolato. Il bot quindi cancella l'ordine pending della barra precedente prima di
     //      piazzare il nuovo, e comunque alla barra dopo la scadenza.
     //
-    //      Il bot NON e' compatibile con la distribuzione multi-account: se la sessione ha gruppi
-    //      account configurati si ferma all'avvio, perche' POST /bars in quel caso restituisce
-    //      template non assegnati che vanno reclamati da GET /accounts/{n}/signals
-    //      (vedi PiootooLiveTradingBot e docs/domini/distribuzione-multi-account.md).
+    //      Il bot NON e' compatibile con la distribuzione multi-account, e per questo apre il piano
+    //      con DistributeToAccounts=false: il server non configura i gruppi della sessione e
+    //      POST /bars restituisce intent gia assegnati. Con i gruppi attivi restituirebbe invece
+    //      template non assegnati, da reclamare con GET /accounts/{n}/signals (vedi
+    //      PiootooLiveTradingBot e docs/domini/distribuzione-multi-account.md); il controllo
+    //      all'avvio resta come rete di sicurezza.
     //   4) Ogni fill di apertura viene riportato con POST /{sessionId}/execution-reports.
     //      Ogni CHIUSURA — qualunque ne sia la causa, SL/TP nativo, uscita a tempo o limite barre —
     //      passa da un canale unico: POST /{sessionId}/intents/close-external registra lato server
@@ -58,10 +64,12 @@ namespace cAlgo.Robots
     //      (vedi docs/domini/titano-rotation.md, "In ExternalBroker un trade nasce esclusivamente
     //      dai fill di chiusura autorevoli").
     //
-    //   5) Riavvio: il cBot non tiene lo storico dei segnali su file. All'avvio salva/ricarica solo
-    //      SessionId+SessionToken da un piccolo file locale (uno per account/simbolo/timeframe), cosi
-    //      un riavvio riprende automaticamente la STESSA sessione lato server senza doverla reimpostare
-    //      a mano nei parametri. Una volta nota la sessione, il cBot chiede al controller
+    //   5) Riavvio: non serve piu ricordarsi la sessione. La chiave (codice piano, contesto,
+    //      execution key, account) e' idempotente lato server, quindi rilanciare il cBot con gli
+    //      stessi parametri riprende la STESSA sessione; cambiare Execution Key ne apre una nuova.
+    //      Il file locale conserva soltanto l'ancora del pannello (equity iniziale e picco) e l'id
+    //      della sessione a cui appartiene, per non riusarla su una sessione diversa.
+    //      Una volta nota la sessione, il cBot chiede al controller
     //      (GET {sessionId}/intents) i signal gia emessi e li riconcilia con le Position/PendingOrder
     //      ancora aperte in cTrader. Questa ricostruzione e' NECESSARIA: senza l'intent di apertura il
     //      bot non conosce piu CloseAtUtc e MaxBarsInPosition della posizione e non saprebbe piu
@@ -79,7 +87,7 @@ namespace cAlgo.Robots
     {
         private const string LabelPrefix = "PiootooSession";
         private const string BotName = "PiootooTradingSessionBot";
-        private const string BotVersion = "1.2.0"; // aggiornare qui ad ogni release
+        private const string BotVersion = "1.3.0"; // aggiornare qui ad ogni release
         private const string ChartInfoObjectName = "PiootooTradingSessionBot_InfoPanel";
 
         // ---------------------------------------------------------------- Connessione / sessione
@@ -87,95 +95,44 @@ namespace cAlgo.Robots
         [Parameter("API Base Url", DefaultValue = "http://localhost:5142", Group = "Connessione")]
         public string ApiBaseUrl { get; set; }
 
-        [Parameter("Workspace Id", DefaultValue = "", Group = "Connessione")]
-        public string WorkspaceId { get; set; }
-
-        [Parameter("Execution Mode", DefaultValue = SessionExecutionModeParam.ExternalBroker, Group = "Connessione")]
-        public SessionExecutionModeParam SessionMode { get; set; }
+        // Unico parametro funzionale del bot. Il piano vive nel workspace lato server e contiene
+        // capitale, commissioni, position sizing, metadata degli strumenti, gruppo/account, run
+        // Titano e flag di applicazione del filtro. Il codice e' univoco fra tutti i workspace,
+        // quindi qui non serve indicare anche il workspace. Vedi docs/domini/trading-plans.md.
+        [Parameter("Codice piano", DefaultValue = "", Group = "Connessione")]
+        public string PlanCode { get; set; }
 
         [Parameter("Account Number Override", DefaultValue = 0, Group = "Connessione")]
         public int AccountNumberOverride { get; set; }
 
-        [Parameter("Existing Session Id", DefaultValue = "", Group = "Connessione")]
-        public string ExistingSessionId { get; set; }
-
-        [Parameter("Existing Session Token", DefaultValue = "", Group = "Connessione")]
-        public string ExistingSessionToken { get; set; }
-
-        [Parameter("Titano Run Id", DefaultValue = "", Group = "Connessione")]
-        public string TitanoRunId { get; set; }
-
-        [Parameter("Titano Backtest Folder", DefaultValue = "", Group = "Connessione")]
-        public string TitanoBacktestFolder { get; set; }
-
-        // Le tre modalita operative. Il bot si comporta esattamente allo stesso modo in tutte e tre:
-        // manda le barre, riceve i segnali gia filtrati dal server, li esegue e riporta le chiusure.
-        //
-        //   Disabled             -> backtest senza filtro: vengono valutate tutte le strategie del
-        //                           masterfilter. E' il run che produce i trade su cui l'analisi
-        //                           Titano calcola offline le rotazioni.
-        //   BacktestRotationFile -> backtest filtrato con le rotazioni del manifest calcolato offline:
-        //                           per ogni barra vale la decisione del periodo che la contiene.
-        //   Realtime             -> vale la decisione del periodo corrente dell'ultima analisi Titano.
-        //
-        // Le ultime due richiedono Titano Run Id + Titano Backtest Folder: il server rifiuta la
-        // creazione della sessione se mancano, invece di eseguire in silenzio senza filtro.
-        //
-        // Il bot dichiara anche il CONTESTO in cui gira (backtest cTrader o mercato reale), letto da
-        // IsBacktesting e non da un parametro, cosi il server puo' rifiutare le combinazioni
-        // impossibili: Realtime durante un backtest (sarebbe look-ahead) e BacktestRotationFile in
-        // live (il tempo esce subito dall'intervallo del manifest).
-        [Parameter("Titano Mode", DefaultValue = TitanoFilterModeParam.Disabled, Group = "Connessione")]
-        public TitanoFilterModeParam TitanoMode { get; set; }
-
-        // Applica MaxConcurrentTrades nella distribuzione multi-account.
-        //
-        //   Default  -> attivo ovunque tranne nel backtest con Titano Disabled, che deve produrre
-        //               tutti i trade del master filter per alimentare le rotazioni.
-        //   On / Off -> forza il comportamento.
-        //
-        // Serve a isolare i due effetti: confrontando un backtest Disabled con uno
-        // BacktestRotationFile lasciando il default si muovono DUE variabili (rotazione e limite di
-        // concorrenza) e si attribuisce a Titano una differenza che in parte non e' sua.
-        [Parameter("Limite Trade Concorrenti", DefaultValue = ConcurrencyLimitParam.Default, Group = "Connessione")]
-        public ConcurrencyLimitParam ConcurrencyLimit { get; set; }
+        // Distingue le esecuzioni dello stesso piano. La tripla (piano, contesto, execution key)
+        // piu' l'account e' idempotente lato server: rilanciare il cBot con la stessa chiave
+        // riprende la sessione, cambiarla ne apre una nuova. Vuoto = "LIVE" sul mercato reale e
+        // una chiave derivata dall'istante di partenza nel backtest, cosi ogni backtest e' pulito
+        // e ogni riavvio in live ritrova le proprie posizioni.
+        [Parameter("Execution Key", DefaultValue = "", Group = "Connessione")]
+        public string ExecutionKey { get; set; }
 
         /// <summary>
         /// Contesto in cui il bot sta girando, letto dalla piattaforma e non da un parametro: e' la
-        /// ragione per cui il server puo' fidarsene per rifiutare le combinazioni incoerenti.
+        /// ragione per cui il server puo' fidarsene per scegliere la modalita Titano del piano
+        /// (backtest filtrato o realtime) e per rifiutare le combinazioni incoerenti.
         /// </summary>
         private string CurrentClientRunMode => IsBacktesting ? "Backtest" : "Realtime";
 
         [Parameter("Http Timeout (s)", DefaultValue = 15, MinValue = 1, Group = "Connessione")]
         public int HttpTimeoutSeconds { get; set; }
 
-        [Parameter("Persist Session To File", DefaultValue = true, Group = "Connessione")]
-        public bool PersistSessionToFile { get; set; }
+        [Parameter("Persist Stato Locale", DefaultValue = true, Group = "Connessione")]
+        public bool PersistLocalState { get; set; }
 
-        [Parameter("Force New Session", DefaultValue = false, Group = "Connessione")]
-        public bool ForceNewSession { get; set; }
+        // ---------------------------------------------------------------------------- Esecuzione
+        //
+        // Capitale, commissioni, sizing e metadata dello strumento arrivano dal piano. Qui resta
+        // solo la conversione fra la quantita del dominio Piootoo (contratti) e il volume del
+        // broker, che e' una proprieta del conto cTrader e non della configurazione operativa.
 
-        // -------------------------------------------------------------------------------- Sizing
-
-        [Parameter("Initial Capital", DefaultValue = 100000, Group = "Sizing")]
-        public double InitialCapital { get; set; }
-
-        [Parameter("Commission Per Contract", DefaultValue = 2, Group = "Sizing")]
-        public double CommissionPerContract { get; set; }
-
-        [Parameter("Dollars Per Point", DefaultValue = 1, Group = "Sizing")]
-        public double DollarsPerPoint { get; set; }
-
-        [Parameter("Minimum Quantity", DefaultValue = 0.01, Group = "Sizing")]
-        public double MinimumQuantity { get; set; }
-
-        [Parameter("Quantity Step", DefaultValue = 0.01, Group = "Sizing")]
-        public double QuantityStep { get; set; }
-
-        [Parameter("Quantity Rounding Mode", DefaultValue = QuantityRoundingModeParam.BrokerVolumeStep, Group = "Sizing")]
-        public QuantityRoundingModeParam RoundingModeParam { get; set; }
-
-        [Parameter("Volume Per Quantity Unit", DefaultValue = 1.0, MinValue = 0.0001, Group = "Sizing")]
+        [Parameter("Volume Per Quantity Unit", DefaultValue = 1.0, MinValue = 0.0001, Group = "Esecuzione")]
         public double VolumePerQuantityUnit { get; set; }
 
         // ------------------------------------------------------------------------------- Uscite
@@ -211,6 +168,11 @@ namespace cAlgo.Robots
         private string _sessionId;
         private string _sessionToken;
         private int _timeframeMinutes;
+
+        // Nome Piootoo dello strumento del grafico: e' la chiave con cui il server indicizza barre,
+        // strategie e posizioni, e non coincide col nome del broker quando l'account converte i
+        // simboli. Vale SymbolName finche' la sessione non lo ha risolto.
+        private string _piootooSymbol;
         private long _accountNumber;
         private bool _sessionReady;
         private double _initialEquity;
@@ -243,9 +205,9 @@ namespace cAlgo.Robots
 
         protected override void OnStart()
         {
-            if (string.IsNullOrWhiteSpace(WorkspaceId))
+            if (string.IsNullOrWhiteSpace(PlanCode))
             {
-                Print("Workspace Id non impostato.");
+                Print("Codice piano non impostato.");
                 Stop();
                 return;
             }
@@ -258,6 +220,7 @@ namespace cAlgo.Robots
             }
 
             _accountNumber = AccountNumberOverride > 0 ? AccountNumberOverride : Account.Number;
+            _piootooSymbol = SymbolName;
             _timeframeMinutes = ResolveTimeframeMinutes(TimeFrame);
             if (_timeframeMinutes <= 0)
             {
@@ -275,81 +238,22 @@ namespace cAlgo.Robots
 
             try
             {
-                string resumeSessionId = null;
-                string resumeSessionToken = null;
-                SessionStateFileDto savedState = null;
+                // Un'unica chiamata: il server risolve il piano e, sulla chiave idempotente,
+                // riprende la sessione esistente oppure ne crea e ne avvia una nuova. Non c'e'
+                // piu' un /start separato ne' una sessione da ricordare fra un riavvio e l'altro.
+                var descriptor = OpenPlanSession();
+                _sessionId = descriptor.SessionId;
+                _sessionToken = descriptor.SessionToken;
 
-                if (!ForceNewSession)
-                {
-                    if (!string.IsNullOrWhiteSpace(ExistingSessionId) && !string.IsNullOrWhiteSpace(ExistingSessionToken))
-                    {
-                        resumeSessionId = ExistingSessionId.Trim();
-                        resumeSessionToken = ExistingSessionToken.Trim();
-                    }
-                    else if (PersistSessionToFile)
-                    {
-                        savedState = LoadSessionState();
-                        if (savedState != null && !string.IsNullOrWhiteSpace(savedState.SessionId) && !string.IsNullOrWhiteSpace(savedState.SessionToken))
-                        {
-                            resumeSessionId = savedState.SessionId;
-                            resumeSessionToken = savedState.SessionToken;
-                            Print("Trovato stato sessione salvato su file: {0}.", resumeSessionId);
-                        }
-                    }
-                }
-
-                var resumed = false;
-                if (resumeSessionId != null)
-                {
-                    _sessionId = resumeSessionId;
-                    _sessionToken = resumeSessionToken;
-                    try
-                    {
-                        var descriptor = StartSession();
-
-                        // La validazione modalita/contesto avviene alla CREAZIONE della sessione: una
-                        // sessione ripresa la salterebbe. E' il caso concreto in cui si rilancia in
-                        // backtest un bot che aveva lasciato su file una sessione live (o viceversa):
-                        // il file di stato e' per account/simbolo/timeframe, non per contesto.
-                        var currentRunMode = CurrentClientRunMode;
-                        if (!string.IsNullOrEmpty(descriptor?.ClientRunMode) &&
-                            !string.Equals(descriptor.ClientRunMode, currentRunMode, StringComparison.OrdinalIgnoreCase) &&
-                            !string.Equals(descriptor.ClientRunMode, "Unknown", StringComparison.OrdinalIgnoreCase))
-                        {
-                            throw new InvalidOperationException(
-                                $"la sessione era stata creata in contesto {descriptor.ClientRunMode}, ora si gira in {currentRunMode}");
-                        }
-
-                        resumed = true;
-                        Print("Sessione {0} ripresa per account {1}.", _sessionId, _accountNumber);
-                    }
-                    catch (Exception ex)
-                    {
-                        Print("Impossibile riprendere la sessione salvata {0} ({1}): ne creo una nuova.", resumeSessionId, ex.Message);
-                        _sessionId = null;
-                        _sessionToken = null;
-                        savedState = null;
-                    }
-                }
-
-                if (!resumed)
-                {
-                    CreateSession();
-                    StartSession();
-                }
-
-                // Ancora per il pannello profit/drawdown a chart: se la sessione e stata ripresa da uno
-                // stato salvato con equity iniziale nota, la riusiamo cosi il pannello non si azzera ad
-                // ogni riavvio del cBot; per una sessione nuova l'equity attuale e il nuovo punto zero.
-                _initialEquity = resumed && savedState != null ? savedState.InitialEquity : Account.Equity;
-                _peakEquity = resumed && savedState != null ? Math.Max(savedState.PeakEquity, Account.Equity) : Account.Equity;
+                RequirePlanCoversChart(descriptor);
 
                 if (HasAccountGroups())
                 {
-                    // In multi-account POST /bars restituisce template NON assegnati, che vanno
-                    // reclamati da GET /accounts/{n}/signals: la' vivono slot di gruppo, limite di
-                    // trade concorrenti ed eleggibilita'. Eseguirli qui scavalcherebbe l'intero
-                    // layer di distribuzione e lo stesso template finirebbe su piu' account.
+                    // Non dovrebbe accadere: apriamo il piano con DistributeToAccounts=false. Se
+                    // accade, POST /bars restituisce template NON assegnati, da reclamare con
+                    // GET /accounts/{n}/signals: la' vivono slot di gruppo, limite di trade
+                    // concorrenti ed eleggibilita'. Eseguirli qui scavalcherebbe l'intero layer di
+                    // distribuzione e lo stesso template finirebbe su piu' account.
                     Print("La sessione {0} ha gruppi account configurati: questo cBot esegue i signal " +
                           "di POST /bars e non e' compatibile con la distribuzione multi-account. " +
                           "Usa PiootooLiveTradingBot.", _sessionId);
@@ -357,10 +261,20 @@ namespace cAlgo.Robots
                     return;
                 }
 
+                // Ancora del pannello profit/drawdown: si riusa solo se appartiene proprio a questa
+                // sessione, altrimenti il punto zero e' l'equity attuale. Cosi il pannello non si
+                // azzera ad ogni riavvio del cBot ma riparte quando parte davvero un'esecuzione nuova.
+                var savedState = PersistLocalState ? LoadSessionState() : null;
+                var anchored = savedState != null &&
+                               string.Equals(savedState.SessionId, _sessionId, StringComparison.Ordinal);
+                _initialEquity = anchored ? savedState.InitialEquity : Account.Equity;
+                _peakEquity = anchored ? Math.Max(savedState.PeakEquity, Account.Equity) : Account.Equity;
+
                 SaveSessionState();
                 _sessionReady = true;
-                Print("Sessione {0} attiva su {1} ({2} min), account {3}, workspace {4}.",
-                    _sessionId, SymbolName, _timeframeMinutes, _accountNumber, WorkspaceId);
+                Print("Sessione {0} attiva su {1} ({2} min), account {3}, piano {4} (workspace {5}, Titano {6}).",
+                    _sessionId, SymbolName, _timeframeMinutes, _accountNumber, PlanCode.Trim(),
+                    descriptor.WorkspaceId, descriptor.TitanoMode);
 
                 UpdateChartDisplay();
 
@@ -488,16 +402,25 @@ namespace cAlgo.Robots
 
         // ------------------------------------------------------------------ Stato sessione su file
 
-        // Non persistiamo lo storico dei segnali: la sessione lato server (GET {sessionId}/intents)
-        // resta l'unica fonte di verita per i signal. Il file locale serve solo a ricordare QUALE
-        // sessione riprendere dopo un riavvio del cBot (SessionId+SessionToken), evitando di doverli
-        // reimpostare a mano nei parametri "Existing Session Id/Token".
+        // Non persistiamo ne' i segnali ne' la sessione: i signal stanno lato server
+        // (GET {sessionId}/intents) e la sessione si ritrova da sola grazie alla chiave idempotente
+        // del piano. Il file conserva solo l'ancora del pannello (equity iniziale e picco) insieme
+        // all'id della sessione a cui si riferisce, per non riportarla su un'esecuzione diversa.
         private string ResolveSessionStateFilePath()
         {
             var folder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "PiootooTradingSessionBot");
             Directory.CreateDirectory(folder);
-            var safeSymbol = NormalizeSymbol(SymbolName).Replace('/', '_').Replace('\\', '_');
-            return Path.Combine(folder, $"session-{_accountNumber}-{safeSymbol}-{_timeframeMinutes}.json");
+            var safePlan = SanitizeForFileName(PlanCode);
+            var safeSymbol = SanitizeForFileName(NormalizeSymbol(SymbolName));
+            return Path.Combine(folder, $"session-{safePlan}-{_accountNumber}-{safeSymbol}-{_timeframeMinutes}.json");
+        }
+
+        private static string SanitizeForFileName(string value)
+        {
+            var text = (value ?? string.Empty).Trim();
+            foreach (var invalid in Path.GetInvalidFileNameChars())
+                text = text.Replace(invalid, '_');
+            return text;
         }
 
         private SessionStateFileDto LoadSessionState()
@@ -520,7 +443,7 @@ namespace cAlgo.Robots
 
         private void SaveSessionState()
         {
-            if (!PersistSessionToFile)
+            if (!PersistLocalState)
                 return;
 
             try
@@ -530,7 +453,6 @@ namespace cAlgo.Robots
                     new SessionStateFileDto
                     {
                         SessionId = _sessionId,
-                        SessionToken = _sessionToken,
                         InitialEquity = _initialEquity,
                         PeakEquity = _peakEquity
                     }, _json);
@@ -639,7 +561,7 @@ namespace cAlgo.Robots
             intents
                 .Where(i => !i.IsClose &&
                             string.Equals(i.StrategyCode, strategyCode, StringComparison.OrdinalIgnoreCase) &&
-                            NormalizeSymbol(i.Symbol) == NormalizeSymbol(SymbolName))
+                            NormalizeSymbol(ResolveIntentSymbol(i)) == NormalizeSymbol(SymbolName))
                 .OrderByDescending(i => i.CreatedAtUtc)
                 .FirstOrDefault();
 
@@ -667,48 +589,96 @@ namespace cAlgo.Robots
 
         // ------------------------------------------------------------------------ Sessione HTTP
 
-        private void CreateSession()
+        /// <summary>
+        /// Risolve il piano e crea o riprende la sessione. <c>DistributeToAccounts=false</c> chiede
+        /// al server di NON configurare i gruppi: senza gruppi POST /bars restituisce intent gia
+        /// assegnati, che e' l'unico modello di esecuzione che questo cBot implementa. Il server
+        /// rifiuta l'apertura se il piano dichiara un limite di trade concorrenti, perche' quel
+        /// limite e' applicato dal percorso di claim e qui non avrebbe dove agire.
+        /// </summary>
+        private SessionDescriptorDto OpenPlanSession()
         {
-            var request = new CreateSessionRequestDto
+            var request = new OpenPlanSessionRequestDto
             {
-                WorkspaceId = WorkspaceId.Trim(),
-                ExecutionMode = SessionMode.ToString(),
-                InitialCapital = (decimal)InitialCapital,
-                CommissionPerContract = (decimal)CommissionPerContract,
-                ClientSessionToken = $"cTrader-{_accountNumber}",
-                TitanoRunId = string.IsNullOrWhiteSpace(TitanoRunId) ? null : TitanoRunId.Trim(),
-                TitanoBacktestFolder = string.IsNullOrWhiteSpace(TitanoBacktestFolder) ? null : TitanoBacktestFolder.Trim(),
-                TitanoMode = TitanoMode.ToString(),
-                EnforceConcurrencyLimits = ConcurrencyLimit == ConcurrencyLimitParam.Default
-                    ? (bool?)null
-                    : ConcurrencyLimit == ConcurrencyLimitParam.On,
-                // NON e' un parametro: lo legge la piattaforma. Cosi il server puo' rifiutare le
-                // combinazioni incoerenti (Realtime in backtest, BacktestRotationFile in live)
+                PlanCode = PlanCode.Trim(),
+                // NON e' un parametro: lo legge la piattaforma. Cosi il server puo' scegliere la
+                // modalita Titano coerente col contesto e rifiutare le combinazioni impossibili
                 // invece di lasciarle passare e produrre numeri plausibili ma sbagliati.
                 ClientRunMode = CurrentClientRunMode,
-                Instruments = new List<InstrumentMetadataDto>
-                {
-                    new InstrumentMetadataDto
-                    {
-                        Symbol = SymbolName,
-                        DollarsPerPoint = (decimal)DollarsPerPoint,
-                        MinimumQuantity = (decimal)MinimumQuantity,
-                        QuantityStep = (decimal)QuantityStep,
-                        RoundingMode = RoundingModeParam.ToString()
-                    }
-                }
+                ExecutionKey = ResolveExecutionKey(),
+                AccountNumber = _accountNumber.ToString(),
+                DistributeToAccounts = false
             };
 
-            var descriptor = SendJson<SessionDescriptorDto>(HttpMethod.Post, "api/v1/trading-sessions", request, includeToken: false);
-            _sessionId = descriptor.SessionId;
-            _sessionToken = descriptor.SessionToken;
-            Print("Sessione creata: {0} (account {1}, workspace {2}).", _sessionId, _accountNumber, WorkspaceId);
+            var descriptor = SendJson<SessionDescriptorDto>(
+                HttpMethod.Post, "api/v1/trading-sessions/open-plan", request, includeToken: false);
+            if (descriptor == null || string.IsNullOrWhiteSpace(descriptor.SessionId))
+                throw new InvalidOperationException($"il piano '{PlanCode.Trim()}' non ha restituito una sessione");
+
+            return descriptor;
         }
 
-        private SessionDescriptorDto StartSession()
+        private string ResolveExecutionKey()
         {
-            return SendJson<SessionDescriptorDto>(HttpMethod.Post, $"api/v1/trading-sessions/{_sessionId}/start");
+            if (!string.IsNullOrWhiteSpace(ExecutionKey))
+                return ExecutionKey.Trim();
+
+            // In backtest l'istante di avvio e' fisso per tutto il run: ogni run parte da una
+            // sessione nuova, ma un rilancio dello stesso run non ne accumula un'altra.
+            return IsBacktesting ? $"BT-{Server.TimeInUtc:yyyyMMddHHmmss}" : "LIVE";
         }
+
+        /// <summary>
+        /// Verifica che il grafico corrisponda a una coppia (simbolo, timeframe) del masterfilter
+        /// del piano. Il server accetta e archivia qualunque barra: se nessuna strategia gira su
+        /// quello stream, il bot lavorerebbe per sempre senza produrre un solo segnale e senza un
+        /// errore. Meglio non partire.
+        /// </summary>
+        /// <summary>
+        /// Verifica che il piano copra il grafico e fissa il simbolo Piootoo corrispondente.
+        ///
+        /// <para>Il match e' sul nome che lo strumento ha sull'ACCOUNT, che e' quello del grafico;
+        /// verso il server si usa poi il nome Piootoo, con cui sono indicizzate barre, posizioni e
+        /// strategie. Sono lo stesso strumento con due nomi, e confonderli significa spedire barre
+        /// che non alimentano nessuna strategia.</para>
+        /// </summary>
+        private void RequirePlanCoversChart(SessionDescriptorDto descriptor)
+        {
+            var instruments = descriptor.Instruments ?? new List<TradingInstrumentDto>();
+            var instrument = instruments.FirstOrDefault(
+                item => NormalizeSymbol(ResolveInstrumentAccountSymbol(item)) == NormalizeSymbol(SymbolName));
+            if (instrument == null)
+            {
+                throw new InvalidOperationException(
+                    $"il piano non ha strategie su {SymbolName}. Strumenti previsti: " +
+                    $"{string.Join(", ", instruments.Select(DescribeInstrument))}");
+            }
+
+            _piootooSymbol = instrument.Symbol;
+            if (NormalizeSymbol(_piootooSymbol) != NormalizeSymbol(SymbolName))
+                Print("Conversione symbol attiva: il grafico {0} alimenta lo strumento Piootoo {1}.",
+                    SymbolName, _piootooSymbol);
+
+            var timeframes = instrument.TimeframesMinutes ?? new List<int>();
+            if (!timeframes.Contains(_timeframeMinutes))
+            {
+                throw new InvalidOperationException(
+                    $"il piano usa {SymbolName} a {string.Join("/", timeframes)} minuti, il grafico e' a " +
+                    $"{_timeframeMinutes}: le barre inviate non alimenterebbero alcuna strategia");
+            }
+        }
+
+        private static string DescribeInstrument(TradingInstrumentDto instrument)
+        {
+            var accountSymbol = ResolveInstrumentAccountSymbol(instrument);
+            var name = NormalizeSymbol(accountSymbol) == NormalizeSymbol(instrument.Symbol)
+                ? instrument.Symbol
+                : $"{accountSymbol} [{instrument.Symbol}]";
+            return $"{name} ({string.Join("/", instrument.TimeframesMinutes ?? new List<int>())} min)";
+        }
+
+        private static string ResolveInstrumentAccountSymbol(TradingInstrumentDto instrument) =>
+            string.IsNullOrWhiteSpace(instrument.AccountSymbol) ? instrument.Symbol : instrument.AccountSymbol;
 
         /// <summary>
         /// Vero se la sessione ha una mappa account -> gruppo, cioe' se usa la distribuzione
@@ -743,11 +713,12 @@ namespace cAlgo.Robots
                 {
                     new ClosedBarDto
                     {
-                        Symbol = SymbolName,
+                        // Nome Piootoo: e' con quello che il server indicizza le serie.
+                        Symbol = _piootooSymbol,
                         TimeframeMinutes = _timeframeMinutes,
                         BarTimeUtc = openTimeUtc,
                         Sequence = new DateTimeOffset(openTimeUtc, TimeSpan.Zero).ToUnixTimeSeconds(),
-                        IdempotencyKey = $"{SymbolName}:{_timeframeMinutes}:{openTimeUtc:O}",
+                        IdempotencyKey = $"{_piootooSymbol}:{_timeframeMinutes}:{openTimeUtc:O}",
                         Bar = new OhlcvDto
                         {
                             DateTime = openTimeUtc,
@@ -774,7 +745,11 @@ namespace cAlgo.Robots
 
             foreach (var intent in response.Intents)
             {
-                if (NormalizeSymbol(intent.Symbol) != NormalizeSymbol(SymbolName))
+                // Il match e' sul simbolo dell'ACCOUNT, non su quello Piootoo: la tabella di
+                // conversione del conto traduce @NQ nel nome del broker, ed e' quello il nome del
+                // grafico su cui gira il bot. Symbol resta il nome interno con cui il server
+                // indicizza posizioni e valutazioni, e non coincide per forza.
+                if (NormalizeSymbol(ResolveIntentSymbol(intent)) != NormalizeSymbol(SymbolName))
                     continue;
 
                 ApplyIntent(intent);
@@ -1114,8 +1089,15 @@ namespace cAlgo.Robots
                 // Utile aperto per singolo contratto, nella stessa grandezza con cui il server
                 // dichiara le soglie: e' cosi che le strategie EasyLanguage esprimono
                 // openpositionprofit quando e' attivo setstopcontract.
-                var profitPerContract = position.VolumeInUnits > 0
-                    ? (decimal)(position.NetProfit / (position.VolumeInUnits / VolumePerQuantityUnit))
+                //
+                // Quelle soglie sono per contratto PIOOTOO, mentre il volume a mercato e' in
+                // contratti del BROKER: con un ContractMultiplier diverso da 1 le due grandezze non
+                // coincidono, e confrontarle direttamente farebbe scattare le uscite alla soglia
+                // sbagliata di un fattore pari al moltiplicatore.
+                var contractMultiplier = intent.ContractMultiplier > 0 ? intent.ContractMultiplier : 1m;
+                var brokerContracts = (decimal)(position.VolumeInUnits / VolumePerQuantityUnit);
+                var profitPerContract = brokerContracts > 0
+                    ? (decimal)position.NetProfit / brokerContracts * contractMultiplier
                     : 0m;
 
                 if (intent.CloseAtUtc.HasValue && now >= intent.CloseAtUtc.Value)
@@ -1233,7 +1215,7 @@ namespace cAlgo.Robots
                 {
                     SessionToken = _sessionToken,
                     StrategyCode = strategyCode,
-                    Symbol = SymbolName,
+                    Symbol = _piootooSymbol,
                     Quantity = 0m, // 0 = il server usa l'intera quantita della posizione aperta
                     Reason = $"LocalExit:{reason}"
                 };
@@ -1305,6 +1287,13 @@ namespace cAlgo.Robots
         private static string NormalizeSymbol(string symbol) =>
             (symbol ?? string.Empty).Trim().TrimStart('@').ToUpperInvariant();
 
+        /// <summary>
+        /// Simbolo con cui inoltrare l'ordine: quello dell'account se la sessione lo ha risolto,
+        /// altrimenti quello Piootoo. Il fallback copre le sessioni aperte senza anagrafica account.
+        /// </summary>
+        private static string ResolveIntentSymbol(OrderIntentDto intent) =>
+            string.IsNullOrWhiteSpace(intent.AccountSymbol) ? intent.Symbol : intent.AccountSymbol;
+
         private static string MakeLabel(string strategyCode) =>
             $"{LabelPrefix}:{strategyCode}";
 
@@ -1345,39 +1334,6 @@ namespace cAlgo.Robots
             return int.TryParse(suffix, out var parsed) && parsed > 0 ? parsed : fallback;
         }
 
-        // ------------------------------------------------------------------------------- Enum UI
-
-        public enum SessionExecutionModeParam
-        {
-            ServerSimulated,
-            ExternalBroker
-        }
-
-        public enum QuantityRoundingModeParam
-        {
-            FuturesContracts,
-            BrokerVolumeStep
-        }
-
-        /// <summary>Deve restare allineato a Piootoo.Shared.Models.Trading.TitanoFilterMode.</summary>
-        public enum TitanoFilterModeParam
-        {
-            Disabled,
-            BacktestRotationFile,
-            Realtime
-        }
-
-        /// <summary>
-        /// Mappato su CreateTradingSessionRequest.EnforceConcurrencyLimits (bool?):
-        /// Default = null, On = true, Off = false.
-        /// </summary>
-        public enum ConcurrencyLimitParam
-        {
-            Default,
-            On,
-            Off
-        }
-
         // ----------------------------------------------------------------------- DTO contratto API
         // Copie locali (POCO) dei contratti definiti in Piootoo.Shared.Models.Trading, cosi il cBot
         // resta un singolo file senza riferimenti al progetto server. I campi enum-like (Side,
@@ -1385,28 +1341,18 @@ namespace cAlgo.Robots
         // membro enum C# lato server (es. "Buy", "ExternalBroker", "Filled"), perche il server
         // serializza gli enum come stringa via JsonStringEnumConverter senza policy camelCase.
 
-        private sealed class CreateSessionRequestDto
+        private sealed class OpenPlanSessionRequestDto
         {
-            public string WorkspaceId { get; set; } = "";
-            public string ExecutionMode { get; set; } = "ExternalBroker";
-            public decimal InitialCapital { get; set; } = 100000m;
-            public decimal CommissionPerContract { get; set; } = 2m;
-            public string ClientSessionToken { get; set; }
-            public string TitanoRunId { get; set; }
-            public string TitanoBacktestFolder { get; set; }
-            public string TitanoMode { get; set; } = "Disabled";
-            public bool? EnforceConcurrencyLimits { get; set; }
+            public string PlanCode { get; set; } = "";
             public string ClientRunMode { get; set; } = "Unknown";
-            public List<InstrumentMetadataDto> Instruments { get; set; } = new();
-        }
+            public string ExecutionKey { get; set; } = "";
+            public string AccountNumber { get; set; }
 
-        private sealed class InstrumentMetadataDto
-        {
-            public string Symbol { get; set; } = "";
-            public decimal DollarsPerPoint { get; set; } = 1m;
-            public decimal MinimumQuantity { get; set; } = 1m;
-            public decimal QuantityStep { get; set; } = 1m;
-            public string RoundingMode { get; set; } = "BrokerVolumeStep";
+            /// <summary>
+            /// False = niente gruppi sulla sessione, quindi POST /bars restituisce intent gia
+            /// assegnati invece di template da reclamare.
+            /// </summary>
+            public bool DistributeToAccounts { get; set; }
         }
 
         private sealed class SessionDescriptorDto
@@ -1414,11 +1360,26 @@ namespace cAlgo.Robots
             public string SessionId { get; set; } = "";
             public string SessionToken { get; set; } = "";
             public string WorkspaceId { get; set; } = "";
+            public string PlanCode { get; set; }
+            public string ExecutionKey { get; set; }
             public string ExecutionMode { get; set; } = "";
             public string Status { get; set; } = "";
             public string TitanoRunId { get; set; }
             public string TitanoMode { get; set; }
             public string ClientRunMode { get; set; }
+
+            /// <summary>Coppie (simbolo, timeframe) derivate dal masterfilter del workspace del piano.</summary>
+            public List<TradingInstrumentDto> Instruments { get; set; } = new();
+        }
+
+        private sealed class TradingInstrumentDto
+        {
+            public string Symbol { get; set; } = "";
+
+            /// <summary>Nome dello strumento sull'account: e' quello del grafico.</summary>
+            public string AccountSymbol { get; set; } = "";
+
+            public List<int> TimeframesMinutes { get; set; } = new();
         }
 
         private sealed class OhlcvDto
@@ -1467,6 +1428,16 @@ namespace cAlgo.Robots
             public string OrderType { get; set; } = "";
             public decimal Quantity { get; set; }
             public decimal FinalQuantity { get; set; }
+
+            /// <summary>Simbolo del broker risolto dalla tabella di conversione dell'account.</summary>
+            public string AccountSymbol { get; set; } = "";
+
+            /// <summary>
+            /// Contratti broker per contratto Piootoo, GIA' applicato a FinalQuantity. Serve solo a
+            /// riportare l'utile aperto nella grandezza in cui il server dichiara le soglie.
+            /// </summary>
+            public decimal ContractMultiplier { get; set; } = 1m;
+
             public decimal Price { get; set; }
             /// <summary>"Entry" oppure "Close"; Close può essere emesso per un segnale ExitOnly.</summary>
             public string Kind { get; set; } = "Entry";
@@ -1551,8 +1522,8 @@ namespace cAlgo.Robots
 
         private sealed class SessionStateFileDto
         {
+            /// <summary>Sessione a cui appartiene l'ancora: se non coincide, l'ancora si ricalcola.</summary>
             public string SessionId { get; set; } = "";
-            public string SessionToken { get; set; } = "";
             public double InitialEquity { get; set; }
             public double PeakEquity { get; set; }
         }

@@ -28,11 +28,17 @@ catalogo sono rifiutati senza fallback.
 
 ## Apertura tramite piano
 
-`open-plan` è il percorso usato da `PiootooLiveTradingBot`. Il payload contiene `PlanCode`,
+`open-plan` è il percorso usato da entrambi i cBot. Il payload contiene `PlanCode`,
 `ClientRunMode`, `ExecutionKey` e il numero account rilevato da cTrader. Il codice piano viene
 risolto globalmente; l'account deve coincidere con quello configurato nel piano.
 
-La chiave `(PlanCode, ClientRunMode, ExecutionKey)` separa le esecuzioni e rende il riavvio del
+`DistributeToAccounts` sceglie il canale di consegna dei segnali: `true` (default) attiva la
+distribuzione multi-account di `PiootooLiveTradingBot`, `false` lascia la sessione senza gruppi e
+fa restituire a `POST /bars` intent già assegnati, come richiede `PiootooTradingSessionBot`.
+Dettaglio e vincoli in `docs/domini/trading-plans.md`.
+
+La chiave `(PlanCode, ClientRunMode, ExecutionKey)` — più l'account in esecuzione diretta, dove la
+sessione non è condivisibile — separa le esecuzioni e rende il riavvio del
 cBot idempotente. In backtest il cBot deriva l'execution key dall'istante iniziale della
 simulazione; in realtime usa la chiave stabile `LIVE`.
 

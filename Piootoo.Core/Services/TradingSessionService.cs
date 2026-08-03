@@ -147,6 +147,14 @@ public sealed class TradingSessionService : ITradingSessionService
 
         public required PositionSizingConfig PositionSizing { get; init; }
         public required Dictionary<string, InstrumentMetadata> InstrumentMetadata { get; init; }
+
+        /// <summary>
+        /// Account che esegue direttamente gli intent di <c>POST /bars</c>, cioè le sessioni aperte
+        /// con <c>DistributeToAccounts=false</c>. Qui non c'è claim, quindi la conversione
+        /// dell'account va applicata al momento in cui l'intent nasce. Null nelle sessioni
+        /// distribuite, dove il conto si conosce solo al claim.
+        /// </summary>
+        public string? DirectAccountNumber { get; set; }
         public decimal PeakEquity { get; set; }
         public TradingSessionStatus Status { get; set; }
         public object Gate { get; } = new();
@@ -170,6 +178,13 @@ public sealed class TradingSessionService : ITradingSessionService
         /// <summary>Mappa AccountNumber -> GroupId configurata dal tab Trading Session.</summary>
         public Dictionary<string, string> AccountGroups { get; } = new(StringComparer.OrdinalIgnoreCase);
         public Dictionary<string, int> AccountMaxConcurrentTrades { get; } =
+            new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// Tabella di conversione per AccountNumber, risolta al primo poll dell'account: il
+        /// registro account sta su disco e il poll è per barra e per conto.
+        /// </summary>
+        public Dictionary<string, AccountSymbolConversion> AccountConversions { get; } =
             new(StringComparer.OrdinalIgnoreCase);
 
         /// <summary>Profilo Titano per GroupId (RotationSetupId, run, flag apply).</summary>
@@ -254,12 +269,17 @@ public sealed class TradingSessionService : ITradingSessionService
         var account = string.IsNullOrWhiteSpace(request.AccountNumber)
             ? plan.AccountNumber
             : request.AccountNumber.Trim();
-        if (!plan.Groups.Any(row =>
-                row.AccountNumber.Equals(account, StringComparison.OrdinalIgnoreCase)))
-            throw new ArgumentException(
-                $"L'account '{account}' non appartiene al piano '{plan.Code}'.");
+        var accountRow = plan.Groups.FirstOrDefault(row =>
+                             row.AccountNumber.Equals(account, StringComparison.OrdinalIgnoreCase))
+                         ?? throw new ArgumentException(
+                             $"L'account '{account}' non appartiene al piano '{plan.Code}'.");
 
-        var executionKey = $"{plan.Code}|{request.ClientRunMode}|{request.ExecutionKey.Trim()}";
+        // In distribuzione la sessione è condivisa fra gli account del piano, quindi la chiave non
+        // include l'account. In esecuzione diretta gli intent sono già assegnati e li consuma un
+        // solo cBot: due account sulla stessa sessione eseguirebbero gli stessi segnali due volte.
+        var executionKey = request.DistributeToAccounts
+            ? $"{plan.Code}|{request.ClientRunMode}|{request.ExecutionKey.Trim()}"
+            : $"{plan.Code}|{request.ClientRunMode}|{request.ExecutionKey.Trim()}|Direct|{account}";
         if (_planExecutions.TryGetValue(executionKey, out var existingId) &&
             _sessions.TryGetValue(existingId, out var existing))
         {
@@ -272,13 +292,32 @@ public sealed class TradingSessionService : ITradingSessionService
         }
 
         // Titano di sessione dalla riga primaria (prima con run, altrimenti la prima): i profili
-        // delle altre righe restano applicati da SetTradingGroups e prevalgono nel claim.
-        var primary = TradingPlanService.SelectPrimaryRow(plan.Groups);
+        // delle altre righe restano applicati da SetTradingGroups e prevalgono nel claim. In
+        // esecuzione diretta non esiste claim, e l'unica riga che descrive l'esecuzione è quella
+        // dell'account che ha aperto la sessione.
+        var primary = request.DistributeToAccounts
+            ? TradingPlanService.SelectPrimaryRow(plan.Groups)
+            : accountRow;
         var titanoMode = !primary.ApplyTitanoFilters
             ? TitanoFilterMode.Disabled
             : request.ClientRunMode == ClientRunMode.Backtest
                 ? TitanoFilterMode.BacktestRotationFile
                 : TitanoFilterMode.Realtime;
+
+        // MaxConcurrentTrades è applicato solo da GetNextSignalForAccount, cioè dal percorso di
+        // claim. Senza gruppi quel percorso non esiste e il limite non avrebbe alcun punto di
+        // applicazione: eseguire lo stesso il piano significherebbe operare senza il limite che
+        // dichiara, quindi si rifiuta l'apertura invece di ignorarlo in silenzio.
+        var enforceConcurrency = plan.EnforceConcurrencyLimits
+                                 ?? DefaultEnforceConcurrencyLimits(request.ClientRunMode, titanoMode);
+        if (!request.DistributeToAccounts && enforceConcurrency && accountRow.MaxConcurrentTrades > 0)
+            throw new ArgumentException(
+                $"Il piano '{plan.Code}' dichiara MaxConcurrentTrades={accountRow.MaxConcurrentTrades} " +
+                $"per l'account '{account}', ma in esecuzione diretta il limite non è applicabile: " +
+                "è governato dalla distribuzione multi-account. Azzera MaxConcurrentTrades, " +
+                "disattiva EnforceConcurrencyLimits, oppure usa un cBot che reclama i segnali " +
+                "da GET /accounts/{n}/signals.");
+
         var descriptor = CreateCore(new CreateTradingSessionRequest
         {
             WorkspaceId = plan.WorkspaceId,
@@ -294,7 +333,17 @@ public sealed class TradingSessionService : ITradingSessionService
             PositionSizing = plan.PositionSizing,
             Instruments = plan.Instruments
         }, plan.Code, request.ExecutionKey.Trim());
-        SetTradingGroups(descriptor.SessionId, descriptor.SessionToken, plan.Groups);
+        if (request.DistributeToAccounts)
+            SetTradingGroups(descriptor.SessionId, descriptor.SessionToken, plan.Groups);
+        else
+            lock (_sessions[descriptor.SessionId].Gate)
+            {
+                var opened = _sessions[descriptor.SessionId];
+                // Risolta subito e non alla prima barra: un conto senza anagrafica deve far fallire
+                // l'apertura, non ogni push a sessione avviata.
+                ResolveAccountConversion(opened, account);
+                opened.DirectAccountNumber = account;
+            }
         SetStatus(descriptor.SessionId, descriptor.SessionToken, TradingSessionStatus.Running);
         _planExecutions[executionKey] = descriptor.SessionId;
         return Describe(_sessions[descriptor.SessionId]);
@@ -558,8 +607,13 @@ public sealed class TradingSessionService : ITradingSessionService
                         continue;
                     }
 
-                    var intent = AddIntent(session, signal, result);
+                    var intent = AddIntent(session, signal, result, conversion: ResolveDirectConversion(session));
                     if (result?.Reason is not null) intent.Status = OrderIntentStatus.Cancelled;
+
+                    // Simbolo non operativo sul conto che esegue: l'intent resta come traccia ma
+                    // non deve essere eseguito.
+                    if (intent.FinalQuantity <= 0 && session.DirectAccountNumber is not null)
+                        intent.Status = OrderIntentStatus.Cancelled;
 
                     // Limite di fill per sessione. In ExternalBroker è l'unico punto in cui può
                     // essere applicato: il motore simulato che lo verifica al fill
@@ -793,6 +847,7 @@ public sealed class TradingSessionService : ITradingSessionService
 
             session.AccountGroups.Clear();
             session.AccountMaxConcurrentTrades.Clear();
+            session.AccountConversions.Clear();
             foreach (var mapping in accounts)
                 session.AccountGroups[mapping.AccountNumber.Trim()] = mapping.GroupId.Trim();
             Persist(session);
@@ -819,6 +874,7 @@ public sealed class TradingSessionService : ITradingSessionService
 
             session.AccountGroups.Clear();
             session.AccountMaxConcurrentTrades.Clear();
+            session.AccountConversions.Clear();
             session.GroupProfiles.Clear();
             foreach (var group in rows.GroupBy(r => r.GroupId.Trim(), StringComparer.OrdinalIgnoreCase))
             {
@@ -971,8 +1027,12 @@ public sealed class TradingSessionService : ITradingSessionService
             //    Scartiamo quindi solo i template dei simboli su cui l'account è già occupato.
             var now = DateTime.UtcNow;
             var priorities = ComputeStrategyPriority(session, groupId);
+            var conversion = ResolveAccountConversion(session, accountNumber);
             var template = session.EntryTemplates
                 .Where(t => t.Status == OrderIntentStatus.Pending)
+                // Un simbolo disabilitato sull'account non è operativo su quel conto: il template
+                // resta disponibile per gli altri account invece di essere consumato qui.
+                .Where(t => conversion.IsSymbolEnabled(t.Symbol))
                 .Where(t => !t.ExpiresAtUtc.HasValue || t.ExpiresAtUtc.Value >= now)
                 .Where(t => !(session.TemplateClaimedGroups.TryGetValue(t.IntentId, out var claimed)
                               && claimed.Contains(groupId)))
@@ -1053,7 +1113,7 @@ public sealed class TradingSessionService : ITradingSessionService
         }
     }
 
-    private static IReadOnlyList<OrderIntent> CreateExitOnlyCloseIntents(Session session, TradeSignal signal)
+    private IReadOnlyList<OrderIntent> CreateExitOnlyCloseIntents(Session session, TradeSignal signal)
     {
         var symbol = Normalize(signal.Symbol);
         var closes = new List<OrderIntent>();
@@ -1084,11 +1144,18 @@ public sealed class TradingSessionService : ITradingSessionService
             string.Equals(intent.Symbol, symbol, StringComparison.OrdinalIgnoreCase) &&
             string.Equals(intent.AssignedAccountNumber, accountNumber, StringComparison.OrdinalIgnoreCase));
 
-    private static OrderIntent CreateCloseIntent(
+    private OrderIntent CreateCloseIntent(
         Session session, string strategyCode, string symbol, TradingPositionSnapshot position,
         string? accountNumber, decimal requestedQuantity, string reason, DateTime createdAtUtc)
     {
         var quantity = requestedQuantity > 0 ? Math.Min(requestedQuantity, position.Quantity) : position.Quantity;
+
+        // La quantità di una chiusura è quella della posizione aperta, quindi già convertita: qui
+        // la tabella serve solo per il simbolo con cui il client riconosce l'intent.
+        var conversion = accountNumber is null
+            ? AccountSymbolConversion.Identity
+            : ResolveAccountConversion(session, accountNumber);
+
         session.IntentSequence++;
         var intent = new OrderIntent
         {
@@ -1097,10 +1164,15 @@ public sealed class TradingSessionService : ITradingSessionService
             StrategyCode = strategyCode,
             StrategyName = strategyCode,
             Symbol = symbol,
+            AccountSymbol = conversion.GetAccountSymbol(symbol),
+            AccountId = conversion.AccountId,
+            ContractMultiplier = conversion.GetContractMultiplier(symbol),
+            AccountBalanceScale = conversion.BalanceScale,
             CreatedAtUtc = createdAtUtc,
             Side = position.Direction,
             OrderType = TradeOrderType.Market,
             Quantity = quantity,
+            QuantityBeforeAccountConversion = quantity,
             BaseQuantity = quantity,
             FinalQuantity = quantity,
             Price = position.EntryPrice,
@@ -1234,8 +1306,16 @@ public sealed class TradingSessionService : ITradingSessionService
     }
 
     private static OrderIntent AddIntent(
-        Session session, TradeSignal signal, PositionSizingResult? sizing, bool addToIntents = true)
+        Session session, TradeSignal signal, PositionSizingResult? sizing, bool addToIntents = true,
+        AccountSymbolConversion? conversion = null)
     {
+        // Identità sui template: il conto si conosce solo al claim (vedi CloneForClaim).
+        conversion ??= AccountSymbolConversion.Identity;
+        var sizeFactor = conversion.IsSymbolEnabled(signal.Symbol)
+            ? conversion.GetSizeFactor(signal.Symbol)
+            : 0m;
+        var quantityBeforeConversion = sizing?.FinalQuantity ?? signal.Quantity;
+
         var strategyTimeframe = session.Strategies
             .FirstOrDefault(strategy => string.Equals(
                 strategy.Name, signal.StrategyCode, StringComparison.OrdinalIgnoreCase))
@@ -1269,17 +1349,26 @@ public sealed class TradingSessionService : ITradingSessionService
             StrategyCode = signal.StrategyCode,
             StrategyName = signal.StrategyName,
             Symbol = Normalize(signal.Symbol),
+            // Sui template la conversione è l'identità: il simbolo del broker e i fattori arrivano
+            // in CloneForClaim, quando l'account è noto.
+            AccountSymbol = conversion.GetAccountSymbol(Normalize(signal.Symbol)),
+            AccountId = conversion.AccountId,
+            ContractMultiplier = conversion.GetContractMultiplier(signal.Symbol),
+            AccountBalanceScale = conversion.BalanceScale,
             CreatedAtUtc = signal.Date,
             Side = signal.Type,
             OrderType = signal.OrderType,
-            Quantity = signal.Quantity,
+            Quantity = signal.Quantity * sizeFactor,
+            QuantityBeforeAccountConversion = quantityBeforeConversion,
             AllocationMultiplier = sizing?.StrategyEquityMultiplier ?? 1m,
             BaseQuantity = sizing?.BaseQuantity ?? signal.Quantity,
             StrategyEquityMultiplier = sizing?.StrategyEquityMultiplier ?? 1m,
             MarketVolatilityMultiplier = sizing?.MarketVolatilityMultiplier ?? 1m,
             PortfolioRiskMultiplier = sizing?.PortfolioRiskMultiplier ?? 1m,
-            FinalQuantity = sizing?.FinalQuantity ?? signal.Quantity,
-            SizingReason = sizing?.Reason,
+            FinalQuantity = quantityBeforeConversion * sizeFactor,
+            SizingReason = sizeFactor == 1m
+                ? sizing?.Reason
+                : $"{sizing?.Reason} | conversione account: {sizeFactor:0.######}",
             Price = signal.Price,
             Kind = OrderIntentKind.Entry,
             // Specifica di uscita completa: e' l'unica cosa con cui il client chiudera' la posizione.
@@ -1344,6 +1433,15 @@ public sealed class TradingSessionService : ITradingSessionService
         var groupAllocation = GetGroupStrategyAllocation(session, groupId, template.StrategyCode);
         var quantity = ApplyGroupAllocation(session, template.Symbol, template.FinalQuantity, groupAllocation);
 
+        // La conversione dell'account è l'ultimo passaggio, ed è qui e non sul template perché
+        // dipende dal conto: lo stesso segnale vale size diverse su conti con capitale o contratto
+        // diversi. Non si arrotonda al passo dello strumento: quel passo è del contratto Piootoo,
+        // mentre dopo la conversione la quantità è nei contratti del broker, che li normalizza lui.
+        var conversion = ResolveAccountConversion(session, accountNumber);
+        var enabled = conversion.IsSymbolEnabled(template.Symbol);
+        var sizeFactor = conversion.GetSizeFactor(template.Symbol);
+        var convertedQuantity = enabled ? quantity * sizeFactor : 0m;
+
         return new OrderIntent
         {
             IntentId = $"{template.IntentId}::{groupId}",
@@ -1351,19 +1449,22 @@ public sealed class TradingSessionService : ITradingSessionService
             StrategyCode = template.StrategyCode,
             StrategyName = template.StrategyName,
             Symbol = template.Symbol,
+            AccountSymbol = conversion.GetAccountSymbol(template.Symbol),
+            AccountId = conversion.AccountId,
+            ContractMultiplier = conversion.GetContractMultiplier(template.Symbol),
+            AccountBalanceScale = conversion.BalanceScale,
             CreatedAtUtc = template.CreatedAtUtc,
             Side = template.Side,
             OrderType = template.OrderType,
-            Quantity = quantity,
+            Quantity = convertedQuantity,
+            QuantityBeforeAccountConversion = quantity,
             AllocationMultiplier = template.AllocationMultiplier * groupAllocation,
             BaseQuantity = template.BaseQuantity,
             StrategyEquityMultiplier = template.StrategyEquityMultiplier * groupAllocation,
             MarketVolatilityMultiplier = template.MarketVolatilityMultiplier,
             PortfolioRiskMultiplier = template.PortfolioRiskMultiplier,
-            FinalQuantity = quantity,
-            SizingReason = groupAllocation == 1m
-                ? template.SizingReason
-                : $"{template.SizingReason} | allocazione gruppo {groupId}: {groupAllocation:0.###}",
+            FinalQuantity = convertedQuantity,
+            SizingReason = BuildClaimSizingReason(template.SizingReason, groupId, groupAllocation, enabled, sizeFactor),
             Price = template.Price,
             Kind = OrderIntentKind.Entry,
             StopLoss = template.StopLoss,
@@ -1404,6 +1505,53 @@ public sealed class TradingSessionService : ITradingSessionService
         return scaled < metadata.MinimumQuantity ? 0m : scaled;
     }
 
+    /// <summary>
+    /// Tabella di conversione dell'account che opera con questo numero di conto, presa dal registro
+    /// globale e memorizzata sulla sessione. Un conto configurato sulla sessione ma assente dal
+    /// registro è un errore esplicito: senza tabella si opererebbe 1 a 1 con la size di un conto da
+    /// un milione, che è il tipo di errore silenzioso che il progetto non ammette.
+    /// </summary>
+    private AccountSymbolConversion ResolveAccountConversion(Session session, string accountNumber)
+    {
+        if (session.AccountConversions.TryGetValue(accountNumber, out var cached))
+            return cached;
+
+        var account = _workspaces.ListAccounts().FirstOrDefault(candidate =>
+            string.Equals(candidate.AccountNumber?.Trim(), accountNumber.Trim(), StringComparison.OrdinalIgnoreCase));
+        if (account is null)
+            throw new InvalidOperationException(
+                $"Account '{accountNumber}' non presente nel registro account: impossibile risolvere " +
+                "capitale e tabella di conversione simboli. Creane l'anagrafica prima di operare.");
+
+        var conversion = AccountSymbolConversion.FromAccount(account);
+        session.AccountConversions[accountNumber] = conversion;
+        return conversion;
+    }
+
+    /// <summary>
+    /// Conversione da applicare agli intent che nascono già assegnati (esecuzione diretta).
+    /// Null-safe: nelle sessioni distribuite o simulate non c'è un conto a cui riferirsi.
+    /// </summary>
+    private AccountSymbolConversion? ResolveDirectConversion(Session session) =>
+        session.DirectAccountNumber is { } accountNumber
+            ? ResolveAccountConversion(session, accountNumber)
+            : null;
+
+    private static string? BuildClaimSizingReason(
+        string? templateReason, string groupId, decimal groupAllocation, bool symbolEnabled, decimal sizeFactor)
+    {
+        var reason = groupAllocation == 1m
+            ? templateReason
+            : $"{templateReason} | allocazione gruppo {groupId}: {groupAllocation:0.###}";
+
+        if (!symbolEnabled)
+            return $"{reason} | simbolo non operativo sull'account";
+
+        return sizeFactor == 1m
+            ? reason
+            : $"{reason} | conversione account: {sizeFactor:0.######}";
+    }
+
     private static string SlotKey(string groupId, string strategyCode, string symbol) =>
         $"{groupId}|{strategyCode}|{Normalize(symbol)}";
 
@@ -1425,10 +1573,15 @@ public sealed class TradingSessionService : ITradingSessionService
                 ? intent.StrategyCode
                 : intent.StrategyName,
             Symbol = intent.Symbol,
+            AccountId = intent.AccountId,
+            AccountSymbol = intent.AccountSymbol,
+            ContractMultiplier = intent.ContractMultiplier,
+            AccountBalanceScale = intent.AccountBalanceScale,
             Side = intent.Side,
             OrderType = intent.OrderType,
             TriggerPrice = intent.Price,
             Quantity = intent.Quantity,
+            QuantityBeforeAccountConversion = intent.QuantityBeforeAccountConversion,
             BaseQuantity = intent.BaseQuantity,
             StrategyEquityMultiplier = intent.StrategyEquityMultiplier,
             MarketVolatilityMultiplier = intent.MarketVolatilityMultiplier,
@@ -1572,7 +1725,18 @@ public sealed class TradingSessionService : ITradingSessionService
             System.Text.Encoding.UTF8.GetBytes(left),
             System.Text.Encoding.UTF8.GetBytes(right ?? string.Empty));
 
-    private static TradingSessionDescriptor Describe(Session session) => new()
+    private static TradingSessionDescriptor Describe(Session session)
+    {
+        // In esecuzione diretta la conversione è già in cache (risolta all'apertura): il descriptor
+        // dice al client con che nome vedrà sul proprio grafico ogni strumento del piano.
+        var conversion = session.DirectAccountNumber is { } account
+                         && session.AccountConversions.TryGetValue(account, out var resolved)
+            ? resolved
+            : AccountSymbolConversion.Identity;
+        return Describe(session, conversion);
+    }
+
+    private static TradingSessionDescriptor Describe(Session session, AccountSymbolConversion conversion) => new()
     {
         SessionId = session.Id,
         SessionToken = session.Token,
@@ -1590,6 +1754,7 @@ public sealed class TradingSessionService : ITradingSessionService
             .Select(g => new TradingInstrument
             {
                 Symbol = g.Key,
+                AccountSymbol = conversion.GetAccountSymbol(g.Key),
                 TimeframesMinutes = g.Select(x => x.TimeframeMinutes).Distinct().Order().ToArray()
             }).ToArray()
     };

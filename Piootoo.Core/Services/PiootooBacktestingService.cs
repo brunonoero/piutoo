@@ -597,7 +597,8 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                     new Dictionary<string, string>
                     {
                         ["accountId"] = accountConversion.AccountId,
-                        ["initialBalance"] = accountConversion.InitialBalance.ToString("F2")
+                        ["initialBalance"] = accountConversion.InitialBalance.ToString("F2"),
+                        ["balanceScale"] = accountConversion.BalanceScale.ToString("0.######")
                     });
 
             // Arrotonda StartDate al timeframe minimo più vicino (verso il basso)
@@ -922,7 +923,13 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                                 ScaleSignalMaxBarsInPosition(companion, strategy.TimeframeMinutes, minTimeframeMinutes);
                                 companion.Quantity *= titanoAllocation;
                                 if (!TryApplyAccountConversion(companion, accountConversion))
+                                {
+                                    diagnostics.LogAnomaly(
+                                        $"Companion scartato: il symbol '{strategySymbol}' non è operativo sull'account " +
+                                        $"'{accountConversion.AccountName}' o la size convertita è nulla.",
+                                        currentDate, strategyCode, strategySymbol);
                                     continue;
+                                }
                                 signals.Add(companion);
                                 emittedTradeSignals.Add(CloneTradeSignal(companion));
                                 diagnostics.LogSignal(companion, strategyCode, strategySymbol, strategy.TimeframeMinutes, currentDate);
@@ -1401,22 +1408,30 @@ public class PiootooBacktestingService : IPiootooBacktestingService
 
     /// <summary>
     /// Applica la tabella di conversione a un segnale già normalizzato: scala la size con il
-    /// moltiplicatore contratto dell'account. Restituisce false se il simbolo è disabilitato
-    /// sull'account o se la size scalata si annulla, casi in cui il segnale non va emesso.
+    /// capitale del conto e il moltiplicatore contratto dell'account. Restituisce false se il
+    /// simbolo è disabilitato sull'account o se la size scalata si annulla, casi in cui il segnale
+    /// non va emesso.
+    ///
+    /// <para>La quantità dichiarata dalla strategia resta leggibile in
+    /// <see cref="TradeSignal.QuantityBeforeAccountConversion"/>: <c>signals.json</c> espone
+    /// entrambe le grandezze e i fattori usati, così nessun consumatore deve dedurre se la
+    /// conversione sia già stata applicata.</para>
     /// </summary>
     private static bool TryApplyAccountConversion(TradeSignal signal, AccountSymbolConversion conversion)
     {
+        signal.QuantityBeforeAccountConversion = signal.Quantity;
+
         if (conversion.IsIdentity)
             return true;
 
         if (!conversion.IsSymbolEnabled(signal.Symbol))
             return false;
 
-        var multiplier = conversion.GetContractMultiplier(signal.Symbol);
-        if (multiplier == 1m)
+        var factor = conversion.GetSizeFactor(signal.Symbol);
+        if (factor == 1m)
             return true;
 
-        signal.Quantity *= multiplier;
+        signal.Quantity *= factor;
         return signal.Quantity > 0;
     }
 
@@ -1430,7 +1445,8 @@ public class PiootooBacktestingService : IPiootooBacktestingService
             correlationId: jobId,
             accountId: conversion.AccountId,
             accountSymbol: conversion.GetAccountSymbol(signal.Symbol),
-            contractMultiplier: conversion.GetContractMultiplier(signal.Symbol)));
+            contractMultiplier: conversion.GetContractMultiplier(signal.Symbol),
+            accountBalanceScale: conversion.BalanceScale));
 
     private static IEnumerable<PersistedTrade> ToPersistedTrades(
         string jobId,
@@ -1466,6 +1482,7 @@ public class PiootooBacktestingService : IPiootooBacktestingService
             StrategyName = signal.StrategyName,
             Reason = signal.Reason,
             Quantity = signal.Quantity,
+            QuantityBeforeAccountConversion = signal.QuantityBeforeAccountConversion,
             OrderType = signal.OrderType,
             ValidFromUtc = signal.ValidFromUtc,
             ExpiresAtUtc = signal.ExpiresAtUtc,

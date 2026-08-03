@@ -530,3 +530,23 @@ in ordine cronologico. Non è un changelog di codice: quello resta nei commit.
   account associati, che è l'unica informazione utile a decidere se eliminarli.
   Il nome di un workspace è la cartella su disco e l'API non espone una
   rinomina: nel dettaglio è in sola lettura, modificabile solo alla creazione.
+- **2026-08-03** — `PiootooTradingSessionBot` si configura con il **codice piano** al posto del
+  workspace id, e con esso perdono senso i parametri che il piano già contiene: modalità di
+  esecuzione, capitale, commissioni, metadata dello strumento, run/cartella/modalità Titano e
+  limite trade concorrenti. Restano solo base url, timeout, execution key, override account,
+  `VolumePerQuantityUnit` e il flat di fine settimana, cioè ciò che è del broker o del bot. Il
+  motivo è che due configurazioni della stessa esecuzione, una nel piano e una nel cBot, prima o
+  poi divergono in silenzio.
+
+  Il piano però attivava sempre la distribuzione multi-account, incompatibile con questo cBot che
+  esegue gli intent di `POST /bars` invece di reclamarli: aperto da piano si sarebbe fermato ogni
+  volta. `OpenTradingPlanSessionRequest.DistributeToAccounts` (default `true`, quindi nulla cambia
+  per `PiootooLiveTradingBot`) permette di aprire il piano **senza** gruppi. In quel caso la chiave
+  idempotente include anche l'account, perché la sessione non è più condivisibile, e la modalità
+  Titano si legge dalla riga dell'account invece che dalla riga primaria del piano.
+
+  `MaxConcurrentTrades` vive solo nel percorso di claim: un piano che lo dichiara e viene aperto in
+  esecuzione diretta è rifiutato con `400` invece di girare senza limite. Il cBot verifica inoltre
+  all'avvio che la coppia (simbolo, timeframe) del grafico sia coperta dal masterfilter del piano:
+  il server accetta qualunque barra e la archivia, quindi un grafico sbagliato produceva un bot che
+  lavorava per sempre senza un solo segnale e senza un errore.

@@ -23,9 +23,10 @@ public abstract class ApiClientBase
         HttpMethod method,
         string uri,
         object? body,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? sessionToken = null)
     {
-        using var response = await SendAsync(method, uri, body, cancellationToken);
+        using var response = await SendAsync(method, uri, body, cancellationToken, sessionToken);
         return await response.Content.ReadFromJsonAsync<T>(JsonOptions, cancellationToken)
             ?? throw new InvalidOperationException($"Risposta vuota da {uri}.");
     }
@@ -34,11 +35,17 @@ public abstract class ApiClientBase
         HttpMethod method,
         string uri,
         object? body,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? sessionToken = null)
     {
         try
         {
             using var request = new HttpRequestMessage(method, uri);
+            if (sessionToken != null)
+            {
+                request.Headers.Add("X-Session-Token", sessionToken);
+            }
+
             if (body != null)
             {
                 request.Content = JsonContent.Create(body, body.GetType(), options: JsonOptions);

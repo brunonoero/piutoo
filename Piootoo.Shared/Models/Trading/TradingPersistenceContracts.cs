@@ -23,7 +23,18 @@ public sealed class PersistedSignal
     public SignalType Side { get; init; }
     public TradeOrderType OrderType { get; init; }
     public decimal TriggerPrice { get; init; }
+
+    /// <summary>
+    /// Quantità da inoltrare: la conversione dell'account (<see cref="ContractMultiplier"/> e
+    /// <see cref="AccountBalanceScale"/>) è <b>già applicata</b>. Riapplicare quei fattori qui è
+    /// un errore; per la grandezza a monte c'è
+    /// <see cref="QuantityBeforeAccountConversion"/>.
+    /// </summary>
     public decimal Quantity { get; init; }
+
+    /// <summary>Quantità dichiarata dalla strategia, prima della conversione dell'account.</summary>
+    public decimal QuantityBeforeAccountConversion { get; init; }
+
     public decimal BaseQuantity { get; init; }
     public decimal StrategyEquityMultiplier { get; init; } = 1m;
     public decimal MarketVolatilityMultiplier { get; init; } = 1m;
@@ -100,6 +111,12 @@ public sealed class PersistedSignal
 
     /// <summary>Fattore di scala contratto applicato dalla tabella di conversione dell'account.</summary>
     public decimal ContractMultiplier { get; init; } = 1m;
+
+    /// <summary>
+    /// Rapporto fra il capitale dell'account e il milione di riferimento, l'altro fattore della
+    /// conversione insieme a <see cref="ContractMultiplier"/>.
+    /// </summary>
+    public decimal AccountBalanceScale { get; init; } = 1m;
 
     public string? Reason { get; init; }
 

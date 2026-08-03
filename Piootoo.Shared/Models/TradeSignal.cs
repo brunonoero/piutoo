@@ -30,6 +30,13 @@ public class TradeSignal
     public decimal Quantity { get; set; } = 1m;
 
     /// <summary>
+    /// Quantità prima della conversione dell'account, cioè quella dichiarata dalla strategia dopo
+    /// l'eventuale allocazione Titano. <see cref="Quantity"/> è la stessa grandezza dopo la
+    /// conversione: tenerle entrambe evita che un consumatore riapplichi i fattori già applicati.
+    /// </summary>
+    public decimal QuantityBeforeAccountConversion { get; set; }
+
+    /// <summary>
     /// Chiude esclusivamente la posizione esistente nel verso indicato da <see cref="Type"/>,
     /// senza aprirne una opposta. Serve alle strategie il cui exit dipende da una condizione
     /// osservabile solo a runtime, come un reverse crossover.

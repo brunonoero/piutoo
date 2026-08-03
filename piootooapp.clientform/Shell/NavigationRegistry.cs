@@ -45,17 +45,17 @@ public static class NavigationRegistry
             new NavigationEntry("Account", () => new AccountListScreen()),
             new NavigationEntry("Gruppi", () => new GroupListScreen()),
             new NavigationEntry("Workspace", () => new WorkspaceListScreen()),
-            new NavigationEntry("Piani di trading", null),
+            new NavigationEntry("Piani di trading", () => new PlanListScreen()),
             new NavigationEntry("Strategie", () => new StrategyListScreen()),
             new NavigationEntry("Conversioni simbolo", () => new SymbolPresetScreen())),
         new NavigationSection(
             "Operatività",
             new NavigationEntry("Backtesting", () => new BacktestingScreen()),
-            new NavigationEntry("Titano", null),
+            new NavigationEntry("Titano", () => new TitanoScreen()),
             new NavigationEntry("Sessioni di trading", null)),
         new NavigationSection(
             "Analisi",
             new NavigationEntry("Risultati trading", () => new TradingResultsScreen()),
-            new NavigationEntry("Rotazioni Titano", null))
+            new NavigationEntry("Rotazioni Titano", () => new RotationsScreen()))
     };
 }

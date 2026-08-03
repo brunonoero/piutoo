@@ -617,11 +617,15 @@ namespace cAlgo.Robots
                 return;
             }
 
+            // Verso il broker si usa il nome dello strumento sull'account, verso il server quello
+            // Piootoo: la tabella di conversione del conto traduce l'uno nell'altro.
+            var brokerSymbolName = ResolveIntentSymbol(intent);
+
             // Autolimitazione lato client PER SIMBOLO (oltre a quella già garantita dal server): se il bot
             // ha già una posizione aperta su QUESTO simbolo, non ne apre una seconda; può però tradare in
             // parallelo altri simboli configurati.
             var alreadyOpenOnSymbol = Positions.Any(p =>
-                p.SymbolName.Equals(intent.Symbol, StringComparison.OrdinalIgnoreCase) &&
+                p.SymbolName.Equals(brokerSymbolName, StringComparison.OrdinalIgnoreCase) &&
                 p.Label.StartsWith(LabelPrefix, StringComparison.Ordinal));
             if (alreadyOpenOnSymbol)
             {
@@ -630,10 +634,10 @@ namespace cAlgo.Robots
                 return;
             }
 
-            var symbol = Symbols.GetSymbol(intent.Symbol);
+            var symbol = Symbols.GetSymbol(brokerSymbolName);
             if (symbol is null)
             {
-                Print("Simbolo '{0}' non disponibile/non abilitato su questo account: ingresso {1} scartato.", intent.Symbol, intent.StrategyCode);
+                Print("Simbolo '{0}' non disponibile/non abilitato su questo account: ingresso {1} scartato.", brokerSymbolName, intent.StrategyCode);
                 ReportExecution(intent.IntentId, intent.Symbol, ExecutionReportStatusDto.Rejected, 0, null);
                 return;
             }
@@ -662,10 +666,10 @@ namespace cAlgo.Robots
             var stopLossPips = ToPips(symbol, intent.StopLoss);
             var takeProfitPips = ToPips(symbol, intent.TakeProfit);
 
-            var result = ExecuteMarketOrder(tradeType, intent.Symbol, volume, label, stopLossPips, takeProfitPips, intent.Reason);
+            var result = ExecuteMarketOrder(tradeType, brokerSymbolName, volume, label, stopLossPips, takeProfitPips, intent.Reason);
             if (!result.IsSuccessful || result.Position is null)
             {
-                Print("Errore apertura posizione {0}/{1}: {2}", intent.Symbol, intent.StrategyCode, result.Error);
+                Print("Errore apertura posizione {0}/{1}: {2}", brokerSymbolName, intent.StrategyCode, result.Error);
                 ReportExecution(intent.IntentId, intent.Symbol, ExecutionReportStatusDto.Rejected, 0, null);
                 _submittedIntentIds.Remove(intent.IntentId);
                 return;
@@ -693,7 +697,7 @@ namespace cAlgo.Robots
         private void HandleCloseIntent(OrderIntentDto intent)
         {
             var position = Positions.FirstOrDefault(candidate =>
-                candidate.SymbolName.Equals(intent.Symbol, StringComparison.OrdinalIgnoreCase) &&
+                candidate.SymbolName.Equals(ResolveIntentSymbol(intent), StringComparison.OrdinalIgnoreCase) &&
                 candidate.Label == MakeLabel(intent.StrategyCode));
             if (position is null)
             {
@@ -954,6 +958,13 @@ namespace cAlgo.Robots
 
         private static string MakeLabel(string strategyCode) => $"{LabelPrefix}:{strategyCode}";
 
+        /// <summary>
+        /// Nome dello strumento sul broker: quello risolto dalla tabella di conversione dell'account
+        /// se il server lo ha valorizzato, altrimenti il nome Piootoo (conti senza conversione).
+        /// </summary>
+        private static string ResolveIntentSymbol(OrderIntentDto intent) =>
+            string.IsNullOrWhiteSpace(intent.AccountSymbol) ? intent.Symbol : intent.AccountSymbol;
+
         private static string MakeStreamKey(string symbol, int timeframeMinutes) =>
             $"{symbol.Trim().TrimStart('@').ToUpperInvariant()}|{timeframeMinutes}";
 
@@ -1052,7 +1063,15 @@ namespace cAlgo.Robots
         {
             public string IntentId { get; set; }
             public string StrategyCode { get; set; }
+
+            /// <summary>Simbolo Piootoo: è la chiave con cui il server indicizza tutto.</summary>
             public string Symbol { get; set; }
+
+            /// <summary>
+            /// Simbolo dello stesso strumento sull'account, risolto dalla tabella di conversione:
+            /// è quello con cui va inoltrato l'ordine al broker.
+            /// </summary>
+            public string AccountSymbol { get; set; }
             public SignalTypeDto Side { get; set; }
             public TradeOrderTypeDto OrderType { get; set; }
             public decimal FinalQuantity { get; set; }

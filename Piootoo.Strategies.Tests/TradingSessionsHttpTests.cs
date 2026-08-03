@@ -98,6 +98,113 @@ public sealed class TradingSessionsHttpTests : IDisposable
         Assert.Equal(2, group.MaxConcurrentTrades);
     }
 
+    /// <summary>
+    /// Percorso di <c>PiootooTradingSessionBot</c>: il piano fornisce la configurazione, ma la
+    /// sessione non ha gruppi, quindi <c>POST /bars</c> restituisce intent eseguibili invece di
+    /// template da reclamare. La sessione è per account, altrimenti due cBot eseguirebbero gli
+    /// stessi segnali.
+    /// </summary>
+    [Fact]
+    public async Task DirectExecutionPlan_HasNoGroups_AndReturnsExecutableIntentsFromBars()
+    {
+        var plan = new SaveTradingPlanRequest
+        {
+            Code = "PLAN_DIRECT",
+            Name = "Piano diretto",
+            GroupId = "PROP-D",
+            AccountNumber = "777",
+            ApplyTitanoFilters = false,
+            Instruments =
+            [
+                new InstrumentMetadata
+                {
+                    Symbol = _strategy.Symbol, DollarsPerPoint = 50,
+                    MinimumQuantity = 0.25m, QuantityStep = 0.25m,
+                    RoundingMode = QuantityRoundingMode.BrokerVolumeStep
+                }
+            ]
+        };
+        var save = await _client.PutAsJsonAsync(
+            $"api/v1/workspaces/{_workspace.Id}/trading-plans/{plan.Code}", plan);
+        save.EnsureSuccessStatusCode();
+
+        var open = new OpenTradingPlanSessionRequest
+        {
+            PlanCode = plan.Code,
+            ClientRunMode = ClientRunMode.Backtest,
+            ExecutionKey = "direct-1",
+            AccountNumber = plan.AccountNumber,
+            DistributeToAccounts = false
+        };
+        var response = await _client.PostAsJsonAsync("api/v1/trading-sessions/open-plan", open);
+        response.EnsureSuccessStatusCode();
+        var descriptor = (await response.Content.ReadFromJsonAsync<TradingSessionDescriptor>(JsonOptions))!;
+
+        // Il piano porta con sé il workspace e i metadata dello strumento: il cBot non li configura.
+        Assert.Equal(_workspace.Id, descriptor.WorkspaceId);
+        Assert.Equal(0.25m, descriptor.InstrumentMetadata.Single().QuantityStep);
+        // Il descriptor espone i simboli normalizzati (senza '@'): è la forma su cui il cBot
+        // confronta il simbolo del grafico per accorgersi di essere sullo strumento sbagliato.
+        var instrument = descriptor.Instruments.Single();
+        Assert.Equal(_strategy.Symbol.TrimStart('@'), instrument.Symbol);
+        Assert.Contains(_strategy.TimeframeMinutes, instrument.TimeframesMinutes);
+
+        using var groupsRequest = Authorized(HttpMethod.Get,
+            $"api/v1/trading-sessions/{descriptor.SessionId}/groups", descriptor.SessionToken);
+        var groupsResponse = await _client.SendAsync(groupsRequest);
+        groupsResponse.EnsureSuccessStatusCode();
+        Assert.Empty((await groupsResponse.Content.ReadFromJsonAsync<List<TradingGroupRow>>(JsonOptions))!);
+
+        var intent = Assert.Single((await Push(descriptor, 1, "direct-bar")).Intents);
+        Assert.Equal(OrderIntentStatus.Pending, intent.Status);
+        Assert.Equal(3.75m, intent.FinalQuantity);
+
+        // Stessa chiave ma distribuzione attiva: è un'altra esecuzione, non la stessa ripresa.
+        var distributed = await _client.PostAsJsonAsync("api/v1/trading-sessions/open-plan",
+            new OpenTradingPlanSessionRequest
+            {
+                PlanCode = plan.Code,
+                ClientRunMode = ClientRunMode.Backtest,
+                ExecutionKey = "direct-1",
+                AccountNumber = plan.AccountNumber
+            });
+        distributed.EnsureSuccessStatusCode();
+        Assert.NotEqual(descriptor.SessionId,
+            (await distributed.Content.ReadFromJsonAsync<TradingSessionDescriptor>(JsonOptions))!.SessionId);
+    }
+
+    /// <summary>
+    /// <c>MaxConcurrentTrades</c> è applicato solo dal percorso di claim. In esecuzione diretta non
+    /// esiste, quindi un piano che dichiara il limite va rifiutato invece di girare senza.
+    /// </summary>
+    [Fact]
+    public async Task DirectExecutionPlan_IsRejectedWhenTheConcurrencyLimitCannotBeApplied()
+    {
+        var plan = new SaveTradingPlanRequest
+        {
+            Code = "PLAN_DIRECT_MAX",
+            Name = "Piano diretto con limite",
+            GroupId = "PROP-D",
+            AccountNumber = "778",
+            MaxConcurrentTrades = 2,
+            ApplyTitanoFilters = false
+        };
+        var save = await _client.PutAsJsonAsync(
+            $"api/v1/workspaces/{_workspace.Id}/trading-plans/{plan.Code}", plan);
+        save.EnsureSuccessStatusCode();
+
+        var response = await _client.PostAsJsonAsync("api/v1/trading-sessions/open-plan",
+            new OpenTradingPlanSessionRequest
+            {
+                PlanCode = plan.Code,
+                ClientRunMode = ClientRunMode.Realtime,
+                ExecutionKey = "LIVE",
+                AccountNumber = plan.AccountNumber,
+                DistributeToAccounts = false
+            });
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
     [Fact]
     public async Task MultiGroupTradingPlan_PersistsAllRowsAndOpensWithAllAccounts()
     {

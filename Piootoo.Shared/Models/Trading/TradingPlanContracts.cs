@@ -89,4 +89,16 @@ public sealed class OpenTradingPlanSessionRequest
     /// si usa il primo account del piano.
     /// </summary>
     public string? AccountNumber { get; init; }
+
+    /// <summary>
+    /// True (default) = distribuzione multi-account: le righe del piano diventano i gruppi della
+    /// sessione, <c>POST /bars</c> restituisce template non assegnati e ogni account li reclama da
+    /// <c>GET /accounts/{n}/signals</c>.
+    ///
+    /// <para>False = esecuzione diretta: la sessione non ha gruppi, quindi <c>POST /bars</c>
+    /// restituisce intent già assegnati e il client li esegue. Serve ai cBot che non implementano
+    /// il claim; il piano continua a fornire workspace, sizing, capitale, Titano e metadata
+    /// strumenti. La sessione è per singolo account e non è condivisibile.</para>
+    /// </summary>
+    public bool DistributeToAccounts { get; init; } = true;
 }

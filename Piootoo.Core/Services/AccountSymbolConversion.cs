@@ -17,9 +17,21 @@ public sealed record AccountSymbolConversionEntry(
 /// <para>Regole quando un simbolo non è in tabella: nessuna conversione (simbolo invariato,
 /// moltiplicatore 1). Un simbolo mappato ma disabilitato non è operativo su quell'account e i suoi
 /// segnali vengono scartati.</para>
+///
+/// <para>La size dell'account è il prodotto di due fattori indipendenti: la
+/// <see cref="BalanceScale"/>, che rapporta il capitale del conto al milione di riferimento delle
+/// strategie, e il <c>ContractMultiplier</c> della riga, che rapporta il contratto del broker a
+/// quello Piootoo. Il primo è una proprietà del conto, il secondo dello strumento: tenerli
+/// separati permette di cambiare il capitale senza ricalcolare a mano tutte le righe.</para>
 /// </summary>
 public sealed class AccountSymbolConversion
 {
+    /// <summary>
+    /// Capitale rispetto al quale sono dimensionate le quantità dichiarate dalle strategie: un
+    /// segnale da un contratto vale un contratto su un conto da un milione.
+    /// </summary>
+    public const decimal ReferenceBalance = 1_000_000m;
+
     private static readonly Dictionary<string, AccountSymbolConversionEntry> Empty =
         new(StringComparer.OrdinalIgnoreCase);
 
@@ -44,7 +56,16 @@ public sealed class AccountSymbolConversion
     public string AccountId { get; }
     public string AccountName { get; }
     public decimal InitialBalance { get; }
-    public bool IsIdentity => _entries.Count == 0;
+
+    /// <summary>
+    /// Rapporto fra il capitale del conto e <see cref="ReferenceBalance"/>: un conto da 250.000
+    /// opera un quarto della size dichiarata dalle strategie. Un balance non valorizzato vale 1
+    /// (nessuna scala) invece che zero: azzerare tutte le size su un dato mancante nasconderebbe
+    /// l'errore di configurazione dietro un run senza trade.
+    /// </summary>
+    public decimal BalanceScale => InitialBalance > 0 ? InitialBalance / ReferenceBalance : 1m;
+
+    public bool IsIdentity => _entries.Count == 0 && BalanceScale == 1m;
 
     public static AccountSymbolConversion FromAccount(WorkspaceAccount account)
     {
@@ -71,9 +92,15 @@ public sealed class AccountSymbolConversion
     public bool TryGet(string? symbol, [MaybeNullWhen(false)] out AccountSymbolConversionEntry entry)
         => _entries.TryGetValue(NormalizeSymbol(symbol), out entry);
 
-    /// <summary>Fattore di scala della size; 1 se il simbolo non è mappato.</summary>
+    /// <summary>Rapporto fra contratto broker e contratto Piootoo; 1 se il simbolo non è mappato.</summary>
     public decimal GetContractMultiplier(string? symbol)
         => TryGet(symbol, out var entry) ? entry.ContractMultiplier : 1m;
+
+    /// <summary>
+    /// Fattore complessivo con cui scalare la quantità di un segnale su questo account:
+    /// capitale del conto per contratto del broker.
+    /// </summary>
+    public decimal GetSizeFactor(string? symbol) => BalanceScale * GetContractMultiplier(symbol);
 
     /// <summary>Simbolo del broker; il simbolo originale se non è mappato.</summary>
     public string GetAccountSymbol(string? symbol)
