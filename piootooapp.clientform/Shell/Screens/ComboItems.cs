@@ -23,6 +23,39 @@ public sealed class BacktestComboItem
            (Info.ResultsCount > 0 ? $"  ·  {Info.ResultsCount} risultati" : "  ·  nessun risultato");
 }
 
+/// <summary>
+/// Voce generica id + etichetta per le combo che devono poter esporre anche un valore già
+/// persistito ma non più presente nella lista corrente. Scartarlo in silenzio riscriverebbe
+/// l'entità azzerando un riferimento che il resto del sistema considera ancora valido.
+/// </summary>
+public sealed class ValueComboItem
+{
+    private ValueComboItem(string? id, string display)
+    {
+        Id = id;
+        Display = display;
+    }
+
+    /// <summary>Null è la voce "nessuno".</summary>
+    public string? Id { get; }
+
+    public string Display { get; }
+
+    public static ValueComboItem None(string label) => new(null, label);
+
+    /// <summary>
+    /// Voce "vuota" per le celle di griglia: l'id è stringa vuota e non null, perché il binding
+    /// di <c>DataGridViewComboBoxColumn</c> confronta il valore della cella con il ValueMember.
+    /// </summary>
+    public static ValueComboItem Blank(string label) => new(string.Empty, label);
+
+    public static ValueComboItem Of(string id, string display) => new(id, display);
+
+    public static ValueComboItem Missing(string id) => new(id, $"{id}  ·  (non più presente)");
+
+    public override string ToString() => Display;
+}
+
 public sealed class AccountComboItem
 {
     public AccountComboItem(WorkspaceAccount? account) => Account = account;

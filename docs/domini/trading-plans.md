@@ -72,6 +72,51 @@ uscita associate a ordini pending da persistere: il contesto viene salvato non a
 order produce una posizione. Se verranno introdotti ordini stop/limit asincroni, il medesimo file
 dovrà contenere anche il contesto pending fino all'evento di apertura della posizione.
 
+## Editing dalla shell
+
+Il dettaglio di un piano (*Anagrafiche → Piani di trading*) espone quattro riferimenti come
+combo invece che come testo libero, perché sono tutti identificatori che il server risolve e
+un refuso produce un errore soltanto all'apertura della sessione.
+
+Il **workspace** è modificabile solo su un piano nuovo: sceglie dove il piano verrà scritto. Su
+un piano esistente la combo è disabilitata, perché il piano vive in `<workspace>/plans/plans.json`
+e spostarlo sarebbe una move, non una modifica di campo.
+
+Le altre tre sono in catena: la **cartella di backtest** viene dai backtest del workspace, il
+**run Titano** dai run di quella cartella (cambiare cartella azzera il run, che apparteneva alla
+precedente), il **setup di rotazione** dalla lista globale dei setup — è l'unico dei tre che non
+dipende dal workspace, ed è anche l'unico che non entra nel percorso di filtro: resta come
+tracciamento della ricetta con cui il run è stato prodotto.
+
+Un valore già persistito che non compare più nella lista corrente viene mostrato come voce
+«non più presente» invece di essere scartato: il salvataggio riscrive il piano intero, quindi
+perderlo in silenzio azzererebbe un riferimento che le sessioni già aperte usano ancora.
+
+Nella griglia gruppi/account le colonne **Gruppo** e **Account cTrader** sono anch'esse combo,
+alimentate dal registro globale (`GET /api/Accounts/groups` e `GET /api/Accounts`) e non dal
+workspace. Sono in relazione: la lista account di una riga contiene solo gli account il cui
+`GroupId` nel registro corrisponde al gruppo scelto sulla stessa riga, quindi la lista vive sulla
+cella e non sulla colonna. Cambiare gruppo azzera un account che non gli appartiene. Senza gruppo
+scelto non si filtra nulla, perché una lista vuota si leggerebbe come registro vuoto invece che
+come scelta ancora da fare.
+
+Il tab **Strumenti** non è l'elenco dei simboli del piano ma una lista di *override* del sizing:
+all'apertura della sessione i simboli si derivano dalle strategie del masterfilter, e quelli assenti
+dalla lista ricevono `DollarsPerPoint = 1`, `MinimumQuantity = 1`, `QuantityStep = 1` e
+`FuturesContracts`. Poiché quei default sono quasi sempre sbagliati su un future e non producono
+alcun errore, il tab ha un pulsante *Importa simboli dal masterfilter* che precarica una riga per
+simbolo: sbagliare per default resta possibile, ma almeno diventa visibile. Non è il posto della
+conversione simbolo verso il broker, che sta sull'account — vedi
+[`account-e-conversione-symbol.md`](account-e-conversione-symbol.md).
+
+Anche le tre colonne Titano della griglia sono combo, con la stessa dipendenza del tab Generale: il
+**run** di una riga è filtrato sulla **cartella di backtest** della stessa riga, quindi la sua lista
+sta sulla cella, e cambiare cartella azzera il run. La cartella non è ridondante rispetto al run:
+il manifest sta in `<workspace>/backtests/<cartella>/titano/<run-id>/manifest.json`, quindi senza
+cartella il server non sa dove cercarlo — e infatti rifiuta un `TitanoRunId` che arrivi da solo.
+Ricorda che `TradingPlanService` rifiuta un piano in cui due righe con lo stesso `GroupId`
+dichiarano terne setup/run/cartella diverse.
+
 ## Riferimenti codice
 
 `Piootoo.Shared/Models/Trading/TradingPlanContracts.cs`,
@@ -79,4 +124,5 @@ dovrà contenere anche il contesto pending fino all'evento di apertura della pos
 `Piootoo.Core/Services/TradingSessionService.cs`,
 `PiootooApp.Server/Controllers/TradingPlansController.cs`,
 `piootoo-repository/ctrader/PiootooLiveTradingBot.cs` (distribuzione),
-`piootoo-repository/ctrader/PiootooTradingSessionBot.cs` (esecuzione diretta).
+`piootoo-repository/ctrader/PiootooTradingSessionBot.cs` (esecuzione diretta),
+`piootooapp.clientform/Shell/Screens/PlanDetailScreen.cs` (dettaglio nella shell).

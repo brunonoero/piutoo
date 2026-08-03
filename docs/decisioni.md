@@ -563,3 +563,56 @@ in ordine cronologico. Non è un changelog di codice: quello resta nei commit.
   (`TradingSessionsScreen`): creazione manuale, apertura da piano (`open-plan`), snapshot e
   gruppi account via `TradingSessionApiClient`. L'editing completo dei piani resta in
   *Anagrafiche → Piani di trading*; «Genera e applica Titano» solo nella console legacy.
+- **2026-08-03** — Nel dettaglio piano (`PlanDetailScreen`) workspace, cartella di backtest, run
+  Titano e setup di rotazione sono **combo** invece che campi di testo. Erano quattro identificatori
+  che il server risolve: scritti a mano, un refuso non dava alcun errore al salvataggio e si
+  manifestava molto più tardi, come `400` all'apertura della sessione o come piano che non filtra.
+
+  Il workspace è editabile solo su un piano nuovo. Su uno esistente resta visibile ma disabilitato:
+  il piano vive dentro `<workspace>/plans/plans.json`, quindi cambiarlo sarebbe una move con
+  cancellazione dall'origine, non una modifica di campo — e il salvataggio riscrive il piano intero,
+  quindi sarebbe successo alla prima modifica di qualsiasi altro campo.
+
+  Cartella e run sono in catena (un run vive dentro una cartella di backtest, e la coppia è ciò che
+  identifica il manifest), quindi nel layout la cartella precede il run e cambiarla azzera il run.
+  Un valore persistito che non compare più nella lista viene mostrato come voce «non più presente»
+  anziché scartato: scartarlo avrebbe azzerato in silenzio un riferimento ancora in uso dalle
+  sessioni aperte, che del piano hanno uno snapshot.
+
+  Le colonne omonime della griglia gruppi/account restano testo libero: lì i valori sono per gruppo
+  e `TradingPlanService` già rifiuta terne incoerenti sullo stesso `GroupId`.
+- **2026-08-03** — Anche **Gruppo** e **Account cTrader** nella griglia del dettaglio piano sono
+  combo, dal registro globale `api/Accounts`. Il gruppo **filtra** gli account: la lista di una riga
+  contiene solo gli account che nel registro dichiarano quel `GroupId`, e cambiare gruppo azzera un
+  account che non gli appartiene.
+
+  L'alternativa era ricavare il gruppo dall'account (che il suo `GroupId` ce l'ha già) e mostrarlo in
+  sola lettura. Scartata perché toglie la possibilità di assegnare un account a un gruppo diverso
+  all'interno di un singolo piano, che è il motivo per cui `TradingGroupRow` porta entrambi i campi
+  invece di puntare all'account. Restano quindi due campi distinti, ma non più combinabili a caso.
+
+  Conseguenza tecnica: la lista account dipende dalla riga, quindi la `DataSource` sta sulla cella e
+  non sulla colonna, e la griglia committa l'edit su `CurrentCellDirtyStateChanged` — altrimenti una
+  combo notifica il cambio solo quando si esce dalla cella e il filtro scatterebbe in ritardo. Il
+  pulsante «aggiungi riga» non scrive più il placeholder `"gruppo"`: era un gruppo inesistente che
+  finiva nel piano se non lo si sostituiva.
+- **2026-08-03** — Il tab *Strumenti* del dettaglio piano ha un pulsante **Importa simboli dal
+  masterfilter**. La lista strumenti è per costruzione una lista di override — `TradingSessionService`
+  deriva i simboli dalle strategie del masterfilter e per quelli assenti usa `DollarsPerPoint = 1`,
+  passo 1 e `FuturesContracts` — quindi partire vuota è corretto ma pericoloso: su NQ il dollaro per
+  punto è 20, e con 1 il sizing per volatilità sbaglia di venti volte senza che nulla fallisca. Il
+  pulsante precarica una riga per simbolo con i default, così l'errore resta possibile ma visibile.
+  Il confronto con le righe esistenti usa la stessa normalizzazione del server (trim, `@` iniziale
+  rimossa, maiuscolo), altrimenti `@NQ` e `NQ` sembrerebbero due simboli diversi.
+- **2026-08-03** — Setup di rotazione, cartella di backtest e run Titano sono combo anche nella
+  griglia gruppi/account, non solo nel tab Generale. Setup e cartella stanno sulla colonna (le liste
+  sono globali o del workspace); il **run sta sulla cella**, perché è filtrato sulla cartella della
+  riga: un run appartiene alla cartella da cui è stato prodotto e la coppia è ciò che localizza il
+  manifest, quindi righe con cartelle diverse hanno liste di run diverse. Cambiare cartella azzera il
+  run della riga invece di lasciare una coppia mista, che darebbe un manifest introvabile solo
+  all'apertura della sessione.
+
+  I run sono in cache per cartella (`_runsByFolder`): le celle si popolano in modo sincrono e senza
+  cache servirebbe una chiamata HTTP per riga a ogni refresh. La cache si svuota al cambio di
+  workspace, perché le cartelle non sono più le stesse.
+

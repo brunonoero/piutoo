@@ -26,7 +26,7 @@ partial class PlanDetailScreen
         this._generalTab = new System.Windows.Forms.TabPage();
         this._generalLayout = new System.Windows.Forms.TableLayoutPanel();
         this._workspaceLabel = new System.Windows.Forms.Label();
-        this._workspaceTextBox = new System.Windows.Forms.TextBox();
+        this._workspaceCombo = new System.Windows.Forms.ComboBox();
         this._codeLabel = new System.Windows.Forms.Label();
         this._codeTextBox = new System.Windows.Forms.TextBox();
         this._nameLabel = new System.Windows.Forms.Label();
@@ -41,19 +41,19 @@ partial class PlanDetailScreen
         this._enforceConcurrencyCombo = new System.Windows.Forms.ComboBox();
         this._applyTitanoCheckBox = new System.Windows.Forms.CheckBox();
         this._rotationSetupLabel = new System.Windows.Forms.Label();
-        this._rotationSetupTextBox = new System.Windows.Forms.TextBox();
+        this._rotationSetupCombo = new System.Windows.Forms.ComboBox();
         this._titanoRunLabel = new System.Windows.Forms.Label();
-        this._titanoRunTextBox = new System.Windows.Forms.TextBox();
+        this._titanoRunCombo = new System.Windows.Forms.ComboBox();
         this._titanoFolderLabel = new System.Windows.Forms.Label();
-        this._titanoFolderTextBox = new System.Windows.Forms.TextBox();
+        this._titanoFolderCombo = new System.Windows.Forms.ComboBox();
         this._groupsTab = new System.Windows.Forms.TabPage();
         this._groupsGrid = new System.Windows.Forms.DataGridView();
-        this._colGroupId = new System.Windows.Forms.DataGridViewTextBoxColumn();
-        this._colAccountNumber = new System.Windows.Forms.DataGridViewTextBoxColumn();
+        this._colGroupId = new System.Windows.Forms.DataGridViewComboBoxColumn();
+        this._colAccountNumber = new System.Windows.Forms.DataGridViewComboBoxColumn();
         this._colGroupMaxConcurrent = new System.Windows.Forms.DataGridViewTextBoxColumn();
-        this._colGroupRotationSetup = new System.Windows.Forms.DataGridViewTextBoxColumn();
-        this._colGroupTitanoRun = new System.Windows.Forms.DataGridViewTextBoxColumn();
-        this._colGroupTitanoFolder = new System.Windows.Forms.DataGridViewTextBoxColumn();
+        this._colGroupRotationSetup = new System.Windows.Forms.DataGridViewComboBoxColumn();
+        this._colGroupTitanoRun = new System.Windows.Forms.DataGridViewComboBoxColumn();
+        this._colGroupTitanoFolder = new System.Windows.Forms.DataGridViewComboBoxColumn();
         this._colGroupApplyTitano = new System.Windows.Forms.DataGridViewCheckBoxColumn();
         this._groupsButtons = new System.Windows.Forms.FlowLayoutPanel();
         this._addGroupButton = new System.Windows.Forms.Button();
@@ -68,6 +68,7 @@ partial class PlanDetailScreen
         this._instrumentsButtons = new System.Windows.Forms.FlowLayoutPanel();
         this._addInstrumentButton = new System.Windows.Forms.Button();
         this._removeInstrumentButton = new System.Windows.Forms.Button();
+        this._importSymbolsButton = new System.Windows.Forms.Button();
         this._sizingTab = new System.Windows.Forms.TabPage();
         this._sizingLayout = new System.Windows.Forms.TableLayoutPanel();
         this._clampMultipliersCheckBox = new System.Windows.Forms.CheckBox();
@@ -163,7 +164,7 @@ partial class PlanDetailScreen
         this._generalLayout.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle());
         this._generalLayout.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 50F));
         this._generalLayout.Controls.Add(this._workspaceLabel, 0, 0);
-        this._generalLayout.Controls.Add(this._workspaceTextBox, 1, 0);
+        this._generalLayout.Controls.Add(this._workspaceCombo, 1, 0);
         this._generalLayout.Controls.Add(this._codeLabel, 2, 0);
         this._generalLayout.Controls.Add(this._codeTextBox, 3, 0);
         this._generalLayout.Controls.Add(this._nameLabel, 0, 1);
@@ -177,12 +178,12 @@ partial class PlanDetailScreen
         this._generalLayout.Controls.Add(this._enforceConcurrencyLabel, 0, 3);
         this._generalLayout.Controls.Add(this._enforceConcurrencyCombo, 1, 3);
         this._generalLayout.Controls.Add(this._applyTitanoCheckBox, 3, 3);
-        this._generalLayout.Controls.Add(this._rotationSetupLabel, 0, 4);
-        this._generalLayout.Controls.Add(this._rotationSetupTextBox, 1, 4);
+        this._generalLayout.Controls.Add(this._titanoFolderLabel, 0, 4);
+        this._generalLayout.Controls.Add(this._titanoFolderCombo, 1, 4);
         this._generalLayout.Controls.Add(this._titanoRunLabel, 2, 4);
-        this._generalLayout.Controls.Add(this._titanoRunTextBox, 3, 4);
-        this._generalLayout.Controls.Add(this._titanoFolderLabel, 0, 5);
-        this._generalLayout.Controls.Add(this._titanoFolderTextBox, 1, 5);
+        this._generalLayout.Controls.Add(this._titanoRunCombo, 3, 4);
+        this._generalLayout.Controls.Add(this._rotationSetupLabel, 0, 5);
+        this._generalLayout.Controls.Add(this._rotationSetupCombo, 1, 5);
         this._generalLayout.Dock = System.Windows.Forms.DockStyle.Top;
         this._generalLayout.Location = new System.Drawing.Point(12, 12);
         this._generalLayout.Name = "_generalLayout";
@@ -206,14 +207,15 @@ partial class PlanDetailScreen
         this._workspaceLabel.TabIndex = 0;
         this._workspaceLabel.Text = "Workspace";
         // 
-        // _workspaceTextBox
-        // 
-        this._workspaceTextBox.Anchor = System.Windows.Forms.AnchorStyles.Left | System.Windows.Forms.AnchorStyles.Right;
-        this._workspaceTextBox.Margin = new System.Windows.Forms.Padding(3, 4, 24, 4);
-        this._workspaceTextBox.Name = "_workspaceTextBox";
-        this._workspaceTextBox.ReadOnly = true;
-        this._workspaceTextBox.Size = new System.Drawing.Size(280, 23);
-        this._workspaceTextBox.TabIndex = 1;
+        // _workspaceCombo
+        //
+        this._workspaceCombo.Anchor = System.Windows.Forms.AnchorStyles.Left | System.Windows.Forms.AnchorStyles.Right;
+        this._workspaceCombo.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
+        this._workspaceCombo.Margin = new System.Windows.Forms.Padding(3, 4, 24, 4);
+        this._workspaceCombo.Name = "_workspaceCombo";
+        this._workspaceCombo.Size = new System.Drawing.Size(280, 23);
+        this._workspaceCombo.TabIndex = 1;
+        this._workspaceCombo.SelectedIndexChanged += new System.EventHandler(this.OnWorkspaceChanged);
         // 
         // _codeLabel
         // 
@@ -358,17 +360,18 @@ partial class PlanDetailScreen
         this._rotationSetupLabel.Margin = new System.Windows.Forms.Padding(3, 0, 8, 0);
         this._rotationSetupLabel.Name = "_rotationSetupLabel";
         this._rotationSetupLabel.Size = new System.Drawing.Size(110, 15);
-        this._rotationSetupLabel.TabIndex = 15;
+        this._rotationSetupLabel.TabIndex = 19;
         this._rotationSetupLabel.Text = "Setup di rotazione";
         // 
-        // _rotationSetupTextBox
-        // 
-        this._rotationSetupTextBox.Anchor = System.Windows.Forms.AnchorStyles.Left | System.Windows.Forms.AnchorStyles.Right;
-        this._rotationSetupTextBox.Margin = new System.Windows.Forms.Padding(3, 4, 24, 4);
-        this._rotationSetupTextBox.Name = "_rotationSetupTextBox";
-        this._rotationSetupTextBox.Size = new System.Drawing.Size(280, 23);
-        this._rotationSetupTextBox.TabIndex = 16;
-        this._rotationSetupTextBox.TextChanged += new System.EventHandler(this.OnFieldChanged);
+        // _rotationSetupCombo
+        //
+        this._rotationSetupCombo.Anchor = System.Windows.Forms.AnchorStyles.Left | System.Windows.Forms.AnchorStyles.Right;
+        this._rotationSetupCombo.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
+        this._rotationSetupCombo.Margin = new System.Windows.Forms.Padding(3, 4, 24, 4);
+        this._rotationSetupCombo.Name = "_rotationSetupCombo";
+        this._rotationSetupCombo.Size = new System.Drawing.Size(280, 23);
+        this._rotationSetupCombo.TabIndex = 20;
+        this._rotationSetupCombo.SelectedIndexChanged += new System.EventHandler(this.OnTitanoFieldChanged);
         // 
         // _titanoRunLabel
         // 
@@ -380,14 +383,15 @@ partial class PlanDetailScreen
         this._titanoRunLabel.TabIndex = 17;
         this._titanoRunLabel.Text = "Run Titano";
         // 
-        // _titanoRunTextBox
-        // 
-        this._titanoRunTextBox.Anchor = System.Windows.Forms.AnchorStyles.Left | System.Windows.Forms.AnchorStyles.Right;
-        this._titanoRunTextBox.Margin = new System.Windows.Forms.Padding(3, 4, 3, 4);
-        this._titanoRunTextBox.Name = "_titanoRunTextBox";
-        this._titanoRunTextBox.Size = new System.Drawing.Size(280, 23);
-        this._titanoRunTextBox.TabIndex = 18;
-        this._titanoRunTextBox.TextChanged += new System.EventHandler(this.OnFieldChanged);
+        // _titanoRunCombo
+        //
+        this._titanoRunCombo.Anchor = System.Windows.Forms.AnchorStyles.Left | System.Windows.Forms.AnchorStyles.Right;
+        this._titanoRunCombo.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
+        this._titanoRunCombo.Margin = new System.Windows.Forms.Padding(3, 4, 3, 4);
+        this._titanoRunCombo.Name = "_titanoRunCombo";
+        this._titanoRunCombo.Size = new System.Drawing.Size(280, 23);
+        this._titanoRunCombo.TabIndex = 18;
+        this._titanoRunCombo.SelectedIndexChanged += new System.EventHandler(this.OnTitanoFieldChanged);
         // 
         // _titanoFolderLabel
         // 
@@ -396,17 +400,18 @@ partial class PlanDetailScreen
         this._titanoFolderLabel.Margin = new System.Windows.Forms.Padding(3, 0, 8, 0);
         this._titanoFolderLabel.Name = "_titanoFolderLabel";
         this._titanoFolderLabel.Size = new System.Drawing.Size(130, 15);
-        this._titanoFolderLabel.TabIndex = 19;
+        this._titanoFolderLabel.TabIndex = 15;
         this._titanoFolderLabel.Text = "Cartella backtest Titano";
         // 
-        // _titanoFolderTextBox
-        // 
-        this._titanoFolderTextBox.Anchor = System.Windows.Forms.AnchorStyles.Left | System.Windows.Forms.AnchorStyles.Right;
-        this._titanoFolderTextBox.Margin = new System.Windows.Forms.Padding(3, 4, 24, 4);
-        this._titanoFolderTextBox.Name = "_titanoFolderTextBox";
-        this._titanoFolderTextBox.Size = new System.Drawing.Size(280, 23);
-        this._titanoFolderTextBox.TabIndex = 20;
-        this._titanoFolderTextBox.TextChanged += new System.EventHandler(this.OnFieldChanged);
+        // _titanoFolderCombo
+        //
+        this._titanoFolderCombo.Anchor = System.Windows.Forms.AnchorStyles.Left | System.Windows.Forms.AnchorStyles.Right;
+        this._titanoFolderCombo.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
+        this._titanoFolderCombo.Margin = new System.Windows.Forms.Padding(3, 4, 24, 4);
+        this._titanoFolderCombo.Name = "_titanoFolderCombo";
+        this._titanoFolderCombo.Size = new System.Drawing.Size(280, 23);
+        this._titanoFolderCombo.TabIndex = 16;
+        this._titanoFolderCombo.SelectedIndexChanged += new System.EventHandler(this.OnTitanoFolderChanged);
         // 
         // _groupsTab
         // 
@@ -444,16 +449,21 @@ partial class PlanDetailScreen
         this._groupsGrid.RowHeadersVisible = false;
         this._groupsGrid.Size = new System.Drawing.Size(868, 464);
         this._groupsGrid.TabIndex = 1;
+        this._groupsGrid.CellValueChanged += new System.Windows.Forms.DataGridViewCellEventHandler(this.OnGroupsGridCellValueChanged);
+        this._groupsGrid.CurrentCellDirtyStateChanged += new System.EventHandler(this.OnGroupsGridCurrentCellDirtyStateChanged);
+        this._groupsGrid.DataError += new System.Windows.Forms.DataGridViewDataErrorEventHandler(this.OnGroupsGridDataError);
         // 
         // _colGroupId
         // 
         this._colGroupId.DataPropertyName = "GroupId";
+        this._colGroupId.DisplayStyle = System.Windows.Forms.DataGridViewComboBoxDisplayStyle.DropDownButton;
         this._colGroupId.HeaderText = "Gruppo";
         this._colGroupId.Name = "_colGroupId";
         // 
         // _colAccountNumber
         // 
         this._colAccountNumber.DataPropertyName = "AccountNumber";
+        this._colAccountNumber.DisplayStyle = System.Windows.Forms.DataGridViewComboBoxDisplayStyle.DropDownButton;
         this._colAccountNumber.HeaderText = "Account cTrader";
         this._colAccountNumber.Name = "_colAccountNumber";
         // 
@@ -467,18 +477,21 @@ partial class PlanDetailScreen
         // _colGroupRotationSetup
         // 
         this._colGroupRotationSetup.DataPropertyName = "RotationSetupId";
+        this._colGroupRotationSetup.DisplayStyle = System.Windows.Forms.DataGridViewComboBoxDisplayStyle.DropDownButton;
         this._colGroupRotationSetup.HeaderText = "Setup rotazione";
         this._colGroupRotationSetup.Name = "_colGroupRotationSetup";
         // 
         // _colGroupTitanoRun
         // 
         this._colGroupTitanoRun.DataPropertyName = "TitanoRunId";
+        this._colGroupTitanoRun.DisplayStyle = System.Windows.Forms.DataGridViewComboBoxDisplayStyle.DropDownButton;
         this._colGroupTitanoRun.HeaderText = "Run Titano";
         this._colGroupTitanoRun.Name = "_colGroupTitanoRun";
         // 
         // _colGroupTitanoFolder
         // 
         this._colGroupTitanoFolder.DataPropertyName = "TitanoBacktestFolder";
+        this._colGroupTitanoFolder.DisplayStyle = System.Windows.Forms.DataGridViewComboBoxDisplayStyle.DropDownButton;
         this._colGroupTitanoFolder.HeaderText = "Cartella backtest";
         this._colGroupTitanoFolder.Name = "_colGroupTitanoFolder";
         // 
@@ -592,6 +605,7 @@ partial class PlanDetailScreen
         this._instrumentsButtons.AutoSize = true;
         this._instrumentsButtons.Controls.Add(this._addInstrumentButton);
         this._instrumentsButtons.Controls.Add(this._removeInstrumentButton);
+        this._instrumentsButtons.Controls.Add(this._importSymbolsButton);
         this._instrumentsButtons.Dock = System.Windows.Forms.DockStyle.Top;
         this._instrumentsButtons.Location = new System.Drawing.Point(12, 12);
         this._instrumentsButtons.Name = "_instrumentsButtons";
@@ -619,6 +633,17 @@ partial class PlanDetailScreen
         this._removeInstrumentButton.Text = "Rimuovi riga";
         this._removeInstrumentButton.UseVisualStyleBackColor = true;
         this._removeInstrumentButton.Click += new System.EventHandler(this.OnRemoveInstrumentClick);
+        // 
+        // _importSymbolsButton
+        // 
+        this._importSymbolsButton.AutoSize = true;
+        this._importSymbolsButton.Margin = new System.Windows.Forms.Padding(24, 3, 3, 3);
+        this._importSymbolsButton.Name = "_importSymbolsButton";
+        this._importSymbolsButton.Size = new System.Drawing.Size(200, 25);
+        this._importSymbolsButton.TabIndex = 2;
+        this._importSymbolsButton.Text = "Importa simboli dal masterfilter";
+        this._importSymbolsButton.UseVisualStyleBackColor = true;
+        this._importSymbolsButton.Click += new System.EventHandler(this.OnImportSymbolsClick);
         // 
         // _sizingTab
         // 
@@ -975,7 +1000,7 @@ partial class PlanDetailScreen
     private System.Windows.Forms.TabPage _generalTab;
     private System.Windows.Forms.TableLayoutPanel _generalLayout;
     private System.Windows.Forms.Label _workspaceLabel;
-    private System.Windows.Forms.TextBox _workspaceTextBox;
+    private System.Windows.Forms.ComboBox _workspaceCombo;
     private System.Windows.Forms.Label _codeLabel;
     private System.Windows.Forms.TextBox _codeTextBox;
     private System.Windows.Forms.Label _nameLabel;
@@ -990,19 +1015,19 @@ partial class PlanDetailScreen
     private System.Windows.Forms.ComboBox _enforceConcurrencyCombo;
     private System.Windows.Forms.CheckBox _applyTitanoCheckBox;
     private System.Windows.Forms.Label _rotationSetupLabel;
-    private System.Windows.Forms.TextBox _rotationSetupTextBox;
+    private System.Windows.Forms.ComboBox _rotationSetupCombo;
     private System.Windows.Forms.Label _titanoRunLabel;
-    private System.Windows.Forms.TextBox _titanoRunTextBox;
+    private System.Windows.Forms.ComboBox _titanoRunCombo;
     private System.Windows.Forms.Label _titanoFolderLabel;
-    private System.Windows.Forms.TextBox _titanoFolderTextBox;
+    private System.Windows.Forms.ComboBox _titanoFolderCombo;
     private System.Windows.Forms.TabPage _groupsTab;
     private System.Windows.Forms.DataGridView _groupsGrid;
-    private System.Windows.Forms.DataGridViewTextBoxColumn _colGroupId;
-    private System.Windows.Forms.DataGridViewTextBoxColumn _colAccountNumber;
+    private System.Windows.Forms.DataGridViewComboBoxColumn _colGroupId;
+    private System.Windows.Forms.DataGridViewComboBoxColumn _colAccountNumber;
     private System.Windows.Forms.DataGridViewTextBoxColumn _colGroupMaxConcurrent;
-    private System.Windows.Forms.DataGridViewTextBoxColumn _colGroupRotationSetup;
-    private System.Windows.Forms.DataGridViewTextBoxColumn _colGroupTitanoRun;
-    private System.Windows.Forms.DataGridViewTextBoxColumn _colGroupTitanoFolder;
+    private System.Windows.Forms.DataGridViewComboBoxColumn _colGroupRotationSetup;
+    private System.Windows.Forms.DataGridViewComboBoxColumn _colGroupTitanoRun;
+    private System.Windows.Forms.DataGridViewComboBoxColumn _colGroupTitanoFolder;
     private System.Windows.Forms.DataGridViewCheckBoxColumn _colGroupApplyTitano;
     private System.Windows.Forms.FlowLayoutPanel _groupsButtons;
     private System.Windows.Forms.Button _addGroupButton;
@@ -1017,6 +1042,7 @@ partial class PlanDetailScreen
     private System.Windows.Forms.FlowLayoutPanel _instrumentsButtons;
     private System.Windows.Forms.Button _addInstrumentButton;
     private System.Windows.Forms.Button _removeInstrumentButton;
+    private System.Windows.Forms.Button _importSymbolsButton;
     private System.Windows.Forms.TabPage _sizingTab;
     private System.Windows.Forms.TableLayoutPanel _sizingLayout;
     private System.Windows.Forms.CheckBox _clampMultipliersCheckBox;
