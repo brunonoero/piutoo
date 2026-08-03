@@ -103,8 +103,8 @@ barre sono sempre proprietà del segnale d'ingresso.
 
 ### Specifica corrente NQ 60
 
-- Id/classe: `PTS_001_NQ_60`;
-- codice di esecuzione (`Name`): `PTS_001_NQ_60` (coincide con l'Id: deviazione
+- Id/classe: `PTS_NQ_TFM_001_60`;
+- codice di esecuzione (`Name`): `PTS_NQ_TFM_001_60` (coincide con l'Id: deviazione
   intenzionale dalla convenzione di serie, per un `Name` più leggibile nei
   report; vedi nota sotto);
 - motore: `TF_M`;
@@ -124,21 +124,17 @@ barre sono sempre proprietà del segnale d'ingresso.
 - `max_bars = 0`.
 
 Questa configurazione determina completamente la logica operativa del motore.
-Le strategie della serie seguono di norma il formato Id
-`PTS_NNN_{SYMBOL}_{TIMEFRAME}` e usano `PTS_NNN` come `Name`, mantenendo così
-distinti l'identificatore di catalogo e il codice di esecuzione. `PTS_001_NQ_60`
-è l'eccezione: `Name` è stato allineato all'Id per avere un codice di esecuzione
-più parlante in `signals.json`/`trades.json`/stati Titano. Chi aggiunge una
-nuova variante della serie (es. `PTS_001_GC_60`) deve scegliere esplicitamente
-se seguire il `PTS_NNN` condiviso (per aggregare le varianti sotto lo stesso
-`Name`) o un `Name` dedicato come qui — non c'è più un default univoco per la
-serie. GMT coincide con UTC, quindi la finestra `16:00–03:00` non richiede
+Le strategie della serie seguono il formato `PTS_[SYMBOL]_[ENG]_[NNN]_[TF]`, con
+`Id` e `Name` coincidenti e il progressivo che riparte per coppia (symbol,
+motore): la variante GC di questa stessa configurazione sarebbe
+`PTS_GC_TFM_001_60`. Formato, tabella delle sigle motore e test che la impongono
+sono in `strategie-catalogo.md`. GMT coincide con UTC, quindi la finestra `16:00–03:00` non richiede
 conversioni. Va ancora verificato che il calendario di sessione usato per
 costruire `H_d1` e `L_d1` coincida con quello del feed Piootoo.
 
 ### Specifica corrente NQ 15 — PC
 
-- Id/classe e codice di esecuzione (`Name`): `PTS_002_NQ_15`;
+- Id/classe e codice di esecuzione (`Name`): `PTS_NQ_PCH_001_15`;
 - motore: `PC`;
 - simbolo: `@NQ`;
 - timeframe: 15 minuti;
@@ -187,9 +183,9 @@ Il massimo di un fill per sessione non blocca la ripubblicazione di stop non
 eseguiti, ma impedisce un nuovo ingresso dopo una chiusura, inclusa quella
 same-bar.
 
-### Specifica corrente NQ 15 — PC variante PTS_003
+### Specifica corrente NQ 15 — PC variante PTS_NQ_PCH_002
 
-`PTS_003_NQ_15` usa gli stessi parametri PC di `PTS_002_NQ_15` (canale 100,
+`PTS_NQ_PCH_002_15` usa gli stessi parametri PC di `PTS_NQ_PCH_001_15` (canale 100,
 offset 2 tick, solo long, 13:00–04:00 UTC, multiday, SL $250, TP $5.000,
 BE/trailing $1.000 e un fill per sessione), con una sola variazione intenzionale:
 `ptn_dir_no = 6`, quindi l'ingresso long è inibito da `pattern_dir(6)` anziché
@@ -262,9 +258,9 @@ gate custom; `esclusa` = `IsPositionCloseDependent` (fuori catalogo).
 | Easy_940_GC_15 | LF | `s_TOP_UA_940_GC_15__7.txt` | migrata |
 | Easy_956_NQ_15 | EasyEngineBase | `s_TOP_UA_956_NQ_15__7.txt` | ibrida — long stop / short market |
 | Easy_960_GC_60 | BIAS | `s_TOP_UA_960_GC_60__7.txt` | migrata |
-| PTS_001_NQ_60 | TF_M | (spec PTS, senza `s_TOP_UA_*`) | migrata |
-| PTS_002_NQ_15 | PC | (spec PTS) | migrata |
-| PTS_003_NQ_15 | PC | (spec PTS) | migrata |
+| PTS_NQ_TFM_001_60 | TF_M | (spec PTS, senza `s_TOP_UA_*`) | migrata |
+| PTS_NQ_PCH_001_15 | PC | (spec PTS) | migrata |
+| PTS_NQ_PCH_002_15 | PC | (spec PTS) | migrata |
 
 ### Motori senza istanza Easy_* nel catalogo attuale
 

@@ -16,7 +16,7 @@
       "Enabled": true,
       "Notes": "FTMO 1",
       "CreatedUtc": "2026-07-28T10:10:35.1847811Z",
-      "UpdatedUtc": "2026-07-28T13:23:41.2095243Z",
+      "UpdatedUtc": "2026-08-03T04:52:07.9829862Z",
       "SymbolMappings": [
         {
           "Symbol": "@CL",
@@ -39,7 +39,7 @@
         {
           "Symbol": "@NQ",
           "AccountSymbol": "@NQ",
-          "ContractMultiplier": 1,
+          "ContractMultiplier": 5,
           "Enabled": true
         }
       ]

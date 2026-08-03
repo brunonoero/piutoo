@@ -482,40 +482,24 @@ in ordine cronologico. Non è un changelog di codice: quello resta nei commit.
   corretto per monotonia, non per costruzione. Restano da valutare: passo minimo prima di muovere
   lo stop (oggi una `ModifyPosition` sincrona per ogni nuovo estremo), rispetto della distanza
   minima di stop del broker, e `ModifyPositionAsync` per non bloccare `OnTick`.
-- **2026-08-02** — **Nel fine settimana non restano né posizioni né ordini.** È una regola
-  operativa, non una scoperta: la chiusura delle posizioni al weekend nel backtest esisteva già
-  come `CloseAllPositionsAtWeekEnd` su `BacktestingRequest`, con default `true` e mai impostata dal
-  client, quindi era di fatto sempre attiva. Mancava l'altra metà.
 
-  *Gli ordini pendenti attraversavano il weekend.* `CloseAllOpenPositions` chiude le posizioni e non
-  tocca `_pendingOrders`. Uno stop del Price Channel emesso sull'ultima barra della settimana ha
-  `ExpiresAtUtc` sulla barra successiva, che nel loop del backtest è la **prima barra del lunedì**:
-  restava eseguibile e riempiva sul gap di riapertura, a un prezzo che il venerdì non era ancora
-  esistito. Aggiunta `PiootooTradingService.CancelAllPendingOrders()`, invocata sotto lo stesso
-  flag; la condizione del blocco non richiede più posizioni aperte, perché il caso di soli ordini
-  pendenti è proprio quello che sfuggiva. `WeekEndFlatTests` copre entrambe le direzioni: con la
-  cancellazione il lunedì non si apre nulla, senza si apre davvero — il caso di controllo serve a
-  non lasciare il test verde per il motivo sbagliato.
+- **2026-08-03** — **Nuova convenzione di nome per le strategie PTS**:
+  `PTS_[SYMBOL]_[ENG]_[NNN]_[TF]` al posto di `PTS_[NNN]_[SYMBOL]_[TF]`. Le tre
+  strategie esistenti diventano `PTS_001_NQ_60 → PTS_NQ_TFM_001_60`,
+  `PTS_002_NQ_15 → PTS_NQ_PCH_001_15`, `PTS_003_NQ_15 → PTS_NQ_PCH_002_15`.
+  Il motivo è che il numero da solo non diceva nulla: leggendo un report non si
+  capiva con che logica operasse una strategia senza aprire il sorgente. La
+  sigla motore sta prima del numero perché il progressivo riparte per coppia
+  (symbol, motore), quindi `001` è ambiguo senza di essa. Formato e tabella
+  delle sigle in `domini/strategie-catalogo.md`, imposti da
+  `PtsNamingConventionTests`.
 
-  *In live la regola vive nel cBot, non nel server.* È una scelta: il server decide *cosa* fare, ma
-  un vincolo di sicurezza deve tenere anche quando il server è irraggiungibile, quindi
-  `EnforceWeekEndFlat` sta in `PiootooTradingSessionBot` e `PiootooLiveTradingBot`. Cancella prima
-  gli ordini e poi chiude le posizioni — l'ordine conta, perché chiudere per primo lascerebbe a
-  mercato uno stop che può riaprire nel frattempo — e blocca le aperture in `ApplyOpenIntent` /
-  `HandleEntryIntent`, lasciando invece passare gli intent di chiusura, che riducono rischio. Le
-  chiusure sono automaticamente riportate al server da `OnPositionClosed`, che per una chiusura non
-  originata da un intent passa da `intents/close-external`: lo stato del server resta coerente e il
-  trade confluisce in `trades.json`. Tre parametri (`FlatAtWeekEnd`, `WeekEndFlatFromUtc`,
-  `WeekEndFlatUntilUtc`) permettono di disattivarla e di spostare la finestra.
-
-  Il taglio è un'ora UTC di venerdì e non la chiusura CME reale: le 16:00 di Chicago cadono alle
-  21:00 o alle 22:00 UTC secondo l'ora legale americana, e un default prudente prima della più
-  presta delle due (20:45) vale in entrambi i periodi dell'anno senza gestire il fuso. La finestra
-  si chiude la domenica alle 23:00 UTC, dopo la riapertura CME.
-
-  *Conseguenza sulla parità con Python, da tenere presente.* Il riferimento `top01_PC.csv` **non**
-  chiude nel fine settimana: i suoi 925 trade corrispondono ai 933 del run con il flag spento,
-  contro i 1.065 con il flag attivo. Tenendo la regola operativa i due motori restano divergenti di
-  circa 130 trade **per scelta, non per difetto**: ogni confronto di parità va eseguito con
-  `CloseAllPositionsAtWeekEnd = false`, che oggi si imposta solo via HTTP perché il client WinForms
-  non espone il flag.
+  *Rottura netta, voluta.* `Name` è lo `StrategyCode` che finisce in
+  `signals.json`, `trades.json`, nelle chiavi di posizione e negli stati Titano:
+  i run prodotti prima di questa data contengono i codici vecchi e **non sono
+  più confrontabili** con quelli nuovi. Niente tabella di alias e nessuna
+  riscrittura degli artefatti — quelli sono dichiarati immutabili. In pratica il
+  workspace `pts-02` riparte da zero: i backtest esistenti restano leggibili
+  come storia, gli stati Titano vanno ricalcolati. Alternativa scartata: un
+  livello di alias nel catalogo, che avrebbe salvato la continuità al prezzo di
+  due nomi vivi per la stessa strategia a tempo indeterminato.

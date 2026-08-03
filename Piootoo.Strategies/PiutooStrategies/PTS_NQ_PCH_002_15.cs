@@ -3,7 +3,7 @@ using Piootoo.Strategies.Easy.Engines;
 namespace Piootoo.Strategies.PiutooStrategies;
 
 /// <summary>
-/// PTS_003 — PC long-only su NQ a 15 minuti. Genera uno stop buy, valido
+/// PTS_NQ_PCH_002 — PC long-only su NQ a 15 minuti. Genera uno stop buy, valido
 /// esclusivamente sulla barra successiva, al massimo delle ultime 100 barre più
 /// 2 tick. Il canale include la barra appena chiusa che produce il segnale, come
 /// <c>highest(high, 100)</c> EasyLanguage e il motore Python: alla chiusura i suoi
@@ -24,9 +24,9 @@ namespace Piootoo.Strategies.PiutooStrategies;
 /// ha una scadenza per numero di barre.
 /// </para>
 /// </summary>
-public sealed class PTS_003_NQ_15 : PriceChannelEngine
+public sealed class PTS_NQ_PCH_002_15 : PriceChannelEngine
 {
-    public PTS_003_NQ_15()
+    public PTS_NQ_PCH_002_15()
     {
         SessionStartTime = 1700;
         SessionEndTime = 1600;
@@ -54,7 +54,7 @@ public sealed class PTS_003_NQ_15 : PriceChannelEngine
         Contracts = 1;
     }
 
-    public override string Name => "PTS_003_NQ_15";
+    public override string Name => "PTS_NQ_PCH_002_15";
     public override string Description =>
         "PC NQ 15 long-only: Donchian 100, 2 tick, dir 2, esclusione dir 6";
     public override string Symbol => "@NQ";

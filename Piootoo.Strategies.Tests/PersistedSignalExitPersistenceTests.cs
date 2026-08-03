@@ -34,8 +34,8 @@ public sealed class PersistedSignalExitPersistenceTests : IDisposable
         {
             SignalId = "signal-exit-1",
             TimestampUtc = new DateTime(2024, 1, 3, 16, 0, 0, DateTimeKind.Utc),
-            StrategyCode = "PTS_001_NQ_60",
-            StrategyName = "PTS_001_NQ_60",
+            StrategyCode = "PTS_NQ_TFM_001_60",
+            StrategyName = "PTS_NQ_TFM_001_60",
             Symbol = "NQ",
             Side = SignalType.Buy,
             OrderType = TradeOrderType.Stop,
@@ -73,15 +73,15 @@ public sealed class PersistedSignalExitPersistenceTests : IDisposable
     [Fact]
     public void PtsMoneyExits_SurviveJsonWithoutBecomingPercentages()
     {
-        // Forma tipica di PTS_001: solo USD/contratto, nessuno stop in punti sul segnale.
+        // Forma tipica di PTS_NQ_TFM_001: solo USD/contratto, nessuno stop in punti sul segnale.
         var tradeSignal = new TradeSignal
         {
             Date = new DateTime(2024, 1, 3, 16, 0, 0, DateTimeKind.Utc),
             Type = SignalType.Buy,
             Price = 15_000m,
             Symbol = "@NQ",
-            StrategyCode = "PTS_001_NQ_60",
-            StrategyName = "PTS_001_NQ_60",
+            StrategyCode = "PTS_NQ_TFM_001_60",
+            StrategyName = "PTS_NQ_TFM_001_60",
             Quantity = 1m,
             OrderType = TradeOrderType.Stop,
             ValidFromUtc = new DateTime(2024, 1, 3, 17, 0, 0, DateTimeKind.Utc),

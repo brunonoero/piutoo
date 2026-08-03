@@ -3,7 +3,7 @@ using Piootoo.Strategies.Easy.Engines;
 namespace Piootoo.Strategies.PiutooStrategies;
 
 /// <summary>
-/// PTS_002 — PC long-only su NQ a 15 minuti: rottura stop del massimo del
+/// PTS_NQ_PCH_001 — PC long-only su NQ a 15 minuti: rottura stop del massimo del
 /// canale Donchian delle ultime 100 barre, inclusa quella appena chiusa, con
 /// buffer di 2 tick.
 ///
@@ -70,12 +70,12 @@ namespace Piootoo.Strategies.PiutooStrategies;
 /// <item><term>Walk-Forward folds positivi</term><description>5/5</description></item>
 /// </list>
 /// </summary>
-public sealed class PTS_002_NQ_15 : PriceChannelEngine
+public sealed class PTS_NQ_PCH_001_15 : PriceChannelEngine
 {
     private string _symbol = "@NQ";
     private int _timeframeMinutes = 15;
 
-    public PTS_002_NQ_15()
+    public PTS_NQ_PCH_001_15()
     {
         SessionStartTime = 0;
         SessionEndTime = 2359;
@@ -103,7 +103,7 @@ public sealed class PTS_002_NQ_15 : PriceChannelEngine
         Contracts = 1;
     }
 
-    public override string Name => "PTS_002_NQ_15";
+    public override string Name => "PTS_NQ_PCH_001_15";
     public override string Description => "PC NQ 15: Donchian 100 long-only, buffer 2 tick, multiday";
     public override string Symbol => _symbol;
     public override int TimeframeMinutes => _timeframeMinutes;

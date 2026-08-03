@@ -73,7 +73,7 @@ ha già fatto perdere tempo a chi confrontava due varianti.
 candidato con `p_intraday_only: 0.0` che non lo disattiva emette `CloseAtUtc` a
 fine sessione su ogni segnale e diventa una strategia di sessione, senza violare
 nessun contratto: i test passano e la differenza si vede solo nei numeri. Su
-`PTS_002_NQ_15` erano 848 `TimeExit` su 2.012 trade e $46.000 di utile in meno.
+`PTS_NQ_PCH_001_15` erano 848 `TimeExit` su 2.012 trade e $46.000 di utile in meno.
 Il test parametrico in `Pts002PcTests` copre ora la regressione per le due PC:
 va esteso a ogni nuova strategia multiday.
 
@@ -87,7 +87,7 @@ vale solo dalla barra successiva. Descriverlo come "esclusa la barra di segnale"
 `PC`, `UseLegacyVariant` seleziona il secondo, che usa `EnableLong`/`EnableShort`
 e `NotEntryDayLong` invece di `Direction` e `SkipDay`. Assegnare i campi del ramo
 sbagliato non produce errori, semplicemente non ha effetto: in
-`PTS_002_NQ_15.Initialize` il parametro `SkipDay` viene ancora scritto su
+`PTS_NQ_PCH_001_15.Initialize` il parametro `SkipDay` viene ancora scritto su
 `NotEntryDayLong`, che il ramo attivo non legge.
 
 **La finestra operativa confronta HHMM, non le ore.** Il motore Python valuta
@@ -106,7 +106,7 @@ nuova, resta fuori da ogni sessione; su 1.684 sessioni del 2020–2025 l'`open` 
 sessione differisce nell'82,6% dei casi e il `close` nell'82% con scarto medio di
 13,7 punti. Sulle barre della pausa CME (16:15–17:00), che non appartengono a
 nessuna sessione, i gate leggono un `d0` stantio — la sessione precedente
-completa — e i pattern direzionali passano quasi sempre: per `PTS_002_NQ_15` sono
+completa — e i pattern direzionali passano quasi sempre: per `PTS_NQ_PCH_001_15` sono
 175 trade su 1.084 e $36.785 di utile. Chi porta una strategia la cui finestra
 attraversa la pausa di sessione deve aspettarsi questo scarto finché la
 convenzione non viene decisa (voce in [`../decisioni.md`](../decisioni.md)).
@@ -156,14 +156,14 @@ Poi, in ordine:
    orario che la fonte non ha è sempre un artefatto, non un'intuizione della
    nostra implementazione.
 
-## Baseline del caso PTS_002 / PTS_003
+## Baseline del caso PTS_NQ_PCH_001 / PTS_NQ_PCH_002
 
 Run di riferimento `20260730_0005`, mercato NQ 15m. I due candidati migliori sono
-diventati `PTS_002_NQ_15` (top #1, `p_ptn_dir_no = 53`) e `PTS_003_NQ_15`
-(top #2, `p_ptn_dir_no = 6`), identici in ogni altro parametro; `PTS_001_NQ_60`
+diventati `PTS_NQ_PCH_001_15` (top #1, `p_ptn_dir_no = 53`) e `PTS_NQ_PCH_002_15`
+(top #2, `p_ptn_dir_no = 6`), identici in ogni altro parametro; `PTS_NQ_TFM_001_60`
 viene da un altro run e usa `TF_M`. Poiché il filtro è l'unica differenza, i
 trade delle due si sovrappongono quasi del tutto — 906 identici su 1.015 di
-PTS_003, l'89% — e PTS_003 rende meno, perché `pattern_dir(6)` esclude le sessioni
+PTS_NQ_PCH_002, l'89% — e PTS_NQ_PCH_002 rende meno, perché `pattern_dir(6)` esclude le sessioni
 già estese al rialzo, dove un breakout long corre. Tenerle entrambe nel
 masterfilter non diversifica, raddoppia la size sullo stesso segnale.
 
@@ -171,10 +171,10 @@ Stato al 2026-08-02, periodo 2012–2025, un contratto, commissioni $4 round-tur
 
 | | Report | Piootoo | Piootoo con slippage 1 tick |
 |---|---|---|---|
-| PTS_002 trade | 925 | 1.084 | 1.084 |
-| PTS_002 net | $204.200 | $165.909 | $155.069 |
-| PTS_003 trade | 691 | 816 | 816 |
-| PTS_003 net | $170.281 | $104.666 | $96.506 |
+| PTS_NQ_PCH_001 trade | 925 | 1.084 | 1.084 |
+| PTS_NQ_PCH_001 net | $204.200 | $165.909 | $155.069 |
+| PTS_NQ_PCH_002 trade | 691 | 816 | 816 |
+| PTS_NQ_PCH_002 net | $170.281 | $104.666 | $96.506 |
 
 Il divario residuo è dominato dai trade generati sulle barre senza sessione, che
 la fonte non fa. Un nuovo porting che parta da questa baseline dovrebbe
@@ -186,6 +186,6 @@ errore di traduzione dei parametri, non le convenzioni descritte qui.
 - `Piootoo.Strategies/Easy/Engines/EasyEngineBase.cs`
 - `Piootoo.Strategies/Easy/Engines/PriceChannelEngine.cs`
 - `Piootoo.Strategies/Easy/EasyLib.cs` (`OHLCMulti5`, `PatternNeutralFast`, `PatternDirectionalFast`)
-- `Piootoo.Strategies/PiutooStrategies/PTS_002_NQ_15.cs`, `PTS_003_NQ_15.cs`
+- `Piootoo.Strategies/PiutooStrategies/PTS_NQ_PCH_001_15.cs`, `PTS_NQ_PCH_002_15.cs`
 - `Piootoo.Strategies.Tests/Pts002PcTests.cs`
 - `piootoo-repository/easy_engine_py/price_channel.py` (motore di riferimento)

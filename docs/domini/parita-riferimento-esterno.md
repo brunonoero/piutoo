@@ -37,7 +37,7 @@ Verificare **quale codice ha prodotto il run** che si sta leggendo. È l'errore
 che costa più tempo, perché non lascia tracce: `generatedAtUtc` nel
 `backtest-summary.json` va confrontato con la data di modifica del sorgente della
 strategia. Un run di stamattina su un file toccato dieci minuti dopo mostra il
-comportamento di una versione che non esiste più — nel caso PTS_002 questo ha
+comportamento di una versione che non esiste più — nel caso PTS_NQ_PCH_001 questo ha
 prodotto una cartella con migliaia di segnali short su una strategia solo long,
 indagati per un po' prima di accorgersi che il sorgente era cambiato.
 
@@ -70,8 +70,8 @@ default che la specifica della strategia contraddice, e il caso ricorrente è
 strategia con `intraday_only = 0` che non lo disattiva esce con `CloseAtUtc` a
 fine sessione su ogni segnale, e diventa una strategia di sessione senza
 violare nessun contratto: i test passano e si vede solo nei numeri. Su
-`PTS_002_NQ_15` valeva 848 `TimeExit` su 2.012 trade. Corretto il 2026-08-02 per
-PTS_002 e PTS_003 (voce in [`../decisioni.md`](../decisioni.md), regressione in
+`PTS_NQ_PCH_001_15` valeva 848 `TimeExit` su 2.012 trade. Corretto il 2026-08-02 per
+PTS_NQ_PCH_001 e PTS_NQ_PCH_002 (voce in [`../decisioni.md`](../decisioni.md), regressione in
 `Pts002PcTests`).
 
 **Due percorsi direzionali nello stesso motore.** In `PriceChannelEngine`
@@ -97,13 +97,13 @@ la finestra fino a `HH:59`. `PriceChannelEngine` è allineato,
 possono avere un numero di barre al giorno diverso, per sessioni, festivi o
 buchi differenti. Per una strategia a canale la conseguenza è diretta: un
 Donchian di 100 barre copre una finestra temporale diversa nei due sistemi,
-quindi i livelli di trigger non sono gli stessi. Sul caso PTS_002 questa causa è
+quindi i livelli di trigger non sono gli stessi. Sul caso PTS_NQ_PCH_001 questa causa è
 stata circoscritta: la serie è la stessa e i livelli ricalcolati coincidono, ma
 resta un 18% di trade in cui il massimo di canale differisce.
 
 **Convenzione di fill sulla barra di ingresso.** Lo scostamento di un tick fra
 trade che coincidono per data è **slippage del riferimento**, non una nostra
-imprecisione: su 925 trade PTS_002 il prezzo del report è esattamente un tick
+imprecisione: su 925 trade PTS_NQ_PCH_001 il prezzo del report è esattamente un tick
 sopra il livello ricalcolato in 490 casi. Il fill gap-aware Piootoo esegue uno
 stop long a `max(open, livello)` senza slippage, e nel motore di esecuzione non
 esiste un parametro per aggiungerlo, quindi la rettifica va fatta a mano: su NQ
@@ -119,7 +119,7 @@ lineare nel numero di trade e va sottratta prima di confrontare i net profit.
 stessa sessione. Un riferimento che conta gli ordini inviati produce meno
 ingressi.
 
-## Caso PTS_002_NQ_15 — 2026-08-02
+## Caso PTS_NQ_PCH_001_15 — 2026-08-02
 
 Riferimento: `D:\Piootoo\davide\run_20260730_0005\trades\top01_PC.csv`. Primo
 giro di verifica: workspace `pts`, cartella `verifica-fresh`,
@@ -140,7 +140,7 @@ aggregato e procedura in
 ## Riferimenti codice
 
 - `Piootoo.Strategies/Easy/Engines/PriceChannelEngine.cs`
-- `Piootoo.Strategies/PiutooStrategies/PTS_002_NQ_15.cs`
+- `Piootoo.Strategies/PiutooStrategies/PTS_NQ_PCH_001_15.cs`
 - `Piootoo.Core/Services/PiootooBacktestingService.cs`
 - `Piootoo.Domain/Repositories/DataSourceRepository.cs`
 - `Piootoo.Strategies.Tests/Pts002PcTests.cs`

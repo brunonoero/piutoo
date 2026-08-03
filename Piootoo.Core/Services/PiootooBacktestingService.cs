@@ -698,6 +698,17 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                     ". Scarica i file corrispondenti in piootoo-repository/datafeed oppure rimuovi " +
                     "dal masterfilter le strategie su queste coppie simbolo/timeframe.");
             }
+            // Fine effettiva della copertura dati: massimo fra le ultime barre dei cursori. Oltre
+            // questo punto l'orologio sintetico continua fino a EndDate ma non arriva più alcun
+            // prezzo, quindi l'equity resta piatta. Serve ai resoconti annuale/mensile per non
+            // stampare mesi vuoti facendoli passare per mesi senza operatività.
+            var coverageEnds = cursors.Values
+                .Select(cursor => cursor.LastBarUtc)
+                .Where(last => last.HasValue)
+                .Select(last => last!.Value)
+                .ToList();
+            result.DataCoverageEndUtc = coverageEnds.Count > 0 ? coverageEnds.Max() : (DateTime?)null;
+
             // ========== FINE PREFILL ==========
 
             // Filtro Titano del run: null in modalità Disabled.
@@ -1608,11 +1619,14 @@ public class PiootooBacktestingService : IPiootooBacktestingService
         html.AppendLine("      if (!chartSeries.length) { legend.innerHTML = '<span>Nessun dato disponibile</span>'; return; }");
         html.AppendLine("      const ctx = canvas.getContext('2d');");
         html.AppendLine("      const pad = {left: 74, right: showDrawdown ? 74 : 24, top: 28, bottom: 54};");
-        html.AppendLine("      const allPoints = chartSeries.flatMap(s => s.points.map(p => ({...p, time: new Date(p.t).getTime()})));");
-        html.AppendLine("      const minTime = Math.min(...allPoints.map(p => p.time));");
-        html.AppendLine("      const maxTime = Math.max(...allPoints.map(p => p.time));");
-        html.AppendLine("      const minEquity = Math.min(...allPoints.map(p => p.equity));");
-        html.AppendLine("      const maxEquity = Math.max(...allPoints.map(p => p.equity));");
+        // `Math.min(...array)` passa un argomento per elemento: sopra ~100k punti supera il limite
+        // dello stack e lancia RangeError. Il grafico globale (una serie) restava sotto la soglia,
+        // quello per strategia (n serie sulle stesse barre) no, e non veniva disegnato affatto.
+        // Qui si scandisce in un passaggio solo, memorizzando anche il timestamp già convertito:
+        // `new Date(p.t).getTime()` veniva altrimenti rifatto per ogni punto a ogni disegno.
+        html.AppendLine("      let minTime = Infinity, maxTime = -Infinity, minEquity = Infinity, maxEquity = -Infinity;");
+        html.AppendLine("      for (const s of chartSeries) { for (const p of s.points) { if (p.time === undefined) { p.time = new Date(p.t).getTime(); } if (p.time < minTime) minTime = p.time; if (p.time > maxTime) maxTime = p.time; if (p.equity < minEquity) minEquity = p.equity; if (p.equity > maxEquity) maxEquity = p.equity; } }");
+        html.AppendLine("      if (!isFinite(minTime) || !isFinite(minEquity)) { legend.innerHTML = '<span>Nessun dato disponibile</span>'; return; }");
         html.AppendLine("      const yMin = minEquity === maxEquity ? minEquity - 1 : minEquity;");
         html.AppendLine("      const yMax = minEquity === maxEquity ? maxEquity + 1 : maxEquity;");
         html.AppendLine("      const x = t => pad.left + ((t - minTime) / Math.max(1, maxTime - minTime)) * (canvas.width - pad.left - pad.right);");
@@ -1620,8 +1634,17 @@ public class PiootooBacktestingService : IPiootooBacktestingService
         html.AppendLine("      ctx.clearRect(0,0,canvas.width,canvas.height);");
         html.AppendLine("      ctx.strokeStyle = '#334155'; ctx.lineWidth = 1; ctx.fillStyle = '#94a3b8'; ctx.font = '12px Arial';");
         html.AppendLine("      for (let i=0;i<=5;i++){ const yy = pad.top + i*(canvas.height-pad.top-pad.bottom)/5; ctx.beginPath(); ctx.moveTo(pad.left,yy); ctx.lineTo(canvas.width-pad.right,yy); ctx.stroke(); const val = yMax - i*(yMax-yMin)/5; ctx.fillText(val.toFixed(2), 8, yy+4); }");
-        html.AppendLine("      if (showDrawdown) { const dd = chartSeries[0].points; const maxDd = Math.max(0, ...dd.map(p => Math.abs(p.drawdown || 0))); const plotH = canvas.height-pad.top-pad.bottom; const barW = Math.max(1, (canvas.width-pad.left-pad.right)/Math.max(1,dd.length)*0.8); ctx.fillStyle='rgba(239,68,68,0.28)'; dd.forEach(p=>{ const h=maxDd===0?0:Math.abs(p.drawdown||0)/maxDd*plotH; ctx.fillRect(x(new Date(p.t).getTime())-barW/2,canvas.height-pad.bottom-h,barW,h); }); ctx.fillStyle='#fca5a5'; for(let i=0;i<=5;i++){ const val=maxDd*(5-i)/5; const yy=pad.top+i*plotH/5; ctx.fillText(val.toFixed(2),canvas.width-pad.right+8,yy+4); } }");
-        html.AppendLine("      chartSeries.forEach((s, idx) => { const color = colors[idx % colors.length]; ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.beginPath(); s.points.forEach((p, i) => { const xx = x(new Date(p.t).getTime()); const yy = y(p.equity); if(i===0) ctx.moveTo(xx, yy); else ctx.lineTo(xx, yy); }); ctx.stroke(); });");
+        // Asse X: un tick per mese di calendario UTC, diradato in modo da non stampare mai più di
+        // ~14 etichette. Tutti i timestamp sono UTC (invariante del progetto), quindi si usano
+        // getUTC* e non le varianti locali, altrimenti il mese cambierebbe con il fuso del browser.
+        html.AppendLine("      const monthTicks = [];");
+        html.AppendLine("      { const first = new Date(minTime); let cursor = Date.UTC(first.getUTCFullYear(), first.getUTCMonth(), 1); while (cursor <= maxTime) { if (cursor >= minTime) monthTicks.push(cursor); const c = new Date(cursor); cursor = Date.UTC(c.getUTCFullYear(), c.getUTCMonth() + 1, 1); } }");
+        html.AppendLine("      const tickStride = Math.max(1, Math.ceil(monthTicks.length / 14));");
+        html.AppendLine("      ctx.textAlign = 'center';");
+        html.AppendLine("      monthTicks.forEach((tick, i) => { if (i % tickStride !== 0) return; const xx = x(tick); ctx.strokeStyle = '#1e293b'; ctx.beginPath(); ctx.moveTo(xx, pad.top); ctx.lineTo(xx, canvas.height - pad.bottom); ctx.stroke(); const d = new Date(tick); ctx.fillStyle = '#94a3b8'; ctx.fillText(String(d.getUTCMonth() + 1).padStart(2, '0') + '/' + d.getUTCFullYear(), xx, canvas.height - pad.bottom + 20); });");
+        html.AppendLine("      ctx.textAlign = 'left'; ctx.strokeStyle = '#334155'; ctx.fillStyle = '#94a3b8';");
+        html.AppendLine("      if (showDrawdown) { const dd = chartSeries[0].points; const maxDd = Math.max(0, ...dd.map(p => Math.abs(p.drawdown || 0))); const plotH = canvas.height-pad.top-pad.bottom; const barW = Math.max(1, (canvas.width-pad.left-pad.right)/Math.max(1,dd.length)*0.8); ctx.fillStyle='rgba(239,68,68,0.28)'; dd.forEach(p=>{ const h=maxDd===0?0:Math.abs(p.drawdown||0)/maxDd*plotH; ctx.fillRect(x(p.time)-barW/2,canvas.height-pad.bottom-h,barW,h); }); ctx.fillStyle='#fca5a5'; for(let i=0;i<=5;i++){ const val=maxDd*(5-i)/5; const yy=pad.top+i*plotH/5; ctx.fillText(val.toFixed(2),canvas.width-pad.right+8,yy+4); } }");
+        html.AppendLine("      chartSeries.forEach((s, idx) => { const color = colors[idx % colors.length]; ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.beginPath(); s.points.forEach((p, i) => { const xx = x(p.time); const yy = y(p.equity); if(i===0) ctx.moveTo(xx, yy); else ctx.lineTo(xx, yy); }); ctx.stroke(); });");
         html.AppendLine("      legend.innerHTML = chartSeries.map((s,idx)=>`<span><i class=\"swatch\" style=\"background:${colors[idx % colors.length]}\"></i>${s.label}</span>`).join('') + (showDrawdown ? '<span><i class=\"swatch\" style=\"background:rgba(239,68,68,.55)\"></i>Drawdown globale (scala destra)</span>' : '');");
         html.AppendLine("    }");
         html.AppendLine("    drawChart('globalEquityChart', 'globalLegend', [{ label: 'Equity globale', points: globalSeries }], true);");
@@ -1640,7 +1663,12 @@ public class PiootooBacktestingService : IPiootooBacktestingService
         int totalTrades,
         int strategyCount)
     {
+        // `result.MaxDrawdown` è già una percentuale (TradingState.UpdateDrawdown moltiplica per
+        // 100): mostrarla accanto a `maxDrawdownPercent` ripeteva lo stesso numero facendolo
+        // passare per un importo. Le due metriche sono ricalcolate qui dalla curva equity, così
+        // valuta e percentuale hanno unità dichiarate e la stessa sorgente.
         var maxDrawdownPercent = CalculateMaxDrawdownPercent(result.HourlyResults, result.InitialCapital);
+        var maxDrawdownValue = CalculateMaxDrawdown(result.HourlyResults, result.InitialCapital);
         html.AppendLine("  <div class=\"card\">");
         html.AppendLine("    <h2>Riepilogo simulazione</h2>");
         html.AppendLine("    <div class=\"metrics\">");
@@ -1650,7 +1678,8 @@ public class PiootooBacktestingService : IPiootooBacktestingService
         html.AppendLine($"      <div class=\"metric\"><span>Trade effettuati</span><b>{totalTrades}</b></div>");
         html.AppendLine($"      <div class=\"metric\"><span>Capitale iniziale</span><b>{result.InitialCapital:F2}</b></div>");
         html.AppendLine($"      <div class=\"metric\"><span>Profit totale</span><b>{result.TotalProfit:F2}</b></div>");
-        html.AppendLine($"      <div class=\"metric\"><span>Max drawdown</span><b>{result.MaxDrawdown:F2} ({maxDrawdownPercent:F2}%)</b></div>");
+        html.AppendLine($"      <div class=\"metric\"><span>Max drawdown</span><b>{maxDrawdownValue:F2}</b></div>");
+        html.AppendLine($"      <div class=\"metric\"><span>Max drawdown %</span><b>{maxDrawdownPercent:F2}%</b></div>");
         html.AppendLine("    </div>");
         html.AppendLine("  </div>");
     }
@@ -1670,8 +1699,14 @@ public class PiootooBacktestingService : IPiootooBacktestingService
             return;
         }
 
+        orderedRows = TruncateToDataCoverage(orderedRows, result.DataCoverageEndUtc);
+        if (!orderedRows.Any())
+        {
+            return;
+        }
+
         var previousYearEndEquity = result.InitialCapital;
-        var yearlyRows = new List<(int Year, decimal StartEquity, decimal EndEquity, decimal Profit, decimal MaxDrawdown, decimal ReturnPct, int WinningTrades, int LosingTrades)>();
+        var yearlyRows = new List<(int Year, decimal StartEquity, decimal EndEquity, decimal Profit, decimal MaxDrawdown, decimal MaxDrawdownPercent, decimal ReturnPct, int WinningTrades, int LosingTrades)>();
 
         foreach (var yearGroup in orderedRows.GroupBy(row => row.DateTime.Year).OrderBy(group => group.Key))
         {
@@ -1679,6 +1714,11 @@ public class PiootooBacktestingService : IPiootooBacktestingService
             var endEquity = yearRows.Last().Equity;
             var profit = endEquity - previousYearEndEquity;
             var maxDrawdown = CalculateMaxDrawdown(yearRows, previousYearEndEquity);
+            // Percentuale rispetto al picco corrente, non all'equity di inizio anno: il picco più
+            // alto del periodo può non essere quello del drawdown massimo in valuta, quindi le due
+            // colonne possono riferirsi a punti diversi della curva. È voluto — la percentuale
+            // deve dire quanto si è perso dal massimo, che è la grandezza confrontabile fra anni.
+            var maxDrawdownPercent = CalculateMaxDrawdownPercent(yearRows, previousYearEndEquity);
             var returnPct = previousYearEndEquity != 0 ? profit / previousYearEndEquity * 100m : 0m;
             var yearTrades = closedTrades
                 .Where(trade => trade.ExitDate.Year == yearGroup.Key)
@@ -1686,21 +1726,22 @@ public class PiootooBacktestingService : IPiootooBacktestingService
             var winningTrades = yearTrades.Count(trade => trade.NetProfit > 0);
             var losingTrades = yearTrades.Count(trade => trade.NetProfit < 0);
 
-            yearlyRows.Add((yearGroup.Key, previousYearEndEquity, endEquity, profit, maxDrawdown, returnPct, winningTrades, losingTrades));
+            yearlyRows.Add((yearGroup.Key, previousYearEndEquity, endEquity, profit, maxDrawdown, maxDrawdownPercent, returnPct, winningTrades, losingTrades));
             previousYearEndEquity = endEquity;
         }
 
         html.AppendLine("  <div class=\"card\">");
         html.AppendLine("    <h2>Resoconto annuale</h2>");
+        AppendCoverageNoteHtml(html, result);
         html.AppendLine("    <table class=\"summary-table\">");
-        html.AppendLine("      <thead><tr><th>Anno</th><th>Equity iniziale</th><th>Equity finale</th><th>Profit</th><th>Return %</th><th>Max DD anno</th><th>Trade win</th><th>Trade persi</th></tr></thead>");
+        html.AppendLine("      <thead><tr><th>Anno</th><th>Equity iniziale</th><th>Equity finale</th><th>Profit</th><th>Return %</th><th>Max DD anno</th><th>Max DD %</th><th>Trade win</th><th>Trade persi</th></tr></thead>");
         html.AppendLine("      <tbody>");
 
         foreach (var row in yearlyRows)
         {
             var profitClass = row.Profit >= 0 ? "positive" : "negative";
             html.AppendLine(
-                $"        <tr><td>{row.Year}</td><td>{row.StartEquity:F2}</td><td>{row.EndEquity:F2}</td><td class=\"{profitClass}\">{row.Profit:F2}</td><td class=\"{profitClass}\">{row.ReturnPct:F2}%</td><td class=\"negative\">{row.MaxDrawdown:F2}</td><td>{row.WinningTrades}</td><td>{row.LosingTrades}</td></tr>");
+                $"        <tr><td>{row.Year}</td><td>{row.StartEquity:F2}</td><td>{row.EndEquity:F2}</td><td class=\"{profitClass}\">{row.Profit:F2}</td><td class=\"{profitClass}\">{row.ReturnPct:F2}%</td><td class=\"negative\">{row.MaxDrawdown:F2}</td><td class=\"negative\">{row.MaxDrawdownPercent:F2}%</td><td>{row.WinningTrades}</td><td>{row.LosingTrades}</td></tr>");
         }
 
         html.AppendLine("      </tbody>");
@@ -1723,12 +1764,19 @@ public class PiootooBacktestingService : IPiootooBacktestingService
             return;
         }
 
+        orderedRows = TruncateToDataCoverage(orderedRows, result.DataCoverageEndUtc);
+        if (!orderedRows.Any())
+        {
+            return;
+        }
+
         var previousMonthEndEquity = result.InitialCapital;
 
         html.AppendLine("  <div class=\"card\">");
         html.AppendLine("    <h2>Resoconto mensile</h2>");
+        AppendCoverageNoteHtml(html, result);
         html.AppendLine("    <table class=\"summary-table\">");
-        html.AppendLine("      <thead><tr><th>Mese</th><th>Equity iniziale</th><th>Equity finale</th><th>Profit</th><th>Return %</th><th>Max DD mese</th><th>Trade win</th><th>Trade persi</th></tr></thead>");
+        html.AppendLine("      <thead><tr><th>Mese</th><th>Equity iniziale</th><th>Equity finale</th><th>Profit</th><th>Return %</th><th>Max DD mese</th><th>Max DD %</th><th>Trade win</th><th>Trade persi</th></tr></thead>");
         html.AppendLine("      <tbody>");
 
         foreach (var monthGroup in orderedRows.GroupBy(row => new { row.DateTime.Year, row.DateTime.Month }).OrderBy(group => group.Key.Year).ThenBy(group => group.Key.Month))
@@ -1737,6 +1785,7 @@ public class PiootooBacktestingService : IPiootooBacktestingService
             var endEquity = monthRows.Last().Equity;
             var profit = endEquity - previousMonthEndEquity;
             var maxDrawdown = CalculateMaxDrawdown(monthRows, previousMonthEndEquity);
+            var maxDrawdownPercent = CalculateMaxDrawdownPercent(monthRows, previousMonthEndEquity);
             var returnPct = previousMonthEndEquity != 0 ? profit / previousMonthEndEquity * 100m : 0m;
             var monthTrades = closedTrades
                 .Where(trade => trade.ExitDate.Year == monthGroup.Key.Year && trade.ExitDate.Month == monthGroup.Key.Month)
@@ -1744,7 +1793,7 @@ public class PiootooBacktestingService : IPiootooBacktestingService
             var profitClass = profit >= 0 ? "positive" : "negative";
 
             html.AppendLine(
-                $"        <tr><td>{monthGroup.Key.Year}-{monthGroup.Key.Month:00}</td><td>{previousMonthEndEquity:F2}</td><td>{endEquity:F2}</td><td class=\"{profitClass}\">{profit:F2}</td><td class=\"{profitClass}\">{returnPct:F2}%</td><td class=\"negative\">{maxDrawdown:F2}</td><td>{monthTrades.Count(trade => trade.NetProfit > 0)}</td><td>{monthTrades.Count(trade => trade.NetProfit < 0)}</td></tr>");
+                $"        <tr><td>{monthGroup.Key.Year}-{monthGroup.Key.Month:00}</td><td>{previousMonthEndEquity:F2}</td><td>{endEquity:F2}</td><td class=\"{profitClass}\">{profit:F2}</td><td class=\"{profitClass}\">{returnPct:F2}%</td><td class=\"negative\">{maxDrawdown:F2}</td><td class=\"negative\">{maxDrawdownPercent:F2}%</td><td>{monthTrades.Count(trade => trade.NetProfit > 0)}</td><td>{monthTrades.Count(trade => trade.NetProfit < 0)}</td></tr>");
 
             previousMonthEndEquity = endEquity;
         }
@@ -1752,6 +1801,46 @@ public class PiootooBacktestingService : IPiootooBacktestingService
         html.AppendLine("      </tbody>");
         html.AppendLine("    </table>");
         html.AppendLine("  </div>");
+    }
+
+    /// <summary>
+    /// Scarta le righe di equity successive all'ultima barra realmente presente nel datafeed.
+    /// </summary>
+    /// <remarks>
+    /// L'orologio del backtest è sintetico e arriva fino a <c>EndDate</c> anche quando il feed
+    /// finisce prima: le righe in eccesso hanno equity costante e nei resoconti si presentano come
+    /// mesi a profitto zero, indistinguibili da mesi in cui il sistema non ha operato. Tagliarle è
+    /// coerente con l'invariante "datafeed mancante = errore esplicito": meglio una tabella più
+    /// corta con una nota che una tabella completa e muta. Con copertura ignota non si tocca nulla.
+    /// </remarks>
+    private static List<HourlyResult> TruncateToDataCoverage(
+        List<HourlyResult> orderedRows,
+        DateTime? dataCoverageEndUtc)
+    {
+        if (!dataCoverageEndUtc.HasValue)
+        {
+            return orderedRows;
+        }
+
+        var limit = dataCoverageEndUtc.Value;
+        return orderedRows.Where(row => row.DateTime <= limit).ToList();
+    }
+
+    /// <summary>
+    /// Nota esplicita quando i resoconti sono più corti dell'intervallo richiesto.
+    /// </summary>
+    private static void AppendCoverageNoteHtml(StringBuilder html, BacktestingResult result)
+    {
+        if (!result.DataCoverageEndUtc.HasValue || result.EndDate <= result.DataCoverageEndUtc.Value)
+        {
+            return;
+        }
+
+        html.AppendLine(
+            $"    <p class=\"muted\">Tabella troncata al {result.DataCoverageEndUtc.Value:yyyy-MM-dd HH:mm} UTC, " +
+            $"ultima barra disponibile nel datafeed: il backtest era richiesto fino al " +
+            $"{result.EndDate:yyyy-MM-dd HH:mm} UTC, ma i periodi successivi non hanno dati e " +
+            $"comparirebbero come periodi senza operatività.</p>");
     }
 
     private static decimal CalculateMaxDrawdown(IEnumerable<HourlyResult> yearRows, decimal initialPeak)

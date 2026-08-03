@@ -31,7 +31,7 @@ public sealed class EngineCatalogMigrationTests
 
         // TF
         { "Easy_156_NQ_15", typeof(TfUnmirroredEngine), MigrationStatus.Migrated },
-        { "PTS_001_NQ_60", typeof(TfMirroredEngine), MigrationStatus.Migrated },
+        { "PTS_NQ_TFM_001_60", typeof(TfMirroredEngine), MigrationStatus.Migrated },
 
         // RBB
         { "Easy_181_NQ_30", typeof(RbbUnmirroredEngine), MigrationStatus.Migrated },
@@ -49,8 +49,8 @@ public sealed class EngineCatalogMigrationTests
         // PC
         { "Easy_336_GC_15", typeof(PriceChannelEngine), MigrationStatus.CloseDependent },
         { "Easy_361_FDAX_30", typeof(PriceChannelEngine), MigrationStatus.Migrated },
-        { "PTS_002_NQ_15", typeof(PriceChannelEngine), MigrationStatus.Migrated },
-        { "PTS_003_NQ_15", typeof(PriceChannelEngine), MigrationStatus.Migrated },
+        { "PTS_NQ_PCH_001_15", typeof(PriceChannelEngine), MigrationStatus.Migrated },
+        { "PTS_NQ_PCH_002_15", typeof(PriceChannelEngine), MigrationStatus.Migrated },
 
         // VBO
         { "Easy_342_NQ_15", typeof(VolatilityBreakoutEngine), MigrationStatus.Migrated },
@@ -133,9 +133,9 @@ public sealed class EngineCatalogMigrationTests
 
     private static Type ResolveType(string id) => id switch
     {
-        "PTS_001_NQ_60" => typeof(PTS_001_NQ_60),
-        "PTS_002_NQ_15" => typeof(PTS_002_NQ_15),
-        "PTS_003_NQ_15" => typeof(PTS_003_NQ_15),
+        "PTS_NQ_TFM_001_60" => typeof(PTS_NQ_TFM_001_60),
+        "PTS_NQ_PCH_001_15" => typeof(PTS_NQ_PCH_001_15),
+        "PTS_NQ_PCH_002_15" => typeof(PTS_NQ_PCH_002_15),
         _ => Type.GetType($"Piootoo.Strategies.Easy.{id}, Piootoo.Strategies")
              ?? throw new InvalidOperationException($"Tipo non trovato per {id}")
     };
