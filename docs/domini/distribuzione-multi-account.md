@@ -323,4 +323,4 @@ Le lacune segnalate nella prima stesura sono state colmate in
   - Rilascio lucchetti: rifiuto (615-625), chiusura (676-695)
 - `Piootoo.Shared/Models/Trading/TradingSessionContracts.cs` — `AccountGroupMapping`,
   `AccountSignalResponse`
-- `piootoo-repository/ctrader/PiootooTradingSessionBot.cs` — ciclo `OnBar` → push → poll
+- `piootoo-repository/ctrader/PiootooDirectExecutionBot.cs` — ciclo `OnBar` → push → poll

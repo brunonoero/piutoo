@@ -87,6 +87,12 @@ public interface ITradingSessionService
     TradingSessionSnapshot ApplyReport(string sessionId, ExecutionReportRequest request);
 
     TradingSessionSnapshot GetSnapshot(string sessionId, string token);
+
+    /// <summary>
+    /// Copia i trade (e i signal) di una sessione in una cartella di backtest del workspace, così
+    /// che possano essere usati come campione sorgente da <c>TitanoRotationService</c>.
+    /// </summary>
+    PromoteSessionToBacktestResult PromoteToBacktest(string sessionId, PromoteSessionToBacktestRequest request);
     void CancelIntent(string sessionId, string token, string intentId);
 
     /// <summary>Configura (sostituendola interamente) la mappa account -> gruppo per l'anti copy-trading. Solo ExternalBroker.</summary>
@@ -349,6 +355,50 @@ public sealed class TradingSessionService : ITradingSessionService
         return Describe(_sessions[descriptor.SessionId]);
     }
 
+    /// <summary>
+    /// Decide dove la sessione persiste i propri artefatti.
+    ///
+    /// <para>Una sessione di <b>backtest</b> aperta da piano scrive direttamente sotto
+    /// <c>&lt;workspace&gt;/backtests/</c>, cioè dove <c>TitanoRotationService</c> cerca il campione
+    /// sorgente. Prima finiva in <c>sessions/&lt;guid&gt;/</c> e serviva una copia esplicita per
+    /// renderla utilizzabile: due alberi per lo stesso artefatto, con un passaggio manuale in mezzo
+    /// che era facile dimenticare — e dimenticarlo non dava errore, dava una rotazione calcolata su
+    /// un campione vecchio.</para>
+    ///
+    /// <para>Le sessioni <b>realtime</b> restano sotto <c>sessions/</c>: non sono campioni e non
+    /// vanno confuse con i backtest. Prendono però un nome parlante al posto del GUID, perché una
+    /// cartella che non dice a quale piano appartenga non è ispezionabile né ripulibile.</para>
+    /// </summary>
+    private string ResolveSessionDirectory(
+        CreateTradingSessionRequest request, string? planCode, string? executionKey, string sessionId)
+    {
+        var workspacePath = _workspaces.GetWorkspacePath(request.WorkspaceId);
+
+        // Senza piano non c'è un nome stabile da usare: resta il GUID, che almeno è univoco.
+        if (string.IsNullOrWhiteSpace(planCode) || string.IsNullOrWhiteSpace(executionKey))
+            return Path.Combine(workspacePath, "sessions", sessionId);
+
+        var folderName = SanitizeFolderName($"{planCode}-{executionKey}");
+        return request.ClientRunMode == ClientRunMode.Backtest
+            ? WorkspaceBacktestPaths.ResolveBacktestPath(workspacePath, folderName)
+            : Path.Combine(workspacePath, "sessions", folderName);
+    }
+
+    /// <summary>
+    /// Riduce piano ed execution key a un nome di cartella. Non è solo cosmetica: il nome finisce
+    /// in un path, e caratteri come <c>|</c> o <c>/</c> lo romperebbero o lo farebbero uscire dalla
+    /// cartella prevista.
+    /// </summary>
+    private static string SanitizeFolderName(string value)
+    {
+        var invalid = Path.GetInvalidFileNameChars();
+        var cleaned = new string((value ?? string.Empty)
+            .Select(character => invalid.Contains(character) || character == ' ' ? '-' : character)
+            .ToArray())
+            .Trim('-');
+        return cleaned.Length == 0 ? "sessione" : cleaned;
+    }
+
     private TradingSessionDescriptor CreateCore(
         CreateTradingSessionRequest request, string? planCode, string? executionKey)
     {
@@ -395,7 +445,7 @@ public sealed class TradingSessionService : ITradingSessionService
         var engine = new PiootooTradingService();
         engine.Initialize(request.InitialCapital, request.CommissionPerContract);
         var sessionId = Guid.NewGuid().ToString("N");
-        var sessionDirectory = Path.Combine(_workspaces.GetWorkspacePath(request.WorkspaceId), "sessions", sessionId);
+        var sessionDirectory = ResolveSessionDirectory(request, planCode, executionKey, sessionId);
         var store = new TradingJsonStore(sessionDirectory);
         store.Initialize();
         var session = new Session
@@ -815,6 +865,63 @@ public sealed class TradingSessionService : ITradingSessionService
     {
         var session = Get(sessionId, token);
         lock (session.Gate) return Snapshot(session);
+    }
+
+    /// <summary>
+    /// Promuove i trade di una sessione a campione sorgente per Titano.
+    ///
+    /// <para>Una sessione scrive in <c>&lt;workspace&gt;/sessions/&lt;id&gt;/</c>, le rotazioni
+    /// leggono <c>&lt;workspace&gt;/backtests/&lt;cartella&gt;/trades.json</c>: senza questo
+    /// passaggio un backtest eseguito dall'engine cTrader produce i trade ma non può alimentare
+    /// Titano. Si copiano anche i signal, che servono a ricostruire cosa il server aveva deciso
+    /// prima che il broker eseguisse.</para>
+    ///
+    /// <para>Zero trade è un errore e non una cartella vuota: una rotazione su un campione vuoto
+    /// non fallisce, produce un manifest che disabilita tutto — esattamente il tipo di risultato
+    /// plausibile e sbagliato che il progetto tratta come inaccettabile.</para>
+    /// </summary>
+    public PromoteSessionToBacktestResult PromoteToBacktest(string sessionId, PromoteSessionToBacktestRequest request)
+    {
+        var session = Get(sessionId, request.SessionToken);
+
+        IReadOnlyList<PersistedTrade> trades;
+        IReadOnlyList<PersistedSignal> signals;
+        lock (session.Gate)
+        {
+            trades = session.Store.ReadTrades();
+            signals = session.Store.ReadSignals();
+        }
+
+        if (trades.Count == 0)
+        {
+            throw new InvalidOperationException(
+                $"La sessione '{sessionId}' non ha trade chiusi: promuoverla darebbe un campione vuoto, " +
+                "e una rotazione su un campione vuoto disabilita tutte le strategie senza segnalare nulla.");
+        }
+
+        var destination = _workspaces.GetBacktestPath(session.WorkspaceId, request.BacktestFolderName);
+        if (Directory.Exists(destination) && !request.OverwriteExisting)
+        {
+            throw new InvalidOperationException(
+                $"Il backtest '{request.BacktestFolderName}' esiste già nel workspace '{session.WorkspaceId}'. " +
+                "Conferma esplicitamente la sostituzione: i run Titano già calcolati portano l'hash del " +
+                "trades.json di origine, e cambiarlo sotto di loro li rende non riproducibili.");
+        }
+
+        Directory.CreateDirectory(destination);
+        var target = new TradingJsonStore(destination);
+        target.Initialize();
+        target.WriteTrades(trades);
+        if (signals.Count > 0)
+            target.UpsertSignals(signals);
+
+        return new PromoteSessionToBacktestResult
+        {
+            WorkspaceId = session.WorkspaceId,
+            BacktestFolderName = request.BacktestFolderName,
+            TradeCount = trades.Count,
+            SignalCount = signals.Count
+        };
     }
 
     public void CancelIntent(string sessionId, string token, string intentId)

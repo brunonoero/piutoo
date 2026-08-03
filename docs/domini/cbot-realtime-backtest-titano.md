@@ -26,8 +26,8 @@ Esistono due cBot:
 
 | cBot | Modello | Quando usarlo |
 |---|---|---|
-| `PiootooTradingSessionBot` | Esecuzione diretta: `POST /bars` restituisce intent già assegnati (`DistributeToAccounts=false`) | Un account, un grafico (simbolo + timeframe), backtest o live su quello stream |
-| `PiootooLiveTradingBot` | Distribuzione: template da `POST /bars`, claim con `POST /accounts/{n}/signal` (`DistributeToAccounts=true`, default del piano) | Più account/gruppi sullo stesso piano, concorrenza e anti copy-trading |
+| `PiootooDirectExecutionBot` | Esecuzione diretta: `POST /bars` restituisce intent già assegnati (`DistributeToAccounts=false`) | Un account, un grafico (simbolo + timeframe), backtest o live su quello stream |
+| `PiootooDistributedExecutionBot` | Distribuzione: template da `POST /bars`, claim con `POST /accounts/{n}/signal` (`DistributeToAccounts=true`, default del piano) | Più account/gruppi sullo stesso piano, concorrenza e anti copy-trading |
 
 Il cBot **non interpreta Titano**: riceve solo intent già filtrati e dimensionati.
 L'universo di strategie valutate è sempre il **masterfilter del workspace** del
@@ -52,8 +52,8 @@ sizing e capitale (vedi [`trading-plans.md`](trading-plans.md)).
    [`account-e-conversione-symbol.md`](account-e-conversione-symbol.md)).
 5. **Grafico coerente** — il simbolo e il timeframe del grafico cTrader devono
    corrispondere a una coppia coperta dal masterfilter; altrimenti il server
-   accetta barre ma non valuta strategie. `PiootooTradingSessionBot` verifica
-   all'avvio e si ferma; `PiootooLiveTradingBot` legge tutte le coppie dal
+   accetta barre ma non valuta strategie. `PiootooDirectExecutionBot` verifica
+   all'avvio e si ferma; `PiootooDistributedExecutionBot` legge tutte le coppie dal
    descriptor e invia barre da serie native cTrader.
 6. **Fuso UTC** — tutti i cBot dichiarano `[Robot(TimeZone = TimeZones.UTC)]`.
    Gli orari di barra inviati al server devono essere UTC (`Z`); vedi
@@ -83,7 +83,7 @@ e produrre `trades.json` utilizzabile da Titano offline. Nessun filtro rotazione
    `BT-yyyyMMddHHmmss`) o fissala per riprendere lo stesso run.
 3. Attacca il cBot a un grafico con simbolo e timeframe presenti nel masterfilter.
    Per più coppie servono più istanze del bot (una per stream) oppure
-   `PiootooLiveTradingBot` con backtesting multi-simbolo abilitato in cTrader.
+   `PiootooDistributedExecutionBot` con backtesting multi-simbolo abilitato in cTrader.
 4. All'avvio: `POST /trading-sessions/open-plan` → il server crea o riprende la
    sessione, restituisce strumenti e token.
 5. A ogni barra chiusa: push barra → intent di ingresso → esecuzione → report.
@@ -110,7 +110,7 @@ Alternativa senza cBot: backtest interno da console (*Backtesting* → run con
 **Obiettivo:** replay storico cTrader in cui, **per ogni barra**, valgono solo le
 strategie abilitate dal periodo di rotazione del manifest calcolato offline.
 Simula come avrebbe operato il portafoglio filtrato, inclusi sizing Titano e —
-con `PiootooLiveTradingBot` — concorrenza per account/gruppo.
+con `PiootooDistributedExecutionBot` — concorrenza per account/gruppo.
 
 | Parametro | Valore |
 |---|---|
@@ -131,7 +131,7 @@ con `PiootooLiveTradingBot` — concorrenza per account/gruppo.
 3. **Piano di trading** — imposta `ApplyTitanoFilters`, collega `TitanoRunId` e
    `TitanoBacktestFolder`, configura righe gruppo/account con
    `MaxConcurrentTrades` se usi la distribuzione. Con
-   `PiootooTradingSessionBot` azzera `MaxConcurrentTrades` o disattiva
+   `PiootooDirectExecutionBot` azzera `MaxConcurrentTrades` o disattiva
    `EnforceConcurrencyLimits`: in esecuzione diretta il limite non è applicabile e
    l'apertura viene rifiutata (vedi [`trading-plans.md`](trading-plans.md)).
 4. **Sessioni** — shell *Sessioni di trading* → *Apri da piano*, contesto
@@ -145,7 +145,7 @@ con `PiootooLiveTradingBot` — concorrenza per account/gruppo.
   filtro").
 - Gli intent scartati (allocazione zero, sizing sotto minimo) arrivano comunque
   con `Status ≠ Pending`: il cBot non deve eseguirli.
-- Con **`PiootooLiveTradingBot`**: `MaxConcurrentTrades` e ordine di claim per
+- Con **`PiootooDistributedExecutionBot`**: `MaxConcurrentTrades` e ordine di claim per
   gruppo/account seguono [`distribuzione-multi-account.md`](distribuzione-multi-account.md).
 - **`rotation-log`** (`GET /{sessionId}/rotation-log`) documenta per barra quali
   strategie erano incluse e perché.
@@ -154,7 +154,7 @@ con `PiootooLiveTradingBot` — concorrenza per account/gruppo.
 
 - Validare end-to-end il portafoglio Titano sull'engine cTrader prima del live.
 - Misurare l'impatto di concorrenza e distribuzione multi-account in backtest
-  esterno (solo con `PiootooLiveTradingBot`).
+  esterno (solo con `PiootooDistributedExecutionBot`).
 
 ---
 
@@ -177,9 +177,9 @@ periodo calcolato (`UsedLatestPeriod` nel rotation-log).
    quando serve ricalibrare).
 2. Piano con `ApplyTitanoFilters = true`, `TitanoRunId`, cartella backtest e
    gruppi/account configurati.
-3. **Un account, un grafico:** `PiootooTradingSessionBot` su cTrader live,
+3. **Un account, un grafico:** `PiootooDirectExecutionBot` su cTrader live,
    `Codice piano`, grafico allineato al masterfilter.
-4. **Più account:** un'istanza di `PiootooLiveTradingBot` per account cTrader,
+4. **Più account:** un'istanza di `PiootooDistributedExecutionBot` per account cTrader,
    stesso `Codice piano`; il server condivide la sessione e distribuisce i
    template con anti copy-trading per gruppo.
 5. Il cBot invia barre chiuse; in live cTrader le fornisce il mercato. In
@@ -195,8 +195,9 @@ periodo calcolato (`UsedLatestPeriod` nel rotation-log).
 - **Ripresa:** stessa tripla `(PlanCode, ClientRunMode, ExecutionKey)` (+ account
   in esecuzione diretta) riprende la sessione in RAM del server. Riavvio processo
   server = perdita stato runtime (limite noto in [`trading-plans.md`](trading-plans.md)).
-- **`PiootooLiveTradingBot`** persiste lo stato uscite in
-  `%AppData%/PiootooLiveTradingBot/state-{planCode}-{account}.json`.
+- **`PiootooDistributedExecutionBot`** persiste lo stato uscite in
+  `%AppData%/PiootooLiveTradingBot/state-{planCode}-{account}.json` — la cartella conserva il
+  nome storico del bot, per non orfanare lo stato già scritto.
 
 ---
 
@@ -225,7 +226,7 @@ contesto:
 
 ---
 
-## 7. Parametri cBot (`PiootooTradingSessionBot`)
+## 7. Parametri cBot (`PiootooDirectExecutionBot`)
 
 Parametri rimasti dopo la migrazione al piano (vedi [`decisioni.md`](../decisioni.md)
 2026-08-03):
@@ -248,7 +249,7 @@ Parametri rimasti dopo la migrazione al piano (vedi [`decisioni.md`](../decision
 - `ClientRunMode` — derivato da **`IsBacktesting`** (flag backtesting cTrader)
 - Strategie valutate — dal **masterfilter** del workspace del piano
 
-`PiootooLiveTradingBot` aggiunge timeframe base del grafico, intervallo polling
+`PiootooDistributedExecutionBot` aggiunge timeframe base del grafico, intervallo polling
 segnali, slippage e finestra storica; stesso `Codice piano` e stesso modello
 `open-plan` con `DistributeToAccounts = true` (default).
 
@@ -265,7 +266,7 @@ segnali, slippage e finestra storica; stesso `Codice piano` e stesso modello
 | `400` barra senza `Z` / Kind non UTC | Timestamp barra mal serializzato | Verifica `[Robot(TimeZone = UTC)]` e `SpecifyKind` prima del push |
 | `401` / token sessione | `X-Session-Token` errato o sessione inesistente | Riapri con `open-plan`; non riusare token di sessione diversa |
 | Bot attivo, zero segnali | Grafico su simbolo/timeframe non nel masterfilter | Cambia grafico o estendi masterfilter; controlla conversione symbol account |
-| `400` MaxConcurrentTrades con session bot | Piano con limite in esecuzione diretta | Azzera limite, disattiva `EnforceConcurrencyLimits`, o usa `PiootooLiveTradingBot` |
+| `400` MaxConcurrentTrades con session bot | Piano con limite in esecuzione diretta | Azzera limite, disattiva `EnforceConcurrencyLimits`, o usa `PiootooDistributedExecutionBot` |
 | Run Titano si ferma a metà backtest filtrato | Barra fuori periodi manifest | Estendi il backtest sorgente o accorcia l'intervallo cTrader |
 | Numeri diversi dal backtest interno | Trailing/breakeven non applicati, intent scartati eseguiti, ordini pending accumulati | Verifica versione cBot ≥ 1.3.0; controlla `Status` e `FinalQuantity`; vedi [`decisioni.md`](../decisioni.md) 2026-08-02 |
 | Riavvio server, sessione persa | Sessioni residenti in RAM | Riapri cBot (idempotente se server ancora vivo); persistenza post-riavvio server è lavoro aperto |
@@ -277,9 +278,9 @@ Per diagnosi fine sessione: `rotation-log`, `GET /trades`, confronto con
 
 ## Riferimenti codice
 
-- `piootoo-repository/ctrader/PiootooTradingSessionBot.cs` — esecuzione diretta,
+- `piootoo-repository/ctrader/PiootooDirectExecutionBot.cs` — esecuzione diretta,
   `open-plan`, push barre, gestione uscite
-- `piootoo-repository/ctrader/PiootooLiveTradingBot.cs` — distribuzione
+- `piootoo-repository/ctrader/PiootooDistributedExecutionBot.cs` — distribuzione
   multi-account, polling segnali
 - `PiootooApp.Server/Controllers/TradingSessionsController.cs` — endpoint sessioni
   e `open-plan`

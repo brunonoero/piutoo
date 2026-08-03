@@ -97,7 +97,7 @@ in ordine cronologico. Non è un changelog di codice: quello resta nei commit.
   convertono in percentuale: restano USD/contratto sul segnale e punti solo dopo la divisione per
   `DollarsPerPoint` (NQ = 20). Nelle sessioni, `AddIntent` fa la stessa conversione verso
   `OrderIntent.StopLoss`/`TakeProfit` così il client esterno riceve livelli utilizzabili.
-- **2026-07-29** — `PiootooLiveTradingBot` gira su grafico 5m (configurabile come timeframe base)
+- **2026-07-29** — `PiootooDistributedExecutionBot` gira su grafico 5m (configurabile come timeframe base)
   ma non aggrega barre per simulare timeframe superiori: a ogni `OnBar` legge la serie cTrader
   nativa di ogni coppia `(simbolo, timeframe)` restituita dal piano e invia al server soltanto la
   sua ultima barra chiusa non ancora trasmessa. L'intent porta anche il timeframe della strategia:
@@ -409,7 +409,7 @@ in ordine cronologico. Non è un changelog di codice: quello resta nei commit.
   attraversasse quei giorni. Sintomo da cui si riconoscono: una giornata piena di candele nel
   weekend, e un `lastUpdate` più vecchio di quello dei file vicini. Dopo la pulizia i quattro
   timeframe coprono esattamente gli stessi 5.081 giorni.
-- **2026-08-02** — **`PiootooTradingSessionBot` non era in grado di eseguire i segnali del
+- **2026-08-02** — **`PiootooDirectExecutionBot` non era in grado di eseguire i segnali del
   catalogo.** L'audit del cBot contro il contratto `OrderIntent` ha trovato sei difetti, tutti
   invisibili dai contratti: gli intent venivano eseguiti, i trade nascevano, i report tornavano.
 
@@ -420,7 +420,7 @@ in ordine cronologico. Non è un changelog di codice: quello resta nei commit.
   1.084 per PTS_002 e vale +$303.415, cioè tutto il profitto, contro −$172.466 di stop loss e
   +$34.972 di take profit; per PTS_003 sono 284 trade e +$213.044. Eseguite senza trailing quelle
   posizioni corrono fino al take profit da $5.000 o allo stop da $250: non è la stessa strategia.
-  Portati da `PiootooLiveTradingBot`, che li implementava già, con sorveglianza a ogni tick.
+  Portati da `PiootooDistributedExecutionBot`, che li implementava già, con sorveglianza a ogni tick.
 
   *Ordini pending accumulati.* `EasyEngineBase` mette `ValidFromUtc = ExpiresAtUtc = barra
   successiva`, la semantica `next bar` di EasyLanguage. Il bot non passava la scadenza e
@@ -438,7 +438,7 @@ in ordine cronologico. Non è un changelog di codice: quello resta nei commit.
   *Multi-account.* Con gruppi account configurati `POST /bars` restituisce template non assegnati,
   da reclamare via `GET /accounts/{n}/signals`: eseguirli scavalca slot, `MaxConcurrentTrades` ed
   eleggibilità, e lo stesso template finisce su più account. Il bot ora si ferma all'avvio e rimanda
-  a `PiootooLiveTradingBot`.
+  a `PiootooDistributedExecutionBot`.
 
   *Timeframe.* `MaxBarsInPosition` era contato sulle barre del grafico; ora l'intent porta
   `TimeframeMinutes` e un intent di timeframe diverso viene rifiutato con un messaggio esplicito.
@@ -452,7 +452,7 @@ in ordine cronologico. Non è un changelog di codice: quello resta nei commit.
   multi-account il limite di un account non blocca gli altri. Regressione coperta da
   `SessionEntryLimitTests`.
 - **2026-08-02** — **Il feed dei cBot è UTC per l'attributo `[Robot]`, non per l'impostazione di
-  cTrader — ma `PiootooTradingSessionBot` non riusciva a pubblicare nemmeno una barra.**
+  cTrader — ma `PiootooDirectExecutionBot` non riusciva a pubblicare nemmeno una barra.**
   Tutti e quattro i cBot dichiarano `[Robot(TimeZone = TimeZones.UTC)]`, che è un attributo di
   compilazione: fissa il fuso in cui il robot vede `Server.Time` e `Bars.OpenTimes` e **non**
   segue il fuso di visualizzazione scelto dall'utente nella piattaforma. La garanzia però veniva
@@ -460,7 +460,7 @@ in ordine cronologico. Non è un changelog di codice: quello resta nei commit.
   cTrader restituisce `Kind` non impostato, `System.Text.Json` scrive quindi
   `"2026-01-05T00:00:00"` senza suffisso `Z`, il server rilegge `Kind = Unspecified` e
   `ValidateBar` → `RequireUtc` rifiuta la barra. Il push falliva sempre.
-  `PiootooLiveTradingBot` il `SpecifyKind` lo faceva già.
+  `PiootooDistributedExecutionBot` il `SpecifyKind` lo faceva già.
 
   La conversione è ora in un unico punto (`BarOpenTimeUtc`), usato sia dal push sia da
   `ResolveBarIndexForTime`, che prima confrontava un orario senza `Kind` con un UTC del server —
@@ -530,7 +530,7 @@ in ordine cronologico. Non è un changelog di codice: quello resta nei commit.
   account associati, che è l'unica informazione utile a decidere se eliminarli.
   Il nome di un workspace è la cartella su disco e l'API non espone una
   rinomina: nel dettaglio è in sola lettura, modificabile solo alla creazione.
-- **2026-08-03** — `PiootooTradingSessionBot` si configura con il **codice piano** al posto del
+- **2026-08-03** — `PiootooDirectExecutionBot` si configura con il **codice piano** al posto del
   workspace id, e con esso perdono senso i parametri che il piano già contiene: modalità di
   esecuzione, capitale, commissioni, metadata dello strumento, run/cartella/modalità Titano e
   limite trade concorrenti. Restano solo base url, timeout, execution key, override account,
@@ -541,7 +541,7 @@ in ordine cronologico. Non è un changelog di codice: quello resta nei commit.
   Il piano però attivava sempre la distribuzione multi-account, incompatibile con questo cBot che
   esegue gli intent di `POST /bars` invece di reclamarli: aperto da piano si sarebbe fermato ogni
   volta. `OpenTradingPlanSessionRequest.DistributeToAccounts` (default `true`, quindi nulla cambia
-  per `PiootooLiveTradingBot`) permette di aprire il piano **senza** gruppi. In quel caso la chiave
+  per `PiootooDistributedExecutionBot`) permette di aprire il piano **senza** gruppi. In quel caso la chiave
   idempotente include anche l'account, perché la sessione non è più condivisibile, e la modalità
   Titano si legge dalla riga dell'account invece che dalla riga primaria del piano.
 
@@ -615,4 +615,81 @@ in ordine cronologico. Non è un changelog di codice: quello resta nei commit.
   I run sono in cache per cartella (`_runsByFolder`): le celle si popolano in modo sincrono e senza
   cache servirebbe una chiamata HTTP per riga a ogni refresh. La cache si svuota al cambio di
   workspace, perché le cartelle non sono più le stesse.
+- **2026-08-04** — I due cBot sono stati rinominati: `PiootooTradingSessionBot` →
+  **`PiootooDirectExecutionBot`**, `PiootooLiveTradingBot` → **`PiootooDistributedExecutionBot`**.
+  I nomi vecchi suggerivano una divisione per contesto — uno da backtest, uno da live — che non
+  esiste: entrambi girano in backtesting cTrader e in realtime, perché `ClientRunMode` è derivato da
+  `Robot.IsBacktesting` e non è un parametro. La divisione reale è il canale di consegna dei segnali
+  (intent già assegnati contro template da reclamare), ed è quella che ora si legge nel nome.
+
+  Le **cartelle di stato locale** restano `%AppData%/PiootooLiveTradingBot` e
+  `%AppData%/PiootooTradingSessionBot`: rinominarle orfanerebbe i file già scritti sulle macchine
+  che operano, e il file del bot distribuito contiene il contesto di uscita delle posizioni aperte.
+  Chi ricarica i sorgenti in cTrader deve però riaggiungere il bot ai grafici: per cTrader è un
+  robot nuovo.
+
+  I due documenti datati (`verifica-codice-2026-07-27.md`,
+  `titano-analisi-parametri-e-audit-2026-07-31.md`) conservano i nomi vecchi: sono fotografie a una
+  data, riscriverle falserebbe cosa era vero allora.
+- **2026-08-04** — `PiootooDirectExecutionBot` e' **multi-coppia**: risolve tutti gli stream
+  (simbolo, timeframe) dal descriptor di `open-plan` e non piu' dal grafico a cui e' agganciato. Una
+  istanza copre l'intero piano, in backtest come in realtime. Non e' stato aggiunto un parametro di
+  configurazione degli strumenti di proposito: sarebbe una seconda dichiarazione di cosa gira,
+  accanto al masterfilter, e due dichiarazioni della stessa cosa divergono in silenzio.
+
+  Il grafico resta solo come orologio e deve essere al timeframe **piu' fine** del piano, altrimenti
+  gli stream rapidi verrebbero controllati troppo di rado. Le conseguenze meno ovvie, tutte dovute
+  al fatto che prima esisteva un solo simbolo: volumi normalizzati con i passi dello strumento
+  dell'intent e non del grafico; `StopLoss`/`TakeProfit` convertiti col `PipSize` di quello
+  strumento; break-even e trailing letti da `Symbols.GetSymbol(position.SymbolName)`;
+  `MaxBarsInPosition` e la scadenza degli ordini pending contate sulla serie dello stream che ha
+  aperto, perche' "una barra" e' quella della strategia. Sbagliare uno di questi non produce un
+  errore, produce un'uscita al prezzo o alla barra sbagliata.
+
+  I bot non piu' in uso (`PiootooRiskGuardianBot`, `PiootooSignalReplayBot`) sono prefissati con
+  `__` nel nome del file: nessun documento li referenziava.
+
+- **2026-08-04** — Aggiunto `POST /api/v1/trading-sessions/{id}/promote-to-backtest`. Le due meta'
+  della catena Titano scrivevano e leggevano in alberi diversi: una sessione persiste in
+  `<workspace>/sessions/<id>/`, mentre `TitanoRotationService` legge
+  `<workspace>/backtests/<cartella>/trades.json`. Un backtest eseguito dall'engine cTrader produceva
+  quindi i trade ma non poteva alimentare le rotazioni, benche' la documentazione lo dichiarasse
+  come "campione sorgente". L'endpoint copia trades e signals nella cartella attesa.
+
+  Due rifiuti espliciti invece di comportamenti plausibili: promuovere una sessione **senza trade**
+  e' un errore, perche' una rotazione su campione vuoto non fallisce ma disabilita tutte le
+  strategie; sovrascrivere una cartella esistente richiede conferma, perche' i run Titano gia'
+  calcolati portano nel proprio id l'hash del `trades.json` di origine e cambiarlo sotto di loro li
+  rende non riproducibili.
+- **2026-08-04** — Le sessioni di **backtest aperte da piano** persistono direttamente in
+  `<workspace>/backtests/{piano}-{executionKey}/`, non piu' in `sessions/<guid>/`. Il campione
+  prodotto dall'engine cTrader e' cosi' gia' dove `TitanoRotationService` lo cerca. La copia
+  esplicita restava necessaria a ogni run e dimenticarla non dava errore: dava una rotazione
+  calcolata sul campione precedente, cioe' un risultato plausibile e sbagliato.
+  `promote-to-backtest` resta per i casi non coperti (sessioni senza piano, storico realtime).
+
+  Le sessioni realtime restano sotto `sessions/` — non sono campioni e confonderle con i backtest
+  renderebbe ambiguo cosa Titano puo' leggere — ma prendono anch'esse il nome `{piano}-{executionKey}`
+  al posto del GUID. Il nome passa da una sanitizzazione: finisce in un path, e il separatore `|`
+  della chiave di esecuzione lo romperebbe. La pulizia delle cartelle vecchie resta manuale.
+- **2026-08-04** — `PiootooDirectExecutionBot` persiste su file le **condizioni di uscita** delle
+  posizioni aperte (`%AppData%/PiootooTradingSessionBot/session-{piano}-{account}.json`), come gia'
+  faceva il bot distribuito. Prima le ricostruiva solo da `GET /intents`, e le sessioni del server
+  vivono in RAM: dopo un riavvio del **server** quella chiamata torna vuota e le posizioni aperte
+  restavano senza uscita a tempo, senza limite di barre, senza trailing — aperte fino a un segnale
+  opposto. Il file e' quindi l'unica copia che sopravvive a quel riavvio, non un doppione.
+
+  Si salvano solo le condizioni che il broker non conosce: stop loss e take profit sono livelli
+  nativi e sopravvivono da soli. Si persiste il **conteggio** delle barre trascorse e non l'indice
+  di barra, che al riavvio si riferirebbe a una serie caricata da un altro punto. Scrittura atomica
+  su file temporaneo: il file viene riscritto a ogni apertura e chiusura, e un'interruzione a meta'
+  lascerebbe le posizioni senza uscite.
+
+  Al riavvio un record viene accettato solo se la posizione **esiste ancora sul broker** — quelle
+  chiuse a mano mentre il bot era fermo spariscono da sole — e solo se il file appartiene alla
+  sessione appena risolta. Il file ha precedenza sul server sulle posizioni che copre: sul conteggio
+  barre la sua fonte e' la storia effettiva del bot.
+
+  Resta scoperto: gli ordini **pending** e il picco per lo stallo dell'utile non sono persistiti, e
+  ripartono rispettivamente dalla riconciliazione col server e dall'utile corrente.
 

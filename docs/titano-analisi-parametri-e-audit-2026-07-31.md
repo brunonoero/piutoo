@@ -778,5 +778,5 @@ E due questioni di calibrazione, che non sono difetti ma scelte da validare:
 - `Piootoo.Shared/Models/Backtesting/BacktestingRequest.cs` — `TitanoMode` (20-46)
 - `piootooapp.clientform/WorkspaceBacktestingForm.cs` — `BuildTitanoTab` (1625),
   costruzione richiesta (3660-3697)
-- `piootoo-repository/ctrader/PiootooTradingSessionBot.cs` — parametri (86-110),
+- `piootoo-repository/ctrader/PiootooDirectExecutionBot.cs` — parametri (86-110),
   `CreateSession` (551-580), DTO (996-1045)

@@ -27,11 +27,11 @@ della sessione (anti copy-trading e profili Titano per gruppo).
 Con la distribuzione attiva le righe del piano diventano i gruppi della sessione: `POST /bars`
 restituisce template non assegnati e ogni account li reclama da `GET /accounts/{n}/signals`, dove
 vivono slot di gruppo, limite di trade concorrenti ed eleggibilità Titano. È il percorso di
-`PiootooLiveTradingBot`, e la sessione è condivisa fra gli account del piano.
+`PiootooDistributedExecutionBot`, e la sessione è condivisa fra gli account del piano.
 
 Con `DistributeToAccounts=false` il server non configura alcun gruppo: `POST /bars` restituisce
 intent già assegnati, che il client esegue direttamente. Serve ai cBot che non implementano il
-claim, come `PiootooTradingSessionBot`. Il piano continua a fornire workspace, capitale,
+claim, come `PiootooDirectExecutionBot`. Il piano continua a fornire workspace, capitale,
 commissioni, sizing, metadata strumenti e Titano; cambia soltanto il canale di consegna. La chiave
 idempotente include in questo caso anche l'account e un marcatore di modalità, perché la sessione
 non è condivisibile: due cBot sulla stessa sessione eseguirebbero gli stessi intent due volte.
@@ -60,7 +60,8 @@ attivo. La ricostruzione completa dello stato runtime dopo il riavvio del server
 delle sessioni, che sono ancora residenti in memoria.
 
 In realtime il cBot salva inoltre
-`%AppData%/PiootooLiveTradingBot/state-{planCode}-{accountNumber}.json`. Per ogni posizione
+`%AppData%/PiootooLiveTradingBot/state-{planCode}-{accountNumber}.json` (la cartella conserva il
+nome storico del bot: rinominarla orfanerebbe lo stato già scritto sulle macchine che operano). Per ogni posizione
 registra `PositionId`, intent di ingresso, strategia, simbolo, `CloseAtUtc`,
 `MaxBarsInPosition` e numero di barre già trascorse. La scrittura è atomica. Al riavvio il file
 viene accettato soltanto se appartiene alla sessione risolta da `open-plan`; i record vengono poi
@@ -123,6 +124,6 @@ dichiarano terne setup/run/cartella diverse.
 `Piootoo.Core/Services/TradingPlanService.cs`,
 `Piootoo.Core/Services/TradingSessionService.cs`,
 `PiootooApp.Server/Controllers/TradingPlansController.cs`,
-`piootoo-repository/ctrader/PiootooLiveTradingBot.cs` (distribuzione),
-`piootoo-repository/ctrader/PiootooTradingSessionBot.cs` (esecuzione diretta),
+`piootoo-repository/ctrader/PiootooDistributedExecutionBot.cs` (distribuzione),
+`piootoo-repository/ctrader/PiootooDirectExecutionBot.cs` (esecuzione diretta),
 `piootooapp.clientform/Shell/Screens/PlanDetailScreen.cs` (dettaglio nella shell).

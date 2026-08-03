@@ -511,6 +511,38 @@ public sealed class AccountSignalPollRequest
 /// dal server per un segnale <see cref="TradeSignal.ExitOnly"/> seguono invece il normale canale
 /// di consegna al client.</para>
 /// </summary>
+/// <summary>
+/// Promuove i trade di una sessione a campione sorgente per le rotazioni Titano.
+///
+/// <para>Serve perché le due metà della catena scrivono e leggono in posti diversi: una sessione
+/// persiste in <c>&lt;workspace&gt;/sessions/&lt;id&gt;/</c>, mentre <c>TitanoRotationService</c>
+/// legge <c>&lt;workspace&gt;/backtests/&lt;cartella&gt;/trades.json</c>. Senza questo passaggio un
+/// backtest eseguito dall'engine cTrader non può alimentare Titano, pur avendone prodotto i
+/// trade.</para>
+/// </summary>
+public sealed class PromoteSessionToBacktestRequest
+{
+    public required string SessionToken { get; init; }
+
+    /// <summary>Cartella di destinazione sotto <c>&lt;workspace&gt;/backtests/</c>.</summary>
+    public required string BacktestFolderName { get; init; }
+
+    /// <summary>
+    /// Senza conferma esplicita una cartella esistente non viene toccata: sovrascriverla
+    /// cambierebbe la sorgente di run Titano già calcolati, che di quella sorgente portano l'hash.
+    /// </summary>
+    public bool OverwriteExisting { get; init; }
+}
+
+/// <summary>Esito della promozione: dove sono finiti i trade e quanti erano.</summary>
+public sealed class PromoteSessionToBacktestResult
+{
+    public required string WorkspaceId { get; init; }
+    public required string BacktestFolderName { get; init; }
+    public required int TradeCount { get; init; }
+    public required int SignalCount { get; init; }
+}
+
 public sealed class CreateExternalCloseIntentRequest
 {
     public required string SessionToken { get; init; }

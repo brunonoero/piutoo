@@ -135,6 +135,18 @@ public sealed class TradingSessionsController : ControllerBase
     public ActionResult<OrderIntent> CreateExternalCloseIntent(string sessionId, CreateExternalCloseIntentRequest request)
         => ExecuteResult<OrderIntent>(() => Ok(_sessions.CreateExternalCloseIntent(sessionId, request)));
 
+    /// <summary>
+    /// Copia i trade della sessione in <c>&lt;workspace&gt;/backtests/{cartella}/</c>, dove le
+    /// rotazioni Titano li cercano. Chiude la catena "backtest sull'engine esterno → campione
+    /// sorgente → rotazione", che altrimenti si interrompe perché sessioni e backtest persistono
+    /// in due alberi diversi.
+    /// </summary>
+    [HttpPost("{sessionId}/promote-to-backtest")]
+    public ActionResult<PromoteSessionToBacktestResult> PromoteToBacktest(
+        string sessionId,
+        PromoteSessionToBacktestRequest request)
+        => ExecuteResult<PromoteSessionToBacktestResult>(() => Ok(_sessions.PromoteToBacktest(sessionId, request)));
+
     [HttpGet("{sessionId}/snapshot")]
     public ActionResult<TradingSessionSnapshot> Snapshot(
         string sessionId,

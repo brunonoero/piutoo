@@ -42,7 +42,7 @@ namespace cAlgo.Robots
     ///
     /// NOTA: questo cBot e' un guardiano passivo, non impedisce ad altri cBot di aprire nuove posizioni
     /// durante lo standby; se serve un blocco "hard" delle nuove aperture, gli altri cBot (es.
-    /// PiootooLiveTradingBot) dovrebbero leggere lo stesso file di stato (vedi RiskState) prima di
+    /// PiootooDistributedExecutionBot) dovrebbero leggere lo stesso file di stato (vedi RiskState) prima di
     /// inviare un nuovo ordine.
     /// </summary>
     [Robot(TimeZone = TimeZones.UTC, AccessRights = AccessRights.FullAccess)]

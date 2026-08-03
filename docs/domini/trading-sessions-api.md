@@ -33,8 +33,8 @@ catalogo sono rifiutati senza fallback.
 risolto globalmente; l'account deve coincidere con quello configurato nel piano.
 
 `DistributeToAccounts` sceglie il canale di consegna dei segnali: `true` (default) attiva la
-distribuzione multi-account di `PiootooLiveTradingBot`, `false` lascia la sessione senza gruppi e
-fa restituire a `POST /bars` intent già assegnati, come richiede `PiootooTradingSessionBot`.
+distribuzione multi-account di `PiootooDistributedExecutionBot`, `false` lascia la sessione senza gruppi e
+fa restituire a `POST /bars` intent già assegnati, come richiede `PiootooDirectExecutionBot`.
 Dettaglio e vincoli in `docs/domini/trading-plans.md`.
 
 La chiave `(PlanCode, ClientRunMode, ExecutionKey)` — più l'account in esecuzione diretta, dove la
@@ -93,6 +93,38 @@ Le chiusure hanno un canale unico, qualunque ne sia la causa:
 `POST /{id}/intents/close-external` registra un intent `OrderIntentKind.Close` per la
 posizione aperta, che il client referenzia nel normale `POST /{id}/execution-reports`. È così
 che nasce il `PersistedTrade` che alimenta Titano.
+
+## Dove persiste una sessione
+
+Il percorso dipende dal contesto, e non è un dettaglio organizzativo:
+
+| Sessione | Cartella |
+|---|---|
+| Aperta da piano, `ClientRunMode = Backtest` | `<workspace>/backtests/{piano}-{executionKey}/` |
+| Aperta da piano, `Realtime` | `<workspace>/sessions/{piano}-{executionKey}/` |
+| Creata direttamente (`POST /trading-sessions`) | `<workspace>/sessions/{guid}/` |
+
+Le sessioni di backtest scrivono **dentro `backtests/`**, cioè dove `TitanoRotationService` cerca il
+campione sorgente: un run dell'engine cTrader è utilizzabile da una rotazione senza passaggi
+intermedi. Prima finivano in `sessions/<guid>/` e andavano copiate a mano; dimenticarlo non dava
+errore, dava una rotazione calcolata su un campione vecchio.
+
+Le sessioni realtime restano separate — non sono campioni — ma prendono anch'esse un nome parlante:
+una cartella che non dichiara il piano non è né ispezionabile né ripulibile.
+
+La pulizia delle cartelle vecchie resta manuale.
+
+## Promozione a campione Titano
+
+`POST /{id}/promote-to-backtest` copia `trades.json` e `signals.json` della sessione in
+`<workspace>/backtests/{cartella}/`. Da quando le sessioni di backtest aperte da piano scrivono già
+lì (vedi sopra), serve nei casi restanti: sessioni create direttamente senza piano, e sessioni
+realtime di cui si voglia usare lo storico come campione.
+
+Due rifiuti espliciti: una sessione **senza trade chiusi** non è promuovibile, perché una rotazione
+su campione vuoto non fallisce ma disabilita tutte le strategie; una cartella già esistente non
+viene sovrascritta senza `OverwriteExisting`, perché l'id di un run Titano contiene l'hash del
+`trades.json` di origine e cambiarlo rende il run non riproducibile.
 
 ## Modalità Titano
 

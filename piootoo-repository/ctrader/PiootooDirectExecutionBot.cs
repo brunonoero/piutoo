@@ -12,7 +12,7 @@ using HttpMethod = System.Net.Http.HttpMethod;
 namespace cAlgo.Robots
 {
     // ------------------------------------------------------------------------------------------
-    // PiootooTradingSessionBot
+    // PiootooDirectExecutionBot
     //
     // cBot "live" per la Trading sessions API v1 di Piootoo (vedi docs/domini/trading-sessions-api.md).
     // A differenza di PiootooSignalReplayBot (che rilegge segnali da file), questo cBot dialoga
@@ -53,7 +53,7 @@ namespace cAlgo.Robots
     //      con DistributeToAccounts=false: il server non configura i gruppi della sessione e
     //      POST /bars restituisce intent gia assegnati. Con i gruppi attivi restituirebbe invece
     //      template non assegnati, da reclamare con GET /accounts/{n}/signals (vedi
-    //      PiootooLiveTradingBot e docs/domini/distribuzione-multi-account.md); il controllo
+    //      PiootooDistributedExecutionBot e docs/domini/distribuzione-multi-account.md); il controllo
     //      all'avvio resta come rete di sicurezza.
     //   4) Ogni fill di apertura viene riportato con POST /{sessionId}/execution-reports.
     //      Ogni CHIUSURA — qualunque ne sia la causa, SL/TP nativo, uscita a tempo o limite barre —
@@ -83,12 +83,12 @@ namespace cAlgo.Robots
     // ------------------------------------------------------------------------------------------
 
     [Robot(TimeZone = TimeZones.UTC, AccessRights = AccessRights.FullAccess)]
-    public class PiootooTradingSessionBot : Robot
+    public class PiootooDirectExecutionBot : Robot
     {
         private const string LabelPrefix = "PiootooSession";
-        private const string BotName = "PiootooTradingSessionBot";
+        private const string BotName = "PiootooDirectExecutionBot";
         private const string BotVersion = "1.3.0"; // aggiornare qui ad ogni release
-        private const string ChartInfoObjectName = "PiootooTradingSessionBot_InfoPanel";
+        private const string ChartInfoObjectName = "PiootooDirectExecutionBot_InfoPanel";
 
         // ---------------------------------------------------------------- Connessione / sessione
 
@@ -167,12 +167,38 @@ namespace cAlgo.Robots
         private JsonSerializerOptions _json;
         private string _sessionId;
         private string _sessionToken;
-        private int _timeframeMinutes;
 
-        // Nome Piootoo dello strumento del grafico: e' la chiave con cui il server indicizza barre,
-        // strategie e posizioni, e non coincide col nome del broker quando l'account converte i
-        // simboli. Vale SymbolName finche' la sessione non lo ha risolto.
-        private string _piootooSymbol;
+        /// <summary>
+        /// Uno stream (simbolo, timeframe) del piano. Il simbolo ha due nomi e non vanno confusi:
+        /// <see cref="PiootooSymbol"/> e' la chiave con cui il SERVER indicizza barre, strategie e
+        /// posizioni; <see cref="AccountSymbol"/> e' il nome sul BROKER, quello su cui si piazzano
+        /// gli ordini e si leggono i prezzi. Coincidono solo se l'account non converte i simboli.
+        /// </summary>
+        private sealed class PlanStream
+        {
+            public string PiootooSymbol;
+            public string AccountSymbol;
+            public int TimeframeMinutes;
+            public Bars Series;
+            public Symbol BrokerSymbol;
+            public DateTime? LastPushedBarTimeUtc;
+
+            public override string ToString() =>
+                NormalizeSymbol(PiootooSymbol) == NormalizeSymbol(AccountSymbol)
+                    ? $"{PiootooSymbol}/{TimeframeMinutes}m"
+                    : $"{AccountSymbol} [{PiootooSymbol}]/{TimeframeMinutes}m";
+        }
+
+        /// <summary>
+        /// Tutte le coppie del piano, risolte dal descriptor della sessione: il bot non ha un
+        /// parametro di configurazione degli strumenti, perche' duplicherebbe il masterfilter e le
+        /// due liste divergerebbero in silenzio. Il grafico serve solo da orologio.
+        /// </summary>
+        private readonly List<PlanStream> _streams = new();
+
+        /// <summary>Timeframe del grafico: e' il tick su cui si controllano tutti gli stream.</summary>
+        private int _chartTimeframeMinutes;
+
         private long _accountNumber;
         private bool _sessionReady;
         private double _initialEquity;
@@ -187,14 +213,28 @@ namespace cAlgo.Robots
         // barre trascorse (uscita locale "numero di barre").
         private readonly Dictionary<long, OrderIntentDto> _positionIntent = new();
         private readonly HashSet<string> _submittedCloseIntentIds = new();
+
+        /// <summary>
+        /// Stream su cui vanno contate le barre di ciascuna posizione. Con piu' coppie non esiste
+        /// un "indice barre" unico: MaxBarsInPosition e' espresso nel timeframe della strategia che
+        /// ha aperto, e contarlo sull'orologio del grafico chiuderebbe alla barra sbagliata.
+        /// </summary>
+        private readonly Dictionary<long, PlanStream> _positionStream = new();
         private readonly Dictionary<long, int> _positionEntryBar = new();
 
         /// <summary>
         /// Barra in cui e stato piazzato l'ordine pending di ciascuna label, per gli intent che
         /// dichiarano una scadenza. Un ordine "next bar" vive una barra: alla successiva va
-        /// cancellato, altrimenti resta a mercato e se ne accumula uno per barra.
+        /// cancellato, altrimenti resta a mercato e se ne accumula uno per barra. Anche qui il
+        /// conteggio e' sullo stream dell'ordine, non sul grafico.
         /// </summary>
-        private readonly Dictionary<string, int> _pendingOrderBar = new();
+        private readonly Dictionary<string, PendingOrderMark> _pendingOrderBar = new();
+
+        private sealed class PendingOrderMark
+        {
+            public PlanStream Stream;
+            public int BarCount;
+        }
 
         /// <summary>
         /// Massimo utile per contratto osservato dopo ProfitStallAfterUtc, per posizione. E'
@@ -220,9 +260,8 @@ namespace cAlgo.Robots
             }
 
             _accountNumber = AccountNumberOverride > 0 ? AccountNumberOverride : Account.Number;
-            _piootooSymbol = SymbolName;
-            _timeframeMinutes = ResolveTimeframeMinutes(TimeFrame);
-            if (_timeframeMinutes <= 0)
+            _chartTimeframeMinutes = ResolveTimeframeMinutes(TimeFrame);
+            if (_chartTimeframeMinutes <= 0)
             {
                 Print("Timeframe '{0}' non riconosciuto: impossibile calcolare TimeframeMinutes.", TimeFrame);
                 Stop();
@@ -245,7 +284,7 @@ namespace cAlgo.Robots
                 _sessionId = descriptor.SessionId;
                 _sessionToken = descriptor.SessionToken;
 
-                RequirePlanCoversChart(descriptor);
+                ResolvePlanStreams(descriptor);
 
                 if (HasAccountGroups())
                 {
@@ -256,7 +295,7 @@ namespace cAlgo.Robots
                     // distribuzione e lo stesso template finirebbe su piu' account.
                     Print("La sessione {0} ha gruppi account configurati: questo cBot esegue i signal " +
                           "di POST /bars e non e' compatibile con la distribuzione multi-account. " +
-                          "Usa PiootooLiveTradingBot.", _sessionId);
+                          "Usa PiootooDistributedExecutionBot.", _sessionId);
                     Stop();
                     return;
                 }
@@ -270,17 +309,27 @@ namespace cAlgo.Robots
                 _initialEquity = anchored ? savedState.InitialEquity : Account.Equity;
                 _peakEquity = anchored ? Math.Max(savedState.PeakEquity, Account.Equity) : Account.Equity;
 
-                SaveSessionState();
                 _sessionReady = true;
-                Print("Sessione {0} attiva su {1} ({2} min), account {3}, piano {4} (workspace {5}, Titano {6}).",
-                    _sessionId, SymbolName, _timeframeMinutes, _accountNumber, PlanCode.Trim(),
+                Print("Sessione {0} attiva su {1} stream [{2}], account {3}, piano {4} (workspace {5}, Titano {6}).",
+                    _sessionId, _streams.Count, string.Join("; ", _streams), _accountNumber, PlanCode.Trim(),
                     descriptor.WorkspaceId, descriptor.TitanoMode);
 
                 UpdateChartDisplay();
 
+                // Prima il file locale, poi il server. L'ordine conta: il server tiene le sessioni in
+                // RAM, quindi dopo un suo riavvio GET /intents e' vuoto ed e' il file l'unica fonte
+                // delle condizioni di uscita. Il file si accetta solo se e' di questa sessione.
+                var restored = anchored ? RestoreExitConditions(savedState) : 0;
+                if (restored > 0)
+                    Print("Riavvio: condizioni di uscita ripristinate da file per {0} posizioni.", restored);
+
                 // Riavvio del cBot con posizioni/ordini pending gia aperti sulla stessa sessione:
-                // ricostruisce lo stato locale necessario per le uscite (limite barre, reporting).
+                // completa quanto il file non copre (ordini pending) e riallinea col server.
                 ReconcileExistingPositionsAndOrders();
+
+                // Dopo la riconciliazione: cosi' il file riflette lo stato effettivo, comprese le
+                // posizioni chiuse a mano che sono appena state scartate.
+                SaveSessionState();
             }
             catch (Exception ex)
             {
@@ -325,7 +374,7 @@ namespace cAlgo.Robots
                 // La barra va pubblicata anche dentro la finestra di flat: la storia del server e' il
                 // dato su cui girano gli indicatori, e un buco la falserebbe alla riapertura. Gli
                 // intent di apertura che ne tornano sono fermati da ApplyOpenIntent.
-                PushClosedBar();
+                PushClosedBars();
                 if (weekEndFlat)
                     return;
 
@@ -355,8 +404,16 @@ namespace cAlgo.Robots
             }
 
             _positionIntent[position.Id] = intent;
-            _positionEntryBar[position.Id] = Bars.Count;
+            // Lo stream va fissato qui: e' l'unico momento in cui si conosce con certezza il
+            // timeframe della strategia che ha aperto, e da li' si contano le barre in posizione.
+            var entryStream = FindStream(position.SymbolName, intent.TimeframeMinutes);
+            if (entryStream != null)
+            {
+                _positionStream[position.Id] = entryStream;
+                _positionEntryBar[position.Id] = entryStream.Series?.Count ?? 0;
+            }
             _pendingOrderBar.Remove(position.Label);
+            SaveSessionState();
             ReportOpeningFill(intent, position);
         }
 
@@ -373,7 +430,9 @@ namespace cAlgo.Robots
 
             _positionIntent.Remove(position.Id);
             _positionEntryBar.Remove(position.Id);
+            _positionStream.Remove(position.Id);
             _peakProfitAfterStall.Remove(position.Id);
+            SaveSessionState();
         }
 
         protected override void OnStop()
@@ -411,8 +470,9 @@ namespace cAlgo.Robots
             var folder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "PiootooTradingSessionBot");
             Directory.CreateDirectory(folder);
             var safePlan = SanitizeForFileName(PlanCode);
-            var safeSymbol = SanitizeForFileName(NormalizeSymbol(SymbolName));
-            return Path.Combine(folder, $"session-{safePlan}-{_accountNumber}-{safeSymbol}-{_timeframeMinutes}.json");
+            // Non piu' per simbolo/timeframe: una istanza copre tutti gli stream del piano, quindi
+            // l'ancora del pannello e' una sola per (piano, account).
+            return Path.Combine(folder, $"session-{safePlan}-{_accountNumber}.json");
         }
 
         private static string SanitizeForFileName(string value)
@@ -454,14 +514,124 @@ namespace cAlgo.Robots
                     {
                         SessionId = _sessionId,
                         InitialEquity = _initialEquity,
-                        PeakEquity = _peakEquity
+                        PeakEquity = _peakEquity,
+                        OpenPositions = BuildOpenPositionState()
                     }, _json);
-                File.WriteAllText(path, json);
+
+                // Scrittura atomica: il file viene riscritto a ogni apertura e chiusura, e
+                // un'interruzione a meta' lascerebbe le posizioni aperte senza condizioni di uscita.
+                var temporary = path + ".tmp";
+                File.WriteAllText(temporary, json);
+                if (File.Exists(path))
+                    File.Replace(temporary, path, null);
+                else
+                    File.Move(temporary, path);
             }
             catch (Exception ex)
             {
                 Print("Impossibile salvare lo stato sessione su file: {0}", ex.Message);
             }
+        }
+
+        /// <summary>
+        /// Fotografa le condizioni di uscita delle posizioni ancora aperte. Solo quelle di cui si
+        /// conosce l'intent: una posizione senza intent non ha condizioni da ricordare.
+        /// </summary>
+        private List<PositionExitStateDto> BuildOpenPositionState()
+        {
+            var state = new List<PositionExitStateDto>();
+            foreach (var position in Positions.Where(IsOurs))
+            {
+                if (!_positionIntent.TryGetValue(position.Id, out var intent))
+                    continue;
+
+                var stream = FindStreamForPosition(position);
+                var barsInPosition = 0;
+                if (stream?.Series != null && _positionEntryBar.TryGetValue(position.Id, out var entryBar))
+                    barsInPosition = Math.Max(0, stream.Series.Count - entryBar);
+
+                state.Add(new PositionExitStateDto
+                {
+                    PositionId = position.Id,
+                    IntentId = intent.IntentId,
+                    Label = position.Label,
+                    StrategyCode = intent.StrategyCode,
+                    AccountSymbol = position.SymbolName,
+                    TimeframeMinutes = stream?.TimeframeMinutes ?? intent.TimeframeMinutes,
+                    BreakEven = intent.BreakEven,
+                    TrailingStop = intent.TrailingStop,
+                    CloseAtUtc = intent.CloseAtUtc,
+                    ProfitStallAfterUtc = intent.ProfitStallAfterUtc,
+                    TimeExitOnlyIfProfitBelowMoneyPerContract = intent.TimeExitOnlyIfProfitBelowMoneyPerContract,
+                    MaxBarsInPosition = intent.MaxBarsInPosition,
+                    ContractMultiplier = intent.ContractMultiplier,
+                    FinalQuantity = intent.FinalQuantity,
+                    BarsInPosition = barsInPosition
+                });
+            }
+
+            return state;
+        }
+
+        /// <summary>
+        /// Ricostruisce le condizioni di uscita dal file locale.
+        ///
+        /// <para>Un record viene accettato solo se la posizione esiste ancora sul broker: quelle
+        /// chiuse a mano mentre il bot era spento spariscono da sole, ed e' il comportamento voluto
+        /// — riproporre le loro condizioni farebbe sorvegliare una posizione che non c'e' piu'.</para>
+        ///
+        /// <para>Il file si accetta solo se appartiene alla sessione appena risolta: condizioni di
+        /// un'altra esecuzione chiuderebbero posizioni contro intent che non le riguardano.</para>
+        /// </summary>
+        private int RestoreExitConditions(SessionStateFileDto saved)
+        {
+            if (saved?.OpenPositions == null || saved.OpenPositions.Count == 0)
+                return 0;
+
+            var live = Positions.Where(IsOurs).ToDictionary(position => position.Id);
+            var restored = 0;
+
+            foreach (var record in saved.OpenPositions)
+            {
+                if (!live.TryGetValue(record.PositionId, out var position))
+                {
+                    Print("Riavvio: posizione {0} ({1}) non e' piu' sul broker — chiusa mentre il bot " +
+                          "era fermo. Condizioni di uscita scartate.", record.PositionId, record.Label);
+                    continue;
+                }
+
+                var stream = FindStream(record.AccountSymbol, record.TimeframeMinutes);
+                if (stream?.Series == null)
+                {
+                    Print("Riavvio: posizione {0} su {1}, che non e' fra gli stream del piano: " +
+                          "il limite di barre non sara' applicato.", record.PositionId, record.AccountSymbol);
+                    continue;
+                }
+
+                _positionIntent[position.Id] = new OrderIntentDto
+                {
+                    IntentId = record.IntentId,
+                    StrategyCode = record.StrategyCode,
+                    Symbol = record.AccountSymbol,
+                    TimeframeMinutes = record.TimeframeMinutes,
+                    BreakEven = record.BreakEven,
+                    TrailingStop = record.TrailingStop,
+                    CloseAtUtc = record.CloseAtUtc,
+                    ProfitStallAfterUtc = record.ProfitStallAfterUtc,
+                    TimeExitOnlyIfProfitBelowMoneyPerContract = record.TimeExitOnlyIfProfitBelowMoneyPerContract,
+                    MaxBarsInPosition = record.MaxBarsInPosition,
+                    ContractMultiplier = record.ContractMultiplier,
+                    FinalQuantity = record.FinalQuantity
+                };
+                _positionStream[position.Id] = stream;
+
+                // Le barre trascorse si riportano indietro dal conteggio salvato: l'indice di barra
+                // del file apparterrebbe a una serie caricata da un altro punto.
+                _positionEntryBar[position.Id] = Math.Max(0, stream.Series.Count - record.BarsInPosition);
+                restored++;
+            }
+
+            return restored;
         }
 
         // ------------------------------------------------------------------------- Pannello a chart
@@ -499,7 +669,7 @@ namespace cAlgo.Robots
             {
                 var openPositions = Positions.Where(IsOurs).ToList();
                 var pendingOrders = PendingOrders
-                    .Where(o => o.SymbolName == SymbolName && o.Label != null && o.Label.StartsWith(LabelPrefix, StringComparison.Ordinal))
+                    .Where(o => o.Label != null && o.Label.StartsWith(LabelPrefix, StringComparison.Ordinal))
                     .ToList();
 
                 if (openPositions.Count == 0 && pendingOrders.Count == 0)
@@ -519,28 +689,51 @@ namespace cAlgo.Robots
 
                 foreach (var position in openPositions)
                 {
-                    var strategyCode = ExtractStrategyCode(position.Label);
-                    var entryBarIndex = ResolveBarIndexForTime(position.EntryTime);
-                    _positionEntryBar[position.Id] = entryBarIndex;
+                    // Il file locale ha gia' ricostruito questa posizione, e sul conteggio barre e'
+                    // piu' accurato del server: la sua fonte e' la storia effettiva del bot.
+                    if (_positionIntent.ContainsKey(position.Id))
+                        continue;
 
-                    var matched = FindLatestMatchingIntent(intents, strategyCode);
+                    var strategyCode = ExtractStrategyCode(position.Label);
+                    var matched = FindLatestMatchingIntent(intents, strategyCode, position.SymbolName);
                     if (matched != null)
                         _positionIntent[position.Id] = matched;
 
-                    Print("Riavvio: posizione {0} ({1}) ricostruita, entry bar {2}.", position.Id, position.Label, entryBarIndex);
+                    // La barra di ingresso va cercata sulla serie dello stream della posizione: su
+                    // un altro timeframe l'indice sarebbe un numero valido ma di un'altra scala, e
+                    // MaxBarsInPosition chiuderebbe presto o tardi senza alcun errore.
+                    var stream = FindStream(position.SymbolName, matched?.TimeframeMinutes ?? 0);
+                    if (stream == null)
+                    {
+                        Print("Riavvio: posizione {0} ({1}) su {2}, che non e' fra gli stream del piano: " +
+                              "il limite di barre non sara' applicato.", position.Id, position.Label, position.SymbolName);
+                        continue;
+                    }
+
+                    _positionStream[position.Id] = stream;
+                    var entryBarIndex = ResolveBarIndexForTime(stream, position.EntryTime);
+                    _positionEntryBar[position.Id] = entryBarIndex;
+
+                    Print("Riavvio: posizione {0} ({1}) ricostruita su {2}, entry bar {3}.",
+                        position.Id, position.Label, stream, entryBarIndex);
                 }
 
                 foreach (var order in pendingOrders)
                 {
-                    var matched = FindLatestMatchingIntent(intents, ExtractStrategyCode(order.Label));
+                    var matched = FindLatestMatchingIntent(intents, ExtractStrategyCode(order.Label), order.SymbolName);
                     if (matched != null)
                     {
                         _lastOpenIntentByLabel[order.Label] = matched;
 
                         // L'ordine sopravvissuto al riavvio va comunque ritirato: se il signal aveva
                         // una scadenza, la barra su cui era valido e' al piu' quella corrente.
-                        if (matched.ExpiresAtUtc.HasValue)
-                            _pendingOrderBar[order.Label] = Bars.Count;
+                        var orderStream = FindStream(order.SymbolName, matched.TimeframeMinutes);
+                        if (matched.ExpiresAtUtc.HasValue && orderStream?.Series != null)
+                            _pendingOrderBar[order.Label] = new PendingOrderMark
+                            {
+                                Stream = orderStream,
+                                BarCount = orderStream.Series.Count
+                            };
 
                         Print("Riavvio: ordine pending {0} ({1}) ricollegato al signal {2}.", order.Id, order.Label, matched.IntentId);
                     }
@@ -557,19 +750,24 @@ namespace cAlgo.Robots
             }
         }
 
-        private OrderIntentDto FindLatestMatchingIntent(List<OrderIntentDto> intents, string strategyCode) =>
+        private static OrderIntentDto FindLatestMatchingIntent(
+            List<OrderIntentDto> intents, string strategyCode, string accountSymbol) =>
             intents
                 .Where(i => !i.IsClose &&
                             string.Equals(i.StrategyCode, strategyCode, StringComparison.OrdinalIgnoreCase) &&
-                            NormalizeSymbol(ResolveIntentSymbol(i)) == NormalizeSymbol(SymbolName))
+                            NormalizeSymbol(ResolveIntentSymbol(i)) == NormalizeSymbol(accountSymbol))
                 .OrderByDescending(i => i.CreatedAtUtc)
                 .FirstOrDefault();
 
-        private int ResolveBarIndexForTime(DateTime timeUtc)
+        private static int ResolveBarIndexForTime(PlanStream stream, DateTime timeUtc)
         {
-            for (var i = Bars.Count - 1; i >= 0; i--)
+            var series = stream?.Series;
+            if (series == null)
+                return 0;
+
+            for (var i = series.Count - 1; i >= 0; i--)
             {
-                if (BarOpenTimeUtc(Bars.OpenTimes[i]) <= timeUtc)
+                if (BarOpenTimeUtc(series.OpenTimes[i]) <= timeUtc)
                     return i;
             }
 
@@ -629,43 +827,113 @@ namespace cAlgo.Robots
         }
 
         /// <summary>
-        /// Verifica che il grafico corrisponda a una coppia (simbolo, timeframe) del masterfilter
-        /// del piano. Il server accetta e archivia qualunque barra: se nessuna strategia gira su
-        /// quello stream, il bot lavorerebbe per sempre senza produrre un solo segnale e senza un
-        /// errore. Meglio non partire.
-        /// </summary>
-        /// <summary>
-        /// Verifica che il piano copra il grafico e fissa il simbolo Piootoo corrispondente.
+        /// Costruisce gli stream del piano dal descriptor della sessione, che il server deriva dal
+        /// masterfilter del workspace. Non c'e' un parametro di configurazione degli strumenti di
+        /// proposito: sarebbe una seconda dichiarazione di cosa gira, e due dichiarazioni della
+        /// stessa cosa divergono in silenzio.
         ///
-        /// <para>Il match e' sul nome che lo strumento ha sull'ACCOUNT, che e' quello del grafico;
-        /// verso il server si usa poi il nome Piootoo, con cui sono indicizzate barre, posizioni e
-        /// strategie. Sono lo stesso strumento con due nomi, e confonderli significa spedire barre
-        /// che non alimentano nessuna strategia.</para>
+        /// <para>Per ogni coppia si tengono entrambi i nomi dello strumento. Il nome dell'ACCOUNT
+        /// serve a leggere la serie e a piazzare gli ordini; quello Piootoo va nelle barre inviate
+        /// al server, che con quello indicizza strategie e posizioni. Usare l'uno per l'altro
+        /// significa spedire barre che non alimentano nessuna strategia.</para>
+        ///
+        /// <para>Il grafico non deve piu' corrispondere a una coppia del piano: serve solo come
+        /// orologio. Deve pero' essere il timeframe piu' fine fra quelli del piano, altrimenti gli
+        /// stream piu' rapidi verrebbero controllati troppo di rado e le loro barre arriverebbero
+        /// al server in ritardo.</para>
         /// </summary>
-        private void RequirePlanCoversChart(SessionDescriptorDto descriptor)
+        private void ResolvePlanStreams(SessionDescriptorDto descriptor)
         {
             var instruments = descriptor.Instruments ?? new List<TradingInstrumentDto>();
-            var instrument = instruments.FirstOrDefault(
-                item => NormalizeSymbol(ResolveInstrumentAccountSymbol(item)) == NormalizeSymbol(SymbolName));
-            if (instrument == null)
+            _streams.Clear();
+
+            foreach (var instrument in instruments)
+            {
+                var accountSymbol = ResolveInstrumentAccountSymbol(instrument);
+                foreach (var timeframeMinutes in instrument.TimeframesMinutes ?? new List<int>())
+                {
+                    if (timeframeMinutes <= 0)
+                        continue;
+
+                    var brokerSymbol = Symbols.GetSymbol(accountSymbol);
+                    if (brokerSymbol == null)
+                    {
+                        throw new InvalidOperationException(
+                            $"lo strumento '{accountSymbol}' del piano non esiste su questo account cTrader. " +
+                            "Verifica la tabella di conversione symbol dell'account.");
+                    }
+
+                    _streams.Add(new PlanStream
+                    {
+                        PiootooSymbol = instrument.Symbol,
+                        AccountSymbol = accountSymbol,
+                        TimeframeMinutes = timeframeMinutes,
+                        BrokerSymbol = brokerSymbol,
+                        Series = MarketData.GetBars(ToTimeFrame(timeframeMinutes), accountSymbol)
+                    });
+                }
+            }
+
+            if (_streams.Count == 0)
             {
                 throw new InvalidOperationException(
-                    $"il piano non ha strategie su {SymbolName}. Strumenti previsti: " +
+                    $"il piano '{PlanCode.Trim()}' non dichiara alcuno strumento. Strumenti previsti: " +
                     $"{string.Join(", ", instruments.Select(DescribeInstrument))}");
             }
 
-            _piootooSymbol = instrument.Symbol;
-            if (NormalizeSymbol(_piootooSymbol) != NormalizeSymbol(SymbolName))
-                Print("Conversione symbol attiva: il grafico {0} alimenta lo strumento Piootoo {1}.",
-                    SymbolName, _piootooSymbol);
-
-            var timeframes = instrument.TimeframesMinutes ?? new List<int>();
-            if (!timeframes.Contains(_timeframeMinutes))
+            var finest = _streams.Min(stream => stream.TimeframeMinutes);
+            if (_chartTimeframeMinutes > finest)
             {
                 throw new InvalidOperationException(
-                    $"il piano usa {SymbolName} a {string.Join("/", timeframes)} minuti, il grafico e' a " +
-                    $"{_timeframeMinutes}: le barre inviate non alimenterebbero alcuna strategia");
+                    $"il grafico e' a {_chartTimeframeMinutes} minuti ma il piano ha stream a {finest}: " +
+                    "gli stream piu' rapidi verrebbero controllati in ritardo. Usa un grafico a " +
+                    $"{finest} minuti.");
             }
+
+            foreach (var stream in _streams.Where(stream =>
+                         NormalizeSymbol(stream.PiootooSymbol) != NormalizeSymbol(stream.AccountSymbol)))
+            {
+                Print("Conversione symbol attiva: {0} sul broker alimenta lo strumento Piootoo {1}.",
+                    stream.AccountSymbol, stream.PiootooSymbol);
+            }
+        }
+
+        /// <summary>
+        /// Stream di un intent. Il match e' sul simbolo dell'ACCOUNT, perche' e' quello con cui
+        /// arriva l'intent dopo la conversione del conto. Il timeframe disambigua quando lo stesso
+        /// simbolo gira su piu' timeframe: e' il timeframe della strategia a decidere su quale
+        /// serie si contano le barre in posizione.
+        /// </summary>
+        private PlanStream FindStream(string accountSymbol, int timeframeMinutes)
+        {
+            var normalized = NormalizeSymbol(accountSymbol);
+            var candidates = _streams
+                .Where(stream => NormalizeSymbol(stream.AccountSymbol) == normalized)
+                .ToList();
+            if (candidates.Count == 0)
+                return null;
+
+            if (timeframeMinutes > 0)
+            {
+                var exact = candidates.FirstOrDefault(stream => stream.TimeframeMinutes == timeframeMinutes);
+                if (exact != null)
+                    return exact;
+            }
+
+            // Senza timeframe dichiarato si prende lo stream piu' fine: e' l'unico che non rischia
+            // di allungare una uscita a barre oltre quanto la strategia intendeva.
+            return candidates.OrderBy(stream => stream.TimeframeMinutes).First();
+        }
+
+        private PlanStream FindStreamForPosition(Position position)
+        {
+            if (_positionStream.TryGetValue(position.Id, out var known))
+                return known;
+
+            var intentTimeframe = _positionIntent.TryGetValue(position.Id, out var intent)
+                ? intent.TimeframeMinutes
+                : 0;
+            return FindStream(position.SymbolName, intentTimeframe);
         }
 
         private static string DescribeInstrument(TradingInstrumentDto instrument)
@@ -700,10 +968,28 @@ namespace cAlgo.Robots
             }
         }
 
-        private void PushClosedBar()
+        /// <summary>
+        /// Pubblica la barra appena chiusa di ogni stream che ne ha una nuova. Gli stream con
+        /// timeframe maggiore di quello del grafico chiudono solo ogni N tick di OnBar: il
+        /// confronto con <see cref="PlanStream.LastPushedBarTimeUtc"/> evita di rispedire la stessa
+        /// barra a ogni passata.
+        /// </summary>
+        private void PushClosedBars()
         {
-            var closedBar = Bars.Last(1);
+            foreach (var stream in _streams)
+                PushClosedBar(stream);
+        }
+
+        private void PushClosedBar(PlanStream stream)
+        {
+            var series = stream.Series;
+            if (series == null || series.Count < 2)
+                return;
+
+            var closedBar = series.Last(1);
             var openTimeUtc = BarOpenTimeUtc(closedBar.OpenTime);
+            if (stream.LastPushedBarTimeUtc == openTimeUtc)
+                return;
 
             var payload = new PushBarsRequestDto
             {
@@ -714,11 +1000,11 @@ namespace cAlgo.Robots
                     new ClosedBarDto
                     {
                         // Nome Piootoo: e' con quello che il server indicizza le serie.
-                        Symbol = _piootooSymbol,
-                        TimeframeMinutes = _timeframeMinutes,
+                        Symbol = stream.PiootooSymbol,
+                        TimeframeMinutes = stream.TimeframeMinutes,
                         BarTimeUtc = openTimeUtc,
                         Sequence = new DateTimeOffset(openTimeUtc, TimeSpan.Zero).ToUnixTimeSeconds(),
-                        IdempotencyKey = $"{_piootooSymbol}:{_timeframeMinutes}:{openTimeUtc:O}",
+                        IdempotencyKey = $"{stream.PiootooSymbol}:{stream.TimeframeMinutes}:{openTimeUtc:O}",
                         Bar = new OhlcvDto
                         {
                             DateTime = openTimeUtc,
@@ -739,21 +1025,17 @@ namespace cAlgo.Robots
             }
             catch (Exception ex)
             {
-                Print("Push barra fallito ({0} {1}): {2}", SymbolName, openTimeUtc, ex.Message);
+                Print("Push barra fallito ({0} {1}): {2}", stream, openTimeUtc, ex.Message);
                 return;
             }
 
-            foreach (var intent in response.Intents)
-            {
-                // Il match e' sul simbolo dell'ACCOUNT, non su quello Piootoo: la tabella di
-                // conversione del conto traduce @NQ nel nome del broker, ed e' quello il nome del
-                // grafico su cui gira il bot. Symbol resta il nome interno con cui il server
-                // indicizza posizioni e valutazioni, e non coincide per forza.
-                if (NormalizeSymbol(ResolveIntentSymbol(intent)) != NormalizeSymbol(SymbolName))
-                    continue;
+            stream.LastPushedBarTimeUtc = openTimeUtc;
 
+            // Nessun filtro sul simbolo: il bot copre tutti gli stream del piano. Gli intent di uno
+            // stream che il piano non dichiara non dovrebbero esistere, e se arrivano ApplyOpenIntent
+            // li scarta non trovando lo stream.
+            foreach (var intent in response.Intents)
                 ApplyIntent(intent);
-            }
         }
 
         // -------------------------------------------------------------------------- Gestione segnali
@@ -796,7 +1078,16 @@ namespace cAlgo.Robots
                 return;
             }
 
-            if (Positions.Find(label, SymbolName, tradeType) != null)
+            var stream = FindStream(ResolveIntentSymbol(intent), intent.TimeframeMinutes);
+            if (stream == null)
+            {
+                Print("Intent {0} ({1}) scartato: {2} non e' fra gli stream del piano [{3}].",
+                    intent.IntentId, intent.StrategyCode, ResolveIntentSymbol(intent),
+                    string.Join("; ", _streams));
+                return;
+            }
+
+            if (Positions.Find(label, stream.AccountSymbol, tradeType) != null)
             {
                 Print("Intent {0} ({1} {2}) ignorato: posizione gia aperta su questa label.", intent.IntentId, tradeType, label);
                 return;
@@ -813,25 +1104,21 @@ namespace cAlgo.Robots
                 return;
             }
 
-            if (intent.TimeframeMinutes > 0 && intent.TimeframeMinutes != _timeframeMinutes)
-            {
-                Print("Intent {0} scartato: la strategia lavora su {1} minuti, il grafico su {2}. " +
-                      "MaxBarsInPosition non sarebbe contabile. Usa un grafico dello stesso timeframe.",
-                    intent.IntentId, intent.TimeframeMinutes, _timeframeMinutes);
-                return;
-            }
-
+            // Il volume va normalizzato con i passi dello strumento su cui si opera: usare quelli
+            // del grafico produrrebbe un volume valido altrove e rifiutato qui.
             var rawVolume = (double)rawQuantity * VolumePerQuantityUnit;
-            var volume = Symbol.NormalizeVolumeInUnits(rawVolume, RoundingMode.Down);
+            var volume = stream.BrokerSymbol.NormalizeVolumeInUnits(rawVolume, RoundingMode.Down);
             if (volume <= 0)
             {
-                Print("Intent {0} scartato: volume normalizzato non valido.", intent.IntentId);
+                Print("Intent {0} scartato: volume normalizzato non valido su {1}.", intent.IntentId, stream.AccountSymbol);
                 return;
             }
 
             // Sempre applicati: sono livelli nativi cTrader e sopravvivono a un riavvio del bot.
-            double? stopLossPips = ToPips(intent.StopLoss);
-            double? takeProfitPips = ToPips(intent.TakeProfit);
+            // La conversione punti -> pip usa il PipSize dello strumento dell'intent: con il
+            // PipSize del grafico lo stop finirebbe a una distanza sbagliata senza alcun errore.
+            double? stopLossPips = ToPips(intent.StopLoss, stream.BrokerSymbol);
+            double? takeProfitPips = ToPips(intent.TakeProfit, stream.BrokerSymbol);
             if (!stopLossPips.HasValue && !takeProfitPips.HasValue &&
                 !(intent.TrailingStop > 0) && !intent.CloseAtUtc.HasValue &&
                 !intent.ProfitStallAfterUtc.HasValue && !(intent.MaxBarsInPosition > 0))
@@ -851,27 +1138,28 @@ namespace cAlgo.Robots
             switch (intent.OrderType)
             {
                 case "Stop":
-                    result = PlaceStopOrder(tradeType, SymbolName, volume, (double)intent.Price, label, stopLossPips, takeProfitPips);
+                    result = PlaceStopOrder(tradeType, stream.AccountSymbol, volume, (double)intent.Price, label, stopLossPips, takeProfitPips);
                     break;
                 case "Limit":
-                    result = PlaceLimitOrder(tradeType, SymbolName, volume, (double)intent.Price, label, stopLossPips, takeProfitPips);
+                    result = PlaceLimitOrder(tradeType, stream.AccountSymbol, volume, (double)intent.Price, label, stopLossPips, takeProfitPips);
                     break;
                 default:
-                    result = ExecuteMarketOrder(tradeType, SymbolName, volume, label, stopLossPips, takeProfitPips, intent.Reason);
+                    result = ExecuteMarketOrder(tradeType, stream.AccountSymbol, volume, label, stopLossPips, takeProfitPips, intent.Reason);
                     break;
             }
 
             if (!result.IsSuccessful)
             {
-                Print("Errore apertura posizione da intent {0} ({1} {2}): {3}", intent.IntentId, tradeType, SymbolName, result.Error);
+                Print("Errore apertura posizione da intent {0} ({1} {2}): {3}", intent.IntentId, tradeType, stream.AccountSymbol, result.Error);
                 _lastOpenIntentByLabel.Remove(label);
                 return;
             }
 
             // Scadenza dell'ordine pending: la barra corrente e' l'unica in cui puo' essere
-            // eseguito, come "next bar at ... stop" di EasyLanguage.
+            // eseguito, come "next bar at ... stop" di EasyLanguage. Il conteggio e' sulla serie
+            // dello stream, perche' "una barra" e' quella della strategia, non quella del grafico.
             if (intent.ExpiresAtUtc.HasValue && result.PendingOrder != null)
-                _pendingOrderBar[label] = Bars.Count;
+                _pendingOrderBar[label] = new PendingOrderMark { Stream = stream, BarCount = stream.Series.Count };
             else
                 _pendingOrderBar.Remove(label);
 
@@ -886,7 +1174,6 @@ namespace cAlgo.Robots
                 return;
 
             var position = Positions.FirstOrDefault(candidate =>
-                candidate.SymbolName == SymbolName &&
                 candidate.Label == MakeLabel(intent.StrategyCode));
             if (position is null)
             {
@@ -920,7 +1207,8 @@ namespace cAlgo.Robots
 
             foreach (var entry in _pendingOrderBar.ToList())
             {
-                if (Bars.Count <= entry.Value)
+                var mark = entry.Value;
+                if (mark?.Stream?.Series == null || mark.Stream.Series.Count <= mark.BarCount)
                     continue;
 
                 CancelPendingOrders(entry.Key, "scaduto (valido una barra sola)");
@@ -942,7 +1230,7 @@ namespace cAlgo.Robots
                 return false;
 
             var labels = PendingOrders
-                .Where(o => o.SymbolName == SymbolName && o.Label != null &&
+                .Where(o => o.Label != null &&
                             o.Label.StartsWith(LabelPrefix, StringComparison.Ordinal))
                 .Select(o => o.Label)
                 .Distinct()
@@ -988,7 +1276,7 @@ namespace cAlgo.Robots
         private void CancelPendingOrders(string label, string reason)
         {
             foreach (var order in PendingOrders
-                .Where(o => o.SymbolName == SymbolName && o.Label == label)
+                .Where(o => o.Label == label)
                 .ToList())
             {
                 var result = CancelPendingOrder(order);
@@ -1012,9 +1300,15 @@ namespace cAlgo.Robots
                 if (!intent.BreakEven.HasValue || intent.BreakEven.Value <= 0)
                     continue;
 
+                // Bid/Ask dello strumento della POSIZIONE: con quelli del grafico il break-even
+                // scatterebbe su un prezzo che non ha nulla a che vedere con la posizione.
+                var quote = Symbols.GetSymbol(position.SymbolName);
+                if (quote == null)
+                    continue;
+
                 var favorableMove = position.TradeType == TradeType.Buy
-                    ? Symbol.Bid - position.EntryPrice
-                    : position.EntryPrice - Symbol.Ask;
+                    ? quote.Bid - position.EntryPrice
+                    : position.EntryPrice - quote.Ask;
                 if (favorableMove < (double)intent.BreakEven.Value)
                     continue;
 
@@ -1046,10 +1340,14 @@ namespace cAlgo.Robots
                 if (!intent.TrailingStop.HasValue || intent.TrailingStop.Value <= 0)
                     continue;
 
+                var quote = Symbols.GetSymbol(position.SymbolName);
+                if (quote == null)
+                    continue;
+
                 var distance = (double)intent.TrailingStop.Value;
                 var candidate = position.TradeType == TradeType.Buy
-                    ? Symbol.Bid - distance
-                    : Symbol.Ask + distance;
+                    ? quote.Bid - distance
+                    : quote.Ask + distance;
                 var improves = !position.StopLoss.HasValue ||
                     (position.TradeType == TradeType.Buy
                         ? candidate > position.StopLoss.Value
@@ -1077,9 +1375,7 @@ namespace cAlgo.Robots
         {
             var now = Server.TimeInUtc;
 
-            foreach (var position in Positions
-                .Where(p => p.SymbolName == SymbolName && p.Label != null && p.Label.StartsWith(LabelPrefix, StringComparison.Ordinal))
-                .ToList())
+            foreach (var position in Positions.Where(IsOurs).ToList())
             {
                 if (!_positionIntent.TryGetValue(position.Id, out var intent))
                     continue;
@@ -1112,9 +1408,13 @@ namespace cAlgo.Robots
                     }
                 }
 
+                // Le barre si contano sulla serie dello stream che ha aperto: MaxBarsInPosition e'
+                // espresso nel timeframe della strategia, non in quello del grafico.
+                var stream = FindStreamForPosition(position);
                 if (reason == null && intent.MaxBarsInPosition > 0 &&
+                    stream?.Series != null &&
                     _positionEntryBar.TryGetValue(position.Id, out var entryBar) &&
-                    Bars.Count - entryBar >= intent.MaxBarsInPosition.Value)
+                    stream.Series.Count - entryBar >= intent.MaxBarsInPosition.Value)
                 {
                     reason = "limite barre (MaxBarsInPosition)";
                 }
@@ -1173,9 +1473,13 @@ namespace cAlgo.Robots
 
         private void ReportClosingFill(OrderIntentDto intent, Position position)
         {
+            // PipSize dello strumento della posizione: con quello del grafico il prezzo di uscita
+            // riportato al server sarebbe sbagliato di un fattore di scala, e finirebbe cosi' in
+            // trades.json e quindi nelle equity su cui gira Titano.
+            var pipSize = Symbols.GetSymbol(position.SymbolName)?.PipSize ?? Symbol.PipSize;
             var exitPrice = position.TradeType == TradeType.Buy
-                ? position.EntryPrice + position.Pips * Symbol.PipSize
-                : position.EntryPrice - position.Pips * Symbol.PipSize;
+                ? position.EntryPrice + position.Pips * pipSize
+                : position.EntryPrice - position.Pips * pipSize;
 
             var report = new ExecutionReportRequestDto
             {
@@ -1209,13 +1513,23 @@ namespace cAlgo.Robots
                 return;
             }
 
+            // Il server indicizza per nome Piootoo: mandare il nome del broker qui significherebbe
+            // chiudere un simbolo che il server non conosce.
+            var closedStream = FindStreamForPosition(position);
+            if (closedStream == null)
+            {
+                Print("Posizione {0} ({1}) chiusa su {2}, che non e' fra gli stream del piano: " +
+                      "chiusura non registrata lato server.", position.Id, position.Label, position.SymbolName);
+                return;
+            }
+
             try
             {
                 var closeIntentRequest = new CreateExternalCloseIntentRequestDto
                 {
                     SessionToken = _sessionToken,
                     StrategyCode = strategyCode,
-                    Symbol = _piootooSymbol,
+                    Symbol = closedStream.PiootooSymbol,
                     Quantity = 0m, // 0 = il server usa l'intera quantita della posizione aperta
                     Reason = $"LocalExit:{reason}"
                 };
@@ -1271,17 +1585,20 @@ namespace cAlgo.Robots
 
         // ------------------------------------------------------------------------------- Helper
 
+        /// <summary>
+        /// Posizioni aperte da questo bot. Non si filtra piu' per simbolo: il bot copre tutti gli
+        /// stream del piano, e la label e' gia' un marcatore univoco.
+        /// </summary>
         private bool IsOurs(Position position) =>
-            position.SymbolName == SymbolName &&
             position.Label != null &&
             position.Label.StartsWith(LabelPrefix, StringComparison.Ordinal);
 
-        private double? ToPips(decimal? priceDistance)
+        private static double? ToPips(decimal? priceDistance, Symbol symbol)
         {
-            if (!priceDistance.HasValue || priceDistance.Value <= 0)
+            if (!priceDistance.HasValue || priceDistance.Value <= 0 || symbol == null)
                 return null;
 
-            return (double)priceDistance.Value / Symbol.PipSize;
+            return (double)priceDistance.Value / symbol.PipSize;
         }
 
         private static string NormalizeSymbol(string symbol) =>
@@ -1305,6 +1622,34 @@ namespace cAlgo.Robots
             var prefix = LabelPrefix + ":";
             return label.StartsWith(prefix, StringComparison.Ordinal) ? label.Substring(prefix.Length) : label;
         }
+
+        /// <summary>
+        /// Inverso di <see cref="ResolveTimeframeMinutes"/>: serve a sottoscrivere la serie di uno
+        /// stream del piano. Un timeframe non mappabile e' un errore esplicito, non un fallback:
+        /// aprire la serie sbagliata darebbe barre plausibili su cui nessuna strategia gira.
+        /// </summary>
+        private static TimeFrame ToTimeFrame(int minutes) => minutes switch
+        {
+            1 => TimeFrame.Minute,
+            2 => TimeFrame.Minute2,
+            3 => TimeFrame.Minute3,
+            4 => TimeFrame.Minute4,
+            5 => TimeFrame.Minute5,
+            10 => TimeFrame.Minute10,
+            15 => TimeFrame.Minute15,
+            20 => TimeFrame.Minute20,
+            30 => TimeFrame.Minute30,
+            45 => TimeFrame.Minute45,
+            60 => TimeFrame.Hour,
+            120 => TimeFrame.Hour2,
+            180 => TimeFrame.Hour3,
+            240 => TimeFrame.Hour4,
+            360 => TimeFrame.Hour6,
+            480 => TimeFrame.Hour8,
+            720 => TimeFrame.Hour12,
+            1440 => TimeFrame.Daily,
+            _ => throw new ArgumentException($"Timeframe non supportato: {minutes} minuti.")
+        };
 
         private static int ResolveTimeframeMinutes(TimeFrame timeFrame)
         {
@@ -1526,6 +1871,46 @@ namespace cAlgo.Robots
             public string SessionId { get; set; } = "";
             public double InitialEquity { get; set; }
             public double PeakEquity { get; set; }
+
+            /// <summary>
+            /// Condizioni di uscita delle posizioni aperte. Non sono un doppione dello stato del
+            /// server: sono l'unica copia che sopravvive a un riavvio del SERVER, che tiene le
+            /// sessioni in RAM. Senza questo file, dopo quel riavvio GET /intents non restituisce
+            /// piu' nulla e le posizioni aperte resterebbero senza uscita a tempo, senza limite di
+            /// barre e senza trailing — aperte finche' non arriva un segnale opposto.
+            /// </summary>
+            public List<PositionExitStateDto> OpenPositions { get; set; } = new();
+        }
+
+        /// <summary>
+        /// Condizioni di uscita di una posizione, come dichiarate dall'intent di ingresso. Stop loss
+        /// e take profit non sono qui: sono livelli nativi del broker e sopravvivono da soli.
+        /// </summary>
+        private sealed class PositionExitStateDto
+        {
+            public long PositionId { get; set; }
+            public string IntentId { get; set; } = "";
+            public string Label { get; set; } = "";
+            public string StrategyCode { get; set; } = "";
+
+            /// <summary>Nome sul broker: serve a ritrovare la posizione e lo stream al riavvio.</summary>
+            public string AccountSymbol { get; set; } = "";
+            public int TimeframeMinutes { get; set; }
+
+            public decimal? BreakEven { get; set; }
+            public decimal? TrailingStop { get; set; }
+            public DateTime? CloseAtUtc { get; set; }
+            public DateTime? ProfitStallAfterUtc { get; set; }
+            public decimal? TimeExitOnlyIfProfitBelowMoneyPerContract { get; set; }
+            public int? MaxBarsInPosition { get; set; }
+            public decimal ContractMultiplier { get; set; }
+            public decimal FinalQuantity { get; set; }
+
+            /// <summary>
+            /// Barre gia' trascorse in posizione. Si persiste il conteggio e non l'indice di barra:
+            /// l'indice e' relativo alla serie caricata, che al riavvio parte da un altro punto.
+            /// </summary>
+            public int BarsInPosition { get; set; }
         }
 
         private sealed class SessionSnapshotDto

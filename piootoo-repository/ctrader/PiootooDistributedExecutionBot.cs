@@ -47,7 +47,7 @@ namespace cAlgo.Robots
     /// il profilo account/gruppo; cBot di account diversi possono condividere la sessione del piano.
     /// </summary>
     [Robot(TimeZone = TimeZones.UTC, AccessRights = AccessRights.FullAccess)]
-    public class PiootooLiveTradingBot : Robot
+    public class PiootooDistributedExecutionBot : Robot
     {
         private const string LabelPrefix = "PiootooLive";
 
