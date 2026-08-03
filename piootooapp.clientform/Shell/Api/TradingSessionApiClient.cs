@@ -21,6 +21,12 @@ public sealed class TradingSessionApiClient : ApiClientBase
         => SendForAsync<TradingSessionDescriptor>(
             HttpMethod.Post, "api/v1/trading-sessions", request, cancellationToken);
 
+    public Task<TradingSessionDescriptor> OpenFromPlanAsync(
+        OpenTradingPlanSessionRequest request,
+        CancellationToken cancellationToken = default)
+        => SendForAsync<TradingSessionDescriptor>(
+            HttpMethod.Post, "api/v1/trading-sessions/open-plan", request, cancellationToken);
+
     /// <param name="action">start, stop oppure resume.</param>
     public Task<TradingSessionDescriptor> SetStatusAsync(
         string sessionId,

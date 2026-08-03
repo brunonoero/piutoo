@@ -52,7 +52,7 @@ public static class NavigationRegistry
             "Operatività",
             new NavigationEntry("Backtesting", () => new BacktestingScreen()),
             new NavigationEntry("Titano", () => new TitanoScreen()),
-            new NavigationEntry("Sessioni di trading", null)),
+            new NavigationEntry("Sessioni di trading", () => new TradingSessionsScreen())),
         new NavigationSection(
             "Analisi",
             new NavigationEntry("Risultati trading", () => new TradingResultsScreen()),

@@ -550,3 +550,16 @@ in ordine cronologico. Non è un changelog di codice: quello resta nei commit.
   all'avvio che la coppia (simbolo, timeframe) del grafico sia coperta dal masterfilter del piano:
   il server accetta qualunque barra e la archivia, quindi un grafico sbagliato produceva un bot che
   lavorava per sempre senza un solo segnale e senza un errore.
+- **2026-08-03** — **Shell Sessioni di trading e i tre scenari operativi.** La schermata
+  `TradingSessionsScreen` distingue tre modi coerenti con cBot e server: (1) backtest con Titano
+  `Disabled` — tutte le strategie del masterfilter del workspace (il piano fornisce solo workspace,
+  sizing e capitale, non limita l'universo); (2) backtest con `BacktestRotationFile` — filtro Titano
+  dal manifest offline per barra, più `MaxConcurrentTrades` e ordine di claim per gruppo/account in
+  `ExternalBroker`; (3) realtime con `Realtime` — periodo corrente dell'ultima analisi, stesse regole
+  di concorrenza. La combo `ClientRunMode` + `TitanoMode` replica la validazione
+  `RequireCoherentRunMode` quando il contesto è dichiarato; l'apertura da piano usa
+  `POST /trading-sessions/open-plan` e mostra il workspace derivato dal piano.
+- **2026-08-03** — Completato il menu della shell WinForms con **Sessioni di trading**
+  (`TradingSessionsScreen`): creazione manuale, apertura da piano (`open-plan`), snapshot e
+  gruppi account via `TradingSessionApiClient`. L'editing completo dei piani resta in
+  *Anagrafiche → Piani di trading*; «Genera e applica Titano» solo nella console legacy.

@@ -53,6 +53,10 @@ solution. Stato: **stabile** = contenuto verificato contro il codice,
   con matrice di esempi verificati. *Stabile.*
 - [`domini/trading-plans.md`](domini/trading-plans.md) — configurazioni operative
   riutilizzabili e apertura idempotente delle sessioni dal cBot. *Stabile.*
+- [`domini/cbot-realtime-backtest-titano.md`](domini/cbot-realtime-backtest-titano.md)
+  — guida operativa ai cBot cTrader nei tre scenari (backtest puro, backtest con
+  Titano, realtime): parametri, `open-plan`, matrice modalità, troubleshooting.
+  *Stabile.*
 - [`domini/strategie-catalogo.md`](domini/strategie-catalogo.md) —
   `ITradingStrategy`, catalogo, generazione da EasyLanguage. *Bozza.*
 - [`domini/motori-strategie.md`](domini/motori-strategie.md) — regole comuni
