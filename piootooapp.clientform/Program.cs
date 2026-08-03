@@ -1,16 +1,17 @@
+using piootooapp.clientform.Shell;
+
 namespace piootooapp.clientform;
 
 static class Program
 {
     /// <summary>
-    ///  The main entry point for the application.
+    ///  Punto di ingresso. Avvia la console nuova (<see cref="MainShellForm"/>); la vecchia
+    ///  <see cref="WorkspaceBacktestingForm"/> resta raggiungibile dal menu File.
     /// </summary>
     [STAThread]
     static void Main()
     {
-        // To customize application configuration such as set high DPI settings or default font,
-        // see https://aka.ms/applicationconfiguration.
         ApplicationConfiguration.Initialize();
-        Application.Run(new WorkspaceBacktestingForm());
-    }    
+        Application.Run(new MainShellForm());
+    }
 }

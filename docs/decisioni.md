@@ -503,3 +503,30 @@ in ordine cronologico. Non è un changelog di codice: quello resta nei commit.
   come storia, gli stati Titano vanno ricalcolati. Alternativa scartata: un
   livello di alias nel catalogo, che avrebbe salvato la continuità al prezzo di
   due nomi vivi per la stessa strategia a tempo indeterminato.
+
+- **2026-08-03** — **Nuova console WinForms accanto a quella a tab.** La finestra
+  storica (`WorkspaceBacktestingForm`, ~4.200 righe, sette tab costruiti a mano
+  con un `.Designer.cs` vuoto) resta intatta e raggiungibile da *File → Console
+  legacy*, ma l'avvio è ora `MainShellForm`: menu ad albero a sinistra, area
+  contenuti a destra, navigazione lista → dettaglio con breadcrumb. Motivo: nei
+  tab le azioni di add/remove delle diverse entità erano mescolate nella stessa
+  superficie e non si capiva su cosa stessero agendo.
+
+  Due vincoli hanno deciso la forma. Primo, la nuova console deve essere
+  **apribile nel designer**: quindi ogni schermata è un `UserControl` con il suo
+  `.Designer.cs`, il riuso passa per **composizione** (`EntityToolbar`,
+  `DetailToolbar`) e non per una classe base astratta o generica, che il
+  designer rifiuta di renderizzare; le dipendenze arrivano da
+  `IShellScreen.Initialize` e non dal costruttore, che deve restare senza
+  parametri; il caricamento dati è sotto guardia `DesignMode`. Secondo, il menu
+  deve essere estensibile: le voci stanno in `NavigationRegistry`, quindi
+  aggiungerne una costa una riga più la coppia lista/dettaglio.
+
+  Portate al nuovo modello le anagrafiche **Account**, **Gruppi** e
+  **Workspace**; le altre voci sono già nel menu ma disabilitate. Finché la
+  copertura non è completa le due console convivono e scrivono sulla stessa API.
+  I Gruppi non hanno un dettaglio: l'API li tratta come semplici identificativi,
+  quindi la creazione passa da un dialog a campo singolo e la lista mostra gli
+  account associati, che è l'unica informazione utile a decidere se eliminarli.
+  Il nome di un workspace è la cartella su disco e l'API non espone una
+  rinomina: nel dettaglio è in sola lettura, modificabile solo alla creazione.

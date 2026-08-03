@@ -19,9 +19,11 @@ Piootoo è un **trading system per future** che copre tre attività:
 A queste si aggiunge il **setup del workspace**, che è il contenitore di tutto:
 selezione strategie (masterfilter), backtest prodotti, run Titano, sessioni.
 
-L'interfaccia operativa è una console WinForms con quattro tab
-(Workspaces, Backtesting, Titano, Trading Session) che parla solo via HTTP con
-l'API ASP.NET Core.
+L'interfaccia operativa è una console WinForms che parla solo via HTTP con l'API
+ASP.NET Core. Ne esistono due: quella nuova (`Shell/MainShellForm`, menu a
+sinistra e navigazione lista → dettaglio) e quella storica a tab
+(Workspaces, Backtesting, Titano, Trading Session e altri), che resta operativa
+finché la prima non copre tutte le funzioni. Vedi `decisioni.md` (2026-08-03).
 
 ---
 
@@ -35,7 +37,7 @@ l'API ASP.NET Core.
 | `Piootoo.Strategies` | Catalogo strategie (`ITradingStrategy`), incluse quelle generate da EasyLanguage. | Shared |
 | `PiootooApp.Server` | API HTTP. Solo controller sottili + DI. | Core |
 | `Piootoo.FeedWorker` | Worker che alimenta le sessioni live con barre chiuse. | Core |
-| `piootooapp.clientform` | Console WinForms a quattro tab. Client HTTP puro. | Shared |
+| `piootooapp.clientform` | Console WinForms: shell nuovo con menu e navigazione lista → dettaglio, più la vecchia finestra a tab. Client HTTP puro. | Shared |
 | `piootooapp.client` | SPA Angular, scollegata dal debug F5. | — |
 | `piootoo-repository/` | Dati fuori dal codice: `datafeed/` (JSON OHLCV), `ctrader/` (sorgenti cBot), `easy/` (sorgenti EasyLanguage). | — |
 
