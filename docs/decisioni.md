@@ -482,3 +482,24 @@ in ordine cronologico. Non è un changelog di codice: quello resta nei commit.
   corretto per monotonia, non per costruzione. Restano da valutare: passo minimo prima di muovere
   lo stop (oggi una `ModifyPosition` sincrona per ogni nuovo estremo), rispetto della distanza
   minima di stop del broker, e `ModifyPositionAsync` per non bloccare `OnTick`.
+
+- **2026-08-03** — **Nuova convenzione di nome per le strategie PTS**:
+  `PTS_[SYMBOL]_[ENG]_[NNN]_[TF]` al posto di `PTS_[NNN]_[SYMBOL]_[TF]`. Le tre
+  strategie esistenti diventano `PTS_001_NQ_60 → PTS_NQ_TFM_001_60`,
+  `PTS_002_NQ_15 → PTS_NQ_PCH_001_15`, `PTS_003_NQ_15 → PTS_NQ_PCH_002_15`.
+  Il motivo è che il numero da solo non diceva nulla: leggendo un report non si
+  capiva con che logica operasse una strategia senza aprire il sorgente. La
+  sigla motore sta prima del numero perché il progressivo riparte per coppia
+  (symbol, motore), quindi `001` è ambiguo senza di essa. Formato e tabella
+  delle sigle in `domini/strategie-catalogo.md`, imposti da
+  `PtsNamingConventionTests`.
+
+  *Rottura netta, voluta.* `Name` è lo `StrategyCode` che finisce in
+  `signals.json`, `trades.json`, nelle chiavi di posizione e negli stati Titano:
+  i run prodotti prima di questa data contengono i codici vecchi e **non sono
+  più confrontabili** con quelli nuovi. Niente tabella di alias e nessuna
+  riscrittura degli artefatti — quelli sono dichiarati immutabili. In pratica il
+  workspace `pts-02` riparte da zero: i backtest esistenti restano leggibili
+  come storia, gli stati Titano vanno ricalcolati. Alternativa scartata: un
+  livello di alias nel catalogo, che avrebbe salvato la continuità al prezzo di
+  due nomi vivi per la stessa strategia a tempo indeterminato.

@@ -10,15 +10,15 @@ using Xunit;
 namespace Piootoo.Strategies.Tests;
 
 /// <summary>
-/// Verifica la specifica PC di PTS_002: canale inclusivo della barra corrente, buffer NQ,
+/// Verifica la specifica PC di PTS_NQ_PCH_001: canale inclusivo della barra corrente, buffer NQ,
 /// condizioni di uscita autocontenute e trailing stop monetario per contratto.
 /// </summary>
-public sealed class Pts002PcTests
+public sealed class PtsPriceChannelTests
 {
     [Fact]
-    public void Pts002_EmitsLongStopAboveCurrentInclusive100BarChannel()
+    public void PtsPch001_EmitsLongStopAboveCurrentInclusive100BarChannel()
     {
-        var strategy = new PTS_002_NQ_15();
+        var strategy = new PTS_NQ_PCH_001_15();
         strategy.Initialize(new Dictionary<string, object>
         {
             ["PtnNeutNo"] = 56,
@@ -33,7 +33,7 @@ public sealed class Pts002PcTests
             BarTimeUtc = last.DateTime,
             Execution = new StrategyExecutionSnapshot
             {
-                StrategyCode = "PTS_002_NQ_15",
+                StrategyCode = "PTS_NQ_PCH_001_15",
                 Symbol = "NQ",
                 BarTimeUtc = last.DateTime
             }
@@ -43,7 +43,7 @@ public sealed class Pts002PcTests
         Assert.Equal(TradeOrderType.Stop, signal.OrderType);
         Assert.Null(signal.CompanionSignals);
         Assert.Equal("@NQ", signal.Symbol);
-        Assert.Equal("PTS_002_NQ_15", signal.StrategyCode);
+        Assert.Equal("PTS_NQ_PCH_001_15", signal.StrategyCode);
         // Massimo delle 100 barre incl. quella corrente (999) + 2 tick di buffer + 1 tick di
         // penetrazione del livello, che è la convenzione del motore Python.
         Assert.Equal(999.75m, signal.Price);
@@ -69,8 +69,8 @@ public sealed class Pts002PcTests
     /// vedrebbe solo nei risultati.
     /// </summary>
     [Theory]
-    [InlineData(typeof(PTS_002_NQ_15))]
-    [InlineData(typeof(PTS_003_NQ_15))]
+    [InlineData(typeof(PTS_NQ_PCH_001_15))]
+    [InlineData(typeof(PTS_NQ_PCH_002_15))]
     public void PcPtsStrategies_DoNotDeclareSessionEndClose(Type strategyType)
     {
         var strategy = Activator.CreateInstance(strategyType)!;
@@ -97,8 +97,8 @@ public sealed class Pts002PcTests
             Type = SignalType.Buy,
             Price = 100m,
             Symbol = "@NQ",
-            StrategyName = "PTS_002_NQ_15",
-            StrategyCode = "PTS_002_NQ_15",
+            StrategyName = "PTS_NQ_PCH_001_15",
+            StrategyCode = "PTS_NQ_PCH_001_15",
             OrderType = TradeOrderType.Stop,
             ValidFromUtc = fillTime,
             ExpiresAtUtc = fillTime,
@@ -140,8 +140,8 @@ public sealed class Pts002PcTests
             Type = SignalType.Buy,
             Price = 100m,
             Symbol = "@NQ",
-            StrategyName = "PTS_002_NQ_15",
-            StrategyCode = "PTS_002_NQ_15",
+            StrategyName = "PTS_NQ_PCH_001_15",
+            StrategyCode = "PTS_NQ_PCH_001_15",
             OrderType = TradeOrderType.Stop,
             ValidFromUtc = barTime,
             ExpiresAtUtc = barTime,
@@ -179,8 +179,8 @@ public sealed class Pts002PcTests
             Type = SignalType.Buy,
             Price = 100m,
             Symbol = "@NQ",
-            StrategyName = "PTS_002_NQ_15",
-            StrategyCode = "PTS_002_NQ_15",
+            StrategyName = "PTS_NQ_PCH_001_15",
+            StrategyCode = "PTS_NQ_PCH_001_15",
             Quantity = 1m,
             StopLoss = 10m,
             MaxEntriesPerSession = 1,

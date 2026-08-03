@@ -111,7 +111,7 @@ public class SessionSeriesTests
     }
 
     /// <summary>
-    /// Sessione ancorata alla mezzanotte, il confine usato da <c>PTS_002_NQ_15</c> per allinearsi al
+    /// Sessione ancorata alla mezzanotte, il confine usato da <c>PTS_NQ_PCH_001_15</c> per allinearsi al
     /// motore di riferimento. Il confronto stretto <c>t &gt; sessionStartTime</c> scarterebbe la barra
     /// delle 00:00 da ogni sessione, perdendone una al giorno da d0..d5 senza che nulla protesti:
     /// qui si verifica che entri nel giorno e che le due funzioni segmentino ancora allo stesso modo.

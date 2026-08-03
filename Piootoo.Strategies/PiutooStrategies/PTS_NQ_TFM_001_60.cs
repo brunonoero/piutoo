@@ -3,7 +3,7 @@ using Piootoo.Strategies.Easy.Engines;
 namespace Piootoo.Strategies.PiutooStrategies;
 
 /// <summary>
-/// PTS_001 — trend following mirrored su NQ a 60 minuti.
+/// PTS_NQ_TFM_001 — trend following mirrored su NQ a 60 minuti.
 ///
 /// <para>Le barre e gli orari sono in UTC. Sessione CME 17:00–16:00; finestra operativa
 /// inclusiva 16:00–03:00. Gate neutri 47/1 e direzionali mirrored 50/8.</para>
@@ -14,14 +14,14 @@ namespace Piootoo.Strategies.PiutooStrategies;
 ///
 /// <para><b>Contratto di riferimento:</b> NQ, $20 per punto. Stop $1.000, target $3.000.</para>
 /// </summary>
-public sealed class PTS_001_NQ_60 : TfMirroredEngine
+public sealed class PTS_NQ_TFM_001_60 : TfMirroredEngine
 {
-    public override string Name => "PTS_001_NQ_60";
+    public override string Name => "PTS_NQ_TFM_001_60";
     public override string Description => "TF_M NQ 60: breakout H/L d1, pattern mirrored, multiday";
     public override string Symbol => "@NQ";
     public override int TimeframeMinutes => 60;
 
-    public PTS_001_NQ_60()
+    public PTS_NQ_TFM_001_60()
     {
         SessionStartTime = 1700;
         SessionEndTime = 1600;

@@ -60,4 +60,18 @@ public class BacktestingResult
     /// È il file da leggere per capire perché un backtest non ha prodotto trade.
     /// </summary>
     public string? DiagnosticsSummaryFilePath { get; set; }
+
+    /// <summary>
+    /// Timestamp UTC dell'ultima barra realmente presente nel datafeed, cioè il punto oltre il
+    /// quale l'orologio del backtest continua a girare ma non arriva più alcun prezzo.
+    /// </summary>
+    /// <remarks>
+    /// È il massimo fra le ultime barre dei datasource caricati: oltre quel punto NESSUN feed ha
+    /// più dati, quindi l'equity resta piatta per costruzione. I resoconti annuale e mensile lo
+    /// usano per non stampare periodi vuoti che sembrerebbero mesi senza operatività, quando in
+    /// realtà sono mesi senza dati — la differenza è la stessa segnalata da
+    /// <c>coversRequestedRange</c> nel summary diagnostico.
+    /// <para><c>null</c> quando la copertura è ignota: in quel caso non si tronca nulla.</para>
+    /// </remarks>
+    public DateTime? DataCoverageEndUtc { get; set; }
 }

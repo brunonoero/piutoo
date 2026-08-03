@@ -7,31 +7,31 @@ namespace Piootoo.Strategies.Tests;
 public class PtsStrategyRegistrationTests
 {
     [Fact]
-    public void Pts001_IsRegisteredWithExpectedMetadata()
+    public void PtsTfm001_IsRegisteredWithExpectedMetadata()
     {
         var definition = Assert.Single(
             StrategyFactory.GetRegisteredStrategies(),
-            strategy => strategy.Id == nameof(PTS_001_NQ_60));
+            strategy => strategy.Id == nameof(PTS_NQ_TFM_001_60));
 
-        Assert.Equal("PTS_001_NQ_60", definition.Name);
+        Assert.Equal("PTS_NQ_TFM_001_60", definition.Name);
         Assert.Equal("@NQ", definition.Symbol);
         Assert.Equal(60, definition.TimeframeMinutes);
         Assert.True(definition.IsActive);
     }
 
     [Fact]
-    public void Pts001_CanBeCreatedByCatalogId()
+    public void PtsTfm001_CanBeCreatedByCatalogId()
     {
-        var strategy = StrategyFactory.CreateStrategy(nameof(PTS_001_NQ_60), "@NQ", 60);
+        var strategy = StrategyFactory.CreateStrategy(nameof(PTS_NQ_TFM_001_60), "@NQ", 60);
 
         Assert.NotNull(strategy);
-        Assert.IsType<PTS_001_NQ_60>(strategy);
+        Assert.IsType<PTS_NQ_TFM_001_60>(strategy);
         Assert.False(strategy.IsPositionCloseDependent);
     }
 
     [Theory]
-    [InlineData(nameof(PTS_002_NQ_15))]
-    [InlineData(nameof(PTS_003_NQ_15))]
+    [InlineData(nameof(PTS_NQ_PCH_001_15))]
+    [InlineData(nameof(PTS_NQ_PCH_002_15))]
     public void PcPtsStrategies_AreRegisteredWithExpectedMetadata(string id)
     {
         var definition = Assert.Single(

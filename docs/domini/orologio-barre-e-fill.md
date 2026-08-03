@@ -12,7 +12,7 @@ Da qui nascono i **fill fantasma**: trade registrati a un istante in cui nessuno
 ha scambiato, a un prezzo che il mercato non ha mai stampato. Non sono un caso di
 laboratorio e non sono neutri, sono sistematicamente in perdita: un breakout che
 non è avvenuto viene comunque comprato al livello dello stop, e da lì il prezzo
-non ha nessun motivo di proseguire. Su `PTS_002_NQ_15` erano il **45% dei trade**,
+non ha nessun motivo di proseguire. Su `PTS_NQ_PCH_001_15` erano il **45% dei trade**,
 e la loro rimozione porta lo stesso run da $56 a $33.270 di net profit e dal 19%
 al 36% di trade vincenti.
 
@@ -77,7 +77,7 @@ che evita di dover ripetere il controllo in ogni ramo di esecuzione.
 Le uscite tecniche — `WeekEnd`, `EndOfRun` — restano legittimamente senza barra
 corrispondente: non sono fill di mercato ma chiusure forzate al prezzo di mark.
 
-## Evidenza — PTS_002_NQ_15, 2026-08-02
+## Evidenza — PTS_NQ_PCH_001_15, 2026-08-02
 
 Due run sullo stesso workspace `pts`, feed `NQ` 15m che copre
 `2023-12-04 → 2025-05-30`.
