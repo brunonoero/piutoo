@@ -159,19 +159,16 @@ public partial class WorkspaceBacktestingForm : Form
     private readonly NumericUpDown _accountInitialBalance = new();
     private readonly CheckBox _accountEnabledCheck = new() { Text = "Account attivo", AutoSize = true, Checked = true };
     private readonly TextBox _accountNotesTextBox = new();
-    private readonly DataGridView _accountSymbolsGrid = new();
+    private readonly ComboBox _accountSymbolConversionCombo = new();
     private readonly Button _accountNewButton = new();
     private readonly Button _accountSaveButton = new();
     private readonly Button _accountDeleteButton = new();
     private readonly Button _accountsReloadButton = new();
-    private readonly Button _accountAddSymbolRowButton = new();
-    private readonly Button _accountFillSymbolsButton = new();
-    private readonly Button _accountLoadPresetButton = new();
-    private readonly Button _accountSavePresetButton = new();
     private readonly Button _accountCreateDefaultButton = new();
     private readonly Label _accountStatusLabel = new();
     private List<WorkspaceAccount> _accounts = new();
     private List<string> _accountGroups = new();
+    private List<SymbolConversion> _symbolConversions = new();
     private WorkspaceAccount? _editingAccount;
     private bool _suppressAccountEvents;
 
@@ -599,7 +596,7 @@ public partial class WorkspaceBacktestingForm : Form
         commands.Controls.AddRange(new[]
         {
             WithHelp(_accountNewButton,
-                "Apre la finestra di creazione: la tabella di conversione parte dal preset identità (@GC = @GC, moltiplicatore 1)."),
+                "Apre la finestra di creazione: nessuna tabella di conversione assegnata, l'account opera 1 a 1 finché non se ne sceglie una."),
             WithHelp(_accountSaveButton, "Salva anagrafica e tabella di conversione dell'account selezionato."),
             WithHelp(_accountCreateDefaultButton,
                 "Crea l'account 'Default': symbol mappati 1 a 1 sul catalogo, moltiplicatore 1 e balance iniziale 1.000.000."),
@@ -675,83 +672,27 @@ public partial class WorkspaceBacktestingForm : Form
         return group;
     }
 
+    /// <summary>
+    /// La tabella di conversione non si edita più qui: è un registro globale, fuori da workspace e
+    /// account (Anagrafiche → Conversioni simbolo nella Shell nuova). Qui si sceglie solo quale
+    /// tabella nominata (per codice) referenzia questo account.
+    /// </summary>
     private Control BuildAccountSymbolsPanel()
     {
         var group = new GroupBox
         {
-            Text = "Tabella di conversione symbol",
-            Dock = DockStyle.Fill,
-            Padding = new Padding(8)
-        };
-        var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 2 };
-        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-
-        _accountSymbolsGrid.Dock = DockStyle.Fill;
-        _accountSymbolsGrid.AllowUserToAddRows = true;
-        _accountSymbolsGrid.AllowUserToDeleteRows = true;
-        _accountSymbolsGrid.RowHeadersVisible = false;
-        _accountSymbolsGrid.AutoGenerateColumns = false;
-        _accountSymbolsGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
-        _accountSymbolsGrid.Columns.Add(new DataGridViewTextBoxColumn
-        {
-            Name = "Symbol", HeaderText = "Symbol Piootoo", FillWeight = 28,
-            ToolTipText = "Simbolo come compare nel catalogo strategie, es. @NQ."
-        });
-        _accountSymbolsGrid.Columns.Add(new DataGridViewTextBoxColumn
-        {
-            Name = "AccountSymbol", HeaderText = "Symbol account", FillWeight = 28,
-            ToolTipText = "Simbolo equivalente sul broker dell'account, es. USDTEC."
-        });
-        _accountSymbolsGrid.Columns.Add(new DataGridViewTextBoxColumn
-        {
-            Name = "ContractMultiplier", HeaderText = "Moltiplicatore contratto", FillWeight = 30,
-            ToolTipText = "1 contratto Piootoo = N contratti account. Es. 0,1 se il contratto broker vale 100k contro 1M."
-        });
-        _accountSymbolsGrid.Columns.Add(new DataGridViewCheckBoxColumn
-        {
-            Name = "Enabled", HeaderText = "Attivo", FillWeight = 14, TrueValue = true, FalseValue = false
-        });
-        _accountSymbolsGrid.DefaultValuesNeeded += (_, e) =>
-        {
-            e.Row.Cells["ContractMultiplier"].Value = "1";
-            e.Row.Cells["Enabled"].Value = true;
-        };
-        _formToolTip.SetToolTip(_accountSymbolsGrid,
-            "Una riga per simbolo: mappatura del simbolo e fattore di scala del contratto usato da questo account.");
-        layout.Controls.Add(_accountSymbolsGrid, 0, 0);
-
-        _accountAddSymbolRowButton.Text = "Aggiungi riga";
-        _accountAddSymbolRowButton.AutoSize = true;
-        _accountAddSymbolRowButton.Click += (_, _) => _accountSymbolsGrid.Rows.Add(string.Empty, string.Empty, "1", true);
-
-        _accountFillSymbolsButton.Text = "Precompila dal catalogo";
-        _accountFillSymbolsButton.AutoSize = true;
-        _accountFillSymbolsButton.Click += (_, _) => FillAccountSymbolsFromCatalog();
-
-        _accountLoadPresetButton.Text = "Carica preset";
-        _accountLoadPresetButton.AutoSize = true;
-        _accountLoadPresetButton.Click += async (_, _) => await LoadSymbolPresetAsync();
-
-        _accountSavePresetButton.Text = "Salva come preset";
-        _accountSavePresetButton.AutoSize = true;
-        _accountSavePresetButton.Click += async (_, _) => await SaveSymbolPresetAsync();
-
-        layout.Controls.Add(new FlowLayoutPanel
-        {
+            Text = "Conversione symbol",
             Dock = DockStyle.Top,
             AutoSize = true,
-            Controls =
-            {
-                WithHelp(_accountAddSymbolRowButton, "Aggiunge una riga vuota con moltiplicatore 1."),
-                WithHelp(_accountFillSymbolsButton,
-                    "Aggiunge una riga per ogni symbol distinto del catalogo strategie non ancora presente in tabella."),
-                WithHelp(_accountLoadPresetButton,
-                    "Sostituisce la tabella con il preset condiviso (settings/default-symbol-conversion.json)."),
-                WithHelp(_accountSavePresetButton,
-                    "Salva la tabella corrente come nuovo preset condiviso per tutti i workspace.")
-            }
-        }, 0, 1);
+            Padding = new Padding(8)
+        };
+        var layout = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, WrapContents = true, Width = 700 };
+
+        _accountSymbolConversionCombo.DropDownStyle = ComboBoxStyle.DropDownList;
+        _accountSymbolConversionCombo.Width = 400;
+
+        layout.Controls.Add(LabeledField("Tabella di conversione", _accountSymbolConversionCombo,
+            "Tabella nominata dal registro globale (Anagrafiche → Conversioni simbolo). Vuota = nessuna conversione, l'account opera 1 a 1."));
 
         group.Controls.Add(layout);
         return group;
@@ -770,74 +711,40 @@ public partial class WorkspaceBacktestingForm : Form
         return panel;
     }
 
-    private void FillAccountSymbolsFromCatalog()
+    private static readonly SymbolConversionListItem NoSymbolConversionItem = new(null, "(nessuna conversione — 1 a 1)");
+
+    /// <summary>Ripopola la combo tabelle di conversione dal registro globale, preservando la selezione.</summary>
+    private void RefreshSymbolConversionCombo()
     {
-        var existing = _accountSymbolsGrid.Rows.Cast<DataGridViewRow>()
-            .Where(row => !row.IsNewRow)
-            .Select(row => Convert.ToString(row.Cells["Symbol"].Value ?? string.Empty)!.Trim())
-            .Where(symbol => symbol.Length > 0)
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var selectedCode = (_accountSymbolConversionCombo.SelectedItem as SymbolConversionListItem)?.Code;
+        _accountSymbolConversionCombo.Items.Clear();
+        _accountSymbolConversionCombo.Items.Add(NoSymbolConversionItem);
+        foreach (var conversion in _symbolConversions.OrderBy(c => c.Name, StringComparer.OrdinalIgnoreCase))
+            _accountSymbolConversionCombo.Items.Add(new SymbolConversionListItem(conversion.Code, conversion.Name));
 
-        var added = 0;
-        foreach (var symbol in _strategies
-            .Select(strategy => strategy.Symbol?.Trim() ?? string.Empty)
-            .Where(symbol => symbol.Length > 0)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .OrderBy(symbol => symbol, StringComparer.OrdinalIgnoreCase))
-        {
-            if (!existing.Add(symbol)) continue;
-            // Riga identità: symbol su se stesso e moltiplicatore 1, così aggiungerla non cambia
-            // il comportamento finché non la si modifica.
-            _accountSymbolsGrid.Rows.Add(symbol, symbol, "1", true);
-            added++;
-        }
-
-        _accountStatusLabel.Text = added > 0
-            ? $"Aggiunti {added} symbol dal catalogo, mappati 1 a 1."
-            : "Nessun nuovo symbol da aggiungere dal catalogo.";
+        SelectSymbolConversion(selectedCode);
     }
 
-    private void SetAccountSymbolRows(IEnumerable<AccountSymbolMapping> mappings)
+    private void SelectSymbolConversion(string? code)
     {
-        _accountSymbolsGrid.Rows.Clear();
-        foreach (var mapping in mappings)
-            _accountSymbolsGrid.Rows.Add(
-                mapping.Symbol,
-                mapping.AccountSymbol,
-                mapping.ContractMultiplier.ToString(System.Globalization.CultureInfo.CurrentCulture),
-                mapping.Enabled);
-    }
+        if (string.IsNullOrWhiteSpace(code))
+        {
+            _accountSymbolConversionCombo.SelectedIndex = 0;
+            return;
+        }
 
-    private async Task LoadSymbolPresetAsync()
-    {
-        try
-        {
-            NormalizeBaseAddress();
-            var preset = await _workspaceApi.GetSymbolConversionPresetAsync();
-            SetAccountSymbolRows(preset);
-            _accountStatusLabel.Text = $"Preset caricato: {preset.Count} symbol. Salva l'account per applicarlo.";
-            Log($"Preset di conversione caricato ({preset.Count} symbol).");
-        }
-        catch (Exception ex)
-        {
-            MessageBox.Show(ex.Message, "Errore preset conversione", MessageBoxButtons.OK, MessageBoxIcon.Error);
-        }
-    }
+        for (var index = 0; index < _accountSymbolConversionCombo.Items.Count; index++)
+            if (_accountSymbolConversionCombo.Items[index] is SymbolConversionListItem item &&
+                string.Equals(item.Code, code, StringComparison.OrdinalIgnoreCase))
+            {
+                _accountSymbolConversionCombo.SelectedIndex = index;
+                return;
+            }
 
-    private async Task SaveSymbolPresetAsync()
-    {
-        try
-        {
-            var mappings = ReadAccountFromEditorMappings();
-            NormalizeBaseAddress();
-            var saved = await _workspaceApi.SaveSymbolConversionPresetAsync(mappings);
-            _accountStatusLabel.Text = $"Preset condiviso aggiornato con {saved.Count} symbol.";
-            Log($"Preset di conversione salvato ({saved.Count} symbol).");
-        }
-        catch (Exception ex)
-        {
-            MessageBox.Show(ex.Message, "Errore preset conversione", MessageBoxButtons.OK, MessageBoxIcon.Error);
-        }
+        // Codice persistito ma non più nel registro: lo mostro invece di scartarlo, altrimenti
+        // salvare l'account azzererebbe in silenzio un riferimento che un run potrebbe usare ancora.
+        _accountSymbolConversionCombo.Items.Add(new SymbolConversionListItem(code, $"{code}  ·  (non più presente)"));
+        _accountSymbolConversionCombo.SelectedIndex = _accountSymbolConversionCombo.Items.Count - 1;
     }
 
     private async Task EnsureDefaultAccountAsync()
@@ -849,7 +756,7 @@ public partial class WorkspaceBacktestingForm : Form
             _editingAccount = account;
             await ReloadAccountsAsync(showErrors: true);
             _accountStatusLabel.Text =
-                $"Account '{account.Name}' pronto: {account.SymbolMappings.Count} symbol 1 a 1, " +
+                $"Account '{account.Name}' pronto: nessuna conversione (1 a 1), " +
                 $"balance {account.InitialBalance:N0} {account.Currency}.";
             Log("Account di default disponibile nel registro globale.");
         }
@@ -903,7 +810,9 @@ public partial class WorkspaceBacktestingForm : Form
             var previousId = _editingAccount?.Id;
             _accounts = (await _workspaceApi.ListAccountsAsync()).ToList();
             _accountGroups = (await _workspaceApi.ListAccountGroupsAsync()).ToList();
+            _symbolConversions = (await _workspaceApi.ListSymbolConversionsAsync()).ToList();
             RefreshAccountGroupLookups();
+            RefreshSymbolConversionCombo();
             BindAccountsList(previousId);
             _accountStatusLabel.Text = $"{_accounts.Count} account globali.";
             Log($"Caricati {_accounts.Count} account globali da API.");
@@ -1048,7 +957,7 @@ public partial class WorkspaceBacktestingForm : Form
             _accountInitialBalance.Value = 0;
             _accountEnabledCheck.Checked = true;
             _accountNotesTextBox.Text = string.Empty;
-            _accountSymbolsGrid.Rows.Clear();
+            SelectSymbolConversion(null);
             _accountDeleteButton.Enabled = false;
             _accountSaveButton.Enabled = false;
         }
@@ -1059,39 +968,15 @@ public partial class WorkspaceBacktestingForm : Form
     }
 
     /// <summary>
-    /// Creazione account in modale. La tabella di conversione parte sempre dal preset identità
-    /// (ogni symbol su se stesso, moltiplicatore 1): così un account nuovo è idempotente finché non
-    /// lo si modifica, e non serve ricordarsi di popolarlo per avere un run 1 a 1.
+    /// Creazione account in modale. Nessuna tabella di conversione assegnata: l'account nuovo opera
+    /// 1 a 1 finché non se ne sceglie una dal registro globale (Anagrafiche → Conversioni simbolo).
     /// </summary>
     private async Task CreateAccountViaDialogAsync()
     {
-        IReadOnlyList<AccountSymbolMapping> identity;
-        try
-        {
-            NormalizeBaseAddress();
-            identity = await _workspaceApi.GetSymbolIdentityAsync();
-        }
-        catch (Exception ex)
-        {
-            MessageBox.Show(
-                $"Impossibile leggere la tabella di conversione identità.{Environment.NewLine}{ex.Message}",
-                "Nuovo account", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            return;
-        }
-
-        using var dialog = new NewAccountDialog(identity.Count, _accountGroups);
+        using var dialog = new NewAccountDialog(_accountGroups);
         if (dialog.ShowDialog(this) != DialogResult.OK) return;
 
         var account = dialog.BuildAccount();
-        account.SymbolMappings = identity
-            .Select(mapping => new AccountSymbolMapping
-            {
-                Symbol = mapping.Symbol,
-                AccountSymbol = mapping.AccountSymbol,
-                ContractMultiplier = mapping.ContractMultiplier,
-                Enabled = mapping.Enabled
-            })
-            .ToList();
 
         try
         {
@@ -1100,8 +985,7 @@ public partial class WorkspaceBacktestingForm : Form
             _editingAccount = created;
             await ReloadAccountsAsync(showErrors: true);
             await LoadBacktestingAccountsAsync();
-            _accountStatusLabel.Text =
-                $"Account '{created.Name}' creato con {created.SymbolMappings.Count} symbol 1 a 1.";
+            _accountStatusLabel.Text = $"Account '{created.Name}' creato, nessuna conversione (1 a 1).";
             Log($"Account globale '{created.Id}' creato.");
         }
         catch (Exception ex)
@@ -1135,7 +1019,7 @@ public partial class WorkspaceBacktestingForm : Form
             _accountEnabledCheck.Checked = account.Enabled;
             _accountNotesTextBox.Text = account.Notes;
 
-            SetAccountSymbolRows(account.SymbolMappings);
+            SelectSymbolConversion(account.SymbolConversionCode);
             _accountDeleteButton.Enabled = true;
             _accountSaveButton.Enabled = true;
         }
@@ -1161,51 +1045,8 @@ public partial class WorkspaceBacktestingForm : Form
             InitialBalance = _accountInitialBalance.Value,
             Enabled = _accountEnabledCheck.Checked,
             Notes = _accountNotesTextBox.Text.Trim(),
-            SymbolMappings = ReadAccountFromEditorMappings()
+            SymbolConversionCode = (_accountSymbolConversionCombo.SelectedItem as SymbolConversionListItem)?.Code ?? string.Empty
         };
-    }
-
-    private List<AccountSymbolMapping> ReadAccountFromEditorMappings()
-    {
-        var mappings = new List<AccountSymbolMapping>();
-        foreach (var row in _accountSymbolsGrid.Rows.Cast<DataGridViewRow>().Where(row => !row.IsNewRow))
-        {
-            var symbol = Convert.ToString(row.Cells["Symbol"].Value ?? string.Empty)!.Trim();
-            var accountSymbol = Convert.ToString(row.Cells["AccountSymbol"].Value ?? string.Empty)!.Trim();
-            var rawMultiplier = Convert.ToString(row.Cells["ContractMultiplier"].Value ?? string.Empty)!.Trim();
-            if (symbol.Length == 0 && accountSymbol.Length == 0 && rawMultiplier.Length == 0)
-                continue;
-            if (symbol.Length == 0)
-                throw new InvalidOperationException("Ogni riga della tabella di conversione deve indicare il symbol Piootoo.");
-            if (accountSymbol.Length == 0)
-                throw new InvalidOperationException($"Indica il symbol account per '{symbol}'.");
-
-            mappings.Add(new AccountSymbolMapping
-            {
-                Symbol = symbol,
-                AccountSymbol = accountSymbol,
-                ContractMultiplier = ParseMultiplier(symbol, rawMultiplier),
-                Enabled = row.Cells["Enabled"].Value is not false
-            });
-        }
-
-        return mappings;
-    }
-
-    private static decimal ParseMultiplier(string symbol, string rawValue)
-    {
-        if (rawValue.Length == 0)
-            return 1m;
-
-        var normalized = rawValue.Replace(',', '.');
-        if (!decimal.TryParse(
-                normalized,
-                System.Globalization.NumberStyles.Float,
-                System.Globalization.CultureInfo.InvariantCulture,
-                out var multiplier) || multiplier <= 0)
-            throw new InvalidOperationException(
-                $"Il moltiplicatore contratto per '{symbol}' deve essere un numero maggiore di zero (es. 0,1).");
-        return multiplier;
     }
 
     private async Task SaveEditingAccountAsync()
@@ -1227,8 +1068,7 @@ public partial class WorkspaceBacktestingForm : Form
             _editingAccount = saved;
             await ReloadAccountsAsync(showErrors: true);
             await LoadBacktestingAccountsAsync();
-            _accountStatusLabel.Text =
-                $"Account '{saved.Name}' salvato ({saved.SymbolMappings.Count} symbol mappati).";
+            _accountStatusLabel.Text = $"Account '{saved.Name}' salvato.";
             Log($"Account globale '{saved.Id}' salvato.");
         }
         catch (Exception ex)
@@ -4069,7 +3909,7 @@ public partial class WorkspaceBacktestingForm : Form
         private readonly NumericUpDown _initialBalance = new() { Width = 160 };
         private readonly TextBox _notes = new() { Width = 260, Multiline = true, Height = 52 };
 
-        public NewAccountDialog(int presetSymbolCount, IReadOnlyList<string> groups)
+        public NewAccountDialog(IReadOnlyList<string> groups)
         {
             Text = "Nuovo account globale";
             FormBorderStyle = FormBorderStyle.FixedDialog;
@@ -4114,10 +3954,8 @@ public partial class WorkspaceBacktestingForm : Form
             {
                 AutoSize = true,
                 MaximumSize = new Size(420, 0),
-                Text = presetSymbolCount > 0
-                    ? $"La tabella di conversione parte dal preset identità: {presetSymbolCount} symbol " +
-                      "mappati su se stessi (@GC = @GC) con moltiplicatore 1. Nessuna conversione finché non la modifichi."
-                    : "Il preset di conversione è vuoto: l'account verrà creato senza symbol mappati."
+                Text = "Nessuna tabella di conversione assegnata: l'account opera 1 a 1. Puoi sceglierne una dal " +
+                       "registro globale (Anagrafiche → Conversioni simbolo) dopo la creazione."
             };
             layout.Controls.Add(hint, 0, layout.RowCount);
             layout.SetColumnSpan(hint, 2);
@@ -4188,9 +4026,12 @@ public partial class WorkspaceBacktestingForm : Form
         public override string ToString()
         {
             var group = string.IsNullOrWhiteSpace(Account.GroupId) ? "senza gruppo" : Account.GroupId;
+            var conversion = string.IsNullOrWhiteSpace(Account.SymbolConversionCode)
+                ? "nessuna conversione"
+                : $"conversione {Account.SymbolConversionCode}";
             var state = Account.Enabled ? string.Empty : " · disattivo";
             return $"{Account.Name} · {group} · {Account.InitialBalance:N0} {Account.Currency} · " +
-                   $"{Account.SymbolMappings.Count} symbol{state}";
+                   $"{conversion}{state}";
         }
     }
 
@@ -4204,6 +4045,21 @@ public partial class WorkspaceBacktestingForm : Form
 
         public string AccountNumber { get; }
         public string DisplayText { get; }
+    }
+
+    /// <summary>Voce della combo tabelle di conversione: null è "nessuna conversione", 1 a 1.</summary>
+    private sealed class SymbolConversionListItem
+    {
+        public SymbolConversionListItem(string? code, string display)
+        {
+            Code = code;
+            Display = display;
+        }
+
+        public string? Code { get; }
+        public string Display { get; }
+
+        public override string ToString() => Display;
     }
 
     private sealed class WorkspaceBacktestItem

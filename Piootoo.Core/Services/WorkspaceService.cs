@@ -12,8 +12,8 @@ public sealed class WorkspaceService
     private const string MasterFilterFileName = "masterfilter.json";
     private const string AccountsFileName = "accounts.json";
 
-    /// <summary>Preset condiviso della tabella di conversione, editabile fuori dal codice.</summary>
-    private const string SymbolConversionPresetFileName = "default-symbol-conversion.json";
+    /// <summary>Registro globale delle tabelle di conversione simboli, fuori da account e workspace.</summary>
+    private const string SymbolConversionsFileName = "symbol-conversions.json";
 
     /// <summary>Nome dell'account neutro: mappatura 1 a 1 sui simboli del catalogo strategie.</summary>
     public const string DefaultAccountName = "Default";
@@ -25,6 +25,7 @@ public sealed class WorkspaceService
     private readonly string _settingsPath;
     private readonly string _accountsPath;
     private readonly object _accountsGate = new();
+    private readonly object _symbolConversionsGate = new();
     private readonly JsonSerializerOptions _jsonOptions = new() { WriteIndented = true };
 
     public WorkspaceService(PiootooSettings settings)
@@ -210,35 +211,88 @@ public sealed class WorkspaceService
         }
     }
 
-    /// <summary>
-    /// Preset della tabella di conversione, condiviso da tutti i workspace e salvato in
-    /// <c>settings/default-symbol-conversion.json</c>. Se il file non esiste viene generato 1 a 1
-    /// dai simboli del catalogo strategie, così il preset è subito editabile fuori dal codice.
-    /// </summary>
-    public IReadOnlyList<AccountSymbolMapping> GetSymbolConversionPreset()
+    /// <summary>Tabelle di conversione simboli globali, condivise da tutti i workspace e ordinate per nome.</summary>
+    public IReadOnlyList<SymbolConversion> ListSymbolConversions()
     {
-        var file = Path.Combine(_settingsPath, SymbolConversionPresetFileName);
-        if (File.Exists(file))
+        lock (_symbolConversionsGate)
+            return ReadSymbolConversionsFile().Conversions
+                .OrderBy(conversion => conversion.Name, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+    }
+
+    public SymbolConversion GetSymbolConversion(string code)
+    {
+        lock (_symbolConversionsGate)
+            return FindSymbolConversion(ReadSymbolConversionsFile().Conversions, code)
+                ?? throw new KeyNotFoundException($"Tabella di conversione '{code}' non trovata.");
+    }
+
+    public SymbolConversion CreateSymbolConversion(SymbolConversion conversion)
+    {
+        lock (_symbolConversionsGate)
         {
-            var stored = JsonSerializer.Deserialize<List<AccountSymbolMapping>>(File.ReadAllText(file), _jsonOptions);
-            if (stored is { Count: > 0 })
-                return NormalizeMappings(stored);
+            var file = ReadSymbolConversionsFile();
+            var normalized = NormalizeSymbolConversion(conversion);
+            if (FindSymbolConversion(file.Conversions, normalized.Code) is not null)
+                throw new InvalidOperationException($"La tabella di conversione '{normalized.Code}' esiste già.");
+
+            normalized.CreatedUtc = DateTime.UtcNow;
+            normalized.UpdatedUtc = normalized.CreatedUtc;
+            file.Conversions.Add(normalized);
+            WriteSymbolConversionsFile(file);
+            return normalized;
         }
-
-        var generated = BuildIdentityMappings();
-        AtomicFileWriter.WriteAllText(file, JsonSerializer.Serialize(generated, _jsonOptions));
-        return generated;
     }
 
-    /// <summary>Sovrascrive il preset condiviso con la tabella passata.</summary>
-    public IReadOnlyList<AccountSymbolMapping> SaveSymbolConversionPreset(IReadOnlyList<AccountSymbolMapping> mappings)
+    public SymbolConversion SaveSymbolConversion(string code, SymbolConversion conversion)
     {
-        var normalized = NormalizeMappings(mappings?.ToList() ?? new List<AccountSymbolMapping>());
-        AtomicFileWriter.WriteAllText(
-            Path.Combine(_settingsPath, SymbolConversionPresetFileName),
-            JsonSerializer.Serialize(normalized, _jsonOptions));
-        return normalized;
+        lock (_symbolConversionsGate)
+        {
+            var file = ReadSymbolConversionsFile();
+            var existing = FindSymbolConversion(file.Conversions, code)
+                ?? throw new KeyNotFoundException($"Tabella di conversione '{code}' non trovata.");
+
+            var normalized = NormalizeSymbolConversion(conversion);
+            normalized.Code = existing.Code;
+            normalized.CreatedUtc = existing.CreatedUtc == default ? DateTime.UtcNow : existing.CreatedUtc;
+            normalized.UpdatedUtc = DateTime.UtcNow;
+
+            file.Conversions[file.Conversions.IndexOf(existing)] = normalized;
+            WriteSymbolConversionsFile(file);
+            return normalized;
+        }
     }
+
+    /// <summary>
+    /// Rifiuta la cancellazione se un account la referenzia ancora: altrimenti l'account resterebbe
+    /// con un codice orfano, che <see cref="ResolveSymbolConversionMappings"/> tratta come errore.
+    /// </summary>
+    public void DeleteSymbolConversion(string code)
+    {
+        lock (_accountsGate)
+        lock (_symbolConversionsGate)
+        {
+            var inUse = ReadGlobalAccountsFile().Accounts.FirstOrDefault(account =>
+                account.SymbolConversionCode.Equals(code?.Trim() ?? string.Empty, StringComparison.OrdinalIgnoreCase));
+            if (inUse is not null)
+                throw new InvalidOperationException(
+                    $"La tabella di conversione '{code}' è usata dall'account '{inUse.Name}' e non può essere eliminata.");
+
+            var file = ReadSymbolConversionsFile();
+            var existing = FindSymbolConversion(file.Conversions, code)
+                ?? throw new KeyNotFoundException($"Tabella di conversione '{code}' non trovata.");
+            file.Conversions.Remove(existing);
+            WriteSymbolConversionsFile(file);
+        }
+    }
+
+    /// <summary>
+    /// Tabella risolta dal codice di conversione di un account: vuota se il codice è vuoto (nessuna
+    /// conversione, 1 a 1 come nell'account inesistente). Un codice valorizzato ma assente dal
+    /// registro è un errore esplicito, non un 1 a 1 silenzioso.
+    /// </summary>
+    public IReadOnlyList<AccountSymbolMapping> ResolveSymbolConversionMappings(string? code)
+        => string.IsNullOrWhiteSpace(code) ? Array.Empty<AccountSymbolMapping>() : GetSymbolConversion(code).Mappings;
 
     /// <summary>
     /// Restituisce l'account di default globale creandolo se manca: mappatura identità sui
@@ -265,9 +319,9 @@ public sealed class WorkspaceService
             InitialBalance = DefaultAccountInitialBalance,
             Enabled = true,
             Notes = "Account neutro: simboli identici a quelli delle strategie e moltiplicatore contratto 1.",
-            // Identità e non il preset condiviso: l'account 'Default' deve restare 1 a 1 anche se
-            // il preset è stato modificato.
-            SymbolMappings = BuildIdentityMappings()
+            // Nessun codice di conversione: un codice assente è già 1 a 1, e resta tale
+            // indipendentemente da come evolve il registro delle tabelle di conversione.
+            SymbolConversionCode = string.Empty
             });
             account.Id = defaultId;
             account.CreatedUtc = DateTime.UtcNow;
@@ -283,8 +337,7 @@ public sealed class WorkspaceService
 
     /// <summary>
     /// Tabella identità sempre ricalcolata dal catalogo: ogni simbolo su se stesso, moltiplicatore 1.
-    /// È la base dei nuovi account e resta identità anche se il preset condiviso è stato modificato,
-    /// così un account appena creato non converte niente finché non lo si decide.
+    /// Punto di partenza comodo per popolare una nuova tabella di conversione nel registro globale.
     /// </summary>
     public IReadOnlyList<AccountSymbolMapping> GetIdentitySymbolMappings() => BuildIdentityMappings();
 
@@ -304,9 +357,6 @@ public sealed class WorkspaceService
                 Enabled = true
             })
             .ToList();
-
-    private static List<AccountSymbolMapping> NormalizeMappings(List<AccountSymbolMapping> mappings)
-        => NormalizeAccount(new WorkspaceAccount { Name = "preset", SymbolMappings = mappings }).SymbolMappings;
 
     private WorkspaceAccountsFile ReadGlobalAccountsFile()
     {
@@ -396,9 +446,35 @@ public sealed class WorkspaceService
         if (account.InitialBalance < 0)
             throw new ArgumentException("Il balance iniziale non può essere negativo.");
 
+        return new WorkspaceAccount
+        {
+            Id = account.Id?.Trim() ?? string.Empty,
+            Name = account.Name.Trim(),
+            AccountNumber = account.AccountNumber?.Trim() ?? string.Empty,
+            GroupId = account.GroupId?.Trim() ?? string.Empty,
+            Broker = account.Broker?.Trim() ?? string.Empty,
+            Currency = string.IsNullOrWhiteSpace(account.Currency) ? "USD" : account.Currency.Trim().ToUpperInvariant(),
+            InitialBalance = account.InitialBalance,
+            Enabled = account.Enabled,
+            Notes = account.Notes?.Trim() ?? string.Empty,
+            CreatedUtc = account.CreatedUtc,
+            UpdatedUtc = account.UpdatedUtc,
+            SymbolConversionCode = account.SymbolConversionCode?.Trim() ?? string.Empty
+        };
+    }
+
+    private static SymbolConversion NormalizeSymbolConversion(SymbolConversion conversion)
+    {
+        if (conversion is null)
+            throw new ArgumentException("Tabella di conversione non valida.");
+        if (string.IsNullOrWhiteSpace(conversion.Code))
+            throw new ArgumentException("Il codice della tabella di conversione è obbligatorio.");
+        if (string.IsNullOrWhiteSpace(conversion.Name))
+            throw new ArgumentException("Il nome della tabella di conversione è obbligatorio.");
+
         var mappings = new List<AccountSymbolMapping>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var mapping in account.SymbolMappings ?? new List<AccountSymbolMapping>())
+        foreach (var mapping in conversion.Mappings ?? new List<AccountSymbolMapping>())
         {
             var symbol = mapping.Symbol?.Trim() ?? string.Empty;
             var accountSymbol = mapping.AccountSymbol?.Trim() ?? string.Empty;
@@ -422,21 +498,38 @@ public sealed class WorkspaceService
             });
         }
 
-        return new WorkspaceAccount
+        return new SymbolConversion
         {
-            Id = account.Id?.Trim() ?? string.Empty,
-            Name = account.Name.Trim(),
-            AccountNumber = account.AccountNumber?.Trim() ?? string.Empty,
-            GroupId = account.GroupId?.Trim() ?? string.Empty,
-            Broker = account.Broker?.Trim() ?? string.Empty,
-            Currency = string.IsNullOrWhiteSpace(account.Currency) ? "USD" : account.Currency.Trim().ToUpperInvariant(),
-            InitialBalance = account.InitialBalance,
-            Enabled = account.Enabled,
-            Notes = account.Notes?.Trim() ?? string.Empty,
-            CreatedUtc = account.CreatedUtc,
-            UpdatedUtc = account.UpdatedUtc,
-            SymbolMappings = mappings.OrderBy(mapping => mapping.Symbol, StringComparer.OrdinalIgnoreCase).ToList()
+            Code = conversion.Code.Trim(),
+            Name = conversion.Name.Trim(),
+            Mappings = mappings.OrderBy(mapping => mapping.Symbol, StringComparer.OrdinalIgnoreCase).ToList(),
+            CreatedUtc = conversion.CreatedUtc,
+            UpdatedUtc = conversion.UpdatedUtc
         };
+    }
+
+    private static SymbolConversion? FindSymbolConversion(List<SymbolConversion> conversions, string code)
+        => conversions.FirstOrDefault(conversion =>
+            conversion.Code.Equals(code?.Trim() ?? string.Empty, StringComparison.OrdinalIgnoreCase));
+
+    private SymbolConversionsFile ReadSymbolConversionsFile()
+    {
+        var file = Path.Combine(_accountsPath, SymbolConversionsFileName);
+        if (!File.Exists(file))
+            return new SymbolConversionsFile();
+
+        return JsonSerializer.Deserialize<SymbolConversionsFile>(File.ReadAllText(file), _jsonOptions)
+            ?? new SymbolConversionsFile();
+    }
+
+    private void WriteSymbolConversionsFile(SymbolConversionsFile file)
+    {
+        file.Conversions = file.Conversions
+            .OrderBy(conversion => conversion.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        AtomicFileWriter.WriteAllText(
+            Path.Combine(_accountsPath, SymbolConversionsFileName),
+            JsonSerializer.Serialize(file, _jsonOptions));
     }
 
     private static string ToAccountId(string value)

@@ -37,27 +37,6 @@ public sealed class WorkspaceController(WorkspaceService workspaceService) : Con
         catch (DirectoryNotFoundException) { return NotFound(); }
     }
 
-    /// <summary>Preset condiviso della tabella di conversione (settings/default-symbol-conversion.json).</summary>
-    [HttpGet("accounts/symbol-preset")]
-    public ActionResult<IReadOnlyList<AccountSymbolMapping>> GetSymbolPreset()
-    {
-        try { return Ok(workspaceService.GetSymbolConversionPreset()); }
-        catch (ArgumentException exception) { return BadRequest(new { error = exception.Message }); }
-    }
-
-    /// <summary>Tabella identità dal catalogo strategie: ogni symbol su se stesso, moltiplicatore 1.</summary>
-    [HttpGet("accounts/symbol-identity")]
-    public ActionResult<IReadOnlyList<AccountSymbolMapping>> GetSymbolIdentity()
-        => Ok(workspaceService.GetIdentitySymbolMappings());
-
-    [HttpPut("accounts/symbol-preset")]
-    public ActionResult<IReadOnlyList<AccountSymbolMapping>> SaveSymbolPreset(
-        [FromBody] List<AccountSymbolMapping> mappings)
-    {
-        try { return Ok(workspaceService.SaveSymbolConversionPreset(mappings)); }
-        catch (ArgumentException exception) { return BadRequest(new { error = exception.Message }); }
-    }
-
     /// <summary>Crea (o restituisce) l'account di default 1 a 1 con balance iniziale di un milione.</summary>
     [HttpPost("{workspaceId}/accounts/default")]
     public ActionResult<WorkspaceAccount> EnsureDefaultAccount(string workspaceId)

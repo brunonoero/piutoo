@@ -222,12 +222,13 @@ public sealed class PtsEngineAuditTests
     public void AccountConversion_FractionalMultiplier_PreservesDecimalQuantity()
     {
         // Conversione account: 1 contratto Piootoo × 0.01 = 0.01 contratti account.
-        var conversion = AccountSymbolConversion.FromAccount(new WorkspaceAccount
-        {
-            Id = "micro-nq",
-            Name = "Micro NQ",
-            InitialBalance = 50_000m,
-            SymbolMappings =
+        var conversion = AccountSymbolConversion.FromAccount(
+            new WorkspaceAccount
+            {
+                Id = "micro-nq",
+                Name = "Micro NQ",
+                InitialBalance = 50_000m
+            },
             [
                 new AccountSymbolMapping
                 {
@@ -236,8 +237,7 @@ public sealed class PtsEngineAuditTests
                     ContractMultiplier = 0.01m,
                     Enabled = true
                 }
-            ]
-        });
+            ]);
 
         Assert.Equal(0.01m, conversion.GetContractMultiplier("NQ"));
         Assert.Equal("MNQ", conversion.GetAccountSymbol("@NQ"));
@@ -281,12 +281,13 @@ public sealed class PtsEngineAuditTests
     [Fact]
     public void AccountConversion_DisabledSymbol_IsRejectedByLookupRules()
     {
-        var conversion = AccountSymbolConversion.FromAccount(new WorkspaceAccount
-        {
-            Id = "disabled-nq",
-            Name = "Disabled",
-            InitialBalance = 100_000m,
-            SymbolMappings =
+        var conversion = AccountSymbolConversion.FromAccount(
+            new WorkspaceAccount
+            {
+                Id = "disabled-nq",
+                Name = "Disabled",
+                InitialBalance = 100_000m
+            },
             [
                 new AccountSymbolMapping
                 {
@@ -295,8 +296,7 @@ public sealed class PtsEngineAuditTests
                     ContractMultiplier = 1m,
                     Enabled = false
                 }
-            ]
-        });
+            ]);
 
         Assert.False(conversion.IsSymbolEnabled("@NQ"));
         Assert.True(conversion.IsSymbolEnabled("@GC")); // assente → non bloccato

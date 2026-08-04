@@ -1,4 +1,3 @@
-using System.ComponentModel;
 using Piootoo.Shared.Models.Workspaces;
 using piootooapp.clientform.Shell;
 
@@ -6,13 +5,12 @@ namespace piootooapp.clientform.Shell.Screens;
 
 /// <summary>
 /// Dettaglio di un account globale. Con <see cref="SetAccountId"/> a null è la schermata di
-/// creazione: la tabella di conversione parte dal preset identità, come nella console legacy.
+/// creazione: la tabella di conversione non è gestita qui, solo scelta fra quelle già definite nel
+/// registro globale (Anagrafiche → Conversioni simbolo) — vedi
+/// <c>docs/domini/account-e-conversione-symbol.md</c>.
 /// </summary>
 public partial class AccountDetailScreen : UserControl, IShellScreen, IDirtyAware
 {
-    // Griglia editabile: resta BindingList<T> e non ordinabile per colonna, perché l'ordine è
-    // quello in cui si sta scrivendo. Vedi .cursor/rules/piutoo-console-screens.mdc.
-    private readonly BindingList<AccountSymbolMapping> _mappings = new();
     private ShellContext? _context;
     private string? _accountId;
     private WorkspaceAccount? _loaded;
@@ -22,8 +20,6 @@ public partial class AccountDetailScreen : UserControl, IShellScreen, IDirtyAwar
     public AccountDetailScreen()
     {
         InitializeComponent();
-        _mappingsBindingSource.DataSource = _mappings;
-        _mappings.ListChanged += (_, _) => MarkDirty();
     }
 
     public string ScreenTitle => IsNew
@@ -58,19 +54,18 @@ public partial class AccountDetailScreen : UserControl, IShellScreen, IDirtyAwar
                 _groupCombo.Items.Add(group);
             }
 
+            var conversions = await _context.Services.Api.ListSymbolConversionsAsync(cancellationToken);
+
             if (IsNew)
             {
-                var identity = await _context.Services.Api.GetSymbolIdentityAsync(cancellationToken);
                 _loaded = null;
                 BindAccount(new WorkspaceAccount
                 {
                     Currency = "USD",
                     Enabled = true,
-                    InitialBalance = 1_000_000m,
-                    SymbolMappings = identity.Select(Clone).ToList()
-                });
-                _context.Navigation.SetStatus(
-                    $"Nuovo account: {identity.Count} simboli mappati 1 a 1, nessuna conversione applicata.");
+                    InitialBalance = 1_000_000m
+                }, conversions);
+                _context.Navigation.SetStatus("Nuovo account: nessuna conversione, opera 1 a 1.");
             }
             else
             {
@@ -84,7 +79,7 @@ public partial class AccountDetailScreen : UserControl, IShellScreen, IDirtyAwar
                 }
 
                 _loaded = account;
-                BindAccount(account);
+                BindAccount(account, conversions);
                 _context.Navigation.SetStatus($"Account '{account.Name}' caricato.");
             }
 
@@ -105,15 +100,7 @@ public partial class AccountDetailScreen : UserControl, IShellScreen, IDirtyAwar
         }
     }
 
-    private static AccountSymbolMapping Clone(AccountSymbolMapping mapping) => new()
-    {
-        Symbol = mapping.Symbol,
-        AccountSymbol = mapping.AccountSymbol,
-        ContractMultiplier = mapping.ContractMultiplier,
-        Enabled = mapping.Enabled
-    };
-
-    private void BindAccount(WorkspaceAccount account)
+    private void BindAccount(WorkspaceAccount account, IReadOnlyList<SymbolConversion> conversions)
     {
         _toolbar.Title = IsNew ? "Nuovo account" : account.Name;
         _nameTextBox.Text = account.Name;
@@ -132,15 +119,42 @@ public partial class AccountDetailScreen : UserControl, IShellScreen, IDirtyAwar
             : $"Id: {account.Id}  ·  creato {account.CreatedUtc:yyyy-MM-dd HH:mm} UTC  ·  " +
               $"aggiornato {account.UpdatedUtc:yyyy-MM-dd HH:mm} UTC";
 
-        _mappings.RaiseListChangedEvents = false;
-        _mappings.Clear();
-        foreach (var mapping in account.SymbolMappings)
+        FillSymbolConversionCombo(conversions, account.SymbolConversionCode);
+    }
+
+    /// <summary>
+    /// Un codice già persistito ma non più presente nel registro compare come «non più presente»
+    /// invece di essere scartato: il salvataggio riscrive l'account intero, quindi perderlo in
+    /// silenzio azzererebbe un riferimento che un run potrebbe usare ancora.
+    /// </summary>
+    private void FillSymbolConversionCombo(IReadOnlyList<SymbolConversion> conversions, string currentCode)
+    {
+        _symbolConversionCombo.Items.Clear();
+        _symbolConversionCombo.Items.Add(ValueComboItem.None("(nessuna conversione — 1 a 1)"));
+        foreach (var conversion in conversions.OrderBy(c => c.Name, StringComparer.OrdinalIgnoreCase))
         {
-            _mappings.Add(Clone(mapping));
+            _symbolConversionCombo.Items.Add(ValueComboItem.Of(
+                conversion.Code, $"{conversion.Name}  ·  {conversion.Code}  ·  {conversion.Mappings.Count} simboli"));
         }
 
-        _mappings.RaiseListChangedEvents = true;
-        _mappings.ResetBindings();
+        if (string.IsNullOrWhiteSpace(currentCode))
+        {
+            _symbolConversionCombo.SelectedIndex = 0;
+            return;
+        }
+
+        for (var index = 0; index < _symbolConversionCombo.Items.Count; index++)
+        {
+            if (_symbolConversionCombo.Items[index] is ValueComboItem item &&
+                string.Equals(item.Id, currentCode, StringComparison.OrdinalIgnoreCase))
+            {
+                _symbolConversionCombo.SelectedIndex = index;
+                return;
+            }
+        }
+
+        _symbolConversionCombo.Items.Add(ValueComboItem.Missing(currentCode));
+        _symbolConversionCombo.SelectedIndex = _symbolConversionCombo.Items.Count - 1;
     }
 
     private WorkspaceAccount BuildAccount() => new()
@@ -156,10 +170,7 @@ public partial class AccountDetailScreen : UserControl, IShellScreen, IDirtyAwar
         Notes = _notesTextBox.Text.Trim(),
         CreatedUtc = _loaded?.CreatedUtc ?? default,
         UpdatedUtc = _loaded?.UpdatedUtc ?? default,
-        SymbolMappings = _mappings
-            .Where(mapping => !string.IsNullOrWhiteSpace(mapping.Symbol))
-            .Select(Clone)
-            .ToList()
+        SymbolConversionCode = (_symbolConversionCombo.SelectedItem as ValueComboItem)?.Id ?? string.Empty
     };
 
     private void MarkDirty()
@@ -204,10 +215,11 @@ public partial class AccountDetailScreen : UserControl, IShellScreen, IDirtyAwar
             _accountId = saved.Id;
             _loaded = saved;
             _suspendDirtyTracking = true;
-            BindAccount(saved);
+            var conversions = await _context.Services.Api.ListSymbolConversionsAsync();
+            BindAccount(saved, conversions);
             _suspendDirtyTracking = false;
             SetDirty(false);
-            _context.Navigation.SetStatus($"Account '{saved.Name}' salvato con {saved.SymbolMappings.Count} simboli.");
+            _context.Navigation.SetStatus($"Account '{saved.Name}' salvato.");
         }
         catch (Exception ex)
         {
@@ -250,41 +262,5 @@ public partial class AccountDetailScreen : UserControl, IShellScreen, IDirtyAwar
         }
 
         _context?.Navigation.GoBack();
-    }
-
-    private void OnRemoveMappingClick(object? sender, EventArgs e)
-    {
-        if (_mappingsGrid.CurrentRow?.DataBoundItem is AccountSymbolMapping mapping)
-        {
-            _mappings.Remove(mapping);
-        }
-    }
-
-    private async void OnLoadIdentityMappingsClick(object? sender, EventArgs e)
-    {
-        if (_context == null)
-        {
-            return;
-        }
-
-        try
-        {
-            var identity = await _context.Services.Api.GetSymbolIdentityAsync();
-            _mappings.RaiseListChangedEvents = false;
-            _mappings.Clear();
-            foreach (var mapping in identity)
-            {
-                _mappings.Add(Clone(mapping));
-            }
-
-            _mappings.RaiseListChangedEvents = true;
-            _mappings.ResetBindings();
-            MarkDirty();
-            _context.Navigation.SetStatus($"Tabella di conversione riportata all'identità: {identity.Count} simboli.");
-        }
-        catch (Exception ex)
-        {
-            _context.Navigation.SetError(ex.Message);
-        }
     }
 }

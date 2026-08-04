@@ -5,47 +5,34 @@ using piootooapp.clientform.Shell.Controls;
 
 namespace piootooapp.clientform.Shell.Screens;
 
-/// <summary>Riga della griglia account. Tipo dedicato perché la griglia non sa leggere proprietà annidate.</summary>
-public sealed class AccountRow
+/// <summary>Riga della griglia tabelle di conversione. Tipo dedicato: la griglia non legge proprietà annidate.</summary>
+public sealed class SymbolConversionRow
 {
-    public string Id { get; set; } = string.Empty;
+    public string Code { get; set; } = string.Empty;
 
     public string Name { get; set; } = string.Empty;
 
-    public string AccountNumber { get; set; } = string.Empty;
-
-    public string GroupId { get; set; } = string.Empty;
-
-    public string Broker { get; set; } = string.Empty;
-
-    public string Currency { get; set; } = string.Empty;
-
-    public decimal InitialBalance { get; set; }
-
-    public bool Enabled { get; set; }
-
-    /// <summary>Codice della tabella di conversione simbolo referenziata, vuoto se nessuna.</summary>
-    public string SymbolConversionCode { get; set; } = string.Empty;
+    public int MappingCount { get; set; }
 }
 
-/// <summary>Elenco degli account globali: creazione ed eliminazione qui, modifica nel dettaglio.</summary>
-public partial class AccountListScreen : UserControl, IShellScreen
+/// <summary>
+/// Elenco delle tabelle di conversione simbolo globali: registro fuori da workspace e account, ogni
+/// account ne referenzia una per codice. Creazione ed eliminazione qui, modifica nel dettaglio.
+/// </summary>
+public partial class SymbolConversionListScreen : UserControl, IShellScreen
 {
-    private readonly List<AccountRow> _allRows = new();
-    private readonly SortableBindingList<AccountRow> _visibleRows = new();
+    private readonly List<SymbolConversionRow> _allRows = new();
+    private readonly SortableBindingList<SymbolConversionRow> _visibleRows = new();
     private ShellContext? _context;
 
-    public AccountListScreen()
+    public SymbolConversionListScreen()
     {
         InitializeComponent();
         _bindingSource.DataSource = _visibleRows;
-
-        // La corrispondenza fra indice di riga e indice nella lista resta 1 a 1 — è così che si
-        // legge la selezione — perché a ordinare è la collezione, non una vista sopra di essa.
         _grid.EnableColumnSorting();
     }
 
-    public string ScreenTitle => "Account";
+    public string ScreenTitle => "Conversioni simbolo";
 
     public void Initialize(ShellContext context) => _context = context;
 
@@ -59,11 +46,11 @@ public partial class AccountListScreen : UserControl, IShellScreen
         _toolbar.SetBusy(true);
         try
         {
-            var accounts = await _context.Services.Api.ListAccountsAsync(cancellationToken);
+            var conversions = await _context.Services.Api.ListSymbolConversionsAsync(cancellationToken);
             _allRows.Clear();
-            _allRows.AddRange(accounts.Select(ToRow));
+            _allRows.AddRange(conversions.Select(ToRow));
             ApplyFilter();
-            _context.Navigation.SetStatus($"{_allRows.Count} account caricati.");
+            _context.Navigation.SetStatus($"{_allRows.Count} tabelle di conversione caricate.");
         }
         catch (OperationCanceledException)
         {
@@ -82,17 +69,11 @@ public partial class AccountListScreen : UserControl, IShellScreen
         }
     }
 
-    private static AccountRow ToRow(WorkspaceAccount account) => new()
+    private static SymbolConversionRow ToRow(SymbolConversion conversion) => new()
     {
-        Id = account.Id,
-        Name = account.Name,
-        AccountNumber = account.AccountNumber,
-        GroupId = account.GroupId,
-        Broker = account.Broker,
-        Currency = account.Currency,
-        InitialBalance = account.InitialBalance,
-        Enabled = account.Enabled,
-        SymbolConversionCode = account.SymbolConversionCode
+        Code = conversion.Code,
+        Name = conversion.Name,
+        MappingCount = conversion.Mappings.Count
     };
 
     private void ApplyFilter()
@@ -111,17 +92,14 @@ public partial class AccountListScreen : UserControl, IShellScreen
         UpdateDeleteAvailability();
     }
 
-    private static bool Matches(AccountRow row, string filter)
+    private static bool Matches(SymbolConversionRow row, string filter)
     {
         if (filter.Length == 0)
         {
             return true;
         }
 
-        return Contains(row.Name, filter)
-            || Contains(row.AccountNumber, filter)
-            || Contains(row.GroupId, filter)
-            || Contains(row.Broker, filter);
+        return Contains(row.Name, filter) || Contains(row.Code, filter);
     }
 
     private static bool Contains(string value, string filter)
@@ -132,7 +110,7 @@ public partial class AccountListScreen : UserControl, IShellScreen
     /// distruzione del controllo la griglia azzera il DataSource e solleva <c>SelectionChanged</c>
     /// con il binding già smontato, e il CurrencyManager a quel punto lancia.
     /// </summary>
-    private AccountRow? SelectedRow
+    private SymbolConversionRow? SelectedRow
     {
         get
         {
@@ -155,7 +133,7 @@ public partial class AccountListScreen : UserControl, IShellScreen
     {
         if (e.RowIndex >= 0 && SelectedRow is { } row)
         {
-            OpenDetail(row.Id);
+            OpenDetail(row.Code);
         }
     }
 
@@ -164,19 +142,19 @@ public partial class AccountListScreen : UserControl, IShellScreen
         if (e.KeyCode == Keys.Enter && SelectedRow is { } row)
         {
             e.Handled = true;
-            OpenDetail(row.Id);
+            OpenDetail(row.Code);
         }
     }
 
-    private void OpenDetail(string? accountId)
+    private void OpenDetail(string? code)
     {
         if (_context == null)
         {
             return;
         }
 
-        var detail = new AccountDetailScreen();
-        detail.SetAccountId(accountId);
+        var detail = new SymbolConversionDetailScreen();
+        detail.SetCode(code);
         _context.Navigation.Push(detail);
     }
 
@@ -189,8 +167,8 @@ public partial class AccountListScreen : UserControl, IShellScreen
 
         var confirm = MessageBox.Show(
             this,
-            $"Eliminare l'account '{row.Name}'?",
-            "Elimina account",
+            $"Eliminare la tabella di conversione '{row.Name}'?",
+            "Elimina tabella di conversione",
             MessageBoxButtons.YesNo,
             MessageBoxIcon.Warning);
         if (confirm != DialogResult.Yes)
@@ -201,8 +179,8 @@ public partial class AccountListScreen : UserControl, IShellScreen
         _toolbar.SetBusy(true);
         try
         {
-            await _context.Services.Api.DeleteAccountAsync(row.Id);
-            _context.Navigation.SetStatus($"Account '{row.Name}' eliminato.");
+            await _context.Services.Api.DeleteSymbolConversionAsync(row.Code);
+            _context.Navigation.SetStatus($"Tabella di conversione '{row.Name}' eliminata.");
         }
         catch (Exception ex)
         {

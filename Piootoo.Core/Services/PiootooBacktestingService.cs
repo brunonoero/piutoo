@@ -1412,8 +1412,9 @@ public class PiootooBacktestingService : IPiootooBacktestingService
             throw new InvalidOperationException(
                 "Servizio workspace non disponibile: impossibile risolvere la tabella di conversione dell'account.");
 
-        return AccountSymbolConversion.FromAccount(
-            _workspaces.GetAccount(request.AccountId!));
+        var account = _workspaces.GetAccount(request.AccountId!);
+        var mappings = _workspaces.ResolveSymbolConversionMappings(account.SymbolConversionCode);
+        return AccountSymbolConversion.FromAccount(account, mappings);
     }
 
     /// <summary>

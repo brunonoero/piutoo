@@ -80,6 +80,9 @@ public sealed class AccountComboItem
     public override string ToString()
         => Account == null
             ? "(nessuna conversione)"
-            : $"{Account.Name}  ·  {Account.SymbolMappings.Count} simboli" +
+            : $"{Account.Name}  ·  " +
+              (string.IsNullOrWhiteSpace(Account.SymbolConversionCode)
+                  ? "nessuna conversione"
+                  : $"conversione {Account.SymbolConversionCode}") +
               (string.IsNullOrWhiteSpace(Account.GroupId) ? string.Empty : $"  ·  gruppo {Account.GroupId}");
 }

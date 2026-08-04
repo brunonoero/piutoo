@@ -67,12 +67,19 @@ public sealed class AccountSymbolConversion
 
     public bool IsIdentity => _entries.Count == 0 && BalanceScale == 1m;
 
-    public static AccountSymbolConversion FromAccount(WorkspaceAccount account)
+    /// <summary>
+    /// <paramref name="mappings"/> è la tabella già risolta dal codice di conversione dell'account
+    /// (<see cref="WorkspaceAccount.SymbolConversionCode"/>) nel registro globale delle
+    /// <c>SymbolConversion</c>: vuota se l'account non ne referenzia una.
+    /// </summary>
+    public static AccountSymbolConversion FromAccount(
+        WorkspaceAccount account, IReadOnlyList<AccountSymbolMapping> mappings)
     {
         ArgumentNullException.ThrowIfNull(account);
+        ArgumentNullException.ThrowIfNull(mappings);
 
         var entries = new Dictionary<string, AccountSymbolConversionEntry>(StringComparer.OrdinalIgnoreCase);
-        foreach (var mapping in account.SymbolMappings)
+        foreach (var mapping in mappings)
         {
             var key = NormalizeSymbol(mapping.Symbol);
             if (key.Length == 0) continue;

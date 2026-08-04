@@ -1,6 +1,6 @@
 namespace piootooapp.clientform.Shell.Screens;
 
-partial class AccountListScreen
+partial class SymbolConversionListScreen
 {
     private System.ComponentModel.IContainer components = null;
 
@@ -22,20 +22,15 @@ partial class AccountListScreen
         this._bindingSource = new System.Windows.Forms.BindingSource(this.components);
         this._grid = new System.Windows.Forms.DataGridView();
         this._colName = new System.Windows.Forms.DataGridViewTextBoxColumn();
-        this._colAccountNumber = new System.Windows.Forms.DataGridViewTextBoxColumn();
-        this._colGroupId = new System.Windows.Forms.DataGridViewTextBoxColumn();
-        this._colBroker = new System.Windows.Forms.DataGridViewTextBoxColumn();
-        this._colCurrency = new System.Windows.Forms.DataGridViewTextBoxColumn();
-        this._colInitialBalance = new System.Windows.Forms.DataGridViewTextBoxColumn();
-        this._colSymbolConversion = new System.Windows.Forms.DataGridViewTextBoxColumn();
-        this._colEnabled = new System.Windows.Forms.DataGridViewCheckBoxColumn();
+        this._colCode = new System.Windows.Forms.DataGridViewTextBoxColumn();
+        this._colMappingCount = new System.Windows.Forms.DataGridViewTextBoxColumn();
         this._toolbar = new piootooapp.clientform.Shell.Controls.EntityToolbar();
         ((System.ComponentModel.ISupportInitialize)(this._bindingSource)).BeginInit();
         ((System.ComponentModel.ISupportInitialize)(this._grid)).BeginInit();
         this.SuspendLayout();
-        // 
+        //
         // _grid
-        // 
+        //
         this._grid.AllowUserToAddRows = false;
         this._grid.AllowUserToDeleteRows = false;
         this._grid.AutoGenerateColumns = false;
@@ -45,13 +40,8 @@ partial class AccountListScreen
         this._grid.ColumnHeadersHeightSizeMode = System.Windows.Forms.DataGridViewColumnHeadersHeightSizeMode.AutoSize;
         this._grid.Columns.AddRange(new System.Windows.Forms.DataGridViewColumn[] {
             this._colName,
-            this._colAccountNumber,
-            this._colGroupId,
-            this._colBroker,
-            this._colCurrency,
-            this._colInitialBalance,
-            this._colSymbolConversion,
-            this._colEnabled});
+            this._colCode,
+            this._colMappingCount});
         this._grid.DataSource = this._bindingSource;
         this._grid.Dock = System.Windows.Forms.DockStyle.Fill;
         this._grid.EditMode = System.Windows.Forms.DataGridViewEditMode.EditProgrammatically;
@@ -66,89 +56,52 @@ partial class AccountListScreen
         this._grid.CellDoubleClick += new System.Windows.Forms.DataGridViewCellEventHandler(this.OnGridCellDoubleClick);
         this._grid.SelectionChanged += new System.EventHandler(this.OnSelectionChanged);
         this._grid.KeyDown += new System.Windows.Forms.KeyEventHandler(this.OnGridKeyDown);
-        // 
+        //
         // _colName
-        // 
+        //
         this._colName.DataPropertyName = "Name";
         this._colName.HeaderText = "Nome";
         this._colName.Name = "_colName";
         this._colName.ReadOnly = true;
-        // 
-        // _colAccountNumber
-        // 
-        this._colAccountNumber.DataPropertyName = "AccountNumber";
-        this._colAccountNumber.HeaderText = "Codice account";
-        this._colAccountNumber.Name = "_colAccountNumber";
-        this._colAccountNumber.ReadOnly = true;
-        // 
-        // _colGroupId
-        // 
-        this._colGroupId.DataPropertyName = "GroupId";
-        this._colGroupId.HeaderText = "Gruppo";
-        this._colGroupId.Name = "_colGroupId";
-        this._colGroupId.ReadOnly = true;
-        // 
-        // _colBroker
-        // 
-        this._colBroker.DataPropertyName = "Broker";
-        this._colBroker.HeaderText = "Broker";
-        this._colBroker.Name = "_colBroker";
-        this._colBroker.ReadOnly = true;
-        // 
-        // _colCurrency
-        // 
-        this._colCurrency.DataPropertyName = "Currency";
-        this._colCurrency.FillWeight = 60F;
-        this._colCurrency.HeaderText = "Valuta";
-        this._colCurrency.Name = "_colCurrency";
-        this._colCurrency.ReadOnly = true;
-        // 
-        // _colInitialBalance
-        // 
-        this._colInitialBalance.DataPropertyName = "InitialBalance";
-        this._colInitialBalance.DefaultCellStyle.Alignment = System.Windows.Forms.DataGridViewContentAlignment.MiddleRight;
-        this._colInitialBalance.DefaultCellStyle.Format = "N2";
-        this._colInitialBalance.HeaderText = "Balance iniziale";
-        this._colInitialBalance.Name = "_colInitialBalance";
-        this._colInitialBalance.ReadOnly = true;
-        // 
-        // _colSymbolConversion
         //
-        this._colSymbolConversion.DataPropertyName = "SymbolConversionCode";
-        this._colSymbolConversion.HeaderText = "Conversione";
-        this._colSymbolConversion.Name = "_colSymbolConversion";
-        this._colSymbolConversion.ReadOnly = true;
-        // 
-        // _colEnabled
-        // 
-        this._colEnabled.DataPropertyName = "Enabled";
-        this._colEnabled.FillWeight = 60F;
-        this._colEnabled.HeaderText = "Abilitato";
-        this._colEnabled.Name = "_colEnabled";
-        this._colEnabled.ReadOnly = true;
-        // 
+        // _colCode
+        //
+        this._colCode.DataPropertyName = "Code";
+        this._colCode.HeaderText = "Codice";
+        this._colCode.Name = "_colCode";
+        this._colCode.ReadOnly = true;
+        //
+        // _colMappingCount
+        //
+        this._colMappingCount.DataPropertyName = "MappingCount";
+        this._colMappingCount.DefaultCellStyle.Alignment = System.Windows.Forms.DataGridViewContentAlignment.MiddleRight;
+        this._colMappingCount.FillWeight = 60F;
+        this._colMappingCount.HeaderText = "Simboli";
+        this._colMappingCount.Name = "_colMappingCount";
+        this._colMappingCount.ReadOnly = true;
+        //
         // _toolbar
-        // 
-        this._toolbar.CreateButtonText = "Nuovo account";
+        //
+        this._toolbar.CreateButtonText = "Nuova tabella";
         this._toolbar.Dock = System.Windows.Forms.DockStyle.Top;
-        this._toolbar.FilterPlaceholder = "Filtra per nome, codice, gruppo o broker…";
+        this._toolbar.FilterPlaceholder = "Filtra per nome o codice…";
         this._toolbar.Location = new System.Drawing.Point(0, 0);
         this._toolbar.Name = "_toolbar";
         this._toolbar.Size = new System.Drawing.Size(900, 44);
         this._toolbar.TabIndex = 0;
-        this._toolbar.Title = "Account";
+        this._toolbar.Title = "Conversioni simbolo";
         this._toolbar.CreateRequested += new System.EventHandler(this.OnCreateRequested);
         this._toolbar.DeleteRequested += new System.EventHandler(this.OnDeleteRequested);
         this._toolbar.RefreshRequested += new System.EventHandler(this.OnRefreshRequested);
         this._toolbar.FilterChanged += new System.EventHandler(this.OnFilterChanged);
-        // 
-        // AccountListScreen
-        // 
+        //
+        // SymbolConversionListScreen
+        //
         this.AutoScaleDimensions = new System.Drawing.SizeF(7F, 15F);
         this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
         this.Controls.Add(this._grid);
         this.Controls.Add(this._toolbar);
-        this.Name = "AccountListScreen";
+        this.Name = "SymbolConversionListScreen";
         this.Size = new System.Drawing.Size(900, 500);
         ((System.ComponentModel.ISupportInitialize)(this._bindingSource)).EndInit();
         ((System.ComponentModel.ISupportInitialize)(this._grid)).EndInit();
@@ -160,12 +113,7 @@ partial class AccountListScreen
     private System.Windows.Forms.BindingSource _bindingSource;
     private System.Windows.Forms.DataGridView _grid;
     private System.Windows.Forms.DataGridViewTextBoxColumn _colName;
-    private System.Windows.Forms.DataGridViewTextBoxColumn _colAccountNumber;
-    private System.Windows.Forms.DataGridViewTextBoxColumn _colGroupId;
-    private System.Windows.Forms.DataGridViewTextBoxColumn _colBroker;
-    private System.Windows.Forms.DataGridViewTextBoxColumn _colCurrency;
-    private System.Windows.Forms.DataGridViewTextBoxColumn _colInitialBalance;
-    private System.Windows.Forms.DataGridViewTextBoxColumn _colSymbolConversion;
-    private System.Windows.Forms.DataGridViewCheckBoxColumn _colEnabled;
+    private System.Windows.Forms.DataGridViewTextBoxColumn _colCode;
+    private System.Windows.Forms.DataGridViewTextBoxColumn _colMappingCount;
     private piootooapp.clientform.Shell.Controls.EntityToolbar _toolbar;
 }

@@ -47,7 +47,7 @@ public static class NavigationRegistry
             new NavigationEntry("Workspace", () => new WorkspaceListScreen()),
             new NavigationEntry("Piani di trading", () => new PlanListScreen()),
             new NavigationEntry("Strategie", () => new StrategyListScreen()),
-            new NavigationEntry("Conversioni simbolo", () => new SymbolPresetScreen()),
+            new NavigationEntry("Conversioni simbolo", () => new SymbolConversionListScreen()),
             // Il setup di rotazione è globale come account e gruppi, non appartiene a un
             // workspace: sta fra le anagrafiche, non nell'operatività. Per workspace è il run.
             new NavigationEntry("Setup Titano", () => new TitanoSetupListScreen())),

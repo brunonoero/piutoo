@@ -161,32 +161,63 @@ public sealed class WorkspaceApiClient
             ?? throw new InvalidOperationException("Risposta di salvataggio masterfilter vuota.");
     }
 
-    public async Task<IReadOnlyList<AccountSymbolMapping>> GetSymbolConversionPresetAsync(
-        CancellationToken cancellationToken = default)
-    {
-        using var response = await SendAsync(HttpMethod.Get, "api/Workspace/accounts/symbol-preset", null, cancellationToken);
-        return await response.Content.ReadFromJsonAsync<List<AccountSymbolMapping>>(_jsonOptions, cancellationToken)
-            ?? new List<AccountSymbolMapping>();
-    }
-
     /// <summary>Tabella identità dal catalogo: ogni symbol su se stesso, moltiplicatore 1.</summary>
     public async Task<IReadOnlyList<AccountSymbolMapping>> GetSymbolIdentityAsync(
         CancellationToken cancellationToken = default)
     {
         using var response = await SendAsync(
-            HttpMethod.Get, "api/Workspace/accounts/symbol-identity", null, cancellationToken);
+            HttpMethod.Get, "api/SymbolConversions/identity", null, cancellationToken);
         return await response.Content.ReadFromJsonAsync<List<AccountSymbolMapping>>(_jsonOptions, cancellationToken)
             ?? new List<AccountSymbolMapping>();
     }
 
-    public async Task<IReadOnlyList<AccountSymbolMapping>> SaveSymbolConversionPresetAsync(
-        IReadOnlyList<AccountSymbolMapping> mappings,
+    public async Task<IReadOnlyList<SymbolConversion>> ListSymbolConversionsAsync(
         CancellationToken cancellationToken = default)
     {
+        using var response = await SendAsync(HttpMethod.Get, "api/SymbolConversions", null, cancellationToken);
+        return await response.Content.ReadFromJsonAsync<List<SymbolConversion>>(_jsonOptions, cancellationToken)
+            ?? new List<SymbolConversion>();
+    }
+
+    public async Task<SymbolConversion> GetSymbolConversionAsync(
+        string code,
+        CancellationToken cancellationToken = default)
+    {
+        var encoded = Uri.EscapeDataString(code);
         using var response = await SendAsync(
-            HttpMethod.Put, "api/Workspace/accounts/symbol-preset", mappings, cancellationToken);
-        return await response.Content.ReadFromJsonAsync<List<AccountSymbolMapping>>(_jsonOptions, cancellationToken)
-            ?? new List<AccountSymbolMapping>();
+            HttpMethod.Get, $"api/SymbolConversions/{encoded}", null, cancellationToken);
+        return await response.Content.ReadFromJsonAsync<SymbolConversion>(_jsonOptions, cancellationToken)
+            ?? throw new InvalidOperationException("Risposta tabella di conversione vuota.");
+    }
+
+    public async Task<SymbolConversion> CreateSymbolConversionAsync(
+        SymbolConversion conversion,
+        CancellationToken cancellationToken = default)
+    {
+        using var response = await SendAsync(HttpMethod.Post, "api/SymbolConversions", conversion, cancellationToken);
+        return await response.Content.ReadFromJsonAsync<SymbolConversion>(_jsonOptions, cancellationToken)
+            ?? throw new InvalidOperationException("Risposta di creazione tabella di conversione vuota.");
+    }
+
+    public async Task<SymbolConversion> SaveSymbolConversionAsync(
+        string code,
+        SymbolConversion conversion,
+        CancellationToken cancellationToken = default)
+    {
+        var encoded = Uri.EscapeDataString(code);
+        using var response = await SendAsync(
+            HttpMethod.Put, $"api/SymbolConversions/{encoded}", conversion, cancellationToken);
+        return await response.Content.ReadFromJsonAsync<SymbolConversion>(_jsonOptions, cancellationToken)
+            ?? throw new InvalidOperationException("Risposta di salvataggio tabella di conversione vuota.");
+    }
+
+    public async Task DeleteSymbolConversionAsync(
+        string code,
+        CancellationToken cancellationToken = default)
+    {
+        var encoded = Uri.EscapeDataString(code);
+        using var response = await SendAsync(HttpMethod.Delete, $"api/SymbolConversions/{encoded}", null, cancellationToken);
+        _ = response;
     }
 
     public async Task<WorkspaceAccount> EnsureDefaultAccountAsync(

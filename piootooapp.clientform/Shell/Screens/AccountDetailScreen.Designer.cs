@@ -19,7 +19,6 @@ partial class AccountDetailScreen
     private void InitializeComponent()
     {
         this.components = new System.ComponentModel.Container();
-        this._mappingsBindingSource = new System.Windows.Forms.BindingSource(this.components);
         this._toolbar = new piootooapp.clientform.Shell.Controls.DetailToolbar();
         this._identityLabel = new System.Windows.Forms.Label();
         this._fieldsLayout = new System.Windows.Forms.TableLayoutPanel();
@@ -36,23 +35,12 @@ partial class AccountDetailScreen
         this._initialBalanceLabel = new System.Windows.Forms.Label();
         this._initialBalanceInput = new System.Windows.Forms.NumericUpDown();
         this._enabledCheckBox = new System.Windows.Forms.CheckBox();
+        this._symbolConversionLabel = new System.Windows.Forms.Label();
+        this._symbolConversionCombo = new System.Windows.Forms.ComboBox();
         this._notesLabel = new System.Windows.Forms.Label();
         this._notesTextBox = new System.Windows.Forms.TextBox();
-        this._mappingsGroup = new System.Windows.Forms.GroupBox();
-        this._mappingsGrid = new System.Windows.Forms.DataGridView();
-        this._colSymbol = new System.Windows.Forms.DataGridViewTextBoxColumn();
-        this._colAccountSymbol = new System.Windows.Forms.DataGridViewTextBoxColumn();
-        this._colContractMultiplier = new System.Windows.Forms.DataGridViewTextBoxColumn();
-        this._colMappingEnabled = new System.Windows.Forms.DataGridViewCheckBoxColumn();
-        this._mappingsButtons = new System.Windows.Forms.FlowLayoutPanel();
-        this._removeMappingButton = new System.Windows.Forms.Button();
-        this._identityMappingsButton = new System.Windows.Forms.Button();
-        ((System.ComponentModel.ISupportInitialize)(this._mappingsBindingSource)).BeginInit();
         this._fieldsLayout.SuspendLayout();
         ((System.ComponentModel.ISupportInitialize)(this._initialBalanceInput)).BeginInit();
-        this._mappingsGroup.SuspendLayout();
-        ((System.ComponentModel.ISupportInitialize)(this._mappingsGrid)).BeginInit();
-        this._mappingsButtons.SuspendLayout();
         this.SuspendLayout();
         // 
         // _toolbar
@@ -100,20 +88,24 @@ partial class AccountDetailScreen
         this._fieldsLayout.Controls.Add(this._initialBalanceLabel, 2, 2);
         this._fieldsLayout.Controls.Add(this._initialBalanceInput, 3, 2);
         this._fieldsLayout.Controls.Add(this._enabledCheckBox, 1, 3);
-        this._fieldsLayout.Controls.Add(this._notesLabel, 0, 4);
-        this._fieldsLayout.Controls.Add(this._notesTextBox, 1, 4);
+        this._fieldsLayout.Controls.Add(this._symbolConversionLabel, 0, 4);
+        this._fieldsLayout.Controls.Add(this._symbolConversionCombo, 1, 4);
+        this._fieldsLayout.Controls.Add(this._notesLabel, 0, 5);
+        this._fieldsLayout.Controls.Add(this._notesTextBox, 1, 5);
         this._fieldsLayout.Dock = System.Windows.Forms.DockStyle.Top;
         this._fieldsLayout.Location = new System.Drawing.Point(0, 71);
         this._fieldsLayout.Name = "_fieldsLayout";
         this._fieldsLayout.Padding = new System.Windows.Forms.Padding(12, 0, 12, 8);
-        this._fieldsLayout.RowCount = 5;
+        this._fieldsLayout.RowCount = 6;
         this._fieldsLayout.RowStyles.Add(new System.Windows.Forms.RowStyle());
         this._fieldsLayout.RowStyles.Add(new System.Windows.Forms.RowStyle());
         this._fieldsLayout.RowStyles.Add(new System.Windows.Forms.RowStyle());
         this._fieldsLayout.RowStyles.Add(new System.Windows.Forms.RowStyle());
         this._fieldsLayout.RowStyles.Add(new System.Windows.Forms.RowStyle());
+        this._fieldsLayout.RowStyles.Add(new System.Windows.Forms.RowStyle());
+        this._fieldsLayout.SetColumnSpan(this._symbolConversionCombo, 3);
         this._fieldsLayout.SetColumnSpan(this._notesTextBox, 3);
-        this._fieldsLayout.Size = new System.Drawing.Size(900, 170);
+        this._fieldsLayout.Size = new System.Drawing.Size(900, 200);
         this._fieldsLayout.TabIndex = 2;
         // 
         // _nameLabel
@@ -253,7 +245,27 @@ partial class AccountDetailScreen
         this._enabledCheckBox.Text = "Abilitato";
         this._enabledCheckBox.UseVisualStyleBackColor = true;
         this._enabledCheckBox.CheckedChanged += new System.EventHandler(this.OnFieldChanged);
-        // 
+        //
+        // _symbolConversionLabel
+        //
+        this._symbolConversionLabel.Anchor = System.Windows.Forms.AnchorStyles.Left;
+        this._symbolConversionLabel.AutoSize = true;
+        this._symbolConversionLabel.Margin = new System.Windows.Forms.Padding(3, 0, 8, 0);
+        this._symbolConversionLabel.Name = "_symbolConversionLabel";
+        this._symbolConversionLabel.Size = new System.Drawing.Size(120, 15);
+        this._symbolConversionLabel.TabIndex = 13;
+        this._symbolConversionLabel.Text = "Conversione simbolo";
+        //
+        // _symbolConversionCombo
+        //
+        this._symbolConversionCombo.Anchor = System.Windows.Forms.AnchorStyles.Left | System.Windows.Forms.AnchorStyles.Right;
+        this._symbolConversionCombo.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
+        this._symbolConversionCombo.Margin = new System.Windows.Forms.Padding(3, 4, 3, 4);
+        this._symbolConversionCombo.Name = "_symbolConversionCombo";
+        this._symbolConversionCombo.Size = new System.Drawing.Size(700, 23);
+        this._symbolConversionCombo.TabIndex = 14;
+        this._symbolConversionCombo.SelectedIndexChanged += new System.EventHandler(this.OnFieldChanged);
+        //
         // _notesLabel
         // 
         this._notesLabel.Anchor = System.Windows.Forms.AnchorStyles.Left;
@@ -274,124 +286,25 @@ partial class AccountDetailScreen
         this._notesTextBox.Size = new System.Drawing.Size(700, 52);
         this._notesTextBox.TabIndex = 14;
         this._notesTextBox.TextChanged += new System.EventHandler(this.OnFieldChanged);
-        // 
-        // _mappingsGroup
-        // 
-        this._mappingsGroup.Controls.Add(this._mappingsGrid);
-        this._mappingsGroup.Controls.Add(this._mappingsButtons);
-        this._mappingsGroup.Dock = System.Windows.Forms.DockStyle.Fill;
-        this._mappingsGroup.Location = new System.Drawing.Point(0, 241);
-        this._mappingsGroup.Margin = new System.Windows.Forms.Padding(12);
-        this._mappingsGroup.Name = "_mappingsGroup";
-        this._mappingsGroup.Padding = new System.Windows.Forms.Padding(12, 6, 12, 12);
-        this._mappingsGroup.Size = new System.Drawing.Size(900, 359);
-        this._mappingsGroup.TabIndex = 3;
-        this._mappingsGroup.TabStop = false;
-        this._mappingsGroup.Text = "Tabella di conversione simboli";
-        // 
-        // _mappingsButtons
-        // 
-        this._mappingsButtons.AutoSize = true;
-        this._mappingsButtons.Controls.Add(this._removeMappingButton);
-        this._mappingsButtons.Controls.Add(this._identityMappingsButton);
-        this._mappingsButtons.Dock = System.Windows.Forms.DockStyle.Top;
-        this._mappingsButtons.Location = new System.Drawing.Point(12, 22);
-        this._mappingsButtons.Name = "_mappingsButtons";
-        this._mappingsButtons.Size = new System.Drawing.Size(876, 31);
-        this._mappingsButtons.TabIndex = 0;
-        this._mappingsButtons.WrapContents = false;
-        // 
-        // _removeMappingButton
-        // 
-        this._removeMappingButton.AutoSize = true;
-        this._removeMappingButton.Name = "_removeMappingButton";
-        this._removeMappingButton.Size = new System.Drawing.Size(100, 25);
-        this._removeMappingButton.TabIndex = 0;
-        this._removeMappingButton.Text = "Rimuovi riga";
-        this._removeMappingButton.UseVisualStyleBackColor = true;
-        this._removeMappingButton.Click += new System.EventHandler(this.OnRemoveMappingClick);
-        // 
-        // _identityMappingsButton
-        // 
-        this._identityMappingsButton.AutoSize = true;
-        this._identityMappingsButton.Name = "_identityMappingsButton";
-        this._identityMappingsButton.Size = new System.Drawing.Size(140, 25);
-        this._identityMappingsButton.TabIndex = 1;
-        this._identityMappingsButton.Text = "Ripristina identità";
-        this._identityMappingsButton.UseVisualStyleBackColor = true;
-        this._identityMappingsButton.Click += new System.EventHandler(this.OnLoadIdentityMappingsClick);
-        // 
-        // _mappingsGrid
-        // 
-        this._mappingsGrid.AutoGenerateColumns = false;
-        this._mappingsGrid.AutoSizeColumnsMode = System.Windows.Forms.DataGridViewAutoSizeColumnsMode.Fill;
-        this._mappingsGrid.BackgroundColor = System.Drawing.SystemColors.Window;
-        this._mappingsGrid.BorderStyle = System.Windows.Forms.BorderStyle.None;
-        this._mappingsGrid.ColumnHeadersHeightSizeMode = System.Windows.Forms.DataGridViewColumnHeadersHeightSizeMode.AutoSize;
-        this._mappingsGrid.Columns.AddRange(new System.Windows.Forms.DataGridViewColumn[] {
-            this._colSymbol,
-            this._colAccountSymbol,
-            this._colContractMultiplier,
-            this._colMappingEnabled});
-        this._mappingsGrid.DataSource = this._mappingsBindingSource;
-        this._mappingsGrid.Dock = System.Windows.Forms.DockStyle.Fill;
-        this._mappingsGrid.Location = new System.Drawing.Point(12, 53);
-        this._mappingsGrid.Name = "_mappingsGrid";
-        this._mappingsGrid.RowHeadersVisible = false;
-        this._mappingsGrid.Size = new System.Drawing.Size(876, 294);
-        this._mappingsGrid.TabIndex = 1;
-        // 
-        // _colSymbol
-        // 
-        this._colSymbol.DataPropertyName = "Symbol";
-        this._colSymbol.HeaderText = "Simbolo Piootoo";
-        this._colSymbol.Name = "_colSymbol";
-        // 
-        // _colAccountSymbol
-        // 
-        this._colAccountSymbol.DataPropertyName = "AccountSymbol";
-        this._colAccountSymbol.HeaderText = "Simbolo account";
-        this._colAccountSymbol.Name = "_colAccountSymbol";
-        // 
-        // _colContractMultiplier
-        // 
-        this._colContractMultiplier.DataPropertyName = "ContractMultiplier";
-        this._colContractMultiplier.HeaderText = "Moltiplicatore contratto";
-        this._colContractMultiplier.Name = "_colContractMultiplier";
-        // 
-        // _colMappingEnabled
-        // 
-        this._colMappingEnabled.DataPropertyName = "Enabled";
-        this._colMappingEnabled.FillWeight = 60F;
-        this._colMappingEnabled.HeaderText = "Abilitato";
-        this._colMappingEnabled.Name = "_colMappingEnabled";
-        // 
+        //
         // AccountDetailScreen
-        // 
+        //
         this.AutoScaleDimensions = new System.Drawing.SizeF(7F, 15F);
         this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
-        this.Controls.Add(this._mappingsGroup);
         this.Controls.Add(this._fieldsLayout);
         this.Controls.Add(this._identityLabel);
         this.Controls.Add(this._toolbar);
         this.Name = "AccountDetailScreen";
         this.Size = new System.Drawing.Size(900, 600);
-        ((System.ComponentModel.ISupportInitialize)(this._mappingsBindingSource)).EndInit();
         this._fieldsLayout.ResumeLayout(false);
         this._fieldsLayout.PerformLayout();
         ((System.ComponentModel.ISupportInitialize)(this._initialBalanceInput)).EndInit();
-        this._mappingsGroup.ResumeLayout(false);
-        this._mappingsGroup.PerformLayout();
-        ((System.ComponentModel.ISupportInitialize)(this._mappingsGrid)).EndInit();
-        this._mappingsButtons.ResumeLayout(false);
-        this._mappingsButtons.PerformLayout();
         this.ResumeLayout(false);
         this.PerformLayout();
     }
 
     #endregion
 
-    private System.Windows.Forms.BindingSource _mappingsBindingSource;
     private piootooapp.clientform.Shell.Controls.DetailToolbar _toolbar;
     private System.Windows.Forms.Label _identityLabel;
     private System.Windows.Forms.TableLayoutPanel _fieldsLayout;
@@ -408,15 +321,8 @@ partial class AccountDetailScreen
     private System.Windows.Forms.Label _initialBalanceLabel;
     private System.Windows.Forms.NumericUpDown _initialBalanceInput;
     private System.Windows.Forms.CheckBox _enabledCheckBox;
+    private System.Windows.Forms.Label _symbolConversionLabel;
+    private System.Windows.Forms.ComboBox _symbolConversionCombo;
     private System.Windows.Forms.Label _notesLabel;
     private System.Windows.Forms.TextBox _notesTextBox;
-    private System.Windows.Forms.GroupBox _mappingsGroup;
-    private System.Windows.Forms.FlowLayoutPanel _mappingsButtons;
-    private System.Windows.Forms.Button _removeMappingButton;
-    private System.Windows.Forms.Button _identityMappingsButton;
-    private System.Windows.Forms.DataGridView _mappingsGrid;
-    private System.Windows.Forms.DataGridViewTextBoxColumn _colSymbol;
-    private System.Windows.Forms.DataGridViewTextBoxColumn _colAccountSymbol;
-    private System.Windows.Forms.DataGridViewTextBoxColumn _colContractMultiplier;
-    private System.Windows.Forms.DataGridViewCheckBoxColumn _colMappingEnabled;
 }

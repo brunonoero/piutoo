@@ -123,8 +123,37 @@ public sealed class WorkspaceAccount
 
     public DateTime UpdatedUtc { get; set; }
 
-    /// <summary>Tabella di conversione simboli, una riga per simbolo.</summary>
-    public List<AccountSymbolMapping> SymbolMappings { get; set; } = new();
+    /// <summary>
+    /// Codice della tabella di conversione simboli associata (<see cref="SymbolConversion.Code"/>),
+    /// dal registro globale. Vuoto = nessuna conversione, l'account opera 1 a 1.
+    /// </summary>
+    public string SymbolConversionCode { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// Tabella di conversione simboli nominata, definita nel registro globale (fuori da workspace e
+/// account): un account la referenzia per <see cref="Code"/> invece di portarne una copia propria,
+/// così più account possono condividere la stessa tabella.
+/// </summary>
+public sealed class SymbolConversion
+{
+    /// <summary>Identificativo univoco scelto dall'utente, stabile: è ciò che gli account referenziano.</summary>
+    public string Code { get; set; } = string.Empty;
+
+    public string Name { get; set; } = string.Empty;
+
+    /// <summary>Tabella di conversione, una riga per simbolo.</summary>
+    public List<AccountSymbolMapping> Mappings { get; set; } = new();
+
+    public DateTime CreatedUtc { get; set; }
+
+    public DateTime UpdatedUtc { get; set; }
+}
+
+/// <summary>Contenuto del registro globale <c>accounts/symbol-conversions.json</c>.</summary>
+public sealed class SymbolConversionsFile
+{
+    public List<SymbolConversion> Conversions { get; set; } = new();
 }
 
 /// <summary>Contenuto del registro globale <c>accounts/accounts.json</c>.</summary>
