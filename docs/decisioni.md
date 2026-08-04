@@ -786,3 +786,33 @@ in ordine cronologico. Non è un changelog di codice: quello resta nei commit.
   Il file si apre con `FileShare.ReadWrite`, cosi' l'elenco non contende il lock con un backtest
   che sta scrivendo nella stessa cartella.
 
+- **2026-08-04** — Le griglie delle liste sono ordinabili per colonna. La collezione passa da
+  `BindingList<T>` a `SortableBindingList<T>` (`Shell/Controls/SortableBindingList.cs`) e le
+  colonne da `SortMode.NotSortable` a `Automatic` via `DataGridView.EnableColumnSorting()`.
+
+  Il `NotSortable` sparso in nove schermate non era una scelta di interfaccia: `BindingList<T>`
+  dichiara `SupportsSortingCore == false`, e una colonna `Automatic` su quella sorgente solleva
+  `InvalidOperationException` al primo click sull'intestazione. Il problema era la collezione.
+
+  L'ordinamento riordina **la lista sottostante**, non una vista sopra di essa: cosi' la
+  corrispondenza 1 a 1 fra indice di riga e indice nella lista — che e' come tutte le schermate
+  leggono la selezione — resta valida, e non c'e' da riscrivere ogni `SelectedRow`. Le liste
+  svuotano e riempiono la collezione a ogni cambio di filtro, quindi `ApplyFilter` chiama
+  `ReapplySort()`: senza, la griglia mostrerebbe la freccetta sull'intestazione con le righe
+  tornate nell'ordine della sorgente, che e' il modo peggiore di sbagliare.
+
+  Le quattro griglie *editabili* (mappature simbolo negli account e nei preset, gruppi e strumenti
+  del piano) restano `BindingList<T>`: li' l'ordine e' quello in cui si sta scrivendo, e riordinare
+  sotto il cursore mentre si compila una riga non aiuta nessuno.
+
+- **2026-08-04** — Il cursore di attesa passa da `Cursor` sulla toolbar a `UseWaitCursor` sulla
+  schermata che la contiene. `Cursor` valeva per il controllo e i suoi figli, cioe' per i
+  quaranta pixel della barra dei comandi: mentre si aspettava il server il mouse era sopra la
+  griglia, dove il cursore restava una freccia normale. `UseWaitCursor` si propaga a tutti i figli.
+
+  In piu' `MainShellForm.ActivateAsync` scrive «Caricamento…» **prima** della await e mette in
+  attesa il pannello dei contenuti: le schermate scrivono il proprio stato solo alla fine del
+  caricamento, quindi fino a quel momento la barra mostrava il risultato precedente. E il cambio
+  di workspace nelle liste backtest e piani, che rilegge l'intero elenco ed e' il percorso piu'
+  lento, non chiamava `SetBusy` affatto.
+
