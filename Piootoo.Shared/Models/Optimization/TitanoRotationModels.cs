@@ -310,6 +310,32 @@ public sealed class TitanoRunInfo
     public DateTime GeneratedAtUtc { get; init; }
     public required string ManifestPath { get; init; }
     public int PeriodCount { get; init; }
+
+    /// <summary>Cadenza di rotazione del run (da <see cref="TitanoRotationRequest.RotationPeriod"/>).</summary>
+    public TitanoRotationPeriod RotationPeriod { get; init; }
+
+    /// <summary><c>EffectiveToUtc</c> più recente fra i periodi del run: oltre questo istante il run
+    /// congela l'ultima decisione invece di calcolarne una nuova. Null se il run non ha periodi.</summary>
+    public DateTime? LastEffectiveToUtc { get; init; }
+}
+
+/// <summary>
+/// Stato di un run rispetto a "adesso": <see cref="Fresh"/> finché copre il periodo corrente,
+/// <see cref="Stale"/> appena si è entrati in un periodo per cui non ha mai deciso nulla —
+/// il run resta comunque applicabile (congela l'ultimo periodo in <see cref="TitanoFilterMode.Realtime"/>),
+/// ma segnala che è ora di rifare backtest campione e rotazione.
+/// </summary>
+public enum TitanoRotationFreshness { Fresh, Stale, NoRun }
+
+/// <summary>Stato di freschezza dell'ultimo run per una cartella di backtest, esposto a lista/dettaglio piano.</summary>
+public sealed class TitanoRotationStatus
+{
+    public required string WorkspaceId { get; init; }
+    public required string BacktestFolder { get; init; }
+    public TitanoRotationFreshness Freshness { get; init; }
+    public string? LatestRunId { get; init; }
+    public DateTime? LatestRunGeneratedAtUtc { get; init; }
+    public DateTime? EffectiveToUtc { get; init; }
 }
 
 public sealed class TitanoRotationManifest

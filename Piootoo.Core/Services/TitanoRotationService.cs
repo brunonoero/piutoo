@@ -202,6 +202,44 @@ public sealed class TitanoRotationService
             .ToArray();
 
     /// <summary>
+    /// Run più recente di una cartella di backtest, per generazione. È la base della rotazione
+    /// automatica dei piani: invece di un <c>TitanoRunId</c> scelto a mano e mai più aggiornato, ogni
+    /// lookup per barra risolve di nuovo "l'ultimo" al momento in cui serve.
+    /// </summary>
+    public TitanoRunInfo? ResolveLatestRun(string workspaceId, string backtestFolder)
+        => ListRuns(workspaceId, backtestFolder).FirstOrDefault();
+
+    /// <summary>
+    /// Stato di freschezza dell'ultimo run di una cartella: <see cref="TitanoRotationFreshness.Stale"/>
+    /// appena <c>DateTime.UtcNow</c> supera l'<c>EffectiveToUtc</c> dell'ultima decisione, cioè appena
+    /// si sta congelando un periodo per cui Titano non ha mai deciso nulla (vedi <see cref="Resolve"/>,
+    /// parametro <c>mode</c>). Non è un errore — il run resta applicabile in <see cref="TitanoFilterMode.Realtime"/> —
+    /// ma segnala che serve un nuovo backtest campione e una nuova rotazione.
+    /// </summary>
+    public TitanoRotationStatus GetFreshness(string workspaceId, string backtestFolder)
+    {
+        var latest = ResolveLatestRun(workspaceId, backtestFolder);
+        if (latest is null)
+            return new TitanoRotationStatus
+            {
+                WorkspaceId = workspaceId,
+                BacktestFolder = backtestFolder,
+                Freshness = TitanoRotationFreshness.NoRun
+            };
+
+        var fresh = latest.LastEffectiveToUtc.HasValue && DateTime.UtcNow < latest.LastEffectiveToUtc.Value;
+        return new TitanoRotationStatus
+        {
+            WorkspaceId = workspaceId,
+            BacktestFolder = backtestFolder,
+            Freshness = fresh ? TitanoRotationFreshness.Fresh : TitanoRotationFreshness.Stale,
+            LatestRunId = latest.RunId,
+            LatestRunGeneratedAtUtc = latest.GeneratedAtUtc,
+            EffectiveToUtc = latest.LastEffectiveToUtc
+        };
+    }
+
+    /// <summary>
     /// Elimina un run e tutto il suo contenuto (manifest, decisioni per periodo, reset di
     /// hard stop, report). I piani che lo referenziano non vengono toccati: falliranno
     /// all'apertura della sessione, ed è il client a doverlo dire prima di chiamare qui.
@@ -237,6 +275,8 @@ public sealed class TitanoRotationService
             string? runId = null;
             DateTime generatedAtUtc = default;
             var periodCount = 0;
+            DateTime? lastEffectiveToUtc = null;
+            var rotationPeriod = TitanoRotationPeriod.Weekly;
 
             while (reader.Read())
             {
@@ -255,12 +295,18 @@ public sealed class TitanoRotationService
                 }
                 else if (reader.ValueTextEquals("periods"u8))
                 {
-                    periodCount = CountArrayElements(ref reader);
+                    (periodCount, lastEffectiveToUtc) = ScanPeriods(ref reader);
+                }
+                else if (reader.ValueTextEquals("config"u8))
+                {
+                    // Serve solo RotationPeriod per la freschezza: si scandisce il resto senza
+                    // costruire l'oggetto, stesso principio dello Skip() usato per le altre sezioni.
+                    rotationPeriod = ScanConfigRotationPeriod(ref reader) ?? TitanoRotationPeriod.Weekly;
                 }
                 else
                 {
-                    // config, le due equity e il walk-forward sono la parte grossa del file:
-                    // Skip salta il sottoalbero senza costruirne niente.
+                    // Le due equity e il walk-forward sono la parte grossa del file: Skip salta il
+                    // sottoalbero senza costruirne niente.
                     reader.Skip();
                 }
             }
@@ -275,7 +321,9 @@ public sealed class TitanoRotationService
                     Status = TitanoRunStatus.Completed,
                     GeneratedAtUtc = generatedAtUtc,
                     ManifestPath = manifestPath,
-                    PeriodCount = periodCount
+                    PeriodCount = periodCount,
+                    RotationPeriod = rotationPeriod,
+                    LastEffectiveToUtc = lastEffectiveToUtc
                 };
         }
         catch (Exception exception) when (exception is JsonException or IOException or UnauthorizedAccessException)
@@ -285,23 +333,63 @@ public sealed class TitanoRotationService
         }
     }
 
-    private static int CountArrayElements(ref Utf8JsonReader reader)
+    /// <summary>Conta gli elementi e cattura l'<c>effectiveToUtc</c> più recente, in un'unica passata.</summary>
+    private static (int Count, DateTime? MaxEffectiveToUtc) ScanPeriods(ref Utf8JsonReader reader)
     {
         reader.Read();
         if (reader.TokenType != JsonTokenType.StartArray)
-            return 0;
+            return (0, null);
 
         var arrayDepth = reader.CurrentDepth;
         var count = 0;
+        DateTime? maxEffectiveToUtc = null;
         while (reader.Read())
         {
             if (reader.TokenType == JsonTokenType.EndArray && reader.CurrentDepth == arrayDepth)
                 break;
             if (reader.TokenType == JsonTokenType.StartObject && reader.CurrentDepth == arrayDepth + 1)
+            {
                 count++;
+                continue;
+            }
+            if (reader.TokenType == JsonTokenType.PropertyName &&
+                reader.CurrentDepth == arrayDepth + 2 &&
+                reader.ValueTextEquals("effectiveToUtc"u8))
+            {
+                reader.Read();
+                if (reader.TryGetDateTime(out var effectiveToUtc) &&
+                    (maxEffectiveToUtc is null || effectiveToUtc > maxEffectiveToUtc))
+                    maxEffectiveToUtc = effectiveToUtc;
+            }
         }
 
-        return count;
+        return (count, maxEffectiveToUtc);
+    }
+
+    /// <summary>Legge solo <c>rotationPeriod</c> da <c>config</c>, senza costruire l'intero oggetto.</summary>
+    private static TitanoRotationPeriod? ScanConfigRotationPeriod(ref Utf8JsonReader reader)
+    {
+        reader.Read();
+        if (reader.TokenType != JsonTokenType.StartObject)
+            return null;
+
+        var objectDepth = reader.CurrentDepth;
+        TitanoRotationPeriod? rotationPeriod = null;
+        while (reader.Read())
+        {
+            if (reader.TokenType == JsonTokenType.EndObject && reader.CurrentDepth == objectDepth)
+                break;
+            if (reader.TokenType == JsonTokenType.PropertyName &&
+                reader.CurrentDepth == objectDepth + 1 &&
+                reader.ValueTextEquals("rotationPeriod"u8))
+            {
+                reader.Read();
+                if (Enum.TryParse<TitanoRotationPeriod>(reader.GetString(), ignoreCase: true, out var parsed))
+                    rotationPeriod = parsed;
+            }
+        }
+
+        return rotationPeriod;
     }
 
     public TitanoRotationManifest Get(string workspaceId, string backtestFolder, string runId)

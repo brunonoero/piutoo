@@ -23,7 +23,6 @@ public sealed class TradingPlan
     public string AccountNumber { get; init; } = string.Empty;
     public int MaxConcurrentTrades { get; init; }
     public string? RotationSetupId { get; init; }
-    public string? TitanoRunId { get; init; }
     public string? TitanoBacktestFolder { get; init; }
     public bool ApplyTitanoFilters { get; init; }
 
@@ -58,7 +57,6 @@ public sealed class SaveTradingPlanRequest
     public string? AccountNumber { get; init; }
     public int MaxConcurrentTrades { get; init; }
     public string? RotationSetupId { get; init; }
-    public string? TitanoRunId { get; init; }
     public string? TitanoBacktestFolder { get; init; }
     public bool ApplyTitanoFilters { get; init; }
 

@@ -141,7 +141,13 @@ public sealed class TradingSessionService : ITradingSessionService
         public required List<ITradingStrategy> Strategies { get; init; }
         public required PiootooTradingService SimulatedEngine { get; init; }
         public required TradingJsonStore Store { get; init; }
-        public string? TitanoRunId { get; init; }
+
+        /// <summary>
+        /// Run esplicito, valorizzato solo dal percorso non-piano (<see cref="CreateTradingSessionRequest.TitanoRunId"/>,
+        /// usato da test e sessioni create a mano). Le sessioni aperte da piano lo lasciano null: il
+        /// run effettivo si risolve sempre come "l'ultimo per questa cartella" al momento di ogni barra.
+        /// </summary>
+        public string? PinnedTitanoRunId { get; init; }
         public string? TitanoBacktestFolder { get; init; }
         public TitanoFilterMode TitanoMode { get; init; }
         public ClientRunMode ClientRunMode { get; init; }
@@ -220,14 +226,12 @@ public sealed class TradingSessionService : ITradingSessionService
     private sealed class GroupTitanoProfile
     {
         public string? RotationSetupId { get; init; }
-        public string? TitanoRunId { get; init; }
         public string? TitanoBacktestFolder { get; init; }
         public bool ApplyTitanoFilters { get; init; } = true;
     }
 
     private readonly record struct ResolvedGroupTitano(
         string? RotationSetupId,
-        string? TitanoRunId,
         string? TitanoBacktestFolder,
         bool ApplyTitanoFilters);
 
@@ -332,7 +336,6 @@ public sealed class TradingSessionService : ITradingSessionService
             InitialCapital = plan.InitialCapital,
             CommissionPerContract = plan.CommissionPerContract,
             ClientSessionToken = Convert.ToHexString(Guid.NewGuid().ToByteArray()),
-            TitanoRunId = primary.TitanoRunId,
             TitanoBacktestFolder = primary.TitanoBacktestFolder,
             TitanoMode = titanoMode,
             ClientRunMode = request.ClientRunMode,
@@ -408,11 +411,19 @@ public sealed class TradingSessionService : ITradingSessionService
             throw new ArgumentException("TitanoRunId richiede TitanoBacktestFolder.");
 
         // Le modalità filtrate non possono degradare in silenzio a "nessun filtro": senza rotazione
-        // la sessione eseguirebbe tutto il masterfilter, cioè l'opposto di quanto richiesto.
-        if (request.TitanoMode != TitanoFilterMode.Disabled && string.IsNullOrWhiteSpace(request.TitanoRunId))
+        // la sessione eseguirebbe tutto il masterfilter, cioè l'opposto di quanto richiesto. Il run
+        // non si richiede più esplicitamente: si risolve "l'ultimo per questa cartella" qui stesso,
+        // così un run mai generato fa fallire l'apertura invece della prima barra.
+        if (request.TitanoMode != TitanoFilterMode.Disabled && string.IsNullOrWhiteSpace(request.TitanoBacktestFolder))
             throw new ArgumentException(
-                $"La modalità {request.TitanoMode} richiede TitanoRunId e TitanoBacktestFolder. " +
+                $"La modalità {request.TitanoMode} richiede TitanoBacktestFolder. " +
                 "Usa TitanoFilterMode.Disabled per eseguire senza filtro Titano.");
+
+        var pinnedTitanoRunId = string.IsNullOrWhiteSpace(request.TitanoRunId) ? null : request.TitanoRunId.Trim();
+        if (request.TitanoMode != TitanoFilterMode.Disabled &&
+            ResolveRunIdForFolder(pinnedTitanoRunId, request.WorkspaceId, request.TitanoBacktestFolder) is null)
+            throw new ArgumentException(
+                $"Nessun run Titano trovato per la cartella '{request.TitanoBacktestFolder}': esegui prima una rotazione.");
 
         RequireCoherentRunMode(request.TitanoMode, request.ClientRunMode);
 
@@ -477,7 +488,7 @@ public sealed class TradingSessionService : ITradingSessionService
             Strategies = strategies,
             SimulatedEngine = engine,
             Store = store,
-            TitanoRunId = request.TitanoRunId,
+            PinnedTitanoRunId = pinnedTitanoRunId,
             TitanoBacktestFolder = request.TitanoBacktestFolder,
             TitanoMode = request.TitanoMode,
             ClientRunMode = request.ClientRunMode,
@@ -576,11 +587,15 @@ public sealed class TradingSessionService : ITradingSessionService
                 var allocations = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
                 TitanoEffectiveStrategies? effective = null;
                 string? rotationNote = null;
-                if (!string.IsNullOrWhiteSpace(session.TitanoRunId))
+                if (!string.IsNullOrWhiteSpace(session.TitanoBacktestFolder))
                 {
                     var service = _titano ?? throw new InvalidOperationException("Servizio Titano non disponibile.");
-                    effective = service.Resolve(session.WorkspaceId, session.TitanoBacktestFolder!,
-                        session.TitanoRunId, bar.BarTimeUtc, session.TitanoMode);
+                    var runId = ResolveRunIdForFolder(session, session.TitanoBacktestFolder)
+                        ?? throw new InvalidOperationException(
+                            $"Nessun run Titano trovato per la cartella '{session.TitanoBacktestFolder}': " +
+                            "esegui prima una rotazione.");
+                    effective = service.Resolve(session.WorkspaceId, session.TitanoBacktestFolder,
+                        runId, bar.BarTimeUtc, session.TitanoMode);
                     foreach (var state in effective.StrategyStates)
                         allocations[state.StrategyCode] = state.AllocationMultiplier;
 
@@ -599,7 +614,7 @@ public sealed class TradingSessionService : ITradingSessionService
                         // manifest non allineato all'intervallo che si sta eseguendo. Fermarsi è meglio
                         // che eseguire senza filtri una sessione che l'utente ha chiesto filtrata.
                         throw new InvalidOperationException(
-                            $"Nessun periodo Titano copre la barra {bar.BarTimeUtc:O}: il manifest '{session.TitanoRunId}' " +
+                            $"Nessun periodo Titano copre la barra {bar.BarTimeUtc:O}: il manifest '{runId}' " +
                             $"copre {effective.ManifestFromUtc:O} → {effective.ManifestToUtc:O}. " +
                             "Rigenera la rotazione su un backtest che copra questo intervallo, oppure " +
                             "esegui la sessione in modalità Disabled.");
@@ -1006,7 +1021,6 @@ public sealed class TradingSessionService : ITradingSessionService
                     RotationSetupId = string.IsNullOrWhiteSpace(sample.RotationSetupId)
                         ? null
                         : sample.RotationSetupId.Trim(),
-                    TitanoRunId = string.IsNullOrWhiteSpace(sample.TitanoRunId) ? null : sample.TitanoRunId.Trim(),
                     TitanoBacktestFolder = string.IsNullOrWhiteSpace(sample.TitanoBacktestFolder)
                         ? null
                         : sample.TitanoBacktestFolder.Trim(),
@@ -1041,9 +1055,6 @@ public sealed class TradingSessionService : ITradingSessionService
             if (row.MaxConcurrentTrades < 0)
                 throw new ArgumentException(
                     $"MaxConcurrentTrades non può essere negativo per l'account '{row.AccountNumber}'.");
-            if (!string.IsNullOrWhiteSpace(row.TitanoRunId) &&
-                string.IsNullOrWhiteSpace(row.TitanoBacktestFolder))
-                throw new ArgumentException($"TitanoRunId richiede TitanoBacktestFolder per il gruppo '{row.GroupId}'.");
         }
 
         var duplicatedAccount = rows.GroupBy(r => r.AccountNumber.Trim(), StringComparer.OrdinalIgnoreCase)
@@ -1055,7 +1066,6 @@ public sealed class TradingSessionService : ITradingSessionService
         {
             var signatures = group.Select(r => (
                 RotationSetupId: (r.RotationSetupId ?? string.Empty).Trim(),
-                TitanoRunId: (r.TitanoRunId ?? string.Empty).Trim(),
                 TitanoBacktestFolder: (r.TitanoBacktestFolder ?? string.Empty).Trim(),
                 r.ApplyTitanoFilters)).Distinct().ToArray();
             if (signatures.Length > 1)
@@ -1075,7 +1085,6 @@ public sealed class TradingSessionService : ITradingSessionService
                     AccountNumber = kv.Key,
                     MaxConcurrentTrades = session.AccountMaxConcurrentTrades.GetValueOrDefault(kv.Key),
                     RotationSetupId = profile?.RotationSetupId,
-                    TitanoRunId = profile?.TitanoRunId,
                     TitanoBacktestFolder = profile?.TitanoBacktestFolder,
                     ApplyTitanoFilters = profile?.ApplyTitanoFilters ?? true
                 };
@@ -1319,18 +1328,20 @@ public sealed class TradingSessionService : ITradingSessionService
     private Dictionary<string, decimal> ComputeStrategyPriority(Session session, string groupId)
     {
         var profile = ResolveGroupTitano(session, groupId);
-        if (!string.IsNullOrWhiteSpace(profile.TitanoRunId) &&
-            !string.IsNullOrWhiteSpace(profile.TitanoBacktestFolder) &&
-            _titano != null)
+        if (!string.IsNullOrWhiteSpace(profile.TitanoBacktestFolder) && _titano != null)
         {
             try
             {
-                var effective = _titano.Resolve(
-                    session.WorkspaceId, profile.TitanoBacktestFolder, profile.TitanoRunId,
-                    session.LastEvaluatedBarTimeUtc ?? DateTime.UtcNow);
-                var map = effective.StrategyStates.ToDictionary(
-                    s => s.StrategyCode, s => s.AllocationMultiplier, StringComparer.OrdinalIgnoreCase);
-                if (map.Count > 0) return map;
+                var runId = ResolveRunIdForFolder(session, profile.TitanoBacktestFolder);
+                if (!string.IsNullOrWhiteSpace(runId))
+                {
+                    var effective = _titano.Resolve(
+                        session.WorkspaceId, profile.TitanoBacktestFolder, runId,
+                        session.LastEvaluatedBarTimeUtc ?? DateTime.UtcNow);
+                    var map = effective.StrategyStates.ToDictionary(
+                        s => s.StrategyCode, s => s.AllocationMultiplier, StringComparer.OrdinalIgnoreCase);
+                    if (map.Count > 0) return map;
+                }
             }
             catch (Exception)
             {
@@ -1344,32 +1355,57 @@ public sealed class TradingSessionService : ITradingSessionService
         return pnl;
     }
 
-    private ResolvedGroupTitano ResolveGroupTitano(Session session, string groupId)
+    private static ResolvedGroupTitano ResolveGroupTitano(Session session, string groupId)
     {
         session.GroupProfiles.TryGetValue(groupId, out var profile);
-        var groupRunId = profile?.TitanoRunId;
         var groupFolder = profile?.TitanoBacktestFolder;
-        var usesGroupRun = !string.IsNullOrWhiteSpace(groupRunId);
+        var usesGroupFolder = !string.IsNullOrWhiteSpace(groupFolder);
         return new ResolvedGroupTitano(
             profile?.RotationSetupId,
-            usesGroupRun ? groupRunId : session.TitanoRunId,
-            usesGroupRun ? groupFolder : session.TitanoBacktestFolder,
+            usesGroupFolder ? groupFolder : session.TitanoBacktestFolder,
             // La MODALITÀ (dove si sta girando) è della sessione; il gruppo può solo scegliere se
-            // subire o no il filtro del proprio run. Un gruppo senza run proprio eredita quindi la
-            // decisione della sessione: filtrata in tutto tranne che in Disabled.
-            usesGroupRun ? profile!.ApplyTitanoFilters : session.TitanoMode != TitanoFilterMode.Disabled);
+            // subire o no il filtro della propria cartella. Un gruppo senza cartella propria eredita
+            // quindi la decisione della sessione: filtrata in tutto tranne che in Disabled.
+            usesGroupFolder ? profile!.ApplyTitanoFilters : session.TitanoMode != TitanoFilterMode.Disabled);
+    }
+
+    /// <summary>
+    /// Run effettivo per una cartella: il pin esplicito della sessione se la cartella è la sua
+    /// stessa (percorso non-piano, vedi <see cref="Session.PinnedTitanoRunId"/>), altrimenti sempre
+    /// l'ultimo generato — così una rotazione nuova si applica dalla barra successiva senza
+    /// riaprire la sessione.
+    /// </summary>
+    private string? ResolveRunIdForFolder(Session session, string? backtestFolder)
+    {
+        if (string.IsNullOrWhiteSpace(backtestFolder))
+            return null;
+        var pinned = string.Equals(backtestFolder, session.TitanoBacktestFolder, StringComparison.OrdinalIgnoreCase)
+            ? session.PinnedTitanoRunId
+            : null;
+        return ResolveRunIdForFolder(pinned, session.WorkspaceId, backtestFolder);
+    }
+
+    private string? ResolveRunIdForFolder(string? pinnedRunId, string workspaceId, string? backtestFolder)
+    {
+        if (string.IsNullOrWhiteSpace(backtestFolder))
+            return null;
+        if (!string.IsNullOrWhiteSpace(pinnedRunId))
+            return pinnedRunId;
+        return _titano?.ResolveLatestRun(workspaceId, backtestFolder)?.RunId;
     }
 
     private TitanoEffectiveStrategies? TryResolveGroupTitano(Session session, string groupId)
     {
         var profile = ResolveGroupTitano(session, groupId);
-        if (string.IsNullOrWhiteSpace(profile.TitanoRunId) ||
-            string.IsNullOrWhiteSpace(profile.TitanoBacktestFolder) ||
-            _titano is null)
+        if (string.IsNullOrWhiteSpace(profile.TitanoBacktestFolder) || _titano is null)
+            return null;
+
+        var runId = ResolveRunIdForFolder(session, profile.TitanoBacktestFolder);
+        if (string.IsNullOrWhiteSpace(runId))
             return null;
 
         return _titano.Resolve(
-            session.WorkspaceId, profile.TitanoBacktestFolder, profile.TitanoRunId,
+            session.WorkspaceId, profile.TitanoBacktestFolder, runId,
             session.LastEvaluatedBarTimeUtc ?? DateTime.UtcNow);
     }
 
@@ -1381,9 +1417,7 @@ public sealed class TradingSessionService : ITradingSessionService
             return true;
 
         var profile = ResolveGroupTitano(session, groupId);
-        if (!profile.ApplyTitanoFilters ||
-            string.IsNullOrWhiteSpace(profile.TitanoRunId) ||
-            string.IsNullOrWhiteSpace(profile.TitanoBacktestFolder))
+        if (!profile.ApplyTitanoFilters || string.IsNullOrWhiteSpace(profile.TitanoBacktestFolder))
             return true;
 
         var effective = TryResolveGroupTitano(session, groupId);
@@ -1405,16 +1439,14 @@ public sealed class TradingSessionService : ITradingSessionService
     private decimal GetGroupStrategyAllocation(Session session, string groupId, string strategyCode)
     {
         var profile = ResolveGroupTitano(session, groupId);
-        if (!profile.ApplyTitanoFilters ||
-            string.IsNullOrWhiteSpace(profile.TitanoRunId) ||
-            string.IsNullOrWhiteSpace(profile.TitanoBacktestFolder))
+        if (!profile.ApplyTitanoFilters || string.IsNullOrWhiteSpace(profile.TitanoBacktestFolder))
             return 1m;
 
-        // OpenFromPlan associa il medesimo run sia alla sessione sia al suo unico gruppo.
-        // PushBars ha già applicato quel moltiplicatore nel PositionSizingService: riapplicarlo
-        // qui trasformerebbe 0,5 in 0,25. Il claim deve scalare solo per un run di gruppo diverso.
+        // OpenFromPlan associa la stessa cartella sia alla sessione sia al suo unico gruppo, quindi
+        // risolvono sempre allo stesso run in un dato istante. PushBars ha già applicato quel
+        // moltiplicatore nel PositionSizingService: riapplicarlo qui trasformerebbe 0,5 in 0,25. Il
+        // claim deve scalare solo per la cartella di un gruppo diverso da quella della sessione.
         if (session.TitanoMode != TitanoFilterMode.Disabled &&
-            string.Equals(profile.TitanoRunId, session.TitanoRunId, StringComparison.OrdinalIgnoreCase) &&
             string.Equals(profile.TitanoBacktestFolder, session.TitanoBacktestFolder, StringComparison.OrdinalIgnoreCase))
             return 1m;
 
@@ -1796,7 +1828,7 @@ public sealed class TradingSessionService : ITradingSessionService
             EntryId = $"{session.Id}-{barTimeUtc:yyyyMMddTHHmmssfffZ}",
             SessionId = session.Id,
             BarTimeUtc = barTimeUtc,
-            TitanoRunId = session.TitanoRunId,
+            TitanoRunId = effective.RunId,
             TitanoBacktestFolder = session.TitanoBacktestFolder,
             PeriodId = effective.PeriodId,
             MasterStrategies = masterStrategies,
@@ -1848,7 +1880,7 @@ public sealed class TradingSessionService : ITradingSessionService
             System.Text.Encoding.UTF8.GetBytes(left),
             System.Text.Encoding.UTF8.GetBytes(right ?? string.Empty));
 
-    private static TradingSessionDescriptor Describe(Session session)
+    private TradingSessionDescriptor Describe(Session session)
     {
         // In esecuzione diretta la conversione è già in cache (risolta all'apertura): il descriptor
         // dice al client con che nome vedrà sul proprio grafico ogni strumento del piano.
@@ -1859,7 +1891,7 @@ public sealed class TradingSessionService : ITradingSessionService
         return Describe(session, conversion);
     }
 
-    private static TradingSessionDescriptor Describe(Session session, AccountSymbolConversion conversion) => new()
+    private TradingSessionDescriptor Describe(Session session, AccountSymbolConversion conversion) => new()
     {
         SessionId = session.Id,
         SessionToken = session.Token,
@@ -1868,7 +1900,9 @@ public sealed class TradingSessionService : ITradingSessionService
         ExecutionKey = session.ExecutionKey,
         ExecutionMode = session.Mode,
         Status = session.Status,
-        TitanoRunId = session.TitanoRunId,
+        // Informativo per il client (diagnosi locale): calcolato al momento, non congelato
+        // sulla sessione, così riflette una rotazione più recente senza bisogno di riaprirla.
+        TitanoRunId = ResolveRunIdForFolder(session, session.TitanoBacktestFolder),
         TitanoMode = session.TitanoMode,
         ClientRunMode = session.ClientRunMode,
         PositionSizing = session.PositionSizing,

@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using Piootoo.Shared.Models.Optimization;
 using piootooapp.clientform.Shell.Controls;
 
 namespace piootooapp.clientform.Shell.Screens;
@@ -13,7 +14,11 @@ public sealed class PlanRow
 
     public int MaxConcurrentTrades { get; set; }
 
-    public string TitanoRunId { get; set; } = string.Empty;
+    /// <summary>Cartella di backtest della riga primaria: null/vuota = nessun Titano configurato.</summary>
+    public string TitanoBacktestFolder { get; set; } = string.Empty;
+
+    /// <summary>Etichetta di stato risolta in modo asincrono (ListRotationStatusAsync), "…" finché non arriva.</summary>
+    public string RotationStatus { get; set; } = string.Empty;
 
     public DateTime UpdatedUtc { get; set; }
 }
@@ -130,13 +135,15 @@ public partial class PlanListScreen : UserControl, IShellScreen
                     Name = plan.Name,
                     Groups = plan.Groups.Count,
                     MaxConcurrentTrades = plan.MaxConcurrentTrades,
-                    TitanoRunId = plan.TitanoRunId ?? string.Empty,
+                    RotationStatus = "…",
                     UpdatedUtc = plan.UpdatedUtc
                 });
             }
 
             ApplyFilter();
             _context.Navigation.SetStatus($"{_allRows.Count} piani in '{workspaceId}'.");
+
+            await LoadRotationStatusesAsync(workspaceId, cancellationToken);
         }
         catch (OperationCanceledException)
         {
@@ -148,6 +155,45 @@ public partial class PlanListScreen : UserControl, IShellScreen
             _context.Navigation.SetError(ex.Message);
         }
     }
+
+    /// <summary>
+    /// Freschezza per riga, risolta dopo la prima resa della griglia: una chiamata per piano al
+    /// registro dei run Titano, il run non è più un campo del piano ma sempre "l'ultimo per la
+    /// cartella" (vedi <c>TitanoRotationService.GetFreshness</c>).
+    /// </summary>
+    private async Task LoadRotationStatusesAsync(string workspaceId, CancellationToken cancellationToken)
+    {
+        if (_context == null)
+        {
+            return;
+        }
+
+        foreach (var row in _allRows)
+        {
+            try
+            {
+                var status = await _context.Services.Plans.GetRotationStatusAsync(workspaceId, row.Code, cancellationToken);
+                row.RotationStatus = DescribeRotationStatus(status);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception)
+            {
+                row.RotationStatus = "?";
+            }
+        }
+
+        _visibleRows.ResetBindings();
+    }
+
+    private static string DescribeRotationStatus(TitanoRotationStatus status) => status.Freshness switch
+    {
+        TitanoRotationFreshness.Fresh => $"🟢 Pronto ({status.LatestRunGeneratedAtUtc:yyyy-MM-dd})",
+        TitanoRotationFreshness.Stale => $"🟡 Da aggiornare ({status.LatestRunGeneratedAtUtc:yyyy-MM-dd})",
+        _ => "⚪ Nessun run"
+    };
 
     private void ApplyFilter()
     {

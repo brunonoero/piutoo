@@ -430,8 +430,12 @@ public sealed class TradingGroupRow
     /// <summary>Riferimento al setup salvato (rotation-setups); metadata per il client, non usato a runtime.</summary>
     public string? RotationSetupId { get; init; }
 
-    /// <summary>Run Titano eseguibile (manifest). Obbligatorio se si applicano filtri Titano al gruppo.</summary>
-    public string? TitanoRunId { get; init; }
+    /// <summary>
+    /// Cartella di backtest da cui derivano i run Titano del gruppo. Obbligatoria se si applicano
+    /// filtri Titano al gruppo. Il run non si indica più: si usa sempre l'ultimo generato in questa
+    /// cartella, risolto al momento (<c>TitanoRotationService.ResolveLatestRun</c>) invece che
+    /// congelato sulla riga.
+    /// </summary>
     public string? TitanoBacktestFolder { get; init; }
 
     /// <summary>
@@ -440,8 +444,8 @@ public sealed class TradingGroupRow
     ///
     /// <para>Non va confuso con <see cref="CreateTradingSessionRequest.TitanoMode"/>: la modalità dice
     /// <i>dove</i> si sta girando ed è della sessione, questo flag dice soltanto se <i>questo</i> gruppo
-    /// subisce il filtro del proprio run. Un gruppo senza <see cref="TitanoRunId"/> proprio eredita la
-    /// decisione della sessione — filtrata in tutte le modalità tranne
+    /// subisce il filtro del proprio run. Un gruppo senza <see cref="TitanoBacktestFolder"/> proprio eredita
+    /// la decisione della sessione — filtrata in tutte le modalità tranne
     /// <see cref="TitanoFilterMode.Disabled"/>.</para>
     /// </summary>
     public bool ApplyTitanoFilters { get; init; } = true;

@@ -85,7 +85,6 @@ public sealed class TradingPlanService
                 AccountNumber = primary.AccountNumber,
                 MaxConcurrentTrades = primary.MaxConcurrentTrades,
                 RotationSetupId = primary.RotationSetupId,
-                TitanoRunId = primary.TitanoRunId,
                 TitanoBacktestFolder = primary.TitanoBacktestFolder,
                 ApplyTitanoFilters = primary.ApplyTitanoFilters,
                 EnforceConcurrencyLimits = request.EnforceConcurrencyLimits,
@@ -161,12 +160,9 @@ public sealed class TradingPlanService
             if (row.MaxConcurrentTrades < 0)
                 throw new ArgumentException(
                     $"MaxConcurrentTrades non può essere negativo per l'account '{row.AccountNumber}'.");
-            if (!string.IsNullOrWhiteSpace(row.TitanoRunId) &&
-                string.IsNullOrWhiteSpace(row.TitanoBacktestFolder))
-                throw new ArgumentException($"TitanoRunId richiede TitanoBacktestFolder per il gruppo '{row.GroupId}'.");
-            if (row.ApplyTitanoFilters && string.IsNullOrWhiteSpace(row.TitanoRunId))
+            if (row.ApplyTitanoFilters && string.IsNullOrWhiteSpace(row.TitanoBacktestFolder))
                 throw new ArgumentException(
-                    $"Applica Titano richiede un run Titano per il gruppo '{row.GroupId}'.");
+                    $"Applica Titano richiede una cartella di backtest per il gruppo '{row.GroupId}'.");
         }
 
         var duplicatedAccount = groups.GroupBy(r => r.AccountNumber, StringComparer.OrdinalIgnoreCase)
@@ -178,7 +174,6 @@ public sealed class TradingPlanService
         {
             var signatures = group.Select(r => (
                 RotationSetupId: r.RotationSetupId ?? string.Empty,
-                TitanoRunId: r.TitanoRunId ?? string.Empty,
                 TitanoBacktestFolder: r.TitanoBacktestFolder ?? string.Empty,
                 r.ApplyTitanoFilters)).Distinct().ToArray();
             if (signatures.Length > 1)
@@ -202,7 +197,6 @@ public sealed class TradingPlanService
                 AccountNumber = request.AccountNumber.Trim(),
                 MaxConcurrentTrades = request.MaxConcurrentTrades,
                 RotationSetupId = TrimOrNull(request.RotationSetupId),
-                TitanoRunId = TrimOrNull(request.TitanoRunId),
                 TitanoBacktestFolder = TrimOrNull(request.TitanoBacktestFolder),
                 ApplyTitanoFilters = request.ApplyTitanoFilters
             }
@@ -223,7 +217,6 @@ public sealed class TradingPlanService
                         AccountNumber = plan.AccountNumber.Trim(),
                         MaxConcurrentTrades = plan.MaxConcurrentTrades,
                         RotationSetupId = TrimOrNull(plan.RotationSetupId),
-                        TitanoRunId = TrimOrNull(plan.TitanoRunId),
                         TitanoBacktestFolder = TrimOrNull(plan.TitanoBacktestFolder),
                         ApplyTitanoFilters = plan.ApplyTitanoFilters
                     }
@@ -243,7 +236,6 @@ public sealed class TradingPlanService
             AccountNumber = primary.AccountNumber,
             MaxConcurrentTrades = primary.MaxConcurrentTrades,
             RotationSetupId = primary.RotationSetupId,
-            TitanoRunId = primary.TitanoRunId,
             TitanoBacktestFolder = primary.TitanoBacktestFolder,
             ApplyTitanoFilters = primary.ApplyTitanoFilters,
             EnforceConcurrencyLimits = plan.EnforceConcurrencyLimits,
@@ -257,11 +249,11 @@ public sealed class TradingPlanService
     }
 
     /// <summary>
-    /// Prima riga con run Titano, altrimenti la prima riga: alimenta i campi mirror e la modalità
-    /// Titano di sessione in <c>OpenFromPlan</c>.
+    /// Prima riga con una cartella Titano configurata, altrimenti la prima riga: alimenta i campi
+    /// mirror e la modalità Titano di sessione in <c>OpenFromPlan</c>.
     /// </summary>
     public static TradingGroupRow SelectPrimaryRow(IReadOnlyList<TradingGroupRow> groups) =>
-        groups.FirstOrDefault(row => !string.IsNullOrWhiteSpace(row.TitanoRunId)) ?? groups[0];
+        groups.FirstOrDefault(row => !string.IsNullOrWhiteSpace(row.TitanoBacktestFolder)) ?? groups[0];
 
     private static TradingGroupRow CloneRow(TradingGroupRow row) => new()
     {
@@ -269,7 +261,6 @@ public sealed class TradingPlanService
         AccountNumber = row.AccountNumber.Trim(),
         MaxConcurrentTrades = row.MaxConcurrentTrades,
         RotationSetupId = TrimOrNull(row.RotationSetupId),
-        TitanoRunId = TrimOrNull(row.TitanoRunId),
         TitanoBacktestFolder = TrimOrNull(row.TitanoBacktestFolder),
         ApplyTitanoFilters = row.ApplyTitanoFilters
     };

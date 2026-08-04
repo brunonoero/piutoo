@@ -25,7 +25,7 @@ partial class PlanListScreen
         this._colName = new System.Windows.Forms.DataGridViewTextBoxColumn();
         this._colGroups = new System.Windows.Forms.DataGridViewTextBoxColumn();
         this._colMaxConcurrent = new System.Windows.Forms.DataGridViewTextBoxColumn();
-        this._colTitanoRunId = new System.Windows.Forms.DataGridViewTextBoxColumn();
+        this._colRotationStatus = new System.Windows.Forms.DataGridViewTextBoxColumn();
         this._colUpdated = new System.Windows.Forms.DataGridViewTextBoxColumn();
         this._workspacePanel = new System.Windows.Forms.TableLayoutPanel();
         this._workspaceLabel = new System.Windows.Forms.Label();
@@ -50,7 +50,7 @@ partial class PlanListScreen
             this._colName,
             this._colGroups,
             this._colMaxConcurrent,
-            this._colTitanoRunId,
+            this._colRotationStatus,
             this._colUpdated});
         this._grid.DataSource = this._bindingSource;
         this._grid.Dock = System.Windows.Forms.DockStyle.Fill;
@@ -101,13 +101,13 @@ partial class PlanListScreen
         this._colMaxConcurrent.Name = "_colMaxConcurrent";
         this._colMaxConcurrent.ReadOnly = true;
         // 
-        // _colTitanoRunId
+        // _colRotationStatus
         // 
-        this._colTitanoRunId.DataPropertyName = "TitanoRunId";
-        this._colTitanoRunId.FillWeight = 120F;
-        this._colTitanoRunId.HeaderText = "Run Titano";
-        this._colTitanoRunId.Name = "_colTitanoRunId";
-        this._colTitanoRunId.ReadOnly = true;
+        this._colRotationStatus.DataPropertyName = "RotationStatus";
+        this._colRotationStatus.FillWeight = 120F;
+        this._colRotationStatus.HeaderText = "Rotazione";
+        this._colRotationStatus.Name = "_colRotationStatus";
+        this._colRotationStatus.ReadOnly = true;
         // 
         // _colUpdated
         // 
@@ -195,7 +195,7 @@ partial class PlanListScreen
     private System.Windows.Forms.DataGridViewTextBoxColumn _colName;
     private System.Windows.Forms.DataGridViewTextBoxColumn _colGroups;
     private System.Windows.Forms.DataGridViewTextBoxColumn _colMaxConcurrent;
-    private System.Windows.Forms.DataGridViewTextBoxColumn _colTitanoRunId;
+    private System.Windows.Forms.DataGridViewTextBoxColumn _colRotationStatus;
     private System.Windows.Forms.DataGridViewTextBoxColumn _colUpdated;
     private System.Windows.Forms.TableLayoutPanel _workspacePanel;
     private System.Windows.Forms.Label _workspaceLabel;
