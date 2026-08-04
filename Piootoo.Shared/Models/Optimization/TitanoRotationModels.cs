@@ -1,3 +1,5 @@
+using System.ComponentModel;
+
 namespace Piootoo.Shared.Models.Optimization;
 
 public enum TitanoRotationPeriod { Weekly, Biweekly, Monthly }
@@ -94,8 +96,15 @@ public sealed record TitanoRotationRequest
 
 public sealed class TitanoSizingTier
 {
-    public decimal MinimumScore { get; init; }
-    public decimal AllocationMultiplier { get; init; }
+    // set e non init: l'editor di collezioni del PropertyGrid costruisce la voce vuota e poi ne
+    // assegna le proprietà. Con init-only gli scaglioni sarebbero visibili ma non modificabili.
+    [DisplayName("Score minimo")]
+    public decimal MinimumScore { get; set; }
+
+    [DisplayName("Moltiplicatore")]
+    public decimal AllocationMultiplier { get; set; }
+
+    public override string ToString() => $"score ≥ {MinimumScore:0.##} → ×{AllocationMultiplier:0.##}";
 }
 
 /// <summary>
@@ -104,45 +113,160 @@ public sealed class TitanoSizingTier
 /// </summary>
 public sealed class TitanoRotationSetup
 {
+    // Le annotazioni System.ComponentModel servono al PropertyGrid del dettaglio setup nella
+    // console. Stanno qui e non in una classe adattatrice del client perché un adattatore sarebbe
+    // una seconda dichiarazione del modello: al primo parametro aggiunto resterebbe indietro, e un
+    // parametro assente dalla UI viene salvato al proprio default senza che nulla lo segnali.
+    // Sono metadati, non logica: Piootoo.Shared resta senza dipendenze verso gli altri progetti.
+
+    [Browsable(false)]
     public string Id { get; set; } = string.Empty;
+
+    [Browsable(false)]
     public string Name { get; set; } = string.Empty;
+
+    [Browsable(false)]
     public string Description { get; set; } = string.Empty;
+
+    [Browsable(false)]
     public DateTime? UpdatedAt { get; set; }
+
+    [Category("1. Calendario")]
+    [DisplayName("Periodo di rotazione")]
+    [Description("Ogni quanto si ricalcola quali strategie sono abilitate.")]
     public TitanoRotationPeriod RotationPeriod { get; set; } = TitanoRotationPeriod.Weekly;
+
+    [Category("1. Calendario")]
+    [DisplayName("Trade minimi")]
+    [Description("Trade minimi nella finestra breve perché la strategia sia valutabile.")]
     public int MinimumTrades { get; set; } = 1;
+
+    [Category("2. Finestre di misura")]
+    [DisplayName("Finestra breve (giorni)")]
+    [Description("Orizzonte della performance di breve e della volatilità.")]
     public int ShortWindowDays { get; set; } = 90;
+
+    [Category("2. Finestre di misura")]
+    [DisplayName("Finestra lunga (giorni)")]
+    [Description("Orizzonte della performance di lungo.")]
     public int LongWindowDays { get; set; } = 365;
+
+    [Category("2. Finestre di misura")]
+    [DisplayName("Finestra media mobile (giorni)")]
+    [Description("Ampiezza della media mobile dell'equity.")]
     public int MovingAverageWindowDays { get; set; } = 90;
+
+    [Category("3. Soglie di ammissione")]
+    [DisplayName("Rendimento breve minimo")]
+    [Description("Frazione, non percentuale: 0,05 significa 5%.")]
     public decimal MinimumShortReturn { get; set; }
+
+    [Category("3. Soglie di ammissione")]
+    [DisplayName("Rendimento lungo minimo")]
+    [Description("Frazione, non percentuale: 0,05 significa 5%.")]
     public decimal MinimumLongReturn { get; set; }
+
+    [Category("3. Soglie di ammissione")]
+    [DisplayName("Z-score minimo")]
+    [Description("Distanza minima dell'equity dalla propria media mobile.")]
     public decimal MinimumZScore { get; set; } = -1.5m;
+
+    [Category("3. Soglie di ammissione")]
+    [DisplayName("Z-score massimo")]
+    [Description("Anche l'eccesso positivo disabilita: è surriscaldamento, non forza.")]
     public decimal MaximumZScore { get; set; } = 2.5m;
+
+    [Category("3. Soglie di ammissione")]
+    [DisplayName("Drawdown corrente massimo")]
+    [Description("Frazione dal picco. 0,15 significa 15%.")]
     public decimal MaximumCurrentDrawdown { get; set; } = 0.15m;
+
+    [Category("3. Soglie di ammissione")]
+    [DisplayName("Drawdown storico massimo")]
+    [Description("Massimo drawdown osservato sull'intera storia disponibile.")]
     public decimal MaximumObservedDrawdown { get; set; } = 0.25m;
+
+    [Category("3. Soglie di ammissione")]
+    [DisplayName("Volatilità massima")]
+    [Description("Deviazione standard dei rendimenti trade nella finestra breve.")]
     public decimal MaximumReturnVolatility { get; set; } = 0.10m;
+
+    [Category("3. Soglie di ammissione")]
+    [DisplayName("Equity sopra la media mobile")]
+    [Description("Se attivo, un'equity sotto la propria media mobile non è ammessa.")]
     public bool RequireEquityAboveMovingAverage { get; set; } = true;
+
+    [Category("4. Anti-whipsaw")]
+    [DisplayName("Drawdown per riattivare")]
+    [Description("Soglia più severa di quella di disattivazione: serve a non rientrare troppo presto.")]
     public decimal ReenableMaximumCurrentDrawdown { get; set; } = 0.10m;
+
+    [Category("4. Anti-whipsaw")]
+    [DisplayName("Score di disattivazione")]
+    [Description("Sotto questo score composito la strategia passa OFF.")]
     public decimal DisableCompositeScore { get; set; } = 0.40m;
+
+    [Category("4. Anti-whipsaw")]
+    [DisplayName("Score di riattivazione")]
+    [Description("Sopra questo score la strategia torna ON, se il cooldown è esaurito.")]
     public decimal ReenableCompositeScore { get; set; } = 0.60m;
+
+    [Category("4. Anti-whipsaw")]
+    [DisplayName("Voti minimi da superare")]
+    [Description("Quanti dei cinque voti devono passare perché la strategia sia ammessa.")]
     public int MinimumPassingFilters { get; set; } = 4;
+
+    [Category("4. Anti-whipsaw")]
+    [DisplayName("Periodi di cooldown dopo OFF")]
+    [Description("Periodi da attendere prima di poter riattivare.")]
     public int CooldownPeriodsAfterOff { get; set; } = 2;
+
+    [Category("4. Anti-whipsaw")]
+    [DisplayName("Periodi minimi in ON")]
+    [Description("Impedisce un OFF precoce, ma non prevale sull'hard stop.")]
     public int MinimumOnPeriods { get; set; } = 1;
+
+    [Category("4. Anti-whipsaw")]
+    [DisplayName("Hard stop drawdown")]
+    [Description("Disattivazione immediata, che prevale su periodi minimi e cooldown.")]
     public decimal HardStopDrawdown { get; set; } = 0.35m;
 
     /// <summary>Vedi <see cref="TitanoRotationRequest.CrossSectionalSizing"/>.</summary>
+    [Category("5. Allocazione")]
+    [DisplayName("Sizing per percentile")]
+    [Description("Se attivo l'allocazione viene dal rango fra le strategie del periodo e gli scaglioni sono ignorati.")]
     public bool CrossSectionalSizing { get; set; } = true;
 
     /// <summary>Vedi <see cref="TitanoRotationRequest.MinimumAllocationMultiplier"/>.</summary>
+    [Category("5. Allocazione")]
+    [DisplayName("Moltiplicatore minimo")]
+    [Description("Pavimento della curva di allocazione. Solo con il sizing per percentile.")]
     public decimal MinimumAllocationMultiplier { get; set; } = 0.25m;
 
     /// <summary>Vedi <see cref="TitanoRotationRequest.MaximumAllocationMultiplier"/>.</summary>
+    [Category("5. Allocazione")]
+    [DisplayName("Moltiplicatore massimo")]
+    [Description("Tetto della curva. Lo stato Abilitato significa 'al tetto', non 'moltiplicatore 1'.")]
     public decimal MaximumAllocationMultiplier { get; set; } = 1m;
 
     /// <summary>Vedi <see cref="TitanoRotationRequest.AllocationStep"/>.</summary>
+    [Category("5. Allocazione")]
+    [DisplayName("Passo di arrotondamento")]
+    [Description("Granularità del moltiplicatore di allocazione.")]
     public decimal AllocationStep { get; set; } = 0.05m;
 
+    [Category("6. Costi")]
+    [DisplayName("Commissione per unità")]
     public decimal CommissionPerUnit { get; set; }
+
+    [Category("6. Costi")]
+    [DisplayName("Slippage per unità")]
     public decimal SlippagePerUnit { get; set; }
+
+    [Category("5. Allocazione")]
+    [DisplayName("Scaglioni di sizing")]
+    [Description("Usati solo quando il sizing per percentile è spento.")]
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Content)]
     public List<TitanoSizingTier> SizingTiers { get; set; } =
     [
         new() { MinimumScore = 0.80m, AllocationMultiplier = 1m },
@@ -150,8 +274,17 @@ public sealed class TitanoRotationSetup
         new() { MinimumScore = 0.40m, AllocationMultiplier = 0.25m },
         new() { MinimumScore = 0m, AllocationMultiplier = 0m }
     ];
+    [Category("7. Walk-forward")]
+    [DisplayName("Periodi di calibrazione")]
     public int CalibrationPeriods { get; set; } = 8;
+
+    [Category("7. Walk-forward")]
+    [DisplayName("Periodi di valutazione")]
     public int EvaluationPeriods { get; set; } = 4;
+
+    [Category("7. Walk-forward")]
+    [DisplayName("Modalità")]
+    [Description("Rolling sposta la finestra, Expanding la allunga tenendo fermo l'inizio.")]
     public TitanoWalkForwardMode WalkForwardMode { get; set; } = TitanoWalkForwardMode.Rolling;
 }
 

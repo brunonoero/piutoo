@@ -716,4 +716,73 @@ in ordine cronologico. Non è un changelog di codice: quello resta nei commit.
   due punti avrebbe prodotto due versioni della stessa ricetta, con run che portano l'id di una e i
   parametri dell'altra. I parametri restano modificabili sulla schermata, perche' una rotazione una
   tantum e' un caso legittimo, ma la modifica vale per quella sola esecuzione.
+- **2026-08-04** — I parametri di `TitanoRotationSetup` portano annotazioni `System.ComponentModel`
+  (`Category`, `DisplayName`, `Description`, `Browsable`): il PropertyGrid del dettaglio setup li
+  raggruppa in sette sezioni numerate — calendario, finestre di misura, soglie di ammissione,
+  anti-whipsaw, allocazione, costi, walk-forward — con etichette in italiano e una riga di aiuto.
+
+  Le annotazioni stanno sul modello in `Piootoo.Shared` e non in una classe adattatrice del client.
+  Un adattatore sarebbe una seconda dichiarazione dello stesso modello e al primo parametro aggiunto
+  resterebbe indietro, salvandolo al proprio default senza segnalarlo. Sono metadati, non logica:
+  l'invariante di `Piootoo.Shared` (nessuna dipendenza verso gli altri progetti) resta intatta.
+
+  `TitanoSizingTier` passa da `init` a `set`: l'editor di collezioni del PropertyGrid costruisce la
+  voce e poi ne assegna le proprietà, quindi con `init` gli scaglioni sarebbero stati visibili ma
+  non modificabili.
+- **2026-08-04** — Ogni cartella di backtest porta un marcatore `origin.json` (`Internal` /
+  `ExternalBroker`, piu' piano ed execution key per l'origine esterna). Da quando le sessioni di
+  backtest scrivono anch'esse sotto `backtests/`, i due tipi convivono nello stesso albero e
+  sceglierne uno per l'altro come campione Titano non da' alcun errore: da' numeri diversi.
+
+  L'origine e' **dichiarata alla creazione** e non dedotta a posteriori. L'alternativa era
+  desumerla dalla presenza di `backtest-summary.json`, che scrive solo il motore interno: ma un run
+  interno interrotto prima della fine non ce l'ha e verrebbe etichettato come esterno. La scrittura
+  del marcatore non puo' far fallire un backtest ne' l'apertura di una sessione: in caso di errore
+  si tace e chi legge tratta l'assenza come `Unknown`, che e' anche lo stato delle cartelle
+  preesistenti.
+
+  L'origine compare nelle combo di scelta della cartella (Titano e dettaglio piano) e diventera' una
+  colonna con filtro nella nuova lista dei backtest.
+
+- **2026-08-04** — Nuovi endpoint sui backtest: `GET {ws}/backtests/{cartella}/summary` (restituisce
+  `backtest-summary.json` grezzo, non deserializzato — un contratto tipizzato mostrerebbe un summary
+  incompleto a ogni campo aggiunto senza segnalarlo), `GET .../titano-runs` e
+  `DELETE {ws}/backtests/{cartella}`. La cancellazione porta via anche i run Titano contenuti: il
+  server non lo impedisce, ma il client deve elencarli e avvisare, perche' i piani che li
+  referenziano falliranno all'apertura della sessione e non prima.
+
+- **2026-08-04** — *Operativita' → Backtesting* apre la lista dei backtest, non piu' il form di
+  avvio: quest'ultimo (`BacktestingScreen`) e' diventato la destinazione di *Nuovo backtest*, come
+  per tutte le altre voci lista → dettaglio. Il dettaglio (`BacktestDetailScreen`) e' **di sola
+  lettura**: un backtest e' un artefatto prodotto da un run, non un'anagrafica, e renderlo
+  editabile lo renderebbe incoerente con `backtest-log.jsonl`, che e' append-only.
+
+  Il tab *Riepilogo* mostra il blocco `diagnostics` di `backtest-summary.json` **prima** del JSON
+  grezzo, in una lista dedicata: e' la prima cosa da leggere quando un backtest non produce trade,
+  e annegato in duecento righe di JSON non lo legge nessuno. Il summary resta comunque visibile per
+  intero, perche' il contratto non e' tipizzato e i campi nuovi devono comparire da soli.
+  L'assenza del file non e' un errore della schermata: manca in un run interrotto e nei run
+  dell'engine esterno, e le operazioni restano leggibili lo stesso.
+
+  La voce *Analisi → Risultati trading* e' stata **rimossa** e `TradingResultsScreen` cancellata:
+  il tab *Operazioni* del dettaglio la assorbe. Tenerle entrambe avrebbe significato due griglie
+  degli stessi `trades.json` da mantenere allineate, e soprattutto separava i trade dalla
+  diagnostica che spiega perche' sono quelli e non altri.
+
+- **2026-08-04** — `WorkspaceService.ReadBacktestPeriod` legge i primi 64 KB del file di risultato
+  con `Utf8JsonReader` invece di fare `JsonDocument.Parse(File.ReadAllText(path))`.
+
+  Il codice precedente deserializzava il risultato **intero** — equity ora per ora di ogni
+  strategia, decine o centinaia di MB — per ricavarne due date che stanno nei primi duecento byte,
+  e lo faceva una volta per cartella a ogni `ListBacktests`. Sul workspace `pts-02` sono 423 MB
+  letti (e il doppio allocati, perche' `ReadAllText` materializza una stringa UTF-16) ogni volta
+  che si apre la lista dei backtest: era quello il ritardo di cui ci si lamentava. Con la lettura
+  della sola testa diventano 448 KB.
+
+  `StartDate` ed `EndDate` sono la quarta e la quinta proprieta' di `BacktestingResult`, quindi la
+  finestra e' scelta con tre ordini di grandezza di margine, non stimata. Il reader lavora con
+  `isFinalBlock: false` perche' il buffer taglia il JSON a meta' per costruzione, e considera solo
+  le proprieta' di primo livello: una omonima dentro `HourlyResults` darebbe la data sbagliata.
+  Il file si apre con `FileShare.ReadWrite`, cosi' l'elenco non contende il lock con un backtest
+  che sta scrivendo nella stessa cartella.
 

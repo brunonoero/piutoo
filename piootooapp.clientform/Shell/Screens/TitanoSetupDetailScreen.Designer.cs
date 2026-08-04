@@ -36,7 +36,8 @@ partial class TitanoSetupDetailScreen
         this._parametersGrid.Dock = System.Windows.Forms.DockStyle.Fill;
         this._parametersGrid.Location = new System.Drawing.Point(0, 152);
         this._parametersGrid.Name = "_parametersGrid";
-        this._parametersGrid.PropertySort = System.Windows.Forms.PropertySort.Alphabetical;
+        this._parametersGrid.HelpVisible = true;
+        this._parametersGrid.PropertySort = System.Windows.Forms.PropertySort.Categorized;
         this._parametersGrid.Size = new System.Drawing.Size(900, 348);
         this._parametersGrid.TabIndex = 2;
         this._parametersGrid.ToolbarVisible = false;
