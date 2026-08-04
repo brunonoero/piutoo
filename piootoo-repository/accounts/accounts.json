@@ -17,33 +17,8 @@
       "Enabled": true,
       "Notes": "FTMO 1",
       "CreatedUtc": "2026-07-28T10:10:35.1847811Z",
-      "UpdatedUtc": "2026-08-03T04:52:07.9829862Z",
-      "SymbolMappings": [
-        {
-          "Symbol": "@CL",
-          "AccountSymbol": "@CL",
-          "ContractMultiplier": 1,
-          "Enabled": true
-        },
-        {
-          "Symbol": "@FDAX",
-          "AccountSymbol": "@FDAX",
-          "ContractMultiplier": 1,
-          "Enabled": true
-        },
-        {
-          "Symbol": "@GC",
-          "AccountSymbol": "@GC",
-          "ContractMultiplier": 1,
-          "Enabled": true
-        },
-        {
-          "Symbol": "@NQ",
-          "AccountSymbol": "@NQ",
-          "ContractMultiplier": 5,
-          "Enabled": true
-        }
-      ]
+      "UpdatedUtc": "2026-08-04T11:49:10.9475779Z",
+      "SymbolConversionCode": "cfd-mt4-ftmo"
     },
     {
       "Id": "aaaaa",
@@ -56,33 +31,8 @@
       "Enabled": true,
       "Notes": "aaaaaa",
       "CreatedUtc": "2026-07-28T12:31:52.4493064Z",
-      "UpdatedUtc": "2026-07-29T04:36:19.2530123Z",
-      "SymbolMappings": [
-        {
-          "Symbol": "@CL",
-          "AccountSymbol": "@CL",
-          "ContractMultiplier": 1,
-          "Enabled": true
-        },
-        {
-          "Symbol": "@FDAX",
-          "AccountSymbol": "@FDAX",
-          "ContractMultiplier": 1,
-          "Enabled": true
-        },
-        {
-          "Symbol": "@GC",
-          "AccountSymbol": "@GC",
-          "ContractMultiplier": 1,
-          "Enabled": true
-        },
-        {
-          "Symbol": "@NQ",
-          "AccountSymbol": "@NQ",
-          "ContractMultiplier": 1,
-          "Enabled": true
-        }
-      ]
+      "UpdatedUtc": "2026-08-04T11:49:27.46795Z",
+      "SymbolConversionCode": "cfd-mt4-ftmo"
     }
   ]
 }

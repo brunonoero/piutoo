@@ -1,0 +1,577 @@
+[
+  {
+    "IsEnabled": true,
+    "SubscriberCode": "base-ic-1M",
+    "CopyFrom": "",
+        "CopyFromMultiplier": 0,
+        "MaxContracts": 100,
+        "SplitEnabled":true,
+    "Symbols": [
+      {
+        "SourceSymbol": "@ES",
+        "TargetSymbol": "US500",
+        "Multiplier": 50,
+                "SplitContractsMultiplier": 0.05,
+                "IsEnabled": true
+      },
+      {
+        "SourceSymbol": "@BP",
+        "TargetSymbol": "GBPUSD",
+        "Multiplier": 1,
+                "SplitContractsMultiplier": 1,         
+                "IsEnabled": true
+      },
+      {
+        "SourceSymbol": "@CL",
+        "TargetSymbol": "XTIUSD",
+        "Multiplier": 10,
+                "SplitContractsMultiplier": 0.1,               
+                "IsEnabled": true
+      },
+      {
+        "SourceSymbol": "@FDAX",
+        "TargetSymbol": "DE40",
+        "Multiplier": 25,
+                "SplitContractsMultiplier": 0.1,               
+                "IsEnabled": true
+      },
+      {
+        "SourceSymbol": "@GC",
+        "TargetSymbol": "XAUUSD",
+        "Multiplier": 0.1,
+                "SplitContractsMultiplier": 1,         
+                "IsEnabled": true
+      },
+      {
+        "SourceSymbol": "@EC",
+        "TargetSymbol": "EURUSD",
+        "Multiplier": 1,
+                "SplitContractsMultiplier": 1,         
+                "IsEnabled": true
+      },
+      {
+        "SourceSymbol": "@JY",
+        "TargetSymbol": "USDJPY",
+        "Multiplier": 1,
+                "SplitContractsMultiplier": 1,         
+                "ReverseDirection" : true,
+                "IsEnabled": true
+      },
+      {
+        "SourceSymbol": "@NG",
+        "TargetSymbol": "XNGUSD",
+        "Multiplier": 1,
+                "SplitContractsMultiplier": 1,         
+                "IsEnabled": true
+      },
+      {
+        "SourceSymbol": "@NQ",
+        "TargetSymbol": "USTEC",
+        "Multiplier": 20,
+                "SplitContractsMultiplier": 0.1,
+                "IsEnabled": true
+      },
+      {
+        "SourceSymbol": "@PL",
+        "TargetSymbol": "XPTUSD",
+        "Multiplier": 0.5,
+                "SplitContractsMultiplier": 1,         
+                "IsEnabled": false
+      },
+      {
+        "SourceSymbol": "ETHUSD",
+        "TargetSymbol": "ETHUSD",
+        "Multiplier": 1,
+                "SplitContractsMultiplier": 1,         
+                "IsEnabled": true
+      },
+      {
+        "SourceSymbol": "BTCUSD",
+        "TargetSymbol": "BTCUSD",
+        "Multiplier": 1,
+                "SplitContractsMultiplier": 1,         
+                "IsEnabled": true
+      },
+      {
+        "SourceSymbol": "@S",
+        "TargetSymbol": "Sbean_H4",
+        "Multiplier": 12,
+                "SplitContractsMultiplier": 0.05,               
+                "IsEnabled": true
+      }
+    ]
+  },
+  {
+    "IsEnabled": true,
+    "SubscriberCode": "mt4-ic-66646702-200K",
+    "CopyFrom": "base-ic-1M",
+        "CopyFromMultiplier": 0.2,
+        "ReverseAllDirection": false
+  },
+  {
+    "IsEnabled": true,
+    "SubscriberCode": "ct-ic-9051647-200K",
+    "CopyFrom": "base-ic-1M",
+        "CopyFromMultiplier": 0.2,
+        "ReverseAllDirection": false
+  },
+  {
+    "IsEnabled": true,
+    "SubscriberCode": "base-mt5-next-1M",
+    "CopyFrom": "",
+        "CopyFromMultiplier": 0,
+        "MaxContracts": 1,
+        "SplitEnabled":false,   
+        "Symbols": [
+      {
+        "SourceSymbol": "@ES",
+        "TargetSymbol": "US500.f",
+        "Multiplier": 1,
+                "SplitContractsMultiplier": 1,         
+                "IsEnabled": true
+      },
+      {
+        "SourceSymbol": "@BP",
+        "TargetSymbol": "GBPUSDp",
+        "Multiplier": 0.63,
+                "SplitContractsMultiplier": 1,         
+                "IsEnabled": true
+      },
+      {
+        "SourceSymbol": "@CL",
+        "TargetSymbol": "USOIL.f", 
+        "Multiplier": 1,
+                "SplitContractsMultiplier": 1,         
+                "IsEnabled": true
+      },
+      {
+        "SourceSymbol": "@GC",
+        "TargetSymbol": "XAUUSDp",
+        "Multiplier": 1,
+                "SplitContractsMultiplier": 1,         
+                "IsEnabled": true
+      },
+      {
+        "SourceSymbol": "@EC", 
+        "TargetSymbol": "EURUSDp",
+        "Multiplier": 1,
+                "SplitContractsMultiplier": 1,         
+                "IsEnabled": true
+      },
+      {
+        "SourceSymbol": "@JY",
+        "TargetSymbol": "USDJPYp",
+        "Multiplier": 1,
+        "SplitContractsMultiplier": 1,         
+        "ReverseDirection" : true,
+        "IsEnabled": true
+      },
+      {
+        "SourceSymbol": "@NQ",
+        "TargetSymbol": "USTEC.f",
+        "Multiplier": 0.5,
+		"SplitContractsMultiplier": 1,         
+		"IsEnabled": true
+      },
+      {
+        "SourceSymbol": "ETHUSD",
+        "TargetSymbol": "ETHUSD",
+        "Multiplier": 1,
+                "SplitContractsMultiplier": 1,         
+                "IsEnabled": true
+      },
+      {
+        "SourceSymbol": "BTCUSD",
+        "TargetSymbol": "BTCUSD",
+        "Multiplier": 1,
+                "SplitContractsMultiplier": 1,         
+                "IsEnabled": true
+      },
+      {
+        "SourceSymbol": "@FDAX",
+        "TargetSymbol": "DE40.f",
+        "Multiplier": 1,
+                "SplitContractsMultiplier": 1,         
+                "IsEnabled": true
+      }
+
+    ]
+   },
+   {
+     "IsEnabled": true,
+     "SubscriberCode": "mt5-next-107245-100K",
+     "CopyFrom": "base-mt5-next-1M",
+         "CopyFromMultiplier": 0.2
+   },
+   {
+    "IsEnabled": true,
+    "SubscriberCode": "base-mt4-ftmo-1M",
+    "CopyFrom": "",
+        "CopyFromMultiplier": 0,
+        "MaxContracts": 100,   
+        "SplitEnabled":false,
+        "Symbols": [
+      {
+        "SourceSymbol": "@ES",
+        "TargetSymbol": "US500.cash",
+        "Multiplier": 50,
+                "SplitContractsMultiplier": 1,         
+                "IsEnabled": true
+      },
+      {
+        "SourceSymbol": "@BP",
+        "TargetSymbol": "GBPUSD",
+        "Multiplier": 0.63,
+                "SplitContractsMultiplier": 1,         
+                "IsEnabled": true
+      },
+      {
+        "SourceSymbol": "@CL",
+        "TargetSymbol": "USOIL.cash",
+        "Multiplier": 10,
+                "SplitContractsMultiplier": 1,         
+                "IsEnabled": true
+      },
+      {
+        "SourceSymbol": "@FDAX",
+        "TargetSymbol": "GER40.cash",
+        "Multiplier": 25,
+                "SplitContractsMultiplier": 1,         
+                "IsEnabled": true
+      },
+      {
+        "SourceSymbol": "@GC",
+        "TargetSymbol": "XAUUSD",
+        "Multiplier": 1,
+                "SplitContractsMultiplier": 1,         
+                "IsEnabled": true
+      },
+      {
+        "SourceSymbol": "@EC",
+        "TargetSymbol": "EURUSD",
+        "Multiplier": 1,
+                "SplitContractsMultiplier": 1,         
+                "IsEnabled": true
+      },
+      {
+        "SourceSymbol": "@JY",
+        "TargetSymbol": "USDJPY",
+        "Multiplier": 1,
+        "ReverseDirection" : true,
+                "SplitContractsMultiplier": 1,         
+                "IsEnabled": true
+      },
+      {
+        "SourceSymbol": "@NQ",
+        "TargetSymbol": "US100.cash",
+        "Multiplier": 20,
+                "SplitContractsMultiplier": 1,         
+                "IsEnabled": true
+      },
+      {
+        "SourceSymbol": "@PL",
+        "TargetSymbol": "XPTUSD",
+        "Multiplier": 50,
+                "SplitContractsMultiplier": 1,         
+                "IsEnabled": true
+      },
+      {
+        "SourceSymbol": "ETHUSD",
+        "TargetSymbol": "ETHUSD",
+        "Multiplier": 1,
+                "SplitContractsMultiplier": 1,         
+                "IsEnabled": true
+      },
+      {
+        "SourceSymbol": "BTCUSD",
+        "TargetSymbol": "BTCUSD",
+        "Multiplier": 1,
+                "SplitContractsMultiplier": 1,         
+                "IsEnabled": true
+      },
+      {
+        "SourceSymbol": "@S",
+        "TargetSymbol": "SOYBEAN.c",
+        "Multiplier": 50,
+                "SplitContractsMultiplier": 1,         
+                "IsEnabled": true
+      }
+        ]
+  },
+  {
+    "IsEnabled": true,
+    "SubscriberCode": "mt4-ftmo-2091388858-200K",
+    "CopyFrom": "base-mt4-ftmo-1M",
+        "CopyFromMultiplier": 0.2
+  },
+  {
+    "IsEnabled": true,
+    "SubscriberCode": "mt4-ftmo20-2091389367-200K",
+    "CopyFrom": "base-mt4-ftmo-1M",
+        "CopyFromMultiplier": 0.2
+  },
+   {
+    "IsEnabled": true,
+    "SubscriberCode": "base-mt5-demo-1M",
+    "CopyFrom": "",
+        "CopyFromMultiplier": 0,
+        "MaxContracts": 100,   
+        "SplitEnabled":false,
+        "Symbols": [
+      {
+        "SourceSymbol": "@ES",
+        "TargetSymbol": "US500.cash",
+        "Multiplier": 50,
+                "SplitContractsMultiplier": 1,         
+                "IsEnabled": true
+      },
+      {
+        "SourceSymbol": "@BP",
+        "TargetSymbol": "GBPUSD",
+        "Multiplier": 0.63,
+                "SplitContractsMultiplier": 1,         
+                "IsEnabled": true
+      },
+      {
+        "SourceSymbol": "@CL",
+        "TargetSymbol": "USOIL.cash",
+        "Multiplier": 10,
+                "SplitContractsMultiplier": 1,         
+                "IsEnabled": true
+      },
+      {
+        "SourceSymbol": "@FDAX",
+        "TargetSymbol": "GER40.cash",
+        "Multiplier": 25,
+                "SplitContractsMultiplier": 1,         
+                "IsEnabled": true
+      },
+      {
+        "SourceSymbol": "@GC",
+        "TargetSymbol": "XAUUSD",
+        "Multiplier": 1,
+                "SplitContractsMultiplier": 1,         
+                "IsEnabled": true
+      },
+      {
+        "SourceSymbol": "@EC",
+        "TargetSymbol": "EURUSD",
+        "Multiplier": 1,
+                "SplitContractsMultiplier": 1,         
+                "IsEnabled": true
+      },
+      {
+        "SourceSymbol": "@JY",
+        "TargetSymbol": "USDJPY",
+        "Multiplier": 1,
+        "ReverseDirection" : true,
+                "SplitContractsMultiplier": 1,         
+                "IsEnabled": true
+      },
+      {
+        "SourceSymbol": "@NQ",
+        "TargetSymbol": "US100.cash",
+        "Multiplier": 20,
+                "SplitContractsMultiplier": 1,         
+                "IsEnabled": true
+      },
+      {
+        "SourceSymbol": "@PL",
+        "TargetSymbol": "XPTUSD",
+        "Multiplier": 50,
+                "SplitContractsMultiplier": 1,         
+                "IsEnabled": true
+      },
+      {
+        "SourceSymbol": "ETHUSD",
+        "TargetSymbol": "ETHUSD",
+        "Multiplier": 1,
+                "SplitContractsMultiplier": 1,         
+                "IsEnabled": true
+      },
+      {
+        "SourceSymbol": "BTCUSD",
+        "TargetSymbol": "BTCUSD",
+        "Multiplier": 1,
+                "SplitContractsMultiplier": 1,         
+                "IsEnabled": true
+      },
+      {
+        "SourceSymbol": "@S",
+        "TargetSymbol": "SOYBEAN.c",
+        "Multiplier": 50,
+                "SplitContractsMultiplier": 1,         
+                "IsEnabled": true
+      }
+        ]
+  },
+  {
+    "IsEnabled": true,
+    "SubscriberCode": "mt5-demo-734449466-10K",
+    "CopyFrom": "base-mt5-demo-1M",
+        "CopyFromMultiplier": 0.05
+  },
+  {
+    "IsEnabled": true,
+    "SubscriberCode": "base-mt5-5ers-1M",
+    "CopyFrom": "",
+        "CopyFromMultiplier": 0,
+        "MaxContracts": 100,   
+        "SplitEnabled":false,   
+    "Symbols": [
+      {
+        "SourceSymbol": "@ES",
+        "TargetSymbol": "SP500",
+        "Multiplier": 5,
+                "SplitContractsMultiplier": 1,         
+                "IsEnabled": true
+      },
+      {
+        "SourceSymbol": "@BP",
+        "TargetSymbol": "GBPUSD",
+        "Multiplier": 0.63,
+                "SplitContractsMultiplier": 1,         
+                "IsEnabled": true
+      },
+      {
+        "SourceSymbol": "@CL",
+        "TargetSymbol": "XTIUSD",
+        "Multiplier": 10,
+                "SplitContractsMultiplier": 1,         
+                "IsEnabled": true
+      },
+      {
+        "SourceSymbol": "@FDAX",
+        "TargetSymbol": "DAX40",
+        "Multiplier": 2.5,
+                "SplitContractsMultiplier": 1,         
+                "IsEnabled": true
+      },
+      {
+        "SourceSymbol": "@GC",
+        "TargetSymbol": "XAUUSD",
+        "Multiplier": 1,
+                "SplitContractsMultiplier": 1,         
+                "IsEnabled": true
+      },
+      {
+        "SourceSymbol": "@EC",
+        "TargetSymbol": "EURUSD",
+        "Multiplier": 1,
+                "SplitContractsMultiplier": 1,         
+                "IsEnabled": true
+      },
+      {
+        "SourceSymbol": "@JY",
+        "TargetSymbol": "USDJPY",
+        "Multiplier": 1,
+                "ReverseDirection" : true,
+                "SplitContractsMultiplier": 1,         
+                "IsEnabled": true
+      },
+      {
+        "SourceSymbol": "@NQ",
+        "TargetSymbol": "NAS100",
+        "Multiplier": 2,
+                "SplitContractsMultiplier": 1,         
+                "IsEnabled": true
+      },
+      {
+        "SourceSymbol": "ETHUSD",
+        "TargetSymbol": "ETHUSD",
+        "Multiplier": 1,
+                "SplitContractsMultiplier": 1,         
+                "IsEnabled": true
+      },
+      {
+        "SourceSymbol": "BTCUSD",
+        "TargetSymbol": "BTCUSD",
+        "Multiplier": 1,
+                "SplitContractsMultiplier": 1,         
+                "IsEnabled": true
+      }
+    ]
+  },
+  {
+    "IsEnabled": true,
+    "SubscriberCode": "mt5-5ers-24337283-100K",
+    "CopyFrom": "base-mt5-5ers-1M",
+        "CopyFromMultiplier": 0.1
+  },
+  {
+    "IsEnabled": true,
+    "SubscriberCode": "base-mt5-fintokei-1M",
+    "CopyFrom": "",
+    "CopyFromMultiplier": 0,
+        "MaxContracts": 100,   
+        "SplitEnabled":false,           
+    "Symbols": [
+      {
+        "SourceSymbol": "@ES",
+        "TargetSymbol": "SPp",
+        "Multiplier": 1,
+                "SplitContractsMultiplier": 1,         
+                "IsEnabled": true
+      },
+      {
+        "SourceSymbol": "@BP",
+        "TargetSymbol": "GBPUSDp",
+        "Multiplier": 0.63,
+                "SplitContractsMultiplier": 1,         
+                "IsEnabled": true
+      },
+      {
+        "SourceSymbol": "@CL",
+        "TargetSymbol": "CLp",
+        "Multiplier": 1,
+                "SplitContractsMultiplier": 1,         
+                "IsEnabled": true
+      },
+      {
+        "SourceSymbol": "@FDAX",
+        "TargetSymbol": "DAXp",
+        "Multiplier": 1,
+                "SplitContractsMultiplier": 1,         
+                "IsEnabled": true
+      },
+      {
+        "SourceSymbol": "@GC",
+        "TargetSymbol": "XAUUSDp",
+        "Multiplier": 1,
+                "SplitContractsMultiplier": 1,         
+                "IsEnabled": true
+      },
+      {
+        "SourceSymbol": "@EC",
+        "TargetSymbol": "EURUSDp",
+        "Multiplier": 1,
+                "SplitContractsMultiplier": 1,         
+                "IsEnabled": true
+      },
+      {
+        "SourceSymbol": "@JY",
+        "TargetSymbol": "USDJPYp",
+        "Multiplier": 1,
+                "ReverseDirection" : true,
+                "SplitContractsMultiplier": 1,         
+                "IsEnabled": true
+      },
+      {
+        "SourceSymbol": "@NQ",
+        "TargetSymbol": "NSDQp",
+        "Multiplier": 1,
+                "SplitContractsMultiplier": 1,         
+                "IsEnabled": true
+      }
+    ]
+  },
+  {
+    "IsEnabled": true,
+    "SubscriberCode": "mt5-fintokei-5102719-100K",
+    "CopyFrom": "base-mt5-fintokei-1M",
+        "CopyFromMultiplier": 0.2
+  }
+
+
+
+]

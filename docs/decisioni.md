@@ -848,4 +848,18 @@ in ordine cronologico. Non è un changelog di codice: quello resta nei commit.
   `.cursor/rules/piutoo-console-screens.mdc`, non sparse nei commenti. La prima e' che **ogni
   griglia deve essere ordinabile**: era una regola implicita nata sbagliata (nove schermate con
   `NotSortable` copiato) e finche' non era scritta si e' propagata per imitazione.
+- **2026-08-04** — La tabella di conversione symbol non vive più embedded dentro l'account
+  (`WorkspaceAccount.SymbolMappings`, una tabella non nominata per account): è diventata un
+  registro globale di `SymbolConversion` (Nome + Codice + righe), fuori sia dal workspace sia
+  dall'account, così più account possono condividere la stessa tabella e la si gestisce in un
+  posto solo (Anagrafiche → Conversioni simbolo). L'account referenzia una tabella per codice
+  (`WorkspaceAccount.SymbolConversionCode`, vuoto = nessuna conversione, 1 a 1) invece di editarla:
+  `AccountDetailScreen` e il tab Accounts della console legacy espongono solo la combo di
+  selezione. Il vecchio preset condiviso (`settings/default-symbol-conversion.json`, un unico
+  documento senza identità) è sostituito dallo stesso registro: non serve più un concetto
+  separato di "punto di partenza dei nuovi account" perché un account nuovo semplicemente non
+  referenzia nessuna tabella. Migrazione: le due tabelle già embedded nei due account di test sono
+  diventate `primo-ftmo` e `default-futures` in `piootoo-repository/accounts/symbol-conversions.json`,
+  quest'ultima è anche il preset identità (ogni symbol del catalogo su se stesso, moltiplicatore 1)
+  materializzato come voce nominata riutilizzabile invece che ricalcolato ogni volta.
 

@@ -1,0 +1,374 @@
+{
+  "Conversions": [
+    {
+      "Code": "cfd-ic",
+      "Name": "CFD-ic",
+      "Mappings": [
+        {
+          "Symbol": "@BP",
+          "AccountSymbol": "GBPUSD",
+          "ContractMultiplier": 1,
+          "Enabled": true
+        },
+        {
+          "Symbol": "@CL",
+          "AccountSymbol": "XTIUSD",
+          "ContractMultiplier": 10,
+          "Enabled": true
+        },
+        {
+          "Symbol": "@EC",
+          "AccountSymbol": "EURUSD",
+          "ContractMultiplier": 1,
+          "Enabled": true
+        },
+        {
+          "Symbol": "@FDAX",
+          "AccountSymbol": "DE40",
+          "ContractMultiplier": 25,
+          "Enabled": true
+        },
+        {
+          "Symbol": "@GC",
+          "AccountSymbol": "XAUUSD",
+          "ContractMultiplier": 0.1,
+          "Enabled": true
+        },
+        {
+          "Symbol": "@NQ",
+          "AccountSymbol": "USTEC",
+          "ContractMultiplier": 20,
+          "Enabled": true
+        },
+        {
+          "Symbol": "@PL",
+          "AccountSymbol": "XPTUSD",
+          "ContractMultiplier": 0.5,
+          "Enabled": false
+        }
+      ],
+      "CreatedUtc": "2026-08-04T00:00:00Z",
+      "UpdatedUtc": "2026-08-04T00:00:00Z"
+    },
+    {
+      "Code": "cfd-mt4-ftmo",
+      "Name": "CFD-mt4-ftmo",
+      "Mappings": [
+        {
+          "Symbol": "@BP",
+          "AccountSymbol": "GBPUSD",
+          "ContractMultiplier": 0.63,
+          "Enabled": true
+        },
+        {
+          "Symbol": "@CL",
+          "AccountSymbol": "USOIL.cash",
+          "ContractMultiplier": 10,
+          "Enabled": true
+        },
+        {
+          "Symbol": "@EC",
+          "AccountSymbol": "EURUSD",
+          "ContractMultiplier": 1,
+          "Enabled": true
+        },
+        {
+          "Symbol": "@FDAX",
+          "AccountSymbol": "GER40.cash",
+          "ContractMultiplier": 25,
+          "Enabled": true
+        },
+        {
+          "Symbol": "@GC",
+          "AccountSymbol": "XAUUSD",
+          "ContractMultiplier": 1,
+          "Enabled": true
+        },
+        {
+          "Symbol": "@NQ",
+          "AccountSymbol": "US100.cash",
+          "ContractMultiplier": 20,
+          "Enabled": true
+        },
+        {
+          "Symbol": "@PL",
+          "AccountSymbol": "XPTUSD",
+          "ContractMultiplier": 50,
+          "Enabled": true
+        }
+      ],
+      "CreatedUtc": "2026-08-04T00:00:00Z",
+      "UpdatedUtc": "2026-08-04T00:00:00Z"
+    },
+    {
+      "Code": "cfd-mt5-5ers",
+      "Name": "CFD-mt5-5ers",
+      "Mappings": [
+        {
+          "Symbol": "@BP",
+          "AccountSymbol": "GBPUSD",
+          "ContractMultiplier": 0.63,
+          "Enabled": true
+        },
+        {
+          "Symbol": "@CL",
+          "AccountSymbol": "XTIUSD",
+          "ContractMultiplier": 10,
+          "Enabled": true
+        },
+        {
+          "Symbol": "@EC",
+          "AccountSymbol": "EURUSD",
+          "ContractMultiplier": 1,
+          "Enabled": true
+        },
+        {
+          "Symbol": "@FDAX",
+          "AccountSymbol": "DAX40",
+          "ContractMultiplier": 2.5,
+          "Enabled": true
+        },
+        {
+          "Symbol": "@GC",
+          "AccountSymbol": "XAUUSD",
+          "ContractMultiplier": 1,
+          "Enabled": true
+        },
+        {
+          "Symbol": "@NQ",
+          "AccountSymbol": "NAS100",
+          "ContractMultiplier": 2,
+          "Enabled": true
+        }
+      ],
+      "CreatedUtc": "2026-08-04T00:00:00Z",
+      "UpdatedUtc": "2026-08-04T00:00:00Z"
+    },
+    {
+      "Code": "cfd-mt5-demo",
+      "Name": "CFD-mt5-demo",
+      "Mappings": [
+        {
+          "Symbol": "@BP",
+          "AccountSymbol": "GBPUSD",
+          "ContractMultiplier": 0.63,
+          "Enabled": true
+        },
+        {
+          "Symbol": "@CL",
+          "AccountSymbol": "USOIL.cash",
+          "ContractMultiplier": 10,
+          "Enabled": true
+        },
+        {
+          "Symbol": "@EC",
+          "AccountSymbol": "EURUSD",
+          "ContractMultiplier": 1,
+          "Enabled": true
+        },
+        {
+          "Symbol": "@FDAX",
+          "AccountSymbol": "GER40.cash",
+          "ContractMultiplier": 25,
+          "Enabled": true
+        },
+        {
+          "Symbol": "@GC",
+          "AccountSymbol": "XAUUSD",
+          "ContractMultiplier": 1,
+          "Enabled": true
+        },
+        {
+          "Symbol": "@NQ",
+          "AccountSymbol": "US100.cash",
+          "ContractMultiplier": 20,
+          "Enabled": true
+        },
+        {
+          "Symbol": "@PL",
+          "AccountSymbol": "XPTUSD",
+          "ContractMultiplier": 50,
+          "Enabled": true
+        }
+      ],
+      "CreatedUtc": "2026-08-04T00:00:00Z",
+      "UpdatedUtc": "2026-08-04T00:00:00Z"
+    },
+    {
+      "Code": "cfd-mt5-fintokei",
+      "Name": "CFD-mt5-fintokei",
+      "Mappings": [
+        {
+          "Symbol": "@BP",
+          "AccountSymbol": "GBPUSDp",
+          "ContractMultiplier": 0.63,
+          "Enabled": true
+        },
+        {
+          "Symbol": "@CL",
+          "AccountSymbol": "CLp",
+          "ContractMultiplier": 1,
+          "Enabled": true
+        },
+        {
+          "Symbol": "@EC",
+          "AccountSymbol": "EURUSDp",
+          "ContractMultiplier": 1,
+          "Enabled": true
+        },
+        {
+          "Symbol": "@FDAX",
+          "AccountSymbol": "DAXp",
+          "ContractMultiplier": 1,
+          "Enabled": true
+        },
+        {
+          "Symbol": "@GC",
+          "AccountSymbol": "XAUUSDp",
+          "ContractMultiplier": 1,
+          "Enabled": true
+        },
+        {
+          "Symbol": "@NQ",
+          "AccountSymbol": "NSDQp",
+          "ContractMultiplier": 1,
+          "Enabled": true
+        }
+      ],
+      "CreatedUtc": "2026-08-04T00:00:00Z",
+      "UpdatedUtc": "2026-08-04T00:00:00Z"
+    },
+    {
+      "Code": "cfd-mt5-next",
+      "Name": "CFD-mt5-next",
+      "Mappings": [
+        {
+          "Symbol": "@BP",
+          "AccountSymbol": "GBPUSDp",
+          "ContractMultiplier": 0.63,
+          "Enabled": true
+        },
+        {
+          "Symbol": "@CL",
+          "AccountSymbol": "USOIL.f",
+          "ContractMultiplier": 1,
+          "Enabled": true
+        },
+        {
+          "Symbol": "@EC",
+          "AccountSymbol": "EURUSDp",
+          "ContractMultiplier": 1,
+          "Enabled": true
+        },
+        {
+          "Symbol": "@FDAX",
+          "AccountSymbol": "DE40.f",
+          "ContractMultiplier": 1,
+          "Enabled": true
+        },
+        {
+          "Symbol": "@GC",
+          "AccountSymbol": "XAUUSDp",
+          "ContractMultiplier": 1,
+          "Enabled": true
+        },
+        {
+          "Symbol": "@NQ",
+          "AccountSymbol": "USTEC.f",
+          "ContractMultiplier": 0.5,
+          "Enabled": true
+        }
+      ],
+      "CreatedUtc": "2026-08-04T00:00:00Z",
+      "UpdatedUtc": "2026-08-04T00:00:00Z"
+    },
+    {
+      "Code": "default-futures",
+      "Name": "Default FUTURES",
+      "Mappings": [
+        {
+          "Symbol": "@BP",
+          "AccountSymbol": "@BP",
+          "ContractMultiplier": 1,
+          "Enabled": true
+        },
+        {
+          "Symbol": "@CL",
+          "AccountSymbol": "@CL",
+          "ContractMultiplier": 1,
+          "Enabled": true
+        },
+        {
+          "Symbol": "@EC",
+          "AccountSymbol": "@EC",
+          "ContractMultiplier": 1,
+          "Enabled": true
+        },
+        {
+          "Symbol": "@FDAX",
+          "AccountSymbol": "@FDAX",
+          "ContractMultiplier": 1,
+          "Enabled": true
+        },
+        {
+          "Symbol": "@GC",
+          "AccountSymbol": "@GC",
+          "ContractMultiplier": 1,
+          "Enabled": true
+        },
+        {
+          "Symbol": "@HG",
+          "AccountSymbol": "@HG",
+          "ContractMultiplier": 1,
+          "Enabled": true
+        },
+        {
+          "Symbol": "@NQ",
+          "AccountSymbol": "@NQ",
+          "ContractMultiplier": 1,
+          "Enabled": true
+        },
+        {
+          "Symbol": "@PL",
+          "AccountSymbol": "@PL",
+          "ContractMultiplier": 1,
+          "Enabled": true
+        }
+      ],
+      "CreatedUtc": "2026-08-04T00:00:00Z",
+      "UpdatedUtc": "2026-08-04T00:00:00Z"
+    },
+    {
+      "Code": "primo-ftmo",
+      "Name": "FTMO",
+      "Mappings": [
+        {
+          "Symbol": "@CL",
+          "AccountSymbol": "@CL",
+          "ContractMultiplier": 1,
+          "Enabled": true
+        },
+        {
+          "Symbol": "@FDAX",
+          "AccountSymbol": "@FDAX",
+          "ContractMultiplier": 1,
+          "Enabled": true
+        },
+        {
+          "Symbol": "@GC",
+          "AccountSymbol": "@GC",
+          "ContractMultiplier": 1,
+          "Enabled": true
+        },
+        {
+          "Symbol": "@NQ",
+          "AccountSymbol": "@NQ",
+          "ContractMultiplier": 5,
+          "Enabled": true
+        }
+      ],
+      "CreatedUtc": "2026-08-04T00:00:00Z",
+      "UpdatedUtc": "2026-08-04T11:48:00.0957655Z"
+    }
+  ]
+}
