@@ -79,7 +79,11 @@ public partial class EntityToolbar : UserControl
         _createButton.Enabled = !busy && _createButton.Visible;
         _deleteButton.Enabled = !busy && _deleteAllowed && _deleteButton.Visible;
         _refreshButton.Enabled = !busy;
-        Cursor = busy ? Cursors.AppStarting : Cursors.Default;
+
+        // Il cursore di attesa va sulla schermata, non sulla barra. La barra è alta quaranta
+        // pixel in cima: mentre si aspetta il mouse è sopra la griglia, ed è lì che deve
+        // vedersi qualcosa. `UseWaitCursor` si propaga ai figli, `Cursor` no.
+        ((Control?)Parent ?? this).UseWaitCursor = busy;
     }
 
     public void ClearFilter() => _filterBox.Clear();

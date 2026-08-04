@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using piootooapp.clientform.Shell.Controls;
 
 namespace piootooapp.clientform.Shell.Screens;
 
@@ -28,17 +29,14 @@ public partial class TitanoSetupListScreen : UserControl, IShellScreen
         new(StringComparer.OrdinalIgnoreCase) { "conservativo", "bilanciato", "dinamico" };
 
     private readonly List<TitanoSetupRow> _allRows = new();
-    private readonly BindingList<TitanoSetupRow> _visibleRows = new();
+    private readonly SortableBindingList<TitanoSetupRow> _visibleRows = new();
     private ShellContext? _context;
 
     public TitanoSetupListScreen()
     {
         InitializeComponent();
         _bindingSource.DataSource = _visibleRows;
-        foreach (DataGridViewColumn column in _grid.Columns)
-        {
-            column.SortMode = DataGridViewColumnSortMode.NotSortable;
-        }
+        _grid.EnableColumnSorting();
     }
 
     public string ScreenTitle => "Setup Titano";
@@ -99,6 +97,7 @@ public partial class TitanoSetupListScreen : UserControl, IShellScreen
         }
 
         _visibleRows.RaiseListChangedEvents = true;
+        _visibleRows.ReapplySort();
         _visibleRows.ResetBindings();
         UpdateDeleteAvailability();
     }

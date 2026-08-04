@@ -20,17 +20,14 @@ public sealed class GroupRow
 public partial class GroupListScreen : UserControl, IShellScreen
 {
     private readonly List<GroupRow> _allRows = new();
-    private readonly BindingList<GroupRow> _visibleRows = new();
+    private readonly SortableBindingList<GroupRow> _visibleRows = new();
     private ShellContext? _context;
 
     public GroupListScreen()
     {
         InitializeComponent();
         _bindingSource.DataSource = _visibleRows;
-        foreach (DataGridViewColumn column in _grid.Columns)
-        {
-            column.SortMode = DataGridViewColumnSortMode.NotSortable;
-        }
+        _grid.EnableColumnSorting();
     }
 
     public string ScreenTitle => "Gruppi";
@@ -99,6 +96,7 @@ public partial class GroupListScreen : UserControl, IShellScreen
         }
 
         _visibleRows.RaiseListChangedEvents = true;
+        _visibleRows.ReapplySort();
         _visibleRows.ResetBindings();
         UpdateDeleteAvailability();
     }

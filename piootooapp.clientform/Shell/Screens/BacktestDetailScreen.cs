@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Text.Json;
 using Piootoo.Shared.Models.Trading;
+using piootooapp.clientform.Shell.Controls;
 
 namespace piootooapp.clientform.Shell.Screens;
 
@@ -45,7 +46,7 @@ public sealed class TradeRow
 public partial class BacktestDetailScreen : UserControl, IShellScreen
 {
     private readonly List<PersistedTrade> _trades = new();
-    private readonly BindingList<TradeRow> _visibleTrades = new();
+    private readonly SortableBindingList<TradeRow> _visibleTrades = new();
     private ShellContext? _context;
     private string _workspaceId = string.Empty;
     private string _folderName = string.Empty;
@@ -54,10 +55,7 @@ public partial class BacktestDetailScreen : UserControl, IShellScreen
     {
         InitializeComponent();
         _tradesBindingSource.DataSource = _visibleTrades;
-        foreach (DataGridViewColumn column in _grid.Columns)
-        {
-            column.SortMode = DataGridViewColumnSortMode.NotSortable;
-        }
+        _grid.EnableColumnSorting();
     }
 
     public string ScreenTitle => _folderName.Length > 0 ? _folderName : "Backtest";
@@ -302,6 +300,7 @@ public partial class BacktestDetailScreen : UserControl, IShellScreen
         }
 
         _visibleTrades.RaiseListChangedEvents = true;
+        _visibleTrades.ReapplySort();
         _visibleTrades.ResetBindings();
 
         var shown = _visibleTrades.Count;

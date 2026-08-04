@@ -163,6 +163,11 @@ public partial class MainShellForm : Form, INavigationHost
             return;
         }
 
+        // Lo stato va scritto *prima* della await: le schermate lo scrivono alla fine del
+        // caricamento, quindi finché il server non risponde la barra mostrava ancora il
+        // risultato precedente e sembrava che non stesse succedendo niente.
+        SetStatus("Caricamento…");
+        _contentPanel.UseWaitCursor = true;
         try
         {
             await shellScreen.LoadAsync(token);
@@ -175,9 +180,22 @@ public partial class MainShellForm : Form, INavigationHost
         {
             SetError(ex.Message);
         }
+        finally
+        {
+            if (!IsDisposed)
+            {
+                _contentPanel.UseWaitCursor = false;
+            }
+        }
 
         if (!token.IsCancellationRequested && !IsDisposed)
         {
+            // Una schermata che non ha nulla da dire non deve lasciare "Caricamento…" appeso.
+            if (_statusLabel.Text == "Caricamento…")
+            {
+                SetStatus("Pronto.");
+            }
+
             // Il titolo di un dettaglio è noto solo dopo il caricamento.
             UpdateBreadcrumb();
         }

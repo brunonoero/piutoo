@@ -34,7 +34,7 @@ public sealed class RotationRow
 public partial class RotationsScreen : UserControl, IShellScreen
 {
     private readonly List<RotationRow> _allRows = new();
-    private readonly BindingList<RotationRow> _visibleRows = new();
+    private readonly SortableBindingList<RotationRow> _visibleRows = new();
     private ShellContext? _context;
     private TitanoRotationManifest? _manifest;
     private bool _suspendReload;
@@ -43,10 +43,7 @@ public partial class RotationsScreen : UserControl, IShellScreen
     {
         InitializeComponent();
         _bindingSource.DataSource = _visibleRows;
-        foreach (DataGridViewColumn column in _grid.Columns)
-        {
-            column.SortMode = DataGridViewColumnSortMode.NotSortable;
-        }
+        _grid.EnableColumnSorting();
     }
 
     public string ScreenTitle => "Rotazioni Titano";
@@ -329,6 +326,7 @@ public partial class RotationsScreen : UserControl, IShellScreen
         }
 
         _visibleRows.RaiseListChangedEvents = true;
+        _visibleRows.ReapplySort();
         _visibleRows.ResetBindings();
         _summaryLabel.Text = $"{_visibleRows.Count} righe su {_allRows.Count}";
     }

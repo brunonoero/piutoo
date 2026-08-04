@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using piootooapp.clientform.Shell.Controls;
 
 namespace piootooapp.clientform.Shell.Screens;
 
@@ -24,7 +25,7 @@ public sealed class PlanRow
 public partial class PlanListScreen : UserControl, IShellScreen
 {
     private readonly List<PlanRow> _allRows = new();
-    private readonly BindingList<PlanRow> _visibleRows = new();
+    private readonly SortableBindingList<PlanRow> _visibleRows = new();
     private ShellContext? _context;
     private bool _suspendReload;
 
@@ -32,10 +33,7 @@ public partial class PlanListScreen : UserControl, IShellScreen
     {
         InitializeComponent();
         _bindingSource.DataSource = _visibleRows;
-        foreach (DataGridViewColumn column in _grid.Columns)
-        {
-            column.SortMode = DataGridViewColumnSortMode.NotSortable;
-        }
+        _grid.EnableColumnSorting();
     }
 
     public string ScreenTitle => "Piani di trading";
@@ -165,6 +163,7 @@ public partial class PlanListScreen : UserControl, IShellScreen
         }
 
         _visibleRows.RaiseListChangedEvents = true;
+        _visibleRows.ReapplySort();
         _visibleRows.ResetBindings();
         UpdateDeleteAvailability();
     }
@@ -188,9 +187,19 @@ public partial class PlanListScreen : UserControl, IShellScreen
 
     private async void OnWorkspaceChanged(object? sender, EventArgs e)
     {
-        if (!_suspendReload)
+        if (_suspendReload)
+        {
+            return;
+        }
+
+        _toolbar.SetBusy(true);
+        try
         {
             await ReloadPlansAsync(CancellationToken.None);
+        }
+        finally
+        {
+            _toolbar.SetBusy(false);
         }
     }
 

@@ -54,7 +54,10 @@ public partial class DetailToolbar : UserControl
 
         _saveButton.Enabled = !busy;
         _backButton.Enabled = !busy;
-        Cursor = busy ? Cursors.AppStarting : Cursors.Default;
+
+        // Come in <see cref="EntityToolbar.SetBusy"/>: il cursore di attesa vale per la
+        // schermata, altrimenti si vede solo passando sopra la barra dei comandi.
+        ((Control?)Parent ?? this).UseWaitCursor = busy;
     }
 
     private void OnBackClick(object? sender, EventArgs e) => BackRequested?.Invoke(this, EventArgs.Empty);

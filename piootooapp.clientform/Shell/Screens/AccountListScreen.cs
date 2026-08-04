@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using Piootoo.Shared.Models.Workspaces;
 using piootooapp.clientform.Shell;
+using piootooapp.clientform.Shell.Controls;
 
 namespace piootooapp.clientform.Shell.Screens;
 
@@ -30,26 +31,17 @@ public sealed class AccountRow
 public partial class AccountListScreen : UserControl, IShellScreen
 {
     private readonly List<AccountRow> _allRows = new();
-    private readonly BindingList<AccountRow> _visibleRows = new();
+    private readonly SortableBindingList<AccountRow> _visibleRows = new();
     private ShellContext? _context;
 
     public AccountListScreen()
     {
         InitializeComponent();
         _bindingSource.DataSource = _visibleRows;
-        DisableColumnSorting();
-    }
 
-    /// <summary>
-    /// La corrispondenza fra indice di riga e indice nella lista deve restare 1 a 1, perché è
-    /// così che si legge la selezione. Ordinare per intestazione la romperebbe.
-    /// </summary>
-    private void DisableColumnSorting()
-    {
-        foreach (DataGridViewColumn column in _grid.Columns)
-        {
-            column.SortMode = DataGridViewColumnSortMode.NotSortable;
-        }
+        // La corrispondenza fra indice di riga e indice nella lista resta 1 a 1 — è così che si
+        // legge la selezione — perché a ordinare è la collezione, non una vista sopra di essa.
+        _grid.EnableColumnSorting();
     }
 
     public string ScreenTitle => "Account";
@@ -113,6 +105,7 @@ public partial class AccountListScreen : UserControl, IShellScreen
         }
 
         _visibleRows.RaiseListChangedEvents = true;
+        _visibleRows.ReapplySort();
         _visibleRows.ResetBindings();
         UpdateDeleteAvailability();
     }

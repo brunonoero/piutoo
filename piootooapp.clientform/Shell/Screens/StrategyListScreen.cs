@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using Piootoo.Shared.Models.Strategies;
+using piootooapp.clientform.Shell.Controls;
 
 namespace piootooapp.clientform.Shell.Screens;
 
@@ -27,17 +28,14 @@ public sealed class StrategyRow
 public partial class StrategyListScreen : UserControl, IShellScreen
 {
     private readonly List<StrategyCatalogItem> _catalog = new();
-    private readonly BindingList<StrategyRow> _visibleRows = new();
+    private readonly SortableBindingList<StrategyRow> _visibleRows = new();
     private ShellContext? _context;
 
     public StrategyListScreen()
     {
         InitializeComponent();
         _bindingSource.DataSource = _visibleRows;
-        foreach (DataGridViewColumn column in _grid.Columns)
-        {
-            column.SortMode = DataGridViewColumnSortMode.NotSortable;
-        }
+        _grid.EnableColumnSorting();
     }
 
     public string ScreenTitle => "Strategie";
@@ -98,6 +96,7 @@ public partial class StrategyListScreen : UserControl, IShellScreen
         }
 
         _visibleRows.RaiseListChangedEvents = true;
+        _visibleRows.ReapplySort();
         _visibleRows.ResetBindings();
     }
 

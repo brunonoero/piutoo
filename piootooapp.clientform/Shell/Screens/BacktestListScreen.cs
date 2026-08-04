@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using Piootoo.Shared.Models.Workspaces;
+using piootooapp.clientform.Shell.Controls;
 
 namespace piootooapp.clientform.Shell.Screens;
 
@@ -54,7 +55,7 @@ internal sealed class OriginFilterItem
 public partial class BacktestListScreen : UserControl, IShellScreen
 {
     private readonly List<BacktestRow> _allRows = new();
-    private readonly BindingList<BacktestRow> _visibleRows = new();
+    private readonly SortableBindingList<BacktestRow> _visibleRows = new();
     private ShellContext? _context;
     private bool _suspendReload;
 
@@ -62,10 +63,7 @@ public partial class BacktestListScreen : UserControl, IShellScreen
     {
         InitializeComponent();
         _bindingSource.DataSource = _visibleRows;
-        foreach (DataGridViewColumn column in _grid.Columns)
-        {
-            column.SortMode = DataGridViewColumnSortMode.NotSortable;
-        }
+        _grid.EnableColumnSorting();
 
         _originCombo.Items.Add(OriginFilterItem.All);
         _originCombo.Items.Add(OriginFilterItem.Of(BacktestOrigin.Internal, "interno"));
@@ -214,6 +212,7 @@ public partial class BacktestListScreen : UserControl, IShellScreen
         }
 
         _visibleRows.RaiseListChangedEvents = true;
+        _visibleRows.ReapplySort();
         _visibleRows.ResetBindings();
         UpdateDeleteAvailability();
     }
@@ -245,9 +244,21 @@ public partial class BacktestListScreen : UserControl, IShellScreen
 
     private async void OnWorkspaceChanged(object? sender, EventArgs e)
     {
-        if (!_suspendReload)
+        if (_suspendReload)
+        {
+            return;
+        }
+
+        // Il cambio di workspace rilegge l'intero elenco dal server: senza busy qui era il
+        // percorso più lento della schermata e l'unico senza alcun segnale di attesa.
+        _toolbar.SetBusy(true);
+        try
         {
             await ReloadBacktestsAsync(CancellationToken.None);
+        }
+        finally
+        {
+            _toolbar.SetBusy(false);
         }
     }
 

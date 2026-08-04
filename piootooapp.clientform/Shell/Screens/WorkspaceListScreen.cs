@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using Piootoo.Shared.Models.Workspaces;
+using piootooapp.clientform.Shell.Controls;
 
 namespace piootooapp.clientform.Shell.Screens;
 
@@ -16,17 +17,14 @@ public sealed class WorkspaceRow
 public partial class WorkspaceListScreen : UserControl, IShellScreen
 {
     private readonly List<WorkspaceRow> _allRows = new();
-    private readonly BindingList<WorkspaceRow> _visibleRows = new();
+    private readonly SortableBindingList<WorkspaceRow> _visibleRows = new();
     private ShellContext? _context;
 
     public WorkspaceListScreen()
     {
         InitializeComponent();
         _bindingSource.DataSource = _visibleRows;
-        foreach (DataGridViewColumn column in _grid.Columns)
-        {
-            column.SortMode = DataGridViewColumnSortMode.NotSortable;
-        }
+        _grid.EnableColumnSorting();
     }
 
     public string ScreenTitle => "Workspace";
@@ -84,6 +82,7 @@ public partial class WorkspaceListScreen : UserControl, IShellScreen
         }
 
         _visibleRows.RaiseListChangedEvents = true;
+        _visibleRows.ReapplySort();
         _visibleRows.ResetBindings();
         UpdateDeleteAvailability();
     }
