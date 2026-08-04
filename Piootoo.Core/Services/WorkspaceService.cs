@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Piootoo.Shared.Configuration;
 using Piootoo.Shared.Models.Trading;
 using Piootoo.Shared.Models.Workspaces;
@@ -469,6 +470,7 @@ public sealed class WorkspaceService
                     .OrderByDescending(File.GetLastWriteTimeUtc)
                     .ToArray();
                 var (startDateUtc, endDateUtc) = ReadBacktestPeriod(resultFiles.FirstOrDefault());
+                var origin = ReadBacktestOrigin(path);
                 return new WorkspaceBacktestInfo
                 {
                     FolderName = Path.GetFileName(path),
@@ -476,39 +478,150 @@ public sealed class WorkspaceService
                     LastModifiedUtc = Directory.GetLastWriteTimeUtc(path),
                     ResultsCount = resultFiles.Length,
                     StartDateUtc = startDateUtc,
-                    EndDateUtc = endDateUtc
+                    EndDateUtc = endDateUtc,
+                    Origin = origin?.Origin ?? BacktestOrigin.Unknown,
+                    PlanCode = origin?.PlanCode
                 };
             })
             .OrderByDescending(backtest => backtest.LastModifiedUtc)
             .ToList();
     }
 
+    /// <summary>
+    /// Scrive il marcatore di origine nella cartella del backtest. Va chiamato da chi crea la
+    /// cartella: dedurre l'origine dopo, dai file presenti, darebbe risposte sbagliate sui run
+    /// interrotti.
+    /// </summary>
+    public static void WriteBacktestOrigin(string backtestPath, BacktestOriginInfo origin)
+    {
+        try
+        {
+            Directory.CreateDirectory(backtestPath);
+            AtomicFileWriter.WriteAllText(
+                Path.Combine(backtestPath, BacktestOriginInfo.FileName),
+                JsonSerializer.Serialize(origin, BacktestOriginJsonOptions));
+        }
+        catch (Exception)
+        {
+            // Il marcatore è informativo: non deve far fallire un backtest o l'apertura di una
+            // sessione. Chi legge tratta l'assenza come origine sconosciuta.
+        }
+    }
+
+    private static readonly JsonSerializerOptions BacktestOriginJsonOptions = new()
+    {
+        PropertyNameCaseInsensitive = true,
+        WriteIndented = true,
+        Converters = { new JsonStringEnumConverter() }
+    };
+
+    private static BacktestOriginInfo? ReadBacktestOrigin(string backtestPath)
+    {
+        try
+        {
+            var path = Path.Combine(backtestPath, BacktestOriginInfo.FileName);
+            return File.Exists(path)
+                ? JsonSerializer.Deserialize<BacktestOriginInfo>(File.ReadAllText(path), BacktestOriginJsonOptions)
+                : null;
+        }
+        catch (Exception)
+        {
+            // Marcatore illeggibile: origine sconosciuta, non un errore di elenco.
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Quanto si legge dalla testa di un file di risultato per trovarne il periodo.
+    /// <c>StartDate</c> ed <c>EndDate</c> sono la quarta e la quinta proprietà di
+    /// <c>BacktestingResult</c>, quindi stanno nei primi duecento byte: 64 KB sono margine, non
+    /// una stima.
+    /// </summary>
+    private const int BacktestPeriodProbeBytes = 64 * 1024;
+
+    /// <summary>
+    /// Legge <c>StartDate</c>/<c>EndDate</c> dalla sola testa del file di risultato.
+    ///
+    /// Prima qui c'era <c>JsonDocument.Parse(File.ReadAllText(path))</c>: per due date leggeva e
+    /// deserializzava il risultato intero, che contiene l'equity ora per ora di ogni strategia ed
+    /// è dell'ordine delle decine o centinaia di MB. Su un workspace reale l'elenco dei backtest
+    /// arrivava così a leggere centinaia di MB — e ad allocarne il doppio, perché
+    /// <c>ReadAllText</c> materializza tutto in una stringa UTF-16 — a ogni chiamata di
+    /// <see cref="ListBacktests"/>, cioè a ogni apertura della lista. Era quello il ritardo.
+    /// </summary>
     private static (DateTime? StartDateUtc, DateTime? EndDateUtc) ReadBacktestPeriod(string? resultPath)
     {
         if (string.IsNullOrWhiteSpace(resultPath))
             return (null, null);
+
         try
         {
-            using var document = JsonDocument.Parse(File.ReadAllText(resultPath));
-            var root = document.RootElement;
-            var start = root.TryGetProperty("StartDate", out var startValue) &&
-                        startValue.TryGetDateTime(out var parsedStart)
-                ? parsedStart.ToUniversalTime()
-                : (DateTime?)null;
-            var end = root.TryGetProperty("EndDate", out var endValue) &&
-                      endValue.TryGetDateTime(out var parsedEnd)
-                ? parsedEnd.ToUniversalTime()
-                : (DateTime?)null;
-            return (start, end);
-        }
-        catch (JsonException)
-        {
-            return (null, null);
+            using var stream = new FileStream(
+                resultPath,
+                FileMode.Open,
+                FileAccess.Read,
+                // Un backtest in corso sta scrivendo in questa cartella: l'elenco non deve
+                // contendere il lock con chi produce.
+                FileShare.ReadWrite,
+                bufferSize: 4096,
+                FileOptions.SequentialScan);
+
+            var head = new byte[BacktestPeriodProbeBytes];
+            var read = stream.ReadAtLeast(head, head.Length, throwOnEndOfStream: false);
+            return ReadPeriodFromHead(head.AsSpan(0, read));
         }
         catch (IOException)
         {
             return (null, null);
         }
+        catch (UnauthorizedAccessException)
+        {
+            return (null, null);
+        }
+    }
+
+    private static (DateTime? StartDateUtc, DateTime? EndDateUtc) ReadPeriodFromHead(ReadOnlySpan<byte> head)
+    {
+        DateTime? start = null;
+        DateTime? end = null;
+
+        // isFinalBlock: false — il buffer taglia il JSON a metà per costruzione, e un token
+        // troncato in fondo non è un file corrotto: è la fine della finestra che si è scelta.
+        var reader = new Utf8JsonReader(head, isFinalBlock: false, state: default);
+        try
+        {
+            while (reader.Read())
+            {
+                // Solo le proprietà di primo livello: dentro HourlyResults non c'è niente da
+                // cercare, e una proprietà omonima annidata darebbe la data sbagliata.
+                if (reader.TokenType != JsonTokenType.PropertyName || reader.CurrentDepth != 1)
+                    continue;
+
+                var isStart = reader.ValueTextEquals("StartDate"u8);
+                if (!isStart && !reader.ValueTextEquals("EndDate"u8))
+                    continue;
+
+                if (!reader.Read())
+                    break;
+
+                if (reader.TokenType == JsonTokenType.String && reader.TryGetDateTime(out var parsed))
+                {
+                    if (isStart)
+                        start = parsed.ToUniversalTime();
+                    else
+                        end = parsed.ToUniversalTime();
+                }
+
+                if (start.HasValue && end.HasValue)
+                    break;
+            }
+        }
+        catch (JsonException)
+        {
+            // Testa illeggibile: periodo ignoto, non un errore di elenco.
+        }
+
+        return (start, end);
     }
 
     public string GetBacktestPath(string workspaceId, string folderName)
@@ -527,6 +640,59 @@ public sealed class WorkspaceService
         return new TradingJsonStore(backtestPath).ReadTrades()
             .OrderByDescending(trade => trade.ExitTimeUtc)
             .ThenByDescending(trade => trade.TradeId, StringComparer.Ordinal)
+            .ToList();
+    }
+
+    /// <summary>
+    /// Legge <c>backtest-summary.json</c> come testo grezzo.
+    ///
+    /// <para>Non viene deserializzato in un modello: il summary evolve con le diagnostiche, e un
+    /// contratto tipizzato qui costringerebbe ad aggiornarlo a ogni campo aggiunto — nel frattempo
+    /// il client mostrerebbe un summary incompleto senza accorgersene. Il client lo rende come
+    /// albero di proprietà.</para>
+    /// </summary>
+    public string GetBacktestSummary(string workspaceId, string folderName)
+    {
+        var backtestPath = GetBacktestPath(workspaceId, folderName);
+        if (!Directory.Exists(backtestPath))
+            throw new DirectoryNotFoundException($"Backtest '{folderName}' non trovato nel workspace '{workspaceId}'.");
+
+        var summaryPath = Path.Combine(backtestPath, BacktestDiagnosticsSchema.SummaryFileName);
+        if (!File.Exists(summaryPath))
+            throw new FileNotFoundException($"Il backtest '{folderName}' non ha un {BacktestDiagnosticsSchema.SummaryFileName}.", summaryPath);
+
+        return File.ReadAllText(summaryPath);
+    }
+
+    /// <summary>
+    /// Elimina una cartella di backtest con tutto il suo contenuto.
+    ///
+    /// <para>Comprende <c>titano/&lt;run-id&gt;/</c>: i run calcolati su quel campione spariscono
+    /// con esso. Il servizio non lo impedisce — un backtest sbagliato deve poter essere buttato —
+    /// ma i piani che referenziano quei run falliranno all'apertura della sessione, non prima. Chi
+    /// chiama deve avvisare, ed è il motivo per cui <see cref="ListBacktestTitanoRunIds"/> esiste.</para>
+    /// </summary>
+    public void DeleteBacktest(string workspaceId, string folderName)
+    {
+        var backtestPath = GetBacktestPath(workspaceId, folderName);
+        if (!Directory.Exists(backtestPath))
+            throw new DirectoryNotFoundException($"Backtest '{folderName}' non trovato nel workspace '{workspaceId}'.");
+
+        Directory.Delete(backtestPath, recursive: true);
+    }
+
+    /// <summary>Id dei run Titano presenti nel backtest, per avvisare prima di cancellarlo.</summary>
+    public IReadOnlyList<string> ListBacktestTitanoRunIds(string workspaceId, string folderName)
+    {
+        var titanoPath = Path.Combine(GetBacktestPath(workspaceId, folderName), "titano");
+        if (!Directory.Exists(titanoPath))
+            return [];
+
+        return Directory.EnumerateDirectories(titanoPath)
+            .Select(Path.GetFileName)
+            .Where(name => !string.IsNullOrEmpty(name))
+            .Select(name => name!)
+            .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
             .ToList();
     }
 

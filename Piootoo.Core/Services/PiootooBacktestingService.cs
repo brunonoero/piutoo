@@ -8,6 +8,7 @@ using Piootoo.Shared.Enums;
 using Piootoo.Shared.Interfaces;
 using Piootoo.Shared.Models;
 using Piootoo.Shared.Models.Backtesting;
+using Piootoo.Shared.Models.Workspaces;
 using Piootoo.Shared.Models.Trading;
 using Piootoo.Shared.Utilities;
 
@@ -109,6 +110,15 @@ public class PiootooBacktestingService : IPiootooBacktestingService
             Directory.Delete(outputPath, recursive: true);
         }
         Directory.CreateDirectory(outputPath);
+
+        // Dichiarato alla creazione: la cartella convive con quelle prodotte dalle sessioni
+        // dell'engine esterno, e dedurre l'origine dai file presenti sbaglierebbe sui run
+        // interrotti prima di scrivere il summary.
+        WorkspaceService.WriteBacktestOrigin(outputPath, new BacktestOriginInfo
+        {
+            Origin = BacktestOrigin.Internal,
+            CreatedUtc = DateTime.UtcNow
+        });
 
         var job = new BacktestingJob
         {

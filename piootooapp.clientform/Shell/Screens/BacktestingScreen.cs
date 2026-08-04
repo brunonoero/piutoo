@@ -21,7 +21,9 @@ public partial class BacktestingScreen : UserControl, IShellScreen
         _nameTextBox.Text = $"backtest-{DateTime.UtcNow:yyyyMMdd-HHmm}";
     }
 
-    public string ScreenTitle => "Backtesting";
+    // Non è più una voce di menu: ci si arriva solo da "Nuovo backtest" nella lista, e la
+    // breadcrumb deve dirlo invece di ripetere "Backtesting › Backtesting".
+    public string ScreenTitle => "Nuovo backtest";
 
     public void Initialize(ShellContext context) => _context = context;
 

@@ -18,9 +18,23 @@ public sealed class BacktestComboItem
 
     public WorkspaceBacktestInfo Info { get; }
 
+    /// <summary>
+    /// L'origine è in etichetta perché da quando le sessioni di backtest scrivono anch'esse sotto
+    /// <c>backtests/</c> i due tipi convivono nella stessa lista, e scegliere come campione Titano
+    /// un run dell'engine esterno invece di quello interno non dà alcun errore: dà numeri diversi.
+    /// </summary>
     public override string ToString()
-        => $"{Info.FolderName}  ·  {Info.LastModifiedUtc:yyyy-MM-dd HH:mm} UTC" +
+        => $"{Info.FolderName}  ·  {DescribeOrigin(Info)}  ·  {Info.LastModifiedUtc:yyyy-MM-dd HH:mm} UTC" +
            (Info.ResultsCount > 0 ? $"  ·  {Info.ResultsCount} risultati" : "  ·  nessun risultato");
+
+    public static string DescribeOrigin(WorkspaceBacktestInfo info) => info.Origin switch
+    {
+        BacktestOrigin.Internal => "interno",
+        BacktestOrigin.ExternalBroker => string.IsNullOrWhiteSpace(info.PlanCode)
+            ? "cBot"
+            : $"cBot {info.PlanCode}",
+        _ => "origine ignota"
+    };
 }
 
 /// <summary>

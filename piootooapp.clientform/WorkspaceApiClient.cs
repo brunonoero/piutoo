@@ -296,6 +296,46 @@ public sealed class WorkspaceApiClient
         return result ?? new List<WorkspaceBacktestInfo>();
     }
 
+    /// <summary>
+    /// <c>backtest-summary.json</c> come testo. Non è deserializzato in un modello: il summary
+    /// evolve con le diagnostiche, e un contratto tipizzato mostrerebbe un summary incompleto ogni
+    /// volta che il server aggiunge un campo, senza segnalarlo.
+    /// </summary>
+    public async Task<string> GetBacktestSummaryAsync(
+        string workspaceId,
+        string folderName,
+        CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.GetAsync(
+            $"api/Workspace/{Uri.EscapeDataString(workspaceId)}/backtests/{Uri.EscapeDataString(folderName)}/summary",
+            cancellationToken);
+        await EnsureSuccessAsync(response);
+        return await response.Content.ReadAsStringAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<string>> ListBacktestTitanoRunsAsync(
+        string workspaceId,
+        string folderName,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await _httpClient.GetFromJsonAsync<List<string>>(
+            $"api/Workspace/{Uri.EscapeDataString(workspaceId)}/backtests/{Uri.EscapeDataString(folderName)}/titano-runs",
+            _jsonOptions,
+            cancellationToken);
+        return result ?? new List<string>();
+    }
+
+    public async Task DeleteBacktestAsync(
+        string workspaceId,
+        string folderName,
+        CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.DeleteAsync(
+            $"api/Workspace/{Uri.EscapeDataString(workspaceId)}/backtests/{Uri.EscapeDataString(folderName)}",
+            cancellationToken);
+        await EnsureSuccessAsync(response);
+    }
+
     public async Task<IReadOnlyList<PersistedTrade>> GetBacktestTradesAsync(
         string workspaceId,
         string backtestFolder,

@@ -4,6 +4,7 @@ using Piootoo.Shared.Interfaces;
 using Piootoo.Shared.Models;
 using Piootoo.Shared.Models.Optimization;
 using Piootoo.Shared.Models.Trading;
+using Piootoo.Shared.Models.Workspaces;
 using Piootoo.Shared.Utilities;
 
 namespace Piootoo.Core.Services;
@@ -446,6 +447,20 @@ public sealed class TradingSessionService : ITradingSessionService
         engine.Initialize(request.InitialCapital, request.CommissionPerContract);
         var sessionId = Guid.NewGuid().ToString("N");
         var sessionDirectory = ResolveSessionDirectory(request, planCode, executionKey, sessionId);
+
+        // Una sessione di backtest scrive sotto backtests/ accanto ai run del motore interno:
+        // senza marcatore le due origini sarebbero indistinguibili in elenco.
+        if (request.ClientRunMode == ClientRunMode.Backtest && !string.IsNullOrWhiteSpace(planCode))
+        {
+            WorkspaceService.WriteBacktestOrigin(sessionDirectory, new BacktestOriginInfo
+            {
+                Origin = BacktestOrigin.ExternalBroker,
+                CreatedUtc = DateTime.UtcNow,
+                PlanCode = planCode,
+                ExecutionKey = executionKey,
+                SessionId = sessionId
+            });
+        }
         var store = new TradingJsonStore(sessionDirectory);
         store.Initialize();
         var session = new Session

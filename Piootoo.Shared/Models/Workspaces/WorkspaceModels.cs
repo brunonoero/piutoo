@@ -13,6 +13,42 @@ public sealed class WorkspaceInfo
     public int StrategiesCount { get; set; }
 }
 
+/// <summary>
+/// Chi ha prodotto una cartella di backtest. Da quando le sessioni di backtest aperte da piano
+/// scrivono anch'esse sotto <c>backtests/</c>, i due tipi convivono nello stesso albero: l'origine
+/// va dichiarata alla creazione, non dedotta a posteriori dai file presenti.
+/// </summary>
+public enum BacktestOrigin
+{
+    /// <summary>Cartella precedente all'introduzione del marcatore.</summary>
+    Unknown,
+
+    /// <summary>Motore di backtesting del server (<c>PiootooBacktestingService</c>).</summary>
+    Internal,
+
+    /// <summary>Sessione di trading eseguita da un engine esterno, tipicamente un cBot cTrader.</summary>
+    ExternalBroker
+}
+
+/// <summary>
+/// Marcatore scritto nella cartella del backtest alla creazione (<c>origin.json</c>). Serve a
+/// distinguere un run interno da uno prodotto dall'engine esterno senza euristiche sui file
+/// presenti: <c>backtest-summary.json</c> manca anche in un run interno interrotto, quindi usarlo
+/// come indizio etichetterebbe come esterno un backtest che non lo è.
+/// </summary>
+public sealed class BacktestOriginInfo
+{
+    public const string FileName = "origin.json";
+
+    public BacktestOrigin Origin { get; set; } = BacktestOrigin.Unknown;
+    public DateTime CreatedUtc { get; set; }
+
+    /// <summary>Valorizzati solo per l'origine esterna.</summary>
+    public string? PlanCode { get; set; }
+    public string? ExecutionKey { get; set; }
+    public string? SessionId { get; set; }
+}
+
 public sealed class WorkspaceBacktestInfo
 {
     public string FolderName { get; set; } = string.Empty;
@@ -22,6 +58,11 @@ public sealed class WorkspaceBacktestInfo
     public DateTime? StartDateUtc { get; set; }
     public DateTime? EndDateUtc { get; set; }
     public bool HasResults => ResultsCount > 0;
+
+    public BacktestOrigin Origin { get; set; } = BacktestOrigin.Unknown;
+
+    /// <summary>Piano che ha prodotto il run, per l'origine esterna.</summary>
+    public string? PlanCode { get; set; }
 }
 
 public sealed class CreateWorkspaceRequest

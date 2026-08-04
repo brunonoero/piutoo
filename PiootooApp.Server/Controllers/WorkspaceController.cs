@@ -139,6 +139,39 @@ public sealed class WorkspaceController(WorkspaceService workspaceService) : Con
         catch (InvalidDataException exception) { return BadRequest(new { error = exception.Message }); }
     }
 
+    /// <summary>
+    /// Restituisce <c>backtest-summary.json</c> così com'è. Il blocco <c>diagnostics</c> in testa è
+    /// la prima cosa da leggere quando un backtest non produce trade.
+    /// </summary>
+    [HttpGet("{workspaceId}/backtests/{backtestFolder}/summary")]
+    public IActionResult GetBacktestSummary(string workspaceId, string backtestFolder)
+    {
+        try { return Content(workspaceService.GetBacktestSummary(workspaceId, backtestFolder), "application/json"); }
+        catch (DirectoryNotFoundException exception) { return NotFound(new { error = exception.Message }); }
+        catch (FileNotFoundException exception) { return NotFound(new { error = exception.Message }); }
+        catch (ArgumentException exception) { return BadRequest(new { error = exception.Message }); }
+    }
+
+    /// <summary>Id dei run Titano contenuti nel backtest: servono ad avvisare prima di cancellarlo.</summary>
+    [HttpGet("{workspaceId}/backtests/{backtestFolder}/titano-runs")]
+    public ActionResult<IReadOnlyList<string>> ListBacktestTitanoRuns(string workspaceId, string backtestFolder)
+    {
+        try { return Ok(workspaceService.ListBacktestTitanoRunIds(workspaceId, backtestFolder)); }
+        catch (ArgumentException exception) { return BadRequest(new { error = exception.Message }); }
+    }
+
+    /// <summary>
+    /// Elimina la cartella del backtest con tutto il contenuto, run Titano compresi. I piani che
+    /// referenziano quei run falliranno all'apertura della sessione: la conferma sta al client.
+    /// </summary>
+    [HttpDelete("{workspaceId}/backtests/{backtestFolder}")]
+    public IActionResult DeleteBacktest(string workspaceId, string backtestFolder)
+    {
+        try { workspaceService.DeleteBacktest(workspaceId, backtestFolder); return NoContent(); }
+        catch (DirectoryNotFoundException exception) { return NotFound(new { error = exception.Message }); }
+        catch (ArgumentException exception) { return BadRequest(new { error = exception.Message }); }
+    }
+
     [HttpDelete("{workspaceId}")]
     public IActionResult Delete(string workspaceId)
     {

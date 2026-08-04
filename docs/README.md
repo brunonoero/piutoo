@@ -6,6 +6,10 @@ solution. Stato: **stabile** = contenuto verificato contro il codice,
 
 ## Da leggere per primo
 
+- [`lavori-in-corso.md`](lavori-in-corso.md) — stato dei lavori aperti, cosa non è ancora
+  compilato, questioni da decidere. **Deperibile**: le voci chiuse si cancellano, la motivazione
+  resta in `decisioni.md`. Da leggere prima di riprendere un lavoro a metà.
+
 - [`PROGETTO.md`](PROGETTO.md) — descrizione del progetto: cosa fa il sistema,
   moduli, flussi, invarianti da non rompere, trappole note. *Stabile.*
 - [`verifica-codice-2026-07-27.md`](verifica-codice-2026-07-27.md) — audit del

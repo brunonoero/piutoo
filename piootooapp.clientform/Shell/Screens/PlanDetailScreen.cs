@@ -304,7 +304,8 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
             {
                 var item = ValueComboItem.Of(
                     backtest.FolderName,
-                    $"{backtest.FolderName}  ·  {backtest.LastModifiedUtc:yyyy-MM-dd HH:mm} UTC");
+                    $"{backtest.FolderName}  ·  {BacktestComboItem.DescribeOrigin(backtest)}" +
+                    $"  ·  {backtest.LastModifiedUtc:yyyy-MM-dd HH:mm} UTC");
                 _backtestFolders.Add(item);
                 _titanoFolderCombo.Items.Add(item);
             }
