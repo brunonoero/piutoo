@@ -25,6 +25,10 @@ partial class MainShellForm
         this._exitMenuItem = new System.Windows.Forms.ToolStripMenuItem();
         this._viewMenu = new System.Windows.Forms.ToolStripMenuItem();
         this._refreshMenuItem = new System.Windows.Forms.ToolStripMenuItem();
+        this._themeMenu = new System.Windows.Forms.ToolStripMenuItem();
+        this._themeBlueMenuItem = new System.Windows.Forms.ToolStripMenuItem();
+        this._themeGreenMenuItem = new System.Windows.Forms.ToolStripMenuItem();
+        this._themeOrangeMenuItem = new System.Windows.Forms.ToolStripMenuItem();
         this._serverPanel = new System.Windows.Forms.Panel();
         this._applyServerUrlButton = new System.Windows.Forms.Button();
         this._serverUrlTextBox = new System.Windows.Forms.TextBox();
@@ -86,19 +90,51 @@ partial class MainShellForm
         // _viewMenu
         // 
         this._viewMenu.DropDownItems.AddRange(new System.Windows.Forms.ToolStripItem[] {
-            this._refreshMenuItem});
+            this._refreshMenuItem,
+            this._themeMenu});
         this._viewMenu.Name = "_viewMenu";
         this._viewMenu.Size = new System.Drawing.Size(78, 20);
         this._viewMenu.Text = "Visualizza";
-        // 
+        //
         // _refreshMenuItem
-        // 
+        //
         this._refreshMenuItem.Name = "_refreshMenuItem";
         this._refreshMenuItem.ShortcutKeys = System.Windows.Forms.Keys.F5;
         this._refreshMenuItem.Size = new System.Drawing.Size(200, 22);
         this._refreshMenuItem.Text = "Aggiorna schermata";
         this._refreshMenuItem.Click += new System.EventHandler(this.OnRefreshCurrentScreenClick);
-        // 
+        //
+        // _themeMenu
+        //
+        this._themeMenu.DropDownItems.AddRange(new System.Windows.Forms.ToolStripItem[] {
+            this._themeBlueMenuItem,
+            this._themeGreenMenuItem,
+            this._themeOrangeMenuItem});
+        this._themeMenu.Name = "_themeMenu";
+        this._themeMenu.Size = new System.Drawing.Size(200, 22);
+        this._themeMenu.Text = "Tema";
+        //
+        // _themeBlueMenuItem
+        //
+        this._themeBlueMenuItem.Name = "_themeBlueMenuItem";
+        this._themeBlueMenuItem.Size = new System.Drawing.Size(150, 22);
+        this._themeBlueMenuItem.Text = "Blu";
+        this._themeBlueMenuItem.Click += new System.EventHandler(this.OnThemeMenuItemClick);
+        //
+        // _themeGreenMenuItem
+        //
+        this._themeGreenMenuItem.Name = "_themeGreenMenuItem";
+        this._themeGreenMenuItem.Size = new System.Drawing.Size(150, 22);
+        this._themeGreenMenuItem.Text = "Verde";
+        this._themeGreenMenuItem.Click += new System.EventHandler(this.OnThemeMenuItemClick);
+        //
+        // _themeOrangeMenuItem
+        //
+        this._themeOrangeMenuItem.Name = "_themeOrangeMenuItem";
+        this._themeOrangeMenuItem.Size = new System.Drawing.Size(150, 22);
+        this._themeOrangeMenuItem.Text = "Arancione";
+        this._themeOrangeMenuItem.Click += new System.EventHandler(this.OnThemeMenuItemClick);
+        //
         // _serverPanel
         // 
         this._serverPanel.Controls.Add(this._applyServerUrlButton);
@@ -238,6 +274,10 @@ partial class MainShellForm
     private System.Windows.Forms.ToolStripMenuItem _exitMenuItem;
     private System.Windows.Forms.ToolStripMenuItem _viewMenu;
     private System.Windows.Forms.ToolStripMenuItem _refreshMenuItem;
+    private System.Windows.Forms.ToolStripMenuItem _themeMenu;
+    private System.Windows.Forms.ToolStripMenuItem _themeBlueMenuItem;
+    private System.Windows.Forms.ToolStripMenuItem _themeGreenMenuItem;
+    private System.Windows.Forms.ToolStripMenuItem _themeOrangeMenuItem;
     private System.Windows.Forms.Panel _serverPanel;
     private System.Windows.Forms.Label _serverUrlLabel;
     private System.Windows.Forms.TextBox _serverUrlTextBox;

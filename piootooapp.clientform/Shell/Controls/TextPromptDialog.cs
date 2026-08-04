@@ -6,6 +6,7 @@ public partial class TextPromptDialog : Form
     public TextPromptDialog()
     {
         InitializeComponent();
+        ShellTheme.Apply(this);
     }
 
     public string Prompt

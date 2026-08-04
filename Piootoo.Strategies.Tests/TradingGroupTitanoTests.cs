@@ -31,7 +31,6 @@ public sealed class TradingGroupTitanoTests
                     GroupId = "prop-a",
                     AccountNumber = "1001",
                     RotationSetupId = "bilanciato",
-                    TitanoRunId = "run-a",
                     TitanoBacktestFolder = "source",
                     MaxConcurrentTrades = 3,
                     ApplyTitanoFilters = true
@@ -41,7 +40,6 @@ public sealed class TradingGroupTitanoTests
                     GroupId = "prop-a",
                     AccountNumber = "1002",
                     RotationSetupId = "bilanciato",
-                    TitanoRunId = "run-a",
                     TitanoBacktestFolder = "source",
                     MaxConcurrentTrades = 4,
                     ApplyTitanoFilters = true
@@ -197,7 +195,6 @@ public sealed class TradingGroupTitanoTests
                 {
                     GroupId = "prop-a",
                     AccountNumber = "1001",
-                    TitanoRunId = "run-a",
                     TitanoBacktestFolder = "source"
                 }
             ]);
@@ -209,8 +206,8 @@ public sealed class TradingGroupTitanoTests
             ]);
 
             var rows = sessions.GetTradingGroups(descriptor.SessionId, descriptor.SessionToken);
-            Assert.Contains(rows, row => row.GroupId == "prop-a" && row.TitanoRunId == "run-a");
-            Assert.Contains(rows, row => row.GroupId == "prop-b" && row.TitanoRunId is null);
+            Assert.Contains(rows, row => row.GroupId == "prop-a" && row.TitanoBacktestFolder == "source");
+            Assert.Contains(rows, row => row.GroupId == "prop-b" && row.TitanoBacktestFolder is null);
         }
         finally
         {
@@ -253,7 +250,6 @@ public sealed class TradingGroupTitanoTests
                 {
                     GroupId = "filtered",
                     AccountNumber = "1001",
-                    TitanoRunId = manifest.RunId,
                     TitanoBacktestFolder = "source",
                     ApplyTitanoFilters = true
                 },
@@ -346,7 +342,6 @@ public sealed class TradingGroupTitanoTests
                 {
                     GroupId = "scaled",
                     AccountNumber = "1001",
-                    TitanoRunId = manifest.RunId,
                     TitanoBacktestFolder = "source",
                     ApplyTitanoFilters = true
                 }

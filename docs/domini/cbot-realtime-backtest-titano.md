@@ -116,7 +116,7 @@ con `PiootooDistributedExecutionBot` — concorrenza per account/gruppo.
 |---|---|
 | `ClientRunMode` | `Backtest` |
 | `TitanoFilterMode` | `BacktestRotationFile` |
-| Piano | `ApplyTitanoFilters = true`, `TitanoRunId` + `TitanoBacktestFolder` sulla riga |
+| Piano | `ApplyTitanoFilters = true`, `TitanoBacktestFolder` sulla riga |
 | `EnforceConcurrencyLimits` | default `true` (tranne run campione Disabled) |
 
 ### Catena preparatoria (console)
@@ -127,9 +127,10 @@ con `PiootooDistributedExecutionBot` — concorrenza per account/gruppo.
    /api/Titano/rotations` o tab *Titano* della console legacy, *Genera e applica
    Titano*). Output in
    `<workspace>/backtests/<nome>/titano/<run-id>/manifest.json`. Dettaglio in
-   [`titano-rotation.md`](titano-rotation.md).
-3. **Piano di trading** — imposta `ApplyTitanoFilters`, collega `TitanoRunId` e
-   `TitanoBacktestFolder`, configura righe gruppo/account con
+   [`titano-rotation.md`](titano-rotation.md). Il run non si collega al piano: la
+   sessione usa sempre l'ultimo generato per la cartella.
+3. **Piano di trading** — imposta `ApplyTitanoFilters` e `TitanoBacktestFolder`,
+   configura righe gruppo/account con
    `MaxConcurrentTrades` se usi la distribuzione. Con
    `PiootooDirectExecutionBot` azzera `MaxConcurrentTrades` o disattiva
    `EnforceConcurrencyLimits`: in esecuzione diretta il limite non è applicabile e
@@ -168,14 +169,17 @@ periodo calcolato (`UsedLatestPeriod` nel rotation-log).
 |---|---|
 | `ClientRunMode` | `Realtime` (`Robot.IsBacktesting = false`) |
 | `TitanoFilterMode` | `Realtime` (se `ApplyTitanoFilters = true`) oppure `Disabled` |
-| Piano | run Titano aggiornato periodicamente; righe gruppo/account per multi-account |
+| Piano | cartella con run Titano aggiornato periodicamente; righe gruppo/account per multi-account |
 | `Execution Key` | vuota → `"LIVE"` (riavvio idempotente della stessa esecuzione live) |
 
 ### Passi
 
 1. Mantieni un manifest Titano aggiornato (nuovo backtest campione + rotazione
-   quando serve ricalibrare).
-2. Piano con `ApplyTitanoFilters = true`, `TitanoRunId`, cartella backtest e
+   quando serve ricalibrare) nella stessa cartella: la sessione già aperta userà
+   il nuovo run dalla barra successiva, senza riavviare il cBot. La lista/dettaglio
+   piani segnala quando la rotazione è da rifare (vedi
+   [`titano-rotation.md`](titano-rotation.md#risoluzione-automatica-dellultimo-run-e-freschezza)).
+2. Piano con `ApplyTitanoFilters = true`, cartella backtest e
    gruppi/account configurati.
 3. **Un account, un grafico:** `PiootooDirectExecutionBot` su cTrader live,
    `Codice piano`, grafico allineato al masterfilter.
@@ -245,7 +249,8 @@ Parametri rimasti dopo la migrazione al piano (vedi [`decisioni.md`](../decision
 **Non parametri del cBot** (vivono nel piano o nella piattaforma):
 
 - Workspace, capitale, commissioni, sizing, metadata strumenti
-- `TitanoRunId`, cartella backtest, `ApplyTitanoFilters`
+- Cartella backtest Titano, `ApplyTitanoFilters` — il run non è un parametro di nessuno: è sempre
+  l'ultimo generato per la cartella
 - `ClientRunMode` — derivato da **`IsBacktesting`** (flag backtesting cTrader)
 - Strategie valutate — dal **masterfilter** del workspace del piano
 
@@ -261,7 +266,7 @@ segnali, slippage e finestra storica; stesso `Codice piano` e stesso modello
 |---|---|---|
 | `400` masterfilter vuoto | Nessuna strategia nel workspace del piano | Popola `masterfilter.json` (shell *Workspace* o API) |
 | `400` ID strategia non validi | Id di classe assenti dal catalogo | Allinea masterfilter al catalogo (`StrategyFactory`) |
-| `400` TitanoRunId mancante con filtro attivo | Piano con `ApplyTitanoFilters` senza run | Esegui rotazione Titano e collega run + cartella backtest |
+| `400` nessun run Titano per la cartella | Piano con `ApplyTitanoFilters` ma cartella senza rotazioni | Esegui una rotazione Titano su quella cartella |
 | `400` combinazione Backtest + Realtime Titano | Matrice §6 violata | Allinea modalità: backtest filtrato → `BacktestRotationFile`; live → `Realtime` |
 | `400` barra senza `Z` / Kind non UTC | Timestamp barra mal serializzato | Verifica `[Robot(TimeZone = UTC)]` e `SpecifyKind` prima del push |
 | `401` / token sessione | `X-Session-Token` errato o sessione inesistente | Riapri con `open-plan`; non riusare token di sessione diversa |

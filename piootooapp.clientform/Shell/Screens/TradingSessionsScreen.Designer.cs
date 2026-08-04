@@ -19,6 +19,7 @@ partial class TradingSessionsScreen
     private void InitializeComponent()
     {
         components = new System.ComponentModel.Container();
+        _screenExplainerLabel = new System.Windows.Forms.Label();
         _configGroup = new System.Windows.Forms.GroupBox();
         _configLayout = new System.Windows.Forms.TableLayoutPanel();
         _creationSourceLabel = new System.Windows.Forms.Label();
@@ -97,9 +98,20 @@ partial class TradingSessionsScreen
         _snapshotTab.SuspendLayout();
         _snapshotSummaryPanel.SuspendLayout();
         SuspendLayout();
-        // 
+        //
+        // _screenExplainerLabel
+        //
+        _screenExplainerLabel.Dock = System.Windows.Forms.DockStyle.Top;
+        _screenExplainerLabel.ForeColor = System.Drawing.SystemColors.GrayText;
+        _screenExplainerLabel.Location = new System.Drawing.Point(0, 0);
+        _screenExplainerLabel.Name = "_screenExplainerLabel";
+        _screenExplainerLabel.Padding = new System.Windows.Forms.Padding(12, 8, 12, 8);
+        _screenExplainerLabel.Size = new System.Drawing.Size(960, 40);
+        _screenExplainerLabel.TabIndex = 4;
+        _screenExplainerLabel.Text = "—";
+        //
         // _configGroup
-        // 
+        //
         _configGroup.AutoSize = true;
         _configGroup.Controls.Add(_configLayout);
         _configGroup.Dock = System.Windows.Forms.DockStyle.Top;
@@ -840,6 +852,7 @@ partial class TradingSessionsScreen
         Controls.Add(_sessionInfoPanel);
         Controls.Add(_commandsPanel);
         Controls.Add(_configGroup);
+        Controls.Add(_screenExplainerLabel);
         Name = "TradingSessionsScreen";
         Size = new System.Drawing.Size(960, 700);
         _configGroup.ResumeLayout(false);
@@ -868,6 +881,7 @@ partial class TradingSessionsScreen
 
     #endregion
 
+    private System.Windows.Forms.Label _screenExplainerLabel;
     private System.Windows.Forms.GroupBox _configGroup;
     private System.Windows.Forms.TableLayoutPanel _configLayout;
     private System.Windows.Forms.Label _creationSourceLabel;

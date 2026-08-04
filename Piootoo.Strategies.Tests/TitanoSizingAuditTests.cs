@@ -241,7 +241,6 @@ public sealed class TitanoSizingAuditTests
                 GroupId = "prop-a",
                 AccountNumber = "1001",
                 MaxConcurrentTrades = 3,
-                TitanoRunId = runId,
                 TitanoBacktestFolder = backtestFolder,
                 ApplyTitanoFilters = true,
                 InitialCapital = 100_000m,
@@ -354,7 +353,6 @@ public sealed class TitanoSizingAuditTests
                 GroupId = "prop-a",
                 AccountNumber = "1001",
                 MaxConcurrentTrades = 2,
-                TitanoRunId = runId,
                 TitanoBacktestFolder = backtestFolder,
                 ApplyTitanoFilters = true,
                 Instruments =

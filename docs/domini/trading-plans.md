@@ -53,7 +53,8 @@ I profili Titano delle altre righe restano applicati al claim degli intent per g
 non interpreta Titano e riceve soltanto intent già filtrati. Gli strumenti e i timeframe
 sono derivati dal masterfilter del workspace e restituiti nel descriptor della sessione.
 
-API CRUD: `GET/PUT/DELETE /api/v1/workspaces/{workspaceId}/trading-plans[/{code}]`.
+API CRUD: `GET/PUT/DELETE /api/v1/workspaces/{workspaceId}/trading-plans[/{code}]`. Freschezza
+rotazione: `GET .../trading-plans/{code}/rotation-status` (vedi `TitanoRotationStatus`).
 
 La ripresa idempotente sopravvive all'interruzione del cBot finché il processo server resta
 attivo. La ricostruzione completa dello stato runtime dopo il riavvio del server resta un limite
@@ -75,7 +76,7 @@ dovrà contenere anche il contesto pending fino all'evento di apertura della pos
 
 ## Editing dalla shell
 
-Il dettaglio di un piano (*Anagrafiche → Piani di trading*) espone quattro riferimenti come
+Il dettaglio di un piano (*Anagrafiche → Piani di trading*) espone tre riferimenti come
 combo invece che come testo libero, perché sono tutti identificatori che il server risolve e
 un refuso produce un errore soltanto all'apertura della sessione.
 
@@ -83,11 +84,17 @@ Il **workspace** è modificabile solo su un piano nuovo: sceglie dove il piano v
 un piano esistente la combo è disabilitata, perché il piano vive in `<workspace>/plans/plans.json`
 e spostarlo sarebbe una move, non una modifica di campo.
 
-Le altre tre sono in catena: la **cartella di backtest** viene dai backtest del workspace, il
-**run Titano** dai run di quella cartella (cambiare cartella azzera il run, che apparteneva alla
-precedente), il **setup di rotazione** dalla lista globale dei setup — è l'unico dei tre che non
-dipende dal workspace, ed è anche l'unico che non entra nel percorso di filtro: resta come
-tracciamento della ricetta con cui il run è stato prodotto.
+Le altre due sono indipendenti: la **cartella di backtest** viene dai backtest del workspace, il
+**setup di rotazione** dalla lista globale dei setup — non dipende dal workspace, e non entra nel
+percorso di filtro: resta come tracciamento della ricetta con cui il run è stato prodotto.
+
+Il **run Titano non si sceglie più**: si usa sempre l'ultimo generato per la cartella scelta,
+risolto al momento (`TitanoRotationService.ResolveLatestRun`), non congelato sul piano. Il
+dettaglio del piano mostra invece, in sola lettura, lo **stato di freschezza** di quell'ultimo run
+(`GET .../trading-plans/{code}/rotation-status`): pronto se copre ancora il periodo corrente,
+da aggiornare se `now` ha già superato la fine dell'ultimo periodo calcolato — segno che serve un
+nuovo backtest campione e una nuova rotazione. Una sessione già aperta recepisce un run più
+recente dalla barra successiva, senza bisogno di riaprirla.
 
 Un valore già persistito che non compare più nella lista corrente viene mostrato come voce
 «non più presente» invece di essere scartato: il salvataggio riscrive il piano intero, quindi
@@ -110,20 +117,19 @@ simbolo: sbagliare per default resta possibile, ma almeno diventa visibile. Non 
 conversione simbolo verso il broker, che sta sull'account — vedi
 [`account-e-conversione-symbol.md`](account-e-conversione-symbol.md).
 
-Anche le tre colonne Titano della griglia sono combo, con la stessa dipendenza del tab Generale: il
-**run** di una riga è filtrato sulla **cartella di backtest** della stessa riga, quindi la sua lista
-sta sulla cella, e cambiare cartella azzera il run. La cartella non è ridondante rispetto al run:
-il manifest sta in `<workspace>/backtests/<cartella>/titano/<run-id>/manifest.json`, quindi senza
-cartella il server non sa dove cercarlo — e infatti rifiuta un `TitanoRunId` che arrivi da solo.
-Ricorda che `TradingPlanService` rifiuta un piano in cui due righe con lo stesso `GroupId`
-dichiarano terne setup/run/cartella diverse.
+Anche le colonne Titano della griglia sono combo: ogni riga può avere la propria **cartella di
+backtest**, che eredita altrimenti quella del tab Generale. Il run resta implicito anche qui —
+sempre l'ultimo della cartella della riga. Ricorda che `TradingPlanService` rifiuta un piano in cui
+due righe con lo stesso `GroupId` dichiarano coppie setup/cartella diverse.
 
 ## Riferimenti codice
 
 `Piootoo.Shared/Models/Trading/TradingPlanContracts.cs`,
 `Piootoo.Core/Services/TradingPlanService.cs`,
-`Piootoo.Core/Services/TradingSessionService.cs`,
+`Piootoo.Core/Services/TradingSessionService.cs` (`ResolveRunIdForFolder`, risoluzione dinamica),
+`Piootoo.Core/Services/TitanoRotationService.cs` (`ResolveLatestRun`, `GetFreshness`),
 `PiootooApp.Server/Controllers/TradingPlansController.cs`,
 `piootoo-repository/ctrader/PiootooDistributedExecutionBot.cs` (distribuzione),
 `piootoo-repository/ctrader/PiootooDirectExecutionBot.cs` (esecuzione diretta),
-`piootooapp.clientform/Shell/Screens/PlanDetailScreen.cs` (dettaglio nella shell).
+`piootooapp.clientform/Shell/Screens/PlanDetailScreen.cs`,
+`piootooapp.clientform/Shell/Screens/PlanListScreen.cs` (badge di stato).

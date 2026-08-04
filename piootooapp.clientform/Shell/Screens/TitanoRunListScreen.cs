@@ -258,7 +258,7 @@ public partial class TitanoRunListScreen : UserControl, IShellScreen
         {
             var plans = await _context.Services.Plans.ListAsync(workspaceId);
             affectedPlans = plans
-                .Where(plan => ReferencesRun(plan, row.RunId))
+                .Where(plan => ReferencesRun(plan, row.BacktestFolder))
                 .Select(plan => $"{plan.Code} — {plan.Name}")
                 .ToList();
         }
@@ -298,14 +298,14 @@ public partial class TitanoRunListScreen : UserControl, IShellScreen
     }
 
     /// <summary>
-    /// Il riferimento può stare sul piano (mirror legacy della prima riga) o su un singolo gruppo:
-    /// guardare solo il primo lascerebbe fuori i piani multi-gruppo, che sono quelli in cui la
-    /// rotazione conta di più.
+    /// Il run non è più un campo del piano: si usa sempre l'ultimo generato per la cartella. Un
+    /// piano "referenzia" quindi un run se una sua riga (o il mirror legacy) usa la stessa cartella
+    /// — cancellarlo cambia (o azzera) l'ultimo disponibile per quel piano.
     /// </summary>
-    private static bool ReferencesRun(TradingPlan plan, string runId)
-        => string.Equals(plan.TitanoRunId, runId, StringComparison.OrdinalIgnoreCase)
+    private static bool ReferencesRun(TradingPlan plan, string backtestFolder)
+        => string.Equals(plan.TitanoBacktestFolder, backtestFolder, StringComparison.OrdinalIgnoreCase)
            || plan.Groups.Any(group =>
-               string.Equals(group.TitanoRunId, runId, StringComparison.OrdinalIgnoreCase));
+               string.Equals(group.TitanoBacktestFolder, backtestFolder, StringComparison.OrdinalIgnoreCase));
 
     private static string BuildDeleteMessage(TitanoRunRow row, IReadOnlyList<string> affectedPlans)
     {
@@ -316,7 +316,7 @@ public partial class TitanoRunListScreen : UserControl, IShellScreen
         if (affectedPlans.Count == 0)
         {
             return message + Environment.NewLine + Environment.NewLine +
-                   "Nessun piano del workspace lo referenzia.";
+                   "Nessun piano del workspace usa questa cartella.";
         }
 
         var listed = string.Join(Environment.NewLine, affectedPlans.Take(15).Select(plan => $"  • {plan}"));
@@ -326,8 +326,9 @@ public partial class TitanoRunListScreen : UserControl, IShellScreen
         }
 
         return message + Environment.NewLine + Environment.NewLine +
-               $"{affectedPlans.Count} piani lo referenziano:" + Environment.NewLine +
+               $"{affectedPlans.Count} piani usano questa cartella:" + Environment.NewLine +
                listed + Environment.NewLine + Environment.NewLine +
-               "Non falliranno adesso: falliranno all'apertura della sessione.";
+               "Il run non è indicato sul piano: si usa sempre l'ultimo disponibile per la cartella. " +
+               "Se era l'unico, quei piani smetteranno di trovarne uno all'apertura della sessione.";
     }
 }

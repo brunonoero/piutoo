@@ -508,7 +508,6 @@ public sealed class TradingSessionsHttpTests : IDisposable
                         GroupId = "prop-a",
                         AccountNumber = "1001",
                         RotationSetupId = "bilanciato",
-                        TitanoRunId = "run-test",
                         TitanoBacktestFolder = "titano-source",
                         ApplyTitanoFilters = true
                     }
@@ -520,7 +519,7 @@ public sealed class TradingSessionsHttpTests : IDisposable
         var snapshot = await putResponse.Content.ReadFromJsonAsync<TradingSessionSnapshot>(JsonOptions);
         Assert.NotNull(snapshot);
         Assert.Single(snapshot!.Groups);
-        Assert.Equal("run-test", snapshot.Groups[0].TitanoRunId);
+        Assert.Equal("titano-source", snapshot.Groups[0].TitanoBacktestFolder);
 
         using var getGroupsRequest = Authorized(HttpMethod.Get,
             $"api/v1/trading-sessions/{descriptor.SessionId}/groups", descriptor.SessionToken);

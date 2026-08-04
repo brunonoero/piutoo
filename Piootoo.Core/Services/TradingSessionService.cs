@@ -72,6 +72,12 @@ public interface ITradingSessionService
 {
     TradingSessionDescriptor Create(CreateTradingSessionRequest request);
     TradingSessionDescriptor OpenFromPlan(OpenTradingPlanSessionRequest request);
+
+    /// <summary>
+    /// Elenco leggero di tutte le sessioni vive nel processo, incluse quelle aperte da un cBot: senza
+    /// questo la console non ha modo di scoprirle, perché le tiene solo <c>_sessions</c> in RAM.
+    /// </summary>
+    IReadOnlyList<TradingSessionSummary> ListSessions();
     TradingSessionDescriptor SetStatus(string sessionId, string token, TradingSessionStatus status);
     PushBarsResponse PushBars(PushBarsRequest request);
     IReadOnlyList<OrderIntent> GetIntents(string sessionId, string token, long after = 0);
@@ -170,6 +176,7 @@ public sealed class TradingSessionService : ITradingSessionService
         public string? DirectAccountNumber { get; set; }
         public decimal PeakEquity { get; set; }
         public TradingSessionStatus Status { get; set; }
+        public required DateTime CreatedAtUtc { get; init; }
         public object Gate { get; } = new();
         public Dictionary<string, List<OhlcvData>> History { get; } = new(StringComparer.OrdinalIgnoreCase);
         public Dictionary<string, long> LastSequence { get; } = new(StringComparer.OrdinalIgnoreCase);
@@ -264,6 +271,25 @@ public sealed class TradingSessionService : ITradingSessionService
 
     public TradingSessionDescriptor Create(CreateTradingSessionRequest request)
         => CreateCore(request, null, null);
+
+    public IReadOnlyList<TradingSessionSummary> ListSessions()
+        => _sessions.Values
+            .OrderByDescending(session => session.CreatedAtUtc)
+            .Select(session => new TradingSessionSummary
+            {
+                SessionId = session.Id,
+                SessionToken = session.Token,
+                WorkspaceId = session.WorkspaceId,
+                PlanCode = session.PlanCode,
+                ExecutionKey = session.ExecutionKey,
+                ExecutionMode = session.Mode,
+                Status = session.Status,
+                ClientRunMode = session.ClientRunMode,
+                TitanoMode = session.TitanoMode,
+                CreatedAtUtc = session.CreatedAtUtc,
+                LastBarTimeUtc = session.LastEvaluatedBarTimeUtc
+            })
+            .ToList();
 
     public TradingSessionDescriptor OpenFromPlan(OpenTradingPlanSessionRequest request)
     {
@@ -497,7 +523,8 @@ public sealed class TradingSessionService : ITradingSessionService
             PositionSizing = request.PositionSizing,
             InstrumentMetadata = instrumentMetadata,
             PeakEquity = request.InitialCapital,
-            Status = TradingSessionStatus.Created
+            Status = TradingSessionStatus.Created,
+            CreatedAtUtc = DateTime.UtcNow
         };
         _sessions[session.Id] = session;
         return Describe(session);

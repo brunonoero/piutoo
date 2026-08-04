@@ -1279,10 +1279,6 @@ public partial class WorkspaceBacktestingForm : Form
         {
             Name = "ApplyTitanoFilters", HeaderText = "Applica Titano", FillWeight = 12, TrueValue = true, FalseValue = false
         });
-        _sessionAccountGroups.Columns.Add(new DataGridViewTextBoxColumn
-        {
-            Name = "TitanoRunId", HeaderText = "Run Titano", FillWeight = 23, ReadOnly = true
-        });
         _formToolTip.SetToolTip(_sessionAccountGroups,
             "Un account per riga. Account con lo stesso 'Gruppo' (es. la stessa prop firm) non ricevono mai lo stesso segnale di ingresso; account di gruppi diversi sì.");
         layout.Controls.Add(_sessionAccountGroups, 0, 0);
@@ -1364,8 +1360,7 @@ public partial class WorkspaceBacktestingForm : Form
                     mapping.RotationSetupId,
                     mapping.AccountNumber,
                     mapping.MaxConcurrentTrades,
-                    mapping.ApplyTitanoFilters,
-                    mapping.TitanoRunId);
+                    mapping.ApplyTitanoFilters);
             ShowSession($"Caricati {accounts.Count} account configurati.");
         }
         catch (Exception ex) { MessageBox.Show(ex.Message, "Errore gruppi account", MessageBoxButtons.OK, MessageBoxIcon.Error); }
@@ -1385,9 +1380,6 @@ public partial class WorkspaceBacktestingForm : Form
                 AccountNumber = Convert.ToString(row.Cells["AccountNumber"].Value ?? string.Empty)!.Trim(),
                 MaxConcurrentTrades = ParseMaxConcurrentTrades(row),
                 ApplyTitanoFilters = row.Cells["ApplyTitanoFilters"].Value is not false,
-                TitanoRunId = Convert.ToString(row.Cells["TitanoRunId"].Value ?? string.Empty)!.Trim() is { Length: > 0 } runId
-                    ? runId
-                    : null,
                 TitanoBacktestFolder = backtestFolder
             })
             .Where(row => row.AccountNumber.Length > 0 || row.GroupId.Length > 0)
@@ -1448,14 +1440,10 @@ public partial class WorkspaceBacktestingForm : Form
                     GetSelectedSessionTitanoBacktestFolder()!);
                 var response = await _httpClient.PostAsJsonAsync("api/Titano/rotations", rotation, _jsonOptions);
                 response.EnsureSuccessStatusCode();
-                var manifest = await response.Content.ReadFromJsonAsync<TitanoRotationManifest>(_jsonOptions)
+                _ = await response.Content.ReadFromJsonAsync<TitanoRotationManifest>(_jsonOptions)
                     ?? throw new InvalidOperationException($"Manifest Titano non ricevuto per il gruppo '{group.Key}'.");
-
-                foreach (DataGridViewRow gridRow in _sessionAccountGroups.Rows)
-                    if (!gridRow.IsNewRow &&
-                        string.Equals(Convert.ToString(gridRow.Cells["GroupId"].Value), group.Key,
-                            StringComparison.OrdinalIgnoreCase))
-                        gridRow.Cells["TitanoRunId"].Value = manifest.RunId;
+                // Il run generato non si assegna più a mano: la sessione userà sempre l'ultimo
+                // disponibile per la cartella al momento di ogni barra.
             }
 
             if (_activeSession is not null)
@@ -3171,7 +3159,9 @@ public partial class WorkspaceBacktestingForm : Form
         _sessionPlanCode.Text = plan.Code;
         _sessionPlanName.Text = plan.Name;
         SelectSessionTitanoBacktest(plan.TitanoBacktestFolder);
-        _sessionTitanoRunId.Text = plan.TitanoRunId ?? string.Empty;
+        // Il run non è più un campo del piano: il campo resta solo per un pin manuale opzionale
+        // sulla sessione che si sta per creare, non riflette più nulla di persistito sul piano.
+        _sessionTitanoRunId.Text = string.Empty;
         _sessionAccountGroups.Rows.Clear();
         var rows = plan.Groups.Count > 0
             ? plan.Groups
@@ -3183,7 +3173,6 @@ public partial class WorkspaceBacktestingForm : Form
                     AccountNumber = plan.AccountNumber,
                     MaxConcurrentTrades = plan.MaxConcurrentTrades,
                     RotationSetupId = plan.RotationSetupId,
-                    TitanoRunId = plan.TitanoRunId,
                     TitanoBacktestFolder = plan.TitanoBacktestFolder,
                     ApplyTitanoFilters = plan.ApplyTitanoFilters
                 }
@@ -3192,7 +3181,7 @@ public partial class WorkspaceBacktestingForm : Form
         {
             _sessionAccountGroups.Rows.Add(
                 row.GroupId, row.RotationSetupId, row.AccountNumber, row.MaxConcurrentTrades,
-                row.ApplyTitanoFilters, row.TitanoRunId);
+                row.ApplyTitanoFilters);
         }
     }
 

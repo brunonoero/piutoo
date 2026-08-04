@@ -58,7 +58,9 @@ public static class NavigationRegistry
             new NavigationEntry("Backtesting", () => new BacktestListScreen()),
             // Stessa forma: la voce apre la lista dei run, "Nuova rotazione" porta a TitanoScreen.
             new NavigationEntry("Run Titano", () => new TitanoRunListScreen()),
-            new NavigationEntry("Sessioni di trading", () => new TradingSessionsScreen()))
+            // Stessa forma delle altre due: la voce apre la lista, "Apri da piano"/"Sessione diretta"
+            // portano a TradingSessionsScreen — include anche le sessioni aperte da un cBot.
+            new NavigationEntry("Sessioni di trading", () => new TradingSessionListScreen()))
         // La sezione "Analisi" non esiste più. Conteneva "Risultati trading" e "Rotazioni Titano":
         // i primi sono il tab Operazioni del dettaglio backtest, le seconde il dettaglio di un run.
         // Entrambe erano la stessa cosa vista due volte, e separavano il dato da ciò che lo spiega.

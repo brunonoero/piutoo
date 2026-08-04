@@ -28,6 +28,8 @@ public partial class MainShellForm : Form, INavigationHost
 
         _serverUrlTextBox.Text = _services.ServerUrl;
         BuildNavigationTree();
+        UpdateThemeMenuCheckState();
+        ApplyTheme();
         SetStatus("Pronto.");
     }
 
@@ -82,6 +84,39 @@ public partial class MainShellForm : Form, INavigationHost
         ShowScreen(factory());
     }
 
+    private void OnThemeMenuItemClick(object? sender, EventArgs e)
+    {
+        var kind = sender switch
+        {
+            var s when s == _themeGreenMenuItem => ShellThemeKind.Green,
+            var s when s == _themeOrangeMenuItem => ShellThemeKind.Orange,
+            _ => ShellThemeKind.Blue,
+        };
+
+        ShellTheme.SetTheme(kind);
+        UpdateThemeMenuCheckState();
+        ApplyTheme();
+    }
+
+    private void UpdateThemeMenuCheckState()
+    {
+        _themeBlueMenuItem.Checked = ShellTheme.Current == ShellThemeKind.Blue;
+        _themeGreenMenuItem.Checked = ShellTheme.Current == ShellThemeKind.Green;
+        _themeOrangeMenuItem.Checked = ShellTheme.Current == ShellThemeKind.Orange;
+    }
+
+    // Le tre zone della shell hanno tonalità diverse della stessa palette: header (menu + barra
+    // server) più scuro, navigazione a sinistra a tonalità intermedia, area di lavoro (schermate)
+    // nel colore base. ShowScreen tema la singola schermata con lo stesso colore dell'area di lavoro.
+    private void ApplyTheme()
+    {
+        ShellTheme.ApplyMenuStrip(_menuStrip);
+        ShellTheme.ApplyStatusStrip(_statusStrip);
+        ShellTheme.ApplyZone(_serverPanel, ShellTheme.HeaderBackground);
+        ShellTheme.ApplyZone(_splitContainer.Panel1, ShellTheme.MenuBackground);
+        ShellTheme.ApplyZone(_splitContainer.Panel2, ShellTheme.Background);
+    }
+
     // --- INavigationHost -------------------------------------------------
 
     public void Push(Control screen) => ShowScreen(screen);
@@ -133,6 +168,7 @@ public partial class MainShellForm : Form, INavigationHost
         screen.Dock = DockStyle.Fill;
         _stack.Add(screen);
         _contentPanel.Controls.Add(screen);
+        ShellTheme.Apply(screen);
         screen.BringToFront();
         UpdateBreadcrumb();
         ActivateAsync(screen);

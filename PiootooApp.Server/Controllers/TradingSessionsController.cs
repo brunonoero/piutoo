@@ -16,6 +16,11 @@ public sealed class TradingSessionsController : ControllerBase
     public ActionResult<TradingSessionDescriptor> Create(CreateTradingSessionRequest request)
         => ExecuteResult<TradingSessionDescriptor>(() => Ok(_sessions.Create(request)));
 
+    /// <summary>Elenco leggero di tutte le sessioni vive, incluse quelle aperte da un cBot.</summary>
+    [HttpGet]
+    public ActionResult<IReadOnlyList<TradingSessionSummary>> List()
+        => ExecuteResult<IReadOnlyList<TradingSessionSummary>>(() => Ok(_sessions.ListSessions()));
+
     /// <summary>Crea o riprende idempotentemente una sessione usando il solo codice piano.</summary>
     [HttpPost("open-plan")]
     public ActionResult<TradingSessionDescriptor> OpenPlan(OpenTradingPlanSessionRequest request)

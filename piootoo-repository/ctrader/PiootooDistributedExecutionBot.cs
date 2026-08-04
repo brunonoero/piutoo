@@ -22,11 +22,14 @@ namespace cAlgo.Robots
     ///  - apre e chiude posizioni su QUALSIASI simbolo configurato (non solo quello del grafico);
     ///  - si autolimita PER SIMBOLO: mentre ha una posizione aperta su un simbolo non ne chiede/accetta una
     ///    seconda sullo stesso simbolo, ma può gestire in parallelo posizioni su simboli diversi;
-    ///  - le condizioni di uscita (Stop Loss, Take Profit, ed eventuale scadenza a tempo CloseAtUtc) sono
-    ///    contenute nel segnale di ingresso e vengono gestite interamente dal cBot: SL/TP sono impostati
-    ///    come livelli nativi sull'ordine (li applica il broker), CloseAtUtc viene sorvegliato localmente
-    ///    ad ogni OnBar, come il limite di barre MaxBarsInPosition. Il server NON invia mai segnali di
-    ///    chiusura: le strategie che deciderebbero l'uscita a runtime sono escluse dal catalogo;
+    ///  - ogni intent di ingresso porta con sé la specifica di uscita completa e il cBot la applica per
+    ///    intero: Stop Loss/Take Profit come livelli nativi sull'ordine (li applica il broker), BreakEven
+    ///    e TrailingStop come modifiche dello stop nativo sorvegliate a ogni tick, CloseAtUtc (con
+    ///    l'eventuale condizione ProfitBelow), ProfitStallAfterUtc e MaxBarsInPosition sorvegliati a ogni
+    ///    OnBar. Gli ordini di ingresso possono essere Market, Stop o Limit (semantica "next bar" dei
+    ///    motori Unger: l'ordine pending scade alla barra successiva ed è ricancellato/riemesso a ogni
+    ///    signal). Il server NON invia mai segnali di chiusura come intent separati sganciati da una
+    ///    strategia ExitOnly: le strategie che deciderebbero l'uscita a runtime sono escluse dal catalogo;
     ///  - qualunque sia la causa della chiusura (Stop Loss/Take Profit del broker, scadenza CloseAtUtc,
     ///    limite di barre) l'evento Positions.Closed la intercetta sempre: il bot registra un intent
     ///    di chiusura (POST intents/close-external) e vi riporta contro l'esito reale del trade
@@ -50,6 +53,7 @@ namespace cAlgo.Robots
     public class PiootooDistributedExecutionBot : Robot
     {
         private const string LabelPrefix = "PiootooLive";
+        private const string BotVersion = "1.1.0"; // aggiornare qui ad ogni release
 
         [Parameter("Server Base Url", DefaultValue = "https://localhost:7116")]
         public string ServerBaseUrl { get; set; }
@@ -101,12 +105,35 @@ namespace cAlgo.Robots
             Converters = { new JsonStringEnumConverter() }
         };
 
+        /// <summary>
+        /// Un flusso (simbolo Piootoo, timeframe) del piano. Il simbolo ha due nomi: <see cref="PiootooSymbol"/>
+        /// è la chiave con cui il SERVER indicizza barre, strategie e posizioni; <see cref="AccountSymbol"/> è
+        /// il nome sul BROKER, quello su cui si legge la serie e si piazzano gli ordini. Coincidono solo se
+        /// l'account non converte i simboli.
+        /// </summary>
         private sealed class Pair
         {
-            public string Symbol;
+            public string PiootooSymbol;
+            public string AccountSymbol;
             public int TimeframeMinutes;
             public Bars Series;
             public DateTime? LastPushedBarTimeUtc;
+
+            public override string ToString() =>
+                NormalizeSymbol(PiootooSymbol) == NormalizeSymbol(AccountSymbol)
+                    ? $"{PiootooSymbol}/{TimeframeMinutes}m"
+                    : $"{AccountSymbol} [{PiootooSymbol}]/{TimeframeMinutes}m";
+        }
+
+        /// <summary>
+        /// Barra in cui è stato piazzato l'ordine pending di ciascuna label, per gli intent Stop/Limit che
+        /// dichiarano una scadenza. Un ordine "next bar" vive una barra sola: alla successiva va cancellato,
+        /// altrimenti resta a mercato e se ne accumula uno per barra.
+        /// </summary>
+        private sealed class PendingOrderMark
+        {
+            public Pair Stream;
+            public int BarCount;
         }
 
         /// <summary>Contesto di una posizione aperta da questo bot, per il reporting alla chiusura.</summary>
@@ -123,10 +150,16 @@ namespace cAlgo.Robots
             /// <summary>Distanza in punti dal massimo/minimo favorevole per il trailing stop.</summary>
             public decimal? TrailingStop { get; set; }
             public DateTime? CloseAtUtc { get; set; }
+            /// <summary>Condiziona la chiusura a CloseAtUtc all'utile per contratto già raggiunto.</summary>
+            public decimal? TimeExitOnlyIfProfitBelowMoneyPerContract { get; set; }
+            /// <summary>Da questo istante si sorveglia l'utile aperto e si chiude se non fa nuovo massimo.</summary>
+            public DateTime? ProfitStallAfterUtc { get; set; }
             /// <summary>Limite di barre in posizione dichiarato dall'intent di ingresso. 0 = nessun limite.</summary>
             public int MaxBarsInPosition { get; set; }
             /// <summary>Barre trascorse, persistite per non perdere il limite dopo un riavvio.</summary>
             public int BarsInPosition { get; set; }
+            /// <summary>Rapporto contratto broker / contratto Piootoo, per convertire NetProfit in utile per contratto.</summary>
+            public decimal ContractMultiplier { get; set; } = 1m;
         }
 
         private sealed class LocalSessionState
@@ -146,6 +179,16 @@ namespace cAlgo.Robots
         // server non registra l'esito (il poll è idempotente e ripropone lo stesso intent finché Pending).
         private readonly HashSet<string> _submittedIntentIds = new();
         private readonly Dictionary<int, OrderIntentDto> _serverCloseIntents = new();
+
+        // Traccia, per label, l'ultimo intent di apertura inviato: serve a risolvere il fill quando la
+        // posizione nasce in modo asincrono (ordine pending Stop/Limit), via Positions.Opened.
+        private readonly Dictionary<string, OrderIntentDto> _lastOpenIntentByLabel = new();
+
+        // Barra in cui è stato piazzato l'ordine pending di ciascuna label, per gli intent con scadenza.
+        private readonly Dictionary<string, PendingOrderMark> _pendingOrderBar = new();
+
+        // Massimo utile per contratto osservato dopo ProfitStallAfterUtc, per posizione.
+        private readonly Dictionary<int, decimal> _peakProfitAfterStall = new();
 
         protected override void OnStart()
         {
@@ -192,7 +235,7 @@ namespace cAlgo.Robots
             var pairs = new List<Pair>();
             var error = "descriptor sessione mancante";
             if (descriptor == null ||
-                !ParseInstruments(descriptor.InstrumentsConfig, out pairs, out error))
+                !BuildPairs(descriptor.Instruments, out pairs, out error))
             {
                 Print("Configurazione strumenti del piano non valida: {0}", error);
                 Stop();
@@ -202,26 +245,35 @@ namespace cAlgo.Robots
             if (!IsBacktesting)
                 _localStatePath = BuildLocalStatePath(PlanCode, _accountNumber);
 
+            // Serie letta sul nome BROKER: sul nome Piootoo, quando l'account converte il simbolo, la
+            // ricerca fallirebbe o restituirebbe lo strumento sbagliato.
             foreach (var pair in _pairs)
-                pair.Series = MarketData.GetBars(ToTimeFrame(pair.TimeframeMinutes), pair.Symbol);
+                pair.Series = MarketData.GetBars(ToTimeFrame(pair.TimeframeMinutes), pair.AccountSymbol);
 
             RestoreLocalState();
+            Positions.Opened += OnPositionOpened;
             Positions.Closed += OnPositionClosed;
             Timer.Start(TimeSpan.FromSeconds(Math.Max(1, PollingSeconds)));
 
-            Print("Piootoo live bot avviato. Account={0} Session={1} Strumenti={2}",
-                _accountNumber, _sessionId, string.Join("; ", _pairs.Select(p => $"{p.Symbol}/{p.TimeframeMinutes}m")));
+            Print("{0} v{1} avviato. Account={2} Session={3} Strumenti={4}",
+                nameof(PiootooDistributedExecutionBot), BotVersion, _accountNumber, _sessionId,
+                string.Join("; ", _pairs));
         }
 
         protected override void OnBar()
         {
+            // Prima si ritira l'ordine della barra appena chiusa: l'ordine "next bar" ha esaurito la sua
+            // unica barra di validità, e riemettere il signal senza cancellarlo ne accumulerebbe uno per
+            // barra a livelli diversi, tutti eseguibili.
+            CancelExpiredPendingOrders();
+
             var pushedStreams = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var pair in _pairs)
             {
                 if (!TryPushClosedBar(pair))
                     continue;
 
-                pushedStreams.Add(MakeStreamKey(pair.Symbol, pair.TimeframeMinutes));
+                pushedStreams.Add(MakeStreamKey(pair.PiootooSymbol, pair.TimeframeMinutes));
             }
 
             foreach (var context in _openPositions.Values)
@@ -280,22 +332,53 @@ namespace cAlgo.Robots
             foreach (var kvp in _openPositions.ToArray())
             {
                 var ctx = kvp.Value;
-
-                string reason = null;
-                if (ctx.CloseAtUtc is { } closeAt && closeAt <= nowUtc)
-                    reason = "scadenza (CloseAtUtc)";
-                else if (ctx.MaxBarsInPosition > 0 && ctx.BarsInPosition >= ctx.MaxBarsInPosition)
-                    reason = "limite barre (MaxBarsInPosition)";
-
-                if (reason is null)
-                    continue;
-
                 var position = Positions.FirstOrDefault(p => p.Id == kvp.Key);
                 if (position is null)
                 {
                     _openPositions.Remove(kvp.Key); // già chiusa, per qualche altra via
+                    _peakProfitAfterStall.Remove(kvp.Key);
                     continue;
                 }
+
+                // Utile aperto per singolo contratto Piootoo, nella stessa grandezza in cui il server
+                // dichiara le soglie: senza dividere per il volume a mercato (in contratti broker) e
+                // riportarlo al contratto Piootoo con ContractMultiplier, la soglia scatterebbe a un
+                // livello sbagliato di un fattore pari al moltiplicatore.
+                var contractMultiplier = ctx.ContractMultiplier > 0 ? ctx.ContractMultiplier : 1m;
+                var brokerVolume = (decimal)position.VolumeInUnits;
+                var profitPerContract = brokerVolume > 0
+                    ? (decimal)position.NetProfit / brokerVolume * contractMultiplier
+                    : 0m;
+
+                string reason = null;
+                if (ctx.CloseAtUtc is { } closeAt && closeAt <= nowUtc)
+                {
+                    // La chiusura a tempo può essere condizionata all'utile: alcune strategie escono
+                    // all'ora prevista solo se sono sotto, altre lasciano correre il vincente che ha
+                    // già raggiunto la soglia.
+                    if (!ctx.TimeExitOnlyIfProfitBelowMoneyPerContract.HasValue ||
+                        profitPerContract < ctx.TimeExitOnlyIfProfitBelowMoneyPerContract.Value)
+                    {
+                        reason = "scadenza (CloseAtUtc)";
+                    }
+                }
+
+                if (reason is null && ctx.MaxBarsInPosition > 0 && ctx.BarsInPosition >= ctx.MaxBarsInPosition)
+                    reason = "limite barre (MaxBarsInPosition)";
+
+                // Uscita per stallo dell'utile: dopo la deadline si tiene il massimo osservato e si
+                // chiude alla prima barra che non lo supera. Il picco è memoria di esecuzione locale,
+                // non parte dell'intent.
+                if (reason is null && ctx.ProfitStallAfterUtc.HasValue && nowUtc >= ctx.ProfitStallAfterUtc.Value)
+                {
+                    if (!_peakProfitAfterStall.TryGetValue(kvp.Key, out var peak) || profitPerContract > peak)
+                        _peakProfitAfterStall[kvp.Key] = profitPerContract;
+                    else
+                        reason = "stallo dell'utile (ProfitStallAfterUtc)";
+                }
+
+                if (reason is null)
+                    continue;
 
                 var result = ClosePosition(position);
                 if (!result.IsSuccessful)
@@ -381,6 +464,62 @@ namespace cAlgo.Robots
             }
         }
 
+        /// <summary>
+        /// Cancella gli ordini pending la cui barra di validità è passata. I motori Unger emettono
+        /// ordini "next bar": vivono la sola barra successiva al segnale. Senza questa cancellazione ne
+        /// resta a mercato uno per ogni barra della finestra operativa, a livelli diversi, tutti
+        /// eseguibili.
+        /// </summary>
+        private void CancelExpiredPendingOrders()
+        {
+            if (_pendingOrderBar.Count == 0)
+                return;
+
+            foreach (var entry in _pendingOrderBar.ToList())
+            {
+                var mark = entry.Value;
+                if (mark?.Stream?.Series == null || mark.Stream.Series.Count <= mark.BarCount)
+                    continue;
+
+                CancelPendingOrders(entry.Key, "scaduto (valido una barra sola)");
+                _pendingOrderBar.Remove(entry.Key);
+            }
+        }
+
+        private void CancelPendingOrders(string label, string reason)
+        {
+            foreach (var order in PendingOrders.Where(o => o.Label == label).ToList())
+            {
+                var result = CancelPendingOrder(order);
+                if (result.IsSuccessful)
+                    Print("Ordine pending {0} ({1}) cancellato: {2}.", order.Id, label, reason);
+                else
+                    Print("Impossibile cancellare l'ordine pending {0} ({1}): {2}", order.Id, label, result.Error);
+            }
+        }
+
+        /// <summary>
+        /// Stream di un intent, per contare le barre di validità dell'ordine pending. Il match è sul
+        /// simbolo Piootoo (quello dell'intent), con il timeframe della strategia a disambiguare quando
+        /// lo stesso simbolo gira su più timeframe.
+        /// </summary>
+        private Pair FindPair(string piootooSymbol, int timeframeMinutes)
+        {
+            var normalized = NormalizeSymbol(piootooSymbol);
+            var candidates = _pairs.Where(pair => NormalizeSymbol(pair.PiootooSymbol) == normalized).ToList();
+            if (candidates.Count == 0)
+                return null;
+
+            if (timeframeMinutes > 0)
+            {
+                var exact = candidates.FirstOrDefault(pair => pair.TimeframeMinutes == timeframeMinutes);
+                if (exact != null)
+                    return exact;
+            }
+
+            return candidates.OrderBy(pair => pair.TimeframeMinutes).First();
+        }
+
         protected override void OnTimer()
         {
             // Senza questa guardia il polling periodico continuerebbe a reclamare intent nel fine
@@ -415,6 +554,7 @@ namespace cAlgo.Robots
                 else
                     Print("Impossibile cancellare l'ordine {0} per il fine settimana: {1}", order.Id, cancel.Error);
             }
+            _pendingOrderBar.Clear();
 
             foreach (var position in Positions
                 .Where(p => p.Label != null && p.Label.StartsWith(LabelPrefix, StringComparison.Ordinal))
@@ -454,6 +594,7 @@ namespace cAlgo.Robots
         {
             SaveLocalState();
             Timer.Stop();
+            Positions.Opened -= OnPositionOpened;
             Positions.Closed -= OnPositionClosed;
             _http?.Dispose();
         }
@@ -483,13 +624,14 @@ namespace cAlgo.Robots
 
                 var closedBar = new ClosedBarDto
                 {
-                    Symbol = pair.Symbol,
+                    // Nome Piootoo: è con quello che il server indicizza le serie, non il nome broker.
+                    Symbol = pair.PiootooSymbol,
                     TimeframeMinutes = pair.TimeframeMinutes,
                     BarTimeUtc = barTimeUtc,
                     // Sequenza basata sul timestamp: monotona per lo stream a prescindere da quale
                     // account/cBot la invii per primo (più account pushano le stesse barre di mercato).
                     Sequence = (long)(barTimeUtc - DateTime.UnixEpoch).TotalMilliseconds,
-                    IdempotencyKey = $"{pair.Symbol}|{pair.TimeframeMinutes}|{barTimeUtc:O}",
+                    IdempotencyKey = $"{pair.PiootooSymbol}|{pair.TimeframeMinutes}|{barTimeUtc:O}",
                     Bar = new OhlcvDto
                     {
                         DateTime = barTimeUtc,
@@ -512,7 +654,7 @@ namespace cAlgo.Robots
                 if (!response.IsSuccessStatusCode)
                 {
                     if (VerboseLogging)
-                        Print("Push barra {0}/{1}m fallito: {2}", pair.Symbol, pair.TimeframeMinutes, ReadError(response));
+                        Print("Push barra {0} fallito: {1}", pair, ReadError(response));
                     return false;
                 }
 
@@ -521,7 +663,7 @@ namespace cAlgo.Robots
             }
             catch (Exception ex)
             {
-                Print("Errore invio barra {0}/{1}m: {2}", pair.Symbol, pair.TimeframeMinutes, ex.Message);
+                Print("Errore invio barra {0}: {1}", pair, ex.Message);
                 return false;
             }
         }
@@ -666,18 +808,76 @@ namespace cAlgo.Robots
             var stopLossPips = ToPips(symbol, intent.StopLoss);
             var takeProfitPips = ToPips(symbol, intent.TakeProfit);
 
-            var result = ExecuteMarketOrder(tradeType, brokerSymbolName, volume, label, stopLossPips, takeProfitPips, intent.Reason);
-            if (!result.IsSuccessful || result.Position is null)
+            // Il segnale precedente della stessa strategia è scaduto nel momento in cui ne arriva uno
+            // nuovo: il motore riemette l'ordine a ogni barra col livello ricalcolato, quindi il vecchio
+            // ordine pending non è un secondo ordine, è lo stesso ordine da sostituire.
+            CancelPendingOrders(label, "sostituito dal signal successivo");
+
+            _lastOpenIntentByLabel[label] = intent;
+
+            TradeResult result;
+            switch (intent.OrderType)
+            {
+                case TradeOrderTypeDto.Stop:
+                    result = PlaceStopOrder(tradeType, brokerSymbolName, volume, (double)intent.Price, label, stopLossPips, takeProfitPips);
+                    break;
+                case TradeOrderTypeDto.Limit:
+                    result = PlaceLimitOrder(tradeType, brokerSymbolName, volume, (double)intent.Price, label, stopLossPips, takeProfitPips);
+                    break;
+                default:
+                    result = ExecuteMarketOrder(tradeType, brokerSymbolName, volume, label, stopLossPips, takeProfitPips, intent.Reason);
+                    break;
+            }
+
+            if (!result.IsSuccessful)
             {
                 Print("Errore apertura posizione {0}/{1}: {2}", brokerSymbolName, intent.StrategyCode, result.Error);
                 ReportExecution(intent.IntentId, intent.Symbol, ExecutionReportStatusDto.Rejected, 0, null);
+                _lastOpenIntentByLabel.Remove(label);
                 _submittedIntentIds.Remove(intent.IntentId);
                 return;
             }
 
-            _openPositions[result.Position.Id] = new OpenPositionContext
+            // Scadenza dell'ordine pending: la barra corrente è l'unica in cui può essere eseguito, come
+            // "next bar at ... stop" di EasyLanguage. Il conteggio è sulla serie dello stream della
+            // strategia, non su quella del grafico.
+            if (intent.ExpiresAtUtc.HasValue && result.PendingOrder != null)
             {
-                PositionId = result.Position.Id,
+                var stream = FindPair(intent.Symbol, intent.TimeframeMinutes);
+                if (stream?.Series != null)
+                    _pendingOrderBar[label] = new PendingOrderMark { Stream = stream, BarCount = stream.Series.Count };
+            }
+            else
+            {
+                _pendingOrderBar.Remove(label);
+            }
+
+            // Il fill — sia esso immediato (mercato) o differito (pending Stop/Limit) — viene riportato
+            // da OnPositionOpened: un solo punto di reporting, così market e pending non duplicano né
+            // dimenticano l'apertura.
+        }
+
+        /// <summary>
+        /// Una posizione di questo bot si è aperta: risolve l'intent che l'ha originata (ordine a
+        /// mercato o pending appena riempito) e riporta il fill al server. Serve perché
+        /// <c>PlaceStopOrder</c>/<c>PlaceLimitOrder</c> non restituiscono una posizione sincrona.
+        /// </summary>
+        private void OnPositionOpened(PositionOpenedEventArgs args)
+        {
+            var position = args.Position;
+            if (position.Label == null || !position.Label.StartsWith(LabelPrefix, StringComparison.Ordinal))
+                return;
+            if (_openPositions.ContainsKey(position.Id))
+                return;
+            if (!_lastOpenIntentByLabel.TryGetValue(position.Label, out var intent))
+            {
+                Print("Posizione {0} aperta ({1}) senza un intent locale associato: nessun report inviato.", position.Id, position.Label);
+                return;
+            }
+
+            _openPositions[position.Id] = new OpenPositionContext
+            {
+                PositionId = position.Id,
                 EntryIntentId = intent.IntentId,
                 StrategyCode = intent.StrategyCode,
                 Symbol = intent.Symbol,
@@ -685,13 +885,17 @@ namespace cAlgo.Robots
                 BreakEven = intent.BreakEven,
                 TrailingStop = intent.TrailingStop,
                 CloseAtUtc = intent.CloseAtUtc,
+                TimeExitOnlyIfProfitBelowMoneyPerContract = intent.TimeExitOnlyIfProfitBelowMoneyPerContract,
+                ProfitStallAfterUtc = intent.ProfitStallAfterUtc,
                 MaxBarsInPosition = intent.MaxBarsInPosition ?? 0,
-                BarsInPosition = 0
+                BarsInPosition = 0,
+                ContractMultiplier = intent.ContractMultiplier > 0 ? intent.ContractMultiplier : 1m
             };
+            _pendingOrderBar.Remove(position.Label);
             SaveLocalState();
 
             ReportExecution(intent.IntentId, intent.Symbol, ExecutionReportStatusDto.Filled,
-                (decimal)result.Position.VolumeInUnits, (decimal)result.Position.EntryPrice, result.Position.Id.ToString());
+                (decimal)position.VolumeInUnits, (decimal)position.EntryPrice, position.Id.ToString());
         }
 
         private void HandleCloseIntent(OrderIntentDto intent)
@@ -727,6 +931,7 @@ namespace cAlgo.Robots
             if (!_openPositions.TryGetValue(position.Id, out var ctx))
                 return; // posizione non aperta da questo bot: ignorata
             _openPositions.Remove(position.Id);
+            _peakProfitAfterStall.Remove(position.Id);
             SaveLocalState();
 
             var trade = History.LastOrDefault(h => h.PositionId == position.Id);
@@ -882,34 +1087,35 @@ namespace cAlgo.Robots
             }
         }
 
-        private static bool ParseInstruments(string config, out List<Pair> pairs, out string error)
+        /// <summary>
+        /// Costruisce i flussi (simbolo, timeframe) del piano dagli strumenti del descriptor di sessione.
+        /// Non c'è un parametro di configurazione locale degli strumenti di proposito: duplicherebbe il
+        /// masterfilter, e le due liste divergerebbero in silenzio.
+        /// </summary>
+        private static bool BuildPairs(IReadOnlyList<TradingInstrumentDto> instruments, out List<Pair> pairs, out string error)
         {
             pairs = new List<Pair>();
             error = null;
-            if (string.IsNullOrWhiteSpace(config))
+            if (instruments == null || instruments.Count == 0)
             {
                 error = "nessuno strumento configurato.";
                 return false;
             }
 
-            foreach (var entry in config.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            foreach (var instrument in instruments)
             {
-                var parts = entry.Split(':', 2, StringSplitOptions.TrimEntries);
-                if (parts.Length != 2 || string.IsNullOrWhiteSpace(parts[0]))
-                {
-                    error = $"voce non valida '{entry}' (atteso SIMBOLO:tf1,tf2,...).";
-                    return false;
-                }
+                if (string.IsNullOrWhiteSpace(instrument.Symbol))
+                    continue;
 
-                var symbol = parts[0];
-                foreach (var tfText in parts[1].Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                var accountSymbol = string.IsNullOrWhiteSpace(instrument.AccountSymbol)
+                    ? instrument.Symbol
+                    : instrument.AccountSymbol;
+
+                foreach (var tf in instrument.TimeframesMinutes ?? Array.Empty<int>())
                 {
-                    if (!int.TryParse(tfText, out var tf) || tf <= 0)
-                    {
-                        error = $"timeframe non valido '{tfText}' per {symbol}.";
-                        return false;
-                    }
-                    pairs.Add(new Pair { Symbol = symbol, TimeframeMinutes = tf });
+                    if (tf <= 0)
+                        continue;
+                    pairs.Add(new Pair { PiootooSymbol = instrument.Symbol, AccountSymbol = accountSymbol, TimeframeMinutes = tf });
                 }
             }
 
@@ -965,8 +1171,11 @@ namespace cAlgo.Robots
         private static string ResolveIntentSymbol(OrderIntentDto intent) =>
             string.IsNullOrWhiteSpace(intent.AccountSymbol) ? intent.Symbol : intent.AccountSymbol;
 
+        private static string NormalizeSymbol(string symbol) =>
+            (symbol ?? string.Empty).Trim().TrimStart('@').ToUpperInvariant();
+
         private static string MakeStreamKey(string symbol, int timeframeMinutes) =>
-            $"{symbol.Trim().TrimStart('@').ToUpperInvariant()}|{timeframeMinutes}";
+            $"{NormalizeSymbol(symbol)}|{timeframeMinutes}";
 
         private static TimeFrame ToTimeFrame(int minutes) => minutes switch
         {
@@ -1048,14 +1257,19 @@ namespace cAlgo.Robots
             public string SessionId { get; set; }
             public string SessionToken { get; set; }
             public IReadOnlyList<TradingInstrumentDto> Instruments { get; set; }
-            public string InstrumentsConfig => string.Join(";",
-                (Instruments ?? Array.Empty<TradingInstrumentDto>()).Select(instrument =>
-                    $"{instrument.Symbol}:{string.Join(",", instrument.TimeframesMinutes ?? Array.Empty<int>())}"));
         }
 
         private sealed class TradingInstrumentDto
         {
+            /// <summary>Simbolo Piootoo: chiave con cui il server indicizza barre, strategie e posizioni.</summary>
             public string Symbol { get; set; }
+
+            /// <summary>
+            /// Nome dello stesso strumento sull'account che esegue la sessione, risolto dalla tabella di
+            /// conversione. È quello con cui va letta la serie e piazzato l'ordine sul broker; vuoto o
+            /// uguale a <see cref="Symbol"/> quando l'account non converte quel simbolo.
+            /// </summary>
+            public string AccountSymbol { get; set; }
             public IReadOnlyList<int> TimeframesMinutes { get; set; }
         }
 
@@ -1087,6 +1301,22 @@ namespace cAlgo.Robots
             public int TimeframeMinutes { get; set; }
             public int? MaxBarsInPosition { get; set; }
             public DateTime? CloseAtUtc { get; set; }
+
+            /// <summary>Condiziona la chiusura a CloseAtUtc all'utile aperto per contratto Piootoo. Null = incondizionata.</summary>
+            public decimal? TimeExitOnlyIfProfitBelowMoneyPerContract { get; set; }
+
+            /// <summary>Da questo istante si sorveglia l'utile aperto e si chiude alla prima barra senza un nuovo massimo.</summary>
+            public DateTime? ProfitStallAfterUtc { get; set; }
+
+            /// <summary>Istante da cui l'ordine pending è valido (semantica "next bar" dei motori Unger).</summary>
+            public DateTime? ValidFromUtc { get; set; }
+
+            /// <summary>Scadenza dell'ordine pending: oltre questo istante va cancellato, non eseguito.</summary>
+            public DateTime? ExpiresAtUtc { get; set; }
+
+            /// <summary>Rapporto contratto broker / contratto Piootoo, per riportare NetProfit a utile per contratto.</summary>
+            public decimal ContractMultiplier { get; set; } = 1m;
+
             public string Reason { get; set; }
             public OrderIntentStatusDto Status { get; set; }
             public decimal Quantity { get; set; }

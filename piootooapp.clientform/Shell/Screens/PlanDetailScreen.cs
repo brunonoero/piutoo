@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using Piootoo.Shared.Models.Optimization;
 using Piootoo.Shared.Models.Trading;
 using Piootoo.Shared.Models.Workspaces;
 
@@ -14,8 +15,6 @@ public sealed class PlanGroupEditRow
     public int MaxConcurrentTrades { get; set; }
 
     public string RotationSetupId { get; set; } = string.Empty;
-
-    public string TitanoRunId { get; set; } = string.Empty;
 
     public string TitanoBacktestFolder { get; set; } = string.Empty;
 
@@ -55,8 +54,6 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
     /// <summary>Liste condivise fra le combo del tab Generale e le colonne della griglia gruppi.</summary>
     private readonly List<ValueComboItem> _rotationSetups = new();
     private readonly List<ValueComboItem> _backtestFolders = new();
-    private readonly Dictionary<string, IReadOnlyList<ValueComboItem>> _runsByFolder =
-        new(StringComparer.OrdinalIgnoreCase);
     private ShellContext? _context;
     private string _workspaceId = string.Empty;
     private string? _code;
@@ -118,7 +115,8 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
                 _toolbar.Title = "Nuovo piano";
                 _codeTextBox.ReadOnly = false;
                 ResetToDefaults();
-                await ApplyTitanoSelectionAsync(null, null, null, cancellationToken);
+                await ApplyTitanoSelectionAsync(null, null, cancellationToken);
+                _rotationStatusLabel.Text = "disponibile dopo il primo salvataggio";
                 await RefreshGroupChoicesAsync(cancellationToken);
                 _context.Navigation.SetStatus($"Nuovo piano nel workspace '{_workspaceId}'.");
                 return;
@@ -128,9 +126,9 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
             _toolbar.Title = $"Piano {plan.Code}";
             _codeTextBox.ReadOnly = true;
             Fill(plan);
-            await ApplyTitanoSelectionAsync(
-                plan.RotationSetupId, plan.TitanoBacktestFolder, plan.TitanoRunId, cancellationToken);
+            await ApplyTitanoSelectionAsync(plan.RotationSetupId, plan.TitanoBacktestFolder, cancellationToken);
             await RefreshGroupChoicesAsync(cancellationToken);
+            await RefreshRotationStatusAsync(cancellationToken);
             _context.Navigation.SetStatus(
                 $"Piano '{plan.Code}' con {plan.Groups.Count} righe gruppo/account, " +
                 $"aggiornato il {plan.UpdatedUtc:yyyy-MM-dd HH:mm} UTC.");
@@ -224,20 +222,20 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
         MarkDirty();
         _context?.Navigation.SetStatus($"Il piano verrà salvato nel workspace '{workspaceId}'.");
 
-        // Cartelle di backtest e run vivono dentro il workspace: cambiato quello, le selezioni
-        // Titano precedenti non sono più risolvibili e vanno ricostruite dalla nuova lista.
-        await ApplyTitanoSelectionAsync(SelectedId(_rotationSetupCombo), null, null, CancellationToken.None);
+        // Cartelle di backtest vivono dentro il workspace: cambiato quello, la selezione Titano
+        // precedente non è più risolvibile e va ricostruita dalla nuova lista.
+        await ApplyTitanoSelectionAsync(SelectedId(_rotationSetupCombo), null, CancellationToken.None);
         await RefreshGroupChoicesAsync(CancellationToken.None);
     }
 
     /// <summary>
-    /// Ricostruisce le tre combo Titano nell'ordine in cui dipendono l'una dall'altra: i setup
-    /// sono globali, le cartelle appartengono al workspace, i run vivono dentro una cartella.
+    /// Ricostruisce le due combo Titano nell'ordine in cui dipendono l'una dall'altra: i setup sono
+    /// globali, le cartelle appartengono al workspace. Il run non si sceglie più: è sempre l'ultimo
+    /// generato per la cartella, mostrato in sola lettura da <see cref="RefreshRotationStatusAsync"/>.
     /// </summary>
     private async Task ApplyTitanoSelectionAsync(
         string? setupId,
         string? backtestFolder,
-        string? runId,
         CancellationToken cancellationToken)
     {
         if (_context == null)
@@ -253,13 +251,44 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
 
             await LoadBacktestFoldersAsync(cancellationToken);
             SelectValue(_titanoFolderCombo, backtestFolder);
-
-            await LoadTitanoRunsAsync(cancellationToken);
-            SelectValue(_titanoRunCombo, runId);
         }
         finally
         {
             _suspendTitanoEvents = false;
+        }
+    }
+
+    /// <summary>
+    /// Stato di freschezza dell'ultimo run per la cartella della riga primaria, in sola lettura: il
+    /// run non è più un campo del piano, quindi non c'è nulla da selezionare, solo da mostrare.
+    /// Richiede un piano già salvato (l'endpoint risolve per codice).
+    /// </summary>
+    private async Task RefreshRotationStatusAsync(CancellationToken cancellationToken)
+    {
+        if (_context == null || _isNew || _code is not { Length: > 0 } code)
+        {
+            return;
+        }
+
+        try
+        {
+            var status = await _context.Services.Plans.GetRotationStatusAsync(_workspaceId, code, cancellationToken);
+            _rotationStatusLabel.Text = status.Freshness switch
+            {
+                TitanoRotationFreshness.Fresh =>
+                    $"🟢 pronto (ultimo run {status.LatestRunGeneratedAtUtc:yyyy-MM-dd HH:mm} UTC)",
+                TitanoRotationFreshness.Stale =>
+                    $"🟡 da aggiornare (ultimo run {status.LatestRunGeneratedAtUtc:yyyy-MM-dd HH:mm} UTC, periodo scaduto)",
+                _ => "⚪ nessun run Titano per questa cartella"
+            };
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _rotationStatusLabel.Text = $"non disponibile ({ex.Message})";
         }
     }
 
@@ -290,8 +319,6 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
     private async Task LoadBacktestFoldersAsync(CancellationToken cancellationToken)
     {
         _backtestFolders.Clear();
-        // I run in cache appartengono alle cartelle del workspace precedente.
-        _runsByFolder.Clear();
         _titanoFolderCombo.Items.Clear();
         _titanoFolderCombo.Items.Add(ValueComboItem.None("(nessuna cartella)"));
         if (string.IsNullOrEmpty(_workspaceId))
@@ -320,64 +347,6 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
         {
             _context!.Navigation.SetError($"Cartelle di backtest non elencabili: {ex.Message}");
         }
-    }
-
-    private async Task LoadTitanoRunsAsync(CancellationToken cancellationToken)
-    {
-        _titanoRunCombo.Items.Clear();
-        _titanoRunCombo.Items.Add(ValueComboItem.None("(nessun run)"));
-
-        // Un run è identificato dalla coppia (cartella, runId): senza cartella non c'è nulla da elencare.
-        var folder = SelectedId(_titanoFolderCombo);
-        _titanoRunCombo.Enabled = folder is { Length: > 0 };
-        if (folder is not { Length: > 0 } || string.IsNullOrEmpty(_workspaceId))
-        {
-            return;
-        }
-
-        foreach (var run in await EnsureRunsAsync(folder, cancellationToken))
-        {
-            _titanoRunCombo.Items.Add(run);
-        }
-    }
-
-    /// <summary>
-    /// Run di una cartella, con cache: la griglia può contenere righe su cartelle diverse e
-    /// rileggerle a ogni refresh di cella significherebbe una chiamata HTTP per riga.
-    /// </summary>
-    private async Task<IReadOnlyList<ValueComboItem>> EnsureRunsAsync(
-        string folder,
-        CancellationToken cancellationToken)
-    {
-        if (_runsByFolder.TryGetValue(folder, out var cached))
-        {
-            return cached;
-        }
-
-        var items = new List<ValueComboItem>();
-        try
-        {
-            var runs = await _context!.Services.Titano.ListRunsAsync(_workspaceId, folder, cancellationToken);
-            foreach (var run in runs.OrderByDescending(r => r.GeneratedAtUtc))
-            {
-                items.Add(ValueComboItem.Of(
-                    run.RunId,
-                    $"{run.RunId}  ·  {run.GeneratedAtUtc:yyyy-MM-dd HH:mm} UTC  ·  " +
-                    $"{run.PeriodCount} periodi  ·  {run.Status}"));
-            }
-        }
-        catch (OperationCanceledException)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            _context!.Navigation.SetError($"Run Titano di '{folder}' non elencabili: {ex.Message}");
-            return items;
-        }
-
-        _runsByFolder[folder] = items;
-        return items;
     }
 
     /// <summary>
@@ -410,26 +379,17 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
         }
     }
 
-    private async Task RefreshGroupChoicesAsync(CancellationToken cancellationToken)
+    private Task RefreshGroupChoicesAsync(CancellationToken cancellationToken)
     {
         RefreshGroupColumnItems();
         RefreshTitanoColumnItems();
 
-        // Prefetch dei run delle cartelle già usate dalle righe: le celle si popolano in modo
-        // sincrono, quindi la cache deve essere calda prima di toccarle.
-        foreach (var folder in _groups
-                     .Select(row => row.TitanoBacktestFolder)
-                     .Where(folder => !string.IsNullOrWhiteSpace(folder))
-                     .Distinct(StringComparer.OrdinalIgnoreCase))
-        {
-            await EnsureRunsAsync(folder.Trim(), cancellationToken);
-        }
-
         for (var index = 0; index < _groups.Count; index++)
         {
             RefreshAccountCell(index);
-            RefreshRunCell(index);
         }
+
+        return Task.CompletedTask;
     }
 
     private void RefreshTitanoColumnItems()
@@ -466,41 +426,6 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
         column.DisplayMember = nameof(ValueComboItem.Display);
         column.ValueMember = nameof(ValueComboItem.Id);
         column.DataSource = items;
-    }
-
-    /// <summary>
-    /// I run appartengono alla cartella di backtest della riga, quindi la lista vive sulla cella.
-    /// Senza cartella la lista è vuota: un run scelto lì non sarebbe risolvibile dal server, che
-    /// rifiuta un <c>TitanoRunId</c> senza <c>TitanoBacktestFolder</c>.
-    /// </summary>
-    private void RefreshRunCell(int rowIndex)
-    {
-        if (rowIndex < 0 || rowIndex >= _groups.Count || rowIndex >= _groupsGrid.Rows.Count)
-        {
-            return;
-        }
-
-        var row = _groups[rowIndex];
-        var items = new List<ValueComboItem> { ValueComboItem.Blank("(nessun run)") };
-        var folder = row.TitanoBacktestFolder?.Trim() ?? string.Empty;
-        if (folder.Length > 0 && _runsByFolder.TryGetValue(folder, out var runs))
-        {
-            items.AddRange(runs);
-        }
-
-        if (!string.IsNullOrWhiteSpace(row.TitanoRunId) && !ContainsId(items, row.TitanoRunId))
-        {
-            items.Add(ValueComboItem.Missing(row.TitanoRunId));
-        }
-
-        if (_groupsGrid.Rows[rowIndex].Cells[_colGroupTitanoRun.Index] is not DataGridViewComboBoxCell cell)
-        {
-            return;
-        }
-
-        cell.DisplayMember = nameof(ValueComboItem.Display);
-        cell.ValueMember = nameof(ValueComboItem.Id);
-        cell.DataSource = items;
     }
 
     private void RefreshGroupColumnItems()
@@ -578,7 +503,7 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
         }
     }
 
-    private async void OnGroupsGridCellValueChanged(object? sender, DataGridViewCellEventArgs e)
+    private void OnGroupsGridCellValueChanged(object? sender, DataGridViewCellEventArgs e)
     {
         if (e.RowIndex < 0 || e.RowIndex >= _groups.Count)
         {
@@ -601,26 +526,6 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
             }
 
             RefreshAccountCell(e.RowIndex);
-            return;
-        }
-
-        if (e.ColumnIndex == _colGroupTitanoFolder.Index)
-        {
-            // Il run apparteneva alla cartella precedente: la coppia (cartella, runId) non
-            // sopravvive al cambio, e lasciarla mista darebbe un manifest introvabile.
-            if (!string.IsNullOrWhiteSpace(row.TitanoRunId))
-            {
-                row.TitanoRunId = string.Empty;
-                _groups.ResetItem(e.RowIndex);
-            }
-
-            var folder = row.TitanoBacktestFolder?.Trim() ?? string.Empty;
-            if (folder.Length > 0)
-            {
-                await EnsureRunsAsync(folder, CancellationToken.None);
-            }
-
-            RefreshRunCell(e.RowIndex);
         }
     }
 
@@ -670,24 +575,11 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
         }
     }
 
-    private async void OnTitanoFolderChanged(object? sender, EventArgs e)
+    private void OnTitanoFolderChanged(object? sender, EventArgs e)
     {
-        if (_suspendTitanoEvents)
+        if (!_suspendTitanoEvents)
         {
-            return;
-        }
-
-        MarkDirty();
-        _suspendTitanoEvents = true;
-        try
-        {
-            // Il run corrente appartiene alla cartella precedente: si riparte da "nessun run".
-            await LoadTitanoRunsAsync(CancellationToken.None);
-            SelectValue(_titanoRunCombo, null);
-        }
-        finally
-        {
-            _suspendTitanoEvents = false;
+            MarkDirty();
         }
     }
 
@@ -761,7 +653,6 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
                 AccountNumber = group.AccountNumber,
                 MaxConcurrentTrades = group.MaxConcurrentTrades,
                 RotationSetupId = group.RotationSetupId ?? string.Empty,
-                TitanoRunId = group.TitanoRunId ?? string.Empty,
                 TitanoBacktestFolder = group.TitanoBacktestFolder ?? string.Empty,
                 ApplyTitanoFilters = group.ApplyTitanoFilters
             });
@@ -817,7 +708,6 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
         // come gruppo inesistente.
         _groups.Add(new PlanGroupEditRow { GroupId = string.Empty, AccountNumber = string.Empty });
         RefreshAccountCell(_groups.Count - 1);
-        RefreshRunCell(_groups.Count - 1);
     }
 
     private void OnRemoveGroupClick(object? sender, EventArgs e)
@@ -951,13 +841,11 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
                 AccountNumber = row.AccountNumber.Trim(),
                 MaxConcurrentTrades = row.MaxConcurrentTrades,
                 RotationSetupId = NullIfEmpty(row.RotationSetupId),
-                TitanoRunId = NullIfEmpty(row.TitanoRunId),
                 TitanoBacktestFolder = NullIfEmpty(row.TitanoBacktestFolder),
                 ApplyTitanoFilters = row.ApplyTitanoFilters
             }).ToList(),
             MaxConcurrentTrades = (int)_maxConcurrentInput.Value,
             RotationSetupId = SelectedId(_rotationSetupCombo),
-            TitanoRunId = SelectedId(_titanoRunCombo),
             TitanoBacktestFolder = SelectedId(_titanoFolderCombo),
             ApplyTitanoFilters = _applyTitanoCheckBox.Checked,
             EnforceConcurrencyLimits = _enforceConcurrencyCombo.SelectedIndex switch
@@ -1013,9 +901,9 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
             _workspaceCombo.Enabled = false;
             _suspendDirtyTracking = true;
             Fill(saved);
-            await ApplyTitanoSelectionAsync(
-                saved.RotationSetupId, saved.TitanoBacktestFolder, saved.TitanoRunId, CancellationToken.None);
+            await ApplyTitanoSelectionAsync(saved.RotationSetupId, saved.TitanoBacktestFolder, CancellationToken.None);
             await RefreshGroupChoicesAsync(CancellationToken.None);
+            await RefreshRotationStatusAsync(CancellationToken.None);
             _suspendDirtyTracking = false;
             SetDirty(false);
             _toolbar.Title = $"Piano {saved.Code}";

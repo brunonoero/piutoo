@@ -195,6 +195,33 @@ public sealed class TradingSessionDescriptor
     public IReadOnlyList<TradingInstrument> Instruments { get; init; } = [];
 }
 
+/// <summary>
+/// Riga leggera per l'elenco delle sessioni vive (<c>GET /api/v1/trading-sessions</c>): niente
+/// artefatti pesanti (strumenti, sizing), solo l'identità e lo stato che servono a una griglia.
+///
+/// <para>Include <see cref="SessionToken"/> perché senza non si potrebbe gestire da console una
+/// sessione aperta da un cBot: l'unica alternativa sarebbe un'API di sola lettura, che vanifica lo
+/// scopo dell'elenco. Non esiste ancora un provider di autenticazione sull'API (vedi
+/// <c>trading-sessions-api.md</c>): il token resta il solo confine fra sessioni, non un confine
+/// verso chi ha già accesso al server.</para>
+/// </summary>
+public sealed class TradingSessionSummary
+{
+    public required string SessionId { get; init; }
+    public required string SessionToken { get; init; }
+    public required string WorkspaceId { get; init; }
+    public string? PlanCode { get; init; }
+    public string? ExecutionKey { get; init; }
+    public required ExecutionMode ExecutionMode { get; init; }
+    public required TradingSessionStatus Status { get; init; }
+    public required ClientRunMode ClientRunMode { get; init; }
+    public required TitanoFilterMode TitanoMode { get; init; }
+    public required DateTime CreatedAtUtc { get; init; }
+
+    /// <summary>Barra più recente valutata dalla sessione. Null se non ha ancora ricevuto barre.</summary>
+    public DateTime? LastBarTimeUtc { get; init; }
+}
+
 public sealed class TradingInstrument
 {
     public required string Symbol { get; init; }

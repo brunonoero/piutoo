@@ -21,6 +21,11 @@ public sealed class TradingSessionApiClient : ApiClientBase
         => SendForAsync<TradingSessionDescriptor>(
             HttpMethod.Post, "api/v1/trading-sessions", request, cancellationToken);
 
+    /// <summary>Elenco leggero di tutte le sessioni vive nel processo, incluse quelle aperte da un cBot.</summary>
+    public Task<List<TradingSessionSummary>> ListAsync(CancellationToken cancellationToken = default)
+        => SendForAsync<List<TradingSessionSummary>>(
+            HttpMethod.Get, "api/v1/trading-sessions", null, cancellationToken);
+
     public Task<TradingSessionDescriptor> OpenFromPlanAsync(
         OpenTradingPlanSessionRequest request,
         CancellationToken cancellationToken = default)

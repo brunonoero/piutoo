@@ -862,4 +862,19 @@ in ordine cronologico. Non è un changelog di codice: quello resta nei commit.
   diventate `primo-ftmo` e `default-futures` in `piootoo-repository/accounts/symbol-conversions.json`,
   quest'ultima è anche il preset identità (ogni symbol del catalogo su se stesso, moltiplicatore 1)
   materializzato come voce nominata riutilizzabile invece che ricalcolato ogni volta.
+- **2026-08-04** — Un piano di trading non indica più `TitanoRunId`: referenzia solo una cartella
+  di backtest, e la sessione risolve **sempre l'ultimo run generato per quella cartella**
+  (`TitanoRotationService.ResolveLatestRun`), ricalcolato a ogni barra invece che congelato allo
+  snapshot del piano. Motivo: rifare una rotazione a fine periodo richiedeva di riaprire ogni piano
+  e ripuntare a mano il nuovo `TitanoRunId` — un passaggio facile da dimenticare, e dimenticarlo
+  non dava errore, dava una sessione che continuava silenziosamente sulla decisione vecchia. Con la
+  risoluzione dinamica una sessione già aperta applica un run più recente dalla barra successiva
+  alla sua generazione, senza riavviare il cBot. Aggiunto `TitanoRotationStatus`
+  (`Fresh`/`Stale`/`NoRun`, da `TitanoRotationService.GetFreshness`): stale appena `now` supera
+  `EffectiveToUtc` dell'ultima decisione, senza tolleranza — è il segnale che manca una rotazione
+  per il periodo corrente. Esposto da `GET .../trading-plans/{code}/rotation-status` e mostrato in
+  lista e dettaglio piani. Il percorso non-piano (`CreateTradingSessionRequest.TitanoRunId`)
+  resta un pin esplicito opzionale per test e integrazioni. Fuori scope:
+  `BacktestingRequest.TitanoRunId` del backtest ad-hoc della console resta manuale, per restare
+  riproducibile.
 

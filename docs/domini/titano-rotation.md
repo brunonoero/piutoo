@@ -133,6 +133,34 @@ La configurazione efficace è sempre:
 
 Pertanto Titano non può abilitare strategie esterne al master filter.
 
+## Risoluzione automatica dell'ultimo run e freschezza
+
+Un piano di trading non indica più un `TitanoRunId`: referenzia solo una cartella di backtest
+(`TradingGroupRow.TitanoBacktestFolder`), e ogni sessione risolve **al momento** l'ultimo run
+generato per quella cartella (`TitanoRotationService.ResolveLatestRun`, basato su
+`ListRuns(...).FirstOrDefault()`, già ordinato per `GeneratedAtUtc` decrescente). La risoluzione
+avviene a ogni barra, non una volta sola all'apertura: una sessione già aperta applica un run più
+recente dal bar successivo alla sua generazione, senza bisogno di riaprirla.
+
+`GetFreshness(workspaceId, backtestFolder)` classifica l'ultimo run in tre stati
+(`TitanoRotationFreshness`):
+
+- **Fresh** — `DateTime.UtcNow` è ancora dentro il periodo coperto dall'ultima decisione
+  (`EffectiveToUtc` dell'ultimo `TitanoRotationDecision`).
+- **Stale** — `now` ha già superato `EffectiveToUtc`: il sistema sta congelando un periodo per cui
+  Titano non ha mai deciso nulla (vedi `Resolve`, `UsedLatestPeriod`). Non è un errore — il run
+  resta applicabile in `TitanoFilterMode.Realtime` — ma segnala che serve un nuovo backtest
+  campione e una nuova rotazione.
+- **NoRun** — la cartella non ha ancora un run.
+
+La soglia è rigida: appena si entra nel periodo successivo all'ultimo calcolato, lo stato passa a
+Stale, senza tolleranza di un periodo extra. Esposto da
+`GET .../trading-plans/{code}/rotation-status` (`TitanoRotationStatus`) e mostrato in sola lettura
+nella lista e nel dettaglio dei piani.
+
+Il percorso non-piano (`CreateTradingSessionRequest.TitanoRunId`, sessioni create senza
+`open-plan`) resta un pin esplicito opzionale, per test e integrazioni che vogliono un run fisso.
+
 ## API e cTrader
 
 - `POST /api/Titano/rotations`

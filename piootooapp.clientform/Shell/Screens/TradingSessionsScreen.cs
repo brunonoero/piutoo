@@ -14,11 +14,19 @@ namespace piootooapp.clientform.Shell.Screens;
 
 /// <summary>
 
-/// Creazione e gestione di sessioni di trading. Le strategie valutate arrivano sempre dal
+/// Creazione e gestione di sessioni di trading (stato, avvio/stop, snapshot) — non il backtest
 
-/// masterfilter del workspace — il piano non limita l'universo, ma decide Titano, gruppi e
+/// batch, che è la schermata Backtesting separata (<c>PiootooBacktestingService</c>, un motore
 
-/// concorrenza per account.
+/// diverso che non passa da qui). "Sessione diretta" crea una sessione con stato via
+
+/// <c>POST /trading-sessions</c> (ServerSimulated per test/FeedWorker, o ExternalBroker manuale);
+
+/// "Apri da piano" segue lo stesso percorso <c>open-plan</c> usato dai cBot cTrader — le strategie
+
+/// valutate arrivano sempre dal masterfilter del workspace, il piano non limita l'universo ma
+
+/// decide Titano, gruppi e concorrenza per account.
 
 /// </summary>
 
@@ -26,7 +34,7 @@ public partial class TradingSessionsScreen : UserControl, IShellScreen
 
 {
 
-    private const string CreationManual = "Creazione manuale";
+    private const string CreationManual = "Sessione diretta (senza piano)";
 
     private const string CreationFromPlan = "Apri da piano";
 
@@ -35,6 +43,8 @@ public partial class TradingSessionsScreen : UserControl, IShellScreen
     private ShellContext? _context;
 
     private TradingSessionDescriptor? _activeSession;
+
+    private TradingSessionSummary? _preloadedSummary;
 
     private IReadOnlyList<WorkspaceAccount> _accounts = [];
 
@@ -55,6 +65,14 @@ public partial class TradingSessionsScreen : UserControl, IShellScreen
     {
 
         InitializeComponent();
+
+        _screenExplainerLabel.Text =
+
+            "Sessioni con stato (avvio/stop/snapshot) — non il backtest batch, che è nella schermata " +
+
+            "Backtesting. \"Sessione diretta\" crea qui una sessione ServerSimulated o ExternalBroker " +
+
+            "senza piano; \"Apri da piano\" usa lo stesso percorso open-plan dei cBot cTrader.";
 
         _creationSourceCombo.Items.AddRange([CreationManual, CreationFromPlan]);
 
@@ -86,11 +104,73 @@ public partial class TradingSessionsScreen : UserControl, IShellScreen
 
 
 
-    public string ScreenTitle => "Sessioni di trading";
+    public string ScreenTitle => _preloadedSummary is { } summary
+
+        ? $"Sessione {ShortId(summary.SessionId)}"
+
+        : "Nuova sessione di trading";
+
+
+
+    private static string ShortId(string id) => id.Length <= 8 ? id : id[..8];
 
 
 
     public void Initialize(ShellContext context) => _context = context;
+
+
+
+    /// <summary>
+
+    /// Va chiamato prima di aggiungere il controllo allo shell: apre direttamente in gestione,
+
+    /// saltando la UI di creazione. È così che una sessione aperta da un cBot diventa gestibile da
+
+    /// console — il token del summary è la stessa cosa che il cBot userebbe.
+
+    /// </summary>
+
+    /// <summary>Preseleziona "Apri da piano". Va chiamato prima di Push, sostituendo la creazione
+    /// manuale di default: la lista lo usa per il pulsante primario, allineato al percorso del cBot.</summary>
+    public void SelectOpenFromPlan() => _creationSourceCombo.SelectedIndex = 1;
+
+    public void SetSession(TradingSessionSummary summary)
+
+    {
+
+        _preloadedSummary = summary;
+
+        _activeSession = new TradingSessionDescriptor
+
+        {
+
+            SessionId = summary.SessionId,
+
+            SessionToken = summary.SessionToken,
+
+            WorkspaceId = summary.WorkspaceId,
+
+            PlanCode = summary.PlanCode,
+
+            ExecutionKey = summary.ExecutionKey,
+
+            ExecutionMode = summary.ExecutionMode,
+
+            Status = summary.Status,
+
+            TitanoMode = summary.TitanoMode,
+
+            ClientRunMode = summary.ClientRunMode
+
+        };
+
+        _configGroup.Visible = false;
+
+        _createButton.Visible = false;
+
+        UpdateSessionControls();
+
+    }
 
 
 
@@ -113,6 +193,68 @@ public partial class TradingSessionsScreen : UserControl, IShellScreen
         try
 
         {
+
+            _accounts = await _context.Services.Api.ListAccountsAsync(cancellationToken);
+
+            _accountGroups = await _context.Services.Api.ListAccountGroupsAsync(cancellationToken);
+
+            _titanoSetups = await _context.Services.Titano.ListSetupsAsync(cancellationToken);
+
+            RefreshGroupColumnSources();
+
+
+
+            if (_preloadedSummary is not null && _activeSession is not null)
+
+            {
+
+                var groups = await _context.Services.Sessions.GetGroupsAsync(
+
+                    _activeSession.SessionId, _activeSession.SessionToken, cancellationToken);
+
+                _groupsGrid.Rows.Clear();
+
+                foreach (var mapping in groups)
+
+                {
+
+                    _groupsGrid.Rows.Add(
+
+                        mapping.GroupId,
+
+                        mapping.RotationSetupId,
+
+                        mapping.AccountNumber,
+
+                        mapping.MaxConcurrentTrades,
+
+                        mapping.ApplyTitanoFilters,
+
+                        mapping.TitanoBacktestFolder);
+
+                }
+
+
+
+                var snapshot = await _context.Services.Sessions.GetSnapshotAsync(
+
+                    _activeSession.SessionId, _activeSession.SessionToken, cancellationToken);
+
+                ShowSnapshot(snapshot);
+
+                _context.Navigation.SetStatus(
+
+                    $"Sessione {_activeSession.SessionId} · {_activeSession.WorkspaceId} · {_activeSession.Status}.");
+
+                return;
+
+            }
+
+
+
+            RefreshOpenPlanAccountCombo(null);
+
+
 
             var previousWorkspace = SelectedWorkspaceId;
 
@@ -139,18 +281,6 @@ public partial class TradingSessionsScreen : UserControl, IShellScreen
                 ? index
 
                 : _workspaceCombo.Items.Count > 0 ? 0 : -1;
-
-
-
-            _accounts = await _context.Services.Api.ListAccountsAsync(cancellationToken);
-
-            _accountGroups = await _context.Services.Api.ListAccountGroupsAsync(cancellationToken);
-
-            _titanoSetups = await _context.Services.Titano.ListSetupsAsync(cancellationToken);
-
-            RefreshGroupColumnSources();
-
-            RefreshOpenPlanAccountCombo(null);
 
 
 
@@ -460,18 +590,6 @@ public partial class TradingSessionsScreen : UserControl, IShellScreen
 
         {
 
-            Name = "TitanoRunId",
-
-            HeaderText = "Run Titano",
-
-            FillWeight = 16
-
-        });
-
-        _groupsGrid.Columns.Add(new DataGridViewTextBoxColumn
-
-        {
-
             Name = "TitanoBacktestFolder",
 
             HeaderText = "Cartella backtest",
@@ -575,8 +693,6 @@ public partial class TradingSessionsScreen : UserControl, IShellScreen
                         MaxConcurrentTrades = plan.MaxConcurrentTrades,
 
                         RotationSetupId = plan.RotationSetupId,
-
-                        TitanoRunId = plan.TitanoRunId,
 
                         TitanoBacktestFolder = plan.TitanoBacktestFolder,
 
@@ -778,19 +894,45 @@ public partial class TradingSessionsScreen : UserControl, IShellScreen
 
         _derivedWorkspaceLabel.Visible = fromPlan;
 
-        _modeCombo.Enabled = !fromPlan;
+        // Da piano questi campi non servono a nulla: OpenFromPlan non li legge mai, li ricava dal
+        // piano (ExecutionMode è sempre ExternalBroker, Titano e CPPI vengono dalla riga gruppo
+        // primaria). Tenerli visibili-ma-disabilitati farebbe pensare che descrivano la sessione in
+        // apertura, mentre non vengono nemmeno inviati: si nascondono, non solo si disabilitano.
+        _modeLabel.Visible = !fromPlan;
 
-        _modeCombo.SelectedItem = fromPlan
+        _modeCombo.Visible = !fromPlan;
 
-            ? nameof(ExecutionMode.ExternalBroker)
+        _modeCombo.SelectedItem ??= nameof(ExecutionMode.ServerSimulated);
 
-            : _modeCombo.SelectedItem ?? nameof(ExecutionMode.ServerSimulated);
+        _titanoModeLabel.Visible = !fromPlan;
 
-        _cppiEnabledCheckBox.Enabled = !fromPlan;
+        _titanoModeCombo.Visible = !fromPlan;
 
-        _cppiFloorInput.Enabled = !fromPlan && _cppiEnabledCheckBox.Checked;
+        _titanoBacktestLabel.Visible = !fromPlan;
 
-        _cppiMultiplierInput.Enabled = !fromPlan && _cppiEnabledCheckBox.Checked;
+        _titanoBacktestCombo.Visible = !fromPlan;
+
+        _titanoRunLabel.Visible = !fromPlan;
+
+        _titanoRunCombo.Visible = !fromPlan;
+
+        _loadRunsButton.Visible = !fromPlan;
+
+        _loadRunsButton.Enabled = !fromPlan && !_isBusy;
+
+        _cppiEnabledCheckBox.Visible = !fromPlan;
+
+        _cppiFloorLabel.Visible = !fromPlan;
+
+        _cppiFloorInput.Visible = !fromPlan;
+
+        _cppiMultiplierLabel.Visible = !fromPlan;
+
+        _cppiMultiplierInput.Visible = !fromPlan;
+
+        _cppiFloorInput.Enabled = _cppiEnabledCheckBox.Checked;
+
+        _cppiMultiplierInput.Enabled = _cppiEnabledCheckBox.Checked;
 
 
 
@@ -803,16 +945,6 @@ public partial class TradingSessionsScreen : UserControl, IShellScreen
         _openPlanAccountCombo.Visible = fromPlan;
 
         _distributeCheckBox.Visible = fromPlan;
-
-
-
-        _titanoModeCombo.Enabled = !fromPlan;
-
-        _titanoBacktestCombo.Enabled = !fromPlan;
-
-        _titanoRunCombo.Enabled = !fromPlan;
-
-        _loadRunsButton.Enabled = !fromPlan && !_isBusy;
 
 
 
@@ -978,7 +1110,7 @@ public partial class TradingSessionsScreen : UserControl, IShellScreen
 
     private static TradingGroupRow PrimaryPlanRow(TradingPlan plan)
 
-        => plan.Groups.FirstOrDefault(row => !string.IsNullOrWhiteSpace(row.TitanoRunId))
+        => plan.Groups.FirstOrDefault(row => !string.IsNullOrWhiteSpace(row.TitanoBacktestFolder))
 
            ?? plan.Groups.FirstOrDefault()
 
@@ -993,8 +1125,6 @@ public partial class TradingSessionsScreen : UserControl, IShellScreen
                MaxConcurrentTrades = plan.MaxConcurrentTrades,
 
                RotationSetupId = plan.RotationSetupId,
-
-               TitanoRunId = plan.TitanoRunId,
 
                TitanoBacktestFolder = plan.TitanoBacktestFolder,
 
@@ -1182,8 +1312,6 @@ public partial class TradingSessionsScreen : UserControl, IShellScreen
 
                     RotationSetupId = plan.RotationSetupId,
 
-                    TitanoRunId = plan.TitanoRunId,
-
                     TitanoBacktestFolder = plan.TitanoBacktestFolder,
 
                     ApplyTitanoFilters = plan.ApplyTitanoFilters
@@ -1209,8 +1337,6 @@ public partial class TradingSessionsScreen : UserControl, IShellScreen
                 row.MaxConcurrentTrades,
 
                 row.ApplyTitanoFilters,
-
-                row.TitanoRunId ?? string.Empty,
 
                 row.TitanoBacktestFolder ?? string.Empty);
 
@@ -2397,8 +2523,6 @@ public partial class TradingSessionsScreen : UserControl, IShellScreen
 
                     mapping.ApplyTitanoFilters,
 
-                    mapping.TitanoRunId,
-
                     mapping.TitanoBacktestFolder);
 
             }
@@ -2464,12 +2588,6 @@ public partial class TradingSessionsScreen : UserControl, IShellScreen
                     MaxConcurrentTrades = ParseMaxConcurrentTrades(row),
 
                     ApplyTitanoFilters = row.Cells["ApplyTitanoFilters"].Value is not false,
-
-                    TitanoRunId = Convert.ToString(row.Cells["TitanoRunId"].Value ?? string.Empty)!.Trim() is { Length: > 0 } runId
-
-                        ? runId
-
-                        : null,
 
                     TitanoBacktestFolder = folder.Length > 0 ? folder : defaultBacktestFolder
 
