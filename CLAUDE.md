@@ -115,6 +115,11 @@ feed non ha barre — parti da `coversRequestedRange` nel summary e dai controll
 
 ## Convenzioni
 
+- **Console WinForms**: le regole delle schermate stanno in
+  `.cursor/rules/piutoo-console-screens.mdc` — griglie sempre ordinabili
+  (`SortableBindingList<T>` + `EnableColumnSorting()`), busy su ogni chiamata al server,
+  lista → dettaglio con gli artefatti in sola lettura, elenchi che non deserializzano ciò
+  che elencano.
 - Documentazione e commenti in italiano, come il resto del progetto.
 - `docs/`: un file per concetto, nome in kebab-case, prosa tecnica compatta;
   ogni file di dominio chiude con "Riferimenti codice" invece di ripetere firme.

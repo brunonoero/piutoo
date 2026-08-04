@@ -53,6 +53,35 @@ public sealed class TitanoApiClient : ApiClientBase
             null,
             cancellationToken);
 
+    /// <summary>Tutti i run del workspace, con la cartella di provenienza in ogni voce.</summary>
+    public Task<List<TitanoRunInfo>> ListRunsAsync(
+        string workspaceId,
+        CancellationToken cancellationToken = default)
+        => SendForAsync<List<TitanoRunInfo>>(
+            HttpMethod.Get,
+            $"api/Titano/rotations?workspaceId={Escape(workspaceId)}",
+            null,
+            cancellationToken);
+
+    /// <summary>
+    /// Elimina il run. Il server non controlla chi lo referenzia: l'avviso sui piani coinvolti
+    /// spetta a chi chiama.
+    /// </summary>
+    public async Task DeleteRunAsync(
+        string runId,
+        string workspaceId,
+        string backtestFolder,
+        CancellationToken cancellationToken = default)
+    {
+        using var response = await SendAsync(
+            HttpMethod.Delete,
+            $"api/Titano/rotations/{Escape(runId)}" +
+            $"?workspaceId={Escape(workspaceId)}&backtestFolder={Escape(backtestFolder)}",
+            null,
+            cancellationToken);
+        _ = response;
+    }
+
     public Task<TitanoRotationManifest> GetManifestAsync(
         string runId,
         string workspaceId,

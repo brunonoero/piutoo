@@ -2252,6 +2252,9 @@ public partial class TradingSessionsScreen : UserControl, IShellScreen
 
 
 
+    // _groupsGrid è editabile e non legato a una collezione: le righe si aggiungono qui. È
+    // l'eccezione alla regola «ogni griglia è ordinabile» — l'ordine è quello in cui si sta
+    // scrivendo. Vedi .cursor/rules/piutoo-console-screens.mdc.
     private void OnAddGroupRowClick(object? sender, EventArgs e) => _groupsGrid.Rows.Add();
 
 

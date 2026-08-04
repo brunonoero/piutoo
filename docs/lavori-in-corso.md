@@ -32,6 +32,17 @@ Client: `BacktestListScreen` (+ designer, con colonna *Origine* e combo di filtr
 cancellata e la sua voce di menu rimossa, `BacktestingScreen` raggiungibile solo da *Nuovo backtest*.
 Le motivazioni sono in [`decisioni.md`](decisioni.md).
 
+Lo stesso trattamento è stato applicato a Titano: *Operatività → Run Titano* è la lista
+(`TitanoRunListScreen` → `TitanoRunDetailScreen`), `TitanoScreen` è la destinazione di *Nuova
+rotazione*, `RotationsScreen` è cancellata e la sezione *Analisi* non esiste più. Lato server:
+`GET /api/Titano/rotations` senza `backtestFolder` elenca tutti i run del workspace, e
+`DELETE /api/Titano/rotations/{runId}` è nuovo.
+
+Trasversali, sempre non compilati: griglie ordinabili (`SortableBindingList<T>` +
+`EnableColumnSorting()`), busy visibile sull'intera schermata, e la lettura leggera di
+`backtest-summary.json` e dei manifest Titano negli elenchi. Le regole sono ora scritte in
+[`.cursor/rules/piutoo-console-screens.mdc`](../.cursor/rules/piutoo-console-screens.mdc).
+
 **Da verificare al primo avvio su Windows** — niente di tutto questo è mai stato compilato né
 aperto nel designer:
 

@@ -56,12 +56,11 @@ public static class NavigationRegistry
             // La voce apre la lista, non il form di avvio: quest'ultimo è la destinazione di
             // "Nuovo backtest" nella lista, come per le altre anagrafiche.
             new NavigationEntry("Backtesting", () => new BacktestListScreen()),
-            new NavigationEntry("Titano", () => new TitanoScreen()),
-            new NavigationEntry("Sessioni di trading", () => new TradingSessionsScreen())),
-        // "Risultati trading" non esiste più come voce: i trade di un backtest si leggono nel
-        // tab Operazioni del suo dettaglio, dove stanno accanto alla diagnostica che li spiega.
-        new NavigationSection(
-            "Analisi",
-            new NavigationEntry("Rotazioni Titano", () => new RotationsScreen()))
+            // Stessa forma: la voce apre la lista dei run, "Nuova rotazione" porta a TitanoScreen.
+            new NavigationEntry("Run Titano", () => new TitanoRunListScreen()),
+            new NavigationEntry("Sessioni di trading", () => new TradingSessionsScreen()))
+        // La sezione "Analisi" non esiste più. Conteneva "Risultati trading" e "Rotazioni Titano":
+        // i primi sono il tab Operazioni del dettaglio backtest, le seconde il dettaglio di un run.
+        // Entrambe erano la stessa cosa vista due volte, e separavano il dato da ciò che lo spiega.
     };
 }

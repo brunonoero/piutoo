@@ -816,3 +816,36 @@ in ordine cronologico. Non è un changelog di codice: quello resta nei commit.
   di workspace nelle liste backtest e piani, che rilegge l'intero elenco ed e' il percorso piu'
   lento, non chiamava `SetBusy` affatto.
 
+- **2026-08-04** — *Operativita' → Run Titano* apre la lista dei run del workspace
+  (`TitanoRunListScreen` → `TitanoRunDetailScreen`); `TitanoScreen` diventa la destinazione di
+  *Nuova rotazione*. La sezione *Analisi* sparisce: conteneva *Rotazioni Titano*, che era il
+  dettaglio di un run raggiunto per altra strada.
+
+  La voce **non** si chiama «Backtesting Titano». Un run non e' un backtest: e' una rotazione
+  calcolata *sui trade* di un backtest. Metterli sotto la stessa parola e' la stessa famiglia di
+  confusione di `Id` ≠ `Name`, che qui ha gia' svuotato report una volta.
+
+  La lista e' **piatta per workspace**, con la cartella di provenienza in colonna. I run vivono
+  dentro il backtest che li ha prodotti (`<backtest>/titano/<runId>/`), ma per chi ne referenzia
+  uno quella gerarchia e' un dettaglio di archiviazione: `GET /api/Titano/rotations` accetta ora
+  `backtestFolder` come parametro facoltativo e senza di esso scandisce tutte le cartelle.
+
+  `TitanoRotationService.ScanRunInfo` legge dal manifest solo i quattro campi dell'elenco con
+  `Utf8JsonReader` e `Skip()` sui sottoalberi grossi (config, le due equity, walk-forward), invece
+  di deserializzarlo intero come faceva `ListRuns`. Stessa lezione di `ListBacktests`: oggi i
+  manifest sono ~1 MB e i run pochi, ma crescono entrambi.
+
+  Nuovo `DELETE /api/Titano/rotations/{runId}`, che rimuove anche la voce dalla cache statica dei
+  manifest — altrimenti un run cancellato resterebbe risolvibile fino allo sfratto LRU, cioe' si
+  continuerebbe a ruotare su un file che non c'e' piu'. La conferma lato client **nomina i piani**
+  che referenziano il run invece di dare l'avviso generico usato per i backtest: qui il
+  riferimento e' puntuale (`TradingPlan.TitanoRunId`, sul piano o sul singolo gruppo), quindi si
+  puo' dire *cosa* si sta rompendo. Il controllo guarda anche i gruppi: fermarsi al mirror legacy
+  della prima riga lascerebbe fuori i piani multi-gruppo, che sono quelli in cui la rotazione
+  conta di piu'.
+
+- **2026-08-04** — Le regole delle schermate della console stanno in
+  `.cursor/rules/piutoo-console-screens.mdc`, non sparse nei commenti. La prima e' che **ogni
+  griglia deve essere ordinabile**: era una regola implicita nata sbagliata (nove schermate con
+  `NotSortable` copiato) e finche' non era scritta si e' propagata per imitazione.
+

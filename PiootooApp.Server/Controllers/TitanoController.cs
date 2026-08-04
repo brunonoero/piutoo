@@ -57,13 +57,38 @@ public class TitanoController : ControllerBase
         { return BadRequest(new { error = ex.Message }); }
     }
 
+    /// <summary>
+    /// Run del workspace. Senza <c>backtestFolder</c> l'elenco è quello di tutte le cartelle:
+    /// i run vivono dentro il backtest da cui derivano, ma per chi ne referenzia uno la
+    /// gerarchia è un dettaglio di archiviazione.
+    /// </summary>
     [HttpGet("rotations")]
     public ActionResult<IReadOnlyList<TitanoRunInfo>> ListRotations(
-        [FromQuery] string workspaceId, [FromQuery] string backtestFolder)
+        [FromQuery] string workspaceId, [FromQuery] string? backtestFolder = null)
     {
-        try { return Ok(_rotationService.ListRuns(workspaceId, backtestFolder)); }
+        try
+        {
+            return Ok(string.IsNullOrWhiteSpace(backtestFolder)
+                ? _rotationService.ListRuns(workspaceId)
+                : _rotationService.ListRuns(workspaceId, backtestFolder));
+        }
         catch (Exception ex) when (ex is ArgumentException or DirectoryNotFoundException)
         { return BadRequest(new { error = ex.Message }); }
+    }
+
+    /// <summary>
+    /// Elimina un run con tutto il suo contenuto. Il server non verifica quali piani lo
+    /// referenziano: il controllo sta al client, che li conosce e può nominarli prima di
+    /// chiedere conferma.
+    /// </summary>
+    [HttpDelete("rotations/{runId}")]
+    public IActionResult DeleteRotation(
+        string runId, [FromQuery] string workspaceId, [FromQuery] string backtestFolder)
+    {
+        try { _rotationService.DeleteRun(workspaceId, backtestFolder, runId); return NoContent(); }
+        catch (DirectoryNotFoundException ex) { return NotFound(new { error = ex.Message }); }
+        catch (ArgumentException ex) { return BadRequest(new { error = ex.Message }); }
+        catch (IOException ex) { return BadRequest(new { error = ex.Message }); }
     }
 
     [HttpGet("rotations/{runId}")]

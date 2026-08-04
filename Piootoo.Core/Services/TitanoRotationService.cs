@@ -181,13 +181,127 @@ public sealed class TitanoRotationService
         var root = Path.Combine(_workspaces.GetBacktestPath(workspaceId, backtestFolder), "titano");
         if (!Directory.Exists(root)) return [];
         return Directory.EnumerateFiles(root, "manifest.json", SearchOption.AllDirectories)
-            .Select(path => ReadManifest(path))
-            .Select(x => new TitanoRunInfo
+            .Select(path => ScanRunInfo(path, workspaceId, backtestFolder))
+            .Where(info => info != null)
+            .Select(info => info!)
+            .OrderByDescending(x => x.GeneratedAtUtc)
+            .ToArray();
+    }
+
+    /// <summary>
+    /// Tutti i run del workspace, quale che sia la cartella di backtest che li contiene.
+    ///
+    /// I run vivono dentro il backtest da cui derivano (<c>&lt;backtest&gt;/titano/&lt;runId&gt;</c>),
+    /// ma per chi li usa — un piano che ne referenzia uno — la gerarchia è un dettaglio di
+    /// archiviazione: quello che serve è l'elenco, con accanto la provenienza.
+    /// </summary>
+    public IReadOnlyList<TitanoRunInfo> ListRuns(string workspaceId)
+        => _workspaces.ListBacktests(workspaceId)
+            .SelectMany(backtest => ListRuns(workspaceId, backtest.FolderName))
+            .OrderByDescending(x => x.GeneratedAtUtc)
+            .ToArray();
+
+    /// <summary>
+    /// Elimina un run e tutto il suo contenuto (manifest, decisioni per periodo, reset di
+    /// hard stop, report). I piani che lo referenziano non vengono toccati: falliranno
+    /// all'apertura della sessione, ed è il client a doverlo dire prima di chiamare qui.
+    /// </summary>
+    public void DeleteRun(string workspaceId, string backtestFolder, string runId)
+    {
+        var runPath = Path.Combine(
+            _workspaces.GetBacktestPath(workspaceId, backtestFolder), "titano", SafeSegment(runId));
+        if (!Directory.Exists(runPath))
+            throw new DirectoryNotFoundException($"Run Titano '{runId}' non trovato.");
+
+        // La cache è statica e indicizzata sul percorso del manifest: senza rimozione esplicita
+        // un run cancellato resterebbe risolvibile fino allo sfratto LRU, cioè si continuerebbe a
+        // ruotare su un file che non c'è più.
+        ManifestCache.TryRemove(Path.Combine(runPath, "manifest.json"), out _);
+        Directory.Delete(runPath, recursive: true);
+    }
+
+    /// <summary>
+    /// Legge dal manifest i soli campi che servono all'elenco, senza materializzarlo.
+    ///
+    /// <see cref="ReadManifest"/> deserializza l'oggetto intero — decisioni periodo per periodo,
+    /// due curve di equity, walk-forward — e per un elenco di N run significa costruire N grafi di
+    /// oggetti per mostrarne quattro campi. È lo stesso errore che c'era in
+    /// <c>WorkspaceService.ListBacktests</c>: qui il manifest è dell'ordine del MB e i run sono
+    /// pochi, ma crescono entrambi.
+    /// </summary>
+    private static TitanoRunInfo? ScanRunInfo(string manifestPath, string workspaceId, string backtestFolder)
+    {
+        try
+        {
+            var reader = new Utf8JsonReader(File.ReadAllBytes(manifestPath));
+            string? runId = null;
+            DateTime generatedAtUtc = default;
+            var periodCount = 0;
+
+            while (reader.Read())
             {
-                RunId = x.RunId, WorkspaceId = workspaceId, BacktestFolder = backtestFolder,
-                Status = TitanoRunStatus.Completed, GeneratedAtUtc = x.GeneratedAtUtc,
-                ManifestPath = Path.Combine(root, x.RunId, "manifest.json"), PeriodCount = x.Periods.Count
-            }).OrderByDescending(x => x.GeneratedAtUtc).ToArray();
+                if (reader.TokenType != JsonTokenType.PropertyName || reader.CurrentDepth != 1)
+                    continue;
+
+                if (reader.ValueTextEquals("runId"u8))
+                {
+                    reader.Read();
+                    runId = reader.GetString();
+                }
+                else if (reader.ValueTextEquals("generatedAtUtc"u8))
+                {
+                    reader.Read();
+                    reader.TryGetDateTime(out generatedAtUtc);
+                }
+                else if (reader.ValueTextEquals("periods"u8))
+                {
+                    periodCount = CountArrayElements(ref reader);
+                }
+                else
+                {
+                    // config, le due equity e il walk-forward sono la parte grossa del file:
+                    // Skip salta il sottoalbero senza costruirne niente.
+                    reader.Skip();
+                }
+            }
+
+            return runId == null
+                ? null
+                : new TitanoRunInfo
+                {
+                    RunId = runId,
+                    WorkspaceId = workspaceId,
+                    BacktestFolder = backtestFolder,
+                    Status = TitanoRunStatus.Completed,
+                    GeneratedAtUtc = generatedAtUtc,
+                    ManifestPath = manifestPath,
+                    PeriodCount = periodCount
+                };
+        }
+        catch (Exception exception) when (exception is JsonException or IOException or UnauthorizedAccessException)
+        {
+            // Un manifest illeggibile è un run da non elencare, non un elenco da far fallire.
+            return null;
+        }
+    }
+
+    private static int CountArrayElements(ref Utf8JsonReader reader)
+    {
+        reader.Read();
+        if (reader.TokenType != JsonTokenType.StartArray)
+            return 0;
+
+        var arrayDepth = reader.CurrentDepth;
+        var count = 0;
+        while (reader.Read())
+        {
+            if (reader.TokenType == JsonTokenType.EndArray && reader.CurrentDepth == arrayDepth)
+                break;
+            if (reader.TokenType == JsonTokenType.StartObject && reader.CurrentDepth == arrayDepth + 1)
+                count++;
+        }
+
+        return count;
     }
 
     public TitanoRotationManifest Get(string workspaceId, string backtestFolder, string runId)

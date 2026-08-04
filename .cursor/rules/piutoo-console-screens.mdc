@@ -1,0 +1,60 @@
+---
+description: Schermate della console WinForms — griglie, ordinamento, busy, lista → dettaglio
+globs: piootooapp.clientform/Shell/**/*.cs
+alwaysApply: false
+---
+
+# Schermate della console (Shell)
+
+## Griglie — l'ordinamento non è opzionale
+
+- **Ogni `DataGridView` deve essere ordinabile per colonna.** Nel costruttore, subito dopo
+  `InitializeComponent()`, chiama `_grid.EnableColumnSorting()`
+  (`Shell/Controls/SortableBindingList.cs`). Non scrivere cicli che impostano
+  `DataGridViewColumnSortMode.NotSortable`: l'estensione esclude da sola le colonne senza
+  `DataPropertyName`, che sono le uniche non ordinabili.
+- La collezione legata alla griglia è **`SortableBindingList<T>`**, mai `BindingList<T>`.
+  `BindingList<T>` dichiara `SupportsSortingCore == false`, e una colonna `Automatic` su quella
+  sorgente solleva `InvalidOperationException` al primo click sull'intestazione. Se una griglia
+  «non si può ordinare», il problema è la collezione, non l'interfaccia.
+- Se la schermata svuota e riempie la collezione per applicare un filtro, `ApplyFilter` chiama
+  **`ReapplySort()` prima di `ResetBindings()`**. Senza, la griglia continua a mostrare la
+  freccetta sull'intestazione mentre le righe tornano nell'ordine della sorgente: sembra ordinata
+  e non lo è.
+- Unica eccezione: le griglie **editabili**, dove l'ordine è quello in cui l'utente sta scrivendo
+  (mappature simbolo, gruppi e strumenti del piano). Lì `BindingList<T>` resta, e la ragione va
+  scritta in un commento.
+- L'ordinamento riordina la lista sottostante, quindi la corrispondenza 1 a 1 fra indice di riga e
+  indice nella collezione resta valida: `SelectedRow` può continuare a leggere
+  `_visibleRows[_grid.CurrentRow.Index]`.
+
+## Attesa
+
+- Ogni chiamata al server passa da `SetBusy(true/false)` in un `try/finally`, **anche i ricarichi
+  parziali** — il cambio di workspace è il percorso più lento e il più facile da dimenticare.
+- Il cursore di attesa si imposta con `UseWaitCursor` sulla schermata, mai con `Cursor` su una
+  barra dei comandi: `Cursor` non si propaga oltre i figli del controllo su cui è impostato.
+- Lo stato si scrive **prima** della `await`, non solo alla fine: altrimenti durante il
+  caricamento la barra mostra ancora il risultato precedente.
+
+## Lista → dettaglio
+
+- Ogni voce di menu apre una **lista**; il form di creazione è la destinazione del pulsante
+  *Nuovo…* della lista, non una voce di menu a sé. La sua `ScreenTitle` dice «Nuovo…», altrimenti
+  la breadcrumb ripete due volte lo stesso nome.
+- La lista usa `EntityToolbar`, il dettaglio `DetailToolbar`. Un dettaglio di sola lettura mette
+  `CanSave = false`; un dettaglio editabile implementa `IDirtyAware`.
+- **Gli artefatti non si modificano.** Backtest e run Titano sono prodotti da un'esecuzione e
+  hanno file append-only o immutabili accanto: il loro dettaglio è di sola lettura.
+- Prima di aggiungere una schermata che mostra dati già mostrati altrove, **assorbi quella
+  esistente e togli la voce di menu**. Due griglie sullo stesso file da tenere allineate sono un
+  costo; separare un dato dalla diagnostica che lo spiega è peggio.
+- Una cancellazione che rompe qualcos'altro deve **nominarlo** nella conferma, non limitarsi a un
+  avviso generico: quali run Titano contiene il backtest, quali piani referenziano il run.
+
+## Prestazioni
+
+- Un elenco non deve deserializzare gli artefatti che elenca. Se servono due campi in testa a un
+  file grande, leggili con `Utf8JsonReader` (`WorkspaceService.ReadBacktestPeriod` e
+  `TitanoRotationService.ScanRunInfo` sono i due esempi). Un `JsonDocument.Parse(File.ReadAllText…)`
+  dentro un `Select` su tutte le cartelle è già costato centinaia di MB per riga di elenco.

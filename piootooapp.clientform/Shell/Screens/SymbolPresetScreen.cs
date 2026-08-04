@@ -10,6 +10,8 @@ namespace piootooapp.clientform.Shell.Screens;
 /// </summary>
 public partial class SymbolPresetScreen : UserControl, IShellScreen, IDirtyAware
 {
+    // Griglia editabile: resta BindingList<T> e non ordinabile per colonna, perché l'ordine è
+    // quello in cui si sta scrivendo. Vedi .cursor/rules/piutoo-console-screens.mdc.
     private readonly BindingList<AccountSymbolMapping> _mappings = new();
     private ShellContext? _context;
     private bool _suspendDirtyTracking;

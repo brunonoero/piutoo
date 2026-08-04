@@ -43,6 +43,8 @@ public sealed class PlanInstrumentEditRow
 /// </summary>
 public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
 {
+    // Griglie editabili: restano BindingList<T> e non ordinabili per colonna, perché l'ordine è
+    // quello in cui si sta scrivendo. Vedi .cursor/rules/piutoo-console-screens.mdc.
     private readonly BindingList<PlanGroupEditRow> _groups = new();
     private readonly BindingList<PlanInstrumentEditRow> _instruments = new();
 

@@ -31,7 +31,8 @@ public partial class TitanoScreen : UserControl, IShellScreen
         ApplyDefaults(new TitanoRotationSetup());
     }
 
-    public string ScreenTitle => "Titano";
+    // Non è più una voce di menu: ci si arriva da "Nuova rotazione" nella lista dei run.
+    public string ScreenTitle => "Nuova rotazione";
 
     public void Initialize(ShellContext context) => _context = context;
 
