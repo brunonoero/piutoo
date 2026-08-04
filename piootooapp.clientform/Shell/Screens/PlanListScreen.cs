@@ -37,6 +37,7 @@ public partial class PlanListScreen : UserControl, IShellScreen
     public PlanListScreen()
     {
         InitializeComponent();
+        ShellGridHelper.ConfigureReadableGrids(this);
         _bindingSource.DataSource = _visibleRows;
         _grid.EnableColumnSorting();
     }

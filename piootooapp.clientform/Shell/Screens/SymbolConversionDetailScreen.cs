@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using Piootoo.Shared.Models.Workspaces;
 using piootooapp.clientform.Shell;
+using piootooapp.clientform.Shell.Controls;
 
 namespace piootooapp.clientform.Shell.Screens;
 
@@ -23,6 +24,7 @@ public partial class SymbolConversionDetailScreen : UserControl, IShellScreen, I
     public SymbolConversionDetailScreen()
     {
         InitializeComponent();
+        ShellGridHelper.ConfigureReadableGrids(this);
         _mappingsBindingSource.DataSource = _mappings;
         _mappings.ListChanged += (_, _) => MarkDirty();
     }

@@ -26,6 +26,7 @@ public partial class GroupListScreen : UserControl, IShellScreen
     public GroupListScreen()
     {
         InitializeComponent();
+        ShellGridHelper.ConfigureReadableGrids(this);
         _bindingSource.DataSource = _visibleRows;
         _grid.EnableColumnSorting();
     }

@@ -35,6 +35,7 @@ public partial class TitanoSetupListScreen : UserControl, IShellScreen
     public TitanoSetupListScreen()
     {
         InitializeComponent();
+        ShellGridHelper.ConfigureReadableGrids(this);
         _bindingSource.DataSource = _visibleRows;
         _grid.EnableColumnSorting();
     }

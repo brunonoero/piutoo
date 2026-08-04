@@ -44,6 +44,7 @@ public partial class TradingSessionListScreen : UserControl, IShellScreen
     public TradingSessionListScreen()
     {
         InitializeComponent();
+        ShellGridHelper.ConfigureReadableGrids(this);
         _bindingSource.DataSource = _visibleRows;
         _grid.EnableColumnSorting();
         _toolbar.CanDelete = false;

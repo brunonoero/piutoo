@@ -34,6 +34,7 @@ public partial class StrategyListScreen : UserControl, IShellScreen
     public StrategyListScreen()
     {
         InitializeComponent();
+        ShellGridHelper.ConfigureReadableGrids(this);
         _bindingSource.DataSource = _visibleRows;
         _grid.EnableColumnSorting();
     }

@@ -33,6 +33,7 @@ public partial class TitanoRunListScreen : UserControl, IShellScreen
     public TitanoRunListScreen()
     {
         InitializeComponent();
+        ShellGridHelper.ConfigureReadableGrids(this);
         _bindingSource.DataSource = _visibleRows;
         _grid.EnableColumnSorting();
     }

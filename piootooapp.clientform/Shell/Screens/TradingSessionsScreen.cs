@@ -6,6 +6,8 @@ using Piootoo.Shared.Models.Trading;
 
 using Piootoo.Shared.Models.Workspaces;
 
+using piootooapp.clientform.Shell.Controls;
+
 
 
 namespace piootooapp.clientform.Shell.Screens;
@@ -93,6 +95,8 @@ public partial class TradingSessionsScreen : UserControl, IShellScreen
         _titanoRunCombo.DropDownStyle = ComboBoxStyle.DropDown;
 
         ConfigureGroupsGrid();
+
+        ShellGridHelper.ConfigureReadableGrids(this);
 
         ConfigureTooltips();
 

@@ -54,6 +54,7 @@ public partial class BacktestDetailScreen : UserControl, IShellScreen
     public BacktestDetailScreen()
     {
         InitializeComponent();
+        ShellGridHelper.ConfigureReadableGrids(this);
         _tradesBindingSource.DataSource = _visibleTrades;
         _grid.EnableColumnSorting();
     }

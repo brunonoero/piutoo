@@ -1,3 +1,5 @@
+using piootooapp.clientform.Shell.Controls;
+
 namespace piootooapp.clientform.Shell;
 
 internal enum ShellThemeKind
@@ -44,12 +46,14 @@ internal static class ShellTheme
     public static void Apply(Control root)
     {
         ApplyRecursive(root, Background);
+        ShellGridHelper.ConfigureReadableGrids(root);
     }
 
     /// <summary>Applica un colore di zona specifico (header, menu, area di lavoro) al sottoalbero indicato.</summary>
     public static void ApplyZone(Control root, Color zoneBackground)
     {
         ApplyRecursive(root, zoneBackground);
+        ShellGridHelper.ConfigureReadableGrids(root);
     }
 
     public static void ApplyMenuStrip(MenuStrip menuStrip)

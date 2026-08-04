@@ -2,6 +2,7 @@ using System.ComponentModel;
 using Piootoo.Shared.Models.Optimization;
 using Piootoo.Shared.Models.Trading;
 using Piootoo.Shared.Models.Workspaces;
+using piootooapp.clientform.Shell.Controls;
 
 namespace piootooapp.clientform.Shell.Screens;
 
@@ -66,6 +67,7 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
     public PlanDetailScreen()
     {
         InitializeComponent();
+        ShellGridHelper.ConfigureReadableGrids(this);
         _groupsBindingSource.DataSource = _groups;
         _instrumentsBindingSource.DataSource = _instruments;
         _colRoundingMode.DataSource = Enum.GetValues<QuantityRoundingMode>();

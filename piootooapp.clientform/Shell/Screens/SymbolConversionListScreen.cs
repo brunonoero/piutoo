@@ -28,6 +28,7 @@ public partial class SymbolConversionListScreen : UserControl, IShellScreen
     public SymbolConversionListScreen()
     {
         InitializeComponent();
+        ShellGridHelper.ConfigureReadableGrids(this);
         _bindingSource.DataSource = _visibleRows;
         _grid.EnableColumnSorting();
     }

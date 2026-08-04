@@ -62,6 +62,7 @@ public partial class BacktestListScreen : UserControl, IShellScreen
     public BacktestListScreen()
     {
         InitializeComponent();
+        ShellGridHelper.ConfigureReadableGrids(this);
         _bindingSource.DataSource = _visibleRows;
         _grid.EnableColumnSorting();
 

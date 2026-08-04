@@ -38,6 +38,7 @@ public partial class AccountListScreen : UserControl, IShellScreen
     public AccountListScreen()
     {
         InitializeComponent();
+        ShellGridHelper.ConfigureReadableGrids(this);
         _bindingSource.DataSource = _visibleRows;
 
         // La corrispondenza fra indice di riga e indice nella lista resta 1 a 1 — è così che si

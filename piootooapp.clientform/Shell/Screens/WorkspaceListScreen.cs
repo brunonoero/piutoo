@@ -23,6 +23,7 @@ public partial class WorkspaceListScreen : UserControl, IShellScreen
     public WorkspaceListScreen()
     {
         InitializeComponent();
+        ShellGridHelper.ConfigureReadableGrids(this);
         _bindingSource.DataSource = _visibleRows;
         _grid.EnableColumnSorting();
     }
