@@ -38,9 +38,12 @@ public sealed class TradingPlan
     // sono sempre ExternalBroker, dove l'equity non è del server e ogni account porta il proprio
     // InitialBalance — che diventa BalanceScale ed è ciò che dimensiona davvero. Il capitale iniziale
     // resta un parametro del singolo run di backtest (BacktestingRequest.InitialCapital).
+    //
+    // Nessun Instruments (docs/decisioni.md 2026-08-05): DollarsPerPoint viene dal registro
+    // strumenti (InstrumentRegistry), la granularità di volume (minimo/passo/arrotondamento) dalla
+    // riga della tabella di conversione dell'account — è una proprietà del broker, non del piano.
     public decimal CommissionPerContract { get; init; } = 2m;
     public PositionSizingConfig PositionSizing { get; init; } = new();
-    public IReadOnlyList<InstrumentMetadata> Instruments { get; init; } = [];
     public DateTime CreatedUtc { get; init; }
     public DateTime UpdatedUtc { get; init; }
 }
@@ -71,7 +74,6 @@ public sealed class SaveTradingPlanRequest
 
     public decimal CommissionPerContract { get; init; } = 2m;
     public PositionSizingConfig PositionSizing { get; init; } = new();
-    public IReadOnlyList<InstrumentMetadata> Instruments { get; init; } = [];
 }
 
 /// <summary>

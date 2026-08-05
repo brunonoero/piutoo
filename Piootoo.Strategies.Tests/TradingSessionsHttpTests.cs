@@ -121,16 +121,7 @@ public sealed class TradingSessionsHttpTests : IDisposable
             Name = "Piano diretto",
             GroupId = "PROP-D",
             AccountNumber = "777",
-            ApplyTitanoFilters = false,
-            Instruments =
-            [
-                new InstrumentMetadata
-                {
-                    Symbol = _strategy.Symbol, DollarsPerPoint = 50,
-                    MinimumQuantity = 0.25m, QuantityStep = 0.25m,
-                    RoundingMode = QuantityRoundingMode.BrokerVolumeStep
-                }
-            ]
+            ApplyTitanoFilters = false
         };
         var save = await _client.PutAsJsonAsync(
             $"api/v1/workspaces/{_workspace.Id}/trading-plans/{plan.Code}", plan);
@@ -148,9 +139,12 @@ public sealed class TradingSessionsHttpTests : IDisposable
         response.EnsureSuccessStatusCode();
         var descriptor = (await response.Content.ReadFromJsonAsync<TradingSessionDescriptor>(JsonOptions))!;
 
-        // Il piano porta con sé il workspace e i metadata dello strumento: il cBot non li configura.
+        // Il piano porta con sé il workspace; il valore punto viene dal registro strumenti, non dal
+        // piano (docs/decisioni.md 2026-08-05). La granularità di volume non è più qui: per una
+        // sessione ExternalBroker è "differita" all'account al claim (QuantityRoundingMode.Deferred).
         Assert.Equal(_workspace.Id, descriptor.WorkspaceId);
-        Assert.Equal(0.25m, descriptor.InstrumentMetadata.Single().QuantityStep);
+        var metadata = descriptor.InstrumentMetadata.Single();
+        Assert.Equal(QuantityRoundingMode.Deferred, metadata.RoundingMode);
         // Il descriptor espone i simboli normalizzati (senza '@'): è la forma su cui il cBot
         // confronta il simbolo del grafico per accorgersi di essere sullo strumento sbagliato.
         var instrument = descriptor.Instruments.Single();
@@ -605,16 +599,7 @@ public sealed class TradingSessionsHttpTests : IDisposable
             WorkspaceId = _workspace.Id, ExecutionMode = mode, TitanoRunId = runId,
             TitanoBacktestFolder = folder,
             // Con un run collegato la sessione va filtrata: e' lo scopo del test che lo passa.
-            TitanoMode = runId is null ? TitanoFilterMode.Disabled : TitanoFilterMode.BacktestRotationFile,
-            Instruments =
-            [
-                new InstrumentMetadata
-                {
-                    Symbol = _strategy.Symbol, DollarsPerPoint = 50,
-                    MinimumQuantity = 0.25m, QuantityStep = 0.25m,
-                    RoundingMode = QuantityRoundingMode.BrokerVolumeStep
-                }
-            ]
+            TitanoMode = runId is null ? TitanoFilterMode.Disabled : TitanoFilterMode.BacktestRotationFile
         });
         response.EnsureSuccessStatusCode();
         return (await response.Content.ReadFromJsonAsync<TradingSessionDescriptor>(JsonOptions))!;

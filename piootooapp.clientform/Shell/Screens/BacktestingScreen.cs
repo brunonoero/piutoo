@@ -13,6 +13,7 @@ public partial class BacktestingScreen : UserControl, IShellScreen
     private CancellationTokenSource? _pollingCts;
     private string? _lastJobId;
     private bool _isRunning;
+    private string? _reportTempHtmlPath;
 
     public BacktestingScreen()
     {
@@ -175,6 +176,7 @@ public partial class BacktestingScreen : UserControl, IShellScreen
 
             SetRunningState(true);
             _reportButton.Enabled = false;
+            HideReportTab();
             _progressBar.Value = 0;
             _pollingCts?.Dispose();
             _pollingCts = new CancellationTokenSource();
@@ -236,6 +238,7 @@ public partial class BacktestingScreen : UserControl, IShellScreen
                 _statusLabel.Text = "Completato.";
                 _reportButton.Enabled = true;
                 _context.Navigation.SetStatus($"Backtest '{job.JobId}' completato.");
+                await TryShowReportTabAsync(jobId, cancellationToken);
                 break;
             case BacktestingJobStatus.Cancelled:
                 Log("Annullato dal server.");
@@ -287,4 +290,66 @@ public partial class BacktestingScreen : UserControl, IShellScreen
     }
 
     private void OnClearLogClick(object? sender, EventArgs e) => _logTextBox.Clear();
+
+    // Il tab "Report" compare solo se il report del job è stato davvero prodotto: niente tab
+    // vuoto o con un errore dentro. Il pulsante "Apri report" resta comunque come fallback
+    // (finestra separata, utile anche per "Apri nel browser").
+    private async Task TryShowReportTabAsync(string jobId, CancellationToken cancellationToken)
+    {
+        if (_context == null)
+        {
+            return;
+        }
+
+        try
+        {
+            var uri = _context.Services.Api.GetBacktestingReportUri(jobId);
+            var html = await _context.Services.Http.GetStringAsync(uri, cancellationToken);
+
+            var previousPath = _reportTempHtmlPath;
+            var temporaryHtmlPath = Path.Combine(Path.GetTempPath(), $"piootoo-report-{Guid.NewGuid():N}.html");
+            await File.WriteAllTextAsync(temporaryHtmlPath, html, cancellationToken);
+            _reportTempHtmlPath = temporaryHtmlPath;
+            DeleteTempReportFile(previousPath);
+
+            await _reportBrowser.EnsureCoreWebView2Async();
+            _reportBrowser.Source = new Uri(temporaryHtmlPath);
+
+            if (!_tabs.TabPages.Contains(_reportTab))
+            {
+                _tabs.TabPages.Add(_reportTab);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            // Report non disponibile (404, WebView2 non inizializzabile, ecc.): il tab resta
+            // assente invece di mostrare un errore incorporato.
+            Log($"Report non incorporato nel tab: {ex.Message}");
+            HideReportTab();
+        }
+    }
+
+    private void HideReportTab()
+    {
+        if (_tabs.TabPages.Contains(_reportTab))
+        {
+            _tabs.TabPages.Remove(_reportTab);
+        }
+    }
+
+    private static void DeleteTempReportFile(string? path)
+    {
+        if (string.IsNullOrEmpty(path))
+        {
+            return;
+        }
+
+        try { File.Delete(path); }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
+    }
 }

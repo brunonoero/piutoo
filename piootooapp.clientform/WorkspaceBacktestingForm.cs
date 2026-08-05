@@ -3145,7 +3145,6 @@ public partial class WorkspaceBacktestingForm : Form
                 Code = _sessionPlanCode.Text.Trim(),
                 Name = _sessionPlanName.Text.Trim(),
                 Groups = rows,
-                Instruments = [],
                 PositionSizing = new PositionSizingConfig
                 {
                     PortfolioRisk = new PortfolioRiskSizingConfig
@@ -3215,7 +3214,6 @@ public partial class WorkspaceBacktestingForm : Form
                 TitanoRunId = titanoRunId,
                 TitanoBacktestFolder = titanoRunId is null ? null : titanoBacktestFolder,
                 TitanoMode = titanoMode,
-                Instruments = [],
                 PositionSizing = new PositionSizingConfig
                 {
                     PortfolioRisk = new PortfolioRiskSizingConfig

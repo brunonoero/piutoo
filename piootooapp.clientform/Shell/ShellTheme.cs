@@ -93,7 +93,7 @@ internal static class ShellTheme
     /// <summary>Applica una zona specifica (header, navigazione, area di lavoro) al sottoalbero indicato.</summary>
     public static void ApplyZone(Control root, ShellZone zone)
     {
-        ApplyRecursive(root, zoneBackground);
+        ApplyRecursive(root, zone);
     }
 
     public static void ApplyMenuStrip(MenuStrip menuStrip)

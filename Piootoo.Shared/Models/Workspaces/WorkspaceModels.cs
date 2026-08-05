@@ -109,7 +109,7 @@ public sealed class AccountSymbolMapping
     /// solo al claim — quando il conto è noto e la quantità è già stata convertita nei contratti del
     /// broker — arrotondare significa qualcosa. Vedi <c>docs/decisioni.md</c> (2026-08-05).</para>
     /// </summary>
-    public QuantityRoundingMode RoundingMode { get; set; } = QuantityRoundingMode.FuturesContracts;
+    public QuantityRoundingMode RoundingMode { get; set; } = QuantityRoundingMode.BrokerVolumeStep;
 
     /// <summary>Se false il simbolo resta configurato ma non è operativo sull'account.</summary>
     public bool Enabled { get; set; } = true;

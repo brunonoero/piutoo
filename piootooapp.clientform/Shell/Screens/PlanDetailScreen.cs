@@ -6,51 +6,59 @@ using piootooapp.clientform.Shell.Controls;
 
 namespace piootooapp.clientform.Shell.Screens;
 
-/// <summary>Riga gruppo/account modificabile: <see cref="TradingGroupRow"/> è init-only.</summary>
+/// <summary>
+/// Riga del tab Gruppi: profilo Titano condiviso da tutti gli account dello stesso gruppo.
+/// <see cref="TradingGroupRow"/> è init-only, quindi non è bindabile direttamente alla griglia.
+/// </summary>
 public sealed class PlanGroupEditRow
 {
     public string GroupId { get; set; } = string.Empty;
-
-    public string AccountNumber { get; set; } = string.Empty;
-
-    public int MaxConcurrentTrades { get; set; }
 
     public string RotationSetupId { get; set; } = string.Empty;
 
     public string TitanoBacktestFolder { get; set; } = string.Empty;
 
-    public bool ApplyTitanoFilters { get; set; } = true;
+    // Default false: una riga appena aggiunta non ha ancora una cartella di backtest, e il server
+    // rifiuta ApplyTitanoFilters=true senza cartella (NormalizeAndValidateGroups). Partire da true
+    // farebbe fallire il primo salvataggio di ogni gruppo nuovo con un errore poco leggibile.
+    public bool ApplyTitanoFilters { get; set; }
 }
 
-/// <summary>Riga strumento modificabile: <see cref="InstrumentMetadata"/> è init-only.</summary>
-public sealed class PlanInstrumentEditRow
+/// <summary>Riga del tab Account: account cTrader con il proprio limite di posizioni concorrenti.</summary>
+public sealed class PlanAccountEditRow
 {
-    public string Symbol { get; set; } = string.Empty;
+    /// <summary>
+    /// Sola lettura in griglia: deriva dal registro (<see cref="Piootoo.Shared.Models.Workspaces.WorkspaceAccount.GroupId"/>)
+    /// al momento in cui si sceglie <see cref="AccountNumber"/>, non è un campo scelto dall'utente.
+    /// </summary>
+    public string GroupId { get; set; } = string.Empty;
 
-    public decimal DollarsPerPoint { get; set; } = 1m;
+    public string AccountNumber { get; set; } = string.Empty;
 
-    public decimal MinimumQuantity { get; set; } = 1m;
-
-    public decimal QuantityStep { get; set; } = 1m;
-
-    public QuantityRoundingMode RoundingMode { get; set; } = QuantityRoundingMode.FuturesContracts;
+    public int MaxConcurrentTrades { get; set; }
 }
 
 /// <summary>
 /// Dettaglio di un piano di trading. Il salvataggio riscrive il piano intero, quindi la schermata
 /// deve esporre tutto ciò che il piano contiene: quello che non è modificabile qui verrebbe
 /// riportato ai default alla prima modifica.
+///
+/// <para>Il piano è editato in due griglie separate che rispecchiano la semantica di
+/// <see cref="TradingGroupRow"/>: il tab Gruppi porta il profilo Titano (condiviso da tutti gli
+/// account dello stesso <c>GroupId</c>, la griglia lo impedisce diverso), il tab Account porta
+/// <c>MaxConcurrentTrades</c>, che è per-account (vedi <c>TradingSessionService.GetNextSignalForAccount</c>).
+/// Il salvataggio ricompone le due griglie in <see cref="TradingGroupRow"/> per riga account.</para>
 /// </summary>
 public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
 {
     // Griglie editabili: restano BindingList<T> e non ordinabili per colonna, perché l'ordine è
     // quello in cui si sta scrivendo. Vedi .cursor/rules/piutoo-console-screens.mdc.
     private readonly BindingList<PlanGroupEditRow> _groups = new();
-    private readonly BindingList<PlanInstrumentEditRow> _instruments = new();
+    private readonly BindingList<PlanAccountEditRow> _accounts = new();
 
     /// <summary>Registro globale (<c>api/Accounts</c>), non del workspace: si carica una volta.</summary>
     private readonly List<string> _accountGroups = new();
-    private readonly List<WorkspaceAccount> _accounts = new();
+    private readonly List<WorkspaceAccount> _registryAccounts = new();
 
     /// <summary>Liste condivise fra le combo del tab Generale e le colonne della griglia gruppi.</summary>
     private readonly List<ValueComboItem> _rotationSetups = new();
@@ -62,15 +70,13 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
     private bool _suspendDirtyTracking;
     private bool _isDirty;
     private bool _suspendWorkspaceEvents;
-    private bool _suspendTitanoEvents;
 
     public PlanDetailScreen()
     {
         InitializeComponent();
         ShellGridHelper.ConfigureReadableGrids(this);
         _groupsBindingSource.DataSource = _groups;
-        _instrumentsBindingSource.DataSource = _instruments;
-        _colRoundingMode.DataSource = Enum.GetValues<QuantityRoundingMode>();
+        _accountsBindingSource.DataSource = _accounts;
         _enforceConcurrencyCombo.Items.AddRange(new object[]
         {
             "Default (come da storico)",
@@ -80,7 +86,7 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
         _enforceConcurrencyCombo.SelectedIndex = 0;
 
         _groups.ListChanged += (_, _) => MarkDirty();
-        _instruments.ListChanged += (_, _) => MarkDirty();
+        _accounts.ListChanged += (_, _) => MarkDirty();
     }
 
     public string ScreenTitle => _isNew
@@ -112,12 +118,12 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
         {
             await LoadWorkspacesAsync(cancellationToken);
             await LoadAccountRegistryAsync(cancellationToken);
+            await LoadTitanoChoicesAsync(cancellationToken);
             if (_isNew)
             {
                 _toolbar.Title = "Nuovo piano";
                 _codeTextBox.ReadOnly = false;
                 ResetToDefaults();
-                await ApplyTitanoSelectionAsync(null, null, cancellationToken);
                 _rotationStatusLabel.Text = "disponibile dopo il primo salvataggio";
                 await RefreshGroupChoicesAsync(cancellationToken);
                 _context.Navigation.SetStatus($"Nuovo piano nel workspace '{_workspaceId}'.");
@@ -128,7 +134,6 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
             _toolbar.Title = $"Piano {plan.Code}";
             _codeTextBox.ReadOnly = true;
             Fill(plan);
-            await ApplyTitanoSelectionAsync(plan.RotationSetupId, plan.TitanoBacktestFolder, cancellationToken);
             await RefreshGroupChoicesAsync(cancellationToken);
             await RefreshRotationStatusAsync(cancellationToken);
             _context.Navigation.SetStatus(
@@ -224,46 +229,26 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
         MarkDirty();
         _context?.Navigation.SetStatus($"Il piano verrà salvato nel workspace '{workspaceId}'.");
 
-        // Cartelle di backtest vivono dentro il workspace: cambiato quello, la selezione Titano
-        // precedente non è più risolvibile e va ricostruita dalla nuova lista.
-        await ApplyTitanoSelectionAsync(SelectedId(_rotationSetupCombo), null, CancellationToken.None);
+        // Cartelle di backtest vivono dentro il workspace: cambiato quello, le liste vanno ricostruite.
+        await LoadTitanoChoicesAsync(CancellationToken.None);
         await RefreshGroupChoicesAsync(CancellationToken.None);
     }
 
     /// <summary>
-    /// Ricostruisce le due combo Titano nell'ordine in cui dipendono l'una dall'altra: i setup sono
-    /// globali, le cartelle appartengono al workspace. Il run non si sceglie più: è sempre l'ultimo
-    /// generato per la cartella, mostrato in sola lettura da <see cref="RefreshRotationStatusAsync"/>.
+    /// Ricarica le due liste Titano (setup di rotazione, cartelle di backtest) usate come sorgente
+    /// delle colonne combo della griglia Gruppi. I setup sono globali, le cartelle appartengono al
+    /// workspace.
     /// </summary>
-    private async Task ApplyTitanoSelectionAsync(
-        string? setupId,
-        string? backtestFolder,
-        CancellationToken cancellationToken)
+    private async Task LoadTitanoChoicesAsync(CancellationToken cancellationToken)
     {
-        if (_context == null)
-        {
-            return;
-        }
-
-        _suspendTitanoEvents = true;
-        try
-        {
-            await LoadRotationSetupsAsync(cancellationToken);
-            SelectValue(_rotationSetupCombo, setupId);
-
-            await LoadBacktestFoldersAsync(cancellationToken);
-            SelectValue(_titanoFolderCombo, backtestFolder);
-        }
-        finally
-        {
-            _suspendTitanoEvents = false;
-        }
+        await LoadRotationSetupsAsync(cancellationToken);
+        await LoadBacktestFoldersAsync(cancellationToken);
     }
 
     /// <summary>
-    /// Stato di freschezza dell'ultimo run per la cartella della riga primaria, in sola lettura: il
-    /// run non è più un campo del piano, quindi non c'è nulla da selezionare, solo da mostrare.
-    /// Richiede un piano già salvato (l'endpoint risolve per codice).
+    /// Stato di freschezza dell'ultimo run Titano per la cartella della riga primaria del piano
+    /// (<c>TradingPlanService.SelectPrimaryRow</c>), in sola lettura. Richiede un piano già salvato
+    /// (l'endpoint risolve per codice).
     /// </summary>
     private async Task RefreshRotationStatusAsync(CancellationToken cancellationToken)
     {
@@ -297,15 +282,12 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
     private async Task LoadRotationSetupsAsync(CancellationToken cancellationToken)
     {
         _rotationSetups.Clear();
-        _rotationSetupCombo.Items.Clear();
-        _rotationSetupCombo.Items.Add(ValueComboItem.None("(nessun setup)"));
         try
         {
             var setups = await _context!.Services.Titano.ListSetupsAsync(cancellationToken);
             foreach (var setup in setups.OrderBy(s => s.Name, StringComparer.OrdinalIgnoreCase))
             {
                 _rotationSetups.Add(ValueComboItem.Of(setup.Id, $"{setup.Name}  ({setup.Id})"));
-                _rotationSetupCombo.Items.Add(ValueComboItem.Of(setup.Id, $"{setup.Name}  ({setup.Id})"));
             }
         }
         catch (OperationCanceledException)
@@ -321,8 +303,6 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
     private async Task LoadBacktestFoldersAsync(CancellationToken cancellationToken)
     {
         _backtestFolders.Clear();
-        _titanoFolderCombo.Items.Clear();
-        _titanoFolderCombo.Items.Add(ValueComboItem.None("(nessuna cartella)"));
         if (string.IsNullOrEmpty(_workspaceId))
         {
             return;
@@ -333,12 +313,10 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
             var backtests = await _context!.Services.Api.ListBacktestsAsync(_workspaceId, cancellationToken);
             foreach (var backtest in backtests.OrderByDescending(b => b.LastModifiedUtc))
             {
-                var item = ValueComboItem.Of(
+                _backtestFolders.Add(ValueComboItem.Of(
                     backtest.FolderName,
                     $"{backtest.FolderName}  ·  {BacktestComboItem.DescribeOrigin(backtest)}" +
-                    $"  ·  {backtest.LastModifiedUtc:yyyy-MM-dd HH:mm} UTC");
-                _backtestFolders.Add(item);
-                _titanoFolderCombo.Items.Add(item);
+                    $"  ·  {backtest.LastModifiedUtc:yyyy-MM-dd HH:mm} UTC"));
             }
         }
         catch (OperationCanceledException)
@@ -358,7 +336,7 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
     private async Task LoadAccountRegistryAsync(CancellationToken cancellationToken)
     {
         _accountGroups.Clear();
-        _accounts.Clear();
+        _registryAccounts.Clear();
         try
         {
             var groups = await _context!.Services.Api.ListAccountGroupsAsync(cancellationToken);
@@ -367,7 +345,7 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
                 .OrderBy(group => group, StringComparer.OrdinalIgnoreCase));
 
             var accounts = await _context.Services.Api.ListAccountsAsync(cancellationToken);
-            _accounts.AddRange(accounts
+            _registryAccounts.AddRange(accounts
                 .Where(account => !string.IsNullOrWhiteSpace(account.AccountNumber))
                 .OrderBy(account => account.Name, StringComparer.OrdinalIgnoreCase));
         }
@@ -385,12 +363,7 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
     {
         RefreshGroupColumnItems();
         RefreshTitanoColumnItems();
-
-        for (var index = 0; index < _groups.Count; index++)
-        {
-            RefreshAccountCell(index);
-        }
-
+        RefreshAccountNumberColumnItems();
         return Task.CompletedTask;
     }
 
@@ -454,44 +427,34 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
     }
 
     /// <summary>
-    /// La lista account della riga dipende dal gruppo scelto sulla stessa riga, quindi vive sulla
-    /// cella e non sulla colonna. Senza gruppo non si filtra nulla: mostrare zero account
-    /// sembrerebbe un registro vuoto invece di una scelta ancora da fare.
+    /// La colonna Account cTrader propone tutto il registro: il gruppo non si sceglie più a parte,
+    /// deriva dall'account scelto (<see cref="OnAccountsGridCellValueChanged"/>), quindi qui non
+    /// c'è nulla da filtrare per riga.
     /// </summary>
-    private void RefreshAccountCell(int rowIndex)
+    private void RefreshAccountNumberColumnItems()
     {
-        if (rowIndex < 0 || rowIndex >= _groups.Count || rowIndex >= _groupsGrid.Rows.Count)
-        {
-            return;
-        }
-
-        var row = _groups[rowIndex];
         var items = new List<ValueComboItem> { ValueComboItem.Blank("(nessun account)") };
-        foreach (var account in _accounts.Where(account => BelongsToGroup(account, row.GroupId)))
+        foreach (var account in _registryAccounts)
         {
             items.Add(ValueComboItem.Of(
                 account.AccountNumber,
                 $"{account.Name}  ·  {account.AccountNumber}"));
         }
 
-        if (!string.IsNullOrWhiteSpace(row.AccountNumber) && !ContainsId(items, row.AccountNumber))
+        // Un account scritto nel piano ma sparito dal registro resta selezionabile: il salvataggio
+        // riscrive il piano intero, quindi scartarlo qui lo cancellerebbe.
+        foreach (var row in _accounts)
         {
-            items.Add(ValueComboItem.Missing(row.AccountNumber));
+            if (!string.IsNullOrWhiteSpace(row.AccountNumber) && !ContainsId(items, row.AccountNumber))
+            {
+                items.Add(ValueComboItem.Missing(row.AccountNumber));
+            }
         }
 
-        if (_groupsGrid.Rows[rowIndex].Cells[_colAccountNumber.Index] is not DataGridViewComboBoxCell cell)
-        {
-            return;
-        }
-
-        cell.DisplayMember = nameof(ValueComboItem.Display);
-        cell.ValueMember = nameof(ValueComboItem.Id);
-        cell.DataSource = items;
+        _colAccountNumber.DisplayMember = nameof(ValueComboItem.Display);
+        _colAccountNumber.ValueMember = nameof(ValueComboItem.Id);
+        _colAccountNumber.DataSource = items;
     }
-
-    private static bool BelongsToGroup(WorkspaceAccount account, string groupId)
-        => string.IsNullOrWhiteSpace(groupId)
-           || string.Equals(account.GroupId, groupId.Trim(), StringComparison.OrdinalIgnoreCase);
 
     private static bool ContainsId(IEnumerable<ValueComboItem> items, string id)
         => items.Any(item => string.Equals(item.Id, id.Trim(), StringComparison.OrdinalIgnoreCase));
@@ -507,28 +470,34 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
 
     private void OnGroupsGridCellValueChanged(object? sender, DataGridViewCellEventArgs e)
     {
-        if (e.RowIndex < 0 || e.RowIndex >= _groups.Count)
+        // Nessun effetto collaterale sulle altre colonne/griglie: il gruppo del tab Account deriva
+        // dall'account scelto (registro), non da questa griglia.
+    }
+
+    private void OnAccountsGridCurrentCellDirtyStateChanged(object? sender, EventArgs e)
+    {
+        if (_accountsGrid.IsCurrentCellDirty && _accountsGrid.CurrentCell is DataGridViewComboBoxCell)
+        {
+            _accountsGrid.CommitEdit(DataGridViewDataErrorContexts.Commit);
+        }
+    }
+
+    /// <summary>
+    /// Il Gruppo del tab Account è sola lettura: deriva dall'account appena scelto (registro
+    /// <c>api/Accounts</c>), non è un campo editabile separatamente.
+    /// </summary>
+    private void OnAccountsGridCellValueChanged(object? sender, DataGridViewCellEventArgs e)
+    {
+        if (e.RowIndex < 0 || e.RowIndex >= _accounts.Count || e.ColumnIndex != _colAccountNumber.Index)
         {
             return;
         }
 
-        var row = _groups[e.RowIndex];
-
-        if (e.ColumnIndex == _colGroupId.Index)
-        {
-            // L'account precedente può appartenere a un altro gruppo: tenerlo produrrebbe una riga
-            // che il registro contraddice, ed è ciò che il filtro serve a evitare.
-            if (!string.IsNullOrWhiteSpace(row.AccountNumber)
-                && _accounts.FirstOrDefault(account => string.Equals(
-                    account.AccountNumber, row.AccountNumber, StringComparison.OrdinalIgnoreCase)) is { } known
-                && !BelongsToGroup(known, row.GroupId))
-            {
-                row.AccountNumber = string.Empty;
-                _groups.ResetItem(e.RowIndex);
-            }
-
-            RefreshAccountCell(e.RowIndex);
-        }
+        var row = _accounts[e.RowIndex];
+        var matched = _registryAccounts.FirstOrDefault(account => string.Equals(
+            account.AccountNumber, row.AccountNumber, StringComparison.OrdinalIgnoreCase));
+        row.GroupId = matched?.GroupId ?? string.Empty;
+        _accounts.ResetItem(e.RowIndex);
     }
 
     /// <summary>
@@ -541,57 +510,17 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
         _context?.Navigation.SetError($"Valore non valido nella griglia gruppi: {e.Exception.Message}");
     }
 
-    private static string? SelectedId(ComboBox combo) => (combo.SelectedItem as ValueComboItem)?.Id;
-
-    /// <summary>
-    /// Seleziona <paramref name="id"/>; se non è fra le voci disponibili lo aggiunge come voce
-    /// "non più presente" invece di perderlo, perché il salvataggio riscrive il piano intero.
-    /// </summary>
-    private static void SelectValue(ComboBox combo, string? id)
+    private void OnAccountsGridDataError(object? sender, DataGridViewDataErrorEventArgs e)
     {
-        if (string.IsNullOrWhiteSpace(id))
-        {
-            combo.SelectedIndex = combo.Items.Count > 0 ? 0 : -1;
-            return;
-        }
-
-        var trimmed = id.Trim();
-        for (var index = 0; index < combo.Items.Count; index++)
-        {
-            if (combo.Items[index] is ValueComboItem item
-                && string.Equals(item.Id, trimmed, StringComparison.OrdinalIgnoreCase))
-            {
-                combo.SelectedIndex = index;
-                return;
-            }
-        }
-
-        combo.SelectedIndex = combo.Items.Add(ValueComboItem.Missing(trimmed));
-    }
-
-    private void OnTitanoFieldChanged(object? sender, EventArgs e)
-    {
-        if (!_suspendTitanoEvents)
-        {
-            MarkDirty();
-        }
-    }
-
-    private void OnTitanoFolderChanged(object? sender, EventArgs e)
-    {
-        if (!_suspendTitanoEvents)
-        {
-            MarkDirty();
-        }
+        e.ThrowException = false;
+        _context?.Navigation.SetError($"Valore non valido nella griglia account: {e.Exception.Message}");
     }
 
     private void ResetToDefaults()
     {
         _codeTextBox.Text = string.Empty;
         _nameTextBox.Text = string.Empty;
-        _maxConcurrentInput.Value = 0;
         _commissionInput.Value = 2m;
-        _applyTitanoCheckBox.Checked = false;
         _enforceConcurrencyCombo.SelectedIndex = 0;
 
         _clampMultipliersCheckBox.Checked = true;
@@ -606,18 +535,14 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
         _maximumMultiplierInput.Value = 1m;
 
         _groups.Clear();
-        _instruments.Clear();
+        _accounts.Clear();
     }
 
     private void Fill(TradingPlan plan)
     {
         _codeTextBox.Text = plan.Code;
         _nameTextBox.Text = plan.Name;
-        _maxConcurrentInput.Value = plan.MaxConcurrentTrades;
         _commissionInput.Value = Clamp(_commissionInput, plan.CommissionPerContract);
-        _applyTitanoCheckBox.Checked = plan.ApplyTitanoFilters;
-        // Le tre combo Titano sono popolate a parte da ApplyTitanoSelectionAsync: le liste
-        // arrivano dal server e Fill deve restare sincrona.
         _enforceConcurrencyCombo.SelectedIndex = plan.EnforceConcurrencyLimits switch
         {
             null => 0,
@@ -637,40 +562,39 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
         _fractionalFactorInput.Value = Clamp(_fractionalFactorInput, sizing.PortfolioRisk.FractionalFactor);
         _maximumMultiplierInput.Value = Clamp(_maximumMultiplierInput, sizing.PortfolioRisk.MaximumMultiplier);
 
+        // Un profilo Titano per gruppo (prima riga del gruppo: NormalizeAndValidateGroups garantisce
+        // che tutte le righe dello stesso GroupId lo condividano).
         _groups.RaiseListChangedEvents = false;
         _groups.Clear();
-        foreach (var group in plan.Groups)
+        foreach (var group in plan.Groups.GroupBy(row => row.GroupId, StringComparer.OrdinalIgnoreCase))
         {
+            var sample = group.First();
             _groups.Add(new PlanGroupEditRow
             {
-                GroupId = group.GroupId,
-                AccountNumber = group.AccountNumber,
-                MaxConcurrentTrades = group.MaxConcurrentTrades,
-                RotationSetupId = group.RotationSetupId ?? string.Empty,
-                TitanoBacktestFolder = group.TitanoBacktestFolder ?? string.Empty,
-                ApplyTitanoFilters = group.ApplyTitanoFilters
+                GroupId = sample.GroupId,
+                RotationSetupId = sample.RotationSetupId ?? string.Empty,
+                TitanoBacktestFolder = sample.TitanoBacktestFolder ?? string.Empty,
+                ApplyTitanoFilters = sample.ApplyTitanoFilters
             });
         }
 
         _groups.RaiseListChangedEvents = true;
         _groups.ResetBindings();
 
-        _instruments.RaiseListChangedEvents = false;
-        _instruments.Clear();
-        foreach (var instrument in plan.Instruments)
+        _accounts.RaiseListChangedEvents = false;
+        _accounts.Clear();
+        foreach (var row in plan.Groups)
         {
-            _instruments.Add(new PlanInstrumentEditRow
+            _accounts.Add(new PlanAccountEditRow
             {
-                Symbol = instrument.Symbol,
-                DollarsPerPoint = instrument.DollarsPerPoint,
-                MinimumQuantity = instrument.MinimumQuantity,
-                QuantityStep = instrument.QuantityStep,
-                RoundingMode = instrument.RoundingMode
+                GroupId = row.GroupId,
+                AccountNumber = row.AccountNumber,
+                MaxConcurrentTrades = row.MaxConcurrentTrades
             });
         }
 
-        _instruments.RaiseListChangedEvents = true;
-        _instruments.ResetBindings();
+        _accounts.RaiseListChangedEvents = true;
+        _accounts.ResetBindings();
     }
 
     private static decimal Clamp(NumericUpDown input, decimal value)
@@ -698,10 +622,9 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
 
     private void OnAddGroupClick(object? sender, EventArgs e)
     {
-        // Gruppo e account si scelgono dalle combo: un placeholder testuale finirebbe nel piano
-        // come gruppo inesistente.
-        _groups.Add(new PlanGroupEditRow { GroupId = string.Empty, AccountNumber = string.Empty });
-        RefreshAccountCell(_groups.Count - 1);
+        // Il gruppo si sceglie dalla combo: un placeholder testuale finirebbe nel piano come
+        // gruppo inesistente.
+        _groups.Add(new PlanGroupEditRow { GroupId = string.Empty });
     }
 
     private void OnRemoveGroupClick(object? sender, EventArgs e)
@@ -712,80 +635,18 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
         }
     }
 
-    private void OnAddInstrumentClick(object? sender, EventArgs e)
-        => _instruments.Add(new PlanInstrumentEditRow());
-
-    /// <summary>
-    /// Precarica una riga per ogni simbolo del masterfilter del workspace. La lista strumenti del
-    /// piano è fatta di override: i simboli assenti ricevono comunque i default della sessione
-    /// (<c>DollarsPerPoint = 1</c> e passo 1), che su un future sono quasi sempre sbagliati e
-    /// falsano il sizing senza segnalare nulla. Meglio vederli tutti e correggere quelli che
-    /// servono, che doverli indovinare a memoria.
-    /// </summary>
-    private async void OnImportSymbolsClick(object? sender, EventArgs e)
+    private void OnAddAccountClick(object? sender, EventArgs e)
     {
-        if (_context == null || SelectedWorkspaceId is not { } workspaceId)
-        {
-            return;
-        }
-
-        _toolbar.SetBusy(true);
-        try
-        {
-            var filter = await _context.Services.Api.GetMasterFilterAsync(workspaceId);
-            var catalog = await _context.Services.Api.ListStrategiesAsync();
-            var byId = catalog.ToDictionary(item => item.Id, StringComparer.OrdinalIgnoreCase);
-
-            var symbols = filter.StrategiesFilter
-                .Select(id => byId.TryGetValue(id, out var item) ? item.Symbol : null)
-                .Where(symbol => !string.IsNullOrWhiteSpace(symbol))
-                .Select(symbol => symbol!.Trim())
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .OrderBy(symbol => symbol, StringComparer.OrdinalIgnoreCase)
-                .ToList();
-
-            if (symbols.Count == 0)
-            {
-                _context.Navigation.SetStatus(
-                    $"Il masterfilter di '{workspaceId}' non contiene strategie con un simbolo risolvibile.");
-                return;
-            }
-
-            // Il server normalizza i simboli (trim, via la '@', maiuscolo) prima di cercarli, quindi
-            // il confronto qui deve fare lo stesso o si aggiungerebbero doppioni apparenti.
-            var existing = _instruments
-                .Select(row => NormalizeSymbol(row.Symbol))
-                .ToHashSet(StringComparer.OrdinalIgnoreCase);
-
-            var added = 0;
-            foreach (var symbol in symbols.Where(symbol => !existing.Contains(NormalizeSymbol(symbol))))
-            {
-                _instruments.Add(new PlanInstrumentEditRow { Symbol = symbol });
-                added++;
-            }
-
-            _context.Navigation.SetStatus(added == 0
-                ? $"Tutti i {symbols.Count} simboli del masterfilter sono già in tabella."
-                : $"Aggiunti {added} simboli su {symbols.Count} dal masterfilter di '{workspaceId}'. " +
-                  "Correggi DollarsPerPoint: il default 1 vale solo per uno strumento da 1$ a punto.");
-        }
-        catch (Exception ex)
-        {
-            _context.Navigation.SetError($"Import simboli non riuscito: {ex.Message}");
-        }
-        finally
-        {
-            _toolbar.SetBusy(false);
-        }
+        // L'account si sceglie dalla combo: un placeholder testuale finirebbe nel piano come
+        // account inesistente. Il gruppo si popola da solo alla scelta dell'account.
+        _accounts.Add(new PlanAccountEditRow { GroupId = string.Empty, AccountNumber = string.Empty });
     }
 
-    private static string NormalizeSymbol(string value) => value.Trim().TrimStart('@').ToUpperInvariant();
-
-    private void OnRemoveInstrumentClick(object? sender, EventArgs e)
+    private void OnRemoveAccountClick(object? sender, EventArgs e)
     {
-        if (_instrumentsGrid.CurrentRow?.Index is { } index && index >= 0 && index < _instruments.Count)
+        if (_accountsGrid.CurrentRow?.Index is { } index && index >= 0 && index < _accounts.Count)
         {
-            _instruments.RemoveAt(index);
+            _accounts.RemoveAt(index);
         }
     }
 
@@ -811,14 +672,96 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
             return;
         }
 
-        var validGroups = _groups
-            .Where(row => !string.IsNullOrWhiteSpace(row.GroupId) && !string.IsNullOrWhiteSpace(row.AccountNumber))
-            .ToList();
-        if (validGroups.Count == 0)
+        // Una riga con il gruppo non ancora scelto non va scartata in silenzio: prima del refactor
+        // in due tab bastava filtrarla (era anche priva di account), ma qui sparirebbe dalla
+        // griglia al giro di Fill() successivo senza che l'utente capisca perché.
+        if (_groups.Any(row => string.IsNullOrWhiteSpace(row.GroupId)))
         {
             MessageBox.Show(
                 this,
-                "Serve almeno una riga gruppo/account completa: è la configurazione canonica del piano.",
+                "C'è una riga senza gruppo nel tab Gruppi: scegli un gruppo dalla combo o rimuovi la riga.",
+                "Piano",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Warning);
+            return;
+        }
+
+        var duplicateGroup = _groups
+            .GroupBy(row => row.GroupId.Trim(), StringComparer.OrdinalIgnoreCase)
+            .FirstOrDefault(g => g.Count() > 1);
+        if (duplicateGroup != null)
+        {
+            MessageBox.Show(
+                this,
+                $"Il gruppo '{duplicateGroup.Key}' è configurato più di una volta nel tab Gruppi.",
+                "Piano",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Warning);
+            return;
+        }
+
+        var groupProfiles = _groups.ToDictionary(
+            row => row.GroupId.Trim(), row => row, StringComparer.OrdinalIgnoreCase);
+        if (groupProfiles.Count == 0)
+        {
+            MessageBox.Show(
+                this,
+                "Serve almeno un gruppo nel tab Gruppi: porta il profilo Titano del piano.",
+                "Piano",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Warning);
+            return;
+        }
+
+        if (_accounts.Any(row => string.IsNullOrWhiteSpace(row.AccountNumber)))
+        {
+            MessageBox.Show(
+                this,
+                "C'è una riga senza account nel tab Account: scegli un account dalla combo o rimuovi la riga.",
+                "Piano",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Warning);
+            return;
+        }
+
+        var validAccounts = _accounts
+            .Where(row => !string.IsNullOrWhiteSpace(row.AccountNumber))
+            .ToList();
+        if (validAccounts.Count == 0)
+        {
+            MessageBox.Show(
+                this,
+                "Serve almeno un account nel tab Account: è la configurazione canonica del piano.",
+                "Piano",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Warning);
+            return;
+        }
+
+        var orphanAccount = validAccounts.FirstOrDefault(row => !groupProfiles.ContainsKey(row.GroupId.Trim()));
+        if (orphanAccount != null)
+        {
+            MessageBox.Show(
+                this,
+                $"L'account '{orphanAccount.AccountNumber}' fa riferimento al gruppo '{orphanAccount.GroupId}', " +
+                "che non è configurato nel tab Gruppi.",
+                "Piano",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Warning);
+            return;
+        }
+
+        // Un gruppo senza nemmeno un account non ha modo di essere scritto: TradingGroupRow è
+        // sempre una coppia gruppo+account, quindi un profilo "solo gruppo" verrebbe scartato in
+        // silenzio al salvataggio invece di comparire come errore.
+        var emptyGroup = groupProfiles.Keys.FirstOrDefault(groupId => !validAccounts.Any(row =>
+            string.Equals(row.GroupId.Trim(), groupId, StringComparison.OrdinalIgnoreCase)));
+        if (emptyGroup != null)
+        {
+            MessageBox.Show(
+                this,
+                $"Il gruppo '{emptyGroup}' non ha nessun account nel tab Account: aggiungine almeno uno " +
+                "(o rimuovi il gruppo), altrimenti il profilo non verrebbe salvato.",
                 "Piano",
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Warning);
@@ -829,19 +772,19 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
         {
             Code = code,
             Name = _nameTextBox.Text.Trim() is { Length: > 0 } name ? name : code,
-            Groups = validGroups.Select(row => new TradingGroupRow
+            Groups = validAccounts.Select(row =>
             {
-                GroupId = row.GroupId.Trim(),
-                AccountNumber = row.AccountNumber.Trim(),
-                MaxConcurrentTrades = row.MaxConcurrentTrades,
-                RotationSetupId = NullIfEmpty(row.RotationSetupId),
-                TitanoBacktestFolder = NullIfEmpty(row.TitanoBacktestFolder),
-                ApplyTitanoFilters = row.ApplyTitanoFilters
+                var profile = groupProfiles[row.GroupId.Trim()];
+                return new TradingGroupRow
+                {
+                    GroupId = row.GroupId.Trim(),
+                    AccountNumber = row.AccountNumber.Trim(),
+                    MaxConcurrentTrades = row.MaxConcurrentTrades,
+                    RotationSetupId = NullIfEmpty(profile.RotationSetupId),
+                    TitanoBacktestFolder = NullIfEmpty(profile.TitanoBacktestFolder),
+                    ApplyTitanoFilters = profile.ApplyTitanoFilters
+                };
             }).ToList(),
-            MaxConcurrentTrades = (int)_maxConcurrentInput.Value,
-            RotationSetupId = SelectedId(_rotationSetupCombo),
-            TitanoBacktestFolder = SelectedId(_titanoFolderCombo),
-            ApplyTitanoFilters = _applyTitanoCheckBox.Checked,
             EnforceConcurrencyLimits = _enforceConcurrencyCombo.SelectedIndex switch
             {
                 1 => true,
@@ -867,17 +810,7 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
                     FractionalFactor = _fractionalFactorInput.Value,
                     MaximumMultiplier = _maximumMultiplierInput.Value
                 }
-            },
-            Instruments = _instruments
-                .Where(row => !string.IsNullOrWhiteSpace(row.Symbol))
-                .Select(row => new InstrumentMetadata
-                {
-                    Symbol = row.Symbol.Trim(),
-                    DollarsPerPoint = row.DollarsPerPoint,
-                    MinimumQuantity = row.MinimumQuantity,
-                    QuantityStep = row.QuantityStep,
-                    RoundingMode = row.RoundingMode
-                }).ToList()
+            }
         };
 
         _toolbar.SetBusy(true);
@@ -891,7 +824,6 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
             _workspaceCombo.Enabled = false;
             _suspendDirtyTracking = true;
             Fill(saved);
-            await ApplyTitanoSelectionAsync(saved.RotationSetupId, saved.TitanoBacktestFolder, CancellationToken.None);
             await RefreshGroupChoicesAsync(CancellationToken.None);
             await RefreshRotationStatusAsync(CancellationToken.None);
             _suspendDirtyTracking = false;

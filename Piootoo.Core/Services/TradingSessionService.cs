@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using Piootoo.Shared.Configuration;
 using Piootoo.Shared.Enums;
 using Piootoo.Shared.Interfaces;
 using Piootoo.Shared.Models;
@@ -367,8 +368,7 @@ public sealed class TradingSessionService : ITradingSessionService
             TitanoMode = titanoMode,
             ClientRunMode = request.ClientRunMode,
             EnforceConcurrencyLimits = plan.EnforceConcurrencyLimits,
-            PositionSizing = plan.PositionSizing,
-            Instruments = plan.Instruments
+            PositionSizing = plan.PositionSizing
         }, plan.Code, request.ExecutionKey.Trim());
         if (request.DistributeToAccounts)
             SetTradingGroups(descriptor.SessionId, descriptor.SessionToken, plan.Groups);
@@ -470,15 +470,22 @@ public sealed class TradingSessionService : ITradingSessionService
             return StrategyFactory.CreateStrategy(d.Id, d.Symbol, d.TimeframeMinutes, d.Parameters)
                    ?? throw new InvalidOperationException($"Impossibile creare la strategia '{id}'.");
         }).ToList();
-        var suppliedMetadata = request.Instruments.ToDictionary(x => Normalize(x.Symbol), StringComparer.OrdinalIgnoreCase);
-        foreach (var item in suppliedMetadata.Values)
-            if (item.DollarsPerPoint <= 0 || item.MinimumQuantity <= 0 || item.QuantityStep <= 0)
-                throw new ArgumentException($"Metadata non validi per {item.Symbol}.");
+        // Il valore punto è del contratto Piootoo, non del piano: viene dal registro strumenti, che
+        // lancia sui simboli non verificati (errore esplicito voluto, vedi PROGETTO.md §7). La
+        // granularità di volume (min/step/rounding) non è più qui: per ExternalBroker è quella del
+        // broker, applicata al claim da AccountSymbolConversion, quindi qui resta "differita" per non
+        // arrotondare due volte (vedi ApplyGroupAllocation/PositionSizingService). Per il motore
+        // interno, senza claim, resta il contratto intero.
         var instrumentMetadata = strategies.Select(x => Normalize(x.Symbol)).Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(symbol => symbol, symbol => suppliedMetadata.GetValueOrDefault(symbol) ?? new InstrumentMetadata
+            .ToDictionary(symbol => symbol, symbol => new InstrumentMetadata
             {
-                Symbol = symbol, DollarsPerPoint = 1m, MinimumQuantity = 1m,
-                QuantityStep = 1m, RoundingMode = QuantityRoundingMode.FuturesContracts
+                Symbol = symbol,
+                DollarsPerPoint = InstrumentRegistry.PointValue(symbol),
+                MinimumQuantity = 1m,
+                QuantityStep = 1m,
+                RoundingMode = request.ExecutionMode == ExecutionMode.ExternalBroker
+                    ? QuantityRoundingMode.Deferred
+                    : QuantityRoundingMode.FuturesContracts
             }, StringComparer.OrdinalIgnoreCase);
 
         var engine = new PiootooTradingService();
@@ -1532,6 +1539,16 @@ public sealed class TradingSessionService : ITradingSessionService
             : 0m;
         var quantityBeforeConversion = sizing?.FinalQuantity ?? signal.Quantity;
 
+        // Arrotondamento alla granularità del broker (o al contratto intero se il simbolo non è
+        // mappato, vedi AccountSymbolConversion.RoundQuantity): serve qui perché sui template
+        // (conversion = Identity) è l'unico punto in cui un intent in esecuzione diretta — nessun
+        // gruppo, nessun claim successivo — riceve mai un arrotondamento quando
+        // RoundingMode è Deferred (ExternalBroker). Su un template vero e proprio l'arrotondamento
+        // qui è quello di default (contratto intero) ed è coerente con quanto CloneForClaim farà poi
+        // con la granularità reale del conto.
+        var roundedQuantity = conversion.RoundQuantity(signal.Symbol, signal.Quantity * sizeFactor);
+        var roundedFinalQuantity = conversion.RoundQuantity(signal.Symbol, quantityBeforeConversion * sizeFactor);
+
         var strategyTimeframe = session.Strategies
             .FirstOrDefault(strategy => string.Equals(
                 strategy.Name, signal.StrategyCode, StringComparison.OrdinalIgnoreCase))
@@ -1574,14 +1591,14 @@ public sealed class TradingSessionService : ITradingSessionService
             CreatedAtUtc = signal.Date,
             Side = signal.Type,
             OrderType = signal.OrderType,
-            Quantity = signal.Quantity * sizeFactor,
+            Quantity = roundedQuantity,
             QuantityBeforeAccountConversion = quantityBeforeConversion,
             AllocationMultiplier = sizing?.StrategyEquityMultiplier ?? 1m,
             BaseQuantity = sizing?.BaseQuantity ?? signal.Quantity,
             StrategyEquityMultiplier = sizing?.StrategyEquityMultiplier ?? 1m,
             MarketVolatilityMultiplier = sizing?.MarketVolatilityMultiplier ?? 1m,
             PortfolioRiskMultiplier = sizing?.PortfolioRiskMultiplier ?? 1m,
-            FinalQuantity = quantityBeforeConversion * sizeFactor,
+            FinalQuantity = roundedFinalQuantity,
             SizingReason = sizeFactor == 1m
                 ? sizing?.Reason
                 : $"{sizing?.Reason} | conversione account: {sizeFactor:0.######}",
@@ -1651,12 +1668,16 @@ public sealed class TradingSessionService : ITradingSessionService
 
         // La conversione dell'account è l'ultimo passaggio, ed è qui e non sul template perché
         // dipende dal conto: lo stesso segnale vale size diverse su conti con capitale o contratto
-        // diversi. Non si arrotonda al passo dello strumento: quel passo è del contratto Piootoo,
-        // mentre dopo la conversione la quantità è nei contratti del broker, che li normalizza lui.
+        // diversi. L'arrotondamento avviene dopo la conversione, con la granularità del broker
+        // (MinimumQuantity/QuantityStep/RoundingMode sulla riga della tabella di conversione): prima
+        // della conversione la quantità è ancora nei contratti Piootoo, dove quel passo non significa
+        // nulla. Vedi docs/decisioni.md (2026-08-05).
         var conversion = ResolveAccountConversion(session, accountNumber);
         var enabled = conversion.IsSymbolEnabled(template.Symbol);
         var sizeFactor = conversion.GetSizeFactor(template.Symbol);
-        var convertedQuantity = enabled ? quantity * sizeFactor : 0m;
+        var convertedQuantity = enabled
+            ? conversion.RoundQuantity(template.Symbol, quantity * sizeFactor)
+            : 0m;
 
         return new OrderIntent
         {
@@ -1705,6 +1726,11 @@ public sealed class TradingSessionService : ITradingSessionService
     /// <summary>
     /// Scala una quantità per l'allocazione di gruppo rispettando i vincoli dello strumento:
     /// arrotondamento per difetto al passo, zero sotto la quantità minima.
+    ///
+    /// <para>Se <see cref="InstrumentMetadata.RoundingMode"/> è <see cref="QuantityRoundingMode.Deferred"/>
+    /// non si arrotonda qui: è il caso <see cref="ExecutionMode.ExternalBroker"/>, dove la quantità è
+    /// ancora nei contratti Piootoo e la granularità che conta è quella del broker, applicata una
+    /// sola volta dopo la conversione d'account (vedi <see cref="CloneForClaim"/>).</para>
     /// </summary>
     private decimal ApplyGroupAllocation(Session session, string symbol, decimal quantity, decimal allocation)
     {
@@ -1712,7 +1738,8 @@ public sealed class TradingSessionService : ITradingSessionService
         if (allocation <= 0m) return 0m;
 
         var scaled = quantity * allocation;
-        if (!session.InstrumentMetadata.TryGetValue(Normalize(symbol), out var metadata))
+        if (!session.InstrumentMetadata.TryGetValue(Normalize(symbol), out var metadata) ||
+            metadata.RoundingMode == QuantityRoundingMode.Deferred)
             return scaled;
 
         if (metadata.QuantityStep > 0)

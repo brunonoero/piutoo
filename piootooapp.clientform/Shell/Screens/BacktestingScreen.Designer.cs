@@ -6,9 +6,15 @@ partial class BacktestingScreen
 
     protected override void Dispose(bool disposing)
     {
-        if (disposing && (components != null))
+        if (disposing)
         {
-            components.Dispose();
+            if (components != null)
+            {
+                components.Dispose();
+            }
+
+            DeleteTempReportFile(_reportTempHtmlPath);
+            _reportTempHtmlPath = null;
         }
 
         base.Dispose(disposing);
@@ -18,6 +24,10 @@ partial class BacktestingScreen
 
     private void InitializeComponent()
     {
+        this._tabs = new System.Windows.Forms.TabControl();
+        this._executionTab = new System.Windows.Forms.TabPage();
+        this._reportTab = new System.Windows.Forms.TabPage();
+        this._reportBrowser = new Microsoft.Web.WebView2.WinForms.WebView2();
         this._parametersGroup = new System.Windows.Forms.GroupBox();
         this._parametersLayout = new System.Windows.Forms.TableLayoutPanel();
         this._workspaceLabel = new System.Windows.Forms.Label();
@@ -43,6 +53,10 @@ partial class BacktestingScreen
         this._statusLabel = new System.Windows.Forms.Label();
         this._logGroup = new System.Windows.Forms.GroupBox();
         this._logTextBox = new System.Windows.Forms.TextBox();
+        this._tabs.SuspendLayout();
+        this._executionTab.SuspendLayout();
+        this._reportTab.SuspendLayout();
+        ((System.ComponentModel.ISupportInitialize)(this._reportBrowser)).BeginInit();
         this._parametersGroup.SuspendLayout();
         this._parametersLayout.SuspendLayout();
         ((System.ComponentModel.ISupportInitialize)(this._capitalInput)).BeginInit();
@@ -347,16 +361,65 @@ partial class BacktestingScreen
         this._logTextBox.Size = new System.Drawing.Size(876, 299);
         this._logTextBox.TabIndex = 0;
         // 
+        // _tabs
+        //
+        this._tabs.Controls.Add(this._executionTab);
+        this._tabs.Dock = System.Windows.Forms.DockStyle.Fill;
+        this._tabs.Location = new System.Drawing.Point(0, 0);
+        this._tabs.Name = "_tabs";
+        this._tabs.SelectedIndex = 0;
+        this._tabs.Size = new System.Drawing.Size(900, 600);
+        this._tabs.TabIndex = 0;
+        //
+        // _executionTab
+        //
+        this._executionTab.Controls.Add(this._logGroup);
+        this._executionTab.Controls.Add(this._progressPanel);
+        this._executionTab.Controls.Add(this._commandsPanel);
+        this._executionTab.Controls.Add(this._parametersGroup);
+        this._executionTab.Location = new System.Drawing.Point(4, 24);
+        this._executionTab.Name = "_executionTab";
+        this._executionTab.Padding = new System.Windows.Forms.Padding(3);
+        this._executionTab.Size = new System.Drawing.Size(892, 572);
+        this._executionTab.TabIndex = 0;
+        this._executionTab.Text = "Esecuzione";
+        //
+        // _reportTab
+        //
+        // Non entra in _tabs.TabPages qui: viene aggiunta a runtime solo se il report è
+        // stato effettivamente creato (vedi BacktestingScreen.cs, ShowReportTabAsync).
+        this._reportTab.Controls.Add(this._reportBrowser);
+        this._reportTab.Location = new System.Drawing.Point(4, 24);
+        this._reportTab.Name = "_reportTab";
+        this._reportTab.Padding = new System.Windows.Forms.Padding(3);
+        this._reportTab.Size = new System.Drawing.Size(892, 572);
+        this._reportTab.TabIndex = 1;
+        this._reportTab.Text = "Report";
+        //
+        // _reportBrowser
+        //
+        this._reportBrowser.AllowExternalDrop = true;
+        this._reportBrowser.CreationProperties = null;
+        this._reportBrowser.DefaultBackgroundColor = System.Drawing.Color.White;
+        this._reportBrowser.Dock = System.Windows.Forms.DockStyle.Fill;
+        this._reportBrowser.Location = new System.Drawing.Point(3, 3);
+        this._reportBrowser.Name = "_reportBrowser";
+        this._reportBrowser.Size = new System.Drawing.Size(886, 566);
+        this._reportBrowser.TabIndex = 0;
+        this._reportBrowser.ZoomFactor = 1D;
+        //
         // BacktestingScreen
-        // 
+        //
         this.AutoScaleDimensions = new System.Drawing.SizeF(7F, 15F);
         this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
-        this.Controls.Add(this._logGroup);
-        this.Controls.Add(this._progressPanel);
-        this.Controls.Add(this._commandsPanel);
-        this.Controls.Add(this._parametersGroup);
+        this.Controls.Add(this._tabs);
         this.Name = "BacktestingScreen";
         this.Size = new System.Drawing.Size(900, 600);
+        this._tabs.ResumeLayout(false);
+        this._executionTab.ResumeLayout(false);
+        this._executionTab.PerformLayout();
+        this._reportTab.ResumeLayout(false);
+        ((System.ComponentModel.ISupportInitialize)(this._reportBrowser)).EndInit();
         this._parametersGroup.ResumeLayout(false);
         this._parametersGroup.PerformLayout();
         this._parametersLayout.ResumeLayout(false);
@@ -370,11 +433,14 @@ partial class BacktestingScreen
         this._logGroup.ResumeLayout(false);
         this._logGroup.PerformLayout();
         this.ResumeLayout(false);
-        this.PerformLayout();
     }
 
     #endregion
 
+    private System.Windows.Forms.TabControl _tabs;
+    private System.Windows.Forms.TabPage _executionTab;
+    private System.Windows.Forms.TabPage _reportTab;
+    private Microsoft.Web.WebView2.WinForms.WebView2 _reportBrowser;
     private System.Windows.Forms.GroupBox _parametersGroup;
     private System.Windows.Forms.TableLayoutPanel _parametersLayout;
     private System.Windows.Forms.Label _workspaceLabel;

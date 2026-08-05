@@ -68,6 +68,17 @@ app.MapControllers();
 
 app.MapFallbackToFile("/index.html");
 
+app.Lifetime.ApplicationStarted.Register(() =>
+{
+    var addresses = app.Services.GetRequiredService<Microsoft.AspNetCore.Hosting.Server.IServer>()
+        .Features.Get<Microsoft.AspNetCore.Hosting.Server.Features.IServerAddressesFeature>()?.Addresses
+        ?? Enumerable.Empty<string>();
+    foreach (var address in addresses)
+    {
+        Console.WriteLine($"[Piootoo] In ascolto su: {address}");
+    }
+});
+
 app.Run();
 
 public partial class Program;

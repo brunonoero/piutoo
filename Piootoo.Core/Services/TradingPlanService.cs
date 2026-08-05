@@ -88,7 +88,6 @@ public sealed class TradingPlanService
                 EnforceConcurrencyLimits = request.EnforceConcurrencyLimits,
                 CommissionPerContract = request.CommissionPerContract,
                 PositionSizing = request.PositionSizing,
-                Instruments = request.Instruments,
                 CreatedUtc = existing?.CreatedUtc ?? now,
                 UpdatedUtc = now
             };
@@ -238,7 +237,6 @@ public sealed class TradingPlanService
             EnforceConcurrencyLimits = plan.EnforceConcurrencyLimits,
             CommissionPerContract = plan.CommissionPerContract,
             PositionSizing = plan.PositionSizing,
-            Instruments = plan.Instruments,
             CreatedUtc = plan.CreatedUtc,
             UpdatedUtc = plan.UpdatedUtc
         };

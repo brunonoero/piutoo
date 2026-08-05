@@ -8,7 +8,10 @@ namespace Piootoo.Core.Services;
 public sealed record AccountSymbolConversionEntry(
     string AccountSymbol,
     decimal ContractMultiplier,
-    bool Enabled);
+    bool Enabled,
+    decimal MinimumQuantity,
+    decimal QuantityStep,
+    QuantityRoundingMode RoundingMode);
 
 /// <summary>
 /// Tabella di conversione di un account in forma pronta per il loop caldo: il lookup avviene per
@@ -89,7 +92,10 @@ public sealed class AccountSymbolConversion
             entries[key] = new AccountSymbolConversionEntry(
                 string.IsNullOrWhiteSpace(mapping.AccountSymbol) ? mapping.Symbol.Trim() : mapping.AccountSymbol.Trim(),
                 mapping.ContractMultiplier <= 0 ? 1m : mapping.ContractMultiplier,
-                mapping.Enabled);
+                mapping.Enabled,
+                mapping.MinimumQuantity <= 0 ? 1m : mapping.MinimumQuantity,
+                mapping.QuantityStep <= 0 ? 1m : mapping.QuantityStep,
+                mapping.RoundingMode);
         }
 
         return new AccountSymbolConversion(account.Id, account.Name, account.InitialBalance, entries);
@@ -119,4 +125,29 @@ public sealed class AccountSymbolConversion
     /// <summary>False solo se il simbolo è mappato ed è stato disabilitato sull'account.</summary>
     public bool IsSymbolEnabled(string? symbol)
         => !TryGet(symbol, out var entry) || entry.Enabled;
+
+    /// <summary>
+    /// Arrotonda una quantità già convertita nei contratti del broker alla granularità di volume di
+    /// questo account/simbolo: passo di volume per difetto, zero sotto la quantità minima (meglio
+    /// nessun ordine che un ordine di taglia non eseguibile).
+    ///
+    /// <para>Se il simbolo non è mappato non c'è una granularità dichiarata dal broker: si applica
+    /// comunque il default <see cref="QuantityRoundingMode.FuturesContracts"/> (contratto intero,
+    /// minimo 1) invece di lasciare passare una quantità frazionaria. "Nessuna conversione" vale per
+    /// simbolo e moltiplicatore (vedi <see cref="GetContractMultiplier"/>), non per la granularità:
+    /// un future non diventa negoziabile a frazioni di contratto solo perché manca la riga in
+    /// tabella.</para>
+    /// </summary>
+    public decimal RoundQuantity(string? symbol, decimal quantity)
+    {
+        if (quantity <= 0m) return quantity;
+
+        var (step, minimum) = TryGet(symbol, out var entry)
+            ? (entry.RoundingMode == QuantityRoundingMode.FuturesContracts
+                ? Math.Max(1m, entry.QuantityStep)
+                : entry.QuantityStep, entry.MinimumQuantity)
+            : (1m, 1m);
+        var rounded = step > 0m ? Math.Floor(quantity / step) * step : quantity;
+        return rounded < minimum ? 0m : rounded;
+    }
 }

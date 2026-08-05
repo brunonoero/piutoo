@@ -32,6 +32,9 @@ partial class SymbolConversionDetailScreen
         this._colSymbol = new System.Windows.Forms.DataGridViewTextBoxColumn();
         this._colAccountSymbol = new System.Windows.Forms.DataGridViewTextBoxColumn();
         this._colContractMultiplier = new System.Windows.Forms.DataGridViewTextBoxColumn();
+        this._colMinimumQuantity = new System.Windows.Forms.DataGridViewTextBoxColumn();
+        this._colQuantityStep = new System.Windows.Forms.DataGridViewTextBoxColumn();
+        this._colRoundingMode = new System.Windows.Forms.DataGridViewComboBoxColumn();
         this._colMappingEnabled = new System.Windows.Forms.DataGridViewCheckBoxColumn();
         this._mappingsButtons = new System.Windows.Forms.FlowLayoutPanel();
         this._removeMappingButton = new System.Windows.Forms.Button();
@@ -183,6 +186,9 @@ partial class SymbolConversionDetailScreen
             this._colSymbol,
             this._colAccountSymbol,
             this._colContractMultiplier,
+            this._colMinimumQuantity,
+            this._colQuantityStep,
+            this._colRoundingMode,
             this._colMappingEnabled});
         this._mappingsGrid.DataSource = this._mappingsBindingSource;
         this._mappingsGrid.Dock = System.Windows.Forms.DockStyle.Fill;
@@ -209,6 +215,24 @@ partial class SymbolConversionDetailScreen
         this._colContractMultiplier.DataPropertyName = "ContractMultiplier";
         this._colContractMultiplier.HeaderText = "Moltiplicatore contratto";
         this._colContractMultiplier.Name = "_colContractMultiplier";
+        //
+        // _colMinimumQuantity
+        //
+        this._colMinimumQuantity.DataPropertyName = "MinimumQuantity";
+        this._colMinimumQuantity.HeaderText = "Quantità minima";
+        this._colMinimumQuantity.Name = "_colMinimumQuantity";
+        //
+        // _colQuantityStep
+        //
+        this._colQuantityStep.DataPropertyName = "QuantityStep";
+        this._colQuantityStep.HeaderText = "Passo quantità";
+        this._colQuantityStep.Name = "_colQuantityStep";
+        //
+        // _colRoundingMode
+        //
+        this._colRoundingMode.DataPropertyName = "RoundingMode";
+        this._colRoundingMode.HeaderText = "Arrotondamento";
+        this._colRoundingMode.Name = "_colRoundingMode";
         //
         // _colMappingEnabled
         //
@@ -257,5 +281,8 @@ partial class SymbolConversionDetailScreen
     private System.Windows.Forms.DataGridViewTextBoxColumn _colSymbol;
     private System.Windows.Forms.DataGridViewTextBoxColumn _colAccountSymbol;
     private System.Windows.Forms.DataGridViewTextBoxColumn _colContractMultiplier;
+    private System.Windows.Forms.DataGridViewTextBoxColumn _colMinimumQuantity;
+    private System.Windows.Forms.DataGridViewTextBoxColumn _colQuantityStep;
+    private System.Windows.Forms.DataGridViewComboBoxColumn _colRoundingMode;
     private System.Windows.Forms.DataGridViewCheckBoxColumn _colMappingEnabled;
 }

@@ -7,7 +7,19 @@ public enum ExecutionMode { ServerSimulated, ExternalBroker }
 public enum TradingSessionStatus { Created, Running, Stopped }
 public enum ExecutionReportStatus { Accepted, PartiallyFilled, Filled, Rejected, Cancelled }
 public enum OrderIntentStatus { Pending, Accepted, PartiallyFilled, Filled, Rejected, Cancelled }
-public enum QuantityRoundingMode { FuturesContracts, BrokerVolumeStep }
+/// <summary>
+/// Granularità con cui arrotondare una quantità in contratti Piootoo.
+///
+/// <para><see cref="FuturesContracts"/> — contratti interi (passo minimo 1), la size dichiarata
+/// dalle strategie. <see cref="BrokerVolumeStep"/> — passo di volume esplicito, per i CFD dove può
+/// essere frazionario. <see cref="Deferred"/> — non arrotondare qui: la granularità è quella del
+/// broker e si applica una sola volta, al claim, con la tabella di conversione dell'account
+/// (<see cref="Piootoo.Core.Services.AccountSymbolConversion.RoundQuantity"/> — vedi
+/// <c>docs/decisioni.md</c> 2026-08-05). Serve alle sessioni <see cref="ExecutionMode.ExternalBroker"/>
+/// per evitare di arrotondare due volte: una prima sui contratti Piootoo, una seconda sui contratti
+/// del broker dopo la conversione.</para>
+/// </summary>
+public enum QuantityRoundingMode { FuturesContracts, BrokerVolumeStep, Deferred }
 
 /// <summary>
 /// Natura di un <see cref="OrderIntent"/>.
@@ -169,7 +181,6 @@ public sealed class CreateTradingSessionRequest
     public bool? EnforceConcurrencyLimits { get; init; }
 
     public PositionSizingConfig PositionSizing { get; init; } = new();
-    public IReadOnlyList<InstrumentMetadata> Instruments { get; init; } = [];
 }
 
 public sealed class TradingSessionDescriptor

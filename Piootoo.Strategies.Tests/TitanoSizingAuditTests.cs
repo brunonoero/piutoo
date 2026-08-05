@@ -248,18 +248,7 @@ public sealed class TitanoSizingAuditTests
                 TitanoBacktestFolder = backtestFolder,
                 ApplyTitanoFilters = true,
                 CommissionPerContract = 0m,
-                PositionSizing = new PositionSizingConfig(),
-                Instruments =
-                [
-                    new InstrumentMetadata
-                    {
-                        Symbol = definition.Symbol,
-                        DollarsPerPoint = 20m,
-                        MinimumQuantity = 1m,
-                        QuantityStep = 1m,
-                        RoundingMode = QuantityRoundingMode.FuturesContracts
-                    }
-                ]
+                PositionSizing = new PositionSizingConfig()
             });
 
             var rotation = new TitanoRotationService(workspaces);
@@ -358,17 +347,7 @@ public sealed class TitanoSizingAuditTests
                 AccountNumber = "1001",
                 MaxConcurrentTrades = 2,
                 TitanoBacktestFolder = backtestFolder,
-                ApplyTitanoFilters = true,
-                Instruments =
-                [
-                    new InstrumentMetadata
-                    {
-                        Symbol = definition.Symbol,
-                        DollarsPerPoint = 1m,
-                        MinimumQuantity = 1m,
-                        QuantityStep = 1m
-                    }
-                ]
+                ApplyTitanoFilters = true
             });
 
             var sessions = new TradingSessionService(
@@ -441,17 +420,7 @@ public sealed class TitanoSizingAuditTests
                 GroupId = "prop-a",
                 AccountNumber = "1001",
                 MaxConcurrentTrades = 1,
-                ApplyTitanoFilters = false,
-                Instruments =
-                [
-                    new InstrumentMetadata
-                    {
-                        Symbol = definition.Symbol,
-                        DollarsPerPoint = 1m,
-                        MinimumQuantity = 1m,
-                        QuantityStep = 1m
-                    }
-                ]
+                ApplyTitanoFilters = false
             });
 
             var sessions = new TradingSessionService(
@@ -529,17 +498,7 @@ public sealed class TitanoSizingAuditTests
                 GroupId = "prop-a",
                 AccountNumber = "1001",
                 MaxConcurrentTrades = 1,
-                ApplyTitanoFilters = false,
-                Instruments =
-                [
-                    new InstrumentMetadata
-                    {
-                        Symbol = definition.Symbol,
-                        DollarsPerPoint = 1m,
-                        MinimumQuantity = 1m,
-                        QuantityStep = 1m
-                    }
-                ]
+                ApplyTitanoFilters = false
             });
 
             var sessions = new TradingSessionService(

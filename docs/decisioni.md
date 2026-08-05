@@ -984,3 +984,21 @@ in ordine cronologico. Non è un changelog di codice: quello resta nei commit.
   scale che non parlano della stessa cosa. Il campo resta modificabile: cambiarlo sposta il
   denominatore di equity e drawdown del run, non le quantità, che nel backtest interno restano
   quelle dichiarate dalle strategie.
+- **2026-08-05** — **La granularità di volume (minimo/passo/arrotondamento) è passata dal piano
+  alla riga della tabella di conversione dell'account.** È una proprietà della coppia
+  broker/strumento, non del piano: `TradingPlan.Instruments` e `SaveTradingPlanRequest.Instruments`
+  sono stati rimossi insieme al tab *Strumenti* di `PlanDetailScreen`; `AccountSymbolMapping` porta
+  ora `MinimumQuantity`, `QuantityStep`, `RoundingMode` (colonne nuove in
+  `SymbolConversionDetailScreen`). `DollarsPerPoint` non è più configurabile: viene da
+  `InstrumentRegistry.PointValue`, che lancia sui simboli non verificati (stesso invariante dei
+  datafeed mancanti).
+  Per non arrotondare due volte — una sui contratti Piootoo, una sui contratti del broker dopo la
+  conversione — `QuantityRoundingMode` ha un terzo valore, `Deferred`: le sessioni
+  `ExternalBroker` lo usano di default e `PositionSizingService`/`ApplyGroupAllocation` lo
+  rispettano non arrotondando. L'arrotondamento vero avviene una sola volta, con la granularità
+  reale del conto, in `AccountSymbolConversion.RoundQuantity` — chiamato sia da `CloneForClaim`
+  (percorso multi-account) sia da `AddIntent` (esecuzione diretta senza claim, dove altrimenti la
+  quantità non verrebbe mai arrotondata). Un simbolo senza riga in tabella non ha una granularità
+  dichiarata dal broker: `RoundQuantity` applica comunque il default a contratto intero (passo 1,
+  minimo 1) invece di lasciar passare una quantità frazionaria — "nessuna conversione" vale per
+  simbolo e moltiplicatore, non per la granularità.

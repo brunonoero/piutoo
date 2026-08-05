@@ -1954,8 +1954,6 @@ public partial class TradingSessionsScreen : UserControl, IShellScreen
 
                     : !(clientRunMode == ClientRunMode.Backtest && titanoMode == TitanoFilterMode.Disabled),
 
-                Instruments = [],
-
                 PositionSizing = new PositionSizingConfig
 
                 {

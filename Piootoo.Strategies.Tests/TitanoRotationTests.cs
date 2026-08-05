@@ -250,16 +250,7 @@ public sealed class TitanoRotationTests
                     workspaces, new FixedSignalEvaluationService(), positionSizing: new PositionSizingService());
                 var descriptor = sessions.Create(new CreateTradingSessionRequest
                 {
-                    WorkspaceId = workspace.Id, ExecutionMode = mode,
-                    Instruments =
-                    [
-                        new InstrumentMetadata
-                        {
-                            Symbol = definition.Symbol, DollarsPerPoint = 1,
-                            MinimumQuantity = 1, QuantityStep = 1,
-                            RoundingMode = QuantityRoundingMode.FuturesContracts
-                        }
-                    ]
+                    WorkspaceId = workspace.Id, ExecutionMode = mode
                 });
                 sessions.SetStatus(descriptor.SessionId, descriptor.SessionToken, TradingSessionStatus.Running);
                 var request = new PushBarsRequest

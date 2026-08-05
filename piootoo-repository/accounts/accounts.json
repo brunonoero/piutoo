@@ -8,6 +8,20 @@
   ],
   "Accounts": [
     {
+      "Id": "fintok-01",
+      "Name": "fintok-01",
+      "AccountNumber": "fintok-01",
+      "GroupId": "Fintokey",
+      "Broker": "ffffff",
+      "Currency": "USD",
+      "InitialBalance": 1000000,
+      "Enabled": true,
+      "Notes": "",
+      "CreatedUtc": "2026-08-05T11:17:09.2745891Z",
+      "UpdatedUtc": "2026-08-05T11:17:09.2745891Z",
+      "SymbolConversionCode": ""
+    },
+    {
       "Id": "ic-market-demo-01",
       "Name": "ic-market-demo-01",
       "AccountNumber": "21341234",

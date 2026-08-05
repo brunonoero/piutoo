@@ -497,6 +497,9 @@ public sealed class WorkspaceService
                 Symbol = symbol,
                 AccountSymbol = accountSymbol,
                 ContractMultiplier = mapping.ContractMultiplier,
+                MinimumQuantity = mapping.MinimumQuantity,
+                QuantityStep = mapping.QuantityStep,
+                RoundingMode = mapping.RoundingMode,
                 Enabled = mapping.Enabled
             });
         }

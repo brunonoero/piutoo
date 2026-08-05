@@ -42,12 +42,25 @@ public sealed class PositionSizingService : IPositionSizingService
         var market = Clamp(MarketMultiplier(request), request.Config);
         var portfolio = Clamp(PortfolioMultiplier(request), request.Config);
         var unrounded = request.BaseQuantity * strategy * market * portfolio;
-        var step = request.Instrument.RoundingMode == QuantityRoundingMode.FuturesContracts
-            ? Math.Max(1m, request.Instrument.QuantityStep)
-            : request.Instrument.QuantityStep;
-        var final = Math.Floor(unrounded / step) * step;
-        var reason = final < request.Instrument.MinimumQuantity ? "BelowMinimumQuantity" : null;
-        if (reason is not null) final = 0;
+        // Deferred: la granularità è quella del broker, applicata una sola volta al claim con la
+        // tabella di conversione dell'account (AccountSymbolConversion.RoundQuantity). Arrotondare
+        // già qui, sui contratti Piootoo, la applicherebbe due volte. Vedi docs/decisioni.md 2026-08-05.
+        string? reason;
+        decimal final;
+        if (request.Instrument.RoundingMode == QuantityRoundingMode.Deferred)
+        {
+            final = unrounded;
+            reason = null;
+        }
+        else
+        {
+            var step = request.Instrument.RoundingMode == QuantityRoundingMode.FuturesContracts
+                ? Math.Max(1m, request.Instrument.QuantityStep)
+                : request.Instrument.QuantityStep;
+            final = Math.Floor(unrounded / step) * step;
+            reason = final < request.Instrument.MinimumQuantity ? "BelowMinimumQuantity" : null;
+            if (reason is not null) final = 0;
+        }
         return new PositionSizingResult
         {
             BaseQuantity = request.BaseQuantity,

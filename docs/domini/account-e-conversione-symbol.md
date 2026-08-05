@@ -117,6 +117,18 @@ La size dell'account è il prodotto di due fattori indipendenti:
 `GetSizeFactor` è il loro prodotto. Tenerli separati è ciò che permette di cambiare il capitale di
 un conto senza ricalcolare a mano tutte le righe simbolo.
 
+Ogni riga porta anche la granularità di volume del broker: `MinimumQuantity`, `QuantityStep`,
+`RoundingMode` (contratto intero o passo esplicito, per i CFD frazionari). È una proprietà della
+coppia broker/strumento, non del piano di trading — `TradingPlan` non ha più un elenco strumenti.
+`AccountSymbolConversion.RoundQuantity` arrotonda **dopo** la conversione (quando la quantità è già
+nei contratti del broker) e vale zero sotto la quantità minima; per un simbolo senza riga in
+tabella applica comunque il default a contratto intero invece di lasciar passare una quantità
+frazionaria. Per non arrotondare due volte, `PositionSizingService` e l'allocazione di gruppo non
+arrotondano più sulle sessioni `ExternalBroker` (`QuantityRoundingMode.Deferred`): l'unico
+arrotondamento è quello del conto, applicato una volta sola in `CloneForClaim` (percorso
+multi-account) o direttamente in `AddIntent` (esecuzione diretta senza claim). Vedi
+`docs/decisioni.md` (2026-08-05).
+
 Il **symbol** tradotto finisce solo nell'intent e in `signals.json` (`AccountSymbol`, `AccountId`,
 `ContractMultiplier`). Il symbol interno **non** viene rinominato: il motore indicizza prezzi, barre
 e chiavi di posizione sul symbol Piootoo normalizzato, e rinominarlo a monte lo lascerebbe senza

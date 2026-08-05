@@ -126,40 +126,26 @@ Per chiudere il buco servirebbe un driver server-side che alimenti una sessione 
 - Il dettaglio del setup Titano usa un `PropertyGrid`. Se si vuole un layout a gruppi come nella
   schermata operativa, le annotazioni `Category`/`DisplayName` sul modello sono già a posto.
 
-## In corso: granularità di volume sulla riga di conversione (2026-08-05)
+## Da verificare al primo build: granularità di volume sulla riga di conversione (2026-08-05)
 
-Lavoro **iniziato e non finito**. Decisione presa: la granularità di volume è una proprietà della
-coppia broker/strumento, quindi vive sulla riga della tabella di conversione (che è per account) e
-non sul piano; il tab *Strumenti* del piano sparisce.
+Chiuso lato codice (motivazioni in [`decisioni.md`](decisioni.md)): la granularità di volume vive
+ora sulla riga della tabella di conversione dell'account, non sul piano. Nessuna voce di questa
+sessione è stata compilata (vedi avviso in cima al file — file `.exe`/`.dll` bloccati da
+un'istanza in esecuzione in Visual Studio): prima di fidarsene, `dotnet build` e
+`dotnet test Piootoo.Strategies.Tests`.
 
-Fatto finora — solo il primo passo:
+Punti da controllare al primo run verde:
 
-- `AccountSymbolMapping` ha ora `MinimumQuantity`, `QuantityStep` e `RoundingMode` (più il `using`
-  verso `Piootoo.Shared.Models.Trading` per l'enum).
-
-Da fare, nell'ordine:
-
-1. `AccountSymbolConversionEntry` / `FromAccount`: portare i tre campi nella tabella risolta e
-   aggiungere un metodo di arrotondamento per conto.
-2. `CloneForClaim`: arrotondare **dopo** la conversione, con la granularità del conto. Oggi il
-   commento alle righe 1652-1655 dice l'opposto (non si arrotonda al passo dello strumento) e va
-   riscritto: il punto della modifica è che ora il passo è del broker, non del contratto Piootoo.
-3. `PositionSizingService`: non arrotondare più per le sessioni `ExternalBroker`. Serve un terzo
-   valore di `QuantityRoundingMode` (tipo `Deferred`) o un flag equivalente, altrimenti si arrotonda
-   due volte. `ApplyGroupAllocation` va allineato: oggi arrotonda con i metadata di sessione.
-4. `DollarsPerPoint` da `InstrumentRegistry.PointValue` invece che dai metadata del piano
-   (`TradingSessionService` 1539 e la costruzione di `instrumentMetadata` a 477-482). Il registro
-   lancia sui simboli non verificati: è l'errore esplicito che si vuole.
-5. Togliere `TradingPlan.Instruments`, `SaveTradingPlanRequest.Instruments`, il tab *Strumenti* di
-   `PlanDetailScreen` e il pulsante di import dal masterfilter.
-6. Colonne nuove in `SymbolConversionDetailScreen` e nella griglia della console legacy.
-
-**Attenzione ai test.** Spostare l'arrotondamento cambia le quantità attese in più punti:
-`TradingSessionsHttpTests` (asserisce `QuantityStep` nel descriptor e `FinalQuantity` 3,75),
-`TitanoSizingAuditTests`, `TradingGroupTitanoTests`
-(`GroupTitanoProfile_ScalesClaimedQuantityUsingAllocationMultiplier` dipende da
-`ApplyGroupAllocation`), `PositionSizingTests.BoundaryRoundsExactlyOnce`. Vanno rieseguiti e
-ribaselinati con criterio, non adattati al risultato.
+- I test toccati (`TradingSessionsHttpTests`, `TitanoSizingAuditTests`, `TradingGroupTitanoTests`,
+  `TitanoRotationTests`) sono stati aggiornati a mano per compilare e ragionati a tavolino, non
+  eseguiti. `TradingGroupTitanoTests.GroupTitanoProfile_ScalesClaimedQuantityUsingAllocationMultiplier`
+  in particolare ha un `return` anticipato quando il manifest sintetico non produce
+  un'allocazione parziale (dipende da `trades.json` vuoto): se nel run la formula attesa non torna,
+  parti da lì prima di sospettare `RoundQuantity`.
+- `SymbolConversionDetailScreen`: le colonne nuove non sono mai state aperte nel designer.
+- Nessuna colonna aggiunta alla console legacy: `WorkspaceBacktestingForm` (tab Accounts) non ha
+  mai avuto una griglia di conversione inline (solo una combo di selezione, vedi
+  `docs/domini/account-e-conversione-symbol.md`), quindi il punto 6 originale non si applicava lì.
 
 ## Riferimenti codice
 

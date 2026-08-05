@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using Piootoo.Shared.Models.Trading;
 using Piootoo.Shared.Models.Workspaces;
 using piootooapp.clientform.Shell;
 using piootooapp.clientform.Shell.Controls;
@@ -26,6 +27,12 @@ public partial class SymbolConversionDetailScreen : UserControl, IShellScreen, I
         InitializeComponent();
         ShellGridHelper.ConfigureReadableGrids(this);
         _mappingsBindingSource.DataSource = _mappings;
+        // Deferred non è una scelta significativa qui: la impone il motore alle sessioni
+        // ExternalBroker (vedi InstrumentMetadata.RoundingMode), non la sceglie chi compila la
+        // riga di conversione.
+        _colRoundingMode.DataSource = Enum.GetValues<QuantityRoundingMode>()
+            .Where(mode => mode != QuantityRoundingMode.Deferred)
+            .ToArray();
         _mappings.ListChanged += (_, _) => MarkDirty();
     }
 
@@ -91,6 +98,9 @@ public partial class SymbolConversionDetailScreen : UserControl, IShellScreen, I
         Symbol = mapping.Symbol,
         AccountSymbol = mapping.AccountSymbol,
         ContractMultiplier = mapping.ContractMultiplier,
+        MinimumQuantity = mapping.MinimumQuantity,
+        QuantityStep = mapping.QuantityStep,
+        RoundingMode = mapping.RoundingMode,
         Enabled = mapping.Enabled
     };
 
