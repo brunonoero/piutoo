@@ -81,6 +81,12 @@ namespace cAlgo.Robots
         [Parameter("Log dettagliato", DefaultValue = false)]
         public bool VerboseLogging { get; set; }
 
+        // Traccia su file, una riga JSON per risposta, tutto cio' che il server Piootoo restituisce
+        // (apertura sessione, poll segnale, chiusura esterna): serve a diagnosticare da cliente senza
+        // dover riprodurre il problema con VerboseLogging attivo, che stampa ma non persiste.
+        [Parameter("Log JSON risposte server su file", DefaultValue = false, Group = "Diagnostica")]
+        public bool LogServerResponses { get; set; }
+
         // Regola operativa: nel fine settimana non restano ne' posizioni ne' ordini. Vive nel bot, e
         // non lato server, perche' e' una regola di sicurezza e deve tenere anche quando il server e'
         // irraggiungibile.
@@ -101,6 +107,7 @@ namespace cAlgo.Robots
         private string _sessionId;
         private string _sessionToken;
         private string _localStatePath;
+        private string _jsonLogPath;
         // Stato di connessione mostrato a chart: riflette l'esito dell'ultima chiamata HTTP al
         // server Piootoo (open-plan, push barre, polling segnale), non solo l'apertura iniziale.
         private bool _isConnectedToServer;
@@ -213,6 +220,11 @@ namespace cAlgo.Robots
             }
 
             _accountNumber = Account.Number.ToString();
+            if (LogServerResponses && !IsBacktesting)
+            {
+                _jsonLogPath = BuildJsonLogPath(PlanCode, _accountNumber);
+                Print("Log JSON risposte server: {0}", _jsonLogPath);
+            }
             UpdateConnectionStatus(false); // visibile a chart fin dal primo istante, prima ancora di tentare la connessione
 
             Print("Connessione al server Piootoo: {0} (account={1}, piano='{2}')...",
@@ -240,7 +252,9 @@ namespace cAlgo.Robots
                 Stop();
                 return;
             }
-            var descriptor = JsonSerializer.Deserialize<TradingSessionDescriptorDto>(ReadBody(openResponse), _json);
+            var openBody = ReadBody(openResponse);
+            LogJsonResponse("open-plan", openBody);
+            var descriptor = JsonSerializer.Deserialize<TradingSessionDescriptorDto>(openBody, _json);
             _sessionId = descriptor?.SessionId;
             _sessionToken = descriptor?.SessionToken;
             Print("Sessione aperta: SessionId={0}.", _sessionId);
@@ -763,6 +777,7 @@ namespace cAlgo.Robots
                     UpdateConnectionStatus(true);
 
                 var body = ReadBody(response);
+                LogJsonResponse("signal", body);
                 var payload = JsonSerializer.Deserialize<AccountSignalResponseDto>(body, _json);
                 if (payload?.Intent is null)
                 {
@@ -1011,7 +1026,9 @@ namespace cAlgo.Robots
                     return;
                 }
 
-                var closeIntent = JsonSerializer.Deserialize<OrderIntentDto>(ReadBody(response), _json);
+                var closeBody = ReadBody(response);
+                LogJsonResponse("intents/close-external", closeBody);
+                var closeIntent = JsonSerializer.Deserialize<OrderIntentDto>(closeBody, _json);
                 ReportExecution(closeIntent.IntentId, position.SymbolName, ExecutionReportStatusDto.Filled, quantity, closePrice, null, commission);
             }
             catch (Exception ex)
@@ -1065,6 +1082,43 @@ namespace cAlgo.Robots
                 "PiootooLiveTradingBot");
             Directory.CreateDirectory(directory);
             return Path.Combine(directory, $"state-{Safe(planCode)}-{Safe(accountNumber)}.json");
+        }
+
+        private static string BuildJsonLogPath(string planCode, string accountNumber)
+        {
+            var invalid = Path.GetInvalidFileNameChars();
+            string Safe(string value) => new string((value ?? string.Empty)
+                .Select(character => invalid.Contains(character) ? '_' : character).ToArray());
+            var directory = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                "PiootooLiveTradingBot");
+            Directory.CreateDirectory(directory);
+            return Path.Combine(directory, $"json-log-{Safe(planCode)}-{Safe(accountNumber)}.jsonl");
+        }
+
+        /// <summary>
+        /// Una riga JSON per risposta ricevuta dal server, con timestamp ed endpoint: append-only,
+        /// niente fsync (non e' l'artefatto finale, e qui gira dentro OnBar/Timer quindi va veloce).
+        /// Attivo solo con <see cref="LogServerResponses"/>, mai in backtest (nessun valore, solo I/O).
+        /// </summary>
+        private void LogJsonResponse(string endpoint, string json)
+        {
+            if (string.IsNullOrWhiteSpace(_jsonLogPath))
+                return;
+            try
+            {
+                var line = JsonSerializer.Serialize(new
+                {
+                    TimestampUtc = DateTime.UtcNow,
+                    Endpoint = endpoint,
+                    Body = json
+                });
+                File.AppendAllText(_jsonLogPath, line + Environment.NewLine);
+            }
+            catch (Exception ex)
+            {
+                Print("Log JSON su file fallito: {0}", ex.Message);
+            }
         }
 
         /// <summary>

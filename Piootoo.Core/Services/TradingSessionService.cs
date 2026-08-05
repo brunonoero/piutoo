@@ -325,7 +325,10 @@ public sealed class TradingSessionService : ITradingSessionService
             {
                 existing.Status = TradingSessionStatus.Running;
                 Persist(existing);
-                return Describe(existing);
+                // Anche su riconnessione il descriptor deve riportare il simbolo del broker di
+                // QUESTO account: in distribuzione la sessione è condivisa e Describe(existing) da
+                // solo non saprebbe quale conversione applicare (vedi sotto, stessa apertura).
+                return Describe(existing, ResolveAccountConversion(existing, account));
             }
         }
 
@@ -370,20 +373,27 @@ public sealed class TradingSessionService : ITradingSessionService
             EnforceConcurrencyLimits = plan.EnforceConcurrencyLimits,
             PositionSizing = plan.PositionSizing
         }, plan.Code, request.ExecutionKey.Trim());
-        if (request.DistributeToAccounts)
-            SetTradingGroups(descriptor.SessionId, descriptor.SessionToken, plan.Groups);
-        else
-            lock (_sessions[descriptor.SessionId].Gate)
-            {
-                var opened = _sessions[descriptor.SessionId];
-                // Risolta subito e non alla prima barra: un conto senza anagrafica deve far fallire
-                // l'apertura, non ogni push a sessione avviata.
-                ResolveAccountConversion(opened, account);
+        AccountSymbolConversion conversion;
+        lock (_sessions[descriptor.SessionId].Gate)
+        {
+            var opened = _sessions[descriptor.SessionId];
+            if (request.DistributeToAccounts)
+                // SetTradingGroups azzera session.AccountConversions: va chiamato PRIMA di risolvere
+                // la conversione di questo account, altrimenti la cache verrebbe svuotata subito dopo.
+                SetTradingGroups(descriptor.SessionId, descriptor.SessionToken, plan.Groups);
+            else
                 opened.DirectAccountNumber = account;
-            }
+            // Risolta subito e non alla prima barra: un conto senza anagrafica deve far fallire
+            // l'apertura, non ogni push a sessione avviata. Anche in distribuzione, perché il
+            // descriptor restituito a QUESTO cBot deve riportare il nome simbolo del SUO broker,
+            // anche se la sessione è condivisa fra più account con tabelle di conversione diverse
+            // (prima di questo fix Describe usava sempre Identity fuori da esecuzione diretta,
+            // quindi il bot leggeva/pushava barre col simbolo Piootoo invece di quello convertito).
+            conversion = ResolveAccountConversion(opened, account);
+        }
         SetStatus(descriptor.SessionId, descriptor.SessionToken, TradingSessionStatus.Running);
         _planExecutions[executionKey] = descriptor.SessionId;
-        return Describe(_sessions[descriptor.SessionId]);
+        return Describe(_sessions[descriptor.SessionId], conversion);
     }
 
     /// <summary>
