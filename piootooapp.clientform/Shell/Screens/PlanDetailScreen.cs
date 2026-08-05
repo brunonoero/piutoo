@@ -588,7 +588,6 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
         _codeTextBox.Text = string.Empty;
         _nameTextBox.Text = string.Empty;
         _maxConcurrentInput.Value = 0;
-        _initialCapitalInput.Value = 100_000m;
         _commissionInput.Value = 2m;
         _applyTitanoCheckBox.Checked = false;
         _enforceConcurrencyCombo.SelectedIndex = 0;
@@ -600,9 +599,6 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
         _portfolioRiskEnabledCheckBox.Checked = false;
         _maxDrawdownInput.Value = 0.20m;
         _maxGrossExposureInput.Value = 1m;
-        _cppiEnabledCheckBox.Checked = false;
-        _cppiFloorInput.Value = 0.80m;
-        _cppiMultiplierInput.Value = 1m;
         _aggressiveModulesCheckBox.Checked = false;
         _fractionalFactorInput.Value = 0.25m;
         _maximumMultiplierInput.Value = 1m;
@@ -616,7 +612,6 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
         _codeTextBox.Text = plan.Code;
         _nameTextBox.Text = plan.Name;
         _maxConcurrentInput.Value = plan.MaxConcurrentTrades;
-        _initialCapitalInput.Value = Clamp(_initialCapitalInput, plan.InitialCapital);
         _commissionInput.Value = Clamp(_commissionInput, plan.CommissionPerContract);
         _applyTitanoCheckBox.Checked = plan.ApplyTitanoFilters;
         // Le tre combo Titano sono popolate a parte da ApplyTitanoSelectionAsync: le liste
@@ -636,9 +631,6 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
         _portfolioRiskEnabledCheckBox.Checked = sizing.PortfolioRisk.Enabled;
         _maxDrawdownInput.Value = Clamp(_maxDrawdownInput, sizing.PortfolioRisk.MaximumDrawdown);
         _maxGrossExposureInput.Value = Clamp(_maxGrossExposureInput, sizing.PortfolioRisk.MaximumGrossExposure);
-        _cppiEnabledCheckBox.Checked = sizing.PortfolioRisk.EnableCppi;
-        _cppiFloorInput.Value = Clamp(_cppiFloorInput, sizing.PortfolioRisk.CppiFloorFraction);
-        _cppiMultiplierInput.Value = Clamp(_cppiMultiplierInput, sizing.PortfolioRisk.CppiMultiplier);
         _aggressiveModulesCheckBox.Checked = sizing.PortfolioRisk.EnableAggressiveModules;
         _fractionalFactorInput.Value = Clamp(_fractionalFactorInput, sizing.PortfolioRisk.FractionalFactor);
         _maximumMultiplierInput.Value = Clamp(_maximumMultiplierInput, sizing.PortfolioRisk.MaximumMultiplier);
@@ -854,7 +846,6 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
                 2 => false,
                 _ => null
             },
-            InitialCapital = _initialCapitalInput.Value,
             CommissionPerContract = _commissionInput.Value,
             PositionSizing = new PositionSizingConfig
             {
@@ -870,9 +861,6 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
                     Enabled = _portfolioRiskEnabledCheckBox.Checked,
                     MaximumDrawdown = _maxDrawdownInput.Value,
                     MaximumGrossExposure = _maxGrossExposureInput.Value,
-                    EnableCppi = _cppiEnabledCheckBox.Checked,
-                    CppiFloorFraction = _cppiFloorInput.Value,
-                    CppiMultiplier = _cppiMultiplierInput.Value,
                     EnableAggressiveModules = _aggressiveModulesCheckBox.Checked,
                     FractionalFactor = _fractionalFactorInput.Value,
                     MaximumMultiplier = _maximumMultiplierInput.Value

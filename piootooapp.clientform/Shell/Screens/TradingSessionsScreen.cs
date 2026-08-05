@@ -895,7 +895,7 @@ public partial class TradingSessionsScreen : UserControl, IShellScreen
         _derivedWorkspaceLabel.Visible = fromPlan;
 
         // Da piano questi campi non servono a nulla: OpenFromPlan non li legge mai, li ricava dal
-        // piano (ExecutionMode è sempre ExternalBroker, Titano e CPPI vengono dalla riga gruppo
+        // piano (ExecutionMode è sempre ExternalBroker, Titano e sizing vengono dalla riga gruppo
         // primaria). Tenerli visibili-ma-disabilitati farebbe pensare che descrivano la sessione in
         // apertura, mentre non vengono nemmeno inviati: si nascondono, non solo si disabilitano.
         _modeLabel.Visible = !fromPlan;
@@ -920,19 +920,7 @@ public partial class TradingSessionsScreen : UserControl, IShellScreen
 
         _loadRunsButton.Enabled = !fromPlan && !_isBusy;
 
-        _cppiEnabledCheckBox.Visible = !fromPlan;
-
-        _cppiFloorLabel.Visible = !fromPlan;
-
-        _cppiFloorInput.Visible = !fromPlan;
-
-        _cppiMultiplierLabel.Visible = !fromPlan;
-
-        _cppiMultiplierInput.Visible = !fromPlan;
-
-        _cppiFloorInput.Enabled = _cppiEnabledCheckBox.Checked;
-
-        _cppiMultiplierInput.Enabled = _cppiEnabledCheckBox.Checked;
+        _portfolioRiskEnabledCheckBox.Visible = !fromPlan;
 
 
 
@@ -1972,13 +1960,7 @@ public partial class TradingSessionsScreen : UserControl, IShellScreen
 
                     {
 
-                        Enabled = _cppiEnabledCheckBox.Checked,
-
-                        EnableCppi = _cppiEnabledCheckBox.Checked,
-
-                        CppiFloorFraction = _cppiFloorInput.Value / 100m,
-
-                        CppiMultiplier = _cppiMultiplierInput.Value,
+                        Enabled = _portfolioRiskEnabledCheckBox.Checked,
 
                         EnableAggressiveModules = false,
 

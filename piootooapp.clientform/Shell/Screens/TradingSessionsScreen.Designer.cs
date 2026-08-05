@@ -46,11 +46,7 @@ partial class TradingSessionsScreen
         _openPlanAccountLabel = new System.Windows.Forms.Label();
         _openPlanAccountCombo = new System.Windows.Forms.ComboBox();
         _distributeCheckBox = new System.Windows.Forms.CheckBox();
-        _cppiEnabledCheckBox = new System.Windows.Forms.CheckBox();
-        _cppiFloorLabel = new System.Windows.Forms.Label();
-        _cppiFloorInput = new System.Windows.Forms.NumericUpDown();
-        _cppiMultiplierLabel = new System.Windows.Forms.Label();
-        _cppiMultiplierInput = new System.Windows.Forms.NumericUpDown();
+        _portfolioRiskEnabledCheckBox = new System.Windows.Forms.CheckBox();
         _scenarioHintLabel = new System.Windows.Forms.Label();
         _commandsPanel = new System.Windows.Forms.FlowLayoutPanel();
         _createButton = new System.Windows.Forms.Button();
@@ -87,8 +83,6 @@ partial class TradingSessionsScreen
         _screenToolTip = new System.Windows.Forms.ToolTip(components);
         _configGroup.SuspendLayout();
         _configLayout.SuspendLayout();
-        ((System.ComponentModel.ISupportInitialize)(_cppiFloorInput)).BeginInit();
-        ((System.ComponentModel.ISupportInitialize)(_cppiMultiplierInput)).BeginInit();
         _commandsPanel.SuspendLayout();
         _sessionInfoPanel.SuspendLayout();
         _mainTabControl.SuspendLayout();
@@ -158,18 +152,14 @@ partial class TradingSessionsScreen
         _configLayout.Controls.Add(_openPlanAccountCombo, 3, 6);
         _configLayout.Controls.Add(_distributeCheckBox, 0, 7);
         _configLayout.SetColumnSpan(_distributeCheckBox, 2);
-        _configLayout.Controls.Add(_cppiEnabledCheckBox, 2, 7);
-        _configLayout.Controls.Add(_cppiFloorLabel, 0, 8);
-        _configLayout.Controls.Add(_cppiFloorInput, 1, 8);
-        _configLayout.Controls.Add(_cppiMultiplierLabel, 2, 8);
-        _configLayout.Controls.Add(_cppiMultiplierInput, 3, 8);
-        _configLayout.Controls.Add(_scenarioHintLabel, 0, 9);
+        _configLayout.Controls.Add(_portfolioRiskEnabledCheckBox, 2, 7);
+        _configLayout.Controls.Add(_scenarioHintLabel, 0, 8);
         _configLayout.SetColumnSpan(_scenarioHintLabel, 4);
         _configLayout.Dock = System.Windows.Forms.DockStyle.Fill;
         _configLayout.Location = new System.Drawing.Point(12, 22);
         _configLayout.Name = "_configLayout";
-        _configLayout.RowCount = 10;
-        for (var row = 0; row < 10; row++)
+        _configLayout.RowCount = 9;
+        for (var row = 0; row < 9; row++)
         {
             _configLayout.RowStyles.Add(new System.Windows.Forms.RowStyle());
         }
@@ -417,60 +407,18 @@ partial class TradingSessionsScreen
         _distributeCheckBox.TabIndex = 23;
         _distributeCheckBox.Text = "Distribuisci ai gruppi (PiootooLiveTradingBot)";
         _distributeCheckBox.UseVisualStyleBackColor = true;
-        // 
-        // _cppiEnabledCheckBox
-        // 
-        _cppiEnabledCheckBox.Anchor = System.Windows.Forms.AnchorStyles.Left;
-        _cppiEnabledCheckBox.AutoSize = true;
-        _cppiEnabledCheckBox.Margin = new System.Windows.Forms.Padding(3, 6, 3, 6);
-        _cppiEnabledCheckBox.Name = "_cppiEnabledCheckBox";
-        _cppiEnabledCheckBox.Size = new System.Drawing.Size(120, 19);
-        _cppiEnabledCheckBox.TabIndex = 24;
-        _cppiEnabledCheckBox.Text = "CPPI (opzionale)";
-        _cppiEnabledCheckBox.UseVisualStyleBackColor = true;
-        // 
-        // _cppiFloorLabel
-        // 
-        _cppiFloorLabel.Anchor = System.Windows.Forms.AnchorStyles.Left;
-        _cppiFloorLabel.AutoSize = true;
-        _cppiFloorLabel.Margin = new System.Windows.Forms.Padding(3, 0, 8, 0);
-        _cppiFloorLabel.Name = "_cppiFloorLabel";
-        _cppiFloorLabel.Size = new System.Drawing.Size(55, 15);
-        _cppiFloorLabel.TabIndex = 25;
-        _cppiFloorLabel.Text = "Floor %";
-        // 
-        // _cppiFloorInput
-        // 
-        _cppiFloorInput.Anchor = System.Windows.Forms.AnchorStyles.Left;
-        _cppiFloorInput.DecimalPlaces = 2;
-        _cppiFloorInput.Margin = new System.Windows.Forms.Padding(3, 4, 24, 4);
-        _cppiFloorInput.Maximum = new decimal(new int[] { 100, 0, 0, 0 });
-        _cppiFloorInput.Name = "_cppiFloorInput";
-        _cppiFloorInput.Size = new System.Drawing.Size(120, 23);
-        _cppiFloorInput.TabIndex = 26;
-        _cppiFloorInput.Value = new decimal(new int[] { 80, 0, 0, 0 });
-        // 
-        // _cppiMultiplierLabel
-        // 
-        _cppiMultiplierLabel.Anchor = System.Windows.Forms.AnchorStyles.Left;
-        _cppiMultiplierLabel.AutoSize = true;
-        _cppiMultiplierLabel.Margin = new System.Windows.Forms.Padding(3, 0, 8, 0);
-        _cppiMultiplierLabel.Name = "_cppiMultiplierLabel";
-        _cppiMultiplierLabel.Size = new System.Drawing.Size(75, 15);
-        _cppiMultiplierLabel.TabIndex = 27;
-        _cppiMultiplierLabel.Text = "Moltiplicatore";
-        // 
-        // _cppiMultiplierInput
-        // 
-        _cppiMultiplierInput.Anchor = System.Windows.Forms.AnchorStyles.Left;
-        _cppiMultiplierInput.DecimalPlaces = 2;
-        _cppiMultiplierInput.Margin = new System.Windows.Forms.Padding(3, 4, 3, 4);
-        _cppiMultiplierInput.Maximum = new decimal(new int[] { 10, 0, 0, 0 });
-        _cppiMultiplierInput.Name = "_cppiMultiplierInput";
-        _cppiMultiplierInput.Size = new System.Drawing.Size(120, 23);
-        _cppiMultiplierInput.TabIndex = 28;
-        _cppiMultiplierInput.Value = new decimal(new int[] { 1, 0, 0, 0 });
-        // 
+        //
+        // _portfolioRiskEnabledCheckBox
+        //
+        _portfolioRiskEnabledCheckBox.Anchor = System.Windows.Forms.AnchorStyles.Left;
+        _portfolioRiskEnabledCheckBox.AutoSize = true;
+        _portfolioRiskEnabledCheckBox.Margin = new System.Windows.Forms.Padding(3, 6, 3, 6);
+        _portfolioRiskEnabledCheckBox.Name = "_portfolioRiskEnabledCheckBox";
+        _portfolioRiskEnabledCheckBox.Size = new System.Drawing.Size(180, 19);
+        _portfolioRiskEnabledCheckBox.TabIndex = 24;
+        _portfolioRiskEnabledCheckBox.Text = "Rischio di portafoglio";
+        _portfolioRiskEnabledCheckBox.UseVisualStyleBackColor = true;
+        //
         // _scenarioHintLabel
         // 
         _scenarioHintLabel.AutoSize = true;
@@ -859,8 +807,6 @@ partial class TradingSessionsScreen
         _configGroup.PerformLayout();
         _configLayout.ResumeLayout(false);
         _configLayout.PerformLayout();
-        ((System.ComponentModel.ISupportInitialize)(_cppiFloorInput)).EndInit();
-        ((System.ComponentModel.ISupportInitialize)(_cppiMultiplierInput)).EndInit();
         _commandsPanel.ResumeLayout(false);
         _commandsPanel.PerformLayout();
         _sessionInfoPanel.ResumeLayout(false);
@@ -908,11 +854,7 @@ partial class TradingSessionsScreen
     private System.Windows.Forms.Label _openPlanAccountLabel;
     private System.Windows.Forms.ComboBox _openPlanAccountCombo;
     private System.Windows.Forms.CheckBox _distributeCheckBox;
-    private System.Windows.Forms.CheckBox _cppiEnabledCheckBox;
-    private System.Windows.Forms.Label _cppiFloorLabel;
-    private System.Windows.Forms.NumericUpDown _cppiFloorInput;
-    private System.Windows.Forms.Label _cppiMultiplierLabel;
-    private System.Windows.Forms.NumericUpDown _cppiMultiplierInput;
+    private System.Windows.Forms.CheckBox _portfolioRiskEnabledCheckBox;
     private System.Windows.Forms.Label _scenarioHintLabel;
     private System.Windows.Forms.FlowLayoutPanel _commandsPanel;
     private System.Windows.Forms.Button _createButton;

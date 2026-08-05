@@ -34,7 +34,10 @@ public sealed class TradingPlan
     /// </summary>
     public bool? EnforceConcurrencyLimits { get; init; }
 
-    public decimal InitialCapital { get; init; } = 100_000m;
+    // Nessun InitialCapital sul piano (docs/decisioni.md 2026-08-05): le sessioni aperte da un piano
+    // sono sempre ExternalBroker, dove l'equity non è del server e ogni account porta il proprio
+    // InitialBalance — che diventa BalanceScale ed è ciò che dimensiona davvero. Il capitale iniziale
+    // resta un parametro del singolo run di backtest (BacktestingRequest.InitialCapital).
     public decimal CommissionPerContract { get; init; } = 2m;
     public PositionSizingConfig PositionSizing { get; init; } = new();
     public IReadOnlyList<InstrumentMetadata> Instruments { get; init; } = [];
@@ -66,7 +69,6 @@ public sealed class SaveTradingPlanRequest
     /// </summary>
     public bool? EnforceConcurrencyLimits { get; init; }
 
-    public decimal InitialCapital { get; init; } = 100_000m;
     public decimal CommissionPerContract { get; init; } = 2m;
     public PositionSizingConfig PositionSizing { get; init; } = new();
     public IReadOnlyList<InstrumentMetadata> Instruments { get; init; } = [];

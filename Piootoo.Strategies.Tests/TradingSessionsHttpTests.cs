@@ -285,6 +285,8 @@ public sealed class TradingSessionsHttpTests : IDisposable
         var workspaces = _factory.Services.GetRequiredService<WorkspaceService>();
         var plansDir = Path.Combine(workspaces.GetWorkspacePath(_workspace.Id), "plans");
         Directory.CreateDirectory(plansDir);
+        // Il file contiene ancora "InitialCapital": la proprietà non esiste più sul piano ed è qui
+        // di proposito, perché i plans.json già scritti la contengono e devono restare leggibili.
         await File.WriteAllTextAsync(Path.Combine(plansDir, "plans.json"),
             $$"""
             [

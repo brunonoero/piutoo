@@ -247,7 +247,6 @@ public sealed class TitanoSizingAuditTests
                 MaxConcurrentTrades = 3,
                 TitanoBacktestFolder = backtestFolder,
                 ApplyTitanoFilters = true,
-                InitialCapital = 100_000m,
                 CommissionPerContract = 0m,
                 PositionSizing = new PositionSizingConfig(),
                 Instruments =

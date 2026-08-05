@@ -18,8 +18,11 @@ public sealed class WorkspaceService
     /// <summary>Nome dell'account neutro: mappatura 1 a 1 sui simboli del catalogo strategie.</summary>
     public const string DefaultAccountName = "Default";
 
-    /// <summary>Balance iniziale dell'account di default.</summary>
-    public const decimal DefaultAccountInitialBalance = 1_000_000m;
+    /// <summary>
+    /// Balance iniziale dell'account di default: è il capitale di riferimento delle strategie, ed è
+    /// per questo che l'account neutro opera 1 a 1 (<c>BalanceScale = 1</c>).
+    /// </summary>
+    public const decimal DefaultAccountInitialBalance = TradingConventions.StrategyReferenceBalance;
 
     private readonly string _rootPath;
     private readonly string _settingsPath;

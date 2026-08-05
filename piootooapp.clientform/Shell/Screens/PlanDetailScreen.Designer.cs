@@ -33,8 +33,6 @@ partial class PlanDetailScreen
         this._nameTextBox = new System.Windows.Forms.TextBox();
         this._maxConcurrentLabel = new System.Windows.Forms.Label();
         this._maxConcurrentInput = new System.Windows.Forms.NumericUpDown();
-        this._initialCapitalLabel = new System.Windows.Forms.Label();
-        this._initialCapitalInput = new System.Windows.Forms.NumericUpDown();
         this._commissionLabel = new System.Windows.Forms.Label();
         this._commissionInput = new System.Windows.Forms.NumericUpDown();
         this._enforceConcurrencyLabel = new System.Windows.Forms.Label();
@@ -81,11 +79,6 @@ partial class PlanDetailScreen
         this._maxDrawdownInput = new System.Windows.Forms.NumericUpDown();
         this._maxGrossExposureLabel = new System.Windows.Forms.Label();
         this._maxGrossExposureInput = new System.Windows.Forms.NumericUpDown();
-        this._cppiEnabledCheckBox = new System.Windows.Forms.CheckBox();
-        this._cppiFloorLabel = new System.Windows.Forms.Label();
-        this._cppiFloorInput = new System.Windows.Forms.NumericUpDown();
-        this._cppiMultiplierLabel = new System.Windows.Forms.Label();
-        this._cppiMultiplierInput = new System.Windows.Forms.NumericUpDown();
         this._aggressiveModulesCheckBox = new System.Windows.Forms.CheckBox();
         this._fractionalFactorLabel = new System.Windows.Forms.Label();
         this._fractionalFactorInput = new System.Windows.Forms.NumericUpDown();
@@ -97,7 +90,6 @@ partial class PlanDetailScreen
         this._generalTab.SuspendLayout();
         this._generalLayout.SuspendLayout();
         ((System.ComponentModel.ISupportInitialize)(this._maxConcurrentInput)).BeginInit();
-        ((System.ComponentModel.ISupportInitialize)(this._initialCapitalInput)).BeginInit();
         ((System.ComponentModel.ISupportInitialize)(this._commissionInput)).BeginInit();
         this._groupsTab.SuspendLayout();
         ((System.ComponentModel.ISupportInitialize)(this._groupsGrid)).BeginInit();
@@ -111,8 +103,6 @@ partial class PlanDetailScreen
         ((System.ComponentModel.ISupportInitialize)(this._targetRiskInput)).BeginInit();
         ((System.ComponentModel.ISupportInitialize)(this._maxDrawdownInput)).BeginInit();
         ((System.ComponentModel.ISupportInitialize)(this._maxGrossExposureInput)).BeginInit();
-        ((System.ComponentModel.ISupportInitialize)(this._cppiFloorInput)).BeginInit();
-        ((System.ComponentModel.ISupportInitialize)(this._cppiMultiplierInput)).BeginInit();
         ((System.ComponentModel.ISupportInitialize)(this._fractionalFactorInput)).BeginInit();
         ((System.ComponentModel.ISupportInitialize)(this._maximumMultiplierInput)).BeginInit();
         this.SuspendLayout();
@@ -170,10 +160,8 @@ partial class PlanDetailScreen
         this._generalLayout.Controls.Add(this._nameTextBox, 1, 1);
         this._generalLayout.Controls.Add(this._maxConcurrentLabel, 2, 1);
         this._generalLayout.Controls.Add(this._maxConcurrentInput, 3, 1);
-        this._generalLayout.Controls.Add(this._initialCapitalLabel, 0, 2);
-        this._generalLayout.Controls.Add(this._initialCapitalInput, 1, 2);
-        this._generalLayout.Controls.Add(this._commissionLabel, 2, 2);
-        this._generalLayout.Controls.Add(this._commissionInput, 3, 2);
+        this._generalLayout.Controls.Add(this._commissionLabel, 0, 2);
+        this._generalLayout.Controls.Add(this._commissionInput, 1, 2);
         this._generalLayout.Controls.Add(this._enforceConcurrencyLabel, 0, 3);
         this._generalLayout.Controls.Add(this._enforceConcurrencyCombo, 1, 3);
         this._generalLayout.Controls.Add(this._applyTitanoCheckBox, 3, 3);
@@ -273,31 +261,7 @@ partial class PlanDetailScreen
         this._maxConcurrentInput.Size = new System.Drawing.Size(100, 23);
         this._maxConcurrentInput.TabIndex = 7;
         this._maxConcurrentInput.ValueChanged += new System.EventHandler(this.OnFieldChanged);
-        // 
-        // _initialCapitalLabel
-        // 
-        this._initialCapitalLabel.Anchor = System.Windows.Forms.AnchorStyles.Left;
-        this._initialCapitalLabel.AutoSize = true;
-        this._initialCapitalLabel.Margin = new System.Windows.Forms.Padding(3, 0, 8, 0);
-        this._initialCapitalLabel.Name = "_initialCapitalLabel";
-        this._initialCapitalLabel.Size = new System.Drawing.Size(110, 15);
-        this._initialCapitalLabel.TabIndex = 8;
-        this._initialCapitalLabel.Text = "Capitale iniziale";
-        // 
-        // _initialCapitalInput
-        // 
-        this._initialCapitalInput.Anchor = System.Windows.Forms.AnchorStyles.Left;
-        this._initialCapitalInput.DecimalPlaces = 2;
-        this._initialCapitalInput.Increment = new decimal(new int[] { 1000, 0, 0, 0 });
-        this._initialCapitalInput.Margin = new System.Windows.Forms.Padding(3, 4, 24, 4);
-        this._initialCapitalInput.Maximum = new decimal(new int[] { 1000000000, 0, 0, 0 });
-        this._initialCapitalInput.Name = "_initialCapitalInput";
-        this._initialCapitalInput.Size = new System.Drawing.Size(160, 23);
-        this._initialCapitalInput.TabIndex = 9;
-        this._initialCapitalInput.ThousandsSeparator = true;
-        this._initialCapitalInput.Value = new decimal(new int[] { 100000, 0, 0, 0 });
-        this._initialCapitalInput.ValueChanged += new System.EventHandler(this.OnFieldChanged);
-        // 
+        //
         // _commissionLabel
         // 
         this._commissionLabel.Anchor = System.Windows.Forms.AnchorStyles.Left;
@@ -667,22 +631,15 @@ partial class PlanDetailScreen
         this._sizingLayout.Controls.Add(this._maxDrawdownInput, 1, 4);
         this._sizingLayout.Controls.Add(this._maxGrossExposureLabel, 2, 4);
         this._sizingLayout.Controls.Add(this._maxGrossExposureInput, 3, 4);
-        this._sizingLayout.Controls.Add(this._cppiEnabledCheckBox, 0, 5);
-        this._sizingLayout.Controls.Add(this._cppiFloorLabel, 0, 6);
-        this._sizingLayout.Controls.Add(this._cppiFloorInput, 1, 6);
-        this._sizingLayout.Controls.Add(this._cppiMultiplierLabel, 2, 6);
-        this._sizingLayout.Controls.Add(this._cppiMultiplierInput, 3, 6);
-        this._sizingLayout.Controls.Add(this._aggressiveModulesCheckBox, 0, 7);
-        this._sizingLayout.Controls.Add(this._fractionalFactorLabel, 0, 8);
-        this._sizingLayout.Controls.Add(this._fractionalFactorInput, 1, 8);
-        this._sizingLayout.Controls.Add(this._maximumMultiplierLabel, 2, 8);
-        this._sizingLayout.Controls.Add(this._maximumMultiplierInput, 3, 8);
+        this._sizingLayout.Controls.Add(this._aggressiveModulesCheckBox, 0, 5);
+        this._sizingLayout.Controls.Add(this._fractionalFactorLabel, 0, 6);
+        this._sizingLayout.Controls.Add(this._fractionalFactorInput, 1, 6);
+        this._sizingLayout.Controls.Add(this._maximumMultiplierLabel, 2, 6);
+        this._sizingLayout.Controls.Add(this._maximumMultiplierInput, 3, 6);
         this._sizingLayout.Dock = System.Windows.Forms.DockStyle.Top;
         this._sizingLayout.Location = new System.Drawing.Point(12, 12);
         this._sizingLayout.Name = "_sizingLayout";
-        this._sizingLayout.RowCount = 9;
-        this._sizingLayout.RowStyles.Add(new System.Windows.Forms.RowStyle());
-        this._sizingLayout.RowStyles.Add(new System.Windows.Forms.RowStyle());
+        this._sizingLayout.RowCount = 7;
         this._sizingLayout.RowStyles.Add(new System.Windows.Forms.RowStyle());
         this._sizingLayout.RowStyles.Add(new System.Windows.Forms.RowStyle());
         this._sizingLayout.RowStyles.Add(new System.Windows.Forms.RowStyle());
@@ -693,7 +650,6 @@ partial class PlanDetailScreen
         this._sizingLayout.SetColumnSpan(this._clampMultipliersCheckBox, 4);
         this._sizingLayout.SetColumnSpan(this._volatilityEnabledCheckBox, 4);
         this._sizingLayout.SetColumnSpan(this._portfolioRiskEnabledCheckBox, 4);
-        this._sizingLayout.SetColumnSpan(this._cppiEnabledCheckBox, 4);
         this._sizingLayout.SetColumnSpan(this._aggressiveModulesCheckBox, 4);
         this._sizingLayout.Size = new System.Drawing.Size(868, 300);
         this._sizingLayout.TabIndex = 0;
@@ -824,64 +780,7 @@ partial class PlanDetailScreen
         this._maxGrossExposureInput.TabIndex = 10;
         this._maxGrossExposureInput.Value = new decimal(new int[] { 1, 0, 0, 0 });
         this._maxGrossExposureInput.ValueChanged += new System.EventHandler(this.OnFieldChanged);
-        // 
-        // _cppiEnabledCheckBox
-        // 
-        this._cppiEnabledCheckBox.AutoSize = true;
-        this._cppiEnabledCheckBox.Margin = new System.Windows.Forms.Padding(22, 8, 3, 4);
-        this._cppiEnabledCheckBox.Name = "_cppiEnabledCheckBox";
-        this._cppiEnabledCheckBox.Size = new System.Drawing.Size(400, 19);
-        this._cppiEnabledCheckBox.TabIndex = 11;
-        this._cppiEnabledCheckBox.Text = "Abilita CPPI";
-        this._cppiEnabledCheckBox.UseVisualStyleBackColor = true;
-        this._cppiEnabledCheckBox.CheckedChanged += new System.EventHandler(this.OnFieldChanged);
-        // 
-        // _cppiFloorLabel
-        // 
-        this._cppiFloorLabel.Anchor = System.Windows.Forms.AnchorStyles.Left;
-        this._cppiFloorLabel.AutoSize = true;
-        this._cppiFloorLabel.Margin = new System.Windows.Forms.Padding(40, 0, 8, 0);
-        this._cppiFloorLabel.Name = "_cppiFloorLabel";
-        this._cppiFloorLabel.Size = new System.Drawing.Size(110, 15);
-        this._cppiFloorLabel.TabIndex = 12;
-        this._cppiFloorLabel.Text = "Frazione di floor";
-        // 
-        // _cppiFloorInput
-        // 
-        this._cppiFloorInput.Anchor = System.Windows.Forms.AnchorStyles.Left;
-        this._cppiFloorInput.DecimalPlaces = 4;
-        this._cppiFloorInput.Increment = new decimal(new int[] { 5, 0, 0, 131072 });
-        this._cppiFloorInput.Margin = new System.Windows.Forms.Padding(3, 4, 24, 4);
-        this._cppiFloorInput.Maximum = new decimal(new int[] { 1, 0, 0, 0 });
-        this._cppiFloorInput.Name = "_cppiFloorInput";
-        this._cppiFloorInput.Size = new System.Drawing.Size(120, 23);
-        this._cppiFloorInput.TabIndex = 13;
-        this._cppiFloorInput.Value = new decimal(new int[] { 80, 0, 0, 131072 });
-        this._cppiFloorInput.ValueChanged += new System.EventHandler(this.OnFieldChanged);
-        // 
-        // _cppiMultiplierLabel
-        // 
-        this._cppiMultiplierLabel.Anchor = System.Windows.Forms.AnchorStyles.Left;
-        this._cppiMultiplierLabel.AutoSize = true;
-        this._cppiMultiplierLabel.Margin = new System.Windows.Forms.Padding(3, 0, 8, 0);
-        this._cppiMultiplierLabel.Name = "_cppiMultiplierLabel";
-        this._cppiMultiplierLabel.Size = new System.Drawing.Size(150, 15);
-        this._cppiMultiplierLabel.TabIndex = 14;
-        this._cppiMultiplierLabel.Text = "Moltiplicatore CPPI";
-        // 
-        // _cppiMultiplierInput
-        // 
-        this._cppiMultiplierInput.Anchor = System.Windows.Forms.AnchorStyles.Left;
-        this._cppiMultiplierInput.DecimalPlaces = 4;
-        this._cppiMultiplierInput.Increment = new decimal(new int[] { 5, 0, 0, 131072 });
-        this._cppiMultiplierInput.Margin = new System.Windows.Forms.Padding(3, 4, 3, 4);
-        this._cppiMultiplierInput.Maximum = new decimal(new int[] { 100, 0, 0, 0 });
-        this._cppiMultiplierInput.Name = "_cppiMultiplierInput";
-        this._cppiMultiplierInput.Size = new System.Drawing.Size(140, 23);
-        this._cppiMultiplierInput.TabIndex = 15;
-        this._cppiMultiplierInput.Value = new decimal(new int[] { 1, 0, 0, 0 });
-        this._cppiMultiplierInput.ValueChanged += new System.EventHandler(this.OnFieldChanged);
-        // 
+        //
         // _aggressiveModulesCheckBox
         // 
         this._aggressiveModulesCheckBox.AutoSize = true;
@@ -955,7 +854,6 @@ partial class PlanDetailScreen
         this._generalLayout.ResumeLayout(false);
         this._generalLayout.PerformLayout();
         ((System.ComponentModel.ISupportInitialize)(this._maxConcurrentInput)).EndInit();
-        ((System.ComponentModel.ISupportInitialize)(this._initialCapitalInput)).EndInit();
         ((System.ComponentModel.ISupportInitialize)(this._commissionInput)).EndInit();
         this._groupsTab.ResumeLayout(false);
         this._groupsTab.PerformLayout();
@@ -975,8 +873,6 @@ partial class PlanDetailScreen
         ((System.ComponentModel.ISupportInitialize)(this._targetRiskInput)).EndInit();
         ((System.ComponentModel.ISupportInitialize)(this._maxDrawdownInput)).EndInit();
         ((System.ComponentModel.ISupportInitialize)(this._maxGrossExposureInput)).EndInit();
-        ((System.ComponentModel.ISupportInitialize)(this._cppiFloorInput)).EndInit();
-        ((System.ComponentModel.ISupportInitialize)(this._cppiMultiplierInput)).EndInit();
         ((System.ComponentModel.ISupportInitialize)(this._fractionalFactorInput)).EndInit();
         ((System.ComponentModel.ISupportInitialize)(this._maximumMultiplierInput)).EndInit();
         this.ResumeLayout(false);
@@ -998,8 +894,6 @@ partial class PlanDetailScreen
     private System.Windows.Forms.TextBox _nameTextBox;
     private System.Windows.Forms.Label _maxConcurrentLabel;
     private System.Windows.Forms.NumericUpDown _maxConcurrentInput;
-    private System.Windows.Forms.Label _initialCapitalLabel;
-    private System.Windows.Forms.NumericUpDown _initialCapitalInput;
     private System.Windows.Forms.Label _commissionLabel;
     private System.Windows.Forms.NumericUpDown _commissionInput;
     private System.Windows.Forms.Label _enforceConcurrencyLabel;
@@ -1046,11 +940,6 @@ partial class PlanDetailScreen
     private System.Windows.Forms.NumericUpDown _maxDrawdownInput;
     private System.Windows.Forms.Label _maxGrossExposureLabel;
     private System.Windows.Forms.NumericUpDown _maxGrossExposureInput;
-    private System.Windows.Forms.CheckBox _cppiEnabledCheckBox;
-    private System.Windows.Forms.Label _cppiFloorLabel;
-    private System.Windows.Forms.NumericUpDown _cppiFloorInput;
-    private System.Windows.Forms.Label _cppiMultiplierLabel;
-    private System.Windows.Forms.NumericUpDown _cppiMultiplierInput;
     private System.Windows.Forms.CheckBox _aggressiveModulesCheckBox;
     private System.Windows.Forms.Label _fractionalFactorLabel;
     private System.Windows.Forms.NumericUpDown _fractionalFactorInput;

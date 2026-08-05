@@ -44,10 +44,10 @@ public class BacktestingRequest
     /// <summary>Cartella di backtest che contiene il run Titano indicato.</summary>
     public string? TitanoBacktestFolder { get; set; }
 
-    /// <summary>
-    /// Account del workspace la cui tabella di conversione viene applicata al run: il moltiplicatore
-    /// contratto scala la size dei segnali e il simbolo account viene riportato in
-    /// <c>signals.json</c>. Null o vuoto = nessuna conversione (1 a 1).
-    /// </summary>
-    public string? AccountId { get; set; }
+    // Nessun account: il backtest interno è neutro rispetto ai conti. Un run è capitale iniziale
+    // + strategie del masterfilter + datafeed, con conversione simbolo e moltiplicatori fissi a 1.
+    // Il motivo sta in docs/decisioni.md (2026-08-05): questo run è il campione sorgente di Titano,
+    // e una size legata al conto farebbe dipendere le rotazioni dal capitale invece che dalle
+    // strategie. Conversione e scala per conto restano sulle sessioni ExternalBroker, dove il
+    // segnale deve diventare un ordine eseguibile su un conto reale.
 }

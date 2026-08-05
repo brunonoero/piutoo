@@ -70,19 +70,5 @@ public sealed class ValueComboItem
     public override string ToString() => Display;
 }
 
-public sealed class AccountComboItem
-{
-    public AccountComboItem(WorkspaceAccount? account) => Account = account;
-
-    /// <summary>Null è la voce "nessuna conversione", cioè il run gira 1 a 1.</summary>
-    public WorkspaceAccount? Account { get; }
-
-    public override string ToString()
-        => Account == null
-            ? "(nessuna conversione)"
-            : $"{Account.Name}  ·  " +
-              (string.IsNullOrWhiteSpace(Account.SymbolConversionCode)
-                  ? "nessuna conversione"
-                  : $"conversione {Account.SymbolConversionCode}") +
-              (string.IsNullOrWhiteSpace(Account.GroupId) ? string.Empty : $"  ·  gruppo {Account.GroupId}");
-}
+// AccountComboItem rimosso con il selettore account del backtest: l'unico consumatore era la
+// schermata di avvio, e il backtest interno non conosce più i conti (docs/decisioni.md 2026-08-05).

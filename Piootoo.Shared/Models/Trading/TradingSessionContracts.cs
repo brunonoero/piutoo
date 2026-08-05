@@ -99,9 +99,8 @@ public sealed class PortfolioRiskSizingConfig
     public bool Enabled { get; init; }
     public decimal MaximumDrawdown { get; init; } = 0.20m;
     public decimal MaximumGrossExposure { get; init; } = 1m;
-    public bool EnableCppi { get; init; }
-    public decimal CppiFloorFraction { get; init; } = 0.80m;
-    public decimal CppiMultiplier { get; init; } = 1m;
+    // L'overlay CPPI è stato rimosso (docs/decisioni.md 2026-08-05): entrava solo come tetto sul
+    // moltiplicatore già calcolato e, con l'equity ferma in ExternalBroker, era un taglio costante.
     public bool EnableAggressiveModules { get; init; }
     public decimal FractionalFactor { get; init; } = 0.25m;
     public decimal MaximumMultiplier { get; init; } = 1m;

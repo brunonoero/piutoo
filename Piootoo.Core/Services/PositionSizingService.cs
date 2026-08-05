@@ -94,13 +94,6 @@ public sealed class PositionSizingService : IPositionSizingService
         var multiplier = Math.Min(
             1m - drawdown / Math.Max(0.000001m, config.MaximumDrawdown),
             1m - request.GrossExposureFraction / Math.Max(0.000001m, config.MaximumGrossExposure));
-        if (config.EnableCppi)
-        {
-            var floor = request.InitialCapital * config.CppiFloorFraction;
-            var cushion = Math.Max(0, request.Equity - floor);
-            var cppiBudget = cushion * config.CppiMultiplier;
-            multiplier = Math.Min(multiplier, request.Equity <= 0 ? 0 : cppiBudget / request.Equity);
-        }
         if (config.EnableAggressiveModules)
             multiplier = Math.Min(config.MaximumMultiplier, multiplier * config.FractionalFactor);
         return multiplier;
@@ -117,8 +110,6 @@ public sealed class PositionSizingService : IPositionSizingService
             request.Config.MarketVolatility.TargetRiskDollars <= 0 ||
             request.Config.PortfolioRisk.MaximumDrawdown is <= 0 or > 1 ||
             request.Config.PortfolioRisk.MaximumGrossExposure is <= 0 or > 1 ||
-            request.Config.PortfolioRisk.CppiFloorFraction is < 0 or > 1 ||
-            request.Config.PortfolioRisk.CppiMultiplier < 0 ||
             request.Config.PortfolioRisk.FractionalFactor is < 0 or > 1)
             throw new ArgumentException("Configurazione position sizing non valida.");
         if (!request.Config.PortfolioRisk.EnableAggressiveModules &&

@@ -1,3 +1,4 @@
+using Piootoo.Shared.Models.Trading;
 using Piootoo.Shared.Models.Workspaces;
 using piootooapp.clientform.Shell;
 
@@ -63,7 +64,9 @@ public partial class AccountDetailScreen : UserControl, IShellScreen, IDirtyAwar
                 {
                     Currency = "USD",
                     Enabled = true,
-                    InitialBalance = 1_000_000m
+                    // Capitale di riferimento delle strategie: così un account nuovo opera 1 a 1
+                    // finché non gli si dà il saldo reale del conto.
+                    InitialBalance = TradingConventions.StrategyReferenceBalance
                 }, conversions);
                 _context.Navigation.SetStatus("Nuovo account: nessuna conversione, opera 1 a 1.");
             }

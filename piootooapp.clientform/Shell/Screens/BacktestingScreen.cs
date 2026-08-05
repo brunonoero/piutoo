@@ -1,4 +1,5 @@
 using Piootoo.Shared.Models.Backtesting;
+using Piootoo.Shared.Models.Trading;
 
 namespace piootooapp.clientform.Shell.Screens;
 
@@ -16,6 +17,10 @@ public partial class BacktestingScreen : UserControl, IShellScreen
     public BacktestingScreen()
     {
         InitializeComponent();
+        // Il capitale proposto è quello di riferimento delle strategie: dichiarano un contratto per
+        // un milione, e il backtest interno non scala quella size. Resta modificabile — cambiarlo
+        // sposta solo il denominatore di equity e drawdown, non le quantità.
+        _capitalInput.Value = TradingConventions.StrategyReferenceBalance;
         _startPicker.Value = DateTime.UtcNow.Date.AddDays(-30);
         _endPicker.Value = DateTime.UtcNow.Date;
         _nameTextBox.Text = $"backtest-{DateTime.UtcNow:yyyyMMdd-HHmm}";
@@ -48,16 +53,9 @@ public partial class BacktestingScreen : UserControl, IShellScreen
                 ? index
                 : _workspaceCombo.Items.Count > 0 ? 0 : -1;
 
-            var accounts = await _context.Services.Api.ListAccountsAsync(cancellationToken);
-            _accountCombo.Items.Clear();
-            _accountCombo.Items.Add(new AccountComboItem(null));
-            foreach (var account in accounts)
-            {
-                _accountCombo.Items.Add(new AccountComboItem(account));
-            }
-
-            _accountCombo.SelectedIndex = 0;
-            _context.Navigation.SetStatus($"{workspaces.Count} workspace, {accounts.Count} account disponibili.");
+            // Nessuna combo account: il backtest interno è neutro rispetto ai conti (conversione
+            // simbolo e scala capitale vivono sulle sessioni). Vedi docs/decisioni.md 2026-08-05.
+            _context.Navigation.SetStatus($"{workspaces.Count} workspace disponibili.");
         }
         catch (OperationCanceledException)
         {
@@ -99,7 +97,6 @@ public partial class BacktestingScreen : UserControl, IShellScreen
         _runButton.Enabled = !running;
         _cancelButton.Enabled = running;
         _workspaceCombo.Enabled = !running;
-        _accountCombo.Enabled = !running;
         _parametersGroup.Enabled = !running;
     }
 
@@ -173,8 +170,7 @@ public partial class BacktestingScreen : UserControl, IShellScreen
                 EndDate = DateTime.SpecifyKind(_endPicker.Value, DateTimeKind.Utc),
                 InitialCapital = _capitalInput.Value,
                 CommissionPerContract = _commissionInput.Value,
-                CloseAllPositionsAtWeekEnd = _weekEndCheckBox.Checked,
-                AccountId = (_accountCombo.SelectedItem as AccountComboItem)?.Account?.Id
+                CloseAllPositionsAtWeekEnd = _weekEndCheckBox.Checked
             };
 
             SetRunningState(true);

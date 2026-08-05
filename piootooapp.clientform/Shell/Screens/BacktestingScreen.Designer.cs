@@ -22,8 +22,6 @@ partial class BacktestingScreen
         this._parametersLayout = new System.Windows.Forms.TableLayoutPanel();
         this._workspaceLabel = new System.Windows.Forms.Label();
         this._workspaceCombo = new System.Windows.Forms.ComboBox();
-        this._accountLabel = new System.Windows.Forms.Label();
-        this._accountCombo = new System.Windows.Forms.ComboBox();
         this._nameLabel = new System.Windows.Forms.Label();
         this._nameTextBox = new System.Windows.Forms.TextBox();
         this._weekEndCheckBox = new System.Windows.Forms.CheckBox();
@@ -77,8 +75,6 @@ partial class BacktestingScreen
         this._parametersLayout.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 50F));
         this._parametersLayout.Controls.Add(this._workspaceLabel, 0, 0);
         this._parametersLayout.Controls.Add(this._workspaceCombo, 1, 0);
-        this._parametersLayout.Controls.Add(this._accountLabel, 2, 0);
-        this._parametersLayout.Controls.Add(this._accountCombo, 3, 0);
         this._parametersLayout.Controls.Add(this._nameLabel, 0, 1);
         this._parametersLayout.Controls.Add(this._nameTextBox, 1, 1);
         this._parametersLayout.Controls.Add(this._weekEndCheckBox, 3, 1);
@@ -119,26 +115,7 @@ partial class BacktestingScreen
         this._workspaceCombo.Name = "_workspaceCombo";
         this._workspaceCombo.Size = new System.Drawing.Size(300, 23);
         this._workspaceCombo.TabIndex = 1;
-        // 
-        // _accountLabel
-        // 
-        this._accountLabel.Anchor = System.Windows.Forms.AnchorStyles.Left;
-        this._accountLabel.AutoSize = true;
-        this._accountLabel.Margin = new System.Windows.Forms.Padding(3, 0, 8, 0);
-        this._accountLabel.Name = "_accountLabel";
-        this._accountLabel.Size = new System.Drawing.Size(150, 15);
-        this._accountLabel.TabIndex = 2;
-        this._accountLabel.Text = "Conversione account";
-        // 
-        // _accountCombo
-        // 
-        this._accountCombo.Anchor = System.Windows.Forms.AnchorStyles.Left | System.Windows.Forms.AnchorStyles.Right;
-        this._accountCombo.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
-        this._accountCombo.Margin = new System.Windows.Forms.Padding(3, 4, 3, 4);
-        this._accountCombo.Name = "_accountCombo";
-        this._accountCombo.Size = new System.Drawing.Size(300, 23);
-        this._accountCombo.TabIndex = 3;
-        // 
+        //
         // _nameLabel
         // 
         this._nameLabel.Anchor = System.Windows.Forms.AnchorStyles.Left;
@@ -231,7 +208,8 @@ partial class BacktestingScreen
         this._capitalInput.Size = new System.Drawing.Size(160, 23);
         this._capitalInput.TabIndex = 12;
         this._capitalInput.ThousandsSeparator = true;
-        this._capitalInput.Value = new decimal(new int[] { 100000, 0, 0, 0 });
+        // Il valore effettivo è impostato dal costruttore da TradingConventions.StrategyReferenceBalance.
+        this._capitalInput.Value = new decimal(new int[] { 1000000, 0, 0, 0 });
         // 
         // _commissionLabel
         // 
@@ -401,8 +379,6 @@ partial class BacktestingScreen
     private System.Windows.Forms.TableLayoutPanel _parametersLayout;
     private System.Windows.Forms.Label _workspaceLabel;
     private System.Windows.Forms.ComboBox _workspaceCombo;
-    private System.Windows.Forms.Label _accountLabel;
-    private System.Windows.Forms.ComboBox _accountCombo;
     private System.Windows.Forms.Label _nameLabel;
     private System.Windows.Forms.TextBox _nameTextBox;
     private System.Windows.Forms.CheckBox _weekEndCheckBox;

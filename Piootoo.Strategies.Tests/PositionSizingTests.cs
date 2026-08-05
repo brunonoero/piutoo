@@ -24,20 +24,35 @@ public sealed class PositionSizingTests
         Assert.Equal(4m, PositionSizingService.CalculateAtr(bars, Utc(2), 14));
     }
 
+    /// <summary>
+    /// Con l'overlay CPPI rimosso (docs/decisioni.md 2026-08-05), il freno di portafoglio che resta
+    /// è la riduzione proporzionale sul drawdown dal picco: a metà della soglia il moltiplicatore
+    /// vale 0,5 e su un contratto singolo la quantità arrotondata scende sotto il minimo.
+    /// </summary>
     [Fact]
-    public void CppiFloorStopsRiskAtFloor()
+    public void DrawdownFromPeakScalesDownTheQuantity()
     {
         var config = new PositionSizingConfig
         {
-            PortfolioRisk = new PortfolioRiskSizingConfig
-            {
-                Enabled = true, EnableCppi = true, CppiFloorFraction = 0.8m,
-                CppiMultiplier = 1, MaximumDrawdown = 0.5m
-            }
+            PortfolioRisk = new PortfolioRiskSizingConfig { Enabled = true, MaximumDrawdown = 0.5m }
         };
-        var result = Service().Calculate(Request(config: config, equity: 80, initial: 100));
+        var result = Service().Calculate(Request(config: config, equity: 75, initial: 100));
+        Assert.Equal(0.5m, result.PortfolioRiskMultiplier);
         Assert.Equal(0, result.FinalQuantity);
         Assert.Equal("BelowMinimumQuantity", result.Reason);
+    }
+
+    /// <summary>Oltre la soglia di drawdown il sizing si azzera del tutto, non si limita a ridursi.</summary>
+    [Fact]
+    public void DrawdownBeyondTheThresholdStopsSizingCompletely()
+    {
+        var config = new PositionSizingConfig
+        {
+            PortfolioRisk = new PortfolioRiskSizingConfig { Enabled = true, MaximumDrawdown = 0.2m }
+        };
+        var result = Service().Calculate(Request(baseQuantity: 10, config: config, equity: 70, initial: 100));
+        Assert.Equal(0m, result.PortfolioRiskMultiplier);
+        Assert.Equal(0, result.FinalQuantity);
     }
 
     [Theory]

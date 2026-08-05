@@ -909,3 +909,78 @@ in ordine cronologico. Non è un changelog di codice: quello resta nei commit.
 - **2026-08-05** — La schermata setup può **partire da un preset**: la combo elenca i setup
   esistenti (compresi i tre professionali seminati dal server) e ne copia i parametri lasciando
   intatti id, nome e descrizione. Chi applica un preset ne vuole la calibrazione, non l'identità.
+- **2026-08-05** — **Il backtest interno è neutro rispetto agli account.** Un run è
+  *balance iniziale + strategie del masterfilter del workspace + datafeed*, e nient'altro:
+  niente conversione di simbolo, `ContractMultiplier` e `BalanceScale` fissi a 1, nessuna
+  size scalata sul capitale di un conto. Gruppi, slot e limiti di concorrenza non c'erano
+  già (vivono in `TradingSessionService`); l'unica contaminazione era
+  `BacktestingRequest.AccountId`, che tirava dentro `AccountSymbolConversion`. Rimosso:
+  cadono `ResolveAccountConversion` e `TryApplyAccountConversion` da
+  `PiootooBacktestingService`, il parametro di conversione di `ToPersistedSignals`, la
+  dipendenza `WorkspaceService` del servizio e la combo account di `BacktestingScreen` e
+  della console legacy.
+  Il motivo non è la semplicità: **quel run è il campione sorgente di Titano**. Con la size
+  legata al conto, due backtest identici su account diversi producono rotazioni diverse, e
+  la rotazione starebbe misurando il capitale invece delle strategie. È lo stesso principio
+  per cui `EnforceConcurrencyLimits` è già off nel backtest sorgente (B4 del 29/07): il
+  campione misura le strategie, non l'operatività.
+  Conversione di simbolo e scala per conto **restano intatte sulle sessioni**
+  (`ExternalBroker`), dove sono essenziali: lì il segnale deve diventare un ordine
+  eseguibile su un conto reale. I campi `AccountId`, `AccountSymbol`, `ContractMultiplier`
+  e `AccountBalanceScale` restano nel `PersistedSignal` — il formato di `signals.json` resta
+  unico, il backtest li scrive all'identità.
+  Effetto collaterale accettato: un simbolo **disabilitato** su un account non filtra più
+  nulla in backtest. Il backtest interno valuta tutto ciò che il masterfilter dichiara; la
+  disabilitazione è una proprietà operativa del conto e agisce dove si opera.
+- **2026-08-05** — **Rimosso l'overlay CPPI** dal position sizing (`EnableCppi`,
+  `CppiFloorFraction`, `CppiMultiplier`). Entrava solo come `Math.Min` sul moltiplicatore
+  già calcolato, quindi toglierlo non può ridurre alcuna size: i run con CPPI spento sono
+  identici, quelli con CPPI acceso perdono un taglio che con i default (floor 0,80,
+  moltiplicatore 1) valeva l'80% della size fin dalla prima barra. Restano i due freni di
+  `PortfolioMultiplier` che arrivano comunque a zero: drawdown dal picco ed esposizione
+  lorda. Attenzione alla console legacy, dove la checkbox CPPI accendeva anche
+  `PortfolioRisk.Enabled`: chi voleva il solo freno di drawdown doveva attivare il CPPI.
+- **2026-08-05** — **`InitialCapital` esce dal piano di trading** e resta un parametro del
+  singolo run di backtest (`BacktestingRequest.InitialCapital`, già esposto da
+  `BacktestingScreen`). Sulle sessioni cBot — sempre `ExternalBroker` — non aveva
+  consumatori reali: `Snapshot()` ritorna `Balance = Equity = InitialCapital`, quindi
+  l'equity non si muove mai, il drawdown è identicamente zero e il motore simulato non viene
+  interrogato. Era una costante travestita da capitale.
+  Soprattutto, **non era lui a scalare le size**: in `ExternalBroker` ogni account porta il
+  proprio `InitialBalance`, che diventa `BalanceScale = InitialBalance / 1.000.000` e viene
+  applicato — insieme al `ContractMultiplier` dello strumento — in `CloneForClaim`, cioè
+  quando il destinatario è noto. Il dimensionamento per conto resta quindi intatto: quello
+  che sparisce è solo un secondo capitale, di sessione, che non corrispondeva a nessun saldo.
+  Di conseguenza **il freno di esposizione lorda è disattivato in `ExternalBroker`**: il suo
+  denominatore era quel capitale fittizio, e sommava le posizioni di tutti gli account della
+  sessione contro un unico numero che non era il saldo di nessuno. Il rischio di portafoglio
+  live è governato dal broker — `PiootooRiskGuardianBot` lo fa sul balance vero — coerente
+  con l'invariante "il server decide *cosa*, il broker decide *se e a che prezzo*".
+  `CreateTradingSessionRequest.InitialCapital` resta con il proprio default: serve alle sessioni
+  `ServerSimulated` create dall'API diretta e dal form manuale di `TradingSessionsScreen`.
+  I `plans.json` esistenti non si rompono, la proprietà resta nel file e viene ignorata.
+- **2026-08-05** — **Le strategie dichiarano l'ingresso, non la size.** Tutte espongono
+  `Contracts = 1` (o `_contracts = 1m`) nel costruttore: il segnale dice *entra*, e la quantità
+  nasce dai layer a valle. La catena completa è
+  `1 × allocazione Titano × volatilità di mercato × rischio di portafoglio → arrotondamento →
+  (solo ExternalBroker, al claim) BalanceScale × ContractMultiplier`.
+  Resta l'override `"Contracts"` letto da `Initialize` e inoltrato da `StrategyFactory`: è una
+  seconda leva di sizing fuori dai layer, **tenuta di proposito** per i casi in cui una strategia
+  vada calibrata su una base diversa. Chi la valorizza deve sapere che sposta la base da cui tutti
+  i moltiplicatori partono.
+- **2026-08-05** — **Il backtest interno applica solo l'allocazione Titano.**
+  `PiootooBacktestingService` fa `signal.Quantity *= titanoAllocation` e non chiama mai
+  `PositionSizingService`: volatilità di mercato, freni di portafoglio, arrotondamento allo step e
+  quantità minima agiscono soltanto nelle sessioni. Non è una dimenticanza ed è la stessa ragione
+  dell'account-neutralità e di `EnforceConcurrencyLimits` off: il run è il campione sorgente di
+  Titano e deve misurare le strategie a un contratto, non l'operatività. Va saputo prima di
+  confrontare le quantità di un `trades.json` interno con quelle di una sessione: non sono
+  omogenee per costruzione.
+- **2026-08-05** — Il capitale di riferimento delle strategie vive in **una sola costante**,
+  `TradingConventions.StrategyReferenceBalance` (1.000.000). Prima erano due letterali distinti —
+  `AccountSymbolConversion.ReferenceBalance` e il default del capitale nella schermata di backtest —
+  e non coincidevano: la shell proponeva 100.000 contro il milione della console legacy e del
+  denominatore di `BalanceScale`. Un disallineamento che non produce errori, solo percentuali e
+  scale che non parlano della stessa cosa. Il campo resta modificabile: cambiarlo sposta il
+  denominatore di equity e drawdown del run, non le quantità, che nel backtest interno restano
+  quelle dichiarate dalle strategie.

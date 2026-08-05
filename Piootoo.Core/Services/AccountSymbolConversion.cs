@@ -1,4 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
+using Piootoo.Shared.Models.Trading;
 using Piootoo.Shared.Models.Workspaces;
 
 namespace Piootoo.Core.Services;
@@ -28,9 +29,11 @@ public sealed class AccountSymbolConversion
 {
     /// <summary>
     /// Capitale rispetto al quale sono dimensionate le quantità dichiarate dalle strategie: un
-    /// segnale da un contratto vale un contratto su un conto da un milione.
+    /// segnale da un contratto vale un contratto su un conto da un milione. È lo stesso numero
+    /// proposto come capitale iniziale del backtest interno, e vive in un solo posto proprio perché
+    /// i due usi devono restare d'accordo.
     /// </summary>
-    public const decimal ReferenceBalance = 1_000_000m;
+    public const decimal ReferenceBalance = TradingConventions.StrategyReferenceBalance;
 
     private static readonly Dictionary<string, AccountSymbolConversionEntry> Empty =
         new(StringComparer.OrdinalIgnoreCase);
