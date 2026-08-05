@@ -118,6 +118,18 @@ public sealed class TitanoRotationSetup
     // una seconda dichiarazione del modello: al primo parametro aggiunto resterebbe indietro, e un
     // parametro assente dalla UI viene salvato al proprio default senza che nulla lo segnali.
     // Sono metadati, non logica: Piootoo.Shared resta senza dipendenze verso gli altri progetti.
+    //
+    // Tre convenzioni, tutte verificate da TitanoParameterMetadataTests:
+    //
+    // 1. Ogni proprietà visibile porta un [TitanoLevel]. La console usa BrowsableAttributes per
+    //    mostrare la sola vista Base; una proprietà senza livello sparirebbe da quella vista senza
+    //    che nulla lo segnali, quindi l'assenza è un errore e non un default.
+    // 2. Le categorie sono numerate per imporre l'ordine di lettura del PropertyGrid, che altrimenti
+    //    è alfabetico. La numerazione segue la sequenza logica della decisione: quando ruoto, su
+    //    cosa misuro, chi ammetto, quanto lo tengo, quanto gli alloco.
+    // 3. Ogni frazione porta [TypeConverter(typeof(PercentTypeConverter))]. Il modello resta in
+    //    frazioni — è il contratto verso il server — ma non esiste un campo in cui si debba
+    //    indovinare se 15 significhi 15% o 1500%.
 
     [Browsable(false)]
     public string Id { get; set; } = string.Empty;
@@ -131,142 +143,200 @@ public sealed class TitanoRotationSetup
     [Browsable(false)]
     public DateTime? UpdatedAt { get; set; }
 
-    [Category("1. Calendario")]
-    [DisplayName("Periodo di rotazione")]
-    [Description("Ogni quanto si ricalcola quali strategie sono abilitate.")]
+    [Category("1. Quando ruotare")]
+    [DisplayName("Ogni quanto ricalcolare")]
+    [Description("Ogni quanto Titano rifà i conti e decide quali strategie sono accese. " +
+                 "Settimanale = ogni lunedì alle 00:00 UTC.")]
+    [TitanoLevel(TitanoParameterLevel.Base)]
     public TitanoRotationPeriod RotationPeriod { get; set; } = TitanoRotationPeriod.Weekly;
 
-    [Category("1. Calendario")]
-    [DisplayName("Trade minimi")]
-    [Description("Trade minimi nella finestra breve perché la strategia sia valutabile.")]
-    public int MinimumTrades { get; set; } = 1;
-
-    [Category("2. Finestre di misura")]
-    [DisplayName("Finestra breve (giorni)")]
-    [Description("Orizzonte della performance di breve e della volatilità.")]
+    [Category("2. Su cosa misurare")]
+    [DisplayName("Reattività: giorni osservati (breve)")]
+    [Description("Quanti giorni di storia recente guarda il giudizio di breve. " +
+                 "È il parametro che decide quanto Titano è reattivo: 90 giorni con rotazione " +
+                 "settimanale significa che l'ultima settimana pesa un tredicesimo della misura, " +
+                 "quindi una settimana pessima non spegne nulla. Per una reattività davvero " +
+                 "settimanale servono 21-35 giorni, ma controlla che restino abbastanza trade.")]
+    [TitanoLevel(TitanoParameterLevel.Base)]
     public int ShortWindowDays { get; set; } = 90;
 
-    [Category("2. Finestre di misura")]
-    [DisplayName("Finestra lunga (giorni)")]
-    [Description("Orizzonte della performance di lungo.")]
+    [Category("2. Su cosa misurare")]
+    [DisplayName("Giorni osservati (lungo)")]
+    [Description("Orizzonte del giudizio di fondo. Non può essere inferiore alla finestra breve.")]
+    [TitanoLevel(TitanoParameterLevel.Avanzato)]
     public int LongWindowDays { get; set; } = 365;
 
-    [Category("2. Finestre di misura")]
-    [DisplayName("Finestra media mobile (giorni)")]
-    [Description("Ampiezza della media mobile dell'equity.")]
+    [Category("2. Su cosa misurare")]
+    [DisplayName("Giorni della media mobile")]
+    [Description("Ampiezza della media mobile dell'equity, usata dal filtro di trend e come " +
+                 "riferimento dello z-score.")]
+    [TitanoLevel(TitanoParameterLevel.Avanzato)]
     public int MovingAverageWindowDays { get; set; } = 90;
 
-    [Category("3. Soglie di ammissione")]
-    [DisplayName("Rendimento breve minimo")]
-    [Description("Frazione, non percentuale: 0,05 significa 5%.")]
-    public decimal MinimumShortReturn { get; set; }
+    [Category("2. Su cosa misurare")]
+    [DisplayName("Trade minimi per esprimere un giudizio")]
+    [Description("Sotto questo numero di trade nella finestra breve la strategia è considerata " +
+                 "non valutabile e non passa il voto di performance recente.")]
+    [TitanoLevel(TitanoParameterLevel.Avanzato)]
+    public int MinimumTrades { get; set; } = 1;
 
-    [Category("3. Soglie di ammissione")]
-    [DisplayName("Rendimento lungo minimo")]
-    [Description("Frazione, non percentuale: 0,05 significa 5%.")]
-    public decimal MinimumLongReturn { get; set; }
-
-    [Category("3. Soglie di ammissione")]
-    [DisplayName("Z-score minimo")]
-    [Description("Distanza minima dell'equity dalla propria media mobile.")]
-    public decimal MinimumZScore { get; set; } = -1.5m;
-
-    [Category("3. Soglie di ammissione")]
-    [DisplayName("Z-score massimo")]
-    [Description("Anche l'eccesso positivo disabilita: è surriscaldamento, non forza.")]
-    public decimal MaximumZScore { get; set; } = 2.5m;
-
-    [Category("3. Soglie di ammissione")]
-    [DisplayName("Drawdown corrente massimo")]
-    [Description("Frazione dal picco. 0,15 significa 15%.")]
-    public decimal MaximumCurrentDrawdown { get; set; } = 0.15m;
-
-    [Category("3. Soglie di ammissione")]
-    [DisplayName("Drawdown storico massimo")]
-    [Description("Massimo drawdown osservato sull'intera storia disponibile.")]
-    public decimal MaximumObservedDrawdown { get; set; } = 0.25m;
-
-    [Category("3. Soglie di ammissione")]
-    [DisplayName("Volatilità massima")]
-    [Description("Deviazione standard dei rendimenti trade nella finestra breve.")]
-    public decimal MaximumReturnVolatility { get; set; } = 0.10m;
-
-    [Category("3. Soglie di ammissione")]
-    [DisplayName("Equity sopra la media mobile")]
-    [Description("Se attivo, un'equity sotto la propria media mobile non è ammessa.")]
-    public bool RequireEquityAboveMovingAverage { get; set; } = true;
-
-    [Category("4. Anti-whipsaw")]
-    [DisplayName("Drawdown per riattivare")]
-    [Description("Soglia più severa di quella di disattivazione: serve a non rientrare troppo presto.")]
-    public decimal ReenableMaximumCurrentDrawdown { get; set; } = 0.10m;
-
-    [Category("4. Anti-whipsaw")]
-    [DisplayName("Score di disattivazione")]
-    [Description("Sotto questo score composito la strategia passa OFF.")]
-    public decimal DisableCompositeScore { get; set; } = 0.40m;
-
-    [Category("4. Anti-whipsaw")]
-    [DisplayName("Score di riattivazione")]
-    [Description("Sopra questo score la strategia torna ON, se il cooldown è esaurito.")]
-    public decimal ReenableCompositeScore { get; set; } = 0.60m;
-
-    [Category("4. Anti-whipsaw")]
-    [DisplayName("Voti minimi da superare")]
-    [Description("Quanti dei cinque voti devono passare perché la strategia sia ammessa.")]
+    [Category("3. Chi ammettere")]
+    [DisplayName("Voti da superare (su 5)")]
+    [Description("Titano dà cinque voti a ogni strategia: performance breve, performance lunga, " +
+                 "z-score, drawdown, volatilità. Questo è il numero che deve passarne per essere " +
+                 "ammessa. 5 = severissimo, 3 = permissivo.")]
+    [TitanoLevel(TitanoParameterLevel.Base)]
     public int MinimumPassingFilters { get; set; } = 4;
 
-    [Category("4. Anti-whipsaw")]
-    [DisplayName("Periodi di cooldown dopo OFF")]
-    [Description("Periodi da attendere prima di poter riattivare.")]
+    [Category("3. Chi ammettere")]
+    [DisplayName("Spegni sopra questo drawdown")]
+    [Description("Perdita massima dal picco oltre la quale la strategia si spegne. È il cancello " +
+                 "che agisce più spesso.")]
+    [TypeConverter(typeof(PercentTypeConverter))]
+    [TitanoLevel(TitanoParameterLevel.Base)]
+    public decimal MaximumCurrentDrawdown { get; set; } = 0.15m;
+
+    [Category("3. Chi ammettere")]
+    [DisplayName("Drawdown storico massimo tollerato")]
+    [Description("Peggior drawdown mai visto sull'intera storia. Serve a escludere strategie che " +
+                 "adesso stanno bene ma sono già andate molto male una volta.")]
+    [TypeConverter(typeof(PercentTypeConverter))]
+    [TitanoLevel(TitanoParameterLevel.Avanzato)]
+    public decimal MaximumObservedDrawdown { get; set; } = 0.25m;
+
+    [Category("3. Chi ammettere")]
+    [DisplayName("Volatilità massima dei rendimenti")]
+    [Description("Deviazione standard dei rendimenti dei singoli trade nella finestra breve. " +
+                 "Esclude chi guadagna a strappi.")]
+    [TypeConverter(typeof(PercentTypeConverter))]
+    [TitanoLevel(TitanoParameterLevel.Avanzato)]
+    public decimal MaximumReturnVolatility { get; set; } = 0.10m;
+
+    [Category("3. Chi ammettere")]
+    [DisplayName("Rendimento minimo di breve")]
+    [Description("Rendimento richiesto sulla finestra breve. 0 significa 'basta non perdere'.")]
+    [TypeConverter(typeof(PercentTypeConverter))]
+    [TitanoLevel(TitanoParameterLevel.Avanzato)]
+    public decimal MinimumShortReturn { get; set; }
+
+    [Category("3. Chi ammettere")]
+    [DisplayName("Rendimento minimo di lungo")]
+    [Description("Rendimento richiesto sulla finestra lunga. 0 significa 'basta non perdere'.")]
+    [TypeConverter(typeof(PercentTypeConverter))]
+    [TitanoLevel(TitanoParameterLevel.Avanzato)]
+    public decimal MinimumLongReturn { get; set; }
+
+    [Category("3. Chi ammettere")]
+    [DisplayName("Richiedi equity sopra la media mobile")]
+    [Description("Se attivo, una strategia la cui equity sta sotto la propria media mobile non " +
+                 "passa il voto di performance recente, per quanto buono sia il rendimento.")]
+    [TitanoLevel(TitanoParameterLevel.Avanzato)]
+    public bool RequireEquityAboveMovingAverage { get; set; } = true;
+
+    [Category("3. Chi ammettere")]
+    [DisplayName("Z-score minimo")]
+    [Description("Quanto l'equity può stare sotto la propria media mobile, in deviazioni standard. " +
+                 "Negativo perché sotto la media è la condizione da limitare.")]
+    [TitanoLevel(TitanoParameterLevel.Avanzato)]
+    public decimal MinimumZScore { get; set; } = -1.5m;
+
+    [Category("3. Chi ammettere")]
+    [DisplayName("Z-score massimo")]
+    [Description("Anche l'eccesso positivo esclude: un'equity molto sopra la propria media è " +
+                 "surriscaldamento, non forza, e statisticamente rientra.")]
+    [TitanoLevel(TitanoParameterLevel.Avanzato)]
+    public decimal MaximumZScore { get; set; } = 2.5m;
+
+    [Category("4. Quanto insistere")]
+    [DisplayName("Riaccendi solo sotto questo drawdown")]
+    [Description("Soglia di rientro, più severa di quella di spegnimento: fra le due c'è una zona " +
+                 "morta in cui la strategia resta spenta. È ciò che evita che si accenda e spenga " +
+                 "a ogni periodo. Se la porti al livello della soglia di spegnimento l'isteresi " +
+                 "sparisce.")]
+    [TypeConverter(typeof(PercentTypeConverter))]
+    [TitanoLevel(TitanoParameterLevel.Base)]
+    public decimal ReenableMaximumCurrentDrawdown { get; set; } = 0.10m;
+
+    [Category("4. Quanto insistere")]
+    [DisplayName("Periodi di fermo dopo uno spegnimento")]
+    [Description("Quanti periodi la strategia resta ferma prima di poter anche solo essere " +
+                 "riconsiderata. Con rotazione settimanale, 2 = due settimane piene di fermo. " +
+                 "Scaduto il fermo il rientro non è automatico: devono tornare buoni anche i voti.")]
+    [TitanoLevel(TitanoParameterLevel.Base)]
     public int CooldownPeriodsAfterOff { get; set; } = 2;
 
-    [Category("4. Anti-whipsaw")]
-    [DisplayName("Periodi minimi in ON")]
-    [Description("Impedisce un OFF precoce, ma non prevale sull'hard stop.")]
-    public int MinimumOnPeriods { get; set; } = 1;
-
-    [Category("4. Anti-whipsaw")]
-    [DisplayName("Hard stop drawdown")]
-    [Description("Disattivazione immediata, che prevale su periodi minimi e cooldown.")]
+    [Category("4. Quanto insistere")]
+    [DisplayName("Blocco definitivo sopra questo drawdown")]
+    [Description("Oltre questa perdita la strategia è bloccata a tempo indeterminato e si sblocca " +
+                 "solo a mano. Prevale su tutto, anche sui periodi minimi in ON. " +
+                 "Deve essere maggiore della soglia di spegnimento.")]
+    [TypeConverter(typeof(PercentTypeConverter))]
+    [TitanoLevel(TitanoParameterLevel.Base)]
     public decimal HardStopDrawdown { get; set; } = 0.35m;
 
+    [Category("4. Quanto insistere")]
+    [DisplayName("Periodi minimi in ON prima di poter spegnere")]
+    [Description("Concede alla strategia appena accesa un margine di periodi prima di poterla " +
+                 "spegnere, per non reagire al primo inciampo. Non protegge dal blocco definitivo.")]
+    [TitanoLevel(TitanoParameterLevel.Avanzato)]
+    public int MinimumOnPeriods { get; set; } = 1;
+
     /// <summary>Vedi <see cref="TitanoRotationRequest.CrossSectionalSizing"/>.</summary>
-    [Category("5. Allocazione")]
-    [DisplayName("Sizing per percentile")]
-    [Description("Se attivo l'allocazione viene dal rango fra le strategie del periodo e gli scaglioni sono ignorati.")]
+    [Category("5. Quanto allocare")]
+    [DisplayName("Alloca per classifica (consigliato)")]
+    [Description("Attivo: l'allocazione dipende dalla posizione in classifica della strategia " +
+                 "rispetto alle altre dello stesso periodo, su una curva continua fra il minimo e " +
+                 "il massimo qui sotto. Spento: si torna agli scaglioni assoluti della categoria 6, " +
+                 "che con le scale attuali finiscono quasi sempre nello stesso gradino. " +
+                 "In entrambi i casi questo non decide chi è acceso, solo con quanta size.")]
+    [TitanoLevel(TitanoParameterLevel.Base)]
     public bool CrossSectionalSizing { get; set; } = true;
 
     /// <summary>Vedi <see cref="TitanoRotationRequest.MinimumAllocationMultiplier"/>.</summary>
-    [Category("5. Allocazione")]
-    [DisplayName("Moltiplicatore minimo")]
-    [Description("Pavimento della curva di allocazione. Solo con il sizing per percentile.")]
+    [Category("5. Quanto allocare")]
+    [DisplayName("Allocazione della peggiore ammessa")]
+    [Description("Quota di size che riceve l'ultima in classifica fra quelle comunque ammesse. " +
+                 "Non è zero: chi passa i cancelli resta operativo, solo ridotto.")]
+    [TypeConverter(typeof(PercentTypeConverter))]
+    [TitanoLevel(TitanoParameterLevel.Base)]
     public decimal MinimumAllocationMultiplier { get; set; } = 0.25m;
 
     /// <summary>Vedi <see cref="TitanoRotationRequest.MaximumAllocationMultiplier"/>.</summary>
-    [Category("5. Allocazione")]
-    [DisplayName("Moltiplicatore massimo")]
-    [Description("Tetto della curva. Lo stato Abilitato significa 'al tetto', non 'moltiplicatore 1'.")]
+    [Category("5. Quanto allocare")]
+    [DisplayName("Allocazione della migliore")]
+    [Description("Quota di size che riceve la prima in classifica, ed è anche il tetto rispetto a " +
+                 "cui una strategia risulta 'a pieno regime'. Metterlo sotto il 100% è il modo " +
+                 "diretto di essere prudenti senza toccare nessun altro parametro.")]
+    [TypeConverter(typeof(PercentTypeConverter))]
+    [TitanoLevel(TitanoParameterLevel.Base)]
     public decimal MaximumAllocationMultiplier { get; set; } = 1m;
 
     /// <summary>Vedi <see cref="TitanoRotationRequest.AllocationStep"/>.</summary>
-    [Category("5. Allocazione")]
-    [DisplayName("Passo di arrotondamento")]
-    [Description("Granularità del moltiplicatore di allocazione.")]
+    [Category("5. Quanto allocare")]
+    [DisplayName("Arrotonda l'allocazione a passi di")]
+    [Description("Granularità della curva, per avere moltiplicatori leggibili e confrontabili fra " +
+                 "periodi. 0 = nessun arrotondamento.")]
+    [TypeConverter(typeof(PercentTypeConverter))]
+    [TitanoLevel(TitanoParameterLevel.Avanzato)]
     public decimal AllocationStep { get; set; } = 0.05m;
 
-    [Category("6. Costi")]
-    [DisplayName("Commissione per unità")]
-    public decimal CommissionPerUnit { get; set; }
+    [Category("6. Sizing a scaglioni (solo senza classifica)")]
+    [DisplayName("Score sotto cui spegnere")]
+    [Description("Ignorato quando 'Alloca per classifica' è attivo.")]
+    [TitanoLevel(TitanoParameterLevel.Avanzato)]
+    public decimal DisableCompositeScore { get; set; } = 0.40m;
 
-    [Category("6. Costi")]
-    [DisplayName("Slippage per unità")]
-    public decimal SlippagePerUnit { get; set; }
+    [Category("6. Sizing a scaglioni (solo senza classifica)")]
+    [DisplayName("Score sopra cui riaccendere")]
+    [Description("Ignorato quando 'Alloca per classifica' è attivo.")]
+    [TitanoLevel(TitanoParameterLevel.Avanzato)]
+    public decimal ReenableCompositeScore { get; set; } = 0.60m;
 
-    [Category("5. Allocazione")]
-    [DisplayName("Scaglioni di sizing")]
-    [Description("Usati solo quando il sizing per percentile è spento.")]
+    [Category("6. Sizing a scaglioni (solo senza classifica)")]
+    [DisplayName("Scaglioni")]
+    [Description("Ignorati quando 'Alloca per classifica' è attivo.")]
     [DesignerSerializationVisibility(DesignerSerializationVisibility.Content)]
+    [TitanoLevel(TitanoParameterLevel.Avanzato)]
     public List<TitanoSizingTier> SizingTiers { get; set; } =
     [
         new() { MinimumScore = 0.80m, AllocationMultiplier = 1m },
@@ -274,17 +344,37 @@ public sealed class TitanoRotationSetup
         new() { MinimumScore = 0.40m, AllocationMultiplier = 0.25m },
         new() { MinimumScore = 0m, AllocationMultiplier = 0m }
     ];
-    [Category("7. Walk-forward")]
+
+    [Category("7. Costi simulati")]
+    [DisplayName("Commissione per unità")]
+    [Description("Sottratta all'equity calcolata offline nel manifest. Non influenza gli ordini reali.")]
+    [TitanoLevel(TitanoParameterLevel.Avanzato)]
+    public decimal CommissionPerUnit { get; set; }
+
+    [Category("7. Costi simulati")]
+    [DisplayName("Slippage per unità")]
+    [Description("Sottratto all'equity calcolata offline nel manifest. Non influenza gli ordini reali.")]
+    [TitanoLevel(TitanoParameterLevel.Avanzato)]
+    public decimal SlippagePerUnit { get; set; }
+
+    [Category("8. Validazione walk-forward")]
     [DisplayName("Periodi di calibrazione")]
+    [Description("Periodi iniziali usati per calibrare prima di iniziare a valutare fuori campione. " +
+                 "Se il run ha meno periodi di questo numero, la validazione non viene fatta affatto " +
+                 "e il report lo dichiara.")]
+    [TitanoLevel(TitanoParameterLevel.Avanzato)]
     public int CalibrationPeriods { get; set; } = 8;
 
-    [Category("7. Walk-forward")]
+    [Category("8. Validazione walk-forward")]
     [DisplayName("Periodi di valutazione")]
+    [Description("Ampiezza della finestra fuori campione.")]
+    [TitanoLevel(TitanoParameterLevel.Avanzato)]
     public int EvaluationPeriods { get; set; } = 4;
 
-    [Category("7. Walk-forward")]
+    [Category("8. Validazione walk-forward")]
     [DisplayName("Modalità")]
     [Description("Rolling sposta la finestra, Expanding la allunga tenendo fermo l'inizio.")]
+    [TitanoLevel(TitanoParameterLevel.Avanzato)]
     public TitanoWalkForwardMode WalkForwardMode { get; set; } = TitanoWalkForwardMode.Rolling;
 }
 

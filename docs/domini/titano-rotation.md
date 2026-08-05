@@ -207,3 +207,30 @@ servizi veloci separati, applicati per barra al confine di esecuzione. Separare
 questi orizzonti evita di ottimizzare Titano sulle oscillazioni di mercato
 intra-periodo, ma non elimina overfitting: soglie, finestre e target devono
 essere validati fuori campione senza usare OOS per la selezione.
+
+## Come i parametri arrivano all'utente
+
+La schermata *Setup Titano* della console non presenta i trenta parametri sullo
+stesso piano. Il livello di ciascuno è un attributo sul modello
+(`TitanoLevelAttribute` in `Piootoo.Shared/Models/Optimization/TitanoParameterMetadata.cs`),
+e il `PropertyGrid` filtra su quello: la vista predefinita mostra i dieci
+parametri **Base** — cadenza, finestra breve, voti richiesti, le tre soglie di
+drawdown, il fermo dopo un OFF, la scelta del sizing e i due estremi di
+allocazione — mentre gli **Avanzati** restano dietro una spunta.
+
+Le frazioni si inseriscono e si leggono come percentuali
+(`PercentTypeConverter`): il modello e il contratto verso il server restano in
+frazioni, la serializzazione JSON non passa dai `TypeConverter`.
+
+Sotto il grid, `TitanoSetupSummary` riscrive la configurazione corrente in prosa
+e ne elenca le incoerenze. Serve perché i parametri di Titano non si giudicano
+uno alla volta: la soglia di rientro ha senso solo relativamente a quella di
+uscita, e la finestra di misura solo relativamente alla cadenza — la trappola
+descritta in `../titano-analisi-parametri-e-audit-2026-07-31.md` §1.2. Lo stesso
+riquadro dichiara i parametri che nella configurazione scelta non hanno alcun
+effetto, che è la coda di **B3**: nel `PropertyGrid` non si possono disabilitare
+per valore come si faceva nella vecchia form a `NumericUpDown`.
+
+Riferimenti codice: `piootooapp.clientform/Shell/Screens/TitanoSetupDetailScreen.cs`,
+`piootooapp.clientform/Shell/Screens/TitanoSetupSummary.cs`,
+`Piootoo.Strategies.Tests/TitanoSetupUiTests.cs`.

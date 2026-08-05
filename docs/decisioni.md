@@ -878,3 +878,34 @@ in ordine cronologico. Non è un changelog di codice: quello resta nei commit.
   `BacktestingRequest.TitanoRunId` del backtest ad-hoc della console resta manuale, per restare
   riproducibile.
 
+- **2026-08-05** — La schermata **Setup Titano** distingue i parametri **Base** dagli **Avanzati**,
+  invece di presentarne trenta tutti sullo stesso piano. Il livello è un attributo sul modello
+  (`TitanoLevelAttribute` su ogni proprietà di `TitanoRotationSetup`) e non un elenco nel client:
+  il `PropertyGrid` lo usa via `BrowsableAttributes`, che confronta gli attributi per valore — da
+  cui l'`Equals` ridefinito. Tenerlo sul modello è la stessa scelta già fatta per `Category` e
+  `Description`: un elenco nel client sarebbe una seconda dichiarazione del modello, che al primo
+  parametro aggiunto resta indietro in silenzio. Un test verifica che ogni proprietà visibile abbia
+  il livello, perché una dimenticanza farebbe sparire il parametro dalla vista Base senza errori,
+  facendolo salvare al proprio default.
+  Sono Base i dieci parametri su cui si decide davvero: cadenza, finestra breve, voti richiesti, le
+  tre soglie di drawdown (spegnimento, rientro, blocco definitivo), il fermo dopo un OFF, la scelta
+  del sizing e i due estremi di allocazione. Tutto il resto è calibrazione fine.
+- **2026-08-05** — Le frazioni di `TitanoRotationSetup` si **inseriscono e si leggono come
+  percentuali** (`PercentTypeConverter`). Il modello e il contratto verso il server restano in
+  frazioni — la serializzazione JSON non passa dai `TypeConverter` — ma sparisce il campo in cui si
+  doveva indovinare se `15` volesse dire 15% o 1500%. Era un errore di fattore 100 che non produce
+  eccezioni: produce un manifest con tutte le strategie accese, o tutte spente, e nessun messaggio.
+  Il converter accetta sia la virgola sia il punto.
+- **2026-08-05** — Aggiunto sotto il grid un **riepilogo in prosa della configurazione**
+  (`TitanoSetupSummary`), con gli avvisi di coerenza. Motivo: i tooltip spiegano un parametro alla
+  volta, ma il comportamento nasce dalla loro combinazione — la soglia di rientro ha senso solo
+  relativamente a quella di uscita, la finestra di misura solo relativamente alla cadenza. Il
+  riquadro segnala isteresi assente, blocco definitivo non oltre la soglia di spegnimento, finestre
+  invertite, allocazione degenere, e le due trappole di calibrazione già documentate nell'audit del
+  31/07: finestra breve molto più lunga della cadenza (si ruota spesso e si decide piano) e
+  parametri della categoria 6 inerti quando il sizing è per classifica — la coda di **B3**, che nel
+  `PropertyGrid` non si può disabilitare per valore come si era fatto nella vecchia form a
+  `NumericUpDown`, quindi si dichiara.
+- **2026-08-05** — La schermata setup può **partire da un preset**: la combo elenca i setup
+  esistenti (compresi i tre professionali seminati dal server) e ne copia i parametri lasciando
+  intatti id, nome e descrizione. Chi applica un preset ne vuole la calibrazione, non l'identità.
