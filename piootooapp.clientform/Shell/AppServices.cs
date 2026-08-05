@@ -12,7 +12,7 @@ namespace piootooapp.clientform.Shell;
 /// </summary>
 public sealed class AppServices : IDisposable
 {
-    public const string DefaultServerUrl = "https://localhost:7116";
+    public static string DefaultServerUrl => ClientSettings.ServerBaseUrl;
 
     private readonly HttpClient _httpClient = new();
 

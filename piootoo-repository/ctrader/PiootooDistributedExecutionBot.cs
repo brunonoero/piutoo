@@ -55,6 +55,7 @@ namespace cAlgo.Robots
     {
         private const string LabelPrefix = "PiootooLive";
         private const string BotVersion = "1.1.0"; // aggiornare qui ad ogni release
+        private const string StatusChartObjectName = "PiootooConnectionStatus";
 
         [Parameter("Server Base Url", DefaultValue = "https://localhost:7116")]
         public string ServerBaseUrl { get; set; }
@@ -100,6 +101,9 @@ namespace cAlgo.Robots
         private string _sessionId;
         private string _sessionToken;
         private string _localStatePath;
+        // Stato di connessione mostrato a chart: riflette l'esito dell'ultima chiamata HTTP al
+        // server Piootoo (open-plan, push barre, polling segnale), non solo l'apertura iniziale.
+        private bool _isConnectedToServer;
         private readonly JsonSerializerOptions _json = new(JsonSerializerDefaults.Web)
         {
             PropertyNameCaseInsensitive = true,
@@ -209,6 +213,10 @@ namespace cAlgo.Robots
             }
 
             _accountNumber = Account.Number.ToString();
+            UpdateConnectionStatus(false); // visibile a chart fin dal primo istante, prima ancora di tentare la connessione
+
+            Print("Connessione al server Piootoo: {0} (account={1}, piano='{2}')...",
+                ServerBaseUrl, _accountNumber, PlanCode);
 
             _http = new HttpClient
             {
@@ -217,6 +225,7 @@ namespace cAlgo.Robots
             };
             _http.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
+            Print("Apertura sessione per il piano '{0}'...", PlanCode);
             var openResponse = PostJson("api/v1/trading-sessions/open-plan", new OpenTradingPlanSessionRequestDto
             {
                 PlanCode = PlanCode.Trim(),
@@ -227,22 +236,27 @@ namespace cAlgo.Robots
             if (!openResponse.IsSuccessStatusCode)
             {
                 Print("Impossibile aprire il piano '{0}': {1}", PlanCode, ReadError(openResponse));
+                UpdateConnectionStatus(false);
                 Stop();
                 return;
             }
             var descriptor = JsonSerializer.Deserialize<TradingSessionDescriptorDto>(ReadBody(openResponse), _json);
             _sessionId = descriptor?.SessionId;
             _sessionToken = descriptor?.SessionToken;
+            Print("Sessione aperta: SessionId={0}.", _sessionId);
+
             var pairs = new List<Pair>();
             var error = "descriptor sessione mancante";
             if (descriptor == null ||
                 !BuildPairs(descriptor.Instruments, out pairs, out error))
             {
                 Print("Configurazione strumenti del piano non valida: {0}", error);
+                UpdateConnectionStatus(false);
                 Stop();
                 return;
             }
             _pairs.AddRange(pairs);
+            Print("Strumenti configurati: {0}.", string.Join("; ", pairs));
             if (!IsBacktesting)
                 _localStatePath = BuildLocalStatePath(PlanCode, _accountNumber);
 
@@ -256,9 +270,28 @@ namespace cAlgo.Robots
             Positions.Closed += OnPositionClosed;
             Timer.Start(TimeSpan.FromSeconds(Math.Max(1, PollingSeconds)));
 
+            UpdateConnectionStatus(true);
             Print("{0} v{1} avviato. Account={2} Session={3} Strumenti={4}",
                 nameof(PiootooDistributedExecutionBot), BotVersion, _accountNumber, _sessionId,
                 string.Join("; ", _pairs));
+        }
+
+        /// <summary>
+        /// Riquadro statico in alto a destra sul chart con account, piano e stato della connessione
+        /// al server Piootoo: è la prima cosa che deve poter vedere chi guarda il grafico, senza
+        /// dover aprire i log. Va aggiornato ad ogni cambio di stato, non solo all'avvio, perché una
+        /// chiamata HTTP fallita a runtime deve riflettersi subito sul chart.
+        /// </summary>
+        private void UpdateConnectionStatus(bool connected)
+        {
+            _isConnectedToServer = connected;
+            var text = string.Format(
+                "Piootoo\nAccount: {0}\nPiano: {1}\nConnesso: {2}",
+                string.IsNullOrEmpty(_accountNumber) ? "-" : _accountNumber,
+                string.IsNullOrWhiteSpace(PlanCode) ? "-" : PlanCode,
+                connected ? "Si" : "No");
+            Chart.DrawStaticText(StatusChartObjectName, text, VerticalAlignment.Top, HorizontalAlignment.Right,
+                connected ? Color.LightGreen : Color.OrangeRed);
         }
 
         protected override void OnBar()
@@ -656,8 +689,11 @@ namespace cAlgo.Robots
                 {
                     if (VerboseLogging)
                         Print("Push barra {0} fallito: {1}", pair, ReadError(response));
+                    UpdateConnectionStatus(false);
                     return false;
                 }
+                if (!_isConnectedToServer)
+                    UpdateConnectionStatus(true);
 
                 pair.LastPushedBarTimeUtc = barTimeUtc;
                 return true;
@@ -665,6 +701,7 @@ namespace cAlgo.Robots
             catch (Exception ex)
             {
                 Print("Errore invio barra {0}: {1}", pair, ex.Message);
+                UpdateConnectionStatus(false);
                 return false;
             }
         }
@@ -719,8 +756,11 @@ namespace cAlgo.Robots
                 if (!response.IsSuccessStatusCode)
                 {
                     if (VerboseLogging) Print("Poll segnale fallito: {0}", ReadError(response));
+                    UpdateConnectionStatus(false);
                     return;
                 }
+                if (!_isConnectedToServer)
+                    UpdateConnectionStatus(true);
 
                 var body = ReadBody(response);
                 var payload = JsonSerializer.Deserialize<AccountSignalResponseDto>(body, _json);
@@ -745,6 +785,7 @@ namespace cAlgo.Robots
             catch (Exception ex)
             {
                 Print("Errore polling segnale: {0}", ex.Message);
+                UpdateConnectionStatus(false);
             }
         }
 

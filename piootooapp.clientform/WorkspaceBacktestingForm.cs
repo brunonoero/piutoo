@@ -20,7 +20,7 @@ public partial class WorkspaceBacktestingForm : Form
     };
     private readonly WorkspaceApiClient _workspaceApi;
 
-    private readonly TextBox _serverUrlTextBox = new() { Text = "https://localhost:7116", Width = 280 };
+    private readonly TextBox _serverUrlTextBox = new() { Text = Shell.ClientSettings.ServerBaseUrl, Width = 280 };
     private readonly DateTimePicker _startDatePicker = new();
     private readonly DateTimePicker _endDatePicker = new();
     private readonly NumericUpDown _initialCapitalInput = new();
