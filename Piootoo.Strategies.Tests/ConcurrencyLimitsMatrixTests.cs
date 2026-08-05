@@ -463,22 +463,7 @@ public sealed class ConcurrencyLimitsMatrixTests : IDisposable
         });
         new TradingJsonStore(workspaces.GetBacktestPath(workspace.Id, "source")).Initialize();
 
-        // Anagrafica degli account nel registro globale: senza di essa il claim non sa risolvere
-        // capitale e tabella di conversione e fallisce esplicitamente (ResolveAccountConversion).
-        // Nessuna conversione simboli: qui gli account operano 1 a 1, il test misura i lucchetti.
-        foreach (var row in groups
-                     .GroupBy(x => x.AccountNumber, StringComparer.OrdinalIgnoreCase)
-                     .Select(g => g.First()))
-        {
-            workspaces.CreateAccount(new WorkspaceAccount
-            {
-                Name = $"acc-{row.AccountNumber}",
-                AccountNumber = row.AccountNumber,
-                GroupId = row.GroupId,
-                InitialBalance = 100_000m,
-                Enabled = true
-            });
-        }
+        TestAccountRegistry.Register(workspaces, groups);
 
         var sessions = new TradingSessionService(
             workspaces, new OneSignalPerBarEvaluationService(),

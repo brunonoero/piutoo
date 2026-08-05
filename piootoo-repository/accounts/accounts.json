@@ -3,9 +3,24 @@
     "5Perc",
     "Fintokey",
     "FTMO",
+    "ICS-01",
     "XXXX"
   ],
   "Accounts": [
+    {
+      "Id": "ic-market-demo-01",
+      "Name": "ic-market-demo-01",
+      "AccountNumber": "21341234",
+      "GroupId": "ICS-01",
+      "Broker": "ics",
+      "Currency": "USD",
+      "InitialBalance": 1000000,
+      "Enabled": true,
+      "Notes": "",
+      "CreatedUtc": "2026-08-05T05:14:19.6301127Z",
+      "UpdatedUtc": "2026-08-05T05:15:18.1366906Z",
+      "SymbolConversionCode": ""
+    },
     {
       "Id": "12345678",
       "Name": "primo FTMO",
@@ -24,14 +39,14 @@
       "Id": "aaaaa",
       "Name": "Secondo FTMO",
       "AccountNumber": "6789",
-      "GroupId": "5Perc",
+      "GroupId": "FTMO",
       "Broker": "aaaaa",
       "Currency": "EUR",
       "InitialBalance": 1000000,
       "Enabled": true,
       "Notes": "aaaaaa",
       "CreatedUtc": "2026-07-28T12:31:52.4493064Z",
-      "UpdatedUtc": "2026-08-04T11:49:27.46795Z",
+      "UpdatedUtc": "2026-08-05T05:10:59.9577337Z",
       "SymbolConversionCode": "cfd-mt4-ftmo"
     }
   ]

@@ -40,6 +40,7 @@ public sealed class TitanoSizingAuditTests
                 Name = "TitanoBt",
                 StrategiesFilter = [definition.Id]
             });
+            TestAccountRegistry.Register(workspaces, "1001");
 
             var backtestFolder = "source";
             var backtestPath = workspaces.GetBacktestPath(workspace.Id, backtestFolder);
@@ -121,6 +122,7 @@ public sealed class TitanoSizingAuditTests
                 Name = "TitanoOff",
                 StrategiesFilter = [definition.Id]
             });
+            TestAccountRegistry.Register(workspaces, "1001");
 
             var backtestFolder = "source";
             var backtestPath = workspaces.GetBacktestPath(workspace.Id, backtestFolder);
@@ -162,6 +164,7 @@ public sealed class TitanoSizingAuditTests
                 Name = "TitanoOut",
                 StrategiesFilter = [definition.Id]
             });
+            TestAccountRegistry.Register(workspaces, "1001");
 
             var backtestFolder = "source";
             var backtestPath = workspaces.GetBacktestPath(workspace.Id, backtestFolder);
@@ -220,6 +223,7 @@ public sealed class TitanoSizingAuditTests
                 Name = "PlanDouble",
                 StrategiesFilter = [definition.Id]
             });
+            TestAccountRegistry.Register(workspaces, "1001");
 
             var backtestFolder = "source";
             var backtestPath = workspaces.GetBacktestPath(workspace.Id, backtestFolder);
@@ -332,6 +336,7 @@ public sealed class TitanoSizingAuditTests
                 Name = "PlanOff",
                 StrategiesFilter = [definition.Id]
             });
+            TestAccountRegistry.Register(workspaces, "1001");
 
             var backtestFolder = "source";
             var backtestPath = workspaces.GetBacktestPath(workspace.Id, backtestFolder);
@@ -427,6 +432,7 @@ public sealed class TitanoSizingAuditTests
                 Name = "PlanMax",
                 StrategiesFilter = [definition.Id]
             });
+            TestAccountRegistry.Register(workspaces, "1001");
 
             var plans = new TradingPlanService(workspaces);
             plans.Save(workspace.Id, new SaveTradingPlanRequest
@@ -514,6 +520,7 @@ public sealed class TitanoSizingAuditTests
                 Name = "PlanMaxRt",
                 StrategiesFilter = [definition.Id]
             });
+            TestAccountRegistry.Register(workspaces, "1001");
 
             var plans = new TradingPlanService(workspaces);
             plans.Save(workspace.Id, new SaveTradingPlanRequest

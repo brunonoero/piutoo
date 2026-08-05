@@ -73,9 +73,35 @@ Tre semantiche possibili, da scegliere prima di scrivere codice:
    zero.
 3. **Rifiuto esplicito** — la vecchia execution key non è riutilizzabile e il cBot apre una sessione
    nuova, con un errore che lo dice.
+4. **Warm-up replay dal client** — variante della 1 che non persiste `History`. Si salva il solo
+   stato piccolo (vedi sotto); al resume la sessione riparte in **warm-up**: accetta barre e non
+   emette intent finché ogni stream non ha storia sufficiente, e a riempirla è il cBot che ripusha
+   la propria finestra storica. Non è lavoro nuovo lato client — `PiootooDistributedExecutionBot`
+   ha già il parametro *finestra storica* e cTrader tiene le barre in memoria — e il replay è
+   deterministico perché le barre chiuse sono immutabili e `POST /bars` è già deduplicato per
+   idempotency key e sequence. Il fallimento resta visibile: se il client non ripusha, la sessione
+   dichiara warm-up e non opera, invece di operare male.
+
+Lo stato in RAM non è omogeneo, e la scelta cambia a seconda della fetta:
+
+| Fetta | Contenuto | Nota |
+|---|---|---|
+| Già su disco | `trades.json`, `signals.json`, condizioni di uscita del bot diretto (04/08) | niente da fare |
+| Piccola e seria | `Entries`, `Fills`, `IntentSequence`, `ExternalPositions`, `AccountActiveIntent`, `GroupStrategySlots`, `PeakEquity` | poche centinaia di byte; perderla azzera `MaxEntriesPerSession` e libera slot di concorrenza già occupati, in silenzio |
+| Grossa e velenosa | `History` per stream, istanza mutabile di `PiootooTradingService` | è il buffer di barre che il **client ha già**: persisterlo è duplicare |
+
+Se e quando si interviene, l'ordine per costo crescente è: rendere esplicito il fallimento (opzione
+3, `409` con messaggio che dichiara lo stato runtime non ricostruibile, invece di una sessione nuova
+che sembra la vecchia); poi persistere i soli contatori di rischio, che sono l'unica perdita che fa
+*aprire* trade che non si dovrebbero aprire; il warm-up replay per ultimo. La scrittura va fatta con
+`AtomicFileWriter` in `<workspace>/sessions/{piano}-{key}/session-state.json`, **fuori dal loop
+barre** (§ invarianti).
 
 La persistenza locale delle condizioni di uscita nel bot diretto (04/08) copre già buona parte del
-rischio live a costo molto minore, quindi la scelta non è urgente.
+rischio live a costo molto minore, quindi la scelta non è urgente. L'architettura è già "il client
+sopravvive al server" — uscite persistite lato bot, riconciliazione col broker all'avvio,
+`FlatAtWeekEnd` che vale anche a server irraggiungibile — ed è la postura giusta per un server che
+gira su macchina locale.
 
 ### La distribuzione multi-account non è backtestabile
 

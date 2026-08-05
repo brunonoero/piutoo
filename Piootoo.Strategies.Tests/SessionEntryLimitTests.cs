@@ -122,21 +122,7 @@ public sealed class SessionEntryLimitTests : IDisposable
         });
         new TradingJsonStore(workspaces.GetBacktestPath(workspace.Id, "source")).Initialize();
 
-        // Anagrafica degli account nel registro globale: senza di essa il claim fallisce
-        // (ResolveAccountConversion), perché capitale e conversione simboli vivono lì.
-        foreach (var row in (groups ?? [])
-                     .GroupBy(x => x.AccountNumber, StringComparer.OrdinalIgnoreCase)
-                     .Select(g => g.First()))
-        {
-            workspaces.CreateAccount(new WorkspaceAccount
-            {
-                Name = $"acc-{row.AccountNumber}",
-                AccountNumber = row.AccountNumber,
-                GroupId = row.GroupId,
-                InitialBalance = 100_000m,
-                Enabled = true
-            });
-        }
+        TestAccountRegistry.Register(workspaces, groups);
 
         var sessions = new TradingSessionService(
             workspaces, new OneEntryPerSessionEvaluationService(),

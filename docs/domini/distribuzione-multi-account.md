@@ -308,6 +308,41 @@ Le lacune segnalate nella prima stesura sono state colmate in
 | Default del limite di concorrenza | `ConcurrencyLimitDefault_IsOffOnlyForTheSourceBacktest` |
 | Limite forzabile in entrambe le direzioni (§4.2) | `ConcurrencyLimitCanBeForcedOn_InABacktestWithoutTitano`, `ConcurrencyLimitCanBeForcedOff_InRealtime` |
 
+La matrice del §3 — limite per account contro lucchetti di gruppo — è verificata in
+`ConcurrencyLimitsMatrixTests.cs`, che si appoggia al fatto che i due meccanismi
+rispondono in modo diverso: `MaxConcurrentTradesExceeded` viene dal passo 2 e non
+consuma il template, `NoSignal` dai passi 3-5. Lo stesso file contiene i test di
+concorrenza reale (poll paralleli di più account, poll simultanei dello stesso
+account, push e poll sovrapposti).
+
+---
+
+## 6. Provarlo su dati reali
+
+*Console WinForms → Operatività → Verifica concorrenza.*
+
+La schermata apre una sessione usa e getta da un piano reale (chiave di esecuzione
+con l'istante di avvio, quindi non riprende mai una sessione di un cBot), la
+alimenta con le barre del datafeed del repository e polla al posto dei cBot,
+registrando ogni decisione: log per poll con i numeri su cui il server ha deciso,
+matrice per account, template con i gruppi che li hanno consumati, conteggio per
+causa di scarto. I gruppi arrivano dal piano ma sono modificabili, così si prova
+la stessa serie di barre con limiti diversi.
+
+Il broker è simulato dalla console: riempie tutto e chiude dopo N barre passando
+per `POST /intents/close-external` — cioè per lo stesso percorso che in produzione
+libera slot di gruppo e lucchetto simbolo, senza scorciatoie.
+
+Due cose da sapere prima di leggere i risultati:
+
+- **La modalità client cambia il default del limite.** In `Backtest` con Titano
+  spento il limite è disattivo (§4), e la schermata lo dice in rosso prima di
+  partire: senza quell'avviso si finisce a chiedersi perché `MaxConcurrentTrades`
+  «non funziona».
+- **L'ordine dei poll è quello delle righe.** La distribuzione è pull: chi polla
+  prima serve per primo, quindi riordinare le righe cambia chi prende cosa. È il
+  motivo per cui l'alternanza del caso 5b non è una regola.
+
 ---
 
 ## Riferimenti codice
@@ -324,3 +359,5 @@ Le lacune segnalate nella prima stesura sono state colmate in
 - `Piootoo.Shared/Models/Trading/TradingSessionContracts.cs` — `AccountGroupMapping`,
   `AccountSignalResponse`
 - `piootoo-repository/ctrader/PiootooDirectExecutionBot.cs` — ciclo `OnBar` → push → poll
+- `Piootoo.Strategies.Tests/ConcurrencyLimitsMatrixTests.cs` — limite vs lucchetti, stress concorrente
+- `piootooapp.clientform/Shell/Screens/ConcurrencyHarnessScreen.cs` — banco di prova su dati reali

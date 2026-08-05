@@ -211,28 +211,6 @@ public sealed class MultiAccountDistributionTests : IDisposable
         MaxConcurrentTrades = maxConcurrent, ApplyTitanoFilters = false
     };
 
-    /// <summary>
-    /// Anagrafica minima degli account nel registro globale: senza di essa il claim fallisce
-    /// (<c>ResolveAccountConversion</c>) perché non sa risolvere capitale e conversione simboli.
-    /// Nessuna tabella di conversione: qui gli account operano 1 a 1.
-    /// </summary>
-    private static void RegisterAccounts(WorkspaceService workspaces, IReadOnlyList<TradingGroupRow> groups)
-    {
-        foreach (var row in groups
-                     .GroupBy(x => x.AccountNumber, StringComparer.OrdinalIgnoreCase)
-                     .Select(g => g.First()))
-        {
-            workspaces.CreateAccount(new WorkspaceAccount
-            {
-                Name = $"acc-{row.AccountNumber}",
-                AccountNumber = row.AccountNumber,
-                GroupId = row.GroupId,
-                InitialBalance = 100_000m,
-                Enabled = true
-            });
-        }
-    }
-
     private (TradingSessionService Sessions, TradingSessionDescriptor Descriptor) Session(
         int signalsPerBar,
         IReadOnlyList<TradingGroupRow> groups,
@@ -246,7 +224,7 @@ public sealed class MultiAccountDistributionTests : IDisposable
             Name = $"distrib-{Guid.NewGuid():N}", StrategiesFilter = [strategyId]
         });
         new TradingJsonStore(workspaces.GetBacktestPath(workspace.Id, "source")).Initialize();
-        RegisterAccounts(workspaces, groups);
+        TestAccountRegistry.Register(workspaces, groups);
 
         var sessions = new TradingSessionService(
             workspaces, new MultiSignalEvaluationService(signalsPerBar),
