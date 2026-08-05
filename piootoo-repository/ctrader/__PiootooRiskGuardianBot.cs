@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Text.Json;
 using cAlgo.API;
+using File = System.IO.File;
 
 namespace cAlgo.Robots
 {

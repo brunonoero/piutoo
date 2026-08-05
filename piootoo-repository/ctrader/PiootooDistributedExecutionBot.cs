@@ -8,6 +8,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using cAlgo.API;
+using File = System.IO.File;
 using HttpMethod = System.Net.Http.HttpMethod;
 
 namespace cAlgo.Robots
