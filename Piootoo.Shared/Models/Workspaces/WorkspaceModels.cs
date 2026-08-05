@@ -1,3 +1,5 @@
+using Piootoo.Shared.Models.Trading;
+
 namespace Piootoo.Shared.Models.Workspaces;
 
 public sealed class WorkspaceMasterFilter
@@ -89,6 +91,25 @@ public sealed class AccountSymbolMapping
     /// vale 100k contro 1M del contratto Piootoo. Deve essere maggiore di zero.
     /// </summary>
     public decimal ContractMultiplier { get; set; } = 1m;
+
+    /// <summary>
+    /// Quantità minima eseguibile su questo simbolo presso il broker dell'account, espressa nei
+    /// contratti del broker. Sotto questa soglia l'intent vale zero e non viene consegnato: meglio
+    /// nessun ordine che un ordine di taglia non eseguibile.
+    /// </summary>
+    public decimal MinimumQuantity { get; set; } = 1m;
+
+    /// <summary>Passo di volume del broker; la quantità viene arrotondata per difetto a un suo multiplo.</summary>
+    public decimal QuantityStep { get; set; } = 1m;
+
+    /// <summary>
+    /// Granularità del volume: contratti interi per i future, passo di volume per i CFD.
+    ///
+    /// <para>Vive qui e non sul piano perché è una proprietà della coppia <b>broker/strumento</b>, e
+    /// solo al claim — quando il conto è noto e la quantità è già stata convertita nei contratti del
+    /// broker — arrotondare significa qualcosa. Vedi <c>docs/decisioni.md</c> (2026-08-05).</para>
+    /// </summary>
+    public QuantityRoundingMode RoundingMode { get; set; } = QuantityRoundingMode.FuturesContracts;
 
     /// <summary>Se false il simbolo resta configurato ma non è operativo sull'account.</summary>
     public bool Enabled { get; set; } = true;

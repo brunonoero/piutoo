@@ -81,29 +81,54 @@ alcun `SymbolConversionCode`: nessun codice è già 1 a 1, quindi resta l'accoun
 registro delle conversioni cambia. Il preset identità del catalogo strategie è comunque
 disponibile come tabella nominata riutilizzabile: vedi `default-futures` nella migrazione.
 
-## Effetto sul backtest
+## Nessun effetto sul backtest interno
 
-`BacktestingRequest.AccountId` è opzionale. Quando è valorizzato, il run risolve **una volta sola**
-l'account e — se ha un `SymbolConversionCode` — la tabella referenziata, in un
-`AccountSymbolConversion` (dizionario per symbol normalizzato: niente lookup costosi nel loop
-caldo). La applica in due punti diversi, per due ragioni diverse:
+**Il backtest interno non conosce gli account.** Un run è *capitale iniziale + strategie del
+masterfilter + datafeed*: nessuna conversione di simbolo, `ContractMultiplier` e `BalanceScale`
+fissi a 1, quantità identica a quella dichiarata dalla strategia. `BacktestingRequest` non ha più
+un `AccountId` e `BacktestingScreen` non ha più la combo di selezione.
 
-- **Size** — il moltiplicatore scala `signal.Quantity` *prima* che il motore veda il segnale, così
-  trade, equity e drawdown riflettono i contratti realmente inviabili su quel conto. La quantità
-  resta `decimal` fino a trade e P&L: conversioni come `1 × 0,01 = 0,01` non vengono arrotondate
-  artificialmente a un contratto.
-- **Symbol** — la traduzione finisce solo in `signals.json` (`AccountSymbol`, `AccountId`,
-  `ContractMultiplier`). Il symbol interno **non** viene rinominato: il motore indicizza prezzi,
-  barre e chiavi di posizione sul symbol Piootoo normalizzato, e rinominarlo a monte lo lascerebbe
-  senza prezzi. Il symbol del broker serve a chi inoltra l'ordine, non a chi lo simula.
+Il motivo è che quel run è il **campione sorgente di Titano**: con la size legata al conto, due
+backtest identici su account diversi produrrebbero rotazioni diverse, e la rotazione misurerebbe il
+capitale invece delle strategie. È lo stesso principio per cui `EnforceConcurrencyLimits` è già
+disattivo nel backtest sorgente. Vedi `docs/decisioni.md` (2026-08-05).
 
-Un symbol mappato ma **disabilitato** non è operativo sull'account: i suoi segnali vengono scartati
-e registrati come anomalia nel `backtest-log.jsonl`. Un symbol **assente** dalla tabella non è un
-errore: nessuna conversione, moltiplicatore 1.
+Conseguenza da conoscere: un symbol **disabilitato** su un account non filtra più nulla in
+backtest. La disabilitazione è una proprietà operativa del conto e agisce dove si opera.
 
-Un `AccountId` che non esiste, o un `SymbolConversionCode` valorizzato ma assente dal registro,
-fanno fallire il run. Proseguire 1 a 1 falserebbe le size in silenzio, ed è esattamente la classe
-di errore che il progetto tratta come inaccettabile (vedi `docs/PROGETTO.md` §7).
+I campi `AccountId`, `AccountSymbol`, `ContractMultiplier` e `AccountBalanceScale` restano nel
+`PersistedSignal` — il formato di `signals.json` è unico con quello prodotto dalle sessioni — e il
+backtest li scrive all'identità.
+
+## Effetto sulle sessioni
+
+È qui che la conversione conta, perché il segnale deve diventare un ordine eseguibile su un conto
+reale. La sessione risolve la tabella per account e la applica in `CloneForClaim`, cioè **quando
+il destinatario è noto**: i template prodotti da `PushBars` sono ancora all'identità.
+
+La size dell'account è il prodotto di due fattori indipendenti:
+
+- **`BalanceScale`** = `InitialBalance / 1.000.000`, proprietà del **conto**. Le strategie
+  dichiarano le quantità rispetto a un milione di riferimento, quindi un conto da 100.000 opera
+  `0,1` volte la size dichiarata.
+- **`ContractMultiplier`**, proprietà dello **strumento**: rapporta il lotto del broker (CFD) al
+  contratto Piootoo (future), che hanno taglie diverse.
+
+`GetSizeFactor` è il loro prodotto. Tenerli separati è ciò che permette di cambiare il capitale di
+un conto senza ricalcolare a mano tutte le righe simbolo.
+
+Il **symbol** tradotto finisce solo nell'intent e in `signals.json` (`AccountSymbol`, `AccountId`,
+`ContractMultiplier`). Il symbol interno **non** viene rinominato: il motore indicizza prezzi, barre
+e chiavi di posizione sul symbol Piootoo normalizzato, e rinominarlo a monte lo lascerebbe senza
+prezzi. Il symbol del broker serve a chi inoltra l'ordine, non a chi lo valuta.
+
+Un symbol mappato ma **disabilitato** non è operativo su quell'account: il template resta
+disponibile per gli altri account invece di essere consumato. Un symbol **assente** dalla tabella
+non è un errore: nessuna conversione, moltiplicatore 1.
+
+Un account senza anagrafica, o un `SymbolConversionCode` valorizzato ma assente dal registro, fanno
+fallire l'apertura della sessione. Proseguire 1 a 1 falserebbe le size in silenzio, ed è esattamente
+la classe di errore che il progetto tratta come inaccettabile (vedi `docs/PROGETTO.md` §7).
 
 ## Riferimenti codice
 
@@ -112,13 +137,11 @@ di errore che il progetto tratta come inaccettabile (vedi `docs/PROGETTO.md` §7
 - `Piootoo.Core/Services/AccountSymbolConversion.cs` — tabella risolta per il loop
 - `Piootoo.Core/Services/WorkspaceService.cs` — CRUD account, CRUD tabelle di conversione,
   `ResolveSymbolConversionMappings`, account di default
-- `Piootoo.Core/Services/PiootooBacktestingService.cs` — `ResolveAccountConversion`,
-  `TryApplyAccountConversion`, `ToPersistedSignals`
-- `Piootoo.Core/Services/TradingSessionService.cs` — `ResolveAccountConversion` per sessione
+- `Piootoo.Core/Services/TradingSessionService.cs` — `ResolveAccountConversion` per sessione,
+  `CloneForClaim` (applicazione dei due fattori al claim)
 - `PiootooApp.Server/Controllers/AccountsController.cs`,
   `PiootooApp.Server/Controllers/SymbolConversionsController.cs` — endpoint
 - `piootooapp.clientform/Shell/Screens/AccountDetailScreen.cs`,
   `piootooapp.clientform/Shell/Screens/SymbolConversionListScreen.cs`,
   `piootooapp.clientform/Shell/Screens/SymbolConversionDetailScreen.cs`
-- `piootooapp.clientform/WorkspaceBacktestingForm.cs` — tab Accounts e selettore nel tab
-  Backtesting della console legacy
+- `piootooapp.clientform/WorkspaceBacktestingForm.cs` — tab Accounts della console legacy

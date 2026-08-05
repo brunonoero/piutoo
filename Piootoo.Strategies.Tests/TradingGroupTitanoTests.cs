@@ -379,6 +379,8 @@ public sealed class TradingGroupTitanoTests
         });
         var backtest = workspaces.GetBacktestPath(workspace.Id, "source");
         new TradingJsonStore(backtest).Initialize();
+        // I conti usati dai test di questo file: il claim li pretende nel registro globale.
+        TestAccountRegistry.Register(workspaces, "1001", "1002", "2001", "2002");
         var rotation = new TitanoRotationService(workspaces);
         var sessions = new TradingSessionService(
             workspaces, new FixedSignalEvaluationService(), rotation, new PositionSizingService());

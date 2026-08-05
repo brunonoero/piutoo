@@ -77,4 +77,72 @@ public sealed class TradingSessionApiClient : ApiClientBase
             $"api/v1/trading-sessions/{Escape(sessionId)}/groups",
             new SetTradingGroupsRequest { SessionToken = sessionToken, Rows = rows },
             cancellationToken);
+
+    /// <summary>
+    /// Barre chiuse. In multi-account la risposta contiene i <b>template</b> non assegnati: sono i
+    /// segnali che gli account dovranno reclamare, non ordini da eseguire.
+    /// </summary>
+    public Task<PushBarsResponse> PushBarsAsync(
+        PushBarsRequest request,
+        CancellationToken cancellationToken = default)
+        => SendForAsync<PushBarsResponse>(
+            HttpMethod.Post,
+            $"api/v1/trading-sessions/{Escape(request.SessionId)}/bars",
+            request,
+            cancellationToken);
+
+    /// <summary>
+    /// Poll di un singolo account, con lo stato dichiarato dal broker. Le posizioni e gli ordini
+    /// pendenti passati qui sono ciò che il server conta per <c>MaxConcurrentTrades</c>: senza,
+    /// ricadrebbe sul proprio conteggio interno.
+    /// </summary>
+    public Task<AccountSignalResponse> PollSignalAsync(
+        string sessionId,
+        string sessionToken,
+        string accountNumber,
+        AccountSignalPollRequest request,
+        CancellationToken cancellationToken = default)
+        => SendForAsync<AccountSignalResponse>(
+            HttpMethod.Post,
+            $"api/v1/trading-sessions/{Escape(sessionId)}/accounts/{Escape(accountNumber)}/signal",
+            request,
+            cancellationToken,
+            sessionToken);
+
+    public Task<TradingSessionSnapshot> ApplyReportAsync(
+        string sessionId,
+        ExecutionReportRequest request,
+        CancellationToken cancellationToken = default)
+        => SendForAsync<TradingSessionSnapshot>(
+            HttpMethod.Post,
+            $"api/v1/trading-sessions/{Escape(sessionId)}/execution-reports",
+            request,
+            cancellationToken);
+
+    /// <summary>
+    /// Registra la chiusura di una posizione decisa dal client. L'intent restituito va poi
+    /// riportato con <see cref="ApplyReportAsync"/>: è quel report a liberare slot di gruppo e
+    /// lucchetto account/simbolo.
+    /// </summary>
+    public Task<OrderIntent> CreateExternalCloseIntentAsync(
+        string sessionId,
+        CreateExternalCloseIntentRequest request,
+        CancellationToken cancellationToken = default)
+        => SendForAsync<OrderIntent>(
+            HttpMethod.Post,
+            $"api/v1/trading-sessions/{Escape(sessionId)}/intents/close-external",
+            request,
+            cancellationToken);
+
+    public Task<List<OrderIntent>> GetIntentsAsync(
+        string sessionId,
+        string sessionToken,
+        long after = 0,
+        CancellationToken cancellationToken = default)
+        => SendForAsync<List<OrderIntent>>(
+            HttpMethod.Get,
+            $"api/v1/trading-sessions/{Escape(sessionId)}/intents?after={after}",
+            null,
+            cancellationToken,
+            sessionToken);
 }

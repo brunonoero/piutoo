@@ -225,6 +225,11 @@ BacktestingRequest (workspace + range + capitale)
   stop loss, take profit e time exit vengono verificati in ritardo.
 * Ogni job usa la **propria istanza** di `PiootooTradingService`: il motore è mutabile
   e non è thread-safe.
+* Il run è **neutro rispetto agli account**: nessuna conversione di simbolo, nessuna
+  scala sul capitale di un conto, moltiplicatori a 1. È il campione sorgente di Titano
+  e deve misurare le strategie, non l'operatività di un conto — stesso principio per cui
+  il limite di trade concorrenti non si applica qui. Conversione e scala vivono sulle
+  sessioni: [`domini/account-e-conversione-symbol.md`](domini/account-e-conversione-symbol.md).
 * L'orologio del loop è sintetico e non coincide con le barre del feed. Il prezzo di
   **mark-to-market** è sempre l'ultimo noto, anche stantio; la barra di **esecuzione**
   deve invece appartenere al tick corrente, altrimenti un ordine si riempie sui prezzi

@@ -16,4 +16,19 @@
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
 
+  <!--
+    Il pacchetto Microsoft.Web.WebView2 referenzia due wrapper: quello WinForms (l'unico usato,
+    in HtmlReportViewerForm) e quello WPF. Il secondo dipende da WindowsBase 5.0.0.0 di
+    Microsoft.WindowsDesktop.App, mentre un progetto solo-WinForms compila contro il facade
+    4.0.0.0 di Microsoft.NETCore.App: da lì l'MSB3277. Togliere il wrapper mai caricato evita di
+    abilitare WPF solo per far combaciare le versioni.
+
+    Deve girare prima di ResolveAssemblyReferences, che è il target dove il conflitto emerge.
+  -->
+  <Target Name="RimuoviWebView2Wpf" BeforeTargets="ResolveAssemblyReferences">
+    <ItemGroup>
+      <Reference Remove="@(Reference->WithMetadataValue('Filename','Microsoft.Web.WebView2.Wpf'))" />
+    </ItemGroup>
+  </Target>
+
 </Project>

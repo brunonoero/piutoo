@@ -35,9 +35,17 @@ public sealed class TradingSessionsHttpTests : IDisposable
         _factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
         {
             builder.UseEnvironment("Testing");
+            // Tutti i path sotto la radice temporanea: l'appsettings del server punta al repository
+            // reale della macchina, che in test non deve essere né letto né creato. Sovrascrivere il
+            // solo Workspaces lasciava settings/ e accounts/ sul path di produzione.
             builder.ConfigureAppConfiguration((_, config) => config.AddInMemoryCollection(new Dictionary<string, string?>
             {
-                ["Piootoo:Workspaces"] = _root
+                ["Piootoo:BasePath"] = _root,
+                ["Piootoo:Workspaces"] = _root,
+                ["Piootoo:SettingsPath"] = Path.Combine(_root, "settings"),
+                ["Piootoo:Accounts"] = Path.Combine(_root, "accounts"),
+                ["Piootoo:RepositoryPath"] = Path.Combine(_root, "datafeed"),
+                ["Piootoo:StrategiesPath"] = Path.Combine(_root, "easy")
             }));
             builder.ConfigureTestServices(services =>
             {
@@ -277,6 +285,8 @@ public sealed class TradingSessionsHttpTests : IDisposable
         var workspaces = _factory.Services.GetRequiredService<WorkspaceService>();
         var plansDir = Path.Combine(workspaces.GetWorkspacePath(_workspace.Id), "plans");
         Directory.CreateDirectory(plansDir);
+        // Il file contiene ancora "InitialCapital": la proprietà non esiste più sul piano ed è qui
+        // di proposito, perché i plans.json già scritti la contengono e devono restare leggibili.
         await File.WriteAllTextAsync(Path.Combine(plansDir, "plans.json"),
             $$"""
             [

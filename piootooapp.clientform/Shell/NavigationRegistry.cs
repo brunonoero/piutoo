@@ -60,7 +60,11 @@ public static class NavigationRegistry
             new NavigationEntry("Run Titano", () => new TitanoRunListScreen()),
             // Stessa forma delle altre due: la voce apre la lista, "Apri da piano"/"Sessione diretta"
             // portano a TradingSessionsScreen — include anche le sessioni aperte da un cBot.
-            new NavigationEntry("Sessioni di trading", () => new TradingSessionListScreen()))
+            new NavigationEntry("Sessioni di trading", () => new TradingSessionListScreen()),
+            // Unica voce che non apre una lista, e la ragione è che non ha un'anagrafica dietro:
+            // è uno strumento diagnostico che crea una propria sessione usa e getta da un piano.
+            // Sta qui e non sotto le sessioni perché non osserva quelle esistenti, ne fabbrica una.
+            new NavigationEntry("Verifica concorrenza", () => new ConcurrencyHarnessScreen()))
         // La sezione "Analisi" non esiste più. Conteneva "Risultati trading" e "Rotazioni Titano":
         // i primi sono il tab Operazioni del dettaglio backtest, le seconde il dettaglio di un run.
         // Entrambe erano la stessa cosa vista due volte, e separavano il dato da ciò che lo spiega.

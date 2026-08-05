@@ -47,7 +47,6 @@ public partial class WorkspaceBacktestingForm : Form
     private readonly Button _refreshWorkspacesButton = new();
     private readonly Button _saveMasterFilterButton = new();
     private readonly ComboBox _backtestingWorkspaceCombo = new();
-    private readonly ComboBox _backtestingAccountCombo = new();
     private readonly ComboBox _titanoWorkspaceCombo = new();
     private readonly ComboBox _titanoBacktestCombo = new();
     private readonly Label _titanoPathLabel = new();
@@ -101,9 +100,8 @@ public partial class WorkspaceBacktestingForm : Form
     private readonly Button _sessionLoadTitanoRuns = new();
     private readonly ComboBox _sessionTitanoMode = new();
     private readonly ComboBox _sessionTitanoBacktest = new();
-    private readonly CheckBox _sessionCppiEnabled = new() { Text = "CPPI (opzionale)", AutoSize = true };
-    private readonly NumericUpDown _sessionCppiFloor = new();
-    private readonly NumericUpDown _sessionCppiMultiplier = new();
+    private readonly CheckBox _sessionPortfolioRiskEnabled =
+        new() { Text = "Rischio di portafoglio", AutoSize = true };
     private readonly Button _sessionCreate = new();
     private readonly Button _sessionStart = new();
     private readonly Button _sessionStop = new();
@@ -766,41 +764,6 @@ public partial class WorkspaceBacktestingForm : Form
         }
     }
 
-    /// <summary>Popola il selettore Backtesting con gli account globali.</summary>
-    private async Task LoadBacktestingAccountsAsync()
-    {
-        var previousId = (_backtestingAccountCombo.SelectedItem as AccountListItem)?.Account.Id;
-        _suppressAccountEvents = true;
-        try
-        {
-            _backtestingAccountCombo.Items.Clear();
-            _backtestingAccountCombo.Items.Add(NoAccountItem);
-
-            NormalizeBaseAddress();
-            foreach (var account in await _workspaceApi.ListAccountsAsync())
-                _backtestingAccountCombo.Items.Add(new AccountListItem(account));
-
-            _backtestingAccountCombo.SelectedIndex = 0;
-            if (!string.IsNullOrWhiteSpace(previousId))
-                for (var index = 1; index < _backtestingAccountCombo.Items.Count; index++)
-                    if (_backtestingAccountCombo.Items[index] is AccountListItem item &&
-                        item.Account.Id.Equals(previousId, StringComparison.OrdinalIgnoreCase))
-                    {
-                        _backtestingAccountCombo.SelectedIndex = index;
-                        break;
-                    }
-        }
-        catch (Exception ex)
-        {
-            Log($"Errore caricamento account per il backtesting: {ex.Message}");
-        }
-        finally
-        {
-            _suppressAccountEvents = false;
-        }
-    }
-
-    private const string NoAccountItem = "(nessuna conversione — 1 a 1)";
 
     private async Task ReloadAccountsAsync(bool showErrors)
     {
@@ -984,7 +947,6 @@ public partial class WorkspaceBacktestingForm : Form
             var created = await _workspaceApi.CreateAccountAsync(account);
             _editingAccount = created;
             await ReloadAccountsAsync(showErrors: true);
-            await LoadBacktestingAccountsAsync();
             _accountStatusLabel.Text = $"Account '{created.Name}' creato, nessuna conversione (1 a 1).";
             Log($"Account globale '{created.Id}' creato.");
         }
@@ -1067,7 +1029,6 @@ public partial class WorkspaceBacktestingForm : Form
 
             _editingAccount = saved;
             await ReloadAccountsAsync(showErrors: true);
-            await LoadBacktestingAccountsAsync();
             _accountStatusLabel.Text = $"Account '{saved.Name}' salvato.";
             Log($"Account globale '{saved.Id}' salvato.");
         }
@@ -1130,8 +1091,6 @@ public partial class WorkspaceBacktestingForm : Form
         _sessionModeCombo.DropDownStyle = ComboBoxStyle.DropDownList;
         _sessionModeCombo.Items.AddRange(Enum.GetNames<ExecutionMode>());
         _sessionModeCombo.SelectedItem = nameof(ExecutionMode.ServerSimulated);
-        ConfigureTitanoNumber(_sessionCppiFloor, 0, 100, 80, 2);
-        ConfigureTitanoNumber(_sessionCppiMultiplier, 0, 10, 1, 2);
         _sessionTitanoRunId.Width = 260;
         _sessionTitanoRunId.DropDownStyle = ComboBoxStyle.DropDown; // consente anche l'incolla manuale
         _sessionTitanoBacktest.Width = 290;
@@ -1150,8 +1109,9 @@ public partial class WorkspaceBacktestingForm : Form
         _sessionTitanoMode.SelectedItem = nameof(TitanoFilterMode.Disabled);
         _sessionTitanoMode.SelectedIndexChanged += (_, _) => UpdateTitanoSessionControlsState();
 
-        _formToolTip.SetToolTip(_sessionCppiEnabled,
-            "Attiva l'overlay CPPI (Constant Proportion Portfolio Insurance): protegge un floor di capitale scalando l'esposizione sul cuscinetto residuo.");
+        _formToolTip.SetToolTip(_sessionPortfolioRiskEnabled,
+            "Attiva i freni di portafoglio del sizing: riduzione sul drawdown dal picco e sull'esposizione lorda. " +
+            "In ExternalBroker il rischio di portafoglio è governato dal broker, non dal server.");
 
         var config = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, WrapContents = true };
         config.Controls.AddRange(new Control[]
@@ -1176,11 +1136,7 @@ public partial class WorkspaceBacktestingForm : Form
             WithHelp(_sessionLoadTitanoRuns, "Elenca le rotazioni Titano già calcolate per il workspace e il backtest selezionati."),
             TitanoLabel("Modalità Titano", TitanoModeHelp),
             WithHelp(_sessionTitanoMode, TitanoModeHelp),
-            _sessionCppiEnabled,
-            TitanoLabel("Floor %", "Percentuale del capitale iniziale da proteggere come floor nell'overlay CPPI."),
-            WithHelp(_sessionCppiFloor, "Percentuale del capitale iniziale da proteggere come floor nell'overlay CPPI."),
-            TitanoLabel("Moltiplicatore", "Moltiplicatore CPPI applicato al cuscinetto (capitale sopra il floor) per determinare l'esposizione consentita."),
-            WithHelp(_sessionCppiMultiplier, "Moltiplicatore CPPI applicato al cuscinetto (capitale sopra il floor) per determinare l'esposizione consentita.")
+            _sessionPortfolioRiskEnabled
         });
         root.Controls.Add(config, 0, 0);
 
@@ -1855,7 +1811,7 @@ public partial class WorkspaceBacktestingForm : Form
         _initialCapitalInput.Maximum = 1_000_000_000;
         _initialCapitalInput.DecimalPlaces = 2;
         _initialCapitalInput.Increment = 1000;
-        _initialCapitalInput.Value = 1_000_000;
+        _initialCapitalInput.Value = TradingConventions.StrategyReferenceBalance;
         _initialCapitalInput.Width = 140;
 
         _commissionInput.Minimum = 0;
@@ -1875,18 +1831,6 @@ public partial class WorkspaceBacktestingForm : Form
             UpdateBacktestingWorkspaceHint();
             if (_suppressWorkspaceEvents) return;
             await LoadBacktestingMasterFilterSummaryAsync();
-        };
-
-        _backtestingAccountCombo.DropDownStyle = ComboBoxStyle.DropDownList;
-        _backtestingAccountCombo.Dock = DockStyle.Fill;
-        _backtestingAccountCombo.SelectedIndexChanged += (_, _) =>
-        {
-            if (_suppressAccountEvents) return;
-            if (_backtestingAccountCombo.SelectedItem is AccountListItem item && item.Account.InitialBalance > 0)
-                _initialCapitalInput.Value = Math.Clamp(
-                    item.Account.InitialBalance,
-                    _initialCapitalInput.Minimum,
-                    _initialCapitalInput.Maximum);
         };
 
         _backtestingWorkspaceHint.AutoSize = true;
@@ -1916,11 +1860,8 @@ public partial class WorkspaceBacktestingForm : Form
         layout.SetColumnSpan(_basePathTextBox, 3);
         layout.Controls.Add(_basePathTextBox, 3, 3);
 
-        layout.Controls.Add(new Label { Text = "Account", AutoSize = true, Anchor = AnchorStyles.Left }, 0, 4);
-        layout.Controls.Add(WithHelp(_backtestingAccountCombo,
-            "Applica al run la tabella di conversione dell'account: scala la size con il moltiplicatore " +
-            "contratto e riporta il symbol account nei signal. Senza account il run resta 1 a 1."), 1, 4);
-        layout.SetColumnSpan(_backtestingAccountCombo, 3);
+        // Niente selettore account: il backtest interno è neutro rispetto ai conti. Conversione
+        // simbolo e scala del capitale agiscono solo sulle sessioni (docs/decisioni.md 2026-08-05).
 
         _reloadButton.Text = "Ricarica strategie";
         _reloadButton.AutoSize = true;
@@ -2116,7 +2057,6 @@ public partial class WorkspaceBacktestingForm : Form
             }
             await LoadTitanoBacktestsAsync();
             await ReloadAccountsAsync(showErrors: false);
-            await LoadBacktestingAccountsAsync();
 
             Log($"Caricati {_workspaces.Count} workspace da API.");
         }
@@ -2606,8 +2546,7 @@ public partial class WorkspaceBacktestingForm : Form
             StartDate = DateTime.SpecifyKind(_startDatePicker.Value, DateTimeKind.Utc),
             EndDate = DateTime.SpecifyKind(_endDatePicker.Value, DateTimeKind.Utc),
             InitialCapital = _initialCapitalInput.Value,
-            CommissionPerContract = _commissionInput.Value,
-            AccountId = (_backtestingAccountCombo.SelectedItem as AccountListItem)?.Account.Id
+            CommissionPerContract = _commissionInput.Value
         };
 
         SetRunningState(true);
@@ -3211,10 +3150,7 @@ public partial class WorkspaceBacktestingForm : Form
                 {
                     PortfolioRisk = new PortfolioRiskSizingConfig
                     {
-                        Enabled = _sessionCppiEnabled.Checked,
-                        EnableCppi = _sessionCppiEnabled.Checked,
-                        CppiFloorFraction = _sessionCppiFloor.Value / 100m,
-                        CppiMultiplier = _sessionCppiMultiplier.Value
+                        Enabled = _sessionPortfolioRiskEnabled.Checked
                     }
                 }
             };
@@ -3284,10 +3220,7 @@ public partial class WorkspaceBacktestingForm : Form
                 {
                     PortfolioRisk = new PortfolioRiskSizingConfig
                     {
-                        Enabled = _sessionCppiEnabled.Checked,
-                        EnableCppi = _sessionCppiEnabled.Checked,
-                        CppiFloorFraction = _sessionCppiFloor.Value / 100m,
-                        CppiMultiplier = _sessionCppiMultiplier.Value,
+                        Enabled = _sessionPortfolioRiskEnabled.Checked,
                         EnableAggressiveModules = false, MaximumMultiplier = 1m
                     }
                 }

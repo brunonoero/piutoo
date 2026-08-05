@@ -224,6 +224,7 @@ public sealed class MultiAccountDistributionTests : IDisposable
             Name = $"distrib-{Guid.NewGuid():N}", StrategiesFilter = [strategyId]
         });
         new TradingJsonStore(workspaces.GetBacktestPath(workspace.Id, "source")).Initialize();
+        TestAccountRegistry.Register(workspaces, groups);
 
         var sessions = new TradingSessionService(
             workspaces, new MultiSignalEvaluationService(signalsPerBar),

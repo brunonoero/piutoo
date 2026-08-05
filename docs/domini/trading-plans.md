@@ -8,6 +8,12 @@ Il piano contiene una o più righe gruppo/account (`Groups`): ciascuna con massi
 concorrenti, setup/run Titano e flag di applicazione. Contiene inoltre sizing e metadata
 strumenti condivisi. I file sono salvati in `<workspace>/plans/plans.json`.
 
+Il piano **non porta un capitale**. Le sessioni che apre sono sempre `ExternalBroker`, dove il
+saldo è del broker e la size di ogni conto viene dal suo `InitialBalance` (vedi
+[`account-e-conversione-symbol.md`](account-e-conversione-symbol.md)); il capitale iniziale è un
+parametro del singolo run di backtest. I `plans.json` scritti prima contengono ancora la proprietà
+`InitialCapital`: viene ignorata alla lettura, non serve migrarli.
+
 I piani legacy a singola riga (solo `GroupId`/`AccountNumber`) restano leggibili: al
 caricamento vengono normalizzati in una `Groups` da un elemento. In scrittura i campi
 singoli restano popolati come mirror della riga primaria (prima con run Titano, altrimenti
@@ -31,8 +37,8 @@ vivono slot di gruppo, limite di trade concorrenti ed eleggibilità Titano. È i
 
 Con `DistributeToAccounts=false` il server non configura alcun gruppo: `POST /bars` restituisce
 intent già assegnati, che il client esegue direttamente. Serve ai cBot che non implementano il
-claim, come `PiootooDirectExecutionBot`. Il piano continua a fornire workspace, capitale,
-commissioni, sizing, metadata strumenti e Titano; cambia soltanto il canale di consegna. La chiave
+claim, come `PiootooDirectExecutionBot`. Il piano continua a fornire workspace, commissioni,
+sizing, metadata strumenti e Titano; cambia soltanto il canale di consegna. La chiave
 idempotente include in questo caso anche l'account e un marcatore di modalità, perché la sessione
 non è condivisibile: due cBot sulla stessa sessione eseguirebbero gli stessi intent due volte.
 

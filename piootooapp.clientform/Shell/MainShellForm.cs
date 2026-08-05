@@ -54,7 +54,8 @@ public partial class MainShellForm : Form, INavigationHost
                 var entryNode = new TreeNode(entry.Label) { Tag = entry };
                 if (!entry.IsAvailable)
                 {
-                    entryNode.ForeColor = SystemColors.GrayText;
+                    // Sul menu scuro il grigio di sistema sparisce: serve un grigio chiaro.
+                    entryNode.ForeColor = Color.FromArgb(150, 165, 185);
                     entryNode.ToolTipText = "Schermata non ancora disponibile nella nuova console.";
                 }
 
@@ -105,16 +106,25 @@ public partial class MainShellForm : Form, INavigationHost
         _themeOrangeMenuItem.Checked = ShellTheme.Current == ShellThemeKind.Orange;
     }
 
-    // Le tre zone della shell hanno tonalità diverse della stessa palette: header (menu + barra
-    // server) più scuro, navigazione a sinistra a tonalità intermedia, area di lavoro (schermate)
-    // nel colore base. ShowScreen tema la singola schermata con lo stesso colore dell'area di lavoro.
+    // Le tre zone della shell: header (menu + barra server) nella tonalità più scura dell'accento,
+    // navigazione a sinistra in tonalità intermedia, area di lavoro chiara con testo scuro.
+    // ShowScreen tema la singola schermata con la stessa zona dell'area di lavoro.
     private void ApplyTheme()
     {
         ShellTheme.ApplyMenuStrip(_menuStrip);
         ShellTheme.ApplyStatusStrip(_statusStrip);
-        ShellTheme.ApplyZone(_serverPanel, ShellTheme.HeaderBackground);
-        ShellTheme.ApplyZone(_splitContainer.Panel1, ShellTheme.MenuBackground);
-        ShellTheme.ApplyZone(_splitContainer.Panel2, ShellTheme.Background);
+        ShellTheme.ApplyZone(_serverPanel, ShellTheme.HeaderZone);
+        ShellTheme.ApplyZone(_splitContainer.Panel1, ShellTheme.MenuZone);
+        ShellTheme.ApplyZone(_splitContainer.Panel2, ShellTheme.WorkspaceZone);
+
+        _splitContainer.BackColor = ShellTheme.Border;
+        _breadcrumbLabel.BackColor = ShellTheme.Card;
+        _breadcrumbLabel.ForeColor = ShellTheme.MutedInk;
+        _contentPanel.BackColor = ShellTheme.Surface;
+        foreach (var screen in _stack)
+        {
+            ShellTheme.Apply(screen);
+        }
     }
 
     // --- INavigationHost -------------------------------------------------
@@ -141,7 +151,7 @@ public partial class MainShellForm : Form, INavigationHost
 
     public void SetStatus(string message)
     {
-        _statusLabel.ForeColor = SystemColors.ControlText;
+        _statusLabel.ForeColor = ShellTheme.MutedInk;
         _statusLabel.Text = message;
     }
 

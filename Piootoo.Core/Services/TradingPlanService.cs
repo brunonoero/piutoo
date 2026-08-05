@@ -54,8 +54,6 @@ public sealed class TradingPlanService
         var code = NormalizeCode(request.Code);
         if (string.IsNullOrWhiteSpace(request.Name))
             throw new ArgumentException("Il nome del piano è obbligatorio.");
-        if (request.InitialCapital <= 0)
-            throw new ArgumentException("InitialCapital deve essere maggiore di zero.");
         if (request.CommissionPerContract < 0)
             throw new ArgumentException("CommissionPerContract non può essere negativa.");
 
@@ -88,7 +86,6 @@ public sealed class TradingPlanService
                 TitanoBacktestFolder = primary.TitanoBacktestFolder,
                 ApplyTitanoFilters = primary.ApplyTitanoFilters,
                 EnforceConcurrencyLimits = request.EnforceConcurrencyLimits,
-                InitialCapital = request.InitialCapital,
                 CommissionPerContract = request.CommissionPerContract,
                 PositionSizing = request.PositionSizing,
                 Instruments = request.Instruments,
@@ -239,7 +236,6 @@ public sealed class TradingPlanService
             TitanoBacktestFolder = primary.TitanoBacktestFolder,
             ApplyTitanoFilters = primary.ApplyTitanoFilters,
             EnforceConcurrencyLimits = plan.EnforceConcurrencyLimits,
-            InitialCapital = plan.InitialCapital,
             CommissionPerContract = plan.CommissionPerContract,
             PositionSizing = plan.PositionSizing,
             Instruments = plan.Instruments,

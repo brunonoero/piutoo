@@ -122,6 +122,8 @@ public sealed class SessionEntryLimitTests : IDisposable
         });
         new TradingJsonStore(workspaces.GetBacktestPath(workspace.Id, "source")).Initialize();
 
+        TestAccountRegistry.Register(workspaces, groups);
+
         var sessions = new TradingSessionService(
             workspaces, new OneEntryPerSessionEvaluationService(),
             new TitanoRotationService(workspaces), new PositionSizingService());

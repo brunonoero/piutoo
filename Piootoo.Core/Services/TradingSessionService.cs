@@ -359,7 +359,8 @@ public sealed class TradingSessionService : ITradingSessionService
         {
             WorkspaceId = plan.WorkspaceId,
             ExecutionMode = ExecutionMode.ExternalBroker,
-            InitialCapital = plan.InitialCapital,
+            // Nessun capitale: una sessione da piano è sempre ExternalBroker, dove il saldo è del
+            // broker e la size di ogni account viene dal suo InitialBalance (BalanceScale) al claim.
             CommissionPerContract = plan.CommissionPerContract,
             ClientSessionToken = Convert.ToHexString(Guid.NewGuid().ToByteArray()),
             TitanoBacktestFolder = primary.TitanoBacktestFolder,
@@ -520,7 +521,7 @@ public sealed class TradingSessionService : ITradingSessionService
             ClientRunMode = request.ClientRunMode,
             EnforceConcurrencyLimits = request.EnforceConcurrencyLimits
                 ?? DefaultEnforceConcurrencyLimits(request.ClientRunMode, request.TitanoMode),
-            PositionSizing = request.PositionSizing,
+            PositionSizing = ResolvePositionSizing(request.ExecutionMode, request.PositionSizing),
             InstrumentMetadata = instrumentMetadata,
             PeakEquity = request.InitialCapital,
             Status = TradingSessionStatus.Created,
@@ -528,6 +529,40 @@ public sealed class TradingSessionService : ITradingSessionService
         };
         _sessions[session.Id] = session;
         return Describe(session);
+    }
+
+    /// <summary>
+    /// I freni di portafoglio del sizing (drawdown dal picco, esposizione lorda) sono calcolati sul
+    /// capitale e sull'equity della sessione. In <see cref="ExecutionMode.ExternalBroker"/> il server
+    /// non possiede né l'uno né l'altra — l'equity è del broker e ogni account ha il proprio saldo —
+    /// quindi si disattivano invece di girare su un denominatore fittizio: il rischio di portafoglio
+    /// live è governato dal broker (<c>PiootooRiskGuardianBot</c>), coerentemente con l'invariante
+    /// "il server decide <i>cosa</i>, il broker decide <i>se e a che prezzo</i>".
+    ///
+    /// <para>Restano attivi il moltiplicatore di allocazione Titano e il freno per volatilità di
+    /// mercato, che dipendono dalle barre e non dal capitale. Vedi <c>docs/decisioni.md</c>
+    /// (2026-08-05).</para>
+    /// </summary>
+    private static PositionSizingConfig ResolvePositionSizing(
+        ExecutionMode mode, PositionSizingConfig requested)
+    {
+        if (mode == ExecutionMode.ServerSimulated || !requested.PortfolioRisk.Enabled)
+            return requested;
+
+        return new PositionSizingConfig
+        {
+            ClampMultipliersToUnitInterval = requested.ClampMultipliersToUnitInterval,
+            MarketVolatility = requested.MarketVolatility,
+            PortfolioRisk = new PortfolioRiskSizingConfig
+            {
+                Enabled = false,
+                MaximumDrawdown = requested.PortfolioRisk.MaximumDrawdown,
+                MaximumGrossExposure = requested.PortfolioRisk.MaximumGrossExposure,
+                EnableAggressiveModules = requested.PortfolioRisk.EnableAggressiveModules,
+                FractionalFactor = requested.PortfolioRisk.FractionalFactor,
+                MaximumMultiplier = requested.PortfolioRisk.MaximumMultiplier
+            }
+        };
     }
 
     /// <summary>
@@ -1951,8 +1986,11 @@ public sealed class TradingSessionService : ITradingSessionService
             SessionId = session.Id,
             ExecutionMode = session.Mode,
             Status = session.Status,
-            Balance = session.Mode == ExecutionMode.ServerSimulated ? simulation.Balance : session.InitialCapital,
-            Equity = session.Mode == ExecutionMode.ServerSimulated ? simulation.Equity : session.InitialCapital,
+            // In ExternalBroker il server non tiene il conto: balance ed equity sono del broker, e
+            // dichiararli qui significherebbe inventare un numero (prima si ripeteva il capitale
+            // iniziale, costante per tutta la sessione). Zero dice "non lo so", che è la verità.
+            Balance = session.Mode == ExecutionMode.ServerSimulated ? simulation.Balance : 0m,
+            Equity = session.Mode == ExecutionMode.ServerSimulated ? simulation.Equity : 0m,
             Entries = session.Mode == ExecutionMode.ExternalBroker ? session.Entries : 0,
             Fills = session.Mode == ExecutionMode.ExternalBroker ? session.Fills : 0,
             Positions = session.ExternalPositions.Values.ToArray(),
