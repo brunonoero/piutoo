@@ -1490,7 +1490,10 @@ public sealed class TradingSessionService : ITradingSessionService
                 "simbolo non abilitato sulla tabella di conversione dell'account");
             candidates = NarrowTemplates(candidates, ref stage,
                 t => !t.ExpiresAtUtc.HasValue || t.ExpiresAtUtc.Value >= now,
-                $"template scaduti rispetto alla barra corrente ({now:O})");
+                // Niente orario della barra nel testo: il motivo viene deduplicato per stringa da
+                // client e server, e un valore che cambia a ogni barra manderebbe a vuoto la
+                // deduplica riempiendo entrambi i log di righe identiche nella sostanza.
+                "template scaduti rispetto alla barra corrente");
             candidates = NarrowTemplates(candidates, ref stage,
                 t => !(session.TemplateClaimedGroups.TryGetValue(t.IntentId, out var claimed)
                        && claimed.Contains(groupId)),

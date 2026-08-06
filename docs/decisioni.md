@@ -1126,3 +1126,15 @@ in ordine cronologico. Non è un changelog di codice: quello resta nei commit.
   ordini che i motori Unger emettono sempre: con `MaxEntrySlippagePips` a 5, un breakout di Donchian
   a decine di punti dal prezzo veniva rifiutato a ogni barra. Lo slippage di un pending lo governa il
   broker al fill, non il bot al piazzamento.
+- **2026-08-06** — **Quando il cBot cancella un ordine pending lo riporta al server come
+  `Cancelled`.** Prima lo cancellava solo sul broker: l'intent restava `Pending` lato sessione,
+  e `GetNextSignalForAccount` restituisce per primo proprio l'intent già assegnato e ancora
+  pendente. Risultato osservato su un run reale: un solo ordine piazzato all'avvio, cancellato dopo
+  la sua barra, e poi lo **stesso** intent riproposto a ogni poll per il resto del backtest — il bot
+  lo scartava perché già gestito (`_submittedIntentIds`), i lucchetti (account, simbolo) e
+  (gruppo, strategia, simbolo) restavano chiusi, e non arrivava più nessun segnale nuovo. Il report
+  vale per tutti i punti di cancellazione: scadenza "next bar", sostituzione da parte del signal
+  successivo, flat di fine settimana. L'IntentId si legge dalla label, che è il motivo per cui ce
+  l'ha. Stesso trattamento all'ingresso scartato perché il simbolo ha già una posizione: annullato e
+  riportato, non ignorato in silenzio — e comunque un segnale Unger vale la sua barra, non quella in
+  cui il simbolo tornerà libero.

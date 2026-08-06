@@ -696,13 +696,42 @@ namespace cAlgo.Robots
         private void CancelPendingOrders(string label, string reason)
         {
             foreach (var order in PendingOrders.Where(o => o.Label == label).ToList())
+                CancelAndReport(order, reason);
+        }
+
+        /// <summary>
+        /// Cancella un ordine pending del bot e **riporta al server l'annullamento dell'intent** che lo
+        /// aveva piazzato.
+        ///
+        /// <para>Il report non è contabilità: è ciò che sblocca il conto. Finché l'intent resta
+        /// <c>Pending</c>, il server lo considera in carico a questo account e il claim continua a
+        /// riproporre sempre lo stesso — <c>GetNextSignalForAccount</c> restituisce per primo l'intent
+        /// già assegnato e ancora pendente — mentre i lucchetti (account, simbolo) e
+        /// (gruppo, strategia, simbolo) restano chiusi. Il bot lo scarta perché l'ha già gestito, e da
+        /// lì in poi non arriva più nessun segnale nuovo per tutto il run: un ordine solo, all'inizio,
+        /// e poi silenzio. L'IntentId si legge dalla label, che è esattamente il motivo per cui ce
+        /// l'ha.</para>
+        /// </summary>
+        private void CancelAndReport(PendingOrder order, string reason)
+        {
+            var label = order.Label;
+            var symbol = order.SymbolName;
+            var result = CancelPendingOrder(order);
+            if (!result.IsSuccessful)
             {
-                var result = CancelPendingOrder(order);
-                if (result.IsSuccessful)
-                    Print("Ordine pending {0} ({1}) cancellato: {2}.", order.Id, label, reason);
-                else
-                    Print("Impossibile cancellare l'ordine pending {0} ({1}): {2}", order.Id, label, result.Error);
+                Print("Impossibile cancellare l'ordine pending {0} ({1}): {2}", order.Id, label, result.Error);
+                return;
             }
+
+            Print("Ordine pending {0} ({1}) cancellato: {2}.", order.Id, label, reason);
+
+            var parsed = ParseLabel(label);
+            if (parsed is null || string.IsNullOrEmpty(parsed.IntentId))
+                return; // label di formato precedente: nessun intent a cui riferirsi
+
+            _submittedIntentIds.Remove(parsed.IntentId);
+            _lastOpenIntentByLabel.Remove(label);
+            ReportExecution(parsed.IntentId, symbol, ExecutionReportStatusDto.Cancelled, 0, null);
         }
 
         /// <summary>
@@ -716,13 +745,7 @@ namespace cAlgo.Robots
             foreach (var order in PendingOrders
                 .Where(o => o.Label != null && o.Label.StartsWith(prefix, StringComparison.Ordinal))
                 .ToList())
-            {
-                var result = CancelPendingOrder(order);
-                if (result.IsSuccessful)
-                    Print("Ordine pending {0} ({1}) cancellato: {2}.", order.Id, order.Label, reason);
-                else
-                    Print("Impossibile cancellare l'ordine pending {0} ({1}): {2}", order.Id, order.Label, result.Error);
-            }
+                CancelAndReport(order, reason);
 
             foreach (var key in _pendingOrderBar.Keys
                 .Where(label => label.StartsWith(prefix, StringComparison.Ordinal))
@@ -784,13 +807,7 @@ namespace cAlgo.Robots
             foreach (var order in PendingOrders
                 .Where(o => o.Label != null && o.Label.StartsWith(LabelPrefix, StringComparison.Ordinal))
                 .ToList())
-            {
-                var cancel = CancelPendingOrder(order);
-                if (cancel.IsSuccessful)
-                    Print("Ordine pending {0} cancellato per il flat di fine settimana.", order.Id);
-                else
-                    Print("Impossibile cancellare l'ordine {0} per il fine settimana: {1}", order.Id, cancel.Error);
-            }
+                CancelAndReport(order, "flat di fine settimana");
             _pendingOrderBar.Clear();
 
             foreach (var position in Positions
@@ -1176,8 +1193,13 @@ namespace cAlgo.Robots
                 p.Label.StartsWith(LabelPrefix, StringComparison.Ordinal));
             if (alreadyOpenOnSymbol)
             {
-                if (VerboseLogging)
-                    Print("Ingresso {0}/{1} ignorato: il bot ha già una posizione aperta su questo simbolo.", intent.Symbol, intent.StrategyCode);
+                // Annullato, non ignorato: un intent lasciato Pending sul server resta assegnato a
+                // questo account, viene riproposto a ogni poll e tiene chiusi i lucchetti finché il
+                // run non finisce. E comunque non andrebbe eseguito più tardi: il segnale di un
+                // motore Unger vale la sua barra, non quella in cui il simbolo tornerà libero.
+                Print("Ingresso {0}/{1} annullato: posizione già aperta su questo simbolo.",
+                    intent.Symbol, intent.StrategyCode);
+                ReportExecution(intent.IntentId, intent.Symbol, ExecutionReportStatusDto.Cancelled, 0, null);
                 return;
             }
 
