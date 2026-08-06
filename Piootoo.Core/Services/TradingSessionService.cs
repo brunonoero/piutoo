@@ -81,6 +81,14 @@ public interface ITradingSessionService
     IReadOnlyList<TradingSessionSummary> ListSessions();
     TradingSessionDescriptor SetStatus(string sessionId, string token, TradingSessionStatus status);
     PushBarsResponse PushBars(PushBarsRequest request);
+
+    /// <summary>
+    /// Variante di <see cref="PushBars"/> in cui il client invia, per ogni stream, l'intera finestra
+    /// di candele che le strategie richiedono. Il server accoda quelle che non ha e valuta solo
+    /// l'ultima: è così che una sessione nuova parte già "calda" invece di scartare in silenzio le
+    /// prime <c>RequiredCandles</c> barre del run.
+    /// </summary>
+    PushBarWindowResponse PushBarWindow(PushBarWindowRequest request);
     IReadOnlyList<OrderIntent> GetIntents(string sessionId, string token, long after = 0);
     IReadOnlyList<PersistedSignal> GetPersistedSignals(string sessionId, string token);
     IReadOnlyList<PersistedTrade> GetPersistedTrades(string sessionId, string token);
@@ -653,153 +661,350 @@ public sealed class TradingSessionService : ITradingSessionService
                     session.History[stream] = history = [];
                 history.Add(normalizedBar.Bar);
 
-                var prices = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase)
-                    { [Normalize(bar.Symbol)] = bar.Bar.Close };
-                var bars = new Dictionary<string, OhlcvData>(StringComparer.OrdinalIgnoreCase)
-                    { [Normalize(bar.Symbol)] = normalizedBar.Bar };
-
-                // Ordering autorevole: prima exit/pending, poi valutazione, infine intent.
-                if (session.Mode == ExecutionMode.ServerSimulated)
-                    session.SimulatedEngine.UpdateMarketPrices(prices, bars, bar.BarTimeUtc);
-
-                IReadOnlyList<ITradingStrategy> evaluationStrategies = session.Strategies;
-                var allocations = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
-                TitanoEffectiveStrategies? effective = null;
-                string? rotationNote = null;
-                if (!string.IsNullOrWhiteSpace(session.TitanoBacktestFolder))
-                {
-                    var service = _titano ?? throw new InvalidOperationException("Servizio Titano non disponibile.");
-                    var runId = ResolveRunIdForFolder(session, session.TitanoBacktestFolder)
-                        ?? throw new InvalidOperationException(
-                            $"Nessun run Titano trovato per la cartella '{session.TitanoBacktestFolder}': " +
-                            "esegui prima una rotazione.");
-                    effective = service.Resolve(session.WorkspaceId, session.TitanoBacktestFolder,
-                        runId, bar.BarTimeUtc, session.TitanoMode);
-                    foreach (var state in effective.StrategyStates)
-                        allocations[state.StrategyCode] = state.AllocationMultiplier;
-
-                    if (session.TitanoMode == TitanoFilterMode.Disabled)
-                    {
-                        // Rotazione risolta e registrata, ma non applicata: le allocazioni restano
-                        // neutre e tutte le strategie del masterfilter vengono valutate. È il run che
-                        // produce i trade su cui l'analisi Titano calcolerà le rotazioni.
-                        allocations.Clear();
-                        rotationNote = "modalità Disabled: rotazione risolta solo a scopo diagnostico, nessun filtro applicato";
-                    }
-                    else if (!effective.HasActivePeriod)
-                    {
-                        // Nessun periodo copre questa barra. In Realtime il fallback sull'ultimo periodo
-                        // è già stato tentato dentro Resolve, quindi qui siamo davvero scoperti: è un
-                        // manifest non allineato all'intervallo che si sta eseguendo. Fermarsi è meglio
-                        // che eseguire senza filtri una sessione che l'utente ha chiesto filtrata.
-                        throw new InvalidOperationException(
-                            $"Nessun periodo Titano copre la barra {bar.BarTimeUtc:O}: il manifest '{runId}' " +
-                            $"copre {effective.ManifestFromUtc:O} → {effective.ManifestToUtc:O}. " +
-                            "Rigenera la rotazione su un backtest che copra questo intervallo, oppure " +
-                            "esegui la sessione in modalità Disabled.");
-                    }
-                    else
-                    {
-                        evaluationStrategies = session.Strategies
-                            .Where(x => effective.EffectiveStrategies.Contains(x.Name, StringComparer.OrdinalIgnoreCase))
-                            .ToArray();
-
-                        if (effective.UsedLatestPeriod)
-                            rotationNote =
-                                $"barra {bar.BarTimeUtc:O} oltre la fine del manifest ({effective.ManifestToUtc:O}): " +
-                                "applicata la rotazione dell'ultimo periodo calcolato. Rigenera l'analisi Titano.";
-                    }
-                }
-                var signals = _evaluation.Evaluate(
-                    evaluationStrategies,
-                    normalizedBar,
-                    history,
-                    strategy => GetExecution(session, strategy, bar.BarTimeUtc));
-
-                if (effective is not null)
-                    session.RotationLog.Add(BuildRotationLogEntry(
-                        session, bar.BarTimeUtc, effective, evaluationStrategies, signals, rotationNote));
-                var sized = new Dictionary<TradeSignal, PositionSizingResult>();
-                foreach (var signal in signals)
-                {
-                    var multiplier = allocations.TryGetValue(signal.StrategyCode, out var value) ? value : 1m;
-                    var snapshot = Snapshot(session);
-                    session.PeakEquity = Math.Max(session.PeakEquity, snapshot.Equity);
-                    var result = _positionSizing.Calculate(new PositionSizingRequest
-                    {
-                        BaseQuantity = signal.Quantity, StrategyEquityMultiplier = multiplier,
-                        Instrument = session.InstrumentMetadata[Normalize(signal.Symbol)],
-                        Config = session.PositionSizing, AvailableBars = history,
-                        TimestampUtc = bar.BarTimeUtc, InitialCapital = session.InitialCapital,
-                        Equity = snapshot.Equity, PeakEquity = session.PeakEquity,
-                        GrossExposureFraction = session.InitialCapital <= 0 ? 1m :
-                            session.ExternalPositions.Values.Sum(x => x.Quantity * x.EntryPrice) / session.InitialCapital
-                    });
-                    sized[signal] = result;
-                    signal.Quantity = result.FinalQuantity;
-                }
-                session.LastEvaluatedBarTimeUtc = bar.BarTimeUtc;
-                var multiAccount = session.AccountGroups.Count > 0;
-                foreach (var signal in signals)
-                {
-                    if (signal.RuntimeState is not null)
-                        session.SimulatedEngine.CaptureStrategyRuntimeState(
-                            signal.StrategyCode, signal.Symbol, signal.RuntimeState);
-                    var result = sized.GetValueOrDefault(signal);
-
-                    // Un ExitOnly chiude la posizione opposta già confermata dal broker; non viene
-                    // dimensionato né trasformato in un template di ingresso.
-                    if (signal.ExitOnly && session.Mode == ExecutionMode.ExternalBroker)
-                    {
-                        emitted.AddRange(CreateExitOnlyCloseIntents(session, signal));
-                        continue;
-                    }
-
-                    if (multiAccount)
-                    {
-                        // Template non assegnato: resta disponibile finché non viene reclamato da un
-                        // account libero di un gruppo (vedi GetNextSignalForAccount).
-                        var template = AddIntent(session, signal, result, addToIntents: false);
-                        if (result?.Reason is not null) template.Status = OrderIntentStatus.Cancelled;
-                        else session.EntryTemplates.Add(template);
-                        emitted.Add(template);
-                        continue;
-                    }
-
-                    var intent = AddIntent(session, signal, result, conversion: ResolveDirectConversion(session));
-                    if (result?.Reason is not null) intent.Status = OrderIntentStatus.Cancelled;
-
-                    // Simbolo non operativo sul conto che esegue: l'intent resta come traccia ma
-                    // non deve essere eseguito.
-                    if (intent.FinalQuantity <= 0 && session.DirectAccountNumber is not null)
-                        intent.Status = OrderIntentStatus.Cancelled;
-
-                    // Limite di fill per sessione. In ExternalBroker è l'unico punto in cui può
-                    // essere applicato: il motore simulato che lo verifica al fill
-                    // (PiootooTradingService) qui non decide niente. L'intent resta in sessione come
-                    // traccia di audit ma non viene consegnato al client, altrimenti un client che
-                    // ignora Status lo eseguirebbe comunque.
-                    if (session.Mode == ExecutionMode.ExternalBroker &&
-                        MaxEntriesPerSessionReached(session, intent, accountNumber: null))
-                    {
-                        intent.Status = OrderIntentStatus.Cancelled;
-                        continue;
-                    }
-
-                    emitted.Add(intent);
-                }
-
-                var executableSignals = signals.Where(x => x.Quantity > 0).ToList();
-                if (session.Mode == ExecutionMode.ServerSimulated && executableSignals.Count != 0)
-                {
-                    session.SimulatedEngine.ProcessSignals(executableSignals, prices, bars, bar.BarTimeUtc);
-                    foreach (var intent in emitted.Where(i => i.Status == OrderIntentStatus.Pending))
-                        intent.Status = OrderIntentStatus.Filled;
-                }
+                EvaluateClosedBar(session, normalizedBar, history, emitted);
             }
             Persist(session);
             return new PushBarsResponse { AcceptedBars = accepted, DuplicateBars = duplicates, Intents = emitted };
         }
+    }
+
+    /// <summary>
+    /// Riceve, per ogni stream, la finestra di candele che le strategie di quello stream richiedono.
+    /// Il server accoda alla propria storia le candele che non ha (è il riscaldamento: alla prima
+    /// finestra di un run entrano tutte) e valuta la sola ultima candela.
+    ///
+    /// <para>Idempotenza e ordinamento restano sulla barra da valutare: rispedire la stessa finestra
+    /// è un duplicato, spedirne una che finisce prima dell'ultima già valutata è un errore, esattamente
+    /// come per <see cref="PushBars"/>. Le candele più vecchie non sono soggette a quel controllo
+    /// perché per definizione arrivano già viste.</para>
+    ///
+    /// <para><b>Le candele restano in RAM.</b> La sessione non le scrive nel datafeed del workspace:
+    /// <c>TradingJsonStore</c> persiste signal, trade e rotation-log, non barre. Raccogliere il feed
+    /// da cTrader e salvarlo su disco è compito di un cBot dedicato, non di questa strada.</para>
+    /// </summary>
+    public PushBarWindowResponse PushBarWindow(PushBarWindowRequest request)
+    {
+        var session = Get(request.SessionId, request.SessionToken);
+        lock (session.Gate)
+        {
+            if (session.Status != TradingSessionStatus.Running)
+                throw new InvalidOperationException("La sessione non è in esecuzione.");
+
+            var accepted = 0;
+            var duplicates = 0;
+            var backfilled = 0;
+            var emitted = new List<OrderIntent>();
+            var streams = new List<StreamHistoryStatus>();
+
+            foreach (var window in request.Windows)
+            {
+                if (window.Candles is null || window.Candles.Count == 0)
+                    throw new ArgumentException(
+                        $"Finestra vuota per {window.Symbol}/{window.TimeframeMinutes}m: " +
+                        "l'ultima candela è la barra da valutare e non può mancare.");
+
+                var closedBar = new ClosedBar
+                {
+                    Symbol = window.Symbol,
+                    TimeframeMinutes = window.TimeframeMinutes,
+                    BarTimeUtc = window.Candles[^1].DateTime,
+                    Sequence = window.Sequence,
+                    IdempotencyKey = window.IdempotencyKey,
+                    Bar = window.Candles[^1]
+                };
+                ValidateBar(closedBar);
+
+                var stream = StreamKey(window.Symbol, window.TimeframeMinutes);
+                if (!session.History.TryGetValue(stream, out var history))
+                    session.History[stream] = history = [];
+
+                // Validazioni della finestra prima di toccare qualsiasi stato della sessione: una
+                // finestra rifiutata non deve lasciare dietro di sé una idempotency key consumata o
+                // una sequence avanzata, altrimenti il rinvio corretto verrebbe scambiato per replay.
+                var previousUtc = DateTime.MinValue;
+                foreach (var candle in window.Candles)
+                {
+                    RequireUtc(candle.DateTime, $"{stream}: DateTime della candela");
+                    if (candle.DateTime <= previousUtc)
+                        throw new ArgumentException(
+                            $"Finestra non ordinata per {stream}: {candle.DateTime:O} non è successiva a {previousUtc:O}.");
+                    previousUtc = candle.DateTime;
+                }
+
+                var lastKnownUtc = history.Count == 0 ? (DateTime?)null : history[^1].DateTime;
+
+                // La finestra deve SOVRAPPORSI alla storia già presente: se comincia dopo l'ultima
+                // candela nota, fra le due c'è un buco che nessuno colmerà più, e le strategie
+                // girerebbero su una serie bucata senza che nulla lo segnali. Il criterio è la
+                // sovrapposizione e non l'aritmetica sui timestamp perché gli stream hanno buchi
+                // legittimi — fine settimana, festivi, mercati chiusi — che una differenza in minuti
+                // scambierebbe per barre perse.
+                if (lastKnownUtc is { } lastKnown && window.Candles[0].DateTime > lastKnown)
+                    throw new ArgumentException(
+                        $"Buco nella storia di {stream}: la finestra parte da {window.Candles[0].DateTime:O} " +
+                        $"ma il server è fermo a {lastKnown:O}. Il client deve includere almeno una candela " +
+                        "già nota, oppure ricaricare dal broker abbastanza storia da coprire l'intervallo.");
+
+                // Riscaldamento: si accoda e basta. Niente idempotency key consumata e niente sequence
+                // avanzata, perché la stessa barra può tornare più tardi come barra da valutare e in
+                // quel momento non deve sembrare un replay.
+                if (!window.EvaluateLastCandle)
+                {
+                    backfilled += Backfill(history, window.Candles, lastKnownUtc);
+                    streams.Add(BuildStreamStatus(session, window.Symbol, window.TimeframeMinutes, history.Count, evaluated: 0));
+                    continue;
+                }
+
+                if (!session.BarKeys.Add(closedBar.IdempotencyKey))
+                {
+                    duplicates++;
+                    streams.Add(BuildStreamStatus(session, window.Symbol, window.TimeframeMinutes, history.Count, evaluated: 0));
+                    continue;
+                }
+
+                if (session.LastSequence.TryGetValue(stream, out var last) && window.Sequence <= last)
+                {
+                    session.BarKeys.Remove(closedBar.IdempotencyKey);
+                    throw new ArgumentException(
+                        $"Finestra out-of-order per {stream}: sequence {window.Sequence}, ultima {last}.");
+                }
+                session.LastSequence[stream] = window.Sequence;
+                accepted++;
+
+                backfilled += Math.Max(0, Backfill(history, window.Candles, lastKnownUtc) - 1);
+
+                // La sequence è passata ma la candela finale non è entrata: vuol dire che il client
+                // numera le sequence in modo scollegato dagli orari delle barre. Valutare comunque
+                // significherebbe rivalutare una barra vecchia con una chiave nuova.
+                if (history[^1].DateTime != closedBar.BarTimeUtc)
+                    throw new ArgumentException(
+                        $"Finestra incoerente per {stream}: l'ultima candela è {closedBar.BarTimeUtc:O} " +
+                        $"ma la storia arriva già a {history[^1].DateTime:O}. Sequence e orari di barra " +
+                        "devono crescere insieme.");
+
+                var evaluatedBar = new ClosedBar
+                {
+                    Symbol = closedBar.Symbol,
+                    TimeframeMinutes = closedBar.TimeframeMinutes,
+                    BarTimeUtc = DateTime.SpecifyKind(closedBar.BarTimeUtc, DateTimeKind.Utc),
+                    Sequence = closedBar.Sequence,
+                    IdempotencyKey = closedBar.IdempotencyKey,
+                    Bar = history[^1]
+                };
+                var evaluated = EvaluateClosedBar(session, evaluatedBar, history, emitted);
+                streams.Add(BuildStreamStatus(session, window.Symbol, window.TimeframeMinutes, history.Count, evaluated));
+            }
+
+            Persist(session);
+            return new PushBarWindowResponse
+            {
+                AcceptedBars = accepted,
+                DuplicateBars = duplicates,
+                BackfilledBars = Math.Max(0, backfilled),
+                Intents = emitted,
+                Streams = streams
+            };
+        }
+    }
+
+    /// <summary>
+    /// Accoda alla storia le sole candele più recenti dell'ultima già presente e restituisce quante
+    /// ne ha aggiunte. È così che il client può rispedire una finestra sovrapposta a ogni barra senza
+    /// duplicare nulla, e che la prima finestra di un run entra tutta.
+    /// </summary>
+    private static int Backfill(List<OhlcvData> history, IReadOnlyList<OhlcvData> candles, DateTime? lastKnownUtc)
+    {
+        var added = 0;
+        foreach (var candle in candles)
+        {
+            if (lastKnownUtc is { } known && candle.DateTime <= known)
+                continue;
+            history.Add(candle);
+            added++;
+        }
+        return added;
+    }
+
+    /// <summary>
+    /// Quante strategie del masterfilter insistono su questo stream, quante ne ha valutate il server
+    /// e quante ha saltato per storia insufficiente. È la risposta a "perché non arrivano segnali".
+    /// </summary>
+    private StreamHistoryStatus BuildStreamStatus(
+        Session session, string symbol, int timeframeMinutes, int historyBars, int evaluated)
+    {
+        var onStream = session.Strategies
+            .Where(s => Normalize(s.Symbol) == Normalize(symbol) && s.TimeframeMinutes == timeframeMinutes)
+            .ToArray();
+        return new StreamHistoryStatus
+        {
+            Symbol = Normalize(symbol),
+            TimeframeMinutes = timeframeMinutes,
+            HistoryBars = historyBars,
+            RequiredCandles = onStream.Length == 0 ? 0 : onStream.Max(s => s.RequiredCandles),
+            EvaluatedStrategies = evaluated,
+            SkippedForInsufficientHistory = onStream.Count(s => historyBars < s.RequiredCandles)
+        };
+    }
+
+    /// <summary>
+    /// Corpo comune a <see cref="PushBars"/> e <see cref="PushBarWindow"/>: aggiorna i prezzi di
+    /// mercato, risolve la rotazione Titano, valuta le strategie dello stream, dimensiona e traduce i
+    /// segnali in intent. Restituisce quante strategie sono state effettivamente valutate.
+    /// </summary>
+    private int EvaluateClosedBar(
+        Session session, ClosedBar normalizedBar, List<OhlcvData> history, List<OrderIntent> emitted)
+    {
+        var bar = normalizedBar;
+        var prices = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase)
+            { [Normalize(bar.Symbol)] = bar.Bar.Close };
+        var bars = new Dictionary<string, OhlcvData>(StringComparer.OrdinalIgnoreCase)
+            { [Normalize(bar.Symbol)] = normalizedBar.Bar };
+
+        // Ordering autorevole: prima exit/pending, poi valutazione, infine intent.
+        if (session.Mode == ExecutionMode.ServerSimulated)
+            session.SimulatedEngine.UpdateMarketPrices(prices, bars, bar.BarTimeUtc);
+
+        IReadOnlyList<ITradingStrategy> evaluationStrategies = session.Strategies;
+        var allocations = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
+        TitanoEffectiveStrategies? effective = null;
+        string? rotationNote = null;
+        if (!string.IsNullOrWhiteSpace(session.TitanoBacktestFolder))
+        {
+            var service = _titano ?? throw new InvalidOperationException("Servizio Titano non disponibile.");
+            var runId = ResolveRunIdForFolder(session, session.TitanoBacktestFolder)
+                ?? throw new InvalidOperationException(
+                    $"Nessun run Titano trovato per la cartella '{session.TitanoBacktestFolder}': " +
+                    "esegui prima una rotazione.");
+            effective = service.Resolve(session.WorkspaceId, session.TitanoBacktestFolder,
+                runId, bar.BarTimeUtc, session.TitanoMode);
+            foreach (var state in effective.StrategyStates)
+                allocations[state.StrategyCode] = state.AllocationMultiplier;
+
+            if (session.TitanoMode == TitanoFilterMode.Disabled)
+            {
+                // Rotazione risolta e registrata, ma non applicata: le allocazioni restano
+                // neutre e tutte le strategie del masterfilter vengono valutate. È il run che
+                // produce i trade su cui l'analisi Titano calcolerà le rotazioni.
+                allocations.Clear();
+                rotationNote = "modalità Disabled: rotazione risolta solo a scopo diagnostico, nessun filtro applicato";
+            }
+            else if (!effective.HasActivePeriod)
+            {
+                // Nessun periodo copre questa barra. In Realtime il fallback sull'ultimo periodo
+                // è già stato tentato dentro Resolve, quindi qui siamo davvero scoperti: è un
+                // manifest non allineato all'intervallo che si sta eseguendo. Fermarsi è meglio
+                // che eseguire senza filtri una sessione che l'utente ha chiesto filtrata.
+                throw new InvalidOperationException(
+                    $"Nessun periodo Titano copre la barra {bar.BarTimeUtc:O}: il manifest '{runId}' " +
+                    $"copre {effective.ManifestFromUtc:O} → {effective.ManifestToUtc:O}. " +
+                    "Rigenera la rotazione su un backtest che copra questo intervallo, oppure " +
+                    "esegui la sessione in modalità Disabled.");
+            }
+            else
+            {
+                evaluationStrategies = session.Strategies
+                    .Where(x => effective.EffectiveStrategies.Contains(x.Name, StringComparer.OrdinalIgnoreCase))
+                    .ToArray();
+
+                if (effective.UsedLatestPeriod)
+                    rotationNote =
+                        $"barra {bar.BarTimeUtc:O} oltre la fine del manifest ({effective.ManifestToUtc:O}): " +
+                        "applicata la rotazione dell'ultimo periodo calcolato. Rigenera l'analisi Titano.";
+            }
+        }
+        var signals = _evaluation.Evaluate(
+            evaluationStrategies,
+            normalizedBar,
+            history,
+            strategy => GetExecution(session, strategy, bar.BarTimeUtc));
+
+        if (effective is not null)
+            session.RotationLog.Add(BuildRotationLogEntry(
+                session, bar.BarTimeUtc, effective, evaluationStrategies, signals, rotationNote));
+        var sized = new Dictionary<TradeSignal, PositionSizingResult>();
+        foreach (var signal in signals)
+        {
+            var multiplier = allocations.TryGetValue(signal.StrategyCode, out var value) ? value : 1m;
+            var snapshot = Snapshot(session);
+            session.PeakEquity = Math.Max(session.PeakEquity, snapshot.Equity);
+            var result = _positionSizing.Calculate(new PositionSizingRequest
+            {
+                BaseQuantity = signal.Quantity, StrategyEquityMultiplier = multiplier,
+                Instrument = session.InstrumentMetadata[Normalize(signal.Symbol)],
+                Config = session.PositionSizing, AvailableBars = history,
+                TimestampUtc = bar.BarTimeUtc, InitialCapital = session.InitialCapital,
+                Equity = snapshot.Equity, PeakEquity = session.PeakEquity,
+                GrossExposureFraction = session.InitialCapital <= 0 ? 1m :
+                    session.ExternalPositions.Values.Sum(x => x.Quantity * x.EntryPrice) / session.InitialCapital
+            });
+            sized[signal] = result;
+            signal.Quantity = result.FinalQuantity;
+        }
+        session.LastEvaluatedBarTimeUtc = bar.BarTimeUtc;
+        var multiAccount = session.AccountGroups.Count > 0;
+        foreach (var signal in signals)
+        {
+            if (signal.RuntimeState is not null)
+                session.SimulatedEngine.CaptureStrategyRuntimeState(
+                    signal.StrategyCode, signal.Symbol, signal.RuntimeState);
+            var result = sized.GetValueOrDefault(signal);
+
+            // Un ExitOnly chiude la posizione opposta già confermata dal broker; non viene
+            // dimensionato né trasformato in un template di ingresso.
+            if (signal.ExitOnly && session.Mode == ExecutionMode.ExternalBroker)
+            {
+                emitted.AddRange(CreateExitOnlyCloseIntents(session, signal));
+                continue;
+            }
+
+            if (multiAccount)
+            {
+                // Template non assegnato: resta disponibile finché non viene reclamato da un
+                // account libero di un gruppo (vedi GetNextSignalForAccount).
+                var template = AddIntent(session, signal, result, addToIntents: false);
+                if (result?.Reason is not null) template.Status = OrderIntentStatus.Cancelled;
+                else session.EntryTemplates.Add(template);
+                emitted.Add(template);
+                continue;
+            }
+
+            var intent = AddIntent(session, signal, result, conversion: ResolveDirectConversion(session));
+            if (result?.Reason is not null) intent.Status = OrderIntentStatus.Cancelled;
+
+            // Simbolo non operativo sul conto che esegue: l'intent resta come traccia ma
+            // non deve essere eseguito.
+            if (intent.FinalQuantity <= 0 && session.DirectAccountNumber is not null)
+                intent.Status = OrderIntentStatus.Cancelled;
+
+            // Limite di fill per sessione. In ExternalBroker è l'unico punto in cui può
+            // essere applicato: il motore simulato che lo verifica al fill
+            // (PiootooTradingService) qui non decide niente. L'intent resta in sessione come
+            // traccia di audit ma non viene consegnato al client, altrimenti un client che
+            // ignora Status lo eseguirebbe comunque.
+            if (session.Mode == ExecutionMode.ExternalBroker &&
+                MaxEntriesPerSessionReached(session, intent, accountNumber: null))
+            {
+                intent.Status = OrderIntentStatus.Cancelled;
+                continue;
+            }
+
+            emitted.Add(intent);
+        }
+
+        var executableSignals = signals.Where(x => x.Quantity > 0).ToList();
+        if (session.Mode == ExecutionMode.ServerSimulated && executableSignals.Count != 0)
+        {
+            session.SimulatedEngine.ProcessSignals(executableSignals, prices, bars, bar.BarTimeUtc);
+            foreach (var intent in emitted.Where(i => i.Status == OrderIntentStatus.Pending))
+                intent.Status = OrderIntentStatus.Filled;
+        }
+
+        // "Valutate" sono le strategie di questo stream che avevano abbastanza storia: le altre
+        // StrategyEvaluationService le salta in silenzio, ed è esattamente il silenzio da spiegare.
+        return evaluationStrategies.Count(s =>
+            Normalize(s.Symbol) == Normalize(bar.Symbol) &&
+            s.TimeframeMinutes == bar.TimeframeMinutes &&
+            history.Count >= s.RequiredCandles);
     }
 
     public IReadOnlyList<OrderIntent> GetIntents(string sessionId, string token, long after = 0)
@@ -2011,7 +2216,11 @@ public sealed class TradingSessionService : ITradingSessionService
             {
                 Symbol = g.Key,
                 AccountSymbol = conversion.GetAccountSymbol(g.Key),
-                TimeframesMinutes = g.Select(x => x.TimeframeMinutes).Distinct().Order().ToArray()
+                TimeframesMinutes = g.Select(x => x.TimeframeMinutes).Distinct().Order().ToArray(),
+                // Quanta storia serve al server per valutare quello stream: il client la usa per
+                // sapere quante candele caricare dal broker e quanto profonda spedire la finestra.
+                RequiredCandlesByTimeframe = g.GroupBy(x => x.TimeframeMinutes)
+                    .ToDictionary(tf => tf.Key, tf => tf.Max(x => x.RequiredCandles))
             }).ToArray()
     };
 

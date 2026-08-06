@@ -15,12 +15,27 @@ namespace cAlgo.Robots
 {
     /// <summary>
     /// cBot "live" collegato al trading system Piootoo (api/v1/trading-sessions):
-    ///  - il grafico a cui è agganciato il bot deve avere il timeframe = BaseTimeframeMinutes (default 5
-    ///    min): ad ogni sua barra chiusa (OnBar) il bot legge la serie cTrader nativa per ciascuna
-    ///    coppia simbolo/timeframe configurata e inoltra al server ogni sua barra chiusa non ancora
-    ///    trasmessa; non aggrega mai artificialmente barre 5 minuti;
+    ///  - il simbolo e il timeframe del grafico a cui è agganciato il bot sono IRRILEVANTI: gli stream
+    ///    operativi sono le coppie (simbolo, timeframe) che arrivano dal piano del server. Per ognuna il
+    ///    bot apre la serie nativa cTrader, ne carica la storia all'indietro con <c>LoadMoreHistory</c> e
+    ///    si sottoscrive al suo <c>Bars.BarOpened</c>: alla chiusura di una barra di QUEL flusso invia al
+    ///    server una finestra di candele e reclama subito l'eventuale segnale. Non aggrega mai barre
+    ///    artificialmente, e non usa la barra del grafico come orologio comune;
+    ///  - le candele viaggiano in due tempi. All'avvio, una volta per stream, parte il RISCALDAMENTO:
+    ///    tutta la storia che le strategie richiedono (<c>RequiredCandles</c>, dichiarate dal
+    ///    descriptor; per una strategia a 15 minuti sono 576 barre) con l'ordine di non valutare nulla,
+    ///    perché sono barre già passate e valutarle produrrebbe intent sul passato. Poi, a ogni barra
+    ///    chiusa, una finestra corta (<c>IncrementalWindowBars</c>, default 20) di cui il server valuta
+    ///    l'ultima candela. Serve perché il server, in ExternalBroker, non ha un datafeed proprio: la
+    ///    storia di uno stream è solo ciò che gli è stato spinto, quindi ogni giro perso lascerebbe un
+    ///    buco permanente. Il server accoda solo le candele che non ha, quindi la sovrapposizione non
+    ///    duplica niente e ricuce da sola fino a 19 barre consecutive perse; oltre, rifiuta la finestra
+    ///    invece di accodare una serie bucata;
     ///  - fa polling periodico chiedendo al server "qual è il prossimo segnale per il MIO account";
     ///  - apre e chiude posizioni su QUALSIASI simbolo configurato (non solo quello del grafico);
+    ///  - ogni posizione e ogni ordine porta una label <c>PiootooLive:{StrategyCode}:{IntentId}</c>: dal
+    ///    solo stato della piattaforma si risale sempre al segnale che li ha creati, anche dopo un
+    ///    riavvio del cBot e senza consultare lo stato locale;
     ///  - si autolimita PER SIMBOLO: mentre ha una posizione aperta su un simbolo non ne chiede/accetta una
     ///    seconda sullo stesso simbolo, ma può gestire in parallelo posizioni su simboli diversi;
     ///  - ogni intent di ingresso porta con sé la specifica di uscita completa e il cBot la applica per
@@ -44,8 +59,9 @@ namespace cAlgo.Robots
     /// non tollera che l'API del robot (posizioni, ordini) venga toccata da un thread diverso da quello
     /// dell'algoritmo: per questo tutte le chiamate HTTP qui sotto sono SINCRONE (HttpClient.Send, mai
     /// async/await o Task.Run) e con un timeout esplicito, così il bot funziona nello stesso modo sia in
-    /// live sia in backtest (dove serve comunque abilitare il backtesting multi-simbolo/multi-timeframe in
-    /// cTrader se si configurano strumenti diversi da quello del grafico).
+    /// live sia in backtest. In backtest va abilitato il supporto multi-simbolo/multi-timeframe di
+    /// cTrader: gli stream del piano sono per definizione diversi da quello del grafico, sul quale il bot
+    /// non fa più alcun affidamento.
     ///
     /// Un'istanza di questo cBot rappresenta UN account cTrader. Il codice piano risolve la sessione e
     /// il profilo account/gruppo; cBot di account diversi possono condividere la sessione del piano.
@@ -54,17 +70,29 @@ namespace cAlgo.Robots
     public class PiootooDistributedExecutionBot : Robot
     {
         private const string LabelPrefix = "PiootooLive";
-        private const string BotVersion = "1.1.0"; // aggiornare qui ad ogni release
+        private const char LabelSeparator = ':';
+
+        /// <summary>
+        /// Tetto ai giri di <c>LoadMoreHistory</c> per stream: il broker risponde a blocchi e senza un
+        /// limite un simbolo con poca storia terrebbe l'avvio in un ciclo infinito.
+        /// </summary>
+        private const int MaxHistoryLoadAttempts = 50;
+
+        private const string BotVersion = "2.0.0"; // aggiornare qui ad ogni release
         private const string StatusChartObjectName = "PiootooConnectionStatus";
 
-        [Parameter("Server Base Url", DefaultValue = "https://localhost:7116")]
+        [Parameter("Server Base Url", DefaultValue = "https://localhost:5000")]
         public string ServerBaseUrl { get; set; }
 
         [Parameter("Codice piano")]
         public string PlanCode { get; set; }
 
-        [Parameter("Timeframe base del grafico (minuti)", DefaultValue = 5, MinValue = 1)]
-        public int BaseTimeframeMinutes { get; set; }
+        // A regime la storia del server è già completa: della finestra serve solo il margine che
+        // ricuce le barre eventualmente perse (chiamata fallita, server irraggiungibile per qualche
+        // giro). Venti barre coprono diciannove buchi consecutivi; oltre, il server rifiuta la
+        // finestra invece di accodare una serie bucata, e lo si vede subito nel log.
+        [Parameter("Barre per finestra a regime", DefaultValue = 20, MinValue = 2)]
+        public int IncrementalWindowBars { get; set; }
 
         [Parameter("Polling segnali (secondi)", DefaultValue = 2, MinValue = 1)]
         public int PollingSeconds { get; set; }
@@ -131,6 +159,23 @@ namespace cAlgo.Robots
             public Bars Series;
             public DateTime? LastPushedBarTimeUtc;
 
+            /// <summary>
+            /// true quando il server ha ricevuto la finestra di riscaldamento di questo stream. Finché
+            /// è false le finestre a regime sarebbero troppo corte perché il server valuti, quindi il
+            /// riscaldamento viene ritentato: all'avvio il server può essere ancora irraggiungibile.
+            /// </summary>
+            public bool WarmedUp;
+
+            /// <summary>
+            /// Candele che le strategie del server richiedono su questo stream (il massimo dei loro
+            /// <c>RequiredCandles</c>, dal descriptor). È la profondità della finestra inviata a ogni
+            /// barra e la quantità di storia da caricare dal broker prima di partire.
+            /// </summary>
+            public int RequiredCandles;
+
+            /// <summary>Handler di <c>Series.BarOpened</c>, conservato per potersi disiscrivere in OnStop.</summary>
+            public Action<BarOpenedEventArgs> BarHandler;
+
             public override string ToString() =>
                 NormalizeSymbol(PiootooSymbol) == NormalizeSymbol(AccountSymbol)
                     ? $"{PiootooSymbol}/{TimeframeMinutes}m"
@@ -184,6 +229,10 @@ namespace cAlgo.Robots
 
         private readonly List<Pair> _pairs = new();
 
+        // Sottoscrizioni tick per simbolo del piano: break-even e trailing devono reagire su TUTTI gli
+        // strumenti, non solo su quello del grafico (l'OnTick del robot vede solo quello).
+        private readonly Dictionary<Symbol, Action<SymbolTickEventArgs>> _tickHandlers = new();
+
         // Posizioni attualmente aperte da questo bot, per Id posizione cTrader.
         private readonly Dictionary<int, OpenPositionContext> _openPositions = new();
 
@@ -199,6 +248,10 @@ namespace cAlgo.Robots
         // Barra in cui è stato piazzato l'ordine pending di ciascuna label, per gli intent con scadenza.
         private readonly Dictionary<string, PendingOrderMark> _pendingOrderBar = new();
 
+        // Stream per cui è già stato segnalato che il server non ha storia sufficiente: il messaggio
+        // va detto una volta, non a ogni barra.
+        private readonly HashSet<string> _insufficientHistoryReported = new(StringComparer.OrdinalIgnoreCase);
+
         // Massimo utile per contratto osservato dopo ProfitStallAfterUtc, per posizione.
         private readonly Dictionary<int, decimal> _peakProfitAfterStall = new();
 
@@ -207,14 +260,6 @@ namespace cAlgo.Robots
             if (string.IsNullOrWhiteSpace(PlanCode))
             {
                 Print("Codice piano non impostato.");
-                Stop();
-                return;
-            }
-
-            if (!TimeFrame.Equals(ToTimeFrame(BaseTimeframeMinutes)))
-            {
-                Print("Il grafico deve usare il timeframe base configurato ({0}m); attuale: {1}.",
-                    BaseTimeframeMinutes, TimeFrame);
                 Stop();
                 return;
             }
@@ -275,9 +320,49 @@ namespace cAlgo.Robots
                 _localStatePath = BuildLocalStatePath(PlanCode, _accountNumber);
 
             // Serie letta sul nome BROKER: sul nome Piootoo, quando l'account converte il simbolo, la
-            // ricerca fallirebbe o restituirebbe lo strumento sbagliato.
+            // ricerca fallirebbe o restituirebbe lo strumento sbagliato. Il simbolo/timeframe del grafico
+            // non entra qui: gli stream sono e restano quelli del piano.
             foreach (var pair in _pairs)
+            {
+                // Simbolo non abilitato sull'account: fallire subito e in modo esplicito, invece di
+                // scoprirlo al primo intent quando il segnale è già perso.
+                if (Symbols.GetSymbol(pair.AccountSymbol) is null)
+                {
+                    Print("Simbolo '{0}' non disponibile su questo account: stream {1} non avviabile.",
+                        pair.AccountSymbol, pair);
+                    UpdateConnectionStatus(false);
+                    Stop();
+                    return;
+                }
+
                 pair.Series = MarketData.GetBars(ToTimeFrame(pair.TimeframeMinutes), pair.AccountSymbol);
+                if (pair.Series is null)
+                {
+                    Print("Serie {0} non disponibile su questo account.", pair);
+                    UpdateConnectionStatus(false);
+                    Stop();
+                    return;
+                }
+
+                // Storia caricata all'indietro PRIMA di partire: cTrader tiene in serie solo le barre
+                // che gli servono per il grafico, e senza questo la prima finestra spedita al server
+                // sarebbe più corta di RequiredCandles. Il server non valuterebbe nulla e il run
+                // resterebbe muto per le prime centinaia di barre.
+                LoadHistoryBackwards(pair);
+
+                // Riscaldamento: la storia richiesta parte subito, e parte senza far valutare nulla.
+                // Le barre della finestra sono già passate: valutarle produrrebbe intent sul passato,
+                // che il bot eseguirebbe al prezzo di adesso.
+                SendWarmUpWindow(pair);
+
+                // Una sottoscrizione per stream: la barra di ciascuna coppia (simbolo, timeframe) fa
+                // scattare le chiamate al server per quella coppia, indipendentemente dalle altre.
+                var stream = pair;
+                stream.BarHandler = _ => OnStreamBarClosed(stream);
+                stream.Series.BarOpened += stream.BarHandler;
+            }
+
+            SubscribeSymbolTicks();
 
             RestoreLocalState();
             Positions.Opened += OnPositionOpened;
@@ -308,27 +393,31 @@ namespace cAlgo.Robots
                 connected ? Color.LightGreen : Color.OrangeRed);
         }
 
-        protected override void OnBar()
+        /// <summary>
+        /// Una barra di UNO stream del piano si è chiusa (l'evento è <c>BarOpened</c> della sua serie:
+        /// quando si apre la barra n, la n-1 è chiusa). Tutto il ciclo — cancellazione degli ordini
+        /// scaduti, push della barra, conteggio barre in posizione, reclamo del segnale — è fatto per
+        /// questo stream soltanto: gli altri hanno il loro orologio e scattano per conto proprio.
+        /// </summary>
+        private void OnStreamBarClosed(Pair stream)
         {
             // Prima si ritira l'ordine della barra appena chiusa: l'ordine "next bar" ha esaurito la sua
             // unica barra di validità, e riemettere il signal senza cancellarlo ne accumulerebbe uno per
             // barra a livelli diversi, tutti eseguibili.
-            CancelExpiredPendingOrders();
+            CancelExpiredPendingOrders(stream);
 
-            var pushedStreams = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var pair in _pairs)
+            var pushed = TryPushClosedBar(stream);
+            if (pushed)
             {
-                if (!TryPushClosedBar(pair))
-                    continue;
-
-                pushedStreams.Add(MakeStreamKey(pair.PiootooSymbol, pair.TimeframeMinutes));
+                // Solo le posizioni che vivono su QUESTO stream avanzano di una barra: contarle sulla
+                // barra di un altro timeframe falserebbe MaxBarsInPosition.
+                var streamKey = MakeStreamKey(stream.PiootooSymbol, stream.TimeframeMinutes);
+                foreach (var context in _openPositions.Values)
+                    if (MakeStreamKey(context.Symbol, context.TimeframeMinutes) == streamKey)
+                        context.BarsInPosition++;
             }
 
-            foreach (var context in _openPositions.Values)
-                if (pushedStreams.Contains(MakeStreamKey(context.Symbol, context.TimeframeMinutes)))
-                    context.BarsInPosition++;
-
-            // Le barre sono già state pubblicate (la storia del server non deve avere buchi), ma
+            // La barra è già stata pubblicata (la storia del server non deve avere buchi), ma
             // dentro la finestra di flat non si reclama nessun intent: sarebbe un ingresso che
             // HandleEntryIntent scarterebbe comunque, e il polling costa una chiamata.
             if (EnforceWeekEndFlat())
@@ -337,9 +426,9 @@ namespace cAlgo.Robots
                 return;
             }
 
-            // Il server ha appena valutato tutti gli stream che hanno chiuso una barra: reclamare
-            // subito l'eventuale intent, senza aspettare il prossimo polling periodico.
-            if (pushedStreams.Count != 0)
+            // Il server ha appena valutato questo stream: reclamare subito l'eventuale intent, senza
+            // aspettare il prossimo polling periodico.
+            if (pushed)
                 PollNextSignal();
 
             MoveStopsToBreakEven();
@@ -348,16 +437,62 @@ namespace cAlgo.Robots
             SaveLocalState();
         }
 
-        protected override void OnTick()
+        /// <summary>
+        /// Un tick su uno dei simboli del piano. Il prezzo può raggiungere e perdere la soglia dentro
+        /// la stessa barra, quindi break-even e trailing vanno verificati a ogni tick e non al solo
+        /// bar-close. La sottoscrizione è per simbolo perché <c>OnTick</c> del robot riporta i tick del
+        /// solo simbolo del grafico, che qui non ha alcun ruolo.
+        /// </summary>
+        private void OnSymbolTick(SymbolTickEventArgs args)
         {
             // Dentro la finestra di fine settimana non c'e' nulla da proteggere: va solo chiuso.
             if (EnforceWeekEndFlat())
                 return;
 
-            // Il prezzo può raggiungere e perdere la soglia all'interno della barra 5m:
-            // il break-even va quindi verificato a ogni tick, non solo al bar-close.
             MoveStopsToBreakEven();
             MoveTrailingStops();
+        }
+
+        /// <summary>
+        /// Chiede al broker le barre precedenti finché la serie non copre <c>RequiredCandles</c> più la
+        /// barra in formazione. <c>LoadMoreHistory</c> restituisce quante barre ha aggiunto e 0 quando
+        /// non c'è altro da caricare: è la condizione di uscita insieme al numero di barre raggiunto.
+        /// Il tetto sui giri serve solo a non bloccare l'avvio se il broker risponde a piccoli blocchi.
+        /// </summary>
+        private void LoadHistoryBackwards(Pair pair)
+        {
+            var target = pair.RequiredCandles + 1;
+            var attempts = 0;
+            while (pair.Series.Count < target && attempts++ < MaxHistoryLoadAttempts)
+            {
+                if (pair.Series.LoadMoreHistory() <= 0)
+                    break;
+            }
+
+            if (pair.Series.Count < target)
+                Print("Storia insufficiente per {0}: {1} barre su {2} richieste. " +
+                      "Il server non valuterà le strategie di questo stream finché non ne accumula abbastanza.",
+                    pair, pair.Series.Count, target);
+            else if (VerboseLogging)
+                Print("Storia {0}: {1} barre disponibili (finestra richiesta {2}).",
+                    pair, pair.Series.Count, pair.RequiredCandles);
+        }
+
+        /// <summary>Una sottoscrizione per simbolo broker distinto, anche se serve più stream.</summary>
+        private void SubscribeSymbolTicks()
+        {
+            foreach (var name in _pairs
+                .Select(pair => pair.AccountSymbol)
+                .Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                var symbol = Symbols.GetSymbol(name);
+                if (symbol is null || _tickHandlers.ContainsKey(symbol))
+                    continue;
+
+                Action<SymbolTickEventArgs> handler = OnSymbolTick;
+                _tickHandlers[symbol] = handler;
+                symbol.Tick += handler;
+            }
         }
 
         /// <summary>
@@ -518,7 +653,11 @@ namespace cAlgo.Robots
         /// resta a mercato uno per ogni barra della finestra operativa, a livelli diversi, tutti
         /// eseguibili.
         /// </summary>
-        private void CancelExpiredPendingOrders()
+        /// <param name="stream">
+        /// Stream la cui barra si è appena chiusa: si valutano soltanto gli ordini piazzati su di esso,
+        /// perché sono gli unici la cui validità è misurata su questa serie.
+        /// </param>
+        private void CancelExpiredPendingOrders(Pair stream)
         {
             if (_pendingOrderBar.Count == 0)
                 return;
@@ -526,7 +665,9 @@ namespace cAlgo.Robots
             foreach (var entry in _pendingOrderBar.ToList())
             {
                 var mark = entry.Value;
-                if (mark?.Stream?.Series == null || mark.Stream.Series.Count <= mark.BarCount)
+                if (!ReferenceEquals(mark?.Stream, stream))
+                    continue;
+                if (mark.Stream.Series == null || mark.Stream.Series.Count <= mark.BarCount)
                     continue;
 
                 CancelPendingOrders(entry.Key, "scaduto (valido una barra sola)");
@@ -544,6 +685,31 @@ namespace cAlgo.Robots
                 else
                     Print("Impossibile cancellare l'ordine pending {0} ({1}): {2}", order.Id, label, result.Error);
             }
+        }
+
+        /// <summary>
+        /// Cancella tutti gli ordini pending di una strategia, qualunque sia l'intent che li ha piazzati.
+        /// Serve perché la label porta l'IntentId: il segnale nuovo non ha la stessa label del vecchio,
+        /// e cercare per label esatta lascerebbe a mercato l'ordine della barra precedente.
+        /// </summary>
+        private void CancelStrategyPendingOrders(string strategyCode, string reason)
+        {
+            var prefix = MakeStrategyLabelPrefix(strategyCode);
+            foreach (var order in PendingOrders
+                .Where(o => o.Label != null && o.Label.StartsWith(prefix, StringComparison.Ordinal))
+                .ToList())
+            {
+                var result = CancelPendingOrder(order);
+                if (result.IsSuccessful)
+                    Print("Ordine pending {0} ({1}) cancellato: {2}.", order.Id, order.Label, reason);
+                else
+                    Print("Impossibile cancellare l'ordine pending {0} ({1}): {2}", order.Id, order.Label, result.Error);
+            }
+
+            foreach (var key in _pendingOrderBar.Keys
+                .Where(label => label.StartsWith(prefix, StringComparison.Ordinal))
+                .ToList())
+                _pendingOrderBar.Remove(key);
         }
 
         /// <summary>
@@ -576,6 +742,11 @@ namespace cAlgo.Robots
                 return;
 
             PollNextSignal();
+
+            // Le uscite a tempo non possono più appoggiarsi alla barra del grafico: senza questo
+            // controllo periodico, su un piano di soli stream lenti CloseAtUtc verrebbe valutato una
+            // volta per barra di quello stream, cioè con ore di ritardo.
+            CloseExpiredPositions();
         }
 
         /// <summary>
@@ -642,16 +813,88 @@ namespace cAlgo.Robots
         {
             SaveLocalState();
             Timer.Stop();
+
+            foreach (var pair in _pairs)
+                if (pair.Series != null && pair.BarHandler != null)
+                    pair.Series.BarOpened -= pair.BarHandler;
+
+            foreach (var entry in _tickHandlers)
+                entry.Key.Tick -= entry.Value;
+            _tickHandlers.Clear();
+
             Positions.Opened -= OnPositionOpened;
             Positions.Closed -= OnPositionClosed;
             _http?.Dispose();
         }
 
         // ---------------------------------------------------------------------------------------
-        // Invio delle barre chiuse native per ogni coppia simbolo/timeframe configurata
+        // Invio della finestra di candele per ogni coppia simbolo/timeframe configurata
         // ---------------------------------------------------------------------------------------
 
+        /// <summary>
+        /// Invia al server la finestra di candele dello stream e gli fa valutare l'ultima, cioè la
+        /// barra appena chiusa. Le candele precedenti sono il margine di sovrapposizione: il server
+        /// accoda solo quelle che non ha, quindi rispedirle non duplica nulla.
+        ///
+        /// <para>Il margine non è un dettaglio di banda, è ciò che impedisce i buchi. Il server, nelle
+        /// sessioni ExternalBroker, non ha un datafeed proprio: la storia di uno stream è soltanto ciò
+        /// che gli è stato spinto. Mandando la sola barra chiusa, ogni giro perso — chiamata fallita,
+        /// server irraggiungibile — lascerebbe nella sua serie un vuoto che nessuno colmerebbe più, e
+        /// le strategie girerebbero su dati bucati senza accorgersene. Con
+        /// <see cref="IncrementalWindowBars"/> barre il buco si ricuce da solo fino a quel numero di
+        /// barre consecutive; oltre, il server rifiuta la finestra invece di accodarla.</para>
+        ///
+        /// <para>La storia profonda (<c>RequiredCandles</c>) non passa di qui: la consegna una volta
+        /// sola <see cref="SendWarmUpWindow"/> all'avvio.</para>
+        /// </summary>
         private bool TryPushClosedBar(Pair pair)
+        {
+            var series = pair.Series;
+            if (series == null || series.Count < 2)
+                return false;
+
+            // Il [Robot] dichiara TimeZone=UTC: gli orari di ogni serie letta da MarketData sono
+            // già in UTC, manca solo il flag Kind. TimeZone è un attributo di compilazione, non
+            // l'impostazione di visualizzazione di cTrader, quindi il feed resta UTC comunque sia
+            // configurata la piattaforma. Il SpecifyKind non è cosmetico: senza il flag il JSON parte
+            // senza il suffisso "Z" e ValidateBar sul server rifiuta la barra.
+            // Last(1) è l'ultima candela chiusa, Last(0) quella aperta.
+            var barTimeUtc = DateTime.SpecifyKind(series.Last(1).OpenTime, DateTimeKind.Utc);
+            if (pair.LastPushedBarTimeUtc == barTimeUtc)
+                return false;
+
+            // Riscaldamento non riuscito all'avvio (server ancora giù): senza storia profonda il
+            // server non valuterebbe comunque, quindi si ritenta qui invece di procedere a vuoto.
+            if (!pair.WarmedUp)
+                SendWarmUpWindow(pair);
+
+            if (!SendWindow(pair, Math.Max(2, IncrementalWindowBars), evaluateLastCandle: true))
+                return false;
+
+            pair.LastPushedBarTimeUtc = barTimeUtc;
+            return true;
+        }
+
+        /// <summary>
+        /// Consegna al server tutta la storia che le strategie richiedono, senza fargli valutare
+        /// niente: le barre della finestra sono già passate, e valutarle produrrebbe intent sul
+        /// passato che il bot eseguirebbe al prezzo di adesso.
+        /// </summary>
+        private void SendWarmUpWindow(Pair pair)
+        {
+            if (SendWindow(pair, pair.RequiredCandles, evaluateLastCandle: false))
+            {
+                pair.WarmedUp = true;
+                if (VerboseLogging)
+                    Print("Riscaldamento {0} inviato ({1} candele richieste).", pair, pair.RequiredCandles);
+            }
+        }
+
+        /// <summary>
+        /// Spedisce le ultime <paramref name="depth"/> barre chiuse dello stream, o quante ne ha la
+        /// serie se il broker non ne ha altre.
+        /// </summary>
+        private bool SendWindow(Pair pair, int depth, bool evaluateLastCandle)
         {
             try
             {
@@ -659,65 +902,97 @@ namespace cAlgo.Robots
                 if (series == null || series.Count < 2)
                     return false;
 
-                // Il [Robot] è agganciato a un grafico con TimeZone=UTC e timeframe=BaseTimeframeMinutes:
-                // gli orari della serie sono già in UTC, manca solo il flag Kind. TimeZone è un
-                // attributo di compilazione, non l'impostazione di visualizzazione di cTrader, quindi
-                // il feed resta UTC comunque sia configurata la piattaforma. Il SpecifyKind non è
-                // cosmetico: senza il flag il JSON parte senza il suffisso "Z" e ValidateBar sul
-                // server rifiuta la barra. Last(1) è l'ultima candela chiusa, Last(0) quella aperta.
-                var nativeClosedBar = series.Last(1);
-                var barTimeUtc = DateTime.SpecifyKind(nativeClosedBar.OpenTime, DateTimeKind.Utc);
-                if (pair.LastPushedBarTimeUtc == barTimeUtc)
-                    return false;
+                // Indice 1 = ultima barra chiusa, indice 0 = barra in formazione, da escludere.
+                var available = series.Count - 1;
+                var count = Math.Min(Math.Max(1, depth), available);
+                var barTimeUtc = DateTime.SpecifyKind(series.Last(1).OpenTime, DateTimeKind.Utc);
 
-                var closedBar = new ClosedBarDto
+                var candles = new List<OhlcvDto>(count);
+                for (var offset = count; offset >= 1; offset--)
+                {
+                    var bar = series.Last(offset);
+                    candles.Add(new OhlcvDto
+                    {
+                        DateTime = DateTime.SpecifyKind(bar.OpenTime, DateTimeKind.Utc),
+                        Open = (decimal)bar.Open,
+                        High = (decimal)bar.High,
+                        Low = (decimal)bar.Low,
+                        Close = (decimal)bar.Close,
+                        Volume = (decimal)bar.TickVolume
+                    });
+                }
+
+                var window = new ClosedBarWindowDto
                 {
                     // Nome Piootoo: è con quello che il server indicizza le serie, non il nome broker.
                     Symbol = pair.PiootooSymbol,
                     TimeframeMinutes = pair.TimeframeMinutes,
-                    BarTimeUtc = barTimeUtc,
+                    Candles = candles,
                     // Sequenza basata sul timestamp: monotona per lo stream a prescindere da quale
                     // account/cBot la invii per primo (più account pushano le stesse barre di mercato).
                     Sequence = (long)(barTimeUtc - DateTime.UnixEpoch).TotalMilliseconds,
                     IdempotencyKey = $"{pair.PiootooSymbol}|{pair.TimeframeMinutes}|{barTimeUtc:O}",
-                    Bar = new OhlcvDto
-                    {
-                        DateTime = barTimeUtc,
-                        Open = (decimal)nativeClosedBar.Open,
-                        High = (decimal)nativeClosedBar.High,
-                        Low = (decimal)nativeClosedBar.Low,
-                        Close = (decimal)nativeClosedBar.Close,
-                        Volume = (decimal)nativeClosedBar.TickVolume
-                    }
+                    EvaluateLastCandle = evaluateLastCandle
                 };
 
-                var request = new PushBarsRequestDto
+                var request = new PushBarWindowRequestDto
                 {
                     SessionId = _sessionId,
                     SessionToken = _sessionToken,
-                    Bars = new[] { closedBar }
+                    Windows = new[] { window }
                 };
 
-                var response = PostJson($"api/v1/trading-sessions/{_sessionId}/bars", request);
+                var response = PostJson($"api/v1/trading-sessions/{_sessionId}/bars/window", request);
                 if (!response.IsSuccessStatusCode)
                 {
-                    if (VerboseLogging)
-                        Print("Push barra {0} fallito: {1}", pair, ReadError(response));
+                    // Un errore qui non è rumore: il server rifiuta la finestra anche quando non si
+                    // sovrappone alla sua storia, cioè quando si sta per aprire un buco.
+                    Print("Invio finestra {0} ({1} candele) fallito: {2}", pair, count, ReadError(response));
                     UpdateConnectionStatus(false);
                     return false;
                 }
                 if (!_isConnectedToServer)
                     UpdateConnectionStatus(true);
 
-                pair.LastPushedBarTimeUtc = barTimeUtc;
+                ReportWindowStatus(pair, ReadBody(response));
                 return true;
             }
             catch (Exception ex)
             {
-                Print("Errore invio barra {0}: {1}", pair, ex.Message);
+                Print("Errore invio finestra {0}: {1}", pair, ex.Message);
                 UpdateConnectionStatus(false);
                 return false;
             }
+        }
+
+        /// <summary>
+        /// Stampa, una volta sola per stream, il motivo per cui il server non sta ancora valutando:
+        /// senza questo "nessun segnale" e "storia troppo corta per valutare" sono indistinguibili dal
+        /// grafico e dal log, che è esattamente il modo in cui un run muto passa inosservato.
+        /// </summary>
+        private void ReportWindowStatus(Pair pair, string body)
+        {
+            LogJsonResponse("bars/window", body);
+            var payload = JsonSerializer.Deserialize<PushBarWindowResponseDto>(body, _json);
+            var status = payload?.Streams?.FirstOrDefault();
+            if (status is null)
+                return;
+
+            var key = MakeStreamKey(pair.PiootooSymbol, pair.TimeframeMinutes);
+            if (status.SkippedForInsufficientHistory > 0)
+            {
+                if (_insufficientHistoryReported.Add(key))
+                    Print("{0}: il server ha {1} candele su {2} richieste, {3} strategie non valutate. " +
+                          "Servono ancora {4} barre.",
+                        pair, status.HistoryBars, status.RequiredCandles,
+                        status.SkippedForInsufficientHistory,
+                        Math.Max(0, status.RequiredCandles - status.HistoryBars));
+                return;
+            }
+
+            if (_insufficientHistoryReported.Remove(key))
+                Print("{0}: storia sufficiente, {1} strategie ora valutate a ogni barra.",
+                    pair, status.EvaluatedStrategies);
         }
 
         // ---------------------------------------------------------------------------------------
@@ -733,28 +1008,30 @@ namespace cAlgo.Robots
                 {
                     SessionToken = _sessionToken,
                     Positions = Positions
-                        .Where(p => p.Label != null &&
-                                    p.Label.StartsWith(LabelPrefix + ":", StringComparison.Ordinal))
-                        .Select(p => new BrokerPositionSnapshotDto
+                        .Select(p => new { Position = p, Parsed = ParseLabel(p.Label) })
+                        .Where(x => x.Parsed != null)
+                        .Select(x => new BrokerPositionSnapshotDto
                         {
-                            PositionId = p.Id.ToString(),
-                            Symbol = p.SymbolName,
-                            StrategyCode = p.Label.Substring(LabelPrefix.Length + 1)
+                            PositionId = x.Position.Id.ToString(),
+                            Symbol = x.Position.SymbolName,
+                            StrategyCode = x.Parsed.StrategyCode,
+                            IntentId = x.Parsed.IntentId
                         })
                         .ToList(),
                     Orders = PendingOrders
-                        .Where(o => o.Label != null &&
-                                    o.Label.StartsWith(LabelPrefix + ":", StringComparison.Ordinal))
-                        .Select(o => new BrokerOrderSnapshotDto
+                        .Select(o => new { Order = o, Parsed = ParseLabel(o.Label) })
+                        .Where(x => x.Parsed != null)
+                        .Select(x => new BrokerOrderSnapshotDto
                         {
-                            OrderId = o.Id.ToString(),
-                            Symbol = o.SymbolName,
-                            StrategyCode = o.Label.Substring(LabelPrefix.Length + 1)
+                            OrderId = x.Order.Id.ToString(),
+                            Symbol = x.Order.SymbolName,
+                            StrategyCode = x.Parsed.StrategyCode,
+                            IntentId = x.Parsed.IntentId
                         })
                         .ToList(),
                     Trades = History
                         .Where(t => t.Label != null &&
-                                    t.Label.StartsWith(LabelPrefix + ":", StringComparison.Ordinal) &&
+                                    t.Label.StartsWith(LabelPrefix + LabelSeparator, StringComparison.Ordinal) &&
                                     t.ClosingTime >= historyFromUtc)
                         .Select(t => new BrokerTradeSnapshotDto
                         {
@@ -825,6 +1102,7 @@ namespace cAlgo.Robots
             // parallelo altri simboli configurati.
             var alreadyOpenOnSymbol = Positions.Any(p =>
                 p.SymbolName.Equals(brokerSymbolName, StringComparison.OrdinalIgnoreCase) &&
+                p.Label != null &&
                 p.Label.StartsWith(LabelPrefix, StringComparison.Ordinal));
             if (alreadyOpenOnSymbol)
             {
@@ -857,7 +1135,10 @@ namespace cAlgo.Robots
             var tradeType = intent.Side == SignalTypeDto.Buy ? TradeType.Buy : TradeType.Sell;
             var rawVolume = Math.Max(0.01, (double)intent.FinalQuantity);
             var volume = symbol.NormalizeVolumeInUnits(rawVolume, RoundingMode.Down);
-            var label = MakeLabel(intent.StrategyCode);
+
+            // La label porta l'IntentId: posizione e ordine restano riconducibili al segnale che li ha
+            // creati leggendo la sola piattaforma, senza dipendere dallo stato locale del bot.
+            var label = MakeLabel(intent.StrategyCode, intent.IntentId);
 
             // Stop Loss/Take Profit del segnale applicati come livelli nativi sull'ordine: li gestisce
             // il broker; l'eventuale chiusura risultante viene comunque intercettata e riportata al
@@ -867,8 +1148,17 @@ namespace cAlgo.Robots
 
             // Il segnale precedente della stessa strategia è scaduto nel momento in cui ne arriva uno
             // nuovo: il motore riemette l'ordine a ogni barra col livello ricalcolato, quindi il vecchio
-            // ordine pending non è un secondo ordine, è lo stesso ordine da sostituire.
-            CancelPendingOrders(label, "sostituito dal signal successivo");
+            // ordine pending non è un secondo ordine, è lo stesso ordine da sostituire. Il match è per
+            // strategia e non per label esatta: la label del segnale nuovo porta un IntentId diverso.
+            CancelStrategyPendingOrders(intent.StrategyCode, "sostituito dal signal successivo");
+
+            // Gli intent precedenti della stessa strategia sono stati appena cancellati a mercato: le
+            // loro label non si apriranno più, e senza questa potatura la mappa crescerebbe di una voce
+            // per barra (prima la chiave era la sola strategia e si sovrascriveva da sé).
+            foreach (var stale in _lastOpenIntentByLabel.Keys
+                .Where(key => key.StartsWith(MakeStrategyLabelPrefix(intent.StrategyCode), StringComparison.Ordinal))
+                .ToList())
+                _lastOpenIntentByLabel.Remove(stale);
 
             _lastOpenIntentByLabel[label] = intent;
 
@@ -949,6 +1239,7 @@ namespace cAlgo.Robots
                 ContractMultiplier = intent.ContractMultiplier > 0 ? intent.ContractMultiplier : 1m
             };
             _pendingOrderBar.Remove(position.Label);
+            _lastOpenIntentByLabel.Remove(position.Label); // l'intent ha prodotto la sua posizione: esaurito
             SaveLocalState();
 
             ReportExecution(intent.IntentId, intent.Symbol, ExecutionReportStatusDto.Filled,
@@ -957,9 +1248,13 @@ namespace cAlgo.Robots
 
         private void HandleCloseIntent(OrderIntentDto intent)
         {
+            // La posizione da chiudere porta la label del suo intent di INGRESSO, diverso da quello di
+            // chiusura appena ricevuto: il match è quindi sul prefisso di strategia.
+            var strategyPrefix = MakeStrategyLabelPrefix(intent.StrategyCode);
             var position = Positions.FirstOrDefault(candidate =>
                 candidate.SymbolName.Equals(ResolveIntentSymbol(intent), StringComparison.OrdinalIgnoreCase) &&
-                candidate.Label == MakeLabel(intent.StrategyCode));
+                candidate.Label != null &&
+                candidate.Label.StartsWith(strategyPrefix, StringComparison.Ordinal));
             if (position is null)
             {
                 ReportExecution(intent.IntentId, intent.Symbol, ExecutionReportStatusDto.Rejected, 0, null);
@@ -1142,7 +1437,7 @@ namespace cAlgo.Robots
 
                 var platformIds = new HashSet<int>(Positions
                     .Where(position => position.Label != null &&
-                                       position.Label.StartsWith(LabelPrefix + ":", StringComparison.Ordinal))
+                                       position.Label.StartsWith(LabelPrefix + LabelSeparator, StringComparison.Ordinal))
                     .Select(position => position.Id));
                 foreach (var context in state.Positions ?? new List<OpenPositionContext>())
                     if (platformIds.Contains(context.PositionId))
@@ -1211,7 +1506,20 @@ namespace cAlgo.Robots
                 {
                     if (tf <= 0)
                         continue;
-                    pairs.Add(new Pair { PiootooSymbol = instrument.Symbol, AccountSymbol = accountSymbol, TimeframeMinutes = tf });
+
+                    // Profondità della finestra: la dichiara il server, che conosce il masterfilter.
+                    // Un default locale sarebbe una seconda verità destinata a divergere.
+                    var required = 0;
+                    if (instrument.RequiredCandlesByTimeframe != null)
+                        instrument.RequiredCandlesByTimeframe.TryGetValue(tf, out required);
+
+                    pairs.Add(new Pair
+                    {
+                        PiootooSymbol = instrument.Symbol,
+                        AccountSymbol = accountSymbol,
+                        TimeframeMinutes = tf,
+                        RequiredCandles = Math.Max(1, required)
+                    });
                 }
             }
 
@@ -1258,7 +1566,47 @@ namespace cAlgo.Robots
             return (double)priceDistance.Value / symbol.PipSize;
         }
 
-        private static string MakeLabel(string strategyCode) => $"{LabelPrefix}:{strategyCode}";
+        /// <summary>
+        /// Label di posizioni e ordini: <c>PiootooLive:{StrategyCode}:{IntentId}</c>. È l'unico legame
+        /// fra ciò che sta sulla piattaforma e il segnale che l'ha generato che sopravvive a un riavvio
+        /// del cBot e alla perdita dello stato locale, quindi ci va l'IntentId per intero.
+        /// </summary>
+        private static string MakeLabel(string strategyCode, string intentId) =>
+            $"{LabelPrefix}{LabelSeparator}{strategyCode}{LabelSeparator}{intentId}";
+
+        /// <summary>Prefisso comune a tutte le label di una strategia, per i match che ignorano l'intent.</summary>
+        private static string MakeStrategyLabelPrefix(string strategyCode) =>
+            $"{LabelPrefix}{LabelSeparator}{strategyCode}{LabelSeparator}";
+
+        /// <summary>
+        /// Scompone una label del bot. Tollera le label del formato precedente
+        /// (<c>PiootooLive:{StrategyCode}</c>, senza intent) restituendo un IntentId vuoto: sono le
+        /// posizioni aperte da una versione più vecchia e ancora a mercato.
+        /// </summary>
+        private static ParsedLabel ParseLabel(string label)
+        {
+            if (string.IsNullOrEmpty(label) ||
+                !label.StartsWith(LabelPrefix + LabelSeparator, StringComparison.Ordinal))
+                return null;
+
+            var rest = label.Substring(LabelPrefix.Length + 1);
+            var separator = rest.IndexOf(LabelSeparator);
+            var strategyCode = separator < 0 ? rest : rest.Substring(0, separator);
+            if (strategyCode.Length == 0)
+                return null;
+
+            return new ParsedLabel
+            {
+                StrategyCode = strategyCode,
+                IntentId = separator < 0 ? string.Empty : rest.Substring(separator + 1)
+            };
+        }
+
+        private sealed class ParsedLabel
+        {
+            public string StrategyCode { get; set; }
+            public string IntentId { get; set; }
+        }
 
         /// <summary>
         /// Nome dello strumento sul broker: quello risolto dalla tabella di conversione dell'account
@@ -1323,21 +1671,45 @@ namespace cAlgo.Robots
             public decimal Volume { get; set; }
         }
 
-        private sealed class ClosedBarDto
+        /// <summary>
+        /// Finestra di candele di uno stream: l'ultima è la barra da valutare, le precedenti servono
+        /// al server per avere la storia che le strategie richiedono.
+        /// </summary>
+        private sealed class ClosedBarWindowDto
         {
             public string Symbol { get; set; }
             public int TimeframeMinutes { get; set; }
-            public DateTime BarTimeUtc { get; set; }
+            public IReadOnlyList<OhlcvDto> Candles { get; set; }
             public long Sequence { get; set; }
             public string IdempotencyKey { get; set; }
-            public OhlcvDto Bar { get; set; }
+
+            /// <summary>false = solo riscaldamento: il server accoda e non valuta nulla.</summary>
+            public bool EvaluateLastCandle { get; set; } = true;
         }
 
-        private sealed class PushBarsRequestDto
+        private sealed class PushBarWindowRequestDto
         {
             public string SessionId { get; set; }
             public string SessionToken { get; set; }
-            public IReadOnlyList<ClosedBarDto> Bars { get; set; }
+            public IReadOnlyList<ClosedBarWindowDto> Windows { get; set; }
+        }
+
+        private sealed class StreamHistoryStatusDto
+        {
+            public string Symbol { get; set; }
+            public int TimeframeMinutes { get; set; }
+            public int HistoryBars { get; set; }
+            public int RequiredCandles { get; set; }
+            public int EvaluatedStrategies { get; set; }
+            public int SkippedForInsufficientHistory { get; set; }
+        }
+
+        private sealed class PushBarWindowResponseDto
+        {
+            public int AcceptedBars { get; set; }
+            public int DuplicateBars { get; set; }
+            public int BackfilledBars { get; set; }
+            public IReadOnlyList<StreamHistoryStatusDto> Streams { get; set; }
         }
 
         private sealed class OpenTradingPlanSessionRequestDto
@@ -1367,6 +1739,12 @@ namespace cAlgo.Robots
             /// </summary>
             public string AccountSymbol { get; set; }
             public IReadOnlyList<int> TimeframesMinutes { get; set; }
+
+            /// <summary>
+            /// Per timeframe, il massimo <c>RequiredCandles</c> fra le strategie del masterfilter su
+            /// questa coppia: sotto quella soglia il server non valuta e la sessione resta muta.
+            /// </summary>
+            public Dictionary<int, int> RequiredCandlesByTimeframe { get; set; }
         }
 
         private sealed class OrderIntentDto
@@ -1452,6 +1830,9 @@ namespace cAlgo.Robots
             public string PositionId { get; set; }
             public string Symbol { get; set; }
             public string StrategyCode { get; set; }
+
+            /// <summary>Intent di ingresso letto dalla label; vuoto per posizioni con label di formato precedente.</summary>
+            public string IntentId { get; set; }
         }
 
         private sealed class BrokerTradeSnapshotDto
@@ -1465,6 +1846,9 @@ namespace cAlgo.Robots
             public string OrderId { get; set; }
             public string Symbol { get; set; }
             public string StrategyCode { get; set; }
+
+            /// <summary>Intent che ha piazzato l'ordine, letto dalla label.</summary>
+            public string IntentId { get; set; }
         }
 
         private sealed class ExternalExecutionReportDto

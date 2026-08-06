@@ -47,6 +47,19 @@ public sealed class TradingSessionsController : ControllerBase
             return Ok(_sessions.PushBars(request));
         });
 
+    /// <summary>
+    /// Come <c>POST /bars</c>, ma il client invia per ogni stream l'intera finestra di candele che le
+    /// strategie richiedono: il server accoda quelle che gli mancano e valuta solo l'ultima.
+    /// </summary>
+    [HttpPost("{sessionId}/bars/window")]
+    public ActionResult<PushBarWindowResponse> PushBarWindow(string sessionId, PushBarWindowRequest request)
+        => ExecuteResult<PushBarWindowResponse>(() =>
+        {
+            if (sessionId != request.SessionId)
+                return ProblemResult<PushBarWindowResponse>(400, "SessionId non coerente", "Il SessionId del path non coincide con il payload.");
+            return Ok(_sessions.PushBarWindow(request));
+        });
+
     [HttpGet("{sessionId}/intents")]
     public ActionResult<IReadOnlyList<OrderIntent>> Intents(
         string sessionId,

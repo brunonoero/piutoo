@@ -1002,3 +1002,69 @@ in ordine cronologico. Non è un changelog di codice: quello resta nei commit.
   dichiarata dal broker: `RoundQuantity` applica comunque il default a contratto intero (passo 1,
   minimo 1) invece di lasciar passare una quantità frazionaria — "nessuna conversione" vale per
   simbolo e moltiplicatore, non per la granularità.
+- **2026-08-06** — **`PiootooDistributedExecutionBot` non usa più il simbolo e il timeframe del
+  grafico a cui è agganciato.** Prima il grafico era l'orologio comune: il bot pretendeva un chart
+  al timeframe base (parametro `BaseTimeframeMinutes`, rimosso) e a ogni sua barra scorreva tutte
+  le coppie del piano per vedere quali avessero chiuso. Il timeframe del chart quindi decideva la
+  latenza di tutti gli stream, e un chart più lento delle coppie del piano ne perdeva le barre.
+  Ora ogni coppia (simbolo, timeframe) del descriptor apre la propria serie nativa e si sottoscrive
+  al proprio `Bars.BarOpened`: push della barra, conteggio di `MaxBarsInPosition` e claim del
+  segnale avvengono per stream, ciascuno col proprio orologio. Conseguenze: i simboli del piano non
+  disponibili sull'account fanno fallire l'avvio invece di essere scoperti al primo intent
+  (stesso invariante dei datafeed mancanti); break-even e trailing si sottoscrivono a `Symbol.Tick`
+  di ogni simbolo, perché `OnTick` del robot riporta solo i tick del chart; `CloseExpiredPositions`
+  gira anche su `OnTimer`, perché senza la barra del grafico un piano di soli stream lenti
+  valuterebbe `CloseAtUtc` con ore di ritardo.
+- **2026-08-06** — **Le label di posizioni e ordini portano l'IntentId**:
+  `PiootooLive:{StrategyCode}:{IntentId}` invece di `PiootooLive:{StrategyCode}`. Dal solo stato
+  della piattaforma si risale al segnale che ha creato ciascun ordine o posizione, anche dopo un
+  riavvio del cBot e senza lo stato locale; `BrokerPositionSnapshot`/`BrokerOrderSnapshot` portano
+  il campo `IntentId` (vuoto per le label di formato precedente, ancora a mercato). Poiché la label
+  cambia a ogni segnale, i match che riguardano la strategia e non il singolo intent — sostituzione
+  dell'ordine pending della barra precedente, ricerca della posizione da chiudere per un intent
+  `Close` — passano dal prefisso `PiootooLive:{StrategyCode}:` e non più dalla label esatta.
+- **2026-08-06** — **Il client invia al server la finestra di candele, non la singola barra chiusa**
+  (`POST /{id}/bars/window`, `PiootooDistributedExecutionBot`). Nelle sessioni `ExternalBroker` il
+  server non ha un datafeed proprio: la storia di uno stream è soltanto ciò che gli è stato spinto,
+  e `StrategyEvaluationService` salta la valutazione finché `history.Count < RequiredCandles`. Con
+  una barra per volta ogni run partiva quindi da storia vuota e scartava in silenzio le prime
+  `RequiredCandles` barre — per `PTS_NQ_PCH_001_15`, `PriceChannelEngine` a 15 minuti, sono
+  `max(6 sessioni × 96, ChannelBars+1) = 576` barre, circa sei sessioni — e un backtest più corto
+  di quella soglia non produceva un solo segnale, senza un messaggio. Peggio: in backtest
+  `ExecutionKey = BT-{istante di avvio}`, quindi ogni run apre una sessione nuova e il
+  riscaldamento non si eredita mai.
+  Ora il bot carica la storia all'indietro con `Bars.LoadMoreHistory()` fino a coprire
+  `RequiredCandles` e a ogni barra chiusa spedisce le ultime N candele; il server accoda quelle che
+  non ha e valuta **solo l'ultima**, così la prima finestra fa da riscaldamento senza generare
+  intent sul passato. La profondità la dichiara il server in
+  `TradingInstrument.RequiredCandlesByTimeframe` (massimo fra le strategie del masterfilter su
+  quello stream): un parametro locale del cBot sarebbe una seconda verità destinata a divergere dal
+  masterfilter.
+  **Le candele viaggiano in due tempi.** All'avvio, una volta per stream, parte tutta la storia
+  richiesta con `EvaluateLastCandle = false`: il server accoda e basta, senza valutare, senza
+  consumare l'idempotency key e senza avanzare la sequence — sono barre già passate, e valutarle
+  produrrebbe intent sul passato che il bot eseguirebbe al prezzo di adesso. Poi, a ogni barra
+  chiusa, una finestra corta (`IncrementalWindowBars`, default 20) di cui il server valuta l'ultima
+  candela. Rispedire ogni volta l'intera finestra da 576 candele sarebbe stato più semplice ma
+  costava ~50 KB di JSON per barra; mandare la sola barra chiusa era la versione rotta di partenza.
+  Le 20 barre sono il margine: **la sovrapposizione non è banda sprecata, è ciò che impedisce i
+  buchi.** Ogni giro perso — chiamata fallita, server irraggiungibile — lascerebbe altrimenti nella
+  serie del server un vuoto permanente, e le strategie girerebbero su dati bucati senza
+  accorgersene. Con 20 barre si ricuce da solo fino a 19 barre consecutive perse. E il buco non
+  resta affidato alla buona volontà del client: la finestra deve **sovrapporsi** alla storia già
+  presente, e il server rifiuta quella che comincia dopo la sua ultima candela nota. Il criterio è
+  la sovrapposizione e non l'aritmetica sui timestamp perché gli stream hanno buchi legittimi —
+  fine settimana, festivi, mercati chiusi — che una differenza in minuti scambierebbe per barre
+  perse.
+  `POST /{id}/bars` resta invariato per `PiootooDirectExecutionBot`, che non è stato migrato.
+- **2026-08-06** — **La sessione non persiste le candele ricevute.** `session.History` vive in RAM;
+  `TradingJsonStore` scrive signal, trade e rotation-log e nient'altro. Raccogliere il datafeed da
+  cTrader e salvarlo su disco per i backtest locali sarà compito di un cBot raccoglitore dedicato,
+  non della strada di esecuzione: mescolare le due cose farebbe dipendere la qualità del datafeed
+  storico dagli orari in cui è girato un bot di trading.
+- **2026-08-06** — **La risposta di `bars/window` porta la diagnostica per stream**
+  (`HistoryBars`, `RequiredCandles`, `EvaluatedStrategies`, `SkippedForInsufficientHistory`) e il
+  cBot la stampa una volta per stream, con quante barre mancano. Prima "nessuna strategia ha
+  prodotto un segnale" e "il server non ha abbastanza storia per valutare" erano lo stesso identico
+  silenzio: è la stessa ragione per cui il backtest interno ha il blocco `diagnostics` in testa a
+  `backtest-summary.json`.

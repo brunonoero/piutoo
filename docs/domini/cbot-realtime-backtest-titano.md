@@ -50,11 +50,14 @@ sizing e capitale (vedi [`trading-plans.md`](trading-plans.md)).
 4. **Account cTrader** registrati nel workspace (`WorkspaceAccount`) con eventuale
    tabella di conversione symbol (vedi
    [`account-e-conversione-symbol.md`](account-e-conversione-symbol.md)).
-5. **Grafico coerente** — il simbolo e il timeframe del grafico cTrader devono
-   corrispondere a una coppia coperta dal masterfilter; altrimenti il server
-   accetta barre ma non valuta strategie. `PiootooDirectExecutionBot` verifica
-   all'avvio e si ferma; `PiootooDistributedExecutionBot` legge tutte le coppie dal
-   descriptor e invia barre da serie native cTrader.
+5. **Grafico** — vale solo per `PiootooDirectExecutionBot`: simbolo e timeframe del
+   grafico devono corrispondere a una coppia coperta dal masterfilter, altrimenti il
+   server accetta barre ma non valuta strategie, e il bot si ferma all'avvio.
+   `PiootooDistributedExecutionBot` **ignora del tutto il grafico**: legge le coppie
+   (simbolo, timeframe) dal descriptor del piano, apre una serie nativa cTrader per
+   ognuna e si sottoscrive al `BarOpened` di ciascuna, quindi ogni stream invia le
+   proprie barre e reclama i propri segnali con il proprio orologio. In backtest
+   serve il supporto multi-simbolo/multi-timeframe di cTrader.
 6. **Fuso UTC** — tutti i cBot dichiarano `[Robot(TimeZone = TimeZones.UTC)]`.
    Gli orari di barra inviati al server devono essere UTC (`Z`); vedi
    [`decisioni.md`](../decisioni.md) (2026-08-02) sul rifiuto delle barre senza

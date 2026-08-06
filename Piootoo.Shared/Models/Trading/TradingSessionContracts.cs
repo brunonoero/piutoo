@@ -245,6 +245,20 @@ public sealed class TradingInstrument
     public string AccountSymbol { get; init; } = string.Empty;
 
     public required IReadOnlyList<int> TimeframesMinutes { get; init; }
+
+    /// <summary>
+    /// Per ogni timeframe di <see cref="TimeframesMinutes"/>, quante candele servono al server per
+    /// poter valutare almeno una strategia di questa coppia: è il massimo di
+    /// <c>ITradingStrategy.RequiredCandles</c> fra le strategie del masterfilter su quello stream.
+    ///
+    /// <para>Serve al client per sapere quanta storia caricare dal broker e quanto profonda deve
+    /// essere la finestra che invia a ogni barra: sotto questa soglia
+    /// <c>StrategyEvaluationService</c> salta la valutazione, e la sessione resta muta senza che
+    /// nulla lo segnali. Non è un parametro del client di proposito — duplicherebbe il
+    /// masterfilter e le due cifre divergerebbero in silenzio.</para>
+    /// </summary>
+    public IReadOnlyDictionary<int, int> RequiredCandlesByTimeframe { get; init; } =
+        new Dictionary<int, int>();
 }
 
 public sealed class ClosedBar
@@ -269,6 +283,85 @@ public sealed class PushBarsResponse
     public int AcceptedBars { get; init; }
     public int DuplicateBars { get; init; }
     public IReadOnlyList<OrderIntent> Intents { get; init; } = [];
+}
+
+/// <summary>
+/// Finestra di candele di uno stream: le ultime N barre chiuse, in ordine cronologico, di cui
+/// l'ultima è quella appena chiusa e da valutare.
+///
+/// <para>Esiste perché il server non ha un datafeed proprio nelle sessioni ExternalBroker: la storia
+/// di uno stream è solo ciò che il client gli ha spinto. Inviando una barra per volta le prime
+/// <c>RequiredCandles</c> barre di ogni run venivano scartate in silenzio da
+/// <c>StrategyEvaluationService</c> (per una strategia a 15 minuti sono sei sessioni piene, 576
+/// barre) e un backtest più corto di quella soglia non produceva un solo segnale.</para>
+///
+/// <para><b>Solo l'ultima candela viene valutata.</b> Le precedenti servono a ricostruire la storia:
+/// il server accoda quelle che non ha già e ignora le altre. Così la prima finestra di un run fa da
+/// riscaldamento senza generare intent sul passato.</para>
+/// </summary>
+public sealed class ClosedBarWindow
+{
+    public required string Symbol { get; init; }
+    public required int TimeframeMinutes { get; init; }
+
+    /// <summary>Candele in ordine cronologico crescente; l'ultima è la barra appena chiusa.</summary>
+    public required IReadOnlyList<OhlcvData> Candles { get; init; }
+
+    /// <summary>Idempotenza e ordinamento si applicano alla sola barra da valutare, cioè l'ultima.</summary>
+    public required long Sequence { get; init; }
+    public required string IdempotencyKey { get; init; }
+
+    /// <summary>
+    /// false = finestra di solo riscaldamento: il server accoda le candele e non valuta nulla, quindi
+    /// non consuma <see cref="IdempotencyKey"/> né avanza <see cref="Sequence"/>.
+    ///
+    /// <para>Serve all'avvio del client, che deve consegnare al server tutta la storia richiesta dalle
+    /// strategie senza che le barre già passate producano intent: sono ordini sul passato, che il bot
+    /// eseguirebbe al prezzo di adesso. A regime il client manda finestre corte con questo flag a
+    /// true.</para>
+    /// </summary>
+    public bool EvaluateLastCandle { get; init; } = true;
+}
+
+public sealed class PushBarWindowRequest
+{
+    public required string SessionId { get; init; }
+    public required string SessionToken { get; init; }
+    public required IReadOnlyList<ClosedBarWindow> Windows { get; init; }
+}
+
+/// <summary>
+/// Stato della storia di uno stream dopo l'invio: dice al client se il server è già in grado di
+/// valutare o quante barre gli mancano ancora. Senza questo il silenzio della sessione è
+/// indistinguibile da "nessuna strategia ha prodotto un segnale".
+/// </summary>
+public sealed class StreamHistoryStatus
+{
+    public required string Symbol { get; init; }
+    public required int TimeframeMinutes { get; init; }
+
+    /// <summary>Candele che il server ha in memoria per questo stream dopo l'unione della finestra.</summary>
+    public required int HistoryBars { get; init; }
+
+    /// <summary>Massimo <c>RequiredCandles</c> fra le strategie del masterfilter su questo stream.</summary>
+    public required int RequiredCandles { get; init; }
+
+    /// <summary>Strategie del masterfilter su questo stream che sono state davvero valutate.</summary>
+    public required int EvaluatedStrategies { get; init; }
+
+    /// <summary>Strategie saltate perché la storia disponibile è più corta del loro RequiredCandles.</summary>
+    public required int SkippedForInsufficientHistory { get; init; }
+}
+
+public sealed class PushBarWindowResponse
+{
+    public int AcceptedBars { get; init; }
+    public int DuplicateBars { get; init; }
+
+    /// <summary>Candele accodate alla storia perché il server non le aveva (riscaldamento).</summary>
+    public int BackfilledBars { get; init; }
+    public IReadOnlyList<OrderIntent> Intents { get; init; } = [];
+    public IReadOnlyList<StreamHistoryStatus> Streams { get; init; } = [];
 }
 
 public sealed class OrderIntent
@@ -515,6 +608,13 @@ public sealed class BrokerPositionSnapshot
     public string PositionId { get; init; } = string.Empty;
     public string Symbol { get; init; } = string.Empty;
     public string StrategyCode { get; init; } = string.Empty;
+
+    /// <summary>
+    /// Intent di ingresso che ha generato la posizione, letto dalla label del broker
+    /// (<c>PiootooLive:{StrategyCode}:{IntentId}</c>). Vuoto per posizioni con label di formato
+    /// precedente, che portavano solo il codice strategia.
+    /// </summary>
+    public string IntentId { get; init; } = string.Empty;
 }
 
 /// <summary>Ordine Piootoo ancora pendente sulla piattaforma del broker.</summary>
@@ -523,6 +623,9 @@ public sealed class BrokerOrderSnapshot
     public string OrderId { get; init; } = string.Empty;
     public string Symbol { get; init; } = string.Empty;
     public string StrategyCode { get; init; } = string.Empty;
+
+    /// <summary>Intent che ha piazzato l'ordine, letto dalla label del broker. Vedi <see cref="BrokerPositionSnapshot.IntentId"/>.</summary>
+    public string IntentId { get; init; } = string.Empty;
 }
 
 /// <summary>Trade Piootoo presente nello storico della piattaforma broker.</summary>

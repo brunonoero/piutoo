@@ -90,6 +90,15 @@ sbaglia più spesso:
 - **Datafeed mancante = errore esplicito.** Se una coppia `(Symbol, Timeframe)`
  del masterfilter non ha dati, il backtest deve fallire o segnalarlo, mai
  proseguire in silenzio.
+- **In sessione `ExternalBroker` la storia è solo quella che il client spinge.**
+ Il server non ha datafeed proprio e `StrategyEvaluationService` salta in
+ silenzio finché `history.Count < RequiredCandles` (per una strategia a 15
+ minuti sono 576 barre). Il client manda quindi il riscaldamento all'avvio, poi
+ finestre corte e **sovrapposte** a ogni barra; il server accoda solo le candele
+ che non ha, ne valuta una sola, e rifiuta la finestra che non si sovrappone
+ invece di accodare una serie bucata. Le candele restano in RAM: il datafeed su
+ disco è compito di un cBot raccoglitore dedicato. Regole complete in
+ `docs/domini/finestra-candele-e-riscaldamento.md`.
 - **Barra di esecuzione ≠ prezzo di mark.** L'orologio del loop è sintetico e sui
  tick senza barre il cursore restituisce l'ultima barra chiusa. Quel prezzo va
  usato per il mark-to-market (altrimenti stop e time exit non sono valutabili) ma

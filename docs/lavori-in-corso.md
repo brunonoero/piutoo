@@ -115,6 +115,40 @@ sarebbe casuale. Oggi l'unica verifica deterministica sono i test
 Per chiudere il buco servirebbe un driver server-side che alimenti una sessione con barre storiche
 (sul modello di `Piootoo.FeedWorker`) e faccia pollare N account simulati in un ordine deterministico.
 
+### Storico barre persistito sul server, per non rimandare il riscaldamento a ogni run
+
+Idea da valutare, **non** implementata. Oggi la storia di una sessione `ExternalBroker` vive in RAM
+e muore con la sessione: siccome in backtest `ExecutionKey = BT-{istante di avvio}`, ogni run apre
+una sessione nuova e il cBot deve rimandare da capo le `RequiredCandles` barre di riscaldamento
+(576 a 15 minuti). Le regole attuali sono in
+[`domini/finestra-candele-e-riscaldamento.md`](domini/finestra-candele-e-riscaldamento.md).
+
+La variante: il server tiene su disco lo storico per `(simbolo, timeframe)`. Il cBot, al boot,
+**chiede lo stato delle barre** (che intervallo il server ha già per i suoi stream), invia solo la
+finestra che manca, e il server salva le candele che non ha. Da lì in poi il cBot continua a
+mandare sempre le ultime N, ma sapendo che lo storico profondo è già dalla parte del server.
+
+Cosa risolve: riscaldamento pagato una volta sola invece che a ogni run; e lo stesso storico
+diventa datafeed riutilizzabile per i backtest locali, che è il lavoro previsto per il cBot
+raccoglitore dedicato — le due cose confluiscono.
+
+Da decidere prima di scriverlo:
+
+- **Chi possiede il feed.** Oggi R8 dice esplicitamente che la strada di esecuzione non scrive
+  datafeed, perché la qualità dello storico non deve dipendere dagli orari in cui è girato un bot
+  di trading. Questa variante rompe quella separazione: o si accetta, o il salvataggio resta al
+  solo cBot raccoglitore e la sessione si limita a *leggere* ciò che trova.
+- **Fiducia nel feed salvato.** Barre arrivate da un conto demo, da un broker diverso o da una
+  sessione interrotta a metà non sono equivalenti. Serve almeno la provenienza per riga, altrimenti
+  un backtest locale gira su un miscuglio senza saperlo.
+- **Il nuovo endpoint di stato.** `GET /{sessionId}/streams` (o per workspace, se lo storico è
+  condiviso fra sessioni) che restituisca per stream primo/ultimo timestamp e numero di barre.
+  Attenzione: "ho 600 barre" non basta, servono gli estremi, altrimenti il client non sa se la sua
+  finestra si sovrappone e R7 non è verificabile dal suo lato.
+- **I buchi interni.** Uno storico su disco può avere vuoti in mezzo, non solo in coda. La regola
+  della sovrapposizione (R7) copre la coda; per i buchi interni serve un controllo suo, altrimenti
+  si torna esattamente al problema che R6 e R7 esistono per evitare.
+
 ### Minori
 
 - Le cartelle sotto `sessions/` non vengono mai ripulite. Ora hanno un nome parlante

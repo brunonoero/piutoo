@@ -52,6 +52,10 @@ solution. Stato: **stabile** = contenuto verificato contro il codice,
   `FinalQuantity` (Titano × ATR × rischio portfolio). *Stabile.*
 - [`domini/trading-sessions-api.md`](domini/trading-sessions-api.md) — ciclo
   di vita di una sessione, endpoint, autorità di execution. *Stabile.*
+- [`domini/finestra-candele-e-riscaldamento.md`](domini/finestra-candele-e-riscaldamento.md)
+  — come un cBot consegna le candele al server: riscaldamento all'avvio, finestra
+  corta a regime, perché la sovrapposizione impedisce i buchi e come si
+  diagnostica una sessione che non produce segnali. *Stabile.*
 - [`domini/distribuzione-multi-account.md`](domini/distribuzione-multi-account.md)
   — secondo layer di filtro dopo Titano: gruppi, slot, max trade concorrenti,
   con matrice di esempi verificati. *Stabile.*
