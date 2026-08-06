@@ -133,7 +133,28 @@ ragione per cui il backtest interno ha il blocco `diagnostics` in testa a
 
 ---
 
-## 3. Diagnosticare una sessione muta
+## 3. Vedere i segnali mentre nascono
+
+La console del server stampa una riga per ogni intent generato da una barra:
+
+```
+[9b9de8e8…] Entry PTS_NQ_PCH_001_15 NQ Buy Stop @ 20145.75 qty 1 -> Pending
+```
+
+È l'unico punto in cui un segnale si vede **nel momento in cui viene generato**:
+`signals.json` si legge a run finito, e il cBot vede solo ciò che gli viene
+consegnato — non un intent annullato dal sizing o dal limite di ingressi, che è
+proprio il caso da capire quando "non arriva niente". Quando l'intent è annullato
+la riga porta lo stato e il `SizingReason`, e la quantità finale accanto a quella
+chiesta dalla strategia.
+
+Alzando `PiootooApp.Server.Controllers` a `Debug` in `appsettings.json` si
+aggiunge il riempimento della storia barra per barra. Di default è escluso perché
+sarebbero 576 righe di riscaldamento a soffocare i segnali.
+
+---
+
+## 4. Diagnosticare una sessione muta
 
 1. Log del cBot: se compare `il server ha N candele su M richieste`, è
    riscaldamento incompleto. Manca storia sul broker (R2) o il riscaldamento non
@@ -141,7 +162,11 @@ ragione per cui il backtest interno ha il blocco `diagnostics` in testa a
 2. Se compare `Buco nella storia`, il client ha perso più di
    `IncrementalWindowBars` barre di fila (R7). Alzare il parametro non è la cura:
    va capito perché il bot ha smesso di spedire.
-3. Se `HistoryBars >= RequiredCandles` e `SkippedForInsufficientHistory = 0`, la
+3. Se compare un `409` ripetuto, non è un problema di candele: la finestra non è
+   mai arrivata alla valutazione. Il caso tipico è un piano che punta a una
+   cartella Titano senza rotazione. Il messaggio viene stampato una volta sola per
+   stream finché non cambia, e dopo 20 fallimenti di fila il bot si ferma da solo.
+4. Se `HistoryBars >= RequiredCandles` e `SkippedForInsufficientHistory = 0`, la
    storia è a posto: il silenzio viene dalle strategie o da Titano. Da lì si
    passa al rotation-log (`GET /{id}/rotation-log`, solo per sessioni collegate a
    un run Titano) e a [`titano-rotation.md`](titano-rotation.md).

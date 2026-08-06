@@ -10,7 +10,13 @@ namespace PiootooApp.Server.Controllers;
 public sealed class TradingSessionsController : ControllerBase
 {
     private readonly ITradingSessionService _sessions;
-    public TradingSessionsController(ITradingSessionService sessions) => _sessions = sessions;
+    private readonly ILogger<TradingSessionsController> _log;
+
+    public TradingSessionsController(ITradingSessionService sessions, ILogger<TradingSessionsController> log)
+    {
+        _sessions = sessions;
+        _log = log;
+    }
 
     [HttpPost]
     public ActionResult<TradingSessionDescriptor> Create(CreateTradingSessionRequest request)
@@ -44,7 +50,9 @@ public sealed class TradingSessionsController : ControllerBase
         {
             if (sessionId != request.SessionId)
                 return ProblemResult<PushBarsResponse>(400, "SessionId non coerente", "Il SessionId del path non coincide con il payload.");
-            return Ok(_sessions.PushBars(request));
+            var result = _sessions.PushBars(request);
+            LogIntents(sessionId, result.Intents);
+            return Ok(result);
         });
 
     /// <summary>
@@ -57,7 +65,10 @@ public sealed class TradingSessionsController : ControllerBase
         {
             if (sessionId != request.SessionId)
                 return ProblemResult<PushBarWindowResponse>(400, "SessionId non coerente", "Il SessionId del path non coincide con il payload.");
-            return Ok(_sessions.PushBarWindow(request));
+            var result = _sessions.PushBarWindow(request);
+            LogStreams(sessionId, result.Streams);
+            LogIntents(sessionId, result.Intents);
+            return Ok(result);
         });
 
     [HttpGet("{sessionId}/intents")]
@@ -181,6 +192,53 @@ public sealed class TradingSessionsController : ControllerBase
             _sessions.CancelIntent(sessionId, token, intentId);
             return NoContent();
         });
+
+    /// <summary>
+    /// Una riga sulla console del server per ogni intent nato da una barra. È l'unico punto in cui si
+    /// vede un segnale nel momento in cui viene generato: la sessione persiste su file signal e trade,
+    /// ma a run finito, e il cBot vede solo ciò che gli viene consegnato — non un intent annullato dal
+    /// sizing o dal limite di ingressi, che è proprio il caso da capire quando "non arriva niente".
+    ///
+    /// <para>Il livello è Information perché è ciò che l'operatore guarda mentre il run gira; se
+    /// diventa rumoroso si alza a Debug la voce <c>PiootooApp.Server.Controllers</c> in
+    /// appsettings.</para>
+    /// </summary>
+    private void LogIntents(string sessionId, IReadOnlyList<OrderIntent> intents)
+    {
+        foreach (var intent in intents)
+        {
+            // Quantità: quella finale è ciò che verrà eseguito, quella base è ciò che la strategia
+            // aveva chiesto. Vederle insieme distingue "segnale assente" da "segnale azzerato".
+            var quantity = intent.FinalQuantity == intent.BaseQuantity
+                ? intent.FinalQuantity.ToString("0.####")
+                : $"{intent.FinalQuantity:0.####} (base {intent.BaseQuantity:0.####})";
+
+            _log.LogInformation(
+                "[{SessionId}] {Kind} {Strategy} {Symbol} {Side} {OrderType} @ {Price} qty {Quantity} -> {Status}{Reason}",
+                sessionId, intent.Kind, intent.StrategyCode, intent.Symbol, intent.Side, intent.OrderType,
+                intent.Price.ToString("0.#####"), quantity, intent.Status,
+                string.IsNullOrWhiteSpace(intent.SizingReason) ? string.Empty : $" ({intent.SizingReason})");
+        }
+    }
+
+    /// <summary>
+    /// Storia ancora insufficiente per valutare. È a livello Debug e non Information perché ricorre a
+    /// ogni barra finché il riscaldamento non è completo — per una strategia a 15 minuti sono 576
+    /// righe — e sommergerebbe proprio i segnali che si sta cercando di vedere. La stessa
+    /// informazione il cBot la stampa una volta sola per stream, quindi di default non si perde
+    /// niente; qui serve quando si vuole seguire il riempimento barra per barra.
+    /// </summary>
+    private void LogStreams(string sessionId, IReadOnlyList<StreamHistoryStatus> streams)
+    {
+        if (!_log.IsEnabled(LogLevel.Debug))
+            return;
+
+        foreach (var stream in streams.Where(x => x.SkippedForInsufficientHistory > 0))
+            _log.LogDebug(
+                "[{SessionId}] {Symbol}/{Timeframe}m: {Skipped} strategie non valutate, storia {History}/{Required} candele.",
+                sessionId, stream.Symbol, stream.TimeframeMinutes, stream.SkippedForInsufficientHistory,
+                stream.HistoryBars, stream.RequiredCandles);
+    }
 
     private ActionResult<T> ExecuteResult<T>(Func<ActionResult<T>> action)
     {

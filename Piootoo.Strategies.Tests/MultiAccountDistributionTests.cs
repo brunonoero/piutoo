@@ -145,6 +145,53 @@ public sealed class MultiAccountDistributionTests : IDisposable
             descriptor.SessionId, descriptor.SessionToken, "1002").Intent);
     }
 
+    // ------------------------------------------------------------------- orologio del claim
+
+    [Fact]
+    public void TemplateWithExpiry_OnHistoricalBars_IsStillClaimable()
+    {
+        // Regressione: il claim scartava i template scaduti confrontando ExpiresAtUtc con
+        // DateTime.UtcNow invece che con la barra appena valutata. In un replay storico le due date
+        // distano mesi, quindi OGNI ordine "next bar" dei motori Unger nasceva già scaduto: il
+        // server generava i segnali, il claim rispondeva sempre NoSignal e sul broker non arrivava
+        // mai un ordine.
+        var barTime = Utc(2025, 11, 3);
+        var (sessions, descriptor) = Session(
+            signalsPerBar: 1,
+            [Row("g1", "1001", maxConcurrent: 1)],
+            // Scadenza alla barra successiva, come la emette un motore Unger.
+            expiresAtUtc: barTime.AddMinutes(15));
+
+        var pushed = sessions.PushBars(Bars(descriptor, barTime));
+        Assert.Single(pushed.Intents);
+
+        var claimed = sessions.GetNextSignalForAccount(
+            descriptor.SessionId, descriptor.SessionToken, "1001");
+
+        Assert.NotNull(claimed.Intent);
+        Assert.Equal("1001", claimed.Intent!.AssignedAccountNumber);
+    }
+
+    [Fact]
+    public void TemplateExpiredBeforeTheCurrentBar_IsNotClaimable()
+    {
+        // L'altra metà: la scadenza deve continuare a valere: un template la cui finestra è già
+        // chiusa rispetto alla barra corrente non va eseguito al proprio livello.
+        var barTime = Utc(2025, 11, 3);
+        var (sessions, descriptor) = Session(
+            signalsPerBar: 1,
+            [Row("g1", "1001", maxConcurrent: 1)],
+            expiresAtUtc: barTime.AddMinutes(-15));
+
+        sessions.PushBars(Bars(descriptor, barTime));
+
+        var claimed = sessions.GetNextSignalForAccount(
+            descriptor.SessionId, descriptor.SessionToken, "1001");
+
+        Assert.Null(claimed.Intent);
+        Assert.Equal("NoSignal", claimed.Reason);
+    }
+
     // ------------------------------------------------- disaccoppiamento dal filtro Titano
 
     [Fact]
@@ -215,7 +262,8 @@ public sealed class MultiAccountDistributionTests : IDisposable
         int signalsPerBar,
         IReadOnlyList<TradingGroupRow> groups,
         ClientRunMode runMode = ClientRunMode.Realtime,
-        bool? enforceConcurrencyLimits = null)
+        bool? enforceConcurrencyLimits = null,
+        DateTime? expiresAtUtc = null)
     {
         var workspaces = new WorkspaceService(new PiootooSettings { Workspaces = _root });
         var strategyId = StrategyFactory.GetRegisteredStrategies().First().Id;
@@ -227,7 +275,7 @@ public sealed class MultiAccountDistributionTests : IDisposable
         TestAccountRegistry.Register(workspaces, groups);
 
         var sessions = new TradingSessionService(
-            workspaces, new MultiSignalEvaluationService(signalsPerBar),
+            workspaces, new MultiSignalEvaluationService(signalsPerBar, expiresAtUtc),
             new TitanoRotationService(workspaces), new PositionSizingService());
 
         var descriptor = sessions.Create(new CreateTradingSessionRequest
@@ -294,7 +342,8 @@ public sealed class MultiAccountDistributionTests : IDisposable
     /// nome reale della strategia, così i test che si limitano a un segnale restano aderenti al
     /// catalogo.</para>
     /// </summary>
-    private sealed class MultiSignalEvaluationService(int signalsPerBar) : IStrategyEvaluationService
+    private sealed class MultiSignalEvaluationService(int signalsPerBar, DateTime? expiresAtUtc = null)
+        : IStrategyEvaluationService
     {
         public IReadOnlyList<TradeSignal> Evaluate(
             IReadOnlyList<ITradingStrategy> strategies,
@@ -316,7 +365,8 @@ public sealed class MultiAccountDistributionTests : IDisposable
                         Date = closedBar.BarTimeUtc,
                         Type = SignalType.Buy,
                         Quantity = 4m,
-                        Price = closedBar.Bar.Close
+                        Price = closedBar.Bar.Close,
+                        ExpiresAtUtc = expiresAtUtc
                     };
                 })
                 .ToArray();

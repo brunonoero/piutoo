@@ -78,6 +78,14 @@ namespace cAlgo.Robots
         /// </summary>
         private const int MaxHistoryLoadAttempts = 50;
 
+        /// <summary>
+        /// Dopo tanti invii falliti di fila, senza uno riuscito in mezzo, il bot si ferma. Un errore
+        /// di configurazione — piano che punta a una rotazione inesistente, sessione fermata, token
+        /// scaduto — non si risolve da solo: continuare significa solo riempire il log della stessa
+        /// riga per tutta la durata del backtest e accorgersene alla fine.
+        /// </summary>
+        private const int MaxConsecutivePushFailures = 20;
+
         private const string BotVersion = "2.0.0"; // aggiornare qui ad ogni release
         private const string StatusChartObjectName = "PiootooConnectionStatus";
 
@@ -251,6 +259,12 @@ namespace cAlgo.Robots
         // Stream per cui è già stato segnalato che il server non ha storia sufficiente: il messaggio
         // va detto una volta, non a ogni barra.
         private readonly HashSet<string> _insufficientHistoryReported = new(StringComparer.OrdinalIgnoreCase);
+
+        // Ultimo errore di invio stampato, per stream: se si ripete identico non lo si ristampa.
+        private readonly Dictionary<string, string> _lastPushError = new(StringComparer.OrdinalIgnoreCase);
+
+        // Invii falliti di fila, azzerato dal primo che riesce. Vedi MaxConsecutivePushFailures.
+        private int _consecutivePushFailures;
 
         // Massimo utile per contratto osservato dopo ProfitStallAfterUtc, per posizione.
         private readonly Dictionary<int, decimal> _peakProfitAfterStall = new();
@@ -947,22 +961,57 @@ namespace cAlgo.Robots
                 {
                     // Un errore qui non è rumore: il server rifiuta la finestra anche quando non si
                     // sovrappone alla sua storia, cioè quando si sta per aprire un buco.
-                    Print("Invio finestra {0} ({1} candele) fallito: {2}", pair, count, ReadError(response));
-                    UpdateConnectionStatus(false);
+                    OnPushFailed(pair, $"{count} candele rifiutate: {ReadError(response)}");
                     return false;
                 }
                 if (!_isConnectedToServer)
                     UpdateConnectionStatus(true);
 
+                OnPushSucceeded(pair);
                 ReportWindowStatus(pair, ReadBody(response));
                 return true;
             }
             catch (Exception ex)
             {
-                Print("Errore invio finestra {0}: {1}", pair, ex.Message);
-                UpdateConnectionStatus(false);
+                OnPushFailed(pair, ex.Message);
                 return false;
             }
+        }
+
+        /// <summary>
+        /// Registra un invio fallito: stampa il messaggio solo se diverso dall'ultimo di quello
+        /// stream, e ferma il bot dopo <see cref="MaxConsecutivePushFailures"/> fallimenti di fila.
+        ///
+        /// <para>Senza queste due cose un piano mal configurato produce la stessa riga a ogni barra
+        /// per l'intero backtest — centinaia di righe identiche — e il run arriva in fondo senza aver
+        /// mai valutato niente. Meglio fermarsi presto e rumorosamente.</para>
+        /// </summary>
+        private void OnPushFailed(Pair pair, string message)
+        {
+            UpdateConnectionStatus(false);
+
+            var key = MakeStreamKey(pair.PiootooSymbol, pair.TimeframeMinutes);
+            if (!_lastPushError.TryGetValue(key, out var previous) || previous != message)
+            {
+                _lastPushError[key] = message;
+                Print("Invio finestra {0} fallito: {1}", pair, message);
+            }
+
+            if (++_consecutivePushFailures < MaxConsecutivePushFailures)
+                return;
+
+            Print("{0} invii falliti di fila su tutti gli stream: il bot si ferma. " +
+                  "L'ultimo errore è: {1}", _consecutivePushFailures, message);
+            Stop();
+        }
+
+        private void OnPushSucceeded(Pair pair)
+        {
+            _consecutivePushFailures = 0;
+
+            var key = MakeStreamKey(pair.PiootooSymbol, pair.TimeframeMinutes);
+            if (_lastPushError.Remove(key))
+                Print("Invio finestra {0} tornato a funzionare.", pair);
         }
 
         /// <summary>

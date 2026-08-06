@@ -871,45 +871,60 @@ public sealed class TradingSessionService : ITradingSessionService
         if (!string.IsNullOrWhiteSpace(session.TitanoBacktestFolder))
         {
             var service = _titano ?? throw new InvalidOperationException("Servizio Titano non disponibile.");
-            var runId = ResolveRunIdForFolder(session, session.TitanoBacktestFolder)
-                ?? throw new InvalidOperationException(
-                    $"Nessun run Titano trovato per la cartella '{session.TitanoBacktestFolder}': " +
-                    "esegui prima una rotazione.");
-            effective = service.Resolve(session.WorkspaceId, session.TitanoBacktestFolder,
-                runId, bar.BarTimeUtc, session.TitanoMode);
-            foreach (var state in effective.StrategyStates)
-                allocations[state.StrategyCode] = state.AllocationMultiplier;
+            var runId = ResolveRunIdForFolder(session, session.TitanoBacktestFolder);
 
-            if (session.TitanoMode == TitanoFilterMode.Disabled)
+            // In Disabled la rotazione non filtra niente: si risolve solo per lasciarne traccia nel
+            // rotation-log. Se non esiste ancora un run per quella cartella non c'è nulla da
+            // registrare, e pretenderlo bloccherebbe proprio il run che deve generarlo: il campione
+            // sorgente di Titano nasce da una sessione Disabled che punta alla cartella dove i suoi
+            // trade verranno promossi. L'apertura della sessione applica già la stessa regola
+            // (vedi CreateCore), quindi senza questa il piano si apriva e poi falliva a ogni barra.
+            if (runId is null && session.TitanoMode == TitanoFilterMode.Disabled)
             {
-                // Rotazione risolta e registrata, ma non applicata: le allocazioni restano
-                // neutre e tutte le strategie del masterfilter vengono valutate. È il run che
-                // produce i trade su cui l'analisi Titano calcolerà le rotazioni.
-                allocations.Clear();
-                rotationNote = "modalità Disabled: rotazione risolta solo a scopo diagnostico, nessun filtro applicato";
-            }
-            else if (!effective.HasActivePeriod)
-            {
-                // Nessun periodo copre questa barra. In Realtime il fallback sull'ultimo periodo
-                // è già stato tentato dentro Resolve, quindi qui siamo davvero scoperti: è un
-                // manifest non allineato all'intervallo che si sta eseguendo. Fermarsi è meglio
-                // che eseguire senza filtri una sessione che l'utente ha chiesto filtrata.
-                throw new InvalidOperationException(
-                    $"Nessun periodo Titano copre la barra {bar.BarTimeUtc:O}: il manifest '{runId}' " +
-                    $"copre {effective.ManifestFromUtc:O} → {effective.ManifestToUtc:O}. " +
-                    "Rigenera la rotazione su un backtest che copra questo intervallo, oppure " +
-                    "esegui la sessione in modalità Disabled.");
+                rotationNote = "modalità Disabled senza run Titano per la cartella: nessun filtro da applicare";
             }
             else
             {
-                evaluationStrategies = session.Strategies
-                    .Where(x => effective.EffectiveStrategies.Contains(x.Name, StringComparer.OrdinalIgnoreCase))
-                    .ToArray();
+                if (runId is null)
+                    throw new InvalidOperationException(
+                        $"Nessun run Titano trovato per la cartella '{session.TitanoBacktestFolder}': " +
+                        "esegui prima una rotazione.");
+                effective = service.Resolve(session.WorkspaceId, session.TitanoBacktestFolder,
+                    runId, bar.BarTimeUtc, session.TitanoMode);
+                foreach (var state in effective.StrategyStates)
+                    allocations[state.StrategyCode] = state.AllocationMultiplier;
 
-                if (effective.UsedLatestPeriod)
-                    rotationNote =
-                        $"barra {bar.BarTimeUtc:O} oltre la fine del manifest ({effective.ManifestToUtc:O}): " +
-                        "applicata la rotazione dell'ultimo periodo calcolato. Rigenera l'analisi Titano.";
+                if (session.TitanoMode == TitanoFilterMode.Disabled)
+                {
+                    // Rotazione risolta e registrata, ma non applicata: le allocazioni restano
+                    // neutre e tutte le strategie del masterfilter vengono valutate. È il run che
+                    // produce i trade su cui l'analisi Titano calcolerà le rotazioni.
+                    allocations.Clear();
+                    rotationNote = "modalità Disabled: rotazione risolta solo a scopo diagnostico, nessun filtro applicato";
+                }
+                else if (!effective.HasActivePeriod)
+                {
+                    // Nessun periodo copre questa barra. In Realtime il fallback sull'ultimo periodo
+                    // è già stato tentato dentro Resolve, quindi qui siamo davvero scoperti: è un
+                    // manifest non allineato all'intervallo che si sta eseguendo. Fermarsi è meglio
+                    // che eseguire senza filtri una sessione che l'utente ha chiesto filtrata.
+                    throw new InvalidOperationException(
+                        $"Nessun periodo Titano copre la barra {bar.BarTimeUtc:O}: il manifest '{runId}' " +
+                        $"copre {effective.ManifestFromUtc:O} → {effective.ManifestToUtc:O}. " +
+                        "Rigenera la rotazione su un backtest che copra questo intervallo, oppure " +
+                        "esegui la sessione in modalità Disabled.");
+                }
+                else
+                {
+                    evaluationStrategies = session.Strategies
+                        .Where(x => effective.EffectiveStrategies.Contains(x.Name, StringComparer.OrdinalIgnoreCase))
+                        .ToArray();
+
+                    if (effective.UsedLatestPeriod)
+                        rotationNote =
+                            $"barra {bar.BarTimeUtc:O} oltre la fine del manifest ({effective.ManifestToUtc:O}): " +
+                            "applicata la rotazione dell'ultimo periodo calcolato. Rigenera l'analisi Titano.";
+                }
             }
         }
         var signals = _evaluation.Evaluate(
@@ -1440,7 +1455,24 @@ public sealed class TradingSessionService : ITradingSessionService
             // 2) Autolimitazione lato server: un segnale alla volta PER SIMBOLO (l'account può gestire in
             //    parallelo posizioni su simboli diversi, mai due ingressi sullo stesso simbolo insieme).
             //    Scartiamo quindi solo i template dei simboli su cui l'account è già occupato.
-            var now = DateTime.UtcNow;
+            //
+            // "Adesso" è l'ultima barra valutata, non l'ora di sistema: in un replay storico le due
+            // cose distano mesi, e con DateTime.UtcNow ogni template con ExpiresAtUtc (cioè ogni
+            // ordine "next bar" dei motori Unger) risultava scaduto prima di poter essere reclamato.
+            // Il server generava i segnali, il claim rispondeva sempre NoSignal, e sul broker non
+            // arrivava mai un ordine. Fallback all'ora di sistema solo prima della prima barra.
+            //
+            // L'orologio è l'ORA DI APERTURA dell'ultima barra valutata, non la sua chiusura: i
+            // motori Unger dichiarano ExpiresAtUtc = barra successiva, mentre BiasWeeklyEngine usa la
+            // barra corrente. Con l'apertura entrambe le convenzioni danno al template esattamente
+            // una barra di vita; con la chiusura la seconda scadrebbe prima di poter essere
+            // reclamata.
+            //
+            // Su una sessione multi-timeframe questo valore può arretrare — il 60m che chiude alle
+            // 16:00 porta BarTimeUtc 15:00, dopo che il 15m ha già spinto le 15:45 — quindi il
+            // confronto è conservativo: tiene in vita un template un po' più a lungo, non ne scarta
+            // mai uno ancora valido. È il verso giusto in cui sbagliare.
+            var now = session.LastEvaluatedBarTimeUtc ?? DateTime.UtcNow;
             var priorities = ComputeStrategyPriority(session, groupId);
             var conversion = ResolveAccountConversion(session, accountNumber);
             var template = session.EntryTemplates
@@ -1522,7 +1554,10 @@ public sealed class TradingSessionService : ITradingSessionService
             var intent = CreateCloseIntent(
                 session, request.StrategyCode, symbol, position, accountNumber,
                 request.Quantity, string.IsNullOrWhiteSpace(request.Reason) ? "ClientLocalExit" : request.Reason,
-                DateTime.UtcNow);
+                // Stessa ragione del claim: in un replay storico l'ora di sistema data la chiusura a
+                // mesi di distanza dal trade che la genera, e i PersistedTrade finirebbero fuori
+                // dall'intervallo del run — cioè fuori da qualunque periodo di rotazione Titano.
+                session.LastEvaluatedBarTimeUtc ?? DateTime.UtcNow);
             Persist(session);
             return intent;
         }

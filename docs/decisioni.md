@@ -1068,3 +1068,43 @@ in ordine cronologico. Non è un changelog di codice: quello resta nei commit.
   prodotto un segnale" e "il server non ha abbastanza storia per valutare" erano lo stesso identico
   silenzio: è la stessa ragione per cui il backtest interno ha il blocco `diagnostics` in testa a
   `backtest-summary.json`.
+- **2026-08-06** — **In modalità `Disabled` un run Titano mancante non blocca più la sessione.**
+  `CreateCore` accetta da sempre `TitanoMode = Disabled` con `TitanoBacktestFolder` valorizzato e
+  nessun run per quella cartella — è lo scenario A di
+  `domini/cbot-realtime-backtest-titano.md`, dove il piano dichiara la cartella in cui i trade
+  verranno promossi ma la rotazione non esiste ancora, perché è proprio quel run a doverla
+  alimentare. `EvaluateClosedBar` però risolveva il run appena la cartella era valorizzata, senza
+  guardare la modalità, e lanciava: la sessione si apriva e poi falliva identica a ogni barra
+  (409 "esegui prima una rotazione" per l'intero backtest, zero valutazioni). Ora in `Disabled` il
+  run si risolve solo se esiste; se manca si annota nel rotation-log e si prosegue senza filtri,
+  che è già la semantica della modalità. Le modalità filtrate continuano a fallire in modo
+  esplicito: senza rotazione eseguirebbero tutto il masterfilter, cioè l'opposto di quanto chiesto.
+- **2026-08-06** — **Il cBot non ripete l'errore di invio e si ferma se non passa più nulla.** Un
+  messaggio identico allo scorso, sullo stesso stream, non viene ristampato; dopo
+  `MaxConsecutivePushFailures` (20) invii falliti di fila senza uno riuscito in mezzo il bot chiama
+  `Stop()`. Gli errori che bloccano l'invio sono di configurazione — piano che punta a una rotazione
+  inesistente, sessione fermata, token scaduto — e non si risolvono da soli: prima un backtest
+  arrivava in fondo producendo centinaia di righe identiche e nessuna valutazione.
+- **2026-08-06** — **Gli intent generati si vedono sulla console del server**, una riga per intent in
+  `TradingSessionsController` (`PushBars` e `PushBarWindow`), a livello Information: strategia,
+  simbolo, lato, tipo ordine, prezzo, quantità finale con la base quando differiscono, stato ed
+  eventuale `SizingReason`. Serviva un punto in cui il segnale è visibile *nel momento in cui nasce*:
+  `signals.json` si legge a run finito, e il cBot vede solo ciò che gli viene consegnato, non un
+  intent annullato dal sizing o dal limite di ingressi per sessione — che è proprio il caso da capire
+  quando "non arriva niente". Il riempimento della storia barra per barra è invece a Debug: a
+  Information sarebbero 576 righe di riscaldamento a soffocare i segnali, e la stessa informazione il
+  cBot la stampa già una volta per stream.
+- **2026-08-06** — **Nel claim "adesso" è l'ultima barra valutata, non `DateTime.UtcNow`.**
+  `GetNextSignalForAccount` scartava i template scaduti confrontando `ExpiresAtUtc` con l'ora di
+  sistema. In un replay storico le due date distano mesi, quindi **ogni** ordine "next bar" dei
+  motori Unger nasceva già scaduto: il server generava e loggava i segnali come template `Pending`,
+  il claim rispondeva sempre `NoSignal`, e sul broker non arrivava mai un ordine — un backtest
+  perfettamente muto pur avendo prodotto i segnali. Stessa correzione in
+  `CreateExternalCloseIntent`, dove l'ora di sistema datava la chiusura fuori dall'intervallo del
+  run e quindi fuori da qualunque periodo di rotazione Titano. Il fallback a `DateTime.UtcNow` resta
+  solo prima della prima barra, quando `LastEvaluatedBarTimeUtc` è ancora null.
+  Non contraddice l'invariante "adesso è `DateTime.UtcNow`" di `CLAUDE.md`: quello vale per il tempo
+  reale: dentro un replay l'orologio autorevole è la barra, come già in
+  `docs/domini/orologio-barre-e-fill.md`. Regressioni in
+  `MultiAccountDistributionTests.TemplateWithExpiry_OnHistoricalBars_IsStillClaimable` e
+  `TemplateExpiredBeforeTheCurrentBar_IsNotClaimable`.
