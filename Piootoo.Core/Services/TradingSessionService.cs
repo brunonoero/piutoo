@@ -173,6 +173,14 @@ public sealed class TradingSessionService : ITradingSessionService
         /// </summary>
         public bool EnforceConcurrencyLimits { get; init; }
 
+        /// <summary>
+        /// Profilo dichiarato dal cBot all'apertura. Non governa nulla a runtime — al momento
+        /// dell'apertura si è già risolto in <see cref="TitanoMode"/> e
+        /// <see cref="EnforceConcurrencyLimits"/> — ma va conservato per poterlo mostrare a chart e
+        /// nei log: sapere *come* è configurato un run è meno utile che sapere *quale* run è.
+        /// </summary>
+        public TradingRunProfile RunProfile { get; set; }
+
         public required PositionSizingConfig PositionSizing { get; init; }
         public required Dictionary<string, InstrumentMetadata> InstrumentMetadata { get; init; }
 
@@ -308,6 +316,16 @@ public sealed class TradingSessionService : ITradingSessionService
         if (string.IsNullOrWhiteSpace(request.ExecutionKey))
             throw new ArgumentException("ExecutionKey è obbligatoria.");
 
+        // Il profilo si valida prima di qualunque altra cosa: è quello che decide se il run
+        // produrrà il campione sorgente o una simulazione filtrata, e aprire il run sbagliato non
+        // dà errore, dà numeri plausibili che nessuno rimetterà più in discussione.
+        var runProfile = request.RunProfile ?? TradingRunProfile.DalPiano;
+        if (runProfile != TradingRunProfile.DalPiano && request.ClientRunMode != ClientRunMode.Backtest)
+            throw new ArgumentException(
+                $"Il profilo '{runProfile}' vale solo in backtest, ma il cBot dichiara " +
+                $"{request.ClientRunMode}. In realtime usa '{TradingRunProfile.DalPiano}': " +
+                "la configurazione operativa la porta il piano.");
+
         var plan = _plans.Resolve(request.PlanCode);
         if (plan.Groups.Count == 0)
             throw new InvalidOperationException($"Il piano '{plan.Code}' non contiene righe gruppo/account.");
@@ -323,9 +341,15 @@ public sealed class TradingSessionService : ITradingSessionService
         // In distribuzione la sessione è condivisa fra gli account del piano, quindi la chiave non
         // include l'account. In esecuzione diretta gli intent sono già assegnati e li consuma un
         // solo cBot: due account sulla stessa sessione eseguirebbero gli stessi segnali due volte.
+        //
+        // Il profilo entra nella chiave, altrimenti lo stesso cBot rilanciato dopo aver cambiato
+        // profilo riprenderebbe la sessione precedente e continuerebbe a girare con il Titano e i
+        // lucchetti del run vecchio, senza dirlo. Si accoda solo quando non è DalPiano, così le
+        // chiavi delle sessioni già in corso restano quelle di prima e la ripresa non si rompe.
+        var profileSuffix = runProfile == TradingRunProfile.DalPiano ? string.Empty : $"|{runProfile}";
         var executionKey = request.DistributeToAccounts
-            ? $"{plan.Code}|{request.ClientRunMode}|{request.ExecutionKey.Trim()}"
-            : $"{plan.Code}|{request.ClientRunMode}|{request.ExecutionKey.Trim()}|Direct|{account}";
+            ? $"{plan.Code}|{request.ClientRunMode}|{request.ExecutionKey.Trim()}{profileSuffix}"
+            : $"{plan.Code}|{request.ClientRunMode}|{request.ExecutionKey.Trim()}{profileSuffix}|Direct|{account}";
         if (_planExecutions.TryGetValue(executionKey, out var existingId) &&
             _sessions.TryGetValue(existingId, out var existing))
         {
@@ -336,7 +360,7 @@ public sealed class TradingSessionService : ITradingSessionService
                 // Anche su riconnessione il descriptor deve riportare il simbolo del broker di
                 // QUESTO account: in distribuzione la sessione è condivisa e Describe(existing) da
                 // solo non saprebbe quale conversione applicare (vedi sotto, stessa apertura).
-                return Describe(existing, ResolveAccountConversion(existing, account));
+                return Describe(existing, ResolveAccountConversion(existing, account), account);
             }
         }
 
@@ -347,18 +371,41 @@ public sealed class TradingSessionService : ITradingSessionService
         var primary = request.DistributeToAccounts
             ? TradingPlanService.SelectPrimaryRow(plan.Groups)
             : accountRow;
-        var titanoMode = !primary.ApplyTitanoFilters
-            ? TitanoFilterMode.Disabled
-            : request.ClientRunMode == ClientRunMode.Backtest
-                ? TitanoFilterMode.BacktestRotationFile
-                : TitanoFilterMode.Realtime;
+        // Il profilo, quando è dichiarato, PREVALE sul piano: è il cBot a sapere che run sta
+        // aprendo, e il piano resta la fonte di tutto il resto (workspace, sizing, strumenti,
+        // cartella del run Titano). Senza profilo si ricade sul piano, com'era prima.
+        var titanoMode = runProfile switch
+        {
+            TradingRunProfile.BacktestSorgente => TitanoFilterMode.Disabled,
+            TradingRunProfile.BacktestTitano => TitanoFilterMode.BacktestRotationFile,
+            _ => !primary.ApplyTitanoFilters
+                ? TitanoFilterMode.Disabled
+                : request.ClientRunMode == ClientRunMode.Backtest
+                    ? TitanoFilterMode.BacktestRotationFile
+                    : TitanoFilterMode.Realtime
+        };
+
+        // Un backtest Titano senza rotazioni non è un backtest Titano: girerebbe come un run senza
+        // filtro e la differenza si vedrebbe solo confrontando due trades.json mesi dopo.
+        if (runProfile == TradingRunProfile.BacktestTitano &&
+            string.IsNullOrWhiteSpace(primary.TitanoBacktestFolder))
+            throw new ArgumentException(
+                $"Il profilo '{TradingRunProfile.BacktestTitano}' richiede le rotazioni storiche, ma la " +
+                $"riga primaria del piano '{plan.Code}' non indica alcuna cartella di run Titano. " +
+                $"Valorizza TitanoBacktestFolder, oppure apri il run con '{TradingRunProfile.BacktestSorgente}'.");
 
         // MaxConcurrentTrades è applicato solo da GetNextSignalForAccount, cioè dal percorso di
         // claim. Senza gruppi quel percorso non esiste e il limite non avrebbe alcun punto di
         // applicazione: eseguire lo stesso il piano significherebbe operare senza il limite che
         // dichiara, quindi si rifiuta l'apertura invece di ignorarlo in silenzio.
-        var enforceConcurrency = plan.EnforceConcurrencyLimits
-                                 ?? DefaultEnforceConcurrencyLimits(request.ClientRunMode, titanoMode);
+        //
+        // BacktestSorgente spegne i lucchetti per definizione, e lo fa PRIMA del flag del piano: il
+        // campione sorgente deve contenere ogni segnale che le strategie hanno prodotto, e un piano
+        // che dichiara EnforceConcurrencyLimits=true non deve poterlo mutilare di nascosto.
+        var enforceConcurrency = runProfile == TradingRunProfile.BacktestSorgente
+            ? false
+            : plan.EnforceConcurrencyLimits
+              ?? DefaultEnforceConcurrencyLimits(request.ClientRunMode, titanoMode);
         if (!request.DistributeToAccounts && enforceConcurrency && accountRow.MaxConcurrentTrades > 0)
             throw new ArgumentException(
                 $"Il piano '{plan.Code}' dichiara MaxConcurrentTrades={accountRow.MaxConcurrentTrades} " +
@@ -378,13 +425,19 @@ public sealed class TradingSessionService : ITradingSessionService
             TitanoBacktestFolder = primary.TitanoBacktestFolder,
             TitanoMode = titanoMode,
             ClientRunMode = request.ClientRunMode,
-            EnforceConcurrencyLimits = plan.EnforceConcurrencyLimits,
+            // Il valore già risolto, non quello del piano: qui il profilo ha eventualmente
+            // prevalso, e ripassare il nullable farebbe ricalcolare a CreateCore il default,
+            // perdendo l'override.
+            EnforceConcurrencyLimits = enforceConcurrency,
             PositionSizing = plan.PositionSizing
         }, plan.Code, request.ExecutionKey.Trim());
         AccountSymbolConversion conversion;
         lock (_sessions[descriptor.SessionId].Gate)
         {
             var opened = _sessions[descriptor.SessionId];
+            // Conservato per la diagnostica: a runtime il profilo si è già risolto in TitanoMode e
+            // EnforceConcurrencyLimits, ma senza di lui il descriptor non saprebbe dire quale run è.
+            opened.RunProfile = runProfile;
             if (request.DistributeToAccounts)
                 // SetTradingGroups azzera session.AccountConversions: va chiamato PRIMA di risolvere
                 // la conversione di questo account, altrimenti la cache verrebbe svuotata subito dopo.
@@ -401,7 +454,7 @@ public sealed class TradingSessionService : ITradingSessionService
         }
         SetStatus(descriptor.SessionId, descriptor.SessionToken, TradingSessionStatus.Running);
         _planExecutions[executionKey] = descriptor.SessionId;
-        return Describe(_sessions[descriptor.SessionId], conversion);
+        return Describe(_sessions[descriptor.SessionId], conversion, account);
     }
 
     /// <summary>
@@ -802,7 +855,8 @@ public sealed class TradingSessionService : ITradingSessionService
                 DuplicateBars = duplicates,
                 BackfilledBars = Math.Max(0, backfilled),
                 Intents = emitted,
-                Streams = streams
+                Streams = streams,
+                ClaimableIntents = CountClaimableIntents(session)
             };
         }
     }
@@ -855,6 +909,11 @@ public sealed class TradingSessionService : ITradingSessionService
         Session session, ClosedBar normalizedBar, List<OhlcvData> history, List<OrderIntent> emitted)
     {
         var bar = normalizedBar;
+
+        // La barra nuova rende definitivamente morti i template della barra precedente: si buttano
+        // qui invece di lasciarli in lista e scartarli a ogni claim.
+        PurgeExpiredTemplates(session, bar.BarTimeUtc);
+
         var prices = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase)
             { [Normalize(bar.Symbol)] = bar.Bar.Close };
         var bars = new Dictionary<string, OhlcvData>(StringComparer.OrdinalIgnoreCase)
@@ -1430,11 +1489,19 @@ public sealed class TradingSessionService : ITradingSessionService
 
             // 1) C'è già un intent concreto pendente assegnato a questo account (ingresso appena reclamato
             //    non ancora confermato, oppure una chiusura da eseguire)? Il poll è idempotente: lo ripropone.
-            var assigned = session.Intents
+            //
+            //    Le CHIUSURE si ripropongono sempre, qualunque sia il profilo: sono ordini da eseguire,
+            //    non segnali da distribuire, e perderne una lascia aperta una posizione che nessuno
+            //    chiuderà più. Gli INGRESSI invece fermano il poll solo quando i lucchetti sono attivi:
+            //    nel backtest sorgente l'account deve poter drenare tutti i template della barra, e
+            //    riproporgli quello appena consegnato bloccherebbe il drenaggio al primo giro.
+            var pendingForAccount = session.Intents
                 .Where(i => string.Equals(i.AssignedAccountNumber, accountNumber, StringComparison.OrdinalIgnoreCase)
                             && i.Status == OrderIntentStatus.Pending)
-                .OrderBy(i => i.CreatedAtUtc)
-                .FirstOrDefault();
+                .OrderBy(i => i.CreatedAtUtc);
+            var assigned = IsConcurrentTradeLimitActive(session)
+                ? pendingForAccount.FirstOrDefault()
+                : pendingForAccount.FirstOrDefault(i => i.Kind == OrderIntentKind.Close);
             if (assigned != null)
                 return new AccountSignalResponse { Intent = assigned };
 
@@ -1480,7 +1547,10 @@ public sealed class TradingSessionService : ITradingSessionService
             // ha svuotato la lista. Un claim che non restituisce niente è indistinguibile, dal client,
             // da "nessuna strategia ha prodotto un segnale": senza questa traccia ogni indagine
             // ricomincia dal rileggere il codice del claim.
-            var stage = "nessun template pendente";
+            // I template delle barre passate sono già stati rimossi da PurgeExpiredTemplates: se la
+            // lista è vuota vuol dire che per la barra corrente nessuna strategia ha prodotto un
+            // segnale, non che ce n'erano di vecchi da scartare.
+            var stage = "nessun segnale per la barra corrente";
             var candidates = session.EntryTemplates.Where(t => t.Status == OrderIntentStatus.Pending).ToList();
 
             candidates = NarrowTemplates(candidates, ref stage,
@@ -1498,12 +1568,38 @@ public sealed class TradingSessionService : ITradingSessionService
                 t => !(session.TemplateClaimedGroups.TryGetValue(t.IntentId, out var claimed)
                        && claimed.Contains(groupId)),
                 $"già reclamati dal gruppo '{groupId}'");
+            // Sempre attivo, in ogni profilo: un account non tiene DUE ingressi in corso della
+            // stessa strategia sullo stesso simbolo. Non è un vincolo di concorrenza — è l'identità
+            // della strategia: quel segnale è già in mano al broker, e un secondo ordine sarebbe
+            // rischio doppio sullo stesso motivo di ingresso.
+            //
+            // Serve perché `MaxEntriesPerSession` si applica al FILL e non al claim: due template
+            // di barre diverse reclamati prima che il primo riempia passano entrambi il controllo, e
+            // su un run reale (PTS_NQ_PCH_002_15, 14/10/2024 13:15) hanno prodotto due stop order
+            // riempiti allo stesso prezzo e due posizioni da 20 lotti sullo stesso segnale.
+            // Con i lucchetti attivi il 4 lo copre già, ma è più largo — vale per tutto il gruppo —
+            // e a lucchetti spenti non c'era più niente a fermare il doppione.
             candidates = NarrowTemplates(candidates, ref stage,
-                t => !session.GroupStrategySlots.ContainsKey(SlotKey(groupId, t.StrategyCode, t.Symbol)),
-                "slot (gruppo, strategia, simbolo) già occupato");
-            candidates = NarrowTemplates(candidates, ref stage,
-                t => !session.AccountActiveIntent.ContainsKey(ActiveIntentKey(accountNumber, t.Symbol)),
-                "l'account ha già un intent attivo su quel simbolo");
+                t => !AccountHasEntryInFlight(session, accountNumber, t.StrategyCode, t.Symbol),
+                "l'account ha già un ingresso in corso per quella strategia su quel simbolo");
+
+            // Lucchetti 4 e 5: sono vincoli di CONCORRENZA, non di distribuzione, quindi seguono
+            // EnforceConcurrencyLimits insieme a MaxConcurrentTrades. Spenti, ogni segnale della
+            // barra diventa un intent e il campione sorgente è completo.
+            //
+            // Il lucchetto 3 (TemplateClaimedGroups, sopra) resta invece SEMPRE attivo: non limita
+            // quanto si opera in parallelo, dice che un template è già stato servito a quel gruppo.
+            // Spegnerlo non produrrebbe più segnali, produrrebbe lo stesso segnale all'infinito, e
+            // il drenaggio del cBot non terminerebbe mai.
+            if (IsConcurrentTradeLimitActive(session))
+            {
+                candidates = NarrowTemplates(candidates, ref stage,
+                    t => !session.GroupStrategySlots.ContainsKey(SlotKey(groupId, t.StrategyCode, t.Symbol)),
+                    "slot (gruppo, strategia, simbolo) già occupato");
+                candidates = NarrowTemplates(candidates, ref stage,
+                    t => !session.AccountActiveIntent.ContainsKey(ActiveIntentKey(accountNumber, t.Symbol)),
+                    "l'account ha già un intent attivo su quel simbolo");
+            }
             candidates = NarrowTemplates(candidates, ref stage,
                 // Il limite di fill per sessione è per account: un template già consumato da un
                 // account resta disponibile per gli altri.
@@ -1538,8 +1634,16 @@ public sealed class TradingSessionService : ITradingSessionService
             if (!session.TemplateClaimedGroups.TryGetValue(template.IntentId, out var claimedGroups))
                 session.TemplateClaimedGroups[template.IntentId] = claimedGroups = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             claimedGroups.Add(groupId);
-            session.GroupStrategySlots[SlotKey(groupId, claim.StrategyCode, claim.Symbol)] = (accountNumber, claim.IntentId);
-            session.AccountActiveIntent[ActiveIntentKey(accountNumber, claim.Symbol)] = claim.IntentId;
+
+            // I lucchetti di concorrenza si scrivono solo se qualcuno li leggerà. Con
+            // EnforceConcurrencyLimits spento sarebbero due dizionari che crescono per tutta la
+            // durata del run senza mai essere consultati, e che mostrerebbero nelle diagnostiche
+            // occupazioni di slot che nessun filtro sta applicando.
+            if (IsConcurrentTradeLimitActive(session))
+            {
+                session.GroupStrategySlots[SlotKey(groupId, claim.StrategyCode, claim.Symbol)] = (accountNumber, claim.IntentId);
+                session.AccountActiveIntent[ActiveIntentKey(accountNumber, claim.Symbol)] = claim.IntentId;
+            }
             Persist(session);
             return new AccountSignalResponse { Intent = claim };
         }
@@ -1551,6 +1655,40 @@ public sealed class TradingSessionService : ITradingSessionService
     /// <c>CreateTradingSessionRequest.EnforceConcurrencyLimits</c> e
     /// <c>docs/domini/distribuzione-multi-account.md</c> §4.
     /// </summary>
+    /// <summary>
+    /// Toglie da <c>EntryTemplates</c> i template la cui finestra di validità è chiusa rispetto alla
+    /// barra appena arrivata, e con essi la traccia di quali gruppi li avevano reclamati.
+    ///
+    /// <para>Un template scaduto non è "da filtrare al prossimo giro": è morto. Tenerlo in lista
+    /// costava tre cose. La lista cresceva per tutta la durata del run — un template per segnale, mai
+    /// rimosso — e ogni claim la riscorreva tutta. La diagnostica del claim continuava a parlare di
+    /// template di barre vecchie ("2 template scartati") invece di dire la verità, cioè che per la
+    /// barra corrente non c'era nessun segnale. E soprattutto rendeva legittimo il sospetto che un
+    /// segnale di una barra passata potesse ancora essere eseguito: non poteva, perché il filtro di
+    /// scadenza c'era, ma la sola lettura del codice non bastava a convincersene.</para>
+    ///
+    /// <para>Si rimuovono solo i template con una scadenza dichiarata e già passata. Quelli senza
+    /// <c>ExpiresAtUtc</c> non hanno una finestra da far scadere, e su una sessione multi-timeframe
+    /// un template del 60m deve sopravvivere alle barre del 15m che gli passano accanto.</para>
+    /// </summary>
+    private static void PurgeExpiredTemplates(Session session, DateTime barTimeUtc)
+    {
+        if (session.EntryTemplates.Count == 0)
+            return;
+
+        var expired = session.EntryTemplates
+            .Where(t => t.ExpiresAtUtc.HasValue && t.ExpiresAtUtc.Value < barTimeUtc)
+            .ToList();
+        if (expired.Count == 0)
+            return;
+
+        foreach (var template in expired)
+        {
+            session.EntryTemplates.Remove(template);
+            session.TemplateClaimedGroups.Remove(template.IntentId);
+        }
+    }
+
     /// <summary>
     /// Applica un filtro ai template e, se è lui a svuotare la lista, registra in
     /// <paramref name="stage"/> il motivo. Restituisce la lista precedente quando il filtro non
@@ -1937,6 +2075,59 @@ public sealed class TradingSessionService : ITradingSessionService
     /// motore simulato, dove uno stop non eseguito viene riemesso nella stessa sessione. Il
     /// conteggio è per account quando l'account è noto (multi-account), globale altrimenti.</para>
     /// </summary>
+    /// <summary>
+    /// Quante cose la sessione potrebbe consegnare a un claim: template di ingresso pendenti e non
+    /// scaduti, più gli intent già assegnati e ancora pendenti. Zero significa che
+    /// <see cref="GetNextSignalForAccount"/> risponderebbe a vuoto per qualunque account, ed è la
+    /// garanzia su cui il cBot si permette di saltare il poll.
+    ///
+    /// <para>Deliberatamente <b>più largo</b> del claim vero: non applica i lucchetti di gruppo, il
+    /// filtro Titano né la tabella di conversione dell'account, perché qui non si sta decidendo
+    /// <i>chi</i> prende <i>cosa</i> — si sta solo dicendo se c'è qualcosa. Sbagliare per eccesso
+    /// costa un poll a vuoto; sbagliare per difetto perde un segnale, ed è il verso in cui non si
+    /// può sbagliare.</para>
+    ///
+    /// <para>"Adesso" è l'ultima barra valutata, come nel claim: in un replay storico l'ora di
+    /// sistema dista mesi e farebbe risultare scaduto ogni template.</para>
+    /// </summary>
+    private static int CountClaimableIntents(Session session)
+    {
+        var now = session.LastEvaluatedBarTimeUtc ?? DateTime.UtcNow;
+        var templates = session.EntryTemplates.Count(t =>
+            t.Status == OrderIntentStatus.Pending &&
+            (!t.ExpiresAtUtc.HasValue || t.ExpiresAtUtc.Value >= now));
+        var assigned = session.Intents.Count(i =>
+            i.Status == OrderIntentStatus.Pending && i.AssignedAccountNumber is not null);
+        return templates + assigned;
+    }
+
+    /// <summary>
+    /// L'account ha già un ingresso "in volo" per quella coppia (strategia, simbolo)? Conta sia un
+    /// intent di ingresso ancora <c>Pending</c> — ordine piazzato sul broker e non ancora riempito o
+    /// annullato — sia una posizione aperta.
+    ///
+    /// <para>È il complemento di <see cref="MaxEntriesPerSessionReached"/>, che conta i fill e quindi
+    /// non vede gli ordini in attesa: fra il claim e il fill c'è una finestra in cui due template
+    /// della stessa strategia, nati su barre diverse, sono entrambi ammissibili.</para>
+    /// </summary>
+    private static bool AccountHasEntryInFlight(
+        Session session, string accountNumber, string strategyCode, string symbol)
+    {
+        var pending = session.Intents.Any(intent =>
+            intent.Kind == OrderIntentKind.Entry &&
+            intent.Status == OrderIntentStatus.Pending &&
+            string.Equals(intent.AssignedAccountNumber, accountNumber, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(intent.StrategyCode, strategyCode, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(intent.Symbol, symbol, StringComparison.OrdinalIgnoreCase));
+        if (pending)
+            return true;
+
+        return session.ExternalPositions.Values.Any(position =>
+            string.Equals(position.AccountNumber, accountNumber, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(position.StrategyCode, strategyCode, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(position.Symbol, symbol, StringComparison.OrdinalIgnoreCase));
+    }
+
     private static bool MaxEntriesPerSessionReached(Session session, OrderIntent intent, string? accountNumber)
     {
         if (intent.MaxEntriesPerSession is not > 0 || intent.EntrySessionStartUtc is not { } sessionStart)
@@ -2282,10 +2473,11 @@ public sealed class TradingSessionService : ITradingSessionService
                          && session.AccountConversions.TryGetValue(account, out var resolved)
             ? resolved
             : AccountSymbolConversion.Identity;
-        return Describe(session, conversion);
+        return Describe(session, conversion, session.DirectAccountNumber);
     }
 
-    private TradingSessionDescriptor Describe(Session session, AccountSymbolConversion conversion) => new()
+    private TradingSessionDescriptor Describe(
+        Session session, AccountSymbolConversion conversion, string? accountNumber = null) => new()
     {
         SessionId = session.Id,
         SessionToken = session.Token,
@@ -2299,6 +2491,26 @@ public sealed class TradingSessionService : ITradingSessionService
         TitanoRunId = ResolveRunIdForFolder(session, session.TitanoBacktestFolder),
         TitanoMode = session.TitanoMode,
         ClientRunMode = session.ClientRunMode,
+        RunProfile = session.RunProfile,
+        EnforceConcurrencyLimits = session.EnforceConcurrencyLimits,
+        // Il limite è per account: senza destinatario noto (elenco sessioni, sessione distribuita
+        // descritta fuori da un'apertura) si riporta 0, che il client legge come "non dichiarato".
+        MaxConcurrentTrades = accountNumber is not null
+            ? session.AccountMaxConcurrentTrades.GetValueOrDefault(accountNumber)
+            : 0,
+        // Ordinate per simbolo/timeframe/codice: il pannello a chart le stampa così com'è, e un
+        // ordine stabile rende confrontabili a colpo d'occhio due run diversi.
+        Strategies = session.Strategies
+            .Select(s => new TradingSessionStrategyInfo
+            {
+                StrategyCode = s.Name,
+                Symbol = Normalize(s.Symbol),
+                TimeframeMinutes = s.TimeframeMinutes
+            })
+            .OrderBy(s => s.Symbol, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(s => s.TimeframeMinutes)
+            .ThenBy(s => s.StrategyCode, StringComparer.OrdinalIgnoreCase)
+            .ToArray(),
         PositionSizing = session.PositionSizing,
         InstrumentMetadata = session.InstrumentMetadata.Values.OrderBy(x => x.Symbol).ToArray(),
         Instruments = session.Strategies.GroupBy(s => Normalize(s.Symbol))

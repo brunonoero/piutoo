@@ -82,12 +82,38 @@ namespace cAlgo.Robots
     //      riavvio del cBot ma solo quando parte davvero una sessione nuova.
     // ------------------------------------------------------------------------------------------
 
+    /// <summary>
+    /// Che run sta aprendo il cBot. Deve corrispondere a <c>TradingRunProfile</c> lato server.
+    ///
+    /// <para>E' dichiarato anche in PiootooDistributedExecutionBot.cs: in cTrader ogni cBot e' un
+    /// progetto a se' e i due file non si vedono, quindi la definizione va ripetuta. Se si cambia
+    /// qui, si cambia anche la', e in <c>Piootoo.Shared</c>.</para>
+    /// </summary>
+    public enum RunProfileParam
+    {
+        /// <summary>Decide il piano, com'e' sempre stato. In live e' l'unico valore ammesso.</summary>
+        DalPiano,
+
+        /// <summary>
+        /// Backtest sorgente: tutte le strategie del masterfilter, nessuna rotazione Titano e
+        /// nessun lucchetto di concorrenza, cosi ogni segnale diventa un intent. E' il run che
+        /// produce il trades.json su cui Titano calcola le rotazioni.
+        /// </summary>
+        BacktestSorgente,
+
+        /// <summary>
+        /// Backtest filtrato con le rotazioni storiche gia' generate da Titano, e con i vincoli
+        /// operativi attivi: misura cosa avrebbe fatto il sistema *con* il filtro.
+        /// </summary>
+        BacktestTitano
+    }
+
     [Robot(TimeZone = TimeZones.UTC, AccessRights = AccessRights.FullAccess)]
     public class PiootooDirectExecutionBot : Robot
     {
         private const string LabelPrefix = "PiootooSession";
         private const string BotName = "PiootooDirectExecutionBot";
-        private const string BotVersion = "1.3.0"; // aggiornare qui ad ogni release
+        private const string BotVersion = "1.4.0"; // aggiornare qui ad ogni release
         private const string ChartInfoObjectName = "PiootooDirectExecutionBot_InfoPanel";
 
         // ---------------------------------------------------------------- Connessione / sessione
@@ -104,6 +130,12 @@ namespace cAlgo.Robots
 
         [Parameter("Account Number Override", DefaultValue = 0, Group = "Connessione")]
         public int AccountNumberOverride { get; set; }
+
+        // Il run mode (Backtest/Realtime) lo dichiara la piattaforma: qui si sceglie solo QUALE
+        // backtest. In live il server rifiuta i profili Backtest*, cosi non e' possibile mandare a
+        // mercato un run configurato come campione sorgente.
+        [Parameter("Profilo di esecuzione", DefaultValue = RunProfileParam.DalPiano, Group = "Connessione")]
+        public RunProfileParam RunProfile { get; set; }
 
         // Distingue le esecuzioni dello stesso piano. La tripla (piano, contesto, execution key)
         // piu' l'account e' idempotente lato server: rilanciare il cBot con la stessa chiave
@@ -196,13 +228,26 @@ namespace cAlgo.Robots
         /// </summary>
         private readonly List<PlanStream> _streams = new();
 
-        /// <summary>Timeframe del grafico: e' il tick su cui si controllano tutti gli stream.</summary>
-        private int _chartTimeframeMinutes;
-
         private long _accountNumber;
         private bool _sessionReady;
         private double _initialEquity;
         private double _peakEquity;
+
+        // Configurazione RISOLTA dal server, letta dal descriptor all'apertura: e' cio' che il
+        // pannello mostra. Non i parametri del cBot, che il piano puo' contraddire.
+        private string _runProfile;
+        private string _titanoMode;
+        private string _serverRunMode;
+        private bool _enforceConcurrency = true;
+        private int _maxConcurrentTrades;
+        private List<SessionStrategyDto> _strategies = new();
+
+        /// <summary>
+        /// Profit e drawdown come vengono STAMPATI. Il pannello si ridisegna solo quando questa
+        /// stringa cambia: <c>UpdateChartDisplay</c> e' chiamato a ogni tick, e ricostruire ogni
+        /// volta il testo — elenco delle strategie compreso — costerebbe piu' del pannello stesso.
+        /// </summary>
+        private string _lastPanelHeadline;
 
         // Traccia, per label, l'ultimo intent di apertura inviato (serve a risolvere il fill
         // quando la posizione nasce in modo asincrono, es. ordine pending Stop/Limit).
@@ -259,14 +304,10 @@ namespace cAlgo.Robots
                 return;
             }
 
+            // Il timeframe del grafico non viene piu' letto: non e' l'orologio di nessuno stream.
+            // Prima veniva risolto qui e un timeframe non riconosciuto (Renko, tick chart) fermava
+            // il bot; ora e' un dato che non serve, quindi non puo' nemmeno essere sbagliato.
             _accountNumber = AccountNumberOverride > 0 ? AccountNumberOverride : Account.Number;
-            _chartTimeframeMinutes = ResolveTimeframeMinutes(TimeFrame);
-            if (_chartTimeframeMinutes <= 0)
-            {
-                Print("Timeframe '{0}' non riconosciuto: impossibile calcolare TimeframeMinutes.", TimeFrame);
-                Stop();
-                return;
-            }
 
             _json = new JsonSerializerOptions(JsonSerializerDefaults.Web);
 
@@ -309,7 +350,15 @@ namespace cAlgo.Robots
                 _initialEquity = anchored ? savedState.InitialEquity : Account.Equity;
                 _peakEquity = anchored ? Math.Max(savedState.PeakEquity, Account.Equity) : Account.Equity;
 
+                // L'orologio e' PER STREAM, non il grafico: ogni serie del piano notifica le proprie
+                // barre. E' cosi che un piano misto (indice + forex) non perde le barre del simbolo
+                // che sta scambiando mentre quello del grafico e' chiuso, e che il grafico diventa
+                // irrilevante sia come simbolo sia come timeframe. Sottoscritto dopo _sessionReady:
+                // un evento che arrivasse prima non avrebbe una sessione a cui spingere la barra.
                 _sessionReady = true;
+                foreach (var stream in _streams)
+                    stream.Series.BarOpened += OnStreamBarOpened;
+
                 Print("Sessione {0} attiva su {1} stream [{2}], account {3}, piano {4} (workspace {5}, Titano {6}).",
                     _sessionId, _streams.Count, string.Join("; ", _streams), _accountNumber, PlanCode.Trim(),
                     descriptor.WorkspaceId, descriptor.TitanoMode);
@@ -358,9 +407,22 @@ namespace cAlgo.Robots
             UpdateChartDisplay();
         }
 
-        protected override void OnBar()
+        /// <summary>
+        /// Una barra si e' aperta su una delle serie del piano: quella precedente e' quindi chiusa e
+        /// va pubblicata. Si spinge SOLO la barra di quello stream — gli altri hanno il proprio
+        /// evento e lo faranno per conto loro — mentre la manutenzione delle posizioni (stop,
+        /// trailing, uscite a tempo) resta globale: e' idempotente, costa poco, e farla a ogni barra
+        /// di qualunque stream la rende piu' tempestiva, mai meno.
+        /// </summary>
+        private void OnStreamBarOpened(BarOpenedEventArgs args)
         {
             if (!_sessionReady)
+                return;
+
+            // Match per riferimento alla serie: e' l'unico identificatore certo quando lo stesso
+            // simbolo compare su piu' timeframe.
+            var stream = _streams.FirstOrDefault(candidate => ReferenceEquals(candidate.Series, args.Bars));
+            if (stream == null)
                 return;
 
             try
@@ -374,7 +436,7 @@ namespace cAlgo.Robots
                 // La barra va pubblicata anche dentro la finestra di flat: la storia del server e' il
                 // dato su cui girano gli indicatori, e un buco la falserebbe alla riapertura. Gli
                 // intent di apertura che ne tornano sono fermati da ApplyOpenIntent.
-                PushClosedBars();
+                PushClosedBar(stream);
                 if (weekEndFlat)
                     return;
 
@@ -384,7 +446,7 @@ namespace cAlgo.Robots
             }
             catch (Exception ex)
             {
-                Print("Errore elaborazione barra: {0}", ex.Message);
+                Print("Errore elaborazione barra ({0}): {1}", stream, ex.Message);
             }
         }
 
@@ -439,6 +501,12 @@ namespace cAlgo.Robots
         {
             Positions.Opened -= OnPositionOpened;
             Positions.Closed -= OnPositionClosed;
+            foreach (var stream in _streams)
+            {
+                if (stream.Series != null)
+                    stream.Series.BarOpened -= OnStreamBarOpened;
+            }
+
             if (!_sessionReady || _http == null)
             {
                 _http?.Dispose();
@@ -648,17 +716,84 @@ namespace cAlgo.Robots
 
             var profit = equity - _initialEquity;
             var drawdownPct = _peakEquity > 0 ? (_peakEquity - equity) / _peakEquity * 100.0 : 0.0;
-            var profitColor = profit >= 0 ? Color.LightGreen : Color.OrangeRed;
 
-            var text = $"{BotName} v{BotVersion}\n" +
-                       $"Profit: {profit:+0.00;-0.00;0.00}\n" +
-                       $"Drawdown: {drawdownPct:0.00}%";
-
-            Chart.DrawStaticText(ChartInfoObjectName, text, VerticalAlignment.Top, HorizontalAlignment.Right, profitColor);
+            // Il pannello si ridisegna solo quando cambia cio' che si LEGGE, non a ogni tick: profit
+            // e drawdown sono stampati a due decimali, e fra un tick e l'altro quasi sempre sono gli
+            // stessi. Questo metodo e' chiamato da OnTick, quindi ricostruire ogni volta la stringa
+            // — che include l'elenco delle strategie — sarebbe una allocazione per tick per niente.
+            var headline = $"{profit:+0.00;-0.00;0.00}|{drawdownPct:0.00}";
+            if (headline != _lastPanelHeadline)
+            {
+                _lastPanelHeadline = headline;
+                var profitColor = profit >= 0 ? Color.LightGreen : Color.OrangeRed;
+                Chart.DrawStaticText(ChartInfoObjectName, BuildPanelText(profit, drawdownPct),
+                    VerticalAlignment.Top, HorizontalAlignment.Right, profitColor);
+            }
 
             // Salva l'ancora solo quando il picco si aggiorna, per non scrivere su file ad ogni tick.
             if (peakChanged)
                 SaveSessionState();
+        }
+
+        /// <summary>
+        /// Il pannello: oltre a profit e drawdown riporta la configurazione con cui il bot sta
+        /// lavorando davvero — piano, profilo del run, filtro Titano, lucchetti di concorrenza — e
+        /// l'elenco delle strategie con il loro timeframe.
+        ///
+        /// <para>Tutti i valori vengono dal DESCRIPTOR, cioe' da come il server ha risolto il run.
+        /// Mostrare i parametri del cBot direbbe cosa e' stato chiesto, non cosa sta girando: e' la
+        /// differenza fra le due cose che si vuole poter vedere a colpo d'occhio.</para>
+        /// </summary>
+        private string BuildPanelText(double profit, double drawdownPct)
+        {
+            var builder = new StringBuilder();
+            builder.AppendLine($"{BotName} v{BotVersion}");
+            builder.AppendLine($"Profit:    {profit:+0.00;-0.00;0.00}");
+            builder.AppendLine($"Drawdown:  {drawdownPct:0.00}%");
+            builder.AppendLine($"Piano:     {(string.IsNullOrWhiteSpace(PlanCode) ? "-" : PlanCode.Trim())}");
+            builder.AppendLine($"Run:       {Or(_serverRunMode)} / {Or(_runProfile)}");
+            builder.AppendLine($"Titano:    {DescribeTitano()}");
+            builder.AppendLine($"Concorr.:  {DescribeConcurrency()}");
+
+            if (_strategies.Count == 0)
+            {
+                builder.Append("Strategie: -");
+                return builder.ToString();
+            }
+
+            builder.AppendLine($"Strategie ({_strategies.Count}):");
+            foreach (var strategy in _strategies)
+                builder.AppendLine($"  {strategy.StrategyCode}  {strategy.Symbol}/{strategy.TimeframeMinutes}m");
+            return builder.ToString().TrimEnd();
+        }
+
+        private static string Or(string value) => string.IsNullOrWhiteSpace(value) ? "-" : value;
+
+        /// <summary>
+        /// "Disabled" e' il nome del contratto ma dice poco a chi guarda il grafico: qui interessa
+        /// sapere se il filtro sta togliendo strategie oppure no.
+        /// </summary>
+        private string DescribeTitano()
+        {
+            if (string.IsNullOrWhiteSpace(_titanoMode))
+                return "-";
+            return string.Equals(_titanoMode, "Disabled", StringComparison.OrdinalIgnoreCase)
+                ? "OFF (nessun filtro)"
+                : $"ON ({_titanoMode})";
+        }
+
+        /// <summary>
+        /// In esecuzione diretta il claim non esiste, quindi i lucchetti non hanno dove agire e il
+        /// limite di trade concorrenti non e' applicabile: il pannello lo dice invece di mostrare un
+        /// numero che nessuno sta facendo rispettare.
+        /// </summary>
+        private string DescribeConcurrency()
+        {
+            if (!_enforceConcurrency)
+                return "OFF (tutti i segnali)";
+            return _maxConcurrentTrades > 0
+                ? $"ON, max {_maxConcurrentTrades} trade"
+                : "ON, non applicabile in diretta";
         }
 
         // ------------------------------------------------------------- Ricostruzione dopo riavvio
@@ -805,13 +940,28 @@ namespace cAlgo.Robots
                 ClientRunMode = CurrentClientRunMode,
                 ExecutionKey = ResolveExecutionKey(),
                 AccountNumber = _accountNumber.ToString(),
-                DistributeToAccounts = false
+                DistributeToAccounts = false,
+                // Null invece di "DalPiano": un campo assente lascia decidere il piano, che e' il
+                // comportamento storico.
+                RunProfile = RunProfile == RunProfileParam.DalPiano ? null : RunProfile.ToString()
             };
 
             var descriptor = SendJson<SessionDescriptorDto>(
                 HttpMethod.Post, "api/v1/trading-sessions/open-plan", request, includeToken: false);
             if (descriptor == null || string.IsNullOrWhiteSpace(descriptor.SessionId))
                 throw new InvalidOperationException($"il piano '{PlanCode.Trim()}' non ha restituito una sessione");
+
+            _runProfile = descriptor.RunProfile;
+            _titanoMode = descriptor.TitanoMode;
+            _serverRunMode = descriptor.ClientRunMode;
+            _enforceConcurrency = descriptor.EnforceConcurrencyLimits;
+            _maxConcurrentTrades = descriptor.MaxConcurrentTrades;
+            _strategies = descriptor.Strategies ?? new List<SessionStrategyDto>();
+            Print("Run: {0} / {1}, Titano {2}, concorrenza {3}, {4} strategie.",
+                _serverRunMode ?? "-", _runProfile ?? "-", _titanoMode ?? "-",
+                _enforceConcurrency ? "attiva" : "OFF", _strategies.Count);
+            foreach (var strategy in _strategies)
+                Print("  strategia {0} su {1}/{2}m", strategy.StrategyCode, strategy.Symbol, strategy.TimeframeMinutes);
 
             return descriptor;
         }
@@ -881,14 +1031,10 @@ namespace cAlgo.Robots
                     $"{string.Join(", ", instruments.Select(DescribeInstrument))}");
             }
 
-            var finest = _streams.Min(stream => stream.TimeframeMinutes);
-            if (_chartTimeframeMinutes > finest)
-            {
-                throw new InvalidOperationException(
-                    $"il grafico e' a {_chartTimeframeMinutes} minuti ma il piano ha stream a {finest}: " +
-                    "gli stream piu' rapidi verrebbero controllati in ritardo. Usa un grafico a " +
-                    $"{finest} minuti.");
-            }
+            // Nessun vincolo sul grafico. Finche' l'orologio era OnBar() il timeframe del chart
+            // doveva essere il piu' fine del piano, altrimenti gli stream rapidi venivano controllati
+            // in ritardo; da quando ogni serie notifica le proprie barre (OnStreamBarOpened) il
+            // grafico non e' piu' l'orologio di niente, ne' come timeframe ne' come simbolo.
 
             foreach (var stream in _streams.Where(stream =>
                          NormalizeSymbol(stream.PiootooSymbol) != NormalizeSymbol(stream.AccountSymbol)))
@@ -969,17 +1115,11 @@ namespace cAlgo.Robots
         }
 
         /// <summary>
-        /// Pubblica la barra appena chiusa di ogni stream che ne ha una nuova. Gli stream con
-        /// timeframe maggiore di quello del grafico chiudono solo ogni N tick di OnBar: il
-        /// confronto con <see cref="PlanStream.LastPushedBarTimeUtc"/> evita di rispedire la stessa
-        /// barra a ogni passata.
+        /// Pubblica la barra appena chiusa di uno stream. Ogni stream ha il proprio evento
+        /// <c>BarOpened</c>, quindi qui si arriva una volta per barra e per serie; il confronto con
+        /// <see cref="PlanStream.LastPushedBarTimeUtc"/> resta come rete di sicurezza contro una
+        /// doppia notifica o una riconciliazione all'avvio.
         /// </summary>
-        private void PushClosedBars()
-        {
-            foreach (var stream in _streams)
-                PushClosedBar(stream);
-        }
-
         private void PushClosedBar(PlanStream stream)
         {
             var series = stream.Series;
@@ -1293,6 +1433,12 @@ namespace cAlgo.Robots
         /// </summary>
         private void MoveStopsToBreakEven()
         {
+            // Chiamato a ogni tick: senza questa uscita si pagherebbe una scansione di Positions con
+            // predicato piu' una ToList anche quando non c'e' nulla da proteggere, che e' il caso
+            // nella stragrande maggioranza dei tick di un backtest.
+            if (_positionIntent.Count == 0)
+                return;
+
             foreach (var position in Positions.Where(IsOurs).ToList())
             {
                 if (!_positionIntent.TryGetValue(position.Id, out var intent))
@@ -1333,6 +1479,9 @@ namespace cAlgo.Robots
         /// </summary>
         private void MoveTrailingStops()
         {
+            if (_positionIntent.Count == 0)
+                return;
+
             foreach (var position in Positions.Where(IsOurs).ToList())
             {
                 if (!_positionIntent.TryGetValue(position.Id, out var intent))
@@ -1624,8 +1773,8 @@ namespace cAlgo.Robots
         }
 
         /// <summary>
-        /// Inverso di <see cref="ResolveTimeframeMinutes"/>: serve a sottoscrivere la serie di uno
-        /// stream del piano. Un timeframe non mappabile e' un errore esplicito, non un fallback:
+        /// Traduce il timeframe del piano in quello di cTrader: serve ad aprire la serie di uno
+        /// stream. Un timeframe non mappabile e' un errore esplicito, non un fallback:
         /// aprire la serie sbagliata darebbe barre plausibili su cui nessuna strategia gira.
         /// </summary>
         private static TimeFrame ToTimeFrame(int minutes) => minutes switch
@@ -1651,34 +1800,6 @@ namespace cAlgo.Robots
             _ => throw new ArgumentException($"Timeframe non supportato: {minutes} minuti.")
         };
 
-        private static int ResolveTimeframeMinutes(TimeFrame timeFrame)
-        {
-            var name = timeFrame.ToString();
-
-            if (name.StartsWith("Minute", StringComparison.Ordinal))
-                return ParseTrailingNumber(name, "Minute", 1);
-            if (name.StartsWith("Hour", StringComparison.Ordinal))
-                return ParseTrailingNumber(name, "Hour", 1) * 60;
-            if (name.StartsWith("Daily", StringComparison.Ordinal))
-                return 1440;
-            if (name.StartsWith("Day", StringComparison.Ordinal))
-                return ParseTrailingNumber(name, "Day", 1) * 1440;
-            if (name.StartsWith("Weekly", StringComparison.Ordinal))
-                return 10080;
-            if (name.StartsWith("Week", StringComparison.Ordinal))
-                return ParseTrailingNumber(name, "Week", 1) * 10080;
-            if (name.StartsWith("Monthly", StringComparison.Ordinal) || name.StartsWith("Month", StringComparison.Ordinal))
-                return 43200;
-
-            return 0;
-        }
-
-        private static int ParseTrailingNumber(string value, string prefix, int fallback)
-        {
-            var suffix = value.Substring(prefix.Length);
-            return int.TryParse(suffix, out var parsed) && parsed > 0 ? parsed : fallback;
-        }
-
         // ----------------------------------------------------------------------- DTO contratto API
         // Copie locali (POCO) dei contratti definiti in Piootoo.Shared.Models.Trading, cosi il cBot
         // resta un singolo file senza riferimenti al progetto server. I campi enum-like (Side,
@@ -1698,6 +1819,9 @@ namespace cAlgo.Robots
             /// assegnati invece di template da reclamare.
             /// </summary>
             public bool DistributeToAccounts { get; set; }
+
+            /// <summary>Nome del <c>TradingRunProfile</c>. Null = decide il piano.</summary>
+            public string RunProfile { get; set; }
         }
 
         private sealed class SessionDescriptorDto
@@ -1713,8 +1837,26 @@ namespace cAlgo.Robots
             public string TitanoMode { get; set; }
             public string ClientRunMode { get; set; }
 
+            // Come il server ha RISOLTO il run: e' quello che il pannello mostra, non i parametri
+            // che il bot ha chiesto. Se il piano contraddice il parametro, la differenza si vede a
+            // grafico invece che nei trade.
+            public string RunProfile { get; set; }
+            public bool EnforceConcurrencyLimits { get; set; }
+            public int MaxConcurrentTrades { get; set; }
+
             /// <summary>Coppie (simbolo, timeframe) derivate dal masterfilter del workspace del piano.</summary>
             public List<TradingInstrumentDto> Instruments { get; set; } = new();
+
+            /// <summary>Le strategie che la sessione valutera', con simbolo e timeframe.</summary>
+            public List<SessionStrategyDto> Strategies { get; set; } = new();
+        }
+
+        /// <summary>Una strategia in sessione: codice di esecuzione, simbolo, timeframe.</summary>
+        private sealed class SessionStrategyDto
+        {
+            public string StrategyCode { get; set; } = "";
+            public string Symbol { get; set; } = "";
+            public int TimeframeMinutes { get; set; }
         }
 
         private sealed class TradingInstrumentDto

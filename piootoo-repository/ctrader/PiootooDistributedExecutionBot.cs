@@ -66,6 +66,30 @@ namespace cAlgo.Robots
     /// Un'istanza di questo cBot rappresenta UN account cTrader. Il codice piano risolve la sessione e
     /// il profilo account/gruppo; cBot di account diversi possono condividere la sessione del piano.
     /// </summary>
+    /// <summary>
+    /// Che run sta aprendo il cBot. E' l'unico interruttore fra i due backtest che il progetto
+    /// distingue, e li NOMINA invece di farli dedurre da una combinazione di flag sparsi fra piano e
+    /// sessione. Deve corrispondere a <c>TradingRunProfile</c> lato server.
+    /// </summary>
+    public enum RunProfileParam
+    {
+        /// <summary>Decide il piano, com'e' sempre stato. In live e' l'unico valore ammesso.</summary>
+        DalPiano,
+
+        /// <summary>
+        /// Backtest sorgente: tutte le strategie del masterfilter, nessuna rotazione Titano e
+        /// nessun lucchetto di concorrenza. E' il run che produce il trades.json su cui Titano
+        /// calcola le rotazioni, quindi ogni segnale deve diventare un intent.
+        /// </summary>
+        BacktestSorgente,
+
+        /// <summary>
+        /// Backtest filtrato con le rotazioni storiche gia' generate da Titano, e con i lucchetti di
+        /// distribuzione attivi: serve a misurare cosa avrebbe fatto il sistema *con* il filtro.
+        /// </summary>
+        BacktestTitano
+    }
+
     [Robot(TimeZone = TimeZones.UTC, AccessRights = AccessRights.FullAccess)]
     public class PiootooDistributedExecutionBot : Robot
     {
@@ -86,14 +110,28 @@ namespace cAlgo.Robots
         /// </summary>
         private const int MaxConsecutivePushFailures = 20;
 
+        /// <summary>
+        /// Tetto agli intent reclamati in un solo giro di drenaggio (solo a lucchetti spenti). Non e'
+        /// un limite operativo — con i lucchetti spenti si vogliono TUTTI i segnali della barra — ma
+        /// una rete contro un server che continuasse a consegnare: il claim gira sul thread della
+        /// piattaforma, e un ciclo che non finisce blocca il cBot invece di far apparire un errore.
+        /// </summary>
+        private const int MaxSignalsPerDrain = 200;
+
         private const string BotVersion = "2.0.0"; // aggiornare qui ad ogni release
         private const string StatusChartObjectName = "PiootooConnectionStatus";
 
-        [Parameter("Server Base Url", DefaultValue = "https://localhost:5000")]
+        [Parameter("Server Base Url", DefaultValue = "http://localhost:5000")]
         public string ServerBaseUrl { get; set; }
 
         [Parameter("Codice piano")]
         public string PlanCode { get; set; }
+
+        // Il run mode (Backtest/Realtime) lo dichiara la piattaforma, non l'utente: qui si sceglie
+        // solo QUALE backtest. In live il server rifiuta i profili Backtest* invece di eseguirli,
+        // cosi non e' possibile mandare a mercato un run configurato come campione sorgente.
+        [Parameter("Profilo di esecuzione", DefaultValue = RunProfileParam.DalPiano)]
+        public RunProfileParam RunProfile { get; set; }
 
         // A regime la storia del server è già completa: della finestra serve solo il margine che
         // ricuce le barre eventualmente perse (chiamata fallita, server irraggiungibile per qualche
@@ -142,6 +180,24 @@ namespace cAlgo.Robots
         private string _accountNumber;
         private string _sessionId;
         private string _sessionToken;
+
+        // Configurazione RISOLTA dal server, letta dal descriptor all'apertura. Serve al pannello e
+        // decide se ha senso drenare la coda dei segnali (vedi PollNextSignal).
+        private string _runProfile;
+        private string _titanoMode;
+        private string _serverRunMode;
+        private bool _enforceConcurrency = true;
+        private int _maxConcurrentTrades;
+        private IReadOnlyList<SessionStrategyDto> _strategies = new List<SessionStrategyDto>();
+
+        /// <summary>
+        /// Quanto il server ha dichiarato di avere da consegnare nell'ultimo push. Null = non
+        /// dichiarato, quindi si polla. Zero = si puo' saltare il poll.
+        /// </summary>
+        private int? _lastPushClaimable;
+
+        /// <summary>Poll saltati grazie alla guardia, per poterne stampare il totale allo stop.</summary>
+        private long _skippedPolls;
         private string _localStatePath;
         private string _jsonLogPath;
         // Stato di connessione mostrato a chart: riflette l'esito dell'ultima chiamata HTTP al
@@ -306,7 +362,10 @@ namespace cAlgo.Robots
                 PlanCode = PlanCode.Trim(),
                 ClientRunMode = IsBacktesting ? "Backtest" : "Realtime",
                 ExecutionKey = IsBacktesting ? $"BT-{Server.TimeInUtc:yyyyMMddHHmmss}" : "LIVE",
-                AccountNumber = _accountNumber
+                AccountNumber = _accountNumber,
+                // Null invece di "DalPiano": un campo assente lascia decidere il piano, ed e'
+                // esattamente il comportamento storico per i server che non conoscono il campo.
+                RunProfile = RunProfile == RunProfileParam.DalPiano ? null : RunProfile.ToString()
             });
             if (!openResponse.IsSuccessStatusCode)
             {
@@ -320,7 +379,20 @@ namespace cAlgo.Robots
             var descriptor = JsonSerializer.Deserialize<TradingSessionDescriptorDto>(openBody, _json);
             _sessionId = descriptor?.SessionId;
             _sessionToken = descriptor?.SessionToken;
-            Print("Sessione aperta: SessionId={0}.", _sessionId);
+            // Come il server ha RISOLTO il run, non come il bot l'ha chiesto: se il piano contraddice
+            // il parametro vince il server, e il pannello deve mostrare cio' che gira davvero.
+            _runProfile = descriptor?.RunProfile;
+            _titanoMode = descriptor?.TitanoMode;
+            _serverRunMode = descriptor?.ClientRunMode;
+            _enforceConcurrency = descriptor?.EnforceConcurrencyLimits ?? true;
+            _maxConcurrentTrades = descriptor?.MaxConcurrentTrades ?? 0;
+            _strategies = descriptor?.Strategies ?? new List<SessionStrategyDto>();
+            Print("Sessione aperta: SessionId={0} profilo={1} Titano={2} concorrenza={3} maxTrade={4}.",
+                _sessionId, _runProfile ?? "-", _titanoMode ?? "-",
+                _enforceConcurrency ? "attiva" : "OFF",
+                _maxConcurrentTrades > 0 ? _maxConcurrentTrades.ToString() : "illimitati");
+            foreach (var strategy in _strategies)
+                Print("  strategia {0} su {1}/{2}m", strategy.StrategyCode, strategy.Symbol, strategy.TimeframeMinutes);
 
             var pairs = new List<Pair>();
             var error = "descriptor sessione mancante";
@@ -402,13 +474,73 @@ namespace cAlgo.Robots
         private void UpdateConnectionStatus(bool connected)
         {
             _isConnectedToServer = connected;
-            var text = string.Format(
-                "Piootoo\nAccount: {0}\nPiano: {1}\nConnesso: {2}",
-                string.IsNullOrEmpty(_accountNumber) ? "-" : _accountNumber,
-                string.IsNullOrWhiteSpace(PlanCode) ? "-" : PlanCode,
-                connected ? "Si" : "No");
-            Chart.DrawStaticText(StatusChartObjectName, text, VerticalAlignment.Top, HorizontalAlignment.Right,
+            Chart.DrawStaticText(StatusChartObjectName, BuildStatusText(connected),
+                VerticalAlignment.Top, HorizontalAlignment.Right,
                 connected ? Color.LightGreen : Color.OrangeRed);
+        }
+
+        /// <summary>
+        /// Il testo del pannello. Riporta la configurazione con cui il bot sta effettivamente
+        /// lavorando — profilo del run, filtro Titano, lucchetti di concorrenza, limite di trade — e
+        /// l'elenco delle strategie con il loro timeframe.
+        ///
+        /// <para>Sono tutti valori presi dal DESCRIPTOR, cioe' da come il server ha risolto il run, non
+        /// dai parametri del cBot. Un bot che dichiara un piano e ne esegue un altro, o un parametro
+        /// che il piano contraddice, sono invisibili finche' non si leggono i trade: qui si vedono
+        /// sul grafico prima ancora che arrivi il primo segnale.</para>
+        ///
+        /// <para>Prima della connessione i campi risolti sono vuoti e si stampa "-": il pannello deve
+        /// esistere fin dal primo istante, anche per dire che non si e' ancora collegato.</para>
+        /// </summary>
+        private string BuildStatusText(bool connected)
+        {
+            var builder = new StringBuilder();
+            builder.AppendLine("Piootoo " + BotVersion);
+            builder.AppendLine("Account:   " + (string.IsNullOrEmpty(_accountNumber) ? "-" : _accountNumber));
+            builder.AppendLine("Piano:     " + (string.IsNullOrWhiteSpace(PlanCode) ? "-" : PlanCode.Trim()));
+            builder.AppendLine("Connesso:  " + (connected ? "Si" : "No"));
+            builder.AppendLine("Run:       " + Or(_serverRunMode) + " / " + Or(_runProfile));
+            builder.AppendLine("Titano:    " + DescribeTitano());
+            builder.AppendLine("Concorr.:  " + DescribeConcurrency());
+
+            if (_strategies.Count == 0)
+            {
+                builder.Append("Strategie: -");
+                return builder.ToString();
+            }
+
+            builder.AppendLine("Strategie (" + _strategies.Count + "):");
+            foreach (var strategy in _strategies)
+                builder.AppendLine("  " + strategy.StrategyCode + "  " + strategy.Symbol + "/" + strategy.TimeframeMinutes + "m");
+            return builder.ToString().TrimEnd();
+        }
+
+        private static string Or(string value) => string.IsNullOrWhiteSpace(value) ? "-" : value;
+
+        /// <summary>
+        /// "Disabled" e' il nome del contratto ma dice poco a chi guarda il grafico: qui interessa
+        /// sapere se il filtro sta togliendo strategie oppure no.
+        /// </summary>
+        private string DescribeTitano()
+        {
+            if (string.IsNullOrWhiteSpace(_titanoMode))
+                return "-";
+            if (string.Equals(_titanoMode, "Disabled", StringComparison.OrdinalIgnoreCase))
+                return "OFF (nessun filtro)";
+            return "ON (" + _titanoMode + ")";
+        }
+
+        /// <summary>
+        /// Un solo campo per i lucchetti e il limite: sono la stessa scelta, e mostrarli separati
+        /// invita a leggere MaxConcurrentTrades come se valesse anche a lucchetti spenti.
+        /// </summary>
+        private string DescribeConcurrency()
+        {
+            if (!_enforceConcurrency)
+                return "OFF (tutti i segnali)";
+            return _maxConcurrentTrades > 0
+                ? "ON, max " + _maxConcurrentTrades + " trade"
+                : "ON, trade illimitati";
         }
 
         /// <summary>
@@ -445,8 +577,11 @@ namespace cAlgo.Robots
             }
 
             // Il server ha appena valutato questo stream: reclamare subito l'eventuale intent, senza
-            // aspettare il prossimo polling periodico.
-            if (pushed)
+            // aspettare il prossimo polling periodico. Se pero' il push ha appena detto che la
+            // sessione non ha NIENTE di reclamabile, il poll e' una chiamata HTTP il cui esito e'
+            // gia' noto: dai log reali la grande maggioranza delle barre non produce segnali, quindi
+            // e' quasi meta' del traffico di un backtest.
+            if (pushed && ShouldPollAfterPush())
                 PollNextSignal();
 
             MoveStopsToBreakEven();
@@ -463,12 +598,42 @@ namespace cAlgo.Robots
         /// </summary>
         private void OnSymbolTick(SymbolTickEventArgs args)
         {
+            // Break-even e trailing esistono solo per posizioni aperte. Senza questa uscita anticipata
+            // ogni tick — in un backtest tick-based sono ordini di grandezza piu' delle barre —
+            // pagherebbe un ToArray sul dizionario e una scansione di Positions per non fare niente.
+            // La semantica non cambia: le soglie restano valutate a ogni tick sulle posizioni che
+            // esistono, che e' il motivo per cui questo lavoro sta qui e non sul bar-close.
+            if (_openPositions.Count == 0)
+                return;
+
+            // Solo i tick del simbolo su cui abbiamo qualcosa da proteggere: su un piano
+            // multi-simbolo il tick di EURUSD non puo' muovere lo stop di una posizione su NQ.
+            if (!HasOpenPositionOn(args.SymbolName))
+                return;
+
             // Dentro la finestra di fine settimana non c'e' nulla da proteggere: va solo chiuso.
             if (EnforceWeekEndFlat())
                 return;
 
             MoveStopsToBreakEven();
             MoveTrailingStops();
+        }
+
+        /// <summary>
+        /// Il bot ha una posizione aperta su questo simbolo del broker? Il confronto e' sul nome
+        /// dell'ACCOUNT, che e' quello con cui arrivano i tick; <c>OpenPositionContext.Symbol</c> e'
+        /// il nome Piootoo, quindi si passa dalle posizioni della piattaforma.
+        /// </summary>
+        private bool HasOpenPositionOn(string accountSymbol)
+        {
+            foreach (var position in Positions)
+            {
+                if (string.Equals(position.SymbolName, accountSymbol, StringComparison.OrdinalIgnoreCase) &&
+                    _openPositions.ContainsKey(position.Id))
+                    return true;
+            }
+
+            return false;
         }
 
         /// <summary>
@@ -594,6 +759,11 @@ namespace cAlgo.Robots
         /// </summary>
         private void MoveStopsToBreakEven()
         {
+            // Anche il bar-close chiama questo metodo: la guardia sta qui e non solo nel tick handler
+            // cosi' vale per entrambi i chiamanti, e il ToArray non si paga a vuoto.
+            if (_openPositions.Count == 0)
+                return;
+
             foreach (var context in _openPositions.Values.ToArray())
             {
                 var position = Positions.FirstOrDefault(item => item.Id == context.PositionId);
@@ -635,6 +805,9 @@ namespace cAlgo.Robots
         /// </summary>
         private void MoveTrailingStops()
         {
+            if (_openPositions.Count == 0)
+                return;
+
             foreach (var context in _openPositions.Values.ToArray())
             {
                 if (!context.TrailingStop.HasValue || context.TrailingStop.Value <= 0)
@@ -849,6 +1022,11 @@ namespace cAlgo.Robots
             SaveLocalState();
             Timer.Stop();
 
+            // Quanto e' servita la guardia sul poll: senza questo numero non si sa se il risparmio
+            // c'e' stato, e nemmeno se la guardia sta invece tacendo qualcosa che andava reclamato.
+            if (_skippedPolls > 0)
+                Print("Poll saltati perche' il server non aveva nulla da consegnare: {0}.", _skippedPolls);
+
             foreach (var pair in _pairs)
                 if (pair.Series != null && pair.BarHandler != null)
                     pair.Series.BarOpened -= pair.BarHandler;
@@ -1044,6 +1222,11 @@ namespace cAlgo.Robots
         {
             LogJsonResponse("bars/window", body);
             var payload = JsonSerializer.Deserialize<PushBarWindowResponseDto>(body, _json);
+
+            // Guardia sul poll: quanto il server dice di avere da consegnare. Null (campo assente,
+            // risposta illeggibile, server vecchio) vale "non so" e fa pollare come prima.
+            _lastPushClaimable = payload?.ClaimableIntents;
+
             var status = payload?.Streams?.FirstOrDefault();
             if (status is null)
                 return;
@@ -1069,7 +1252,66 @@ namespace cAlgo.Robots
         // Polling segnali per il proprio account ed esecuzione
         // ---------------------------------------------------------------------------------------
 
+        /// <summary>
+        /// Vale la pena reclamare dopo questo push?
+        ///
+        /// <para>Si salta solo su una dichiarazione ESPLICITA del server che non ha nulla da
+        /// consegnare. Il conteggio arriva da lui e non dal client perche' solo lui sa dei template
+        /// di barre precedenti ancora vivi e degli intent gia' assegnati da un giro anteriore:
+        /// dedurlo dagli intent di <i>questa</i> barra salterebbe un poll che aveva qualcosa.</para>
+        ///
+        /// <para>Il verso dell'errore e' scelto: <c>null</c> — campo assente, risposta illeggibile,
+        /// server piu' vecchio del client — vale "non so" e polla. Un poll a vuoto costa una
+        /// chiamata; un poll saltato a torto costa un segnale, e non lascia traccia.</para>
+        /// </summary>
+        private bool ShouldPollAfterPush()
+        {
+            if (_lastPushClaimable is not 0)
+                return true;
+
+            _skippedPolls++;
+            return false;
+        }
+
+        /// <summary>
+        /// Reclama i segnali disponibili per questo account.
+        ///
+        /// <para>Il claim consegna UN intent per chiamata: e' un protocollo pull, e ogni giro passa
+        /// dal lock della sessione lato server. Con i lucchetti attivi un intent per poll e' anche il
+        /// massimo che l'account puo' detenere (un solo intent pendente per volta), quindi una sola
+        /// chiamata basta e ripeterla otterrebbe soltanto lo stesso intent.</para>
+        ///
+        /// <para>Con i lucchetti spenti — il backtest sorgente — il vincolo non c'e' piu' e la barra
+        /// puo' aver prodotto un segnale per ogni strategia. Fermarsi al primo significherebbe
+        /// eseguire una strategia per barra e produrre un campione sorgente monco: qui si drena la
+        /// coda finche' il server non risponde "nessun segnale". Il tetto e' una rete di sicurezza —
+        /// se il server continuasse a restituire intent per un difetto suo, il bot smette invece di
+        /// bloccare il thread della piattaforma.</para>
+        /// </summary>
         private void PollNextSignal()
+        {
+            if (_enforceConcurrency)
+            {
+                PollNextSignalOnce();
+                return;
+            }
+
+            for (var claimed = 0; claimed < MaxSignalsPerDrain; claimed++)
+            {
+                if (!PollNextSignalOnce())
+                    return;
+            }
+
+            Print("Drenaggio segnali interrotto al tetto di {0} intent per barra: " +
+                  "il server continua a consegnare segnali. Verifica la sessione.", MaxSignalsPerDrain);
+        }
+
+        /// <summary>
+        /// Un giro di claim. Restituisce true se ha preso in carico un intent, cioe' se ha senso
+        /// richiedere il successivo; false quando il server non ha piu' niente per questo account,
+        /// quando la chiamata fallisce, o quando l'intent restituito era gia' in gestione.
+        /// </summary>
+        private bool PollNextSignalOnce()
         {
             try
             {
@@ -1118,7 +1360,7 @@ namespace cAlgo.Robots
                 {
                     if (VerboseLogging) Print("Poll segnale fallito: {0}", ReadError(response));
                     UpdateConnectionStatus(false);
-                    return;
+                    return false;
                 }
                 if (!_isConnectedToServer)
                     UpdateConnectionStatus(true);
@@ -1140,7 +1382,7 @@ namespace cAlgo.Robots
                         _lastPollReason = reason;
                         Print("Nessun intent per l'account: {0}", reason);
                     }
-                    return;
+                    return false;
                 }
 
                 if (_lastPollReason != null)
@@ -1151,20 +1393,25 @@ namespace cAlgo.Robots
 
                 var intent = payload.Intent;
                 if (_submittedIntentIds.Contains(intent.IntentId))
-                    return; // già in gestione, aspettiamo l'esito dell'ordine già inviato
+                    // Già in gestione: aspettiamo l'esito dell'ordine inviato. Si ferma anche il
+                    // drenaggio, altrimenti con i lucchetti attivi il passo 1 riproporrebbe questo
+                    // stesso intent a ogni giro e il ciclo girerebbe a vuoto fino al tetto.
+                    return false;
 
                 if (intent.IsClose || string.Equals(intent.Kind, "Close", StringComparison.OrdinalIgnoreCase))
                 {
                     HandleCloseIntent(intent);
-                    return;
+                    return true;
                 }
 
                 HandleEntryIntent(intent);
+                return true;
             }
             catch (Exception ex)
             {
                 Print("Errore polling segnale: {0}", ex.Message);
                 UpdateConnectionStatus(false);
+                return false;
             }
         }
 
@@ -1808,6 +2055,18 @@ namespace cAlgo.Robots
             public int DuplicateBars { get; set; }
             public int BackfilledBars { get; set; }
             public IReadOnlyList<StreamHistoryStatusDto> Streams { get; set; }
+
+            /// <summary>
+            /// Quante cose la sessione potrebbe consegnare a un claim, contate dal SERVER: template
+            /// pendenti non scaduti piu' intent gia' assegnati e ancora pendenti. Zero = il poll non
+            /// puo' restituire niente, quindi si puo' saltare.
+            ///
+            /// <para><b>Nullable di proposito.</b> Un server che non conosce il campo lo omette, e
+            /// deserializzato su un <c>int</c> varrebbe 0, cioe' "non pollare mai": il bot smetterebbe
+            /// di reclamare segnali per tutto il run, in silenzio. Con il nullable l'assenza resta
+            /// distinguibile dallo zero e vale "non so", quindi si polla.</para>
+            /// </summary>
+            public int? ClaimableIntents { get; set; }
         }
 
         private sealed class OpenTradingPlanSessionRequestDto
@@ -1816,6 +2075,9 @@ namespace cAlgo.Robots
             public string ClientRunMode { get; set; }
             public string ExecutionKey { get; set; }
             public string AccountNumber { get; set; }
+
+            /// <summary>Nome del <c>TradingRunProfile</c>. Null = comportamento storico.</summary>
+            public string RunProfile { get; set; }
         }
 
         private sealed class TradingSessionDescriptorDto
@@ -1823,6 +2085,24 @@ namespace cAlgo.Robots
             public string SessionId { get; set; }
             public string SessionToken { get; set; }
             public IReadOnlyList<TradingInstrumentDto> Instruments { get; set; }
+
+            // Come il server ha effettivamente risolto il run. Sono i valori che il pannello a chart
+            // mostra: non quelli che il bot ha chiesto, ma quelli che il server ha applicato. Se un
+            // piano contraddice il parametro, la differenza si vede sul grafico invece che nei trade.
+            public string RunProfile { get; set; }
+            public string TitanoMode { get; set; }
+            public string ClientRunMode { get; set; }
+            public bool EnforceConcurrencyLimits { get; set; }
+            public int MaxConcurrentTrades { get; set; }
+            public IReadOnlyList<SessionStrategyDto> Strategies { get; set; }
+        }
+
+        /// <summary>Una strategia in sessione: codice di esecuzione, simbolo, timeframe.</summary>
+        private sealed class SessionStrategyDto
+        {
+            public string StrategyCode { get; set; }
+            public string Symbol { get; set; }
+            public int TimeframeMinutes { get; set; }
         }
 
         private sealed class TradingInstrumentDto

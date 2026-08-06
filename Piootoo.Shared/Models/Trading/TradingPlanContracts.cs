@@ -77,6 +77,38 @@ public sealed class SaveTradingPlanRequest
 }
 
 /// <summary>
+/// Che tipo di run sta aprendo il cBot. È l'unico interruttore fra i due backtest che il progetto
+/// distingue, e li nomina invece di farli dedurre da una combinazione di flag: <c>ApplyTitanoFilters</c>
+/// nel piano più <c>EnforceConcurrencyLimits</c> descrivono la stessa scelta in due posti, e due
+/// dichiarazioni della stessa cosa prima o poi divergono.
+/// </summary>
+public enum TradingRunProfile
+{
+    /// <summary>
+    /// Comportamento storico: decide il piano con <c>ApplyTitanoFilters</c> e
+    /// <c>EnforceConcurrencyLimits</c>. È il default e non cambia nulla per le configurazioni
+    /// esistenti.
+    /// </summary>
+    DalPiano = 0,
+
+    /// <summary>
+    /// Backtest sorgente: nessun filtro Titano (tutte le strategie del masterfilter del workspace)
+    /// e nessun lucchetto di concorrenza, così ogni segnale diventa un intent. È il run che produce
+    /// il <c>trades.json</c> su cui Titano calcola le rotazioni: applicargli vincoli operativi
+    /// falserebbe la sorgente. Vedi <c>docs/domini/titano-rotation.md</c>.
+    /// </summary>
+    BacktestSorgente = 1,
+
+    /// <summary>
+    /// Backtest filtrato: rotazioni storiche già generate da Titano
+    /// (<c>TitanoFilterMode.BacktestRotationFile</c>) e lucchetti di distribuzione attivi. Serve a
+    /// misurare cosa avrebbe fatto il sistema con il filtro, quindi i vincoli operativi ci vogliono.
+    /// Richiede che il piano indichi la cartella del run Titano.
+    /// </summary>
+    BacktestTitano = 2
+}
+
+/// <summary>
 /// Richiesta idempotente del cBot. La chiave (piano, modalità client, execution key) identifica
 /// un'esecuzione: la stessa richiesta riprende la sessione, una chiave nuova ne crea una nuova.
 /// </summary>
@@ -103,4 +135,12 @@ public sealed class OpenTradingPlanSessionRequest
     /// strumenti. La sessione è per singolo account e non è condivisibile.</para>
     /// </summary>
     public bool DistributeToAccounts { get; init; } = true;
+
+    /// <summary>
+    /// Profilo del run. <c>null</c> o <see cref="TradingRunProfile.DalPiano"/> conservano il
+    /// comportamento storico. I profili <c>Backtest*</c> valgono solo con
+    /// <see cref="ClientRunMode.Backtest"/>: aprirli in realtime è rifiutato all'apertura invece di
+    /// produrre in silenzio un run che non è quello che dichiara di essere.
+    /// </summary>
+    public TradingRunProfile? RunProfile { get; init; }
 }

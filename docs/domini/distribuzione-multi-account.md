@@ -257,8 +257,94 @@ public static bool DefaultEnforceConcurrencyLimits(ClientRunMode runMode, Titano
 
 `null` conserva il comportamento storico, quindi nulla cambia per le configurazioni
 esistenti; valorizzarlo permette di variare concorrenza e rotazione in modo
-indipendente. Il cBot lo espone come parametro a tre stati
-(`Limite Trade Concorrenti`: `Default` / `On` / `Off`).
+indipendente.
+
+### 4.3 Il flag copriva solo il passo 2 — corretto il 2026-08-06
+
+`EnforceConcurrencyLimits` governava **soltanto** `MaxConcurrentTradesExceeded`. I
+lucchetti 4 e 5 e il passo 1 restavano incondizionati, quindi un backtest sorgente
+apriva comunque **una posizione per account per simbolo** e ne consegnava **una per
+poll**. Su un piano a simbolo singolo questo riduce il campione a un trade alla
+volta — che è esattamente ciò che il run sorgente non deve fare — e rende il
+`trades.json` del cBot incomparabile con quello del backtest interno, che di
+lucchetti non ne ha nessuno.
+
+La distinzione giusta è fra vincoli **operativi** e struttura della distribuzione:
+
+| Lucchetto | Cos'è | Segue il flag? |
+|---|---|---|
+| passo 1 (un intent pendente per account) | operativo | **sì**, per i soli ingressi |
+| passo 2 (`MaxConcurrentTrades`) | operativo | sì (già prima) |
+| 3 (`TemplateClaimedGroups`) | *un template è già stato servito a quel gruppo* | **no, mai** |
+| 4 (`GroupStrategySlots`) | operativo | **sì** |
+| 5 (`AccountActiveIntent`) | operativo | **sì** |
+
+Il lucchetto 3 non si spegne in nessun profilo: non limita quanto si opera in
+parallelo, registra che quel segnale è stato consegnato. Spento, il cBot che drena
+la coda riceverebbe lo stesso template all'infinito.
+
+Al passo 1 le **chiusure si ripropongono sempre**, anche a flag spento: sono ordini
+da eseguire, non segnali da distribuire, e perderne una lascia aperta una posizione
+che nessuno chiuderà più.
+
+C'è però un filtro nuovo, **attivo in ogni profilo**: un account non riceve un
+template di una coppia (strategia, simbolo) su cui ha già un ingresso `Pending` o una
+posizione aperta (`AccountHasEntryInFlight`). Non è un vincolo di concorrenza, è
+l'identità della strategia — quel segnale è già in mano al broker. Serve perché
+`MaxEntriesPerSession` si applica al **fill** e non al claim: due template di barre
+diverse reclamati prima che il primo riempia passano entrambi il controllo. Su un run
+reale (`PTS_NQ_PCH_002_15`, 14/10/2024 13:15) questo ha prodotto due stop order
+riempiti allo stesso prezzo e due posizioni da 20 lotti sullo stesso segnale. Con i
+lucchetti attivi il 4 lo copriva già, ma è più largo — vale per tutto il gruppo — e
+a lucchetti spenti non restava niente a fermare il doppione.
+
+### 4.4 Il profilo del run
+
+Il flag resta, ma non è più il modo di sceglierlo: `ApplyTitanoFilters` nel piano
+più `EnforceConcurrencyLimits` nella sessione descrivono la stessa decisione in due
+posti, e per cambiare backtest bisognava editare il piano. Il cBot dichiara invece
+`TradingRunProfile` in `OpenTradingPlanSessionRequest`:
+
+| Profilo | `TitanoMode` | Lucchetti operativi | Note |
+|---|---|---|---|
+| `DalPiano` | dal piano | default | comportamento storico, default |
+| `BacktestSorgente` | `Disabled` | **off** | tutte le strategie del masterfilter, un intent per segnale |
+| `BacktestTitano` | `BacktestRotationFile` | attivi | errore esplicito senza `TitanoBacktestFolder` |
+
+Il profilo **prevale sul piano** — è il cBot a sapere che run sta aprendo — ed entra
+nella chiave di esecuzione: rilanciare lo stesso bot con un profilo diverso apre una
+sessione nuova invece di riprendere quella vecchia con i vincoli di prima. I profili
+`Backtest*` sono rifiutati in `Realtime`.
+
+Conseguenza sul client: con i lucchetti spenti il claim non ha più il tappo di un
+intent per account, quindi il cBot **deve drenare la coda** (`PollNextSignal` cicla
+finché il server risponde `Intent = null`). Fermarsi al primo intent significherebbe
+eseguire una strategia per barra.
+
+### 4.5 `ClaimableIntents`: quando il poll si può saltare
+
+`PushBarWindowResponse.ClaimableIntents` conta ciò che la sessione potrebbe consegnare
+a un claim — template `Pending` non scaduti, più gli intent già assegnati e ancora
+pendenti. **Zero significa che `GetNextSignalForAccount` non può restituire nulla per
+nessun account**, quindi il cBot salta il poll immediato dopo il push.
+
+Il costo che rimuove è reale: in backtest ogni barra e ogni stream valgono due chiamate
+HTTP sincrone, e dai log la grande maggioranza delle barre non produce alcun segnale.
+
+Due scelte da non invertire:
+
+- **Conta il server, non il client.** Solo il server sa dei template di barre precedenti
+  ancora vivi e degli intent assegnati in un giro anteriore. Dedurlo lato client da
+  `Intents` — i soli segnali di *quella* barra — salterebbe poll che avevano qualcosa.
+- **Il campo è nullable sul DTO del cBot.** Un server che non lo conosce lo omette, e su
+  un `int` varrebbe 0, cioè "non pollare mai": il bot smetterebbe di reclamare per tutto
+  il run, in silenzio. `null` vale "non so" e polla.
+
+Il conteggio è deliberatamente **più largo** del claim: non applica lucchetti, Titano né
+la conversione dell'account. Sbagliare per eccesso costa un poll a vuoto, per difetto
+costa un segnale.
+
+Regressioni in `RunProfileTests.cs`.
 
 **Come misurare l'effetto di Titano in isolamento**: eseguire i due backtest — quello
 `Disabled` e quello `BacktestRotationFile` — entrambi con `EnforceConcurrencyLimits`
@@ -294,6 +380,12 @@ diverso anche a parità di segnali.
 | Limite non applicato in backtest senza Titano | `OpenPlan_BacktestWithoutTitano_EvaluatesAllWorkspaceStrategies` |
 | Limite applicato in realtime senza Titano | `OpenPlan_RealtimeWithoutTitano_EnforcesMaxConcurrentTrades` |
 | Persistenza mappatura account/gruppo e profilo Titano | `SetTradingGroups_PersistsTitanoProfileAndAccountMapping`, `SetAccountGroups_PreservesExistingGroupTitanoProfiles` |
+| Il profilo prevale sul piano (§4.4) | `BacktestSorgente_SpegneTitanoEILucchettiDiConcorrenza`, `BacktestTitano_TieneLeRotazioniEIVincoliOperativi` |
+| Run sbagliato rifiutato all'apertura | `UnProfiloDiBacktest_InRealtimeVieneRifiutato`, `BacktestTitano_SenzaRotazioniVieneRifiutato` |
+| Il profilo entra nella chiave di esecuzione | `ProfiliDiversi_NonSiRiprendonoAVicenda` |
+| Drenaggio completo a lucchetti spenti (§4.3) | `BacktestSorgente_UnAccountReclamaTuttiISegnaliDellaBarra`, `ConILucchettiAttivi_LAccountNeOttieneUnoSolo` |
+| Il lucchetto 3 non si spegne mai | `BacktestSorgente_IlLucchettoDelGruppoRestaAttivo` |
+| Niente due ingressi della stessa strategia in volo (§4.3) | `BacktestSorgente_NonConsegnaDueIngressiDellaStessaStrategia` |
 
 Le lacune segnalate nella prima stesura sono state colmate in
 `MultiAccountDistributionTests.cs`:

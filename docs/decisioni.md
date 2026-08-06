@@ -1138,3 +1138,72 @@ in ordine cronologico. Non è un changelog di codice: quello resta nei commit.
   l'ha. Stesso trattamento all'ingresso scartato perché il simbolo ha già una posizione: annullato e
   riportato, non ignorato in silenzio — e comunque un segnale Unger vale la sua barra, non quella in
   cui il simbolo tornerà libero.
+- **2026-08-06** — **I template scaduti vengono rimossi dalla sessione, non solo filtrati al claim.**
+  `EntryTemplates` cresceva per tutta la durata del run — un template per segnale, mai rimosso — e
+  ogni claim li riscorreva tutti per scartare quelli fuori finestra. Non era un rischio di
+  esecuzione (il filtro di scadenza c'era e funzionava), ma costava tre cose: una lista che cresce
+  senza limite con un costo per poll proporzionale, una diagnostica che continuava a parlare di
+  template di barre vecchie invece di dire che per la barra corrente non c'era alcun segnale, e
+  soprattutto l'impossibilità di convincersi leggendo il codice che un segnale di una barra passata
+  non potesse più essere eseguito. Ora `PushBarWindow`/`PushBars`, all'arrivo di ogni barra,
+  eliminano i template con `ExpiresAtUtc` già passato e la traccia dei gruppi che li avevano
+  reclamati. Si rimuovono solo quelli con una scadenza dichiarata: senza `ExpiresAtUtc` non c'è una
+  finestra da far scadere, e su una sessione multi-timeframe un template del 60m deve sopravvivere
+  alle barre del 15m che gli passano accanto.
+  Corollario sulla diagnostica: i motivi del claim non contengono più l'orario della barra. Client e
+  server li deduplicano per stringa, quindi un valore che cambia a ogni barra mandava a vuoto la
+  deduplica e riempiva entrambi i log di righe identiche nella sostanza.
+- **2026-08-06** — **Il cBot dichiara il profilo del run, e i lucchetti di concorrenza lo seguono.**
+  `EnforceConcurrencyLimits` governava solo `MaxConcurrentTrades`: il passo 1 del claim (un intent
+  pendente per account) e i lucchetti (gruppo, strategia, simbolo) e (account, simbolo) restavano
+  incondizionati. Un backtest "sorgente" fatto col cBot distribuito produceva quindi **un trade alla
+  volta per simbolo e un intent per poll**, cioè un `trades.json` mutilato proprio nel run che deve
+  contenere tutti i segnali perché Titano ci calcoli sopra le rotazioni — e incomparabile col
+  backtest interno, che di lucchetti non ne ha. Su un run reale (piano a simbolo singolo, USTEC su
+  15m e 60m) l'effetto era una posizione aperta e cinque giorni di `l'account ha già un intent attivo
+  su quel simbolo`. Ora i lucchetti operativi seguono il flag; restano fuori `TemplateClaimedGroups`,
+  che non è un vincolo di concorrenza ma la memoria di cosa è già stato servito a un gruppo, e le
+  chiusure al passo 1, che vanno consegnate sempre.
+  Il flag però non è il modo giusto di scegliere: descriveva la stessa decisione di
+  `ApplyTitanoFilters` in un secondo posto, e per passare da un backtest all'altro si doveva editare
+  il piano. Il cBot dichiara invece `TradingRunProfile` — `DalPiano` (default, storico),
+  `BacktestSorgente` (Titano off, lucchetti off), `BacktestTitano` (rotazioni storiche, lucchetti
+  attivi) — che prevale sul piano, entra nella chiave di esecuzione perché due profili non si
+  riprendano a vicenda, ed è rifiutato in realtime. Conseguenza sul client: senza il tappo di un
+  intent per account il cBot deve **drenare** la coda dei segnali invece di fermarsi al primo.
+- **2026-08-06** — **L'orologio dei cBot è la serie di ogni stream, non il grafico.**
+  `PiootooDirectExecutionBot` usava `OnBar()`, quindi il grafico doveva essere al timeframe più fine
+  del piano e, su un piano misto (indice + forex), le barre del simbolo che stava scambiando non
+  venivano pubblicate finché quello del grafico era chiuso. Ora ogni `PlanStream` sottoscrive
+  `Series.BarOpened` e il grafico non è più l'orologio di niente: né come timeframe né come simbolo.
+  Cade con questo il vincolo sul timeframe del chart, e con lui la lettura di `TimeFrame` all'avvio
+  che fermava il bot su un grafico Renko o a tick.
+- **2026-08-06** — **Il pannello a chart mostra la configurazione risolta dal server, non i
+  parametri del cBot.** Piano, run mode, profilo, stato del filtro Titano, lucchetti e limite di
+  trade, ed elenco delle strategie con il loro timeframe, letti tutti dal descriptor di sessione. Un
+  bot che dichiara un piano e ne esegue un altro, o un parametro che il piano contraddice, sono
+  altrimenti invisibili finché non si leggono i trade. Il descriptor espone per questo `RunProfile`,
+  `EnforceConcurrencyLimits`, `MaxConcurrentTrades` e `Strategies`.
+- **2026-08-06** — **Il push dichiara se c'è qualcosa da reclamare, e il cBot salta il poll quando non
+  c'è.** In backtest ogni barra di ogni stream costava due chiamate HTTP sincrone — push e poll — e
+  dai log reali la grande maggioranza delle barre non produce alcun segnale: metà del traffico di un
+  run serviva a farsi dire "niente". `PushBarWindowResponse.ClaimableIntents` conta ora i template
+  `Pending` non scaduti più gli intent già assegnati e ancora pendenti; a zero,
+  `GetNextSignalForAccount` non può restituire nulla per nessun account e il poll immediato si salta.
+  Il conteggio lo fa il server perché solo lui sa dei template di barre precedenti ancora vivi:
+  dedurlo dagli `Intents` di quella barra salterebbe poll che avevano qualcosa. Sul DTO del cBot il
+  campo è `int?` di proposito — un server che non lo conosce lo omette, e su un `int` varrebbe 0,
+  cioè "non pollare mai", spegnendo il bot per tutto il run senza una riga di log. Il conteggio è
+  volutamente più largo del claim (niente lucchetti, Titano, conversione account): sbagliare per
+  eccesso costa un poll a vuoto, per difetto costa un segnale.
+- **2026-08-06** — **Break-even e trailing escono subito quando non c'è nulla da proteggere.**
+  Restano valutati a ogni tick — il prezzo può raggiungere e perdere la soglia dentro la stessa barra,
+  ed è il motivo per cui quel lavoro non sta sul bar-close — ma senza posizioni aperte i due metodi
+  ora tornano prima di scorrere `Positions` e di allocare. In un backtest tick-based i tick sono
+  ordini di grandezza più delle barre, e la stragrande maggioranza cade a portafoglio vuoto. Nel bot
+  distribuito il tick handler filtra anche per simbolo: il tick di EURUSD non può muovere lo stop di
+  una posizione su NQ.
+  Correlato: il pannello a chart del bot diretto si ridisegna solo quando cambia ciò che si legge
+  (profit e drawdown a due decimali). `UpdateChartDisplay` è chiamato a ogni tick, e da quando il
+  pannello include l'elenco delle strategie ricostruirne il testo ogni volta sarebbe stato più caro
+  del pannello stesso.

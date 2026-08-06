@@ -200,9 +200,43 @@ public sealed class TradingSessionDescriptor
     /// <summary>Contesto dichiarato dal client alla creazione. Vedi <see cref="Trading.ClientRunMode"/>.</summary>
     public ClientRunMode ClientRunMode { get; init; }
 
+    /// <summary>Profilo con cui il cBot ha aperto il run. Vedi <c>TradingRunProfile</c>.</summary>
+    public TradingRunProfile RunProfile { get; init; }
+
+    /// <summary>
+    /// Se i lucchetti di concorrenza sono attivi in questa sessione (<c>MaxConcurrentTrades</c>,
+    /// slot gruppo/strategia/simbolo, lucchetto account/simbolo). Falso nel backtest sorgente.
+    /// </summary>
+    public bool EnforceConcurrencyLimits { get; init; }
+
+    /// <summary>
+    /// <c>MaxConcurrentTrades</c> dell'account destinatario del descriptor. 0 = illimitato. Vale
+    /// solo se <see cref="EnforceConcurrencyLimits"/> è vero.
+    /// </summary>
+    public int MaxConcurrentTrades { get; init; }
+
     public PositionSizingConfig PositionSizing { get; init; } = new();
     public IReadOnlyList<InstrumentMetadata> InstrumentMetadata { get; init; } = [];
     public IReadOnlyList<TradingInstrument> Instruments { get; init; } = [];
+
+    /// <summary>
+    /// Le strategie che la sessione valuterà, con simbolo e timeframe. Serve al client per
+    /// mostrare a chart *cosa* sta girando: un cBot che dichiara un piano e ne esegue un altro è
+    /// indistinguibile da uno che funziona, finché non si leggono i trade.
+    /// </summary>
+    public IReadOnlyList<TradingSessionStrategyInfo> Strategies { get; init; } = [];
+}
+
+/// <summary>Identità operativa di una strategia in sessione: codice, simbolo, timeframe.</summary>
+public sealed class TradingSessionStrategyInfo
+{
+    /// <summary>
+    /// Il <c>Name</c>/<c>StrategyCode</c>, non l'<c>Id</c> della classe: è il codice che compare in
+    /// <c>signals.json</c>, <c>trades.json</c> e negli stati Titano. Vedi CLAUDE.md, «Id ≠ Name».
+    /// </summary>
+    public required string StrategyCode { get; init; }
+    public required string Symbol { get; init; }
+    public required int TimeframeMinutes { get; init; }
 }
 
 /// <summary>
@@ -362,6 +396,24 @@ public sealed class PushBarWindowResponse
     public int BackfilledBars { get; init; }
     public IReadOnlyList<OrderIntent> Intents { get; init; } = [];
     public IReadOnlyList<StreamHistoryStatus> Streams { get; init; } = [];
+
+    /// <summary>
+    /// Quante cose la sessione ha, in questo istante, che un claim potrebbe consegnare a qualcuno:
+    /// template di ingresso ancora <c>Pending</c> e non scaduti, più gli intent già assegnati e
+    /// ancora pendenti (ingressi non confermati e chiusure da eseguire).
+    ///
+    /// <para>Serve al client come guardia sul poll. Se vale <c>0</c>,
+    /// <c>GetNextSignalForAccount</c> non può restituire nulla <b>per nessun account</b>: il passo 1
+    /// non trova intent assegnati e la lista dei template è vuota. Il cBot può quindi saltare il
+    /// poll, che in backtest è una chiamata HTTP sincrona per barra e per stream — e dai log reali
+    /// la grande maggioranza delle barre non produce nessun segnale.</para>
+    ///
+    /// <para>È il server a contarlo, non il client: solo lui sa dei template di barre precedenti
+    /// ancora vivi e degli intent assegnati da un altro giro. Dedurlo lato client da
+    /// <see cref="Intents"/> — cioè dai soli segnali di <i>questa</i> barra — salterebbe un poll che
+    /// aveva qualcosa da consegnare.</para>
+    /// </summary>
+    public int ClaimableIntents { get; init; }
 }
 
 public sealed class OrderIntent
