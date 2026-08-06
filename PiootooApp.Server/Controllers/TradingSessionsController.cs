@@ -150,9 +150,14 @@ public sealed class TradingSessionsController : ControllerBase
         string accountNumber,
         [FromHeader(Name = "X-Session-Token")] string token,
         [FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] AccountSignalPollRequest? request)
-        => ExecuteResult<AccountSignalResponse>(() => Ok(request is null
-            ? _sessions.GetNextSignalForAccount(sessionId, token, accountNumber)
-            : _sessions.PollSignalForAccount(sessionId, accountNumber, request)));
+        => ExecuteResult<AccountSignalResponse>(() =>
+        {
+            var response = request is null
+                ? _sessions.GetNextSignalForAccount(sessionId, token, accountNumber)
+                : _sessions.PollSignalForAccount(sessionId, accountNumber, request);
+            LogClaim(sessionId, accountNumber, response);
+            return Ok(response);
+        });
 
     /// <summary>
     /// Registra un intent di chiusura (OrderIntentKind.Close) per una posizione che un cBot ExternalBroker ha
@@ -220,6 +225,49 @@ public sealed class TradingSessionsController : ControllerBase
                 string.IsNullOrWhiteSpace(intent.SizingReason) ? string.Empty : $" ({intent.SizingReason})");
         }
     }
+
+    /// <summary>
+    /// Esito del claim di un account. Il segnale consegnato si vede già in <see cref="LogIntents"/>
+    /// come template, ma fra "template generato" e "ordine sul broker" c'è tutto il secondo layer di
+    /// filtro (gruppi, slot, lucchetto per simbolo, conversione dell'account): è lì che un run può
+    /// restare muto pur avendo prodotto i segnali, ed è l'unico punto in cui il motivo è noto.
+    ///
+    /// <para>Il rifiuto è loggato una sola volta per motivo, non a ogni poll: il cBot chiama questo
+    /// endpoint a ogni barra e ogni pochi secondi, quindi ripeterlo sommergerebbe tutto il
+    /// resto.</para>
+    /// </summary>
+    private void LogClaim(string sessionId, string accountNumber, AccountSignalResponse response)
+    {
+        if (response.Intent is { } intent)
+        {
+            _log.LogInformation(
+                "[{SessionId}] claim {Account}: {Strategy} {Symbol} {Side} {OrderType} @ {Price} qty {Quantity}",
+                sessionId, accountNumber, intent.StrategyCode, intent.Symbol, intent.Side,
+                intent.OrderType, intent.Price.ToString("0.#####"), intent.FinalQuantity.ToString("0.####"));
+            LastClaimRefusal.TryRemove($"{sessionId}|{accountNumber}", out _);
+            return;
+        }
+
+        var detail = string.IsNullOrWhiteSpace(response.ReasonDetail) ? response.Reason : response.ReasonDetail;
+        if (string.IsNullOrWhiteSpace(detail))
+            return;
+
+        var key = $"{sessionId}|{accountNumber}";
+        if (LastClaimRefusal.TryGetValue(key, out var previous) && previous == detail)
+            return;
+
+        LastClaimRefusal[key] = detail;
+        _log.LogInformation("[{SessionId}] claim {Account}: nessun intent — {Detail}",
+            sessionId, accountNumber, detail);
+    }
+
+    /// <summary>
+    /// Ultimo rifiuto di claim già stampato, per (sessione, account). È statico perché il controller
+    /// è transiente: senza, la deduplica non sopravviverebbe alla singola richiesta. Contiene solo
+    /// stringhe diagnostiche e non influenza nessuna decisione.
+    /// </summary>
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, string>
+        LastClaimRefusal = new();
 
     /// <summary>
     /// Storia ancora insufficiente per valutare. È a livello Debug e non Information perché ricorre a

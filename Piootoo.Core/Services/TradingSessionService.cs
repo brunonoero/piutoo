@@ -1475,30 +1475,62 @@ public sealed class TradingSessionService : ITradingSessionService
             var now = session.LastEvaluatedBarTimeUtc ?? DateTime.UtcNow;
             var priorities = ComputeStrategyPriority(session, groupId);
             var conversion = ResolveAccountConversion(session, accountNumber);
-            var template = session.EntryTemplates
-                .Where(t => t.Status == OrderIntentStatus.Pending)
+
+            // I filtri sono applicati a stadi invece che in una sola catena LINQ per poter dire QUALE
+            // ha svuotato la lista. Un claim che non restituisce niente è indistinguibile, dal client,
+            // da "nessuna strategia ha prodotto un segnale": senza questa traccia ogni indagine
+            // ricomincia dal rileggere il codice del claim.
+            var stage = "nessun template pendente";
+            var candidates = session.EntryTemplates.Where(t => t.Status == OrderIntentStatus.Pending).ToList();
+
+            candidates = NarrowTemplates(candidates, ref stage,
                 // Un simbolo disabilitato sull'account non è operativo su quel conto: il template
                 // resta disponibile per gli altri account invece di essere consumato qui.
-                .Where(t => conversion.IsSymbolEnabled(t.Symbol))
-                .Where(t => !t.ExpiresAtUtc.HasValue || t.ExpiresAtUtc.Value >= now)
-                .Where(t => !(session.TemplateClaimedGroups.TryGetValue(t.IntentId, out var claimed)
-                              && claimed.Contains(groupId)))
-                .Where(t => !session.GroupStrategySlots.ContainsKey(SlotKey(groupId, t.StrategyCode, t.Symbol)))
-                .Where(t => !session.AccountActiveIntent.ContainsKey(ActiveIntentKey(accountNumber, t.Symbol)))
+                t => conversion.IsSymbolEnabled(t.Symbol),
+                "simbolo non abilitato sulla tabella di conversione dell'account");
+            candidates = NarrowTemplates(candidates, ref stage,
+                t => !t.ExpiresAtUtc.HasValue || t.ExpiresAtUtc.Value >= now,
+                $"template scaduti rispetto alla barra corrente ({now:O})");
+            candidates = NarrowTemplates(candidates, ref stage,
+                t => !(session.TemplateClaimedGroups.TryGetValue(t.IntentId, out var claimed)
+                       && claimed.Contains(groupId)),
+                $"già reclamati dal gruppo '{groupId}'");
+            candidates = NarrowTemplates(candidates, ref stage,
+                t => !session.GroupStrategySlots.ContainsKey(SlotKey(groupId, t.StrategyCode, t.Symbol)),
+                "slot (gruppo, strategia, simbolo) già occupato");
+            candidates = NarrowTemplates(candidates, ref stage,
+                t => !session.AccountActiveIntent.ContainsKey(ActiveIntentKey(accountNumber, t.Symbol)),
+                "l'account ha già un intent attivo su quel simbolo");
+            candidates = NarrowTemplates(candidates, ref stage,
                 // Il limite di fill per sessione è per account: un template già consumato da un
                 // account resta disponibile per gli altri.
-                .Where(t => !MaxEntriesPerSessionReached(session, t, accountNumber))
-                .Where(t => IsTemplateEligibleForGroup(session, groupId, t))
+                t => !MaxEntriesPerSessionReached(session, t, accountNumber),
+                "limite di ingressi per sessione raggiunto");
+            candidates = NarrowTemplates(candidates, ref stage,
+                t => IsTemplateEligibleForGroup(session, groupId, t),
+                "escluso dalla rotazione Titano del gruppo");
+
+            var template = candidates
                 .OrderByDescending(t => priorities.GetValueOrDefault(t.StrategyCode, 0m))
                 .ThenBy(t => t.CreatedAtUtc)
                 .FirstOrDefault();
 
             if (template is null)
-                return new AccountSignalResponse { Reason = "NoSignal" };
+                return new AccountSignalResponse { Reason = "NoSignal", ReasonDetail = stage };
 
             var claim = CloneForClaim(session, template, accountNumber, groupId);
             if (claim.FinalQuantity <= 0)
-                return new AccountSignalResponse { Reason = "NoSignal" };
+                return new AccountSignalResponse
+                {
+                    Reason = "NoSignal",
+                    // Il caso più insidioso: il template esiste ed è idoneo, ma la conversione
+                    // dell'account (BalanceScale, moltiplicatore contratto, arrotondamento del
+                    // broker) lo riduce a zero contratti. Dal client è identico a "nessun segnale".
+                    ReasonDetail =
+                        $"{template.StrategyCode} {template.Symbol}: quantità azzerata dalla conversione " +
+                        $"dell'account ({template.FinalQuantity:0.####} contratti Piootoo -> " +
+                        $"{claim.FinalQuantity:0.####}). {claim.SizingReason}"
+                };
             session.Intents.Add(claim);
             if (!session.TemplateClaimedGroups.TryGetValue(template.IntentId, out var claimedGroups))
                 session.TemplateClaimedGroups[template.IntentId] = claimedGroups = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -1516,6 +1548,26 @@ public sealed class TradingSessionService : ITradingSessionService
     /// <c>CreateTradingSessionRequest.EnforceConcurrencyLimits</c> e
     /// <c>docs/domini/distribuzione-multi-account.md</c> §4.
     /// </summary>
+    /// <summary>
+    /// Applica un filtro ai template e, se è lui a svuotare la lista, registra in
+    /// <paramref name="stage"/> il motivo. Restituisce la lista precedente quando il filtro non
+    /// lascia nulla, così i filtri successivi non lavorano su una lista vuota e il motivo
+    /// riportato resta il PRIMO che ha davvero escluso tutto.
+    /// </summary>
+    private static List<OrderIntent> NarrowTemplates(
+        List<OrderIntent> candidates, ref string stage, Func<OrderIntent, bool> predicate, string reason)
+    {
+        if (candidates.Count == 0)
+            return candidates;
+
+        var filtered = candidates.Where(predicate).ToList();
+        if (filtered.Count != 0)
+            return filtered;
+
+        stage = $"{reason} ({candidates.Count} template scartati)";
+        return filtered;
+    }
+
     private static bool IsConcurrentTradeLimitActive(Session session)
         => session.EnforceConcurrencyLimits;
 

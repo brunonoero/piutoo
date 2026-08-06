@@ -266,6 +266,10 @@ namespace cAlgo.Robots
         // Invii falliti di fila, azzerato dal primo che riesce. Vedi MaxConsecutivePushFailures.
         private int _consecutivePushFailures;
 
+        // Ultimo motivo per cui il claim non ha restituito un intent: stampato una volta sola finché
+        // non cambia, altrimenti riempirebbe il log a ogni poll.
+        private string _lastPollReason;
+
         // Massimo utile per contratto osservato dopo ProfitStallAfterUtc, per posizione.
         private readonly Dictionary<int, decimal> _peakProfitAfterStall = new();
 
@@ -1107,8 +1111,25 @@ namespace cAlgo.Robots
                 var payload = JsonSerializer.Deserialize<AccountSignalResponseDto>(body, _json);
                 if (payload?.Intent is null)
                 {
-                    if (VerboseLogging && payload?.Reason != null) Print("Nessuna azione: {0}", payload.Reason);
+                    // Il motivo si stampa sempre, non solo con il log dettagliato, ma una volta sola
+                    // finché non cambia: il poll gira a ogni barra e ogni pochi secondi. Un bot che
+                    // tace mentre il server genera segnali è il modo più efficace di perdere un run
+                    // intero senza accorgersene.
+                    var reason = string.IsNullOrWhiteSpace(payload?.ReasonDetail)
+                        ? payload?.Reason
+                        : payload.ReasonDetail;
+                    if (!string.IsNullOrWhiteSpace(reason) && _lastPollReason != reason)
+                    {
+                        _lastPollReason = reason;
+                        Print("Nessun intent per l'account: {0}", reason);
+                    }
                     return;
+                }
+
+                if (_lastPollReason != null)
+                {
+                    _lastPollReason = null;
+                    Print("Intent ricevuti di nuovo dal server.");
                 }
 
                 var intent = payload.Intent;
@@ -1168,7 +1189,13 @@ namespace cAlgo.Robots
                 return;
             }
 
-            if (MaxEntrySlippagePips > 0 && intent.Price > 0)
+            // Solo per gli ordini a mercato. Uno Stop o un Limit sta per definizione LONTANO dal
+            // prezzo corrente — è il livello a cui si vuole entrare, non quello a cui si è — quindi
+            // misurarne la distanza come slippage scarta esattamente gli ordini che i motori Unger
+            // emettono sempre: un breakout di Donchian a 40 punti dal prezzo verrebbe rifiutato ogni
+            // volta. Lo slippage di un pending lo governa il broker al fill, non il bot al
+            // piazzamento.
+            if (intent.OrderType == TradeOrderTypeDto.Market && MaxEntrySlippagePips > 0 && intent.Price > 0)
             {
                 var currentPrice = intent.Side == SignalTypeDto.Buy ? symbol.Ask : symbol.Bid;
                 var distancePips = Math.Abs(currentPrice - (double)intent.Price) / symbol.PipSize;
@@ -1861,6 +1888,9 @@ namespace cAlgo.Robots
         {
             public OrderIntentDto Intent { get; set; }
             public string Reason { get; set; }
+
+            /// <summary>Quale filtro del claim ha scartato i template, in chiaro.</summary>
+            public string ReasonDetail { get; set; }
             public int OpenPositions { get; set; }
             public int PendingOrders { get; set; }
             public int MaxConcurrentTrades { get; set; }

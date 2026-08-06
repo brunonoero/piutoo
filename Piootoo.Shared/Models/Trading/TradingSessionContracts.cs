@@ -597,6 +597,17 @@ public sealed class AccountSignalResponse
     /// occupati dall'account) o "SessionNotRunning" (la sessione non è in esecuzione).
     /// </summary>
     public string? Reason { get; init; }
+
+    /// <summary>
+    /// Perché, esattamente, non c'è un intent: quale filtro ha scartato i template e quanti ne
+    /// restavano a quel punto. <see cref="Reason"/> resta il codice stabile su cui fare match,
+    /// questo è la spiegazione per un umano.
+    ///
+    /// <para>Esiste perché "NoSignal" copre situazioni molto diverse — nessun template, simbolo
+    /// disabilitato sul conto, slot di gruppo occupato, quantità azzerata dalla conversione
+    /// dell'account — che dal lato client sono lo stesso identico silenzio.</para>
+    /// </summary>
+    public string? ReasonDetail { get; init; }
     public int OpenPositions { get; init; }
     public int PendingOrders { get; init; }
     public int MaxConcurrentTrades { get; init; }

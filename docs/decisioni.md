@@ -1108,3 +1108,21 @@ in ordine cronologico. Non è un changelog di codice: quello resta nei commit.
   `docs/domini/orologio-barre-e-fill.md`. Regressioni in
   `MultiAccountDistributionTests.TemplateWithExpiry_OnHistoricalBars_IsStillClaimable` e
   `TemplateExpiredBeforeTheCurrentBar_IsNotClaimable`.
+- **2026-08-06** — **Il claim dice perché non consegna niente.** `AccountSignalResponse` porta
+  `ReasonDetail` accanto a `Reason` (che resta il codice stabile, "NoSignal"/"SessionNotRunning",
+  su cui i test fanno match): i filtri di `GetNextSignalForAccount` sono applicati a stadi invece che
+  in un'unica catena LINQ, così si sa **quale** ha svuotato la lista e quanti template ha scartato —
+  simbolo non abilitato sulla tabella di conversione, template scaduti rispetto alla barra corrente,
+  già reclamati dal gruppo, slot occupato, account già impegnato su quel simbolo, limite di ingressi,
+  esclusione Titano. Caso a parte e il più insidioso: template idoneo ma con quantità azzerata dalla
+  conversione dell'account (BalanceScale × moltiplicatore contratto, poi arrotondamento del broker),
+  che dal client è identico a "nessun segnale". Il server logga l'esito del claim una volta per
+  motivo, il cBot stampa il motivo senza bisogno di `VerboseLogging`. Fra "template generato" e
+  "ordine sul broker" c'è tutto il secondo layer di filtro: è lì che un run resta muto pur avendo
+  prodotto i segnali, ed era l'unico tratto senza diagnostica.
+- **2026-08-06** — **Il controllo di slippage del cBot vale solo per gli ordini a mercato.** Uno Stop
+  o un Limit sta per definizione lontano dal prezzo corrente — è il livello a cui si vuole entrare,
+  non quello a cui si è — quindi misurarne la distanza come slippage scartava sistematicamente gli
+  ordini che i motori Unger emettono sempre: con `MaxEntrySlippagePips` a 5, un breakout di Donchian
+  a decine di punti dal prezzo veniva rifiutato a ogni barra. Lo slippage di un pending lo governa il
+  broker al fill, non il bot al piazzamento.
