@@ -541,6 +541,22 @@ public sealed class ExternalExecutionReport
     public decimal? FillPrice { get; init; }
     public decimal Commission { get; init; }
     public required DateTime EventTimeUtc { get; init; }
+
+    /// <summary>
+    /// Spread dello strumento sul broker nell'istante del fill, in unità di prezzo. Null se il
+    /// client non lo dichiara.
+    ///
+    /// <para>Non serve alla contabilità — il P&amp;L viene dai prezzi di apertura e chiusura — ma è
+    /// l'unico modo per misurare quanto costa davvero eseguire su questo strumento. Su un CFD long
+    /// si entra sull'<b>Ask</b> e lo stop è valutato sul <b>Bid</b>: la perdita in denaro quando lo
+    /// stop salta resta quella dichiarata, ma il Bid deve scendere solo di
+    /// <c>(distanza stop − spread)</c> per farlo saltare. Il rapporto <c>spread / distanza stop</c>
+    /// è quindi quanto margine operativo lo strumento si mangia, e cambia per strategia: su uno stop
+    /// da 12,5 punti uno spread di 2 vale il 16%, su uno da 50 punti il 4%.</para>
+    ///
+    /// <para>Senza questo campo quel rapporto non è misurabile da nessuna parte del sistema.</para>
+    /// </summary>
+    public decimal? SpreadAtFill { get; init; }
 }
 
 public sealed class ExecutionReportRequest

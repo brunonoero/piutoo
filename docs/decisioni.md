@@ -1207,3 +1207,21 @@ in ordine cronologico. Non è un changelog di codice: quello resta nei commit.
   (profit e drawdown a due decimali). `UpdateChartDisplay` è chiamato a ogni tick, e da quando il
   pannello include l'elenco delle strategie ricostruirne il testo ogni volta sarebbe stato più caro
   del pannello stesso.
+- **2026-08-06** — **Lo spread al fill viene misurato e registrato.** Su un CFD long si entra
+  sull'**Ask** e lo stop è valutato sul **Bid**: la perdita in denaro quando lo stop salta resta
+  quella dichiarata dalla strategia, ma il Bid deve scendere solo di `(distanza stop − spread)` per
+  farlo saltare. Stessa perdita per stop, più stop. Il costo non è quindi nel singolo trade — sui
+  fill osservati lo slippage d'ingresso è sotto il punto, il 6% di una perdita — ma nel margine
+  operativo che lo strumento si prende, e il numero che lo misura è **spread / distanza stop**: su
+  `PTS_NQ_PCH_002_15` (stop 12,5 punti) uno spread di 2 vale il 16%, su `PTS_NQ_TFM_001_60`
+  (stop 50) il 4%. Non era misurabile da nessuna parte del sistema: `ExternalExecutionReport` porta
+  ora `SpreadAtFill`, il cBot lo legge al fill (non dopo: fra due minuti vale un altro numero), lo
+  stampa per fill e ne fa un riepilogo per strategia a `OnStop`, e il controller lo logga sui soli
+  report `Filled`. Non influenza nessuna decisione: serve a scegliere quali strategie ha senso far
+  girare su quale strumento, perché uno stop stretto su uno spread largo non è un difetto del
+  sistema ma una coppia strategia/strumento sbagliata.
+  Corollario di analisi: gli ordini "doppi" allo stesso millisecondo e allo stesso prezzo nei log di
+  cTrader **non sono doppioni**. Sono `PTS_NQ_PCH_001_15` e `PTS_NQ_PCH_002_15`, entrambe Donchian-100
+  long-only su NQ 15m, che a gate passati producono lo stesso livello di canale. Il codice strategia
+  è nella riga di cancellazione dell'ordine ed è l'unico modo per distinguerli: codici diversi =
+  due strategie, codice uguale = doppione vero.

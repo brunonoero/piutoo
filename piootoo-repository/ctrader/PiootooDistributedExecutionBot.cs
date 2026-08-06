@@ -191,6 +191,14 @@ namespace cAlgo.Robots
         private IReadOnlyList<SessionStrategyDto> _strategies = new List<SessionStrategyDto>();
 
         /// <summary>
+        /// Spread misurati ai fill, per strategia. Non influenza nessuna decisione: serve al
+        /// riepilogo di fine run, che e' il numero con cui si decide se una strategia ha senso su
+        /// questo strumento.
+        /// </summary>
+        private readonly Dictionary<string, SpreadStats> _spreadByStrategy =
+            new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>
         /// Quanto il server ha dichiarato di avere da consegnare nell'ultimo push. Null = non
         /// dichiarato, quindi si polla. Zero = si puo' saltare il poll.
         /// </summary>
@@ -1027,6 +1035,8 @@ namespace cAlgo.Robots
             if (_skippedPolls > 0)
                 Print("Poll saltati perche' il server non aveva nulla da consegnare: {0}.", _skippedPolls);
 
+            PrintSpreadSummary();
+
             foreach (var pair in _pairs)
                 if (pair.Series != null && pair.BarHandler != null)
                     pair.Series.BarOpened -= pair.BarHandler;
@@ -1587,8 +1597,85 @@ namespace cAlgo.Robots
             _lastOpenIntentByLabel.Remove(position.Label); // l'intent ha prodotto la sua posizione: esaurito
             SaveLocalState();
 
+            // Lo spread va letto ADESSO: e' il costo di esecuzione di QUESTO ingresso, e fra due
+            // minuti vale un altro numero. Non serve alla contabilita' — il P&L viene dai prezzi —
+            // ma senza non e' misurabile quanto lo strumento si mangia del margine operativo.
+            var spread = MeasureSpreadAtFill(position, intent);
+
             ReportExecution(intent.IntentId, intent.Symbol, ExecutionReportStatusDto.Filled,
-                (decimal)position.VolumeInUnits, (decimal)position.EntryPrice, position.Id.ToString());
+                (decimal)position.VolumeInUnits, (decimal)position.EntryPrice, position.Id.ToString(),
+                spreadAtFill: spread);
+        }
+
+        /// <summary>
+        /// Spread dello strumento nell'istante del fill, e il suo peso sullo stop della strategia.
+        ///
+        /// <para>Su un CFD long si entra sull'<b>Ask</b> e lo stop e' valutato sul <b>Bid</b>: la
+        /// perdita in denaro quando lo stop salta resta quella dichiarata, ma il Bid deve scendere
+        /// solo di <c>(distanza stop − spread)</c> per farlo saltare. Il rapporto
+        /// <c>spread / distanza stop</c> e' quindi quanto respiro lo strumento si prende, e cambia per
+        /// strategia: su uno stop da 12,5 punti uno spread di 2 vale il 16%, su uno da 50 il 4%.</para>
+        ///
+        /// <para>Si stampa a ogni fill e si accumula per il riepilogo di <c>OnStop</c>: un singolo
+        /// spread non dice niente, la media per strategia su decine di fill si'.</para>
+        /// </summary>
+        private decimal? MeasureSpreadAtFill(Position position, OrderIntentDto intent)
+        {
+            var symbol = Symbols.GetSymbol(position.SymbolName);
+            if (symbol == null)
+                return null;
+
+            var spread = (decimal)symbol.Spread;
+            if (spread <= 0)
+                return null;
+
+            var stop = intent.StopLoss ?? 0m;
+            if (!_spreadByStrategy.TryGetValue(intent.StrategyCode, out var stats))
+                _spreadByStrategy[intent.StrategyCode] = stats = new SpreadStats { StopDistance = stop };
+            stats.Fills++;
+            stats.SpreadTotal += spread;
+
+            if (stop > 0)
+                Print("Fill {0} {1}: spread {2:0.##} punti su stop {3:0.##} = {4:0.#}% del respiro.",
+                    intent.StrategyCode, position.SymbolName, spread, stop, spread / stop * 100m);
+            else
+                Print("Fill {0} {1}: spread {2:0.##} punti (la strategia non dichiara uno stop).",
+                    intent.StrategyCode, position.SymbolName, spread);
+
+            return spread;
+        }
+
+        /// <summary>Spread misurati ai fill, per strategia. Serve solo al riepilogo diagnostico.</summary>
+        private sealed class SpreadStats
+        {
+            public int Fills;
+            public decimal SpreadTotal;
+            public decimal StopDistance;
+            public decimal Average => Fills > 0 ? SpreadTotal / Fills : 0m;
+        }
+
+        /// <summary>
+        /// Riepilogo dei costi di esecuzione a fine run. E' il numero che serve per decidere se una
+        /// strategia ha senso su questo strumento: uno stop stretto su uno spread largo non e' un
+        /// difetto del sistema, e' una coppia strategia/strumento sbagliata.
+        /// </summary>
+        private void PrintSpreadSummary()
+        {
+            if (_spreadByStrategy.Count == 0)
+                return;
+
+            Print("--- Costo di esecuzione misurato ai fill ---");
+            foreach (var entry in _spreadByStrategy.OrderBy(x => x.Key, StringComparer.Ordinal))
+            {
+                var stats = entry.Value;
+                if (stats.StopDistance > 0)
+                    Print("  {0}: {1} fill, spread medio {2:0.###} punti, stop {3:0.##} -> {4:0.#}% del respiro.",
+                        entry.Key, stats.Fills, stats.Average, stats.StopDistance,
+                        stats.Average / stats.StopDistance * 100m);
+                else
+                    Print("  {0}: {1} fill, spread medio {2:0.###} punti.",
+                        entry.Key, stats.Fills, stats.Average);
+            }
         }
 
         private void HandleCloseIntent(OrderIntentDto intent)
@@ -1679,7 +1766,8 @@ namespace cAlgo.Robots
 
         private void ReportExecution(
             string intentId, string symbol, ExecutionReportStatusDto status, decimal filledQuantity,
-            decimal? fillPrice, string externalOrderId = null, decimal commission = 0)
+            decimal? fillPrice, string externalOrderId = null, decimal commission = 0,
+            decimal? spreadAtFill = null)
         {
             try
             {
@@ -1695,7 +1783,8 @@ namespace cAlgo.Robots
                         CumulativeFilledQuantity = filledQuantity,
                         FillPrice = fillPrice,
                         Commission = commission,
-                        EventTimeUtc = Server.TimeInUtc
+                        EventTimeUtc = Server.TimeInUtc,
+                        SpreadAtFill = spreadAtFill
                     }
                 };
                 var response = PostJson($"api/v1/trading-sessions/{_sessionId}/execution-reports", request);
@@ -2242,6 +2331,9 @@ namespace cAlgo.Robots
             public decimal? FillPrice { get; set; }
             public decimal Commission { get; set; }
             public DateTime EventTimeUtc { get; set; }
+
+            /// <summary>Spread dello strumento nell'istante del fill, in unita' di prezzo.</summary>
+            public decimal? SpreadAtFill { get; set; }
         }
 
         private sealed class ExecutionReportRequestDto

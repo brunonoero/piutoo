@@ -107,7 +107,31 @@ public sealed class TradingSessionsController : ControllerBase
 
     [HttpPost("{sessionId}/execution-reports")]
     public ActionResult<TradingSessionSnapshot> Report(string sessionId, ExecutionReportRequest request)
-        => ExecuteResult<TradingSessionSnapshot>(() => Ok(_sessions.ApplyReport(sessionId, request)));
+        => ExecuteResult<TradingSessionSnapshot>(() =>
+        {
+            var snapshot = _sessions.ApplyReport(sessionId, request);
+            LogFillCost(sessionId, request.Report);
+            return Ok(snapshot);
+        });
+
+    /// <summary>
+    /// Costo di esecuzione di un fill: prezzo e spread dichiarati dal client. È l'unica traccia
+    /// lato server di quanto costa davvero eseguire su quello strumento — il cBot lo stampa nel
+    /// proprio log, ma quel log vive quanto il backtest e non finisce da nessuna parte.
+    ///
+    /// <para>Solo sui fill: un report di rifiuto o annullamento non ha un prezzo di esecuzione, e
+    /// stamparlo riempirebbe il log delle stesse righe che la deduplica del claim toglie.</para>
+    /// </summary>
+    private void LogFillCost(string sessionId, ExternalExecutionReport report)
+    {
+        if (report.Status != ExecutionReportStatus.Filled || report.SpreadAtFill is not { } spread)
+            return;
+
+        _log.LogInformation(
+            "[{SessionId}] fill {IntentId} @ {Price} spread {Spread}",
+            sessionId, report.IntentId,
+            report.FillPrice?.ToString("0.#####") ?? "-", spread.ToString("0.###"));
+    }
 
     /// <summary>Configura (sostituendola) la mappa account -> gruppo usata per l'anti copy-trading.</summary>
     [HttpPut("{sessionId}/account-groups")]
