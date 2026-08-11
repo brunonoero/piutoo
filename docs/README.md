@@ -57,8 +57,9 @@ solution. Stato: **stabile** = contenuto verificato contro il codice,
   corta a regime, perché la sovrapposizione impedisce i buchi e come si
   diagnostica una sessione che non produce segnali. *Stabile.*
 - [`domini/distribuzione-multi-account.md`](domini/distribuzione-multi-account.md)
-  — secondo layer di filtro dopo Titano: gruppi, slot, max trade concorrenti,
-  con matrice di esempi verificati. *Stabile.*
+  — secondo layer di filtro dopo Titano: gruppi, slot, budget di concorrenza per
+  account (trasversale ai simboli) e le due modalità di conteggio, con matrice di
+  esempi verificati. *Stabile.*
 - [`domini/trading-plans.md`](domini/trading-plans.md) — configurazioni operative
   riutilizzabili e apertura idempotente delle sessioni dal cBot. *Stabile.*
 - [`domini/cbot-realtime-backtest-titano.md`](domini/cbot-realtime-backtest-titano.md)

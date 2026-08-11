@@ -14,11 +14,10 @@ namespace Piootoo.Strategies.Tests;
 /// <c>EnforceConcurrencyLimits</c> nella sessione.
 ///
 /// <para>Il comportamento che questi test bloccano è quello che rendeva incomparabili il backtest
-/// del cBot distribuito e il backtest interno: i lucchetti di distribuzione — passo 1 (un solo
-/// intent pendente per account), slot gruppo/strategia/simbolo, lucchetto account/simbolo — sono
-/// vincoli OPERATIVI, e il campione sorgente su cui Titano calcola le rotazioni non deve averli.
-/// Prima seguivano solo <c>MaxConcurrentTrades</c>, quindi restavano attivi anche nel run sorgente e
-/// ne mutilavano i segnali in silenzio.</para>
+/// del cBot distribuito e il backtest interno: i vincoli di distribuzione — budget di concorrenza
+/// per account e slot gruppo/strategia/simbolo — sono vincoli OPERATIVI, e il campione sorgente su
+/// cui Titano calcola le rotazioni non deve averli. Prima seguivano solo <c>MaxConcurrentTrades</c>,
+/// quindi restavano attivi anche nel run sorgente e ne mutilavano i segnali in silenzio.</para>
 ///
 /// <para>Il lucchetto che NON deve mai spegnersi è <c>TemplateClaimedGroups</c>: non limita quanto
 /// si opera in parallelo, dice che un template è già stato servito a quel gruppo. Senza, il cBot che
@@ -122,9 +121,9 @@ public sealed class RunProfileTests : IDisposable
     [Fact]
     public void BacktestSorgente_UnAccountReclamaTuttiISegnaliDellaBarra()
     {
-        // Tutte le strategie sono sullo stesso simbolo e timeframe: con i lucchetti attivi
-        // l'account ne otterrebbe UNO solo e resterebbe fermo fino alla chiusura della posizione
-        // (lucchetto account/simbolo, che al fill non si libera). È il caso 5a del documento.
+        // Tutte le strategie sono sullo stesso simbolo e timeframe: con i lucchetti attivi e
+        // maxConcurrent = 1 l'account ne otterrebbe UNO solo, perché il budget conta anche il claim
+        // non ancora piazzato. A lucchetti spenti li drena tutti.
         var f = New(applyTitanoFilters: false, maxConcurrent: 1);
         var descriptor = f.Open(TradingRunProfile.BacktestSorgente);
         f.PushBar(descriptor);
@@ -186,7 +185,8 @@ public sealed class RunProfileTests : IDisposable
         var first = f.Poll(descriptor);
         Assert.NotNull(first.Intent);
 
-        // Il passo 1 ripropone lo stesso intent invece di consegnarne un secondo.
+        // Budget esaurito (max = 1, un claim in volo): il passo 2 ripropone lo stesso intent
+        // invece di consegnarne un secondo.
         var second = f.Poll(descriptor);
         Assert.Equal(first.Intent!.IntentId, second.Intent?.IntentId);
     }

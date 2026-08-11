@@ -204,8 +204,8 @@ public sealed class TradingSessionDescriptor
     public TradingRunProfile RunProfile { get; init; }
 
     /// <summary>
-    /// Se i lucchetti di concorrenza sono attivi in questa sessione (<c>MaxConcurrentTrades</c>,
-    /// slot gruppo/strategia/simbolo, lucchetto account/simbolo). Falso nel backtest sorgente.
+    /// Se i lucchetti di concorrenza sono attivi in questa sessione (<c>MaxConcurrentTrades</c> e
+    /// slot gruppo/strategia/simbolo). Falso nel backtest sorgente.
     /// </summary>
     public bool EnforceConcurrencyLimits { get; init; }
 
@@ -214,6 +214,13 @@ public sealed class TradingSessionDescriptor
     /// solo se <see cref="EnforceConcurrencyLimits"/> è vero.
     /// </summary>
     public int MaxConcurrentTrades { get; init; }
+
+    /// <summary>
+    /// Cosa conta <see cref="MaxConcurrentTrades"/>. Il client lo legge per sapere se deve
+    /// cancellare gli ordini pendenti rimasti quando i fill raggiungono il tetto
+    /// (<see cref="Trading.ConcurrencyCountMode.PositionsOnly"/>).
+    /// </summary>
+    public ConcurrencyCountMode ConcurrencyCountMode { get; init; }
 
     public PositionSizingConfig PositionSizing { get; init; } = new();
     public IReadOnlyList<InstrumentMetadata> InstrumentMetadata { get; init; } = [];
@@ -620,10 +627,20 @@ public sealed class TradingGroupRow
     public required string AccountNumber { get; init; }
 
     /// <summary>
-    /// Massimo numero di posizioni contemporanee per questo account. Zero significa illimitato.
-    /// Ignorato nel backtest senza Titano.
+    /// Massimo numero di ingressi contemporanei per questo account, <b>sull'insieme delle
+    /// strategie e trasversale ai simboli</b>: dieci significa dieci, che siano su un simbolo solo
+    /// o su dieci diversi. Zero significa illimitato. Ignorato nel backtest senza Titano.
+    ///
+    /// <para>Cosa venga contato — solo posizioni, oppure posizioni più ordini pendenti — lo dice
+    /// <see cref="ConcurrencyCountMode"/>.</para>
     /// </summary>
     public int MaxConcurrentTrades { get; init; }
+
+    /// <summary>
+    /// Cosa conta <see cref="MaxConcurrentTrades"/> per questo account. Vedi
+    /// <see cref="Trading.ConcurrencyCountMode"/>.
+    /// </summary>
+    public ConcurrencyCountMode ConcurrencyCountMode { get; init; }
 
     /// <summary>Riferimento al setup salvato (rotation-setups); metadata per il client, non usato a runtime.</summary>
     public string? RotationSetupId { get; init; }
@@ -679,6 +696,17 @@ public sealed class AccountSignalResponse
     public int OpenPositions { get; init; }
     public int PendingOrders { get; init; }
     public int MaxConcurrentTrades { get; init; }
+
+    /// <summary>
+    /// Il numero effettivamente confrontato con <see cref="MaxConcurrentTrades"/>: gli ingressi in
+    /// volo dell'account, deduplicati per IntentId.
+    ///
+    /// <para>Non è la somma di <see cref="OpenPositions"/> e <see cref="PendingOrders"/>, e la
+    /// differenza è il punto: un intent reclamato conta una volta sola, che sia ancora solo un
+    /// claim, già un ordine sul broker, o entrambe le cose secondo chi guarda. Sommare i due
+    /// conteggi grezzi contava due volte ogni ordine piazzato.</para>
+    /// </summary>
+    public int InFlight { get; init; }
 }
 
 /// <summary>Posizione Piootoo attualmente presente sulla piattaforma del broker.</summary>

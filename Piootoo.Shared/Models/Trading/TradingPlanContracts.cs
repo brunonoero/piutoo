@@ -34,6 +34,12 @@ public sealed class TradingPlan
     /// </summary>
     public bool? EnforceConcurrencyLimits { get; init; }
 
+    /// <summary>
+    /// Cosa conta <c>MaxConcurrentTrades</c>. Mirror legacy della prima riga, come gli altri campi
+    /// singoli: la fonte autorevole è <see cref="TradingGroupRow.ConcurrencyCountMode"/>.
+    /// </summary>
+    public ConcurrencyCountMode ConcurrencyCountMode { get; init; }
+
     // Nessun InitialCapital sul piano (docs/decisioni.md 2026-08-05): le sessioni aperte da un piano
     // sono sempre ExternalBroker, dove l'equity non è del server e ogni account porta il proprio
     // InitialBalance — che diventa BalanceScale ed è ciò che dimensiona davvero. Il capitale iniziale
@@ -72,8 +78,43 @@ public sealed class SaveTradingPlanRequest
     /// </summary>
     public bool? EnforceConcurrencyLimits { get; init; }
 
+    /// <summary>Cosa conta <c>MaxConcurrentTrades</c>. Vedi <see cref="TradingPlan.ConcurrencyCountMode"/>.</summary>
+    public ConcurrencyCountMode ConcurrencyCountMode { get; init; }
+
     public decimal CommissionPerContract { get; init; } = 2m;
     public PositionSizingConfig PositionSizing { get; init; } = new();
+}
+
+/// <summary>
+/// Cosa conta <c>MaxConcurrentTrades</c>. È un parametro del piano perché la risposta giusta
+/// dipende dal tipo di motore: chi entra a mercato non ha ordini in attesa da contare, chi entra
+/// in breakout ne ha uno per strategia per tutta la barra.
+///
+/// <para>Il limite è comunque <b>per account e trasversale ai simboli</b>: non esiste più un
+/// vincolo che leghi un account a un solo ingresso per simbolo. Resta invece sempre attiva la
+/// guardia di identità (stessa strategia, stesso simbolo), che non è concorrenza ma doppione.
+/// Vedi <c>docs/domini/distribuzione-multi-account.md</c> §2.</para>
+/// </summary>
+public enum ConcurrencyCountMode
+{
+    /// <summary>
+    /// Posizioni riempite <b>più</b> ordini pendenti presso il broker. È il default e il
+    /// comportamento storico: tetto rigido, nessuno sfondamento possibile, ma un ordine stop mai
+    /// riempito occupa uno slot per tutta la barra in cui vive.
+    /// </summary>
+    PositionsAndPendingOrders = 0,
+
+    /// <summary>
+    /// Solo posizioni riempite. Gli ordini pendenti non consumano budget, quindi tutti gli intent
+    /// della barra arrivano a mercato: su motori breakout è ciò che evita di perdere l'unico
+    /// livello che sarebbe stato toccato, perché a priori non si sa quale sarà.
+    ///
+    /// <para>Il prezzo da pagare è che il tetto è garantito solo <i>a valle del fill</i>: quando i
+    /// fill lo raggiungono il client cancella gli ordini rimasti (comportamento OCO), e in quella
+    /// finestra due stop possono riempirsi insieme. Da valutare quando le regole del conto —
+    /// FTMO e simili — puniscono l'esposizione istantanea.</para>
+    /// </summary>
+    PositionsOnly = 1
 }
 
 /// <summary>

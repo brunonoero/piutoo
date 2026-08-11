@@ -188,6 +188,14 @@ namespace cAlgo.Robots
         private string _serverRunMode;
         private bool _enforceConcurrency = true;
         private int _maxConcurrentTrades;
+
+        /// <summary>
+        /// Il piano conta solo le posizioni riempite: gli ordini pendenti non consumano budget lato
+        /// server, quindi al raggiungimento del tetto tocca a questo bot spegnere quelli rimasti.
+        /// E' l'unica parte del limite di concorrenza che vive sul client, e vive qui perche' e'
+        /// l'unico posto che sa, nell'istante del fill, cosa c'e' ancora a mercato.
+        /// </summary>
+        private bool _cancelPendingAtCap;
         private IReadOnlyList<SessionStrategyDto> _strategies = new List<SessionStrategyDto>();
 
         /// <summary>
@@ -211,6 +219,10 @@ namespace cAlgo.Robots
         // Stato di connessione mostrato a chart: riflette l'esito dell'ultima chiamata HTTP al
         // server Piootoo (open-plan, push barre, polling segnale), non solo l'apertura iniziale.
         private bool _isConnectedToServer;
+
+        /// <summary>Ultimo testo disegnato nel riquadro, per non ridisegnarlo identico a ogni barra.</summary>
+        private string _lastStatusText;
+
         private readonly JsonSerializerOptions _json = new(JsonSerializerDefaults.Web)
         {
             PropertyNameCaseInsensitive = true,
@@ -244,6 +256,22 @@ namespace cAlgo.Robots
             /// barra e la quantità di storia da caricare dal broker prima di partire.
             /// </summary>
             public int RequiredCandles;
+
+            /// <summary>
+            /// Candele che il SERVER dichiara di avere su questo stream, dall'ultima risposta a
+            /// <c>bars/window</c>. È l'unico numero che conta per sapere se le strategie vengono
+            /// valutate: la serie del broker può essere lunga e la finestra arrivare comunque corta
+            /// (push fallito, finestra rifiutata perché non sovrapposta). Null finché il server non
+            /// ha ancora risposto: in quel caso sul pannello si ripiega sul conteggio locale.
+            /// </summary>
+            public int? ServerHistoryBars;
+
+            /// <summary>
+            /// Candele che il server dichiara di richiedere su questo stream. Normalmente coincide con
+            /// <see cref="RequiredCandles"/>; se diverge vince questo, perché è quello su cui il server
+            /// sta davvero decidendo se saltare la valutazione.
+            /// </summary>
+            public int? ServerRequiredCandles;
 
             /// <summary>Handler di <c>Series.BarOpened</c>, conservato per potersi disiscrivere in OnStop.</summary>
             public Action<BarOpenedEventArgs> BarHandler;
@@ -394,6 +422,8 @@ namespace cAlgo.Robots
             _serverRunMode = descriptor?.ClientRunMode;
             _enforceConcurrency = descriptor?.EnforceConcurrencyLimits ?? true;
             _maxConcurrentTrades = descriptor?.MaxConcurrentTrades ?? 0;
+            _cancelPendingAtCap = string.Equals(
+                descriptor?.ConcurrencyCountMode, "PositionsOnly", StringComparison.OrdinalIgnoreCase);
             _strategies = descriptor?.Strategies ?? new List<SessionStrategyDto>();
             Print("Sessione aperta: SessionId={0} profilo={1} Titano={2} concorrenza={3} maxTrade={4}.",
                 _sessionId, _runProfile ?? "-", _titanoMode ?? "-",
@@ -482,9 +512,28 @@ namespace cAlgo.Robots
         private void UpdateConnectionStatus(bool connected)
         {
             _isConnectedToServer = connected;
-            Chart.DrawStaticText(StatusChartObjectName, BuildStatusText(connected),
+            RedrawStatusPanel();
+        }
+
+        /// <summary>
+        /// Ridisegna il pannello con lo stato corrente. Separato da
+        /// <see cref="UpdateConnectionStatus"/> perché la copertura della storia cambia a ogni barra
+        /// senza che la connessione cambi, e il pannello deve seguirla.
+        ///
+        /// <para>Il testo viene confrontato con l'ultimo disegnato e si ridisegna solo se è cambiato:
+        /// a regime il riquadro è identico barra dopo barra, e in backtest sarebbero decine di
+        /// migliaia di <c>DrawStaticText</c> inutili.</para>
+        /// </summary>
+        private void RedrawStatusPanel()
+        {
+            var text = BuildStatusText(_isConnectedToServer);
+            if (text == _lastStatusText)
+                return;
+
+            _lastStatusText = text;
+            Chart.DrawStaticText(StatusChartObjectName, text,
                 VerticalAlignment.Top, HorizontalAlignment.Right,
-                connected ? Color.LightGreen : Color.OrangeRed);
+                _isConnectedToServer ? Color.LightGreen : Color.OrangeRed);
         }
 
         /// <summary>
@@ -519,8 +568,43 @@ namespace cAlgo.Robots
 
             builder.AppendLine("Strategie (" + _strategies.Count + "):");
             foreach (var strategy in _strategies)
-                builder.AppendLine("  " + strategy.StrategyCode + "  " + strategy.Symbol + "/" + strategy.TimeframeMinutes + "m");
+                builder.AppendLine("  " + strategy.StrategyCode + "  " + strategy.Symbol + "/" +
+                                   strategy.TimeframeMinutes + "m  " +
+                                   DescribeHistoryCoverage(FindPair(strategy.Symbol, strategy.TimeframeMinutes)));
             return builder.ToString().TrimEnd();
+        }
+
+        /// <summary>
+        /// "caricate/richieste" per lo stream di una strategia: dice se la finestra è già completa,
+        /// cioè se quella strategia sta davvero venendo valutata oppure se il server la sta saltando
+        /// in silenzio in attesa di storia. È la domanda che altrimenti si risponde solo scavando nel
+        /// log, e nel frattempo il run sembra semplicemente "senza segnali".
+        ///
+        /// <para>Il numero preferito è quello del SERVER (<c>HistoryBars</c> dell'ultima risposta):
+        /// è lui a decidere se valutare. Finché non ha risposto si mostra il conteggio locale della
+        /// serie del broker, prefissato da <c>~</c> per non farlo scambiare per una conferma.</para>
+        /// </summary>
+        private static string DescribeHistoryCoverage(Pair pair)
+        {
+            if (pair is null)
+                return "(stream non configurato)";
+
+            // Il richiesto del server vince: se diverge da quello letto nel descriptor, è il suo che
+            // sta decidendo i salti.
+            var required = pair.ServerRequiredCandles ?? pair.RequiredCandles;
+            if (required <= 0)
+                return string.Empty;
+
+            if (pair.ServerHistoryBars is null)
+            {
+                var local = pair.Series?.Count ?? 0;
+                return "~" + local + "/" + required + (local >= required ? " (non confermate)" : " IN ATTESA");
+            }
+
+            var loaded = pair.ServerHistoryBars.Value;
+            return loaded >= required
+                ? loaded + "/" + required + " ok"
+                : loaded + "/" + required + " MANCANO " + (required - loaded);
         }
 
         private static string Or(string value) => string.IsNullOrWhiteSpace(value) ? "-" : value;
@@ -546,9 +630,12 @@ namespace cAlgo.Robots
         {
             if (!_enforceConcurrency)
                 return "OFF (tutti i segnali)";
-            return _maxConcurrentTrades > 0
-                ? "ON, max " + _maxConcurrentTrades + " trade"
-                : "ON, trade illimitati";
+            if (_maxConcurrentTrades <= 0)
+                return "ON, trade illimitati";
+            // Cosa venga contato cambia cosa si vede a mercato, quindi si stampa: con lo stesso
+            // numero, "posizioni" lascia vivere tutti gli stop pendenti e "pos+ordini" no.
+            return "ON, max " + _maxConcurrentTrades +
+                   (_cancelPendingAtCap ? " posizioni" : " fra posizioni e ordini");
         }
 
         /// <summary>
@@ -1241,6 +1328,13 @@ namespace cAlgo.Robots
             if (status is null)
                 return;
 
+            // Copertura della storia sul chart: si aggiorna a ogni risposta, non solo quando il server
+            // dichiara di aver saltato qualcosa, altrimenti la riga resterebbe ferma sull'ultimo
+            // valore "cattivo" anche dopo che la finestra si è completata.
+            pair.ServerHistoryBars = status.HistoryBars;
+            pair.ServerRequiredCandles = status.RequiredCandles;
+            RedrawStatusPanel();
+
             var key = MakeStreamKey(pair.PiootooSymbol, pair.TimeframeMinutes);
             if (status.SkippedForInsufficientHistory > 0)
             {
@@ -1441,21 +1535,42 @@ namespace cAlgo.Robots
             // Piootoo: la tabella di conversione del conto traduce l'uno nell'altro.
             var brokerSymbolName = ResolveIntentSymbol(intent);
 
-            // Autolimitazione lato client PER SIMBOLO (oltre a quella già garantita dal server): se il bot
-            // ha già una posizione aperta su QUESTO simbolo, non ne apre una seconda; può però tradare in
-            // parallelo altri simboli configurati.
-            var alreadyOpenOnSymbol = Positions.Any(p =>
+            // Autolimitazione lato client per (STRATEGIA, SIMBOLO), non per simbolo soltanto: due
+            // strategie diverse sullo stesso strumento sono due motivi di ingresso indipendenti e
+            // devono poter stare a mercato insieme. Quante ne stiano lo governa MaxConcurrentTrades
+            // sul server, che conta sull'insieme delle strategie e non per simbolo. Un secondo
+            // ordine della STESSA strategia sullo stesso simbolo resta invece bloccato: non e'
+            // concorrenza, e' rischio doppio sullo stesso motivo di ingresso.
+            //
+            // Fino al 11/08/2026 il controllo era per simbolo, e su una sessione a simbolo singolo
+            // rendeva inapplicabile qualunque valore di MaxConcurrentTrades: la seconda strategia
+            // non arrivava mai a mercato.
+            var alreadyOpenOnStrategy = Positions.Any(p =>
                 p.SymbolName.Equals(brokerSymbolName, StringComparison.OrdinalIgnoreCase) &&
                 p.Label != null &&
-                p.Label.StartsWith(LabelPrefix, StringComparison.Ordinal));
-            if (alreadyOpenOnSymbol)
+                p.Label.StartsWith(MakeStrategyLabelPrefix(intent.StrategyCode), StringComparison.Ordinal));
+            if (alreadyOpenOnStrategy)
             {
                 // Annullato, non ignorato: un intent lasciato Pending sul server resta assegnato a
                 // questo account, viene riproposto a ogni poll e tiene chiusi i lucchetti finché il
                 // run non finisce. E comunque non andrebbe eseguito più tardi: il segnale di un
-                // motore Unger vale la sua barra, non quella in cui il simbolo tornerà libero.
-                Print("Ingresso {0}/{1} annullato: posizione già aperta su questo simbolo.",
+                // motore Unger vale la sua barra, non quella in cui la strategia tornerà libera.
+                Print("Ingresso {0}/{1} annullato: posizione già aperta per questa strategia.",
                     intent.Symbol, intent.StrategyCode);
+                ReportExecution(intent.IntentId, intent.Symbol, ExecutionReportStatusDto.Cancelled, 0, null);
+                return;
+            }
+
+            // Tetto locale sulle posizioni riempite. Il server ha gia' applicato il proprio budget
+            // al claim, ma in modalita' PositionsOnly quel budget non contava gli ordini pendenti:
+            // fra il claim e adesso un altro stop puo' essersi riempito, e questo ingresso
+            // sfonderebbe il tetto. E' l'ultima barriera, e sta qui perche' qui si conosce lo stato
+            // del broker nell'istante esatto in cui si sta per mandare l'ordine.
+            if (_enforceConcurrency && _maxConcurrentTrades > 0 &&
+                CountPiootooPositions() >= _maxConcurrentTrades)
+            {
+                Print("Ingresso {0}/{1} annullato: raggiunto il massimo di {2} posizioni contemporanee.",
+                    intent.Symbol, intent.StrategyCode, _maxConcurrentTrades);
                 ReportExecution(intent.IntentId, intent.Symbol, ExecutionReportStatusDto.Cancelled, 0, null);
                 return;
             }
@@ -1605,7 +1720,55 @@ namespace cAlgo.Robots
             ReportExecution(intent.IntentId, intent.Symbol, ExecutionReportStatusDto.Filled,
                 (decimal)position.VolumeInUnits, (decimal)position.EntryPrice, position.Id.ToString(),
                 spreadAtFill: spread);
+
+            CancelPendingOrdersAtCap();
         }
+
+        /// <summary>
+        /// Una posizione si e' appena aperta: se il piano conta solo le posizioni riempite e il
+        /// tetto e' stato raggiunto, spegne gli ordini pendenti rimasti.
+        ///
+        /// <para>E' la meta' client del limite di concorrenza, ed e' l'unica che poteva stare qui.
+        /// In modalita' <c>PositionsOnly</c> il server distribuisce tutti gli intent della barra
+        /// senza contare gli ordini a mercato — di proposito: su un motore breakout non si sa
+        /// quale livello verra' toccato, e bloccarne uno per "occupazione di slot" significa
+        /// perdere il solo che sarebbe partito. Il tetto viene quindi fatto valere a valle, nel
+        /// momento in cui si scopre quale ordine e' entrato davvero: il primo fill spegne gli
+        /// altri, come un OCO.</para>
+        ///
+        /// <para>Il disaccoppiamento regge perche' il bot non riceve mai un comando: legge dal
+        /// descriptor un parametro di configurazione, decide da solo guardando la propria
+        /// piattaforma, e comunica al server solo il fatto compiuto — un <c>Cancelled</c> sullo
+        /// stesso canale degli ordini scaduti, che libera gli slot senza che il server debba sapere
+        /// perche'. Il server continua a decidere <i>cosa</i>, il broker <i>se e a che prezzo</i>.</para>
+        /// </summary>
+        private void CancelPendingOrdersAtCap()
+        {
+            if (!_cancelPendingAtCap || !_enforceConcurrency || _maxConcurrentTrades <= 0)
+                return;
+            if (CountPiootooPositions() < _maxConcurrentTrades)
+                return;
+
+            var stale = PendingOrders
+                .Where(o => o.Label != null && o.Label.StartsWith(LabelPrefix, StringComparison.Ordinal))
+                .ToList();
+            if (stale.Count == 0)
+                return;
+
+            Print("Raggiunto il massimo di {0} posizioni contemporanee: cancello {1} ordini pendenti.",
+                _maxConcurrentTrades, stale.Count);
+            foreach (var order in stale)
+            {
+                // La scadenza a una barra non serve piu' a un ordine che non esiste: senza questa
+                // potatura CancelExpiredPendingOrders ritenterebbe di cancellarlo a ogni barra.
+                _pendingOrderBar.Remove(order.Label);
+                CancelAndReport(order, "tetto di posizioni contemporanee raggiunto");
+            }
+        }
+
+        /// <summary>Posizioni aperte da questo bot, su tutti i simboli e tutte le strategie.</summary>
+        private int CountPiootooPositions() =>
+            Positions.Count(p => p.Label != null && p.Label.StartsWith(LabelPrefix, StringComparison.Ordinal));
 
         /// <summary>
         /// Spread dello strumento nell'istante del fill, e il suo peso sullo stop della strategia.
@@ -2183,6 +2346,16 @@ namespace cAlgo.Robots
             public string ClientRunMode { get; set; }
             public bool EnforceConcurrencyLimits { get; set; }
             public int MaxConcurrentTrades { get; set; }
+
+            /// <summary>
+            /// Cosa conta MaxConcurrentTrades: "PositionsAndPendingOrders" (default) oppure
+            /// "PositionsOnly". Nel secondo caso gli ordini pendenti non consumano budget lato
+            /// server, e tocca a questo bot spegnere quelli rimasti quando le posizioni riempite
+            /// raggiungono il tetto. E' configurazione consegnata all'apertura: il server non
+            /// chiedera' mai di cancellare un ordine specifico.
+            /// </summary>
+            public string ConcurrencyCountMode { get; set; }
+
             public IReadOnlyList<SessionStrategyDto> Strategies { get; set; }
         }
 

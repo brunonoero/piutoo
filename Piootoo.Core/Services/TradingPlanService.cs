@@ -82,6 +82,7 @@ public sealed class TradingPlanService
                 GroupId = primary.GroupId,
                 AccountNumber = primary.AccountNumber,
                 MaxConcurrentTrades = primary.MaxConcurrentTrades,
+                ConcurrencyCountMode = primary.ConcurrencyCountMode,
                 RotationSetupId = primary.RotationSetupId,
                 TitanoBacktestFolder = primary.TitanoBacktestFolder,
                 ApplyTitanoFilters = primary.ApplyTitanoFilters,
@@ -192,6 +193,7 @@ public sealed class TradingPlanService
                 GroupId = request.GroupId.Trim(),
                 AccountNumber = request.AccountNumber.Trim(),
                 MaxConcurrentTrades = request.MaxConcurrentTrades,
+                ConcurrencyCountMode = request.ConcurrencyCountMode,
                 RotationSetupId = TrimOrNull(request.RotationSetupId),
                 TitanoBacktestFolder = TrimOrNull(request.TitanoBacktestFolder),
                 ApplyTitanoFilters = request.ApplyTitanoFilters
@@ -212,6 +214,7 @@ public sealed class TradingPlanService
                         GroupId = plan.GroupId.Trim(),
                         AccountNumber = plan.AccountNumber.Trim(),
                         MaxConcurrentTrades = plan.MaxConcurrentTrades,
+                        ConcurrencyCountMode = plan.ConcurrencyCountMode,
                         RotationSetupId = TrimOrNull(plan.RotationSetupId),
                         TitanoBacktestFolder = TrimOrNull(plan.TitanoBacktestFolder),
                         ApplyTitanoFilters = plan.ApplyTitanoFilters
@@ -231,6 +234,7 @@ public sealed class TradingPlanService
             GroupId = primary.GroupId,
             AccountNumber = primary.AccountNumber,
             MaxConcurrentTrades = primary.MaxConcurrentTrades,
+            ConcurrencyCountMode = primary.ConcurrencyCountMode,
             RotationSetupId = primary.RotationSetupId,
             TitanoBacktestFolder = primary.TitanoBacktestFolder,
             ApplyTitanoFilters = primary.ApplyTitanoFilters,
@@ -254,6 +258,7 @@ public sealed class TradingPlanService
         GroupId = row.GroupId.Trim(),
         AccountNumber = row.AccountNumber.Trim(),
         MaxConcurrentTrades = row.MaxConcurrentTrades,
+        ConcurrencyCountMode = row.ConcurrencyCountMode,
         RotationSetupId = TrimOrNull(row.RotationSetupId),
         TitanoBacktestFolder = TrimOrNull(row.TitanoBacktestFolder),
         ApplyTitanoFilters = row.ApplyTitanoFilters

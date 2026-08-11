@@ -218,6 +218,13 @@ public sealed class TradingSessionService : ITradingSessionService
             new(StringComparer.OrdinalIgnoreCase);
 
         /// <summary>
+        /// Cosa conta <c>MaxConcurrentTrades</c> per ogni account: parametro del piano, non
+        /// convenzione del server. Assente = <c>PositionsAndPendingOrders</c>, il default storico.
+        /// </summary>
+        public Dictionary<string, ConcurrencyCountMode> AccountConcurrencyCountMode { get; } =
+            new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>
         /// Tabella di conversione per AccountNumber, risolta al primo poll dell'account: il
         /// registro account sta su disco e il poll è per barra e per conto.
         /// </summary>
@@ -238,8 +245,10 @@ public sealed class TradingSessionService : ITradingSessionService
         public Dictionary<string, (string AccountNumber, string IntentId)> GroupStrategySlots { get; } =
             new(StringComparer.OrdinalIgnoreCase);
 
-        /// <summary>Account -> IntentId dell'assegnazione attiva (ingresso in corso o posizione aperta). Autolimitazione lato server.</summary>
-        public Dictionary<string, string> AccountActiveIntent { get; } = new(StringComparer.OrdinalIgnoreCase);
+        // Non esiste più un lucchetto (account, simbolo). Il tetto di concorrenza è per account e
+        // trasversale ai simboli — vedi AccountMaxConcurrentTrades e CountInFlightForAccount —
+        // mentre l'unicità (strategia, simbolo) è garantita da AccountHasEntryInFlight, che è una
+        // guardia di identità e non un vincolo di concorrenza.
 
         /// <summary>Posizione "canonica" (Symbol|StrategyCode) usata per alimentare la valutazione strategie in modalità multi-account,
         /// indipendente da quale account specifico la detiene realmente.</summary>
@@ -1137,10 +1146,10 @@ public sealed class TradingSessionService : ITradingSessionService
                 intent.Status is OrderIntentStatus.Rejected or OrderIntentStatus.Cancelled &&
                 intent.AssignedAccountNumber is { } rejectedAccount)
             {
-                // Ingresso mai eseguito (rifiutato/annullato dal broker): libera subito lo slot di gruppo
-                // e l'autolimitazione dell'account SU QUESTO SIMBOLO, altrimenti resterebbero bloccati per
-                // sempre (l'account può comunque avere posizioni aperte in parallelo su altri simboli).
-                session.AccountActiveIntent.Remove(ActiveIntentKey(rejectedAccount, intent.Symbol));
+                // Ingresso mai eseguito (rifiutato/annullato dal broker): libera subito lo slot di
+                // gruppo, altrimenti resterebbe bloccato per sempre. Il budget di concorrenza
+                // dell'account non ha niente da liberare: si ricalcola a ogni poll dagli intent
+                // ancora Pending, e questo ha appena smesso di esserlo.
                 if (session.AccountGroups.TryGetValue(rejectedAccount, out var freedGroupId))
                     session.GroupStrategySlots.Remove(SlotKey(freedGroupId, intent.StrategyCode, intent.Symbol));
             }
@@ -1196,10 +1205,9 @@ public sealed class TradingSessionService : ITradingSessionService
 
                     if (accountNumber != null)
                     {
-                        // Libera lo slot di gruppo e l'autolimitazione dell'account SU QUESTO SIMBOLO:
-                        // torna disponibile per un nuovo ingresso su questo simbolo (le posizioni aperte
-                        // su altri simboli dallo stesso account non sono influenzate).
-                        session.AccountActiveIntent.Remove(ActiveIntentKey(accountNumber, intent.Symbol));
+                        // Libera lo slot di gruppo: la coppia (strategia, simbolo) torna disponibile
+                        // per un nuovo ingresso. Il budget di concorrenza dell'account si libera da
+                        // sé, perché la posizione appena chiusa non sarà più nello snapshot broker.
                         if (session.AccountGroups.TryGetValue(accountNumber, out var groupId))
                             session.GroupStrategySlots.Remove(SlotKey(groupId, intent.StrategyCode, intent.Symbol));
 
@@ -1342,6 +1350,7 @@ public sealed class TradingSessionService : ITradingSessionService
 
             session.AccountGroups.Clear();
             session.AccountMaxConcurrentTrades.Clear();
+            session.AccountConcurrencyCountMode.Clear();
             session.AccountConversions.Clear();
             foreach (var mapping in accounts)
                 session.AccountGroups[mapping.AccountNumber.Trim()] = mapping.GroupId.Trim();
@@ -1369,6 +1378,7 @@ public sealed class TradingSessionService : ITradingSessionService
 
             session.AccountGroups.Clear();
             session.AccountMaxConcurrentTrades.Clear();
+            session.AccountConcurrencyCountMode.Clear();
             session.AccountConversions.Clear();
             session.GroupProfiles.Clear();
             foreach (var group in rows.GroupBy(r => r.GroupId.Trim(), StringComparer.OrdinalIgnoreCase))
@@ -1388,6 +1398,7 @@ public sealed class TradingSessionService : ITradingSessionService
                 {
                     session.AccountGroups[row.AccountNumber.Trim()] = group.Key;
                     session.AccountMaxConcurrentTrades[row.AccountNumber.Trim()] = row.MaxConcurrentTrades;
+                    session.AccountConcurrencyCountMode[row.AccountNumber.Trim()] = row.ConcurrencyCountMode;
                 }
             }
             Persist(session);
@@ -1442,6 +1453,7 @@ public sealed class TradingSessionService : ITradingSessionService
                     GroupId = kv.Value,
                     AccountNumber = kv.Key,
                     MaxConcurrentTrades = session.AccountMaxConcurrentTrades.GetValueOrDefault(kv.Key),
+                    ConcurrencyCountMode = session.AccountConcurrencyCountMode.GetValueOrDefault(kv.Key),
                     RotationSetupId = profile?.RotationSetupId,
                     TitanoBacktestFolder = profile?.TitanoBacktestFolder,
                     ApplyTitanoFilters = profile?.ApplyTitanoFilters ?? true
@@ -1452,27 +1464,20 @@ public sealed class TradingSessionService : ITradingSessionService
             .ToArray();
 
     public AccountSignalResponse GetNextSignalForAccount(string sessionId, string token, string accountNumber)
-        => GetNextSignalForAccount(
-            sessionId, token, accountNumber, brokerOpenPositions: null, brokerPendingOrders: null);
+        => GetNextSignalForAccount(sessionId, token, accountNumber, brokerState: null);
 
     public AccountSignalResponse PollSignalForAccount(
         string sessionId, string accountNumber, AccountSignalPollRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
-        return GetNextSignalForAccount(
-            sessionId,
-            request.SessionToken,
-            accountNumber,
-            request.Positions?.Count ?? 0,
-            request.Orders?.Count ?? 0);
+        return GetNextSignalForAccount(sessionId, request.SessionToken, accountNumber, request);
     }
 
     private AccountSignalResponse GetNextSignalForAccount(
         string sessionId,
         string token,
         string accountNumber,
-        int? brokerOpenPositions,
-        int? brokerPendingOrders)
+        AccountSignalPollRequest? brokerState)
     {
         if (string.IsNullOrWhiteSpace(accountNumber))
             throw new ArgumentException("AccountNumber obbligatorio.");
@@ -1487,41 +1492,57 @@ public sealed class TradingSessionService : ITradingSessionService
                 throw new ArgumentException(
                     $"Account '{accountNumber}' non configurato per questa sessione. Aggiungilo nel tab Trading Session.");
 
-            // 1) C'è già un intent concreto pendente assegnato a questo account (ingresso appena reclamato
-            //    non ancora confermato, oppure una chiusura da eseguire)? Il poll è idempotente: lo ripropone.
-            //
-            //    Le CHIUSURE si ripropongono sempre, qualunque sia il profilo: sono ordini da eseguire,
-            //    non segnali da distribuire, e perderne una lascia aperta una posizione che nessuno
-            //    chiuderà più. Gli INGRESSI invece fermano il poll solo quando i lucchetti sono attivi:
-            //    nel backtest sorgente l'account deve poter drenare tutti i template della barra, e
-            //    riproporgli quello appena consegnato bloccherebbe il drenaggio al primo giro.
+            // 1) Le CHIUSURE assegnate a questo account si ripropongono sempre, e prima di tutto:
+            //    sono ordini da eseguire, non segnali da distribuire, e perderne una lascia aperta
+            //    una posizione che nessuno chiuderà più. Non consumano budget e non ne aspettano.
             var pendingForAccount = session.Intents
                 .Where(i => string.Equals(i.AssignedAccountNumber, accountNumber, StringComparison.OrdinalIgnoreCase)
                             && i.Status == OrderIntentStatus.Pending)
-                .OrderBy(i => i.CreatedAtUtc);
-            var assigned = IsConcurrentTradeLimitActive(session)
-                ? pendingForAccount.FirstOrDefault()
-                : pendingForAccount.FirstOrDefault(i => i.Kind == OrderIntentKind.Close);
-            if (assigned != null)
-                return new AccountSignalResponse { Intent = assigned };
+                .OrderBy(i => i.CreatedAtUtc)
+                .ToList();
 
-            var openPositions = brokerOpenPositions ?? CountServerPositionsForAccount(session, accountNumber);
-            var pendingOrders = brokerPendingOrders ?? 0;
+            var pendingClose = pendingForAccount.FirstOrDefault(i => i.Kind == OrderIntentKind.Close);
+            if (pendingClose != null)
+                return new AccountSignalResponse { Intent = pendingClose };
+
+            // 2) Budget di concorrenza dell'account. Conta gli ingressi in volo SULL'INSIEME delle
+            //    strategie e trasversalmente ai simboli: dieci vuol dire dieci, che stiano su un
+            //    simbolo solo o su dieci diversi. Cosa sia "in volo" lo decide il piano con
+            //    ConcurrencyCountMode, e il conteggio è deduplicato per IntentId — un ordine già
+            //    piazzato è insieme un intent Pending sul server e un pending order sul broker, e
+            //    sommare i due conteggi grezzi lo contava due volte.
+            //
+            //    Fino al 11/08/2026 qui c'era anche un lucchetto (account, simbolo) che, su una
+            //    sessione a simbolo singolo, rendeva MaxConcurrentTrades inapplicabile: il tetto
+            //    effettivo era 1 qualunque valore si impostasse, e la seconda strategia sullo
+            //    stesso simbolo non arrivava mai a mercato. Vedi docs/decisioni.md.
+            var countMode = session.AccountConcurrencyCountMode.GetValueOrDefault(accountNumber);
+            var inFlight = CountInFlightForAccount(
+                session, accountNumber, brokerState, countMode, out var openPositions, out var pendingOrders);
             var maxConcurrentTrades = session.AccountMaxConcurrentTrades.GetValueOrDefault(accountNumber);
             if (IsConcurrentTradeLimitActive(session) &&
                 maxConcurrentTrades > 0 &&
-                openPositions + pendingOrders >= maxConcurrentTrades)
+                inFlight >= maxConcurrentTrades)
+            {
+                // Tetto pieno. Se l'account ha un ingresso ancora Pending glielo riproponiamo: è
+                // l'unico modo di recuperare un claim la cui risposta si è persa in rete, e il
+                // client lo riconosce come già inviato e smette di drenare. Senza budget residuo
+                // non ci sarebbe comunque niente di nuovo da consegnargli.
+                var stalledEntry = pendingForAccount.FirstOrDefault(i => i.Kind == OrderIntentKind.Entry);
+                if (stalledEntry != null)
+                    return new AccountSignalResponse { Intent = stalledEntry };
+
                 return new AccountSignalResponse
                 {
                     Reason = "MaxConcurrentTradesExceeded",
                     OpenPositions = openPositions,
                     PendingOrders = pendingOrders,
+                    InFlight = inFlight,
                     MaxConcurrentTrades = maxConcurrentTrades
                 };
+            }
 
-            // 2) Autolimitazione lato server: un segnale alla volta PER SIMBOLO (l'account può gestire in
-            //    parallelo posizioni su simboli diversi, mai due ingressi sullo stesso simbolo insieme).
-            //    Scartiamo quindi solo i template dei simboli su cui l'account è già occupato.
+            // 3) Selezione del template.
             //
             // "Adesso" è l'ultima barra valutata, non l'ora di sistema: in un replay storico le due
             // cose distano mesi, e con DateTime.UtcNow ogni template con ExpiresAtUtc (cioè ogni
@@ -1583,23 +1604,21 @@ public sealed class TradingSessionService : ITradingSessionService
                 t => !AccountHasEntryInFlight(session, accountNumber, t.StrategyCode, t.Symbol),
                 "l'account ha già un ingresso in corso per quella strategia su quel simbolo");
 
-            // Lucchetti 4 e 5: sono vincoli di CONCORRENZA, non di distribuzione, quindi seguono
-            // EnforceConcurrencyLimits insieme a MaxConcurrentTrades. Spenti, ogni segnale della
+            // Lucchetto 4: è un vincolo di CONCORRENZA, non di distribuzione, quindi segue
+            // EnforceConcurrencyLimits insieme a MaxConcurrentTrades. Spento, ogni segnale della
             // barra diventa un intent e il campione sorgente è completo.
             //
             // Il lucchetto 3 (TemplateClaimedGroups, sopra) resta invece SEMPRE attivo: non limita
             // quanto si opera in parallelo, dice che un template è già stato servito a quel gruppo.
             // Spegnerlo non produrrebbe più segnali, produrrebbe lo stesso segnale all'infinito, e
             // il drenaggio del cBot non terminerebbe mai.
+            //
+            // Il lucchetto 5 (account, simbolo) non esiste più: quanto un account opera in
+            // parallelo lo dice MaxConcurrentTrades e basta, sull'insieme delle strategie.
             if (IsConcurrentTradeLimitActive(session))
-            {
                 candidates = NarrowTemplates(candidates, ref stage,
                     t => !session.GroupStrategySlots.ContainsKey(SlotKey(groupId, t.StrategyCode, t.Symbol)),
                     "slot (gruppo, strategia, simbolo) già occupato");
-                candidates = NarrowTemplates(candidates, ref stage,
-                    t => !session.AccountActiveIntent.ContainsKey(ActiveIntentKey(accountNumber, t.Symbol)),
-                    "l'account ha già un intent attivo su quel simbolo");
-            }
             candidates = NarrowTemplates(candidates, ref stage,
                 // Il limite di fill per sessione è per account: un template già consumato da un
                 // account resta disponibile per gli altri.
@@ -1635,15 +1654,12 @@ public sealed class TradingSessionService : ITradingSessionService
                 session.TemplateClaimedGroups[template.IntentId] = claimedGroups = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             claimedGroups.Add(groupId);
 
-            // I lucchetti di concorrenza si scrivono solo se qualcuno li leggerà. Con
-            // EnforceConcurrencyLimits spento sarebbero due dizionari che crescono per tutta la
-            // durata del run senza mai essere consultati, e che mostrerebbero nelle diagnostiche
-            // occupazioni di slot che nessun filtro sta applicando.
+            // Lo slot di gruppo si scrive solo se qualcuno lo leggerà. Con EnforceConcurrencyLimits
+            // spento sarebbe un dizionario che cresce per tutta la durata del run senza mai essere
+            // consultato, e che mostrerebbe nelle diagnostiche occupazioni che nessun filtro sta
+            // applicando.
             if (IsConcurrentTradeLimitActive(session))
-            {
                 session.GroupStrategySlots[SlotKey(groupId, claim.StrategyCode, claim.Symbol)] = (accountNumber, claim.IntentId);
-                session.AccountActiveIntent[ActiveIntentKey(accountNumber, claim.Symbol)] = claim.IntentId;
-            }
             Persist(session);
             return new AccountSignalResponse { Intent = claim };
         }
@@ -1722,6 +1738,79 @@ public sealed class TradingSessionService : ITradingSessionService
     private static int CountServerPositionsForAccount(Session session, string accountNumber)
         => session.ExternalPositions.Keys.Count(key =>
             key.StartsWith($"{accountNumber}|", StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// Quanti ingressi ha in volo l'account, sull'insieme delle strategie e trasversalmente ai
+    /// simboli. È il numero che si confronta con <c>MaxConcurrentTrades</c>.
+    ///
+    /// <para><b>Deduplicato per IntentId</b>, ed è il punto delicato: un ordine stop già piazzato
+    /// esiste contemporaneamente come intent <c>Pending</c> sul server e come pending order nello
+    /// snapshot del broker. Sommare i due conteggi grezzi — come faceva il codice precedente —
+    /// contava due volte ogni ordine a mercato e dimezzava di fatto il tetto configurato.</para>
+    ///
+    /// <para>I claim consegnati e non ancora comparsi sul broker entrano nel conto: senza di loro
+    /// un drenaggio veloce reclamerebbe tutti i template della barra prima che il broker registri
+    /// il primo ordine, e il tetto verrebbe sfondato dal ritardo di propagazione invece che da una
+    /// decisione.</para>
+    ///
+    /// <para>In <see cref="ConcurrencyCountMode.PositionsOnly"/> il conto sono le sole posizioni
+    /// riempite: ordini pendenti e claim non ancora piazzati non consumano budget, perché in quel
+    /// modello un ordine stop non è esposizione ma un'opzione, e spegnerne uno significa perdere
+    /// il breakout che forse era l'unico a partire. Il drenaggio resta comunque finito, perché
+    /// <c>AccountHasEntryInFlight</c> ammette un solo ingresso in volo per (strategia, simbolo):
+    /// il massimo di ordini contemporanei è il numero di strategie della sessione.</para>
+    /// </summary>
+    /// <param name="brokerState">
+    /// Stato dichiarato dal cBot al poll. Null quando il claim arriva dalla vecchia GET senza corpo:
+    /// in quel caso si ripiega sul conteggio server delle posizioni, che non porta IntentId e va
+    /// quindi sommato invece che unito.
+    /// </param>
+    private static int CountInFlightForAccount(
+        Session session,
+        string accountNumber,
+        AccountSignalPollRequest? brokerState,
+        ConcurrencyCountMode countMode,
+        out int openPositions,
+        out int pendingOrders)
+    {
+        var positions = brokerState?.Positions;
+        var orders = brokerState?.Orders;
+        openPositions = positions?.Count ?? CountServerPositionsForAccount(session, accountNumber);
+        pendingOrders = orders?.Count ?? 0;
+
+        var identified = new HashSet<string>(StringComparer.Ordinal);
+        // Esposizione reale che non porta un IntentId leggibile: label di formato precedente, o
+        // fallback al conteggio server. Non è deduplicabile, quindi si somma. Meglio contare una
+        // volta di troppo che consegnare un ingresso oltre il tetto.
+        var anonymous = 0;
+
+        if (positions is null)
+            anonymous += openPositions;
+        else
+            foreach (var position in positions)
+            {
+                if (string.IsNullOrWhiteSpace(position.IntentId)) anonymous++;
+                else identified.Add(position.IntentId);
+            }
+
+        if (countMode == ConcurrencyCountMode.PositionsOnly)
+            return identified.Count + anonymous;
+
+        if (orders is not null)
+            foreach (var order in orders)
+            {
+                if (string.IsNullOrWhiteSpace(order.IntentId)) anonymous++;
+                else identified.Add(order.IntentId);
+            }
+
+        foreach (var intent in session.Intents)
+            if (intent.Kind == OrderIntentKind.Entry &&
+                intent.Status == OrderIntentStatus.Pending &&
+                string.Equals(intent.AssignedAccountNumber, accountNumber, StringComparison.OrdinalIgnoreCase))
+                identified.Add(intent.IntentId);
+
+        return identified.Count + anonymous;
+    }
 
     public OrderIntent CreateExternalCloseIntent(string sessionId, CreateExternalCloseIntentRequest request)
     {
@@ -2295,10 +2384,6 @@ public sealed class TradingSessionService : ITradingSessionService
     private static string SlotKey(string groupId, string strategyCode, string symbol) =>
         $"{groupId}|{strategyCode}|{Normalize(symbol)}";
 
-    /// <summary>Chiave per l'autolimitazione "un segnale alla volta PER SIMBOLO" di un account.</summary>
-    private static string ActiveIntentKey(string accountNumber, string symbol) =>
-        $"{accountNumber}|{Normalize(symbol)}";
-
     private static void Persist(Session session)
     {
         session.Store.WriteSignals(session.Intents.Select(intent => new PersistedSignal
@@ -2498,6 +2583,12 @@ public sealed class TradingSessionService : ITradingSessionService
         MaxConcurrentTrades = accountNumber is not null
             ? session.AccountMaxConcurrentTrades.GetValueOrDefault(accountNumber)
             : 0,
+        // Il client la legge per sapere se, raggiunto il tetto sulle posizioni, deve cancellare i
+        // propri ordini pendenti rimasti. È configurazione consegnata all'apertura, non un canale
+        // di controllo: il server non gli dirà mai "cancella quell'ordine".
+        ConcurrencyCountMode = accountNumber is not null
+            ? session.AccountConcurrencyCountMode.GetValueOrDefault(accountNumber)
+            : default,
         // Ordinate per simbolo/timeframe/codice: il pannello a chart le stampa così com'è, e un
         // ordine stabile rende confrontabili a colpo d'occhio due run diversi.
         Strategies = session.Strategies

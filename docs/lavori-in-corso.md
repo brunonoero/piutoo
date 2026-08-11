@@ -87,7 +87,7 @@ Lo stato in RAM non è omogeneo, e la scelta cambia a seconda della fetta:
 | Fetta | Contenuto | Nota |
 |---|---|---|
 | Già su disco | `trades.json`, `signals.json`, condizioni di uscita del bot diretto (04/08) | niente da fare |
-| Piccola e seria | `Entries`, `Fills`, `IntentSequence`, `ExternalPositions`, `AccountActiveIntent`, `GroupStrategySlots`, `PeakEquity` | poche centinaia di byte; perderla azzera `MaxEntriesPerSession` e libera slot di concorrenza già occupati, in silenzio |
+| Piccola e seria | `Entries`, `Fills`, `IntentSequence`, `ExternalPositions`, `GroupStrategySlots`, `PeakEquity` | poche centinaia di byte; perderla azzera `MaxEntriesPerSession` e libera slot di concorrenza già occupati, in silenzio |
 | Grossa e velenosa | `History` per stream, istanza mutabile di `PiootooTradingService` | è il buffer di barre che il **client ha già**: persisterlo è duplicare |
 
 Se e quando si interviene, l'ordine per costo crescente è: rendere esplicito il fallimento (opzione

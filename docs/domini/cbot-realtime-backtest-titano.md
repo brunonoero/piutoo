@@ -151,6 +151,9 @@ con `PiootooDistributedExecutionBot` — concorrenza per account/gruppo.
   con `Status ≠ Pending`: il cBot non deve eseguirli.
 - Con **`PiootooDistributedExecutionBot`**: `MaxConcurrentTrades` e ordine di claim per
   gruppo/account seguono [`distribuzione-multi-account.md`](distribuzione-multi-account.md).
+  Il limite conta sull'insieme delle strategie, non per simbolo; con
+  `ConcurrencyCountMode = PositionsOnly` è il bot a cancellare gli ordini pendenti rimasti
+  quando i fill raggiungono il tetto.
 - **`rotation-log`** (`GET /{sessionId}/rotation-log`) documenta per barra quali
   strategie erano incluse e perché.
 

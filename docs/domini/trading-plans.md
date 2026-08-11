@@ -47,6 +47,13 @@ claim. In esecuzione diretta non esiste un punto in cui applicarlo, quindi aprir
 dichiara (con `EnforceConcurrencyLimits` attivo) restituisce `400`: meglio rifiutare che operare
 senza il limite che il piano promette.
 
+Il limite è **per account e trasversale ai simboli**: dieci significa dieci ingressi in volo, che
+stiano su un simbolo solo o su dieci diversi. Cosa venga contato lo dice `ConcurrencyCountMode`
+sulla riga del piano — `PositionsAndPendingOrders` (default) o `PositionsOnly`, dove gli ordini
+pendenti non consumano budget e il tetto viene fatto valere dal cBot al primo fill. Le due modalità,
+e perché la scelta dipende dal tipo di motore, in
+[`distribuzione-multi-account.md`](distribuzione-multi-account.md) §2 e §4.6.
+
 La sessione acquisisce uno snapshot del piano alla creazione. Modificare il piano non cambia
 sessioni già aperte. Il server sceglie automaticamente la modalità Titano dalla riga primaria (in
 esecuzione diretta, dalla riga dell'account che apre la sessione):

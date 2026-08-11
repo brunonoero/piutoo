@@ -11,11 +11,17 @@ namespace Piootoo.Strategies.Tests;
 /// <summary>
 /// Secondo layer di filtro, quello che agisce dopo Titano: chi esegue quale segnale.
 ///
-/// <para>Copre i tre comportamenti che la matrice di
-/// <c>docs/domini/distribuzione-multi-account.md</c> descrive e che non erano verificati: il
-/// fan-out fra gruppi diversi sullo stesso template, il lucchetto account/simbolo che sopravvive al
-/// fill, e il template perso dopo un rifiuto del broker. In più il disaccoppiamento fra il limite di
-/// trade concorrenti e la modalità Titano.</para>
+/// <para>Copre i comportamenti che la matrice di
+/// <c>docs/domini/distribuzione-multi-account.md</c> descrive: il fan-out fra gruppi diversi sullo
+/// stesso template, il template perso dopo un rifiuto del broker, e il disaccoppiamento fra il
+/// limite di trade concorrenti e la modalità Titano.</para>
+///
+/// <para>Dall'11/08/2026 copre anche il budget di concorrenza riscritto: <b>per account e
+/// trasversale ai simboli</b>, deduplicato per IntentId, con le due modalità di conteggio
+/// (<c>ConcurrencyCountMode</c>). I test che verificavano il comportamento precedente — un solo
+/// intent pendente per account, un solo ingresso per account per simbolo — sono stati sostituiti,
+/// non rimossi: descrivevano un vincolo che rendeva <c>MaxConcurrentTrades</c> inapplicabile su una
+/// sessione a simbolo singolo. Vedi <c>docs/decisioni.md</c> 2026-08-11.</para>
 /// </summary>
 public sealed class MultiAccountDistributionTests : IDisposable
 {
@@ -74,9 +80,34 @@ public sealed class MultiAccountDistributionTests : IDisposable
     }
 
     [Fact]
-    public void PollIsIdempotent_AnAccountHoldsOnlyOnePendingIntent()
+    public void AccountDrainsUpToItsBudget_NotOneIntentAtATime()
     {
+        // Fino all'11/08/2026 il passo 1 faceva da tappo: qualunque intent pendente fermava il
+        // poll, quindi un account ne deteneva uno solo alla volta qualunque fosse
+        // MaxConcurrentTrades. Ora drena finché ha budget.
         var (sessions, descriptor) = Session(signalsPerBar: 2, [Row("g1", "1001", maxConcurrent: 5)]);
+
+        sessions.PushBars(Bars(descriptor, Utc(2026, 1, 5)));
+
+        var first = sessions.GetNextSignalForAccount(descriptor.SessionId, descriptor.SessionToken, "1001");
+        var second = sessions.GetNextSignalForAccount(descriptor.SessionId, descriptor.SessionToken, "1001");
+
+        Assert.NotNull(first.Intent);
+        Assert.NotNull(second.Intent);
+        // Due intent distinti, di strategie distinte, sullo STESSO simbolo: è esattamente ciò che
+        // il lucchetto (account, simbolo) impediva.
+        Assert.NotEqual(first.Intent!.IntentId, second.Intent!.IntentId);
+        Assert.NotEqual(first.Intent.StrategyCode, second.Intent.StrategyCode);
+        Assert.Equal(first.Intent.Symbol, second.Intent.Symbol);
+    }
+
+    [Fact]
+    public void AtTheCap_ThePendingEntryIsRedelivered()
+    {
+        // A budget esaurito il claim ripropone l'ingresso pendente invece di rispondere
+        // MaxConcurrentTradesExceeded: è come si recupera un claim la cui risposta si è persa in
+        // rete. Il client lo riconosce come già inviato e smette di drenare.
+        var (sessions, descriptor) = Session(signalsPerBar: 2, [Row("g1", "1001", maxConcurrent: 1)]);
 
         sessions.PushBars(Bars(descriptor, Utc(2026, 1, 5)));
 
@@ -85,16 +116,14 @@ public sealed class MultiAccountDistributionTests : IDisposable
 
         Assert.NotNull(first.Intent);
         Assert.NotNull(again.Intent);
-        // Il secondo poll ripropone lo stesso intent invece di assegnarne un altro, anche se il
-        // limite di concorrenza lo permetterebbe e un secondo template è disponibile.
         Assert.Equal(first.Intent!.IntentId, again.Intent!.IntentId);
     }
 
     [Fact]
-    public void SymbolLockSurvivesTheFill_AndIsReleasedOnlyOnClose()
+    public void BudgetIsPerAccountNotPerSymbol_AndSurvivesTheFill()
     {
-        // Il lucchetto (account, simbolo) NON si libera al fill: si libera alla chiusura. È il motivo
-        // per cui MaxConcurrentTrades non si materializza mai su un singolo simbolo.
+        // Il vecchio lucchetto (account, simbolo) non si liberava al fill ma alla chiusura: un
+        // secondo template sullo stesso simbolo restava irraggiungibile anche con budget libero.
         var (sessions, descriptor) = Session(signalsPerBar: 2, [Row("g1", "1001", maxConcurrent: 5)]);
 
         sessions.PushBars(Bars(descriptor, Utc(2026, 1, 5)));
@@ -104,12 +133,89 @@ public sealed class MultiAccountDistributionTests : IDisposable
 
         Fill(sessions, descriptor, claimed!);
 
-        // Secondo template disponibile sullo stesso simbolo, limite di concorrenza non raggiunto,
-        // eppure nessun segnale: il simbolo è occupato.
         var afterFill = sessions.GetNextSignalForAccount(
             descriptor.SessionId, descriptor.SessionToken, "1001");
+
+        Assert.NotNull(afterFill.Intent);
+        Assert.Equal(claimed!.Symbol, afterFill.Intent!.Symbol);
+        Assert.NotEqual(claimed.StrategyCode, afterFill.Intent.StrategyCode);
+    }
+
+    [Fact]
+    public void InFlightCount_DeduplicatesTheSameIntentSeenTwice()
+    {
+        // Lo stesso ordine è insieme un intent Pending sul server e un pending order nello
+        // snapshot del broker. Sommare i due conteggi grezzi — com'era prima — lo contava due
+        // volte e dimezzava il tetto configurato: con max 2 il secondo claim non passava.
+        var (sessions, descriptor) = Session(signalsPerBar: 3, [Row("g1", "1001", maxConcurrent: 2)]);
+
+        sessions.PushBars(Bars(descriptor, Utc(2026, 1, 5)));
+
+        var first = sessions.PollSignalForAccount(descriptor.SessionId, "1001",
+            new AccountSignalPollRequest { SessionToken = descriptor.SessionToken });
+        Assert.NotNull(first.Intent);
+
+        // Il broker ora dichiara l'ordine piazzato per quell'intent: è la stessa cosa, non una
+        // seconda esposizione.
+        var second = sessions.PollSignalForAccount(descriptor.SessionId, "1001",
+            new AccountSignalPollRequest
+            {
+                SessionToken = descriptor.SessionToken,
+                Orders = [new BrokerOrderSnapshot { OrderId = "o-1", IntentId = first.Intent!.IntentId }]
+            });
+
+        Assert.NotNull(second.Intent);
+        Assert.NotEqual(first.Intent.IntentId, second.Intent!.IntentId);
+    }
+
+    [Fact]
+    public void PositionsOnly_PendingOrdersDoNotConsumeBudget()
+    {
+        // Su un motore breakout un ordine stop non è esposizione ma un'opzione: bloccarne uno per
+        // "occupazione di slot" significa perdere il solo livello che sarebbe partito. Il tetto lo
+        // fa valere il cBot al primo fill.
+        var (sessions, descriptor) = Session(signalsPerBar: 2,
+            [Row("g1", "1001", maxConcurrent: 1, countMode: ConcurrencyCountMode.PositionsOnly)]);
+
+        sessions.PushBars(Bars(descriptor, Utc(2026, 1, 5)));
+
+        var first = sessions.PollSignalForAccount(descriptor.SessionId, "1001",
+            new AccountSignalPollRequest { SessionToken = descriptor.SessionToken });
+        Assert.NotNull(first.Intent);
+
+        var second = sessions.PollSignalForAccount(descriptor.SessionId, "1001",
+            new AccountSignalPollRequest
+            {
+                SessionToken = descriptor.SessionToken,
+                Orders = [new BrokerOrderSnapshot { OrderId = "o-1", IntentId = first.Intent!.IntentId }]
+            });
+
+        // Con PositionsAndPendingOrders questo sarebbe MaxConcurrentTradesExceeded.
+        Assert.NotNull(second.Intent);
+    }
+
+    [Fact]
+    public void PositionsOnly_AFilledPositionStillConsumesBudget()
+    {
+        var (sessions, descriptor) = Session(signalsPerBar: 2,
+            [Row("g1", "1001", maxConcurrent: 1, countMode: ConcurrencyCountMode.PositionsOnly)]);
+
+        sessions.PushBars(Bars(descriptor, Utc(2026, 1, 5)));
+        var claimed = sessions.GetNextSignalForAccount(
+            descriptor.SessionId, descriptor.SessionToken, "1001").Intent;
+        Assert.NotNull(claimed);
+
+        Fill(sessions, descriptor, claimed!);
+
+        var afterFill = sessions.PollSignalForAccount(descriptor.SessionId, "1001",
+            new AccountSignalPollRequest
+            {
+                SessionToken = descriptor.SessionToken,
+                Positions = [new BrokerPositionSnapshot { PositionId = "p-1", IntentId = claimed!.IntentId }]
+            });
+
         Assert.Null(afterFill.Intent);
-        Assert.Equal("NoSignal", afterFill.Reason);
+        Assert.Equal("MaxConcurrentTradesExceeded", afterFill.Reason);
     }
 
     [Fact]
@@ -252,10 +358,15 @@ public sealed class MultiAccountDistributionTests : IDisposable
 
     // ------------------------------------------------------------------------------ helper
 
-    private static TradingGroupRow Row(string groupId, string account, int maxConcurrent) => new()
+    private static TradingGroupRow Row(
+        string groupId,
+        string account,
+        int maxConcurrent,
+        ConcurrencyCountMode countMode = ConcurrencyCountMode.PositionsAndPendingOrders) => new()
     {
         GroupId = groupId, AccountNumber = account,
-        MaxConcurrentTrades = maxConcurrent, ApplyTitanoFilters = false
+        MaxConcurrentTrades = maxConcurrent, ConcurrencyCountMode = countMode,
+        ApplyTitanoFilters = false
     };
 
     private (TradingSessionService Sessions, TradingSessionDescriptor Descriptor) Session(
@@ -336,11 +447,11 @@ public sealed class MultiAccountDistributionTests : IDisposable
     /// <summary>
     /// Emette N segnali per barra sullo stesso simbolo ma con <b>codici strategia distinti</b>.
     ///
-    /// <para>I codici distinti servono a isolare i lucchetti: con lo stesso codice sarebbe lo slot
-    /// di gruppo <c>(gruppo, strategia, simbolo)</c> a bloccare il secondo claim, e non si potrebbe
-    /// osservare separatamente il lucchetto <c>(account, simbolo)</c>. Il primo segnale conserva il
-    /// nome reale della strategia, così i test che si limitano a un segnale restano aderenti al
-    /// catalogo.</para>
+    /// <para>I codici distinti servono a isolare i vincoli: con lo stesso codice sarebbero lo slot
+    /// di gruppo <c>(gruppo, strategia, simbolo)</c> e la guardia <c>AccountHasEntryInFlight</c> a
+    /// bloccare il secondo claim, e non si potrebbe osservare il budget per account. Il primo
+    /// segnale conserva il nome reale della strategia, così i test che si limitano a un segnale
+    /// restano aderenti al catalogo.</para>
     /// </summary>
     private sealed class MultiSignalEvaluationService(int signalsPerBar, DateTime? expiresAtUtc = null)
         : IStrategyEvaluationService

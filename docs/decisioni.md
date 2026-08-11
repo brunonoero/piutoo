@@ -1225,3 +1225,39 @@ in ordine cronologico. Non è un changelog di codice: quello resta nei commit.
   long-only su NQ 15m, che a gate passati producono lo stesso livello di canale. Il codice strategia
   è nella riga di cancellazione dell'ordine ed è l'unico modo per distinguerli: codici diversi =
   due strategie, codice uguale = doppione vero.
+- **2026-08-11** — **`MaxConcurrentTrades` conta ora sull'insieme delle strategie, trasversale ai
+  simboli**: dieci significa dieci, che stiano su un simbolo solo o su dieci diversi. Prima non era
+  così, e su una sessione a simbolo singolo il valore configurato non entrava mai in gioco. Il
+  sintomo, da un run reale (`FTMO-TRIAL-01`, 10/08/2026, `MaxConcurrentTrades = 10`): per undici ore
+  un solo ordine per barra, sempre di `PTS_NQ_PCH_001_15`, con gli IntentId che saltano di due
+  perché il template di `PTS_NQ_PCH_002_15` — stesso `US100.cash` — nasceva a ogni barra e non
+  arrivava mai a mercato. A bloccarlo erano due vincoli, nessuno dei quali era il tetto: il **passo 1**
+  di idempotenza (un solo intent pendente per account, e uno stop order vive l'intera barra) e il
+  **lucchetto (account, simbolo)**, che si liberava alla chiusura e non al fill. Il tetto effettivo
+  era 1, e la risposta al poll era `NoSignal`, quindi nemmeno la diagnostica lo diceva.
+  Rimosso il lucchetto (`AccountActiveIntent`, `ActiveIntentKey`); il passo 1 ripropone ora le sole
+  chiusure e lascia drenare gli ingressi finché c'è budget; a tetto pieno ripropone l'ingresso
+  pendente, che è come si recupera un claim la cui risposta si è persa in rete. Resta invariata
+  `AccountHasEntryInFlight` (stessa strategia, stesso simbolo, attiva in ogni profilo): è la guardia
+  nata dall'incidente `PTS_NQ_PCH_002_15` del 14/10/2024, e non è concorrenza ma unicità del segnale.
+- **2026-08-11** — Il budget di concorrenza si conta **deduplicato per IntentId**
+  (`CountInFlightForAccount`). `openPositions + pendingOrders` contava due volte ogni ordine a
+  mercato — lo stesso ordine è insieme un intent `Pending` sul server e un pending order nello
+  snapshot del broker — e dimezzava di fatto il tetto configurato. Entrano nel conto anche i claim
+  consegnati e non ancora comparsi sul broker: senza, un drenaggio veloce sfonderebbe il tetto per
+  ritardo di propagazione invece che per una decisione. L'esposizione senza IntentId leggibile
+  (label vecchie, fallback al conteggio server) non è deduplicabile e si somma: meglio contare una
+  volta di troppo che consegnare un ingresso oltre il tetto.
+- **2026-08-11** — **Cosa conti `MaxConcurrentTrades` è un parametro del piano**, non una convenzione
+  del server: `ConcurrencyCountMode` vale `PositionsAndPendingOrders` (default, comportamento
+  storico) o `PositionsOnly`. La risposta giusta dipende dal motore: chi entra a mercato non ha
+  ordini in attesa da contare, chi entra in breakout ne ha uno per strategia per tutta la barra, e su
+  un breakout non si sa a priori quale livello verrà toccato — bloccarne uno per «occupazione di
+  slot» significa perdere il solo che sarebbe partito. In `PositionsOnly` il tetto si fa valere a
+  valle: `PiootooDistributedExecutionBot.CancelPendingOrdersAtCap`, chiamato da `OnPositionOpened`,
+  spegne gli ordini rimasti quando i fill raggiungono il tetto — un OCO, il primo che entra spegne
+  gli altri. Il cBot resta disaccoppiato dal server: legge un parametro dal descriptor all'apertura,
+  decide guardando la propria piattaforma e comunica solo il fatto compiuto, un `Cancelled` sullo
+  stesso canale degli ordini scaduti. Il rischio residuo è dichiarato: fra il fill e la cancellazione
+  due stop possono riempirsi insieme, ed è la ragione per cui la modalità è un parametro e non il
+  default — su conti con regole di esposizione istantanea resta preferibile contare anche i pendenti.
