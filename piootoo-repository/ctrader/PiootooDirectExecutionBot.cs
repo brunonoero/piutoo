@@ -656,7 +656,11 @@ namespace cAlgo.Robots
             if (saved?.OpenPositions == null || saved.OpenPositions.Count == 0)
                 return 0;
 
-            var live = Positions.Where(IsOurs).ToDictionary(position => position.Id);
+            // Chiave long, non int: gli id di posizione viaggiano come long in tutto il bot
+            // (_positionIntent, _positionEntryBar, PositionExitStateDto), perche' e' cosi' che il
+            // file di stato li rilegge dal JSON. Lasciando il tipo dedurre da Position.Id la
+            // dictionary nasce Dictionary<int, Position> e il lookup col record salvato non compila.
+            var live = Positions.Where(IsOurs).ToDictionary(position => (long)position.Id);
             var restored = 0;
 
             foreach (var record in saved.OpenPositions)
