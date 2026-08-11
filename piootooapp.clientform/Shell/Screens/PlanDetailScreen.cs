@@ -36,6 +36,18 @@ public sealed class PlanAccountEditRow
     public string AccountNumber { get; set; } = string.Empty;
 
     public int MaxConcurrentTrades { get; set; }
+
+    /// <summary>
+    /// Cosa conta <see cref="MaxConcurrentTrades"/>: solo le posizioni riempite, oppure anche gli
+    /// ordini pendenti. Vedi <c>docs/domini/distribuzione-multi-account.md</c> §2.
+    ///
+    /// <para>È il <b>nome</b> del valore di <see cref="Piootoo.Shared.Models.Trading.ConcurrencyCountMode"/>,
+    /// non il valore: <c>DataGridViewComboBoxColumn</c> confronta la cella con il ValueMember, che
+    /// per <c>ValueComboItem</c> è una stringa. Tenendo qui l'enum il binding dovrebbe convertire a
+    /// ogni cella, ed è esattamente il genere di conversione che finisce in <c>DataError</c>.</para>
+    /// </summary>
+    public string ConcurrencyCountMode { get; set; } =
+        nameof(Piootoo.Shared.Models.Trading.ConcurrencyCountMode.PositionsAndPendingOrders);
 }
 
 /// <summary>
@@ -84,6 +96,21 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
             "No, ignora i limiti"
         });
         _enforceConcurrencyCombo.SelectedIndex = 0;
+
+        // Cosa conta il massimo di posizioni contemporanee. Le etichette dicono la conseguenza
+        // operativa, non il nome del contratto: "PositionsOnly" da solo non fa capire che gli stop
+        // pendenti restano tutti a mercato finché uno non entra.
+        _colAccountCountMode.DisplayMember = nameof(ValueComboItem.Display);
+        _colAccountCountMode.ValueMember = nameof(ValueComboItem.Id);
+        _colAccountCountMode.DataSource = new List<ValueComboItem>
+        {
+            ValueComboItem.Of(
+                nameof(ConcurrencyCountMode.PositionsAndPendingOrders),
+                "Posizioni + ordini pendenti"),
+            ValueComboItem.Of(
+                nameof(ConcurrencyCountMode.PositionsOnly),
+                "Solo posizioni riempite")
+        };
 
         _groups.ListChanged += (_, _) => MarkDirty();
         _accounts.ListChanged += (_, _) => MarkDirty();
@@ -589,7 +616,8 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
             {
                 GroupId = row.GroupId,
                 AccountNumber = row.AccountNumber,
-                MaxConcurrentTrades = row.MaxConcurrentTrades
+                MaxConcurrentTrades = row.MaxConcurrentTrades,
+                ConcurrencyCountMode = row.ConcurrencyCountMode.ToString()
             });
         }
 
@@ -780,6 +808,12 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
                     GroupId = row.GroupId.Trim(),
                     AccountNumber = row.AccountNumber.Trim(),
                     MaxConcurrentTrades = row.MaxConcurrentTrades,
+                    // Un valore illeggibile (piano scritto a mano, enum rinominato) ricade sul
+                    // default storico invece di far fallire il salvataggio dell'intero piano.
+                    ConcurrencyCountMode = Enum.TryParse<ConcurrencyCountMode>(
+                        row.ConcurrencyCountMode, ignoreCase: true, out var countMode)
+                        ? countMode
+                        : ConcurrencyCountMode.PositionsAndPendingOrders,
                     RotationSetupId = NullIfEmpty(profile.RotationSetupId),
                     TitanoBacktestFolder = NullIfEmpty(profile.TitanoBacktestFolder),
                     ApplyTitanoFilters = profile.ApplyTitanoFilters

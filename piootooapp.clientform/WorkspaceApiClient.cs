@@ -332,6 +332,16 @@ public sealed class WorkspaceApiClient
     /// evolve con le diagnostiche, e un contratto tipizzato mostrerebbe un summary incompleto ogni
     /// volta che il server aggiunge un campo, senza segnalarlo.
     /// </summary>
+    /// <summary>
+    /// Indirizzo del report HTML del backtest. È un Uri e non il contenuto perché il visualizzatore
+    /// lo scarica da sé (<c>HtmlReportViewerForm.ShowFromUriAsync</c>) e usa lo stesso indirizzo per
+    /// il pulsante "apri nel browser": passare qui la stringa costringerebbe a ricomporlo là.
+    /// </summary>
+    public Uri GetBacktestHtmlReportUri(string workspaceId, string folderName)
+        => new(_httpClient.BaseAddress!,
+            $"api/Workspace/{Uri.EscapeDataString(workspaceId)}" +
+            $"/backtests/{Uri.EscapeDataString(folderName)}/report");
+
     public async Task<string> GetBacktestSummaryAsync(
         string workspaceId,
         string folderName,

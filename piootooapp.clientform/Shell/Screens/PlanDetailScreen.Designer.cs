@@ -51,6 +51,7 @@ partial class PlanDetailScreen
         this._colAccountNumber = new System.Windows.Forms.DataGridViewComboBoxColumn();
         this._colAccountGroupId = new System.Windows.Forms.DataGridViewTextBoxColumn();
         this._colAccountMaxConcurrent = new System.Windows.Forms.DataGridViewTextBoxColumn();
+        this._colAccountCountMode = new System.Windows.Forms.DataGridViewComboBoxColumn();
         this._accountsButtons = new System.Windows.Forms.FlowLayoutPanel();
         this._addAccountButton = new System.Windows.Forms.Button();
         this._removeAccountButton = new System.Windows.Forms.Button();
@@ -403,7 +404,8 @@ partial class PlanDetailScreen
         this._accountsGrid.Columns.AddRange(new System.Windows.Forms.DataGridViewColumn[] {
             this._colAccountNumber,
             this._colAccountGroupId,
-            this._colAccountMaxConcurrent});
+            this._colAccountMaxConcurrent,
+            this._colAccountCountMode});
         this._accountsGrid.DataSource = this._accountsBindingSource;
         this._accountsGrid.Dock = System.Windows.Forms.DockStyle.Fill;
         this._accountsGrid.Location = new System.Drawing.Point(12, 49);
@@ -436,6 +438,14 @@ partial class PlanDetailScreen
         this._colAccountMaxConcurrent.FillWeight = 70F;
         this._colAccountMaxConcurrent.HeaderText = "Max posizioni contemporanee (0 = illimitate)";
         this._colAccountMaxConcurrent.Name = "_colAccountMaxConcurrent";
+        //
+        // _colAccountCountMode
+        //
+        this._colAccountCountMode.DataPropertyName = "ConcurrencyCountMode";
+        this._colAccountCountMode.DisplayStyle = System.Windows.Forms.DataGridViewComboBoxDisplayStyle.DropDownButton;
+        this._colAccountCountMode.FillWeight = 80F;
+        this._colAccountCountMode.HeaderText = "Il massimo conta";
+        this._colAccountCountMode.Name = "_colAccountCountMode";
         //
         // _accountsButtons
         //
@@ -781,6 +791,7 @@ partial class PlanDetailScreen
     private System.Windows.Forms.DataGridViewComboBoxColumn _colAccountNumber;
     private System.Windows.Forms.DataGridViewTextBoxColumn _colAccountGroupId;
     private System.Windows.Forms.DataGridViewTextBoxColumn _colAccountMaxConcurrent;
+    private System.Windows.Forms.DataGridViewComboBoxColumn _colAccountCountMode;
     private System.Windows.Forms.FlowLayoutPanel _accountsButtons;
     private System.Windows.Forms.Button _addAccountButton;
     private System.Windows.Forms.Button _removeAccountButton;

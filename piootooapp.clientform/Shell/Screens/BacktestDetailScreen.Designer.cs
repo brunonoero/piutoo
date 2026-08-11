@@ -21,6 +21,8 @@ partial class BacktestDetailScreen
         this.components = new System.ComponentModel.Container();
         this._tradesBindingSource = new System.Windows.Forms.BindingSource(this.components);
         this._toolbar = new piootooapp.clientform.Shell.Controls.DetailToolbar();
+        this._commandPanel = new System.Windows.Forms.FlowLayoutPanel();
+        this._reportButton = new System.Windows.Forms.Button();
         this._tabs = new System.Windows.Forms.TabControl();
         this._summaryTab = new System.Windows.Forms.TabPage();
         this._summaryJsonBox = new System.Windows.Forms.TextBox();
@@ -51,6 +53,7 @@ partial class BacktestDetailScreen
         this._tradesTab.SuspendLayout();
         ((System.ComponentModel.ISupportInitialize)(this._grid)).BeginInit();
         this._tradesFilterPanel.SuspendLayout();
+        this._commandPanel.SuspendLayout();
         this.SuspendLayout();
         //
         // _toolbar
@@ -64,6 +67,28 @@ partial class BacktestDetailScreen
         this._toolbar.TabIndex = 0;
         this._toolbar.Title = "Backtest";
         this._toolbar.BackRequested += new System.EventHandler(this.OnBackRequested);
+        //
+        // _commandPanel
+        //
+        this._commandPanel.AutoSize = true;
+        this._commandPanel.Controls.Add(this._reportButton);
+        this._commandPanel.Dock = System.Windows.Forms.DockStyle.Top;
+        this._commandPanel.Location = new System.Drawing.Point(0, 44);
+        this._commandPanel.Name = "_commandPanel";
+        this._commandPanel.Padding = new System.Windows.Forms.Padding(12, 6, 12, 6);
+        this._commandPanel.Size = new System.Drawing.Size(900, 37);
+        this._commandPanel.TabIndex = 1;
+        //
+        // _reportButton
+        //
+        this._reportButton.AutoSize = true;
+        this._reportButton.Enabled = false;
+        this._reportButton.Margin = new System.Windows.Forms.Padding(0, 0, 6, 0);
+        this._reportButton.Name = "_reportButton";
+        this._reportButton.Size = new System.Drawing.Size(120, 25);
+        this._reportButton.TabIndex = 0;
+        this._reportButton.Text = "Report HTML";
+        this._reportButton.Click += new System.EventHandler(this.OnReportClick);
         //
         // _tabs
         //
@@ -342,6 +367,7 @@ partial class BacktestDetailScreen
         this.AutoScaleDimensions = new System.Drawing.SizeF(7F, 15F);
         this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
         this.Controls.Add(this._tabs);
+        this.Controls.Add(this._commandPanel);
         this.Controls.Add(this._toolbar);
         this.Name = "BacktestDetailScreen";
         this.Size = new System.Drawing.Size(900, 600);
@@ -354,13 +380,18 @@ partial class BacktestDetailScreen
         ((System.ComponentModel.ISupportInitialize)(this._grid)).EndInit();
         this._tradesFilterPanel.ResumeLayout(false);
         this._tradesFilterPanel.PerformLayout();
+        this._commandPanel.ResumeLayout(false);
+        this._commandPanel.PerformLayout();
         this.ResumeLayout(false);
+        this.PerformLayout();
     }
 
     #endregion
 
     private System.Windows.Forms.BindingSource _tradesBindingSource;
     private piootooapp.clientform.Shell.Controls.DetailToolbar _toolbar;
+    private System.Windows.Forms.FlowLayoutPanel _commandPanel;
+    private System.Windows.Forms.Button _reportButton;
     private System.Windows.Forms.TabControl _tabs;
     private System.Windows.Forms.TabPage _summaryTab;
     private System.Windows.Forms.Label _headlineLabel;

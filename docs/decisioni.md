@@ -1261,3 +1261,12 @@ in ordine cronologico. Non è un changelog di codice: quello resta nei commit.
   stesso canale degli ordini scaduti. Il rischio residuo è dichiarato: fra il fill e la cancellazione
   due stop possono riempirsi insieme, ed è la ragione per cui la modalità è un parametro e non il
   default — su conti con regole di esposizione istantanea resta preferibile contare anche i pendenti.
+- **2026-08-11** — Il dettaglio di un backtest ha un pulsante **Report HTML**, servito da
+  `GET /api/Workspace/{id}/backtests/{cartella}/report`. Il report esisteva già — lo scrive
+  `GenerateStrategyEquityHtmlReport` nella cartella del run — ma era raggiungibile solo per `jobId`,
+  cioè finché il job era vivo in memoria: riaprendo un backtest archiviato non c'era modo di vederlo
+  se non aprendo il file a mano. Il nome non è fisso (dipende dal prefisso del run), quindi il
+  servizio cerca per estensione e sceglie il più recente invece di indovinarlo. Il pulsante non
+  verifica che il file esista — costerebbe una chiamata HTTP a ogni apertura della schermata per un
+  file che si apre di rado: l'assenza è un `404` con un messaggio che spiega quando è normale (run
+  interrotti, run dell'engine esterno, che archiviano i trade ma non generano il report).
