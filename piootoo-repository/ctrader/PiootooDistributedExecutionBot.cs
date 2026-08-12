@@ -90,6 +90,47 @@ namespace cAlgo.Robots
         BacktestTitano
     }
 
+    /// <summary>
+    /// Quanto deve parlare il bot. Sostituisce il vecchio flag "Log dettagliato": i livelli sono
+    /// cumulativi e ordinati, cosi' il confronto e' un <c>&gt;=</c> e non una collezione di booleani
+    /// che si contraddicono.
+    ///
+    /// <para>Il vincolo che detta la scala e' il buffer di log della piattaforma: in backtest si
+    /// riempie in fretta e, quando lo fa, cTrader butta via le righe piu' VECCHIE — cioe' proprio
+    /// quelle dell'avvio, dove stanno le cause. Per questo il livello effettivo in backtest e'
+    /// tagliato a <see cref="Minimo"/> (vedi <c>_livelloEffettivo</c>): la diagnostica ripetuta a
+    /// ogni barra ha senso in live, dove il log scorre in tempo reale e la sessione dura un giorno,
+    /// non su tre anni di storia.</para>
+    ///
+    /// <para><b>Fuori scala, e sempre attivo a qualunque livello:</b> tutto cio' che riguarda un
+    /// segnale — intent ricevuto con Bid/Ask, ingresso scartato o annullato, anomalia sul livello,
+    /// fill con lo spread, errore di apertura o chiusura. E' l'unica traccia di *perche'* il bot ha
+    /// fatto o non ha fatto un trade, ed e' proporzionale ai trade e non alle barre: anche su un
+    /// backtest lungo resta un ordine di grandezza sotto il rumore che satura il buffer. Il livello
+    /// governa il contorno — riscaldamento, finestre, poll — non i segnali.</para>
+    /// </summary>
+    public enum LivelloLog
+    {
+        /// <summary>
+        /// Solo i segnali (sempre attivi, vedi sopra) piu' avvio e riepiloghi di fine run. Nessuna
+        /// riga legata al ciclo delle barre. E' il livello a regime, e l'unico che gira in backtest.
+        /// </summary>
+        Minimo,
+
+        /// <summary>
+        /// Aggiunge il ciclo di alimentazione degli stream: riscaldamento inviato, storia disponibile
+        /// per stream, finestre accodate. Serve a capire se il server sta ricevendo le candele, non
+        /// se sta tradando bene.
+        /// </summary>
+        Operativo,
+
+        /// <summary>
+        /// Tutto: poll falliti, break-even e trailing non riusciti, e ogni altro dettaglio del giro
+        /// HTTP. E' il livello dei test di verifica del bot, non quello di esercizio.
+        /// </summary>
+        Diagnostico
+    }
+
     [Robot(TimeZone = TimeZones.UTC, AccessRights = AccessRights.FullAccess)]
     public class PiootooDistributedExecutionBot : Robot
     {
@@ -118,7 +159,15 @@ namespace cAlgo.Robots
         /// </summary>
         private const int MaxSignalsPerDrain = 200;
 
-        private const string BotVersion = "2.0.0"; // aggiornare qui ad ogni release
+        // 2.2.0 (12/08/2026) — diagnostica dei segnali: Bid/Ask, distanza dal lato di ingresso, eta'
+        // dell'intent e coerenza del livello pending stampati all'arrivo di ogni intent (sempre, a
+        // qualunque livello) e scritti sul JSONL. Il flag "Log dettagliato" diventa il parametro a
+        // scala "Livello di log", tagliato a Minimo in backtest.
+        //
+        // 2.1.0 (11/08/2026) — l'autolimitazione locale passa da (simbolo) a (strategia, simbolo),
+        // tetto locale sulle posizioni prima dell'invio, cancellazione OCO degli ordini rimasti in
+        // modalita' PositionsOnly. Vedi docs/decisioni.md 2026-08-11.
+        private const string BotVersion = "2.2.0"; // aggiornare qui ad ogni release
         private const string StatusChartObjectName = "PiootooConnectionStatus";
 
         [Parameter("Server Base Url", DefaultValue = "http://localhost:5000")]
@@ -152,12 +201,16 @@ namespace cAlgo.Robots
         [Parameter("History Window (giorni)", DefaultValue = 30, MinValue = 1)]
         public int HistoryWindowDays { get; set; }
 
-        [Parameter("Log dettagliato", DefaultValue = false)]
-        public bool VerboseLogging { get; set; }
+        // Default Diagnostico finche' dura la verifica del comportamento del bot; a regime si scende
+        // a Operativo (o Minimo), senza perdere le righe dei segnali che sono fuori scala. In
+        // backtest il valore viene comunque tagliato a Minimo, vedi LivelloLog e _livelloEffettivo.
+        [Parameter("Livello di log", DefaultValue = LivelloLog.Diagnostico, Group = "Diagnostica")]
+        public LivelloLog LivelloDiLog { get; set; }
 
         // Traccia su file, una riga JSON per risposta, tutto cio' che il server Piootoo restituisce
         // (apertura sessione, poll segnale, chiusura esterna): serve a diagnosticare da cliente senza
-        // dover riprodurre il problema con VerboseLogging attivo, che stampa ma non persiste.
+        // dover riprodurre il problema con il log a Diagnostico, che stampa ma non persiste — e senza
+        // dipendere dal buffer della piattaforma, che le righe piu' vecchie le butta.
         [Parameter("Log JSON risposte server su file", DefaultValue = false, Group = "Diagnostica")]
         public bool LogServerResponses { get; set; }
 
@@ -216,6 +269,21 @@ namespace cAlgo.Robots
         private long _skippedPolls;
         private string _localStatePath;
         private string _jsonLogPath;
+
+        /// <summary>
+        /// Livello di log realmente in vigore: il parametro in live, tagliato a
+        /// <see cref="LivelloLog.Minimo"/> in backtest. Il taglio sta qui e non ai punti di stampa
+        /// perche' e' una regola sola, e sparpagliarla come <c>&amp;&amp; !IsBacktesting</c> su venti
+        /// righe e' il modo per dimenticarsene sulla ventunesima.
+        /// </summary>
+        private LivelloLog _livelloEffettivo = LivelloLog.Minimo;
+
+        /// <summary>Il ciclo di alimentazione degli stream va stampato.</summary>
+        private bool LogOperativo => _livelloEffettivo >= LivelloLog.Operativo;
+
+        /// <summary>Il dettaglio del giro HTTP va stampato.</summary>
+        private bool LogDiagnostico => _livelloEffettivo >= LivelloLog.Diagnostico;
+
         // Stato di connessione mostrato a chart: riflette l'esito dell'ultima chiamata HTTP al
         // server Piootoo (open-plan, push barre, polling segnale), non solo l'apertura iniziale.
         private bool _isConnectedToServer;
@@ -373,6 +441,14 @@ namespace cAlgo.Robots
                 Stop();
                 return;
             }
+
+            // Il taglio in backtest e' silenzioso solo se non lo si dice: senza questa riga, chi ha
+            // lasciato il parametro su Diagnostico e non vede il dettaglio pensa a un bug.
+            _livelloEffettivo = IsBacktesting ? LivelloLog.Minimo : LivelloDiLog;
+            if (IsBacktesting && LivelloDiLog != _livelloEffettivo)
+                Print("Livello di log {0} ridotto a {1} in backtest: restano le righe dei segnali. " +
+                      "Il buffer della piattaforma scarta le righe piu' vecchie, cioe' proprio quelle dell'avvio.",
+                    LivelloDiLog, _livelloEffettivo);
 
             _accountNumber = Account.Number.ToString();
             if (LogServerResponses && !IsBacktesting)
@@ -751,7 +827,7 @@ namespace cAlgo.Robots
                 Print("Storia insufficiente per {0}: {1} barre su {2} richieste. " +
                       "Il server non valuterà le strategie di questo stream finché non ne accumula abbastanza.",
                     pair, pair.Series.Count, target);
-            else if (VerboseLogging)
+            else if (LogOperativo)
                 Print("Storia {0}: {1} barre disponibili (finestra richiesta {2}).",
                     pair, pair.Series.Count, pair.RequiredCandles);
         }
@@ -886,7 +962,7 @@ namespace cAlgo.Robots
                     continue;
 
                 var result = ModifyPosition(position, position.EntryPrice, position.TakeProfit);
-                if (!result.IsSuccessful && VerboseLogging)
+                if (!result.IsSuccessful && LogDiagnostico)
                     Print("Impossibile spostare a break-even {0}/{1}: {2}",
                         context.Symbol, context.StrategyCode, result.Error);
             }
@@ -927,7 +1003,7 @@ namespace cAlgo.Robots
                     continue;
 
                 var result = ModifyPosition(position, candidate, position.TakeProfit);
-                if (!result.IsSuccessful && VerboseLogging)
+                if (!result.IsSuccessful && LogDiagnostico)
                     Print("Impossibile aggiornare trailing stop {0}/{1}: {2}",
                         context.Symbol, context.StrategyCode, result.Error);
             }
@@ -1195,7 +1271,7 @@ namespace cAlgo.Robots
             if (SendWindow(pair, pair.RequiredCandles, evaluateLastCandle: false))
             {
                 pair.WarmedUp = true;
-                if (VerboseLogging)
+                if (LogOperativo)
                     Print("Riscaldamento {0} inviato ({1} candele richieste).", pair, pair.RequiredCandles);
             }
         }
@@ -1462,7 +1538,7 @@ namespace cAlgo.Robots
 
                 if (!response.IsSuccessStatusCode)
                 {
-                    if (VerboseLogging) Print("Poll segnale fallito: {0}", ReadError(response));
+                    if (LogDiagnostico) Print("Poll segnale fallito: {0}", ReadError(response));
                     UpdateConnectionStatus(false);
                     return false;
                 }
@@ -1583,6 +1659,12 @@ namespace cAlgo.Robots
                 return;
             }
 
+            // Fotografia del mercato nell'istante in cui l'intent arriva: senza questa riga, di un
+            // ingresso resta solo il fill (o il nulla di uno scarto) e non si puo' piu' distinguere
+            // un bot che sbaglia da un mercato che si e' mosso. Va prima di ogni filtro, cosi' la
+            // riga c'e' anche per gli intent che vengono scartati subito dopo.
+            LogIntentMarket(intent, symbol);
+
             // Solo per gli ordini a mercato. Uno Stop o un Limit sta per definizione LONTANO dal
             // prezzo corrente — è il livello a cui si vuole entrare, non quello a cui si è — quindi
             // misurarne la distanza come slippage scarta esattamente gli ordini che i motori Unger
@@ -1595,7 +1677,25 @@ namespace cAlgo.Robots
                 var distancePips = Math.Abs(currentPrice - (double)intent.Price) / symbol.PipSize;
                 if (distancePips > MaxEntrySlippagePips)
                 {
-                    Print("Ingresso {0}/{1} scartato per slippage ({2:0.0} pips).", intent.Symbol, intent.StrategyCode, distancePips);
+                    // I prezzi nel messaggio, non solo la distanza: "scartato per 3,2 pips" non dice
+                    // se il server ha prezzato su una barra vecchia, se il mercato e' scappato o se
+                    // lo spread era anomalo. Bid/Ask e prezzo dell'intent lo dicono.
+                    Print("Ingresso {0}/{1} scartato per slippage ({2:0.0} pips): intent {3} contro {4} {5:0.#####} " +
+                          "(Bid {6:0.#####} / Ask {7:0.#####}).",
+                        intent.Symbol, intent.StrategyCode, distancePips, intent.Price,
+                        intent.Side == SignalTypeDto.Buy ? "Ask" : "Bid", currentPrice,
+                        symbol.Bid, symbol.Ask);
+                    LogJsonEvent("intent/scartato-slippage", new
+                    {
+                        intent.IntentId,
+                        intent.StrategyCode,
+                        intent.Symbol,
+                        IntentPrice = intent.Price,
+                        symbol.Bid,
+                        symbol.Ask,
+                        DistanzaPips = distancePips,
+                        MaxEntrySlippagePips
+                    });
                     ReportExecution(intent.IntentId, intent.Symbol, ExecutionReportStatusDto.Rejected, 0, null);
                     return;
                 }
@@ -1769,6 +1869,107 @@ namespace cAlgo.Robots
         /// <summary>Posizioni aperte da questo bot, su tutti i simboli e tutte le strategie.</summary>
         private int CountPiootooPositions() =>
             Positions.Count(p => p.Label != null && p.Label.StartsWith(LabelPrefix, StringComparison.Ordinal));
+
+        /// <summary>
+        /// Bid, Ask e distanza dal prezzo dell'intent nell'istante in cui l'intent arriva al bot.
+        ///
+        /// <para>Serve a rispondere alla domanda "il bot sta lavorando bene?", che dai soli fill non
+        /// si risponde: al fill si vede il prezzo ottenuto, non quello che il server aveva in mente
+        /// ne' quello che il mercato offriva quando l'ordine e' partito. Le tre anomalie che questa
+        /// riga rende visibili sono: (1) <b>ritardo</b> — <c>eta</c> misura quanto tempo e' passato da
+        /// <c>ValidFromUtc</c>, cioe' dalla barra che ha generato il segnale, e se cresce il collo di
+        /// bottiglia e' nel giro poll/valutazione, non nel broker; (2) <b>prezzo del server fuori
+        /// mercato</b> — una distanza sistematicamente grande su ordini a mercato significa che il
+        /// server sta prezzando su una barra vecchia (vedi
+        /// <c>docs/domini/orologio-barre-e-fill.md</c>); (3) <b>livello dal lato sbagliato</b> — uno
+        /// Stop long sotto l'Ask o un Limit long sopra l'Ask e' un ordine che si riempie
+        /// immediatamente invece di aspettare il breakout, ed e' un bug, non un evento di mercato.</para>
+        ///
+        /// <para>Lo spread e' calcolato come <c>Ask − Bid</c> e non con <c>symbol.Spread</c> per
+        /// coerenza con i due prezzi stampati sulla stessa riga: sono letti nello stesso istante.</para>
+        ///
+        /// <para>Stampa <b>sempre, a qualunque <see cref="LivelloLog"/> e anche in backtest</b>: e' una
+        /// riga per intent di ingresso, quindi proporzionale ai trade e non alle barre, e spegnerla
+        /// significherebbe scoprire il problema senza avere piu' i dati per spiegarlo. Con
+        /// <see cref="LogServerResponses"/> scrive anche il record strutturato sul JSONL: il buffer
+        /// della piattaforma scarta le righe vecchie, il file resta ed e' greppabile.</para>
+        /// </summary>
+        private void LogIntentMarket(OrderIntentDto intent, Symbol symbol)
+        {
+            var bid = symbol.Bid;
+            var ask = symbol.Ask;
+            var spread = ask - bid;
+
+            // Il lato che conta e' quello su cui si ENTRA: Ask per i long, Bid per gli short. E'
+            // l'unico confronto sensato col prezzo dell'intent, e lo stesso che usa il filtro
+            // slippage qui sopra.
+            var riferimento = intent.Side == SignalTypeDto.Buy ? ask : bid;
+            var prezzo = (double)intent.Price;
+
+            double? distanzaPips = prezzo > 0 && symbol.PipSize > 0
+                ? Math.Abs(riferimento - prezzo) / symbol.PipSize
+                : (double?)null;
+            double? spreadPips = symbol.PipSize > 0 ? spread / symbol.PipSize : (double?)null;
+
+            // Eta' dell'intent: dalla barra che lo ha generato a adesso. ValidFromUtc e' il bordo
+            // della barra successiva, quindi un valore negativo e' normale per un pending consegnato
+            // in anticipo; e' la crescita nel tempo che segnala un problema.
+            double? etaSecondi = intent.ValidFromUtc.HasValue
+                ? (Server.TimeInUtc - intent.ValidFromUtc.Value).TotalSeconds
+                : (double?)null;
+
+            // Coerenza del livello col lato del mercato. Vale solo per i pending: un ordine a mercato
+            // non ha un livello da rispettare.
+            bool? livelloCoerente = null;
+            if (prezzo > 0)
+            {
+                if (intent.OrderType == TradeOrderTypeDto.Stop)
+                    livelloCoerente = intent.Side == SignalTypeDto.Buy ? prezzo > ask : prezzo < bid;
+                else if (intent.OrderType == TradeOrderTypeDto.Limit)
+                    livelloCoerente = intent.Side == SignalTypeDto.Buy ? prezzo < ask : prezzo > bid;
+            }
+
+            Print("Intent {0}/{1} {2} {3}: prezzo {4:0.#####} | Bid {5:0.#####} Ask {6:0.#####} " +
+                  "spread {7:0.#####} ({8}) | distanza da {9} {10} | eta {11} | qty {12}",
+                intent.Symbol, intent.StrategyCode, intent.Side, intent.OrderType, intent.Price,
+                bid, ask, spread,
+                spreadPips.HasValue ? $"{spreadPips.Value:0.#} pip" : "pip n/d",
+                intent.Side == SignalTypeDto.Buy ? "Ask" : "Bid",
+                distanzaPips.HasValue ? $"{distanzaPips.Value:0.#} pip" : "n/d",
+                etaSecondi.HasValue ? $"{etaSecondi.Value:0.#}s" : "n/d",
+                intent.FinalQuantity);
+
+            // Riga separata e in chiaro: e' un difetto del sistema, non una condizione di mercato, e
+            // deve saltare all'occhio anche in mezzo a un log fitto.
+            if (livelloCoerente == false)
+                Print("  ATTENZIONE {0}/{1}: livello {2} {3} {4:0.#####} dalla parte sbagliata del mercato " +
+                      "(Bid {5:0.#####} / Ask {6:0.#####}): si riempirebbe subito invece di attendere.",
+                    intent.Symbol, intent.StrategyCode, intent.Side, intent.OrderType, intent.Price, bid, ask);
+
+            LogJsonEvent("intent/ricevuto", new
+            {
+                intent.IntentId,
+                intent.StrategyCode,
+                intent.Symbol,
+                BrokerSymbol = symbol.Name,
+                Side = intent.Side.ToString(),
+                OrderType = intent.OrderType.ToString(),
+                IntentPrice = intent.Price,
+                Bid = bid,
+                Ask = ask,
+                Spread = spread,
+                SpreadPips = spreadPips,
+                DistanzaPips = distanzaPips,
+                LivelloCoerente = livelloCoerente,
+                EtaSecondi = etaSecondi,
+                intent.ValidFromUtc,
+                intent.ExpiresAtUtc,
+                intent.FinalQuantity,
+                intent.StopLoss,
+                intent.TakeProfit,
+                ServerTimeUtc = Server.TimeInUtc
+            });
+        }
 
         /// <summary>
         /// Spread dello strumento nell'istante del fill, e il suo peso sullo stop della strategia.
@@ -2004,6 +2205,31 @@ namespace cAlgo.Robots
                     TimestampUtc = DateTime.UtcNow,
                     Endpoint = endpoint,
                     Body = json
+                });
+                File.AppendAllText(_jsonLogPath, line + Environment.NewLine);
+            }
+            catch (Exception ex)
+            {
+                Print("Log JSON su file fallito: {0}", ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// Come <see cref="LogJsonResponse"/> ma per eventi del bot invece che per risposte del
+        /// server: il payload e' un oggetto, non una stringa gia' serializzata, cosi' i campi
+        /// restano interrogabili sul JSONL invece di finire annidati come testo dentro <c>Body</c>.
+        /// </summary>
+        private void LogJsonEvent(string endpoint, object payload)
+        {
+            if (string.IsNullOrWhiteSpace(_jsonLogPath))
+                return;
+            try
+            {
+                var line = JsonSerializer.Serialize(new
+                {
+                    TimestampUtc = DateTime.UtcNow,
+                    Endpoint = endpoint,
+                    Payload = payload
                 });
                 File.AppendAllText(_jsonLogPath, line + Environment.NewLine);
             }

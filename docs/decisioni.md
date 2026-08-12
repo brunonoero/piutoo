@@ -1270,3 +1270,23 @@ in ordine cronologico. Non è un changelog di codice: quello resta nei commit.
   verifica che il file esista — costerebbe una chiamata HTTP a ogni apertura della schermata per un
   file che si apre di rado: l'assenza è un `404` con un messaggio che spiega quando è normale (run
   interrotti, run dell'engine esterno, che archiviano i trade ma non generano il report).
+- **2026-08-12** — All'arrivo di ogni intent di ingresso il cBot distribuito registra la
+  **fotografia del mercato**: Bid, Ask, spread, distanza fra il prezzo dell'intent e il lato su cui
+  si entra (Ask per i long, Bid per gli short), età dell'intent rispetto a `ValidFromUtc` e coerenza
+  del livello per i pending. Prima l'unica misura di esecuzione era lo spread al *fill*
+  (`MeasureSpreadAtFill`), che arriva troppo tardi e solo per gli ordini che sono entrati: di un
+  ingresso scartato per slippage restava la sola distanza in pips, con cui non si distingue un server
+  che prezza su una barra vecchia da un mercato che si è mosso da uno spread anomalo. Le tre anomalie
+  che la riga rende visibili sono il ritardo del giro poll/valutazione (`eta` che cresce), il prezzo
+  del server fuori mercato (distanza sistematica sugli ordini a mercato) e il livello pending dalla
+  parte sbagliata — uno Stop long sotto l'Ask si riempie subito invece di attendere il breakout, ed è
+  un bug, non un evento di mercato, quindi esce su una riga a parte.
+- **2026-08-12** — Il flag booleano "Log dettagliato" del cBot distribuito diventa il parametro a
+  scala **`LivelloLog`** (`Minimo` / `Operativo` / `Diagnostico`), e **le righe dei segnali stanno
+  fuori dalla scala**: intent ricevuto, scarti, anomalie, fill ed errori si stampano sempre, a
+  qualunque livello. Sono proporzionali ai trade e non alle barre, e sono l'unica traccia del
+  *perché* di un trade: spegnerle significa scoprire il problema senza avere più i dati per
+  spiegarlo. Il livello governa il contorno — riscaldamento, finestre, poll — che invece è per barra.
+  In backtest il livello effettivo è tagliato a `Minimo` con un avviso all'avvio: il buffer della
+  piattaforma, quando si riempie, scarta le righe più *vecchie*, cioè proprio quelle dell'avvio dove
+  stanno le cause.
