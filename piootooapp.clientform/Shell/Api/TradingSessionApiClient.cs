@@ -145,4 +145,49 @@ public sealed class TradingSessionApiClient : ApiClientBase
             null,
             cancellationToken,
             sessionToken);
+
+    /// <summary>
+    /// GET grezzo su una risorsa della sessione, restituita come JSON indentato.
+    /// <para>Esiste per il monitor diagnostico e apposta non deserializza: quello che si vuole
+    /// leggere lì è <b>esattamente</b> ciò che il server manda, campi nuovi inclusi. Tipizzarlo
+    /// costringerebbe la console a inseguire ogni aggiunta ai contratti, e un campo che il client
+    /// non conosce sparirebbe in silenzio proprio dalla schermata che serve a scoprirlo.</para>
+    /// </summary>
+    /// <param name="resource">Percorso relativo alla sessione, query inclusa: <c>snapshot</c>,
+    /// <c>intents?after=0</c>, <c>signals</c>, <c>trades</c>, <c>rotation-log</c>, <c>groups</c>.</param>
+    public async Task<string> GetRawJsonAsync(
+        string sessionId,
+        string sessionToken,
+        string resource,
+        CancellationToken cancellationToken = default)
+    {
+        using var response = await SendAsync(
+            HttpMethod.Get,
+            $"api/v1/trading-sessions/{Escape(sessionId)}/{resource}",
+            null,
+            cancellationToken,
+            sessionToken);
+
+        var payload = await response.Content.ReadAsStringAsync(cancellationToken);
+        return Prettify(payload);
+    }
+
+    /// <summary>Reindenta il JSON per la lettura a schermo; se non è JSON lo restituisce com'è.</summary>
+    private static string Prettify(string payload)
+    {
+        if (string.IsNullOrWhiteSpace(payload))
+        {
+            return "(risposta vuota)";
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(payload);
+            return JsonSerializer.Serialize(document.RootElement, new JsonSerializerOptions { WriteIndented = true });
+        }
+        catch (JsonException)
+        {
+            return payload;
+        }
+    }
 }

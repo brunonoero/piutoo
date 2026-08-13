@@ -167,7 +167,13 @@ namespace cAlgo.Robots
         // 2.1.0 (11/08/2026) — l'autolimitazione locale passa da (simbolo) a (strategia, simbolo),
         // tetto locale sulle posizioni prima dell'invio, cancellazione OCO degli ordini rimasti in
         // modalita' PositionsOnly. Vedi docs/decisioni.md 2026-08-11.
-        private const string BotVersion = "2.2.0"; // aggiornare qui ad ogni release
+        // ATTENZIONE: questa versione e' condivisa con il server e va mossa SEMPRE insieme a
+        // Piootoo.Shared.PiootooVersion.Current. Sono i due lati dello stesso contratto HTTP, ma non
+        // condividono una build — questo file lo compila cTrader, che non referenzia le assembly
+        // della solution — quindi la sincronia e' manuale e non c'e' niente che la verifichi.
+        // Il disallineamento non blocca nulla: entrambi stampano la propria versione all'avvio, e
+        // il confronto si fa leggendo i due log.
+        private const string BotVersion = "2.2.0"; // aggiornare qui E in PiootooVersion, ad ogni release
         private const string StatusChartObjectName = "PiootooConnectionStatus";
 
         [Parameter("Server Base Url", DefaultValue = "http://localhost:5000")]

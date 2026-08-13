@@ -1290,3 +1290,33 @@ in ordine cronologico. Non è un changelog di codice: quello resta nei commit.
   In backtest il livello effettivo è tagliato a `Minimo` con un avviso all'avvio: il buffer della
   piattaforma, quando si riempie, scarta le righe più *vecchie*, cioè proprio quelle dell'avvio dove
   stanno le cause.
+- **2026-08-13** — *Visualizza → Stato server (sessioni)* (F9) apre una schermata diagnostica che
+  riversa in una text area copiabile tutto ciò che il server espone sulle sessioni vive: riepilogo,
+  `snapshot`, `groups`, `intents`, `signals`, `trades`, `rotation-log`. Nasce dal caso "il cBot non
+  apre posizioni": il log del bot dice solo *nessun intent per la barra corrente*, che è la stessa
+  riga sia quando nessuna strategia ha un setup sia quando le strategie non hanno abbastanza barre
+  perché il riscaldamento non è stato accodato — due cause opposte, un solo sintomo. Il riepilogo
+  mette in testa `LastBarTimeUtc`, che è il campo che le separa. Tre scelte non ovvie: il dump è
+  **JSON grezzo non deserializzato** (`TradingSessionApiClient.GetRawJsonAsync`), perché una
+  schermata che filtrasse i campi attraverso i contratti del client nasconderebbe proprio i campi
+  nuovi che si sta cercando di leggere; ogni risorsa che fallisce stampa `!! errore:` e il dump
+  prosegue, perché il buco è spesso l'informazione (`rotation-log` su sessione senza Titano);
+  la voce sta nel **menu** e non in `NavigationRegistry` perché non è un'entità da elencare ma una
+  lente sul processo, utile da qualunque schermata. Nessun polling: l'istantanea è quella del momento
+  in cui si preme Aggiorna.
+- **2026-08-13** — Server e `PiootooDistributedExecutionBot` condividono **un solo numero di
+  versione** (2.2.0 alla decisione), da muovere sempre insieme: `Piootoo.Shared.PiootooVersion.Current`
+  e la costante `BotVersion` del cBot. Sono i due lati dello stesso contratto HTTP ma non condividono
+  una build — il cBot lo compila cTrader, che non referenzia le assembly della solution — quindi non
+  esiste un punto unico leggibile a compile time e la sincronia è manuale, dichiarata nei commenti di
+  entrambi i file. Gli altri cBot (`Direct` 1.4.0, `BarCycleTest` 1.0.0) restano su versioni proprie:
+  non parlano col server, non c'è contratto comune di cui il numero sia la sintesi. Il server stampa
+  la versione all'avvio due volte, su `Console` prima che l'host parta e su `ILogger` in
+  `ApplicationStarted`, perché la prima riga si vede a schermo e la seconda è quella che finisce nel
+  log strutturato allegato a un ticket. La console WinForms confronta la propria versione compilata
+  con quella dichiarata da `GET /api/v1/version` e alza un alert se differiscono: il confronto non è
+  tautologico anche se leggono la stessa costante, perché la console si ricompila dalla solution
+  mentre il server gira spesso da `publish_run`, che può essere una build precedente — ed è il caso in
+  cui i contratti divergono e i sintomi non parlano mai di versioni. Nessun blocco, né lato server né
+  lato client: un server aggiornato che rifiutasse i bot in esecuzione farebbe più danni del
+  disallineamento che segnala. L'alert compare una volta per versione, non a ogni gesto.

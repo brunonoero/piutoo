@@ -25,6 +25,8 @@ partial class MainShellForm
         this._exitMenuItem = new System.Windows.Forms.ToolStripMenuItem();
         this._viewMenu = new System.Windows.Forms.ToolStripMenuItem();
         this._refreshMenuItem = new System.Windows.Forms.ToolStripMenuItem();
+        this._serverStateMenuItem = new System.Windows.Forms.ToolStripMenuItem();
+        this._viewMenuSeparator = new System.Windows.Forms.ToolStripSeparator();
         this._themeMenu = new System.Windows.Forms.ToolStripMenuItem();
         this._themeBlueMenuItem = new System.Windows.Forms.ToolStripMenuItem();
         this._themeGreenMenuItem = new System.Windows.Forms.ToolStripMenuItem();
@@ -91,6 +93,8 @@ partial class MainShellForm
         // 
         this._viewMenu.DropDownItems.AddRange(new System.Windows.Forms.ToolStripItem[] {
             this._refreshMenuItem,
+            this._serverStateMenuItem,
+            this._viewMenuSeparator,
             this._themeMenu});
         this._viewMenu.Name = "_viewMenu";
         this._viewMenu.Size = new System.Drawing.Size(78, 20);
@@ -103,6 +107,20 @@ partial class MainShellForm
         this._refreshMenuItem.Size = new System.Drawing.Size(200, 22);
         this._refreshMenuItem.Text = "Aggiorna schermata";
         this._refreshMenuItem.Click += new System.EventHandler(this.OnRefreshCurrentScreenClick);
+        //
+        // _serverStateMenuItem
+        //
+        this._serverStateMenuItem.Name = "_serverStateMenuItem";
+        this._serverStateMenuItem.ShortcutKeys = System.Windows.Forms.Keys.F9;
+        this._serverStateMenuItem.Size = new System.Drawing.Size(200, 22);
+        this._serverStateMenuItem.Text = "Stato server (sessioni)…";
+        this._serverStateMenuItem.ToolTipText = "Istantanea diagnostica delle sessioni vive sul server, copiabile.";
+        this._serverStateMenuItem.Click += new System.EventHandler(this.OnOpenServerStateClick);
+        //
+        // _viewMenuSeparator
+        //
+        this._viewMenuSeparator.Name = "_viewMenuSeparator";
+        this._viewMenuSeparator.Size = new System.Drawing.Size(197, 6);
         //
         // _themeMenu
         //
@@ -274,6 +292,8 @@ partial class MainShellForm
     private System.Windows.Forms.ToolStripMenuItem _exitMenuItem;
     private System.Windows.Forms.ToolStripMenuItem _viewMenu;
     private System.Windows.Forms.ToolStripMenuItem _refreshMenuItem;
+    private System.Windows.Forms.ToolStripMenuItem _serverStateMenuItem;
+    private System.Windows.Forms.ToolStripSeparator _viewMenuSeparator;
     private System.Windows.Forms.ToolStripMenuItem _themeMenu;
     private System.Windows.Forms.ToolStripMenuItem _themeBlueMenuItem;
     private System.Windows.Forms.ToolStripMenuItem _themeGreenMenuItem;
