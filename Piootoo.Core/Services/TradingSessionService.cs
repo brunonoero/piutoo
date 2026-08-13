@@ -201,6 +201,28 @@ public sealed class TradingSessionService : ITradingSessionService
         public HashSet<string> ReportIds { get; } = new(StringComparer.Ordinal);
         public List<OrderIntent> Intents { get; } = [];
         public List<RotationLogEntry> RotationLog { get; } = [];
+
+        /// <summary>
+        /// Buffer circolare degli ultimi eventi della sessione, per il monitor della console.
+        /// Vedi <see cref="SessionActivityEntry"/> per il perche' non basti lo snapshot.
+        ///
+        /// <para>E' una lista e non una coda perche' il client legge per progressivo e non per
+        /// posizione: serve poter rispondere "dammi tutto dopo il 412" con una ricerca binaria,
+        /// non consumare la coda.</para>
+        /// </summary>
+        public List<SessionActivityEntry> Activity { get; } = [];
+
+        /// <summary>Progressivo dell'ultimo evento registrato. Cresce e non torna mai indietro.</summary>
+        public long ActivitySequence { get; set; }
+
+        /// <summary>
+        /// Ultimo motivo di claim negato registrato, per account. Un claim negato si ripete a ogni
+        /// poll — ogni due secondi in live, ogni barra in backtest — e senza deduplica riempirebbe
+        /// il buffer di righe identiche, buttando fuori proprio gli eventi rari che si stanno
+        /// cercando. Si registra il cambio di motivo, non la ripetizione.
+        /// </summary>
+        public Dictionary<string, string> LastRefusalByAccount { get; } = new(StringComparer.OrdinalIgnoreCase);
+
         public Dictionary<string, TradingPositionSnapshot> ExternalPositions { get; } = new(StringComparer.OrdinalIgnoreCase);
         public Dictionary<string, (DateTime EntryTimeUtc, string IntentId, decimal? StopLoss, decimal? TakeProfit)>
             ExternalPositionDetails { get; } = new(StringComparer.OrdinalIgnoreCase);
@@ -1047,6 +1069,11 @@ public sealed class TradingSessionService : ITradingSessionService
                 var template = AddIntent(session, signal, result, addToIntents: false);
                 if (result?.Reason is not null) template.Status = OrderIntentStatus.Cancelled;
                 else session.EntryTemplates.Add(template);
+                RecordActivity(session, SessionActivityKind.IntentCreato,
+                    result?.Reason is { } scartato
+                        ? $"scartato dal sizing: {scartato}"
+                        : $"{template.Side} {template.OrderType} @ {template.Price:0.#####} qty {template.FinalQuantity:0.####}",
+                    strategyCode: template.StrategyCode, symbol: template.Symbol, intentId: template.IntentId);
                 emitted.Add(template);
                 continue;
             }
@@ -1141,6 +1168,15 @@ public sealed class TradingSessionService : ITradingSessionService
                 ExecutionReportStatus.Rejected => OrderIntentStatus.Rejected,
                 _ => OrderIntentStatus.Cancelled
             };
+
+            RecordActivity(session,
+                intent.IsClose ? SessionActivityKind.PosizioneChiusa : SessionActivityKind.EsitoEsecuzione,
+                report.FillPrice is { } prezzo
+                    ? $"{intent.Status} @ {prezzo:0.#####} qty {report.CumulativeFilledQuantity:0.####}"
+                    : $"{intent.Status}",
+                intent.AssignedAccountNumber ?? string.Empty,
+                intent.AssignedGroupId ?? string.Empty,
+                intent.StrategyCode, intent.Symbol, intent.IntentId);
 
             if (!intent.IsClose && intent.FilledQuantity == 0 &&
                 intent.Status is OrderIntentStatus.Rejected or OrderIntentStatus.Cancelled &&
@@ -1261,6 +1297,102 @@ public sealed class TradingSessionService : ITradingSessionService
     {
         var session = Get(sessionId, token);
         lock (session.Gate) return Snapshot(session);
+    }
+
+    /// <summary>
+    /// Quanti eventi tiene il buffer circolare di una sessione. Copre abbondantemente il ritmo di
+    /// un monitor che polla ogni pochi secondi; oltre non serve, perche' il registro durevole sono
+    /// <c>signals.json</c> e <c>trades.json</c> e non questo.
+    /// </summary>
+    private const int ActivityCapacity = 500;
+
+    /// <summary>
+    /// Registra un evento nel buffer della sessione. Va chiamato con <c>session.Gate</c> gia'
+    /// preso: tutti i punti che lo usano stanno gia' dentro il lock del claim o della barra.
+    ///
+    /// <para>Non fa I/O e non serializza niente: e' un <c>Add</c> con una potatura in testa. E'
+    /// deliberato — questo metodo viene chiamato dentro il ciclo del claim, che in backtest gira
+    /// per ogni barra e ogni account.</para>
+    /// </summary>
+    private static void RecordActivity(
+        Session session,
+        SessionActivityKind kind,
+        string detail,
+        string accountNumber = "",
+        string groupId = "",
+        string strategyCode = "",
+        string symbol = "",
+        string intentId = "")
+    {
+        session.Activity.Add(new SessionActivityEntry
+        {
+            Sequence = ++session.ActivitySequence,
+            // L'orologio della sessione e' l'ultima barra valutata, non l'ora di sistema: in un
+            // replay storico le due cose distano mesi, e un monitor che mostrasse l'ora di sistema
+            // su un backtest del 2025 sarebbe illeggibile. Fallback a UtcNow prima della prima barra.
+            TimestampUtc = session.LastEvaluatedBarTimeUtc ?? DateTime.UtcNow,
+            Kind = kind,
+            AccountNumber = accountNumber,
+            GroupId = groupId,
+            StrategyCode = strategyCode,
+            Symbol = symbol,
+            Detail = detail,
+            IntentId = intentId
+        });
+
+        if (session.Activity.Count > ActivityCapacity)
+            session.Activity.RemoveRange(0, session.Activity.Count - ActivityCapacity);
+    }
+
+    /// <summary>
+    /// Registra un claim negato solo quando il MOTIVO cambia rispetto all'ultimo gia' registrato
+    /// per quell'account.
+    ///
+    /// <para>Senza questa guardia il buffer si riempie di "nessun segnale per la barra corrente"
+    /// ripetuto a ogni poll, e gli eventi rari — quelli per cui il monitor esiste — vengono spinti
+    /// fuori dalla finestra prima che qualcuno li veda. E' la stessa deduplica che il server
+    /// applica gia' al proprio log (<c>LastClaimRefusal</c> nel controller).</para>
+    /// </summary>
+    private static void RecordRefusal(Session session, string accountNumber, string groupId, string stage)
+    {
+        if (string.IsNullOrWhiteSpace(stage))
+            return;
+        if (session.LastRefusalByAccount.TryGetValue(accountNumber, out var precedente) && precedente == stage)
+            return;
+
+        session.LastRefusalByAccount[accountNumber] = stage;
+        RecordActivity(session, SessionActivityKind.ClaimNegato, stage, accountNumber, groupId);
+    }
+
+    /// <summary>
+    /// Gli eventi della sessione dopo <paramref name="since"/>. Il client passa il progressivo
+    /// dell'ultimo evento che ha gia' mostrato e riceve solo il nuovo.
+    ///
+    /// <para><see cref="SessionActivityResponse.Troncato"/> dice che fra <paramref name="since"/> e
+    /// il primo evento ancora in buffer c'e' un buco: il chiamante ha pollato troppo lentamente e
+    /// il buffer circolare ha gia' buttato quello che gli manca. Dichiararlo e' il punto — una
+    /// griglia con un buco silenzioso e' peggio di una che lo ammette.</para>
+    /// </summary>
+    public SessionActivityResponse GetActivity(string sessionId, string token, long since = 0)
+    {
+        var session = Get(sessionId, token);
+        lock (session.Gate)
+        {
+            var entries = session.Activity.Where(e => e.Sequence > since).ToList();
+
+            // Il buco c'e' solo se il client aveva gia' visto qualcosa (since > 0) e il buffer non
+            // parte da dove lui si era fermato. Alla prima chiamata (since = 0) ricevere un buffer
+            // gia' potato e' normale, non una perdita.
+            var primoInBuffer = session.Activity.Count > 0 ? session.Activity[0].Sequence : 0;
+            var troncato = since > 0 && primoInBuffer > since + 1;
+
+            return new SessionActivityResponse
+            {
+                LastSequence = session.ActivitySequence,
+                Troncato = troncato,
+                Entries = entries
+            };
+        }
     }
 
     /// <summary>
@@ -1634,7 +1766,10 @@ public sealed class TradingSessionService : ITradingSessionService
                 .FirstOrDefault();
 
             if (template is null)
+            {
+                RecordRefusal(session, accountNumber, groupId, stage);
                 return new AccountSignalResponse { Reason = "NoSignal", ReasonDetail = stage };
+            }
 
             var claim = CloneForClaim(session, template, accountNumber, groupId);
             if (claim.FinalQuantity <= 0)
@@ -1650,6 +1785,10 @@ public sealed class TradingSessionService : ITradingSessionService
                         $"{claim.FinalQuantity:0.####}). {claim.SizingReason}"
                 };
             session.Intents.Add(claim);
+            session.LastRefusalByAccount.Remove(accountNumber);
+            RecordActivity(session, SessionActivityKind.ClaimServito,
+                $"{claim.Side} {claim.OrderType} @ {claim.Price:0.#####} qty {claim.FinalQuantity:0.####}",
+                accountNumber, groupId, claim.StrategyCode, claim.Symbol, claim.IntentId);
             if (!session.TemplateClaimedGroups.TryGetValue(template.IntentId, out var claimedGroups))
                 session.TemplateClaimedGroups[template.IntentId] = claimedGroups = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             claimedGroups.Add(groupId);

@@ -583,6 +583,91 @@ public sealed class TradingPositionSnapshot
     public string AccountNumber { get; init; } = string.Empty;
 }
 
+/// <summary>
+/// Un evento della sessione, per il monitor della console.
+///
+/// <para><b>Perche' non basta lo snapshot.</b> <see cref="TradingSessionSnapshot"/> dice
+/// <i>cos'e' aperto adesso</i>: posizioni, intent pendenti, equity. Non puo' dire <i>perche'</i>
+/// mezz'ora fa non e' entrato niente, perche' quel "perche'" non e' uno stato — e' una decisione
+/// che nasce e muore dentro un claim. Un monitor costruito sul solo snapshot mostra a lungo
+/// "0 posizioni, 0 pending" senza distinguere "nessuna strategia ha prodotto un segnale" da
+/// "li stava scartando tutti", che sono i due casi opposti da cui parte ogni indagine.</para>
+///
+/// <para>Vive in memoria in un buffer circolare per sessione: e' diagnostica viva, non
+/// contabilita'. Il registro durevole restano <c>signals.json</c> e <c>trades.json</c>.</para>
+/// </summary>
+public sealed class SessionActivityEntry
+{
+    /// <summary>
+    /// Progressivo crescente e senza buchi dentro la sessione. Il client rilegge con
+    /// <c>?since=</c> e riceve solo il nuovo: senza, un monitor che polla ogni due secondi
+    /// riscarica tutto il buffer ogni volta.
+    /// </summary>
+    public required long Sequence { get; init; }
+
+    public required DateTime TimestampUtc { get; init; }
+    public required SessionActivityKind Kind { get; init; }
+
+    /// <summary>Account a cui l'evento si riferisce. Vuoto per gli eventi che non nascono da un claim.</summary>
+    public string AccountNumber { get; init; } = string.Empty;
+
+    public string GroupId { get; init; } = string.Empty;
+    public string StrategyCode { get; init; } = string.Empty;
+    public string Symbol { get; init; } = string.Empty;
+
+    /// <summary>
+    /// Il testo che spiega l'evento: per un claim negato e' lo stadio del filtro che ha svuotato
+    /// la lista, cioe' esattamente cio' che il cBot stampa come "Nessun intent per l'account".
+    /// </summary>
+    public string Detail { get; init; } = string.Empty;
+
+    /// <summary>Intent coinvolto, quando ce n'e' uno. Permette di correlare l'evento con la griglia degli intent.</summary>
+    public string IntentId { get; init; } = string.Empty;
+}
+
+/// <summary>
+/// Tipo di evento. Deliberatamente pochi valori e grossolani: servono a colorare e filtrare una
+/// griglia, non a classificare il dominio. Il dettaglio sta in <see cref="SessionActivityEntry.Detail"/>.
+/// </summary>
+public enum SessionActivityKind
+{
+    /// <summary>Una barra ha prodotto un template di ingresso.</summary>
+    IntentCreato,
+
+    /// <summary>Un account ha reclamato un intent e se l'e' portato via.</summary>
+    ClaimServito,
+
+    /// <summary>Un claim non ha restituito niente, e <see cref="SessionActivityEntry.Detail"/> dice quale filtro lo ha svuotato.</summary>
+    ClaimNegato,
+
+    /// <summary>Il client ha riportato l'esito di un ordine (riempito, rifiutato, annullato).</summary>
+    EsitoEsecuzione,
+
+    /// <summary>Una posizione si e' chiusa.</summary>
+    PosizioneChiusa,
+
+    /// <summary>Cambio di stato della sessione (avvio, stop, ripresa).</summary>
+    Sessione
+}
+
+/// <summary>
+/// Risposta di <c>GET /activity</c>: la coda degli eventi dopo <c>since</c>, piu' il progressivo
+/// corrente perche' il client sappia da dove ripartire anche quando la pagina e' vuota.
+/// </summary>
+public sealed class SessionActivityResponse
+{
+    public required long LastSequence { get; init; }
+
+    /// <summary>
+    /// Vero quando il buffer circolare ha gia' buttato eventi che il client non ha mai visto —
+    /// cioe' quando ha pollato troppo lentamente rispetto al ritmo della sessione. Va detto:
+    /// una griglia con un buco silenzioso e' peggio di una che dichiara di averlo.
+    /// </summary>
+    public bool Troncato { get; init; }
+
+    public IReadOnlyList<SessionActivityEntry> Entries { get; init; } = [];
+}
+
 public sealed class TradingSessionSnapshot
 {
     public required string SessionId { get; init; }

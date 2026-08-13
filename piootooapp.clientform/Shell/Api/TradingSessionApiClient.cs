@@ -56,6 +56,23 @@ public sealed class TradingSessionApiClient : ApiClientBase
             cancellationToken,
             sessionToken);
 
+    /// <summary>
+    /// Eventi della sessione dopo <paramref name="since"/>: il monitor passa il progressivo
+    /// dell'ultimo evento gia' in griglia e riceve solo il nuovo, invece di riscaricare il buffer
+    /// a ogni giro.
+    /// </summary>
+    public Task<SessionActivityResponse> GetActivityAsync(
+        string sessionId,
+        string sessionToken,
+        long since = 0,
+        CancellationToken cancellationToken = default)
+        => SendForAsync<SessionActivityResponse>(
+            HttpMethod.Get,
+            $"api/v1/trading-sessions/{Escape(sessionId)}/activity?since={since}",
+            null,
+            cancellationToken,
+            sessionToken);
+
     public Task<List<TradingGroupRow>> GetGroupsAsync(
         string sessionId,
         string sessionToken,

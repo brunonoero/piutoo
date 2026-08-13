@@ -1320,3 +1320,38 @@ in ordine cronologico. Non è un changelog di codice: quello resta nei commit.
   cui i contratti divergono e i sintomi non parlano mai di versioni. Nessun blocco, né lato server né
   lato client: un server aggiornato che rifiutasse i bot in esecuzione farebbe più danni del
   disallineamento che segnala. L'alert compare una volta per versione, non a ogni gesto.
+- **2026-08-13** — Il cBot distribuito passa a **2.3.0** e i tre avvisi diagnostici
+  introdotti in 2.2.0 diventano **scarti**. Il caso che ha forzato la scelta è nei log di
+  backtest del 26/06 e 07/07: `PTS_NQ_TFM_001_60` riceve uno Stop dal lato sbagliato del
+  mercato, il bot stampa l'ATTENZIONE e piazza l'ordine lo stesso, che si riempie entro il
+  millisecondo. Un avviso che non ferma nulla documenta il difetto invece di evitarlo.
+  Ora si scartano: livello dal lato sbagliato, livello oltre 8x lo stop di distanza
+  (lo stesso prezzo veniva riproposto per due giorni, fino a 323 pip dal mercato) e
+  spread oltre il 20% dello stop. Tutti e tre disattivabili da parametro.
+- **2026-08-13** — L'`eta` dell'intent era calcolata su `ValidFromUtc`, che è il bordo
+  della barra **successiva** e quindi un istante futuro per costruzione: ne uscivano
+  `3900s`, `-3599s`, `-188100s`, numeri che non misuravano né il ritardo né l'attesa.
+  Sostituita da due grandezze separate: **ritardo** (da `CreatedAtUtc`, cioè dalla barra
+  che ha prodotto il segnale — il campo era già sul filo, il bot non lo leggeva) e
+  **attesa** (a `ValidFromUtc`). Nessuna modifica al contratto server.
+- **2026-08-13** — Il trailing stop ha un **passo minimo** (10% della distanza di
+  trailing) e un **intervallo minimo** fra modifiche (5s). Senza, il bot inseguiva il Bid
+  tick per tick: nei log una singola posizione produce ~50 `ModifyPosition`, alcune da 0,1
+  punti e più d'una nello stesso secondo. In backtest è rumore che satura il buffer, in
+  live è rate limit del broker e reject della modifica successiva — che potrebbe essere
+  quella utile.
+- **2026-08-13** — Un ordine pending identico a quello già a mercato (verso, tipo,
+  livello, volume, SL/TP) viene **esteso** invece che cancellato e ripiazzato, e il ritiro
+  degli ordini scaduti si sposta **dopo** il poll della barra. Costo del compromesso: fra
+  l'apertura della barra e il ritiro passa il tempo di push e poll, e in quella finestra
+  un ordine non rinnovato è ancora a mercato. Accettato perché il livello è quello che la
+  strategia aveva attivo fino a un istante prima; `ExtendIdenticalPendingOrders=false`
+  ripristina il comportamento precedente.
+- **2026-08-13** — Il cBot stampa il **consuntivo di ogni trade alla chiusura**
+  (entry/exit, motivo, lordo/commissioni/swap/netto, netto per contratto Piootoo, MFE,
+  MAE, durata, modifiche di trailing) e la **tabella per strategia a fine run** (trade,
+  win rate, netto, media, profit factor, migliore/peggiore). Fino alla 2.2.0 il log
+  raccontava per intero come nascevano gli ordini e taceva su come finivano: si poteva
+  dire se il bot aveva eseguito, non se aveva guadagnato. Profit factor è `null` e non
+  infinito quando non ci sono perdite: in tabella un numero enorme si legge come risultato
+  eccezionale mentre significa solo campione piccolo.

@@ -159,6 +159,15 @@ namespace cAlgo.Robots
         /// </summary>
         private const int MaxSignalsPerDrain = 200;
 
+        // 2.3.0 (13/08/2026) — esecuzione difensiva e consuntivo dei trade. Gli intent con il livello
+        // dal lato sbagliato, troppo lontani dal mercato o con lo spread troppo pesante sullo stop
+        // ora vengono SCARTATI e non piu' soltanto segnalati; il trailing ha un passo minimo e un
+        // intervallo minimo fra le modifiche; un pending identico a quello gia' a mercato viene
+        // esteso invece che cancellato e ripiazzato; l'"eta" dell'intent, che era calcolata su un
+        // istante futuro per costruzione, diventa ritardo (dalla barra del segnale) e attesa (alla
+        // validita'); a ogni chiusura si stampa il consuntivo del trade e a fine run la tabella per
+        // strategia. Vedi docs/decisioni.md 2026-08-13.
+        //
         // 2.2.0 (12/08/2026) — diagnostica dei segnali: Bid/Ask, distanza dal lato di ingresso, eta'
         // dell'intent e coerenza del livello pending stampati all'arrivo di ogni intent (sempre, a
         // qualunque livello) e scritti sul JSONL. Il flag "Log dettagliato" diventa il parametro a
@@ -173,7 +182,7 @@ namespace cAlgo.Robots
         // della solution — quindi la sincronia e' manuale e non c'e' niente che la verifichi.
         // Il disallineamento non blocca nulla: entrambi stampano la propria versione all'avvio, e
         // il confronto si fa leggendo i due log.
-        private const string BotVersion = "2.2.0"; // aggiornare qui E in PiootooVersion, ad ogni release
+        private const string BotVersion = "2.3.0"; // aggiornare qui E in PiootooVersion, ad ogni release
         private const string StatusChartObjectName = "PiootooConnectionStatus";
 
         [Parameter("Server Base Url", DefaultValue = "http://localhost:5000")]
@@ -200,6 +209,45 @@ namespace cAlgo.Robots
 
         [Parameter("Max Entry Slippage (Pips)", DefaultValue = 5.0, MinValue = 0)]
         public double MaxEntrySlippagePips { get; set; }
+
+        // Un livello pending dal lato sbagliato del mercato non e' una condizione di mercato: e' un
+        // difetto di prezzatura del server (barra vecchia, segnale ricalcolato male). Eseguirlo
+        // trasforma uno stop in un market a prezzo peggiore, cioe' esattamente il contrario di quello
+        // che la strategia chiedeva. Fino alla 2.2.0 il bot lo segnalava e lo piazzava lo stesso.
+        [Parameter("Scarta livelli dal lato sbagliato", DefaultValue = true, Group = "Filtri di ingresso")]
+        public bool RejectWrongSideLevels { get; set; }
+
+        // Distanza massima fra il prezzo corrente e il livello di un pending, misurata in multipli
+        // dello stop dichiarato dall'intent. Un breakout a 40 punti su uno stop da 12,5 e' normale
+        // (3,2x); lo stesso livello riproposto per due giorni finche' il mercato non ci arriva, a
+        // 300 punti di distanza (24x), non e' piu' il segnale di quella barra. Zero = nessun limite.
+        [Parameter("Distanza max pending (multipli di stop)", DefaultValue = 8.0, MinValue = 0, Group = "Filtri di ingresso")]
+        public double MaxEntryDistanceStopMultiple { get; set; }
+
+        // Peso massimo dello spread sullo stop della strategia, in percentuale. Su uno stop da 12,5
+        // punti uno spread di 2,5 e' il 20%: lo stop deve reggere un quinto di respiro in meno di
+        // quanto la strategia ha ipotizzato. Non e' un difetto del bot, e' una coppia
+        // strategia/strumento sbagliata in quell'istante. Zero = nessun limite.
+        [Parameter("Spread max sullo stop (%)", DefaultValue = 20.0, MinValue = 0, Group = "Filtri di ingresso")]
+        public double MaxSpreadPercentOfStop { get; set; }
+
+        // Passo minimo di un aggiornamento del trailing, come frazione della distanza di trailing
+        // dichiarata dall'intent. Senza questo il bot insegue il Bid tick per tick e produce decine
+        // di ModifyPosition da un decimo di punto, alcune nello stesso secondo: in backtest e' solo
+        // rumore, in live e' rate limit del broker e reject.
+        // Quando il segnale della barra nuova riemette il livello identico all'ordine gia' a mercato,
+        // l'ordine viene tenuto e gli si sposta la scadenza invece di cancellarlo e ripiazzarlo. A
+        // false si torna al comportamento fino alla 2.2.0: ritiro all'apertura della barra e nuovo
+        // ordine al claim, cioe' due ordini per barra sullo stesso prezzo. Vedi OnStreamBarClosed per
+        // il compromesso che questo introduce sulla finestra di esposizione.
+        [Parameter("Estendi i pending identici", DefaultValue = true, Group = "Filtri di ingresso")]
+        public bool ExtendIdenticalPendingOrders { get; set; }
+
+        [Parameter("Passo minimo trailing (frazione)", DefaultValue = 0.10, MinValue = 0, MaxValue = 1, Group = "Trailing")]
+        public double TrailingMinStepFraction { get; set; }
+
+        [Parameter("Intervallo minimo trailing (secondi)", DefaultValue = 5, MinValue = 0, Group = "Trailing")]
+        public int TrailingMinIntervalSeconds { get; set; }
 
         [Parameter("Http Timeout (secondi)", DefaultValue = 10, MinValue = 1)]
         public int HttpTimeoutSeconds { get; set; }
@@ -263,6 +311,14 @@ namespace cAlgo.Robots
         /// questo strumento.
         /// </summary>
         private readonly Dictionary<string, SpreadStats> _spreadByStrategy =
+            new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// Esito dei trade chiusi, per strategia. Come gli spread non decide niente: e' il
+        /// consuntivo con cui a fine run si risponde a "ha guadagnato?", che dai soli fill non si
+        /// risponde.
+        /// </summary>
+        private readonly Dictionary<string, TradeStats> _tradeStats =
             new(StringComparer.OrdinalIgnoreCase);
 
         /// <summary>
@@ -391,6 +447,38 @@ namespace cAlgo.Robots
             public int BarsInPosition { get; set; }
             /// <summary>Rapporto contratto broker / contratto Piootoo, per convertire NetProfit in utile per contratto.</summary>
             public decimal ContractMultiplier { get; set; } = 1m;
+
+            /// <summary>
+            /// Ultimo istante in cui il trailing ha davvero modificato lo stop. Con
+            /// <c>TrailingMinIntervalSeconds</c> e' cio' che impedisce la raffica di modifiche nello
+            /// stesso secondo.
+            /// </summary>
+            public DateTime? LastTrailingUpdateUtc { get; set; }
+
+            /// <summary>Quante volte il trailing ha spostato lo stop. Va nel log di chiusura: dice se la protezione ha lavorato o se il trade e' morto sullo stop iniziale.</summary>
+            public int TrailingUpdates { get; set; }
+
+            // --- Misure per il consuntivo del trade. Non influenzano nessuna decisione. ---
+
+            /// <summary>Prezzo a cui la posizione si e' aperta davvero, non quello dell'intent.</summary>
+            public double EntryPrice { get; set; }
+
+            /// <summary>Apertura della posizione, per misurarne la durata alla chiusura.</summary>
+            public DateTime? OpenTimeUtc { get; set; }
+
+            /// <summary>
+            /// MFE: massimo movimento a favore, in punti, mai raggiunto mentre la posizione era
+            /// aperta. Confrontato col take profit dice se il target era irraggiungibile o se il
+            /// trade era in utile e lo ha restituito.
+            /// </summary>
+            public double MaxFavorablePoints { get; set; }
+
+            /// <summary>
+            /// MAE: massimo movimento contrario, in punti. Confrontato con lo stop dice quanto
+            /// margine e' rimasto: un MAE sistematicamente vicino allo stop sui trade vincenti
+            /// significa che lo stop e' appena sufficiente, non che e' giusto.
+            /// </summary>
+            public double MaxAdversePoints { get; set; }
         }
 
         private sealed class LocalSessionState
@@ -728,10 +816,15 @@ namespace cAlgo.Robots
         /// </summary>
         private void OnStreamBarClosed(Pair stream)
         {
-            // Prima si ritira l'ordine della barra appena chiusa: l'ordine "next bar" ha esaurito la sua
-            // unica barra di validità, e riemettere il signal senza cancellarlo ne accumulerebbe uno per
-            // barra a livelli diversi, tutti eseguibili.
-            CancelExpiredPendingOrders(stream);
+            // L'ordine della barra appena chiusa va ritirato — "next bar" vuol dire una barra sola, e
+            // senza il ritiro se ne accumulerebbe uno per barra a livelli diversi, tutti eseguibili —
+            // ma il ritiro sta DOPO il poll, non prima (vedi in fondo al metodo). Ritirarlo qui
+            // renderebbe impossibile riconoscere il caso, frequentissimo, in cui il segnale della
+            // barra nuova riemette lo stesso identico livello: l'ordine da confrontare sarebbe gia'
+            // stato cancellato, e non resterebbe che ripiazzarlo. Vedi
+            // TryExtendIdenticalPendingOrder.
+            if (!ExtendIdenticalPendingOrders)
+                CancelExpiredPendingOrders(stream);
 
             var pushed = TryPushClosedBar(stream);
             if (pushed)
@@ -761,6 +854,22 @@ namespace cAlgo.Robots
             if (pushed && ShouldPollAfterPush())
                 PollNextSignal();
 
+            // Ritiro degli ordini della barra precedente, dopo che il segnale nuovo ha avuto la sua
+            // occasione di rinnovarli. Chi e' stato rinnovato ha la marca di scadenza riportata alla
+            // barra corrente e sopravvive; tutti gli altri muoiono qui.
+            //
+            // <para><b>Il prezzo di questa scelta, in chiaro.</b> Fra l'apertura della barra e questa
+            // riga passa il tempo del push e del poll — chiamate HTTP sincrone — e in quella finestra
+            // un ordine non rinnovato e' ancora a mercato e potrebbe riempirsi. E' un rischio reale
+            // ma limitato: il livello e' quello che la strategia aveva attivo fino a un istante fa,
+            // non un livello arbitrario, e la finestra e' quella di due chiamate locali. In cambio
+            // sparisce la coppia cancella/ripiazza per barra sullo stesso identico prezzo, che nei
+            // log di backtest e' la voce che copre tutte le altre. Se il compromesso non piace,
+            // ExtendIdenticalPendingOrders lo annulla: a false il ritiro torna a essere la prima cosa
+            // della barra.</para>
+            CancelExpiredPendingOrders(stream);
+
+            TrackExcursions();
             MoveStopsToBreakEven();
             MoveTrailingStops();
             CloseExpiredPositions();
@@ -792,6 +901,7 @@ namespace cAlgo.Robots
             if (EnforceWeekEndFlat())
                 return;
 
+            TrackExcursions();
             MoveStopsToBreakEven();
             MoveTrailingStops();
         }
@@ -975,6 +1085,45 @@ namespace cAlgo.Robots
         }
 
         /// <summary>
+        /// Aggiorna MFE e MAE delle posizioni aperte: quanto il prezzo e' andato a favore e quanto
+        /// contro, in punti, dal prezzo di ingresso.
+        ///
+        /// <para>Sono le due misure che spiegano un trade a posteriori, e nessuna delle due e'
+        /// ricostruibile dal solo esito: un trade chiuso in pari puo' essere uno che non si e' mai
+        /// mosso oppure uno che era a due terzi del target e lo ha restituito, e la conseguenza
+        /// operativa e' opposta. Si campiona a ogni tick sul lato di USCITA — Bid per i long, Ask per
+        /// gli short — che e' il prezzo a cui quel profitto sarebbe stato davvero incassato.</para>
+        /// </summary>
+        private void TrackExcursions()
+        {
+            if (_openPositions.Count == 0)
+                return;
+
+            foreach (var context in _openPositions.Values)
+            {
+                if (context.EntryPrice <= 0)
+                    continue;
+
+                var position = Positions.FirstOrDefault(item => item.Id == context.PositionId);
+                if (position is null)
+                    continue;
+
+                var symbol = Symbols.GetSymbol(position.SymbolName);
+                if (symbol is null)
+                    continue;
+
+                var movimento = position.TradeType == TradeType.Buy
+                    ? symbol.Bid - context.EntryPrice
+                    : context.EntryPrice - symbol.Ask;
+
+                if (movimento > context.MaxFavorablePoints)
+                    context.MaxFavorablePoints = movimento;
+                else if (-movimento > context.MaxAdversePoints)
+                    context.MaxAdversePoints = -movimento;
+            }
+        }
+
+        /// <summary>
         /// Mantiene lo stop nativo del broker alla distanza dichiarata dal
         /// massimo/minimo favorevole corrente. Il livello viene aggiornato
         /// soltanto in direzione protettiva, quindi un ritracciamento non
@@ -1008,8 +1157,30 @@ namespace cAlgo.Robots
                 if (!improvesStop)
                     continue;
 
+                // Il trailing insegue il prezzo a ogni tick, ma NON deve mandare un ordine di modifica
+                // a ogni tick. Senza queste due guardie il bot produce decine di ModifyPosition da un
+                // decimo di punto, anche piu' d'una nello stesso secondo: in backtest e' rumore che
+                // satura il buffer del log, in live e' traffico che il broker limita e poi rifiuta.
+                // Il guadagno di protezione di uno spostamento da 0,1 punti su uno stop da 12,5 e'
+                // nullo; il rischio di vedersi rifiutare la modifica *utile* perche' si e' sopra il
+                // rate limit non lo e'.
+                var passoMinimo = TrailingMinStepFraction > 0 ? distance * TrailingMinStepFraction : 0.0;
+                if (passoMinimo > 0 && position.StopLoss.HasValue &&
+                    Math.Abs(candidate - position.StopLoss.Value) < passoMinimo)
+                    continue;
+
+                var nowUtc = Server.TimeInUtc;
+                if (TrailingMinIntervalSeconds > 0 && context.LastTrailingUpdateUtc.HasValue &&
+                    (nowUtc - context.LastTrailingUpdateUtc.Value).TotalSeconds < TrailingMinIntervalSeconds)
+                    continue;
+
                 var result = ModifyPosition(position, candidate, position.TakeProfit);
-                if (!result.IsSuccessful && LogDiagnostico)
+                if (result.IsSuccessful)
+                {
+                    context.LastTrailingUpdateUtc = nowUtc;
+                    context.TrailingUpdates++;
+                }
+                else if (LogDiagnostico)
                     Print("Impossibile aggiornare trailing stop {0}/{1}: {2}",
                         context.Symbol, context.StrategyCode, result.Error);
             }
@@ -1205,6 +1376,7 @@ namespace cAlgo.Robots
                 Print("Poll saltati perche' il server non aveva nulla da consegnare: {0}.", _skippedPolls);
 
             PrintSpreadSummary();
+            PrintTradeSummary();
 
             foreach (var pair in _pairs)
                 if (pair.Series != null && pair.BarHandler != null)
@@ -1671,6 +1843,13 @@ namespace cAlgo.Robots
             // riga c'e' anche per gli intent che vengono scartati subito dopo.
             LogIntentMarket(intent, symbol);
 
+            // Filtri di sanita' sull'intent: livello dal lato sbagliato, livello troppo lontano,
+            // spread troppo pesante sullo stop. Stanno DOPO la riga diagnostica di proposito, cosi'
+            // di un ingresso scartato resta comunque la fotografia del mercato che lo ha fatto
+            // scartare, e prima di qualunque effetto sul broker.
+            if (RejectUnsoundIntent(intent, symbol))
+                return;
+
             // Solo per gli ordini a mercato. Uno Stop o un Limit sta per definizione LONTANO dal
             // prezzo corrente — è il livello a cui si vuole entrare, non quello a cui si è — quindi
             // misurarne la distanza come slippage scarta esattamente gli ordini che i motori Unger
@@ -1707,10 +1886,20 @@ namespace cAlgo.Robots
                 }
             }
 
-            _submittedIntentIds.Add(intent.IntentId);
             var tradeType = intent.Side == SignalTypeDto.Buy ? TradeType.Buy : TradeType.Sell;
             var rawVolume = Math.Max(0.01, (double)intent.FinalQuantity);
             var volume = symbol.NormalizeVolumeInUnits(rawVolume, RoundingMode.Down);
+
+            // Il motore riemette lo STESSO livello a ogni barra finche' la condizione regge. Quando
+            // il nuovo intent e' identico all'ordine gia' a mercato — stesso verso, tipo, livello,
+            // quantita' — cancellarlo e ripiazzarlo non cambia niente per il mercato ma costa due
+            // ordini al broker e due righe di log per barra: nei log fino alla 2.2.0 sono decine di
+            // coppie cancel/place consecutive sullo stesso prezzo, che nascondono i pochi eventi
+            // veri. Si tiene l'ordine in essere e gli si sposta la scadenza sulla barra nuova.
+            if (TryExtendIdenticalPendingOrder(intent, symbol, tradeType, volume))
+                return;
+
+            _submittedIntentIds.Add(intent.IntentId);
 
             // La label porta l'IntentId: posizione e ordine restano riconducibili al segnale che li ha
             // creati leggendo la sola piattaforma, senza dipendere dallo stato locale del bot.
@@ -1812,7 +2001,9 @@ namespace cAlgo.Robots
                 ProfitStallAfterUtc = intent.ProfitStallAfterUtc,
                 MaxBarsInPosition = intent.MaxBarsInPosition ?? 0,
                 BarsInPosition = 0,
-                ContractMultiplier = intent.ContractMultiplier > 0 ? intent.ContractMultiplier : 1m
+                ContractMultiplier = intent.ContractMultiplier > 0 ? intent.ContractMultiplier : 1m,
+                EntryPrice = position.EntryPrice,
+                OpenTimeUtc = Server.TimeInUtc
             };
             _pendingOrderBar.Remove(position.Label);
             _lastOpenIntentByLabel.Remove(position.Label); // l'intent ha prodotto la sua posizione: esaurito
@@ -1917,11 +2108,21 @@ namespace cAlgo.Robots
                 : (double?)null;
             double? spreadPips = symbol.PipSize > 0 ? spread / symbol.PipSize : (double?)null;
 
-            // Eta' dell'intent: dalla barra che lo ha generato a adesso. ValidFromUtc e' il bordo
-            // della barra successiva, quindi un valore negativo e' normale per un pending consegnato
-            // in anticipo; e' la crescita nel tempo che segnala un problema.
-            double? etaSecondi = intent.ValidFromUtc.HasValue
-                ? (Server.TimeInUtc - intent.ValidFromUtc.Value).TotalSeconds
+            // Due grandezze diverse, che fino alla 2.2.0 erano schiacciate in un unico "eta" calcolato
+            // su ValidFromUtc — cioe' su un istante FUTURO per costruzione, il bordo della barra
+            // successiva. Ne uscivano numeri senza senso (3900s, -3599s, -188100s) che non
+            // misuravano ne' l'una ne' l'altra cosa:
+            //  - RITARDO e' il tempo passato dalla barra che ha prodotto il segnale. E' l'unico
+            //    numero che dice se il collo di bottiglia sta nel giro push/valutazione/claim: su un
+            //    segnale sano vale meno di un paio di secondi, e se cresce il problema e' nostro.
+            //  - ATTESA e' quanto manca all'attivazione del pending. Negativa significa gia' attivo.
+            //    Un'attesa di piu' di una barra su un ordine "next bar" e' un intent vecchio
+            //    riproposto, non un segnale nuovo.
+            double? ritardoSecondi = intent.CreatedAtUtc.HasValue
+                ? (Server.TimeInUtc - intent.CreatedAtUtc.Value).TotalSeconds
+                : (double?)null;
+            double? attesaSecondi = intent.ValidFromUtc.HasValue
+                ? (intent.ValidFromUtc.Value - Server.TimeInUtc).TotalSeconds
                 : (double?)null;
 
             // Coerenza del livello col lato del mercato. Vale solo per i pending: un ordine a mercato
@@ -1936,14 +2137,25 @@ namespace cAlgo.Robots
             }
 
             Print("Intent {0}/{1} {2} {3}: prezzo {4:0.#####} | Bid {5:0.#####} Ask {6:0.#####} " +
-                  "spread {7:0.#####} ({8}) | distanza da {9} {10} | eta {11} | qty {12}",
+                  "spread {7:0.#####} ({8}) | distanza da {9} {10} | ritardo {11} | attesa {12} | qty {13}",
                 intent.Symbol, intent.StrategyCode, intent.Side, intent.OrderType, intent.Price,
                 bid, ask, spread,
                 spreadPips.HasValue ? $"{spreadPips.Value:0.#} pip" : "pip n/d",
                 intent.Side == SignalTypeDto.Buy ? "Ask" : "Bid",
                 distanzaPips.HasValue ? $"{distanzaPips.Value:0.#} pip" : "n/d",
-                etaSecondi.HasValue ? $"{etaSecondi.Value:0.#}s" : "n/d",
+                ritardoSecondi.HasValue ? $"{ritardoSecondi.Value:0.#}s" : "n/d",
+                attesaSecondi.HasValue ? $"{attesaSecondi.Value:0.#}s" : "n/d",
                 intent.FinalQuantity);
+
+            // Un'attesa che supera la barra della strategia non e' un pending consegnato in anticipo:
+            // e' un intent di una barra passata che il server continua a riproporre. Senza questa
+            // riga si vede solo lo stesso livello ripiazzato per ore, senza capire da dove venga.
+            if (attesaSecondi.HasValue && intent.TimeframeMinutes > 0 &&
+                Math.Abs(attesaSecondi.Value) > intent.TimeframeMinutes * 60.0)
+                Print("  ATTENZIONE {0}/{1}: attesa {2:0}s oltre la barra da {3} minuti " +
+                      "(ValidFrom {4:yyyy-MM-dd HH:mm:ss}Z, ora server {5:yyyy-MM-dd HH:mm:ss}Z): intent non allineato alla barra corrente.",
+                    intent.Symbol, intent.StrategyCode, attesaSecondi.Value, intent.TimeframeMinutes,
+                    intent.ValidFromUtc, Server.TimeInUtc);
 
             // Riga separata e in chiaro: e' un difetto del sistema, non una condizione di mercato, e
             // deve saltare all'occhio anche in mezzo a un log fitto.
@@ -1967,7 +2179,9 @@ namespace cAlgo.Robots
                 SpreadPips = spreadPips,
                 DistanzaPips = distanzaPips,
                 LivelloCoerente = livelloCoerente,
-                EtaSecondi = etaSecondi,
+                RitardoSecondi = ritardoSecondi,
+                AttesaSecondi = attesaSecondi,
+                intent.CreatedAtUtc,
                 intent.ValidFromUtc,
                 intent.ExpiresAtUtc,
                 intent.FinalQuantity,
@@ -1975,6 +2189,198 @@ namespace cAlgo.Robots
                 intent.TakeProfit,
                 ServerTimeUtc = Server.TimeInUtc
             });
+        }
+
+        /// <summary>
+        /// Quando il nuovo intent descrive esattamente l'ordine pending gia' a mercato per quella
+        /// strategia, ne prolunga la validita' di una barra invece di sostituirlo, e riporta al
+        /// server il nuovo intent come annullato. Restituisce true se l'ha fatto.
+        ///
+        /// <para><b>Perche' annullare il nuovo e tenere il vecchio, e non il contrario.</b> L'ordine
+        /// a mercato porta nella label l'IntentId del segnale che lo ha piazzato, e quell'intent e'
+        /// ancora <c>Pending</c> lato server: e' lui a tenere il posto. Annullarlo per far posto a un
+        /// gemello significherebbe rilasciare e riprendere gli stessi lucchetti a ogni barra. Il
+        /// nuovo intent invece va chiuso esplicitamente, altrimenti resta assegnato a questo account
+        /// e il claim continua a riproporlo.</para>
+        ///
+        /// <para>Il confronto e' su tutto cio' che il broker esegue — verso, tipo, livello, volume,
+        /// stop e target — e sul livello usa la tolleranza di un tick: due decimali di differenza su
+        /// un prezzo ricalcolato non sono un ordine diverso.</para>
+        /// </summary>
+        private bool TryExtendIdenticalPendingOrder(
+            OrderIntentDto intent, Symbol symbol, TradeType tradeType, double volume)
+        {
+            if (!ExtendIdenticalPendingOrders)
+                return false;
+            if (intent.OrderType != TradeOrderTypeDto.Stop && intent.OrderType != TradeOrderTypeDto.Limit)
+                return false;
+            if (intent.Price <= 0)
+                return false;
+
+            var prefix = MakeStrategyLabelPrefix(intent.StrategyCode);
+            var tolleranza = symbol.TickSize > 0 ? symbol.TickSize : 0.0;
+            var atteso = intent.OrderType == TradeOrderTypeDto.Stop
+                ? PendingOrderType.Stop
+                : PendingOrderType.Limit;
+
+            var esistente = PendingOrders.FirstOrDefault(order =>
+                order.Label != null &&
+                order.Label.StartsWith(prefix, StringComparison.Ordinal) &&
+                order.SymbolName.Equals(symbol.Name, StringComparison.OrdinalIgnoreCase) &&
+                order.TradeType == tradeType &&
+                order.OrderType == atteso &&
+                Math.Abs(order.TargetPrice - (double)intent.Price) <= tolleranza &&
+                Math.Abs(order.VolumeInUnits - volume) < 1e-9 &&
+                SameLevel(order.StopLoss, (double)intent.Price, intent.StopLoss, tradeType, isStopLoss: true, tolleranza) &&
+                SameLevel(order.TakeProfit, (double)intent.Price, intent.TakeProfit, tradeType, isStopLoss: false, tolleranza));
+
+            if (esistente is null)
+                return false;
+
+            // La scadenza si misura sulla barra dello stream della strategia: riportarla a quella
+            // corrente e' esattamente cio' che avrebbe fatto il piazzamento di un ordine nuovo.
+            var stream = FindPair(intent.Symbol, intent.TimeframeMinutes);
+            if (stream?.Series != null)
+                _pendingOrderBar[esistente.Label] = new PendingOrderMark
+                {
+                    Stream = stream,
+                    BarCount = stream.Series.Count
+                };
+
+            Print("Ingresso {0}/{1} non riemesso: ordine {2} gia' a mercato allo stesso livello {3:0.#####}, validita' estesa alla barra corrente.",
+                intent.Symbol, intent.StrategyCode, esistente.Id, intent.Price);
+            LogJsonEvent("intent/pending-esteso", new
+            {
+                intent.IntentId,
+                intent.StrategyCode,
+                intent.Symbol,
+                OrdineEsistente = esistente.Id,
+                LabelEsistente = esistente.Label,
+                IntentPrice = intent.Price,
+                ServerTimeUtc = Server.TimeInUtc
+            });
+
+            ReportExecution(intent.IntentId, intent.Symbol, ExecutionReportStatusDto.Cancelled, 0, null);
+            return true;
+        }
+
+        /// <summary>
+        /// Dice se lo Stop Loss (o il Take Profit) gia' presente sull'ordine e' lo stesso che
+        /// l'intent chiede. Le due grandezze non sono omogenee e vanno rese tali prima di
+        /// confrontarle: cTrader tiene un <b>livello assoluto</b> di prezzo, il server manda una
+        /// <b>distanza in punti</b> dal livello di ingresso. Qui si ricostruisce il livello atteso
+        /// dalla distanza e si confrontano due prezzi.
+        ///
+        /// <para>Il verso conta: per un long lo stop sta sotto l'ingresso e il target sopra, per uno
+        /// short il contrario. Entrambi assenti = uguali; uno solo assente = diversi, perche'
+        /// aggiungere o togliere una protezione e' una modifica sostanziale dell'ordine.</para>
+        /// </summary>
+        private static bool SameLevel(
+            double? livelloOrdine, double prezzoIngresso, decimal? distanzaIntent,
+            TradeType tradeType, bool isStopLoss, double tolleranza)
+        {
+            var dichiarato = distanzaIntent.HasValue && distanzaIntent.Value > 0;
+            if (!livelloOrdine.HasValue && !dichiarato)
+                return true;
+            if (!livelloOrdine.HasValue || !dichiarato)
+                return false;
+
+            var distanza = (double)distanzaIntent.Value;
+            var sopraIngresso = isStopLoss
+                ? tradeType == TradeType.Sell   // stop di uno short: sopra l'ingresso
+                : tradeType == TradeType.Buy;   // target di un long: sopra l'ingresso
+            var atteso = sopraIngresso ? prezzoIngresso + distanza : prezzoIngresso - distanza;
+
+            return Math.Abs(livelloOrdine.Value - atteso) <= Math.Max(tolleranza, 1e-9);
+        }
+
+        /// <summary>
+        /// Scarta gli intent che non sono eseguibili come la strategia li ha pensati. Restituisce
+        /// true quando l'intent e' stato rifiutato e riportato al server, e il chiamante deve
+        /// fermarsi.
+        ///
+        /// <para>Sono tre condizioni distinte, tutte disattivabili dai rispettivi parametri, e
+        /// nessuna delle tre e' un evento di mercato:</para>
+        /// <list type="number">
+        /// <item><b>Livello dal lato sbagliato.</b> Uno Stop long sotto l'Ask (o uno Stop short sopra
+        /// il Bid) si riempie all'istante: non e' piu' il breakout che la strategia aspettava, e' un
+        /// ordine a mercato al prezzo peggiore dei due. Nei log fino alla 2.2.0 questo produceva fill
+        /// entro il millisecondo dal piazzamento, con l'avviso stampato e l'ordine mandato lo stesso.</item>
+        /// <item><b>Livello troppo lontano.</b> Un pending "next bar" vale la sua barra: se il
+        /// mercato e' a venti volte lo stop di distanza, quel livello non verra' toccato in questa
+        /// barra e l'ordine e' solo un intent vecchio che il server continua a riproporre. La misura
+        /// e' in multipli dello stop e non in pips perche' e' l'unica scala che vale per strategie
+        /// con respiro diverso sullo stesso strumento.</item>
+        /// <item><b>Spread troppo pesante.</b> Su un long si entra sull'Ask e lo stop e' valutato sul
+        /// Bid: uno spread pari a un quinto dello stop si mangia un quinto del respiro prima ancora
+        /// che il trade cominci. Si misura qui, al piazzamento, perche' e' l'ultimo istante in cui
+        /// non fare il trade e' ancora un'opzione.</item>
+        /// </list>
+        /// </summary>
+        private bool RejectUnsoundIntent(OrderIntentDto intent, Symbol symbol)
+        {
+            var bid = symbol.Bid;
+            var ask = symbol.Ask;
+            var prezzo = (double)intent.Price;
+            var isPending = intent.OrderType == TradeOrderTypeDto.Stop ||
+                            intent.OrderType == TradeOrderTypeDto.Limit;
+
+            string motivo = null;
+
+            if (RejectWrongSideLevels && isPending && prezzo > 0)
+            {
+                var coerente = intent.OrderType == TradeOrderTypeDto.Stop
+                    ? (intent.Side == SignalTypeDto.Buy ? prezzo > ask : prezzo < bid)
+                    : (intent.Side == SignalTypeDto.Buy ? prezzo < ask : prezzo > bid);
+                if (!coerente)
+                    motivo = $"livello {intent.OrderType} {intent.Side} {prezzo:0.#####} dal lato sbagliato " +
+                             $"(Bid {bid:0.#####} / Ask {ask:0.#####})";
+            }
+
+            var stop = (double)(intent.StopLoss ?? 0m);
+
+            if (motivo is null && MaxEntryDistanceStopMultiple > 0 && isPending && prezzo > 0 && stop > 0)
+            {
+                var riferimento = intent.Side == SignalTypeDto.Buy ? ask : bid;
+                var distanza = Math.Abs(riferimento - prezzo);
+                var massimo = stop * MaxEntryDistanceStopMultiple;
+                if (distanza > massimo)
+                    motivo = $"livello a {distanza:0.##} punti dal mercato, oltre il tetto di {massimo:0.##} " +
+                             $"({MaxEntryDistanceStopMultiple:0.#}x lo stop da {stop:0.##})";
+            }
+
+            if (motivo is null && MaxSpreadPercentOfStop > 0 && stop > 0)
+            {
+                var spread = ask - bid;
+                var peso = spread / stop * 100.0;
+                if (peso > MaxSpreadPercentOfStop)
+                    motivo = $"spread {spread:0.##} punti pari al {peso:0.#}% dello stop da {stop:0.##}, " +
+                             $"oltre il tetto del {MaxSpreadPercentOfStop:0.#}%";
+            }
+
+            if (motivo is null)
+                return false;
+
+            Print("Ingresso {0}/{1} scartato: {2}.", intent.Symbol, intent.StrategyCode, motivo);
+            LogJsonEvent("intent/scartato-filtro", new
+            {
+                intent.IntentId,
+                intent.StrategyCode,
+                intent.Symbol,
+                Side = intent.Side.ToString(),
+                OrderType = intent.OrderType.ToString(),
+                IntentPrice = intent.Price,
+                Bid = bid,
+                Ask = ask,
+                intent.StopLoss,
+                Motivo = motivo,
+                ServerTimeUtc = Server.TimeInUtc
+            });
+
+            // Rifiutato e non semplicemente ignorato: un intent lasciato Pending resta assegnato a
+            // questo account, tiene chiusi i lucchetti e viene riproposto a ogni poll.
+            ReportExecution(intent.IntentId, intent.Symbol, ExecutionReportStatusDto.Rejected, 0, null);
+            return true;
         }
 
         /// <summary>
@@ -2013,6 +2419,155 @@ namespace cAlgo.Robots
                     intent.StrategyCode, position.SymbolName, spread);
 
             return spread;
+        }
+
+        /// <summary>
+        /// Consuntivo di un trade appena chiuso: com'e' entrato, come e' uscito, e quanto ha reso.
+        ///
+        /// <para>E' la riga che mancava del tutto fino alla 2.2.0. Il log raccontava per intero come
+        /// nascevano gli ordini — intent, spread, fill — e poi taceva: delle chiusure restava solo il
+        /// silenzio, quindi da un log di backtest si poteva dire se il bot aveva <i>eseguito</i> ma non
+        /// se aveva <i>guadagnato</i>. Le due domande sono indipendenti: un'esecuzione perfetta di una
+        /// strategia sbagliata produce un log pulito e un conto vuoto.</para>
+        ///
+        /// <para>I quattro numeri che spiegano il trade, oltre al P&amp;L: <b>motivo</b> (chi ha chiuso —
+        /// stop, target, tempo, flat del fine settimana), <b>MFE/MAE</b> (dove era arrivato a favore e
+        /// contro), <b>durata</b> in minuti, <b>modifiche di trailing</b>. Insieme dicono se un trade in
+        /// perdita e' stato un'entrata sbagliata o un'uscita gestita male, che dal solo P&amp;L non si
+        /// distingue.</para>
+        /// </summary>
+        private void LogTradeOutcome(
+            OpenPositionContext ctx, Position position, HistoricalTrade trade, string reason)
+        {
+            var netProfit = (decimal)(trade?.NetProfit ?? position.NetProfit);
+            var grossProfit = (decimal)(trade?.GrossProfit ?? position.GrossProfit);
+            var commission = (decimal)(trade?.Commissions ?? 0);
+            var swap = (decimal)(trade?.Swap ?? position.Swap);
+            var entryPrice = trade?.EntryPrice ?? ctx.EntryPrice;
+            var closePrice = trade?.ClosingPrice ?? 0.0;
+            var quantity = (decimal)(trade?.VolumeInUnits ?? position.VolumeInUnits);
+
+            var durataMinuti = ctx.OpenTimeUtc.HasValue
+                ? (Server.TimeInUtc - ctx.OpenTimeUtc.Value).TotalMinutes
+                : (double?)null;
+
+            // Utile per contratto Piootoo: il conto e' in contratti broker, le rotazioni Titano
+            // ragionano in contratti Piootoo. Senza questa riduzione due account con conversioni
+            // diverse produrrebbero numeri non confrontabili sulla stessa strategia.
+            var perContratto = ctx.ContractMultiplier > 0 ? netProfit / ctx.ContractMultiplier : netProfit;
+
+            if (!_tradeStats.TryGetValue(ctx.StrategyCode, out var stats))
+                _tradeStats[ctx.StrategyCode] = stats = new TradeStats();
+            stats.Register(netProfit);
+
+            Print("Chiuso {0} {1} {2}: {3:0.#####} -> {4:0.#####} qty {5} | esito {6} | " +
+                  "lordo {7:0.00} commissioni {8:0.00} swap {9:0.00} netto {10:0.00} ({11:0.00}/contratto) | " +
+                  "MFE {12:0.##} MAE {13:0.##} punti | {14} | trailing {15}x",
+                ctx.StrategyCode, ctx.Symbol, position.TradeType,
+                entryPrice, closePrice, quantity, reason,
+                grossProfit, commission, swap, netProfit, perContratto,
+                ctx.MaxFavorablePoints, ctx.MaxAdversePoints,
+                durataMinuti.HasValue ? $"{durataMinuti.Value:0} min ({ctx.BarsInPosition} barre)" : $"{ctx.BarsInPosition} barre",
+                ctx.TrailingUpdates);
+
+            LogJsonEvent("trade/chiuso", new
+            {
+                ctx.StrategyCode,
+                ctx.Symbol,
+                PositionId = position.Id,
+                EntryIntentId = ctx.EntryIntentId,
+                Side = position.TradeType.ToString(),
+                EntryPrice = entryPrice,
+                ClosePrice = closePrice,
+                Quantity = quantity,
+                Motivo = reason,
+                GrossProfit = grossProfit,
+                Commission = commission,
+                Swap = swap,
+                NetProfit = netProfit,
+                NetProfitPerContract = perContratto,
+                MfePoints = ctx.MaxFavorablePoints,
+                MaePoints = ctx.MaxAdversePoints,
+                DurataMinuti = durataMinuti,
+                ctx.BarsInPosition,
+                ctx.TrailingUpdates,
+                OpenTimeUtc = ctx.OpenTimeUtc,
+                CloseTimeUtc = Server.TimeInUtc
+            });
+        }
+
+        /// <summary>
+        /// Esito dei trade chiusi, per strategia. Come <see cref="SpreadStats"/> non influenza
+        /// nessuna decisione: e' il consuntivo di fine run.
+        /// </summary>
+        private sealed class TradeStats
+        {
+            public int Trades;
+            public int Vincenti;
+            public decimal Totale;
+            public decimal SommaVincite;
+            public decimal SommaPerdite;
+            public decimal Migliore;
+            public decimal Peggiore;
+
+            public void Register(decimal netProfit)
+            {
+                Trades++;
+                Totale += netProfit;
+                if (netProfit >= 0)
+                {
+                    Vincenti++;
+                    SommaVincite += netProfit;
+                }
+                else
+                {
+                    SommaPerdite += -netProfit;
+                }
+
+                if (Trades == 1 || netProfit > Migliore) Migliore = netProfit;
+                if (Trades == 1 || netProfit < Peggiore) Peggiore = netProfit;
+            }
+
+            public decimal Media => Trades > 0 ? Totale / Trades : 0m;
+            public double WinRate => Trades > 0 ? Vincenti * 100.0 / Trades : 0.0;
+
+            /// <summary>
+            /// Profit factor: vincite su perdite. Senza perdite non e' definito — si restituisce null
+            /// invece di un infinito o di un numero enorme, che in una tabella si legge come un
+            /// risultato eccezionale mentre significa solo "campione troppo piccolo".
+            /// </summary>
+            public decimal? ProfitFactor => SommaPerdite > 0 ? SommaVincite / SommaPerdite : (decimal?)null;
+        }
+
+        /// <summary>
+        /// Consuntivo per strategia a fine run: e' la tabella con cui si decide se una strategia
+        /// merita di restare nel piano. Sta accanto al riepilogo degli spread di proposito — costo di
+        /// esecuzione e risultato sono le due meta' della stessa domanda.
+        /// </summary>
+        private void PrintTradeSummary()
+        {
+            if (_tradeStats.Count == 0)
+            {
+                Print("--- Nessun trade chiuso in questo run ---");
+                return;
+            }
+
+            var totale = 0m;
+            var trades = 0;
+            Print("--- Esito dei trade per strategia ---");
+            foreach (var entry in _tradeStats.OrderBy(x => x.Key, StringComparer.Ordinal))
+            {
+                var s = entry.Value;
+                totale += s.Totale;
+                trades += s.Trades;
+                Print("  {0}: {1} trade, {2:0.#}% vincenti, netto {3:0.00} (media {4:0.00}), " +
+                      "PF {5}, migliore {6:0.00}, peggiore {7:0.00}",
+                    entry.Key, s.Trades, s.WinRate, s.Totale, s.Media,
+                    s.ProfitFactor.HasValue ? s.ProfitFactor.Value.ToString("0.00") : "n/d",
+                    s.Migliore, s.Peggiore);
+            }
+
+            Print("  TOTALE: {0} trade, netto {1:0.00}.", trades, totale);
         }
 
         /// <summary>Spread misurati ai fill, per strategia. Serve solo al riepilogo diagnostico.</summary>
@@ -2092,6 +2647,8 @@ namespace cAlgo.Robots
             var closePrice = (decimal?)trade?.ClosingPrice;
             var quantity = (decimal)(trade?.VolumeInUnits ?? position.VolumeInUnits);
             var commission = (decimal)(trade?.Commissions ?? 0);
+
+            LogTradeOutcome(ctx, position, trade, args.Reason.ToString());
 
             if (_serverCloseIntents.Remove(position.Id, out var closeIntent))
                 ReportExecution(closeIntent.IntentId, position.SymbolName, ExecutionReportStatusDto.Filled,
@@ -2647,6 +3204,15 @@ namespace cAlgo.Robots
             public int TimeframeMinutes { get; set; }
             public int? MaxBarsInPosition { get; set; }
             public DateTime? CloseAtUtc { get; set; }
+
+            /// <summary>
+            /// Istante della barra che ha prodotto il segnale (<c>TradeSignal.Date</c> lato server).
+            /// E' l'UNICO campo con cui si misura il ritardo vero della catena
+            /// valutazione → claim → ordine: <see cref="ValidFromUtc"/> non serve, perche' e' il
+            /// bordo della barra successiva e quindi un istante FUTURO per costruzione. Confonderli
+            /// e' ciò che produceva le "eta" a 3900s e -188100s nei log fino alla 2.2.0.
+            /// </summary>
+            public DateTime? CreatedAtUtc { get; set; }
 
             /// <summary>Condiziona la chiusura a CloseAtUtc all'utile aperto per contratto Piootoo. Null = incondizionata.</summary>
             public decimal? TimeExitOnlyIfProfitBelowMoneyPerContract { get; set; }

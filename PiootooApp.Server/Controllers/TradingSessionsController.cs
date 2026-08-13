@@ -205,6 +205,21 @@ public sealed class TradingSessionsController : ControllerBase
         PromoteSessionToBacktestRequest request)
         => ExecuteResult<PromoteSessionToBacktestResult>(() => Ok(_sessions.PromoteToBacktest(sessionId, request)));
 
+    /// <summary>
+    /// Gli ultimi eventi della sessione, per il monitor della console. Il client passa in
+    /// <c>since</c> il progressivo dell'ultimo evento gia' mostrato e riceve solo il nuovo.
+    ///
+    /// <para>Complementare a <c>/snapshot</c>, non alternativo: lo snapshot dice cos'e' aperto
+    /// adesso, questo dice cosa e' successo e perche' — in particolare quale filtro ha svuotato un
+    /// claim, che non e' uno stato e quindi nello snapshot non c'e'.</para>
+    /// </summary>
+    [HttpGet("{sessionId}/activity")]
+    public ActionResult<SessionActivityResponse> Activity(
+        string sessionId,
+        [FromHeader(Name = "X-Session-Token")] string token,
+        [FromQuery] long since = 0)
+        => ExecuteResult<SessionActivityResponse>(() => Ok(_sessions.GetActivity(sessionId, token, since)));
+
     [HttpGet("{sessionId}/snapshot")]
     public ActionResult<TradingSessionSnapshot> Snapshot(
         string sessionId,
