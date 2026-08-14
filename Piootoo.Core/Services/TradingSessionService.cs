@@ -105,6 +105,14 @@ public interface ITradingSessionService
     TradingSessionSnapshot GetSnapshot(string sessionId, string token);
 
     /// <summary>
+    /// Gli ultimi eventi della sessione dopo <paramref name="since"/>, per il monitor della
+    /// console. Complementare a <see cref="GetSnapshot"/>: lo snapshot dice cos'è aperto adesso,
+    /// questo dice cosa è successo e perché — in particolare quale filtro ha svuotato un claim,
+    /// che non è uno stato e quindi nello snapshot non compare.
+    /// </summary>
+    SessionActivityResponse GetActivity(string sessionId, string token, long since = 0);
+
+    /// <summary>
     /// Copia i trade (e i signal) di una sessione in una cartella di backtest del workspace, così
     /// che possano essere usati come campione sorgente da <c>TitanoRotationService</c>.
     /// </summary>
