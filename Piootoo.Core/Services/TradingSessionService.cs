@@ -1815,7 +1815,18 @@ public sealed class TradingSessionService : ITradingSessionService
                 // Il limite di fill per sessione è per account: un template già consumato da un
                 // account resta disponibile per gli altri.
                 t => !MaxEntriesPerSessionReached(session, t, accountNumber),
-                "limite di ingressi per sessione raggiunto");
+                // Il motivo porta i NUMERI e non il solo esito. Nei log del 06/08 e 08/08 questo
+                // filtro ha lasciato passare un template di PTS_NQ_PCH_002_15 alle 17:00 UTC dopo
+                // che la stessa strategia aveva gia' riempito nello stesso giorno di calendario,
+                // e dal solo "limite raggiunto" non si puo' dire QUALE delle cinque condizioni del
+                // conteggio non abbia fatto match: secchio del template, secchio dell'intent
+                // riempito, FilledQuantity, account assegnato, o il limite stesso assente sul
+                // template. Stampandoli si legge la differenza invece di dedurla.
+                //
+                // La deduplica per stringa (RecordRefusal) regge: i valori cambiano una volta al
+                // giorno, non a ogni barra, quindi non genera la riga-per-barra che la nota del
+                // filtro di scadenza dice di evitare.
+                DescribeSessionLimit(session, candidates, accountNumber));
             candidates = NarrowTemplates(candidates, ref stage,
                 t => IsTemplateEligibleForGroup(session, groupId, t),
                 "escluso dalla rotazione Titano del gruppo");
@@ -2431,6 +2442,76 @@ public sealed class TradingSessionService : ITradingSessionService
              string.Equals(x.AssignedAccountNumber, accountNumber, StringComparison.OrdinalIgnoreCase)));
 
         return fills >= intent.MaxEntriesPerSession.Value;
+    }
+
+    /// <summary>
+    /// Il motivo di rifiuto del limite di ingressi per sessione, con dentro i NUMERI del conteggio
+    /// invece del solo esito.
+    ///
+    /// <para><b>Perche' esiste.</b> <see cref="MaxEntriesPerSessionReached"/> confronta cinque cose
+    /// — secchio del template, secchio dell'intent riempito, <c>FilledQuantity</c>, account
+    /// assegnato e il tetto dichiarato dalla strategia — e restituisce un bool. Quando il verdetto
+    /// e' quello sbagliato, dal log non si puo' dire quale confronto sia saltato, e le cinque
+    /// ipotesi portano a cinque correzioni diverse. Il caso aperto: nei backtest del 06/08 e 08/08
+    /// un template di <c>PTS_NQ_PCH_002_15</c> passa alle 17:00 UTC dopo che la stessa strategia ha
+    /// gia' riempito nello stesso giorno di calendario, che e' il secchio dichiarato dal motore
+    /// (<c>SessionKey</c> con SessionStartTime=0 restituisce la mezzanotte UTC).</para>
+    ///
+    /// <para>Oltre al conteggio nel secchio del template si stampano <b>i secchi in cui quella
+    /// strategia ha davvero dei fill</b>: se non contengono il secchio del template, il
+    /// disallineamento e' li' e si legge senza altre indagini. Un fill attribuito a un altro
+    /// account viene marcato con <c>@numero</c>, cosi' anche quel caso si distingue.</para>
+    ///
+    /// <para>E' solo diagnostica: non cambia quali template passano. La deduplica per stringa di
+    /// <see cref="RecordRefusal"/> regge, perche' questi valori cambiano una volta al giorno e non
+    /// a ogni barra — il motivo per cui il filtro di scadenza, poco sopra, tiene invece il testo
+    /// fisso.</para>
+    /// </summary>
+    private static string DescribeSessionLimit(
+        Session session, IReadOnlyList<OrderIntent> candidates, string accountNumber)
+    {
+        const string testa = "limite di ingressi per sessione raggiunto";
+        if (candidates.Count == 0)
+            return testa;
+
+        var dettagli = candidates
+            .Select(t => new { t.StrategyCode, t.Symbol, Secchio = t.EntrySessionStartUtc, Tetto = t.MaxEntriesPerSession })
+            .Distinct()
+            .Select(c =>
+            {
+                var fillNelSecchio = session.Intents.Count(x =>
+                    x.Kind == OrderIntentKind.Entry &&
+                    x.FilledQuantity > 0 &&
+                    x.EntrySessionStartUtc == c.Secchio &&
+                    string.Equals(x.StrategyCode, c.StrategyCode, StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(x.Symbol, c.Symbol, StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(x.AssignedAccountNumber, accountNumber, StringComparison.OrdinalIgnoreCase));
+
+                var secchiConFill = session.Intents
+                    .Where(x => x.Kind == OrderIntentKind.Entry &&
+                                x.FilledQuantity > 0 &&
+                                string.Equals(x.StrategyCode, c.StrategyCode, StringComparison.OrdinalIgnoreCase) &&
+                                string.Equals(x.Symbol, c.Symbol, StringComparison.OrdinalIgnoreCase))
+                    .Select(x => Secchio(x.EntrySessionStartUtc) +
+                                 (string.Equals(x.AssignedAccountNumber, accountNumber, StringComparison.OrdinalIgnoreCase)
+                                     ? string.Empty
+                                     : $"@{x.AssignedAccountNumber ?? "n/d"}"))
+                    .Distinct()
+                    .OrderBy(x => x, StringComparer.Ordinal)
+                    .ToList();
+
+                return $"{c.StrategyCode}/{c.Symbol} secchio {Secchio(c.Secchio)} " +
+                       $"fill {fillNelSecchio}/{(c.Tetto?.ToString() ?? "n/d")}" +
+                       (secchiConFill.Count == 0
+                           ? ", nessun fill della strategia"
+                           : $", fill in {string.Join(" ", secchiConFill)}");
+            })
+            .ToList();
+
+        return $"{testa} ({string.Join(" | ", dettagli)})";
+
+        static string Secchio(DateTime? valore) =>
+            valore is { } v ? v.ToString("yyyy-MM-dd HH:mm") + "Z" : "nessuno";
     }
 
     /// <summary>
