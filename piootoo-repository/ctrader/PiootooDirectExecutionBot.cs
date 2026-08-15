@@ -102,6 +102,14 @@ namespace cAlgo.Robots
         BacktestSorgente,
 
         /// <summary>
+        /// Backtest a filtro statico: strategie del masterfilter come nel sorgente, ma con i vincoli
+        /// operativi ATTIVI. E' il termine di paragone che isola il merito della rotazione: fra
+        /// questo e BacktestTitano cambia solo il filtro — statico contro dinamico — e non i
+        /// vincoli. Non legge nessuna cartella di run Titano.
+        /// </summary>
+        BacktestStaticFilter,
+
+        /// <summary>
         /// Backtest filtrato con le rotazioni storiche gia' generate da Titano, e con i vincoli
         /// operativi attivi: misura cosa avrebbe fatto il sistema *con* il filtro.
         /// </summary>

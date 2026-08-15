@@ -1355,3 +1355,69 @@ in ordine cronologico. Non è un changelog di codice: quello resta nei commit.
   dire se il bot aveva eseguito, non se aveva guadagnato. Profit factor è `null` e non
   infinito quando non ci sono perdite: in tabella un numero enorme si legge come risultato
   eccezionale mentre significa solo campione piccolo.
+- **2026-08-15** — Il cBot distribuito passa a **2.3.1**: il ritiro dei pending scaduti
+  diventa **differito** di `PendingRetirementGraceSeconds` (default 5s) invece che
+  immediato. L'estensione dei pending identici introdotta il 13/08 non ha mai lavorato, e
+  i log lo dicono in negativo: la riga `non riemesso: ordine gia' a mercato` non compare
+  **nemmeno una volta** in un mese di backtest, mentre la coppia cancella/ripiazza sullo
+  stesso identico prezzo c'è a ogni barra — sul canale Donchian, che tiene il livello
+  fermo finché non si muove, per giorni interi. Il motivo: il ritiro sta dopo il poll
+  post-push, ma quel poll è saltato da `ShouldPollAfterPush()` quando il push dichiara la
+  sessione senza nulla di reclamabile, e l'intent arriva col polling periodico qualche
+  centinaio di ms dopo — con l'ordine da riconoscere già cancellato. La grazia gli dà il
+  tempo di arrivare; chi non arriva lo ritira `SweepRetiredPendingOrders`, chiamato dal
+  timer subito **dopo** `PollNextSignal()`. La scadenza non si rinnova: se alla barra
+  successiva il ritiro era già programmato l'ordine muore lì, così la vita extra resta
+  limitata a una barra qualunque sia la grazia — ed è la stessa riga che chiude il caso
+  del backtest a barre, dove fra due barre l'orologio non avanza e lo sweep a tempo non
+  scatterebbe mai. A 0 il comportamento torna quello della 2.3.0.
+- **2026-08-15** — La **ripresa dell'intent bloccato** (`stalledEntry`, in
+  `GetNextSignalForAccount` quando il budget di concorrenza è pieno) riverifica
+  **scadenza** e **limite di ingressi per sessione** prima di riproporre l'intent. Quella
+  strada non passa da `NarrowTemplates`, quindi li scavalcava entrambi: nei log del 06/08,
+  08/08 e 11/08 si vedono ordini piazzati dopo che il limite di ingressi per sessione era
+  già stato dichiarato raggiunto per gli altri template della stessa barra. Un intent che
+  non supera i controlli passa a `Cancelled` e non viene solo saltato: lasciarlo `Pending`
+  significa riproporlo a ogni claim per sempre e tenere occupati i lucchetti che lo
+  riguardano. Cambia quali ordini arrivano a mercato, quindi cambia i backtest — nel
+  campione di riferimento nessuno dei tre si era riempito e il P&L non si muove.
+- **2026-08-15** — Nuovo profilo **`BacktestStaticFilter`**: strategie del masterfilter del
+  workspace come in `BacktestSorgente`, lucchetti di concorrenza e distribuzione attivi come in
+  `BacktestTitano`. È il termine di paragone che mancava. `BacktestSorgente` risponde a "quanto
+  rende ogni strategia da sola", `BacktestTitano` a "quanto rende il sistema con il filtro
+  dinamico": senza un run intermedio la differenza fra i due mescola due effetti — il merito della
+  rotazione e quello del tetto di concorrenza — e non c'è modo di dire quanto pesa ciascuno.
+  Condividendo i lucchetti con `BacktestTitano`, l'unica variabile fra i due run resta il filtro:
+  statico (il masterfilter, fisso per tutto il run) contro dinamico (le rotazioni, che cambiano nel
+  tempo). Il nome dice quello, non i lucchetti, che sono uguali nei due e quindi non
+  distinguerebbero niente. Non richiede `TitanoBacktestFolder`: non ne legge nessuna.
+- **2026-08-15** — I profili espliciti **dichiarano** i lucchetti e il piano non li contraddice
+  più. Fino a oggi solo `BacktestSorgente` era blindato contro `plan.EnforceConcurrencyLimits`,
+  mentre gli altri ci ricadevano: un piano con `EnforceConcurrencyLimits=false` rendeva
+  `BacktestTitano` un run senza vincoli operativi che continuava a chiamarsi Titano, e la differenza
+  si sarebbe vista solo confrontando due `trades.json` — esattamente lo scenario che la nota del
+  sorgente dice di voler evitare. Ora `BacktestSorgente` forza `false`, `BacktestStaticFilter` e
+  `BacktestTitano` forzano `true`, `DalPiano` resta governato dal piano. Il piano continua a
+  decidere tutto il resto: workspace, sizing, strumenti, cartella del run Titano.
+- **2026-08-15** — Rimossi **l'estensione dei pending identici** (2.3.0) e **l'attesa prima del
+  ritiro** (2.3.1), con i due parametri `ExtendIdenticalPendingOrders` e
+  `PendingRetirementGraceSeconds`. Il ritiro degli ordini scaduti torna a essere la prima cosa della
+  barra: chiusura, push, richiesta dei segnali nuovi.
+
+  Non è un ripensamento di stile, è l'unico ordine possibile. Il server non rilascia il template
+  finché l'intent vecchio è `Pending` — lo tiene il lucchetto "l'account ha già un ingresso in corso
+  per quella strategia su quel simbolo" — e l'intent vecchio resta `Pending` finché il cBot non ne
+  riporta la cancellazione con `ReportExecution(Cancelled)`. Il cBot aspettava il segnale nuovo per
+  riconoscere l'ordine da estendere, il server aspettava il report per consegnare il segnale:
+  nessuno dei due poteva muoversi per primo. La prova è nei log, in negativo — la riga `non
+  riemesso: ordine gia' a mercato` non compare **nemmeno una volta** in un mese di backtest 2.3.0 —
+  e la 2.3.1 che provava a sbloccare il caso con una grazia di 5 secondi ha ottenuto solo di
+  spostare il piazzamento da ~0,3s a ~8,3s dall'apertura della barra, lasciando intatta ogni coppia
+  cancella/ripiazza. P&L identico al centesimo sui trade confrontabili: nessun danno e nessun
+  beneficio, solo latenza.
+
+  La coppia cancella/ripiazza per barra sullo stesso prezzo resta, ed è il costo accettato: due
+  ordini al broker per barra finché il livello del canale non si muove. Toglierla davvero richiede
+  di separare "riporto l'intent cancellato" da "cancello l'ordine dal broker" — il report libera il
+  server, l'ordine fisico resta a mercato e viene esteso o modificato con `ModifyPendingOrder`
+  quando il segnale arriva. È un cambio della semantica del reporting e va deciso a parte.

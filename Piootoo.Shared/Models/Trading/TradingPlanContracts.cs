@@ -146,7 +146,28 @@ public enum TradingRunProfile
     /// misurare cosa avrebbe fatto il sistema con il filtro, quindi i vincoli operativi ci vogliono.
     /// Richiede che il piano indichi la cartella del run Titano.
     /// </summary>
-    BacktestTitano = 2
+    BacktestTitano = 2,
+
+    /// <summary>
+    /// Backtest a filtro statico: le strategie sono quelle del masterfilter del workspace — nessuna
+    /// rotazione Titano — ma i lucchetti di concorrenza e distribuzione sono attivi.
+    ///
+    /// <para>È il termine di paragone fra gli altri due. <see cref="BacktestSorgente"/> risponde a
+    /// "quanto rende ogni strategia da sola", <see cref="BacktestTitano"/> a "quanto rende il
+    /// sistema con il filtro dinamico": in mezzo manca "quanto rende lo stesso insieme di strategie
+    /// con i soli vincoli operativi", cioè quanta parte della differenza è merito della rotazione e
+    /// quanta è soltanto l'effetto del tetto di concorrenza. Senza questo profilo quella domanda si
+    /// risponde solo cambiando a mano due flag del piano fra un run e l'altro, e la differenza fra
+    /// i due run non resta scritta da nessuna parte.</para>
+    ///
+    /// <para>Il nome dice la differenza vera con <see cref="BacktestTitano"/>: filtro
+    /// <b>statico</b> (il masterfilter, fisso per tutto il run) contro filtro <b>dinamico</b> (le
+    /// rotazioni, che cambiano nel tempo). I lucchetti sono uguali nei due, quindi nominarli non
+    /// distinguerebbe niente.</para>
+    ///
+    /// <para>Non richiede la cartella del run Titano: non ne legge nessuna.</para>
+    /// </summary>
+    BacktestStaticFilter = 3
 }
 
 /// <summary>

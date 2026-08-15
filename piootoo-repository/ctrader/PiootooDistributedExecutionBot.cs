@@ -84,6 +84,14 @@ namespace cAlgo.Robots
         BacktestSorgente,
 
         /// <summary>
+        /// Backtest a filtro statico: strategie del masterfilter come nel sorgente, ma con i
+        /// lucchetti di concorrenza e distribuzione ATTIVI. E' il termine di paragone che isola il
+        /// merito della rotazione: fra questo e BacktestTitano cambia solo il filtro — statico
+        /// contro dinamico — e non i vincoli operativi. Non legge nessuna cartella di run Titano.
+        /// </summary>
+        BacktestStaticFilter,
+
+        /// <summary>
         /// Backtest filtrato con le rotazioni storiche gia' generate da Titano, e con i lucchetti di
         /// distribuzione attivi: serve a misurare cosa avrebbe fatto il sistema *con* il filtro.
         /// </summary>
@@ -159,6 +167,34 @@ namespace cAlgo.Robots
         /// </summary>
         private const int MaxSignalsPerDrain = 200;
 
+        // 2.4.1 (15/08/2026) — via l'estensione dei pending identici (2.3.0) e l'attesa prima del
+        // ritiro (2.3.1), con i loro due parametri. Il ritiro degli ordini scaduti torna a essere la
+        // PRIMA cosa della barra: chiusura, push, richiesta dei segnali nuovi. Non e' una preferenza
+        // di stile, e' l'unico ordine possibile — il server non rilascia il template finche' l'intent
+        // vecchio e' Pending, e l'intent vecchio resta Pending finche' il cBot non ne riporta la
+        // cancellazione. Il cBot aspettava il segnale per rinnovare l'ordine e il server aspettava il
+        // report per consegnare il segnale: in un mese di backtest la riga "non riemesso: ordine
+        // gia' a mercato" non e' comparsa nemmeno una volta, e l'attesa della 2.3.1 ha solo aggiunto
+        // 8 secondi di latenza a ogni piazzamento senza togliere una sola coppia cancella/ripiazza.
+        // Vedi docs/decisioni.md 2026-08-15.
+        //
+        // 2.4.0 (15/08/2026) — nuovo profilo BacktestStaticFilter: strategie del masterfilter come
+        // nel sorgente, lucchetti attivi come in BacktestTitano. E' il termine di paragone che
+        // mancava — fra questo e BacktestTitano cambia solo il filtro, statico contro dinamico,
+        // quindi la differenza fra i due run misura il merito della rotazione e non l'effetto del
+        // tetto di concorrenza. I profili espliciti ora DICHIARANO i lucchetti e il piano non li
+        // contraddice: prima solo BacktestSorgente era blindato, e un piano con
+        // EnforceConcurrencyLimits=false rendeva BacktestTitano un run senza vincoli che continuava
+        // a chiamarsi Titano. Vedi docs/decisioni.md 2026-08-15.
+        //
+        // 2.3.1 (15/08/2026) — il ritiro dei pending scaduti diventa differito di
+        // PendingRetirementGraceSeconds invece che immediato. Senza l'attesa, "Estendi i pending
+        // identici" (2.3.0) non lavorava mai: il ritiro stava dopo il poll post-push, ma quel poll
+        // torna quasi sempre a vuoto e l'intent della barra nuova arriva col polling periodico
+        // qualche centinaio di ms dopo, con l'ordine da riconoscere gia' cancellato. Nei log 2.3.0
+        // la riga "non riemesso: ordine gia' a mercato" non compare mai e resta una coppia
+        // cancella/ripiazza per barra sullo stesso prezzo. Vedi docs/decisioni.md 2026-08-15.
+        //
         // 2.3.0 (13/08/2026) — esecuzione difensiva e consuntivo dei trade. Gli intent con il livello
         // dal lato sbagliato, troppo lontani dal mercato o con lo spread troppo pesante sullo stop
         // ora vengono SCARTATI e non piu' soltanto segnalati; il trailing ha un passo minimo e un
@@ -182,7 +218,7 @@ namespace cAlgo.Robots
         // della solution — quindi la sincronia e' manuale e non c'e' niente che la verifichi.
         // Il disallineamento non blocca nulla: entrambi stampano la propria versione all'avvio, e
         // il confronto si fa leggendo i due log.
-        private const string BotVersion = "2.3.0"; // aggiornare qui E in PiootooVersion, ad ogni release
+        private const string BotVersion = "2.4.1"; // aggiornare qui E in PiootooVersion, ad ogni release
         private const string StatusChartObjectName = "PiootooConnectionStatus";
 
         [Parameter("Server Base Url", DefaultValue = "http://localhost:5000")]
@@ -235,14 +271,6 @@ namespace cAlgo.Robots
         // dichiarata dall'intent. Senza questo il bot insegue il Bid tick per tick e produce decine
         // di ModifyPosition da un decimo di punto, alcune nello stesso secondo: in backtest e' solo
         // rumore, in live e' rate limit del broker e reject.
-        // Quando il segnale della barra nuova riemette il livello identico all'ordine gia' a mercato,
-        // l'ordine viene tenuto e gli si sposta la scadenza invece di cancellarlo e ripiazzarlo. A
-        // false si torna al comportamento fino alla 2.2.0: ritiro all'apertura della barra e nuovo
-        // ordine al claim, cioe' due ordini per barra sullo stesso prezzo. Vedi OnStreamBarClosed per
-        // il compromesso che questo introduce sulla finestra di esposizione.
-        [Parameter("Estendi i pending identici", DefaultValue = true, Group = "Filtri di ingresso")]
-        public bool ExtendIdenticalPendingOrders { get; set; }
-
         [Parameter("Passo minimo trailing (frazione)", DefaultValue = 0.10, MinValue = 0, MaxValue = 1, Group = "Trailing")]
         public double TrailingMinStepFraction { get; set; }
 
@@ -816,15 +844,30 @@ namespace cAlgo.Robots
         /// </summary>
         private void OnStreamBarClosed(Pair stream)
         {
-            // L'ordine della barra appena chiusa va ritirato — "next bar" vuol dire una barra sola, e
-            // senza il ritiro se ne accumulerebbe uno per barra a livelli diversi, tutti eseguibili —
-            // ma il ritiro sta DOPO il poll, non prima (vedi in fondo al metodo). Ritirarlo qui
-            // renderebbe impossibile riconoscere il caso, frequentissimo, in cui il segnale della
-            // barra nuova riemette lo stesso identico livello: l'ordine da confrontare sarebbe gia'
-            // stato cancellato, e non resterebbe che ripiazzarlo. Vedi
-            // TryExtendIdenticalPendingOrder.
-            if (!ExtendIdenticalPendingOrders)
-                CancelExpiredPendingOrders(stream);
+            // L'ordine della barra appena chiusa va ritirato PRIMA di tutto il resto: "next bar" vuol
+            // dire una barra sola, e senza il ritiro se ne accumulerebbe uno per barra a livelli
+            // diversi, tutti eseguibili. Chiusura, poi push, poi richiesta dei segnali nuovi: e' anche
+            // l'unico ordine possibile, non solo il piu' prudente.
+            //
+            // <para><b>Perche' e' l'unico.</b> La 2.3.0 aveva provato a spostarlo DOPO il poll, per
+            // riconoscere il caso frequentissimo in cui il segnale della barra nuova riemette lo stesso
+            // identico livello e tenere l'ordine invece di cancellarlo e ripiazzarlo. Non puo'
+            // funzionare: il server non rilascia il template finche' l'intent vecchio e' Pending (il
+            // lucchetto "l'account ha gia' un ingresso in corso per quella strategia su quel simbolo"),
+            // e l'intent vecchio resta Pending finche' il cBot non ne riporta la cancellazione. Il cBot
+            // aspetta il segnale per rinnovare l'ordine, il server aspetta il report per consegnare il
+            // segnale: nessuno dei due si muove per primo. Nei log 2.3.0 la riga "non riemesso: ordine
+            // gia' a mercato" non compare nemmeno una volta in un mese di backtest, e la 2.3.1 che
+            // provava a sbloccarlo con un'attesa ha solo ritardato di 8 secondi ogni piazzamento
+            // lasciando il cancella/ripiazza dov'era. Vedi docs/decisioni.md 2026-08-15.</para>
+            //
+            // <para>La coppia cancella/ripiazza per barra sullo stesso prezzo resta, ed e' il costo
+            // accettato: due ordini al broker per barra finche' il livello del canale non si muove.
+            // Toglierla davvero richiede di separare "riporto l'intent cancellato" da "cancello
+            // l'ordine dal broker" — il report libera il server, l'ordine fisico resta a mercato e
+            // viene esteso o modificato quando il segnale arriva — che e' un cambio della semantica
+            // del reporting, non di questo metodo.</para>
+            CancelExpiredPendingOrders(stream);
 
             var pushed = TryPushClosedBar(stream);
             if (pushed)
@@ -853,21 +896,6 @@ namespace cAlgo.Robots
             // e' quasi meta' del traffico di un backtest.
             if (pushed && ShouldPollAfterPush())
                 PollNextSignal();
-
-            // Ritiro degli ordini della barra precedente, dopo che il segnale nuovo ha avuto la sua
-            // occasione di rinnovarli. Chi e' stato rinnovato ha la marca di scadenza riportata alla
-            // barra corrente e sopravvive; tutti gli altri muoiono qui.
-            //
-            // <para><b>Il prezzo di questa scelta, in chiaro.</b> Fra l'apertura della barra e questa
-            // riga passa il tempo del push e del poll — chiamate HTTP sincrone — e in quella finestra
-            // un ordine non rinnovato e' ancora a mercato e potrebbe riempirsi. E' un rischio reale
-            // ma limitato: il livello e' quello che la strategia aveva attivo fino a un istante fa,
-            // non un livello arbitrario, e la finestra e' quella di due chiamate locali. In cambio
-            // sparisce la coppia cancella/ripiazza per barra sullo stesso identico prezzo, che nei
-            // log di backtest e' la voce che copre tutte le altre. Se il compromesso non piace,
-            // ExtendIdenticalPendingOrders lo annulla: a false il ritiro torna a essere la prima cosa
-            // della barra.</para>
-            CancelExpiredPendingOrders(stream);
 
             TrackExcursions();
             MoveStopsToBreakEven();
@@ -1890,15 +1918,6 @@ namespace cAlgo.Robots
             var rawVolume = Math.Max(0.01, (double)intent.FinalQuantity);
             var volume = symbol.NormalizeVolumeInUnits(rawVolume, RoundingMode.Down);
 
-            // Il motore riemette lo STESSO livello a ogni barra finche' la condizione regge. Quando
-            // il nuovo intent e' identico all'ordine gia' a mercato — stesso verso, tipo, livello,
-            // quantita' — cancellarlo e ripiazzarlo non cambia niente per il mercato ma costa due
-            // ordini al broker e due righe di log per barra: nei log fino alla 2.2.0 sono decine di
-            // coppie cancel/place consecutive sullo stesso prezzo, che nascondono i pochi eventi
-            // veri. Si tiene l'ordine in essere e gli si sposta la scadenza sulla barra nuova.
-            if (TryExtendIdenticalPendingOrder(intent, symbol, tradeType, volume))
-                return;
-
             _submittedIntentIds.Add(intent.IntentId);
 
             // La label porta l'IntentId: posizione e ordine restano riconducibili al segnale che li ha
@@ -2189,109 +2208,6 @@ namespace cAlgo.Robots
                 intent.TakeProfit,
                 ServerTimeUtc = Server.TimeInUtc
             });
-        }
-
-        /// <summary>
-        /// Quando il nuovo intent descrive esattamente l'ordine pending gia' a mercato per quella
-        /// strategia, ne prolunga la validita' di una barra invece di sostituirlo, e riporta al
-        /// server il nuovo intent come annullato. Restituisce true se l'ha fatto.
-        ///
-        /// <para><b>Perche' annullare il nuovo e tenere il vecchio, e non il contrario.</b> L'ordine
-        /// a mercato porta nella label l'IntentId del segnale che lo ha piazzato, e quell'intent e'
-        /// ancora <c>Pending</c> lato server: e' lui a tenere il posto. Annullarlo per far posto a un
-        /// gemello significherebbe rilasciare e riprendere gli stessi lucchetti a ogni barra. Il
-        /// nuovo intent invece va chiuso esplicitamente, altrimenti resta assegnato a questo account
-        /// e il claim continua a riproporlo.</para>
-        ///
-        /// <para>Il confronto e' su tutto cio' che il broker esegue — verso, tipo, livello, volume,
-        /// stop e target — e sul livello usa la tolleranza di un tick: due decimali di differenza su
-        /// un prezzo ricalcolato non sono un ordine diverso.</para>
-        /// </summary>
-        private bool TryExtendIdenticalPendingOrder(
-            OrderIntentDto intent, Symbol symbol, TradeType tradeType, double volume)
-        {
-            if (!ExtendIdenticalPendingOrders)
-                return false;
-            if (intent.OrderType != TradeOrderTypeDto.Stop && intent.OrderType != TradeOrderTypeDto.Limit)
-                return false;
-            if (intent.Price <= 0)
-                return false;
-
-            var prefix = MakeStrategyLabelPrefix(intent.StrategyCode);
-            var tolleranza = symbol.TickSize > 0 ? symbol.TickSize : 0.0;
-            var atteso = intent.OrderType == TradeOrderTypeDto.Stop
-                ? PendingOrderType.Stop
-                : PendingOrderType.Limit;
-
-            var esistente = PendingOrders.FirstOrDefault(order =>
-                order.Label != null &&
-                order.Label.StartsWith(prefix, StringComparison.Ordinal) &&
-                order.SymbolName.Equals(symbol.Name, StringComparison.OrdinalIgnoreCase) &&
-                order.TradeType == tradeType &&
-                order.OrderType == atteso &&
-                Math.Abs(order.TargetPrice - (double)intent.Price) <= tolleranza &&
-                Math.Abs(order.VolumeInUnits - volume) < 1e-9 &&
-                SameLevel(order.StopLoss, (double)intent.Price, intent.StopLoss, tradeType, isStopLoss: true, tolleranza) &&
-                SameLevel(order.TakeProfit, (double)intent.Price, intent.TakeProfit, tradeType, isStopLoss: false, tolleranza));
-
-            if (esistente is null)
-                return false;
-
-            // La scadenza si misura sulla barra dello stream della strategia: riportarla a quella
-            // corrente e' esattamente cio' che avrebbe fatto il piazzamento di un ordine nuovo.
-            var stream = FindPair(intent.Symbol, intent.TimeframeMinutes);
-            if (stream?.Series != null)
-                _pendingOrderBar[esistente.Label] = new PendingOrderMark
-                {
-                    Stream = stream,
-                    BarCount = stream.Series.Count
-                };
-
-            Print("Ingresso {0}/{1} non riemesso: ordine {2} gia' a mercato allo stesso livello {3:0.#####}, validita' estesa alla barra corrente.",
-                intent.Symbol, intent.StrategyCode, esistente.Id, intent.Price);
-            LogJsonEvent("intent/pending-esteso", new
-            {
-                intent.IntentId,
-                intent.StrategyCode,
-                intent.Symbol,
-                OrdineEsistente = esistente.Id,
-                LabelEsistente = esistente.Label,
-                IntentPrice = intent.Price,
-                ServerTimeUtc = Server.TimeInUtc
-            });
-
-            ReportExecution(intent.IntentId, intent.Symbol, ExecutionReportStatusDto.Cancelled, 0, null);
-            return true;
-        }
-
-        /// <summary>
-        /// Dice se lo Stop Loss (o il Take Profit) gia' presente sull'ordine e' lo stesso che
-        /// l'intent chiede. Le due grandezze non sono omogenee e vanno rese tali prima di
-        /// confrontarle: cTrader tiene un <b>livello assoluto</b> di prezzo, il server manda una
-        /// <b>distanza in punti</b> dal livello di ingresso. Qui si ricostruisce il livello atteso
-        /// dalla distanza e si confrontano due prezzi.
-        ///
-        /// <para>Il verso conta: per un long lo stop sta sotto l'ingresso e il target sopra, per uno
-        /// short il contrario. Entrambi assenti = uguali; uno solo assente = diversi, perche'
-        /// aggiungere o togliere una protezione e' una modifica sostanziale dell'ordine.</para>
-        /// </summary>
-        private static bool SameLevel(
-            double? livelloOrdine, double prezzoIngresso, decimal? distanzaIntent,
-            TradeType tradeType, bool isStopLoss, double tolleranza)
-        {
-            var dichiarato = distanzaIntent.HasValue && distanzaIntent.Value > 0;
-            if (!livelloOrdine.HasValue && !dichiarato)
-                return true;
-            if (!livelloOrdine.HasValue || !dichiarato)
-                return false;
-
-            var distanza = (double)distanzaIntent.Value;
-            var sopraIngresso = isStopLoss
-                ? tradeType == TradeType.Sell   // stop di uno short: sopra l'ingresso
-                : tradeType == TradeType.Buy;   // target di un long: sopra l'ingresso
-            var atteso = sopraIngresso ? prezzoIngresso + distanza : prezzoIngresso - distanza;
-
-            return Math.Abs(livelloOrdine.Value - atteso) <= Math.Max(tolleranza, 1e-9);
         }
 
         /// <summary>

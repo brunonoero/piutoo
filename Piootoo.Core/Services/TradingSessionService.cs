@@ -416,6 +416,9 @@ public sealed class TradingSessionService : ITradingSessionService
         var titanoMode = runProfile switch
         {
             TradingRunProfile.BacktestSorgente => TitanoFilterMode.Disabled,
+            // Filtro statico: le strategie restano quelle del masterfilter, esattamente come nel
+            // sorgente. Fra i due cambiano solo i lucchetti, poco più sotto.
+            TradingRunProfile.BacktestStaticFilter => TitanoFilterMode.Disabled,
             TradingRunProfile.BacktestTitano => TitanoFilterMode.BacktestRotationFile,
             _ => !primary.ApplyTitanoFilters
                 ? TitanoFilterMode.Disabled
@@ -431,20 +434,39 @@ public sealed class TradingSessionService : ITradingSessionService
             throw new ArgumentException(
                 $"Il profilo '{TradingRunProfile.BacktestTitano}' richiede le rotazioni storiche, ma la " +
                 $"riga primaria del piano '{plan.Code}' non indica alcuna cartella di run Titano. " +
-                $"Valorizza TitanoBacktestFolder, oppure apri il run con '{TradingRunProfile.BacktestSorgente}'.");
+                $"Valorizza TitanoBacktestFolder, oppure apri il run con " +
+                $"'{TradingRunProfile.BacktestStaticFilter}' (stessi lucchetti, strategie dal " +
+                $"masterfilter) o '{TradingRunProfile.BacktestSorgente}' (nessun lucchetto).");
 
         // MaxConcurrentTrades è applicato solo da GetNextSignalForAccount, cioè dal percorso di
         // claim. Senza gruppi quel percorso non esiste e il limite non avrebbe alcun punto di
         // applicazione: eseguire lo stesso il piano significherebbe operare senza il limite che
         // dichiara, quindi si rifiuta l'apertura invece di ignorarlo in silenzio.
         //
-        // BacktestSorgente spegne i lucchetti per definizione, e lo fa PRIMA del flag del piano: il
-        // campione sorgente deve contenere ogni segnale che le strategie hanno prodotto, e un piano
-        // che dichiara EnforceConcurrencyLimits=true non deve poterlo mutilare di nascosto.
-        var enforceConcurrency = runProfile == TradingRunProfile.BacktestSorgente
-            ? false
-            : plan.EnforceConcurrencyLimits
-              ?? DefaultEnforceConcurrencyLimits(request.ClientRunMode, titanoMode);
+        // I profili espliciti DICHIARANO i lucchetti e il piano non li contraddice: è il senso di
+        // averli nominati invece di dedurli da una combinazione di flag. Il piano decide ancora
+        // tutto il resto (workspace, sizing, strumenti, cartella Titano) e continua a decidere i
+        // lucchetti quando il profilo è DalPiano.
+        //
+        // BacktestSorgente li spegne: il campione sorgente deve contenere ogni segnale che le
+        // strategie hanno prodotto, e un piano con EnforceConcurrencyLimits=true non deve poterlo
+        // mutilare di nascosto.
+        //
+        // BacktestStaticFilter e BacktestTitano li accendono, per la ragione simmetrica. Fino al
+        // 15/08/2026 solo il sorgente era blindato e gli altri ricadevano sul piano: un
+        // EnforceConcurrencyLimits=false rendeva BacktestTitano un run senza lucchetti che
+        // continuava a chiamarsi Titano, e la differenza si vedeva solo confrontando due
+        // trades.json — esattamente lo scenario che la riga sopra dice di voler evitare per il
+        // sorgente. I due profili condividono i lucchetti proprio perché la sola differenza fra
+        // loro sia il filtro, statico contro dinamico: altrimenti il confronto non isola niente.
+        var enforceConcurrency = runProfile switch
+        {
+            TradingRunProfile.BacktestSorgente => false,
+            TradingRunProfile.BacktestStaticFilter => true,
+            TradingRunProfile.BacktestTitano => true,
+            _ => plan.EnforceConcurrencyLimits
+                 ?? DefaultEnforceConcurrencyLimits(request.ClientRunMode, titanoMode)
+        };
         if (!request.DistributeToAccounts && enforceConcurrency && accountRow.MaxConcurrentTrades > 0)
             throw new ArgumentException(
                 $"Il piano '{plan.Code}' dichiara MaxConcurrentTrades={accountRow.MaxConcurrentTrades} " +
@@ -1645,6 +1667,27 @@ public sealed class TradingSessionService : ITradingSessionService
             if (pendingClose != null)
                 return new AccountSignalResponse { Intent = pendingClose };
 
+            // "Adesso" è l'ultima barra valutata, non l'ora di sistema: in un replay storico le due
+            // cose distano mesi, e con DateTime.UtcNow ogni template con ExpiresAtUtc (cioè ogni
+            // ordine "next bar" dei motori Unger) risultava scaduto prima di poter essere reclamato.
+            // Il server generava i segnali, il claim rispondeva sempre NoSignal, e sul broker non
+            // arrivava mai un ordine. Fallback all'ora di sistema solo prima della prima barra.
+            //
+            // L'orologio è l'ORA DI APERTURA dell'ultima barra valutata, non la sua chiusura: i
+            // motori Unger dichiarano ExpiresAtUtc = barra successiva, mentre BiasWeeklyEngine usa la
+            // barra corrente. Con l'apertura entrambe le convenzioni danno al template esattamente
+            // una barra di vita; con la chiusura la seconda scadrebbe prima di poter essere
+            // reclamata.
+            //
+            // Su una sessione multi-timeframe questo valore può arretrare — il 60m che chiude alle
+            // 16:00 porta BarTimeUtc 15:00, dopo che il 15m ha già spinto le 15:45 — quindi il
+            // confronto è conservativo: tiene in vita un template un po' più a lungo, non ne scarta
+            // mai uno ancora valido. È il verso giusto in cui sbagliare.
+            //
+            // Sta qui e non più alla selezione del template perché serve anche alla ripresa
+            // dell'intent bloccato, subito sotto.
+            var now = session.LastEvaluatedBarTimeUtc ?? DateTime.UtcNow;
+
             // 2) Budget di concorrenza dell'account. Conta gli ingressi in volo SULL'INSIEME delle
             //    strategie e trasversalmente ai simboli: dieci vuol dire dieci, che stiano su un
             //    simbolo solo o su dieci diversi. Cosa sia "in volo" lo decide il piano con
@@ -1668,9 +1711,35 @@ public sealed class TradingSessionService : ITradingSessionService
                 // l'unico modo di recuperare un claim la cui risposta si è persa in rete, e il
                 // client lo riconosce come già inviato e smette di drenare. Senza budget residuo
                 // non ci sarebbe comunque niente di nuovo da consegnargli.
+                //
+                // Ma è una RIPRESA, non una consegna nuova: questa strada non passa da
+                // NarrowTemplates, quindi i due vincoli che decidono se quell'ingresso può ancora
+                // andare a mercato vanno riverificati qui, o l'intent bloccato li scavalca entrambi.
+                // Nei log del 06/08, 08/08 e 11/08 si vede l'effetto: ordini piazzati dopo che il
+                // limite di ingressi per sessione era già stato dichiarato raggiunto per gli altri
+                // template della stessa barra.
+                //
+                //  - la scadenza: un ingresso "next bar" ripreso barre dopo è un livello che la
+                //    strategia non sostiene più;
+                //  - il limite di ingressi per sessione: la strategia ne dichiara uno per sessione
+                //    (per PTS_NQ_PCH_* la sessione è il giorno di calendario UTC) e un intent
+                //    bloccato non è un'eccezione a quel tetto.
+                //
+                // Un intent che non supera i controlli va chiuso, non solo saltato: lasciarlo
+                // Pending significa riproporlo a ogni claim per sempre e tenere occupati i lucchetti
+                // che lo riguardano.
                 var stalledEntry = pendingForAccount.FirstOrDefault(i => i.Kind == OrderIntentKind.Entry);
                 if (stalledEntry != null)
-                    return new AccountSignalResponse { Intent = stalledEntry };
+                {
+                    if (stalledEntry.ExpiresAtUtc.HasValue && stalledEntry.ExpiresAtUtc.Value < now)
+                        stalledEntry.Status = OrderIntentStatus.Cancelled;
+                    else if (MaxEntriesPerSessionReached(session, stalledEntry, accountNumber))
+                        stalledEntry.Status = OrderIntentStatus.Cancelled;
+                    else
+                        return new AccountSignalResponse { Intent = stalledEntry };
+
+                    Persist(session);
+                }
 
                 return new AccountSignalResponse
                 {
@@ -1682,25 +1751,8 @@ public sealed class TradingSessionService : ITradingSessionService
                 };
             }
 
-            // 3) Selezione del template.
-            //
-            // "Adesso" è l'ultima barra valutata, non l'ora di sistema: in un replay storico le due
-            // cose distano mesi, e con DateTime.UtcNow ogni template con ExpiresAtUtc (cioè ogni
-            // ordine "next bar" dei motori Unger) risultava scaduto prima di poter essere reclamato.
-            // Il server generava i segnali, il claim rispondeva sempre NoSignal, e sul broker non
-            // arrivava mai un ordine. Fallback all'ora di sistema solo prima della prima barra.
-            //
-            // L'orologio è l'ORA DI APERTURA dell'ultima barra valutata, non la sua chiusura: i
-            // motori Unger dichiarano ExpiresAtUtc = barra successiva, mentre BiasWeeklyEngine usa la
-            // barra corrente. Con l'apertura entrambe le convenzioni danno al template esattamente
-            // una barra di vita; con la chiusura la seconda scadrebbe prima di poter essere
-            // reclamata.
-            //
-            // Su una sessione multi-timeframe questo valore può arretrare — il 60m che chiude alle
-            // 16:00 porta BarTimeUtc 15:00, dopo che il 15m ha già spinto le 15:45 — quindi il
-            // confronto è conservativo: tiene in vita un template un po' più a lungo, non ne scarta
-            // mai uno ancora valido. È il verso giusto in cui sbagliare.
-            var now = session.LastEvaluatedBarTimeUtc ?? DateTime.UtcNow;
+            // 3) Selezione del template. L'orologio (`now`) è già stato risolto sopra: lo condivide
+            // con la ripresa dell'intent bloccato, che applica lo stesso criterio di scadenza.
             var priorities = ComputeStrategyPriority(session, groupId);
             var conversion = ResolveAccountConversion(session, accountNumber);
 

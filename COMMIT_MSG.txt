@@ -1,0 +1,68 @@
+cBot 2.3.0: gli avvisi diventano scarti, consuntivo dei trade, eventi di sessione
+
+Il backtest distribuito su US100 (23/06-09/07) mostrava un bot che eseguiva
+ordini e non sapeva dire se ci guadagnava. Le diagnostiche introdotte in 2.2.0
+avevano visto i difetti giusti, ma si limitavano a stamparli.
+
+ESECUZIONE — gli avvisi ora fermano l'ordine
+
+- Livello dal lato sbagliato del mercato: scartato. Prima il bot stampava
+  l'ATTENZIONE e piazzava lo stesso, e l'ordine si riempiva entro il
+  millisecondo (PTS_NQ_TFM_001_60, 26/06 e 07/07 alle 17:00). Uno Stop che si
+  riempie subito non e' piu' il breakout che la strategia aspettava: e' un
+  market al peggiore dei due prezzi.
+- Livello oltre 8x lo stop di distanza: scartato. Lo stesso prezzo veniva
+  riproposto per due giorni di fila, fino a 323 pip dal mercato, su uno stop da
+  12,5 punti. Un pending "next bar" vale la sua barra.
+- Spread oltre il 20% dello stop: scartato. Il peso dello spread sul respiro
+  della strategia era gia' misurato e stampato, ma non fermava niente.
+
+Tutti e tre disattivabili da parametro: sono soglie scelte a tavolino e vanno
+tarate sul primo backtest che le attraversa.
+
+DIAGNOSTICA — l'eta' dell'intent era una misura senza significato
+
+Era calcolata su ValidFromUtc, che e' il bordo della barra SUCCESSIVA e quindi
+un istante futuro per costruzione: ne uscivano 3900s, -3599s, -188100s, numeri
+che non misuravano ne' il ritardo ne' l'attesa. Sostituita da due grandezze
+separate: ritardo (da CreatedAtUtc, la barra che ha prodotto il segnale) e
+attesa (a ValidFromUtc), piu' un avviso quando l'attesa supera una barra.
+CreatedAtUtc era gia' sul filo: il contratto server non cambia.
+
+TRAILING — passo minimo e intervallo minimo
+
+Il trailing inseguiva il Bid tick per tick: una singola posizione produceva ~50
+ModifyPosition, molte da 0,1 punti, alcune nello stesso secondo. Ora serve uno
+spostamento di almeno il 10% della distanza di trailing e almeno 5 secondi dal
+precedente. In backtest era rumore che satura il buffer del log; in live e'
+rate limit del broker, e la modifica rifiutata puo' essere quella utile.
+
+ORDINI PENDING — niente piu' cancella/ripiazza sullo stesso prezzo
+
+Un pending identico a quello gia' a mercato (verso, tipo, livello, volume,
+SL/TP) viene esteso invece che sostituito. Ha richiesto di spostare il ritiro
+degli scaduti dopo il poll della barra: il compromesso sulla finestra di
+esposizione e' documentato nel codice, ExtendIdenticalPendingOrders=false
+ripristina il comportamento precedente.
+
+CONSUNTIVO — il log diceva come nascevano gli ordini, non come finivano
+
+A ogni chiusura: entry/exit, motivo, lordo/commissioni/swap/netto, netto per
+contratto Piootoo, MFE, MAE, durata, modifiche di trailing. A fine run la
+tabella per strategia con trade, win rate, netto, media, profit factor,
+migliore e peggiore. Profit factor e' null e non infinito quando non ci sono
+perdite: in tabella un numero enorme si legge come risultato eccezionale
+mentre significa solo campione piccolo.
+
+SERVER — eventi di sessione per il monitor della console
+
+Nuovo GET /trading-sessions/{id}/activity?since=N su un buffer circolare da 500
+eventi in memoria: template creato, claim servito, claim negato col filtro
+esatto che ha svuotato la lista, esito esecuzione, posizione chiusa. Lo
+snapshot dice cos'e' aperto adesso e non puo' dire perche' mezz'ora fa non e'
+entrato niente — quel "perche'" non e' uno stato, e' una decisione che nasce e
+muore dentro un claim. I claim negati sono deduplicati sul motivo: si registra
+il cambio, non la ripetizione a ogni poll.
+
+Versione allineata a 2.3.0 su BotVersion e PiootooVersion.
+Decisioni e motivazioni in docs/decisioni.md.
