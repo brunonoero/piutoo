@@ -59,9 +59,9 @@ delegano ai servizi di `Piootoo.Core`.
 Elenco completo con motivazioni in `docs/PROGETTO.md` §3 e §7. I punti su cui si
 sbaglia più spesso:
 
-- **Id ≠ Name.** `Id` è il nome della classe (`Easy_218_GC_60`) e serve solo a
+- **Id ≠ Name.** `Id` è il nome della classe (`PTS_NQ_TFM_001_60`) e serve solo a
   *selezionare* dal catalogo (masterfilter, `StrategyFactory`). `Name` /
-  `StrategyCode` (`TOP_UA_218`) è ciò che finisce in tutto il dominio di
+  `StrategyCode` (`PTS_NQ_TFM_001_60`) è ciò che finisce in tutto il dominio di
   *esecuzione*: `signals.json`, `trades.json`, chiavi di posizione, stati Titano.
   Per confrontare masterfilter e dati di esecuzione passa da
   `StrategyCatalog.ResolveCodes`. Confondere i due ha già svuotato report e

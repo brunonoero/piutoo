@@ -110,8 +110,8 @@ public sealed class TitanoRotationService
     /// <summary>
     /// Codici di esecuzione (ITradingStrategy.Name) delle strategie del masterfilter.
     ///
-    /// Il masterfilter contiene Id di classe (<c>Easy_218_GC_60</c>) mentre i trade persistiti
-    /// portano il codice di esecuzione (<c>TOP_UA_218</c>). Confrontarli direttamente — come
+    /// Il masterfilter contiene Id di classe (<c>PTS_NQ_TFM_001_60</c>) mentre i trade persistiti
+    /// portano il codice di esecuzione (<c>PTS_NQ_TFM_001_60</c>). Confrontarli direttamente — come
     /// faceva la versione precedente — significa non trovare mai un trade per nessuna strategia:
     /// tutte le metriche restano a zero e la rotazione disabilita tutto per sempre.
     /// Vedi docs/PROGETTO.md §3.2.

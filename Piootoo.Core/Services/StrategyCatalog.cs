@@ -6,9 +6,9 @@ namespace Piootoo.Core.Services;
 /// Traduce tra i due identificatori di una strategia. Il sistema ne usa due e confonderli è
 /// storicamente la fonte di bug più costosa del progetto (vedi docs/PROGETTO.md §3.2):
 ///
-/// - <b>Id</b>: il nome della classe, es. <c>Easy_218_GC_60</c>. È la chiave di SELEZIONE:
+/// - <b>Id</b>: il nome della classe, es. <c>PTS_NQ_TFM_001_60</c>. È la chiave di SELEZIONE:
 ///   masterfilter del workspace, catalogo, <see cref="StrategyFactory"/>.
-/// - <b>Codice di esecuzione</b> (<c>ITradingStrategy.Name</c>), es. <c>TOP_UA_218</c>. È la
+/// - <b>Codice di esecuzione</b> (<c>ITradingStrategy.Name</c>), es. <c>PTS_NQ_TFM_001_60</c>. È la
 ///   chiave di ESECUZIONE: segnali, trade, chiavi di posizione, stati Titano, report.
 ///
 /// Ogni volta che il masterfilter va confrontato con dati di esecuzione (trades.json, segnali,

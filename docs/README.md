@@ -75,6 +75,10 @@ solution. Stato: **stabile** = contenuto verificato contro il codice,
   come si legge un run di ottimizzazione esterno, mappa parametri → campi del
   motore, trappole verificate e procedura di verifica contro il report.
   *Stabile.*
+- [`domini/mappa-strategie-pts.md`](domini/mappa-strategie-pts.md) — da quale
+  run e da quale riga approvata viene ogni classe `PTS_*`, sigle dei motori,
+  strategie disabilitate perché doppioni, motori senza più sottoclassi.
+  *Stabile.*
 - [`domini/feed-worker.md`](domini/feed-worker.md) — `FeedRunner`/
   `FeedWorker`, invio barre chiuse. *Bozza.*
 

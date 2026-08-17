@@ -9,6 +9,9 @@ delle regole comuni sta in [`motori-strategie.md`](motori-strategie.md); come si
 indaga una divergenza già avvenuta sta in
 [`parita-riferimento-esterno.md`](parita-riferimento-esterno.md).
 
+Quali run sono già stati tradotti, e quale classe `PTS_*` viene da quale riga, sta in
+[`mappa-strategie-pts.md`](mappa-strategie-pts.md).
+
 ## Dove sta la verità del run
 
 `report.html` è una vista: comoda da leggere, inutile da citare. La fonte
@@ -67,6 +70,16 @@ falso. Un `p_ptn_dir_no = 53` non è un filtro con soglia altissima: è
 ha già fatto perdere tempo a chi confrontava due varianti.
 
 ## Trappole verificate
+
+**L'offset del canale non ha tick impliciti — corretto il 17/08/2026.** `PriceChannelEngine`
+sommava `(OffsetTicks + 1) * TickSize`, con un commento che attribuiva il tick in più alla
+convenzione del motore Python. Il sorgente dice il contrario: `price_channel.py` calcola
+`upper + offset * tick`, e `breakout.py` lo stesso — `SessionBreakoutEngine` era già corretto.
+Con `breakout_offset_ticks = 2` su NQ il livello era 0,75 punti sopra il canale invece di 0,50, e
+con offset 0 era 0,25 invece di zero. Il tick in più **non** è un modo valido di compensare lo
+slippage che il riferimento applica sui fill stop e l'engine no (vedi *Le assunzioni di costo*):
+alzare il livello cambia *se* il breakout scatta, non solo a che prezzo viene riempito. La
+rettifica di slippage va applicata al confronto, non al livello.
 
 **`IntradayOnly` è vero per default** in `PriceChannelEngine`,
 `SessionBreakoutEngine`, `TfEngines` e nei due `ReversalBollingerBand`. Un
@@ -166,6 +179,11 @@ trade delle due si sovrappongono quasi del tutto — 906 identici su 1.015 di
 PTS_NQ_PCH_002, l'89% — e PTS_NQ_PCH_002 rende meno, perché `pattern_dir(6)` esclude le sessioni
 già estese al rialzo, dove un breakout long corre. Tenerle entrambe nel
 masterfilter non diversifica, raddoppia la size sullo stesso segnale.
+
+> ⚠ **I numeri qui sotto sono anteriori a due correzioni del 17/08/2026** — l'offset del canale
+> (trappola sopra) e la formula del `pattern_neutral(47)` in `EasyLib`, che divideva per 3 invece
+> che per 2. Entrambe cambiano i trade delle PC, quindi la tabella non è più una baseline valida:
+> va rimisurata prima di usarla per giudicare un porting nuovo.
 
 Stato al 2026-08-02, periodo 2012–2025, un contratto, commissioni $4 round-turn:
 

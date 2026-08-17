@@ -342,10 +342,15 @@ public abstract class SessionBreakoutEngine : EasyEngineBase
         if (StartTime < 0 && EndTime < 0)
             return true;
 
-        var start = StartTime < 0 ? 0 : StartTime / 100;
-        var end = EndTime < 0 ? 23 : EndTime / 100;
-        var hour = barTime.Hour;
-        return start <= end ? hour >= start && hour <= end : hour >= start || hour <= end;
+        // Confronto su HHMM pieni, fine inclusa — identico a PriceChannelEngine. Prima si
+        // confrontavano le sole ore: la finestra si allargava fino a HH:59 e prendeva barre che la
+        // fonte non prende. I trade di riferimento lo mostrano: con finestra 05-04 l'ultimo
+        // ingresso e' alle 04:15 (segnale alle 04:00, incluso) e non ce n'e' nessuno oltre, mentre
+        // con finestra 10-05 e 13-06 non esiste alcun ingresso dopo end_hour:00 + una barra.
+        var start = StartTime < 0 ? 0 : StartTime;
+        var end = EndTime < 0 ? 2359 : EndTime;
+        var time = Hhmm(barTime);
+        return start <= end ? time >= start && time <= end : time >= start || time <= end;
     }
 
     private static int PythonDayOfWeek(DateTime value) => ((int)value.DayOfWeek + 6) % 7;

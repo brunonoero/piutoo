@@ -1,0 +1,11 @@
+famiglia,motore,file,trade_totali,trade_oos,primo,ultimo
+1,TF_M,trades/fam01_TF_M.csv,433,153,2012-01-10,2025-05-29
+2,TF_M,trades/fam02_TF_M.csv,507,193,2012-01-13,2025-05-30
+3,TF_M,trades/fam03_TF_M.csv,431,158,2012-01-10,2025-05-28
+4,BO,trades/fam04_BO.csv,327,124,2012-01-12,2025-05-21
+5,BO,trades/fam05_BO.csv,258,97,2012-02-03,2025-04-28
+6,BO,trades/fam06_BO.csv,388,121,2012-01-10,2025-05-23
+7,TF_U,trades/fam07_TF_U.csv,493,155,2012-01-10,2025-05-29
+8,RBB_M,trades/fam08_RBB_M.csv,1617,520,2012-01-10,2025-05-29
+9,TF_U,trades/fam09_TF_U.csv,917,300,2012-01-10,2025-05-27
+10,TF_U,trades/fam10_TF_U.csv,1221,286,2012-01-10,2025-05-29

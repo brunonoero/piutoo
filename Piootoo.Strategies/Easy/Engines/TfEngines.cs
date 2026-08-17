@@ -79,7 +79,13 @@ public abstract class TfEngineBase : EasyEngineBase
         if (StartHour < 0 && EndHour < 0)
             return true;
 
-        return EasyLib.TimeWindow(
+        // Estremi INCLUSI, su HHMM pieni. Prima si usava EasyLib.TimeWindow, che ha la fine
+        // esclusiva come tw(): la barra di segnale a esattamente end_hour:00 veniva scartata e con
+        // essa i suoi ingressi. La semantica giusta e' misurata sui trade di riferimento della
+        // ricerca — su 15m con finestra 17-10 esiste un ingresso alle 10:15, cioe' un segnale alle
+        // 10:00; su 30m con finestra 09-19 un ingresso alle 19:30, cioe' un segnale alle 19:00 —
+        // e coincide con quella gia' adottata da PriceChannelEngine.
+        return EasyLib.TimeWindowInclusive(
             StartHour < 0 ? 0 : StartHour * 100,
             EndHour < 0 ? 2400 : EndHour * 100,
             barTime);

@@ -198,62 +198,6 @@ public class SessionSeriesTests
     }
 }
 
-public class Easy661Data2Tests
-{
-    [Fact]
-    public void HoldsWithExplicitReasonWithoutData2()
-    {
-        var strategy = new Easy_661_GC_30();
-        var bars = OvernightSeries.Build(timeframeMinutes: 30, sessionCount: 4);
-
-        var signal = strategy.GenerateSignal(bars, bars[^1].DateTime);
-
-        Assert.Equal(SignalType.Hold, signal.Type);
-        Assert.Equal("Serie 15m (data2) non disponibile", signal.Reason);
-    }
-
-    [Theory]
-    [InlineData(true)]
-    [InlineData(false)]
-    public void LatchesDirectionFromLastData2BarOfPreviousSession(bool bullish)
-    {
-        var strategy = new Easy_661_GC_30();
-        var bars = OvernightSeries.Build(timeframeMinutes: 30, sessionCount: 4);
-        var data2 = OvernightSeries.Build(timeframeMinutes: 15, sessionCount: 4);
-
-        // Si forza la direzione della barra che conta — l'ultima a 15 minuti della sessione chiusa —
-        // lasciando rialzista quella immediatamente precedente nella serie. Se la traduzione
-        // guardasse "la barra prima" invece del latch di fine sessione, i due casi coinciderebbero.
-        var target = LastBarOfClosedSession(data2, bars[^1].DateTime);
-        target.Open = bullish ? target.Low : target.High;
-        target.Close = bullish ? target.High : target.Low;
-
-        var signal = strategy.Evaluate(new StrategyEvaluationRequest
-        {
-            Ohlcv = bars,
-            BarTimeUtc = bars[^1].DateTime,
-            AdditionalOhlcv = new Dictionary<int, OhlcvData[]> { [15] = data2 },
-            Execution = new StrategyExecutionSnapshot
-            {
-                StrategyCode = "TOP_UA_661",
-                Symbol = "@GC",
-                BarTimeUtc = bars[^1].DateTime
-            }
-        });
-
-        Assert.Equal(bullish, Assert.IsType<bool>(signal.RuntimeState!["_okLong1"]));
-        Assert.Equal(!bullish, Assert.IsType<bool>(signal.RuntimeState["_okShort1"]));
-    }
-
-    private static OhlcvData LastBarOfClosedSession(OhlcvData[] data2, DateTime currentDate) =>
-        LastBarOfPreviousSession(1800, 1700, data2, currentDate)
-        ?? throw new InvalidOperationException("La serie di prova non ha una sessione chiusa.");
-}
-
-/// <summary>
-/// Serie overnight 18:00→17:00 al timeframe richiesto, con il buco 17:00–18:00 fra una sessione e
-/// l'altra. Ogni sessione sta su un gradino di prezzo suo, così gli aggregati sono distinguibili.
-/// </summary>
 internal static class OvernightSeries
 {
     internal static OhlcvData[] Build(int timeframeMinutes, int sessionCount)

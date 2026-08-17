@@ -188,10 +188,20 @@ public abstract class PriceChannelEngine : EasyEngineBase
         }
 
         var entries = new List<TradeSignal>(2);
-        // Lo stop va un tick oltre il buffer: il canale deve essere penetrato, non toccato.
-        // È la convenzione del motore Python, non un parametro della strategia, quindi non è
-        // esposta come campo. Con TickSize non configurato la somma resta invariata.
-        var offset = OffsetPoints + (OffsetTicks + 1) * TickSize;
+        // Offset esattamente come lo dichiara la strategia, senza tick aggiuntivi.
+        //
+        // Fino al 17/08/2026 qui si sommava un tick in piu' (`(OffsetTicks + 1) * TickSize`), con
+        // un commento che lo attribuiva alla convenzione del motore Python. Il sorgente di
+        // riferimento dice il contrario: `price_channel.py` calcola `upper + offset * tick` e
+        // `breakout.py` fa lo stesso — SessionBreakoutEngine lo riproduceva gia' correttamente.
+        // Anche le schede della ricerca concordano: con `breakout_offset_ticks = 2` il livello e'
+        // "+ 2 tick (0.5 pt)", non 0,75, e con offset 0 non c'e' alcun buffer.
+        //
+        // Il tick in piu' non e' un modo valido di compensare lo slippage che il riferimento
+        // applica sui fill stop e l'engine no: alzare il livello cambia *se* il breakout scatta,
+        // non solo a che prezzo viene riempito. Quella rettifica va fatta al confronto, come
+        // descritto in docs/domini/porting-da-report-sweep.md.
+        var offset = OffsetPoints + OffsetTicks * TickSize;
 
         if (Direction != 2 &&
             PassesDirectionalGates(+1, ohlc))

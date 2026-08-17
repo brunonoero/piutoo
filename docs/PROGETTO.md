@@ -53,7 +53,7 @@ non contengono logica: traducono eccezioni in `ProblemDetails` e delegano.
 Un **workspace** è una cartella su disco che contiene un `masterfilter.json`
 (l'elenco delle strategie abilitate), una cartella `backtests/`, una `plans/` e una `sessions/`.
 
-Il masterfilter contiene **Id di classe** (es. `Easy_218_GC_60`): è la chiave di
+Il masterfilter contiene **Id di classe** (es. `PTS_NQ_TFM_001_60`): è la chiave di
 *selezione* dal catalogo. È l'unica fonte autorevole di quali strategie girano —
 sia in backtest sia in sessione.
 
@@ -76,7 +76,7 @@ Ogni strategia ha due identificatori e **non vanno confusi**:
 
 | | Valore | Uso |
 |---|---|---|
-| **Id** | nome della classe, es. `Easy_218_GC_60` | *selezione*: masterfilter, catalogo, `StrategyFactory` |
+| **Id** | nome della classe, es. `PTS_NQ_TFM_001_60` | *selezione*: masterfilter, catalogo, `StrategyFactory` |
 | **Name** / **StrategyCode** | es. `TOP_UA_218` | *esecuzione*: segnali, trade, posizioni, Titano, report |
 
 > **Invariante:** tutto ciò che è persistito nel dominio dell'esecuzione

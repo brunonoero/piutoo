@@ -1,0 +1,14 @@
+livello,engine,sweep_combos,complete_phase,pass_hard_is,unique_is,oos_by_score,oos_structural,oos_diversity,to_oos,pass_oos_gate,candidate_oos,uniche,cloni_entrate_pre_batteria,distinte_entrate,robuste_preselezione,cancelli_completi,cloni_entrate_scartati,buone,finalisti,finalisti_indipendenti,overlap_mediano_top
+motore,MAC,278.0,192.0,184.0,171.0,171.0,0.0,0.0,171.0,21,,,,,,,,,,,
+motore,RHL,46737.0,2040.0,6.0,2.0,2.0,0.0,0.0,2.0,0,,,,,,,,,,,
+motore,LF,23756.0,2049.0,2.0,2.0,2.0,0.0,0.0,2.0,0,,,,,,,,,,,
+motore,PC,49005.0,48.0,34.0,27.0,27.0,0.0,0.0,27.0,11,,,,,,,,,,,
+motore,VBO,49527.0,48.0,36.0,17.0,17.0,0.0,0.0,17.0,8,,,,,,,,,,,
+motore,BO,48880.0,4068.0,3203.0,2957.0,2957.0,0.0,0.0,2957.0,476,,,,,,,,,,,
+motore,TF_M,42672.0,4068.0,2496.0,2438.0,2438.0,0.0,0.0,2438.0,790,,,,,,,,,,,
+motore,RBB_M,45735.0,4068.0,4.0,3.0,3.0,0.0,0.0,3.0,0,,,,,,,,,,,
+motore,RBB_U,124138.0,4068.0,2987.0,913.0,913.0,0.0,0.0,913.0,1,,,,,,,,,,,
+motore,TF_U,100844.0,4068.0,2812.0,2795.0,2795.0,0.0,0.0,2795.0,685,,,,,,,,,,,
+motore,BIAS,141675.0,516.0,347.0,341.0,341.0,0.0,0.0,341.0,0,,,,,,,,,,,
+motore,BIASW,143627.0,515.0,360.0,359.0,359.0,0.0,0.0,359.0,80,,,,,,,,,,,
+cella,(tutti),,,,,,,,,2072,10025.0,2072.0,1876.0,196.0,191.0,196.0,0.0,7.0,3.0,3.0,0.146

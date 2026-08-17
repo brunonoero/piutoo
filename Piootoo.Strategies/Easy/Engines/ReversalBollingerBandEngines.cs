@@ -1,3 +1,4 @@
+using Piootoo.Shared.Configuration;
 using Piootoo.Shared.Enums;
 using Piootoo.Shared.Models;
 
@@ -74,6 +75,9 @@ public abstract class RbbMirroredEngine : EasyEngineBase
         }
 
         GetBands(data, 0, out var upperBand, out var lowerBand);
+        if (!BandsAreTradable(upperBand, lowerBand))
+            return Hold(bar.Close, barTime, "Banda piu' stretta di un tick");
+
         var entries = new List<TradeSignal>(2);
 
         if (bar.Close < upperBand &&
@@ -103,7 +107,8 @@ public abstract class RbbMirroredEngine : EasyEngineBase
         if (StartTrade < 0 && EndTrade < 0)
             return true;
 
-        return EasyLib.TimeWindow(
+        // Estremi inclusi, come TF e PC: vedi la nota in TfEngineBase.InTradingWindow.
+        return EasyLib.TimeWindowInclusive(
             StartTrade < 0 ? 0 : StartTrade,
             EndTrade < 0 ? 2400 : EndTrade,
             barTime);
@@ -123,6 +128,20 @@ public abstract class RbbMirroredEngine : EasyEngineBase
         var sessionStart = EasyLib.CombineDateAndHhmm(timeUtc.Date, SessionStartTime);
         return timeUtc < sessionStart ? sessionStart.AddDays(-1) : sessionStart;
     }
+
+
+    /// <summary>
+    /// Le bande devono distare almeno un tick perche' l'ordine si armi.
+    ///
+    /// <para>Con deviazione standard nulla — una serie piatta, o una finestra di Bollinger tutta
+    /// sullo stesso close — le due bande collassano sulla media e i confronti
+    /// <c>close &lt; bandaSuperiore</c> e <c>close &gt; bandaInferiore</c> deciderebbero su un
+    /// pareggio: il verso dell'ordine dipenderebbe dall'arrotondamento, non dal mercato. Il
+    /// vincolo e' dichiarato dalla ricerca (dossier_ctrader_NQ.md, scheda S13) e vale anche per la
+    /// variante unmirrored, che ha lo stesso trigger.</para>
+    /// </summary>
+    private bool BandsAreTradable(decimal upper, decimal lower) =>
+        upper - lower >= InstrumentRegistry.TickSize(Symbol);
 
     private void GetBands(OhlcvData[] data, int barsAgo, out decimal upper, out decimal lower)
     {
@@ -212,6 +231,9 @@ public abstract class RbbUnmirroredEngine : EasyEngineBase
         }
 
         GetBands(data, 0, out var upperBand, out var lowerBand);
+        if (!BandsAreTradable(upperBand, lowerBand))
+            return Hold(bar.Close, barTime, "Banda piu' stretta di un tick");
+
         var entries = new List<TradeSignal>(2);
 
         if (bar.Close < upperBand &&
@@ -241,7 +263,8 @@ public abstract class RbbUnmirroredEngine : EasyEngineBase
         if (StartTrade < 0 && EndTrade < 0)
             return true;
 
-        return EasyLib.TimeWindow(
+        // Estremi inclusi, come TF e PC: vedi la nota in TfEngineBase.InTradingWindow.
+        return EasyLib.TimeWindowInclusive(
             StartTrade < 0 ? 0 : StartTrade,
             EndTrade < 0 ? 2400 : EndTrade,
             barTime);
@@ -261,6 +284,20 @@ public abstract class RbbUnmirroredEngine : EasyEngineBase
         var sessionStart = EasyLib.CombineDateAndHhmm(timeUtc.Date, SessionStartTime);
         return timeUtc < sessionStart ? sessionStart.AddDays(-1) : sessionStart;
     }
+
+
+    /// <summary>
+    /// Le bande devono distare almeno un tick perche' l'ordine si armi.
+    ///
+    /// <para>Con deviazione standard nulla — una serie piatta, o una finestra di Bollinger tutta
+    /// sullo stesso close — le due bande collassano sulla media e i confronti
+    /// <c>close &lt; bandaSuperiore</c> e <c>close &gt; bandaInferiore</c> deciderebbero su un
+    /// pareggio: il verso dell'ordine dipenderebbe dall'arrotondamento, non dal mercato. Il
+    /// vincolo e' dichiarato dalla ricerca (dossier_ctrader_NQ.md, scheda S13) e vale anche per la
+    /// variante unmirrored, che ha lo stesso trigger.</para>
+    /// </summary>
+    private bool BandsAreTradable(decimal upper, decimal lower) =>
+        upper - lower >= InstrumentRegistry.TickSize(Symbol);
 
     private void GetBands(OhlcvData[] data, int barsAgo, out decimal upper, out decimal lower)
     {

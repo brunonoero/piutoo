@@ -33,7 +33,10 @@ public sealed class PtsNamingConventionTests
     private static readonly Dictionary<Type, string> EngineCodes = new()
     {
         [typeof(TfMirroredEngine)] = "TFM",
-        [typeof(PriceChannelEngine)] = "PCH"
+        [typeof(TfUnmirroredEngine)] = "TFU",
+        [typeof(PriceChannelEngine)] = "PCH",
+        [typeof(SessionBreakoutEngine)] = "SBO",
+        [typeof(RbbMirroredEngine)] = "RBM"
     };
 
     private static readonly Regex NamePattern = new(

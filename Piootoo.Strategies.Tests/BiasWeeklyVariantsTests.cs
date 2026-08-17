@@ -1,7 +1,6 @@
 using Piootoo.Core.Services;
 using Piootoo.Shared.Enums;
 using Piootoo.Shared.Models;
-using Piootoo.Strategies.Easy;
 using Piootoo.Strategies.Easy.Engines;
 
 namespace Piootoo.Strategies.Tests;
@@ -38,18 +37,6 @@ public sealed class BiasWeeklyVariantsTests
         Assert.Equal(SignalType.Hold, signal.Type);
     }
 
-    [Fact]
-    public void AllBiasWeeklySources_AreRegisteredWithCatalogueIds()
-    {
-        var ids = StrategyFactory.GetRegisteredStrategies().Select(strategy => strategy.Id);
-
-        Assert.Contains(nameof(Easy_15_EC_5), ids);
-        Assert.Contains(nameof(Easy_99_CL_5), ids);
-        Assert.Contains(nameof(Easy_100_PL_5), ids);
-        Assert.Contains(nameof(Easy_196_EC_5), ids);
-        Assert.Contains(nameof(Easy_452_BP_15), ids);
-        Assert.Contains(nameof(Easy_545_HG_15), ids);
-    }
 
     private static OhlcvData[] Bars(DateTime current) =>
     [

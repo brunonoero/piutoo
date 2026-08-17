@@ -1,23 +1,12 @@
 using Piootoo.Shared.Enums;
 using Piootoo.Shared.Models;
 using Piootoo.Shared.Models.Trading;
-using Piootoo.Strategies.Easy;
 using Piootoo.Strategies.Easy.Engines;
 
 namespace Piootoo.Strategies.Tests;
 
 public sealed class BiasBarCountEngineTests
 {
-    [Theory]
-    [InlineData(typeof(Easy_218_GC_60))]
-    [InlineData(typeof(Easy_244_FDAX_15))]
-    [InlineData(typeof(Easy_261_GC_60))]
-    [InlineData(typeof(Easy_460_GC_30))]
-    [InlineData(typeof(Easy_872_CL_15))]
-    [InlineData(typeof(Easy_960_GC_60))]
-    public void TopUaBiasStrategies_UseSharedBiasBarCountEngine(Type strategyType) =>
-        Assert.True(typeof(BiasBarCountEngine).IsAssignableFrom(strategyType));
-
     [Fact]
     public void Type1_UsesPreviousClosedBarPattern_AndPythonMondayDayFilter()
     {

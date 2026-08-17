@@ -429,7 +429,13 @@ public static class EasyLib
             44 => highd0 < (lowd0 + lowd0 * 3m * 0.01m),
             45 => opend0 < lowd1 || opend0 > highd1,
             46 => highd0 < highd1 && lowd0 > lowd1,
-            47 => range1d < (((highd2 - lowd2) + (highd3 - lowd3)) / 3m),
+            // Media dei due range precedenti: il divisore e' 2, non 3. Il /3 non e' la media
+            // di nulla e rendeva il gate circa un terzo piu' stretto del dovuto, sopprimendo
+            // segnali su ogni strategia che usa il 47 come filtro obbligatorio-VERO. La
+            // formula di riferimento sta in run-engine/run-01-agosto/dossier_ctrader_NQ.md
+            // paragrafo 3 e nelle schede di consegna delle due run, che concordano:
+            // (H_d1-L_d1) < ((H_d2-L_d2) + (H_d3-L_d3)) / 2.
+            47 => range1d < (((highd2 - lowd2) + (highd3 - lowd3)) / 2m),
             48 => range1d < (highd2 - lowd2) && (highd2 - lowd2) < (highd3 - lowd3),
             49 => highd1 < highd2 && lowd1 > lowd2,
             50 => highd1 < highd2 || lowd1 > lowd2,
