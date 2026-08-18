@@ -1,3 +1,4 @@
+using Piootoo.Shared.Configuration;
 using Piootoo.Shared.Enums;
 using Piootoo.Shared.Models;
 using Piootoo.Shared.Models.Trading;
@@ -12,6 +13,15 @@ namespace Piootoo.Strategies.Tests;
 /// </summary>
 public class SessionSeriesTests
 {
+    /// <summary>
+    /// Orologio neutro: queste prove costruiscono serie sintetiche i cui orari UTC coincidono per
+    /// costruzione con gli orari di sessione dichiarati, e verificano la <b>segmentazione</b> di
+    /// EasyLib, non la conversione di fuso. Con l'orologio dello strumento le barre finirebbero in
+    /// sessioni diverse e la prova non direbbe piu' nulla sulla logica che vuole coprire. La
+    /// conversione ha le sue prove in <c>SessionClockTests</c>.
+    /// </summary>
+    private static readonly SessionClock Orologio = SessionClock.Utc;
+
     private const int SessionStart = 1800;
     private const int SessionEnd = 1700;
 
@@ -21,8 +31,8 @@ public class SessionSeriesTests
         var bars = OvernightSeries.Build(timeframeMinutes: 15, sessionCount: 4);
         var last = bars[^1].DateTime;
 
-        OHLCMulti5(SessionStart, SessionEnd, bars, last, out var ohlc);
-        var sessions = BuildSessionSeries(SessionStart, SessionEnd, bars, last);
+        OHLCMulti5(Orologio, SessionStart, SessionEnd, bars, last, out var ohlc);
+        var sessions = BuildSessionSeries(Orologio, SessionStart, SessionEnd, bars, last);
 
         // Se le due funzioni segmentassero diversamente, d0/d1/d2 e la coda della serie
         // parlerebbero di sessioni diverse: è l'invariante che tiene insieme la traduzione.
@@ -41,7 +51,7 @@ public class SessionSeriesTests
         var midSession = bars.Last(bar => GetHhmm(bar.DateTime) == 900);
         var truncated = bars.Where(bar => bar.DateTime <= midSession.DateTime).ToArray();
 
-        var sessions = BuildSessionSeries(SessionStart, SessionEnd, truncated, midSession.DateTime);
+        var sessions = BuildSessionSeries(Orologio, SessionStart, SessionEnd, truncated, midSession.DateTime);
         var forming = truncated.Where(bar => bar.DateTime >= LastSessionStart(truncated)).ToArray();
 
         Assert.Equal(3, sessions.Length);
@@ -54,7 +64,7 @@ public class SessionSeriesTests
     public void BuildSessionSeries_DoesNotMergeAcrossTheSessionGap()
     {
         var bars = OvernightSeries.Build(timeframeMinutes: 15, sessionCount: 3);
-        var sessions = BuildSessionSeries(SessionStart, SessionEnd, bars, bars[^1].DateTime);
+        var sessions = BuildSessionSeries(Orologio, SessionStart, SessionEnd, bars, bars[^1].DateTime);
 
         // Ogni sessione ha un livello di prezzo suo: aggregati fusi darebbero estremi condivisi.
         Assert.Equal(3, sessions.Select(session => session.High).Distinct().Count());
@@ -69,8 +79,8 @@ public class SessionSeriesTests
         var last = bars.Max(bar => bar.DateTime);
         var shuffled = bars.OrderBy(bar => bar.DateTime.Ticks % 7).ThenBy(bar => bar.Close).ToArray();
 
-        var expected = BuildSessionSeries(SessionStart, SessionEnd, bars, last);
-        var actual = BuildSessionSeries(SessionStart, SessionEnd, shuffled, last);
+        var expected = BuildSessionSeries(Orologio, SessionStart, SessionEnd, bars, last);
+        var actual = BuildSessionSeries(Orologio, SessionStart, SessionEnd, shuffled, last);
 
         Assert.Equal(expected.Length, actual.Length);
         Assert.Equal(
@@ -100,7 +110,7 @@ public class SessionSeriesTests
         var bars = OvernightSeries.Build(timeframeMinutes: 15, sessionCount: 3);
         var last = bars[^1].DateTime;
 
-        var previous = LastBarOfPreviousSession(SessionStart, SessionEnd, bars, last);
+        var previous = LastBarOfPreviousSession(Orologio, SessionStart, SessionEnd, bars, last);
 
         var lastSessionStart = LastSessionStart(bars);
         var expected = bars.Last(bar => bar.DateTime < lastSessionStart);
@@ -122,8 +132,8 @@ public class SessionSeriesTests
         var bars = CalendarDays(dayCount: 3);
         var last = bars[^1].DateTime;
 
-        OHLCMulti5(0, 2359, bars, last, out var ohlc);
-        var sessions = BuildSessionSeries(0, 2359, bars, last);
+        OHLCMulti5(Orologio, 0, 2359, bars, last, out var ohlc);
+        var sessions = BuildSessionSeries(Orologio, 0, 2359, bars, last);
 
         Assert.Equal(3, sessions.Length);
         AssertSameSession(ohlc, dayIndex: 0, sessions[^1]);
@@ -171,7 +181,7 @@ public class SessionSeriesTests
     public void LastBarOfPreviousSession_IsNullWithoutACompletedSession()
     {
         var bars = OvernightSeries.Build(timeframeMinutes: 15, sessionCount: 1);
-        Assert.Null(LastBarOfPreviousSession(SessionStart, SessionEnd, bars, bars[^1].DateTime));
+        Assert.Null(LastBarOfPreviousSession(Orologio, SessionStart, SessionEnd, bars, bars[^1].DateTime));
     }
 
     private static void AssertSameSession(decimal[] ohlc, int dayIndex, OhlcvData session)

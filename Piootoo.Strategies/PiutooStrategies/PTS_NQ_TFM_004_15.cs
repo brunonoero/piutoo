@@ -79,19 +79,19 @@ public sealed class PTS_NQ_TFM_004_15 : TfMirroredEngine
 {
     public override string Name => "PTS_NQ_TFM_004_15";
     public override string Description =>
-        "TF_M NQ 15m: famiglia 02 run 20260814, finestra 13:00–05:00, multiday";
+        "TF_M NQ 15m: famiglia 02 run 20260814, finestra 06:00–22:00 Chicago, multiday";
     public override string Symbol => "@NQ";
     public override int TimeframeMinutes => 15;
 
     public PTS_NQ_TFM_004_15()
     {
         // Sessione = giorno di calendario del feed, come la ricerca.
-        SessionStartTime = 0;
-        SessionEndTime = 2359;
+        SessionStartTime = 1700;   // riapertura CME, ora di Chicago
+        SessionEndTime = 1600;    // chiusura CME, ora di Chicago
         Contracts = 1;
 
-        StartHour = 13; // start_hour
-        EndHour = 5;    // end_hour
+        StartHour = 6; // start_hour
+        EndHour = 22;    // end_hour
         SkipDay = -1;   // skip_day (0 = lunedì, -1 = nessuno)
 
         NeutralYes = 54;     // ptn_neut_yes

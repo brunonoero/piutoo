@@ -131,9 +131,9 @@ public abstract class RhlEngine : EasyEngineBase
 
         var startTime = Math.Max(0, StartHour) * 100;
         var endTime = EndHour < 0 ? 2359 : EndHour * 100;
-        return EasyLib.TimeWindowInclusive(startTime, endTime, barTime);
+        return EasyLib.TimeWindowInclusive(Clock, startTime, endTime, barTime);
     }
 
     private bool IsSkippedPythonWeekday(DateTime barTime) =>
-        SkipDay >= 0 && ((int)barTime.DayOfWeek + 6) % 7 == SkipDay;
+        SkipDay >= 0 && ((int)Clock.SessionDay(barTime).DayOfWeek + 6) % 7 == SkipDay;
 }

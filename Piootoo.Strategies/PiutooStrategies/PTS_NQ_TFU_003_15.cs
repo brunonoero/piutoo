@@ -54,24 +54,36 @@ namespace Piootoo.Strategies.PiutooStrategies;
 /// <item><term>Efficienza Walk-Forward</term><description>0.28</description></item>
 /// <item><term>Monte Carlo drawdown p95</term><description>$25,876</description></item>
 /// </list>
+///
+/// <para><b>Gli orari sono in ora di borsa (America/Chicago), non nell'orologio del feed.</b>
+/// La sessione e' la giornata CME 17:00–16:00 e la finestra operativa e' la stessa della ricerca,
+/// riespressa: il motore Python lavorava su barre in ora europea e dichiarava gli orari in CET,
+/// che e' Chicago piu' sette ore. Il motore converte l'istante UTC della barra in ora di Chicago
+/// e confronta li', quindi il risultato non dipende piu' da come e' stampato il feed. Vedi
+/// <c>docs/domini/orari-di-sessione-e-fusi.md</c> e <c>docs/domini/mappa-strategie-pts.md</c>.</para>
+///
+/// <para><b>Residuo noto.</b> Mezzanotte CET e le 17:00 di Chicago sono lo stesso istante tranne
+/// nelle circa quattro settimane l'anno in cui l'ora legale americana ed europea non sono
+/// allineate. In quelle giornate — il 6,6% dei trade delle liste di riferimento — questa classe
+/// segue la sessione CME vera e diverge dalla ricerca, deliberatamente.</para>
 /// </summary>
 public sealed class PTS_NQ_TFU_003_15 : TfUnmirroredEngine
 {
     public override string Name => "PTS_NQ_TFU_003_15";
     public override string Description =>
-        "TF_U NQ 15m: famiglia 10 run 20260814, finestra 17:00–03:00, multiday";
+        "TF_U NQ 15m: famiglia 10 run 20260814, finestra 10:00–20:00 Chicago, multiday";
     public override string Symbol => "@NQ";
     public override int TimeframeMinutes => 15;
 
     public PTS_NQ_TFU_003_15()
     {
         // Sessione = giorno di calendario del feed, come la ricerca.
-        SessionStartTime = 0;
-        SessionEndTime = 2359;
+        SessionStartTime = 1700;   // riapertura CME, ora di Chicago
+        SessionEndTime = 1600;    // chiusura CME, ora di Chicago
         Contracts = 1;
 
-        StartHour = 17; // start_hour
-        EndHour = 3;    // end_hour
+        StartHour = 10; // start_hour
+        EndHour = 20;    // end_hour
         SkipDay = 4;    // skip_day (0 = lunedì, -1 = nessuno)
 
         FastYesLong = 63;  // ptn_ly_yes

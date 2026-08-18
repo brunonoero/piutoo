@@ -238,7 +238,7 @@ public abstract class SessionBreakoutEngine : EasyEngineBase
             !EasyLib.PtnBaseSA2(BaseNoLong, ohlc) &&
             _sessionOfWeek != SkipSessionLong &&
             EasyDayOfWeek(barTime) != NotEntryDayLong &&
-            barTime.Month != NotEntryMonthLong)
+            Clock.SessionDay(barTime).Month != NotEntryMonthLong)
         {
             entries.Add(EntryStopNextBar(SignalType.Buy, _hh, data, barTime, "LE"));
         }
@@ -250,7 +250,7 @@ public abstract class SessionBreakoutEngine : EasyEngineBase
             !EasyLib.PtnBaseSA2(BaseNoShort, ohlc) &&
             _sessionOfWeek != SkipSessionShort &&
             EasyDayOfWeek(barTime) != NotEntryDayShort &&
-            barTime.Month != NotEntryMonthShort)
+            Clock.SessionDay(barTime).Month != NotEntryMonthShort)
         {
             entries.Add(EntryStopNextBar(SignalType.Sell, _ll, data, barTime, "SE"));
         }
@@ -353,12 +353,15 @@ public abstract class SessionBreakoutEngine : EasyEngineBase
         return start <= end ? time >= start && time <= end : time >= start || time <= end;
     }
 
-    private static int PythonDayOfWeek(DateTime value) => ((int)value.DayOfWeek + 6) % 7;
+    private int PythonDayOfWeek(DateTime instantUtc) =>
+        ((int)Clock.SessionDay(instantUtc).DayOfWeek + 6) % 7;
 
     private DateTime SessionKey(DateTime time)
     {
-        var start = EasyLib.CombineDateAndHhmm(time.Date, SessionStartTime);
-        return SessionStartTime > SessionEndTime && time < start ? start.AddDays(-1) : start;
+        var start = Clock.SessionInstantUtc(time, SessionStartTime);
+        return SessionStartTime > SessionEndTime && time < start
+            ? Clock.SessionInstantUtc(time.AddDays(-1), SessionStartTime)
+            : start;
     }
 
     private void ResetLevels(decimal[] ohlc)
@@ -403,7 +406,7 @@ public abstract class SessionBreakoutEngine : EasyEngineBase
     {
         // tw() ha fine esclusiva: replicarla è importante perché la variante inclusiva esiste
         // altrove nella stessa libreria e le due differiscono di una barra sul bordo.
-        if (!EasyLib.TimeWindow(StartTime, EndTime, barTime))
+        if (!EasyLib.TimeWindow(Clock, StartTime, EndTime, barTime))
             return false;
 
         if (PauseStart < 0 || PauseEnd < 0)

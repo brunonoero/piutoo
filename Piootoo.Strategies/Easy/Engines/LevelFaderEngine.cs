@@ -198,7 +198,7 @@ public abstract class LevelFaderEngine : EasyEngineBase
 
         var start = AddHours(SessionStartTime, 2);
         var end = AddHours(EffectiveSessionEndTime, -2);
-        return EasyLib.TimeWindow(start, end, barTime);
+        return EasyLib.TimeWindow(Clock, start, end, barTime);
     }
 
     private bool InPythonTradingWindow(DateTime barTime)

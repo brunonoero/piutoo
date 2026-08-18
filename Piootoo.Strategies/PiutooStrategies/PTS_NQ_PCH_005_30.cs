@@ -78,15 +78,15 @@ public sealed class PTS_NQ_PCH_005_30 : PriceChannelEngine
 {
     public override string Name => "PTS_NQ_PCH_005_30";
     public override string Description =>
-        "PC NQ 30m: famiglia 05 run 20260815, finestra 11:00–10:00, multiday";
+        "PC NQ 30m: famiglia 05 run 20260815, finestra 04:00–03:00 Chicago, multiday";
     public override string Symbol => "@NQ";
     public override int TimeframeMinutes => 30;
 
     public PTS_NQ_PCH_005_30()
     {
         // Sessione = giorno di calendario del feed, come la ricerca.
-        SessionStartTime = 0;
-        SessionEndTime = 2359;
+        SessionStartTime = 1700;   // riapertura CME, ora di Chicago
+        SessionEndTime = 1600;    // chiusura CME, ora di Chicago
         Contracts = 1;
 
         ChannelBars = 50; // channel_len
@@ -95,8 +95,8 @@ public sealed class PTS_NQ_PCH_005_30 : PriceChannelEngine
         TickSize = 0.25m; // tick NQ
         DvolMin = 0m;     // dvol_min: filtro di volatilità disattivo
 
-        StartTime = 1100; // start_hour
-        EndTime = 1000;   // end_hour
+        StartTime = 400; // start_hour
+        EndTime = 300;   // end_hour
         SkipDay = -1;     // skip_day (0 = lunedì, -1 = nessuno)
 
         NeutralYes = 3;      // ptn_neut_yes

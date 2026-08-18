@@ -58,20 +58,32 @@ namespace Piootoo.Strategies.PiutooStrategies;
 /// <item><term>Efficienza Walk-Forward</term><description>0.34</description></item>
 /// <item><term>Monte Carlo drawdown p95</term><description>$27,738</description></item>
 /// </list>
+///
+/// <para><b>Gli orari sono in ora di borsa (America/Chicago), non nell'orologio del feed.</b>
+/// La sessione e' la giornata CME 17:00–16:00 e la finestra operativa e' la stessa della ricerca,
+/// riespressa: il motore Python lavorava su barre in ora europea e dichiarava gli orari in CET,
+/// che e' Chicago piu' sette ore. Il motore converte l'istante UTC della barra in ora di Chicago
+/// e confronta li', quindi il risultato non dipende piu' da come e' stampato il feed. Vedi
+/// <c>docs/domini/orari-di-sessione-e-fusi.md</c> e <c>docs/domini/mappa-strategie-pts.md</c>.</para>
+///
+/// <para><b>Residuo noto.</b> Mezzanotte CET e le 17:00 di Chicago sono lo stesso istante tranne
+/// nelle circa quattro settimane l'anno in cui l'ora legale americana ed europea non sono
+/// allineate. In quelle giornate — il 6,6% dei trade delle liste di riferimento — questa classe
+/// segue la sessione CME vera e diverge dalla ricerca, deliberatamente.</para>
 /// </summary>
 public sealed class PTS_NQ_SBO_003_15 : SessionBreakoutEngine
 {
     public override string Name => "PTS_NQ_SBO_003_15";
     public override string Description =>
-        "BO NQ 15m: famiglia 06 run 20260814, finestra 13:00–06:00, multiday";
+        "BO NQ 15m: famiglia 06 run 20260814, finestra 06:00–23:00 Chicago, multiday";
     public override string Symbol => "@NQ";
     public override int TimeframeMinutes => 15;
 
     public PTS_NQ_SBO_003_15()
     {
         // Sessione = giorno di calendario del feed, come la ricerca.
-        SessionStartTime = 0;
-        SessionEndTime = 2359;
+        SessionStartTime = 1700;   // riapertura CME, ora di Chicago
+        SessionEndTime = 1600;    // chiusura CME, ora di Chicago
         Contracts = 1;
 
         Sessions = 5;                  // n_sess
@@ -79,8 +91,8 @@ public sealed class PTS_NQ_SBO_003_15 : SessionBreakoutEngine
         BreakoutOffsetTicks = 0;       // breakout_offset_ticks
         TickSize = 0.25m;              // tick NQ
 
-        StartTime = 1300; // start_hour
-        EndTime = 600;    // end_hour
+        StartTime = 600; // start_hour
+        EndTime = 2300;    // end_hour
         SkipDay = -1;     // skip_day (0 = lunedì, -1 = nessuno)
 
         NeutralYes = 47;      // ptn_neut_yes

@@ -1,3 +1,4 @@
+using Piootoo.Shared.Configuration;
 using Piootoo.Shared.Models;
 
 namespace Piootoo.Strategies.Easy;
@@ -45,7 +46,7 @@ public static class EasyLib
     /// allineato a f__OHLCMulti5 (isBarTimeEndTime = true).
     /// Restituisce true se la barra corrente è l'inizio di una nuova sessione.
     /// </summary>
-    public static bool OHLCMulti5(int sessionStartTime, int sessionEndTime, OhlcvData[] data, DateTime currentDate, out decimal[] ohlcValues)
+    public static bool OHLCMulti5(SessionClock clock, int sessionStartTime, int sessionEndTime, OhlcvData[] data, DateTime currentDate, out decimal[] ohlcValues)
     {
         ohlcValues = new decimal[24];
 
@@ -77,10 +78,10 @@ public static class EasyLib
         for (int i = 0; i < bars.Length; i++)
         {
             var bar = bars[i];
-            int t = GetHhmm(bar.DateTime);
-            int prevT = i > 0 ? GetHhmm(bars[i - 1].DateTime) : t;
-            var day = bar.DateTime.Date;
-            var prevDay = i > 0 ? bars[i - 1].DateTime.Date : day;
+            int t = clock.Hhmm(bar.DateTime);
+            int prevT = i > 0 ? clock.Hhmm(bars[i - 1].DateTime) : t;
+            var day = clock.SessionDay(bar.DateTime);
+            var prevDay = i > 0 ? clock.SessionDay(bars[i - 1].DateTime) : day;
 
             // isBarTimeEndTime = true (default EasyLanguage)
             bool timeStarted = t > sessionStartTime;
@@ -183,7 +184,7 @@ public static class EasyLib
     /// compone, coerente con <c>isBarTimeEndTime = true</c>.</para>
     /// </summary>
     public static OhlcvData[] BuildSessionSeries(
-        int sessionStartTime, int sessionEndTime, OhlcvData[] data, DateTime currentDate)
+        SessionClock clock, int sessionStartTime, int sessionEndTime, OhlcvData[] data, DateTime currentDate)
     {
         if (data is null || data.Length == 0)
             return [];
@@ -195,7 +196,7 @@ public static class EasyLib
         var sessions = new List<OhlcvData>();
         OhlcvData? current = null;
 
-        foreach (var (bar, startsNewSession) in InSessionBars(sessionStartTime, sessionEndTime, bars, count))
+        foreach (var (bar, startsNewSession) in InSessionBars(clock, sessionStartTime, sessionEndTime, bars, count))
         {
             if (current is null || startsNewSession)
             {
@@ -237,7 +238,7 @@ public static class EasyLib
     /// <para>Restituisce <c>null</c> se nella finestra non c'è nemmeno una sessione conclusa.</para>
     /// </summary>
     public static OhlcvData? LastBarOfPreviousSession(
-        int sessionStartTime, int sessionEndTime, OhlcvData[] data, DateTime currentDate)
+        SessionClock clock, int sessionStartTime, int sessionEndTime, OhlcvData[] data, DateTime currentDate)
     {
         if (data is null || data.Length == 0)
             return null;
@@ -246,7 +247,7 @@ public static class EasyLib
         OhlcvData? lastInSession = null;
         OhlcvData? previousSessionLastBar = null;
 
-        foreach (var (bar, startsNewSession) in InSessionBars(sessionStartTime, sessionEndTime, bars, count))
+        foreach (var (bar, startsNewSession) in InSessionBars(clock, sessionStartTime, sessionEndTime, bars, count))
         {
             if (startsNewSession && lastInSession is not null)
                 previousSessionLastBar = lastInSession;
@@ -267,7 +268,7 @@ public static class EasyLib
     /// inizio: apre la sessione troncata da cui comincia la finestra.</para>
     /// </summary>
     private static IEnumerable<(OhlcvData Bar, bool StartsNewSession)> InSessionBars(
-        int sessionStartTime, int sessionEndTime, OhlcvData[] bars, int count)
+        SessionClock clock, int sessionStartTime, int sessionEndTime, OhlcvData[] bars, int count)
     {
         var oneDaySession = sessionStartTime < sessionEndTime;
 
@@ -281,10 +282,10 @@ public static class EasyLib
         for (var i = 0; i < count; i++)
         {
             var bar = bars[i];
-            var t = GetHhmm(bar.DateTime);
-            var prevT = i > 0 ? GetHhmm(bars[i - 1].DateTime) : t;
-            var day = bar.DateTime.Date;
-            var prevDay = i > 0 ? bars[i - 1].DateTime.Date : day;
+            var t = clock.Hhmm(bar.DateTime);
+            var prevT = i > 0 ? clock.Hhmm(bars[i - 1].DateTime) : t;
+            var day = clock.SessionDay(bar.DateTime);
+            var prevDay = i > 0 ? clock.SessionDay(bars[i - 1].DateTime) : day;
 
             var timeStarted = t > sessionStartTime;
             var timeNotEnded = t <= sessionEndTime;
@@ -351,7 +352,14 @@ public static class EasyLib
         return currentDate.AddMinutes(minutes);
     }
 
-    /// <summary>Costruisce un DateTime UTC con orario HHMM sullo stesso giorno di riferimento.</summary>
+    /// <summary>
+    /// Compone una data con un orario HHMM, entrambi gia' nello stesso orologio.
+    ///
+    /// <para><b>Non usarla con l'orario di sessione di una strategia.</b> Quegli orari sono in ora
+    /// di borsa mentre la data della barra e' UTC: comporli qui mette due orologi dentro lo stesso
+    /// <c>DateTime</c>. Serve <see cref="SessionClock.SessionInstantUtc"/>, che prende il giorno di
+    /// borsa dell'istante e riporta il risultato in UTC.</para>
+    /// </summary>
     public static DateTime CombineDateAndHhmm(DateTime date, int hhmm)
     {
         int hour = hhmm / 100;
@@ -573,11 +581,11 @@ public static class EasyLib
     /// <summary>
     /// Raggruppa i dati per giorno e calcola OHLC giornalieri
     /// </summary>
-    public static List<DailyOHLC> GroupByDay(OhlcvData[] data, DateTime currentDate)
+    public static List<DailyOHLC> GroupByDay(SessionClock clock, OhlcvData[] data, DateTime currentDate)
     {
         var dailyGroups = data
             .Where(d => d.DateTime <= currentDate)
-            .GroupBy(d => d.DateTime.Date)
+            .GroupBy(d => clock.SessionDay(d.DateTime))
             .OrderByDescending(g => g.Key)
             .Take(6) // Ultimi 6 giorni
             .Select(g => new DailyOHLC
@@ -615,9 +623,9 @@ public static class EasyLib
     /// <summary>
     /// GetDailyOpen - Ottiene l'open del giorno corrente (0) o dei giorni precedenti (1, 2, ecc.)
     /// </summary>
-    public static decimal GetDailyOpen(OhlcvData[] data, DateTime currentDate, int daysAgo = 0)
+    public static decimal GetDailyOpen(SessionClock clock, OhlcvData[] data, DateTime currentDate, int daysAgo = 0)
     {
-        var dailyData = GroupByDay(data, currentDate);
+        var dailyData = GroupByDay(clock, data, currentDate);
         if (daysAgo >= dailyData.Count) return 0;
         return dailyData[daysAgo].Open;
     }
@@ -625,9 +633,9 @@ public static class EasyLib
     /// <summary>
     /// GetDailyHigh - Ottiene l'high del giorno corrente (0) o dei giorni precedenti
     /// </summary>
-    public static decimal GetDailyHigh(OhlcvData[] data, DateTime currentDate, int daysAgo = 0)
+    public static decimal GetDailyHigh(SessionClock clock, OhlcvData[] data, DateTime currentDate, int daysAgo = 0)
     {
-        var dailyData = GroupByDay(data, currentDate);
+        var dailyData = GroupByDay(clock, data, currentDate);
         if (daysAgo >= dailyData.Count) return 0;
         return dailyData[daysAgo].High;
     }
@@ -635,9 +643,9 @@ public static class EasyLib
     /// <summary>
     /// GetDailyLow - Ottiene il low del giorno corrente (0) o dei giorni precedenti
     /// </summary>
-    public static decimal GetDailyLow(OhlcvData[] data, DateTime currentDate, int daysAgo = 0)
+    public static decimal GetDailyLow(SessionClock clock, OhlcvData[] data, DateTime currentDate, int daysAgo = 0)
     {
-        var dailyData = GroupByDay(data, currentDate);
+        var dailyData = GroupByDay(clock, data, currentDate);
         if (daysAgo >= dailyData.Count) return 0;
         return dailyData[daysAgo].Low;
     }
@@ -645,9 +653,9 @@ public static class EasyLib
     /// <summary>
     /// GetDailyClose - Ottiene il close del giorno corrente (0) o dei giorni precedenti
     /// </summary>
-    public static decimal GetDailyClose(OhlcvData[] data, DateTime currentDate, int daysAgo = 0)
+    public static decimal GetDailyClose(SessionClock clock, OhlcvData[] data, DateTime currentDate, int daysAgo = 0)
     {
-        var dailyData = GroupByDay(data, currentDate);
+        var dailyData = GroupByDay(clock, data, currentDate);
         if (daysAgo >= dailyData.Count) return 0;
         return dailyData[daysAgo].Close;
     }
@@ -955,9 +963,9 @@ public static class EasyLib
     /// Time Window - verifica se l'ora corrente è nel range specificato (fine esclusiva, come tw()).
     /// Gestisce anche il caso in cui startTime > endTime (sessione che attraversa la mezzanotte).
     /// </summary>
-    public static bool TimeWindow(int startTime, int endTime, DateTime currentDate)
+    public static bool TimeWindow(SessionClock clock, int startTime, int endTime, DateTime currentDate)
     {
-        var currentTime = GetHhmm(currentDate);
+        var currentTime = clock.Hhmm(currentDate);
         
         if (startTime > endTime)
         {
@@ -972,9 +980,9 @@ public static class EasyLib
     /// <summary>
     /// Finestra oraria con estremi inclusivi, come la logica inline di Easy 152.
     /// </summary>
-    public static bool TimeWindowInclusive(int startTime, int endTime, DateTime currentDate)
+    public static bool TimeWindowInclusive(SessionClock clock, int startTime, int endTime, DateTime currentDate)
     {
-        var currentTime = GetHhmm(currentDate);
+        var currentTime = clock.Hhmm(currentDate);
 
         if (startTime > endTime)
         {
@@ -1003,14 +1011,13 @@ public static class EasyLib
     /// <summary>
     /// Verifica se è l'ultima barra della sessione (semplificato)
     /// </summary>
-    public static bool IsSessionLastBar(OhlcvData[] data, DateTime currentDate, int sessionStartTime, int sessionEndTime)
+    public static bool IsSessionLastBar(SessionClock clock, OhlcvData[] data, DateTime currentDate, int sessionStartTime, int sessionEndTime)
     {
         if (data == null || data.Length == 0)
             return false;
         
-        var currentTime = currentDate.Hour * 100 + currentDate.Minute;
-        var nextBarTime = currentDate.AddMinutes(GetTimeframeMinutes(data)).Hour * 100 + 
-                          currentDate.AddMinutes(GetTimeframeMinutes(data)).Minute;
+        var currentTime = clock.Hhmm(currentDate);
+        var nextBarTime = clock.Hhmm(currentDate.AddMinutes(GetTimeframeMinutes(data)));
         
         // Se la prossima barra sarebbe fuori dalla sessione, questa è l'ultima
         if (sessionStartTime > sessionEndTime)

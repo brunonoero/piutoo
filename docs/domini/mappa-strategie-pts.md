@@ -96,41 +96,79 @@ Il run di `PTS_NQ_TFM_001_60` non e' ne' `0005` (NQ 15m) ne' `2127` (NQ 30m): la
 ritrova aggiorni questa riga — i suoi parametri sono `start_hour 16`, `end_hour 3`,
 `ptn_neut 47/1`, `ptn_dir 50/8`, `stop_loss 1000`, `take_profit 3000`, `intraday_only 0`.
 
-## Il confine di sessione: una discrepanza aperta
+## Il confine di sessione
 
-Tutte le classi tradotte ad agosto usano `SessionStartTime = 0` / `SessionEndTime = 2359`, cioe'
-la sessione coincide col giorno di calendario del feed. Non e' un'assunzione: si misura
-raggruppando gli ingressi del file di trade di riferimento e contando le violazioni di "al massimo
-un ingresso per sessione e per direzione". Su sei famiglie delle due run di agosto il confine di
-mezzanotte e' l'unico con zero violazioni ovunque, mentre il confine CME 17:00 e' escluso da
-cinque su sei.
+Tutte e 21 le classi `PTS_*` dichiarano `SessionStartTime = 0` / `SessionEndTime = 2359`. Non
+significa "sessione = giorno di calendario invece che sessione CME": significa **la sessione CME,
+scritta nell'orologio del feed**.
 
-Fra le tre classi anteriori, pero', **due dichiarano la sessione CME**:
+### Perche' 0 e 1700 sono la stessa cosa
 
-| Classe | `SessionStartTime`/`EndTime` | Misura sui suoi trade di riferimento |
+La riapertura Globex delle **17:00 di Chicago e' mezzanotte in Italia** — lo stesso istante, in due
+orologi. E il feed `@NQ` di questo progetto e' stampato in **ora locale europea**, non in UTC,
+nonostante la `Z` nel campo `dateTime`: quella `Z` dice solo che qualcuno ha passato `UTC` allo
+script di aggregazione.
+
+Misurato sul feed a 15 minuti, con le due prove indipendenti descritte in
+[`orari-di-sessione-e-fusi.md`](orari-di-sessione-e-fusi.md):
+
+| misura | gennaio | luglio | se il feed fosse UTC vero |
+|---|---|---|---|
+| picco di volume (apertura cash NY, 09:30 locali) | 15:30 | 15:30 | 14:30 → 13:30, **si sposterebbe** |
+| pausa di manutenzione CME | 23:15–23:45 | 23:15–23:45 | 22:00–22:45 → 21:00–21:45 |
+
+Il picco non si sposta fra le stagioni perche' Europa e New York cambiano ora insieme. Verificato
+su 2013, 2024 e 2025: il feed non e' cambiato.
+
+Finche' `EasyLib` confronta l'orario grezzo della barra — la migrazione a `SessionClock` **non e'
+completa**, vedi lo *Stato della migrazione* in `orari-di-sessione-e-fusi.md` — il numero corretto
+e' `0`. Anche le finestre operative (`StartHour`/`EndHour`, `StartTime`/`EndTime`,
+`StartTrade`/`EndTrade`) sono nell'orologio europeo, che e' quello in cui la ricerca le ha
+scritte: nessuna conversione.
+
+### ⚠ Cosa succede quando la migrazione sara' completa
+
+`SessionStartTime` verra' letto in **ora di borsa**, cioe' `America/Chicago` per NQ secondo
+`InstrumentSpec.SessionTimeZone`. A quel punto `0` diventera' mezzanotte di Chicago, le 07:00
+italiane, e **tutte e 21 le strategie si sposterebbero di sette ore**.
+
+| | oggi (feed europeo, orario grezzo) | dopo la migrazione (ora di borsa) |
 |---|---|---|
-| `PTS_NQ_PCH_001_15` | `0` / `2359` | mezzanotte: 0 violazioni &#183; CME 17:00: 48 &#183; **coerente** |
-| `PTS_NQ_PCH_002_15` | `1700` / `1600` | mezzanotte: 0 violazioni &#183; CME 17:00: 35 &#183; **incoerente** |
-| `PTS_NQ_TFM_001_60` | `1700` / `1600` | non misurabile: manca il run |
+| sessione | `0` / `2359` | `1700` / `1600` |
+| finestre operative | ore CET, come la ricerca | da riconvertire in ora di Chicago |
 
-`PCH_001` e `PCH_002` vengono dallo stesso run, dallo stesso motore e dallo stesso mercato, e
-differiscono solo per un filtro: il confine di sessione non puo' essere diverso fra le due. La
-misura su `trades/top02_PC.csv` dice che per `PCH_002` il confine giusto e' mezzanotte, non le
-17:00. La correzione non e' stata applicata: va decisa, perche' cambia i trade di una strategia
-gia' in catalogo.
+Le due codifiche descrivono la stessa sessione: **vanno ribaltate tutte insieme**, mai una alla
+volta. Chi completa la migrazione tenga presente anche che `SessionTimeZone` e' uno **per
+simbolo**, e non basta: le sorgenti EasyLanguage scrivevano orari di Chicago, i run Python
+scrivono orari europei, e per lo stesso simbolo servono entrambe le letture.
 
-## Le tre disabilitate
+### Il residuo che nessuna delle due codifiche elimina
 
-Sono righe approvate dalla ricerca, tradotte correttamente, che però emettono **gli stessi ordini
-di entrata** di un'altra classe. Portano `[StrategiaDisabilitata]`, quindi non compaiono nel
-catalogo e non sono selezionabili nel masterfilter, ma restano istanziabili per nome perché
-servono ai confronti storici.
+Stati Uniti ed Europa cambiano ora in date diverse — circa tre settimane a marzo e una a fine
+ottobre. In quelle settimane le 17:00 di Chicago non sono mezzanotte in Italia ma le 23:00.
+Misurato: il **20 marzo 2025** la pausa CME cade alle 22:15–22:45 invece che alle 23:15–23:45.
+In quelle giornate il confine `0` taglia la sessione un'ora tardi.
 
-| Classe | Equivalente a | Perché coincidono |
-|---|---|---|
-| `PTS_NQ_TFM_004_15` | `PTS_NQ_TFM_003_15` (S05) | `ptn_dir_yes = 52` è la sentinella sempre-vera: resta solo il filtro `ptn_dir_no = 17`, identico |
-| `PTS_NQ_PCH_005_30` | `PTS_NQ_PCH_004_30` (S12) | stessa famiglia, entrate coincidenti |
-| `PTS_NQ_PCH_006_30` | `PTS_NQ_PCH_004_30` (S12) | come sopra; inoltre `ptn_dir_no = 53` cade nel `default => false`, quindi non filtra nulla |
+Non e' un difetto della traduzione: la ricerca ha fatto la stessa semplificazione, quindi
+riprodurla fedelmente vuol dire tenersi anche questo. Diventa un problema solo il giorno in cui si
+vuole essere corretti rispetto alla borsa invece che fedeli alla ricerca — e quel giorno la strada
+e' la finestra dichiarata come `(fuso IANA, orario locale)`, non un altro numero fisso.
+
+### Le due classi corrette il 17/08/2026
+
+`PTS_NQ_PCH_002_15` e `PTS_NQ_TFM_001_60` dichiaravano `1700`/`1600`: i numeri di Chicago
+confrontati con un feed europeo, cioe' un taglio alle 17:00 italiane, in mezzo alla giornata.
+
+Per `PCH_002` la correzione e' **misurata** sui suoi stessi trade,
+`run_20260730_0005/trades/top02_PC.csv`: su 691 ingressi, il confine di mezzanotte da' zero
+violazioni della regola "al massimo un ingresso per sessione e per direzione", quello delle 17:00
+ne da' 35. `PCH_001`, che gia' dichiarava `0`, ne da' zero contro 48.
+
+Per `TFM_001_60` la correzione **non e' misurabile**, perche' il suo run non e' sul disco. Regge
+comunque per entrambe le provenienze possibili: `1700` come riapertura di Chicago vale `0` su
+questo feed, e `1700` come mezzanotte europea di un run Python vale ugualmente `0`. Resta invece
+**non verificata la sua finestra 16:00–03:00**: se fosse in ora di Chicago andrebbe spostata di
+sette ore. Da decidere quando il run salta fuori.
 
 ## Cosa non è stato tradotto
 

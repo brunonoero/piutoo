@@ -260,13 +260,13 @@ public abstract class VolatilityBreakoutEngine : EasyEngineBase
         if (sessionOpen <= 0m || previousOpen <= 0m)
             return Hold(bar.Close, barTime, "OHLC di sessione non disponibile");
 
-        if (!EasyLib.TimeWindow(StartTrade, EndTrade, barTime) || IsInPause(barTime))
+        if (!EasyLib.TimeWindow(Clock, StartTrade, EndTrade, barTime) || IsInPause(barTime))
             return Hold(bar.Close, barTime);
 
         if (MaxEntriesPerSession > 0 && EntriesTodayCount >= MaxEntriesPerSession)
             return Hold(bar.Close, barTime, "Tetto ingressi di sessione raggiunto");
 
-        if (barTime.Month == ExcludedMonthOne || barTime.Month == ExcludedMonthTwo ||
+        if (Clock.SessionDay(barTime).Month == ExcludedMonthOne || Clock.SessionDay(barTime).Month == ExcludedMonthTwo ||
             !EasyLib.PatternNeutralFast(NeutralYes, ohlc) ||
             EasyLib.PatternNeutralFast(NeutralNo, ohlc))
         {
@@ -414,8 +414,10 @@ public abstract class VolatilityBreakoutEngine : EasyEngineBase
 
     private DateTime SessionKey(DateTime time)
     {
-        var start = EasyLib.CombineDateAndHhmm(time.Date, SessionStartTime);
-        return SessionStartTime > SessionEndTime && time <= start ? start.AddDays(-1) : start;
+        var start = Clock.SessionInstantUtc(time, SessionStartTime);
+        return SessionStartTime > SessionEndTime && time <= start
+            ? Clock.SessionInstantUtc(time.AddDays(-1), SessionStartTime)
+            : start;
     }
 
     private TradeSignal BuildEntry(

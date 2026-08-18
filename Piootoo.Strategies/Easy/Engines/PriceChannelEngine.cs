@@ -290,8 +290,8 @@ public abstract class PriceChannelEngine : EasyEngineBase
     private bool InTradingWindow(DateTime barTime)
     {
         var inWindow = TradingWindowInclusive
-            ? EasyLib.TimeWindowInclusive(StartTime, EndTime, barTime)
-            : EasyLib.TimeWindow(StartTime, EndTime, barTime);
+            ? EasyLib.TimeWindowInclusive(Clock, StartTime, EndTime, barTime)
+            : EasyLib.TimeWindow(Clock, StartTime, EndTime, barTime);
         if (!inWindow || PauseStart < 0 || PauseEnd < 0)
             return inWindow;
 
@@ -479,16 +479,19 @@ public abstract class PriceChannelEngine : EasyEngineBase
 
     private DateTime ResolveMaxDaysCloseAt(DateTime entryValidFrom)
     {
-        var target = EasyLib.CombineDateAndHhmm(
-            entryValidFrom.Date.AddDays(Math.Max(0, MaxDaysInTrade - 1)),
-            MaxDaysFlatTime);
-        return target > entryValidFrom ? target : target.AddDays(1);
+        var target = Clock.SessionInstantUtc(
+            entryValidFrom.AddDays(Math.Max(0, MaxDaysInTrade - 1)), MaxDaysFlatTime);
+        return target > entryValidFrom
+            ? target
+            : Clock.SessionInstantUtc(entryValidFrom.AddDays(Math.Max(1, MaxDaysInTrade)), MaxDaysFlatTime);
     }
 
     private DateTime GetSessionStartUtc(DateTime timeUtc)
     {
-        var sessionStart = EasyLib.CombineDateAndHhmm(timeUtc.Date, SessionStartTime);
-        return timeUtc < sessionStart ? sessionStart.AddDays(-1) : sessionStart;
+        var sessionStart = Clock.SessionInstantUtc(timeUtc, SessionStartTime);
+        return timeUtc < sessionStart
+            ? Clock.SessionInstantUtc(timeUtc.AddDays(-1), SessionStartTime)
+            : sessionStart;
     }
 
     private bool InPythonTradingWindow(DateTime barTime)
@@ -505,11 +508,14 @@ public abstract class PriceChannelEngine : EasyEngineBase
         return start <= end ? time >= start && time <= end : time >= start || time <= end;
     }
 
-    private static int PythonDayOfWeek(DateTime value) => ((int)value.DayOfWeek + 6) % 7;
+    private int PythonDayOfWeek(DateTime instantUtc) =>
+        ((int)Clock.SessionDay(instantUtc).DayOfWeek + 6) % 7;
 
     private DateTime SessionKey(DateTime time)
     {
-        var start = EasyLib.CombineDateAndHhmm(time.Date, SessionStartTime);
-        return SessionStartTime > SessionEndTime && time < start ? start.AddDays(-1) : start;
+        var start = Clock.SessionInstantUtc(time, SessionStartTime);
+        return SessionStartTime > SessionEndTime && time < start
+            ? Clock.SessionInstantUtc(time.AddDays(-1), SessionStartTime)
+            : start;
     }
 }

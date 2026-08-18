@@ -85,14 +85,14 @@ public abstract class TfEngineBase : EasyEngineBase
         // ricerca — su 15m con finestra 17-10 esiste un ingresso alle 10:15, cioe' un segnale alle
         // 10:00; su 30m con finestra 09-19 un ingresso alle 19:30, cioe' un segnale alle 19:00 —
         // e coincide con quella gia' adottata da PriceChannelEngine.
-        return EasyLib.TimeWindowInclusive(
+        return EasyLib.TimeWindowInclusive(Clock, 
             StartHour < 0 ? 0 : StartHour * 100,
             EndHour < 0 ? 2400 : EndHour * 100,
             barTime);
     }
 
     private bool IsSkippedPythonWeekday(DateTime barTime) =>
-        SkipDay >= 0 && ((int)barTime.DayOfWeek + 6) % 7 == SkipDay;
+        SkipDay >= 0 && ((int)Clock.SessionDay(barTime).DayOfWeek + 6) % 7 == SkipDay;
 
     private TradeSignal WithPythonSettings(TradeSignal signal)
     {
@@ -110,8 +110,10 @@ public abstract class TfEngineBase : EasyEngineBase
 
     private DateTime GetSessionStartUtc(DateTime timeUtc)
     {
-        var sessionStart = EasyLib.CombineDateAndHhmm(timeUtc.Date, SessionStartTime);
-        return timeUtc < sessionStart ? sessionStart.AddDays(-1) : sessionStart;
+        var sessionStart = Clock.SessionInstantUtc(timeUtc, SessionStartTime);
+        return timeUtc < sessionStart
+            ? Clock.SessionInstantUtc(timeUtc.AddDays(-1), SessionStartTime)
+            : sessionStart;
     }
 }
 

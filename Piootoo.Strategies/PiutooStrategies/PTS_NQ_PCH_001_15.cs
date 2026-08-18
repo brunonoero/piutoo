@@ -8,22 +8,21 @@ namespace Piootoo.Strategies.PiutooStrategies;
 /// buffer di 2 tick.
 ///
 /// <para>
-/// Le barre e gli orari sono UTC. <b>La sessione è il giorno di calendario UTC,
-/// non la sessione CME 17:00–16:00</b>, e la finestra di ingresso inclusiva
-/// 13:00–04:00 la attraversa: un'occorrenza della finestra ricade su due
-/// sessioni. Non sono esclusi giorni e non è applicato alcun filtro di
-/// volatilità daily.
+/// <b>Sessione e orologio.</b> Gli orari sono in ora di borsa: la sessione e' la giornata CME
+/// 17:00–16:00 di Chicago e la finestra di ingresso inclusiva e' 06:00–21:00, sempre di Chicago.
+/// Il motore converte l'istante UTC della barra prima di confrontare, quindi il comportamento non
+/// dipende da come e' stampato il feed.
 /// </para>
 ///
 /// <para>
-/// Il confine di mezzanotte è misurato sul motore di riferimento, non scelto:
-/// raggruppando i suoi ingressi per giorno di calendario si ottiene esattamente
-/// un ingresso per sessione su 120 trade, mentre con il confine CME sette
-/// sessioni ne mostrerebbero due. Un confine nella zona morta della finestra
-/// (05:00–12:00) non produce lo stesso risultato, quindi la sessione è davvero
-/// il giorno e non l'occorrenza della finestra. Il parametro governa insieme il
-/// secchio di <c>MaxEntriesPerSession</c> e gli OHLC d0..d5 su cui girano i
-/// pattern, quindi vale per entrambi.
+/// <b>Storia di questo confine, perche' spiega una misura che resta valida.</b> Fino al
+/// 17/08/2026 la classe dichiarava <c>0</c>/<c>2359</c> con la motivazione che il confine fosse il
+/// giorno di calendario. La misura che la sosteneva era corretta — raggruppando gli ingressi del
+/// motore di riferimento per giorno si ottiene esattamente un ingresso per sessione su 120 trade,
+/// mentre col confine alle 17:00 sette sessioni ne mostrano due — ma la conclusione era
+/// incompleta: quel confronto avveniva su un feed stampato in ora europea, dove mezzanotte <i>e'</i>
+/// la riapertura CME delle 17:00 di Chicago. Erano lo stesso istante scritto in due orologi. Ora
+/// che l'ora di borsa e' esplicita, la misura conferma la sessione CME invece di contraddirla.
 /// </para>
 ///
 /// <para>
@@ -69,6 +68,18 @@ namespace Piootoo.Strategies.PiutooStrategies;
 /// <item><term>Degradazione Walk-Forward IS → OOS</term><description>94%</description></item>
 /// <item><term>Walk-Forward folds positivi</term><description>5/5</description></item>
 /// </list>
+///
+/// <para><b>Gli orari sono in ora di borsa (America/Chicago), non nell'orologio del feed.</b>
+/// La sessione e' la giornata CME 17:00–16:00 e la finestra operativa e' la stessa della ricerca,
+/// riespressa: il motore Python lavorava su barre in ora europea e dichiarava gli orari in CET,
+/// che e' Chicago piu' sette ore. Il motore converte l'istante UTC della barra in ora di Chicago
+/// e confronta li', quindi il risultato non dipende piu' da come e' stampato il feed. Vedi
+/// <c>docs/domini/orari-di-sessione-e-fusi.md</c> e <c>docs/domini/mappa-strategie-pts.md</c>.</para>
+///
+/// <para><b>Residuo noto.</b> Mezzanotte CET e le 17:00 di Chicago sono lo stesso istante tranne
+/// nelle circa quattro settimane l'anno in cui l'ora legale americana ed europea non sono
+/// allineate. In quelle giornate — il 6,6% dei trade delle liste di riferimento — questa classe
+/// segue la sessione CME vera e diverge dalla ricerca, deliberatamente.</para>
 /// </summary>
 public sealed class PTS_NQ_PCH_001_15 : PriceChannelEngine
 {
@@ -77,16 +88,16 @@ public sealed class PTS_NQ_PCH_001_15 : PriceChannelEngine
 
     public PTS_NQ_PCH_001_15()
     {
-        SessionStartTime = 0;
-        SessionEndTime = 2359;
+        SessionStartTime = 1700;   // riapertura CME, ora di Chicago
+        SessionEndTime = 1600;    // chiusura CME, ora di Chicago
         ChannelBars = 100;
         EnableLong = true;
         EnableShort = false;
         Direction = 1;
         OffsetTicks = 2;
         TickSize = 0.25m;
-        StartTime = 1300;
-        EndTime = 400;
+        StartTime = 600;
+        EndTime = 2100;
         TradingWindowInclusive = true;
         NeutralYes = 55;
         NeutralNo = 24;

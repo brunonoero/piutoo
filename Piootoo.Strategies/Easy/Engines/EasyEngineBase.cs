@@ -1,3 +1,4 @@
+using Piootoo.Shared.Configuration;
 using Piootoo.Shared.Enums;
 using Piootoo.Shared.Models;
 using Piootoo.Shared.Models.Trading;
@@ -26,7 +27,11 @@ public abstract class EasyEngineBase : StatelessEasyStrategyBase
 {
     // ------------------------------------------------------------------ parametri di sessione
 
-    /// <summary>Orario HHMM di inizio sessione (es. 1800 per la sessione GC 18:00–17:00).</summary>
+    /// <summary>
+    /// Orario HHMM di inizio sessione, <b>in ora di borsa</b> — es. 1700 per la riapertura CME
+    /// degli indici, che e' l'orario di Chicago. Non e' UTC e non e' l'orologio del feed: viene
+    /// confrontato passando da <see cref="Clock"/>.
+    /// </summary>
     protected int SessionStartTime = 1800;
 
     /// <summary>Orario HHMM di fine sessione.</summary>
@@ -34,6 +39,29 @@ public abstract class EasyEngineBase : StatelessEasyStrategyBase
 
     /// <summary>Contratti dichiarati dalla strategia, prima di sizing e conversione account.</summary>
     protected int Contracts = 1;
+
+    // ------------------------------------------------------------------ orologio di borsa
+
+    private SessionClock? _clock;
+
+    /// <summary>
+    /// Converte l'istante della barra nell'ora di borsa dello strumento, ed e' l'unico punto da cui
+    /// il motore puo' leggere l'ora di una barra.
+    ///
+    /// <para><b>Perche' non si legge <c>barTime.Hour</c>.</b> L'istante della barra e' UTC, gli
+    /// orari della strategia sono in ora di borsa: confrontarli direttamente funziona solo se il
+    /// feed e' per caso stampato nello stesso orologio degli orari dichiarati, e smette di
+    /// funzionare quando il feed cambia o quando la stessa strategia gira in live su un feed
+    /// diverso. E' successo: il feed @NQ di backtest e' in ora europea mentre il cBot consegna UTC
+    /// vero, cioe' due confini di sessione diversi per la stessa classe. Vedi
+    /// <c>docs/domini/orari-di-sessione-e-fusi.md</c>.</para>
+    ///
+    /// <para>Il fuso viene dal registro strumenti (<c>InstrumentSpec.SessionTimeZone</c>), quindi un
+    /// simbolo senza specifica verificata fallisce subito invece di scegliere un fuso a caso.
+    /// L'istanza e' creata alla prima lettura e non e' thread-safe, come documentato in
+    /// <see cref="SessionClock"/>: l'ipotesi e' una per strategia, che e' come l'engine la usa.</para>
+    /// </summary>
+    protected SessionClock Clock => _clock ??= InstrumentRegistry.CreateSessionClock(Symbol);
 
     // ------------------------------------------------------------------ specifica di uscita
 
@@ -98,17 +126,17 @@ public abstract class EasyEngineBase : StatelessEasyStrategyBase
     /// nuova. Wrapper su <see cref="EasyLib.OHLCMulti5"/> con i parametri di sessione del motore.
     /// </summary>
     protected bool BuildSessionOhlc(OhlcvData[] data, DateTime barTime, out decimal[] ohlc) =>
-        EasyLib.OHLCMulti5(SessionStartTime, SessionEndTime, data, barTime, out ohlc);
+        EasyLib.OHLCMulti5(Clock, SessionStartTime, SessionEndTime, data, barTime, out ohlc);
 
-    /// <summary>Orario HHMM della barra.</summary>
-    protected static int Hhmm(DateTime barTime) => EasyLib.GetHhmm(barTime);
+    /// <summary>Orario HHMM della barra, letto in ora di borsa.</summary>
+    protected int Hhmm(DateTime barTime) => Clock.Hhmm(barTime);
 
     /// <summary>
     /// Giorno della settimana nella convenzione EasyLanguage <c>dayofweek()</c>:
     /// 0 = domenica … 6 = sabato. Coincide con <see cref="DayOfWeek"/> di .NET, ma va detto
     /// esplicitamente perché i motori Unger portati dal Python usano invece 0 = lunedì.
     /// </summary>
-    protected static int EasyDayOfWeek(DateTime barTime) => (int)barTime.DayOfWeek;
+    protected int EasyDayOfWeek(DateTime barTime) => (int)Clock.SessionDay(barTime).DayOfWeek;
 
     // ------------------------------------------------------------------ costruttori di segnale
 
@@ -164,7 +192,9 @@ public abstract class EasyEngineBase : StatelessEasyStrategyBase
             BreakEvenMoneyPerFutureContract = BreakEvenMoney > 0 ? BreakEvenMoney : null,
             TrailingStopMoneyPerFutureContract = TrailingStopMoney > 0 ? TrailingStopMoney : null,
             MaxBarsInPosition = MaxBars > 0 ? MaxBars : null,
-            CloseAtUtc = MaxDaysInTrade > 0 ? barTime.Date.AddDays(MaxDaysInTrade) : null,
+            CloseAtUtc = MaxDaysInTrade > 0
+                ? Clock.SessionInstantUtc(barTime.AddDays(MaxDaysInTrade), 0)
+                : null,
             TimeExitOnlyIfProfitBelowMoneyPerContract = TimeExitOnlyIfProfitBelow,
             Reason = reason
         };
@@ -185,9 +215,9 @@ public abstract class EasyEngineBase : StatelessEasyStrategyBase
     /// </summary>
     protected virtual DateTime ResolveEntrySessionStartUtc(DateTime timeUtc)
     {
-        var sessionStart = EasyLib.CombineDateAndHhmm(timeUtc.Date, SessionStartTime);
+        var sessionStart = Clock.SessionInstantUtc(timeUtc, SessionStartTime);
         return SessionStartTime > SessionEndTime && timeUtc < sessionStart
-            ? sessionStart.AddDays(-1)
+            ? Clock.SessionInstantUtc(timeUtc.AddDays(-1), SessionStartTime)
             : sessionStart;
     }
 
@@ -223,10 +253,10 @@ public abstract class EasyEngineBase : StatelessEasyStrategyBase
     /// <c>ExternalBroker</c> non verrebbe mai eseguito, perché il server emette solo intent di
     /// ingresso.
     /// </summary>
-    protected static DateTime ResolveCloseAtUtc(DateTime barTime, int hhmm)
+    protected DateTime ResolveCloseAtUtc(DateTime barTime, int hhmm)
     {
-        var target = EasyLib.CombineDateAndHhmm(barTime.Date, hhmm);
-        return target <= barTime ? target.AddDays(1) : target;
+        var target = Clock.SessionInstantUtc(barTime, hhmm);
+        return target <= barTime ? Clock.SessionInstantUtc(barTime.AddDays(1), hhmm) : target;
     }
 
     // ------------------------------------------------------------------ contratto ITradingStrategy
@@ -265,12 +295,12 @@ public abstract class EasyEngineBase : StatelessEasyStrategyBase
     protected DateTime SessionBarToUtc(DateTime barTime, int sessionBarIndex)
     {
         var offsetMinutes = (sessionBarIndex - 1) * TimeframeMinutes;
-        var sessionStart = EasyLib.CombineDateAndHhmm(barTime.Date, SessionStartTime);
+        var sessionStart = Clock.SessionInstantUtc(barTime, SessionStartTime);
 
         // Sessione che attraversa la mezzanotte: se la barra corrente è prima dell'orario di
         // apertura, la sessione in corso è iniziata il giorno precedente.
         if (SessionStartTime > SessionEndTime && Hhmm(barTime) < SessionStartTime)
-            sessionStart = sessionStart.AddDays(-1);
+            sessionStart = Clock.SessionInstantUtc(barTime.AddDays(-1), SessionStartTime);
 
         var target = sessionStart.AddMinutes(offsetMinutes);
         return target <= barTime ? target.AddDays(1) : target;

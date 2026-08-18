@@ -243,7 +243,7 @@ public abstract class TrendDeveloperEngine : EasyEngineBase
         // apertura in multipli di volatilità. Calcolato una volta per barra, non per verso.
         var sessionOpen = ohlc[0];
         var atrSeries = AtrGateOnSessionSeries
-            ? EasyLib.BuildSessionSeries(SessionStartTime, SessionEndTime, data, barTime)
+            ? EasyLib.BuildSessionSeries(Clock, SessionStartTime, SessionEndTime, data, barTime)
             : data;
         var atr = AtrGateLength > 0 ? EasyLib.AvgTrueRange(atrSeries, AtrGateLength) : 0m;
         var atrGateLong = AtrGateLength <= 0 || AtrGateMultiplierLong <= 0m ||
@@ -263,7 +263,7 @@ public abstract class TrendDeveloperEngine : EasyEngineBase
             EasyLib.PatternFast(FastYesLong, ohlc) &&
             !EasyLib.PatternFast(FastNoLong, ohlc) &&
             EasyDayOfWeek(barTime) != NotEntryDayLong &&
-            barTime.Month != NotEntryMonthLong &&
+            Clock.SessionDay(barTime).Month != NotEntryMonthLong &&
             PassesDirectionalExtraGates(SignalType.Buy, ohlc, data, barTime))
         {
             entries.Add(WithSessionClose(MarketEntry
@@ -281,7 +281,7 @@ public abstract class TrendDeveloperEngine : EasyEngineBase
             EasyLib.PatternFast(FastYesShort, ohlc) &&
             !EasyLib.PatternFast(FastNoShort, ohlc) &&
             EasyDayOfWeek(barTime) != NotEntryDayShort &&
-            barTime.Month != NotEntryMonthShort &&
+            Clock.SessionDay(barTime).Month != NotEntryMonthShort &&
             PassesDirectionalExtraGates(SignalType.Sell, ohlc, data, barTime))
         {
             entries.Add(WithSessionClose(MarketEntry
@@ -307,6 +307,6 @@ public abstract class TrendDeveloperEngine : EasyEngineBase
     }
 
     private bool InWindow(DateTime barTime) => InclusiveWindowEnd
-        ? EasyLib.TimeWindowInclusive(StartTrade, EndTrade, barTime)
-        : EasyLib.TimeWindow(StartTrade, EndTrade, barTime);
+        ? EasyLib.TimeWindowInclusive(Clock, StartTrade, EndTrade, barTime)
+        : EasyLib.TimeWindow(Clock, StartTrade, EndTrade, barTime);
 }

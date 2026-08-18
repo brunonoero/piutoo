@@ -1421,3 +1421,36 @@ in ordine cronologico. Non è un changelog di codice: quello resta nei commit.
   di separare "riporto l'intent cancellato" da "cancello l'ordine dal broker" — il report libera il
   server, l'ordine fisico resta a mercato e viene esteso o modificato con `ModifyPendingOrder`
   quando il segnale arriva. È un cambio della semantica del reporting e va deciso a parte.
+- **2026-08-18** — **I due livelli di filtro sugli ingressi sono separati, e solo uno vale sempre.**
+  Livello 1, la *strategia*: `MaxEntriesPerSession` conta i fill per account ed è attivo in ogni
+  profilo — è una regola del motore, non della piattaforma, e un campione che la ignorasse
+  conterrebbe trade che la strategia non avrebbe mai fatto. Livello 2, la *piattaforma*:
+  `MaxConcurrentTrades`, lo slot di gruppo e il lucchetto `AccountHasEntryInFlight` sono i vincoli
+  operativi del setup del server e seguono `EnforceConcurrencyLimits`, quindi si spengono nel run
+  sorgente, il cui scopo è eseguire *tutte* le strategie e misurarne il risultato complessivo.
+
+  `AccountHasEntryInFlight` era finora incondizionato, classificato come "identità del segnale" e
+  non come concorrenza. Il costo si legge in un backtest sorgente NQ del 17/03/2026: nove template
+  di ingresso per barra, **un solo** claim servito, e per tutti gli altri `l'account ha già un
+  ingresso in corso per quella strategia su quel simbolo`, con il conto dei template scartati che
+  sale barra dopo barra (19, 27, …). Il campione sorgente usciva mutilato di otto strategie su nove.
+- **2026-08-18** — **Gli intent di ingresso scaduti si annullano all'arrivo della barra**
+  (`PurgeExpiredEntryIntents`), gemello di `PurgeExpiredTemplates` sugli intent già reclamati.
+  Il template scaduto veniva buttato, il claim che ne era nato no: restava `Pending` per sempre, e
+  con lui ogni lucchetto che legge "ingresso in volo". Un buy stop *next bar* mai toccato dal prezzo
+  bloccava così la propria coppia (strategia, simbolo) per il resto del run, e l'unico punto che
+  ripuliva un pendente scaduto era il ramo "tetto pieno" di `MaxConcurrentTrades` — che in un run
+  sorgente, dove il tetto è spento, non viene mai eseguito.
+
+  È anche ciò che rende sicuro spegnere il lucchetto di identità: due template della stessa
+  strategia nati su barre diverse non possono più essere vivi insieme, cioè la condizione da cui
+  nascevano i doppioni del 14/10/2024 (`PTS_NQ_PCH_002_15`, due stop riempiti allo stesso prezzo).
+  Resta scoperto solo il motore che non dichiara `ExpiresAtUtc`: lì due ordini coesistono per
+  costruzione, e nel run sorgente è il comportamento voluto.
+
+  Lo sblocco è ora **del server e basta**: non dipende più dal fatto che il cBot riporti
+  `ReportExecution(Cancelled)`, che è la metà mancante dello stallo descritto nella voce del
+  15/08. Annullare non perde un fill reale — `ApplyReport` accetta il report anche su un intent
+  annullato, quindi un ordine che il broker riempie comunque resta contato nel `trades.json` e nel
+  tetto di livello 1. Nessuna riga di attività per la scadenza: è l'esito normale di un ordine
+  *next bar*, e registrarla riempirebbe il buffer del monitor.

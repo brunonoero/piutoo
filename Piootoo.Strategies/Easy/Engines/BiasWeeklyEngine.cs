@@ -211,7 +211,7 @@ public abstract class BiasWeeklyEngine : EasyEngineBase
         _ => false
     };
 
-    private static WeeklySchedule FindSchedule(
+    private WeeklySchedule FindSchedule(
         IReadOnlyList<WeeklySchedule> schedules,
         int entryDay,
         int entryTime,
@@ -231,18 +231,18 @@ public abstract class BiasWeeklyEngine : EasyEngineBase
         return new WeeklySchedule(-1, 0, 0, -1, 0);
     }
 
-    private static bool IsInScheduledEntry(DateTime barTime, WeeklySchedule schedule) =>
+    private bool IsInScheduledEntry(DateTime barTime, WeeklySchedule schedule) =>
         schedule.EntryDay >= 0 &&
         PythonDayOfWeek(barTime) == schedule.EntryDay &&
         Hhmm(barTime) >= schedule.EntryStartTime &&
         Hhmm(barTime) <= schedule.EntryEndTime &&
-        (schedule.SkipMonth == 0 || barTime.Month != schedule.SkipMonth);
+        (schedule.SkipMonth == 0 || Clock.SessionDay(barTime).Month != schedule.SkipMonth);
 
     private DateTime GetSessionStartUtc(DateTime barTime)
     {
-        var sessionStart = EasyLib.CombineDateAndHhmm(barTime.Date, SessionStartTime);
+        var sessionStart = Clock.SessionInstantUtc(barTime, SessionStartTime);
         if (SessionStartTime > SessionEndTime && Hhmm(barTime) < SessionStartTime)
-            sessionStart = sessionStart.AddDays(-1);
+            sessionStart = Clock.SessionInstantUtc(barTime.AddDays(-1), SessionStartTime);
         return sessionStart;
     }
 
@@ -251,15 +251,15 @@ public abstract class BiasWeeklyEngine : EasyEngineBase
     /// giorni dopo l'ingresso. Gestisce sia le uscite nella stessa settimana sia quelle della
     /// settimana successiva (per esempio venerdì → lunedì).
     /// </summary>
-    protected static DateTime ResolveScheduledExitUtc(DateTime entryBarTime, int exitDay, int exitTime)
+    protected DateTime ResolveScheduledExitUtc(DateTime entryBarTime, int exitDay, int exitTime)
     {
         for (var offset = 0; offset <= 7; offset++)
         {
-            var date = entryBarTime.Date.AddDays(offset);
-            if (PythonDayOfWeek(date) != exitDay)
+            var giorno = entryBarTime.AddDays(offset);
+            if (PythonDayOfWeek(giorno) != exitDay)
                 continue;
 
-            var candidate = EasyLib.CombineDateAndHhmm(date, exitTime);
+            var candidate = Clock.SessionInstantUtc(giorno, exitTime);
             if (candidate > entryBarTime)
                 return candidate;
         }

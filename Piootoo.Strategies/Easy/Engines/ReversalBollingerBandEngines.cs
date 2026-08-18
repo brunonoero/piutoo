@@ -108,7 +108,7 @@ public abstract class RbbMirroredEngine : EasyEngineBase
             return true;
 
         // Estremi inclusi, come TF e PC: vedi la nota in TfEngineBase.InTradingWindow.
-        return EasyLib.TimeWindowInclusive(
+        return EasyLib.TimeWindowInclusive(Clock, 
             StartTrade < 0 ? 0 : StartTrade,
             EndTrade < 0 ? 2400 : EndTrade,
             barTime);
@@ -125,8 +125,10 @@ public abstract class RbbMirroredEngine : EasyEngineBase
 
     private DateTime GetSessionStartUtc(DateTime timeUtc)
     {
-        var sessionStart = EasyLib.CombineDateAndHhmm(timeUtc.Date, SessionStartTime);
-        return timeUtc < sessionStart ? sessionStart.AddDays(-1) : sessionStart;
+        var sessionStart = Clock.SessionInstantUtc(timeUtc, SessionStartTime);
+        return timeUtc < sessionStart
+            ? Clock.SessionInstantUtc(timeUtc.AddDays(-1), SessionStartTime)
+            : sessionStart;
     }
 
 
@@ -264,7 +266,7 @@ public abstract class RbbUnmirroredEngine : EasyEngineBase
             return true;
 
         // Estremi inclusi, come TF e PC: vedi la nota in TfEngineBase.InTradingWindow.
-        return EasyLib.TimeWindowInclusive(
+        return EasyLib.TimeWindowInclusive(Clock, 
             StartTrade < 0 ? 0 : StartTrade,
             EndTrade < 0 ? 2400 : EndTrade,
             barTime);
@@ -281,8 +283,10 @@ public abstract class RbbUnmirroredEngine : EasyEngineBase
 
     private DateTime GetSessionStartUtc(DateTime timeUtc)
     {
-        var sessionStart = EasyLib.CombineDateAndHhmm(timeUtc.Date, SessionStartTime);
-        return timeUtc < sessionStart ? sessionStart.AddDays(-1) : sessionStart;
+        var sessionStart = Clock.SessionInstantUtc(timeUtc, SessionStartTime);
+        return timeUtc < sessionStart
+            ? Clock.SessionInstantUtc(timeUtc.AddDays(-1), SessionStartTime)
+            : sessionStart;
     }
 
 

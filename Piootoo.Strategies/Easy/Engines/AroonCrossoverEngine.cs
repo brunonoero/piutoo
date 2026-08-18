@@ -68,7 +68,7 @@ public abstract class AroonCrossoverEngine : EasyEngineBase, IMultiTimeframeTrad
         var bar = data[^1];
         var barTime = bar.DateTime;
 
-        if (!EasyLib.TimeWindow(StartTrade, EndTrade, barTime))
+        if (!EasyLib.TimeWindow(Clock, StartTrade, EndTrade, barTime))
             return Hold(bar.Close, barTime);
 
         BuildSessionOhlc(data, barTime, out var ohlc);

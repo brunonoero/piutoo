@@ -98,17 +98,23 @@ claim la cui risposta si è persa in rete, e il client lo riconosce come già in
 (`_submittedIntentIds`) e smette di drenare. Senza budget residuo non ci sarebbe
 comunque niente di nuovo da consegnargli.
 
-### Passo 3 — guardia di identità, attiva in ogni profilo
+### Passo 3 — un ingresso per coppia (strategia, simbolo), solo a lucchetti accesi
 
 ```csharp
-.Where(t => !AccountHasEntryInFlight(account, t.StrategyCode, t.Symbol))
+if (IsConcurrentTradeLimitActive(session))
+    .Where(t => !AccountHasEntryInFlight(account, t.StrategyCode, t.Symbol))
 ```
 
 Un account non riceve un template di una coppia (strategia, simbolo) su cui ha già
-un ingresso `Pending` o una posizione aperta. **Non è un vincolo di concorrenza, è
-l'identità della strategia**: quel segnale è già in mano al broker, e un secondo
-ordine sarebbe rischio doppio sullo stesso motivo di ingresso. Vale anche a
-lucchetti spenti. Il perché in §4.3.
+un ingresso `Pending` o una posizione aperta: quel segnale è già in mano al broker, e
+un secondo ordine sarebbe rischio doppio sullo stesso motivo di ingresso.
+
+**È un vincolo di concorrenza** — dice *quanti* ordini della stessa strategia possono
+stare a mercato insieme — quindi segue `EnforceConcurrencyLimits` come il passo 2 e il
+lucchetto 4. Il tetto della *strategia* è un altro livello, sta in
+`MaxEntriesPerSession`, e quello vale in ogni profilo. Fino al 18/08/2026 questo filtro
+era incondizionato e classificato come "identità del segnale": §4.3 dice cosa è
+costato.
 
 ### Passi 4-7 — selezione del template
 
@@ -146,6 +152,7 @@ Le chiavi 3 e 4 sono **due lucchetti diversi**, non due modi di dire la stessa c
 | Evento | 3 (`ClaimedGroups`) | 4 (`GroupStrategySlots`) |
 |---|---|---|
 | Ingresso **rifiutato / non riempito** | resta | **liberato** |
+| Ingresso **scaduto** (finestra della barra chiusa) | resta | **liberato** — `PurgeExpiredEntryIntents`, §4.3 bis |
 | Ingresso **riempito** | resta | resta |
 | Posizione **chiusa** | resta | **liberato** |
 
@@ -324,7 +331,7 @@ La distinzione giusta è fra vincoli **operativi** e struttura della distribuzio
 | Lucchetto | Cos'è | Segue il flag? |
 |---|---|---|
 | passo 2 (`MaxConcurrentTrades`) | operativo | sì (già prima) |
-| passo 3 (`AccountHasEntryInFlight`) | *identità del segnale, non concorrenza* | **no, mai** |
+| passo 3 (`AccountHasEntryInFlight`) | *identità del segnale, non concorrenza* | **no, mai** — riclassificato il 18/08, vedi §4.3 bis |
 | 3 (`TemplateClaimedGroups`) | *un template è già stato servito a quel gruppo* | **no, mai** |
 | 4 (`GroupStrategySlots`) | operativo | **sì** |
 
@@ -349,6 +356,46 @@ reale (`PTS_NQ_PCH_002_15`, 14/10/2024 13:15) questo ha prodotto due stop order
 riempiti allo stesso prezzo e due posizioni da 20 lotti sullo stesso segnale. Con i
 lucchetti attivi il 4 lo copriva già, ma è più largo — vale per tutto il gruppo — e
 a lucchetti spenti non restava niente a fermare il doppione.
+
+### 4.3 bis Anche il passo 3 segue il flag — corretto il 2026-08-18
+
+La riga qui sopra — *«attivo in ogni profilo»* — è stata la classificazione sbagliata,
+e il paragrafo resta perché il ragionamento che portava lì è ancora quello che va
+smontato.
+
+**I livelli sono due, e solo uno vale sempre.**
+
+| Livello | Chi lo pone | Cosa dice | Segue il flag? |
+|---|---|---|---|
+| 1 — strategia | il motore (`MaxEntriesPerSession`) | quanti *fill* può fare quella strategia nella sua sessione | **no, mai** |
+| 2 — piattaforma | il setup del server | quanti ordini possono stare a mercato insieme (`MaxConcurrentTrades`, lucchetto 4, `AccountHasEntryInFlight`) | **sì** |
+
+Il livello 1 è una regola del motore: un campione che la ignorasse conterrebbe trade
+che la strategia non avrebbe mai fatto. Il livello 2 descrive come si opera, ed è
+esattamente ciò che il run sorgente vuole misurare *senza*: lo scopo è eseguire tutte
+le strategie e vedere il risultato complessivo.
+
+`AccountHasEntryInFlight` è livello 2 — dice quanti ordini della stessa coppia stanno a
+mercato insieme — e finora stava dalla parte sbagliata. Il costo si legge in un backtest
+sorgente NQ del 17/03/2026: nove template di ingresso per barra, **un solo** claim
+servito, e per tutti gli altri `l'account ha già un ingresso in corso per quella
+strategia su quel simbolo`, con il conto dei template scartati che sale barra dopo barra
+(19, 27, …). Otto strategie su nove fuori dal campione.
+
+**Cosa lo sostituisce a flag spento.** Il doppione del 14/10/2024 nasceva da due template
+di *barre diverse* vivi insieme, e quella condizione non esiste più:
+`PurgeExpiredEntryIntents` annulla all'arrivo della barra gli ingressi `Pending` la cui
+finestra è chiusa, esattamente come `PurgeExpiredTemplates` fa con i template.
+
+Era il pezzo mancante e non solo qui: un claim mai eseguito restava `Pending` per sempre,
+e con lui il lucchetto — l'unico punto che ripuliva un pendente scaduto era il ramo
+"tetto pieno" di `MaxConcurrentTrades`, che in un run sorgente non viene mai eseguito.
+Lo sblocco ora è del server e basta, senza dipendere dal `ReportExecution(Cancelled)` del
+cBot: è la metà mancante dello stallo descritto in `docs/decisioni.md` (15/08).
+
+Resta scoperto il motore che non dichiara `ExpiresAtUtc`: lì due ordini della stessa
+coppia possono coesistere per costruzione, e nel run sorgente è il comportamento voluto.
+A lucchetti accesi il passo 3 li ferma come prima.
 
 ### 4.4 Il profilo del run
 
