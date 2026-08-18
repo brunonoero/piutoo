@@ -74,7 +74,13 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
 
     /// <summary>Liste condivise fra le combo del tab Generale e le colonne della griglia gruppi.</summary>
     private readonly List<ValueComboItem> _rotationSetups = new();
-    private readonly List<ValueComboItem> _backtestFolders = new();
+
+    /// <summary>
+    /// Backtest del workspace. Non alimentano più una colonna combo: le cartelle sono troppe perché
+    /// un menu a tendina dentro una cella sia usabile, e la scelta passa dal pulsante di riga che
+    /// apre <see cref="BacktestPickerDialog"/>.
+    /// </summary>
+    private readonly List<WorkspaceBacktestInfo> _backtests = new();
     private ShellContext? _context;
     private string _workspaceId = string.Empty;
     private string? _code;
@@ -329,7 +335,7 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
 
     private async Task LoadBacktestFoldersAsync(CancellationToken cancellationToken)
     {
-        _backtestFolders.Clear();
+        _backtests.Clear();
         if (string.IsNullOrEmpty(_workspaceId))
         {
             return;
@@ -338,13 +344,7 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
         try
         {
             var backtests = await _context!.Services.Api.ListBacktestsAsync(_workspaceId, cancellationToken);
-            foreach (var backtest in backtests.OrderByDescending(b => b.LastModifiedUtc))
-            {
-                _backtestFolders.Add(ValueComboItem.Of(
-                    backtest.FolderName,
-                    $"{backtest.FolderName}  ·  {BacktestComboItem.DescribeOrigin(backtest)}" +
-                    $"  ·  {backtest.LastModifiedUtc:yyyy-MM-dd HH:mm} UTC"));
-            }
+            _backtests.AddRange(backtests.OrderByDescending(b => b.LastModifiedUtc));
         }
         catch (OperationCanceledException)
         {
@@ -402,11 +402,6 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
             _rotationSetups,
             _groups.Select(row => row.RotationSetupId));
 
-        SetColumnItems(
-            _colGroupTitanoFolder,
-            "(nessuna cartella)",
-            _backtestFolders,
-            _groups.Select(row => row.TitanoBacktestFolder));
     }
 
     private static void SetColumnItems(
@@ -493,6 +488,37 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
         {
             _groupsGrid.CommitEdit(DataGridViewDataErrorContexts.Commit);
         }
+    }
+
+    /// <summary>
+    /// Scelta della cartella di backtest della riga. Era una colonna combo, ma un workspace con
+    /// qualche centinaio di cartelle rende la tendina dentro la cella inservibile: il pulsante apre
+    /// la stessa modale con filtro usata dalle schermate Titano, e la cella resta di sola lettura.
+    /// </summary>
+    private void OnGroupsGridCellClick(object? sender, DataGridViewCellEventArgs e)
+    {
+        if (e.RowIndex < 0 || e.ColumnIndex != _colGroupTitanoPick.Index || e.RowIndex >= _groups.Count)
+        {
+            return;
+        }
+
+        if (_backtests.Count == 0)
+        {
+            MessageBox.Show(this, "Il workspace non contiene backtest.", "Piano",
+                MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        var row = _groups[e.RowIndex];
+        var chosen = BacktestPickerDialog.Pick(this, _backtests, row.TitanoBacktestFolder);
+        if (chosen == null)
+        {
+            return;
+        }
+
+        row.TitanoBacktestFolder = chosen.FolderName;
+        _groupsBindingSource.ResetItem(e.RowIndex);
+        MarkDirty();
     }
 
     private void OnGroupsGridCellValueChanged(object? sender, DataGridViewCellEventArgs e)

@@ -218,7 +218,7 @@ namespace cAlgo.Robots
         // della solution — quindi la sincronia e' manuale e non c'e' niente che la verifichi.
         // Il disallineamento non blocca nulla: entrambi stampano la propria versione all'avvio, e
         // il confronto si fa leggendo i due log.
-        private const string BotVersion = "3.0.0"; // aggiornare qui E in PiootooVersion, ad ogni release
+        private const string BotVersion = "3.1.0"; // aggiornare qui E in PiootooVersion, ad ogni release
         private const string StatusChartObjectName = "PiootooConnectionStatus";
 
         [Parameter("Server Base Url", DefaultValue = "http://localhost:5000")]
@@ -253,12 +253,21 @@ namespace cAlgo.Robots
         [Parameter("Scarta livelli dal lato sbagliato", DefaultValue = true, Group = "Filtri di ingresso")]
         public bool RejectWrongSideLevels { get; set; }
 
-        // Distanza massima fra il prezzo corrente e il livello di un pending, misurata in multipli
-        // dello stop dichiarato dall'intent. Un breakout a 40 punti su uno stop da 12,5 e' normale
-        // (3,2x); lo stesso livello riproposto per due giorni finche' il mercato non ci arriva, a
-        // 300 punti di distanza (24x), non e' piu' il segnale di quella barra. Zero = nessun limite.
-        [Parameter("Distanza max pending (multipli di stop)", DefaultValue = 8.0, MinValue = 0, Group = "Filtri di ingresso")]
-        public double MaxEntryDistanceStopMultiple { get; set; }
+        // Distanza massima fra il prezzo corrente e il livello di un pending, in punti dello
+        // strumento. Serve a scartare un intent vecchio che il server continua a riproporre, non a
+        // giudicare quanto lontano una strategia mette il proprio ingresso: quello e' un fatto di
+        // progetto della strategia, non un difetto.
+        //
+        // <para>Fino alla 3.0.0 la misura era in multipli dello stop, e quella scala era sbagliata.
+        // Una strategia con stop stretto e ingresso sul massimo della sessione precedente — SBO_003,
+        // stop 25 punti, livello 150-280 punti sopra il mercato — veniva ammessa solo quando il
+        // breakout era gia' vicino, e bloccata quando era lontano. Non e' un filtro: e' una
+        // selezione sistematica delle condizioni favorevoli, che nella sorgente Python non
+        // esiste.</para>
+        //
+        // Zero = nessun limite.
+        [Parameter("Distanza max pending (punti)", DefaultValue = 500.0, MinValue = 0, Group = "Filtri di ingresso")]
+        public double MaxEntryDistancePoints { get; set; }
 
         // Peso massimo dello spread sullo stop della strategia, in percentuale. Su uno stop da 12,5
         // punti uno spread di 2,5 e' il 20%: lo stop deve reggere un quinto di respiro in meno di
@@ -2211,22 +2220,38 @@ namespace cAlgo.Robots
         }
 
         /// <summary>
+        /// Vero quando il run e' il campione sorgente, cioe' quando i filtri di ingresso di questo
+        /// bot vanno sospesi.
+        ///
+        /// <para>Il profilo <c>BacktestSorgente</c> serve a misurare la fedelta' della traduzione
+        /// C# rispetto alle strategie Python. Qualunque filtro lato client che la sorgente non
+        /// prevede sporca quella misura: davanti a una differenza non si saprebbe piu' dire se viene
+        /// dal porting o dal filtro. Il filtro sul lato del livello resta attivo anche qui, perche'
+        /// non e' discrezionale — un pending dal lato sbagliato e' un errore di prezzatura, non una
+        /// scelta di strategia.</para>
+        /// </summary>
+        private bool FiltriIngressoSospesi =>
+            string.Equals(_runProfile, nameof(RunProfileParam.BacktestSorgente),
+                StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>
         /// Scarta gli intent che non sono eseguibili come la strategia li ha pensati. Restituisce
         /// true quando l'intent e' stato rifiutato e riportato al server, e il chiamante deve
         /// fermarsi.
         ///
         /// <para>Sono tre condizioni distinte, tutte disattivabili dai rispettivi parametri, e
-        /// nessuna delle tre e' un evento di mercato:</para>
+        /// nessuna delle tre e' un evento di mercato. Le ultime due sono discrezionali e restano
+        /// spente nel profilo <c>BacktestSorgente</c>: vedi <see cref="FiltriIngressoSospesi"/>.</para>
         /// <list type="number">
         /// <item><b>Livello dal lato sbagliato.</b> Uno Stop long sotto l'Ask (o uno Stop short sopra
         /// il Bid) si riempie all'istante: non e' piu' il breakout che la strategia aspettava, e' un
         /// ordine a mercato al prezzo peggiore dei due. Nei log fino alla 2.2.0 questo produceva fill
         /// entro il millisecondo dal piazzamento, con l'avviso stampato e l'ordine mandato lo stesso.</item>
-        /// <item><b>Livello troppo lontano.</b> Un pending "next bar" vale la sua barra: se il
-        /// mercato e' a venti volte lo stop di distanza, quel livello non verra' toccato in questa
-        /// barra e l'ordine e' solo un intent vecchio che il server continua a riproporre. La misura
-        /// e' in multipli dello stop e non in pips perche' e' l'unica scala che vale per strategie
-        /// con respiro diverso sullo stesso strumento.</item>
+        /// <item><b>Livello troppo lontano.</b> Un pending "next bar" vale la sua barra: oltre una
+        /// certa distanza quel livello non verra' toccato, e l'ordine e' solo un intent vecchio che
+        /// il server continua a riproporre. La misura e' in punti dello strumento: legarla allo stop,
+        /// come si faceva fino alla 3.0.0, penalizzava le strategie con stop stretto e ingresso
+        /// lontano proprio per come sono progettate.</item>
         /// <item><b>Spread troppo pesante.</b> Su un long si entra sull'Ask e lo stop e' valutato sul
         /// Bid: uno spread pari a un quinto dello stop si mangia un quinto del respiro prima ancora
         /// che il trade cominci. Si misura qui, al piazzamento, perche' e' l'ultimo istante in cui
@@ -2255,17 +2280,21 @@ namespace cAlgo.Robots
 
             var stop = (double)(intent.StopLoss ?? 0m);
 
-            if (motivo is null && MaxEntryDistanceStopMultiple > 0 && isPending && prezzo > 0 && stop > 0)
+            // Nel profilo sorgente ogni segnale deve diventare un ordine: e' il run che misura la
+            // fedelta' rispetto al Python, e un filtro che la sorgente non ha falsa la misura.
+            var filtriDiscrezionaliAttivi = !FiltriIngressoSospesi;
+
+            if (motivo is null && filtriDiscrezionaliAttivi &&
+                MaxEntryDistancePoints > 0 && isPending && prezzo > 0)
             {
                 var riferimento = intent.Side == SignalTypeDto.Buy ? ask : bid;
                 var distanza = Math.Abs(riferimento - prezzo);
-                var massimo = stop * MaxEntryDistanceStopMultiple;
-                if (distanza > massimo)
-                    motivo = $"livello a {distanza:0.##} punti dal mercato, oltre il tetto di {massimo:0.##} " +
-                             $"({MaxEntryDistanceStopMultiple:0.#}x lo stop da {stop:0.##})";
+                if (distanza > MaxEntryDistancePoints)
+                    motivo = $"livello a {distanza:0.##} punti dal mercato, oltre il tetto di " +
+                             $"{MaxEntryDistancePoints:0.##} punti";
             }
 
-            if (motivo is null && MaxSpreadPercentOfStop > 0 && stop > 0)
+            if (motivo is null && filtriDiscrezionaliAttivi && MaxSpreadPercentOfStop > 0 && stop > 0)
             {
                 var spread = ask - bid;
                 var peso = spread / stop * 100.0;

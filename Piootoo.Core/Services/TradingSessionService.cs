@@ -594,7 +594,9 @@ public sealed class TradingSessionService : ITradingSessionService
         var byId = definitions.ToDictionary(x => x.Id, StringComparer.OrdinalIgnoreCase);
         var invalid = filter.StrategiesFilter.Where(id => !byId.ContainsKey(id)).ToArray();
         if (invalid.Length != 0)
-            throw new ArgumentException($"ID strategia non validi nel masterfilter: {string.Join(", ", invalid)}");
+            throw new ArgumentException(
+                "ID strategia non eseguibili nel masterfilter: " +
+                string.Join("; ", invalid.Select(StrategyFactory.DescribeUnusableId)));
 
         var strategies = filter.StrategiesFilter.Select(id =>
         {
@@ -974,7 +976,6 @@ public sealed class TradingSessionService : ITradingSessionService
         // La barra nuova rende definitivamente morti i template della barra precedente: si buttano
         // qui invece di lasciarli in lista e scartarli a ogni claim.
         PurgeExpiredTemplates(session, bar.BarTimeUtc);
-        PurgeExpiredEntryIntents(session, bar.BarTimeUtc);
 
         var prices = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase)
             { [Normalize(bar.Symbol)] = bar.Bar.Close };
@@ -1782,25 +1783,24 @@ public sealed class TradingSessionService : ITradingSessionService
                 t => !(session.TemplateClaimedGroups.TryGetValue(t.IntentId, out var claimed)
                        && claimed.Contains(groupId)),
                 $"già reclamati dal gruppo '{groupId}'");
-            // Un account non tiene DUE ingressi in corso della stessa strategia sullo stesso
-            // simbolo: quel segnale è già in mano al broker, e un secondo ordine sarebbe rischio
-            // doppio sullo stesso motivo di ingresso.
+            // Sempre attivo, in ogni profilo: un account non tiene DUE ingressi in corso della
+            // stessa strategia sullo stesso simbolo. Non è un vincolo di concorrenza — è l'identità
+            // della strategia: quel segnale è già in mano al broker, e un secondo ordine sarebbe
+            // rischio doppio sullo stesso motivo di ingresso.
             //
-            // Fino al 18/08/2026 questo filtro era incondizionato, ed era il vincolo che svuotava il
-            // backtest sorgente: nove template per barra, un claim servito, gli altri otto scartati
-            // qui. È un vincolo di CONCORRENZA — dice quanti ordini della stessa strategia possono
-            // stare a mercato insieme — quindi segue il flag come MaxConcurrentTrades e il lucchetto
-            // 4. Il tetto della strategia è un altro livello, sta in MaxEntriesPerSessionReached, e
-            // resta attivo in ogni profilo.
-            //
-            // A flag spento il doppione lo impedisce PurgeExpiredEntryIntents: due template della
-            // stessa strategia nati su barre diverse non sono più vivi insieme, che era la
-            // condizione del caso PTS_NQ_PCH_002_15 (14/10/2024 13:15, due stop riempiti allo stesso
-            // prezzo). Resta scoperto solo il motore che non dichiara ExpiresAtUtc, dove due ordini
-            // possono coesistere per costruzione: nel run sorgente è il comportamento voluto.
-            //
-            // Lucchetto 4 (slot di gruppo): stessa natura, stesso flag. Spenti entrambi, ogni
-            // segnale della barra diventa un intent e il campione sorgente è completo.
+            // Serve perché `MaxEntriesPerSession` si applica al FILL e non al claim: due template
+            // di barre diverse reclamati prima che il primo riempia passano entrambi il controllo, e
+            // su un run reale (PTS_NQ_PCH_002_15, 14/10/2024 13:15) hanno prodotto due stop order
+            // riempiti allo stesso prezzo e due posizioni da 20 lotti sullo stesso segnale.
+            // Con i lucchetti attivi il 4 lo copre già, ma è più largo — vale per tutto il gruppo —
+            // e a lucchetti spenti non c'era più niente a fermare il doppione.
+            candidates = NarrowTemplates(candidates, ref stage,
+                t => !AccountHasEntryInFlight(session, accountNumber, t.StrategyCode, t.Symbol),
+                "l'account ha già un ingresso in corso per quella strategia su quel simbolo");
+
+            // Lucchetto 4: è un vincolo di CONCORRENZA, non di distribuzione, quindi segue
+            // EnforceConcurrencyLimits insieme a MaxConcurrentTrades. Spento, ogni segnale della
+            // barra diventa un intent e il campione sorgente è completo.
             //
             // Il lucchetto 3 (TemplateClaimedGroups, sopra) resta invece SEMPRE attivo: non limita
             // quanto si opera in parallelo, dice che un template è già stato servito a quel gruppo.
@@ -1810,14 +1810,9 @@ public sealed class TradingSessionService : ITradingSessionService
             // Il lucchetto 5 (account, simbolo) non esiste più: quanto un account opera in
             // parallelo lo dice MaxConcurrentTrades e basta, sull'insieme delle strategie.
             if (IsConcurrentTradeLimitActive(session))
-            {
-                candidates = NarrowTemplates(candidates, ref stage,
-                    t => !AccountHasEntryInFlight(session, accountNumber, t.StrategyCode, t.Symbol),
-                    "l'account ha già un ingresso in corso per quella strategia su quel simbolo");
                 candidates = NarrowTemplates(candidates, ref stage,
                     t => !session.GroupStrategySlots.ContainsKey(SlotKey(groupId, t.StrategyCode, t.Symbol)),
                     "slot (gruppo, strategia, simbolo) già occupato");
-            }
             candidates = NarrowTemplates(candidates, ref stage,
                 // Il limite di fill per sessione è per account: un template già consumato da un
                 // account resta disponibile per gli altri.
@@ -1919,68 +1914,6 @@ public sealed class TradingSessionService : ITradingSessionService
         {
             session.EntryTemplates.Remove(template);
             session.TemplateClaimedGroups.Remove(template.IntentId);
-        }
-    }
-
-    /// <summary>
-    /// Il gemello di <see cref="PurgeExpiredTemplates"/> sugli intent già <b>reclamati</b>: annulla
-    /// gli ingressi ancora <c>Pending</c> la cui finestra di validità è chiusa rispetto alla barra
-    /// appena arrivata.
-    ///
-    /// <para><b>Perché serve.</b> Un template scaduto veniva buttato, il claim che ne era nato no:
-    /// restava <c>Pending</c> per sempre, e con lui tutti i lucchetti che leggono "ingresso in volo"
-    /// — <see cref="AccountHasEntryInFlight"/>, <c>GroupStrategySlots</c>, il budget di
-    /// <c>MaxConcurrentTrades</c>. Un buy stop "next bar" mai toccato dal prezzo bloccava quindi la
-    /// propria coppia (strategia, simbolo) fino alla fine del run. Nei log del backtest sorgente del
-    /// 17/03/2026 su NQ si legge l'effetto: nove template per barra, un solo claim servito, e per
-    /// tutti gli altri <i>l'account ha già un ingresso in corso per quella strategia su quel
-    /// simbolo</i> con il conto dei template scartati che sale barra dopo barra.</para>
-    ///
-    /// <para>È anche la garanzia che sostituisce il lucchetto di identità nei profili senza vincoli
-    /// operativi: due template della stessa strategia nati su barre diverse non possono più essere
-    /// vivi insieme, che è la condizione da cui nascevano i doppioni (<c>PTS_NQ_PCH_002_15</c>,
-    /// 14/10/2024 13:15, due stop riempiti allo stesso prezzo).</para>
-    ///
-    /// <para>Annullare qui non perde un fill reale: <see cref="ApplyReport"/> accetta il report anche
-    /// su un intent annullato, quindi un ordine che il broker riempie comunque resta contato — sia
-    /// nel <c>trades.json</c> sia nel tetto di <see cref="MaxEntriesPerSessionReached"/>. Si perde
-    /// solo il lucchetto, che è il punto.</para>
-    ///
-    /// <para>Come per i template si toccano solo gli intent con una scadenza dichiarata: quelli senza
-    /// <c>ExpiresAtUtc</c> non hanno una finestra da far scadere, e un ordine del 60m deve
-    /// sopravvivere alle barre del 15m che gli passano accanto.</para>
-    /// </summary>
-    private static void PurgeExpiredEntryIntents(Session session, DateTime barTimeUtc)
-    {
-        foreach (var intent in session.Intents)
-        {
-            if (intent.Kind != OrderIntentKind.Entry ||
-                intent.Status != OrderIntentStatus.Pending ||
-                intent.FilledQuantity > 0 ||
-                intent.ExpiresAtUtc is not { } expiry ||
-                expiry >= barTimeUtc)
-                continue;
-
-            intent.Status = OrderIntentStatus.Cancelled;
-
-            // Lo slot di gruppo si libera come su un rifiuto del broker: l'ordine non è più a
-            // mercato, e tenerlo occupato bloccherebbe la coppia (gruppo, strategia, simbolo) per
-            // tutto il run. Si rimuove solo se lo slot è davvero di QUESTO intent: un altro account
-            // del gruppo può averlo nel frattempo occupato con un template più recente, e toglierglielo
-            // aprirebbe la porta al doppione che il lucchetto esiste per impedire.
-            if (intent.AssignedAccountNumber is { } account &&
-                session.AccountGroups.TryGetValue(account, out var groupId))
-            {
-                var slot = SlotKey(groupId, intent.StrategyCode, intent.Symbol);
-                if (session.GroupStrategySlots.TryGetValue(slot, out var holder) &&
-                    holder.IntentId == intent.IntentId)
-                    session.GroupStrategySlots.Remove(slot);
-            }
-
-            // Nessuna riga di attività: la scadenza è l'esito normale di un ordine "next bar", non un
-            // evento. Registrarla riempirebbe il buffer circolare del monitor — nel backtest sorgente
-            // sono una decina di scadenze per barra — buttando fuori proprio gli eventi che si cercano.
-            // Anche PurgeExpiredTemplates, il gemello sui template, tace per la stessa ragione.
         }
     }
 
@@ -2474,17 +2407,9 @@ public sealed class TradingSessionService : ITradingSessionService
     /// intent di ingresso ancora <c>Pending</c> — ordine piazzato sul broker e non ancora riempito o
     /// annullato — sia una posizione aperta.
     ///
-    /// <para>È un vincolo di <b>concorrenza</b>, non il tetto della strategia: dice quanti ordini
-    /// della stessa coppia possono stare a mercato insieme, e segue quindi
-    /// <see cref="IsConcurrentTradeLimitActive"/> come <c>MaxConcurrentTrades</c>. Il tetto della
-    /// strategia è <see cref="MaxEntriesPerSessionReached"/>, che vale in ogni profilo. I due
-    /// livelli erano confusi fino al 18/08/2026, quando questo filtro era incondizionato e riduceva
-    /// il backtest sorgente a una strategia servita per barra.</para>
-    ///
-    /// <para>Chiude la finestra fra claim e fill, in cui <see cref="MaxEntriesPerSessionReached"/>
-    /// — che conta i fill — non vede ancora niente. Quando è spento, la stessa finestra la chiude
-    /// <see cref="PurgeExpiredEntryIntents"/>, che impedisce a due template di barre diverse di
-    /// essere vivi insieme.</para>
+    /// <para>È il complemento di <see cref="MaxEntriesPerSessionReached"/>, che conta i fill e quindi
+    /// non vede gli ordini in attesa: fra il claim e il fill c'è una finestra in cui due template
+    /// della stessa strategia, nati su barre diverse, sono entrambi ammissibili.</para>
     /// </summary>
     private static bool AccountHasEntryInFlight(
         Session session, string accountNumber, string strategyCode, string symbol)

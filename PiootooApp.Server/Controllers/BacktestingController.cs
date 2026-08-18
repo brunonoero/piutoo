@@ -67,7 +67,8 @@ public class BacktestingController : ControllerBase
             {
                 return BadRequest(new
                 {
-                    error = $"Il masterfilter contiene ID strategia non validi: {string.Join(", ", invalidIds)}"
+                    error = "Il masterfilter contiene ID strategia non eseguibili: " +
+                            string.Join("; ", invalidIds.Select(StrategyFactory.DescribeUnusableId))
                 });
             }
 

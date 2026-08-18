@@ -108,6 +108,37 @@ public static class StrategyFactory
             .ToList();
     }
 
+    /// <summary>
+    /// Strategie escluse dal catalogo per scelta, con la ragione dichiarata nell'attributo.
+    ///
+    /// <para>Serve a distinguere "questo id non esiste" da "esiste, e' corretta, ma si e' scelto di
+    /// non eseguirla": sono due errori diversi e chi si vede rifiutare un masterfilter deve sapere
+    /// quale dei due ha davanti. Il primo si corregge scrivendo bene il nome, il secondo togliendo
+    /// la voce — e sapendo perche'.</para>
+    /// </summary>
+    public static IReadOnlyDictionary<string, string> GetDisabledStrategies()
+    {
+        InitializeStrategyCache();
+
+        var disabilitate = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (className, strategyType) in _strategyCache)
+        {
+            var attributo = strategyType.GetCustomAttribute<StrategiaDisabilitataAttribute>();
+            if (attributo is not null)
+                disabilitate[className] = attributo.Motivo;
+        }
+
+        return disabilitate;
+    }
+
+    /// <summary>
+    /// Spiega perche' un id del masterfilter non e' eseguibile, per il messaggio d'errore.
+    /// </summary>
+    public static string DescribeUnusableId(string strategyId) =>
+        GetDisabledStrategies().TryGetValue(strategyId, out var motivo)
+            ? $"{strategyId} (disabilitata: {motivo})"
+            : $"{strategyId} (sconosciuta)";
+
     public static List<string> GetRegisteredSymbols()
     {
         return GetRegisteredStrategies()
