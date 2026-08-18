@@ -37,7 +37,7 @@ public sealed class StrategyEvaluationService : IStrategyEvaluationService
 
             var signal = strategy.Evaluate(new StrategyEvaluationRequest
             {
-                Ohlcv = history.ToArray(),
+                Ohlcv = EvaluationWindow(history, EvaluationWindowSize(strategy)),
                 BarTimeUtc = closedBar.BarTimeUtc,
                 Execution = executionSnapshot(strategy)
             });
@@ -64,6 +64,40 @@ public sealed class StrategyEvaluationService : IStrategyEvaluationService
         signal.Symbol = string.IsNullOrWhiteSpace(signal.Symbol) ? Normalize(bar.Symbol) : Normalize(signal.Symbol);
         signal.StrategyCode = string.IsNullOrWhiteSpace(signal.StrategyCode) ? strategy.Name : signal.StrategyCode;
         signal.StrategyName = string.IsNullOrWhiteSpace(signal.StrategyName) ? strategy.Name : signal.StrategyName;
+    }
+
+    /// <summary>
+    /// Quante candele riceve una strategia a ogni valutazione: le stesse del backtest locale
+    /// (<c>RequiredCandles * 1.2</c>), non tutta la storia accumulata dalla sessione.
+    ///
+    /// <para>Passare l'intera storia era un doppio errore. Di costo: la storia di una sessione
+    /// <c>ExternalBroker</c> cresce di una candela per barra, quindi la copia — e i motori che la
+    /// percorrono dall'inizio, come l'ADX di <c>PriceChannelEngine</c> — costavano di più a ogni
+    /// giorno di run, e un backtest lungo rallentava fino a fermarsi. Di risultato: gli indicatori a
+    /// smoothing ricorsivo (Wilder) dipendono da quante barre hanno visto, quindi la stessa
+    /// strategia sullo stesso feed dava valori diversi qui e nel backtest locale, che invece ha
+    /// sempre passato una finestra fissa (vedi <c>PiootooBacktestingService</c>, stesso 1.2).</para>
+    /// </summary>
+    internal static int EvaluationWindowSize(ITradingStrategy strategy) =>
+        (int)(strategy.RequiredCandles * 1.2);
+
+    /// <summary>Copia delle ultime <paramref name="maxCandles"/> candele, in ordine cronologico.</summary>
+    internal static OhlcvData[] EvaluationWindow(IReadOnlyList<OhlcvData> history, int maxCandles)
+    {
+        var take = Math.Min(Math.Max(0, maxCandles), history.Count);
+        if (take == 0) return [];
+
+        var start = history.Count - take;
+        var window = new OhlcvData[take];
+        if (history is List<OhlcvData> list)
+        {
+            list.CopyTo(start, window, 0, take);
+            return window;
+        }
+
+        for (var index = 0; index < take; index++)
+            window[index] = history[start + index];
+        return window;
     }
 
     private static string Normalize(string value) => value.Trim().TrimStart('@').ToUpperInvariant();
@@ -209,6 +243,15 @@ public sealed class TradingSessionService : ITradingSessionService
         public HashSet<string> ReportIds { get; } = new(StringComparer.Ordinal);
         public List<OrderIntent> Intents { get; } = [];
         public List<RotationLogEntry> RotationLog { get; } = [];
+
+        /// <summary>Istante dell'ultima scrittura degli artefatti su disco. Vedi <c>Persist</c>.</summary>
+        public DateTime LastPersistUtc { get; set; }
+
+        /// <summary>C'e' stato almeno un cambiamento non ancora scritto (checkpoint saltato).</summary>
+        public bool PersistPending { get; set; }
+
+        /// <summary>Righe di rotation-log gia' su disco: il log e' append-only, se non cresce non si riscrive.</summary>
+        public int PersistedRotationEntries { get; set; } = -1;
 
         /// <summary>
         /// Buffer circolare degli ultimi eventi della sessione, per il monitor della console.
@@ -738,7 +781,7 @@ public sealed class TradingSessionService : ITradingSessionService
         lock (session.Gate)
         {
             session.Status = status;
-            Persist(session);
+            Persist(session, force: true);
             return Describe(session);
         }
     }
@@ -778,6 +821,7 @@ public sealed class TradingSessionService : ITradingSessionService
                 history.Add(normalizedBar.Bar);
 
                 EvaluateClosedBar(session, normalizedBar, history, emitted);
+                TrimHistory(session, bar.Symbol, bar.TimeframeMinutes, history);
             }
             Persist(session);
             return new PushBarsResponse { AcceptedBars = accepted, DuplicateBars = duplicates, Intents = emitted };
@@ -908,6 +952,7 @@ public sealed class TradingSessionService : ITradingSessionService
                     Bar = history[^1]
                 };
                 var evaluated = EvaluateClosedBar(session, evaluatedBar, history, emitted);
+                TrimHistory(session, window.Symbol, window.TimeframeMinutes, history);
                 streams.Add(BuildStreamStatus(session, window.Symbol, window.TimeframeMinutes, history.Count, evaluated));
             }
 
@@ -940,6 +985,48 @@ public sealed class TradingSessionService : ITradingSessionService
             added++;
         }
         return added;
+    }
+
+    /// <summary>
+    /// Margine di candele tenute oltre la finestra di valutazione piu' ampia dello stream. Copre la
+    /// sovrapposizione delle finestre in arrivo (<c>IncrementalWindowBars</c>, 20 di default) con
+    /// abbondanza, e lascia spazio a una strategia aggiunta a caldo con qualche barra in piu'.
+    /// </summary>
+    private const int HistoryRetentionSlackBars = 512;
+
+    /// <summary>Ogni quante candele in eccesso si pota davvero, per non fare un memmove a ogni barra.</summary>
+    private const int HistoryTrimBatchBars = 1024;
+
+    /// <summary>
+    /// Tiene la storia di uno stream limitata a cio' che serve davvero: la finestra di valutazione
+    /// piu' ampia fra le strategie che insistono su quello stream, piu' un margine.
+    ///
+    /// <para>Senza questo <c>session.History</c> cresce di una candela per barra per tutta la durata
+    /// della sessione — R8 dice che la storia vive in RAM, non che debba viverci tutta — e trascina
+    /// con se' il costo di ogni copia della finestra. La potatura e' dalla testa: l'ultima candela,
+    /// che e' quella con cui <c>Backfill</c> decide cosa accodare e R7 riconosce i buchi, non si
+    /// tocca mai.</para>
+    ///
+    /// <para>Si pota a blocchi (<see cref="HistoryTrimBatchBars"/>) perche' <c>RemoveRange</c> dalla
+    /// testa e' O(elementi rimasti): farlo a ogni barra rimetterebbe dentro il costo che si sta
+    /// togliendo.</para>
+    /// </summary>
+    private static void TrimHistory(Session session, string symbol, int timeframeMinutes, List<OhlcvData> history)
+    {
+        var required = 0;
+        foreach (var strategy in session.Strategies)
+        {
+            if (Normalize(strategy.Symbol) != Normalize(symbol) ||
+                strategy.TimeframeMinutes != timeframeMinutes)
+                continue;
+            required = Math.Max(required, StrategyEvaluationService.EvaluationWindowSize(strategy));
+        }
+
+        var cap = required + HistoryRetentionSlackBars;
+        if (history.Count <= cap + HistoryTrimBatchBars)
+            return;
+
+        history.RemoveRange(0, history.Count - cap);
     }
 
     /// <summary>
@@ -1158,19 +1245,31 @@ public sealed class TradingSessionService : ITradingSessionService
     public IReadOnlyList<PersistedSignal> GetPersistedSignals(string sessionId, string token)
     {
         var session = Get(sessionId, token);
-        lock (session.Gate) return session.Store.ReadSignals();
+        lock (session.Gate)
+        {
+            Persist(session, force: true);
+            return session.Store.ReadSignals();
+        }
     }
 
     public IReadOnlyList<PersistedTrade> GetPersistedTrades(string sessionId, string token)
     {
         var session = Get(sessionId, token);
-        lock (session.Gate) return session.Store.ReadTrades();
+        lock (session.Gate)
+        {
+            Persist(session, force: true);
+            return session.Store.ReadTrades();
+        }
     }
 
     public IReadOnlyList<RotationLogEntry> GetRotationLog(string sessionId, string token)
     {
         var session = Get(sessionId, token);
-        lock (session.Gate) return session.Store.ReadRotationLog();
+        lock (session.Gate)
+        {
+            Persist(session, force: true);
+            return session.Store.ReadRotationLog();
+        }
     }
 
     public TradingSessionSnapshot ApplyReport(string sessionId, ExecutionReportRequest request)
@@ -1448,6 +1547,7 @@ public sealed class TradingSessionService : ITradingSessionService
         IReadOnlyList<PersistedSignal> signals;
         lock (session.Gate)
         {
+            Persist(session, force: true);
             trades = session.Store.ReadTrades();
             signals = session.Store.ReadSignals();
         }
@@ -2666,7 +2766,58 @@ public sealed class TradingSessionService : ITradingSessionService
     private static string SlotKey(string groupId, string strategyCode, string symbol) =>
         $"{groupId}|{strategyCode}|{Normalize(symbol)}";
 
-    private static void Persist(Session session)
+    /// <summary>Intervallo minimo fra due scritture degli artefatti sul percorso caldo.</summary>
+    private static readonly TimeSpan PersistCheckpointInterval = TimeSpan.FromSeconds(2);
+
+    /// <summary>
+    /// Oltre questa distanza dall'ultima scrittura non si e' piu' dentro una raffica: si scrive
+    /// durabile come prima.
+    /// </summary>
+    private static readonly TimeSpan DurableWriteThreshold = TimeSpan.FromSeconds(30);
+
+    /// <summary>
+    /// Scrive gli artefatti della sessione, ma come <b>checkpoint</b>: al massimo uno ogni
+    /// <see cref="PersistCheckpointInterval"/>.
+    ///
+    /// <para>Prima ogni barra riscriveva per intero <c>signals.json</c>, <c>trades.json</c> e
+    /// <c>rotation-log.json</c> — quest'ultimo cresce di una riga per barra — in JSON indentato, con
+    /// <c>AtomicFileWriter</c> in modalita' durabile, cioe' un fsync per file per barra. E' l'invariante
+    /// "AtomicFileWriter mai dentro un loop" applicata al percorso di sessione: il costo cresceva con
+    /// la lunghezza del run, ed era una delle ragioni per cui un backtest via cBot rallentava di
+    /// giorno in giorno.</para>
+    ///
+    /// <para>In live non cambia niente di percepibile: fra una barra e l'altra passano minuti, quindi
+    /// ogni chiamata supera <see cref="DurableWriteThreshold"/> e scrive durabile come prima. In
+    /// backtest le barre arrivano a raffica e si scrive un checkpoint ogni due secondi di orologio.
+    /// Chi legge gli artefatti da fuori (<c>GetPersistedSignals</c>, <c>PromoteToBacktest</c>, il
+    /// cambio di stato della sessione) forza prima la scrittura, quindi nessun lettore vede dati piu'
+    /// vecchi di quello che ha appena chiesto.</para>
+    /// </summary>
+    private static void Persist(Session session) => Persist(session, force: false);
+
+    private static void Persist(Session session, bool force)
+    {
+        var now = DateTime.UtcNow;
+        var elapsed = now - session.LastPersistUtc;
+        if (!force && elapsed < PersistCheckpointInterval)
+        {
+            session.PersistPending = true;
+            return;
+        }
+
+        if (force && !session.PersistPending && session.PersistedRotationEntries == session.RotationLog.Count &&
+            session.LastPersistUtc != default && elapsed < PersistCheckpointInterval)
+        {
+            // Flush richiesto ma non c'e' niente di nuovo da scrivere.
+            return;
+        }
+
+        session.LastPersistUtc = now;
+        session.PersistPending = false;
+        WriteArtifacts(session, durable: force || elapsed >= DurableWriteThreshold);
+    }
+
+    private static void WriteArtifacts(Session session, bool durable)
     {
         session.Store.WriteSignals(session.Intents.Select(intent => new PersistedSignal
         {
@@ -2711,7 +2862,7 @@ public sealed class TradingSessionService : ITradingSessionService
             ExternalOrderId = intent.ExternalOrderId,
             AssignedAccountNumber = intent.AssignedAccountNumber,
             AssignedGroupId = intent.AssignedGroupId
-        }));
+        }), durable);
 
         var trades = session.Mode == ExecutionMode.ExternalBroker
             ? session.ExternalTrades
@@ -2734,8 +2885,15 @@ public sealed class TradingSessionService : ITradingSessionService
                 NetProfit = trade.NetProfit,
                 Commission = trade.Commission
             }).ToList();
-        session.Store.WriteTrades(trades);
-        session.Store.WriteRotationLog(session.RotationLog);
+        session.Store.WriteTrades(trades, durable);
+
+        // Il rotation-log e' append-only: se non e' cresciuto, riscriverlo sarebbe rileggere e
+        // riserializzare tutte le righe gia' su disco per non cambiare un byte.
+        if (session.PersistedRotationEntries != session.RotationLog.Count)
+        {
+            session.Store.WriteRotationLog(session.RotationLog, durable);
+            session.PersistedRotationEntries = session.RotationLog.Count;
+        }
     }
 
     /// <summary>
