@@ -1454,3 +1454,36 @@ in ordine cronologico. Non è un changelog di codice: quello resta nei commit.
   annullato, quindi un ordine che il broker riempie comunque resta contato nel `trades.json` e nel
   tetto di livello 1. Nessuna riga di attività per la scadenza: è l'esito normale di un ordine
   *next bar*, e registrarla riempirebbe il buffer del monitor.
+- **2026-08-18** — **In sessione una strategia riceve una finestra, non tutta la storia**, ed è la
+  stessa del backtest locale (`RequiredCandles * 1.2`, `StrategyEvaluationService.EvaluationWindow`).
+  `session.History` viene potato allo stesso numero più un margine (`TrimHistory`).
+
+  Era `history.ToArray()` su una lista che cresce di una candela per barra: una copia intera per
+  strategia per barra, con gli array oltre 85 KB sulla Large Object Heap, e i motori che percorrono
+  la serie dall'inizio (`PriceChannelEngine.CalculateBarAdx`, `EasyLib.WindowUpTo`) che rifacevano
+  ogni volta un lavoro più lungo. Il costo per barra cresceva con i giorni di run: è la ragione per
+  cui un backtest via cBot rallentava fino quasi a fermarsi. Misura su @NQ 15m 2024 (23.922 barre,
+  `PTS_NQ_PCH_001_15`): 36,3 s → 1,9 s, 12,2 GB → 0,87 GB allocati, **segnali identici**; su tutte
+  le 13 strategie 15m @NQ del catalogo, primo semestre 2024, segnali identici a coppie.
+
+  Era anche una divergenza dal backtest locale, che la finestra fissa l'ha sempre avuta: gli
+  indicatori a smoothing ricorsivo dipendono da quante barre hanno visto, quindi la stessa strategia
+  sullo stesso feed poteva dare valori diversi nei due percorsi. Resta un caso latente non toccato:
+  `MovingAverageCrossoverEngine.MovingAverage` semina l'EMA su `data[0]`, cioè sul primo elemento
+  della finestra ricevuta, invece che su una SMA dei primi `period` valori. Nessuna strategia del
+  catalogo eredita oggi da quel motore; il giorno in cui succede va seminata su finestra fissa,
+  altrimenti il valore torna a dipendere dalla profondità di storia.
+- **2026-08-18** — **`Persist` di una sessione è un checkpoint, non una scrittura per barra.**
+  Al massimo una scrittura ogni 2 s di orologio; l'fsync (`AtomicFileWriter` durabile) resta solo
+  per le scritture forzate e per quelle che arrivano dopo più di 30 s dalla precedente — cioè per
+  il live, dove fra due barre passano minuti, dove non cambia nulla. Il `rotation-log.json`, che è
+  append-only, si riscrive solo se è cresciuto.
+
+  Prima ogni push di barra riscriveva per intero `signals.json`, `trades.json` e
+  `rotation-log.json` in JSON indentato e con fsync: file che crescono per tutto il run, riscritti
+  a ogni barra, cioè costo quadratico e decine di GB scritti in un run lungo. Chi legge gli
+  artefatti da fuori (`GetPersistedSignals`, `GetPersistedTrades`, `GetRotationLog`,
+  `PromoteToBacktest`, il cambio di stato della sessione) forza prima il flush, quindi nessun
+  lettore vede dati più vecchi della propria chiamata; il rischio residuo è perdere gli ultimi due
+  secondi di scritture se il processo muore, che è la definizione di checkpoint.
+

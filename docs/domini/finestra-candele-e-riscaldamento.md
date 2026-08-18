@@ -119,6 +119,21 @@ backtest locali è compito di un **cBot raccoglitore dedicato**, non della strad
 di esecuzione: mescolare le due cose farebbe dipendere la qualità del datafeed
 storico dagli orari in cui è girato un bot di trading.
 
+### R8bis — La storia in RAM è potata, e la valutazione ne vede solo la coda
+
+`session.History` tiene per ogni stream la finestra di valutazione più ampia fra le strategie che
+vi insistono (`RequiredCandles * 1.2`, la stessa del backtest locale) più un margine; il resto
+viene tagliato dalla testa a blocchi (`TrimHistory`). L'ultima candela — quella con cui R4 decide
+cosa accodare e R7 riconosce i buchi — non si tocca mai.
+
+La strategia riceve solo quella coda (`StrategyEvaluationService.EvaluationWindow`), non tutta la
+storia accumulata. Vale come regola di *risultato*, non solo di costo: gli indicatori a smoothing
+ricorsivo dipendono da quante barre hanno visto, quindi passare una storia che cresce faceva
+divergere la sessione dal backtest locale sullo stesso feed. Vedi `decisioni.md`, 2026-08-18.
+
+Conseguenza sulle diagnostiche di R9: `HistoryBars` si stabilizza sul valore potato invece di
+crescere all'infinito. Resta sempre `>= RequiredCandles`, che è ciò che la riga serve a dire.
+
 ### R9 — Il silenzio va spiegato
 
 La risposta porta, per stream, `HistoryBars`, `RequiredCandles`,
