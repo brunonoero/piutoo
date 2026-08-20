@@ -152,12 +152,25 @@ namespace cAlgo.Robots
         private const int MaxHistoryLoadAttempts = 50;
 
         /// <summary>
-        /// Dopo tanti invii falliti di fila, senza uno riuscito in mezzo, il bot si ferma. Un errore
-        /// di configurazione — piano che punta a una rotazione inesistente, sessione fermata, token
-        /// scaduto — non si risolve da solo: continuare significa solo riempire il log della stessa
-        /// riga per tutta la durata del backtest e accorgersene alla fine.
+        /// Dopo tanti invii falliti di fila, senza uno riuscito in mezzo, il bot lo dice a chiare
+        /// lettere: log e pannello passano da "connessione persa" a "il server non risponde da N
+        /// invii", perche' un errore di configurazione — piano che punta a una rotazione inesistente,
+        /// sessione fermata, token scaduto — non si risolve da solo e va distinto da un buco di rete.
+        ///
+        /// <para>In live NON ferma il bot: un cBot con posizioni aperte che si spegne le lascia senza
+        /// nessuno che le gestisca, che e' peggio del server irraggiungibile. Si continua a provare a
+        /// ogni barra e si riparte da soli quando il server torna. Lo stop resta solo in backtest,
+        /// dove non c'e' niente da proteggere e un run mutilato e' solo un risultato falso.</para>
         /// </summary>
         private const int MaxConsecutivePushFailures = 20;
+
+        /// <summary>
+        /// Secondi minimi fra due tentativi di riaggancio in live. A server giu' il tentativo fallisce
+        /// in fretta — un socket rifiutato non costa quasi niente — ma ripeterlo a ogni barra di ogni
+        /// stream riempirebbe il log e allungherebbe il thread della piattaforma senza guadagnarci
+        /// nulla: la connessione non torna perche' la si chiede piu' spesso.
+        /// </summary>
+        private const int ReopenCooldownSeconds = 30;
 
         /// <summary>
         /// Tetto agli intent reclamati in un solo giro di drenaggio (solo a lucchetti spenti). Non e'
@@ -220,6 +233,11 @@ namespace cAlgo.Robots
         // il confronto si fa leggendo i due log.
         private const string BotVersion = "3.2.0"; // aggiornare qui E in PiootooVersion, ad ogni release
         private const string StatusChartObjectName = "PiootooConnectionStatus";
+
+        // Riquadro rosso al centro del grafico, separato dal pannello di stato: e' l'errore fatale
+        // che ha spento il bot. Deve restare visibile a run finito, quando il log del backtest ha
+        // gia' scartato le righe piu' vecchie.
+        private const string FatalErrorChartObjectName = "PiootooFatalError";
 
         [Parameter("Server Base Url", DefaultValue = "http://localhost:5000")]
         public string ServerBaseUrl { get; set; }
@@ -557,6 +575,15 @@ namespace cAlgo.Robots
         // Invii falliti di fila, azzerato dal primo che riesce. Vedi MaxConsecutivePushFailures.
         private int _consecutivePushFailures;
 
+        /// <summary>Ultimo tentativo di riaggancio, per rispettare <see cref="ReopenCooldownSeconds"/>.</summary>
+        private DateTime? _lastReopenAttemptUtc;
+
+        /// <summary>
+        /// Riaggancio in corso: il riscaldamento che spedisce puo' fallire e rientrare in
+        /// <see cref="OnPushFailed"/>, che chiederebbe un altro riaggancio. Questa e' la guardia.
+        /// </summary>
+        private bool _reopenInProgress;
+
         // Ultimo motivo per cui il claim non ha restituito un intent: stampato una volta sola finché
         // non cambia, altrimenti riempirebbe il log a ogni poll.
         private string _lastPollReason;
@@ -568,8 +595,7 @@ namespace cAlgo.Robots
         {
             if (string.IsNullOrWhiteSpace(PlanCode))
             {
-                Print("Codice piano non impostato.");
-                Stop();
+                StopWithError("Codice piano non impostato: valorizzare il parametro 'Codice piano'.");
                 return;
             }
 
@@ -600,53 +626,24 @@ namespace cAlgo.Robots
             _http.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
             Print("Apertura sessione per il piano '{0}'...", PlanCode);
-            var openResponse = PostJson("api/v1/trading-sessions/open-plan", new OpenTradingPlanSessionRequestDto
+
+            // All'AVVIO il server deve esserci: senza descriptor il bot non conosce ne' strategie ne'
+            // strumenti, quindi non c'e' niente da far partire e niente da proteggere. Si spegne, e lo
+            // scrive sul grafico. E' l'unico caso in cui la mancanza di connessione e' fatale in live:
+            // a run avviato invece si resta accesi e si riaggancia (vedi TryReopenSession).
+            if (!TryOpenSession(out var descriptor, out var openError))
             {
-                PlanCode = PlanCode.Trim(),
-                ClientRunMode = IsBacktesting ? "Backtest" : "Realtime",
-                ExecutionKey = IsBacktesting ? $"BT-{Server.TimeInUtc:yyyyMMddHHmmss}" : "LIVE",
-                AccountNumber = _accountNumber,
-                // Null invece di "DalPiano": un campo assente lascia decidere il piano, ed e'
-                // esattamente il comportamento storico per i server che non conoscono il campo.
-                RunProfile = RunProfile == RunProfileParam.DalPiano ? null : RunProfile.ToString()
-            });
-            if (!openResponse.IsSuccessStatusCode)
-            {
-                Print("Impossibile aprire il piano '{0}': {1}", PlanCode, ReadError(openResponse));
-                UpdateConnectionStatus(false);
-                Stop();
+                StopWithError("Avvio annullato: " + openError);
                 return;
             }
-            var openBody = ReadBody(openResponse);
-            LogJsonResponse("open-plan", openBody);
-            var descriptor = JsonSerializer.Deserialize<TradingSessionDescriptorDto>(openBody, _json);
-            _sessionId = descriptor?.SessionId;
-            _sessionToken = descriptor?.SessionToken;
-            // Come il server ha RISOLTO il run, non come il bot l'ha chiesto: se il piano contraddice
-            // il parametro vince il server, e il pannello deve mostrare cio' che gira davvero.
-            _runProfile = descriptor?.RunProfile;
-            _titanoMode = descriptor?.TitanoMode;
-            _serverRunMode = descriptor?.ClientRunMode;
-            _enforceConcurrency = descriptor?.EnforceConcurrencyLimits ?? true;
-            _maxConcurrentTrades = descriptor?.MaxConcurrentTrades ?? 0;
-            _cancelPendingAtCap = string.Equals(
-                descriptor?.ConcurrencyCountMode, "PositionsOnly", StringComparison.OrdinalIgnoreCase);
-            _strategies = descriptor?.Strategies ?? new List<SessionStrategyDto>();
-            Print("Sessione aperta: SessionId={0} profilo={1} Titano={2} concorrenza={3} maxTrade={4}.",
-                _sessionId, _runProfile ?? "-", _titanoMode ?? "-",
-                _enforceConcurrency ? "attiva" : "OFF",
-                _maxConcurrentTrades > 0 ? _maxConcurrentTrades.ToString() : "illimitati");
-            foreach (var strategy in _strategies)
-                Print("  strategia {0} su {1}/{2}m", strategy.StrategyCode, strategy.Symbol, strategy.TimeframeMinutes);
+            LogSessionDescriptor();
 
             var pairs = new List<Pair>();
             var error = "descriptor sessione mancante";
             if (descriptor == null ||
                 !BuildPairs(descriptor.Instruments, out pairs, out error))
             {
-                Print("Configurazione strumenti del piano non valida: {0}", error);
-                UpdateConnectionStatus(false);
-                Stop();
+                StopWithError("Configurazione strumenti del piano non valida:\n" + error);
                 return;
             }
             _pairs.AddRange(pairs);
@@ -663,19 +660,15 @@ namespace cAlgo.Robots
                 // scoprirlo al primo intent quando il segnale è già perso.
                 if (Symbols.GetSymbol(pair.AccountSymbol) is null)
                 {
-                    Print("Simbolo '{0}' non disponibile su questo account: stream {1} non avviabile.",
-                        pair.AccountSymbol, pair);
-                    UpdateConnectionStatus(false);
-                    Stop();
+                    StopWithError("Simbolo '" + pair.AccountSymbol + "' non disponibile su questo account:\n" +
+                                  "stream " + pair + " non avviabile.");
                     return;
                 }
 
                 pair.Series = MarketData.GetBars(ToTimeFrame(pair.TimeframeMinutes), pair.AccountSymbol);
                 if (pair.Series is null)
                 {
-                    Print("Serie {0} non disponibile su questo account.", pair);
-                    UpdateConnectionStatus(false);
-                    Stop();
+                    StopWithError("Serie " + pair + " non disponibile su questo account.");
                     return;
                 }
 
@@ -708,6 +701,218 @@ namespace cAlgo.Robots
             Print("{0} v{1} avviato. Account={2} Session={3} Strumenti={4}",
                 nameof(PiootooDistributedExecutionBot), BotVersion, _accountNumber, _sessionId,
                 string.Join("; ", _pairs));
+        }
+
+        /// <summary>
+        /// Una singola <c>open-plan</c>: apre la sessione sul server e ne applica il descriptor.
+        /// Usata sia all'avvio sia dal riaggancio a run in corso, perche' devono chiedere esattamente
+        /// la stessa cosa — un secondo punto di costruzione della richiesta e' un secondo posto dove
+        /// dimenticarsi un campo.
+        ///
+        /// <para>Non stampa e non spegne niente: chi la chiama decide se un fallimento e' fatale
+        /// (avvio) o solo l'ennesimo tentativo andato a vuoto (riaggancio).</para>
+        /// </summary>
+        private bool TryOpenSession(out TradingSessionDescriptorDto descriptor, out string error)
+        {
+            descriptor = null;
+            error = null;
+            HttpResponseMessage response;
+            try
+            {
+                response = PostJson("api/v1/trading-sessions/open-plan", new OpenTradingPlanSessionRequestDto
+                {
+                    PlanCode = PlanCode.Trim(),
+                    ClientRunMode = IsBacktesting ? "Backtest" : "Realtime",
+                    ExecutionKey = IsBacktesting ? $"BT-{Server.TimeInUtc:yyyyMMddHHmmss}" : "LIVE",
+                    AccountNumber = _accountNumber,
+                    // Null invece di "DalPiano": un campo assente lascia decidere il piano, ed e'
+                    // esattamente il comportamento storico per i server che non conoscono il campo.
+                    RunProfile = RunProfile == RunProfileParam.DalPiano ? null : RunProfile.ToString()
+                });
+            }
+            catch (Exception ex)
+            {
+                // Nessuna risposta HTTP affatto: server spento, url o porta sbagliati, rete assente.
+                // Senza questo catch l'eccezione risale a cTrader, che spegne il cBot con un errore di
+                // piattaforma e lascia il grafico muto.
+                error = "nessuna connessione al server Piootoo (" + Or(ServerBaseUrl) + ").\n" +
+                        DescribeTransportFailure(ex) + "\n" +
+                        "Verificare che il server sia avviato e che 'Server Base Url' sia corretto.";
+                UpdateConnectionStatus(false);
+                return false;
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                error = "il server ha rifiutato il piano '" + PlanCode + "':\n" + ReadError(response);
+                UpdateConnectionStatus(false);
+                return false;
+            }
+
+            var body = ReadBody(response);
+            LogJsonResponse("open-plan", body);
+            descriptor = JsonSerializer.Deserialize<TradingSessionDescriptorDto>(body, _json);
+            if (descriptor == null)
+            {
+                error = "il server ha risposto con un descriptor di sessione vuoto o illeggibile.";
+                UpdateConnectionStatus(false);
+                return false;
+            }
+
+            ApplyDescriptor(descriptor);
+            return true;
+        }
+
+        /// <summary>
+        /// Copia nel bot come il server ha RISOLTO il run: se il piano contraddice il parametro vince
+        /// il server, e il pannello deve mostrare cio' che gira davvero, non cio' che e' stato chiesto.
+        /// </summary>
+        private void ApplyDescriptor(TradingSessionDescriptorDto descriptor)
+        {
+            _sessionId = descriptor.SessionId;
+            _sessionToken = descriptor.SessionToken;
+            _runProfile = descriptor.RunProfile;
+            _titanoMode = descriptor.TitanoMode;
+            _serverRunMode = descriptor.ClientRunMode;
+            _enforceConcurrency = descriptor.EnforceConcurrencyLimits;
+            _maxConcurrentTrades = descriptor.MaxConcurrentTrades;
+            _cancelPendingAtCap = string.Equals(
+                descriptor.ConcurrencyCountMode, "PositionsOnly", StringComparison.OrdinalIgnoreCase);
+            _strategies = descriptor.Strategies ?? new List<SessionStrategyDto>();
+        }
+
+        private void LogSessionDescriptor()
+        {
+            Print("Sessione aperta: SessionId={0} profilo={1} Titano={2} concorrenza={3} maxTrade={4}.",
+                _sessionId, _runProfile ?? "-", _titanoMode ?? "-",
+                _enforceConcurrency ? "attiva" : "OFF",
+                _maxConcurrentTrades > 0 ? _maxConcurrentTrades.ToString() : "illimitati");
+            foreach (var strategy in _strategies)
+                Print("  strategia {0} su {1}/{2}m", strategy.StrategyCode, strategy.Symbol, strategy.TimeframeMinutes);
+        }
+
+        /// <summary>
+        /// Riaggancio a run in corso (solo live). Riapre la sessione e ributta giu' il riscaldamento
+        /// di ogni stream.
+        ///
+        /// <para>Il solo "riprovare a spingere la barra" non basta e questo e' il punto: se il server
+        /// e' stato riavviato, SessionId e token che il bot ha in mano non esistono piu' e ogni push
+        /// continuerebbe a essere rifiutato per sempre, anche a rete perfettamente tornata. E anche a
+        /// sessione ancora valida, il server nelle sessioni ExternalBroker non ha un datafeed proprio:
+        /// la sua storia e' solo cio' che gli e' stato spinto, e durante la caduta si e' fermata. Per
+        /// questo si azzera <c>WarmedUp</c>: alla prima barra utile ogni stream rispedisce la finestra
+        /// profonda e il server riparte con la storia completa invece di restare muto in attesa.</para>
+        ///
+        /// <para>Throttlato a <see cref="ReopenCooldownSeconds"/>: a server giu' il tentativo fallisce
+        /// in fretta, ma non ha senso ritentarlo a ogni singola barra di ogni stream.</para>
+        /// </summary>
+        private void TryReopenSession()
+        {
+            // Il riscaldamento chiamato qui sotto passa da SendWindow, che in caso di errore rientra
+            // in OnPushFailed: senza questa guardia il riaggancio si richiamerebbe da solo.
+            if (_reopenInProgress)
+                return;
+
+            var now = Server.TimeInUtc;
+            if (_lastReopenAttemptUtc.HasValue &&
+                (now - _lastReopenAttemptUtc.Value).TotalSeconds < ReopenCooldownSeconds)
+                return;
+
+            _lastReopenAttemptUtc = now;
+            _reopenInProgress = true;
+            try
+            {
+                var previousSessionId = _sessionId;
+                if (!TryOpenSession(out _, out var error))
+                {
+                    // Silenzioso di proposito: a server giu' questo tentativo fallisce ogni
+                    // ReopenCooldownSeconds per tutta la durata della caduta, e il motivo e' gia'
+                    // stampato da OnPushFailed. Col log diagnostico si vede comunque.
+                    if (LogDiagnostico)
+                        Print("Riaggancio non riuscito: {0}", error);
+                    return;
+                }
+
+                Print("Riagganciato al server: SessionId={0}{1}. Riscaldamento degli stream in corso.",
+                    _sessionId,
+                    string.Equals(previousSessionId, _sessionId, StringComparison.Ordinal)
+                        ? " (stessa sessione)"
+                        : " (sessione nuova, la precedente era " + Or(previousSessionId) + ")");
+                LogSessionDescriptor();
+
+                // Storia del server da ricostruire: quella vecchia o non esiste piu' (server riavviato)
+                // o si e' fermata al momento della caduta. In entrambi i casi le finestre incrementali
+                // non si sovrapporrebbero e verrebbero rifiutate.
+                foreach (var pair in _pairs)
+                {
+                    pair.WarmedUp = false;
+                    pair.ServerHistoryBars = null;
+                    pair.ServerRequiredCandles = null;
+                    SendWarmUpWindow(pair);
+                }
+
+                if (_pairs.All(pair => pair.WarmedUp))
+                {
+                    _consecutivePushFailures = 0;
+                    _lastPushError.Clear();
+                    UpdateConnectionStatus(true);
+                    Print("Riscaldamento completato su tutti gli stream: il bot e' di nuovo operativo.");
+                }
+                else
+                {
+                    // Riagganciato ma senza storia completa: gli stream non riscaldati ritentano da
+                    // soli in TryPushClosedBar alla barra successiva.
+                    Print("Riagganciato, ma il riscaldamento di alcuni stream non e' andato a buon fine: " +
+                          "si ritenta alla prossima barra.");
+                }
+            }
+            finally
+            {
+                _reopenInProgress = false;
+            }
+        }
+
+        /// <summary>
+        /// Errore fatale: lo scrive sul grafico e spegne il bot. In backtest il log della piattaforma
+        /// e' un buffer circolare che scarta le righe piu' vecchie — cioe' proprio quelle dell'avvio —
+        /// e un run senza server finirebbe senza un solo trade e senza una spiegazione visibile. Il
+        /// riquadro sul chart sopravvive alla fine del run ed e' la prima cosa che si vede.
+        ///
+        /// <para>Il pannello di stato viene forzato a "non connesso" prima di disegnare l'errore, cosi'
+        /// i due riquadri non si contraddicono.</para>
+        /// </summary>
+        private void StopWithError(string message)
+        {
+            Print("ERRORE FATALE: {0}", message);
+
+            UpdateConnectionStatus(false);
+
+            var text = new StringBuilder();
+            text.AppendLine("PIOOTOO — BOT FERMATO");
+            text.AppendLine(IsBacktesting ? "(backtest interrotto)" : "(esecuzione interrotta)");
+            text.AppendLine();
+            text.AppendLine("Server:  " + Or(ServerBaseUrl));
+            text.AppendLine("Piano:   " + (string.IsNullOrWhiteSpace(PlanCode) ? "-" : PlanCode.Trim()));
+            text.AppendLine();
+            text.Append(message);
+
+            Chart.DrawStaticText(FatalErrorChartObjectName, text.ToString(),
+                VerticalAlignment.Center, HorizontalAlignment.Center, Color.Red);
+
+            Stop();
+        }
+
+        /// <summary>
+        /// Messaggio di una chiamata HTTP fallita a livello di trasporto: server spento, url sbagliato,
+        /// timeout. <see cref="HttpRequestException"/> annida la causa vera (socket, DNS) nella inner,
+        /// e senza srotolarla si legge solo un generico "An error occurred while sending the request".
+        /// </summary>
+        private static string DescribeTransportFailure(Exception ex)
+        {
+            var inner = ex;
+            while (inner.InnerException != null)
+                inner = inner.InnerException;
+            return inner.Message == ex.Message ? ex.Message : ex.Message + " (" + inner.Message + ")";
         }
 
         /// <summary>
@@ -1567,11 +1772,17 @@ namespace cAlgo.Robots
 
         /// <summary>
         /// Registra un invio fallito: stampa il messaggio solo se diverso dall'ultimo di quello
-        /// stream, e ferma il bot dopo <see cref="MaxConsecutivePushFailures"/> fallimenti di fila.
+        /// stream — altrimenti un piano mal configurato produce la stessa riga a ogni barra — e
+        /// segnala sul pannello che la connessione al server non c'e' piu'.
         ///
-        /// <para>Senza queste due cose un piano mal configurato produce la stessa riga a ogni barra
-        /// per l'intero backtest — centinaia di righe identiche — e il run arriva in fondo senza aver
-        /// mai valutato niente. Meglio fermarsi presto e rumorosamente.</para>
+        /// <para>In BACKTEST si ferma subito: ogni barra spedita a vuoto e' una barra non valutata, e
+        /// il run arriverebbe in fondo con un'equity plausibile costruita su una frazione dei segnali.</para>
+        ///
+        /// <para>In LIVE non si ferma mai. Il bot resta acceso e continua a provare a ogni barra: le
+        /// posizioni a mercato hanno condizioni di uscita che girano in locale (stop, break-even,
+        /// trailing, flat di fine settimana) e continuano a essere gestite anche a server muto. Al
+        /// superamento di <see cref="MaxConsecutivePushFailures"/> si alza il tono del log una volta
+        /// sola, poi si tace fino al rientro.</para>
         /// </summary>
         private void OnPushFailed(Pair pair, string message)
         {
@@ -1584,16 +1795,45 @@ namespace cAlgo.Robots
                 Print("Invio finestra {0} fallito: {1}", pair, message);
             }
 
-            if (++_consecutivePushFailures < MaxConsecutivePushFailures)
+            // In backtest non ha senso tollerare i fallimenti: il server e' locale e o risponde o non
+            // c'e'. Ogni barra spedita a vuoto e' una barra non valutata, e il run arriverebbe in fondo
+            // con un equity plausibile ma costruito su una frazione dei segnali. Meglio fermarsi alla
+            // prima. In live invece la tolleranza resta: un buco di rete di qualche secondo non deve
+            // spegnere un bot che ha posizioni aperte.
+            if (IsBacktesting)
+            {
+                StopWithError("Connessione al server persa durante il backtest.\n" +
+                              "Stream " + pair + ": " + message + "\n" +
+                              "Il run e' stato interrotto: i risultati parziali non sono validi.");
                 return;
+            }
 
-            Print("{0} invii falliti di fila su tutti gli stream: il bot si ferma. " +
-                  "L'ultimo errore è: {1}", _consecutivePushFailures, message);
-            Stop();
+            // Live: si continua a girare, sempre. Un cBot spento non gestisce piu' le uscite delle
+            // posizioni aperte, ed e' un danno peggiore di un server irraggiungibile. Il contatore
+            // serve solo ad alzare il tono del log una volta sola, quando la caduta smette di
+            // sembrare un buco di rete e inizia a sembrare un guasto.
+            _consecutivePushFailures++;
+            if (_consecutivePushFailures == MaxConsecutivePushFailures)
+                Print("ATTENZIONE: {0} invii falliti di fila, il server non risponde. Il bot RESTA " +
+                      "ACCESO e continua a riprovare; le uscite delle posizioni aperte sono gestite " +
+                      "in locale. Nessun nuovo segnale finche' il server non torna. Ultimo errore: {1}",
+                    _consecutivePushFailures, message);
+
+            // Riaggancio, non semplice ritentativo: la sessione lato server puo' non esistere piu'.
+            // Throttlato al suo interno, quindi si puo' chiamare a ogni fallimento.
+            TryReopenSession();
         }
 
         private void OnPushSucceeded(Pair pair)
         {
+            // Il rientro dopo una caduta lunga va detto per quello che e': fra l'ultimo invio riuscito
+            // e questo ci sono barre che il server non ha mai visto, quindi segnali che non sono mai
+            // stati generati. Chi legge il log deve poterlo sapere senza contare le righe di errore.
+            if (_consecutivePushFailures >= MaxConsecutivePushFailures)
+                Print("Connessione al server ristabilita dopo {0} invii falliti. Le barre di quella " +
+                      "finestra non sono state valutate: eventuali segnali di quel periodo sono persi.",
+                    _consecutivePushFailures);
+
             _consecutivePushFailures = 0;
 
             var key = MakeStreamKey(pair.PiootooSymbol, pair.TimeframeMinutes);
@@ -1755,6 +1995,9 @@ namespace cAlgo.Robots
                 {
                     if (LogDiagnostico) Print("Poll segnale fallito: {0}", ReadError(response));
                     UpdateConnectionStatus(false);
+                    // Il poll gira a timer, le barre no: su un timeframe lungo sarebbe questa la prima
+                    // chiamata ad accorgersi che il server e' tornato. Throttlato al suo interno.
+                    if (!IsBacktesting) TryReopenSession();
                     return false;
                 }
                 if (!_isConnectedToServer)
@@ -1806,6 +2049,7 @@ namespace cAlgo.Robots
             {
                 Print("Errore polling segnale: {0}", ex.Message);
                 UpdateConnectionStatus(false);
+                if (!IsBacktesting) TryReopenSession();
                 return false;
             }
         }

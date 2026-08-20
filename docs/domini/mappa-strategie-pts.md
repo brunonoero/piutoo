@@ -18,6 +18,7 @@ descritti in [`motori-strategie.md`](motori-strategie.md).
 | `run_20260819_0659` | GC 1h | 5 | 5 | 3 | 5 (3 PC di cui 2 disabilitate, 2 RHL) |
 | `run_20260819_1008` | ES 15m | 4 | 4 | 3 | 3 (`SBO_001`, `BSW_002`, `BSW_003`) |
 | `run_20260820_0012` | ES 1h | 4 | 4 | 3 | 3 (`BSW_001`, `PCH_001`, `PCH_002`) |
+| `run_20260820_0856` | NQ 1h | 6 | 6 | 6 | 6 (3 TF_M, 2 TF_U, 1 BO) |
 
 Le **righe approvate** includono la stessa strategia con stop e target diversi: sono tarature
 del rischio, non sistemi distinti, e non vengono tradotte. Le **univoche** restano dopo aver
@@ -102,6 +103,12 @@ dichiarata lì.
 | `PTS_ES_BSW_001_60` | `20260820_0012` | 1/1 | S01 | BIASW | `run-05-agosto/trades/S01_1h_BIASW.csv` |
 | `PTS_ES_PCH_001_60` | `20260820_0012` | 2/— | S04 | PC | `run-05-agosto/trades/S04_1h_PC.csv` |
 | `PTS_ES_PCH_002_60` | `20260820_0012` | 3/— | S06 | PC | `run-05-agosto/trades/S06_1h_PC.csv` |
+| `PTS_NQ_TFM_009_60` | `20260820_0856` | 1/1 | S01 | TF_M | `run-06-gosto/consegna/trades/fam01_TF_M.csv` |
+| `PTS_NQ_TFM_010_60` | `20260820_0856` | 2/2 | S02 | TF_M | `run-06-gosto/consegna/trades/fam02_TF_M.csv` |
+| `PTS_NQ_SBO_004_60` | `20260820_0856` | 3/3 | S03 | BO | `run-06-gosto/consegna/trades/fam03_BO.csv` |
+| `PTS_NQ_TFU_004_60` | `20260820_0856` | 4/4 | S04 | TF_U | `run-06-gosto/consegna/trades/fam04_TF_U.csv` |
+| `PTS_NQ_TFM_011_60` | `20260820_0856` | 5/5 | S05 | TF_M | `run-06-gosto/consegna/trades/fam05_TF_M.csv` |
+| `PTS_NQ_TFU_005_60` | `20260820_0856` | 6/6 | S06 | TF_U | `run-06-gosto/consegna/trades/fam06_TF_U.csv` |
 
 ### Le due run ES di agosto (`run-04-agosto`, `run-05-agosto`)
 
@@ -134,6 +141,43 @@ almeno `01/06/2021 → 30/05/2025`, il periodo fuori campione del dossier. Il co
 **entrate** (timestamp e prezzo), rettificando 1 tick di slippage per lato che il riferimento
 applica e l'engine no.
 
+### Il run NQ 1h di agosto (`run-06-gosto`)
+
+La consegna sta in `piootoo-repository/run-engine/run-06-gosto/consegna/` — stessa forma dei due
+run GC: `parametri.csv`, `schede.md` e `IMPLEMENTAZIONE.md`, che porta le formule dei pattern (§3)
+e la lista delle strategie univoche (§1). E' il primo run **NQ a 60 minuti** con la sorgente sul
+disco: le sei righe approvate sono anche sei famiglie e sei strategie univoche — la colonna
+*Equivalenti* del dossier e' vuota per tutte — quindi sono state tradotte tutte e sei e nessuna
+nasce disabilitata. Il vincolo dichiarato dal run e' che nessuna coppia condivide piu' del 70%
+degli ordini di entrata.
+
+Tutti i parametri sono riportati verbatim da `parametri.csv`: finestre operative con
+`ZonedWindow.ResearchHours(start_hour, end_hour)` senza conversione, sessione
+`ZonedWindow.ResearchSession()` (giorno di calendario europeo), `intraday_only = 0` tradotto in
+`IntradayOnly = false` esplicito su tutte e sei — sono tutte multiday. `max_bars` vale 0 solo per
+la famiglia 01, che non ha uscita a tempo; la 03 non ha take profit (`ProfitMoney = 0`).
+
+| Classe | finestra CET | stop / target ($) | max_bars | gate |
+|---|---|---|---|---|
+| `PTS_NQ_TFM_009_60` | 14:00 → 04:00 | 250 / 3.000 | — | neut 47/1, dir 50/8 |
+| `PTS_NQ_TFM_010_60` | 00:00 → 17:00 | 2.500 / 5.000 | 48 | neut 47/11, dir -34/28 |
+| `PTS_NQ_SBO_004_60` | 22:00 → 21:00 | 500 / — | 230 | neut 4/32, dir 44/28 |
+| `PTS_NQ_TFU_004_60` | 17:00 → 03:00 | 750 / 10.000 | 230 | fast L 32/2, S 38/137 |
+| `PTS_NQ_TFM_011_60` | 21:00 → 14:00 | 1.250 / 4.000 | 230 | neut 47/24, dir -34/16 |
+| `PTS_NQ_TFU_005_60` | 16:00 → 04:00 | 4.000 / 5.000 | 46 | fast L 107/83, S 21/39 |
+
+Per la BO: `level_source = 0` — canale delle **N sessioni complete**, il ramo storico che
+`SessionBreakoutEngine` implementa — con `n_sess = 4`, `lev_include_sess0 = 0` e
+`breakout_offset_ticks = 0`. Il ramo `level_source = 1` (massimo/minimo running della sessione
+corrente) non e' stato selezionato dal run e non va attivato.
+
+⚠ **Porting dichiarato, non ancora verificato sui trade.** A differenza dei run GC ed ES qui il
+datafeed c'e': `piootoo-repository/datafeed/1h/@NQ` copre dal 2006, quindi tutto il periodo delle
+liste di riferimento (2012-01-10 → 2025-05-29). Il confronto va fatto sulle **entrate** — timestamp
+e prezzo — rettificando 1 tick di slippage per lato che il riferimento applica e l'engine no, e
+tenendo presente lo scarto di etichettatura della barra gia' misurato su NQ. Procedura in
+[`porting-da-report-sweep.md`](porting-da-report-sweep.md) §"Verificare il porting".
+
 ### Anteriori a questa mappa
 
 | Classe C# | Run | Note |
@@ -150,6 +194,14 @@ Il run di `PTS_NQ_TFM_001_60` non e' ne' `0005` (NQ 15m) ne' `2127` (NQ 30m): la
 **60 minuti**, quindi nessuno dei due poteva generarla, e non ci sono altri run sul disco. Chi lo
 ritrova aggiorni questa riga — i suoi parametri sono `start_hour 16`, `end_hour 3`,
 `ptn_neut 47/1`, `ptn_dir 50/8`, `stop_loss 1000`, `take_profit 3000`, `intraday_only 0`.
+
+> **Indizio dal run del 20/08/2026.** `run_20260820_0856` e' NQ **1h** e la sua famiglia 01 —
+> tradotta in `PTS_NQ_TFM_009_60` — ha la stessa firma di gate (`ptn_neut 47/1`,
+> `ptn_dir 50/8`), lo stesso `take_profit 3000` e lo stesso `intraday_only 0`. Differiscono la
+> finestra (14:00–04:00 invece di 16:00–03:00) e lo stop (250 invece di 1000), quindi **non e'
+> la stessa riga**: e' pero' la prova che quella combinazione di gate nasce da un run NQ a 60
+> minuti con orari gia' in ora europea, il che rende la finestra 16:00–03:00 della `001`
+> plausibile cosi' com'e' e non da spostare di sette ore. Resta un indizio, non una misura.
 
 ## Il confine di sessione
 

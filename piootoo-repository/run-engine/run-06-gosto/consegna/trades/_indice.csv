@@ -1,0 +1,7 @@
+famiglia,motore,file,trade_totali,trade_oos,primo,ultimo
+1,TF_M,trades/fam01_TF_M.csv,616,287,2012-01-10,2025-05-29
+2,TF_M,trades/fam02_TF_M.csv,456,112,2012-01-10,2025-05-15
+3,BO,trades/fam03_BO.csv,308,59,2012-01-10,2025-05-23
+4,TF_U,trades/fam04_TF_U.csv,567,232,2012-01-12,2025-05-29
+5,TF_M,trades/fam05_TF_M.csv,451,181,2012-01-10,2025-05-29
+6,TF_U,trades/fam06_TF_U.csv,762,215,2012-01-10,2025-05-29
