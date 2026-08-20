@@ -67,6 +67,13 @@ public abstract class RhlEngine : EasyEngineBase
     /// <summary>Giorno da escludere: 0 = lunedì … 4 = venerdì; -1 = nessuno.</summary>
     protected int SkipDay = -1;
 
+    /// <summary>
+    /// Se true, la posizione viene chiusa alla fine della sessione. Corrisponde al default
+    /// <c>exit_on_session_end</c> del simulatore Python, che <c>reversal_hl.py</c> non
+    /// sovrascrive: le RHL della ricerca sono strategie di sessione, senza overnight.
+    /// </summary>
+    protected bool IntradayOnly = true;
+
     // ------------------------------------------------------------------ stato di sessione
 
     private bool _okLong = true;
@@ -107,7 +114,8 @@ public abstract class RhlEngine : EasyEngineBase
             Direction != 2)
         {
             var level = lowD1 - LongLevelOffsetTicks * TickSize;
-            entries.Add(EntryLimitNextBar(SignalType.Buy, level, data, barTime, "LE RHL"));
+            entries.Add(WithPythonSettings(
+                EntryLimitNextBar(SignalType.Buy, level, data, barTime, "LE RHL")));
         }
 
         if (_okShort && highD1 > 0m &&
@@ -118,10 +126,28 @@ public abstract class RhlEngine : EasyEngineBase
             Direction != 1)
         {
             var level = highD1 + ShortLevelOffsetTicks * TickSize;
-            entries.Add(EntryLimitNextBar(SignalType.Sell, level, data, barTime, "SE RHL"));
+            entries.Add(WithPythonSettings(
+                EntryLimitNextBar(SignalType.Sell, level, data, barTime, "SE RHL")));
         }
 
         return Combine(entries, Hold(bar.Close, barTime));
+    }
+
+    /// <summary>
+    /// Policy <c>single_entry_per_session=True</c> e <c>exit_on_session_end</c> del motore
+    /// Python, dichiarate sul segnale invece che dedotte da un contatore locale: un limit non
+    /// riempito deve poter essere riemesso alla barra dopo, e in sessione <c>ExternalBroker</c>
+    /// il server emette solo intent di ingresso, quindi l'uscita di fine sessione va scritta qui.
+    /// </summary>
+    private TradeSignal WithPythonSettings(TradeSignal signal)
+    {
+        signal.MaxEntriesPerSession = 1;
+        signal.EntrySessionStartUtc = ResolveEntrySessionStartUtc(signal.ValidFromUtc!.Value);
+
+        if (IntradayOnly && TimeframeMinutes < 1440)
+            signal.CloseAtUtc = ResolveCloseAtUtc(signal.ValidFromUtc.Value, SessionEndTime);
+
+        return signal;
     }
 
     private bool InTradingWindow(DateTime barTime)

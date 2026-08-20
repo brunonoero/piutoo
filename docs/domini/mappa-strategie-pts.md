@@ -14,13 +14,20 @@ descritti in [`motori-strategie.md`](motori-strategie.md).
 | `run_20260730_2127` | NQ 30m | — | — | — | nessuna |
 | `run_20260814_1453` | NQ 15m | 133 | 11 | 10 | 11 |
 | `run_20260815_1021` | NQ 30m | 24 | 7 | 5 | 7 |
+| `run_20260819_0201` | GC 30m | 1 | 1 | 1 | 1 (`TFU_001_30`) |
+| `run_20260819_0659` | GC 1h | 5 | 5 | 3 | 5 (3 PC di cui 2 disabilitate, 2 RHL) |
 
 Le **righe approvate** includono la stessa strategia con stop e target diversi: sono tarature
 del rischio, non sistemi distinti, e non vengono tradotte. Le **univoche** restano dopo aver
 confrontato le entrate anche *fra* run diversi: è il numero che conta per l'operatività, perché
 due strategie che mandano gli stessi ordini su conti separati sono copy trading.
 
-I due run di agosto stanno in `piootoo-repository/run-engine/run-01-agosto/<run>/`; i due di
+I due run di agosto stanno in `piootoo-repository/run-engine/run-01-agosto/<run>/`; i due run
+del 19 agosto — i primi su **GC** — stanno in `run-engine/run-02-agosto/` (che contiene
+`run_20260819_0201`) e `run-engine/run-03-agosto/` (`run_20260819_0659`), dove la consegna sta
+direttamente in `consegna/` senza la cartella `run_*` intermedia e c'e' in piu'
+`IMPLEMENTAZIONE.md`, che porta le formule dei pattern (§3) e la lista delle strategie univoche
+(§1) — cioe' quello che per i run di NQ stava nel dossier fuori repository. I due di
 luglio stanno **fuori dal repository**, in `C:\coo+project\davide\` (e in copia dentro
 `Run_Test.zip`, stessa cartella). Dentro un run:
 
@@ -52,6 +59,7 @@ dichiarata lì.
 | `SBO` | BO | `SessionBreakoutEngine` |
 | `PCH` | PC | `PriceChannelEngine` |
 | `RBM` | RBB_M | `RbbMirroredEngine` |
+| `RHL` | RHL | `RhlEngine` |
 
 ## La mappa
 
@@ -78,6 +86,12 @@ dichiarata lì.
 | `PTS_NQ_PCH_004_30` | `20260815_1021` | 5/5 | S12 | PC | `consegna/trades/fam05_PC.csv` |
 | `PTS_NQ_PCH_005_30` | `20260815_1021` | 5/6 | — | PC | *disabilitata, vedi sotto* |
 | `PTS_NQ_PCH_006_30` | `20260815_1021` | 5/7 | — | PC | *disabilitata, vedi sotto* |
+| `PTS_GC_TFU_001_30` | `20260819_0201` | 1/1 | S01 | TF_U | `consegna/trades/fam01_TF_U.csv` |
+| `PTS_GC_PCH_001_60` | `20260819_0659` | 1/1 | S01 | PC | `consegna/trades/fam01_PC.csv` |
+| `PTS_GC_PCH_002_60` | `20260819_0659` | 1/2 | — | PC | *disabilitata, doppione della 001* |
+| `PTS_GC_PCH_003_60` | `20260819_0659` | 1/3 | — | PC | *disabilitata, doppione della 001* |
+| `PTS_GC_RHL_001_60` | `20260819_0659` | 2/4 | S02 | RHL | `consegna/trades/fam02_RHL.csv` |
+| `PTS_GC_RHL_002_60` | `20260819_0659` | 3/5 | S03 | RHL | `consegna/trades/fam03_RHL.csv` |
 
 ### Anteriori a questa mappa
 
@@ -98,11 +112,34 @@ ritrova aggiorni questa riga — i suoi parametri sono `start_hour 16`, `end_hou
 
 ## Il confine di sessione
 
-Tutte e 21 le classi `PTS_*` dichiarano `SessionStartTime = 0` / `SessionEndTime = 2359`. Non
-significa "sessione = giorno di calendario invece che sessione CME": significa **la sessione CME,
-scritta nell'orologio del feed**.
+> ⚠ **Aggiornato il 19/08/2026.** La frase storica di questo paragrafo — "tutte le classi `PTS_*`
+> dichiarano `SessionStartTime = 0` / `SessionEndTime = 2359`" — **non descrive piu' il codice**:
+> le classi dichiarano oggi gli orari **in ora di borsa** (`1700`/`1600` per NQ, `1800`/`1700` per
+> GC), perche' `EasyEngineBase.Clock` converte l'istante UTC della barra nel fuso di
+> `InstrumentSpec.SessionTimeZone` prima di confrontare. Il ragionamento sotto resta utile per
+> capire *perche'* i due numeri descrivono lo stesso istante, ma i valori da scrivere in una
+> classe nuova sono quelli di borsa.
 
-### Perche' 0 e 1700 sono la stessa cosa
+### GC: mezzanotte CET sono le 18:00 di New York
+
+La ricerca Python ricostruisce le sessioni con confine a **00:00 CET**. Per NQ quell'istante e' la
+riapertura CME delle 17:00 di Chicago; per GC e' la riapertura COMEX delle **18:00 di New York**
+(`InstrumentSpec.SessionTimeZone` = `America/New_York`, spec `1800`→`1700`). Le sei classi GC
+dichiarano quindi `SessionStartTime = 1800` / `SessionEndTime = 1700`.
+
+Con lo stesso ragionamento si convertono le **finestre operative**, che la ricerca scrive in CET:
+per GC vale **CET − 6**, non − 7 come per gli indici CME.
+
+| Run | finestra dichiarata (CET) | scritta nella classe (New York) |
+|---|---|---|
+| `20260819_0201` TF_U | 16:00 → 08:00 | `StartHour = 10`, `EndHour = 2` |
+| `20260819_0659` PC | 06:00 → 05:00 | `StartTime = 0`, `EndTime = 2300` |
+| `20260819_0659` RHL | 13:00 → 12:00 | `StartHour = 7`, `EndHour = 6` |
+
+Il residuo delle settimane in cui l'ora legale europea e americana non sono allineate vale per GC
+come per NQ, ed e' descritto in fondo a questa sezione.
+
+### La codifica storica, e perche' 0 e 1700 erano la stessa cosa
 
 La riapertura Globex delle **17:00 di Chicago e' mezzanotte in Italia** — lo stesso istante, in due
 orologi. E il feed `@NQ` di questo progetto e' stampato in **ora locale europea**, non in UTC,
@@ -173,10 +210,11 @@ sette ore. Da decidere quando il run salta fuori.
 ## Cosa non è stato tradotto
 
 I run esplorano **dodici** motori — MAC, RHL, LF, PC, VBO, BO, TF_M, RBB_M, RBB_U, TF_U, BIAS,
-BIASW — ma le strategie approvate usano solo cinque. Dopo la rimozione del catalogo `Easy_*`
+BIASW — ma le strategie approvate usano solo sei (`RHL` si e' aggiunto il 19/08/2026 con le due
+classi GC). Dopo la rimozione del catalogo `Easy_*`
 (17/08/2026) questi motori esistono in C# e **non hanno alcuna sottoclasse concreta**:
 
-`MovingAverageCrossoverEngine`, `RhlEngine`, `LevelFaderEngine`, `VolatilityBreakoutEngine`,
+`MovingAverageCrossoverEngine`, `LevelFaderEngine`, `VolatilityBreakoutEngine`,
 `RbbUnmirroredEngine`, `BiasBarCountEngine`, `BiasWeeklyEngine` — più `AroonCrossoverEngine` e
 `TrendDeveloperEngine`, che non hanno neppure una controparte fra i dodici motori Python perché
 nascono da sorgenti EasyLanguage.
@@ -196,6 +234,19 @@ sopra — nessun test di parità li copre più.
 5. Aggiornare questa mappa e la tabella dei run in testa.
 6. Verificare il porting contro `consegna/trades/famNN_*.csv` seguendo
    [`porting-da-report-sweep.md`](porting-da-report-sweep.md) §"Verificare il porting".
+
+## Da fare sui due run GC
+
+1. **Manca il datafeed `@GC`.** `piootoo-repository/datafeed/{30m,1h}/` contiene solo `@NQ`:
+   finche' non c'e' la storia di GC, le sei classi non possono essere confrontate con le liste
+   trade di riferimento e restano un porting *dichiarato ma non verificato*.
+2. **Il motore `RhlEngine` non e' mai stato verificato contro il Python.** Copre ora due classi
+   attive; `RhlEngineParityTests` prova il contratto del segnale, non la parita' dei trade.
+   Il 19/08/2026 il motore ha ricevuto `IntradayOnly` e la dichiarazione di
+   `MaxEntriesPerSession` sul segnale, che prima mancavano del tutto — quindi anche gli
+   ingressi cambiano rispetto a com'era il motore prima.
+3. **Estendere ai nuovi multiday il test parametrico** di `Pts002PcTests` sul mancato
+   `IntradayOnly`, come chiede `porting-da-report-sweep.md`.
 
 ## Riferimenti codice
 

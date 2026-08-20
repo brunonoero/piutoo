@@ -1,0 +1,2 @@
+famiglia,strategia,e_strategia,capofila,simbolo,timeframe,motore,atteso_per_trade,oos_avg_trade,oos_net_profit,oos_max_dd,oos_n_trades,oos_profit_factor,plateau_min,wfo_efficienza,mc_dd_p95,stop_loss_pt,take_profit_pt,stop_loss,take_profit,start_hour,end_hour,skip_day,max_bars,ptn_ly_yes,ptn_ly_no,ptn_sy_yes,ptn_sy_no,intraday_only
+1,1,True,True,GC,30m,TF_U,889.5,1176.7,176500,20054,150,2.04,0.62,0.76,52903,17.5,75,1750,7500,16,8,-1,460,34,25,128,1,0

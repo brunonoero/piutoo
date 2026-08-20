@@ -36,7 +36,8 @@ public sealed class PtsNamingConventionTests
         [typeof(TfUnmirroredEngine)] = "TFU",
         [typeof(PriceChannelEngine)] = "PCH",
         [typeof(SessionBreakoutEngine)] = "SBO",
-        [typeof(RbbMirroredEngine)] = "RBM"
+        [typeof(RbbMirroredEngine)] = "RBM",
+        [typeof(RhlEngine)] = "RHL"
     };
 
     private static readonly Regex NamePattern = new(
