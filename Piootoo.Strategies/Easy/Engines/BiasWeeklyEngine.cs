@@ -268,5 +268,5 @@ public abstract class BiasWeeklyEngine : EasyEngineBase
     }
 
     /// <summary>Convenzione del motore Python: lunedì = 0 … domenica = 6.</summary>
-    private static int PythonDayOfWeek(DateTime time) => ((int)time.DayOfWeek + 6) % 7;
+    private int PythonDayOfWeek(DateTime time) => PythonWeekday(time);
 }

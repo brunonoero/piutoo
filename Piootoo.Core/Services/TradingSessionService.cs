@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using Piootoo.Shared.Configuration;
 using Piootoo.Shared.Enums;
 using Piootoo.Shared.Interfaces;
@@ -242,7 +242,41 @@ public sealed class TradingSessionService : ITradingSessionService
         public HashSet<string> BarKeys { get; } = new(StringComparer.Ordinal);
         public HashSet<string> ReportIds { get; } = new(StringComparer.Ordinal);
         public List<OrderIntent> Intents { get; } = [];
+
+        /// <summary>
+        /// Indice per IntentId su <see cref="Intents"/>. Esiste perche' le due ricerche per id —
+        /// l'execution report e la cancellazione — arrivano a ogni fill di ogni barra, e una
+        /// scansione lineare su una lista che a fine anno conta decine di migliaia di intent si
+        /// paga moltiplicata per tutti i report del run.
+        /// </summary>
+        public Dictionary<string, OrderIntent> IntentsById { get; } = new(StringComparer.Ordinal);
+
         public List<RotationLogEntry> RotationLog { get; } = [];
+
+        // --- Persistenza incrementale (vedi WriteArtifacts) ---
+
+        /// <summary>Quanti elementi di <see cref="Intents"/> sono gia' finiti nel journal.</summary>
+        public int PersistedIntentCount { get; set; }
+
+        /// <summary>
+        /// Intent gia' scritti almeno una volta ma ancora in uno stato non definitivo, quindi
+        /// ancora capaci di cambiare. Vengono riscritti a ogni checkpoint finche' non risultano
+        /// assestati: e' cio' che rende la scrittura incrementale completa senza dover
+        /// intercettare ogni singolo punto del codice che muta un intent. L'insieme e' limitato
+        /// dagli ordini realmente in volo, non dalla lunghezza del run.
+        /// </summary>
+        public List<OrderIntent> UnsettledIntents { get; } = [];
+
+        /// <summary>
+        /// Il journal contiene record non ancora materializzati nell'array. Finche' e' vero, un
+        /// flush forzato deve davvero riscrivere, anche se dall'ultimo checkpoint non e' cambiato
+        /// altro: e' cio' che lascia la cartella di un run chiuso senza file di journal.
+        /// </summary>
+        public bool JournalPending { get; set; }
+
+        /// <summary>Trade gia' scritti, per ognuna delle due sorgenti (broker esterno / motore simulato).</summary>
+        public int PersistedExternalTradeCount { get; set; }
+        public int PersistedSimulatedTradeCount { get; set; }
 
         /// <summary>Istante dell'ultima scrittura degli artefatti su disco. Vedi <c>Persist</c>.</summary>
         public DateTime LastPersistUtc { get; set; }
@@ -250,8 +284,19 @@ public sealed class TradingSessionService : ITradingSessionService
         /// <summary>C'e' stato almeno un cambiamento non ancora scritto (checkpoint saltato).</summary>
         public bool PersistPending { get; set; }
 
-        /// <summary>Righe di rotation-log gia' su disco: il log e' append-only, se non cresce non si riscrive.</summary>
-        public int PersistedRotationEntries { get; set; } = -1;
+        /// <summary>
+        /// Righe di rotation-log gia' su disco: il log e' append-only, se non cresce non si riscrive.
+        ///
+        /// <para><b>Parte da zero, non da -1.</b> Il valore iniziale era <c>-1</c> come sentinella di
+        /// "mai scritto", e serviva al vecchio confronto <c>!=</c> per garantire la prima scrittura
+        /// anche a log vuoto. Da quando questo campo e' anche l'<b>indice</b> da cui
+        /// <see cref="WriteArtifactsDelta"/> accoda al journal, quella sentinella e' un indice
+        /// negativo: il primo checkpoint di una sessione appena aperta entrava nel ramo
+        /// (<c>0 &gt; -1</c>) e chiamava <c>GetRange(-1, 1)</c>, che lancia. La prima scrittura
+        /// forzata resta garantita da <c>LastPersistUtc != default</c> in <c>Persist</c>, quindi la
+        /// sentinella non serviva piu' a niente se non a rompere l'apertura della sessione.</para>
+        /// </summary>
+        public int PersistedRotationEntries { get; set; }
 
         /// <summary>
         /// Buffer circolare degli ultimi eventi della sessione, per il monitor della console.
@@ -1149,15 +1194,15 @@ public sealed class TradingSessionService : ITradingSessionService
         foreach (var signal in signals)
         {
             var multiplier = allocations.TryGetValue(signal.StrategyCode, out var value) ? value : 1m;
-            var snapshot = Snapshot(session);
-            session.PeakEquity = Math.Max(session.PeakEquity, snapshot.Equity);
+            var equity = CurrentEquity(session);
+            session.PeakEquity = Math.Max(session.PeakEquity, equity);
             var result = _positionSizing.Calculate(new PositionSizingRequest
             {
                 BaseQuantity = signal.Quantity, StrategyEquityMultiplier = multiplier,
                 Instrument = session.InstrumentMetadata[Normalize(signal.Symbol)],
                 Config = session.PositionSizing, AvailableBars = history,
                 TimestampUtc = bar.BarTimeUtc, InitialCapital = session.InitialCapital,
-                Equity = snapshot.Equity, PeakEquity = session.PeakEquity,
+                Equity = equity, PeakEquity = session.PeakEquity,
                 GrossExposureFraction = session.InitialCapital <= 0 ? 1m :
                     session.ExternalPositions.Values.Sum(x => x.Quantity * x.EntryPrice) / session.InitialCapital
             });
@@ -1239,7 +1284,13 @@ public sealed class TradingSessionService : ITradingSessionService
     public IReadOnlyList<OrderIntent> GetIntents(string sessionId, string token, long after = 0)
     {
         var session = Get(sessionId, token);
-        lock (session.Gate) return session.Intents.Skip((int)Math.Max(0, after)).ToArray();
+        lock (session.Gate)
+        {
+            // GetRange e non Skip: il poll della console chiede sempre "tutto dopo l'indice N" e
+            // Skip riattraversa gli N gia' consegnati a ogni chiamata.
+            var start = (int)Math.Clamp(after, 0, session.Intents.Count);
+            return session.Intents.GetRange(start, session.Intents.Count - start);
+        }
     }
 
     public IReadOnlyList<PersistedSignal> GetPersistedSignals(string sessionId, string token)
@@ -1283,8 +1334,8 @@ public sealed class TradingSessionService : ITradingSessionService
             RequireUtc(report.EventTimeUtc, nameof(report.EventTimeUtc));
             if (!session.ReportIds.Add(report.ReportId))
                 return Snapshot(session);
-            var intent = session.Intents.SingleOrDefault(x => x.IntentId == report.IntentId)
-                         ?? throw new KeyNotFoundException($"Intent '{report.IntentId}' non trovato.");
+            if (!session.IntentsById.TryGetValue(report.IntentId, out var intent))
+                throw new KeyNotFoundException($"Intent '{report.IntentId}' non trovato.");
             if (report.CumulativeFilledQuantity < intent.FilledQuantity || report.CumulativeFilledQuantity > intent.Quantity)
                 throw new ArgumentException("CumulativeFilledQuantity non valida.");
 
@@ -1589,8 +1640,8 @@ public sealed class TradingSessionService : ITradingSessionService
         var session = Get(sessionId, token);
         lock (session.Gate)
         {
-            var intent = session.Intents.SingleOrDefault(x => x.IntentId == intentId)
-                         ?? throw new KeyNotFoundException($"Intent '{intentId}' non trovato.");
+            if (!session.IntentsById.TryGetValue(intentId, out var intent))
+                throw new KeyNotFoundException($"Intent '{intentId}' non trovato.");
             if (intent.Status is OrderIntentStatus.Filled or OrderIntentStatus.Rejected or OrderIntentStatus.Cancelled)
                 throw new InvalidOperationException("L'intent non è cancellabile.");
             intent.Status = OrderIntentStatus.Cancelled;
@@ -1957,7 +2008,7 @@ public sealed class TradingSessionService : ITradingSessionService
                         $"dell'account ({template.FinalQuantity:0.####} contratti Piootoo -> " +
                         $"{claim.FinalQuantity:0.####}). {claim.SizingReason}"
                 };
-            session.Intents.Add(claim);
+            AddToIntents(session, claim);
             session.LastRefusalByAccount.Remove(accountNumber);
             RecordActivity(session, SessionActivityKind.ClaimServito,
                 $"{claim.Side} {claim.OrderType} @ {claim.Price:0.#####} qty {claim.FinalQuantity:0.####}",
@@ -2225,8 +2276,17 @@ public sealed class TradingSessionService : ITradingSessionService
             AssignedAccountNumber = accountNumber,
             Status = OrderIntentStatus.Pending
         };
-        session.Intents.Add(intent);
+        AddToIntents(session, intent);
         return intent;
+    }
+
+    /// <summary>
+    /// Unico punto in cui un intent entra nella sessione: tiene allineato <see cref="Session.IntentsById"/>.
+    /// </summary>
+    private static void AddToIntents(Session session, OrderIntent intent)
+    {
+        session.Intents.Add(intent);
+        session.IntentsById[intent.IntentId] = intent;
     }
 
     private static bool IsOpposite(SignalType positionDirection, SignalType signalDirection) =>
@@ -2464,7 +2524,7 @@ public sealed class TradingSessionService : ITradingSessionService
             ProfitStallAfterUtc = signal.ProfitStallAfterUtc,
             Reason = signal.Reason
         };
-        if (addToIntents) session.Intents.Add(intent);
+        if (addToIntents) AddToIntents(session, intent);
         return intent;
     }
 
@@ -2805,7 +2865,8 @@ public sealed class TradingSessionService : ITradingSessionService
             return;
         }
 
-        if (force && !session.PersistPending && session.PersistedRotationEntries == session.RotationLog.Count &&
+        if (force && !session.PersistPending && !session.JournalPending &&
+            session.PersistedRotationEntries == session.RotationLog.Count &&
             session.LastPersistUtc != default && elapsed < PersistCheckpointInterval)
         {
             // Flush richiesto ma non c'e' niente di nuovo da scrivere.
@@ -2814,59 +2875,139 @@ public sealed class TradingSessionService : ITradingSessionService
 
         session.LastPersistUtc = now;
         session.PersistPending = false;
-        WriteArtifacts(session, durable: force || elapsed >= DurableWriteThreshold);
+        WriteArtifacts(session, durable: force || elapsed >= DurableWriteThreshold, full: force);
     }
 
-    private static void WriteArtifacts(Session session, bool durable)
+    private static void WriteArtifacts(Session session, bool durable, bool full)
     {
-        session.Store.WriteSignals(session.Intents.Select(intent => new PersistedSignal
-        {
-            SignalId = intent.IntentId,
-            IntentId = intent.IntentId,
-            CorrelationId = intent.IntentId,
-            SessionId = session.Id,
-            TimestampUtc = intent.CreatedAtUtc,
-            StrategyCode = intent.StrategyCode,
-            StrategyName = string.IsNullOrWhiteSpace(intent.StrategyName)
-                ? intent.StrategyCode
-                : intent.StrategyName,
-            Symbol = intent.Symbol,
-            AccountId = intent.AccountId,
-            AccountSymbol = intent.AccountSymbol,
-            ContractMultiplier = intent.ContractMultiplier,
-            AccountBalanceScale = intent.AccountBalanceScale,
-            Side = intent.Side,
-            OrderType = intent.OrderType,
-            TriggerPrice = intent.Price,
-            Quantity = intent.Quantity,
-            QuantityBeforeAccountConversion = intent.QuantityBeforeAccountConversion,
-            BaseQuantity = intent.BaseQuantity,
-            StrategyEquityMultiplier = intent.StrategyEquityMultiplier,
-            MarketVolatilityMultiplier = intent.MarketVolatilityMultiplier,
-            PortfolioRiskMultiplier = intent.PortfolioRiskMultiplier,
-            FinalQuantity = intent.FinalQuantity,
-            SizingReason = intent.SizingReason,
-            ValidFromUtc = intent.ValidFromUtc,
-            ExpiresAtUtc = intent.ExpiresAtUtc,
-            StopLoss = intent.StopLoss,
-            TakeProfit = intent.TakeProfit,
-            BreakEven = intent.BreakEven,
-            TrailingStop = intent.TrailingStop,
-            TimeframeMinutes = intent.TimeframeMinutes,
-            TimeExitUtc = intent.CloseAtUtc,
-            Reason = intent.Reason,
-            MaxBarsInPosition = intent.MaxBarsInPosition,
-            IsClose = intent.IsClose,
-            Status = intent.Status,
-            FilledQuantity = intent.FilledQuantity,
-            ExternalOrderId = intent.ExternalOrderId,
-            AssignedAccountNumber = intent.AssignedAccountNumber,
-            AssignedGroupId = intent.AssignedGroupId
-        }), durable);
+        if (full) WriteArtifactsFull(session, durable);
+        else WriteArtifactsDelta(session);
+    }
 
-        var trades = session.Mode == ExecutionMode.ExternalBroker
-            ? session.ExternalTrades
-            : session.SimulatedEngine.GetClosedTrades().Select((trade, index) => new PersistedTrade
+    /// <summary>
+    /// Riscrittura completa e autorevole degli artefatti: costa quanto TUTTO il run, non quanto e'
+    /// cambiato. Vive quindi solo sul percorso forzato — fine sessione, o lettura esplicita degli
+    /// artefatti da fuori — mentre i checkpoint intermedi passano da <see cref="WriteArtifactsDelta"/>.
+    /// </summary>
+    private static void WriteArtifactsFull(Session session, bool durable)
+    {
+        session.Store.WriteSignals(session.Intents.Select(intent => ToPersistedSignal(session, intent)), durable);
+        session.Store.WriteTrades(CollectTrades(session, from: 0), durable);
+        session.Store.WriteRotationLog(session.RotationLog, durable);
+        session.JournalPending = false;
+        ResetPersistenceWatermarks(session);
+    }
+
+    /// <summary>
+    /// Checkpoint incrementale: accoda al journal solo cio' che e' cambiato dall'ultimo giro.
+    ///
+    /// <para><b>Perche'.</b> La riscrittura completa riproiettava, validava, deduplicava e
+    /// serializzava ogni intent dall'inizio della sessione per salvarne due nuovi. Su un run di un
+    /// anno sono ~24.000 record e 40-80 MB di <c>signals.json</c>, riscritti ogni due secondi: il
+    /// costo per barra cresce con le barre gia' fatte, ed e' l'origine del rallentamento
+    /// progressivo dei backtest lunghi.</para>
+    ///
+    /// <para><b>Perche' e' completo.</b> Un intent viene riscritto a ogni checkpoint finche' non
+    /// risulta <see cref="IsSettled">assestato</see>. Quindi il passaggio a uno stato definitivo —
+    /// fill, rifiuto, cancellazione — viene sempre catturato dal checkpoint successivo, senza che
+    /// serva intercettare i punti del codice che mutano un intent: dimenticarne uno e' il modo in
+    /// cui una scrittura incrementale perde dati in silenzio, e qui non c'e' niente da
+    /// dimenticare. Trade e rotation-log sono append-only e immutabili, quindi basta il
+    /// segnaposto.</para>
+    /// </summary>
+    private static void WriteArtifactsDelta(Session session)
+    {
+        var delta = new List<PersistedSignal>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+
+        for (var i = session.PersistedIntentCount; i < session.Intents.Count; i++)
+        {
+            var intent = session.Intents[i];
+            if (!seen.Add(intent.IntentId)) continue;
+            delta.Add(ToPersistedSignal(session, intent));
+            if (!IsSettled(intent)) session.UnsettledIntents.Add(intent);
+        }
+        session.PersistedIntentCount = session.Intents.Count;
+
+        for (var i = session.UnsettledIntents.Count - 1; i >= 0; i--)
+        {
+            var intent = session.UnsettledIntents[i];
+            if (seen.Add(intent.IntentId))
+                delta.Add(ToPersistedSignal(session, intent));
+            if (IsSettled(intent))
+                session.UnsettledIntents.RemoveAt(i);
+        }
+
+        session.Store.AppendSignals(delta);
+        if (delta.Count > 0) session.JournalPending = true;
+
+        if (session.Mode == ExecutionMode.ExternalBroker)
+        {
+            if (session.ExternalTrades.Count > session.PersistedExternalTradeCount)
+            {
+                session.Store.AppendTrades(CollectTrades(session, session.PersistedExternalTradeCount));
+                session.PersistedExternalTradeCount = session.ExternalTrades.Count;
+                session.JournalPending = true;
+            }
+        }
+        else
+        {
+            var closed = session.SimulatedEngine.ClosedTradesCount;
+            if (closed > session.PersistedSimulatedTradeCount)
+            {
+                session.Store.AppendTrades(CollectTrades(session, session.PersistedSimulatedTradeCount));
+                session.PersistedSimulatedTradeCount = closed;
+                session.JournalPending = true;
+            }
+        }
+
+        if (session.RotationLog.Count > session.PersistedRotationEntries)
+        {
+            // Clamp come in CollectTrades: questo segnaposto e' un indice, e un indice fuori
+            // intervallo deve degradare in "riaccodo tutto", non far fallire la richiesta che lo
+            // ha innescato — che qui e' l'apertura stessa della sessione.
+            var from = Math.Clamp(session.PersistedRotationEntries, 0, session.RotationLog.Count);
+            session.Store.AppendRotationLog(session.RotationLog.GetRange(from, session.RotationLog.Count - from));
+            session.PersistedRotationEntries = session.RotationLog.Count;
+            session.JournalPending = true;
+        }
+    }
+
+    /// <summary>
+    /// Uno stato definitivo: da qui l'intent non cambia piu', quindi una volta scritto puo' uscire
+    /// dall'insieme di quelli riscritti a ogni checkpoint.
+    /// </summary>
+    private static bool IsSettled(OrderIntent intent) =>
+        intent.Status is OrderIntentStatus.Filled or OrderIntentStatus.Rejected or OrderIntentStatus.Cancelled;
+
+    private static void ResetPersistenceWatermarks(Session session)
+    {
+        session.PersistedIntentCount = session.Intents.Count;
+        session.UnsettledIntents.Clear();
+        foreach (var intent in session.Intents)
+            if (!IsSettled(intent)) session.UnsettledIntents.Add(intent);
+
+        session.PersistedExternalTradeCount = session.ExternalTrades.Count;
+        session.PersistedSimulatedTradeCount =
+            session.Mode == ExecutionMode.ExternalBroker ? 0 : session.SimulatedEngine.ClosedTradesCount;
+        session.PersistedRotationEntries = session.RotationLog.Count;
+    }
+
+    /// <summary>I trade dall'indice indicato in poi. <c>from: 0</c> e' l'elenco completo.</summary>
+    private static List<PersistedTrade> CollectTrades(Session session, int from)
+    {
+        if (session.Mode == ExecutionMode.ExternalBroker)
+        {
+            var start = Math.Clamp(from, 0, session.ExternalTrades.Count);
+            return session.ExternalTrades.GetRange(start, session.ExternalTrades.Count - start);
+        }
+
+        var closed = session.SimulatedEngine.GetClosedTrades();
+        var rows = new List<PersistedTrade>(Math.Max(0, closed.Count - from));
+        for (var index = Math.Max(0, from); index < closed.Count; index++)
+        {
+            var trade = closed[index];
+            rows.Add(new PersistedTrade
             {
                 TradeId = $"{session.Id}-trade-{index + 1:D10}",
                 SessionId = session.Id,
@@ -2884,17 +3025,55 @@ public sealed class TradingSessionService : ITradingSessionService
                 GrossProfit = trade.GrossProfit,
                 NetProfit = trade.NetProfit,
                 Commission = trade.Commission
-            }).ToList();
-        session.Store.WriteTrades(trades, durable);
-
-        // Il rotation-log e' append-only: se non e' cresciuto, riscriverlo sarebbe rileggere e
-        // riserializzare tutte le righe gia' su disco per non cambiare un byte.
-        if (session.PersistedRotationEntries != session.RotationLog.Count)
-        {
-            session.Store.WriteRotationLog(session.RotationLog, durable);
-            session.PersistedRotationEntries = session.RotationLog.Count;
+            });
         }
+        return rows;
     }
+
+    private static PersistedSignal ToPersistedSignal(Session session, OrderIntent intent) => new()
+    {
+        SignalId = intent.IntentId,
+        IntentId = intent.IntentId,
+        CorrelationId = intent.IntentId,
+        SessionId = session.Id,
+        TimestampUtc = intent.CreatedAtUtc,
+        StrategyCode = intent.StrategyCode,
+        StrategyName = string.IsNullOrWhiteSpace(intent.StrategyName)
+            ? intent.StrategyCode
+            : intent.StrategyName,
+        Symbol = intent.Symbol,
+        AccountId = intent.AccountId,
+        AccountSymbol = intent.AccountSymbol,
+        ContractMultiplier = intent.ContractMultiplier,
+        AccountBalanceScale = intent.AccountBalanceScale,
+        Side = intent.Side,
+        OrderType = intent.OrderType,
+        TriggerPrice = intent.Price,
+        Quantity = intent.Quantity,
+        QuantityBeforeAccountConversion = intent.QuantityBeforeAccountConversion,
+        BaseQuantity = intent.BaseQuantity,
+        StrategyEquityMultiplier = intent.StrategyEquityMultiplier,
+        MarketVolatilityMultiplier = intent.MarketVolatilityMultiplier,
+        PortfolioRiskMultiplier = intent.PortfolioRiskMultiplier,
+        FinalQuantity = intent.FinalQuantity,
+        SizingReason = intent.SizingReason,
+        ValidFromUtc = intent.ValidFromUtc,
+        ExpiresAtUtc = intent.ExpiresAtUtc,
+        StopLoss = intent.StopLoss,
+        TakeProfit = intent.TakeProfit,
+        BreakEven = intent.BreakEven,
+        TrailingStop = intent.TrailingStop,
+        TimeframeMinutes = intent.TimeframeMinutes,
+        TimeExitUtc = intent.CloseAtUtc,
+        Reason = intent.Reason,
+        MaxBarsInPosition = intent.MaxBarsInPosition,
+        IsClose = intent.IsClose,
+        Status = intent.Status,
+        FilledQuantity = intent.FilledQuantity,
+        ExternalOrderId = intent.ExternalOrderId,
+        AssignedAccountNumber = intent.AssignedAccountNumber,
+        AssignedGroupId = intent.AssignedGroupId
+    };
 
     /// <summary>
     /// Costruisce la riga di log diagnostico per la barra corrente, incrociando lo stato Titano
@@ -3056,6 +3235,19 @@ public sealed class TradingSessionService : ITradingSessionService
                     .ToDictionary(tf => tf.Key, tf => tf.Max(x => x.RequiredCandles))
             }).ToArray()
     };
+
+    /// <summary>
+    /// Solo l'equity, senza costruire lo snapshot completo.
+    ///
+    /// <para><see cref="Snapshot"/> alloca l'elenco delle posizioni, le righe dei gruppi e
+    /// soprattutto filtra <b>tutti</b> gli intent della sessione per riempire
+    /// <c>PendingIntents</c>. Chiamarlo per ogni segnale di ogni barra costa quanto la storia gia'
+    /// accumulata dal run, e serviva a leggere un singolo decimal — che in
+    /// <see cref="ExecutionMode.ExternalBroker"/> vale per giunta 0 per costruzione, perche'
+    /// l'equity e' del broker e il server non la conosce.</para>
+    /// </summary>
+    private static decimal CurrentEquity(Session session) =>
+        session.Mode == ExecutionMode.ServerSimulated ? session.SimulatedEngine.GetSnapshot().Equity : 0m;
 
     private static TradingSessionSnapshot Snapshot(Session session)
     {

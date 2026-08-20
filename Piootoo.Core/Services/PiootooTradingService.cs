@@ -652,6 +652,16 @@ public class PiootooTradingService : IPiootooTradingService
 
     public IReadOnlyList<TradingResult> GetClosedTrades() => _closedTrades.ToArray();
 
+    /// <summary>
+    /// Quanti trade sono stati chiusi finora, senza copiare la lista.
+    ///
+    /// <para>Serve alla persistenza incrementale: il checkpoint deve poter chiedere "e' cambiato
+    /// qualcosa?" a ogni barra, e <see cref="GetClosedTrades"/> risponde allocando un array di
+    /// tutti i trade del run — proprio il costo che cresce con il run che si sta cercando di
+    /// togliere.</para>
+    /// </summary>
+    public int ClosedTradesCount => _closedTrades.Count;
+
     /// <summary>Alza il picco favorevole di un long. Vedi <see cref="TrailingPeakIncludesCurrentBar"/>.</summary>
     private static void RaisePeak(OpenPosition position, decimal price)
     {

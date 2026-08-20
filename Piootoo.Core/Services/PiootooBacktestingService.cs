@@ -714,6 +714,10 @@ public class PiootooBacktestingService : IPiootooBacktestingService
             var markedToMarketBars = 0L;
             var weekEndCancelledOrders = 0L;
             var lastPersistedIteration = 0;
+            // Segnaposto della persistenza incrementale: quanti segnali e quanti trade sono gia'
+            // finiti nel journal. Entrambe le liste sono append-only, quindi basta l'indice.
+            var persistedSignals = 0;
+            var persistedTrades = 0;
 
             Console.WriteLine($"[Backtesting] Loop configurato: TotalMinutes={totalMinutes}, TotalIterations={totalIterations}, MinTimeframe={minTimeframeMinutes}");
 
@@ -963,8 +967,25 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                 if (processedIterations - lastPersistedIteration >= PersistCheckpointBars)
                 {
                     lastPersistedIteration = processedIterations;
-                    tradingJsonStore.WriteSignals(ToPersistedSignals(job.JobId, emittedTradeSignals), durable: false);
-                    tradingJsonStore.WriteTrades(ToPersistedTrades(job.JobId, tradingService.GetClosedTrades()), durable: false);
+
+                    // Si accoda al journal solo cio' che e' nato dall'ultimo checkpoint. Prima si
+                    // riscrivevano per intero signals.json e trades.json: un costo pari a TUTTO il
+                    // backtest gia' fatto, pagato a ogni checkpoint, che su un run di un anno
+                    // (decine di migliaia di segnali, decine di MB) rendeva il run visibilmente
+                    // piu' lento verso la fine che all'inizio. Gli array veri li materializza la
+                    // scrittura autorevole di fine run, poco piu' sotto.
+                    tradingJsonStore.AppendSignals(
+                        ToPersistedSignals(job.JobId, emittedTradeSignals, persistedSignals));
+                    persistedSignals = emittedTradeSignals.Count;
+
+                    var closedSoFar = tradingService.ClosedTradesCount;
+                    if (closedSoFar > persistedTrades)
+                    {
+                        tradingJsonStore.AppendTrades(
+                            ToPersistedTrades(job.JobId, tradingService.GetClosedTrades(), persistedTrades));
+                        persistedTrades = closedSoFar;
+                    }
+
                     diagnostics.Flush();
                 }
 
@@ -1367,18 +1388,35 @@ public class PiootooBacktestingService : IPiootooBacktestingService
     /// formato di <c>signals.json</c> è unico con quello prodotto dalle sessioni, dove invece la
     /// conversione è essenziale (vedi <c>docs/domini/account-e-conversione-symbol.md</c>).
     /// </summary>
+    /// <param name="from">
+    /// Indice da cui partire. Serve ai checkpoint incrementali, che accodano solo i segnali nati
+    /// dall'ultimo giro: l'indice resta quello assoluto perche' e' lui a formare il SignalId, e
+    /// due chiamate con <c>from</c> diversi devono produrre gli stessi id della chiamata completa.
+    /// </param>
     private static IEnumerable<PersistedSignal> ToPersistedSignals(
         string jobId,
-        IReadOnlyList<TradeSignal> signals) =>
-        signals.Select((signal, index) => PersistedSignalMapper.FromTradeSignal(
-            signal,
-            signalId: $"{jobId}-signal-{index + 1:D10}",
-            correlationId: jobId));
+        IReadOnlyList<TradeSignal> signals,
+        int from = 0)
+    {
+        for (var index = Math.Max(0, from); index < signals.Count; index++)
+            yield return PersistedSignalMapper.FromTradeSignal(
+                signals[index],
+                signalId: $"{jobId}-signal-{index + 1:D10}",
+                correlationId: jobId);
+    }
 
+    /// <inheritdoc cref="ToPersistedSignals" path="/param[@name='from']"/>
     private static IEnumerable<PersistedTrade> ToPersistedTrades(
         string jobId,
-        IReadOnlyList<TradingResult> trades) =>
-        trades.Select((trade, index) => new PersistedTrade
+        IReadOnlyList<TradingResult> trades,
+        int from = 0)
+    {
+        for (var index = Math.Max(0, from); index < trades.Count; index++)
+            yield return ToPersistedTrade(jobId, trades[index], index);
+    }
+
+    private static PersistedTrade ToPersistedTrade(string jobId, TradingResult trade, int index) =>
+        new()
         {
             TradeId = $"{jobId}-trade-{index + 1:D10}",
             CorrelationId = jobId,
@@ -1395,7 +1433,7 @@ public class PiootooBacktestingService : IPiootooBacktestingService
             GrossProfit = trade.GrossProfit,
             NetProfit = trade.NetProfit,
             Commission = trade.Commission
-        });
+        };
 
     private static TradeSignal CloneTradeSignal(TradeSignal signal)
     {

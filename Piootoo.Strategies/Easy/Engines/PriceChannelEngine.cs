@@ -496,6 +496,9 @@ public abstract class PriceChannelEngine : EasyEngineBase
 
     private bool InPythonTradingWindow(DateTime barTime)
     {
+        if (InDeclaredWindow(barTime) is { } declared)
+            return declared;
+
         if (StartTime < 0 && EndTime < 0)
             return true;
 
@@ -508,8 +511,7 @@ public abstract class PriceChannelEngine : EasyEngineBase
         return start <= end ? time >= start && time <= end : time >= start || time <= end;
     }
 
-    private int PythonDayOfWeek(DateTime instantUtc) =>
-        ((int)Clock.SessionDay(instantUtc).DayOfWeek + 6) % 7;
+    private int PythonDayOfWeek(DateTime instantUtc) => PythonWeekday(instantUtc);
 
     private DateTime SessionKey(DateTime time)
     {

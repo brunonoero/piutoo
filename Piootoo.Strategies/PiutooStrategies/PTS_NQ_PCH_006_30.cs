@@ -1,4 +1,5 @@
 using Piootoo.Shared.Interfaces;
+using Piootoo.Shared.Configuration;
 using Piootoo.Strategies.Easy.Engines;
 
 namespace Piootoo.Strategies.PiutooStrategies;
@@ -9,11 +10,19 @@ namespace Piootoo.Strategies.PiutooStrategies;
 ///
 /// <para>Breakout del canale di Donchian calcolato sulle barre, non sulle sessioni.</para>
 ///
-/// <para><b>Sessione e fuso.</b> Le sessioni <c>d0..d5</c> su cui girano i pattern sono
-/// ricostruite dalle barre intraday con confine a mezzanotte, come nella ricerca: la
-/// sessione è il giorno di calendario del feed, non la sessione CME 17:00–16:00. Per questo
-/// <c>SessionStartTime</c> = 0 e <c>SessionEndTime</c> = 2359. Lo stesso confine governa il
-/// secchio di <c>MaxEntriesPerSession</c>, quindi vale per pattern e limite di fill insieme.</para>
+/// <para><b>Sessione e fuso.</b> Le sessioni <c>d0..d5</c> su cui girano i pattern sono il
+/// <b>giorno di calendario europeo</b>, 00:00 → 00:00, come il motore Python che taglia con
+/// <c>(timestamp − 1 min − session_start_hour).normalize()</c> e <c>session_start_hour = 0</c>.
+/// Non è la sessione del broker, ed è una scelta di modello della ricerca che il port riproduce
+/// tale e quale: le due coincidono quasi sempre — mezzanotte a Roma sono le 17:00 a Chicago — ma
+/// non nelle settimane in cui l'ora legale americana ed europea non sono allineate. Lo stesso
+/// confine governa il secchio di <c>MaxEntriesPerSession</c>, quindi vale per pattern e limite di
+/// fill insieme.</para>
+///
+/// <para><b>Niente dipende da come è stampato il feed.</b> Sessione e finestra dichiarano il
+/// proprio fuso e il confronto passa dall'istante assoluto della barra: il feed dichiara il suo
+/// orologio in <c>datafeed/feed-clocks.json</c> e viene convertito a UTC vero al caricamento.
+/// Vedi <c>docs/domini/orari-di-sessione-e-fusi.md</c>.</para>
 ///
 /// <para><b>Filtri pattern.</b></para>
 /// <para><b>Filtro comune a long e short</b></para>
@@ -80,15 +89,17 @@ public sealed class PTS_NQ_PCH_006_30 : PriceChannelEngine
 {
     public override string Name => "PTS_NQ_PCH_006_30";
     public override string Description =>
-        "PC NQ 30m: famiglia 05 run 20260815, finestra 04:00–03:00 Chicago, multiday";
+        "PC NQ 30m: famiglia 05 run 20260815, finestra 11:00–10:00 CET, multiday";
     public override string Symbol => "@NQ";
     public override int TimeframeMinutes => 30;
 
     public PTS_NQ_PCH_006_30()
     {
-        // Sessione = giorno di calendario del feed, come la ricerca.
-        SessionStartTime = 1700;   // riapertura CME, ora di Chicago
-        SessionEndTime = 1600;    // chiusura CME, ora di Chicago
+        // Confine di sessione del run: giorno di calendario europeo, come
+        // (timestamp - 1 min - session_start_hour).normalize() del motore Python.
+        // NON e' la sessione del broker: le due divergono nelle settimane di
+        // disallineamento fra ora legale americana ed europea.
+        Session = ZonedWindow.ResearchSession();
         Contracts = 1;
 
         ChannelBars = 50; // channel_len
@@ -97,8 +108,9 @@ public sealed class PTS_NQ_PCH_006_30 : PriceChannelEngine
         TickSize = 0.25m; // tick NQ
         DvolMin = 0m;     // dvol_min: filtro di volatilità disattivo
 
-        StartTime = 400; // start_hour
-        EndTime = 300;   // end_hour
+        // Finestra operativa: start_hour/end_hour del run, verbatim nell'orologio
+        // della ricerca. Nessuna conversione: il fuso viaggia con il dato.
+        TradingWindow = ZonedWindow.ResearchHours(11, 10);
         SkipDay = -1;     // skip_day (0 = lunedì, -1 = nessuno)
 
         NeutralYes = 3;       // ptn_neut_yes
@@ -141,8 +153,8 @@ public sealed class PTS_NQ_PCH_006_30 : PriceChannelEngine
         if (parameters.TryGetValue("PtnDirNo", out var dirNo))
             DirectionalNo = Convert.ToInt32(dirNo);
         if (parameters.TryGetValue("StartHour", out var startHour))
-            StartTime = Convert.ToInt32(startHour) * 100;
+            TradingWindow = TradingWindow! with { StartHhmm = Convert.ToInt32(startHour) * 100 };
         if (parameters.TryGetValue("EndHour", out var endHour))
-            EndTime = Convert.ToInt32(endHour) * 100;
+            TradingWindow = TradingWindow! with { EndHhmm = Convert.ToInt32(endHour) * 100 };
     }
 }

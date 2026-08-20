@@ -406,11 +406,12 @@ public abstract class VolatilityBreakoutEngine : EasyEngineBase
 
         var start = StartTrade < 0 ? 0 : StartTrade / 100;
         var end = EndTrade < 0 ? 23 : EndTrade / 100;
-        var hour = barTime.Hour;
+        // L'ora si legge sull'orologio della finestra, mai su quello grezzo della barra.
+        var hour = WindowClock.Hhmm(barTime) / 100;
         return start <= end ? hour >= start && hour <= end : hour >= start || hour <= end;
     }
 
-    private static int PythonDayOfWeek(DateTime value) => ((int)value.DayOfWeek + 6) % 7;
+    private int PythonDayOfWeek(DateTime value) => PythonWeekday(value);
 
     private DateTime SessionKey(DateTime time)
     {

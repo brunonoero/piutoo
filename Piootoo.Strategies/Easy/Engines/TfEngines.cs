@@ -76,6 +76,10 @@ public abstract class TfEngineBase : EasyEngineBase
 
     private bool InTradingWindow(DateTime barTime)
     {
+        // La finestra dichiarata vince: porta con sé il proprio fuso, quindi non va convertita.
+        if (InDeclaredWindow(barTime) is { } declared)
+            return declared;
+
         if (StartHour < 0 && EndHour < 0)
             return true;
 
@@ -92,7 +96,7 @@ public abstract class TfEngineBase : EasyEngineBase
     }
 
     private bool IsSkippedPythonWeekday(DateTime barTime) =>
-        SkipDay >= 0 && ((int)Clock.SessionDay(barTime).DayOfWeek + 6) % 7 == SkipDay;
+        SkipDay >= 0 && PythonWeekday(barTime) == SkipDay;
 
     private TradeSignal WithPythonSettings(TradeSignal signal)
     {

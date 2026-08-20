@@ -104,6 +104,9 @@ public abstract class RbbMirroredEngine : EasyEngineBase
 
     private bool InTradingWindow(DateTime barTime)
     {
+        if (InDeclaredWindow(barTime) is { } declared)
+            return declared;
+
         if (StartTrade < 0 && EndTrade < 0)
             return true;
 
@@ -262,6 +265,9 @@ public abstract class RbbUnmirroredEngine : EasyEngineBase
 
     private bool InTradingWindow(DateTime barTime)
     {
+        if (InDeclaredWindow(barTime) is { } declared)
+            return declared;
+
         if (StartTrade < 0 && EndTrade < 0)
             return true;
 

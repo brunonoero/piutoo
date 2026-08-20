@@ -16,6 +16,8 @@ descritti in [`motori-strategie.md`](motori-strategie.md).
 | `run_20260815_1021` | NQ 30m | 24 | 7 | 5 | 7 |
 | `run_20260819_0201` | GC 30m | 1 | 1 | 1 | 1 (`TFU_001_30`) |
 | `run_20260819_0659` | GC 1h | 5 | 5 | 3 | 5 (3 PC di cui 2 disabilitate, 2 RHL) |
+| `run_20260819_1008` | ES 15m | 4 | 4 | 3 | 3 (`SBO_001`, `BSW_002`, `BSW_003`) |
+| `run_20260820_0012` | ES 1h | 4 | 4 | 3 | 3 (`BSW_001`, `PCH_001`, `PCH_002`) |
 
 Le **righe approvate** includono la stessa strategia con stop e target diversi: sono tarature
 del rischio, non sistemi distinti, e non vengono tradotte. Le **univoche** restano dopo aver
@@ -60,6 +62,7 @@ dichiarata lì.
 | `PCH` | PC | `PriceChannelEngine` |
 | `RBM` | RBB_M | `RbbMirroredEngine` |
 | `RHL` | RHL | `RhlEngine` |
+| `BSW` | BIASW | `BiasWeeklyEngine` |
 
 ## La mappa
 
@@ -92,6 +95,44 @@ dichiarata lì.
 | `PTS_GC_PCH_003_60` | `20260819_0659` | 1/3 | — | PC | *disabilitata, doppione della 001* |
 | `PTS_GC_RHL_001_60` | `20260819_0659` | 2/4 | S02 | RHL | `consegna/trades/fam02_RHL.csv` |
 | `PTS_GC_RHL_002_60` | `20260819_0659` | 3/5 | S03 | RHL | `consegna/trades/fam03_RHL.csv` |
+| `PTS_ES_SBO_001_15` | `20260819_1008` | 1/1 | S02 | BO | `run-05-agosto/trades/S02_15m_BO.csv` |
+| `PTS_ES_BSW_002_15` | `20260819_1008` | 3/3 | S03 | BIASW | `run-05-agosto/trades/S03_15m_BIASW.csv` |
+| `PTS_ES_BSW_003_15` | `20260819_1008` | 4/4 | S05 | BIASW | `run-05-agosto/trades/S05_15m_BIASW.csv` |
+| — (2/2 di `20260819_1008`) | `20260819_1008` | 2/2 | — | BIASW | *non tradotta: stesse entrate di `PTS_ES_BSW_001_60`* |
+| `PTS_ES_BSW_001_60` | `20260820_0012` | 1/1 | S01 | BIASW | `run-05-agosto/trades/S01_1h_BIASW.csv` |
+| `PTS_ES_PCH_001_60` | `20260820_0012` | 2/— | S04 | PC | `run-05-agosto/trades/S04_1h_PC.csv` |
+| `PTS_ES_PCH_002_60` | `20260820_0012` | 3/— | S06 | PC | `run-05-agosto/trades/S06_1h_PC.csv` |
+
+### Le due run ES di agosto (`run-04-agosto`, `run-05-agosto`)
+
+Le due cartelle **si sovrappongono**: `run-04-agosto` e' la consegna di `run_20260819_1008`
+(solo 15m, con `parametri.csv` e `schede.md`), `run-05-agosto` e' il dossier consolidato che
+somma quel run e `run_20260820_0012` (1h) e **deduplica fra i due timeframe**. La fonte
+autorevole per il porting e' `run-05-agosto/dossier_ctrader_ES.md`; `run-04-agosto/parametri.csv`
+resta l'unica fonte numerica riga-per-riga delle quattro strategie a 15 minuti, e le due
+concordano.
+
+Delle 8 righe approvate complessive **sei sono univoche** e sono state tradotte. Le due escluse
+emettono gli stessi ordini di entrata di una tradotta e metterle su conti separati sarebbe copy
+trading:
+
+| Riga esclusa | Duplicato di | Perche' |
+|---|---|---|
+| `20260819_1008` fam 02 (BIASW 15m, $195/trade) | `PTS_ES_BSW_001_60` | stesse entrate, il dossier tiene la 1h |
+| `20260820_0012` fam 02-2 (PC 1h) | `PTS_ES_PCH_001_60` | stesse entrate |
+
+⚠ **Etichetta della barra, per le tre BIASW.** Il dossier dichiara che l'orario di ingresso e' la
+**etichetta di chiusura** della barra; il datafeed Piootoo etichetta ogni barra sull'**apertura**.
+Gli orari sono stati riportati **verbatim**, coerentemente con la regola di
+[`porting-da-report-sweep.md`](porting-da-report-sweep.md): la convenzione di etichettatura e' una
+questione aperta di progetto e non va compensata strategia per strategia. In verifica del porting
+attendersi lo scarto di una barra gia' misurato su NQ.
+
+⚠ **Nessun datafeed `@ES`.** Le sei classi non sono ancora state verificate contro le liste trade
+di riferimento in `run-05-agosto/trades/`: serve prima un feed `@ES` a 15 e 60 minuti che copra
+almeno `01/06/2021 → 30/05/2025`, il periodo fuori campione del dossier. Il confronto si fa sulle
+**entrate** (timestamp e prezzo), rettificando 1 tick di slippage per lato che il riferimento
+applica e l'engine no.
 
 ### Anteriori a questa mappa
 

@@ -307,5 +307,5 @@ public abstract class BiasBarCountEngine : EasyEngineBase
         (armBar == 1 && Hhmm(nextBarTime) == SessionStartTime);
 
     protected int PythonDayOfWeek(DateTime barTime) =>
-        ((int)Clock.SessionDay(barTime).DayOfWeek + 6) % 7;
+        PythonWeekday(barTime);
 }

@@ -150,7 +150,63 @@ public sealed class TradingJsonStoreTests : IDisposable
         Assert.Empty(Directory.EnumerateFiles(_root, "*.tmp", SearchOption.TopDirectoryOnly));
     }
 
-    private static PersistedSignal Signal(string id) => new()
+    /// <summary>
+    /// Il journal e' un dettaglio interno: chi legge dallo store non deve accorgersene. Ordine
+    /// dell'array preservato, record nuovi in coda, e per un id gia' presente vince l'ultima
+    /// versione appesa — cioe' esattamente cio' che avrebbe prodotto la riscrittura completa.
+    /// </summary>
+    [Fact]
+    public void AppendedSignals_AreMergedOnRead_WithLastVersionWinningAndOrderPreserved()
+    {
+        var store = new TradingJsonStore(_root);
+        store.Initialize();
+        store.WriteSignals([Signal("a"), Signal("b")]);
+
+        store.AppendSignals([Signal("c")]);
+        store.AppendSignals([Signal("b", quantity: 7m), Signal("d")]);
+
+        var read = store.ReadSignals();
+        Assert.Equal(new[] { "a", "b", "c", "d" }, read.Select(x => x.SignalId).ToArray());
+        Assert.Equal(7m, read.Single(x => x.SignalId == "b").Quantity);
+
+        // Letto una volta, il journal e' stato materializzato e non esiste piu'.
+        Assert.False(File.Exists(store.SignalsPath + "l"));
+        Assert.Equal(JsonValueKind.Array, JsonDocument.Parse(File.ReadAllText(store.SignalsPath)).RootElement.ValueKind);
+    }
+
+    /// <summary>
+    /// Una scrittura completa e' autorevole: parte dallo stato completo in memoria, quindi il
+    /// journal accumulato fino a quel momento va buttato. Tenerlo rifonderebbe versioni vecchie
+    /// sopra quelle appena scritte.
+    /// </summary>
+    [Fact]
+    public void FullWrite_DiscardsThePendingJournal()
+    {
+        var store = new TradingJsonStore(_root);
+        store.Initialize();
+        store.AppendSignals([Signal("a", quantity: 1m)]);
+        store.WriteSignals([Signal("a", quantity: 99m)]);
+
+        Assert.False(File.Exists(store.SignalsPath + "l"));
+        Assert.Equal(99m, Assert.Single(store.ReadSignals()).Quantity);
+    }
+
+    /// <summary>Un journal senza array di partenza non perde niente: i record diventano l'array.</summary>
+    [Fact]
+    public void CompactAll_MaterializesWithoutAPriorRead()
+    {
+        var store = new TradingJsonStore(_root);
+        store.Initialize();
+        store.AppendSignals([Signal("a"), Signal("b")]);
+
+        store.CompactAll();
+
+        Assert.False(File.Exists(store.SignalsPath + "l"));
+        using var document = JsonDocument.Parse(File.ReadAllText(store.SignalsPath));
+        Assert.Equal(2, document.RootElement.EnumerateArray().Count());
+    }
+
+    private static PersistedSignal Signal(string id, decimal quantity = 1m) => new()
     {
         SignalId = id,
         TimestampUtc = new DateTime(2026, 7, 23, 10, 0, 0, DateTimeKind.Utc),
@@ -160,7 +216,7 @@ public sealed class TradingJsonStoreTests : IDisposable
         Side = SignalType.Buy,
         OrderType = TradeOrderType.Market,
         TriggerPrice = 100m,
-        Quantity = 1m
+        Quantity = quantity
     };
 
     public void Dispose()

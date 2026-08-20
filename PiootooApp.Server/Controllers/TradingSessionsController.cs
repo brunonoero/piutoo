@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.Mvc;
+﻿using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
 using Piootoo.Core.Services;
 using Piootoo.Shared.Models.Trading;
@@ -333,8 +333,14 @@ public sealed class TradingSessionsController : ControllerBase
         catch (UnauthorizedAccessException ex) { return ProblemResult<T>(401, "Session token non valido", ex.Message); }
         catch (KeyNotFoundException ex) { return ProblemResult<T>(404, "Risorsa non trovata", ex.Message); }
         catch (DirectoryNotFoundException ex) { return ProblemResult<T>(404, "Workspace non trovato", ex.Message); }
+        // PRIMA di ArgumentException: ArgumentOutOfRangeException ne e' una sottoclasse, e finche'
+        // ricadeva nello stesso catch un difetto del server (un indice negativo calcolato male)
+        // usciva come "Richiesta non valida" 400. Il client non puo' correggere niente e chi legge
+        // il suo log cerca l'errore dalla parte sbagliata. Vedi BugResult.
+        catch (ArgumentOutOfRangeException ex) { return BugResult<T>(ex); }
         catch (ArgumentException ex) { return ProblemResult<T>(400, "Richiesta non valida", ex.Message); }
         catch (InvalidOperationException ex) { return ProblemResult<T>(409, "Operazione non consentita", ex.Message); }
+        catch (Exception ex) when (IsServerDefect(ex)) { return BugResult<T>(ex); }
     }
 
     private IActionResult ExecuteAction(Func<IActionResult> action)
@@ -342,8 +348,73 @@ public sealed class TradingSessionsController : ControllerBase
         try { return action(); }
         catch (UnauthorizedAccessException ex) { return ProblemResult(401, "Session token non valido", ex.Message); }
         catch (KeyNotFoundException ex) { return ProblemResult(404, "Risorsa non trovata", ex.Message); }
+        catch (ArgumentOutOfRangeException ex) { return BugResult(ex); }
         catch (ArgumentException ex) { return ProblemResult(400, "Richiesta non valida", ex.Message); }
         catch (InvalidOperationException ex) { return ProblemResult(409, "Operazione non consentita", ex.Message); }
+        catch (Exception ex) when (IsServerDefect(ex)) { return BugResult(ex); }
+    }
+
+    /// <summary>
+    /// Eccezioni che non descrivono mai una richiesta sbagliata: se arrivano qui, il difetto e'
+    /// nel server. Sono elencate per tipo invece di catturare <see cref="Exception"/> perche' un
+    /// catch-all nasconderebbe anche gli errori che il middleware deve poter vedere.
+    /// </summary>
+    private static bool IsServerDefect(Exception exception) =>
+        exception is IndexOutOfRangeException or NullReferenceException or InvalidCastException
+            or FormatException or OverflowException or InvalidDataException;
+
+    /// <summary>
+    /// Difetto del server, riportato come tale: 500, con tipo dell'eccezione e punto d'origine
+    /// nel testo della risposta.
+    ///
+    /// <para><b>Perche' il dettaglio finisce nella risposta e non solo nel log.</b> Il client
+    /// tipico e' un cBot che gira in backtest sulla macchina di qualcun altro: di questo scambio
+    /// vede soltanto la riga che stampa nel proprio log. Un messaggio come
+    /// <c>"Non-negative number required. (Parameter 'index')"</c> senza tipo ne' frame non dice da
+    /// dove venga, e la diagnosi riparte dal cBot — cioe' dalla parte che non ha colpe.</para>
+    /// </summary>
+    private ActionResult<T> BugResult<T>(Exception exception)
+    {
+        LogDefect(exception);
+        return StatusCode(500, BuildDefectProblem(exception));
+    }
+
+    /// <inheritdoc cref="BugResult{T}"/>
+    private IActionResult BugResult(Exception exception)
+    {
+        LogDefect(exception);
+        return StatusCode(500, BuildDefectProblem(exception));
+    }
+
+    private void LogDefect(Exception exception) =>
+        _log.LogError(exception, "Difetto interno su {Method} {Path}",
+            HttpContext?.Request.Method, HttpContext?.Request.Path.Value);
+
+    private static ProblemDetails BuildDefectProblem(Exception exception) => new()
+    {
+        Status = 500,
+        Title = "Errore interno del server",
+        Detail = $"{exception.GetType().Name}: {exception.Message} | {DescribeOrigin(exception)}"
+    };
+
+    /// <summary>
+    /// I frame piu' profondi dello stack, quelli che dicono davvero dove e' scoppiato. Sono tre e
+    /// non tutto lo stack perche' la riga deve restare leggibile nel log di un cBot.
+    /// </summary>
+    private static string DescribeOrigin(Exception exception)
+    {
+        var stack = exception.StackTrace;
+        if (string.IsNullOrWhiteSpace(stack))
+            return "stack non disponibile";
+
+        var frames = stack
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Select(line => line.Trim())
+            .Where(line => line.Length != 0)
+            .Take(3)
+            .ToArray();
+
+        return frames.Length == 0 ? "stack non disponibile" : string.Join(" <- ", frames);
     }
 
     private ActionResult<T> ProblemResult<T>(int status, string title, string detail)

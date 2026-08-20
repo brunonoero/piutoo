@@ -343,8 +343,6 @@ public static class EasyLib
         return (data, count);
     }
 
-    public static int GetHhmm(DateTime dateTime) => dateTime.Hour * 100 + dateTime.Minute;
-
     /// <summary>Stima l'inizio della barra successiva dal timeframe dei dati.</summary>
     public static DateTime EstimateNextBarUtc(OhlcvData[] data, DateTime currentDate)
     {
@@ -352,21 +350,6 @@ public static class EasyLib
         return currentDate.AddMinutes(minutes);
     }
 
-    /// <summary>
-    /// Compone una data con un orario HHMM, entrambi gia' nello stesso orologio.
-    ///
-    /// <para><b>Non usarla con l'orario di sessione di una strategia.</b> Quegli orari sono in ora
-    /// di borsa mentre la data della barra e' UTC: comporli qui mette due orologi dentro lo stesso
-    /// <c>DateTime</c>. Serve <see cref="SessionClock.SessionInstantUtc"/>, che prende il giorno di
-    /// borsa dell'istante e riporta il risultato in UTC.</para>
-    /// </summary>
-    public static DateTime CombineDateAndHhmm(DateTime date, int hhmm)
-    {
-        int hour = hhmm / 100;
-        int minute = hhmm % 100;
-        return new DateTime(date.Year, date.Month, date.Day, hour, minute, 0, DateTimeKind.Utc);
-    }
-    
     /// <summary>
     /// Pattern Neutral Fast - determina se un pattern neutral è presente
     /// </summary>

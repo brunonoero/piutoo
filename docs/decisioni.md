@@ -329,6 +329,75 @@ in ordine cronologico. Non è un changelog di codice: quello resta nei commit.
   circa l'8% dei giorni. Questo **non** cambia nulla per le strategie EasyLanguage, che
   continuano a costruire le barre di sessione a runtime dal timeframe intraday con l'orario
   dichiarato dalla singola sorgente (`EasyLib.BuildSessionSeries`) e non da questo feed.
+- **2026-08-19** — **Chiuso il problema aperto del 2026-08-02: il feed dichiara il proprio
+  orologio, e la sessione diventa una proprieta' della strategia.** Un commit solo, perche' le due
+  meta' non sono separabili.
+
+  *Cosa c'era.* Gli orari di sessione erano due interi `HHMM` il cui fuso veniva dedotto dal
+  **simbolo** (`InstrumentRegistry.CreateSessionClock`), e i timestamp del feed venivano
+  ri-etichettati UTC da `TradingDateTime.ToFeedUtc` senza essere convertiti. Due conseguenze. La
+  prima: una strategia non poteva dichiarare una sessione diversa da quella che il registro
+  attribuiva al suo simbolo — semplificazione legittima per una sorgente EasyLanguage, che gira su
+  un simbolo solo, insostenibile per una piattaforma che ne ospita molte. La seconda: siccome
+  l'istante della barra era una bugia, il confine di sessione cadeva **un'ora prima d'inverno e due
+  d'estate** rispetto a quello che la ricerca aveva usato.
+
+  *Cosa c'e' adesso.* `ZonedWindow` — `(HHMM inizio, HHMM fine, fuso IANA)` — e su `EasyEngineBase`
+  due proprieta' distinte: `Session`, il confine di sessione, e `TradingWindow`, la finestra
+  operativa. **Entrambe in ora della ricerca**, e per una ragione che vale la pena scrivere: il
+  motore Python confronta la finestra con l'orario **della barra stessa** (`filters.py`:
+  `minuti = index.hour * 60 + index.minute`), senza riferimento alla sessione, e taglia le sessioni
+  con `(timestamp − 1 min − session_start_hour).normalize()`, che con `session_start_hour = 0` da'
+  il **giorno di calendario europeo**, non la sessione CME. Sono due meccanismi indipendenti, ed
+  entrambi vivono nell'orologio della ricerca.
+
+  *Una correzione del 19/08 stesso.* La prima stesura dichiarava la sessione come quella di borsa
+  (`1700` Chicago, `1800` New York), sul ragionamento che mezzanotte europea e la riapertura CME
+  fossero lo stesso istante. Lo sono, tranne nelle settimane in cui l'ora legale americana ed
+  europea non sono allineate — ed e' esattamente li' che il port divergerebbe dalla fonte.
+  Confermato da chi ha scritto il motore Python: la sessione del modello e' il giorno europeo, e il
+  port deve riprodurre quella, non il broker. `ZonedWindow.ResearchSession()` e
+  `ZonedWindow.ResearchHours(...)` sono le due forme da usare. Sono due perche' i due fusi
+  non coincidono e non devono piu' essere riconciliati a mano. `FeedClockRegistry` legge
+  `datafeed/feed-clocks.json`, dove ogni feed dichiara il proprio orologio, e
+  `DataSourceRepository` converte a UTC vero **una volta sola** al caricamento; un feed non
+  dichiarato e' un errore esplicito, mai un'assunzione.
+
+  *Le misure che lo dimostrano.* Sul feed a 15 minuti di @NQ, dopo la conversione, la pausa di
+  manutenzione CME cade sugli slot **16:15-16:45 di Chicago** e il picco di volume sulle **08:30 di
+  Chicago** — l'apertura del cash di New York — **in entrambe le stagioni**. Prima non era cosi',
+  ed e' il controllo che rivela un orologio sbagliato: se il fuso non torna, le due misure si
+  spostano fra gennaio e luglio.
+
+  *E che l'ora legale e' quella europea.* Prendendo la barra a volume massimo di ogni giorno del
+  2024, il picco sta alle 22:00 a febbraio, alle **21:00 dall'11 al 28 marzo**, e di nuovo alle
+  22:00 ad aprile. Quelle tre settimane sono la finestra fra il passaggio americano all'ora legale
+  (10 marzo) e quello europeo (31 marzo): il mercato americano compare un'ora prima. Stesso effetto
+  nel 2013, con l'apertura cash che passa da 15:45 a 14:45. Con un offset fisso da UTC quello
+  scarto non esisterebbe. Misura di chi ha scritto il motore Python, coerente con le due nostre.
+
+  *Quanto e' cambiato.* Su `PTS_NQ_TFU_001_15`, finestra 17:00-10:00 CET, il numero di barre
+  accettate resta lo stesso ma **l'insieme cambia**: 48 barre diverse in un mese d'inverno, 88 in
+  un mese d'estate. E' la finestra che prima era spostata di un'ora e di due. Ne segue che **i
+  backtest archiviati non sono confrontabili** con quelli successivi a questa voce.
+
+  *Le cinque `ClaudioUnger/` sono state rimosse.* Non passavano da `EasyEngineBase`: leggevano
+  l'ora grezza della barra e avevano l'inizio sessione cablato a `23` UTC, un'approssimazione
+  tarata sul feed etichettato in ora europea. Portarle avrebbe voluto dire riscriverle; nessun
+  codice le referenziava e non erano nel masterfilter, quindi sono state spostate in
+  `_to_delete/ClaudioUnger-20260819/` invece che adattate.
+
+  *Il vincolo e' ora imposto dal sorgente.* `StrategyClockConformanceTests` fallisce se qualcuno
+  rilegge `.Hour`, `.Minute`, `.DayOfWeek` o `.TimeOfDay` di una barra dentro `Piootoo.Strategies`
+  — con l'unica eccezione dei valori gia' passati dall'orologio — e se una `PTS_*` non dichiara
+  sessione e finestra con il proprio fuso. Nello stesso giro sono sparite da `EasyLib` le due
+  funzioni che quell'errore lo rendevano comodo, `GetHhmm` e `CombineDateAndHhmm`: non le chiamava
+  piu' nessuno.
+
+  *Cosa resta fuori.* Il feed giornaliero `D` va ricostruito sulla sessione invece che sul
+  calendario, come questa stessa voce prevedeva gia' il 2026-08-02, e le serie sintetiche dei test
+  costruiscono ancora barre a orari UTC coincidenti per costruzione con gli orari di sessione.
+
 - **2026-08-02** — **I timestamp del feed @NQ sono marcati `Z` ma non sono UTC: sono ora europea,
   e questo disallinea le sessioni di tutte le strategie NQ.** Problema aperto, nessun codice
   ancora cambiato.
@@ -1486,4 +1555,21 @@ in ordine cronologico. Non è un changelog di codice: quello resta nei commit.
   `PromoteToBacktest`, il cambio di stato della sessione) forza prima il flush, quindi nessun
   lettore vede dati più vecchi della propria chiamata; il rischio residuo è perdere gli ultimi due
   secondi di scritture se il processo muore, che è la definizione di checkpoint.
+- **2026-08-20** — **I checkpoint intermedi di signal, trade e rotation-log sono
+  incrementali.** Prima ogni checkpoint riscriveva l'array JSON per intero:
+  riproiettava, validava, deduplicava e serializzava *tutti* i record dall'inizio del
+  run per salvarne due nuovi. Su un backtest lungo un anno sono ~24.000 intent e un
+  `signals.json` da 40-80 MB, riscritti ogni due secondi — il costo per barra cresceva
+  con le barre già fatte, quindi il run era quadratico e rallentava visibilmente verso
+  la fine. Ora `TradingJsonStore` affianca a ogni array un journal `.jsonl`
+  append-only (`AppendSignals`/`AppendTrades`/`AppendRotationLog`) e l'array viene
+  materializzato solo alla lettura o alla scrittura autorevole di fine run, fondendo
+  il journal con "ultima versione di ogni id, ordine preservato". Il journal è stato
+  transitorio: ogni scrittura completa lo cancella, e chi legge i file senza passare
+  dallo store (`TitanoRotationService`, che fa l'hash di `trades.json`) chiama prima
+  `CompactAll()`. La completezza non dipende dall'intercettare i punti che mutano un
+  intent — dimenticarne uno è il modo in cui una scrittura incrementale perde dati in
+  silenzio: un intent viene riscritto a ogni checkpoint finché non è in uno stato
+  definitivo (`Filled`/`Rejected`/`Cancelled`), quindi il passaggio a quello stato è
+  sempre catturato dal checkpoint successivo.
 

@@ -1,3 +1,4 @@
+using Piootoo.Shared.Configuration;
 using Piootoo.Strategies.Easy.Engines;
 
 namespace Piootoo.Strategies.PiutooStrategies;
@@ -10,13 +11,19 @@ namespace Piootoo.Strategies.PiutooStrategies;
 /// gate <c>PatternFast</c> sono indipendenti per long e short, quindi una delle due direzioni
 /// può restare spenta per intere fasi di mercato.</para>
 ///
-/// <para><b>Sessione e fuso.</b> La ricerca ricostruisce le sessioni <c>d0..d5</c> dalle barre
-/// intraday con confine a <b>mezzanotte CET</b>. Mezzanotte CET è <b>le 18:00 di New York</b>,
-/// che è anche la riapertura COMEX: per questo <c>SessionStartTime</c> = 1800 e
-/// <c>SessionEndTime</c> = 1700, cioè lo stesso istante scritto nell'orologio di borsa dello
-/// strumento (<c>InstrumentSpec.SessionTimeZone</c> = <c>America/New_York</c> per GC). Lo stesso
+/// <para><b>Sessione e fuso.</b> Le sessioni <c>d0..d5</c> su cui girano i pattern sono il
+/// <b>giorno di calendario europeo</b>, 00:00 → 00:00, come il motore Python che taglia con
+/// <c>(timestamp − 1 min − session_start_hour).normalize()</c> e <c>session_start_hour = 0</c>.
+/// Non è la sessione del broker, ed è una scelta di modello della ricerca che il port riproduce
+/// tale e quale: le due coincidono quasi sempre — mezzanotte a Roma sono le 17:00 a Chicago — ma
+/// non nelle settimane in cui l'ora legale americana ed europea non sono allineate. Lo stesso
 /// confine governa il secchio di <c>MaxEntriesPerSession</c>, quindi vale per pattern e limite di
 /// fill insieme.</para>
+///
+/// <para><b>Niente dipende da come è stampato il feed.</b> Sessione e finestra dichiarano il
+/// proprio fuso e il confronto passa dall'istante assoluto della barra: il feed dichiara il suo
+/// orologio in <c>datafeed/feed-clocks.json</c> e viene convertito a UTC vero al caricamento.
+/// Vedi <c>docs/domini/orari-di-sessione-e-fusi.md</c>.</para>
 ///
 /// <para><b>Filtri pattern.</b></para>
 /// <para><b>Solo LONG</b></para>
@@ -32,7 +39,7 @@ namespace Piootoo.Strategies.PiutooStrategies;
 ///
 /// <para><b>Quando può operare.</b></para>
 /// <list type="bullet">
-/// <item><description>Opera solo fra 16:00 e 08:00 (a cavallo della mezzanotte), ora dei dati (CET) = 10:00–02:00 New York</description></item>
+/// <item><description>Opera solo fra 16:00 e 08:00 (a cavallo della mezzanotte), ora dei dati (CET)</description></item>
 /// <item><description>Nessun giorno escluso</description></item>
 /// <item><description>Può restare aperta oltre la sessione (multiday)</description></item>
 /// <item><description>Al massimo una entrata per sessione e per direzione</description></item>
@@ -58,17 +65,6 @@ namespace Piootoo.Strategies.PiutooStrategies;
 /// <item><term>Monte Carlo drawdown p95</term><description>$52,903</description></item>
 /// </list>
 ///
-/// <para><b>Gli orari sono in ora di borsa (America/New_York), non nell'orologio del feed.</b>
-/// Il motore Python lavorava su barre in ora europea e dichiarava gli orari in CET, che per GC è
-/// New York più sei ore. Il motore converte l'istante UTC della barra in ora di New York e
-/// confronta lì, quindi il risultato non dipende da come è stampato il feed. Vedi
-/// <c>docs/domini/orari-di-sessione-e-fusi.md</c> e <c>docs/domini/mappa-strategie-pts.md</c>.</para>
-///
-/// <para><b>Residuo noto.</b> Mezzanotte CET e le 18:00 di New York sono lo stesso istante tranne
-/// nelle circa quattro settimane l'anno in cui l'ora legale americana ed europea non sono
-/// allineate. In quelle giornate questa classe segue la sessione COMEX vera e diverge dalla
-/// ricerca, deliberatamente.</para>
-///
 /// <para><b>Verifica del porting.</b> Lista trade di riferimento:
 /// <c>run-engine/run-02-agosto/consegna/trades/fam01_TF_U.csv</c>. Non ancora eseguita: manca il
 /// datafeed <c>@GC</c> a 30 minuti.</para>
@@ -77,19 +73,23 @@ public sealed class PTS_GC_TFU_001_30 : TfUnmirroredEngine
 {
     public override string Name => "PTS_GC_TFU_001_30";
     public override string Description =>
-        "TF_U GC 30m: famiglia 01 run 20260819_0201, finestra 10:00–02:00 New York, multiday";
+        "TF_U GC 30m: famiglia 01 run 20260819_0201, finestra 16:00–08:00 CET, multiday";
     public override string Symbol => "@GC";
     public override int TimeframeMinutes => 30;
 
     public PTS_GC_TFU_001_30()
     {
         // Sessione della ricerca (00:00 CET) scritta in ora di borsa GC.
-        SessionStartTime = 1800;  // riapertura COMEX, ora di New York
-        SessionEndTime = 1700;    // chiusura COMEX, ora di New York
+        // Confine di sessione del run: giorno di calendario europeo, come
+        // (timestamp - 1 min - session_start_hour).normalize() del motore Python.
+        // NON e' la sessione del broker: le due divergono nelle settimane di
+        // disallineamento fra ora legale americana ed europea.
+        Session = ZonedWindow.ResearchSession();
         Contracts = 1;
 
-        StartHour = 10; // start_hour 16 CET
-        EndHour = 2;    // end_hour 8 CET
+        // Finestra operativa: start_hour/end_hour del run, verbatim nell'orologio
+        // della ricerca. Nessuna conversione: il fuso viaggia con il dato.
+        TradingWindow = ZonedWindow.ResearchHours(16, 8);
         SkipDay = -1;   // skip_day (0 = lunedì, -1 = nessuno)
 
         FastYesLong = 34;   // ptn_ly_yes
@@ -124,8 +124,8 @@ public sealed class PTS_GC_TFU_001_30 : TfUnmirroredEngine
         if (parameters.TryGetValue("PtnSyNo", out var syNo))
             FastNoShort = Convert.ToInt32(syNo);
         if (parameters.TryGetValue("StartHour", out var startHour))
-            StartHour = Convert.ToInt32(startHour);
+            TradingWindow = TradingWindow! with { StartHhmm = Convert.ToInt32(startHour) * 100 };
         if (parameters.TryGetValue("EndHour", out var endHour))
-            EndHour = Convert.ToInt32(endHour);
+            TradingWindow = TradingWindow! with { EndHhmm = Convert.ToInt32(endHour) * 100 };
     }
 }

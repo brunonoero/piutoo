@@ -1,3 +1,4 @@
+using Piootoo.Shared.Configuration;
 using Piootoo.Strategies.Easy.Engines;
 
 namespace Piootoo.Strategies.PiutooStrategies;
@@ -8,21 +9,22 @@ namespace Piootoo.Strategies.PiutooStrategies;
 /// buffer di 2 tick.
 ///
 /// <para>
-/// <b>Sessione e orologio.</b> Gli orari sono in ora di borsa: la sessione e' la giornata CME
-/// 17:00–16:00 di Chicago e la finestra di ingresso inclusiva e' 06:00–21:00, sempre di Chicago.
-/// Il motore converte l'istante UTC della barra prima di confrontare, quindi il comportamento non
-/// dipende da come e' stampato il feed.
+/// <b>Sessione e orologio.</b> La sessione e' il <b>giorno di calendario europeo</b>, 00:00 →
+/// 00:00, come il motore Python che taglia con
+/// <c>(timestamp − 1 min − session_start_hour).normalize()</c>. Non e' la giornata CME: e' una
+/// scelta di modello della ricerca, e il port la riproduce tale e quale. La finestra di ingresso
+/// inclusiva e' 13:00–04:00, nell'orologio in cui la ricerca l'ha scritta. Sessione e finestra
+/// dichiarano il proprio fuso e il confronto passa dall'istante assoluto della barra, quindi il
+/// comportamento non dipende da come e' stampato il feed.
 /// </para>
 ///
 /// <para>
-/// <b>Storia di questo confine, perche' spiega una misura che resta valida.</b> Fino al
-/// 17/08/2026 la classe dichiarava <c>0</c>/<c>2359</c> con la motivazione che il confine fosse il
-/// giorno di calendario. La misura che la sosteneva era corretta — raggruppando gli ingressi del
-/// motore di riferimento per giorno si ottiene esattamente un ingresso per sessione su 120 trade,
-/// mentre col confine alle 17:00 sette sessioni ne mostrano due — ma la conclusione era
-/// incompleta: quel confronto avveniva su un feed stampato in ora europea, dove mezzanotte <i>e'</i>
-/// la riapertura CME delle 17:00 di Chicago. Erano lo stesso istante scritto in due orologi. Ora
-/// che l'ora di borsa e' esplicita, la misura conferma la sessione CME invece di contraddirla.
+/// <b>La misura che regge il confine.</b> Raggruppando gli ingressi del motore di riferimento per
+/// giorno si ottiene esattamente un ingresso per sessione su 120 trade, mentre col confine alle
+/// 17:00 sette sessioni ne mostrano due. Fra il 17 e il 19/08/2026 questa classe ha dichiarato la
+/// sessione CME <c>1700</c>/<c>1600</c>, sul ragionamento che mezzanotte europea e le 17:00 di
+/// Chicago fossero lo stesso istante: lo sono, ma non nelle settimane in cui l'ora legale
+/// americana ed europea non sono allineate — ed e' li' che il port divergeva dalla fonte.
 /// </para>
 ///
 /// <para>
@@ -68,18 +70,6 @@ namespace Piootoo.Strategies.PiutooStrategies;
 /// <item><term>Degradazione Walk-Forward IS → OOS</term><description>94%</description></item>
 /// <item><term>Walk-Forward folds positivi</term><description>5/5</description></item>
 /// </list>
-///
-/// <para><b>Gli orari sono in ora di borsa (America/Chicago), non nell'orologio del feed.</b>
-/// La sessione e' la giornata CME 17:00–16:00 e la finestra operativa e' la stessa della ricerca,
-/// riespressa: il motore Python lavorava su barre in ora europea e dichiarava gli orari in CET,
-/// che e' Chicago piu' sette ore. Il motore converte l'istante UTC della barra in ora di Chicago
-/// e confronta li', quindi il risultato non dipende piu' da come e' stampato il feed. Vedi
-/// <c>docs/domini/orari-di-sessione-e-fusi.md</c> e <c>docs/domini/mappa-strategie-pts.md</c>.</para>
-///
-/// <para><b>Residuo noto.</b> Mezzanotte CET e le 17:00 di Chicago sono lo stesso istante tranne
-/// nelle circa quattro settimane l'anno in cui l'ora legale americana ed europea non sono
-/// allineate. In quelle giornate — il 6,6% dei trade delle liste di riferimento — questa classe
-/// segue la sessione CME vera e diverge dalla ricerca, deliberatamente.</para>
 /// </summary>
 public sealed class PTS_NQ_PCH_001_15 : PriceChannelEngine
 {
@@ -88,16 +78,20 @@ public sealed class PTS_NQ_PCH_001_15 : PriceChannelEngine
 
     public PTS_NQ_PCH_001_15()
     {
-        SessionStartTime = 1700;   // riapertura CME, ora di Chicago
-        SessionEndTime = 1600;    // chiusura CME, ora di Chicago
+        // Confine di sessione del run: giorno di calendario europeo, come
+        // (timestamp - 1 min - session_start_hour).normalize() del motore Python.
+        // NON e' la sessione del broker: le due divergono nelle settimane di
+        // disallineamento fra ora legale americana ed europea.
+        Session = ZonedWindow.ResearchSession();
         ChannelBars = 100;
         EnableLong = true;
         EnableShort = false;
         Direction = 1;
         OffsetTicks = 2;
         TickSize = 0.25m;
-        StartTime = 600;
-        EndTime = 2100;
+        // Finestra operativa: start_hour/end_hour del run, verbatim nell'orologio
+        // della ricerca. Nessuna conversione: il fuso viaggia con il dato.
+        TradingWindow = ZonedWindow.ResearchHours(13, 4);
         TradingWindowInclusive = true;
         NeutralYes = 55;
         NeutralNo = 24;
@@ -133,9 +127,9 @@ public sealed class PTS_NQ_PCH_001_15 : PriceChannelEngine
         if (parameters.TryGetValue("SessionEndTime", out var sessionEnd))
             SessionEndTime = Convert.ToInt32(sessionEnd);
         if (parameters.TryGetValue("StartHour", out var startHour))
-            StartTime = Convert.ToInt32(startHour) * 100;
+            TradingWindow = TradingWindow! with { StartHhmm = Convert.ToInt32(startHour) * 100 };
         if (parameters.TryGetValue("EndHour", out var endHour))
-            EndTime = Convert.ToInt32(endHour) * 100;
+            TradingWindow = TradingWindow! with { EndHhmm = Convert.ToInt32(endHour) * 100 };
         if (parameters.TryGetValue("SkipDay", out var skipDay))
             NotEntryDayLong = ToEasyLanguageDayOfWeek(Convert.ToInt32(skipDay));
         if (parameters.TryGetValue("PtnNeutYes", out var ptnNeutYes))

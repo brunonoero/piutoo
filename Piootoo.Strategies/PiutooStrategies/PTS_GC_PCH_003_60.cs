@@ -1,4 +1,5 @@
 using Piootoo.Shared.Interfaces;
+using Piootoo.Shared.Configuration;
 using Piootoo.Strategies.Easy.Engines;
 
 namespace Piootoo.Strategies.PiutooStrategies;
@@ -61,8 +62,11 @@ public sealed class PTS_GC_PCH_003_60 : PriceChannelEngine
 
     public PTS_GC_PCH_003_60()
     {
-        SessionStartTime = 1800;  // riapertura COMEX, ora di New York
-        SessionEndTime = 1700;    // chiusura COMEX, ora di New York
+        // Confine di sessione del run: giorno di calendario europeo, come
+        // (timestamp - 1 min - session_start_hour).normalize() del motore Python.
+        // NON e' la sessione del broker: le due divergono nelle settimane di
+        // disallineamento fra ora legale americana ed europea.
+        Session = ZonedWindow.ResearchSession();
         Contracts = 1;
 
         ChannelBars = 30; // channel_len
@@ -71,8 +75,9 @@ public sealed class PTS_GC_PCH_003_60 : PriceChannelEngine
         TickSize = 0.1m;  // tick GC
         DvolMin = 0m;     // dvol_min
 
-        StartTime = 0;    // start_hour 6 CET
-        EndTime = 2300;   // end_hour 5 CET
+        // Finestra operativa: start_hour/end_hour del run, verbatim nell'orologio
+        // della ricerca. Nessuna conversione: il fuso viaggia con il dato.
+        TradingWindow = ZonedWindow.ResearchHours(6, 5);
         TradingWindowInclusive = true;
         SkipDay = -1;     // skip_day
 

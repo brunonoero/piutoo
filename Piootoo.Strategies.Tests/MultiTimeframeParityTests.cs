@@ -48,7 +48,7 @@ public class SessionSeriesTests
         var bars = OvernightSeries.Build(timeframeMinutes: 15, sessionCount: 3);
 
         // Ci si ferma a metà dell'ultima sessione: l'aggregato deve fermarsi lì, non anticipare.
-        var midSession = bars.Last(bar => GetHhmm(bar.DateTime) == 900);
+        var midSession = bars.Last(bar => Orologio.Hhmm(bar.DateTime) == 900);
         var truncated = bars.Where(bar => bar.DateTime <= midSession.DateTime).ToArray();
 
         var sessions = BuildSessionSeries(Orologio, SessionStart, SessionEnd, truncated, midSession.DateTime);
@@ -197,8 +197,8 @@ public class SessionSeriesTests
     {
         for (var index = bars.Length - 1; index > 0; index--)
         {
-            if (GetHhmm(bars[index].DateTime) > SessionStart &&
-                GetHhmm(bars[index - 1].DateTime) <= SessionStart)
+            if (Orologio.Hhmm(bars[index].DateTime) > SessionStart &&
+                Orologio.Hhmm(bars[index - 1].DateTime) <= SessionStart)
             {
                 return bars[index].DateTime;
             }

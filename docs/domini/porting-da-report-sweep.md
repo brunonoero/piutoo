@@ -37,6 +37,58 @@ motore, `wfo_*.csv` le finestre walk-forward, `candidate_robuste.csv` e
 Il campo `engine` dell'elemento dice quale motore C# usare, con la mappa dei nomi
 in [`motori-strategie.md`](motori-strategie.md) §"Catalogo dei motori".
 
+## La regola degli orari — leggila prima di scrivere una riga
+
+Sbagliare qui non produce un errore, produce numeri plausibili. La fonte è il motore Python, e le
+sue due regole sono **indipendenti fra loro**.
+
+**1. La finestra operativa confronta l'orario della barra, e basta.** `filters.py` calcola
+`minuti = index.hour * 60 + index.minute` e verifica `minuti >= start && minuti <= end` — oppure
+l'OR, se la finestra attraversa la mezzanotte. Nessun riferimento a dove inizi la sessione. Quindi
+`start_hour`/`end_hour` di `parametri.csv` si riportano **verbatim**:
+
+```csharp
+TradingWindow = ZonedWindow.ResearchHours(17, 10);   // start_hour 17, end_hour 10
+```
+
+Mai convertirli nell'ora di borsa del simbolo. La conversione a mano — meno sette ore per NQ, meno
+sei per GC — è esatta solo fuori dalle settimane di disallineamento fra ora legale americana ed
+europea, ed è stata la causa di una divergenza reale.
+
+**2. La sessione è il giorno di calendario europeo, non quella del broker.** Il motore taglia con
+`(timestamp − 1 min − session_start_hour).normalize()`, e con `session_start_hour = 0` questo dà
+00:00 → 00:00 in ora europea. **Non** è la sessione CME 17:00→16:00 di New York. È una scelta di
+modello dichiarata dalla ricerca, e il port deve riprodurre quella, non il broker:
+
+```csharp
+Session = ZonedWindow.ResearchSession();   // session_start_hour = 0
+```
+
+Il `− 1 minuto` non è un dettaglio: la barra delle `00:00` appartiene alla sessione **precedente**.
+`EasyLib.OHLCMulti5` lo riproduce con il confronto stretto `t > sessionStartTime`.
+
+Le due sessioni — europea e CME — coincidono per gran parte dell'anno, perché mezzanotte a Roma
+sono le 17:00 a Chicago. Non coincidono nelle circa quattro settimane in cui gli Stati Uniti sono
+già passati all'ora legale e l'Europa no. È l'unico posto dove la differenza si vede, ed è
+esattamente il posto in cui un port sbagliato non se ne accorge.
+
+**3. L'orologio della ricerca è `Europe/Rome`, con le regole DST europee.** Misurato, non dedotto:
+prendendo la barra a volume massimo di ogni giorno del 2024 — quella che marca l'apertura o la
+chiusura del cash americano — il picco sta alle 22:00 a febbraio, alle **21:00 dall'11 al 28
+marzo**, e di nuovo alle 22:00 ad aprile. Quelle tre settimane sono esattamente la finestra fra il
+passaggio americano all'ora legale (10 marzo) e quello europeo (31 marzo): il mercato americano
+compare un'ora prima. Stesso effetto nel 2013. Con un offset fisso da UTC quello scarto non
+esisterebbe.
+
+**4. Nessuna strategia legge l'ora di una barra.** Legge il suo istante e lo confronta con una
+finestra che dichiara il proprio fuso. `StrategyClockConformanceTests` lo impone sul sorgente, e
+impone anche che ogni `PTS_*` dichiari sia `Session` sia `TradingWindow` con fuso esplicito. Il
+feed dichiara il proprio orologio in `datafeed/feed-clocks.json` e viene convertito a UTC vero una
+volta sola al caricamento: da lì in poi il port non dipende più da come sono stampate le barre.
+
+Il dettaglio dei fusi, e la procedura per accertare l'orologio di un feed nuovo, stanno in
+[`orari-di-sessione-e-fusi.md`](orari-di-sessione-e-fusi.md).
+
 ## Tradurre i parametri
 
 Ogni parametro `p_*` del report ha una controparte nel motore. Per il `PC`
@@ -52,11 +104,11 @@ seguono lo stesso schema:
 | `p_dvol_min` | `DvolMin` | 0 disattiva |
 | `p_ptn_neut_yes` / `p_ptn_neut_no` | `NeutralYes` / `NeutralNo` | |
 | `p_ptn_dir_yes` / `p_ptn_dir_no` | `DirectionalYes` / `DirectionalNo` | il segno lo applica il motore per verso |
-| `p_start_hour` / `p_end_hour` | `StartTime` / `EndTime` | HHMM, quindi ora × 100 |
+| `p_start_hour` / `p_end_hour` | `TradingWindow` | `ZonedWindow.ResearchHours(start, end)`, **verbatim**: vedi la regola sopra |
 | `p_skip_day` | `SkipDay` | convenzione pandas, 0 = lunedì |
 | `p_stop_loss`, `p_take_profit`, `p_trailing_stop`, `p_breakeven` | `StopMoney`, `ProfitMoney`, `TrailingStopMoney`, `BreakEvenMoney` | USD per contratto di riferimento |
 | `p_max_bars` | `MaxBars` | 0 disattiva |
-| (implicito) | `SessionStartTime` / `SessionEndTime` | sessione dei pattern, per NQ CME `1700`/`1600` |
+| `session_start_hour` | `Session` | `ZonedWindow.ResearchSession()`: giorno di calendario europeo, **non** la sessione del broker |
 
 Il timeframe e il simbolo vengono da `metadata.market`. `Id` (nome della classe) e
 `Name` (codice di esecuzione) restano due cose diverse: vale l'invariante

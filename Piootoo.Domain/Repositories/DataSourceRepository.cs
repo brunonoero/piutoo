@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Piootoo.Shared.Configuration;
 using Piootoo.Shared.Models;
 using Piootoo.Shared.Utilities;
 
@@ -18,6 +19,12 @@ public class DataSourceRepository
 {
     private readonly string _repositoryPath;
     private readonly JsonSerializerOptions _jsonOptions;
+
+    // Orologio dichiarato di ogni feed, letto una volta sola. Serve a convertire i timestamp in
+    // UTC vero al caricamento: senza, ogni conversione a valle parte da un istante che mente.
+    private FeedClockRegistry? _feedClocks;
+
+    private FeedClockRegistry FeedClocks => _feedClocks ??= FeedClockRegistry.Load(_repositoryPath);
 
     /// <summary>Mappatura indicativa root future strategia -> ticker Yahoo Finance.</summary>
     private static readonly Dictionary<string, string> RootSymbolToTicker = new(StringComparer.OrdinalIgnoreCase)
@@ -154,14 +161,14 @@ public class DataSourceRepository
         return JsonSerializer.Deserialize<FeedFileDto>(json, _jsonOptions);
     }
 
-    private static List<OhlcvData> ConvertToOhlcv(FeedFileDto? feed)
+    private static List<OhlcvData> ConvertToOhlcv(FeedFileDto? feed, SessionClock feedClock)
     {
         if (feed?.Bars == null || feed.Bars.Count == 0)
             return new List<OhlcvData>();
 
         var candles = feed.Bars.Select(bar =>
         {
-            var utcDateTime = DateTime.SpecifyKind(bar.DateTime, DateTimeKind.Utc);
+            var utcDateTime = ToTrueUtc(bar.DateTime, feedClock);
             return new OhlcvData
             {
                 Timestamp = new DateTimeOffset(utcDateTime).ToUnixTimeSeconds(),
@@ -175,9 +182,20 @@ public class DataSourceRepository
             };
         }).ToList();
 
-        TradingDateTime.NormalizeCandlesToUtc(candles);
         return candles;
     }
+
+    /// <summary>
+    /// Trasforma il timestamp scritto nel file — che e' un orario di parete nell'orologio
+    /// dichiarato dal feed — nell'istante UTC che gli corrisponde davvero.
+    ///
+    /// <para>Prima qui c'era <c>TradingDateTime.ToFeedUtc</c>, che <b>ri-etichetta</b> il
+    /// <c>Kind</c> senza spostare nulla: e' il punto in cui l'etichetta <c>Z</c> falsa del feed
+    /// veniva presa per buona. Vedi <see cref="FeedClockRegistry"/> per la misura che lo
+    /// dimostra.</para>
+    /// </summary>
+    private static DateTime ToTrueUtc(DateTime feedWallClock, SessionClock feedClock) =>
+        feedClock.ToUtc(DateTime.SpecifyKind(feedWallClock, DateTimeKind.Unspecified));
 
     private string? GetHierarchicalSymbolDirectory(
         string symbol,
@@ -217,6 +235,9 @@ public class DataSourceRepository
         if (symbolDirectory == null)
             return new List<OhlcvData>();
 
+        // Risolto prima del ciclo: un feed di fuso non dichiarato deve fermare la lettura subito,
+        // non dopo aver caricato mezzo storico.
+        var feedClock = FeedClocks.For(symbol);
         var candles = new List<OhlcvData>();
         foreach (var path in Directory.EnumerateFiles(symbolDirectory, "*.json", SearchOption.TopDirectoryOnly)
                      .OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
@@ -226,10 +247,9 @@ public class DataSourceRepository
             if (feed?.Candles == null)
                 continue;
 
-            candles.AddRange(feed.Candles.Select(ConvertWorkerCandle));
+            candles.AddRange(feed.Candles.Select(candle => ConvertWorkerCandle(candle, feedClock)));
         }
 
-        TradingDateTime.NormalizeCandlesToUtc(candles);
         return candles
             .GroupBy(candle => candle.Timestamp)
             .Select(group => group.Last())
@@ -237,22 +257,21 @@ public class DataSourceRepository
             .ToList();
     }
 
-    private static OhlcvData ConvertWorkerCandle(WorkerCandleDto candle)
+    private static OhlcvData ConvertWorkerCandle(WorkerCandleDto candle, SessionClock feedClock)
     {
-        var utcDateTime = candle.DateTime.Kind == DateTimeKind.Unspecified
-            ? DateTime.SpecifyKind(candle.DateTime, DateTimeKind.Utc)
-            : candle.DateTime.ToUniversalTime();
-        var timestamp = candle.Timestamp != 0
-            ? Convert.ToInt64(candle.Timestamp)
-            : new DateTimeOffset(utcDateTime).ToUnixTimeSeconds();
+        var utcDateTime = ToTrueUtc(candle.DateTime, feedClock);
+
+        // Il campo `timestamp` del file e' derivato dall'etichetta letta come UTC, quindi porta la
+        // stessa bugia: va ricalcolato dall'istante vero, altrimenti Timestamp e DateTime
+        // descrivono due momenti diversi e la deduplica raggruppa sulla chiave sbagliata.
+        var timestamp = new DateTimeOffset(utcDateTime).ToUnixTimeSeconds();
 
         return new OhlcvData
         {
             Timestamp = timestamp,
             DateTime = utcDateTime,
-            DateTimeFormatted = string.IsNullOrWhiteSpace(candle.DateTimeFormatted)
-                ? utcDateTime.ToString("yyyy-MM-ddTHH:mm:ssZ")
-                : candle.DateTimeFormatted,
+            // Come sopra: la stringa del file e' nell'orologio del feed, non in UTC.
+            DateTimeFormatted = utcDateTime.ToString("yyyy-MM-ddTHH:mm:ssZ"),
             Open = (decimal)candle.Open,
             High = (decimal)candle.High,
             Low = (decimal)candle.Low,
@@ -270,7 +289,7 @@ public class DataSourceRepository
         if (hierarchical.Count != 0)
             return hierarchical;
 
-        return ConvertToOhlcv(await ReadFeedFileAsync(symbol, timeframeMinutes))
+        return ConvertToOhlcv(await ReadFeedFileAsync(symbol, timeframeMinutes), FeedClocks.For(symbol))
             .OrderBy(candle => candle.DateTime)
             .ToList();
     }

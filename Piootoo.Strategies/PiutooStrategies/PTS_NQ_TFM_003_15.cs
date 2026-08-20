@@ -1,3 +1,4 @@
+using Piootoo.Shared.Configuration;
 using Piootoo.Strategies.Easy.Engines;
 
 namespace Piootoo.Strategies.PiutooStrategies;
@@ -9,11 +10,19 @@ namespace Piootoo.Strategies.PiutooStrategies;
 /// <para>Trend following simmetrico: stop buy su <c>H_d1</c>, stop sell su <c>L_d1</c>. Long e short
 /// condividono i gate neutri e usano i direzionali a specchio.</para>
 ///
-/// <para><b>Sessione e fuso.</b> Le sessioni <c>d0..d5</c> su cui girano i pattern sono
-/// ricostruite dalle barre intraday con confine a mezzanotte, come nella ricerca: la
-/// sessione è il giorno di calendario del feed, non la sessione CME 17:00–16:00. Per questo
-/// <c>SessionStartTime</c> = 0 e <c>SessionEndTime</c> = 2359. Lo stesso confine governa il
-/// secchio di <c>MaxEntriesPerSession</c>, quindi vale per pattern e limite di fill insieme.</para>
+/// <para><b>Sessione e fuso.</b> Le sessioni <c>d0..d5</c> su cui girano i pattern sono il
+/// <b>giorno di calendario europeo</b>, 00:00 → 00:00, come il motore Python che taglia con
+/// <c>(timestamp − 1 min − session_start_hour).normalize()</c> e <c>session_start_hour = 0</c>.
+/// Non è la sessione del broker, ed è una scelta di modello della ricerca che il port riproduce
+/// tale e quale: le due coincidono quasi sempre — mezzanotte a Roma sono le 17:00 a Chicago — ma
+/// non nelle settimane in cui l'ora legale americana ed europea non sono allineate. Lo stesso
+/// confine governa il secchio di <c>MaxEntriesPerSession</c>, quindi vale per pattern e limite di
+/// fill insieme.</para>
+///
+/// <para><b>Niente dipende da come è stampato il feed.</b> Sessione e finestra dichiarano il
+/// proprio fuso e il confronto passa dall'istante assoluto della barra: il feed dichiara il suo
+/// orologio in <c>datafeed/feed-clocks.json</c> e viene convertito a UTC vero al caricamento.
+/// Vedi <c>docs/domini/orari-di-sessione-e-fusi.md</c>.</para>
 ///
 /// <para><b>Filtri pattern.</b></para>
 /// <para><b>Filtro comune a long e short</b></para>
@@ -58,36 +67,27 @@ namespace Piootoo.Strategies.PiutooStrategies;
 /// <item><term>Efficienza Walk-Forward</term><description>0.49</description></item>
 /// <item><term>Monte Carlo drawdown p95</term><description>$58,550</description></item>
 /// </list>
-///
-/// <para><b>Gli orari sono in ora di borsa (America/Chicago), non nell'orologio del feed.</b>
-/// La sessione e' la giornata CME 17:00–16:00 e la finestra operativa e' la stessa della ricerca,
-/// riespressa: il motore Python lavorava su barre in ora europea e dichiarava gli orari in CET,
-/// che e' Chicago piu' sette ore. Il motore converte l'istante UTC della barra in ora di Chicago
-/// e confronta li', quindi il risultato non dipende piu' da come e' stampato il feed. Vedi
-/// <c>docs/domini/orari-di-sessione-e-fusi.md</c> e <c>docs/domini/mappa-strategie-pts.md</c>.</para>
-///
-/// <para><b>Residuo noto.</b> Mezzanotte CET e le 17:00 di Chicago sono lo stesso istante tranne
-/// nelle circa quattro settimane l'anno in cui l'ora legale americana ed europea non sono
-/// allineate. In quelle giornate — il 6,6% dei trade delle liste di riferimento — questa classe
-/// segue la sessione CME vera e diverge dalla ricerca, deliberatamente.</para>
 /// </summary>
 public sealed class PTS_NQ_TFM_003_15 : TfMirroredEngine
 {
     public override string Name => "PTS_NQ_TFM_003_15";
     public override string Description =>
-        "TF_M NQ 15m: famiglia 02 run 20260814, finestra 06:00–22:00 Chicago, multiday";
+        "TF_M NQ 15m: famiglia 02 run 20260814, finestra 13:00–05:00 CET, multiday";
     public override string Symbol => "@NQ";
     public override int TimeframeMinutes => 15;
 
     public PTS_NQ_TFM_003_15()
     {
-        // Sessione = giorno di calendario del feed, come la ricerca.
-        SessionStartTime = 1700;   // riapertura CME, ora di Chicago
-        SessionEndTime = 1600;    // chiusura CME, ora di Chicago
+        // Confine di sessione del run: giorno di calendario europeo, come
+        // (timestamp - 1 min - session_start_hour).normalize() del motore Python.
+        // NON e' la sessione del broker: le due divergono nelle settimane di
+        // disallineamento fra ora legale americana ed europea.
+        Session = ZonedWindow.ResearchSession();
         Contracts = 1;
 
-        StartHour = 6; // start_hour
-        EndHour = 22;    // end_hour
+        // Finestra operativa: start_hour/end_hour del run, verbatim nell'orologio
+        // della ricerca. Nessuna conversione: il fuso viaggia con il dato.
+        TradingWindow = ZonedWindow.ResearchHours(13, 5);
         SkipDay = -1;   // skip_day (0 = lunedì, -1 = nessuno)
 
         NeutralYes = 54;      // ptn_neut_yes
@@ -122,8 +122,8 @@ public sealed class PTS_NQ_TFM_003_15 : TfMirroredEngine
         if (parameters.TryGetValue("PtnDirNo", out var dirNo))
             DirectionalNo = Convert.ToInt32(dirNo);
         if (parameters.TryGetValue("StartHour", out var startHour))
-            StartHour = Convert.ToInt32(startHour);
+            TradingWindow = TradingWindow! with { StartHhmm = Convert.ToInt32(startHour) * 100 };
         if (parameters.TryGetValue("EndHour", out var endHour))
-            EndHour = Convert.ToInt32(endHour);
+            TradingWindow = TradingWindow! with { EndHhmm = Convert.ToInt32(endHour) * 100 };
     }
 }

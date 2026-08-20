@@ -1,3 +1,4 @@
+using Piootoo.Shared.Configuration;
 using Piootoo.Strategies.Easy.Engines;
 
 namespace Piootoo.Strategies.PiutooStrategies;
@@ -15,11 +16,19 @@ namespace Piootoo.Strategies.PiutooStrategies;
 /// <para><b>Solo long.</b> <c>direction = 1</c>: il lato short non opera mai, quindi i suoi gate
 /// non vengono mai valutati. Restano scritti qui sotto perché il motore li dichiara comunque.</para>
 ///
-/// <para><b>Sessione e fuso.</b> La ricerca ricostruisce le sessioni <c>d0..d5</c> dalle barre
-/// intraday con confine a <b>mezzanotte CET</b>, che è <b>le 18:00 di New York</b>, cioè la
-/// riapertura COMEX: per questo <c>SessionStartTime</c> = 1800 e <c>SessionEndTime</c> = 1700, lo
-/// stesso istante scritto nell'orologio di borsa dello strumento. Lo stesso confine governa il
-/// secchio di <c>MaxEntriesPerSession</c> e la chiusura di fine sessione.</para>
+/// <para><b>Sessione e fuso.</b> Le sessioni <c>d0..d5</c> su cui girano i pattern sono il
+/// <b>giorno di calendario europeo</b>, 00:00 → 00:00, come il motore Python che taglia con
+/// <c>(timestamp − 1 min − session_start_hour).normalize()</c> e <c>session_start_hour = 0</c>.
+/// Non è la sessione del broker, ed è una scelta di modello della ricerca che il port riproduce
+/// tale e quale: le due coincidono quasi sempre — mezzanotte a Roma sono le 17:00 a Chicago — ma
+/// non nelle settimane in cui l'ora legale americana ed europea non sono allineate. Lo stesso
+/// confine governa il secchio di <c>MaxEntriesPerSession</c>, quindi vale per pattern e limite di
+/// fill insieme.</para>
+///
+/// <para><b>Niente dipende da come è stampato il feed.</b> Sessione e finestra dichiarano il
+/// proprio fuso e il confronto passa dall'istante assoluto della barra: il feed dichiara il suo
+/// orologio in <c>datafeed/feed-clocks.json</c> e viene convertito a UTC vero al caricamento.
+/// Vedi <c>docs/domini/orari-di-sessione-e-fusi.md</c>.</para>
 ///
 /// <para><b>Filtri pattern.</b></para>
 /// <para><b>Filtro comune a long e short</b></para>
@@ -44,7 +53,7 @@ namespace Piootoo.Strategies.PiutooStrategies;
 ///
 /// <para><b>Quando può operare.</b></para>
 /// <list type="bullet">
-/// <item><description>Opera solo fra 13:00 e 12:00 (a cavallo della mezzanotte), ora dei dati (CET) = 07:00–06:00 New York</description></item>
+/// <item><description>Opera solo fra 13:00 e 12:00 (a cavallo della mezzanotte), ora dei dati (CET)</description></item>
 /// <item><description>Nessun giorno escluso</description></item>
 /// <item><description>Chiude tutto a fine sessione: nessun overnight</description></item>
 /// <item><description>Al massimo una entrata per sessione e per direzione</description></item>
@@ -83,15 +92,18 @@ public sealed class PTS_GC_RHL_001_60 : RhlEngine
 {
     public override string Name => "PTS_GC_RHL_001_60";
     public override string Description =>
-        "RHL GC 60m: famiglia 02 run 20260819_0659, limit L_d1-20t solo long, finestra 07:00–06:00 New York";
+        "RHL GC 60m: famiglia 02 run 20260819_0659, limit L_d1-20t solo long, finestra 13:00–12:00 CET";
     public override string Symbol => "@GC";
     public override int TimeframeMinutes => 60;
 
     public PTS_GC_RHL_001_60()
     {
         // Sessione della ricerca (00:00 CET) scritta in ora di borsa GC.
-        SessionStartTime = 1800;  // riapertura COMEX, ora di New York
-        SessionEndTime = 1700;    // chiusura COMEX, ora di New York
+        // Confine di sessione del run: giorno di calendario europeo, come
+        // (timestamp - 1 min - session_start_hour).normalize() del motore Python.
+        // NON e' la sessione del broker: le due divergono nelle settimane di
+        // disallineamento fra ora legale americana ed europea.
+        Session = ZonedWindow.ResearchSession();
         Contracts = 1;
 
         TickSize = 0.1m;             // tick GC
@@ -104,8 +116,9 @@ public sealed class PTS_GC_RHL_001_60 : RhlEngine
         DirectionalYes = -1;  // ptn_dir_yes (valore grezzo: il verso lo applica il motore)
         DirectionalNo = -5;   // ptn_dir_no
 
-        StartHour = 7; // start_hour 13 CET
-        EndHour = 6;   // end_hour 12 CET
+        // Finestra operativa: start_hour/end_hour del run, verbatim nell'orologio
+        // della ricerca. Nessuna conversione: il fuso viaggia con il dato.
+        TradingWindow = ZonedWindow.ResearchHours(13, 12);
         SkipDay = -1;  // skip_day (0 = lunedì, -1 = nessuno)
 
         IntradayOnly = true; // chiude a fine sessione
@@ -139,8 +152,8 @@ public sealed class PTS_GC_RHL_001_60 : RhlEngine
         if (parameters.TryGetValue("PtnDirNo", out var dirNo))
             DirectionalNo = Convert.ToInt32(dirNo);
         if (parameters.TryGetValue("StartHour", out var startHour))
-            StartHour = Convert.ToInt32(startHour);
+            TradingWindow = TradingWindow! with { StartHhmm = Convert.ToInt32(startHour) * 100 };
         if (parameters.TryGetValue("EndHour", out var endHour))
-            EndHour = Convert.ToInt32(endHour);
+            TradingWindow = TradingWindow! with { EndHhmm = Convert.ToInt32(endHour) * 100 };
     }
 }

@@ -152,6 +152,9 @@ public abstract class RhlEngine : EasyEngineBase
 
     private bool InTradingWindow(DateTime barTime)
     {
+        if (InDeclaredWindow(barTime) is { } declared)
+            return declared;
+
         if (StartHour < 0 && EndHour < 0)
             return true;
 
@@ -161,5 +164,5 @@ public abstract class RhlEngine : EasyEngineBase
     }
 
     private bool IsSkippedPythonWeekday(DateTime barTime) =>
-        SkipDay >= 0 && ((int)Clock.SessionDay(barTime).DayOfWeek + 6) % 7 == SkipDay;
+        SkipDay >= 0 && PythonWeekday(barTime) == SkipDay;
 }

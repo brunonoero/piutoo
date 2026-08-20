@@ -10,8 +10,4 @@
     <ProjectReference Include="..\Piootoo.Shared\Piootoo.Shared.csproj" />
   </ItemGroup>
 
-  <ItemGroup>
-    <Folder Include="ClaudioUnger\" />
-  </ItemGroup>
-
 </Project>

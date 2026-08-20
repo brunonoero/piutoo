@@ -1,4 +1,4 @@
-using Piootoo.Shared.Models.Workspaces;
+﻿using Piootoo.Shared.Models.Workspaces;
 using piootooapp.clientform.Shell.Screens;
 
 namespace piootooapp.clientform.Shell.Controls;
@@ -48,6 +48,8 @@ public partial class BacktestPickerDialog : Form
 {
     private readonly List<BacktestPickerRow> _allRows = new();
     private readonly SortableBindingList<BacktestPickerRow> _visibleRows = new();
+    private string? _pendingFolder;
+    private bool _defaultSortApplied;
 
     public BacktestPickerDialog()
     {
@@ -86,13 +88,45 @@ public partial class BacktestPickerDialog : Form
 
         ApplyFilter();
 
-        // L'ordine di default è quello del server (data decrescente): impostarlo anche sulla
-        // griglia serve a farlo vedere, la freccetta sull'intestazione dice su cosa si sta
-        // guardando invece di lasciarlo intuire.
-        _grid.Sort(_lastModifiedColumn, System.ComponentModel.ListSortDirection.Descending);
-
-        SelectFolder(currentFolder);
+        _pendingFolder = currentFolder;
+        ApplyDefaultSort();
         UpdateStatus();
+    }
+
+    /// <summary>
+    /// Il sorting di default va applicato a binding vivo.
+    ///
+    /// <see cref="Pick"/> riempie la lista prima di <c>ShowDialog</c>: a quel punto la griglia ha
+    /// sì il <c>DataSource</c> assegnato dal designer, ma la connessione ai dati non esiste
+    /// ancora, e <c>DataGridView.Sort</c> non trovando la <c>IBindingList</c> sotto solleva
+    /// <see cref="InvalidOperationException"/>. Le righe sono già in ordine di data decrescente
+    /// (le inserisce <see cref="SetBacktests"/>), quindi qui non si sta ordinando davvero: si sta
+    /// dicendo alla griglia su cosa è ordinata, perché mostri la freccetta sull'intestazione.
+    /// Se il form non è ancora visibile la cosa si rimanda a <see cref="OnShown"/>.
+    /// </summary>
+    private void ApplyDefaultSort()
+    {
+        // Finché il binding non è vivo la griglia non ha righe da ordinare né da selezionare,
+        // anche se la collezione sotto è già piena: qui non c'è niente da fare, ci pensa OnShown.
+        if (!IsHandleCreated)
+        {
+            return;
+        }
+
+        if (!_defaultSortApplied && _visibleRows.Count > 0)
+        {
+            _defaultSortApplied = true;
+            _grid.Sort(_lastModifiedColumn, System.ComponentModel.ListSortDirection.Descending);
+        }
+
+        // Dopo un Sort la selezione torna alla prima riga: la preselezione va rifatta qui.
+        SelectFolder(_pendingFolder);
+    }
+
+    protected override void OnShown(EventArgs e)
+    {
+        base.OnShown(e);
+        ApplyDefaultSort();
     }
 
     /// <summary>
@@ -115,7 +149,10 @@ public partial class BacktestPickerDialog : Form
             return;
         }
 
-        for (var index = 0; index < _visibleRows.Count; index++)
+        // Le righe della griglia esistono solo a binding stabilito: il conteggio della griglia,
+        // non quello della collezione, è il limite entro cui si può indicizzare.
+        var rowCount = Math.Min(_visibleRows.Count, _grid.Rows.Count);
+        for (var index = 0; index < rowCount; index++)
         {
             if (!string.Equals(_visibleRows[index].FolderName, folderName, StringComparison.OrdinalIgnoreCase))
             {
