@@ -233,6 +233,15 @@ public sealed class TradingSessionService : ITradingSessionService
         /// distribuite, dove il conto si conosce solo al claim.
         /// </summary>
         public string? DirectAccountNumber { get; set; }
+
+        /// <summary>
+        /// Account che hanno gia' aperto QUESTA sessione con <c>open-plan</c>.
+        ///
+        /// <para>Non decide nulla: in backtest si scarta sempre, in realtime si riprende sempre.
+        /// Serve a dire, quando una sessione distribuita viene scartata, QUALI altri account erano
+        /// attaccati a quel run e si ritroveranno senza sessione.</para>
+        /// </summary>
+        public HashSet<string> JoinedAccounts { get; } = new(StringComparer.OrdinalIgnoreCase);
         public decimal PeakEquity { get; set; }
         public TradingSessionStatus Status { get; set; }
         public required DateTime CreatedAtUtc { get; init; }
@@ -477,17 +486,48 @@ public sealed class TradingSessionService : ITradingSessionService
         var executionKey = request.DistributeToAccounts
             ? $"{plan.Code}|{request.ClientRunMode}|{request.ExecutionKey.Trim()}{profileSuffix}"
             : $"{plan.Code}|{request.ClientRunMode}|{request.ExecutionKey.Trim()}{profileSuffix}|Direct|{account}";
+        // Valorizzato solo quando un backtest rilanciato ha buttato via la sessione precedente:
+        // finisce nel monitor della sessione NUOVA, che e' l'unico posto dove chi guarda il run puo'
+        // ancora leggerlo — quella vecchia, insieme al suo buffer di attivita', non esiste piu'.
+        string? discardNotice = null;
         if (_planExecutions.TryGetValue(executionKey, out var existingId) &&
             _sessions.TryGetValue(existingId, out var existing))
         {
-            lock (existing.Gate)
+            // UN BACKTEST APRE SEMPRE UNA SESSIONE NUOVA. Mai una ripresa, in nessun caso.
+            //
+            // La execution key di un backtest la costruisce il client dalla data di inizio del run,
+            // quindi e' deterministica: rilanciare lo stesso backtest — dopo uno stop a meta', dopo
+            // un crash, o solo per rifarlo — ricade sempre sulla chiave di prima. Riprendendo, il
+            // secondo run erediterebbe barre, intent, posizioni aperte e trade del primo e li
+            // continuerebbe come se nulla fosse: un risultato plausibile, coerente, e sbagliato.
+            // Nessun errore da nessuna parte, e la differenza si vede solo confrontando i trade.
+            //
+            // Il client non ha modo di segnalarlo — uno stop di cTrader non manda niente a nessuno —
+            // ed e' proprio per questo che la regola sta qui: il server non prova a indovinare se
+            // quella di prima fosse "la stessa esecuzione". Un'apertura in backtest e' l'inizio di un
+            // run, punto; quella vecchia si butta.
+            //
+            // La ripresa resta viva SOLO in realtime, dove e' cio' che permette a un cBot riavviato di
+            // rientrare nel proprio run invece di aprirne uno nuovo accanto al primo.
+            if (request.ClientRunMode == ClientRunMode.Backtest)
             {
-                existing.Status = TradingSessionStatus.Running;
-                Persist(existing);
-                // Anche su riconnessione il descriptor deve riportare il simbolo del broker di
-                // QUESTO account: in distribuzione la sessione è condivisa e Describe(existing) da
-                // solo non saprebbe quale conversione applicare (vedi sotto, stessa apertura).
-                return Describe(existing, ResolveAccountConversion(existing, account), account);
+                discardNotice = DiscardPreviousBacktest(executionKey, existing, account);
+                // Si prosegue nel percorso di apertura: la nuova sessione riusa la stessa cartella
+                // e TradingJsonStore.Initialize() la riazzera (signals, trades, rotation log e i
+                // journal aperti). Nessun residuo del run precedente.
+            }
+            else
+            {
+                lock (existing.Gate)
+                {
+                    existing.Status = TradingSessionStatus.Running;
+                    existing.JoinedAccounts.Add(account);
+                    Persist(existing);
+                    // Anche su riconnessione il descriptor deve riportare il simbolo del broker di
+                    // QUESTO account: in distribuzione la sessione è condivisa e Describe(existing) da
+                    // solo non saprebbe quale conversione applicare (vedi sotto, stessa apertura).
+                    return Describe(existing, ResolveAccountConversion(existing, account), account);
+                }
             }
         }
 
@@ -593,6 +633,9 @@ public sealed class TradingSessionService : ITradingSessionService
                 SetTradingGroups(descriptor.SessionId, descriptor.SessionToken, plan.Groups);
             else
                 opened.DirectAccountNumber = account;
+            opened.JoinedAccounts.Add(account);
+            if (discardNotice != null)
+                RecordActivity(opened, SessionActivityKind.Sessione, discardNotice, account);
             // Risolta subito e non alla prima barra: un conto senza anagrafica deve far fallire
             // l'apertura, non ogni push a sessione avviata. Anche in distribuzione, perché il
             // descriptor restituito a QUESTO cBot deve riportare il nome simbolo del SUO broker,
@@ -604,6 +647,50 @@ public sealed class TradingSessionService : ITradingSessionService
         SetStatus(descriptor.SessionId, descriptor.SessionToken, TradingSessionStatus.Running);
         _planExecutions[executionKey] = descriptor.SessionId;
         return Describe(_sessions[descriptor.SessionId], conversion, account);
+    }
+
+    /// <summary>
+    /// Scollega e ferma la sessione di backtest che occupava questa chiave, perche' il run che la
+    /// sostituisce possa ricrearla da zero sulla stessa chiave e nella stessa cartella.
+    ///
+    /// <para><b>Perche' Stopped e non solo la rimozione dai dizionari.</b> Il vecchio oggetto
+    /// <c>Session</c> puo' ancora essere in mano a una richiesta in volo — l'ultimo push del client
+    /// morente, un claim partito un attimo prima — e il suo <c>Store</c> punta alla stessa cartella
+    /// che il nuovo run sta per azzerare. Una scrittura in ritardo resusciterebbe record del run
+    /// vecchio dentro gli artefatti del nuovo. Tutti i percorsi che mutano una sessione pretendono
+    /// <see cref="TradingSessionStatus.Running"/>, quindi metterla a Stopped e' cio' che chiude la
+    /// porta invece di sperare nei tempi.</para>
+    ///
+    /// <para><b>Perche' non si persiste.</b> Gli artefatti di quella cartella stanno per essere
+    /// riscritti a zero da <c>Store.Initialize()</c>: salvarli adesso e' lavoro buttato, e su un run
+    /// lungo e' anche una riscrittura completa da decine di MB.</para>
+    /// </summary>
+    private string DiscardPreviousBacktest(string executionKey, Session existing, string account)
+    {
+        lock (existing.Gate)
+            existing.Status = TradingSessionStatus.Stopped;
+
+        _planExecutions.TryRemove(executionKey, out _);
+        _sessions.TryRemove(existing.Id, out _);
+
+        // Su una sessione distribuita il run buttato via era condiviso: gli altri cBot ancora
+        // attaccati vedranno "sessione non in esecuzione" al primo push. E' la conseguenza voluta
+        // della regola — in backtest ogni apertura e' un run nuovo, quindi un secondo leg che si
+        // collega dopo NON si aggiunge al primo, lo sostituisce — ma va detto, perche' altrimenti si
+        // presenta come un errore di rete su un bot che non ha fatto niente di sbagliato.
+        //
+        // In pratica riguarda solo chi apre lo stesso piano in backtest da piu' client: un backtest
+        // di cTrader e' per definizione a singolo account.
+        var otherAccounts = existing.JoinedAccounts
+            .Where(joined => !joined.Equals(account, StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+
+        return otherAccounts.Length > 0
+            ? $"Nuovo backtest aperto dall'account {account}: sessione precedente {existing.Id} scartata " +
+              $"e cartella riazzerata. Erano sulla stessa sessione anche gli account " +
+              $"[{string.Join(", ", otherAccounts)}]: il loro run e' finito qui e vanno rilanciati."
+            : $"Nuovo backtest aperto dall'account {account}: sessione precedente {existing.Id} scartata, " +
+              "cartella riazzerata, si riparte da zero.";
     }
 
     /// <summary>

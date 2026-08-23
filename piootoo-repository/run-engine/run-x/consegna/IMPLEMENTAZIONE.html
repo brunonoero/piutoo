@@ -1,0 +1,413 @@
+<title>Porting NQ su cTrader</title>
+<style>
+:root{
+  --ground:#f3f5f8; --panel:#ffffff; --ink:#101821; --ink-soft:#4a5765;
+  --rule:#d5dce4; --rule-soft:#e6ebf0;
+  --accent:#235e8c; --accent-soft:#e3edf5;
+  --flag:#9c3d17; --flag-soft:#f7e9e2;
+  --ok:#1c6347; --ok-soft:#e2f0ea;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --ground:#0d1218; --panel:#141b23; --ink:#dde4ec; --ink-soft:#94a1b0;
+    --rule:#28323d; --rule-soft:#1d252e;
+    --accent:#74aad6; --accent-soft:#16232e;
+    --flag:#d98a63; --flag-soft:#2a1d17;
+    --ok:#63c19a; --ok-soft:#132420;
+  }
+}
+:root[data-theme="dark"]{
+  --ground:#0d1218; --panel:#141b23; --ink:#dde4ec; --ink-soft:#94a1b0;
+  --rule:#28323d; --rule-soft:#1d252e;
+  --accent:#74aad6; --accent-soft:#16232e;
+  --flag:#d98a63; --flag-soft:#2a1d17;
+  --ok:#63c19a; --ok-soft:#132420;
+}
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--ground); color:var(--ink);
+  font:16px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  font-variant-numeric:tabular-nums;
+}
+.wrap{max-width:1080px;margin:0 auto;padding:0 24px 96px}
+h1,h2,h3,h4{font-family:ui-serif,"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;
+  text-wrap:balance;font-weight:600;letter-spacing:-.01em}
+h1{font-size:2.6rem;line-height:1.12;margin:56px 0 8px}
+h2{font-size:1.7rem;margin:0;padding:0}
+h3{font-size:1.18rem;margin:32px 0 8px}
+h4{font-size:1rem;margin:20px 0 6px;font-family:inherit;font-weight:700;
+   text-transform:uppercase;letter-spacing:.07em;font-size:.76rem;color:var(--ink-soft)}
+p{margin:0 0 14px;max-width:68ch}
+ul,ol{margin:0 0 14px;padding-left:20px;max-width:68ch}
+li{margin:5px 0}
+a{color:var(--accent)}
+.lede{font-size:1.12rem;color:var(--ink-soft);max-width:64ch}
+.eyebrow{font:600 .72rem/1 ui-monospace,SFMono-Regular,Menlo,monospace;
+  letter-spacing:.16em;text-transform:uppercase;color:var(--accent);margin:0 0 10px}
+section{border-top:1px solid var(--rule);margin-top:56px;padding-top:28px}
+.sec-head{display:flex;align-items:baseline;gap:14px;margin-bottom:18px}
+.sec-num{font:600 .8rem/1 ui-monospace,SFMono-Regular,Menlo,monospace;
+  color:var(--accent);border:1px solid var(--rule);border-radius:3px;
+  padding:5px 7px;flex:none}
+code,.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.88em}
+code{background:var(--rule-soft);padding:1px 5px;border-radius:3px}
+.tablewrap{overflow-x:auto;margin:16px 0;border:1px solid var(--rule);border-radius:6px;
+  background:var(--panel)}
+table{border-collapse:collapse;width:100%;font-size:.9rem}
+th,td{padding:9px 12px;text-align:right;border-bottom:1px solid var(--rule-soft);
+  white-space:nowrap}
+th:first-child,td:first-child,th.l,td.l{text-align:left;white-space:normal}
+thead th{background:var(--rule-soft);font:600 .7rem/1.3 ui-monospace,SFMono-Regular,Menlo,monospace;
+  letter-spacing:.08em;text-transform:uppercase;color:var(--ink-soft);
+  position:sticky;top:0}
+tbody tr:last-child td{border-bottom:none}
+.card{background:var(--panel);border:1px solid var(--rule);border-radius:8px;
+  padding:22px 24px;margin:22px 0}
+.card>h3{margin-top:0}
+.sid{font:600 .78rem/1 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--panel);
+  background:var(--accent);border-radius:3px;padding:5px 8px;letter-spacing:.06em}
+.card-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:6px}
+.card-head h3{margin:0}
+.meta{display:grid;grid-template-columns:repeat(auto-fit,minmax(112px,1fr));gap:1px;
+  background:var(--rule);border:1px solid var(--rule);border-radius:6px;
+  overflow:hidden;margin:16px 0}
+.meta div{background:var(--panel);padding:10px 12px}
+.meta dt{font:600 .66rem/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;
+  letter-spacing:.08em;text-transform:uppercase;color:var(--ink-soft);margin:0 0 3px}
+.meta dd{margin:0;font-size:1.02rem;font-weight:600}
+.rule-list{list-style:none;padding:0;margin:8px 0}
+.rule-list li{padding:7px 0 7px 22px;position:relative;border-bottom:1px solid var(--rule-soft);
+  max-width:none}
+.rule-list li:last-child{border-bottom:none}
+.rule-list li::before{content:"";position:absolute;left:6px;top:16px;width:5px;height:5px;
+  border-radius:50%;background:var(--accent)}
+.cond{display:block;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+  font-size:.84rem;background:var(--rule-soft);border-left:2px solid var(--accent);
+  padding:7px 11px;margin:5px 0 0;border-radius:0 3px 3px 0;overflow-x:auto}
+.note{border-left:3px solid var(--accent);background:var(--accent-soft);
+  padding:14px 18px;border-radius:0 6px 6px 0;margin:20px 0}
+.warn{border-left:3px solid var(--flag);background:var(--flag-soft);
+  padding:14px 18px;border-radius:0 6px 6px 0;margin:20px 0}
+.note p:last-child,.warn p:last-child{margin-bottom:0}
+.pill{display:inline-block;font:600 .7rem/1 ui-monospace,SFMono-Regular,Menlo,monospace;
+  padding:4px 8px;border-radius:99px;letter-spacing:.05em}
+.pill-long{background:var(--ok-soft);color:var(--ok)}
+.pill-short{background:var(--flag-soft);color:var(--flag)}
+.pill-both{background:var(--accent-soft);color:var(--accent)}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:20px}
+footer{margin-top:64px;border-top:1px solid var(--rule);padding-top:20px;
+  color:var(--ink-soft);font-size:.85rem}
+@media (max-width:640px){h1{font-size:2rem}.wrap{padding:0 16px 64px}}
+</style>
+<div class=wrap>
+
+<p class=eyebrow>Specifica di implementazione · 20 agosto 2026</p>
+<h1>NQ su cTrader</h1>
+<p class=lede>6 strategie univoche da implementare come cBot, ricavate da
+1 timeframe (1h). Ogni strategia è definita qui per intero:
+condizioni di entrata, filtri, uscite, e la lista trade con cui verificare il port.
+Non serve conoscere il trading per implementarle — serve rispettare le regole della
+sezione 2 alla lettera.</p>
+
+<div class=note>
+<p><b>Le tre cose che fanno fallire un port.</b> In ordine di frequenza: le sessioni
+ricostruite male (§2.1), l'ordine lasciato vivo più di una barra (§2.2), e il backtest
+fatto su barre invece che su tick (§5). Tutto il resto si vede subito nel confronto
+delle liste trade.</p>
+</div>
+
+<section>
+<div class=sec-head><span class=sec-num>01</span><h2>Cosa si costruisce</h2></div>
+<p>6 cBot indipendenti. Ognuno opera su un solo strumento e un solo timeframe,
+con un contratto per posizione. Non comunicano fra loro.</p>
+
+<div class=tablewrap><table>
+<thead><tr><th class=l>ID</th><th class=l>TF</th><th class=l>Motore</th>
+<th>Atteso/trade</th><th>P&amp;L OOS</th><th>Drawdown</th><th>Trade</th>
+<th class=l>Equivalenti</th></tr></thead>
+<tbody><tr><td class=l><a href='#S01'><b>S01</b></a></td><td class=l>1h</td><td class=l>TF_M</td><td>$583</td><td>$175,532</td><td>$5,774</td><td>287</td><td class=l>—</td></tr><tr><td class=l><a href='#S02'><b>S02</b></a></td><td class=l>1h</td><td class=l>TF_M</td><td>$422</td><td>$49,592</td><td>$20,581</td><td>112</td><td class=l>—</td></tr><tr><td class=l><a href='#S03'><b>S03</b></a></td><td class=l>1h</td><td class=l>BO</td><td>$283</td><td>$39,469</td><td>$18,908</td><td>59</td><td class=l>—</td></tr><tr><td class=l><a href='#S04'><b>S04</b></a></td><td class=l>1h</td><td class=l>TF_U</td><td>$250</td><td>$203,832</td><td>$22,478</td><td>232</td><td class=l>—</td></tr><tr><td class=l><a href='#S05'><b>S05</b></a></td><td class=l>1h</td><td class=l>TF_M</td><td>$242</td><td>$45,941</td><td>$15,665</td><td>181</td><td class=l>—</td></tr><tr><td class=l><a href='#S06'><b>S06</b></a></td><td class=l>1h</td><td class=l>TF_U</td><td>$91</td><td>$68,525</td><td>$24,928</td><td>215</td><td class=l>—</td></tr></tbody></table></div>
+
+<p>La colonna <b>Equivalenti</b> elenca le strategie che emettono gli stessi ordini
+di entrata: sono state trovate separatamente ma sono lo stesso sistema, e ne va
+implementata una sola.</p>
+
+<h3>Da dove vengono i numeri</h3>
+<div class=tablewrap><table>
+<thead><tr><th class=l>Timeframe</th><th>Righe approvate</th><th>Strategie</th>
+<th>Univoche</th></tr></thead>
+<tbody><tr><td class=l>1h</td><td>6</td><td>6</td><td>6</td></tr></tbody></table></div>
+<p>Le <b>righe approvate</b> includono la stessa strategia con stop e target diversi;
+non sono sistemi distinti e non compaiono qui. Le <b>univoche</b> sono quelle che
+restano dopo aver confrontato le entrate anche <i>fra</i> timeframe diversi.</p>
+</section>
+
+<section>
+<div class=sec-head><span class=sec-num>02</span><h2>Fondamenta comuni</h2></div>
+<p>Questa parte si scrive una volta e si riusa in tutti i 6 cBot. Ogni regola qui
+è vincolante: cambiarne una fa divergere il port dalla ricerca.</p>
+
+<h3>2.1 Sessioni</h3>
+<p>Le condizioni usano massimi e minimi di <b>sessione</b>, non di barra. Le sessioni si
+ricostruiscono dalle barre intraday, <b>non</b> si leggono dalle candele giornaliere del
+broker.</p>
+<ul>
+<li>Una sessione inizia alle <b>00:00 CET</b> e dura fino
+all'inizio della successiva.</li>
+<li><code>H_d1</code>, <code>L_d1</code>, <code>O_d1</code>, <code>C_d1</code> = massimo,
+minimo, apertura e chiusura della sessione <b>precedente</b>.</li>
+<li><code>H_d2</code> … <code>H_d5</code> = le quattro sessioni ancora prima.</li>
+<li><code>H_d0</code>, <code>L_d0</code>, <code>O_d0</code> = massimo, minimo e apertura
+della sessione <b>corrente</b>, calcolati sulle sole barre già <b>chiuse</b>.</li>
+<li><code>HH5</code> = massimo di <code>H_d1..H_d5</code>; <code>LL5</code> = minimo di
+<code>L_d1..L_d5</code>.</li>
+<li><code>close</code> (minuscolo) = chiusura della <b>barra</b> corrente, non della
+sessione.</li>
+</ul>
+
+<h3>2.2 Ciclo di vita dell'ordine</h3>
+<ul>
+<li>Le condizioni si valutano <b>alla chiusura della barra</b>.</li>
+<li>L'ordine emesso vive <b>una sola barra</b>: alla barra successiva va cancellato e,
+se le condizioni reggono ancora, ri-emesso. In cTrader: <i>cancel &amp; replace</i> ad
+ogni <code>OnBar</code>.</li>
+<li>Nessuna condizione può usare il prezzo della barra su cui si entra.</li>
+<li>Al massimo <b>una entrata per sessione e per direzione</b>. Se la posizione si chiude
+dentro la stessa sessione, non si rientra sullo stesso lato.</li>
+</ul>
+
+<h3>2.3 Riempimento</h3>
+<ul>
+<li><b>Ordine stop</b> (rottura di un livello): riempie a <code>max(apertura, livello)</code>
+per il long, <code>min(apertura, livello)</code> per lo short. Se il prezzo apre già oltre
+il livello, il fill è all'apertura — mai al livello superato.</li>
+<li><b>Ordine limite</b> (ritorno alla media): serve una penetrazione <b>stretta</b> del
+livello (<code>minimo &lt; livello</code> per il long). Il semplice tocco non riempie.</li>
+</ul>
+
+<h3>2.4 Costi</h3>
+<p>Tutti i risultati di questo documento sono al netto di
+<b>$4.00 di commissione per trade</b> e
+<b>1 tick di slippage per lato</b>. Un backtest senza questi costi non
+è confrontabile.</p>
+
+<h3>2.5 Unità</h3>
+<p>La ricerca esprime stop e target in <b>dollari per contratto</b>; cTrader li vuole in
+<b>punti</b>. Su questo strumento 1 punto = <b>$20</b> e 1 tick =
+<b>0.25 punti</b>. Nelle schede i valori sono già convertiti; in
+<code>parametri.csv</code> la colonna <code>stop_loss_pt</code> porta la conversione fatta.</p>
+
+<h3>2.6 Orari</h3>
+<p>Le finestre orarie sono in <b>ora dei dati (CET)</b> e si valutano sulla chiusura della
+barra. Una finestra il cui orario di fine è minore di quello di inizio attraversa la
+mezzanotte e va gestita come tale.</p>
+</section>
+
+<section>
+<div class=sec-head><span class=sec-num>03</span><h2>Le condizioni di pattern</h2></div>
+<p>I filtri di ogni strategia sono espressi come condizioni booleane sulle grandezze di
+sessione della §2.1. Qui sotto tutte quelle usate dalle 6 strategie, già in forma
+di formula: non serve consultare altro.</p>
+<div class=tablewrap><table>
+<thead><tr><th class=l>Riferimento</th><th class=l>Condizione</th></tr></thead>
+<tbody><tr><td class=l><code>direzionale -34</code></td><td class=l><span class=mono>H_d1 &lt; H_d5</span></td></tr><tr><td class=l><code>direzionale -34</code></td><td class=l><span class=mono>L_d1 &gt; L_d5</span></td></tr><tr><td class=l><code>direzionale 16</code></td><td class=l><span class=mono>C_d1 &lt; C_d2 * (1 - 0.01)</span></td></tr><tr><td class=l><code>direzionale 16</code></td><td class=l><span class=mono>C_d1 &gt; C_d2 * (1 + 0.01)</span></td></tr><tr><td class=l><code>direzionale 28</code></td><td class=l><span class=mono>H_d0 &lt; H_d1 * (1 - 0.005)</span></td></tr><tr><td class=l><code>direzionale 28</code></td><td class=l><span class=mono>L_d0 &gt; L_d1 * (1 + 0.005)</span></td></tr><tr><td class=l><code>direzionale 44</code></td><td class=l><span class=mono>H_d1 &lt; H_d2</span></td></tr><tr><td class=l><code>direzionale 44</code></td><td class=l><span class=mono>L_d1 &gt; L_d2</span></td></tr><tr><td class=l><code>direzionale 50</code></td><td class=l><span class=mono>close &lt; O_d0 * 0.995</span></td></tr><tr><td class=l><code>direzionale 50</code></td><td class=l><span class=mono>close &gt; O_d0 * 1.005</span></td></tr><tr><td class=l><code>direzionale 8</code></td><td class=l><span class=mono>H_d0 - O_d0 &gt; (H_d1 - O_d1) * 3.0</span></td></tr><tr><td class=l><code>direzionale 8</code></td><td class=l><span class=mono>O_d0 - L_d0 &gt; (O_d1 - L_d1) * 3.0</span></td></tr><tr><td class=l><code>fast 107</code></td><td class=l><span class=mono>L_d1 &gt; L_d5</span></td></tr><tr><td class=l><code>fast 137</code></td><td class=l><span class=mono>(C_d1 &lt; O_d1) E (C_d2 &gt; O_d2)</span></td></tr><tr><td class=l><code>fast 2</code></td><td class=l><span class=mono>|O_d1-C_d1| &lt; 0.25 * (H_d1-L_d1)</span></td></tr><tr><td class=l><code>fast 21</code></td><td class=l><span class=mono>|O_d5-C_d1| &gt; 2.0 * (H_d5-L_d1)</span></td></tr><tr><td class=l><code>fast 32</code></td><td class=l><span class=mono>H_d0 - O_d0 &gt; (H_d1 - O_d1) * 0.5</span></td></tr><tr><td class=l><code>fast 38</code></td><td class=l><span class=mono>H_d0 - O_d0 &gt; (H_d1 - O_d1) * 3.0</span></td></tr><tr><td class=l><code>fast 39</code></td><td class=l><span class=mono>H_d0 - O_d0 &lt; H_d1 - O_d1</span></td></tr><tr><td class=l><code>fast 83</code></td><td class=l><span class=mono>H_d0 &gt; H_d1 * (1 + 0.005)</span></td></tr><tr><td class=l><code>neutrale 1</code></td><td class=l><span class=mono>|O_d1-C_d1| &lt; 0.1 * (H_d1-L_d1)</span></td></tr><tr><td class=l><code>neutrale 11</code></td><td class=l><span class=mono>|O_d5-C_d1| &lt; 0.5 * (H_d5-L_d1)</span></td></tr><tr><td class=l><code>neutrale 24</code></td><td class=l><span class=mono>|O_d5-C_d1| &lt; 0.25 * (HH5-LL5)</span></td></tr><tr><td class=l><code>neutrale 32</code></td><td class=l><span class=mono>(H_d0-L_d0) &gt; L_d0 * 0.0075</span></td></tr><tr><td class=l><code>neutrale 4</code></td><td class=l><span class=mono>|O_d1-C_d1| &lt; 0.75 * (H_d1-L_d1)</span></td></tr><tr><td class=l><code>neutrale 47</code></td><td class=l><span class=mono>(H_d1-L_d1) &lt; ((H_d2-L_d2) + (H_d3-L_d3)) / 2</span></td></tr></tbody></table></div>
+<p>Nelle schede, <b>deve essere VERO</b> significa che la condizione è requisito per
+entrare; <b>deve essere FALSO</b> che l'entrata è vietata quando la condizione si verifica.
+Le condizioni marcate come <i>nessun filtro</i> sono assenti e non vanno implementate.</p>
+</section>
+
+<section>
+<div class=sec-head><span class=sec-num>04</span><h2>Le 6 strategie</h2></div>
+
+<div class=card id="S01">
+  <div class=card-head>
+    <span class=sid>S01</span>
+    <h3>NQ 1h · Trend following, simmetrico</h3>
+    <span class="pill pill-both">LONG + SHORT</span>
+  </div>
+  <p class=lede>Compra sopra il massimo della sessione precedente, vende sotto il minimo. Long e short usano lo stesso pattern, a specchio.</p>
+  <dl class=meta>
+    <div><dt>Timeframe</dt><dd>1h</dd></div>
+    <div><dt>Motore</dt><dd>TF_M</dd></div>
+    <div><dt>Atteso/trade</dt><dd>$583</dd></div>
+    <div><dt>P&amp;L fuori campione</dt><dd>$175,532</dd></div>
+    <div><dt>Drawdown</dt><dd>$5,774</dd></div>
+    <div><dt>Trade</dt><dd>287</dd></div>
+    <div><dt>Stop loss</dt><dd>12.5 pt</dd></div>
+    <div><dt>Take profit</dt><dd>150.0 pt</dd></div>
+  </dl>
+  <h4>Ordine STOP sugli estremi della sessione precedente</h4><ul class=rule-list><li>LONG: stop buy a <b>H_d1</b> (massimo della sessione precedente)</li><li>SHORT: stop sell a <b>L_d1</b> (minimo della sessione precedente)</li></ul>
+  <h4>Filtro comune a long e short</h4><ul class=rule-list><li>deve essere VERO — neutrale 47<span class=cond>(H_d1-L_d1) &lt; ((H_d2-L_d2) + (H_d3-L_d3)) / 2</span></li><li>deve essere FALSO — neutrale 1<span class=cond>|O_d1-C_d1| &lt; 0.1 * (H_d1-L_d1)</span></li></ul><h4>Solo LONG</h4><ul class=rule-list><li>deve essere VERO — direzionale 50<span class=cond>close &gt; O_d0 * 1.005</span></li><li>deve essere FALSO — direzionale 8<span class=cond>H_d0 - O_d0 &gt; (H_d1 - O_d1) * 3.0</span></li></ul><h4>Solo SHORT</h4><ul class=rule-list><li>deve essere VERO — direzionale 50<span class=cond>close &lt; O_d0 * 0.995</span></li><li>deve essere FALSO — direzionale 8<span class=cond>O_d0 - L_d0 &gt; (O_d1 - L_d1) * 3.0</span></li></ul>
+  <h4>Quando può operare</h4><ul class=rule-list><li>Opera solo fra <b>14:00 e 04:00</b> (a cavallo della mezzanotte), ora dei dati (CET)</li><li>Può restare aperta <b>oltre la sessione</b> (multiday)</li><li>Al massimo <b>una entrata per sessione e per direzione</b></li></ul>
+  <h4>Uscite</h4><ul class=rule-list><li>Stop loss: <b>$250</b> per contratto = <b>12.50 pt</b></li><li>Take profit: <b>$3,000</b> = <b>150.00 pt</b></li><li>Nessuna uscita a tempo</li></ul>
+  <h4>Verifica</h4>
+  <p>Lista trade di riferimento: <code>run_20260820_0856/consegna/trades/fam01_TF_M.csv</code>.</p>
+  
+</div>
+<div class=card id="S02">
+  <div class=card-head>
+    <span class=sid>S02</span>
+    <h3>NQ 1h · Trend following, simmetrico</h3>
+    <span class="pill pill-both">LONG + SHORT</span>
+  </div>
+  <p class=lede>Compra sopra il massimo della sessione precedente, vende sotto il minimo. Long e short usano lo stesso pattern, a specchio.</p>
+  <dl class=meta>
+    <div><dt>Timeframe</dt><dd>1h</dd></div>
+    <div><dt>Motore</dt><dd>TF_M</dd></div>
+    <div><dt>Atteso/trade</dt><dd>$422</dd></div>
+    <div><dt>P&amp;L fuori campione</dt><dd>$49,592</dd></div>
+    <div><dt>Drawdown</dt><dd>$20,581</dd></div>
+    <div><dt>Trade</dt><dd>112</dd></div>
+    <div><dt>Stop loss</dt><dd>125.0 pt</dd></div>
+    <div><dt>Take profit</dt><dd>250.0 pt</dd></div>
+  </dl>
+  <h4>Ordine STOP sugli estremi della sessione precedente</h4><ul class=rule-list><li>LONG: stop buy a <b>H_d1</b> (massimo della sessione precedente)</li><li>SHORT: stop sell a <b>L_d1</b> (minimo della sessione precedente)</li></ul>
+  <h4>Filtro comune a long e short</h4><ul class=rule-list><li>deve essere VERO — neutrale 47<span class=cond>(H_d1-L_d1) &lt; ((H_d2-L_d2) + (H_d3-L_d3)) / 2</span></li><li>deve essere FALSO — neutrale 11<span class=cond>|O_d5-C_d1| &lt; 0.5 * (H_d5-L_d1)</span></li></ul><h4>Solo LONG</h4><ul class=rule-list><li>deve essere VERO — direzionale -34<span class=cond>L_d1 &gt; L_d5</span></li><li>deve essere FALSO — direzionale 28<span class=cond>L_d0 &gt; L_d1 * (1 + 0.005)</span></li></ul><h4>Solo SHORT</h4><ul class=rule-list><li>deve essere VERO — direzionale -34<span class=cond>H_d1 &lt; H_d5</span></li><li>deve essere FALSO — direzionale 28<span class=cond>H_d0 &lt; H_d1 * (1 - 0.005)</span></li></ul>
+  <h4>Quando può operare</h4><ul class=rule-list><li>Opera solo fra <b>00:00 e 17:00</b>, ora dei dati (CET)</li><li>Può restare aperta <b>oltre la sessione</b> (multiday)</li><li>Al massimo <b>una entrata per sessione e per direzione</b></li></ul>
+  <h4>Uscite</h4><ul class=rule-list><li>Stop loss: <b>$2,500</b> per contratto = <b>125.00 pt</b></li><li>Take profit: <b>$5,000</b> = <b>250.00 pt</b></li><li>Uscita a tempo dopo <b>48 barre</b> (2.0 giorni di calendario)</li></ul>
+  <h4>Verifica</h4>
+  <p>Lista trade di riferimento: <code>run_20260820_0856/consegna/trades/fam02_TF_M.csv</code>.</p>
+  
+</div>
+<div class=card id="S03">
+  <div class=card-head>
+    <span class=sid>S03</span>
+    <h3>NQ 1h · Breakout su N sessioni</h3>
+    <span class="pill pill-both">LONG + SHORT</span>
+  </div>
+  <p class=lede>Come il TF_M ma il livello è la rottura del canale delle ultime N sessioni (o del massimo/minimo in costruzione della sessione corrente).</p>
+  <dl class=meta>
+    <div><dt>Timeframe</dt><dd>1h</dd></div>
+    <div><dt>Motore</dt><dd>BO</dd></div>
+    <div><dt>Atteso/trade</dt><dd>$283</dd></div>
+    <div><dt>P&amp;L fuori campione</dt><dd>$39,469</dd></div>
+    <div><dt>Drawdown</dt><dd>$18,908</dd></div>
+    <div><dt>Trade</dt><dd>59</dd></div>
+    <div><dt>Stop loss</dt><dd>25.0 pt</dd></div>
+    <div><dt>Take profit</dt><dd>—</dd></div>
+  </dl>
+  <h4>Ordine STOP sul canale a 4 sessioni</h4><ul class=rule-list><li>LONG: stop buy sul <b>massimo delle ultime 4 sessioni complete</b></li><li>SHORT: stop sell sul <b>minimo delle ultime 4 sessioni complete</b></li></ul>
+  <h4>Filtro comune a long e short</h4><ul class=rule-list><li>deve essere VERO — neutrale 4<span class=cond>|O_d1-C_d1| &lt; 0.75 * (H_d1-L_d1)</span></li><li>deve essere FALSO — neutrale 32<span class=cond>(H_d0-L_d0) &gt; L_d0 * 0.0075</span></li></ul><h4>Solo LONG</h4><ul class=rule-list><li>deve essere VERO — direzionale 44<span class=cond>L_d1 &gt; L_d2</span></li><li>deve essere FALSO — direzionale 28<span class=cond>L_d0 &gt; L_d1 * (1 + 0.005)</span></li></ul><h4>Solo SHORT</h4><ul class=rule-list><li>deve essere VERO — direzionale 44<span class=cond>H_d1 &lt; H_d2</span></li><li>deve essere FALSO — direzionale 28<span class=cond>H_d0 &lt; H_d1 * (1 - 0.005)</span></li></ul>
+  <h4>Quando può operare</h4><ul class=rule-list><li>Opera solo fra <b>22:00 e 21:00</b> (a cavallo della mezzanotte), ora dei dati (CET)</li><li>Può restare aperta <b>oltre la sessione</b> (multiday)</li><li>Al massimo <b>una entrata per sessione e per direzione</b></li></ul>
+  <h4>Uscite</h4><ul class=rule-list><li>Stop loss: <b>$500</b> per contratto = <b>25.00 pt</b></li><li>Take profit: <b>nessuno</b></li><li>Uscita a tempo dopo <b>230 barre</b> (9.6 giorni di calendario)</li></ul>
+  <h4>Verifica</h4>
+  <p>Lista trade di riferimento: <code>run_20260820_0856/consegna/trades/fam03_BO.csv</code>.</p>
+  
+</div>
+<div class=card id="S04">
+  <div class=card-head>
+    <span class=sid>S04</span>
+    <h3>NQ 1h · Trend following, asimmetrico</h3>
+    <span class="pill pill-both">LONG + SHORT</span>
+  </div>
+  <p class=lede>Stesse entrate del TF_M (massimo/minimo della sessione precedente), ma il filtro pattern del long e quello dello short sono indipendenti: una delle due direzioni può essere spenta.</p>
+  <dl class=meta>
+    <div><dt>Timeframe</dt><dd>1h</dd></div>
+    <div><dt>Motore</dt><dd>TF_U</dd></div>
+    <div><dt>Atteso/trade</dt><dd>$250</dd></div>
+    <div><dt>P&amp;L fuori campione</dt><dd>$203,832</dd></div>
+    <div><dt>Drawdown</dt><dd>$22,478</dd></div>
+    <div><dt>Trade</dt><dd>232</dd></div>
+    <div><dt>Stop loss</dt><dd>37.5 pt</dd></div>
+    <div><dt>Take profit</dt><dd>500.0 pt</dd></div>
+  </dl>
+  <h4>Ordine STOP sugli estremi della sessione precedente</h4><ul class=rule-list><li>LONG: stop buy a <b>H_d1</b> (massimo della sessione precedente)</li><li>SHORT: stop sell a <b>L_d1</b> (minimo della sessione precedente)</li></ul>
+  <h4>Solo LONG</h4><ul class=rule-list><li>deve essere VERO — fast 32<span class=cond>H_d0 - O_d0 &gt; (H_d1 - O_d1) * 0.5</span></li><li>deve essere FALSO — fast 2<span class=cond>|O_d1-C_d1| &lt; 0.25 * (H_d1-L_d1)</span></li></ul><h4>Solo SHORT</h4><ul class=rule-list><li>deve essere VERO — fast 38<span class=cond>H_d0 - O_d0 &gt; (H_d1 - O_d1) * 3.0</span></li><li>deve essere FALSO — fast 137<span class=cond>(C_d1 &lt; O_d1) E (C_d2 &gt; O_d2)</span></li></ul>
+  <h4>Quando può operare</h4><ul class=rule-list><li>Opera solo fra <b>17:00 e 03:00</b> (a cavallo della mezzanotte), ora dei dati (CET)</li><li>Può restare aperta <b>oltre la sessione</b> (multiday)</li><li>Al massimo <b>una entrata per sessione e per direzione</b></li></ul>
+  <h4>Uscite</h4><ul class=rule-list><li>Stop loss: <b>$750</b> per contratto = <b>37.50 pt</b></li><li>Take profit: <b>$10,000</b> = <b>500.00 pt</b></li><li>Uscita a tempo dopo <b>230 barre</b> (9.6 giorni di calendario)</li></ul>
+  <h4>Verifica</h4>
+  <p>Lista trade di riferimento: <code>run_20260820_0856/consegna/trades/fam04_TF_U.csv</code>.</p>
+  
+</div>
+<div class=card id="S05">
+  <div class=card-head>
+    <span class=sid>S05</span>
+    <h3>NQ 1h · Trend following, simmetrico</h3>
+    <span class="pill pill-both">LONG + SHORT</span>
+  </div>
+  <p class=lede>Compra sopra il massimo della sessione precedente, vende sotto il minimo. Long e short usano lo stesso pattern, a specchio.</p>
+  <dl class=meta>
+    <div><dt>Timeframe</dt><dd>1h</dd></div>
+    <div><dt>Motore</dt><dd>TF_M</dd></div>
+    <div><dt>Atteso/trade</dt><dd>$242</dd></div>
+    <div><dt>P&amp;L fuori campione</dt><dd>$45,941</dd></div>
+    <div><dt>Drawdown</dt><dd>$15,665</dd></div>
+    <div><dt>Trade</dt><dd>181</dd></div>
+    <div><dt>Stop loss</dt><dd>62.5 pt</dd></div>
+    <div><dt>Take profit</dt><dd>200.0 pt</dd></div>
+  </dl>
+  <h4>Ordine STOP sugli estremi della sessione precedente</h4><ul class=rule-list><li>LONG: stop buy a <b>H_d1</b> (massimo della sessione precedente)</li><li>SHORT: stop sell a <b>L_d1</b> (minimo della sessione precedente)</li></ul>
+  <h4>Filtro comune a long e short</h4><ul class=rule-list><li>deve essere VERO — neutrale 47<span class=cond>(H_d1-L_d1) &lt; ((H_d2-L_d2) + (H_d3-L_d3)) / 2</span></li><li>deve essere FALSO — neutrale 24<span class=cond>|O_d5-C_d1| &lt; 0.25 * (HH5-LL5)</span></li></ul><h4>Solo LONG</h4><ul class=rule-list><li>deve essere VERO — direzionale -34<span class=cond>L_d1 &gt; L_d5</span></li><li>deve essere FALSO — direzionale 16<span class=cond>C_d1 &gt; C_d2 * (1 + 0.01)</span></li></ul><h4>Solo SHORT</h4><ul class=rule-list><li>deve essere VERO — direzionale -34<span class=cond>H_d1 &lt; H_d5</span></li><li>deve essere FALSO — direzionale 16<span class=cond>C_d1 &lt; C_d2 * (1 - 0.01)</span></li></ul>
+  <h4>Quando può operare</h4><ul class=rule-list><li>Opera solo fra <b>21:00 e 14:00</b> (a cavallo della mezzanotte), ora dei dati (CET)</li><li>Può restare aperta <b>oltre la sessione</b> (multiday)</li><li>Al massimo <b>una entrata per sessione e per direzione</b></li></ul>
+  <h4>Uscite</h4><ul class=rule-list><li>Stop loss: <b>$1,250</b> per contratto = <b>62.50 pt</b></li><li>Take profit: <b>$4,000</b> = <b>200.00 pt</b></li><li>Uscita a tempo dopo <b>230 barre</b> (9.6 giorni di calendario)</li></ul>
+  <h4>Verifica</h4>
+  <p>Lista trade di riferimento: <code>run_20260820_0856/consegna/trades/fam05_TF_M.csv</code>.</p>
+  
+</div>
+<div class=card id="S06">
+  <div class=card-head>
+    <span class=sid>S06</span>
+    <h3>NQ 1h · Trend following, asimmetrico</h3>
+    <span class="pill pill-both">LONG + SHORT</span>
+  </div>
+  <p class=lede>Stesse entrate del TF_M (massimo/minimo della sessione precedente), ma il filtro pattern del long e quello dello short sono indipendenti: una delle due direzioni può essere spenta.</p>
+  <dl class=meta>
+    <div><dt>Timeframe</dt><dd>1h</dd></div>
+    <div><dt>Motore</dt><dd>TF_U</dd></div>
+    <div><dt>Atteso/trade</dt><dd>$91</dd></div>
+    <div><dt>P&amp;L fuori campione</dt><dd>$68,525</dd></div>
+    <div><dt>Drawdown</dt><dd>$24,928</dd></div>
+    <div><dt>Trade</dt><dd>215</dd></div>
+    <div><dt>Stop loss</dt><dd>200.0 pt</dd></div>
+    <div><dt>Take profit</dt><dd>250.0 pt</dd></div>
+  </dl>
+  <h4>Ordine STOP sugli estremi della sessione precedente</h4><ul class=rule-list><li>LONG: stop buy a <b>H_d1</b> (massimo della sessione precedente)</li><li>SHORT: stop sell a <b>L_d1</b> (minimo della sessione precedente)</li></ul>
+  <h4>Solo LONG</h4><ul class=rule-list><li>deve essere VERO — fast 107<span class=cond>L_d1 &gt; L_d5</span></li><li>deve essere FALSO — fast 83<span class=cond>H_d0 &gt; H_d1 * (1 + 0.005)</span></li></ul><h4>Solo SHORT</h4><ul class=rule-list><li>deve essere VERO — fast 21<span class=cond>|O_d5-C_d1| &gt; 2.0 * (H_d5-L_d1)</span></li><li>deve essere FALSO — fast 39<span class=cond>H_d0 - O_d0 &lt; H_d1 - O_d1</span></li></ul>
+  <h4>Quando può operare</h4><ul class=rule-list><li>Opera solo fra <b>16:00 e 04:00</b> (a cavallo della mezzanotte), ora dei dati (CET)</li><li>Può restare aperta <b>oltre la sessione</b> (multiday)</li><li>Al massimo <b>una entrata per sessione e per direzione</b></li></ul>
+  <h4>Uscite</h4><ul class=rule-list><li>Stop loss: <b>$4,000</b> per contratto = <b>200.00 pt</b></li><li>Take profit: <b>$5,000</b> = <b>250.00 pt</b></li><li>Uscita a tempo dopo <b>46 barre</b> (1.9 giorni di calendario)</li></ul>
+  <h4>Verifica</h4>
+  <p>Lista trade di riferimento: <code>run_20260820_0856/consegna/trades/fam06_TF_U.csv</code>.</p>
+  
+</div>
+</section>
+
+<section>
+<div class=sec-head><span class=sec-num>05</span><h2>Come si verifica un port</h2></div>
+<p>Ogni strategia ha una lista trade di riferimento generata dal motore di ricerca. Il
+port è corretto quando le <b>entrate</b> coincidono — timestamp e prezzo. I P&amp;L sono
+una conseguenza.</p>
+<ol>
+<li>Backtest sullo stesso periodo della lista di riferimento, <b>su dati tick</b>.</li>
+<li>Confronta le entrate. Devono coincidere al minuto e al prezzo.</li>
+<li>Se le <b>entrate</b> non coincidono: il problema è nelle condizioni o nella
+ricostruzione delle sessioni (§2.1). Isola stampando <code>H_d1</code> e <code>L_d1</code>
+per qualche giorno e confrontandoli con quelli del motore.</li>
+<li>Se le entrate coincidono ma i <b>P&amp;L</b> no: il problema è nelle uscite o nei costi
+(§2.3, §2.4).</li>
+</ol>
+<div class=warn>
+<p><b>Il backtest su barre non è attendibile per queste strategie.</b> Su dati a barre il
+simulatore di cTrader valuta lo stop anche contro la barra d'ingresso, percorso
+pre-entrata incluso, e chiude a prezzi che non sono mai esistiti. Su un port già fatto,
+201 trade su 359 uscivano nello stesso minuto del fill, con slippage medio di 23 punti
+oltre lo stop. <b>Usare "Tick data (accurate)".</b></p>
+</div>
+</section>
+
+<section>
+<div class=sec-head><span class=sec-num>06</span><h2>Vincolo operativo</h2></div>
+<p>Le 6 strategie sono univoche: nessuna coppia condivide più del
+70% degli ordini di entrata. Questo è il vincolo che rende lecito farle girare
+su conti separati — due sistemi che mandano gli stessi ordini sono copy trading, e presso
+una prop firm costano il conto.</p>
+
+<p>Il vincolo si misura sulle <b>entrate</b>, non sulla correlazione dei risultati: due
+strategie possono avere P&amp;L molto diversi e mandare gli stessi ordini.</p>
+</section>
+
+<footer>
+Generato da <code>unger/dossier.py</code> su
+run_20260820_0856. Dati dal
+12/05/2021 al 30/05/2025 per la parte fuori campione.
+La definizione dei criteri di selezione è in <code>METODO_RICERCA.md</code>.
+</footer>
+</div>

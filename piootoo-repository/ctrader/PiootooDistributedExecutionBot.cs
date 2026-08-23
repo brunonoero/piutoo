@@ -1630,7 +1630,43 @@ namespace cAlgo.Robots
 
             Positions.Opened -= OnPositionOpened;
             Positions.Closed -= OnPositionClosed;
+            CloseBacktestSessionOnServer();
             _http?.Dispose();
+        }
+
+        /// <summary>
+        /// Chiude la sessione lato server alla fine di un BACKTEST. Il server, allo stop, forza la
+        /// scrittura completa e durabile degli artefatti e fonde il journal incrementale: senza
+        /// questa chiamata la cartella del run resta con un <c>.jsonl</c> aperto e una sessione in
+        /// stato Running che nessuno chiudera' mai.
+        ///
+        /// <para>In LIVE non si chiude nulla, di proposito. La execution key e' costante ("LIVE"), e
+        /// una sessione lasciata aperta e' cio' che permette a un cBot riavviato — o a cTrader
+        /// riaperto — di riprendere lo stesso run invece di aprirne uno nuovo accanto al primo.</para>
+        ///
+        /// <para>Best effort: qui si sta gia' spegnendo, e un server irraggiungibile in questo punto
+        /// non deve produrre un errore di piattaforma sull'ultima riga del run.</para>
+        /// </summary>
+        private void CloseBacktestSessionOnServer()
+        {
+            if (!IsBacktesting || _http is null || string.IsNullOrWhiteSpace(_sessionId))
+                return;
+
+            try
+            {
+                var response = PostJson($"api/v1/trading-sessions/{_sessionId}/stop", new { });
+                if (response.IsSuccessStatusCode)
+                    Print("Sessione {0} chiusa sul server: artefatti del run scritti in modo definitivo.",
+                        _sessionId);
+                else
+                    Print("Chiusura della sessione {0} rifiutata dal server: {1}. Gli artefatti del run " +
+                          "restano come li ha lasciati l'ultimo checkpoint.", _sessionId, ReadError(response));
+            }
+            catch (Exception ex)
+            {
+                Print("Impossibile chiudere la sessione {0} sul server: {1}. Gli artefatti del run " +
+                      "restano come li ha lasciati l'ultimo checkpoint.", _sessionId, DescribeTransportFailure(ex));
+            }
         }
 
         // ---------------------------------------------------------------------------------------
