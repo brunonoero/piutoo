@@ -1,4 +1,4 @@
-namespace piootooapp.clientform.Shell.Screens;
+﻿namespace piootooapp.clientform.Shell.Screens;
 
 partial class SymbolConversionDetailScreen
 {
@@ -27,6 +27,9 @@ partial class SymbolConversionDetailScreen
         this._nameTextBox = new System.Windows.Forms.TextBox();
         this._codeLabel = new System.Windows.Forms.Label();
         this._codeTextBox = new System.Windows.Forms.TextBox();
+        this._roundingLabel = new System.Windows.Forms.Label();
+        this._roundingComboBox = new System.Windows.Forms.ComboBox();
+        this._roundingHintLabel = new System.Windows.Forms.Label();
         this._mappingsGroup = new System.Windows.Forms.GroupBox();
         this._mappingsGrid = new System.Windows.Forms.DataGridView();
         this._colSymbol = new System.Windows.Forms.DataGridViewTextBoxColumn();
@@ -34,7 +37,6 @@ partial class SymbolConversionDetailScreen
         this._colContractMultiplier = new System.Windows.Forms.DataGridViewTextBoxColumn();
         this._colMinimumQuantity = new System.Windows.Forms.DataGridViewTextBoxColumn();
         this._colQuantityStep = new System.Windows.Forms.DataGridViewTextBoxColumn();
-        this._colRoundingMode = new System.Windows.Forms.DataGridViewComboBoxColumn();
         this._colMappingEnabled = new System.Windows.Forms.DataGridViewCheckBoxColumn();
         this._mappingsButtons = new System.Windows.Forms.FlowLayoutPanel();
         this._removeMappingButton = new System.Windows.Forms.Button();
@@ -82,14 +84,48 @@ partial class SymbolConversionDetailScreen
         this._fieldsLayout.Controls.Add(this._nameTextBox, 1, 0);
         this._fieldsLayout.Controls.Add(this._codeLabel, 2, 0);
         this._fieldsLayout.Controls.Add(this._codeTextBox, 3, 0);
+        this._fieldsLayout.Controls.Add(this._roundingLabel, 0, 1);
+        this._fieldsLayout.Controls.Add(this._roundingComboBox, 1, 1);
+        this._fieldsLayout.Controls.Add(this._roundingHintLabel, 2, 1);
+        this._fieldsLayout.SetColumnSpan(this._roundingHintLabel, 2);
         this._fieldsLayout.Dock = System.Windows.Forms.DockStyle.Top;
         this._fieldsLayout.Location = new System.Drawing.Point(0, 71);
         this._fieldsLayout.Name = "_fieldsLayout";
         this._fieldsLayout.Padding = new System.Windows.Forms.Padding(12, 0, 12, 8);
-        this._fieldsLayout.RowCount = 1;
+        this._fieldsLayout.RowCount = 2;
         this._fieldsLayout.RowStyles.Add(new System.Windows.Forms.RowStyle());
-        this._fieldsLayout.Size = new System.Drawing.Size(900, 40);
+        this._fieldsLayout.RowStyles.Add(new System.Windows.Forms.RowStyle());
+        this._fieldsLayout.Size = new System.Drawing.Size(900, 72);
         this._fieldsLayout.TabIndex = 2;
+        //
+        // _roundingLabel
+        //
+        this._roundingLabel.Anchor = System.Windows.Forms.AnchorStyles.Left;
+        this._roundingLabel.AutoSize = true;
+        this._roundingLabel.Margin = new System.Windows.Forms.Padding(3, 0, 8, 0);
+        this._roundingLabel.Name = "_roundingLabel";
+        this._roundingLabel.TabIndex = 4;
+        this._roundingLabel.Text = "Arrotondamento";
+        //
+        // _roundingComboBox
+        //
+        this._roundingComboBox.Anchor = System.Windows.Forms.AnchorStyles.Left | System.Windows.Forms.AnchorStyles.Right;
+        this._roundingComboBox.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
+        this._roundingComboBox.Margin = new System.Windows.Forms.Padding(3, 4, 24, 4);
+        this._roundingComboBox.Name = "_roundingComboBox";
+        this._roundingComboBox.Size = new System.Drawing.Size(300, 23);
+        this._roundingComboBox.TabIndex = 5;
+        this._roundingComboBox.SelectedIndexChanged += new System.EventHandler(this.OnFieldChanged);
+        //
+        // _roundingHintLabel
+        //
+        this._roundingHintLabel.Anchor = System.Windows.Forms.AnchorStyles.Left;
+        this._roundingHintLabel.AutoSize = true;
+        this._roundingHintLabel.ForeColor = System.Drawing.SystemColors.GrayText;
+        this._roundingHintLabel.Margin = new System.Windows.Forms.Padding(3, 0, 3, 0);
+        this._roundingHintLabel.Name = "_roundingHintLabel";
+        this._roundingHintLabel.TabIndex = 6;
+        this._roundingHintLabel.Text = "Vale per tutti i simboli della tabella: la granularità del volume la decide il broker, non il singolo strumento.";
         //
         // _nameLabel
         //
@@ -188,7 +224,6 @@ partial class SymbolConversionDetailScreen
             this._colContractMultiplier,
             this._colMinimumQuantity,
             this._colQuantityStep,
-            this._colRoundingMode,
             this._colMappingEnabled});
         this._mappingsGrid.DataSource = this._mappingsBindingSource;
         this._mappingsGrid.Dock = System.Windows.Forms.DockStyle.Fill;
@@ -227,12 +262,6 @@ partial class SymbolConversionDetailScreen
         this._colQuantityStep.DataPropertyName = "QuantityStep";
         this._colQuantityStep.HeaderText = "Passo quantità";
         this._colQuantityStep.Name = "_colQuantityStep";
-        //
-        // _colRoundingMode
-        //
-        this._colRoundingMode.DataPropertyName = "RoundingMode";
-        this._colRoundingMode.HeaderText = "Arrotondamento";
-        this._colRoundingMode.Name = "_colRoundingMode";
         //
         // _colMappingEnabled
         //
@@ -273,6 +302,9 @@ partial class SymbolConversionDetailScreen
     private System.Windows.Forms.TextBox _nameTextBox;
     private System.Windows.Forms.Label _codeLabel;
     private System.Windows.Forms.TextBox _codeTextBox;
+    private System.Windows.Forms.Label _roundingLabel;
+    private System.Windows.Forms.ComboBox _roundingComboBox;
+    private System.Windows.Forms.Label _roundingHintLabel;
     private System.Windows.Forms.GroupBox _mappingsGroup;
     private System.Windows.Forms.FlowLayoutPanel _mappingsButtons;
     private System.Windows.Forms.Button _removeMappingButton;
@@ -283,6 +315,5 @@ partial class SymbolConversionDetailScreen
     private System.Windows.Forms.DataGridViewTextBoxColumn _colContractMultiplier;
     private System.Windows.Forms.DataGridViewTextBoxColumn _colMinimumQuantity;
     private System.Windows.Forms.DataGridViewTextBoxColumn _colQuantityStep;
-    private System.Windows.Forms.DataGridViewComboBoxColumn _colRoundingMode;
     private System.Windows.Forms.DataGridViewCheckBoxColumn _colMappingEnabled;
 }

@@ -295,7 +295,15 @@ public sealed class WorkspaceService
     /// registro è un errore esplicito, non un 1 a 1 silenzioso.
     /// </summary>
     public IReadOnlyList<AccountSymbolMapping> ResolveSymbolConversionMappings(string? code)
-        => string.IsNullOrWhiteSpace(code) ? Array.Empty<AccountSymbolMapping>() : GetSymbolConversion(code).Mappings;
+        => ResolveSymbolConversion(code).Mappings;
+
+    /// <summary>
+    /// La tabella intera, non le sole righe: l'arrotondamento è una proprietà della tabella (del
+    /// broker che descrive) e chi converte una quantità ha bisogno di entrambi. Codice vuoto =
+    /// tabella vuota con l'arrotondamento di default, cioè nessuna conversione.
+    /// </summary>
+    public SymbolConversion ResolveSymbolConversion(string? code)
+        => string.IsNullOrWhiteSpace(code) ? new SymbolConversion() : GetSymbolConversion(code);
 
     /// <summary>
     /// Restituisce l'account di default globale creandolo se manca: mappatura identità sui
@@ -499,7 +507,8 @@ public sealed class WorkspaceService
                 ContractMultiplier = mapping.ContractMultiplier,
                 MinimumQuantity = mapping.MinimumQuantity,
                 QuantityStep = mapping.QuantityStep,
-                RoundingMode = mapping.RoundingMode,
+                // RoundingMode non si copia: da qui in poi vive sulla tabella. La proprietà di riga
+                // resta null e sparisce dal file al primo salvataggio.
                 Enabled = mapping.Enabled
             });
         }
@@ -508,10 +517,39 @@ public sealed class WorkspaceService
         {
             Code = conversion.Code.Trim(),
             Name = conversion.Name.Trim(),
+            RoundingMode = ResolveTableRoundingMode(conversion),
             Mappings = mappings.OrderBy(mapping => mapping.Symbol, StringComparer.OrdinalIgnoreCase).ToList(),
             CreatedUtc = conversion.CreatedUtc,
             UpdatedUtc = conversion.UpdatedUtc
         };
+    }
+
+    /// <summary>
+    /// Arrotondamento della tabella, con migrazione dai file scritti prima del 24/08/2026, dove il
+    /// valore stava sulle singole righe.
+    ///
+    /// <para>Se la tabella non lo dichiara ma le righe sì, vince la <b>maggioranza</b> delle righe:
+    /// il caso reale è un file dove tutte le righe portano lo stesso valore, e prendere la prima
+    /// darebbe lo stesso risultato — ma su una tabella mista la maggioranza è l'unica scelta che
+    /// non dipende dall'ordinamento alfabetico dei simboli. Le righe rimaste in minoranza sono un
+    /// dato che si perde: era esattamente l'incoerenza che questa modifica vuole rendere
+    /// impossibile.</para>
+    /// </summary>
+    private static QuantityRoundingMode ResolveTableRoundingMode(SymbolConversion conversion)
+    {
+        var declared = conversion.Mappings?
+            .Where(mapping => mapping.RoundingMode.HasValue)
+            .Select(mapping => mapping.RoundingMode!.Value)
+            .ToList() ?? new List<QuantityRoundingMode>();
+
+        if (declared.Count == 0)
+            return conversion.RoundingMode;
+
+        return declared
+            .GroupBy(mode => mode)
+            .OrderByDescending(group => group.Count())
+            .ThenBy(group => (int)group.Key)
+            .First().Key;
     }
 
     private static SymbolConversion? FindSymbolConversion(List<SymbolConversion> conversions, string code)
@@ -524,8 +562,20 @@ public sealed class WorkspaceService
         if (!File.Exists(file))
             return new SymbolConversionsFile();
 
-        return JsonSerializer.Deserialize<SymbolConversionsFile>(File.ReadAllText(file), _jsonOptions)
+        var content = JsonSerializer.Deserialize<SymbolConversionsFile>(File.ReadAllText(file), _jsonOptions)
             ?? new SymbolConversionsFile();
+
+        // Migrazione in lettura, non solo in salvataggio: un file mai più riaperto dalla UI deve
+        // comunque essere interpretato con l'arrotondamento giusto. Il file su disco resta
+        // invariato finché qualcuno non salva quella tabella.
+        foreach (var conversion in content.Conversions)
+        {
+            conversion.RoundingMode = ResolveTableRoundingMode(conversion);
+            foreach (var mapping in conversion.Mappings ?? new List<AccountSymbolMapping>())
+                mapping.RoundingMode = null;
+        }
+
+        return content;
     }
 
     private void WriteSymbolConversionsFile(SymbolConversionsFile file)

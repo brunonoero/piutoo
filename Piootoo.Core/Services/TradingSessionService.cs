@@ -2886,8 +2886,8 @@ public sealed class TradingSessionService : ITradingSessionService
                 $"Account '{accountNumber}' non presente nel registro account: impossibile risolvere " +
                 "capitale e tabella di conversione simboli. Creane l'anagrafica prima di operare.");
 
-        var mappings = _workspaces.ResolveSymbolConversionMappings(account.SymbolConversionCode);
-        var conversion = AccountSymbolConversion.FromAccount(account, mappings);
+        var table = _workspaces.ResolveSymbolConversion(account.SymbolConversionCode);
+        var conversion = AccountSymbolConversion.FromAccount(account, table);
         session.AccountConversions[accountNumber] = conversion;
         return conversion;
     }

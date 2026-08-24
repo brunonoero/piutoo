@@ -29,8 +29,8 @@ public partial class SymbolConversionDetailScreen : UserControl, IShellScreen, I
         _mappingsBindingSource.DataSource = _mappings;
         // Deferred non è una scelta significativa qui: la impone il motore alle sessioni
         // ExternalBroker (vedi InstrumentMetadata.RoundingMode), non la sceglie chi compila la
-        // riga di conversione.
-        _colRoundingMode.DataSource = Enum.GetValues<QuantityRoundingMode>()
+        // tabella di conversione.
+        _roundingComboBox.DataSource = Enum.GetValues<QuantityRoundingMode>()
             .Where(mode => mode != QuantityRoundingMode.Deferred)
             .ToArray();
         _mappings.ListChanged += (_, _) => MarkDirty();
@@ -100,7 +100,6 @@ public partial class SymbolConversionDetailScreen : UserControl, IShellScreen, I
         ContractMultiplier = mapping.ContractMultiplier,
         MinimumQuantity = mapping.MinimumQuantity,
         QuantityStep = mapping.QuantityStep,
-        RoundingMode = mapping.RoundingMode,
         Enabled = mapping.Enabled
     };
 
@@ -109,6 +108,11 @@ public partial class SymbolConversionDetailScreen : UserControl, IShellScreen, I
         _toolbar.Title = IsNew ? "Nuova tabella di conversione" : conversion.Name;
         _nameTextBox.Text = conversion.Name;
         _codeTextBox.Text = conversion.Code;
+        // Deferred non è nella lista (vedi costruttore): una tabella che lo portasse dal file
+        // ricadrebbe sul default invece di lasciare la combo su un valore che non contiene.
+        _roundingComboBox.SelectedItem = conversion.RoundingMode == QuantityRoundingMode.Deferred
+            ? QuantityRoundingMode.BrokerVolumeStep
+            : conversion.RoundingMode;
         _identityLabel.Text = IsNew
             ? "Il codice è l'identificativo con cui gli account la referenziano: non è più modificabile dopo il primo salvataggio."
             : $"Creata {conversion.CreatedUtc:yyyy-MM-dd HH:mm} UTC  ·  aggiornata {conversion.UpdatedUtc:yyyy-MM-dd HH:mm} UTC";
@@ -128,6 +132,9 @@ public partial class SymbolConversionDetailScreen : UserControl, IShellScreen, I
     {
         Code = _codeTextBox.Text.Trim(),
         Name = _nameTextBox.Text.Trim(),
+        RoundingMode = _roundingComboBox.SelectedItem is QuantityRoundingMode mode
+            ? mode
+            : QuantityRoundingMode.BrokerVolumeStep,
         CreatedUtc = _loaded?.CreatedUtc ?? default,
         UpdatedUtc = _loaded?.UpdatedUtc ?? default,
         Mappings = _mappings

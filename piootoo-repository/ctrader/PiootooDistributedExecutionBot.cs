@@ -231,7 +231,7 @@ namespace cAlgo.Robots
         // della solution — quindi la sincronia e' manuale e non c'e' niente che la verifichi.
         // Il disallineamento non blocca nulla: entrambi stampano la propria versione all'avvio, e
         // il confronto si fa leggendo i due log.
-        private const string BotVersion = "3.2.0"; // aggiornare qui E in PiootooVersion, ad ogni release
+        private const string BotVersion = "3.3.0"; // aggiornare qui E in PiootooVersion, ad ogni release
         private const string StatusChartObjectName = "PiootooConnectionStatus";
 
         // Riquadro rosso al centro del grafico, separato dal pannello di stato: e' l'errore fatale
@@ -2204,34 +2204,43 @@ namespace cAlgo.Robots
             }
 
             var tradeType = intent.Side == SignalTypeDto.Buy ? TradeType.Buy : TradeType.Sell;
-            var rawVolume = Math.Max(0.01, (double)intent.FinalQuantity);
+            // FinalQuantity arriva dal server nei contratti/lotti del broker; le API di cTrader
+            // ragionano in UNITA' dello strumento (per XAUUSD un lotto vale symbol.LotSize unita').
+            // La conversione va fatta PRIMA della normalizzazione: passando i lotti a
+            // NormalizeVolumeInUnits si confrontano grandezze diverse, e poiche' il metodo alza al
+            // minimo invece di azzerare, 0,1 lotti diventavano 1 unita' = 0,01 lotti — un decimo
+            // della size prevista, senza alcun errore visibile.
+            var rawVolume = symbol.QuantityToVolumeInUnits((double)intent.FinalQuantity);
             var volume = symbol.NormalizeVolumeInUnits(rawVolume, RoundingMode.Down);
 
             // [SIZE] Diagnostica del dimensionamento. Stampata sempre e con 6 decimali: il formato
             // corto non distingue uno zero vero da un valore frazionario troncato in stampa, ed e'
             // esattamente l'ambiguita' che rende illeggibili i run senza operazioni.
             //
-            // NOTA: FinalQuantity arriva dal server in contratti/lotti, mentre
-            // NormalizeVolumeInUnits ragiona in UNITA' dello strumento (per XAUUSD un lotto vale
-            // symbol.LotSize unita', tipicamente 100). Passargli direttamente la quantita' in lotti
-            // e' un confronto tra grandezze diverse: la riga InUnitsAtteso qui sotto mostra quale
-            // volume si otterrebbe convertendo prima con QuantityToVolumeInUnits.
-            var volumeInUnitsAtteso = symbol.QuantityToVolumeInUnits((double)intent.FinalQuantity);
-            var volumeNormalizzatoAtteso = symbol.NormalizeVolumeInUnits(volumeInUnitsAtteso, RoundingMode.Down);
+            // LottiEffettivi e' il controllo che conta: e' la size che finisce davvero a mercato,
+            // riportata nell'unita' in cui il segnale l'ha dichiarata. Se non coincide con
+            // FinalQuantity, la conversione lotti/unita' e' di nuovo fuori posto.
+            var lottiEffettivi = symbol.VolumeInUnitsToQuantity(volume);
             Print($"[SIZE] {intent.StrategyCode} {brokerSymbolName}: " +
                   $"FinalQuantity={intent.FinalQuantity:F6} rawVolume={rawVolume:F6} " +
-                  $"volumeNormalizzato={volume:F6} | " +
+                  $"volumeNormalizzato={volume:F6} LottiEffettivi={lottiEffettivi:F6} | " +
                   $"LotSize={symbol.LotSize:F6} VolumeMin={symbol.VolumeInUnitsMin:F6} " +
-                  $"VolumeStep={symbol.VolumeInUnitsStep:F6} VolumeMax={symbol.VolumeInUnitsMax:F6} | " +
-                  $"InUnitsAtteso={volumeInUnitsAtteso:F6} NormalizzatoAtteso={volumeNormalizzatoAtteso:F6}");
+                  $"VolumeStep={symbol.VolumeInUnitsStep:F6} VolumeMax={symbol.VolumeInUnitsMax:F6}");
+
+            // Scostamento oltre l'1% fra size richiesta ed eseguibile: non e' un dettaglio di
+            // arrotondamento ma una size diversa da quella su cui il segnale e' stato dimensionato.
+            if (intent.FinalQuantity > 0 &&
+                Math.Abs(lottiEffettivi - (double)intent.FinalQuantity) > 0.01 * (double)intent.FinalQuantity)
+                Print($"[SIZE] {intent.StrategyCode} {brokerSymbolName}: ATTENZIONE size eseguita " +
+                      $"{lottiEffettivi:F6} diversa dalla richiesta {intent.FinalQuantity:F6} " +
+                      $"(minimo broker {symbol.VolumeInUnitsToQuantity(symbol.VolumeInUnitsMin):F6}).");
 
             if (volume <= 0)
             {
                 // Ramo di scarto nominato: senza questo, un ordine che non parte per volume nullo
                 // e' indistinguibile da un ordine rifiutato dal broker.
                 Print($"[SIZE] {intent.StrategyCode} {brokerSymbolName}: SCARTATO da volume-nullo-dopo-normalizzazione " +
-                      $"(rawVolume={rawVolume:F6} < VolumeMin={symbol.VolumeInUnitsMin:F6}); " +
-                      $"con conversione in unita' sarebbe stato {volumeNormalizzatoAtteso:F6}.");
+                      $"(rawVolume={rawVolume:F6} < VolumeMin={symbol.VolumeInUnitsMin:F6}).");
                 LogJsonEvent("intent/scartato-volume", new
                 {
                     intent.IntentId,
@@ -2243,8 +2252,7 @@ namespace cAlgo.Robots
                     symbol.LotSize,
                     symbol.VolumeInUnitsMin,
                     symbol.VolumeInUnitsStep,
-                    VolumeInUnitsAtteso = volumeInUnitsAtteso,
-                    VolumeNormalizzatoAtteso = volumeNormalizzatoAtteso
+                    LottiEffettivi = lottiEffettivi
                 });
                 ReportExecution(intent.IntentId, intent.Symbol, ExecutionReportStatusDto.Rejected, 0, null);
                 return;

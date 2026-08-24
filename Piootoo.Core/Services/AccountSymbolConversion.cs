@@ -10,8 +10,7 @@ public sealed record AccountSymbolConversionEntry(
     decimal ContractMultiplier,
     bool Enabled,
     decimal MinimumQuantity,
-    decimal QuantityStep,
-    QuantityRoundingMode RoundingMode);
+    decimal QuantityStep);
 
 /// <summary>
 /// Tabella di conversione di un account in forma pronta per il loop caldo: il lookup avviene per
@@ -47,17 +46,25 @@ public sealed class AccountSymbolConversion
         string accountId,
         string accountName,
         decimal initialBalance,
+        QuantityRoundingMode roundingMode,
         Dictionary<string, AccountSymbolConversionEntry> entries)
     {
         AccountId = accountId;
         AccountName = accountName;
         InitialBalance = initialBalance;
+        RoundingMode = roundingMode;
         _entries = entries;
     }
 
     /// <summary>Conversione neutra: nessun account selezionato, tutto 1 a 1.</summary>
     public static AccountSymbolConversion Identity { get; } =
-        new(string.Empty, string.Empty, 0m, Empty);
+        new(string.Empty, string.Empty, 0m, QuantityRoundingMode.BrokerVolumeStep, Empty);
+
+    /// <summary>
+    /// Granularità del volume del broker di questo account, uguale per tutti i suoi simboli: è una
+    /// proprietà della tabella di conversione, non della singola riga.
+    /// </summary>
+    public QuantityRoundingMode RoundingMode { get; }
 
     public string AccountId { get; }
     public string AccountName { get; }
@@ -74,18 +81,19 @@ public sealed class AccountSymbolConversion
     public bool IsIdentity => _entries.Count == 0 && BalanceScale == 1m;
 
     /// <summary>
-    /// <paramref name="mappings"/> è la tabella già risolta dal codice di conversione dell'account
+    /// <paramref name="conversion"/> è la tabella referenziata dall'account
     /// (<see cref="WorkspaceAccount.SymbolConversionCode"/>) nel registro globale delle
-    /// <c>SymbolConversion</c>: vuota se l'account non ne referenzia una.
+    /// <c>SymbolConversion</c>: vuota se l'account non ne referenzia una. Serve la tabella intera e
+    /// non le sole righe, perché l'arrotondamento è dichiarato su di essa.
     /// </summary>
     public static AccountSymbolConversion FromAccount(
-        WorkspaceAccount account, IReadOnlyList<AccountSymbolMapping> mappings)
+        WorkspaceAccount account, SymbolConversion conversion)
     {
         ArgumentNullException.ThrowIfNull(account);
-        ArgumentNullException.ThrowIfNull(mappings);
+        ArgumentNullException.ThrowIfNull(conversion);
 
         var entries = new Dictionary<string, AccountSymbolConversionEntry>(StringComparer.OrdinalIgnoreCase);
-        foreach (var mapping in mappings)
+        foreach (var mapping in conversion.Mappings ?? new List<AccountSymbolMapping>())
         {
             var key = NormalizeSymbol(mapping.Symbol);
             if (key.Length == 0) continue;
@@ -93,12 +101,16 @@ public sealed class AccountSymbolConversion
                 string.IsNullOrWhiteSpace(mapping.AccountSymbol) ? mapping.Symbol.Trim() : mapping.AccountSymbol.Trim(),
                 mapping.ContractMultiplier <= 0 ? 1m : mapping.ContractMultiplier,
                 mapping.Enabled,
-                mapping.MinimumQuantity <= 0 ? 1m : mapping.MinimumQuantity,
-                mapping.QuantityStep <= 0 ? 1m : mapping.QuantityStep,
-                mapping.RoundingMode);
+                // Minimo e passo non dichiarati non diventano 1: un 1 implicito su un conto CFD
+                // azzera ogni size frazionaria e lo fa in silenzio. L'assenza di granularità
+                // dichiarata significa nessun vincolo, e il vincolo vero resta quello del broker,
+                // applicato dal client che lo conosce davvero.
+                mapping.MinimumQuantity <= 0 ? 0m : mapping.MinimumQuantity,
+                mapping.QuantityStep <= 0 ? 0m : mapping.QuantityStep);
         }
 
-        return new AccountSymbolConversion(account.Id, account.Name, account.InitialBalance, entries);
+        return new AccountSymbolConversion(
+            account.Id, account.Name, account.InitialBalance, conversion.RoundingMode, entries);
     }
 
     /// <summary>Stessa normalizzazione del backtest: <c>@NQ</c> e <c>nq</c> collassano su <c>NQ</c>.</summary>
@@ -128,25 +140,32 @@ public sealed class AccountSymbolConversion
 
     /// <summary>
     /// Arrotonda una quantità già convertita nei contratti del broker alla granularità di volume di
-    /// questo account/simbolo: passo di volume per difetto, zero sotto la quantità minima (meglio
-    /// nessun ordine che un ordine di taglia non eseguibile).
+    /// questo account: passo per difetto, zero sotto la quantità minima (meglio nessun ordine che un
+    /// ordine di taglia non eseguibile).
     ///
-    /// <para>Se il simbolo non è mappato non c'è una granularità dichiarata dal broker: si applica
-    /// comunque il default <see cref="QuantityRoundingMode.FuturesContracts"/> (contratto intero,
-    /// minimo 1) invece di lasciare passare una quantità frazionaria. "Nessuna conversione" vale per
-    /// simbolo e moltiplicatore (vedi <see cref="GetContractMultiplier"/>), non per la granularità:
-    /// un future non diventa negoziabile a frazioni di contratto solo perché manca la riga in
-    /// tabella.</para>
+    /// <para>L'arrotondamento è <see cref="RoundingMode"/>, cioè quello della tabella: descrive il
+    /// broker, non il singolo strumento. <see cref="QuantityRoundingMode.FuturesContracts"/> impone
+    /// il contratto intero anche dove la riga dichiarasse un passo più fine; le altre modalità
+    /// usano il passo dichiarato dalla riga, e un passo assente significa nessun vincolo qui — non
+    /// un vincolo a 1, che è la scorciatoia che azzerava le size frazionarie.</para>
+    ///
+    /// <para>Un simbolo non mappato non ha granularità dichiarata e passa invariato: chi conosce i
+    /// limiti veri è il client collegato al broker, ed è lì che la quantità viene normalizzata
+    /// prima di diventare un ordine.</para>
     /// </summary>
     public decimal RoundQuantity(string? symbol, decimal quantity)
     {
         if (quantity <= 0m) return quantity;
+        if (!TryGet(symbol, out var entry))
+            return quantity;
 
-        var (step, minimum) = TryGet(symbol, out var entry)
-            ? (entry.RoundingMode == QuantityRoundingMode.FuturesContracts
-                ? Math.Max(1m, entry.QuantityStep)
-                : entry.QuantityStep, entry.MinimumQuantity)
-            : (1m, 1m);
+        var step = RoundingMode == QuantityRoundingMode.FuturesContracts
+            ? Math.Max(1m, entry.QuantityStep)
+            : entry.QuantityStep;
+        var minimum = RoundingMode == QuantityRoundingMode.FuturesContracts
+            ? Math.Max(1m, entry.MinimumQuantity)
+            : entry.MinimumQuantity;
+
         var rounded = step > 0m ? Math.Floor(quantity / step) * step : quantity;
         return rounded < minimum ? 0m : rounded;
     }

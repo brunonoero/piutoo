@@ -103,13 +103,18 @@ public sealed class AccountSymbolMapping
     public decimal QuantityStep { get; set; } = 1m;
 
     /// <summary>
-    /// Granularità del volume: contratti interi per i future, passo di volume per i CFD.
+    /// <b>Obsoleta dal 24/08/2026:</b> l'arrotondamento è una proprietà della tabella, non della
+    /// riga — vedi <see cref="SymbolConversion.RoundingMode"/>. Resta letta per migrare i file
+    /// scritti prima di quella data e non viene più riscritta.
     ///
-    /// <para>Vive qui e non sul piano perché è una proprietà della coppia <b>broker/strumento</b>, e
-    /// solo al claim — quando il conto è noto e la quantità è già stata convertita nei contratti del
-    /// broker — arrotondare significa qualcosa. Vedi <c>docs/decisioni.md</c> (2026-08-05).</para>
+    /// <para>Stava qui perché la si era pensata come proprietà della coppia broker/strumento, ma
+    /// una tabella di conversione descrive <i>un</i> broker: la granularità del volume la decide
+    /// quello. Per riga significava solo poterla sbagliare N volte invece di una — ed è
+    /// esattamente quello che è successo.</para>
     /// </summary>
-    public QuantityRoundingMode RoundingMode { get; set; } = QuantityRoundingMode.BrokerVolumeStep;
+    [System.Text.Json.Serialization.JsonIgnore(
+        Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public QuantityRoundingMode? RoundingMode { get; set; }
 
     /// <summary>Se false il simbolo resta configurato ma non è operativo sull'account.</summary>
     public bool Enabled { get; set; } = true;
@@ -162,6 +167,21 @@ public sealed class SymbolConversion
     public string Code { get; set; } = string.Empty;
 
     public string Name { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Granularità del volume del broker descritto da questa tabella, applicata a <b>tutti</b> i
+    /// suoi simboli: contratti interi per un broker future, passo di volume per un broker CFD.
+    ///
+    /// <para>Vive sulla tabella e non sulla riga perché è una proprietà del broker: una tabella
+    /// mappa un conto solo, e un conto non è a contratti interi per l'oro e a frazioni per il
+    /// petrolio. Fino al 24/08/2026 stava sulla singola riga, e la conseguenza è stata che un
+    /// intero file di mappature CFD si è ritrovato con l'arrotondamento dei future e ha azzerato
+    /// ogni quantità frazionaria senza che nessuna riga apparisse sbagliata.</para>
+    ///
+    /// <para>Il valore per riga, quando presente nei file vecchi, viene migrato in lettura
+    /// (vedi <c>WorkspaceService.NormalizeSymbolConversion</c>).</para>
+    /// </summary>
+    public QuantityRoundingMode RoundingMode { get; set; } = QuantityRoundingMode.BrokerVolumeStep;
 
     /// <summary>Tabella di conversione, una riga per simbolo.</summary>
     public List<AccountSymbolMapping> Mappings { get; set; } = new();
