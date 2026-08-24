@@ -267,6 +267,12 @@ public sealed class TradingSessionService : ITradingSessionService
         /// <summary>Quanti elementi di <see cref="Intents"/> sono gia' finiti nel journal.</summary>
         public int PersistedIntentCount { get; set; }
 
+        /// <summary>Intent scartati dagli artefatti perche' non hanno prodotto nessun riempimento.</summary>
+        public int DiscardedCancelledIntents { get; set; }
+
+        /// <inheritdoc cref="DiscardedCancelledIntents"/>
+        public int DiscardedRejectedIntents { get; set; }
+
         /// <summary>
         /// Intent gia' scritti almeno una volta ma ancora in uno stato non definitivo, quindi
         /// ancora capaci di cambiare. Vengono riscritti a ogni checkpoint finche' non risultano
@@ -2978,7 +2984,8 @@ public sealed class TradingSessionService : ITradingSessionService
     /// </summary>
     private static void WriteArtifactsFull(Session session, bool durable)
     {
-        session.Store.WriteSignals(session.Intents.Select(intent => ToPersistedSignal(session, intent)), durable);
+        session.Store.WriteSignals(
+            session.Intents.Where(ShouldPersist).Select(intent => ToPersistedSignal(session, intent)), durable);
         session.Store.WriteTrades(CollectTrades(session, from: 0), durable);
         session.Store.WriteRotationLog(session.RotationLog, durable);
         session.JournalPending = false;
@@ -3011,18 +3018,26 @@ public sealed class TradingSessionService : ITradingSessionService
         {
             var intent = session.Intents[i];
             if (!seen.Add(intent.IntentId)) continue;
-            delta.Add(ToPersistedSignal(session, intent));
+            // Un intent nuovo puo' non essere ancora arrivato a destinazione: si scrive solo se
+            // ha gia' un riempimento, altrimenti resta nella lista dei non assestati e verra'
+            // valutato al checkpoint successivo. Il watermark avanza comunque, perche' e' la
+            // lista dei non assestati a garantire che nessuno venga perso.
+            if (ShouldPersist(intent)) delta.Add(ToPersistedSignal(session, intent));
             if (!IsSettled(intent)) session.UnsettledIntents.Add(intent);
+            else if (!ShouldPersist(intent)) CountDiscarded(session, intent);
         }
         session.PersistedIntentCount = session.Intents.Count;
 
         for (var i = session.UnsettledIntents.Count - 1; i >= 0; i--)
         {
             var intent = session.UnsettledIntents[i];
-            if (seen.Add(intent.IntentId))
+            if (ShouldPersist(intent) && seen.Add(intent.IntentId))
                 delta.Add(ToPersistedSignal(session, intent));
             if (IsSettled(intent))
+            {
+                if (!ShouldPersist(intent)) CountDiscarded(session, intent);
                 session.UnsettledIntents.RemoveAt(i);
+            }
         }
 
         session.Store.AppendSignals(delta);
@@ -3066,6 +3081,41 @@ public sealed class TradingSessionService : ITradingSessionService
     /// </summary>
     private static bool IsSettled(OrderIntent intent) =>
         intent.Status is OrderIntentStatus.Filled or OrderIntentStatus.Rejected or OrderIntentStatus.Cancelled;
+
+    /// <summary>
+    /// Se true, <c>signals.json</c> contiene soltanto gli intent che hanno prodotto un
+    /// riempimento. Gli altri — cancellati e rifiutati — restano nei contatori della sessione e nel
+    /// log, ma non nell'artefatto.
+    ///
+    /// <para>Su un run reale il rapporto e' schiacciante: 23.746 intent per 573 fill, cioe' il
+    /// 97,6% di record che descrivono ordini mai andati a mercato, per 40 MB di file. Quel peso si
+    /// paga tre volte — serializzazione a ogni checkpoint, fusione del journal, e ogni lettore che
+    /// apre l'artefatto — e a candele da 1 minuto si moltiplica ancora.</para>
+    ///
+    /// <para>Metterlo a false ripristina la registrazione completa: serve quando si sta indagando
+    /// <i>perche'</i> gli ordini non si riempiono, che e' esattamente l'informazione che il filtro
+    /// butta via.</para>
+    /// </summary>
+    private const bool PersistOnlyFilledIntents = true;
+
+    /// <summary>Un intent e' andato a mercato: e' l'unico che descrive un evento reale.</summary>
+    private static bool HasFill(OrderIntent intent) =>
+        intent.Status is OrderIntentStatus.Filled or OrderIntentStatus.PartiallyFilled;
+
+    /// <summary>Va scritto negli artefatti?</summary>
+    private static bool ShouldPersist(OrderIntent intent) =>
+        !PersistOnlyFilledIntents || HasFill(intent);
+
+    /// <summary>
+    /// Tiene il conto di cio' che il filtro toglie dall'artefatto. Il numero non e' un dettaglio:
+    /// un rapporto fill/scartati molto basso e' di per se' un sintomo, e senza questo contatore
+    /// dopo il filtro non lo vedrebbe piu' nessuno.
+    /// </summary>
+    private static void CountDiscarded(Session session, OrderIntent intent)
+    {
+        if (intent.Status == OrderIntentStatus.Rejected) session.DiscardedRejectedIntents++;
+        else if (intent.Status == OrderIntentStatus.Cancelled) session.DiscardedCancelledIntents++;
+    }
 
     private static void ResetPersistenceWatermarks(Session session)
     {

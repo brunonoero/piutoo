@@ -1,0 +1,346 @@
+<title>Le tre giornate di ottobre</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+:root{
+  --ground:#EEF1F4; --surface:#FFFFFF; --surface-2:#F7F9FA;
+  --ink:#141E28; --ink-2:#3B4A58; --muted:#6C7D8C;
+  --line:#D6DDE4; --line-soft:#E6EBEF;
+  --accent:#0E7368; --accent-soft:#D9EBE8;
+  --loss:#A32F26; --loss-soft:#F6E2E0;
+  --gain:#376E33; --gain-soft:#E2EFE0;
+  --shadow:0 1px 2px rgba(20,30,40,.06),0 8px 24px rgba(20,30,40,.05);
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --ground:#0D141B; --surface:#151F29; --surface-2:#1B2731;
+    --ink:#E3EAF1; --ink-2:#B4C2CF; --muted:#8496A5;
+    --line:#27333F; --line-soft:#1F2B36;
+    --accent:#45BCAC; --accent-soft:#12332F;
+    --loss:#E2776D; --loss-soft:#39211F;
+    --gain:#7EBF77; --gain-soft:#1E2E1D;
+    --shadow:0 1px 2px rgba(0,0,0,.4),0 10px 28px rgba(0,0,0,.35);
+  }
+}
+:root[data-theme="dark"]{
+  --ground:#0D141B; --surface:#151F29; --surface-2:#1B2731;
+  --ink:#E3EAF1; --ink-2:#B4C2CF; --muted:#8496A5;
+  --line:#27333F; --line-soft:#1F2B36;
+  --accent:#45BCAC; --accent-soft:#12332F;
+  --loss:#E2776D; --loss-soft:#39211F;
+  --gain:#7EBF77; --gain-soft:#1E2E1D;
+  --shadow:0 1px 2px rgba(0,0,0,.4),0 10px 28px rgba(0,0,0,.35);
+}
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--ground); color:var(--ink);
+  font-family:"Source Serif 4",Georgia,"Times New Roman",serif;
+  font-size:17px; line-height:1.62; -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:1080px;margin:0 auto;padding:0 24px 96px}
+.col{max-width:66ch}
+h1,h2,h3,.lab,.num,th,.pill,.kfig{font-family:Archivo,"Helvetica Neue",Arial,sans-serif}
+.num,code,.mono{font-family:"IBM Plex Mono",ui-monospace,Menlo,monospace;font-variant-numeric:tabular-nums}
+
+header{padding:72px 0 40px;border-bottom:1px solid var(--line)}
+.eyebrow{font-family:"IBM Plex Mono",monospace;font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin:0 0 18px}
+h1{font-size:clamp(38px,6vw,64px);line-height:1.02;letter-spacing:-.025em;font-weight:700;margin:0 0 20px;text-wrap:balance}
+.dek{font-size:20px;line-height:1.5;color:var(--ink-2);margin:0;max-width:60ch}
+.meta{display:flex;flex-wrap:wrap;gap:8px 28px;margin-top:28px;font-family:"IBM Plex Mono",monospace;font-size:12.5px;color:var(--muted)}
+.meta b{color:var(--ink-2);font-weight:500}
+
+section{padding-top:56px}
+h2{font-size:clamp(24px,3.4vw,32px);line-height:1.18;letter-spacing:-.018em;font-weight:700;margin:0 0 6px;text-wrap:balance}
+h3{font-size:17px;letter-spacing:.01em;font-weight:600;margin:34px 0 10px}
+.lab{display:inline-block;font-family:"IBM Plex Mono",monospace;font-size:11.5px;letter-spacing:.13em;text-transform:uppercase;color:var(--accent);margin-bottom:14px;padding:3px 9px;border:1px solid var(--accent);border-radius:2px}
+p{margin:0 0 16px}
+.col p+p{margin-top:0}
+strong{font-weight:600}
+a{color:var(--accent)}
+
+.card{background:var(--surface);border:1px solid var(--line);border-radius:4px;box-shadow:var(--shadow);padding:22px 24px;margin:26px 0}
+.card.flush{padding:0;overflow:hidden}
+
+.scroll{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-family:"IBM Plex Mono",monospace;font-size:13px;font-variant-numeric:tabular-nums}
+th{font-family:Archivo,sans-serif;font-size:11px;letter-spacing:.09em;text-transform:uppercase;font-weight:600;color:var(--muted);text-align:right;padding:12px 14px;border-bottom:1px solid var(--line);white-space:nowrap;background:var(--surface-2)}
+th:first-child{text-align:left}
+td{padding:9px 14px;text-align:right;border-bottom:1px solid var(--line-soft);white-space:nowrap}
+td:first-child{text-align:left;color:var(--ink-2)}
+tbody tr:last-child td{border-bottom:none}
+tr.tot td{border-top:2px solid var(--line);font-weight:600;color:var(--ink);background:var(--surface-2)}
+.neg{color:var(--loss)}
+.pos{color:var(--gain)}
+.dim{color:var(--muted)}
+.hot{background:var(--loss-soft)}
+.cool{background:var(--gain-soft)}
+.hi{background:var(--accent-soft);font-weight:600}
+
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(168px,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:4px;overflow:hidden;margin:26px 0}
+.kpi{background:var(--surface);padding:16px 18px}
+.kpi .k{font-family:"IBM Plex Mono",monospace;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:8px}
+.kfig{font-size:26px;font-weight:600;letter-spacing:-.02em;font-variant-numeric:tabular-nums;font-family:"IBM Plex Mono",monospace}
+.kpi .s{font-size:12.5px;color:var(--muted);font-family:"IBM Plex Mono",monospace;margin-top:4px}
+
+.chart{background:var(--surface);border:1px solid var(--line);border-radius:4px;box-shadow:var(--shadow);padding:20px 20px 14px;margin:26px 0}
+.chart svg{display:block;width:100%;height:auto}
+.legend{display:flex;flex-wrap:wrap;gap:18px;margin:14px 2px 0;font-family:"IBM Plex Mono",monospace;font-size:12px;color:var(--ink-2)}
+.legend i{display:inline-block;width:22px;height:0;border-top-width:2.5px;border-top-style:solid;vertical-align:middle;margin-right:7px}
+.cap{font-family:"IBM Plex Mono",monospace;font-size:12px;color:var(--muted);margin:10px 2px 0;line-height:1.5}
+
+.verdict{border-left:3px solid var(--accent);background:var(--surface);padding:18px 22px;margin:26px 0;border-radius:0 4px 4px 0;box-shadow:var(--shadow)}
+.verdict .lab{margin-bottom:8px}
+.verdict p{margin:0;font-size:17.5px}
+.verdict.bad{border-left-color:var(--loss)}
+.verdict.bad .lab{color:var(--loss);border-color:var(--loss)}
+
+.callout{background:var(--surface-2);border:1px solid var(--line);border-radius:4px;padding:16px 20px;margin:22px 0;font-size:15.5px;color:var(--ink-2)}
+.callout code{font-size:13px;background:var(--surface);padding:1px 5px;border:1px solid var(--line);border-radius:2px}
+
+footer{margin-top:72px;padding-top:26px;border-top:1px solid var(--line);font-family:"IBM Plex Mono",monospace;font-size:12.5px;color:var(--muted);line-height:1.7}
+ul{padding-left:20px;margin:0 0 16px}
+li{margin-bottom:7px}
+@media (max-width:640px){body{font-size:16px}.wrap{padding:0 16px 64px}header{padding:48px 0 32px}}
+</style>
+
+<div class="wrap">
+<header>
+  <p class="eyebrow">Backtest 24/06/2025 &rarr; 10/10/2025 &middot; 220 trade &middot; 26 strategie &middot; NQ + ES + GC</p>
+  <h1>Le tre giornate di ottobre</h1>
+  <p class="dek">Met&agrave; del guadagno di quattro mesi sparisce in otto sedute. Titano non pu&ograve; vederlo &mdash; le strategie che perdono sono le sue prime in classifica. Il limite di perdita giornaliero s&igrave;.</p>
+  <div class="meta">
+    <span>Sorgente <b>trades.jsonl</b></span>
+    <span>Capitale <b>100.000</b></span>
+    <span>Simulatore <b>titano.py v2</b></span>
+    <span>Analisi <b>23/08/2026</b></span>
+  </div>
+</header>
+
+<section>
+  <div class="callout">
+    <strong>Prima di tutto: questo run non &egrave; finito.</strong> Il file &egrave; il <em>journal</em> <span class="mono">trades.jsonl</span>, si ferma al 10 ottobre 2025 e non cresce pi&ugrave;; <span class="mono">trades.json</span> &egrave; ancora a <span class="mono">[]</span> dalle 07:38. Stessa firma della volta scorsa: la scrittura autorevole di fine backtest non &egrave; mai arrivata. L&rsquo;analisi qui sotto vale su quello che c&rsquo;&egrave;, ma il periodo &egrave; corto e il fuori campione &egrave; sottile.
+  </div>
+
+  <div class="col">
+    <h2>Cosa &egrave; successo</h2>
+    <p>L&rsquo;equity tocca il massimo il <strong>23 settembre 2025</strong> a +81.111. Poi ottobre: <strong class="neg">&minus;25.323</strong> in 29 trade e otto sedute. Chiude a +51.708, cio&egrave; restituisce il 36% di tutto.</p>
+    <p>Non &egrave; ottobre. Sono tre giorni.</p>
+  </div>
+
+  <div class="kpis">
+    <div class="kpi"><div class="k">Netto totale</div><div class="kfig">+51.708</div><div class="s">220 trade</div></div>
+    <div class="kpi"><div class="k">Picco equity</div><div class="kfig">+81.111</div><div class="s">23 set 2025</div></div>
+    <div class="kpi"><div class="k">Ottobre</div><div class="kfig neg">&minus;25.323</div><div class="s">29 trade, 8 sedute</div></div>
+    <div class="kpi"><div class="k">1, 3 e 10 ottobre</div><div class="kfig neg">&minus;25.393</div><div class="s">tre giornate</div></div>
+  </div>
+
+  <div class="card flush"><div class="scroll">
+  <table>
+    <thead><tr><th>Le 6 giornate peggiori</th><th>P&amp;L</th><th></th><th>Le 5 migliori</th><th>P&amp;L</th></tr></thead>
+    <tbody>
+      <tr class="hot"><td>10/10/2025</td><td class="neg">&minus;13.101</td><td></td><td>27/06/2025</td><td class="pos">+18.923</td></tr>
+      <tr><td>16/07/2025</td><td class="neg">&minus;10.443</td><td></td><td>12/09/2025</td><td class="pos">+14.328</td></tr>
+      <tr class="hot"><td>03/10/2025</td><td class="neg">&minus;8.160</td><td></td><td>26/06/2025</td><td class="pos">+12.347</td></tr>
+      <tr><td>01/07/2025</td><td class="neg">&minus;7.954</td><td></td><td>16/09/2025</td><td class="pos">+9.618</td></tr>
+      <tr><td>11/07/2025</td><td class="neg">&minus;5.552</td><td></td><td>08/08/2025</td><td class="pos">+9.547</td></tr>
+      <tr class="hot"><td>01/10/2025</td><td class="neg">&minus;4.132</td><td></td><td colspan="2" class="dim">&hellip;</td></tr>
+    </tbody>
+  </table>
+  </div></div>
+  <p class="cap">Le tre righe evidenziate valgono &minus;25.393: da sole spiegano tutto ottobre. La distribuzione &egrave; asimmetrica in modo estremo: le sei giornate peggiori valgono &minus;49.342, cio&egrave; quasi il doppio del netto finale dell&rsquo;intero backtest.</p>
+
+  <h3>Chi ha perso</h3>
+  <div class="card flush"><div class="scroll">
+  <table>
+    <thead><tr><th>Strategia</th><th>n ott</th><th>netto ott</th><th>n prima</th><th>netto prima</th></tr></thead>
+    <tbody>
+      <tr class="hot"><td>PTS_NQ_SBO_002_15</td><td>2</td><td class="neg">&minus;8.062</td><td>8</td><td class="pos">+16.449</td></tr>
+      <tr class="hot"><td>PTS_NQ_SBO_001_15</td><td>3</td><td class="neg">&minus;5.647</td><td>8</td><td class="pos">+12.461</td></tr>
+      <tr><td>PTS_NQ_TFM_011_60</td><td>3</td><td class="neg">&minus;3.695</td><td>11</td><td class="neg">&minus;8.195</td></tr>
+      <tr class="hot"><td>PTS_NQ_TFM_002_15</td><td>1</td><td class="neg">&minus;2.965</td><td>10</td><td class="pos">+19.400</td></tr>
+      <tr><td>PTS_NQ_TFU_004_60</td><td>2</td><td class="neg">&minus;1.442</td><td>11</td><td class="pos">+5.585</td></tr>
+      <tr><td>PTS_NQ_TFM_001_60</td><td>1</td><td class="neg">&minus;969</td><td>2</td><td class="pos">+2.064</td></tr>
+      <tr><td>PTS_NQ_PCH_003_30</td><td>4</td><td class="neg">&minus;762</td><td>29</td><td class="pos">+8.515</td></tr>
+      <tr><td class="dim">altre 19 strategie</td><td class="dim">13</td><td class="dim">&minus;1.781</td><td class="dim">112</td><td class="dim">+20.752</td></tr>
+    </tbody>
+  </table>
+  </div></div>
+  <p class="cap">Tre strategie &mdash; SBO_002, SBO_001, TFM_002 &mdash; valgono &minus;16.674 su sei trade. Avevano prodotto <strong>+48.310</strong> nei tre mesi precedenti: erano le tre migliori del campione.</p>
+
+  <div class="card flush"><div class="scroll">
+  <table>
+    <thead><tr><th>Per symbol</th><th>n ott</th><th>netto ott</th><th>n prima</th><th>netto prima</th></tr></thead>
+    <tbody>
+      <tr><td>NQ</td><td>21</td><td class="neg">&minus;24.532</td><td>135</td><td class="pos">+63.096</td></tr>
+      <tr><td>ES</td><td>6</td><td class="neg">&minus;751</td><td>39</td><td class="pos">+13.876</td></tr>
+      <tr><td>GC</td><td>2</td><td class="dim">&minus;40</td><td>17</td><td class="dim">+60</td></tr>
+    </tbody>
+  </table>
+  </div></div>
+  <p class="cap">Diversificare sui symbol non ha aiutato: il 97% della perdita di ottobre &egrave; su NQ. ES contribuisce +13.125 netti sul campione ma non compensa; GC &egrave; rumore puro (19 trade, +20 in totale, size 1 contro 20).</p>
+</section>
+
+<section>
+  <span class="lab">Perch&eacute; Titano non la vede</span>
+  <h2>Il rotatore &egrave; lungo su ci&ograve; che ha appena vinto</h2>
+  <div class="col">
+    <p>Titano ordina per rendimento sulle finestre a 90 e 365 giorni. Al 30 settembre le SBO erano al vertice di quella classifica. Il rotatore fa il suo mestiere e le tiene ad allocazione alta &mdash; e poi la serie si rompe.</p>
+    <p>Peggio: applicare Titano a questo backtest costa quattro quinti del guadagno, e ottobre resta negativo comunque.</p>
+  </div>
+
+  <div class="card flush"><div class="scroll">
+  <table>
+    <thead><tr><th>Configurazione</th><th>Netto</th><th>maxDD</th><th>Ottobre</th><th>Trade</th></tr></thead>
+    <tbody>
+      <tr class="tot"><td>Baseline, tutto attivo</td><td class="pos">+51.708</td><td>29.403</td><td class="neg">&minus;25.323</td><td>220</td></tr>
+      <tr><td>Titano Weekly (default)</td><td class="pos">+11.873</td><td>15.983</td><td class="neg">&minus;14.096</td><td>136</td></tr>
+      <tr><td>Titano Biweekly</td><td class="pos">+3.877</td><td>16.539</td><td class="neg">&minus;14.231</td><td>119</td></tr>
+      <tr><td>Titano Monthly</td><td class="pos">+12.591</td><td>16.217</td><td class="neg">&minus;14.388</td><td>116</td></tr>
+      <tr><td>Titano Weekly, minPass = 3</td><td class="pos">+12.963</td><td>18.737</td><td class="neg">&minus;16.309</td><td>181</td></tr>
+      <tr><td>Titano Weekly, minPass = 5</td><td class="dim">+1.573</td><td>13.925</td><td class="neg">&minus;12.267</td><td>72</td></tr>
+      <tr><td>Titano, cancelli DD 0,06 / 0,12</td><td class="pos">+10.690</td><td>15.983</td><td class="neg">&minus;14.096</td><td>134</td></tr>
+      <tr><td>Titano, cancelli DD 0,03 / 0,06</td><td class="pos">+14.208</td><td>11.407</td><td class="neg">&minus;9.141</td><td>121</td></tr>
+    </tbody>
+  </table>
+  </div></div>
+
+  <div class="verdict bad">
+    <span class="lab">Verdetto</span>
+    <p>Nessuna configurazione di Titano evita ottobre. La migliore sul netto (<strong>+14.208</strong>, cancelli strettissimi) resta a un quarto della baseline e chiude ottobre a &minus;9.141. Il rotatore riduce il drawdown perch&eacute; riduce l&rsquo;esposizione a tutto, non perch&eacute; abbia visto arrivare qualcosa.</p>
+  </div>
+</section>
+
+<section>
+  <span class="lab">L&rsquo;intervento che funziona</span>
+  <h2>Il limite di perdita giornaliero</h2>
+  <div class="col">
+    <p>Una regola sola, al livello veloce: <strong>quando la perdita cumulata della giornata supera una soglia, si chiude e si sta flat fino al giorno dopo.</strong> Nessuna classifica, nessuna finestra mobile, nessun parametro stimato su performance passate. &Egrave; l&rsquo;unico strumento la cui unit&agrave; di misura coincide con l&rsquo;unit&agrave; in cui il danno si &egrave; prodotto: la giornata.</p>
+  </div>
+
+  <div class="chart">
+    <svg viewBox="0 0 1000 340" role="img" aria-label="Curve di equity a confronto">
+      <rect x="911.1" y="0" width="88.9" height="340" fill="var(--loss-soft)" opacity="0.6"/>
+      <line x1="0" y1="311.4" x2="1000" y2="311.4" stroke="var(--line-soft)" stroke-width="1"/><text x="6" y="306.4" font-family="IBM Plex Mono,monospace" font-size="11" fill="var(--muted)">0</text><line x1="0" y1="221.1" x2="1000" y2="221.1" stroke="var(--line-soft)" stroke-width="1"/><text x="6" y="216.1" font-family="IBM Plex Mono,monospace" font-size="11" fill="var(--muted)">+25k</text><line x1="0" y1="130.7" x2="1000" y2="130.7" stroke="var(--line-soft)" stroke-width="1"/><text x="6" y="125.7" font-family="IBM Plex Mono,monospace" font-size="11" fill="var(--muted)">+50k</text><line x1="0" y1="40.4" x2="1000" y2="40.4" stroke="var(--line-soft)" stroke-width="1"/><text x="6" y="35.4" font-family="IBM Plex Mono,monospace" font-size="11" fill="var(--muted)">+75k</text><line x1="61.7" y1="0" x2="61.7" y2="340" stroke="var(--line-soft)" stroke-width="1"/><text x="66.7" y="334" font-family="IBM Plex Mono,monospace" font-size="11" fill="var(--muted)">Jul 25</text><line x1="347.9" y1="0" x2="347.9" y2="340" stroke="var(--line-soft)" stroke-width="1"/><text x="352.9" y="334" font-family="IBM Plex Mono,monospace" font-size="11" fill="var(--muted)">Aug 25</text><line x1="634.1" y1="0" x2="634.1" y2="340" stroke="var(--line-soft)" stroke-width="1"/><text x="639.1" y="334" font-family="IBM Plex Mono,monospace" font-size="11" fill="var(--muted)">Sep 25</text><line x1="911.1" y1="0" x2="911.1" y2="340" stroke="var(--line-soft)" stroke-width="1"/><text x="916.1" y="334" font-family="IBM Plex Mono,monospace" font-size="11" fill="var(--muted)">Oct 25</text>
+      <line x1="0" y1="311.4" x2="1000" y2="311.4" stroke="var(--muted)" stroke-width="1" stroke-dasharray="3 3"/>
+      <polyline points="60.2,311.4 67.6,321.5 69.0,321.5 84.1,321.6 86.2,308.8 90.3,305.0 122.4,305.0 141.2,303.1 150.2,305.2 154.2,317.8 162.0,317.7 162.0,318.2 190.4,319.7 191.9,319.6 203.0,325.4 206.2,329.0 206.2,339.1 224.2,335.7 226.7,333.5 226.7,327.5 226.7,330.1 252.6,327.7 253.8,327.7 257.3,327.2 261.0,335.8 279.5,337.2 279.5,335.7 283.6,336.1 288.6,340.0 291.3,336.6 291.3,334.3 291.3,330.5 291.3,329.2 316.1,332.1 323.2,325.2 325.0,325.7 325.8,329.7 327.8,331.2 336.3,331.6 336.7,331.7 336.7,335.1 336.8,338.3 343.9,336.5 390.4,337.9 407.1,332.7 408.6,333.3 410.3,334.8 420.6,322.2 420.6,318.8 420.6,313.7 445.2,313.7 454.7,317.0 454.9,324.5 458.7,316.8 472.8,316.8 485.2,314.4 509.1,314.4 519.8,314.3 520.5,307.8 528.7,310.8 549.8,306.1 549.8,305.6 583.0,305.6 586.4,306.0 590.8,307.9 595.8,307.1 614.4,306.8 648.0,309.6 648.1,300.1 667.6,300.0 671.1,290.5 675.9,290.0 676.0,283.1 705.6,284.0 722.0,284.4 722.5,282.5 723.1,281.7 726.6,283.4 731.3,283.4 732.2,283.9 732.4,276.8 734.9,276.7 741.4,266.5 742.2,267.0 743.7,264.4 743.7,260.3 743.7,257.9 768.4,257.9 769.5,251.0 771.1,243.9 774.9,234.4 777.3,228.6 778.0,222.3 783.5,224.1 785.2,224.1 793.5,222.7 796.1,217.5 798.0,217.5 798.0,217.5 806.3,222.5 808.3,219.0 833.8,219.5 835.3,212.7 843.5,210.8 852.6,218.3 854.9,218.3 854.9,218.3 861.0,220.9 870.2,223.7 872.9,221.5 898.5,222.3 898.5,217.6 911.2,220.3 916.6,226.8 923.6,219.6 925.6,219.9 925.6,211.9 925.7,211.0 936.1,211.0 936.4,221.8 937.6,219.9 937.6,228.6 962.2,228.6 966.0,230.1 966.1,232.2 972.1,232.2 972.3,236.0 990.6,237.6 991.5,239.4 991.6,239.4 991.6,239.5 999.5,240.0 1000.0,243.2 1000.0,254.3 1000.0,265.9 1000.0,268.5" fill="none" stroke="var(--muted)" stroke-width="1.6" vector-effect="non-scaling-stroke" stroke-linejoin="round"/>
+      <polyline points="0.0,311.6 11.6,318.7 18.8,309.5 20.3,310.3 20.9,314.7 21.4,303.3 24.1,285.1 24.2,274.1 25.4,275.8 27.6,261.2 30.2,243.0 30.9,243.7 31.6,235.4 31.9,233.0 32.8,212.0 32.8,208.9 32.8,205.7 53.4,206.5 57.0,201.0 57.7,201.0 60.2,200.9 67.6,215.3 67.6,229.7 69.0,229.7 75.9,231.4 84.1,231.5 86.2,213.3 86.7,204.2 90.3,197.3 91.8,197.4 97.4,194.4 122.4,194.4 141.2,195.2 141.2,192.1 150.2,194.7 150.3,199.1 154.2,217.1 159.1,217.9 162.0,217.7 162.0,219.2 190.4,221.8 191.9,221.3 191.9,221.2 192.1,222.8 196.0,223.6 203.0,232.6 206.2,247.0 206.2,261.4 214.7,263.1 217.9,263.0 224.2,260.4 224.2,255.6 226.7,251.6 226.7,242.4 226.7,242.8 226.7,246.5 251.4,250.9 252.6,246.5 253.8,246.5 257.3,245.7 261.0,256.5 275.5,258.1 279.5,260.8 279.5,258.6 283.6,259.4 286.3,263.8 288.6,269.3 291.3,263.7 291.3,259.1 291.3,252.8 291.3,251.0 291.3,249.2 316.1,253.5 316.9,255.2 323.2,246.0 325.0,246.8 325.4,235.8 325.8,240.8 327.8,243.4 336.3,244.2 336.7,244.2 336.7,244.3 336.7,248.6 336.8,252.9 343.9,250.6 344.0,252.3 344.2,254.0 347.6,255.7 390.1,255.8 390.4,258.4 407.1,243.7 408.6,244.5 410.3,247.2 418.0,248.1 418.6,251.6 420.6,248.1 420.6,225.3 420.6,219.0 420.6,212.7 445.2,212.7 454.5,217.1 454.7,223.6 454.8,224.4 454.9,235.2 458.7,224.2 458.7,213.2 464.6,214.9 472.8,214.9 483.4,216.6 485.2,212.9 509.1,212.8 511.0,214.5 519.8,214.5 520.5,199.8 522.6,199.9 527.6,201.6 528.7,205.9 544.6,210.4 547.3,203.8 547.3,191.0 547.4,190.8 549.8,183.5 549.8,182.7 578.9,187.1 583.0,187.1 586.4,187.9 590.8,189.6 590.8,192.2 593.2,196.4 595.4,201.4 595.8,200.1 614.4,200.2 614.4,199.6 648.0,203.9 648.1,189.3 658.5,191.1 658.5,190.9 667.3,196.6 667.6,196.6 671.1,182.0 675.9,180.9 676.0,171.8 676.5,165.6 676.6,167.5 705.6,168.9 722.0,169.7 722.5,165.9 723.1,164.5 724.6,168.9 726.6,171.5 731.3,171.5 732.2,172.4 732.4,161.4 734.9,161.4 741.4,146.8 741.4,132.2 742.2,133.0 743.7,126.3 743.7,119.8 743.7,114.3 743.7,109.6 766.5,114.0 768.4,113.9 768.5,114.0 769.5,104.8 771.1,93.8 774.9,79.2 777.3,66.4 778.0,57.3 778.0,59.0 783.5,61.6 785.2,61.6 793.5,58.5 796.1,51.1 798.0,51.1 798.0,51.1 806.3,58.3 808.3,53.0 808.3,29.6 833.8,30.4 835.3,21.2 843.5,18.3 852.6,29.0 854.9,29.0 854.9,29.0 861.0,33.3 870.2,37.7 872.9,34.6 898.5,35.9 898.5,28.6 907.3,33.1 911.2,37.3 916.6,48.0 923.6,37.0 925.6,37.5 925.6,25.2 925.7,23.7 926.1,25.4 934.5,29.8 936.1,29.8 936.4,44.1 937.6,41.5 937.6,54.9 962.2,54.7 962.6,59.2 965.0,60.0 966.0,62.6 966.1,66.1 972.1,66.0 972.3,71.9 990.6,74.5 991.5,77.1 991.6,77.2 991.6,77.2 999.5,78.0 999.6,82.6 1000.0,87.5 1000.0,102.3 1000.0,120.2 1000.0,124.6" fill="none" stroke="var(--loss)" stroke-width="2" vector-effect="non-scaling-stroke" stroke-linejoin="round"/>
+      <polyline points="0.0,311.6 11.6,318.7 18.8,309.5 20.3,310.3 20.9,314.7 21.4,303.3 24.1,285.1 24.2,274.1 25.4,275.8 27.6,261.2 30.2,243.0 30.9,243.7 31.6,235.4 31.9,233.0 32.8,212.0 32.8,208.9 32.8,205.7 53.4,206.5 57.0,201.0 57.7,201.0 60.2,200.9 67.6,215.3 75.9,217.0 84.1,217.1 86.2,198.9 86.7,189.8 90.3,182.9 91.8,183.0 97.4,180.1 122.4,180.0 141.2,180.8 141.2,177.7 150.2,180.3 150.3,184.7 154.2,202.7 190.4,205.3 191.9,204.9 191.9,204.7 192.1,206.4 196.0,207.2 203.0,216.2 214.7,217.9 217.9,217.8 224.2,215.2 224.2,210.4 226.7,206.4 226.7,197.2 226.7,197.6 226.7,201.3 251.4,205.7 252.6,201.3 253.8,201.3 257.3,200.5 261.0,211.3 275.5,212.9 279.5,215.6 279.5,213.4 283.6,214.2 286.3,218.6 288.6,224.1 316.1,228.4 316.9,230.1 323.2,220.9 325.0,221.7 325.4,210.7 325.8,215.7 327.8,218.3 336.3,219.1 336.7,219.2 336.7,219.2 336.7,223.5 336.8,227.8 343.9,225.5 344.0,227.2 344.2,228.9 347.6,230.6 390.1,230.7 390.4,233.3 407.1,218.6 408.6,219.4 410.3,222.1 418.0,223.0 418.6,226.5 420.6,223.1 420.6,200.2 420.6,193.9 420.6,187.6 445.2,187.6 454.5,192.1 454.7,198.6 464.6,200.2 472.8,200.3 483.4,202.0 485.2,198.2 509.1,198.2 511.0,199.8 519.8,199.8 520.5,185.2 522.6,185.2 527.6,186.9 528.7,191.2 544.6,195.7 547.3,189.1 547.3,176.3 547.4,176.1 549.8,168.9 549.8,168.1 578.9,172.5 583.0,172.4 586.4,173.3 590.8,174.9 590.8,177.6 593.2,181.8 614.4,181.9 614.4,181.3 648.0,185.6 648.1,171.0 658.5,172.7 658.5,172.6 667.3,178.3 667.6,178.3 671.1,163.7 675.9,162.6 676.0,153.4 676.5,147.3 676.6,149.1 705.6,150.6 722.0,151.4 722.5,147.6 723.1,146.2 724.6,150.6 726.6,153.2 731.3,153.2 732.2,154.1 732.4,143.1 734.9,143.0 741.4,128.5 741.4,113.9 742.2,114.7 743.7,108.0 743.7,101.5 743.7,96.0 743.7,91.3 766.5,95.7 768.4,95.6 768.5,95.7 769.5,86.5 771.1,75.5 774.9,60.9 777.3,48.1 778.0,39.0 778.0,40.7 783.5,43.3 785.2,43.3 793.5,40.2 796.1,32.8 798.0,32.8 798.0,32.8 806.3,40.0 808.3,34.6 808.3,11.3 833.8,12.1 835.3,2.9 843.5,0.0 852.6,10.7 861.0,15.0 870.2,19.4 872.9,16.3 898.5,17.6 898.5,10.3 907.3,14.8 911.2,19.0 916.6,29.7 923.6,18.7 925.6,19.2 925.6,6.9 925.7,5.4 926.1,7.1 934.5,11.5 936.1,11.5 936.4,25.8 962.2,25.7 962.6,30.1 965.0,30.9 966.0,33.5 972.1,33.5 972.3,39.3 990.6,41.9 991.5,44.5 991.6,44.6 991.6,44.7 999.5,45.5 999.6,50.0 1000.0,54.9" fill="none" stroke="var(--accent)" stroke-width="2.4" vector-effect="non-scaling-stroke" stroke-linejoin="round"/>
+    </svg>
+    <div class="legend">
+      <span><i style="border-color:var(--accent)"></i>limite giornaliero 2.000</span>
+      <span><i style="border-color:var(--loss)"></i>baseline, tutto attivo</span>
+      <span><i style="border-color:var(--muted)"></i>Titano v2 settimanale</span>
+    </div>
+    <p class="cap">Equity per trade chiuso, capitale 100.000. La banda &egrave; ottobre. Il limite non cambia la forma della curva &mdash; taglia le code.</p>
+  </div>
+
+  <div class="kpis">
+    <div class="kpi"><div class="k">Netto</div><div class="kfig pos">+70.973</div><div class="s">baseline +51.708</div></div>
+    <div class="kpi"><div class="k">Drawdown max</div><div class="kfig pos">15.397</div><div class="s">baseline 29.403</div></div>
+    <div class="kpi"><div class="k">Ottobre</div><div class="kfig neg">&minus;11.120</div><div class="s">baseline &minus;25.323</div></div>
+    <div class="kpi"><div class="k">Trade esclusi</div><div class="kfig">26</div><div class="s">su 10 giornate</div></div>
+  </div>
+
+  <div class="card flush"><div class="scroll">
+  <table>
+    <thead><tr><th>Soglia</th><th>Netto</th><th>maxDD</th><th>Ottobre</th><th>Trade</th></tr></thead>
+    <tbody>
+      <tr><td>1.500</td><td class="pos">+63.008</td><td>15.397</td><td class="neg">&minus;11.120</td><td>191</td></tr>
+      <tr class="hi"><td>2.000</td><td class="pos">+70.973</td><td>15.397</td><td class="neg">&minus;11.120</td><td>194</td></tr>
+      <tr><td>2.500</td><td class="pos">+64.647</td><td>19.370</td><td class="neg">&minus;12.089</td><td>197</td></tr>
+      <tr><td>3.000</td><td class="pos">+66.128</td><td>20.261</td><td class="neg">&minus;16.180</td><td>205</td></tr>
+      <tr><td>4.000</td><td class="pos">+59.320</td><td>20.261</td><td class="neg">&minus;16.180</td><td>209</td></tr>
+      <tr><td>6.000</td><td class="pos">+55.780</td><td>23.236</td><td class="neg">&minus;19.156</td><td>214</td></tr>
+      <tr><td>8.000</td><td class="pos">+52.904</td><td>28.207</td><td class="neg">&minus;24.127</td><td>219</td></tr>
+      <tr class="tot"><td>nessuna</td><td>+51.708</td><td>29.403</td><td class="neg">&minus;25.323</td><td>220</td></tr>
+    </tbody>
+  </table>
+  </div></div>
+  <p class="cap">Ogni soglia provata batte la baseline su tutti e tre i fronti, e il beneficio cresce monotonamente quanto pi&ugrave; stretta &egrave;. Il valore esatto resta rumore: 1.500 rende 63.008, 2.000 rende 70.973, 2.500 rende 64.647 &mdash; oscillazioni di 8.000 su una soglia che cambia di 500.</p>
+
+  <h3>Cosa taglia</h3>
+  <div class="card flush"><div class="scroll">
+  <table>
+    <thead><tr><th>Giornate evitate</th><th>Risparmiato</th><th></th><th>Utile sacrificato</th><th>Costo</th></tr></thead>
+    <tbody>
+      <tr><td>10/10/2025</td><td class="pos">+10.258</td><td></td><td>25/07/2025</td><td class="neg">&minus;5.568</td></tr>
+      <tr><td>16/07/2025</td><td class="pos">+7.960</td><td></td><td>12/08/2025</td><td class="neg">&minus;2.882</td></tr>
+      <tr><td>01/07/2025</td><td class="pos">+3.983</td><td></td><td colspan="2" class="dim">&hellip; e nient&rsquo;altro di rilievo</td></tr>
+      <tr><td>03/10/2025</td><td class="pos">+2.976</td><td></td><td colspan="2"></td></tr>
+      <tr><td>27/08/2025</td><td class="pos">+1.010</td><td></td><td colspan="2"></td></tr>
+      <tr><td>06/10/2025</td><td class="pos">+969</td><td></td><td colspan="2"></td></tr>
+    </tbody>
+  </table>
+  </div></div>
+  <p class="cap">26 trade esclusi in tutto, su 10 giornate: +19.265 netti risparmiati. Il rapporto &egrave; molto pi&ugrave; favorevole che nel backtest precedente perch&eacute; qui le code negative sono pi&ugrave; grosse e pi&ugrave; concentrate.</p>
+
+  <h3>La prova onesta</h3>
+  <div class="col">
+    <p>Soglia scelta <strong>solo</strong> sui dati fino al 30 settembre (191 trade), massimizzando il Calmar in-sample: esce 1.250. Applicata poi al periodo che non ha visto:</p>
+  </div>
+
+  <div class="kpis">
+    <div class="kpi"><div class="k">Ottobre senza limite</div><div class="kfig neg">&minus;25.323</div><div class="s">29 trade</div></div>
+    <div class="kpi"><div class="k">Ottobre con limite</div><div class="kfig neg">&minus;8.993</div><div class="s">19 trade</div></div>
+    <div class="kpi"><div class="k">Differenza OOS</div><div class="kfig pos">+16.330</div><div class="s">10 trade esclusi</div></div>
+  </div>
+
+  <div class="col">
+    <p>Fuori campione il beneficio &egrave; di nuovo monotono nella soglia: &minus;1.844 a 1.000, &minus;11.120 a 2.000, &minus;16.180 a 3.000, &minus;24.127 a 7.000 e oltre. Nessun picco isolato, nessuna soglia magica &mdash; solo una direzione.</p>
+    <p><strong>Ma il fuori campione qui &egrave; sottile:</strong> otto sedute e 29 trade. La volta scorsa erano due mesi e 113 trade, e il risultato andava nella stessa direzione. Due campioni indipendenti che concordano valgono pi&ugrave; di ciascuno da solo, ma nessuno dei due &egrave; una prova.</p>
+  </div>
+</section>
+
+<section>
+  <span class="lab">Cosa non funziona</span>
+  <h2>Lo stop per strategia</h2>
+  <div class="col">
+    <p>Spegnere una strategia quando il suo P&amp;L rolling scende sotto una soglia: 48 combinazioni provate (finestra 14&ndash;45 giorni, soglia &minus;2.000 a &minus;6.000, cooldown 14&ndash;30 giorni). La migliore fa <strong>+56.041</strong> contro i 51.708 della baseline &mdash; un guadagno marginale, con un drawdown ancora di 23.031 e ottobre a &minus;19.273.</p>
+    <p>Il difetto &egrave; sempre lo stesso: reagisce alla perdita gi&agrave; realizzata. Su un evento che si consuma in tre giornate, una finestra di 14 giorni arriva dopo.</p>
+  </div>
+</section>
+
+<section>
+  <span class="lab">Conclusione</span>
+  <h2>Due backtest, stessa risposta</h2>
+
+  <div class="card flush"><div class="scroll">
+  <table>
+    <thead><tr><th></th><th>Backtest precedente</th><th>Questo backtest</th></tr></thead>
+    <tbody>
+      <tr><td>Campione</td><td>432 trade, 19 strat., NQ+GC</td><td>220 trade, 26 strat., NQ+ES+GC</td></tr>
+      <tr><td>Periodo</td><td>giu 2025 &ndash; feb 2026</td><td>giu 2025 &ndash; ott 2025</td></tr>
+      <tr><td>Periodo di perdite</td><td>dic&ndash;feb, &minus;13.612</td><td>ottobre, &minus;25.323</td></tr>
+      <tr><td>Causa</td><td>famiglia PCH, prima in classifica</td><td>famiglia SBO, prima in classifica</td></tr>
+      <tr><td>Titano evita?</td><td class="neg">no (&minus;12.066)</td><td class="neg">no (&minus;14.096)</td></tr>
+      <tr><td>Costo di Titano</td><td class="neg">74.005 &rarr; 23.255</td><td class="neg">51.708 &rarr; 11.873</td></tr>
+      <tr class="cool"><td>Limite giornaliero</td><td class="pos">74.005 &rarr; 83.344</td><td class="pos">51.708 &rarr; 70.973</td></tr>
+      <tr class="cool"><td>Drawdown</td><td class="pos">34.031 &rarr; 15.688</td><td class="pos">29.403 &rarr; 15.397</td></tr>
+      <tr class="cool"><td>Walk-forward OOS</td><td class="pos">&minus;13.612 &rarr; +2.002</td><td class="pos">&minus;25.323 &rarr; &minus;8.993</td></tr>
+    </tbody>
+  </table>
+  </div></div>
+
+  <div class="verdict">
+    <span class="lab">In una riga</span>
+    <p>Sposta il controllo del rischio dalla <strong>selezione</strong> (Titano, lento, retrospettivo) al <strong>troncamento</strong> (limite giornaliero, veloce, cieco al passato). Titano decide <em>cosa</em> tradare; non pu&ograve; decidere <em>quando fermarsi</em>. Sono due lavori diversi e servono due meccanismi diversi.</p>
+  </div>
+
+  <h3>&laquo;Solo utile&raquo; resta fuori portata</h3>
+  <div class="col">
+    <p>Anche la variante migliore chiude <strong>2 mesi su 5 in perdita</strong>: luglio 2025 a &minus;8.217 e ottobre a &minus;11.120. Luglio &egrave; il rodaggio della curva, ottobre &egrave; l&rsquo;evento. Nessuna parametrizzazione li azzera entrambi senza memorizzare questi 220 trade specifici.</p>
+    <p>Quello che il limite giornaliero fa &mdash; e che va bene cos&igrave; &mdash; &egrave; rendere le perdite <em>piccole e sopportabili</em> invece che rare: da un drawdown di 29.403 a uno di 15.397, guadagnando 19.265 nel farlo.</p>
+  </div>
+
+  <div class="callout">
+    <strong>Limiti di questa analisi.</strong> Il run &egrave; incompleto e si ferma al 10/10/2025: quattro mesi scarsi, con ottobre troncato al decimo giorno. Il P&amp;L giornaliero &egrave; ricostruito sui tempi di <span class="mono">exitTimeUtc</span>, quindi il limite scatta alla chiusura del trade che sfonda la soglia, non intraday sul mark-to-market: un&rsquo;implementazione reale taglierebbe prima e pi&ugrave; spesso. GC &egrave; presente solo nominalmente (19 trade a size 1 contro 20). Prima di portarlo in produzione: rifare il backtest completo, e implementare la regola nel <span class="mono">RiskGuardian</span>, dove vive il rischio, non nella rotazione.
+  </div>
+</section>
+
+<footer>
+  Analisi prodotta il 23/08/2026 su <span class="mono">piootoo-repository/trades.jsonl</span> (220 trade, sessione <span class="mono">a35e1521</span>).<br>
+  Script: <span class="mono">titano.py</span> (simulatore v2), <span class="mono">run2.py</span> (Titano e limite giornaliero), <span class="mono">run3.py</span> (walk-forward, stop per strategia, tabelle mensili), <span class="mono">mk2.py</span> (curve di equity).<br>
+  Versione precedente di questa analisi: backtest 432 trade NQ+GC, giugno 2025 &ndash; febbraio 2026.
+</footer>
+</div>
