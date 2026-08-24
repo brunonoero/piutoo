@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.IO;
@@ -2374,7 +2374,8 @@ namespace cAlgo.Robots
             var spread = MeasureSpreadAtFill(position, intent);
 
             ReportExecution(intent.IntentId, intent.Symbol, ExecutionReportStatusDto.Filled,
-                (decimal)position.VolumeInUnits, (decimal)position.EntryPrice, position.Id.ToString(),
+                ToContractQuantity(position.SymbolName, position.VolumeInUnits),
+                (decimal)position.EntryPrice, position.Id.ToString(),
                 spreadAtFill: spread);
 
             CancelPendingOrdersAtCap();
@@ -2721,7 +2722,9 @@ namespace cAlgo.Robots
             var swap = (decimal)(trade?.Swap ?? position.Swap);
             var entryPrice = trade?.EntryPrice ?? ctx.EntryPrice;
             var closePrice = trade?.ClosingPrice ?? 0.0;
-            var quantity = (decimal)(trade?.VolumeInUnits ?? position.VolumeInUnits);
+            // Quantita' nei contratti del broker, non nelle unita' della piattaforma: e' la stessa
+            // grandezza in cui il server ha dichiarato l'intent, ed e' quella che si aspetta indietro.
+            var quantity = ToContractQuantity(position.SymbolName, trade?.VolumeInUnits ?? position.VolumeInUnits);
 
             var durataMinuti = ctx.OpenTimeUtc.HasValue
                 ? (Server.TimeInUtc - ctx.OpenTimeUtc.Value).TotalMinutes
@@ -2921,7 +2924,9 @@ namespace cAlgo.Robots
 
             var trade = History.LastOrDefault(h => h.PositionId == position.Id);
             var closePrice = (decimal?)trade?.ClosingPrice;
-            var quantity = (decimal)(trade?.VolumeInUnits ?? position.VolumeInUnits);
+            // Quantita' nei contratti del broker, non nelle unita' della piattaforma: e' la stessa
+            // grandezza in cui il server ha dichiarato l'intent, ed e' quella che si aspetta indietro.
+            var quantity = ToContractQuantity(position.SymbolName, trade?.VolumeInUnits ?? position.VolumeInUnits);
             var commission = (decimal)(trade?.Commissions ?? 0);
 
             LogTradeOutcome(ctx, position, trade, args.Reason.ToString());
@@ -2965,6 +2970,29 @@ namespace cAlgo.Robots
             {
                 Print("Errore registrazione chiusura esterna {0}/{1}: {2}", ctx.Symbol, ctx.StrategyCode, ex.Message);
             }
+        }
+
+        /// <summary>
+        /// Converte un volume espresso nelle UNITA' della piattaforma nei contratti del broker, cioe'
+        /// nella stessa grandezza con cui il server dichiara <c>FinalQuantity</c> sull'intent.
+        ///
+        /// <para>Serve su ogni numero che torna indietro al server. Un fill di 0,1 lotti su XAUUSD
+        /// vale 10 unita': riportare il 10 fa fallire la validazione dell'execution report, il
+        /// server non registra l'apertura, e da quel momento rifiuta ogni nuovo segnale della stessa
+        /// strategia perche' crede di avere un ingresso ancora in corso. Un errore di unita' qui non
+        /// sbaglia un numero: blocca la strategia per il resto del run.</para>
+        ///
+        /// <para>Simbolo non risolvibile: si restituisce il volume invariato. E' il caso di una
+        /// posizione su uno strumento non piu' fra quelli configurati, dove non c'e' un
+        /// <c>LotSize</c> da cui convertire — meglio un numero grezzo di un'eccezione mentre si sta
+        /// chiudendo una posizione.</para>
+        /// </summary>
+        private decimal ToContractQuantity(string brokerSymbolName, double volumeInUnits)
+        {
+            var symbol = Symbols.GetSymbol(brokerSymbolName);
+            return symbol is null
+                ? (decimal)volumeInUnits
+                : (decimal)symbol.VolumeInUnitsToQuantity(volumeInUnits);
         }
 
         private void ReportExecution(
