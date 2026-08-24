@@ -231,7 +231,7 @@ namespace cAlgo.Robots
         // della solution — quindi la sincronia e' manuale e non c'e' niente che la verifichi.
         // Il disallineamento non blocca nulla: entrambi stampano la propria versione all'avvio, e
         // il confronto si fa leggendo i due log.
-        private const string BotVersion = "3.3.0"; // aggiornare qui E in PiootooVersion, ad ogni release
+        private const string BotVersion = "3.3.1"; // aggiornare qui E in PiootooVersion, ad ogni release
         private const string StatusChartObjectName = "PiootooConnectionStatus";
 
         // Riquadro rosso al centro del grafico, separato dal pannello di stato: e' l'errore fatale
