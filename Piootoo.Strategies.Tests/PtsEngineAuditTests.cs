@@ -229,15 +229,21 @@ public sealed class PtsEngineAuditTests
                 Name = "Micro NQ",
                 InitialBalance = 50_000m
             },
-            [
-                new AccountSymbolMapping
-                {
-                    Symbol = "@NQ",
-                    AccountSymbol = "MNQ",
-                    ContractMultiplier = 0.01m,
-                    Enabled = true
-                }
-            ]);
+            new SymbolConversion
+            {
+                Code = "micro-futures",
+                Name = "Micro futures",
+                Mappings =
+                [
+                    new AccountSymbolMapping
+                    {
+                        Symbol = "@NQ",
+                        AccountSymbol = "MNQ",
+                        ContractMultiplier = 0.01m,
+                        Enabled = true
+                    }
+                ]
+            });
 
         Assert.Equal(0.01m, conversion.GetContractMultiplier("NQ"));
         Assert.Equal("MNQ", conversion.GetAccountSymbol("@NQ"));
@@ -288,15 +294,21 @@ public sealed class PtsEngineAuditTests
                 Name = "Disabled",
                 InitialBalance = 100_000m
             },
-            [
-                new AccountSymbolMapping
-                {
-                    Symbol = "@NQ",
-                    AccountSymbol = "USDTEC",
-                    ContractMultiplier = 1m,
-                    Enabled = false
-                }
-            ]);
+            new SymbolConversion
+            {
+                Code = "cfd-disabled",
+                Name = "CFD disabled",
+                Mappings =
+                [
+                    new AccountSymbolMapping
+                    {
+                        Symbol = "@NQ",
+                        AccountSymbol = "USDTEC",
+                        ContractMultiplier = 1m,
+                        Enabled = false
+                    }
+                ]
+            });
 
         Assert.False(conversion.IsSymbolEnabled("@NQ"));
         Assert.True(conversion.IsSymbolEnabled("@GC")); // assente → non bloccato
