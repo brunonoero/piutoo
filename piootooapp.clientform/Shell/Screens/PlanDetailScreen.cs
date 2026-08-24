@@ -36,6 +36,18 @@ public sealed class PlanAccountEditRow
     public string AccountNumber { get; set; } = string.Empty;
 
     public int MaxConcurrentTrades { get; set; }
+
+    /// <summary>
+    /// Cosa conta <see cref="MaxConcurrentTrades"/>: solo le posizioni riempite, oppure anche gli
+    /// ordini pendenti. Vedi <c>docs/domini/distribuzione-multi-account.md</c> §2.
+    ///
+    /// <para>È il <b>nome</b> del valore di <see cref="Piootoo.Shared.Models.Trading.ConcurrencyCountMode"/>,
+    /// non il valore: <c>DataGridViewComboBoxColumn</c> confronta la cella con il ValueMember, che
+    /// per <c>ValueComboItem</c> è una stringa. Tenendo qui l'enum il binding dovrebbe convertire a
+    /// ogni cella, ed è esattamente il genere di conversione che finisce in <c>DataError</c>.</para>
+    /// </summary>
+    public string ConcurrencyCountMode { get; set; } =
+        nameof(Piootoo.Shared.Models.Trading.ConcurrencyCountMode.PositionsAndPendingOrders);
 }
 
 /// <summary>
@@ -62,7 +74,13 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
 
     /// <summary>Liste condivise fra le combo del tab Generale e le colonne della griglia gruppi.</summary>
     private readonly List<ValueComboItem> _rotationSetups = new();
-    private readonly List<ValueComboItem> _backtestFolders = new();
+
+    /// <summary>
+    /// Backtest del workspace. Non alimentano più una colonna combo: le cartelle sono troppe perché
+    /// un menu a tendina dentro una cella sia usabile, e la scelta passa dal pulsante di riga che
+    /// apre <see cref="BacktestPickerDialog"/>.
+    /// </summary>
+    private readonly List<WorkspaceBacktestInfo> _backtests = new();
     private ShellContext? _context;
     private string _workspaceId = string.Empty;
     private string? _code;
@@ -84,6 +102,21 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
             "No, ignora i limiti"
         });
         _enforceConcurrencyCombo.SelectedIndex = 0;
+
+        // Cosa conta il massimo di posizioni contemporanee. Le etichette dicono la conseguenza
+        // operativa, non il nome del contratto: "PositionsOnly" da solo non fa capire che gli stop
+        // pendenti restano tutti a mercato finché uno non entra.
+        _colAccountCountMode.DisplayMember = nameof(ValueComboItem.Display);
+        _colAccountCountMode.ValueMember = nameof(ValueComboItem.Id);
+        _colAccountCountMode.DataSource = new List<ValueComboItem>
+        {
+            ValueComboItem.Of(
+                nameof(ConcurrencyCountMode.PositionsAndPendingOrders),
+                "Posizioni + ordini pendenti"),
+            ValueComboItem.Of(
+                nameof(ConcurrencyCountMode.PositionsOnly),
+                "Solo posizioni riempite")
+        };
 
         _groups.ListChanged += (_, _) => MarkDirty();
         _accounts.ListChanged += (_, _) => MarkDirty();
@@ -302,7 +335,7 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
 
     private async Task LoadBacktestFoldersAsync(CancellationToken cancellationToken)
     {
-        _backtestFolders.Clear();
+        _backtests.Clear();
         if (string.IsNullOrEmpty(_workspaceId))
         {
             return;
@@ -311,13 +344,7 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
         try
         {
             var backtests = await _context!.Services.Api.ListBacktestsAsync(_workspaceId, cancellationToken);
-            foreach (var backtest in backtests.OrderByDescending(b => b.LastModifiedUtc))
-            {
-                _backtestFolders.Add(ValueComboItem.Of(
-                    backtest.FolderName,
-                    $"{backtest.FolderName}  ·  {BacktestComboItem.DescribeOrigin(backtest)}" +
-                    $"  ·  {backtest.LastModifiedUtc:yyyy-MM-dd HH:mm} UTC"));
-            }
+            _backtests.AddRange(backtests.OrderByDescending(b => b.LastModifiedUtc));
         }
         catch (OperationCanceledException)
         {
@@ -375,11 +402,6 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
             _rotationSetups,
             _groups.Select(row => row.RotationSetupId));
 
-        SetColumnItems(
-            _colGroupTitanoFolder,
-            "(nessuna cartella)",
-            _backtestFolders,
-            _groups.Select(row => row.TitanoBacktestFolder));
     }
 
     private static void SetColumnItems(
@@ -466,6 +488,37 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
         {
             _groupsGrid.CommitEdit(DataGridViewDataErrorContexts.Commit);
         }
+    }
+
+    /// <summary>
+    /// Scelta della cartella di backtest della riga. Era una colonna combo, ma un workspace con
+    /// qualche centinaio di cartelle rende la tendina dentro la cella inservibile: il pulsante apre
+    /// la stessa modale con filtro usata dalle schermate Titano, e la cella resta di sola lettura.
+    /// </summary>
+    private void OnGroupsGridCellClick(object? sender, DataGridViewCellEventArgs e)
+    {
+        if (e.RowIndex < 0 || e.ColumnIndex != _colGroupTitanoPick.Index || e.RowIndex >= _groups.Count)
+        {
+            return;
+        }
+
+        if (_backtests.Count == 0)
+        {
+            MessageBox.Show(this, "Il workspace non contiene backtest.", "Piano",
+                MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        var row = _groups[e.RowIndex];
+        var chosen = BacktestPickerDialog.Pick(this, _backtests, row.TitanoBacktestFolder);
+        if (chosen == null)
+        {
+            return;
+        }
+
+        row.TitanoBacktestFolder = chosen.FolderName;
+        _groupsBindingSource.ResetItem(e.RowIndex);
+        MarkDirty();
     }
 
     private void OnGroupsGridCellValueChanged(object? sender, DataGridViewCellEventArgs e)
@@ -589,7 +642,8 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
             {
                 GroupId = row.GroupId,
                 AccountNumber = row.AccountNumber,
-                MaxConcurrentTrades = row.MaxConcurrentTrades
+                MaxConcurrentTrades = row.MaxConcurrentTrades,
+                ConcurrencyCountMode = row.ConcurrencyCountMode.ToString()
             });
         }
 
@@ -780,6 +834,12 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
                     GroupId = row.GroupId.Trim(),
                     AccountNumber = row.AccountNumber.Trim(),
                     MaxConcurrentTrades = row.MaxConcurrentTrades,
+                    // Un valore illeggibile (piano scritto a mano, enum rinominato) ricade sul
+                    // default storico invece di far fallire il salvataggio dell'intero piano.
+                    ConcurrencyCountMode = Enum.TryParse<ConcurrencyCountMode>(
+                        row.ConcurrencyCountMode, ignoreCase: true, out var countMode)
+                        ? countMode
+                        : ConcurrencyCountMode.PositionsAndPendingOrders,
                     RotationSetupId = NullIfEmpty(profile.RotationSetupId),
                     TitanoBacktestFolder = NullIfEmpty(profile.TitanoBacktestFolder),
                     ApplyTitanoFilters = profile.ApplyTitanoFilters

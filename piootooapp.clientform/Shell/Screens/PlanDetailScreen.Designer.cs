@@ -41,7 +41,8 @@ partial class PlanDetailScreen
         this._groupsGrid = new System.Windows.Forms.DataGridView();
         this._colGroupId = new System.Windows.Forms.DataGridViewComboBoxColumn();
         this._colGroupRotationSetup = new System.Windows.Forms.DataGridViewComboBoxColumn();
-        this._colGroupTitanoFolder = new System.Windows.Forms.DataGridViewComboBoxColumn();
+        this._colGroupTitanoFolder = new System.Windows.Forms.DataGridViewTextBoxColumn();
+        this._colGroupTitanoPick = new System.Windows.Forms.DataGridViewButtonColumn();
         this._colGroupApplyTitano = new System.Windows.Forms.DataGridViewCheckBoxColumn();
         this._groupsButtons = new System.Windows.Forms.FlowLayoutPanel();
         this._addGroupButton = new System.Windows.Forms.Button();
@@ -51,6 +52,7 @@ partial class PlanDetailScreen
         this._colAccountNumber = new System.Windows.Forms.DataGridViewComboBoxColumn();
         this._colAccountGroupId = new System.Windows.Forms.DataGridViewTextBoxColumn();
         this._colAccountMaxConcurrent = new System.Windows.Forms.DataGridViewTextBoxColumn();
+        this._colAccountCountMode = new System.Windows.Forms.DataGridViewComboBoxColumn();
         this._accountsButtons = new System.Windows.Forms.FlowLayoutPanel();
         this._addAccountButton = new System.Windows.Forms.Button();
         this._removeAccountButton = new System.Windows.Forms.Button();
@@ -306,6 +308,7 @@ partial class PlanDetailScreen
             this._colGroupId,
             this._colGroupRotationSetup,
             this._colGroupTitanoFolder,
+            this._colGroupTitanoPick,
             this._colGroupApplyTitano});
         this._groupsGrid.DataSource = this._groupsBindingSource;
         this._groupsGrid.Dock = System.Windows.Forms.DockStyle.Fill;
@@ -314,6 +317,7 @@ partial class PlanDetailScreen
         this._groupsGrid.RowHeadersVisible = false;
         this._groupsGrid.Size = new System.Drawing.Size(868, 464);
         this._groupsGrid.TabIndex = 1;
+        this._groupsGrid.CellClick += new System.Windows.Forms.DataGridViewCellEventHandler(this.OnGroupsGridCellClick);
         this._groupsGrid.CellValueChanged += new System.Windows.Forms.DataGridViewCellEventHandler(this.OnGroupsGridCellValueChanged);
         this._groupsGrid.CurrentCellDirtyStateChanged += new System.EventHandler(this.OnGroupsGridCurrentCellDirtyStateChanged);
         this._groupsGrid.DataError += new System.Windows.Forms.DataGridViewDataErrorEventHandler(this.OnGroupsGridDataError);
@@ -335,9 +339,17 @@ partial class PlanDetailScreen
         // _colGroupTitanoFolder
         //
         this._colGroupTitanoFolder.DataPropertyName = "TitanoBacktestFolder";
-        this._colGroupTitanoFolder.DisplayStyle = System.Windows.Forms.DataGridViewComboBoxDisplayStyle.DropDownButton;
         this._colGroupTitanoFolder.HeaderText = "Cartella backtest";
         this._colGroupTitanoFolder.Name = "_colGroupTitanoFolder";
+        this._colGroupTitanoFolder.ReadOnly = true;
+        //
+        // _colGroupTitanoPick
+        //
+        this._colGroupTitanoPick.FillWeight = 30F;
+        this._colGroupTitanoPick.HeaderText = "";
+        this._colGroupTitanoPick.Name = "_colGroupTitanoPick";
+        this._colGroupTitanoPick.Text = "Scegli…";
+        this._colGroupTitanoPick.UseColumnTextForButtonValue = true;
         //
         // _colGroupApplyTitano
         //
@@ -403,7 +415,8 @@ partial class PlanDetailScreen
         this._accountsGrid.Columns.AddRange(new System.Windows.Forms.DataGridViewColumn[] {
             this._colAccountNumber,
             this._colAccountGroupId,
-            this._colAccountMaxConcurrent});
+            this._colAccountMaxConcurrent,
+            this._colAccountCountMode});
         this._accountsGrid.DataSource = this._accountsBindingSource;
         this._accountsGrid.Dock = System.Windows.Forms.DockStyle.Fill;
         this._accountsGrid.Location = new System.Drawing.Point(12, 49);
@@ -436,6 +449,14 @@ partial class PlanDetailScreen
         this._colAccountMaxConcurrent.FillWeight = 70F;
         this._colAccountMaxConcurrent.HeaderText = "Max posizioni contemporanee (0 = illimitate)";
         this._colAccountMaxConcurrent.Name = "_colAccountMaxConcurrent";
+        //
+        // _colAccountCountMode
+        //
+        this._colAccountCountMode.DataPropertyName = "ConcurrencyCountMode";
+        this._colAccountCountMode.DisplayStyle = System.Windows.Forms.DataGridViewComboBoxDisplayStyle.DropDownButton;
+        this._colAccountCountMode.FillWeight = 80F;
+        this._colAccountCountMode.HeaderText = "Il massimo conta";
+        this._colAccountCountMode.Name = "_colAccountCountMode";
         //
         // _accountsButtons
         //
@@ -771,7 +792,8 @@ partial class PlanDetailScreen
     private System.Windows.Forms.DataGridView _groupsGrid;
     private System.Windows.Forms.DataGridViewComboBoxColumn _colGroupId;
     private System.Windows.Forms.DataGridViewComboBoxColumn _colGroupRotationSetup;
-    private System.Windows.Forms.DataGridViewComboBoxColumn _colGroupTitanoFolder;
+    private System.Windows.Forms.DataGridViewTextBoxColumn _colGroupTitanoFolder;
+    private System.Windows.Forms.DataGridViewButtonColumn _colGroupTitanoPick;
     private System.Windows.Forms.DataGridViewCheckBoxColumn _colGroupApplyTitano;
     private System.Windows.Forms.FlowLayoutPanel _groupsButtons;
     private System.Windows.Forms.Button _addGroupButton;
@@ -781,6 +803,7 @@ partial class PlanDetailScreen
     private System.Windows.Forms.DataGridViewComboBoxColumn _colAccountNumber;
     private System.Windows.Forms.DataGridViewTextBoxColumn _colAccountGroupId;
     private System.Windows.Forms.DataGridViewTextBoxColumn _colAccountMaxConcurrent;
+    private System.Windows.Forms.DataGridViewComboBoxColumn _colAccountCountMode;
     private System.Windows.Forms.FlowLayoutPanel _accountsButtons;
     private System.Windows.Forms.Button _addAccountButton;
     private System.Windows.Forms.Button _removeAccountButton;

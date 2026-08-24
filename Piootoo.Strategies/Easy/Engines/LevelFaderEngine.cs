@@ -198,7 +198,7 @@ public abstract class LevelFaderEngine : EasyEngineBase
 
         var start = AddHours(SessionStartTime, 2);
         var end = AddHours(EffectiveSessionEndTime, -2);
-        return EasyLib.TimeWindow(start, end, barTime);
+        return EasyLib.TimeWindow(Clock, start, end, barTime);
     }
 
     private bool InPythonTradingWindow(DateTime barTime)
@@ -208,11 +208,12 @@ public abstract class LevelFaderEngine : EasyEngineBase
 
         var start = StartTrade < 0 ? 0 : StartTrade;
         var end = EndTrade < 0 ? 23 : EndTrade;
-        var hour = barTime.Hour;
+        // L'ora si legge sull'orologio della finestra, mai su quello grezzo della barra.
+        var hour = WindowClock.Hhmm(barTime) / 100;
         return start <= end ? hour >= start && hour <= end : hour >= start || hour <= end;
     }
 
-    private static int PythonDayOfWeek(DateTime value) => ((int)value.DayOfWeek + 6) % 7;
+    private int PythonDayOfWeek(DateTime value) => PythonWeekday(value);
 
     private TradeSignal WithCloseTime(TradeSignal signal)
     {

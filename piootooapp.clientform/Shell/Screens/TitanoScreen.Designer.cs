@@ -30,7 +30,9 @@ partial class TitanoScreen
         this._workspaceLabel = new System.Windows.Forms.Label();
         this._workspaceCombo = new System.Windows.Forms.ComboBox();
         this._backtestLabel = new System.Windows.Forms.Label();
-        this._backtestCombo = new System.Windows.Forms.ComboBox();
+        this._backtestPanel = new System.Windows.Forms.TableLayoutPanel();
+        this._backtestTextBox = new System.Windows.Forms.TextBox();
+        this._backtestPickButton = new System.Windows.Forms.Button();
         this._startLabel = new System.Windows.Forms.Label();
         this._startPicker = new System.Windows.Forms.DateTimePicker();
         this._endLabel = new System.Windows.Forms.Label();
@@ -108,6 +110,7 @@ partial class TitanoScreen
         this._tabs.SuspendLayout();
         this._runTab.SuspendLayout();
         this._contextLayout.SuspendLayout();
+        this._backtestPanel.SuspendLayout();
         ((System.ComponentModel.ISupportInitialize)(this._initialCapitalInput)).BeginInit();
         this._filtersTab.SuspendLayout();
         this._filtersLayout.SuspendLayout();
@@ -245,7 +248,7 @@ partial class TitanoScreen
         this._contextLayout.Controls.Add(this._workspaceLabel, 0, 0);
         this._contextLayout.Controls.Add(this._workspaceCombo, 1, 0);
         this._contextLayout.Controls.Add(this._backtestLabel, 2, 0);
-        this._contextLayout.Controls.Add(this._backtestCombo, 3, 0);
+        this._contextLayout.Controls.Add(this._backtestPanel, 3, 0);
         this._contextLayout.Controls.Add(this._startLabel, 0, 1);
         this._contextLayout.Controls.Add(this._startPicker, 1, 1);
         this._contextLayout.Controls.Add(this._endLabel, 2, 1);
@@ -299,14 +302,42 @@ partial class TitanoScreen
         this._backtestLabel.TabIndex = 2;
         this._backtestLabel.Text = "Backtest sorgente";
         // 
-        // _backtestCombo
-        // 
-        this._backtestCombo.Anchor = System.Windows.Forms.AnchorStyles.Left | System.Windows.Forms.AnchorStyles.Right;
-        this._backtestCombo.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
-        this._backtestCombo.Margin = new System.Windows.Forms.Padding(3, 4, 3, 4);
-        this._backtestCombo.Name = "_backtestCombo";
-        this._backtestCombo.Size = new System.Drawing.Size(280, 23);
-        this._backtestCombo.TabIndex = 3;
+        // _backtestPanel
+        //
+        this._backtestPanel.Anchor = System.Windows.Forms.AnchorStyles.Left | System.Windows.Forms.AnchorStyles.Right;
+        this._backtestPanel.AutoSize = true;
+        this._backtestPanel.ColumnCount = 2;
+        this._backtestPanel.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 100F));
+        this._backtestPanel.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle());
+        this._backtestPanel.Controls.Add(this._backtestTextBox, 0, 0);
+        this._backtestPanel.Controls.Add(this._backtestPickButton, 1, 0);
+        this._backtestPanel.Margin = new System.Windows.Forms.Padding(3, 1, 3, 1);
+        this._backtestPanel.Name = "_backtestPanel";
+        this._backtestPanel.RowCount = 1;
+        this._backtestPanel.RowStyles.Add(new System.Windows.Forms.RowStyle());
+        this._backtestPanel.Size = new System.Drawing.Size(380, 31);
+        this._backtestPanel.TabIndex = 3;
+        //
+        // _backtestTextBox
+        //
+        this._backtestTextBox.Anchor = System.Windows.Forms.AnchorStyles.Left | System.Windows.Forms.AnchorStyles.Right;
+        this._backtestTextBox.Margin = new System.Windows.Forms.Padding(0, 3, 6, 3);
+        this._backtestTextBox.Name = "_backtestTextBox";
+        this._backtestTextBox.PlaceholderText = "nessun backtest selezionato";
+        this._backtestTextBox.ReadOnly = true;
+        this._backtestTextBox.Size = new System.Drawing.Size(280, 23);
+        this._backtestTextBox.TabIndex = 0;
+        //
+        // _backtestPickButton
+        //
+        this._backtestPickButton.AutoSize = true;
+        this._backtestPickButton.Margin = new System.Windows.Forms.Padding(0, 1, 0, 1);
+        this._backtestPickButton.Name = "_backtestPickButton";
+        this._backtestPickButton.Size = new System.Drawing.Size(90, 25);
+        this._backtestPickButton.TabIndex = 1;
+        this._backtestPickButton.Text = "Scegli…";
+        this._backtestPickButton.UseVisualStyleBackColor = true;
+        this._backtestPickButton.Click += new System.EventHandler(this.OnPickBacktestClick);
         // 
         // _startLabel
         // 
@@ -1179,6 +1210,8 @@ partial class TitanoScreen
         this._runTab.PerformLayout();
         this._contextLayout.ResumeLayout(false);
         this._contextLayout.PerformLayout();
+        this._backtestPanel.ResumeLayout(false);
+        this._backtestPanel.PerformLayout();
         ((System.ComponentModel.ISupportInitialize)(this._initialCapitalInput)).EndInit();
         this._filtersTab.ResumeLayout(false);
         this._filtersTab.PerformLayout();
@@ -1231,7 +1264,9 @@ partial class TitanoScreen
     private System.Windows.Forms.Label _workspaceLabel;
     private System.Windows.Forms.ComboBox _workspaceCombo;
     private System.Windows.Forms.Label _backtestLabel;
-    private System.Windows.Forms.ComboBox _backtestCombo;
+    private System.Windows.Forms.TableLayoutPanel _backtestPanel;
+    private System.Windows.Forms.TextBox _backtestTextBox;
+    private System.Windows.Forms.Button _backtestPickButton;
     private System.Windows.Forms.Label _startLabel;
     private System.Windows.Forms.DateTimePicker _startPicker;
     private System.Windows.Forms.Label _endLabel;

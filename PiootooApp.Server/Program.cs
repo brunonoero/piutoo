@@ -1,8 +1,17 @@
 using Piootoo.Core.Services;
 using Piootoo.Core.Services.Interfaces;
+using Piootoo.Shared;
 using Piootoo.Shared.Configuration;
 
+// Prima riga del log, prima ancora dell'host: è il numero da confrontare con quello che il cBot
+// distribuito stampa al proprio avvio. Sono la stessa versione tenuta allineata a mano — vedi
+// PiootooVersion — e vederle entrambe nei log è l'unico modo per accorgersi di un disallineamento.
+Console.WriteLine($"[Piootoo] Server v{PiootooVersion.Current} — avvio.");
+
 var builder = WebApplication.CreateBuilder(args);
+
+// Istanza costruita subito, non risolta pigramente: cattura l'avvio del processo. Vedi ServerRuntime.
+builder.Services.AddSingleton(new PiootooApp.Server.ServerRuntime());
 
 // Add services to the container.
 
@@ -70,6 +79,12 @@ app.MapFallbackToFile("/index.html");
 
 app.Lifetime.ApplicationStarted.Register(() =>
 {
+    // Ripetuta qui perché la riga di Console sopra esce prima che il logging sia configurato: senza
+    // questa la versione non finisce nel log strutturato, cioè in quello che si allega a un ticket.
+    app.Services.GetRequiredService<ILoggerFactory>()
+        .CreateLogger("Piootoo")
+        .LogInformation("Piootoo Server v{Version} avviato.", PiootooVersion.Current);
+
     var addresses = app.Services.GetRequiredService<Microsoft.AspNetCore.Hosting.Server.IServer>()
         .Features.Get<Microsoft.AspNetCore.Hosting.Server.Features.IServerAddressesFeature>()?.Addresses
         ?? Enumerable.Empty<string>();

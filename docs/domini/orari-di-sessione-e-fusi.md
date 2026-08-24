@@ -184,21 +184,70 @@ di uscita a tempo, i filtri sul giorno della settimana. Il giorno della
 settimana in particolare è insidioso, perché un `dayofweek()` letto in UTC
 cambia giorno nel mezzo della sessione serale americana.
 
+## Come si dichiara oggi (dal 19/08/2026)
+
+Una strategia dichiara **due** finestre, ciascuna con il proprio fuso, ed e' l'unica cosa che deve
+sapere sugli orari:
+
+```csharp
+// il confine di sessione: governa d0..d5, un'entrata per sessione, chiusura di fine sessione
+Session = new ZonedWindow(1700, 1600, ZonedWindow.CmeChicago);
+
+// la finestra operativa: start_hour/end_hour del run, verbatim, senza convertirli
+TradingWindow = ZonedWindow.ResearchHours(17, 10);
+```
+
+Sono due perche' vivono in orologi diversi. Il confine di sessione e' nell'ora di **borsa** dello
+strumento — `1700` Chicago per NQ, `1800` New York per GC, che sono lo stesso istante. La finestra
+operativa e' nell'orologio in cui **la ricerca** l'ha scritta, che per i run Python e' CET **per
+ogni simbolo**: `ZonedWindow.ResearchHours` esiste apposta per riportare `start_hour`/`end_hour` di
+`parametri.csv` tali e quali.
+
+Prima le due erano costrette nello stesso fuso, e la finestra andava convertita a mano: meno sette
+ore per NQ, meno sei per GC. Quella conversione e' esatta solo fuori dalle settimane in cui l'ora
+legale americana ed europea non sono allineate, ed e' esattamente il tipo di traduzione in cui si
+perde fedelta' senza accorgersene.
+
+Il fuso della sessione **non si deduce piu' dal simbolo**. `InstrumentSpec.SessionTimeZone` resta
+come default per le classi che non dichiarano nulla, ma una strategia nuova dichiara sempre il
+proprio: una piattaforma che ospita molte strategie sullo stesso simbolo non puo' avere un solo
+confine per simbolo.
+
+## Il feed dichiara il proprio orologio
+
+`datafeed/feed-clocks.json` dice, per ogni feed, in che orologio sono stampati i suoi timestamp.
+`DataSourceRepository` lo legge e converte a UTC vero **una volta sola** al caricamento; da li' in
+poi tutto il dominio ragiona su istanti veri. Un feed non dichiarato e' un errore esplicito
+(`FeedClockNotDeclaredException`), mai un'assunzione: assumere UTC e' precisamente l'errore che il
+registro esiste per impedire.
+
+Per `@NQ` la dichiarazione e' `Europe/Rome`, misurata con le due prove descritte sopra. **La
+verifica dopo la conversione** e' che le stesse due misure, lette in ora di borsa, non si spostino
+fra le stagioni: sul feed a 15 minuti la pausa CME cade sugli slot 16:15-16:45 di Chicago e il
+picco di volume sulle 08:30, sia a gennaio sia a luglio.
+
 ## Stato della migrazione
 
-**Il lavoro non è finito.** Al momento esistono e sono verificati
-`SessionClock` e il campo `SessionTimeZone` sul registro. Non è ancora fatto il
-passaggio dell'orologio dentro `EasyLib` — le tre funzioni di segmentazione, le
-due finestre orarie, `IsSessionLastBar`, i quattro `GetDaily*` e `GroupByDay` —
-né l'aggiornamento dei circa trentacinque punti di chiamata in motori e
-strategie, né quello delle serie sintetiche dei test, che oggi costruiscono
-barre a orari UTC coincidenti con gli orari di sessione.
+Il vincolo è imposto da `StrategyClockConformanceTests`: nessuna lettura dell'orologio grezzo di
+una barra dentro `Piootoo.Strategies`, e ogni `PTS_*` dichiara sessione e finestra con il proprio
+fuso. Le cinque strategie `ClaudioUnger/`, che erano l'ultimo posto in cui si leggeva
+`dateTime.Hour`, sono state rimosse.
 
-C'è anche un punto in direzione inversa: `CombineDateAndHhmm` costruisce le
-deadline `CloseAtUtc` dei time exit e dovrà tornare da ora di borsa a UTC.
+**Fatto il 19/08/2026** (voce in [`../decisioni.md`](../decisioni.md)): `ZonedWindow`, le due
+finestre dichiarate su `EasyEngineBase`, la conversione del feed al caricamento, e tutte e 27 le
+classi `PTS_*` che dichiarano sessione e finestra con il proprio fuso.
 
-Finché la migrazione non è completa, **i backtest @NQ archiviati sono calcolati
-su sessioni sbagliate** e non sono confrontabili con quelli che verranno.
+**Cosa resta.**
+
+- Le serie sintetiche dei test costruiscono barre a orari UTC coincidenti per costruzione con gli
+  orari di sessione dichiarati: vanno riviste.
+- `UtcOnlyConformanceTests.FeedGeneratorRequiresAnExplicitSourceTimeZone` cerca
+  `piootoo-repository/datafeed-future/aggregate_nq_ascii.py`, che **non è sul disco**: il test è
+  rosso da prima di questa migrazione. O si ritrova lo script, o il test va ripuntato.
+- Il feed giornaliero `D` va ricostruito **sulla sessione** invece che sul calendario: valeva
+  finché il feed era etichettato in ora europea.
+
+**I backtest @NQ archiviati prima del 19/08/2026 non sono confrontabili** con quelli successivi.
 
 ## Riferimenti codice
 

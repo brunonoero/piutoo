@@ -39,50 +39,93 @@ chi prende cosa.
 
 ---
 
-## 2. Le cinque condizioni del claim
+## 2. Le condizioni del claim
 
 `GetNextSignalForAccount(account)` applica, nell'ordine:
 
-### Passo 1 — idempotenza
+### Passo 1 — le chiusure prima di tutto
 
 ```csharp
-var assigned = session.Intents.FirstOrDefault(i =>
-    i.AssignedAccountNumber == accountNumber && i.Status == Pending);
-if (assigned != null) return assigned;
+var pendingClose = pendingForAccount.FirstOrDefault(i => i.Kind == Close);
+if (pendingClose != null) return pendingClose;
 ```
 
-Se l'account ha già un intent **pendente**, il poll lo ripropone e si ferma lì.
+Un intent di **chiusura** assegnato all'account si ripropone sempre, in ogni
+profilo, e non consuma budget: è un ordine da eseguire, non un segnale da
+distribuire, e perderne uno lascia aperta una posizione che nessuno chiuderà più.
 
-Conseguenza che non è ovvia e che governa metà degli esempi: **un account non può
-detenere più di un intent pendente alla volta**, qualunque sia
-`MaxConcurrentTrades`. Il secondo segnale arriva solo dopo che il primo è stato
-riempito, rifiutato o annullato.
+Gli **ingressi** non fermano più il poll. Fino all'11/08/2026 qualunque intent
+pendente lo fermava, e la conseguenza era che *un account non poteva detenere più
+di un intent pendente alla volta, qualunque fosse `MaxConcurrentTrades`*. Adesso
+l'account drena finché ha budget; a budget esaurito l'ingresso pendente più vecchio
+viene riproposto (vedi sotto).
 
-### Passo 2 — max trade concorrenti (per account)
+### Passo 2 — budget di concorrenza (per account, trasversale ai simboli)
 
 ```csharp
-if (IsConcurrentTradeLimitActive(session) && max > 0 &&
-    openPositions + pendingOrders >= max)
-    return "MaxConcurrentTradesExceeded";
+var inFlight = CountInFlightForAccount(session, account, brokerState, countMode, …);
+if (IsConcurrentTradeLimitActive(session) && max > 0 && inFlight >= max)
+    return stalledEntry ?? "MaxConcurrentTradesExceeded";
 ```
 
-`openPositions` è quello **dichiarato dal broker** nel poll, o in mancanza il conteggio
-server delle posizioni aperte dell'account. `pendingOrders` viene solo dal broker.
+**`MaxConcurrentTrades` conta sull'insieme delle strategie e non guarda il simbolo:
+dieci significa dieci, che stiano su un simbolo solo o su dieci diversi.**
 
-Nota importante: si contano **posizioni riempite e ordini pendenti presso il broker**,
-non i claim non ancora eseguiti. È il passo 1 a impedire l'accumulo di claim.
+Cosa sia "in volo" lo decide il piano, con `ConcurrencyCountMode`:
 
-### Passi 3-7 — selezione del template
+| Modalità | Conta | Quando ha senso |
+|---|---|---|
+| `PositionsAndPendingOrders` (default) | posizioni riempite **+** ordini pendenti **+** claim non ancora piazzati | tetto rigido, nessuno sfondamento possibile |
+| `PositionsOnly` | solo posizioni riempite | motori breakout: un ordine stop non è esposizione, è un'opzione |
+
+Il conteggio è **deduplicato per IntentId**, e la ragione non è cosmetica: un ordine
+già piazzato esiste contemporaneamente come intent `Pending` sul server e come
+pending order nello snapshot del broker. La somma dei due conteggi grezzi — com'era
+prima — contava due volte ogni ordine a mercato e dimezzava di fatto il tetto
+configurato. L'esposizione che non porta un IntentId leggibile (label di formato
+precedente, o fallback al conteggio server quando il claim arriva dalla vecchia GET
+senza corpo) non è deduplicabile e viene sommata: meglio contare una volta di troppo
+che consegnare un ingresso oltre il tetto.
+
+I **claim consegnati e non ancora comparsi sul broker** entrano nel conto in
+modalità `PositionsAndPendingOrders`. Senza di loro un drenaggio veloce reclamerebbe
+tutti i template della barra prima che il broker registri il primo ordine, e il
+tetto verrebbe sfondato dal ritardo di propagazione invece che da una decisione.
+
+A tetto pieno, se l'account ha un ingresso ancora `Pending`, glielo si **ripropone**
+invece di rispondere `MaxConcurrentTradesExceeded`: è l'unico modo di recuperare un
+claim la cui risposta si è persa in rete, e il client lo riconosce come già inviato
+(`_submittedIntentIds`) e smette di drenare. Senza budget residuo non ci sarebbe
+comunque niente di nuovo da consegnargli.
+
+### Passo 3 — un ingresso per coppia (strategia, simbolo), solo a lucchetti accesi
+
+```csharp
+if (IsConcurrentTradeLimitActive(session))
+    .Where(t => !AccountHasEntryInFlight(account, t.StrategyCode, t.Symbol))
+```
+
+Un account non riceve un template di una coppia (strategia, simbolo) su cui ha già
+un ingresso `Pending` o una posizione aperta: quel segnale è già in mano al broker, e
+un secondo ordine sarebbe rischio doppio sullo stesso motivo di ingresso.
+
+**È un vincolo di concorrenza** — dice *quanti* ordini della stessa strategia possono
+stare a mercato insieme — quindi segue `EnforceConcurrencyLimits` come il passo 2 e il
+lucchetto 4. Il tetto della *strategia* è un altro livello, sta in
+`MaxEntriesPerSession`, e quello vale in ogni profilo. Fino al 18/08/2026 questo filtro
+era incondizionato e classificato come "identità del segnale": §4.3 dice cosa è
+costato.
+
+### Passi 4-7 — selezione del template
 
 ```csharp
 session.EntryTemplates
   .Where(t => t.Status == Pending)
   .Where(t => non scaduto)
-  .Where(t => groupId ∉ TemplateClaimedGroups[t.IntentId])        // 3
-  .Where(t => (groupId, t.StrategyCode, t.Symbol) ∉ GroupStrategySlots)  // 4
-  .Where(t => (accountNumber, t.Symbol) ∉ AccountActiveIntent)    // 5
-  .Where(t => IsTemplateEligibleForGroup(groupId, t))             // 6 — Titano di gruppo
-  .OrderByDescending(priorità)                                    // 7
+  .Where(t => groupId ∉ TemplateClaimedGroups[t.IntentId])              // 3
+  .Where(t => (groupId, t.StrategyCode, t.Symbol) ∉ GroupStrategySlots) // 4
+  .Where(t => IsTemplateEligibleForGroup(groupId, t))                   // 6 — Titano di gruppo
+  .OrderByDescending(priorità)                                          // 7
   .ThenBy(CreatedAtUtc)
   .FirstOrDefault();
 ```
@@ -91,25 +134,35 @@ session.EntryTemplates
 |---|---|---|---|
 | 3 | `TemplateClaimedGroups[IntentId]` → set di gruppi | template × gruppo | **Un segnale è consumato una volta per gruppo.** Gruppi diversi ricevono lo stesso segnale: è il fan-out. |
 | 4 | `GroupStrategySlots[grp\|strategia\|simbolo]` | gruppo × strategia × simbolo | Dentro un gruppo, una sola posizione per coppia strategia/simbolo. |
-| 5 | `AccountActiveIntent[account\|simbolo]` | account × simbolo | Un account non apre due ingressi sullo stesso simbolo. Può operare in parallelo su simboli diversi. |
 | 6 | run Titano del gruppo | gruppo | Ogni gruppo può avere un proprio run, o disattivare il filtro. |
 
-Le chiavi 3, 4, 5 sono **tre lucchetti diversi**, non tre modi di dire la stessa
-cosa. Confonderli è la fonte più comune di aspettative sbagliate.
+Le chiavi 3 e 4 sono **due lucchetti diversi**, non due modi di dire la stessa cosa.
+
+> **Il lucchetto 5 non esiste più.** C'era una chiave `AccountActiveIntent[account|simbolo]`
+> — «un account non apre due ingressi sullo stesso simbolo» — che non si liberava al
+> fill ma solo alla chiusura. Su una sessione a simbolo singolo rendeva
+> `MaxConcurrentTrades` inapplicabile: il tetto effettivo era 1 qualunque valore si
+> impostasse, e la seconda strategia sullo stesso simbolo non arrivava mai a mercato.
+> Rimosso l'11/08/2026, vedi `docs/decisioni.md`. Quanto un account operi in parallelo
+> lo dice ora `MaxConcurrentTrades` e basta; che non ci siano doppioni della stessa
+> strategia lo garantisce il passo 3.
 
 ### Quando i lucchetti si aprono
 
-| Evento | 3 (`ClaimedGroups`) | 4 (`GroupStrategySlots`) | 5 (`AccountActiveIntent`) |
-|---|---|---|---|
-| Ingresso **rifiutato / non riempito** | resta | **liberato** | **liberato** |
-| Ingresso **riempito** | resta | resta | resta |
-| Posizione **chiusa** | resta | **liberato** | **liberato** |
+| Evento | 3 (`ClaimedGroups`) | 4 (`GroupStrategySlots`) |
+|---|---|---|
+| Ingresso **rifiutato / non riempito** | resta | **liberato** |
+| Ingresso **scaduto** (finestra della barra chiusa) | resta | **liberato** — `PurgeExpiredEntryIntents`, §4.3 bis |
+| Ingresso **riempito** | resta | resta |
+| Posizione **chiusa** | resta | **liberato** |
 
 `TemplateClaimedGroups` non si libera mai: un template consumato da un gruppo resta
 consumato. È corretto — quel segnale di quella barra è stato servito.
 
-Il punto da tenere a mente è la seconda riga: **al fill l'account non libera il
-proprio lucchetto sul simbolo.** Lo tiene fino alla chiusura della posizione.
+Il budget dell'account non compare in questa tabella perché **non è un lucchetto da
+liberare**: si ricalcola a ogni poll dallo stato del broker e dagli intent ancora
+`Pending`. Una posizione chiusa esce dallo snapshot, un ordine cancellato pure, e il
+budget torna disponibile senza che nessuno debba ricordarsi di rilasciarlo.
 
 ---
 
@@ -129,47 +182,48 @@ progetto. `→` indica l'esito del poll.
 
 **Caso 1** — il lucchetto 3 blocca acct2: `g1` ha già consumato s1.
 
-**Caso 2** — s2 è un template diverso, quindi il lucchetto 3 non si applica; il
-lucchetto 4 non scatta perché la strategia è diversa; il 5 nemmeno perché acct2 non
-ha nulla in corso. Vale **anche se s1 e s2 sono sullo stesso simbolo**.
+**Caso 2** — s2 è un template diverso, quindi il lucchetto 3 non si applica, e il 4
+non scatta perché la strategia è diversa. Vale **anche se s1 e s2 sono sullo stesso
+simbolo**.
 
-**Caso 3** — s3 non è "scartato": resta `Pending` e reclamabile. Semplicemente non
-c'è un terzo account in `g1`, e i due esistenti sono occupati. Se s1 viene rifiutato,
+**Caso 3** — s3 non è "scartato": resta `Pending` e reclamabile. Semplicemente i due
+account di `g1` hanno esaurito il proprio budget (`max: 1`). Se s1 viene rifiutato,
 al poll successivo acct1 può prendere s3.
 
 **Caso 4** — è il fan-out. `g2` non ha ancora consumato s1, quindi acct2 riceve lo
 **stesso** segnale. Due gruppi = due portafogli paralleli sullo stesso flusso.
 s2 e s3 restano fermi perché entrambi gli account hanno già un intent pendente.
 
-### 3.2 Il caso che dipende dal simbolo
+### 3.2 Il caso che non dipende più dal simbolo
 
-Il caso 5 dell'ipotesi iniziale — max 2, stesso gruppo, 5 segnali, con acct1 che
-prende s1 e s3 e acct2 s2 e s4 — **è corretto solo se i segnali sono su simboli
-diversi**.
+Il caso 5 — max 2, stesso gruppo, 5 segnali, con acct1 che prende s1 e s3 e acct2 s2
+e s4 — vale ora **indipendentemente dai simboli**.
 
 | # | Max | Segnali | Sequenza | Esito |
 |---|---|---|---|---|
-| 5a | 2 | 5, **stesso simbolo** | a1, a2, fill a1, fill a2, a1, a2 | a1 → **s1** · a2 → **s2** · a1 → `NoSignal` · a2 → `NoSignal` |
-| 5b | 2 | 5, **simboli diversi** | a1, a2, a1, fill×2, a1, a2, fill×2, a1, a2 | a1 → **s1**, *ripropone s1*, **s3** · a2 → **s2**, **s4** · poi entrambi `MaxConcurrentTradesExceeded` |
+| 5a | 2 | 5, **stesso simbolo**, strategie diverse | a1, a1, a2, a2 | a1 → **s1**, **s3** · a2 → **s2**, **s4** · poi `MaxConcurrentTradesExceeded` |
+| 5b | 2 | 5, **simboli diversi** | a1, a1, a2, a2 | identico a 5a |
 
-**5a** è il caso che sorprende. Con `MaxConcurrentTrades = 2` ci si aspetta due
-posizioni per account, ma sullo stesso simbolo il lucchetto 5 non si apre al fill —
-si apre alla chiusura. Il limite effettivo è **1 posizione per account per simbolo**,
-e `MaxConcurrentTrades` non entra mai in gioco: la risposta è `NoSignal`, non
-`MaxConcurrentTradesExceeded`.
+**5a era il caso che sorprendeva**, e non sorprende più. Con
+`MaxConcurrentTrades = 2` si ottengono due ingressi per account anche su un simbolo
+solo, purché siano di strategie diverse: il vincolo che li teneva a uno — il
+lucchetto (account, simbolo) — non c'è più.
 
-> `MaxConcurrentTrades` conta **posizioni su simboli diversi**. Su un singolo
-> simbolo il vincolo binding è sempre il lucchetto 5, qualunque valore si imposti.
+> `MaxConcurrentTrades` conta gli ingressi in volo **sull'insieme delle strategie**,
+> senza guardare il simbolo. Il solo vincolo che resta legato al simbolo è la coppia
+> (strategia, simbolo), che non è concorrenza ma unicità del segnale.
 
-**5b** mostra il ciclo completo. Il terzo poll di acct1 ripropone s1 invece di dare
-s3: è il passo 1. Solo dopo il fill l'account può reclamare il secondo. Raggiunte 2
-posizioni riempite, il passo 2 risponde `MaxConcurrentTradesExceeded` e s5 resta
-non reclamato.
+Nota sul **drenaggio**: acct1 può prendere s1 e s3 in due poll consecutivi *senza*
+attendere il fill del primo, perché il passo 1 non fa più da tappo e il passo 2
+conta anche i claim non ancora piazzati (in `PositionsAndPendingOrders`). In
+`PositionsOnly` il tappo sono le posizioni riempite, quindi acct1 continua a
+reclamare finché ci sono coppie (strategia, simbolo) libere, e a limitarlo è il
+numero di strategie della sessione.
 
 **L'alternanza s1/s3 e s2/s4 non è una regola.** È l'effetto dell'ordine dei poll in
-quello scenario. Se acct1 pollasse due volte dopo il proprio fill mentre acct2 tace,
-acct1 prenderebbe s1 e s2. L'unica garanzia è: ogni gruppo consuma ogni template al
-massimo una volta.
+quello scenario. Se acct1 pollasse quattro volte mentre acct2 tace, acct1
+prenderebbe s1 e s2 e poi si fermerebbe al proprio tetto. L'unica garanzia è: ogni
+gruppo consuma ogni template al massimo una volta.
 
 ### 3.3 Casi aggiuntivi
 
@@ -179,6 +233,7 @@ massimo una volta.
 | 7 | max 1, acct1·g1, acct2·g1, acct3·g1 | 3 segnali | a1→s1, a2→s2, a3→s3 | tre account liberi, tre template distinti |
 | 8 | max 1, acct1·g1, acct2·g1 | 2 template **stessa strategia+simbolo** (barre successive) | a1→s1, a2→`NoSignal`, s2 fermo | lucchetto 4: `(g1, strat, sym)` già occupato |
 | 9 | max 1, acct1·g1, acct2·g1 | 1 segnale, poi a1 **rifiutato** dal broker | a1→s1, *rifiuto*, a1→`NoSignal`, a2→`NoSignal` | s1 resta consumato da g1 (lucchetto 3 non si libera) |
+| 15 | max 3, acct1·g1, `PositionsOnly` | 3 segnali di 3 strategie sullo **stesso simbolo** | a1×3 | a1→s1, s2, s3: tre stop a mercato insieme; al primo fill il cBot cancella gli altri due |
 | 10 | max 1, acct1·g1 | 2 segnali, a1 riempie s1 poi **chiude** la posizione | a1→s1, fill, a1→`MaxConcurrentTradesExceeded`, chiusura, a1→s2 | il passo 2 blocca finché la posizione è aperta |
 | 11 | max 0 (illimitato), acct1·g1 | 3 segnali simboli diversi | a1→s1, fill, a1→s2, fill, a1→s3 | `max > 0` è la condizione: 0 disattiva il limite |
 | 12 | max 1, acct1·g1, acct2·g2 con **run Titano diversi** | 1 segnale su strategia OFF in g2 | a1→s1, a2→`NoSignal` | lucchetto 6: `IsTemplateEligibleForGroup` |
@@ -186,7 +241,8 @@ massimo una volta.
 | 14 | max 1, sessione non `Running` | qualunque | `SessionNotRunning` | precede ogni altro controllo |
 
 Il caso 9 merita attenzione operativa: **un rifiuto del broker non restituisce il
-segnale al gruppo.** I lucchetti 4 e 5 si liberano, quindi l'account può prendere un
+segnale al gruppo.** Lo slot di gruppo si libera e il budget dell'account torna
+disponibile, quindi l'account può prendere un
 *altro* template, ma quel template specifico è perso per quel gruppo. È una scelta
 deliberata — riproporlo significherebbe inseguire un fill su una barra ormai vecchia
 — ma va saputa quando si legge un `trades.json` con meno trade del previsto.
@@ -200,10 +256,11 @@ indipendente, senza che l'uno produca bug nell'altro.
 
 ### 4.1 Cosa è già disaccoppiato
 
-I tre lucchetti che fanno la distribuzione — `TemplateClaimedGroups`,
-`GroupStrategySlots`, `AccountActiveIntent` — **non leggono nulla di Titano**. Sono
-dizionari su chiavi `(gruppo, strategia, simbolo)` e `(account, simbolo)`, popolati
-al claim e svuotati sui fill di chiusura e sui rifiuti. Una sessione con
+I due lucchetti che fanno la distribuzione — `TemplateClaimedGroups` e
+`GroupStrategySlots` — **non leggono nulla di Titano**: sono dizionari su chiavi
+`(template, gruppo)` e `(gruppo, strategia, simbolo)`, popolati al claim e svuotati
+sui fill di chiusura e sui rifiuti. Nemmeno il budget per account lo legge: si
+ricalcola a ogni poll dallo stato del broker. Una sessione con
 `TitanoMode = Disabled` e nessun `TitanoRunId` li usa esattamente come una sessione
 filtrata.
 
@@ -257,15 +314,210 @@ public static bool DefaultEnforceConcurrencyLimits(ClientRunMode runMode, Titano
 
 `null` conserva il comportamento storico, quindi nulla cambia per le configurazioni
 esistenti; valorizzarlo permette di variare concorrenza e rotazione in modo
-indipendente. Il cBot lo espone come parametro a tre stati
-(`Limite Trade Concorrenti`: `Default` / `On` / `Off`).
+indipendente.
+
+### 4.3 Il flag copriva solo il passo 2 — corretto il 2026-08-06
+
+`EnforceConcurrencyLimits` governava **soltanto** `MaxConcurrentTradesExceeded`. I
+il lucchetto 4, l'allora lucchetto 5 e il passo 1 restavano incondizionati, quindi un
+backtest sorgente apriva comunque **una posizione per account per simbolo** e ne consegnava **una per
+poll**. Su un piano a simbolo singolo questo riduce il campione a un trade alla
+volta — che è esattamente ciò che il run sorgente non deve fare — e rende il
+`trades.json` del cBot incomparabile con quello del backtest interno, che di
+lucchetti non ne ha nessuno.
+
+La distinzione giusta è fra vincoli **operativi** e struttura della distribuzione:
+
+| Lucchetto | Cos'è | Segue il flag? |
+|---|---|---|
+| passo 2 (`MaxConcurrentTrades`) | operativo | sì (già prima) |
+| passo 3 (`AccountHasEntryInFlight`) | *identità del segnale, non concorrenza* | **no, mai** — riclassificato il 18/08, vedi §4.3 bis |
+| 3 (`TemplateClaimedGroups`) | *un template è già stato servito a quel gruppo* | **no, mai** |
+| 4 (`GroupStrategySlots`) | operativo | **sì** |
+
+*(Il passo 1 non è più un lucchetto: le chiusure si ripropongono sempre e gli
+ingressi non fermano il poll. Il lucchetto 5 è stato rimosso — §2 e §4.5.)*
+
+Il lucchetto 3 non si spegne in nessun profilo: non limita quanto si opera in
+parallelo, registra che quel segnale è stato consegnato. Spento, il cBot che drena
+la coda riceverebbe lo stesso template all'infinito.
+
+Al passo 1 le **chiusure si ripropongono sempre**, anche a flag spento: sono ordini
+da eseguire, non segnali da distribuire, e perderne una lascia aperta una posizione
+che nessuno chiuderà più.
+
+C'è però un filtro nuovo, **attivo in ogni profilo**: un account non riceve un
+template di una coppia (strategia, simbolo) su cui ha già un ingresso `Pending` o una
+posizione aperta (`AccountHasEntryInFlight`). Non è un vincolo di concorrenza, è
+l'identità della strategia — quel segnale è già in mano al broker. Serve perché
+`MaxEntriesPerSession` si applica al **fill** e non al claim: due template di barre
+diverse reclamati prima che il primo riempia passano entrambi il controllo. Su un run
+reale (`PTS_NQ_PCH_002_15`, 14/10/2024 13:15) questo ha prodotto due stop order
+riempiti allo stesso prezzo e due posizioni da 20 lotti sullo stesso segnale. Con i
+lucchetti attivi il 4 lo copriva già, ma è più largo — vale per tutto il gruppo — e
+a lucchetti spenti non restava niente a fermare il doppione.
+
+### 4.3 bis Anche il passo 3 segue il flag — corretto il 2026-08-18
+
+La riga qui sopra — *«attivo in ogni profilo»* — è stata la classificazione sbagliata,
+e il paragrafo resta perché il ragionamento che portava lì è ancora quello che va
+smontato.
+
+**I livelli sono due, e solo uno vale sempre.**
+
+| Livello | Chi lo pone | Cosa dice | Segue il flag? |
+|---|---|---|---|
+| 1 — strategia | il motore (`MaxEntriesPerSession`) | quanti *fill* può fare quella strategia nella sua sessione | **no, mai** |
+| 2 — piattaforma | il setup del server | quanti ordini possono stare a mercato insieme (`MaxConcurrentTrades`, lucchetto 4, `AccountHasEntryInFlight`) | **sì** |
+
+Il livello 1 è una regola del motore: un campione che la ignorasse conterrebbe trade
+che la strategia non avrebbe mai fatto. Il livello 2 descrive come si opera, ed è
+esattamente ciò che il run sorgente vuole misurare *senza*: lo scopo è eseguire tutte
+le strategie e vedere il risultato complessivo.
+
+`AccountHasEntryInFlight` è livello 2 — dice quanti ordini della stessa coppia stanno a
+mercato insieme — e finora stava dalla parte sbagliata. Il costo si legge in un backtest
+sorgente NQ del 17/03/2026: nove template di ingresso per barra, **un solo** claim
+servito, e per tutti gli altri `l'account ha già un ingresso in corso per quella
+strategia su quel simbolo`, con il conto dei template scartati che sale barra dopo barra
+(19, 27, …). Otto strategie su nove fuori dal campione.
+
+**Cosa lo sostituisce a flag spento.** Il doppione del 14/10/2024 nasceva da due template
+di *barre diverse* vivi insieme, e quella condizione non esiste più:
+`PurgeExpiredEntryIntents` annulla all'arrivo della barra gli ingressi `Pending` la cui
+finestra è chiusa, esattamente come `PurgeExpiredTemplates` fa con i template.
+
+Era il pezzo mancante e non solo qui: un claim mai eseguito restava `Pending` per sempre,
+e con lui il lucchetto — l'unico punto che ripuliva un pendente scaduto era il ramo
+"tetto pieno" di `MaxConcurrentTrades`, che in un run sorgente non viene mai eseguito.
+Lo sblocco ora è del server e basta, senza dipendere dal `ReportExecution(Cancelled)` del
+cBot: è la metà mancante dello stallo descritto in `docs/decisioni.md` (15/08).
+
+Resta scoperto il motore che non dichiara `ExpiresAtUtc`: lì due ordini della stessa
+coppia possono coesistere per costruzione, e nel run sorgente è il comportamento voluto.
+A lucchetti accesi il passo 3 li ferma come prima.
+
+### 4.4 Il profilo del run
+
+Il flag resta, ma non è più il modo di sceglierlo: `ApplyTitanoFilters` nel piano
+più `EnforceConcurrencyLimits` nella sessione descrivono la stessa decisione in due
+posti, e per cambiare backtest bisognava editare il piano. Il cBot dichiara invece
+`TradingRunProfile` in `OpenTradingPlanSessionRequest`:
+
+| Profilo | `TitanoMode` | Lucchetti operativi | Note |
+|---|---|---|---|
+| `DalPiano` | dal piano | default | comportamento storico, default |
+| `BacktestSorgente` | `Disabled` | **off** | tutte le strategie del masterfilter, un intent per segnale |
+| `BacktestTitano` | `BacktestRotationFile` | attivi | errore esplicito senza `TitanoBacktestFolder` |
+
+Il profilo **prevale sul piano** — è il cBot a sapere che run sta aprendo — ed entra
+nella chiave di esecuzione: rilanciare lo stesso bot con un profilo diverso apre una
+sessione nuova invece di riprendere quella vecchia con i vincoli di prima. I profili
+`Backtest*` sono rifiutati in `Realtime`.
+
+Conseguenza sul client: con i lucchetti spenti il claim non ha più il tappo di un
+intent per account, quindi il cBot **deve drenare la coda** (`PollNextSignal` cicla
+finché il server risponde `Intent = null`). Fermarsi al primo intent significherebbe
+eseguire una strategia per barra.
+
+### 4.5 Il tetto era per simbolo, non per account — corretto l'11/08/2026
+
+Il sintomo, da un run reale (`FTMO-TRIAL-01`, 10/08/2026): un account con
+`MaxConcurrentTrades = 10`, tre strategie, due di esse — `PTS_NQ_PCH_001_15` e
+`PTS_NQ_PCH_002_15` — sullo stesso `US100.cash`. Per undici ore il log mostra un
+solo ordine per barra, sempre della 001, mentre gli IntentId saltano di due: il
+template della 002 nasceva a ogni barra e non arrivava mai a mercato.
+
+Erano due vincoli distinti, e nessuno dei due era `MaxConcurrentTrades`:
+
+1. **Passo 1**, idempotenza: l'account non poteva detenere più di un intent
+   pendente. Uno stop order vive per tutta la barra, quindi il conto era saturo per
+   tutta la barra.
+2. **Lucchetto 5**, `(account, simbolo)`: un solo ingresso per simbolo, liberato
+   alla chiusura e non al fill.
+
+Su una sessione a simbolo singolo il tetto effettivo era quindi **1**, e il valore
+configurato non entrava mai in gioco. La risposta al poll era `NoSignal`, non
+`MaxConcurrentTradesExceeded`, quindi nemmeno la diagnostica lo diceva.
+
+**Cosa è cambiato**
+
+- Il lucchetto 5 non esiste più. `MaxConcurrentTrades` conta sull'insieme delle
+  strategie, trasversale ai simboli.
+- Il passo 1 non fa più da tappo agli ingressi: l'account drena finché ha budget.
+- Il budget si conta **deduplicato per IntentId** e include i claim non ancora
+  piazzati. Prima `openPositions + pendingOrders` contava due volte ogni ordine a
+  mercato, perché lo stesso ordine è insieme un intent `Pending` sul server e un
+  pending order sul broker.
+- `ConcurrencyCountMode` diventa un parametro del piano: cosa conti il tetto lo
+  decide chi configura, non una convenzione del server.
+
+**Cosa NON è cambiato**: la guardia `AccountHasEntryInFlight` (stessa strategia,
+stesso simbolo) resta attiva in ogni profilo. È quella nata dall'incidente
+`PTS_NQ_PCH_002_15` del 14/10/2024 — due stop riempiti allo stesso prezzo, due
+posizioni da 20 lotti sullo stesso segnale — e non è un vincolo di concorrenza.
+
+### 4.6 `PositionsOnly` e la metà client del limite
+
+In `PositionsOnly` il server distribuisce tutti gli intent della barra senza contare
+gli ordini a mercato. È deliberato: su un motore breakout non si sa quale livello
+verrà toccato, e bloccarne uno per «occupazione di slot» significa perdere il solo
+che sarebbe partito.
+
+Il tetto viene allora fatto valere **a valle**, nel momento in cui si scopre quale
+ordine è entrato davvero: `PiootooDistributedExecutionBot.CancelPendingOrdersAtCap`,
+chiamato da `OnPositionOpened`, spegne gli ordini rimasti quando le posizioni
+riempite raggiungono il tetto. È il comportamento di un OCO — il primo che entra
+spegne gli altri.
+
+**Questo non accoppia il cBot al server.** Il bot non riceve mai un comando: legge
+dal descriptor un parametro di configurazione all'apertura, decide da solo guardando
+la propria piattaforma, e comunica al server solo il fatto compiuto — un `Cancelled`
+sullo stesso canale degli ordini scaduti, che libera lo slot di gruppo senza che il
+server debba sapere perché. Resta vero l'invariante di sempre: **il server decide
+*cosa*, il broker decide *se e a che prezzo***.
+
+Il rischio residuo va conosciuto: fra il fill e la cancellazione c'è una finestra in
+cui due stop possono riempirsi insieme, e in quella finestra l'esposizione supera il
+tetto. È il prezzo del modello, ed è il motivo per cui la modalità è un parametro e
+non il default. Su conti con regole di esposizione istantanea — FTMO e simili — resta
+preferibile `PositionsAndPendingOrders`.
+
+Come ultima barriera il bot ricontrolla il proprio conteggio di posizioni anche
+*prima* di mandare un ordine: fra il claim e l'invio un altro stop può essersi
+riempito, e il server non poteva saperlo.
+
+### 4.7 `ClaimableIntents`: quando il poll si può saltare
+
+`PushBarWindowResponse.ClaimableIntents` conta ciò che la sessione potrebbe consegnare
+a un claim — template `Pending` non scaduti, più gli intent già assegnati e ancora
+pendenti. **Zero significa che `GetNextSignalForAccount` non può restituire nulla per
+nessun account**, quindi il cBot salta il poll immediato dopo il push.
+
+Il costo che rimuove è reale: in backtest ogni barra e ogni stream valgono due chiamate
+HTTP sincrone, e dai log la grande maggioranza delle barre non produce alcun segnale.
+
+Due scelte da non invertire:
+
+- **Conta il server, non il client.** Solo il server sa dei template di barre precedenti
+  ancora vivi e degli intent assegnati in un giro anteriore. Dedurlo lato client da
+  `Intents` — i soli segnali di *quella* barra — salterebbe poll che avevano qualcosa.
+- **Il campo è nullable sul DTO del cBot.** Un server che non lo conosce lo omette, e su
+  un `int` varrebbe 0, cioè "non pollare mai": il bot smetterebbe di reclamare per tutto
+  il run, in silenzio. `null` vale "non so" e polla.
+
+Il conteggio è deliberatamente **più largo** del claim: non applica lucchetti, Titano né
+la conversione dell'account. Sbagliare per eccesso costa un poll a vuoto, per difetto
+costa un segnale.
+
+Regressioni in `RunProfileTests.cs`.
 
 **Come misurare l'effetto di Titano in isolamento**: eseguire i due backtest — quello
 `Disabled` e quello `BacktestRotationFile` — entrambi con `EnforceConcurrencyLimits`
 forzato allo stesso valore. La differenza fra i due `trades.json` è allora attribuibile
 alla sola rotazione.
 
-### 4.4 Un secondo contatto, minore
+### 4.8 Un secondo contatto, minore
 
 `ComputeStrategyPriority(session, groupId)` ordina i template per
 `AllocationMultiplier` Titano, con fallback sul PnL cumulato per strategia quando la
@@ -294,6 +546,12 @@ diverso anche a parità di segnali.
 | Limite non applicato in backtest senza Titano | `OpenPlan_BacktestWithoutTitano_EvaluatesAllWorkspaceStrategies` |
 | Limite applicato in realtime senza Titano | `OpenPlan_RealtimeWithoutTitano_EnforcesMaxConcurrentTrades` |
 | Persistenza mappatura account/gruppo e profilo Titano | `SetTradingGroups_PersistsTitanoProfileAndAccountMapping`, `SetAccountGroups_PreservesExistingGroupTitanoProfiles` |
+| Il profilo prevale sul piano (§4.4) | `BacktestSorgente_SpegneTitanoEILucchettiDiConcorrenza`, `BacktestTitano_TieneLeRotazioniEIVincoliOperativi` |
+| Run sbagliato rifiutato all'apertura | `UnProfiloDiBacktest_InRealtimeVieneRifiutato`, `BacktestTitano_SenzaRotazioniVieneRifiutato` |
+| Il profilo entra nella chiave di esecuzione | `ProfiliDiversi_NonSiRiprendonoAVicenda` |
+| Drenaggio completo a lucchetti spenti (§4.3) | `BacktestSorgente_UnAccountReclamaTuttiISegnaliDellaBarra`, `ConILucchettiAttivi_LAccountNeOttieneUnoSolo` |
+| Il lucchetto 3 non si spegne mai | `BacktestSorgente_IlLucchettoDelGruppoRestaAttivo` |
+| Niente due ingressi della stessa strategia in volo (§4.3) | `BacktestSorgente_NonConsegnaDueIngressiDellaStessaStrategia` |
 
 Le lacune segnalate nella prima stesura sono state colmate in
 `MultiAccountDistributionTests.cs`:
@@ -302,8 +560,13 @@ Le lacune segnalate nella prima stesura sono state colmate in
 |---|---|
 | Fan-out fra gruppi diversi sullo stesso template (casi 4/6) | `DifferentGroups_BothClaimTheSameTemplate` |
 | Stesso gruppo: il secondo account non riprende il template (caso 1) | `SameGroup_SecondAccountDoesNotGetTheSameTemplate` |
-| Un account tiene un solo intent pendente (passo 1, casi 3/5b) | `PollIsIdempotent_AnAccountHoldsOnlyOnePendingIntent` |
-| Il lucchetto account/simbolo sopravvive al fill (caso 5a) | `SymbolLockSurvivesTheFill_AndIsReleasedOnlyOnClose` |
+| L'account drena piu' intent finche' ha budget (passo 1) | `AccountDrainsUpToItsBudget_NotOneIntentAtATime` |
+| A tetto pieno il claim ripropone l'intent pendente | `AtTheCap_ThePendingEntryIsRedelivered` |
+| Il budget non e' piu' per simbolo, e sopravvive al fill | `BudgetIsPerAccountNotPerSymbol_AndSurvivesTheFill` |
+| Conteggio deduplicato per IntentId | `InFlightCount_DeduplicatesTheSameIntentSeenTwice` |
+| `PositionsOnly` non conta gli ordini pendenti | `PositionsOnly_PendingOrdersDoNotConsumeBudget` |
+| `PositionsOnly` conta comunque le posizioni riempite | `PositionsOnly_AFilledPositionStillConsumesBudget` |
+| Un claim non ancora piazzato conta nel budget | `AClaimNotYetPlacedStillCountsAgainstTheLimit` (`ConcurrencyLimitsMatrixTests`) |
 | Template perso dopo un rifiuto del broker (caso 9) | `RejectedEntry_FreesTheAccount_ButTheTemplateStaysConsumedByTheGroup` |
 | Default del limite di concorrenza | `ConcurrencyLimitDefault_IsOffOnlyForTheSourceBacktest` |
 | Limite forzabile in entrambe le direzioni (§4.2) | `ConcurrencyLimitCanBeForcedOn_InABacktestWithoutTitano`, `ConcurrencyLimitCanBeForcedOff_InRealtime` |
@@ -331,7 +594,9 @@ la stessa serie di barre con limiti diversi.
 
 Il broker è simulato dalla console: riempie tutto e chiude dopo N barre passando
 per `POST /intents/close-external` — cioè per lo stesso percorso che in produzione
-libera slot di gruppo e lucchetto simbolo, senza scorciatoie.
+libera lo slot di gruppo, senza scorciatoie. La console non simula però la
+cancellazione OCO del cBot (§4.6): in `PositionsOnly` i suoi numeri sono quelli del
+solo layer server.
 
 Due cose da sapere prima di leggere i risultati:
 
@@ -354,10 +619,14 @@ Due cose da sapere prima di leggere i risultati:
   - `ComputeStrategyPriority` (1036-1062)
   - `ResolveGroupTitano` (1064-1078), `IsTemplateEligibleForGroup` (1093-1120)
   - `GetGroupStrategyAllocation` (1122-1140), `CloneForClaim` (1219-1262)
-  - `SlotKey` / `ActiveIntentKey` (1281-1286)
-  - Rilascio lucchetti: rifiuto (615-625), chiusura (676-695)
+  - `CountInFlightForAccount` — budget per account, deduplicato per IntentId
+  - `AccountHasEntryInFlight` — guardia (strategia, simbolo), attiva in ogni profilo
+  - `SlotKey`
+  - Rilascio dello slot di gruppo: rifiuto, chiusura
 - `Piootoo.Shared/Models/Trading/TradingSessionContracts.cs` — `AccountGroupMapping`,
   `AccountSignalResponse`
 - `piootoo-repository/ctrader/PiootooDirectExecutionBot.cs` — ciclo `OnBar` → push → poll
+- `piootoo-repository/ctrader/PiootooDistributedExecutionBot.cs` — `CancelPendingOrdersAtCap`
+  (metà client del limite, §4.6), `CountPiootooPositions`
 - `Piootoo.Strategies.Tests/ConcurrencyLimitsMatrixTests.cs` — limite vs lucchetti, stress concorrente
 - `piootooapp.clientform/Shell/Screens/ConcurrencyHarnessScreen.cs` — banco di prova su dati reali

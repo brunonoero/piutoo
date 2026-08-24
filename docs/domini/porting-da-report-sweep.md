@@ -9,6 +9,9 @@ delle regole comuni sta in [`motori-strategie.md`](motori-strategie.md); come si
 indaga una divergenza già avvenuta sta in
 [`parita-riferimento-esterno.md`](parita-riferimento-esterno.md).
 
+Quali run sono già stati tradotti, e quale classe `PTS_*` viene da quale riga, sta in
+[`mappa-strategie-pts.md`](mappa-strategie-pts.md).
+
 ## Dove sta la verità del run
 
 `report.html` è una vista: comoda da leggere, inutile da citare. La fonte
@@ -34,6 +37,58 @@ motore, `wfo_*.csv` le finestre walk-forward, `candidate_robuste.csv` e
 Il campo `engine` dell'elemento dice quale motore C# usare, con la mappa dei nomi
 in [`motori-strategie.md`](motori-strategie.md) §"Catalogo dei motori".
 
+## La regola degli orari — leggila prima di scrivere una riga
+
+Sbagliare qui non produce un errore, produce numeri plausibili. La fonte è il motore Python, e le
+sue due regole sono **indipendenti fra loro**.
+
+**1. La finestra operativa confronta l'orario della barra, e basta.** `filters.py` calcola
+`minuti = index.hour * 60 + index.minute` e verifica `minuti >= start && minuti <= end` — oppure
+l'OR, se la finestra attraversa la mezzanotte. Nessun riferimento a dove inizi la sessione. Quindi
+`start_hour`/`end_hour` di `parametri.csv` si riportano **verbatim**:
+
+```csharp
+TradingWindow = ZonedWindow.ResearchHours(17, 10);   // start_hour 17, end_hour 10
+```
+
+Mai convertirli nell'ora di borsa del simbolo. La conversione a mano — meno sette ore per NQ, meno
+sei per GC — è esatta solo fuori dalle settimane di disallineamento fra ora legale americana ed
+europea, ed è stata la causa di una divergenza reale.
+
+**2. La sessione è il giorno di calendario europeo, non quella del broker.** Il motore taglia con
+`(timestamp − 1 min − session_start_hour).normalize()`, e con `session_start_hour = 0` questo dà
+00:00 → 00:00 in ora europea. **Non** è la sessione CME 17:00→16:00 di New York. È una scelta di
+modello dichiarata dalla ricerca, e il port deve riprodurre quella, non il broker:
+
+```csharp
+Session = ZonedWindow.ResearchSession();   // session_start_hour = 0
+```
+
+Il `− 1 minuto` non è un dettaglio: la barra delle `00:00` appartiene alla sessione **precedente**.
+`EasyLib.OHLCMulti5` lo riproduce con il confronto stretto `t > sessionStartTime`.
+
+Le due sessioni — europea e CME — coincidono per gran parte dell'anno, perché mezzanotte a Roma
+sono le 17:00 a Chicago. Non coincidono nelle circa quattro settimane in cui gli Stati Uniti sono
+già passati all'ora legale e l'Europa no. È l'unico posto dove la differenza si vede, ed è
+esattamente il posto in cui un port sbagliato non se ne accorge.
+
+**3. L'orologio della ricerca è `Europe/Rome`, con le regole DST europee.** Misurato, non dedotto:
+prendendo la barra a volume massimo di ogni giorno del 2024 — quella che marca l'apertura o la
+chiusura del cash americano — il picco sta alle 22:00 a febbraio, alle **21:00 dall'11 al 28
+marzo**, e di nuovo alle 22:00 ad aprile. Quelle tre settimane sono esattamente la finestra fra il
+passaggio americano all'ora legale (10 marzo) e quello europeo (31 marzo): il mercato americano
+compare un'ora prima. Stesso effetto nel 2013. Con un offset fisso da UTC quello scarto non
+esisterebbe.
+
+**4. Nessuna strategia legge l'ora di una barra.** Legge il suo istante e lo confronta con una
+finestra che dichiara il proprio fuso. `StrategyClockConformanceTests` lo impone sul sorgente, e
+impone anche che ogni `PTS_*` dichiari sia `Session` sia `TradingWindow` con fuso esplicito. Il
+feed dichiara il proprio orologio in `datafeed/feed-clocks.json` e viene convertito a UTC vero una
+volta sola al caricamento: da lì in poi il port non dipende più da come sono stampate le barre.
+
+Il dettaglio dei fusi, e la procedura per accertare l'orologio di un feed nuovo, stanno in
+[`orari-di-sessione-e-fusi.md`](orari-di-sessione-e-fusi.md).
+
 ## Tradurre i parametri
 
 Ogni parametro `p_*` del report ha una controparte nel motore. Per il `PC`
@@ -49,11 +104,11 @@ seguono lo stesso schema:
 | `p_dvol_min` | `DvolMin` | 0 disattiva |
 | `p_ptn_neut_yes` / `p_ptn_neut_no` | `NeutralYes` / `NeutralNo` | |
 | `p_ptn_dir_yes` / `p_ptn_dir_no` | `DirectionalYes` / `DirectionalNo` | il segno lo applica il motore per verso |
-| `p_start_hour` / `p_end_hour` | `StartTime` / `EndTime` | HHMM, quindi ora × 100 |
+| `p_start_hour` / `p_end_hour` | `TradingWindow` | `ZonedWindow.ResearchHours(start, end)`, **verbatim**: vedi la regola sopra |
 | `p_skip_day` | `SkipDay` | convenzione pandas, 0 = lunedì |
 | `p_stop_loss`, `p_take_profit`, `p_trailing_stop`, `p_breakeven` | `StopMoney`, `ProfitMoney`, `TrailingStopMoney`, `BreakEvenMoney` | USD per contratto di riferimento |
 | `p_max_bars` | `MaxBars` | 0 disattiva |
-| (implicito) | `SessionStartTime` / `SessionEndTime` | sessione dei pattern, per NQ CME `1700`/`1600` |
+| `session_start_hour` | `Session` | `ZonedWindow.ResearchSession()`: giorno di calendario europeo, **non** la sessione del broker |
 
 Il timeframe e il simbolo vengono da `metadata.market`. `Id` (nome della classe) e
 `Name` (codice di esecuzione) restano due cose diverse: vale l'invariante
@@ -67,6 +122,16 @@ falso. Un `p_ptn_dir_no = 53` non è un filtro con soglia altissima: è
 ha già fatto perdere tempo a chi confrontava due varianti.
 
 ## Trappole verificate
+
+**L'offset del canale non ha tick impliciti — corretto il 17/08/2026.** `PriceChannelEngine`
+sommava `(OffsetTicks + 1) * TickSize`, con un commento che attribuiva il tick in più alla
+convenzione del motore Python. Il sorgente dice il contrario: `price_channel.py` calcola
+`upper + offset * tick`, e `breakout.py` lo stesso — `SessionBreakoutEngine` era già corretto.
+Con `breakout_offset_ticks = 2` su NQ il livello era 0,75 punti sopra il canale invece di 0,50, e
+con offset 0 era 0,25 invece di zero. Il tick in più **non** è un modo valido di compensare lo
+slippage che il riferimento applica sui fill stop e l'engine no (vedi *Le assunzioni di costo*):
+alzare il livello cambia *se* il breakout scatta, non solo a che prezzo viene riempito. La
+rettifica di slippage va applicata al confronto, non al livello.
 
 **`IntradayOnly` è vero per default** in `PriceChannelEngine`,
 `SessionBreakoutEngine`, `TfEngines` e nei due `ReversalBollingerBand`. Un
@@ -166,6 +231,11 @@ trade delle due si sovrappongono quasi del tutto — 906 identici su 1.015 di
 PTS_NQ_PCH_002, l'89% — e PTS_NQ_PCH_002 rende meno, perché `pattern_dir(6)` esclude le sessioni
 già estese al rialzo, dove un breakout long corre. Tenerle entrambe nel
 masterfilter non diversifica, raddoppia la size sullo stesso segnale.
+
+> ⚠ **I numeri qui sotto sono anteriori a due correzioni del 17/08/2026** — l'offset del canale
+> (trappola sopra) e la formula del `pattern_neutral(47)` in `EasyLib`, che divideva per 3 invece
+> che per 2. Entrambe cambiano i trade delle PC, quindi la tabella non è più una baseline valida:
+> va rimisurata prima di usarla per giudicare un porting nuovo.
 
 Stato al 2026-08-02, periodo 2012–2025, un contratto, commissioni $4 round-turn:
 

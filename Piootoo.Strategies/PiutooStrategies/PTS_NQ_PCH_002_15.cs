@@ -1,3 +1,4 @@
+using Piootoo.Shared.Configuration;
 using Piootoo.Strategies.Easy.Engines;
 
 namespace Piootoo.Strategies.PiutooStrategies;
@@ -14,30 +15,32 @@ namespace Piootoo.Strategies.PiutooStrategies;
 /// Opera tra 13:00 e 04:00 UTC, attraversando la mezzanotte, senza filtro daily
 /// né giorno escluso. Richiede <c>pattern_neutral(55)</c>, non richiede
 /// <c>pattern_neutral(24)</c>, richiede <c>pattern_dir(2)</c> e rifiuta
-/// <c>pattern_dir(6)</c>. Mantiene al massimo un fill per sessione CME
-/// 17:00–16:00 UTC.
+/// <c>pattern_dir(6)</c>. Mantiene al massimo un fill per sessione.
 /// </para>
 ///
 /// <para>
 /// Tutti i livelli di uscita sono USD per contratto NQ: stop $250, target
 /// $5.000, breakeven $1.000 e trailing $1.000. La posizione è multiday e non
 /// ha una scadenza per numero di barre.
-/// </para>
-/// </summary>
+/// </para>/// </summary>
 public sealed class PTS_NQ_PCH_002_15 : PriceChannelEngine
 {
     public PTS_NQ_PCH_002_15()
     {
-        SessionStartTime = 1700;
-        SessionEndTime = 1600;
+        // Confine di sessione del run: giorno di calendario europeo, come
+        // (timestamp - 1 min - session_start_hour).normalize() del motore Python.
+        // NON e' la sessione del broker: le due divergono nelle settimane di
+        // disallineamento fra ora legale americana ed europea.
+        Session = ZonedWindow.ResearchSession();
         ChannelBars = 100;
         EnableLong = true;
         EnableShort = false;
         Direction = 1;
         OffsetTicks = 2;
         TickSize = 0.25m;
-        StartTime = 1300;
-        EndTime = 400;
+        // Finestra operativa: start_hour/end_hour del run, verbatim nell'orologio
+        // della ricerca. Nessuna conversione: il fuso viaggia con il dato.
+        TradingWindow = ZonedWindow.ResearchHours(13, 4);
         TradingWindowInclusive = true;
         NeutralYes = 55;
         NeutralNo = 24;

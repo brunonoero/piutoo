@@ -120,7 +120,7 @@ public abstract class MovingAverageCrossoverEngine : EasyEngineBase
 
         var bar = data[^1];
         var barTime = bar.DateTime;
-        if (UseTradingWindow && !EasyLib.TimeWindow(StartTradeTime, EndTradeTime, barTime))
+        if (UseTradingWindow && !EasyLib.TimeWindow(Clock, StartTradeTime, EndTradeTime, barTime))
             return Hold(bar.Close, barTime);
 
         if (MaxEntriesPerDay > 0 && EntriesTodayCount >= MaxEntriesPerDay)
@@ -188,7 +188,7 @@ public abstract class MovingAverageCrossoverEngine : EasyEngineBase
 
     private bool IsFridaySessionEnd(DateTime barTime)
     {
-        if (barTime.DayOfWeek != DayOfWeek.Friday)
+        if (Clock.SessionDay(barTime).DayOfWeek != DayOfWeek.Friday)
             return false;
 
         var barEnd = barTime.AddMinutes(TimeframeMinutes);
@@ -230,10 +230,10 @@ public abstract class MovingAverageCrossoverEngine : EasyEngineBase
         if (!UseDailyFilter)
             return true;
 
-        var open = EasyLib.GetDailyOpen(data, barTime, 1);
-        var high = EasyLib.GetDailyHigh(data, barTime, 1);
-        var low = EasyLib.GetDailyLow(data, barTime, 1);
-        var close = EasyLib.GetDailyClose(data, barTime, 1);
+        var open = EasyLib.GetDailyOpen(Clock, data, barTime, 1);
+        var high = EasyLib.GetDailyHigh(Clock, data, barTime, 1);
+        var low = EasyLib.GetDailyLow(Clock, data, barTime, 1);
+        var close = EasyLib.GetDailyClose(Clock, data, barTime, 1);
         var range = high - low;
         if (range <= 0m || Math.Abs(close - open) / range > DailyBodyFactor)
             return false;

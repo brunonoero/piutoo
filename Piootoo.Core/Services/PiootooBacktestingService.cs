@@ -31,6 +31,12 @@ public class PiootooBacktestingService : IPiootooBacktestingService
     /// </summary>
     private const int PersistCheckpointBars = 5_000;
 
+    /// <summary>
+    /// Istanza unica per le strategie non multi-timeframe: era un dizionario vuoto allocato per
+    /// strategia per barra, cioe' centinaia di migliaia di oggetti buttati via subito.
+    /// </summary>
+    private static readonly Dictionary<int, OhlcvData[]> NoAdditionalTimeframes = new();
+
     private readonly IPiootooSettingsService _settingsService;
     private readonly IPiootooDataFeedService _dataFeedService;
     private readonly IBacktestingExecutionHook _executionHook;
@@ -589,6 +595,16 @@ public class PiootooBacktestingService : IPiootooBacktestingService
             var strategyEquityCache = orderedStrategyInfos
                 .ToDictionary(info => MakeStrategyKey(info.Symbol, GetStrategyCode(info)),
                     _ => result.InitialCapital, StringComparer.OrdinalIgnoreCase);
+
+            // Traccia per strategia: chiave e codice precalcolati (MakeStrategyKey allocava quattro
+            // stringhe per strategia per barra per ricostruire un valore costante) e l'ultimo giorno
+            // in cui e' stata scritta una riga, che serve al battito di cui sotto.
+            var strategyTracks = orderedStrategyInfos
+                .Select(info => new StrategyEquityTrack(
+                    info,
+                    MakeStrategyKey(info.Symbol, GetStrategyCode(info)),
+                    GetStrategyCode(info)))
+                .ToArray();
             var emittedTradeSignals = new List<TradeSignal>();
 
             // Arrotonda StartDate al timeframe minimo più vicino (verso il basso)
@@ -714,6 +730,10 @@ public class PiootooBacktestingService : IPiootooBacktestingService
             var markedToMarketBars = 0L;
             var weekEndCancelledOrders = 0L;
             var lastPersistedIteration = 0;
+            // Segnaposto della persistenza incrementale: quanti segnali e quanti trade sono gia'
+            // finiti nel journal. Entrambe le liste sono append-only, quindi basta l'indice.
+            var persistedSignals = 0;
+            var persistedTrades = 0;
 
             Console.WriteLine($"[Backtesting] Loop configurato: TotalMinutes={totalMinutes}, TotalIterations={totalIterations}, MinTimeframe={minTimeframeMinutes}");
 
@@ -787,8 +807,12 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                     var strategySymbol = strategy.Symbol;
                     var strategyCode = strategy.Name;
 
+                    // Contains SENZA comparer: l'overload con IEqualityComparer non e' quello di
+                    // HashSet ma Enumerable.Contains, che scansiona linearmente. Costava O(S) per
+                    // strategia per barra, cioe' O(S^2) per barra. Il comparer era anche ridondante:
+                    // il set e' gia' costruito con StringComparer.OrdinalIgnoreCase.
                     if (titanoEnabled is not null &&
-                        !titanoEnabled.Contains(strategyCode, StringComparer.OrdinalIgnoreCase))
+                        !titanoEnabled.Contains(strategyCode))
                     {
                         // Disabilitata dalla rotazione su questo periodo: non è uno skip tecnico,
                         // è una decisione. Non viene contata tra le valutazioni mancate.
@@ -860,7 +884,7 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                             Execution = execution,
                             AdditionalOhlcv = strategy is IMultiTimeframeTradingStrategy multiTimeframeStrategy
                                 ? GetAdditionalTimeframeData(multiTimeframeStrategy, cursors, currentDate)
-                                : new Dictionary<int, OhlcvData[]>()
+                                : NoAdditionalTimeframes
                         });
 
                         if (signal?.RuntimeState is not null)
@@ -937,7 +961,7 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                 // profit, time exit e riempimento degli ordini pendenti.
                 var snapshot = tradingService.UpdateMarketPrices(currentPrices, currentBars, currentDate);
                 markedToMarketBars++;
-                AppendStrategyEquityResults(result, snapshot, currentDate, signals, strategyEquityCache, orderedStrategyInfos);
+                AppendStrategyEquityResults(result, snapshot, currentDate, signals, strategyEquityCache, strategyTracks);
 
                 var nextTradingDate = GetNextTradingDateUtc(currentDate, minTimeframeMinutes);
                 if (request.CloseAllPositionsAtWeekEnd &&
@@ -954,7 +978,7 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                     {
                         snapshot = tradingService.CloseAllOpenPositions(
                             currentPrices, currentBars, currentDate, TradeExitReason.WeekEnd);
-                        AppendStrategyEquityResults(result, snapshot, currentDate, signals, strategyEquityCache, orderedStrategyInfos);
+                        AppendStrategyEquityResults(result, snapshot, currentDate, signals, strategyEquityCache, strategyTracks);
                     }
                 }
 
@@ -963,8 +987,25 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                 if (processedIterations - lastPersistedIteration >= PersistCheckpointBars)
                 {
                     lastPersistedIteration = processedIterations;
-                    tradingJsonStore.WriteSignals(ToPersistedSignals(job.JobId, emittedTradeSignals), durable: false);
-                    tradingJsonStore.WriteTrades(ToPersistedTrades(job.JobId, tradingService.GetClosedTrades()), durable: false);
+
+                    // Si accoda al journal solo cio' che e' nato dall'ultimo checkpoint. Prima si
+                    // riscrivevano per intero signals.json e trades.json: un costo pari a TUTTO il
+                    // backtest gia' fatto, pagato a ogni checkpoint, che su un run di un anno
+                    // (decine di migliaia di segnali, decine di MB) rendeva il run visibilmente
+                    // piu' lento verso la fine che all'inizio. Gli array veri li materializza la
+                    // scrittura autorevole di fine run, poco piu' sotto.
+                    tradingJsonStore.AppendSignals(
+                        ToPersistedSignals(job.JobId, emittedTradeSignals, persistedSignals));
+                    persistedSignals = emittedTradeSignals.Count;
+
+                    var closedSoFar = tradingService.ClosedTradesCount;
+                    if (closedSoFar > persistedTrades)
+                    {
+                        tradingJsonStore.AppendTrades(
+                            ToPersistedTrades(job.JobId, tradingService.GetClosedTrades(), persistedTrades));
+                        persistedTrades = closedSoFar;
+                    }
+
                     diagnostics.Flush();
                 }
 
@@ -1198,6 +1239,21 @@ public class PiootooBacktestingService : IPiootooBacktestingService
             .GroupBy(hr => GetWeekStart(hr.DateTime))
             .ToList();
 
+        // Un solo passaggio su StrategyResults invece di un Where su TUTTA la lista per ogni
+        // settimana: con 52 settimane erano 52 scansioni complete della serie, cioe' un costo
+        // quadratico nella lunghezza del run pagato nella fase finale "WritingArtifacts".
+        // Il criterio di appartenenza e' identico a prima — [weekStart, weekStart+6g] — incluso il
+        // fatto che una riga della domenica dopo la mezzanotte non cade in nessuna settimana.
+        var strategyResultsByWeek = new Dictionary<DateTime, List<StrategyHourlyResult>>();
+        foreach (var strategyResult in result.StrategyResults)
+        {
+            var bucket = GetWeekStart(strategyResult.DateTime);
+            if (strategyResult.DateTime > bucket.AddDays(6)) continue;
+            if (!strategyResultsByWeek.TryGetValue(bucket, out var list))
+                strategyResultsByWeek[bucket] = list = [];
+            list.Add(strategyResult);
+        }
+
         foreach (var weekGroup in hourlyByWeek)
         {
             var weekStart = weekGroup.Key;
@@ -1216,9 +1272,8 @@ public class PiootooBacktestingService : IPiootooBacktestingService
             };
 
             // Calcola win rate dai trade delle strategie
-            var weekStrategyResults = result.StrategyResults
-                .Where(sr => sr.DateTime >= weekStart && sr.DateTime <= weekEnd)
-                .ToList();
+            List<StrategyHourlyResult> weekStrategyResults =
+                strategyResultsByWeek.TryGetValue(weekStart, out var bucketed) ? bucketed : [];
 
             var profitableHours = weekStrategyResults.Count(sr => sr.Profit > 0);
             weeklyResult.TotalTrades = weekStrategyResults.Count(sr => sr.Signal.HasValue && sr.Signal != SignalType.Hold);
@@ -1235,13 +1290,51 @@ public class PiootooBacktestingService : IPiootooBacktestingService
     /// Elenco già deduplicato e ordinato, calcolato una volta sola dal chiamante: rigenerarlo con
     /// GroupBy+OrderBy a ogni barra costava più della valutazione delle strategie stesse.
     /// </param>
+    /// <summary>
+    /// Stato per strategia della serie di equity: identita' precalcolata + ultimo giorno scritto.
+    /// </summary>
+    private sealed class StrategyEquityTrack(
+        Piootoo.Shared.Models.Backtesting.StrategyInfo info, string key, string code)
+    {
+        public Piootoo.Shared.Models.Backtesting.StrategyInfo Info { get; } = info;
+
+        /// <summary>Chiave (Symbol, StrategyCode) normalizzata, calcolata una volta sola.</summary>
+        public string Key { get; } = key;
+
+        /// <summary>Codice strategia, calcolato una volta sola.</summary>
+        public string Code { get; } = code;
+
+        /// <summary>Giorno dell'ultima riga emessa, per il battito giornaliero. default = mai.</summary>
+        public DateTime LastEmittedDay { get; set; }
+    }
+
+    /// <summary>
+    /// Accoda la serie di equity per strategia, scrivendo <b>solo le righe che dicono qualcosa</b>.
+    ///
+    /// <para>Prima si scriveva una riga per strategia per barra, sempre: su un anno a 15 minuti con
+    /// 26 strategie sono ~650.000 oggetti, ~100 MB di heap vivo di seconda generazione, con il
+    /// backing array della lista in LOH. Non era solo memoria: a ogni barra si scriveva un
+    /// riferimento fresco dentro un array enorme gia' promosso, quindi ogni raccolta gen0/gen1
+    /// doveva scansionare sempre piu' card sporche. Il costo per barra cresceva con le barre gia'
+    /// fatte — la ragione per cui il run rallentava andando avanti.</para>
+    ///
+    /// <para>Una riga viene emessa quando l'equity della strategia e' cambiata, quando c'e' un
+    /// segnale, oppure — battito — al primo giro di ogni giornata di calendario. Le righe scartate
+    /// sono quelle con <c>Profit = 0</c> e nessun segnale: ripetono l'equity gia' nota e non
+    /// entrano in nessuna delle aggregazioni a valle, che sommano <c>Profit</c> o contano i segnali
+    /// (<see cref="CalculateWeeklyResults"/>, AdvancedStrategyFilter, BasicStrategyFilter,
+    /// PiootooOptimizationService, PiootooSapiooService). Il battito giornaliero serve proprio a
+    /// loro: garantisce che ogni strategia resti presente in ogni settimana del run anche se non ha
+    /// mai operato, cosi' le finestre "ultime N settimane" contano le settimane ferme come zero
+    /// invece di saltarle.</para>
+    /// </summary>
     private void AppendStrategyEquityResults(
         BacktestingResult result,
         TradingSnapshot snapshot,
         DateTime currentDate,
         IReadOnlyList<TradeSignal> signals,
         Dictionary<string, decimal> strategyEquityCache,
-        IReadOnlyList<Piootoo.Shared.Models.Backtesting.StrategyInfo> strategyInfos)
+        StrategyEquityTrack[] tracks)
     {
         Dictionary<string, TradeSignal>? signalsByKey = null;
         if (signals.Count > 0)
@@ -1251,9 +1344,11 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                 signalsByKey[MakeStrategyKey(signal.Symbol, GetSignalStrategyCode(signal))] = signal;
         }
 
-        foreach (var strategyInfo in strategyInfos)
+        var day = currentDate.Date;
+
+        foreach (var track in tracks)
         {
-            var strategyKey = MakeStrategyKey(strategyInfo.Symbol, GetStrategyCode(strategyInfo));
+            var strategyKey = track.Key;
             TradeSignal? signal = null;
             signalsByKey?.TryGetValue(strategyKey, out signal);
             strategyEquityCache.TryGetValue(strategyKey, out var previousEquity);
@@ -1267,14 +1362,24 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                 : previousEquity;
             strategyEquityCache[strategyKey] = equity;
 
+            var profit = equity - previousEquity;
+            var isHeartbeat = track.LastEmittedDay != day;
+            if (profit == 0m && signal is null && !isHeartbeat)
+            {
+                // Ripeterebbe l'equity gia' nota senza aggiungere informazione.
+                continue;
+            }
+
+            track.LastEmittedDay = day;
+
             result.StrategyResults.Add(new StrategyHourlyResult
             {
-                StrategyName = strategyInfo.Name,
-                StrategyCode = GetStrategyCode(strategyInfo),
-                Symbol = strategyInfo.Symbol,
+                StrategyName = track.Info.Name,
+                StrategyCode = track.Code,
+                Symbol = track.Info.Symbol,
                 DateTime = currentDate,
                 Equity = equity,
-                Profit = equity - previousEquity,
+                Profit = profit,
                 Contracts = signal?.Quantity ?? 0m,
                 Signal = signal?.Type,
                 EntryPrice = signal?.Price
@@ -1367,18 +1472,35 @@ public class PiootooBacktestingService : IPiootooBacktestingService
     /// formato di <c>signals.json</c> è unico con quello prodotto dalle sessioni, dove invece la
     /// conversione è essenziale (vedi <c>docs/domini/account-e-conversione-symbol.md</c>).
     /// </summary>
+    /// <param name="from">
+    /// Indice da cui partire. Serve ai checkpoint incrementali, che accodano solo i segnali nati
+    /// dall'ultimo giro: l'indice resta quello assoluto perche' e' lui a formare il SignalId, e
+    /// due chiamate con <c>from</c> diversi devono produrre gli stessi id della chiamata completa.
+    /// </param>
     private static IEnumerable<PersistedSignal> ToPersistedSignals(
         string jobId,
-        IReadOnlyList<TradeSignal> signals) =>
-        signals.Select((signal, index) => PersistedSignalMapper.FromTradeSignal(
-            signal,
-            signalId: $"{jobId}-signal-{index + 1:D10}",
-            correlationId: jobId));
+        IReadOnlyList<TradeSignal> signals,
+        int from = 0)
+    {
+        for (var index = Math.Max(0, from); index < signals.Count; index++)
+            yield return PersistedSignalMapper.FromTradeSignal(
+                signals[index],
+                signalId: $"{jobId}-signal-{index + 1:D10}",
+                correlationId: jobId);
+    }
 
+    /// <inheritdoc cref="ToPersistedSignals" path="/param[@name='from']"/>
     private static IEnumerable<PersistedTrade> ToPersistedTrades(
         string jobId,
-        IReadOnlyList<TradingResult> trades) =>
-        trades.Select((trade, index) => new PersistedTrade
+        IReadOnlyList<TradingResult> trades,
+        int from = 0)
+    {
+        for (var index = Math.Max(0, from); index < trades.Count; index++)
+            yield return ToPersistedTrade(jobId, trades[index], index);
+    }
+
+    private static PersistedTrade ToPersistedTrade(string jobId, TradingResult trade, int index) =>
+        new()
         {
             TradeId = $"{jobId}-trade-{index + 1:D10}",
             CorrelationId = jobId,
@@ -1395,7 +1517,7 @@ public class PiootooBacktestingService : IPiootooBacktestingService
             GrossProfit = trade.GrossProfit,
             NetProfit = trade.NetProfit,
             Commission = trade.Commission
-        });
+        };
 
     private static TradeSignal CloneTradeSignal(TradeSignal signal)
     {
@@ -1914,11 +2036,9 @@ public class PiootooBacktestingService : IPiootooBacktestingService
         // Verifica se il timeframe della strategia è un multiplo del minimo
         if (strategyTimeframeMinutes % minTimeframeMinutes != 0)
         {
-            // Log solo quando necessario per evitare spam
-            if (iterationCount % 1000 == 0)
-            {
-                Console.WriteLine($"[Backtesting] Strategia con timeframe {strategyTimeframeMinutes} non è multiplo di {minTimeframeMinutes}, skip");
-            }
+            // Niente log qui: e' un percorso chiamato per strategia per barra e Console.Out e'
+            // sincrono e serializzato. La condizione e' statica per strategia, quindi va segnalata
+            // una volta sola in fase di setup, non dentro il loop.
             return false;
         }
 
@@ -1933,12 +2053,6 @@ public class PiootooBacktestingService : IPiootooBacktestingService
         
         // Valuta la strategia quando il numero di iterazioni è un multiplo del multiplier
         var shouldEvaluate = iterationCount % multiplier == 0;
-        
-        // Log solo quando necessario
-        if (shouldEvaluate && iterationCount % 100 == 0)
-        {
-            Console.WriteLine($"[Backtesting] Valutazione strategia: iterationCount={iterationCount}, strategyTF={strategyTimeframeMinutes}, minTF={minTimeframeMinutes}, multiplier={multiplier}, evaluate={shouldEvaluate}");
-        }
         
         return shouldEvaluate;
     }

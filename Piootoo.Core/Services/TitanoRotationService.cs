@@ -110,8 +110,8 @@ public sealed class TitanoRotationService
     /// <summary>
     /// Codici di esecuzione (ITradingStrategy.Name) delle strategie del masterfilter.
     ///
-    /// Il masterfilter contiene Id di classe (<c>Easy_218_GC_60</c>) mentre i trade persistiti
-    /// portano il codice di esecuzione (<c>TOP_UA_218</c>). Confrontarli direttamente — come
+    /// Il masterfilter contiene Id di classe (<c>PTS_NQ_TFM_001_60</c>) mentre i trade persistiti
+    /// portano il codice di esecuzione (<c>PTS_NQ_TFM_001_60</c>). Confrontarli direttamente — come
     /// faceva la versione precedente — significa non trovare mai un trade per nessuna strategia:
     /// tutte le metriche restano a zero e la rotazione disabilita tutto per sempre.
     /// Vedi docs/PROGETTO.md §3.2.
@@ -125,6 +125,13 @@ public sealed class TitanoRotationService
         Validate(request);
         var backtestPath = _workspaces.GetBacktestPath(request.WorkspaceId, request.BacktestFolder);
         if (!Directory.Exists(backtestPath)) throw new DirectoryNotFoundException($"Backtest '{request.BacktestFolder}' non trovato.");
+        // Titano legge trades.json come byte (gli fa l'hash per identificare il run), quindi non
+        // passa dai Read* dello store e non fonderebbe da solo un journal ancora aperto. Un run
+        // chiuso normalmente non ne ha, ma uno interrotto si': senza questa riga la rotazione
+        // girerebbe sui trade fino all'ultimo checkpoint completo, non su tutti. E' un no-op quando
+        // journal non ce ne sono. Vedi TradingJsonStore.
+        new TradingJsonStore(backtestPath).CompactAll();
+
         var tradesPath = Path.Combine(backtestPath, TradingPersistenceSchema.TradesFileName);
         if (!File.Exists(tradesPath)) throw new FileNotFoundException("trades.json non trovato nel backtest.", tradesPath);
 

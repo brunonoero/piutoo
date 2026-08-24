@@ -52,9 +52,14 @@ solution. Stato: **stabile** = contenuto verificato contro il codice,
   `FinalQuantity` (Titano × ATR × rischio portfolio). *Stabile.*
 - [`domini/trading-sessions-api.md`](domini/trading-sessions-api.md) — ciclo
   di vita di una sessione, endpoint, autorità di execution. *Stabile.*
+- [`domini/finestra-candele-e-riscaldamento.md`](domini/finestra-candele-e-riscaldamento.md)
+  — come un cBot consegna le candele al server: riscaldamento all'avvio, finestra
+  corta a regime, perché la sovrapposizione impedisce i buchi e come si
+  diagnostica una sessione che non produce segnali. *Stabile.*
 - [`domini/distribuzione-multi-account.md`](domini/distribuzione-multi-account.md)
-  — secondo layer di filtro dopo Titano: gruppi, slot, max trade concorrenti,
-  con matrice di esempi verificati. *Stabile.*
+  — secondo layer di filtro dopo Titano: gruppi, slot, budget di concorrenza per
+  account (trasversale ai simboli) e le due modalità di conteggio, con matrice di
+  esempi verificati. *Stabile.*
 - [`domini/trading-plans.md`](domini/trading-plans.md) — configurazioni operative
   riutilizzabili e apertura idempotente delle sessioni dal cBot. *Stabile.*
 - [`domini/cbot-realtime-backtest-titano.md`](domini/cbot-realtime-backtest-titano.md)
@@ -69,6 +74,10 @@ solution. Stato: **stabile** = contenuto verificato contro il codice,
 - [`domini/porting-da-report-sweep.md`](domini/porting-da-report-sweep.md) —
   come si legge un run di ottimizzazione esterno, mappa parametri → campi del
   motore, trappole verificate e procedura di verifica contro il report.
+  *Stabile.*
+- [`domini/mappa-strategie-pts.md`](domini/mappa-strategie-pts.md) — da quale
+  run e da quale riga approvata viene ogni classe `PTS_*`, sigle dei motori,
+  strategie disabilitate perché doppioni, motori senza più sottoclassi.
   *Stabile.*
 - [`domini/feed-worker.md`](domini/feed-worker.md) — `FeedRunner`/
   `FeedWorker`, invio barre chiuse. *Bozza.*

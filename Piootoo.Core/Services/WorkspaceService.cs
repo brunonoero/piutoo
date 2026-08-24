@@ -764,6 +764,37 @@ public sealed class WorkspaceService
     }
 
     /// <summary>
+    /// Percorso del report HTML del backtest, se il run ne ha prodotto uno.
+    ///
+    /// <para>Il nome del file non è fisso: <c>GenerateStrategyEquityHtmlReport</c> lo costruisce dal
+    /// prefisso del run, quindi si cerca per estensione invece di indovinarlo. Se ce n'è più d'uno
+    /// — cartella riusata da run successivi — vince il più recente, che è quello che l'utente si
+    /// aspetta di vedere aprendo il dettaglio.</para>
+    /// </summary>
+    /// <exception cref="FileNotFoundException">
+    /// La cartella esiste ma non contiene alcun HTML: succede nei run interrotti e in quelli
+    /// prodotti dall'engine esterno, che i trade li scrive ma il report no. È un'assenza normale, e
+    /// il client la distingue da un errore proprio perché è un 404 e non un 500.
+    /// </exception>
+    public string GetBacktestHtmlReportPath(string workspaceId, string folderName)
+    {
+        var backtestPath = GetBacktestPath(workspaceId, folderName);
+        if (!Directory.Exists(backtestPath))
+            throw new DirectoryNotFoundException($"Backtest '{folderName}' non trovato nel workspace '{workspaceId}'.");
+
+        var report = new DirectoryInfo(backtestPath)
+            .EnumerateFiles("*.html", SearchOption.TopDirectoryOnly)
+            .OrderByDescending(file => file.LastWriteTimeUtc)
+            .FirstOrDefault();
+
+        if (report is null)
+            throw new FileNotFoundException(
+                $"Il backtest '{folderName}' non ha un report HTML.", Path.Combine(backtestPath, "*.html"));
+
+        return report.FullName;
+    }
+
+    /// <summary>
     /// Elimina una cartella di backtest con tutto il suo contenuto.
     ///
     /// <para>Comprende <c>titano/&lt;run-id&gt;/</c>: i run calcolati su quel campione spariscono

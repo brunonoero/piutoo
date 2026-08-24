@@ -238,7 +238,7 @@ public abstract class SessionBreakoutEngine : EasyEngineBase
             !EasyLib.PtnBaseSA2(BaseNoLong, ohlc) &&
             _sessionOfWeek != SkipSessionLong &&
             EasyDayOfWeek(barTime) != NotEntryDayLong &&
-            barTime.Month != NotEntryMonthLong)
+            Clock.SessionDay(barTime).Month != NotEntryMonthLong)
         {
             entries.Add(EntryStopNextBar(SignalType.Buy, _hh, data, barTime, "LE"));
         }
@@ -250,7 +250,7 @@ public abstract class SessionBreakoutEngine : EasyEngineBase
             !EasyLib.PtnBaseSA2(BaseNoShort, ohlc) &&
             _sessionOfWeek != SkipSessionShort &&
             EasyDayOfWeek(barTime) != NotEntryDayShort &&
-            barTime.Month != NotEntryMonthShort)
+            Clock.SessionDay(barTime).Month != NotEntryMonthShort)
         {
             entries.Add(EntryStopNextBar(SignalType.Sell, _ll, data, barTime, "SE"));
         }
@@ -339,21 +339,31 @@ public abstract class SessionBreakoutEngine : EasyEngineBase
 
     private bool InPythonTradingWindow(DateTime barTime)
     {
+        if (InDeclaredWindow(barTime) is { } declared)
+            return declared;
+
         if (StartTime < 0 && EndTime < 0)
             return true;
 
-        var start = StartTime < 0 ? 0 : StartTime / 100;
-        var end = EndTime < 0 ? 23 : EndTime / 100;
-        var hour = barTime.Hour;
-        return start <= end ? hour >= start && hour <= end : hour >= start || hour <= end;
+        // Confronto su HHMM pieni, fine inclusa — identico a PriceChannelEngine. Prima si
+        // confrontavano le sole ore: la finestra si allargava fino a HH:59 e prendeva barre che la
+        // fonte non prende. I trade di riferimento lo mostrano: con finestra 05-04 l'ultimo
+        // ingresso e' alle 04:15 (segnale alle 04:00, incluso) e non ce n'e' nessuno oltre, mentre
+        // con finestra 10-05 e 13-06 non esiste alcun ingresso dopo end_hour:00 + una barra.
+        var start = StartTime < 0 ? 0 : StartTime;
+        var end = EndTime < 0 ? 2359 : EndTime;
+        var time = Hhmm(barTime);
+        return start <= end ? time >= start && time <= end : time >= start || time <= end;
     }
 
-    private static int PythonDayOfWeek(DateTime value) => ((int)value.DayOfWeek + 6) % 7;
+    private int PythonDayOfWeek(DateTime instantUtc) => PythonWeekday(instantUtc);
 
     private DateTime SessionKey(DateTime time)
     {
-        var start = EasyLib.CombineDateAndHhmm(time.Date, SessionStartTime);
-        return SessionStartTime > SessionEndTime && time < start ? start.AddDays(-1) : start;
+        var start = Clock.SessionInstantUtc(time, SessionStartTime);
+        return SessionStartTime > SessionEndTime && time < start
+            ? Clock.SessionInstantUtc(time.AddDays(-1), SessionStartTime)
+            : start;
     }
 
     private void ResetLevels(decimal[] ohlc)
@@ -398,7 +408,7 @@ public abstract class SessionBreakoutEngine : EasyEngineBase
     {
         // tw() ha fine esclusiva: replicarla è importante perché la variante inclusiva esiste
         // altrove nella stessa libreria e le due differiscono di una barra sul bordo.
-        if (!EasyLib.TimeWindow(StartTime, EndTime, barTime))
+        if (!EasyLib.TimeWindow(Clock, StartTime, EndTime, barTime))
             return false;
 
         if (PauseStart < 0 || PauseEnd < 0)

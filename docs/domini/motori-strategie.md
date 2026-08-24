@@ -203,10 +203,23 @@ Tutti i dodici motori derivano da `EasyEngineBase`:
 - `MaxEntriesPerSession` + `EntrySessionStartUtc` sul segnale, applicati al
   **fill** (uno stop non eseguito può essere riemesso).
 
-Il registro machine-checkable è
-`Piootoo.Strategies.Tests/EngineCatalogMigrationTests.cs`.
+> Per il catalogo **attuale** — quale strategia `PTS_*` usa quale motore, e da quale run viene —
+> vedi [`mappa-strategie-pts.md`](mappa-strategie-pts.md).
 
-## Mappa strategia → motore → sorgente EasyLanguage
+## Mappa strategia → motore → sorgente EasyLanguage — *storica, non più nel codice*
+
+> **Le classi `Easy_*` sono state rimosse dal 17/08/2026.** Erano deprecate e
+> fuorvianti: descrivevano un catalogo che non si esegue più. I sorgenti sono in
+> `_to_delete/easy-strategie-deprecate/` insieme al generatore
+> `GenerateAllStrategies.ps1`, e il registro machine-checkable
+> `EngineCatalogMigrationTests.cs` è stato eliminato con loro.
+>
+> **I motori restano** (`Easy/Engines/`, `EasyLib.cs`,
+> `StatelessEasyStrategyBase.cs`): sono la base delle strategie `PTS_*`, che sono
+> ora l'unico catalogo eseguibile.
+>
+> La tabella qui sotto resta come storia: dice da quale sorgente EasyLanguage
+> viene ciascun motore, ed è l'unico posto dove quel legame è scritto.
 
 Stato: `migrata` = sottoclasse dichiarativa; `ibrida` = motore + override o
 gate custom; `esclusa` = `IsPositionCloseDependent` (fuori catalogo).

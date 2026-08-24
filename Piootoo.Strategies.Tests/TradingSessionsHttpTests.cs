@@ -62,8 +62,15 @@ public sealed class TradingSessionsHttpTests : IDisposable
         });
     }
 
+    /// <summary>
+    /// Il piano viene persistito e l'apertura da piano configura la sessione (gruppi, lucchetti).
+    ///
+    /// <para>La riapertura con la STESSA execution key non e' piu' idempotente in backtest: ogni
+    /// apertura e' un run nuovo e ottiene una sessione nuova. Vedi
+    /// <see cref="OgniBacktest_ApreUnaSessioneNuova"/>.</para>
+    /// </summary>
     [Fact]
-    public async Task TradingPlanIsPersistedAndOpensIdempotentSession()
+    public async Task TradingPlanIsPersistedAndConfiguresSessionFromPlan()
     {
         var plan = new SaveTradingPlanRequest
         {
@@ -88,11 +95,7 @@ public sealed class TradingSessionsHttpTests : IDisposable
         var firstResponse = await _client.PostAsJsonAsync("api/v1/trading-sessions/open-plan", open);
         firstResponse.EnsureSuccessStatusCode();
         var first = (await firstResponse.Content.ReadFromJsonAsync<TradingSessionDescriptor>(JsonOptions))!;
-        var secondResponse = await _client.PostAsJsonAsync("api/v1/trading-sessions/open-plan", open);
-        secondResponse.EnsureSuccessStatusCode();
-        var second = (await secondResponse.Content.ReadFromJsonAsync<TradingSessionDescriptor>(JsonOptions))!;
 
-        Assert.Equal(first.SessionId, second.SessionId);
         Assert.Equal(plan.Code, first.PlanCode);
         Assert.Equal(TradingSessionStatus.Running, first.Status);
 
@@ -104,6 +107,142 @@ public sealed class TradingSessionsHttpTests : IDisposable
             (await groupsResponse.Content.ReadFromJsonAsync<List<TradingGroupRow>>(JsonOptions))!);
         Assert.Equal(plan.AccountNumber, group.AccountNumber);
         Assert.Equal(2, group.MaxConcurrentTrades);
+    }
+
+    /// <summary>
+    /// Ogni apertura in backtest e' un run nuovo: sessione nuova, mai una ripresa.
+    ///
+    /// <para>La execution key di un backtest e' deterministica (il cBot la deriva dalla data di
+    /// inizio del run), quindi un run rilanciato — dopo uno stop a meta', dopo un crash, o solo per
+    /// rifarlo — ricade sempre sulla chiave di prima. Se il server la riprendesse, il secondo run
+    /// erediterebbe barre, intent, posizioni aperte e trade del primo: un risultato plausibile,
+    /// coerente e sbagliato, senza un errore da nessuna parte.</para>
+    /// </summary>
+    [Fact]
+    public async Task OgniBacktest_ApreUnaSessioneNuova()
+    {
+        var plan = await SavePlan("PLAN_BT_RESTART", "PROP-BT", "9001");
+        var open = new OpenTradingPlanSessionRequest
+        {
+            PlanCode = plan.Code,
+            ClientRunMode = ClientRunMode.Backtest,
+            ExecutionKey = "BT-20260101000000",
+            AccountNumber = plan.AccountNumber
+        };
+
+        var first = await OpenPlan(open);
+        var second = await OpenPlan(open);
+
+        Assert.NotEqual(first.SessionId, second.SessionId);
+        Assert.Equal(TradingSessionStatus.Running, second.Status);
+
+        // La vecchia sessione non e' piu' raggiungibile: e' stata tolta dal registro e messa a
+        // Stopped, cosi' un push in ritardo del client morente non puo' scrivere dentro la cartella
+        // che il run nuovo ha appena riazzerato.
+        using var stale = Authorized(HttpMethod.Get,
+            $"api/v1/trading-sessions/{first.SessionId}/groups", first.SessionToken);
+        var staleResponse = await _client.SendAsync(stale);
+        Assert.Equal(HttpStatusCode.NotFound, staleResponse.StatusCode);
+    }
+
+    /// <summary>
+    /// In realtime invece la riapertura RIPRENDE: la execution key e' costante ("LIVE") e una
+    /// sessione lasciata aperta e' cio' che permette a un cBot riavviato di rientrare nel proprio
+    /// run — con le sue posizioni e i suoi intent — invece di aprirne uno nuovo accanto.
+    /// </summary>
+    [Fact]
+    public async Task Realtime_RiapertoConLaStessaChiave_RiprendeLaStessaSessione()
+    {
+        var plan = await SavePlan("PLAN_RT_RESUME", "PROP-RT", "9002");
+        var open = new OpenTradingPlanSessionRequest
+        {
+            PlanCode = plan.Code,
+            ClientRunMode = ClientRunMode.Realtime,
+            ExecutionKey = "LIVE",
+            AccountNumber = plan.AccountNumber
+        };
+
+        var first = await OpenPlan(open);
+        var second = await OpenPlan(open);
+
+        Assert.Equal(first.SessionId, second.SessionId);
+    }
+
+    /// <summary>
+    /// La regola non guarda l'account: vale anche per un secondo cBot che apre lo stesso piano in
+    /// backtest. Non si aggiunge al run del primo, ne apre uno proprio e scarta quello di prima.
+    ///
+    /// <para>E' la conseguenza voluta di "ogni backtest apre una sessione nuova". In pratica riguarda
+    /// solo chi apre lo stesso piano in backtest da piu' client contemporaneamente: un backtest di
+    /// cTrader e' per definizione a singolo account. In realtime, dove la distribuzione multi-account
+    /// e' il caso normale, la ripresa resta e i leg continuano a condividere la sessione.</para>
+    /// </summary>
+    [Fact]
+    public async Task BacktestDistribuito_UnSecondoAccount_ApreComunqueUnaSessioneNuova()
+    {
+        var plan = await SavePlan("PLAN_BT_MULTI", "PROP-BT2", "9003", secondAccount: "9004");
+        var first = await OpenPlan(new OpenTradingPlanSessionRequest
+        {
+            PlanCode = plan.Code,
+            ClientRunMode = ClientRunMode.Backtest,
+            ExecutionKey = "BT-20260101000000",
+            AccountNumber = "9003"
+        });
+        var second = await OpenPlan(new OpenTradingPlanSessionRequest
+        {
+            PlanCode = plan.Code,
+            ClientRunMode = ClientRunMode.Backtest,
+            ExecutionKey = "BT-20260101000000",
+            AccountNumber = "9004"
+        });
+
+        Assert.NotEqual(first.SessionId, second.SessionId);
+    }
+
+    private async Task<SaveTradingPlanRequest> SavePlan(
+        string code, string groupId, string accountNumber, string? secondAccount = null)
+    {
+        var plan = secondAccount is null
+            ? new SaveTradingPlanRequest
+            {
+                Code = code,
+                Name = code,
+                GroupId = groupId,
+                AccountNumber = accountNumber,
+                ApplyTitanoFilters = false
+            }
+            : new SaveTradingPlanRequest
+            {
+                Code = code,
+                Name = code,
+                ApplyTitanoFilters = false,
+                Groups =
+                [
+                    new TradingGroupRow
+                    {
+                        GroupId = groupId,
+                        AccountNumber = accountNumber,
+                        ApplyTitanoFilters = false
+                    },
+                    new TradingGroupRow
+                    {
+                        GroupId = groupId,
+                        AccountNumber = secondAccount,
+                        ApplyTitanoFilters = false
+                    }
+                ]
+            };
+        var save = await _client.PutAsJsonAsync(
+            $"api/v1/workspaces/{_workspace.Id}/trading-plans/{plan.Code}", plan);
+        save.EnsureSuccessStatusCode();
+        return plan;
+    }
+
+    private async Task<TradingSessionDescriptor> OpenPlan(OpenTradingPlanSessionRequest request)
+    {
+        var response = await _client.PostAsJsonAsync("api/v1/trading-sessions/open-plan", request);
+        response.EnsureSuccessStatusCode();
+        return (await response.Content.ReadFromJsonAsync<TradingSessionDescriptor>(JsonOptions))!;
     }
 
     /// <summary>

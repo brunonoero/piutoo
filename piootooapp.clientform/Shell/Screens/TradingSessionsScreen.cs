@@ -56,6 +56,22 @@ public partial class TradingSessionsScreen : UserControl, IShellScreen
 
     private List<TradingPlan> _plans = [];
 
+
+
+    /// <summary>
+
+    /// Backtest del workspace corrente. Non stanno in una combo: le cartelle sono troppe perché un
+
+    /// menu a tendina sia usabile, la scelta passa da <see cref="BacktestPickerDialog"/>.
+
+    /// </summary>
+
+    private readonly List<WorkspaceBacktestInfo> _backtests = [];
+
+
+
+    private WorkspaceBacktestInfo? _selectedBacktest;
+
     private bool _suspendReload;
 
     private bool _isBusy;
@@ -400,7 +416,7 @@ public partial class TradingSessionsScreen : UserControl, IShellScreen
 
 
 
-    private string? SelectedBacktestFolder => (_titanoBacktestCombo.SelectedItem as BacktestComboItem)?.Info.FolderName;
+    private string? SelectedBacktestFolder => _selectedBacktest?.FolderName;
 
 
 
@@ -824,6 +840,8 @@ public partial class TradingSessionsScreen : UserControl, IShellScreen
 
         _loadRunsButton.Enabled = !busy;
 
+        _titanoBacktestPickButton.Enabled = !busy;
+
         _saveGroupsButton.Enabled = !busy && _activeSession != null;
 
         _reloadGroupsButton.Enabled = !busy && _activeSession != null;
@@ -914,7 +932,7 @@ public partial class TradingSessionsScreen : UserControl, IShellScreen
 
         _titanoBacktestLabel.Visible = !fromPlan;
 
-        _titanoBacktestCombo.Visible = !fromPlan;
+        _titanoBacktestPanel.Visible = !fromPlan;
 
         _titanoRunLabel.Visible = !fromPlan;
 
@@ -1346,7 +1364,9 @@ public partial class TradingSessionsScreen : UserControl, IShellScreen
 
         {
 
-            _titanoBacktestCombo.Items.Clear();
+            _backtests.Clear();
+
+            SelectBacktest(null);
 
             return;
 
@@ -1360,57 +1380,35 @@ public partial class TradingSessionsScreen : UserControl, IShellScreen
 
 
 
-        _suspendReload = true;
+        _backtests.Clear();
 
-        _titanoBacktestCombo.Items.Clear();
+        _backtests.AddRange(backtests
 
-        foreach (var backtest in backtests
+            .Where(backtest => backtest.HasResults)
 
-                     .Where(backtest => backtest.HasResults)
-
-                     .OrderByDescending(backtest => backtest.LastModifiedUtc))
-
-        {
-
-            _titanoBacktestCombo.Items.Add(new BacktestComboItem(backtest));
-
-        }
+            .OrderByDescending(backtest => backtest.LastModifiedUtc));
 
 
 
-        var restored = -1;
+        // La scelta precedente sopravvive al ricarico se la cartella c'è ancora; altrimenti vale la
 
-        for (var index = 0; index < _titanoBacktestCombo.Items.Count; index++)
+        // più recente, che è il caso normale (sessione sul backtest appena prodotto).
 
-        {
+        var restored = selectedFolder == null
 
-            if (_titanoBacktestCombo.Items[index] is BacktestComboItem item
+            ? null
 
-                && string.Equals(item.Info.FolderName, selectedFolder, StringComparison.OrdinalIgnoreCase))
+            : _backtests.FirstOrDefault(backtest =>
 
-            {
-
-                restored = index;
-
-                break;
-
-            }
-
-        }
+                string.Equals(backtest.FolderName, selectedFolder, StringComparison.OrdinalIgnoreCase));
 
 
 
-        _titanoBacktestCombo.SelectedIndex = restored >= 0
-
-            ? restored
-
-            : _titanoBacktestCombo.Items.Count > 0 ? 0 : -1;
-
-        _suspendReload = false;
+        SelectBacktest(restored ?? _backtests.FirstOrDefault());
 
 
 
-        if (_titanoBacktestCombo.SelectedIndex >= 0 && !IsFromPlan)
+        if (_selectedBacktest != null && !IsFromPlan)
 
         {
 
@@ -1425,6 +1423,124 @@ public partial class TradingSessionsScreen : UserControl, IShellScreen
             _titanoRunCombo.Items.Clear();
 
             _titanoRunCombo.Text = string.Empty;
+
+        }
+
+    }
+
+
+
+    /// <summary>
+
+    /// Mostra nel form il backtest scelto. L'etichetta ripete cartella, origine e data perché
+
+    /// prendere un run dell'engine esterno al posto di quello interno non dà errore: dà altri numeri.
+
+    /// </summary>
+
+    private void SelectBacktest(WorkspaceBacktestInfo? backtest)
+
+    {
+
+        _selectedBacktest = backtest;
+
+        _titanoBacktestTextBox.Text = backtest == null
+
+            ? string.Empty
+
+            : $"{backtest.FolderName}  ·  {BacktestComboItem.DescribeOrigin(backtest)}  ·  " +
+
+              $"{backtest.LastModifiedUtc:yyyy-MM-dd HH:mm} UTC";
+
+    }
+
+
+
+    private async void OnPickBacktestClick(object? sender, EventArgs e)
+
+    {
+
+        if (_context == null || IsFromPlan)
+
+        {
+
+            return;
+
+        }
+
+
+
+        if (SelectedWorkspaceId is null)
+
+        {
+
+            MessageBox.Show(this, "Seleziona prima un workspace.", "Sessioni di trading",
+
+                MessageBoxButtons.OK, MessageBoxIcon.Warning);
+
+            return;
+
+        }
+
+
+
+        if (_backtests.Count == 0)
+
+        {
+
+            MessageBox.Show(this, "Il workspace non contiene backtest con risultati.", "Sessioni di trading",
+
+                MessageBoxButtons.OK, MessageBoxIcon.Warning);
+
+            return;
+
+        }
+
+
+
+        var chosen = BacktestPickerDialog.Pick(this, _backtests, _selectedBacktest?.FolderName);
+
+        if (chosen == null || string.Equals(chosen.FolderName, SelectedBacktestFolder, StringComparison.OrdinalIgnoreCase))
+
+        {
+
+            return;
+
+        }
+
+
+
+        SelectBacktest(chosen);
+
+
+
+        // Cambiare backtest cambia i run disponibili: ricaricarli qui è ciò che faceva prima
+
+        // SelectedIndexChanged della combo.
+
+        try
+
+        {
+
+            SetBusy(true);
+
+            await LoadTitanoRunsAsync(showValidationError: false, CancellationToken.None);
+
+        }
+
+        catch (Exception ex)
+
+        {
+
+            _context.Navigation.SetError(ex.Message);
+
+        }
+
+        finally
+
+        {
+
+            SetBusy(false);
 
         }
 
@@ -1665,50 +1781,6 @@ public partial class TradingSessionsScreen : UserControl, IShellScreen
             await ReloadBacktestsAsync(CancellationToken.None);
 
             await RefreshMasterfilterInfoAsync(CancellationToken.None);
-
-        }
-
-        catch (Exception ex)
-
-        {
-
-            _context.Navigation.SetError(ex.Message);
-
-        }
-
-        finally
-
-        {
-
-            SetBusy(false);
-
-        }
-
-    }
-
-
-
-    private async void OnBacktestChanged(object? sender, EventArgs e)
-
-    {
-
-        if (_context == null || _suspendReload || IsFromPlan)
-
-        {
-
-            return;
-
-        }
-
-
-
-        try
-
-        {
-
-            SetBusy(true);
-
-            await LoadTitanoRunsAsync(showValidationError: false, CancellationToken.None);
 
         }
 

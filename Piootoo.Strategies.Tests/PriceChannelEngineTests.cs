@@ -144,40 +144,7 @@ public sealed class PriceChannelEngineTests
         Assert.Equal(SignalType.Hold, Evaluate(new SessionAdxLegacyPriceChannel(), bars).Type);
     }
 
-    [Fact]
-    public void Easy336_RemainsCloseDependentBecauseItsSourceUsesDonchianTrail()
-    {
-        Assert.True(new Easy_336_GC_15().IsPositionCloseDependent);
-    }
 
-    [Fact]
-    public void Easy361_DeclaresOriginalRiskAndMaxDaysExitOnNextBarStop()
-    {
-        var strategy = new Easy_361_FDAX_30();
-        strategy.Initialize(new Dictionary<string, object>
-        {
-            ["MyStartTime"] = 0,
-            ["MyEndTime"] = 2359,
-            ["MyStartPause"] = -1,
-            ["MyEndPause"] = -1,
-            ["PtnNeutYes"] = 55,
-            ["PtnNeutNo"] = 56,
-            ["PtnDirYes"] = 52,
-            ["PtnDirNo"] = 53,
-            ["ADX_TH"] = 101
-        });
-        var bars = BuildHourlyBars(new DateTime(2024, 1, 18, 12, 0, 0, DateTimeKind.Utc));
-        bars[^1].High = 999m;
-
-        var signal = Evaluate(strategy, bars);
-
-        Assert.Equal(SignalType.Buy, signal.Type);
-        Assert.Equal(TradeOrderType.Stop, signal.OrderType);
-        Assert.Equal(999m, signal.Price);
-        Assert.Equal(1800m, signal.StopLossMoneyPerFutureContract);
-        Assert.Equal(4800m, signal.TakeProfitMoneyPerFutureContract);
-        Assert.Equal(new DateTime(2024, 1, 20, 21, 30, 0, DateTimeKind.Utc), signal.CloseAtUtc);
-    }
 
     private static TradeSignal Evaluate(PriceChannelEngine strategy, OhlcvData[] bars) =>
         strategy.Evaluate(new StrategyEvaluationRequest

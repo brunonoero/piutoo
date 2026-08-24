@@ -1,3 +1,4 @@
+using Piootoo.Shared.Configuration;
 using Piootoo.Shared.Enums;
 using Piootoo.Shared.Models;
 using Piootoo.Shared.Models.Trading;
@@ -12,6 +13,15 @@ namespace Piootoo.Strategies.Tests;
 /// </summary>
 public class SessionSeriesTests
 {
+    /// <summary>
+    /// Orologio neutro: queste prove costruiscono serie sintetiche i cui orari UTC coincidono per
+    /// costruzione con gli orari di sessione dichiarati, e verificano la <b>segmentazione</b> di
+    /// EasyLib, non la conversione di fuso. Con l'orologio dello strumento le barre finirebbero in
+    /// sessioni diverse e la prova non direbbe piu' nulla sulla logica che vuole coprire. La
+    /// conversione ha le sue prove in <c>SessionClockTests</c>.
+    /// </summary>
+    private static readonly SessionClock Orologio = SessionClock.Utc;
+
     private const int SessionStart = 1800;
     private const int SessionEnd = 1700;
 
@@ -21,8 +31,8 @@ public class SessionSeriesTests
         var bars = OvernightSeries.Build(timeframeMinutes: 15, sessionCount: 4);
         var last = bars[^1].DateTime;
 
-        OHLCMulti5(SessionStart, SessionEnd, bars, last, out var ohlc);
-        var sessions = BuildSessionSeries(SessionStart, SessionEnd, bars, last);
+        OHLCMulti5(Orologio, SessionStart, SessionEnd, bars, last, out var ohlc);
+        var sessions = BuildSessionSeries(Orologio, SessionStart, SessionEnd, bars, last);
 
         // Se le due funzioni segmentassero diversamente, d0/d1/d2 e la coda della serie
         // parlerebbero di sessioni diverse: è l'invariante che tiene insieme la traduzione.
@@ -38,10 +48,10 @@ public class SessionSeriesTests
         var bars = OvernightSeries.Build(timeframeMinutes: 15, sessionCount: 3);
 
         // Ci si ferma a metà dell'ultima sessione: l'aggregato deve fermarsi lì, non anticipare.
-        var midSession = bars.Last(bar => GetHhmm(bar.DateTime) == 900);
+        var midSession = bars.Last(bar => Orologio.Hhmm(bar.DateTime) == 900);
         var truncated = bars.Where(bar => bar.DateTime <= midSession.DateTime).ToArray();
 
-        var sessions = BuildSessionSeries(SessionStart, SessionEnd, truncated, midSession.DateTime);
+        var sessions = BuildSessionSeries(Orologio, SessionStart, SessionEnd, truncated, midSession.DateTime);
         var forming = truncated.Where(bar => bar.DateTime >= LastSessionStart(truncated)).ToArray();
 
         Assert.Equal(3, sessions.Length);
@@ -54,7 +64,7 @@ public class SessionSeriesTests
     public void BuildSessionSeries_DoesNotMergeAcrossTheSessionGap()
     {
         var bars = OvernightSeries.Build(timeframeMinutes: 15, sessionCount: 3);
-        var sessions = BuildSessionSeries(SessionStart, SessionEnd, bars, bars[^1].DateTime);
+        var sessions = BuildSessionSeries(Orologio, SessionStart, SessionEnd, bars, bars[^1].DateTime);
 
         // Ogni sessione ha un livello di prezzo suo: aggregati fusi darebbero estremi condivisi.
         Assert.Equal(3, sessions.Select(session => session.High).Distinct().Count());
@@ -69,8 +79,8 @@ public class SessionSeriesTests
         var last = bars.Max(bar => bar.DateTime);
         var shuffled = bars.OrderBy(bar => bar.DateTime.Ticks % 7).ThenBy(bar => bar.Close).ToArray();
 
-        var expected = BuildSessionSeries(SessionStart, SessionEnd, bars, last);
-        var actual = BuildSessionSeries(SessionStart, SessionEnd, shuffled, last);
+        var expected = BuildSessionSeries(Orologio, SessionStart, SessionEnd, bars, last);
+        var actual = BuildSessionSeries(Orologio, SessionStart, SessionEnd, shuffled, last);
 
         Assert.Equal(expected.Length, actual.Length);
         Assert.Equal(
@@ -100,7 +110,7 @@ public class SessionSeriesTests
         var bars = OvernightSeries.Build(timeframeMinutes: 15, sessionCount: 3);
         var last = bars[^1].DateTime;
 
-        var previous = LastBarOfPreviousSession(SessionStart, SessionEnd, bars, last);
+        var previous = LastBarOfPreviousSession(Orologio, SessionStart, SessionEnd, bars, last);
 
         var lastSessionStart = LastSessionStart(bars);
         var expected = bars.Last(bar => bar.DateTime < lastSessionStart);
@@ -122,8 +132,8 @@ public class SessionSeriesTests
         var bars = CalendarDays(dayCount: 3);
         var last = bars[^1].DateTime;
 
-        OHLCMulti5(0, 2359, bars, last, out var ohlc);
-        var sessions = BuildSessionSeries(0, 2359, bars, last);
+        OHLCMulti5(Orologio, 0, 2359, bars, last, out var ohlc);
+        var sessions = BuildSessionSeries(Orologio, 0, 2359, bars, last);
 
         Assert.Equal(3, sessions.Length);
         AssertSameSession(ohlc, dayIndex: 0, sessions[^1]);
@@ -171,7 +181,7 @@ public class SessionSeriesTests
     public void LastBarOfPreviousSession_IsNullWithoutACompletedSession()
     {
         var bars = OvernightSeries.Build(timeframeMinutes: 15, sessionCount: 1);
-        Assert.Null(LastBarOfPreviousSession(SessionStart, SessionEnd, bars, bars[^1].DateTime));
+        Assert.Null(LastBarOfPreviousSession(Orologio, SessionStart, SessionEnd, bars, bars[^1].DateTime));
     }
 
     private static void AssertSameSession(decimal[] ohlc, int dayIndex, OhlcvData session)
@@ -187,8 +197,8 @@ public class SessionSeriesTests
     {
         for (var index = bars.Length - 1; index > 0; index--)
         {
-            if (GetHhmm(bars[index].DateTime) > SessionStart &&
-                GetHhmm(bars[index - 1].DateTime) <= SessionStart)
+            if (Orologio.Hhmm(bars[index].DateTime) > SessionStart &&
+                Orologio.Hhmm(bars[index - 1].DateTime) <= SessionStart)
             {
                 return bars[index].DateTime;
             }
@@ -198,62 +208,6 @@ public class SessionSeriesTests
     }
 }
 
-public class Easy661Data2Tests
-{
-    [Fact]
-    public void HoldsWithExplicitReasonWithoutData2()
-    {
-        var strategy = new Easy_661_GC_30();
-        var bars = OvernightSeries.Build(timeframeMinutes: 30, sessionCount: 4);
-
-        var signal = strategy.GenerateSignal(bars, bars[^1].DateTime);
-
-        Assert.Equal(SignalType.Hold, signal.Type);
-        Assert.Equal("Serie 15m (data2) non disponibile", signal.Reason);
-    }
-
-    [Theory]
-    [InlineData(true)]
-    [InlineData(false)]
-    public void LatchesDirectionFromLastData2BarOfPreviousSession(bool bullish)
-    {
-        var strategy = new Easy_661_GC_30();
-        var bars = OvernightSeries.Build(timeframeMinutes: 30, sessionCount: 4);
-        var data2 = OvernightSeries.Build(timeframeMinutes: 15, sessionCount: 4);
-
-        // Si forza la direzione della barra che conta — l'ultima a 15 minuti della sessione chiusa —
-        // lasciando rialzista quella immediatamente precedente nella serie. Se la traduzione
-        // guardasse "la barra prima" invece del latch di fine sessione, i due casi coinciderebbero.
-        var target = LastBarOfClosedSession(data2, bars[^1].DateTime);
-        target.Open = bullish ? target.Low : target.High;
-        target.Close = bullish ? target.High : target.Low;
-
-        var signal = strategy.Evaluate(new StrategyEvaluationRequest
-        {
-            Ohlcv = bars,
-            BarTimeUtc = bars[^1].DateTime,
-            AdditionalOhlcv = new Dictionary<int, OhlcvData[]> { [15] = data2 },
-            Execution = new StrategyExecutionSnapshot
-            {
-                StrategyCode = "TOP_UA_661",
-                Symbol = "@GC",
-                BarTimeUtc = bars[^1].DateTime
-            }
-        });
-
-        Assert.Equal(bullish, Assert.IsType<bool>(signal.RuntimeState!["_okLong1"]));
-        Assert.Equal(!bullish, Assert.IsType<bool>(signal.RuntimeState["_okShort1"]));
-    }
-
-    private static OhlcvData LastBarOfClosedSession(OhlcvData[] data2, DateTime currentDate) =>
-        LastBarOfPreviousSession(1800, 1700, data2, currentDate)
-        ?? throw new InvalidOperationException("La serie di prova non ha una sessione chiusa.");
-}
-
-/// <summary>
-/// Serie overnight 18:00→17:00 al timeframe richiesto, con il buco 17:00–18:00 fra una sessione e
-/// l'altra. Ogni sessione sta su un gradino di prezzo suo, così gli aggregati sono distinguibili.
-/// </summary>
 internal static class OvernightSeries
 {
     internal static OhlcvData[] Build(int timeframeMinutes, int sessionCount)

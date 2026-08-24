@@ -15,12 +15,27 @@ namespace cAlgo.Robots
 {
     /// <summary>
     /// cBot "live" collegato al trading system Piootoo (api/v1/trading-sessions):
-    ///  - il grafico a cui è agganciato il bot deve avere il timeframe = BaseTimeframeMinutes (default 5
-    ///    min): ad ogni sua barra chiusa (OnBar) il bot legge la serie cTrader nativa per ciascuna
-    ///    coppia simbolo/timeframe configurata e inoltra al server ogni sua barra chiusa non ancora
-    ///    trasmessa; non aggrega mai artificialmente barre 5 minuti;
+    ///  - il simbolo e il timeframe del grafico a cui è agganciato il bot sono IRRILEVANTI: gli stream
+    ///    operativi sono le coppie (simbolo, timeframe) che arrivano dal piano del server. Per ognuna il
+    ///    bot apre la serie nativa cTrader, ne carica la storia all'indietro con <c>LoadMoreHistory</c> e
+    ///    si sottoscrive al suo <c>Bars.BarOpened</c>: alla chiusura di una barra di QUEL flusso invia al
+    ///    server una finestra di candele e reclama subito l'eventuale segnale. Non aggrega mai barre
+    ///    artificialmente, e non usa la barra del grafico come orologio comune;
+    ///  - le candele viaggiano in due tempi. All'avvio, una volta per stream, parte il RISCALDAMENTO:
+    ///    tutta la storia che le strategie richiedono (<c>RequiredCandles</c>, dichiarate dal
+    ///    descriptor; per una strategia a 15 minuti sono 576 barre) con l'ordine di non valutare nulla,
+    ///    perché sono barre già passate e valutarle produrrebbe intent sul passato. Poi, a ogni barra
+    ///    chiusa, una finestra corta (<c>IncrementalWindowBars</c>, default 20) di cui il server valuta
+    ///    l'ultima candela. Serve perché il server, in ExternalBroker, non ha un datafeed proprio: la
+    ///    storia di uno stream è solo ciò che gli è stato spinto, quindi ogni giro perso lascerebbe un
+    ///    buco permanente. Il server accoda solo le candele che non ha, quindi la sovrapposizione non
+    ///    duplica niente e ricuce da sola fino a 19 barre consecutive perse; oltre, rifiuta la finestra
+    ///    invece di accodare una serie bucata;
     ///  - fa polling periodico chiedendo al server "qual è il prossimo segnale per il MIO account";
     ///  - apre e chiude posizioni su QUALSIASI simbolo configurato (non solo quello del grafico);
+    ///  - ogni posizione e ogni ordine porta una label <c>PiootooLive:{StrategyCode}:{IntentId}</c>: dal
+    ///    solo stato della piattaforma si risale sempre al segnale che li ha creati, anche dopo un
+    ///    riavvio del cBot e senza consultare lo stato locale;
     ///  - si autolimita PER SIMBOLO: mentre ha una posizione aperta su un simbolo non ne chiede/accetta una
     ///    seconda sullo stesso simbolo, ma può gestire in parallelo posizioni su simboli diversi;
     ///  - ogni intent di ingresso porta con sé la specifica di uscita completa e il cBot la applica per
@@ -44,27 +59,204 @@ namespace cAlgo.Robots
     /// non tollera che l'API del robot (posizioni, ordini) venga toccata da un thread diverso da quello
     /// dell'algoritmo: per questo tutte le chiamate HTTP qui sotto sono SINCRONE (HttpClient.Send, mai
     /// async/await o Task.Run) e con un timeout esplicito, così il bot funziona nello stesso modo sia in
-    /// live sia in backtest (dove serve comunque abilitare il backtesting multi-simbolo/multi-timeframe in
-    /// cTrader se si configurano strumenti diversi da quello del grafico).
+    /// live sia in backtest. In backtest va abilitato il supporto multi-simbolo/multi-timeframe di
+    /// cTrader: gli stream del piano sono per definizione diversi da quello del grafico, sul quale il bot
+    /// non fa più alcun affidamento.
     ///
     /// Un'istanza di questo cBot rappresenta UN account cTrader. Il codice piano risolve la sessione e
     /// il profilo account/gruppo; cBot di account diversi possono condividere la sessione del piano.
     /// </summary>
+    /// <summary>
+    /// Che run sta aprendo il cBot. E' l'unico interruttore fra i due backtest che il progetto
+    /// distingue, e li NOMINA invece di farli dedurre da una combinazione di flag sparsi fra piano e
+    /// sessione. Deve corrispondere a <c>TradingRunProfile</c> lato server.
+    /// </summary>
+    public enum RunProfileParam
+    {
+        /// <summary>Decide il piano, com'e' sempre stato. In live e' l'unico valore ammesso.</summary>
+        DalPiano,
+
+        /// <summary>
+        /// Backtest sorgente: tutte le strategie del masterfilter, nessuna rotazione Titano e
+        /// nessun lucchetto di concorrenza. E' il run che produce il trades.json su cui Titano
+        /// calcola le rotazioni, quindi ogni segnale deve diventare un intent.
+        /// </summary>
+        BacktestSorgente,
+
+        /// <summary>
+        /// Backtest a filtro statico: strategie del masterfilter come nel sorgente, ma con i
+        /// lucchetti di concorrenza e distribuzione ATTIVI. E' il termine di paragone che isola il
+        /// merito della rotazione: fra questo e BacktestTitano cambia solo il filtro — statico
+        /// contro dinamico — e non i vincoli operativi. Non legge nessuna cartella di run Titano.
+        /// </summary>
+        BacktestStaticFilter,
+
+        /// <summary>
+        /// Backtest filtrato con le rotazioni storiche gia' generate da Titano, e con i lucchetti di
+        /// distribuzione attivi: serve a misurare cosa avrebbe fatto il sistema *con* il filtro.
+        /// </summary>
+        BacktestTitano
+    }
+
+    /// <summary>
+    /// Quanto deve parlare il bot. Sostituisce il vecchio flag "Log dettagliato": i livelli sono
+    /// cumulativi e ordinati, cosi' il confronto e' un <c>&gt;=</c> e non una collezione di booleani
+    /// che si contraddicono.
+    ///
+    /// <para>Il vincolo che detta la scala e' il buffer di log della piattaforma: in backtest si
+    /// riempie in fretta e, quando lo fa, cTrader butta via le righe piu' VECCHIE — cioe' proprio
+    /// quelle dell'avvio, dove stanno le cause. Per questo il livello effettivo in backtest e'
+    /// tagliato a <see cref="Minimo"/> (vedi <c>_livelloEffettivo</c>): la diagnostica ripetuta a
+    /// ogni barra ha senso in live, dove il log scorre in tempo reale e la sessione dura un giorno,
+    /// non su tre anni di storia.</para>
+    ///
+    /// <para><b>Fuori scala, e sempre attivo a qualunque livello:</b> tutto cio' che riguarda un
+    /// segnale — intent ricevuto con Bid/Ask, ingresso scartato o annullato, anomalia sul livello,
+    /// fill con lo spread, errore di apertura o chiusura. E' l'unica traccia di *perche'* il bot ha
+    /// fatto o non ha fatto un trade, ed e' proporzionale ai trade e non alle barre: anche su un
+    /// backtest lungo resta un ordine di grandezza sotto il rumore che satura il buffer. Il livello
+    /// governa il contorno — riscaldamento, finestre, poll — non i segnali.</para>
+    /// </summary>
+    public enum LivelloLog
+    {
+        /// <summary>
+        /// Solo i segnali (sempre attivi, vedi sopra) piu' avvio e riepiloghi di fine run. Nessuna
+        /// riga legata al ciclo delle barre. E' il livello a regime, e l'unico che gira in backtest.
+        /// </summary>
+        Minimo,
+
+        /// <summary>
+        /// Aggiunge il ciclo di alimentazione degli stream: riscaldamento inviato, storia disponibile
+        /// per stream, finestre accodate. Serve a capire se il server sta ricevendo le candele, non
+        /// se sta tradando bene.
+        /// </summary>
+        Operativo,
+
+        /// <summary>
+        /// Tutto: poll falliti, break-even e trailing non riusciti, e ogni altro dettaglio del giro
+        /// HTTP. E' il livello dei test di verifica del bot, non quello di esercizio.
+        /// </summary>
+        Diagnostico
+    }
+
     [Robot(TimeZone = TimeZones.UTC, AccessRights = AccessRights.FullAccess)]
     public class PiootooDistributedExecutionBot : Robot
     {
         private const string LabelPrefix = "PiootooLive";
-        private const string BotVersion = "1.1.0"; // aggiornare qui ad ogni release
+        private const char LabelSeparator = ':';
+
+        /// <summary>
+        /// Tetto ai giri di <c>LoadMoreHistory</c> per stream: il broker risponde a blocchi e senza un
+        /// limite un simbolo con poca storia terrebbe l'avvio in un ciclo infinito.
+        /// </summary>
+        private const int MaxHistoryLoadAttempts = 50;
+
+        /// <summary>
+        /// Dopo tanti invii falliti di fila, senza uno riuscito in mezzo, il bot lo dice a chiare
+        /// lettere: log e pannello passano da "connessione persa" a "il server non risponde da N
+        /// invii", perche' un errore di configurazione — piano che punta a una rotazione inesistente,
+        /// sessione fermata, token scaduto — non si risolve da solo e va distinto da un buco di rete.
+        ///
+        /// <para>In live NON ferma il bot: un cBot con posizioni aperte che si spegne le lascia senza
+        /// nessuno che le gestisca, che e' peggio del server irraggiungibile. Si continua a provare a
+        /// ogni barra e si riparte da soli quando il server torna. Lo stop resta solo in backtest,
+        /// dove non c'e' niente da proteggere e un run mutilato e' solo un risultato falso.</para>
+        /// </summary>
+        private const int MaxConsecutivePushFailures = 20;
+
+        /// <summary>
+        /// Secondi minimi fra due tentativi di riaggancio in live. A server giu' il tentativo fallisce
+        /// in fretta — un socket rifiutato non costa quasi niente — ma ripeterlo a ogni barra di ogni
+        /// stream riempirebbe il log e allungherebbe il thread della piattaforma senza guadagnarci
+        /// nulla: la connessione non torna perche' la si chiede piu' spesso.
+        /// </summary>
+        private const int ReopenCooldownSeconds = 30;
+
+        /// <summary>
+        /// Tetto agli intent reclamati in un solo giro di drenaggio (solo a lucchetti spenti). Non e'
+        /// un limite operativo — con i lucchetti spenti si vogliono TUTTI i segnali della barra — ma
+        /// una rete contro un server che continuasse a consegnare: il claim gira sul thread della
+        /// piattaforma, e un ciclo che non finisce blocca il cBot invece di far apparire un errore.
+        /// </summary>
+        private const int MaxSignalsPerDrain = 200;
+
+        // 2.4.1 (15/08/2026) — via l'estensione dei pending identici (2.3.0) e l'attesa prima del
+        // ritiro (2.3.1), con i loro due parametri. Il ritiro degli ordini scaduti torna a essere la
+        // PRIMA cosa della barra: chiusura, push, richiesta dei segnali nuovi. Non e' una preferenza
+        // di stile, e' l'unico ordine possibile — il server non rilascia il template finche' l'intent
+        // vecchio e' Pending, e l'intent vecchio resta Pending finche' il cBot non ne riporta la
+        // cancellazione. Il cBot aspettava il segnale per rinnovare l'ordine e il server aspettava il
+        // report per consegnare il segnale: in un mese di backtest la riga "non riemesso: ordine
+        // gia' a mercato" non e' comparsa nemmeno una volta, e l'attesa della 2.3.1 ha solo aggiunto
+        // 8 secondi di latenza a ogni piazzamento senza togliere una sola coppia cancella/ripiazza.
+        // Vedi docs/decisioni.md 2026-08-15.
+        //
+        // 2.4.0 (15/08/2026) — nuovo profilo BacktestStaticFilter: strategie del masterfilter come
+        // nel sorgente, lucchetti attivi come in BacktestTitano. E' il termine di paragone che
+        // mancava — fra questo e BacktestTitano cambia solo il filtro, statico contro dinamico,
+        // quindi la differenza fra i due run misura il merito della rotazione e non l'effetto del
+        // tetto di concorrenza. I profili espliciti ora DICHIARANO i lucchetti e il piano non li
+        // contraddice: prima solo BacktestSorgente era blindato, e un piano con
+        // EnforceConcurrencyLimits=false rendeva BacktestTitano un run senza vincoli che continuava
+        // a chiamarsi Titano. Vedi docs/decisioni.md 2026-08-15.
+        //
+        // 2.3.1 (15/08/2026) — il ritiro dei pending scaduti diventa differito di
+        // PendingRetirementGraceSeconds invece che immediato. Senza l'attesa, "Estendi i pending
+        // identici" (2.3.0) non lavorava mai: il ritiro stava dopo il poll post-push, ma quel poll
+        // torna quasi sempre a vuoto e l'intent della barra nuova arriva col polling periodico
+        // qualche centinaio di ms dopo, con l'ordine da riconoscere gia' cancellato. Nei log 2.3.0
+        // la riga "non riemesso: ordine gia' a mercato" non compare mai e resta una coppia
+        // cancella/ripiazza per barra sullo stesso prezzo. Vedi docs/decisioni.md 2026-08-15.
+        //
+        // 2.3.0 (13/08/2026) — esecuzione difensiva e consuntivo dei trade. Gli intent con il livello
+        // dal lato sbagliato, troppo lontani dal mercato o con lo spread troppo pesante sullo stop
+        // ora vengono SCARTATI e non piu' soltanto segnalati; il trailing ha un passo minimo e un
+        // intervallo minimo fra le modifiche; un pending identico a quello gia' a mercato viene
+        // esteso invece che cancellato e ripiazzato; l'"eta" dell'intent, che era calcolata su un
+        // istante futuro per costruzione, diventa ritardo (dalla barra del segnale) e attesa (alla
+        // validita'); a ogni chiusura si stampa il consuntivo del trade e a fine run la tabella per
+        // strategia. Vedi docs/decisioni.md 2026-08-13.
+        //
+        // 2.2.0 (12/08/2026) — diagnostica dei segnali: Bid/Ask, distanza dal lato di ingresso, eta'
+        // dell'intent e coerenza del livello pending stampati all'arrivo di ogni intent (sempre, a
+        // qualunque livello) e scritti sul JSONL. Il flag "Log dettagliato" diventa il parametro a
+        // scala "Livello di log", tagliato a Minimo in backtest.
+        //
+        // 2.1.0 (11/08/2026) — l'autolimitazione locale passa da (simbolo) a (strategia, simbolo),
+        // tetto locale sulle posizioni prima dell'invio, cancellazione OCO degli ordini rimasti in
+        // modalita' PositionsOnly. Vedi docs/decisioni.md 2026-08-11.
+        // ATTENZIONE: questa versione e' condivisa con il server e va mossa SEMPRE insieme a
+        // Piootoo.Shared.PiootooVersion.Current. Sono i due lati dello stesso contratto HTTP, ma non
+        // condividono una build — questo file lo compila cTrader, che non referenzia le assembly
+        // della solution — quindi la sincronia e' manuale e non c'e' niente che la verifichi.
+        // Il disallineamento non blocca nulla: entrambi stampano la propria versione all'avvio, e
+        // il confronto si fa leggendo i due log.
+        private const string BotVersion = "3.2.0"; // aggiornare qui E in PiootooVersion, ad ogni release
         private const string StatusChartObjectName = "PiootooConnectionStatus";
 
-        [Parameter("Server Base Url", DefaultValue = "https://localhost:7116")]
+        // Riquadro rosso al centro del grafico, separato dal pannello di stato: e' l'errore fatale
+        // che ha spento il bot. Deve restare visibile a run finito, quando il log del backtest ha
+        // gia' scartato le righe piu' vecchie.
+        private const string FatalErrorChartObjectName = "PiootooFatalError";
+
+        [Parameter("Server Base Url", DefaultValue = "http://localhost:5000")]
         public string ServerBaseUrl { get; set; }
 
         [Parameter("Codice piano")]
         public string PlanCode { get; set; }
 
-        [Parameter("Timeframe base del grafico (minuti)", DefaultValue = 5, MinValue = 1)]
-        public int BaseTimeframeMinutes { get; set; }
+        // Il run mode (Backtest/Realtime) lo dichiara la piattaforma, non l'utente: qui si sceglie
+        // solo QUALE backtest. In live il server rifiuta i profili Backtest* invece di eseguirli,
+        // cosi non e' possibile mandare a mercato un run configurato come campione sorgente.
+        [Parameter("Profilo di esecuzione", DefaultValue = RunProfileParam.DalPiano)]
+        public RunProfileParam RunProfile { get; set; }
+
+        // A regime la storia del server è già completa: della finestra serve solo il margine che
+        // ricuce le barre eventualmente perse (chiamata fallita, server irraggiungibile per qualche
+        // giro). Venti barre coprono diciannove buchi consecutivi; oltre, il server rifiuta la
+        // finestra invece di accodare una serie bucata, e lo si vede subito nel log.
+        [Parameter("Barre per finestra a regime", DefaultValue = 20, MinValue = 2)]
+        public int IncrementalWindowBars { get; set; }
 
         [Parameter("Polling segnali (secondi)", DefaultValue = 2, MinValue = 1)]
         public int PollingSeconds { get; set; }
@@ -72,18 +264,62 @@ namespace cAlgo.Robots
         [Parameter("Max Entry Slippage (Pips)", DefaultValue = 5.0, MinValue = 0)]
         public double MaxEntrySlippagePips { get; set; }
 
+        // Un livello pending dal lato sbagliato del mercato non e' una condizione di mercato: e' un
+        // difetto di prezzatura del server (barra vecchia, segnale ricalcolato male). Eseguirlo
+        // trasforma uno stop in un market a prezzo peggiore, cioe' esattamente il contrario di quello
+        // che la strategia chiedeva. Fino alla 2.2.0 il bot lo segnalava e lo piazzava lo stesso.
+        [Parameter("Scarta livelli dal lato sbagliato", DefaultValue = true, Group = "Filtri di ingresso")]
+        public bool RejectWrongSideLevels { get; set; }
+
+        // Distanza massima fra il prezzo corrente e il livello di un pending, in punti dello
+        // strumento. Serve a scartare un intent vecchio che il server continua a riproporre, non a
+        // giudicare quanto lontano una strategia mette il proprio ingresso: quello e' un fatto di
+        // progetto della strategia, non un difetto.
+        //
+        // <para>Fino alla 3.0.0 la misura era in multipli dello stop, e quella scala era sbagliata.
+        // Una strategia con stop stretto e ingresso sul massimo della sessione precedente — SBO_003,
+        // stop 25 punti, livello 150-280 punti sopra il mercato — veniva ammessa solo quando il
+        // breakout era gia' vicino, e bloccata quando era lontano. Non e' un filtro: e' una
+        // selezione sistematica delle condizioni favorevoli, che nella sorgente Python non
+        // esiste.</para>
+        //
+        // Zero = nessun limite.
+        [Parameter("Distanza max pending (punti)", DefaultValue = 500.0, MinValue = 0, Group = "Filtri di ingresso")]
+        public double MaxEntryDistancePoints { get; set; }
+
+        // Peso massimo dello spread sullo stop della strategia, in percentuale. Su uno stop da 12,5
+        // punti uno spread di 2,5 e' il 20%: lo stop deve reggere un quinto di respiro in meno di
+        // quanto la strategia ha ipotizzato. Non e' un difetto del bot, e' una coppia
+        // strategia/strumento sbagliata in quell'istante. Zero = nessun limite.
+        [Parameter("Spread max sullo stop (%)", DefaultValue = 20.0, MinValue = 0, Group = "Filtri di ingresso")]
+        public double MaxSpreadPercentOfStop { get; set; }
+
+        // Passo minimo di un aggiornamento del trailing, come frazione della distanza di trailing
+        // dichiarata dall'intent. Senza questo il bot insegue il Bid tick per tick e produce decine
+        // di ModifyPosition da un decimo di punto, alcune nello stesso secondo: in backtest e' solo
+        // rumore, in live e' rate limit del broker e reject.
+        [Parameter("Passo minimo trailing (frazione)", DefaultValue = 0.10, MinValue = 0, MaxValue = 1, Group = "Trailing")]
+        public double TrailingMinStepFraction { get; set; }
+
+        [Parameter("Intervallo minimo trailing (secondi)", DefaultValue = 5, MinValue = 0, Group = "Trailing")]
+        public int TrailingMinIntervalSeconds { get; set; }
+
         [Parameter("Http Timeout (secondi)", DefaultValue = 10, MinValue = 1)]
         public int HttpTimeoutSeconds { get; set; }
 
         [Parameter("History Window (giorni)", DefaultValue = 30, MinValue = 1)]
         public int HistoryWindowDays { get; set; }
 
-        [Parameter("Log dettagliato", DefaultValue = false)]
-        public bool VerboseLogging { get; set; }
+        // Default Diagnostico finche' dura la verifica del comportamento del bot; a regime si scende
+        // a Operativo (o Minimo), senza perdere le righe dei segnali che sono fuori scala. In
+        // backtest il valore viene comunque tagliato a Minimo, vedi LivelloLog e _livelloEffettivo.
+        [Parameter("Livello di log", DefaultValue = LivelloLog.Diagnostico, Group = "Diagnostica")]
+        public LivelloLog LivelloDiLog { get; set; }
 
         // Traccia su file, una riga JSON per risposta, tutto cio' che il server Piootoo restituisce
         // (apertura sessione, poll segnale, chiusura esterna): serve a diagnosticare da cliente senza
-        // dover riprodurre il problema con VerboseLogging attivo, che stampa ma non persiste.
+        // dover riprodurre il problema con il log a Diagnostico, che stampa ma non persiste — e senza
+        // dipendere dal buffer della piattaforma, che le righe piu' vecchie le butta.
         [Parameter("Log JSON risposte server su file", DefaultValue = false, Group = "Diagnostica")]
         public bool LogServerResponses { get; set; }
 
@@ -106,11 +342,72 @@ namespace cAlgo.Robots
         private string _accountNumber;
         private string _sessionId;
         private string _sessionToken;
+
+        // Configurazione RISOLTA dal server, letta dal descriptor all'apertura. Serve al pannello e
+        // decide se ha senso drenare la coda dei segnali (vedi PollNextSignal).
+        private string _runProfile;
+        private string _titanoMode;
+        private string _serverRunMode;
+        private bool _enforceConcurrency = true;
+        private int _maxConcurrentTrades;
+
+        /// <summary>
+        /// Il piano conta solo le posizioni riempite: gli ordini pendenti non consumano budget lato
+        /// server, quindi al raggiungimento del tetto tocca a questo bot spegnere quelli rimasti.
+        /// E' l'unica parte del limite di concorrenza che vive sul client, e vive qui perche' e'
+        /// l'unico posto che sa, nell'istante del fill, cosa c'e' ancora a mercato.
+        /// </summary>
+        private bool _cancelPendingAtCap;
+        private IReadOnlyList<SessionStrategyDto> _strategies = new List<SessionStrategyDto>();
+
+        /// <summary>
+        /// Spread misurati ai fill, per strategia. Non influenza nessuna decisione: serve al
+        /// riepilogo di fine run, che e' il numero con cui si decide se una strategia ha senso su
+        /// questo strumento.
+        /// </summary>
+        private readonly Dictionary<string, SpreadStats> _spreadByStrategy =
+            new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// Esito dei trade chiusi, per strategia. Come gli spread non decide niente: e' il
+        /// consuntivo con cui a fine run si risponde a "ha guadagnato?", che dai soli fill non si
+        /// risponde.
+        /// </summary>
+        private readonly Dictionary<string, TradeStats> _tradeStats =
+            new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// Quanto il server ha dichiarato di avere da consegnare nell'ultimo push. Null = non
+        /// dichiarato, quindi si polla. Zero = si puo' saltare il poll.
+        /// </summary>
+        private int? _lastPushClaimable;
+
+        /// <summary>Poll saltati grazie alla guardia, per poterne stampare il totale allo stop.</summary>
+        private long _skippedPolls;
         private string _localStatePath;
         private string _jsonLogPath;
+
+        /// <summary>
+        /// Livello di log realmente in vigore: il parametro in live, tagliato a
+        /// <see cref="LivelloLog.Minimo"/> in backtest. Il taglio sta qui e non ai punti di stampa
+        /// perche' e' una regola sola, e sparpagliarla come <c>&amp;&amp; !IsBacktesting</c> su venti
+        /// righe e' il modo per dimenticarsene sulla ventunesima.
+        /// </summary>
+        private LivelloLog _livelloEffettivo = LivelloLog.Minimo;
+
+        /// <summary>Il ciclo di alimentazione degli stream va stampato.</summary>
+        private bool LogOperativo => _livelloEffettivo >= LivelloLog.Operativo;
+
+        /// <summary>Il dettaglio del giro HTTP va stampato.</summary>
+        private bool LogDiagnostico => _livelloEffettivo >= LivelloLog.Diagnostico;
+
         // Stato di connessione mostrato a chart: riflette l'esito dell'ultima chiamata HTTP al
         // server Piootoo (open-plan, push barre, polling segnale), non solo l'apertura iniziale.
         private bool _isConnectedToServer;
+
+        /// <summary>Ultimo testo disegnato nel riquadro, per non ridisegnarlo identico a ogni barra.</summary>
+        private string _lastStatusText;
+
         private readonly JsonSerializerOptions _json = new(JsonSerializerDefaults.Web)
         {
             PropertyNameCaseInsensitive = true,
@@ -130,6 +427,39 @@ namespace cAlgo.Robots
             public int TimeframeMinutes;
             public Bars Series;
             public DateTime? LastPushedBarTimeUtc;
+
+            /// <summary>
+            /// true quando il server ha ricevuto la finestra di riscaldamento di questo stream. Finché
+            /// è false le finestre a regime sarebbero troppo corte perché il server valuti, quindi il
+            /// riscaldamento viene ritentato: all'avvio il server può essere ancora irraggiungibile.
+            /// </summary>
+            public bool WarmedUp;
+
+            /// <summary>
+            /// Candele che le strategie del server richiedono su questo stream (il massimo dei loro
+            /// <c>RequiredCandles</c>, dal descriptor). È la profondità della finestra inviata a ogni
+            /// barra e la quantità di storia da caricare dal broker prima di partire.
+            /// </summary>
+            public int RequiredCandles;
+
+            /// <summary>
+            /// Candele che il SERVER dichiara di avere su questo stream, dall'ultima risposta a
+            /// <c>bars/window</c>. È l'unico numero che conta per sapere se le strategie vengono
+            /// valutate: la serie del broker può essere lunga e la finestra arrivare comunque corta
+            /// (push fallito, finestra rifiutata perché non sovrapposta). Null finché il server non
+            /// ha ancora risposto: in quel caso sul pannello si ripiega sul conteggio locale.
+            /// </summary>
+            public int? ServerHistoryBars;
+
+            /// <summary>
+            /// Candele che il server dichiara di richiedere su questo stream. Normalmente coincide con
+            /// <see cref="RequiredCandles"/>; se diverge vince questo, perché è quello su cui il server
+            /// sta davvero decidendo se saltare la valutazione.
+            /// </summary>
+            public int? ServerRequiredCandles;
+
+            /// <summary>Handler di <c>Series.BarOpened</c>, conservato per potersi disiscrivere in OnStop.</summary>
+            public Action<BarOpenedEventArgs> BarHandler;
 
             public override string ToString() =>
                 NormalizeSymbol(PiootooSymbol) == NormalizeSymbol(AccountSymbol)
@@ -172,6 +502,38 @@ namespace cAlgo.Robots
             public int BarsInPosition { get; set; }
             /// <summary>Rapporto contratto broker / contratto Piootoo, per convertire NetProfit in utile per contratto.</summary>
             public decimal ContractMultiplier { get; set; } = 1m;
+
+            /// <summary>
+            /// Ultimo istante in cui il trailing ha davvero modificato lo stop. Con
+            /// <c>TrailingMinIntervalSeconds</c> e' cio' che impedisce la raffica di modifiche nello
+            /// stesso secondo.
+            /// </summary>
+            public DateTime? LastTrailingUpdateUtc { get; set; }
+
+            /// <summary>Quante volte il trailing ha spostato lo stop. Va nel log di chiusura: dice se la protezione ha lavorato o se il trade e' morto sullo stop iniziale.</summary>
+            public int TrailingUpdates { get; set; }
+
+            // --- Misure per il consuntivo del trade. Non influenzano nessuna decisione. ---
+
+            /// <summary>Prezzo a cui la posizione si e' aperta davvero, non quello dell'intent.</summary>
+            public double EntryPrice { get; set; }
+
+            /// <summary>Apertura della posizione, per misurarne la durata alla chiusura.</summary>
+            public DateTime? OpenTimeUtc { get; set; }
+
+            /// <summary>
+            /// MFE: massimo movimento a favore, in punti, mai raggiunto mentre la posizione era
+            /// aperta. Confrontato col take profit dice se il target era irraggiungibile o se il
+            /// trade era in utile e lo ha restituito.
+            /// </summary>
+            public double MaxFavorablePoints { get; set; }
+
+            /// <summary>
+            /// MAE: massimo movimento contrario, in punti. Confrontato con lo stop dice quanto
+            /// margine e' rimasto: un MAE sistematicamente vicino allo stop sui trade vincenti
+            /// significa che lo stop e' appena sufficiente, non che e' giusto.
+            /// </summary>
+            public double MaxAdversePoints { get; set; }
         }
 
         private sealed class LocalSessionState
@@ -183,6 +545,10 @@ namespace cAlgo.Robots
         }
 
         private readonly List<Pair> _pairs = new();
+
+        // Sottoscrizioni tick per simbolo del piano: break-even e trailing devono reagire su TUTTI gli
+        // strumenti, non solo su quello del grafico (l'OnTick del robot vede solo quello).
+        private readonly Dictionary<Symbol, Action<SymbolTickEventArgs>> _tickHandlers = new();
 
         // Posizioni attualmente aperte da questo bot, per Id posizione cTrader.
         private readonly Dictionary<int, OpenPositionContext> _openPositions = new();
@@ -199,6 +565,29 @@ namespace cAlgo.Robots
         // Barra in cui è stato piazzato l'ordine pending di ciascuna label, per gli intent con scadenza.
         private readonly Dictionary<string, PendingOrderMark> _pendingOrderBar = new();
 
+        // Stream per cui è già stato segnalato che il server non ha storia sufficiente: il messaggio
+        // va detto una volta, non a ogni barra.
+        private readonly HashSet<string> _insufficientHistoryReported = new(StringComparer.OrdinalIgnoreCase);
+
+        // Ultimo errore di invio stampato, per stream: se si ripete identico non lo si ristampa.
+        private readonly Dictionary<string, string> _lastPushError = new(StringComparer.OrdinalIgnoreCase);
+
+        // Invii falliti di fila, azzerato dal primo che riesce. Vedi MaxConsecutivePushFailures.
+        private int _consecutivePushFailures;
+
+        /// <summary>Ultimo tentativo di riaggancio, per rispettare <see cref="ReopenCooldownSeconds"/>.</summary>
+        private DateTime? _lastReopenAttemptUtc;
+
+        /// <summary>
+        /// Riaggancio in corso: il riscaldamento che spedisce puo' fallire e rientrare in
+        /// <see cref="OnPushFailed"/>, che chiederebbe un altro riaggancio. Questa e' la guardia.
+        /// </summary>
+        private bool _reopenInProgress;
+
+        // Ultimo motivo per cui il claim non ha restituito un intent: stampato una volta sola finché
+        // non cambia, altrimenti riempirebbe il log a ogni poll.
+        private string _lastPollReason;
+
         // Massimo utile per contratto osservato dopo ProfitStallAfterUtc, per posizione.
         private readonly Dictionary<int, decimal> _peakProfitAfterStall = new();
 
@@ -206,18 +595,17 @@ namespace cAlgo.Robots
         {
             if (string.IsNullOrWhiteSpace(PlanCode))
             {
-                Print("Codice piano non impostato.");
-                Stop();
+                StopWithError("Codice piano non impostato: valorizzare il parametro 'Codice piano'.");
                 return;
             }
 
-            if (!TimeFrame.Equals(ToTimeFrame(BaseTimeframeMinutes)))
-            {
-                Print("Il grafico deve usare il timeframe base configurato ({0}m); attuale: {1}.",
-                    BaseTimeframeMinutes, TimeFrame);
-                Stop();
-                return;
-            }
+            // Il taglio in backtest e' silenzioso solo se non lo si dice: senza questa riga, chi ha
+            // lasciato il parametro su Diagnostico e non vede il dettaglio pensa a un bug.
+            _livelloEffettivo = IsBacktesting ? LivelloLog.Minimo : LivelloDiLog;
+            if (IsBacktesting && LivelloDiLog != _livelloEffettivo)
+                Print("Livello di log {0} ridotto a {1} in backtest: restano le righe dei segnali. " +
+                      "Il buffer della piattaforma scarta le righe piu' vecchie, cioe' proprio quelle dell'avvio.",
+                    LivelloDiLog, _livelloEffettivo);
 
             _accountNumber = Account.Number.ToString();
             if (LogServerResponses && !IsBacktesting)
@@ -238,35 +626,24 @@ namespace cAlgo.Robots
             _http.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
             Print("Apertura sessione per il piano '{0}'...", PlanCode);
-            var openResponse = PostJson("api/v1/trading-sessions/open-plan", new OpenTradingPlanSessionRequestDto
+
+            // All'AVVIO il server deve esserci: senza descriptor il bot non conosce ne' strategie ne'
+            // strumenti, quindi non c'e' niente da far partire e niente da proteggere. Si spegne, e lo
+            // scrive sul grafico. E' l'unico caso in cui la mancanza di connessione e' fatale in live:
+            // a run avviato invece si resta accesi e si riaggancia (vedi TryReopenSession).
+            if (!TryOpenSession(out var descriptor, out var openError))
             {
-                PlanCode = PlanCode.Trim(),
-                ClientRunMode = IsBacktesting ? "Backtest" : "Realtime",
-                ExecutionKey = IsBacktesting ? $"BT-{Server.TimeInUtc:yyyyMMddHHmmss}" : "LIVE",
-                AccountNumber = _accountNumber
-            });
-            if (!openResponse.IsSuccessStatusCode)
-            {
-                Print("Impossibile aprire il piano '{0}': {1}", PlanCode, ReadError(openResponse));
-                UpdateConnectionStatus(false);
-                Stop();
+                StopWithError("Avvio annullato: " + openError);
                 return;
             }
-            var openBody = ReadBody(openResponse);
-            LogJsonResponse("open-plan", openBody);
-            var descriptor = JsonSerializer.Deserialize<TradingSessionDescriptorDto>(openBody, _json);
-            _sessionId = descriptor?.SessionId;
-            _sessionToken = descriptor?.SessionToken;
-            Print("Sessione aperta: SessionId={0}.", _sessionId);
+            LogSessionDescriptor();
 
             var pairs = new List<Pair>();
             var error = "descriptor sessione mancante";
             if (descriptor == null ||
                 !BuildPairs(descriptor.Instruments, out pairs, out error))
             {
-                Print("Configurazione strumenti del piano non valida: {0}", error);
-                UpdateConnectionStatus(false);
-                Stop();
+                StopWithError("Configurazione strumenti del piano non valida:\n" + error);
                 return;
             }
             _pairs.AddRange(pairs);
@@ -275,9 +652,45 @@ namespace cAlgo.Robots
                 _localStatePath = BuildLocalStatePath(PlanCode, _accountNumber);
 
             // Serie letta sul nome BROKER: sul nome Piootoo, quando l'account converte il simbolo, la
-            // ricerca fallirebbe o restituirebbe lo strumento sbagliato.
+            // ricerca fallirebbe o restituirebbe lo strumento sbagliato. Il simbolo/timeframe del grafico
+            // non entra qui: gli stream sono e restano quelli del piano.
             foreach (var pair in _pairs)
+            {
+                // Simbolo non abilitato sull'account: fallire subito e in modo esplicito, invece di
+                // scoprirlo al primo intent quando il segnale è già perso.
+                if (Symbols.GetSymbol(pair.AccountSymbol) is null)
+                {
+                    StopWithError("Simbolo '" + pair.AccountSymbol + "' non disponibile su questo account:\n" +
+                                  "stream " + pair + " non avviabile.");
+                    return;
+                }
+
                 pair.Series = MarketData.GetBars(ToTimeFrame(pair.TimeframeMinutes), pair.AccountSymbol);
+                if (pair.Series is null)
+                {
+                    StopWithError("Serie " + pair + " non disponibile su questo account.");
+                    return;
+                }
+
+                // Storia caricata all'indietro PRIMA di partire: cTrader tiene in serie solo le barre
+                // che gli servono per il grafico, e senza questo la prima finestra spedita al server
+                // sarebbe più corta di RequiredCandles. Il server non valuterebbe nulla e il run
+                // resterebbe muto per le prime centinaia di barre.
+                LoadHistoryBackwards(pair);
+
+                // Riscaldamento: la storia richiesta parte subito, e parte senza far valutare nulla.
+                // Le barre della finestra sono già passate: valutarle produrrebbe intent sul passato,
+                // che il bot eseguirebbe al prezzo di adesso.
+                SendWarmUpWindow(pair);
+
+                // Una sottoscrizione per stream: la barra di ciascuna coppia (simbolo, timeframe) fa
+                // scattare le chiamate al server per quella coppia, indipendentemente dalle altre.
+                var stream = pair;
+                stream.BarHandler = _ => OnStreamBarClosed(stream);
+                stream.Series.BarOpened += stream.BarHandler;
+            }
+
+            SubscribeSymbolTicks();
 
             RestoreLocalState();
             Positions.Opened += OnPositionOpened;
@@ -291,6 +704,218 @@ namespace cAlgo.Robots
         }
 
         /// <summary>
+        /// Una singola <c>open-plan</c>: apre la sessione sul server e ne applica il descriptor.
+        /// Usata sia all'avvio sia dal riaggancio a run in corso, perche' devono chiedere esattamente
+        /// la stessa cosa — un secondo punto di costruzione della richiesta e' un secondo posto dove
+        /// dimenticarsi un campo.
+        ///
+        /// <para>Non stampa e non spegne niente: chi la chiama decide se un fallimento e' fatale
+        /// (avvio) o solo l'ennesimo tentativo andato a vuoto (riaggancio).</para>
+        /// </summary>
+        private bool TryOpenSession(out TradingSessionDescriptorDto descriptor, out string error)
+        {
+            descriptor = null;
+            error = null;
+            HttpResponseMessage response;
+            try
+            {
+                response = PostJson("api/v1/trading-sessions/open-plan", new OpenTradingPlanSessionRequestDto
+                {
+                    PlanCode = PlanCode.Trim(),
+                    ClientRunMode = IsBacktesting ? "Backtest" : "Realtime",
+                    ExecutionKey = IsBacktesting ? $"BT-{Server.TimeInUtc:yyyyMMddHHmmss}" : "LIVE",
+                    AccountNumber = _accountNumber,
+                    // Null invece di "DalPiano": un campo assente lascia decidere il piano, ed e'
+                    // esattamente il comportamento storico per i server che non conoscono il campo.
+                    RunProfile = RunProfile == RunProfileParam.DalPiano ? null : RunProfile.ToString()
+                });
+            }
+            catch (Exception ex)
+            {
+                // Nessuna risposta HTTP affatto: server spento, url o porta sbagliati, rete assente.
+                // Senza questo catch l'eccezione risale a cTrader, che spegne il cBot con un errore di
+                // piattaforma e lascia il grafico muto.
+                error = "nessuna connessione al server Piootoo (" + Or(ServerBaseUrl) + ").\n" +
+                        DescribeTransportFailure(ex) + "\n" +
+                        "Verificare che il server sia avviato e che 'Server Base Url' sia corretto.";
+                UpdateConnectionStatus(false);
+                return false;
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                error = "il server ha rifiutato il piano '" + PlanCode + "':\n" + ReadError(response);
+                UpdateConnectionStatus(false);
+                return false;
+            }
+
+            var body = ReadBody(response);
+            LogJsonResponse("open-plan", body);
+            descriptor = JsonSerializer.Deserialize<TradingSessionDescriptorDto>(body, _json);
+            if (descriptor == null)
+            {
+                error = "il server ha risposto con un descriptor di sessione vuoto o illeggibile.";
+                UpdateConnectionStatus(false);
+                return false;
+            }
+
+            ApplyDescriptor(descriptor);
+            return true;
+        }
+
+        /// <summary>
+        /// Copia nel bot come il server ha RISOLTO il run: se il piano contraddice il parametro vince
+        /// il server, e il pannello deve mostrare cio' che gira davvero, non cio' che e' stato chiesto.
+        /// </summary>
+        private void ApplyDescriptor(TradingSessionDescriptorDto descriptor)
+        {
+            _sessionId = descriptor.SessionId;
+            _sessionToken = descriptor.SessionToken;
+            _runProfile = descriptor.RunProfile;
+            _titanoMode = descriptor.TitanoMode;
+            _serverRunMode = descriptor.ClientRunMode;
+            _enforceConcurrency = descriptor.EnforceConcurrencyLimits;
+            _maxConcurrentTrades = descriptor.MaxConcurrentTrades;
+            _cancelPendingAtCap = string.Equals(
+                descriptor.ConcurrencyCountMode, "PositionsOnly", StringComparison.OrdinalIgnoreCase);
+            _strategies = descriptor.Strategies ?? new List<SessionStrategyDto>();
+        }
+
+        private void LogSessionDescriptor()
+        {
+            Print("Sessione aperta: SessionId={0} profilo={1} Titano={2} concorrenza={3} maxTrade={4}.",
+                _sessionId, _runProfile ?? "-", _titanoMode ?? "-",
+                _enforceConcurrency ? "attiva" : "OFF",
+                _maxConcurrentTrades > 0 ? _maxConcurrentTrades.ToString() : "illimitati");
+            foreach (var strategy in _strategies)
+                Print("  strategia {0} su {1}/{2}m", strategy.StrategyCode, strategy.Symbol, strategy.TimeframeMinutes);
+        }
+
+        /// <summary>
+        /// Riaggancio a run in corso (solo live). Riapre la sessione e ributta giu' il riscaldamento
+        /// di ogni stream.
+        ///
+        /// <para>Il solo "riprovare a spingere la barra" non basta e questo e' il punto: se il server
+        /// e' stato riavviato, SessionId e token che il bot ha in mano non esistono piu' e ogni push
+        /// continuerebbe a essere rifiutato per sempre, anche a rete perfettamente tornata. E anche a
+        /// sessione ancora valida, il server nelle sessioni ExternalBroker non ha un datafeed proprio:
+        /// la sua storia e' solo cio' che gli e' stato spinto, e durante la caduta si e' fermata. Per
+        /// questo si azzera <c>WarmedUp</c>: alla prima barra utile ogni stream rispedisce la finestra
+        /// profonda e il server riparte con la storia completa invece di restare muto in attesa.</para>
+        ///
+        /// <para>Throttlato a <see cref="ReopenCooldownSeconds"/>: a server giu' il tentativo fallisce
+        /// in fretta, ma non ha senso ritentarlo a ogni singola barra di ogni stream.</para>
+        /// </summary>
+        private void TryReopenSession()
+        {
+            // Il riscaldamento chiamato qui sotto passa da SendWindow, che in caso di errore rientra
+            // in OnPushFailed: senza questa guardia il riaggancio si richiamerebbe da solo.
+            if (_reopenInProgress)
+                return;
+
+            var now = Server.TimeInUtc;
+            if (_lastReopenAttemptUtc.HasValue &&
+                (now - _lastReopenAttemptUtc.Value).TotalSeconds < ReopenCooldownSeconds)
+                return;
+
+            _lastReopenAttemptUtc = now;
+            _reopenInProgress = true;
+            try
+            {
+                var previousSessionId = _sessionId;
+                if (!TryOpenSession(out _, out var error))
+                {
+                    // Silenzioso di proposito: a server giu' questo tentativo fallisce ogni
+                    // ReopenCooldownSeconds per tutta la durata della caduta, e il motivo e' gia'
+                    // stampato da OnPushFailed. Col log diagnostico si vede comunque.
+                    if (LogDiagnostico)
+                        Print("Riaggancio non riuscito: {0}", error);
+                    return;
+                }
+
+                Print("Riagganciato al server: SessionId={0}{1}. Riscaldamento degli stream in corso.",
+                    _sessionId,
+                    string.Equals(previousSessionId, _sessionId, StringComparison.Ordinal)
+                        ? " (stessa sessione)"
+                        : " (sessione nuova, la precedente era " + Or(previousSessionId) + ")");
+                LogSessionDescriptor();
+
+                // Storia del server da ricostruire: quella vecchia o non esiste piu' (server riavviato)
+                // o si e' fermata al momento della caduta. In entrambi i casi le finestre incrementali
+                // non si sovrapporrebbero e verrebbero rifiutate.
+                foreach (var pair in _pairs)
+                {
+                    pair.WarmedUp = false;
+                    pair.ServerHistoryBars = null;
+                    pair.ServerRequiredCandles = null;
+                    SendWarmUpWindow(pair);
+                }
+
+                if (_pairs.All(pair => pair.WarmedUp))
+                {
+                    _consecutivePushFailures = 0;
+                    _lastPushError.Clear();
+                    UpdateConnectionStatus(true);
+                    Print("Riscaldamento completato su tutti gli stream: il bot e' di nuovo operativo.");
+                }
+                else
+                {
+                    // Riagganciato ma senza storia completa: gli stream non riscaldati ritentano da
+                    // soli in TryPushClosedBar alla barra successiva.
+                    Print("Riagganciato, ma il riscaldamento di alcuni stream non e' andato a buon fine: " +
+                          "si ritenta alla prossima barra.");
+                }
+            }
+            finally
+            {
+                _reopenInProgress = false;
+            }
+        }
+
+        /// <summary>
+        /// Errore fatale: lo scrive sul grafico e spegne il bot. In backtest il log della piattaforma
+        /// e' un buffer circolare che scarta le righe piu' vecchie — cioe' proprio quelle dell'avvio —
+        /// e un run senza server finirebbe senza un solo trade e senza una spiegazione visibile. Il
+        /// riquadro sul chart sopravvive alla fine del run ed e' la prima cosa che si vede.
+        ///
+        /// <para>Il pannello di stato viene forzato a "non connesso" prima di disegnare l'errore, cosi'
+        /// i due riquadri non si contraddicono.</para>
+        /// </summary>
+        private void StopWithError(string message)
+        {
+            Print("ERRORE FATALE: {0}", message);
+
+            UpdateConnectionStatus(false);
+
+            var text = new StringBuilder();
+            text.AppendLine("PIOOTOO — BOT FERMATO");
+            text.AppendLine(IsBacktesting ? "(backtest interrotto)" : "(esecuzione interrotta)");
+            text.AppendLine();
+            text.AppendLine("Server:  " + Or(ServerBaseUrl));
+            text.AppendLine("Piano:   " + (string.IsNullOrWhiteSpace(PlanCode) ? "-" : PlanCode.Trim()));
+            text.AppendLine();
+            text.Append(message);
+
+            Chart.DrawStaticText(FatalErrorChartObjectName, text.ToString(),
+                VerticalAlignment.Center, HorizontalAlignment.Center, Color.Red);
+
+            Stop();
+        }
+
+        /// <summary>
+        /// Messaggio di una chiamata HTTP fallita a livello di trasporto: server spento, url sbagliato,
+        /// timeout. <see cref="HttpRequestException"/> annida la causa vera (socket, DNS) nella inner,
+        /// e senza srotolarla si legge solo un generico "An error occurred while sending the request".
+        /// </summary>
+        private static string DescribeTransportFailure(Exception ex)
+        {
+            var inner = ex;
+            while (inner.InnerException != null)
+                inner = inner.InnerException;
+            return inner.Message == ex.Message ? ex.Message : ex.Message + " (" + inner.Message + ")";
+        }
+
+        /// <summary>
         /// Riquadro statico in alto a destra sul chart con account, piano e stato della connessione
         /// al server Piootoo: è la prima cosa che deve poter vedere chi guarda il grafico, senza
         /// dover aprire i log. Va aggiornato ad ogni cambio di stato, non solo all'avvio, perché una
@@ -299,36 +924,177 @@ namespace cAlgo.Robots
         private void UpdateConnectionStatus(bool connected)
         {
             _isConnectedToServer = connected;
-            var text = string.Format(
-                "Piootoo\nAccount: {0}\nPiano: {1}\nConnesso: {2}",
-                string.IsNullOrEmpty(_accountNumber) ? "-" : _accountNumber,
-                string.IsNullOrWhiteSpace(PlanCode) ? "-" : PlanCode,
-                connected ? "Si" : "No");
-            Chart.DrawStaticText(StatusChartObjectName, text, VerticalAlignment.Top, HorizontalAlignment.Right,
-                connected ? Color.LightGreen : Color.OrangeRed);
+            RedrawStatusPanel();
         }
 
-        protected override void OnBar()
+        /// <summary>
+        /// Ridisegna il pannello con lo stato corrente. Separato da
+        /// <see cref="UpdateConnectionStatus"/> perché la copertura della storia cambia a ogni barra
+        /// senza che la connessione cambi, e il pannello deve seguirla.
+        ///
+        /// <para>Il testo viene confrontato con l'ultimo disegnato e si ridisegna solo se è cambiato:
+        /// a regime il riquadro è identico barra dopo barra, e in backtest sarebbero decine di
+        /// migliaia di <c>DrawStaticText</c> inutili.</para>
+        /// </summary>
+        private void RedrawStatusPanel()
         {
-            // Prima si ritira l'ordine della barra appena chiusa: l'ordine "next bar" ha esaurito la sua
-            // unica barra di validità, e riemettere il signal senza cancellarlo ne accumulerebbe uno per
-            // barra a livelli diversi, tutti eseguibili.
-            CancelExpiredPendingOrders();
+            var text = BuildStatusText(_isConnectedToServer);
+            if (text == _lastStatusText)
+                return;
 
-            var pushedStreams = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var pair in _pairs)
+            _lastStatusText = text;
+            Chart.DrawStaticText(StatusChartObjectName, text,
+                VerticalAlignment.Top, HorizontalAlignment.Right,
+                _isConnectedToServer ? Color.LightGreen : Color.OrangeRed);
+        }
+
+        /// <summary>
+        /// Il testo del pannello. Riporta la configurazione con cui il bot sta effettivamente
+        /// lavorando — profilo del run, filtro Titano, lucchetti di concorrenza, limite di trade — e
+        /// l'elenco delle strategie con il loro timeframe.
+        ///
+        /// <para>Sono tutti valori presi dal DESCRIPTOR, cioe' da come il server ha risolto il run, non
+        /// dai parametri del cBot. Un bot che dichiara un piano e ne esegue un altro, o un parametro
+        /// che il piano contraddice, sono invisibili finche' non si leggono i trade: qui si vedono
+        /// sul grafico prima ancora che arrivi il primo segnale.</para>
+        ///
+        /// <para>Prima della connessione i campi risolti sono vuoti e si stampa "-": il pannello deve
+        /// esistere fin dal primo istante, anche per dire che non si e' ancora collegato.</para>
+        /// </summary>
+        private string BuildStatusText(bool connected)
+        {
+            var builder = new StringBuilder();
+            builder.AppendLine("Piootoo " + BotVersion);
+            builder.AppendLine("Account:   " + (string.IsNullOrEmpty(_accountNumber) ? "-" : _accountNumber));
+            builder.AppendLine("Piano:     " + (string.IsNullOrWhiteSpace(PlanCode) ? "-" : PlanCode.Trim()));
+            builder.AppendLine("Connesso:  " + (connected ? "Si" : "No"));
+            builder.AppendLine("Run:       " + Or(_serverRunMode) + " / " + Or(_runProfile));
+            builder.AppendLine("Titano:    " + DescribeTitano());
+            builder.AppendLine("Concorr.:  " + DescribeConcurrency());
+
+            if (_strategies.Count == 0)
             {
-                if (!TryPushClosedBar(pair))
-                    continue;
-
-                pushedStreams.Add(MakeStreamKey(pair.PiootooSymbol, pair.TimeframeMinutes));
+                builder.Append("Strategie: -");
+                return builder.ToString();
             }
 
-            foreach (var context in _openPositions.Values)
-                if (pushedStreams.Contains(MakeStreamKey(context.Symbol, context.TimeframeMinutes)))
-                    context.BarsInPosition++;
+            builder.AppendLine("Strategie (" + _strategies.Count + "):");
+            foreach (var strategy in _strategies)
+                builder.AppendLine("  " + strategy.StrategyCode + "  " + strategy.Symbol + "/" +
+                                   strategy.TimeframeMinutes + "m  " +
+                                   DescribeHistoryCoverage(FindPair(strategy.Symbol, strategy.TimeframeMinutes)));
+            return builder.ToString().TrimEnd();
+        }
 
-            // Le barre sono già state pubblicate (la storia del server non deve avere buchi), ma
+        /// <summary>
+        /// "caricate/richieste" per lo stream di una strategia: dice se la finestra è già completa,
+        /// cioè se quella strategia sta davvero venendo valutata oppure se il server la sta saltando
+        /// in silenzio in attesa di storia. È la domanda che altrimenti si risponde solo scavando nel
+        /// log, e nel frattempo il run sembra semplicemente "senza segnali".
+        ///
+        /// <para>Il numero preferito è quello del SERVER (<c>HistoryBars</c> dell'ultima risposta):
+        /// è lui a decidere se valutare. Finché non ha risposto si mostra il conteggio locale della
+        /// serie del broker, prefissato da <c>~</c> per non farlo scambiare per una conferma.</para>
+        /// </summary>
+        private static string DescribeHistoryCoverage(Pair pair)
+        {
+            if (pair is null)
+                return "(stream non configurato)";
+
+            // Il richiesto del server vince: se diverge da quello letto nel descriptor, è il suo che
+            // sta decidendo i salti.
+            var required = pair.ServerRequiredCandles ?? pair.RequiredCandles;
+            if (required <= 0)
+                return string.Empty;
+
+            if (pair.ServerHistoryBars is null)
+            {
+                var local = pair.Series?.Count ?? 0;
+                return "~" + local + "/" + required + (local >= required ? " (non confermate)" : " IN ATTESA");
+            }
+
+            var loaded = pair.ServerHistoryBars.Value;
+            return loaded >= required
+                ? loaded + "/" + required + " ok"
+                : loaded + "/" + required + " MANCANO " + (required - loaded);
+        }
+
+        private static string Or(string value) => string.IsNullOrWhiteSpace(value) ? "-" : value;
+
+        /// <summary>
+        /// "Disabled" e' il nome del contratto ma dice poco a chi guarda il grafico: qui interessa
+        /// sapere se il filtro sta togliendo strategie oppure no.
+        /// </summary>
+        private string DescribeTitano()
+        {
+            if (string.IsNullOrWhiteSpace(_titanoMode))
+                return "-";
+            if (string.Equals(_titanoMode, "Disabled", StringComparison.OrdinalIgnoreCase))
+                return "OFF (nessun filtro)";
+            return "ON (" + _titanoMode + ")";
+        }
+
+        /// <summary>
+        /// Un solo campo per i lucchetti e il limite: sono la stessa scelta, e mostrarli separati
+        /// invita a leggere MaxConcurrentTrades come se valesse anche a lucchetti spenti.
+        /// </summary>
+        private string DescribeConcurrency()
+        {
+            if (!_enforceConcurrency)
+                return "OFF (tutti i segnali)";
+            if (_maxConcurrentTrades <= 0)
+                return "ON, trade illimitati";
+            // Cosa venga contato cambia cosa si vede a mercato, quindi si stampa: con lo stesso
+            // numero, "posizioni" lascia vivere tutti gli stop pendenti e "pos+ordini" no.
+            return "ON, max " + _maxConcurrentTrades +
+                   (_cancelPendingAtCap ? " posizioni" : " fra posizioni e ordini");
+        }
+
+        /// <summary>
+        /// Una barra di UNO stream del piano si è chiusa (l'evento è <c>BarOpened</c> della sua serie:
+        /// quando si apre la barra n, la n-1 è chiusa). Tutto il ciclo — cancellazione degli ordini
+        /// scaduti, push della barra, conteggio barre in posizione, reclamo del segnale — è fatto per
+        /// questo stream soltanto: gli altri hanno il loro orologio e scattano per conto proprio.
+        /// </summary>
+        private void OnStreamBarClosed(Pair stream)
+        {
+            // L'ordine della barra appena chiusa va ritirato PRIMA di tutto il resto: "next bar" vuol
+            // dire una barra sola, e senza il ritiro se ne accumulerebbe uno per barra a livelli
+            // diversi, tutti eseguibili. Chiusura, poi push, poi richiesta dei segnali nuovi: e' anche
+            // l'unico ordine possibile, non solo il piu' prudente.
+            //
+            // <para><b>Perche' e' l'unico.</b> La 2.3.0 aveva provato a spostarlo DOPO il poll, per
+            // riconoscere il caso frequentissimo in cui il segnale della barra nuova riemette lo stesso
+            // identico livello e tenere l'ordine invece di cancellarlo e ripiazzarlo. Non puo'
+            // funzionare: il server non rilascia il template finche' l'intent vecchio e' Pending (il
+            // lucchetto "l'account ha gia' un ingresso in corso per quella strategia su quel simbolo"),
+            // e l'intent vecchio resta Pending finche' il cBot non ne riporta la cancellazione. Il cBot
+            // aspetta il segnale per rinnovare l'ordine, il server aspetta il report per consegnare il
+            // segnale: nessuno dei due si muove per primo. Nei log 2.3.0 la riga "non riemesso: ordine
+            // gia' a mercato" non compare nemmeno una volta in un mese di backtest, e la 2.3.1 che
+            // provava a sbloccarlo con un'attesa ha solo ritardato di 8 secondi ogni piazzamento
+            // lasciando il cancella/ripiazza dov'era. Vedi docs/decisioni.md 2026-08-15.</para>
+            //
+            // <para>La coppia cancella/ripiazza per barra sullo stesso prezzo resta, ed e' il costo
+            // accettato: due ordini al broker per barra finche' il livello del canale non si muove.
+            // Toglierla davvero richiede di separare "riporto l'intent cancellato" da "cancello
+            // l'ordine dal broker" — il report libera il server, l'ordine fisico resta a mercato e
+            // viene esteso o modificato quando il segnale arriva — che e' un cambio della semantica
+            // del reporting, non di questo metodo.</para>
+            CancelExpiredPendingOrders(stream);
+
+            var pushed = TryPushClosedBar(stream);
+            if (pushed)
+            {
+                // Solo le posizioni che vivono su QUESTO stream avanzano di una barra: contarle sulla
+                // barra di un altro timeframe falserebbe MaxBarsInPosition.
+                var streamKey = MakeStreamKey(stream.PiootooSymbol, stream.TimeframeMinutes);
+                foreach (var context in _openPositions.Values)
+                    if (MakeStreamKey(context.Symbol, context.TimeframeMinutes) == streamKey)
+                        context.BarsInPosition++;
+            }
+
+            // La barra è già stata pubblicata (la storia del server non deve avere buchi), ma
             // dentro la finestra di flat non si reclama nessun intent: sarebbe un ingresso che
             // HandleEntryIntent scarterebbe comunque, e il polling costa una chiamata.
             if (EnforceWeekEndFlat())
@@ -337,27 +1103,108 @@ namespace cAlgo.Robots
                 return;
             }
 
-            // Il server ha appena valutato tutti gli stream che hanno chiuso una barra: reclamare
-            // subito l'eventuale intent, senza aspettare il prossimo polling periodico.
-            if (pushedStreams.Count != 0)
+            // Il server ha appena valutato questo stream: reclamare subito l'eventuale intent, senza
+            // aspettare il prossimo polling periodico. Se pero' il push ha appena detto che la
+            // sessione non ha NIENTE di reclamabile, il poll e' una chiamata HTTP il cui esito e'
+            // gia' noto: dai log reali la grande maggioranza delle barre non produce segnali, quindi
+            // e' quasi meta' del traffico di un backtest.
+            if (pushed && ShouldPollAfterPush())
                 PollNextSignal();
 
+            TrackExcursions();
             MoveStopsToBreakEven();
             MoveTrailingStops();
             CloseExpiredPositions();
             SaveLocalState();
         }
 
-        protected override void OnTick()
+        /// <summary>
+        /// Un tick su uno dei simboli del piano. Il prezzo può raggiungere e perdere la soglia dentro
+        /// la stessa barra, quindi break-even e trailing vanno verificati a ogni tick e non al solo
+        /// bar-close. La sottoscrizione è per simbolo perché <c>OnTick</c> del robot riporta i tick del
+        /// solo simbolo del grafico, che qui non ha alcun ruolo.
+        /// </summary>
+        private void OnSymbolTick(SymbolTickEventArgs args)
         {
+            // Break-even e trailing esistono solo per posizioni aperte. Senza questa uscita anticipata
+            // ogni tick — in un backtest tick-based sono ordini di grandezza piu' delle barre —
+            // pagherebbe un ToArray sul dizionario e una scansione di Positions per non fare niente.
+            // La semantica non cambia: le soglie restano valutate a ogni tick sulle posizioni che
+            // esistono, che e' il motivo per cui questo lavoro sta qui e non sul bar-close.
+            if (_openPositions.Count == 0)
+                return;
+
+            // Solo i tick del simbolo su cui abbiamo qualcosa da proteggere: su un piano
+            // multi-simbolo il tick di EURUSD non puo' muovere lo stop di una posizione su NQ.
+            if (!HasOpenPositionOn(args.SymbolName))
+                return;
+
             // Dentro la finestra di fine settimana non c'e' nulla da proteggere: va solo chiuso.
             if (EnforceWeekEndFlat())
                 return;
 
-            // Il prezzo può raggiungere e perdere la soglia all'interno della barra 5m:
-            // il break-even va quindi verificato a ogni tick, non solo al bar-close.
+            TrackExcursions();
             MoveStopsToBreakEven();
             MoveTrailingStops();
+        }
+
+        /// <summary>
+        /// Il bot ha una posizione aperta su questo simbolo del broker? Il confronto e' sul nome
+        /// dell'ACCOUNT, che e' quello con cui arrivano i tick; <c>OpenPositionContext.Symbol</c> e'
+        /// il nome Piootoo, quindi si passa dalle posizioni della piattaforma.
+        /// </summary>
+        private bool HasOpenPositionOn(string accountSymbol)
+        {
+            foreach (var position in Positions)
+            {
+                if (string.Equals(position.SymbolName, accountSymbol, StringComparison.OrdinalIgnoreCase) &&
+                    _openPositions.ContainsKey(position.Id))
+                    return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Chiede al broker le barre precedenti finché la serie non copre <c>RequiredCandles</c> più la
+        /// barra in formazione. <c>LoadMoreHistory</c> restituisce quante barre ha aggiunto e 0 quando
+        /// non c'è altro da caricare: è la condizione di uscita insieme al numero di barre raggiunto.
+        /// Il tetto sui giri serve solo a non bloccare l'avvio se il broker risponde a piccoli blocchi.
+        /// </summary>
+        private void LoadHistoryBackwards(Pair pair)
+        {
+            var target = pair.RequiredCandles + 1;
+            var attempts = 0;
+            while (pair.Series.Count < target && attempts++ < MaxHistoryLoadAttempts)
+            {
+                if (pair.Series.LoadMoreHistory() <= 0)
+                    break;
+            }
+
+            if (pair.Series.Count < target)
+                Print("Storia insufficiente per {0}: {1} barre su {2} richieste. " +
+                      "Il server non valuterà le strategie di questo stream finché non ne accumula abbastanza.",
+                    pair, pair.Series.Count, target);
+            else if (LogOperativo)
+                Print("Storia {0}: {1} barre disponibili (finestra richiesta {2}).",
+                    pair, pair.Series.Count, pair.RequiredCandles);
+        }
+
+        /// <summary>Una sottoscrizione per simbolo broker distinto, anche se serve più stream.</summary>
+        private void SubscribeSymbolTicks()
+        {
+            foreach (var name in _pairs
+                .Select(pair => pair.AccountSymbol)
+                .Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                var symbol = Symbols.GetSymbol(name);
+                if (symbol is null || _tickHandlers.ContainsKey(symbol))
+                    continue;
+
+                Action<SymbolTickEventArgs> handler = OnSymbolTick;
+                _tickHandlers[symbol] = handler;
+                symbol.Tick += handler;
+            }
         }
 
         /// <summary>
@@ -441,6 +1288,11 @@ namespace cAlgo.Robots
         /// </summary>
         private void MoveStopsToBreakEven()
         {
+            // Anche il bar-close chiama questo metodo: la guardia sta qui e non solo nel tick handler
+            // cosi' vale per entrambi i chiamanti, e il ToArray non si paga a vuoto.
+            if (_openPositions.Count == 0)
+                return;
+
             foreach (var context in _openPositions.Values.ToArray())
             {
                 var position = Positions.FirstOrDefault(item => item.Id == context.PositionId);
@@ -468,9 +1320,48 @@ namespace cAlgo.Robots
                     continue;
 
                 var result = ModifyPosition(position, position.EntryPrice, position.TakeProfit);
-                if (!result.IsSuccessful && VerboseLogging)
+                if (!result.IsSuccessful && LogDiagnostico)
                     Print("Impossibile spostare a break-even {0}/{1}: {2}",
                         context.Symbol, context.StrategyCode, result.Error);
+            }
+        }
+
+        /// <summary>
+        /// Aggiorna MFE e MAE delle posizioni aperte: quanto il prezzo e' andato a favore e quanto
+        /// contro, in punti, dal prezzo di ingresso.
+        ///
+        /// <para>Sono le due misure che spiegano un trade a posteriori, e nessuna delle due e'
+        /// ricostruibile dal solo esito: un trade chiuso in pari puo' essere uno che non si e' mai
+        /// mosso oppure uno che era a due terzi del target e lo ha restituito, e la conseguenza
+        /// operativa e' opposta. Si campiona a ogni tick sul lato di USCITA — Bid per i long, Ask per
+        /// gli short — che e' il prezzo a cui quel profitto sarebbe stato davvero incassato.</para>
+        /// </summary>
+        private void TrackExcursions()
+        {
+            if (_openPositions.Count == 0)
+                return;
+
+            foreach (var context in _openPositions.Values)
+            {
+                if (context.EntryPrice <= 0)
+                    continue;
+
+                var position = Positions.FirstOrDefault(item => item.Id == context.PositionId);
+                if (position is null)
+                    continue;
+
+                var symbol = Symbols.GetSymbol(position.SymbolName);
+                if (symbol is null)
+                    continue;
+
+                var movimento = position.TradeType == TradeType.Buy
+                    ? symbol.Bid - context.EntryPrice
+                    : context.EntryPrice - symbol.Ask;
+
+                if (movimento > context.MaxFavorablePoints)
+                    context.MaxFavorablePoints = movimento;
+                else if (-movimento > context.MaxAdversePoints)
+                    context.MaxAdversePoints = -movimento;
             }
         }
 
@@ -482,6 +1373,9 @@ namespace cAlgo.Robots
         /// </summary>
         private void MoveTrailingStops()
         {
+            if (_openPositions.Count == 0)
+                return;
+
             foreach (var context in _openPositions.Values.ToArray())
             {
                 if (!context.TrailingStop.HasValue || context.TrailingStop.Value <= 0)
@@ -505,8 +1399,30 @@ namespace cAlgo.Robots
                 if (!improvesStop)
                     continue;
 
+                // Il trailing insegue il prezzo a ogni tick, ma NON deve mandare un ordine di modifica
+                // a ogni tick. Senza queste due guardie il bot produce decine di ModifyPosition da un
+                // decimo di punto, anche piu' d'una nello stesso secondo: in backtest e' rumore che
+                // satura il buffer del log, in live e' traffico che il broker limita e poi rifiuta.
+                // Il guadagno di protezione di uno spostamento da 0,1 punti su uno stop da 12,5 e'
+                // nullo; il rischio di vedersi rifiutare la modifica *utile* perche' si e' sopra il
+                // rate limit non lo e'.
+                var passoMinimo = TrailingMinStepFraction > 0 ? distance * TrailingMinStepFraction : 0.0;
+                if (passoMinimo > 0 && position.StopLoss.HasValue &&
+                    Math.Abs(candidate - position.StopLoss.Value) < passoMinimo)
+                    continue;
+
+                var nowUtc = Server.TimeInUtc;
+                if (TrailingMinIntervalSeconds > 0 && context.LastTrailingUpdateUtc.HasValue &&
+                    (nowUtc - context.LastTrailingUpdateUtc.Value).TotalSeconds < TrailingMinIntervalSeconds)
+                    continue;
+
                 var result = ModifyPosition(position, candidate, position.TakeProfit);
-                if (!result.IsSuccessful && VerboseLogging)
+                if (result.IsSuccessful)
+                {
+                    context.LastTrailingUpdateUtc = nowUtc;
+                    context.TrailingUpdates++;
+                }
+                else if (LogDiagnostico)
                     Print("Impossibile aggiornare trailing stop {0}/{1}: {2}",
                         context.Symbol, context.StrategyCode, result.Error);
             }
@@ -518,7 +1434,11 @@ namespace cAlgo.Robots
         /// resta a mercato uno per ogni barra della finestra operativa, a livelli diversi, tutti
         /// eseguibili.
         /// </summary>
-        private void CancelExpiredPendingOrders()
+        /// <param name="stream">
+        /// Stream la cui barra si è appena chiusa: si valutano soltanto gli ordini piazzati su di esso,
+        /// perché sono gli unici la cui validità è misurata su questa serie.
+        /// </param>
+        private void CancelExpiredPendingOrders(Pair stream)
         {
             if (_pendingOrderBar.Count == 0)
                 return;
@@ -526,7 +1446,9 @@ namespace cAlgo.Robots
             foreach (var entry in _pendingOrderBar.ToList())
             {
                 var mark = entry.Value;
-                if (mark?.Stream?.Series == null || mark.Stream.Series.Count <= mark.BarCount)
+                if (!ReferenceEquals(mark?.Stream, stream))
+                    continue;
+                if (mark.Stream.Series == null || mark.Stream.Series.Count <= mark.BarCount)
                     continue;
 
                 CancelPendingOrders(entry.Key, "scaduto (valido una barra sola)");
@@ -537,13 +1459,61 @@ namespace cAlgo.Robots
         private void CancelPendingOrders(string label, string reason)
         {
             foreach (var order in PendingOrders.Where(o => o.Label == label).ToList())
+                CancelAndReport(order, reason);
+        }
+
+        /// <summary>
+        /// Cancella un ordine pending del bot e **riporta al server l'annullamento dell'intent** che lo
+        /// aveva piazzato.
+        ///
+        /// <para>Il report non è contabilità: è ciò che sblocca il conto. Finché l'intent resta
+        /// <c>Pending</c>, il server lo considera in carico a questo account e il claim continua a
+        /// riproporre sempre lo stesso — <c>GetNextSignalForAccount</c> restituisce per primo l'intent
+        /// già assegnato e ancora pendente — mentre i lucchetti (account, simbolo) e
+        /// (gruppo, strategia, simbolo) restano chiusi. Il bot lo scarta perché l'ha già gestito, e da
+        /// lì in poi non arriva più nessun segnale nuovo per tutto il run: un ordine solo, all'inizio,
+        /// e poi silenzio. L'IntentId si legge dalla label, che è esattamente il motivo per cui ce
+        /// l'ha.</para>
+        /// </summary>
+        private void CancelAndReport(PendingOrder order, string reason)
+        {
+            var label = order.Label;
+            var symbol = order.SymbolName;
+            var result = CancelPendingOrder(order);
+            if (!result.IsSuccessful)
             {
-                var result = CancelPendingOrder(order);
-                if (result.IsSuccessful)
-                    Print("Ordine pending {0} ({1}) cancellato: {2}.", order.Id, label, reason);
-                else
-                    Print("Impossibile cancellare l'ordine pending {0} ({1}): {2}", order.Id, label, result.Error);
+                Print("Impossibile cancellare l'ordine pending {0} ({1}): {2}", order.Id, label, result.Error);
+                return;
             }
+
+            Print("Ordine pending {0} ({1}) cancellato: {2}.", order.Id, label, reason);
+
+            var parsed = ParseLabel(label);
+            if (parsed is null || string.IsNullOrEmpty(parsed.IntentId))
+                return; // label di formato precedente: nessun intent a cui riferirsi
+
+            _submittedIntentIds.Remove(parsed.IntentId);
+            _lastOpenIntentByLabel.Remove(label);
+            ReportExecution(parsed.IntentId, symbol, ExecutionReportStatusDto.Cancelled, 0, null);
+        }
+
+        /// <summary>
+        /// Cancella tutti gli ordini pending di una strategia, qualunque sia l'intent che li ha piazzati.
+        /// Serve perché la label porta l'IntentId: il segnale nuovo non ha la stessa label del vecchio,
+        /// e cercare per label esatta lascerebbe a mercato l'ordine della barra precedente.
+        /// </summary>
+        private void CancelStrategyPendingOrders(string strategyCode, string reason)
+        {
+            var prefix = MakeStrategyLabelPrefix(strategyCode);
+            foreach (var order in PendingOrders
+                .Where(o => o.Label != null && o.Label.StartsWith(prefix, StringComparison.Ordinal))
+                .ToList())
+                CancelAndReport(order, reason);
+
+            foreach (var key in _pendingOrderBar.Keys
+                .Where(label => label.StartsWith(prefix, StringComparison.Ordinal))
+                .ToList())
+                _pendingOrderBar.Remove(key);
         }
 
         /// <summary>
@@ -576,6 +1546,11 @@ namespace cAlgo.Robots
                 return;
 
             PollNextSignal();
+
+            // Le uscite a tempo non possono più appoggiarsi alla barra del grafico: senza questo
+            // controllo periodico, su un piano di soli stream lenti CloseAtUtc verrebbe valutato una
+            // volta per barra di quello stream, cioè con ore di ritardo.
+            CloseExpiredPositions();
         }
 
         /// <summary>
@@ -595,13 +1570,7 @@ namespace cAlgo.Robots
             foreach (var order in PendingOrders
                 .Where(o => o.Label != null && o.Label.StartsWith(LabelPrefix, StringComparison.Ordinal))
                 .ToList())
-            {
-                var cancel = CancelPendingOrder(order);
-                if (cancel.IsSuccessful)
-                    Print("Ordine pending {0} cancellato per il flat di fine settimana.", order.Id);
-                else
-                    Print("Impossibile cancellare l'ordine {0} per il fine settimana: {1}", order.Id, cancel.Error);
-            }
+                CancelAndReport(order, "flat di fine settimana");
             _pendingOrderBar.Clear();
 
             foreach (var position in Positions
@@ -642,16 +1611,132 @@ namespace cAlgo.Robots
         {
             SaveLocalState();
             Timer.Stop();
+
+            // Quanto e' servita la guardia sul poll: senza questo numero non si sa se il risparmio
+            // c'e' stato, e nemmeno se la guardia sta invece tacendo qualcosa che andava reclamato.
+            if (_skippedPolls > 0)
+                Print("Poll saltati perche' il server non aveva nulla da consegnare: {0}.", _skippedPolls);
+
+            PrintSpreadSummary();
+            PrintTradeSummary();
+
+            foreach (var pair in _pairs)
+                if (pair.Series != null && pair.BarHandler != null)
+                    pair.Series.BarOpened -= pair.BarHandler;
+
+            foreach (var entry in _tickHandlers)
+                entry.Key.Tick -= entry.Value;
+            _tickHandlers.Clear();
+
             Positions.Opened -= OnPositionOpened;
             Positions.Closed -= OnPositionClosed;
+            CloseBacktestSessionOnServer();
             _http?.Dispose();
         }
 
+        /// <summary>
+        /// Chiude la sessione lato server alla fine di un BACKTEST. Il server, allo stop, forza la
+        /// scrittura completa e durabile degli artefatti e fonde il journal incrementale: senza
+        /// questa chiamata la cartella del run resta con un <c>.jsonl</c> aperto e una sessione in
+        /// stato Running che nessuno chiudera' mai.
+        ///
+        /// <para>In LIVE non si chiude nulla, di proposito. La execution key e' costante ("LIVE"), e
+        /// una sessione lasciata aperta e' cio' che permette a un cBot riavviato — o a cTrader
+        /// riaperto — di riprendere lo stesso run invece di aprirne uno nuovo accanto al primo.</para>
+        ///
+        /// <para>Best effort: qui si sta gia' spegnendo, e un server irraggiungibile in questo punto
+        /// non deve produrre un errore di piattaforma sull'ultima riga del run.</para>
+        /// </summary>
+        private void CloseBacktestSessionOnServer()
+        {
+            if (!IsBacktesting || _http is null || string.IsNullOrWhiteSpace(_sessionId))
+                return;
+
+            try
+            {
+                var response = PostJson($"api/v1/trading-sessions/{_sessionId}/stop", new { });
+                if (response.IsSuccessStatusCode)
+                    Print("Sessione {0} chiusa sul server: artefatti del run scritti in modo definitivo.",
+                        _sessionId);
+                else
+                    Print("Chiusura della sessione {0} rifiutata dal server: {1}. Gli artefatti del run " +
+                          "restano come li ha lasciati l'ultimo checkpoint.", _sessionId, ReadError(response));
+            }
+            catch (Exception ex)
+            {
+                Print("Impossibile chiudere la sessione {0} sul server: {1}. Gli artefatti del run " +
+                      "restano come li ha lasciati l'ultimo checkpoint.", _sessionId, DescribeTransportFailure(ex));
+            }
+        }
+
         // ---------------------------------------------------------------------------------------
-        // Invio delle barre chiuse native per ogni coppia simbolo/timeframe configurata
+        // Invio della finestra di candele per ogni coppia simbolo/timeframe configurata
         // ---------------------------------------------------------------------------------------
 
+        /// <summary>
+        /// Invia al server la finestra di candele dello stream e gli fa valutare l'ultima, cioè la
+        /// barra appena chiusa. Le candele precedenti sono il margine di sovrapposizione: il server
+        /// accoda solo quelle che non ha, quindi rispedirle non duplica nulla.
+        ///
+        /// <para>Il margine non è un dettaglio di banda, è ciò che impedisce i buchi. Il server, nelle
+        /// sessioni ExternalBroker, non ha un datafeed proprio: la storia di uno stream è soltanto ciò
+        /// che gli è stato spinto. Mandando la sola barra chiusa, ogni giro perso — chiamata fallita,
+        /// server irraggiungibile — lascerebbe nella sua serie un vuoto che nessuno colmerebbe più, e
+        /// le strategie girerebbero su dati bucati senza accorgersene. Con
+        /// <see cref="IncrementalWindowBars"/> barre il buco si ricuce da solo fino a quel numero di
+        /// barre consecutive; oltre, il server rifiuta la finestra invece di accodarla.</para>
+        ///
+        /// <para>La storia profonda (<c>RequiredCandles</c>) non passa di qui: la consegna una volta
+        /// sola <see cref="SendWarmUpWindow"/> all'avvio.</para>
+        /// </summary>
         private bool TryPushClosedBar(Pair pair)
+        {
+            var series = pair.Series;
+            if (series == null || series.Count < 2)
+                return false;
+
+            // Il [Robot] dichiara TimeZone=UTC: gli orari di ogni serie letta da MarketData sono
+            // già in UTC, manca solo il flag Kind. TimeZone è un attributo di compilazione, non
+            // l'impostazione di visualizzazione di cTrader, quindi il feed resta UTC comunque sia
+            // configurata la piattaforma. Il SpecifyKind non è cosmetico: senza il flag il JSON parte
+            // senza il suffisso "Z" e ValidateBar sul server rifiuta la barra.
+            // Last(1) è l'ultima candela chiusa, Last(0) quella aperta.
+            var barTimeUtc = DateTime.SpecifyKind(series.Last(1).OpenTime, DateTimeKind.Utc);
+            if (pair.LastPushedBarTimeUtc == barTimeUtc)
+                return false;
+
+            // Riscaldamento non riuscito all'avvio (server ancora giù): senza storia profonda il
+            // server non valuterebbe comunque, quindi si ritenta qui invece di procedere a vuoto.
+            if (!pair.WarmedUp)
+                SendWarmUpWindow(pair);
+
+            if (!SendWindow(pair, Math.Max(2, IncrementalWindowBars), evaluateLastCandle: true))
+                return false;
+
+            pair.LastPushedBarTimeUtc = barTimeUtc;
+            return true;
+        }
+
+        /// <summary>
+        /// Consegna al server tutta la storia che le strategie richiedono, senza fargli valutare
+        /// niente: le barre della finestra sono già passate, e valutarle produrrebbe intent sul
+        /// passato che il bot eseguirebbe al prezzo di adesso.
+        /// </summary>
+        private void SendWarmUpWindow(Pair pair)
+        {
+            if (SendWindow(pair, pair.RequiredCandles, evaluateLastCandle: false))
+            {
+                pair.WarmedUp = true;
+                if (LogOperativo)
+                    Print("Riscaldamento {0} inviato ({1} candele richieste).", pair, pair.RequiredCandles);
+            }
+        }
+
+        /// <summary>
+        /// Spedisce le ultime <paramref name="depth"/> barre chiuse dello stream, o quante ne ha la
+        /// serie se il broker non ne ha altre.
+        /// </summary>
+        private bool SendWindow(Pair pair, int depth, bool evaluateLastCandle)
         {
             try
             {
@@ -659,72 +1744,245 @@ namespace cAlgo.Robots
                 if (series == null || series.Count < 2)
                     return false;
 
-                // Il [Robot] è agganciato a un grafico con TimeZone=UTC e timeframe=BaseTimeframeMinutes:
-                // gli orari della serie sono già in UTC, manca solo il flag Kind. TimeZone è un
-                // attributo di compilazione, non l'impostazione di visualizzazione di cTrader, quindi
-                // il feed resta UTC comunque sia configurata la piattaforma. Il SpecifyKind non è
-                // cosmetico: senza il flag il JSON parte senza il suffisso "Z" e ValidateBar sul
-                // server rifiuta la barra. Last(1) è l'ultima candela chiusa, Last(0) quella aperta.
-                var nativeClosedBar = series.Last(1);
-                var barTimeUtc = DateTime.SpecifyKind(nativeClosedBar.OpenTime, DateTimeKind.Utc);
-                if (pair.LastPushedBarTimeUtc == barTimeUtc)
-                    return false;
+                // Indice 1 = ultima barra chiusa, indice 0 = barra in formazione, da escludere.
+                var available = series.Count - 1;
+                var count = Math.Min(Math.Max(1, depth), available);
+                var barTimeUtc = DateTime.SpecifyKind(series.Last(1).OpenTime, DateTimeKind.Utc);
 
-                var closedBar = new ClosedBarDto
+                var candles = new List<OhlcvDto>(count);
+                for (var offset = count; offset >= 1; offset--)
+                {
+                    var bar = series.Last(offset);
+                    candles.Add(new OhlcvDto
+                    {
+                        DateTime = DateTime.SpecifyKind(bar.OpenTime, DateTimeKind.Utc),
+                        Open = (decimal)bar.Open,
+                        High = (decimal)bar.High,
+                        Low = (decimal)bar.Low,
+                        Close = (decimal)bar.Close,
+                        Volume = (decimal)bar.TickVolume
+                    });
+                }
+
+                var window = new ClosedBarWindowDto
                 {
                     // Nome Piootoo: è con quello che il server indicizza le serie, non il nome broker.
                     Symbol = pair.PiootooSymbol,
                     TimeframeMinutes = pair.TimeframeMinutes,
-                    BarTimeUtc = barTimeUtc,
+                    Candles = candles,
                     // Sequenza basata sul timestamp: monotona per lo stream a prescindere da quale
                     // account/cBot la invii per primo (più account pushano le stesse barre di mercato).
                     Sequence = (long)(barTimeUtc - DateTime.UnixEpoch).TotalMilliseconds,
                     IdempotencyKey = $"{pair.PiootooSymbol}|{pair.TimeframeMinutes}|{barTimeUtc:O}",
-                    Bar = new OhlcvDto
-                    {
-                        DateTime = barTimeUtc,
-                        Open = (decimal)nativeClosedBar.Open,
-                        High = (decimal)nativeClosedBar.High,
-                        Low = (decimal)nativeClosedBar.Low,
-                        Close = (decimal)nativeClosedBar.Close,
-                        Volume = (decimal)nativeClosedBar.TickVolume
-                    }
+                    EvaluateLastCandle = evaluateLastCandle
                 };
 
-                var request = new PushBarsRequestDto
+                var request = new PushBarWindowRequestDto
                 {
                     SessionId = _sessionId,
                     SessionToken = _sessionToken,
-                    Bars = new[] { closedBar }
+                    Windows = new[] { window }
                 };
 
-                var response = PostJson($"api/v1/trading-sessions/{_sessionId}/bars", request);
+                var response = PostJson($"api/v1/trading-sessions/{_sessionId}/bars/window", request);
                 if (!response.IsSuccessStatusCode)
                 {
-                    if (VerboseLogging)
-                        Print("Push barra {0} fallito: {1}", pair, ReadError(response));
-                    UpdateConnectionStatus(false);
+                    // Un errore qui non è rumore: il server rifiuta la finestra anche quando non si
+                    // sovrappone alla sua storia, cioè quando si sta per aprire un buco.
+                    OnPushFailed(pair, $"{count} candele rifiutate: {ReadError(response)}");
                     return false;
                 }
                 if (!_isConnectedToServer)
                     UpdateConnectionStatus(true);
 
-                pair.LastPushedBarTimeUtc = barTimeUtc;
+                OnPushSucceeded(pair);
+                ReportWindowStatus(pair, ReadBody(response));
                 return true;
             }
             catch (Exception ex)
             {
-                Print("Errore invio barra {0}: {1}", pair, ex.Message);
-                UpdateConnectionStatus(false);
+                OnPushFailed(pair, ex.Message);
                 return false;
             }
+        }
+
+        /// <summary>
+        /// Registra un invio fallito: stampa il messaggio solo se diverso dall'ultimo di quello
+        /// stream — altrimenti un piano mal configurato produce la stessa riga a ogni barra — e
+        /// segnala sul pannello che la connessione al server non c'e' piu'.
+        ///
+        /// <para>In BACKTEST si ferma subito: ogni barra spedita a vuoto e' una barra non valutata, e
+        /// il run arriverebbe in fondo con un'equity plausibile costruita su una frazione dei segnali.</para>
+        ///
+        /// <para>In LIVE non si ferma mai. Il bot resta acceso e continua a provare a ogni barra: le
+        /// posizioni a mercato hanno condizioni di uscita che girano in locale (stop, break-even,
+        /// trailing, flat di fine settimana) e continuano a essere gestite anche a server muto. Al
+        /// superamento di <see cref="MaxConsecutivePushFailures"/> si alza il tono del log una volta
+        /// sola, poi si tace fino al rientro.</para>
+        /// </summary>
+        private void OnPushFailed(Pair pair, string message)
+        {
+            UpdateConnectionStatus(false);
+
+            var key = MakeStreamKey(pair.PiootooSymbol, pair.TimeframeMinutes);
+            if (!_lastPushError.TryGetValue(key, out var previous) || previous != message)
+            {
+                _lastPushError[key] = message;
+                Print("Invio finestra {0} fallito: {1}", pair, message);
+            }
+
+            // In backtest non ha senso tollerare i fallimenti: il server e' locale e o risponde o non
+            // c'e'. Ogni barra spedita a vuoto e' una barra non valutata, e il run arriverebbe in fondo
+            // con un equity plausibile ma costruito su una frazione dei segnali. Meglio fermarsi alla
+            // prima. In live invece la tolleranza resta: un buco di rete di qualche secondo non deve
+            // spegnere un bot che ha posizioni aperte.
+            if (IsBacktesting)
+            {
+                StopWithError("Connessione al server persa durante il backtest.\n" +
+                              "Stream " + pair + ": " + message + "\n" +
+                              "Il run e' stato interrotto: i risultati parziali non sono validi.");
+                return;
+            }
+
+            // Live: si continua a girare, sempre. Un cBot spento non gestisce piu' le uscite delle
+            // posizioni aperte, ed e' un danno peggiore di un server irraggiungibile. Il contatore
+            // serve solo ad alzare il tono del log una volta sola, quando la caduta smette di
+            // sembrare un buco di rete e inizia a sembrare un guasto.
+            _consecutivePushFailures++;
+            if (_consecutivePushFailures == MaxConsecutivePushFailures)
+                Print("ATTENZIONE: {0} invii falliti di fila, il server non risponde. Il bot RESTA " +
+                      "ACCESO e continua a riprovare; le uscite delle posizioni aperte sono gestite " +
+                      "in locale. Nessun nuovo segnale finche' il server non torna. Ultimo errore: {1}",
+                    _consecutivePushFailures, message);
+
+            // Riaggancio, non semplice ritentativo: la sessione lato server puo' non esistere piu'.
+            // Throttlato al suo interno, quindi si puo' chiamare a ogni fallimento.
+            TryReopenSession();
+        }
+
+        private void OnPushSucceeded(Pair pair)
+        {
+            // Il rientro dopo una caduta lunga va detto per quello che e': fra l'ultimo invio riuscito
+            // e questo ci sono barre che il server non ha mai visto, quindi segnali che non sono mai
+            // stati generati. Chi legge il log deve poterlo sapere senza contare le righe di errore.
+            if (_consecutivePushFailures >= MaxConsecutivePushFailures)
+                Print("Connessione al server ristabilita dopo {0} invii falliti. Le barre di quella " +
+                      "finestra non sono state valutate: eventuali segnali di quel periodo sono persi.",
+                    _consecutivePushFailures);
+
+            _consecutivePushFailures = 0;
+
+            var key = MakeStreamKey(pair.PiootooSymbol, pair.TimeframeMinutes);
+            if (_lastPushError.Remove(key))
+                Print("Invio finestra {0} tornato a funzionare.", pair);
+        }
+
+        /// <summary>
+        /// Stampa, una volta sola per stream, il motivo per cui il server non sta ancora valutando:
+        /// senza questo "nessun segnale" e "storia troppo corta per valutare" sono indistinguibili dal
+        /// grafico e dal log, che è esattamente il modo in cui un run muto passa inosservato.
+        /// </summary>
+        private void ReportWindowStatus(Pair pair, string body)
+        {
+            LogJsonResponse("bars/window", body);
+            var payload = JsonSerializer.Deserialize<PushBarWindowResponseDto>(body, _json);
+
+            // Guardia sul poll: quanto il server dice di avere da consegnare. Null (campo assente,
+            // risposta illeggibile, server vecchio) vale "non so" e fa pollare come prima.
+            _lastPushClaimable = payload?.ClaimableIntents;
+
+            var status = payload?.Streams?.FirstOrDefault();
+            if (status is null)
+                return;
+
+            // Copertura della storia sul chart: si aggiorna a ogni risposta, non solo quando il server
+            // dichiara di aver saltato qualcosa, altrimenti la riga resterebbe ferma sull'ultimo
+            // valore "cattivo" anche dopo che la finestra si è completata.
+            pair.ServerHistoryBars = status.HistoryBars;
+            pair.ServerRequiredCandles = status.RequiredCandles;
+            RedrawStatusPanel();
+
+            var key = MakeStreamKey(pair.PiootooSymbol, pair.TimeframeMinutes);
+            if (status.SkippedForInsufficientHistory > 0)
+            {
+                if (_insufficientHistoryReported.Add(key))
+                    Print("{0}: il server ha {1} candele su {2} richieste, {3} strategie non valutate. " +
+                          "Servono ancora {4} barre.",
+                        pair, status.HistoryBars, status.RequiredCandles,
+                        status.SkippedForInsufficientHistory,
+                        Math.Max(0, status.RequiredCandles - status.HistoryBars));
+                return;
+            }
+
+            if (_insufficientHistoryReported.Remove(key))
+                Print("{0}: storia sufficiente, {1} strategie ora valutate a ogni barra.",
+                    pair, status.EvaluatedStrategies);
         }
 
         // ---------------------------------------------------------------------------------------
         // Polling segnali per il proprio account ed esecuzione
         // ---------------------------------------------------------------------------------------
 
+        /// <summary>
+        /// Vale la pena reclamare dopo questo push?
+        ///
+        /// <para>Si salta solo su una dichiarazione ESPLICITA del server che non ha nulla da
+        /// consegnare. Il conteggio arriva da lui e non dal client perche' solo lui sa dei template
+        /// di barre precedenti ancora vivi e degli intent gia' assegnati da un giro anteriore:
+        /// dedurlo dagli intent di <i>questa</i> barra salterebbe un poll che aveva qualcosa.</para>
+        ///
+        /// <para>Il verso dell'errore e' scelto: <c>null</c> — campo assente, risposta illeggibile,
+        /// server piu' vecchio del client — vale "non so" e polla. Un poll a vuoto costa una
+        /// chiamata; un poll saltato a torto costa un segnale, e non lascia traccia.</para>
+        /// </summary>
+        private bool ShouldPollAfterPush()
+        {
+            if (_lastPushClaimable is not 0)
+                return true;
+
+            _skippedPolls++;
+            return false;
+        }
+
+        /// <summary>
+        /// Reclama i segnali disponibili per questo account.
+        ///
+        /// <para>Il claim consegna UN intent per chiamata: e' un protocollo pull, e ogni giro passa
+        /// dal lock della sessione lato server. Con i lucchetti attivi un intent per poll e' anche il
+        /// massimo che l'account puo' detenere (un solo intent pendente per volta), quindi una sola
+        /// chiamata basta e ripeterla otterrebbe soltanto lo stesso intent.</para>
+        ///
+        /// <para>Con i lucchetti spenti — il backtest sorgente — il vincolo non c'e' piu' e la barra
+        /// puo' aver prodotto un segnale per ogni strategia. Fermarsi al primo significherebbe
+        /// eseguire una strategia per barra e produrre un campione sorgente monco: qui si drena la
+        /// coda finche' il server non risponde "nessun segnale". Il tetto e' una rete di sicurezza —
+        /// se il server continuasse a restituire intent per un difetto suo, il bot smette invece di
+        /// bloccare il thread della piattaforma.</para>
+        /// </summary>
         private void PollNextSignal()
+        {
+            if (_enforceConcurrency)
+            {
+                PollNextSignalOnce();
+                return;
+            }
+
+            for (var claimed = 0; claimed < MaxSignalsPerDrain; claimed++)
+            {
+                if (!PollNextSignalOnce())
+                    return;
+            }
+
+            Print("Drenaggio segnali interrotto al tetto di {0} intent per barra: " +
+                  "il server continua a consegnare segnali. Verifica la sessione.", MaxSignalsPerDrain);
+        }
+
+        /// <summary>
+        /// Un giro di claim. Restituisce true se ha preso in carico un intent, cioe' se ha senso
+        /// richiedere il successivo; false quando il server non ha piu' niente per questo account,
+        /// quando la chiamata fallisce, o quando l'intent restituito era gia' in gestione.
+        /// </summary>
+        private bool PollNextSignalOnce()
         {
             try
             {
@@ -733,28 +1991,30 @@ namespace cAlgo.Robots
                 {
                     SessionToken = _sessionToken,
                     Positions = Positions
-                        .Where(p => p.Label != null &&
-                                    p.Label.StartsWith(LabelPrefix + ":", StringComparison.Ordinal))
-                        .Select(p => new BrokerPositionSnapshotDto
+                        .Select(p => new { Position = p, Parsed = ParseLabel(p.Label) })
+                        .Where(x => x.Parsed != null)
+                        .Select(x => new BrokerPositionSnapshotDto
                         {
-                            PositionId = p.Id.ToString(),
-                            Symbol = p.SymbolName,
-                            StrategyCode = p.Label.Substring(LabelPrefix.Length + 1)
+                            PositionId = x.Position.Id.ToString(),
+                            Symbol = x.Position.SymbolName,
+                            StrategyCode = x.Parsed.StrategyCode,
+                            IntentId = x.Parsed.IntentId
                         })
                         .ToList(),
                     Orders = PendingOrders
-                        .Where(o => o.Label != null &&
-                                    o.Label.StartsWith(LabelPrefix + ":", StringComparison.Ordinal))
-                        .Select(o => new BrokerOrderSnapshotDto
+                        .Select(o => new { Order = o, Parsed = ParseLabel(o.Label) })
+                        .Where(x => x.Parsed != null)
+                        .Select(x => new BrokerOrderSnapshotDto
                         {
-                            OrderId = o.Id.ToString(),
-                            Symbol = o.SymbolName,
-                            StrategyCode = o.Label.Substring(LabelPrefix.Length + 1)
+                            OrderId = x.Order.Id.ToString(),
+                            Symbol = x.Order.SymbolName,
+                            StrategyCode = x.Parsed.StrategyCode,
+                            IntentId = x.Parsed.IntentId
                         })
                         .ToList(),
                     Trades = History
                         .Where(t => t.Label != null &&
-                                    t.Label.StartsWith(LabelPrefix + ":", StringComparison.Ordinal) &&
+                                    t.Label.StartsWith(LabelPrefix + LabelSeparator, StringComparison.Ordinal) &&
                                     t.ClosingTime >= historyFromUtc)
                         .Select(t => new BrokerTradeSnapshotDto
                         {
@@ -769,9 +2029,12 @@ namespace cAlgo.Robots
 
                 if (!response.IsSuccessStatusCode)
                 {
-                    if (VerboseLogging) Print("Poll segnale fallito: {0}", ReadError(response));
+                    if (LogDiagnostico) Print("Poll segnale fallito: {0}", ReadError(response));
                     UpdateConnectionStatus(false);
-                    return;
+                    // Il poll gira a timer, le barre no: su un timeframe lungo sarebbe questa la prima
+                    // chiamata ad accorgersi che il server e' tornato. Throttlato al suo interno.
+                    if (!IsBacktesting) TryReopenSession();
+                    return false;
                 }
                 if (!_isConnectedToServer)
                     UpdateConnectionStatus(true);
@@ -781,26 +2044,49 @@ namespace cAlgo.Robots
                 var payload = JsonSerializer.Deserialize<AccountSignalResponseDto>(body, _json);
                 if (payload?.Intent is null)
                 {
-                    if (VerboseLogging && payload?.Reason != null) Print("Nessuna azione: {0}", payload.Reason);
-                    return;
+                    // Il motivo si stampa sempre, non solo con il log dettagliato, ma una volta sola
+                    // finché non cambia: il poll gira a ogni barra e ogni pochi secondi. Un bot che
+                    // tace mentre il server genera segnali è il modo più efficace di perdere un run
+                    // intero senza accorgersene.
+                    var reason = string.IsNullOrWhiteSpace(payload?.ReasonDetail)
+                        ? payload?.Reason
+                        : payload.ReasonDetail;
+                    if (!string.IsNullOrWhiteSpace(reason) && _lastPollReason != reason)
+                    {
+                        _lastPollReason = reason;
+                        Print("Nessun intent per l'account: {0}", reason);
+                    }
+                    return false;
+                }
+
+                if (_lastPollReason != null)
+                {
+                    _lastPollReason = null;
+                    Print("Intent ricevuti di nuovo dal server.");
                 }
 
                 var intent = payload.Intent;
                 if (_submittedIntentIds.Contains(intent.IntentId))
-                    return; // già in gestione, aspettiamo l'esito dell'ordine già inviato
+                    // Già in gestione: aspettiamo l'esito dell'ordine inviato. Si ferma anche il
+                    // drenaggio, altrimenti con i lucchetti attivi il passo 1 riproporrebbe questo
+                    // stesso intent a ogni giro e il ciclo girerebbe a vuoto fino al tetto.
+                    return false;
 
                 if (intent.IsClose || string.Equals(intent.Kind, "Close", StringComparison.OrdinalIgnoreCase))
                 {
                     HandleCloseIntent(intent);
-                    return;
+                    return true;
                 }
 
                 HandleEntryIntent(intent);
+                return true;
             }
             catch (Exception ex)
             {
                 Print("Errore polling segnale: {0}", ex.Message);
                 UpdateConnectionStatus(false);
+                if (!IsBacktesting) TryReopenSession();
+                return false;
             }
         }
 
@@ -820,16 +2106,43 @@ namespace cAlgo.Robots
             // Piootoo: la tabella di conversione del conto traduce l'uno nell'altro.
             var brokerSymbolName = ResolveIntentSymbol(intent);
 
-            // Autolimitazione lato client PER SIMBOLO (oltre a quella già garantita dal server): se il bot
-            // ha già una posizione aperta su QUESTO simbolo, non ne apre una seconda; può però tradare in
-            // parallelo altri simboli configurati.
-            var alreadyOpenOnSymbol = Positions.Any(p =>
+            // Autolimitazione lato client per (STRATEGIA, SIMBOLO), non per simbolo soltanto: due
+            // strategie diverse sullo stesso strumento sono due motivi di ingresso indipendenti e
+            // devono poter stare a mercato insieme. Quante ne stiano lo governa MaxConcurrentTrades
+            // sul server, che conta sull'insieme delle strategie e non per simbolo. Un secondo
+            // ordine della STESSA strategia sullo stesso simbolo resta invece bloccato: non e'
+            // concorrenza, e' rischio doppio sullo stesso motivo di ingresso.
+            //
+            // Fino al 11/08/2026 il controllo era per simbolo, e su una sessione a simbolo singolo
+            // rendeva inapplicabile qualunque valore di MaxConcurrentTrades: la seconda strategia
+            // non arrivava mai a mercato.
+            var alreadyOpenOnStrategy = Positions.Any(p =>
                 p.SymbolName.Equals(brokerSymbolName, StringComparison.OrdinalIgnoreCase) &&
-                p.Label.StartsWith(LabelPrefix, StringComparison.Ordinal));
-            if (alreadyOpenOnSymbol)
+                p.Label != null &&
+                p.Label.StartsWith(MakeStrategyLabelPrefix(intent.StrategyCode), StringComparison.Ordinal));
+            if (alreadyOpenOnStrategy)
             {
-                if (VerboseLogging)
-                    Print("Ingresso {0}/{1} ignorato: il bot ha già una posizione aperta su questo simbolo.", intent.Symbol, intent.StrategyCode);
+                // Annullato, non ignorato: un intent lasciato Pending sul server resta assegnato a
+                // questo account, viene riproposto a ogni poll e tiene chiusi i lucchetti finché il
+                // run non finisce. E comunque non andrebbe eseguito più tardi: il segnale di un
+                // motore Unger vale la sua barra, non quella in cui la strategia tornerà libera.
+                Print("Ingresso {0}/{1} annullato: posizione già aperta per questa strategia.",
+                    intent.Symbol, intent.StrategyCode);
+                ReportExecution(intent.IntentId, intent.Symbol, ExecutionReportStatusDto.Cancelled, 0, null);
+                return;
+            }
+
+            // Tetto locale sulle posizioni riempite. Il server ha gia' applicato il proprio budget
+            // al claim, ma in modalita' PositionsOnly quel budget non contava gli ordini pendenti:
+            // fra il claim e adesso un altro stop puo' essersi riempito, e questo ingresso
+            // sfonderebbe il tetto. E' l'ultima barriera, e sta qui perche' qui si conosce lo stato
+            // del broker nell'istante esatto in cui si sta per mandare l'ordine.
+            if (_enforceConcurrency && _maxConcurrentTrades > 0 &&
+                CountPiootooPositions() >= _maxConcurrentTrades)
+            {
+                Print("Ingresso {0}/{1} annullato: raggiunto il massimo di {2} posizioni contemporanee.",
+                    intent.Symbol, intent.StrategyCode, _maxConcurrentTrades);
+                ReportExecution(intent.IntentId, intent.Symbol, ExecutionReportStatusDto.Cancelled, 0, null);
                 return;
             }
 
@@ -841,23 +2154,64 @@ namespace cAlgo.Robots
                 return;
             }
 
-            if (MaxEntrySlippagePips > 0 && intent.Price > 0)
+            // Fotografia del mercato nell'istante in cui l'intent arriva: senza questa riga, di un
+            // ingresso resta solo il fill (o il nulla di uno scarto) e non si puo' piu' distinguere
+            // un bot che sbaglia da un mercato che si e' mosso. Va prima di ogni filtro, cosi' la
+            // riga c'e' anche per gli intent che vengono scartati subito dopo.
+            LogIntentMarket(intent, symbol);
+
+            // Filtri di sanita' sull'intent: livello dal lato sbagliato, livello troppo lontano,
+            // spread troppo pesante sullo stop. Stanno DOPO la riga diagnostica di proposito, cosi'
+            // di un ingresso scartato resta comunque la fotografia del mercato che lo ha fatto
+            // scartare, e prima di qualunque effetto sul broker.
+            if (RejectUnsoundIntent(intent, symbol))
+                return;
+
+            // Solo per gli ordini a mercato. Uno Stop o un Limit sta per definizione LONTANO dal
+            // prezzo corrente — è il livello a cui si vuole entrare, non quello a cui si è — quindi
+            // misurarne la distanza come slippage scarta esattamente gli ordini che i motori Unger
+            // emettono sempre: un breakout di Donchian a 40 punti dal prezzo verrebbe rifiutato ogni
+            // volta. Lo slippage di un pending lo governa il broker al fill, non il bot al
+            // piazzamento.
+            if (intent.OrderType == TradeOrderTypeDto.Market && MaxEntrySlippagePips > 0 && intent.Price > 0)
             {
                 var currentPrice = intent.Side == SignalTypeDto.Buy ? symbol.Ask : symbol.Bid;
                 var distancePips = Math.Abs(currentPrice - (double)intent.Price) / symbol.PipSize;
                 if (distancePips > MaxEntrySlippagePips)
                 {
-                    Print("Ingresso {0}/{1} scartato per slippage ({2:0.0} pips).", intent.Symbol, intent.StrategyCode, distancePips);
+                    // I prezzi nel messaggio, non solo la distanza: "scartato per 3,2 pips" non dice
+                    // se il server ha prezzato su una barra vecchia, se il mercato e' scappato o se
+                    // lo spread era anomalo. Bid/Ask e prezzo dell'intent lo dicono.
+                    Print("Ingresso {0}/{1} scartato per slippage ({2:0.0} pips): intent {3} contro {4} {5:0.#####} " +
+                          "(Bid {6:0.#####} / Ask {7:0.#####}).",
+                        intent.Symbol, intent.StrategyCode, distancePips, intent.Price,
+                        intent.Side == SignalTypeDto.Buy ? "Ask" : "Bid", currentPrice,
+                        symbol.Bid, symbol.Ask);
+                    LogJsonEvent("intent/scartato-slippage", new
+                    {
+                        intent.IntentId,
+                        intent.StrategyCode,
+                        intent.Symbol,
+                        IntentPrice = intent.Price,
+                        symbol.Bid,
+                        symbol.Ask,
+                        DistanzaPips = distancePips,
+                        MaxEntrySlippagePips
+                    });
                     ReportExecution(intent.IntentId, intent.Symbol, ExecutionReportStatusDto.Rejected, 0, null);
                     return;
                 }
             }
 
-            _submittedIntentIds.Add(intent.IntentId);
             var tradeType = intent.Side == SignalTypeDto.Buy ? TradeType.Buy : TradeType.Sell;
             var rawVolume = Math.Max(0.01, (double)intent.FinalQuantity);
             var volume = symbol.NormalizeVolumeInUnits(rawVolume, RoundingMode.Down);
-            var label = MakeLabel(intent.StrategyCode);
+
+            _submittedIntentIds.Add(intent.IntentId);
+
+            // La label porta l'IntentId: posizione e ordine restano riconducibili al segnale che li ha
+            // creati leggendo la sola piattaforma, senza dipendere dallo stato locale del bot.
+            var label = MakeLabel(intent.StrategyCode, intent.IntentId);
 
             // Stop Loss/Take Profit del segnale applicati come livelli nativi sull'ordine: li gestisce
             // il broker; l'eventuale chiusura risultante viene comunque intercettata e riportata al
@@ -867,8 +2221,17 @@ namespace cAlgo.Robots
 
             // Il segnale precedente della stessa strategia è scaduto nel momento in cui ne arriva uno
             // nuovo: il motore riemette l'ordine a ogni barra col livello ricalcolato, quindi il vecchio
-            // ordine pending non è un secondo ordine, è lo stesso ordine da sostituire.
-            CancelPendingOrders(label, "sostituito dal signal successivo");
+            // ordine pending non è un secondo ordine, è lo stesso ordine da sostituire. Il match è per
+            // strategia e non per label esatta: la label del segnale nuovo porta un IntentId diverso.
+            CancelStrategyPendingOrders(intent.StrategyCode, "sostituito dal signal successivo");
+
+            // Gli intent precedenti della stessa strategia sono stati appena cancellati a mercato: le
+            // loro label non si apriranno più, e senza questa potatura la mappa crescerebbe di una voce
+            // per barra (prima la chiave era la sola strategia e si sovrascriveva da sé).
+            foreach (var stale in _lastOpenIntentByLabel.Keys
+                .Where(key => key.StartsWith(MakeStrategyLabelPrefix(intent.StrategyCode), StringComparison.Ordinal))
+                .ToList())
+                _lastOpenIntentByLabel.Remove(stale);
 
             _lastOpenIntentByLabel[label] = intent;
 
@@ -946,20 +2309,534 @@ namespace cAlgo.Robots
                 ProfitStallAfterUtc = intent.ProfitStallAfterUtc,
                 MaxBarsInPosition = intent.MaxBarsInPosition ?? 0,
                 BarsInPosition = 0,
-                ContractMultiplier = intent.ContractMultiplier > 0 ? intent.ContractMultiplier : 1m
+                ContractMultiplier = intent.ContractMultiplier > 0 ? intent.ContractMultiplier : 1m,
+                EntryPrice = position.EntryPrice,
+                OpenTimeUtc = Server.TimeInUtc
             };
             _pendingOrderBar.Remove(position.Label);
+            _lastOpenIntentByLabel.Remove(position.Label); // l'intent ha prodotto la sua posizione: esaurito
             SaveLocalState();
 
+            // Lo spread va letto ADESSO: e' il costo di esecuzione di QUESTO ingresso, e fra due
+            // minuti vale un altro numero. Non serve alla contabilita' — il P&L viene dai prezzi —
+            // ma senza non e' misurabile quanto lo strumento si mangia del margine operativo.
+            var spread = MeasureSpreadAtFill(position, intent);
+
             ReportExecution(intent.IntentId, intent.Symbol, ExecutionReportStatusDto.Filled,
-                (decimal)position.VolumeInUnits, (decimal)position.EntryPrice, position.Id.ToString());
+                (decimal)position.VolumeInUnits, (decimal)position.EntryPrice, position.Id.ToString(),
+                spreadAtFill: spread);
+
+            CancelPendingOrdersAtCap();
+        }
+
+        /// <summary>
+        /// Una posizione si e' appena aperta: se il piano conta solo le posizioni riempite e il
+        /// tetto e' stato raggiunto, spegne gli ordini pendenti rimasti.
+        ///
+        /// <para>E' la meta' client del limite di concorrenza, ed e' l'unica che poteva stare qui.
+        /// In modalita' <c>PositionsOnly</c> il server distribuisce tutti gli intent della barra
+        /// senza contare gli ordini a mercato — di proposito: su un motore breakout non si sa
+        /// quale livello verra' toccato, e bloccarne uno per "occupazione di slot" significa
+        /// perdere il solo che sarebbe partito. Il tetto viene quindi fatto valere a valle, nel
+        /// momento in cui si scopre quale ordine e' entrato davvero: il primo fill spegne gli
+        /// altri, come un OCO.</para>
+        ///
+        /// <para>Il disaccoppiamento regge perche' il bot non riceve mai un comando: legge dal
+        /// descriptor un parametro di configurazione, decide da solo guardando la propria
+        /// piattaforma, e comunica al server solo il fatto compiuto — un <c>Cancelled</c> sullo
+        /// stesso canale degli ordini scaduti, che libera gli slot senza che il server debba sapere
+        /// perche'. Il server continua a decidere <i>cosa</i>, il broker <i>se e a che prezzo</i>.</para>
+        /// </summary>
+        private void CancelPendingOrdersAtCap()
+        {
+            if (!_cancelPendingAtCap || !_enforceConcurrency || _maxConcurrentTrades <= 0)
+                return;
+            if (CountPiootooPositions() < _maxConcurrentTrades)
+                return;
+
+            var stale = PendingOrders
+                .Where(o => o.Label != null && o.Label.StartsWith(LabelPrefix, StringComparison.Ordinal))
+                .ToList();
+            if (stale.Count == 0)
+                return;
+
+            Print("Raggiunto il massimo di {0} posizioni contemporanee: cancello {1} ordini pendenti.",
+                _maxConcurrentTrades, stale.Count);
+            foreach (var order in stale)
+            {
+                // La scadenza a una barra non serve piu' a un ordine che non esiste: senza questa
+                // potatura CancelExpiredPendingOrders ritenterebbe di cancellarlo a ogni barra.
+                _pendingOrderBar.Remove(order.Label);
+                CancelAndReport(order, "tetto di posizioni contemporanee raggiunto");
+            }
+        }
+
+        /// <summary>Posizioni aperte da questo bot, su tutti i simboli e tutte le strategie.</summary>
+        private int CountPiootooPositions() =>
+            Positions.Count(p => p.Label != null && p.Label.StartsWith(LabelPrefix, StringComparison.Ordinal));
+
+        /// <summary>
+        /// Bid, Ask e distanza dal prezzo dell'intent nell'istante in cui l'intent arriva al bot.
+        ///
+        /// <para>Serve a rispondere alla domanda "il bot sta lavorando bene?", che dai soli fill non
+        /// si risponde: al fill si vede il prezzo ottenuto, non quello che il server aveva in mente
+        /// ne' quello che il mercato offriva quando l'ordine e' partito. Le tre anomalie che questa
+        /// riga rende visibili sono: (1) <b>ritardo</b> — <c>eta</c> misura quanto tempo e' passato da
+        /// <c>ValidFromUtc</c>, cioe' dalla barra che ha generato il segnale, e se cresce il collo di
+        /// bottiglia e' nel giro poll/valutazione, non nel broker; (2) <b>prezzo del server fuori
+        /// mercato</b> — una distanza sistematicamente grande su ordini a mercato significa che il
+        /// server sta prezzando su una barra vecchia (vedi
+        /// <c>docs/domini/orologio-barre-e-fill.md</c>); (3) <b>livello dal lato sbagliato</b> — uno
+        /// Stop long sotto l'Ask o un Limit long sopra l'Ask e' un ordine che si riempie
+        /// immediatamente invece di aspettare il breakout, ed e' un bug, non un evento di mercato.</para>
+        ///
+        /// <para>Lo spread e' calcolato come <c>Ask − Bid</c> e non con <c>symbol.Spread</c> per
+        /// coerenza con i due prezzi stampati sulla stessa riga: sono letti nello stesso istante.</para>
+        ///
+        /// <para>Stampa <b>sempre, a qualunque <see cref="LivelloLog"/> e anche in backtest</b>: e' una
+        /// riga per intent di ingresso, quindi proporzionale ai trade e non alle barre, e spegnerla
+        /// significherebbe scoprire il problema senza avere piu' i dati per spiegarlo. Con
+        /// <see cref="LogServerResponses"/> scrive anche il record strutturato sul JSONL: il buffer
+        /// della piattaforma scarta le righe vecchie, il file resta ed e' greppabile.</para>
+        /// </summary>
+        private void LogIntentMarket(OrderIntentDto intent, Symbol symbol)
+        {
+            var bid = symbol.Bid;
+            var ask = symbol.Ask;
+            var spread = ask - bid;
+
+            // Il lato che conta e' quello su cui si ENTRA: Ask per i long, Bid per gli short. E'
+            // l'unico confronto sensato col prezzo dell'intent, e lo stesso che usa il filtro
+            // slippage qui sopra.
+            var riferimento = intent.Side == SignalTypeDto.Buy ? ask : bid;
+            var prezzo = (double)intent.Price;
+
+            double? distanzaPips = prezzo > 0 && symbol.PipSize > 0
+                ? Math.Abs(riferimento - prezzo) / symbol.PipSize
+                : (double?)null;
+            double? spreadPips = symbol.PipSize > 0 ? spread / symbol.PipSize : (double?)null;
+
+            // Due grandezze diverse, che fino alla 2.2.0 erano schiacciate in un unico "eta" calcolato
+            // su ValidFromUtc — cioe' su un istante FUTURO per costruzione, il bordo della barra
+            // successiva. Ne uscivano numeri senza senso (3900s, -3599s, -188100s) che non
+            // misuravano ne' l'una ne' l'altra cosa:
+            //  - RITARDO e' il tempo passato dalla barra che ha prodotto il segnale. E' l'unico
+            //    numero che dice se il collo di bottiglia sta nel giro push/valutazione/claim: su un
+            //    segnale sano vale meno di un paio di secondi, e se cresce il problema e' nostro.
+            //  - ATTESA e' quanto manca all'attivazione del pending. Negativa significa gia' attivo.
+            //    Un'attesa di piu' di una barra su un ordine "next bar" e' un intent vecchio
+            //    riproposto, non un segnale nuovo.
+            double? ritardoSecondi = intent.CreatedAtUtc.HasValue
+                ? (Server.TimeInUtc - intent.CreatedAtUtc.Value).TotalSeconds
+                : (double?)null;
+            double? attesaSecondi = intent.ValidFromUtc.HasValue
+                ? (intent.ValidFromUtc.Value - Server.TimeInUtc).TotalSeconds
+                : (double?)null;
+
+            // Coerenza del livello col lato del mercato. Vale solo per i pending: un ordine a mercato
+            // non ha un livello da rispettare.
+            bool? livelloCoerente = null;
+            if (prezzo > 0)
+            {
+                if (intent.OrderType == TradeOrderTypeDto.Stop)
+                    livelloCoerente = intent.Side == SignalTypeDto.Buy ? prezzo > ask : prezzo < bid;
+                else if (intent.OrderType == TradeOrderTypeDto.Limit)
+                    livelloCoerente = intent.Side == SignalTypeDto.Buy ? prezzo < ask : prezzo > bid;
+            }
+
+            Print("Intent {0}/{1} {2} {3}: prezzo {4:0.#####} | Bid {5:0.#####} Ask {6:0.#####} " +
+                  "spread {7:0.#####} ({8}) | distanza da {9} {10} | ritardo {11} | attesa {12} | qty {13}",
+                intent.Symbol, intent.StrategyCode, intent.Side, intent.OrderType, intent.Price,
+                bid, ask, spread,
+                spreadPips.HasValue ? $"{spreadPips.Value:0.#} pip" : "pip n/d",
+                intent.Side == SignalTypeDto.Buy ? "Ask" : "Bid",
+                distanzaPips.HasValue ? $"{distanzaPips.Value:0.#} pip" : "n/d",
+                ritardoSecondi.HasValue ? $"{ritardoSecondi.Value:0.#}s" : "n/d",
+                attesaSecondi.HasValue ? $"{attesaSecondi.Value:0.#}s" : "n/d",
+                intent.FinalQuantity);
+
+            // Un'attesa che supera la barra della strategia non e' un pending consegnato in anticipo:
+            // e' un intent di una barra passata che il server continua a riproporre. Senza questa
+            // riga si vede solo lo stesso livello ripiazzato per ore, senza capire da dove venga.
+            if (attesaSecondi.HasValue && intent.TimeframeMinutes > 0 &&
+                Math.Abs(attesaSecondi.Value) > intent.TimeframeMinutes * 60.0)
+                Print("  ATTENZIONE {0}/{1}: attesa {2:0}s oltre la barra da {3} minuti " +
+                      "(ValidFrom {4:yyyy-MM-dd HH:mm:ss}Z, ora server {5:yyyy-MM-dd HH:mm:ss}Z): intent non allineato alla barra corrente.",
+                    intent.Symbol, intent.StrategyCode, attesaSecondi.Value, intent.TimeframeMinutes,
+                    intent.ValidFromUtc, Server.TimeInUtc);
+
+            // Riga separata e in chiaro: e' un difetto del sistema, non una condizione di mercato, e
+            // deve saltare all'occhio anche in mezzo a un log fitto.
+            if (livelloCoerente == false)
+                Print("  ATTENZIONE {0}/{1}: livello {2} {3} {4:0.#####} dalla parte sbagliata del mercato " +
+                      "(Bid {5:0.#####} / Ask {6:0.#####}): si riempirebbe subito invece di attendere.",
+                    intent.Symbol, intent.StrategyCode, intent.Side, intent.OrderType, intent.Price, bid, ask);
+
+            LogJsonEvent("intent/ricevuto", new
+            {
+                intent.IntentId,
+                intent.StrategyCode,
+                intent.Symbol,
+                BrokerSymbol = symbol.Name,
+                Side = intent.Side.ToString(),
+                OrderType = intent.OrderType.ToString(),
+                IntentPrice = intent.Price,
+                Bid = bid,
+                Ask = ask,
+                Spread = spread,
+                SpreadPips = spreadPips,
+                DistanzaPips = distanzaPips,
+                LivelloCoerente = livelloCoerente,
+                RitardoSecondi = ritardoSecondi,
+                AttesaSecondi = attesaSecondi,
+                intent.CreatedAtUtc,
+                intent.ValidFromUtc,
+                intent.ExpiresAtUtc,
+                intent.FinalQuantity,
+                intent.StopLoss,
+                intent.TakeProfit,
+                ServerTimeUtc = Server.TimeInUtc
+            });
+        }
+
+        /// <summary>
+        /// Vero quando il run e' il campione sorgente, cioe' quando i filtri di ingresso di questo
+        /// bot vanno sospesi.
+        ///
+        /// <para>Il profilo <c>BacktestSorgente</c> serve a misurare la fedelta' della traduzione
+        /// C# rispetto alle strategie Python. Qualunque filtro lato client che la sorgente non
+        /// prevede sporca quella misura: davanti a una differenza non si saprebbe piu' dire se viene
+        /// dal porting o dal filtro. Il filtro sul lato del livello resta attivo anche qui, perche'
+        /// non e' discrezionale — un pending dal lato sbagliato e' un errore di prezzatura, non una
+        /// scelta di strategia.</para>
+        /// </summary>
+        private bool FiltriIngressoSospesi =>
+            string.Equals(_runProfile, nameof(RunProfileParam.BacktestSorgente),
+                StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// Scarta gli intent che non sono eseguibili come la strategia li ha pensati. Restituisce
+        /// true quando l'intent e' stato rifiutato e riportato al server, e il chiamante deve
+        /// fermarsi.
+        ///
+        /// <para>Sono tre condizioni distinte, tutte disattivabili dai rispettivi parametri, e
+        /// nessuna delle tre e' un evento di mercato. Le ultime due sono discrezionali e restano
+        /// spente nel profilo <c>BacktestSorgente</c>: vedi <see cref="FiltriIngressoSospesi"/>.</para>
+        /// <list type="number">
+        /// <item><b>Livello dal lato sbagliato.</b> Uno Stop long sotto l'Ask (o uno Stop short sopra
+        /// il Bid) si riempie all'istante: non e' piu' il breakout che la strategia aspettava, e' un
+        /// ordine a mercato al prezzo peggiore dei due. Nei log fino alla 2.2.0 questo produceva fill
+        /// entro il millisecondo dal piazzamento, con l'avviso stampato e l'ordine mandato lo stesso.</item>
+        /// <item><b>Livello troppo lontano.</b> Un pending "next bar" vale la sua barra: oltre una
+        /// certa distanza quel livello non verra' toccato, e l'ordine e' solo un intent vecchio che
+        /// il server continua a riproporre. La misura e' in punti dello strumento: legarla allo stop,
+        /// come si faceva fino alla 3.0.0, penalizzava le strategie con stop stretto e ingresso
+        /// lontano proprio per come sono progettate.</item>
+        /// <item><b>Spread troppo pesante.</b> Su un long si entra sull'Ask e lo stop e' valutato sul
+        /// Bid: uno spread pari a un quinto dello stop si mangia un quinto del respiro prima ancora
+        /// che il trade cominci. Si misura qui, al piazzamento, perche' e' l'ultimo istante in cui
+        /// non fare il trade e' ancora un'opzione.</item>
+        /// </list>
+        /// </summary>
+        private bool RejectUnsoundIntent(OrderIntentDto intent, Symbol symbol)
+        {
+            var bid = symbol.Bid;
+            var ask = symbol.Ask;
+            var prezzo = (double)intent.Price;
+            var isPending = intent.OrderType == TradeOrderTypeDto.Stop ||
+                            intent.OrderType == TradeOrderTypeDto.Limit;
+
+            string motivo = null;
+
+            if (RejectWrongSideLevels && isPending && prezzo > 0)
+            {
+                var coerente = intent.OrderType == TradeOrderTypeDto.Stop
+                    ? (intent.Side == SignalTypeDto.Buy ? prezzo > ask : prezzo < bid)
+                    : (intent.Side == SignalTypeDto.Buy ? prezzo < ask : prezzo > bid);
+                if (!coerente)
+                    motivo = $"livello {intent.OrderType} {intent.Side} {prezzo:0.#####} dal lato sbagliato " +
+                             $"(Bid {bid:0.#####} / Ask {ask:0.#####})";
+            }
+
+            var stop = (double)(intent.StopLoss ?? 0m);
+
+            // Nel profilo sorgente ogni segnale deve diventare un ordine: e' il run che misura la
+            // fedelta' rispetto al Python, e un filtro che la sorgente non ha falsa la misura.
+            var filtriDiscrezionaliAttivi = !FiltriIngressoSospesi;
+
+            if (motivo is null && filtriDiscrezionaliAttivi &&
+                MaxEntryDistancePoints > 0 && isPending && prezzo > 0)
+            {
+                var riferimento = intent.Side == SignalTypeDto.Buy ? ask : bid;
+                var distanza = Math.Abs(riferimento - prezzo);
+                if (distanza > MaxEntryDistancePoints)
+                    motivo = $"livello a {distanza:0.##} punti dal mercato, oltre il tetto di " +
+                             $"{MaxEntryDistancePoints:0.##} punti";
+            }
+
+            if (motivo is null && filtriDiscrezionaliAttivi && MaxSpreadPercentOfStop > 0 && stop > 0)
+            {
+                var spread = ask - bid;
+                var peso = spread / stop * 100.0;
+                if (peso > MaxSpreadPercentOfStop)
+                    motivo = $"spread {spread:0.##} punti pari al {peso:0.#}% dello stop da {stop:0.##}, " +
+                             $"oltre il tetto del {MaxSpreadPercentOfStop:0.#}%";
+            }
+
+            if (motivo is null)
+                return false;
+
+            Print("Ingresso {0}/{1} scartato: {2}.", intent.Symbol, intent.StrategyCode, motivo);
+            LogJsonEvent("intent/scartato-filtro", new
+            {
+                intent.IntentId,
+                intent.StrategyCode,
+                intent.Symbol,
+                Side = intent.Side.ToString(),
+                OrderType = intent.OrderType.ToString(),
+                IntentPrice = intent.Price,
+                Bid = bid,
+                Ask = ask,
+                intent.StopLoss,
+                Motivo = motivo,
+                ServerTimeUtc = Server.TimeInUtc
+            });
+
+            // Rifiutato e non semplicemente ignorato: un intent lasciato Pending resta assegnato a
+            // questo account, tiene chiusi i lucchetti e viene riproposto a ogni poll.
+            ReportExecution(intent.IntentId, intent.Symbol, ExecutionReportStatusDto.Rejected, 0, null);
+            return true;
+        }
+
+        /// <summary>
+        /// Spread dello strumento nell'istante del fill, e il suo peso sullo stop della strategia.
+        ///
+        /// <para>Su un CFD long si entra sull'<b>Ask</b> e lo stop e' valutato sul <b>Bid</b>: la
+        /// perdita in denaro quando lo stop salta resta quella dichiarata, ma il Bid deve scendere
+        /// solo di <c>(distanza stop − spread)</c> per farlo saltare. Il rapporto
+        /// <c>spread / distanza stop</c> e' quindi quanto respiro lo strumento si prende, e cambia per
+        /// strategia: su uno stop da 12,5 punti uno spread di 2 vale il 16%, su uno da 50 il 4%.</para>
+        ///
+        /// <para>Si stampa a ogni fill e si accumula per il riepilogo di <c>OnStop</c>: un singolo
+        /// spread non dice niente, la media per strategia su decine di fill si'.</para>
+        /// </summary>
+        private decimal? MeasureSpreadAtFill(Position position, OrderIntentDto intent)
+        {
+            var symbol = Symbols.GetSymbol(position.SymbolName);
+            if (symbol == null)
+                return null;
+
+            var spread = (decimal)symbol.Spread;
+            if (spread <= 0)
+                return null;
+
+            var stop = intent.StopLoss ?? 0m;
+            if (!_spreadByStrategy.TryGetValue(intent.StrategyCode, out var stats))
+                _spreadByStrategy[intent.StrategyCode] = stats = new SpreadStats { StopDistance = stop };
+            stats.Fills++;
+            stats.SpreadTotal += spread;
+
+            if (stop > 0)
+                Print("Fill {0} {1}: spread {2:0.##} punti su stop {3:0.##} = {4:0.#}% del respiro.",
+                    intent.StrategyCode, position.SymbolName, spread, stop, spread / stop * 100m);
+            else
+                Print("Fill {0} {1}: spread {2:0.##} punti (la strategia non dichiara uno stop).",
+                    intent.StrategyCode, position.SymbolName, spread);
+
+            return spread;
+        }
+
+        /// <summary>
+        /// Consuntivo di un trade appena chiuso: com'e' entrato, come e' uscito, e quanto ha reso.
+        ///
+        /// <para>E' la riga che mancava del tutto fino alla 2.2.0. Il log raccontava per intero come
+        /// nascevano gli ordini — intent, spread, fill — e poi taceva: delle chiusure restava solo il
+        /// silenzio, quindi da un log di backtest si poteva dire se il bot aveva <i>eseguito</i> ma non
+        /// se aveva <i>guadagnato</i>. Le due domande sono indipendenti: un'esecuzione perfetta di una
+        /// strategia sbagliata produce un log pulito e un conto vuoto.</para>
+        ///
+        /// <para>I quattro numeri che spiegano il trade, oltre al P&amp;L: <b>motivo</b> (chi ha chiuso —
+        /// stop, target, tempo, flat del fine settimana), <b>MFE/MAE</b> (dove era arrivato a favore e
+        /// contro), <b>durata</b> in minuti, <b>modifiche di trailing</b>. Insieme dicono se un trade in
+        /// perdita e' stato un'entrata sbagliata o un'uscita gestita male, che dal solo P&amp;L non si
+        /// distingue.</para>
+        /// </summary>
+        private void LogTradeOutcome(
+            OpenPositionContext ctx, Position position, HistoricalTrade trade, string reason)
+        {
+            var netProfit = (decimal)(trade?.NetProfit ?? position.NetProfit);
+            var grossProfit = (decimal)(trade?.GrossProfit ?? position.GrossProfit);
+            var commission = (decimal)(trade?.Commissions ?? 0);
+            var swap = (decimal)(trade?.Swap ?? position.Swap);
+            var entryPrice = trade?.EntryPrice ?? ctx.EntryPrice;
+            var closePrice = trade?.ClosingPrice ?? 0.0;
+            var quantity = (decimal)(trade?.VolumeInUnits ?? position.VolumeInUnits);
+
+            var durataMinuti = ctx.OpenTimeUtc.HasValue
+                ? (Server.TimeInUtc - ctx.OpenTimeUtc.Value).TotalMinutes
+                : (double?)null;
+
+            // Utile per contratto Piootoo: il conto e' in contratti broker, le rotazioni Titano
+            // ragionano in contratti Piootoo. Senza questa riduzione due account con conversioni
+            // diverse produrrebbero numeri non confrontabili sulla stessa strategia.
+            var perContratto = ctx.ContractMultiplier > 0 ? netProfit / ctx.ContractMultiplier : netProfit;
+
+            if (!_tradeStats.TryGetValue(ctx.StrategyCode, out var stats))
+                _tradeStats[ctx.StrategyCode] = stats = new TradeStats();
+            stats.Register(netProfit);
+
+            Print("Chiuso {0} {1} {2}: {3:0.#####} -> {4:0.#####} qty {5} | esito {6} | " +
+                  "lordo {7:0.00} commissioni {8:0.00} swap {9:0.00} netto {10:0.00} ({11:0.00}/contratto) | " +
+                  "MFE {12:0.##} MAE {13:0.##} punti | {14} | trailing {15}x",
+                ctx.StrategyCode, ctx.Symbol, position.TradeType,
+                entryPrice, closePrice, quantity, reason,
+                grossProfit, commission, swap, netProfit, perContratto,
+                ctx.MaxFavorablePoints, ctx.MaxAdversePoints,
+                durataMinuti.HasValue ? $"{durataMinuti.Value:0} min ({ctx.BarsInPosition} barre)" : $"{ctx.BarsInPosition} barre",
+                ctx.TrailingUpdates);
+
+            LogJsonEvent("trade/chiuso", new
+            {
+                ctx.StrategyCode,
+                ctx.Symbol,
+                PositionId = position.Id,
+                EntryIntentId = ctx.EntryIntentId,
+                Side = position.TradeType.ToString(),
+                EntryPrice = entryPrice,
+                ClosePrice = closePrice,
+                Quantity = quantity,
+                Motivo = reason,
+                GrossProfit = grossProfit,
+                Commission = commission,
+                Swap = swap,
+                NetProfit = netProfit,
+                NetProfitPerContract = perContratto,
+                MfePoints = ctx.MaxFavorablePoints,
+                MaePoints = ctx.MaxAdversePoints,
+                DurataMinuti = durataMinuti,
+                ctx.BarsInPosition,
+                ctx.TrailingUpdates,
+                OpenTimeUtc = ctx.OpenTimeUtc,
+                CloseTimeUtc = Server.TimeInUtc
+            });
+        }
+
+        /// <summary>
+        /// Esito dei trade chiusi, per strategia. Come <see cref="SpreadStats"/> non influenza
+        /// nessuna decisione: e' il consuntivo di fine run.
+        /// </summary>
+        private sealed class TradeStats
+        {
+            public int Trades;
+            public int Vincenti;
+            public decimal Totale;
+            public decimal SommaVincite;
+            public decimal SommaPerdite;
+            public decimal Migliore;
+            public decimal Peggiore;
+
+            public void Register(decimal netProfit)
+            {
+                Trades++;
+                Totale += netProfit;
+                if (netProfit >= 0)
+                {
+                    Vincenti++;
+                    SommaVincite += netProfit;
+                }
+                else
+                {
+                    SommaPerdite += -netProfit;
+                }
+
+                if (Trades == 1 || netProfit > Migliore) Migliore = netProfit;
+                if (Trades == 1 || netProfit < Peggiore) Peggiore = netProfit;
+            }
+
+            public decimal Media => Trades > 0 ? Totale / Trades : 0m;
+            public double WinRate => Trades > 0 ? Vincenti * 100.0 / Trades : 0.0;
+
+            /// <summary>
+            /// Profit factor: vincite su perdite. Senza perdite non e' definito — si restituisce null
+            /// invece di un infinito o di un numero enorme, che in una tabella si legge come un
+            /// risultato eccezionale mentre significa solo "campione troppo piccolo".
+            /// </summary>
+            public decimal? ProfitFactor => SommaPerdite > 0 ? SommaVincite / SommaPerdite : (decimal?)null;
+        }
+
+        /// <summary>
+        /// Consuntivo per strategia a fine run: e' la tabella con cui si decide se una strategia
+        /// merita di restare nel piano. Sta accanto al riepilogo degli spread di proposito — costo di
+        /// esecuzione e risultato sono le due meta' della stessa domanda.
+        /// </summary>
+        private void PrintTradeSummary()
+        {
+            if (_tradeStats.Count == 0)
+            {
+                Print("--- Nessun trade chiuso in questo run ---");
+                return;
+            }
+
+            var totale = 0m;
+            var trades = 0;
+            Print("--- Esito dei trade per strategia ---");
+            foreach (var entry in _tradeStats.OrderBy(x => x.Key, StringComparer.Ordinal))
+            {
+                var s = entry.Value;
+                totale += s.Totale;
+                trades += s.Trades;
+                Print("  {0}: {1} trade, {2:0.#}% vincenti, netto {3:0.00} (media {4:0.00}), " +
+                      "PF {5}, migliore {6:0.00}, peggiore {7:0.00}",
+                    entry.Key, s.Trades, s.WinRate, s.Totale, s.Media,
+                    s.ProfitFactor.HasValue ? s.ProfitFactor.Value.ToString("0.00") : "n/d",
+                    s.Migliore, s.Peggiore);
+            }
+
+            Print("  TOTALE: {0} trade, netto {1:0.00}.", trades, totale);
+        }
+
+        /// <summary>Spread misurati ai fill, per strategia. Serve solo al riepilogo diagnostico.</summary>
+        private sealed class SpreadStats
+        {
+            public int Fills;
+            public decimal SpreadTotal;
+            public decimal StopDistance;
+            public decimal Average => Fills > 0 ? SpreadTotal / Fills : 0m;
+        }
+
+        /// <summary>
+        /// Riepilogo dei costi di esecuzione a fine run. E' il numero che serve per decidere se una
+        /// strategia ha senso su questo strumento: uno stop stretto su uno spread largo non e' un
+        /// difetto del sistema, e' una coppia strategia/strumento sbagliata.
+        /// </summary>
+        private void PrintSpreadSummary()
+        {
+            if (_spreadByStrategy.Count == 0)
+                return;
+
+            Print("--- Costo di esecuzione misurato ai fill ---");
+            foreach (var entry in _spreadByStrategy.OrderBy(x => x.Key, StringComparer.Ordinal))
+            {
+                var stats = entry.Value;
+                if (stats.StopDistance > 0)
+                    Print("  {0}: {1} fill, spread medio {2:0.###} punti, stop {3:0.##} -> {4:0.#}% del respiro.",
+                        entry.Key, stats.Fills, stats.Average, stats.StopDistance,
+                        stats.Average / stats.StopDistance * 100m);
+                else
+                    Print("  {0}: {1} fill, spread medio {2:0.###} punti.",
+                        entry.Key, stats.Fills, stats.Average);
+            }
         }
 
         private void HandleCloseIntent(OrderIntentDto intent)
         {
+            // La posizione da chiudere porta la label del suo intent di INGRESSO, diverso da quello di
+            // chiusura appena ricevuto: il match è quindi sul prefisso di strategia.
+            var strategyPrefix = MakeStrategyLabelPrefix(intent.StrategyCode);
             var position = Positions.FirstOrDefault(candidate =>
                 candidate.SymbolName.Equals(ResolveIntentSymbol(intent), StringComparison.OrdinalIgnoreCase) &&
-                candidate.Label == MakeLabel(intent.StrategyCode));
+                candidate.Label != null &&
+                candidate.Label.StartsWith(strategyPrefix, StringComparison.Ordinal));
             if (position is null)
             {
                 ReportExecution(intent.IntentId, intent.Symbol, ExecutionReportStatusDto.Rejected, 0, null);
@@ -995,6 +2872,8 @@ namespace cAlgo.Robots
             var closePrice = (decimal?)trade?.ClosingPrice;
             var quantity = (decimal)(trade?.VolumeInUnits ?? position.VolumeInUnits);
             var commission = (decimal)(trade?.Commissions ?? 0);
+
+            LogTradeOutcome(ctx, position, trade, args.Reason.ToString());
 
             if (_serverCloseIntents.Remove(position.Id, out var closeIntent))
                 ReportExecution(closeIntent.IntentId, position.SymbolName, ExecutionReportStatusDto.Filled,
@@ -1039,7 +2918,8 @@ namespace cAlgo.Robots
 
         private void ReportExecution(
             string intentId, string symbol, ExecutionReportStatusDto status, decimal filledQuantity,
-            decimal? fillPrice, string externalOrderId = null, decimal commission = 0)
+            decimal? fillPrice, string externalOrderId = null, decimal commission = 0,
+            decimal? spreadAtFill = null)
         {
             try
             {
@@ -1055,7 +2935,8 @@ namespace cAlgo.Robots
                         CumulativeFilledQuantity = filledQuantity,
                         FillPrice = fillPrice,
                         Commission = commission,
-                        EventTimeUtc = Server.TimeInUtc
+                        EventTimeUtc = Server.TimeInUtc,
+                        SpreadAtFill = spreadAtFill
                     }
                 };
                 var response = PostJson($"api/v1/trading-sessions/{_sessionId}/execution-reports", request);
@@ -1122,6 +3003,31 @@ namespace cAlgo.Robots
         }
 
         /// <summary>
+        /// Come <see cref="LogJsonResponse"/> ma per eventi del bot invece che per risposte del
+        /// server: il payload e' un oggetto, non una stringa gia' serializzata, cosi' i campi
+        /// restano interrogabili sul JSONL invece di finire annidati come testo dentro <c>Body</c>.
+        /// </summary>
+        private void LogJsonEvent(string endpoint, object payload)
+        {
+            if (string.IsNullOrWhiteSpace(_jsonLogPath))
+                return;
+            try
+            {
+                var line = JsonSerializer.Serialize(new
+                {
+                    TimestampUtc = DateTime.UtcNow,
+                    Endpoint = endpoint,
+                    Payload = payload
+                });
+                File.AppendAllText(_jsonLogPath, line + Environment.NewLine);
+            }
+            catch (Exception ex)
+            {
+                Print("Log JSON su file fallito: {0}", ex.Message);
+            }
+        }
+
+        /// <summary>
         /// Ripristina solo contesti appartenenti alla sessione realtime appena riaperta e ancora
         /// presenti sulla piattaforma. In questo modo CloseAtUtc e MaxBarsInPosition sopravvivono
         /// al riavvio del cBot senza associare per errore una posizione a una nuova sessione.
@@ -1142,7 +3048,7 @@ namespace cAlgo.Robots
 
                 var platformIds = new HashSet<int>(Positions
                     .Where(position => position.Label != null &&
-                                       position.Label.StartsWith(LabelPrefix + ":", StringComparison.Ordinal))
+                                       position.Label.StartsWith(LabelPrefix + LabelSeparator, StringComparison.Ordinal))
                     .Select(position => position.Id));
                 foreach (var context in state.Positions ?? new List<OpenPositionContext>())
                     if (platformIds.Contains(context.PositionId))
@@ -1211,7 +3117,20 @@ namespace cAlgo.Robots
                 {
                     if (tf <= 0)
                         continue;
-                    pairs.Add(new Pair { PiootooSymbol = instrument.Symbol, AccountSymbol = accountSymbol, TimeframeMinutes = tf });
+
+                    // Profondità della finestra: la dichiara il server, che conosce il masterfilter.
+                    // Un default locale sarebbe una seconda verità destinata a divergere.
+                    var required = 0;
+                    if (instrument.RequiredCandlesByTimeframe != null)
+                        instrument.RequiredCandlesByTimeframe.TryGetValue(tf, out required);
+
+                    pairs.Add(new Pair
+                    {
+                        PiootooSymbol = instrument.Symbol,
+                        AccountSymbol = accountSymbol,
+                        TimeframeMinutes = tf,
+                        RequiredCandles = Math.Max(1, required)
+                    });
                 }
             }
 
@@ -1258,7 +3177,47 @@ namespace cAlgo.Robots
             return (double)priceDistance.Value / symbol.PipSize;
         }
 
-        private static string MakeLabel(string strategyCode) => $"{LabelPrefix}:{strategyCode}";
+        /// <summary>
+        /// Label di posizioni e ordini: <c>PiootooLive:{StrategyCode}:{IntentId}</c>. È l'unico legame
+        /// fra ciò che sta sulla piattaforma e il segnale che l'ha generato che sopravvive a un riavvio
+        /// del cBot e alla perdita dello stato locale, quindi ci va l'IntentId per intero.
+        /// </summary>
+        private static string MakeLabel(string strategyCode, string intentId) =>
+            $"{LabelPrefix}{LabelSeparator}{strategyCode}{LabelSeparator}{intentId}";
+
+        /// <summary>Prefisso comune a tutte le label di una strategia, per i match che ignorano l'intent.</summary>
+        private static string MakeStrategyLabelPrefix(string strategyCode) =>
+            $"{LabelPrefix}{LabelSeparator}{strategyCode}{LabelSeparator}";
+
+        /// <summary>
+        /// Scompone una label del bot. Tollera le label del formato precedente
+        /// (<c>PiootooLive:{StrategyCode}</c>, senza intent) restituendo un IntentId vuoto: sono le
+        /// posizioni aperte da una versione più vecchia e ancora a mercato.
+        /// </summary>
+        private static ParsedLabel ParseLabel(string label)
+        {
+            if (string.IsNullOrEmpty(label) ||
+                !label.StartsWith(LabelPrefix + LabelSeparator, StringComparison.Ordinal))
+                return null;
+
+            var rest = label.Substring(LabelPrefix.Length + 1);
+            var separator = rest.IndexOf(LabelSeparator);
+            var strategyCode = separator < 0 ? rest : rest.Substring(0, separator);
+            if (strategyCode.Length == 0)
+                return null;
+
+            return new ParsedLabel
+            {
+                StrategyCode = strategyCode,
+                IntentId = separator < 0 ? string.Empty : rest.Substring(separator + 1)
+            };
+        }
+
+        private sealed class ParsedLabel
+        {
+            public string StrategyCode { get; set; }
+            public string IntentId { get; set; }
+        }
 
         /// <summary>
         /// Nome dello strumento sul broker: quello risolto dalla tabella di conversione dell'account
@@ -1323,21 +3282,57 @@ namespace cAlgo.Robots
             public decimal Volume { get; set; }
         }
 
-        private sealed class ClosedBarDto
+        /// <summary>
+        /// Finestra di candele di uno stream: l'ultima è la barra da valutare, le precedenti servono
+        /// al server per avere la storia che le strategie richiedono.
+        /// </summary>
+        private sealed class ClosedBarWindowDto
         {
             public string Symbol { get; set; }
             public int TimeframeMinutes { get; set; }
-            public DateTime BarTimeUtc { get; set; }
+            public IReadOnlyList<OhlcvDto> Candles { get; set; }
             public long Sequence { get; set; }
             public string IdempotencyKey { get; set; }
-            public OhlcvDto Bar { get; set; }
+
+            /// <summary>false = solo riscaldamento: il server accoda e non valuta nulla.</summary>
+            public bool EvaluateLastCandle { get; set; } = true;
         }
 
-        private sealed class PushBarsRequestDto
+        private sealed class PushBarWindowRequestDto
         {
             public string SessionId { get; set; }
             public string SessionToken { get; set; }
-            public IReadOnlyList<ClosedBarDto> Bars { get; set; }
+            public IReadOnlyList<ClosedBarWindowDto> Windows { get; set; }
+        }
+
+        private sealed class StreamHistoryStatusDto
+        {
+            public string Symbol { get; set; }
+            public int TimeframeMinutes { get; set; }
+            public int HistoryBars { get; set; }
+            public int RequiredCandles { get; set; }
+            public int EvaluatedStrategies { get; set; }
+            public int SkippedForInsufficientHistory { get; set; }
+        }
+
+        private sealed class PushBarWindowResponseDto
+        {
+            public int AcceptedBars { get; set; }
+            public int DuplicateBars { get; set; }
+            public int BackfilledBars { get; set; }
+            public IReadOnlyList<StreamHistoryStatusDto> Streams { get; set; }
+
+            /// <summary>
+            /// Quante cose la sessione potrebbe consegnare a un claim, contate dal SERVER: template
+            /// pendenti non scaduti piu' intent gia' assegnati e ancora pendenti. Zero = il poll non
+            /// puo' restituire niente, quindi si puo' saltare.
+            ///
+            /// <para><b>Nullable di proposito.</b> Un server che non conosce il campo lo omette, e
+            /// deserializzato su un <c>int</c> varrebbe 0, cioe' "non pollare mai": il bot smetterebbe
+            /// di reclamare segnali per tutto il run, in silenzio. Con il nullable l'assenza resta
+            /// distinguibile dallo zero e vale "non so", quindi si polla.</para>
+            /// </summary>
+            public int? ClaimableIntents { get; set; }
         }
 
         private sealed class OpenTradingPlanSessionRequestDto
@@ -1346,6 +3341,9 @@ namespace cAlgo.Robots
             public string ClientRunMode { get; set; }
             public string ExecutionKey { get; set; }
             public string AccountNumber { get; set; }
+
+            /// <summary>Nome del <c>TradingRunProfile</c>. Null = comportamento storico.</summary>
+            public string RunProfile { get; set; }
         }
 
         private sealed class TradingSessionDescriptorDto
@@ -1353,6 +3351,34 @@ namespace cAlgo.Robots
             public string SessionId { get; set; }
             public string SessionToken { get; set; }
             public IReadOnlyList<TradingInstrumentDto> Instruments { get; set; }
+
+            // Come il server ha effettivamente risolto il run. Sono i valori che il pannello a chart
+            // mostra: non quelli che il bot ha chiesto, ma quelli che il server ha applicato. Se un
+            // piano contraddice il parametro, la differenza si vede sul grafico invece che nei trade.
+            public string RunProfile { get; set; }
+            public string TitanoMode { get; set; }
+            public string ClientRunMode { get; set; }
+            public bool EnforceConcurrencyLimits { get; set; }
+            public int MaxConcurrentTrades { get; set; }
+
+            /// <summary>
+            /// Cosa conta MaxConcurrentTrades: "PositionsAndPendingOrders" (default) oppure
+            /// "PositionsOnly". Nel secondo caso gli ordini pendenti non consumano budget lato
+            /// server, e tocca a questo bot spegnere quelli rimasti quando le posizioni riempite
+            /// raggiungono il tetto. E' configurazione consegnata all'apertura: il server non
+            /// chiedera' mai di cancellare un ordine specifico.
+            /// </summary>
+            public string ConcurrencyCountMode { get; set; }
+
+            public IReadOnlyList<SessionStrategyDto> Strategies { get; set; }
+        }
+
+        /// <summary>Una strategia in sessione: codice di esecuzione, simbolo, timeframe.</summary>
+        private sealed class SessionStrategyDto
+        {
+            public string StrategyCode { get; set; }
+            public string Symbol { get; set; }
+            public int TimeframeMinutes { get; set; }
         }
 
         private sealed class TradingInstrumentDto
@@ -1367,6 +3393,12 @@ namespace cAlgo.Robots
             /// </summary>
             public string AccountSymbol { get; set; }
             public IReadOnlyList<int> TimeframesMinutes { get; set; }
+
+            /// <summary>
+            /// Per timeframe, il massimo <c>RequiredCandles</c> fra le strategie del masterfilter su
+            /// questa coppia: sotto quella soglia il server non valuta e la sessione resta muta.
+            /// </summary>
+            public Dictionary<int, int> RequiredCandlesByTimeframe { get; set; }
         }
 
         private sealed class OrderIntentDto
@@ -1397,6 +3429,15 @@ namespace cAlgo.Robots
             public int TimeframeMinutes { get; set; }
             public int? MaxBarsInPosition { get; set; }
             public DateTime? CloseAtUtc { get; set; }
+
+            /// <summary>
+            /// Istante della barra che ha prodotto il segnale (<c>TradeSignal.Date</c> lato server).
+            /// E' l'UNICO campo con cui si misura il ritardo vero della catena
+            /// valutazione → claim → ordine: <see cref="ValidFromUtc"/> non serve, perche' e' il
+            /// bordo della barra successiva e quindi un istante FUTURO per costruzione. Confonderli
+            /// e' ciò che produceva le "eta" a 3900s e -188100s nei log fino alla 2.2.0.
+            /// </summary>
+            public DateTime? CreatedAtUtc { get; set; }
 
             /// <summary>Condiziona la chiusura a CloseAtUtc all'utile aperto per contratto Piootoo. Null = incondizionata.</summary>
             public decimal? TimeExitOnlyIfProfitBelowMoneyPerContract { get; set; }
@@ -1434,6 +3475,9 @@ namespace cAlgo.Robots
         {
             public OrderIntentDto Intent { get; set; }
             public string Reason { get; set; }
+
+            /// <summary>Quale filtro del claim ha scartato i template, in chiaro.</summary>
+            public string ReasonDetail { get; set; }
             public int OpenPositions { get; set; }
             public int PendingOrders { get; set; }
             public int MaxConcurrentTrades { get; set; }
@@ -1452,6 +3496,9 @@ namespace cAlgo.Robots
             public string PositionId { get; set; }
             public string Symbol { get; set; }
             public string StrategyCode { get; set; }
+
+            /// <summary>Intent di ingresso letto dalla label; vuoto per posizioni con label di formato precedente.</summary>
+            public string IntentId { get; set; }
         }
 
         private sealed class BrokerTradeSnapshotDto
@@ -1465,6 +3512,9 @@ namespace cAlgo.Robots
             public string OrderId { get; set; }
             public string Symbol { get; set; }
             public string StrategyCode { get; set; }
+
+            /// <summary>Intent che ha piazzato l'ordine, letto dalla label.</summary>
+            public string IntentId { get; set; }
         }
 
         private sealed class ExternalExecutionReportDto
@@ -1477,6 +3527,9 @@ namespace cAlgo.Robots
             public decimal? FillPrice { get; set; }
             public decimal Commission { get; set; }
             public DateTime EventTimeUtc { get; set; }
+
+            /// <summary>Spread dello strumento nell'istante del fill, in unita' di prezzo.</summary>
+            public decimal? SpreadAtFill { get; set; }
         }
 
         private sealed class ExecutionReportRequestDto

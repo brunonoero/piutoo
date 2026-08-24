@@ -1,0 +1,5 @@
+famiglia,motore,file,trade_totali,trade_oos,primo,ultimo
+1,BO,trades/fam01_BO.csv,183,71,2012-01-30,2025-05-27
+2,BIASW,trades/fam02_BIASW.csv,181,59,2012-02-27,2025-05-26
+3,BIASW,trades/fam03_BIASW.csv,255,81,2012-03-09,2025-05-23
+4,BIASW,trades/fam04_BIASW.csv,568,171,2012-01-16,2025-05-26

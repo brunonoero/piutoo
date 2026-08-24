@@ -1,3 +1,4 @@
+using Piootoo.Shared.Configuration;
 using Piootoo.Shared.Enums;
 using Piootoo.Shared.Models;
 using Piootoo.Shared.Models.Trading;
@@ -26,14 +27,122 @@ public abstract class EasyEngineBase : StatelessEasyStrategyBase
 {
     // ------------------------------------------------------------------ parametri di sessione
 
-    /// <summary>Orario HHMM di inizio sessione (es. 1800 per la sessione GC 18:00–17:00).</summary>
-    protected int SessionStartTime = 1800;
+    /// <summary>
+    /// <b>Il confine di sessione della strategia, con il proprio fuso.</b> Governa gli OHLC
+    /// <c>d0..d5</c> di <see cref="BuildSessionOhlc"/>, il secchio di
+    /// <see cref="MaxEntriesPerSession"/> e la chiusura di fine sessione.
+    ///
+    /// <para>È una proprietà <b>della strategia</b>, non del simbolo. Prima il fuso veniva dedotto
+    /// da <c>InstrumentSpec.SessionTimeZone</c>, cioè una strategia su GC non poteva dichiarare una
+    /// sessione diversa da quella che il registro attribuiva a GC. Le sorgenti originali potevano
+    /// permetterselo perché ogni sorgente girava su un simbolo solo; qui no.</para>
+    ///
+    /// <para>Con <see cref="ZonedWindow.TimeZoneId"/> a <c>null</c> il fuso resta quello del
+    /// registro: è la compatibilità per le classi non ancora migrate, non la forma consigliata.</para>
+    /// </summary>
+    protected ZonedWindow Session
+    {
+        get => _session;
+        set
+        {
+            _session = value;
+            _clock = null;
+            _windowClock = null;
+        }
+    }
 
-    /// <summary>Orario HHMM di fine sessione.</summary>
-    protected int SessionEndTime = 1700;
+    /// <summary>
+    /// <b>La finestra operativa, con il proprio fuso.</b> È <c>start_hour</c>/<c>end_hour</c> dei
+    /// run di ricerca, che li scrivono <b>sempre nell'orologio della ricerca</b> qualunque sia il
+    /// simbolo — vedi <see cref="ZonedWindow.ResearchTimeZone"/>. Dichiararla qui è ciò che elimina
+    /// la conversione a mano verso l'ora di borsa (meno sette ore per NQ, meno sei per GC), che è
+    /// esatta solo fuori dalle settimane in cui l'ora legale americana ed europea non sono
+    /// allineate.
+    ///
+    /// <para><c>null</c> significa "non dichiarata": i motori ricadono sul fuso della sessione,
+    /// che è il comportamento storico.</para>
+    /// </summary>
+    protected ZonedWindow? TradingWindow
+    {
+        get => _tradingWindow;
+        set
+        {
+            _tradingWindow = value;
+            _windowClock = null;
+        }
+    }
+
+    private ZonedWindow _session = new(1800, 1700);
+    private ZonedWindow? _tradingWindow;
+
+    /// <summary>
+    /// Orario HHMM di inizio sessione, <b>in ora di borsa</b> — es. 1700 per la riapertura CME
+    /// degli indici, che e' l'orario di Chicago. Non e' UTC e non e' l'orologio del feed: viene
+    /// confrontato passando da <see cref="Clock"/>.
+    ///
+    /// <para>Inoltra su <see cref="Session"/>, che è la fonte di verità: i due interi restano per
+    /// non dover riscrivere in un colpo solo i dodici motori e le classi che li assegnano.</para>
+    /// </summary>
+    protected int SessionStartTime
+    {
+        get => _session.StartHhmm;
+        set => Session = _session with { StartHhmm = value };
+    }
+
+    /// <summary>Orario HHMM di fine sessione. Inoltra su <see cref="Session"/>.</summary>
+    protected int SessionEndTime
+    {
+        get => _session.EndHhmm;
+        set => Session = _session with { EndHhmm = value };
+    }
 
     /// <summary>Contratti dichiarati dalla strategia, prima di sizing e conversione account.</summary>
     protected int Contracts = 1;
+
+    // ------------------------------------------------------------------ orologio di borsa
+
+    private SessionClock? _clock;
+    private SessionClock? _windowClock;
+
+    /// <summary>
+    /// Converte l'istante della barra nell'ora di borsa dello strumento, ed e' l'unico punto da cui
+    /// il motore puo' leggere l'ora di una barra.
+    ///
+    /// <para><b>Perche' non si legge <c>barTime.Hour</c>.</b> L'istante della barra e' UTC, gli
+    /// orari della strategia sono in ora di borsa: confrontarli direttamente funziona solo se il
+    /// feed e' per caso stampato nello stesso orologio degli orari dichiarati, e smette di
+    /// funzionare quando il feed cambia o quando la stessa strategia gira in live su un feed
+    /// diverso. E' successo: il feed @NQ di backtest e' in ora europea mentre il cBot consegna UTC
+    /// vero, cioe' due confini di sessione diversi per la stessa classe. Vedi
+    /// <c>docs/domini/orari-di-sessione-e-fusi.md</c>.</para>
+    ///
+    /// <para>Il fuso e' quello dichiarato da <see cref="Session"/>. Se la sessione non lo dichiara
+    /// si ricade sul registro strumenti (<c>InstrumentSpec.SessionTimeZone</c>), dove un simbolo
+    /// senza specifica verificata fallisce subito invece di scegliere un fuso a caso. L'istanza e'
+    /// creata alla prima lettura, viene invalidata quando <see cref="Session"/> cambia, e non e'
+    /// thread-safe come documentato in <see cref="SessionClock"/>: l'ipotesi e' una per strategia,
+    /// che e' come l'engine la usa.</para>
+    /// </summary>
+    protected SessionClock Clock => _clock ??= ResolveClock(_session.TimeZoneId);
+
+    /// <summary>
+    /// Orologio della <see cref="TradingWindow"/>. È separato da <see cref="Clock"/> perché il
+    /// confine di sessione e la finestra operativa vivono in orologi diversi: il primo nell'ora di
+    /// borsa, la seconda in quella in cui la ricerca l'ha scritta. Quando la finestra non dichiara
+    /// un fuso proprio, i due coincidono e il comportamento è quello storico.
+    /// </summary>
+    protected SessionClock WindowClock =>
+        _windowClock ??= ResolveClock(_tradingWindow?.TimeZoneId ?? _session.TimeZoneId);
+
+    /// <summary>
+    /// Fuso dichiarato se c'è, altrimenti quello di borsa del simbolo. Il secondo ramo è la
+    /// compatibilità con le classi non ancora migrate: resta un errore esplicito, non un fallback
+    /// silenzioso, perché un simbolo senza specifica verificata fa fallire il registro.
+    /// </summary>
+    private SessionClock ResolveClock(string? timeZoneId) =>
+        string.IsNullOrWhiteSpace(timeZoneId)
+            ? InstrumentRegistry.CreateSessionClock(Symbol)
+            : new SessionClock(timeZoneId);
 
     // ------------------------------------------------------------------ specifica di uscita
 
@@ -98,17 +207,43 @@ public abstract class EasyEngineBase : StatelessEasyStrategyBase
     /// nuova. Wrapper su <see cref="EasyLib.OHLCMulti5"/> con i parametri di sessione del motore.
     /// </summary>
     protected bool BuildSessionOhlc(OhlcvData[] data, DateTime barTime, out decimal[] ohlc) =>
-        EasyLib.OHLCMulti5(SessionStartTime, SessionEndTime, data, barTime, out ohlc);
+        EasyLib.OHLCMulti5(Clock, SessionStartTime, SessionEndTime, data, barTime, out ohlc);
 
-    /// <summary>Orario HHMM della barra.</summary>
-    protected static int Hhmm(DateTime barTime) => EasyLib.GetHhmm(barTime);
+    /// <summary>Orario HHMM della barra, letto in ora di borsa.</summary>
+    protected int Hhmm(DateTime barTime) => Clock.Hhmm(barTime);
+
+    /// <summary>
+    /// Valuta la <see cref="TradingWindow"/> dichiarata sull'orologio che essa dichiara.
+    /// Restituisce <c>null</c> quando la strategia non la dichiara: in quel caso il motore ricade
+    /// sul proprio percorso storico, che confronta i campi interi sull'orologio di sessione.
+    ///
+    /// <para>Gli estremi sono <b>inclusi</b> e il confronto è su HHMM pieni, come
+    /// <c>time_window</c> del motore Python: la barra esattamente su <c>end_hour:00</c> entra
+    /// nella finestra.</para>
+    /// </summary>
+    protected bool? InDeclaredWindow(DateTime barTime) =>
+        TradingWindow is { } window
+            ? EasyLib.TimeWindowInclusive(WindowClock, window.StartHhmm, window.EndHhmm, barTime)
+            : null;
+
+    /// <summary>
+    /// Giorno della settimana nella convenzione pandas (0 = lunedì … 4 = venerdì), letto
+    /// sull'<b>orologio della finestra operativa</b>.
+    ///
+    /// <para>È lì che va letto, non in ora di borsa: <c>day_filter</c> del motore Python lavora
+    /// sull'indice del dataframe, cioè sull'orologio in cui il feed è stampato, lo stesso in cui
+    /// la ricerca ha scritto <c>skip_day</c>. Un giorno letto nell'orologio sbagliato cambia
+    /// giorno nel mezzo della sessione serale americana.</para>
+    /// </summary>
+    protected int PythonWeekday(DateTime barTime) =>
+        ((int)WindowClock.SessionDay(barTime).DayOfWeek + 6) % 7;
 
     /// <summary>
     /// Giorno della settimana nella convenzione EasyLanguage <c>dayofweek()</c>:
     /// 0 = domenica … 6 = sabato. Coincide con <see cref="DayOfWeek"/> di .NET, ma va detto
     /// esplicitamente perché i motori Unger portati dal Python usano invece 0 = lunedì.
     /// </summary>
-    protected static int EasyDayOfWeek(DateTime barTime) => (int)barTime.DayOfWeek;
+    protected int EasyDayOfWeek(DateTime barTime) => (int)Clock.SessionDay(barTime).DayOfWeek;
 
     // ------------------------------------------------------------------ costruttori di segnale
 
@@ -164,7 +299,9 @@ public abstract class EasyEngineBase : StatelessEasyStrategyBase
             BreakEvenMoneyPerFutureContract = BreakEvenMoney > 0 ? BreakEvenMoney : null,
             TrailingStopMoneyPerFutureContract = TrailingStopMoney > 0 ? TrailingStopMoney : null,
             MaxBarsInPosition = MaxBars > 0 ? MaxBars : null,
-            CloseAtUtc = MaxDaysInTrade > 0 ? barTime.Date.AddDays(MaxDaysInTrade) : null,
+            CloseAtUtc = MaxDaysInTrade > 0
+                ? Clock.SessionInstantUtc(barTime.AddDays(MaxDaysInTrade), 0)
+                : null,
             TimeExitOnlyIfProfitBelowMoneyPerContract = TimeExitOnlyIfProfitBelow,
             Reason = reason
         };
@@ -185,9 +322,9 @@ public abstract class EasyEngineBase : StatelessEasyStrategyBase
     /// </summary>
     protected virtual DateTime ResolveEntrySessionStartUtc(DateTime timeUtc)
     {
-        var sessionStart = EasyLib.CombineDateAndHhmm(timeUtc.Date, SessionStartTime);
+        var sessionStart = Clock.SessionInstantUtc(timeUtc, SessionStartTime);
         return SessionStartTime > SessionEndTime && timeUtc < sessionStart
-            ? sessionStart.AddDays(-1)
+            ? Clock.SessionInstantUtc(timeUtc.AddDays(-1), SessionStartTime)
             : sessionStart;
     }
 
@@ -223,10 +360,10 @@ public abstract class EasyEngineBase : StatelessEasyStrategyBase
     /// <c>ExternalBroker</c> non verrebbe mai eseguito, perché il server emette solo intent di
     /// ingresso.
     /// </summary>
-    protected static DateTime ResolveCloseAtUtc(DateTime barTime, int hhmm)
+    protected DateTime ResolveCloseAtUtc(DateTime barTime, int hhmm)
     {
-        var target = EasyLib.CombineDateAndHhmm(barTime.Date, hhmm);
-        return target <= barTime ? target.AddDays(1) : target;
+        var target = Clock.SessionInstantUtc(barTime, hhmm);
+        return target <= barTime ? Clock.SessionInstantUtc(barTime.AddDays(1), hhmm) : target;
     }
 
     // ------------------------------------------------------------------ contratto ITradingStrategy
@@ -265,12 +402,12 @@ public abstract class EasyEngineBase : StatelessEasyStrategyBase
     protected DateTime SessionBarToUtc(DateTime barTime, int sessionBarIndex)
     {
         var offsetMinutes = (sessionBarIndex - 1) * TimeframeMinutes;
-        var sessionStart = EasyLib.CombineDateAndHhmm(barTime.Date, SessionStartTime);
+        var sessionStart = Clock.SessionInstantUtc(barTime, SessionStartTime);
 
         // Sessione che attraversa la mezzanotte: se la barra corrente è prima dell'orario di
         // apertura, la sessione in corso è iniziata il giorno precedente.
         if (SessionStartTime > SessionEndTime && Hhmm(barTime) < SessionStartTime)
-            sessionStart = sessionStart.AddDays(-1);
+            sessionStart = Clock.SessionInstantUtc(barTime.AddDays(-1), SessionStartTime);
 
         var target = sessionStart.AddMinutes(offsetMinutes);
         return target <= barTime ? target.AddDays(1) : target;

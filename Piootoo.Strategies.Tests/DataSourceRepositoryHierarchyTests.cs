@@ -41,8 +41,35 @@ public sealed class DataSourceRepositoryHierarchyTests : IDisposable
         Assert.Equal(4200m, Assert.Single(candles).Open);
     }
 
+    /// <summary>
+    /// Dichiara l'orologio del feed sintetico. Senza, <c>DataSourceRepository</c> si rifiuta di
+    /// leggerlo — ed e' voluto: un feed di fuso ignoto verrebbe interpretato come UTC, che per i
+    /// feed veri di questo repository e' falso. Qui <c>UTC</c> e' la dichiarazione giusta, perche'
+    /// gli istanti del feed sintetico sono costruiti in UTC.
+    /// </summary>
+    private void WriteFeedClocks(string symbol)
+    {
+        Directory.CreateDirectory(_root);
+        var manifest = Path.Combine(_root, "feed-clocks.json");
+        var orologi = new Dictionary<string, string> { [symbol] = "UTC" };
+        if (File.Exists(manifest))
+        {
+            var esistenti = JsonSerializer.Deserialize<ManifestDto>(File.ReadAllText(manifest));
+            foreach (var voce in esistenti?.Orologi ?? new Dictionary<string, string>())
+                orologi[voce.Key] = voce.Value;
+        }
+
+        File.WriteAllText(manifest, JsonSerializer.Serialize(new ManifestDto { Orologi = orologi }));
+    }
+
+    private sealed class ManifestDto
+    {
+        public Dictionary<string, string>? Orologi { get; set; }
+    }
+
     private void WriteFeed(string timeframe, string symbol, DateTime dateTime, decimal open)
     {
+        WriteFeedClocks(symbol);
         var directory = Path.Combine(_root, timeframe, symbol);
         Directory.CreateDirectory(directory);
         var payload = new

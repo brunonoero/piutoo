@@ -188,10 +188,20 @@ public abstract class PriceChannelEngine : EasyEngineBase
         }
 
         var entries = new List<TradeSignal>(2);
-        // Lo stop va un tick oltre il buffer: il canale deve essere penetrato, non toccato.
-        // È la convenzione del motore Python, non un parametro della strategia, quindi non è
-        // esposta come campo. Con TickSize non configurato la somma resta invariata.
-        var offset = OffsetPoints + (OffsetTicks + 1) * TickSize;
+        // Offset esattamente come lo dichiara la strategia, senza tick aggiuntivi.
+        //
+        // Fino al 17/08/2026 qui si sommava un tick in piu' (`(OffsetTicks + 1) * TickSize`), con
+        // un commento che lo attribuiva alla convenzione del motore Python. Il sorgente di
+        // riferimento dice il contrario: `price_channel.py` calcola `upper + offset * tick` e
+        // `breakout.py` fa lo stesso — SessionBreakoutEngine lo riproduceva gia' correttamente.
+        // Anche le schede della ricerca concordano: con `breakout_offset_ticks = 2` il livello e'
+        // "+ 2 tick (0.5 pt)", non 0,75, e con offset 0 non c'e' alcun buffer.
+        //
+        // Il tick in piu' non e' un modo valido di compensare lo slippage che il riferimento
+        // applica sui fill stop e l'engine no: alzare il livello cambia *se* il breakout scatta,
+        // non solo a che prezzo viene riempito. Quella rettifica va fatta al confronto, come
+        // descritto in docs/domini/porting-da-report-sweep.md.
+        var offset = OffsetPoints + OffsetTicks * TickSize;
 
         if (Direction != 2 &&
             PassesDirectionalGates(+1, ohlc))
@@ -280,8 +290,8 @@ public abstract class PriceChannelEngine : EasyEngineBase
     private bool InTradingWindow(DateTime barTime)
     {
         var inWindow = TradingWindowInclusive
-            ? EasyLib.TimeWindowInclusive(StartTime, EndTime, barTime)
-            : EasyLib.TimeWindow(StartTime, EndTime, barTime);
+            ? EasyLib.TimeWindowInclusive(Clock, StartTime, EndTime, barTime)
+            : EasyLib.TimeWindow(Clock, StartTime, EndTime, barTime);
         if (!inWindow || PauseStart < 0 || PauseEnd < 0)
             return inWindow;
 
@@ -469,20 +479,26 @@ public abstract class PriceChannelEngine : EasyEngineBase
 
     private DateTime ResolveMaxDaysCloseAt(DateTime entryValidFrom)
     {
-        var target = EasyLib.CombineDateAndHhmm(
-            entryValidFrom.Date.AddDays(Math.Max(0, MaxDaysInTrade - 1)),
-            MaxDaysFlatTime);
-        return target > entryValidFrom ? target : target.AddDays(1);
+        var target = Clock.SessionInstantUtc(
+            entryValidFrom.AddDays(Math.Max(0, MaxDaysInTrade - 1)), MaxDaysFlatTime);
+        return target > entryValidFrom
+            ? target
+            : Clock.SessionInstantUtc(entryValidFrom.AddDays(Math.Max(1, MaxDaysInTrade)), MaxDaysFlatTime);
     }
 
     private DateTime GetSessionStartUtc(DateTime timeUtc)
     {
-        var sessionStart = EasyLib.CombineDateAndHhmm(timeUtc.Date, SessionStartTime);
-        return timeUtc < sessionStart ? sessionStart.AddDays(-1) : sessionStart;
+        var sessionStart = Clock.SessionInstantUtc(timeUtc, SessionStartTime);
+        return timeUtc < sessionStart
+            ? Clock.SessionInstantUtc(timeUtc.AddDays(-1), SessionStartTime)
+            : sessionStart;
     }
 
     private bool InPythonTradingWindow(DateTime barTime)
     {
+        if (InDeclaredWindow(barTime) is { } declared)
+            return declared;
+
         if (StartTime < 0 && EndTime < 0)
             return true;
 
@@ -495,11 +511,13 @@ public abstract class PriceChannelEngine : EasyEngineBase
         return start <= end ? time >= start && time <= end : time >= start || time <= end;
     }
 
-    private static int PythonDayOfWeek(DateTime value) => ((int)value.DayOfWeek + 6) % 7;
+    private int PythonDayOfWeek(DateTime instantUtc) => PythonWeekday(instantUtc);
 
     private DateTime SessionKey(DateTime time)
     {
-        var start = EasyLib.CombineDateAndHhmm(time.Date, SessionStartTime);
-        return SessionStartTime > SessionEndTime && time < start ? start.AddDays(-1) : start;
+        var start = Clock.SessionInstantUtc(time, SessionStartTime);
+        return SessionStartTime > SessionEndTime && time < start
+            ? Clock.SessionInstantUtc(time.AddDays(-1), SessionStartTime)
+            : start;
     }
 }

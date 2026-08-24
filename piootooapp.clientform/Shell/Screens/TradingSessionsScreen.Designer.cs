@@ -37,7 +37,9 @@ partial class TradingSessionsScreen
         _titanoModeLabel = new System.Windows.Forms.Label();
         _titanoModeCombo = new System.Windows.Forms.ComboBox();
         _titanoBacktestLabel = new System.Windows.Forms.Label();
-        _titanoBacktestCombo = new System.Windows.Forms.ComboBox();
+        _titanoBacktestPanel = new System.Windows.Forms.TableLayoutPanel();
+        _titanoBacktestTextBox = new System.Windows.Forms.TextBox();
+        _titanoBacktestPickButton = new System.Windows.Forms.Button();
         _titanoRunLabel = new System.Windows.Forms.Label();
         _titanoRunCombo = new System.Windows.Forms.ComboBox();
         _loadRunsButton = new System.Windows.Forms.Button();
@@ -83,6 +85,7 @@ partial class TradingSessionsScreen
         _screenToolTip = new System.Windows.Forms.ToolTip(components);
         _configGroup.SuspendLayout();
         _configLayout.SuspendLayout();
+        _titanoBacktestPanel.SuspendLayout();
         _commandsPanel.SuspendLayout();
         _sessionInfoPanel.SuspendLayout();
         _mainTabControl.SuspendLayout();
@@ -142,7 +145,7 @@ partial class TradingSessionsScreen
         _configLayout.Controls.Add(_titanoModeLabel, 0, 4);
         _configLayout.Controls.Add(_titanoModeCombo, 1, 4);
         _configLayout.Controls.Add(_titanoBacktestLabel, 2, 4);
-        _configLayout.Controls.Add(_titanoBacktestCombo, 3, 4);
+        _configLayout.Controls.Add(_titanoBacktestPanel, 3, 4);
         _configLayout.Controls.Add(_titanoRunLabel, 0, 5);
         _configLayout.Controls.Add(_titanoRunCombo, 1, 5);
         _configLayout.Controls.Add(_loadRunsButton, 2, 5);
@@ -319,15 +322,42 @@ partial class TradingSessionsScreen
         _titanoBacktestLabel.TabIndex = 14;
         _titanoBacktestLabel.Text = "Backtest sorgente";
         // 
-        // _titanoBacktestCombo
+        // _titanoBacktestPanel
         // 
-        _titanoBacktestCombo.Anchor = System.Windows.Forms.AnchorStyles.Left | System.Windows.Forms.AnchorStyles.Right;
-        _titanoBacktestCombo.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
-        _titanoBacktestCombo.Margin = new System.Windows.Forms.Padding(3, 4, 3, 4);
-        _titanoBacktestCombo.Name = "_titanoBacktestCombo";
-        _titanoBacktestCombo.Size = new System.Drawing.Size(320, 23);
-        _titanoBacktestCombo.TabIndex = 15;
-        _titanoBacktestCombo.SelectedIndexChanged += OnBacktestChanged;
+        _titanoBacktestPanel.Anchor = System.Windows.Forms.AnchorStyles.Left | System.Windows.Forms.AnchorStyles.Right;
+        _titanoBacktestPanel.AutoSize = true;
+        _titanoBacktestPanel.ColumnCount = 2;
+        _titanoBacktestPanel.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 100F));
+        _titanoBacktestPanel.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle());
+        _titanoBacktestPanel.Controls.Add(_titanoBacktestTextBox, 0, 0);
+        _titanoBacktestPanel.Controls.Add(_titanoBacktestPickButton, 1, 0);
+        _titanoBacktestPanel.Margin = new System.Windows.Forms.Padding(3, 1, 3, 1);
+        _titanoBacktestPanel.Name = "_titanoBacktestPanel";
+        _titanoBacktestPanel.RowCount = 1;
+        _titanoBacktestPanel.RowStyles.Add(new System.Windows.Forms.RowStyle());
+        _titanoBacktestPanel.Size = new System.Drawing.Size(420, 31);
+        _titanoBacktestPanel.TabIndex = 15;
+        // 
+        // _titanoBacktestTextBox
+        // 
+        _titanoBacktestTextBox.Anchor = System.Windows.Forms.AnchorStyles.Left | System.Windows.Forms.AnchorStyles.Right;
+        _titanoBacktestTextBox.Margin = new System.Windows.Forms.Padding(0, 3, 6, 3);
+        _titanoBacktestTextBox.Name = "_titanoBacktestTextBox";
+        _titanoBacktestTextBox.PlaceholderText = "nessun backtest selezionato";
+        _titanoBacktestTextBox.ReadOnly = true;
+        _titanoBacktestTextBox.Size = new System.Drawing.Size(320, 23);
+        _titanoBacktestTextBox.TabIndex = 0;
+        // 
+        // _titanoBacktestPickButton
+        // 
+        _titanoBacktestPickButton.AutoSize = true;
+        _titanoBacktestPickButton.Margin = new System.Windows.Forms.Padding(0, 1, 0, 1);
+        _titanoBacktestPickButton.Name = "_titanoBacktestPickButton";
+        _titanoBacktestPickButton.Size = new System.Drawing.Size(90, 25);
+        _titanoBacktestPickButton.TabIndex = 1;
+        _titanoBacktestPickButton.Text = "Scegli…";
+        _titanoBacktestPickButton.UseVisualStyleBackColor = true;
+        _titanoBacktestPickButton.Click += OnPickBacktestClick;
         // 
         // _titanoRunLabel
         // 
@@ -806,6 +836,8 @@ partial class TradingSessionsScreen
         _configGroup.ResumeLayout(false);
         _configGroup.PerformLayout();
         _configLayout.ResumeLayout(false);
+        _titanoBacktestPanel.ResumeLayout(false);
+        _titanoBacktestPanel.PerformLayout();
         _configLayout.PerformLayout();
         _commandsPanel.ResumeLayout(false);
         _commandsPanel.PerformLayout();
@@ -845,7 +877,9 @@ partial class TradingSessionsScreen
     private System.Windows.Forms.Label _titanoModeLabel;
     private System.Windows.Forms.ComboBox _titanoModeCombo;
     private System.Windows.Forms.Label _titanoBacktestLabel;
-    private System.Windows.Forms.ComboBox _titanoBacktestCombo;
+    private System.Windows.Forms.TableLayoutPanel _titanoBacktestPanel;
+    private System.Windows.Forms.TextBox _titanoBacktestTextBox;
+    private System.Windows.Forms.Button _titanoBacktestPickButton;
     private System.Windows.Forms.Label _titanoRunLabel;
     private System.Windows.Forms.ComboBox _titanoRunCombo;
     private System.Windows.Forms.Button _loadRunsButton;

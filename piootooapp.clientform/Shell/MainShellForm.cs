@@ -1,3 +1,5 @@
+using Piootoo.Shared;
+
 namespace piootooapp.clientform.Shell;
 
 /// <summary>
@@ -10,6 +12,13 @@ public partial class MainShellForm : Form, INavigationHost
     private readonly List<Control> _stack = new();
     private ShellContext? _context;
     private CancellationTokenSource? _activationCts;
+
+    /// <summary>
+    /// Ultima versione server già segnalata con un alert. L'avviso deve comparire una volta per
+    /// server, non a ogni "Applica" sull'URL: un popup che si ripresenta a ogni gesto smette di
+    /// essere letto, ed è proprio quello che non si vuole per un disallineamento di versione.
+    /// </summary>
+    private string? _alertedServerVersion;
 
     public MainShellForm()
     {
@@ -27,10 +36,79 @@ public partial class MainShellForm : Form, INavigationHost
         }
 
         _serverUrlTextBox.Text = _services.ServerUrl;
+        Text = $"Piootoo Console v{PiootooVersion.Current}";
         BuildNavigationTree();
         UpdateThemeMenuCheckState();
         ApplyTheme();
         SetStatus("Pronto.");
+        _ = CheckServerVersionAsync();
+    }
+
+    /// <summary>
+    /// Confronta la versione compilata nella console con quella dichiarata dal server e, se
+    /// differiscono, lo dice con un alert.
+    ///
+    /// <para>Il confronto non è tautologico anche se console e server leggono la stessa costante:
+    /// la console si ricompila dalla solution mentre il server gira spesso da una cartella
+    /// pubblicata a parte, che può essere di una build precedente. È esattamente il caso in cui i
+    /// contratti divergono e i sintomi non parlano di versioni — campi che arrivano null, endpoint
+    /// che rispondono 404, sessioni che si aprono ma non valutano nulla.</para>
+    ///
+    /// <para>Server irraggiungibile non è un errore da popup: all'avvio è normalissimo che il
+    /// server non sia ancora su, quindi finisce solo nella barra di stato.</para>
+    /// </summary>
+    private async Task CheckServerVersionAsync()
+    {
+        string serverVersion;
+        Piootoo.Shared.Models.Diagnostics.ServerVersionInfo info;
+        try
+        {
+            info = await _services.ServerInfo.GetVersionAsync();
+            serverVersion = info.Version;
+        }
+        catch (Exception ex)
+        {
+            if (!IsDisposed)
+            {
+                SetError($"Versione server non verificata: {ex.Message}");
+            }
+
+            return;
+        }
+
+        if (IsDisposed)
+        {
+            return;
+        }
+
+        if (string.Equals(serverVersion, PiootooVersion.Current, StringComparison.Ordinal))
+        {
+            SetStatus($"Console e server allineati sulla v{serverVersion}.");
+            return;
+        }
+
+        SetError($"Versione disallineata: console v{PiootooVersion.Current}, server v{serverVersion}.");
+
+        if (_alertedServerVersion == serverVersion)
+        {
+            return;
+        }
+
+        _alertedServerVersion = serverVersion;
+        MessageBox.Show(
+            this,
+            $"La console e il server non hanno la stessa versione.{Environment.NewLine}{Environment.NewLine}" +
+            $"Console : v{PiootooVersion.Current}{Environment.NewLine}" +
+            $"Server  : v{serverVersion}{Environment.NewLine}" +
+            $"in ascolto su {_services.ServerUrl}{Environment.NewLine}" +
+            $"avviato il {info.StartedAtUtc:yyyy-MM-dd HH:mm:ss} UTC{Environment.NewLine}" +
+            $"da {info.ContentRootPath}{Environment.NewLine}{Environment.NewLine}" +
+            "Di solito significa che il server gira da una build pubblicata più vecchia: i contratti " +
+            "possono differire e gli errori che ne derivano non parlano di versioni. Puoi continuare, " +
+            "ma se qualcosa non torna ripubblica il server prima di cercare altrove.",
+            "Versioni disallineate",
+            MessageBoxButtons.OK,
+            MessageBoxIcon.Warning);
     }
 
     protected override void OnFormClosed(FormClosedEventArgs e)
@@ -285,6 +363,11 @@ public partial class MainShellForm : Form, INavigationHost
         {
             _services.SetServerUrl(_serverUrlTextBox.Text);
             SetStatus($"Server impostato su {_services.ServerUrl}.");
+
+            // Altro indirizzo, altro processo: l'alert già mostrato non vale più per questo server.
+            _alertedServerVersion = null;
+            _ = CheckServerVersionAsync();
+
             if (_stack.Count > 0)
             {
                 ActivateAsync(_stack[^1]);
@@ -304,6 +387,22 @@ public partial class MainShellForm : Form, INavigationHost
     }
 
     private void OnExitClick(object? sender, EventArgs e) => Close();
+
+    /// <summary>
+    /// Apre il monitor diagnostico dello stato server. Sta nel menu e non fra le voci di
+    /// navigazione perché non è un'entità del dominio da elencare: è una lente sul processo server,
+    /// utile da qualunque punto della console si stia lavorando.
+    /// </summary>
+    private void OnOpenServerStateClick(object? sender, EventArgs e)
+    {
+        if (!ConfirmLeavingCurrentScreen())
+        {
+            return;
+        }
+
+        ClearStack();
+        ShowScreen(new Screens.ServerSessionMonitorScreen());
+    }
 
     private void OnRefreshCurrentScreenClick(object? sender, EventArgs e)
     {

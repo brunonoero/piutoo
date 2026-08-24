@@ -288,7 +288,7 @@ public abstract class BiasBarCountEngine : EasyEngineBase
     /// alla barra di segnale, quindi un'uscita mattutina successiva a un ingresso serale cade il
     /// giorno seguente.
     /// </summary>
-    protected static TradeSignal WithExitTime(TradeSignal signal, DateTime barTime, int exitTime)
+    protected TradeSignal WithExitTime(TradeSignal signal, DateTime barTime, int exitTime)
     {
         signal.CloseAtUtc = ResolveCloseAtUtc(barTime, exitTime);
         return signal;
@@ -306,6 +306,6 @@ public abstract class BiasBarCountEngine : EasyEngineBase
         _mycount == armBar - 1 ||
         (armBar == 1 && Hhmm(nextBarTime) == SessionStartTime);
 
-    protected static int PythonDayOfWeek(DateTime barTime) =>
-        ((int)barTime.DayOfWeek + 6) % 7;
+    protected int PythonDayOfWeek(DateTime barTime) =>
+        PythonWeekday(barTime);
 }

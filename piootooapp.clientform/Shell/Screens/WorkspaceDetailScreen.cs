@@ -19,7 +19,7 @@ public sealed class StrategyChecklistItem
 
 /// <summary>
 /// Dettaglio di un workspace: nome e masterfilter. Le voci spuntate sono <b>Id di classe</b>
-/// (es. <c>Easy_218_GC_60</c>), che è la chiave di selezione dal catalogo — non il codice di
+/// (es. <c>PTS_NQ_TFM_001_60</c>), che è la chiave di selezione dal catalogo — non il codice di
 /// esecuzione. Con <see cref="SetWorkspaceId"/> a null la schermata crea un nuovo workspace.
 /// </summary>
 public partial class WorkspaceDetailScreen : UserControl, IShellScreen, IDirtyAware

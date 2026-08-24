@@ -1,0 +1,6 @@
+famiglia,strategia,e_strategia,capofila,simbolo,timeframe,motore,atteso_per_trade,oos_avg_trade,oos_net_profit,oos_max_dd,oos_n_trades,oos_profit_factor,plateau_min,wfo_efficienza,mc_dd_p95,stop_loss_pt,take_profit_pt,direction,stop_loss,take_profit,trailing_stop,ptn_neut_yes,ptn_neut_no,ptn_dir_yes,ptn_dir_no,start_hour,end_hour,skip_day,max_bars,channel_len,breakout_offset_ticks,intraday_only,dvol_min,breakeven,long_offset_ticks,short_offset_ticks
+1,1,True,True,GC,1h,PC,215.0,743.3,60204,19202,81,1.63,0.56,0.29,34728,22.5,40,0,2250,4000,0,2,30,-14,-21,6,5,-1,0,30,2,0,0,0,,
+1,2,True,False,GC,1h,PC,209.2,723.1,66528,15218,92,1.61,0.47,0.29,37352,22.5,40,0,2250,4000,0,2,30,-14,53,6,5,-1,0,30,2,0,0,0,,
+1,3,True,False,GC,1h,PC,173.2,598.6,57464,15218,96,1.49,0.52,0.29,44699,22.5,40,0,2250,4000,0,2,56,-14,-21,6,5,-1,0,30,2,0,0,0,,
+2,4,True,True,GC,1h,RHL,140.4,417.6,31320,11584,75,1.97,0.43,0.34,16108,20.0,50,1,2000,5000,,46,56,-1,-5,13,12,-1,12,,,,,,20,80
+3,5,True,True,GC,1h,RHL,91.7,272.8,21820,7516,80,1.59,0.68,0.34,14765,20.0,50,1,2000,5000,,46,12,52,-5,13,12,-1,12,,,,,,20,80

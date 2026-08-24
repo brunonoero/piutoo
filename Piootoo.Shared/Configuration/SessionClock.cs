@@ -88,6 +88,57 @@ public sealed class SessionClock
     /// </summary>
     public DateTime SessionDay(DateTime instantUtc) => ToSessionTime(instantUtc).Date;
 
+    /// <summary>
+    /// Istante UTC di un orario di borsa. E' la direzione inversa di <see cref="ToSessionTime"/> e
+    /// serve alle scadenze dichiarate sul segnale — <c>CloseAtUtc</c>, l'inizio della sessione di
+    /// appartenenza — che la strategia esprime in ora di borsa e l'engine deve confrontare in UTC.
+    ///
+    /// <para><b>I due giorni dell'anno in cui l'ora cambia.</b> Un orario locale puo' non esistere
+    /// (la notte in cui l'orologio salta avanti) oppure esistere due volte (quando torna
+    /// indietro). <see cref="TimeZoneInfo.ConvertTimeToUtc(DateTime, TimeZoneInfo)"/> lancia nel
+    /// primo caso, e nel secondo sceglie da solo senza dirlo. Qui l'orario inesistente viene
+    /// spostato avanti dell'ampiezza del salto — la scadenza cade al primo istante che esiste
+    /// davvero — e quello ambiguo viene risolto sull'offset precedente, cioe' la prima delle due
+    /// occorrenze. Sono convenzioni, non verita': l'importante e' che siano dichiarate e stabili,
+    /// perche' un'eccezione a runtime su una scadenza fermerebbe una sessione di trading.</para>
+    /// </summary>
+    public DateTime ToUtc(DateTime sessionLocal)
+    {
+        var local = DateTime.SpecifyKind(sessionLocal, DateTimeKind.Unspecified);
+
+        if (_zone.IsInvalidTime(local))
+        {
+            // Salto in avanti: l'orario non esiste. Lo sposto dell'ampiezza della transizione,
+            // che non e' sempre un'ora (Lord Howe usa mezz'ora).
+            var delta = _zone.GetUtcOffset(local.AddDays(1)) - _zone.GetUtcOffset(local.AddDays(-1));
+            local = local.Add(delta);
+        }
+
+        if (_zone.IsAmbiguousTime(local))
+        {
+            // Doppia occorrenza: prendo la prima, cioe' l'offset piu' grande fra quelli ammessi.
+            var offsets = _zone.GetAmbiguousTimeOffsets(local);
+            var scelto = offsets[0];
+            foreach (var o in offsets)
+            {
+                if (o > scelto) scelto = o;
+            }
+
+            return DateTime.SpecifyKind(local - scelto, DateTimeKind.Utc);
+        }
+
+        return TimeZoneInfo.ConvertTimeToUtc(local, _zone);
+    }
+
+    /// <summary>
+    /// Istante UTC dell'orario <paramref name="hhmm"/> nel giorno di borsa che contiene
+    /// <paramref name="referenceUtc"/>. Sostituisce <c>EasyLib.CombineDateAndHhmm</c>, che
+    /// componeva la data UTC della barra con un HHMM di borsa: due orologi diversi nello stesso
+    /// <c>DateTime</c>.
+    /// </summary>
+    public DateTime SessionInstantUtc(DateTime referenceUtc, int hhmm) =>
+        ToUtc(SessionDay(referenceUtc).AddMinutes(hhmm / 100 * 60 + hhmm % 100));
+
     private TimeSpan OffsetOf(DateTime instantUtc) =>
         _zone.GetUtcOffset(DateTime.SpecifyKind(instantUtc, DateTimeKind.Utc));
 

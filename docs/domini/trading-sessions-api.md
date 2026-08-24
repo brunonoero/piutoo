@@ -16,6 +16,34 @@ catalogo sono rifiutati senza fallback.
 3. `POST /{id}/bars` accetta batch di barre chiuse. Ogni stream
    simbolo/timeframe richiede sequence crescente e idempotency key stabile.
    Replay della stessa key è deduplicato; una sequence arretrata è rifiutata.
+3-bis. `POST /{id}/bars/window` accetta, per stream, l'**intera finestra** di candele
+   che le strategie richiedono: il server accoda quelle che non ha e valuta **solo
+   l'ultima**. Sequence e idempotency key valgono su quella. Esiste perché in
+   `ExternalBroker` il server non ha un datafeed proprio — la storia di uno stream è
+   solo ciò che il client gli ha spinto — e con una barra per volta le prime
+   `RequiredCandles` barre di ogni run venivano scartate in silenzio da
+   `StrategyEvaluationService`: per una strategia a 15 minuti sono 576 barre (sei
+   sessioni piene), quindi un backtest più corto non produceva un solo segnale.
+   Le candele viaggiano in due tempi. All'avvio, una volta per stream, il client manda
+   tutta la storia richiesta con `EvaluateLastCandle = false`: il server **accoda e
+   basta**, senza valutare, senza consumare l'idempotency key e senza avanzare la
+   sequence — sono barre già passate e valutarle produrrebbe intent sul passato. Poi,
+   a ogni barra chiusa, manda una finestra corta (default 20 barre) con
+   `EvaluateLastCandle = true`.
+   La sovrapposizione non è banda sprecata: è ciò che impedisce i buchi. Il server
+   **rifiuta una finestra che comincia dopo la sua ultima candela nota**, e il criterio
+   è la sovrapposizione e non l'aritmetica sui timestamp perché fine settimana e
+   festivi sono buchi legittimi. Con 20 barre si ricuciono da sole fino a 19 barre
+   consecutive perse; oltre, l'errore è esplicito invece che silenzioso.
+   Quanta storia serve lo dice il descriptor, in
+   `TradingInstrument.RequiredCandlesByTimeframe`. La risposta porta, per stream,
+   `HistoryBars`/`RequiredCandles`/`SkippedForInsufficientHistory`, così il silenzio
+   di una sessione è leggibile invece che indistinguibile da "nessun segnale".
+   **Le candele restano in RAM**: la sessione non scrive datafeed su disco
+   (`TradingJsonStore` persiste signal, trade e rotation-log), raccogliere il feed da
+   cTrader è compito di un cBot dedicato.
+   Regole complete, con la procedura per diagnosticare una sessione muta, in
+   [`finestra-candele-e-riscaldamento.md`](finestra-candele-e-riscaldamento.md).
 4. Per ogni barra l'orchestratore processa prima exit e pending, valuta poi
    soltanto le strategie con lo stesso timeframe esplicito e infine pubblica
    gli intent. Non si aggregano barre e non si usa MCM: 5m/15m e 7m/15m sono

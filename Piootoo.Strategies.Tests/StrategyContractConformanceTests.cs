@@ -29,10 +29,8 @@ public sealed class StrategyContractConformanceTests(ITestOutputHelper output)
     /// </summary>
     private static readonly HashSet<string> NotYetMigrated = new(StringComparer.OrdinalIgnoreCase)
     {
-        // data2 (120m) non fornito dal test sintetico
-        "Easy_123_CL_5",
-        // uscite runtime su livelli dist + data2 15m
-        "Easy_661_GC_30",
+        // Vuota: le uniche due voci erano Easy_123_CL_5 ed Easy_661_GC_30, rimosse con il
+        // catalogo Easy. Ogni strategia del catalogo rispetta ora il contratto.
     };
 
     /// <summary>
@@ -103,7 +101,7 @@ public sealed class StrategyContractConformanceTests(ITestOutputHelper output)
         // Sei sessioni piene sono il minimo per ricostruire d0..d5 senza troncare la più
         // vecchia: OHLCMulti5 riparte da zero a ogni valutazione e vede solo la finestra
         // ricevuta. Alcune strategie TF/legacy dichiarano un lookback più corto intenzionale
-        // (es. Easy_156 = 100): in quel caso è un warning, non una violazione.
+        // (una strategia puo' dichiarare meno candele del default): warning, non violazione.
         var barsPerDay = Math.Max(1, 1440 / Math.Max(1, strategy.TimeframeMinutes));
         if (strategy.RequiredCandles < 6 * barsPerDay)
         {

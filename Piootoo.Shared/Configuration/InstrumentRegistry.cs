@@ -123,6 +123,10 @@ public static class InstrumentRegistry
     /// <summary>Denaro per punto, per una unità di quantità.</summary>
     public static decimal PointValue(string symbol) => Get(symbol).PointValue;
 
+    /// <summary>Dimensione del tick dello strumento. Serve ai motori che devono decidere se un
+    /// livello e' distinguibile da un altro: sotto il tick il confronto e' un pareggio.</summary>
+    public static decimal TickSize(string symbol) => Get(symbol).TickSize;
+
     /// <summary>
     /// Orologio in cui leggere gli orari di sessione del simbolo. Va creato <b>uno per strategia</b>
     /// e non condiviso: l'istanza tiene in cache l'offset dell'ultimo giorno visto e non è

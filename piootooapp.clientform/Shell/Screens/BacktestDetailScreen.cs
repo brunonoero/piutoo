@@ -79,10 +79,16 @@ public partial class BacktestDetailScreen : UserControl, IShellScreen
         }
 
         _toolbar.SetBusy(true);
+        _reportButton.Enabled = false;
         try
         {
             await LoadSummaryAsync(cancellationToken);
             await LoadTradesAsync(cancellationToken);
+
+            // Abilitato senza verificare che il report esista: saperlo costerebbe una chiamata HTTP
+            // a ogni apertura della schermata, per un file che l'utente apre di rado. L'assenza è
+            // un 404 con un messaggio parlante, e questa griglia non deserializza ciò che elenca.
+            _reportButton.Enabled = true;
         }
         catch (OperationCanceledException)
         {
@@ -91,6 +97,48 @@ public partial class BacktestDetailScreen : UserControl, IShellScreen
         catch (Exception ex)
         {
             _context.Navigation.SetError(ex.Message);
+        }
+        finally
+        {
+            _toolbar.SetBusy(false);
+        }
+    }
+
+    /// <summary>
+    /// Apre il report HTML del run nel visualizzatore incorporato, lo stesso del report Titano.
+    ///
+    /// <para>Il 404 non è un errore della schermata: i run interrotti e quelli eseguiti
+    /// dall'engine esterno scrivono i trade ma non il report. Va detto con parole sue, altrimenti
+    /// l'utente legge un codice HTTP e conclude che è rotto qualcosa.</para>
+    /// </summary>
+    private async void OnReportClick(object? sender, EventArgs e)
+    {
+        if (_context == null || _workspaceId.Length == 0 || _folderName.Length == 0)
+        {
+            return;
+        }
+
+        _toolbar.SetBusy(true);
+        try
+        {
+            var uri = _context.Services.Api.GetBacktestHtmlReportUri(_workspaceId, _folderName);
+            await HtmlReportViewerForm.ShowFromUriAsync(
+                FindForm()!, _context.Services.Http, uri, $"Report {_folderName}");
+        }
+        catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            MessageBox.Show(
+                this,
+                $"Il backtest '{_folderName}' non ha un report HTML. " +
+                "Succede nei run interrotti e in quelli eseguiti dall'engine esterno, " +
+                "che archiviano i trade ma non generano il report.",
+                "Report backtest",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Information);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, ex.Message, "Report backtest", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally
         {

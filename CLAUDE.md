@@ -59,9 +59,9 @@ delegano ai servizi di `Piootoo.Core`.
 Elenco completo con motivazioni in `docs/PROGETTO.md` §3 e §7. I punti su cui si
 sbaglia più spesso:
 
-- **Id ≠ Name.** `Id` è il nome della classe (`Easy_218_GC_60`) e serve solo a
+- **Id ≠ Name.** `Id` è il nome della classe (`PTS_NQ_TFM_001_60`) e serve solo a
   *selezionare* dal catalogo (masterfilter, `StrategyFactory`). `Name` /
-  `StrategyCode` (`TOP_UA_218`) è ciò che finisce in tutto il dominio di
+  `StrategyCode` (`PTS_NQ_TFM_001_60`) è ciò che finisce in tutto il dominio di
   *esecuzione*: `signals.json`, `trades.json`, chiavi di posizione, stati Titano.
   Per confrontare masterfilter e dati di esecuzione passa da
   `StrategyCatalog.ResolveCodes`. Confondere i due ha già svuotato report e
@@ -70,11 +70,14 @@ sbaglia più spesso:
  `Kind != Utc`: è voluto, non "aggiustarlo" con `SpecifyKind` a valle. E
  "adesso" è `DateTime.UtcNow`: `DateTime.Now`, `ToLocalTime` e affini sono
  vietati fuori dalla console WinForms, e `UtcOnlyConformanceTests` lo verifica.
-- **Gli orari di sessione delle strategie non sono UTC.** `SessionStartTime` /
- `SessionEndTime` sono in ora di borsa, diversa per simbolo, e vanno confrontati
- passando da `SessionClock` — non con l'ora UTC della barra. Il perché, le
- misure e cosa controllare quando aggiungi una strategia stanno in
- `docs/domini/orari-di-sessione-e-fusi.md`.
+- **Gli orari di una strategia dichiarano il proprio fuso, e non si convertono mai a mano.**
+ `Session` e `TradingWindow` sono due `ZonedWindow` distinte — orario locale più fuso IANA — e il
+ confronto passa da `SessionClock`, mai dall'ora grezza della barra. Per le strategie portate dai
+ run di ricerca valgono `ZonedWindow.ResearchSession()` e `ZonedWindow.ResearchHours(start, end)`,
+ con `start_hour`/`end_hour` riportati **verbatim**: la sessione della ricerca è il giorno di
+ calendario europeo, non quella del broker. La regola completa è in
+ `docs/domini/porting-da-report-sweep.md` §"La regola degli orari"; i fusi e le misure in
+ `docs/domini/orari-di-sessione-e-fusi.md`. `StrategyClockConformanceTests` la impone sul sorgente.
 - **`UpdateMarketPrices` a ogni barra**, su tutti i simboli della barra, anche
   se nessuna strategia è stata valutata — altrimenti SL/TP/time exit scattano in
   ritardo.
@@ -82,6 +85,13 @@ sbaglia più spesso:
   anche se i servizi che lo ospitano sono singleton.
 - **`AtomicFileWriter` mai dentro un loop.** Fa fsync: va bene per l'artefatto
   finale, per i checkpoint intermedi usa la variante non sincronizzata.
+- **I checkpoint non riscrivono l'artefatto intero.** `signals.json`,
+  `trades.json` e `rotation-log.json` crescono per tutto il run: riscriverli a
+  ogni checkpoint costa quanto il run già fatto, e rende il backtest quadratico.
+  I checkpoint accodano al journal `.jsonl` affiancato
+  (`TradingJsonStore.Append*`); l'array viene materializzato alla lettura o alla
+  scrittura autorevole di fine run. Chi legge quei file senza passare dallo
+  store deve chiamare prima `CompactAll()`. Vedi `docs/decisioni.md` 2026-08-20.
 - **Niente LINQ nei loop caldi.** Nel backtest si usa `CandleWindowCursor`
   (indice incrementale su serie già ordinata).
 - **Reflection cacheata.** `StatelessEasyStrategyBase` è il punto più caldo del
@@ -90,6 +100,15 @@ sbaglia più spesso:
 - **Datafeed mancante = errore esplicito.** Se una coppia `(Symbol, Timeframe)`
  del masterfilter non ha dati, il backtest deve fallire o segnalarlo, mai
  proseguire in silenzio.
+- **In sessione `ExternalBroker` la storia è solo quella che il client spinge.**
+ Il server non ha datafeed proprio e `StrategyEvaluationService` salta in
+ silenzio finché `history.Count < RequiredCandles` (per una strategia a 15
+ minuti sono 576 barre). Il client manda quindi il riscaldamento all'avvio, poi
+ finestre corte e **sovrapposte** a ogni barra; il server accoda solo le candele
+ che non ha, ne valuta una sola, e rifiuta la finestra che non si sovrappone
+ invece di accodare una serie bucata. Le candele restano in RAM: il datafeed su
+ disco è compito di un cBot raccoglitore dedicato. Regole complete in
+ `docs/domini/finestra-candele-e-riscaldamento.md`.
 - **Barra di esecuzione ≠ prezzo di mark.** L'orologio del loop è sintetico e sui
  tick senza barre il cursore restituisce l'ultima barra chiusa. Quel prezzo va
  usato per il mark-to-market (altrimenti stop e time exit non sono valutabili) ma

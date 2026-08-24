@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using Piootoo.Shared.Configuration;
 using Piootoo.Shared.Enums;
 using Piootoo.Shared.Interfaces;
@@ -37,7 +37,7 @@ public sealed class StrategyEvaluationService : IStrategyEvaluationService
 
             var signal = strategy.Evaluate(new StrategyEvaluationRequest
             {
-                Ohlcv = history.ToArray(),
+                Ohlcv = EvaluationWindow(history, EvaluationWindowSize(strategy)),
                 BarTimeUtc = closedBar.BarTimeUtc,
                 Execution = executionSnapshot(strategy)
             });
@@ -66,6 +66,40 @@ public sealed class StrategyEvaluationService : IStrategyEvaluationService
         signal.StrategyName = string.IsNullOrWhiteSpace(signal.StrategyName) ? strategy.Name : signal.StrategyName;
     }
 
+    /// <summary>
+    /// Quante candele riceve una strategia a ogni valutazione: le stesse del backtest locale
+    /// (<c>RequiredCandles * 1.2</c>), non tutta la storia accumulata dalla sessione.
+    ///
+    /// <para>Passare l'intera storia era un doppio errore. Di costo: la storia di una sessione
+    /// <c>ExternalBroker</c> cresce di una candela per barra, quindi la copia — e i motori che la
+    /// percorrono dall'inizio, come l'ADX di <c>PriceChannelEngine</c> — costavano di più a ogni
+    /// giorno di run, e un backtest lungo rallentava fino a fermarsi. Di risultato: gli indicatori a
+    /// smoothing ricorsivo (Wilder) dipendono da quante barre hanno visto, quindi la stessa
+    /// strategia sullo stesso feed dava valori diversi qui e nel backtest locale, che invece ha
+    /// sempre passato una finestra fissa (vedi <c>PiootooBacktestingService</c>, stesso 1.2).</para>
+    /// </summary>
+    internal static int EvaluationWindowSize(ITradingStrategy strategy) =>
+        (int)(strategy.RequiredCandles * 1.2);
+
+    /// <summary>Copia delle ultime <paramref name="maxCandles"/> candele, in ordine cronologico.</summary>
+    internal static OhlcvData[] EvaluationWindow(IReadOnlyList<OhlcvData> history, int maxCandles)
+    {
+        var take = Math.Min(Math.Max(0, maxCandles), history.Count);
+        if (take == 0) return [];
+
+        var start = history.Count - take;
+        var window = new OhlcvData[take];
+        if (history is List<OhlcvData> list)
+        {
+            list.CopyTo(start, window, 0, take);
+            return window;
+        }
+
+        for (var index = 0; index < take; index++)
+            window[index] = history[start + index];
+        return window;
+    }
+
     private static string Normalize(string value) => value.Trim().TrimStart('@').ToUpperInvariant();
 }
 
@@ -81,6 +115,14 @@ public interface ITradingSessionService
     IReadOnlyList<TradingSessionSummary> ListSessions();
     TradingSessionDescriptor SetStatus(string sessionId, string token, TradingSessionStatus status);
     PushBarsResponse PushBars(PushBarsRequest request);
+
+    /// <summary>
+    /// Variante di <see cref="PushBars"/> in cui il client invia, per ogni stream, l'intera finestra
+    /// di candele che le strategie richiedono. Il server accoda quelle che non ha e valuta solo
+    /// l'ultima: è così che una sessione nuova parte già "calda" invece di scartare in silenzio le
+    /// prime <c>RequiredCandles</c> barre del run.
+    /// </summary>
+    PushBarWindowResponse PushBarWindow(PushBarWindowRequest request);
     IReadOnlyList<OrderIntent> GetIntents(string sessionId, string token, long after = 0);
     IReadOnlyList<PersistedSignal> GetPersistedSignals(string sessionId, string token);
     IReadOnlyList<PersistedTrade> GetPersistedTrades(string sessionId, string token);
@@ -95,6 +137,14 @@ public interface ITradingSessionService
     TradingSessionSnapshot ApplyReport(string sessionId, ExecutionReportRequest request);
 
     TradingSessionSnapshot GetSnapshot(string sessionId, string token);
+
+    /// <summary>
+    /// Gli ultimi eventi della sessione dopo <paramref name="since"/>, per il monitor della
+    /// console. Complementare a <see cref="GetSnapshot"/>: lo snapshot dice cos'è aperto adesso,
+    /// questo dice cosa è successo e perché — in particolare quale filtro ha svuotato un claim,
+    /// che non è uno stato e quindi nello snapshot non compare.
+    /// </summary>
+    SessionActivityResponse GetActivity(string sessionId, string token, long since = 0);
 
     /// <summary>
     /// Copia i trade (e i signal) di una sessione in una cartella di backtest del workspace, così
@@ -165,6 +215,14 @@ public sealed class TradingSessionService : ITradingSessionService
         /// </summary>
         public bool EnforceConcurrencyLimits { get; init; }
 
+        /// <summary>
+        /// Profilo dichiarato dal cBot all'apertura. Non governa nulla a runtime — al momento
+        /// dell'apertura si è già risolto in <see cref="TitanoMode"/> e
+        /// <see cref="EnforceConcurrencyLimits"/> — ma va conservato per poterlo mostrare a chart e
+        /// nei log: sapere *come* è configurato un run è meno utile che sapere *quale* run è.
+        /// </summary>
+        public TradingRunProfile RunProfile { get; set; }
+
         public required PositionSizingConfig PositionSizing { get; init; }
         public required Dictionary<string, InstrumentMetadata> InstrumentMetadata { get; init; }
 
@@ -175,6 +233,15 @@ public sealed class TradingSessionService : ITradingSessionService
         /// distribuite, dove il conto si conosce solo al claim.
         /// </summary>
         public string? DirectAccountNumber { get; set; }
+
+        /// <summary>
+        /// Account che hanno gia' aperto QUESTA sessione con <c>open-plan</c>.
+        ///
+        /// <para>Non decide nulla: in backtest si scarta sempre, in realtime si riprende sempre.
+        /// Serve a dire, quando una sessione distribuita viene scartata, QUALI altri account erano
+        /// attaccati a quel run e si ritroveranno senza sessione.</para>
+        /// </summary>
+        public HashSet<string> JoinedAccounts { get; } = new(StringComparer.OrdinalIgnoreCase);
         public decimal PeakEquity { get; set; }
         public TradingSessionStatus Status { get; set; }
         public required DateTime CreatedAtUtc { get; init; }
@@ -184,7 +251,89 @@ public sealed class TradingSessionService : ITradingSessionService
         public HashSet<string> BarKeys { get; } = new(StringComparer.Ordinal);
         public HashSet<string> ReportIds { get; } = new(StringComparer.Ordinal);
         public List<OrderIntent> Intents { get; } = [];
+
+        /// <summary>
+        /// Indice per IntentId su <see cref="Intents"/>. Esiste perche' le due ricerche per id —
+        /// l'execution report e la cancellazione — arrivano a ogni fill di ogni barra, e una
+        /// scansione lineare su una lista che a fine anno conta decine di migliaia di intent si
+        /// paga moltiplicata per tutti i report del run.
+        /// </summary>
+        public Dictionary<string, OrderIntent> IntentsById { get; } = new(StringComparer.Ordinal);
+
         public List<RotationLogEntry> RotationLog { get; } = [];
+
+        // --- Persistenza incrementale (vedi WriteArtifacts) ---
+
+        /// <summary>Quanti elementi di <see cref="Intents"/> sono gia' finiti nel journal.</summary>
+        public int PersistedIntentCount { get; set; }
+
+        /// <summary>Intent scartati dagli artefatti perche' non hanno prodotto nessun riempimento.</summary>
+        public int DiscardedCancelledIntents { get; set; }
+
+        /// <inheritdoc cref="DiscardedCancelledIntents"/>
+        public int DiscardedRejectedIntents { get; set; }
+
+        /// <summary>
+        /// Intent gia' scritti almeno una volta ma ancora in uno stato non definitivo, quindi
+        /// ancora capaci di cambiare. Vengono riscritti a ogni checkpoint finche' non risultano
+        /// assestati: e' cio' che rende la scrittura incrementale completa senza dover
+        /// intercettare ogni singolo punto del codice che muta un intent. L'insieme e' limitato
+        /// dagli ordini realmente in volo, non dalla lunghezza del run.
+        /// </summary>
+        public List<OrderIntent> UnsettledIntents { get; } = [];
+
+        /// <summary>
+        /// Il journal contiene record non ancora materializzati nell'array. Finche' e' vero, un
+        /// flush forzato deve davvero riscrivere, anche se dall'ultimo checkpoint non e' cambiato
+        /// altro: e' cio' che lascia la cartella di un run chiuso senza file di journal.
+        /// </summary>
+        public bool JournalPending { get; set; }
+
+        /// <summary>Trade gia' scritti, per ognuna delle due sorgenti (broker esterno / motore simulato).</summary>
+        public int PersistedExternalTradeCount { get; set; }
+        public int PersistedSimulatedTradeCount { get; set; }
+
+        /// <summary>Istante dell'ultima scrittura degli artefatti su disco. Vedi <c>Persist</c>.</summary>
+        public DateTime LastPersistUtc { get; set; }
+
+        /// <summary>C'e' stato almeno un cambiamento non ancora scritto (checkpoint saltato).</summary>
+        public bool PersistPending { get; set; }
+
+        /// <summary>
+        /// Righe di rotation-log gia' su disco: il log e' append-only, se non cresce non si riscrive.
+        ///
+        /// <para><b>Parte da zero, non da -1.</b> Il valore iniziale era <c>-1</c> come sentinella di
+        /// "mai scritto", e serviva al vecchio confronto <c>!=</c> per garantire la prima scrittura
+        /// anche a log vuoto. Da quando questo campo e' anche l'<b>indice</b> da cui
+        /// <see cref="WriteArtifactsDelta"/> accoda al journal, quella sentinella e' un indice
+        /// negativo: il primo checkpoint di una sessione appena aperta entrava nel ramo
+        /// (<c>0 &gt; -1</c>) e chiamava <c>GetRange(-1, 1)</c>, che lancia. La prima scrittura
+        /// forzata resta garantita da <c>LastPersistUtc != default</c> in <c>Persist</c>, quindi la
+        /// sentinella non serviva piu' a niente se non a rompere l'apertura della sessione.</para>
+        /// </summary>
+        public int PersistedRotationEntries { get; set; }
+
+        /// <summary>
+        /// Buffer circolare degli ultimi eventi della sessione, per il monitor della console.
+        /// Vedi <see cref="SessionActivityEntry"/> per il perche' non basti lo snapshot.
+        ///
+        /// <para>E' una lista e non una coda perche' il client legge per progressivo e non per
+        /// posizione: serve poter rispondere "dammi tutto dopo il 412" con una ricerca binaria,
+        /// non consumare la coda.</para>
+        /// </summary>
+        public List<SessionActivityEntry> Activity { get; } = [];
+
+        /// <summary>Progressivo dell'ultimo evento registrato. Cresce e non torna mai indietro.</summary>
+        public long ActivitySequence { get; set; }
+
+        /// <summary>
+        /// Ultimo motivo di claim negato registrato, per account. Un claim negato si ripete a ogni
+        /// poll — ogni due secondi in live, ogni barra in backtest — e senza deduplica riempirebbe
+        /// il buffer di righe identiche, buttando fuori proprio gli eventi rari che si stanno
+        /// cercando. Si registra il cambio di motivo, non la ripetizione.
+        /// </summary>
+        public Dictionary<string, string> LastRefusalByAccount { get; } = new(StringComparer.OrdinalIgnoreCase);
+
         public Dictionary<string, TradingPositionSnapshot> ExternalPositions { get; } = new(StringComparer.OrdinalIgnoreCase);
         public Dictionary<string, (DateTime EntryTimeUtc, string IntentId, decimal? StopLoss, decimal? TakeProfit)>
             ExternalPositionDetails { get; } = new(StringComparer.OrdinalIgnoreCase);
@@ -199,6 +348,13 @@ public sealed class TradingSessionService : ITradingSessionService
         /// <summary>Mappa AccountNumber -> GroupId configurata dal tab Trading Session.</summary>
         public Dictionary<string, string> AccountGroups { get; } = new(StringComparer.OrdinalIgnoreCase);
         public Dictionary<string, int> AccountMaxConcurrentTrades { get; } =
+            new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// Cosa conta <c>MaxConcurrentTrades</c> per ogni account: parametro del piano, non
+        /// convenzione del server. Assente = <c>PositionsAndPendingOrders</c>, il default storico.
+        /// </summary>
+        public Dictionary<string, ConcurrencyCountMode> AccountConcurrencyCountMode { get; } =
             new(StringComparer.OrdinalIgnoreCase);
 
         /// <summary>
@@ -222,8 +378,10 @@ public sealed class TradingSessionService : ITradingSessionService
         public Dictionary<string, (string AccountNumber, string IntentId)> GroupStrategySlots { get; } =
             new(StringComparer.OrdinalIgnoreCase);
 
-        /// <summary>Account -> IntentId dell'assegnazione attiva (ingresso in corso o posizione aperta). Autolimitazione lato server.</summary>
-        public Dictionary<string, string> AccountActiveIntent { get; } = new(StringComparer.OrdinalIgnoreCase);
+        // Non esiste più un lucchetto (account, simbolo). Il tetto di concorrenza è per account e
+        // trasversale ai simboli — vedi AccountMaxConcurrentTrades e CountInFlightForAccount —
+        // mentre l'unicità (strategia, simbolo) è garantita da AccountHasEntryInFlight, che è una
+        // guardia di identità e non un vincolo di concorrenza.
 
         /// <summary>Posizione "canonica" (Symbol|StrategyCode) usata per alimentare la valutazione strategie in modalità multi-account,
         /// indipendente da quale account specifico la detiene realmente.</summary>
@@ -300,6 +458,16 @@ public sealed class TradingSessionService : ITradingSessionService
         if (string.IsNullOrWhiteSpace(request.ExecutionKey))
             throw new ArgumentException("ExecutionKey è obbligatoria.");
 
+        // Il profilo si valida prima di qualunque altra cosa: è quello che decide se il run
+        // produrrà il campione sorgente o una simulazione filtrata, e aprire il run sbagliato non
+        // dà errore, dà numeri plausibili che nessuno rimetterà più in discussione.
+        var runProfile = request.RunProfile ?? TradingRunProfile.DalPiano;
+        if (runProfile != TradingRunProfile.DalPiano && request.ClientRunMode != ClientRunMode.Backtest)
+            throw new ArgumentException(
+                $"Il profilo '{runProfile}' vale solo in backtest, ma il cBot dichiara " +
+                $"{request.ClientRunMode}. In realtime usa '{TradingRunProfile.DalPiano}': " +
+                "la configurazione operativa la porta il piano.");
+
         var plan = _plans.Resolve(request.PlanCode);
         if (plan.Groups.Count == 0)
             throw new InvalidOperationException($"Il piano '{plan.Code}' non contiene righe gruppo/account.");
@@ -315,20 +483,57 @@ public sealed class TradingSessionService : ITradingSessionService
         // In distribuzione la sessione è condivisa fra gli account del piano, quindi la chiave non
         // include l'account. In esecuzione diretta gli intent sono già assegnati e li consuma un
         // solo cBot: due account sulla stessa sessione eseguirebbero gli stessi segnali due volte.
+        //
+        // Il profilo entra nella chiave, altrimenti lo stesso cBot rilanciato dopo aver cambiato
+        // profilo riprenderebbe la sessione precedente e continuerebbe a girare con il Titano e i
+        // lucchetti del run vecchio, senza dirlo. Si accoda solo quando non è DalPiano, così le
+        // chiavi delle sessioni già in corso restano quelle di prima e la ripresa non si rompe.
+        var profileSuffix = runProfile == TradingRunProfile.DalPiano ? string.Empty : $"|{runProfile}";
         var executionKey = request.DistributeToAccounts
-            ? $"{plan.Code}|{request.ClientRunMode}|{request.ExecutionKey.Trim()}"
-            : $"{plan.Code}|{request.ClientRunMode}|{request.ExecutionKey.Trim()}|Direct|{account}";
+            ? $"{plan.Code}|{request.ClientRunMode}|{request.ExecutionKey.Trim()}{profileSuffix}"
+            : $"{plan.Code}|{request.ClientRunMode}|{request.ExecutionKey.Trim()}{profileSuffix}|Direct|{account}";
+        // Valorizzato solo quando un backtest rilanciato ha buttato via la sessione precedente:
+        // finisce nel monitor della sessione NUOVA, che e' l'unico posto dove chi guarda il run puo'
+        // ancora leggerlo — quella vecchia, insieme al suo buffer di attivita', non esiste piu'.
+        string? discardNotice = null;
         if (_planExecutions.TryGetValue(executionKey, out var existingId) &&
             _sessions.TryGetValue(existingId, out var existing))
         {
-            lock (existing.Gate)
+            // UN BACKTEST APRE SEMPRE UNA SESSIONE NUOVA. Mai una ripresa, in nessun caso.
+            //
+            // La execution key di un backtest la costruisce il client dalla data di inizio del run,
+            // quindi e' deterministica: rilanciare lo stesso backtest — dopo uno stop a meta', dopo
+            // un crash, o solo per rifarlo — ricade sempre sulla chiave di prima. Riprendendo, il
+            // secondo run erediterebbe barre, intent, posizioni aperte e trade del primo e li
+            // continuerebbe come se nulla fosse: un risultato plausibile, coerente, e sbagliato.
+            // Nessun errore da nessuna parte, e la differenza si vede solo confrontando i trade.
+            //
+            // Il client non ha modo di segnalarlo — uno stop di cTrader non manda niente a nessuno —
+            // ed e' proprio per questo che la regola sta qui: il server non prova a indovinare se
+            // quella di prima fosse "la stessa esecuzione". Un'apertura in backtest e' l'inizio di un
+            // run, punto; quella vecchia si butta.
+            //
+            // La ripresa resta viva SOLO in realtime, dove e' cio' che permette a un cBot riavviato di
+            // rientrare nel proprio run invece di aprirne uno nuovo accanto al primo.
+            if (request.ClientRunMode == ClientRunMode.Backtest)
             {
-                existing.Status = TradingSessionStatus.Running;
-                Persist(existing);
-                // Anche su riconnessione il descriptor deve riportare il simbolo del broker di
-                // QUESTO account: in distribuzione la sessione è condivisa e Describe(existing) da
-                // solo non saprebbe quale conversione applicare (vedi sotto, stessa apertura).
-                return Describe(existing, ResolveAccountConversion(existing, account));
+                discardNotice = DiscardPreviousBacktest(executionKey, existing, account);
+                // Si prosegue nel percorso di apertura: la nuova sessione riusa la stessa cartella
+                // e TradingJsonStore.Initialize() la riazzera (signals, trades, rotation log e i
+                // journal aperti). Nessun residuo del run precedente.
+            }
+            else
+            {
+                lock (existing.Gate)
+                {
+                    existing.Status = TradingSessionStatus.Running;
+                    existing.JoinedAccounts.Add(account);
+                    Persist(existing);
+                    // Anche su riconnessione il descriptor deve riportare il simbolo del broker di
+                    // QUESTO account: in distribuzione la sessione è condivisa e Describe(existing) da
+                    // solo non saprebbe quale conversione applicare (vedi sotto, stessa apertura).
+                    return Describe(existing, ResolveAccountConversion(existing, account), account);
+                }
             }
         }
 
@@ -339,18 +544,63 @@ public sealed class TradingSessionService : ITradingSessionService
         var primary = request.DistributeToAccounts
             ? TradingPlanService.SelectPrimaryRow(plan.Groups)
             : accountRow;
-        var titanoMode = !primary.ApplyTitanoFilters
-            ? TitanoFilterMode.Disabled
-            : request.ClientRunMode == ClientRunMode.Backtest
-                ? TitanoFilterMode.BacktestRotationFile
-                : TitanoFilterMode.Realtime;
+        // Il profilo, quando è dichiarato, PREVALE sul piano: è il cBot a sapere che run sta
+        // aprendo, e il piano resta la fonte di tutto il resto (workspace, sizing, strumenti,
+        // cartella del run Titano). Senza profilo si ricade sul piano, com'era prima.
+        var titanoMode = runProfile switch
+        {
+            TradingRunProfile.BacktestSorgente => TitanoFilterMode.Disabled,
+            // Filtro statico: le strategie restano quelle del masterfilter, esattamente come nel
+            // sorgente. Fra i due cambiano solo i lucchetti, poco più sotto.
+            TradingRunProfile.BacktestStaticFilter => TitanoFilterMode.Disabled,
+            TradingRunProfile.BacktestTitano => TitanoFilterMode.BacktestRotationFile,
+            _ => !primary.ApplyTitanoFilters
+                ? TitanoFilterMode.Disabled
+                : request.ClientRunMode == ClientRunMode.Backtest
+                    ? TitanoFilterMode.BacktestRotationFile
+                    : TitanoFilterMode.Realtime
+        };
+
+        // Un backtest Titano senza rotazioni non è un backtest Titano: girerebbe come un run senza
+        // filtro e la differenza si vedrebbe solo confrontando due trades.json mesi dopo.
+        if (runProfile == TradingRunProfile.BacktestTitano &&
+            string.IsNullOrWhiteSpace(primary.TitanoBacktestFolder))
+            throw new ArgumentException(
+                $"Il profilo '{TradingRunProfile.BacktestTitano}' richiede le rotazioni storiche, ma la " +
+                $"riga primaria del piano '{plan.Code}' non indica alcuna cartella di run Titano. " +
+                $"Valorizza TitanoBacktestFolder, oppure apri il run con " +
+                $"'{TradingRunProfile.BacktestStaticFilter}' (stessi lucchetti, strategie dal " +
+                $"masterfilter) o '{TradingRunProfile.BacktestSorgente}' (nessun lucchetto).");
 
         // MaxConcurrentTrades è applicato solo da GetNextSignalForAccount, cioè dal percorso di
         // claim. Senza gruppi quel percorso non esiste e il limite non avrebbe alcun punto di
         // applicazione: eseguire lo stesso il piano significherebbe operare senza il limite che
         // dichiara, quindi si rifiuta l'apertura invece di ignorarlo in silenzio.
-        var enforceConcurrency = plan.EnforceConcurrencyLimits
-                                 ?? DefaultEnforceConcurrencyLimits(request.ClientRunMode, titanoMode);
+        //
+        // I profili espliciti DICHIARANO i lucchetti e il piano non li contraddice: è il senso di
+        // averli nominati invece di dedurli da una combinazione di flag. Il piano decide ancora
+        // tutto il resto (workspace, sizing, strumenti, cartella Titano) e continua a decidere i
+        // lucchetti quando il profilo è DalPiano.
+        //
+        // BacktestSorgente li spegne: il campione sorgente deve contenere ogni segnale che le
+        // strategie hanno prodotto, e un piano con EnforceConcurrencyLimits=true non deve poterlo
+        // mutilare di nascosto.
+        //
+        // BacktestStaticFilter e BacktestTitano li accendono, per la ragione simmetrica. Fino al
+        // 15/08/2026 solo il sorgente era blindato e gli altri ricadevano sul piano: un
+        // EnforceConcurrencyLimits=false rendeva BacktestTitano un run senza lucchetti che
+        // continuava a chiamarsi Titano, e la differenza si vedeva solo confrontando due
+        // trades.json — esattamente lo scenario che la riga sopra dice di voler evitare per il
+        // sorgente. I due profili condividono i lucchetti proprio perché la sola differenza fra
+        // loro sia il filtro, statico contro dinamico: altrimenti il confronto non isola niente.
+        var enforceConcurrency = runProfile switch
+        {
+            TradingRunProfile.BacktestSorgente => false,
+            TradingRunProfile.BacktestStaticFilter => true,
+            TradingRunProfile.BacktestTitano => true,
+            _ => plan.EnforceConcurrencyLimits
+                 ?? DefaultEnforceConcurrencyLimits(request.ClientRunMode, titanoMode)
+        };
         if (!request.DistributeToAccounts && enforceConcurrency && accountRow.MaxConcurrentTrades > 0)
             throw new ArgumentException(
                 $"Il piano '{plan.Code}' dichiara MaxConcurrentTrades={accountRow.MaxConcurrentTrades} " +
@@ -370,19 +620,28 @@ public sealed class TradingSessionService : ITradingSessionService
             TitanoBacktestFolder = primary.TitanoBacktestFolder,
             TitanoMode = titanoMode,
             ClientRunMode = request.ClientRunMode,
-            EnforceConcurrencyLimits = plan.EnforceConcurrencyLimits,
+            // Il valore già risolto, non quello del piano: qui il profilo ha eventualmente
+            // prevalso, e ripassare il nullable farebbe ricalcolare a CreateCore il default,
+            // perdendo l'override.
+            EnforceConcurrencyLimits = enforceConcurrency,
             PositionSizing = plan.PositionSizing
         }, plan.Code, request.ExecutionKey.Trim());
         AccountSymbolConversion conversion;
         lock (_sessions[descriptor.SessionId].Gate)
         {
             var opened = _sessions[descriptor.SessionId];
+            // Conservato per la diagnostica: a runtime il profilo si è già risolto in TitanoMode e
+            // EnforceConcurrencyLimits, ma senza di lui il descriptor non saprebbe dire quale run è.
+            opened.RunProfile = runProfile;
             if (request.DistributeToAccounts)
                 // SetTradingGroups azzera session.AccountConversions: va chiamato PRIMA di risolvere
                 // la conversione di questo account, altrimenti la cache verrebbe svuotata subito dopo.
                 SetTradingGroups(descriptor.SessionId, descriptor.SessionToken, plan.Groups);
             else
                 opened.DirectAccountNumber = account;
+            opened.JoinedAccounts.Add(account);
+            if (discardNotice != null)
+                RecordActivity(opened, SessionActivityKind.Sessione, discardNotice, account);
             // Risolta subito e non alla prima barra: un conto senza anagrafica deve far fallire
             // l'apertura, non ogni push a sessione avviata. Anche in distribuzione, perché il
             // descriptor restituito a QUESTO cBot deve riportare il nome simbolo del SUO broker,
@@ -393,7 +652,51 @@ public sealed class TradingSessionService : ITradingSessionService
         }
         SetStatus(descriptor.SessionId, descriptor.SessionToken, TradingSessionStatus.Running);
         _planExecutions[executionKey] = descriptor.SessionId;
-        return Describe(_sessions[descriptor.SessionId], conversion);
+        return Describe(_sessions[descriptor.SessionId], conversion, account);
+    }
+
+    /// <summary>
+    /// Scollega e ferma la sessione di backtest che occupava questa chiave, perche' il run che la
+    /// sostituisce possa ricrearla da zero sulla stessa chiave e nella stessa cartella.
+    ///
+    /// <para><b>Perche' Stopped e non solo la rimozione dai dizionari.</b> Il vecchio oggetto
+    /// <c>Session</c> puo' ancora essere in mano a una richiesta in volo — l'ultimo push del client
+    /// morente, un claim partito un attimo prima — e il suo <c>Store</c> punta alla stessa cartella
+    /// che il nuovo run sta per azzerare. Una scrittura in ritardo resusciterebbe record del run
+    /// vecchio dentro gli artefatti del nuovo. Tutti i percorsi che mutano una sessione pretendono
+    /// <see cref="TradingSessionStatus.Running"/>, quindi metterla a Stopped e' cio' che chiude la
+    /// porta invece di sperare nei tempi.</para>
+    ///
+    /// <para><b>Perche' non si persiste.</b> Gli artefatti di quella cartella stanno per essere
+    /// riscritti a zero da <c>Store.Initialize()</c>: salvarli adesso e' lavoro buttato, e su un run
+    /// lungo e' anche una riscrittura completa da decine di MB.</para>
+    /// </summary>
+    private string DiscardPreviousBacktest(string executionKey, Session existing, string account)
+    {
+        lock (existing.Gate)
+            existing.Status = TradingSessionStatus.Stopped;
+
+        _planExecutions.TryRemove(executionKey, out _);
+        _sessions.TryRemove(existing.Id, out _);
+
+        // Su una sessione distribuita il run buttato via era condiviso: gli altri cBot ancora
+        // attaccati vedranno "sessione non in esecuzione" al primo push. E' la conseguenza voluta
+        // della regola — in backtest ogni apertura e' un run nuovo, quindi un secondo leg che si
+        // collega dopo NON si aggiunge al primo, lo sostituisce — ma va detto, perche' altrimenti si
+        // presenta come un errore di rete su un bot che non ha fatto niente di sbagliato.
+        //
+        // In pratica riguarda solo chi apre lo stesso piano in backtest da piu' client: un backtest
+        // di cTrader e' per definizione a singolo account.
+        var otherAccounts = existing.JoinedAccounts
+            .Where(joined => !joined.Equals(account, StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+
+        return otherAccounts.Length > 0
+            ? $"Nuovo backtest aperto dall'account {account}: sessione precedente {existing.Id} scartata " +
+              $"e cartella riazzerata. Erano sulla stessa sessione anche gli account " +
+              $"[{string.Join(", ", otherAccounts)}]: il loro run e' finito qui e vanno rilanciati."
+            : $"Nuovo backtest aperto dall'account {account}: sessione precedente {existing.Id} scartata, " +
+              "cartella riazzerata, si riparte da zero.";
     }
 
     /// <summary>
@@ -472,7 +775,9 @@ public sealed class TradingSessionService : ITradingSessionService
         var byId = definitions.ToDictionary(x => x.Id, StringComparer.OrdinalIgnoreCase);
         var invalid = filter.StrategiesFilter.Where(id => !byId.ContainsKey(id)).ToArray();
         if (invalid.Length != 0)
-            throw new ArgumentException($"ID strategia non validi nel masterfilter: {string.Join(", ", invalid)}");
+            throw new ArgumentException(
+                "ID strategia non eseguibili nel masterfilter: " +
+                string.Join("; ", invalid.Select(StrategyFactory.DescribeUnusableId)));
 
         var strategies = filter.StrategiesFilter.Select(id =>
         {
@@ -614,7 +919,7 @@ public sealed class TradingSessionService : ITradingSessionService
         lock (session.Gate)
         {
             session.Status = status;
-            Persist(session);
+            Persist(session, force: true);
             return Describe(session);
         }
     }
@@ -653,177 +958,462 @@ public sealed class TradingSessionService : ITradingSessionService
                     session.History[stream] = history = [];
                 history.Add(normalizedBar.Bar);
 
-                var prices = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase)
-                    { [Normalize(bar.Symbol)] = bar.Bar.Close };
-                var bars = new Dictionary<string, OhlcvData>(StringComparer.OrdinalIgnoreCase)
-                    { [Normalize(bar.Symbol)] = normalizedBar.Bar };
-
-                // Ordering autorevole: prima exit/pending, poi valutazione, infine intent.
-                if (session.Mode == ExecutionMode.ServerSimulated)
-                    session.SimulatedEngine.UpdateMarketPrices(prices, bars, bar.BarTimeUtc);
-
-                IReadOnlyList<ITradingStrategy> evaluationStrategies = session.Strategies;
-                var allocations = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
-                TitanoEffectiveStrategies? effective = null;
-                string? rotationNote = null;
-                if (!string.IsNullOrWhiteSpace(session.TitanoBacktestFolder))
-                {
-                    var service = _titano ?? throw new InvalidOperationException("Servizio Titano non disponibile.");
-                    var runId = ResolveRunIdForFolder(session, session.TitanoBacktestFolder)
-                        ?? throw new InvalidOperationException(
-                            $"Nessun run Titano trovato per la cartella '{session.TitanoBacktestFolder}': " +
-                            "esegui prima una rotazione.");
-                    effective = service.Resolve(session.WorkspaceId, session.TitanoBacktestFolder,
-                        runId, bar.BarTimeUtc, session.TitanoMode);
-                    foreach (var state in effective.StrategyStates)
-                        allocations[state.StrategyCode] = state.AllocationMultiplier;
-
-                    if (session.TitanoMode == TitanoFilterMode.Disabled)
-                    {
-                        // Rotazione risolta e registrata, ma non applicata: le allocazioni restano
-                        // neutre e tutte le strategie del masterfilter vengono valutate. È il run che
-                        // produce i trade su cui l'analisi Titano calcolerà le rotazioni.
-                        allocations.Clear();
-                        rotationNote = "modalità Disabled: rotazione risolta solo a scopo diagnostico, nessun filtro applicato";
-                    }
-                    else if (!effective.HasActivePeriod)
-                    {
-                        // Nessun periodo copre questa barra. In Realtime il fallback sull'ultimo periodo
-                        // è già stato tentato dentro Resolve, quindi qui siamo davvero scoperti: è un
-                        // manifest non allineato all'intervallo che si sta eseguendo. Fermarsi è meglio
-                        // che eseguire senza filtri una sessione che l'utente ha chiesto filtrata.
-                        throw new InvalidOperationException(
-                            $"Nessun periodo Titano copre la barra {bar.BarTimeUtc:O}: il manifest '{runId}' " +
-                            $"copre {effective.ManifestFromUtc:O} → {effective.ManifestToUtc:O}. " +
-                            "Rigenera la rotazione su un backtest che copra questo intervallo, oppure " +
-                            "esegui la sessione in modalità Disabled.");
-                    }
-                    else
-                    {
-                        evaluationStrategies = session.Strategies
-                            .Where(x => effective.EffectiveStrategies.Contains(x.Name, StringComparer.OrdinalIgnoreCase))
-                            .ToArray();
-
-                        if (effective.UsedLatestPeriod)
-                            rotationNote =
-                                $"barra {bar.BarTimeUtc:O} oltre la fine del manifest ({effective.ManifestToUtc:O}): " +
-                                "applicata la rotazione dell'ultimo periodo calcolato. Rigenera l'analisi Titano.";
-                    }
-                }
-                var signals = _evaluation.Evaluate(
-                    evaluationStrategies,
-                    normalizedBar,
-                    history,
-                    strategy => GetExecution(session, strategy, bar.BarTimeUtc));
-
-                if (effective is not null)
-                    session.RotationLog.Add(BuildRotationLogEntry(
-                        session, bar.BarTimeUtc, effective, evaluationStrategies, signals, rotationNote));
-                var sized = new Dictionary<TradeSignal, PositionSizingResult>();
-                foreach (var signal in signals)
-                {
-                    var multiplier = allocations.TryGetValue(signal.StrategyCode, out var value) ? value : 1m;
-                    var snapshot = Snapshot(session);
-                    session.PeakEquity = Math.Max(session.PeakEquity, snapshot.Equity);
-                    var result = _positionSizing.Calculate(new PositionSizingRequest
-                    {
-                        BaseQuantity = signal.Quantity, StrategyEquityMultiplier = multiplier,
-                        Instrument = session.InstrumentMetadata[Normalize(signal.Symbol)],
-                        Config = session.PositionSizing, AvailableBars = history,
-                        TimestampUtc = bar.BarTimeUtc, InitialCapital = session.InitialCapital,
-                        Equity = snapshot.Equity, PeakEquity = session.PeakEquity,
-                        GrossExposureFraction = session.InitialCapital <= 0 ? 1m :
-                            session.ExternalPositions.Values.Sum(x => x.Quantity * x.EntryPrice) / session.InitialCapital
-                    });
-                    sized[signal] = result;
-                    signal.Quantity = result.FinalQuantity;
-                }
-                session.LastEvaluatedBarTimeUtc = bar.BarTimeUtc;
-                var multiAccount = session.AccountGroups.Count > 0;
-                foreach (var signal in signals)
-                {
-                    if (signal.RuntimeState is not null)
-                        session.SimulatedEngine.CaptureStrategyRuntimeState(
-                            signal.StrategyCode, signal.Symbol, signal.RuntimeState);
-                    var result = sized.GetValueOrDefault(signal);
-
-                    // Un ExitOnly chiude la posizione opposta già confermata dal broker; non viene
-                    // dimensionato né trasformato in un template di ingresso.
-                    if (signal.ExitOnly && session.Mode == ExecutionMode.ExternalBroker)
-                    {
-                        emitted.AddRange(CreateExitOnlyCloseIntents(session, signal));
-                        continue;
-                    }
-
-                    if (multiAccount)
-                    {
-                        // Template non assegnato: resta disponibile finché non viene reclamato da un
-                        // account libero di un gruppo (vedi GetNextSignalForAccount).
-                        var template = AddIntent(session, signal, result, addToIntents: false);
-                        if (result?.Reason is not null) template.Status = OrderIntentStatus.Cancelled;
-                        else session.EntryTemplates.Add(template);
-                        emitted.Add(template);
-                        continue;
-                    }
-
-                    var intent = AddIntent(session, signal, result, conversion: ResolveDirectConversion(session));
-                    if (result?.Reason is not null) intent.Status = OrderIntentStatus.Cancelled;
-
-                    // Simbolo non operativo sul conto che esegue: l'intent resta come traccia ma
-                    // non deve essere eseguito.
-                    if (intent.FinalQuantity <= 0 && session.DirectAccountNumber is not null)
-                        intent.Status = OrderIntentStatus.Cancelled;
-
-                    // Limite di fill per sessione. In ExternalBroker è l'unico punto in cui può
-                    // essere applicato: il motore simulato che lo verifica al fill
-                    // (PiootooTradingService) qui non decide niente. L'intent resta in sessione come
-                    // traccia di audit ma non viene consegnato al client, altrimenti un client che
-                    // ignora Status lo eseguirebbe comunque.
-                    if (session.Mode == ExecutionMode.ExternalBroker &&
-                        MaxEntriesPerSessionReached(session, intent, accountNumber: null))
-                    {
-                        intent.Status = OrderIntentStatus.Cancelled;
-                        continue;
-                    }
-
-                    emitted.Add(intent);
-                }
-
-                var executableSignals = signals.Where(x => x.Quantity > 0).ToList();
-                if (session.Mode == ExecutionMode.ServerSimulated && executableSignals.Count != 0)
-                {
-                    session.SimulatedEngine.ProcessSignals(executableSignals, prices, bars, bar.BarTimeUtc);
-                    foreach (var intent in emitted.Where(i => i.Status == OrderIntentStatus.Pending))
-                        intent.Status = OrderIntentStatus.Filled;
-                }
+                EvaluateClosedBar(session, normalizedBar, history, emitted);
+                TrimHistory(session, bar.Symbol, bar.TimeframeMinutes, history);
             }
             Persist(session);
             return new PushBarsResponse { AcceptedBars = accepted, DuplicateBars = duplicates, Intents = emitted };
         }
     }
 
+    /// <summary>
+    /// Riceve, per ogni stream, la finestra di candele che le strategie di quello stream richiedono.
+    /// Il server accoda alla propria storia le candele che non ha (è il riscaldamento: alla prima
+    /// finestra di un run entrano tutte) e valuta la sola ultima candela.
+    ///
+    /// <para>Idempotenza e ordinamento restano sulla barra da valutare: rispedire la stessa finestra
+    /// è un duplicato, spedirne una che finisce prima dell'ultima già valutata è un errore, esattamente
+    /// come per <see cref="PushBars"/>. Le candele più vecchie non sono soggette a quel controllo
+    /// perché per definizione arrivano già viste.</para>
+    ///
+    /// <para><b>Le candele restano in RAM.</b> La sessione non le scrive nel datafeed del workspace:
+    /// <c>TradingJsonStore</c> persiste signal, trade e rotation-log, non barre. Raccogliere il feed
+    /// da cTrader e salvarlo su disco è compito di un cBot dedicato, non di questa strada.</para>
+    /// </summary>
+    public PushBarWindowResponse PushBarWindow(PushBarWindowRequest request)
+    {
+        var session = Get(request.SessionId, request.SessionToken);
+        lock (session.Gate)
+        {
+            if (session.Status != TradingSessionStatus.Running)
+                throw new InvalidOperationException("La sessione non è in esecuzione.");
+
+            var accepted = 0;
+            var duplicates = 0;
+            var backfilled = 0;
+            var emitted = new List<OrderIntent>();
+            var streams = new List<StreamHistoryStatus>();
+
+            foreach (var window in request.Windows)
+            {
+                if (window.Candles is null || window.Candles.Count == 0)
+                    throw new ArgumentException(
+                        $"Finestra vuota per {window.Symbol}/{window.TimeframeMinutes}m: " +
+                        "l'ultima candela è la barra da valutare e non può mancare.");
+
+                var closedBar = new ClosedBar
+                {
+                    Symbol = window.Symbol,
+                    TimeframeMinutes = window.TimeframeMinutes,
+                    BarTimeUtc = window.Candles[^1].DateTime,
+                    Sequence = window.Sequence,
+                    IdempotencyKey = window.IdempotencyKey,
+                    Bar = window.Candles[^1]
+                };
+                ValidateBar(closedBar);
+
+                var stream = StreamKey(window.Symbol, window.TimeframeMinutes);
+                if (!session.History.TryGetValue(stream, out var history))
+                    session.History[stream] = history = [];
+
+                // Validazioni della finestra prima di toccare qualsiasi stato della sessione: una
+                // finestra rifiutata non deve lasciare dietro di sé una idempotency key consumata o
+                // una sequence avanzata, altrimenti il rinvio corretto verrebbe scambiato per replay.
+                var previousUtc = DateTime.MinValue;
+                foreach (var candle in window.Candles)
+                {
+                    RequireUtc(candle.DateTime, $"{stream}: DateTime della candela");
+                    if (candle.DateTime <= previousUtc)
+                        throw new ArgumentException(
+                            $"Finestra non ordinata per {stream}: {candle.DateTime:O} non è successiva a {previousUtc:O}.");
+                    previousUtc = candle.DateTime;
+                }
+
+                var lastKnownUtc = history.Count == 0 ? (DateTime?)null : history[^1].DateTime;
+
+                // La finestra deve SOVRAPPORSI alla storia già presente: se comincia dopo l'ultima
+                // candela nota, fra le due c'è un buco che nessuno colmerà più, e le strategie
+                // girerebbero su una serie bucata senza che nulla lo segnali. Il criterio è la
+                // sovrapposizione e non l'aritmetica sui timestamp perché gli stream hanno buchi
+                // legittimi — fine settimana, festivi, mercati chiusi — che una differenza in minuti
+                // scambierebbe per barre perse.
+                if (lastKnownUtc is { } lastKnown && window.Candles[0].DateTime > lastKnown)
+                    throw new ArgumentException(
+                        $"Buco nella storia di {stream}: la finestra parte da {window.Candles[0].DateTime:O} " +
+                        $"ma il server è fermo a {lastKnown:O}. Il client deve includere almeno una candela " +
+                        "già nota, oppure ricaricare dal broker abbastanza storia da coprire l'intervallo.");
+
+                // Riscaldamento: si accoda e basta. Niente idempotency key consumata e niente sequence
+                // avanzata, perché la stessa barra può tornare più tardi come barra da valutare e in
+                // quel momento non deve sembrare un replay.
+                if (!window.EvaluateLastCandle)
+                {
+                    backfilled += Backfill(history, window.Candles, lastKnownUtc);
+                    streams.Add(BuildStreamStatus(session, window.Symbol, window.TimeframeMinutes, history.Count, evaluated: 0));
+                    continue;
+                }
+
+                if (!session.BarKeys.Add(closedBar.IdempotencyKey))
+                {
+                    duplicates++;
+                    streams.Add(BuildStreamStatus(session, window.Symbol, window.TimeframeMinutes, history.Count, evaluated: 0));
+                    continue;
+                }
+
+                if (session.LastSequence.TryGetValue(stream, out var last) && window.Sequence <= last)
+                {
+                    session.BarKeys.Remove(closedBar.IdempotencyKey);
+                    throw new ArgumentException(
+                        $"Finestra out-of-order per {stream}: sequence {window.Sequence}, ultima {last}.");
+                }
+                session.LastSequence[stream] = window.Sequence;
+                accepted++;
+
+                backfilled += Math.Max(0, Backfill(history, window.Candles, lastKnownUtc) - 1);
+
+                // La sequence è passata ma la candela finale non è entrata: vuol dire che il client
+                // numera le sequence in modo scollegato dagli orari delle barre. Valutare comunque
+                // significherebbe rivalutare una barra vecchia con una chiave nuova.
+                if (history[^1].DateTime != closedBar.BarTimeUtc)
+                    throw new ArgumentException(
+                        $"Finestra incoerente per {stream}: l'ultima candela è {closedBar.BarTimeUtc:O} " +
+                        $"ma la storia arriva già a {history[^1].DateTime:O}. Sequence e orari di barra " +
+                        "devono crescere insieme.");
+
+                var evaluatedBar = new ClosedBar
+                {
+                    Symbol = closedBar.Symbol,
+                    TimeframeMinutes = closedBar.TimeframeMinutes,
+                    BarTimeUtc = DateTime.SpecifyKind(closedBar.BarTimeUtc, DateTimeKind.Utc),
+                    Sequence = closedBar.Sequence,
+                    IdempotencyKey = closedBar.IdempotencyKey,
+                    Bar = history[^1]
+                };
+                var evaluated = EvaluateClosedBar(session, evaluatedBar, history, emitted);
+                TrimHistory(session, window.Symbol, window.TimeframeMinutes, history);
+                streams.Add(BuildStreamStatus(session, window.Symbol, window.TimeframeMinutes, history.Count, evaluated));
+            }
+
+            Persist(session);
+            return new PushBarWindowResponse
+            {
+                AcceptedBars = accepted,
+                DuplicateBars = duplicates,
+                BackfilledBars = Math.Max(0, backfilled),
+                Intents = emitted,
+                Streams = streams,
+                ClaimableIntents = CountClaimableIntents(session)
+            };
+        }
+    }
+
+    /// <summary>
+    /// Accoda alla storia le sole candele più recenti dell'ultima già presente e restituisce quante
+    /// ne ha aggiunte. È così che il client può rispedire una finestra sovrapposta a ogni barra senza
+    /// duplicare nulla, e che la prima finestra di un run entra tutta.
+    /// </summary>
+    private static int Backfill(List<OhlcvData> history, IReadOnlyList<OhlcvData> candles, DateTime? lastKnownUtc)
+    {
+        var added = 0;
+        foreach (var candle in candles)
+        {
+            if (lastKnownUtc is { } known && candle.DateTime <= known)
+                continue;
+            history.Add(candle);
+            added++;
+        }
+        return added;
+    }
+
+    /// <summary>
+    /// Margine di candele tenute oltre la finestra di valutazione piu' ampia dello stream. Copre la
+    /// sovrapposizione delle finestre in arrivo (<c>IncrementalWindowBars</c>, 20 di default) con
+    /// abbondanza, e lascia spazio a una strategia aggiunta a caldo con qualche barra in piu'.
+    /// </summary>
+    private const int HistoryRetentionSlackBars = 512;
+
+    /// <summary>Ogni quante candele in eccesso si pota davvero, per non fare un memmove a ogni barra.</summary>
+    private const int HistoryTrimBatchBars = 1024;
+
+    /// <summary>
+    /// Tiene la storia di uno stream limitata a cio' che serve davvero: la finestra di valutazione
+    /// piu' ampia fra le strategie che insistono su quello stream, piu' un margine.
+    ///
+    /// <para>Senza questo <c>session.History</c> cresce di una candela per barra per tutta la durata
+    /// della sessione — R8 dice che la storia vive in RAM, non che debba viverci tutta — e trascina
+    /// con se' il costo di ogni copia della finestra. La potatura e' dalla testa: l'ultima candela,
+    /// che e' quella con cui <c>Backfill</c> decide cosa accodare e R7 riconosce i buchi, non si
+    /// tocca mai.</para>
+    ///
+    /// <para>Si pota a blocchi (<see cref="HistoryTrimBatchBars"/>) perche' <c>RemoveRange</c> dalla
+    /// testa e' O(elementi rimasti): farlo a ogni barra rimetterebbe dentro il costo che si sta
+    /// togliendo.</para>
+    /// </summary>
+    private static void TrimHistory(Session session, string symbol, int timeframeMinutes, List<OhlcvData> history)
+    {
+        var required = 0;
+        foreach (var strategy in session.Strategies)
+        {
+            if (Normalize(strategy.Symbol) != Normalize(symbol) ||
+                strategy.TimeframeMinutes != timeframeMinutes)
+                continue;
+            required = Math.Max(required, StrategyEvaluationService.EvaluationWindowSize(strategy));
+        }
+
+        var cap = required + HistoryRetentionSlackBars;
+        if (history.Count <= cap + HistoryTrimBatchBars)
+            return;
+
+        history.RemoveRange(0, history.Count - cap);
+    }
+
+    /// <summary>
+    /// Quante strategie del masterfilter insistono su questo stream, quante ne ha valutate il server
+    /// e quante ha saltato per storia insufficiente. È la risposta a "perché non arrivano segnali".
+    /// </summary>
+    private StreamHistoryStatus BuildStreamStatus(
+        Session session, string symbol, int timeframeMinutes, int historyBars, int evaluated)
+    {
+        var onStream = session.Strategies
+            .Where(s => Normalize(s.Symbol) == Normalize(symbol) && s.TimeframeMinutes == timeframeMinutes)
+            .ToArray();
+        return new StreamHistoryStatus
+        {
+            Symbol = Normalize(symbol),
+            TimeframeMinutes = timeframeMinutes,
+            HistoryBars = historyBars,
+            RequiredCandles = onStream.Length == 0 ? 0 : onStream.Max(s => s.RequiredCandles),
+            EvaluatedStrategies = evaluated,
+            SkippedForInsufficientHistory = onStream.Count(s => historyBars < s.RequiredCandles)
+        };
+    }
+
+    /// <summary>
+    /// Corpo comune a <see cref="PushBars"/> e <see cref="PushBarWindow"/>: aggiorna i prezzi di
+    /// mercato, risolve la rotazione Titano, valuta le strategie dello stream, dimensiona e traduce i
+    /// segnali in intent. Restituisce quante strategie sono state effettivamente valutate.
+    /// </summary>
+    private int EvaluateClosedBar(
+        Session session, ClosedBar normalizedBar, List<OhlcvData> history, List<OrderIntent> emitted)
+    {
+        var bar = normalizedBar;
+
+        // La barra nuova rende definitivamente morti i template della barra precedente: si buttano
+        // qui invece di lasciarli in lista e scartarli a ogni claim.
+        PurgeExpiredTemplates(session, bar.BarTimeUtc);
+
+        var prices = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase)
+            { [Normalize(bar.Symbol)] = bar.Bar.Close };
+        var bars = new Dictionary<string, OhlcvData>(StringComparer.OrdinalIgnoreCase)
+            { [Normalize(bar.Symbol)] = normalizedBar.Bar };
+
+        // Ordering autorevole: prima exit/pending, poi valutazione, infine intent.
+        if (session.Mode == ExecutionMode.ServerSimulated)
+            session.SimulatedEngine.UpdateMarketPrices(prices, bars, bar.BarTimeUtc);
+
+        IReadOnlyList<ITradingStrategy> evaluationStrategies = session.Strategies;
+        var allocations = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
+        TitanoEffectiveStrategies? effective = null;
+        string? rotationNote = null;
+        if (!string.IsNullOrWhiteSpace(session.TitanoBacktestFolder))
+        {
+            var service = _titano ?? throw new InvalidOperationException("Servizio Titano non disponibile.");
+            var runId = ResolveRunIdForFolder(session, session.TitanoBacktestFolder);
+
+            // In Disabled la rotazione non filtra niente: si risolve solo per lasciarne traccia nel
+            // rotation-log. Se non esiste ancora un run per quella cartella non c'è nulla da
+            // registrare, e pretenderlo bloccherebbe proprio il run che deve generarlo: il campione
+            // sorgente di Titano nasce da una sessione Disabled che punta alla cartella dove i suoi
+            // trade verranno promossi. L'apertura della sessione applica già la stessa regola
+            // (vedi CreateCore), quindi senza questa il piano si apriva e poi falliva a ogni barra.
+            if (runId is null && session.TitanoMode == TitanoFilterMode.Disabled)
+            {
+                rotationNote = "modalità Disabled senza run Titano per la cartella: nessun filtro da applicare";
+            }
+            else
+            {
+                if (runId is null)
+                    throw new InvalidOperationException(
+                        $"Nessun run Titano trovato per la cartella '{session.TitanoBacktestFolder}': " +
+                        "esegui prima una rotazione.");
+                effective = service.Resolve(session.WorkspaceId, session.TitanoBacktestFolder,
+                    runId, bar.BarTimeUtc, session.TitanoMode);
+                foreach (var state in effective.StrategyStates)
+                    allocations[state.StrategyCode] = state.AllocationMultiplier;
+
+                if (session.TitanoMode == TitanoFilterMode.Disabled)
+                {
+                    // Rotazione risolta e registrata, ma non applicata: le allocazioni restano
+                    // neutre e tutte le strategie del masterfilter vengono valutate. È il run che
+                    // produce i trade su cui l'analisi Titano calcolerà le rotazioni.
+                    allocations.Clear();
+                    rotationNote = "modalità Disabled: rotazione risolta solo a scopo diagnostico, nessun filtro applicato";
+                }
+                else if (!effective.HasActivePeriod)
+                {
+                    // Nessun periodo copre questa barra. In Realtime il fallback sull'ultimo periodo
+                    // è già stato tentato dentro Resolve, quindi qui siamo davvero scoperti: è un
+                    // manifest non allineato all'intervallo che si sta eseguendo. Fermarsi è meglio
+                    // che eseguire senza filtri una sessione che l'utente ha chiesto filtrata.
+                    throw new InvalidOperationException(
+                        $"Nessun periodo Titano copre la barra {bar.BarTimeUtc:O}: il manifest '{runId}' " +
+                        $"copre {effective.ManifestFromUtc:O} → {effective.ManifestToUtc:O}. " +
+                        "Rigenera la rotazione su un backtest che copra questo intervallo, oppure " +
+                        "esegui la sessione in modalità Disabled.");
+                }
+                else
+                {
+                    evaluationStrategies = session.Strategies
+                        .Where(x => effective.EffectiveStrategies.Contains(x.Name, StringComparer.OrdinalIgnoreCase))
+                        .ToArray();
+
+                    if (effective.UsedLatestPeriod)
+                        rotationNote =
+                            $"barra {bar.BarTimeUtc:O} oltre la fine del manifest ({effective.ManifestToUtc:O}): " +
+                            "applicata la rotazione dell'ultimo periodo calcolato. Rigenera l'analisi Titano.";
+                }
+            }
+        }
+        var signals = _evaluation.Evaluate(
+            evaluationStrategies,
+            normalizedBar,
+            history,
+            strategy => GetExecution(session, strategy, bar.BarTimeUtc));
+
+        if (effective is not null)
+            session.RotationLog.Add(BuildRotationLogEntry(
+                session, bar.BarTimeUtc, effective, evaluationStrategies, signals, rotationNote));
+        var sized = new Dictionary<TradeSignal, PositionSizingResult>();
+        foreach (var signal in signals)
+        {
+            var multiplier = allocations.TryGetValue(signal.StrategyCode, out var value) ? value : 1m;
+            var equity = CurrentEquity(session);
+            session.PeakEquity = Math.Max(session.PeakEquity, equity);
+            var result = _positionSizing.Calculate(new PositionSizingRequest
+            {
+                BaseQuantity = signal.Quantity, StrategyEquityMultiplier = multiplier,
+                Instrument = session.InstrumentMetadata[Normalize(signal.Symbol)],
+                Config = session.PositionSizing, AvailableBars = history,
+                TimestampUtc = bar.BarTimeUtc, InitialCapital = session.InitialCapital,
+                Equity = equity, PeakEquity = session.PeakEquity,
+                GrossExposureFraction = session.InitialCapital <= 0 ? 1m :
+                    session.ExternalPositions.Values.Sum(x => x.Quantity * x.EntryPrice) / session.InitialCapital
+            });
+            sized[signal] = result;
+            signal.Quantity = result.FinalQuantity;
+        }
+        session.LastEvaluatedBarTimeUtc = bar.BarTimeUtc;
+        var multiAccount = session.AccountGroups.Count > 0;
+        foreach (var signal in signals)
+        {
+            if (signal.RuntimeState is not null)
+                session.SimulatedEngine.CaptureStrategyRuntimeState(
+                    signal.StrategyCode, signal.Symbol, signal.RuntimeState);
+            var result = sized.GetValueOrDefault(signal);
+
+            // Un ExitOnly chiude la posizione opposta già confermata dal broker; non viene
+            // dimensionato né trasformato in un template di ingresso.
+            if (signal.ExitOnly && session.Mode == ExecutionMode.ExternalBroker)
+            {
+                emitted.AddRange(CreateExitOnlyCloseIntents(session, signal));
+                continue;
+            }
+
+            if (multiAccount)
+            {
+                // Template non assegnato: resta disponibile finché non viene reclamato da un
+                // account libero di un gruppo (vedi GetNextSignalForAccount).
+                var template = AddIntent(session, signal, result, addToIntents: false);
+                if (result?.Reason is not null) template.Status = OrderIntentStatus.Cancelled;
+                else session.EntryTemplates.Add(template);
+                RecordActivity(session, SessionActivityKind.IntentCreato,
+                    result?.Reason is { } scartato
+                        ? $"scartato dal sizing: {scartato}"
+                        : $"{template.Side} {template.OrderType} @ {template.Price:0.#####} qty {template.FinalQuantity:0.####}",
+                    strategyCode: template.StrategyCode, symbol: template.Symbol, intentId: template.IntentId);
+                emitted.Add(template);
+                continue;
+            }
+
+            var intent = AddIntent(session, signal, result, conversion: ResolveDirectConversion(session));
+            if (result?.Reason is not null) intent.Status = OrderIntentStatus.Cancelled;
+
+            // Simbolo non operativo sul conto che esegue: l'intent resta come traccia ma
+            // non deve essere eseguito.
+            if (intent.FinalQuantity <= 0 && session.DirectAccountNumber is not null)
+                intent.Status = OrderIntentStatus.Cancelled;
+
+            // Limite di fill per sessione. In ExternalBroker è l'unico punto in cui può
+            // essere applicato: il motore simulato che lo verifica al fill
+            // (PiootooTradingService) qui non decide niente. L'intent resta in sessione come
+            // traccia di audit ma non viene consegnato al client, altrimenti un client che
+            // ignora Status lo eseguirebbe comunque.
+            if (session.Mode == ExecutionMode.ExternalBroker &&
+                MaxEntriesPerSessionReached(session, intent, accountNumber: null))
+            {
+                intent.Status = OrderIntentStatus.Cancelled;
+                continue;
+            }
+
+            emitted.Add(intent);
+        }
+
+        var executableSignals = signals.Where(x => x.Quantity > 0).ToList();
+        if (session.Mode == ExecutionMode.ServerSimulated && executableSignals.Count != 0)
+        {
+            session.SimulatedEngine.ProcessSignals(executableSignals, prices, bars, bar.BarTimeUtc);
+            foreach (var intent in emitted.Where(i => i.Status == OrderIntentStatus.Pending))
+                intent.Status = OrderIntentStatus.Filled;
+        }
+
+        // "Valutate" sono le strategie di questo stream che avevano abbastanza storia: le altre
+        // StrategyEvaluationService le salta in silenzio, ed è esattamente il silenzio da spiegare.
+        return evaluationStrategies.Count(s =>
+            Normalize(s.Symbol) == Normalize(bar.Symbol) &&
+            s.TimeframeMinutes == bar.TimeframeMinutes &&
+            history.Count >= s.RequiredCandles);
+    }
+
     public IReadOnlyList<OrderIntent> GetIntents(string sessionId, string token, long after = 0)
     {
         var session = Get(sessionId, token);
-        lock (session.Gate) return session.Intents.Skip((int)Math.Max(0, after)).ToArray();
+        lock (session.Gate)
+        {
+            // GetRange e non Skip: il poll della console chiede sempre "tutto dopo l'indice N" e
+            // Skip riattraversa gli N gia' consegnati a ogni chiamata.
+            var start = (int)Math.Clamp(after, 0, session.Intents.Count);
+            return session.Intents.GetRange(start, session.Intents.Count - start);
+        }
     }
 
     public IReadOnlyList<PersistedSignal> GetPersistedSignals(string sessionId, string token)
     {
         var session = Get(sessionId, token);
-        lock (session.Gate) return session.Store.ReadSignals();
+        lock (session.Gate)
+        {
+            Persist(session, force: true);
+            return session.Store.ReadSignals();
+        }
     }
 
     public IReadOnlyList<PersistedTrade> GetPersistedTrades(string sessionId, string token)
     {
         var session = Get(sessionId, token);
-        lock (session.Gate) return session.Store.ReadTrades();
+        lock (session.Gate)
+        {
+            Persist(session, force: true);
+            return session.Store.ReadTrades();
+        }
     }
 
     public IReadOnlyList<RotationLogEntry> GetRotationLog(string sessionId, string token)
     {
         var session = Get(sessionId, token);
-        lock (session.Gate) return session.Store.ReadRotationLog();
+        lock (session.Gate)
+        {
+            Persist(session, force: true);
+            return session.Store.ReadRotationLog();
+        }
     }
 
     public TradingSessionSnapshot ApplyReport(string sessionId, ExecutionReportRequest request)
@@ -837,8 +1427,8 @@ public sealed class TradingSessionService : ITradingSessionService
             RequireUtc(report.EventTimeUtc, nameof(report.EventTimeUtc));
             if (!session.ReportIds.Add(report.ReportId))
                 return Snapshot(session);
-            var intent = session.Intents.SingleOrDefault(x => x.IntentId == report.IntentId)
-                         ?? throw new KeyNotFoundException($"Intent '{report.IntentId}' non trovato.");
+            if (!session.IntentsById.TryGetValue(report.IntentId, out var intent))
+                throw new KeyNotFoundException($"Intent '{report.IntentId}' non trovato.");
             if (report.CumulativeFilledQuantity < intent.FilledQuantity || report.CumulativeFilledQuantity > intent.Quantity)
                 throw new ArgumentException("CumulativeFilledQuantity non valida.");
 
@@ -854,14 +1444,23 @@ public sealed class TradingSessionService : ITradingSessionService
                 _ => OrderIntentStatus.Cancelled
             };
 
+            RecordActivity(session,
+                intent.IsClose ? SessionActivityKind.PosizioneChiusa : SessionActivityKind.EsitoEsecuzione,
+                report.FillPrice is { } prezzo
+                    ? $"{intent.Status} @ {prezzo:0.#####} qty {report.CumulativeFilledQuantity:0.####}"
+                    : $"{intent.Status}",
+                intent.AssignedAccountNumber ?? string.Empty,
+                intent.AssignedGroupId ?? string.Empty,
+                intent.StrategyCode, intent.Symbol, intent.IntentId);
+
             if (!intent.IsClose && intent.FilledQuantity == 0 &&
                 intent.Status is OrderIntentStatus.Rejected or OrderIntentStatus.Cancelled &&
                 intent.AssignedAccountNumber is { } rejectedAccount)
             {
-                // Ingresso mai eseguito (rifiutato/annullato dal broker): libera subito lo slot di gruppo
-                // e l'autolimitazione dell'account SU QUESTO SIMBOLO, altrimenti resterebbero bloccati per
-                // sempre (l'account può comunque avere posizioni aperte in parallelo su altri simboli).
-                session.AccountActiveIntent.Remove(ActiveIntentKey(rejectedAccount, intent.Symbol));
+                // Ingresso mai eseguito (rifiutato/annullato dal broker): libera subito lo slot di
+                // gruppo, altrimenti resterebbe bloccato per sempre. Il budget di concorrenza
+                // dell'account non ha niente da liberare: si ricalcola a ogni poll dagli intent
+                // ancora Pending, e questo ha appena smesso di esserlo.
                 if (session.AccountGroups.TryGetValue(rejectedAccount, out var freedGroupId))
                     session.GroupStrategySlots.Remove(SlotKey(freedGroupId, intent.StrategyCode, intent.Symbol));
             }
@@ -917,10 +1516,9 @@ public sealed class TradingSessionService : ITradingSessionService
 
                     if (accountNumber != null)
                     {
-                        // Libera lo slot di gruppo e l'autolimitazione dell'account SU QUESTO SIMBOLO:
-                        // torna disponibile per un nuovo ingresso su questo simbolo (le posizioni aperte
-                        // su altri simboli dallo stesso account non sono influenzate).
-                        session.AccountActiveIntent.Remove(ActiveIntentKey(accountNumber, intent.Symbol));
+                        // Libera lo slot di gruppo: la coppia (strategia, simbolo) torna disponibile
+                        // per un nuovo ingresso. Il budget di concorrenza dell'account si libera da
+                        // sé, perché la posizione appena chiusa non sarà più nello snapshot broker.
                         if (session.AccountGroups.TryGetValue(accountNumber, out var groupId))
                             session.GroupStrategySlots.Remove(SlotKey(groupId, intent.StrategyCode, intent.Symbol));
 
@@ -977,6 +1575,102 @@ public sealed class TradingSessionService : ITradingSessionService
     }
 
     /// <summary>
+    /// Quanti eventi tiene il buffer circolare di una sessione. Copre abbondantemente il ritmo di
+    /// un monitor che polla ogni pochi secondi; oltre non serve, perche' il registro durevole sono
+    /// <c>signals.json</c> e <c>trades.json</c> e non questo.
+    /// </summary>
+    private const int ActivityCapacity = 500;
+
+    /// <summary>
+    /// Registra un evento nel buffer della sessione. Va chiamato con <c>session.Gate</c> gia'
+    /// preso: tutti i punti che lo usano stanno gia' dentro il lock del claim o della barra.
+    ///
+    /// <para>Non fa I/O e non serializza niente: e' un <c>Add</c> con una potatura in testa. E'
+    /// deliberato — questo metodo viene chiamato dentro il ciclo del claim, che in backtest gira
+    /// per ogni barra e ogni account.</para>
+    /// </summary>
+    private static void RecordActivity(
+        Session session,
+        SessionActivityKind kind,
+        string detail,
+        string accountNumber = "",
+        string groupId = "",
+        string strategyCode = "",
+        string symbol = "",
+        string intentId = "")
+    {
+        session.Activity.Add(new SessionActivityEntry
+        {
+            Sequence = ++session.ActivitySequence,
+            // L'orologio della sessione e' l'ultima barra valutata, non l'ora di sistema: in un
+            // replay storico le due cose distano mesi, e un monitor che mostrasse l'ora di sistema
+            // su un backtest del 2025 sarebbe illeggibile. Fallback a UtcNow prima della prima barra.
+            TimestampUtc = session.LastEvaluatedBarTimeUtc ?? DateTime.UtcNow,
+            Kind = kind,
+            AccountNumber = accountNumber,
+            GroupId = groupId,
+            StrategyCode = strategyCode,
+            Symbol = symbol,
+            Detail = detail,
+            IntentId = intentId
+        });
+
+        if (session.Activity.Count > ActivityCapacity)
+            session.Activity.RemoveRange(0, session.Activity.Count - ActivityCapacity);
+    }
+
+    /// <summary>
+    /// Registra un claim negato solo quando il MOTIVO cambia rispetto all'ultimo gia' registrato
+    /// per quell'account.
+    ///
+    /// <para>Senza questa guardia il buffer si riempie di "nessun segnale per la barra corrente"
+    /// ripetuto a ogni poll, e gli eventi rari — quelli per cui il monitor esiste — vengono spinti
+    /// fuori dalla finestra prima che qualcuno li veda. E' la stessa deduplica che il server
+    /// applica gia' al proprio log (<c>LastClaimRefusal</c> nel controller).</para>
+    /// </summary>
+    private static void RecordRefusal(Session session, string accountNumber, string groupId, string stage)
+    {
+        if (string.IsNullOrWhiteSpace(stage))
+            return;
+        if (session.LastRefusalByAccount.TryGetValue(accountNumber, out var precedente) && precedente == stage)
+            return;
+
+        session.LastRefusalByAccount[accountNumber] = stage;
+        RecordActivity(session, SessionActivityKind.ClaimNegato, stage, accountNumber, groupId);
+    }
+
+    /// <summary>
+    /// Gli eventi della sessione dopo <paramref name="since"/>. Il client passa il progressivo
+    /// dell'ultimo evento che ha gia' mostrato e riceve solo il nuovo.
+    ///
+    /// <para><see cref="SessionActivityResponse.Troncato"/> dice che fra <paramref name="since"/> e
+    /// il primo evento ancora in buffer c'e' un buco: il chiamante ha pollato troppo lentamente e
+    /// il buffer circolare ha gia' buttato quello che gli manca. Dichiararlo e' il punto — una
+    /// griglia con un buco silenzioso e' peggio di una che lo ammette.</para>
+    /// </summary>
+    public SessionActivityResponse GetActivity(string sessionId, string token, long since = 0)
+    {
+        var session = Get(sessionId, token);
+        lock (session.Gate)
+        {
+            var entries = session.Activity.Where(e => e.Sequence > since).ToList();
+
+            // Il buco c'e' solo se il client aveva gia' visto qualcosa (since > 0) e il buffer non
+            // parte da dove lui si era fermato. Alla prima chiamata (since = 0) ricevere un buffer
+            // gia' potato e' normale, non una perdita.
+            var primoInBuffer = session.Activity.Count > 0 ? session.Activity[0].Sequence : 0;
+            var troncato = since > 0 && primoInBuffer > since + 1;
+
+            return new SessionActivityResponse
+            {
+                LastSequence = session.ActivitySequence,
+                Troncato = troncato,
+                Entries = entries
+            };
+        }
+    }
+
+    /// <summary>
     /// Promuove i trade di una sessione a campione sorgente per Titano.
     ///
     /// <para>Una sessione scrive in <c>&lt;workspace&gt;/sessions/&lt;id&gt;/</c>, le rotazioni
@@ -997,6 +1691,7 @@ public sealed class TradingSessionService : ITradingSessionService
         IReadOnlyList<PersistedSignal> signals;
         lock (session.Gate)
         {
+            Persist(session, force: true);
             trades = session.Store.ReadTrades();
             signals = session.Store.ReadSignals();
         }
@@ -1038,8 +1733,8 @@ public sealed class TradingSessionService : ITradingSessionService
         var session = Get(sessionId, token);
         lock (session.Gate)
         {
-            var intent = session.Intents.SingleOrDefault(x => x.IntentId == intentId)
-                         ?? throw new KeyNotFoundException($"Intent '{intentId}' non trovato.");
+            if (!session.IntentsById.TryGetValue(intentId, out var intent))
+                throw new KeyNotFoundException($"Intent '{intentId}' non trovato.");
             if (intent.Status is OrderIntentStatus.Filled or OrderIntentStatus.Rejected or OrderIntentStatus.Cancelled)
                 throw new InvalidOperationException("L'intent non è cancellabile.");
             intent.Status = OrderIntentStatus.Cancelled;
@@ -1063,6 +1758,7 @@ public sealed class TradingSessionService : ITradingSessionService
 
             session.AccountGroups.Clear();
             session.AccountMaxConcurrentTrades.Clear();
+            session.AccountConcurrencyCountMode.Clear();
             session.AccountConversions.Clear();
             foreach (var mapping in accounts)
                 session.AccountGroups[mapping.AccountNumber.Trim()] = mapping.GroupId.Trim();
@@ -1090,6 +1786,7 @@ public sealed class TradingSessionService : ITradingSessionService
 
             session.AccountGroups.Clear();
             session.AccountMaxConcurrentTrades.Clear();
+            session.AccountConcurrencyCountMode.Clear();
             session.AccountConversions.Clear();
             session.GroupProfiles.Clear();
             foreach (var group in rows.GroupBy(r => r.GroupId.Trim(), StringComparer.OrdinalIgnoreCase))
@@ -1109,6 +1806,7 @@ public sealed class TradingSessionService : ITradingSessionService
                 {
                     session.AccountGroups[row.AccountNumber.Trim()] = group.Key;
                     session.AccountMaxConcurrentTrades[row.AccountNumber.Trim()] = row.MaxConcurrentTrades;
+                    session.AccountConcurrencyCountMode[row.AccountNumber.Trim()] = row.ConcurrencyCountMode;
                 }
             }
             Persist(session);
@@ -1163,6 +1861,7 @@ public sealed class TradingSessionService : ITradingSessionService
                     GroupId = kv.Value,
                     AccountNumber = kv.Key,
                     MaxConcurrentTrades = session.AccountMaxConcurrentTrades.GetValueOrDefault(kv.Key),
+                    ConcurrencyCountMode = session.AccountConcurrencyCountMode.GetValueOrDefault(kv.Key),
                     RotationSetupId = profile?.RotationSetupId,
                     TitanoBacktestFolder = profile?.TitanoBacktestFolder,
                     ApplyTitanoFilters = profile?.ApplyTitanoFilters ?? true
@@ -1173,27 +1872,20 @@ public sealed class TradingSessionService : ITradingSessionService
             .ToArray();
 
     public AccountSignalResponse GetNextSignalForAccount(string sessionId, string token, string accountNumber)
-        => GetNextSignalForAccount(
-            sessionId, token, accountNumber, brokerOpenPositions: null, brokerPendingOrders: null);
+        => GetNextSignalForAccount(sessionId, token, accountNumber, brokerState: null);
 
     public AccountSignalResponse PollSignalForAccount(
         string sessionId, string accountNumber, AccountSignalPollRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
-        return GetNextSignalForAccount(
-            sessionId,
-            request.SessionToken,
-            accountNumber,
-            request.Positions?.Count ?? 0,
-            request.Orders?.Count ?? 0);
+        return GetNextSignalForAccount(sessionId, request.SessionToken, accountNumber, request);
     }
 
     private AccountSignalResponse GetNextSignalForAccount(
         string sessionId,
         string token,
         string accountNumber,
-        int? brokerOpenPositions,
-        int? brokerPendingOrders)
+        AccountSignalPollRequest? brokerState)
     {
         if (string.IsNullOrWhiteSpace(accountNumber))
             throw new ArgumentException("AccountNumber obbligatorio.");
@@ -1208,66 +1900,222 @@ public sealed class TradingSessionService : ITradingSessionService
                 throw new ArgumentException(
                     $"Account '{accountNumber}' non configurato per questa sessione. Aggiungilo nel tab Trading Session.");
 
-            // 1) C'è già un intent concreto pendente assegnato a questo account (ingresso appena reclamato
-            //    non ancora confermato, oppure una chiusura da eseguire)? Il poll è idempotente: lo ripropone.
-            var assigned = session.Intents
+            // 1) Le CHIUSURE assegnate a questo account si ripropongono sempre, e prima di tutto:
+            //    sono ordini da eseguire, non segnali da distribuire, e perderne una lascia aperta
+            //    una posizione che nessuno chiuderà più. Non consumano budget e non ne aspettano.
+            var pendingForAccount = session.Intents
                 .Where(i => string.Equals(i.AssignedAccountNumber, accountNumber, StringComparison.OrdinalIgnoreCase)
                             && i.Status == OrderIntentStatus.Pending)
                 .OrderBy(i => i.CreatedAtUtc)
-                .FirstOrDefault();
-            if (assigned != null)
-                return new AccountSignalResponse { Intent = assigned };
+                .ToList();
 
-            var openPositions = brokerOpenPositions ?? CountServerPositionsForAccount(session, accountNumber);
-            var pendingOrders = brokerPendingOrders ?? 0;
+            var pendingClose = pendingForAccount.FirstOrDefault(i => i.Kind == OrderIntentKind.Close);
+            if (pendingClose != null)
+                return new AccountSignalResponse { Intent = pendingClose };
+
+            // "Adesso" è l'ultima barra valutata, non l'ora di sistema: in un replay storico le due
+            // cose distano mesi, e con DateTime.UtcNow ogni template con ExpiresAtUtc (cioè ogni
+            // ordine "next bar" dei motori Unger) risultava scaduto prima di poter essere reclamato.
+            // Il server generava i segnali, il claim rispondeva sempre NoSignal, e sul broker non
+            // arrivava mai un ordine. Fallback all'ora di sistema solo prima della prima barra.
+            //
+            // L'orologio è l'ORA DI APERTURA dell'ultima barra valutata, non la sua chiusura: i
+            // motori Unger dichiarano ExpiresAtUtc = barra successiva, mentre BiasWeeklyEngine usa la
+            // barra corrente. Con l'apertura entrambe le convenzioni danno al template esattamente
+            // una barra di vita; con la chiusura la seconda scadrebbe prima di poter essere
+            // reclamata.
+            //
+            // Su una sessione multi-timeframe questo valore può arretrare — il 60m che chiude alle
+            // 16:00 porta BarTimeUtc 15:00, dopo che il 15m ha già spinto le 15:45 — quindi il
+            // confronto è conservativo: tiene in vita un template un po' più a lungo, non ne scarta
+            // mai uno ancora valido. È il verso giusto in cui sbagliare.
+            //
+            // Sta qui e non più alla selezione del template perché serve anche alla ripresa
+            // dell'intent bloccato, subito sotto.
+            var now = session.LastEvaluatedBarTimeUtc ?? DateTime.UtcNow;
+
+            // 2) Budget di concorrenza dell'account. Conta gli ingressi in volo SULL'INSIEME delle
+            //    strategie e trasversalmente ai simboli: dieci vuol dire dieci, che stiano su un
+            //    simbolo solo o su dieci diversi. Cosa sia "in volo" lo decide il piano con
+            //    ConcurrencyCountMode, e il conteggio è deduplicato per IntentId — un ordine già
+            //    piazzato è insieme un intent Pending sul server e un pending order sul broker, e
+            //    sommare i due conteggi grezzi lo contava due volte.
+            //
+            //    Fino al 11/08/2026 qui c'era anche un lucchetto (account, simbolo) che, su una
+            //    sessione a simbolo singolo, rendeva MaxConcurrentTrades inapplicabile: il tetto
+            //    effettivo era 1 qualunque valore si impostasse, e la seconda strategia sullo
+            //    stesso simbolo non arrivava mai a mercato. Vedi docs/decisioni.md.
+            var countMode = session.AccountConcurrencyCountMode.GetValueOrDefault(accountNumber);
+            var inFlight = CountInFlightForAccount(
+                session, accountNumber, brokerState, countMode, out var openPositions, out var pendingOrders);
             var maxConcurrentTrades = session.AccountMaxConcurrentTrades.GetValueOrDefault(accountNumber);
             if (IsConcurrentTradeLimitActive(session) &&
                 maxConcurrentTrades > 0 &&
-                openPositions + pendingOrders >= maxConcurrentTrades)
+                inFlight >= maxConcurrentTrades)
+            {
+                // Tetto pieno. Se l'account ha un ingresso ancora Pending glielo riproponiamo: è
+                // l'unico modo di recuperare un claim la cui risposta si è persa in rete, e il
+                // client lo riconosce come già inviato e smette di drenare. Senza budget residuo
+                // non ci sarebbe comunque niente di nuovo da consegnargli.
+                //
+                // Ma è una RIPRESA, non una consegna nuova: questa strada non passa da
+                // NarrowTemplates, quindi i due vincoli che decidono se quell'ingresso può ancora
+                // andare a mercato vanno riverificati qui, o l'intent bloccato li scavalca entrambi.
+                // Nei log del 06/08, 08/08 e 11/08 si vede l'effetto: ordini piazzati dopo che il
+                // limite di ingressi per sessione era già stato dichiarato raggiunto per gli altri
+                // template della stessa barra.
+                //
+                //  - la scadenza: un ingresso "next bar" ripreso barre dopo è un livello che la
+                //    strategia non sostiene più;
+                //  - il limite di ingressi per sessione: la strategia ne dichiara uno per sessione
+                //    (per PTS_NQ_PCH_* la sessione è il giorno di calendario UTC) e un intent
+                //    bloccato non è un'eccezione a quel tetto.
+                //
+                // Un intent che non supera i controlli va chiuso, non solo saltato: lasciarlo
+                // Pending significa riproporlo a ogni claim per sempre e tenere occupati i lucchetti
+                // che lo riguardano.
+                var stalledEntry = pendingForAccount.FirstOrDefault(i => i.Kind == OrderIntentKind.Entry);
+                if (stalledEntry != null)
+                {
+                    if (stalledEntry.ExpiresAtUtc.HasValue && stalledEntry.ExpiresAtUtc.Value < now)
+                        stalledEntry.Status = OrderIntentStatus.Cancelled;
+                    else if (MaxEntriesPerSessionReached(session, stalledEntry, accountNumber))
+                        stalledEntry.Status = OrderIntentStatus.Cancelled;
+                    else
+                        return new AccountSignalResponse { Intent = stalledEntry };
+
+                    Persist(session);
+                }
+
                 return new AccountSignalResponse
                 {
                     Reason = "MaxConcurrentTradesExceeded",
                     OpenPositions = openPositions,
                     PendingOrders = pendingOrders,
+                    InFlight = inFlight,
                     MaxConcurrentTrades = maxConcurrentTrades
                 };
+            }
 
-            // 2) Autolimitazione lato server: un segnale alla volta PER SIMBOLO (l'account può gestire in
-            //    parallelo posizioni su simboli diversi, mai due ingressi sullo stesso simbolo insieme).
-            //    Scartiamo quindi solo i template dei simboli su cui l'account è già occupato.
-            var now = DateTime.UtcNow;
+            // 3) Selezione del template. L'orologio (`now`) è già stato risolto sopra: lo condivide
+            // con la ripresa dell'intent bloccato, che applica lo stesso criterio di scadenza.
             var priorities = ComputeStrategyPriority(session, groupId);
             var conversion = ResolveAccountConversion(session, accountNumber);
-            var template = session.EntryTemplates
-                .Where(t => t.Status == OrderIntentStatus.Pending)
+
+            // I filtri sono applicati a stadi invece che in una sola catena LINQ per poter dire QUALE
+            // ha svuotato la lista. Un claim che non restituisce niente è indistinguibile, dal client,
+            // da "nessuna strategia ha prodotto un segnale": senza questa traccia ogni indagine
+            // ricomincia dal rileggere il codice del claim.
+            // I template delle barre passate sono già stati rimossi da PurgeExpiredTemplates: se la
+            // lista è vuota vuol dire che per la barra corrente nessuna strategia ha prodotto un
+            // segnale, non che ce n'erano di vecchi da scartare.
+            var stage = "nessun segnale per la barra corrente";
+            var candidates = session.EntryTemplates.Where(t => t.Status == OrderIntentStatus.Pending).ToList();
+
+            candidates = NarrowTemplates(candidates, ref stage,
                 // Un simbolo disabilitato sull'account non è operativo su quel conto: il template
                 // resta disponibile per gli altri account invece di essere consumato qui.
-                .Where(t => conversion.IsSymbolEnabled(t.Symbol))
-                .Where(t => !t.ExpiresAtUtc.HasValue || t.ExpiresAtUtc.Value >= now)
-                .Where(t => !(session.TemplateClaimedGroups.TryGetValue(t.IntentId, out var claimed)
-                              && claimed.Contains(groupId)))
-                .Where(t => !session.GroupStrategySlots.ContainsKey(SlotKey(groupId, t.StrategyCode, t.Symbol)))
-                .Where(t => !session.AccountActiveIntent.ContainsKey(ActiveIntentKey(accountNumber, t.Symbol)))
+                t => conversion.IsSymbolEnabled(t.Symbol),
+                "simbolo non abilitato sulla tabella di conversione dell'account");
+            candidates = NarrowTemplates(candidates, ref stage,
+                t => !t.ExpiresAtUtc.HasValue || t.ExpiresAtUtc.Value >= now,
+                // Niente orario della barra nel testo: il motivo viene deduplicato per stringa da
+                // client e server, e un valore che cambia a ogni barra manderebbe a vuoto la
+                // deduplica riempiendo entrambi i log di righe identiche nella sostanza.
+                "template scaduti rispetto alla barra corrente");
+            candidates = NarrowTemplates(candidates, ref stage,
+                t => !(session.TemplateClaimedGroups.TryGetValue(t.IntentId, out var claimed)
+                       && claimed.Contains(groupId)),
+                $"già reclamati dal gruppo '{groupId}'");
+            // Sempre attivo, in ogni profilo: un account non tiene DUE ingressi in corso della
+            // stessa strategia sullo stesso simbolo. Non è un vincolo di concorrenza — è l'identità
+            // della strategia: quel segnale è già in mano al broker, e un secondo ordine sarebbe
+            // rischio doppio sullo stesso motivo di ingresso.
+            //
+            // Serve perché `MaxEntriesPerSession` si applica al FILL e non al claim: due template
+            // di barre diverse reclamati prima che il primo riempia passano entrambi il controllo, e
+            // su un run reale (PTS_NQ_PCH_002_15, 14/10/2024 13:15) hanno prodotto due stop order
+            // riempiti allo stesso prezzo e due posizioni da 20 lotti sullo stesso segnale.
+            // Con i lucchetti attivi il 4 lo copre già, ma è più largo — vale per tutto il gruppo —
+            // e a lucchetti spenti non c'era più niente a fermare il doppione.
+            candidates = NarrowTemplates(candidates, ref stage,
+                t => !AccountHasEntryInFlight(session, accountNumber, t.StrategyCode, t.Symbol),
+                "l'account ha già un ingresso in corso per quella strategia su quel simbolo");
+
+            // Lucchetto 4: è un vincolo di CONCORRENZA, non di distribuzione, quindi segue
+            // EnforceConcurrencyLimits insieme a MaxConcurrentTrades. Spento, ogni segnale della
+            // barra diventa un intent e il campione sorgente è completo.
+            //
+            // Il lucchetto 3 (TemplateClaimedGroups, sopra) resta invece SEMPRE attivo: non limita
+            // quanto si opera in parallelo, dice che un template è già stato servito a quel gruppo.
+            // Spegnerlo non produrrebbe più segnali, produrrebbe lo stesso segnale all'infinito, e
+            // il drenaggio del cBot non terminerebbe mai.
+            //
+            // Il lucchetto 5 (account, simbolo) non esiste più: quanto un account opera in
+            // parallelo lo dice MaxConcurrentTrades e basta, sull'insieme delle strategie.
+            if (IsConcurrentTradeLimitActive(session))
+                candidates = NarrowTemplates(candidates, ref stage,
+                    t => !session.GroupStrategySlots.ContainsKey(SlotKey(groupId, t.StrategyCode, t.Symbol)),
+                    "slot (gruppo, strategia, simbolo) già occupato");
+            candidates = NarrowTemplates(candidates, ref stage,
                 // Il limite di fill per sessione è per account: un template già consumato da un
                 // account resta disponibile per gli altri.
-                .Where(t => !MaxEntriesPerSessionReached(session, t, accountNumber))
-                .Where(t => IsTemplateEligibleForGroup(session, groupId, t))
+                t => !MaxEntriesPerSessionReached(session, t, accountNumber),
+                // Il motivo porta i NUMERI e non il solo esito. Nei log del 06/08 e 08/08 questo
+                // filtro ha lasciato passare un template di PTS_NQ_PCH_002_15 alle 17:00 UTC dopo
+                // che la stessa strategia aveva gia' riempito nello stesso giorno di calendario,
+                // e dal solo "limite raggiunto" non si puo' dire QUALE delle cinque condizioni del
+                // conteggio non abbia fatto match: secchio del template, secchio dell'intent
+                // riempito, FilledQuantity, account assegnato, o il limite stesso assente sul
+                // template. Stampandoli si legge la differenza invece di dedurla.
+                //
+                // La deduplica per stringa (RecordRefusal) regge: i valori cambiano una volta al
+                // giorno, non a ogni barra, quindi non genera la riga-per-barra che la nota del
+                // filtro di scadenza dice di evitare.
+                DescribeSessionLimit(session, candidates, accountNumber));
+            candidates = NarrowTemplates(candidates, ref stage,
+                t => IsTemplateEligibleForGroup(session, groupId, t),
+                "escluso dalla rotazione Titano del gruppo");
+
+            var template = candidates
                 .OrderByDescending(t => priorities.GetValueOrDefault(t.StrategyCode, 0m))
                 .ThenBy(t => t.CreatedAtUtc)
                 .FirstOrDefault();
 
             if (template is null)
-                return new AccountSignalResponse { Reason = "NoSignal" };
+            {
+                RecordRefusal(session, accountNumber, groupId, stage);
+                return new AccountSignalResponse { Reason = "NoSignal", ReasonDetail = stage };
+            }
 
             var claim = CloneForClaim(session, template, accountNumber, groupId);
             if (claim.FinalQuantity <= 0)
-                return new AccountSignalResponse { Reason = "NoSignal" };
-            session.Intents.Add(claim);
+                return new AccountSignalResponse
+                {
+                    Reason = "NoSignal",
+                    // Il caso più insidioso: il template esiste ed è idoneo, ma la conversione
+                    // dell'account (BalanceScale, moltiplicatore contratto, arrotondamento del
+                    // broker) lo riduce a zero contratti. Dal client è identico a "nessun segnale".
+                    ReasonDetail =
+                        $"{template.StrategyCode} {template.Symbol}: quantità azzerata dalla conversione " +
+                        $"dell'account ({template.FinalQuantity:0.####} contratti Piootoo -> " +
+                        $"{claim.FinalQuantity:0.####}). {claim.SizingReason}"
+                };
+            AddToIntents(session, claim);
+            session.LastRefusalByAccount.Remove(accountNumber);
+            RecordActivity(session, SessionActivityKind.ClaimServito,
+                $"{claim.Side} {claim.OrderType} @ {claim.Price:0.#####} qty {claim.FinalQuantity:0.####}",
+                accountNumber, groupId, claim.StrategyCode, claim.Symbol, claim.IntentId);
             if (!session.TemplateClaimedGroups.TryGetValue(template.IntentId, out var claimedGroups))
                 session.TemplateClaimedGroups[template.IntentId] = claimedGroups = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             claimedGroups.Add(groupId);
-            session.GroupStrategySlots[SlotKey(groupId, claim.StrategyCode, claim.Symbol)] = (accountNumber, claim.IntentId);
-            session.AccountActiveIntent[ActiveIntentKey(accountNumber, claim.Symbol)] = claim.IntentId;
+
+            // Lo slot di gruppo si scrive solo se qualcuno lo leggerà. Con EnforceConcurrencyLimits
+            // spento sarebbe un dizionario che cresce per tutta la durata del run senza mai essere
+            // consultato, e che mostrerebbe nelle diagnostiche occupazioni che nessun filtro sta
+            // applicando.
+            if (IsConcurrentTradeLimitActive(session))
+                session.GroupStrategySlots[SlotKey(groupId, claim.StrategyCode, claim.Symbol)] = (accountNumber, claim.IntentId);
             Persist(session);
             return new AccountSignalResponse { Intent = claim };
         }
@@ -1279,6 +2127,60 @@ public sealed class TradingSessionService : ITradingSessionService
     /// <c>CreateTradingSessionRequest.EnforceConcurrencyLimits</c> e
     /// <c>docs/domini/distribuzione-multi-account.md</c> §4.
     /// </summary>
+    /// <summary>
+    /// Toglie da <c>EntryTemplates</c> i template la cui finestra di validità è chiusa rispetto alla
+    /// barra appena arrivata, e con essi la traccia di quali gruppi li avevano reclamati.
+    ///
+    /// <para>Un template scaduto non è "da filtrare al prossimo giro": è morto. Tenerlo in lista
+    /// costava tre cose. La lista cresceva per tutta la durata del run — un template per segnale, mai
+    /// rimosso — e ogni claim la riscorreva tutta. La diagnostica del claim continuava a parlare di
+    /// template di barre vecchie ("2 template scartati") invece di dire la verità, cioè che per la
+    /// barra corrente non c'era nessun segnale. E soprattutto rendeva legittimo il sospetto che un
+    /// segnale di una barra passata potesse ancora essere eseguito: non poteva, perché il filtro di
+    /// scadenza c'era, ma la sola lettura del codice non bastava a convincersene.</para>
+    ///
+    /// <para>Si rimuovono solo i template con una scadenza dichiarata e già passata. Quelli senza
+    /// <c>ExpiresAtUtc</c> non hanno una finestra da far scadere, e su una sessione multi-timeframe
+    /// un template del 60m deve sopravvivere alle barre del 15m che gli passano accanto.</para>
+    /// </summary>
+    private static void PurgeExpiredTemplates(Session session, DateTime barTimeUtc)
+    {
+        if (session.EntryTemplates.Count == 0)
+            return;
+
+        var expired = session.EntryTemplates
+            .Where(t => t.ExpiresAtUtc.HasValue && t.ExpiresAtUtc.Value < barTimeUtc)
+            .ToList();
+        if (expired.Count == 0)
+            return;
+
+        foreach (var template in expired)
+        {
+            session.EntryTemplates.Remove(template);
+            session.TemplateClaimedGroups.Remove(template.IntentId);
+        }
+    }
+
+    /// <summary>
+    /// Applica un filtro ai template e, se è lui a svuotare la lista, registra in
+    /// <paramref name="stage"/> il motivo. Restituisce la lista precedente quando il filtro non
+    /// lascia nulla, così i filtri successivi non lavorano su una lista vuota e il motivo
+    /// riportato resta il PRIMO che ha davvero escluso tutto.
+    /// </summary>
+    private static List<OrderIntent> NarrowTemplates(
+        List<OrderIntent> candidates, ref string stage, Func<OrderIntent, bool> predicate, string reason)
+    {
+        if (candidates.Count == 0)
+            return candidates;
+
+        var filtered = candidates.Where(predicate).ToList();
+        if (filtered.Count != 0)
+            return filtered;
+
+        stage = $"{reason} ({candidates.Count} template scartati)";
+        return filtered;
+    }
+
     private static bool IsConcurrentTradeLimitActive(Session session)
         => session.EnforceConcurrencyLimits;
 
@@ -1292,6 +2194,79 @@ public sealed class TradingSessionService : ITradingSessionService
     private static int CountServerPositionsForAccount(Session session, string accountNumber)
         => session.ExternalPositions.Keys.Count(key =>
             key.StartsWith($"{accountNumber}|", StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// Quanti ingressi ha in volo l'account, sull'insieme delle strategie e trasversalmente ai
+    /// simboli. È il numero che si confronta con <c>MaxConcurrentTrades</c>.
+    ///
+    /// <para><b>Deduplicato per IntentId</b>, ed è il punto delicato: un ordine stop già piazzato
+    /// esiste contemporaneamente come intent <c>Pending</c> sul server e come pending order nello
+    /// snapshot del broker. Sommare i due conteggi grezzi — come faceva il codice precedente —
+    /// contava due volte ogni ordine a mercato e dimezzava di fatto il tetto configurato.</para>
+    ///
+    /// <para>I claim consegnati e non ancora comparsi sul broker entrano nel conto: senza di loro
+    /// un drenaggio veloce reclamerebbe tutti i template della barra prima che il broker registri
+    /// il primo ordine, e il tetto verrebbe sfondato dal ritardo di propagazione invece che da una
+    /// decisione.</para>
+    ///
+    /// <para>In <see cref="ConcurrencyCountMode.PositionsOnly"/> il conto sono le sole posizioni
+    /// riempite: ordini pendenti e claim non ancora piazzati non consumano budget, perché in quel
+    /// modello un ordine stop non è esposizione ma un'opzione, e spegnerne uno significa perdere
+    /// il breakout che forse era l'unico a partire. Il drenaggio resta comunque finito, perché
+    /// <c>AccountHasEntryInFlight</c> ammette un solo ingresso in volo per (strategia, simbolo):
+    /// il massimo di ordini contemporanei è il numero di strategie della sessione.</para>
+    /// </summary>
+    /// <param name="brokerState">
+    /// Stato dichiarato dal cBot al poll. Null quando il claim arriva dalla vecchia GET senza corpo:
+    /// in quel caso si ripiega sul conteggio server delle posizioni, che non porta IntentId e va
+    /// quindi sommato invece che unito.
+    /// </param>
+    private static int CountInFlightForAccount(
+        Session session,
+        string accountNumber,
+        AccountSignalPollRequest? brokerState,
+        ConcurrencyCountMode countMode,
+        out int openPositions,
+        out int pendingOrders)
+    {
+        var positions = brokerState?.Positions;
+        var orders = brokerState?.Orders;
+        openPositions = positions?.Count ?? CountServerPositionsForAccount(session, accountNumber);
+        pendingOrders = orders?.Count ?? 0;
+
+        var identified = new HashSet<string>(StringComparer.Ordinal);
+        // Esposizione reale che non porta un IntentId leggibile: label di formato precedente, o
+        // fallback al conteggio server. Non è deduplicabile, quindi si somma. Meglio contare una
+        // volta di troppo che consegnare un ingresso oltre il tetto.
+        var anonymous = 0;
+
+        if (positions is null)
+            anonymous += openPositions;
+        else
+            foreach (var position in positions)
+            {
+                if (string.IsNullOrWhiteSpace(position.IntentId)) anonymous++;
+                else identified.Add(position.IntentId);
+            }
+
+        if (countMode == ConcurrencyCountMode.PositionsOnly)
+            return identified.Count + anonymous;
+
+        if (orders is not null)
+            foreach (var order in orders)
+            {
+                if (string.IsNullOrWhiteSpace(order.IntentId)) anonymous++;
+                else identified.Add(order.IntentId);
+            }
+
+        foreach (var intent in session.Intents)
+            if (intent.Kind == OrderIntentKind.Entry &&
+                intent.Status == OrderIntentStatus.Pending &&
+                string.Equals(intent.AssignedAccountNumber, accountNumber, StringComparison.OrdinalIgnoreCase))
+                identified.Add(intent.IntentId);
+
+        return identified.Count + anonymous;
+    }
 
     public OrderIntent CreateExternalCloseIntent(string sessionId, CreateExternalCloseIntentRequest request)
     {
@@ -1317,7 +2292,10 @@ public sealed class TradingSessionService : ITradingSessionService
             var intent = CreateCloseIntent(
                 session, request.StrategyCode, symbol, position, accountNumber,
                 request.Quantity, string.IsNullOrWhiteSpace(request.Reason) ? "ClientLocalExit" : request.Reason,
-                DateTime.UtcNow);
+                // Stessa ragione del claim: in un replay storico l'ora di sistema data la chiusura a
+                // mesi di distanza dal trade che la genera, e i PersistedTrade finirebbero fuori
+                // dall'intervallo del run — cioè fuori da qualunque periodo di rotazione Titano.
+                session.LastEvaluatedBarTimeUtc ?? DateTime.UtcNow);
             Persist(session);
             return intent;
         }
@@ -1391,8 +2369,17 @@ public sealed class TradingSessionService : ITradingSessionService
             AssignedAccountNumber = accountNumber,
             Status = OrderIntentStatus.Pending
         };
-        session.Intents.Add(intent);
+        AddToIntents(session, intent);
         return intent;
+    }
+
+    /// <summary>
+    /// Unico punto in cui un intent entra nella sessione: tiene allineato <see cref="Session.IntentsById"/>.
+    /// </summary>
+    private static void AddToIntents(Session session, OrderIntent intent)
+    {
+        session.Intents.Add(intent);
+        session.IntentsById[intent.IntentId] = intent;
     }
 
     private static bool IsOpposite(SignalType positionDirection, SignalType signalDirection) =>
@@ -1630,7 +2617,7 @@ public sealed class TradingSessionService : ITradingSessionService
             ProfitStallAfterUtc = signal.ProfitStallAfterUtc,
             Reason = signal.Reason
         };
-        if (addToIntents) session.Intents.Add(intent);
+        if (addToIntents) AddToIntents(session, intent);
         return intent;
     }
 
@@ -1642,6 +2629,59 @@ public sealed class TradingSessionService : ITradingSessionService
     /// motore simulato, dove uno stop non eseguito viene riemesso nella stessa sessione. Il
     /// conteggio è per account quando l'account è noto (multi-account), globale altrimenti.</para>
     /// </summary>
+    /// <summary>
+    /// Quante cose la sessione potrebbe consegnare a un claim: template di ingresso pendenti e non
+    /// scaduti, più gli intent già assegnati e ancora pendenti. Zero significa che
+    /// <see cref="GetNextSignalForAccount"/> risponderebbe a vuoto per qualunque account, ed è la
+    /// garanzia su cui il cBot si permette di saltare il poll.
+    ///
+    /// <para>Deliberatamente <b>più largo</b> del claim vero: non applica i lucchetti di gruppo, il
+    /// filtro Titano né la tabella di conversione dell'account, perché qui non si sta decidendo
+    /// <i>chi</i> prende <i>cosa</i> — si sta solo dicendo se c'è qualcosa. Sbagliare per eccesso
+    /// costa un poll a vuoto; sbagliare per difetto perde un segnale, ed è il verso in cui non si
+    /// può sbagliare.</para>
+    ///
+    /// <para>"Adesso" è l'ultima barra valutata, come nel claim: in un replay storico l'ora di
+    /// sistema dista mesi e farebbe risultare scaduto ogni template.</para>
+    /// </summary>
+    private static int CountClaimableIntents(Session session)
+    {
+        var now = session.LastEvaluatedBarTimeUtc ?? DateTime.UtcNow;
+        var templates = session.EntryTemplates.Count(t =>
+            t.Status == OrderIntentStatus.Pending &&
+            (!t.ExpiresAtUtc.HasValue || t.ExpiresAtUtc.Value >= now));
+        var assigned = session.Intents.Count(i =>
+            i.Status == OrderIntentStatus.Pending && i.AssignedAccountNumber is not null);
+        return templates + assigned;
+    }
+
+    /// <summary>
+    /// L'account ha già un ingresso "in volo" per quella coppia (strategia, simbolo)? Conta sia un
+    /// intent di ingresso ancora <c>Pending</c> — ordine piazzato sul broker e non ancora riempito o
+    /// annullato — sia una posizione aperta.
+    ///
+    /// <para>È il complemento di <see cref="MaxEntriesPerSessionReached"/>, che conta i fill e quindi
+    /// non vede gli ordini in attesa: fra il claim e il fill c'è una finestra in cui due template
+    /// della stessa strategia, nati su barre diverse, sono entrambi ammissibili.</para>
+    /// </summary>
+    private static bool AccountHasEntryInFlight(
+        Session session, string accountNumber, string strategyCode, string symbol)
+    {
+        var pending = session.Intents.Any(intent =>
+            intent.Kind == OrderIntentKind.Entry &&
+            intent.Status == OrderIntentStatus.Pending &&
+            string.Equals(intent.AssignedAccountNumber, accountNumber, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(intent.StrategyCode, strategyCode, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(intent.Symbol, symbol, StringComparison.OrdinalIgnoreCase));
+        if (pending)
+            return true;
+
+        return session.ExternalPositions.Values.Any(position =>
+            string.Equals(position.AccountNumber, accountNumber, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(position.StrategyCode, strategyCode, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(position.Symbol, symbol, StringComparison.OrdinalIgnoreCase));
+    }
+
     private static bool MaxEntriesPerSessionReached(Session session, OrderIntent intent, string? accountNumber)
     {
         if (intent.MaxEntriesPerSession is not > 0 || intent.EntrySessionStartUtc is not { } sessionStart)
@@ -1657,6 +2697,76 @@ public sealed class TradingSessionService : ITradingSessionService
              string.Equals(x.AssignedAccountNumber, accountNumber, StringComparison.OrdinalIgnoreCase)));
 
         return fills >= intent.MaxEntriesPerSession.Value;
+    }
+
+    /// <summary>
+    /// Il motivo di rifiuto del limite di ingressi per sessione, con dentro i NUMERI del conteggio
+    /// invece del solo esito.
+    ///
+    /// <para><b>Perche' esiste.</b> <see cref="MaxEntriesPerSessionReached"/> confronta cinque cose
+    /// — secchio del template, secchio dell'intent riempito, <c>FilledQuantity</c>, account
+    /// assegnato e il tetto dichiarato dalla strategia — e restituisce un bool. Quando il verdetto
+    /// e' quello sbagliato, dal log non si puo' dire quale confronto sia saltato, e le cinque
+    /// ipotesi portano a cinque correzioni diverse. Il caso aperto: nei backtest del 06/08 e 08/08
+    /// un template di <c>PTS_NQ_PCH_002_15</c> passa alle 17:00 UTC dopo che la stessa strategia ha
+    /// gia' riempito nello stesso giorno di calendario, che e' il secchio dichiarato dal motore
+    /// (<c>SessionKey</c> con SessionStartTime=0 restituisce la mezzanotte UTC).</para>
+    ///
+    /// <para>Oltre al conteggio nel secchio del template si stampano <b>i secchi in cui quella
+    /// strategia ha davvero dei fill</b>: se non contengono il secchio del template, il
+    /// disallineamento e' li' e si legge senza altre indagini. Un fill attribuito a un altro
+    /// account viene marcato con <c>@numero</c>, cosi' anche quel caso si distingue.</para>
+    ///
+    /// <para>E' solo diagnostica: non cambia quali template passano. La deduplica per stringa di
+    /// <see cref="RecordRefusal"/> regge, perche' questi valori cambiano una volta al giorno e non
+    /// a ogni barra — il motivo per cui il filtro di scadenza, poco sopra, tiene invece il testo
+    /// fisso.</para>
+    /// </summary>
+    private static string DescribeSessionLimit(
+        Session session, IReadOnlyList<OrderIntent> candidates, string accountNumber)
+    {
+        const string testa = "limite di ingressi per sessione raggiunto";
+        if (candidates.Count == 0)
+            return testa;
+
+        var dettagli = candidates
+            .Select(t => new { t.StrategyCode, t.Symbol, Secchio = t.EntrySessionStartUtc, Tetto = t.MaxEntriesPerSession })
+            .Distinct()
+            .Select(c =>
+            {
+                var fillNelSecchio = session.Intents.Count(x =>
+                    x.Kind == OrderIntentKind.Entry &&
+                    x.FilledQuantity > 0 &&
+                    x.EntrySessionStartUtc == c.Secchio &&
+                    string.Equals(x.StrategyCode, c.StrategyCode, StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(x.Symbol, c.Symbol, StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(x.AssignedAccountNumber, accountNumber, StringComparison.OrdinalIgnoreCase));
+
+                var secchiConFill = session.Intents
+                    .Where(x => x.Kind == OrderIntentKind.Entry &&
+                                x.FilledQuantity > 0 &&
+                                string.Equals(x.StrategyCode, c.StrategyCode, StringComparison.OrdinalIgnoreCase) &&
+                                string.Equals(x.Symbol, c.Symbol, StringComparison.OrdinalIgnoreCase))
+                    .Select(x => Secchio(x.EntrySessionStartUtc) +
+                                 (string.Equals(x.AssignedAccountNumber, accountNumber, StringComparison.OrdinalIgnoreCase)
+                                     ? string.Empty
+                                     : $"@{x.AssignedAccountNumber ?? "n/d"}"))
+                    .Distinct()
+                    .OrderBy(x => x, StringComparer.Ordinal)
+                    .ToList();
+
+                return $"{c.StrategyCode}/{c.Symbol} secchio {Secchio(c.Secchio)} " +
+                       $"fill {fillNelSecchio}/{(c.Tetto?.ToString() ?? "n/d")}" +
+                       (secchiConFill.Count == 0
+                           ? ", nessun fill della strategia"
+                           : $", fill in {string.Join(" ", secchiConFill)}");
+            })
+            .ToList();
+
+        return $"{testa} ({string.Join(" | ", dettagli)})";
+
+        static string Secchio(DateTime? valore) =>
+            valore is { } v ? v.ToString("yyyy-MM-dd HH:mm") + "Z" : "nessuno";
     }
 
     /// <summary>
@@ -1809,60 +2919,232 @@ public sealed class TradingSessionService : ITradingSessionService
     private static string SlotKey(string groupId, string strategyCode, string symbol) =>
         $"{groupId}|{strategyCode}|{Normalize(symbol)}";
 
-    /// <summary>Chiave per l'autolimitazione "un segnale alla volta PER SIMBOLO" di un account.</summary>
-    private static string ActiveIntentKey(string accountNumber, string symbol) =>
-        $"{accountNumber}|{Normalize(symbol)}";
+    /// <summary>Intervallo minimo fra due scritture degli artefatti sul percorso caldo.</summary>
+    private static readonly TimeSpan PersistCheckpointInterval = TimeSpan.FromSeconds(2);
 
-    private static void Persist(Session session)
+    /// <summary>
+    /// Oltre questa distanza dall'ultima scrittura non si e' piu' dentro una raffica: si scrive
+    /// durabile come prima.
+    /// </summary>
+    private static readonly TimeSpan DurableWriteThreshold = TimeSpan.FromSeconds(30);
+
+    /// <summary>
+    /// Scrive gli artefatti della sessione, ma come <b>checkpoint</b>: al massimo uno ogni
+    /// <see cref="PersistCheckpointInterval"/>.
+    ///
+    /// <para>Prima ogni barra riscriveva per intero <c>signals.json</c>, <c>trades.json</c> e
+    /// <c>rotation-log.json</c> — quest'ultimo cresce di una riga per barra — in JSON indentato, con
+    /// <c>AtomicFileWriter</c> in modalita' durabile, cioe' un fsync per file per barra. E' l'invariante
+    /// "AtomicFileWriter mai dentro un loop" applicata al percorso di sessione: il costo cresceva con
+    /// la lunghezza del run, ed era una delle ragioni per cui un backtest via cBot rallentava di
+    /// giorno in giorno.</para>
+    ///
+    /// <para>In live non cambia niente di percepibile: fra una barra e l'altra passano minuti, quindi
+    /// ogni chiamata supera <see cref="DurableWriteThreshold"/> e scrive durabile come prima. In
+    /// backtest le barre arrivano a raffica e si scrive un checkpoint ogni due secondi di orologio.
+    /// Chi legge gli artefatti da fuori (<c>GetPersistedSignals</c>, <c>PromoteToBacktest</c>, il
+    /// cambio di stato della sessione) forza prima la scrittura, quindi nessun lettore vede dati piu'
+    /// vecchi di quello che ha appena chiesto.</para>
+    /// </summary>
+    private static void Persist(Session session) => Persist(session, force: false);
+
+    private static void Persist(Session session, bool force)
     {
-        session.Store.WriteSignals(session.Intents.Select(intent => new PersistedSignal
+        var now = DateTime.UtcNow;
+        var elapsed = now - session.LastPersistUtc;
+        if (!force && elapsed < PersistCheckpointInterval)
         {
-            SignalId = intent.IntentId,
-            IntentId = intent.IntentId,
-            CorrelationId = intent.IntentId,
-            SessionId = session.Id,
-            TimestampUtc = intent.CreatedAtUtc,
-            StrategyCode = intent.StrategyCode,
-            StrategyName = string.IsNullOrWhiteSpace(intent.StrategyName)
-                ? intent.StrategyCode
-                : intent.StrategyName,
-            Symbol = intent.Symbol,
-            AccountId = intent.AccountId,
-            AccountSymbol = intent.AccountSymbol,
-            ContractMultiplier = intent.ContractMultiplier,
-            AccountBalanceScale = intent.AccountBalanceScale,
-            Side = intent.Side,
-            OrderType = intent.OrderType,
-            TriggerPrice = intent.Price,
-            Quantity = intent.Quantity,
-            QuantityBeforeAccountConversion = intent.QuantityBeforeAccountConversion,
-            BaseQuantity = intent.BaseQuantity,
-            StrategyEquityMultiplier = intent.StrategyEquityMultiplier,
-            MarketVolatilityMultiplier = intent.MarketVolatilityMultiplier,
-            PortfolioRiskMultiplier = intent.PortfolioRiskMultiplier,
-            FinalQuantity = intent.FinalQuantity,
-            SizingReason = intent.SizingReason,
-            ValidFromUtc = intent.ValidFromUtc,
-            ExpiresAtUtc = intent.ExpiresAtUtc,
-            StopLoss = intent.StopLoss,
-            TakeProfit = intent.TakeProfit,
-            BreakEven = intent.BreakEven,
-            TrailingStop = intent.TrailingStop,
-            TimeframeMinutes = intent.TimeframeMinutes,
-            TimeExitUtc = intent.CloseAtUtc,
-            Reason = intent.Reason,
-            MaxBarsInPosition = intent.MaxBarsInPosition,
-            IsClose = intent.IsClose,
-            Status = intent.Status,
-            FilledQuantity = intent.FilledQuantity,
-            ExternalOrderId = intent.ExternalOrderId,
-            AssignedAccountNumber = intent.AssignedAccountNumber,
-            AssignedGroupId = intent.AssignedGroupId
-        }));
+            session.PersistPending = true;
+            return;
+        }
 
-        var trades = session.Mode == ExecutionMode.ExternalBroker
-            ? session.ExternalTrades
-            : session.SimulatedEngine.GetClosedTrades().Select((trade, index) => new PersistedTrade
+        if (force && !session.PersistPending && !session.JournalPending &&
+            session.PersistedRotationEntries == session.RotationLog.Count &&
+            session.LastPersistUtc != default && elapsed < PersistCheckpointInterval)
+        {
+            // Flush richiesto ma non c'e' niente di nuovo da scrivere.
+            return;
+        }
+
+        session.LastPersistUtc = now;
+        session.PersistPending = false;
+        WriteArtifacts(session, durable: force || elapsed >= DurableWriteThreshold, full: force);
+    }
+
+    private static void WriteArtifacts(Session session, bool durable, bool full)
+    {
+        if (full) WriteArtifactsFull(session, durable);
+        else WriteArtifactsDelta(session);
+    }
+
+    /// <summary>
+    /// Riscrittura completa e autorevole degli artefatti: costa quanto TUTTO il run, non quanto e'
+    /// cambiato. Vive quindi solo sul percorso forzato — fine sessione, o lettura esplicita degli
+    /// artefatti da fuori — mentre i checkpoint intermedi passano da <see cref="WriteArtifactsDelta"/>.
+    /// </summary>
+    private static void WriteArtifactsFull(Session session, bool durable)
+    {
+        session.Store.WriteSignals(
+            session.Intents.Where(ShouldPersist).Select(intent => ToPersistedSignal(session, intent)), durable);
+        session.Store.WriteTrades(CollectTrades(session, from: 0), durable);
+        session.Store.WriteRotationLog(session.RotationLog, durable);
+        session.JournalPending = false;
+        ResetPersistenceWatermarks(session);
+    }
+
+    /// <summary>
+    /// Checkpoint incrementale: accoda al journal solo cio' che e' cambiato dall'ultimo giro.
+    ///
+    /// <para><b>Perche'.</b> La riscrittura completa riproiettava, validava, deduplicava e
+    /// serializzava ogni intent dall'inizio della sessione per salvarne due nuovi. Su un run di un
+    /// anno sono ~24.000 record e 40-80 MB di <c>signals.json</c>, riscritti ogni due secondi: il
+    /// costo per barra cresce con le barre gia' fatte, ed e' l'origine del rallentamento
+    /// progressivo dei backtest lunghi.</para>
+    ///
+    /// <para><b>Perche' e' completo.</b> Un intent viene riscritto a ogni checkpoint finche' non
+    /// risulta <see cref="IsSettled">assestato</see>. Quindi il passaggio a uno stato definitivo —
+    /// fill, rifiuto, cancellazione — viene sempre catturato dal checkpoint successivo, senza che
+    /// serva intercettare i punti del codice che mutano un intent: dimenticarne uno e' il modo in
+    /// cui una scrittura incrementale perde dati in silenzio, e qui non c'e' niente da
+    /// dimenticare. Trade e rotation-log sono append-only e immutabili, quindi basta il
+    /// segnaposto.</para>
+    /// </summary>
+    private static void WriteArtifactsDelta(Session session)
+    {
+        var delta = new List<PersistedSignal>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+
+        for (var i = session.PersistedIntentCount; i < session.Intents.Count; i++)
+        {
+            var intent = session.Intents[i];
+            if (!seen.Add(intent.IntentId)) continue;
+            // Un intent nuovo puo' non essere ancora arrivato a destinazione: si scrive solo se
+            // ha gia' un riempimento, altrimenti resta nella lista dei non assestati e verra'
+            // valutato al checkpoint successivo. Il watermark avanza comunque, perche' e' la
+            // lista dei non assestati a garantire che nessuno venga perso.
+            if (ShouldPersist(intent)) delta.Add(ToPersistedSignal(session, intent));
+            if (!IsSettled(intent)) session.UnsettledIntents.Add(intent);
+            else if (!ShouldPersist(intent)) CountDiscarded(session, intent);
+        }
+        session.PersistedIntentCount = session.Intents.Count;
+
+        for (var i = session.UnsettledIntents.Count - 1; i >= 0; i--)
+        {
+            var intent = session.UnsettledIntents[i];
+            if (ShouldPersist(intent) && seen.Add(intent.IntentId))
+                delta.Add(ToPersistedSignal(session, intent));
+            if (IsSettled(intent))
+            {
+                if (!ShouldPersist(intent)) CountDiscarded(session, intent);
+                session.UnsettledIntents.RemoveAt(i);
+            }
+        }
+
+        session.Store.AppendSignals(delta);
+        if (delta.Count > 0) session.JournalPending = true;
+
+        if (session.Mode == ExecutionMode.ExternalBroker)
+        {
+            if (session.ExternalTrades.Count > session.PersistedExternalTradeCount)
+            {
+                session.Store.AppendTrades(CollectTrades(session, session.PersistedExternalTradeCount));
+                session.PersistedExternalTradeCount = session.ExternalTrades.Count;
+                session.JournalPending = true;
+            }
+        }
+        else
+        {
+            var closed = session.SimulatedEngine.ClosedTradesCount;
+            if (closed > session.PersistedSimulatedTradeCount)
+            {
+                session.Store.AppendTrades(CollectTrades(session, session.PersistedSimulatedTradeCount));
+                session.PersistedSimulatedTradeCount = closed;
+                session.JournalPending = true;
+            }
+        }
+
+        if (session.RotationLog.Count > session.PersistedRotationEntries)
+        {
+            // Clamp come in CollectTrades: questo segnaposto e' un indice, e un indice fuori
+            // intervallo deve degradare in "riaccodo tutto", non far fallire la richiesta che lo
+            // ha innescato — che qui e' l'apertura stessa della sessione.
+            var from = Math.Clamp(session.PersistedRotationEntries, 0, session.RotationLog.Count);
+            session.Store.AppendRotationLog(session.RotationLog.GetRange(from, session.RotationLog.Count - from));
+            session.PersistedRotationEntries = session.RotationLog.Count;
+            session.JournalPending = true;
+        }
+    }
+
+    /// <summary>
+    /// Uno stato definitivo: da qui l'intent non cambia piu', quindi una volta scritto puo' uscire
+    /// dall'insieme di quelli riscritti a ogni checkpoint.
+    /// </summary>
+    private static bool IsSettled(OrderIntent intent) =>
+        intent.Status is OrderIntentStatus.Filled or OrderIntentStatus.Rejected or OrderIntentStatus.Cancelled;
+
+    /// <summary>
+    /// Se true, <c>signals.json</c> contiene soltanto gli intent che hanno prodotto un
+    /// riempimento. Gli altri — cancellati e rifiutati — restano nei contatori della sessione e nel
+    /// log, ma non nell'artefatto.
+    ///
+    /// <para>Su un run reale il rapporto e' schiacciante: 23.746 intent per 573 fill, cioe' il
+    /// 97,6% di record che descrivono ordini mai andati a mercato, per 40 MB di file. Quel peso si
+    /// paga tre volte — serializzazione a ogni checkpoint, fusione del journal, e ogni lettore che
+    /// apre l'artefatto — e a candele da 1 minuto si moltiplica ancora.</para>
+    ///
+    /// <para>Metterlo a false ripristina la registrazione completa: serve quando si sta indagando
+    /// <i>perche'</i> gli ordini non si riempiono, che e' esattamente l'informazione che il filtro
+    /// butta via.</para>
+    /// </summary>
+    private const bool PersistOnlyFilledIntents = true;
+
+    /// <summary>Un intent e' andato a mercato: e' l'unico che descrive un evento reale.</summary>
+    private static bool HasFill(OrderIntent intent) =>
+        intent.Status is OrderIntentStatus.Filled or OrderIntentStatus.PartiallyFilled;
+
+    /// <summary>Va scritto negli artefatti?</summary>
+    private static bool ShouldPersist(OrderIntent intent) =>
+        !PersistOnlyFilledIntents || HasFill(intent);
+
+    /// <summary>
+    /// Tiene il conto di cio' che il filtro toglie dall'artefatto. Il numero non e' un dettaglio:
+    /// un rapporto fill/scartati molto basso e' di per se' un sintomo, e senza questo contatore
+    /// dopo il filtro non lo vedrebbe piu' nessuno.
+    /// </summary>
+    private static void CountDiscarded(Session session, OrderIntent intent)
+    {
+        if (intent.Status == OrderIntentStatus.Rejected) session.DiscardedRejectedIntents++;
+        else if (intent.Status == OrderIntentStatus.Cancelled) session.DiscardedCancelledIntents++;
+    }
+
+    private static void ResetPersistenceWatermarks(Session session)
+    {
+        session.PersistedIntentCount = session.Intents.Count;
+        session.UnsettledIntents.Clear();
+        foreach (var intent in session.Intents)
+            if (!IsSettled(intent)) session.UnsettledIntents.Add(intent);
+
+        session.PersistedExternalTradeCount = session.ExternalTrades.Count;
+        session.PersistedSimulatedTradeCount =
+            session.Mode == ExecutionMode.ExternalBroker ? 0 : session.SimulatedEngine.ClosedTradesCount;
+        session.PersistedRotationEntries = session.RotationLog.Count;
+    }
+
+    /// <summary>I trade dall'indice indicato in poi. <c>from: 0</c> e' l'elenco completo.</summary>
+    private static List<PersistedTrade> CollectTrades(Session session, int from)
+    {
+        if (session.Mode == ExecutionMode.ExternalBroker)
+        {
+            var start = Math.Clamp(from, 0, session.ExternalTrades.Count);
+            return session.ExternalTrades.GetRange(start, session.ExternalTrades.Count - start);
+        }
+
+        var closed = session.SimulatedEngine.GetClosedTrades();
+        var rows = new List<PersistedTrade>(Math.Max(0, closed.Count - from));
+        for (var index = Math.Max(0, from); index < closed.Count; index++)
+        {
+            var trade = closed[index];
+            rows.Add(new PersistedTrade
             {
                 TradeId = $"{session.Id}-trade-{index + 1:D10}",
                 SessionId = session.Id,
@@ -1880,10 +3162,55 @@ public sealed class TradingSessionService : ITradingSessionService
                 GrossProfit = trade.GrossProfit,
                 NetProfit = trade.NetProfit,
                 Commission = trade.Commission
-            }).ToList();
-        session.Store.WriteTrades(trades);
-        session.Store.WriteRotationLog(session.RotationLog);
+            });
+        }
+        return rows;
     }
+
+    private static PersistedSignal ToPersistedSignal(Session session, OrderIntent intent) => new()
+    {
+        SignalId = intent.IntentId,
+        IntentId = intent.IntentId,
+        CorrelationId = intent.IntentId,
+        SessionId = session.Id,
+        TimestampUtc = intent.CreatedAtUtc,
+        StrategyCode = intent.StrategyCode,
+        StrategyName = string.IsNullOrWhiteSpace(intent.StrategyName)
+            ? intent.StrategyCode
+            : intent.StrategyName,
+        Symbol = intent.Symbol,
+        AccountId = intent.AccountId,
+        AccountSymbol = intent.AccountSymbol,
+        ContractMultiplier = intent.ContractMultiplier,
+        AccountBalanceScale = intent.AccountBalanceScale,
+        Side = intent.Side,
+        OrderType = intent.OrderType,
+        TriggerPrice = intent.Price,
+        Quantity = intent.Quantity,
+        QuantityBeforeAccountConversion = intent.QuantityBeforeAccountConversion,
+        BaseQuantity = intent.BaseQuantity,
+        StrategyEquityMultiplier = intent.StrategyEquityMultiplier,
+        MarketVolatilityMultiplier = intent.MarketVolatilityMultiplier,
+        PortfolioRiskMultiplier = intent.PortfolioRiskMultiplier,
+        FinalQuantity = intent.FinalQuantity,
+        SizingReason = intent.SizingReason,
+        ValidFromUtc = intent.ValidFromUtc,
+        ExpiresAtUtc = intent.ExpiresAtUtc,
+        StopLoss = intent.StopLoss,
+        TakeProfit = intent.TakeProfit,
+        BreakEven = intent.BreakEven,
+        TrailingStop = intent.TrailingStop,
+        TimeframeMinutes = intent.TimeframeMinutes,
+        TimeExitUtc = intent.CloseAtUtc,
+        Reason = intent.Reason,
+        MaxBarsInPosition = intent.MaxBarsInPosition,
+        IsClose = intent.IsClose,
+        Status = intent.Status,
+        FilledQuantity = intent.FilledQuantity,
+        ExternalOrderId = intent.ExternalOrderId,
+        AssignedAccountNumber = intent.AssignedAccountNumber,
+        AssignedGroupId = intent.AssignedGroupId
+    };
 
     /// <summary>
     /// Costruisce la riga di log diagnostico per la barra corrente, incrociando lo stato Titano
@@ -1987,10 +3314,11 @@ public sealed class TradingSessionService : ITradingSessionService
                          && session.AccountConversions.TryGetValue(account, out var resolved)
             ? resolved
             : AccountSymbolConversion.Identity;
-        return Describe(session, conversion);
+        return Describe(session, conversion, session.DirectAccountNumber);
     }
 
-    private TradingSessionDescriptor Describe(Session session, AccountSymbolConversion conversion) => new()
+    private TradingSessionDescriptor Describe(
+        Session session, AccountSymbolConversion conversion, string? accountNumber = null) => new()
     {
         SessionId = session.Id,
         SessionToken = session.Token,
@@ -2004,6 +3332,32 @@ public sealed class TradingSessionService : ITradingSessionService
         TitanoRunId = ResolveRunIdForFolder(session, session.TitanoBacktestFolder),
         TitanoMode = session.TitanoMode,
         ClientRunMode = session.ClientRunMode,
+        RunProfile = session.RunProfile,
+        EnforceConcurrencyLimits = session.EnforceConcurrencyLimits,
+        // Il limite è per account: senza destinatario noto (elenco sessioni, sessione distribuita
+        // descritta fuori da un'apertura) si riporta 0, che il client legge come "non dichiarato".
+        MaxConcurrentTrades = accountNumber is not null
+            ? session.AccountMaxConcurrentTrades.GetValueOrDefault(accountNumber)
+            : 0,
+        // Il client la legge per sapere se, raggiunto il tetto sulle posizioni, deve cancellare i
+        // propri ordini pendenti rimasti. È configurazione consegnata all'apertura, non un canale
+        // di controllo: il server non gli dirà mai "cancella quell'ordine".
+        ConcurrencyCountMode = accountNumber is not null
+            ? session.AccountConcurrencyCountMode.GetValueOrDefault(accountNumber)
+            : default,
+        // Ordinate per simbolo/timeframe/codice: il pannello a chart le stampa così com'è, e un
+        // ordine stabile rende confrontabili a colpo d'occhio due run diversi.
+        Strategies = session.Strategies
+            .Select(s => new TradingSessionStrategyInfo
+            {
+                StrategyCode = s.Name,
+                Symbol = Normalize(s.Symbol),
+                TimeframeMinutes = s.TimeframeMinutes
+            })
+            .OrderBy(s => s.Symbol, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(s => s.TimeframeMinutes)
+            .ThenBy(s => s.StrategyCode, StringComparer.OrdinalIgnoreCase)
+            .ToArray(),
         PositionSizing = session.PositionSizing,
         InstrumentMetadata = session.InstrumentMetadata.Values.OrderBy(x => x.Symbol).ToArray(),
         Instruments = session.Strategies.GroupBy(s => Normalize(s.Symbol))
@@ -2011,9 +3365,26 @@ public sealed class TradingSessionService : ITradingSessionService
             {
                 Symbol = g.Key,
                 AccountSymbol = conversion.GetAccountSymbol(g.Key),
-                TimeframesMinutes = g.Select(x => x.TimeframeMinutes).Distinct().Order().ToArray()
+                TimeframesMinutes = g.Select(x => x.TimeframeMinutes).Distinct().Order().ToArray(),
+                // Quanta storia serve al server per valutare quello stream: il client la usa per
+                // sapere quante candele caricare dal broker e quanto profonda spedire la finestra.
+                RequiredCandlesByTimeframe = g.GroupBy(x => x.TimeframeMinutes)
+                    .ToDictionary(tf => tf.Key, tf => tf.Max(x => x.RequiredCandles))
             }).ToArray()
     };
+
+    /// <summary>
+    /// Solo l'equity, senza costruire lo snapshot completo.
+    ///
+    /// <para><see cref="Snapshot"/> alloca l'elenco delle posizioni, le righe dei gruppi e
+    /// soprattutto filtra <b>tutti</b> gli intent della sessione per riempire
+    /// <c>PendingIntents</c>. Chiamarlo per ogni segnale di ogni barra costa quanto la storia gia'
+    /// accumulata dal run, e serviva a leggere un singolo decimal — che in
+    /// <see cref="ExecutionMode.ExternalBroker"/> vale per giunta 0 per costruzione, perche'
+    /// l'equity e' del broker e il server non la conosce.</para>
+    /// </summary>
+    private static decimal CurrentEquity(Session session) =>
+        session.Mode == ExecutionMode.ServerSimulated ? session.SimulatedEngine.GetSnapshot().Equity : 0m;
 
     private static TradingSessionSnapshot Snapshot(Session session)
     {

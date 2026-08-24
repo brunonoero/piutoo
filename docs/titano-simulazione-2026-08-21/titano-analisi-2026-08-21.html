@@ -1,0 +1,623 @@
+<title>Titano e i tre giorni di ottobre</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&display=swap">
+
+<style>
+:root{
+  --paper:#F1F4F4; --surface:#FCFDFD; --surface-2:#E9EEEE;
+  --ink:#13191B; --ink-2:#3B4749; --muted:#66767A;
+  --rule:#D6DEDE; --rule-strong:#B6C2C2;
+  --s1:#0089A0; --s2:#C1440E; --s3:#8B6BB1; --s4:#5A7302;
+  --pos:#5A7302; --neg:#C1440E; --band:rgba(193,68,14,.09);
+  --shadow:0 1px 2px rgba(19,25,27,.05),0 8px 24px -12px rgba(19,25,27,.14);
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --paper:#0E1213; --surface:#171E1F; --surface-2:#1F2829;
+    --ink:#E9EEEE; --ink-2:#B2BFC0; --muted:#8496 98; --muted:#849698;
+    --rule:#283234; --rule-strong:#3B4749;
+    --s1:#22A6BC; --s2:#E0662C; --s3:#A98AC9; --s4:#89A61F;
+    --pos:#89A61F; --neg:#E0662C; --band:rgba(224,102,44,.10);
+    --shadow:0 1px 2px rgba(0,0,0,.4),0 8px 24px -12px rgba(0,0,0,.6);
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#0E1213; --surface:#171E1F; --surface-2:#1F2829;
+  --ink:#E9EEEE; --ink-2:#B2BFC0; --muted:#849698;
+  --rule:#283234; --rule-strong:#3B4749;
+  --s1:#22A6BC; --s2:#E0662C; --s3:#A98AC9; --s4:#89A61F;
+  --pos:#89A61F; --neg:#E0662C; --band:rgba(224,102,44,.10);
+  --shadow:0 1px 2px rgba(0,0,0,.4),0 8px 24px -12px rgba(0,0,0,.6);
+}
+
+*{box-sizing:border-box}
+body{
+  background:var(--paper); color:var(--ink);
+  font-family:"Source Serif 4",Georgia,serif; font-size:17px; line-height:1.62;
+  margin:0; padding:0 20px 96px; -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:1120px;margin:0 auto}
+.col{max-width:68ch}
+
+h1,h2,h3,.eyebrow,.tile-v,table,.mono,.legend,.tag{font-family:Archivo,"Helvetica Neue",Arial,sans-serif}
+h1{font-size:clamp(2.1rem,5.2vw,3.35rem);line-height:1.04;font-weight:700;letter-spacing:-.026em;text-wrap:balance;margin:0}
+h2{font-size:1.5rem;font-weight:600;letter-spacing:-.014em;line-height:1.2;text-wrap:balance;margin:0}
+h3{font-size:1.02rem;font-weight:600;letter-spacing:-.006em;margin:0}
+p{margin:0}
+.eyebrow{font-size:.685rem;font-weight:600;letter-spacing:.15em;text-transform:uppercase;color:var(--muted)}
+.mono{font-family:"IBM Plex Mono",ui-monospace,monospace;font-variant-numeric:tabular-nums}
+strong{font-weight:600}
+em{font-style:italic}
+a{color:var(--s1)}
+
+/* ---------- masthead ---------- */
+header{padding:76px 0 0}
+.rule-top{height:3px;background:var(--ink);margin-bottom:26px}
+.deck{font-size:1.16rem;color:var(--ink-2);max-width:60ch;margin-top:20px}
+.meta{display:flex;flex-wrap:wrap;gap:8px 26px;margin-top:26px;padding-top:16px;border-top:1px solid var(--rule);
+  font-family:"IBM Plex Mono",monospace;font-size:.74rem;color:var(--muted);letter-spacing:.02em}
+
+/* ---------- verdict ---------- */
+.verdict{margin-top:44px;background:var(--surface);border:1px solid var(--rule);border-left:3px solid var(--s2);
+  border-radius:3px;padding:26px 28px;box-shadow:var(--shadow)}
+.verdict p{font-size:1.1rem;line-height:1.55;max-width:64ch}
+.verdict p + p{margin-top:14px}
+
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(168px,1fr));gap:1px;background:var(--rule);
+  border:1px solid var(--rule);border-radius:3px;margin-top:32px;overflow:hidden}
+.tile{background:var(--surface);padding:18px 20px 20px}
+.tile-k{font-family:"IBM Plex Mono",monospace;font-size:.68rem;letter-spacing:.09em;text-transform:uppercase;color:var(--muted)}
+.tile-v{font-size:1.85rem;font-weight:700;letter-spacing:-.03em;line-height:1.1;margin-top:9px;font-variant-numeric:tabular-nums}
+.tile-n{font-size:.83rem;color:var(--muted);margin-top:5px;line-height:1.4;font-family:"Source Serif 4",serif}
+.v-neg{color:var(--neg)} .v-pos{color:var(--pos)} .v-t{color:var(--s1)}
+
+/* ---------- sections ---------- */
+section{margin-top:74px}
+.sec-head{display:flex;gap:16px;align-items:baseline;border-bottom:1px solid var(--rule-strong);padding-bottom:12px;margin-bottom:26px}
+.sec-n{font-family:"IBM Plex Mono",monospace;font-size:.78rem;font-weight:600;color:var(--s1);
+  letter-spacing:.06em;padding-top:4px;flex:none}
+section p + p{margin-top:17px}
+.lede{font-size:1.06rem}
+
+/* ---------- panels & charts ---------- */
+.panel{background:var(--surface);border:1px solid var(--rule);border-radius:3px;padding:22px 22px 16px;
+  margin:34px 0;box-shadow:var(--shadow)}
+.panel-head{display:flex;justify-content:space-between;align-items:baseline;gap:18px;flex-wrap:wrap;margin-bottom:4px}
+.panel-sub{font-size:.88rem;color:var(--muted);max-width:62ch;margin-top:6px;line-height:1.5}
+.chart-scroll{overflow-x:auto;margin-top:16px}
+svg{display:block;max-width:100%;height:auto}
+.legend{display:flex;flex-wrap:wrap;gap:6px 20px;margin-top:14px;font-size:.79rem;font-weight:500}
+.legend span{display:inline-flex;align-items:center;gap:7px;color:var(--ink-2)}
+.swatch{width:15px;height:3px;border-radius:2px;flex:none}
+.swatch.dash{background:none!important;border-top:3px dashed currentColor;height:0}
+
+/* ---------- tables ---------- */
+.tw{overflow-x:auto;margin:30px 0}
+table{border-collapse:collapse;width:100%;font-size:.83rem;font-variant-numeric:tabular-nums;min-width:640px}
+th,td{padding:9px 12px;text-align:right;border-bottom:1px solid var(--rule);white-space:nowrap}
+th{font-weight:600;font-size:.68rem;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);
+  border-bottom:1px solid var(--rule-strong);vertical-align:bottom}
+th:first-child,td:first-child{text-align:left;white-space:normal;min-width:210px}
+tbody tr:hover{background:var(--surface-2)}
+tr.hi td{background:color-mix(in srgb,var(--s1) 9%,transparent);font-weight:500}
+tr.base td{color:var(--muted)}
+caption{caption-side:bottom;text-align:left;font-size:.8rem;color:var(--muted);padding-top:12px;
+  font-family:"Source Serif 4",serif;line-height:1.5}
+.num-neg{color:var(--neg)} .num-pos{color:var(--pos)}
+.tag{display:inline-block;font-size:.64rem;font-weight:600;letter-spacing:.07em;text-transform:uppercase;
+  padding:2px 7px;border-radius:2px;vertical-align:1px}
+.tag-ko{background:color-mix(in srgb,var(--neg) 15%,transparent);color:var(--neg)}
+.tag-ok{background:color-mix(in srgb,var(--pos) 17%,transparent);color:var(--pos)}
+
+/* ---------- callout ---------- */
+.note{border-left:3px solid var(--s1);background:var(--surface);padding:16px 20px;margin:28px 0;
+  border-radius:0 3px 3px 0;font-size:.96rem;color:var(--ink-2)}
+.note strong{color:var(--ink)}
+
+/* ---------- recommendation list ---------- */
+ol.steps{list-style:none;counter-reset:s;padding:0;margin:26px 0 0;display:grid;gap:2px}
+ol.steps li{counter-increment:s;background:var(--surface);border:1px solid var(--rule);padding:18px 22px 18px 62px;
+  position:relative;border-radius:3px}
+ol.steps li::before{content:counter(s);position:absolute;left:22px;top:18px;font-family:"IBM Plex Mono",monospace;
+  font-size:.82rem;font-weight:600;color:var(--s1)}
+ol.steps h3{margin-bottom:6px}
+ol.steps p{font-size:.95rem;color:var(--ink-2)}
+.cfg{margin-top:12px;font-family:"IBM Plex Mono",monospace;font-size:.76rem;background:var(--surface-2);
+  border-radius:3px;padding:12px 14px;color:var(--ink-2);line-height:1.75;overflow-x:auto;white-space:pre}
+
+/* ---------- tooltip ---------- */
+.tip{position:absolute;pointer-events:none;opacity:0;transition:opacity .09s;background:var(--ink);color:var(--paper);
+  font-family:"IBM Plex Mono",monospace;font-size:.7rem;line-height:1.65;padding:8px 11px;border-radius:3px;
+  white-space:nowrap;z-index:9;box-shadow:0 4px 14px rgba(0,0,0,.22)}
+.chart-host{position:relative}
+
+footer{margin-top:78px;padding-top:20px;border-top:1px solid var(--rule);font-size:.78rem;color:var(--muted);
+  font-family:"IBM Plex Mono",monospace;line-height:1.8}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+@media (max-width:640px){body{font-size:16px;padding:0 15px 64px}header{padding-top:44px}.verdict{padding:20px}}
+</style>
+
+<div class="wrap">
+
+<header>
+  <div class="rule-top"></div>
+  <div class="eyebrow">Analisi backtest · rotazione Titano</div>
+  <h1>Titano e i tre giorni di ottobre</h1>
+  <p class="deck">Il nuovo backtest a due symbol non produce una curva equity che sale e non scende mai — e il motivo non è la calibrazione dei parametri. È che il drawdown si forma in tre sedute, e Titano decide una volta a settimana.</p>
+  <div class="meta">
+    <span>432 trade · 19 strategie · NQ + GC</span>
+    <span>25 giu 2025 → 3 feb 2026</span>
+    <span>12.000 configurazioni simulate</span>
+    <span>capitale di riferimento 100.000</span>
+  </div>
+</header>
+
+<div class="verdict col">
+  <p><strong>Nessuna delle 10.515 configurazioni di Titano testate batte il non-filtrare su entrambi gli assi.</strong> Zero. Per ogni configurazione che riduce il drawdown, il profitto scende di più in proporzione.</p>
+  <p>E la scelta della configurazione migliore sui primi quattro mesi <em>non predice nulla</em> sui tre successivi: la correlazione fra Calmar in-sample e out-of-sample sulle 10.231 config valide è <strong class="mono">+0,017</strong>. È rumore. Le configurazioni con «zero mesi in discesa» che la griglia restituisce sopravvivono tenendo 12 trade su 432: non sono un sistema, sono un sottoinsieme fortunato.</p>
+  <p>C'è però una via d'uscita, ed è strutturale, non parametrica: <strong>portare la rotazione a cadenza giornaliera e richiedere tutti e cinque i voti</strong>. Lì la correlazione IS→OOS sale a <strong class="mono">+0,282</strong> e 49 config su 50 battono la baseline fuori campione.</p>
+</div>
+
+<div class="tiles">
+  <div class="tile">
+    <div class="tile-k">Baseline · netto</div>
+    <div class="tile-v">+74.005</div>
+    <div class="tile-n">senza alcun filtro, in 7,3 mesi</div>
+  </div>
+  <div class="tile">
+    <div class="tile-k">Baseline · max drawdown</div>
+    <div class="tile-v v-neg">−34.031</div>
+    <div class="tile-n">equity a trade chiuso, 2 → 24 ottobre 2025</div>
+  </div>
+  <div class="tile">
+    <div class="tile-k">In 3 sole sedute</div>
+    <div class="tile-v v-neg">86%</div>
+    <div class="tile-n">del drawdown totale: 3, 10 e 22 ottobre</div>
+  </div>
+  <div class="tile">
+    <div class="tile-k">Titano default (weekly)</div>
+    <div class="tile-v v-neg">+23.255</div>
+    <div class="tile-n">−69% di profitto per −20% di drawdown</div>
+  </div>
+  <div class="tile">
+    <div class="tile-k">Correlazione IS→OOS</div>
+    <div class="tile-v">+0,017</div>
+    <div class="tile-n">griglia settimanale: la scelta non trasferisce</div>
+  </div>
+  <div class="tile">
+    <div class="tile-k">Cadenza giornaliera, 5 voti</div>
+    <div class="tile-v v-pos">+0,282</div>
+    <div class="tile-n">stessa misura, regione che invece trasferisce</div>
+  </div>
+</div>
+
+<!-- ============ 1 ============ -->
+<section>
+  <div class="sec-head"><span class="sec-n">01</span><h2>Il campione, e perché non ha due symbol</h2></div>
+  <div class="col">
+    <p class="lede">Il file contiene 432 trade chiusi su 19 strategie, tutti con <span class="mono">exitReason</span> <span class="mono">ExternalBrokerCloseFill</span>, dal 25 giugno 2025 al 3 febbraio 2026. Sulla carta due strumenti; nei fatti uno.</p>
+    <p>NQ gira a 20 contratti e produce <strong>+74.077</strong> netti con un drawdown di 33.975. GC gira a 1 contratto e produce <strong>−72</strong> netti con un drawdown di 153. In sette mesi l'oro contribuisce lo 0,1% del rischio e meno dello 0,1% del risultato: statisticamente non è un secondo strumento, è rumore.</p>
+    <p>Questo conta per Titano più di quanto sembri. Il <em>sizing per percentile</em> è un meccanismo cross-sezionale: distribuisce allocazione confrontando strategie fra loro dentro lo stesso periodo. Con quattro strategie GC che si muovono su una scala 65 volte più piccola delle quindici NQ, il rango non misura merito, misura scala. Ho quindi rifatto ogni simulazione anche su una variante a <strong>rischio normalizzato</strong> — GC riscalato ×65,7 per portarlo alla stessa perdita media per trade di NQ. Il risultato non cambia la conclusione: la variante normalizzata compare fra le migliori config solo perché amplifica un P&L che resta negativo (−4.729 riscalato).</p>
+    <div class="note"><strong>Prima raccomandazione, indipendente da tutto il resto:</strong> o si porta GC a una size comparabile, o lo si toglie dal campione Titano. Nella configurazione attuale occupa quattro dei diciannove slot della classifica cross-sezionale senza portare né rendimento né diversificazione.</div>
+    <p>C'è poi una coda di strategie con storia troppo corta per essere giudicate: quattro con un solo trade a campione (<span class="mono">TFM_005</span>, <span class="mono">TFU_003</span> su NQ, <span class="mono">TFU_001</span> su GC, <span class="mono">TFM_003</span> con quattro). Con <span class="mono">MinimumTrades = 5</span> non superano mai il voto <em>short-performance</em>, quindi Titano le tiene spente per costruzione — e due di quelle hanno prodotto +3.124 e +1.506.</p>
+  </div>
+</section>
+
+<!-- ============ 2 ============ -->
+<section>
+  <div class="sec-head"><span class="sec-n">02</span><h2>Cosa fa Titano oggi, con i default della doc</h2></div>
+  <div class="col">
+    <p class="lede">Ho replicato in simulazione la logica descritta in <span class="mono">titano-rotation.md</span> e nell'audit del 31/07: equity line per strategia, i cinque voti con esito booleano e punteggio continuo, i cancelli assoluti per l'ON/OFF, il percentile cross-sezionale per la size, il no-look-ahead con decisione del periodo N applicata a N+1.</p>
+    <p>Sul campione, con i default (Weekly, finestra breve 90 giorni, 4 voti su 5, drawdown massimo 15%, riaccensione a 10%, cooldown 2), Titano taglia il profitto da 74.005 a <strong>23.255</strong> e il drawdown da 31.022 a 24.722. Rinuncia al 69% del rendimento per il 20% del rischio.</p>
+  </div>
+
+  <div class="panel chart-host">
+    <div class="panel-head">
+      <div>
+        <h3>Curve equity a confronto</h3>
+        <p class="panel-sub">Capitale iniziale 100.000. La fascia evidenzia il drawdown massimo della baseline, dal 2 al 24 ottobre 2025.</p>
+      </div>
+    </div>
+    <div class="chart-scroll"><div id="eq"></div></div>
+    <div class="legend" id="eqleg"></div>
+  </div>
+
+  <div class="col">
+    <p>La forma della curva arancione racconta il problema meglio di qualunque tabella: Titano <em>segue</em> il drawdown invece di anticiparlo. Entra in ottobre già dentro la perdita, spegne quando il danno è fatto, e riaccende in ritardo — mancando parte del recupero di fine mese. La curva finale non è più liscia, è solo più bassa.</p>
+    <p>La versione mensile fa peggio ancora: +13.683 di netto, drawdown 25.545. Con sette mesi di dati la cadenza mensile produce sei decisioni efficaci in tutto.</p>
+  </div>
+</section>
+
+<!-- ============ 3 ============ -->
+<section>
+  <div class="sec-head"><span class="sec-n">03</span><h2>La prova che conta: 10.515 configurazioni</h2></div>
+  <div class="col">
+    <p class="lede">La domanda vera non è «esiste una configurazione che produce una bella curva su questi dati» — con quindici parametri liberi ne esiste sempre una. La domanda è se quella configurazione, scelta senza guardare il futuro, continui a funzionare dopo.</p>
+    <p>Ho campionato 12.000 combinazioni su quindici dimensioni (cadenza, finestre breve/lunga/media mobile, trade minimi, soglie di drawdown e riaccensione, voti richiesti, cooldown, periodi minimi ON, volatilità massima, return minimo, vincolo sopra-media-mobile, modalità di sizing, banda di allocazione), su entrambe le varianti raw e normalizzata. 10.515 hanno prodotto un risultato netto positivo.</p>
+    <p><strong>Nessuna di queste — zero su 10.515 — batte la baseline sia sul netto sia sul drawdown.</strong> La frontiera è netta: per portare il drawdown da 31.022 a circa 8.000 si scende da 74.005 a circa 42.000 di netto. Il Calmar mediano di tutta la griglia è 0,77, contro 2,39 del non-filtrare: nel caso tipico Titano <em>peggiora</em> il rendimento corretto per il rischio.</p>
+    <p>Poi ho fatto la prova onesta. Ho spezzato il campione al <span class="mono">1 novembre 2025</span> — quattro mesi in-sample, tre out-of-sample — e ho valutato tutte le config su entrambi i tratti.</p>
+  </div>
+
+  <div class="tw col">
+    <table>
+      <caption>Le prime configurazioni ordinate per Calmar in-sample, e cosa combinano fuori campione. Il collasso è sistematico, non aneddotico.</caption>
+      <thead><tr><th>Configurazione (scelta sull'IS)</th><th>IS netto</th><th>IS DD</th><th>IS Calmar</th><th>OOS netto</th><th>OOS DD</th><th>OOS Calmar</th></tr></thead>
+      <tbody>
+        <tr><td>Monthly · sw14 · pf5 · DD 8% · norm</td><td>21.470</td><td>1.561</td><td>13,75</td><td>9.432</td><td>2.575</td><td>3,66</td></tr>
+        <tr><td>Monthly · sw14 · pf5 · DD 5% · norm</td><td>26.820</td><td>3.038</td><td>8,83</td><td>6.850</td><td>2.690</td><td>2,55</td></tr>
+        <tr><td>Weekly · sw30 · pf5 · DD 5% · cd4</td><td>12.331</td><td>2.185</td><td>5,64</td><td class="num-neg">−4.714</td><td>5.930</td><td class="num-neg">−0,79</td></tr>
+        <tr><td>Weekly · sw45 · pf5 · DD 5% · tier</td><td>19.013</td><td>3.632</td><td>5,24</td><td>258</td><td>6.332</td><td>0,04</td></tr>
+        <tr><td>Biweekly · sw14 · pf5 · DD 5% · tier</td><td>14.475</td><td>2.851</td><td>5,08</td><td>98</td><td>4.633</td><td>0,02</td></tr>
+        <tr><td>Biweekly · sw14 · pf5 · DD 15% · cd1</td><td>18.041</td><td>3.717</td><td>4,85</td><td class="num-neg">−1.044</td><td>7.119</td><td class="num-neg">−0,15</td></tr>
+        <tr class="base"><td>Baseline — nessun filtro</td><td>60.901</td><td>31.022</td><td>1,96</td><td>13.105</td><td>28.578</td><td>0,46</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="col">
+    <p>Il <strong>netto OOS mediano delle 50 configurazioni migliori in-sample è 2.162</strong>, contro i 13.105 di non fare niente. Scegliere Titano sul campione recente e applicarlo al periodo successivo, su questi dati, è stato peggio che lasciare tutto acceso.</p>
+    <div class="note">La misura riassuntiva: <strong>correlazione fra Calmar in-sample e Calmar out-of-sample = +0,017</strong> su 10.231 configurazioni. Il criterio di selezione non trasporta informazione. Questo è esattamente il rischio che l'audit del 31/07 segnalava al punto §7.3 — «<em>ShortWindowDays = 90 con rotazione settimanale: il periodo di decisione è settimanale, la reattività della misura no</em>» — misurato invece che ipotizzato.</div>
+  </div>
+</section>
+
+<!-- ============ 4 ============ -->
+<section>
+  <div class="sec-head"><span class="sec-n">04</span><h2>Perché: il drawdown dura tre giorni</h2></div>
+  <div class="col">
+    <p class="lede">Se nessuna calibrazione funziona, la spiegazione non sta nei parametri. Sta nella forma del rischio.</p>
+    <p>Il drawdown massimo — 34.031 sull'equity a trade chiuso — va dal 2 al 24 ottobre 2025. Dentro ci sono 49 trade e 14 strategie diverse. Ma <strong>tre sedute valgono 29.186 dei 34.031 totali</strong>: l'86%.</p>
+  </div>
+
+  <div class="panel chart-host">
+    <div class="panel-head">
+      <div>
+        <h3>Ottobre 2025, P&amp;L giornaliero</h3>
+        <p class="panel-sub">Il mese che contiene l'intero drawdown massimo del backtest ha chiuso a <strong>+12.622</strong>. Nessun filtro a cadenza mensile poteva vederlo; uno settimanale ha visto solo la coda.</p>
+      </div>
+    </div>
+    <div class="chart-scroll"><div id="oct"></div></div>
+  </div>
+
+  <div class="col">
+    <p>Il 3 ottobre perde 10.260, il 10 ottobre 11.830, il 22 ottobre 7.096 — e in ciascuna di quelle sedute la perdita è <em>simultanea</em> su più strategie: il 10 ottobre <span class="mono">SBO_001</span> e <span class="mono">SBO_002</span> perdono insieme 9.132. Poi il 27 e il 29 ottobre arrivano +12.550 e +17.464, e il mese chiude in attivo.</p>
+    <p>Questa struttura rende Titano strutturalmente cieco, per tre motivi che si sommano:</p>
+    <p><strong>La durata mediana di un trade è 4,1 ore</strong> (p90: 22,6 ore). Titano decide una volta a settimana. Il rischio si apre e si chiude cento volte dentro una singola decisione.</p>
+    <p><strong>Il drawdown vive dentro un mese positivo.</strong> Qualunque metrica calcolata a fine periodo su una finestra di 90 giorni vede ottobre come un mese a +12.622. Non c'è nulla da spegnere, secondo la misura.</p>
+    <p><strong>Il profitto è concentrato quanto la perdita.</strong> I 10 trade migliori valgono 67.511 dei 74.005 netti totali: togliendoli restano +6.494. Un filtro che riduce l'esposizione ha un'alta probabilità di perdere uno di quei dieci — ed è la ragione meccanica per cui ogni config della griglia sacrifica più profitto che rischio.</p>
+  </div>
+
+  <div class="tw col">
+    <table>
+      <caption>Quanti dei 10 trade più profittevoli (67.511 complessivi) sopravvivono a ciascun filtro. È la contropartita che nessuna metrica di drawdown mostra.</caption>
+      <thead><tr><th>Filtro</th><th>Top-10 sopravvissuti</th><th>Valore incassato</th><th>su 67.511</th></tr></thead>
+      <tbody>
+        <tr><td>Titano default (Weekly)</td><td>5 / 10</td><td>23.291</td><td>35%</td></tr>
+        <tr><td>Titano giornaliero + sizing</td><td>2 / 10</td><td>9.863</td><td>15%</td></tr>
+        <tr><td>Titano giornaliero solo ON/OFF</td><td>2 / 10</td><td>14.770</td><td>22%</td></tr>
+        <tr class="hi"><td>Limite di perdita giornaliero 5.000</td><td>10 / 10</td><td>67.511</td><td>100%</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="col">
+    <p>Per completezza ho testato anche l'ipotesi opposta a Titano: un <strong>interruttore di portafoglio</strong> che spegne tutto insieme quando l'equity complessiva scende sotto la sua media mobile o supera una soglia di drawdown. Oltre 200 combinazioni, tutte peggiori della baseline — Calmar migliore 1,95 contro 2,39. La perdita non è un declino lento che un interruttore lento possa intercettare.</p>
+  </div>
+</section>
+
+<!-- ============ 5 ============ -->
+<section>
+  <div class="sec-head"><span class="sec-n">05</span><h2>Cosa invece funziona</h2></div>
+  <div class="col">
+    <p class="lede">Due interventi superano la prova out-of-sample. Nessuno dei due è una ricalibrazione dei parametri attuali: uno cambia la cadenza di Titano, l'altro è un controllo di rischio veloce che Titano oggi non ha.</p>
+
+    <h3 style="margin-top:30px">A · Titano a cadenza giornaliera, con tutti e cinque i voti</h3>
+    <p>Portare <span class="mono">RotationPeriod</span> a un giorno e <span class="mono">MinimumPassingFilters</span> a 5 cambia il regime. Su 8.923 configurazioni giornaliere valide la correlazione IS→OOS sale da +0,017 a <strong>+0,282</strong>, e <strong>49 delle 50 migliori in-sample battono la baseline fuori campione</strong>. Non è più rumore.</p>
+    <p>Il parametro decisivo è <span class="mono">MinimumPassingFilters</span>, e la relazione è monotona nella direzione giusta — segno di un effetto reale e non di un picco di griglia:</p>
+  </div>
+
+  <div class="tw col">
+    <table>
+      <caption>Mediane su 8.923 configurazioni a cadenza giornaliera. Richiedere 3 voti su 5 è, fuori campione, peggio che non filtrare affatto.</caption>
+      <thead><tr><th>Voti richiesti</th><th>Config</th><th>Calmar IS mediano</th><th>Calmar OOS mediano</th><th>Netto OOS mediano</th></tr></thead>
+      <tbody>
+        <tr><td>3 su 5</td><td>3.000</td><td>1,23</td><td class="num-neg">−0,06</td><td class="num-neg">−783</td></tr>
+        <tr><td>4 su 5 <span class="tag tag-ko">default attuale</span></td><td>3.000</td><td>1,09</td><td>0,05</td><td>581</td></tr>
+        <tr class="hi"><td>5 su 5 <span class="tag tag-ok">consigliato</span></td><td>2.923</td><td>1,67</td><td>0,54</td><td>3.008</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="col">
+    <p>Ho verificato il vicinato variando un parametro alla volta attorno alla configurazione migliore. È un altopiano, non una punta: finestra breve fra 14 e 45 giorni tutte con Calmar OOS fra 3,1 e 3,6; drawdown massimo fra 3% e 8% praticamente indistinguibili; cooldown fra 1 e 3 identici. Solo <span class="mono">MinimumPassingFilters</span> è netto e va tenuto a 5.</p>
+
+    <h3 style="margin-top:34px">B · Un limite di perdita giornaliero</h3>
+    <p>Questo non è Titano e non deve diventarlo: è il livello di rischio veloce, quello che nella doc sta accanto ad ATR e rischio di portafoglio, «<em>applicati per barra al confine di esecuzione</em>». La regola è banale: quando la perdita realizzata della giornata supera una soglia, si smette di <em>aprire</em> per il resto della seduta; le chiusure non si toccano mai.</p>
+    <p>Con soglia 5.000 il netto sale a <strong>80.537</strong> — sopra la baseline — con drawdown 30.960 e tre mesi negativi invece di quattro. Fuori campione fa 20.075 contro 13.105. È l'unico intervento testato che <strong>migliora entrambi gli assi</strong>, e per un motivo comprensibile: taglia solo la coda delle giornate già rovinate, dove Titano taglia strategie intere per settimane.</p>
+    <p>Con soglia 2.000 il profilo si sposta verso la difesa: netto 61.522 in-sample ma <strong>24.315 out-of-sample con drawdown 16.446</strong>, il miglior risultato OOS dell'intera analisi in valore assoluto.</p>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head"><div><h3>Tutte le varianti, dentro e fuori campione</h3>
+      <p class="panel-sub">Taglio in-sample / out-of-sample al 1 novembre 2025. Calmar = netto ÷ drawdown massimo sull'equity a chiusura giornaliera.</p></div></div>
+    <div class="tw" style="margin:18px 0 0">
+      <table>
+        <thead><tr><th>Variante</th><th>Netto</th><th>Max DD</th><th>Calmar</th><th>Mesi in calo</th><th>Trade</th><th>OOS netto</th><th>OOS DD</th><th>OOS Calmar</th></tr></thead>
+        <tbody>
+          <tr class="base"><td>A · Baseline, nessun filtro</td><td>74.005</td><td>31.022</td><td>2,39</td><td>4 / 9</td><td>432</td><td>13.105</td><td>28.578</td><td>0,46</td></tr>
+          <tr><td>B · Titano default, Weekly</td><td>23.255</td><td>24.722</td><td>0,94</td><td>5 / 9</td><td>280</td><td>2.917</td><td>19.408</td><td>0,15</td></tr>
+          <tr><td>B2 · Titano default, Monthly</td><td>13.683</td><td>25.545</td><td>0,54</td><td>5 / 8</td><td>242</td><td>1.685</td><td>19.503</td><td>0,09</td></tr>
+          <tr class="hi"><td>C · Limite giornaliero 5.000</td><td>80.537</td><td>30.960</td><td>2,60</td><td>3 / 9</td><td>424</td><td>20.075</td><td>21.608</td><td>0,93</td></tr>
+          <tr class="hi"><td>C2 · Limite giornaliero 2.000</td><td>61.522</td><td>33.766</td><td>1,82</td><td>4 / 9</td><td>396</td><td>24.315</td><td>16.446</td><td>1,48</td></tr>
+          <tr class="hi"><td>D · Titano giornaliero + sizing</td><td>27.128</td><td>8.421</td><td>3,22</td><td>2 / 8</td><td>108</td><td>10.764</td><td>3.457</td><td>3,11</td></tr>
+          <tr class="hi"><td>E · Titano giornaliero, solo ON/OFF</td><td>39.939</td><td>13.405</td><td>2,98</td><td>2 / 8</td><td>108</td><td>16.121</td><td>5.731</td><td>2,81</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="col">
+    <p>Un dettaglio che vale una decisione di prodotto: <strong>D ed E differiscono solo per il moltiplicatore di sizing</strong>. La variante che usa solo l'ON/OFF, senza il percentile cross-sezionale, rende 39.939 contro 27.128 — il 47% in più — con un Calmar quasi identico. Su questo campione il sizing per percentile <em>toglie</em> rendimento senza comprare rischio in meno. Non sorprende: con in media 3,5 strategie accese al giorno, un rango su tre elementi non è una classifica, è arrotondamento.</p>
+  </div>
+</section>
+
+<!-- ============ 6 ============ -->
+<section>
+  <div class="sec-head"><span class="sec-n">06</span><h2>«Una curva che sale e non scende mai»</h2></div>
+  <div class="col">
+    <p class="lede">Va detto chiaramente, perché era la richiesta esplicita: su questi dati non è ottenibile, e le configurazioni che sembrano ottenerla sono artefatti riconoscibili.</p>
+    <p>Nella griglia ci sono <strong>47 configurazioni con zero mesi in discesa</strong>. Le ho aperte tutte. La migliore per Calmar tiene <strong>41 trade su 432</strong>; venti delle quarantasette ne tengono venticinque o meno, e cinque delle prime quindici per rendimento ne tengono dodici. Su dodici trade, «nessun mese negativo» è una proprietà del campione, non della strategia — e infatti nessuna di quelle configurazioni regge il taglio out-of-sample.</p>
+    <p>Il limite è aritmetico, non di calibrazione. Con 140 trade vincenti su 432 (32%), perdita media −845 e vincita media +2.237, il sistema produce sequenze di perdite consecutive con probabilità alta: cinque perdite di fila sono un evento ordinario. Perché l'equity non scenda mai a livello di trade servirebbe un tasso di vittoria vicino al 100% o uno stop che anticipi ogni singola perdita — cioè look-ahead.</p>
+    <div class="note">L'obiettivo raggiungibile, e già molto: <strong>equity che chiude ogni mese sopra il mese precedente, con drawdown intra-mese contenuto</strong>. La variante E ci arriva a 2 mesi in calo su 8, con drawdown 13.405 contro 31.022 — ma pagando metà del rendimento. La variante C2 tiene 4 mesi in calo su 9 e conserva l'83% del rendimento. La scelta fra le due è una decisione di mandato, non di ottimizzazione.</div>
+  </div>
+</section>
+
+<!-- ============ 7 ============ -->
+<section>
+  <div class="sec-head"><span class="sec-n">07</span><h2>Come far evolvere Titano</h2></div>
+  <div class="col">
+    <p class="lede">Cinque interventi, in ordine di rapporto fra effetto misurato e lavoro richiesto. I primi due non toccano il codice.</p>
+  </div>
+
+  <ol class="steps col">
+    <li>
+      <h3>Togliere GC dal campione Titano, o portarlo a size comparabile</h3>
+      <p>Quattro strategie su diciannove occupano slot nella classifica cross-sezionale con una scala 65 volte più piccola. Il rango che ne esce non misura merito. È una modifica di configurazione del workspace, non di codice.</p>
+    </li>
+    <li>
+      <h3>Portare <span class="mono">MinimumPassingFilters</span> da 4 a 5</h3>
+      <p>È il parametro con l'effetto più netto e più monotono di tutta l'analisi, e l'unico che migliora la mediana out-of-sample invece di spostarla a caso. A 4 voti su 5, fuori campione, Titano è indistinguibile dal non filtrare.</p>
+    </li>
+    <li>
+      <h3>Aggiungere una cadenza giornaliera a <span class="mono">RotationPeriod</span></h3>
+      <p>Oggi l'enum ammette Weekly, Biweekly, Monthly. Il calendario è già scritto per intervalli <span class="mono">[inizio, fine)</span> in UTC e il no-look-ahead è implementato in un punto solo (<span class="mono">BuildDecisions</span>, misura su <span class="mono">ExitTimeUtc &lt; periods[i].End</span> e applica a <span class="mono">periods[i+1]</span>): aggiungere <span class="mono">Daily</span> è un caso in più nella costruzione dei periodi, non un nuovo meccanismo. Il costo vero è a valle — 224 periodi invece di 32 significa 224 snapshot <span class="mono">period-*.json</span> per run, e la <em>freschezza</em> passa a Stale dopo un giorno anziché dopo una settimana.</p>
+      <div class="cfg">RotationPeriod           = Daily
+ShortWindowDays          = 14      (14–45 equivalenti nel test)
+MovingAverageWindowDays  = 21
+LongWindowDays           = 90      (365 non ha senso su 7 mesi)
+MinimumTrades            = 1
+MinimumPassingFilters    = 5
+MaximumCurrentDrawdown   = 0,03    (3–8% equivalenti)
+ReenableMaximumCurrentDD = 0,02
+CooldownPeriodsAfterOff  = 3       (1–3 equivalenti)
+MinimumOnPeriods         = 0
+CrossSectionalSizing     = false   → vedi punto 5</div>
+    </li>
+    <li>
+      <h3>Mettere il limite di perdita giornaliero nel livello veloce</h3>
+      <p>Non dentro Titano. La doc separa già i due orizzonti — Titano governa il coefficiente lento <span class="mono">StrategyEquityMultiplier</span>, ATR e rischio di portafoglio agiscono per barra al confine di esecuzione. Il limite giornaliero appartiene lì, come terzo moltiplicatore veloce che vale 1 o 0 e si azzera a fine seduta. È l'unico intervento testato che migliora contemporaneamente netto e drawdown, e non tocca gli intent di chiusura.</p>
+    </li>
+    <li>
+      <h3>Rendere il sizing per percentile condizionale al numero di strategie accese</h3>
+      <p>La doc lo prevede già per il caso limite («<em>con una sola strategia il rango è privo di significato e si restituisce 1</em>»), ma la soglia è troppo bassa. Con 3–4 strategie accese il percentile distribuisce allocazioni fra 0,25 e 1,00 su differenze di rango prive di contenuto: è la ragione per cui la variante solo-ON/OFF rende il 47% in più a parità di Calmar. Suggerimento: sotto ~6 strategie eleggibili nel periodo, allocazione piena per tutte e <span class="mono">rawScore</span> comunque scritto nel manifest per l'audit.</p>
+    </li>
+  </ol>
+
+  <div class="col" style="margin-top:34px">
+    <h3>Cosa non fare</h3>
+    <p style="margin-top:10px">Non cercare la configurazione settimanale «giusta». L'analisi ha già coperto 10.515 punti dello spazio dei parametri e la conclusione non è che il punto migliore non è stato trovato: è che il criterio di ricerca non trasferisce (+0,017). Aggiungere dimensioni alla griglia peggiora il problema invece di risolverlo.</p>
+    <p>E non chiudere questa analisi come definitiva. Sette mesi e 432 trade sono pochi: la finestra lunga da 365 giorni non è mai piena, il taglio out-of-sample lascia tre mesi, e l'intero drawdown massimo del campione è un evento singolo. Le direzioni qui sopra sono robuste <em>relativamente a questi dati</em>. Prima di metterle in produzione servirebbe un campione che copra almeno due eventi di stress indipendenti.</p>
+  </div>
+</section>
+
+<footer>
+  <div>Simulazione indipendente della logica descritta in <span class="mono">docs/domini/titano-rotation.md</span> e <span class="mono">docs/titano-analisi-parametri-e-audit-2026-07-31.md</span> §1–§3.</div>
+  <div>Sorgente: <span class="mono">piootoo-repository/trades.jsonl</span> · 432 trade · 19 strategie · schemaVersion 2 · account 17175215.</div>
+  <div>Risultati riproducibili: 12.000 combinazioni campionate con seed 20260821, 9.000 combinazioni giornaliere esaustive, taglio IS/OOS al 2025-11-01.</div>
+</footer>
+
+</div>
+
+
+
+<script>
+const DATA={"days":["06-25","06-26","06-27","06-30","07-01","07-02","07-03","07-04","07-07","07-09","07-11","07-15","07-16","07-17","07-18","07-21","07-22","07-23","07-24","07-25","07-28","07-29","07-30","07-31","08-04","08-05","08-06","08-07","08-08","08-11","08-12","08-13","08-18","08-19","08-20","08-22","08-26","08-27","08-28","09-02","09-03","09-04","09-05","09-09","09-10","09-11","09-12","09-15","09-16","09-17","09-18","09-19","09-22","09-23","09-24","09-26","09-29","09-30","10-01","10-02","10-03","10-06","10-07","10-08","10-09","10-10","10-13","10-14","10-15","10-16","10-17","10-20","10-21","10-22","10-24","10-27","10-28","10-29","10-30","10-31","11-03","11-04","11-05","11-10","11-11","11-12","11-13","11-14","11-17","11-18","11-19","11-20","11-21","11-24","11-25","11-26","11-28","12-02","12-03","12-04","12-05","12-08","12-09","12-10","12-11","12-16","12-17","12-18","12-19","12-22","12-23","12-24","12-26","12-29","12-31","01-06","01-07","01-08","01-09","01-12","01-13","01-14","01-15","01-16","01-19","01-20","01-23","01-26","01-27","01-28","01-29","01-30","02-02","02-03"],"series":{"base":[98000,107932,119065,120301,114293,114033,116883,118742,117704,116762,109302,108017,100681,100186,105149,107127,103981,103701,103779,101802,99560,101110,99306,98888,100000,104896,102642,106152,108566,111056,109322,108820,108837,112849,112339,120198,117650,114520,113940,115437,114661,111062,118685,118627,116331,118800,122530,128041,141007,141060,146717,151102,152384,152644,149546,148314,148282,148278,149065,157953,147693,146153,148527,148275,148235,136405,136153,134111,133573,133765,133255,132235,134027,126931,127186,139736,139230,156694,156174,160901,160951,165737,165465,178253,180321,180518,180000,179960,177913,181675,182827,182800,182336,181804,184276,190404,187618,187231,184687,177948,177540,177539,177568,166828,161826,162682,174904,171891,171375,171779,174786,173736,185964,188265,186259,186004,188996,186982,182596,181219,177427,180911,180936,180896,181221,175654,176240,175445,179347,177086,176548,176523,174521,174005],"wk":[100000,100000,100000,100152,99151,99151,98104,99230,99230,99812,96165,96165,93652,93652,96055,97244,94967,94841,95246,95078,94229,94751,93538,93989,94601,94601,94462,95345,97567,97567,96235,96235,96235,97842,97842,99512,99212,99209,99465,102069,101915,101928,106406,106406,106532,108189,112201,115894,122378,122378,125318,123996,125713,126176,124227,123487,124669,124667,121876,127724,122083,121471,120397,120246,120222,112587,112424,112424,112074,107868,107537,107186,107172,103002,104054,108852,108523,120675,120338,120338,120369,122283,122108,130498,131325,130649,130364,130341,129116,131973,133088,132961,132632,132261,133497,136494,135322,135229,133422,129291,127935,127934,127952,121919,118417,117085,124224,123019,122673,122915,124731,124429,130410,131906,130577,130575,132240,131133,128213,127456,125494,127598,127611,127588,127783,124773,124948,124549,126041,124571,124571,124557,123255,123255],"dy":[100000,100000,100000,100135,96229,96229,96229,96229,96229,96593,93077,92686,92686,92686,93777,93777,93884,93716,94149,91714,91714,93305,93127,93127,93127,93127,93001,92844,94724,94724,94146,94146,94146,94146,94146,94146,93990,93987,94244,97449,97321,97334,100335,100335,100335,100343,104171,108039,110843,110843,112484,111264,112891,113316,110915,110176,111161,111159,110497,114137,110932,110932,110023,110023,110023,109361,109361,109361,109361,109361,109361,109361,109361,109361,109361,109361,109361,116364,116364,116364,116394,116394,116394,122582,123616,125543,125543,125532,124129,126987,127354,125861,125711,125544,125544,126974,125671,125671,125671,125680,125680,125679,125708,125708,125708,125708,125708,125708,125708,125930,128563,128563,128601,130344,128926,128926,130585,129478,128054,128054,128054,128054,128054,128054,128233,127128,127128,127128,127128,127128,127128,127128,127128,127128],"dl":[98000,107932,119065,120301,114293,114033,116883,118742,117704,116762,111302,110017,102681,102186,107149,109127,105981,105701,105779,103802,101560,103110,101306,100888,102000,106896,104642,108152,110566,113056,108320,108320,108337,112349,111839,119698,117150,114020,113440,114937,114161,110562,118185,118127,115831,118300,122030,127541,140507,140560,146217,150602,151884,152144,149046,147814,147782,147778,148565,157453,147193,145653,148027,147775,147735,135905,135653,133611,133073,133265,132755,131735,133527,126493,126748,139298,138792,156256,155736,160462,160513,165299,165026,177815,179883,180079,179561,179521,177475,181237,182389,182361,181898,181366,183838,189965,187179,186792,184248,177510,177101,177100,177130,168358,168358,169214,181436,178423,177907,178311,181317,180267,192496,194797,192791,192536,195528,193514,189128,187751,183959,187443,187468,187427,187753,182186,182772,181977,185879,183618,183080,183055,181053,180537]},"oct":[["10-01",786],["10-02",8888],["10-03",-10260],["10-06",-1540],["10-07",2374],["10-08",-252],["10-09",-40],["10-10",-11830],["10-13",-252],["10-14",-2042],["10-15",-538],["10-16",192],["10-17",-510],["10-20",-1020],["10-21",1792],["10-22",-7096],["10-24",256],["10-27",12550],["10-28",-506],["10-29",17464],["10-30",-520],["10-31",4726]]};
+(function () {
+  const css = getComputedStyle(document.documentElement);
+  const C = k => css.getPropertyValue(k).trim();
+  const SER = [
+    { k: 'base', label: 'Baseline — nessun filtro', color: '--s1', w: 3 },
+    { k: 'wk', label: 'Titano default (Weekly, finestra 90 gg)', color: '--s2', w: 2 },
+    { k: 'dy', label: 'Titano giornaliero, 5 voti su 5', color: '--s3', w: 2 },
+    { k: 'dl', label: 'Limite di perdita giornaliero 5.000', color: '--s4', w: 2, dash: '7 4' }
+  ];
+  const fmt = n => (n < 0 ? '−' : '') + Math.abs(Math.round(n)).toLocaleString('it-IT');
+  const NS = 'http://www.w3.org/2000/svg';
+  const el = (t, a) => { const e = document.createElementNS(NS, t); for (const k in a) e.setAttribute(k, a[k]); return e; };
+
+  /* ---------------- equity ---------------- */
+  function equity() {
+    const host = document.getElementById('eq');
+    const W = 1040, H = 400, M = { t: 14, r: 96, b: 34, l: 62 };
+    const iw = W - M.l - M.r, ih = H - M.t - M.b;
+    const n = DATA.days.length;
+    let lo = Infinity, hi = -Infinity;
+    SER.forEach(s => DATA.series[s.k].forEach(v => { if (v < lo) lo = v; if (v > hi) hi = v; }));
+    lo = Math.floor(lo / 10000) * 10000; hi = Math.ceil(hi / 10000) * 10000;
+    const x = i => M.l + (i / (n - 1)) * iw;
+    const y = v => M.t + ih - ((v - lo) / (hi - lo)) * ih;
+
+    const svg = el('svg', { viewBox: `0 0 ${W} ${H}`, width: W, role: 'img', 'aria-label': 'Curve equity a confronto' });
+
+    // banda drawdown ottobre (2025-10-02 .. 2025-10-24)
+    const i0 = DATA.days.indexOf('10-02'), i1 = DATA.days.indexOf('10-24');
+    if (i0 > -1 && i1 > -1) {
+      svg.appendChild(el('rect', { x: x(i0), y: M.t, width: x(i1) - x(i0), height: ih, fill: C('--band') }));
+      const lb = el('text', { x: x(i0) + 6, y: M.t + 15, fill: C('--neg'), 'font-size': 10.5, 'font-family': 'IBM Plex Mono, monospace', 'font-weight': 500 });
+      lb.textContent = 'drawdown massimo −34.031';
+      svg.appendChild(lb);
+    }
+
+    // griglia y
+    const step = 20000;
+    for (let v = lo; v <= hi; v += step) {
+      svg.appendChild(el('line', { x1: M.l, x2: M.l + iw, y1: y(v), y2: y(v), stroke: C('--rule'), 'stroke-width': 1 }));
+      const t = el('text', { x: M.l - 10, y: y(v) + 4, 'text-anchor': 'end', fill: C('--muted'), 'font-size': 10.5, 'font-family': 'IBM Plex Mono, monospace' });
+      t.textContent = (v / 1000) + 'k';
+      svg.appendChild(t);
+    }
+    // linea capitale
+    svg.appendChild(el('line', { x1: M.l, x2: M.l + iw, y1: y(100000), y2: y(100000), stroke: C('--rule-strong'), 'stroke-width': 1.5, 'stroke-dasharray': '3 3' }));
+
+    // asse x: primo giorno di ogni mese presente
+    let seen = '';
+    DATA.days.forEach((d, i) => {
+      const m = d.slice(0, 2);
+      if (m !== seen) {
+        seen = m;
+        svg.appendChild(el('line', { x1: x(i), x2: x(i), y1: M.t + ih, y2: M.t + ih + 5, stroke: C('--rule-strong'), 'stroke-width': 1 }));
+        const t = el('text', { x: x(i), y: H - 12, 'text-anchor': 'middle', fill: C('--muted'), 'font-size': 10.5, 'font-family': 'IBM Plex Mono, monospace' });
+        const nm = { '06': 'giu', '07': 'lug', '08': 'ago', '09': 'set', '10': 'ott', '11': 'nov', '12': 'dic', '01': 'gen', '02': 'feb' };
+        t.textContent = nm[m] || m;
+        svg.appendChild(t);
+      }
+    });
+
+    // taglio IS/OOS
+    const iSplit = DATA.days.findIndex(d => d === '11-03' || d === '11-04' || d === '11-05');
+    if (iSplit > -1) {
+      svg.appendChild(el('line', { x1: x(iSplit), x2: x(iSplit), y1: M.t, y2: M.t + ih, stroke: C('--muted'), 'stroke-width': 1, 'stroke-dasharray': '2 4' }));
+      const t = el('text', { x: x(iSplit) + 5, y: M.t + ih - 6, fill: C('--muted'), 'font-size': 10, 'font-family': 'IBM Plex Mono, monospace' });
+      t.textContent = 'taglio out-of-sample';
+      svg.appendChild(t);
+    }
+
+    // serie
+    SER.forEach(s => {
+      const d = DATA.series[s.k].map((v, i) => (i ? 'L' : 'M') + x(i).toFixed(1) + ' ' + y(v).toFixed(1)).join(' ');
+      const at = { d, fill: 'none', stroke: C(s.color), 'stroke-width': s.w, 'stroke-linejoin': 'round', 'stroke-linecap': 'round' };
+      if (s.dash) at['stroke-dasharray'] = s.dash;
+      svg.appendChild(el('path', at));
+      const last = DATA.series[s.k][n - 1];
+      svg.appendChild(el('circle', { cx: x(n - 1), cy: y(last), r: 3.5, fill: C(s.color), stroke: C('--surface'), 'stroke-width': 2 }));
+      const t = el('text', { x: x(n - 1) + 9, y: y(last) + 4, fill: C(s.color), 'font-size': 11.5, 'font-weight': 600, 'font-family': 'IBM Plex Mono, monospace' });
+      t.textContent = fmt(last);
+      svg.appendChild(t);
+    });
+
+    // crosshair + hover
+    const cross = el('line', { y1: M.t, y2: M.t + ih, stroke: C('--ink'), 'stroke-width': 1, opacity: 0 });
+    svg.appendChild(cross);
+    const dots = SER.map(s => { const c = el('circle', { r: 4, fill: C(s.color), stroke: C('--surface'), 'stroke-width': 2, opacity: 0 }); svg.appendChild(c); return c; });
+    const hit = el('rect', { x: M.l, y: M.t, width: iw, height: ih, fill: 'transparent' });
+    svg.appendChild(hit);
+    host.appendChild(svg);
+
+    const tip = document.createElement('div'); tip.className = 'tip'; host.parentElement.parentElement.appendChild(tip);
+    const MN = { '06': 'giu', '07': 'lug', '08': 'ago', '09': 'set', '10': 'ott', '11': 'nov', '12': 'dic', '01': 'gen', '02': 'feb' };
+    function move(ev) {
+      const r = svg.getBoundingClientRect();
+      const px = (ev.clientX - r.left) / r.width * W;
+      let i = Math.round((px - M.l) / iw * (n - 1));
+      i = Math.max(0, Math.min(n - 1, i));
+      cross.setAttribute('x1', x(i)); cross.setAttribute('x2', x(i)); cross.setAttribute('opacity', .35);
+      SER.forEach((s, k) => { dots[k].setAttribute('cx', x(i)); dots[k].setAttribute('cy', y(DATA.series[s.k][i])); dots[k].setAttribute('opacity', 1); });
+      const dd = DATA.days[i];
+      tip.innerHTML = '<b>' + dd.slice(3) + ' ' + (MN[dd.slice(0, 2)] || '') + '</b><br>' +
+        SER.map(s => s.label.split(' —')[0].split(' (')[0] + '  ' + fmt(DATA.series[s.k][i])).join('<br>');
+      tip.style.opacity = 1;
+      const hb = host.parentElement.parentElement.getBoundingClientRect();
+      let L = ev.clientX - hb.left + 16;
+      if (L + 230 > hb.width) L = ev.clientX - hb.left - 230;
+      tip.style.left = Math.max(4, L) + 'px';
+      tip.style.top = (ev.clientY - hb.top + 14) + 'px';
+    }
+    hit.addEventListener('mousemove', move);
+    hit.addEventListener('mouseleave', () => { tip.style.opacity = 0; cross.setAttribute('opacity', 0); dots.forEach(d => d.setAttribute('opacity', 0)); });
+
+    // legenda
+    const leg = document.getElementById('eqleg');
+    SER.forEach(s => {
+      const sp = document.createElement('span');
+      sp.innerHTML = s.dash
+        ? '<i class="swatch dash" style="color:' + C(s.color) + '"></i>' + s.label
+        : '<i class="swatch" style="background:' + C(s.color) + '"></i>' + s.label;
+      leg.appendChild(sp);
+    });
+  }
+
+  /* ---------------- ottobre ---------------- */
+  function october() {
+    const host = document.getElementById('oct');
+    const D = DATA.oct, W = 1040, H = 300, M = { t: 26, r: 16, b: 46, l: 62 };
+    const iw = W - M.l - M.r, ih = H - M.t - M.b;
+    const mx = Math.max(...D.map(d => Math.abs(d[1])));
+    const lim = Math.ceil(mx / 5000) * 5000;
+    const bw = iw / D.length;
+    const y = v => M.t + ih / 2 - (v / lim) * (ih / 2);
+    const svg = el('svg', { viewBox: `0 0 ${W} ${H}`, width: W, role: 'img', 'aria-label': 'P&L giornaliero di ottobre 2025' });
+
+    [lim, lim / 2, 0, -lim / 2, -lim].forEach(v => {
+      svg.appendChild(el('line', { x1: M.l, x2: M.l + iw, y1: y(v), y2: y(v), stroke: v === 0 ? C('--rule-strong') : C('--rule'), 'stroke-width': 1 }));
+      const t = el('text', { x: M.l - 10, y: y(v) + 4, 'text-anchor': 'end', fill: C('--muted'), 'font-size': 10.5, 'font-family': 'IBM Plex Mono, monospace' });
+      t.textContent = (v > 0 ? '+' : v < 0 ? '−' : '') + Math.abs(v / 1000) + 'k';
+      svg.appendChild(t);
+    });
+
+    const tip = document.createElement('div'); tip.className = 'tip'; host.parentElement.parentElement.appendChild(tip);
+    D.forEach((d, i) => {
+      const v = d[1], neg = v < 0;
+      const h = Math.max(2, Math.abs(y(v) - y(0)));
+      const bx = M.l + i * bw + 2.5, bWid = bw - 5;
+      const g = el('g', {});
+      g.appendChild(el('rect', {
+        x: bx, y: neg ? y(0) : y(v), width: bWid, height: h,
+        fill: neg ? C('--neg') : C('--s4'), rx: 2.5
+      }));
+      // etichette dirette solo sui quattro eventi che contano
+      if (Math.abs(v) >= 7000) {
+        const t = el('text', {
+          x: bx + bWid / 2, y: neg ? y(v) + 14 : y(v) - 7, 'text-anchor': 'middle',
+          fill: neg ? C('--neg') : C('--s4'), 'font-size': 10.5, 'font-weight': 600,
+          'font-family': 'IBM Plex Mono, monospace'
+        });
+        t.textContent = (v > 0 ? '+' : '−') + Math.abs(Math.round(v / 100) / 10).toFixed(1) + 'k';
+        g.appendChild(t);
+      }
+      const hit = el('rect', { x: bx - 2.5, y: M.t, width: bw, height: ih, fill: 'transparent' });
+      hit.addEventListener('mousemove', ev => {
+        const hb = host.parentElement.parentElement.getBoundingClientRect();
+        tip.innerHTML = '<b>' + d[0].slice(3) + ' ottobre</b><br>' + (v > 0 ? '+' : '') + fmt(v);
+        tip.style.opacity = 1;
+        let L = ev.clientX - hb.left + 16;
+        if (L + 150 > hb.width) L = ev.clientX - hb.left - 150;
+        tip.style.left = Math.max(4, L) + 'px';
+        tip.style.top = (ev.clientY - hb.top + 14) + 'px';
+      });
+      hit.addEventListener('mouseleave', () => tip.style.opacity = 0);
+      g.appendChild(hit);
+      svg.appendChild(g);
+      const lt = el('text', { x: bx + bWid / 2, y: H - 14, 'text-anchor': 'middle', fill: C('--muted'), 'font-size': 9.5, 'font-family': 'IBM Plex Mono, monospace' });
+      lt.textContent = d[0].slice(3);
+      svg.appendChild(lt);
+    });
+    const cap = el('text', { x: M.l, y: 14, fill: C('--muted'), 'font-size': 10.5, 'font-family': 'IBM Plex Mono, monospace' });
+    cap.textContent = 'ottobre 2025 · P&L netto per seduta';
+    svg.appendChild(cap);
+    host.appendChild(svg);
+  }
+
+  equity();
+  october();
+})();
+</script>

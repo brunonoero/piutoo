@@ -53,7 +53,7 @@ non contengono logica: traducono eccezioni in `ProblemDetails` e delegano.
 Un **workspace** è una cartella su disco che contiene un `masterfilter.json`
 (l'elenco delle strategie abilitate), una cartella `backtests/`, una `plans/` e una `sessions/`.
 
-Il masterfilter contiene **Id di classe** (es. `Easy_218_GC_60`): è la chiave di
+Il masterfilter contiene **Id di classe** (es. `PTS_NQ_TFM_001_60`): è la chiave di
 *selezione* dal catalogo. È l'unica fonte autorevole di quali strategie girano —
 sia in backtest sia in sessione.
 
@@ -76,7 +76,7 @@ Ogni strategia ha due identificatori e **non vanno confusi**:
 
 | | Valore | Uso |
 |---|---|---|
-| **Id** | nome della classe, es. `Easy_218_GC_60` | *selezione*: masterfilter, catalogo, `StrategyFactory` |
+| **Id** | nome della classe, es. `PTS_NQ_TFM_001_60` | *selezione*: masterfilter, catalogo, `StrategyFactory` |
 | **Name** / **StrategyCode** | es. `TOP_UA_218` | *esecuzione*: segnali, trade, posizioni, Titano, report |
 
 > **Invariante:** tutto ciò che è persistito nel dominio dell'esecuzione
@@ -277,11 +277,20 @@ Implementazione: i segnali di ingresso non vengono assegnati subito, restano
 
 * il proprio gruppo non l'ha già reclamato (`TemplateClaimedGroups`);
 * lo slot `(gruppo, strategia, simbolo)` è libero (`GroupStrategySlots`);
-* l'account non è già impegnato su quel simbolo (`AccountActiveIntent`).
+* l'account non ha già un ingresso in volo per quella coppia `(strategia, simbolo)`
+  (`AccountHasEntryInFlight`);
+* l'account ha budget residuo (`MaxConcurrentTrades`, `CountInFlightForAccount`).
+
+Il budget è **per account e trasversale ai simboli**: dieci significa dieci ingressi
+in volo, che stiano su un simbolo solo o su dieci diversi. Fino all'11/08/2026
+c'era anche un lucchetto `(account, simbolo)` che, su una sessione a simbolo
+singolo, rendeva il tetto inapplicabile — vedi
+[`domini/distribuzione-multi-account.md`](domini/distribuzione-multi-account.md) §4.5.
 
 Le chiusure fanno invece **fan-out**: un intent per ciascun gruppo che detiene la
-posizione. Gli slot si liberano sia sul fill di chiusura sia sull'ingresso
-rifiutato con zero riempito.
+posizione. Lo slot di gruppo si libera sia sul fill di chiusura sia sull'ingresso
+rifiutato con zero riempito; il budget si ricalcola a ogni poll e non ha nulla da
+rilasciare.
 
 ### 4.4 Titano
 

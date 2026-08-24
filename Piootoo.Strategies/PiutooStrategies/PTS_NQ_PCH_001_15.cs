@@ -1,3 +1,4 @@
+using Piootoo.Shared.Configuration;
 using Piootoo.Strategies.Easy.Engines;
 
 namespace Piootoo.Strategies.PiutooStrategies;
@@ -8,22 +9,22 @@ namespace Piootoo.Strategies.PiutooStrategies;
 /// buffer di 2 tick.
 ///
 /// <para>
-/// Le barre e gli orari sono UTC. <b>La sessione è il giorno di calendario UTC,
-/// non la sessione CME 17:00–16:00</b>, e la finestra di ingresso inclusiva
-/// 13:00–04:00 la attraversa: un'occorrenza della finestra ricade su due
-/// sessioni. Non sono esclusi giorni e non è applicato alcun filtro di
-/// volatilità daily.
+/// <b>Sessione e orologio.</b> La sessione e' il <b>giorno di calendario europeo</b>, 00:00 →
+/// 00:00, come il motore Python che taglia con
+/// <c>(timestamp − 1 min − session_start_hour).normalize()</c>. Non e' la giornata CME: e' una
+/// scelta di modello della ricerca, e il port la riproduce tale e quale. La finestra di ingresso
+/// inclusiva e' 13:00–04:00, nell'orologio in cui la ricerca l'ha scritta. Sessione e finestra
+/// dichiarano il proprio fuso e il confronto passa dall'istante assoluto della barra, quindi il
+/// comportamento non dipende da come e' stampato il feed.
 /// </para>
 ///
 /// <para>
-/// Il confine di mezzanotte è misurato sul motore di riferimento, non scelto:
-/// raggruppando i suoi ingressi per giorno di calendario si ottiene esattamente
-/// un ingresso per sessione su 120 trade, mentre con il confine CME sette
-/// sessioni ne mostrerebbero due. Un confine nella zona morta della finestra
-/// (05:00–12:00) non produce lo stesso risultato, quindi la sessione è davvero
-/// il giorno e non l'occorrenza della finestra. Il parametro governa insieme il
-/// secchio di <c>MaxEntriesPerSession</c> e gli OHLC d0..d5 su cui girano i
-/// pattern, quindi vale per entrambi.
+/// <b>La misura che regge il confine.</b> Raggruppando gli ingressi del motore di riferimento per
+/// giorno si ottiene esattamente un ingresso per sessione su 120 trade, mentre col confine alle
+/// 17:00 sette sessioni ne mostrano due. Fra il 17 e il 19/08/2026 questa classe ha dichiarato la
+/// sessione CME <c>1700</c>/<c>1600</c>, sul ragionamento che mezzanotte europea e le 17:00 di
+/// Chicago fossero lo stesso istante: lo sono, ma non nelle settimane in cui l'ora legale
+/// americana ed europea non sono allineate — ed e' li' che il port divergeva dalla fonte.
 /// </para>
 ///
 /// <para>
@@ -77,16 +78,20 @@ public sealed class PTS_NQ_PCH_001_15 : PriceChannelEngine
 
     public PTS_NQ_PCH_001_15()
     {
-        SessionStartTime = 0;
-        SessionEndTime = 2359;
+        // Confine di sessione del run: giorno di calendario europeo, come
+        // (timestamp - 1 min - session_start_hour).normalize() del motore Python.
+        // NON e' la sessione del broker: le due divergono nelle settimane di
+        // disallineamento fra ora legale americana ed europea.
+        Session = ZonedWindow.ResearchSession();
         ChannelBars = 100;
         EnableLong = true;
         EnableShort = false;
         Direction = 1;
         OffsetTicks = 2;
         TickSize = 0.25m;
-        StartTime = 1300;
-        EndTime = 400;
+        // Finestra operativa: start_hour/end_hour del run, verbatim nell'orologio
+        // della ricerca. Nessuna conversione: il fuso viaggia con il dato.
+        TradingWindow = ZonedWindow.ResearchHours(13, 4);
         TradingWindowInclusive = true;
         NeutralYes = 55;
         NeutralNo = 24;
@@ -122,9 +127,9 @@ public sealed class PTS_NQ_PCH_001_15 : PriceChannelEngine
         if (parameters.TryGetValue("SessionEndTime", out var sessionEnd))
             SessionEndTime = Convert.ToInt32(sessionEnd);
         if (parameters.TryGetValue("StartHour", out var startHour))
-            StartTime = Convert.ToInt32(startHour) * 100;
+            TradingWindow = TradingWindow! with { StartHhmm = Convert.ToInt32(startHour) * 100 };
         if (parameters.TryGetValue("EndHour", out var endHour))
-            EndTime = Convert.ToInt32(endHour) * 100;
+            TradingWindow = TradingWindow! with { EndHhmm = Convert.ToInt32(endHour) * 100 };
         if (parameters.TryGetValue("SkipDay", out var skipDay))
             NotEntryDayLong = ToEasyLanguageDayOfWeek(Convert.ToInt32(skipDay));
         if (parameters.TryGetValue("PtnNeutYes", out var ptnNeutYes))

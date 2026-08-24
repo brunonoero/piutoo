@@ -1,0 +1,4 @@
+famiglia,motore,file,trade_totali,trade_oos,primo,ultimo
+1,PC,trades/fam01_PC.csv,227,81,2012-01-31,2025-05-05
+2,RHL,trades/fam02_RHL.csv,268,75,2012-01-25,2025-05-29
+3,RHL,trades/fam03_RHL.csv,270,80,2012-01-13,2025-05-14

@@ -131,6 +131,27 @@ public sealed class WorkspaceController(WorkspaceService workspaceService) : Con
         catch (ArgumentException exception) { return BadRequest(new { error = exception.Message }); }
     }
 
+    /// <summary>
+    /// Report HTML del backtest, servito senza esporre al client il path sul server. Il file è
+    /// autosufficiente (grafici inline), quindi si consegna così com'è.
+    ///
+    /// <para><c>404</c> quando il run non ne ha prodotto uno — interrotto, oppure eseguito
+    /// dall'engine esterno: il client lo distingue da un errore e lo dice all'utente invece di
+    /// aprire una finestra vuota.</para>
+    /// </summary>
+    [HttpGet("{workspaceId}/backtests/{backtestFolder}/report")]
+    public IActionResult GetBacktestHtmlReport(string workspaceId, string backtestFolder)
+    {
+        try
+        {
+            var path = workspaceService.GetBacktestHtmlReportPath(workspaceId, backtestFolder);
+            return File(AtomicFileWriter.OpenReadShared(path), "text/html; charset=utf-8");
+        }
+        catch (DirectoryNotFoundException exception) { return NotFound(new { error = exception.Message }); }
+        catch (FileNotFoundException exception) { return NotFound(new { error = exception.Message }); }
+        catch (ArgumentException exception) { return BadRequest(new { error = exception.Message }); }
+    }
+
     /// <summary>Id dei run Titano contenuti nel backtest: servono ad avvisare prima di cancellarlo.</summary>
     [HttpGet("{workspaceId}/backtests/{backtestFolder}/titano-runs")]
     public ActionResult<IReadOnlyList<string>> ListBacktestTitanoRuns(string workspaceId, string backtestFolder)

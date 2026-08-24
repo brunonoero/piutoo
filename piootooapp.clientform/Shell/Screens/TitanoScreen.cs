@@ -1,6 +1,8 @@
 using System.Globalization;
 using System.Text;
 using Piootoo.Shared.Models.Optimization;
+using Piootoo.Shared.Models.Workspaces;
+using piootooapp.clientform.Shell.Controls;
 
 namespace piootooapp.clientform.Shell.Screens;
 
@@ -14,6 +16,14 @@ public partial class TitanoScreen : UserControl, IShellScreen
     private ShellContext? _context;
     private TitanoRotationManifest? _lastManifest;
     private bool _suspendReload;
+
+    /// <summary>
+    /// Elenco dei backtest del workspace corrente. Sta qui e non in una combo perché la scelta
+    /// passa da una modale con filtro: le cartelle sono troppe per un menu a tendina.
+    /// </summary>
+    private readonly List<WorkspaceBacktestInfo> _backtests = new();
+
+    private WorkspaceBacktestInfo? _selectedBacktest;
 
     /// <summary>Evita che il ripopolamento della combo scateni un caricamento del setup.</summary>
     private bool _suspendSetupReload;
@@ -105,7 +115,7 @@ public partial class TitanoScreen : UserControl, IShellScreen
 
     private string? SelectedWorkspaceId => (_workspaceCombo.SelectedItem as WorkspaceComboItem)?.Info.Id;
 
-    private string? SelectedBacktestFolder => (_backtestCombo.SelectedItem as BacktestComboItem)?.Info.FolderName;
+    private string? SelectedBacktestFolder => _selectedBacktest?.FolderName;
 
     private int FindWorkspaceIndex(string? workspaceId)
     {
@@ -136,6 +146,7 @@ public partial class TitanoScreen : UserControl, IShellScreen
         _runButton.Enabled = !busy;
         _setupCombo.Enabled = !busy;
         _reloadButton.Enabled = !busy;
+        _backtestPickButton.Enabled = !busy;
         _reportButton.Enabled = !busy && _lastManifest != null;
         Cursor = busy ? Cursors.AppStarting : Cursors.Default;
     }
@@ -144,20 +155,61 @@ public partial class TitanoScreen : UserControl, IShellScreen
     {
         if (_context == null || SelectedWorkspaceId is not { } workspaceId)
         {
-            _backtestCombo.Items.Clear();
+            _backtests.Clear();
+            SelectBacktest(null);
             return;
         }
 
         var backtests = await _context.Services.Api.ListBacktestsAsync(workspaceId, cancellationToken);
-        _suspendReload = true;
-        _backtestCombo.Items.Clear();
-        foreach (var backtest in backtests.OrderByDescending(backtest => backtest.LastModifiedUtc))
+        _backtests.Clear();
+        _backtests.AddRange(backtests.OrderByDescending(backtest => backtest.LastModifiedUtc));
+
+        // La selezione precedente sopravvive a un ricarico se la cartella c'è ancora; altrimenti
+        // vale il più recente, che è il caso d'uso normale (rotazione sul backtest appena fatto).
+        var previous = _selectedBacktest?.FolderName;
+        var restored = previous == null
+            ? null
+            : _backtests.FirstOrDefault(backtest =>
+                string.Equals(backtest.FolderName, previous, StringComparison.OrdinalIgnoreCase));
+
+        SelectBacktest(restored ?? _backtests.FirstOrDefault());
+    }
+
+    /// <summary>
+    /// Nel form si legge il backtest scelto, non la lista: l'etichetta ripete cartella, origine e
+    /// data perché scegliere un run dell'engine esterno al posto di quello interno non dà errore,
+    /// dà numeri diversi.
+    /// </summary>
+    private void SelectBacktest(WorkspaceBacktestInfo? backtest)
+    {
+        _selectedBacktest = backtest;
+        _backtestTextBox.Text = backtest == null
+            ? string.Empty
+            : $"{backtest.FolderName}  ·  {BacktestComboItem.DescribeOrigin(backtest)}  ·  " +
+              $"{backtest.LastModifiedUtc:yyyy-MM-dd HH:mm} UTC";
+    }
+
+    private void OnPickBacktestClick(object? sender, EventArgs e)
+    {
+        if (SelectedWorkspaceId is null)
         {
-            _backtestCombo.Items.Add(new BacktestComboItem(backtest));
+            MessageBox.Show(this, "Scegli prima un workspace.", "Titano",
+                MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
         }
 
-        _backtestCombo.SelectedIndex = _backtestCombo.Items.Count > 0 ? 0 : -1;
-        _suspendReload = false;
+        if (_backtests.Count == 0)
+        {
+            MessageBox.Show(this, "Il workspace non contiene backtest.", "Titano",
+                MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        var chosen = BacktestPickerDialog.Pick(this, _backtests, _selectedBacktest?.FolderName);
+        if (chosen != null)
+        {
+            SelectBacktest(chosen);
+        }
     }
 
     private void ApplyDefaults(TitanoRotationSetup setup)

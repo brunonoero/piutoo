@@ -329,6 +329,75 @@ in ordine cronologico. Non è un changelog di codice: quello resta nei commit.
   circa l'8% dei giorni. Questo **non** cambia nulla per le strategie EasyLanguage, che
   continuano a costruire le barre di sessione a runtime dal timeframe intraday con l'orario
   dichiarato dalla singola sorgente (`EasyLib.BuildSessionSeries`) e non da questo feed.
+- **2026-08-19** — **Chiuso il problema aperto del 2026-08-02: il feed dichiara il proprio
+  orologio, e la sessione diventa una proprieta' della strategia.** Un commit solo, perche' le due
+  meta' non sono separabili.
+
+  *Cosa c'era.* Gli orari di sessione erano due interi `HHMM` il cui fuso veniva dedotto dal
+  **simbolo** (`InstrumentRegistry.CreateSessionClock`), e i timestamp del feed venivano
+  ri-etichettati UTC da `TradingDateTime.ToFeedUtc` senza essere convertiti. Due conseguenze. La
+  prima: una strategia non poteva dichiarare una sessione diversa da quella che il registro
+  attribuiva al suo simbolo — semplificazione legittima per una sorgente EasyLanguage, che gira su
+  un simbolo solo, insostenibile per una piattaforma che ne ospita molte. La seconda: siccome
+  l'istante della barra era una bugia, il confine di sessione cadeva **un'ora prima d'inverno e due
+  d'estate** rispetto a quello che la ricerca aveva usato.
+
+  *Cosa c'e' adesso.* `ZonedWindow` — `(HHMM inizio, HHMM fine, fuso IANA)` — e su `EasyEngineBase`
+  due proprieta' distinte: `Session`, il confine di sessione, e `TradingWindow`, la finestra
+  operativa. **Entrambe in ora della ricerca**, e per una ragione che vale la pena scrivere: il
+  motore Python confronta la finestra con l'orario **della barra stessa** (`filters.py`:
+  `minuti = index.hour * 60 + index.minute`), senza riferimento alla sessione, e taglia le sessioni
+  con `(timestamp − 1 min − session_start_hour).normalize()`, che con `session_start_hour = 0` da'
+  il **giorno di calendario europeo**, non la sessione CME. Sono due meccanismi indipendenti, ed
+  entrambi vivono nell'orologio della ricerca.
+
+  *Una correzione del 19/08 stesso.* La prima stesura dichiarava la sessione come quella di borsa
+  (`1700` Chicago, `1800` New York), sul ragionamento che mezzanotte europea e la riapertura CME
+  fossero lo stesso istante. Lo sono, tranne nelle settimane in cui l'ora legale americana ed
+  europea non sono allineate — ed e' esattamente li' che il port divergerebbe dalla fonte.
+  Confermato da chi ha scritto il motore Python: la sessione del modello e' il giorno europeo, e il
+  port deve riprodurre quella, non il broker. `ZonedWindow.ResearchSession()` e
+  `ZonedWindow.ResearchHours(...)` sono le due forme da usare. Sono due perche' i due fusi
+  non coincidono e non devono piu' essere riconciliati a mano. `FeedClockRegistry` legge
+  `datafeed/feed-clocks.json`, dove ogni feed dichiara il proprio orologio, e
+  `DataSourceRepository` converte a UTC vero **una volta sola** al caricamento; un feed non
+  dichiarato e' un errore esplicito, mai un'assunzione.
+
+  *Le misure che lo dimostrano.* Sul feed a 15 minuti di @NQ, dopo la conversione, la pausa di
+  manutenzione CME cade sugli slot **16:15-16:45 di Chicago** e il picco di volume sulle **08:30 di
+  Chicago** — l'apertura del cash di New York — **in entrambe le stagioni**. Prima non era cosi',
+  ed e' il controllo che rivela un orologio sbagliato: se il fuso non torna, le due misure si
+  spostano fra gennaio e luglio.
+
+  *E che l'ora legale e' quella europea.* Prendendo la barra a volume massimo di ogni giorno del
+  2024, il picco sta alle 22:00 a febbraio, alle **21:00 dall'11 al 28 marzo**, e di nuovo alle
+  22:00 ad aprile. Quelle tre settimane sono la finestra fra il passaggio americano all'ora legale
+  (10 marzo) e quello europeo (31 marzo): il mercato americano compare un'ora prima. Stesso effetto
+  nel 2013, con l'apertura cash che passa da 15:45 a 14:45. Con un offset fisso da UTC quello
+  scarto non esisterebbe. Misura di chi ha scritto il motore Python, coerente con le due nostre.
+
+  *Quanto e' cambiato.* Su `PTS_NQ_TFU_001_15`, finestra 17:00-10:00 CET, il numero di barre
+  accettate resta lo stesso ma **l'insieme cambia**: 48 barre diverse in un mese d'inverno, 88 in
+  un mese d'estate. E' la finestra che prima era spostata di un'ora e di due. Ne segue che **i
+  backtest archiviati non sono confrontabili** con quelli successivi a questa voce.
+
+  *Le cinque `ClaudioUnger/` sono state rimosse.* Non passavano da `EasyEngineBase`: leggevano
+  l'ora grezza della barra e avevano l'inizio sessione cablato a `23` UTC, un'approssimazione
+  tarata sul feed etichettato in ora europea. Portarle avrebbe voluto dire riscriverle; nessun
+  codice le referenziava e non erano nel masterfilter, quindi sono state spostate in
+  `_to_delete/ClaudioUnger-20260819/` invece che adattate.
+
+  *Il vincolo e' ora imposto dal sorgente.* `StrategyClockConformanceTests` fallisce se qualcuno
+  rilegge `.Hour`, `.Minute`, `.DayOfWeek` o `.TimeOfDay` di una barra dentro `Piootoo.Strategies`
+  — con l'unica eccezione dei valori gia' passati dall'orologio — e se una `PTS_*` non dichiara
+  sessione e finestra con il proprio fuso. Nello stesso giro sono sparite da `EasyLib` le due
+  funzioni che quell'errore lo rendevano comodo, `GetHhmm` e `CombineDateAndHhmm`: non le chiamava
+  piu' nessuno.
+
+  *Cosa resta fuori.* Il feed giornaliero `D` va ricostruito sulla sessione invece che sul
+  calendario, come questa stessa voce prevedeva gia' il 2026-08-02, e le serie sintetiche dei test
+  costruiscono ancora barre a orari UTC coincidenti per costruzione con gli orari di sessione.
+
 - **2026-08-02** — **I timestamp del feed @NQ sono marcati `Z` ma non sono UTC: sono ora europea,
   e questo disallinea le sessioni di tutte le strategie NQ.** Problema aperto, nessun codice
   ancora cambiato.
@@ -1002,3 +1071,505 @@ in ordine cronologico. Non è un changelog di codice: quello resta nei commit.
   dichiarata dal broker: `RoundQuantity` applica comunque il default a contratto intero (passo 1,
   minimo 1) invece di lasciar passare una quantità frazionaria — "nessuna conversione" vale per
   simbolo e moltiplicatore, non per la granularità.
+- **2026-08-06** — **`PiootooDistributedExecutionBot` non usa più il simbolo e il timeframe del
+  grafico a cui è agganciato.** Prima il grafico era l'orologio comune: il bot pretendeva un chart
+  al timeframe base (parametro `BaseTimeframeMinutes`, rimosso) e a ogni sua barra scorreva tutte
+  le coppie del piano per vedere quali avessero chiuso. Il timeframe del chart quindi decideva la
+  latenza di tutti gli stream, e un chart più lento delle coppie del piano ne perdeva le barre.
+  Ora ogni coppia (simbolo, timeframe) del descriptor apre la propria serie nativa e si sottoscrive
+  al proprio `Bars.BarOpened`: push della barra, conteggio di `MaxBarsInPosition` e claim del
+  segnale avvengono per stream, ciascuno col proprio orologio. Conseguenze: i simboli del piano non
+  disponibili sull'account fanno fallire l'avvio invece di essere scoperti al primo intent
+  (stesso invariante dei datafeed mancanti); break-even e trailing si sottoscrivono a `Symbol.Tick`
+  di ogni simbolo, perché `OnTick` del robot riporta solo i tick del chart; `CloseExpiredPositions`
+  gira anche su `OnTimer`, perché senza la barra del grafico un piano di soli stream lenti
+  valuterebbe `CloseAtUtc` con ore di ritardo.
+- **2026-08-06** — **Le label di posizioni e ordini portano l'IntentId**:
+  `PiootooLive:{StrategyCode}:{IntentId}` invece di `PiootooLive:{StrategyCode}`. Dal solo stato
+  della piattaforma si risale al segnale che ha creato ciascun ordine o posizione, anche dopo un
+  riavvio del cBot e senza lo stato locale; `BrokerPositionSnapshot`/`BrokerOrderSnapshot` portano
+  il campo `IntentId` (vuoto per le label di formato precedente, ancora a mercato). Poiché la label
+  cambia a ogni segnale, i match che riguardano la strategia e non il singolo intent — sostituzione
+  dell'ordine pending della barra precedente, ricerca della posizione da chiudere per un intent
+  `Close` — passano dal prefisso `PiootooLive:{StrategyCode}:` e non più dalla label esatta.
+- **2026-08-06** — **Il client invia al server la finestra di candele, non la singola barra chiusa**
+  (`POST /{id}/bars/window`, `PiootooDistributedExecutionBot`). Nelle sessioni `ExternalBroker` il
+  server non ha un datafeed proprio: la storia di uno stream è soltanto ciò che gli è stato spinto,
+  e `StrategyEvaluationService` salta la valutazione finché `history.Count < RequiredCandles`. Con
+  una barra per volta ogni run partiva quindi da storia vuota e scartava in silenzio le prime
+  `RequiredCandles` barre — per `PTS_NQ_PCH_001_15`, `PriceChannelEngine` a 15 minuti, sono
+  `max(6 sessioni × 96, ChannelBars+1) = 576` barre, circa sei sessioni — e un backtest più corto
+  di quella soglia non produceva un solo segnale, senza un messaggio. Peggio: in backtest
+  `ExecutionKey = BT-{istante di avvio}`, quindi ogni run apre una sessione nuova e il
+  riscaldamento non si eredita mai.
+  Ora il bot carica la storia all'indietro con `Bars.LoadMoreHistory()` fino a coprire
+  `RequiredCandles` e a ogni barra chiusa spedisce le ultime N candele; il server accoda quelle che
+  non ha e valuta **solo l'ultima**, così la prima finestra fa da riscaldamento senza generare
+  intent sul passato. La profondità la dichiara il server in
+  `TradingInstrument.RequiredCandlesByTimeframe` (massimo fra le strategie del masterfilter su
+  quello stream): un parametro locale del cBot sarebbe una seconda verità destinata a divergere dal
+  masterfilter.
+  **Le candele viaggiano in due tempi.** All'avvio, una volta per stream, parte tutta la storia
+  richiesta con `EvaluateLastCandle = false`: il server accoda e basta, senza valutare, senza
+  consumare l'idempotency key e senza avanzare la sequence — sono barre già passate, e valutarle
+  produrrebbe intent sul passato che il bot eseguirebbe al prezzo di adesso. Poi, a ogni barra
+  chiusa, una finestra corta (`IncrementalWindowBars`, default 20) di cui il server valuta l'ultima
+  candela. Rispedire ogni volta l'intera finestra da 576 candele sarebbe stato più semplice ma
+  costava ~50 KB di JSON per barra; mandare la sola barra chiusa era la versione rotta di partenza.
+  Le 20 barre sono il margine: **la sovrapposizione non è banda sprecata, è ciò che impedisce i
+  buchi.** Ogni giro perso — chiamata fallita, server irraggiungibile — lascerebbe altrimenti nella
+  serie del server un vuoto permanente, e le strategie girerebbero su dati bucati senza
+  accorgersene. Con 20 barre si ricuce da solo fino a 19 barre consecutive perse. E il buco non
+  resta affidato alla buona volontà del client: la finestra deve **sovrapporsi** alla storia già
+  presente, e il server rifiuta quella che comincia dopo la sua ultima candela nota. Il criterio è
+  la sovrapposizione e non l'aritmetica sui timestamp perché gli stream hanno buchi legittimi —
+  fine settimana, festivi, mercati chiusi — che una differenza in minuti scambierebbe per barre
+  perse.
+  `POST /{id}/bars` resta invariato per `PiootooDirectExecutionBot`, che non è stato migrato.
+- **2026-08-06** — **La sessione non persiste le candele ricevute.** `session.History` vive in RAM;
+  `TradingJsonStore` scrive signal, trade e rotation-log e nient'altro. Raccogliere il datafeed da
+  cTrader e salvarlo su disco per i backtest locali sarà compito di un cBot raccoglitore dedicato,
+  non della strada di esecuzione: mescolare le due cose farebbe dipendere la qualità del datafeed
+  storico dagli orari in cui è girato un bot di trading.
+- **2026-08-06** — **La risposta di `bars/window` porta la diagnostica per stream**
+  (`HistoryBars`, `RequiredCandles`, `EvaluatedStrategies`, `SkippedForInsufficientHistory`) e il
+  cBot la stampa una volta per stream, con quante barre mancano. Prima "nessuna strategia ha
+  prodotto un segnale" e "il server non ha abbastanza storia per valutare" erano lo stesso identico
+  silenzio: è la stessa ragione per cui il backtest interno ha il blocco `diagnostics` in testa a
+  `backtest-summary.json`.
+- **2026-08-06** — **In modalità `Disabled` un run Titano mancante non blocca più la sessione.**
+  `CreateCore` accetta da sempre `TitanoMode = Disabled` con `TitanoBacktestFolder` valorizzato e
+  nessun run per quella cartella — è lo scenario A di
+  `domini/cbot-realtime-backtest-titano.md`, dove il piano dichiara la cartella in cui i trade
+  verranno promossi ma la rotazione non esiste ancora, perché è proprio quel run a doverla
+  alimentare. `EvaluateClosedBar` però risolveva il run appena la cartella era valorizzata, senza
+  guardare la modalità, e lanciava: la sessione si apriva e poi falliva identica a ogni barra
+  (409 "esegui prima una rotazione" per l'intero backtest, zero valutazioni). Ora in `Disabled` il
+  run si risolve solo se esiste; se manca si annota nel rotation-log e si prosegue senza filtri,
+  che è già la semantica della modalità. Le modalità filtrate continuano a fallire in modo
+  esplicito: senza rotazione eseguirebbero tutto il masterfilter, cioè l'opposto di quanto chiesto.
+- **2026-08-06** — **Il cBot non ripete l'errore di invio e si ferma se non passa più nulla.** Un
+  messaggio identico allo scorso, sullo stesso stream, non viene ristampato; dopo
+  `MaxConsecutivePushFailures` (20) invii falliti di fila senza uno riuscito in mezzo il bot chiama
+  `Stop()`. Gli errori che bloccano l'invio sono di configurazione — piano che punta a una rotazione
+  inesistente, sessione fermata, token scaduto — e non si risolvono da soli: prima un backtest
+  arrivava in fondo producendo centinaia di righe identiche e nessuna valutazione.
+- **2026-08-06** — **Gli intent generati si vedono sulla console del server**, una riga per intent in
+  `TradingSessionsController` (`PushBars` e `PushBarWindow`), a livello Information: strategia,
+  simbolo, lato, tipo ordine, prezzo, quantità finale con la base quando differiscono, stato ed
+  eventuale `SizingReason`. Serviva un punto in cui il segnale è visibile *nel momento in cui nasce*:
+  `signals.json` si legge a run finito, e il cBot vede solo ciò che gli viene consegnato, non un
+  intent annullato dal sizing o dal limite di ingressi per sessione — che è proprio il caso da capire
+  quando "non arriva niente". Il riempimento della storia barra per barra è invece a Debug: a
+  Information sarebbero 576 righe di riscaldamento a soffocare i segnali, e la stessa informazione il
+  cBot la stampa già una volta per stream.
+- **2026-08-06** — **Nel claim "adesso" è l'ultima barra valutata, non `DateTime.UtcNow`.**
+  `GetNextSignalForAccount` scartava i template scaduti confrontando `ExpiresAtUtc` con l'ora di
+  sistema. In un replay storico le due date distano mesi, quindi **ogni** ordine "next bar" dei
+  motori Unger nasceva già scaduto: il server generava e loggava i segnali come template `Pending`,
+  il claim rispondeva sempre `NoSignal`, e sul broker non arrivava mai un ordine — un backtest
+  perfettamente muto pur avendo prodotto i segnali. Stessa correzione in
+  `CreateExternalCloseIntent`, dove l'ora di sistema datava la chiusura fuori dall'intervallo del
+  run e quindi fuori da qualunque periodo di rotazione Titano. Il fallback a `DateTime.UtcNow` resta
+  solo prima della prima barra, quando `LastEvaluatedBarTimeUtc` è ancora null.
+  Non contraddice l'invariante "adesso è `DateTime.UtcNow`" di `CLAUDE.md`: quello vale per il tempo
+  reale: dentro un replay l'orologio autorevole è la barra, come già in
+  `docs/domini/orologio-barre-e-fill.md`. Regressioni in
+  `MultiAccountDistributionTests.TemplateWithExpiry_OnHistoricalBars_IsStillClaimable` e
+  `TemplateExpiredBeforeTheCurrentBar_IsNotClaimable`.
+- **2026-08-06** — **Il claim dice perché non consegna niente.** `AccountSignalResponse` porta
+  `ReasonDetail` accanto a `Reason` (che resta il codice stabile, "NoSignal"/"SessionNotRunning",
+  su cui i test fanno match): i filtri di `GetNextSignalForAccount` sono applicati a stadi invece che
+  in un'unica catena LINQ, così si sa **quale** ha svuotato la lista e quanti template ha scartato —
+  simbolo non abilitato sulla tabella di conversione, template scaduti rispetto alla barra corrente,
+  già reclamati dal gruppo, slot occupato, account già impegnato su quel simbolo, limite di ingressi,
+  esclusione Titano. Caso a parte e il più insidioso: template idoneo ma con quantità azzerata dalla
+  conversione dell'account (BalanceScale × moltiplicatore contratto, poi arrotondamento del broker),
+  che dal client è identico a "nessun segnale". Il server logga l'esito del claim una volta per
+  motivo, il cBot stampa il motivo senza bisogno di `VerboseLogging`. Fra "template generato" e
+  "ordine sul broker" c'è tutto il secondo layer di filtro: è lì che un run resta muto pur avendo
+  prodotto i segnali, ed era l'unico tratto senza diagnostica.
+- **2026-08-06** — **Il controllo di slippage del cBot vale solo per gli ordini a mercato.** Uno Stop
+  o un Limit sta per definizione lontano dal prezzo corrente — è il livello a cui si vuole entrare,
+  non quello a cui si è — quindi misurarne la distanza come slippage scartava sistematicamente gli
+  ordini che i motori Unger emettono sempre: con `MaxEntrySlippagePips` a 5, un breakout di Donchian
+  a decine di punti dal prezzo veniva rifiutato a ogni barra. Lo slippage di un pending lo governa il
+  broker al fill, non il bot al piazzamento.
+- **2026-08-06** — **Quando il cBot cancella un ordine pending lo riporta al server come
+  `Cancelled`.** Prima lo cancellava solo sul broker: l'intent restava `Pending` lato sessione,
+  e `GetNextSignalForAccount` restituisce per primo proprio l'intent già assegnato e ancora
+  pendente. Risultato osservato su un run reale: un solo ordine piazzato all'avvio, cancellato dopo
+  la sua barra, e poi lo **stesso** intent riproposto a ogni poll per il resto del backtest — il bot
+  lo scartava perché già gestito (`_submittedIntentIds`), i lucchetti (account, simbolo) e
+  (gruppo, strategia, simbolo) restavano chiusi, e non arrivava più nessun segnale nuovo. Il report
+  vale per tutti i punti di cancellazione: scadenza "next bar", sostituzione da parte del signal
+  successivo, flat di fine settimana. L'IntentId si legge dalla label, che è il motivo per cui ce
+  l'ha. Stesso trattamento all'ingresso scartato perché il simbolo ha già una posizione: annullato e
+  riportato, non ignorato in silenzio — e comunque un segnale Unger vale la sua barra, non quella in
+  cui il simbolo tornerà libero.
+- **2026-08-06** — **I template scaduti vengono rimossi dalla sessione, non solo filtrati al claim.**
+  `EntryTemplates` cresceva per tutta la durata del run — un template per segnale, mai rimosso — e
+  ogni claim li riscorreva tutti per scartare quelli fuori finestra. Non era un rischio di
+  esecuzione (il filtro di scadenza c'era e funzionava), ma costava tre cose: una lista che cresce
+  senza limite con un costo per poll proporzionale, una diagnostica che continuava a parlare di
+  template di barre vecchie invece di dire che per la barra corrente non c'era alcun segnale, e
+  soprattutto l'impossibilità di convincersi leggendo il codice che un segnale di una barra passata
+  non potesse più essere eseguito. Ora `PushBarWindow`/`PushBars`, all'arrivo di ogni barra,
+  eliminano i template con `ExpiresAtUtc` già passato e la traccia dei gruppi che li avevano
+  reclamati. Si rimuovono solo quelli con una scadenza dichiarata: senza `ExpiresAtUtc` non c'è una
+  finestra da far scadere, e su una sessione multi-timeframe un template del 60m deve sopravvivere
+  alle barre del 15m che gli passano accanto.
+  Corollario sulla diagnostica: i motivi del claim non contengono più l'orario della barra. Client e
+  server li deduplicano per stringa, quindi un valore che cambia a ogni barra mandava a vuoto la
+  deduplica e riempiva entrambi i log di righe identiche nella sostanza.
+- **2026-08-06** — **Il cBot dichiara il profilo del run, e i lucchetti di concorrenza lo seguono.**
+  `EnforceConcurrencyLimits` governava solo `MaxConcurrentTrades`: il passo 1 del claim (un intent
+  pendente per account) e i lucchetti (gruppo, strategia, simbolo) e (account, simbolo) restavano
+  incondizionati. Un backtest "sorgente" fatto col cBot distribuito produceva quindi **un trade alla
+  volta per simbolo e un intent per poll**, cioè un `trades.json` mutilato proprio nel run che deve
+  contenere tutti i segnali perché Titano ci calcoli sopra le rotazioni — e incomparabile col
+  backtest interno, che di lucchetti non ne ha. Su un run reale (piano a simbolo singolo, USTEC su
+  15m e 60m) l'effetto era una posizione aperta e cinque giorni di `l'account ha già un intent attivo
+  su quel simbolo`. Ora i lucchetti operativi seguono il flag; restano fuori `TemplateClaimedGroups`,
+  che non è un vincolo di concorrenza ma la memoria di cosa è già stato servito a un gruppo, e le
+  chiusure al passo 1, che vanno consegnate sempre.
+  Il flag però non è il modo giusto di scegliere: descriveva la stessa decisione di
+  `ApplyTitanoFilters` in un secondo posto, e per passare da un backtest all'altro si doveva editare
+  il piano. Il cBot dichiara invece `TradingRunProfile` — `DalPiano` (default, storico),
+  `BacktestSorgente` (Titano off, lucchetti off), `BacktestTitano` (rotazioni storiche, lucchetti
+  attivi) — che prevale sul piano, entra nella chiave di esecuzione perché due profili non si
+  riprendano a vicenda, ed è rifiutato in realtime. Conseguenza sul client: senza il tappo di un
+  intent per account il cBot deve **drenare** la coda dei segnali invece di fermarsi al primo.
+- **2026-08-06** — **L'orologio dei cBot è la serie di ogni stream, non il grafico.**
+  `PiootooDirectExecutionBot` usava `OnBar()`, quindi il grafico doveva essere al timeframe più fine
+  del piano e, su un piano misto (indice + forex), le barre del simbolo che stava scambiando non
+  venivano pubblicate finché quello del grafico era chiuso. Ora ogni `PlanStream` sottoscrive
+  `Series.BarOpened` e il grafico non è più l'orologio di niente: né come timeframe né come simbolo.
+  Cade con questo il vincolo sul timeframe del chart, e con lui la lettura di `TimeFrame` all'avvio
+  che fermava il bot su un grafico Renko o a tick.
+- **2026-08-06** — **Il pannello a chart mostra la configurazione risolta dal server, non i
+  parametri del cBot.** Piano, run mode, profilo, stato del filtro Titano, lucchetti e limite di
+  trade, ed elenco delle strategie con il loro timeframe, letti tutti dal descriptor di sessione. Un
+  bot che dichiara un piano e ne esegue un altro, o un parametro che il piano contraddice, sono
+  altrimenti invisibili finché non si leggono i trade. Il descriptor espone per questo `RunProfile`,
+  `EnforceConcurrencyLimits`, `MaxConcurrentTrades` e `Strategies`.
+- **2026-08-06** — **Il push dichiara se c'è qualcosa da reclamare, e il cBot salta il poll quando non
+  c'è.** In backtest ogni barra di ogni stream costava due chiamate HTTP sincrone — push e poll — e
+  dai log reali la grande maggioranza delle barre non produce alcun segnale: metà del traffico di un
+  run serviva a farsi dire "niente". `PushBarWindowResponse.ClaimableIntents` conta ora i template
+  `Pending` non scaduti più gli intent già assegnati e ancora pendenti; a zero,
+  `GetNextSignalForAccount` non può restituire nulla per nessun account e il poll immediato si salta.
+  Il conteggio lo fa il server perché solo lui sa dei template di barre precedenti ancora vivi:
+  dedurlo dagli `Intents` di quella barra salterebbe poll che avevano qualcosa. Sul DTO del cBot il
+  campo è `int?` di proposito — un server che non lo conosce lo omette, e su un `int` varrebbe 0,
+  cioè "non pollare mai", spegnendo il bot per tutto il run senza una riga di log. Il conteggio è
+  volutamente più largo del claim (niente lucchetti, Titano, conversione account): sbagliare per
+  eccesso costa un poll a vuoto, per difetto costa un segnale.
+- **2026-08-06** — **Break-even e trailing escono subito quando non c'è nulla da proteggere.**
+  Restano valutati a ogni tick — il prezzo può raggiungere e perdere la soglia dentro la stessa barra,
+  ed è il motivo per cui quel lavoro non sta sul bar-close — ma senza posizioni aperte i due metodi
+  ora tornano prima di scorrere `Positions` e di allocare. In un backtest tick-based i tick sono
+  ordini di grandezza più delle barre, e la stragrande maggioranza cade a portafoglio vuoto. Nel bot
+  distribuito il tick handler filtra anche per simbolo: il tick di EURUSD non può muovere lo stop di
+  una posizione su NQ.
+  Correlato: il pannello a chart del bot diretto si ridisegna solo quando cambia ciò che si legge
+  (profit e drawdown a due decimali). `UpdateChartDisplay` è chiamato a ogni tick, e da quando il
+  pannello include l'elenco delle strategie ricostruirne il testo ogni volta sarebbe stato più caro
+  del pannello stesso.
+- **2026-08-06** — **Lo spread al fill viene misurato e registrato.** Su un CFD long si entra
+  sull'**Ask** e lo stop è valutato sul **Bid**: la perdita in denaro quando lo stop salta resta
+  quella dichiarata dalla strategia, ma il Bid deve scendere solo di `(distanza stop − spread)` per
+  farlo saltare. Stessa perdita per stop, più stop. Il costo non è quindi nel singolo trade — sui
+  fill osservati lo slippage d'ingresso è sotto il punto, il 6% di una perdita — ma nel margine
+  operativo che lo strumento si prende, e il numero che lo misura è **spread / distanza stop**: su
+  `PTS_NQ_PCH_002_15` (stop 12,5 punti) uno spread di 2 vale il 16%, su `PTS_NQ_TFM_001_60`
+  (stop 50) il 4%. Non era misurabile da nessuna parte del sistema: `ExternalExecutionReport` porta
+  ora `SpreadAtFill`, il cBot lo legge al fill (non dopo: fra due minuti vale un altro numero), lo
+  stampa per fill e ne fa un riepilogo per strategia a `OnStop`, e il controller lo logga sui soli
+  report `Filled`. Non influenza nessuna decisione: serve a scegliere quali strategie ha senso far
+  girare su quale strumento, perché uno stop stretto su uno spread largo non è un difetto del
+  sistema ma una coppia strategia/strumento sbagliata.
+  Corollario di analisi: gli ordini "doppi" allo stesso millisecondo e allo stesso prezzo nei log di
+  cTrader **non sono doppioni**. Sono `PTS_NQ_PCH_001_15` e `PTS_NQ_PCH_002_15`, entrambe Donchian-100
+  long-only su NQ 15m, che a gate passati producono lo stesso livello di canale. Il codice strategia
+  è nella riga di cancellazione dell'ordine ed è l'unico modo per distinguerli: codici diversi =
+  due strategie, codice uguale = doppione vero.
+- **2026-08-11** — **`MaxConcurrentTrades` conta ora sull'insieme delle strategie, trasversale ai
+  simboli**: dieci significa dieci, che stiano su un simbolo solo o su dieci diversi. Prima non era
+  così, e su una sessione a simbolo singolo il valore configurato non entrava mai in gioco. Il
+  sintomo, da un run reale (`FTMO-TRIAL-01`, 10/08/2026, `MaxConcurrentTrades = 10`): per undici ore
+  un solo ordine per barra, sempre di `PTS_NQ_PCH_001_15`, con gli IntentId che saltano di due
+  perché il template di `PTS_NQ_PCH_002_15` — stesso `US100.cash` — nasceva a ogni barra e non
+  arrivava mai a mercato. A bloccarlo erano due vincoli, nessuno dei quali era il tetto: il **passo 1**
+  di idempotenza (un solo intent pendente per account, e uno stop order vive l'intera barra) e il
+  **lucchetto (account, simbolo)**, che si liberava alla chiusura e non al fill. Il tetto effettivo
+  era 1, e la risposta al poll era `NoSignal`, quindi nemmeno la diagnostica lo diceva.
+  Rimosso il lucchetto (`AccountActiveIntent`, `ActiveIntentKey`); il passo 1 ripropone ora le sole
+  chiusure e lascia drenare gli ingressi finché c'è budget; a tetto pieno ripropone l'ingresso
+  pendente, che è come si recupera un claim la cui risposta si è persa in rete. Resta invariata
+  `AccountHasEntryInFlight` (stessa strategia, stesso simbolo, attiva in ogni profilo): è la guardia
+  nata dall'incidente `PTS_NQ_PCH_002_15` del 14/10/2024, e non è concorrenza ma unicità del segnale.
+- **2026-08-11** — Il budget di concorrenza si conta **deduplicato per IntentId**
+  (`CountInFlightForAccount`). `openPositions + pendingOrders` contava due volte ogni ordine a
+  mercato — lo stesso ordine è insieme un intent `Pending` sul server e un pending order nello
+  snapshot del broker — e dimezzava di fatto il tetto configurato. Entrano nel conto anche i claim
+  consegnati e non ancora comparsi sul broker: senza, un drenaggio veloce sfonderebbe il tetto per
+  ritardo di propagazione invece che per una decisione. L'esposizione senza IntentId leggibile
+  (label vecchie, fallback al conteggio server) non è deduplicabile e si somma: meglio contare una
+  volta di troppo che consegnare un ingresso oltre il tetto.
+- **2026-08-11** — **Cosa conti `MaxConcurrentTrades` è un parametro del piano**, non una convenzione
+  del server: `ConcurrencyCountMode` vale `PositionsAndPendingOrders` (default, comportamento
+  storico) o `PositionsOnly`. La risposta giusta dipende dal motore: chi entra a mercato non ha
+  ordini in attesa da contare, chi entra in breakout ne ha uno per strategia per tutta la barra, e su
+  un breakout non si sa a priori quale livello verrà toccato — bloccarne uno per «occupazione di
+  slot» significa perdere il solo che sarebbe partito. In `PositionsOnly` il tetto si fa valere a
+  valle: `PiootooDistributedExecutionBot.CancelPendingOrdersAtCap`, chiamato da `OnPositionOpened`,
+  spegne gli ordini rimasti quando i fill raggiungono il tetto — un OCO, il primo che entra spegne
+  gli altri. Il cBot resta disaccoppiato dal server: legge un parametro dal descriptor all'apertura,
+  decide guardando la propria piattaforma e comunica solo il fatto compiuto, un `Cancelled` sullo
+  stesso canale degli ordini scaduti. Il rischio residuo è dichiarato: fra il fill e la cancellazione
+  due stop possono riempirsi insieme, ed è la ragione per cui la modalità è un parametro e non il
+  default — su conti con regole di esposizione istantanea resta preferibile contare anche i pendenti.
+- **2026-08-11** — Il dettaglio di un backtest ha un pulsante **Report HTML**, servito da
+  `GET /api/Workspace/{id}/backtests/{cartella}/report`. Il report esisteva già — lo scrive
+  `GenerateStrategyEquityHtmlReport` nella cartella del run — ma era raggiungibile solo per `jobId`,
+  cioè finché il job era vivo in memoria: riaprendo un backtest archiviato non c'era modo di vederlo
+  se non aprendo il file a mano. Il nome non è fisso (dipende dal prefisso del run), quindi il
+  servizio cerca per estensione e sceglie il più recente invece di indovinarlo. Il pulsante non
+  verifica che il file esista — costerebbe una chiamata HTTP a ogni apertura della schermata per un
+  file che si apre di rado: l'assenza è un `404` con un messaggio che spiega quando è normale (run
+  interrotti, run dell'engine esterno, che archiviano i trade ma non generano il report).
+- **2026-08-12** — All'arrivo di ogni intent di ingresso il cBot distribuito registra la
+  **fotografia del mercato**: Bid, Ask, spread, distanza fra il prezzo dell'intent e il lato su cui
+  si entra (Ask per i long, Bid per gli short), età dell'intent rispetto a `ValidFromUtc` e coerenza
+  del livello per i pending. Prima l'unica misura di esecuzione era lo spread al *fill*
+  (`MeasureSpreadAtFill`), che arriva troppo tardi e solo per gli ordini che sono entrati: di un
+  ingresso scartato per slippage restava la sola distanza in pips, con cui non si distingue un server
+  che prezza su una barra vecchia da un mercato che si è mosso da uno spread anomalo. Le tre anomalie
+  che la riga rende visibili sono il ritardo del giro poll/valutazione (`eta` che cresce), il prezzo
+  del server fuori mercato (distanza sistematica sugli ordini a mercato) e il livello pending dalla
+  parte sbagliata — uno Stop long sotto l'Ask si riempie subito invece di attendere il breakout, ed è
+  un bug, non un evento di mercato, quindi esce su una riga a parte.
+- **2026-08-12** — Il flag booleano "Log dettagliato" del cBot distribuito diventa il parametro a
+  scala **`LivelloLog`** (`Minimo` / `Operativo` / `Diagnostico`), e **le righe dei segnali stanno
+  fuori dalla scala**: intent ricevuto, scarti, anomalie, fill ed errori si stampano sempre, a
+  qualunque livello. Sono proporzionali ai trade e non alle barre, e sono l'unica traccia del
+  *perché* di un trade: spegnerle significa scoprire il problema senza avere più i dati per
+  spiegarlo. Il livello governa il contorno — riscaldamento, finestre, poll — che invece è per barra.
+  In backtest il livello effettivo è tagliato a `Minimo` con un avviso all'avvio: il buffer della
+  piattaforma, quando si riempie, scarta le righe più *vecchie*, cioè proprio quelle dell'avvio dove
+  stanno le cause.
+- **2026-08-13** — *Visualizza → Stato server (sessioni)* (F9) apre una schermata diagnostica che
+  riversa in una text area copiabile tutto ciò che il server espone sulle sessioni vive: riepilogo,
+  `snapshot`, `groups`, `intents`, `signals`, `trades`, `rotation-log`. Nasce dal caso "il cBot non
+  apre posizioni": il log del bot dice solo *nessun intent per la barra corrente*, che è la stessa
+  riga sia quando nessuna strategia ha un setup sia quando le strategie non hanno abbastanza barre
+  perché il riscaldamento non è stato accodato — due cause opposte, un solo sintomo. Il riepilogo
+  mette in testa `LastBarTimeUtc`, che è il campo che le separa. Tre scelte non ovvie: il dump è
+  **JSON grezzo non deserializzato** (`TradingSessionApiClient.GetRawJsonAsync`), perché una
+  schermata che filtrasse i campi attraverso i contratti del client nasconderebbe proprio i campi
+  nuovi che si sta cercando di leggere; ogni risorsa che fallisce stampa `!! errore:` e il dump
+  prosegue, perché il buco è spesso l'informazione (`rotation-log` su sessione senza Titano);
+  la voce sta nel **menu** e non in `NavigationRegistry` perché non è un'entità da elencare ma una
+  lente sul processo, utile da qualunque schermata. Nessun polling: l'istantanea è quella del momento
+  in cui si preme Aggiorna.
+- **2026-08-13** — Server e `PiootooDistributedExecutionBot` condividono **un solo numero di
+  versione** (2.2.0 alla decisione), da muovere sempre insieme: `Piootoo.Shared.PiootooVersion.Current`
+  e la costante `BotVersion` del cBot. Sono i due lati dello stesso contratto HTTP ma non condividono
+  una build — il cBot lo compila cTrader, che non referenzia le assembly della solution — quindi non
+  esiste un punto unico leggibile a compile time e la sincronia è manuale, dichiarata nei commenti di
+  entrambi i file. Gli altri cBot (`Direct` 1.4.0, `BarCycleTest` 1.0.0) restano su versioni proprie:
+  non parlano col server, non c'è contratto comune di cui il numero sia la sintesi. Il server stampa
+  la versione all'avvio due volte, su `Console` prima che l'host parta e su `ILogger` in
+  `ApplicationStarted`, perché la prima riga si vede a schermo e la seconda è quella che finisce nel
+  log strutturato allegato a un ticket. La console WinForms confronta la propria versione compilata
+  con quella dichiarata da `GET /api/v1/version` e alza un alert se differiscono: il confronto non è
+  tautologico anche se leggono la stessa costante, perché la console si ricompila dalla solution
+  mentre il server gira spesso da `publish_run`, che può essere una build precedente — ed è il caso in
+  cui i contratti divergono e i sintomi non parlano mai di versioni. Nessun blocco, né lato server né
+  lato client: un server aggiornato che rifiutasse i bot in esecuzione farebbe più danni del
+  disallineamento che segnala. L'alert compare una volta per versione, non a ogni gesto.
+- **2026-08-13** — Il cBot distribuito passa a **2.3.0** e i tre avvisi diagnostici
+  introdotti in 2.2.0 diventano **scarti**. Il caso che ha forzato la scelta è nei log di
+  backtest del 26/06 e 07/07: `PTS_NQ_TFM_001_60` riceve uno Stop dal lato sbagliato del
+  mercato, il bot stampa l'ATTENZIONE e piazza l'ordine lo stesso, che si riempie entro il
+  millisecondo. Un avviso che non ferma nulla documenta il difetto invece di evitarlo.
+  Ora si scartano: livello dal lato sbagliato, livello oltre 8x lo stop di distanza
+  (lo stesso prezzo veniva riproposto per due giorni, fino a 323 pip dal mercato) e
+  spread oltre il 20% dello stop. Tutti e tre disattivabili da parametro.
+- **2026-08-13** — L'`eta` dell'intent era calcolata su `ValidFromUtc`, che è il bordo
+  della barra **successiva** e quindi un istante futuro per costruzione: ne uscivano
+  `3900s`, `-3599s`, `-188100s`, numeri che non misuravano né il ritardo né l'attesa.
+  Sostituita da due grandezze separate: **ritardo** (da `CreatedAtUtc`, cioè dalla barra
+  che ha prodotto il segnale — il campo era già sul filo, il bot non lo leggeva) e
+  **attesa** (a `ValidFromUtc`). Nessuna modifica al contratto server.
+- **2026-08-13** — Il trailing stop ha un **passo minimo** (10% della distanza di
+  trailing) e un **intervallo minimo** fra modifiche (5s). Senza, il bot inseguiva il Bid
+  tick per tick: nei log una singola posizione produce ~50 `ModifyPosition`, alcune da 0,1
+  punti e più d'una nello stesso secondo. In backtest è rumore che satura il buffer, in
+  live è rate limit del broker e reject della modifica successiva — che potrebbe essere
+  quella utile.
+- **2026-08-13** — Un ordine pending identico a quello già a mercato (verso, tipo,
+  livello, volume, SL/TP) viene **esteso** invece che cancellato e ripiazzato, e il ritiro
+  degli ordini scaduti si sposta **dopo** il poll della barra. Costo del compromesso: fra
+  l'apertura della barra e il ritiro passa il tempo di push e poll, e in quella finestra
+  un ordine non rinnovato è ancora a mercato. Accettato perché il livello è quello che la
+  strategia aveva attivo fino a un istante prima; `ExtendIdenticalPendingOrders=false`
+  ripristina il comportamento precedente.
+- **2026-08-13** — Il cBot stampa il **consuntivo di ogni trade alla chiusura**
+  (entry/exit, motivo, lordo/commissioni/swap/netto, netto per contratto Piootoo, MFE,
+  MAE, durata, modifiche di trailing) e la **tabella per strategia a fine run** (trade,
+  win rate, netto, media, profit factor, migliore/peggiore). Fino alla 2.2.0 il log
+  raccontava per intero come nascevano gli ordini e taceva su come finivano: si poteva
+  dire se il bot aveva eseguito, non se aveva guadagnato. Profit factor è `null` e non
+  infinito quando non ci sono perdite: in tabella un numero enorme si legge come risultato
+  eccezionale mentre significa solo campione piccolo.
+- **2026-08-15** — Il cBot distribuito passa a **2.3.1**: il ritiro dei pending scaduti
+  diventa **differito** di `PendingRetirementGraceSeconds` (default 5s) invece che
+  immediato. L'estensione dei pending identici introdotta il 13/08 non ha mai lavorato, e
+  i log lo dicono in negativo: la riga `non riemesso: ordine gia' a mercato` non compare
+  **nemmeno una volta** in un mese di backtest, mentre la coppia cancella/ripiazza sullo
+  stesso identico prezzo c'è a ogni barra — sul canale Donchian, che tiene il livello
+  fermo finché non si muove, per giorni interi. Il motivo: il ritiro sta dopo il poll
+  post-push, ma quel poll è saltato da `ShouldPollAfterPush()` quando il push dichiara la
+  sessione senza nulla di reclamabile, e l'intent arriva col polling periodico qualche
+  centinaio di ms dopo — con l'ordine da riconoscere già cancellato. La grazia gli dà il
+  tempo di arrivare; chi non arriva lo ritira `SweepRetiredPendingOrders`, chiamato dal
+  timer subito **dopo** `PollNextSignal()`. La scadenza non si rinnova: se alla barra
+  successiva il ritiro era già programmato l'ordine muore lì, così la vita extra resta
+  limitata a una barra qualunque sia la grazia — ed è la stessa riga che chiude il caso
+  del backtest a barre, dove fra due barre l'orologio non avanza e lo sweep a tempo non
+  scatterebbe mai. A 0 il comportamento torna quello della 2.3.0.
+- **2026-08-15** — La **ripresa dell'intent bloccato** (`stalledEntry`, in
+  `GetNextSignalForAccount` quando il budget di concorrenza è pieno) riverifica
+  **scadenza** e **limite di ingressi per sessione** prima di riproporre l'intent. Quella
+  strada non passa da `NarrowTemplates`, quindi li scavalcava entrambi: nei log del 06/08,
+  08/08 e 11/08 si vedono ordini piazzati dopo che il limite di ingressi per sessione era
+  già stato dichiarato raggiunto per gli altri template della stessa barra. Un intent che
+  non supera i controlli passa a `Cancelled` e non viene solo saltato: lasciarlo `Pending`
+  significa riproporlo a ogni claim per sempre e tenere occupati i lucchetti che lo
+  riguardano. Cambia quali ordini arrivano a mercato, quindi cambia i backtest — nel
+  campione di riferimento nessuno dei tre si era riempito e il P&L non si muove.
+- **2026-08-15** — Nuovo profilo **`BacktestStaticFilter`**: strategie del masterfilter del
+  workspace come in `BacktestSorgente`, lucchetti di concorrenza e distribuzione attivi come in
+  `BacktestTitano`. È il termine di paragone che mancava. `BacktestSorgente` risponde a "quanto
+  rende ogni strategia da sola", `BacktestTitano` a "quanto rende il sistema con il filtro
+  dinamico": senza un run intermedio la differenza fra i due mescola due effetti — il merito della
+  rotazione e quello del tetto di concorrenza — e non c'è modo di dire quanto pesa ciascuno.
+  Condividendo i lucchetti con `BacktestTitano`, l'unica variabile fra i due run resta il filtro:
+  statico (il masterfilter, fisso per tutto il run) contro dinamico (le rotazioni, che cambiano nel
+  tempo). Il nome dice quello, non i lucchetti, che sono uguali nei due e quindi non
+  distinguerebbero niente. Non richiede `TitanoBacktestFolder`: non ne legge nessuna.
+- **2026-08-15** — I profili espliciti **dichiarano** i lucchetti e il piano non li contraddice
+  più. Fino a oggi solo `BacktestSorgente` era blindato contro `plan.EnforceConcurrencyLimits`,
+  mentre gli altri ci ricadevano: un piano con `EnforceConcurrencyLimits=false` rendeva
+  `BacktestTitano` un run senza vincoli operativi che continuava a chiamarsi Titano, e la differenza
+  si sarebbe vista solo confrontando due `trades.json` — esattamente lo scenario che la nota del
+  sorgente dice di voler evitare. Ora `BacktestSorgente` forza `false`, `BacktestStaticFilter` e
+  `BacktestTitano` forzano `true`, `DalPiano` resta governato dal piano. Il piano continua a
+  decidere tutto il resto: workspace, sizing, strumenti, cartella del run Titano.
+- **2026-08-15** — Rimossi **l'estensione dei pending identici** (2.3.0) e **l'attesa prima del
+  ritiro** (2.3.1), con i due parametri `ExtendIdenticalPendingOrders` e
+  `PendingRetirementGraceSeconds`. Il ritiro degli ordini scaduti torna a essere la prima cosa della
+  barra: chiusura, push, richiesta dei segnali nuovi.
+
+  Non è un ripensamento di stile, è l'unico ordine possibile. Il server non rilascia il template
+  finché l'intent vecchio è `Pending` — lo tiene il lucchetto "l'account ha già un ingresso in corso
+  per quella strategia su quel simbolo" — e l'intent vecchio resta `Pending` finché il cBot non ne
+  riporta la cancellazione con `ReportExecution(Cancelled)`. Il cBot aspettava il segnale nuovo per
+  riconoscere l'ordine da estendere, il server aspettava il report per consegnare il segnale:
+  nessuno dei due poteva muoversi per primo. La prova è nei log, in negativo — la riga `non
+  riemesso: ordine gia' a mercato` non compare **nemmeno una volta** in un mese di backtest 2.3.0 —
+  e la 2.3.1 che provava a sbloccare il caso con una grazia di 5 secondi ha ottenuto solo di
+  spostare il piazzamento da ~0,3s a ~8,3s dall'apertura della barra, lasciando intatta ogni coppia
+  cancella/ripiazza. P&L identico al centesimo sui trade confrontabili: nessun danno e nessun
+  beneficio, solo latenza.
+
+  La coppia cancella/ripiazza per barra sullo stesso prezzo resta, ed è il costo accettato: due
+  ordini al broker per barra finché il livello del canale non si muove. Toglierla davvero richiede
+  di separare "riporto l'intent cancellato" da "cancello l'ordine dal broker" — il report libera il
+  server, l'ordine fisico resta a mercato e viene esteso o modificato con `ModifyPendingOrder`
+  quando il segnale arriva. È un cambio della semantica del reporting e va deciso a parte.
+- **2026-08-18** — **I due livelli di filtro sugli ingressi sono separati, e solo uno vale sempre.**
+  Livello 1, la *strategia*: `MaxEntriesPerSession` conta i fill per account ed è attivo in ogni
+  profilo — è una regola del motore, non della piattaforma, e un campione che la ignorasse
+  conterrebbe trade che la strategia non avrebbe mai fatto. Livello 2, la *piattaforma*:
+  `MaxConcurrentTrades`, lo slot di gruppo e il lucchetto `AccountHasEntryInFlight` sono i vincoli
+  operativi del setup del server e seguono `EnforceConcurrencyLimits`, quindi si spengono nel run
+  sorgente, il cui scopo è eseguire *tutte* le strategie e misurarne il risultato complessivo.
+
+  `AccountHasEntryInFlight` era finora incondizionato, classificato come "identità del segnale" e
+  non come concorrenza. Il costo si legge in un backtest sorgente NQ del 17/03/2026: nove template
+  di ingresso per barra, **un solo** claim servito, e per tutti gli altri `l'account ha già un
+  ingresso in corso per quella strategia su quel simbolo`, con il conto dei template scartati che
+  sale barra dopo barra (19, 27, …). Il campione sorgente usciva mutilato di otto strategie su nove.
+- **2026-08-18** — **Gli intent di ingresso scaduti si annullano all'arrivo della barra**
+  (`PurgeExpiredEntryIntents`), gemello di `PurgeExpiredTemplates` sugli intent già reclamati.
+  Il template scaduto veniva buttato, il claim che ne era nato no: restava `Pending` per sempre, e
+  con lui ogni lucchetto che legge "ingresso in volo". Un buy stop *next bar* mai toccato dal prezzo
+  bloccava così la propria coppia (strategia, simbolo) per il resto del run, e l'unico punto che
+  ripuliva un pendente scaduto era il ramo "tetto pieno" di `MaxConcurrentTrades` — che in un run
+  sorgente, dove il tetto è spento, non viene mai eseguito.
+
+  È anche ciò che rende sicuro spegnere il lucchetto di identità: due template della stessa
+  strategia nati su barre diverse non possono più essere vivi insieme, cioè la condizione da cui
+  nascevano i doppioni del 14/10/2024 (`PTS_NQ_PCH_002_15`, due stop riempiti allo stesso prezzo).
+  Resta scoperto solo il motore che non dichiara `ExpiresAtUtc`: lì due ordini coesistono per
+  costruzione, e nel run sorgente è il comportamento voluto.
+
+  Lo sblocco è ora **del server e basta**: non dipende più dal fatto che il cBot riporti
+  `ReportExecution(Cancelled)`, che è la metà mancante dello stallo descritto nella voce del
+  15/08. Annullare non perde un fill reale — `ApplyReport` accetta il report anche su un intent
+  annullato, quindi un ordine che il broker riempie comunque resta contato nel `trades.json` e nel
+  tetto di livello 1. Nessuna riga di attività per la scadenza: è l'esito normale di un ordine
+  *next bar*, e registrarla riempirebbe il buffer del monitor.
+- **2026-08-18** — **In sessione una strategia riceve una finestra, non tutta la storia**, ed è la
+  stessa del backtest locale (`RequiredCandles * 1.2`, `StrategyEvaluationService.EvaluationWindow`).
+  `session.History` viene potato allo stesso numero più un margine (`TrimHistory`).
+
+  Era `history.ToArray()` su una lista che cresce di una candela per barra: una copia intera per
+  strategia per barra, con gli array oltre 85 KB sulla Large Object Heap, e i motori che percorrono
+  la serie dall'inizio (`PriceChannelEngine.CalculateBarAdx`, `EasyLib.WindowUpTo`) che rifacevano
+  ogni volta un lavoro più lungo. Il costo per barra cresceva con i giorni di run: è la ragione per
+  cui un backtest via cBot rallentava fino quasi a fermarsi. Misura su @NQ 15m 2024 (23.922 barre,
+  `PTS_NQ_PCH_001_15`): 36,3 s → 1,9 s, 12,2 GB → 0,87 GB allocati, **segnali identici**; su tutte
+  le 13 strategie 15m @NQ del catalogo, primo semestre 2024, segnali identici a coppie.
+
+  Era anche una divergenza dal backtest locale, che la finestra fissa l'ha sempre avuta: gli
+  indicatori a smoothing ricorsivo dipendono da quante barre hanno visto, quindi la stessa strategia
+  sullo stesso feed poteva dare valori diversi nei due percorsi. Resta un caso latente non toccato:
+  `MovingAverageCrossoverEngine.MovingAverage` semina l'EMA su `data[0]`, cioè sul primo elemento
+  della finestra ricevuta, invece che su una SMA dei primi `period` valori. Nessuna strategia del
+  catalogo eredita oggi da quel motore; il giorno in cui succede va seminata su finestra fissa,
+  altrimenti il valore torna a dipendere dalla profondità di storia.
+- **2026-08-18** — **`Persist` di una sessione è un checkpoint, non una scrittura per barra.**
+  Al massimo una scrittura ogni 2 s di orologio; l'fsync (`AtomicFileWriter` durabile) resta solo
+  per le scritture forzate e per quelle che arrivano dopo più di 30 s dalla precedente — cioè per
+  il live, dove fra due barre passano minuti, dove non cambia nulla. Il `rotation-log.json`, che è
+  append-only, si riscrive solo se è cresciuto.
+
+  Prima ogni push di barra riscriveva per intero `signals.json`, `trades.json` e
+  `rotation-log.json` in JSON indentato e con fsync: file che crescono per tutto il run, riscritti
+  a ogni barra, cioè costo quadratico e decine di GB scritti in un run lungo. Chi legge gli
+  artefatti da fuori (`GetPersistedSignals`, `GetPersistedTrades`, `GetRotationLog`,
+  `PromoteToBacktest`, il cambio di stato della sessione) forza prima il flush, quindi nessun
+  lettore vede dati più vecchi della propria chiamata; il rischio residuo è perdere gli ultimi due
+  secondi di scritture se il processo muore, che è la definizione di checkpoint.
+- **2026-08-20** — **I checkpoint intermedi di signal, trade e rotation-log sono
+  incrementali.** Prima ogni checkpoint riscriveva l'array JSON per intero:
+  riproiettava, validava, deduplicava e serializzava *tutti* i record dall'inizio del
+  run per salvarne due nuovi. Su un backtest lungo un anno sono ~24.000 intent e un
+  `signals.json` da 40-80 MB, riscritti ogni due secondi — il costo per barra cresceva
+  con le barre già fatte, quindi il run era quadratico e rallentava visibilmente verso
+  la fine. Ora `TradingJsonStore` affianca a ogni array un journal `.jsonl`
+  append-only (`AppendSignals`/`AppendTrades`/`AppendRotationLog`) e l'array viene
+  materializzato solo alla lettura o alla scrittura autorevole di fine run, fondendo
+  il journal con "ultima versione di ogni id, ordine preservato". Il journal è stato
+  transitorio: ogni scrittura completa lo cancella, e chi legge i file senza passare
+  dallo store (`TitanoRotationService`, che fa l'hash di `trades.json`) chiama prima
+  `CompactAll()`. La completezza non dipende dall'intercettare i punti che mutano un
+  intent — dimenticarne uno è il modo in cui una scrittura incrementale perde dati in
+  silenzio: un intent viene riscritto a ogni checkpoint finché non è in uno stato
+  definitivo (`Filled`/`Rejected`/`Cancelled`), quindi il passaggio a quello stato è
+  sempre catturato dal checkpoint successivo.
+

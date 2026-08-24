@@ -17,14 +17,16 @@ namespace Piootoo.Strategies.Tests;
 /// <para>Il punto che questi test isolano è che i due meccanismi vivono in passi diversi del claim e
 /// non sono intercambiabili: il limite per account è il <b>passo 2</b> e risponde
 /// <c>MaxConcurrentTradesExceeded</c> <i>prima</i> di guardare i template, quindi non li consuma; i
-/// lucchetti sono i <b>passi 3-5</b> e rispondono <c>NoSignal</c>. Distinguere le due risposte è
-/// l'unico modo per sapere quale vincolo è binding, ed è la diagnosi che il cBot fa in produzione.</para>
+/// lucchetti di gruppo sono i passi successivi e rispondono <c>NoSignal</c>. Distinguere le due
+/// risposte è l'unico modo per sapere quale vincolo è binding, ed è la diagnosi che il cBot fa in
+/// produzione.</para>
 ///
-/// <para>Per osservarli separatamente serve più di un simbolo: su un simbolo solo il lucchetto
-/// account/simbolo è sempre binding e il limite non entra mai in gioco (caso 5a del documento). Qui
-/// il masterfilter prende quindi una strategia per ciascuno dei primi simboli distinti del catalogo,
+/// <para>Il masterfilter prende una strategia per ciascuno dei primi simboli distinti del catalogo,
 /// e il servizio di valutazione sintetico emette un segnale per la strategia del simbolo della
-/// barra: una barra spinta = un template su quel simbolo.</para>
+/// barra: una barra spinta = un template su quel simbolo. Serviva a poter osservare il limite per
+/// account senza che il vecchio lucchetto (account, simbolo) lo anticipasse sempre; quel lucchetto
+/// non esiste più dall'11/08/2026, ma la fixture multi-simbolo resta perché è anche il modo di
+/// verificare che il limite <b>non</b> guardi il simbolo.</para>
 /// </summary>
 public sealed class ConcurrencyLimitsMatrixTests : IDisposable
 {
@@ -64,8 +66,8 @@ public sealed class ConcurrencyLimitsMatrixTests : IDisposable
     [Fact]
     public void WithoutTheLimit_TheSameAccountRunsTwoSymbolsInParallel()
     {
-        // Stessa sequenza con max = 0 (illimitato): il lucchetto account/simbolo non si applica a un
-        // simbolo diverso, quindi il secondo ingresso passa. È la controprova del test precedente.
+        // Stessa sequenza con max = 0 (illimitato): niente tetto, quindi il secondo ingresso passa.
+        // È la controprova del test precedente.
         var f = New(symbols: 2, [Row("g1", "1001", maxConcurrent: 0)]);
 
         f.PushBar(0);
@@ -246,11 +248,12 @@ public sealed class ConcurrencyLimitsMatrixTests : IDisposable
     }
 
     [Fact]
-    public void TheLimitCountsPositions_NotClaims()
+    public void AClaimNotYetPlacedStillCountsAgainstTheLimit()
     {
-        // Un claim non eseguito non conta nel limite: a trattenere l'account è il passo 1
-        // (idempotenza), non il passo 2. Con max = 1 e un claim pendente il poll ripropone lo stesso
-        // intent invece di rispondere MaxConcurrentTradesExceeded.
+        // Un claim consegnato e non ancora comparso sul broker conta eccome: senza, un drenaggio
+        // veloce sfonderebbe il tetto prima che il broker registri il primo ordine. A tetto pieno il
+        // poll ripropone l'ingresso pendente invece di rispondere MaxConcurrentTradesExceeded — è
+        // così che si recupera un claim la cui risposta si è persa in rete.
         var f = New(symbols: 2, [Row("g1", "1001", maxConcurrent: 1)]);
 
         f.PushBar(0);
@@ -446,8 +449,9 @@ public sealed class ConcurrencyLimitsMatrixTests : IDisposable
 
     private Fixture New(int symbols, IReadOnlyList<TradingGroupRow> groups)
     {
-        // Una strategia per simbolo distinto: serve a poter osservare il limite per account senza che
-        // il lucchetto account/simbolo lo anticipi sempre.
+        // Una strategia per simbolo distinto. Serviva a poter osservare il limite per account senza
+        // che il vecchio lucchetto (account, simbolo) lo anticipasse; ora serve a verificare che il
+        // limite conti sull'insieme e non per simbolo.
         var selected = StrategyFactory.GetRegisteredStrategies()
             .GroupBy(x => x.Symbol, StringComparer.OrdinalIgnoreCase)
             .Select(g => g.First())

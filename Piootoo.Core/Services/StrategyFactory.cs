@@ -11,27 +11,30 @@ namespace Piootoo.Core.Services;
 /// </summary>
 public static class StrategyFactory
 {
-    private static readonly Dictionary<string, Type> _easyStrategyCache = new();
+    private static readonly Dictionary<string, Type> _strategyCache = new();
     private static readonly object CacheInitializationLock = new();
     private static bool _cacheInitialized = false;
 
     /// <summary>
-    /// Restituisce tutte le strategie C# registrate che implementano ITradingStrategy.
-    /// Questa e' la sorgente ufficiale per UI/backtesting: i file EasyLanguage sono solo sorgenti/metadati.
+    /// Restituisce le strategie eseguibili del catalogo. E' la sorgente ufficiale per UI e
+    /// backtesting.
     ///
     /// <para>Le strategie <see cref="ITradingStrategy.IsPositionCloseDependent"/> sono ESCLUSE: decidono
     /// l'uscita a runtime e non possono descriverla nel segnale di ingresso, mentre l'engine gestisce
     /// solo uscite autonome (SL, TP, CloseAtUtc, MaxBarsInPosition). Vedi
     /// <see cref="GetCloseDependentStrategyIds"/> per l'elenco degli esclusi.</para>
+    ///
+    /// <para>Sono escluse anche quelle marcate <see cref="StrategiaDisabilitataAttribute"/>: non
+    /// sono rotte, si e' scelto di non eseguirle. Il motivo e' nell'attributo.</para>
     /// </summary>
     public static List<StrategyDefinition> GetRegisteredStrategies(string? name = null, string? symbol = null)
     {
-        InitializeEasyStrategyCache();
+        InitializeStrategyCache();
 
         var normalizedSymbol = NormalizeSymbol(symbol);
         var definitions = new List<StrategyDefinition>();
 
-        foreach (var (className, strategyType) in _easyStrategyCache.OrderBy(item => item.Key))
+        foreach (var (className, strategyType) in _strategyCache.OrderBy(item => item.Key))
         {
             var instance = CreateStrategyInstance(strategyType, string.Empty, 0, null);
             if (instance == null)
@@ -42,6 +45,13 @@ public static class StrategyFactory
             if (instance.IsPositionCloseDependent)
             {
                 // Uscita decisa a runtime (pattern di uscita): non esprimibile nel segnale di ingresso.
+                continue;
+            }
+
+            if (strategyType.GetCustomAttribute<StrategiaDisabilitataAttribute>() is not null)
+            {
+                // Disabilitata deliberatamente: corretta ma non da eseguire. Resta istanziabile per
+                // nome da CreateStrategy, cosi' i test di parita' e i confronti storici la vedono.
                 continue;
             }
 
@@ -89,14 +99,45 @@ public static class StrategyFactory
     /// </summary>
     public static List<string> GetCloseDependentStrategyIds()
     {
-        InitializeEasyStrategyCache();
+        InitializeStrategyCache();
 
-        return _easyStrategyCache
+        return _strategyCache
             .Where(item => CreateStrategyInstance(item.Value, string.Empty, 0, null)?.IsPositionCloseDependent == true)
             .Select(item => item.Key)
             .OrderBy(id => id, StringComparer.Ordinal)
             .ToList();
     }
+
+    /// <summary>
+    /// Strategie escluse dal catalogo per scelta, con la ragione dichiarata nell'attributo.
+    ///
+    /// <para>Serve a distinguere "questo id non esiste" da "esiste, e' corretta, ma si e' scelto di
+    /// non eseguirla": sono due errori diversi e chi si vede rifiutare un masterfilter deve sapere
+    /// quale dei due ha davanti. Il primo si corregge scrivendo bene il nome, il secondo togliendo
+    /// la voce — e sapendo perche'.</para>
+    /// </summary>
+    public static IReadOnlyDictionary<string, string> GetDisabledStrategies()
+    {
+        InitializeStrategyCache();
+
+        var disabilitate = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (className, strategyType) in _strategyCache)
+        {
+            var attributo = strategyType.GetCustomAttribute<StrategiaDisabilitataAttribute>();
+            if (attributo is not null)
+                disabilitate[className] = attributo.Motivo;
+        }
+
+        return disabilitate;
+    }
+
+    /// <summary>
+    /// Spiega perche' un id del masterfilter non e' eseguibile, per il messaggio d'errore.
+    /// </summary>
+    public static string DescribeUnusableId(string strategyId) =>
+        GetDisabledStrategies().TryGetValue(strategyId, out var motivo)
+            ? $"{strategyId} (disabilitata: {motivo})"
+            : $"{strategyId} (sconosciuta)";
 
     public static List<string> GetRegisteredSymbols()
     {
@@ -108,8 +149,10 @@ public static class StrategyFactory
     }
 
     /// <summary>
-    /// Crea un'istanza di strategia basata sul nome e parametri
-    /// Supporta sia strategie C# native che strategie EasyLanguage convertite
+    /// Crea un'istanza di strategia dal suo Id di classe o dal suo Name.
+    ///
+    /// <para>Risolve anche le strategie marcate <see cref="StrategiaDisabilitataAttribute"/>, che
+    /// il catalogo non elenca: servono ai test di parita' e ai confronti con artefatti storici.</para>
     /// </summary>
     public static ITradingStrategy? CreateStrategy(string strategyName, string symbol, int timeframeMinutes = 60, Dictionary<string, object>? parameters = null)
     {
@@ -122,24 +165,16 @@ public static class StrategyFactory
             return registeredStrategy;
         }
 
-        // Strategie EasyLanguage convertite - prova a creare dinamicamente tramite pattern legacy
-        var easyStrategy = CreateEasyLanguageStrategy(strategyName, symbol, timeframeMinutes, parameters);
-        if (easyStrategy != null)
-        {
-            Console.WriteLine($"[StrategyFactory] Strategia EasyLanguage creata con successo: {easyStrategy.GetType().Name}");
-            return easyStrategy;
-        }
-        
         Console.WriteLine($"[StrategyFactory] Nessuna strategia trovata per '{strategyName}'");
         return null;
     }
 
     private static ITradingStrategy? CreateRegisteredStrategy(string strategyName, string symbol, int timeframeMinutes, Dictionary<string, object>? parameters)
     {
-        InitializeEasyStrategyCache();
+        InitializeStrategyCache();
 
         var normalizedSymbol = NormalizeSymbol(symbol);
-        foreach (var (className, strategyType) in _easyStrategyCache)
+        foreach (var (className, strategyType) in _strategyCache)
         {
             if (!className.Equals(strategyName, StringComparison.OrdinalIgnoreCase) &&
                 !(strategyType.FullName?.Equals(strategyName, StringComparison.OrdinalIgnoreCase) ?? false))
@@ -181,120 +216,11 @@ public static class StrategyFactory
     }
 
     /// <summary>
-    /// Crea dinamicamente una strategia EasyLanguage basata sul pattern del nome
-    /// Pattern: Easy_{number}_{SYMBOL}_{timeframe} o TOP_UA_{number}_{SYMBOL}_{timeframe}
+    /// Popola la cache con tutti i tipi ITradingStrategy concreti dell'assembly delle strategie.
+    /// L'ancora e' <see cref="EasyLib"/> perche' e' un tipo che non appartiene a nessuna
+    /// strategia e quindi non si sposta quando il catalogo cambia.
     /// </summary>
-    private static ITradingStrategy? CreateEasyLanguageStrategy(string strategyName, string symbol, int timeframeMinutes, Dictionary<string, object>? parameters)
-    {
-        InitializeEasyStrategyCache();
-        
-        // Normalizza il simbolo per il matching (rimuovi @ e converti in maiuscolo)
-        var normalizedSymbol = symbol.Replace("@", "").ToUpper();
-        
-        // Cerca pattern nel nome della strategia
-        // Pattern 1: Easy_{number}_{SYMBOL}_{timeframe} -> Easy_643_FDAX_60
-        // Pattern 2: TOP_UA_{number}_{SYMBOL}_{timeframe} -> TOP_UA_643_FDAX_60
-        // Pattern 3: s_TOP_UA_{number}_{SYMBOL}_{timeframe}__{version} -> s_TOP_UA_643_FDAX_60__7
-        
-        string? className = null;
-        
-        // Prova pattern Easy_{number}_{SYMBOL}_{timeframe}
-        var easyMatch = System.Text.RegularExpressions.Regex.Match(strategyName, @"Easy[_\s]*(\d+)[_\s]*(\w+)[_\s]*(\d+)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-        if (easyMatch.Success)
-        {
-            var number = easyMatch.Groups[1].Value;
-            var symbolInName = easyMatch.Groups[2].Value.ToUpper();
-            var timeframeInName = easyMatch.Groups[3].Value;
-            
-            // Verifica che symbol e timeframe corrispondano
-            if (symbolInName == normalizedSymbol && int.TryParse(timeframeInName, out var tf) && tf == timeframeMinutes)
-            {
-                className = $"Easy_{number}_{symbolInName}_{timeframeInName}";
-            }
-        }
-        
-        // Prova pattern TOP_UA_{number}_{SYMBOL}_{timeframe}
-        if (className == null)
-        {
-            var topMatch = System.Text.RegularExpressions.Regex.Match(strategyName, @"TOP[_\s]*UA[_\s]*(\d+)[_\s]*(\w+)[_\s]*(\d+)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-            if (topMatch.Success)
-            {
-                var number = topMatch.Groups[1].Value;
-                var symbolInName = topMatch.Groups[2].Value.ToUpper();
-                var timeframeInName = topMatch.Groups[3].Value;
-                
-                // Verifica che symbol e timeframe corrispondano
-                if (symbolInName == normalizedSymbol && int.TryParse(timeframeInName, out var tf) && tf == timeframeMinutes)
-                {
-                    className = $"Easy_{number}_{symbolInName}_{timeframeInName}";
-                }
-            }
-        }
-        
-        // Prova pattern s_TOP_UA_{number}_{SYMBOL}_{timeframe}__{version}
-        if (className == null)
-        {
-            var sMatch = System.Text.RegularExpressions.Regex.Match(strategyName, @"s[_\s]*TOP[_\s]*UA[_\s]*(\d+)[_\s]*(\w+)[_\s]*(\d+)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-            if (sMatch.Success)
-            {
-                var number = sMatch.Groups[1].Value;
-                var symbolInName = sMatch.Groups[2].Value.ToUpper();
-                var timeframeInName = sMatch.Groups[3].Value;
-                
-                // Verifica che symbol e timeframe corrispondano
-                if (symbolInName == normalizedSymbol && int.TryParse(timeframeInName, out var tf) && tf == timeframeMinutes)
-                {
-                    className = $"Easy_{number}_{symbolInName}_{timeframeInName}";
-                }
-            }
-        }
-        
-        // Se non trovato con pattern, prova a cercare direttamente nel nome
-        if (className == null)
-        {
-            // Estrai numero, symbol e timeframe dal nome se possibile
-            var numberMatch = System.Text.RegularExpressions.Regex.Match(strategyName, @"(\d{2,4})");
-            if (numberMatch.Success)
-            {
-                var number = numberMatch.Groups[1].Value;
-                className = $"Easy_{number}_{normalizedSymbol}_{timeframeMinutes}";
-            }
-        }
-        
-        if (className == null)
-        {
-            Console.WriteLine($"[StrategyFactory] Impossibile determinare className per strategia '{strategyName}'");
-            return null;
-        }
-        
-        Console.WriteLine($"[StrategyFactory] Tentativo di creare classe EasyLanguage: {className}");
-        
-        // Cerca la classe nel cache
-        if (_easyStrategyCache.TryGetValue(className, out var strategyType))
-        {
-            return CreateStrategyInstance(strategyType, symbol, timeframeMinutes, parameters);
-        }
-        
-        // Cerca nel namespace Piootoo.Strategies.Easy
-        var assembly = Assembly.GetAssembly(typeof(Easy_643_FDAX_60));
-        if (assembly != null)
-        {
-            strategyType = assembly.GetType($"Piootoo.Strategies.Easy.{className}");
-            if (strategyType != null)
-            {
-                _easyStrategyCache[className] = strategyType;
-                return CreateStrategyInstance(strategyType, symbol, timeframeMinutes, parameters);
-            }
-        }
-        
-        Console.WriteLine($"[StrategyFactory] Classe '{className}' non trovata nell'assembly");
-        return null;
-    }
-
-    /// <summary>
-    /// Inizializza la cache delle strategie EasyLanguage disponibili
-    /// </summary>
-    private static void InitializeEasyStrategyCache()
+    private static void InitializeStrategyCache()
     {
         if (_cacheInitialized) return;
 
@@ -304,21 +230,21 @@ public static class StrategyFactory
 
             try
             {
-                var assembly = Assembly.GetAssembly(typeof(Easy_643_FDAX_60));
+                var assembly = Assembly.GetAssembly(typeof(EasyLib));
                 if (assembly != null)
                 {
-                    var easyTypes = assembly.GetTypes()
+                    var strategyTypes = assembly.GetTypes()
                         .Where(t => t.IsClass &&
                                     !t.IsAbstract &&
                                     typeof(ITradingStrategy).IsAssignableFrom(t))
                         .ToList();
 
-                    foreach (var type in easyTypes)
+                    foreach (var type in strategyTypes)
                     {
-                        _easyStrategyCache[type.Name] = type;
+                        _strategyCache[type.Name] = type;
                     }
 
-                    Console.WriteLine($"[StrategyFactory] Cache inizializzata con {_easyStrategyCache.Count} strategie EasyLanguage");
+                    Console.WriteLine($"[StrategyFactory] Cache inizializzata con {_strategyCache.Count} strategie");
                 }
             }
             catch (Exception ex)
@@ -377,29 +303,6 @@ public static class StrategyFactory
             Console.WriteLine($"[StrategyFactory] Errore durante la creazione dell'istanza {strategyType.Name}: {ex.Message}");
             return null;
         }
-    }
-
-
-    
-    private static ITradingStrategy CreateEasy643FDAX60(string symbol, int timeframeMinutes, Dictionary<string, object>? parameters)
-    {
-        var strategy = new Easy_643_FDAX_60();
-        var initParams = new Dictionary<string, object>
-        {
-            { "Symbol", symbol },
-            { "TimeframeMinutes", timeframeMinutes }
-        };
-        
-        if (parameters != null)
-        {
-            foreach (var param in parameters)
-            {
-                initParams[param.Key] = param.Value;
-            }
-        }
-        
-        strategy.Initialize(initParams);
-        return strategy;
     }
 
     private static string NormalizeSymbol(string? symbol)
