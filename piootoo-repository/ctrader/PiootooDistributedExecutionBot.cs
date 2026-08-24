@@ -2207,6 +2207,49 @@ namespace cAlgo.Robots
             var rawVolume = Math.Max(0.01, (double)intent.FinalQuantity);
             var volume = symbol.NormalizeVolumeInUnits(rawVolume, RoundingMode.Down);
 
+            // [SIZE] Diagnostica del dimensionamento. Stampata sempre e con 6 decimali: il formato
+            // corto non distingue uno zero vero da un valore frazionario troncato in stampa, ed e'
+            // esattamente l'ambiguita' che rende illeggibili i run senza operazioni.
+            //
+            // NOTA: FinalQuantity arriva dal server in contratti/lotti, mentre
+            // NormalizeVolumeInUnits ragiona in UNITA' dello strumento (per XAUUSD un lotto vale
+            // symbol.LotSize unita', tipicamente 100). Passargli direttamente la quantita' in lotti
+            // e' un confronto tra grandezze diverse: la riga InUnitsAtteso qui sotto mostra quale
+            // volume si otterrebbe convertendo prima con QuantityToVolumeInUnits.
+            var volumeInUnitsAtteso = symbol.QuantityToVolumeInUnits((double)intent.FinalQuantity);
+            var volumeNormalizzatoAtteso = symbol.NormalizeVolumeInUnits(volumeInUnitsAtteso, RoundingMode.Down);
+            Print($"[SIZE] {intent.StrategyCode} {brokerSymbolName}: " +
+                  $"FinalQuantity={intent.FinalQuantity:F6} rawVolume={rawVolume:F6} " +
+                  $"volumeNormalizzato={volume:F6} | " +
+                  $"LotSize={symbol.LotSize:F6} VolumeMin={symbol.VolumeInUnitsMin:F6} " +
+                  $"VolumeStep={symbol.VolumeInUnitsStep:F6} VolumeMax={symbol.VolumeInUnitsMax:F6} | " +
+                  $"InUnitsAtteso={volumeInUnitsAtteso:F6} NormalizzatoAtteso={volumeNormalizzatoAtteso:F6}");
+
+            if (volume <= 0)
+            {
+                // Ramo di scarto nominato: senza questo, un ordine che non parte per volume nullo
+                // e' indistinguibile da un ordine rifiutato dal broker.
+                Print($"[SIZE] {intent.StrategyCode} {brokerSymbolName}: SCARTATO da volume-nullo-dopo-normalizzazione " +
+                      $"(rawVolume={rawVolume:F6} < VolumeMin={symbol.VolumeInUnitsMin:F6}); " +
+                      $"con conversione in unita' sarebbe stato {volumeNormalizzatoAtteso:F6}.");
+                LogJsonEvent("intent/scartato-volume", new
+                {
+                    intent.IntentId,
+                    intent.StrategyCode,
+                    intent.Symbol,
+                    intent.FinalQuantity,
+                    RawVolume = rawVolume,
+                    VolumeNormalizzato = volume,
+                    symbol.LotSize,
+                    symbol.VolumeInUnitsMin,
+                    symbol.VolumeInUnitsStep,
+                    VolumeInUnitsAtteso = volumeInUnitsAtteso,
+                    VolumeNormalizzatoAtteso = volumeNormalizzatoAtteso
+                });
+                ReportExecution(intent.IntentId, intent.Symbol, ExecutionReportStatusDto.Rejected, 0, null);
+                return;
+            }
+
             _submittedIntentIds.Add(intent.IntentId);
 
             // La label porta l'IntentId: posizione e ordine restano riconducibili al segnale che li ha

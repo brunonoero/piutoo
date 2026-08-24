@@ -44,9 +44,9 @@
           "Symbol": "@GC",
           "AccountSymbol": "XAUUSD",
           "ContractMultiplier": 0.1,
-          "MinimumQuantity": 1,
-          "QuantityStep": 1,
-          "RoundingMode": 0,
+          "MinimumQuantity": 0.01,
+          "QuantityStep": 0.01,
+          "RoundingMode": 1,
           "Enabled": true
         },
         {
