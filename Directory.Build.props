@@ -1,0 +1,34 @@
+<Project>
+
+  <!--
+    Versione degli assembly della solution.
+
+    NON e' una versione nuova: e' la stessa di Piootoo.Shared.PiootooVersion.Current, che e' il
+    numero del progetto e viaggia allineato fra server, console WinForms e cBot distribuito.
+    Esiste qui perche' senza nessun <Version> dichiarato MSBuild stampava il proprio default
+    1.0.0.0 su ogni assembly di ogni build: i binari erano indistinguibili fra loro e dal numero
+    che il server dichiara a runtime.
+
+    Va mossa INSIEME agli altri due punti, mai da sola:
+      1. Piootoo.Shared/PiootooVersion.cs            -> Current            (server e console)
+      2. piootoo-repository/ctrader/PiootooDistributedExecutionBot.cs -> BotVersion  (cBot)
+      3. questo file                                 -> VersionPrefix      (assembly)
+
+    Il punto 3 non e' a fiducia: VersioneDelProgettoTests verifica che l'InformationalVersion
+    dell'assembly coincida con PiootooVersion.Current e fallisce se qualcuno ne muove uno solo.
+    Il punto 2 resta manuale perche' il cBot lo compila cTrader, che non referenzia le nostre
+    assembly: la nota completa sta nell'XMLdoc di PiootooVersion.
+  -->
+  <PropertyGroup>
+    <VersionPrefix>3.7.0</VersionPrefix>
+    <AssemblyVersion>$(VersionPrefix)</AssemblyVersion>
+    <FileVersion>$(VersionPrefix)</FileVersion>
+    <InformationalVersion>$(VersionPrefix)</InformationalVersion>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <Product>Piootoo</Product>
+    <Company>Piootoo</Company>
+  </PropertyGroup>
+
+</Project>

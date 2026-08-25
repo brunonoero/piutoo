@@ -1630,3 +1630,49 @@ del contratto. Fra una serie continua back-adjusted e lo spot la differenza è *
 GC nel 2012 vale ~580 punti — quindi la stessa distanza percentuale vale distanze diverse sulle
 due serie, mentre in punti resta la stessa. La percentuale risolverebbe il problema che non
 abbiamo e romperebbe quello che oggi funziona.
+
+- **2026-08-25** — **La versione del progetto passa a 3.7.0** e i punti da tenere allineati
+  diventano tre invece di due: `PiootooVersion.Current` (server e console WinForms, che compila
+  contro la stessa assembly), `BotVersion` del cBot distribuito, e ora `VersionPrefix` in
+  `Directory.Build.props`. Quest'ultimo non esisteva: senza nessun `<Version>` dichiarato MSBuild
+  stampava il proprio default `1.0.0.0` su ogni assembly di ogni build, quindi un binario non
+  diceva a quale release appartenesse né era confrontabile con il numero che il server dichiara a
+  runtime. `VersioneDelProgettoTests` verifica che i tre coincidano e fallisce se se ne muove uno
+  solo — per il cBot leggendo il sorgente, che è il massimo possibile visto che lo compila cTrader.
+  Voce aperta: `PiootooDirectExecutionBot` ha un client HTTP verso il server (parametro
+  `API Base Url`) ma porta una versione propria (1.4.0), mentre l'XMLdoc di `PiootooVersion`
+  affermava che non parla HTTP. O segue anche lui il numero del progetto, o va detto perché no.
+
+- **2026-08-25** — **Il datafeed locale passa a un file per (simbolo, timeframe)**,
+  `datafeed/@NQ_15.json`, generato dai CSV minute del vendor da
+  `datafeed-future/aggregate_flat_feed.py`. Sostituisce la gerarchia
+  `datafeed/{tf}/{symbol}/{symbol}-{yyyyMMdd}.json`, che per il solo @NQ erano 30.000 file aperti
+  e deserializzati uno a uno a ogni caricamento di datasource. Il layout piatto non è solo più
+  ordinato: il backtest pre-carica un datasource per coppia unica, quindi il costo passa da
+  migliaia di `File.ReadAllText` a uno.
+
+  Nel farlo sono emerse due proprietà del sorgente che nessuno aveva accertato, e che il vecchio
+  aggregatore sbagliava entrambe:
+
+  **Il timestamp del CSV è la fine del minuto, non l'inizio.** Su 200.000 righe di @NQ ci sono
+  201 righe alle `00:01` e 4 alle `00:00`: la riapertura Globex è la mezzanotte europea e la
+  prima barra della sessione — quella che copre `00:00`→`00:01` — è stampata `00:01`. Con
+  timestamp di inizio le due frequenze sarebbero simili. Il bucket giusto è quindi
+  `floor(t - 1 minuto)`; `aggregate_nq_ascii.py` usava `floor(t)`, e il feed gerarchico che ha
+  prodotto è sfasato di un minuto per barra (sul primo bucket 15m del 03/01/2006: 574 di volume
+  contro 554). È il motivo per cui il file piatto ha la precedenza invece di affiancarsi.
+
+  **Gli istanti scritti nel feed ora sono UTC vero.** Il CSV è in ora dell'Europa continentale —
+  già stabilito in `domini/orari-di-sessione-e-fusi.md` — ma finora veniva copiato verbatim con
+  l'etichetta `Z` e raddrizzato a valle da `FeedClockRegistry`. Ora l'ora legale europea si
+  risolve una volta sola, in conversione, e `feed-clocks.json` dichiara `UTC`: la sorgente della
+  bugia sparisce invece di essere compensata a ogni lettura. I bucket restano però allineati
+  sulla **mezzanotte locale del feed**, non su quella UTC — per 15/30/60 minuti è indifferente,
+  per 4h e giornaliero no: è l'allineamento dei run di ricerca da cui le PTS sono portate, e per
+  il giornaliero è l'unico che non spezza la sessione, perché su questo feed la pausa di
+  manutenzione CME cade a cavallo della mezzanotte europea.
+
+  Convertiti gli 11 simboli con strategie a catalogo più @EC, e solo i timeframe che le strategie
+  dichiarano. Nel repository resta il ramo di lettura gerarchico come fallback; è sparito invece
+  quello dei file flat Yahoo (`GCF_15.json`), che nessuno produceva più da quando
+  `datafeed-downloader/` non c'è.

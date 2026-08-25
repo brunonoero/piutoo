@@ -1,0 +1,27 @@
+{
+  "_nota": [
+    "In che orologio sono stampati i timestamp di ogni feed. Lo legge FeedClockRegistry,",
+    "che si rifiuta di caricare un feed non dichiarato: assumere UTC e' l'errore che questo",
+    "file esiste per impedire. Vedi docs/domini/orari-di-sessione-e-fusi.md.",
+    "",
+    "Qui tutti i feed valgono UTC perche' i file piatti @SYM_{minuti}.json li contengono gia'",
+    "in UTC vero: i CSV del vendor sono in ora dell'Europa continentale (CET/CEST) e",
+    "datafeed-future/aggregate_flat_feed.py risolve l'ora legale anno per anno in conversione,",
+    "una volta sola. Un feed rigenerato con un altro script, o la vecchia gerarchia",
+    "datafeed/{tf}/{symbol}/, NON e' in UTC: se torna in uso va dichiarato Europe/Rome."
+  ],
+  "orologi": {
+    "BP": "UTC",
+    "BTC": "UTC",
+    "CL": "UTC",
+    "EC": "UTC",
+    "ES": "UTC",
+    "FDAX": "UTC",
+    "GC": "UTC",
+    "JY": "UTC",
+    "NG": "UTC",
+    "NQ": "UTC",
+    "PL": "UTC",
+    "YM": "UTC"
+  }
+}

@@ -126,9 +126,10 @@ testa elenca i problemi rilevati automaticamente (strategia mai valutata, mai un
 segnale, segnali senza trade, datasource vuoto). Il dettaglio evento per evento
 è in `backtest-log.jsonl` (append-only, una riga JSON per evento).
 
-Causa frequente: Yahoo Finance fornisce dati intraday solo per ~60 giorni, quindi
-backtest intraday su finestre lunghe restano muti per mancanza di dati. Per il
-motivo opposto — un backtest che produce *troppi* trade, o trade a orari in cui il
+Causa frequente: il timeframe chiesto dalla strategia non ha il proprio
+`datafeed/@{simbolo}_{minuti}.json` — il datafeed locale è un file per coppia
+(simbolo, timeframe) e si genera con `datafeed-future/aggregate_flat_feed.py`
+(vedi `docs/PROGETTO.md` §5). Per il motivo opposto — un backtest che produce *troppi* trade, o trade a orari in cui il
 feed non ha barre — parti da `coversRequestedRange` nel summary e dai controlli in
 `docs/domini/orologio-barre-e-fill.md`.
 

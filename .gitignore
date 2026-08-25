@@ -100,8 +100,16 @@ Desktop.ini
 /piootoo-repository/workspaces/*/backtests/
 /piootoo-repository/workspaces/*/sessions/
 
-# Large market data, archives, and local databases
-/piootoo-repository/datafeed*/
+# Large market data, archives, and local databases.
+# Le barre e i CSV sorgente restano fuori dal repo, ma gli script che le producono e il
+# manifest degli orologi dei feed sono codice e configurazione: quelli si versionano. Le
+# eccezioni vanno espresse cosi', file per file dentro una cartella non ignorata: git non
+# riapre una cartella gia' esclusa, quindi `/piootoo-repository/datafeed*/` non tornerebbe
+# indietro su nessun `!`.
+/piootoo-repository/datafeed/*
+!/piootoo-repository/datafeed/feed-clocks.json
+/piootoo-repository/datafeed-future/*
+!/piootoo-repository/datafeed-future/*.py
 /piootoo-repository/*.zip
 *.db
 *.db-*

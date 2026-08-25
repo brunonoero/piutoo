@@ -8,12 +8,24 @@ namespace Piootoo.Domain.Repositories;
 /// <summary>
 /// Repository per accedere ai datasource OHLCV dal repository locale.
 ///
-/// Struttura primaria prodotta da Piootoo.FeedWorker:
+/// <para><b>Struttura primaria: un file per coppia (simbolo, timeframe)</b>, tutti nella radice
+/// del datafeed, col timeframe espresso in minuti:</para>
 ///
-///     datafeed/{timeframe}/{symbol}/{symbol}-{yyyyMMdd}.json
+/// <code>
+///     datafeed/@NQ_15.json
+///     datafeed/@GC_240.json
+///     datafeed/@ES_1440.json
+/// </code>
 ///
-/// Esempio: datafeed/1h/@GC/@GC-20260724.json. I vecchi file flat Yahoo
-/// restano supportati come fallback durante la migrazione.
+/// <para>La produce <c>piootoo-repository/datafeed-future/aggregate_flat_feed.py</c> a partire dai
+/// CSV minute del vendor. Il contenuto e' gia' in UTC vero — lo script risolve l'ora legale
+/// europea del sorgente una volta sola, in conversione — e <c>feed-clocks.json</c> lo dichiara
+/// come <c>UTC</c>.</para>
+///
+/// <para><b>Fallback: la vecchia gerarchia</b> <c>datafeed/{timeframe}/{symbol}/{symbol}-{yyyyMMdd}.json</c>
+/// prodotta da Piootoo.FeedWorker. Resta leggibile per i simboli non ancora convertiti, ma il
+/// file piatto vince sempre quando esiste: e' l'unico dei due generato con il bucket giusto (il
+/// timestamp del CSV sorgente e' la <i>fine</i> del minuto, vedi lo script).</para>
 /// </summary>
 public class DataSourceRepository
 {
@@ -25,31 +37,6 @@ public class DataSourceRepository
     private FeedClockRegistry? _feedClocks;
 
     private FeedClockRegistry FeedClocks => _feedClocks ??= FeedClockRegistry.Load(_repositoryPath);
-
-    /// <summary>Mappatura indicativa root future strategia -> ticker Yahoo Finance.</summary>
-    private static readonly Dictionary<string, string> RootSymbolToTicker = new(StringComparer.OrdinalIgnoreCase)
-    {
-        ["GC"] = "GC=F",       // Gold
-        ["CL"] = "CL=F",       // Crude Oil
-        ["NQ"] = "NQ=F",       // Nasdaq
-        ["ES"] = "ES=F",       // S&P 500
-        ["HG"] = "HG=F",       // Copper
-        ["PL"] = "PL=F",       // Platinum
-        ["NG"] = "NG=F",       // Natural Gas
-        ["RB"] = "RB=F",       // RBOB Gasoline
-        ["HO"] = "HO=F",       // Heating Oil
-        ["S"] = "ZS=F",        // Soybeans
-        ["US"] = "ZB=F",       // 30y T-Bond
-        ["EC"] = "6E=F",       // Euro FX
-        ["BP"] = "6B=F",       // British Pound
-        ["JY"] = "6J=F",       // Japanese Yen
-        ["LC"] = "LE=F",       // Live Cattle
-        ["FC"] = "GF=F",       // Feeder Cattle
-        ["FDAX"] = "^GDAXI",   // DAX (indice, non il future)
-        ["BTCUSDT"] = "BTC-USD",
-        ["ETHUSDT"] = "ETH-USD",
-        ["TSLA"] = "TSLA",
-    };
 
     /// <summary>Conversione barType (usato dalle API) -> timeframe in minuti.</summary>
     private static readonly Dictionary<string, int> BarTypeToTimeframeMinutes = new(StringComparer.OrdinalIgnoreCase)
@@ -112,75 +99,54 @@ public class DataSourceRepository
     private static string NormalizeRootSymbol(string symbol)
         => symbol.Trim().TrimStart('@').ToUpperInvariant();
 
-    /// <summary>Risolve il ticker feed (Yahoo Finance) a partire dal simbolo root della strategia.</summary>
-    private static string ResolveTicker(string symbol)
+    /// <summary>
+    /// Nome del file piatto per una coppia (simbolo, timeframe): <c>"@GC" + 240 -> "@GC_240.json"</c>.
+    /// Il timeframe e' in minuti, la stessa unita' con cui il resto del repository lo tratta: le
+    /// sigle <c>4h</c>/<c>D</c> restano confinate ai nomi di cartella della vecchia gerarchia.
+    /// </summary>
+    private static string BuildFlatFileName(string symbol, int timeframeMinutes)
+        => $"@{NormalizeRootSymbol(symbol)}_{timeframeMinutes}.json";
+
+    private string GetFlatFilePath(string symbol, int timeframeMinutes)
+        => Path.Combine(_repositoryPath, BuildFlatFileName(symbol, timeframeMinutes));
+
+    /// <summary>
+    /// Scompone il nome di un file piatto (senza estensione) in simbolo e minuti. Restituisce
+    /// null se il nome non segue la convenzione, cosi' un file estraneo lasciato nella cartella
+    /// viene ignorato invece di comparire come simbolo inesistente.
+    /// </summary>
+    private static (string Symbol, int TimeframeMinutes)? ParseFlatFileName(string fileNameWithoutExtension)
     {
-        var root = NormalizeRootSymbol(symbol);
-        return RootSymbolToTicker.TryGetValue(root, out var ticker) ? ticker : root;
-    }
+        if (!fileNameWithoutExtension.StartsWith('@'))
+            return null;
 
-    /// <summary>Stessa normalizzazione di datafeed-downloader/core.py:safe_filename.</summary>
-    private static string BuildSafeFileSymbol(string ticker)
-        => ticker.Replace("=", string.Empty).Replace("^", string.Empty).Replace("/", "-");
-
-    /// <summary>Nome file feed per symbol+timeframe, es. "@GC" + 15 -> "GCF_15.json".</summary>
-    private static string BuildFeedFileName(string symbol, int timeframeMinutes)
-        => $"{BuildSafeFileSymbol(ResolveTicker(symbol))}_{timeframeMinutes}.json";
-
-    private string GetFeedFilePath(string symbol, int timeframeMinutes)
-        => Path.Combine(_repositoryPath, BuildFeedFileName(symbol, timeframeMinutes));
-
-    /// <summary>Estrae il "safe symbol" (es. "GCF") dal nome file "GCF_15" (senza estensione).</summary>
-    private static string? ExtractSafeSymbolFromFileName(string fileNameWithoutExtension)
-    {
         var lastUnderscore = fileNameWithoutExtension.LastIndexOf('_');
-        if (lastUnderscore <= 0 || lastUnderscore == fileNameWithoutExtension.Length - 1)
+        if (lastUnderscore <= 1 || lastUnderscore == fileNameWithoutExtension.Length - 1)
             return null;
 
-        var minutesPart = fileNameWithoutExtension[(lastUnderscore + 1)..];
-        return int.TryParse(minutesPart, out _) ? fileNameWithoutExtension[..lastUnderscore] : null;
+        return int.TryParse(fileNameWithoutExtension[(lastUnderscore + 1)..], out var minutes)
+            ? (fileNameWithoutExtension[..lastUnderscore], minutes)
+            : null;
     }
 
-    private FeedFileDto? ReadFeedFile(string symbol, int timeframeMinutes)
+    private async Task<List<OhlcvData>> ReadFlatFeedAsync(string symbol, int timeframeMinutes)
     {
-        var path = GetFeedFilePath(symbol, timeframeMinutes);
+        var path = GetFlatFilePath(symbol, timeframeMinutes);
         if (!File.Exists(path))
-            return null;
-
-        var json = File.ReadAllText(path);
-        return JsonSerializer.Deserialize<FeedFileDto>(json, _jsonOptions);
-    }
-
-    private async Task<FeedFileDto?> ReadFeedFileAsync(string symbol, int timeframeMinutes)
-    {
-        var path = GetFeedFilePath(symbol, timeframeMinutes);
-        if (!File.Exists(path))
-            return null;
-
-        var json = await File.ReadAllTextAsync(path);
-        return JsonSerializer.Deserialize<FeedFileDto>(json, _jsonOptions);
-    }
-
-    private static List<OhlcvData> ConvertToOhlcv(FeedFileDto? feed, SessionClock feedClock)
-    {
-        if (feed?.Bars == null || feed.Bars.Count == 0)
             return new List<OhlcvData>();
 
-        var candles = feed.Bars.Select(bar =>
-        {
-            var utcDateTime = ToTrueUtc(bar.DateTime, feedClock);
-            return new OhlcvData
-            {
-                Timestamp = new DateTimeOffset(utcDateTime).ToUnixTimeSeconds(),
-                DateTime = utcDateTime,
-                DateTimeFormatted = utcDateTime.ToString("yyyy-MM-ddTHH:mm:ssZ"),
-                Open = (decimal)bar.Open,
-                High = (decimal)bar.High,
-                Low = (decimal)bar.Low,
-                Close = (decimal)bar.Close,
-                Volume = (decimal)bar.Volume
-            };
-        }).ToList();
+        // Risolto prima di leggere: un feed di fuso non dichiarato deve fermare la lettura
+        // subito, non dopo aver deserializzato mezzo storico.
+        var feedClock = FeedClocks.For(symbol);
+
+        await using var stream = File.OpenRead(path);
+        var feed = await JsonSerializer.DeserializeAsync<WorkerFeedFileDto>(stream, _jsonOptions);
+        if (feed?.Candles == null || feed.Candles.Count == 0)
+            return new List<OhlcvData>();
+
+        var candles = new List<OhlcvData>(feed.Candles.Count);
+        foreach (var candle in feed.Candles)
+            candles.Add(ConvertWorkerCandle(candle, feedClock));
 
         return candles;
     }
@@ -280,86 +246,95 @@ public class DataSourceRepository
         };
     }
 
+    /// <summary>
+    /// Il file piatto vince sulla vecchia gerarchia quando esiste, e non e' una preferenza
+    /// arbitraria: e' l'unico dei due generato col bucket giusto. Il timestamp del CSV sorgente e'
+    /// la <i>fine</i> del minuto, mentre <c>aggregate_nq_ascii.py</c> lo trattava come inizio, per
+    /// cui la gerarchia e' sfasata di un minuto per barra. Il fallback resta solo per i simboli
+    /// non ancora convertiti.
+    /// </summary>
     private async Task<List<OhlcvData>> ReadCandlesAsync(
         string symbol,
         int timeframeMinutes,
         bool preferCalculated)
     {
-        var hierarchical = await ReadHierarchicalFeedAsync(symbol, timeframeMinutes, preferCalculated);
-        if (hierarchical.Count != 0)
-            return hierarchical;
+        var flat = await ReadFlatFeedAsync(symbol, timeframeMinutes);
+        if (flat.Count != 0)
+            return flat.OrderBy(candle => candle.DateTime).ToList();
 
-        return ConvertToOhlcv(await ReadFeedFileAsync(symbol, timeframeMinutes), FeedClocks.For(symbol))
-            .OrderBy(candle => candle.DateTime)
-            .ToList();
+        return await ReadHierarchicalFeedAsync(symbol, timeframeMinutes, preferCalculated);
+    }
+
+    /// <summary>Simboli per cui esiste almeno un file piatto nella radice del datafeed.</summary>
+    private IEnumerable<(string Symbol, int TimeframeMinutes)> EnumerateFlatFeeds()
+    {
+        if (!Directory.Exists(_repositoryPath))
+            yield break;
+
+        foreach (var file in Directory.EnumerateFiles(_repositoryPath, "@*_*.json"))
+        {
+            var parsed = ParseFlatFileName(Path.GetFileNameWithoutExtension(file));
+            if (parsed != null)
+                yield return parsed.Value;
+        }
     }
 
     /// <summary>
-    /// Ottiene la lista dei simboli (root strategia, quando mappabili) per cui esiste
-    /// almeno un file feed nel repository.
+    /// Ottiene la lista dei simboli per cui esiste almeno un feed nel repository, unendo le due
+    /// strutture. L'unione, e non "la prima che risponde": durante la conversione le due
+    /// convivono, e restituire solo i simboli piatti nasconderebbe dalla console tutto cio' che
+    /// non e' ancora stato convertito.
     /// </summary>
     public IEnumerable<string> GetAvailableSymbols()
     {
         if (!Directory.Exists(_repositoryPath))
             return Enumerable.Empty<string>();
 
-        var hierarchicalSymbols = TimeframeFolders.Values
-            .SelectMany(folder => new[] { folder, folder + "-calculate" })
-            .Select(folder => Path.Combine(_repositoryPath, folder))
-            .Where(Directory.Exists)
-            .SelectMany(path => Directory.EnumerateDirectories(path))
-            .Select(Path.GetFileName)
-            .Where(name => !string.IsNullOrWhiteSpace(name))
-            .Select(name => name!.StartsWith('@') ? name : "@" + name)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
-            .ToList();
-        if (hierarchicalSymbols.Count != 0)
-            return hierarchicalSymbols;
-
-        var tickerToRoot = RootSymbolToTicker
-            .GroupBy(pair => BuildSafeFileSymbol(pair.Value), StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(g => g.Key, g => g.First().Key, StringComparer.OrdinalIgnoreCase);
-
         var symbols = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var file in Directory.GetFiles(_repositoryPath, "*_*.json"))
-        {
-            var safeSymbol = ExtractSafeSymbolFromFileName(Path.GetFileNameWithoutExtension(file));
-            if (safeSymbol == null)
-                continue;
 
-            var root = tickerToRoot.TryGetValue(safeSymbol, out var mappedRoot) ? mappedRoot : safeSymbol;
-            symbols.Add("@" + root.TrimStart('@'));
+        foreach (var feed in EnumerateFlatFeeds())
+            symbols.Add(feed.Symbol);
+
+        foreach (var directory in TimeframeFolders.Values
+                     .SelectMany(folder => new[] { folder, folder + "-calculate" })
+                     .Select(folder => Path.Combine(_repositoryPath, folder))
+                     .Where(Directory.Exists)
+                     .SelectMany(Directory.EnumerateDirectories))
+        {
+            var name = Path.GetFileName(directory);
+            if (!string.IsNullOrWhiteSpace(name))
+                symbols.Add(name.StartsWith('@') ? name : "@" + name);
         }
 
-        return symbols;
+        return symbols.OrderBy(name => name, StringComparer.OrdinalIgnoreCase).ToList();
     }
 
-    /// <summary>Ottiene i timeframe (in minuti, come stringa) disponibili per un simbolo.</summary>
+    /// <summary>Ottiene i barType disponibili per un simbolo, dalle due strutture.</summary>
     public IEnumerable<string> GetAvailableBarTypes(string symbol)
     {
         if (!Directory.Exists(_repositoryPath))
             return Enumerable.Empty<string>();
 
-        var hierarchical = TimeframeFolders
-            .Where(pair =>
-                GetHierarchicalSymbolDirectory(symbol, pair.Key, preferCalculated: true) != null)
-            .Select(pair => CanonicalBarTypes[pair.Key])
-            .ToList();
-        if (hierarchical.Count != 0)
-            return hierarchical;
+        var normalized = "@" + NormalizeRootSymbol(symbol);
+        var minutes = new HashSet<int>();
 
-        var safeSymbol = BuildSafeFileSymbol(ResolveTicker(symbol));
-        var prefix = safeSymbol + "_";
+        foreach (var feed in EnumerateFlatFeeds())
+        {
+            if (feed.Symbol.Equals(normalized, StringComparison.OrdinalIgnoreCase))
+                minutes.Add(feed.TimeframeMinutes);
+        }
 
-        return Directory.GetFiles(_repositoryPath, $"{safeSymbol}_*.json")
-            .Select(f => Path.GetFileNameWithoutExtension(f))
-            .Where(name => name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-            .Select(name => name[prefix.Length..])
-            .Where(minutes => int.TryParse(minutes, out _))
-            .Select(minutes => CanonicalBarTypes.TryGetValue(int.Parse(minutes), out var barType)
+        foreach (var pair in TimeframeFolders)
+        {
+            if (GetHierarchicalSymbolDirectory(symbol, pair.Key, preferCalculated: true) != null)
+                minutes.Add(pair.Key);
+        }
+
+        return minutes
+            .OrderBy(value => value)
+            .Select(value => CanonicalBarTypes.TryGetValue(value, out var barType)
                 ? barType
-                : minutes)
+                : value.ToString())
             .ToList();
     }
 
@@ -497,32 +472,6 @@ internal sealed class WorkerCandleDto
     public double Timestamp { get; set; }
     public DateTime DateTime { get; set; }
     public string DateTimeFormatted { get; set; } = string.Empty;
-    public double Open { get; set; }
-    public double High { get; set; }
-    public double Low { get; set; }
-    public double Close { get; set; }
-    public double Volume { get; set; }
-}
-
-/// <summary>
-/// DTO per il file feed "flat" prodotto da datafeed-downloader/core.py.
-/// </summary>
-internal class FeedFileDto
-{
-    public string Symbol { get; set; } = string.Empty;
-    public int TimeframeMinutes { get; set; }
-    public string Source { get; set; } = string.Empty;
-    public DateTime GeneratedAtUtc { get; set; }
-    public DateTime RequestedStartUtc { get; set; }
-    public DateTime EffectiveStartUtc { get; set; }
-    public string? Note { get; set; }
-    public List<FeedBarDto> Bars { get; set; } = new();
-}
-
-/// <summary>DTO per una singola barra OHLCV del file feed (schema OhlcvDto).</summary>
-internal class FeedBarDto
-{
-    public DateTime DateTime { get; set; }
     public double Open { get; set; }
     public double High { get; set; }
     public double Low { get; set; }

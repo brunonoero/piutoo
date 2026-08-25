@@ -327,18 +327,39 @@ rotation-log.
 
 ## 5. Datafeed
 
-`piootoo-repository/datafeed/` contiene un file per combinazione simbolo+timeframe:
+`piootoo-repository/datafeed/` contiene **un file per combinazione simbolo+timeframe**, tutti
+nella stessa cartella, col timeframe in minuti:
 
 ```
-{tickerSenzaCaratteriSpeciali}_{timeframeMinuti}.json     es. GCF_15.json
+@{simbolo}_{timeframeMinuti}.json      es. @NQ_15.json, @GC_240.json, @ES_1440.json
 ```
 
-Il mapping tra simbolo di strategia (`@GC`) e ticker del feed (`GC=F` → `GCF`) è in
-`DataSourceRepository.RootSymbolToTicker`.
+Nessuna gerarchia e nessun mapping di ticker: il nome del file è il simbolo di strategia. Lo
+schema interno è `symbol` / `barType` / `candles[]`, lo stesso che il FeedWorker già scriveva.
 
-Il downloader è `piootoo-repository/datafeed-downloader/` (Python, Yahoo Finance).
-**Limite noto:** Yahoo fornisce dati intraday solo per ~60 giorni. Un backtest su
-finestre più lunghe con timeframe intraday non ha i dati e le strategie restano mute.
+Li produce `piootoo-repository/datafeed-future/aggregate_flat_feed.py` a partire dai CSV minute
+del vendor in `datafeed-future/FUTURES_Historical_Data/`. Lo script decide due cose che il
+sorgente non dichiara, e le decide sui dati:
+
+- **il CSV è in ora dell'Europa continentale**, non in UTC (picco di volume e pausa di
+  manutenzione cadono nello stesso slot in entrambe le stagioni: vedi
+  `domini/orari-di-sessione-e-fusi.md`). La conversione a UTC vero avviene lì, una volta sola,
+  risolvendo l'ora legale anno per anno. `feed-clocks.json` dichiara quindi `UTC` per tutti;
+- **il timestamp di una riga è la fine del minuto**, non l'inizio: su @NQ ci sono 201 righe alle
+  `00:01` contro 4 alle `00:00`, perché la riapertura Globex è la mezzanotte europea e la prima
+  barra della sessione è stampata alla sua fine. Il bucket è quindi `floor(t - 1 minuto)`.
+
+I bucket sono allineati sulla **mezzanotte locale del feed**, non su quella UTC, e solo l'inizio
+del bucket viene poi tradotto in UTC. Per 5/15/30/60 minuti i due allineamenti coincidono
+(l'offset è un numero intero di ore); divergono da 4h in su. È l'allineamento dei run di ricerca
+da cui le strategie PTS sono state portate, ed è l'unico che per il giornaliero tiene insieme la
+sessione: su questo feed la pausa CME cade a cavallo della mezzanotte europea, quindi il giorno
+di calendario locale contiene la sessione intera.
+
+La vecchia gerarchia `datafeed/{tf}/{symbol}/{symbol}-{yyyyMMdd}.json` del FeedWorker resta
+leggibile come fallback per i simboli non ancora convertiti, ma **il file piatto vince sempre
+quando esiste**: è l'unico dei due generato col bucket giusto — `aggregate_nq_ascii.py` (ora
+superato) usava `floor(t)`, quindi quei file sono sfasati di un minuto per barra.
 
 **Invariante:** se una coppia `(Symbol, Timeframe)` richiesta dal masterfilter non
 ha dati, il backtest deve **fallire o segnalarlo esplicitamente**, mai proseguire in
