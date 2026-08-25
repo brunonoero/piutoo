@@ -98,6 +98,7 @@ public partial class SymbolConversionDetailScreen : UserControl, IShellScreen, I
         Symbol = mapping.Symbol,
         AccountSymbol = mapping.AccountSymbol,
         ContractMultiplier = mapping.ContractMultiplier,
+        PriceScale = mapping.PriceScale,
         MinimumQuantity = mapping.MinimumQuantity,
         QuantityStep = mapping.QuantityStep,
         Enabled = mapping.Enabled

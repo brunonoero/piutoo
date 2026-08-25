@@ -35,6 +35,7 @@ partial class SymbolConversionDetailScreen
         this._colSymbol = new System.Windows.Forms.DataGridViewTextBoxColumn();
         this._colAccountSymbol = new System.Windows.Forms.DataGridViewTextBoxColumn();
         this._colContractMultiplier = new System.Windows.Forms.DataGridViewTextBoxColumn();
+        this._colPriceScale = new System.Windows.Forms.DataGridViewTextBoxColumn();
         this._colMinimumQuantity = new System.Windows.Forms.DataGridViewTextBoxColumn();
         this._colQuantityStep = new System.Windows.Forms.DataGridViewTextBoxColumn();
         this._colMappingEnabled = new System.Windows.Forms.DataGridViewCheckBoxColumn();
@@ -222,6 +223,7 @@ partial class SymbolConversionDetailScreen
             this._colSymbol,
             this._colAccountSymbol,
             this._colContractMultiplier,
+            this._colPriceScale,
             this._colMinimumQuantity,
             this._colQuantityStep,
             this._colMappingEnabled});
@@ -250,6 +252,13 @@ partial class SymbolConversionDetailScreen
         this._colContractMultiplier.DataPropertyName = "ContractMultiplier";
         this._colContractMultiplier.HeaderText = "Moltiplicatore contratto";
         this._colContractMultiplier.Name = "_colContractMultiplier";
+        //
+        // _colPriceScale
+        //
+        this._colPriceScale.DataPropertyName = "PriceScale";
+        this._colPriceScale.HeaderText = "Scala prezzo";
+        this._colPriceScale.Name = "_colPriceScale";
+        this._colPriceScale.ToolTipText = "Fattore sulle distanze di stop/target. 1 quando il broker quota lo strumento nella stessa unità delle strategie.";
         //
         // _colMinimumQuantity
         //
@@ -313,6 +322,7 @@ partial class SymbolConversionDetailScreen
     private System.Windows.Forms.DataGridViewTextBoxColumn _colSymbol;
     private System.Windows.Forms.DataGridViewTextBoxColumn _colAccountSymbol;
     private System.Windows.Forms.DataGridViewTextBoxColumn _colContractMultiplier;
+    private System.Windows.Forms.DataGridViewTextBoxColumn _colPriceScale;
     private System.Windows.Forms.DataGridViewTextBoxColumn _colMinimumQuantity;
     private System.Windows.Forms.DataGridViewTextBoxColumn _colQuantityStep;
     private System.Windows.Forms.DataGridViewCheckBoxColumn _colMappingEnabled;

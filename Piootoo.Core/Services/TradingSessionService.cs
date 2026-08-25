@@ -2606,6 +2606,15 @@ public sealed class TradingSessionService : ITradingSessionService
             TakeProfit = takeProfitPoints,
             BreakEven = breakEvenPoints,
             TrailingStop = trailingStopPoints,
+            // Il denaro dichiarato dalla ricerca viaggia accanto ai punti, non al posto loro: i
+            // punti restano la grandezza da eseguire, il denaro serve al client per verificare che
+            // il rischio a mercato sia quello dichiarato. La divisione qui sopra è avvenuta una
+            // volta sola, ed è questo il divisore con cui è avvenuta.
+            StopLossMoneyPerFutureContract = signal.StopLossMoneyPerFutureContract,
+            TakeProfitMoneyPerFutureContract = signal.TakeProfitMoneyPerFutureContract,
+            TrailingStopMoneyPerFutureContract = signal.TrailingStopMoneyPerFutureContract,
+            BreakEvenMoneyPerFutureContract = signal.BreakEvenMoneyPerFutureContract,
+            ReferenceDollarsPerPoint = dollarsPerPoint,
             TimeframeMinutes = strategyTimeframe,
             MaxBarsInPosition = signal.MaxBarsInPosition,
             MaxEntriesPerSession = signal.MaxEntriesPerSession,
@@ -2799,6 +2808,15 @@ public sealed class TradingSessionService : ITradingSessionService
             ? conversion.RoundQuantity(template.Symbol, quantity * sizeFactor)
             : 0m;
 
+        // Le distanze di prezzo si convertono qui per la stessa ragione per cui ci si converte la
+        // quantità: dipendono dall'account, non dal segnale. Restano però due fattori distinti — il
+        // contratto scala quanto si compra, la scala di prezzo in che unità è quotato — e la seconda
+        // vale 1 ovunque il broker quoti lo stesso sottostante nell'unità delle strategie, cioè
+        // quasi sempre.
+        var priceScale = conversion.GetPriceScale(template.Symbol);
+        decimal? Scale(decimal? distanzaInPunti)
+            => distanzaInPunti.HasValue ? distanzaInPunti.Value * priceScale : null;
+
         return new OrderIntent
         {
             IntentId = $"{template.IntentId}::{groupId}",
@@ -2824,10 +2842,18 @@ public sealed class TradingSessionService : ITradingSessionService
             SizingReason = BuildClaimSizingReason(template.SizingReason, groupId, groupAllocation, enabled, sizeFactor),
             Price = template.Price,
             Kind = OrderIntentKind.Entry,
-            StopLoss = template.StopLoss,
-            TakeProfit = template.TakeProfit,
-            BreakEven = template.BreakEven,
-            TrailingStop = template.TrailingStop,
+            StopLoss = Scale(template.StopLoss),
+            TakeProfit = Scale(template.TakeProfit),
+            BreakEven = Scale(template.BreakEven),
+            TrailingStop = Scale(template.TrailingStop),
+            PriceScale = priceScale,
+            // Il denaro NON si scala: è il rischio dichiarato per contratto future di riferimento,
+            // e resta quello qualunque sia lo strumento su cui l'account lo esegue.
+            StopLossMoneyPerFutureContract = template.StopLossMoneyPerFutureContract,
+            TakeProfitMoneyPerFutureContract = template.TakeProfitMoneyPerFutureContract,
+            TrailingStopMoneyPerFutureContract = template.TrailingStopMoneyPerFutureContract,
+            BreakEvenMoneyPerFutureContract = template.BreakEvenMoneyPerFutureContract,
+            ReferenceDollarsPerPoint = template.ReferenceDollarsPerPoint,
             TimeframeMinutes = template.TimeframeMinutes,
             MaxBarsInPosition = template.MaxBarsInPosition,
             MaxEntriesPerSession = template.MaxEntriesPerSession,

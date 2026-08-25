@@ -1592,3 +1592,41 @@ in ordine cronologico. Non è un changelog di codice: quello resta nei commit.
   sbagliato e come quello anche nel profilo `BacktestSorgente` — non è un filtro
   discrezionale, è un difetto di sistema. Solo in avanti: un'attesa negativa è il caso
   normale, il pending è già attivo quando l'intent arriva.
+
+
+## 2026-08-25 — Scala di prezzo dell'account e rischio in denaro fino al client (3.6.0)
+
+Due modifiche indipendenti sullo stesso confine, quello fra il segnale e l'account che lo
+esegue.
+
+**`PriceScale` sulla riga di conversione.** La tabella di conversione dell'account toccava la
+sola quantità. Le distanze di uscita — stop, target, trailing, break even — arrivavano al
+client identiche a come la strategia le aveva dichiarate, ed è giusto così quasi sempre: i
+punti sono la grandezza invariante del contratto, 20 punti restano 20 punti su future, mini,
+micro e CFD dello stesso sottostante. Non lo sono quando il broker quota lo stesso sottostante
+in un'altra unità, che è un cambio di unità di misura del **prezzo** e non del contratto. Da
+qui il fattore separato: `ContractMultiplier` scala quanto si compra, `PriceScale` in che unità
+è quotato, e tenerli distinti permette di cambiarne uno senza toccare l'altro. Si applica in
+`CloneForClaim`, cioè quando l'account è noto, insieme alla conversione della quantità e per la
+stessa ragione. **Il default è 1 ovunque**, quindi nessun run esistente cambia comportamento; una
+scala assente o non positiva si rilegge come 1, come già faceva il moltiplicatore — azzerare gli
+stop in silenzio è il modo peggiore in cui un errore di configurazione possa manifestarsi.
+
+**Il denaro sopravvive fino al client.** Le strategie portate da EasyLanguage dichiarano il
+rischio in denaro per contratto future di riferimento; il server lo divide **una volta sola**
+per il valore punto di quel contratto e spedisce punti. Il denaro moriva lì. Ora viaggia
+sull'intent accanto ai punti, insieme al divisore usato (`ReferenceDollarsPerPoint`), e non
+viene scalato da niente: il rischio dichiarato è del contratto di riferimento e resta quello
+qualunque strumento lo esegua. Non è da eseguire — i punti lo sono — serve a permettere al cBot
+di rifare il conto nell'altro verso, con il valore pip del suo strumento e il volume che sta
+davvero inviando, e di stampare il rapporto fra i due (`intent/rischio`). È la verifica che
+prima non era possibile fare da nessuna parte: un conto che eseguiva un decimo del contratto di
+riferimento rischiava un decimo del denaro dichiarato, e né il server né il bot avevano in mano
+i numeri per accorgersene.
+
+Perché non percentuali sul prezzo, che pure erano state chieste: le percentuali sono invarianti
+per riscalamento moltiplicativo, i punti lo sono per traslazione additiva e per cambio di taglia
+del contratto. Fra una serie continua back-adjusted e lo spot la differenza è **additiva** — per
+GC nel 2012 vale ~580 punti — quindi la stessa distanza percentuale vale distanze diverse sulle
+due serie, mentre in punti resta la stessa. La percentuale risolverebbe il problema che non
+abbiamo e romperebbe quello che oggi funziona.

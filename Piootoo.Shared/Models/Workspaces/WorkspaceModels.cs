@@ -93,6 +93,23 @@ public sealed class AccountSymbolMapping
     public decimal ContractMultiplier { get; set; } = 1m;
 
     /// <summary>
+    /// Fattore con cui convertire le distanze di prezzo (stop, target, trailing, break even)
+    /// dichiarate dalle strategie nei punti dello strumento del broker: una distanza Piootoo di
+    /// <c>d</c> punti vale <c>d * PriceScale</c> punti sull'account.
+    ///
+    /// <para>Vale 1 quasi sempre, perché i punti sono la grandezza invariante del contratto: 20
+    /// punti restano 20 punti su future, mini, micro e CFD dello stesso sottostante. Serve solo
+    /// dove il broker quota lo stesso sottostante in un'altra unità (es. un indice quotato in
+    /// centesimi contro i punti interi del future), che è un cambio di unità di misura del prezzo
+    /// e non del contratto — per questo è separato da <see cref="ContractMultiplier"/>, che scala
+    /// invece la sola quantità.</para>
+    ///
+    /// <para>Un valore non positivo viene letto come 1: una scala mancante non deve azzerare gli
+    /// stop in silenzio.</para>
+    /// </summary>
+    public decimal PriceScale { get; set; } = 1m;
+
+    /// <summary>
     /// Quantità minima eseguibile su questo simbolo presso il broker dell'account, espressa nei
     /// contratti del broker. Sotto questa soglia l'intent vale zero e non viene consegnato: meglio
     /// nessun ordine che un ordine di taglia non eseguibile.

@@ -10,7 +10,8 @@ public sealed record AccountSymbolConversionEntry(
     decimal ContractMultiplier,
     bool Enabled,
     decimal MinimumQuantity,
-    decimal QuantityStep);
+    decimal QuantityStep,
+    decimal PriceScale);
 
 /// <summary>
 /// Tabella di conversione di un account in forma pronta per il loop caldo: il lookup avviene per
@@ -106,7 +107,10 @@ public sealed class AccountSymbolConversion
                 // dichiarata significa nessun vincolo, e il vincolo vero resta quello del broker,
                 // applicato dal client che lo conosce davvero.
                 mapping.MinimumQuantity <= 0 ? 0m : mapping.MinimumQuantity,
-                mapping.QuantityStep <= 0 ? 0m : mapping.QuantityStep);
+                mapping.QuantityStep <= 0 ? 0m : mapping.QuantityStep,
+                // Come il moltiplicatore di contratto: una scala assente o non positiva vale 1.
+                // Zero qui azzererebbe stop e target senza dirlo.
+                mapping.PriceScale <= 0 ? 1m : mapping.PriceScale);
         }
 
         return new AccountSymbolConversion(
@@ -123,6 +127,15 @@ public sealed class AccountSymbolConversion
     /// <summary>Rapporto fra contratto broker e contratto Piootoo; 1 se il simbolo non è mappato.</summary>
     public decimal GetContractMultiplier(string? symbol)
         => TryGet(symbol, out var entry) ? entry.ContractMultiplier : 1m;
+
+    /// <summary>
+    /// Fattore con cui convertire le distanze di prezzo (stop, target, trailing, break even) nei
+    /// punti dello strumento del broker; 1 se il simbolo non è mappato, che è anche il caso
+    /// normale: solo un broker che quota il sottostante in un'altra unità richiede una scala
+    /// diversa da 1.
+    /// </summary>
+    public decimal GetPriceScale(string? symbol)
+        => TryGet(symbol, out var entry) ? entry.PriceScale : 1m;
 
     /// <summary>
     /// Fattore complessivo con cui scalare la quantità di un segnale su questo account:

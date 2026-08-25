@@ -231,7 +231,7 @@ namespace cAlgo.Robots
         // della solution — quindi la sincronia e' manuale e non c'e' niente che la verifichi.
         // Il disallineamento non blocca nulla: entrambi stampano la propria versione all'avvio, e
         // il confronto si fa leggendo i due log.
-        private const string BotVersion = "3.5.0"; // aggiornare qui E in PiootooVersion, ad ogni release
+        private const string BotVersion = "3.6.0"; // aggiornare qui E in PiootooVersion, ad ogni release
         private const string StatusChartObjectName = "PiootooConnectionStatus";
 
         // Riquadro rosso al centro del grafico, separato dal pannello di stato: e' l'errore fatale
@@ -2286,6 +2286,8 @@ namespace cAlgo.Robots
 
             _lastOpenIntentByLabel[label] = intent;
 
+            LogRischioDichiarato(intent, symbol, volume, stopLossPips);
+
             TradeResult result;
             switch (intent.OrderType)
             {
@@ -3271,6 +3273,70 @@ namespace cAlgo.Robots
             catch { return response.StatusCode.ToString(); }
         }
 
+        /// <summary>
+        /// Confronta il rischio che sta per andare a mercato con quello dichiarato dalla strategia.
+        ///
+        /// <para>La strategia dichiara lo stop in denaro per contratto future di riferimento; il
+        /// server lo ha diviso una volta sola per il valore punto di QUEL contratto e ha spedito
+        /// dei punti. Qui si rifa' il conto nell'altro verso, con il valore pip di questo
+        /// strumento e il volume che si sta davvero inviando: se i due numeri non si somigliano, la
+        /// catena simbolo -> contratto -> size ha un fattore di troppo, ed e' esattamente il caso
+        /// che restava invisibile finche' il denaro si fermava sul server.</para>
+        ///
+        /// <para>Solo diagnostica: non altera l'ordine. Il rapporto e' informativo anche quando e'
+        /// 1 per costruzione — e' il caso in cui il conto torna, e vederlo scritto vale quanto
+        /// vedere il caso in cui non torna.</para>
+        /// </summary>
+        private void LogRischioDichiarato(OrderIntentDto intent, Symbol symbol, double volume, double? stopLossPips)
+        {
+            if (!intent.StopLossMoneyPerFutureContract.HasValue || !stopLossPips.HasValue || volume <= 0)
+                return;
+
+            var dichiarato = intent.StopLossMoneyPerFutureContract.Value;
+
+            // Denaro a rischio sull'ordine, nella valuta del conto: pip a rischio per valore del pip.
+            var rischioOrdine = (decimal)(stopLossPips.Value * symbol.PipValue * volume);
+
+            // Riportato al contratto Piootoo: e' il numero confrontabile con quello dichiarato,
+            // perche' la quantita' e' l'unica cosa che il moltiplicatore di contratto ha toccato.
+            // Si usano i lotti EFFETTIVI, non FinalQuantity: la normalizzazione del volume puo'
+            // aver tagliato, e un rapporto calcolato su una taglia che non e' quella inviata
+            // direbbe che il conto non torna proprio quando torna.
+            var lottiEffettivi = (decimal)symbol.VolumeInUnitsToQuantity(volume);
+            var quantita = lottiEffettivi != 0 ? lottiEffettivi : 1m;
+            var perContrattoPiootoo = intent.ContractMultiplier > 0
+                ? rischioOrdine / quantita * intent.ContractMultiplier
+                : rischioOrdine / quantita;
+
+            var rapporto = dichiarato != 0 ? perContrattoPiootoo / dichiarato : 0m;
+
+            Print("  rischio {0}/{1}: dichiarato {2:0.##} per contratto, a mercato {3:0.##} " +
+                  "(ordine {4:0.##}, rapporto {5:0.###})",
+                  intent.Symbol, intent.StrategyCode, dichiarato, perContrattoPiootoo,
+                  rischioOrdine, rapporto);
+
+            LogJsonEvent("intent/rischio", new
+            {
+                intent.IntentId,
+                intent.StrategyCode,
+                intent.Symbol,
+                BrokerSymbol = symbol.Name,
+                DichiaratoPerContratto = dichiarato,
+                intent.ReferenceDollarsPerPoint,
+                intent.StopLoss,
+                intent.PriceScale,
+                intent.ContractMultiplier,
+                intent.FinalQuantity,
+                LottiEffettivi = lottiEffettivi,
+                StopLossPips = stopLossPips.Value,
+                PipValue = symbol.PipValue,
+                Volume = volume,
+                RischioOrdine = rischioOrdine,
+                RischioPerContrattoPiootoo = perContrattoPiootoo,
+                Rapporto = rapporto
+            });
+        }
+
         private static double? ToPips(Symbol symbol, decimal? priceDistance)
         {
             if (!priceDistance.HasValue || priceDistance.Value <= 0)
@@ -3554,6 +3620,28 @@ namespace cAlgo.Robots
 
             /// <summary>Rapporto contratto broker / contratto Piootoo, per riportare NetProfit a utile per contratto.</summary>
             public decimal ContractMultiplier { get; set; } = 1m;
+
+            /// <summary>
+            /// Fattore con cui il server ha convertito le distanze di prezzo nei punti di QUESTO
+            /// strumento. StopLoss/TakeProfit/BreakEven/TrailingStop arrivano gia' scalati: questo
+            /// numero serve solo a ricostruire la distanza Piootoo in diagnostica. Vale 1 quando il
+            /// broker quota lo strumento nella stessa unita' delle strategie, cioe' quasi sempre.
+            /// </summary>
+            public decimal PriceScale { get; set; } = 1m;
+
+            // Rischio come la ricerca l'ha dichiarato: denaro per contratto future di riferimento.
+            // Non e' da eseguire — i punti qui sopra lo sono — ma e' l'unico modo che il bot ha di
+            // dire se il rischio che sta per mettere a mercato e' quello dichiarato. La divisione
+            // denaro -> punti e' avvenuta UNA volta sola sul server, con ReferenceDollarsPerPoint;
+            // rifarla qui col valore punto dello strumento del broker e' l'errore che questi campi
+            // rendono visibile.
+            public decimal? StopLossMoneyPerFutureContract { get; set; }
+            public decimal? TakeProfitMoneyPerFutureContract { get; set; }
+            public decimal? TrailingStopMoneyPerFutureContract { get; set; }
+            public decimal? BreakEvenMoneyPerFutureContract { get; set; }
+
+            /// <summary>Valore in denaro di un punto del contratto future di RIFERIMENTO, non di quello del broker.</summary>
+            public decimal ReferenceDollarsPerPoint { get; set; } = 1m;
 
             public string Reason { get; set; }
             public OrderIntentStatusDto Status { get; set; }

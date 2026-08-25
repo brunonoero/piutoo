@@ -365,6 +365,7 @@ public sealed class WorkspaceService
                 Symbol = symbol,
                 AccountSymbol = symbol,
                 ContractMultiplier = 1m,
+                PriceScale = 1m,
                 Enabled = true
             })
             .ToList();
@@ -497,6 +498,8 @@ public sealed class WorkspaceService
                 throw new ArgumentException($"Il simbolo account per '{symbol}' è obbligatorio.");
             if (mapping.ContractMultiplier <= 0)
                 throw new ArgumentException($"Il moltiplicatore contratto per '{symbol}' deve essere maggiore di zero.");
+            if (mapping.PriceScale <= 0)
+                throw new ArgumentException($"La scala di prezzo per '{symbol}' deve essere maggiore di zero.");
             if (!seen.Add(symbol))
                 throw new ArgumentException($"Il simbolo '{symbol}' è presente più volte nella tabella di conversione.");
 
@@ -505,6 +508,7 @@ public sealed class WorkspaceService
                 Symbol = symbol,
                 AccountSymbol = accountSymbol,
                 ContractMultiplier = mapping.ContractMultiplier,
+                PriceScale = mapping.PriceScale,
                 MinimumQuantity = mapping.MinimumQuantity,
                 QuantityStep = mapping.QuantityStep,
                 // RoundingMode non si copia: da qui in poi vive sulla tabella. La proprietà di riga

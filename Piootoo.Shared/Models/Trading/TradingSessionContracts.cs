@@ -449,6 +449,15 @@ public sealed class OrderIntent
     /// <summary>Rapporto capitale del conto / milione di riferimento, già applicato alle quantità.</summary>
     public decimal AccountBalanceScale { get; init; } = 1m;
 
+    /// <summary>
+    /// Fattore con cui le distanze di prezzo (<see cref="StopLoss"/>, <see cref="TakeProfit"/>,
+    /// <see cref="BreakEven"/>, <see cref="TrailingStop"/>) sono state convertite nei punti dello
+    /// strumento dell'account: quei campi arrivano al client GIÀ scalati, questo numero serve solo
+    /// a ricostruire la distanza Piootoo originale in diagnostica. Vale 1 quando l'account quota
+    /// lo strumento nella stessa unità delle strategie, che è il caso normale.
+    /// </summary>
+    public decimal PriceScale { get; init; } = 1m;
+
     public decimal Quantity { get; init; }
 
     /// <summary>Quantità prima della conversione dell'account, per tracciabilità: non va eseguita.</summary>
@@ -484,6 +493,35 @@ public sealed class OrderIntent
     /// trailing stop. Null = nessun trailing stop.
     /// </summary>
     public decimal? TrailingStop { get; init; }
+
+    // --- Rischio in denaro, come dichiarato dalla strategia ---
+    // I punti qui sopra restano la grandezza da eseguire; questi campi sono la stessa specifica
+    // nell'unità in cui la ricerca l'ha scritta, denaro per contratto future di riferimento.
+    // Viaggiano fino al client per una ragione sola: permettergli di verificare che il rischio che
+    // sta per mettere a mercato sia quello dichiarato. La conversione denaro → punti è avvenuta una
+    // volta sola sul server, dividendo per ReferenceDollarsPerPoint; rifarla sul client, con il
+    // valore punto del SUO strumento, è l'errore che questi campi servono a rendere visibile.
+
+    /// <summary>Stop in denaro per contratto future di riferimento, se la strategia l'ha dichiarato così.</summary>
+    public decimal? StopLossMoneyPerFutureContract { get; init; }
+
+    /// <summary>Target in denaro per contratto future di riferimento.</summary>
+    public decimal? TakeProfitMoneyPerFutureContract { get; init; }
+
+    /// <summary>Trailing stop in denaro per contratto future di riferimento.</summary>
+    public decimal? TrailingStopMoneyPerFutureContract { get; init; }
+
+    /// <summary>Soglia di break even in denaro per contratto future di riferimento.</summary>
+    public decimal? BreakEvenMoneyPerFutureContract { get; init; }
+
+    /// <summary>
+    /// Valore in denaro di un punto del contratto future di riferimento
+    /// (<c>InstrumentRegistry.PointValue</c> del simbolo Piootoo), cioè il divisore con cui i campi
+    /// in denaro qui sopra sono diventati i punti dell'intent. È del contratto di riferimento, non
+    /// di quello dell'account: quest'ultimo entra solo nella quantità, via
+    /// <see cref="ContractMultiplier"/>.
+    /// </summary>
+    public decimal ReferenceDollarsPerPoint { get; init; } = 1m;
 
     /// <summary>
     /// Timeframe della strategia che ha emesso l'intent. Il client usa questa
