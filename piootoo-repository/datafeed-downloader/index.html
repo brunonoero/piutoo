@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8" />
+<title>Piootoo Datafeed Downloader</title>
+<style>
+  body { font-family: -apple-system, Segoe UI, Arial, sans-serif; max-width: 780px; margin: 40px auto; padding: 0 16px; color: #222; }
+  h1 { font-size: 20px; }
+  h2 { font-size: 15px; margin-top: 28px; }
+  .hint { color: #666; font-size: 13px; }
+  fieldset { border: 1px solid #ddd; border-radius: 6px; padding: 12px 16px; margin: 10px 0; }
+  legend { font-weight: 600; font-size: 13px; padding: 0 6px; }
+  textarea { width: 100%; min-height: 90px; font-family: monospace; font-size: 13px; box-sizing: border-box; }
+  .tf-grid { display: flex; flex-wrap: wrap; gap: 10px; }
+  .tf-grid label { display: flex; align-items: center; gap: 4px; font-size: 13px; background: #f4f4f4; padding: 6px 10px; border-radius: 4px; }
+  input[type=number] { width: 100px; }
+  button { background: #1a73e8; color: #fff; border: none; padding: 10px 18px; border-radius: 6px; font-size: 14px; cursor: pointer; }
+  button:disabled { background: #999; cursor: default; }
+  table { width: 100%; border-collapse: collapse; margin-top: 16px; font-size: 13px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #eee; }
+  .ok { color: #1a7f37; }
+  .err { color: #c0392b; }
+  #log { white-space: pre-wrap; font-family: monospace; font-size: 12px; background: #fafafa; border: 1px solid #eee; padding: 10px; margin-top: 12px; display: none; }
+</style>
+</head>
+<body>
+  <h1>Piootoo Datafeed Downloader</h1>
+  <p class="hint">
+    Scarica lo storico OHLCV da Yahoo Finance e salva i JSON in <code>../datafeed</code>
+    con lo schema OhlcvDto/ClosedBarDto usato nel backtesting (vedi
+    <code>ctrader/PiootooLiveTradingBot.cs</code>).
+  </p>
+
+  <form id="form">
+    <fieldset>
+      <legend>Symbol (ticker Yahoo Finance, uno per riga o separati da virgola)</legend>
+      <textarea id="symbols" placeholder="Es: GC=F, CL=F, NQ=F, TSLA, BTC-USD, EURUSD=X">GC=F
+CL=F
+NQ=F
+ES=F
+BTC-USD</textarea>
+      <p class="hint">
+        Suggerimenti in base ai symbol usati dalle strategie in <code>/easy</code>
+        (root futures CME/ICE &rarr; ticker Yahoo, verifica prima dell'uso):
+        GC&rarr;GC=F, CL&rarr;CL=F, NQ&rarr;NQ=F, ES&rarr;ES=F, HG&rarr;HG=F, PL&rarr;PL=F,
+        NG&rarr;NG=F, RB&rarr;RB=F, HO&rarr;HO=F, S&rarr;ZS=F, US&rarr;ZB=F, EC&rarr;6E=F,
+        BP&rarr;6B=F, JY&rarr;6J=F, LC&rarr;LE=F, FC&rarr;GF=F, TSLA&rarr;TSLA,
+        BTCUSDT&rarr;BTC-USD, ETHUSDT&rarr;ETH-USD, FDAX&rarr;^GDAXI. FGBL (Bund) non ha un
+        ticker Yahoo affidabile: verificare manualmente.
+      </p>
+    </fieldset>
+
+    <fieldset>
+      <legend>Timeframe (minuti, usati dalle strategie in /easy)</legend>
+      <div class="tf-grid" id="timeframes">
+        <label><input type="checkbox" value="5" checked> 5m</label>
+        <label><input type="checkbox" value="10"> 10m</label>
+        <label><input type="checkbox" value="15" checked> 15m</label>
+        <label><input type="checkbox" value="30" checked> 30m</label>
+        <label><input type="checkbox" value="60" checked> 60m</label>
+        <label><input type="checkbox" value="120"> 120m</label>
+        <label><input type="checkbox" value="1440" checked> 1440m (1d)</label>
+      </div>
+      <p class="hint">
+        10m e 120m non sono nativi su Yahoo: vengono ricavati aggregando rispettivamente
+        i dati a 5m e 60m.
+      </p>
+    </fieldset>
+
+    <fieldset>
+      <legend>Storico</legend>
+      <label>Giorni indietro: <input type="number" id="daysBack" value="730" min="1" max="3650"></label>
+      <p class="hint">
+        Default 730 giorni (~2 anni). Yahoo limita comunque i timeframe intraday:
+        1m &le; 7gg, 5/15/30m &le; 60gg, 60m &le; 730gg, giornaliero senza limiti pratici.
+        Se il range richiesto supera il limite, viene accorciato automaticamente e segnalato
+        nel risultato e nel campo "note" del JSON.
+      </p>
+    </fieldset>
+
+    <button type="submit" id="submitBtn">Scarica e salva JSON</button>
+  </form>
+
+  <table id="results" style="display:none">
+    <thead><tr><th>Symbol</th><th>TF</th><th>Barre</th><th>File</th><th>Esito</th></tr></thead>
+    <tbody></tbody>
+  </table>
+  <div id="log"></div>
+
+<script>
+const form = document.getElementById('form');
+const submitBtn = document.getElementById('submitBtn');
+const resultsTable = document.getElementById('results');
+const resultsBody = resultsTable.querySelector('tbody');
+const log = document.getElementById('log');
+
+form.addEventListener('submit', async (e) => {
+  e.preventDefault();
+
+  const symbols = document.getElementById('symbols').value
+    .split(/[\n,]/)
+    .map(s => s.trim())
+    .filter(Boolean);
+
+  const timeframes = Array.from(document.querySelectorAll('#timeframes input:checked'))
+    .map(cb => parseInt(cb.value, 10));
+
+  const daysBack = parseInt(document.getElementById('daysBack').value, 10);
+
+  if (!symbols.length || !timeframes.length) {
+    alert('Seleziona almeno un symbol e un timeframe.');
+    return;
+  }
+
+  submitBtn.disabled = true;
+  submitBtn.textContent = 'Download in corso...';
+  log.style.display = 'none';
+  resultsBody.innerHTML = '';
+
+  try {
+    const res = await fetch('/api/download', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ symbols, timeframes, daysBack })
+    });
+    const data = await res.json();
+
+    if (!res.ok) {
+      log.style.display = 'block';
+      log.textContent = 'Errore: ' + (data.error || res.statusText);
+      return;
+    }
+
+    resultsTable.style.display = 'table';
+    for (const r of data.results) {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${r.symbol}</td>
+        <td>${r.timeframeMinutes}</td>
+        <td>${r.ok ? r.bars : '-'}</td>
+        <td>${r.ok ? r.file : '-'}</td>
+        <td class="${r.ok ? 'ok' : 'err'}">${r.ok ? (r.note || 'OK') : r.error}</td>
+      `;
+      resultsBody.appendChild(tr);
+    }
+    log.style.display = 'block';
+    log.textContent = 'Cartella datafeed: ' + data.datafeedDir;
+  } catch (err) {
+    log.style.display = 'block';
+    log.textContent = 'Errore di rete: ' + err;
+  } finally {
+    submitBtn.disabled = false;
+    submitBtn.textContent = 'Scarica e salva JSON';
+  }
+});
+</script>
+</body>
+</html>
