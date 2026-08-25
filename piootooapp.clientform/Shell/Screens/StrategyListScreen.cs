@@ -37,6 +37,7 @@ public partial class StrategyListScreen : UserControl, IShellScreen
         ShellGridHelper.ConfigureReadableGrids(this);
         _bindingSource.DataSource = _visibleRows;
         _grid.EnableColumnSorting();
+        UpdateRowCount();
     }
 
     public string ScreenTitle => "Strategie";
@@ -99,6 +100,18 @@ public partial class StrategyListScreen : UserControl, IShellScreen
         _visibleRows.RaiseListChangedEvents = true;
         _visibleRows.ReapplySort();
         _visibleRows.ResetBindings();
+        UpdateRowCount();
+    }
+
+    /// <summary>
+    /// Conteggio delle righe effettivamente in griglia. Quando un filtro è attivo mostra anche il
+    /// totale del catalogo: leggere "12" senza sapere che le strategie sono 340 è fuorviante.
+    /// </summary>
+    private void UpdateRowCount()
+    {
+        _rowCountLabel.Text = _visibleRows.Count == _catalog.Count
+            ? $"{_visibleRows.Count} righe"
+            : $"{_visibleRows.Count} righe (di {_catalog.Count})";
     }
 
     private static bool Matches(StrategyCatalogItem strategy, string filter)

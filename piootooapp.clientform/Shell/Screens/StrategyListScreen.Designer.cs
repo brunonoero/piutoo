@@ -29,6 +29,7 @@ partial class StrategyListScreen
         this._colType = new System.Windows.Forms.DataGridViewTextBoxColumn();
         this._colIsActive = new System.Windows.Forms.DataGridViewCheckBoxColumn();
         this._toolbar = new piootooapp.clientform.Shell.Controls.EntityToolbar();
+        this._rowCountLabel = new System.Windows.Forms.Label();
         ((System.ComponentModel.ISupportInitialize)(this._bindingSource)).BeginInit();
         ((System.ComponentModel.ISupportInitialize)(this._grid)).BeginInit();
         this.SuspendLayout();
@@ -133,12 +134,26 @@ partial class StrategyListScreen
         this._toolbar.Title = "Strategie";
         this._toolbar.RefreshRequested += new System.EventHandler(this.OnRefreshRequested);
         this._toolbar.FilterChanged += new System.EventHandler(this.OnFilterChanged);
-        // 
+        //
+        // _rowCountLabel
+        //
+        this._rowCountLabel.Dock = System.Windows.Forms.DockStyle.Bottom;
+        this._rowCountLabel.Location = new System.Drawing.Point(0, 476);
+        this._rowCountLabel.Name = "_rowCountLabel";
+        this._rowCountLabel.Padding = new System.Windows.Forms.Padding(0, 0, 8, 0);
+        this._rowCountLabel.Size = new System.Drawing.Size(900, 24);
+        this._rowCountLabel.TabIndex = 2;
+        this._rowCountLabel.Text = "";
+        this._rowCountLabel.TextAlign = System.Drawing.ContentAlignment.MiddleRight;
+        //
         // StrategyListScreen
-        // 
+        //
         this.AutoScaleDimensions = new System.Drawing.SizeF(7F, 15F);
         this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
+        // L'ordine di aggiunta determina l'ordine di docking (dall'ultimo al primo):
+        // toolbar in alto, conteggio righe in basso, griglia a riempire il resto.
         this.Controls.Add(this._grid);
+        this.Controls.Add(this._rowCountLabel);
         this.Controls.Add(this._toolbar);
         this.Name = "StrategyListScreen";
         this.Size = new System.Drawing.Size(900, 500);
@@ -159,4 +174,5 @@ partial class StrategyListScreen
     private System.Windows.Forms.DataGridViewTextBoxColumn _colType;
     private System.Windows.Forms.DataGridViewCheckBoxColumn _colIsActive;
     private piootooapp.clientform.Shell.Controls.EntityToolbar _toolbar;
+    private System.Windows.Forms.Label _rowCountLabel;
 }
