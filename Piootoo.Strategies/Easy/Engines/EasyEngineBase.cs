@@ -280,7 +280,10 @@ public abstract class EasyEngineBase : StatelessEasyStrategyBase
         DateTime barTime,
         string reason)
     {
-        var nextBar = EasyLib.EstimateNextBarUtc(data, barTime);
+        // Timeframe DICHIARATO, non dedotto dalla serie: attraverso il fine settimana la
+        // distanza fra le ultime due barre è il buco, e un ordine "next bar" nascerebbe valido
+        // giorni dopo invece che sulla barra seguente.
+        var nextBar = EasyLib.EstimateNextBarUtc(data, barTime, TimeframeMinutes);
         var signal = new TradeSignal
         {
             Date = barTime,

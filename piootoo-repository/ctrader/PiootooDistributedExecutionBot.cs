@@ -231,7 +231,7 @@ namespace cAlgo.Robots
         // della solution — quindi la sincronia e' manuale e non c'e' niente che la verifichi.
         // Il disallineamento non blocca nulla: entrambi stampano la propria versione all'avvio, e
         // il confronto si fa leggendo i due log.
-        private const string BotVersion = "3.4.0"; // aggiornare qui E in PiootooVersion, ad ogni release
+        private const string BotVersion = "3.5.0"; // aggiornare qui E in PiootooVersion, ad ogni release
         private const string StatusChartObjectName = "PiootooConnectionStatus";
 
         // Riquadro rosso al centro del grafico, separato dal pannello di stato: e' l'errore fatale
@@ -2608,6 +2608,28 @@ namespace cAlgo.Robots
                 if (!coerente)
                     motivo = $"livello {intent.OrderType} {intent.Side} {prezzo:0.#####} dal lato sbagliato " +
                              $"(Bid {bid:0.#####} / Ask {ask:0.#####})";
+            }
+
+            // Attivazione oltre la barra corrente, e solo IN AVANTI. Non e' discrezionale: come il
+            // lato del livello e' un errore di sistema, non una scelta di strategia. Un ordine
+            // "next bar" che si attiva due giorni dopo porta il livello di una barra che non e'
+            // quella in cui vivra', e resta appeso sul broker a un regime di mercato diverso.
+            // Un'attesa NEGATIVA e' invece il caso normale — il pending e' gia' attivo quando
+            // l'intent arriva — e trattarla allo stesso modo scarterebbe quasi tutti gli intent sani.
+            //
+            // La causa a monte stava in EasyLib.EstimateNextBarUtc, che deduceva il timeframe dalla
+            // distanza fra le ultime due barre: sulla prima barra dopo il fine settimana quella
+            // distanza e' il buco (circa 49 ore sull'oro), e ValidFromUtc nasceva due giorni avanti.
+            // Corretta il 25/08/2026 usando il timeframe dichiarato dalla strategia; questo resta la
+            // rete sotto, perche' l'effetto sul broker non si vedeva nel log finche' non lo si e'
+            // cercato: l'ordine veniva piazzato lo stesso, con solo un avviso stampato.
+            if (motivo is null && intent.ValidFromUtc.HasValue && intent.TimeframeMinutes > 0)
+            {
+                var attesa = (intent.ValidFromUtc.Value - Server.TimeInUtc).TotalSeconds;
+                if (attesa > intent.TimeframeMinutes * 60.0)
+                    motivo = $"attivazione {attesa:0}s in avanti, oltre la barra da " +
+                             $"{intent.TimeframeMinutes} minuti " +
+                             $"(ValidFrom {intent.ValidFromUtc.Value:yyyy-MM-dd HH:mm:ss}Z)";
             }
 
             var stop = (double)(intent.StopLoss ?? 0m);

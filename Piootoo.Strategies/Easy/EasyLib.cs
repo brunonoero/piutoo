@@ -343,7 +343,24 @@ public static class EasyLib
         return (data, count);
     }
 
-    /// <summary>Stima l'inizio della barra successiva dal timeframe dei dati.</summary>
+    /// <summary>
+    /// Inizio della barra successiva, calcolato sul timeframe <b>dichiarato</b> dalla strategia.
+    ///
+    /// <para>È l'overload da usare ovunque il timeframe sia noto — cioè da ogni motore, che lo
+    /// espone come <c>TimeframeMinutes</c>. Dedurlo dai dati (overload sotto) è esatto solo su una
+    /// serie senza buchi: attraverso il fine settimana, una festività o una pausa di sessione la
+    /// distanza fra le ultime due barre è il buco, non il timeframe, e un ordine <c>next bar</c>
+    /// nasceva con <c>ValidFromUtc</c>/<c>ExpiresAtUtc</c> spostati di giorni. Nel log del backtest
+    /// GC del 11/08/2013 l'effetto è visibile: attesa 174600s (48h30m) su una strategia a 30
+    /// minuti, e lo stesso template tenuto in vita per due giorni invece che per una barra.</para>
+    /// </summary>
+    public static DateTime EstimateNextBarUtc(OhlcvData[] data, DateTime currentDate, int timeframeMinutes)
+        => currentDate.AddMinutes(timeframeMinutes > 0 ? timeframeMinutes : GetTimeframeMinutes(data));
+
+    /// <summary>
+    /// Stima l'inizio della barra successiva deducendo il timeframe dai dati. Da usare solo quando
+    /// il timeframe dichiarato non è disponibile: vedi l'overload con <c>timeframeMinutes</c>.
+    /// </summary>
     public static DateTime EstimateNextBarUtc(OhlcvData[] data, DateTime currentDate)
     {
         int minutes = GetTimeframeMinutes(data);
@@ -1020,12 +1037,36 @@ public static class EasyLib
     /// <summary>
     /// Stima il timeframe in minuti dai dati
     /// </summary>
+    /// <summary>
+    /// Timeframe dedotto dalla serie, come <b>minima distanza positiva</b> fra barre consecutive
+    /// nella coda dei dati, non come distanza fra le ultime due.
+    ///
+    /// <para>La distanza fra le ultime due barre è il timeframe solo se lì non c'è un buco. La
+    /// prima barra dopo il fine settimana dista dalla precedente quanto dura la chiusura — per
+    /// l'oro circa 49 ore — e su quella barra la vecchia formula restituiva 2940 minuti invece di
+    /// 30. Il minimo è immune ai buchi: un buco allunga una distanza, non ne accorcia nessuna.</para>
+    ///
+    /// <para>La finestra è corta di proposito: bastano poche barre per trovare almeno una coppia
+    /// contigua, e restare in coda tiene la stima aderente alla serie anche se il timeframe del
+    /// file dovesse cambiare a metà.</para>
+    /// </summary>
     private static int GetTimeframeMinutes(OhlcvData[] data)
     {
         if (data == null || data.Length < 2)
             return 60; // Default
-        
-        var diff = data[data.Length - 1].DateTime - data[data.Length - 2].DateTime;
-        return (int)diff.TotalMinutes;
+
+        const int finestra = 32;
+        var da = Math.Max(1, data.Length - finestra);
+        var minuti = int.MaxValue;
+        for (var i = da; i < data.Length; i++)
+        {
+            var diff = (int)(data[i].DateTime - data[i - 1].DateTime).TotalMinutes;
+            if (diff > 0 && diff < minuti)
+                minuti = diff;
+        }
+
+        // Serie con timestamp non crescenti o tutti uguali: nessuna distanza positiva da cui
+        // dedurre alcunché. Il default vale quanto valeva prima, ma almeno non è un buco.
+        return minuti == int.MaxValue ? 60 : minuti;
     }
 }

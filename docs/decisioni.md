@@ -1573,3 +1573,22 @@ in ordine cronologico. Non è un changelog di codice: quello resta nei commit.
   definitivo (`Filled`/`Rejected`/`Cancelled`), quindi il passaggio a quello stato è
   sempre catturato dal checkpoint successivo.
 
+- **2026-08-25** — **La barra successiva di un ordine `next bar` si calcola sul timeframe
+  dichiarato dalla strategia, non sulla distanza fra le ultime due barre.**
+  `EasyLib.EstimateNextBarUtc` deduceva il timeframe da `data[^1] - data[^2]`: esatto solo su
+  una serie senza buchi. Sulla prima barra dopo una chiusura — fine settimana, festività,
+  pausa di sessione — quella distanza *è* il buco: per l'oro alla riapertura della domenica
+  vale circa 49 ore, e una strategia a 30 minuti emetteva un ordine con `ValidFromUtc` ed
+  `ExpiresAtUtc` due giorni avanti. Le due conseguenze erano indipendenti e nessuna delle due
+  si presentava come un errore: sul cBot l'ordine veniva piazzato con un'attesa di 174.600s
+  (backtest GC dell'11/08/2013, solo un avviso stampato), e sul server il template restava
+  vivo due giorni invece che una barra, quindi veniva riproposto a ogni claim tenendo occupato
+  il lucchetto "ingresso in corso" della strategia. Ora `BuildEntry` e `BiasBarCountEngine`
+  passano `TimeframeMinutes`, che il motore già dichiara; `GetTimeframeMinutes` resta per chi
+  un timeframe dichiarato non ce l'ha, ma deduce dalla **minima distanza positiva** delle
+  ultime 32 barre invece che dall'ultima coppia — un buco allunga una distanza, non ne
+  accorcia nessuna. Rete sotto lato cBot: `RejectUnsoundIntent` scarta un intent la cui
+  attivazione cade oltre la barra corrente **in avanti**, insieme al livello dal lato
+  sbagliato e come quello anche nel profilo `BacktestSorgente` — non è un filtro
+  discrezionale, è un difetto di sistema. Solo in avanti: un'attesa negativa è il caso
+  normale, il pending è già attivo quando l'intent arriva.

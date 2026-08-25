@@ -143,7 +143,7 @@ public abstract class BiasBarCountEngine : EasyEngineBase
 
         _mycount++;
 
-        var nextBarTime = EasyLib.EstimateNextBarUtc(data, barTime);
+        var nextBarTime = EasyLib.EstimateNextBarUtc(data, barTime, TimeframeMinutes);
         if (UsesCustomEntryRules)
         {
             var customEntries = new List<TradeSignal>(2);
