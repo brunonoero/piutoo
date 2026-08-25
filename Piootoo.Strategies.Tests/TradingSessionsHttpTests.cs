@@ -1,4 +1,4 @@
-using System.Net;
+﻿using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -582,6 +582,97 @@ public sealed class TradingSessionsHttpTests : IDisposable
         // perdita poteva risultare in utile.
         Assert.Equal(3m, trade.Commission);
         Assert.Equal(-7m, trade.Swap);
+        Assert.Equal(expectedGross - 3m - 7m, trade.NetProfit);
+    }
+
+    /// <summary>
+    /// Una chiusura riportata come <c>Filled</c> ma con quantità zero deve comunque chiudere la
+    /// posizione e produrre il trade.
+    ///
+    /// <para>È il caso della sessione <c>51aa58a8…</c> (backtest GC 11/08–23/10/2022). Il 26/09 alle
+    /// 12:00 il cBot chiude entrambe le RHL e lo scrive
+    /// (<c>Chiuso PTS_GC_RHL_001_60 … netto 245,84</c>), ma da quel momento il server risponde
+    /// «l'account ha già un ingresso in corso per quella strategia su quel simbolo» fino al 21/10, e
+    /// quei due trade non compaiono in <c>trades.json</c>. La posizione era rimasta in
+    /// <c>ExternalPositions</c>, e con lei il lucchetto d'ingresso, per il resto del run: dal 26/09
+    /// al 23/10 nessun nuovo ingresso di quelle due strategie è più passato.</para>
+    ///
+    /// <para>La causa è a monte: tutta la gestione della chiusura viveva dentro
+    /// <c>if (delta &gt; 0)</c>, e un report a zero dava <c>delta == 0</c>. Zero non è una chiusura
+    /// da zero contratti — è il client che ha fallito la conversione in contratti — quindi la
+    /// quantità da registrare è quella dell'intent.</para>
+    /// </summary>
+    [Fact]
+    public async Task ExternalCloseFillWithoutQuantityStillClosesPositionAndRecordsTrade()
+    {
+        var descriptor = await Create(ExecutionMode.ExternalBroker);
+        descriptor = await Status(descriptor, "start", HttpStatusCode.OK);
+
+        var entryIntent = Assert.Single((await Push(descriptor, 1, "zero-close-entry")).Intents);
+        var entryReport = new ExecutionReportRequest
+        {
+            SessionToken = descriptor.SessionToken,
+            Report = new ExternalExecutionReport
+            {
+                ReportId = "zero-close-entry-fill", IntentId = entryIntent.IntentId,
+                Status = ExecutionReportStatus.Filled,
+                CumulativeFilledQuantity = entryIntent.FinalQuantity, FillPrice = 100,
+                EventTimeUtc = Utc(2026, 1, 5)
+            }
+        };
+        (await _client.PostAsJsonAsync(
+            $"api/v1/trading-sessions/{descriptor.SessionId}/execution-reports", entryReport))
+            .EnsureSuccessStatusCode();
+
+        var closeIntentResponse = await _client.PostAsJsonAsync(
+            $"api/v1/trading-sessions/{descriptor.SessionId}/intents/close-external",
+            new CreateExternalCloseIntentRequest
+            {
+                SessionToken = descriptor.SessionToken,
+                StrategyCode = entryIntent.StrategyCode,
+                Symbol = entryIntent.Symbol,
+                Reason = "LocalExit:StopLoss"
+            });
+        closeIntentResponse.EnsureSuccessStatusCode();
+        var closeIntent = (await closeIntentResponse.Content.ReadFromJsonAsync<OrderIntent>(JsonOptions))!;
+        Assert.True(closeIntent.FinalQuantity > 0m);
+
+        // Il report che il cBot manda quando ToContractQuantity non ha trovato lo strumento o la
+        // History: esito Filled, quantità zero.
+        var closeReport = new ExecutionReportRequest
+        {
+            SessionToken = descriptor.SessionToken,
+            Report = new ExternalExecutionReport
+            {
+                ReportId = "zero-close-fill", IntentId = closeIntent.IntentId,
+                Status = ExecutionReportStatus.Filled,
+                CumulativeFilledQuantity = 0m, FillPrice = 105,
+                Commission = -3m, Swap = -7m,
+                EventTimeUtc = Utc(2026, 1, 6)
+            }
+        };
+        var closeResponse = await _client.PostAsJsonAsync(
+            $"api/v1/trading-sessions/{descriptor.SessionId}/execution-reports", closeReport);
+        closeResponse.EnsureSuccessStatusCode();
+
+        // La posizione non deve sopravvivere alla propria chiusura: finché resta qui,
+        // AccountHasEntryInFlight blocca ogni nuovo ingresso di quella strategia su quel simbolo.
+        var snapshot = (await closeResponse.Content.ReadFromJsonAsync<TradingSessionSnapshot>(JsonOptions))!;
+        Assert.Empty(snapshot.Positions);
+
+        // E il trade deve esistere, con la quantità dell'intent: è il trade che nel run reale
+        // mancava da trades.json pur essendo stampato nel log del cBot.
+        using var tradesRequest = Authorized(HttpMethod.Get,
+            $"api/v1/trading-sessions/{descriptor.SessionId}/trades", descriptor.SessionToken);
+        var trades = (await (await _client.SendAsync(tradesRequest))
+            .Content.ReadFromJsonAsync<List<PersistedTrade>>(JsonOptions))!;
+        var trade = Assert.Single(trades);
+        Assert.Equal(closeIntent.FinalQuantity, trade.Quantity);
+        Assert.Equal(100m, trade.EntryPrice);
+        Assert.Equal(105m, trade.ExitPrice);
+
+        var expectedGross = 5m * closeIntent.FinalQuantity * InstrumentRegistry.PointValue(entryIntent.Symbol);
+        Assert.Equal(expectedGross, trade.GrossProfit);
         Assert.Equal(expectedGross - 3m - 7m, trade.NetProfit);
     }
 

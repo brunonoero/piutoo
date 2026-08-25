@@ -1432,8 +1432,21 @@ public sealed class TradingSessionService : ITradingSessionService
             if (report.CumulativeFilledQuantity < intent.FilledQuantity || report.CumulativeFilledQuantity > intent.Quantity)
                 throw new ArgumentException("CumulativeFilledQuantity non valida.");
 
-            var delta = report.CumulativeFilledQuantity - intent.FilledQuantity;
-            intent.FilledQuantity = report.CumulativeFilledQuantity;
+            // Una chiusura riportata come Filled chiude la posizione per intero, e la quantità
+            // autorevole è quella dell'intent: il server l'ha derivata dalla posizione aperta, il
+            // client la sta solo confermando. Un client che riporta zero non sta chiudendo zero
+            // contratti — ha fallito la conversione in contratti (History vuota, VolumeInUnits di
+            // una posizione ormai chiusa) — e prendere quello zero alla lettera lasciava `delta` a
+            // zero: nessun PersistedTrade, e soprattutto la posizione mai rimossa da
+            // ExternalPositions, cioè AccountHasEntryInFlight chiuso per il resto del run.
+            var filledQuantity = intent.IsClose &&
+                                 report.Status == ExecutionReportStatus.Filled &&
+                                 report.CumulativeFilledQuantity <= 0m
+                ? intent.Quantity
+                : report.CumulativeFilledQuantity;
+
+            var delta = filledQuantity - intent.FilledQuantity;
+            intent.FilledQuantity = filledQuantity;
             intent.ExternalOrderId = report.ExternalOrderId ?? intent.ExternalOrderId;
             intent.Status = report.Status switch
             {
@@ -1447,7 +1460,7 @@ public sealed class TradingSessionService : ITradingSessionService
             RecordActivity(session,
                 intent.IsClose ? SessionActivityKind.PosizioneChiusa : SessionActivityKind.EsitoEsecuzione,
                 report.FillPrice is { } prezzo
-                    ? $"{intent.Status} @ {prezzo:0.#####} qty {report.CumulativeFilledQuantity:0.####}"
+                    ? $"{intent.Status} @ {prezzo:0.#####} qty {filledQuantity:0.####}"
                     : $"{intent.Status}",
                 intent.AssignedAccountNumber ?? string.Empty,
                 intent.AssignedGroupId ?? string.Empty,
