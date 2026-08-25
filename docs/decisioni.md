@@ -1676,3 +1676,21 @@ abbiamo e romperebbe quello che oggi funziona.
   dichiarano. Nel repository resta il ramo di lettura gerarchico come fallback; è sparito invece
   quello dei file flat Yahoo (`GCF_15.json`), che nessuno produceva più da quando
   `datafeed-downloader/` non c'è.
+
+- **2026-08-25** — **`Microsoft.Web.WebView2` non è più `PrivateAssets="all"`.** Marcare privato
+  l'intero pacchetto rendeva privato anche il suo asset **nativo**, `WebView2Loader.dll`, e gli
+  asset privati vengono esclusi dal `deps.json` del *publish*. Il file finiva comunque in
+  `runtimes/win-x64/native/`, ma l'host .NET non aggiungeva mai quella cartella ai percorsi di
+  ricerca dei nativi: il P/Invoke falliva con `Unable to load DLL 'WebView2Loader.dll'`
+  (0x8007007E) e il tab *Report* del backtest restava vuoto nella console pubblicata. Il build
+  normale non lo mostrava — lì il `deps.json` ha ancora `runtimeTargets` con tutti e tre i RID —
+  quindi il bug si vedeva solo sull'app pubblicata, che è quella che si usa davvero.
+
+  `compile` resta privato: serve a non far arrivare a `Piootoo.Strategies.Tests` (che referenzia
+  la console) il wrapper WPF del pacchetto, cioè l'MSB3277 di cui parla il target
+  `RimuoviWebView2Wpf`. Privati anche `build`, `buildtransitive`, `analyzers` e `contentfiles`;
+  `runtime` e `native` no.
+
+  La diagnosi è stata confronto fra i tre `deps.json` prodotti (Debug: `runtimeTargets`; build
+  RID-specifico: `native`; publish: **oggetto vuoto**), e la causa è stata dimostrata riproducendo
+  lo stesso identico messaggio d'errore in un progetto probe pubblicato nei due modi.

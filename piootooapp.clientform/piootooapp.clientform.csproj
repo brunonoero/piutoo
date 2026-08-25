@@ -5,7 +5,20 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4078.44" PrivateAssets="all" />
+    <!--
+      PrivateAssets NON include `native` (ne' `runtime`): il pacchetto porta WebView2Loader.dll
+      come asset nativo, e marcarlo privato lo fa sparire dal deps.json del PUBLISH. Il file
+      finisce comunque in runtimes/win-x64/native/, ma l'host .NET non dichiara mai quella
+      cartella fra i percorsi di ricerca dei nativi, quindi il P/Invoke fallisce con
+      "Unable to load DLL 'WebView2Loader.dll'" (0x8007007E) e il tab Report del backtest resta
+      vuoto. Il build normale non lo mostrava: li' il deps.json ha ancora `runtimeTargets`.
+
+      `compile` resta privato per non far arrivare ai consumatori (Piootoo.Strategies.Tests, che
+      referenzia questo progetto) il wrapper WPF del pacchetto: e' lo stesso MSB3277 di cui parla
+      il target qui sotto.
+    -->
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4078.44"
+                      PrivateAssets="compile;build;buildtransitive;analyzers;contentfiles" />
   </ItemGroup>
 
   <ItemGroup>
