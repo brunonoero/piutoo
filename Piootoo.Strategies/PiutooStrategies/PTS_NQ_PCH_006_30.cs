@@ -8,6 +8,10 @@ namespace Piootoo.Strategies.PiutooStrategies;
 /// PTS_NQ_PCH_006_30 — PC su NQ a 30 minuti, famiglia 05 della consegna
 /// <c>run_20260815_1021</c>.
 ///
+/// <para><b>Codice sorgente: nessuno.</b> riga 5/7 di run_20260815_1021, disabilitata: doppione, non e' fra le univoche del dossier. Non ha quindi un
+/// S-ID a cui riferirsi per il controllo contro la sorgente: la fonte resta il run
+/// citato qui sopra.</para>
+///
 /// <para>Breakout del canale di Donchian calcolato sulle barre, non sulle sessioni.</para>
 ///
 /// <para><b>Sessione e fuso.</b> Le sessioni <c>d0..d5</c> su cui girano i pattern sono il

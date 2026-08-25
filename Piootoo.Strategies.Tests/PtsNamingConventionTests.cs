@@ -38,7 +38,10 @@ public sealed class PtsNamingConventionTests
         [typeof(SessionBreakoutEngine)] = "SBO",
         [typeof(RbbMirroredEngine)] = "RBM",
         [typeof(RhlEngine)] = "RHL",
-        [typeof(BiasWeeklyEngine)] = "BSW"
+        [typeof(BiasWeeklyEngine)] = "BSW",
+        [typeof(BiasBarCountEngine)] = "BIA",
+        [typeof(VolatilityBreakoutEngine)] = "VBO",
+        [typeof(MovingAverageCrossoverEngine)] = "MAC"
     };
 
     private static readonly Regex NamePattern = new(

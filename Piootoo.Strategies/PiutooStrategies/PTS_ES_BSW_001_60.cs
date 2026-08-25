@@ -4,9 +4,16 @@ using Piootoo.Strategies.Easy.Engines;
 namespace Piootoo.Strategies.PiutooStrategies;
 
 /// <summary>
-/// PTS_ES_BSW_001_60 — BIASW su ES a 60 minuti, strategia <b>S01</b> del dossier
+/// PTS_ES_BSW_001_60 — BIASW su ES a 60 minuti, strategia <b>S01</b> del <i>vecchio</i> dossier ES
 /// <c>run-engine/run-05-agosto/dossier_ctrader_ES.md</c> (run <c>run_20260820_0012</c>,
 /// famiglia 01).
+///
+/// <para><b>Codice sorgente: S23.</b> E' l'identificativo con cui questa strategia
+/// compare nel <c>run-engine/run-07-agosto/DOSSIER_PANIERE.md</c>: e' da li' che si
+/// risale a condizioni, filtri e parametri per un controllo contro la sorgente, senza
+/// riaprire i CSV a tentativi. La riga di ricerca e' <c>run_20260820_0012</c>, famiglia
+/// <c>fam01</c>; i trade di riferimento stanno in
+/// <c>run_20260820_0012/consegna/trades/fam01_BIASW.csv</c>.</para>
 ///
 /// <para>Bias settimanale: un solo ingresso market programmato a giorno e ora fissi, con uscita
 /// programmata a giorno e ora fissi. Il lato short è spento.</para>

@@ -103,6 +103,14 @@ public abstract class VolatilityBreakoutEngine : EasyEngineBase
     /// </summary>
     protected bool OneEntryPerSessionPerSide;
 
+    /// <summary>
+    /// Se true la posizione viene chiusa a fine sessione sui timeframe intraday. Corrisponde a
+    /// <c>intraday_only</c> del motore Python, come nei motori TF, PC e BO, e vale <b>true per
+    /// default</b>: un candidato con <c>intraday_only = 0</c> che non lo disattiva diventa una
+    /// strategia di sessione senza che nessun test se ne accorga.
+    /// </summary>
+    protected bool IntradayOnly = true;
+
     // ------------------------------------------------------------------ pattern e calendario
 
     /// <summary>Pattern neutro richiesto. 55 è la sentinella sempre vera.</summary>
@@ -396,19 +404,30 @@ public abstract class VolatilityBreakoutEngine : EasyEngineBase
         // VBO Python richiede un solo fill per sessione; il contatore è dell'engine, non locale.
         signal.MaxEntriesPerSession = 1;
         signal.EntrySessionStartUtc = SessionKey(signal.ValidFromUtc!.Value);
+
+        if (IntradayOnly && TimeframeMinutes < 1440)
+            signal.CloseAtUtc = ResolveCloseAtUtc(signal.ValidFromUtc!.Value, SessionEndTime);
+
         return signal;
     }
 
     private bool InPythonTradingWindow(DateTime barTime)
     {
+        // La finestra dichiarata vince: porta con se' il proprio fuso e i propri estremi HHMM,
+        // quindi non va convertita ne' arrotondata all'ora piena.
+        if (InDeclaredWindow(barTime) is { } declared)
+            return declared;
+
         if (StartTrade < 0 && EndTrade < 0)
             return true;
 
-        var start = StartTrade < 0 ? 0 : StartTrade / 100;
-        var end = EndTrade < 0 ? 23 : EndTrade / 100;
-        // L'ora si legge sull'orologio della finestra, mai su quello grezzo della barra.
-        var hour = WindowClock.Hhmm(barTime) / 100;
-        return start <= end ? hour >= start && hour <= end : hour >= start || hour <= end;
+        // Confronto su HHMM pieni, fine inclusa — la stessa semantica di PriceChannelEngine e
+        // SessionBreakoutEngine. Prima si confrontavano le sole ore: la finestra si allargava
+        // fino a HH:59 e prendeva barre che la fonte non prende.
+        var start = StartTrade < 0 ? 0 : StartTrade;
+        var end = EndTrade < 0 ? 2359 : EndTrade;
+        var time = WindowClock.Hhmm(barTime);
+        return start <= end ? time >= start && time <= end : time >= start || time <= end;
     }
 
     private int PythonDayOfWeek(DateTime value) => PythonWeekday(value);

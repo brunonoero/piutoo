@@ -5,7 +5,14 @@ namespace Piootoo.Strategies.PiutooStrategies;
 
 /// <summary>
 /// PTS_NQ_TFU_005_60 — TF_U su NQ a 60 minuti, famiglia 06 della consegna
-/// <c>run_20260820_0856</c> (dossier S06).
+/// <c>run_20260820_0856</c> (S06 del <i>vecchio</i> dossier NQ 1h).
+///
+/// <para><b>Codice sorgente: S67.</b> E' l'identificativo con cui questa strategia
+/// compare nel <c>run-engine/run-07-agosto/DOSSIER_PANIERE.md</c>: e' da li' che si
+/// risale a condizioni, filtri e parametri per un controllo contro la sorgente, senza
+/// riaprire i CSV a tentativi. La riga di ricerca e' <c>run_20260820_0856</c>, famiglia
+/// <c>fam06</c>; i trade di riferimento stanno in
+/// <c>run_20260820_0856/consegna/trades/fam06_TF_U.csv</c>.</para>
 ///
 /// <para>Trend following non simmetrico: stop buy su <c>H_d1</c>, stop sell su <c>L_d1</c>. I quattro
 /// gate <c>PatternFast</c> sono indipendenti per long e short.</para>

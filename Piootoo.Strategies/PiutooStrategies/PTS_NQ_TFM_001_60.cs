@@ -6,6 +6,10 @@ namespace Piootoo.Strategies.PiutooStrategies;
 /// <summary>
 /// PTS_NQ_TFM_001 — trend following mirrored su NQ a 60 minuti.
 ///
+/// <para><b>Codice sorgente: nessuno.</b> run di origine non ritrovato su questa macchina: non compare fra le 75 del dossier. Non ha quindi un
+/// S-ID a cui riferirsi per il controllo contro la sorgente: la fonte resta il run
+/// citato qui sopra.</para>
+///
 /// <para>Sessione = giorno di calendario europeo (<c>0</c>/<c>2359</c> in ora della ricerca),
 /// come il motore Python; non la giornata CME.
 /// Finestra operativa inclusiva 16:00–03:00. Gate neutri 47/1 e direzionali mirrored 50/8.</para>

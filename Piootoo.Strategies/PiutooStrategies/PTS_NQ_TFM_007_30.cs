@@ -7,6 +7,13 @@ namespace Piootoo.Strategies.PiutooStrategies;
 /// PTS_NQ_TFM_007_30 — TF_M su NQ a 30 minuti, famiglia 02 della consegna
 /// <c>run_20260815_1021</c>.
 ///
+/// <para><b>Codice sorgente: S20.</b> E' l'identificativo con cui questa strategia
+/// compare nel <c>run-engine/run-07-agosto/DOSSIER_PANIERE.md</c>: e' da li' che si
+/// risale a condizioni, filtri e parametri per un controllo contro la sorgente, senza
+/// riaprire i CSV a tentativi. La riga di ricerca e' <c>run_20260815_1021</c>, famiglia
+/// <c>fam02</c>; i trade di riferimento stanno in
+/// <c>run_20260815_1021/consegna/trades/fam02_TF_M.csv</c>.</para>
+///
 /// <para>Trend following simmetrico: stop buy su <c>H_d1</c>, stop sell su <c>L_d1</c>. Long e short
 /// condividono i gate neutri e usano i direzionali a specchio.</para>
 ///

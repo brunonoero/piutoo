@@ -11,6 +11,10 @@ namespace Piootoo.Strategies.PiutooStrategies;
 /// OHLC sono noti, quindi non c'è look-ahead, e lo stop resta comunque sopra il
 /// massimo appena formato.
 ///
+/// <para><b>Codice sorgente: nessuno.</b> run_20260730_0005 (top #2), run anteriore al paniere: non compare fra le 75 del dossier. Non ha quindi un
+/// S-ID a cui riferirsi per il controllo contro la sorgente: la fonte resta il run
+/// citato qui sopra.</para>
+///
 /// <para>
 /// Opera tra 13:00 e 04:00 UTC, attraversando la mezzanotte, senza filtro daily
 /// né giorno escluso. Richiede <c>pattern_neutral(55)</c>, non richiede

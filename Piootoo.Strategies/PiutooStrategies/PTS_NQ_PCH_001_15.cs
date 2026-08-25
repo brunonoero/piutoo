@@ -8,6 +8,10 @@ namespace Piootoo.Strategies.PiutooStrategies;
 /// canale Donchian delle ultime 100 barre, inclusa quella appena chiusa, con
 /// buffer di 2 tick.
 ///
+/// <para><b>Codice sorgente: nessuno.</b> run_20260730_0005 (top #1), run anteriore al paniere: non compare fra le 75 del dossier. Non ha quindi un
+/// S-ID a cui riferirsi per il controllo contro la sorgente: la fonte resta il run
+/// citato qui sopra.</para>
+///
 /// <para>
 /// <b>Sessione e orologio.</b> La sessione e' il <b>giorno di calendario europeo</b>, 00:00 →
 /// 00:00, come il motore Python che taglia con

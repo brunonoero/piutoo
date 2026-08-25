@@ -64,6 +64,10 @@ public static class InstrumentRegistry
             ["RB"] = new() { Symbol = "RB", PointValue = 42000m, Currency = "USD", TickSize = 0.0001m, SessionTimeZone = NyComexNymex, Description = "RBOB Gasoline, 42.000 galloni ($/gal)" },
             ["HO"] = new() { Symbol = "HO", PointValue = 42000m, Currency = "USD", TickSize = 0.0001m, SessionTimeZone = NyComexNymex, Description = "Heating Oil, 42.000 galloni ($/gal)" },
 
+            // --- Cripto -----------------------------------------------------------------
+            // CME BTC: contratto 5 bitcoin, $5 per punto di indice; tick 5,00 punti = $25.
+            ["BTC"] = new() { Symbol = "BTC", PointValue = 5m, Currency = "USD", TickSize = 5m, SessionTimeZone = CmeChicago, Description = "Bitcoin future (CME BTC), 5 BTC" },
+
             // --- Valute CME ------------------------------------------------------------
             // CME 6B: contratto £62.500, quotato USD per GBP; tick 0,0001 = $6,25.
             ["BP"] = new() { Symbol = "BP", PointValue = 62500m, Currency = "USD", TickSize = 0.0001m, SessionTimeZone = CmeChicago, Description = "British Pound GBP/USD (CME 6B), £62.500" },

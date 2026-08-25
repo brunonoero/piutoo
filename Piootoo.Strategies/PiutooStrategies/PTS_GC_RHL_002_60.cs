@@ -7,6 +7,13 @@ namespace Piootoo.Strategies.PiutooStrategies;
 /// PTS_GC_RHL_002_60 — RHL su GC a 60 minuti, famiglia 03 della consegna
 /// <c>run_20260819_0659</c> (run 003).
 ///
+/// <para><b>Codice sorgente: S65.</b> E' l'identificativo con cui questa strategia
+/// compare nel <c>run-engine/run-07-agosto/DOSSIER_PANIERE.md</c>: e' da li' che si
+/// risale a condizioni, filtri e parametri per un controllo contro la sorgente, senza
+/// riaprire i CSV a tentativi. La riga di ricerca e' <c>run_20260819_0659</c>, famiglia
+/// <c>fam03</c>; i trade di riferimento stanno in
+/// <c>run_20260819_0659/consegna/trades/fam03_RHL.csv</c>.</para>
+///
 /// <para>Stessa meccanica di <see cref="PTS_GC_RHL_001_60"/> — limit buy a <c>L_d1 − 20 tick</c>
 /// (−2.00 pt), limit sell a <c>H_d1 + 80 tick</c> (+8.00 pt), fill solo con penetrazione stretta
 /// del livello — ma filtri diversi: qui c'è il neutrale inibitore 12 e non c'è il direzionale

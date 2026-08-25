@@ -8,6 +8,10 @@ namespace Piootoo.Strategies.PiutooStrategies;
 /// PTS_GC_PCH_002_60 — PC su GC a 60 minuti, famiglia 01 strategia 2 di 3 della consegna
 /// <c>run_20260819_0659</c> (run 003).
 ///
+/// <para><b>Codice sorgente: nessuno.</b> riga 1/2 di run_20260819_0659, disabilitata: doppione della 001, non e' fra le univoche. Non ha quindi un
+/// S-ID a cui riferirsi per il controllo contro la sorgente: la fonte resta il run
+/// citato qui sopra.</para>
+///
 /// <para>Identica a <see cref="PTS_GC_PCH_001_60"/> tranne <c>ptn_dir_no</c>, che qui vale 53:
 /// il 53 è la <b>sentinella sempre falsa</b> di <c>PatternDirectionalFast</c>, quindi la
 /// strategia semplicemente <b>non ha</b> il filtro direzionale inibitore. Non è un filtro con

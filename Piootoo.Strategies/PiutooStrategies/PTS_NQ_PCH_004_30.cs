@@ -7,6 +7,13 @@ namespace Piootoo.Strategies.PiutooStrategies;
 /// PTS_NQ_PCH_004_30 — PC su NQ a 30 minuti, famiglia 05 della consegna
 /// <c>run_20260815_1021</c>.
 ///
+/// <para><b>Codice sorgente: S53.</b> E' l'identificativo con cui questa strategia
+/// compare nel <c>run-engine/run-07-agosto/DOSSIER_PANIERE.md</c>: e' da li' che si
+/// risale a condizioni, filtri e parametri per un controllo contro la sorgente, senza
+/// riaprire i CSV a tentativi. La riga di ricerca e' <c>run_20260815_1021</c>, famiglia
+/// <c>fam05</c>; i trade di riferimento stanno in
+/// <c>run_20260815_1021/consegna/trades/fam05_PC.csv</c>.</para>
+///
 /// <para>Breakout del canale di Donchian calcolato sulle barre, non sulle sessioni.</para>
 ///
 /// <para><b>Sessione e fuso.</b> Le sessioni <c>d0..d5</c> su cui girano i pattern sono il

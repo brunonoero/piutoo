@@ -7,6 +7,13 @@ namespace Piootoo.Strategies.PiutooStrategies;
 /// PTS_GC_TFU_001_30 — TF_U su GC a 30 minuti, famiglia 01 della consegna
 /// <c>run_20260819_0201</c> (run 002).
 ///
+/// <para><b>Codice sorgente: S09.</b> E' l'identificativo con cui questa strategia
+/// compare nel <c>run-engine/run-07-agosto/DOSSIER_PANIERE.md</c>: e' da li' che si
+/// risale a condizioni, filtri e parametri per un controllo contro la sorgente, senza
+/// riaprire i CSV a tentativi. La riga di ricerca e' <c>run_20260819_0201</c>, famiglia
+/// <c>fam01</c>; i trade di riferimento stanno in
+/// <c>run_20260819_0201/consegna/trades/fam01_TF_U.csv</c>.</para>
+///
 /// <para>Trend following non simmetrico: stop buy su <c>H_d1</c>, stop sell su <c>L_d1</c>. I quattro
 /// gate <c>PatternFast</c> sono indipendenti per long e short, quindi una delle due direzioni
 /// può restare spenta per intere fasi di mercato.</para>

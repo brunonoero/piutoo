@@ -6,6 +6,142 @@ risalire dalla classe alla sua fonte senza riaprire i CSV a tentativi. La proced
 traduzione sta in [`porting-da-report-sweep.md`](porting-da-report-sweep.md); i motori sono
 descritti in [`motori-strategie.md`](motori-strategie.md).
 
+## Il paniere del 25/08/2026: `DOSSIER_PANIERE.md`
+
+La fonte autorevole per il porting non è più la consegna di un singolo run, ma il dossier
+consolidato `piootoo-repository/run-engine/run-07-agosto/DOSSIER_PANIERE.md` (rigenerato il
+25/08/2026). Somma ventuno run — da `run_20260814_1453` a `run_20260824_2232` — e ne estrae
+**75 strategie univoche** su 11 mercati e 10 motori, deduplicate anche *fra* run e timeframe
+diversi: nessuna coppia condivide più del 70% degli ordini di entrata. Ogni scheda è
+autosufficiente (condizioni, filtri in formula, finestra oraria, uscite in dollari e in punti,
+lista trade di riferimento), quindi per tradurre non serve più risalire ai `parametri.csv`.
+
+**Il codice sorgente sta nel commento della classe.** Ogni `PTS_*` apre il proprio XMLdoc con un
+paragrafo `Codice sorgente: SNN`, dove `SNN` è l'identificativo della scheda nel dossier. Serve a
+una cosa sola e importante: da una classe si arriva alla sua sorgente per un controllo, senza
+cercare a tentativi in ventuno cartelle di run. Le classi che una sorgente nel paniere non ce
+l'hanno — i due PC di luglio, `PTS_NQ_TFM_001_60`, e le sei disabilitate perché doppioni —
+dichiarano `Codice sorgente: nessuno` con il motivo.
+
+> ⚠ **Gli `SNN` non sono stabili fra rigenerazioni del dossier.** Sono ordinati per atteso/trade
+> decrescente, quindi una rigenerazione che aggiunga o tolga una strategia li fa scorrere tutti.
+> Per questo il paragrafo `Codice sorgente` porta **anche** la coordinata del run
+> (`run_YYYYMMDD_HHMM` + famiglia), che è stabile per costruzione: se un giorno gli `SNN` non
+> tornano più, è quella la chiave con cui riallinearli. Le classi ES di `run-05-agosto` e le NQ 1h
+> di `run-06-gosto` erano già state annotate con gli `SNN` dei *loro* dossier, numerazioni diverse
+> e non confrontabili: quei riferimenti sono stati marcati come "vecchio dossier" per non lasciare
+> due codici in conflitto nello stesso commento.
+
+### La mappa completa: S-ID → classe C#
+
+Tutte e 75 le strategie del paniere sono tradotte: 31 lo erano già dai run precedenti (il
+reverse-mapping è passato dalla coppia run+famiglia, che dossier e classi dichiarano entrambi),
+44 sono state create il 25/08/2026.
+
+| Dossier | Classe C# | Stato |
+|---|---|---|
+| `S01` | `PTS_NQ_TFM_012_1440` | nuova |
+| `S02` | `PTS_NQ_SBO_005_1440` | nuova |
+| `S03` | `PTS_NQ_TFM_013_1440` | nuova |
+| `S04` | `PTS_FDAX_MAC_001_240` | nuova |
+| `S05` | `PTS_NQ_TFU_006_1440` | nuova |
+| `S06` | `PTS_NQ_TFM_014_240` | nuova |
+| `S07` | `PTS_NQ_TFU_007_1440` | nuova |
+| `S08` | `PTS_FDAX_PCH_001_240` | nuova |
+| `S09` | `PTS_GC_TFU_001_30` | gia' presente |
+| `S10` | `PTS_FDAX_VBO_001_240` | nuova |
+| `S11` | `PTS_NQ_VBO_001_1440` | nuova |
+| `S12` | `PTS_ES_SBO_002_240` | nuova |
+| `S13` | `PTS_NQ_TFM_015_240` | nuova |
+| `S14` | `PTS_NQ_TFM_006_30` | gia' presente |
+| `S15` | `PTS_GC_TFM_001_240` | nuova |
+| `S16` | `PTS_BTC_PCH_001_240` | nuova |
+| `S17` | `PTS_NQ_TFM_009_60` | gia' presente |
+| `S18` | `PTS_ES_SBO_003_240` | nuova |
+| `S19` | `PTS_FDAX_SBO_001_240` | nuova |
+| `S20` | `PTS_NQ_TFM_007_30` | gia' presente |
+| `S21` | `PTS_NQ_TFM_002_15` | gia' presente |
+| `S22` | `PTS_NQ_TFM_010_60` | gia' presente |
+| `S23` | `PTS_ES_BSW_001_60` | gia' presente |
+| `S24` | `PTS_NQ_TFM_008_30` | gia' presente |
+| `S25` | `PTS_NQ_TFM_003_15` | gia' presente |
+| `S26` | `PTS_ES_PCH_003_1440` | nuova |
+| `S27` | `PTS_BP_TFM_001_60` | nuova |
+| `S28` | `PTS_NQ_TFM_005_15` | gia' presente |
+| `S29` | `PTS_NQ_SBO_004_60` | gia' presente |
+| `S30` | `PTS_NQ_SBO_006_240` | nuova |
+| `S31` | `PTS_ES_SBO_001_15` | gia' presente |
+| `S32` | `PTS_NQ_SBO_001_15` | gia' presente |
+| `S33` | `PTS_NQ_SBO_002_15` | gia' presente |
+| `S34` | `PTS_NQ_TFU_004_60` | gia' presente |
+| `S35` | `PTS_NQ_TFM_011_60` | gia' presente |
+| `S36` | `PTS_YM_TFM_001_240` | nuova |
+| `S37` | `PTS_ES_TFM_001_1440` | nuova |
+| `S38` | `PTS_GC_PCH_001_60` | gia' presente |
+| `S39` | `PTS_NQ_PCH_003_30` | gia' presente |
+| `S40` | `PTS_CL_MAC_001_30` | nuova |
+| `S41` | `PTS_NQ_SBO_003_15` | gia' presente |
+| `S42` | `PTS_ES_BSW_002_15` | gia' presente |
+| `S43` | `PTS_ES_PCH_001_60` | gia' presente |
+| `S44` | `PTS_NG_TFM_001_240` | nuova |
+| `S45` | `PTS_ES_TFU_001_1440` | nuova |
+| `S46` | `PTS_YM_TFM_002_240` | nuova |
+| `S47` | `PTS_NQ_TFU_008_240` | nuova |
+| `S48` | `PTS_NQ_TFU_001_15` | gia' presente |
+| `S49` | `PTS_ES_BSW_003_15` | gia' presente |
+| `S50` | `PTS_NG_TFU_001_240` | nuova |
+| `S51` | `PTS_GC_PCH_004_240` | nuova |
+| `S52` | `PTS_GC_RHL_001_60` | gia' presente |
+| `S53` | `PTS_NQ_PCH_004_30` | gia' presente |
+| `S54` | `PTS_ES_TFM_002_1440` | nuova |
+| `S55` | `PTS_NQ_VBO_002_240` | nuova |
+| `S56` | `PTS_JY_TFU_001_240` | nuova |
+| `S57` | `PTS_ES_PCH_004_240` | nuova |
+| `S58` | `PTS_YM_BIA_001_240` | nuova |
+| `S59` | `PTS_NQ_PCH_007_240` | nuova |
+| `S60` | `PTS_NQ_RBM_001_15` | gia' presente |
+| `S61` | `PTS_BP_TFM_002_15` | nuova |
+| `S62` | `PTS_GC_PCH_005_240` | nuova |
+| `S63` | `PTS_JY_TFU_002_240` | nuova |
+| `S64` | `PTS_NG_TFU_002_240` | nuova |
+| `S65` | `PTS_GC_RHL_002_60` | gia' presente |
+| `S66` | `PTS_YM_TFM_003_240` | nuova |
+| `S67` | `PTS_NQ_TFU_005_60` | gia' presente |
+| `S68` | `PTS_NG_TFM_002_240` | nuova |
+| `S69` | `PTS_NQ_TFU_002_15` | gia' presente |
+| `S70` | `PTS_NQ_PCH_008_240` | nuova |
+| `S71` | `PTS_ES_PCH_002_60` | gia' presente |
+| `S72` | `PTS_YM_SBO_001_240` | nuova |
+| `S73` | `PTS_YM_SBO_002_240` | nuova |
+| `S74` | `PTS_PL_TFM_001_240` | nuova |
+| `S75` | `PTS_NQ_TFU_003_15` | gia' presente |
+
+### Quello che il paniere ha portato di nuovo
+
+- **Sei mercati nuovi**: FDAX, YM, CL, NG, PL, BTC — oltre a NQ, ES, GC già coperti. `BTC` è stato
+  aggiunto a `InstrumentRegistry` (5 BTC, $5 per punto, tick 5 punti = $25).
+- **Tre motori nuovi in catalogo**: `VBO` (`VolatilityBreakoutEngine`), `MAC`
+  (`MovingAverageCrossoverEngine`), `BIAS` (`BiasBarCountEngine`). Le sigle `VBO`, `MAC` e `BIA`
+  sono state dichiarate in `PtsNamingConventionTests`.
+- **Due timeframe nuovi**: 4 ore (`_240`) e giornaliero (`_1440`).
+
+### Cosa resta da fare
+
+- **`PTS_JY_TFU_001_240` e `PTS_JY_TFU_002_240` nascono disabilitate.** Il dossier dichiara per JY
+  $125.000 per punto con tick 0,00005, cioè la quotazione scalata ×100 rispetto al 6J CME
+  (12.500.000 per punto, tick 0,0000005). Le due convenzioni danno lo stesso valore di tick
+  ($6,25) ma convertono in modo diverso gli stop in denaro: finché non esiste un feed `@JY` su cui
+  accertare la scala, mettere un `PointValue` a caso falserebbe stop e target senza produrre alcun
+  errore. I parametri sono comunque tradotti e verificabili.
+- **Nessun porting è verificato sui trade.** Il datafeed su disco è solo `@NQ`: per gli altri dieci
+  mercati manca la storia su cui confrontare le entrate. La procedura resta quella di
+  [`porting-da-report-sweep.md`](porting-da-report-sweep.md) §"Verificare il porting".
+- **`S50` e `S64` citano lo stesso file di trade** (`run_20260824_1908/.../fam02_TF_U.csv`) pur
+  avendo gate short e uscite diverse. È quello che dice il dossier; in verifica va chiarito quale
+  delle due quella lista descriva.
+
+---
+
 ## I run tradotti finora
 
 | Run | Mercato | Righe approvate | Strategie | Univoche | Tradotte |

@@ -8,6 +8,13 @@ namespace Piootoo.Strategies.PiutooStrategies;
 /// PTS_NQ_RBM_001_15 — RBB_M su NQ a 15 minuti, famiglia 08 della consegna
 /// <c>run_20260814_1453</c>.
 ///
+/// <para><b>Codice sorgente: S60.</b> E' l'identificativo con cui questa strategia
+/// compare nel <c>run-engine/run-07-agosto/DOSSIER_PANIERE.md</c>: e' da li' che si
+/// risale a condizioni, filtri e parametri per un controllo contro la sorgente, senza
+/// riaprire i CSV a tentativi. La riga di ricerca e' <c>run_20260814_1453</c>, famiglia
+/// <c>fam08</c>; i trade di riferimento stanno in
+/// <c>run_20260814_1453/consegna/trades/fam08_RBB_M.csv</c>.</para>
+///
 /// <para>Reversal sulle bande di Bollinger: ordine limit sulla banda, valido solo sulla barra
 /// successiva, riemesso finché il close resta dentro le bande.</para>
 ///

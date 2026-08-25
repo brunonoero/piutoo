@@ -4,9 +4,16 @@ using Piootoo.Strategies.Easy.Engines;
 namespace Piootoo.Strategies.PiutooStrategies;
 
 /// <summary>
-/// PTS_ES_SBO_001_15 — BO su ES a 15 minuti, strategia <b>S02</b> del dossier
+/// PTS_ES_SBO_001_15 — BO su ES a 15 minuti, strategia <b>S02</b> del <i>vecchio</i> dossier ES
 /// <c>run-engine/run-05-agosto/dossier_ctrader_ES.md</c> (run <c>run_20260819_1008</c>,
 /// famiglia 01 strategia 1 di <c>run-04-agosto/parametri.csv</c>).
+///
+/// <para><b>Codice sorgente: S31.</b> E' l'identificativo con cui questa strategia
+/// compare nel <c>run-engine/run-07-agosto/DOSSIER_PANIERE.md</c>: e' da li' che si
+/// risale a condizioni, filtri e parametri per un controllo contro la sorgente, senza
+/// riaprire i CSV a tentativi. La riga di ricerca e' <c>run_20260819_1008</c>, famiglia
+/// <c>fam01</c>; i trade di riferimento stanno in
+/// <c>run_20260819_1008/consegna/trades/fam01_BO.csv</c>.</para>
 ///
 /// <para>Breakout sugli estremi delle ultime <b>3 sessioni chiuse</b>, ordine stop valido solo
 /// sulla barra successiva e riemesso finché la condizione regge (cancel &amp; replace a ogni

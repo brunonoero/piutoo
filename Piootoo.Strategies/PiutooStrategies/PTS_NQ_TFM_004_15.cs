@@ -8,6 +8,10 @@ namespace Piootoo.Strategies.PiutooStrategies;
 /// PTS_NQ_TFM_004_15 — TF_M su NQ a 15 minuti, famiglia 02 della consegna
 /// <c>run_20260814_1453</c>.
 ///
+/// <para><b>Codice sorgente: nessuno.</b> riga 2/8 di run_20260814_1453, disabilitata: doppione, non e' fra le univoche del dossier. Non ha quindi un
+/// S-ID a cui riferirsi per il controllo contro la sorgente: la fonte resta il run
+/// citato qui sopra.</para>
+///
 /// <para>Trend following simmetrico: stop buy su <c>H_d1</c>, stop sell su <c>L_d1</c>. Long e short
 /// condividono i gate neutri e usano i direzionali a specchio.</para>
 ///

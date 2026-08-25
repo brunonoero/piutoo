@@ -5,7 +5,14 @@ namespace Piootoo.Strategies.PiutooStrategies;
 
 /// <summary>
 /// PTS_NQ_SBO_004_60 — BO su NQ a 60 minuti, famiglia 03 della consegna
-/// <c>run_20260820_0856</c> (dossier S03).
+/// <c>run_20260820_0856</c> (S03 del <i>vecchio</i> dossier NQ 1h).
+///
+/// <para><b>Codice sorgente: S29.</b> E' l'identificativo con cui questa strategia
+/// compare nel <c>run-engine/run-07-agosto/DOSSIER_PANIERE.md</c>: e' da li' che si
+/// risale a condizioni, filtri e parametri per un controllo contro la sorgente, senza
+/// riaprire i CSV a tentativi. La riga di ricerca e' <c>run_20260820_0856</c>, famiglia
+/// <c>fam03</c>; i trade di riferimento stanno in
+/// <c>run_20260820_0856/consegna/trades/fam03_BO.csv</c>.</para>
 ///
 /// <para>Breakout sugli estremi delle ultime N sessioni chiuse, ordine stop valido solo sulla barra
 /// successiva. Qui <c>n_sess = 4</c>: il livello long è il massimo delle ultime 4 sessioni

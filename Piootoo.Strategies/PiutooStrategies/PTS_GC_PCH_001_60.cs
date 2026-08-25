@@ -7,6 +7,13 @@ namespace Piootoo.Strategies.PiutooStrategies;
 /// PTS_GC_PCH_001_60 — PC su GC a 60 minuti, famiglia 01 strategia 1 di 3 della consegna
 /// <c>run_20260819_0659</c> (run 003).
 ///
+/// <para><b>Codice sorgente: S38.</b> E' l'identificativo con cui questa strategia
+/// compare nel <c>run-engine/run-07-agosto/DOSSIER_PANIERE.md</c>: e' da li' che si
+/// risale a condizioni, filtri e parametri per un controllo contro la sorgente, senza
+/// riaprire i CSV a tentativi. La riga di ricerca e' <c>run_20260819_0659</c>, famiglia
+/// <c>fam01</c>; i trade di riferimento stanno in
+/// <c>run_20260819_0659/consegna/trades/fam01_PC.csv</c>.</para>
+///
 /// <para>Breakout del canale di Donchian a 30 barre, calcolato sulle <b>barre del timeframe</b> e
 /// non sulle sessioni. Il canale include la barra appena chiusa che produce il segnale — come
 /// <c>highest(high, 30)</c> EasyLanguage e <c>donchian(shift=0)</c> del motore Python — e l'ordine

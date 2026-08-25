@@ -4,9 +4,16 @@ using Piootoo.Strategies.Easy.Engines;
 namespace Piootoo.Strategies.PiutooStrategies;
 
 /// <summary>
-/// PTS_ES_PCH_002_60 — PC su ES a 60 minuti, strategia <b>S06</b> del dossier
+/// PTS_ES_PCH_002_60 — PC su ES a 60 minuti, strategia <b>S06</b> del <i>vecchio</i> dossier ES
 /// <c>run-engine/run-05-agosto/dossier_ctrader_ES.md</c> (run <c>run_20260820_0012</c>,
 /// famiglia 03).
+///
+/// <para><b>Codice sorgente: S71.</b> E' l'identificativo con cui questa strategia
+/// compare nel <c>run-engine/run-07-agosto/DOSSIER_PANIERE.md</c>: e' da li' che si
+/// risale a condizioni, filtri e parametri per un controllo contro la sorgente, senza
+/// riaprire i CSV a tentativi. La riga di ricerca e' <c>run_20260820_0012</c>, famiglia
+/// <c>fam03</c>; i trade di riferimento stanno in
+/// <c>run_20260820_0012/consegna/trades/fam03_PC.csv</c>.</para>
 ///
 /// <para>Breakout del canale di Donchian a <b>1 barra</b>, calcolato sulle <b>barre del
 /// timeframe</b> e non sulle sessioni: il livello è il massimo della barra appena chiusa. Il
