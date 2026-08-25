@@ -1483,9 +1483,22 @@ public sealed class TradingSessionService : ITradingSessionService
                         session.ExternalPositionDetails.TryGetValue(key, out var details))
                     {
                         var exitPrice = report.FillPrice ?? intent.Price;
-                        var gross = position.Direction == SignalType.Buy
-                            ? (exitPrice - position.EntryPrice) * delta
-                            : (position.EntryPrice - exitPrice) * delta;
+                        // Il P&L è in denaro, non in punti: senza il valore punto del contratto di
+                        // riferimento il trade esterno usciva in punti mentre il backtest usciva in
+                        // dollari, e i due non erano confrontabili. È lo stesso divisore con cui lo
+                        // stop in denaro è diventato punti alla creazione dell'intent.
+                        var dollarsPerPoint = ResolveDollarsPerPoint(session, intent.Symbol);
+                        var points = position.Direction == SignalType.Buy
+                            ? exitPrice - position.EntryPrice
+                            : position.EntryPrice - exitPrice;
+                        var gross = points * delta * dollarsPerPoint;
+                        // Il broker riporta la commissione come importo negativo (è un addebito),
+                        // il dominio la tratta come costo positivo da sottrarre: senza normalizzare
+                        // il segno il netto veniva accreditato invece che addebitato, e un trade in
+                        // perdita risultava in utile.
+                        var commission = Math.Abs(report.Commission);
+                        // Lo swap invece resta con segno: può essere un accredito, e su posizioni
+                        // multigiorno pesa quanto una commissione moltiplicata per dieci.
                         session.ExternalTrades.Add(new PersistedTrade
                         {
                             TradeId = report.ReportId,
@@ -1504,8 +1517,9 @@ public sealed class TradingSessionService : ITradingSessionService
                             ExitPrice = exitPrice,
                             ExitReason = "ExternalBrokerCloseFill",
                             GrossProfit = gross,
-                            NetProfit = gross - report.Commission,
-                            Commission = report.Commission,
+                            NetProfit = gross - commission + report.Swap,
+                            Commission = commission,
+                            Swap = report.Swap,
                             StopLoss = details.StopLoss,
                             TakeProfit = details.TakeProfit,
                             AccountNumber = accountNumber
@@ -2550,11 +2564,7 @@ public sealed class TradingSessionService : ITradingSessionService
             .FirstOrDefault(strategy => string.Equals(
                 strategy.Name, signal.StrategyCode, StringComparison.OrdinalIgnoreCase))
             ?.TimeframeMinutes ?? 0;
-        var dollarsPerPoint = session.InstrumentMetadata.TryGetValue(Normalize(signal.Symbol), out var metadata)
-            ? metadata.DollarsPerPoint
-            : 1m;
-        if (dollarsPerPoint <= 0m)
-            dollarsPerPoint = 1m;
+        var dollarsPerPoint = ResolveDollarsPerPoint(session, signal.Symbol);
 
         var stopLossPoints = signal.StopLoss
             ?? (signal.StopLossMoneyPerFutureContract.HasValue
@@ -3455,6 +3465,21 @@ public sealed class TradingSessionService : ITradingSessionService
     private static void RequireUtc(DateTime value, string name)
     {
         if (value.Kind != DateTimeKind.Utc) throw new ArgumentException($"{name} deve essere UTC.");
+    }
+
+    /// <summary>
+    /// Valore in denaro di un punto del contratto di riferimento del simbolo. È il divisore che
+    /// trasforma il rischio dichiarato in denaro nei punti dell'intent, ed è lo stesso fattore che
+    /// riporta in denaro il P&amp;L di un trade chiuso dal broker: le due conversioni devono usare
+    /// il medesimo valore, altrimenti stop e risultato finiscono in unità diverse.
+    /// Fallback a 1 quando il simbolo non ha metadati o li ha non valorizzati.
+    /// </summary>
+    private static decimal ResolveDollarsPerPoint(Session session, string symbol)
+    {
+        var value = session.InstrumentMetadata.TryGetValue(Normalize(symbol), out var metadata)
+            ? metadata.DollarsPerPoint
+            : 1m;
+        return value > 0m ? value : 1m;
     }
 
     private static string StreamKey(string symbol, int timeframe) => $"{Normalize(symbol)}|{timeframe}";

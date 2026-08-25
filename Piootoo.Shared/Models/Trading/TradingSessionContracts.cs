@@ -585,6 +585,19 @@ public sealed class ExternalExecutionReport
     public decimal CumulativeFilledQuantity { get; init; }
     public decimal? FillPrice { get; init; }
     public decimal Commission { get; init; }
+
+    /// <summary>
+    /// Interessi di finanziamento addebitati o accreditati dal broker sulla posizione, in valuta
+    /// del conto. È <b>con segno</b>, perché a differenza della commissione può essere un credito:
+    /// negativo è un costo, positivo un accredito.
+    ///
+    /// <para>Non è un dettaglio contabile trascurabile su posizioni multigiorno: un TFU tenuto
+    /// aperto 4694 minuti ha pagato 314,19 di swap su 1422,45 di perdita netta, il 22% del
+    /// risultato. Finché il campo non esisteva quella quota spariva dal trade persistito e il
+    /// P&amp;L riportato non tornava con il saldo del conto.</para>
+    /// </summary>
+    public decimal Swap { get; init; }
+
     public required DateTime EventTimeUtc { get; init; }
 
     /// <summary>

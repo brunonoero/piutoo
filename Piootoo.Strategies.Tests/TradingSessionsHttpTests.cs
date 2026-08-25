@@ -9,6 +9,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Piootoo.Core.Services;
+using Piootoo.Shared.Configuration;
 using Piootoo.Shared.Enums;
 using Piootoo.Shared.Interfaces;
 using Piootoo.Shared.Models;
@@ -549,6 +550,11 @@ public sealed class TradingSessionsHttpTests : IDisposable
             {
                 ReportId = "close-fill", IntentId = closeIntent.IntentId, Status = ExecutionReportStatus.Filled,
                 CumulativeFilledQuantity = closeIntent.FinalQuantity, FillPrice = 105,
+                // Il broker riporta la commissione come addebito negativo: il dominio deve
+                // normalizzarla a costo positivo, non accreditarla.
+                Commission = -3m,
+                // Lo swap invece conserva il segno, perché può essere anche un accredito.
+                Swap = -7m,
                 EventTimeUtc = Utc(2026, 1, 6)
             }
         };
@@ -565,6 +571,18 @@ public sealed class TradingSessionsHttpTests : IDisposable
         Assert.Equal(entryIntent.StrategyCode, trade.StrategyCode);
         Assert.Equal(100m, trade.EntryPrice);
         Assert.Equal(105m, trade.ExitPrice);
+
+        // Il P&L è in denaro, non in punti: senza il valore punto del contratto il trade esterno
+        // usciva in punti mentre il backtest usciva in dollari, e i due non erano confrontabili.
+        var expectedGross = 5m * closeIntent.FinalQuantity * InstrumentRegistry.PointValue(entryIntent.Symbol);
+        Assert.Equal(expectedGross, trade.GrossProfit);
+
+        // Commissione come costo positivo e swap con segno: il netto è gross - commissione + swap.
+        // Con il segno del broker non normalizzato la commissione veniva accreditata, e un trade in
+        // perdita poteva risultare in utile.
+        Assert.Equal(3m, trade.Commission);
+        Assert.Equal(-7m, trade.Swap);
+        Assert.Equal(expectedGross - 3m - 7m, trade.NetProfit);
     }
 
     [Fact]

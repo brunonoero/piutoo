@@ -254,6 +254,19 @@ public class PiootooTradingService : IPiootooTradingService
         return true;
     }
 
+    /// <summary>
+    /// Stop e limit non si aprono mai a mercato: passano sempre dalla coda dei pending, dove il
+    /// riempimento è condizionato al fatto che la barra abbia davvero raggiunto il livello.
+    ///
+    /// <para>Il limit prima era escluso, e con lui l'unico controllo che verifica il tocco: un
+    /// limit consegnato quando la sua barra di validità era già quella corrente — cioè ogni volta
+    /// che la strategia viene valutata sulla chiusura della barra che l'ha generato — apriva la
+    /// posizione al proprio livello anche se il prezzo non ci era mai arrivato. È il fill fantasma
+    /// che <c>docs/domini/orologio-barre-e-fill.md</c> descrive.</para>
+    ///
+    /// <para>Non ritarda nulla: <c>TryFillPendingOrders</c> gira in coda a <c>ProcessSignals</c>,
+    /// quindi un livello già penetrato sulla barra corrente si riempie nella stessa chiamata.</para>
+    /// </summary>
     private static bool RequiresDeferredExecution(TradeSignal signal, DateTime currentTime)
     {
         if (signal.ValidFromUtc.HasValue && currentTime < signal.ValidFromUtc.Value)
@@ -261,7 +274,7 @@ public class PiootooTradingService : IPiootooTradingService
             return true;
         }
 
-        return signal.OrderType == TradeOrderType.Stop;
+        return signal.OrderType is TradeOrderType.Stop or TradeOrderType.Limit;
     }
 
     private void EnqueuePendingOrder(string positionKey, TradeSignal signal)

@@ -152,9 +152,25 @@ public sealed class PersistedTrade
     public decimal EntryPrice { get; init; }
     public decimal ExitPrice { get; init; }
     public string? ExitReason { get; init; }
+    /// <summary>
+    /// Risultato lordo del trade <b>in denaro</b>, non in punti: la differenza di prezzo è già
+    /// moltiplicata per la quantità e per il valore punto del contratto di riferimento. È la stessa
+    /// unità del backtest, ed è ciò che rende i due confrontabili.
+    /// </summary>
     public decimal GrossProfit { get; init; }
+
+    /// <summary>Lordo al netto della commissione e comprensivo dello swap: <c>Gross - Commission + Swap</c>.</summary>
     public decimal NetProfit { get; init; }
+
+    /// <summary>Commissione come <b>costo positivo</b>, qualunque segno usi il broker che l'ha riportata.</summary>
     public decimal Commission { get; init; }
+
+    /// <summary>
+    /// Interessi di finanziamento, <b>con segno</b>: negativo è un costo, positivo un accredito.
+    /// Zero nel backtest, che non li modella.
+    /// </summary>
+    public decimal Swap { get; init; }
+
     public decimal? StopLoss { get; init; }
     public decimal? TakeProfit { get; init; }
     /// <summary>Account cTrader che ha eseguito il trade (multi-account/gruppi); null in modalità legacy.</summary>

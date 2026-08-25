@@ -231,7 +231,7 @@ namespace cAlgo.Robots
         // della solution — quindi la sincronia e' manuale e non c'e' niente che la verifichi.
         // Il disallineamento non blocca nulla: entrambi stampano la propria versione all'avvio, e
         // il confronto si fa leggendo i due log.
-        private const string BotVersion = "3.7.0"; // aggiornare qui E in PiootooVersion, ad ogni release
+        private const string BotVersion = "3.8.0"; // aggiornare qui E in PiootooVersion, ad ogni release
         private const string StatusChartObjectName = "PiootooConnectionStatus";
 
         // Riquadro rosso al centro del grafico, separato dal pannello di stato: e' l'errore fatale
@@ -2952,18 +2952,23 @@ namespace cAlgo.Robots
             // grandezza in cui il server ha dichiarato l'intent, ed e' quella che si aspetta indietro.
             var quantity = ToContractQuantity(position.SymbolName, trade?.VolumeInUnits ?? position.VolumeInUnits);
             var commission = (decimal)(trade?.Commissions ?? 0);
+            // Stessa fonte che LogTradeOutcome usa per stampare lo swap: senza inoltrarlo al server
+            // il netto persistito ignorava gli interessi di finanziamento, che su una posizione
+            // multigiorno valgono piu' della commissione.
+            var swap = (decimal)(trade?.Swap ?? position.Swap);
 
             LogTradeOutcome(ctx, position, trade, args.Reason.ToString());
 
             if (_serverCloseIntents.Remove(position.Id, out var closeIntent))
                 ReportExecution(closeIntent.IntentId, position.SymbolName, ExecutionReportStatusDto.Filled,
-                    quantity, closePrice, position.Id.ToString(), commission);
+                    quantity, closePrice, position.Id.ToString(), commission, swap: swap);
             else
-                RegisterExternalCloseAndReport(ctx, position, quantity, closePrice, commission, args.Reason.ToString());
+                RegisterExternalCloseAndReport(ctx, position, quantity, closePrice, commission, swap, args.Reason.ToString());
         }
 
         private void RegisterExternalCloseAndReport(
-            OpenPositionContext ctx, Position position, decimal quantity, decimal? closePrice, decimal commission, string reason)
+            OpenPositionContext ctx, Position position, decimal quantity, decimal? closePrice, decimal commission,
+            decimal swap, string reason)
         {
             try
             {
@@ -2988,7 +2993,7 @@ namespace cAlgo.Robots
                 var closeBody = ReadBody(response);
                 LogJsonResponse("intents/close-external", closeBody);
                 var closeIntent = JsonSerializer.Deserialize<OrderIntentDto>(closeBody, _json);
-                ReportExecution(closeIntent.IntentId, position.SymbolName, ExecutionReportStatusDto.Filled, quantity, closePrice, null, commission);
+                ReportExecution(closeIntent.IntentId, position.SymbolName, ExecutionReportStatusDto.Filled, quantity, closePrice, null, commission, swap: swap);
             }
             catch (Exception ex)
             {
@@ -3022,7 +3027,7 @@ namespace cAlgo.Robots
         private void ReportExecution(
             string intentId, string symbol, ExecutionReportStatusDto status, decimal filledQuantity,
             decimal? fillPrice, string externalOrderId = null, decimal commission = 0,
-            decimal? spreadAtFill = null)
+            decimal? spreadAtFill = null, decimal swap = 0)
         {
             try
             {
@@ -3038,6 +3043,7 @@ namespace cAlgo.Robots
                         CumulativeFilledQuantity = filledQuantity,
                         FillPrice = fillPrice,
                         Commission = commission,
+                        Swap = swap,
                         EventTimeUtc = Server.TimeInUtc,
                         SpreadAtFill = spreadAtFill
                     }
@@ -3715,6 +3721,10 @@ namespace cAlgo.Robots
             public decimal CumulativeFilledQuantity { get; set; }
             public decimal? FillPrice { get; set; }
             public decimal Commission { get; set; }
+
+            /// <summary>Interessi di finanziamento, con segno: negativo e' un costo, positivo un accredito.</summary>
+            public decimal Swap { get; set; }
+
             public DateTime EventTimeUtc { get; set; }
 
             /// <summary>Spread dello strumento nell'istante del fill, in unita' di prezzo.</summary>

@@ -1,4 +1,4 @@
-<Project>
+﻿<Project>
 
   <!--
     Versione degli assembly della solution.
@@ -20,7 +20,7 @@
     assembly: la nota completa sta nell'XMLdoc di PiootooVersion.
   -->
   <PropertyGroup>
-    <VersionPrefix>3.7.0</VersionPrefix>
+    <VersionPrefix>3.8.0</VersionPrefix>
     <AssemblyVersion>$(VersionPrefix)</AssemblyVersion>
     <FileVersion>$(VersionPrefix)</FileVersion>
     <InformationalVersion>$(VersionPrefix)</InformationalVersion>
