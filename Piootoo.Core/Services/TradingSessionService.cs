@@ -2407,32 +2407,42 @@ public sealed class TradingSessionService : ITradingSessionService
     /// traccia esplicita in <see cref="SessionActivityKind.PosizioneChiusa"/>, così il buco è
     /// visibile nel monitor invece di essere un silenzio.</para>
     /// </summary>
-    private static void ReconcileVanishedPositions(
+    private void ReconcileVanishedPositions(
         Session session, string accountNumber, string groupId, AccountSignalPollRequest brokerState)
     {
-        // Chiavi come le scrive il percorso di fill: per-account quando la sessione ha gruppi,
-        // altrimenti la chiave storica senza account.
-        static string PositionKey(string? accountNumber, string symbol, string strategyCode) =>
-            accountNumber is null
-                ? $"{symbol}|{strategyCode}"
-                : $"{accountNumber}|{symbol}|{strategyCode}";
+        // Il confronto NON si fa sulle chiavi di ExternalPositions: quelle portano il simbolo
+        // Piootoo (GC), mentre lo snapshot porta il simbolo del broker (XAUUSD), perché il cBot
+        // riempie Symbol con Position.SymbolName. Confrontarli direttamente non produce un errore,
+        // produce zero corrispondenze — cioè una riconciliazione che non riconcilia mai e non lo
+        // dice. Si mappa quindi in avanti, dal simbolo Piootoo a quello dell'account, con la stessa
+        // conversione che l'intent usa per AccountSymbol.
+        var conversion = ResolveAccountConversion(session, accountNumber);
+        static string BrokerKey(string accountSymbol, string strategyCode) =>
+            $"{Normalize(accountSymbol)}|{strategyCode}";
 
         var atBroker = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var position in brokerState.Positions)
-            atBroker.Add(PositionKey(accountNumber, Normalize(position.Symbol), position.StrategyCode));
+            atBroker.Add(BrokerKey(position.Symbol, position.StrategyCode));
 
         // Prima si conferma, poi si giudica: una posizione entra nel raggio della riconciliazione
         // solo dopo essere comparsa almeno una volta nello snapshot.
-        foreach (var key in atBroker)
-            if (session.ExternalPositions.ContainsKey(key))
+        var mine = session.ExternalPositions
+            .Where(entry => string.Equals(entry.Value.AccountNumber, accountNumber, StringComparison.OrdinalIgnoreCase))
+            .Select(entry => (
+                entry.Key,
+                Position: entry.Value,
+                BrokerKey: BrokerKey(conversion.GetAccountSymbol(entry.Value.Symbol), entry.Value.StrategyCode)))
+            .ToList();
+
+        foreach (var (key, _, brokerKey) in mine)
+            if (atBroker.Contains(brokerKey))
                 session.BrokerConfirmedPositions.Add(key);
 
-        var vanished = session.ExternalPositions
+        var vanished = mine
             .Where(entry =>
-                string.Equals(entry.Value.AccountNumber, accountNumber, StringComparison.OrdinalIgnoreCase) &&
                 session.BrokerConfirmedPositions.Contains(entry.Key) &&
-                !atBroker.Contains(entry.Key))
-            .Select(entry => (entry.Key, entry.Value))
+                !atBroker.Contains(entry.BrokerKey))
+            .Select(entry => (entry.Key, entry.Position))
             .ToList();
 
         foreach (var (key, position) in vanished)
