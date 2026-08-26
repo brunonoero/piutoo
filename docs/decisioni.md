@@ -1695,40 +1695,81 @@ abbiamo e romperebbe quello che oggi funziona.
   RID-specifico: `native`; publish: **oggetto vuoto**), e la causa è stata dimostrata riproducendo
   lo stesso identico messaggio d'errore in un progetto probe pubblicato nei due modi.
 
-- **2026-08-26** — **Una posizione chiusa dal broker e non riportata dal client bloccava la
-  strategia per il resto del run.** `AccountHasEntryInFlight` legge da `ExternalPositions` ed è un
-  lucchetto sempre attivo: se una chiusura non arriva mai al server, la voce resta lì e quella
-  coppia (strategia, simbolo) non apre più niente. Le chiusure decise dal server o dal client
-  passano da un intent e vengono riportate; quelle decise dal **broker** — stop loss nativo, stop
-  out, chiusura manuale — non passano da nessun intent, e se il client non riesce a registrarle
-  sono perse in silenzio.
+- **2026-08-26** — **Gli ordini pending si cancellano per strategia *e lato*, non per sola
+  strategia.** `CancelStrategyPendingOrders` nel cBot cancellava tutti i pending con il prefisso
+  di label della strategia prima di piazzare il nuovo ordine, sul presupposto — vero solo per una
+  strategia a un lato solo — che "il motore riemette lo stesso ordine a ogni barra col livello
+  ricalcolato, quindi non è un secondo ordine". Le strategie non simmetriche (`TfUnmirroredEngine`,
+  `PTS_GC_TFU_001_30` in testa) emettono invece sulla **stessa barra** un bracket a due gambe —
+  stop buy su `H_d1`, stop sell su `L_d1` — che sono due motivi d'ingresso indipendenti: la seconda
+  gamba uccideva la prima, e il bracket non poteva mai stare a mercato intero.
 
-  Dimostrato sul run GC del 2014 (sessione `a62e9342…`, XAUUSD su cTrader) confrontando il log
-  eventi del broker con `trades.json`: 22 posizioni chiuse sul broker, 19 sul server, e le 3
-  mancanti sono **esattamente e solo** quelle chiuse con `Stop Loss Hit`. Siccome uno stop loss è
-  sempre una perdita, il report scartava solo perdite: il server dichiarava +6 462 su una sessione
-  che aveva chiuso a −341 (capitale netto 99 232,71 su 100 000). Le tre strategie che hanno preso
-  uno stop sono mute da quel momento in poi — TFU dal 12/03, RHL_002 dal 15/04, PCH dal 25/04 — e
-  l'unica che non ne ha mai preso uno, RHL_001, è l'unica arrivata viva a fine sessione.
+  Misurato sul confronto Feb–Mag 2014 GC in `piootoo-repository/compare/`: sui 1501 ordini
+  piazzati dal bot, TFU Buy e TFU Sell non risultano pendenti insieme **nemmeno una volta**, mentre
+  il backtest locale le tiene entrambe su cinque sessioni (14/03, 21/03, 24/03, 21/04, 30/05, ~291
+  segnali). Sulle sessioni accoppiate i livelli dei due lati coincidono entro ~1 punto — l'offset
+  @GC/XAUUSD — quindi il segnale nasceva giusto e la perdita era tutta nel cBot.
 
-  Il poll (`PollSignalForAccount`) ora riconcilia `ExternalPositions` con lo snapshot di posizioni
-  aperte che il cBot manda a ogni richiesta, **prima** di ogni altro filtro. Una posizione entra nel
-  raggio della riconciliazione solo dopo essere comparsa almeno una volta nello snapshot
-  (`BrokerConfirmedPositions`), altrimenti il poll che arriva fra il report di fill e la
-  registrazione sulla piattaforma cancellerebbe una posizione appena aperta; e una chiusura già in
-  volo viene saltata, perché la completerà il client col proprio execution report.
+  Il lato entra anche in `PendingOrderMark` (la label non lo porta) e nella potatura di
+  `_lastOpenIntentByLabel`: potarla per sola strategia toglieva l'intent anche alla gamba opposta,
+  e il suo fill sarebbe arrivato a `OnPositionOpened` senza intent associato, cioè senza report al
+  server.
 
-  **Non si costruisce il `PersistedTrade`**: `BrokerTradeSnapshot` porta solo l'orario di chiusura,
-  e senza prezzo, commissione e swap il trade sarebbe un numero inventato che finisce nelle
-  rotazioni Titano. La riconciliazione sblocca e lascia una traccia in `SessionActivityKind.PosizioneChiusa`;
-  il P&L resta compito del client. Resta quindi aperto il lato cBot: `CloseExpiredPositions`
-  ([riga 1233](../piootoo-repository/ctrader/PiootooDistributedExecutionBot.cs)) toglie dal registro
-  locale le posizioni già sparite da `Positions` senza riportarle a nessuno, e da lì in poi
-  `OnPositionClosed` esce subito sul `TryGetValue`. Va deciso col tab Log di cTrader se sia quella
-  potatura a vincere la corsa o la POST a `close-external` a fallire.
+- **2026-08-26** — **L'OCO fra le gambe di un bracket lo simula il bot.** Conseguenza diretta della
+  voce precedente: con entrambe le gambe finalmente a mercato, un prezzo che attraversa tutti e due i
+  livelli lascerebbe la strategia long e short insieme. cTrader non lega fra loro ordini piazzati
+  separatamente — non esiste un OCO nativo da chiedere al broker — quindi il legame lo tiene il cBot:
+  `EnforceBracketOco`, chiamata da `OnPositionOpened`, ritira la gamba opposta della stessa strategia
+  nel solo istante in cui l'esito della prima è noto, e ne riporta al server l'annullamento (senza
+  quel report l'intent resterebbe `Pending`, assegnato al conto e riproposto a ogni poll).
 
-- **2026-08-26** — **`ExitReason` dei trade di sessione esterna porta il motivo dell'intent**
-  (`StopLoss`, `TimeExit`, `WeekEnd`, `ClientLocalExit`, …) invece della costante
-  `ExternalBrokerCloseFill`. Che il fill venga dal broker lo dice già `SessionId`; scrivendo la
-  costante, tutti i trade di una sessione uscivano con lo stesso motivo e il confronto con un
-  backtest — dove l'uscita è classificata — non poteva dire quale regola avesse divergito.
+  Il ritiro va **prima** della risoluzione dell'intent locale: se l'intent è perduto — riavvio del bot
+  con un pending già a mercato — il report del fill salta, ma la gamba opposta va tolta lo stesso,
+  perché è a mercato e si riempirebbe.
+
+  Sulle barre successive l'OCO era già di fatto imposto da `alreadyOpenOnStrategy`, che annulla ogni
+  intent della strategia mentre una sua posizione è aperta; quello che mancava era lo scioglimento del
+  bracket già piazzato.
+
+  **Il caso che resta scoperto**, e che per questo viene riconosciuto e stampato invece di passare in
+  silenzio: una barra che spazza entrambi i livelli **prima** che l'evento della prima apertura sia
+  servito riempie tutte e due le gambe comunque. Quando il codice gira, il secondo fill è già avvenuto.
+  `EnforceBracketOco` lo rileva, stampa `OCO CEDUTO` e scrive l'evento `oco/ceduto` nel log JSON: un
+  OCO che ha ceduto in silenzio sarebbe indistinguibile da uno che ha tenuto, ed è esattamente il tipo
+  di silenzio che ha lasciato passare inosservata la divergenza di TFU per mesi.
+
+- **2026-08-26** — **Il poll a timer non gira più in backtest, se non c'è un motivo locale.**
+  `OnTimer` reclamava un segnale a ogni battito (`PollingSeconds`, default 2). In live è una
+  chiamata ogni 2 secondi di tempo reale; in backtest il timer batte sull'orologio **simulato**,
+  quindi su un run di un anno scatta nell'ordine del milione di volte contro le ~35.000 push di
+  barre. È il grosso del traffico HTTP di un backtest esterno, e quasi tutto per sentirsi dire
+  "nessun intent".
+
+  La guardia (`ShouldPollOnTimer`) non è un'euristica di risparmio: in backtest l'esito di quel
+  claim è **deducibile**. I template nascono solo dalla valutazione di una barra; l'orologio del
+  server è l'ultima barra valutata e `PurgeExpiredTemplates` gira sulla stessa valutazione, quindi
+  fra due push nessun template nasce e nessuno scade; e in backtest il bot è l'unico attore della
+  sessione. L'unica cosa che può far passare un claim da "no" a "sì" senza barre nuove è lo stato
+  del broker che il claim stesso trasporta — un tetto di concorrenza che si libera, un ingresso
+  della stessa strategia che smette di essere "in volo" — cioè un evento locale:
+  `Positions.Closed` e ogni execution report alzano `_claimRetryPending`, e solo allora si polla.
+  Il numero di claim passa da "quanti secondi simulati dura il run" a "quante barre e quante
+  esecuzioni ha il run".
+
+  **In live non cambia nulla**, di proposito: lì il timer è l'unico canale che scopre i template
+  nati dalla push del bot di un altro account, ed è la prima chiamata che si accorge del server
+  tornato su (`TryReopenSession` vive nel percorso del poll). Su uno stream a 60 minuti toglierlo
+  vorrebbe dire riagganciarsi un'ora dopo.
+
+  Il timer **resta acceso anche in backtest**: `EnforceWeekEndFlat` e `CloseExpiredPositions` sono
+  lavoro locale senza rete, e girano sulla stessa cadenza di prima. Spostarli su barra o su tick
+  avrebbe cambiato quando scattano — il flat di venerdì con soli ordini pendenti e nessuna
+  posizione aperta non ha un tick che lo svegli, perché `OnSymbolTick` esce subito se non c'è
+  niente da proteggere — ed è un cambio di comportamento che questa voce non vuole fare.
+
+  Verifica: `OnStop` stampa push e claim del run, e il parametro *Poll a timer anche in backtest*
+  rimette il comportamento della 3.8.0 — così l'A/B si fa con lo stesso binario, stesso run due
+  volte, un solo parametro diverso. Devono risultare lo **stesso numero di push** e lo **stesso
+  `trades.json`**, con i soli claim a crollare; se cambiano anche le push, non è la guardia ad aver
+  agito, è il run a essere diverso. Lo stesso parametro è la via di ritorno se un giorno saltasse
+  fuori un caso non previsto, senza ricompilare.

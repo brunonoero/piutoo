@@ -598,6 +598,25 @@ public sealed class ExternalExecutionReport
     /// </summary>
     public decimal Swap { get; init; }
 
+    /// <summary>
+    /// Utile lordo del trade come lo conta il broker, <b>nella valuta del conto</b>. Null quando il
+    /// client non lo dichiara: in quel caso il server lo ricava dai prezzi, come faceva prima.
+    ///
+    /// <para><b>Perche' non basta ricavarlo dai prezzi.</b> <c>punti × valore punto</c> da' un
+    /// importo nella valuta dello <i>strumento</i>, mentre commissione e swap arrivano gia' nella
+    /// valuta del <i>conto</i>: il netto che ne usciva sommava due valute diverse. Su un conto in EUR
+    /// che opera XAUUSD l'errore e' il cambio EURUSD — su un run 2022-2023 il lordo persistito era
+    /// del 7% mediano sopra quello del broker, con uno scarto che va da −4% a +15% seguendo il
+    /// cambio, quindi non correggibile a posteriori con un fattore fisso.</para>
+    /// </summary>
+    public decimal? GrossProfit { get; init; }
+
+    /// <summary>
+    /// Utile netto del broker, valuta del conto, commissioni e swap gia' dentro. Vedi
+    /// <see cref="GrossProfit"/>. Null se il client non lo dichiara.
+    /// </summary>
+    public decimal? NetProfit { get; init; }
+
     public required DateTime EventTimeUtc { get; init; }
 
     /// <summary>

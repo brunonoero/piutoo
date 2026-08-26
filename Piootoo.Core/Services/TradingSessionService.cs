@@ -1515,12 +1515,21 @@ public sealed class TradingSessionService : ITradingSessionService
                         var points = position.Direction == SignalType.Buy
                             ? exitPrice - position.EntryPrice
                             : position.EntryPrice - exitPrice;
-                        var gross = points * delta * dollarsPerPoint;
+                        // Il P&L del broker vince su quello ricavato dai prezzi quando c'è: è già
+                        // nella valuta del conto, mentre punti × valore punto è nella valuta dello
+                        // strumento. Su un conto EUR che opera XAUUSD il lordo calcolato qui era
+                        // gonfiato del cambio EURUSD (~7% mediano su un run 2022-2023) e finiva
+                        // sommato a commissione e swap che invece erano già in EUR: un netto con due
+                        // valute dentro. Il fallback resta per i client che non dichiarano il campo.
+                        var gross = report.GrossProfit ?? points * delta * dollarsPerPoint;
                         // Il broker riporta la commissione come importo negativo (è un addebito),
                         // il dominio la tratta come costo positivo da sottrarre: senza normalizzare
                         // il segno il netto veniva accreditato invece che addebitato, e un trade in
                         // perdita risultava in utile.
                         var commission = Math.Abs(report.Commission);
+                        // Il netto del broker è autorevole: contiene commissioni e swap come li ha
+                        // davvero applicati, incluse le voci che il dominio non modella.
+                        var net = report.NetProfit ?? gross - commission + report.Swap;
                         // Lo swap invece resta con segno: può essere un accredito, e su posizioni
                         // multigiorno pesa quanto una commissione moltiplicata per dieci.
                         session.ExternalTrades.Add(new PersistedTrade
@@ -1539,19 +1548,15 @@ public sealed class TradingSessionService : ITradingSessionService
                             ExitTimeUtc = report.EventTimeUtc,
                             EntryPrice = position.EntryPrice,
                             ExitPrice = exitPrice,
-                            // Il motivo dell'uscita è quello dell'intent che l'ha chiesta
-                            // (`StopLoss`, `TimeExit`, `WeekEnd`, `ClientLocalExit`, ...), non il
-                            // fatto che il fill sia arrivato dal broker: quello lo dice già
-                            // `SessionId`. Scrivendo la costante, i trades.json di sessione
-                            // esterna riportavano un unico valore per tutti i trade e il confronto
-                            // con un backtest — dove l'uscita è classificata — non poteva dire
-                            // QUALE regola avesse divergito. Vedi il confronto interno/esterno su
-                            // GC del 2014, dove 19 trade su 19 uscivano con lo stesso motivo.
+                            // Il motivo dichiarato dal client, non un'etichetta unica per ogni
+                            // chiusura esterna: è ciò che distingue uno stop da un target da una
+                            // chiusura decisa dal server, e senza il quale trades.json non è
+                            // confrontabile con gli esiti del backtest.
                             ExitReason = string.IsNullOrWhiteSpace(intent.Reason)
                                 ? "ExternalBrokerCloseFill"
                                 : intent.Reason,
                             GrossProfit = gross,
-                            NetProfit = gross - commission + report.Swap,
+                            NetProfit = net,
                             Commission = commission,
                             Swap = report.Swap,
                             StopLoss = details.StopLoss,
