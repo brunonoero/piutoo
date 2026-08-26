@@ -476,6 +476,8 @@ namespace cAlgo.Robots
         {
             public Pair Stream;
             public int BarCount;
+            /// <summary>Lato dell'ordine: la label non lo porta, e la potatura per strategia deve distinguerlo.</summary>
+            public TradeType Side;
         }
 
         /// <summary>Contesto di una posizione aperta da questo bot, per il reporting alla chiusura.</summary>
@@ -1498,22 +1500,101 @@ namespace cAlgo.Robots
         }
 
         /// <summary>
-        /// Cancella tutti gli ordini pending di una strategia, qualunque sia l'intent che li ha piazzati.
-        /// Serve perché la label porta l'IntentId: il segnale nuovo non ha la stessa label del vecchio,
-        /// e cercare per label esatta lascerebbe a mercato l'ordine della barra precedente.
+        /// Cancella gli ordini pending di una strategia <b>su un lato solo</b>, qualunque sia l'intent
+        /// che li ha piazzati. Serve perché la label porta l'IntentId: il segnale nuovo non ha la stessa
+        /// label del vecchio, e cercare per label esatta lascerebbe a mercato l'ordine della barra
+        /// precedente.
+        ///
+        /// <para><b>Perché il lato è parte della chiave.</b> Le strategie non simmetriche — TF_U in
+        /// testa — emettono sulla stessa barra un bracket a due gambe: stop buy su <c>H_d1</c> e stop
+        /// sell su <c>L_d1</c>. Sono due ordini distinti con due motivi d'ingresso opposti, non uno la
+        /// sostituzione dell'altro. Cancellando per sola strategia la seconda gamba uccideva la prima e
+        /// il bracket non poteva mai stare a mercato intero: nel confronto Feb–Mag 2014 su
+        /// <c>PTS_GC_TFU_001_30</c>, su 1501 ordini piazzati dal bot le due gambe non risultano
+        /// pendenti insieme nemmeno una volta, mentre il backtest le tiene entrambe su cinque sessioni.
+        /// Vedi <c>docs/decisioni.md</c>, 2026-08-26.</para>
+        ///
+        /// <para>Il <c>_pendingOrderBar</c> si pota con lo stesso criterio: potarlo per sola strategia
+        /// toglieva il segno di scadenza anche alla gamba opposta, che sarebbe rimasta a mercato oltre
+        /// la sua barra.</para>
         /// </summary>
-        private void CancelStrategyPendingOrders(string strategyCode, string reason)
+        private void CancelStrategyPendingOrders(string strategyCode, TradeType side, string reason)
         {
             var prefix = MakeStrategyLabelPrefix(strategyCode);
             foreach (var order in PendingOrders
-                .Where(o => o.Label != null && o.Label.StartsWith(prefix, StringComparison.Ordinal))
+                .Where(o => o.Label != null &&
+                            o.Label.StartsWith(prefix, StringComparison.Ordinal) &&
+                            o.TradeType == side)
                 .ToList())
                 CancelAndReport(order, reason);
 
-            foreach (var key in _pendingOrderBar.Keys
-                .Where(label => label.StartsWith(prefix, StringComparison.Ordinal))
+            foreach (var entry in _pendingOrderBar
+                .Where(e => e.Key.StartsWith(prefix, StringComparison.Ordinal) && e.Value.Side == side)
                 .ToList())
-                _pendingOrderBar.Remove(key);
+                _pendingOrderBar.Remove(entry.Key);
+        }
+
+        /// <summary>
+        /// OCO fra le due gambe di un bracket: la gamba che si riempie ritira l'altra.
+        ///
+        /// <para>Le strategie non simmetriche (<c>TfUnmirroredEngine</c>) mandano sulla stessa barra uno
+        /// stop buy su <c>H_d1</c> e uno stop sell su <c>L_d1</c>: sono due ipotesi alternative su dove
+        /// romperà il prezzo, non la richiesta di stare a mercato in entrambi i sensi. cTrader non lega
+        /// fra loro ordini piazzati separatamente — non esiste un OCO nativo da chiedere al broker —
+        /// quindi il legame lo tiene il bot, qui, nel solo istante in cui l'esito di una gamba è noto.</para>
+        ///
+        /// <para>Prima del 26/08/2026 il problema non si poneva perché la seconda gamba non arrivava mai
+        /// a mercato: <c>CancelStrategyPendingOrders</c> cancellava per sola strategia e la seconda
+        /// uccideva la prima. Sistemato quello, il bracket sta a mercato intero e serve chi lo scioglie.</para>
+        ///
+        /// <para><b>Cosa questo non copre.</b> Se il prezzo attraversa entrambi i livelli <b>prima</b> che
+        /// l'evento della prima apertura sia servito — una barra che spazza tutto il bracket — le due
+        /// gambe si riempiono comunque, e la strategia resta long e short insieme. Non è correggibile da
+        /// qui: quando il codice gira, il secondo fill è già avvenuto. Il caso viene però riconosciuto e
+        /// stampato, perché un OCO che ha ceduto in silenzio è indistinguibile da uno che ha tenuto.</para>
+        /// </summary>
+        private void EnforceBracketOco(Position position)
+        {
+            var parsed = ParseLabel(position.Label);
+            if (parsed is null)
+                return;
+
+            var altroLato = position.TradeType == TradeType.Buy ? TradeType.Sell : TradeType.Buy;
+
+            // Va prima della risoluzione dell'intent in OnPositionOpened: se l'intent locale è perduto
+            // (riavvio del bot con un pending già a mercato) il report salta, ma la gamba opposta va
+            // ritirata lo stesso — è a mercato e si riempirebbe.
+            CancelStrategyPendingOrders(
+                parsed.StrategyCode,
+                altroLato,
+                $"OCO: la gamba {position.TradeType} della stessa strategia si e' riempita");
+
+            var prefix = MakeStrategyLabelPrefix(parsed.StrategyCode);
+            var gambaOpposta = Positions.FirstOrDefault(p =>
+                p.Id != position.Id &&
+                p.Label != null &&
+                p.Label.StartsWith(prefix, StringComparison.Ordinal) &&
+                p.TradeType == altroLato &&
+                p.SymbolName.Equals(position.SymbolName, StringComparison.OrdinalIgnoreCase));
+            if (gambaOpposta is null)
+                return;
+
+            Print("OCO CEDUTO su {0}/{1}: le posizioni {2} ({3}) e {4} ({5}) sono aperte insieme. " +
+                  "La barra ha attraversato entrambi i livelli del bracket prima che il primo fill fosse servito.",
+                position.SymbolName, parsed.StrategyCode,
+                gambaOpposta.Id, gambaOpposta.TradeType, position.Id, position.TradeType);
+            LogJsonEvent("oco/ceduto", new
+            {
+                StrategyCode = parsed.StrategyCode,
+                Symbol = position.SymbolName,
+                PrimaPositionId = gambaOpposta.Id,
+                PrimoLato = gambaOpposta.TradeType.ToString(),
+                PrimoPrezzo = gambaOpposta.EntryPrice,
+                SecondaPositionId = position.Id,
+                SecondoLato = position.TradeType.ToString(),
+                SecondoPrezzo = position.EntryPrice,
+                ServerTimeUtc = Server.TimeInUtc
+            });
         }
 
         /// <summary>
@@ -2270,17 +2351,23 @@ namespace cAlgo.Robots
             var stopLossPips = ToPips(symbol, intent.StopLoss);
             var takeProfitPips = ToPips(symbol, intent.TakeProfit);
 
-            // Il segnale precedente della stessa strategia è scaduto nel momento in cui ne arriva uno
-            // nuovo: il motore riemette l'ordine a ogni barra col livello ricalcolato, quindi il vecchio
-            // ordine pending non è un secondo ordine, è lo stesso ordine da sostituire. Il match è per
-            // strategia e non per label esatta: la label del segnale nuovo porta un IntentId diverso.
-            CancelStrategyPendingOrders(intent.StrategyCode, "sostituito dal signal successivo");
+            // Il segnale precedente della stessa strategia SULLO STESSO LATO è scaduto nel momento in cui
+            // ne arriva uno nuovo: il motore riemette l'ordine a ogni barra col livello ricalcolato,
+            // quindi il vecchio ordine pending non è un secondo ordine, è lo stesso ordine da sostituire.
+            // Il match è per strategia e lato, non per label esatta: la label del segnale nuovo porta un
+            // IntentId diverso. Il lato serve perché una strategia non simmetrica manda le due gambe del
+            // bracket sulla stessa barra, e non sono l'una la sostituzione dell'altra.
+            CancelStrategyPendingOrders(intent.StrategyCode, tradeType, "sostituito dal signal successivo");
 
-            // Gli intent precedenti della stessa strategia sono stati appena cancellati a mercato: le
-            // loro label non si apriranno più, e senza questa potatura la mappa crescerebbe di una voce
-            // per barra (prima la chiave era la sola strategia e si sovrascriveva da sé).
-            foreach (var stale in _lastOpenIntentByLabel.Keys
-                .Where(key => key.StartsWith(MakeStrategyLabelPrefix(intent.StrategyCode), StringComparison.Ordinal))
+            // Gli intent precedenti della stessa strategia sullo stesso lato sono stati appena cancellati
+            // a mercato: le loro label non si apriranno più, e senza questa potatura la mappa crescerebbe
+            // di una voce per barra (prima la chiave era la sola strategia e si sovrascriveva da sé).
+            // Il filtro sul lato è obbligatorio: potando anche la gamba opposta, il suo fill arriverebbe a
+            // OnPositionOpened senza intent associato e la posizione non verrebbe riportata al server.
+            foreach (var stale in _lastOpenIntentByLabel
+                .Where(e => e.Key.StartsWith(MakeStrategyLabelPrefix(intent.StrategyCode), StringComparison.Ordinal) &&
+                            e.Value.Side == intent.Side)
+                .Select(e => e.Key)
                 .ToList())
                 _lastOpenIntentByLabel.Remove(stale);
 
@@ -2318,7 +2405,7 @@ namespace cAlgo.Robots
             {
                 var stream = FindPair(intent.Symbol, intent.TimeframeMinutes);
                 if (stream?.Series != null)
-                    _pendingOrderBar[label] = new PendingOrderMark { Stream = stream, BarCount = stream.Series.Count };
+                    _pendingOrderBar[label] = new PendingOrderMark { Stream = stream, BarCount = stream.Series.Count, Side = tradeType };
             }
             else
             {
@@ -2331,9 +2418,10 @@ namespace cAlgo.Robots
         }
 
         /// <summary>
-        /// Una posizione di questo bot si è aperta: risolve l'intent che l'ha originata (ordine a
-        /// mercato o pending appena riempito) e riporta il fill al server. Serve perché
-        /// <c>PlaceStopOrder</c>/<c>PlaceLimitOrder</c> non restituiscono una posizione sincrona.
+        /// Una posizione di questo bot si è aperta: ritira la gamba opposta del bracket (OCO), risolve
+        /// l'intent che l'ha originata (ordine a mercato o pending appena riempito) e riporta il fill al
+        /// server. Serve perché <c>PlaceStopOrder</c>/<c>PlaceLimitOrder</c> non restituiscono una
+        /// posizione sincrona.
         /// </summary>
         private void OnPositionOpened(PositionOpenedEventArgs args)
         {
@@ -2342,6 +2430,9 @@ namespace cAlgo.Robots
                 return;
             if (_openPositions.ContainsKey(position.Id))
                 return;
+
+            EnforceBracketOco(position);
+
             if (!_lastOpenIntentByLabel.TryGetValue(position.Label, out var intent))
             {
                 Print("Posizione {0} aperta ({1}) senza un intent locale associato: nessun report inviato.", position.Id, position.Label);
