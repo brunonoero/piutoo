@@ -539,6 +539,12 @@ public class PiootooBacktestingService : IPiootooBacktestingService
             // condividerlo tra backtest concorrenti mescolerebbe posizioni e trade.
             var tradingService = new PiootooTradingService();
             tradingService.Initialize(request.InitialCapital, request.CommissionPerContract);
+            tradingService.RejectWrongSideLevels = request.RejectWrongSideLevels;
+
+            // Stesso numero del descriptor di sessione e del cBot: e' l'unico modo perche' backtest
+            // e conto vero chiudano il venerdi' nello stesso istante.
+            var weekEndFlat = new WeekEndFlatPolicy(
+                request.WeekEndFlatFromUtcHhmm, request.WeekEndFlatUntilUtcHhmm);
 
             diagnostics = new BacktestDiagnosticsLogger(outputPath, job.JobId);
             tradingService.PositionOpened = diagnostics.LogEntry;
@@ -558,7 +564,9 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                 ["commissionPerContract"] = request.CommissionPerContract.ToString(CultureInfo.InvariantCulture),
                 ["minTimeframeMinutes"] = minTimeframeMinutes.ToString(),
                 ["strategies"] = strategyInstances.Count.ToString(),
-                ["closeAllPositionsAtWeekEnd"] = request.CloseAllPositionsAtWeekEnd ? "true" : "false"
+                ["closeAllPositionsAtWeekEnd"] = request.CloseAllPositionsAtWeekEnd ? "true" : "false",
+                ["weekEndFlatFromUtc"] = weekEndFlat.FromUtcHhmm.ToString("0000"),
+                ["rejectWrongSideLevels"] = request.RejectWrongSideLevels ? "true" : "false"
             });
 
             var result = new BacktestingResult
@@ -963,9 +971,12 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                 markedToMarketBars++;
                 AppendStrategyEquityResults(result, snapshot, currentDate, signals, strategyEquityCache, strategyTracks);
 
-                var nextTradingDate = GetNextTradingDateUtc(currentDate, minTimeframeMinutes);
+                // Il flat scatta sulla PRIMA barra dentro la finestra dichiarata, non sull'ultimo
+                // slot dell'orologio sintetico prima di sabato: quello cadeva alle 23:30 del
+                // venerdi' con timeframe minimo a 30 minuti, mentre il conto vero e' gia' piatto
+                // dalle 20:45. Vedi WeekEndFlatPolicy.
                 if (request.CloseAllPositionsAtWeekEnd &&
-                    IsLastBarOfTradingWeek(currentDate, nextTradingDate))
+                    weekEndFlat.IsFlatTrigger(currentDate, currentDate.AddMinutes(-minTimeframeMinutes)))
                 {
                     // Anche senza posizioni aperte c'è da fare: uno stop emesso su questa barra
                     // scade sulla prossima, che è la prima della settimana dopo, e riempirebbe sul
@@ -1080,10 +1091,24 @@ public class PiootooBacktestingService : IPiootooBacktestingService
 
             if (weekEndCancelledOrders > 0)
                 diagnostics.LogRun(
-                    $"Flat settimanale: {weekEndCancelledOrders} ordini pendenti cancellati sull'ultima barra della settimana.",
+                    $"Flat settimanale dalle {weekEndFlat.FromUtcHhmm:0000} UTC del venerdi': " +
+                    $"{weekEndCancelledOrders} ordini pendenti cancellati.",
                     new Dictionary<string, string>(StringComparer.Ordinal)
                     {
-                        ["weekEndCancelledOrders"] = weekEndCancelledOrders.ToString(CultureInfo.InvariantCulture)
+                        ["weekEndCancelledOrders"] = weekEndCancelledOrders.ToString(CultureInfo.InvariantCulture),
+                        ["weekEndFlatFromUtc"] = weekEndFlat.FromUtcHhmm.ToString("0000")
+                    });
+
+            // Un numero alto qui non e' un difetto: e' la misura di quanti ingressi il backtest
+            // avrebbe preso e il conto vero no. Se e' zero e il log del cBot invece scarta, i due
+            // non stanno guardando lo stesso mercato.
+            if (tradingService.WrongSideLevelsRejected > 0)
+                diagnostics.LogRun(
+                    $"Livelli dal lato sbagliato scartati: {tradingService.WrongSideLevelsRejected}.",
+                    new Dictionary<string, string>(StringComparer.Ordinal)
+                    {
+                        ["wrongSideLevelsRejected"] =
+                            tradingService.WrongSideLevelsRejected.ToString(CultureInfo.InvariantCulture)
                     });
 
             var summary = diagnostics.Complete(new BacktestRunSummary
@@ -2145,28 +2170,6 @@ public class PiootooBacktestingService : IPiootooBacktestingService
 
         var scale = strategyTimeframeMinutes / minTimeframeMinutes;
         signal.MaxBarsInPosition = signal.MaxBarsInPosition.Value * scale;
-    }
-
-    private static DateTime GetNextTradingDateUtc(DateTime currentDate, int minTimeframeMinutes)
-    {
-        var next = currentDate.AddMinutes(minTimeframeMinutes);
-        while (next.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday)
-        {
-            next = next.AddMinutes(minTimeframeMinutes);
-        }
-
-        return next;
-    }
-
-    private static bool IsLastBarOfTradingWeek(DateTime currentDate, DateTime nextTradingDate)
-    {
-        return GetWeekStartUtc(currentDate) != GetWeekStartUtc(nextTradingDate);
-    }
-
-    private static DateTime GetWeekStartUtc(DateTime date)
-    {
-        var daysToSubtract = ((int)date.DayOfWeek - (int)DayOfWeek.Monday + 7) % 7;
-        return date.Date.AddDays(-daysToSubtract);
     }
 
     /// <summary>

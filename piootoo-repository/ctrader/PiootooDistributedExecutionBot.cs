@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.IO;
@@ -351,6 +351,9 @@ namespace cAlgo.Robots
         // Un'ora UTC di venerdi invece della chiusura CME reale (16:00 di Chicago): quest'ultima cade
         // alle 21:00 oppure alle 22:00 UTC secondo l'ora legale americana, quindi un default prudente
         // prima della piu' presta delle due vale in entrambi i periodi dell'anno senza gestire il fuso.
+        //
+        // RETE, NON REGOLA: a sessione aperta vince l'orario del descriptor. Il numero deve essere
+        // uno solo per backtest e conto vero, e il solo posto che li vede entrambi e' il server.
         [Parameter("Flat da venerdi (HHMM UTC)", DefaultValue = 2045, MinValue = 0, MaxValue = 2359, Group = "Fine settimana")]
         public int WeekEndFlatFromUtc { get; set; }
 
@@ -369,6 +372,15 @@ namespace cAlgo.Robots
         private string _serverRunMode;
         private bool _enforceConcurrency = true;
         private int _maxConcurrentTrades;
+
+        /// <summary>
+        /// Orario di flat del fine settimana in vigore, in HHMM UTC. Nasce dai parametri e viene
+        /// sovrascritto dal descriptor appena la sessione si apre: il numero e' del server, perche'
+        /// deve essere lo stesso che usa il backtest. I parametri restano la rete per il caso in cui
+        /// il server non lo dichiari (versione vecchia) e per la finestra prima dell'apertura.
+        /// </summary>
+        private int _weekEndFlatFromUtc = 2045;
+        private int _weekEndFlatUntilUtc = 2300;
 
         /// <summary>
         /// Il piano conta solo le posizioni riempite: gli ordini pendenti non consumano budget lato
@@ -821,7 +833,28 @@ namespace cAlgo.Robots
             _cancelPendingAtCap = string.Equals(
                 descriptor.ConcurrencyCountMode, "PositionsOnly", StringComparison.OrdinalIgnoreCase);
             _strategies = descriptor.Strategies ?? new List<SessionStrategyDto>();
+
+            // L'orario di flat lo decide il SERVER, non questo bot. E' l'unico modo perche' il
+            // backtest interno e il conto vero chiudano il venerdi' nello stesso istante: finche'
+            // il numero e' vissuto solo qui, il backtest ne aveva un altro (l'ultimo slot del
+            // proprio orologio prima di sabato, le 23:30) e i due run non erano confrontabili.
+            // I parametri restano come rete: se il server non lo dichiara valgono loro.
+            if (descriptor.WeekEndFlat != null &&
+                IsValidHhmm(descriptor.WeekEndFlat.FromUtcHhmm) &&
+                IsValidHhmm(descriptor.WeekEndFlat.UntilUtcHhmm))
+            {
+                _weekEndFlatFromUtc = descriptor.WeekEndFlat.FromUtcHhmm;
+                _weekEndFlatUntilUtc = descriptor.WeekEndFlat.UntilUtcHhmm;
+            }
+            else
+            {
+                _weekEndFlatFromUtc = WeekEndFlatFromUtc;
+                _weekEndFlatUntilUtc = WeekEndFlatUntilUtc;
+            }
         }
+
+        private static bool IsValidHhmm(int hhmm) =>
+            hhmm >= 0 && hhmm <= 2359 && hhmm % 100 < 60;
 
         private void LogSessionDescriptor()
         {
@@ -829,6 +862,9 @@ namespace cAlgo.Robots
                 _sessionId, _runProfile ?? "-", _titanoMode ?? "-",
                 _enforceConcurrency ? "attiva" : "OFF",
                 _maxConcurrentTrades > 0 ? _maxConcurrentTrades.ToString() : "illimitati");
+            Print("  flat fine settimana: da venerdi {0:0000} a domenica {1:0000} UTC{2}.",
+                _weekEndFlatFromUtc, _weekEndFlatUntilUtc,
+                FlatAtWeekEnd ? string.Empty : " (disattivato)");
             foreach (var strategy in _strategies)
                 Print("  strategia {0} su {1}/{2}m", strategy.StrategyCode, strategy.Symbol, strategy.TimeframeMinutes);
         }
@@ -1726,11 +1762,11 @@ namespace cAlgo.Robots
             switch (nowUtc.DayOfWeek)
             {
                 case DayOfWeek.Friday:
-                    return hhmm >= WeekEndFlatFromUtc;
+                    return hhmm >= _weekEndFlatFromUtc;
                 case DayOfWeek.Saturday:
                     return true;
                 case DayOfWeek.Sunday:
-                    return hhmm < WeekEndFlatUntilUtc;
+                    return hhmm < _weekEndFlatUntilUtc;
                 default:
                     return false;
             }
@@ -3883,6 +3919,19 @@ namespace cAlgo.Robots
             public string ConcurrencyCountMode { get; set; }
 
             public IReadOnlyList<SessionStrategyDto> Strategies { get; set; }
+
+            /// <summary>
+            /// Orario di flat del fine settimana deciso dal server. Vince sui parametri locali:
+            /// vedi <see cref="ApplyDescriptor"/>.
+            /// </summary>
+            public WeekEndFlatDto WeekEndFlat { get; set; }
+        }
+
+        /// <summary>Finestra di flat del fine settimana, in HHMM UTC, come la dichiara il server.</summary>
+        private sealed class WeekEndFlatDto
+        {
+            public int FromUtcHhmm { get; set; }
+            public int UntilUtcHhmm { get; set; }
         }
 
         /// <summary>Una strategia in sessione: codice di esecuzione, simbolo, timeframe.</summary>

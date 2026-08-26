@@ -52,8 +52,30 @@ public class TradeSignal
     /// <summary>Da quando l'ordine può essere attivato. Null = barra corrente.</summary>
     public DateTime? ValidFromUtc { get; set; }
 
-    /// <summary>Scadenza dell'ordine pendente. Null = policy dell'engine.</summary>
+    /// <summary>
+    /// Scadenza dell'ordine pendente. Null = policy dell'engine.
+    ///
+    /// <para><b>E' l'inizio dell'ultima barra su cui l'ordine vive, non un istante.</b> Un ordine
+    /// "next bar" nasce con <see cref="ValidFromUtc"/> uguale a questo valore e resta valido per
+    /// tutta la barra che comincia li'. Chi lo esegue deve quindi tenerlo in vita fino a
+    /// <c>ExpiresAtUtc + TimeframeMinutes</c>: trattarlo come istante gli fa vedere solo il primo
+    /// tick della propria barra, ed e' meno di quanto vive sul broker. Vedi
+    /// <see cref="TimeframeMinutes"/>.</para>
+    /// </summary>
     public DateTime? ExpiresAtUtc { get; set; }
+
+    /// <summary>
+    /// Timeframe in minuti della strategia che ha emesso il segnale. Null = sconosciuto, e chi
+    /// esegue ricade sul proprio tick.
+    ///
+    /// <para><b>Perche' esiste.</b> Il backtest fa girare l'orologio al timeframe <i>minimo</i> del
+    /// portafoglio e tiene una sola barra per simbolo, quella della serie piu' fitta. Senza questo
+    /// campo un ordine di una strategia a 60 minuti veniva provato contro una barra da 30: meta'
+    /// del proprio range non veniva mai guardata, e le strategie a limite — che chiedono
+    /// penetrazione — riempivano circa la meta' delle volte rispetto al broker. Misurato sul
+    /// confronto del 26/08/2026: RHL a 60 minuti, 29 fill interni contro 69 esterni.</para>
+    /// </summary>
+    public int? TimeframeMinutes { get; set; }
 
     /// <summary>
     /// Massimo numero di fill consentiti per <see cref="EntrySessionStartUtc"/>.

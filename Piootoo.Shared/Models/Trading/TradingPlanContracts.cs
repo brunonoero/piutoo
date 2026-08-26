@@ -49,6 +49,16 @@ public sealed class TradingPlan
     // strumenti (InstrumentRegistry), la granularità di volume (minimo/passo/arrotondamento) dalla
     // riga della tabella di conversione dell'account — è una proprietà del broker, non del piano.
     public decimal CommissionPerContract { get; init; } = 2m;
+
+    /// <summary>
+    /// Quando il conto deve essere piatto per il fine settimana. Sta sul piano perche' e' una
+    /// proprieta' di come si opera, non del singolo run: da qui scende nella sessione, nel
+    /// descriptor e infine nel cBot, che lo esegue al posto del proprio parametro. Lo stesso
+    /// numero va nella <c>BacktestingRequest</c>, altrimenti backtest e conto vero chiudono il
+    /// venerdi' in due istanti diversi. Vedi <see cref="WeekEndFlatPolicy"/>.
+    /// </summary>
+    public WeekEndFlatPolicy WeekEndFlat { get; init; } = WeekEndFlatPolicy.Default;
+
     public PositionSizingConfig PositionSizing { get; init; } = new();
     public DateTime CreatedUtc { get; init; }
     public DateTime UpdatedUtc { get; init; }
@@ -82,6 +92,10 @@ public sealed class SaveTradingPlanRequest
     public ConcurrencyCountMode ConcurrencyCountMode { get; init; }
 
     public decimal CommissionPerContract { get; init; } = 2m;
+
+    /// <summary>Vedi <see cref="TradingPlan.WeekEndFlat"/>.</summary>
+    public WeekEndFlatPolicy WeekEndFlat { get; init; } = WeekEndFlatPolicy.Default;
+
     public PositionSizingConfig PositionSizing { get; init; } = new();
 }
 

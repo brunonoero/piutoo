@@ -297,6 +297,10 @@ public abstract class EasyEngineBase : StatelessEasyStrategyBase
             // riemesso a ogni barra finché la condizione resta valida.
             ValidFromUtc = nextBar,
             ExpiresAtUtc = nextBar,
+            // Quanto dura quella "sola barra". Serve a chi esegue: il backtest gira al timeframe
+            // minimo del portafoglio, e senza questo numero terrebbe l'ordine vivo per un tick del
+            // portafoglio invece che per una barra della strategia.
+            TimeframeMinutes = TimeframeMinutes,
             StopLossMoneyPerFutureContract = StopMoney > 0 ? StopMoney : null,
             TakeProfitMoneyPerFutureContract = ProfitMoney > 0 ? ProfitMoney : null,
             BreakEvenMoneyPerFutureContract = BreakEvenMoney > 0 ? BreakEvenMoney : null,

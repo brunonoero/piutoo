@@ -201,6 +201,14 @@ namespace cAlgo.Robots
         [Parameter("Operativo da domenica (HHMM UTC)", DefaultValue = 2300, MinValue = 0, MaxValue = 2359, Group = "Fine settimana")]
         public int WeekEndFlatUntilUtc { get; set; }
 
+        /// <summary>
+        /// Orario di flat in vigore, HHMM UTC. Nasce dai parametri qui sopra e viene sovrascritto
+        /// dal descriptor all'apertura della sessione: il numero e' del server, perche' deve essere
+        /// lo stesso che usa il backtest interno.
+        /// </summary>
+        private int _weekEndFlatFromUtc = 2045;
+        private int _weekEndFlatUntilUtc = 2300;
+
         // ------------------------------------------------------------------------------- Stato
 
         private HttpClient _http;
@@ -1004,8 +1012,32 @@ namespace cAlgo.Robots
         /// stream piu' rapidi verrebbero controllati troppo di rado e le loro barre arriverebbero
         /// al server in ritardo.</para>
         /// </summary>
+        /// <summary>Finestra di flat del fine settimana, in HHMM UTC, come la dichiara il server.</summary>
+        private sealed class WeekEndFlatDto
+        {
+            public int FromUtcHhmm { get; set; }
+            public int UntilUtcHhmm { get; set; }
+        }
+
+        /// <summary>
+        /// L'orario di flat lo decide il server. I parametri restano la rete: valgono prima
+        /// dell'apertura e con un server che non lo dichiara.
+        /// </summary>
+        private void ApplyWeekEndFlat(SessionDescriptorDto descriptor)
+        {
+            var flat = descriptor?.WeekEndFlat;
+            var valido = flat != null &&
+                         IsValidHhmm(flat.FromUtcHhmm) && IsValidHhmm(flat.UntilUtcHhmm);
+            _weekEndFlatFromUtc = valido ? flat.FromUtcHhmm : WeekEndFlatFromUtc;
+            _weekEndFlatUntilUtc = valido ? flat.UntilUtcHhmm : WeekEndFlatUntilUtc;
+        }
+
+        private static bool IsValidHhmm(int hhmm) =>
+            hhmm >= 0 && hhmm <= 2359 && hhmm % 100 < 60;
+
         private void ResolvePlanStreams(SessionDescriptorDto descriptor)
         {
+            ApplyWeekEndFlat(descriptor);
             var instruments = descriptor.Instruments ?? new List<TradingInstrumentDto>();
             _streams.Clear();
 
@@ -1415,11 +1447,11 @@ namespace cAlgo.Robots
             switch (nowUtc.DayOfWeek)
             {
                 case DayOfWeek.Friday:
-                    return hhmm >= WeekEndFlatFromUtc;
+                    return hhmm >= _weekEndFlatFromUtc;
                 case DayOfWeek.Saturday:
                     return true;
                 case DayOfWeek.Sunday:
-                    return hhmm < WeekEndFlatUntilUtc;
+                    return hhmm < _weekEndFlatUntilUtc;
                 default:
                     return false;
             }
@@ -1855,6 +1887,13 @@ namespace cAlgo.Robots
             public string RunProfile { get; set; }
             public bool EnforceConcurrencyLimits { get; set; }
             public int MaxConcurrentTrades { get; set; }
+
+            /// <summary>
+            /// Orario di flat del fine settimana deciso dal server. Vince sui parametri locali: il
+            /// numero deve essere lo stesso che usa il backtest interno, e il solo posto che vede
+            /// entrambi i motori e' il server.
+            /// </summary>
+            public WeekEndFlatDto WeekEndFlat { get; set; }
 
             /// <summary>Coppie (simbolo, timeframe) derivate dal masterfilter del workspace del piano.</summary>
             public List<TradingInstrumentDto> Instruments { get; set; } = new();

@@ -21,8 +21,27 @@ public class BacktestingRequest
     public decimal InitialCapital { get; set; }
     public decimal CommissionPerContract { get; set; } = 2.0m;
     public string Name { get; set; } = string.Empty;
-    /// <summary>Chiude tutte le posizioni aperte all'ultima barra della settimana di trading (UTC).</summary>
+    /// <summary>Chiude tutte le posizioni aperte quando scatta il flat di fine settimana.</summary>
     public bool CloseAllPositionsAtWeekEnd { get; set; } = true;
+
+    /// <summary>
+    /// Venerdi', ora UTC HHMM da cui il backtest va piatto. Vedi <see cref="WeekEndFlatPolicy"/>:
+    /// e' lo stesso numero che la sessione pubblica nel descriptor e che il cBot esegue, ed e'
+    /// l'unico modo perche' backtest e conto vero chiudano nello stesso istante.
+    /// </summary>
+    public int WeekEndFlatFromUtcHhmm { get; set; } = TradingConventions.WeekEndFlatFromUtcHhmm;
+
+    /// <summary>Domenica, ora UTC HHMM da cui si torna operativi.</summary>
+    public int WeekEndFlatUntilUtcHhmm { get; set; } = TradingConventions.WeekEndFlatUntilUtcHhmm;
+
+    /// <summary>
+    /// Scarta i pending il cui livello e' gia' oltrepassato quando l'ordine nasce, come fa il cBot
+    /// con <c>RejectWrongSideLevels</c>. Il perche' sta su
+    /// <c>PiootooTradingService.RejectWrongSideLevels</c>; spegnerlo serve solo a misurare la
+    /// fedelta' del porting rispetto al motore di ricerca, che quei livelli li riempie
+    /// all'apertura.
+    /// </summary>
+    public bool RejectWrongSideLevels { get; set; } = true;
 
     /// <summary>
     /// Modalità rispetto al filtro Titano. Identica a quella delle sessioni

@@ -1,4 +1,4 @@
-﻿using System.Collections.Concurrent;
+using System.Collections.Concurrent;
 using Piootoo.Shared.Configuration;
 using Piootoo.Shared.Enums;
 using Piootoo.Shared.Interfaces;
@@ -224,6 +224,10 @@ public sealed class TradingSessionService : ITradingSessionService
         public TradingRunProfile RunProfile { get; set; }
 
         public required PositionSizingConfig PositionSizing { get; init; }
+
+        /// <summary>Orario di flat del fine settimana, pubblicato nel descriptor ed eseguito dal cBot.</summary>
+        public required WeekEndFlatPolicy WeekEndFlat { get; init; }
+
         public required Dictionary<string, InstrumentMetadata> InstrumentMetadata { get; init; }
 
         /// <summary>
@@ -635,6 +639,7 @@ public sealed class TradingSessionService : ITradingSessionService
             // prevalso, e ripassare il nullable farebbe ricalcolare a CreateCore il default,
             // perdendo l'override.
             EnforceConcurrencyLimits = enforceConcurrency,
+            WeekEndFlat = plan.WeekEndFlat,
             PositionSizing = plan.PositionSizing
         }, plan.Code, request.ExecutionKey.Trim());
         AccountSymbolConversion conversion;
@@ -855,6 +860,7 @@ public sealed class TradingSessionService : ITradingSessionService
             EnforceConcurrencyLimits = request.EnforceConcurrencyLimits
                 ?? DefaultEnforceConcurrencyLimits(request.ClientRunMode, request.TitanoMode),
             PositionSizing = ResolvePositionSizing(request.ExecutionMode, request.PositionSizing),
+            WeekEndFlat = request.WeekEndFlat ?? WeekEndFlatPolicy.Default,
             InstrumentMetadata = instrumentMetadata,
             PeakEquity = request.InitialCapital,
             Status = TradingSessionStatus.Created,
@@ -3532,6 +3538,7 @@ public sealed class TradingSessionService : ITradingSessionService
             .ThenBy(s => s.StrategyCode, StringComparer.OrdinalIgnoreCase)
             .ToArray(),
         PositionSizing = session.PositionSizing,
+        WeekEndFlat = session.WeekEndFlat,
         InstrumentMetadata = session.InstrumentMetadata.Values.OrderBy(x => x.Symbol).ToArray(),
         Instruments = session.Strategies.GroupBy(s => Normalize(s.Symbol))
             .Select(g => new TradingInstrument

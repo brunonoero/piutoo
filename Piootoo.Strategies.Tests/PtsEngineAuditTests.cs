@@ -142,10 +142,15 @@ public sealed class PtsEngineAuditTests
     }
 
     [Fact]
+    /// <summary>
+    /// Con il filtro spento — semantica TradeStation, quella del motore di ricerca — uno stop il
+    /// cui livello e' gia' scavalcato all'apertura si riempie all'apertura.
+    /// </summary>
     public void Engine_GapAwareStopFill_UsesMaxOpenAndLevel()
     {
         var service = new PiootooTradingService();
         service.Initialize(100_000m, commissionPerContract: 0m);
+        service.RejectWrongSideLevels = false;
 
         var signalTime = new DateTime(2024, 1, 3, 16, 0, 0, DateTimeKind.Utc);
         var fillBar = signalTime.AddMinutes(60);
@@ -165,6 +170,67 @@ public sealed class PtsEngineAuditTests
         var open = service.GetExecutionSnapshot("PTS_NQ_TFM_001_60", "NQ", fillBar).Position;
         Assert.NotNull(open);
         Assert.Equal(15_020m, open!.EntryPrice); // max(open, stop)
+    }
+
+    /// <summary>
+    /// Lo stesso scenario col filtro ACCESO, che e' il default: il cBot quel livello non lo piazza
+    /// nemmeno (<c>RejectWrongSideLevels</c>, "dal lato sbagliato"), quindi il trade nel conto vero
+    /// non esiste e non deve esistere neanche qui. E' la differenza che il confronto del 26/08/2026
+    /// ha misurato: 53 giornate, 644 scarti nel log del bot, tutte su una sola strategia.
+    /// </summary>
+    [Fact]
+    public void Engine_StopGiaScavalcatoAllApertura_NonVienePiazzato()
+    {
+        var service = new PiootooTradingService();
+        service.Initialize(100_000m, commissionPerContract: 0m);
+        Assert.True(service.RejectWrongSideLevels); // default allineato al cBot
+
+        var signalTime = new DateTime(2024, 1, 3, 16, 0, 0, DateTimeKind.Utc);
+        var fillBar = signalTime.AddMinutes(60);
+
+        service.ProcessSignals(
+            [PtsStopSignal(SignalType.Buy, 15_010m, signalTime, fillBar)],
+            Prices(15_000m),
+            Bars(signalTime, 15_000m, 15_005m, 14_995m, 15_000m),
+            signalTime);
+
+        service.UpdateMarketPrices(
+            Prices(15_025m),
+            Bars(fillBar, open: 15_020m, high: 15_025m, low: 15_018m, close: 15_022m),
+            fillBar);
+
+        Assert.Null(service.GetExecutionSnapshot("PTS_NQ_TFM_001_60", "NQ", fillBar).Position);
+        Assert.Equal(1, service.WrongSideLevelsRejected);
+    }
+
+    /// <summary>
+    /// Il livello ESATTAMENTE sull'apertura non e' "gia' superato": e' il breakout che comincia li',
+    /// il fill sarebbe comunque l'apertura, e scartarlo toglierebbe trade sani.
+    /// </summary>
+    [Fact]
+    public void Engine_StopEsattamenteSullApertura_VienePiazzato()
+    {
+        var service = new PiootooTradingService();
+        service.Initialize(100_000m, commissionPerContract: 0m);
+
+        var signalTime = new DateTime(2024, 1, 3, 16, 0, 0, DateTimeKind.Utc);
+        var fillBar = signalTime.AddMinutes(60);
+
+        service.ProcessSignals(
+            [PtsStopSignal(SignalType.Buy, 15_020m, signalTime, fillBar)],
+            Prices(15_000m),
+            Bars(signalTime, 15_000m, 15_005m, 14_995m, 15_000m),
+            signalTime);
+
+        service.UpdateMarketPrices(
+            Prices(15_025m),
+            Bars(fillBar, open: 15_020m, high: 15_025m, low: 15_018m, close: 15_022m),
+            fillBar);
+
+        var open = service.GetExecutionSnapshot("PTS_NQ_TFM_001_60", "NQ", fillBar).Position;
+        Assert.NotNull(open);
+        Assert.Equal(15_020m, open!.EntryPrice);
+        Assert.Equal(0, service.WrongSideLevelsRejected);
     }
 
     [Fact]

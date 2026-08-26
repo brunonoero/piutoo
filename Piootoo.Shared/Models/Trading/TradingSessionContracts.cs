@@ -180,6 +180,13 @@ public sealed class CreateTradingSessionRequest
     /// </summary>
     public bool? EnforceConcurrencyLimits { get; init; }
 
+    /// <summary>
+    /// Quando il conto deve essere piatto per il fine settimana. Il server e' l'unico proprietario
+    /// del numero: lo pubblica nel descriptor, il cBot lo esegue e il backtest riceve lo stesso
+    /// valore nella propria richiesta. Vedi <see cref="WeekEndFlatPolicy"/>.
+    /// </summary>
+    public WeekEndFlatPolicy WeekEndFlat { get; init; } = WeekEndFlatPolicy.Default;
+
     public PositionSizingConfig PositionSizing { get; init; } = new();
 }
 
@@ -221,6 +228,13 @@ public sealed class TradingSessionDescriptor
     /// (<see cref="Trading.ConcurrencyCountMode.PositionsOnly"/>).
     /// </summary>
     public ConcurrencyCountMode ConcurrencyCountMode { get; init; }
+
+    /// <summary>
+    /// Orario di flat del fine settimana deciso dal server. Il cBot lo usa al posto del proprio
+    /// parametro: due orari diversi fra chi simula e chi esegue sono due sistemi diversi, ed e'
+    /// esattamente cio' che il confronto del 26/08/2026 ha trovato (23:30 contro 20:45).
+    /// </summary>
+    public WeekEndFlatPolicy WeekEndFlat { get; init; } = WeekEndFlatPolicy.Default;
 
     public PositionSizingConfig PositionSizing { get; init; } = new();
     public IReadOnlyList<InstrumentMetadata> InstrumentMetadata { get; init; } = [];

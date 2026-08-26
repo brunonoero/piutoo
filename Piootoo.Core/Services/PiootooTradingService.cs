@@ -28,6 +28,13 @@ public class PiootooTradingService : IPiootooTradingService
     {
         public required string PositionKey { get; init; }
         public required TradeSignal Signal { get; set; }
+
+        /// <summary>
+        /// Se l'ordine ha gia' visto la prima barra su cui era attivo. Serve al controllo del lato
+        /// del livello, che riproduce il piazzamento sul broker e vale una volta sola: dalla
+        /// seconda barra in poi il pending e' un ordine vivo, non un ordine che nasce.
+        /// </summary>
+        public bool Placed { get; set; }
     }
 
     /// <summary>
@@ -51,6 +58,27 @@ public class PiootooTradingService : IPiootooTradingService
     /// </summary>
     public bool TrailingPeakIncludesCurrentBar { get; set; } = true;
 
+    /// <summary>
+    /// Scarta un pending il cui livello e' gia' oltrepassato quando l'ordine nasce: uno stop buy
+    /// sotto il prezzo, uno stop sell sopra, e i due casi speculari per il limit.
+    ///
+    /// <para><b>Perche' esiste.</b> Il cBot lo fa gia' (<c>RejectWrongSideLevels</c>, default
+    /// acceso): per lui un livello dal lato sbagliato non e' una condizione di mercato ma un
+    /// difetto di prezzatura, e piazzarlo trasformerebbe il breakout atteso in un market al prezzo
+    /// peggiore. L'engine invece riempiva: <c>Math.Max(bar.Open, livello)</c> apre all'apertura
+    /// della barra, a un prezzo reale ma su un trade che live non esiste. Nel confronto del
+    /// 26/08/2026 erano 53 giornate e 644 scarti nel log del bot, tutte su una sola strategia,
+    /// e valevano 270 punti sui 507 dell'intero run.</para>
+    ///
+    /// <para>Spegnerlo riporta la semantica di TradeStation, dove un ordine "next bar" a un
+    /// livello gia' superato si riempie all'apertura: serve quando si misura la fedelta' del
+    /// porting rispetto al motore di ricerca, non quando si stima cosa fara' il conto vero.</para>
+    /// </summary>
+    public bool RejectWrongSideLevels { get; set; } = true;
+
+    /// <summary>Quanti pending sono stati scartati da <see cref="RejectWrongSideLevels"/>.</summary>
+    public int WrongSideLevelsRejected { get; private set; }
+
     public void Initialize(decimal initialCapital, decimal commissionPerContract = 2.0m)
     {
         _commissionPerContract = commissionPerContract;
@@ -70,6 +98,7 @@ public class PiootooTradingService : IPiootooTradingService
         _pendingOrders.Clear();
         _entriesByDay.Clear();
         _entriesBySession.Clear();
+        WrongSideLevelsRejected = 0;
     }
 
     public TradingSnapshot ProcessSignals(List<TradeSignal> signals, decimal currentPrice, DateTime currentTime)
@@ -199,7 +228,7 @@ public class PiootooTradingService : IPiootooTradingService
             // sui periodi senza barre nel feed la strategia rivaluta l'ultima barra chiusa e
             // riemette un ordine con ValidFromUtc/ExpiresAtUtc già nel passato: eseguirlo
             // significa aprire al livello dello stop, un prezzo a cui nessuno ha scambiato.
-            if (signal.ExpiresAtUtc.HasValue && currentTime > signal.ExpiresAtUtc.Value)
+            if (IsExpired(signal, currentTime))
             {
                 continue;
             }
@@ -241,7 +270,7 @@ public class PiootooTradingService : IPiootooTradingService
 
     private static bool IsSignalActive(TradeSignal signal, DateTime currentTime)
     {
-        if (signal.ExpiresAtUtc.HasValue && currentTime > signal.ExpiresAtUtc.Value)
+        if (IsExpired(signal, currentTime))
         {
             return false;
         }
@@ -309,7 +338,7 @@ public class PiootooTradingService : IPiootooTradingService
             }
 
             var signal = pending.Signal;
-            if (signal.ExpiresAtUtc.HasValue && currentTime > signal.ExpiresAtUtc.Value)
+            if (IsExpired(signal, currentTime))
             {
                 _pendingOrders.Remove(pendingKey);
                 continue;
@@ -328,6 +357,21 @@ public class PiootooTradingService : IPiootooTradingService
 
             currentBars.TryGetValue(NormalizeSymbol(signalSymbol), out var bar);
             currentPrices.TryGetValue(NormalizeSymbol(signalSymbol), out var markPrice);
+
+            // Il livello va giudicato quando l'ordine nasce, cioe' sulla prima barra su cui e'
+            // attivo, e su quella soltanto: dopo, un pending vivo che il mercato raggiunge e'
+            // esattamente cio' che la strategia aspettava. Senza barra non si giudica nulla e la
+            // decisione slitta alla prima barra utile.
+            if (!pending.Placed && bar is not null)
+            {
+                pending.Placed = true;
+                if (RejectWrongSideLevels && IsWrongSideLevel(signal, bar.Open))
+                {
+                    WrongSideLevelsRejected++;
+                    _pendingOrders.Remove(pendingKey);
+                    continue;
+                }
+            }
 
             if (signal.OrderType == TradeOrderType.Stop)
             {
@@ -470,6 +514,58 @@ public class PiootooTradingService : IPiootooTradingService
     private static bool CanExecuteOnBar(TradeSignal signal, OhlcvData bar) =>
         !signal.ValidFromUtc.HasValue ||
         TradingDateTime.ToFeedUtc(bar.DateTime) >= signal.ValidFromUtc.Value;
+
+    /// <summary>
+    /// Se l'ordine ha finito la propria barra.
+    ///
+    /// <para><c>ExpiresAtUtc</c> e' l'INIZIO dell'ultima barra su cui l'ordine vive, non un
+    /// istante: un "next bar" nasce con <c>ValidFromUtc == ExpiresAtUtc</c> e vale per tutta la
+    /// barra che comincia li'. Chi lo esegue gira pero' all'orologio del portafoglio, che e' il
+    /// timeframe <i>minimo</i>: confrontare i due istanti faceva morire l'ordine di una strategia
+    /// a 60 minuti dopo il primo tick da 30, cioe' dopo meta' della propria barra. Con il
+    /// timeframe dichiarato dal segnale l'ordine vive quanto vive sul broker; senza, si ricade
+    /// sul confronto di prima, che per le strategie al timeframe minimo da' lo stesso risultato.</para>
+    /// </summary>
+    private static bool IsExpired(TradeSignal signal, DateTime currentTime)
+    {
+        if (!signal.ExpiresAtUtc.HasValue)
+        {
+            return false;
+        }
+
+        return signal.TimeframeMinutes is > 0
+            ? currentTime >= signal.ExpiresAtUtc.Value.AddMinutes(signal.TimeframeMinutes.Value)
+            : currentTime > signal.ExpiresAtUtc.Value;
+    }
+
+    /// <summary>
+    /// Se il livello del pending e' gia' dalla parte sbagliata del mercato nel momento in cui
+    /// l'ordine nasce. Il riferimento e' l'apertura della barra, che nell'engine e' l'equivalente
+    /// del Bid/Ask con cui il cBot fa lo stesso controllo: qui non c'e' spread.
+    /// </summary>
+    private static bool IsWrongSideLevel(TradeSignal signal, decimal open)
+    {
+        if (signal.Price <= 0m)
+        {
+            return false;
+        }
+
+        // Disuguaglianza STRETTA: un livello esattamente sull'apertura non e' "gia' superato", e'
+        // il breakout che comincia li'. Il fill sarebbe comunque l'apertura — Math.Max(open,
+        // livello) coincide — quindi non c'e' nessun prezzo inventato da cui difendersi, e
+        // scartarlo toglierebbe trade sani. Il cBot fa il confronto sul tick e su un mercato vero
+        // il pareggio esatto non capita; qui capita, perche' l'apertura e' un solo numero.
+        return signal.OrderType switch
+        {
+            TradeOrderType.Stop => signal.Type == SignalType.Buy
+                ? signal.Price < open
+                : signal.Price > open,
+            TradeOrderType.Limit => signal.Type == SignalType.Buy
+                ? signal.Price > open
+                : signal.Price < open,
+            _ => false
+        };
+    }
 
     private static decimal ResolveFillPrice(TradeSignal signal, OhlcvData? bar, decimal markPrice)
     {
@@ -767,6 +863,7 @@ public class PiootooTradingService : IPiootooTradingService
         _pendingOrders.Clear();
         _entriesByDay.Clear();
         _entriesBySession.Clear();
+        WrongSideLevelsRejected = 0;
     }
 
     private void OpenPosition(string positionKey, string strategyName, string strategyCode, string symbol, SignalType direction, decimal entryPrice, DateTime entryTime, decimal quantity, decimal? stopLoss, decimal? takeProfit, decimal? breakEven = null, decimal? trailingStop = null, int? maxBarsInPosition = null, DateTime? closeAtUtc = null, string? reason = null, decimal? timeExitOnlyIfProfitBelow = null, DateTime? profitStallAfterUtc = null)

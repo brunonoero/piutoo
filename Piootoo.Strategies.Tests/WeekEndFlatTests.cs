@@ -31,6 +31,13 @@ public class WeekEndFlatTests
         var service = new PiootooTradingService();
         service.Initialize(100_000m, commissionPerContract: 0m);
 
+        // Il filtro sul lato del livello scarterebbe da solo il fill sul gap — l'apertura del
+        // lunedi' e' oltre lo stop — e nasconderebbe cio' che questo test deve dimostrare: che il
+        // pericolo esiste e che a difenderne e' la CANCELLAZIONE, non il filtro. Il filtro e' la
+        // seconda rete, e chi porta il profilo sorgente non ce l'ha: vedi
+        // TheWeekEndFlatIsTheDefenceEvenWithTheWrongSideFilterOn, sotto.
+        service.RejectWrongSideLevels = false;
+
         service.ProcessSignals(
             [FridayStopEntry()],
             Prices(16_000m),
@@ -66,6 +73,34 @@ public class WeekEndFlatTests
         Assert.Equal(16_100m, position!.EntryPrice);
     }
 
+    /// <summary>
+    /// Col filtro acceso — il default, allineato al cBot — il fill sul gap di riapertura non
+    /// avviene comunque: l'apertura del lunedi' e' gia' oltre lo stop, e un livello scavalcato non
+    /// si piazza. Non rende superflua la cancellazione, la raddoppia.
+    /// </summary>
+    [Fact]
+    public void TheWeekEndFlatIsTheDefenceEvenWithTheWrongSideFilterOn()
+    {
+        var service = new PiootooTradingService();
+        service.Initialize(100_000m, commissionPerContract: 0m);
+        Assert.True(service.RejectWrongSideLevels);
+
+        service.ProcessSignals(
+            [FridayStopEntry()],
+            Prices(16_000m),
+            Bars(FridayLastBar, open: 16_000m, high: 16_005m, low: 15_990m, close: 16_000m),
+            FridayLastBar);
+        Assert.Equal(1, service.PendingOrdersCount);
+
+        service.UpdateMarketPrices(
+            Prices(16_120m),
+            Bars(MondayFirstBar, open: 16_100m, high: 16_130m, low: 16_095m, close: 16_120m),
+            MondayFirstBar);
+
+        Assert.Null(service.GetExecutionSnapshot(Code, "NQ", MondayFirstBar).Position);
+        Assert.Equal(1, service.WrongSideLevelsRejected);
+    }
+
     [Fact]
     public void TheWeekEndCloseLeavesNeitherPositionsNorOrders()
     {
@@ -96,6 +131,50 @@ public class WeekEndFlatTests
         // Il motivo di uscita distingue in analisi la chiusura tecnica da un'uscita di strategia.
         var trade = Assert.Single(service.GetClosedTrades());
         Assert.Equal(TradeExitReason.WeekEnd, trade.ExitReason);
+    }
+
+    /// <summary>
+    /// L'orario di flat e' un NUMERO DICHIARATO, non l'ultimo slot dell'orologio prima di sabato.
+    ///
+    /// <para>Era proprio quello il difetto: il backtest chiudeva sull'ultima iterazione della
+    /// settimana — venerdi' 23:30 con timeframe minimo a 30 minuti, tutto l'anno — mentre il conto
+    /// vero e' piatto dalle 20:45. Due ore e tre quarti di venerdi' su quasi meta' dei trade.</para>
+    /// </summary>
+    [Theory]
+    // Venerdi': prima dell'orario si opera, dall'orario in poi no.
+    [InlineData(2024, 1, 5, 20, 30, false)]
+    [InlineData(2024, 1, 5, 20, 45, true)]
+    [InlineData(2024, 1, 5, 21, 0, true)]
+    [InlineData(2024, 1, 5, 23, 30, true)]
+    // Sabato sempre dentro; domenica fino alla riapertura.
+    [InlineData(2024, 1, 6, 12, 0, true)]
+    [InlineData(2024, 1, 7, 22, 59, true)]
+    [InlineData(2024, 1, 7, 23, 0, false)]
+    // Giorni feriali: mai.
+    [InlineData(2024, 1, 4, 23, 30, false)]
+    public void LaFinestraDiFlat_SegueLOrarioDichiarato(
+        int year, int month, int day, int hour, int minute, bool dentro)
+    {
+        var policy = WeekEndFlatPolicy.Default;
+        Assert.Equal(2045, policy.FromUtcHhmm);
+        Assert.Equal(dentro, policy.IsInsideWindow(new DateTime(year, month, day, hour, minute, 0, DateTimeKind.Utc)));
+    }
+
+    /// <summary>
+    /// Il flat scatta una volta sola, sulla prima barra dentro la finestra: e' cosi' che il
+    /// backtest chiude una volta e non a ogni barra del fine settimana.
+    /// </summary>
+    [Fact]
+    public void IlFlatScattaUnaVoltaSola_SullaPrimaBarraUtile()
+    {
+        var policy = WeekEndFlatPolicy.Default;
+        var venerdi2030 = new DateTime(2024, 1, 5, 20, 30, 0, DateTimeKind.Utc);
+
+        // Orologio a 30 minuti: 20:45 non e' un tick, quindi scatta alle 21:00 — la prima barra
+        // che il feed offre dopo l'orario, come farebbe il cBot sullo stesso grafico.
+        Assert.True(policy.IsFlatTrigger(venerdi2030.AddMinutes(30), venerdi2030));
+        Assert.False(policy.IsFlatTrigger(venerdi2030.AddMinutes(60), venerdi2030.AddMinutes(30)));
+        Assert.False(policy.IsFlatTrigger(venerdi2030, venerdi2030.AddMinutes(-30)));
     }
 
     private static TradeSignal FridayStopEntry(SignalType type = SignalType.Buy, decimal price = 16_050m) => new()

@@ -88,6 +88,7 @@ public sealed class TradingPlanService
                 ApplyTitanoFilters = primary.ApplyTitanoFilters,
                 EnforceConcurrencyLimits = request.EnforceConcurrencyLimits,
                 CommissionPerContract = request.CommissionPerContract,
+                WeekEndFlat = request.WeekEndFlat ?? WeekEndFlatPolicy.Default,
                 PositionSizing = request.PositionSizing,
                 CreatedUtc = existing?.CreatedUtc ?? now,
                 UpdatedUtc = now
@@ -240,6 +241,7 @@ public sealed class TradingPlanService
             ApplyTitanoFilters = primary.ApplyTitanoFilters,
             EnforceConcurrencyLimits = plan.EnforceConcurrencyLimits,
             CommissionPerContract = plan.CommissionPerContract,
+            WeekEndFlat = plan.WeekEndFlat ?? WeekEndFlatPolicy.Default,
             PositionSizing = plan.PositionSizing,
             CreatedUtc = plan.CreatedUtc,
             UpdatedUtc = plan.UpdatedUtc

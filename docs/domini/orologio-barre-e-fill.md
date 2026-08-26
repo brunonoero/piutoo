@@ -77,6 +77,53 @@ che evita di dover ripetere il controllo in ogni ramo di esecuzione.
 Le uscite tecniche — `WeekEnd`, `EndOfRun` — restano legittimamente senza barra
 corrispondente: non sono fill di mercato ma chiusure forzate al prezzo di mark.
 
+## Quanto vive un pending, e su quale barra
+
+`ExpiresAtUtc` è **l'inizio dell'ultima barra su cui l'ordine vive, non un
+istante**. Un "next bar" nasce con `ValidFromUtc == ExpiresAtUtc` e vale per
+tutta la barra che comincia lì: sul broker si vede come `Create` a T e `Cancel`
+a T + timeframe.
+
+L'orologio del backtest è però il timeframe **minimo** del portafoglio, e
+`currentBars` tiene **una sola barra per simbolo**, quella della serie più fitta
+(`markCursors` sceglie il timeframe più piccolo). Confrontare `ExpiresAtUtc` con
+il tick corrente faceva quindi morire l'ordine di una strategia a 60 minuti dopo
+il primo tick da 30: metà del suo range non veniva mai guardata. Per questo il
+segnale dichiara `TimeframeMinutes` e la scadenza si misura su
+`ExpiresAtUtc + TimeframeMinutes`; senza il campo si ricade sul confronto di
+prima, che per le strategie al timeframe minimo dà lo stesso risultato.
+
+L'effetto è più forte sui **limit**, che chiedono penetrazione stretta
+(`bar.Low < livello`) e non il solo tocco: dimezzare la finestra dimezza le
+occasioni. Nel confronto del 26/08/2026 le due strategie a limite a 60 minuti
+avevano 29 fill interni contro 69 esterni, e il **54%** dei fill del broker
+cadeva nella seconda mezz'ora dell'ora — esattamente la metà invisibile.
+
+## Un livello già scavalcato non è un ordine
+
+Uno stop buy sotto il prezzo corrente non è più il breakout che la strategia
+aspettava: è un market al peggiore dei due prezzi. Il cBot lo scarta al
+piazzamento (`RejectWrongSideLevels`, acceso di default) e il motivo compare nel
+log come *livello … dal lato sbagliato*; l'engine interno invece riempiva, con
+`Math.Max(bar.Open, livello)` — un prezzo reale, ma su un trade che nel conto
+vero non esiste.
+
+`PiootooTradingService.RejectWrongSideLevels`, anch'esso acceso di default,
+allinea i due. La verifica avviene **una volta sola**, sulla prima barra su cui
+l'ordine è attivo, perché è lì che l'ordine "nasce": dalla seconda in poi un
+pending vivo che il mercato raggiunge è ciò che la strategia voleva. Il confronto
+è con l'apertura della barra e usa la disuguaglianza **stretta**: un livello
+esattamente sull'apertura è il breakout che comincia lì, il fill sarebbe comunque
+l'apertura, e scartarlo toglierebbe trade sani.
+
+Spegnerlo riporta la semantica di TradeStation — dove un ordine "next bar" a un
+livello già superato si riempie all'apertura — e serve solo a misurare la fedeltà
+del porting rispetto al motore di ricerca, non a stimare cosa farà il conto vero.
+Il contatore finisce nel `backtest-log.jsonl` come `wrongSideLevelsRejected`: un
+numero alto non è un difetto, è la misura di quanti ingressi il backtest avrebbe
+preso e il broker no. Se è zero mentre il log del cBot scarta, i due non stanno
+guardando lo stesso mercato.
+
 ## Evidenza — PTS_NQ_PCH_001_15, 2026-08-02
 
 Due run sullo stesso workspace `pts`, feed `NQ` 15m che copre

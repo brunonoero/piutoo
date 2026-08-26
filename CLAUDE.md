@@ -115,6 +115,24 @@ sbaglia più spesso:
  **non** per riempire un ordine, e un intent scaduto si scarta invece di eseguirsi
  al proprio livello: è così che nascono i fill fantasma. Vedi
  `docs/domini/orologio-barre-e-fill.md`.
+- **Un pending vive la PROPRIA barra, non un tick dell'orologio.** `ExpiresAtUtc`
+ e' l'inizio dell'ultima barra su cui l'ordine e' valido: la scadenza si misura su
+ `ExpiresAtUtc + TimeframeMinutes` del segnale. Il loop gira al timeframe *minimo* del
+ portafoglio e `currentBars` tiene una sola barra per simbolo — la piu' fitta — quindi
+ confrontare i due istanti fa morire l'ordine di una strategia a 60 minuti dopo mezz'ora,
+ e gli fa vedere meta' del proprio range. Vedi
+ `docs/domini/orologio-barre-e-fill.md`.
+- **Un livello gia' scavalcato non e' un ordine.** Uno stop buy sotto il prezzo si
+ riempirebbe all'apertura, ma il cBot lo scarta al piazzamento
+ (`RejectWrongSideLevels`) e quel trade nel conto vero non esiste. L'engine interno ha
+ lo stesso filtro, acceso di default: spegnerlo serve solo a misurare la fedelta' del
+ porting rispetto al motore di ricerca.
+- **L'orario di flat del fine settimana e' un numero solo, ed e' del server.**
+ `WeekEndFlatPolicy` sta sul `TradingPlan`, scende nella sessione, esce nel descriptor e
+ lo eseguono i cBot; la stessa `BacktestingRequest` lo riceve. Il flat *come regola di
+ sicurezza* resta nel bot — deve tenere a server muto — ma il numero no: quando viveva
+ solo li', il backtest ne usava un altro (l'ultimo slot prima di sabato, le 23:30 contro
+ le 20:45) e i due run non erano confrontabili.
 - **Il server decide *cosa*, il broker decide *se e a che prezzo*.** Non
   assumere mai un fill.
 

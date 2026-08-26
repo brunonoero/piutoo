@@ -155,6 +155,7 @@ public abstract class BiasWeeklyEngine : EasyEngineBase
             OrderType = TradeOrderType.Market,
             ValidFromUtc = barTime,
             ExpiresAtUtc = barTime,
+            TimeframeMinutes = TimeframeMinutes,
             Reason = side == SignalType.Buy ? "LE_BIASW" : "SE_BIASW"
         };
 

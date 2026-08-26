@@ -1773,3 +1773,49 @@ abbiamo e romperebbe quello che oggi funziona.
   `trades.json`**, con i soli claim a crollare; se cambiano anche le push, non è la guardia ad aver
   agito, è il run a essere diverso. Lo stesso parametro è la via di ritorno se un giorno saltasse
   fuori un caso non previsto, senza ricompilare.
+
+- **2026-08-26** — **Backtest interno e conto vero cTrader facevano trade diversi.** Sul
+  confronto in `piootoo-repository/compare/compare-0002` (GC/XAUUSD, 2022–2023, quattro
+  strategie) i due sistemi coincidevano solo sul **40%** dei trade: 97 dei 166 interni non
+  esistevano nell'esterno, 107 dei 176 esterni non esistevano nell'interno, e il risultato
+  era +507 punti contro −5,5. La differenza di feed — future back-adjusted contro CFD spot,
+  basis da 377 a 325 punti in due anni — **non c'entrava**: sui trade che i due sistemi
+  fanno davvero uguali lo scarto mediano fra i livelli di trigger è 0,53 punti. Erano tre
+  difetti di esecuzione, corretti insieme.
+
+  1. **Gli ordini di una strategia a 60 minuti vivevano mezz'ora.** L'orologio del backtest
+     è il timeframe minimo del portafoglio (30, per via di una strategia a 30) e
+     `currentBars` tiene una sola barra per simbolo, la più fitta; `ExpiresAtUtc` veniva
+     confrontato con il tick corrente, quindi il pending moriva dopo il primo tick da 30 e
+     metà del suo range non veniva mai guardata. Il segnale dichiara ora `TimeframeMinutes`
+     e la scadenza è `ExpiresAtUtc + TimeframeMinutes`. Misura: le due strategie a limite a
+     60 minuti avevano 29 fill interni contro 69 del broker, e il 54% dei fill del broker
+     cade nella seconda mezz'ora dell'ora. Dettagli in
+     [`domini/orologio-barre-e-fill.md`](domini/orologio-barre-e-fill.md).
+
+  2. **Il backtest riempiva livelli che il cBot non piazza.** Uno stop buy già sotto il
+     prezzo si riempiva a `Math.Max(bar.Open, livello)`, mentre il bot lo scarta da sempre
+     (`RejectWrongSideLevels`): nel log erano **644 scarti su 53 giornate**, tutti di una
+     sola strategia, e corrispondevano esattamente ai 53 trade TFU che l'interno aveva e
+     l'esterno no — 270 punti sui 507 dell'intero run. `PiootooTradingService` ha ora lo
+     stesso filtro, acceso di default, con verifica una volta sola alla nascita dell'ordine
+     e disuguaglianza stretta sull'apertura. Spegnerlo (`RejectWrongSideLevels` nella
+     `BacktestingRequest`) riporta la semantica TradeStation e serve solo alla misura di
+     fedeltà del porting.
+
+  3. **L'orario di flat del fine settimana è del server.** Il cBot flatta venerdì alle
+     20:45 UTC; il backtest non aveva alcun orario e chiudeva sull'ultimo slot del proprio
+     orologio sintetico prima di sabato — **venerdì 23:30**, tutto l'anno. Due ore e tre
+     quarti di venerdì in più su 74 trade su 166. Il numero vive ora in `WeekEndFlatPolicy`
+     (`TradingConventions`), sta sul `TradingPlan`, scende nella sessione, viene pubblicato
+     nel descriptor e i due cBot lo usano al posto del proprio parametro, che resta come
+     rete per server irraggiungibile o versione vecchia. La regola di sicurezza resta nel
+     bot — deve tenere anche a server muto — ma il *numero* no: una regola che uno solo dei
+     due motori conosce garantisce divergenza.
+
+  Restano fuori, di proposito, le differenze di contabilità che l'engine interno non
+  pretende di riprodurre: valuta di conto (l'interno lavora a 100 USD per punto, il conto è
+  in euro e il valore punto oscilla fra 87 e 90 con l'EURUSD), commissione (4 contro 9,65
+  medi) e swap. Valgono circa il 13% dello scarto e non spiegano il segno. Resta anche lo
+  slippage sugli stop, che il conto vero paga e il backtest no: −20,01 punti medi contro
+  −18,42, circa 1,5 punti per stop.
