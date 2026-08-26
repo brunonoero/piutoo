@@ -1737,3 +1737,39 @@ abbiamo e romperebbe quello che oggi funziona.
   `EnforceBracketOco` lo rileva, stampa `OCO CEDUTO` e scrive l'evento `oco/ceduto` nel log JSON: un
   OCO che ha ceduto in silenzio sarebbe indistinguibile da uno che ha tenuto, ed è esattamente il tipo
   di silenzio che ha lasciato passare inosservata la divergenza di TFU per mesi.
+
+- **2026-08-26** — **Il poll a timer non gira più in backtest, se non c'è un motivo locale.**
+  `OnTimer` reclamava un segnale a ogni battito (`PollingSeconds`, default 2). In live è una
+  chiamata ogni 2 secondi di tempo reale; in backtest il timer batte sull'orologio **simulato**,
+  quindi su un run di un anno scatta nell'ordine del milione di volte contro le ~35.000 push di
+  barre. È il grosso del traffico HTTP di un backtest esterno, e quasi tutto per sentirsi dire
+  "nessun intent".
+
+  La guardia (`ShouldPollOnTimer`) non è un'euristica di risparmio: in backtest l'esito di quel
+  claim è **deducibile**. I template nascono solo dalla valutazione di una barra; l'orologio del
+  server è l'ultima barra valutata e `PurgeExpiredTemplates` gira sulla stessa valutazione, quindi
+  fra due push nessun template nasce e nessuno scade; e in backtest il bot è l'unico attore della
+  sessione. L'unica cosa che può far passare un claim da "no" a "sì" senza barre nuove è lo stato
+  del broker che il claim stesso trasporta — un tetto di concorrenza che si libera, un ingresso
+  della stessa strategia che smette di essere "in volo" — cioè un evento locale:
+  `Positions.Closed` e ogni execution report alzano `_claimRetryPending`, e solo allora si polla.
+  Il numero di claim passa da "quanti secondi simulati dura il run" a "quante barre e quante
+  esecuzioni ha il run".
+
+  **In live non cambia nulla**, di proposito: lì il timer è l'unico canale che scopre i template
+  nati dalla push del bot di un altro account, ed è la prima chiamata che si accorge del server
+  tornato su (`TryReopenSession` vive nel percorso del poll). Su uno stream a 60 minuti toglierlo
+  vorrebbe dire riagganciarsi un'ora dopo.
+
+  Il timer **resta acceso anche in backtest**: `EnforceWeekEndFlat` e `CloseExpiredPositions` sono
+  lavoro locale senza rete, e girano sulla stessa cadenza di prima. Spostarli su barra o su tick
+  avrebbe cambiato quando scattano — il flat di venerdì con soli ordini pendenti e nessuna
+  posizione aperta non ha un tick che lo svegli, perché `OnSymbolTick` esce subito se non c'è
+  niente da proteggere — ed è un cambio di comportamento che questa voce non vuole fare.
+
+  Verifica: `OnStop` stampa push e claim del run, e il parametro *Poll a timer anche in backtest*
+  rimette il comportamento della 3.8.0 — così l'A/B si fa con lo stesso binario, stesso run due
+  volte, un solo parametro diverso. Devono risultare lo **stesso numero di push** e lo **stesso
+  `trades.json`**, con i soli claim a crollare; se cambiano anche le push, non è la guardia ad aver
+  agito, è il run a essere diverso. Lo stesso parametro è la via di ritorno se un giorno saltasse
+  fuori un caso non previsto, senza ricompilare.

@@ -31,7 +31,11 @@ namespace cAlgo.Robots
     ///    buco permanente. Il server accoda solo le candele che non ha, quindi la sovrapposizione non
     ///    duplica niente e ricuce da sola fino a 19 barre consecutive perse; oltre, rifiuta la finestra
     ///    invece di accodare una serie bucata;
-    ///  - fa polling periodico chiedendo al server "qual è il prossimo segnale per il MIO account";
+    ///  - fa polling periodico chiedendo al server "qual è il prossimo segnale per il MIO account". In
+    ///    live a ogni battito del timer, perché è l'unico canale che scopre i template nati dalla push
+    ///    del bot di un altro account e la prima chiamata che si accorge del server tornato su; in
+    ///    backtest solo dopo una push che dichiara qualcosa da consegnare, o dopo un evento locale che
+    ///    può aver liberato un lucchetto (vedi <c>ShouldPollOnTimer</c>);
     ///  - apre e chiude posizioni su QUALSIASI simbolo configurato (non solo quello del grafico);
     ///  - ogni posizione e ogni ordine porta una label <c>PiootooLive:{StrategyCode}:{IntentId}</c>: dal
     ///    solo stato della piattaforma si risale sempre al segnale che li ha creati, anche dopo un
@@ -231,7 +235,7 @@ namespace cAlgo.Robots
         // della solution — quindi la sincronia e' manuale e non c'e' niente che la verifichi.
         // Il disallineamento non blocca nulla: entrambi stampano la propria versione all'avvio, e
         // il confronto si fa leggendo i due log.
-        private const string BotVersion = "3.8.0"; // aggiornare qui E in PiootooVersion, ad ogni release
+        private const string BotVersion = "3.9.0"; // aggiornare qui E in PiootooVersion, ad ogni release
         private const string StatusChartObjectName = "PiootooConnectionStatus";
 
         // Riquadro rosso al centro del grafico, separato dal pannello di stato: e' l'errore fatale
@@ -260,6 +264,14 @@ namespace cAlgo.Robots
 
         [Parameter("Polling segnali (secondi)", DefaultValue = 2, MinValue = 1)]
         public int PollingSeconds { get; set; }
+
+        // Interruttore di confronto, non di taratura: rimette il poll a ogni battito del timer anche
+        // in backtest, cioe' il comportamento fino alla 3.8.0. Serve a poter fare A/B con lo STESSO
+        // binario — stesso run due volte, un solo parametro diverso, e trades.json a confronto — e a
+        // riavere il vecchio comportamento senza ricompilare se un giorno saltasse fuori un caso che
+        // ShouldPollOnTimer non prevede. In live non ha alcun effetto: li' il poll a timer c'e' sempre.
+        [Parameter("Poll a timer anche in backtest", DefaultValue = false)]
+        public bool PollOnTimerInBacktest { get; set; }
 
         [Parameter("Max Entry Slippage (Pips)", DefaultValue = 5.0, MinValue = 0)]
         public double MaxEntrySlippagePips { get; set; }
@@ -384,6 +396,20 @@ namespace cAlgo.Robots
 
         /// <summary>Poll saltati grazie alla guardia, per poterne stampare il totale allo stop.</summary>
         private long _skippedPolls;
+
+        /// <summary>
+        /// Un evento locale ha reso il lucchetto piu' largo di quanto fosse all'ultimo claim andato a
+        /// vuoto: una posizione chiusa (slot di concorrenza libero, ingresso della strategia non piu'
+        /// "in volo") o un execution report che assesta un intent lato server.
+        ///
+        /// <para>E' la sola cosa che, in backtest, puo' far passare un claim da "no" a "si'" senza che
+        /// sia arrivata una barra nuova: vedi <see cref="ShouldPollOnTimer"/>.</para>
+        /// </summary>
+        private bool _claimRetryPending;
+
+        /// <summary>Chiamate HTTP per endpoint, per misurare il traffico di un run allo stop.</summary>
+        private long _pushCalls;
+        private long _pollCalls;
         private string _localStatePath;
         private string _jsonLogPath;
 
@@ -1626,7 +1652,8 @@ namespace cAlgo.Robots
             if (EnforceWeekEndFlat())
                 return;
 
-            PollNextSignal();
+            if (ShouldPollOnTimer())
+                PollNextSignal();
 
             // Le uscite a tempo non possono più appoggiarsi alla barra del grafico: senza questo
             // controllo periodico, su un piano di soli stream lenti CloseAtUtc verrebbe valutato una
@@ -1697,6 +1724,12 @@ namespace cAlgo.Robots
             // c'e' stato, e nemmeno se la guardia sta invece tacendo qualcosa che andava reclamato.
             if (_skippedPolls > 0)
                 Print("Poll saltati perche' il server non aveva nulla da consegnare: {0}.", _skippedPolls);
+
+            // Il traffico del run in due numeri. Serve a rendere confrontabili due backtest identici:
+            // le push devono restare le stesse (una per barra per stream), i poll devono crollare, e
+            // trades.json deve essere lo stesso file. Se i poll crollano ma le push cambiano, non e'
+            // la guardia che ha funzionato: e' il run che e' diverso.
+            Print("Chiamate al server: {0} push di barre, {1} claim.", _pushCalls, _pollCalls);
 
             PrintSpreadSummary();
             PrintTradeSummary();
@@ -1865,6 +1898,7 @@ namespace cAlgo.Robots
                     Windows = new[] { window }
                 };
 
+                _pushCalls++;
                 var response = PostJson($"api/v1/trading-sessions/{_sessionId}/bars/window", request);
                 if (!response.IsSuccessStatusCode)
                 {
@@ -2026,6 +2060,54 @@ namespace cAlgo.Robots
         }
 
         /// <summary>
+        /// Vale la pena reclamare al battito del timer?
+        ///
+        /// <para><b>In live si', sempre.</b> Il timer e' l'unico canale che scopre i template nati
+        /// dalla push del bot di un ALTRO account, ed e' anche la prima chiamata che si accorge che il
+        /// server e' tornato su dopo un'interruzione (<c>TryReopenSession</c> vive nel percorso del
+        /// poll). Su uno stream a 60 minuti toglierlo vorrebbe dire riagganciarsi un'ora dopo. Costa
+        /// una chiamata ogni <c>PollingSeconds</c> di tempo reale: niente.</para>
+        ///
+        /// <para><b>In backtest quasi mai</b>, e non per risparmiare: perche' l'esito e' gia' noto. Il
+        /// timer li' batte sull'orologio SIMULATO, quindi su un run di un anno scatta milioni di volte
+        /// contro le decine di migliaia di barre — ed e' quasi tutto traffico che non puo' scoprire
+        /// niente. Tre proprieta' del server lo rendono deducibile senza chiederglielo:</para>
+        /// <list type="number">
+        ///   <item>i template nascono solo dalla valutazione di una barra, cioe' da una push;</item>
+        ///   <item>l'orologio del server e' l'ultima barra valutata, non l'ora di sistema, e
+        ///   <c>PurgeExpiredTemplates</c> gira sulla stessa valutazione: fra due push nessun template
+        ///   nasce e nessuno scade;</item>
+        ///   <item>in backtest questo bot e' l'unico attore della sessione: nessun altro account
+        ///   reclama, riporta o spinge barre.</item>
+        /// </list>
+        /// <para>Resta un solo modo per cui un claim rifiutato diventerebbe accettabile senza barre
+        /// nuove: lo stato del broker che il claim stesso trasporta. Un tetto di concorrenza pieno che
+        /// si libera, un ingresso della stessa strategia che smette di essere "in volo". Sono eventi
+        /// locali, e <see cref="_claimRetryPending"/> li registra: solo allora si polla. Il numero di
+        /// poll passa cosi' da "quanti secondi simulati dura il run" a "quante barre ha il run".</para>
+        ///
+        /// <para>Il verso dell'errore resta quello di <see cref="ShouldPollAfterPush"/>: se il server
+        /// non ha dichiarato il conteggio (<c>null</c>) si polla, perche' un poll a vuoto costa una
+        /// chiamata e un poll saltato a torto costa un segnale.</para>
+        /// </summary>
+        private bool ShouldPollOnTimer()
+        {
+            if (!IsBacktesting || PollOnTimerInBacktest)
+                return true;
+
+            if (_lastPushClaimable is null)
+                return true;
+
+            if (_lastPushClaimable is 0 || !_claimRetryPending)
+            {
+                _skippedPolls++;
+                return false;
+            }
+
+            return true;
+        }
+
+        /// <summary>
         /// Reclama i segnali disponibili per questo account.
         ///
         /// <para>Il claim consegna UN intent per chiamata: e' un protocollo pull, e ogni giro passa
@@ -2042,6 +2124,12 @@ namespace cAlgo.Robots
         /// </summary>
         private void PollNextSignal()
         {
+            // Lo stato del broker che ha motivato il tentativo sta per essere offerto al server: da qui
+            // in poi il retry va rimeritato da un evento nuovo. Azzerato PRIMA e non dopo, perche' le
+            // chiusure che scattano durante il drenaggio arrivano dai callback della piattaforma sullo
+            // stesso thread, e devono poter rialzare la bandiera per il giro successivo.
+            _claimRetryPending = false;
+
             if (_enforceConcurrency)
             {
                 PollNextSignalOnce();
@@ -2065,6 +2153,7 @@ namespace cAlgo.Robots
         /// </summary>
         private bool PollNextSignalOnce()
         {
+            _pollCalls++;
             try
             {
                 var historyFromUtc = Server.TimeInUtc.AddDays(-Math.Max(1, HistoryWindowDays));
@@ -3033,6 +3122,12 @@ namespace cAlgo.Robots
             var position = args.Position;
             if (!_openPositions.TryGetValue(position.Id, out var ctx))
                 return; // posizione non aperta da questo bot: ignorata
+
+            // Uno slot di concorrenza si e' liberato e la strategia non ha piu' un ingresso "in volo"
+            // su quel simbolo: e' l'unico modo in cui, senza barre nuove, un template gia' rifiutato
+            // diventa reclamabile. Vedi ShouldPollOnTimer.
+            _claimRetryPending = true;
+
             _openPositions.Remove(position.Id);
             _peakProfitAfterStall.Remove(position.Id);
             SaveLocalState();
@@ -3120,6 +3215,14 @@ namespace cAlgo.Robots
             decimal? fillPrice, string externalOrderId = null, decimal commission = 0,
             decimal? spreadAtFill = null, decimal swap = 0)
         {
+            // Un report assesta un intent lato server, e un intent assestato libera i lucchetti che
+            // teneva occupati: e' uno dei due eventi che rendono sensato riprovare un claim senza
+            // aspettare una barra nuova (l'altro e' la chiusura di una posizione). La bandiera si alza
+            // per QUALUNQUE esito, anche per un fill di ingresso che i lucchetti li stringe: sbagliare
+            // in questo verso costa un poll in piu' per esecuzione — un numero legato ai trade del run,
+            // non ai secondi simulati — mentre dimenticarne uno costerebbe un segnale.
+            _claimRetryPending = true;
+
             try
             {
                 var request = new ExecutionReportRequestDto
