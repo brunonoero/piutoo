@@ -180,6 +180,13 @@ namespace cAlgo.Robots
         /// </summary>
         private const int MaxSignalsPerDrain = 200;
 
+        // 3.9.0 (26/08/2026) — solo lato server, il bot non cambia: il poll riconcilia le posizioni
+        // aperte con lo snapshot che il bot manda, e quello che il broker non elenca piu' viene
+        // tolto dai registri. Prima una chiusura non riportata — stop loss nativo, evento perso,
+        // chiamata fallita — lasciava una posizione fantasma e la strategia non apriva piu' niente
+        // per il resto del run. Resta da chiudere il lato bot: CloseExpiredPositions scarta dal
+        // registro locale le posizioni gia' sparite da Positions senza riportarle a nessuno.
+        //
         // 2.4.1 (15/08/2026) — via l'estensione dei pending identici (2.3.0) e l'attesa prima del
         // ritiro (2.3.1), con i loro due parametri. Il ritiro degli ordini scaduti torna a essere la
         // PRIMA cosa della barra: chiusura, push, richiesta dei segnali nuovi. Non e' una preferenza
@@ -231,7 +238,7 @@ namespace cAlgo.Robots
         // della solution — quindi la sincronia e' manuale e non c'e' niente che la verifichi.
         // Il disallineamento non blocca nulla: entrambi stampano la propria versione all'avvio, e
         // il confronto si fa leggendo i due log.
-        private const string BotVersion = "3.8.0"; // aggiornare qui E in PiootooVersion, ad ogni release
+        private const string BotVersion = "3.9.0"; // aggiornare qui E in PiootooVersion, ad ogni release
         private const string StatusChartObjectName = "PiootooConnectionStatus";
 
         // Riquadro rosso al centro del grafico, separato dal pannello di stato: e' l'errore fatale

@@ -1694,3 +1694,41 @@ abbiamo e romperebbe quello che oggi funziona.
   La diagnosi è stata confronto fra i tre `deps.json` prodotti (Debug: `runtimeTargets`; build
   RID-specifico: `native`; publish: **oggetto vuoto**), e la causa è stata dimostrata riproducendo
   lo stesso identico messaggio d'errore in un progetto probe pubblicato nei due modi.
+
+- **2026-08-26** — **Una posizione chiusa dal broker e non riportata dal client bloccava la
+  strategia per il resto del run.** `AccountHasEntryInFlight` legge da `ExternalPositions` ed è un
+  lucchetto sempre attivo: se una chiusura non arriva mai al server, la voce resta lì e quella
+  coppia (strategia, simbolo) non apre più niente. Le chiusure decise dal server o dal client
+  passano da un intent e vengono riportate; quelle decise dal **broker** — stop loss nativo, stop
+  out, chiusura manuale — non passano da nessun intent, e se il client non riesce a registrarle
+  sono perse in silenzio.
+
+  Dimostrato sul run GC del 2014 (sessione `a62e9342…`, XAUUSD su cTrader) confrontando il log
+  eventi del broker con `trades.json`: 22 posizioni chiuse sul broker, 19 sul server, e le 3
+  mancanti sono **esattamente e solo** quelle chiuse con `Stop Loss Hit`. Siccome uno stop loss è
+  sempre una perdita, il report scartava solo perdite: il server dichiarava +6 462 su una sessione
+  che aveva chiuso a −341 (capitale netto 99 232,71 su 100 000). Le tre strategie che hanno preso
+  uno stop sono mute da quel momento in poi — TFU dal 12/03, RHL_002 dal 15/04, PCH dal 25/04 — e
+  l'unica che non ne ha mai preso uno, RHL_001, è l'unica arrivata viva a fine sessione.
+
+  Il poll (`PollSignalForAccount`) ora riconcilia `ExternalPositions` con lo snapshot di posizioni
+  aperte che il cBot manda a ogni richiesta, **prima** di ogni altro filtro. Una posizione entra nel
+  raggio della riconciliazione solo dopo essere comparsa almeno una volta nello snapshot
+  (`BrokerConfirmedPositions`), altrimenti il poll che arriva fra il report di fill e la
+  registrazione sulla piattaforma cancellerebbe una posizione appena aperta; e una chiusura già in
+  volo viene saltata, perché la completerà il client col proprio execution report.
+
+  **Non si costruisce il `PersistedTrade`**: `BrokerTradeSnapshot` porta solo l'orario di chiusura,
+  e senza prezzo, commissione e swap il trade sarebbe un numero inventato che finisce nelle
+  rotazioni Titano. La riconciliazione sblocca e lascia una traccia in `SessionActivityKind.PosizioneChiusa`;
+  il P&L resta compito del client. Resta quindi aperto il lato cBot: `CloseExpiredPositions`
+  ([riga 1233](../piootoo-repository/ctrader/PiootooDistributedExecutionBot.cs)) toglie dal registro
+  locale le posizioni già sparite da `Positions` senza riportarle a nessuno, e da lì in poi
+  `OnPositionClosed` esce subito sul `TryGetValue`. Va deciso col tab Log di cTrader se sia quella
+  potatura a vincere la corsa o la POST a `close-external` a fallire.
+
+- **2026-08-26** — **`ExitReason` dei trade di sessione esterna porta il motivo dell'intent**
+  (`StopLoss`, `TimeExit`, `WeekEnd`, `ClientLocalExit`, …) invece della costante
+  `ExternalBrokerCloseFill`. Che il fill venga dal broker lo dice già `SessionId`; scrivendo la
+  costante, tutti i trade di una sessione uscivano con lo stesso motivo e il confronto con un
+  backtest — dove l'uscita è classificata — non poteva dire quale regola avesse divergito.

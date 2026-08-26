@@ -337,6 +337,17 @@ public sealed class TradingSessionService : ITradingSessionService
         public Dictionary<string, TradingPositionSnapshot> ExternalPositions { get; } = new(StringComparer.OrdinalIgnoreCase);
         public Dictionary<string, (DateTime EntryTimeUtc, string IntentId, decimal? StopLoss, decimal? TakeProfit)>
             ExternalPositionDetails { get; } = new(StringComparer.OrdinalIgnoreCase);
+        /// <summary>
+        /// Chiavi di <see cref="ExternalPositions"/> che il broker ha davvero confermato almeno una
+        /// volta nel proprio snapshot di posizioni aperte.
+        ///
+        /// <para>Serve alla riconciliazione: una posizione sparita dallo snapshot va considerata
+        /// chiusa solo se prima ci era comparsa. Senza questa conferma, il poll che arriva fra il
+        /// report di fill dell'ingresso e la registrazione della posizione sulla piattaforma
+        /// cancellerebbe una posizione appena aperta.</para>
+        /// </summary>
+        public HashSet<string> BrokerConfirmedPositions { get; } = new(StringComparer.OrdinalIgnoreCase);
+
         public List<PersistedTrade> ExternalTrades { get; } = [];
         public int Entries { get; set; }
         public int Fills { get; set; }
@@ -1528,7 +1539,17 @@ public sealed class TradingSessionService : ITradingSessionService
                             ExitTimeUtc = report.EventTimeUtc,
                             EntryPrice = position.EntryPrice,
                             ExitPrice = exitPrice,
-                            ExitReason = "ExternalBrokerCloseFill",
+                            // Il motivo dell'uscita è quello dell'intent che l'ha chiesta
+                            // (`StopLoss`, `TimeExit`, `WeekEnd`, `ClientLocalExit`, ...), non il
+                            // fatto che il fill sia arrivato dal broker: quello lo dice già
+                            // `SessionId`. Scrivendo la costante, i trades.json di sessione
+                            // esterna riportavano un unico valore per tutti i trade e il confronto
+                            // con un backtest — dove l'uscita è classificata — non poteva dire
+                            // QUALE regola avesse divergito. Vedi il confronto interno/esterno su
+                            // GC del 2014, dove 19 trade su 19 uscivano con lo stesso motivo.
+                            ExitReason = string.IsNullOrWhiteSpace(intent.Reason)
+                                ? "ExternalBrokerCloseFill"
+                                : intent.Reason,
                             GrossProfit = gross,
                             NetProfit = gross - commission + report.Swap,
                             Commission = commission,
@@ -1926,6 +1947,12 @@ public sealed class TradingSessionService : ITradingSessionService
             if (!session.AccountGroups.TryGetValue(accountNumber, out var groupId))
                 throw new ArgumentException(
                     $"Account '{accountNumber}' non configurato per questa sessione. Aggiungilo nel tab Trading Session.");
+
+            // 0) Riconciliazione con lo stato reale del broker, prima di ogni filtro: una posizione
+            //    che il server crede aperta ma che sul broker non c'è più va chiusa nei registri,
+            //    altrimenti tutto ciò che segue decide su una posizione fantasma.
+            if (brokerState is not null)
+                ReconcileVanishedPositions(session, accountNumber, groupId, brokerState);
 
             // 1) Le CHIUSURE assegnate a questo account si ripropongono sempre, e prima di tutto:
             //    sono ordini da eseguire, non segnali da distribuire, e perderne una lascia aperta
@@ -2358,6 +2385,88 @@ public sealed class TradingSessionService : ITradingSessionService
             string.Equals(intent.StrategyCode, strategyCode, StringComparison.OrdinalIgnoreCase) &&
             string.Equals(intent.Symbol, symbol, StringComparison.OrdinalIgnoreCase) &&
             string.Equals(intent.AssignedAccountNumber, accountNumber, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// Allinea <see cref="Session.ExternalPositions"/> allo snapshot di posizioni aperte che il cBot
+    /// manda a ogni poll: quello che il broker non elenca più è chiuso, e va tolto dai registri.
+    ///
+    /// <para><b>Perché serve.</b> Una posizione chiusa dal broker per conto suo — stop loss nativo,
+    /// stop out, chiusura manuale — non passa da nessun intent del server. Se il client non riesce a
+    /// riportarla (chiamata HTTP fallita, evento perso, bot riavviato), la voce resta in
+    /// <c>ExternalPositions</c> per sempre; e siccome <see cref="AccountHasEntryInFlight"/> ci legge
+    /// dentro ed è un lucchetto sempre attivo, quella coppia (strategia, simbolo) non apre più
+    /// niente per il resto del run. Il run reale su GC del 2014 ha perso così tre stop loss su tre,
+    /// e con essi tre strategie su quattro: TFU dal 12/03, RHL_002 dal 15/04, PCH dal 25/04. L'unica
+    /// che non ha mai preso uno stop è anche l'unica arrivata viva a fine sessione.</para>
+    ///
+    /// <para><b>Non inventa il trade.</b> Lo snapshot dice che la posizione non c'è più, non a che
+    /// prezzo è uscita: <see cref="BrokerTradeSnapshot"/> porta solo l'orario di chiusura, e senza
+    /// prezzo, commissione e swap un <see cref="PersistedTrade"/> costruito qui sarebbe un numero
+    /// inventato che finisce dritto nelle rotazioni Titano. Il P&amp;L resta compito del client, che
+    /// lo riporta con il normale execution report. Qui si sblocca la strategia e si lascia una
+    /// traccia esplicita in <see cref="SessionActivityKind.PosizioneChiusa"/>, così il buco è
+    /// visibile nel monitor invece di essere un silenzio.</para>
+    /// </summary>
+    private static void ReconcileVanishedPositions(
+        Session session, string accountNumber, string groupId, AccountSignalPollRequest brokerState)
+    {
+        // Chiavi come le scrive il percorso di fill: per-account quando la sessione ha gruppi,
+        // altrimenti la chiave storica senza account.
+        static string PositionKey(string? accountNumber, string symbol, string strategyCode) =>
+            accountNumber is null
+                ? $"{symbol}|{strategyCode}"
+                : $"{accountNumber}|{symbol}|{strategyCode}";
+
+        var atBroker = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var position in brokerState.Positions)
+            atBroker.Add(PositionKey(accountNumber, Normalize(position.Symbol), position.StrategyCode));
+
+        // Prima si conferma, poi si giudica: una posizione entra nel raggio della riconciliazione
+        // solo dopo essere comparsa almeno una volta nello snapshot.
+        foreach (var key in atBroker)
+            if (session.ExternalPositions.ContainsKey(key))
+                session.BrokerConfirmedPositions.Add(key);
+
+        var vanished = session.ExternalPositions
+            .Where(entry =>
+                string.Equals(entry.Value.AccountNumber, accountNumber, StringComparison.OrdinalIgnoreCase) &&
+                session.BrokerConfirmedPositions.Contains(entry.Key) &&
+                !atBroker.Contains(entry.Key))
+            .Select(entry => (entry.Key, entry.Value))
+            .ToList();
+
+        foreach (var (key, position) in vanished)
+        {
+            // Una chiusura ancora in volo non è una posizione sparita: l'intent è già stato emesso e
+            // il client lo completerà con il proprio execution report, che porta anche il P&L.
+            if (HasPendingCloseIntent(session, position.StrategyCode, position.Symbol, accountNumber))
+                continue;
+
+            session.ExternalPositions.Remove(key);
+            session.ExternalPositionDetails.Remove(key);
+            session.BrokerConfirmedPositions.Remove(key);
+            session.GroupStrategySlots.Remove(SlotKey(groupId, position.StrategyCode, position.Symbol));
+
+            var canonicalKey = $"{position.Symbol}|{position.StrategyCode}";
+            if (session.StrategyHolderCounts.TryGetValue(canonicalKey, out var count) && count > 0)
+            {
+                count--;
+                if (count <= 0)
+                {
+                    session.StrategyHolderCounts.Remove(canonicalKey);
+                    session.CanonicalPositions.Remove(canonicalKey);
+                }
+                else session.StrategyHolderCounts[canonicalKey] = count;
+            }
+
+            RecordActivity(session, SessionActivityKind.PosizioneChiusa,
+                "chiusa dal broker senza report del client: strategia sbloccata, P&L non registrato",
+                accountNumber, groupId, position.StrategyCode, position.Symbol, string.Empty);
+        }
+
+        if (vanished.Count > 0)
+            Persist(session);
+    }
 
     private OrderIntent CreateCloseIntent(
         Session session, string strategyCode, string symbol, TradingPositionSnapshot position,
