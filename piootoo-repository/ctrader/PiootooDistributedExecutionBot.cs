@@ -410,6 +410,13 @@ namespace cAlgo.Robots
         /// <summary>Chiamate HTTP per endpoint, per misurare il traffico di un run allo stop.</summary>
         private long _pushCalls;
         private long _pollCalls;
+
+        /// <summary>
+        /// Quante volte ha battuto il timer. Non serve al bot: serve a rendere visibile il rapporto fra
+        /// battiti e barre, che e' l'unico modo di sapere quanto costava davvero il poll periodico in
+        /// backtest — il timer li' gira sull'orologio simulato, e quel numero non lo si puo' dedurre.
+        /// </summary>
+        private long _timerTicks;
         private string _localStatePath;
         private string _jsonLogPath;
 
@@ -1258,8 +1265,13 @@ namespace cAlgo.Robots
                 var position = Positions.FirstOrDefault(p => p.Id == kvp.Key);
                 if (position is null)
                 {
-                    _openPositions.Remove(kvp.Key); // già chiusa, per qualche altra via
-                    _peakProfitAfterStall.Remove(kvp.Key);
+                    // La posizione e' sparita senza passare da OnPositionClosed: e' il caso dello
+                    // Stop Loss / Take Profit nativo che chiude fra due giri di questo sweep. Prima
+                    // la si toglieva e basta, e il trade non arrivava MAI al server: su un run di due
+                    // anni sono spariti 66 trade su 176 da trades.json, per giunta i 56 stoppati e i
+                    // 10 a target, cioe' quelli che non torna comodo perdere. Va riportata come
+                    // qualunque altra chiusura.
+                    RegisterMissedClose(kvp.Key, ctx);
                     continue;
                 }
 
@@ -1649,6 +1661,8 @@ namespace cAlgo.Robots
         {
             // Senza questa guardia il polling periodico continuerebbe a reclamare intent nel fine
             // settimana: verrebbero scartati da HandleEntryIntent, ma a costo di una chiamata ognuno.
+            _timerTicks++;
+
             if (EnforceWeekEndFlat())
                 return;
 
@@ -1729,7 +1743,8 @@ namespace cAlgo.Robots
             // le push devono restare le stesse (una per barra per stream), i poll devono crollare, e
             // trades.json deve essere lo stesso file. Se i poll crollano ma le push cambiano, non e'
             // la guardia che ha funzionato: e' il run che e' diverso.
-            Print("Chiamate al server: {0} push di barre, {1} claim.", _pushCalls, _pollCalls);
+            Print("Chiamate al server: {0} push di barre, {1} claim. Battiti del timer: {2}.",
+                _pushCalls, _pollCalls, _timerTicks);
 
             PrintSpreadSummary();
             PrintTradeSummary();
@@ -2550,6 +2565,8 @@ namespace cAlgo.Robots
             _lastOpenIntentByLabel.Remove(position.Label); // l'intent ha prodotto la sua posizione: esaurito
             SaveLocalState();
 
+            RiancoraBracketAlFill(position, intent);
+
             // Lo spread va letto ADESSO: e' il costo di esecuzione di QUESTO ingresso, e fra due
             // minuti vale un altro numero. Non serve alla contabilita' — il P&L viene dai prezzi —
             // ma senza non e' misurabile quanto lo strumento si mangia del margine operativo.
@@ -2917,18 +2934,23 @@ namespace cAlgo.Robots
         /// perdita e' stato un'entrata sbagliata o un'uscita gestita male, che dal solo P&amp;L non si
         /// distingue.</para>
         /// </summary>
+        /// <param name="position">
+        /// Puo' essere null: quando la chiusura la scopre <see cref="CloseExpiredPositions"/> la
+        /// posizione non esiste piu' e l'unica fonte e' lo storico.
+        /// </param>
         private void LogTradeOutcome(
             OpenPositionContext ctx, Position position, HistoricalTrade trade, string reason)
         {
-            var netProfit = (decimal)(trade?.NetProfit ?? position.NetProfit);
-            var grossProfit = (decimal)(trade?.GrossProfit ?? position.GrossProfit);
+            var netProfit = (decimal)(trade?.NetProfit ?? position?.NetProfit ?? 0);
+            var grossProfit = (decimal)(trade?.GrossProfit ?? position?.GrossProfit ?? 0);
             var commission = (decimal)(trade?.Commissions ?? 0);
-            var swap = (decimal)(trade?.Swap ?? position.Swap);
+            var swap = (decimal)(trade?.Swap ?? position?.Swap ?? 0);
             var entryPrice = trade?.EntryPrice ?? ctx.EntryPrice;
             var closePrice = trade?.ClosingPrice ?? 0.0;
             // Quantita' nei contratti del broker, non nelle unita' della piattaforma: e' la stessa
             // grandezza in cui il server ha dichiarato l'intent, ed e' quella che si aspetta indietro.
-            var quantity = ToContractQuantity(position.SymbolName, trade?.VolumeInUnits ?? position.VolumeInUnits);
+            var quantity = ToContractQuantity(
+                trade?.SymbolName ?? position?.SymbolName, trade?.VolumeInUnits ?? position?.VolumeInUnits ?? 0);
 
             var durataMinuti = ctx.OpenTimeUtc.HasValue
                 ? (Server.TimeInUtc - ctx.OpenTimeUtc.Value).TotalMinutes
@@ -2946,7 +2968,7 @@ namespace cAlgo.Robots
             Print("Chiuso {0} {1} {2}: {3:0.#####} -> {4:0.#####} qty {5} | esito {6} | " +
                   "lordo {7:0.00} commissioni {8:0.00} swap {9:0.00} netto {10:0.00} ({11:0.00}/contratto) | " +
                   "MFE {12:0.##} MAE {13:0.##} punti | {14} | trailing {15}x",
-                ctx.StrategyCode, ctx.Symbol, position.TradeType,
+                ctx.StrategyCode, ctx.Symbol, trade?.TradeType ?? position?.TradeType,
                 entryPrice, closePrice, quantity, reason,
                 grossProfit, commission, swap, netProfit, perContratto,
                 ctx.MaxFavorablePoints, ctx.MaxAdversePoints,
@@ -2957,9 +2979,9 @@ namespace cAlgo.Robots
             {
                 ctx.StrategyCode,
                 ctx.Symbol,
-                PositionId = position.Id,
+                PositionId = ctx.PositionId,
                 EntryIntentId = ctx.EntryIntentId,
-                Side = position.TradeType.ToString(),
+                Side = (trade?.TradeType ?? position?.TradeType)?.ToString(),
                 EntryPrice = entryPrice,
                 ClosePrice = closePrice,
                 Quantity = quantity,
@@ -3113,6 +3135,65 @@ namespace cAlgo.Robots
         }
 
         /// <summary>
+        /// Rimette Stop Loss e Take Profit alla distanza dichiarata dal segnale, misurata dal prezzo di
+        /// fill invece che da quello richiesto.
+        ///
+        /// <para><b>Perche' serve.</b> <c>PlaceStopOrder</c>/<c>PlaceLimitOrder</c> prendono la distanza
+        /// in pip e la fissano rispetto al prezzo dell'ORDINE. Quando l'ordine slitta, il bracket resta
+        /// dov'era: lo stop si allarga esattamente di quanto e' slittato l'ingresso e il target si
+        /// avvicina della stessa quantita'. Sugli ordini stop lo slippage e' per costruzione
+        /// sfavorevole, quindi si paga sempre in quella direzione — misurato su un run 2022-2023:
+        /// mediana +0,39 punti di stop in piu', code fino a +4,58, e una posizione su cinque oltre il
+        /// punto pieno di rischio non dichiarato. Sui limit accade il contrario e lo stop si stringe.</para>
+        ///
+        /// <para>Riancorare al fill e' l'unico modo perche' il rischio a mercato sia quello che il
+        /// server ha dichiarato, che e' anche quello che il backtest applica.</para>
+        /// </summary>
+        private void RiancoraBracketAlFill(Position position, OrderIntentDto intent)
+        {
+            if (!intent.StopLoss.HasValue && !intent.TakeProfit.HasValue)
+                return;
+
+            var symbol = Symbols.GetSymbol(position.SymbolName);
+            if (symbol is null)
+                return;
+
+            var entry = position.EntryPrice;
+            var verso = position.TradeType == TradeType.Buy ? 1 : -1;
+
+            double? Livello(decimal? distanza, int direzione)
+            {
+                if (!distanza.HasValue || distanza.Value <= 0)
+                    return null;
+                return Math.Round(entry + direzione * verso * (double)distanza.Value, symbol.Digits);
+            }
+
+            var nuovoSl = Livello(intent.StopLoss, -1) ?? position.StopLoss;
+            var nuovoTp = Livello(intent.TakeProfit, +1) ?? position.TakeProfit;
+
+            // Se il fill e' avvenuto al prezzo richiesto il bracket e' gia' giusto: non si spende una
+            // ModifyPosition per niente (in backtest e' gratis, in reale e' una richiesta al broker).
+            var slGiaGiusto = !nuovoSl.HasValue || (position.StopLoss.HasValue &&
+                Math.Abs(position.StopLoss.Value - nuovoSl.Value) < symbol.TickSize / 2);
+            var tpGiaGiusto = !nuovoTp.HasValue || (position.TakeProfit.HasValue &&
+                Math.Abs(position.TakeProfit.Value - nuovoTp.Value) < symbol.TickSize / 2);
+            if (slGiaGiusto && tpGiaGiusto)
+                return;
+
+            var result = ModifyPosition(position, nuovoSl, nuovoTp);
+            if (!result.IsSuccessful)
+            {
+                Print("Riancoraggio bracket fallito per {0}/{1} (posizione {2}): {3}",
+                    intent.Symbol, intent.StrategyCode, position.Id, result.Error);
+                return;
+            }
+
+            Print("Bracket riancorato al fill {0}/{1}: ingresso {2:0.#####} (richiesto {3:0.#####}) " +
+                  "SL {4:0.#####} TP {5:0.#####}",
+                intent.Symbol, intent.StrategyCode, entry, intent.Price, nuovoSl, nuovoTp);
+        }
+
+        /// <summary>
         /// Evento cAlgo: una posizione si è effettivamente chiusa, per qualunque causa (Stop Loss/Take
         /// Profit del broker, scadenza CloseAtUtc gestita in locale, o una ClosePosition() nostra su
         /// richiesta del server). Legge l'esito reale del trade dallo storico e lo invia al server.
@@ -3149,12 +3230,62 @@ namespace cAlgo.Robots
                 ReportExecution(closeIntent.IntentId, position.SymbolName, ExecutionReportStatusDto.Filled,
                     quantity, closePrice, position.Id.ToString(), commission, swap: swap);
             else
-                RegisterExternalCloseAndReport(ctx, position, quantity, closePrice, commission, swap, args.Reason.ToString());
+                RegisterExternalCloseAndReport(ctx, position.SymbolName, quantity, closePrice, commission, swap,
+                    args.Reason.ToString(), (decimal?)trade?.GrossProfit, (decimal?)trade?.NetProfit);
+        }
+
+        /// <summary>
+        /// Chiusura scoperta in ritardo: la posizione non e' piu' fra le <c>Positions</c> ma
+        /// <see cref="OnPositionClosed"/> non l'ha vista passare. Succede con Stop Loss e Take Profit
+        /// nativi, che il broker esegue per conto suo. L'esito reale sta nello storico: si legge da
+        /// li' e si riporta al server, altrimenti il trade non esiste da nessuna parte.
+        /// </summary>
+        private void RegisterMissedClose(int positionId, OpenPositionContext ctx)
+        {
+            _openPositions.Remove(positionId);
+            _peakProfitAfterStall.Remove(positionId);
+            SaveLocalState();
+            _claimRetryPending = true;
+
+            var trade = History.LastOrDefault(h => h.PositionId == positionId);
+            if (trade is null)
+            {
+                // Senza storico non c'e' niente da riportare, ma tacere e' peggio: e' esattamente il
+                // buco che ha svuotato trades.json senza lasciare traccia nel log.
+                Print("ATTENZIONE: posizione {0} ({1}/{2}) chiusa dal broker ma assente dallo storico: " +
+                      "trade NON riportato al server.", positionId, ctx.Symbol, ctx.StrategyCode);
+                return;
+            }
+
+            // Il motivo vero, non un generico "Closed": e' quello che distingue uno stop da un target
+            // in trades.json, e senza il quale il confronto con il backtest non e' leggibile.
+            var reason = DeduceCloseReason(trade);
+
+            LogTradeOutcome(ctx, null, trade, reason);
+
+            var quantity = ToContractQuantity(trade.SymbolName, trade.VolumeInUnits);
+            RegisterExternalCloseAndReport(
+                ctx, trade.SymbolName, quantity, (decimal)trade.ClosingPrice, (decimal)trade.Commissions,
+                (decimal)trade.Swap, reason, (decimal)trade.GrossProfit, (decimal)trade.NetProfit,
+                prefissoMotivo: "BrokerExit");
+        }
+
+        /// <summary>
+        /// Distingue uno Stop Loss da un Take Profit guardando da che parte il prezzo di chiusura sta
+        /// rispetto all'ingresso. cAlgo non espone il motivo sullo storico, e il segno del risultato e'
+        /// l'unica informazione disponibile: basta a separare i due casi che contano.
+        /// </summary>
+        private static string DeduceCloseReason(HistoricalTrade trade)
+        {
+            if (trade.NetProfit > 0) return "TakeProfit";
+            if (trade.NetProfit < 0) return "StopLoss";
+            return "BrokerClose";
         }
 
         private void RegisterExternalCloseAndReport(
-            OpenPositionContext ctx, Position position, decimal quantity, decimal? closePrice, decimal commission,
-            decimal swap, string reason)
+            OpenPositionContext ctx, string brokerSymbolName, decimal quantity, decimal? closePrice, decimal commission,
+            decimal swap, string reason, decimal? grossProfit = null, decimal? netProfit = null,
+            string prefissoMotivo = "LocalExit")
         {
             try
             {
@@ -3165,7 +3296,10 @@ namespace cAlgo.Robots
                     Symbol = ctx.Symbol,
                     AccountNumber = _accountNumber,
                     Quantity = quantity,
-                    Reason = $"LocalExit:{reason}"
+                    // LocalExit: l'ha chiusa il bot. BrokerExit: l'ha chiusa il broker sul bracket.
+                    // I due casi vanno distinti in trades.json, perche' il secondo e' proprio quello
+                    // che prima non ci arrivava affatto.
+                    Reason = $"{prefissoMotivo}:{reason}"
                 };
                 using var request = BuildRequest(HttpMethod.Post, $"api/v1/trading-sessions/{_sessionId}/intents/close-external");
                 request.Content = new StringContent(JsonSerializer.Serialize(closeIntentRequest, _json), Encoding.UTF8, "application/json");
@@ -3179,7 +3313,8 @@ namespace cAlgo.Robots
                 var closeBody = ReadBody(response);
                 LogJsonResponse("intents/close-external", closeBody);
                 var closeIntent = JsonSerializer.Deserialize<OrderIntentDto>(closeBody, _json);
-                ReportExecution(closeIntent.IntentId, position.SymbolName, ExecutionReportStatusDto.Filled, quantity, closePrice, null, commission, swap: swap);
+                ReportExecution(closeIntent.IntentId, brokerSymbolName, ExecutionReportStatusDto.Filled, quantity, closePrice, null, commission,
+                    swap: swap, grossProfit: grossProfit, netProfit: netProfit);
             }
             catch (Exception ex)
             {
@@ -3213,7 +3348,8 @@ namespace cAlgo.Robots
         private void ReportExecution(
             string intentId, string symbol, ExecutionReportStatusDto status, decimal filledQuantity,
             decimal? fillPrice, string externalOrderId = null, decimal commission = 0,
-            decimal? spreadAtFill = null, decimal swap = 0)
+            decimal? spreadAtFill = null, decimal swap = 0,
+            decimal? grossProfit = null, decimal? netProfit = null)
         {
             // Un report assesta un intent lato server, e un intent assestato libera i lucchetti che
             // teneva occupati: e' uno dei due eventi che rendono sensato riprovare un claim senza
@@ -3239,7 +3375,9 @@ namespace cAlgo.Robots
                         Commission = commission,
                         Swap = swap,
                         EventTimeUtc = Server.TimeInUtc,
-                        SpreadAtFill = spreadAtFill
+                        SpreadAtFill = spreadAtFill,
+                        GrossProfit = grossProfit,
+                        NetProfit = netProfit
                     }
                 };
                 var response = PostJson($"api/v1/trading-sessions/{_sessionId}/execution-reports", request);
@@ -3918,6 +4056,18 @@ namespace cAlgo.Robots
 
             /// <summary>Interessi di finanziamento, con segno: negativo e' un costo, positivo un accredito.</summary>
             public decimal Swap { get; set; }
+
+            /// <summary>
+            /// Utile lordo e netto come li conta il broker, nella VALUTA DEL CONTO. Il server li
+            /// ricavava dai prezzi (punti x valore punto), che e' la valuta dello STRUMENTO: su un
+            /// conto in EUR con XAUUSD il lordo usciva gonfiato del cambio EURUSD (~7% mediano su un
+            /// run 2022-2023, con segno variabile mese per mese) mentre commissione e swap erano gia'
+            /// in EUR — cioe' un P&amp;L con due valute dentro. Null quando lo storico non e'
+            /// disponibile: in quel caso il server ricalcola come prima.
+            /// </summary>
+            public decimal? GrossProfit { get; set; }
+
+            public decimal? NetProfit { get; set; }
 
             public DateTime EventTimeUtc { get; set; }
 
