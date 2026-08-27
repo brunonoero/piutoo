@@ -1774,7 +1774,10 @@ abbiamo e romperebbe quello che oggi funziona.
   agito, è il run a essere diverso. Lo stesso parametro è la via di ritorno se un giorno saltasse
   fuori un caso non previsto, senza ricompilare.
 
-- **2026-08-26** — **Backtest interno e conto vero cTrader facevano trade diversi.** Sul
+- **2026-08-26** — **Backtest interno e conto vero cTrader facevano trade diversi.** Rilasciato
+  come **3.10.0** (cBot diretto 1.5.0): la correzione tocca l'engine di esecuzione, i contratti di
+  sessione e di piano e tutti e due i cBot, e cambia quali trade un backtest produce — i run
+  precedenti non sono confrontabili con i successivi. Sul
   confronto in `piootoo-repository/compare/compare-0002` (GC/XAUUSD, 2022–2023, quattro
   strategie) i due sistemi coincidevano solo sul **40%** dei trade: 97 dei 166 interni non
   esistevano nell'esterno, 107 dei 176 esterni non esistevano nell'interno, e il risultato

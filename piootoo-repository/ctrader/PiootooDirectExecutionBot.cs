@@ -121,7 +121,7 @@ namespace cAlgo.Robots
     {
         private const string LabelPrefix = "PiootooSession";
         private const string BotName = "PiootooDirectExecutionBot";
-        private const string BotVersion = "1.4.0"; // aggiornare qui ad ogni release
+        private const string BotVersion = "1.5.0"; // aggiornare qui ad ogni release
         private const string ChartInfoObjectName = "PiootooDirectExecutionBot_InfoPanel";
 
         // ---------------------------------------------------------------- Connessione / sessione
