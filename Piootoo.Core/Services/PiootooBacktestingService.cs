@@ -1129,6 +1129,9 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                 TotalNetProfit = result.TotalProfit,
                 MaxDrawdown = result.MaxDrawdown,
                 OpenPositionsAtEnd = finalSnapshot.OpenPositionsCount,
+                WeekEndFlatFromUtcHhmm = request.CloseAllPositionsAtWeekEnd
+                    ? weekEndFlat.FromUtcHhmm
+                    : null,
                 Outcome = "Completed"
             });
             result.DiagnosticsLogFilePath = diagnostics.LogPath;

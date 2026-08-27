@@ -1822,3 +1822,29 @@ abbiamo e romperebbe quello che oggi funziona.
   medi) e swap. Valgono circa il 13% dello scarto e non spiegano il segno. Resta anche lo
   slippage sugli stop, che il conto vero paga e il backtest no: −20,01 punti medi contro
   −18,42, circa 1,5 punti per stop.
+
+- **2026-08-27** — **Il flat di fine settimana ora si dichiara nel summary del backtest.** Non è una
+  regola della strategia e non lo diventa: né `CloseAllPositionsAtWeekEnd` (una checkbox della
+  console) né `FlatAtWeekEnd` del cBot guardano cosa la strategia ha dichiarato con `IntradayOnly` o
+  `MaxDaysInTrade`. È corretto che sia così — è una regola di rischio del **conto**, e una regola di
+  rischio con eccezioni per strategia non protegge più niente — ma finora si applicava in silenzio
+  anche alle strategie che dichiarano di restare aperte oltre la sessione, e l'uscita che ne
+  risultava aveva un prezzo e un motivo perfettamente plausibili.
+
+  Quanto costa: confrontando `PTS_GC_TFU_001_30` con la propria lista di trade della ricerca
+  (`run-engine/run-02-agosto/consegna/trades/fam01_TF_U.csv`, che combacia con il docstring — 150
+  trade OOS, $176.500, PF 2,04), sui 54 trade con lo stesso ingresso lo scarto è di 495 punti, e
+  **479 vengono dalle 25 uscite di fine settimana**: il 97%. Stop e target sono portati bene, 22
+  stop e 1 target coincidono entro qualche decimo. Sul run 2022-2023 il flat chiude il 62% dei trade
+  di `PTS_GC_PCH_001_60` (multiday, `MaxBars = 0`) e il 43% di `PTS_GC_TFU_001_30` (multiday, 460
+  barre); sulle due RHL, che sono `IntradayOnly` e chiudono da sé a fine sessione, il 12% e il 6%.
+
+  Il `backtest-summary.json` porta ora `weekEndFlatFromUtcHhmm` (null a flat spento) e una diagnosi
+  `[fine settimana]` che elenca le strategie a cui il flat ha chiuso almeno il 25% dei trade, con i
+  numeri. È **misurata sui trade**, non dedotta da un flag dichiarato: `IntradayOnly` non è
+  attendibile allo scopo, perché i motori che non lo espongono — `BiasWeeklyEngine` tiene la
+  posizione dal venerdì al lunedì — risulterebbero intraday. La soglia esiste per non trasformare la
+  riga in rumore.
+
+  Resta aperta la decisione operativa, che il codice non può prendere: se il conto deve essere
+  piatto nel fine settimana, TFU e PCH rendono una frazione di quello per cui sono state validate.

@@ -151,6 +151,13 @@ Causa frequente: il timeframe chiesto dalla strategia non ha il proprio
 feed non ha barre — parti da `coversRequestedRange` nel summary e dai controlli in
 `docs/domini/orologio-barre-e-fill.md`.
 
+Quando invece i trade ci sono ma l'equity non torna con la ricerca, la prima riga
+da cercare e' `[fine settimana]`: dice a quali strategie il flat ha chiuso una
+quota rilevante dei trade. Il flat e' una regola del **conto**, non della
+strategia, e su una multiday (`IntradayOnly = false`) le taglia i trade a meta'
+senza che l'uscita sembri anomala. Il summary porta anche
+`weekEndFlatFromUtcHhmm`: due run con orari diversi non sono confrontabili.
+
 ## Convenzioni
 
 - **Console WinForms**: le regole delle schermate stanno in

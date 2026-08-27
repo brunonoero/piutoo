@@ -468,6 +468,28 @@ public sealed class BacktestDiagnosticsLogger : IDisposable
                             $"su {faulty.Count} strategie: {string.Join(", ", faulty.Take(10).Select(x => x.StrategyCode))}" +
                             (faulty.Count > 10 ? ", …" : ""));
 
+        // Il flat di fine settimana e' una regola del CONTO, non della strategia: nessuna delle due
+        // parti che lo eseguono — la checkbox del backtest e il parametro del cBot — guarda cosa la
+        // strategia ha dichiarato. Su una strategia che chiude da se' a fine sessione e' innocuo;
+        // su una che resta aperta per giorni le taglia i trade a meta', e la differenza non si vede
+        // da nessuna parte perche' l'uscita ha comunque un prezzo e un motivo plausibili. Misurato
+        // il 26/08/2026 su PTS_GC_TFU_001_30: le 25 uscite di fine settimana valevano 479 punti
+        // rispetto alla lista di trade della ricerca, cioe' il 97% dello scarto di quel porting.
+        var tagliate = strategies
+            .Select(x => (S: x, Flat: x.ExitReasons.GetValueOrDefault(nameof(TradeExitReason.WeekEnd))))
+            .Where(x => x.Flat >= 5 && x.S.Trades > 0 && (double)x.Flat / x.S.Trades >= 0.25)
+            .OrderByDescending(x => (double)x.Flat / x.S.Trades)
+            .ToList();
+        if (tagliate.Count > 0)
+            diagnostics.Add(
+                "[fine settimana] il flat ha chiuso " +
+                string.Join(", ", tagliate.Take(10).Select(x =>
+                    $"{x.Flat} trade su {x.S.Trades} ({(double)x.Flat / x.S.Trades:P0}) di {x.S.StrategyCode}")) +
+                (tagliate.Count > 10 ? ", …" : "") +
+                ". Su queste il run non misura la strategia ma la strategia piu' il flat: confronta " +
+                "con la lista di trade della ricerca prima di leggere l'equity, e verifica che il " +
+                "piano che le esegue flatti allo stesso orario.");
+
         if (summary.OpenPositionsAtEnd > 0)
             diagnostics.Add($"[posizioni] {summary.OpenPositionsAtEnd} posizioni ancora aperte a fine run: " +
                             "il loro P&L non compare in trades.json e quindi non entra in Titano.");

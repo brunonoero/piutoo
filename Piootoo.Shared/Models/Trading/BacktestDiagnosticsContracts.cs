@@ -242,6 +242,15 @@ public sealed class BacktestRunSummary
     public int LosingTrades { get; set; }
     public int OpenPositionsAtEnd { get; set; }
 
+    /// <summary>
+    /// Venerdi', ora UTC HHMM da cui il run e' andato piatto, oppure null se il flat era spento.
+    ///
+    /// <para>Sta nel summary perche' e' una regola che cambia i risultati senza comparire nei
+    /// trade: due run identici con orari di flat diversi non sono confrontabili, e chi li rilegge
+    /// mesi dopo non ha altro modo di accorgersene.</para>
+    /// </summary>
+    public int? WeekEndFlatFromUtcHhmm { get; init; }
+
     public string Outcome { get; set; } = "Unknown";
     public string? ErrorMessage { get; set; }
 
