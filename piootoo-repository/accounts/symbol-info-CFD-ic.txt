@@ -1,0 +1,105 @@
+{
+  "Code": "cfd-ctrader",
+  "Name": "cfd-ctrader",
+  "Mappings": [
+    {
+      "Symbol": "@BP",
+      "AccountSymbol": "GBPUSD",
+      "ContractMultiplier": 0.625,
+      "MinimumQuantity": 0.01,
+      "QuantityStep": 0.01,
+      "RoundingMode": 1,
+      "Enabled": true
+    },
+    {
+      "Symbol": "@BTC",
+      "AccountSymbol": "BTCUSD",
+      "ContractMultiplier": 5,
+      "MinimumQuantity": 0.01,
+      "QuantityStep": 0.01,
+      "RoundingMode": 1,
+      "Enabled": true
+    },
+    {
+      "Symbol": "@CL",
+      "AccountSymbol": "XTIUSD",
+      "ContractMultiplier": 10,
+      "MinimumQuantity": 0.5,
+      "QuantityStep": 0.5,
+      "RoundingMode": 1,
+      "Enabled": true
+    },
+    {
+      "Symbol": "@EC",
+      "AccountSymbol": "EURUSD",
+      "ContractMultiplier": 1.25,
+      "MinimumQuantity": 0.01,
+      "QuantityStep": 0.01,
+      "RoundingMode": 1,
+      "Enabled": true
+    },
+    {
+      "Symbol": "@ES",
+      "AccountSymbol": "US500",
+      "ContractMultiplier": 50,
+      "MinimumQuantity": 0.1,
+      "QuantityStep": 0.1,
+      "RoundingMode": 1,
+      "Enabled": true
+    },
+    {
+      "Symbol": "@FDAX",
+      "AccountSymbol": "DE40",
+      "ContractMultiplier": 25,
+      "MinimumQuantity": 0.1,
+      "QuantityStep": 0.1,
+      "RoundingMode": 1,
+      "Enabled": true
+    },
+    {
+      "Symbol": "@GC",
+      "AccountSymbol": "XAUUSD",
+      "ContractMultiplier": 1,
+      "MinimumQuantity": 0.01,
+      "QuantityStep": 0.01,
+      "RoundingMode": 1,
+      "Enabled": true
+    },
+    {
+      "Symbol": "@NG",
+      "AccountSymbol": "XNGUSD",
+      "ContractMultiplier": 1,
+      "MinimumQuantity": 0.5,
+      "QuantityStep": 0.5,
+      "RoundingMode": 1,
+      "Enabled": true
+    },
+    {
+      "Symbol": "@NQ",
+      "AccountSymbol": "USTEC",
+      "ContractMultiplier": 20,
+      "MinimumQuantity": 0.1,
+      "QuantityStep": 0.1,
+      "RoundingMode": 1,
+      "Enabled": true
+    },
+    {
+      "Symbol": "@PL",
+      "AccountSymbol": "XPTUSD",
+      "ContractMultiplier": 0.5,
+      "MinimumQuantity": 0.01,
+      "QuantityStep": 0.01,
+      "RoundingMode": 1,
+      "Enabled": true
+    },
+    {
+      "Symbol": "@YM",
+      "AccountSymbol": "US30",
+      "ContractMultiplier": 5,
+      "MinimumQuantity": 0.1,
+      "QuantityStep": 0.1,
+      "RoundingMode": 1,
+      "Enabled": true
+    }
+  ]
+}

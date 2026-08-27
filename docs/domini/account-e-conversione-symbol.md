@@ -20,6 +20,29 @@ Ogni riga della tabella risponde a due domande:
 Il balance iniziale sta **sull'account**, non sulla tabella: è il capitale del conto, non
 un'allocazione per strumento.
 
+## Da dove esce il moltiplicatore
+
+Il numero non si stima: si calcola dalle specifiche che il broker espone.
+
+```
+ContractMultiplier = PointValue(future) / PointValue(1 lotto CFD)
+```
+
+Entrambi i valori vanno presi nella **valuta di quotazione** dello strumento, non in quella del
+conto: il valore di un punto per un lotto CFD è la dimensione del lotto in unità del sottostante
+(`Symbol.LotSize` in cAlgo), perché il controvalore è *unità × prezzo*. Usare il valore in valuta
+conto (`TickValue`) ci infila dentro un cambio, e il moltiplicatore andrebbe rivisto a ogni
+movimento FX.
+
+`PointValue(future)` è quello di `InstrumentRegistry`, l'unica fonte verificata dei contratti.
+
+Il cBot `piootoo-repository/ctrader/PiootooSymbolMultiplierBot.cs` fa questo conto su un conto
+cTrader collegato: legge le specifiche dei symbol elencati in parametro, calcola moltiplicatore,
+quantità minima e passo, e scrive un `Mappings` pronto da incollare qui dentro. Segnala i casi in
+cui il future e il CFD non sono quotati nella stessa valuta, che sono quelli in cui il rapporto va
+verificato a mano. `PiootooSymbolInfoDumpBot.cs` fa invece il dump grezzo di *tutti* i symbol del
+conto, senza calcoli.
+
 ## Dove vivono i dati
 
 | File | Contenuto |
