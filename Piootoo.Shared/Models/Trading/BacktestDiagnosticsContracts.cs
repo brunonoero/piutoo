@@ -81,7 +81,16 @@ public enum TradeExitReason
     BreakEven,
 
     /// <summary>Trailing stop protettivo raggiunto.</summary>
-    TrailingStop
+    TrailingStop,
+
+    /// <summary>
+    /// Flat di sessione imposto dal piano a una posizione che la strategia avrebbe tenuto.
+    ///
+    /// <para>Distinto da <see cref="TimeExit"/> apposta: quella e' la deadline della strategia,
+    /// questa e' un troncamento del conto. Sommarle renderebbe invisibile proprio la differenza
+    /// fra cio' che la strategia misura e cio' che il conto le concede.</para>
+    /// </summary>
+    SessionFlat
 }
 
 /// <summary>
@@ -243,13 +252,14 @@ public sealed class BacktestRunSummary
     public int OpenPositionsAtEnd { get; set; }
 
     /// <summary>
-    /// Venerdi', ora UTC HHMM da cui il run e' andato piatto, oppure null se il flat era spento.
+    /// Cosa il conto simulato permetteva di tenere, e a che ora tagliava.
     ///
     /// <para>Sta nel summary perche' e' una regola che cambia i risultati senza comparire nei
-    /// trade: due run identici con orari di flat diversi non sono confrontabili, e chi li rilegge
-    /// mesi dopo non ha altro modo di accorgersene.</para>
+    /// trade: due run identici con permessi o orari diversi non sono confrontabili, e chi li
+    /// rilegge mesi dopo non ha altro modo di accorgersene. Null nei summary scritti prima che la
+    /// policy esistesse.</para>
     /// </summary>
-    public int? WeekEndFlatFromUtcHhmm { get; init; }
+    public AccountHoldingPolicy? Holding { get; init; }
 
     public string Outcome { get; set; } = "Unknown";
     public string? ErrorMessage { get; set; }

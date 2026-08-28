@@ -99,6 +99,62 @@ public abstract class EasyEngineBase : StatelessEasyStrategyBase
     /// <summary>Contratti dichiarati dalla strategia, prima di sizing e conversione account.</summary>
     protected int Contracts = 1;
 
+    // ------------------------------------------------------------------ overnight e overweek
+
+    /// <summary>
+    /// <c>intraday_only</c> del motore di ricerca: la posizione viene chiusa alla fine della
+    /// sessione della strategia. Dichiarato qui una volta sola invece che in ogni motore, perche'
+    /// e' anche cio' da cui il catalogo deriva <see cref="Holding"/>: sei copie della stessa
+    /// variabile erano sei semantiche libere di divergere, e lo avevano gia' fatto.
+    /// </summary>
+    protected bool IntradayOnly = true;
+
+    /// <summary>
+    /// Vero quando questo motore chiude davvero a fine sessione. I motori che leggono
+    /// <see cref="IntradayOnly"/> usano <see cref="SessionExitFromIntradayOnly"/>; quelli che
+    /// dichiarano l'uscita in altro modo (BIAS, BIASW, MAC) lo lasciano falso e restano multiday.
+    /// </summary>
+    protected virtual bool AppliesSessionExit => false;
+
+    /// <summary>
+    /// L'uscita di sessione dei motori che portano <c>intraday_only</c>, con la regola di parita'
+    /// del motore di ricerca: <b>su D1 quell'uscita non viene applicata</b>, quindi una daily resta
+    /// multiday anche dichiarando <c>intraday_only = 1</c>.
+    ///
+    /// <para><b>Perche' e' qui e non ripetuta nei motori.</b> Cinque motori su sei scrivevano
+    /// <c>IntradayOnly &amp;&amp; TimeframeMinutes &lt; 1440</c> dentro il proprio corpo e il sesto
+    /// (RBB) no: la stessa dichiarazione valeva o non valeva secondo il motore che la leggeva.
+    /// Scritta una volta sola, la regola e' una — e resta una regola di parita' dichiarata, non una
+    /// deduzione dal timeframe nascosta in un <c>&amp;&amp;</c>.</para>
+    ///
+    /// <para>Il ramo daily e' comunque inerte sul catalogo attuale: tutte e dieci le strategie a
+    /// 1440 dichiarano gia' <c>IntradayOnly = false</c>, e
+    /// <c>HoldingPolicyTests.LeStrategieDailyDelCatalogoNonDipendonoDallEsenzioneD1</c> impedisce
+    /// che ne compaia una che si affida all'esenzione senza saperlo.</para>
+    /// </summary>
+    protected bool SessionExitFromIntradayOnly => IntradayOnly && TimeframeMinutes < 1440;
+
+    /// <summary>
+    /// La strategia dichiara l'uscita di sessione ma non la ottiene, perche' e' daily: resta
+    /// multiday soltanto grazie alla regola di parita' di
+    /// <see cref="SessionExitFromIntradayOnly"/>. Non e' un errore in se' — e' il comportamento del
+    /// motore di ricerca — ma e' una tenuta decisa dal timeframe invece che dal report, e il test
+    /// di conformita' la segnala perche' non accada per distrazione.
+    /// </summary>
+    public bool DependsOnDailySessionExitExemption =>
+        IntradayOnly && TimeframeMinutes >= 1440 && AppliesSessionExitDeclared;
+
+    /// <summary>Se questo motore userebbe <see cref="SessionExitFromIntradayOnly"/> a timeframe intraday.</summary>
+    protected virtual bool AppliesSessionExitDeclared => false;
+
+    /// <summary>
+    /// Cosa la strategia vuole tenere. Derivata da <see cref="AppliesSessionExit"/>: chi chiude a
+    /// fine sessione non tiene ne' la notte ne' il fine settimana, chi non chiude tiene entrambi
+    /// finche' il piano glielo concede. Vedi <see cref="AccountHoldingPolicy"/> per la gerarchia.
+    /// </summary>
+    public virtual StrategyHolding Holding =>
+        AppliesSessionExit ? StrategyHolding.Intraday : StrategyHolding.Multiday;
+
     // ------------------------------------------------------------------ orologio di borsa
 
     private SessionClock? _clock;

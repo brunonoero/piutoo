@@ -55,10 +55,17 @@ public class OpenPosition
     public int? MaxBarsInPosition { get; set; }
 
     /// <summary>
-    /// Orario assoluto di flat richiesto dalla strategia. L'engine chiude la
-    /// posizione al primo aggiornamento di mercato uguale o successivo.
+    /// Orario assoluto di flat. L'engine chiude la posizione al primo aggiornamento di mercato
+    /// uguale o successivo. Puo' venire dalla strategia o dal piano: vedi
+    /// <see cref="TimeExitFromAccountPolicy"/>.
     /// </summary>
     public DateTime? CloseAtUtc { get; set; }
+
+    /// <summary>
+    /// <see cref="CloseAtUtc"/> e' il flat di sessione del piano e non la deadline della strategia.
+    /// L'uscita viene registrata come <c>SessionFlat</c> invece che <c>TimeExit</c>.
+    /// </summary>
+    public bool TimeExitFromAccountPolicy { get; set; }
 
     /// <summary>
     /// Barre trascorse dalla barra di ingresso.

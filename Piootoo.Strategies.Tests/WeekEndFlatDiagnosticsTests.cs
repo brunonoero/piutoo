@@ -6,10 +6,10 @@ using Xunit;
 namespace Piootoo.Strategies.Tests;
 
 /// <summary>
-/// Il flat di fine settimana è una regola del CONTO, non della strategia: né la checkbox del
-/// backtest (<c>CloseAllPositionsAtWeekEnd</c>) né il parametro del cBot (<c>FlatAtWeekEnd</c>)
-/// guardano cosa la strategia ha dichiarato. Su una strategia che chiude da sé a fine sessione è
-/// innocuo; su una che resta aperta per giorni le taglia i trade a metà.
+/// Il flat di fine settimana è una regola del CONTO, non della strategia: lo decide il piano
+/// (<c>AccountHoldingPolicy.AllowOverweek</c>) e non guarda cosa la strategia ha dichiarato. Su una
+/// strategia che chiude da sé a fine sessione è innocuo; su una che resta aperta per giorni le
+/// taglia i trade a metà.
 ///
 /// <para>La differenza non si vede da nessuna parte, perché l'uscita ha comunque un prezzo e un
 /// motivo plausibili: si scopre solo confrontando con la lista di trade della ricerca. Sul
@@ -77,20 +77,43 @@ public class WeekEndFlatDiagnosticsTests : IDisposable
     }
 
     /// <summary>
-    /// L'orario del flat entra nel summary: due run con orari diversi non sono confrontabili, e
-    /// chi li rilegge mesi dopo non ha altro modo di accorgersene.
+    /// La policy del conto entra nel summary: due run con permessi o orari diversi non sono
+    /// confrontabili, e chi li rilegge mesi dopo non ha altro modo di accorgersene.
     /// </summary>
     [Fact]
-    public void LOrarioDelFlatRestaScrittoNelSummary()
+    public void LaPolicyDelContoRestaScrittaNelSummary()
     {
         using var logger = new BacktestDiagnosticsLogger(_dir, "job-4");
         var summary = logger.Complete(new BacktestRunSummary
         {
             JobId = "job-4",
-            WeekEndFlatFromUtcHhmm = 2045
+            Holding = AccountHoldingPolicy.Default with { AllowOvernight = false, SessionFlatUtcHhmm = 2045 }
         });
 
-        Assert.Equal(2045, summary.WeekEndFlatFromUtcHhmm);
+        Assert.NotNull(summary.Holding);
+        Assert.False(summary.Holding!.AllowOvernight);
+        Assert.Equal(2045, summary.Holding.SessionFlatUtcHhmm);
+        Assert.Equal(2045, summary.Holding.WeekEnd.FromUtcHhmm);
+    }
+
+    /// <summary>
+    /// La riga gemella per l'altro asse: il flat di SESSIONE imposto dal piano, che è un
+    /// troncamento diverso dal fine settimana e non va confuso con la deadline della strategia.
+    /// Nessuna soglia qui — un solo trade tagliato dal conto è già una divergenza dalla ricerca.
+    /// </summary>
+    [Fact]
+    public void SegnalaIlTroncamentoDiSessioneImpostoDalPiano()
+    {
+        using var logger = new BacktestDiagnosticsLogger(_dir, "job-5");
+        Registra(logger, "PTS_GC_TFU_001_30", 30, trades: 40, tagliati: 12,
+            motivo: TradeExitReason.SessionFlat);
+
+        var riga = Assert.Single(Diagnosi(logger), d => d.StartsWith("[fine sessione]", StringComparison.Ordinal));
+
+        Assert.Contains("12 trade su 40", riga);
+        Assert.Contains("PTS_GC_TFU_001_30", riga);
+        // Le due righe parlano di due tagli diversi e non devono sovrapporsi.
+        Assert.DoesNotContain(Diagnosi(logger), d => d.StartsWith("[fine settimana]", StringComparison.Ordinal));
     }
 
     private static IReadOnlyList<string> Diagnosi(BacktestDiagnosticsLogger logger) =>
@@ -98,6 +121,11 @@ public class WeekEndFlatDiagnosticsTests : IDisposable
 
     private static void Registra(
         BacktestDiagnosticsLogger logger, string code, int timeframe, int trades, int weekEnd)
+        => Registra(logger, code, timeframe, trades, weekEnd, TradeExitReason.WeekEnd);
+
+    private static void Registra(
+        BacktestDiagnosticsLogger logger, string code, int timeframe, int trades, int tagliati,
+        TradeExitReason motivo)
     {
         logger.RegisterStrategy(code, code, "GC", timeframe);
         var t0 = new DateTime(2022, 1, 3, 12, 0, 0, DateTimeKind.Utc);
@@ -113,7 +141,7 @@ public class WeekEndFlatDiagnosticsTests : IDisposable
                 EntryPrice = 1800m,
                 ExitPrice = 1805m,
                 Contracts = 1m,
-                ExitReason = i < weekEnd ? TradeExitReason.WeekEnd : TradeExitReason.StopLoss
+                ExitReason = i < tagliati ? motivo : TradeExitReason.StopLoss
             });
     }
 

@@ -21,18 +21,17 @@ public class BacktestingRequest
     public decimal InitialCapital { get; set; }
     public decimal CommissionPerContract { get; set; } = 2.0m;
     public string Name { get; set; } = string.Empty;
-    /// <summary>Chiude tutte le posizioni aperte quando scatta il flat di fine settimana.</summary>
-    public bool CloseAllPositionsAtWeekEnd { get; set; } = true;
-
     /// <summary>
-    /// Venerdi', ora UTC HHMM da cui il backtest va piatto. Vedi <see cref="WeekEndFlatPolicy"/>:
-    /// e' lo stesso numero che la sessione pubblica nel descriptor e che il cBot esegue, ed e'
-    /// l'unico modo perche' backtest e conto vero chiudano nello stesso istante.
+    /// Cosa il conto simulato permette di tenere — la notte, il fine settimana — e a che ora taglia
+    /// quando non lo permette.
+    ///
+    /// <para>E' <b>lo stesso tipo</b> che il piano porta in sessione e nel descriptor, e non un
+    /// interruttore parallelo: un run e il live dello stesso piano sono confrontabili per
+    /// costruzione, invece che per disciplina di chi compila la richiesta. Il precedente
+    /// <c>CloseAllPositionsAtWeekEnd</c> e' oggi <see cref="AccountHoldingPolicy.AllowOverweek"/>
+    /// rovesciato. Vedi <see cref="AccountHoldingPolicy"/>.</para>
     /// </summary>
-    public int WeekEndFlatFromUtcHhmm { get; set; } = TradingConventions.WeekEndFlatFromUtcHhmm;
-
-    /// <summary>Domenica, ora UTC HHMM da cui si torna operativi.</summary>
-    public int WeekEndFlatUntilUtcHhmm { get; set; } = TradingConventions.WeekEndFlatUntilUtcHhmm;
+    public AccountHoldingPolicy Holding { get; set; } = AccountHoldingPolicy.Default;
 
     /// <summary>
     /// Scarta i pending il cui livello e' gia' oltrepassato quando l'ordine nasce, come fa il cBot

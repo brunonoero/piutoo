@@ -171,7 +171,11 @@ public partial class BacktestingScreen : UserControl, IShellScreen
                 EndDate = DateTime.SpecifyKind(_endPicker.Value, DateTimeKind.Utc),
                 InitialCapital = _capitalInput.Value,
                 CommissionPerContract = _commissionInput.Value,
-                CloseAllPositionsAtWeekEnd = _weekEndCheckBox.Checked
+                // La spunta e' la stessa regola di prima, letta dal verso opposto: chiudere a fine
+                // settimana significa non concedere l'overweek. L'overnight non e' esposto qui —
+                // per riprodurre un piano che lo vieta serve la sua policy, non una checkbox in
+                // piu' che direbbe la stessa cosa in un secondo posto.
+                Holding = AccountHoldingPolicy.Default with { AllowOverweek = !_weekEndCheckBox.Checked }
             };
 
             SetRunningState(true);

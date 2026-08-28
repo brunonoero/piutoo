@@ -541,10 +541,11 @@ public class PiootooBacktestingService : IPiootooBacktestingService
             tradingService.Initialize(request.InitialCapital, request.CommissionPerContract);
             tradingService.RejectWrongSideLevels = request.RejectWrongSideLevels;
 
-            // Stesso numero del descriptor di sessione e del cBot: e' l'unico modo perche' backtest
-            // e conto vero chiudano il venerdi' nello stesso istante.
-            var weekEndFlat = new WeekEndFlatPolicy(
-                request.WeekEndFlatFromUtcHhmm, request.WeekEndFlatUntilUtcHhmm);
+            // Stessa policy del descriptor di sessione e del cBot: e' l'unico modo perche' backtest
+            // e conto vero taglino negli stessi istanti.
+            var holding = request.Holding ?? AccountHoldingPolicy.Default;
+            holding.Validate();
+            var weekEndFlat = holding.WeekEnd;
 
             diagnostics = new BacktestDiagnosticsLogger(outputPath, job.JobId);
             tradingService.PositionOpened = diagnostics.LogEntry;
@@ -564,7 +565,11 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                 ["commissionPerContract"] = request.CommissionPerContract.ToString(CultureInfo.InvariantCulture),
                 ["minTimeframeMinutes"] = minTimeframeMinutes.ToString(),
                 ["strategies"] = strategyInstances.Count.ToString(),
-                ["closeAllPositionsAtWeekEnd"] = request.CloseAllPositionsAtWeekEnd ? "true" : "false",
+                ["allowOvernight"] = holding.AllowOvernight ? "true" : "false",
+                ["sessionFlatFromUtc"] = holding.AllowOvernight
+                    ? "-"
+                    : holding.SessionFlatUtcHhmm.ToString("0000"),
+                ["allowOverweek"] = holding.AllowOverweek ? "true" : "false",
                 ["weekEndFlatFromUtc"] = weekEndFlat.FromUtcHhmm.ToString("0000"),
                 ["rejectWrongSideLevels"] = request.RejectWrongSideLevels ? "true" : "false"
             });
@@ -919,6 +924,10 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                         if (string.IsNullOrWhiteSpace(signal.StrategyName)) signal.StrategyName = strategyCode;
                         ScaleSignalMaxBarsInPosition(signal, strategy.TimeframeMinutes, minTimeframeMinutes);
                         signal.Quantity *= titanoAllocation;
+                        // Prima di essere accodato e prima di essere persistito: signals.json deve
+                        // riportare la deadline che verra' davvero eseguita, non quella che la
+                        // strategia avrebbe voluto se il piano gliela avesse concessa.
+                        ApplyAccountHolding(signal, holding);
 
                         signals.Add(signal);
                         emittedTradeSignals.Add(CloneTradeSignal(signal));
@@ -933,6 +942,7 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                                 if (string.IsNullOrWhiteSpace(companion.StrategyName)) companion.StrategyName = strategyCode;
                                 ScaleSignalMaxBarsInPosition(companion, strategy.TimeframeMinutes, minTimeframeMinutes);
                                 companion.Quantity *= titanoAllocation;
+                                ApplyAccountHolding(companion, holding);
                                 signals.Add(companion);
                                 emittedTradeSignals.Add(CloneTradeSignal(companion));
                                 diagnostics.LogSignal(companion, strategyCode, strategySymbol, strategy.TimeframeMinutes, currentDate);
@@ -975,7 +985,7 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                 // slot dell'orologio sintetico prima di sabato: quello cadeva alle 23:30 del
                 // venerdi' con timeframe minimo a 30 minuti, mentre il conto vero e' gia' piatto
                 // dalle 20:45. Vedi WeekEndFlatPolicy.
-                if (request.CloseAllPositionsAtWeekEnd &&
+                if (!holding.AllowOverweek &&
                     weekEndFlat.IsFlatTrigger(currentDate, currentDate.AddMinutes(-minTimeframeMinutes)))
                 {
                     // Anche senza posizioni aperte c'è da fare: uno stop emesso su questa barra
@@ -1129,9 +1139,7 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                 TotalNetProfit = result.TotalProfit,
                 MaxDrawdown = result.MaxDrawdown,
                 OpenPositionsAtEnd = finalSnapshot.OpenPositionsCount,
-                WeekEndFlatFromUtcHhmm = request.CloseAllPositionsAtWeekEnd
-                    ? weekEndFlat.FromUtcHhmm
-                    : null,
+                Holding = holding,
                 Outcome = "Completed"
             });
             result.DiagnosticsLogFilePath = diagnostics.LogPath;
@@ -1547,6 +1555,25 @@ public class PiootooBacktestingService : IPiootooBacktestingService
             Commission = trade.Commission
         };
 
+    /// <summary>
+    /// Applica al segnale la parola finale del piano: se il conto non concede l'overnight, la
+    /// posizione riceve la deadline del flat di sessione, salvo che la strategia ne dichiari gia'
+    /// una piu' stretta.
+    ///
+    /// <para>E' lo stesso <see cref="HoldingResolver"/> che la sessione chiama sul percorso live:
+    /// un'unica composizione per i due motori, altrimenti backtest e conto vero tornano a tagliare
+    /// in istanti diversi — che e' la classe di divergenza che questa gerarchia chiude.</para>
+    /// </summary>
+    private static void ApplyAccountHolding(TradeSignal signal, AccountHoldingPolicy holding)
+    {
+        if (holding.AllowOvernight) return;
+
+        var decision = HoldingResolver.Resolve(
+            signal.CloseAtUtc, signal.ValidFromUtc ?? signal.Date, holding);
+        signal.CloseAtUtc = decision.AtUtc;
+        signal.TimeExitFromAccountPolicy = decision.FromAccountPolicy;
+    }
+
     private static TradeSignal CloneTradeSignal(TradeSignal signal)
     {
         var clone = new TradeSignal
@@ -1564,6 +1591,7 @@ public class PiootooBacktestingService : IPiootooBacktestingService
             ValidFromUtc = signal.ValidFromUtc,
             ExpiresAtUtc = signal.ExpiresAtUtc,
             CloseAtUtc = signal.CloseAtUtc,
+            TimeExitFromAccountPolicy = signal.TimeExitFromAccountPolicy,
             StopLossMoneyPerFutureContract = signal.StopLossMoneyPerFutureContract,
             TakeProfitMoneyPerFutureContract = signal.TakeProfitMoneyPerFutureContract,
             StopLoss = signal.StopLoss,
@@ -1651,7 +1679,7 @@ public class PiootooBacktestingService : IPiootooBacktestingService
             html.AppendLine("<!doctype html>");
             html.AppendLine("<html lang=\"it\"><head><meta charset=\"utf-8\">");
             html.AppendLine($"<title>{title}</title>");
-            html.AppendLine("<style>body{font-family:Arial,Helvetica,sans-serif;margin:24px;background:#0f172a;color:#e5e7eb}.card{background:#111827;border:1px solid #334155;border-radius:12px;padding:18px;margin-bottom:16px}.muted{color:#94a3b8}.metrics{display:flex;flex-wrap:wrap;gap:10px;margin:14px 0}.metric{background:#020617;border:1px solid #334155;border-radius:10px;padding:10px 12px}.metric b{display:block;color:#f8fafc}.summary-table{width:100%;border-collapse:collapse;margin-top:10px}.summary-table th,.summary-table td{border-bottom:1px solid #334155;padding:9px 10px;text-align:right}.summary-table th:first-child,.summary-table td:first-child{text-align:left}.positive{color:#22c55e}.negative{color:#fb7185}</style>");
+            html.AppendLine("<style>body{font-family:Arial,Helvetica,sans-serif;margin:24px;background:#0f172a;color:#e5e7eb}.card{background:#111827;border:1px solid #334155;border-radius:12px;padding:18px;margin-bottom:16px}.muted{color:#94a3b8}.metrics{display:flex;flex-wrap:wrap;gap:10px;margin:14px 0}.metric{background:#020617;border:1px solid #334155;border-radius:10px;padding:10px 12px}.metric b{display:block;color:#f8fafc}.summary-table{width:100%;border-collapse:collapse;margin-top:10px}.summary-table th,.summary-table td{border-bottom:1px solid #334155;padding:9px 10px;text-align:right}.summary-table th:first-child,.summary-table td:first-child{text-align:left}.positive{color:#22c55e}.negative{color:#fb7185}.top-strategies{text-align:left;font-size:12px;line-height:1.5}</style>");
             html.AppendLine("</head><body>");
             html.AppendLine($"<h1>{title}</h1>");
             AppendBacktestSummaryHtml(html, result, symbolsText, totalTrades, strategyCount);
@@ -1686,6 +1714,7 @@ public class PiootooBacktestingService : IPiootooBacktestingService
         html.AppendLine("    .summary-table th:first-child,.summary-table td:first-child{text-align:left}");
         html.AppendLine("    .positive{color:#22c55e}");
         html.AppendLine("    .negative{color:#fb7185}");
+        html.AppendLine("    .summary-table td.top-strategies{text-align:left;font-size:12px;line-height:1.5}");
         html.AppendLine("  </style>");
         html.AppendLine("</head>");
         html.AppendLine("<body>");
@@ -1763,6 +1792,11 @@ public class PiootooBacktestingService : IPiootooBacktestingService
         // valuta e percentuale hanno unità dichiarate e la stessa sorgente.
         var maxDrawdownPercent = CalculateMaxDrawdownPercent(result.HourlyResults, result.InitialCapital);
         var maxDrawdownValue = CalculateMaxDrawdown(result.HourlyResults, result.InitialCapital);
+        // Il profit da solo non e' confrontabile fra due run con capitale iniziale diverso: la
+        // percentuale e' rispetto al capitale iniziale, la stessa base del "Return %" annuale.
+        var totalProfitPercent = result.InitialCapital != 0
+            ? result.TotalProfit / result.InitialCapital * 100m
+            : 0m;
         html.AppendLine("  <div class=\"card\">");
         html.AppendLine("    <h2>Riepilogo simulazione</h2>");
         html.AppendLine("    <div class=\"metrics\">");
@@ -1772,6 +1806,7 @@ public class PiootooBacktestingService : IPiootooBacktestingService
         html.AppendLine($"      <div class=\"metric\"><span>Trade effettuati</span><b>{totalTrades}</b></div>");
         html.AppendLine($"      <div class=\"metric\"><span>Capitale iniziale</span><b>{result.InitialCapital:F2}</b></div>");
         html.AppendLine($"      <div class=\"metric\"><span>Profit totale</span><b>{result.TotalProfit:F2}</b></div>");
+        html.AppendLine($"      <div class=\"metric\"><span>Profit totale %</span><b>{totalProfitPercent:F2}%</b></div>");
         html.AppendLine($"      <div class=\"metric\"><span>Max drawdown</span><b>{maxDrawdownValue:F2}</b></div>");
         html.AppendLine($"      <div class=\"metric\"><span>Max drawdown %</span><b>{maxDrawdownPercent:F2}%</b></div>");
         html.AppendLine("    </div>");
@@ -1870,7 +1905,7 @@ public class PiootooBacktestingService : IPiootooBacktestingService
         html.AppendLine("    <h2>Resoconto mensile</h2>");
         AppendCoverageNoteHtml(html, result);
         html.AppendLine("    <table class=\"summary-table\">");
-        html.AppendLine("      <thead><tr><th>Mese</th><th>Equity iniziale</th><th>Equity finale</th><th>Profit</th><th>Return %</th><th>Max DD mese</th><th>Max DD %</th><th>Trade win</th><th>Trade persi</th></tr></thead>");
+        html.AppendLine("      <thead><tr><th>Mese</th><th>Equity iniziale</th><th>Equity finale</th><th>Profit</th><th>Return %</th><th>Max DD mese</th><th>Max DD %</th><th>Trade win</th><th>Trade persi</th><th>Migliori 3 strategie</th></tr></thead>");
         html.AppendLine("      <tbody>");
 
         foreach (var monthGroup in orderedRows.GroupBy(row => new { row.DateTime.Year, row.DateTime.Month }).OrderBy(group => group.Key.Year).ThenBy(group => group.Key.Month))
@@ -1885,9 +1920,10 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                 .Where(trade => trade.ExitDate.Year == monthGroup.Key.Year && trade.ExitDate.Month == monthGroup.Key.Month)
                 .ToList();
             var profitClass = profit >= 0 ? "positive" : "negative";
+            var topStrategiesHtml = BuildTopStrategiesCellHtml(monthTrades);
 
             html.AppendLine(
-                $"        <tr><td>{monthGroup.Key.Year}-{monthGroup.Key.Month:00}</td><td>{previousMonthEndEquity:F2}</td><td>{endEquity:F2}</td><td class=\"{profitClass}\">{profit:F2}</td><td class=\"{profitClass}\">{returnPct:F2}%</td><td class=\"negative\">{maxDrawdown:F2}</td><td class=\"negative\">{maxDrawdownPercent:F2}%</td><td>{monthTrades.Count(trade => trade.NetProfit > 0)}</td><td>{monthTrades.Count(trade => trade.NetProfit < 0)}</td></tr>");
+                $"        <tr><td>{monthGroup.Key.Year}-{monthGroup.Key.Month:00}</td><td>{previousMonthEndEquity:F2}</td><td>{endEquity:F2}</td><td class=\"{profitClass}\">{profit:F2}</td><td class=\"{profitClass}\">{returnPct:F2}%</td><td class=\"negative\">{maxDrawdown:F2}</td><td class=\"negative\">{maxDrawdownPercent:F2}%</td><td>{monthTrades.Count(trade => trade.NetProfit > 0)}</td><td>{monthTrades.Count(trade => trade.NetProfit < 0)}</td><td class=\"top-strategies\">{topStrategiesHtml}</td></tr>");
 
             previousMonthEndEquity = endEquity;
         }
@@ -1895,6 +1931,40 @@ public class PiootooBacktestingService : IPiootooBacktestingService
         html.AppendLine("      </tbody>");
         html.AppendLine("    </table>");
         html.AppendLine("  </div>");
+    }
+
+    /// <summary>
+    /// Le tre strategie con il profit netto piu' alto nel periodo, gia' formattate come cella HTML.
+    /// </summary>
+    /// <remarks>
+    /// La classifica e' sui trade <em>chiusi</em> nel periodo, l'unica grandezza confrontabile fra
+    /// strategie: l'equity per strategia include il mark-to-market delle posizioni aperte e farebbe
+    /// vincere il mese a chi ha solo un trade ancora in corso. La chiave e' (Symbol, StrategyCode)
+    /// come nel resto del report, cosi' la stessa strategia su due simboli resta distinta.
+    /// </remarks>
+    private static string BuildTopStrategiesCellHtml(IReadOnlyList<TradingResult> periodTrades)
+    {
+        if (periodTrades.Count == 0)
+        {
+            return "<span class=\"muted\">-</span>";
+        }
+
+        var top = periodTrades
+            .GroupBy(trade => MakeStrategyKey(
+                trade.Symbol,
+                string.IsNullOrWhiteSpace(trade.StrategyCode) ? trade.StrategyName : trade.StrategyCode))
+            .Select(group => new { Key = group.Key, Profit = group.Sum(trade => trade.NetProfit), Trades = group.Count() })
+            .OrderByDescending(row => row.Profit)
+            .ThenBy(row => row.Key, StringComparer.OrdinalIgnoreCase)
+            .Take(3)
+            .ToList();
+
+        return string.Join("<br>", top.Select(row =>
+        {
+            var cssClass = row.Profit >= 0 ? "positive" : "negative";
+            var label = System.Net.WebUtility.HtmlEncode(row.Key);
+            return $"{label} <span class=\"{cssClass}\">{row.Profit:F2}</span> <span class=\"muted\">({row.Trades})</span>";
+        }));
     }
 
     /// <summary>

@@ -101,6 +101,13 @@ sessione e per direzione.
 `intraday_only = 0` la posizione può restare overnight. Stop, target e limite
 barre sono sempre proprietà del segnale d'ingresso.
 
+`IntradayOnly` è dichiarato in `EasyEngineBase` e da lì il catalogo deriva
+`ITradingStrategy.Holding`, cioè cosa la strategia dichiara di voler tenere. Su
+D1 l'uscita di sessione non si applica — è parità col motore di ricerca, non una
+deduzione dal timeframe — e la regola vive in un punto solo
+(`SessionExitFromIntradayOnly`). Chi taglia davvero la posizione è comunque il
+piano: vedi [`overnight-e-overweek.md`](overnight-e-overweek.md).
+
 ### Specifica corrente NQ 60
 
 - Id/classe: `PTS_NQ_TFM_001_60`;

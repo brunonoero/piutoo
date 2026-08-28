@@ -30,6 +30,14 @@ public static class TradingConventions
 
     /// <summary>Domenica, ora UTC HHMM da cui si torna operativi.</summary>
     public const int WeekEndFlatUntilUtcHhmm = 2300;
+
+    /// <summary>
+    /// Ora UTC HHMM del flat giornaliero, usata dai piani che vietano l'overnight (conti prop che
+    /// impongono di chiudere ogni sera). Vale lo stesso default del venerdi': se un conto deve
+    /// essere piatto una volta al giorno, l'ora piu' prudente e' quella che gia' vale per il
+    /// fine settimana. Vedi <see cref="AccountHoldingPolicy"/>.
+    /// </summary>
+    public const int SessionFlatFromUtcHhmm = 2045;
 }
 
 /// <summary>
@@ -73,4 +81,8 @@ public sealed record WeekEndFlatPolicy(int FromUtcHhmm, int UntilUtcHhmm)
     /// </summary>
     public bool IsFlatTrigger(DateTime instantUtc, DateTime previousInstantUtc) =>
         IsInsideWindow(instantUtc) && !IsInsideWindow(previousInstantUtc);
+
+    /// <summary>Un HHMM plausibile come orario di flat: 0000-2359, minuti veri.</summary>
+    public static bool IsValidHhmm(int value) =>
+        value >= 0 && value <= 2359 && value % 100 < 60;
 }

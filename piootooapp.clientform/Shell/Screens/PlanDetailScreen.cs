@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using Piootoo.Shared.Models.Optimization;
+using Piootoo.Shared.Models.Strategies;
 using Piootoo.Shared.Models.Trading;
 using Piootoo.Shared.Models.Workspaces;
 using piootooapp.clientform.Shell.Controls;
@@ -51,6 +52,23 @@ public sealed class PlanAccountEditRow
 }
 
 /// <summary>
+/// Riga dell'avviso: una strategia del masterfilter che il piano taglierebbe. Sola lettura, e
+/// ordinabile come ogni elenco della console.
+/// </summary>
+public sealed class PlanHoldingConflictRow
+{
+    public string Strategy { get; set; } = string.Empty;
+
+    public string Symbol { get; set; } = string.Empty;
+
+    public string Timeframe { get; set; } = string.Empty;
+
+    public string Holding { get; set; } = string.Empty;
+
+    public string Effect { get; set; } = string.Empty;
+}
+
+/// <summary>
 /// Dettaglio di un piano di trading. Il salvataggio riscrive il piano intero, quindi la schermata
 /// deve esporre tutto ciò che il piano contiene: quello che non è modificabile qui verrebbe
 /// riportato ai default alla prima modifica.
@@ -81,6 +99,17 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
     /// apre <see cref="BacktestPickerDialog"/>.
     /// </summary>
     private readonly List<WorkspaceBacktestInfo> _backtests = new();
+
+    /// <summary>
+    /// Catalogo strategie del server: serve a sapere quali strategie del masterfilter sono
+    /// multiday, cioe' quali il piano taglierebbe. Si carica una volta, come il registro account.
+    /// </summary>
+    private readonly List<StrategyCatalogItem> _catalog = new();
+
+    /// <summary>Id del masterfilter del workspace scelto: cambia con la combo workspace.</summary>
+    private readonly List<string> _masterFilter = new();
+
+    private readonly SortableBindingList<PlanHoldingConflictRow> _conflicts = new();
     private ShellContext? _context;
     private string _workspaceId = string.Empty;
     private string? _code;
@@ -120,6 +149,9 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
 
         _groups.ListChanged += (_, _) => MarkDirty();
         _accounts.ListChanged += (_, _) => MarkDirty();
+
+        _conflictsBindingSource.DataSource = _conflicts;
+        _conflictsGrid.EnableColumnSorting();
     }
 
     public string ScreenTitle => _isNew
@@ -151,6 +183,7 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
         {
             await LoadWorkspacesAsync(cancellationToken);
             await LoadAccountRegistryAsync(cancellationToken);
+            await LoadStrategyCatalogAsync(cancellationToken);
             await LoadTitanoChoicesAsync(cancellationToken);
             if (_isNew)
             {
@@ -159,6 +192,7 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
                 ResetToDefaults();
                 _rotationStatusLabel.Text = "disponibile dopo il primo salvataggio";
                 await RefreshGroupChoicesAsync(cancellationToken);
+                await RefreshHoldingImpactAsync(cancellationToken);
                 _context.Navigation.SetStatus($"Nuovo piano nel workspace '{_workspaceId}'.");
                 return;
             }
@@ -169,6 +203,7 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
             Fill(plan);
             await RefreshGroupChoicesAsync(cancellationToken);
             await RefreshRotationStatusAsync(cancellationToken);
+            await RefreshHoldingImpactAsync(cancellationToken);
             _context.Navigation.SetStatus(
                 $"Piano '{plan.Code}' con {plan.Groups.Count} righe gruppo/account, " +
                 $"aggiornato il {plan.UpdatedUtc:yyyy-MM-dd HH:mm} UTC.");
@@ -265,6 +300,8 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
         // Cartelle di backtest vivono dentro il workspace: cambiato quello, le liste vanno ricostruite.
         await LoadTitanoChoicesAsync(CancellationToken.None);
         await RefreshGroupChoicesAsync(CancellationToken.None);
+        // Anche il masterfilter e' del workspace: l'elenco delle strategie tagliate cambia con lui.
+        await RefreshHoldingImpactAsync(CancellationToken.None);
     }
 
     /// <summary>
@@ -576,6 +613,8 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
         _commissionInput.Value = 2m;
         _enforceConcurrencyCombo.SelectedIndex = 0;
 
+        FillHolding(AccountHoldingPolicy.Default);
+
         _clampMultipliersCheckBox.Checked = true;
         _volatilityEnabledCheckBox.Checked = false;
         _atrPeriodsInput.Value = 14;
@@ -602,6 +641,8 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
             true => 1,
             false => 2
         };
+
+        FillHolding(plan.Holding);
 
         var sizing = plan.PositionSizing;
         _clampMultipliersCheckBox.Checked = sizing.ClampMultipliersToUnitInterval;
@@ -650,6 +691,196 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
         _accounts.RaiseListChangedEvents = true;
         _accounts.ResetBindings();
     }
+
+    /// <summary>
+    /// Il catalogo strategie del server. Serve solo all'avviso di questa schermata: senza sapere
+    /// quali strategie sono multiday non si puo' dire quali il piano taglierebbe.
+    /// </summary>
+    private async Task LoadStrategyCatalogAsync(CancellationToken cancellationToken)
+    {
+        if (_context == null || _catalog.Count > 0)
+        {
+            return;
+        }
+
+        try
+        {
+            _catalog.AddRange(await _context.Services.Api.ListStrategiesAsync(cancellationToken));
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch
+        {
+            // L'avviso e' un di piu': se il catalogo non arriva, il piano resta salvabile e
+            // l'etichetta lo dichiara, invece di far fallire l'intera schermata.
+            _catalog.Clear();
+        }
+    }
+
+    private void FillHolding(AccountHoldingPolicy holding)
+    {
+        _allowOvernightCheckBox.Checked = holding.AllowOvernight;
+        _allowOverweekCheckBox.Checked = holding.AllowOverweek;
+        _sessionFlatInput.Value = Math.Clamp(holding.SessionFlatUtcHhmm, 0, 2359);
+        _weekEndFromInput.Value = Math.Clamp(holding.WeekEnd.FromUtcHhmm, 0, 2359);
+        _weekEndUntilInput.Value = Math.Clamp(holding.WeekEnd.UntilUtcHhmm, 0, 2359);
+        ApplyHoldingEnablement();
+    }
+
+    private AccountHoldingPolicy ReadHolding() => new()
+    {
+        AllowOvernight = _allowOvernightCheckBox.Checked,
+        AllowOverweek = _allowOverweekCheckBox.Checked,
+        SessionFlatUtcHhmm = (int)_sessionFlatInput.Value,
+        WeekEnd = new WeekEndFlatPolicy((int)_weekEndFromInput.Value, (int)_weekEndUntilInput.Value)
+    };
+
+    /// <summary>
+    /// Un orario di taglio ha senso solo se quel taglio esiste: mostrare un campo attivo che non
+    /// governa nulla fa credere che il piano stia facendo qualcosa che non fa.
+    ///
+    /// <para>Overweek segue overnight anche qui: tenere il fine settimana senza tenere la notte non
+    /// descrive alcun conto reale, e il server rifiuterebbe la combinazione al salvataggio.</para>
+    /// </summary>
+    private void ApplyHoldingEnablement()
+    {
+        _sessionFlatInput.Enabled = !_allowOvernightCheckBox.Checked;
+        _sessionFlatLabel.Enabled = !_allowOvernightCheckBox.Checked;
+
+        _allowOverweekCheckBox.Enabled = _allowOvernightCheckBox.Checked;
+        if (!_allowOvernightCheckBox.Checked && _allowOverweekCheckBox.Checked)
+        {
+            _allowOverweekCheckBox.Checked = false;
+        }
+
+        var weekEndCuts = !_allowOverweekCheckBox.Checked;
+        _weekEndFromInput.Enabled = weekEndCuts;
+        _weekEndFromLabel.Enabled = weekEndCuts;
+        _weekEndUntilInput.Enabled = weekEndCuts;
+        _weekEndUntilLabel.Enabled = weekEndCuts;
+    }
+
+    private void OnHoldingChanged(object? sender, EventArgs e)
+    {
+        ApplyHoldingEnablement();
+        MarkDirty();
+        UpdateHoldingImpact();
+    }
+
+    /// <summary>
+    /// Ricarica il masterfilter del workspace corrente e ricalcola l'avviso. Il masterfilter e' del
+    /// workspace, quindi va riletto ogni volta che il workspace cambia.
+    /// </summary>
+    private async Task RefreshHoldingImpactAsync(CancellationToken cancellationToken)
+    {
+        _masterFilter.Clear();
+        if (_context != null && !string.IsNullOrWhiteSpace(_workspaceId))
+        {
+            try
+            {
+                var filter = await _context.Services.Api.GetMasterFilterAsync(_workspaceId, cancellationToken);
+                _masterFilter.AddRange(filter.StrategiesFilter);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch
+            {
+                // Come per il catalogo: l'avviso e' diagnostica, non una precondizione del piano.
+            }
+        }
+
+        UpdateHoldingImpact();
+    }
+
+    /// <summary>
+    /// L'avviso: quali strategie del masterfilter questo piano taglierebbe, e come.
+    ///
+    /// <para>Il conflitto lo calcola <see cref="HoldingResolver.FindConflicts"/>, cioe' la stessa
+    /// regola che poi esegue il motore: se la schermata se la riscrivesse per conto proprio,
+    /// mostrerebbe prima o poi un elenco diverso da quello che il run produce — ed e' esattamente
+    /// il tipo di divergenza che questa gerarchia esiste per chiudere.</para>
+    /// </summary>
+    private void UpdateHoldingImpact()
+    {
+        _conflicts.RaiseListChangedEvents = false;
+        _conflicts.Clear();
+
+        var holding = ReadHolding();
+        if (_catalog.Count == 0)
+        {
+            _holdingWarningLabel.ForeColor = SystemColors.GrayText;
+            _holdingWarningLabel.Text =
+                "Catalogo strategie non disponibile: l'elenco delle strategie tagliate da questo piano " +
+                "non puo' essere calcolato. Il piano resta salvabile.";
+        }
+        else if (holding.AllowOvernight && holding.AllowOverweek)
+        {
+            _holdingWarningLabel.ForeColor = SystemColors.ControlText;
+            _holdingWarningLabel.Text =
+                "Il piano non impone alcun flat: overnight e overweek restano decisi da motore e strategia. " +
+                "Attenzione, e' una configurazione da conto proprio: quasi nessuna prop la ammette.";
+        }
+        else
+        {
+            var byId = _catalog.ToDictionary(item => item.Id, StringComparer.OrdinalIgnoreCase);
+            var selected = _masterFilter
+                .Select(id => byId.GetValueOrDefault(id.Trim()))
+                .Where(item => item is not null)
+                .Select(item => item!)
+                .ToList();
+
+            var conflicts = HoldingResolver.FindConflicts(
+                selected.Select(item => (
+                    item.Id,
+                    item.Name,
+                    new StrategyHolding(item.Overnight, item.Overweek))),
+                holding);
+
+            foreach (var conflict in conflicts)
+            {
+                var strategy = byId[conflict.StrategyId];
+                _conflicts.Add(new PlanHoldingConflictRow
+                {
+                    Strategy = conflict.StrategyCode,
+                    Symbol = strategy.Symbol,
+                    Timeframe = strategy.TimeframeMinutes > 0 ? $"{strategy.TimeframeMinutes}m" : "—",
+                    Holding = conflict.Holding.Describe(),
+                    Effect = conflict.CutAtSessionFlat
+                        ? $"chiusa ogni giorno alle {Hhmm(holding.SessionFlatUtcHhmm)} UTC"
+                        : $"chiusa il venerdi alle {Hhmm(holding.WeekEnd.FromUtcHhmm)} UTC"
+                });
+            }
+
+            if (conflicts.Count == 0)
+            {
+                _holdingWarningLabel.ForeColor = SystemColors.ControlText;
+                _holdingWarningLabel.Text = selected.Count == 0
+                    ? "Il masterfilter del workspace e' vuoto (o le sue strategie non sono nel catalogo): " +
+                      "non c'e' nulla di cui calcolare l'impatto."
+                    : $"Nessuna delle {selected.Count} strategie del masterfilter viene tagliata: " +
+                      "chiudono tutte entro i limiti che il piano concede.";
+            }
+            else
+            {
+                _holdingWarningLabel.ForeColor = Color.FromArgb(176, 84, 0);
+                _holdingWarningLabel.Text =
+                    $"Questo piano tronca {conflicts.Count} strategie su {selected.Count} del masterfilter. " +
+                    "Sono strategie che la ricerca ha misurato multiday: su questo piano non possono esserlo, " +
+                    "quindi i loro trade non saranno confrontabili con il run originale. Il taglio e' " +
+                    "legittimo — e' cio' che la prop impone — ma va saputo prima, non letto dopo nei trade.";
+            }
+        }
+
+        _conflicts.RaiseListChangedEvents = true;
+        _conflicts.ReapplySort();
+        _conflicts.ResetBindings();
+    }
+
+    private static string Hhmm(int value) => $"{value / 100:00}:{value % 100:00}";
 
     private static decimal Clamp(NumericUpDown input, decimal value)
         => Math.Clamp(value, input.Minimum, input.Maximum);
@@ -822,6 +1053,20 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
             return;
         }
 
+        var holding = ReadHolding();
+        try
+        {
+            // Stessa validazione del server, anticipata: un HHMM impossibile va detto mentre lo si
+            // sta scrivendo, non come 400 al salvataggio.
+            holding.Validate();
+        }
+        catch (InvalidOperationException ex)
+        {
+            MessageBox.Show(this, ex.Message, "Piano", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            _tabs.SelectedTab = _holdingTab;
+            return;
+        }
+
         var request = new SaveTradingPlanRequest
         {
             Code = code,
@@ -852,6 +1097,7 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
                 _ => null
             },
             CommissionPerContract = _commissionInput.Value,
+            Holding = ReadHolding(),
             PositionSizing = new PositionSizingConfig
             {
                 ClampMultipliersToUnitInterval = _clampMultipliersCheckBox.Checked,

@@ -103,13 +103,11 @@ public abstract class VolatilityBreakoutEngine : EasyEngineBase
     /// </summary>
     protected bool OneEntryPerSessionPerSide;
 
-    /// <summary>
-    /// Se true la posizione viene chiusa a fine sessione sui timeframe intraday. Corrisponde a
-    /// <c>intraday_only</c> del motore Python, come nei motori TF, PC e BO, e vale <b>true per
-    /// default</b>: un candidato con <c>intraday_only = 0</c> che non lo disattiva diventa una
-    /// strategia di sessione senza che nessun test se ne accorga.
-    /// </summary>
-    protected bool IntradayOnly = true;
+    /// <summary>Questo motore chiude a fine sessione quando <c>intraday_only = 1</c>.</summary>
+    protected override bool AppliesSessionExit => SessionExitFromIntradayOnly;
+
+    /// <inheritdoc />
+    protected override bool AppliesSessionExitDeclared => true;
 
     // ------------------------------------------------------------------ pattern e calendario
 
@@ -405,7 +403,7 @@ public abstract class VolatilityBreakoutEngine : EasyEngineBase
         signal.MaxEntriesPerSession = 1;
         signal.EntrySessionStartUtc = SessionKey(signal.ValidFromUtc!.Value);
 
-        if (IntradayOnly && TimeframeMinutes < 1440)
+        if (AppliesSessionExit)
             signal.CloseAtUtc = ResolveCloseAtUtc(signal.ValidFromUtc!.Value, SessionEndTime);
 
         return signal;

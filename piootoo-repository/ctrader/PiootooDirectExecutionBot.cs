@@ -182,30 +182,24 @@ namespace cAlgo.Robots
         // MaxBarsInPosition). Un intent Close del server rappresenta invece un ExitOnly della
         // strategia e va eseguito contro la posizione già aperta.
 
-        // ------------------------------------------------------------------------ Fine settimana
+        // ---------------------------------------------------------------- Overnight e overweek
         //
-        // Regola operativa: nel fine settimana non restano ne' posizioni ne' ordini. Vive qui, nel
-        // bot, e non lato server, perche' e' una regola di sicurezza e deve tenere anche quando il
-        // server e' irraggiungibile.
-
-        [Parameter("Flat nel fine settimana", DefaultValue = true, Group = "Fine settimana")]
-        public bool FlatAtWeekEnd { get; set; }
-
-        // Il taglio e' un'ora UTC di venerdi invece della chiusura CME reale (16:00 di Chicago)
-        // perche' quest'ultima cade alle 21:00 oppure alle 22:00 UTC secondo l'ora legale
-        // americana: un default prudente, prima della piu' presta delle due, va bene in entrambi i
-        // periodi dell'anno senza dover gestire il fuso.
-        [Parameter("Flat da venerdi (HHMM UTC)", DefaultValue = 2045, MinValue = 0, MaxValue = 2359, Group = "Fine settimana")]
-        public int WeekEndFlatFromUtc { get; set; }
-
-        [Parameter("Operativo da domenica (HHMM UTC)", DefaultValue = 2300, MinValue = 0, MaxValue = 2359, Group = "Fine settimana")]
-        public int WeekEndFlatUntilUtc { get; set; }
+        // Nessun parametro di chiusura forzata: overnight, overweek e i loro orari li dichiara il
+        // PIANO e li consegna il descriptor. Finche' sono vissuti qui, il bot poteva contraddire il
+        // piano che diceva di eseguire, e la differenza non compariva da nessuna parte.
+        //
+        // Il flat resta una regola di SICUREZZA di questo bot, non un ordine impartito barra per
+        // barra: la policy ricevuta all'apertura vale anche a server muto, ed e' per questo che
+        // vive in campi locali invece che in una chiamata.
 
         /// <summary>
-        /// Orario di flat in vigore, HHMM UTC. Nasce dai parametri qui sopra e viene sovrascritto
-        /// dal descriptor all'apertura della sessione: il numero e' del server, perche' deve essere
-        /// lo stesso che usa il backtest interno.
+        /// Policy in vigore. I default riproducono il comportamento storico — overnight libero,
+        /// fine settimana sempre piatto — e valgono nella finestra fra l'avvio e la prima apertura
+        /// di sessione riuscita, quando il piano non e' ancora noto.
         /// </summary>
+        private bool _allowOvernight = true;
+        private bool _allowOverweek;
+        private int _sessionFlatUtcHhmm = 2045;
         private int _weekEndFlatFromUtc = 2045;
         private int _weekEndFlatUntilUtc = 2300;
 
@@ -771,6 +765,9 @@ namespace cAlgo.Robots
             builder.AppendLine($"Profit:    {profit:+0.00;-0.00;0.00}");
             builder.AppendLine($"Drawdown:  {drawdownPct:0.00}%");
             builder.AppendLine($"Piano:     {(string.IsNullOrWhiteSpace(PlanCode) ? "-" : PlanCode.Trim())}");
+            // Sotto il nome del piano perche' e' una proprieta' del piano, ed e' la riga che spiega
+            // le uscite che altrimenti sembrano della strategia.
+            builder.AppendLine($"Tenuta:    {DescribeHolding()}");
             builder.AppendLine($"Run:       {Or(_serverRunMode)} / {Or(_runProfile)}");
             builder.AppendLine($"Titano:    {DescribeTitano()}");
             builder.AppendLine($"Concorr.:  {DescribeConcurrency()}");
@@ -788,6 +785,22 @@ namespace cAlgo.Robots
         }
 
         private static string Or(string value) => string.IsNullOrWhiteSpace(value) ? "-" : value;
+
+        /// <summary>
+        /// Cosa il piano concede, in una riga. Si stampa sempre: "overnight e overweek liberi" e'
+        /// un'informazione, non un'assenza di informazione, e su un conto prop e' la riga che
+        /// dovrebbe far fermare chi guarda.
+        /// </summary>
+        private string DescribeHolding()
+        {
+            if (!_allowOvernight)
+                return $"flat di sessione {Hhmm(_sessionFlatUtcHhmm)} UTC (niente overnight)";
+            if (!_allowOverweek)
+                return $"overnight SI, flat weekend ven {Hhmm(_weekEndFlatFromUtc)} -> dom {Hhmm(_weekEndFlatUntilUtc)} UTC";
+            return "overnight e overweek liberi";
+        }
+
+        private static string Hhmm(int value) => $"{value / 100:00}:{value % 100:00}";
 
         /// <summary>
         /// "Disabled" e' il nome del contratto ma dice poco a chi guarda il grafico: qui interessa
@@ -1012,6 +1025,15 @@ namespace cAlgo.Robots
         /// stream piu' rapidi verrebbero controllati troppo di rado e le loro barre arriverebbero
         /// al server in ritardo.</para>
         /// </summary>
+        /// <summary>La policy di tenuta del piano, come la dichiara il server.</summary>
+        private sealed class HoldingDto
+        {
+            public bool AllowOvernight { get; set; }
+            public bool AllowOverweek { get; set; }
+            public int SessionFlatUtcHhmm { get; set; }
+            public WeekEndFlatDto WeekEnd { get; set; }
+        }
+
         /// <summary>Finestra di flat del fine settimana, in HHMM UTC, come la dichiara il server.</summary>
         private sealed class WeekEndFlatDto
         {
@@ -1020,16 +1042,32 @@ namespace cAlgo.Robots
         }
 
         /// <summary>
-        /// L'orario di flat lo decide il server. I parametri restano la rete: valgono prima
-        /// dell'apertura e con un server che non lo dichiara.
+        /// Cosa il conto concede, come lo ha deciso il piano. Un descriptor senza policy, o con
+        /// orari implausibili, lascia i default storici invece di spegnere il flat: un campo
+        /// mancante non e' un permesso.
+        ///
+        /// <para><b>L'overnight non ha logica qui.</b> Il piano lo esegue stampando la deadline
+        /// nell'intent (<c>TimeExitUtc</c>), che questo bot gia' rispetta: la gerarchia si risolve
+        /// una volta sola sul server. I due campi servono al pannello.</para>
         /// </summary>
-        private void ApplyWeekEndFlat(SessionDescriptorDto descriptor)
+        private void ApplyHolding(SessionDescriptorDto descriptor)
         {
-            var flat = descriptor?.WeekEndFlat;
-            var valido = flat != null &&
-                         IsValidHhmm(flat.FromUtcHhmm) && IsValidHhmm(flat.UntilUtcHhmm);
-            _weekEndFlatFromUtc = valido ? flat.FromUtcHhmm : WeekEndFlatFromUtc;
-            _weekEndFlatUntilUtc = valido ? flat.UntilUtcHhmm : WeekEndFlatUntilUtc;
+            var holding = descriptor?.Holding;
+            if (holding == null)
+                return;
+
+            _allowOvernight = holding.AllowOvernight;
+            _allowOverweek = holding.AllowOverweek;
+            if (IsValidHhmm(holding.SessionFlatUtcHhmm))
+                _sessionFlatUtcHhmm = holding.SessionFlatUtcHhmm;
+
+            if (holding.WeekEnd != null &&
+                IsValidHhmm(holding.WeekEnd.FromUtcHhmm) &&
+                IsValidHhmm(holding.WeekEnd.UntilUtcHhmm))
+            {
+                _weekEndFlatFromUtc = holding.WeekEnd.FromUtcHhmm;
+                _weekEndFlatUntilUtc = holding.WeekEnd.UntilUtcHhmm;
+            }
         }
 
         private static bool IsValidHhmm(int hhmm) =>
@@ -1037,7 +1075,7 @@ namespace cAlgo.Robots
 
         private void ResolvePlanStreams(SessionDescriptorDto descriptor)
         {
-            ApplyWeekEndFlat(descriptor);
+            ApplyHolding(descriptor);
             var instruments = descriptor.Instruments ?? new List<TradingInstrumentDto>();
             _streams.Clear();
 
@@ -1255,7 +1293,7 @@ namespace cAlgo.Robots
 
             // Gli intent di chiusura passano comunque (riducono rischio): qui si fermano solo le
             // aperture, altrimenti il flat appena imposto verrebbe disfatto dal signal successivo.
-            if (FlatAtWeekEnd && IsWeekEndFlatWindow(Server.TimeInUtc))
+            if (!_allowOverweek && IsWeekEndFlatWindow(Server.TimeInUtc))
             {
                 Print("Intent {0} ({1}) ignorato: finestra di flat di fine settimana.",
                     intent.IntentId, intent.StrategyCode);
@@ -1410,7 +1448,7 @@ namespace cAlgo.Robots
         /// </summary>
         private bool EnforceWeekEndFlat()
         {
-            if (!FlatAtWeekEnd || !IsWeekEndFlatWindow(Server.TimeInUtc))
+            if (_allowOverweek || !IsWeekEndFlatWindow(Server.TimeInUtc))
                 return false;
 
             var labels = PendingOrders
@@ -1889,11 +1927,11 @@ namespace cAlgo.Robots
             public int MaxConcurrentTrades { get; set; }
 
             /// <summary>
-            /// Orario di flat del fine settimana deciso dal server. Vince sui parametri locali: il
-            /// numero deve essere lo stesso che usa il backtest interno, e il solo posto che vede
-            /// entrambi i motori e' il server.
+            /// Cosa il conto puo' tenere e quando taglia, deciso dal piano. Questo bot non ha piu'
+            /// parametri propri sull'argomento: gli orari devono essere gli stessi che usa il
+            /// backtest interno, e il solo posto che vede entrambi i motori e' il server.
             /// </summary>
-            public WeekEndFlatDto WeekEndFlat { get; set; }
+            public HoldingDto Holding { get; set; }
 
             /// <summary>Coppie (simbolo, timeframe) derivate dal masterfilter del workspace del piano.</summary>
             public List<TradingInstrumentDto> Instruments { get; set; } = new();

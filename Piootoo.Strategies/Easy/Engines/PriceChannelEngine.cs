@@ -107,11 +107,11 @@ public abstract class PriceChannelEngine : EasyEngineBase
     /// </summary>
     protected decimal DvolMin;
 
-    /// <summary>
-    /// Se true, per timeframe intraday dichiara la chiusura al termine della sessione.
-    /// Corrisponde a <c>intraday_only</c> del motore Python.
-    /// </summary>
-    protected bool IntradayOnly = true;
+    /// <summary>Questo motore chiude a fine sessione quando <c>intraday_only = 1</c>.</summary>
+    protected override bool AppliesSessionExit => SessionExitFromIntradayOnly;
+
+    /// <inheritdoc />
+    protected override bool AppliesSessionExitDeclared => true;
 
     /// <summary>
     /// Fattore opzionale sul corpo della sessione chiusa precedente. Se valorizzato, richiede
@@ -265,7 +265,7 @@ public abstract class PriceChannelEngine : EasyEngineBase
         signal.MaxEntriesPerSession = 1;
         signal.EntrySessionStartUtc = SessionKey(signal.ValidFromUtc!.Value);
 
-        if (IntradayOnly && TimeframeMinutes < 1440)
+        if (AppliesSessionExit)
             signal.CloseAtUtc = ResolveCloseAtUtc(signal.ValidFromUtc.Value, SessionEndTime);
 
         return signal;

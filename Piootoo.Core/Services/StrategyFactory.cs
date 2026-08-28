@@ -80,6 +80,7 @@ public static class StrategyFactory
                 TimeframeMinutes = instance.TimeframeMinutes,
                 Description = instance.Description,
                 IsActive = true,
+                Holding = instance.Holding.Normalized(),
                 LastModified = DateTime.MinValue,
                 FilePath = strategyType.FullName ?? className
             });

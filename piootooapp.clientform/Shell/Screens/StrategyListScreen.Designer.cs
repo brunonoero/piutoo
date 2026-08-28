@@ -27,6 +27,7 @@ partial class StrategyListScreen
         this._colId = new System.Windows.Forms.DataGridViewTextBoxColumn();
         this._colTimeframe = new System.Windows.Forms.DataGridViewTextBoxColumn();
         this._colType = new System.Windows.Forms.DataGridViewTextBoxColumn();
+        this._colHolding = new System.Windows.Forms.DataGridViewTextBoxColumn();
         this._colIsActive = new System.Windows.Forms.DataGridViewCheckBoxColumn();
         this._toolbar = new piootooapp.clientform.Shell.Controls.EntityToolbar();
         this._rowCountLabel = new System.Windows.Forms.Label();
@@ -50,6 +51,7 @@ partial class StrategyListScreen
             this._colId,
             this._colTimeframe,
             this._colType,
+            this._colHolding,
             this._colIsActive});
         this._grid.DataSource = this._bindingSource;
         this._grid.Dock = System.Windows.Forms.DockStyle.Fill;
@@ -113,6 +115,15 @@ partial class StrategyListScreen
         this._colType.Name = "_colType";
         this._colType.ReadOnly = true;
         // 
+        // _colHolding
+        // 
+        this._colHolding.DataPropertyName = "Holding";
+        this._colHolding.FillWeight = 90F;
+        this._colHolding.HeaderText = "Tenuta";
+        this._colHolding.Name = "_colHolding";
+        this._colHolding.ReadOnly = true;
+        this._colHolding.ToolTipText = "Cosa la strategia dichiara di voler tenere. Il piano che la esegue puo' troncarla.";
+        // 
         // _colIsActive
         // 
         this._colIsActive.DataPropertyName = "IsActive";
@@ -126,7 +137,7 @@ partial class StrategyListScreen
         this._toolbar.CanCreate = false;
         this._toolbar.CanDelete = false;
         this._toolbar.Dock = System.Windows.Forms.DockStyle.Top;
-        this._toolbar.FilterPlaceholder = "Filtra per simbolo, nome, codice, id o tipo…";
+        this._toolbar.FilterPlaceholder = "Filtra per simbolo, nome, codice, id, tipo o tenuta…";
         this._toolbar.Location = new System.Drawing.Point(0, 0);
         this._toolbar.Name = "_toolbar";
         this._toolbar.Size = new System.Drawing.Size(900, 44);
@@ -172,6 +183,7 @@ partial class StrategyListScreen
     private System.Windows.Forms.DataGridViewTextBoxColumn _colId;
     private System.Windows.Forms.DataGridViewTextBoxColumn _colTimeframe;
     private System.Windows.Forms.DataGridViewTextBoxColumn _colType;
+    private System.Windows.Forms.DataGridViewTextBoxColumn _colHolding;
     private System.Windows.Forms.DataGridViewCheckBoxColumn _colIsActive;
     private piootooapp.clientform.Shell.Controls.EntityToolbar _toolbar;
     private System.Windows.Forms.Label _rowCountLabel;

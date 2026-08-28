@@ -49,8 +49,11 @@ public abstract class RbbMirroredEngine : EasyEngineBase
     /// <summary>Pattern direzionale che inibisce l'ingresso; il segno è applicato per verso.</summary>
     protected int DirectionalNo = 53;
 
-    /// <summary>Se true chiude la posizione al termine della sessione; default Python = true.</summary>
-    protected bool IntradayOnly = true;
+    /// <summary>Questo motore chiude a fine sessione quando <c>intraday_only = 1</c>.</summary>
+    protected override bool AppliesSessionExit => SessionExitFromIntradayOnly;
+
+    /// <inheritdoc />
+    protected override bool AppliesSessionExitDeclared => true;
 
     /// <inheritdoc />
     public override int RequiredCandles =>
@@ -121,7 +124,7 @@ public abstract class RbbMirroredEngine : EasyEngineBase
     {
         signal.MaxEntriesPerSession = 1;
         signal.EntrySessionStartUtc = GetSessionStartUtc(signal.ValidFromUtc!.Value);
-        if (IntradayOnly)
+        if (AppliesSessionExit)
             signal.CloseAtUtc = ResolveCloseAtUtc(signal.ValidFromUtc.Value, SessionEndTime);
         return signal;
     }
@@ -212,8 +215,11 @@ public abstract class RbbUnmirroredEngine : EasyEngineBase
     /// <summary>Pattern che inibisce lo short.</summary>
     protected int FastNoShort = 153;
 
-    /// <summary>Se true chiude la posizione al termine della sessione; default Python = true.</summary>
-    protected bool IntradayOnly = true;
+    /// <summary>Questo motore chiude a fine sessione quando <c>intraday_only = 1</c>.</summary>
+    protected override bool AppliesSessionExit => SessionExitFromIntradayOnly;
+
+    /// <inheritdoc />
+    protected override bool AppliesSessionExitDeclared => true;
 
     /// <inheritdoc />
     public override int RequiredCandles =>
@@ -282,7 +288,7 @@ public abstract class RbbUnmirroredEngine : EasyEngineBase
     {
         signal.MaxEntriesPerSession = 1;
         signal.EntrySessionStartUtc = GetSessionStartUtc(signal.ValidFromUtc!.Value);
-        if (IntradayOnly)
+        if (AppliesSessionExit)
             signal.CloseAtUtc = ResolveCloseAtUtc(signal.ValidFromUtc.Value, SessionEndTime);
         return signal;
     }

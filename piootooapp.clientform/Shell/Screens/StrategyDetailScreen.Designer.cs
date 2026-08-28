@@ -36,6 +36,8 @@ partial class StrategyDetailScreen
         this._typeTextBox = new System.Windows.Forms.TextBox();
         this._activeLabel = new System.Windows.Forms.Label();
         this._activeTextBox = new System.Windows.Forms.TextBox();
+        this._holdingLabel = new System.Windows.Forms.Label();
+        this._holdingTextBox = new System.Windows.Forms.TextBox();
         this._sourceLabel = new System.Windows.Forms.Label();
         this._sourceTextBox = new System.Windows.Forms.TextBox();
         this._descriptionGroup = new System.Windows.Forms.GroupBox();
@@ -82,6 +84,8 @@ partial class StrategyDetailScreen
         this._fieldsLayout.Controls.Add(this._activeTextBox, 3, 3);
         this._fieldsLayout.Controls.Add(this._sourceLabel, 0, 4);
         this._fieldsLayout.Controls.Add(this._sourceTextBox, 1, 4);
+        this._fieldsLayout.Controls.Add(this._holdingLabel, 2, 4);
+        this._fieldsLayout.Controls.Add(this._holdingTextBox, 3, 4);
         this._fieldsLayout.Dock = System.Windows.Forms.DockStyle.Top;
         this._fieldsLayout.Location = new System.Drawing.Point(0, 44);
         this._fieldsLayout.Name = "_fieldsLayout";
@@ -267,6 +271,24 @@ partial class StrategyDetailScreen
         this._sourceTextBox.Size = new System.Drawing.Size(700, 23);
         this._sourceTextBox.TabIndex = 17;
         // 
+        // _holdingLabel
+        // 
+        this._holdingLabel.Anchor = System.Windows.Forms.AnchorStyles.Left;
+        this._holdingLabel.AutoSize = true;
+        this._holdingLabel.Margin = new System.Windows.Forms.Padding(3, 8, 8, 0);
+        this._holdingLabel.Name = "_holdingLabel";
+        this._holdingLabel.TabIndex = 18;
+        this._holdingLabel.Text = "Tenuta";
+        // 
+        // _holdingTextBox
+        // 
+        this._holdingTextBox.Anchor = System.Windows.Forms.AnchorStyles.Left | System.Windows.Forms.AnchorStyles.Right;
+        this._holdingTextBox.Margin = new System.Windows.Forms.Padding(3, 4, 3, 4);
+        this._holdingTextBox.Name = "_holdingTextBox";
+        this._holdingTextBox.ReadOnly = true;
+        this._holdingTextBox.Size = new System.Drawing.Size(250, 23);
+        this._holdingTextBox.TabIndex = 19;
+        // 
         // _descriptionGroup
         // 
         this._descriptionGroup.Controls.Add(this._descriptionTextBox);
@@ -326,6 +348,8 @@ partial class StrategyDetailScreen
     private System.Windows.Forms.TextBox _barTypeTextBox;
     private System.Windows.Forms.Label _typeLabel;
     private System.Windows.Forms.TextBox _typeTextBox;
+    private System.Windows.Forms.Label _holdingLabel;
+    private System.Windows.Forms.TextBox _holdingTextBox;
     private System.Windows.Forms.Label _activeLabel;
     private System.Windows.Forms.TextBox _activeTextBox;
     private System.Windows.Forms.Label _sourceLabel;

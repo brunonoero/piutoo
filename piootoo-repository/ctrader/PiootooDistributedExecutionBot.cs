@@ -342,23 +342,21 @@ namespace cAlgo.Robots
         [Parameter("Log JSON risposte server su file", DefaultValue = false, Group = "Diagnostica")]
         public bool LogServerResponses { get; set; }
 
-        // Regola operativa: nel fine settimana non restano ne' posizioni ne' ordini. Vive nel bot, e
-        // non lato server, perche' e' una regola di sicurezza e deve tenere anche quando il server e'
-        // irraggiungibile.
-        [Parameter("Flat nel fine settimana", DefaultValue = true, Group = "Fine settimana")]
-        public bool FlatAtWeekEnd { get; set; }
-
-        // Un'ora UTC di venerdi invece della chiusura CME reale (16:00 di Chicago): quest'ultima cade
-        // alle 21:00 oppure alle 22:00 UTC secondo l'ora legale americana, quindi un default prudente
-        // prima della piu' presta delle due vale in entrambi i periodi dell'anno senza gestire il fuso.
+        // Nessun parametro di chiusura forzata: overnight, overweek e i loro orari li dichiara il
+        // PIANO e li consegna il descriptor. Finche' sono vissuti qui, il bot poteva contraddire il
+        // piano che diceva di eseguire — un parametro spento a mano operava il venerdi' sera contro
+        // un backtest che quei trade li tagliava, e la differenza non compariva da nessuna parte.
         //
-        // RETE, NON REGOLA: a sessione aperta vince l'orario del descriptor. Il numero deve essere
-        // uno solo per backtest e conto vero, e il solo posto che li vede entrambi e' il server.
-        [Parameter("Flat da venerdi (HHMM UTC)", DefaultValue = 2045, MinValue = 0, MaxValue = 2359, Group = "Fine settimana")]
-        public int WeekEndFlatFromUtc { get; set; }
+        // Il flat resta comunque una regola di SICUREZZA di questo bot, non un ordine che il server
+        // impartisce barra per barra: la policy ricevuta all'apertura continua a valere anche a
+        // server muto, ed e' per questo che vive in campi locali invece che in una chiamata.
 
-        [Parameter("Operativo da domenica (HHMM UTC)", DefaultValue = 2300, MinValue = 0, MaxValue = 2359, Group = "Fine settimana")]
-        public int WeekEndFlatUntilUtc { get; set; }
+        // Policy di tenuta risolta dal descriptor. I default riproducono il comportamento storico
+        // (overnight libero, fine settimana sempre piatto) e valgono nella finestra fra l'avvio e
+        // la prima apertura di sessione riuscita, quando il piano non e' ancora noto.
+        private bool _allowOvernight = true;
+        private bool _allowOverweek;
+        private int _sessionFlatUtcHhmm = 2045;
 
         private HttpClient _http;
         private string _accountNumber;
@@ -834,22 +832,39 @@ namespace cAlgo.Robots
                 descriptor.ConcurrencyCountMode, "PositionsOnly", StringComparison.OrdinalIgnoreCase);
             _strategies = descriptor.Strategies ?? new List<SessionStrategyDto>();
 
-            // L'orario di flat lo decide il SERVER, non questo bot. E' l'unico modo perche' il
-            // backtest interno e il conto vero chiudano il venerdi' nello stesso istante: finche'
-            // il numero e' vissuto solo qui, il backtest ne aveva un altro (l'ultimo slot del
-            // proprio orologio prima di sabato, le 23:30) e i due run non erano confrontabili.
-            // I parametri restano come rete: se il server non lo dichiara valgono loro.
-            if (descriptor.WeekEndFlat != null &&
-                IsValidHhmm(descriptor.WeekEndFlat.FromUtcHhmm) &&
-                IsValidHhmm(descriptor.WeekEndFlat.UntilUtcHhmm))
+            ApplyHolding(descriptor.Holding);
+        }
+
+        /// <summary>
+        /// Cosa il conto concede, come lo ha deciso il piano. E' l'unico modo perche' backtest
+        /// interno e conto vero taglino negli stessi istanti: finche' i numeri sono vissuti nel bot,
+        /// il backtest ne aveva altri (l'ultimo slot del proprio orologio prima di sabato, le 23:30
+        /// contro le 20:45) e i due run non erano confrontabili.
+        ///
+        /// <para>Un descriptor senza policy, o con orari implausibili, lascia i default storici
+        /// invece di spegnere il flat: un campo mancante non e' un permesso.</para>
+        ///
+        /// <para><b>L'overnight non ha logica qui.</b> Il piano lo esegue stampando la deadline
+        /// nell'intent (<c>TimeExitUtc</c>), che questo bot gia' rispetta in
+        /// <see cref="CloseExpiredPositions"/>: la gerarchia si risolve una volta sola sul server.
+        /// I due campi servono al pannello, e a sapere cosa si sta eseguendo.</para>
+        /// </summary>
+        private void ApplyHolding(HoldingDto holding)
+        {
+            if (holding == null)
+                return;
+
+            _allowOvernight = holding.AllowOvernight;
+            _allowOverweek = holding.AllowOverweek;
+            if (IsValidHhmm(holding.SessionFlatUtcHhmm))
+                _sessionFlatUtcHhmm = holding.SessionFlatUtcHhmm;
+
+            if (holding.WeekEnd != null &&
+                IsValidHhmm(holding.WeekEnd.FromUtcHhmm) &&
+                IsValidHhmm(holding.WeekEnd.UntilUtcHhmm))
             {
-                _weekEndFlatFromUtc = descriptor.WeekEndFlat.FromUtcHhmm;
-                _weekEndFlatUntilUtc = descriptor.WeekEndFlat.UntilUtcHhmm;
-            }
-            else
-            {
-                _weekEndFlatFromUtc = WeekEndFlatFromUtc;
-                _weekEndFlatUntilUtc = WeekEndFlatUntilUtc;
+                _weekEndFlatFromUtc = holding.WeekEnd.FromUtcHhmm;
+                _weekEndFlatUntilUtc = holding.WeekEnd.UntilUtcHhmm;
             }
         }
 
@@ -862,11 +877,10 @@ namespace cAlgo.Robots
                 _sessionId, _runProfile ?? "-", _titanoMode ?? "-",
                 _enforceConcurrency ? "attiva" : "OFF",
                 _maxConcurrentTrades > 0 ? _maxConcurrentTrades.ToString() : "illimitati");
-            Print("  flat fine settimana: da venerdi {0:0000} a domenica {1:0000} UTC{2}.",
-                _weekEndFlatFromUtc, _weekEndFlatUntilUtc,
-                FlatAtWeekEnd ? string.Empty : " (disattivato)");
+            Print("  tenuta: {0}", DescribeHolding());
             foreach (var strategy in _strategies)
-                Print("  strategia {0} su {1}/{2}m", strategy.StrategyCode, strategy.Symbol, strategy.TimeframeMinutes);
+                Print("  strategia {0} su {1}/{2}m  ({3})", strategy.StrategyCode, strategy.Symbol,
+                    strategy.TimeframeMinutes, DescribeStrategyHolding(strategy));
         }
 
         /// <summary>
@@ -1045,6 +1059,10 @@ namespace cAlgo.Robots
             builder.AppendLine("Piootoo " + BotVersion);
             builder.AppendLine("Account:   " + (string.IsNullOrEmpty(_accountNumber) ? "-" : _accountNumber));
             builder.AppendLine("Piano:     " + (string.IsNullOrWhiteSpace(PlanCode) ? "-" : PlanCode.Trim()));
+            // Sotto il nome del piano perche' e' una proprieta' del piano, ed e' la riga che spiega
+            // le uscite che altrimenti sembrano della strategia: chi guarda il grafico deve poter
+            // dire "questa e' stata chiusa dal conto" senza aprire un file.
+            builder.AppendLine("Tenuta:    " + DescribeHolding());
             builder.AppendLine("Connesso:  " + (connected ? "Si" : "No"));
             builder.AppendLine("Run:       " + Or(_serverRunMode) + " / " + Or(_runProfile));
             builder.AppendLine("Titano:    " + DescribeTitano());
@@ -1060,6 +1078,7 @@ namespace cAlgo.Robots
             foreach (var strategy in _strategies)
                 builder.AppendLine("  " + strategy.StrategyCode + "  " + strategy.Symbol + "/" +
                                    strategy.TimeframeMinutes + "m  " +
+                                   DescribeStrategyHolding(strategy) + "  " +
                                    DescribeHistoryCoverage(FindPair(strategy.Symbol, strategy.TimeframeMinutes)));
             return builder.ToString().TrimEnd();
         }
@@ -1098,6 +1117,44 @@ namespace cAlgo.Robots
         }
 
         private static string Or(string value) => string.IsNullOrWhiteSpace(value) ? "-" : value;
+
+        /// <summary>
+        /// Cosa il piano concede, in una riga. Si stampa sempre, anche quando non taglia nulla:
+        /// "overnight e overweek liberi" e' un'informazione, non un'assenza di informazione, e su un
+        /// conto prop e' la riga che dovrebbe far fermare chi guarda.
+        /// </summary>
+        private string DescribeHolding()
+        {
+            if (!_allowOvernight)
+                return "flat di sessione " + Hhmm(_sessionFlatUtcHhmm) + " UTC (niente overnight)";
+            if (!_allowOverweek)
+                return "overnight SI, flat weekend ven " + Hhmm(_weekEndFlatFromUtc) +
+                       " -> dom " + Hhmm(_weekEndFlatUntilUtc) + " UTC";
+            return "overnight e overweek liberi";
+        }
+
+        /// <summary>
+        /// Cosa la strategia dichiarava, e se il piano gliela sta togliendo. Il "TRONCATA" e' il
+        /// punto: una multiday su un piano che vieta l'overnight produce trade che non somigliano
+        /// a quelli della ricerca, e senza questa parola la differenza si scopre solo confrontando
+        /// le liste.
+        /// </summary>
+        private string DescribeStrategyHolding(SessionStrategyDto strategy)
+        {
+            var holding = strategy == null ? null : strategy.Holding;
+            if (holding == null)
+                return "";
+            if (!holding.Overnight)
+                return "[intraday]";
+            if (!_allowOvernight)
+                return "[multiday TRONCATA]";
+            if (holding.Overweek && !_allowOverweek)
+                return "[multiday, flat weekend]";
+            return "[multiday]";
+        }
+
+        private static string Hhmm(int value) =>
+            (value / 100).ToString("00") + ":" + (value % 100).ToString("00");
 
         /// <summary>
         /// "Disabled" e' il nome del contratto ma dice poco a chi guarda il grafico: qui interessa
@@ -1729,7 +1786,7 @@ namespace cAlgo.Robots
         /// </summary>
         private bool EnforceWeekEndFlat()
         {
-            if (!FlatAtWeekEnd || !IsWeekEndFlatWindow(Server.TimeInUtc))
+            if (_allowOverweek || !IsWeekEndFlatWindow(Server.TimeInUtc))
                 return false;
 
             foreach (var order in PendingOrders
@@ -2322,7 +2379,7 @@ namespace cAlgo.Robots
         {
             // Ultima barriera: un intent reclamato appena prima del taglio non deve aprire nulla.
             // Gli intent di chiusura non passano di qui, quindi la riduzione di rischio resta libera.
-            if (FlatAtWeekEnd && IsWeekEndFlatWindow(Server.TimeInUtc))
+            if (!_allowOverweek && IsWeekEndFlatWindow(Server.TimeInUtc))
             {
                 Print("Ingresso {0}/{1} scartato: finestra di flat di fine settimana.",
                     intent.Symbol, intent.StrategyCode);
@@ -3921,10 +3978,19 @@ namespace cAlgo.Robots
             public IReadOnlyList<SessionStrategyDto> Strategies { get; set; }
 
             /// <summary>
-            /// Orario di flat del fine settimana deciso dal server. Vince sui parametri locali:
-            /// vedi <see cref="ApplyDescriptor"/>.
+            /// Cosa il conto puo' tenere e quando taglia, deciso dal piano. Questo bot non ha piu'
+            /// parametri propri sull'argomento: vedi <see cref="ApplyHolding"/>.
             /// </summary>
-            public WeekEndFlatDto WeekEndFlat { get; set; }
+            public HoldingDto Holding { get; set; }
+        }
+
+        /// <summary>La policy di tenuta del piano, come la dichiara il server.</summary>
+        private sealed class HoldingDto
+        {
+            public bool AllowOvernight { get; set; }
+            public bool AllowOverweek { get; set; }
+            public int SessionFlatUtcHhmm { get; set; }
+            public WeekEndFlatDto WeekEnd { get; set; }
         }
 
         /// <summary>Finestra di flat del fine settimana, in HHMM UTC, come la dichiara il server.</summary>
@@ -3934,12 +4000,22 @@ namespace cAlgo.Robots
             public int UntilUtcHhmm { get; set; }
         }
 
-        /// <summary>Una strategia in sessione: codice di esecuzione, simbolo, timeframe.</summary>
+        /// <summary>Una strategia in sessione: codice di esecuzione, simbolo, timeframe, tenuta.</summary>
         private sealed class SessionStrategyDto
         {
             public string StrategyCode { get; set; }
             public string Symbol { get; set; }
             public int TimeframeMinutes { get; set; }
+
+            /// <summary>Cosa la strategia dichiara di voler tenere; il piano puo' troncarla.</summary>
+            public StrategyHoldingDto Holding { get; set; }
+        }
+
+        /// <summary>Overnight e overweek dichiarati dal motore o dalla strategia.</summary>
+        private sealed class StrategyHoldingDto
+        {
+            public bool Overnight { get; set; }
+            public bool Overweek { get; set; }
         }
 
         private sealed class TradingInstrumentDto

@@ -26,6 +26,15 @@ idempotente: richieste ripetute riprendono la stessa sessione; una execution key
 crea una sessione nuova. All'apertura tutte le righe del piano sono applicate come gruppi
 della sessione (anti copy-trading e profili Titano per gruppo).
 
+## Overnight e overweek
+
+Il piano porta `Holding` (`AccountHoldingPolicy`): se il conto può tenere oltre la sessione, se può
+attraversare il fine settimana, e a che ora taglia quando non può. È la **parola finale** sulla
+tenuta di una posizione — motore e strategia decidono solo dentro ciò che il piano concede — e
+scende nella sessione, nel descriptor e nei cBot, che su questo non hanno più parametri propri. Il
+dettaglio del piano ha un tab dedicato con l'elenco delle strategie del masterfilter che quel piano
+taglierebbe. Regole complete in [`overnight-e-overweek.md`](overnight-e-overweek.md).
+
 ## Distribuzione o esecuzione diretta
 
 `DistributeToAccounts` (default `true`) decide come la sessione consegna i segnali.

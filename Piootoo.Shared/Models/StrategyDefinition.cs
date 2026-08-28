@@ -62,6 +62,12 @@ public class StrategyDefinition
     public bool IsActive { get; set; } = true;
 
     /// <summary>
+    /// Cosa la strategia dichiara di voler tenere: la notte, il fine settimana, nessuno dei due.
+    /// L'ultima parola resta del piano che la esegue (<c>AccountHoldingPolicy</c>).
+    /// </summary>
+    public Trading.StrategyHolding Holding { get; set; } = Trading.StrategyHolding.Multiday;
+
+    /// <summary>
     /// Parametri della strategia (input dal file EasyLanguage)
     /// </summary>
     public Dictionary<string, object> Parameters { get; set; } = new();

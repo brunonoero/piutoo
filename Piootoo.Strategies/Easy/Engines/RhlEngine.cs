@@ -67,12 +67,11 @@ public abstract class RhlEngine : EasyEngineBase
     /// <summary>Giorno da escludere: 0 = lunedì … 4 = venerdì; -1 = nessuno.</summary>
     protected int SkipDay = -1;
 
-    /// <summary>
-    /// Se true, la posizione viene chiusa alla fine della sessione. Corrisponde al default
-    /// <c>exit_on_session_end</c> del simulatore Python, che <c>reversal_hl.py</c> non
-    /// sovrascrive: le RHL della ricerca sono strategie di sessione, senza overnight.
-    /// </summary>
-    protected bool IntradayOnly = true;
+    /// <summary>Questo motore chiude a fine sessione quando <c>intraday_only = 1</c>.</summary>
+    protected override bool AppliesSessionExit => SessionExitFromIntradayOnly;
+
+    /// <inheritdoc />
+    protected override bool AppliesSessionExitDeclared => true;
 
     // ------------------------------------------------------------------ stato di sessione
 
@@ -144,7 +143,7 @@ public abstract class RhlEngine : EasyEngineBase
         signal.MaxEntriesPerSession = 1;
         signal.EntrySessionStartUtc = ResolveEntrySessionStartUtc(signal.ValidFromUtc!.Value);
 
-        if (IntradayOnly && TimeframeMinutes < 1440)
+        if (AppliesSessionExit)
             signal.CloseAtUtc = ResolveCloseAtUtc(signal.ValidFromUtc.Value, SessionEndTime);
 
         return signal;

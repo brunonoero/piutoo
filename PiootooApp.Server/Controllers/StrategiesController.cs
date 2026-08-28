@@ -22,7 +22,10 @@ public sealed class StrategiesController : ControllerBase
                 Description = strategy.Description,
                 Type = strategy.Type.ToString(),
                 IsActive = strategy.IsActive,
-                SourceFileName = strategy.FileName
+                SourceFileName = strategy.FileName,
+                Overnight = strategy.Holding.Overnight,
+                Overweek = strategy.Holding.Overweek,
+                HoldingLabel = strategy.Holding.Describe()
             })
             .OrderBy(strategy => strategy.Symbol)
             .ThenBy(strategy => strategy.Name)

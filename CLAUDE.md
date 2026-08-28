@@ -127,12 +127,18 @@ sbaglia più spesso:
  (`RejectWrongSideLevels`) e quel trade nel conto vero non esiste. L'engine interno ha
  lo stesso filtro, acceso di default: spegnerlo serve solo a misurare la fedelta' del
  porting rispetto al motore di ricerca.
-- **L'orario di flat del fine settimana e' un numero solo, ed e' del server.**
- `WeekEndFlatPolicy` sta sul `TradingPlan`, scende nella sessione, esce nel descriptor e
- lo eseguono i cBot; la stessa `BacktestingRequest` lo riceve. Il flat *come regola di
- sicurezza* resta nel bot — deve tenere a server muto — ma il numero no: quando viveva
- solo li', il backtest ne usava un altro (l'ultimo slot prima di sabato, le 23:30 contro
- le 20:45) e i due run non erano confrontabili.
+- **Overnight e overweek: decide prima il piano, poi motore e strategia.**
+ `tiene = pianoPermette && strategiaVuole`. `AccountHoldingPolicy` sta sul `TradingPlan`,
+ scende nella sessione, esce nel descriptor e la eseguono i cBot; la stessa
+ `BacktestingRequest` la riceve. La composizione avviene in **un punto solo**
+ (`HoldingResolver`), chiamato da backtest e sessione: vince la scadenza piu' stretta, il
+ piano non puo' forzare un overnight che la strategia non vuole, e `AllowOverweek` senza
+ `AllowOvernight` viene rifiutato. Cosa la strategia vuole lo dichiara `ITradingStrategy.Holding`
+ e si vede nel catalogo, nella griglia e a chart. I cBot **non hanno piu' parametri** di
+ chiusura forzata: il flat *come regola di sicurezza* resta nel bot — deve tenere a server
+ muto — ma il permesso e gli orari no. Quando vivevano solo li', il backtest ne usava altri
+ (l'ultimo slot prima di sabato, le 23:30 contro le 20:45) e i due run non erano confrontabili.
+ Vedi `docs/domini/overnight-e-overweek.md`.
 - **Il server decide *cosa*, il broker decide *se e a che prezzo*.** Non
   assumere mai un fill.
 

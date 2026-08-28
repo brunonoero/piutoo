@@ -60,6 +60,12 @@ public sealed class TradingPlanService
         // Mirror della prima riga (e, per Titano di sessione, della prima riga con run) così i
         // piani multi-gruppo restano leggibili anche dai client che non conoscono ancora Groups.
         var primary = SelectPrimaryRow(groups);
+
+        // Una policy incoerente (overweek senza overnight, HHMM fuori scala) va rifiutata qui: se
+        // passa, il primo a scoprirla e' il cBot in produzione a mercato aperto.
+        var holding = request.Holding ?? AccountHoldingPolicy.Default;
+        holding.Validate();
+
         lock (_gate)
         {
             var collision = _workspaces.List()
@@ -88,7 +94,7 @@ public sealed class TradingPlanService
                 ApplyTitanoFilters = primary.ApplyTitanoFilters,
                 EnforceConcurrencyLimits = request.EnforceConcurrencyLimits,
                 CommissionPerContract = request.CommissionPerContract,
-                WeekEndFlat = request.WeekEndFlat ?? WeekEndFlatPolicy.Default,
+                Holding = holding,
                 PositionSizing = request.PositionSizing,
                 CreatedUtc = existing?.CreatedUtc ?? now,
                 UpdatedUtc = now
@@ -241,11 +247,27 @@ public sealed class TradingPlanService
             ApplyTitanoFilters = primary.ApplyTitanoFilters,
             EnforceConcurrencyLimits = plan.EnforceConcurrencyLimits,
             CommissionPerContract = plan.CommissionPerContract,
-            WeekEndFlat = plan.WeekEndFlat ?? WeekEndFlatPolicy.Default,
+            Holding = ResolveLoadedHolding(plan),
             PositionSizing = plan.PositionSizing,
             CreatedUtc = plan.CreatedUtc,
             UpdatedUtc = plan.UpdatedUtc
         };
+    }
+
+    /// <summary>
+    /// La policy di tenuta di un piano letto da disco, travasando il vecchio <c>WeekEndFlat</c> di
+    /// primo livello quando il file e' anteriore a <see cref="TradingPlan.Holding"/>.
+    ///
+    /// <para>I piani gia' scritti non dichiaravano alcun permesso e venivano eseguiti con il flat
+    /// del fine settimana sempre acceso: <see cref="AccountHoldingPolicy.Default"/> riproduce
+    /// esattamente quel comportamento, quindi la migrazione non cambia un solo trade.</para>
+    /// </summary>
+    private static AccountHoldingPolicy ResolveLoadedHolding(TradingPlan plan)
+    {
+        // La presenza del vecchio campo basta a riconoscere il file legacy: da qui in avanti non
+        // viene piu' scritto, quindi non puo' convivere con una policy dichiarata.
+        var holding = plan.Holding;
+        return plan.WeekEndFlat is { } legacy ? holding with { WeekEnd = legacy } : holding;
     }
 
     /// <summary>

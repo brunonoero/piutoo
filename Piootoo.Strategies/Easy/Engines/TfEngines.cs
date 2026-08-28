@@ -25,11 +25,11 @@ public abstract class TfEngineBase : EasyEngineBase
     /// <summary>Giorno Python da escludere: 0 = lunedì … 4 = venerdì; -1 = nessuno.</summary>
     protected int SkipDay = -1;
 
-    /// <summary>
-    /// Se <c>1</c>, l'eventuale posizione viene chiusa alla fine della sessione.
-    /// Su D1 il motore Python non applica questa uscita.
-    /// </summary>
-    protected bool IntradayOnly = true;
+    /// <summary>Questo motore chiude a fine sessione quando <c>intraday_only = 1</c>.</summary>
+    protected override bool AppliesSessionExit => SessionExitFromIntradayOnly;
+
+    /// <inheritdoc />
+    protected override bool AppliesSessionExitDeclared => true;
 
     protected TfEngineBase()
     {
@@ -106,7 +106,7 @@ public abstract class TfEngineBase : EasyEngineBase
         signal.MaxEntriesPerSession = 1;
         signal.EntrySessionStartUtc = GetSessionStartUtc(signal.ValidFromUtc!.Value);
 
-        if (IntradayOnly && TimeframeMinutes < 1440)
+        if (AppliesSessionExit)
             signal.CloseAtUtc = ResolveCloseAtUtc(signal.ValidFromUtc!.Value, SessionEndTime);
 
         return signal;

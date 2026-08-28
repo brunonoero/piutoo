@@ -13,7 +13,10 @@ public sealed class StrategyChecklistItem
     public override string ToString()
     {
         var timeframe = Strategy.TimeframeMinutes > 0 ? $"{Strategy.TimeframeMinutes}m" : "—";
-        return $"{Strategy.Symbol}  ·  {Strategy.Name}  ·  {timeframe}   [{Strategy.Id}]";
+        // La tenuta si legge qui perche' e' qui che si sceglie: un masterfilter pieno di multiday
+        // su un piano che vieta l'overnight e' un run che misura il flat, non le strategie.
+        var holding = string.IsNullOrWhiteSpace(Strategy.HoldingLabel) ? "?" : Strategy.HoldingLabel;
+        return $"{Strategy.Symbol}  ·  {Strategy.Name}  ·  {timeframe}  ·  {holding}   [{Strategy.Id}]";
     }
 }
 

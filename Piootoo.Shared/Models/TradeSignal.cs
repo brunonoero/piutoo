@@ -95,6 +95,13 @@ public class TradeSignal
     public DateTime? CloseAtUtc { get; set; }
 
     /// <summary>
+    /// Vero quando <see cref="CloseAtUtc"/> non e' la deadline della strategia ma il flat di
+    /// sessione imposto dal piano (<see cref="Trading.AccountHoldingPolicy.AllowOvernight"/> falso).
+    /// Serve solo a dire, nei trade, chi ha chiuso: la strategia o il conto.
+    /// </summary>
+    public bool TimeExitFromAccountPolicy { get; set; }
+
+    /// <summary>
     /// Perdita massima in USD per singolo contratto futures. È relativa al
     /// fill effettivo, non un prezzo assoluto né un valore CFD.
     /// </summary>

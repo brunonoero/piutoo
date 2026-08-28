@@ -18,6 +18,12 @@ public sealed class StrategyRow
 
     public string Type { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Cosa la strategia dichiara di voler tenere: "intraday", "overnight", "overnight+overweek".
+    /// Il piano che la esegue puo' comunque troncarla — la parola finale e' sua.
+    /// </summary>
+    public string Holding { get; set; } = string.Empty;
+
     public bool IsActive { get; set; }
 }
 
@@ -93,6 +99,7 @@ public partial class StrategyListScreen : UserControl, IShellScreen
                 Code = strategy.Code,
                 Timeframe = strategy.TimeframeMinutes > 0 ? $"{strategy.TimeframeMinutes}m" : "—",
                 Type = strategy.Type,
+                Holding = strategy.HoldingLabel,
                 IsActive = strategy.IsActive
             });
         }
@@ -125,7 +132,8 @@ public partial class StrategyListScreen : UserControl, IShellScreen
             || strategy.Name.Contains(filter, StringComparison.OrdinalIgnoreCase)
             || strategy.Code.Contains(filter, StringComparison.OrdinalIgnoreCase)
             || strategy.Symbol.Contains(filter, StringComparison.OrdinalIgnoreCase)
-            || strategy.Type.Contains(filter, StringComparison.OrdinalIgnoreCase);
+            || strategy.Type.Contains(filter, StringComparison.OrdinalIgnoreCase)
+            || strategy.HoldingLabel.Contains(filter, StringComparison.OrdinalIgnoreCase);
     }
 
     private StrategyRow? SelectedRow

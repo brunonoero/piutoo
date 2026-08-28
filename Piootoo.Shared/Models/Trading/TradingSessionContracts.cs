@@ -181,11 +181,11 @@ public sealed class CreateTradingSessionRequest
     public bool? EnforceConcurrencyLimits { get; init; }
 
     /// <summary>
-    /// Quando il conto deve essere piatto per il fine settimana. Il server e' l'unico proprietario
-    /// del numero: lo pubblica nel descriptor, il cBot lo esegue e il backtest riceve lo stesso
-    /// valore nella propria richiesta. Vedi <see cref="WeekEndFlatPolicy"/>.
+    /// Cosa il conto permette di tenere e quando taglia. Il server e' l'unico proprietario di questi
+    /// numeri: li pubblica nel descriptor, il cBot li esegue e il backtest riceve la stessa policy
+    /// nella propria richiesta. Vedi <see cref="AccountHoldingPolicy"/>.
     /// </summary>
-    public WeekEndFlatPolicy WeekEndFlat { get; init; } = WeekEndFlatPolicy.Default;
+    public AccountHoldingPolicy Holding { get; init; } = AccountHoldingPolicy.Default;
 
     public PositionSizingConfig PositionSizing { get; init; } = new();
 }
@@ -230,11 +230,12 @@ public sealed class TradingSessionDescriptor
     public ConcurrencyCountMode ConcurrencyCountMode { get; init; }
 
     /// <summary>
-    /// Orario di flat del fine settimana deciso dal server. Il cBot lo usa al posto del proprio
-    /// parametro: due orari diversi fra chi simula e chi esegue sono due sistemi diversi, ed e'
-    /// esattamente cio' che il confronto del 26/08/2026 ha trovato (23:30 contro 20:45).
+    /// Cosa il conto permette di tenere e a che ora taglia, deciso dal server. Il cBot non ha piu'
+    /// alcun parametro proprio su questo: due regole diverse fra chi simula e chi esegue sono due
+    /// sistemi diversi, ed e' esattamente cio' che il confronto del 26/08/2026 ha trovato (23:30
+    /// contro 20:45). Vedi <see cref="AccountHoldingPolicy"/>.
     /// </summary>
-    public WeekEndFlatPolicy WeekEndFlat { get; init; } = WeekEndFlatPolicy.Default;
+    public AccountHoldingPolicy Holding { get; init; } = AccountHoldingPolicy.Default;
 
     public PositionSizingConfig PositionSizing { get; init; } = new();
     public IReadOnlyList<InstrumentMetadata> InstrumentMetadata { get; init; } = [];
@@ -258,6 +259,12 @@ public sealed class TradingSessionStrategyInfo
     public required string StrategyCode { get; init; }
     public required string Symbol { get; init; }
     public required int TimeframeMinutes { get; init; }
+
+    /// <summary>
+    /// Cosa questa strategia vuole tenere. Sul chart si legge accanto al codice: e' l'unico modo
+    /// per vedere, senza aprire i sorgenti, quali strategie il piano sta troncando e quali no.
+    /// </summary>
+    public StrategyHolding Holding { get; init; } = StrategyHolding.Multiday;
 }
 
 /// <summary>

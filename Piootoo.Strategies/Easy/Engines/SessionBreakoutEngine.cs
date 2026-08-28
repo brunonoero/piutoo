@@ -42,11 +42,11 @@ public abstract class SessionBreakoutEngine : EasyEngineBase
     /// <summary>Dimensione tick usata dall'offset Python; il default replica il motore Python.</summary>
     protected decimal TickSize = 0.1m;
 
-    /// <summary>
-    /// Se true, il trade viene chiuso alla fine della sessione per i timeframe intraday.
-    /// Corrisponde a <c>intraday_only</c> del motore Python.
-    /// </summary>
-    protected bool IntradayOnly = true;
+    /// <summary>Questo motore chiude a fine sessione quando <c>intraday_only = 1</c>.</summary>
+    protected override bool AppliesSessionExit => SessionExitFromIntradayOnly;
+
+    /// <inheritdoc />
+    protected override bool AppliesSessionExitDeclared => true;
 
     /// <summary>Giorno da escludere nella convenzione pandas: 0 = lunedì, -1 = nessuno.</summary>
     protected int SkipDay = -1;
@@ -331,7 +331,7 @@ public abstract class SessionBreakoutEngine : EasyEngineBase
         signal.MaxEntriesPerSession = 1;
         signal.EntrySessionStartUtc = SessionKey(signal.ValidFromUtc!.Value);
 
-        if (IntradayOnly && TimeframeMinutes < 1440)
+        if (AppliesSessionExit)
             signal.CloseAtUtc = ResolveCloseAtUtc(signal.ValidFromUtc.Value, SessionEndTime);
 
         return signal;

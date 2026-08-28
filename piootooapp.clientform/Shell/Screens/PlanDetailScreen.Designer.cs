@@ -57,6 +57,24 @@ partial class PlanDetailScreen
         this._addAccountButton = new System.Windows.Forms.Button();
         this._removeAccountButton = new System.Windows.Forms.Button();
         this._sizingTab = new System.Windows.Forms.TabPage();
+        this._holdingTab = new System.Windows.Forms.TabPage();
+        this._holdingLayout = new System.Windows.Forms.TableLayoutPanel();
+        this._allowOvernightCheckBox = new System.Windows.Forms.CheckBox();
+        this._sessionFlatLabel = new System.Windows.Forms.Label();
+        this._sessionFlatInput = new System.Windows.Forms.NumericUpDown();
+        this._allowOverweekCheckBox = new System.Windows.Forms.CheckBox();
+        this._weekEndFromLabel = new System.Windows.Forms.Label();
+        this._weekEndFromInput = new System.Windows.Forms.NumericUpDown();
+        this._weekEndUntilLabel = new System.Windows.Forms.Label();
+        this._weekEndUntilInput = new System.Windows.Forms.NumericUpDown();
+        this._holdingWarningLabel = new System.Windows.Forms.Label();
+        this._conflictsBindingSource = new System.Windows.Forms.BindingSource(this.components);
+        this._conflictsGrid = new System.Windows.Forms.DataGridView();
+        this._colConflictStrategy = new System.Windows.Forms.DataGridViewTextBoxColumn();
+        this._colConflictSymbol = new System.Windows.Forms.DataGridViewTextBoxColumn();
+        this._colConflictTimeframe = new System.Windows.Forms.DataGridViewTextBoxColumn();
+        this._colConflictHolding = new System.Windows.Forms.DataGridViewTextBoxColumn();
+        this._colConflictEffect = new System.Windows.Forms.DataGridViewTextBoxColumn();
         this._sizingLayout = new System.Windows.Forms.TableLayoutPanel();
         this._clampMultipliersCheckBox = new System.Windows.Forms.CheckBox();
         this._volatilityEnabledCheckBox = new System.Windows.Forms.CheckBox();
@@ -74,6 +92,11 @@ partial class PlanDetailScreen
         this._fractionalFactorInput = new System.Windows.Forms.NumericUpDown();
         this._maximumMultiplierLabel = new System.Windows.Forms.Label();
         this._maximumMultiplierInput = new System.Windows.Forms.NumericUpDown();
+        ((System.ComponentModel.ISupportInitialize)(this._conflictsBindingSource)).BeginInit();
+        ((System.ComponentModel.ISupportInitialize)(this._conflictsGrid)).BeginInit();
+        this._sessionFlatInput.BeginInit();
+        this._weekEndFromInput.BeginInit();
+        this._weekEndUntilInput.BeginInit();
         ((System.ComponentModel.ISupportInitialize)(this._groupsBindingSource)).BeginInit();
         ((System.ComponentModel.ISupportInitialize)(this._accountsBindingSource)).BeginInit();
         this._tabs.SuspendLayout();
@@ -111,6 +134,7 @@ partial class PlanDetailScreen
         // _tabs
         //
         this._tabs.Controls.Add(this._generalTab);
+        this._tabs.Controls.Add(this._holdingTab);
         this._tabs.Controls.Add(this._groupsTab);
         this._tabs.Controls.Add(this._accountsTab);
         this._tabs.Controls.Add(this._sizingTab);
@@ -491,6 +515,196 @@ partial class PlanDetailScreen
         this._removeAccountButton.UseVisualStyleBackColor = true;
         this._removeAccountButton.Click += new System.EventHandler(this.OnRemoveAccountClick);
         //
+        // _holdingTab
+        //
+        this._holdingTab.Controls.Add(this._conflictsGrid);
+        this._holdingTab.Controls.Add(this._holdingWarningLabel);
+        this._holdingTab.Controls.Add(this._holdingLayout);
+        this._holdingTab.Location = new System.Drawing.Point(4, 27);
+        this._holdingTab.Name = "_holdingTab";
+        this._holdingTab.Padding = new System.Windows.Forms.Padding(12);
+        this._holdingTab.Size = new System.Drawing.Size(892, 525);
+        this._holdingTab.TabIndex = 4;
+        this._holdingTab.Text = "Overnight / Overweek";
+        this._holdingTab.UseVisualStyleBackColor = true;
+        //
+        // _holdingLayout
+        //
+        this._holdingLayout.AutoSize = true;
+        this._holdingLayout.ColumnCount = 4;
+        this._holdingLayout.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle());
+        this._holdingLayout.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 50F));
+        this._holdingLayout.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle());
+        this._holdingLayout.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 50F));
+        this._holdingLayout.Controls.Add(this._allowOvernightCheckBox, 0, 0);
+        this._holdingLayout.Controls.Add(this._sessionFlatLabel, 2, 0);
+        this._holdingLayout.Controls.Add(this._sessionFlatInput, 3, 0);
+        this._holdingLayout.Controls.Add(this._allowOverweekCheckBox, 0, 1);
+        this._holdingLayout.Controls.Add(this._weekEndFromLabel, 2, 1);
+        this._holdingLayout.Controls.Add(this._weekEndFromInput, 3, 1);
+        this._holdingLayout.Controls.Add(this._weekEndUntilLabel, 2, 2);
+        this._holdingLayout.Controls.Add(this._weekEndUntilInput, 3, 2);
+        this._holdingLayout.Dock = System.Windows.Forms.DockStyle.Top;
+        this._holdingLayout.Location = new System.Drawing.Point(12, 12);
+        this._holdingLayout.Name = "_holdingLayout";
+        this._holdingLayout.RowCount = 3;
+        this._holdingLayout.RowStyles.Add(new System.Windows.Forms.RowStyle());
+        this._holdingLayout.RowStyles.Add(new System.Windows.Forms.RowStyle());
+        this._holdingLayout.RowStyles.Add(new System.Windows.Forms.RowStyle());
+        this._holdingLayout.Size = new System.Drawing.Size(868, 96);
+        this._holdingLayout.TabIndex = 0;
+        //
+        // _allowOvernightCheckBox
+        //
+        this._allowOvernightCheckBox.Anchor = System.Windows.Forms.AnchorStyles.Left;
+        this._allowOvernightCheckBox.AutoSize = true;
+        this._holdingLayout.SetColumnSpan(this._allowOvernightCheckBox, 2);
+        this._allowOvernightCheckBox.Name = "_allowOvernightCheckBox";
+        this._allowOvernightCheckBox.TabIndex = 0;
+        this._allowOvernightCheckBox.Text = "Consenti overnight (posizioni oltre la fine sessione)";
+        this._allowOvernightCheckBox.UseVisualStyleBackColor = true;
+        this._allowOvernightCheckBox.CheckedChanged += new System.EventHandler(this.OnHoldingChanged);
+        //
+        // _sessionFlatLabel
+        //
+        this._sessionFlatLabel.Anchor = System.Windows.Forms.AnchorStyles.Left;
+        this._sessionFlatLabel.AutoSize = true;
+        this._sessionFlatLabel.Margin = new System.Windows.Forms.Padding(3, 0, 8, 0);
+        this._sessionFlatLabel.Name = "_sessionFlatLabel";
+        this._sessionFlatLabel.TabIndex = 1;
+        this._sessionFlatLabel.Text = "Flat di sessione (HHMM UTC)";
+        //
+        // _sessionFlatInput
+        //
+        this._sessionFlatInput.Anchor = System.Windows.Forms.AnchorStyles.Left;
+        this._sessionFlatInput.Maximum = new decimal(new int[] { 2359, 0, 0, 0 });
+        this._sessionFlatInput.Name = "_sessionFlatInput";
+        this._sessionFlatInput.Size = new System.Drawing.Size(90, 23);
+        this._sessionFlatInput.TabIndex = 2;
+        this._sessionFlatInput.ValueChanged += new System.EventHandler(this.OnHoldingChanged);
+        //
+        // _allowOverweekCheckBox
+        //
+        this._allowOverweekCheckBox.Anchor = System.Windows.Forms.AnchorStyles.Left;
+        this._allowOverweekCheckBox.AutoSize = true;
+        this._holdingLayout.SetColumnSpan(this._allowOverweekCheckBox, 2);
+        this._allowOverweekCheckBox.Name = "_allowOverweekCheckBox";
+        this._allowOverweekCheckBox.TabIndex = 3;
+        this._allowOverweekCheckBox.Text = "Consenti overweek (posizioni oltre il fine settimana)";
+        this._allowOverweekCheckBox.UseVisualStyleBackColor = true;
+        this._allowOverweekCheckBox.CheckedChanged += new System.EventHandler(this.OnHoldingChanged);
+        //
+        // _weekEndFromLabel
+        //
+        this._weekEndFromLabel.Anchor = System.Windows.Forms.AnchorStyles.Left;
+        this._weekEndFromLabel.AutoSize = true;
+        this._weekEndFromLabel.Margin = new System.Windows.Forms.Padding(3, 0, 8, 0);
+        this._weekEndFromLabel.Name = "_weekEndFromLabel";
+        this._weekEndFromLabel.TabIndex = 4;
+        this._weekEndFromLabel.Text = "Flat weekend da (ven, HHMM UTC)";
+        //
+        // _weekEndFromInput
+        //
+        this._weekEndFromInput.Anchor = System.Windows.Forms.AnchorStyles.Left;
+        this._weekEndFromInput.Maximum = new decimal(new int[] { 2359, 0, 0, 0 });
+        this._weekEndFromInput.Name = "_weekEndFromInput";
+        this._weekEndFromInput.Size = new System.Drawing.Size(90, 23);
+        this._weekEndFromInput.TabIndex = 5;
+        this._weekEndFromInput.ValueChanged += new System.EventHandler(this.OnHoldingChanged);
+        //
+        // _weekEndUntilLabel
+        //
+        this._weekEndUntilLabel.Anchor = System.Windows.Forms.AnchorStyles.Left;
+        this._weekEndUntilLabel.AutoSize = true;
+        this._weekEndUntilLabel.Margin = new System.Windows.Forms.Padding(3, 0, 8, 0);
+        this._weekEndUntilLabel.Name = "_weekEndUntilLabel";
+        this._weekEndUntilLabel.TabIndex = 6;
+        this._weekEndUntilLabel.Text = "fino a (dom, HHMM UTC)";
+        //
+        // _weekEndUntilInput
+        //
+        this._weekEndUntilInput.Anchor = System.Windows.Forms.AnchorStyles.Left;
+        this._weekEndUntilInput.Maximum = new decimal(new int[] { 2359, 0, 0, 0 });
+        this._weekEndUntilInput.Name = "_weekEndUntilInput";
+        this._weekEndUntilInput.Size = new System.Drawing.Size(90, 23);
+        this._weekEndUntilInput.TabIndex = 7;
+        this._weekEndUntilInput.ValueChanged += new System.EventHandler(this.OnHoldingChanged);
+        //
+        // _holdingWarningLabel
+        //
+        this._holdingWarningLabel.AutoSize = false;
+        this._holdingWarningLabel.Dock = System.Windows.Forms.DockStyle.Top;
+        this._holdingWarningLabel.Name = "_holdingWarningLabel";
+        this._holdingWarningLabel.Padding = new System.Windows.Forms.Padding(0, 8, 0, 8);
+        this._holdingWarningLabel.Size = new System.Drawing.Size(868, 56);
+        this._holdingWarningLabel.TabIndex = 8;
+        this._holdingWarningLabel.Text = "";
+        //
+        // _conflictsGrid
+        //
+        this._conflictsGrid.AllowUserToAddRows = false;
+        this._conflictsGrid.AllowUserToDeleteRows = false;
+        this._conflictsGrid.AutoGenerateColumns = false;
+        this._conflictsGrid.AutoSizeColumnsMode = System.Windows.Forms.DataGridViewAutoSizeColumnsMode.Fill;
+        this._conflictsGrid.BackgroundColor = System.Drawing.SystemColors.Window;
+        this._conflictsGrid.BorderStyle = System.Windows.Forms.BorderStyle.None;
+        this._conflictsGrid.ColumnHeadersHeightSizeMode = System.Windows.Forms.DataGridViewColumnHeadersHeightSizeMode.AutoSize;
+        this._conflictsGrid.Columns.AddRange(new System.Windows.Forms.DataGridViewColumn[] {
+            this._colConflictStrategy,
+            this._colConflictSymbol,
+            this._colConflictTimeframe,
+            this._colConflictHolding,
+            this._colConflictEffect});
+        this._conflictsGrid.DataSource = this._conflictsBindingSource;
+        this._conflictsGrid.Dock = System.Windows.Forms.DockStyle.Fill;
+        this._conflictsGrid.EditMode = System.Windows.Forms.DataGridViewEditMode.EditProgrammatically;
+        this._conflictsGrid.MultiSelect = false;
+        this._conflictsGrid.Name = "_conflictsGrid";
+        this._conflictsGrid.ReadOnly = true;
+        this._conflictsGrid.RowHeadersVisible = false;
+        this._conflictsGrid.SelectionMode = System.Windows.Forms.DataGridViewSelectionMode.FullRowSelect;
+        this._conflictsGrid.TabIndex = 9;
+        //
+        // _colConflictStrategy
+        //
+        this._colConflictStrategy.DataPropertyName = "Strategy";
+        this._colConflictStrategy.FillWeight = 140F;
+        this._colConflictStrategy.HeaderText = "Strategia";
+        this._colConflictStrategy.Name = "_colConflictStrategy";
+        this._colConflictStrategy.ReadOnly = true;
+        //
+        // _colConflictSymbol
+        //
+        this._colConflictSymbol.DataPropertyName = "Symbol";
+        this._colConflictSymbol.FillWeight = 50F;
+        this._colConflictSymbol.HeaderText = "Simbolo";
+        this._colConflictSymbol.Name = "_colConflictSymbol";
+        this._colConflictSymbol.ReadOnly = true;
+        //
+        // _colConflictTimeframe
+        //
+        this._colConflictTimeframe.DataPropertyName = "Timeframe";
+        this._colConflictTimeframe.FillWeight = 40F;
+        this._colConflictTimeframe.HeaderText = "TF";
+        this._colConflictTimeframe.Name = "_colConflictTimeframe";
+        this._colConflictTimeframe.ReadOnly = true;
+        //
+        // _colConflictHolding
+        //
+        this._colConflictHolding.DataPropertyName = "Holding";
+        this._colConflictHolding.FillWeight = 70F;
+        this._colConflictHolding.HeaderText = "Dichiara";
+        this._colConflictHolding.Name = "_colConflictHolding";
+        this._colConflictHolding.ReadOnly = true;
+        //
+        // _colConflictEffect
+        //
+        this._colConflictEffect.DataPropertyName = "Effect";
+        this._colConflictEffect.FillWeight = 130F;
+        this._colConflictEffect.HeaderText = "Effetto del piano";
+        this._colConflictEffect.Name = "_colConflictEffect";
+        this._colConflictEffect.ReadOnly = true;
+        //
         // _sizingTab
         //
         this._sizingTab.AutoScroll = true;
@@ -737,6 +951,11 @@ partial class PlanDetailScreen
         this.Controls.Add(this._toolbar);
         this.Name = "PlanDetailScreen";
         this.Size = new System.Drawing.Size(900, 600);
+        ((System.ComponentModel.ISupportInitialize)(this._conflictsBindingSource)).EndInit();
+        ((System.ComponentModel.ISupportInitialize)(this._conflictsGrid)).EndInit();
+        this._sessionFlatInput.EndInit();
+        this._weekEndFromInput.EndInit();
+        this._weekEndUntilInput.EndInit();
         ((System.ComponentModel.ISupportInitialize)(this._groupsBindingSource)).EndInit();
         ((System.ComponentModel.ISupportInitialize)(this._accountsBindingSource)).EndInit();
         this._tabs.ResumeLayout(false);
@@ -808,6 +1027,24 @@ partial class PlanDetailScreen
     private System.Windows.Forms.Button _addAccountButton;
     private System.Windows.Forms.Button _removeAccountButton;
     private System.Windows.Forms.TabPage _sizingTab;
+    private System.Windows.Forms.TabPage _holdingTab;
+    private System.Windows.Forms.TableLayoutPanel _holdingLayout;
+    private System.Windows.Forms.CheckBox _allowOvernightCheckBox;
+    private System.Windows.Forms.Label _sessionFlatLabel;
+    private System.Windows.Forms.NumericUpDown _sessionFlatInput;
+    private System.Windows.Forms.CheckBox _allowOverweekCheckBox;
+    private System.Windows.Forms.Label _weekEndFromLabel;
+    private System.Windows.Forms.NumericUpDown _weekEndFromInput;
+    private System.Windows.Forms.Label _weekEndUntilLabel;
+    private System.Windows.Forms.NumericUpDown _weekEndUntilInput;
+    private System.Windows.Forms.Label _holdingWarningLabel;
+    private System.Windows.Forms.BindingSource _conflictsBindingSource;
+    private System.Windows.Forms.DataGridView _conflictsGrid;
+    private System.Windows.Forms.DataGridViewTextBoxColumn _colConflictStrategy;
+    private System.Windows.Forms.DataGridViewTextBoxColumn _colConflictSymbol;
+    private System.Windows.Forms.DataGridViewTextBoxColumn _colConflictTimeframe;
+    private System.Windows.Forms.DataGridViewTextBoxColumn _colConflictHolding;
+    private System.Windows.Forms.DataGridViewTextBoxColumn _colConflictEffect;
     private System.Windows.Forms.TableLayoutPanel _sizingLayout;
     private System.Windows.Forms.CheckBox _clampMultipliersCheckBox;
     private System.Windows.Forms.CheckBox _volatilityEnabledCheckBox;

@@ -36,6 +36,12 @@ public partial class StrategyDetailScreen : UserControl, IShellScreen
         _barTypeTextBox.Text = _strategy.BarType;
         _typeTextBox.Text = _strategy.Type;
         _activeTextBox.Text = _strategy.IsActive ? "sì" : "no";
+        // Dichiarazione della strategia, non permesso: il piano che la esegue puo' troncarla.
+        _holdingTextBox.Text = _strategy.Overnight
+            ? (_strategy.Overweek
+                ? "overnight + overweek (il piano puo' troncarla)"
+                : "overnight (il piano puo' troncarla)")
+            : "intraday: chiude a fine sessione";
         _sourceTextBox.Text = _strategy.SourceFileName;
         _descriptionTextBox.Text = string.IsNullOrWhiteSpace(_strategy.Description)
             ? "(nessuna descrizione nel catalogo)"

@@ -623,7 +623,8 @@ public class PiootooTradingService : IPiootooTradingService
             signal.CloseAtUtc,
             signal.Reason,
             signal.TimeExitOnlyIfProfitBelowMoneyPerContract,
-            signal.ProfitStallAfterUtc);
+            signal.ProfitStallAfterUtc,
+            signal.TimeExitFromAccountPolicy);
 
         RecordEntry(positionKey, currentTime, signal);
     }
@@ -866,7 +867,7 @@ public class PiootooTradingService : IPiootooTradingService
         WrongSideLevelsRejected = 0;
     }
 
-    private void OpenPosition(string positionKey, string strategyName, string strategyCode, string symbol, SignalType direction, decimal entryPrice, DateTime entryTime, decimal quantity, decimal? stopLoss, decimal? takeProfit, decimal? breakEven = null, decimal? trailingStop = null, int? maxBarsInPosition = null, DateTime? closeAtUtc = null, string? reason = null, decimal? timeExitOnlyIfProfitBelow = null, DateTime? profitStallAfterUtc = null)
+    private void OpenPosition(string positionKey, string strategyName, string strategyCode, string symbol, SignalType direction, decimal entryPrice, DateTime entryTime, decimal quantity, decimal? stopLoss, decimal? takeProfit, decimal? breakEven = null, decimal? trailingStop = null, int? maxBarsInPosition = null, DateTime? closeAtUtc = null, string? reason = null, decimal? timeExitOnlyIfProfitBelow = null, DateTime? profitStallAfterUtc = null, bool timeExitFromAccountPolicy = false)
     {
         if (quantity <= 0m)
             throw new ArgumentOutOfRangeException(nameof(quantity), "La quantità di ingresso deve essere positiva.");
@@ -887,6 +888,7 @@ public class PiootooTradingService : IPiootooTradingService
             TrailingStop = trailingStop,
             MaxBarsInPosition = maxBarsInPosition,
             CloseAtUtc = closeAtUtc,
+            TimeExitFromAccountPolicy = timeExitFromAccountPolicy,
             BarsInPosition = 0,
             LastProcessedBarTime = entryTime,
             BreakEvenActivated = false,
@@ -1097,14 +1099,19 @@ public class PiootooTradingService : IPiootooTradingService
                 if (position.TimeExitOnlyIfProfitBelowMoneyPerContract is { } threshold &&
                     markPrice.HasValue)
                 {
-                    executeTimeExit = OpenProfitPerContract(position, markPrice.Value) < threshold;
+                    // Una condizione della STRATEGIA: non puo' rinviare il flat del conto, che e'
+                    // un vincolo e non una preferenza sul come uscire.
+                    executeTimeExit = position.TimeExitFromAccountPolicy ||
+                                      OpenProfitPerContract(position, markPrice.Value) < threshold;
                 }
 
                 if (executeTimeExit)
                 {
                     if (markPrice.HasValue)
                     {
-                        positionsToClose.Add((positionKey, markPrice.Value, TradeExitReason.TimeExit));
+                        positionsToClose.Add((positionKey, markPrice.Value, position.TimeExitFromAccountPolicy
+                            ? TradeExitReason.SessionFlat
+                            : TradeExitReason.TimeExit));
                     }
                     continue;
                 }

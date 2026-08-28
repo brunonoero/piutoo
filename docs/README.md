@@ -35,6 +35,10 @@ solution. Stato: **stabile** = contenuto verificato contro il codice,
 - [`domini/orologio-barre-e-fill.md`](domini/orologio-barre-e-fill.md) —
   orologio sintetico del loop, buchi del feed, fill fantasma e come validare i
   fill di un run. *Stabile.*
+- [`domini/overnight-e-overweek.md`](domini/overnight-e-overweek.md) — chi
+  decide se una posizione resta aperta oltre la sessione o oltre il fine
+  settimana: la gerarchia piano → motore → strategia, dove si dichiara e dove
+  si vede. *Stabile.*
 - [`domini/orari-di-sessione-e-fusi.md`](domini/orari-di-sessione-e-fusi.md) —
   in che orologio vanno letti gli orari di sessione delle sorgenti
   EasyLanguage, come si accerta il fuso di un feed, cosa costa sbagliarlo, cosa

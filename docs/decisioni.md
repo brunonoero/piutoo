@@ -1848,3 +1848,42 @@ abbiamo e romperebbe quello che oggi funziona.
 
   Resta aperta la decisione operativa, che il codice non può prendere: se il conto deve essere
   piatto nel fine settimana, TFU e PCH rendono una frazione di quello per cui sono state validate.
+
+- **2026-08-27** — **Overnight e overweek hanno una gerarchia dichiarata: decide prima il piano.**
+  Prima la catena era spezzata in tre punti che non si parlavano. Il livello strategia esisteva ma
+  era invisibile (`IntradayOnly`, un campo `protected` ripetuto in sei motori, leggibile solo
+  aprendo il `.cs`) e non uniforme (cinque motori applicavano `IntradayOnly && TimeframeMinutes <
+  1440`, RBB no). Il livello piano aveva solo mezzo asse: `WeekEndFlat` portava *l'orario* del
+  taglio del venerdì, ma l'*interruttore* viveva altrove e in due copie —
+  `CloseAllPositionsAtWeekEnd` sulla richiesta di backtest e `FlatAtWeekEnd`, parametro locale del
+  cBot. L'overnight a livello di piano non esisteva affatto: per una prop che impone il flat di
+  sessione bisognava modificare le classi delle strategie.
+
+  Ora: `StrategyHolding` dice cosa la strategia *vuole* (`Overnight`, `Overweek`), esposto nel
+  catalogo, nella griglia, nel masterfilter e nel descriptor; `AccountHoldingPolicy` sul piano dice
+  cosa il conto *permette* e a che ora taglia; `HoldingResolver` compone i due in un punto solo,
+  chiamato sia dal backtest sia dalla sessione. La regola è `tiene = pianoPermette &&
+  strategiaVuole`: il piano taglia a prescindere, ma non può forzare un overnight su una strategia
+  intraday, e `AllowOverweek` senza `AllowOvernight` viene rifiutato invece che risolto in silenzio.
+
+  Il default (`AllowOvernight = true`, `AllowOverweek = false`) riproduce esattamente il
+  comportamento precedente: nessun piano già scritto cambia comportamento, e il vecchio
+  `WeekEndFlat` di primo livello viene travasato alla lettura.
+
+  Rimossi da entrambi gli execution bot i parametri `FlatAtWeekEnd`, `WeekEndFlatFromUtc` e
+  `WeekEndFlatUntilUtc`: finché sono vissuti lì, il bot poteva contraddire il piano che diceva di
+  eseguire, e la differenza non compariva da nessuna parte. Il flat resta una regola di sicurezza
+  locale — la policy ricevuta all'apertura vale anche a server muto — ma il permesso non è più suo.
+
+  `IntradayOnly` è ora dichiarato una volta sola in `EasyEngineBase`. La regola daily
+  (`intraday_only` non si applica su D1) **resta**, perché è parità col motore di ricerca e non una
+  deduzione dal timeframe: è scritta una volta in `SessionExitFromIntradayOnly`, vale ora anche per
+  RBB che ne era esente, ed è inerte sul catalogo attuale — un test di conformità impedisce che
+  compaia una daily che vi si affida senza saperlo.
+
+  Il summary di backtest porta `holding` al posto di `weekEndFlatFromUtcHhmm`, e una diagnosi
+  `[fine sessione]` gemella di `[fine settimana]`. L'uscita imposta dal conto è
+  `TradeExitReason.SessionFlat`, distinta da `TimeExit`: sommarle renderebbe invisibile la
+  differenza fra ciò che la strategia misura e ciò che il conto le concede. Dettagli in
+  `domini/overnight-e-overweek.md`.
+

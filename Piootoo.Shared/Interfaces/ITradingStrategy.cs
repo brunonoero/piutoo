@@ -49,7 +49,20 @@ public interface ITradingStrategy
     /// segnale di ingresso e sono gestite dall'engine.</para>
     /// </summary>
     bool IsPositionCloseDependent => false;
-    
+
+    /// <summary>
+    /// Cosa la strategia <b>vuole</b> tenere: la notte, il fine settimana, nessuno dei due. E' una
+    /// dichiarazione, non un permesso — l'ultima parola e' del piano, che puo' tagliare comunque
+    /// (vedi <see cref="AccountHoldingPolicy"/>).
+    ///
+    /// <para>Il default e' <see cref="StrategyHolding.Multiday"/> perche' una strategia che non
+    /// dichiara nulla non emette alcuna uscita a tempo, e quindi <i>di fatto</i> tiene: dichiarare
+    /// il contrario descriverebbe qualcosa che il codice non fa. I motori Easy lo derivano dal
+    /// proprio <c>IntradayOnly</c>.</para>
+    /// </summary>
+    StrategyHolding Holding => StrategyHolding.Multiday;
+
+
     /// <summary>
     /// Valuta la strategia usando dati OHLC e lo stato di esecuzione fornito
     /// dall'engine. Le nuove strategie devono implementare questo metodo e

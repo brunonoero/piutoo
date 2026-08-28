@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Piootoo.Shared.Models.Trading;
 
 /// <summary>
@@ -51,13 +53,26 @@ public sealed class TradingPlan
     public decimal CommissionPerContract { get; init; } = 2m;
 
     /// <summary>
-    /// Quando il conto deve essere piatto per il fine settimana. Sta sul piano perche' e' una
-    /// proprieta' di come si opera, non del singolo run: da qui scende nella sessione, nel
-    /// descriptor e infine nel cBot, che lo esegue al posto del proprio parametro. Lo stesso
-    /// numero va nella <c>BacktestingRequest</c>, altrimenti backtest e conto vero chiudono il
-    /// venerdi' in due istanti diversi. Vedi <see cref="WeekEndFlatPolicy"/>.
+    /// Cosa il conto permette di tenere — la notte, il fine settimana — e a che ora taglia quando
+    /// non lo permette. Sta sul piano perche' e' una proprieta' di come si opera, non del singolo
+    /// run: da qui scende nella sessione, nel descriptor e infine nel cBot, che la esegue al posto
+    /// di qualsiasi parametro locale. La stessa policy va nella <c>BacktestingRequest</c>,
+    /// altrimenti backtest e conto vero chiudono in istanti diversi.
+    ///
+    /// <para><b>Il piano ha l'ultima parola.</b> Un conto prop che impone il flat di sessione taglia
+    /// a prescindere da cosa la strategia vorrebbe; solo se il piano concede di tenere, decidono
+    /// motore e strategia. Vedi <see cref="AccountHoldingPolicy"/>.</para>
     /// </summary>
-    public WeekEndFlatPolicy WeekEndFlat { get; init; } = WeekEndFlatPolicy.Default;
+    public AccountHoldingPolicy Holding { get; init; } = AccountHoldingPolicy.Default;
+
+    /// <summary>
+    /// Solo per leggere i <c>plans.json</c> scritti prima che la finestra del fine settimana
+    /// entrasse in <see cref="Holding"/>. <c>TradingPlanService.NormalizeLoadedPlan</c> la travasa e
+    /// la azzera, cosi' non viene mai riscritta: due posti che dichiarano lo stesso orario sono la
+    /// premessa della divergenza che questa gerarchia esiste per chiudere.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public WeekEndFlatPolicy? WeekEndFlat { get; init; }
 
     public PositionSizingConfig PositionSizing { get; init; } = new();
     public DateTime CreatedUtc { get; init; }
@@ -93,8 +108,8 @@ public sealed class SaveTradingPlanRequest
 
     public decimal CommissionPerContract { get; init; } = 2m;
 
-    /// <summary>Vedi <see cref="TradingPlan.WeekEndFlat"/>.</summary>
-    public WeekEndFlatPolicy WeekEndFlat { get; init; } = WeekEndFlatPolicy.Default;
+    /// <summary>Vedi <see cref="TradingPlan.Holding"/>.</summary>
+    public AccountHoldingPolicy Holding { get; init; } = AccountHoldingPolicy.Default;
 
     public PositionSizingConfig PositionSizing { get; init; } = new();
 }

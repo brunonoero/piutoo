@@ -490,6 +490,24 @@ public sealed class BacktestDiagnosticsLogger : IDisposable
                 "con la lista di trade della ricerca prima di leggere l'equity, e verifica che il " +
                 "piano che le esegue flatti allo stesso orario.");
 
+        // Gemella della precedente per l'altro asse della gerarchia: qui non e' il fine settimana
+        // ma il flat di sessione imposto dal piano a strategie che avrebbero tenuto la notte. Un
+        // conto prop lo impone a prescindere, ed e' legittimo — ma il run non misura piu' la
+        // strategia, e chi confronta due backtest con permessi diversi deve saperlo.
+        var troncate = strategies
+            .Select(x => (S: x, Flat: x.ExitReasons.GetValueOrDefault(nameof(TradeExitReason.SessionFlat))))
+            .Where(x => x.Flat > 0 && x.S.Trades > 0)
+            .OrderByDescending(x => (double)x.Flat / x.S.Trades)
+            .ToList();
+        if (troncate.Count > 0)
+            diagnostics.Add(
+                "[fine sessione] il flat del piano ha chiuso " +
+                string.Join(", ", troncate.Take(10).Select(x =>
+                    $"{x.Flat} trade su {x.S.Trades} ({(double)x.Flat / x.S.Trades:P0}) di {x.S.StrategyCode}")) +
+                (troncate.Count > 10 ? ", …" : "") +
+                ". Sono strategie che la ricerca ha misurato multiday: su questo piano non possono " +
+                "esserlo, quindi il confronto con la lista di trade originale non regge.");
+
         if (summary.OpenPositionsAtEnd > 0)
             diagnostics.Add($"[posizioni] {summary.OpenPositionsAtEnd} posizioni ancora aperte a fine run: " +
                             "il loro P&L non compare in trades.json e quindi non entra in Titano.");

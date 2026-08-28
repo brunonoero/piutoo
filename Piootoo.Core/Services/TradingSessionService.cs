@@ -225,8 +225,11 @@ public sealed class TradingSessionService : ITradingSessionService
 
         public required PositionSizingConfig PositionSizing { get; init; }
 
-        /// <summary>Orario di flat del fine settimana, pubblicato nel descriptor ed eseguito dal cBot.</summary>
-        public required WeekEndFlatPolicy WeekEndFlat { get; init; }
+        /// <summary>
+        /// Cosa il conto permette di tenere e quando taglia: pubblicata nel descriptor ed eseguita
+        /// dal cBot, che su questo non ha piu' parametri propri. Vedi <see cref="AccountHoldingPolicy"/>.
+        /// </summary>
+        public required AccountHoldingPolicy Holding { get; init; }
 
         public required Dictionary<string, InstrumentMetadata> InstrumentMetadata { get; init; }
 
@@ -639,7 +642,7 @@ public sealed class TradingSessionService : ITradingSessionService
             // prevalso, e ripassare il nullable farebbe ricalcolare a CreateCore il default,
             // perdendo l'override.
             EnforceConcurrencyLimits = enforceConcurrency,
-            WeekEndFlat = plan.WeekEndFlat,
+            Holding = plan.Holding,
             PositionSizing = plan.PositionSizing
         }, plan.Code, request.ExecutionKey.Trim());
         AccountSymbolConversion conversion;
@@ -860,7 +863,7 @@ public sealed class TradingSessionService : ITradingSessionService
             EnforceConcurrencyLimits = request.EnforceConcurrencyLimits
                 ?? DefaultEnforceConcurrencyLimits(request.ClientRunMode, request.TitanoMode),
             PositionSizing = ResolvePositionSizing(request.ExecutionMode, request.PositionSizing),
-            WeekEndFlat = request.WeekEndFlat ?? WeekEndFlatPolicy.Default,
+            Holding = request.Holding ?? AccountHoldingPolicy.Default,
             InstrumentMetadata = instrumentMetadata,
             PeakEquity = request.InitialCapital,
             Status = TradingSessionStatus.Created,
@@ -2724,6 +2727,12 @@ public sealed class TradingSessionService : ITradingSessionService
             ? (decimal?)(signal.BreakEvenMoneyPerFutureContract.Value / dollarsPerPoint)
             : signal.BreakEven;
 
+        // La gerarchia si risolve QUI, una volta sola, prima che l'intent parta: il cBot riceve la
+        // deadline gia' composta e non deve sapere nulla di piano, motore e strategia. Il piano ha
+        // l'ultima parola, la strategia puo' solo chiudere prima. Vedi HoldingResolver.
+        var timeExit = HoldingResolver.Resolve(
+            signal.CloseAtUtc, signal.ValidFromUtc ?? signal.Date, session.Holding);
+
         session.IntentSequence++;
         var intent = new OrderIntent
         {
@@ -2774,7 +2783,7 @@ public sealed class TradingSessionService : ITradingSessionService
             EntrySessionStartUtc = signal.EntrySessionStartUtc,
             ValidFromUtc = signal.ValidFromUtc,
             ExpiresAtUtc = signal.ExpiresAtUtc,
-            CloseAtUtc = signal.CloseAtUtc,
+            CloseAtUtc = timeExit.AtUtc,
             TimeExitOnlyIfProfitBelowMoneyPerContract = signal.TimeExitOnlyIfProfitBelowMoneyPerContract,
             ProfitStallAfterUtc = signal.ProfitStallAfterUtc,
             Reason = signal.Reason
@@ -3531,14 +3540,15 @@ public sealed class TradingSessionService : ITradingSessionService
             {
                 StrategyCode = s.Name,
                 Symbol = Normalize(s.Symbol),
-                TimeframeMinutes = s.TimeframeMinutes
+                TimeframeMinutes = s.TimeframeMinutes,
+                Holding = s.Holding.Normalized()
             })
             .OrderBy(s => s.Symbol, StringComparer.OrdinalIgnoreCase)
             .ThenBy(s => s.TimeframeMinutes)
             .ThenBy(s => s.StrategyCode, StringComparer.OrdinalIgnoreCase)
             .ToArray(),
         PositionSizing = session.PositionSizing,
-        WeekEndFlat = session.WeekEndFlat,
+        Holding = session.Holding,
         InstrumentMetadata = session.InstrumentMetadata.Values.OrderBy(x => x.Symbol).ToArray(),
         Instruments = session.Strategies.GroupBy(s => Normalize(s.Symbol))
             .Select(g => new TradingInstrument
