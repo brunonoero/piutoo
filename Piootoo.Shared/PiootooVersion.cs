@@ -39,5 +39,5 @@ namespace Piootoo.Shared;
 public static class PiootooVersion
 {
     /// <summary>Versione corrente del server. Vedi la nota della classe: va mossa insieme a quella del cBot.</summary>
-    public const string Current = "3.10.0";
+    public const string Current = "3.11.0";
 }

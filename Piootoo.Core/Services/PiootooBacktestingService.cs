@@ -6,6 +6,7 @@ using Piootoo.Core.Services.Interfaces;
 using Piootoo.Shared.Configuration;
 using Piootoo.Shared.Enums;
 using Piootoo.Shared.Interfaces;
+using Piootoo.Shared;
 using Piootoo.Shared.Models;
 using Piootoo.Shared.Models.Backtesting;
 using Piootoo.Shared.Models.Workspaces;
@@ -557,6 +558,10 @@ public class PiootooBacktestingService : IPiootooBacktestingService
 
             diagnostics.LogRun("avvio job", new Dictionary<string, string>(StringComparer.Ordinal)
             {
+                // Quale binario ha prodotto questo run. Senza, un backtest lanciato contro un
+                // server non ricompilato e' indistinguibile da uno aggiornato, e il confronto
+                // con l'esterno misura un motore che non e' piu' quello del sorgente.
+                ["engineVersion"] = PiootooVersion.Current,
                 ["workspaceId"] = request.WorkspaceId,
                 ["backtestFolder"] = request.BacktestFolderName,
                 ["startUtc"] = request.StartDate.ToString("O"),

@@ -59,6 +59,23 @@ public class PiootooTradingService : IPiootooTradingService
     public bool TrailingPeakIncludesCurrentBar { get; set; } = true;
 
     /// <summary>
+    /// Quanto deve migliorare il picco favorevole prima che il trailing lo segua, in frazione
+    /// della distanza di trailing.
+    ///
+    /// <para><b>Perche' esiste.</b> Il cBot ha gia' questo passo minimo come proprio parametro
+    /// (<c>TrailingMinStepFraction</c>, 0,10) piu' un intervallo minimo fra due modifiche: sposta
+    /// lo stop solo quando il miglioramento vale almeno un decimo della distanza di trailing.
+    /// L'engine invece ricalcolava il livello dal picco a ogni barra, senza passo minimo, e si
+    /// faceva togliere dal primo ritracciamento. Nel confronto compare-0005 le uscite in trailing
+    /// valgono 2.605 dollari a trade sul conto vero contro 522 nel backtest, su 85 e 126
+    /// osservazioni: il modello era pessimista, e il pezzo da correggere era il proprio.</para>
+    ///
+    /// <para>A <c>0</c> si torna esattamente al comportamento precedente: serve a misurare quanto
+    /// vale la convenzione a parita' di ingressi, non a spegnerla in produzione.</para>
+    /// </summary>
+    public decimal TrailingMinStepFraction { get; set; } = 0.10m;
+
+    /// <summary>
     /// Scarta un pending il cui livello e' gia' oltrepassato quando l'ordine nasce: uno stop buy
     /// sotto il prezzo, uno stop sell sopra, e i due casi speculari per il limit.
     ///
@@ -772,18 +789,91 @@ public class PiootooTradingService : IPiootooTradingService
     /// </summary>
     public int ClosedTradesCount => _closedTrades.Count;
 
-    /// <summary>Alza il picco favorevole di un long. Vedi <see cref="TrailingPeakIncludesCurrentBar"/>.</summary>
-    private static void RaisePeak(OpenPosition position, decimal price)
+    /// <summary>
+    /// Alza il picco favorevole di un long. Vedi <see cref="TrailingPeakIncludesCurrentBar"/> per
+    /// <i>quando</i> il picco viene aggiornato e <see cref="TrailingMinStepFraction"/> per
+    /// <i>quanto</i> deve migliorare perche' valga la pena.
+    /// </summary>
+    private void RaisePeak(OpenPosition position, decimal price)
     {
-        if (!position.PeakFavorablePrice.HasValue || price > position.PeakFavorablePrice.Value)
+        if (!position.PeakFavorablePrice.HasValue)
+        {
+            position.PeakFavorablePrice = price;
+            return;
+        }
+
+        if (price > position.PeakFavorablePrice.Value + TrailingStepFor(position))
             position.PeakFavorablePrice = price;
     }
 
-    /// <summary>Abbassa il picco favorevole di uno short. Vedi <see cref="TrailingPeakIncludesCurrentBar"/>.</summary>
-    private static void LowerPeak(OpenPosition position, decimal price)
+    /// <summary>Abbassa il picco favorevole di uno short. Vale la nota di <see cref="RaisePeak"/>.</summary>
+    private void LowerPeak(OpenPosition position, decimal price)
     {
-        if (!position.PeakFavorablePrice.HasValue || price < position.PeakFavorablePrice.Value)
+        if (!position.PeakFavorablePrice.HasValue)
+        {
             position.PeakFavorablePrice = price;
+            return;
+        }
+
+        if (price < position.PeakFavorablePrice.Value - TrailingStepFor(position))
+            position.PeakFavorablePrice = price;
+    }
+
+    /// <summary>
+    /// Passo minimo del trailing per questa posizione. Zero quando la posizione non trascina o
+    /// quando il passo e' disattivato: in quel caso le due funzioni sopra tornano al confronto
+    /// stretto di prima, senza casi speciali.
+    /// </summary>
+    private decimal TrailingStepFor(OpenPosition position) =>
+        position.TrailingStop is { } distance && TrailingMinStepFraction > 0m
+            ? distance * TrailingMinStepFraction
+            : 0m;
+
+    /// <summary>
+    /// Prezzo a cui uno stop protettivo si riempie davvero. Se la barra <b>apre</b> gia' oltre il
+    /// livello — un gap — l'ordine si serve all'apertura: al livello, in quel momento, non c'era
+    /// nessuno. L'ingresso applicava gia' questa convenzione
+    /// (<c>Math.Max(bar.Open, signal.Price)</c> in <c>TryFillPendingOrders</c>), l'uscita no, ed
+    /// erano asimmetrici.
+    ///
+    /// <para><b>Vale solo per lo stop originale</b>, cioe' quando il motivo e' ancora
+    /// <see cref="TradeExitReason.StopLoss"/>. E' l'unico livello che esiste dall'ingresso e che
+    /// quindi era davvero in piedi all'apertura della barra. Un trailing o un break-even possono
+    /// essere nati <i>dall'estremo della barra in corso</i>: confrontarli con la propria apertura
+    /// li farebbe riempire a un prezzo che precede il livello stesso. Il caso e' reale e lo fissa
+    /// <c>Engine_ClosesLongAtTrailingStopFromFavorableHigh</c>, dove il trailing nasce dal massimo
+    /// di 170 di una barra aperta a 101.
+    ///
+    /// <para>Resta scoperto il gap su un trailing gia' stabilito da una barra precedente: per
+    /// distinguerlo servirebbe il livello ricalcolato sullo stato di inizio barra. Le perdite
+    /// oltre lo stop misurate in compare-0005 stanno sullo stop originale, quindi il residuo e'
+    /// piccolo.</para></para>
+    ///
+    /// <para>Sulla barra che ha eseguito l'ingresso la regola non vale nemmeno per lo stop
+    /// originale: li' l'apertura precede il fill, ed e' la stessa ragione per cui esistono
+    /// <c>postFillLow</c> e <c>postFillHigh</c>.</para>
+    ///
+    /// <para><b>Non e' un modello di slippage.</b> Cattura il gap visibile all'apertura della
+    /// barra di mark; uno spike dentro la barra resta invisibile alle sole OHLC, ed e' li' che
+    /// sta la maggior parte delle perdite oltre lo stop del confronto.</para>
+    /// </summary>
+    private static decimal ProtectiveFillPrice(
+        OpenPosition position,
+        OhlcvData? currentBar,
+        DateTime currentTime,
+        decimal level,
+        TradeExitReason reason)
+    {
+        if (currentBar is null ||
+            reason != TradeExitReason.StopLoss ||
+            position.EntryTime == currentTime)
+        {
+            return level;
+        }
+
+        return position.Direction == SignalType.Buy
+            ? Math.Min(level, currentBar.Open)
+            : Math.Max(level, currentBar.Open);
     }
 
     public BacktestingResult ApplyStrategyFilter(BacktestingResult result, List<string> enabledStrategies, Dictionary<string, decimal> multipliers)
@@ -1001,7 +1091,9 @@ public class PiootooTradingService : IPiootooTradingService
                 // dei tick.
                 if (protectiveStopPrice.HasValue && postFillLow <= protectiveStopPrice.Value)
                 {
-                    positionsToClose.Add((positionKey, protectiveStopPrice.Value, protectiveExitReason));
+                    positionsToClose.Add((positionKey,
+                        ProtectiveFillPrice(position, currentBar, currentTime, protectiveStopPrice.Value, protectiveExitReason),
+                        protectiveExitReason));
                     continue;
                 }
 
@@ -1053,7 +1145,9 @@ public class PiootooTradingService : IPiootooTradingService
 
                 if (protectiveStopPrice.HasValue && postFillHigh >= protectiveStopPrice.Value)
                 {
-                    positionsToClose.Add((positionKey, protectiveStopPrice.Value, protectiveExitReason));
+                    positionsToClose.Add((positionKey,
+                        ProtectiveFillPrice(position, currentBar, currentTime, protectiveStopPrice.Value, protectiveExitReason),
+                        protectiveExitReason));
                     continue;
                 }
 
