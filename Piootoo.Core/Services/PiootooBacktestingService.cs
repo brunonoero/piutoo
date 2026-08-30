@@ -542,6 +542,19 @@ public class PiootooBacktestingService : IPiootooBacktestingService
             tradingService.Initialize(request.InitialCapital, request.CommissionPerContract);
             tradingService.RejectWrongSideLevels = request.RejectWrongSideLevels;
 
+            // Il cBot dichiara lo stesso passo minimo fra 0 e 1 (MinValue/MaxValue sul parametro):
+            // fuori da quell'intervallo il numero non ha un significato che i due motori
+            // condividano, e un run che lo usasse non sarebbe confrontabile con nulla.
+            if (request.TrailingMinStepFraction < 0m || request.TrailingMinStepFraction > 1m)
+            {
+                throw new ArgumentException(
+                    "TrailingMinStepFraction deve stare fra 0 e 1: ricevuto " +
+                    request.TrailingMinStepFraction.ToString(CultureInfo.InvariantCulture) + ".",
+                    nameof(request));
+            }
+
+            tradingService.TrailingMinStepFraction = request.TrailingMinStepFraction;
+
             // Stessa policy del descriptor di sessione e del cBot: e' l'unico modo perche' backtest
             // e conto vero taglino negli stessi istanti.
             var holding = request.Holding ?? AccountHoldingPolicy.Default;
@@ -576,7 +589,8 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                     : holding.SessionFlatUtcHhmm.ToString("0000"),
                 ["allowOverweek"] = holding.AllowOverweek ? "true" : "false",
                 ["weekEndFlatFromUtc"] = weekEndFlat.FromUtcHhmm.ToString("0000"),
-                ["rejectWrongSideLevels"] = request.RejectWrongSideLevels ? "true" : "false"
+                ["rejectWrongSideLevels"] = request.RejectWrongSideLevels ? "true" : "false",
+                ["trailingMinStepFraction"] = request.TrailingMinStepFraction.ToString(CultureInfo.InvariantCulture)
             });
 
             var result = new BacktestingResult

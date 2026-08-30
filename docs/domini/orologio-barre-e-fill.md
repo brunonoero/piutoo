@@ -124,6 +124,49 @@ numero alto non è un difetto, è la misura di quanti ingressi il backtest avreb
 preso e il broker no. Se è zero mentre il log del cBot scarta, i due non stanno
 guardando lo stesso mercato.
 
+## Lo stop protettivo si riempie all'apertura quando la barra apre oltre
+
+L'ingresso applicava da sempre la convenzione gap-aware — uno stop buy su una
+barra che apre già sopra il livello si riempie all'apertura, `Math.Max(bar.Open,
+livello)` — e l'uscita no: chiudeva al livello, a un prezzo che in quel momento
+non era disponibile. Erano asimmetrici, e l'asimmetria è tutta a favore del
+backtest, perché sui gap il conto vero paga e il modello no.
+
+Vale per lo **stop originale** e per nessun altro livello (`ProtectiveFillPrice`,
+attivo solo quando il motivo di uscita è ancora `StopLoss`). È l'unico livello
+che esiste dall'ingresso e che quindi era davvero in piedi all'apertura della
+barra: un trailing o un break-even possono essere nati *dall'estremo della barra
+in corso*, e confrontarli con la propria apertura li farebbe riempire a un prezzo
+che precede il livello stesso. Non vale nemmeno sulla barra che ha eseguito
+l'ingresso, dove l'apertura precede il fill — la stessa ragione per cui esistono
+`postFillLow` e `postFillHigh`.
+
+Resta scoperto il gap su un trailing già stabilito da una barra precedente: per
+distinguerlo servirebbe il livello ricalcolato sullo stato di inizio barra. E non
+è un modello di slippage: cattura il gap visibile all'apertura, mentre uno spike
+dentro la barra resta invisibile alle sole OHLC, ed è lì che stava la maggior
+parte delle perdite oltre lo stop misurate nel confronto.
+
+## Il trailing segue il picco a scatti, non a ogni barra
+
+Il cBot muove lo stop nativo solo quando il miglioramento vale almeno un decimo
+della distanza di trailing (`TrailingMinStepFraction`, più un intervallo minimo
+fra due modifiche): senza, inseguirebbe il Bid tick per tick e si farebbe
+rifiutare le modifiche utili dal rate limit del broker. L'engine invece
+ricalcolava il livello dal picco a ogni barra, senza passo minimo, e si faceva
+togliere dal primo ritracciamento.
+
+Il passo vive ora anche nell'engine, con lo stesso default di 0,10, ed è
+applicato al **picco** invece che allo stop: il risultato è lo stesso — il
+livello protettivo si muove a scatti di un decimo — ma non richiede di ricordare
+l'ultimo livello inviato. Il numero sta su `BacktestingRequest` e finisce nel log
+di avvio del job come `trailingMinStepFraction`, insieme a `engineVersion`: due
+cartelle di backtest con trailing diverso, altrimenti, sono indistinguibili.
+
+A `0` si torna al comportamento pre-3.11.0. Come per `RejectWrongSideLevels`,
+serve a **misurare** quanto vale la convenzione a parità di ingressi — stesso
+periodo, un solo numero diverso — non a spegnerla in produzione.
+
 ## Evidenza — PTS_NQ_PCH_001_15, 2026-08-02
 
 Due run sullo stesso workspace `pts`, feed `NQ` 15m che copre
@@ -215,6 +258,8 @@ sintetico e non sui confini reali della loro barra.
   `RequiresDeferredExecution`, `TryFillPendingOrders`, `CanExecuteOnBar`,
   `ResolveFillPrice`
 - `Piootoo.Shared/Models/TradeSignal.cs` — `ValidFromUtc`, `ExpiresAtUtc`
+- `Piootoo.Strategies.Tests/TrailingStepAndGapFillTests.cs` — regressioni del
+  passo minimo di trailing e del fill sul gap
 - `Piootoo.Strategies.Tests/PendingStopOrderTests.cs` — regressioni
   `GapInFeed_DoesNotFillStopWithoutABar`,
   `ExpiredStopIntent_IsDiscardedInsteadOfFilledAtItsLevel`

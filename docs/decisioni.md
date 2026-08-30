@@ -1887,3 +1887,42 @@ abbiamo e romperebbe quello che oggi funziona.
   differenza fra ciò che la strategia misura e ciò che il conto le concede. Dettagli in
   `domini/overnight-e-overweek.md`.
 
+- **2026-08-28** — **Due convenzioni di uscita, dal confronto `compare-0005`.** Rilasciate come
+  **3.11.0**: cambiano il prezzo e l'istante a cui l'engine chiude, non quali ingressi fa, e i run
+  precedenti non sono confrontabili con i successivi.
+
+  1. **Il trailing segue il picco a scatti** (`TrailingMinStepFraction`, 0,10). Il cBot ha sempre
+     avuto un passo minimo — muove lo stop nativo solo se il miglioramento vale almeno un decimo
+     della distanza di trailing, più un intervallo minimo fra due modifiche, altrimenti insegue il
+     Bid tick per tick e il broker gli rifiuta anche le modifiche utili. L'engine invece ricalcolava
+     il livello dal picco a ogni barra e si faceva togliere dal primo ritracciamento. Misura: le
+     uscite in trailing valevano **2.605 $/trade sul conto vero contro 522 nel backtest**, su 85 e
+     126 osservazioni. Il modello era pessimista, e il pezzo da correggere era il proprio. Nell'engine
+     il passo è applicato al **picco** invece che allo stop: stesso risultato — il livello si muove a
+     scatti di un decimo — senza dover ricordare l'ultimo livello inviato.
+
+  2. **Lo stop protettivo si riempie all'apertura sulla barra in gap.** L'ingresso applicava già la
+     convenzione (`Math.Max(bar.Open, livello)`), l'uscita no: chiudeva al livello, dove in quel
+     momento non c'era nessuno. Vale per lo **stop originale** e basta: un trailing o un break-even
+     possono essere nati dall'estremo della barra in corso, e confrontarli con la propria apertura li
+     farebbe riempire a un prezzo che precede il livello stesso. Non è un modello di slippage — lo
+     spike dentro la barra resta invisibile alle sole OHLC, ed è lì che sta la maggior parte delle
+     perdite oltre lo stop del confronto.
+
+  Il log di avvio del job porta ora anche `engineVersion`: un backtest lanciato contro un server non
+  ricompilato era indistinguibile da uno aggiornato, e il confronto misurava un motore che non era
+  più quello del sorgente.
+
+- **2026-08-29** — **Il passo minimo del trailing è un parametro del run, non una costante del
+  binario.** Nasceva come proprietà del solo engine, con l'XMLdoc che diceva "a 0 si torna al
+  comportamento precedente, serve a misurare": ma senza un campo sulla `BacktestingRequest` quel
+  ritorno richiedeva di ricompilare, e nessun artefatto diceva con quale convenzione un run fosse
+  nato. Ora `TrailingMinStepFraction` sta sulla richiesta accanto a `RejectWrongSideLevels`, è
+  rifiutato fuori da `[0, 1]` — lo stesso intervallo che il cBot dichiara sul parametro omonimo — e
+  finisce nel log di avvio del job. Due cartelle di backtest con trailing diverso, altrimenti, sono
+  indistinguibili, ed è esattamente il tipo di silenzio che ha reso lungo il confronto con l'esterno.
+
+  Le due convenzioni del 28/08 hanno ora le proprie regressioni
+  (`TrailingStepAndGapFillTests`): il passo misurato sulle stesse barre con un solo numero diverso
+  (uscita a 95 col passo, a 95,5 senza), il fill sul gap sui due lati, e il caso di controllo che
+  il trailing **non** si riempie all'apertura. Versione **3.12.0**.

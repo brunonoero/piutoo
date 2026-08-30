@@ -127,6 +127,14 @@ sbaglia più spesso:
  (`RejectWrongSideLevels`) e quel trade nel conto vero non esiste. L'engine interno ha
  lo stesso filtro, acceso di default: spegnerlo serve solo a misurare la fedelta' del
  porting rispetto al motore di ricerca.
+- **Le uscite protettive hanno le stesse convenzioni degli ingressi.** Uno stop
+ originale su una barra che *apre* oltre il livello si riempie all'apertura, come fa da
+ sempre l'ingresso; un trailing o un break-even no, perche' possono essere nati
+ dall'estremo della barra in corso. E il trailing segue il picco **a scatti** di
+ `TrailingMinStepFraction` (0,10, lo stesso passo minimo del cBot), non a ogni barra:
+ senza, il primo ritracciamento lo toglieva e l'engine era pessimista di un fattore
+ cinque sulle uscite in trailing. Entrambi i numeri stanno sulla `BacktestingRequest` e
+ nel log di avvio del job. Vedi `docs/domini/orologio-barre-e-fill.md`.
 - **Overnight e overweek: decide prima il piano, poi motore e strategia.**
  `tiene = pianoPermette && strategiaVuole`. `AccountHoldingPolicy` sta sul `TradingPlan`,
  scende nella sessione, esce nel descriptor e la eseguono i cBot; la stessa

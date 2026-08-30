@@ -43,6 +43,19 @@ public class BacktestingRequest
     public bool RejectWrongSideLevels { get; set; } = true;
 
     /// <summary>
+    /// Quanto deve migliorare il picco favorevole prima che il trailing lo segua, in frazione
+    /// della distanza di trailing. Stesso numero e stesso significato del parametro omonimo del
+    /// cBot; il perche' sta su <c>PiootooTradingService.TrailingMinStepFraction</c>.
+    ///
+    /// <para>A <c>0</c> il trailing torna a inseguire ogni miglioramento, cioe' al comportamento
+    /// pre-3.11.0. Come <see cref="RejectWrongSideLevels"/>, serve a <i>misurare</i> quanto vale
+    /// la convenzione a parita' di ingressi — due run dello stesso periodo, un solo numero
+    /// diverso — non a spegnerla in produzione. Il valore usato finisce nel log di avvio del job:
+    /// senza, due cartelle di backtest con trailing diverso sono indistinguibili.</para>
+    /// </summary>
+    public decimal TrailingMinStepFraction { get; set; } = 0.10m;
+
+    /// <summary>
     /// Modalità rispetto al filtro Titano. Identica a quella delle sessioni
     /// (<see cref="TitanoFilterMode"/>), così backtest interno ed engine esterno cTrader si
     /// comportano allo stesso modo.
