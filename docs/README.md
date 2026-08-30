@@ -47,6 +47,11 @@ solution. Stato: **stabile** = contenuto verificato contro il codice,
 - [`domini/datafeed-generazione.md`](domini/datafeed-generazione.md) — come si
   genera un timeframe mancante dai CSV storici e come si verifica il
   risultato. *Stabile.*
+- [`domini/raccolta-datafeed-esterno.md`](domini/raccolta-datafeed-esterno.md)
+  — come si costruisce un datafeed dai dati di un broker cTrader: raccolta a
+  blocchi, journal e compattazione, deduplica delle sovrapposizioni, buchi
+  dichiarati, una cartella per broker. API `api/datafeed-external` e cBot
+  `PiootooDatafeedSyncBot`. *Stabile.*
 - [`domini/parita-riferimento-esterno.md`](domini/parita-riferimento-esterno.md)
   — confronto fra una strategia portata e il suo riferimento esterno: cosa è
   confrontabile, procedura, cause di divergenza in ordine di impatto. *Stabile.*

@@ -107,8 +107,17 @@ sbaglia più spesso:
  finestre corte e **sovrapposte** a ogni barra; il server accoda solo le candele
  che non ha, ne valuta una sola, e rifiuta la finestra che non si sovrappone
  invece di accodare una serie bucata. Le candele restano in RAM: il datafeed su
- disco è compito di un cBot raccoglitore dedicato. Regole complete in
- `docs/domini/finestra-candele-e-riscaldamento.md`.
+ disco è compito di un cBot raccoglitore dedicato (`PiootooDatafeedSyncBot` →
+ `api/datafeed-external`, vedi `docs/domini/raccolta-datafeed-esterno.md`).
+ Regole complete in `docs/domini/finestra-candele-e-riscaldamento.md`.
+- **Il feed di un broker non si mescola a quello di un altro, né a quello del
+ vendor.** Il datafeed raccolto vive in `datafeed-external/{BROKER}/`, con la
+ stessa convenzione `@SYM_{minuti}.json` e un `feed-clocks.json` proprio. Per lo
+ stesso simbolo due broker non producono la stessa serie — cambiano orario di
+ sessione, bucket e volume — e il feed del vendor ha un bucket diverso da
+ entrambi. E si raccoglie **a blocchi**, mai in un'unica chiamata: l'unità è
+ idempotente perché la chiave è l'istante di apertura della barra, i blocchi si
+ accodano a un journal e il file piatto si materializza alla compattazione.
 - **Barra di esecuzione ≠ prezzo di mark.** L'orologio del loop è sintetico e sui
  tick senza barre il cursore restituisce l'ultima barra chiusa. Quel prezzo va
  usato per il mark-to-market (altrimenti stop e time exit non sono valutabili) ma

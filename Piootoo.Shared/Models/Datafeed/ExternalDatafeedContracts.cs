@@ -25,6 +25,14 @@ public sealed class ExternalCandleDto
 /// <summary>Un blocco di barre di UNO stream (simbolo + timeframe). L'unita' di invio.</summary>
 public sealed class ExternalBarChunkDto
 {
+    /// <summary>
+    /// Codice del broker che ha prodotto queste barre (es. <c>ICMARKETS</c>). E' la sottocartella
+    /// in cui il feed viene scritto, ed e' obbligatorio: barre dello stesso simbolo prese da due
+    /// broker diversi NON sono la stessa serie — cambiano sessione, bucket e volume — e mescolarle
+    /// in un unico file produce un feed che non corrisponde a nessuno dei due.
+    /// </summary>
+    public string Broker { get; set; } = string.Empty;
+
     /// <summary>Simbolo Piootoo, con o senza "@" (viene normalizzato a <c>@NQ</c>).</summary>
     public string Symbol { get; set; } = string.Empty;
 
@@ -57,6 +65,7 @@ public sealed class IngestBarsRequestDto
 /// <summary>Esito dell'ingestione di uno stream: quanto e' entrato, quanto era gia' li'.</summary>
 public sealed class ExternalStreamIngestResultDto
 {
+    public string Broker { get; set; } = string.Empty;
     public string Symbol { get; set; } = string.Empty;
     public int TimeframeMinutes { get; set; }
 
@@ -136,6 +145,7 @@ public sealed class ExternalFeedGapDto
 
 public sealed class ExternalFeedStatusDto
 {
+    public string Broker { get; set; } = string.Empty;
     public string Symbol { get; set; } = string.Empty;
     public int TimeframeMinutes { get; set; }
     public string FilePath { get; set; } = string.Empty;
@@ -173,6 +183,9 @@ public sealed class ExternalTickDto
 
 public sealed class IngestTicksRequestDto
 {
+    /// <summary>Codice broker: stessa regola delle barre, i tick finiscono nella sua cartella.</summary>
+    public string Broker { get; set; } = string.Empty;
+
     public string Symbol { get; set; } = string.Empty;
     public string? Source { get; set; }
     public string? ChunkId { get; set; }
@@ -181,6 +194,7 @@ public sealed class IngestTicksRequestDto
 
 public sealed class IngestTicksResponseDto
 {
+    public string Broker { get; set; } = string.Empty;
     public string Symbol { get; set; } = string.Empty;
     public int Received { get; set; }
     public int Accepted { get; set; }
@@ -201,4 +215,44 @@ public sealed class IngestTicksResponseDto
 public sealed class CompactExternalFeedsResponseDto
 {
     public List<ExternalStreamIngestResultDto> Streams { get; set; } = new();
+}
+
+/// <summary>
+/// Uno strumento del piano visto da un raccoglitore di datafeed: il simbolo Piootoo, come si chiama
+/// sul conto che raccoglie, e i timeframe che il piano usa davvero.
+/// </summary>
+public sealed class PlanDatafeedInstrumentDto
+{
+    /// <summary>Simbolo Piootoo (<c>@NQ</c>): la chiave con cui il feed viene salvato.</summary>
+    public string Symbol { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Lo stesso strumento sul conto che esegue: il nome che il bot deve chiedere al broker. Viene
+    /// dalla tabella di conversione dell'account, quindi il bot non deve mappare niente a mano.
+    /// Coincide con <see cref="Symbol"/> quando l'account non mappa quel simbolo.
+    /// </summary>
+    public string AccountSymbol { get; set; } = string.Empty;
+
+    public List<int> TimeframesMinutes { get; set; } = new();
+}
+
+/// <summary>
+/// Gli strumenti che un piano tocca, per chi deve raccoglierne il datafeed.
+///
+/// <para><b>Vengono dal masterfilter, non dalla rotazione Titano corrente</b>, ed e' la differenza
+/// che conta: Titano abilita e disabilita strategie ogni periodo, ma il datafeed di uno strumento
+/// serve <i>sempre</i> — anche mentre e' spento, perche' quando torna attivo la sua storia deve
+/// esserci gia'. Seguendo la rotazione, il feed si interromperebbe a ogni disabilitazione e
+/// lascerebbe un buco esattamente lungo quanto la pausa.</para>
+/// </summary>
+public sealed class PlanDatafeedInstrumentsDto
+{
+    public string PlanCode { get; set; } = string.Empty;
+    public string PlanName { get; set; } = string.Empty;
+    public string WorkspaceId { get; set; } = string.Empty;
+
+    /// <summary>Conto di cui si e' usata la tabella di conversione per <c>AccountSymbol</c>.</summary>
+    public string AccountNumber { get; set; } = string.Empty;
+
+    public List<PlanDatafeedInstrumentDto> Instruments { get; set; } = new();
 }

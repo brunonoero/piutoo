@@ -1926,3 +1926,80 @@ abbiamo e romperebbe quello che oggi funziona.
   (`TrailingStepAndGapFillTests`): il passo misurato sulle stesse barre con un solo numero diverso
   (uscita a 95 col passo, a 95,5 senza), il fill sul gap sui due lati, e il caso di controllo che
   il trailing **non** si riempie all'apertura. Versione **3.12.0**.
+- **2026-08-30** — Il datafeed raccolto da un broker vive in
+  `piootoo-repository/datafeed-external/{BROKER}/`, **separato** da `datafeed/` e con una
+  cartella per broker. Le barre dello stesso simbolo prese da due broker non sono la stessa
+  serie — cambiano orario di sessione, bucket e volume (che e' conteggio tick) — e mescolarle
+  darebbe un feed che non corrisponde a nessuno dei due conti, senza che niente lo dica.
+  Ogni cartella ha il proprio `feed-clocks.json` generato, quindi si puo' passare direttamente
+  a `DataSourceRepository`. Vedi `domini/raccolta-datafeed-esterno.md`.
+- **2026-08-30** — La raccolta avviene **a blocchi**, mai in un'unica chiamata: l'unita' e' il
+  blocco (default cinque giorni, max 2000 barre), idempotente perche' la chiave e' l'istante di
+  apertura della barra. Un `POST` unico da centomila barre andrebbe in timeout e, morendo a
+  meta', non lascerebbe niente di riutilizzabile; il giro di `LoadMoreHistory` fatto tutto in
+  `OnStart` bloccherebbe il thread dell'algoritmo per minuti. I blocchi si accodano a un journal
+  `.jsonl` e il file piatto si materializza alla compattazione, per lo stesso motivo per cui i
+  checkpoint del backtest non riscrivono l'artefatto intero.
+- **2026-08-30** — I buchi del feed esterno si **dichiarano**, non si riempiono, e il passo con
+  cui si decide cos'e' un buco e' dedotto dai dati (`dominantStepMinutes`), non assunto dal
+  timeframe: un giornaliero di broker apre alle 22:00 o alle 23:00 UTC, e assumere
+  l'allineamento all'epoch farebbe comparire un buco per ogni giornata. Ogni buco porta
+  `spansWeekend`, perche' il mercato chiuso non e' storia mancante.
+- **2026-08-30** — Il cBot raccoglitore prende gli strumenti da un **codice piano**, e li prende
+  dal **masterfilter**, non dalla rotazione Titano corrente: il datafeed di uno strumento serve
+  anche mentre le sue strategie sono spente, altrimenti alla riaccensione mancherebbe la storia
+  esattamente lunga quanto la pausa. `GET api/datafeed-external/plan-instruments` e' una lettura
+  pura e non apre sessioni — a differenza del cBot distribuito, che gli strumenti li ricava dal
+  descriptor di sessione: un raccoglitore non deve avere effetti sull'operativita'. Restituisce
+  anche l'`accountSymbol` dalla tabella di conversione del conto, cosi' il bot non mappa niente a
+  mano e non esiste una seconda lista di simboli che possa divergere dal masterfilter.
+- **2026-08-30** — `PiootooDatafeedSyncBot` porta una versione PROPRIA (1.x) e non segue
+  `PiootooVersion`, che e' vincolata dai test a coincidere con il bot distribuito e
+  `Directory.Build.props`. Quel numero e' la sintesi del contratto di esecuzione, che il
+  raccoglitore non tocca: legarlo li' significherebbe far comparire un finto disallineamento nel
+  log di un bot non cambiato a ogni release del server, o ri-deployarlo per niente.
+
+- **2026-08-30** — **Il claim di una sessione non scorre piu' la storia degli intent.** Un backtest
+  esterno rallentava giorno dopo giorno anche dopo le tre correzioni di agosto (finestra di
+  valutazione, checkpoint, journal incrementale): quelle avevano reso piatto il percorso della
+  barra, ma non il claim. Misura su una sonda a 9 strategie @NQ 15m con drenaggio a ogni barra, ms
+  ogni 500 barre: push 135 → 68 (piatto), **claim 5.460 → 17.816 → 32.153 → 33.139**. Il costo per
+  barra era proporzionale agli intent gia' accumulati — a fine anno decine di migliaia — quindi il
+  run era quadratico.
+
+  Il profilo interno al claim (1.500 barre, 13.500 intent) dice dove: **`DescribeSessionLimit`
+  42.020 ms su 52 totali**. E' pura diagnostica, ma `NarrowTemplates` prendeva il motivo come
+  `string`: veniva quindi costruito a **ogni** claim, anche quando quel filtro non scartava niente,
+  e costruirlo costava due scansioni di tutti gli intent del run *per candidato*. Ora esiste la
+  variante con `Func<string>` e il motivo si costruisce solo se e' quel filtro a svuotare la lista;
+  chi passa una costante resta sull'overload di prima, per non allocare una closure per niente.
+
+  Sotto c'erano altre cinque scansioni della stessa lista, tutte per leggere il sottoinsieme degli
+  ordini davvero in volo: chiusure pendenti dell'account, budget di concorrenza, ingresso gia' in
+  volo, template reclamabili e `PendingIntents` dello snapshot (che ogni execution report
+  restituisce). `Session.LiveIntents` tiene quel sottoinsieme — qualche decina di elementi — e si
+  pota **pigramente** (`Live()`, `RemoveAll(IsSettled)`): gli stati cambiano in troppi punti perche'
+  valga la pena intercettarli tutti, ed e' cosi' che un indice incrementale perde un elemento in
+  silenzio. Un intent assestato non torna indietro; l'unico caso in cui potrebbe — un report tardivo
+  del broker — lo rimette in lista `ApplyReport`. I cinque filtri hanno lo stesso significato di
+  prima perche' `Pending`/`Accepted`/`PartiallyFilled` **e'** la definizione di non assestato.
+
+  `MaxEntriesPerSessionReached` invece conta i *fill*, che sono assestati per definizione: quello
+  passa da `Session.EntryFills`, indice `strategia|simbolo` → (secchio, account) → quanti ingressi
+  hanno almeno un riempimento, aggiornato nell'unico punto in cui un intent passa da zero a
+  riempito. Cresce di una voce per (giorno, account), non per intent, e serve anche i due numeri
+  della diagnostica senza rileggere niente. Stesso trattamento per la priorita' di consegna dei
+  template senza rotazione Titano: `Session.StrategyNetPnl` si accumula alla chiusura del trade
+  invece di risommare tutti gli `ExternalTrades` a ogni poll.
+
+  Dopo, sulla stessa sonda: **8.000 barre e 72.000 intent in 5,5 secondi**, claim fra 76 e 168 ms
+  ogni 500 barre senza tendenza (prima le stesse 8.000 barre non finivano in dieci minuti), report
+  da 254→845 ms a ~50 ms piatti. Nessun cambiamento nella suite: gli stessi 55 test rossi prima e
+  dopo, uno per uno.
+
+  Verificato nello stesso giro che la sessione tiene in RAM **solo le candele necessarie**:
+  `TrimHistory` la mantiene a `EvaluationWindowSize` + 512 e pota a blocchi di 1.024, misurato a
+  dente di sega fra 1.500 e 2.100 candele su 4.000 barre con `RequiredCandles` 576, con il push
+  costante a ~2 ms per barra. E che il datafeed resta disaccoppiato: `ExternalDatafeedStore` e'
+  raggiungibile solo da `DatafeedExternalController`, il cBot distribuito non chiama mai
+  `api/datafeed-external` e il raccoglitore non chiama mai `trading-sessions`.

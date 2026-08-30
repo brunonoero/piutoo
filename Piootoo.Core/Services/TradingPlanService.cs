@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Piootoo.Shared.Models.Datafeed;
 using Piootoo.Shared.Models.Trading;
 using Piootoo.Shared.Utilities;
 
@@ -27,6 +28,96 @@ public sealed class TradingPlanService
             return Find(Read(workspaceId), code)
                 ?? throw new KeyNotFoundException($"Piano '{code}' non trovato nel workspace '{workspaceId}'.");
     }
+
+    /// <summary>
+    /// Gli strumenti che il piano tocca, per un raccoglitore di datafeed: coppie (simbolo,
+    /// timeframe) del masterfilter, più il nome che quel simbolo ha sul conto indicato.
+    ///
+    /// <para><b>Dal masterfilter, non dalla rotazione Titano corrente.</b> Titano abilita e
+    /// disabilita strategie ogni periodo, ma il datafeed di uno strumento serve <i>sempre</i>:
+    /// anche mentre è spento, perché quando torna attivo la sua storia deve esserci già. Seguendo
+    /// la rotazione il feed si interromperebbe a ogni disabilitazione e lascerebbe un buco lungo
+    /// esattamente quanto la pausa — e nessuno lo scoprirebbe fino al primo backtest su quel
+    /// periodo.</para>
+    ///
+    /// <para>È una lettura pura: non apre sessioni, non tocca stato. Un raccoglitore non deve
+    /// avere effetti collaterali sull'operatività.</para>
+    /// </summary>
+    /// <param name="accountNumber">
+    /// Conto di cui usare la tabella di conversione simboli. Vuoto = quello dichiarato dal piano.
+    /// </param>
+    public PlanDatafeedInstrumentsDto ResolveDatafeedInstruments(string code, string? accountNumber)
+    {
+        var plan = Resolve(code);
+
+        var filter = _workspaces.GetMasterFilter(plan.WorkspaceId);
+        if (filter.StrategiesFilter.Count == 0)
+            throw new InvalidOperationException(
+                $"Il masterfilter del workspace '{plan.WorkspaceId}' è vuoto: il piano '{plan.Code}' " +
+                "non tocca alcuno strumento.");
+
+        var byId = StrategyFactory.GetRegisteredStrategies()
+            .ToDictionary(definition => definition.Id, StringComparer.OrdinalIgnoreCase);
+
+        // Un id non eseguibile qui NON è fatale, a differenza dell'apertura di una sessione: là
+        // significherebbe operare con meno strategie di quante il piano ne dichiara, qui al
+        // massimo si raccoglie un simbolo in meno — e fermare la raccolta di venti strumenti per
+        // una voce sbagliata del masterfilter è un prezzo che non vale la pena pagare.
+        var pairs = filter.StrategiesFilter
+            .Where(byId.ContainsKey)
+            .Select(id => byId[id])
+            .Where(definition => !string.IsNullOrWhiteSpace(definition.Symbol) && definition.TimeframeMinutes > 0)
+            .ToArray();
+
+        if (pairs.Length == 0)
+            throw new InvalidOperationException(
+                $"Nessuna strategia eseguibile nel masterfilter del piano '{plan.Code}'.");
+
+        var account = string.IsNullOrWhiteSpace(accountNumber) ? plan.AccountNumber : accountNumber.Trim();
+        var conversion = ResolveConversion(account);
+
+        return new PlanDatafeedInstrumentsDto
+        {
+            PlanCode = plan.Code,
+            PlanName = plan.Name,
+            WorkspaceId = plan.WorkspaceId,
+            AccountNumber = account ?? string.Empty,
+            Instruments = pairs
+                .GroupBy(definition => NormalizeSymbol(definition.Symbol), StringComparer.OrdinalIgnoreCase)
+                .Select(group => new PlanDatafeedInstrumentDto
+                {
+                    Symbol = group.Key,
+                    AccountSymbol = conversion?.GetAccountSymbol(group.Key) ?? group.Key,
+                    TimeframesMinutes = group.Select(definition => definition.TimeframeMinutes)
+                        .Distinct().Order().ToList()
+                })
+                .OrderBy(instrument => instrument.Symbol, StringComparer.OrdinalIgnoreCase)
+                .ToList()
+        };
+    }
+
+    /// <summary>
+    /// Tabella di conversione del conto, o null se il conto non è in anagrafica. Null e non
+    /// eccezione: senza tabella il raccoglitore usa il simbolo Piootoo così com'è, che è il
+    /// comportamento giusto quando conto e broker chiamano lo strumento allo stesso modo. Aprire
+    /// una sessione invece pretende l'anagrafica, perché lì serve anche il capitale.
+    /// </summary>
+    private AccountSymbolConversion? ResolveConversion(string? accountNumber)
+    {
+        if (string.IsNullOrWhiteSpace(accountNumber))
+            return null;
+
+        var account = _workspaces.ListAccounts().FirstOrDefault(candidate =>
+            string.Equals(candidate.AccountNumber?.Trim(), accountNumber.Trim(), StringComparison.OrdinalIgnoreCase));
+        if (account is null)
+            return null;
+
+        return AccountSymbolConversion.FromAccount(account, _workspaces.ResolveSymbolConversion(account.SymbolConversionCode));
+    }
+
+    /// <summary>Simbolo nella forma con cui il datafeed lo indicizza: <c>@NQ</c>.</summary>
+    private static string NormalizeSymbol(string symbol)
+        => "@" + symbol.Trim().TrimStart('@').ToUpperInvariant();
 
     /// <summary>Il codice è globale: consente al cBot di configurare soltanto PlanCode.</summary>
     public TradingPlan Resolve(string code)

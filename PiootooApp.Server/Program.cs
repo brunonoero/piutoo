@@ -46,6 +46,9 @@ builder.Services.AddSingleton<TradingPlanService>();
 builder.Services.AddSingleton<IStrategyEvaluationService, StrategyEvaluationService>();
 builder.Services.AddSingleton<IPositionSizingService, PositionSizingService>();
 builder.Services.AddSingleton<ITradingSessionService, TradingSessionService>();
+// Singleton non per abitudine: tiene in RAM l'indice per stream e i lock che serializzano gli
+// invii concorrenti dello stesso feed. Due istanze si sovrascriverebbero il journal a vicenda.
+builder.Services.AddSingleton<ExternalDatafeedStore>();
 
 builder.Services.AddControllers()
     .AddJsonOptions(options =>

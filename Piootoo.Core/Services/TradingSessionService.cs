@@ -267,6 +267,46 @@ public sealed class TradingSessionService : ITradingSessionService
         /// </summary>
         public Dictionary<string, OrderIntent> IntentsById { get; } = new(StringComparer.Ordinal);
 
+        /// <summary>
+        /// Gli intent ancora capaci di cambiare — <c>Pending</c>, <c>Accepted</c>,
+        /// <c>PartiallyFilled</c> — cioe' il sottoinsieme su cui lavorano tutti i lucchetti del claim.
+        ///
+        /// <para><b>Perche' esiste.</b> <see cref="Intents"/> e' la storia completa del run e cresce
+        /// di un elemento per segnale reclamato: a fine anno sono decine di migliaia. Ogni claim la
+        /// riscorreva da capo cinque volte (chiusure pendenti, budget di concorrenza, ingresso in
+        /// volo, template reclamabili, snapshot), e il cBot fa un claim per barra: costo per barra
+        /// proporzionale alle barre gia' fatte, cioe' un backtest quadratico che rallenta giorno
+        /// dopo giorno. Qui dentro ci stanno solo gli ordini davvero in volo — qualche decina —
+        /// perche' un intent assestato non torna mai indietro.</para>
+        ///
+        /// <para>La potatura e' pigra (<c>Live</c>): gli stati cambiano in troppi punti perche'
+        /// valga la pena intercettarli tutti, ed e' esattamente il modo in cui un indice
+        /// incrementale perde silenziosamente un elemento. L'unico caso in cui un intent torna
+        /// indietro da uno stato definitivo — un report tardivo del broker — lo rimette in lista
+        /// <c>ApplyReport</c>.</para>
+        /// </summary>
+        public List<OrderIntent> LiveIntents { get; } = [];
+
+        /// <summary>
+        /// Fill di ingresso indicizzati: <c>strategia|simbolo</c> → (secchio di sessione, account) →
+        /// quanti intent hanno almeno un riempimento. L'account <c>*</c> e' il totale su tutti gli
+        /// account, e serve al percorso a conto singolo, che conta senza filtrare per account.
+        ///
+        /// <para>Sostituisce la scansione di <see cref="Intents"/> che
+        /// <c>MaxEntriesPerSessionReached</c> faceva per ogni template di ogni barra. Cresce di una
+        /// voce per (giorno, account), non per intent.</para>
+        /// </summary>
+        public Dictionary<string, Dictionary<(DateTime Secchio, string Account), int>> EntryFills { get; }
+            = new(StringComparer.Ordinal);
+
+        /// <summary>
+        /// PnL netto per strategia accumulato alla chiusura di ogni trade. E' la priorita' di
+        /// consegna dei template quando non c'e' una rotazione Titano da cui prenderla: ricalcolarla
+        /// sommando tutti gli <see cref="ExternalTrades"/> a ogni poll costava quanto i trade gia'
+        /// fatti.
+        /// </summary>
+        public Dictionary<string, decimal> StrategyNetPnl { get; } = new(StringComparer.OrdinalIgnoreCase);
+
         public List<RotationLogEntry> RotationLog { get; } = [];
 
         // --- Persistenza incrementale (vedi WriteArtifacts) ---
@@ -1466,6 +1506,8 @@ public sealed class TradingSessionService : ITradingSessionService
                 : report.CumulativeFilledQuantity;
 
             var delta = filledQuantity - intent.FilledQuantity;
+            var primoRiempimento = intent.FilledQuantity <= 0 && filledQuantity > 0;
+            var eraAssestato = IsSettled(intent);
             intent.FilledQuantity = filledQuantity;
             intent.ExternalOrderId = report.ExternalOrderId ?? intent.ExternalOrderId;
             intent.Status = report.Status switch
@@ -1476,6 +1518,17 @@ public sealed class TradingSessionService : ITradingSessionService
                 ExecutionReportStatus.Rejected => OrderIntentStatus.Rejected,
                 _ => OrderIntentStatus.Cancelled
             };
+
+            // Il tetto di ingressi per sessione conta i fill, e li conta su un indice: il momento in
+            // cui un ingresso passa da zero a riempito e' l'unico in cui quell'indice cambia.
+            if (!intent.IsClose && primoRiempimento)
+                RegisterEntryFill(session, intent);
+
+            // Un report che riporta indietro un intent gia' assestato — il broker che accetta dopo
+            // aver rifiutato — lo rimette fra quelli in volo. E' l'unico verso in cui la potatura
+            // pigra di Live() non si accorgerebbe da sola del cambiamento.
+            if (eraAssestato && !IsSettled(intent) && !session.LiveIntents.Contains(intent))
+                session.LiveIntents.Add(intent);
 
             RecordActivity(session,
                 intent.IsClose ? SessionActivityKind.PosizioneChiusa : SessionActivityKind.EsitoEsecuzione,
@@ -1541,6 +1594,11 @@ public sealed class TradingSessionService : ITradingSessionService
                         var net = report.NetProfit ?? gross - commission + report.Swap;
                         // Lo swap invece resta con segno: può essere un accredito, e su posizioni
                         // multigiorno pesa quanto una commissione moltiplicata per dieci.
+                        // Il PnL per strategia si accumula qui, dove nasce il trade: e' la
+                        // priorita' di consegna dei template quando non c'e' una rotazione Titano,
+                        // e ricalcolarla a ogni poll costava quanto i trade gia' chiusi.
+                        session.StrategyNetPnl[intent.StrategyCode] =
+                            session.StrategyNetPnl.GetValueOrDefault(intent.StrategyCode) + net;
                         session.ExternalTrades.Add(new PersistedTrade
                         {
                             TradeId = report.ReportId,
@@ -1971,7 +2029,7 @@ public sealed class TradingSessionService : ITradingSessionService
             // 1) Le CHIUSURE assegnate a questo account si ripropongono sempre, e prima di tutto:
             //    sono ordini da eseguire, non segnali da distribuire, e perderne una lascia aperta
             //    una posizione che nessuno chiuderà più. Non consumano budget e non ne aspettano.
-            var pendingForAccount = session.Intents
+            var pendingForAccount = Live(session)
                 .Where(i => string.Equals(i.AssignedAccountNumber, accountNumber, StringComparison.OrdinalIgnoreCase)
                             && i.Status == OrderIntentStatus.Pending)
                 .OrderBy(i => i.CreatedAtUtc)
@@ -2140,7 +2198,7 @@ public sealed class TradingSessionService : ITradingSessionService
                 // La deduplica per stringa (RecordRefusal) regge: i valori cambiano una volta al
                 // giorno, non a ogni barra, quindi non genera la riga-per-barra che la nota del
                 // filtro di scadenza dice di evitare.
-                DescribeSessionLimit(session, candidates, accountNumber));
+                () => DescribeSessionLimit(session, candidates, accountNumber));
             candidates = NarrowTemplates(candidates, ref stage,
                 t => IsTemplateEligibleForGroup(session, groupId, t),
                 "escluso dalla rotazione Titano del gruppo");
@@ -2238,6 +2296,8 @@ public sealed class TradingSessionService : ITradingSessionService
     private static List<OrderIntent> NarrowTemplates(
         List<OrderIntent> candidates, ref string stage, Func<OrderIntent, bool> predicate, string reason)
     {
+        // Il motivo costante non passa dalla variante differita: allocherebbe una closure per
+        // filtro per claim per non risparmiare niente.
         if (candidates.Count == 0)
             return candidates;
 
@@ -2246,6 +2306,30 @@ public sealed class TradingSessionService : ITradingSessionService
             return filtered;
 
         stage = $"{reason} ({candidates.Count} template scartati)";
+        return filtered;
+    }
+
+    /// <summary>
+    /// Variante con il motivo <b>differito</b>: la stringa si costruisce solo se e' questo filtro a
+    /// svuotare la lista.
+    ///
+    /// <para><b>Perche' serve.</b> Un motivo passato come <c>string</c> si costruisce sempre, anche
+    /// quando il filtro non scarta nulla. Per <see cref="DescribeSessionLimit"/> — che e' pura
+    /// diagnostica — quel messaggio costava due scansioni di tutti gli intent del run <i>per
+    /// candidato</i>: su una sonda a 1.500 barre erano 42 dei 52 secondi spesi nei claim, e la quota
+    /// cresceva con le barre gia' fatte.</para>
+    /// </summary>
+    private static List<OrderIntent> NarrowTemplates(
+        List<OrderIntent> candidates, ref string stage, Func<OrderIntent, bool> predicate, Func<string> reason)
+    {
+        if (candidates.Count == 0)
+            return candidates;
+
+        var filtered = candidates.Where(predicate).ToList();
+        if (filtered.Count != 0)
+            return filtered;
+
+        stage = $"{reason()} ({candidates.Count} template scartati)";
         return filtered;
     }
 
@@ -2327,7 +2411,7 @@ public sealed class TradingSessionService : ITradingSessionService
                 else identified.Add(order.IntentId);
             }
 
-        foreach (var intent in session.Intents)
+        foreach (var intent in Live(session))
             if (intent.Kind == OrderIntentKind.Entry &&
                 intent.Status == OrderIntentStatus.Pending &&
                 string.Equals(intent.AssignedAccountNumber, accountNumber, StringComparison.OrdinalIgnoreCase))
@@ -2540,6 +2624,20 @@ public sealed class TradingSessionService : ITradingSessionService
     {
         session.Intents.Add(intent);
         session.IntentsById[intent.IntentId] = intent;
+        if (!IsSettled(intent))
+            session.LiveIntents.Add(intent);
+    }
+
+    /// <summary>
+    /// Gli intent ancora in volo, potati degli assestati. Vedi <see cref="Session.LiveIntents"/> per
+    /// il perche' non si scorra <see cref="Session.Intents"/>.
+    ///
+    /// <para>Va chiamato con il lock della sessione preso, come tutto cio' che tocca lo stato.</para>
+    /// </summary>
+    private static List<OrderIntent> Live(Session session)
+    {
+        session.LiveIntents.RemoveAll(IsSettled);
+        return session.LiveIntents;
     }
 
     private static bool IsOpposite(SignalType positionDirection, SignalType signalDirection) =>
@@ -2575,10 +2673,8 @@ public sealed class TradingSessionService : ITradingSessionService
             }
         }
 
-        var pnl = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
-        foreach (var trade in session.ExternalTrades)
-            pnl[trade.StrategyCode] = pnl.GetValueOrDefault(trade.StrategyCode) + trade.NetProfit;
-        return pnl;
+        // Sola lettura, sotto il lock della sessione come tutto il resto del claim.
+        return session.StrategyNetPnl;
     }
 
     private static ResolvedGroupTitano ResolveGroupTitano(Session session, string groupId)
@@ -2821,7 +2917,7 @@ public sealed class TradingSessionService : ITradingSessionService
         var templates = session.EntryTemplates.Count(t =>
             t.Status == OrderIntentStatus.Pending &&
             (!t.ExpiresAtUtc.HasValue || t.ExpiresAtUtc.Value >= now));
-        var assigned = session.Intents.Count(i =>
+        var assigned = Live(session).Count(i =>
             i.Status == OrderIntentStatus.Pending && i.AssignedAccountNumber is not null);
         return templates + assigned;
     }
@@ -2838,7 +2934,7 @@ public sealed class TradingSessionService : ITradingSessionService
     private static bool AccountHasEntryInFlight(
         Session session, string accountNumber, string strategyCode, string symbol)
     {
-        var pending = session.Intents.Any(intent =>
+        var pending = Live(session).Any(intent =>
             intent.Kind == OrderIntentKind.Entry &&
             intent.Status == OrderIntentStatus.Pending &&
             string.Equals(intent.AssignedAccountNumber, accountNumber, StringComparison.OrdinalIgnoreCase) &&
@@ -2858,16 +2954,55 @@ public sealed class TradingSessionService : ITradingSessionService
         if (intent.MaxEntriesPerSession is not > 0 || intent.EntrySessionStartUtc is not { } sessionStart)
             return false;
 
-        var fills = session.Intents.Count(x =>
-            x.Kind == OrderIntentKind.Entry &&
-            x.FilledQuantity > 0 &&
-            x.EntrySessionStartUtc == sessionStart &&
-            string.Equals(x.StrategyCode, intent.StrategyCode, StringComparison.OrdinalIgnoreCase) &&
-            string.Equals(x.Symbol, intent.Symbol, StringComparison.OrdinalIgnoreCase) &&
-            (accountNumber is null ||
-             string.Equals(x.AssignedAccountNumber, accountNumber, StringComparison.OrdinalIgnoreCase)));
+        var fills = CountEntryFills(
+            session, intent.StrategyCode, intent.Symbol, sessionStart, accountNumber);
 
         return fills >= intent.MaxEntriesPerSession.Value;
+    }
+
+    /// <summary>
+    /// Account fittizio sotto cui <see cref="Session.EntryFills"/> tiene il totale su tutti gli
+    /// account. Non collide con un account vero: i numeri di conto sono cifre.
+    /// </summary>
+    private const string AnyAccount = "*";
+
+    private static string EntryFillKey(string strategyCode, string symbol) =>
+        $"{strategyCode.ToUpperInvariant()}|{symbol.ToUpperInvariant()}";
+
+    /// <summary>
+    /// Quanti intent di ingresso di quella coppia hanno almeno un riempimento nel secchio indicato.
+    /// <paramref name="accountNumber"/> null significa "qualunque account", come il conteggio per
+    /// scansione che questo indice ha sostituito.
+    /// </summary>
+    private static int CountEntryFills(
+        Session session, string strategyCode, string symbol, DateTime secchio, string? accountNumber)
+    {
+        if (!session.EntryFills.TryGetValue(EntryFillKey(strategyCode, symbol), out var perSecchio))
+            return 0;
+
+        var chiave = accountNumber is null ? AnyAccount : accountNumber.ToUpperInvariant();
+        return perSecchio.GetValueOrDefault((secchio, chiave));
+    }
+
+    /// <summary>
+    /// Registra il PRIMO riempimento di un intent di ingresso. Si conta l'intent, non la quantita':
+    /// un fill parziale seguito dal completamento resta un ingresso solo, come nel conteggio per
+    /// scansione da cui questo indice deriva.
+    /// </summary>
+    private static void RegisterEntryFill(Session session, OrderIntent intent)
+    {
+        if (intent.Kind != OrderIntentKind.Entry || intent.EntrySessionStartUtc is not { } secchio)
+            return;
+
+        var chiave = EntryFillKey(intent.StrategyCode, intent.Symbol);
+        if (!session.EntryFills.TryGetValue(chiave, out var perSecchio))
+            session.EntryFills[chiave] = perSecchio = new Dictionary<(DateTime, string), int>();
+
+        // Account vuoto quando l'intent non e' assegnato: e' il percorso a conto singolo, e un
+        // conteggio filtrato per account non deve trovarlo — com'era con string.Equals su null.
+        var account = intent.AssignedAccountNumber is { } assegnato ? assegnato.ToUpperInvariant() : string.Empty;
+        perSecchio[(secchio, account)] = perSecchio.GetValueOrDefault((secchio, account)) + 1;
+        perSecchio[(secchio, AnyAccount)] = perSecchio.GetValueOrDefault((secchio, AnyAccount)) + 1;
     }
 
     /// <summary>
@@ -2905,26 +3040,22 @@ public sealed class TradingSessionService : ITradingSessionService
             .Distinct()
             .Select(c =>
             {
-                var fillNelSecchio = session.Intents.Count(x =>
-                    x.Kind == OrderIntentKind.Entry &&
-                    x.FilledQuantity > 0 &&
-                    x.EntrySessionStartUtc == c.Secchio &&
-                    string.Equals(x.StrategyCode, c.StrategyCode, StringComparison.OrdinalIgnoreCase) &&
-                    string.Equals(x.Symbol, c.Symbol, StringComparison.OrdinalIgnoreCase) &&
-                    string.Equals(x.AssignedAccountNumber, accountNumber, StringComparison.OrdinalIgnoreCase));
+                var fillNelSecchio = c.Secchio is { } secchio
+                    ? CountEntryFills(session, c.StrategyCode, c.Symbol, secchio, accountNumber)
+                    : 0;
 
-                var secchiConFill = session.Intents
-                    .Where(x => x.Kind == OrderIntentKind.Entry &&
-                                x.FilledQuantity > 0 &&
-                                string.Equals(x.StrategyCode, c.StrategyCode, StringComparison.OrdinalIgnoreCase) &&
-                                string.Equals(x.Symbol, c.Symbol, StringComparison.OrdinalIgnoreCase))
-                    .Select(x => Secchio(x.EntrySessionStartUtc) +
-                                 (string.Equals(x.AssignedAccountNumber, accountNumber, StringComparison.OrdinalIgnoreCase)
-                                     ? string.Empty
-                                     : $"@{x.AssignedAccountNumber ?? "n/d"}"))
-                    .Distinct()
-                    .OrderBy(x => x, StringComparer.Ordinal)
-                    .ToList();
+                var secchiConFill =
+                    session.EntryFills.TryGetValue(EntryFillKey(c.StrategyCode, c.Symbol), out var perSecchio)
+                        ? perSecchio.Keys
+                            .Where(k => k.Account != AnyAccount)
+                            .Select(k => Secchio(k.Secchio) +
+                                         (string.Equals(k.Account, accountNumber, StringComparison.OrdinalIgnoreCase)
+                                             ? string.Empty
+                                             : $"@{(k.Account.Length == 0 ? "n/d" : k.Account)}"))
+                            .Distinct()
+                            .OrderBy(x => x, StringComparer.Ordinal)
+                            .ToList()
+                        : [];
 
                 return $"{c.StrategyCode}/{c.Symbol} secchio {Secchio(c.Secchio)} " +
                        $"fill {fillNelSecchio}/{(c.Tetto?.ToString() ?? "n/d")}" +
@@ -3592,7 +3723,9 @@ public sealed class TradingSessionService : ITradingSessionService
             Entries = session.Mode == ExecutionMode.ExternalBroker ? session.Entries : 0,
             Fills = session.Mode == ExecutionMode.ExternalBroker ? session.Fills : 0,
             Positions = session.ExternalPositions.Values.ToArray(),
-            PendingIntents = session.Intents.Where(x => x.Status is OrderIntentStatus.Pending
+            // Live() e' gia' esattamente "non assestato", cioe' Pending/Accepted/PartiallyFilled:
+            // il filtro resta scritto per dire quali stati escono di qui, non per selezionare.
+            PendingIntents = Live(session).Where(x => x.Status is OrderIntentStatus.Pending
                 or OrderIntentStatus.Accepted or OrderIntentStatus.PartiallyFilled).ToArray(),
             AccountGroups = session.AccountGroups
                 .Select(kv => new AccountGroupMapping { AccountNumber = kv.Key, GroupId = kv.Value })
