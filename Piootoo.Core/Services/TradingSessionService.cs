@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using Piootoo.Shared.Configuration;
 using Piootoo.Shared.Enums;
 using Piootoo.Shared.Interfaces;
@@ -1548,7 +1548,7 @@ public sealed class TradingSessionService : ITradingSessionService
                 // dell'account non ha niente da liberare: si ricalcola a ogni poll dagli intent
                 // ancora Pending, e questo ha appena smesso di esserlo.
                 if (session.AccountGroups.TryGetValue(rejectedAccount, out var freedGroupId))
-                    session.GroupStrategySlots.Remove(SlotKey(freedGroupId, intent.StrategyCode, intent.Symbol));
+                    session.GroupStrategySlots.Remove(SlotKey(freedGroupId, intent.StrategyCode, intent.Symbol, intent.Side));
             }
 
             if (delta > 0)
@@ -1640,7 +1640,7 @@ public sealed class TradingSessionService : ITradingSessionService
                         // per un nuovo ingresso. Il budget di concorrenza dell'account si libera da
                         // sé, perché la posizione appena chiusa non sarà più nello snapshot broker.
                         if (session.AccountGroups.TryGetValue(accountNumber, out var groupId))
-                            session.GroupStrategySlots.Remove(SlotKey(groupId, intent.StrategyCode, intent.Symbol));
+                            session.GroupStrategySlots.Remove(SlotKey(groupId, intent.StrategyCode, intent.Symbol, intent.Side));
 
                         if (session.StrategyHolderCounts.TryGetValue(canonicalKey, out var count) && count > 0)
                         {
@@ -2154,9 +2154,9 @@ public sealed class TradingSessionService : ITradingSessionService
                        && claimed.Contains(groupId)),
                 $"già reclamati dal gruppo '{groupId}'");
             // Sempre attivo, in ogni profilo: un account non tiene DUE ingressi in corso della
-            // stessa strategia sullo stesso simbolo. Non è un vincolo di concorrenza — è l'identità
-            // della strategia: quel segnale è già in mano al broker, e un secondo ordine sarebbe
-            // rischio doppio sullo stesso motivo di ingresso.
+            // stessa strategia sullo stesso simbolo E DELLO STESSO LATO. Non è un vincolo di
+            // concorrenza — è l'identità della strategia: quel segnale è già in mano al broker, e un
+            // secondo ordine sarebbe rischio doppio sullo stesso motivo di ingresso.
             //
             // Serve perché `MaxEntriesPerSession` si applica al FILL e non al claim: due template
             // di barre diverse reclamati prima che il primo riempia passano entrambi il controllo, e
@@ -2164,9 +2164,19 @@ public sealed class TradingSessionService : ITradingSessionService
             // riempiti allo stesso prezzo e due posizioni da 20 lotti sullo stesso segnale.
             // Con i lucchetti attivi il 4 lo copre già, ma è più largo — vale per tutto il gruppo —
             // e a lucchetti spenti non c'era più niente a fermare il doppione.
+            //
+            // Il LATO fa parte della chiave, e senza di esso questo filtro scioglie i bracket:
+            // le due gambe di un motore non simmetrico nascono sulla STESSA barra e sono due motivi
+            // d'ingresso indipendenti, non un doppione. Servito il Buy, il Sell restava rifiutato
+            // finché il primo era Pending — cioè per sempre, perché il Buy viene riemesso e
+            // rireclamato a ogni barra. Su PTS_GC_PCH_004_240 (gate direzionali alle sentinelle,
+            // quindi gambe sempre in coppia) valeva 47 long e ZERO short in cinque mesi, contro i
+            // 25/20 del backtest sugli stessi identici segnali. È lo stesso difetto corretto nel
+            // cBot il 26/08/2026 (`CancelStrategyPendingOrders` per strategia *e lato*): lì il
+            // gemello lato server non era stato fatto.
             candidates = NarrowTemplates(candidates, ref stage,
-                t => !AccountHasEntryInFlight(session, accountNumber, t.StrategyCode, t.Symbol),
-                "l'account ha già un ingresso in corso per quella strategia su quel simbolo");
+                t => !AccountHasEntryInFlight(session, accountNumber, t.StrategyCode, t.Symbol, t.Side),
+                "l'account ha già un ingresso in corso per quella strategia su quel simbolo e lato");
 
             // Lucchetto 4: è un vincolo di CONCORRENZA, non di distribuzione, quindi segue
             // EnforceConcurrencyLimits insieme a MaxConcurrentTrades. Spento, ogni segnale della
@@ -2181,8 +2191,8 @@ public sealed class TradingSessionService : ITradingSessionService
             // parallelo lo dice MaxConcurrentTrades e basta, sull'insieme delle strategie.
             if (IsConcurrentTradeLimitActive(session))
                 candidates = NarrowTemplates(candidates, ref stage,
-                    t => !session.GroupStrategySlots.ContainsKey(SlotKey(groupId, t.StrategyCode, t.Symbol)),
-                    "slot (gruppo, strategia, simbolo) già occupato");
+                    t => !session.GroupStrategySlots.ContainsKey(SlotKey(groupId, t.StrategyCode, t.Symbol, t.Side)),
+                    "slot (gruppo, strategia, simbolo, lato) già occupato");
             candidates = NarrowTemplates(candidates, ref stage,
                 // Il limite di fill per sessione è per account: un template già consumato da un
                 // account resta disponibile per gli altri.
@@ -2241,7 +2251,7 @@ public sealed class TradingSessionService : ITradingSessionService
             // consultato, e che mostrerebbe nelle diagnostiche occupazioni che nessun filtro sta
             // applicando.
             if (IsConcurrentTradeLimitActive(session))
-                session.GroupStrategySlots[SlotKey(groupId, claim.StrategyCode, claim.Symbol)] = (accountNumber, claim.IntentId);
+                session.GroupStrategySlots[SlotKey(groupId, claim.StrategyCode, claim.Symbol, claim.Side)] = (accountNumber, claim.IntentId);
             Persist(session);
             return new AccountSignalResponse { Intent = claim };
         }
@@ -2553,7 +2563,7 @@ public sealed class TradingSessionService : ITradingSessionService
             session.ExternalPositions.Remove(key);
             session.ExternalPositionDetails.Remove(key);
             session.BrokerConfirmedPositions.Remove(key);
-            session.GroupStrategySlots.Remove(SlotKey(groupId, position.StrategyCode, position.Symbol));
+            session.GroupStrategySlots.Remove(SlotKey(groupId, position.StrategyCode, position.Symbol, position.Direction));
 
             var canonicalKey = $"{position.Symbol}|{position.StrategyCode}";
             if (session.StrategyHolderCounts.TryGetValue(canonicalKey, out var count) && count > 0)
@@ -2931,18 +2941,35 @@ public sealed class TradingSessionService : ITradingSessionService
     /// non vede gli ordini in attesa: fra il claim e il fill c'è una finestra in cui due template
     /// della stessa strategia, nati su barre diverse, sono entrambi ammissibili.</para>
     /// </summary>
+    /// <summary>
+    /// L'account ha già quell'ingresso in volo? I due rami rispondono a due domande diverse e per
+    /// questo trattano il lato in modo diverso — non è una dimenticanza dell'uno o dell'altro.
+    ///
+    /// <para><b>Ordini pendenti: il lato conta.</b> Due template della stessa strategia, stesso
+    /// simbolo e stesso lato sono un doppione. Le due gambe di un bracket no: nascono sulla stessa
+    /// barra, sono motivi d'ingresso indipendenti e devono poter stare a mercato insieme, esattamente
+    /// come nel motore interno, dove la chiave del pending porta il verso da sempre
+    /// (<c>PiootooTradingService.EnqueuePendingOrder</c>).</para>
+    ///
+    /// <para><b>Posizioni aperte: il lato NON conta.</b> Lì la cecità al verso <i>è</i> la regola:
+    /// una gamba si è riempita, l'altra non deve entrare, altrimenti la strategia resta long e short
+    /// insieme. È l'OCO, ed è la stessa cosa che il cBot impone con <c>EnforceBracketOco</c> e
+    /// <c>alreadyOpenOnStrategy</c>.</para>
+    /// </summary>
     private static bool AccountHasEntryInFlight(
-        Session session, string accountNumber, string strategyCode, string symbol)
+        Session session, string accountNumber, string strategyCode, string symbol, SignalType side)
     {
         var pending = Live(session).Any(intent =>
             intent.Kind == OrderIntentKind.Entry &&
             intent.Status == OrderIntentStatus.Pending &&
+            intent.Side == side &&
             string.Equals(intent.AssignedAccountNumber, accountNumber, StringComparison.OrdinalIgnoreCase) &&
             string.Equals(intent.StrategyCode, strategyCode, StringComparison.OrdinalIgnoreCase) &&
             string.Equals(intent.Symbol, symbol, StringComparison.OrdinalIgnoreCase));
         if (pending)
             return true;
 
+        // Nessun confronto sul lato: vedi il secondo paragrafo del sommario. È l'OCO.
         return session.ExternalPositions.Values.Any(position =>
             string.Equals(position.AccountNumber, accountNumber, StringComparison.OrdinalIgnoreCase) &&
             string.Equals(position.StrategyCode, strategyCode, StringComparison.OrdinalIgnoreCase) &&
@@ -3235,8 +3262,16 @@ public sealed class TradingSessionService : ITradingSessionService
             : $"{reason} | conversione account: {sizeFactor:0.######}";
     }
 
-    private static string SlotKey(string groupId, string strategyCode, string symbol) =>
-        $"{groupId}|{strategyCode}|{Normalize(symbol)}";
+    /// <summary>
+    /// Slot di concorrenza di un gruppo. Il <b>lato</b> fa parte della chiave per lo stesso motivo
+    /// del ramo pendente di <see cref="AccountHasEntryInFlight"/>: le due gambe di un bracket sono
+    /// due ingressi indipendenti, e uno slot per sola (strategia, simbolo) ne lascerebbe a mercato
+    /// una sola. Lo slot viene preso al claim con il lato dell'intent e liberato con il lato
+    /// dell'intent o della posizione che lo chiude: i due coincidono sempre, perché un intent Buy
+    /// non produce una posizione Sell.
+    /// </summary>
+    private static string SlotKey(string groupId, string strategyCode, string symbol, SignalType side) =>
+        $"{groupId}|{strategyCode}|{Normalize(symbol)}|{side}";
 
     /// <summary>Intervallo minimo fra due scritture degli artefatti sul percorso caldo.</summary>
     private static readonly TimeSpan PersistCheckpointInterval = TimeSpan.FromSeconds(2);

@@ -1,4 +1,4 @@
-# Decisioni
+﻿# Decisioni
 
 Log breve delle scelte fatte e del perché. Una riga (o poche righe) per voce,
 in ordine cronologico. Non è un changelog di codice: quello resta nei commit.
@@ -1958,6 +1958,59 @@ abbiamo e romperebbe quello che oggi funziona.
   `Directory.Build.props`. Quel numero e' la sintesi del contratto di esecuzione, che il
   raccoglitore non tocca: legarlo li' significherebbe far comparire un finto disallineamento nel
   log di un bot non cambiato a ogni release del server, o ri-deployarlo per niente.
+
+- **2026-08-31** — **Le due gambe di un bracket non sono un doppione: il lato entra nei lucchetti
+  del claim.** Rilasciato come **3.13.0**. Non cambia nessun backtest — il percorso corretto esiste
+  solo nella sessione `ExternalBroker` — ma cambia quali trade fa un run esterno, quindi i run
+  precedenti non sono confrontabili con i successivi.
+
+  I filtri del claim erano chiavati su (strategia, simbolo) senza il verso:
+  `AccountHasEntryInFlight` e `SlotKey`. Un motore non simmetrico emette le due gambe sulla
+  **stessa barra** — `EasyEngineBase.Combine` mette il Buy in `entries[0]` e il Sell in
+  `CompanionSignals` — e il claim ne serve una alla volta, ordinata per `CreatedAtUtc` a parità di
+  priorità, cioè in ordine di lista. Servito il Buy, il Sell veniva rifiutato finché il primo era
+  `Pending`: e il Buy è `Pending` per sempre, perché viene riemesso e rireclamato a ogni barra.
+  Il bracket non poteva mai stare a mercato intero, e quale gamba passasse non lo decideva il
+  mercato ma la posizione nella lista.
+
+  Misura, dal confronto `compare-0009` (GC/XAUUSD, 1/7 → 13/11 2024): su `PTS_GC_PCH_004_240` il
+  conto vero ha **47 long e zero short**, il backtest interno 25 e 20 sugli **stessi identici
+  segnali**. La strategia emette 127 buy e 127 sell nella finestra, sempre in coppia — i gate
+  direzionali sono alle sentinelle 52/53, quindi le due gambe non hanno mai una barra tutta loro. Nel
+  log eventi del cBot non esiste **nessun** sell stop con la firma SL 5,0 / TP 100,0 in cinque mesi;
+  il controllo `PTS_GC_PCH_005_240` — stesso motore, stesso simbolo, stesso `Direction = 0`, ma gambe
+  spesso indipendenti — ne ha 30 su 67. La corrispondenza è monotona su tutto il paniere: zero barre
+  con solo short → zero ordini short piazzati, poche → pochi, molte → molti.
+
+  Il feed non c'entra, ed è stato escluso misurandolo invece di assumerlo: rieseguendo `Evaluate`
+  sulle barre del broker (`datafeed-external`, @GC 240m) la strategia emette 244 buy e **244 sell**,
+  esattamente come sul feed vendor. Le due griglie a 4 ore per giunta coincidono nella finestra del
+  confronto — il vendor è ancorato alla mezzanotte europea, il broker al fuso di New York, e i due
+  DST divergono solo a marzo e a fine ottobre.
+
+  **Il ramo delle posizioni resta cieco al verso, ed è voluto**: lì la cecità *è* la regola. Una
+  gamba riempita deve impedire l'altra, altrimenti la strategia sta long e short insieme — è l'OCO,
+  lo stesso che il cBot impone con `EnforceBracketOco` e `alreadyOpenOnStrategy`. La distinzione fra
+  i due rami è l'unica cosa che questa voce aggiunge al ragionamento del 26/08: allora fu corretto
+  `CancelStrategyPendingOrders` nel cBot, con le stesse identiche parole, e il gemello lato server
+  non fu fatto. Il sintomo è rimasto per quello.
+
+  Il motore interno faceva già la cosa giusta, con il commento che lo dice:
+  `PiootooTradingService.EnqueuePendingOrder` mette il verso nella chiave del pending — «long e
+  short stop possono coesistere (OCO logico)». È per questo che il backtest non ha mai mostrato il
+  difetto: non passa dal claim, che è il meccanismo di distribuzione multi-account e non esiste
+  altrove in `Piootoo.Core`.
+
+  Regressione in `BracketClaimSideTests`: le due gambe arrivano allo stesso account, il doppione
+  dello stesso lato resta rifiutato (il caso `PTS_NQ_PCH_002_15` del 14/10/2024), e la gamba opposta
+  resta rifiutata dopo il fill dell'altra. Il primo test è stato verificato togliendo la guardia:
+  senza, fallisce.
+
+  **Resta aperto, di proposito**, `MaxEntriesPerSession`, che conta gli ingressi per sessione senza
+  il verso in **tutti e due** i motori (`EntryFillKey` sul server, `MakeEntrySessionKey`
+  nell'engine), mentre le strategie dichiarano «una entrata per sessione *e per direzione*».
+  Correggerne uno solo li farebbe divergere, e correggerli entrambi cambia i trade dei backtest già
+  fatti: è una release a sé, dopo il run che misura questa. Vedi `lavori-in-corso.md`.
 
 - **2026-08-30** — **Il claim di una sessione non scorre piu' la storia degli intent.** Un backtest
   esterno rallentava giorno dopo giorno anche dopo le tre correzioni di agosto (finestra di

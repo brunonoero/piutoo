@@ -1,4 +1,4 @@
-# Lavori in corso
+﻿# Lavori in corso
 
 Stato al **2026-08-04**. Questo file è volutamente deperibile: quando una voce è chiusa si
 cancella da qui, e la motivazione della scelta resta in [`decisioni.md`](decisioni.md). Se una
@@ -180,6 +180,46 @@ Punti da controllare al primo run verde:
 - Nessuna colonna aggiunta alla console legacy: `WorkspaceBacktestingForm` (tab Accounts) non ha
   mai avuto una griglia di conversione inline (solo una combo di selezione, vedi
   `docs/domini/account-e-conversione-symbol.md`), quindi il punto 6 originale non si applicava lì.
+
+## Da fare dopo il prossimo backtest + run cTrader: `MaxEntriesPerSession` per direzione (2026-08-31)
+
+Secondo tempo della correzione del 31/08 sul bracket (voce in [`decisioni.md`](decisioni.md)). Il
+primo tempo — il lato dentro i lucchetti del claim — e' fatto e rilasciato come **3.13.0**. Questo
+no, ed e' volutamente rimandato al **dopo**: cambia i trade dei backtest gia' fatti, quindi non deve
+entrare nel run che serve a misurare il primo tempo.
+
+**Cosa resta rotto.** `MaxEntriesPerSession` conta gli ingressi per (strategia, simbolo, sessione)
+senza il verso, in **tutti e due** i motori:
+
+- server: `EntryFillKey(strategyCode, symbol)` in `TradingSessionService`;
+- engine interno: `MakeEntrySessionKey(positionKey, ...)` in `PiootooTradingService`, dove
+  `positionKey` e' `simbolo|strategia`.
+
+I docstring delle strategie dicono invece «una entrata per sessione **e per direzione**» — e' cosi'
+che il limite e' scritto nei run di ricerca da cui sono portate. Con il conteggio attuale, la prima
+gamba che si riempie consuma la sessione anche per la gamba opposta.
+
+**Perche' i due vanno mossi insieme.** Sono cechi allo stesso modo, quindi oggi concordano.
+Correggerne uno solo li fa divergere: il server diventerebbe piu' permissivo del backtest, e il
+confronto interno/esterno ricomincerebbe a misurare due regole diverse invece dello stesso motore.
+
+**Perche' dopo il run.** Cambiare `MakeEntrySessionKey` cambia quali trade produce un backtest: i
+run precedenti non sarebbero piu' confrontabili, esattamente come per le 3.10/3.11/3.12. Il run che
+verifica il bracket deve girare con l'engine di adesso, altrimenti non si sa quale delle due
+modifiche ha prodotto la differenza.
+
+**Ordine dei lavori:**
+
+1. Backtest interno + run cTrader sulla stessa finestra di `compare-0009` (lug-nov 2024), con
+   3.13.0 da entrambe le parti. Atteso: `PTS_GC_PCH_004_240` torna a fare short, e le sei strategie
+   della tabella di `compare-0009` smettono di essere solo long.
+2. Solo dopo: il verso nelle due chiavi di `MaxEntriesPerSession`, con la propria regressione e la
+   propria voce in `decisioni.md`, come release a se'.
+
+**Aperto a parte, non e' mio:** su `main` (f56f147) falliscono gia' due test che questa modifica non
+tocca — `TradingGroupTitanoTests.OpenFromPlan_AppliesAllGroupRows` e
+`ConcurrencyLimitsMatrixTests.ParallelPollsOfTheSameAccount_ProduceExactlyOneClaim`. Verificato con
+la modifica stashata: falliscono uguale. Vanno guardati prima di fidarsi del run del punto 1.
 
 ## Riferimenti codice
 
