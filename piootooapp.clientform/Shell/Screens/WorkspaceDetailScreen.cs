@@ -263,6 +263,11 @@ public partial class WorkspaceDetailScreen : UserControl, IShellScreen, IDirtyAw
                     StrategiesFilter = _selectedIds.ToList()
                 });
                 _workspaceId = created.Id;
+
+                // Il selettore in alto è l'unico elenco dei workspace che resta a video: se non lo
+                // si aggiorna, il workspace appena creato non esiste per nessuna schermata.
+                await _context.Services.Workspaces.RefreshAsync();
+                _context.Services.Workspaces.Select(created.Id);
                 _context.Navigation.SetStatus(
                     $"Workspace '{created.Name}' creato con {created.StrategiesCount} strategie.");
                 await LoadAsync(CancellationToken.None);
@@ -276,6 +281,9 @@ public partial class WorkspaceDetailScreen : UserControl, IShellScreen, IDirtyAw
                 });
                 _masterFilterName = saved.Name;
                 SetDirty(false);
+
+                // Il nome può essere cambiato: è quello che si legge nel selettore in alto.
+                await _context.Services.Workspaces.RefreshAsync();
                 _context.Navigation.SetStatus(
                     $"Masterfilter salvato: {saved.StrategiesFilter.Count} strategie abilitate.");
             }

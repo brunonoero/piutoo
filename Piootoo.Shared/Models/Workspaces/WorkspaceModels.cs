@@ -33,10 +33,57 @@ public enum BacktestOrigin
 }
 
 /// <summary>
+/// Da quale serie di prezzi ha letto un run. Non è deducibile dai trade: un run interno sul
+/// datafeed del vendor e uno sulle barre di un broker producono file strutturalmente identici,
+/// stesse size e stesse commissioni, e i livelli si somigliano abbastanza da non poterci
+/// scommettere sopra. Va dichiarata.
+/// </summary>
+public enum PriceSourceKind
+{
+    /// <summary>Run precedente all'introduzione del campo.</summary>
+    Unknown,
+
+    /// <summary>Datafeed interno (<c>piootoo-repository/datafeed/</c>), CSV del vendor.</summary>
+    Futures,
+
+    /// <summary>Barre CFD di un broker: <c>datafeed-external/{BROKER}/</c>, o il broker stesso.</summary>
+    BrokerCfd
+}
+
+/// <summary>
+/// La serie di prezzi di un run. <see cref="Broker"/> è valorizzato se e solo se
+/// <see cref="Kind"/> è <see cref="PriceSourceKind.BrokerCfd"/>: due broker chiudono le stesse
+/// candele su prezzi diversi, quindi "CFD" senza il nome non identifica niente.
+/// </summary>
+public sealed class RunPriceSource
+{
+    public PriceSourceKind Kind { get; set; } = PriceSourceKind.Unknown;
+    public string? Broker { get; set; }
+
+    public static RunPriceSource Futures() => new() { Kind = PriceSourceKind.Futures };
+
+    public static RunPriceSource Cfd(string? broker) => new()
+    {
+        Kind = PriceSourceKind.BrokerCfd,
+        Broker = string.IsNullOrWhiteSpace(broker) ? null : broker.Trim().ToUpperInvariant()
+    };
+
+    /// <summary>Interno: il broker del datafeed, null per il feed del vendor.</summary>
+    public static RunPriceSource FromDatafeedBroker(string? datafeedBroker)
+        => string.IsNullOrWhiteSpace(datafeedBroker) ? Futures() : Cfd(datafeedBroker);
+}
+
+/// <summary>
 /// Marcatore scritto nella cartella del backtest alla creazione (<c>origin.json</c>). Serve a
 /// distinguere un run interno da uno prodotto dall'engine esterno senza euristiche sui file
 /// presenti: <c>backtest-summary.json</c> manca anche in un run interno interrotto, quindi usarlo
 /// come indizio etichetterebbe come esterno un backtest che non lo è.
+/// <para>
+/// Motore (<see cref="Origin"/>) e prezzi (<see cref="PriceSource"/>) sono le due cose che
+/// rendono due run non confrontabili, e insieme danno i tre tipi che <see cref="RunSlug"/>
+/// nomina. Non c'è un campo "tipo" a parte: sarebbe una quarta cosa che può contraddire le
+/// altre tre.
+/// </para>
 /// </summary>
 public sealed class BacktestOriginInfo
 {
@@ -45,10 +92,74 @@ public sealed class BacktestOriginInfo
     public BacktestOrigin Origin { get; set; } = BacktestOrigin.Unknown;
     public DateTime CreatedUtc { get; set; }
 
+    /// <summary>La serie di prezzi letta dal run. Assente nei run precedenti al campo.</summary>
+    public RunPriceSource? PriceSource { get; set; }
+
+    /// <summary>Versione del binario che ha eseguito il run (<c>PiootooVersion.Current</c>).</summary>
+    public string? EngineVersion { get; set; }
+
     /// <summary>Valorizzati solo per l'origine esterna.</summary>
     public string? PlanCode { get; set; }
     public string? ExecutionKey { get; set; }
     public string? SessionId { get; set; }
+
+    /// <summary>Il conto per cui la sessione è stata aperta. Solo per l'origine esterna.</summary>
+    public string? AccountNumber { get; set; }
+
+    /// <summary>
+    /// Il nome del tipo di run, per i file di confronto: <c>interno-futures</c>,
+    /// <c>interno-cfd-{BROKER}</c>, <c>cbot-cfd-{BROKER}</c>. Si copia negli artefatti esportati
+    /// (<c>trades-&lt;slug&gt;.json</c>) così il tipo non lo digita nessuno a mano. Convenzione e
+    /// trappole di misura in <c>piootoo-repository/compare/README.md</c>.
+    /// </summary>
+    public string RunSlug
+    {
+        get
+        {
+            // Un run dell'engine esterno gira per definizione sui prezzi del broker: nei marcatori
+            // scritti prima di questo campo l'ignoto è il *nome* del broker, non il tipo di serie.
+            var kind = PriceSource?.Kind
+                       ?? (Origin == BacktestOrigin.ExternalBroker
+                           ? PriceSourceKind.BrokerCfd
+                           : PriceSourceKind.Unknown);
+            var broker = PriceSource?.Broker;
+            var feed = kind switch
+            {
+                PriceSourceKind.Futures => "futures",
+                PriceSourceKind.BrokerCfd => string.IsNullOrWhiteSpace(broker) ? "cfd" : $"cfd-{broker}",
+                _ => "feed-sconosciuto"
+            };
+            var engine = Origin switch
+            {
+                BacktestOrigin.Internal => "interno",
+                BacktestOrigin.ExternalBroker => "cbot",
+                _ => "motore-sconosciuto"
+            };
+            return $"{engine}-{feed}";
+        }
+    }
+
+    /// <summary>
+    /// Vero quando <see cref="RunSlug"/> identifica davvero il run, e quindi si può stampare sul
+    /// nome di un artefatto esportato. Un CFD senza il nome del broker non identifica niente — due
+    /// broker chiudono le stesse candele su prezzi diversi — ed è la ragione per cui questo non
+    /// coincide con "lo slug non contiene la parola sconosciuto".
+    /// </summary>
+    public bool IdentifiesRun
+    {
+        get
+        {
+            if (Origin is not (BacktestOrigin.Internal or BacktestOrigin.ExternalBroker))
+                return false;
+
+            return PriceSource?.Kind switch
+            {
+                PriceSourceKind.Futures => true,
+                PriceSourceKind.BrokerCfd => !string.IsNullOrWhiteSpace(PriceSource.Broker),
+                _ => false
+            };
+        }
+    }
 
     /// <summary>
     /// Capitale iniziale dichiarato all'apertura della sessione.
@@ -61,6 +172,22 @@ public sealed class BacktestOriginInfo
     /// </remarks>
     public decimal? InitialCapital { get; set; }
 }
+
+/// <summary>
+/// Gli artefatti di un run impacchettati per un confronto, già rinominati con
+/// <see cref="BacktestOriginInfo.RunSlug"/>. È uno zip e non i singoli file perché il client parla
+/// solo HTTP: scompatta lui nella cartella scelta, e i nomi arrivano dal run invece che dalle dita
+/// di chi copia.
+/// </summary>
+/// <param name="RunSlug">Il tipo di run, es. <c>interno-futures</c>.</param>
+/// <param name="FileName">Nome proposto per l'archivio.</param>
+/// <param name="Entries">Nomi dei file contenuti, per dire all'utente cosa ha preso.</param>
+/// <param name="Content">L'archivio.</param>
+public sealed record CompareExportBundle(
+    string RunSlug,
+    string FileName,
+    IReadOnlyList<string> Entries,
+    byte[] Content);
 
 public sealed class WorkspaceBacktestInfo
 {

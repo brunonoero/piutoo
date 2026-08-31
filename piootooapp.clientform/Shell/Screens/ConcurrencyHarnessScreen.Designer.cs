@@ -23,7 +23,7 @@ partial class ConcurrencyHarnessScreen
         this._toolbar = new piootooapp.clientform.Shell.Controls.EntityToolbar();
         this._configPanel = new System.Windows.Forms.FlowLayoutPanel();
         this._workspaceLabel = new System.Windows.Forms.Label();
-        this._workspaceCombo = new System.Windows.Forms.ComboBox();
+        this._workspaceValueLabel = new System.Windows.Forms.Label();
         this._planLabel = new System.Windows.Forms.Label();
         this._planCombo = new System.Windows.Forms.ComboBox();
         this._runModeLabel = new System.Windows.Forms.Label();
@@ -671,7 +671,7 @@ partial class ConcurrencyHarnessScreen
         // _configPanel
         //
         this._configPanel.Controls.Add(this._workspaceLabel);
-        this._configPanel.Controls.Add(this._workspaceCombo);
+        this._configPanel.Controls.Add(this._workspaceValueLabel);
         this._configPanel.Controls.Add(this._planLabel);
         this._configPanel.Controls.Add(this._planCombo);
         this._configPanel.Controls.Add(this._runModeLabel);
@@ -696,11 +696,11 @@ partial class ConcurrencyHarnessScreen
         this._workspaceLabel.Size = new System.Drawing.Size(70, 15);
         this._workspaceLabel.TabIndex = 0;
         this._workspaceLabel.Text = "Workspace";
-        this._workspaceCombo.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
-        this._workspaceCombo.Name = "_workspaceCombo";
-        this._workspaceCombo.Size = new System.Drawing.Size(220, 23);
-        this._workspaceCombo.TabIndex = 1;
-        this._workspaceCombo.SelectedIndexChanged += new System.EventHandler(this.OnWorkspaceChanged);
+        this._workspaceValueLabel.AutoSize = true;
+        this._workspaceValueLabel.Margin = new System.Windows.Forms.Padding(3, 9, 3, 0);
+        this._workspaceValueLabel.Name = "_workspaceValueLabel";
+        this._workspaceValueLabel.Size = new System.Drawing.Size(220, 15);
+        this._workspaceValueLabel.TabIndex = 1;
         this._planLabel.AutoSize = true;
         this._planLabel.Margin = new System.Windows.Forms.Padding(12, 9, 3, 0);
         this._planLabel.Name = "_planLabel";
@@ -809,7 +809,7 @@ partial class ConcurrencyHarnessScreen
     private piootooapp.clientform.Shell.Controls.EntityToolbar _toolbar;
     private System.Windows.Forms.FlowLayoutPanel _configPanel;
     private System.Windows.Forms.Label _workspaceLabel;
-    private System.Windows.Forms.ComboBox _workspaceCombo;
+    private System.Windows.Forms.Label _workspaceValueLabel;
     private System.Windows.Forms.Label _planLabel;
     private System.Windows.Forms.ComboBox _planCombo;
     private System.Windows.Forms.Label _runModeLabel;

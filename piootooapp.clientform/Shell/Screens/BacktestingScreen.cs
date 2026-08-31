@@ -42,21 +42,17 @@ public partial class BacktestingScreen : UserControl, IShellScreen
 
         try
         {
-            var previousWorkspace = SelectedWorkspaceId;
-            var workspaces = await _context.Services.Api.ListAsync(cancellationToken);
-            _workspaceCombo.Items.Clear();
-            foreach (var workspace in workspaces)
-            {
-                _workspaceCombo.Items.Add(new WorkspaceComboItem(workspace));
-            }
+            // Il workspace non si sceglie qui: il run gira su quello selezionato in alto, e la
+            // schermata lo dichiara perché è la cartella in cui finiranno gli artefatti.
+            _workspaceValueLabel.Text = _context.Services.Workspaces.CurrentDisplay;
 
-            _workspaceCombo.SelectedIndex = FindWorkspaceIndex(previousWorkspace) is var index && index >= 0
-                ? index
-                : _workspaceCombo.Items.Count > 0 ? 0 : -1;
+            await LoadDatafeedSourcesAsync(cancellationToken);
 
             // Nessuna combo account: il backtest interno è neutro rispetto ai conti (conversione
             // simbolo e scala capitale vivono sulle sessioni). Vedi docs/decisioni.md 2026-08-05.
-            _context.Navigation.SetStatus($"{workspaces.Count} workspace disponibili.");
+            _context.Navigation.SetStatus(SelectedWorkspaceId is { } workspaceId
+                ? $"Nuovo backtest nel workspace '{workspaceId}'."
+                : "Nessun workspace selezionato: scegline uno nella barra in alto.");
         }
         catch (OperationCanceledException)
         {
@@ -68,19 +64,72 @@ public partial class BacktestingScreen : UserControl, IShellScreen
         }
     }
 
-    private string? SelectedWorkspaceId => (_workspaceCombo.SelectedItem as WorkspaceComboItem)?.Info.Id;
+    private string? SelectedWorkspaceId => _context?.Services.Workspaces.CurrentId;
 
-    private int FindWorkspaceIndex(string? workspaceId)
+    /// <summary>Broker selezionato, null quando la scelta è il datafeed interno.</summary>
+    private string? SelectedDatafeedBroker => (_datafeedCombo.SelectedItem as DatafeedComboItem)?.Broker;
+
+    /// <summary>
+    /// Riempie la combo del datasource: prima l'interno, poi un broker per cartella di
+    /// <c>datafeed-external</c>. L'elenco arriva dal server come qualsiasi altro dato: la console
+    /// non guarda dentro il repository.
+    ///
+    /// <para>Un server senza archivi esterni lascia la sola voce interna, che resta selezionata: è
+    /// il comportamento di prima che questa scelta esistesse, e non deve diventare un errore.</para>
+    /// </summary>
+    private async Task LoadDatafeedSourcesAsync(CancellationToken cancellationToken)
     {
-        if (string.IsNullOrEmpty(workspaceId))
+        if (_context == null)
         {
-            return -1;
+            return;
         }
 
-        for (var index = 0; index < _workspaceCombo.Items.Count; index++)
+        var previousBroker = SelectedDatafeedBroker;
+        _datafeedCombo.Items.Clear();
+        _datafeedCombo.Items.Add(DatafeedComboItem.Internal());
+
+        try
         {
-            if (_workspaceCombo.Items[index] is WorkspaceComboItem item
-                && string.Equals(item.Info.Id, workspaceId, StringComparison.OrdinalIgnoreCase))
+            foreach (var broker in await _context.Services.Datafeed.ListBrokersAsync(cancellationToken))
+            {
+                _datafeedCombo.Items.Add(DatafeedComboItem.External(broker));
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            // L'elenco dei broker non è indispensabile per far girare un backtest interno: si
+            // segnala e si prosegue con la sola voce interna, invece di bloccare la schermata.
+            Log($"Elenco datasource esterni non disponibile: {ex.Message}");
+        }
+
+        // Il broker già scelto va ritrovato, non azzerato da un semplice ricaricamento della
+        // schermata; se è sparito dal server si mostra come mancante invece di scivolare
+        // sull'interno senza dirlo.
+        if (!string.IsNullOrEmpty(previousBroker))
+        {
+            var index = FindDatafeedIndex(previousBroker);
+            if (index < 0)
+            {
+                index = _datafeedCombo.Items.Add(DatafeedComboItem.Missing(previousBroker));
+            }
+
+            _datafeedCombo.SelectedIndex = index;
+            return;
+        }
+
+        _datafeedCombo.SelectedIndex = 0;
+    }
+
+    private int FindDatafeedIndex(string broker)
+    {
+        for (var index = 0; index < _datafeedCombo.Items.Count; index++)
+        {
+            if (_datafeedCombo.Items[index] is DatafeedComboItem item
+                && string.Equals(item.Broker, broker, StringComparison.OrdinalIgnoreCase))
             {
                 return index;
             }
@@ -97,7 +146,6 @@ public partial class BacktestingScreen : UserControl, IShellScreen
         _isRunning = running;
         _runButton.Enabled = !running;
         _cancelButton.Enabled = running;
-        _workspaceCombo.Enabled = !running;
         _parametersGroup.Enabled = !running;
     }
 
@@ -108,9 +156,9 @@ public partial class BacktestingScreen : UserControl, IShellScreen
             return;
         }
 
-        if (_workspaceCombo.SelectedItem is not WorkspaceComboItem workspace)
+        if (_context.Services.Workspaces.Current is not { } workspace)
         {
-            MessageBox.Show(this, "Seleziona un workspace.", "Backtesting",
+            MessageBox.Show(this, "Seleziona un workspace nella barra in alto.", "Backtesting",
                 MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
@@ -132,7 +180,7 @@ public partial class BacktestingScreen : UserControl, IShellScreen
 
         try
         {
-            var existing = await _context.Services.Api.ListBacktestsAsync(workspace.Info.Id);
+            var existing = await _context.Services.Api.ListBacktestsAsync(workspace.Id);
             var overwrite = existing.Any(item =>
                 item.FolderName.Equals(backtestName, StringComparison.OrdinalIgnoreCase));
             if (overwrite && MessageBox.Show(
@@ -146,7 +194,7 @@ public partial class BacktestingScreen : UserControl, IShellScreen
             }
 
             // Il masterfilter vuoto è la causa più frequente di un run muto: meglio fermarsi prima.
-            var masterFilter = await _context.Services.Api.GetMasterFilterAsync(workspace.Info.Id);
+            var masterFilter = await _context.Services.Api.GetMasterFilterAsync(workspace.Id);
             if (masterFilter.StrategiesFilter.Count == 0)
             {
                 MessageBox.Show(
@@ -161,7 +209,7 @@ public partial class BacktestingScreen : UserControl, IShellScreen
 
             var request = new BacktestingRequest
             {
-                WorkspaceId = workspace.Info.Id,
+                WorkspaceId = workspace.Id,
                 BacktestFolderName = backtestName,
                 OverwriteExistingBacktest = overwrite,
                 Name = backtestName,
@@ -171,6 +219,9 @@ public partial class BacktestingScreen : UserControl, IShellScreen
                 EndDate = DateTime.SpecifyKind(_endPicker.Value, DateTimeKind.Utc),
                 InitialCapital = _capitalInput.Value,
                 CommissionPerContract = _commissionInput.Value,
+                // Null = datafeed interno. Il server rifiuta un broker che non esiste invece di
+                // ripiegare sull'interno: un run letto dal feed sbagliato non si distinguerebbe.
+                DatafeedBroker = SelectedDatafeedBroker,
                 // La spunta e' la stessa regola di prima, letta dal verso opposto: chiudere a fine
                 // settimana significa non concedere l'overweek. L'overnight non e' esposto qui —
                 // per riprodurre un piano che lo vieta serve la sua policy, non una checkbox in
@@ -185,7 +236,8 @@ public partial class BacktestingScreen : UserControl, IShellScreen
             _pollingCts?.Dispose();
             _pollingCts = new CancellationTokenSource();
 
-            Log($"Workspace {workspace.Info.Name} ({workspace.Info.Id})");
+            Log($"Workspace {workspace.Name} ({workspace.Id})");
+            Log($"Datasource: {(request.DatafeedBroker is null ? "interno" : $"esterno / {request.DatafeedBroker}")}");
             Log($"Finestra UTC {request.StartDate:yyyy-MM-dd HH:mm}Z → {request.EndDate:yyyy-MM-dd HH:mm}Z");
             Log($"Strategie dal masterfilter: {masterFilter.StrategiesFilter.Count}");
 

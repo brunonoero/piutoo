@@ -1,4 +1,5 @@
 ﻿using System.Collections.Concurrent;
+using Piootoo.Shared;
 using Piootoo.Shared.Configuration;
 using Piootoo.Shared.Enums;
 using Piootoo.Shared.Interfaces;
@@ -684,7 +685,7 @@ public sealed class TradingSessionService : ITradingSessionService
             EnforceConcurrencyLimits = enforceConcurrency,
             Holding = plan.Holding,
             PositionSizing = plan.PositionSizing
-        }, plan.Code, request.ExecutionKey.Trim());
+        }, plan.Code, request.ExecutionKey.Trim(), account);
         AccountSymbolConversion conversion;
         lock (_sessions[descriptor.SessionId].Gate)
         {
@@ -781,7 +782,7 @@ public sealed class TradingSessionService : ITradingSessionService
         if (string.IsNullOrWhiteSpace(planCode) || string.IsNullOrWhiteSpace(executionKey))
             return Path.Combine(workspacePath, "sessions", sessionId);
 
-        var folderName = SanitizeFolderName($"{planCode}-{executionKey}");
+        var folderName = SanitizeFolderName($"{planCode}-{FormatExecutionKeyForFolder(executionKey)}");
         return request.ClientRunMode == ClientRunMode.Backtest
             ? WorkspaceBacktestPaths.ResolveBacktestPath(workspacePath, folderName)
             : Path.Combine(workspacePath, "sessions", folderName);
@@ -802,8 +803,47 @@ public sealed class TradingSessionService : ITradingSessionService
         return cleaned.Length == 0 ? "sessione" : cleaned;
     }
 
+    /// <summary>
+    /// Rende leggibile la parte temporale dell'execution key nel nome cartella:
+    /// <c>BT-20240701000000</c> diventa <c>BT-20240701-0000</c>, così il folder finale è
+    /// <c>{piano}-bt-{yyyyMMdd-HHmm}</c>. È solo una riscrittura del nome: l'execution key
+    /// resta quella che il client ha mandato (è l'identità della sessione, e su di essa si
+    /// riaggancia un restart). La trasformazione è deterministica, quindi la stessa key
+    /// continua a risolvere sempre la stessa cartella. I secondi cadono: il cBot li ricava
+    /// dall'ora simulata di avvio, che per uno stesso periodo di backtest è già identica.
+    /// </summary>
+    private static string FormatExecutionKeyForFolder(string executionKey)
+    {
+        var value = executionKey.Trim();
+        var separator = value.LastIndexOf('-');
+        var stamp = separator >= 0 ? value[(separator + 1)..] : value;
+        if (stamp.Length != 14 || !stamp.All(char.IsAsciiDigit))
+            return value;
+
+        var prefix = separator >= 0 ? value[..(separator + 1)] : string.Empty;
+        return $"{prefix}{stamp[..8]}-{stamp[8..12]}";
+    }
+
+    /// <summary>
+    /// La serie di prezzi di una sessione esterna: quella del broker del conto. Il nome del broker
+    /// non è decorativo — due broker chiudono le stesse candele su prezzi diversi, e un run del
+    /// cBot su un conto non è confrontabile con un run interno sul feed di un altro. Un conto
+    /// senza anagrafica lascia il broker nullo invece di far fallire l'apertura: il marcatore è
+    /// informativo, e l'anagrafica mancante ha già chi la segnala (<c>ResolveAccountConversion</c>).
+    /// </summary>
+    private RunPriceSource ResolveExternalPriceSource(string? accountNumber)
+    {
+        if (string.IsNullOrWhiteSpace(accountNumber))
+            return RunPriceSource.Cfd(null);
+
+        var account = _workspaces.ListAccounts().FirstOrDefault(candidate =>
+            string.Equals(candidate.AccountNumber?.Trim(), accountNumber.Trim(), StringComparison.OrdinalIgnoreCase));
+        return RunPriceSource.Cfd(account?.Broker);
+    }
+
     private TradingSessionDescriptor CreateCore(
-        CreateTradingSessionRequest request, string? planCode, string? executionKey)
+        CreateTradingSessionRequest request, string? planCode, string? executionKey,
+        string? accountNumber = null)
     {
         if (!string.IsNullOrWhiteSpace(request.TitanoRunId) &&
             string.IsNullOrWhiteSpace(request.TitanoBacktestFolder))
@@ -875,9 +915,12 @@ public sealed class TradingSessionService : ITradingSessionService
             {
                 Origin = BacktestOrigin.ExternalBroker,
                 CreatedUtc = DateTime.UtcNow,
+                PriceSource = ResolveExternalPriceSource(accountNumber),
+                EngineVersion = PiootooVersion.Current,
                 PlanCode = planCode,
                 ExecutionKey = executionKey,
                 SessionId = sessionId,
+                AccountNumber = accountNumber,
                 InitialCapital = request.InitialCapital
             });
         }
@@ -3539,7 +3582,14 @@ public sealed class TradingSessionService : ITradingSessionService
     /// <i>perche'</i> gli ordini non si riempiono, che e' esattamente l'informazione che il filtro
     /// butta via.</para>
     /// </summary>
-    private const bool PersistOnlyFilledIntents = true;
+    /// <para><b>Perche' e' commutabile.</b> Era una costante, e per cambiarla serviva ricompilare
+    /// il server: nel confronto del 2026-08-28 questo ha fatto sembrare che il server non emettesse
+    /// 675 segnali quando in realta' l'artefatto conteneva solo i riempiti, e il test costruito su
+    /// quel file era circolare. Chi indaga il divario deve poterla spegnere senza toccare il
+    /// codice. Si spegne con la variabile d'ambiente <c>PIOOTOO_PERSIST_ALL_INTENTS=1</c> letta
+    /// all'avvio del server; il default resta acceso perche' su un run normale l'artefatto completo
+    /// e' quasi tutto rumore.</para>
+    public static bool PersistOnlyFilledIntents { get; set; } = true;
 
     /// <summary>Un intent e' andato a mercato: e' l'unico che descrive un evento reale.</summary>
     private static bool HasFill(OrderIntent intent) =>

@@ -24,15 +24,15 @@ public sealed class PlanRow
 }
 
 /// <summary>
-/// Piani di trading di un workspace. A differenza delle altre anagrafiche non sono globali:
-/// vivono in <c>&lt;workspace&gt;/plans/plans.json</c>, quindi la schermata parte da un workspace.
+/// Piani di trading del workspace corrente. A differenza delle altre anagrafiche non sono globali:
+/// vivono in <c>&lt;workspace&gt;/plans/plans.json</c>. Il workspace non si sceglie qui: è quello
+/// selezionato nella barra in alto, e cambiandolo lo shell ricarica questa schermata.
 /// </summary>
 public partial class PlanListScreen : UserControl, IShellScreen
 {
     private readonly List<PlanRow> _allRows = new();
     private readonly SortableBindingList<PlanRow> _visibleRows = new();
     private ShellContext? _context;
-    private bool _suspendReload;
 
     public PlanListScreen()
     {
@@ -56,22 +56,6 @@ public partial class PlanListScreen : UserControl, IShellScreen
         _toolbar.SetBusy(true);
         try
         {
-            var previous = SelectedWorkspaceId;
-            var workspaces = await _context.Services.Api.ListAsync(cancellationToken);
-
-            _suspendReload = true;
-            _workspaceCombo.Items.Clear();
-            foreach (var workspace in workspaces)
-            {
-                _workspaceCombo.Items.Add(new WorkspaceComboItem(workspace));
-            }
-
-            var restored = FindWorkspaceIndex(previous);
-            _workspaceCombo.SelectedIndex = restored >= 0
-                ? restored
-                : _workspaceCombo.Items.Count > 0 ? 0 : -1;
-            _suspendReload = false;
-
             await ReloadPlansAsync(cancellationToken);
         }
         catch (OperationCanceledException)
@@ -84,31 +68,11 @@ public partial class PlanListScreen : UserControl, IShellScreen
         }
         finally
         {
-            _suspendReload = false;
             _toolbar.SetBusy(false);
         }
     }
 
-    private string? SelectedWorkspaceId => (_workspaceCombo.SelectedItem as WorkspaceComboItem)?.Info.Id;
-
-    private int FindWorkspaceIndex(string? workspaceId)
-    {
-        if (string.IsNullOrEmpty(workspaceId))
-        {
-            return -1;
-        }
-
-        for (var index = 0; index < _workspaceCombo.Items.Count; index++)
-        {
-            if (_workspaceCombo.Items[index] is WorkspaceComboItem item
-                && string.Equals(item.Info.Id, workspaceId, StringComparison.OrdinalIgnoreCase))
-            {
-                return index;
-            }
-        }
-
-        return -1;
-    }
+    private string? SelectedWorkspaceId => _context?.Services.Workspaces.CurrentId;
 
     private async Task ReloadPlansAsync(CancellationToken cancellationToken)
     {
@@ -121,7 +85,7 @@ public partial class PlanListScreen : UserControl, IShellScreen
         if (SelectedWorkspaceId is not { } workspaceId)
         {
             ApplyFilter();
-            _context.Navigation.SetStatus("Nessun workspace disponibile.");
+            _context.Navigation.SetStatus("Nessun workspace selezionato: scegline uno nella barra in alto.");
             return;
         }
 
@@ -231,24 +195,6 @@ public partial class PlanListScreen : UserControl, IShellScreen
     private void OnFilterChanged(object? sender, EventArgs e) => ApplyFilter();
 
     private async void OnRefreshRequested(object? sender, EventArgs e) => await LoadAsync(CancellationToken.None);
-
-    private async void OnWorkspaceChanged(object? sender, EventArgs e)
-    {
-        if (_suspendReload)
-        {
-            return;
-        }
-
-        _toolbar.SetBusy(true);
-        try
-        {
-            await ReloadPlansAsync(CancellationToken.None);
-        }
-        finally
-        {
-            _toolbar.SetBusy(false);
-        }
-    }
 
     private void OnCreateRequested(object? sender, EventArgs e) => OpenDetail(null);
 

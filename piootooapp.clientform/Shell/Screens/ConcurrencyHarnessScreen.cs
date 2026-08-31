@@ -179,51 +179,31 @@ public partial class ConcurrencyHarnessScreen : UserControl, IShellScreen
             return;
         }
 
-        _toolbar.SetBusy(true);
-        _context.Navigation.SetStatus("Caricamento workspace…");
-        try
-        {
-            var workspaces = await _context.Services.Api.ListAsync(cancellationToken);
-            _workspaceCombo.Items.Clear();
-            foreach (var workspace in workspaces)
-            {
-                _workspaceCombo.Items.Add(new WorkspaceComboItem(workspace));
-            }
-
-            if (_workspaceCombo.Items.Count > 0)
-            {
-                _workspaceCombo.SelectedIndex = 0;
-            }
-
-            _context.Navigation.SetStatus($"{workspaces.Count} workspace disponibili.");
-        }
-        catch (OperationCanceledException)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            _context.Navigation.SetError(ex.Message);
-        }
-        finally
-        {
-            _toolbar.SetBusy(false);
-        }
+        // Il workspace è quello scelto in alto: qui si legge, e i piani vengono da lì.
+        _workspaceValueLabel.Text = _context.Services.Workspaces.CurrentDisplay;
+        await ReloadPlansAsync(cancellationToken);
     }
 
     // ------------------------------------------------------------------ selezione e preparazione
 
-    private string? SelectedWorkspaceId => (_workspaceCombo.SelectedItem as WorkspaceComboItem)?.Info.Id;
+    private string? SelectedWorkspaceId => _context?.Services.Workspaces.CurrentId;
 
     private TradingPlan? SelectedPlan => (_planCombo.SelectedItem as PlanComboItem)?.Plan;
 
     private ClientRunMode SelectedRunMode =>
         _runModeCombo.SelectedItem is ClientRunMode mode ? mode : ClientRunMode.Backtest;
 
-    private async void OnWorkspaceChanged(object? sender, EventArgs e)
+    private async Task ReloadPlansAsync(CancellationToken cancellationToken)
     {
-        if (_context == null || SelectedWorkspaceId is not { } workspaceId)
+        if (_context == null)
         {
+            return;
+        }
+
+        _planCombo.Items.Clear();
+        if (SelectedWorkspaceId is not { } workspaceId)
+        {
+            _context.Navigation.SetStatus("Nessun workspace selezionato: scegline uno nella barra in alto.");
             return;
         }
 
@@ -231,8 +211,7 @@ public partial class ConcurrencyHarnessScreen : UserControl, IShellScreen
         _context.Navigation.SetStatus("Caricamento piani…");
         try
         {
-            var plans = await _context.Services.Plans.ListAsync(workspaceId);
-            _planCombo.Items.Clear();
+            var plans = await _context.Services.Plans.ListAsync(workspaceId, cancellationToken);
             foreach (var plan in plans.OrderBy(plan => plan.Code, StringComparer.OrdinalIgnoreCase))
             {
                 _planCombo.Items.Add(new PlanComboItem(plan));
@@ -243,7 +222,11 @@ public partial class ConcurrencyHarnessScreen : UserControl, IShellScreen
                 _planCombo.SelectedIndex = 0;
             }
 
-            _context.Navigation.SetStatus($"{plans.Count} piani nel workspace.");
+            _context.Navigation.SetStatus($"{plans.Count} piani nel workspace '{workspaceId}'.");
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch (Exception ex)
         {

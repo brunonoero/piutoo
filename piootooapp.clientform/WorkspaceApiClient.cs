@@ -373,6 +373,28 @@ public sealed class WorkspaceApiClient
         return await response.Content.ReadAsStringAsync(cancellationToken);
     }
 
+    /// <summary>
+    /// Scarica gli artefatti del run impacchettati per un confronto, già rinominati con lo slug
+    /// del tipo. Torna lo zip grezzo: chi chiama lo scompatta dove vuole l'utente, e non deve
+    /// ricomporre nomi che il server ha già deciso.
+    /// </summary>
+    public async Task<(string RunSlug, byte[] Archive)> DownloadCompareExportAsync(
+        string workspaceId,
+        string folderName,
+        CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.GetAsync(
+            $"api/Workspace/{Uri.EscapeDataString(workspaceId)}/backtests/" +
+            $"{Uri.EscapeDataString(folderName)}/compare-export",
+            cancellationToken);
+        await EnsureSuccessAsync(response);
+
+        var slug = response.Headers.TryGetValues("X-Run-Slug", out var values)
+            ? values.FirstOrDefault() ?? string.Empty
+            : string.Empty;
+        return (slug, await response.Content.ReadAsByteArrayAsync(cancellationToken));
+    }
+
     public async Task<IReadOnlyList<string>> ListBacktestTitanoRunsAsync(
         string workspaceId,
         string folderName,

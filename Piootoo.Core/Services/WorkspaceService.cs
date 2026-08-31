@@ -1,3 +1,4 @@
+using System.IO.Compression;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Piootoo.Shared.Configuration;
@@ -818,6 +819,80 @@ public sealed class WorkspaceService
             throw new FileNotFoundException($"Il backtest '{folderName}' non ha un {BacktestDiagnosticsSchema.SummaryFileName}.", summaryPath);
 
         return File.ReadAllText(summaryPath);
+    }
+
+    /// <summary>
+    /// Impacchetta gli artefatti del run per un confronto: <c>trades.json</c>, il summary e
+    /// <c>origin.json</c>, rinominati con lo slug del tipo di run
+    /// (<c>trades-interno-futures.json</c>, …). Chi confronta scompatta in una cartella e ha già i
+    /// nomi giusti — la convenzione è in <c>piootoo-repository/compare/README.md</c>.
+    ///
+    /// <para><b>Compatta prima di leggere.</b> Durante il run i trade si accodano al journal
+    /// <c>.jsonl</c> affiancato e l'array è indietro: esportarlo senza <c>CompactAll</c> darebbe un
+    /// file che sembra completo e non lo è.</para>
+    ///
+    /// <para><b>Un run che non sa dire su quali prezzi è girato non si esporta.</b> Le cartelle
+    /// scritte prima di <c>PriceSource</c> non hanno modo di dichiararlo, e un artefatto senza tipo
+    /// nel confronto vale meno di zero: rinominato a mano diventa un'affermazione che nessuno ha
+    /// verificato. Meglio un errore parlante.</para>
+    ///
+    /// <para><c>signals.json</c> resta fuori: nei run di portafoglio arriva a centinaia di
+    /// megabyte, e il confronto lavora sui trade. Chi ne ha bisogno se lo prende dalla
+    /// cartella.</para>
+    /// </summary>
+    public CompareExportBundle CreateCompareExport(string workspaceId, string folderName)
+    {
+        var backtestPath = GetBacktestPath(workspaceId, folderName);
+        if (!Directory.Exists(backtestPath))
+            throw new DirectoryNotFoundException($"Backtest '{folderName}' non trovato nel workspace '{workspaceId}'.");
+
+        var origin = ReadBacktestOrigin(backtestPath);
+        if (origin is null || !origin.IdentifiesRun)
+            throw new InvalidOperationException(
+                $"Il backtest '{folderName}' non dichiara di che tipo è: " +
+                (origin is null
+                    ? $"manca {BacktestOriginInfo.FileName}."
+                    : $"il marcatore lo descrive solo come '{origin.RunSlug}'.") +
+                " È una cartella prodotta prima che il marcatore dichiarasse motore e serie di " +
+                "prezzi, e senza quel dato l'artefatto non è confrontabile — un CFD senza il nome " +
+                "del broker non identifica una serie di prezzi. Rifai il run, oppure copia i file " +
+                "a mano assumendoti il nome che gli dai.");
+
+        var slug = origin.RunSlug;
+
+        new TradingJsonStore(backtestPath).CompactAll();
+
+        var sorgenti = new (string Source, string Exported)[]
+        {
+            (TradingPersistenceSchema.TradesFileName, $"trades-{slug}.json"),
+            (BacktestDiagnosticsSchema.SummaryFileName, $"backtest-summary-{slug}.json"),
+            (BacktestOriginInfo.FileName, $"run-{slug}.json")
+        };
+
+        using var buffer = new MemoryStream();
+        var inclusi = new List<string>();
+        using (var archive = new ZipArchive(buffer, ZipArchiveMode.Create, leaveOpen: true))
+        {
+            foreach (var (source, exported) in sorgenti)
+            {
+                var path = Path.Combine(backtestPath, source);
+                // Il summary manca nei run interrotti e in quelli dell'engine esterno: è
+                // un'assenza normale, non un motivo per non esportare i trade.
+                if (!File.Exists(path))
+                    continue;
+
+                using (var entry = archive.CreateEntry(exported, CompressionLevel.Optimal).Open())
+                using (var artefatto = File.OpenRead(path))
+                    artefatto.CopyTo(entry);
+                inclusi.Add(exported);
+            }
+        }
+
+        if (inclusi.Count == 0)
+            throw new FileNotFoundException(
+                $"Il backtest '{folderName}' non contiene nessun artefatto da esportare.", backtestPath);
+
+        return new CompareExportBundle(slug, $"{slug}.zip", inclusi, buffer.ToArray());
     }
 
     /// <summary>

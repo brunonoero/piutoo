@@ -23,6 +23,7 @@ partial class BacktestDetailScreen
         this._toolbar = new piootooapp.clientform.Shell.Controls.DetailToolbar();
         this._commandPanel = new System.Windows.Forms.FlowLayoutPanel();
         this._reportButton = new System.Windows.Forms.Button();
+        this._exportButton = new System.Windows.Forms.Button();
         this._generateReportButton = new System.Windows.Forms.Button();
         this._tabs = new System.Windows.Forms.TabControl();
         this._summaryTab = new System.Windows.Forms.TabPage();
@@ -73,6 +74,7 @@ partial class BacktestDetailScreen
         //
         this._commandPanel.AutoSize = true;
         this._commandPanel.Controls.Add(this._reportButton);
+        this._commandPanel.Controls.Add(this._exportButton);
         this._commandPanel.Controls.Add(this._generateReportButton);
         this._commandPanel.Dock = System.Windows.Forms.DockStyle.Top;
         this._commandPanel.Location = new System.Drawing.Point(0, 44);
@@ -92,6 +94,17 @@ partial class BacktestDetailScreen
         this._reportButton.Text = "Report HTML";
         this._reportButton.Click += new System.EventHandler(this.OnReportClick);
         //
+        // _exportButton
+        //
+        this._exportButton.AutoSize = true;
+        this._exportButton.Enabled = false;
+        this._exportButton.Margin = new System.Windows.Forms.Padding(0, 0, 6, 0);
+        this._exportButton.Name = "_exportButton";
+        this._exportButton.Size = new System.Drawing.Size(160, 25);
+        this._exportButton.TabIndex = 1;
+        this._exportButton.Text = "Esporta per confronto";
+        this._exportButton.Click += new System.EventHandler(this.OnExportForCompareClick);
+        //
         // _generateReportButton
         //
         this._generateReportButton.AutoSize = true;
@@ -99,7 +112,7 @@ partial class BacktestDetailScreen
         this._generateReportButton.Margin = new System.Windows.Forms.Padding(0, 0, 6, 0);
         this._generateReportButton.Name = "_generateReportButton";
         this._generateReportButton.Size = new System.Drawing.Size(130, 25);
-        this._generateReportButton.TabIndex = 1;
+        this._generateReportButton.TabIndex = 2;
         this._generateReportButton.Text = "Genera report";
         this._generateReportButton.Click += new System.EventHandler(this.OnGenerateReportClick);
         //
@@ -405,6 +418,7 @@ partial class BacktestDetailScreen
     private piootooapp.clientform.Shell.Controls.DetailToolbar _toolbar;
     private System.Windows.Forms.FlowLayoutPanel _commandPanel;
     private System.Windows.Forms.Button _reportButton;
+    private System.Windows.Forms.Button _exportButton;
     private System.Windows.Forms.Button _generateReportButton;
     private System.Windows.Forms.TabControl _tabs;
     private System.Windows.Forms.TabPage _summaryTab;

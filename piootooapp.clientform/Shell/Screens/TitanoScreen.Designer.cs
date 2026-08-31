@@ -28,7 +28,7 @@ partial class TitanoScreen
         this._resultsTextBox = new System.Windows.Forms.TextBox();
         this._contextLayout = new System.Windows.Forms.TableLayoutPanel();
         this._workspaceLabel = new System.Windows.Forms.Label();
-        this._workspaceCombo = new System.Windows.Forms.ComboBox();
+        this._workspaceValueLabel = new System.Windows.Forms.Label();
         this._backtestLabel = new System.Windows.Forms.Label();
         this._backtestPanel = new System.Windows.Forms.TableLayoutPanel();
         this._backtestTextBox = new System.Windows.Forms.TextBox();
@@ -246,7 +246,7 @@ partial class TitanoScreen
         this._contextLayout.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle());
         this._contextLayout.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 50F));
         this._contextLayout.Controls.Add(this._workspaceLabel, 0, 0);
-        this._contextLayout.Controls.Add(this._workspaceCombo, 1, 0);
+        this._contextLayout.Controls.Add(this._workspaceValueLabel, 1, 0);
         this._contextLayout.Controls.Add(this._backtestLabel, 2, 0);
         this._contextLayout.Controls.Add(this._backtestPanel, 3, 0);
         this._contextLayout.Controls.Add(this._startLabel, 0, 1);
@@ -282,15 +282,14 @@ partial class TitanoScreen
         this._workspaceLabel.TabIndex = 0;
         this._workspaceLabel.Text = "Workspace";
         // 
-        // _workspaceCombo
+        // _workspaceValueLabel
         // 
-        this._workspaceCombo.Anchor = System.Windows.Forms.AnchorStyles.Left | System.Windows.Forms.AnchorStyles.Right;
-        this._workspaceCombo.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
-        this._workspaceCombo.Margin = new System.Windows.Forms.Padding(3, 4, 24, 4);
-        this._workspaceCombo.Name = "_workspaceCombo";
-        this._workspaceCombo.Size = new System.Drawing.Size(280, 23);
-        this._workspaceCombo.TabIndex = 1;
-        this._workspaceCombo.SelectedIndexChanged += new System.EventHandler(this.OnWorkspaceChanged);
+        this._workspaceValueLabel.Anchor = System.Windows.Forms.AnchorStyles.Left;
+        this._workspaceValueLabel.AutoSize = true;
+        this._workspaceValueLabel.Margin = new System.Windows.Forms.Padding(3, 4, 24, 4);
+        this._workspaceValueLabel.Name = "_workspaceValueLabel";
+        this._workspaceValueLabel.Size = new System.Drawing.Size(280, 15);
+        this._workspaceValueLabel.TabIndex = 1;
         // 
         // _backtestLabel
         // 
@@ -1262,7 +1261,7 @@ partial class TitanoScreen
     private System.Windows.Forms.TextBox _resultsTextBox;
     private System.Windows.Forms.TableLayoutPanel _contextLayout;
     private System.Windows.Forms.Label _workspaceLabel;
-    private System.Windows.Forms.ComboBox _workspaceCombo;
+    private System.Windows.Forms.Label _workspaceValueLabel;
     private System.Windows.Forms.Label _backtestLabel;
     private System.Windows.Forms.TableLayoutPanel _backtestPanel;
     private System.Windows.Forms.TextBox _backtestTextBox;

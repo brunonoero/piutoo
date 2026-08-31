@@ -1,8 +1,12 @@
+using Piootoo.Shared.Models;
 using Piootoo.Shared.Models.Workspaces;
 
 namespace piootooapp.clientform.Shell.Screens;
 
-/// <summary>Voci condivise dalle combo delle schermate operative.</summary>
+/// <summary>
+/// Voce del selettore di workspace nella barra in alto. Non è più usata dalle schermate: il
+/// workspace è contesto della console, non un filtro che ognuna ripropone per conto suo.
+/// </summary>
 public sealed class WorkspaceComboItem
 {
     public WorkspaceComboItem(WorkspaceInfo info) => Info = info;
@@ -10,6 +14,40 @@ public sealed class WorkspaceComboItem
     public WorkspaceInfo Info { get; }
 
     public override string ToString() => $"{Info.Name}  ({Info.Id})";
+}
+
+/// <summary>
+/// Da quale archivio di barre far leggere un run: il datafeed interno, oppure quello di un broker
+/// sotto <c>datafeed-external</c>.
+///
+/// <para>L'etichetta porta simboli e ultima scrittura perché due archivi non si distinguono dal
+/// nome: uno fermo da settimane produce un backtest che finisce prima di quanto sembri, e il
+/// summary lo direbbe solo a run concluso.</para>
+/// </summary>
+public sealed class DatafeedComboItem
+{
+    private DatafeedComboItem(string? broker, string display)
+    {
+        Broker = broker;
+        Display = display;
+    }
+
+    /// <summary>Null è il datafeed interno: l'assenza di broker, non un broker chiamato "interno".</summary>
+    public string? Broker { get; }
+
+    public string Display { get; }
+
+    public static DatafeedComboItem Internal() => new(null, "Interno  ·  piootoo-repository/datafeed");
+
+    public static DatafeedComboItem External(DatafeedBrokerInfo info)
+        => new(info.Broker,
+            $"{info.Broker}  ·  {info.SymbolCount} simboli, {info.FeedCount} feed" +
+            (info.LastWriteUtc is { } last ? $"  ·  agg. {last:yyyy-MM-dd HH:mm} UTC" : string.Empty));
+
+    /// <summary>Broker non più presente nell'elenco del server: si mostra invece di sparire in silenzio.</summary>
+    public static DatafeedComboItem Missing(string broker) => new(broker, $"{broker}  ·  (non più presente)");
+
+    public override string ToString() => Display;
 }
 
 public sealed class BacktestComboItem

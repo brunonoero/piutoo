@@ -28,7 +28,6 @@ public partial class TitanoRunListScreen : UserControl, IShellScreen
     private readonly List<TitanoRunRow> _allRows = new();
     private readonly SortableBindingList<TitanoRunRow> _visibleRows = new();
     private ShellContext? _context;
-    private bool _suspendReload;
 
     public TitanoRunListScreen()
     {
@@ -52,22 +51,6 @@ public partial class TitanoRunListScreen : UserControl, IShellScreen
         _toolbar.SetBusy(true);
         try
         {
-            var previous = SelectedWorkspaceId;
-            var workspaces = await _context.Services.Api.ListAsync(cancellationToken);
-
-            _suspendReload = true;
-            _workspaceCombo.Items.Clear();
-            foreach (var workspace in workspaces)
-            {
-                _workspaceCombo.Items.Add(new WorkspaceComboItem(workspace));
-            }
-
-            var restored = FindWorkspaceIndex(previous);
-            _workspaceCombo.SelectedIndex = restored >= 0
-                ? restored
-                : _workspaceCombo.Items.Count > 0 ? 0 : -1;
-            _suspendReload = false;
-
             await ReloadRunsAsync(cancellationToken);
         }
         catch (OperationCanceledException)
@@ -80,31 +63,11 @@ public partial class TitanoRunListScreen : UserControl, IShellScreen
         }
         finally
         {
-            _suspendReload = false;
             _toolbar.SetBusy(false);
         }
     }
 
-    private string? SelectedWorkspaceId => (_workspaceCombo.SelectedItem as WorkspaceComboItem)?.Info.Id;
-
-    private int FindWorkspaceIndex(string? workspaceId)
-    {
-        if (string.IsNullOrEmpty(workspaceId))
-        {
-            return -1;
-        }
-
-        for (var index = 0; index < _workspaceCombo.Items.Count; index++)
-        {
-            if (_workspaceCombo.Items[index] is WorkspaceComboItem item
-                && string.Equals(item.Info.Id, workspaceId, StringComparison.OrdinalIgnoreCase))
-            {
-                return index;
-            }
-        }
-
-        return -1;
-    }
+    private string? SelectedWorkspaceId => _context?.Services.Workspaces.CurrentId;
 
     private async Task ReloadRunsAsync(CancellationToken cancellationToken)
     {
@@ -117,7 +80,7 @@ public partial class TitanoRunListScreen : UserControl, IShellScreen
         if (SelectedWorkspaceId is not { } workspaceId)
         {
             ApplyFilter();
-            _context.Navigation.SetStatus("Nessun workspace disponibile.");
+            _context.Navigation.SetStatus("Nessun workspace selezionato: scegline uno nella barra in alto.");
             return;
         }
 
@@ -184,24 +147,6 @@ public partial class TitanoRunListScreen : UserControl, IShellScreen
     private void OnFilterChanged(object? sender, EventArgs e) => ApplyFilter();
 
     private async void OnRefreshRequested(object? sender, EventArgs e) => await LoadAsync(CancellationToken.None);
-
-    private async void OnWorkspaceChanged(object? sender, EventArgs e)
-    {
-        if (_suspendReload)
-        {
-            return;
-        }
-
-        _toolbar.SetBusy(true);
-        try
-        {
-            await ReloadRunsAsync(CancellationToken.None);
-        }
-        finally
-        {
-            _toolbar.SetBusy(false);
-        }
-    }
 
     /// <summary>"Nuova rotazione" porta alla schermata di esecuzione, che resta quella storica.</summary>
     private void OnCreateRequested(object? sender, EventArgs e)

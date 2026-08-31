@@ -15,7 +15,6 @@ public partial class TitanoScreen : UserControl, IShellScreen
 {
     private ShellContext? _context;
     private TitanoRotationManifest? _lastManifest;
-    private bool _suspendReload;
 
     /// <summary>
     /// Elenco dei backtest del workspace corrente. Sta qui e non in una combo perché la scelta
@@ -56,20 +55,9 @@ public partial class TitanoScreen : UserControl, IShellScreen
         SetBusy(true);
         try
         {
-            var previous = SelectedWorkspaceId;
-            var workspaces = await _context.Services.Api.ListAsync(cancellationToken);
-
-            _suspendReload = true;
-            _workspaceCombo.Items.Clear();
-            foreach (var workspace in workspaces)
-            {
-                _workspaceCombo.Items.Add(new WorkspaceComboItem(workspace));
-            }
-
-            var restored = FindWorkspaceIndex(previous);
-            _workspaceCombo.SelectedIndex = restored >= 0
-                ? restored
-                : _workspaceCombo.Items.Count > 0 ? 0 : -1;
+            // La rotazione gira sul workspace scelto in alto: qui si legge soltanto, perché la
+            // cartella di backtest su cui si calcola vive dentro quel workspace.
+            _workspaceValueLabel.Text = _context.Services.Workspaces.CurrentDisplay;
 
             var setups = await _context.Services.Titano.ListSetupsAsync(cancellationToken);
             _suspendSetupReload = true;
@@ -80,8 +68,6 @@ public partial class TitanoScreen : UserControl, IShellScreen
             }
 
             _suspendSetupReload = false;
-
-            _suspendReload = false;
 
             await ReloadBacktestsAsync(cancellationToken);
             _context.Navigation.SetStatus($"{setups.Count} setup di rotazione salvati.");
@@ -96,7 +82,6 @@ public partial class TitanoScreen : UserControl, IShellScreen
         }
         finally
         {
-            _suspendReload = false;
             SetBusy(false);
         }
     }
@@ -113,28 +98,9 @@ public partial class TitanoScreen : UserControl, IShellScreen
                 : Info.Name;
     }
 
-    private string? SelectedWorkspaceId => (_workspaceCombo.SelectedItem as WorkspaceComboItem)?.Info.Id;
+    private string? SelectedWorkspaceId => _context?.Services.Workspaces.CurrentId;
 
     private string? SelectedBacktestFolder => _selectedBacktest?.FolderName;
-
-    private int FindWorkspaceIndex(string? workspaceId)
-    {
-        if (string.IsNullOrEmpty(workspaceId))
-        {
-            return -1;
-        }
-
-        for (var index = 0; index < _workspaceCombo.Items.Count; index++)
-        {
-            if (_workspaceCombo.Items[index] is WorkspaceComboItem item
-                && string.Equals(item.Info.Id, workspaceId, StringComparison.OrdinalIgnoreCase))
-            {
-                return index;
-            }
-        }
-
-        return -1;
-    }
 
     private void SetBusy(bool busy)
     {
@@ -193,7 +159,7 @@ public partial class TitanoScreen : UserControl, IShellScreen
     {
         if (SelectedWorkspaceId is null)
         {
-            MessageBox.Show(this, "Scegli prima un workspace.", "Titano",
+            MessageBox.Show(this, "Scegli prima un workspace nella barra in alto.", "Titano",
                 MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
@@ -394,21 +360,6 @@ public partial class TitanoScreen : UserControl, IShellScreen
     }
 
     private void OnCrossSectionalChanged(object? sender, EventArgs e) => ApplySizingModeAvailability();
-
-    private async void OnWorkspaceChanged(object? sender, EventArgs e)
-    {
-        if (!_suspendReload)
-        {
-            try
-            {
-                await ReloadBacktestsAsync(CancellationToken.None);
-            }
-            catch (Exception ex)
-            {
-                _context?.Navigation.SetError(ex.Message);
-            }
-        }
-    }
 
     private async void OnReloadClick(object? sender, EventArgs e) => await LoadAsync(CancellationToken.None);
 

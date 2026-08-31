@@ -31,10 +31,13 @@ partial class MainShellForm
         this._themeBlueMenuItem = new System.Windows.Forms.ToolStripMenuItem();
         this._themeGreenMenuItem = new System.Windows.Forms.ToolStripMenuItem();
         this._themeOrangeMenuItem = new System.Windows.Forms.ToolStripMenuItem();
-        this._serverPanel = new System.Windows.Forms.Panel();
+        this._serverPanel = new System.Windows.Forms.FlowLayoutPanel();
         this._applyServerUrlButton = new System.Windows.Forms.Button();
         this._serverUrlTextBox = new System.Windows.Forms.TextBox();
         this._serverUrlLabel = new System.Windows.Forms.Label();
+        this._workspaceLabel = new System.Windows.Forms.Label();
+        this._workspaceCombo = new System.Windows.Forms.ComboBox();
+        this._manageWorkspacesButton = new System.Windows.Forms.Button();
         this._splitContainer = new System.Windows.Forms.SplitContainer();
         this._navigationTree = new System.Windows.Forms.TreeView();
         this._contentPanel = new System.Windows.Forms.Panel();
@@ -155,11 +158,17 @@ partial class MainShellForm
         //
         // _serverPanel
         // 
-        this._serverPanel.Controls.Add(this._applyServerUrlButton);
-        this._serverPanel.Controls.Add(this._serverUrlTextBox);
+        this._serverPanel.AutoSize = true;
+        this._serverPanel.AutoSizeMode = System.Windows.Forms.AutoSizeMode.GrowAndShrink;
         this._serverPanel.Controls.Add(this._serverUrlLabel);
+        this._serverPanel.Controls.Add(this._serverUrlTextBox);
+        this._serverPanel.Controls.Add(this._applyServerUrlButton);
+        this._serverPanel.Controls.Add(this._workspaceLabel);
+        this._serverPanel.Controls.Add(this._workspaceCombo);
+        this._serverPanel.Controls.Add(this._manageWorkspacesButton);
         this._serverPanel.Dock = System.Windows.Forms.DockStyle.Top;
         this._serverPanel.Location = new System.Drawing.Point(0, 24);
+        this._serverPanel.MinimumSize = new System.Drawing.Size(0, 38);
         this._serverPanel.Name = "_serverPanel";
         this._serverPanel.Padding = new System.Windows.Forms.Padding(8, 6, 8, 6);
         this._serverPanel.Size = new System.Drawing.Size(1180, 38);
@@ -168,7 +177,7 @@ partial class MainShellForm
         // _serverUrlLabel
         // 
         this._serverUrlLabel.AutoSize = true;
-        this._serverUrlLabel.Location = new System.Drawing.Point(11, 11);
+        this._serverUrlLabel.Margin = new System.Windows.Forms.Padding(3, 9, 8, 0);
         this._serverUrlLabel.Name = "_serverUrlLabel";
         this._serverUrlLabel.Size = new System.Drawing.Size(64, 15);
         this._serverUrlLabel.TabIndex = 0;
@@ -176,20 +185,48 @@ partial class MainShellForm
         // 
         // _serverUrlTextBox
         // 
-        this._serverUrlTextBox.Location = new System.Drawing.Point(84, 8);
+        this._serverUrlTextBox.Margin = new System.Windows.Forms.Padding(0, 5, 0, 0);
         this._serverUrlTextBox.Name = "_serverUrlTextBox";
         this._serverUrlTextBox.Size = new System.Drawing.Size(280, 23);
         this._serverUrlTextBox.TabIndex = 1;
         // 
         // _applyServerUrlButton
         // 
-        this._applyServerUrlButton.Location = new System.Drawing.Point(372, 7);
+        this._applyServerUrlButton.Margin = new System.Windows.Forms.Padding(8, 4, 0, 0);
         this._applyServerUrlButton.Name = "_applyServerUrlButton";
         this._applyServerUrlButton.Size = new System.Drawing.Size(90, 25);
         this._applyServerUrlButton.TabIndex = 2;
         this._applyServerUrlButton.Text = "Applica";
         this._applyServerUrlButton.UseVisualStyleBackColor = true;
         this._applyServerUrlButton.Click += new System.EventHandler(this.OnApplyServerUrlClick);
+        // 
+        // _workspaceLabel
+        // 
+        this._workspaceLabel.AutoSize = true;
+        this._workspaceLabel.Margin = new System.Windows.Forms.Padding(28, 9, 8, 0);
+        this._workspaceLabel.Name = "_workspaceLabel";
+        this._workspaceLabel.Size = new System.Drawing.Size(70, 15);
+        this._workspaceLabel.TabIndex = 3;
+        this._workspaceLabel.Text = "Workspace";
+        // 
+        // _workspaceCombo
+        // 
+        this._workspaceCombo.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
+        this._workspaceCombo.Margin = new System.Windows.Forms.Padding(0, 5, 0, 0);
+        this._workspaceCombo.Name = "_workspaceCombo";
+        this._workspaceCombo.Size = new System.Drawing.Size(320, 23);
+        this._workspaceCombo.TabIndex = 4;
+        this._workspaceCombo.SelectedIndexChanged += new System.EventHandler(this.OnWorkspaceComboChanged);
+        // 
+        // _manageWorkspacesButton
+        // 
+        this._manageWorkspacesButton.Margin = new System.Windows.Forms.Padding(8, 4, 0, 0);
+        this._manageWorkspacesButton.Name = "_manageWorkspacesButton";
+        this._manageWorkspacesButton.Size = new System.Drawing.Size(160, 25);
+        this._manageWorkspacesButton.TabIndex = 5;
+        this._manageWorkspacesButton.Text = "Gestisci workspace…";
+        this._manageWorkspacesButton.UseVisualStyleBackColor = true;
+        this._manageWorkspacesButton.Click += new System.EventHandler(this.OnManageWorkspacesClick);
         // 
         // _splitContainer
         // 
@@ -298,10 +335,13 @@ partial class MainShellForm
     private System.Windows.Forms.ToolStripMenuItem _themeBlueMenuItem;
     private System.Windows.Forms.ToolStripMenuItem _themeGreenMenuItem;
     private System.Windows.Forms.ToolStripMenuItem _themeOrangeMenuItem;
-    private System.Windows.Forms.Panel _serverPanel;
+    private System.Windows.Forms.FlowLayoutPanel _serverPanel;
     private System.Windows.Forms.Label _serverUrlLabel;
     private System.Windows.Forms.TextBox _serverUrlTextBox;
     private System.Windows.Forms.Button _applyServerUrlButton;
+    private System.Windows.Forms.Label _workspaceLabel;
+    private System.Windows.Forms.ComboBox _workspaceCombo;
+    private System.Windows.Forms.Button _manageWorkspacesButton;
     private System.Windows.Forms.SplitContainer _splitContainer;
     private System.Windows.Forms.TreeView _navigationTree;
     private System.Windows.Forms.Label _breadcrumbLabel;

@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.IO.Compression;
 using System.Text.Json;
 using Piootoo.Shared.Models.Trading;
 using Piootoo.Shared.Models.Workspaces;
@@ -88,6 +89,7 @@ public partial class BacktestDetailScreen : UserControl, IShellScreen
 
         _toolbar.SetBusy(true);
         _reportButton.Enabled = false;
+        _exportButton.Enabled = false;
         _generateReportButton.Enabled = false;
         try
         {
@@ -98,6 +100,7 @@ public partial class BacktestDetailScreen : UserControl, IShellScreen
             // a ogni apertura della schermata, per un file che l'utente apre di rado. L'assenza è
             // un 404 con un messaggio parlante, e questa griglia non deserializza ciò che elenca.
             _reportButton.Enabled = true;
+            _exportButton.Enabled = true;
 
             // La generazione è per i run che il report non lo scrivono: quelli dell'engine esterno,
             // e i run interni interrotti — dove l'origine è nota ma l'artefatto manca. Su un run
@@ -161,6 +164,69 @@ public partial class BacktestDetailScreen : UserControl, IShellScreen
     }
 
     /// <summary>
+    /// Scarica gli artefatti del run già rinominati con lo slug del tipo (<c>interno-futures</c>,
+    /// <c>cbot-cfd-ICS</c>, …) e li scompatta nella cartella scelta: è il gesto "metto i due run
+    /// nella stessa cartella e li confronto" senza rinominare niente a mano.
+    ///
+    /// <para>I nomi li decide il server leggendo <c>origin.json</c>, non questa schermata: un nome
+    /// scritto qui sarebbe un'affermazione sul tipo di run che il client non è in grado di
+    /// verificare. Per la stessa ragione un run che non dichiara motore e prezzi non si esporta, e
+    /// il <c>409</c> che lo dice va riportato con parole sue.</para>
+    ///
+    /// <para>I file esistenti si sovrascrivono solo dopo conferma: nella cartella di confronto
+    /// c'è quasi sempre l'altro lato del paragone, e perderlo in silenzio significa rifare un
+    /// run.</para>
+    /// </summary>
+    private async void OnExportForCompareClick(object? sender, EventArgs e)
+    {
+        if (_context == null || _workspaceId.Length == 0 || _folderName.Length == 0)
+        {
+            return;
+        }
+
+        using var picker = new FolderBrowserDialog
+        {
+            Description = "Cartella in cui mettere gli artefatti di questo run",
+            UseDescriptionForTitle = true
+        };
+        if (picker.ShowDialog(this) != DialogResult.OK)
+        {
+            return;
+        }
+
+        _toolbar.SetBusy(true);
+        try
+        {
+            var (slug, archive) = await _context.Services.Api.DownloadCompareExportAsync(
+                _workspaceId, _folderName, CancellationToken.None);
+
+            var written = ExtractInto(archive, picker.SelectedPath);
+            if (written.Count == 0)
+            {
+                return;
+            }
+
+            MessageBox.Show(
+                this,
+                $"Tipo di run: {slug}{Environment.NewLine}{Environment.NewLine}" +
+                string.Join(Environment.NewLine, written),
+                "Esporta per confronto",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Information);
+        }
+        catch (Exception ex)
+        {
+            // Il client HTTP traduce già il corpo dell'errore nel suo messaggio, quindi il 409 del
+            // run senza tipo arriva qui con le parole del server: non serve riconoscerne lo stato.
+            MessageBox.Show(this, ex.Message, "Esporta per confronto", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+        finally
+        {
+            _toolbar.SetBusy(false);
+        }
+    }
+
+    /// <summary>
     /// Chiede al server di ricostruire il report dai trade del run e lo apre subito.
     /// </summary>
     /// <remarks>
@@ -194,6 +260,55 @@ public partial class BacktestDetailScreen : UserControl, IShellScreen
         {
             _toolbar.SetBusy(false);
         }
+    }
+
+    /// <summary>
+    /// Scompatta l'archivio nella cartella, chiedendo prima di sovrascrivere. Torna i nomi scritti;
+    /// lista vuota se l'utente ha annullato davanti alla sovrascrittura.
+    /// </summary>
+    private List<string> ExtractInto(byte[] archive, string destination)
+    {
+        using var buffer = new MemoryStream(archive);
+        using var zip = new ZipArchive(buffer, ZipArchiveMode.Read);
+
+        var esistenti = zip.Entries
+            .Select(entry => Path.Combine(destination, entry.Name))
+            .Where(File.Exists)
+            .Select(Path.GetFileName)
+            .ToList();
+
+        if (esistenti.Count > 0)
+        {
+            var conferma = MessageBox.Show(
+                this,
+                "Nella cartella ci sono già:" + Environment.NewLine + Environment.NewLine +
+                string.Join(Environment.NewLine, esistenti) + Environment.NewLine + Environment.NewLine +
+                "Li sovrascrivo?",
+                "Esporta per confronto",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Warning);
+            if (conferma != DialogResult.Yes)
+            {
+                return new List<string>();
+            }
+        }
+
+        var written = new List<string>();
+        foreach (var entry in zip.Entries)
+        {
+            // Solo il nome: l'archivio lo produce il server con file piatti, e concatenare un
+            // percorso che arriva dalla rete è il modo classico di scrivere fuori dalla cartella.
+            var name = Path.GetFileName(entry.Name);
+            if (name.Length == 0)
+            {
+                continue;
+            }
+
+            entry.ExtractToFile(Path.Combine(destination, name), overwrite: true);
+            written.Add(name);
+        }
+
+        return written;
     }
 
     private Task ShowReportAsync()

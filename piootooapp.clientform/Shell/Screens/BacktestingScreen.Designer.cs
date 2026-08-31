@@ -31,7 +31,9 @@ partial class BacktestingScreen
         this._parametersGroup = new System.Windows.Forms.GroupBox();
         this._parametersLayout = new System.Windows.Forms.TableLayoutPanel();
         this._workspaceLabel = new System.Windows.Forms.Label();
-        this._workspaceCombo = new System.Windows.Forms.ComboBox();
+        this._workspaceValueLabel = new System.Windows.Forms.Label();
+        this._datafeedLabel = new System.Windows.Forms.Label();
+        this._datafeedCombo = new System.Windows.Forms.ComboBox();
         this._nameLabel = new System.Windows.Forms.Label();
         this._nameTextBox = new System.Windows.Forms.TextBox();
         this._weekEndCheckBox = new System.Windows.Forms.CheckBox();
@@ -88,7 +90,9 @@ partial class BacktestingScreen
         this._parametersLayout.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle());
         this._parametersLayout.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 50F));
         this._parametersLayout.Controls.Add(this._workspaceLabel, 0, 0);
-        this._parametersLayout.Controls.Add(this._workspaceCombo, 1, 0);
+        this._parametersLayout.Controls.Add(this._workspaceValueLabel, 1, 0);
+        this._parametersLayout.Controls.Add(this._datafeedLabel, 2, 0);
+        this._parametersLayout.Controls.Add(this._datafeedCombo, 3, 0);
         this._parametersLayout.Controls.Add(this._nameLabel, 0, 1);
         this._parametersLayout.Controls.Add(this._nameTextBox, 1, 1);
         this._parametersLayout.Controls.Add(this._weekEndCheckBox, 3, 1);
@@ -121,14 +125,33 @@ partial class BacktestingScreen
         this._workspaceLabel.TabIndex = 0;
         this._workspaceLabel.Text = "Workspace";
         // 
-        // _workspaceCombo
+        // _workspaceValueLabel
         // 
-        this._workspaceCombo.Anchor = System.Windows.Forms.AnchorStyles.Left | System.Windows.Forms.AnchorStyles.Right;
-        this._workspaceCombo.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
-        this._workspaceCombo.Margin = new System.Windows.Forms.Padding(3, 4, 24, 4);
-        this._workspaceCombo.Name = "_workspaceCombo";
-        this._workspaceCombo.Size = new System.Drawing.Size(300, 23);
-        this._workspaceCombo.TabIndex = 1;
+        this._workspaceValueLabel.Anchor = System.Windows.Forms.AnchorStyles.Left;
+        this._workspaceValueLabel.AutoSize = true;
+        this._workspaceValueLabel.Margin = new System.Windows.Forms.Padding(3, 4, 24, 4);
+        this._workspaceValueLabel.Name = "_workspaceValueLabel";
+        this._workspaceValueLabel.Size = new System.Drawing.Size(300, 15);
+        this._workspaceValueLabel.TabIndex = 1;
+        //
+        // _datafeedLabel
+        //
+        this._datafeedLabel.Anchor = System.Windows.Forms.AnchorStyles.Left;
+        this._datafeedLabel.AutoSize = true;
+        this._datafeedLabel.Margin = new System.Windows.Forms.Padding(3, 0, 8, 0);
+        this._datafeedLabel.Name = "_datafeedLabel";
+        this._datafeedLabel.Size = new System.Drawing.Size(70, 15);
+        this._datafeedLabel.TabIndex = 2;
+        this._datafeedLabel.Text = "Datasource";
+        //
+        // _datafeedCombo
+        //
+        this._datafeedCombo.Anchor = System.Windows.Forms.AnchorStyles.Left | System.Windows.Forms.AnchorStyles.Right;
+        this._datafeedCombo.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
+        this._datafeedCombo.Margin = new System.Windows.Forms.Padding(3, 4, 3, 4);
+        this._datafeedCombo.Name = "_datafeedCombo";
+        this._datafeedCombo.Size = new System.Drawing.Size(300, 23);
+        this._datafeedCombo.TabIndex = 3;
         //
         // _nameLabel
         // 
@@ -444,7 +467,9 @@ partial class BacktestingScreen
     private System.Windows.Forms.GroupBox _parametersGroup;
     private System.Windows.Forms.TableLayoutPanel _parametersLayout;
     private System.Windows.Forms.Label _workspaceLabel;
-    private System.Windows.Forms.ComboBox _workspaceCombo;
+    private System.Windows.Forms.Label _workspaceValueLabel;
+    private System.Windows.Forms.Label _datafeedLabel;
+    private System.Windows.Forms.ComboBox _datafeedCombo;
     private System.Windows.Forms.Label _nameLabel;
     private System.Windows.Forms.TextBox _nameTextBox;
     private System.Windows.Forms.CheckBox _weekEndCheckBox;

@@ -40,6 +40,7 @@ public class PiootooBacktestingService : IPiootooBacktestingService
 
     private readonly IPiootooSettingsService _settingsService;
     private readonly IPiootooDataFeedService _dataFeedService;
+    private readonly IDatafeedCatalog _datafeedCatalog;
     private readonly IBacktestingExecutionHook _executionHook;
 
     /// <summary>
@@ -55,12 +56,14 @@ public class PiootooBacktestingService : IPiootooBacktestingService
     public PiootooBacktestingService(
         IPiootooSettingsService settingsService,
         IPiootooDataFeedService dataFeedService,
+        IDatafeedCatalog datafeedCatalog,
         PiootooSettings settings,
         IBacktestingExecutionHook executionHook,
         TitanoRotationService? titano = null)
     {
         _settingsService = settingsService;
         _dataFeedService = dataFeedService;
+        _datafeedCatalog = datafeedCatalog;
         _executionHook = executionHook;
         _titano = titano;
         _settings = settings;
@@ -92,6 +95,12 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                 nameof(request));
         }
 
+        // Il broker si verifica prima di creare la cartella: un archivio inesistente e' lo stesso
+        // errore del datafeed mancante, e va detto adesso invece che dopo aver azzerato l'output.
+        // ResolveRoot alza ArgumentException/DirectoryNotFoundException, che il controller traduce.
+        request.DatafeedBroker = NormalizeBroker(request.DatafeedBroker);
+        _datafeedCatalog.ResolveRoot(request.DatafeedBroker);
+
         request.BacktestFolderName = WorkspaceBacktestPaths.NormalizeFolderName(request.BacktestFolderName);
         var workspacePath = ResolveWorkspacePath(request.WorkspaceId);
         var outputPath = WorkspaceBacktestPaths.ResolveBacktestPath(workspacePath, request.BacktestFolderName);
@@ -113,11 +122,15 @@ public class PiootooBacktestingService : IPiootooBacktestingService
 
         // Dichiarato alla creazione: la cartella convive con quelle prodotte dalle sessioni
         // dell'engine esterno, e dedurre l'origine dai file presenti sbaglierebbe sui run
-        // interrotti prima di scrivere il summary.
+        // interrotti prima di scrivere il summary. La serie di prezzi sta qui e non solo nel
+        // summary per la stessa ragione: due run interni su feed diversi sono indistinguibili
+        // guardando i trade, e il summary manca appena il run si interrompe.
         WorkspaceService.WriteBacktestOrigin(outputPath, new BacktestOriginInfo
         {
             Origin = BacktestOrigin.Internal,
-            CreatedUtc = DateTime.UtcNow
+            CreatedUtc = DateTime.UtcNow,
+            PriceSource = RunPriceSource.FromDatafeedBroker(request.DatafeedBroker),
+            EngineVersion = PiootooVersion.Current
         });
 
         var job = new BacktestingJob
@@ -143,6 +156,14 @@ public class PiootooBacktestingService : IPiootooBacktestingService
             throw;
         }
     }
+
+    /// <summary>
+    /// Broker in forma canonica: stringa vuota e spazi diventano null, cioe' "datafeed interno".
+    /// Serve perche' il client manda una stringa vuota quando non seleziona nulla, e un ""
+    /// finirebbe nel summary come se fosse un broker senza nome.
+    /// </summary>
+    private static string? NormalizeBroker(string? broker)
+        => string.IsNullOrWhiteSpace(broker) ? null : broker.Trim();
 
     public BacktestingJob? GetJobStatus(string jobId)
     {
@@ -541,6 +562,9 @@ public class PiootooBacktestingService : IPiootooBacktestingService
             var tradingService = new PiootooTradingService();
             tradingService.Initialize(request.InitialCapital, request.CommissionPerContract);
             tradingService.RejectWrongSideLevels = request.RejectWrongSideLevels;
+            if (request.StopFillSlippagePoints is { Count: > 0 } slippage)
+                foreach (var (sym, points) in slippage)
+                    tradingService.StopFillSlippagePoints[sym] = points;
 
             // Il cBot dichiara lo stesso passo minimo fra 0 e 1 (MinValue/MaxValue sul parametro):
             // fuori da quell'intervallo il numero non ha un significato che i due motori
@@ -661,7 +685,8 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                 .ThenBy(x => x.Timeframe)
                 .ToList();
 
-            Console.WriteLine($"[Backtesting] Pre-caricamento {uniqueDataSources.Count} datasource unici...");
+            Console.WriteLine($"[Backtesting] Pre-caricamento {uniqueDataSources.Count} datasource unici " +
+                              $"da datafeed {_datafeedCatalog.Describe(request.DatafeedBroker)}...");
 
             var emptyDataSources = new List<string>();
             var loadedDataSources = 0;
@@ -678,7 +703,8 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                     ds.Symbol,
                     request.StartDate.AddDays(-lookbackDays),
                     request.EndDate,
-                    ds.Timeframe);
+                    ds.Timeframe,
+                    request.DatafeedBroker);
 
                 var cursor = new CandleWindowCursor(candles);
                 var normalizedSymbol = NormalizeSymbol(ds.Symbol);
@@ -733,9 +759,10 @@ public class PiootooBacktestingService : IPiootooBacktestingService
             if (emptyDataSources.Count > 0)
             {
                 throw new InvalidOperationException(
-                    "Datafeed mancante per: " + string.Join(", ", emptyDataSources) +
-                    ". Scarica i file corrispondenti in piootoo-repository/datafeed oppure rimuovi " +
-                    "dal masterfilter le strategie su queste coppie simbolo/timeframe.");
+                    $"Datafeed {_datafeedCatalog.Describe(request.DatafeedBroker)} mancante per: " +
+                    string.Join(", ", emptyDataSources) +
+                    $". Scarica i file corrispondenti in {_datafeedCatalog.ResolveRoot(request.DatafeedBroker)} " +
+                    "oppure rimuovi dal masterfilter le strategie su queste coppie simbolo/timeframe.");
             }
             // Fine effettiva della copertura dati: massimo fra le ultime barre dei cursori. Oltre
             // questo punto l'orologio sintetico continua fino a EndDate ma non arriva più alcun
@@ -1161,7 +1188,9 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                 TotalNetProfit = result.TotalProfit,
                 MaxDrawdown = result.MaxDrawdown,
                 OpenPositionsAtEnd = finalSnapshot.OpenPositionsCount,
+                WrongSideLevelsRejected = tradingService.WrongSideLevelsRejected,
                 Holding = holding,
+                DatafeedBroker = NormalizeBroker(request.DatafeedBroker),
                 Outcome = "Completed"
             });
             result.DiagnosticsLogFilePath = diagnostics.LogPath;

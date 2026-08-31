@@ -27,7 +27,7 @@ partial class TradingSessionsScreen
         _planLabel = new System.Windows.Forms.Label();
         _planCombo = new System.Windows.Forms.ComboBox();
         _workspaceLabel = new System.Windows.Forms.Label();
-        _workspaceCombo = new System.Windows.Forms.ComboBox();
+        _workspaceValueLabel = new System.Windows.Forms.Label();
         _derivedWorkspaceLabel = new System.Windows.Forms.Label();
         _masterfilterInfoLabel = new System.Windows.Forms.Label();
         _modeLabel = new System.Windows.Forms.Label();
@@ -133,7 +133,7 @@ partial class TradingSessionsScreen
         _configLayout.Controls.Add(_planLabel, 2, 0);
         _configLayout.Controls.Add(_planCombo, 3, 0);
         _configLayout.Controls.Add(_workspaceLabel, 0, 1);
-        _configLayout.Controls.Add(_workspaceCombo, 1, 1);
+        _configLayout.Controls.Add(_workspaceValueLabel, 1, 1);
         _configLayout.Controls.Add(_derivedWorkspaceLabel, 2, 1);
         _configLayout.SetColumnSpan(_derivedWorkspaceLabel, 2);
         _configLayout.Controls.Add(_masterfilterInfoLabel, 0, 2);
@@ -221,15 +221,14 @@ partial class TradingSessionsScreen
         _workspaceLabel.TabIndex = 4;
         _workspaceLabel.Text = "Workspace";
         // 
-        // _workspaceCombo
+        // _workspaceValueLabel
         // 
-        _workspaceCombo.Anchor = System.Windows.Forms.AnchorStyles.Left | System.Windows.Forms.AnchorStyles.Right;
-        _workspaceCombo.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
-        _workspaceCombo.Margin = new System.Windows.Forms.Padding(3, 4, 24, 4);
-        _workspaceCombo.Name = "_workspaceCombo";
-        _workspaceCombo.Size = new System.Drawing.Size(320, 23);
-        _workspaceCombo.TabIndex = 5;
-        _workspaceCombo.SelectedIndexChanged += OnWorkspaceChanged;
+        _workspaceValueLabel.Anchor = System.Windows.Forms.AnchorStyles.Left;
+        _workspaceValueLabel.AutoSize = true;
+        _workspaceValueLabel.Margin = new System.Windows.Forms.Padding(3, 4, 24, 4);
+        _workspaceValueLabel.Name = "_workspaceValueLabel";
+        _workspaceValueLabel.Size = new System.Drawing.Size(320, 15);
+        _workspaceValueLabel.TabIndex = 5;
         // 
         // _derivedWorkspaceLabel
         // 
@@ -867,7 +866,7 @@ partial class TradingSessionsScreen
     private System.Windows.Forms.Label _planLabel;
     private System.Windows.Forms.ComboBox _planCombo;
     private System.Windows.Forms.Label _workspaceLabel;
-    private System.Windows.Forms.ComboBox _workspaceCombo;
+    private System.Windows.Forms.Label _workspaceValueLabel;
     private System.Windows.Forms.Label _derivedWorkspaceLabel;
     private System.Windows.Forms.Label _masterfilterInfoLabel;
     private System.Windows.Forms.Label _modeLabel;

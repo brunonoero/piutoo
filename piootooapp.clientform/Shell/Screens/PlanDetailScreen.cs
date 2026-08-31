@@ -116,7 +116,6 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
     private bool _isNew;
     private bool _suspendDirtyTracking;
     private bool _isDirty;
-    private bool _suspendWorkspaceEvents;
 
     public PlanDetailScreen()
     {
@@ -181,7 +180,7 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
         _toolbar.SetBusy(true);
         try
         {
-            await LoadWorkspacesAsync(cancellationToken);
+            ShowWorkspace();
             await LoadAccountRegistryAsync(cancellationToken);
             await LoadStrategyCatalogAsync(cancellationToken);
             await LoadTitanoChoicesAsync(cancellationToken);
@@ -225,84 +224,28 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
     }
 
     /// <summary>
-    /// Popola la combo dei workspace. È modificabile solo per un piano nuovo: un piano esistente
-    /// vive in <c>&lt;workspace&gt;/plans/plans.json</c> e spostarlo non è una modifica di campo.
+    /// Mostra il workspace del piano, in sola lettura. Non è più una scelta di questa schermata:
+    /// un piano esistente vive in <c>&lt;workspace&gt;/plans/plans.json</c> e spostarlo non è una
+    /// modifica di campo; un piano nuovo nasce nel workspace corrente, quello della barra in alto.
     /// </summary>
-    private async Task LoadWorkspacesAsync(CancellationToken cancellationToken)
+    private void ShowWorkspace()
     {
         if (_context == null)
         {
             return;
         }
 
-        _suspendWorkspaceEvents = true;
-        try
+        if (_isNew)
         {
-            _workspaceCombo.Items.Clear();
-            var workspaces = await _context.Services.Api.ListAsync(cancellationToken);
-            foreach (var workspace in workspaces)
-            {
-                _workspaceCombo.Items.Add(new WorkspaceComboItem(workspace));
-            }
-
-            var index = FindWorkspaceIndex(_workspaceId);
-            if (index < 0 && _isNew && _workspaceCombo.Items.Count > 0)
-            {
-                index = 0;
-            }
-
-            _workspaceCombo.SelectedIndex = index;
-            if (SelectedWorkspaceId is { } selected)
-            {
-                _workspaceId = selected;
-            }
+            _workspaceId = _context.Services.Workspaces.CurrentId ?? string.Empty;
         }
-        finally
-        {
-            _suspendWorkspaceEvents = false;
-            // Il workspace di un piano esistente è parte della sua identità, non un campo editabile.
-            _workspaceCombo.Enabled = _isNew;
-        }
+
+        _workspaceValueLabel.Text = _workspaceId.Length > 0
+            ? _workspaceId
+            : "(nessun workspace selezionato)";
     }
 
-    private string? SelectedWorkspaceId => (_workspaceCombo.SelectedItem as WorkspaceComboItem)?.Info.Id;
-
-    private int FindWorkspaceIndex(string? workspaceId)
-    {
-        if (string.IsNullOrEmpty(workspaceId))
-        {
-            return -1;
-        }
-
-        for (var index = 0; index < _workspaceCombo.Items.Count; index++)
-        {
-            if (_workspaceCombo.Items[index] is WorkspaceComboItem item
-                && string.Equals(item.Info.Id, workspaceId, StringComparison.OrdinalIgnoreCase))
-            {
-                return index;
-            }
-        }
-
-        return -1;
-    }
-
-    private async void OnWorkspaceChanged(object? sender, EventArgs e)
-    {
-        if (_suspendWorkspaceEvents || SelectedWorkspaceId is not { } workspaceId)
-        {
-            return;
-        }
-
-        _workspaceId = workspaceId;
-        MarkDirty();
-        _context?.Navigation.SetStatus($"Il piano verrà salvato nel workspace '{workspaceId}'.");
-
-        // Cartelle di backtest vivono dentro il workspace: cambiato quello, le liste vanno ricostruite.
-        await LoadTitanoChoicesAsync(CancellationToken.None);
-        await RefreshGroupChoicesAsync(CancellationToken.None);
-        // Anche il masterfilter e' del workspace: l'elenco delle strategie tagliate cambia con lui.
-        await RefreshHoldingImpactAsync(CancellationToken.None);
-    }
+    private string? SelectedWorkspaceId => _workspaceId.Length > 0 ? _workspaceId : null;
 
     /// <summary>
     /// Ricarica le due liste Titano (setup di rotazione, cartelle di backtest) usate come sorgente
@@ -944,8 +887,8 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
 
         if (SelectedWorkspaceId is not { } targetWorkspaceId)
         {
-            MessageBox.Show(this, "Seleziona il workspace in cui salvare il piano.", "Piano",
-                MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            MessageBox.Show(this, "Seleziona nella barra in alto il workspace in cui salvare il piano.",
+                "Piano", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
 
@@ -1127,7 +1070,6 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
             _code = saved.Code;
             _isNew = false;
             _codeTextBox.ReadOnly = true;
-            _workspaceCombo.Enabled = false;
             _suspendDirtyTracking = true;
             Fill(saved);
             await RefreshGroupChoicesAsync(CancellationToken.None);

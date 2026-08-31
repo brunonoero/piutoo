@@ -14,8 +14,17 @@ public interface IPiootooDataFeedService
     /// <param name="currentDate">Data corrente</param>
     /// <param name="numberOfCandles">Numero di candle da recuperare</param>
     /// <param name="timeframeMinutes">Timeframe in minuti (es. 60 per 1 ora, 15 per 15 minuti)</param>
+    /// <param name="broker">
+    /// Archivio esterno da cui leggere (<c>datafeed-external/{broker}</c>). Null o vuoto = datafeed
+    /// interno. Vedi <see cref="IDatafeedCatalog"/>.
+    /// </param>
     /// <returns>Array di dati OHLCV ordinati cronologicamente</returns>
-    Task<OhlcvData[]> GetCandlesAsync(string symbol, DateTime currentDate, int numberOfCandles, int timeframeMinutes = 60);
+    Task<OhlcvData[]> GetCandlesAsync(
+        string symbol,
+        DateTime currentDate,
+        int numberOfCandles,
+        int timeframeMinutes = 60,
+        string? broker = null);
 
     /// <summary>
     /// Carica tutte le candele comprese in un intervallo esplicito.
@@ -25,5 +34,15 @@ public interface IPiootooDataFeedService
     /// i future hanno weekend e sessioni non continue. L'inizio calcolato risultava troppo
     /// recente e la prima parte dell'intervallo richiesto restava senza dati.
     /// </summary>
-    Task<OhlcvData[]> GetCandlesRangeAsync(string symbol, DateTime startUtc, DateTime endUtc, int timeframeMinutes);
+    /// <param name="broker">
+    /// Archivio esterno da cui leggere (<c>datafeed-external/{broker}</c>). Null o vuoto = datafeed
+    /// interno. Un run legge sempre da una sola radice: il parametro e' lo stesso per tutti i
+    /// datasource dello stesso backtest.
+    /// </param>
+    Task<OhlcvData[]> GetCandlesRangeAsync(
+        string symbol,
+        DateTime startUtc,
+        DateTime endUtc,
+        int timeframeMinutes,
+        string? broker = null);
 }

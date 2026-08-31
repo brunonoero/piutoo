@@ -126,8 +126,47 @@ la conferma sta più avanti nel file, dove compare `13/01/2006`. Su un CSV nuovo
 questa verifica va rifatta: leggere il formato al contrario non produce errori,
 produce date sbagliate solo per i giorni oltre il dodici.
 
+## Il datafeed esterno: un archivio per broker
+
+Accanto a `datafeed/` c'è `datafeed-external/`, con **una sottocartella per
+broker** (oggi `RAWTRADINGLTD`). Dentro, la stessa struttura del datafeed
+interno: file piatti `@SYM_{minuti}.json` più `feed-clocks.json`. La scrive un
+bot raccoglitore cTrader, che spedisce gli orari delle barre già in UTC vero —
+lì UTC non è un'assunzione ma il fuso dichiarato dalla piattaforma.
+
+Le due strutture sono identiche apposta: `DataSourceRepository` non sa quale
+delle due sta leggendo, cambia solo la radice. A deciderla è `DatafeedCatalog`,
+l'unico punto che traduce un nome di broker in un percorso — e quindi l'unico
+che può rifiutare un nome che percorso non è. La console la sceglie nella combo
+*Datasource* della schermata di avvio backtest; l'elenco dei broker arriva da
+`GET /api/Datafeed/brokers`.
+
+**Perché non si mescolano.** Un run legge da una radice sola. Il feed interno
+viene dai CSV del vendor, quello esterno dalle barre che il broker ha davvero
+chiuso: sugli stessi minuti danno prezzi diversi, e un backtest a cavallo delle
+due non corrisponderebbe a nessun conto reale. Per lo stesso motivo il broker
+scelto finisce in `backtest-summary.json` (`datafeedBroker`, null = interno)
+accanto a `holding`: è una scelta che cambia i risultati senza comparire nei
+trade, e mesi dopo non c'è altro modo di accorgersene. Confrontare due run che
+non dichiarano lo stesso archivio è l'errore che quel campo esiste per impedire.
+
+Le regole di sempre restano: un broker che non esiste fa fallire l'avvio prima
+ancora che la cartella di output venga creata, e una coppia `(simbolo,
+timeframe)` senza file fa fallire il run — non c'è ripiego sull'interno, come
+non c'è ripiego su un timeframe vicino.
+
+**Il feed è metà del nome di un run.** Motore ed archivio scelgono insieme i
+prezzi, quindi i confronti distinguono tre tipi — `interno-futures`,
+`interno-cfd-{BROKER}`, `cbot-cfd-{BROKER}` — e li scrivono nel nome del file.
+Le due gambe interne isolano il feed a parità di motore; il cBot contro
+`interno-cfd` isola il motore a parità di broker. Convenzione dei nomi e
+trappole di misura in
+[`piootoo-repository/compare/README.md`](../../piootoo-repository/compare/README.md).
+
 ## Riferimenti codice
 
+- `Piootoo.Core/Services/DatafeedCatalog.cs` — elenco dei broker e risoluzione
+  della radice, con il controllo sul nome che arriva dalla richiesta HTTP.
 - `piootoo-repository/datafeed-future/aggregate_nq_ascii.py` — lo script, con
   `CANONICAL_TIMEFRAMES`, `bucket_start`, `TimeframeFeed`.
 - `Piootoo.Domain/Repositories/DataSourceRepository.cs` — `TimeframeFolders` e

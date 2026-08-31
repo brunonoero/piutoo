@@ -1,22 +1,32 @@
+using System.Collections.Concurrent;
 using Piootoo.Core.Services.Interfaces;
 using Piootoo.Domain.Repositories;
-using Piootoo.Shared.Configuration;
 using Piootoo.Shared.Models;
 using Piootoo.Shared.Utilities;
 
 namespace Piootoo.Core.Services;
 
 /// <summary>
-/// Servizio per la lettura dei dati feed OHLCV
+/// Servizio per la lettura dei dati feed OHLCV.
+///
+/// <para>Un repository per radice, tenuto in cache: <see cref="DataSourceRepository"/> memorizza
+/// gli orologi dichiarati dal feed (<c>feed-clocks.json</c>) e ricrearlo a ogni datasource
+/// significherebbe rileggere quel file per ogni coppia (simbolo, timeframe) del run.</para>
 /// </summary>
 public class PiootooDataFeedService : IPiootooDataFeedService
 {
-    private readonly DataSourceRepository _dataRepository;
+    private readonly IDatafeedCatalog _catalog;
 
-    public PiootooDataFeedService(PiootooSettings settings)
+    private readonly ConcurrentDictionary<string, DataSourceRepository> _repositories =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    public PiootooDataFeedService(IDatafeedCatalog catalog)
     {
-        _dataRepository = new DataSourceRepository(settings.GetRepositoryPath());
+        _catalog = catalog;
     }
+
+    private DataSourceRepository RepositoryFor(string? broker)
+        => _repositories.GetOrAdd(_catalog.ResolveRoot(broker), root => new DataSourceRepository(root));
 
     /// <summary>Converte un timeframe in minuti nel barType atteso dal repository.</summary>
     private static string ToBarType(int timeframeMinutes) => timeframeMinutes switch
@@ -32,7 +42,12 @@ public class PiootooDataFeedService : IPiootooDataFeedService
         _ => "OneHour" // Default
     };
 
-    public async Task<OhlcvData[]> GetCandlesRangeAsync(string symbol, DateTime startUtc, DateTime endUtc, int timeframeMinutes)
+    public async Task<OhlcvData[]> GetCandlesRangeAsync(
+        string symbol,
+        DateTime startUtc,
+        DateTime endUtc,
+        int timeframeMinutes,
+        string? broker = null)
     {
         startUtc = TradingDateTime.ToFeedUtc(startUtc);
         endUtc = TradingDateTime.ToFeedUtc(endUtc);
@@ -41,7 +56,7 @@ public class PiootooDataFeedService : IPiootooDataFeedService
             return Array.Empty<OhlcvData>();
         }
 
-        var candles = await _dataRepository.LoadDataRangeAsync(
+        var candles = await RepositoryFor(broker).LoadDataRangeAsync(
             symbol, startUtc, endUtc, ToBarType(timeframeMinutes), preferCalculated: false);
 
         // LoadDataRangeAsync ordina già cronologicamente: il chiamante (CandleWindowCursor) conta
@@ -49,7 +64,12 @@ public class PiootooDataFeedService : IPiootooDataFeedService
         return candles.ToArray();
     }
 
-    public async Task<OhlcvData[]> GetCandlesAsync(string symbol, DateTime currentDate, int numberOfCandles, int timeframeMinutes = 60)
+    public async Task<OhlcvData[]> GetCandlesAsync(
+        string symbol,
+        DateTime currentDate,
+        int numberOfCandles,
+        int timeframeMinutes = 60,
+        string? broker = null)
     {
         currentDate = TradingDateTime.ToFeedUtc(currentDate);
         var barType = ToBarType(timeframeMinutes);
@@ -60,10 +80,10 @@ public class PiootooDataFeedService : IPiootooDataFeedService
         // Calcola startDate basandosi sul timeframe per avere abbastanza dati
         var daysBack = Math.Max(30, (numberOfCandles * timeframeMinutes) / (24 * 60) + 7); // Almeno 7 giorni extra
         var startDate = endDate.AddDays(-daysBack);
-        
-        var allData = await _dataRepository.LoadDataRangeAsync(
+
+        var allData = await RepositoryFor(broker).LoadDataRangeAsync(
             symbol, startDate, endDate, barType, preferCalculated: false);
-        
+
         if (!allData.Any())
             return Array.Empty<OhlcvData>();
 

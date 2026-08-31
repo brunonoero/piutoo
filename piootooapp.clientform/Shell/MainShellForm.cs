@@ -1,4 +1,5 @@
 using Piootoo.Shared;
+using piootooapp.clientform.Shell.Screens;
 
 namespace piootooapp.clientform.Shell;
 
@@ -20,6 +21,12 @@ public partial class MainShellForm : Form, INavigationHost
     /// </summary>
     private string? _alertedServerVersion;
 
+    /// <summary>
+    /// Alza la guardia mentre è lo shell a scrivere nella combo dei workspace: senza,
+    /// riempirla farebbe scattare <see cref="OnWorkspaceComboChanged"/> per ogni voce aggiunta.
+    /// </summary>
+    private bool _suspendWorkspaceEvents;
+
     public MainShellForm()
     {
         InitializeComponent();
@@ -38,21 +45,30 @@ public partial class MainShellForm : Form, INavigationHost
         _serverUrlTextBox.Text = _services.ServerUrl;
         Text = $"Piootoo Console v{PiootooVersion.Current}";
         BuildNavigationTree();
+        _services.Workspaces.ListChanged += OnWorkspaceListChanged;
+        _services.Workspaces.Changed += OnCurrentWorkspaceChanged;
         UpdateThemeMenuCheckState();
         ApplyTheme();
         SetStatus("Pronto.");
         _ = CheckServerVersionAsync();
+        _ = ReloadWorkspacesAsync();
     }
 
     /// <summary>
-    /// Confronta la versione compilata nella console con quella dichiarata dal server e, se
-    /// differiscono, lo dice con un alert.
+    /// Confronta la versione compilata nella console con quella dichiarata dal server e, se il
+    /// <b>contratto</b> differisce, lo dice con un alert.
     ///
     /// <para>Il confronto non è tautologico anche se console e server leggono la stessa costante:
     /// la console si ricompila dalla solution mentre il server gira spesso da una cartella
     /// pubblicata a parte, che può essere di una build precedente. È esattamente il caso in cui i
     /// contratti divergono e i sintomi non parlano di versioni — campi che arrivano null, endpoint
     /// che rispondono 404, sessioni che si aprono ma non valutano nulla.</para>
+    ///
+    /// <para>Il confronto è su <c>major.minor</c>, non sul numero intero: la patch esiste per
+    /// portare una fix su una delle tre parti (server, console, cBot) senza muovere le altre, e un
+    /// popup a ogni avvio per un 3.11.0 contro 3.11.1 insegnerebbe solo a chiuderlo senza leggerlo —
+    /// che è esattamente ciò che non si vuole il giorno in cui il disallineamento è vero. Una patch
+    /// diversa si vede comunque nella barra di stato.</para>
     ///
     /// <para>Server irraggiungibile non è un errore da popup: all'avvio è normalissimo che il
     /// server non sia ancora su, quindi finisce solo nella barra di stato.</para>
@@ -87,6 +103,15 @@ public partial class MainShellForm : Form, INavigationHost
             return;
         }
 
+        if (PiootooVersion.IsSameContract(serverVersion))
+        {
+            // Stesso contratto, patch diversa: è il caso normale di una fix portata su una parte
+            // sola. Si dice, non si allarma.
+            SetStatus($"Console v{PiootooVersion.Current}, server v{serverVersion}: " +
+                      $"stesso contratto {PiootooVersion.Contract}, cambia solo la patch.");
+            return;
+        }
+
         SetError($"Versione disallineata: console v{PiootooVersion.Current}, server v{serverVersion}.");
 
         if (_alertedServerVersion == serverVersion)
@@ -98,13 +123,14 @@ public partial class MainShellForm : Form, INavigationHost
         MessageBox.Show(
             this,
             $"La console e il server non hanno la stessa versione.{Environment.NewLine}{Environment.NewLine}" +
-            $"Console : v{PiootooVersion.Current}{Environment.NewLine}" +
-            $"Server  : v{serverVersion}{Environment.NewLine}" +
+            $"Console : v{PiootooVersion.Current}  (contratto {PiootooVersion.Contract}){Environment.NewLine}" +
+            $"Server  : v{serverVersion}  (contratto {PiootooVersion.ContractOf(serverVersion)}){Environment.NewLine}" +
             $"in ascolto su {_services.ServerUrl}{Environment.NewLine}" +
             $"avviato il {info.StartedAtUtc:yyyy-MM-dd HH:mm:ss} UTC{Environment.NewLine}" +
             $"da {info.ContentRootPath}{Environment.NewLine}{Environment.NewLine}" +
-            "Di solito significa che il server gira da una build pubblicata più vecchia: i contratti " +
-            "possono differire e gli errori che ne derivano non parlano di versioni. Puoi continuare, " +
+            "Non è una differenza di patch — quella non verrebbe segnalata qui — ma di contratto: " +
+            "di solito significa che il server gira da una build pubblicata più vecchia, i contratti " +
+            "differiscono e gli errori che ne derivano non parlano di versioni. Puoi continuare, " +
             "ma se qualcosa non torna ripubblica il server prima di cercare altrove.",
             "Versioni disallineate",
             MessageBoxButtons.OK,
@@ -114,6 +140,8 @@ public partial class MainShellForm : Form, INavigationHost
     protected override void OnFormClosed(FormClosedEventArgs e)
     {
         base.OnFormClosed(e);
+        _services.Workspaces.ListChanged -= OnWorkspaceListChanged;
+        _services.Workspaces.Changed -= OnCurrentWorkspaceChanged;
         _activationCts?.Cancel();
         _activationCts?.Dispose();
         _services.Dispose();
@@ -367,6 +395,7 @@ public partial class MainShellForm : Form, INavigationHost
             // Altro indirizzo, altro processo: l'alert già mostrato non vale più per questo server.
             _alertedServerVersion = null;
             _ = CheckServerVersionAsync();
+            _ = ReloadWorkspacesAsync();
 
             if (_stack.Count > 0)
             {
@@ -377,6 +406,166 @@ public partial class MainShellForm : Form, INavigationHost
         {
             SetError(ex.Message);
         }
+    }
+
+    // --- workspace corrente ----------------------------------------------
+
+    /// <summary>
+    /// Rilegge l'elenco dei workspace dal server. È l'unico punto che lo fa per la barra: le
+    /// schermate leggono il workspace corrente da <see cref="WorkspaceSelection"/> e non
+    /// ricaricano più una propria combo.
+    /// </summary>
+    private async Task ReloadWorkspacesAsync()
+    {
+        try
+        {
+            await _services.Workspaces.RefreshAsync();
+        }
+        catch (Exception ex)
+        {
+            // Senza elenco la console resta usabile (server ancora giù all'avvio è normale): lo
+            // dice nella barra di stato e la combo resta vuota.
+            if (!IsDisposed)
+            {
+                SetError($"Elenco workspace non disponibile: {ex.Message}");
+            }
+        }
+    }
+
+    private void OnWorkspaceListChanged(object? sender, EventArgs e)
+    {
+        if (IsDisposed)
+        {
+            return;
+        }
+
+        _suspendWorkspaceEvents = true;
+        try
+        {
+            _workspaceCombo.Items.Clear();
+            foreach (var workspace in _services.Workspaces.Workspaces)
+            {
+                _workspaceCombo.Items.Add(new WorkspaceComboItem(workspace));
+            }
+
+            SelectWorkspaceInCombo(_services.Workspaces.CurrentId);
+        }
+        finally
+        {
+            _suspendWorkspaceEvents = false;
+        }
+    }
+
+    /// <summary>
+    /// Cambiato il workspace, tutto ciò che è aperto parla del precedente. Le schermate di
+    /// dettaglio sono state aperte per un'entità di quel workspace e non hanno senso qui: si torna
+    /// alla radice dello stack e la si ricarica, invece di lasciare a video un dettaglio che
+    /// appartiene a un altro contesto.
+    /// </summary>
+    private void OnCurrentWorkspaceChanged(object? sender, EventArgs e)
+    {
+        if (IsDisposed)
+        {
+            return;
+        }
+
+        _suspendWorkspaceEvents = true;
+        try
+        {
+            SelectWorkspaceInCombo(_services.Workspaces.CurrentId);
+        }
+        finally
+        {
+            _suspendWorkspaceEvents = false;
+        }
+
+        SetStatus($"Workspace corrente: {_services.Workspaces.CurrentDisplay}.");
+
+        // L'anagrafica dei workspace non è filtrata per workspace: è proprio il posto da cui la
+        // selezione cambia (creazione, eliminazione), e azzerarne lo stack butterebbe via la
+        // schermata che sta ancora eseguendo il salvataggio.
+        if (_stack.Count == 0 || _stack[0] is WorkspaceListScreen)
+        {
+            return;
+        }
+
+        while (_stack.Count > 1)
+        {
+            var top = _stack[^1];
+            _stack.RemoveAt(_stack.Count - 1);
+            _contentPanel.Controls.Remove(top);
+            top.Dispose();
+        }
+
+        var root = _stack[0];
+        root.Visible = true;
+        UpdateBreadcrumb();
+        ActivateAsync(root);
+    }
+
+    private void SelectWorkspaceInCombo(string? workspaceId)
+    {
+        for (var index = 0; index < _workspaceCombo.Items.Count; index++)
+        {
+            if (_workspaceCombo.Items[index] is WorkspaceComboItem item
+                && string.Equals(item.Info.Id, workspaceId, StringComparison.OrdinalIgnoreCase))
+            {
+                _workspaceCombo.SelectedIndex = index;
+                return;
+            }
+        }
+
+        _workspaceCombo.SelectedIndex = -1;
+    }
+
+    private void OnWorkspaceComboChanged(object? sender, EventArgs e)
+    {
+        if (_suspendWorkspaceEvents)
+        {
+            return;
+        }
+
+        var chosen = (_workspaceCombo.SelectedItem as WorkspaceComboItem)?.Info.Id;
+        if (string.Equals(chosen, _services.Workspaces.CurrentId, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        // Cambiare workspace butta via ciò che è aperto: la conferma va chiesta prima, e se la
+        // risposta è no la combo torna dov'era.
+        if (!ConfirmLeavingCurrentScreen())
+        {
+            _suspendWorkspaceEvents = true;
+            try
+            {
+                SelectWorkspaceInCombo(_services.Workspaces.CurrentId);
+            }
+            finally
+            {
+                _suspendWorkspaceEvents = false;
+            }
+
+            return;
+        }
+
+        _services.Workspaces.Select(chosen);
+    }
+
+    /// <summary>
+    /// L'anagrafica dei workspace non sta nel menu di sinistra: quel menu elenca cose *dentro* un
+    /// workspace, e filtrarlo per il workspace corrente non avrebbe senso proprio qui. È la radice,
+    /// quindi vive accanto al selettore.
+    /// </summary>
+    private void OnManageWorkspacesClick(object? sender, EventArgs e)
+    {
+        if (!ConfirmLeavingCurrentScreen())
+        {
+            return;
+        }
+
+        _navigationTree.SelectedNode = null;
+        ClearStack();
+        ShowScreen(new WorkspaceListScreen());
     }
 
     private void OnOpenLegacyConsoleClick(object? sender, EventArgs e)
@@ -404,9 +593,15 @@ public partial class MainShellForm : Form, INavigationHost
         ShowScreen(new Screens.ServerSessionMonitorScreen());
     }
 
-    private void OnRefreshCurrentScreenClick(object? sender, EventArgs e)
+    /// <summary>
+    /// F5 aggiorna anche l'elenco dei workspace: è l'unico gesto di "rileggi dal server" della
+    /// console, e la barra in alto non ha un refresh proprio. Se nel frattempo il workspace corrente
+    /// è sparito, il cambio di selezione ricarica già la schermata.
+    /// </summary>
+    private async void OnRefreshCurrentScreenClick(object? sender, EventArgs e)
     {
-        if (_stack.Count > 0)
+        await ReloadWorkspacesAsync();
+        if (!IsDisposed && _stack.Count > 0)
         {
             ActivateAsync(_stack[^1]);
         }

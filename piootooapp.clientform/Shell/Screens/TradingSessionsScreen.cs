@@ -276,35 +276,10 @@ public partial class TradingSessionsScreen : UserControl, IShellScreen
 
 
 
-            var previousWorkspace = SelectedWorkspaceId;
+            // Il workspace è quello scelto nella barra in alto: qui si legge soltanto, e tutto
+            // il resto della schermata (piani, backtest, masterfilter) viene da lì.
+            _workspaceValueLabel.Text = _context.Services.Workspaces.CurrentDisplay;
 
-            var workspaces = await _context.Services.Api.ListAsync(cancellationToken);
-
-
-
-            _suspendReload = true;
-
-            _workspaceCombo.Items.Clear();
-
-            foreach (var workspace in workspaces)
-
-            {
-
-                _workspaceCombo.Items.Add(new WorkspaceComboItem(workspace));
-
-            }
-
-
-
-            _workspaceCombo.SelectedIndex = FindWorkspaceIndex(previousWorkspace) is var index && index >= 0
-
-                ? index
-
-                : _workspaceCombo.Items.Count > 0 ? 0 : -1;
-
-
-
-            _suspendReload = false;
 
             await ReloadPlansAsync(cancellationToken);
 
@@ -312,7 +287,10 @@ public partial class TradingSessionsScreen : UserControl, IShellScreen
 
             await RefreshMasterfilterInfoAsync(cancellationToken);
 
-            _context.Navigation.SetStatus($"{workspaces.Count} workspace disponibili.");
+            _context.Navigation.SetStatus(SelectedWorkspaceId is { } currentWorkspaceId
+                ? $"Sessioni nel workspace '{currentWorkspaceId}'."
+                : "Nessun workspace selezionato: scegline uno nella barra in alto.");
+
 
         }
 
@@ -404,11 +382,12 @@ public partial class TradingSessionsScreen : UserControl, IShellScreen
 
 
 
+    // Da piano vince il workspace del piano: la sessione nasce dal suo snapshot, non dal contesto
+    // in cui la si sta aprendo.
     private string? SelectedWorkspaceId => IsFromPlan
-
         ? SelectedPlan?.WorkspaceId
+        : _context?.Services.Workspaces.CurrentId;
 
-        : (_workspaceCombo.SelectedItem as WorkspaceComboItem)?.Info.Id;
 
 
 
@@ -440,41 +419,7 @@ public partial class TradingSessionsScreen : UserControl, IShellScreen
 
 
 
-    private int FindWorkspaceIndex(string? workspaceId)
 
-    {
-
-        if (string.IsNullOrEmpty(workspaceId))
-
-        {
-
-            return -1;
-
-        }
-
-
-
-        for (var index = 0; index < _workspaceCombo.Items.Count; index++)
-
-        {
-
-            if (_workspaceCombo.Items[index] is WorkspaceComboItem item
-
-                && string.Equals(item.Info.Id, workspaceId, StringComparison.OrdinalIgnoreCase))
-
-            {
-
-                return index;
-
-            }
-
-        }
-
-
-
-        return -1;
-
-    }
 
 
 
@@ -908,11 +853,10 @@ public partial class TradingSessionsScreen : UserControl, IShellScreen
 
         _planCombo.Enabled = fromPlan;
 
-        _workspaceCombo.Enabled = !fromPlan;
-
         _workspaceLabel.Visible = !fromPlan;
 
-        _workspaceCombo.Visible = !fromPlan;
+        _workspaceValueLabel.Visible = !fromPlan;
+
 
         _derivedWorkspaceLabel.Visible = fromPlan;
 
@@ -1756,51 +1700,7 @@ public partial class TradingSessionsScreen : UserControl, IShellScreen
 
 
 
-    private async void OnWorkspaceChanged(object? sender, EventArgs e)
 
-    {
-
-        if (_context == null || _suspendReload || IsFromPlan)
-
-        {
-
-            return;
-
-        }
-
-
-
-        try
-
-        {
-
-            SetBusy(true);
-
-            await ReloadPlansAsync(CancellationToken.None);
-
-            await ReloadBacktestsAsync(CancellationToken.None);
-
-            await RefreshMasterfilterInfoAsync(CancellationToken.None);
-
-        }
-
-        catch (Exception ex)
-
-        {
-
-            _context.Navigation.SetError(ex.Message);
-
-        }
-
-        finally
-
-        {
-
-            SetBusy(false);
-
-        }
-
-    }
 
 
 
@@ -1904,17 +1804,13 @@ public partial class TradingSessionsScreen : UserControl, IShellScreen
 
 
 
-        if (_workspaceCombo.SelectedItem is not WorkspaceComboItem workspace)
-
+        if (_context.Services.Workspaces.Current is not { } workspace)
         {
-
-            MessageBox.Show(this, "Seleziona un workspace.", "Sessioni di trading",
-
+            MessageBox.Show(this, "Seleziona un workspace nella barra in alto.", "Sessioni di trading",
                 MessageBoxButtons.OK, MessageBoxIcon.Warning);
-
             return;
-
         }
+
 
 
 
@@ -1986,7 +1882,8 @@ public partial class TradingSessionsScreen : UserControl, IShellScreen
 
             SetBusy(true);
 
-            var masterFilter = await _context.Services.Api.GetMasterFilterAsync(workspace.Info.Id);
+            var masterFilter = await _context.Services.Api.GetMasterFilterAsync(workspace.Id);
+
 
             if (masterFilter.StrategiesFilter.Count == 0)
 
@@ -2008,7 +1905,8 @@ public partial class TradingSessionsScreen : UserControl, IShellScreen
 
             {
 
-                WorkspaceId = workspace.Info.Id,
+                WorkspaceId = workspace.Id,
+
 
                 ExecutionMode = executionMode,
 

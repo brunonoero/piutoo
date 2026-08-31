@@ -155,6 +155,31 @@ public sealed class WorkspaceController(
     }
 
     /// <summary>
+    /// Gli artefatti del run impacchettati per un confronto, già rinominati con lo slug del tipo
+    /// (<c>trades-interno-futures.json</c> e simili). Il nome dell'archivio arriva nel
+    /// <c>Content-Disposition</c>, e lo slug anche in <c>X-Run-Slug</c> perché al client serve
+    /// prima di aprire lo zip.
+    ///
+    /// <para><c>409</c> quando il run non dichiara motore e serie di prezzi: è una cartella
+    /// prodotta prima del marcatore, e un artefatto senza tipo in un confronto è peggio che
+    /// assente.</para>
+    /// </summary>
+    [HttpGet("{workspaceId}/backtests/{backtestFolder}/compare-export")]
+    public IActionResult ExportBacktestForCompare(string workspaceId, string backtestFolder)
+    {
+        try
+        {
+            var bundle = workspaceService.CreateCompareExport(workspaceId, backtestFolder);
+            Response.Headers["X-Run-Slug"] = bundle.RunSlug;
+            return File(bundle.Content, "application/zip", bundle.FileName);
+        }
+        catch (DirectoryNotFoundException exception) { return NotFound(new { error = exception.Message }); }
+        catch (FileNotFoundException exception) { return NotFound(new { error = exception.Message }); }
+        catch (InvalidOperationException exception) { return Conflict(new { error = exception.Message }); }
+        catch (ArgumentException exception) { return BadRequest(new { error = exception.Message }); }
+    }
+
+    /// <summary>
     /// Genera il report HTML di un backtest che non ne ha uno proprio: i run dell'engine esterno,
     /// che archiviano i trade ma non il report, e i run interni interrotti prima degli artefatti.
     /// Il report è ricostruito dal <c>trades.json</c> della cartella ed è lo stesso dei run interni.

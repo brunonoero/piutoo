@@ -27,13 +27,9 @@ partial class PlanListScreen
         this._colMaxConcurrent = new System.Windows.Forms.DataGridViewTextBoxColumn();
         this._colRotationStatus = new System.Windows.Forms.DataGridViewTextBoxColumn();
         this._colUpdated = new System.Windows.Forms.DataGridViewTextBoxColumn();
-        this._workspacePanel = new System.Windows.Forms.TableLayoutPanel();
-        this._workspaceLabel = new System.Windows.Forms.Label();
-        this._workspaceCombo = new System.Windows.Forms.ComboBox();
         this._toolbar = new piootooapp.clientform.Shell.Controls.EntityToolbar();
         ((System.ComponentModel.ISupportInitialize)(this._bindingSource)).BeginInit();
         ((System.ComponentModel.ISupportInitialize)(this._grid)).BeginInit();
-        this._workspacePanel.SuspendLayout();
         this.SuspendLayout();
         // 
         // _grid
@@ -118,43 +114,6 @@ partial class PlanListScreen
         this._colUpdated.Name = "_colUpdated";
         this._colUpdated.ReadOnly = true;
         // 
-        // _workspacePanel
-        // 
-        this._workspacePanel.AutoSize = true;
-        this._workspacePanel.ColumnCount = 2;
-        this._workspacePanel.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle());
-        this._workspacePanel.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 100F));
-        this._workspacePanel.Controls.Add(this._workspaceLabel, 0, 0);
-        this._workspacePanel.Controls.Add(this._workspaceCombo, 1, 0);
-        this._workspacePanel.Dock = System.Windows.Forms.DockStyle.Top;
-        this._workspacePanel.Location = new System.Drawing.Point(0, 44);
-        this._workspacePanel.Name = "_workspacePanel";
-        this._workspacePanel.Padding = new System.Windows.Forms.Padding(12, 0, 12, 6);
-        this._workspacePanel.RowCount = 1;
-        this._workspacePanel.RowStyles.Add(new System.Windows.Forms.RowStyle());
-        this._workspacePanel.Size = new System.Drawing.Size(900, 36);
-        this._workspacePanel.TabIndex = 1;
-        // 
-        // _workspaceLabel
-        // 
-        this._workspaceLabel.Anchor = System.Windows.Forms.AnchorStyles.Left;
-        this._workspaceLabel.AutoSize = true;
-        this._workspaceLabel.Margin = new System.Windows.Forms.Padding(3, 0, 8, 0);
-        this._workspaceLabel.Name = "_workspaceLabel";
-        this._workspaceLabel.Size = new System.Drawing.Size(70, 15);
-        this._workspaceLabel.TabIndex = 0;
-        this._workspaceLabel.Text = "Workspace";
-        // 
-        // _workspaceCombo
-        // 
-        this._workspaceCombo.Anchor = System.Windows.Forms.AnchorStyles.Left;
-        this._workspaceCombo.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
-        this._workspaceCombo.Margin = new System.Windows.Forms.Padding(3, 4, 3, 4);
-        this._workspaceCombo.Name = "_workspaceCombo";
-        this._workspaceCombo.Size = new System.Drawing.Size(320, 23);
-        this._workspaceCombo.TabIndex = 1;
-        this._workspaceCombo.SelectedIndexChanged += new System.EventHandler(this.OnWorkspaceChanged);
-        // 
         // _toolbar
         // 
         this._toolbar.CreateButtonText = "Nuovo piano";
@@ -175,14 +134,11 @@ partial class PlanListScreen
         this.AutoScaleDimensions = new System.Drawing.SizeF(7F, 15F);
         this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
         this.Controls.Add(this._grid);
-        this.Controls.Add(this._workspacePanel);
         this.Controls.Add(this._toolbar);
         this.Name = "PlanListScreen";
         this.Size = new System.Drawing.Size(900, 500);
         ((System.ComponentModel.ISupportInitialize)(this._bindingSource)).EndInit();
         ((System.ComponentModel.ISupportInitialize)(this._grid)).EndInit();
-        this._workspacePanel.ResumeLayout(false);
-        this._workspacePanel.PerformLayout();
         this.ResumeLayout(false);
         this.PerformLayout();
     }
@@ -197,8 +153,5 @@ partial class PlanListScreen
     private System.Windows.Forms.DataGridViewTextBoxColumn _colMaxConcurrent;
     private System.Windows.Forms.DataGridViewTextBoxColumn _colRotationStatus;
     private System.Windows.Forms.DataGridViewTextBoxColumn _colUpdated;
-    private System.Windows.Forms.TableLayoutPanel _workspacePanel;
-    private System.Windows.Forms.Label _workspaceLabel;
-    private System.Windows.Forms.ComboBox _workspaceCombo;
     private piootooapp.clientform.Shell.Controls.EntityToolbar _toolbar;
 }

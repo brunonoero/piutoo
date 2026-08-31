@@ -13,7 +13,13 @@ public sealed class WorkspaceRow
     public int StrategiesCount { get; set; }
 }
 
-/// <summary>Elenco dei workspace. Il masterfilter si modifica nel dettaglio.</summary>
+/// <summary>
+/// Elenco dei workspace. Il masterfilter si modifica nel dettaglio.
+///
+/// <para>Non è una voce del menu di sinistra: quel menu elenca cose che stanno *dentro* un
+/// workspace e sono filtrate dal workspace corrente. Questa è la radice, e si apre da "Gestisci
+/// workspace…" accanto al selettore in alto.</para>
+/// </summary>
 public partial class WorkspaceListScreen : UserControl, IShellScreen
 {
     private readonly List<WorkspaceRow> _allRows = new();
@@ -160,6 +166,7 @@ public partial class WorkspaceListScreen : UserControl, IShellScreen
         try
         {
             await _context.Services.Api.DeleteAsync(row.Id);
+            await _context.Services.Workspaces.RefreshAsync();
             _context.Navigation.SetStatus($"Workspace '{row.Name}' eliminato.");
         }
         catch (Exception ex)

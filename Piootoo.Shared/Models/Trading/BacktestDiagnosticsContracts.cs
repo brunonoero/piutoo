@@ -252,6 +252,18 @@ public sealed class BacktestRunSummary
     public int OpenPositionsAtEnd { get; set; }
 
     /// <summary>
+    /// Quanti ingressi il motore ha scartato perche' il livello era gia' oltrepassato quando
+    /// l'ordine nasceva (<c>RejectWrongSideLevels</c>).
+    ///
+    /// <para>Il contatore esisteva gia' sul motore e finiva solo in <c>backtest-log.jsonl</c>: qui
+    /// serve perche' e' il numero da mettere accanto a quello del cBot, che nel confronto
+    /// 2026-08-28 scartava 3.401 ingressi per lo stesso motivo. Il filtro e' acceso da entrambe le
+    /// parti ma decide su dati diversi — il motore sull'apertura della barra, il bot su Bid/Ask
+    /// live — e la differenza fra i due conteggi e' la selezione di trade che diverge.</para>
+    /// </summary>
+    public int WrongSideLevelsRejected { get; set; }
+
+    /// <summary>
     /// Cosa il conto simulato permetteva di tenere, e a che ora tagliava.
     ///
     /// <para>Sta nel summary perche' e' una regola che cambia i risultati senza comparire nei
@@ -260,6 +272,16 @@ public sealed class BacktestRunSummary
     /// policy esistesse.</para>
     /// </summary>
     public AccountHoldingPolicy? Holding { get; init; }
+
+    /// <summary>
+    /// Archivio di barre da cui il run ha letto: null = datafeed interno, altrimenti il nome del
+    /// broker sotto <c>datafeed-external</c>.
+    ///
+    /// <para>Sta qui per lo stesso motivo di <see cref="Holding"/>: cambia i risultati senza
+    /// comparire nei trade. Due run identici su feed diversi divergono sui riempimenti — sono
+    /// candele chiuse su prezzi diversi — e chi li rilegge non ha altro modo di saperlo.</para>
+    /// </summary>
+    public string? DatafeedBroker { get; init; }
 
     public string Outcome { get; set; } = "Unknown";
     public string? ErrorMessage { get; set; }

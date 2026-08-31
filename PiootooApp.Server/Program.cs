@@ -8,6 +8,15 @@ using Piootoo.Shared.Configuration;
 // PiootooVersion — e vederle entrambe nei log è l'unico modo per accorgersi di un disallineamento.
 Console.WriteLine($"[Piootoo] Server v{PiootooVersion.Current} — avvio.");
 
+// Registrazione completa degli intent in signals.json. Il default tiene solo i riempiti, che su
+// un run normale sono il 2-3% dei record; ma quando si indaga PERCHE' gli ordini non si riempiono
+// e' proprio il resto che serve, e finche' era una costante bisognava ricompilare per averlo.
+if (Environment.GetEnvironmentVariable("PIOOTOO_PERSIST_ALL_INTENTS") is "1" or "true" or "TRUE")
+{
+    Piootoo.Core.Services.TradingSessionService.PersistOnlyFilledIntents = false;
+    Console.WriteLine("[Piootoo] PIOOTOO_PERSIST_ALL_INTENTS attivo: signals.json conterra' TUTTI gli intent.");
+}
+
 var builder = WebApplication.CreateBuilder(args);
 
 // Istanza costruita subito, non risolta pigramente: cattura l'avvio del processo. Vedi ServerRuntime.
@@ -30,6 +39,9 @@ builder.Services.AddSingleton<PiootooSettings>(sp =>
 // I servizi usati da BacktestingService/OptimizationService devono essere Singleton
 // per permettere il mantenimento dei job in memoria
 builder.Services.AddSingleton<IPiootooSettingsService, PiootooSettingsService>();
+// Unico punto che traduce "broker" in una radice del datafeed: interno (datafeed/) oppure
+// datafeed-external/{BROKER}/. Vedi DatafeedCatalog.
+builder.Services.AddSingleton<IDatafeedCatalog, DatafeedCatalog>();
 builder.Services.AddSingleton<IPiootooDataFeedService, PiootooDataFeedService>();
 // NB: questa istanza è condivisa. Il backtesting NON la usa: crea un motore per job, perché
 // PiootooTradingService è mutabile e due backtest concorrenti si corromperebbero a vicenda.

@@ -238,8 +238,14 @@ public partial class ServerSessionMonitorScreen : UserControl, IShellScreen
 
         if (_serverVersion is { } v)
         {
+            // Allineato = stesso contratto major.minor. La patch diversa si dice, ma non è un
+            // disallineamento: serve proprio a portare una fix su una parte sola.
             header.AppendLine($"versione server   : v{v.Version}"
-                + (v.Version == PiootooVersion.Current ? "  (allineata)" : "  >>> DISALLINEATA <<<"));
+                + (v.Version == PiootooVersion.Current
+                    ? "  (allineata)"
+                    : PiootooVersion.IsSameContract(v.Version)
+                        ? $"  (contratto {PiootooVersion.Contract} allineato, patch diversa)"
+                        : "  >>> DISALLINEATA <<<"));
             header.AppendLine($"server avviato il : {v.StartedAtUtc:yyyy-MM-dd HH:mm:ss} UTC");
             header.AppendLine($"server gira da    : {v.ContentRootPath}  [{v.Environment}]");
         }

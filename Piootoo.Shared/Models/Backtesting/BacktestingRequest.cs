@@ -21,6 +21,22 @@ public class BacktestingRequest
     public decimal InitialCapital { get; set; }
     public decimal CommissionPerContract { get; set; } = 2.0m;
     public string Name { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Da quale archivio di barre legge il run. <b>Null o vuoto = datafeed interno</b>
+    /// (<c>piootoo-repository/datafeed</c>); altrimenti il nome della cartella broker sotto
+    /// <c>piootoo-repository/datafeed-external</c>, es. <c>RAWTRADINGLTD</c>.
+    ///
+    /// <para>Un run legge da <b>una sola</b> radice: le due strutture hanno lo stesso formato ma non
+    /// gli stessi prezzi — l'interno viene dai CSV del vendor, l'esterno dalle barre che il broker
+    /// ha davvero chiuso — e un backtest a cavallo delle due non corrisponderebbe a nessun conto.
+    /// Per lo stesso motivo il valore finisce in <c>backtest-summary.json</c>: due run su feed
+    /// diversi non sono confrontabili, e mesi dopo non c'e' altro modo di accorgersene.</para>
+    ///
+    /// <para>Un broker inesistente fa fallire l'avvio: vale la stessa regola del datafeed mancante,
+    /// mai proseguire in silenzio.</para>
+    /// </summary>
+    public string? DatafeedBroker { get; set; }
     /// <summary>
     /// Cosa il conto simulato permette di tenere — la notte, il fine settimana — e a che ora taglia
     /// quando non lo permette.
@@ -41,6 +57,16 @@ public class BacktestingRequest
     /// all'apertura.
     /// </summary>
     public bool RejectWrongSideLevels { get; set; } = true;
+
+    /// <summary>
+    /// Slippage in punti sul riempimento degli stop protettivi, per simbolo. Null o vuoto =
+    /// nessuno slippage, che e' il comportamento storico del motore.
+    ///
+    /// <para>Vedi <c>PiootooTradingService.StopFillSlippagePoints</c> per la misura da cui
+    /// escono i valori e per il motivo per cui sono un parametro del run e non una costante:
+    /// dipendono dal broker e dal periodo.</para>
+    /// </summary>
+    public Dictionary<string, decimal>? StopFillSlippagePoints { get; set; }
 
     /// <summary>
     /// Quanto deve migliorare il picco favorevole prima che il trailing lo segua, in frazione

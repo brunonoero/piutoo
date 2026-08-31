@@ -49,7 +49,7 @@ client WinForms, `net9.0-windows` per il progetto di test. Test con xUnit +
 | `Piootoo.FeedWorker` | Worker che alimenta le sessioni live con barre chiuse. |
 | `piootooapp.clientform` | Console WinForms. Client HTTP puro. Due interfacce: la nuova `Shell/MainShellForm` (menu a sinistra, lista → dettaglio, schermate designer-first) e la storica `WorkspaceBacktestingForm` a tab, raggiungibile da *File → Console legacy*. |
 | `piootooapp.client` | SPA Angular, scollegata dal debug F5. |
-| `piootoo-repository/` | Dati fuori dal codice: `datafeed/` (JSON OHLCV), `ctrader/` (sorgenti cBot), `easy/` (sorgenti EasyLanguage), `datafeed-downloader/` (Python). |
+| `piootoo-repository/` | Dati fuori dal codice: `datafeed/` (JSON OHLCV), `datafeed-external/{BROKER}/` (le stesse barre raccolte dai bot cTrader, un archivio per broker), `ctrader/` (sorgenti cBot), `easy/` (sorgenti EasyLanguage), `datafeed-downloader/` (Python). |
 
 I controller non contengono logica: traducono eccezioni in `ProblemDetails` e
 delegano ai servizi di `Piootoo.Core`.
@@ -100,6 +100,13 @@ sbaglia più spesso:
 - **Datafeed mancante = errore esplicito.** Se una coppia `(Symbol, Timeframe)`
  del masterfilter non ha dati, il backtest deve fallire o segnalarlo, mai
  proseguire in silenzio.
+- **Un run legge da un archivio di barre solo.** Il backtest sceglie il datafeed interno
+ (`datafeed/`) oppure quello di un broker (`datafeed-external/{BROKER}/`): stessa struttura,
+ prezzi diversi, e un run a cavallo delle due non corrisponde a nessun conto. `DatafeedCatalog`
+ e' l'unico punto che traduce un broker in un path, `BacktestingRequest.DatafeedBroker` lo
+ sceglie (null = interno) e `backtest-summary.json` lo dichiara: due run su feed diversi non
+ sono confrontabili. Un broker inesistente fa fallire l'avvio, non ripiega sull'interno.
+ Vedi `docs/domini/datafeed-generazione.md`.
 - **In sessione `ExternalBroker` la storia è solo quella che il client spinge.**
  Il server non ha datafeed proprio e `StrategyEvaluationService` salta in
  silenzio finché `history.Count < RequiredCandles` (per una strategia a 15

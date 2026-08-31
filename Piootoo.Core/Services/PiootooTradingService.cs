@@ -76,6 +76,28 @@ public class PiootooTradingService : IPiootooTradingService
     public decimal TrailingMinStepFraction { get; set; } = 0.10m;
 
     /// <summary>
+    /// Slippage in punti applicato al riempimento di uno stop protettivo, per simbolo. Vuoto =
+    /// nessuno slippage, che e' il comportamento storico.
+    ///
+    /// <para><b>Perche' serve.</b> L'engine riempiva ogni stop esattamente al proprio livello. Sui
+    /// 1.312 eventi <c>Stop Loss Hit</c> del confronto compare-008 il conto vero riempie <b>peggio
+    /// del livello nel 97% dei casi</b>, per 190.339 dollari su dieci mesi: e' la voce singola piu'
+    /// grande del divario fra backtest e conto, e non era modellata affatto.</para>
+    ///
+    /// <para><b>Valori misurati</b> (media per stop, gia' in punti dello strumento), da cTrader su
+    /// conto IC Markets, CFD: <c>NQ 9,00</c> · <c>YM 13,20</c> · <c>FDAX 5,44</c> · <c>ES 1,90</c>
+    /// · <c>PL 1,30</c> · <c>GC 0,90</c> · <c>CL 0,046</c> · <c>NG 0,0027</c>. Sono medie, non
+    /// mediane: la distribuzione ha una coda lunga (su NQ la mediana e' 3,70 punti ma il p90 e'
+    /// 20,35) e la media e' cio' che serve perche' l'<i>equity</i> torni. Un modello che debba
+    /// riprodurre anche il drawdown deve estrarre dalla distribuzione, non applicare una costante.</para>
+    ///
+    /// <para>Sono valori di un broker e di un periodo: vanno ricalibrati quando cambia l'uno o
+    /// l'altro, ed e' per questo che stanno in un parametro e non in una costante del motore.</para>
+    /// </summary>
+    public Dictionary<string, decimal> StopFillSlippagePoints { get; } =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
     /// Scarta un pending il cui livello e' gia' oltrepassato quando l'ordine nasce: uno stop buy
     /// sotto il prezzo, uno stop sell sopra, e i due casi speculari per il limit.
     ///
@@ -857,23 +879,36 @@ public class PiootooTradingService : IPiootooTradingService
     /// barra di mark; uno spike dentro la barra resta invisibile alle sole OHLC, ed e' li' che
     /// sta la maggior parte delle perdite oltre lo stop del confronto.</para>
     /// </summary>
-    private static decimal ProtectiveFillPrice(
+    private decimal ProtectiveFillPrice(
         OpenPosition position,
         OhlcvData? currentBar,
         DateTime currentTime,
         decimal level,
         TradeExitReason reason)
     {
-        if (currentBar is null ||
-            reason != TradeExitReason.StopLoss ||
-            position.EntryTime == currentTime)
+        var fill = level;
+
+        // Il gap vale solo per lo stop originale (vedi sopra) e mai sulla barra d'ingresso.
+        if (currentBar is not null &&
+            reason == TradeExitReason.StopLoss &&
+            position.EntryTime != currentTime)
         {
-            return level;
+            fill = position.Direction == SignalType.Buy
+                ? Math.Min(fill, currentBar.Open)
+                : Math.Max(fill, currentBar.Open);
         }
 
-        return position.Direction == SignalType.Buy
-            ? Math.Min(level, currentBar.Open)
-            : Math.Max(level, currentBar.Open);
+        // Lo slippage vale invece per OGNI stop protettivo — originale, trascinato o a break-even —
+        // perche' il broker li esegue tutti allo stesso modo e la misura da cui esce non li
+        // distingue: cAlgo dice "Stop Loss Hit" per tutti e tre.
+        if (!string.IsNullOrEmpty(position.Symbol) &&
+            StopFillSlippagePoints.TryGetValue(position.Symbol, out var slippage) &&
+            slippage > 0m)
+        {
+            fill = position.Direction == SignalType.Buy ? fill - slippage : fill + slippage;
+        }
+
+        return fill;
     }
 
     public BacktestingResult ApplyStrategyFilter(BacktestingResult result, List<string> enabledStrategies, Dictionary<string, decimal> multipliers)

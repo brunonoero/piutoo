@@ -28,10 +28,29 @@ alwaysApply: false
   indice nella collezione resta valida: `SelectedRow` può continuare a leggere
   `_visibleRows[_grid.CurrentRow.Index]`.
 
+## Il workspace non si sceglie in una schermata
+
+- Il workspace corrente è **contesto della console**, non un filtro della singola schermata: sta
+  nella barra in alto e si legge da `_context.Services.Workspaces` (`CurrentId`, `Current`,
+  `CurrentDisplay`). Nessuna schermata popola una propria combo di workspace, e nessuna rilegge
+  `Api.ListAsync()` per farlo.
+- Cambiando workspace è lo shell a ricaricare: torna alla radice dello stack e la riattiva. Una
+  schermata non si iscrive all'evento e non deve accorgersene — le basta rileggere `CurrentId` a
+  ogni `LoadAsync`.
+- Senza workspace (`CurrentId == null`) la schermata non carica nulla e lo **dice**: «Nessun
+  workspace selezionato: scegline uno nella barra in alto». Non è un errore.
+- Dove il workspace conta come dichiarazione — avvio di un backtest, nuova rotazione, dettaglio
+  piano, apertura sessione — resta a video come **etichetta in sola lettura**: dice dove finiranno
+  gli artefatti senza tornare a essere una scelta.
+- L'anagrafica dei workspace (`WorkspaceListScreen`) **non è una voce del menu di sinistra**: quel
+  menu elenca cose che stanno dentro un workspace. Si apre da "Gestisci workspace…", accanto al
+  selettore. Chi crea o elimina un workspace chiama `Workspaces.RefreshAsync()`.
+
 ## Attesa
 
 - Ogni chiamata al server passa da `SetBusy(true/false)` in un `try/finally`, **anche i ricarichi
-  parziali** — il cambio di workspace è il percorso più lento e il più facile da dimenticare.
+  parziali** — un elenco che si rilegge per intero è il percorso più lento e il più facile da
+  dimenticare.
 - Il cursore di attesa si imposta con `UseWaitCursor` sulla schermata, mai con `Cursor` su una
   barra dei comandi: `Cursor` non si propaga oltre i figli del controllo su cui è impostato.
 - Lo stato si scrive **prima** della `await`, non solo alla fine: altrimenti durante il

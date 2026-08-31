@@ -122,3 +122,17 @@ Desktop.ini
 # Local application state
 /piootoo-repository/settings/
 /piootoo-repository/workspaces/
+
+# Confronti backtest/live: si versiona cosa dice il confronto (`esito.md`) e le schede
+# dei run che lo compongono (`backtest-summary*.json`, `origin.json`, `run-*.json`, tutti
+# piccoli). Restano fuori gli artefatti copiati - trades, signals, rotation-log, export
+# cTrader - che pesano centinaia di MB e si riproducono riesportando il run. Come sopra,
+# le eccezioni servono anche per le cartelle: senza `!.../**/` git non entra nelle
+# sottocartelle escluse e i `!` sui file non verrebbero mai valutati.
+/piootoo-repository/compare/**
+!/piootoo-repository/compare/**/
+!/piootoo-repository/compare/confronta-trades.py
+!/piootoo-repository/compare/**/*.md
+!/piootoo-repository/compare/**/backtest-summary*.json
+!/piootoo-repository/compare/**/origin.json
+!/piootoo-repository/compare/**/run-*.json

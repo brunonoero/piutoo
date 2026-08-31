@@ -15,6 +15,17 @@ public sealed class DatafeedApiClient : ApiClientBase
     }
 
     /// <summary>
+    /// Broker con un archivio esterno in <c>piootoo-repository/datafeed-external</c>. Il datafeed
+    /// interno non è nell'elenco: è l'assenza di broker.
+    /// </summary>
+    public Task<List<DatafeedBrokerInfo>> ListBrokersAsync(CancellationToken cancellationToken = default)
+        => SendForAsync<List<DatafeedBrokerInfo>>(
+            HttpMethod.Get,
+            "api/Datafeed/brokers",
+            null,
+            cancellationToken);
+
+    /// <summary>
     /// Ultime <paramref name="sessions"/> sessioni di mercato per il simbolo, nel timeframe
     /// indicato da <paramref name="barType"/> (<c>OneMinute</c>, <c>OneHour</c>, <c>Daily</c>…).
     /// </summary>

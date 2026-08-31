@@ -27,8 +27,6 @@ partial class BacktestListScreen
         this._colResultsCount = new System.Windows.Forms.DataGridViewTextBoxColumn();
         this._colRange = new System.Windows.Forms.DataGridViewTextBoxColumn();
         this._filterPanel = new System.Windows.Forms.FlowLayoutPanel();
-        this._workspaceLabel = new System.Windows.Forms.Label();
-        this._workspaceCombo = new System.Windows.Forms.ComboBox();
         this._originLabel = new System.Windows.Forms.Label();
         this._originCombo = new System.Windows.Forms.ComboBox();
         this._toolbar = new piootooapp.clientform.Shell.Controls.EntityToolbar();
@@ -110,8 +108,6 @@ partial class BacktestListScreen
         // _filterPanel
         //
         this._filterPanel.AutoSize = true;
-        this._filterPanel.Controls.Add(this._workspaceLabel);
-        this._filterPanel.Controls.Add(this._workspaceCombo);
         this._filterPanel.Controls.Add(this._originLabel);
         this._filterPanel.Controls.Add(this._originCombo);
         this._filterPanel.Dock = System.Windows.Forms.DockStyle.Top;
@@ -121,25 +117,6 @@ partial class BacktestListScreen
         this._filterPanel.Size = new System.Drawing.Size(900, 38);
         this._filterPanel.TabIndex = 1;
         this._filterPanel.WrapContents = false;
-        //
-        // _workspaceLabel
-        //
-        this._workspaceLabel.Anchor = System.Windows.Forms.AnchorStyles.Left;
-        this._workspaceLabel.AutoSize = true;
-        this._workspaceLabel.Margin = new System.Windows.Forms.Padding(3, 6, 8, 0);
-        this._workspaceLabel.Name = "_workspaceLabel";
-        this._workspaceLabel.Size = new System.Drawing.Size(70, 15);
-        this._workspaceLabel.TabIndex = 0;
-        this._workspaceLabel.Text = "Workspace";
-        //
-        // _workspaceCombo
-        //
-        this._workspaceCombo.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
-        this._workspaceCombo.Margin = new System.Windows.Forms.Padding(3, 2, 3, 3);
-        this._workspaceCombo.Name = "_workspaceCombo";
-        this._workspaceCombo.Size = new System.Drawing.Size(320, 23);
-        this._workspaceCombo.TabIndex = 1;
-        this._workspaceCombo.SelectedIndexChanged += new System.EventHandler(this.OnWorkspaceChanged);
         //
         // _originLabel
         //
@@ -202,8 +179,6 @@ partial class BacktestListScreen
     private System.Windows.Forms.DataGridViewTextBoxColumn _colResultsCount;
     private System.Windows.Forms.DataGridViewTextBoxColumn _colRange;
     private System.Windows.Forms.FlowLayoutPanel _filterPanel;
-    private System.Windows.Forms.Label _workspaceLabel;
-    private System.Windows.Forms.ComboBox _workspaceCombo;
     private System.Windows.Forms.Label _originLabel;
     private System.Windows.Forms.ComboBox _originCombo;
     private piootooapp.clientform.Shell.Controls.EntityToolbar _toolbar;

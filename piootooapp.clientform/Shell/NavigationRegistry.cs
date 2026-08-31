@@ -44,7 +44,9 @@ public static class NavigationRegistry
             "Anagrafiche",
             new NavigationEntry("Account", () => new AccountListScreen()),
             new NavigationEntry("Gruppi", () => new GroupListScreen()),
-            new NavigationEntry("Workspace", () => new WorkspaceListScreen()),
+            // Il workspace non è qui di proposito: tutto ciò che questo menu elenca vive *dentro*
+            // il workspace corrente, e l'anagrafica dei workspace non può essere filtrata per sé
+            // stessa. Si apre da "Gestisci workspace…" accanto al selettore, in alto.
             new NavigationEntry("Piani di trading", () => new PlanListScreen()),
             new NavigationEntry("Strategie", () => new StrategyListScreen()),
             new NavigationEntry("Conversioni simbolo", () => new SymbolConversionListScreen()),

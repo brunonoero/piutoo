@@ -1,4 +1,4 @@
-﻿# Decisioni
+# Decisioni
 
 Log breve delle scelte fatte e del perché. Una riga (o poche righe) per voce,
 in ordine cronologico. Non è un changelog di codice: quello resta nei commit.
@@ -2222,3 +2222,88 @@ così rigenerare sostituisce invece di accumulare.
 `POST api/Workspace/{ws}/backtests/{cartella}/report` genera, il `GET` di sempre serve il file.
 Verificato su `pts-02/ftmo-trial-01-bt-20250716000000`: 280 trade, 18 strategie, profit -13.590,60
 e max drawdown 115.469,00 (61,88%), identici al ricalcolo indipendente sullo stesso `trades.json`.
+
+
+- **2026-08-31** — Il backtest sceglie **da quale archivio di barre legge**: il datafeed interno
+  (`piootoo-repository/datafeed/`) oppure quello di un broker, sotto
+  `piootoo-repository/datafeed-external/{BROKER}/`. Prima la radice era una sola, fissata in
+  `PiootooSettings.RepositoryPath`, e le barre raccolte dal bot cTrader non erano confrontabili con
+  quelle del vendor senza scambiare le cartelle a mano fra un run e l'altro.
+
+  Le due strutture hanno lo stesso formato — file piatti `@SYM_{minuti}.json` più `feed-clocks.json` —
+  quindi `DataSourceRepository` non sa quale delle due sta leggendo: cambia solo la radice, e a
+  deciderla è `DatafeedCatalog`, unico punto che traduce un nome di broker in un path (e che quindi
+  può rifiutare quello che path non è). `PiootooDataFeedService` tiene un repository per radice,
+  perché ricrearlo significherebbe rileggere `feed-clocks.json` per ogni datasource del run.
+
+  Un run legge da **una sola** radice: due broker chiudono le stesse candele su prezzi diversi, e un
+  backtest a cavallo delle due non corrisponderebbe ad alcun conto. Per lo stesso motivo
+  `BacktestingRequest.DatafeedBroker` finisce in `backtest-summary.json` accanto a `holding`: è una
+  scelta che cambia i risultati senza comparire nei trade. Null = interno, sempre, così i run e le
+  richieste già scritte non cambiano comportamento.
+
+  Un broker inesistente **fa fallire l'avvio** prima ancora che la cartella di output venga creata:
+  è la stessa regola del datafeed mancante, mai proseguire in silenzio ripiegando sull'interno.
+- **2026-08-31** — **Il workspace è contesto della console, non un filtro di ogni schermata.** È
+  scelto una volta nella barra in alto (`WorkspaceSelection` in `piootooapp.clientform/Shell/`) e
+  vale per tutte: liste backtest, piani, run Titano, avvio backtest, rotazione, sessioni e verifica
+  concorrenza non hanno più una combo propria. Prima ognuna rileggeva l'elenco dal server e chiedeva
+  di nuovo la stessa scelta, e due schermate potevano puntare a workspace diversi senza che nulla lo
+  dicesse.
+
+  Cambiare workspace ricarica la schermata aperta e chiude gli eventuali dettagli: erano stati
+  aperti per un'entità di un altro workspace. Dove il workspace resta rilevante da leggere — avvio
+  di un backtest, nuova rotazione, dettaglio piano, sessione diretta — resta a video come etichetta
+  in sola lettura: dice dove finiranno gli artefatti senza tornare a essere una scelta.
+
+  **L'anagrafica dei workspace esce dal menu di sinistra** e diventa "Gestisci workspace…" accanto
+  al selettore: quel menu elenca cose che stanno *dentro* un workspace, e l'unica voce che non può
+  essere filtrata per il workspace corrente è proprio la radice. Creare o eliminare un workspace
+  aggiorna il selettore, e la schermata di anagrafica è l'unica che un cambio di selezione non
+  azzera — è il posto da cui quel cambio arriva.
+
+- **2026-08-31** — **La versione è `major.minor.patch`, il contratto è `major.minor`** (3.11.1).
+  Console e cBot confrontano con il server solo il contratto: una patch diversa non è un
+  disallineamento, si legge nella barra di stato e non apre alcun popup. Serve a portare una fix su
+  una delle tre parti senza obbligare le altre a muoversi — in particolare senza ricompilare e
+  ridistribuire i cBot su ogni macchina per un numero che per loro non cambia nulla.
+  `VersioneDelProgettoTests` verifica di conseguenza: costante e `VersionPrefix` devono coincidere
+  esattamente (stessa build), il sorgente del cBot deve dichiarare almeno lo stesso contratto. Un
+  salto di minor resta un disallineamento vero, e continua ad avvisare.
+
+- **2026-08-31** — I confronti fra run hanno **tre tipi di backtest** con un nome ciascuno, e il
+  nome sta nel file: `cbot-cfd-{BROKER}` (bot cTrader, barre CFD del broker), `interno-futures`
+  (engine interno, `datafeed/`), `interno-cfd-{BROKER}` (engine interno,
+  `datafeed-external/{BROKER}/`). Gli artefatti si chiamano `<artefatto>-<slug>.json`.
+
+  Serviva perché motore e feed cambiano insieme senza che si veda: `compare-0012` metteva a
+  confronto `tradesinternal.json` e `trades-rxternal.json`, e da quei nomi non si capiva né che il
+  secondo era il bot cTrader (non un run interno su feed di broker) né su quale broker girava —
+  ICS, mentre l'unico archivio esterno su disco è RAWTRADINGLTD. Un run del cBot su un broker e un
+  run interno sul feed di un altro non sono confrontabili, e il nome ora lo dice prima che
+  qualcuno sommi i due totali.
+
+  Il broker entra nel nome ogni volta che il feed è CFD, per la stessa ragione per cui
+  `backtest-summary.json` dichiara `datafeedBroker`. Convenzione e trappole di misura in
+  `piootoo-repository/compare/README.md`.
+
+  **Lo slug lo calcola il run, non chi rinomina.** `origin.json` — che già distingueva motore
+  interno ed engine esterno — porta ora anche `PriceSource` (`Futures` | `BrokerCfd` + nome del
+  broker), `EngineVersion` e, per l'origine esterna, l'`AccountNumber` da cui il broker si
+  ricava; `RunSlug` è calcolato da `Origin` × `PriceSource` e si copia nel nome dei file
+  esportati. Niente campo "tipo di run" a sé: sarebbe una quarta cosa che può contraddire le
+  altre tre. Sta in `origin.json` e non solo nel summary perché **due run interni su feed diversi
+  producono trade indistinguibili** — stesse size, stesse commissioni, livelli abbastanza simili
+  da non poterci scommettere — e il summary manca appena il run si interrompe. Le cartelle
+  scritte prima danno `interno-feed-sconosciuto`: di un run interno vecchio il feed non è
+  ricostruibile, e dedurlo sarebbe peggio che dichiararlo ignoto.
+
+  **Esporta per confronto** (dettaglio backtest in console) chiude il giro: il server impacchetta
+  `trades.json`, il summary e `origin.json` rinominati con lo slug, il client scompatta nella
+  cartella scelta. È uno zip su HTTP e non una copia di file perché la console è un client HTTP
+  puro e non condivide il filesystem col server. Tre regole nel servizio: `CompactAll()` prima di
+  leggere — l'array è indietro finché il journal `.jsonl` non è compattato, e si esporterebbe un
+  file che sembra completo; `signals.json` fuori, perché nei portafogli sono centinaia di MB;
+  e un run che non identifica sé stesso è un `409`, non un export. Quest'ultima è più stretta di
+  "lo slug è noto": `BacktestOriginInfo.IdentifiesRun` rifiuta anche un CFD di cui manca il
+  broker, perché `cbot-cfd` sta ugualmente per due serie di prezzi diverse.

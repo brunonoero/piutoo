@@ -17,8 +17,9 @@ namespace Piootoo.Strategies.Tests;
 ///
 /// <para>Il terzo, il cBot, resta fuori portata: lo compila cTrader, che non referenzia queste
 /// assembly, quindi non esiste un modo di leggerlo a compile time. Qui si controlla almeno che il
-/// sorgente del bot nel repository porti lo stesso numero, che è il massimo che si può fare senza
-/// costruirlo.</para>
+/// sorgente del bot nel repository dichiari lo stesso <b>contratto</b> (<c>major.minor</c>), che è
+/// il massimo che si può fare senza costruirlo. Non la patch: quella esiste apposta per portare
+/// una fix su una delle tre parti senza obbligare le altre a muoversi.</para>
 /// </summary>
 public sealed class VersioneDelProgettoTests
 {
@@ -38,7 +39,7 @@ public sealed class VersioneDelProgettoTests
     }
 
     [Fact]
-    public void IlCBotDistribuitoDichiaraLaStessaVersioneDelServer()
+    public void IlCBotDistribuitoDichiaraLoStessoContrattoDelServer()
     {
         var sorgente = Path.Combine(
             RadiceRepository(),
@@ -53,7 +54,14 @@ public sealed class VersioneDelProgettoTests
         Assert.True(match.Success,
             "BotVersion non trovata in PiootooDistributedExecutionBot: e' stata rinominata?");
 
-        Assert.Equal(PiootooVersion.Current, match.Groups["version"].Value);
+        var botVersion = match.Groups["version"].Value;
+
+        // Solo major.minor: la patch del bot puo' restare indietro (o avanti) rispetto al server,
+        // ed e' proprio il caso che questa regola vuole permettere.
+        Assert.True(
+            PiootooVersion.IsSameContract(botVersion),
+            $"Il cBot dichiara v{botVersion}, il server v{PiootooVersion.Current}: " +
+            $"contratti {PiootooVersion.ContractOf(botVersion)} e {PiootooVersion.Contract}.");
     }
 
     private static string RadiceRepository()

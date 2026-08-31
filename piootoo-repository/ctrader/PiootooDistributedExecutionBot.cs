@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.IO;
@@ -236,13 +236,16 @@ namespace cAlgo.Robots
         // 2.1.0 (11/08/2026) — l'autolimitazione locale passa da (simbolo) a (strategia, simbolo),
         // tetto locale sulle posizioni prima dell'invio, cancellazione OCO degli ordini rimasti in
         // modalita' PositionsOnly. Vedi docs/decisioni.md 2026-08-11.
-        // ATTENZIONE: questa versione e' condivisa con il server e va mossa SEMPRE insieme a
-        // Piootoo.Shared.PiootooVersion.Current. Sono i due lati dello stesso contratto HTTP, ma non
-        // condividono una build — questo file lo compila cTrader, che non referenzia le assembly
-        // della solution — quindi la sincronia e' manuale e non c'e' niente che la verifichi.
+        // ATTENZIONE: questa versione e' condivisa con il server, ma il contratto e' major.minor:
+        // e' quella parte che deve restare uguale a Piootoo.Shared.PiootooVersion.Current. La patch
+        // e' per le fix e puo' divergere — il server puo' passare da 3.11.0 a 3.11.1 senza che
+        // questo bot vada ricompilato e ridistribuito su ogni macchina.
+        // Server e bot non condividono una build (questo file lo compila cTrader, che non referenzia
+        // le assembly della solution), quindi la sincronia e' manuale: la verifica VersioneDelProgettoTests
+        // leggendo questo sorgente.
         // Il disallineamento non blocca nulla: entrambi stampano la propria versione all'avvio, e
         // il confronto si fa leggendo i due log.
-        private const string BotVersion = "3.14.0"; // aggiornare qui E in PiootooVersion, ad ogni release
+        private const string BotVersion = "3.14.0"; // major.minor deve seguire PiootooVersion
         private const string StatusChartObjectName = "PiootooConnectionStatus";
 
         // Riquadro rosso al centro del grafico, separato dal pannello di stato: e' l'errore fatale
