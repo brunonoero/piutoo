@@ -13,6 +13,20 @@ public interface IDatafeedCatalog
     IReadOnlyList<DatafeedBrokerInfo> GetBrokers();
 
     /// <summary>
+    /// Feed disponibili in un archivio, con il periodo che coprono.
+    /// <paramref name="broker"/> null o vuoto = datafeed interno.
+    /// </summary>
+    /// <exception cref="ArgumentException">Il nome del broker non e' un nome di cartella semplice.</exception>
+    /// <exception cref="DirectoryNotFoundException">Il broker indicato non esiste.</exception>
+    IReadOnlyList<DatafeedFeedInfo> GetFeeds(string? broker);
+
+    /// <summary>
+    /// Feed di tutti gli archivi: prima l'interno, poi un broker alla volta. Ogni voce dichiara la
+    /// propria sorgente — restano elencati insieme, non mescolabili in un run.
+    /// </summary>
+    IReadOnlyList<DatafeedFeedInfo> GetAllFeeds();
+
+    /// <summary>
     /// Radice da cui leggere le barre. <paramref name="broker"/> null o vuoto = datafeed interno.
     /// </summary>
     /// <exception cref="ArgumentException">Il nome del broker non e' un nome di cartella semplice.</exception>

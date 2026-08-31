@@ -163,10 +163,41 @@ Le due gambe interne isolano il feed a parità di motore; il cBot contro
 trappole di misura in
 [`piootoo-repository/compare/README.md`](../../piootoo-repository/compare/README.md).
 
+## Vedere cosa c'e' e fin dove arriva
+
+Prima di lanciare un run conviene guardare *Anagrafiche -> Datafeed* nella
+console: una riga per coppia (simbolo, timeframe), per ogni archivio, con la
+prima e l'ultima barra del file. Serve perche' un run che chiede date oltre
+l'ultima barra **non fallisce** — produce meno operazioni del previsto, e la
+causa si scopre dopo, da `coversRequestedRange` nel summary. La stessa riga dice
+da quale archivio viene: interno ed esterno hanno gli stessi simboli con prezzi
+diversi.
+
+Il periodo mostrato viene dalle barre, non dal filesystem: `lastWriteUtc` dice
+quando il file e' stato toccato, e sui feed dei bot raccoglitori le due cose
+divergono di giorni. Gli istanti sono gia' convertiti a UTC vero con l'orologio
+che il feed dichiara; un feed non dichiarato compare lo stesso, col fuso vuoto e
+la nota che lo dice — l'elenco non e' una lettura di barre, e il rifiuto
+esplicito resta dove serve, cioe' quando un run prova a caricarle.
+
+Leggere il range non apre i file: l'intestazione precede l'array e
+`candleCount` lo segue, quindi bastano due finestre di 64 KB, in testa e in
+coda (`FlatFeedProbe`). Sui 45 feed di questo repository — circa 1,5 GB —
+l'elenco completo si costruisce in poche decine di millisecondi. I file scritti
+dai cBot raccoglitori non dichiarano `candleCount`: per quelli la colonna
+*Barre* resta vuota, che e' diverso da zero.
+
+Endpoint: `GET /api/Datafeed/feeds` (tutti gli archivi) oppure
+`?broker={NOME}` per uno solo.
+
 ## Riferimenti codice
 
-- `Piootoo.Core/Services/DatafeedCatalog.cs` — elenco dei broker e risoluzione
-  della radice, con il controllo sul nome che arriva dalla richiesta HTTP.
+- `Piootoo.Core/Services/DatafeedCatalog.cs` — elenco dei broker e dei feed,
+  risoluzione della radice, con il controllo sul nome che arriva dalla
+  richiesta HTTP.
+- `Piootoo.Core/Services/FlatFeedProbe.cs` — estremi di un feed letti senza
+  deserializzarlo.
+- `piootooapp.clientform/Shell/Screens/DatafeedListScreen.cs` — la schermata.
 - `piootoo-repository/datafeed-future/aggregate_nq_ascii.py` — lo script, con
   `CANONICAL_TIMEFRAMES`, `bucket_start`, `TimeframeFeed`.
 - `Piootoo.Domain/Repositories/DataSourceRepository.cs` — `TimeframeFolders` e

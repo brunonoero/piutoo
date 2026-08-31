@@ -64,6 +64,103 @@ public sealed class DatafeedCatalog : IDatafeedCatalog
             .ToList();
     }
 
+    public IReadOnlyList<DatafeedFeedInfo> GetFeeds(string? broker)
+    {
+        var root = ResolveRoot(broker);
+        if (!Directory.Exists(root))
+            return Array.Empty<DatafeedFeedInfo>();
+
+        var source = Describe(broker);
+
+        // L'orologio del feed si legge una volta per archivio, non una per file. Un manifest
+        // assente non fa fallire l'elenco: i feed compaiono comunque, col fuso vuoto e il
+        // periodo etichettato come sta scritto nel file. E' un elenco, non una lettura di barre:
+        // il rifiuto esplicito resta dove serve, cioe' quando un run prova a caricarle.
+        FeedClockRegistry? clocks = null;
+        try
+        {
+            clocks = FeedClockRegistry.Load(root);
+        }
+        catch (FeedClockNotDeclaredException)
+        {
+        }
+
+        var feeds = new List<DatafeedFeedInfo>();
+        foreach (var path in Directory.EnumerateFiles(root, "@*_*.json", SearchOption.TopDirectoryOnly))
+        {
+            var parsed = ParseFlatFileName(Path.GetFileNameWithoutExtension(path));
+            if (parsed == null)
+                continue;
+
+            var (symbol, timeframeMinutes) = parsed.Value;
+            var clock = clocks != null && clocks.IsDeclared(symbol) ? clocks.For(symbol) : null;
+            var range = FlatFeedProbe.Read(path);
+            var file = new FileInfo(path);
+
+            feeds.Add(new DatafeedFeedInfo
+            {
+                Broker = string.IsNullOrWhiteSpace(broker) ? null : broker.Trim(),
+                Source = source,
+                Symbol = symbol,
+                TimeframeMinutes = timeframeMinutes,
+                FirstBarUtc = ToTrueUtc(range.First, clock),
+                LastBarUtc = ToTrueUtc(range.Last, clock),
+                CandleCount = range.CandleCount,
+                FeedClock = clock?.TimeZoneId,
+                LastWriteUtc = file.LastWriteTimeUtc,
+                SizeBytes = file.Length,
+                Problem = range.Problem ?? (clock == null
+                    ? $"Il feed '{symbol}' non dichiara il proprio fuso in {FeedClockRegistry.ManifestFileName}: "
+                      + "il periodo qui e' l'etichetta grezza del file, e un backtest si rifiuterebbe di partire."
+                    : null)
+            });
+        }
+
+        return feeds
+            .OrderBy(feed => feed.Symbol, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(feed => feed.TimeframeMinutes)
+            .ToList();
+    }
+
+    public IReadOnlyList<DatafeedFeedInfo> GetAllFeeds()
+    {
+        var feeds = new List<DatafeedFeedInfo>(GetFeeds(null));
+        foreach (var broker in GetBrokers())
+            feeds.AddRange(GetFeeds(broker.Broker));
+
+        return feeds;
+    }
+
+    /// <summary>
+    /// Istante vero di un timestamp stampato nel file. Senza orologio dichiarato non c'e' niente
+    /// da cui convertire: il valore resta l'etichetta del file, e <c>Problem</c> lo dice.
+    /// </summary>
+    private static DateTime? ToTrueUtc(DateTime? feedWallClock, SessionClock? clock)
+    {
+        if (feedWallClock == null)
+            return null;
+
+        return clock == null
+            ? DateTime.SpecifyKind(feedWallClock.Value, DateTimeKind.Utc)
+            : clock.ToUtc(feedWallClock.Value);
+    }
+
+    /// <summary>
+    /// Simbolo e minuti di un file piatto <c>@SYM_{minuti}</c>. Null se il nome non segue la
+    /// convenzione: un file estraneo lasciato nella cartella si ignora, non diventa una riga.
+    /// </summary>
+    private static (string Symbol, int TimeframeMinutes)? ParseFlatFileName(string fileNameWithoutExtension)
+    {
+        var symbol = SymbolOf(fileNameWithoutExtension);
+        if (symbol == null)
+            return null;
+
+        var lastUnderscore = fileNameWithoutExtension.LastIndexOf('_');
+        return int.TryParse(fileNameWithoutExtension[(lastUnderscore + 1)..], out var minutes)
+            ? (symbol, minutes)
+            : null;
+    }
+
     public string ResolveRoot(string? broker)
     {
         if (string.IsNullOrWhiteSpace(broker))

@@ -26,6 +26,19 @@ public sealed class DatafeedApiClient : ApiClientBase
             cancellationToken);
 
     /// <summary>
+    /// Feed disponibili con il periodo che coprono, di tutti gli archivi quando
+    /// <paramref name="broker"/> è null: ogni riga dichiara la propria sorgente.
+    /// </summary>
+    public Task<List<DatafeedFeedInfo>> ListFeedsAsync(
+        string? broker = null,
+        CancellationToken cancellationToken = default)
+        => SendForAsync<List<DatafeedFeedInfo>>(
+            HttpMethod.Get,
+            broker == null ? "api/Datafeed/feeds" : $"api/Datafeed/feeds?broker={Escape(broker)}",
+            null,
+            cancellationToken);
+
+    /// <summary>
     /// Ultime <paramref name="sessions"/> sessioni di mercato per il simbolo, nel timeframe
     /// indicato da <paramref name="barType"/> (<c>OneMinute</c>, <c>OneHour</c>, <c>Daily</c>…).
     /// </summary>

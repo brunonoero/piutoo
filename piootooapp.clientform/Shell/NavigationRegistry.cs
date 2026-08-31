@@ -50,6 +50,10 @@ public static class NavigationRegistry
             new NavigationEntry("Piani di trading", () => new PlanListScreen()),
             new NavigationEntry("Strategie", () => new StrategyListScreen()),
             new NavigationEntry("Conversioni simbolo", () => new SymbolConversionListScreen()),
+            // Sola lettura: elenca cosa c'è nel repository di barre e fin dove arriva. Sta fra le
+            // anagrafiche perché è ciò che un piano e un backtest possono nominare, ma non si crea
+            // da qui — i feed li generano lo script di aggregazione e i cBot raccoglitori.
+            new NavigationEntry("Datafeed", () => new DatafeedListScreen()),
             // Il setup di rotazione è globale come account e gruppi, non appartiene a un
             // workspace: sta fra le anagrafiche, non nell'operatività. Per workspace è il run.
             new NavigationEntry("Setup Titano", () => new TitanoSetupListScreen())),

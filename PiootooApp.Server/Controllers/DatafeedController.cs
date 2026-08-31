@@ -23,4 +23,26 @@ public class DatafeedController : ControllerBase
     [HttpGet("brokers")]
     public ActionResult<IReadOnlyList<DatafeedBrokerInfo>> GetBrokers()
         => Ok(_catalog.GetBrokers());
+
+    /// <summary>
+    /// Feed disponibili con il periodo che coprono. Senza <paramref name="broker"/> risponde con
+    /// tutti gli archivi, interno compreso; con un broker solo il suo. Il periodo viene dalla prima
+    /// e dall'ultima barra dei file, non dalla data di modifica.
+    /// </summary>
+    [HttpGet("feeds")]
+    public ActionResult<IReadOnlyList<DatafeedFeedInfo>> GetFeeds([FromQuery] string? broker)
+    {
+        try
+        {
+            return Ok(broker == null ? _catalog.GetAllFeeds() : _catalog.GetFeeds(broker));
+        }
+        catch (ArgumentException exception)
+        {
+            return BadRequest(new { error = exception.Message });
+        }
+        catch (DirectoryNotFoundException exception)
+        {
+            return NotFound(new { error = exception.Message });
+        }
+    }
 }
