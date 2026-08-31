@@ -877,7 +877,8 @@ public sealed class TradingSessionService : ITradingSessionService
                 CreatedUtc = DateTime.UtcNow,
                 PlanCode = planCode,
                 ExecutionKey = executionKey,
-                SessionId = sessionId
+                SessionId = sessionId,
+                InitialCapital = request.InitialCapital
             });
         }
         var store = new TradingJsonStore(sessionDirectory);
@@ -1259,8 +1260,10 @@ public sealed class TradingSessionService : ITradingSessionService
         var bar = normalizedBar;
 
         // La barra nuova rende definitivamente morti i template della barra precedente: si buttano
-        // qui invece di lasciarli in lista e scartarli a ogni claim.
+        // qui invece di lasciarli in lista e scartarli a ogni claim. Stessa barra, stessa regola per
+        // gli intent gia' reclamati: le due spazzate sono gemelle e vivono nello stesso punto.
         PurgeExpiredTemplates(session, bar.BarTimeUtc);
+        PurgeExpiredEntryIntents(session, bar.BarTimeUtc);
 
         var prices = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase)
             { [Normalize(bar.Symbol)] = bar.Bar.Close };
@@ -2103,9 +2106,14 @@ public sealed class TradingSessionService : ITradingSessionService
                 var stalledEntry = pendingForAccount.FirstOrDefault(i => i.Kind == OrderIntentKind.Entry);
                 if (stalledEntry != null)
                 {
-                    if (stalledEntry.ExpiresAtUtc.HasValue && stalledEntry.ExpiresAtUtc.Value < now)
-                        stalledEntry.Status = OrderIntentStatus.Cancelled;
-                    else if (MaxEntriesPerSessionReached(session, stalledEntry, accountNumber))
+                    // La scadenza NON si verifica qui. La spazzata vive su EvaluateClosedBar
+                    // (PurgeExpiredEntryIntents), che e' il corpo comune di PushBars e PushBarWindow:
+                    // realtime e backtest cTrader ci passano identici. Verificarla anche qui
+                    // rimetterebbe la decisione sul percorso del poll, che nei due mondi ha cadenze
+                    // diverse — timer ogni due secondi in realtime, solo eventi locali in backtest —
+                    // e la stessa sessione tornerebbe a comportarsi in due modi. Quando si arriva
+                    // qui, un intent scaduto e' gia' Cancelled e non e' piu' in pendingForAccount.
+                    if (MaxEntriesPerSessionReached(session, stalledEntry, accountNumber))
                         stalledEntry.Status = OrderIntentStatus.Cancelled;
                     else
                         return new AccountSignalResponse { Intent = stalledEntry };
@@ -2153,17 +2161,29 @@ public sealed class TradingSessionService : ITradingSessionService
                 t => !(session.TemplateClaimedGroups.TryGetValue(t.IntentId, out var claimed)
                        && claimed.Contains(groupId)),
                 $"già reclamati dal gruppo '{groupId}'");
-            // Sempre attivo, in ogni profilo: un account non tiene DUE ingressi in corso della
-            // stessa strategia sullo stesso simbolo E DELLO STESSO LATO. Non è un vincolo di
-            // concorrenza — è l'identità della strategia: quel segnale è già in mano al broker, e un
-            // secondo ordine sarebbe rischio doppio sullo stesso motivo di ingresso.
+            // Lucchetto 3 bis: un account non tiene DUE ingressi in corso della stessa strategia,
+            // sullo stesso simbolo E dello stesso LATO. Serve perché `MaxEntriesPerSession` si
+            // applica al FILL e non al claim: due template di barre diverse reclamati prima che il
+            // primo riempia passano entrambi il controllo, e su un run reale (PTS_NQ_PCH_002_15,
+            // 14/10/2024 13:15) hanno prodotto due stop order riempiti allo stesso prezzo e due
+            // posizioni da 20 lotti sullo stesso segnale.
             //
-            // Serve perché `MaxEntriesPerSession` si applica al FILL e non al claim: due template
-            // di barre diverse reclamati prima che il primo riempia passano entrambi il controllo, e
-            // su un run reale (PTS_NQ_PCH_002_15, 14/10/2024 13:15) hanno prodotto due stop order
-            // riempiti allo stesso prezzo e due posizioni da 20 lotti sullo stesso segnale.
-            // Con i lucchetti attivi il 4 lo copre già, ma è più largo — vale per tutto il gruppo —
-            // e a lucchetti spenti non c'era più niente a fermare il doppione.
+            // ATTENZIONE, punto contestato e NON risolto qui. `docs/domini/distribuzione-multi-account.md`
+            // §4.3 dice che questo filtro deve seguire `EnforceConcurrencyLimits` come i lucchetti 2
+            // e 4 — è concorrenza, non identità del segnale — e misura cosa costa lasciarlo
+            // incondizionato: su un backtest sorgente NQ del 17/03/2026, nove template per barra e UN
+            // solo claim servito, otto strategie su nove fuori dal campione. Nella stessa direzione
+            // vanno `SourceBacktestSampleTests.WithoutOperationalLocks_TheStrategyIsServedAgainOnEveryBar`
+            // e `TheStrategyLimitCountsFills_NotUnexecutedOrders`, che infatti oggi FALLISCONO.
+            //
+            // In direzione opposta va `RunProfileTests.BacktestSorgente_NonConsegnaDueIngressiDellaStessaStrategia`,
+            // che oggi PASSA e pretende il filtro attivo anche a lucchetti spenti. Le due aspettative
+            // non sono conciliabili con la scadenza: sulla barra N+1 l'intent della barra N è ancora
+            // dentro la propria finestra (`>=`, vedi la nota in SourceBacktestSampleTests), quindi o
+            // il filtro lo blocca o il claim consegna il secondo ordine.
+            //
+            // Finché non è deciso quale delle due valga, resta incondizionato: è il comportamento in
+            // produzione oggi, e cambiarlo altera quali trade fa un run sorgente.
             //
             // Il LATO fa parte della chiave, e senza di esso questo filtro scioglie i bracket:
             // le due gambe di un motore non simmetrico nascono sulla STESSA barra e sono due motivi
@@ -2294,6 +2314,75 @@ public sealed class TradingSessionService : ITradingSessionService
         {
             session.EntryTemplates.Remove(template);
             session.TemplateClaimedGroups.Remove(template.IntentId);
+        }
+    }
+
+    /// <summary>
+    /// Gemella di <see cref="PurgeExpiredTemplates"/> per gli ingressi <b>già reclamati</b>: quelli
+    /// che <c>PurgeExpiredTemplates</c> non tocca, perché hanno lasciato <c>EntryTemplates</c> nel
+    /// momento in cui un account se li è presi.
+    ///
+    /// <para><b>Il difetto che chiude.</b> Un ingresso reclamato che scade senza mai ricevere un
+    /// execution report — risposta al claim persa, bot riavviato con un pending che non traccia più,
+    /// bot caduto — restava <c>Pending</c> per sempre, e con lui restavano chiusi i due lucchetti che
+    /// lo riguardano: <see cref="AccountHasEntryInFlight"/> sul ramo pendente e lo slot di gruppo.
+    /// Effetto misurato su una sonda a sei barre con un segnale per barra: <b>un solo intent in
+    /// tutto il run</b>, e dalla seconda barra in poi il claim rispondeva «l'account ha già un
+    /// ingresso in corso per quella strategia su quel simbolo e lato». Quella coppia era morta fino
+    /// a fine sessione.</para>
+    ///
+    /// <para><b>Perché sta QUI e non nel claim.</b> Una spazzata sul percorso del poll gira quando il
+    /// client polla, e il client polla in modo diverso nei due mondi: in realtime il timer batte ogni
+    /// due secondi, in backtest <c>ShouldPollOnTimer</c> lo sopprime e il claim parte solo su evento
+    /// locale (voce del 26/08/2026). La stessa sessione si comporterebbe quindi in due modi diversi a
+    /// seconda di chi la esegue, ed è esattamente la classe di divergenza che questo confronto esiste
+    /// per eliminare. <see cref="EvaluateClosedBar"/> è invece il corpo comune di <c>PushBars</c> e
+    /// <c>PushBarWindow</c>: ci passano realtime e backtest cTrader allo stesso modo, sulla stessa
+    /// barra e con lo stesso orologio.</para>
+    ///
+    /// <para>Per lo stesso motivo il confronto è su <paramref name="barTimeUtc"/> e non su
+    /// <c>DateTime.UtcNow</c>: in un replay storico le due cose distano mesi, e con l'ora di sistema
+    /// ogni ordine "next bar" nascerebbe già scaduto.</para>
+    ///
+    /// <para>Un ingresso con un riempimento anche parziale non si tocca: è esposizione vera, e la
+    /// sua fine la decide il broker, non una finestra di validità.</para>
+    ///
+    /// </summary>
+    private static void PurgeExpiredEntryIntents(Session session, DateTime barTimeUtc)
+    {
+        List<OrderIntent>? scaduti = null;
+        foreach (var intent in Live(session))
+        {
+            if (intent.Kind != OrderIntentKind.Entry ||
+                intent.Status != OrderIntentStatus.Pending ||
+                intent.FilledQuantity > 0 ||
+                intent.ExpiresAtUtc is not { } scadenza ||
+                scadenza >= barTimeUtc)
+                continue;
+
+            (scaduti ??= []).Add(intent);
+        }
+
+        if (scaduti is null)
+            return;
+
+        foreach (var intent in scaduti)
+        {
+            intent.Status = OrderIntentStatus.Cancelled;
+
+            // Lo slot segue l'intent. Liberarlo solo sui percorsi che richiedono un report del broker
+            // — rifiuto, chiusura, posizione sparita — significa non liberarlo mai proprio nel caso in
+            // cui il report non arriva, che è il caso per cui questa spazzata esiste.
+            if (intent.AssignedAccountNumber is { } account &&
+                session.AccountGroups.TryGetValue(account, out var groupId))
+                session.GroupStrategySlots.Remove(
+                    SlotKey(groupId, intent.StrategyCode, intent.Symbol, intent.Side));
+
+            RecordActivity(session, SessionActivityKind.IntentScaduto,
+                $"{intent.Side} scaduto a {intent.ExpiresAtUtc:O} senza esito riportato: annullato " +
+                $"sulla barra {barTimeUtc:O}, lucchetti liberati",
+                intent.AssignedAccountNumber ?? string.Empty, strategyCode: intent.StrategyCode,
+                symbol: intent.Symbol, intentId: intent.IntentId);
         }
     }
 

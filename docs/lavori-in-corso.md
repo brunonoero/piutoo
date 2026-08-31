@@ -210,16 +210,72 @@ modifiche ha prodotto la differenza.
 
 **Ordine dei lavori:**
 
-1. Backtest interno + run cTrader sulla stessa finestra di `compare-0009` (lug-nov 2024), con
-   3.13.0 da entrambe le parti. Atteso: `PTS_GC_PCH_004_240` torna a fare short, e le sei strategie
-   della tabella di `compare-0009` smettono di essere solo long.
-2. Solo dopo: il verso nelle due chiavi di `MaxEntriesPerSession`, con la propria regressione e la
-   propria voce in `decisioni.md`, come release a se'.
+1. ~~Backtest interno + run cTrader con 3.13.0 da entrambe le parti.~~ **Fatto**, e' `compare-0010`
+   (31/08, lug-dic 2024). L'atteso si e' verificato: `PTS_GC_PCH_004_240` fa 28 short contro i 29 del
+   backtest, le strategie con zero short esterni scendono da otto a due, e i numeri stanno nella voce
+   di `decisioni.md`. Il run e' quindi il riferimento da cui misurare il punto 2.
+2. Il verso nelle due chiavi di `MaxEntriesPerSession`, con la propria regressione e la propria voce
+   in `decisioni.md`, come release a se'. **Non ancora sbloccato**: vedi la nota sulla suite rossa
+   qui sotto.
 
-**Aperto a parte, non e' mio:** su `main` (f56f147) falliscono gia' due test che questa modifica non
-tocca — `TradingGroupTitanoTests.OpenFromPlan_AppliesAllGroupRows` e
-`ConcurrencyLimitsMatrixTests.ParallelPollsOfTheSameAccount_ProduceExactlyOneClaim`. Verificato con
-la modifica stashata: falliscono uguale. Vanno guardati prima di fidarsi del run del punto 1.
+**Aperto a parte, e piu' grosso di quanto sembrasse:** la suite su `main` e' rossa **da prima** di
+questa modifica. Misurato su un worktree di `f56f147`, cioe' il commit precedente: **55 falliti,
+551 passati, 606 totali**. Dopo la correzione del bracket: **55 falliti, 554 passati, 609 totali** —
+stessi identici fallimenti, i tre in piu' che passano sono `BracketClaimSideTests`.
+
+Dove sono concentrati:
+
+| suite | falliti |
+|---|---|
+| `TradingSessionsHttpTests` | 8 |
+| `RunProfileTests` | 8 |
+| `SourceBacktestSampleTests` | 5 |
+| `PriceChannelEngineTests` | 5 |
+| `BiasWeeklyEngineParityTests` | 5 |
+| `BiasBarCountEngineTests` | 4 |
+| parita' motori (VBO, TFM/TFU, SBO, RHL, LFD, TDV, RBB, MAC, PCH) | 13 |
+| Titano e concorrenza (`TradingGroupTitano`, `TitanoSizingAudit`, `TitanoRotation`, `ConcurrencyLimitsMatrix`) | 4 |
+| altri (`EasyEngineContract`, `BiasWeeklyVariants`, `PtsPriceChannel`) | 3 |
+
+E' il punto interrogativo del messaggio di commit «refactor vari forse regression?», e va sciolto
+**prima** del run del punto 1: con i test di parita' dei motori rossi non si sa se una differenza nel
+confronto interno/esterno venga dal bracket o da li'.
+
+## Da decidere: `AccountHasEntryInFlight` segue i lucchetti operativi, o no? (2026-08-31)
+
+Due test si contraddicono, e non e' una svista di uno dei due: descrivono due progetti diversi dello
+stesso filtro. Finche' non e' deciso, il codice tiene il comportamento **di produzione** — filtro
+incondizionato — e due test restano rossi.
+
+**Tesi A — deve seguire `EnforceConcurrencyLimits`.** La sostengono
+`docs/domini/distribuzione-multi-account.md` §4.3 (che porta anche la misura: backtest sorgente NQ del
+17/03/2026, nove template per barra, **un solo** claim servito, otto strategie su nove fuori dal
+campione) e i due test ancora rossi
+`SourceBacktestSampleTests.WithoutOperationalLocks_TheStrategyIsServedAgainOnEveryBar` e
+`TheStrategyLimitCountsFills_NotUnexecutedOrders`. L'argomento e' che il campione sorgente deve
+contenere tutte le strategie del masterfilter, perche' e' il `trades.json` su cui Titano calcola le
+rotazioni: applicargli un vincolo operativo lo falsa.
+
+**Tesi B — deve valere sempre.** La sostiene
+`RunProfileTests.BacktestSorgente_NonConsegnaDueIngressiDellaStessaStrategia`, che oggi passa.
+L'argomento e' il doppione reale del 14/10/2024 (PTS_NQ_PCH_002_15, due stop riempiti allo stesso
+prezzo): a lucchetti spenti niente lo fermerebbe.
+
+**Perche' la scadenza non le concilia.** §4.3 sostiene che `PurgeExpiredEntryIntents` toglie la
+condizione che genera il doppione. Non basta: sulla barra N+1 l'intent della barra N e' ancora
+**dentro** la propria finestra — `ExpiresAtUtc` e' l'apertura dell'ultima barra valida e il confronto
+e' conservativo, come dice la nota in `SourceBacktestSampleTests` — quindi muore solo su N+2. Nella
+barra N+1 o lo blocca il filtro, o il claim consegna il secondo ordine. Non c'e' una terza strada che
+non sia cambiare la convenzione di scadenza, che a sua volta romperebbe
+`AnExpiredEntry_ReleasesTheStrategyOnceItsWindowCloses`.
+
+**Cosa serve per decidere**, ed e' una domanda di dominio, non di codice: nel run sorgente, due ordini
+della stessa strategia e dello stesso lato vivi insieme su barre diverse sono un campione **piu'**
+fedele (il motore quel livello lo riemette davvero) o **meno** fedele (il conto vero non li avrebbe
+mai entrambi, perche' in produzione i lucchetti sono accesi)? Se vale la prima, tesi A e si aggiorna
+`RunProfileTests`; se vale la seconda, tesi B e si aggiornano §4.3 e i due test di
+`SourceBacktestSampleTests`. In entrambi i casi va corretto il documento di dominio, che oggi descrive
+un codice che non esiste.
 
 ## Riferimenti codice
 

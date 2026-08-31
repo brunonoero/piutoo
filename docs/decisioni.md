@@ -1959,6 +1959,112 @@ abbiamo e romperebbe quello che oggi funziona.
   raccoglitore non tocca: legarlo li' significherebbe far comparire un finto disallineamento nel
   log di un bot non cambiato a ogni release del server, o ri-deployarlo per niente.
 
+- **2026-08-31** — **Un ingresso reclamato che scade senza report non blocca piu' la propria coppia,
+  e la spazzata sta sul percorso che realtime e backtest condividono.** Rilasciato come **3.14.0**.
+
+  `PurgeExpiredEntryIntents` esisteva nel progetto — `domini/distribuzione-multi-account.md` §4.3 la
+  descrive e la tabella dei lucchetti la cita — ma nel codice non c'era piu'. Senza di lei un
+  ingresso gia' reclamato che superava la propria finestra **senza mai ricevere un execution report**
+  restava `Pending` per sempre, e con lui restavano chiusi i due lucchetti che lo riguardano:
+  `AccountHasEntryInFlight` sul ramo pendente e lo slot di gruppo. Misura su una sonda a sei barre
+  con un segnale per barra: **un intent in tutto il run**. A lucchetti spenti il claim rispondeva
+  «l'account ha gia' un ingresso in corso per quella strategia su quel simbolo e lato»; a lucchetti
+  accesi l'intent veniva annullato dal ramo "tetto pieno" ma lo slot no, e il blocco restava con
+  l'altro messaggio. In entrambi i casi quella coppia era morta fino a fine sessione.
+
+  Serve il caso in cui il report non arriva: risposta al claim persa, bot riavviato con un pending che
+  non traccia piu', bot caduto. Nel funzionamento normale il cBot riporta le cancellazioni e l'intent
+  si assesta da se' — ed e' per questo che il difetto non si vedeva nei run.
+
+  **Dove sta la spazzata e' parte della correzione, non un dettaglio.** L'unico codice che ripuliva un
+  pendente scaduto viveva dentro il ramo `inFlight >= maxConcurrentTrades` di
+  `GetNextSignalForAccount`, cioe' sul percorso del **claim**. Il claim ha cadenze diverse nei due
+  mondi — in realtime il timer batte ogni due secondi, in backtest `ShouldPollOnTimer` lo sopprime e
+  il claim parte solo su evento locale (voce del 26/08) — quindi la stessa sessione si comportava in
+  due modi a seconda di chi la eseguiva, ed e' esattamente la classe di divergenza che il confronto
+  con il conto vero esiste per eliminare. Ora vive in `EvaluateClosedBar`, il corpo comune di
+  `PushBars` e `PushBarWindow`, accanto a `PurgeExpiredTemplates`: realtime e backtest cTrader ci
+  passano identici, sulla stessa barra e con lo stesso orologio. Per lo stesso motivo il confronto e'
+  su `barTimeUtc` e non su `DateTime.UtcNow`, e usa la stessa convenzione conservativa dei template.
+  Il controllo di scadenza e' stato tolto dal ramo del claim: lasciarlo in due posti avrebbe
+  reintrodotto la dipendenza dal poll.
+
+  L'annullamento libera anche lo slot di gruppo. Liberarlo solo sui percorsi che richiedono un report
+  del broker — rifiuto, chiusura, posizione sparita — significava non liberarlo mai proprio nel caso
+  per cui la spazzata esiste. L'evento ha un tipo suo, `SessionActivityKind.IntentScaduto`, e non
+  ricade in `EsitoEsecuzione` perche' l'esito NON e' arrivato: confonderlo con un report vero
+  renderebbe invisibile l'unica traccia di un client che ha smesso di riportare.
+
+  Regressione in `ExpiredIntentSweepTests`, nelle due configurazioni di `EnforceConcurrencyLimits` —
+  erano due difetti diversi con lo stesso sintomo — piu' il caso di controllo che un ingresso
+  **riempito** non viene toccato, e il caso che dimostra che la spazzata non dipende dal claim.
+  Rientrano tre dei cinque test rossi di `SourceBacktestSampleTests`.
+
+  **Resta aperta una contraddizione fra due test, e non e' stata sciolta qui.** §4.3 del documento di
+  dominio dice che `AccountHasEntryInFlight` deve seguire `EnforceConcurrencyLimits` — e' concorrenza,
+  non identita' del segnale — e misura cosa costa lasciarlo incondizionato: nove template per barra e
+  un solo claim servito, otto strategie su nove fuori dal campione sorgente. Nella stessa direzione
+  vanno i due test di `SourceBacktestSampleTests` ancora rossi. In direzione opposta va
+  `RunProfileTests.BacktestSorgente_NonConsegnaDueIngressiDellaStessaStrategia`, che oggi passa e
+  pretende il filtro attivo anche a lucchetti spenti. Le due aspettative non sono conciliabili con la
+  sola scadenza — sulla barra N+1 l'intent della barra N e' ancora dentro la propria finestra — quindi
+  il filtro resta incondizionato, cioe' com'e' in produzione, finche' non e' deciso quale delle due
+  valga. Vedi `lavori-in-corso.md`.
+
+- **2026-08-31** — **Le barre a 4 ore del broker e quelle della ricerca non condividono UN SOLO
+  istante di apertura.** Non e' una sfumatura di feed: e' la causa dominante di quel che resta dello
+  scarto fra backtest e conto vero, e vale anche in live, non solo nel confronto.
+
+  La griglia del vendor e' ancorata alla **mezzanotte dell'Europa continentale** — 22:00 UTC d'estate,
+  23:00 d'inverno — perche' `datafeed-future/aggregate_flat_feed.py` costruisce i bucket a partire da
+  li', ed e' la griglia su cui girano i run di ricerca da cui le strategie sono portate. La griglia
+  del broker e' ancorata alle **17:00 di New York**, l'apertura di sessione CME: 21:00 UTC d'estate,
+  22:00 d'inverno. Un'ora di scarto, sempre, in entrambi i regimi di ora legale. Misurato su
+  lug-dic 2024: `@GC_240` **0 istanti in comune su 785**, `@NQ_240` **0 su 782/780**. Il quindici
+  minuti invece coincide al 100% (11.942 istanti su 11.942), perche' un bucket da 15 minuti cade
+  sulla stessa griglia comunque lo si ancori.
+
+  Conseguenza sui segnali, misurata rieseguendo `Evaluate` sulle due serie: sulle strategie a 240
+  minuti la coincidenza dei segnali (istante di barra + verso) e' **0%** — nessun segnale nasce sulla
+  stessa barra, perche' non esiste la stessa barra. Sulle strategie a 15 minuti e' **78-96%**.
+
+  Che sia la griglia e non i dati e' dimostrato ricostruendo le barre a 4 ore dal quindici minuti del
+  broker **sui bucket del vendor**: la coincidenza dei segnali passa da 0% a **90-98%**
+  (`PCH_007` 90%, `PCH_008` 92%, `TFU_008` 97%, `TFM_014` 98%), cioe' nella stessa fascia delle
+  strategie a 15 minuti. Il residuo e' la differenza di prezzo fra CFD e future retro-aggiustato, che
+  muove i livelli di canale e l'esito dei gate — non l'allineamento.
+
+  **Perche' conta oltre al confronto.** Il cBot spinge al server le barre che cTrader gli da', e
+  `MarketSeries(TimeFrame.Hour4)` e' ancorata al broker. Quindi ogni strategia a 240 minuti sul conto
+  vero sta valutando un canale di Donchian e una sessione **diversi da quelli su cui e' stata
+  validata**, e nessuno se ne accorgeva perche' i trade prodotti sono plausibili. Le coppie a 240
+  minuti sono circa il 55% dei trade che i due sistemi non si scambiano.
+
+  La direzione della correzione e' la stessa che il vendor usa gia': si raccoglie e si spinge il
+  **timeframe piu' fitto**, e i bucket li fa Piootoo con la propria convenzione. Vale sia per il cBot
+  di esecuzione sia per `PiootooDatafeedSyncBot`, che oggi raccoglie il timeframe nominale e quindi
+  scrive in `datafeed-external/` una serie non confrontabile con `datafeed/`. Non e' stato fatto qui:
+  tocca i due bot e il contratto di push, ed e' una modifica che va misurata da sola.
+
+  Verificato su **entrambi i simboli e con due sorgenti di aggregazione diverse** — NQ dal quindici
+  minuti, GC dal trenta:
+
+  | strategia | serie nativa del broker | serie riallineata |
+  |---|---|---|
+  | `PTS_GC_PCH_004_240` | 0% | **96%** |
+  | `PTS_GC_PCH_005_240` | 0% | **89%** |
+  | `PTS_GC_TFM_001_240` | 0% | **90%** |
+  | `PTS_NQ_PCH_007_240` | 0% | **90%** |
+  | `PTS_NQ_PCH_008_240` | 0% | **92%** |
+  | `PTS_NQ_TFU_008_240` | 0% | **97%** |
+  | `PTS_NQ_TFM_014_240` | 0% | **98%** |
+  | `PTS_GC_TFU_001_30` (controllo, 30m) | **92%** gia' nativo | — |
+
+  Il controllo a 30 minuti e' la conferma per assurdo: non ha bisogno di essere riallineato perche'
+  la sua griglia gia' coincide, e sta esattamente nella fascia in cui le 240 arrivano *dopo* la
+  ricostruzione. Il tetto del 90-98% e' la differenza di prezzo fra CFD e future retro-aggiustato,
+  non l'allineamento: quella non si toglie riaggregando.
+
 - **2026-08-31** — **Le due gambe di un bracket non sono un doppione: il lato entra nei lucchetti
   del claim.** Rilasciato come **3.13.0**. Non cambia nessun backtest — il percorso corretto esiste
   solo nella sessione `ExternalBroker` — ma cambia quali trade fa un run esterno, quindi i run
@@ -1984,9 +2090,7 @@ abbiamo e romperebbe quello che oggi funziona.
 
   Il feed non c'entra, ed è stato escluso misurandolo invece di assumerlo: rieseguendo `Evaluate`
   sulle barre del broker (`datafeed-external`, @GC 240m) la strategia emette 244 buy e **244 sell**,
-  esattamente come sul feed vendor. Le due griglie a 4 ore per giunta coincidono nella finestra del
-  confronto — il vendor è ancorato alla mezzanotte europea, il broker al fuso di New York, e i due
-  DST divergono solo a marzo e a fine ottobre.
+  esattamente come sul feed vendor: il verso non dipende dalla serie.
 
   **Il ramo delle posizioni resta cieco al verso, ed è voluto**: lì la cecità *è* la regola. Una
   gamba riempita deve impedire l'altra, altrimenti la strategia sta long e short insieme — è l'OCO,
@@ -2005,6 +2109,28 @@ abbiamo e romperebbe quello che oggi funziona.
   dello stesso lato resta rifiutato (il caso `PTS_NQ_PCH_002_15` del 14/10/2024), e la gamba opposta
   resta rifiutata dopo il fill dell'altra. Il primo test è stato verificato togliendo la guardia:
   senza, fallisce.
+
+  **Verificato su `compare-0010`** (stesso interno bit per bit, run esterno nuovo con 3.13.0). Nel
+  log eventi del cBot gli ordini short di `PTS_GC_PCH_004_240` passano da **0 a 84 creati e 28
+  riempiti**, contro 84 long creati: le due gambe risultano ora emesse in numero **esattamente
+  uguale**, che e' la firma prevista dalla sonda — i gate direzionali alle sentinelle le fanno
+  nascere sempre in coppia. Le firme delle altre cinque strategie colpite si muovono nello stesso
+  verso (TFM_003_15 613 -> 1.877 short creati e 0 -> 9 riempiti; TFU_005_60 156 -> 288 e 0 -> 4;
+  TFM_003_240 10 -> 111 e 0 -> 15).
+
+  Sulla finestra comune (1/7 -> 13/11 2024, stesso interno) il conto dei trade per verso passa da
+  737 long / **155** short a 723 / **256**, contro i 738 / 244 del backtest: la popolazione dei due
+  motori ora concorda su entrambi i lati, e non piu' solo sui long. Le strategie con short interni e
+  zero short esterni scendono da otto a due, ed entrambe le rimaste ne hanno uno o due in tutto.
+  Il tasso di appaiamento e' identico fra i lati (46% sui long, 42% sui short, contro il 45%
+  complessivo): l'asimmetria per verso e' sparita. Lo scarto medio per trade appaiato scende da
+  +1,93 a +0,74 punti.
+
+  **Cio' che questa correzione non tocca**, e che resta il residuo dominante: il 55% dei trade non
+  si appaia dentro la barra e il 35% nemmeno nella giornata, sulle stesse strategie di sempre
+  (`PTS_GC_PCH_004_240`, `PTS_GC_PCH_005_240`, `PTS_ES_PCH_004_240`, `PTS_FDAX_PCH_001_240`,
+  `PTS_NQ_TFU_008_240`). E' la divergenza di serie fra feed vendor e barre del broker, che il lavoro
+  su `datafeed-external` sta andando a chiudere.
 
   **Resta aperto, di proposito**, `MaxEntriesPerSession`, che conta gli ingressi per sessione senza
   il verso in **tutti e due** i motori (`EntryFillKey` sul server, `MakeEntrySessionKey`
@@ -2056,3 +2182,43 @@ abbiamo e romperebbe quello che oggi funziona.
   costante a ~2 ms per barra. E che il datafeed resta disaccoppiato: `ExternalDatafeedStore` e'
   raggiungibile solo da `DatafeedExternalController`, il cBot distribuito non chiama mai
   `api/datafeed-external` e il raccoglitore non chiama mai `trading-sessions`.
+
+## 2026-08-31 — Report HTML anche per i backtest dell'engine esterno
+
+Il dettaglio di un backtest ha un secondo pulsante, **Genera report**: chiede al server di
+costruire il report HTML dai JSON che il run ha lasciato nella cartella. Serve ai run
+dell'engine esterno, che archiviano `trades.json` e `signals.json` ma il report no — fino a
+ieri l'unico modo di guardarli era la griglia dei trade — e ai run interni interrotti prima
+della scrittura degli artefatti.
+
+Il report è **lo stesso** dei run interni, non una seconda versione: la generazione è uscita
+da `PiootooBacktestingService` ed è ora `BacktestHtmlReport`, che ha due chiamanti (il motore
+a fine run, e `ExternalBacktestReportService` a posteriori). Due generatori avrebbero prodotto
+due report diversi per gli stessi trade, e il confronto interno/esterno è esattamente ciò a cui
+il report serve. Per lo stesso motivo le chiavi di strategia stanno in `StrategyKeys`: il
+raggruppamento `SYMBOL|StrategyCode` è uno solo, per il loop e per i report.
+
+Cosa cambia nella ricostruzione, ed è dichiarato in testa al report invece che lasciato dedurre
+dalla forma della curva: **l'equity è quella realizzata**, un gradino alla chiusura di ogni
+trade. Il server non ha le barre di quel run — in sessione `ExternalBroker` la storia è solo
+quella che il client spinge, e resta in RAM — quindi le posizioni aperte non sono valorizzate a
+mercato e il drawdown è misurato fra chiusure, non fra massimi intraday. L'equity per strategia
+parte comunque dal capitale iniziale e ci somma il proprio netto cumulato, la convenzione di
+`GetStrategyEquities`, altrimenti le due curve non sarebbero sovrapponibili.
+
+Il capitale iniziale non stava da nessuna parte: il piano non ne ha uno (vedi 2026-08-05) e la
+sessione non ne lasciava traccia. Ora `origin.json` lo registra all'apertura
+(`BacktestOriginInfo.InitialCapital`); per le cartelle più vecchie il report assume 100.000 e lo
+scrive fra le note, perché profit e drawdown in valuta non ne dipendono ma le percentuali sì.
+L'endpoint accetta un `initialCapital` per rileggere lo stesso run su un'altra base.
+
+Rifiuta (409) quando la cartella **ha già** un report del proprio run. Il criterio è la presenza
+del file, non l'origine dichiarata: le cartelle scritte prima del marcatore hanno origine ignota
+pur essendo run interni completi, e lì una ricostruzione avrebbe affiancato al report del motore
+una curva diversa che, essendo più recente, lo avrebbe scavalcato all'apertura del dettaglio
+(`GetBacktestHtmlReportPath` serve l'HTML più recente). Il nome del file ricostruito è fisso,
+così rigenerare sostituisce invece di accumulare.
+
+`POST api/Workspace/{ws}/backtests/{cartella}/report` genera, il `GET` di sempre serve il file.
+Verificato su `pts-02/ftmo-trial-01-bt-20250716000000`: 280 trade, 18 strategie, profit -13.590,60
+e max drawdown 115.469,00 (61,88%), identici al ricalcolo indipendente sullo stesso `trades.json`.

@@ -738,7 +738,18 @@ public enum SessionActivityKind
     PosizioneChiusa,
 
     /// <summary>Cambio di stato della sessione (avvio, stop, ripresa).</summary>
-    Sessione
+    Sessione,
+
+    /// <summary>
+    /// Un ingresso reclamato ha superato la propria finestra di validita' senza che il client ne
+    /// riportasse mai l'esito, e il server lo ha annullato da se'.
+    ///
+    /// <para>Ha un tipo suo e non ricade in <see cref="EsitoEsecuzione"/> proprio perche' l'esito
+    /// NON e' arrivato: e' il server che decide al posto di un client che non ha parlato, e
+    /// confonderlo con un report vero renderebbe invisibile l'unica traccia di un client che ha
+    /// smesso di riportare. Aggiunto in coda per non spostare gli ordinali dei valori esistenti.</para>
+    /// </summary>
+    IntentScaduto
 }
 
 /// <summary>

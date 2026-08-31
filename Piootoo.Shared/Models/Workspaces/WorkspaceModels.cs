@@ -49,6 +49,17 @@ public sealed class BacktestOriginInfo
     public string? PlanCode { get; set; }
     public string? ExecutionKey { get; set; }
     public string? SessionId { get; set; }
+
+    /// <summary>
+    /// Capitale iniziale dichiarato all'apertura della sessione.
+    /// </summary>
+    /// <remarks>
+    /// Il piano non ha un capitale (vedi <c>docs/decisioni.md</c> 2026-08-05) e la sessione esterna
+    /// non lascia altra traccia del proprio: senza questo campo il report ricostruito a posteriori
+    /// dovrebbe inventarne uno, e percentuali e drawdown sarebbero riferiti a una base arbitraria.
+    /// <c>null</c> nelle cartelle scritte prima della sua introduzione.
+    /// </remarks>
+    public decimal? InitialCapital { get; set; }
 }
 
 public sealed class WorkspaceBacktestInfo
