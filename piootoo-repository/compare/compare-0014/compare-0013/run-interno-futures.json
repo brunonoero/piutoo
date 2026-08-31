@@ -1,0 +1,16 @@
+{
+  "Origin": "Internal",
+  "CreatedUtc": "2026-08-31T16:06:30.6792824Z",
+  "PriceSource": {
+    "Kind": "Futures",
+    "Broker": null
+  },
+  "EngineVersion": "4.0.0",
+  "PlanCode": null,
+  "ExecutionKey": null,
+  "SessionId": null,
+  "AccountNumber": null,
+  "RunSlug": "interno-futures",
+  "IdentifiesRun": true,
+  "InitialCapital": null
+}

@@ -2272,8 +2272,22 @@ public sealed class TradingSessionService : ITradingSessionService
                 // giorno, non a ogni barra, quindi non genera la riga-per-barra che la nota del
                 // filtro di scadenza dice di evitare.
                 () => DescribeSessionLimit(session, candidates, accountNumber));
+            // La rotazione del gruppo si risolve UNA volta per claim e non una per template.
+            //
+            // Non è solo costo — anche se il costo era il sintomo: risolvere dentro il predicato di
+            // NarrowTemplates rifaceva l'intera catena (elenco dei run della cartella, manifest,
+            // proiezione degli stati) per ogni candidato, e di nuovo in CloneForClaim. È anche
+            // coerenza: i due usi sono lo stesso giudizio — chi è ammesso e con che allocazione — e
+            // risolverli separatamente li lascia disallineabili da una rotazione che atterra fra
+            // l'uno e l'altro. Il documento dice "dalla barra successiva", non "a metà claim".
+            //
+            // La risoluzione resta DIFFERITA perché i due chiamanti hanno cortocircuiti propri
+            // (template di chiusura, gruppo senza cartella, filtri spenti) che oggi evitano di
+            // risolvere del tutto: anticiparla farebbe fallire un claim che oggi passa, quando la
+            // cartella non ha ancora un run.
+            var groupTitano = new LazyGroupTitano(() => TryResolveGroupTitano(session, groupId));
             candidates = NarrowTemplates(candidates, ref stage,
-                t => IsTemplateEligibleForGroup(session, groupId, t),
+                t => IsTemplateEligibleForGroup(session, groupId, t, groupTitano),
                 "escluso dalla rotazione Titano del gruppo");
 
             var template = candidates
@@ -2287,7 +2301,7 @@ public sealed class TradingSessionService : ITradingSessionService
                 return new AccountSignalResponse { Reason = "NoSignal", ReasonDetail = stage };
             }
 
-            var claim = CloneForClaim(session, template, accountNumber, groupId);
+            var claim = CloneForClaim(session, template, accountNumber, groupId, groupTitano);
             if (claim.FinalQuantity <= 0)
                 return new AccountSignalResponse
                 {
@@ -2858,6 +2872,30 @@ public sealed class TradingSessionService : ITradingSessionService
         return _titano?.ResolveLatestRun(workspaceId, backtestFolder)?.RunId;
     }
 
+    /// <summary>
+    /// Rotazione del gruppo risolta al più una volta, per la durata di un singolo claim.
+    ///
+    /// <para>Non è un <c>Lazy&lt;T&gt;</c> perché quello memorizza anche l'eccezione: qui una
+    /// risoluzione fallita deve poter risalire al chiamante come faceva prima, e vive comunque
+    /// dentro un solo claim sotto il lock della sessione, dove di concorrenza non ce n'è.</para>
+    /// </summary>
+    private sealed class LazyGroupTitano(Func<TitanoEffectiveStrategies?> resolve)
+    {
+        private TitanoEffectiveStrategies? _value;
+        private bool _resolved;
+
+        public TitanoEffectiveStrategies? Value
+        {
+            get
+            {
+                if (_resolved) return _value;
+                _value = resolve();
+                _resolved = true;
+                return _value;
+            }
+        }
+    }
+
     private TitanoEffectiveStrategies? TryResolveGroupTitano(Session session, string groupId)
     {
         var profile = ResolveGroupTitano(session, groupId);
@@ -2873,7 +2911,8 @@ public sealed class TradingSessionService : ITradingSessionService
             session.LastEvaluatedBarTimeUtc ?? DateTime.UtcNow);
     }
 
-    private bool IsTemplateEligibleForGroup(Session session, string groupId, OrderIntent template)
+    private bool IsTemplateEligibleForGroup(
+        Session session, string groupId, OrderIntent template, LazyGroupTitano groupTitano)
     {
         // Un intent di chiusura non è mai un template da reclamare (il server non ne emette), ma se
         // ne arrivasse uno non va comunque filtrato: chiudere una posizione aperta è sempre lecito.
@@ -2884,7 +2923,7 @@ public sealed class TradingSessionService : ITradingSessionService
         if (!profile.ApplyTitanoFilters || string.IsNullOrWhiteSpace(profile.TitanoBacktestFolder))
             return true;
 
-        var effective = TryResolveGroupTitano(session, groupId);
+        var effective = groupTitano.Value;
         if (effective is null)
             return true;
 
@@ -2900,7 +2939,8 @@ public sealed class TradingSessionService : ITradingSessionService
         return allocation > 0m;
     }
 
-    private decimal GetGroupStrategyAllocation(Session session, string groupId, string strategyCode)
+    private decimal GetGroupStrategyAllocation(
+        Session session, string groupId, string strategyCode, LazyGroupTitano groupTitano)
     {
         var profile = ResolveGroupTitano(session, groupId);
         if (!profile.ApplyTitanoFilters || string.IsNullOrWhiteSpace(profile.TitanoBacktestFolder))
@@ -2914,7 +2954,7 @@ public sealed class TradingSessionService : ITradingSessionService
             string.Equals(profile.TitanoBacktestFolder, session.TitanoBacktestFolder, StringComparison.OrdinalIgnoreCase))
             return 1m;
 
-        var effective = TryResolveGroupTitano(session, groupId);
+        var effective = groupTitano.Value;
         if (effective is null || !effective.HasActivePeriod)
             return 1m;
 
@@ -3242,9 +3282,11 @@ public sealed class TradingSessionService : ITradingSessionService
     /// <para>L'intera specifica di uscita viaggia con il clone: è l'unica cosa con cui il client
     /// chiuderà la posizione.</para>
     /// </summary>
-    private OrderIntent CloneForClaim(Session session, OrderIntent template, string accountNumber, string groupId)
+    private OrderIntent CloneForClaim(
+        Session session, OrderIntent template, string accountNumber, string groupId,
+        LazyGroupTitano groupTitano)
     {
-        var groupAllocation = GetGroupStrategyAllocation(session, groupId, template.StrategyCode);
+        var groupAllocation = GetGroupStrategyAllocation(session, groupId, template.StrategyCode, groupTitano);
         var quantity = ApplyGroupAllocation(session, template.Symbol, template.FinalQuantity, groupAllocation);
 
         // La conversione dell'account è l'ultimo passaggio, ed è qui e non sul template perché
@@ -3720,8 +3762,14 @@ public sealed class TradingSessionService : ITradingSessionService
             .Distinct(StringComparer.OrdinalIgnoreCase).Order(StringComparer.Ordinal).ToArray();
         var evaluatedNames = evaluationStrategies.Select(s => s.Name)
             .Distinct(StringComparer.OrdinalIgnoreCase).Order(StringComparer.Ordinal).ToArray();
+
+        // Set e non Contains sull'array: l'overload con comparer è Enumerable.Contains, che scansiona
+        // linearmente, e qui viene chiamato una volta per strategia del master — O(S²) per barra, su
+        // una riga che si costruisce a OGNI barra del run. Stesso difetto già corretto nel loop del
+        // backtest interno.
+        var evaluatedSet = new HashSet<string>(evaluatedNames, StringComparer.OrdinalIgnoreCase);
         var skipped = masterStrategies
-            .Where(x => !evaluatedNames.Contains(x, StringComparer.OrdinalIgnoreCase))
+            .Where(x => !evaluatedSet.Contains(x))
             .ToArray();
         var statesByCode = effective.StrategyStates.ToDictionary(x => x.StrategyCode, StringComparer.OrdinalIgnoreCase);
         var strategyStates = masterStrategies.Select(code =>
@@ -3730,7 +3778,7 @@ public sealed class TradingSessionService : ITradingSessionService
             return new RotationStrategyState
             {
                 StrategyCode = code,
-                Included = evaluatedNames.Contains(code, StringComparer.OrdinalIgnoreCase),
+                Included = evaluatedSet.Contains(code),
                 AllocationMultiplier = state?.AllocationMultiplier ?? 0m,
                 State = state?.State.ToString(),
                 HardStopped = state?.HardStopped ?? false,
