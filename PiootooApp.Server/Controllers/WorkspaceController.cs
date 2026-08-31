@@ -7,7 +7,9 @@ namespace PiootooApp.Server.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-public sealed class WorkspaceController(WorkspaceService workspaceService) : ControllerBase
+public sealed class WorkspaceController(
+    WorkspaceService workspaceService,
+    ExternalBacktestReportService externalReports) : ControllerBase
 {
     [HttpGet]
     public ActionResult<IReadOnlyList<WorkspaceInfo>> List() => Ok(workspaceService.List());
@@ -149,6 +151,33 @@ public sealed class WorkspaceController(WorkspaceService workspaceService) : Con
         }
         catch (DirectoryNotFoundException exception) { return NotFound(new { error = exception.Message }); }
         catch (FileNotFoundException exception) { return NotFound(new { error = exception.Message }); }
+        catch (ArgumentException exception) { return BadRequest(new { error = exception.Message }); }
+    }
+
+    /// <summary>
+    /// Genera il report HTML di un backtest che non ne ha uno proprio: i run dell'engine esterno,
+    /// che archiviano i trade ma non il report, e i run interni interrotti prima degli artefatti.
+    /// Il report è ricostruito dal <c>trades.json</c> della cartella ed è lo stesso dei run interni.
+    /// </summary>
+    /// <remarks>
+    /// <c>POST</c> e non <c>GET</c> perché scrive un file nella cartella del backtest, e ripeterlo
+    /// sostituisce sempre lo stesso file: il client, subito dopo, lo legge dal
+    /// <c>GET .../report</c> di sempre.
+    /// </remarks>
+    [HttpPost("{workspaceId}/backtests/{backtestFolder}/report")]
+    public IActionResult GenerateBacktestHtmlReport(
+        string workspaceId,
+        string backtestFolder,
+        [FromQuery] decimal? initialCapital = null)
+    {
+        try
+        {
+            var path = externalReports.Generate(workspaceId, backtestFolder, initialCapital);
+            return Ok(new { fileName = Path.GetFileName(path) });
+        }
+        catch (DirectoryNotFoundException exception) { return NotFound(new { error = exception.Message }); }
+        catch (FileNotFoundException exception) { return NotFound(new { error = exception.Message }); }
+        catch (InvalidOperationException exception) { return Conflict(new { error = exception.Message }); }
         catch (ArgumentException exception) { return BadRequest(new { error = exception.Message }); }
     }
 

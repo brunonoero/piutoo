@@ -379,6 +379,8 @@ Sotto `<workspace>/backtests/<nome>/`:
 | `backtest-summary.json` | contatori per strategia + diagnosi automatica |
 | `backtest_<nome>_<ts>.json` | `BacktestingResult` completo |
 | `backtest_<nome>_<ts>.html` | report equity per strategia |
+| `backtest-report-ricostruito.html` | stesso report, ricostruito a posteriori dai soli `trades.json` per i run che non ne producono uno (engine esterno, run interrotti) — vedi `decisioni.md` 2026-08-31 |
+| `origin.json` | chi ha prodotto la cartella (`Internal` / `ExternalBroker`), piano, esecuzione, sessione e capitale iniziale |
 | `titano/<runId>/manifest.json` | manifest di rotazione |
 
 Sotto `<workspace>/plans/`: `plans.json`.

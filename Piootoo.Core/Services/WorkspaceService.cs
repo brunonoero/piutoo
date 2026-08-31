@@ -668,7 +668,10 @@ public sealed class WorkspaceService
         Converters = { new JsonStringEnumConverter() }
     };
 
-    private static BacktestOriginInfo? ReadBacktestOrigin(string backtestPath)
+    /// <summary>
+    /// Marcatore di origine della cartella, <c>null</c> se assente o illeggibile (origine ignota).
+    /// </summary>
+    public static BacktestOriginInfo? ReadBacktestOrigin(string backtestPath)
     {
         try
         {

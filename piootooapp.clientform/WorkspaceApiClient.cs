@@ -342,6 +342,25 @@ public sealed class WorkspaceApiClient
             $"api/Workspace/{Uri.EscapeDataString(workspaceId)}" +
             $"/backtests/{Uri.EscapeDataString(folderName)}/report");
 
+    /// <summary>
+    /// Chiede al server di ricostruire il report HTML del backtest dai suoi trade, e di scriverlo
+    /// nella cartella del run. Serve ai backtest dell'engine esterno, che i trade li archiviano ma
+    /// il report no: dopo questa chiamata l'indirizzo di <see cref="GetBacktestHtmlReportUri"/>
+    /// risponde.
+    /// </summary>
+    public async Task GenerateBacktestHtmlReportAsync(
+        string workspaceId,
+        string folderName,
+        CancellationToken cancellationToken = default)
+    {
+        using var response = await SendAsync(
+            HttpMethod.Post,
+            $"api/Workspace/{Uri.EscapeDataString(workspaceId)}" +
+            $"/backtests/{Uri.EscapeDataString(folderName)}/report",
+            body: null,
+            cancellationToken);
+    }
+
     public async Task<string> GetBacktestSummaryAsync(
         string workspaceId,
         string folderName,

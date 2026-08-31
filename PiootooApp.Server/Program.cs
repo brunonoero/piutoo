@@ -42,6 +42,7 @@ builder.Services.AddSingleton<PiootooOptimizationService>();
 builder.Services.AddSingleton<TitanoRotationSetupService>();
 builder.Services.AddSingleton<TitanoRotationService>();
 builder.Services.AddSingleton<WorkspaceService>();
+builder.Services.AddSingleton<ExternalBacktestReportService>();
 builder.Services.AddSingleton<TradingPlanService>();
 builder.Services.AddSingleton<IStrategyEvaluationService, StrategyEvaluationService>();
 builder.Services.AddSingleton<IPositionSizingService, PositionSizingService>();

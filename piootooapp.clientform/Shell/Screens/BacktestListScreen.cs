@@ -294,7 +294,7 @@ public partial class BacktestListScreen : UserControl, IShellScreen
         }
 
         var detail = new BacktestDetailScreen();
-        detail.SetBacktest(workspaceId, row.FolderName);
+        detail.SetBacktest(workspaceId, row.FolderName, row.OriginKind);
         _context.Navigation.Push(detail);
     }
 

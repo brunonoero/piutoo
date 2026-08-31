@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Text.Json;
 using Piootoo.Shared.Models.Trading;
+using Piootoo.Shared.Models.Workspaces;
 using piootooapp.clientform.Shell.Controls;
 
 namespace piootooapp.clientform.Shell.Screens;
@@ -50,6 +51,7 @@ public partial class BacktestDetailScreen : UserControl, IShellScreen
     private ShellContext? _context;
     private string _workspaceId = string.Empty;
     private string _folderName = string.Empty;
+    private BacktestOrigin _origin = BacktestOrigin.Unknown;
 
     public BacktestDetailScreen()
     {
@@ -61,11 +63,17 @@ public partial class BacktestDetailScreen : UserControl, IShellScreen
 
     public string ScreenTitle => _folderName.Length > 0 ? _folderName : "Backtest";
 
-    /// <summary>Va chiamato prima di aggiungere il controllo allo shell.</summary>
-    public void SetBacktest(string workspaceId, string folderName)
+    /// <summary>
+    /// Va chiamato prima di aggiungere il controllo allo shell. L'origine arriva dall'elenco, che
+    /// l'ha già letta: serve a sapere se il report va chiesto al server o esiste già come artefatto
+    /// del run, e chiederla di nuovo qui costerebbe una seconda chiamata per un dato che il
+    /// chiamante ha in mano.
+    /// </summary>
+    public void SetBacktest(string workspaceId, string folderName, BacktestOrigin origin = BacktestOrigin.Unknown)
     {
         _workspaceId = workspaceId;
         _folderName = folderName;
+        _origin = origin;
         _toolbar.Title = folderName;
     }
 
@@ -80,6 +88,7 @@ public partial class BacktestDetailScreen : UserControl, IShellScreen
 
         _toolbar.SetBusy(true);
         _reportButton.Enabled = false;
+        _generateReportButton.Enabled = false;
         try
         {
             await LoadSummaryAsync(cancellationToken);
@@ -89,6 +98,12 @@ public partial class BacktestDetailScreen : UserControl, IShellScreen
             // a ogni apertura della schermata, per un file che l'utente apre di rado. L'assenza è
             // un 404 con un messaggio parlante, e questa griglia non deserializza ciò che elenca.
             _reportButton.Enabled = true;
+
+            // La generazione è per i run che il report non lo scrivono: quelli dell'engine esterno,
+            // e i run interni interrotti — dove l'origine è nota ma l'artefatto manca. Su un run
+            // interno completo il server rifiuta, perché sostituirebbe la curva del motore con
+            // quella ricostruita dai soli trade.
+            _generateReportButton.Enabled = _origin != BacktestOrigin.Internal && _trades.Count > 0;
         }
         catch (OperationCanceledException)
         {
@@ -121,9 +136,7 @@ public partial class BacktestDetailScreen : UserControl, IShellScreen
         _toolbar.SetBusy(true);
         try
         {
-            var uri = _context.Services.Api.GetBacktestHtmlReportUri(_workspaceId, _folderName);
-            await HtmlReportViewerForm.ShowFromUriAsync(
-                FindForm()!, _context.Services.Http, uri, $"Report {_folderName}");
+            await ShowReportAsync();
         }
         catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
         {
@@ -131,7 +144,8 @@ public partial class BacktestDetailScreen : UserControl, IShellScreen
                 this,
                 $"Il backtest '{_folderName}' non ha un report HTML. " +
                 "Succede nei run interrotti e in quelli eseguiti dall'engine esterno, " +
-                "che archiviano i trade ma non generano il report.",
+                "che archiviano i trade ma non generano il report: usa \"Genera report\" per " +
+                "ricostruirlo dai trade del run.",
                 "Report backtest",
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Information);
@@ -144,6 +158,49 @@ public partial class BacktestDetailScreen : UserControl, IShellScreen
         {
             _toolbar.SetBusy(false);
         }
+    }
+
+    /// <summary>
+    /// Chiede al server di ricostruire il report dai trade del run e lo apre subito.
+    /// </summary>
+    /// <remarks>
+    /// È l'unico modo di vedere a grafico un run dell'engine esterno: quel run scrive
+    /// <c>trades.json</c> e <c>signals.json</c>, il report no. Il report è lo stesso dei run interni
+    /// — stesse tabelle, stessi grafici — e dichiara in testa che l'equity è quella realizzata,
+    /// perché il server non ha le barre di quel run e non può valorizzare a mercato le posizioni
+    /// aperte. Rigenerare sostituisce il file precedente.
+    /// </remarks>
+    private async void OnGenerateReportClick(object? sender, EventArgs e)
+    {
+        if (_context == null || _workspaceId.Length == 0 || _folderName.Length == 0)
+        {
+            return;
+        }
+
+        _toolbar.SetBusy(true);
+        try
+        {
+            await _context.Services.Api.GenerateBacktestHtmlReportAsync(_workspaceId, _folderName);
+            _reportButton.Enabled = true;
+            _context.Navigation.SetStatus(
+                $"Report di '{_folderName}' ricostruito dai {_trades.Count} trade del run.");
+            await ShowReportAsync();
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, ex.Message, "Genera report", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+        finally
+        {
+            _toolbar.SetBusy(false);
+        }
+    }
+
+    private Task ShowReportAsync()
+    {
+        var uri = _context!.Services.Api.GetBacktestHtmlReportUri(_workspaceId, _folderName);
+        return HtmlReportViewerForm.ShowFromUriAsync(
+            FindForm()!, _context.Services.Http, uri, $"Report {_folderName}");
     }
 
     // --- riepilogo --------------------------------------------------------
