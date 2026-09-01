@@ -2307,3 +2307,38 @@ e max drawdown 115.469,00 (61,88%), identici al ricalcolo indipendente sullo ste
   e un run che non identifica sé stesso è un `409`, non un export. Quest'ultima è più stretta di
   "lo slug è noto": `BacktestOriginInfo.IdentifiesRun` rifiuta anche un CFD di cui manca il
   broker, perché `cbot-cfd` sta ugualmente per due serie di prezzi diverse.
+
+- **2026-08-31** — **L'elenco dei run Titano di una cartella non si rilegge da disco a ogni
+  barra.** `ResolveLatestRun` passa da `ListRuns`, che apriva **ogni** manifest della cartella con
+  un `File.ReadAllBytes` — nel repository quei file stanno fra i 672 KB e 1 MB. Quel percorso lo
+  percorre `EvaluateClosedBar` una volta per barra e, sul claim multi-account, lo percorreva **una
+  volta per template candidato per account**: la `ManifestCache` non lo copriva, perché il listing
+  non passa da `Get`. Misurato sul manifest vero di `pts-02/backtest-20260803-0441` (984 KB, 104
+  periodi): la catena di una barra — runId più `Resolve` — costava **13,8 ms** e ora costa
+  **0,46 ms**. Su un run di un anno a 15 minuti sono ore contro minuti, ed è la ragione per cui il
+  backtest esterno era tornato lento dopo il 31/08: la fix di `PurgeExpiredEntryIntents` (3.14.0) ha
+  smesso di tenere vuota la lista dei template, e il percorso costoso ha ricominciato a girare
+  davvero.
+
+  Cache invalidata sull'ultima modifica della cartella `titano/`: un run nuovo crea
+  `titano/{runId}/` e una cancellazione la rimuove, quindi l'invariante "una rotazione nuova si
+  applica dalla barra successiva senza riaprire la sessione" resta intatto. Il contenuto di un run
+  già elencato non cambia — il runId è l'hash dei suoi input — e i file di hard-stop reset, che
+  invece si aggiungono a caldo, non entrano in `TitanoRunInfo`: li legge `Get`, che ha la propria
+  invalidazione. Tetto LRU come per i manifest, perché il numero di cartelle cresce a ogni backtest.
+  `TitanoStateMachineTests.ResolveLatestRun_ReadsTheFolderOnce_AndSeesANewRotationImmediately` fissa
+  le due metà insieme: nessuna rilettura quando non cambia niente, rotazione nuova vista subito
+  quando cambia.
+
+  Stessa cura per `masterfilter.json`, che `Resolve` rileggeva e deserializzava a ogni chiamata, e
+  per la rotazione del gruppo nel claim: si risolve **una volta per claim** invece che una per
+  template. Quest'ultima non è solo costo — è coerenza: i due usi (chi è ammesso, con che
+  allocazione) sono lo stesso giudizio, e risolverli separatamente li lasciava disallineabili da una
+  rotazione che atterra fra l'uno e l'altro. La risoluzione resta differita perché i chiamanti hanno
+  cortocircuiti che oggi evitano di risolvere del tutto, e anticiparla farebbe fallire un claim che
+  oggi passa.
+
+  Resta sul tavolo il residuo: dei 0,46 ms per barra, **0,20 sono le due stat di filesystem** con
+  cui `Get` verifica la propria cache. Toglierle vuol dire memoizzare `Resolve` per periodo e
+  rivalidare a tempo, che è una semantica diversa per gli hard-stop reset: da fare con un numero in
+  mano, non per simmetria.

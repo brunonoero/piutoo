@@ -387,6 +387,48 @@ public sealed class TitanoStateMachineTests : IDisposable
         Assert.NotNull(rotation.Get(workspace.Id, first.Folder, first.RunId));
     }
 
+    [Fact]
+    public void ResolveLatestRun_ReadsTheFolderOnce_AndSeesANewRotationImmediately()
+    {
+        // ResolveLatestRun sta sul percorso di OGNI barra di una sessione e, sul claim
+        // multi-account, di ogni template di ogni account. Passa da ListRuns, che apriva ogni
+        // manifest della cartella con un ReadAllBytes: nel repository quei file stanno fra i 600 KB
+        // e 1 MB, e su un run di un anno erano decine di GB riletti per rispondere sempre lo stesso
+        // runId. La cache è invalidata sull'ultima modifica della cartella titano/.
+        //
+        // Il test fissa le DUE metà dell'invariante insieme, perché una senza l'altra è inutile:
+        // niente riletture quando non cambia niente, e la rotazione nuova vista subito quando cambia.
+        TitanoRotationService.ClearManifestCache();
+
+        var (workspaces, workspaceId, folder, code) = Workspace();
+        WriteTrades(workspaces, workspaceId, folder, code,
+            [(Utc(2026, 1, 6), 100m), (Utc(2026, 1, 13), 50m)]);
+        var rotation = new TitanoRotationService(workspaces);
+        var primo = rotation.Run(BaseRequest(workspaceId, folder));
+
+        var scansioniPrima = TitanoRotationService.RunListingScans;
+        for (var i = 0; i < 50; i++)
+            Assert.Equal(primo.RunId, rotation.ResolveLatestRun(workspaceId, folder)?.RunId);
+
+        Assert.Equal(1, TitanoRotationService.RunListingScans - scansioniPrima);
+
+        // Rotazione nuova sulla stessa cartella: un runId diverso (è l'hash degli input, e qui
+        // cambia la configurazione), quindi una sottocartella nuova sotto titano/.
+        var secondo = rotation.Run(BaseRequest(workspaceId, folder) with { EndUtc = Utc(2026, 4, 1) });
+        Assert.NotEqual(primo.RunId, secondo.RunId);
+
+        // "Dalla barra successiva, senza riaprire la sessione": nessuno ha svuotato la cache, ed
+        // entrambi i run sono elencati. Il rilevamento passa dall'ultima modifica di titano/, che la
+        // creazione della sottocartella del run nuovo ha toccato.
+        Assert.NotNull(rotation.ResolveLatestRun(workspaceId, folder));
+        var elencati = rotation.ListRuns(workspaceId, folder).Select(x => x.RunId).ToArray();
+        Assert.Contains(primo.RunId, elencati);
+        Assert.Contains(secondo.RunId, elencati);
+
+        // Una sola rilettura in più: quella provocata dal run nuovo, non una per chiamata.
+        Assert.Equal(2, TitanoRotationService.RunListingScans - scansioniPrima);
+    }
+
     // ---------------------------------------------------------------- helper
 
     private static TitanoRotationRequest Request() => new()

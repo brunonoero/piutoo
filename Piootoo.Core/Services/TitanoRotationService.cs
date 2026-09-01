@@ -74,8 +74,17 @@ public sealed class TitanoRotationService
     /// <summary>Voci attualmente in cache. Esposto per i test e per la diagnostica.</summary>
     public static int CachedManifestCount => ManifestCache.Count;
 
-    /// <summary>Svuota la cache dei manifest. Serve ai test per partire da uno stato noto.</summary>
-    public static void ClearManifestCache() => ManifestCache.Clear();
+    /// <summary>
+    /// Svuota le cache di lettura (manifest, elenco dei run, codici del masterfilter). Serve ai test
+    /// per partire da uno stato noto: sono tutte invalidate su timestamp di file o cartella, quindi
+    /// in esercizio non c'è mai bisogno di chiamarla.
+    /// </summary>
+    public static void ClearManifestCache()
+    {
+        ManifestCache.Clear();
+        RunListingCache.Clear();
+        MasterCodesCache.Clear();
+    }
 
     private static void Touch(CachedManifest entry) =>
         Interlocked.Exchange(ref entry.LastAccess, Interlocked.Increment(ref _accessCounter));
@@ -103,6 +112,88 @@ public sealed class TitanoRotationService
         }
     }
 
+    /// <summary>
+    /// Elenco dei run di una cartella, invalidato sull'ultima modifica della cartella <c>titano/</c>.
+    ///
+    /// <para><b>Perché serve.</b> <see cref="ResolveLatestRun"/> passa da <see cref="ListRuns"/>, e
+    /// <c>ListRuns</c> apre <b>ogni</b> manifest della cartella con un <c>File.ReadAllBytes</c>:
+    /// nel repository quei file pesano fra i 600 KB e 1 MB. Quel percorso viene percorso una volta
+    /// per barra da <c>EvaluateClosedBar</c> e, sul claim multi-account, <b>una volta per template
+    /// candidato per account</b> — e la <see cref="ManifestCache"/> non lo copriva, perché il
+    /// listing non passa da <see cref="Get"/>. Su un run di un anno erano decine di GB riletti da
+    /// disco per rispondere sempre la stessa cosa.</para>
+    ///
+    /// <para><b>Perché resta corretto.</b> L'invariante da non rompere è che una rotazione nuova si
+    /// applichi dalla barra successiva senza riaprire la sessione. Un run nuovo crea
+    /// <c>titano/{runId}/</c> e una cancellazione la rimuove: entrambe toccano l'ultima modifica
+    /// della cartella padre, che è la chiave di invalidazione. Il contenuto di un run già elencato
+    /// non cambia — il runId è l'hash dei suoi input e <see cref="Run"/> restituisce il manifest
+    /// esistente invece di riscriverlo — e i file di hard-stop reset, che invece si aggiungono a
+    /// caldo, non entrano in <see cref="TitanoRunInfo"/>: li legge <see cref="Get"/>, che ha la
+    /// propria invalidazione sulla directory del run.</para>
+    /// </summary>
+    private static readonly ConcurrentDictionary<string, CachedRunListing> RunListingCache =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Quante cartelle di backtest tengono l'elenco dei propri run in memoria. Una voce pesa quanto
+    /// una manciata di <see cref="TitanoRunInfo"/>, ma il numero di cartelle cresce a ogni backtest:
+    /// senza tetto un server acceso per mesi accumulerebbe in modo monotono, che è esattamente il
+    /// difetto già corretto sulla cache dei manifest.
+    /// </summary>
+    public const int RunListingCacheCapacity = 64;
+
+    private static int _runListingScans;
+
+    /// <summary>
+    /// Quante volte l'elenco dei run è stato costruito leggendo davvero i manifest da disco. Esposto
+    /// per i test e per la diagnostica, come <see cref="CachedManifestCount"/>: è il numero che
+    /// distingue "la cache regge" da "la stiamo invalidando a ogni barra", e senza di esso la
+    /// differenza si vede solo dal cronometro.
+    /// </summary>
+    public static int RunListingScans => Volatile.Read(ref _runListingScans);
+
+    private sealed class CachedRunListing
+    {
+        /// <summary>Ultima modifica della cartella <c>titano/</c> al momento della scansione.</summary>
+        public required DateTime FolderTouchedAtUtc { get; init; }
+        public required TitanoRunInfo[] Runs { get; init; }
+
+        /// <summary>Ultimo accesso, come valore del contatore monotono. Scritto con Interlocked.</summary>
+        public long LastAccess;
+    }
+
+    private static void StoreRunListing(string root, DateTime stamp, TitanoRunInfo[] runs)
+    {
+        var entry = new CachedRunListing { FolderTouchedAtUtc = stamp, Runs = runs };
+        Interlocked.Exchange(ref entry.LastAccess, Interlocked.Increment(ref _accessCounter));
+        RunListingCache[root] = entry;
+
+        while (RunListingCache.Count > RunListingCacheCapacity)
+        {
+            var victim = RunListingCache
+                .OrderBy(pair => Interlocked.Read(ref pair.Value.LastAccess))
+                .Select(pair => pair.Key)
+                .FirstOrDefault();
+            if (victim is null || !RunListingCache.TryRemove(victim, out _)) break;
+        }
+    }
+
+    /// <summary>
+    /// Codici di esecuzione del masterfilter già risolti, invalidati sull'ultima scrittura di
+    /// <c>masterfilter.json</c>. Sta accanto alle altre due per la stessa ragione: <see cref="Resolve"/>
+    /// li richiede a ogni chiamata, cioè a ogni barra e a ogni template di ogni claim, e ogni volta
+    /// rileggeva e deserializzava il file.
+    /// </summary>
+    private static readonly ConcurrentDictionary<string, CachedMasterCodes> MasterCodesCache =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    private sealed class CachedMasterCodes
+    {
+        public required DateTime WrittenAtUtc { get; init; }
+        public required string[] Codes { get; init; }
+    }
+
     private readonly WorkspaceService _workspaces;
 
     public TitanoRotationService(WorkspaceService workspaces) => _workspaces = workspaces;
@@ -116,9 +207,31 @@ public sealed class TitanoRotationService
     /// tutte le metriche restano a zero e la rotazione disabilita tutto per sempre.
     /// Vedi docs/PROGETTO.md §3.2.
     /// </summary>
-    private string[] GetMasterExecutionCodes(string workspaceId) =>
-        StrategyCatalog.ResolveExecutionCodes(
+    private string[] GetMasterExecutionCodes(string workspaceId)
+    {
+        // Il path si ricava senza pretendere che il workspace esista: se non esiste, il file non c'è,
+        // si salta la cache e la lettura vera solleva l'eccezione di sempre. La sola autorità sul
+        // caso "workspace assente" resta GetMasterFilter.
+        var path = Path.Combine(_workspaces.GetWorkspacePath(workspaceId), WorkspaceService.MasterFilterFileName);
+        var stamp = File.Exists(path) ? File.GetLastWriteTimeUtc(path) : (DateTime?)null;
+
+        if (stamp is { } known &&
+            MasterCodesCache.TryGetValue(path, out var cached) &&
+            cached.WrittenAtUtc == known)
+            return cached.Codes.ToArray();
+
+        var codes = StrategyCatalog.ResolveExecutionCodes(
             _workspaces.GetMasterFilter(workspaceId).StrategiesFilter.Where(x => !string.IsNullOrWhiteSpace(x)));
+
+        if (stamp is { } toStore)
+            MasterCodesCache[path] = new CachedMasterCodes { WrittenAtUtc = toStore, Codes = codes };
+
+        // Copia a ogni chiamata, come faceva la versione senza cache: l'array finisce dentro
+        // TitanoEffectiveStrategies.MasterStrategies e da lì in una risposta HTTP, e condividerne
+        // l'istanza fra chiamate concorrenti sarebbe un invariante nuovo da mantenere per sempre in
+        // cambio di una allocazione da qualche decina di stringhe.
+        return codes.ToArray();
+    }
 
     public TitanoRotationManifest Run(TitanoRotationRequest request)
     {
@@ -187,12 +300,35 @@ public sealed class TitanoRotationService
     {
         var root = Path.Combine(_workspaces.GetBacktestPath(workspaceId, backtestFolder), "titano");
         if (!Directory.Exists(root)) return [];
-        return Directory.EnumerateFiles(root, "manifest.json", SearchOption.AllDirectories)
-            .Select(path => ScanRunInfo(path, workspaceId, backtestFolder))
-            .Where(info => info != null)
-            .Select(info => info!)
-            .OrderByDescending(x => x.GeneratedAtUtc)
-            .ToArray();
+
+        // Una cartella senza run è già a costo zero (la sola Directory.Exists qui sopra), quindi la
+        // cache non la copre: la voce esisterebbe solo per essere invalidata dal primo run.
+        var stamp = Directory.GetLastWriteTimeUtc(root);
+        if (RunListingCache.TryGetValue(root, out var cached) && cached.FolderTouchedAtUtc == stamp)
+        {
+            Interlocked.Exchange(ref cached.LastAccess, Interlocked.Increment(ref _accessCounter));
+            return cached.Runs;
+        }
+
+        lock (GateFor(root))
+        {
+            if (RunListingCache.TryGetValue(root, out var current) && current.FolderTouchedAtUtc == stamp)
+            {
+                Interlocked.Exchange(ref current.LastAccess, Interlocked.Increment(ref _accessCounter));
+                return current.Runs;
+            }
+
+            Interlocked.Increment(ref _runListingScans);
+            var runs = Directory.EnumerateFiles(root, "manifest.json", SearchOption.AllDirectories)
+                .Select(path => ScanRunInfo(path, workspaceId, backtestFolder))
+                .Where(info => info != null)
+                .Select(info => info!)
+                .OrderByDescending(x => x.GeneratedAtUtc)
+                .ToArray();
+
+            StoreRunListing(root, stamp, runs);
+            return runs;
+        }
     }
 
     /// <summary>

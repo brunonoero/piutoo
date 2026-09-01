@@ -10,7 +10,12 @@ namespace Piootoo.Core.Services;
 /// <summary>Gestisce workspace filesystem e il relativo masterfilter.json.</summary>
 public sealed class WorkspaceService
 {
-    private const string MasterFilterFileName = "masterfilter.json";
+    /// <summary>
+    /// Nome del file di masterfilter dentro la cartella del workspace. Pubblico perché chi lo
+    /// rilegge a ogni barra (<see cref="TitanoRotationService"/>) deve poterne guardare il timestamp
+    /// senza duplicarne il nome.
+    /// </summary>
+    public const string MasterFilterFileName = "masterfilter.json";
     private const string AccountsFileName = "accounts.json";
 
     /// <summary>Registro globale delle tabelle di conversione simboli, fuori da account e workspace.</summary>

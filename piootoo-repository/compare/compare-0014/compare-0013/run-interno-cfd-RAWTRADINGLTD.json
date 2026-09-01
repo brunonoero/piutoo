@@ -1,0 +1,16 @@
+{
+  "Origin": "Internal",
+  "CreatedUtc": "2026-08-31T16:03:53.3027127Z",
+  "PriceSource": {
+    "Kind": "BrokerCfd",
+    "Broker": "RAWTRADINGLTD"
+  },
+  "EngineVersion": "4.0.0",
+  "PlanCode": null,
+  "ExecutionKey": null,
+  "SessionId": null,
+  "AccountNumber": null,
+  "RunSlug": "interno-cfd-RAWTRADINGLTD",
+  "IdentifiesRun": true,
+  "InitialCapital": null
+}
