@@ -1,0 +1,16 @@
+{
+  "Origin": "ExternalBroker",
+  "CreatedUtc": "2026-08-31T17:18:48.4974703Z",
+  "PriceSource": {
+    "Kind": "BrokerCfd",
+    "Broker": "ICS"
+  },
+  "EngineVersion": "4.0.0",
+  "PlanCode": "NQ-15",
+  "ExecutionKey": "BT-20240701000000",
+  "SessionId": "9835df9067ef489db323c84d86266d5e",
+  "AccountNumber": "1075035",
+  "RunSlug": "cbot-cfd-ICS",
+  "IdentifiesRun": true,
+  "InitialCapital": 100000
+}

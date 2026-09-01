@@ -626,6 +626,10 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                 EndDate = request.EndDate,
                 InitialCapital = request.InitialCapital,
                 CreatedAt = DateTime.UtcNow,
+                // Stessa sorgente del marcatore scritto alla creazione della cartella: il report
+                // HTML lo stampa sotto il titolo, e un run che non dice su quali prezzi e' girato
+                // non e' confrontabile con nessun altro.
+                PriceSource = RunPriceSource.FromDatafeedBroker(request.DatafeedBroker),
                 StrategiesUsed = createdStrategies.Select(item => item.Definition.Name).ToList(),
                 StrategiesInfo = createdStrategies.Select(item => new Piootoo.Shared.Models.Backtesting.StrategyInfo
                 {

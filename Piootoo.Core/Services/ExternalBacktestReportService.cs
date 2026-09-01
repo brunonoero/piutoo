@@ -133,6 +133,9 @@ public sealed class ExternalBacktestReportService(WorkspaceService workspaces)
             StartDate = startUtc,
             EndDate = endUtc,
             InitialCapital = initialCapital,
+            // Il feed lo dichiara il marcatore del run, non questa ricostruzione: sulle cartelle
+            // scritte prima del campo resta ignoto, e stampare "ignoto" e' l'unica risposta onesta.
+            PriceSource = origin?.ResolvedPriceSource,
             // L'orologio non è sintetico: le righe finiscono dove finiscono i trade, quindi non c'è
             // coda piatta da troncare e i resoconti non vanno tagliati.
             DataCoverageEndUtc = null

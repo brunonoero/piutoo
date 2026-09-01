@@ -3,6 +3,7 @@ using System.Text.Json;
 using Piootoo.Shared.Models;
 using Piootoo.Shared.Models.Backtesting;
 using Piootoo.Shared.Models.Trading;
+using Piootoo.Shared.Models.Workspaces;
 
 namespace Piootoo.Core.Services;
 
@@ -76,6 +77,18 @@ public static class BacktestHtmlReport
         }
 
         html.AppendLine("  </div>");
+    }
+
+    /// <summary>
+    /// Il feed da cui il run ha letto le barre, sotto il titolo. Non e' un dettaglio da riepilogo:
+    /// due curve di equity prodotte su archivi diversi non sono confrontabili nemmeno quando motore,
+    /// strategie e periodo coincidono, e chi apre il file mesi dopo non ha altro modo di saperlo.
+    /// Un run che non lo dichiara lo dice, invece di lasciar credere al datafeed interno.
+    /// </summary>
+    private static void AppendFeedHtml(StringBuilder html, RunPriceSource? priceSource)
+    {
+        var label = (priceSource ?? new RunPriceSource()).FeedLabel;
+        html.AppendLine($"  <p class=\"feed\">Feed: {System.Net.WebUtility.HtmlEncode(label)}</p>");
     }
 
     public static void Write(
@@ -153,9 +166,10 @@ public static class BacktestHtmlReport
             html.AppendLine("<!doctype html>");
             html.AppendLine("<html lang=\"it\"><head><meta charset=\"utf-8\">");
             html.AppendLine($"<title>{title}</title>");
-            html.AppendLine("<style>body{font-family:Arial,Helvetica,sans-serif;margin:24px;background:#0f172a;color:#e5e7eb}.card{background:#111827;border:1px solid #334155;border-radius:12px;padding:18px;margin-bottom:16px}.muted{color:#94a3b8}.metrics{display:flex;flex-wrap:wrap;gap:10px;margin:14px 0}.metric{background:#020617;border:1px solid #334155;border-radius:10px;padding:10px 12px}.metric b{display:block;color:#f8fafc}.summary-table{width:100%;border-collapse:collapse;margin-top:10px}.summary-table th,.summary-table td{border-bottom:1px solid #334155;padding:9px 10px;text-align:right}.summary-table th:first-child,.summary-table td:first-child{text-align:left}.positive{color:#22c55e}.negative{color:#fb7185}.top-strategies{text-align:left;font-size:12px;line-height:1.5}</style>");
+            html.AppendLine("<style>body{font-family:Arial,Helvetica,sans-serif;margin:24px;background:#0f172a;color:#e5e7eb}.card{background:#111827;border:1px solid #334155;border-radius:12px;padding:18px;margin-bottom:16px}.muted{color:#94a3b8}.feed{color:#94a3b8;font-size:13px;margin:-8px 0 18px}.metrics{display:flex;flex-wrap:wrap;gap:10px;margin:14px 0}.metric{background:#020617;border:1px solid #334155;border-radius:10px;padding:10px 12px}.metric b{display:block;color:#f8fafc}.summary-table{width:100%;border-collapse:collapse;margin-top:10px}.summary-table th,.summary-table td{border-bottom:1px solid #334155;padding:9px 10px;text-align:right}.summary-table th:first-child,.summary-table td:first-child{text-align:left}.positive{color:#22c55e}.negative{color:#fb7185}.top-strategies{text-align:left;font-size:12px;line-height:1.5}</style>");
             html.AppendLine("</head><body>");
             html.AppendLine($"<h1>{title}</h1>");
+            AppendFeedHtml(html, result.PriceSource);
             AppendNotesHtml(html, notes);
             AppendBacktestSummaryHtml(html, result, symbolsText, totalTrades, strategyCount);
             AppendYearlySummaryHtml(html, result, closedTrades);
@@ -180,6 +194,7 @@ public static class BacktestHtmlReport
         html.AppendLine("    .legend span{display:inline-flex;align-items:center;gap:6px;font-size:13px}");
         html.AppendLine("    .swatch{width:14px;height:3px;display:inline-block}");
         html.AppendLine("    .muted{color:#94a3b8}");
+        html.AppendLine("    .feed{color:#94a3b8;font-size:13px;margin:-8px 0 18px}");
         html.AppendLine("    .metrics{display:flex;flex-wrap:wrap;gap:10px;margin:14px 0 18px}");
         html.AppendLine("    .metric{background:#020617;border:1px solid #334155;border-radius:10px;padding:10px 12px;min-width:150px}");
         html.AppendLine("    .metric span{display:block;color:#94a3b8;font-size:12px}");
@@ -194,6 +209,7 @@ public static class BacktestHtmlReport
         html.AppendLine("</head>");
         html.AppendLine("<body>");
         html.AppendLine($"  <h1>{title}</h1>");
+        AppendFeedHtml(html, result.PriceSource);
         AppendNotesHtml(html, notes);
         AppendBacktestSummaryHtml(html, result, symbolsText, totalTrades, strategyCount);
         AppendYearlySummaryHtml(html, result, closedTrades);

@@ -1,0 +1,16 @@
+{
+  "Origin": "ExternalBroker",
+  "CreatedUtc": "2026-09-01T11:17:53.2653469Z",
+  "PriceSource": {
+    "Kind": "BrokerCfd",
+    "Broker": "ICS"
+  },
+  "EngineVersion": "4.0.0",
+  "PlanCode": "ALL-76",
+  "ExecutionKey": "BT-20240101230200",
+  "SessionId": "6dd7b3e89ac3405080ff483f812900b4",
+  "AccountNumber": "1075035",
+  "RunSlug": "cbot-cfd-ICS",
+  "IdentifiesRun": true,
+  "InitialCapital": 100000
+}

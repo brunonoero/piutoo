@@ -71,6 +71,20 @@ public sealed class RunPriceSource
     /// <summary>Interno: il broker del datafeed, null per il feed del vendor.</summary>
     public static RunPriceSource FromDatafeedBroker(string? datafeedBroker)
         => string.IsNullOrWhiteSpace(datafeedBroker) ? Futures() : Cfd(datafeedBroker);
+
+    /// <summary>
+    /// Come si dice a chi legge un report da quale archivio di barre viene il run. Il nome del
+    /// broker c'e' sempre quando la serie e' un CFD: "CFD" da solo non identifica niente, ed e'
+    /// proprio l'informazione che decide se due curve di equity sono confrontabili.
+    /// </summary>
+    public string FeedLabel => Kind switch
+    {
+        PriceSourceKind.Futures => "datafeed interno - futures del vendor (piootoo-repository/datafeed)",
+        PriceSourceKind.BrokerCfd => string.IsNullOrWhiteSpace(Broker)
+            ? "CFD di un broker non dichiarato"
+            : $"CFD {Broker} (datafeed-external/{Broker})",
+        _ => "non dichiarato dal run"
+    };
 }
 
 /// <summary>
@@ -107,6 +121,19 @@ public sealed class BacktestOriginInfo
     public string? AccountNumber { get; set; }
 
     /// <summary>
+    /// La serie di prezzi del run, con l'unica deduzione lecita gia' applicata: un run dell'engine
+    /// esterno gira per definizione sui prezzi del broker, e nei marcatori scritti prima del campo
+    /// l'ignoto e' il <i>nome</i> del broker, non il tipo di serie. Sta qui perche' <see
+    /// cref="RunSlug"/> e i report devono dire la stessa cosa: due deduzioni scritte due volte
+    /// finiscono per divergere.
+    /// </summary>
+    public RunPriceSource ResolvedPriceSource
+        => PriceSource
+           ?? (Origin == BacktestOrigin.ExternalBroker
+               ? RunPriceSource.Cfd(null)
+               : new RunPriceSource());
+
+    /// <summary>
     /// Il nome del tipo di run, per i file di confronto: <c>interno-futures</c>,
     /// <c>interno-cfd-{BROKER}</c>, <c>cbot-cfd-{BROKER}</c>. Si copia negli artefatti esportati
     /// (<c>trades-&lt;slug&gt;.json</c>) così il tipo non lo digita nessuno a mano. Convenzione e
@@ -116,13 +143,9 @@ public sealed class BacktestOriginInfo
     {
         get
         {
-            // Un run dell'engine esterno gira per definizione sui prezzi del broker: nei marcatori
-            // scritti prima di questo campo l'ignoto è il *nome* del broker, non il tipo di serie.
-            var kind = PriceSource?.Kind
-                       ?? (Origin == BacktestOrigin.ExternalBroker
-                           ? PriceSourceKind.BrokerCfd
-                           : PriceSourceKind.Unknown);
-            var broker = PriceSource?.Broker;
+            var source = ResolvedPriceSource;
+            var kind = source.Kind;
+            var broker = source.Broker;
             var feed = kind switch
             {
                 PriceSourceKind.Futures => "futures",

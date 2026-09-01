@@ -1,3 +1,5 @@
+using Piootoo.Shared.Models.Workspaces;
+
 namespace Piootoo.Shared.Models.Backtesting;
 
 /// <summary>
@@ -74,4 +76,14 @@ public class BacktestingResult
     /// <para><c>null</c> quando la copertura è ignota: in quel caso non si tronca nulla.</para>
     /// </remarks>
     public DateTime? DataCoverageEndUtc { get; set; }
+
+    /// <summary>
+    /// Da quale archivio di barre ha letto il run: il datafeed interno del vendor oppure i CFD di
+    /// un broker sotto <c>datafeed-external/{BROKER}/</c>. E' lo stesso valore dichiarato da
+    /// <c>origin.json</c> e da <c>backtest-summary.json</c>, replicato qui perche' il report HTML
+    /// lo stampa sotto il titolo: una curva di equity senza il feed che l'ha prodotta non e'
+    /// confrontabile con nessun'altra, e mesi dopo non c'e' altro modo di accorgersene.
+    /// <para><c>null</c> nei risultati ricostruiti da cartelle precedenti al campo.</para>
+    /// </summary>
+    public RunPriceSource? PriceSource { get; set; }
 }
