@@ -110,6 +110,15 @@ Desktop.ini
 !/piootoo-repository/datafeed/feed-clocks.json
 /piootoo-repository/datafeed-future/*
 !/piootoo-repository/datafeed-future/*.py
+
+# Archivi di barre per broker: stessa regola del datafeed interno, ma la struttura ha un
+# livello in piu' (`{BROKER}/` e, per i tick, `{BROKER}/ticks/@SYM/`), quindi serve `**` e
+# la riapertura esplicita delle cartelle - altrimenti git non ci entra e i `!` sui file non
+# vengono mai valutati. Si versiona solo il manifest degli orologi di ogni broker, che e'
+# configurazione: le barre e i tick li raccoglie PiootooDatafeedSyncBot e si rigenerano.
+/piootoo-repository/datafeed-external/**
+!/piootoo-repository/datafeed-external/**/
+!/piootoo-repository/datafeed-external/*/feed-clocks.json
 /piootoo-repository/*.zip
 *.db
 *.db-*

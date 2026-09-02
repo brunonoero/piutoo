@@ -14,12 +14,18 @@ namespace Piootoo.Strategies.PiutooStrategies;
 ///
 /// <para><b>Che cosa fa.</b> Trend following asimmetrico: il filtro del long e quello dello short sono indipendenti.</para>
 ///
-/// <para><b>Sessione e fuso.</b> Le sessioni <c>d0..d5</c> su cui girano i pattern cominciano alle
-/// <b>01:00 dell'orologio della ricerca</b> (CET) e durano fino alla stessa ora del giorno dopo:
-/// e' quanto la tabella §2.1 del dossier dichiara per FDAX, cioe'
-/// <c>session_start_hour = 1</c> nel taglio <c>(timestamp - 1 min - session_start_hour).normalize()</c>
-/// del motore Python. Non e' la sessione del broker. Gli orari della finestra operativa sono
-/// riportati <b>verbatim</b> dalla ricerca, mai convertiti nell'ora di borsa del simbolo.</para>
+/// <para><b>Sessione e fuso.</b> Le sessioni <c>d0..d5</c> su cui girano i pattern sono il
+/// <b>giorno di calendario europeo</b>, 00:00 -> 00:00 nell'orologio della ricerca, come tutte le
+/// altre FDAX del catalogo. La tabella §2.1 del dossier dichiara <c>session_start_hour = 1</c>
+/// per FDAX, ma <c>ZonedWindow.ResearchSession(1)</c> oggi non lo traduce fedelmente: la
+/// compensazione dell'etichettatura all'apertura del feed, in <c>EasyLib.OHLCMulti5</c>, vale solo
+/// per <c>session_start_hour = 0</c>, e con inizio alle 01:00 resta il confronto stretto
+/// <c>t &gt; 0100</c> che lascia fuori da ogni sessione le barre fino alle 01:00 incluse. Sui feed
+/// FDAX in uso le due forme coincidono - la daily e' etichettata alla chiusura europea, Roma
+/// 22:00/23:00 - ma quella dichiarata qui e' l'unica che regge anche su un feed con barre in
+/// quella fascia, e l'unica che rende le sette FDAX confrontabili fra loro. Non e' la sessione
+/// del broker. Gli orari della finestra operativa sono riportati <b>verbatim</b> dalla ricerca,
+/// mai convertiti nell'ora di borsa del simbolo.</para>
 ///
 /// <para><b>Livelli di ingresso.</b></para>
 /// <list type="bullet">
@@ -85,10 +91,14 @@ public sealed class PTS_FDAX_TFU_002_1440 : TfUnmirroredEngine
 
     public PTS_FDAX_TFU_002_1440()
     {
-        // session_start_hour = 1 (tabella §2.1 del dossier): la sessione va da 01:00 a 01:00
-        // nell'orologio della ricerca. Su FDAX la fascia 00:00-01:00 non ha barre, quindi il
-        // taglio stretto t > 0100 di OHLCMulti5 non ne perde nessuna.
-        Session = ZonedWindow.ResearchSession(1);
+        // Giorno di calendario europeo, 00:00 -> 00:00, come le altre FDAX del catalogo.
+        // La tabella §2.1 del dossier dichiara 01:00 per FDAX, ma ResearchSession(1) oggi non lo
+        // traduce fedelmente: OHLCMulti5 compensa l'etichettatura all'apertura del feed solo per
+        // session_start_hour = 0 (ramo calendarDaySession) e con start 01:00 tiene il confronto
+        // stretto t > 0100, che lascia fuori da OGNI sessione le barre fino alle 01:00 incluse.
+        // Misurato: su @FDAX_1440 (FTMO, barre a Roma 22:00/23:00) le due forme sono identiche,
+        // ma su @FDAX_240 interno ci sono 1.635 barre alle 00:00 che il taglio a 01:00 perderebbe.
+        Session = ZonedWindow.ResearchSession();
         Contracts = 1;
 
         // Nessun filtro orario nel run: finestra piena, dichiarata comunque nell'orologio della
