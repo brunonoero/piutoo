@@ -70,6 +70,7 @@ public sealed class TradingJsonStore
     public string SignalsPath => Path.Combine(_directory, TradingPersistenceSchema.SignalsFileName);
     public string TradesPath => Path.Combine(_directory, TradingPersistenceSchema.TradesFileName);
     public string RotationLogPath => Path.Combine(_directory, DiagnosticsSchema.RotationLogFileName);
+    public string SessionSummaryPath => Path.Combine(_directory, SessionRunSummarySchema.FileName);
 
     public void Initialize()
     {
@@ -128,6 +129,21 @@ public sealed class TradingJsonStore
         var materialized = values.ToArray();
         ValidateTrades(materialized);
         WriteDistinct(TradesPath, materialized, value => value.TradeId, durable);
+    }
+
+    /// <summary>
+    /// Scrive la scheda del run. Non ha journal: e' un oggetto solo, riscritto per intero a ogni
+    /// scrittura autorevole, e costa quanto la scheda — non quanto il run.
+    /// </summary>
+    public void WriteSessionSummary(SessionRunSummary summary, bool durable = true)
+    {
+        lock (Gates.GetOrAdd(SessionSummaryPath, _ => new object()))
+        {
+            AtomicFileWriter.Write(
+                SessionSummaryPath,
+                stream => JsonSerializer.Serialize(stream, summary, JsonOptions),
+                durable);
+        }
     }
 
     /// <summary>Sostituisce l'intero log di rotazione (una riga per barra) con l'elenco fornito, deduplicato per EntryId.</summary>

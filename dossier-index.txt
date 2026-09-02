@@ -1,0 +1,232 @@
+﻿### S01 ┬╖ NQ day ┬╖ Trend following, simmetrico  <a id='s01'></a>
+**Verifica** ΓÇö lista trade di riferimento: `run_20260822_0736/consegna/trades/fam01_TF_M.csv`
+### S02 ┬╖ NQ day ┬╖ Breakout su N sessioni  <a id='s02'></a>
+**Verifica** ΓÇö lista trade di riferimento: `run_20260822_0736/consegna/trades/fam02_BO.csv`
+### S03 ┬╖ NQ day ┬╖ Trend following, simmetrico  <a id='s03'></a>
+**Verifica** ΓÇö lista trade di riferimento: `run_20260822_0736/consegna/trades/fam03_TF_M.csv`
+### S04 ┬╖ FDAX 4h ┬╖ Incrocio di medie  <a id='s04'></a>
+**Verifica** ΓÇö lista trade di riferimento: `run_20260824_1500/consegna/trades/fam01_MAC.csv`
+### S05 ┬╖ NQ day ┬╖ Trend following, asimmetrico  <a id='s05'></a>
+**Verifica** ΓÇö lista trade di riferimento: `run_20260822_0736/consegna/trades/fam04_TF_U.csv`
+### S06 ┬╖ NQ 4h ┬╖ Trend following, simmetrico  <a id='s06'></a>
+**Verifica** ΓÇö lista trade di riferimento: `run_20260824_1642/consegna/trades/fam01_TF_M.csv`
+### S07 ┬╖ NQ day ┬╖ Trend following, asimmetrico  <a id='s07'></a>
+**Verifica** ΓÇö lista trade di riferimento: `run_20260822_0736/consegna/trades/fam05_TF_U.csv`
+### S08 ┬╖ FDAX day ┬╖ Trend following, asimmetrico  <a id='s08'></a>
+**Verifica** ΓÇö lista trade di riferimento: `run_20260825_1615/consegna/trades/fam01_TF_U.csv`
+### S09 ┬╖ FDAX day ┬╖ Trend following, asimmetrico  <a id='s09'></a>
+**Verifica** ΓÇö lista trade di riferimento: `run_20260825_1615/consegna/trades/fam01_TF_U.csv`
+### S10 ┬╖ FDAX day ┬╖ Breakout su N sessioni  <a id='s10'></a>
+**Verifica** ΓÇö lista trade di riferimento: `run_20260825_1615/consegna/trades/fam02_BO.csv`
+### S11 ┬╖ FDAX 4h ┬╖ Price channel (Donchian)  <a id='s11'></a>
+**Verifica** ΓÇö lista trade di riferimento: `run_20260824_1500/consegna/trades/fam02_PC.csv`
+### S12 ┬╖ BTC 1h ┬╖ Trend following, asimmetrico  <a id='s12'></a>
+**Verifica** ΓÇö lista trade di riferimento: `BTC_1h/consegna/trades/fam01_TF_U.csv`
+### S13 ┬╖ BTC 1h ┬╖ Trend following, asimmetrico  <a id='s13'></a>
+**Verifica** ΓÇö lista trade di riferimento: `BTC_1h/consegna/trades/fam02_TF_U.csv`
+### S14 ┬╖ GC 30m ┬╖ Trend following, asimmetrico  <a id='s14'></a>
+**Verifica** ΓÇö lista trade di riferimento: `run_20260819_0201/consegna/trades/fam01_TF_U.csv`
+### S15 ┬╖ FDAX 4h ┬╖ Volatility breakout  <a id='s15'></a>
+**Verifica** ΓÇö lista trade di riferimento: `run_20260824_1500/consegna/trades/fam02_VBO.csv`
+### S16 ┬╖ NQ day ┬╖ Volatility breakout  <a id='s16'></a>
+**Verifica** ΓÇö lista trade di riferimento: `run_20260822_0736/consegna/trades/fam06_VBO.csv`
+### S17 ┬╖ ES 4h ┬╖ Breakout su N sessioni  <a id='s17'></a>
+**Verifica** ΓÇö lista trade di riferimento: `run_20260824_1847/consegna/trades/fam01_BO.csv`
+### S18 ┬╖ NQ 4h ┬╖ Trend following, simmetrico  <a id='s18'></a>
+**Verifica** ΓÇö lista trade di riferimento: `run_20260824_1642/consegna/trades/fam02_TF_M.csv`
+### S19 ┬╖ BTC 1h ┬╖ Bias intraday  <a id='s19'></a>
+**Verifica** ΓÇö lista trade di riferimento: `BTC_1h/consegna/trades/fam03_BIAS.csv`
+### S20 ┬╖ NQ 30m ┬╖ Trend following, simmetrico  <a id='s20'></a>
+**Verifica** ΓÇö lista trade di riferimento: `run_20260815_1021/consegna/trades/fam01_TF_M.csv`
+### S21 ┬╖ GC 4h ┬╖ Trend following, simmetrico  <a id='s21'></a>
+**Verifica** ΓÇö lista trade di riferimento: `run_20260824_1935/consegna/trades/fam01_TF_M.csv`
+### S22 ┬╖ BTC 4h ┬╖ Price channel (Donchian)  <a id='s22'></a>
+**Verifica** ΓÇö lista trade di riferimento: `run_20260824_2232/consegna/trades/fam01_PC.csv`
+### S23 ┬╖ NQ 1h ┬╖ Trend following, simmetrico  <a id='s23'></a>
+**Verifica** ΓÇö lista trade di riferimento: `run_20260820_0856/consegna/trades/fam01_TF_M.csv`
+### S24 ┬╖ ES 4h ┬╖ Breakout su N sessioni  <a id='s24'></a>
+**Verifica** ΓÇö lista trade di riferimento: `run_20260824_1847/consegna/trades/fam02_BO.csv`
+### S25 ┬╖ FDAX 4h ┬╖ Breakout su N sessioni  <a id='s25'></a>
+**Verifica** ΓÇö lista trade di riferimento: `run_20260824_1500/consegna/trades/fam03_BO.csv`
+### S26 ┬╖ KC 4h ┬╖ Breakout su N sessioni  <a id='s26'></a>
+**Verifica** ΓÇö lista trade di riferimento: `KC_4h/consegna/trades/fam01_BO.csv`
+### S27 ┬╖ NQ 30m ┬╖ Trend following, simmetrico  <a id='s27'></a>
+**Verifica** ΓÇö lista trade di riferimento: `run_20260815_1021/consegna/trades/fam02_TF_M.csv`
+### S28 ┬╖ NQ 15m ┬╖ Trend following, simmetrico  <a id='s28'></a>
+**Verifica** ΓÇö lista trade di riferimento: `run_20260814_1453/consegna/trades/fam01_TF_M.csv`
+### S29 ┬╖ NQ 1h ┬╖ Trend following, simmetrico  <a id='s29'></a>
+**Verifica** ΓÇö lista trade di riferimento: `run_20260820_0856/consegna/trades/fam02_TF_M.csv`
+### S30 ┬╖ CC 1h ┬╖ Breakout su N sessioni  <a id='s30'></a>
+**Verifica** ΓÇö lista trade di riferimento: `CC_1h/consegna/trades/fam01_BO.csv`
+### S31 ┬╖ CC 1h ┬╖ Trend following, simmetrico  <a id='s31'></a>
+**Verifica** ΓÇö lista trade di riferimento: `CC_1h/consegna/trades/fam02_TF_M.csv`
+### S32 ┬╖ ES 1h ┬╖ Bias settimanale  <a id='s32'></a>
+**Verifica** ΓÇö lista trade di riferimento: `run_20260820_0012/consegna/trades/fam01_BIASW.csv`
+### S33 ┬╖ HO 1h ┬╖ Bias settimanale  <a id='s33'></a>
+**Verifica** ΓÇö lista trade di riferimento: `HO_1h/consegna/trades/fam01_BIASW.csv`
+### S34 ┬╖ HO 4h ┬╖ Bias intraday  <a id='s34'></a>
+**Verifica** ΓÇö lista trade di riferimento: `HO_4h/consegna/trades/fam01_BIAS.csv`
+### S35 ┬╖ NQ 30m ┬╖ Trend following, simmetrico  <a id='s35'></a>
+**Verifica** ΓÇö lista trade di riferimento: `run_20260815_1021/consegna/trades/fam03_TF_M.csv`
+### S36 ┬╖ NQ 15m ┬╖ Trend following, simmetrico  <a id='s36'></a>
+**Verifica** ΓÇö lista trade di riferimento: `run_20260814_1453/consegna/trades/fam02_TF_M.csv`
+### S37 ┬╖ JY 30m ┬╖ Trend following, asimmetrico  <a id='s37'></a>
+**Verifica** ΓÇö lista trade di riferimento: `JY_30m/consegna/trades/fam01_TF_U.csv`
+### S38 ┬╖ HO 4h ┬╖ Bias intraday  <a id='s38'></a>
+**Verifica** ΓÇö lista trade di riferimento: `HO_4h/consegna/trades/fam02_BIAS.csv`
+### S39 ┬╖ JY 30m ┬╖ Trend following, asimmetrico  <a id='s39'></a>
+**Verifica** ΓÇö lista trade di riferimento: `JY_30m/consegna/trades/fam02_TF_U.csv`
+### S40 ┬╖ ES day ┬╖ Price channel (Donchian)  <a id='s40'></a>
+**Verifica** ΓÇö lista trade di riferimento: `run_20260822_1249/consegna/trades/fam01_PC.csv`
+### S41 ┬╖ BP 1h ┬╖ Trend following, simmetrico  <a id='s41'></a>
+**Verifica** ΓÇö lista trade di riferimento: `run_20260823_1535/consegna/trades/fam01_TF_M.csv`
+### S42 ┬╖ CC 1h ┬╖ Trend following, simmetrico  <a id='s42'></a>
+**Verifica** ΓÇö lista trade di riferimento: `CC_1h/consegna/trades/fam03_TF_M.csv`
+### S43 ┬╖ NQ 15m ┬╖ Trend following, simmetrico  <a id='s43'></a>
+**Verifica** ΓÇö lista trade di riferimento: `run_20260814_1453/consegna/trades/fam03_TF_M.csv`
+### S44 ┬╖ NQ 1h ┬╖ Breakout su N sessioni  <a id='s44'></a>
+**Verifica** ΓÇö lista trade di riferimento: `run_20260820_0856/consegna/trades/fam03_BO.csv`
+### S45 ┬╖ NG 1h ┬╖ Trend following, asimmetrico  <a id='s45'></a>
+**Verifica** ΓÇö lista trade di riferimento: `NG_1h/consegna/trades/fam01_TF_U.csv`
+### S46 ┬╖ NQ 4h ┬╖ Breakout su N sessioni  <a id='s46'></a>
+**Verifica** ΓÇö lista trade di riferimento: `run_20260824_1642/consegna/trades/fam03_BO.csv`
+### S47 ┬╖ ES 15m ┬╖ Breakout su N sessioni  <a id='s47'></a>
+**Verifica** ΓÇö lista trade di riferimento: `run_20260819_1008/consegna/trades/fam01_BO.csv`
+### S48 ┬╖ NQ 15m ┬╖ Breakout su N sessioni  <a id='s48'></a>
+**Verifica** ΓÇö lista trade di riferimento: `run_20260814_1453/consegna/trades/fam04_BO.csv`
+### S49 ┬╖ JY 30m ┬╖ Trend following, asimmetrico  <a id='s49'></a>
+**Verifica** ΓÇö lista trade di riferimento: `JY_30m/consegna/trades/fam03_TF_U.csv`
+### S50 ┬╖ NQ 15m ┬╖ Breakout su N sessioni  <a id='s50'></a>
+**Verifica** ΓÇö lista trade di riferimento: `run_20260814_1453/consegna/trades/fam05_BO.csv`
+### S51 ┬╖ NQ 1h ┬╖ Trend following, asimmetrico  <a id='s51'></a>
+**Verifica** ΓÇö lista trade di riferimento: `run_20260820_0856/consegna/trades/fam04_TF_U.csv`
+### S52 ┬╖ NQ 1h ┬╖ Trend following, simmetrico  <a id='s52'></a>
+**Verifica** ΓÇö lista trade di riferimento: `run_20260820_0856/consegna/trades/fam05_TF_M.csv`
+### S53 ┬╖ YM 4h ┬╖ Trend following, simmetrico  <a id='s53'></a>
+**Verifica** ΓÇö lista trade di riferimento: `run_20260824_1550/consegna/trades/fam01_TF_M.csv`
+### S54 ┬╖ ES day ┬╖ Trend following, simmetrico  <a id='s54'></a>
+**Verifica** ΓÇö lista trade di riferimento: `run_20260822_1249/consegna/trades/fam02_TF_M.csv`
+### S55 ┬╖ GC 1h ┬╖ Price channel (Donchian)  <a id='s55'></a>
+**Verifica** ΓÇö lista trade di riferimento: `run_20260819_0659/consegna/trades/fam01_PC.csv`
+### S56 ┬╖ CC 4h ┬╖ Price channel (Donchian)  <a id='s56'></a>
+**Verifica** ΓÇö lista trade di riferimento: `CC_4h/consegna/trades/fam01_PC.csv`
+### S57 ┬╖ HK 4h ┬╖ Trend following, asimmetrico  <a id='s57'></a>
+**Verifica** ΓÇö lista trade di riferimento: `run_20260828_1933/consegna/trades/fam01_TF_U.csv`
+### S58 ┬╖ NQ 30m ┬╖ Price channel (Donchian)  <a id='s58'></a>
+**Verifica** ΓÇö lista trade di riferimento: `run_20260815_1021/consegna/trades/fam04_PC.csv`
+### S59 ┬╖ NG 30m ┬╖ Trend following, simmetrico  <a id='s59'></a>
+**Verifica** ΓÇö lista trade di riferimento: `NG_30m/consegna/trades/fam01_TF_M.csv`
+### S60 ┬╖ CL 30m ┬╖ Incrocio di medie  <a id='s60'></a>
+**Verifica** ΓÇö lista trade di riferimento: `run_20260822_0403/consegna/trades/fam01_MAC.csv`
+### S61 ┬╖ NQ 15m ┬╖ Breakout su N sessioni  <a id='s61'></a>
+**Verifica** ΓÇö lista trade di riferimento: `run_20260814_1453/consegna/trades/fam06_BO.csv`
+### S62 ┬╖ ES 15m ┬╖ Bias settimanale  <a id='s62'></a>
+**Verifica** ΓÇö lista trade di riferimento: `run_20260819_1008/consegna/trades/fam03_BIASW.csv`
+### S63 ┬╖ ES 1h ┬╖ Price channel (Donchian)  <a id='s63'></a>
+**Verifica** ΓÇö lista trade di riferimento: `run_20260820_0012/consegna/trades/fam02_PC.csv`
+### S64 ┬╖ NG 4h ┬╖ Trend following, simmetrico  <a id='s64'></a>
+**Verifica** ΓÇö lista trade di riferimento: `run_20260824_1908/consegna/trades/fam01_TF_M.csv`
+### S65 ┬╖ ES day ┬╖ Trend following, asimmetrico  <a id='s65'></a>
+**Verifica** ΓÇö lista trade di riferimento: `run_20260822_1249/consegna/trades/fam03_TF_U.csv`
+### S66 ┬╖ HO 1h ┬╖ Trend following, simmetrico  <a id='s66'></a>
+**Verifica** ΓÇö lista trade di riferimento: `HO_1h/consegna/trades/fam02_TF_M.csv`
+### S67 ┬╖ HO 1h ┬╖ Bias settimanale  <a id='s67'></a>
+**Verifica** ΓÇö lista trade di riferimento: `HO_1h/consegna/trades/fam03_BIASW.csv`
+### S68 ┬╖ NG 1h ┬╖ Trend following, simmetrico  <a id='s68'></a>
+**Verifica** ΓÇö lista trade di riferimento: `NG_1h/consegna/trades/fam02_TF_M.csv`
+### S69 ┬╖ JY 1h ┬╖ Trend following, asimmetrico  <a id='s69'></a>
+**Verifica** ΓÇö lista trade di riferimento: `JY_1h/consegna/trades/fam01_TF_U.csv`
+### S70 ┬╖ NG 30m ┬╖ Trend following, simmetrico  <a id='s70'></a>
+**Verifica** ΓÇö lista trade di riferimento: `NG_30m/consegna/trades/fam02_TF_M.csv`
+### S71 ┬╖ YM 4h ┬╖ Trend following, simmetrico  <a id='s71'></a>
+**Verifica** ΓÇö lista trade di riferimento: `run_20260824_1550/consegna/trades/fam02_TF_M.csv`
+### S72 ┬╖ NQ 4h ┬╖ Trend following, asimmetrico  <a id='s72'></a>
+**Verifica** ΓÇö lista trade di riferimento: `run_20260824_1642/consegna/trades/fam04_TF_U.csv`
+### S73 ┬╖ NQ 15m ┬╖ Trend following, asimmetrico  <a id='s73'></a>
+**Verifica** ΓÇö lista trade di riferimento: `run_20260814_1453/consegna/trades/fam07_TF_U.csv`
+### S74 ┬╖ JY 1h ┬╖ Trend following, asimmetrico  <a id='s74'></a>
+**Verifica** ΓÇö lista trade di riferimento: `JY_1h/consegna/trades/fam02_TF_U.csv`
+### S75 ┬╖ ES 15m ┬╖ Bias settimanale  <a id='s75'></a>
+**Verifica** ΓÇö lista trade di riferimento: `run_20260819_1008/consegna/trades/fam04_BIASW.csv`
+### S76 ┬╖ NG 4h ┬╖ Trend following, asimmetrico  <a id='s76'></a>
+**Verifica** ΓÇö lista trade di riferimento: `run_20260824_1908/consegna/trades/fam02_TF_U.csv`
+### S77 ┬╖ GC 4h ┬╖ Price channel (Donchian)  <a id='s77'></a>
+**Verifica** ΓÇö lista trade di riferimento: `run_20260824_1935/consegna/trades/fam02_PC.csv`
+### S78 ┬╖ GC 1h ┬╖ Ritorno alla media sugli estremi  <a id='s78'></a>
+**Verifica** ΓÇö lista trade di riferimento: `run_20260819_0659/consegna/trades/fam02_RHL.csv`
+### S79 ┬╖ NQ 30m ┬╖ Price channel (Donchian)  <a id='s79'></a>
+**Verifica** ΓÇö lista trade di riferimento: `run_20260815_1021/consegna/trades/fam05_PC.csv`
+### S80 ┬╖ CT 4h ┬╖ Trend following, asimmetrico  <a id='s80'></a>
+**Verifica** ΓÇö lista trade di riferimento: `CT_4h/consegna/trades/fam01_TF_U.csv`
+### S81 ┬╖ ES day ┬╖ Trend following, simmetrico  <a id='s81'></a>
+**Verifica** ΓÇö lista trade di riferimento: `run_20260822_1249/consegna/trades/fam04_TF_M.csv`
+### S82 ┬╖ YM 1h ┬╖ Trend following, asimmetrico  <a id='s82'></a>
+**Verifica** ΓÇö lista trade di riferimento: `YM_1h/consegna/trades/fam01_TF_U.csv`
+### S83 ┬╖ YM 1h ┬╖ Trend following, asimmetrico  <a id='s83'></a>
+**Verifica** ΓÇö lista trade di riferimento: `YM_1h/consegna/trades/fam02_TF_U.csv`
+### S84 ┬╖ HK 1h ┬╖ Price channel (Donchian)  <a id='s84'></a>
+**Verifica** ΓÇö lista trade di riferimento: `HK_1h/consegna/trades/fam01_PC.csv`
+### S85 ┬╖ NQ 4h ┬╖ Volatility breakout  <a id='s85'></a>
+**Verifica** ΓÇö lista trade di riferimento: `run_20260824_1642/consegna/trades/fam05_VBO.csv`
+### S86 ┬╖ JY 4h ┬╖ Trend following, asimmetrico  <a id='s86'></a>
+**Verifica** ΓÇö lista trade di riferimento: `run_20260824_2020/consegna/trades/fam01_TF_U.csv`
+### S87 ┬╖ ES 4h ┬╖ Price channel (Donchian)  <a id='s87'></a>
+**Verifica** ΓÇö lista trade di riferimento: `run_20260824_1847/consegna/trades/fam03_PC.csv`
+### S88 ┬╖ YM 4h ┬╖ Bias intraday  <a id='s88'></a>
+**Verifica** ΓÇö lista trade di riferimento: `run_20260824_1550/consegna/trades/fam03_BIAS.csv`
+### S89 ┬╖ SB 4h ┬╖ Trend following, simmetrico  <a id='s89'></a>
+**Verifica** ΓÇö lista trade di riferimento: `SB_4h/consegna/trades/fam01_TF_M.csv`
+### S90 ┬╖ NQ 4h ┬╖ Price channel (Donchian)  <a id='s90'></a>
+**Verifica** ΓÇö lista trade di riferimento: `run_20260824_1642/consegna/trades/fam06_PC.csv`
+### S91 ┬╖ NQ 15m ┬╖ Ritorno alla media su Bollinger, simmetrico  <a id='s91'></a>
+**Verifica** ΓÇö lista trade di riferimento: `run_20260814_1453/consegna/trades/fam08_RBB_M.csv`
+### S92 ┬╖ BP 15m ┬╖ Trend following, simmetrico  <a id='s92'></a>
+**Verifica** ΓÇö lista trade di riferimento: `run_20260823_0343/consegna/trades/fam01_TF_M.csv`
+### S93 ┬╖ GC 4h ┬╖ Price channel (Donchian)  <a id='s93'></a>
+**Verifica** ΓÇö lista trade di riferimento: `run_20260824_1935/consegna/trades/fam03_PC.csv`
+### S94 ┬╖ JY 4h ┬╖ Trend following, asimmetrico  <a id='s94'></a>
+**Verifica** ΓÇö lista trade di riferimento: `run_20260824_2020/consegna/trades/fam02_TF_U.csv`
+### S95 ┬╖ NG 30m ┬╖ Bias settimanale  <a id='s95'></a>
+**Verifica** ΓÇö lista trade di riferimento: `NG_30m/consegna/trades/fam03_BIASW.csv`
+### S96 ┬╖ NG 4h ┬╖ Trend following, asimmetrico  <a id='s96'></a>
+**Verifica** ΓÇö lista trade di riferimento: `run_20260824_1908/consegna/trades/fam02_TF_U.csv`
+### S97 ┬╖ GC 1h ┬╖ Ritorno alla media sugli estremi  <a id='s97'></a>
+**Verifica** ΓÇö lista trade di riferimento: `run_20260819_0659/consegna/trades/fam03_RHL.csv`
+### S98 ┬╖ YM 4h ┬╖ Trend following, simmetrico  <a id='s98'></a>
+**Verifica** ΓÇö lista trade di riferimento: `run_20260824_1550/consegna/trades/fam04_TF_M.csv`
+### S99 ┬╖ NQ 1h ┬╖ Trend following, asimmetrico  <a id='s99'></a>
+**Verifica** ΓÇö lista trade di riferimento: `run_20260820_0856/consegna/trades/fam06_TF_U.csv`
+### S100 ┬╖ NG 4h ┬╖ Trend following, simmetrico  <a id='s100'></a>
+**Verifica** ΓÇö lista trade di riferimento: `run_20260824_1908/consegna/trades/fam03_TF_M.csv`
+### S101 ┬╖ NG 1h ┬╖ Trend following, simmetrico  <a id='s101'></a>
+**Verifica** ΓÇö lista trade di riferimento: `NG_1h/consegna/trades/fam03_TF_M.csv`
+### S102 ┬╖ NQ 15m ┬╖ Trend following, asimmetrico  <a id='s102'></a>
+**Verifica** ΓÇö lista trade di riferimento: `run_20260814_1453/consegna/trades/fam09_TF_U.csv`
+### S103 ┬╖ NQ 4h ┬╖ Price channel (Donchian)  <a id='s103'></a>
+**Verifica** ΓÇö lista trade di riferimento: `run_20260824_1642/consegna/trades/fam07_PC.csv`
+### S104 ┬╖ JY 1h ┬╖ Trend following, asimmetrico  <a id='s104'></a>
+**Verifica** ΓÇö lista trade di riferimento: `JY_1h/consegna/trades/fam03_TF_U.csv`
+### S105 ┬╖ YM 1h ┬╖ Trend following, asimmetrico  <a id='s105'></a>
+**Verifica** ΓÇö lista trade di riferimento: `YM_1h/consegna/trades/fam02_TF_U.csv`
+### S106 ┬╖ ES 1h ┬╖ Price channel (Donchian)  <a id='s106'></a>
+**Verifica** ΓÇö lista trade di riferimento: `run_20260820_0012/consegna/trades/fam03_PC.csv`
+### S107 ┬╖ HO 1h ┬╖ Bias settimanale  <a id='s107'></a>
+**Verifica** ΓÇö lista trade di riferimento: `HO_1h/consegna/trades/fam04_BIASW.csv`
+### S108 ┬╖ HK 15m ┬╖ Bias intraday  <a id='s108'></a>
+**Verifica** ΓÇö lista trade di riferimento: `run_20260831_0158/consegna/trades/fam01_BIAS.csv`
+### S109 ┬╖ HK 4h ┬╖ Price channel (Donchian)  <a id='s109'></a>
+**Verifica** ΓÇö lista trade di riferimento: `run_20260828_1933/consegna/trades/fam02_PC.csv`
+### S110 ┬╖ YM 4h ┬╖ Breakout su N sessioni  <a id='s110'></a>
+**Verifica** ΓÇö lista trade di riferimento: `run_20260824_1550/consegna/trades/fam05_BO.csv`
+### S111 ┬╖ HK 4h ┬╖ Breakout su N sessioni  <a id='s111'></a>
+**Verifica** ΓÇö lista trade di riferimento: `run_20260828_1933/consegna/trades/fam03_BO.csv`
+### S112 ┬╖ YM 4h ┬╖ Breakout su N sessioni  <a id='s112'></a>
+**Verifica** ΓÇö lista trade di riferimento: `run_20260824_1550/consegna/trades/fam06_BO.csv`
+### S113 ┬╖ PL 4h ┬╖ Trend following, simmetrico  <a id='s113'></a>
+**Verifica** ΓÇö lista trade di riferimento: `run_20260824_2133/consegna/trades/fam01_TF_M.csv`
+### S114 ┬╖ NQ 15m ┬╖ Trend following, asimmetrico  <a id='s114'></a>
+**Verifica** ΓÇö lista trade di riferimento: `run_20260814_1453/consegna/trades/fam10_TF_U.csv`
+### S115 ┬╖ HO 30m ┬╖ Price channel (Donchian)  <a id='s115'></a>
+**Verifica** ΓÇö lista trade di riferimento: `HO_30m/consegna/trades/fam01_PC.csv`
+### S116 ┬╖ HO 1h ┬╖ Bias intraday  <a id='s116'></a>
+**Verifica** ΓÇö lista trade di riferimento: `HO_1h/consegna/trades/fam05_BIAS.csv`

@@ -43,6 +43,25 @@ cui il future e il CFD non sono quotati nella stessa valuta, che sono quelli in 
 verificato a mano. `PiootooSymbolInfoDumpBot.cs` fa invece il dump grezzo di *tutti* i symbol del
 conto, senza calcoli.
 
+`piootoo-repository/symbol-convertion/PiootooSymbolMultiplierBot-FTMO.cs` è la variante per un
+conto **cTrader FTMO** (classe `PiootooSymbolMultiplierBotFtmo`, codice tabella
+`cfd-ctrader-ftmo`). Cambia solo il modo di trovare i nomi, non il conto: ogni future porta un
+elenco di alias separati da `|` — primo il nome verificato sul conto (`US100.cash`, `GER40.cash`,
+`COCOA.c`, `NATGAS.cash`), poi le varianti degli altri broker — e vince il primo che esiste; se
+nessuno esiste adotta l'unico symbol simile, marcandolo (`ResolvedBy: "somiglianza"`) invece di
+sceglierlo in silenzio, e scrive comunque il listino completo del conto in `AccountSymbols`. I
+symbol dismessi che FTMO tiene nel listino (`COCOA.c_removed`) sono esclusi dalla ricerca: erano
+loro a rendere ambiguo ogni candidato. La mappa copre **solo i simboli con almeno una strategia in
+catalogo**, che è anche il criterio della tabella. Un quarto campo opzionale nella mappa
+(`@NQ=US100.cash:20:USD:23400`) è un prezzo di riferimento del future: se il CFD quota una potenza
+di dieci più in là, il bot deduce `PriceScale` invece di lasciarlo a 1. L'output `.mappings.json`
+esce già come voce intera (`Code`, `Name`, `RoundingMode`, `Mappings`, date), da incollare
+nell'array `Conversions`.
+
+⚠ La tabella FTMO cTrader è **un'altra voce** rispetto a `cfd-mt4-ftmo`: stesso broker, listino
+diverso. Nomi, minimi e passi non coincidono, e un conto cTrader a lotti frazionari non ha lo
+stesso `RoundingMode` di un conto MT4 a contratti interi.
+
 ## Dove vivono i dati
 
 | File | Contenuto |

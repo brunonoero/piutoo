@@ -310,6 +310,18 @@ public sealed class TradingSessionService : ITradingSessionService
 
         public List<RotationLogEntry> RotationLog { get; } = [];
 
+        /// <summary>
+        /// Massimo numero di barre che ogni stream ha accumulato nel run, chiave <c>StreamKey</c>.
+        /// Serve perche' <c>TrimHistory</c> pota la storia a cio' che serve: il conteggio finale
+        /// non dice se lo stream ha mai raggiunto la soglia di una strategia, e la domanda
+        /// "questa strategia e' mai stata valutata?" si risponde solo col massimo storico.
+        /// </summary>
+        public Dictionary<string, int> HistoryHighWater { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>Prima e ultima barra chiusa vista su qualunque stream.</summary>
+        public DateTime? FirstBarUtc { get; set; }
+        public DateTime? LastBarUtc { get; set; }
+
         // --- Persistenza incrementale (vedi WriteArtifacts) ---
 
         /// <summary>Quanti elementi di <see cref="Intents"/> sono gia' finiti nel journal.</summary>
@@ -1061,6 +1073,7 @@ public sealed class TradingSessionService : ITradingSessionService
                 if (!session.History.TryGetValue(stream, out var history))
                     session.History[stream] = history = [];
                 history.Add(normalizedBar.Bar);
+                NoteHistoryCoverage(session, stream, history.Count, normalizedBar.Bar.DateTime);
 
                 EvaluateClosedBar(session, normalizedBar, history, emitted);
                 TrimHistory(session, bar.Symbol, bar.TimeframeMinutes, history);
@@ -1193,6 +1206,7 @@ public sealed class TradingSessionService : ITradingSessionService
                     IdempotencyKey = closedBar.IdempotencyKey,
                     Bar = history[^1]
                 };
+                NoteHistoryCoverage(session, stream, history.Count, evaluatedBar.Bar.DateTime);
                 var evaluated = EvaluateClosedBar(session, evaluatedBar, history, emitted);
                 TrimHistory(session, window.Symbol, window.TimeframeMinutes, history);
                 streams.Add(BuildStreamStatus(session, window.Symbol, window.TimeframeMinutes, history.Count, evaluated));
@@ -1253,6 +1267,19 @@ public sealed class TradingSessionService : ITradingSessionService
     /// testa e' O(elementi rimasti): farlo a ogni barra rimetterebbe dentro il costo che si sta
     /// togliendo.</para>
     /// </summary>
+    /// <summary>
+    /// Aggiorna il massimo storico di barre dello stream e l'arco delle barre viste. Va chiamato
+    /// PRIMA della potatura, altrimenti registra il conteggio potato invece di quello raggiunto.
+    /// </summary>
+    private static void NoteHistoryCoverage(Session session, string stream, int historyCount, DateTime barUtc)
+    {
+        if (!session.HistoryHighWater.TryGetValue(stream, out var seen) || historyCount > seen)
+            session.HistoryHighWater[stream] = historyCount;
+
+        if (session.FirstBarUtc is null || barUtc < session.FirstBarUtc) session.FirstBarUtc = barUtc;
+        if (session.LastBarUtc is null || barUtc > session.LastBarUtc) session.LastBarUtc = barUtc;
+    }
+
     private static void TrimHistory(Session session, string symbol, int timeframeMinutes, List<OhlcvData> history)
     {
         var required = 0;
@@ -3516,8 +3543,102 @@ public sealed class TradingSessionService : ITradingSessionService
             session.Intents.Where(ShouldPersist).Select(intent => ToPersistedSignal(session, intent)), durable);
         session.Store.WriteTrades(CollectTrades(session, from: 0), durable);
         session.Store.WriteRotationLog(session.RotationLog, durable);
+        session.Store.WriteSessionSummary(BuildRunSummary(session), durable);
         session.JournalPending = false;
         ResetPersistenceWatermarks(session);
+    }
+
+    /// <summary>
+    /// Scheda del run: conta gli intent per stato senza tenerli, e affianca la copertura di storia
+    /// di ogni stream. E' la risposta a "perche' questa strategia non ha operato" che gli artefatti
+    /// da soli non possono dare, perche' scrivono i soli intent riempiti
+    /// (<see cref="PersistOnlyFilledIntents"/>).
+    ///
+    /// <para>Costa quanto <c>session.Intents</c>, quindi vive solo sul percorso autorevole di
+    /// <see cref="WriteArtifactsFull"/> — fine sessione o lettura esplicita — mai sui checkpoint.</para>
+    /// </summary>
+    private static SessionRunSummary BuildRunSummary(Session session)
+    {
+        var apertura = session.Intents.Where(intent => !intent.IsClose).ToArray();
+        var perStrategia = apertura
+            .GroupBy(intent => intent.StrategyCode, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.ToArray(), StringComparer.OrdinalIgnoreCase);
+
+        var streams = new List<SessionStreamSummary>();
+        var strategie = new List<SessionStrategySummary>();
+        var diagnostics = new List<string>();
+
+        foreach (var gruppo in session.Strategies
+                     .GroupBy(s => (Symbol: Normalize(s.Symbol), s.TimeframeMinutes))
+                     .OrderBy(g => g.Key.Symbol).ThenBy(g => g.Key.TimeframeMinutes))
+        {
+            var chiave = StreamKey(gruppo.Key.Symbol, gruppo.Key.TimeframeMinutes);
+            session.HistoryHighWater.TryGetValue(chiave, out var picco);
+            var mute = gruppo.Where(s => picco < s.RequiredCandles).ToArray();
+
+            streams.Add(new SessionStreamSummary
+            {
+                Symbol = gruppo.Key.Symbol,
+                TimeframeMinutes = gruppo.Key.TimeframeMinutes,
+                HistoryBarsHighWater = picco,
+                RequiredCandles = gruppo.Max(s => s.RequiredCandles),
+                StrategiesOnStream = gruppo.Count(),
+                StrategiesNeverEvaluated = mute.Length
+            });
+
+            if (mute.Length > 0)
+                diagnostics.Add(
+                    $"[storia] {gruppo.Key.Symbol} {gruppo.Key.TimeframeMinutes}m ha raggiunto al massimo " +
+                    $"{picco} barre: {(mute.Length == 1 ? "1 strategia non e' MAI stata valutata" : $"{mute.Length} strategie non sono MAI state valutate")} " +
+                    $"({string.Join(", ", mute.Select(s => $"{s.Name} ne chiede {s.RequiredCandles}"))}). " +
+                    "Il salto e' silenzioso: alza il riscaldamento del client o riduci RequiredCandles.");
+
+            foreach (var strategia in gruppo.OrderBy(s => s.Name, StringComparer.Ordinal))
+            {
+                perStrategia.TryGetValue(strategia.Name, out var intents);
+                intents ??= [];
+                var riempiti = intents.Count(i => i.Status is OrderIntentStatus.Filled or OrderIntentStatus.PartiallyFilled);
+                var rifiutati = intents.Count(i => i.Status == OrderIntentStatus.Rejected);
+                var annullati = intents.Count(i => i.Status == OrderIntentStatus.Cancelled);
+
+                strategie.Add(new SessionStrategySummary
+                {
+                    StrategyCode = strategia.Name,
+                    Symbol = gruppo.Key.Symbol,
+                    TimeframeMinutes = strategia.TimeframeMinutes,
+                    RequiredCandles = strategia.RequiredCandles,
+                    EverEvaluable = picco >= strategia.RequiredCandles,
+                    IntentsEmitted = intents.Length,
+                    IntentsFilled = riempiti,
+                    IntentsRejected = rifiutati,
+                    IntentsCancelled = annullati,
+                    FirstIntentUtc = intents.Length == 0 ? null : intents.Min(i => i.CreatedAtUtc),
+                    LastIntentUtc = intents.Length == 0 ? null : intents.Max(i => i.CreatedAtUtc)
+                });
+
+                if (intents.Length > 0 && riempiti == 0)
+                    diagnostics.Add(
+                        $"[nessun fill] {strategia.Name}: {intents.Length} intent emessi, zero riempiti " +
+                        $"({rifiutati} rifiutati, {annullati} annullati). Il segnale nasce, l'ordine no.");
+            }
+        }
+
+        return new SessionRunSummary
+        {
+            SessionId = session.Id,
+            ExecutionMode = session.Mode.ToString(),
+            GeneratedAtUtc = DateTime.UtcNow,
+            FirstBarUtc = session.FirstBarUtc,
+            LastBarUtc = session.LastBarUtc,
+            IntentsEmitted = apertura.Length,
+            IntentsFilled = apertura.Count(i => i.Status is OrderIntentStatus.Filled or OrderIntentStatus.PartiallyFilled),
+            IntentsRejected = apertura.Count(i => i.Status == OrderIntentStatus.Rejected),
+            IntentsCancelled = apertura.Count(i => i.Status == OrderIntentStatus.Cancelled),
+            IntentsOther = apertura.Count(i => i.Status is OrderIntentStatus.Pending or OrderIntentStatus.Accepted),
+            Streams = streams,
+            Strategies = strategie,
+            Diagnostics = diagnostics
+        };
     }
 
     /// <summary>

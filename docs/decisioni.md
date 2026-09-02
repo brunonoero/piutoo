@@ -2342,3 +2342,135 @@ e max drawdown 115.469,00 (61,88%), identici al ricalcolo indipendente sullo ste
   cui `Get` verifica la propria cache. Toglierle vuol dire memoizzare `Resolve` per periodo e
   rivalidare a tempo, che è una semantica diversa per gli hard-stop reset: da fare con un numero in
   mano, non per simmetria.
+
+## 2026-09-01 — La sessione lascia una scheda del run (`session-summary.json`)
+
+Ogni sessione scrive, accanto a `signals.json` e `trades.json`, una scheda che dice **perché una
+strategia non ha operato**. Nasce da `compare-0015`: la famiglia VBO ha zero fill su tre strategie
+e due simboli, e dagli artefatti la causa non è determinabile.
+
+Il motivo è che `PersistOnlyFilledIntents` è `true` di default — su un run reale il 97% degli
+intent non va a mercato e tenerli costa 40 MB — quindi negli artefatti **"mai valutata", "intent
+mai emesso" e "ordine rifiutato" hanno tutti e tre lo stesso aspetto: il nulla**. La verifica sul
+run di `compare-0015`: tutti e 2.845 i record di `signals.json` hanno `status: "Filled"`, e i
+1.179 di apertura sono esattamente i 1.179 trade. L'interruttore
+`PIOOTOO_PERSIST_ALL_INTENTS=1` esiste, ma costringe a **rifare il run** per porsi la domanda.
+
+La scheda è il riassunto che sopravvive al filtro: conta gli intent per stato **senza tenerli**.
+Per strategia porta `requiredCandles`, `everEvaluable`, ed emessi / riempiti / rifiutati /
+annullati con primo e ultimo istante; per stream il **massimo storico** di barre accumulate — non
+il conteggio finale, che `TrimHistory` falsa — contro `requiredCandles`; e in testa le
+`diagnostics` in automatico, nello stesso spirito di `backtest-summary.json`.
+
+Il massimo storico è la parte che risponde davvero. `StrategyEvaluationService.Evaluate` salta
+`if (history.Count < strategy.RequiredCandles)` **in silenzio**, e le due VBO che contano
+dichiarano 606 e 501 barre a 4 ore contro le 36 di ogni altra strategia sullo stesso stream: sono
+le due soglie più alte del portafoglio, ed è la ragione per cui i datafeed interni di `@NQ_240` e
+`@FDAX_240` sono gli unici estesi al 2023. Senza questo numero l'ipotesi non è né confermabile né
+scartabile.
+
+Costo: la scheda vive solo su `WriteArtifactsFull`, cioè sui cinque percorsi fuori banda
+(cambio di stato, letture esplicite degli artefatti, promozione a backtest) che **già** riscrivono
+`signals.json` e `trades.json` per intero. Non è mai sul percorso per barra, quindi non tocca
+l'invariante "i checkpoint non riscrivono l'artefatto intero".
+
+`TradingSessionsHttpTests.LaSchedaDelRunDenunciaLaStrategiaMaiValutabile` e
+`LaSchedaContaGliIntentEmessiAnchePrimaDiUnFill` fissano le due metà.
+
+## 2026-09-02 — Le classi PTS si riabbinano al dossier per **impronta numerica**, non per S-ID
+
+Tradotte le 41 schede che il dossier del 02/09/2026
+(`run-engine/run-08-settembre/DOSSIER_PANIERE (1).md`, 116 strategie univoche) aggiunge alle 75 di
+agosto. Sei mercati nuovi nel paniere — HO, HK, CC, KC, CT, SB — più BTC a 60 minuti, FDAX
+giornaliero e le prime sottoclassi concrete di `BiasBarCountEngine` e `BiasWeeklyEngine` fuori da
+ES. Le sei JY nuove nascono `[StrategiaDisabilitata]` come le due di agosto: la scala di quotazione
+del dossier è quella del 6J CME ×100 e senza un feed `@JY` non è accertabile, quindi un
+`PointValue` scelto falserebbe stop e target senza produrre alcun errore.
+
+La decisione che conta non è la traduzione ma **come si è stabilito cosa mancava**. Gli `SNN` del
+dossier sono ordinati per atteso/trade, quindi scorrono a ogni rigenerazione: fra l'edizione di
+agosto e questa `PTS_NQ_TFM_002_15` è passata da `S21` a `S28` senza che il suo codice cambiasse.
+Fidarsi del paragrafo `Codice sorgente: SNN` scritto nel commento delle classi — che è la ragione
+per cui quel paragrafo esiste — avrebbe prodotto abbinamenti falsi in massa, e i primi due tentativi
+(per S-ID, poi per P&L e numero di trade) davano ogni volta un elenco di "mancanti" diverso.
+
+La chiave che regge è l'**impronta numerica**: `(simbolo, timeframe, motore, stop in $, target in
+$)`. È l'insieme minimo che identifica una riga di run e che nessuna delle due sponde può riscrivere
+per conto proprio. Trailing e uscita a tempo sono deliberatamente **fuori** dall'impronta e vengono
+solo segnalati come divergenza sulle abbinate: sono tarature del rischio, e includerli faceva
+comparire come "mancante" una strategia già tradotta con un trailing diverso. Lo strumento è
+`tools/dossier-diff.py`, che legge il dossier e il sorgente delle classi e chiude a 116 abbinate,
+zero mancanti, otto classi senza scheda — le due PC di luglio, `PTS_NQ_TFM_001_60` e le cinque
+disabilitate perché doppioni, tutte già documentate.
+
+Due dettagli su cui lo script sbagliava e che vanno tenuti: il dossier scrive il motore di
+volatility breakout come `VB` mentre la sigla in catalogo è `VBO`, e alcune classi dichiarano
+simbolo e timeframe come campi privati (`_symbol`, `_timeframeMinutes`) invece che come property
+inizializzate.
+
+I 745 test passano tranne le **52 che fallivano già su `HEAD`** (misurato in un worktree pulito:
+52 su 620, contro 52 su 745 con le classi nuove). Le 41 classi aggiungono 125 test verdi —
+`PtsNamingConventionTests`, `StrategyClockConformanceTests` e `UtcOnlyConformanceTests` sono
+data-driven per strategia — e nessun rosso nuovo. Nessuna delle 41 è verificata sui trade: il
+datafeed su disco è solo `@NQ`.
+
+## 2026-09-02 — Tabella di conversione per FTMO su cTrader (`cfd-ctrader-ftmo`)
+
+Il conto FTMO cTrader (17188650, broker `FTMO Platform`, valuta **USD**) ha un listino suo, che non
+è quello MT4 della voce `cfd-mt4-ftmo`: nomi diversi in parte, e soprattutto **lotti frazionari** —
+minimo e passo sono 0,01 su tutti gli strumenti chiesti, quindi `RoundingMode` è
+`BrokerVolumeStep` (1) contro lo `0` della voce MT4. Le due tabelle restano separate: stesso broker,
+conti diversi.
+
+La tabella mappa **solo i simboli che hanno almeno una strategia in catalogo**. Una riga su uno
+strumento che nessuno traderà è un numero che nessuno verifica, e prima o poi qualcuno ci si fida:
+`@EC` ×1,25, `@SI` ×1 e `@HG` ×250 sono stati misurati nel primo run e poi tolti, perché nessuna
+PTS li usa. Restano sedici simboli, nove misurati e sette da misurare.
+
+I moltiplicatori misurati (cBot `symbol-convertion/PiootooSymbolMultiplierBot-FTMO.cs`, run del
+2026-09-02): `@NQ` → `US100.cash` ×20, `@ES` → `US500.cash` ×50, `@YM` → `US30.cash` ×5,
+`@FDAX` → `GER40.cash` ×25 (quotato in **EUR** su un conto in dollari: la conversione la fa il
+broker, il sistema non converte valute), `@CL` → `USOIL.cash` ×10, `@GC` → `XAUUSD` ×1,
+`@PL` → `XPTUSD` ×0,5, `@BTC` → `BTCUSD` ×5, `@BP` → `GBPUSD` ×0,625; e dal secondo run
+`@NG` → `NATGAS.cash` ×10, `@CC` → `COCOA.c` ×10, `@KC` → `COFFEE.c` ×375. Su `COCOA.c` e
+`COFFEE.c` il lotto minimo è **1**, non 0,01 come sul resto del listino: la taglia minima
+negoziabile è un decimo di contratto Piootoo sul cacao e 1/375 sul caffè. Entrambi quotano nella
+stessa unità del future — cacao in dollari per tonnellata (Bid 6089,7), caffè in centesimi per
+libbra (312,22) — quindi `PriceScale` resta 1. Dove la voce MT4 diverge —
+`@ES` ×1, `@PL` ×50 — non è stato toccato niente: quel conto non è stato misurato, ma i due numeri
+meritano un run prima di fidarsene.
+
+**`@JY` resta fuori** pur avendo otto strategie: il suo PointValue non è nel registro ma in
+`InstrumentRegistry.KnownButUnverified`, quindi il moltiplicatore non è calcolabile; e il future 6J
+quota yen in dollari mentre il CFD `USDJPY` quota dollari in yen. È un inverso, non una scala: non
+lo sistemano né `PriceScale` né `ContractMultiplier`. Prima va verificato il registro.
+
+Due cose imparate sul listino FTMO, che valgono per qualunque bot ci giri sopra:
+
+**Ogni symbol ha un gemello dismesso** (`COCOA.c` e `COCOA.c_removed`, e così per tutti e 363; i
+negoziabili sono 196). Il fallback per somiglianza del bot adotta un candidato solo se è *uno*, per
+non tirare a indovinare: con i gemelli i candidati erano sempre due, e il fallback non è scattato
+**mai** proprio sul broker per cui era stato scritto. Ora `_removed` e i residui `(Demo Import)`
+sono fuori dalla ricerca, e i nomi veri (`COCOA.c`, `COFFEE.c`, `NATGAS.cash`, `HEATOIL.c`,
+`SUGAR.c`, `COTTON.c`, `HK50.cash`) sono il primo alias della mappa.
+
+**Il rame `XCUUSD` quota in centesimi per libbra** contro i dollari per libbra del future (Bid
+651,94, cioè 6,52 $/lb). Il `ContractMultiplier` **non** cambia — il fattore cento entra nei punti e
+esce dal valore punto, e si elide — ma `PriceScale` sì: vale 100, altrimenti stop e target vanno
+fuori di due ordini di grandezza. Il rame non è in tabella (nessuna strategia), ma il caso è la
+ragione per cui il cBot accetta ora un prezzo di riferimento del future e deduce la scala invece di
+lasciarla a 1 in silenzio. Serve soprattutto agli agricoli che invece ci sono — `@KC`, `@CT` e `@SB`
+sono quotati in centesimi per libbra sul future — e a `@HO`, in dollari per gallone.
+
+Restano **spente** quattro righe (`Enabled: false`): `@CT`, `@HK`, `@HO` e `@SB` hanno il nome
+verificato nel listino ma le specifiche non ancora lette. `@HK` ha un problema in più: il future ha
+PointValue in USD già convertito dagli HKD, e il CFD `HK50.cash` quota in HKD, quindi il rapporto
+mescola due valute e va guardato a mano. Spente e mappate è più sicuro che assenti: un simbolo non
+mappato passa 1 a 1 col nome Piootoo, mappato e disabilitato non produce ordini
+(`AccountSymbolConversion.IsSymbolEnabled`).
+
+Una nota operativa che è costata un run: **cTrader conserva i parametri dell'istanza**. Ricompilare
+il cBot aggiorna il codice ma non il valore di `Mappa`, che resta quello con cui l'istanza era stata
+creata — il secondo run ha quindi girato con la mappa del primo, e i quattro simboli aggiunti nel
+frattempo non erano nell'elenco. Per raccogliere una mappa nuova serve una **nuova istanza**, o
+incollare la stringa a mano nel parametro.

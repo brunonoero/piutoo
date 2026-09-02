@@ -188,6 +188,32 @@ strategia, e su una multiday (`IntradayOnly = false`) le taglia i trade a meta'
 senza che l'uscita sembri anomala. Il summary porta anche
 `weekEndFlatFromUtcHhmm`: due run con orari diversi non sono confrontabili.
 
+## Diagnosticare una sessione (cBot, `ExternalBroker`)
+
+L'equivalente del `backtest-summary.json` e' **`session-summary.json`**, scritto nella cartella
+della sessione accanto a `signals.json` e `trades.json`. Serve perche' quei due non bastano:
+`PersistOnlyFilledIntents` e' `true` di default e negli artefatti finiscono i soli intent
+**riempiti**, quindi *"mai valutata"*, *"intent mai emesso"* e *"ordine rifiutato"* hanno tutti e
+tre lo stesso aspetto — il nulla. La scheda conta gli intent per stato senza tenerli.
+
+Quando una strategia non opera, l'ordine delle domande e' questo:
+
+1. **`everEvaluable`** nella riga della strategia. Se e' `false`, lo stream non ha **mai** avuto
+ abbastanza barre e il server ha saltato in silenzio (`history.Count < RequiredCandles`, in
+ `StrategyEvaluationService.Evaluate`): non e' un problema di segnale. Il confronto sta nel blocco
+ `streams`, dove `historyBarsHighWater` e' il **massimo storico** — non il conteggio finale, che
+ `TrimHistory` falsa. Le soglie variano di venti volte fra strategie sullo stesso stream:
+ `PTS_NQ_VBO_002_240` ne chiede 606 e le altre sei di `@NQ_240` ne chiedono 36.
+2. **`intentsEmitted` contro `intentsFilled`**. Emessi e mai riempiti = il segnale nasce e
+ l'ordine no: guarda `RejectWrongSideLevels` e la scadenza dell'intent. Zero emessi con
+ `everEvaluable: true` = i gate della strategia non sono mai scattati, ed e' una domanda per il
+ porting, non per l'infrastruttura.
+3. Il blocco `diagnostics` in testa dice gia' 1 e 2 a parole.
+
+Solo se la scheda non basta si rifa' il run con `PIOOTOO_PERSIST_ALL_INTENTS=1`, che spegne il
+filtro e tiene ogni intent: e' molto piu' caro e serve solo per guardare i singoli record.
+Vedi `docs/decisioni.md` 2026-09-01.
+
 ## Convenzioni
 
 - **Console WinForms**: le regole delle schermate stanno in

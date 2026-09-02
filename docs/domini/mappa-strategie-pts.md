@@ -6,11 +6,220 @@ risalire dalla classe alla sua fonte senza riaprire i CSV a tentativi. La proced
 traduzione sta in [`porting-da-report-sweep.md`](porting-da-report-sweep.md); i motori sono
 descritti in [`motori-strategie.md`](motori-strategie.md).
 
+## Il paniere del 02/09/2026: `DOSSIER_PANIERE (1).md` — la fonte corrente
+
+La fonte autorevole per il porting è
+`piootoo-repository/run-engine/run-08-settembre/DOSSIER_PANIERE (1).md`: **116 schede** univoche,
+che sommano e sostituiscono le 75 del dossier di agosto. Tutte e 116 sono tradotte: 75 lo erano già
+(quelle di agosto, riabbinate per impronta numerica — vedi sotto), **41 sono state create il
+02/09/2026**.
+
+### Perché l'abbinamento passa dall'impronta, non dagli S-ID
+
+Gli `SNN` scorrono a ogni rigenerazione del dossier, perché sono ordinati per atteso/trade: fra
+l'edizione di agosto e questa, `PTS_NQ_TFM_002_15` è passata da `S21` a `S28` senza che una virgola
+del suo codice cambiasse. Ricostruire la mappa leggendo il paragrafo `Codice sorgente` delle classi
+avrebbe quindi prodotto abbinamenti falsi.
+
+La chiave usata è invece l'**impronta numerica** — `(simbolo, timeframe, motore, stop in $, target
+in $)` — che identifica una riga di run in modo stabile fra edizioni. Lo strumento è
+`tools/dossier-diff.py`: legge le schede del dossier e le classi `PTS_*` dal sorgente, le abbina
+per impronta, elenca le schede senza classe e le classi senza scheda, e segnala per le abbinate le
+divergenze su trailing e uscita a tempo (che nell'impronta non entrano, così una taratura diversa
+non fa scattare un falso "mancante"). Lanciato con `--abbinate` stampa la tabella qui sotto già
+formattata.
+
+Sono da conoscere due mappature che il primo tentativo aveva sbagliato: il dossier scrive il motore
+di volatility breakout come `VB` mentre la sigla in catalogo è `VBO`, e alcune classi dichiarano
+simbolo e timeframe come campi privati (`_symbol`, `_timeframeMinutes`) invece che come property
+inizializzate, quindi lo script cerca entrambe le forme.
+
+### Le 41 classi nuove
+
+| Mercato | Classi | Note |
+|---|---|---|
+| HO (Heating Oil) | `BSW_001/002/003_60`, `BIA_001/002_240`, `BIA_003_60`, `TFM_001_60`, `PCH_001_30` | mercato nuovo nel paniere |
+| JY (Japanese Yen) | `TFU_003/004/005_30`, `TFU_006/007/008_60` | **nascono disabilitate**, come le due JY di agosto |
+| NG (Natural Gas) | `TFM_003/005_30`, `TFM_004/006_60`, `TFU_003_60`, `BSW_001_30` | |
+| HK (Hang Seng) | `TFU_001_240`, `PCH_001_60`, `PCH_002_240`, `BIA_001_15`, `SBO_001_240` | mercato nuovo |
+| CC (Cocoa) | `SBO_001_60`, `TFM_001/002_60`, `PCH_001_240` | mercato nuovo |
+| BTC | `TFU_001/002_60`, `BIA_001_60` | primo BTC a 60 minuti |
+| FDAX | `TFU_001/002_1440`, `SBO_002_1440` | |
+| YM | `TFU_001/002/003_60` | |
+| CT (Cotton) | `TFU_001_240` | mercato nuovo |
+| SB (Sugar) | `TFM_001_240` | mercato nuovo |
+| KC (Coffee) | `SBO_001_240` | mercato nuovo |
+
+I sei mercati nuovi erano già in `InstrumentRegistry`. Le tre ICE softs (KC, CT, SB) sono quotate
+in **centesimi per libbra** e il `PointValue` è il valore di un centesimo intero — $375 su KC, $500
+su CT, $1.120 su SB — verificato incrociando il contratto dell'exchange con le conversioni in punti
+che il dossier stesso riporta. CC è in dollari per tonnellata su un contratto da 10 tonnellate. HK
+è l'unico strumento del registro il cui `PointValue` dipende da un cambio (HKD 50 per punto,
+convertiti a 7,8 HKD/USD): se l'HKD uscisse dalla banda, stop e target delle cinque HK andrebbero
+rimisurati.
+
+Le finestre orarie sono riportate **verbatim** dal dossier, con
+`ZonedWindow.ResearchHours(start_hour, end_hour)` o `ZonedWindow.Research(startHhmm, endHhmm)`, e
+la sessione con `ZonedWindow.ResearchSession()`. Per i mercati che la ricerca apre alle 01:00 CET —
+FDAX, CC, KC, SB, CT, HK — la sessione è `ZonedWindow.ResearchSession(1)`, che è la forma imposta
+da `StrategyClockConformanceTests`. ⚠ Su HK questo lascia scoperta la fascia 00:00–01:00 rispetto a
+una ricostruzione a giorno di calendario pieno: è la stessa semplificazione che fa il resto del
+catalogo, e non è stata compensata a mano su un singolo mercato.
+
+Le sigle `BIA` (`BiasBarCountEngine`) e `BSW` (`BiasWeeklyEngine`) hanno ora sottoclassi concrete
+per la prima volta su HO, NG, HK, BTC e YM: erano fra i motori "esistenti ma senza sottoclassi"
+elencati più sotto in *Cosa non è stato tradotto*, e quel paragrafo va letto tenendone conto.
+
+### La mappa completa: S-ID → classe C# (edizione 02/09/2026)
+
+| Dossier | Classe C# | Mercato/TF/Motore |
+|---|---|---|
+| `S01` | `PTS_NQ_TFM_012_1440` | NQ day TF_M |
+| `S02` | `PTS_NQ_SBO_005_1440` | NQ day BO |
+| `S03` | `PTS_NQ_TFM_013_1440` | NQ day TF_M |
+| `S04` | `PTS_FDAX_MAC_001_240` | FDAX 4h MAC |
+| `S05` | `PTS_NQ_TFU_006_1440` | NQ day TF_U |
+| `S06` | `PTS_NQ_TFM_014_240` | NQ 4h TF_M |
+| `S07` | `PTS_NQ_TFU_007_1440` | NQ day TF_U |
+| `S08` | `PTS_FDAX_TFU_001_1440` | FDAX day TF_U |
+| `S09` | `PTS_FDAX_TFU_002_1440` | FDAX day TF_U |
+| `S10` | `PTS_FDAX_SBO_002_1440` | FDAX day BO |
+| `S11` | `PTS_FDAX_PCH_001_240` | FDAX 4h PC |
+| `S12` | `PTS_BTC_TFU_001_60` | BTC 1h TF_U |
+| `S13` | `PTS_BTC_TFU_002_60` | BTC 1h TF_U |
+| `S14` | `PTS_GC_TFU_001_30` | GC 30m TF_U |
+| `S15` | `PTS_FDAX_VBO_001_240` | FDAX 4h VBO |
+| `S16` | `PTS_NQ_VBO_001_1440` | NQ day VBO |
+| `S17` | `PTS_ES_SBO_002_240` | ES 4h BO |
+| `S18` | `PTS_NQ_TFM_015_240` | NQ 4h TF_M |
+| `S19` | `PTS_BTC_BIA_001_60` | BTC 1h BIAS |
+| `S20` | `PTS_NQ_TFM_006_30` | NQ 30m TF_M |
+| `S21` | `PTS_GC_TFM_001_240` | GC 4h TF_M |
+| `S22` | `PTS_BTC_PCH_001_240` | BTC 4h PC |
+| `S23` | `PTS_NQ_TFM_009_60` | NQ 1h TF_M |
+| `S24` | `PTS_ES_SBO_003_240` | ES 4h BO |
+| `S25` | `PTS_FDAX_SBO_001_240` | FDAX 4h BO |
+| `S26` | `PTS_KC_SBO_001_240` | KC 4h BO |
+| `S27` | `PTS_NQ_TFM_007_30` | NQ 30m TF_M |
+| `S28` | `PTS_NQ_TFM_002_15` | NQ 15m TF_M |
+| `S29` | `PTS_NQ_TFM_010_60` | NQ 1h TF_M |
+| `S30` | `PTS_CC_SBO_001_60` | CC 1h BO |
+| `S31` | `PTS_CC_TFM_001_60` | CC 1h TF_M |
+| `S32` | `PTS_ES_BSW_001_60` | ES 1h BIASW |
+| `S33` | `PTS_HO_BSW_001_60` | HO 1h BIASW |
+| `S34` | `PTS_HO_BIA_001_240` | HO 4h BIAS |
+| `S35` | `PTS_NQ_TFM_008_30` | NQ 30m TF_M |
+| `S36` | `PTS_NQ_TFM_003_15` | NQ 15m TF_M |
+| `S37` | `PTS_JY_TFU_003_30` | JY 30m TF_U |
+| `S38` | `PTS_HO_BIA_002_240` | HO 4h BIAS |
+| `S39` | `PTS_JY_TFU_004_30` | JY 30m TF_U |
+| `S40` | `PTS_ES_PCH_003_1440` | ES day PC |
+| `S41` | `PTS_BP_TFM_001_60` | BP 1h TF_M |
+| `S42` | `PTS_CC_TFM_002_60` | CC 1h TF_M |
+| `S43` | `PTS_NQ_TFM_005_15` | NQ 15m TF_M |
+| `S44` | `PTS_NQ_SBO_004_60` | NQ 1h BO |
+| `S45` | `PTS_NG_TFU_003_60` | NG 1h TF_U |
+| `S46` | `PTS_NQ_SBO_006_240` | NQ 4h BO |
+| `S47` | `PTS_ES_SBO_001_15` | ES 15m BO |
+| `S48` | `PTS_NQ_SBO_001_15` | NQ 15m BO |
+| `S49` | `PTS_JY_TFU_005_30` | JY 30m TF_U |
+| `S50` | `PTS_NQ_SBO_002_15` | NQ 15m BO |
+| `S51` | `PTS_NQ_TFU_004_60` | NQ 1h TF_U |
+| `S52` | `PTS_NQ_TFM_011_60` | NQ 1h TF_M |
+| `S53` | `PTS_YM_TFM_001_240` | YM 4h TF_M |
+| `S54` | `PTS_ES_TFM_001_1440` | ES day TF_M |
+| `S55` | `PTS_GC_PCH_001_60` | GC 1h PC |
+| `S56` | `PTS_CC_PCH_001_240` | CC 4h PC |
+| `S57` | `PTS_HK_TFU_001_240` | HK 4h TF_U |
+| `S58` | `PTS_NQ_PCH_003_30` | NQ 30m PC |
+| `S59` | `PTS_NG_TFM_003_30` | NG 30m TF_M |
+| `S60` | `PTS_CL_MAC_001_30` | CL 30m MAC |
+| `S61` | `PTS_NQ_SBO_003_15` | NQ 15m BO |
+| `S62` | `PTS_ES_BSW_002_15` | ES 15m BIASW |
+| `S63` | `PTS_ES_PCH_001_60` | ES 1h PC |
+| `S64` | `PTS_NG_TFM_001_240` | NG 4h TF_M |
+| `S65` | `PTS_ES_TFU_001_1440` | ES day TF_U |
+| `S66` | `PTS_HO_TFM_001_60` | HO 1h TF_M |
+| `S67` | `PTS_HO_BSW_002_60` | HO 1h BIASW |
+| `S68` | `PTS_NG_TFM_004_60` | NG 1h TF_M |
+| `S69` | `PTS_JY_TFU_006_60` | JY 1h TF_U |
+| `S70` | `PTS_NG_TFM_005_30` | NG 30m TF_M |
+| `S71` | `PTS_YM_TFM_002_240` | YM 4h TF_M |
+| `S72` | `PTS_NQ_TFU_008_240` | NQ 4h TF_U |
+| `S73` | `PTS_NQ_TFU_001_15` | NQ 15m TF_U |
+| `S74` | `PTS_JY_TFU_007_60` | JY 1h TF_U |
+| `S75` | `PTS_ES_BSW_003_15` | ES 15m BIASW |
+| `S76` | `PTS_NG_TFU_001_240` | NG 4h TF_U |
+| `S77` | `PTS_GC_PCH_004_240` | GC 4h PC |
+| `S78` | `PTS_GC_RHL_001_60` | GC 1h RHL |
+| `S79` | `PTS_NQ_PCH_004_30` | NQ 30m PC |
+| `S80` | `PTS_CT_TFU_001_240` | CT 4h TF_U |
+| `S81` | `PTS_ES_TFM_002_1440` | ES day TF_M |
+| `S82` | `PTS_YM_TFU_001_60` | YM 1h TF_U |
+| `S83` | `PTS_YM_TFU_002_60` | YM 1h TF_U |
+| `S84` | `PTS_HK_PCH_001_60` | HK 1h PC |
+| `S85` | `PTS_NQ_VBO_002_240` | NQ 4h VBO |
+| `S86` | `PTS_JY_TFU_001_240` | JY 4h TF_U |
+| `S87` | `PTS_ES_PCH_004_240` | ES 4h PC |
+| `S88` | `PTS_YM_BIA_001_240` | YM 4h BIAS |
+| `S89` | `PTS_SB_TFM_001_240` | SB 4h TF_M |
+| `S90` | `PTS_NQ_PCH_007_240` | NQ 4h PC |
+| `S91` | `PTS_NQ_RBM_001_15` | NQ 15m RBB_M |
+| `S92` | `PTS_BP_TFM_002_15` | BP 15m TF_M |
+| `S93` | `PTS_GC_PCH_005_240` | GC 4h PC |
+| `S94` | `PTS_JY_TFU_002_240` | JY 4h TF_U |
+| `S95` | `PTS_NG_BSW_001_30` | NG 30m BIASW |
+| `S96` | `PTS_NG_TFU_002_240` | NG 4h TF_U |
+| `S97` | `PTS_GC_RHL_002_60` | GC 1h RHL |
+| `S98` | `PTS_YM_TFM_003_240` | YM 4h TF_M |
+| `S99` | `PTS_NQ_TFU_005_60` | NQ 1h TF_U |
+| `S100` | `PTS_NG_TFM_002_240` | NG 4h TF_M |
+| `S101` | `PTS_NG_TFM_006_60` | NG 1h TF_M |
+| `S102` | `PTS_NQ_TFU_002_15` | NQ 15m TF_U |
+| `S103` | `PTS_NQ_PCH_008_240` | NQ 4h PC |
+| `S104` | `PTS_JY_TFU_008_60` | JY 1h TF_U |
+| `S105` | `PTS_YM_TFU_003_60` | YM 1h TF_U |
+| `S106` | `PTS_ES_PCH_002_60` | ES 1h PC |
+| `S107` | `PTS_HO_BSW_003_60` | HO 1h BIASW |
+| `S108` | `PTS_HK_BIA_001_15` | HK 15m BIAS |
+| `S109` | `PTS_HK_PCH_002_240` | HK 4h PC |
+| `S110` | `PTS_YM_SBO_001_240` | YM 4h BO |
+| `S111` | `PTS_HK_SBO_001_240` | HK 4h BO |
+| `S112` | `PTS_YM_SBO_002_240` | YM 4h BO |
+| `S113` | `PTS_PL_TFM_001_240` | PL 4h TF_M |
+| `S114` | `PTS_NQ_TFU_003_15` | NQ 15m TF_U |
+| `S115` | `PTS_HO_PCH_001_30` | HO 30m PC |
+| `S116` | `PTS_HO_BIA_003_60` | HO 1h BIAS |
+
+Le **otto classi senza scheda** in questa edizione sono le stesse note da prima e non sono un
+disallineamento: `PTS_NQ_PCH_001_15` e `PTS_NQ_PCH_002_15` vengono dai due run di luglio, anteriori
+al paniere; `PTS_NQ_TFM_001_60` ha il run perduto; `PTS_NQ_TFM_004_15`, `PTS_NQ_PCH_005_30`,
+`PTS_NQ_PCH_006_30`, `PTS_GC_PCH_002_60` e `PTS_GC_PCH_003_60` sono le disabilitate perché doppioni.
+
+### Cosa resta da fare su questa edizione
+
+- **Le sei JY nuove nascono disabilitate**, per la stessa ragione delle due di agosto: la scala di
+  quotazione dichiarata dal dossier ($125.000 per punto, tick 0,00005) è quella del 6J CME scalata
+  ×100, e le due convenzioni danno lo stesso valore di tick ($6,25) ma convertono in modo diverso
+  gli stop in denaro. I parametri sono tradotti e verificabili; manca un feed `@JY` su cui
+  accertare la scala.
+- **Nessuna delle 41 è verificata sui trade.** Il datafeed su disco è solo `@NQ`, quindi per HO, HK,
+  CC, KC, CT, SB, NG, YM, BTC, FDAX e JY manca la storia su cui confrontare le entrate. Procedura
+  in [`porting-da-report-sweep.md`](porting-da-report-sweep.md) §"Verificare il porting".
+- **`BiasBarCountEngine` e `BiasWeeklyEngine` non hanno test di parità sui trade.** Fino a ieri non
+  avevano sottoclassi concrete su questi mercati; oggi ne portano quindici. I test esistenti provano
+  il contratto del segnale, non la parità con il Python.
+
+---
+
 ## Il paniere del 25/08/2026: `DOSSIER_PANIERE.md`
 
-La fonte autorevole per il porting non è più la consegna di un singolo run, ma il dossier
-consolidato `piootoo-repository/run-engine/run-07-agosto/DOSSIER_PANIERE.md` (rigenerato il
-25/08/2026). Somma ventuno run — da `run_20260814_1453` a `run_20260824_2232` — e ne estrae
+Il dossier consolidato
+`piootoo-repository/run-engine/run-07-agosto/DOSSIER_PANIERE.md` (rigenerato il
+25/08/2026) è **superato dall'edizione del 02/09/2026** descritta sopra, e resta qui per la storia
+delle 75 classi che ha generato.
+
+Sommava ventuno run — da `run_20260814_1453` a `run_20260824_2232` — e ne estraeva
 **75 strategie univoche** su 11 mercati e 10 motori, deduplicate anche *fra* run e timeframe
 diversi: nessuna coppia condivide più del 70% degli ordini di entrata. Ogni scheda è
 autosufficiente (condizioni, filtri in formula, finestra oraria, uscite in dollari e in punti,
@@ -200,6 +409,9 @@ dichiarata lì.
 | `RBM` | RBB_M | `RbbMirroredEngine` |
 | `RHL` | RHL | `RhlEngine` |
 | `BSW` | BIASW | `BiasWeeklyEngine` |
+| `BIA` | BIAS | `BiasBarCountEngine` |
+| `VBO` | VB | `VolatilityBreakoutEngine` |
+| `MAC` | MAC | `MovingAverageCrossoverEngine` |
 
 ## La mappa
 

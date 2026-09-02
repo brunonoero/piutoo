@@ -839,6 +839,91 @@ public sealed class TradingSessionsHttpTests : IDisposable
         Assert.Equal(1, pushed.AcceptedBars);
     }
 
+    /// <summary>
+    /// La sessione lascia una scheda del run, e la scheda dice perche' una strategia non ha
+    /// operato.
+    ///
+    /// <para><b>Da dove viene.</b> compare-0015: la famiglia VBO ha zero fill su tre strategie e
+    /// due simboli, e dagli artefatti la causa non e' determinabile — <c>signals.json</c> contiene
+    /// per default i soli intent <i>riempiti</i>
+    /// (<c>TradingSessionService.PersistOnlyFilledIntents</c>), quindi "mai valutata", "intent mai
+    /// emesso" e "ordine rifiutato" hanno tutti e tre lo stesso aspetto: il nulla. Le due VBO che
+    /// contano chiedono 606 e 501 barre di storia contro le 36 di ogni altra strategia sullo
+    /// stesso stream, e il server salta in silenzio finche' non le ha
+    /// (<c>StrategyEvaluationService.Evaluate</c>).</para>
+    ///
+    /// <para>Qui lo stream riceve <b>una</b> barra contro le centinaia che la strategia dichiara:
+    /// la scheda deve dirlo a chiare lettere invece di lasciare una riga vuota.</para>
+    /// </summary>
+    [Fact]
+    public async Task LaSchedaDelRunDenunciaLaStrategiaMaiValutabile()
+    {
+        var descriptor = await Create(ExecutionMode.ExternalBroker);
+        descriptor = await Status(descriptor, "start", HttpStatusCode.OK);
+        await Push(descriptor, sequence: 1, key: "scheda-1");
+
+        // Una lettura esplicita degli artefatti forza la scrittura autorevole, che e' l'unico
+        // percorso su cui la scheda viene prodotta: i checkpoint intermedi non la toccano.
+        using var request = Authorized(HttpMethod.Get,
+            $"api/v1/trading-sessions/{descriptor.SessionId}/trades", descriptor.SessionToken);
+        (await _client.SendAsync(request)).EnsureSuccessStatusCode();
+
+        var summary = LeggiScheda(descriptor);
+
+        Assert.Equal(descriptor.SessionId, summary.SessionId);
+        Assert.Equal(nameof(ExecutionMode.ExternalBroker), summary.ExecutionMode);
+        Assert.Equal(Utc(2026, 1, 5), summary.FirstBarUtc);
+        Assert.Equal(Utc(2026, 1, 5), summary.LastBarUtc);
+
+        var stream = Assert.Single(summary.Streams);
+        Assert.Equal(_strategy.TimeframeMinutes, stream.TimeframeMinutes);
+        Assert.Equal(1, stream.HistoryBarsHighWater);
+        Assert.True(stream.RequiredCandles > 1, "la strategia del fixture deve chiedere piu' di una barra");
+        Assert.Equal(1, stream.StrategiesNeverEvaluated);
+
+        var strategia = Assert.Single(summary.Strategies);
+        Assert.Equal(_strategy.Name, strategia.StrategyCode);
+        Assert.False(strategia.EverEvaluable);
+        Assert.Equal(stream.RequiredCandles, strategia.RequiredCandles);
+
+        Assert.Contains(summary.Diagnostics, riga => riga.StartsWith("[storia]", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// Il conteggio degli intent nella scheda sopravvive al filtro che li toglie dagli artefatti:
+    /// e' esattamente il numero che manca quando una strategia emette e non riempie mai.
+    /// </summary>
+    [Fact]
+    public async Task LaSchedaContaGliIntentEmessiAnchePrimaDiUnFill()
+    {
+        var descriptor = await Create(ExecutionMode.ExternalBroker);
+        descriptor = await Status(descriptor, "start", HttpStatusCode.OK);
+        await Push(descriptor, sequence: 1, key: "scheda-intent-1");
+
+        using var request = Authorized(HttpMethod.Get,
+            $"api/v1/trading-sessions/{descriptor.SessionId}/trades", descriptor.SessionToken);
+        (await _client.SendAsync(request)).EnsureSuccessStatusCode();
+
+        var summary = LeggiScheda(descriptor);
+
+        // La valutazione del fixture emette un ingresso per barra: l'intent esiste, nessuno lo ha
+        // ancora riempito, e signals.json — che tiene i soli riempiti — sarebbe vuoto.
+        Assert.Equal(1, summary.IntentsEmitted);
+        Assert.Equal(0, summary.IntentsFilled);
+        var strategia = Assert.Single(summary.Strategies);
+        Assert.Equal(1, strategia.IntentsEmitted);
+        Assert.Equal(0, strategia.IntentsFilled);
+        Assert.Equal(Utc(2026, 1, 5), strategia.FirstIntentUtc);
+    }
+
+    private SessionRunSummary LeggiScheda(TradingSessionDescriptor descriptor)
+    {
+        var path = Path.Combine(
+            _root, _workspace.Id, "sessions", descriptor.SessionId, SessionRunSummarySchema.FileName);
+        Assert.True(File.Exists(path), $"la scheda del run non e' stata scritta in {path}");
+        return JsonSerializer.Deserialize<SessionRunSummary>(File.ReadAllText(path), JsonOptions)!;
+    }
+
     private async Task<TradingSessionDescriptor> Create(
         ExecutionMode mode, string? runId = null, string? folder = null)
     {
