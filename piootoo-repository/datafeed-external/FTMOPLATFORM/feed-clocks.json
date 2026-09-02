@@ -1,0 +1,27 @@
+{
+  "_nota": [
+    "Generato da ExternalDatafeedStore. I feed di questa cartella arrivano da un bot",
+    "raccoglitore cTrader, che spedisce gli orari delle barre in UTC vero: la piattaforma",
+    "li espone gia\u0027 cosi\u0027 (Bars.OpenTimes / Server.TimeInUtc), quindi qui UTC non e\u0027",
+    "un\u0027assunzione ma il fuso dichiarato dalla sorgente.",
+    "Correggere a mano una voce e\u0027 lecito: il codice non sovrascrive quelle esistenti."
+  ],
+  "orologi": {
+    "BP": "UTC",
+    "BTC": "UTC",
+    "CC": "UTC",
+    "CL": "UTC",
+    "CT": "UTC",
+    "ES": "UTC",
+    "FDAX": "UTC",
+    "GC": "UTC",
+    "HK": "UTC",
+    "HO": "UTC",
+    "KC": "UTC",
+    "NG": "UTC",
+    "NQ": "UTC",
+    "PL": "UTC",
+    "SB": "UTC",
+    "YM": "UTC"
+  }
+}
