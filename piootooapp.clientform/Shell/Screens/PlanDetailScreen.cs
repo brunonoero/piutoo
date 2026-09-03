@@ -8,21 +8,12 @@ using piootooapp.clientform.Shell.Controls;
 namespace piootooapp.clientform.Shell.Screens;
 
 /// <summary>
-/// Riga del tab Gruppi: profilo Titano condiviso da tutti gli account dello stesso gruppo.
-/// <see cref="TradingGroupRow"/> è init-only, quindi non è bindabile direttamente alla griglia.
+/// Riga del tab Gruppi. <see cref="TradingGroupRow"/> è init-only, quindi non è bindabile
+/// direttamente alla griglia.
 /// </summary>
 public sealed class PlanGroupEditRow
 {
     public string GroupId { get; set; } = string.Empty;
-
-    public string RotationSetupId { get; set; } = string.Empty;
-
-    public string TitanoBacktestFolder { get; set; } = string.Empty;
-
-    // Default false: una riga appena aggiunta non ha ancora una cartella di backtest, e il server
-    // rifiuta ApplyTitanoFilters=true senza cartella (NormalizeAndValidateGroups). Partire da true
-    // farebbe fallire il primo salvataggio di ogni gruppo nuovo con un errore poco leggibile.
-    public bool ApplyTitanoFilters { get; set; }
 }
 
 /// <summary>Riga del tab Account: account cTrader con il proprio limite di posizioni concorrenti.</summary>
@@ -74,8 +65,7 @@ public sealed class PlanHoldingConflictRow
 /// riportato ai default alla prima modifica.
 ///
 /// <para>Il piano è editato in due griglie separate che rispecchiano la semantica di
-/// <see cref="TradingGroupRow"/>: il tab Gruppi porta il profilo Titano (condiviso da tutti gli
-/// account dello stesso <c>GroupId</c>, la griglia lo impedisce diverso), il tab Account porta
+/// <see cref="TradingGroupRow"/>: il tab Gruppi elenca i gruppi, il tab Account porta
 /// <c>MaxConcurrentTrades</c>, che è per-account (vedi <c>TradingSessionService.GetNextSignalForAccount</c>).
 /// Il salvataggio ricompone le due griglie in <see cref="TradingGroupRow"/> per riga account.</para>
 /// </summary>
@@ -89,16 +79,6 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
     /// <summary>Registro globale (<c>api/Accounts</c>), non del workspace: si carica una volta.</summary>
     private readonly List<string> _accountGroups = new();
     private readonly List<WorkspaceAccount> _registryAccounts = new();
-
-    /// <summary>Liste condivise fra le combo del tab Generale e le colonne della griglia gruppi.</summary>
-    private readonly List<ValueComboItem> _rotationSetups = new();
-
-    /// <summary>
-    /// Backtest del workspace. Non alimentano più una colonna combo: le cartelle sono troppe perché
-    /// un menu a tendina dentro una cella sia usabile, e la scelta passa dal pulsante di riga che
-    /// apre <see cref="BacktestPickerDialog"/>.
-    /// </summary>
-    private readonly List<WorkspaceBacktestInfo> _backtests = new();
 
     /// <summary>
     /// Catalogo strategie del server: serve a sapere quali strategie del masterfilter sono
@@ -183,13 +163,11 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
             ShowWorkspace();
             await LoadAccountRegistryAsync(cancellationToken);
             await LoadStrategyCatalogAsync(cancellationToken);
-            await LoadTitanoChoicesAsync(cancellationToken);
             if (_isNew)
             {
                 _toolbar.Title = "Nuovo piano";
                 _codeTextBox.ReadOnly = false;
                 ResetToDefaults();
-                _rotationStatusLabel.Text = "disponibile dopo il primo salvataggio";
                 await RefreshGroupChoicesAsync(cancellationToken);
                 await RefreshHoldingImpactAsync(cancellationToken);
                 _context.Navigation.SetStatus($"Nuovo piano nel workspace '{_workspaceId}'.");
@@ -201,7 +179,6 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
             _codeTextBox.ReadOnly = true;
             Fill(plan);
             await RefreshGroupChoicesAsync(cancellationToken);
-            await RefreshRotationStatusAsync(cancellationToken);
             await RefreshHoldingImpactAsync(cancellationToken);
             _context.Navigation.SetStatus(
                 $"Piano '{plan.Code}' con {plan.Groups.Count} righe gruppo/account, " +
@@ -248,95 +225,6 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
     private string? SelectedWorkspaceId => _workspaceId.Length > 0 ? _workspaceId : null;
 
     /// <summary>
-    /// Ricarica le due liste Titano (setup di rotazione, cartelle di backtest) usate come sorgente
-    /// delle colonne combo della griglia Gruppi. I setup sono globali, le cartelle appartengono al
-    /// workspace.
-    /// </summary>
-    private async Task LoadTitanoChoicesAsync(CancellationToken cancellationToken)
-    {
-        await LoadRotationSetupsAsync(cancellationToken);
-        await LoadBacktestFoldersAsync(cancellationToken);
-    }
-
-    /// <summary>
-    /// Stato di freschezza dell'ultimo run Titano per la cartella della riga primaria del piano
-    /// (<c>TradingPlanService.SelectPrimaryRow</c>), in sola lettura. Richiede un piano già salvato
-    /// (l'endpoint risolve per codice).
-    /// </summary>
-    private async Task RefreshRotationStatusAsync(CancellationToken cancellationToken)
-    {
-        if (_context == null || _isNew || _code is not { Length: > 0 } code)
-        {
-            return;
-        }
-
-        try
-        {
-            var status = await _context.Services.Plans.GetRotationStatusAsync(_workspaceId, code, cancellationToken);
-            _rotationStatusLabel.Text = status.Freshness switch
-            {
-                TitanoRotationFreshness.Fresh =>
-                    $"🟢 pronto (ultimo run {status.LatestRunGeneratedAtUtc:yyyy-MM-dd HH:mm} UTC)",
-                TitanoRotationFreshness.Stale =>
-                    $"🟡 da aggiornare (ultimo run {status.LatestRunGeneratedAtUtc:yyyy-MM-dd HH:mm} UTC, periodo scaduto)",
-                _ => "⚪ nessun run Titano per questa cartella"
-            };
-        }
-        catch (OperationCanceledException)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            _rotationStatusLabel.Text = $"non disponibile ({ex.Message})";
-        }
-    }
-
-    private async Task LoadRotationSetupsAsync(CancellationToken cancellationToken)
-    {
-        _rotationSetups.Clear();
-        try
-        {
-            var setups = await _context!.Services.Titano.ListSetupsAsync(cancellationToken);
-            foreach (var setup in setups.OrderBy(s => s.Name, StringComparer.OrdinalIgnoreCase))
-            {
-                _rotationSetups.Add(ValueComboItem.Of(setup.Id, $"{setup.Name}  ({setup.Id})"));
-            }
-        }
-        catch (OperationCanceledException)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            _context!.Navigation.SetError($"Setup di rotazione non elencabili: {ex.Message}");
-        }
-    }
-
-    private async Task LoadBacktestFoldersAsync(CancellationToken cancellationToken)
-    {
-        _backtests.Clear();
-        if (string.IsNullOrEmpty(_workspaceId))
-        {
-            return;
-        }
-
-        try
-        {
-            var backtests = await _context!.Services.Api.ListBacktestsAsync(_workspaceId, cancellationToken);
-            _backtests.AddRange(backtests.OrderByDescending(b => b.LastModifiedUtc));
-        }
-        catch (OperationCanceledException)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            _context!.Navigation.SetError($"Cartelle di backtest non elencabili: {ex.Message}");
-        }
-    }
-
-    /// <summary>
     /// Gruppi e account stanno in un registro globale (<c>api/Accounts</c>), non nel workspace:
     /// una sola lettura serve tutte le righe del piano.
     /// </summary>
@@ -369,19 +257,8 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
     private Task RefreshGroupChoicesAsync(CancellationToken cancellationToken)
     {
         RefreshGroupColumnItems();
-        RefreshTitanoColumnItems();
         RefreshAccountNumberColumnItems();
         return Task.CompletedTask;
-    }
-
-    private void RefreshTitanoColumnItems()
-    {
-        SetColumnItems(
-            _colGroupRotationSetup,
-            "(nessun setup)",
-            _rotationSetups,
-            _groups.Select(row => row.RotationSetupId));
-
     }
 
     private static void SetColumnItems(
@@ -468,37 +345,6 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
         {
             _groupsGrid.CommitEdit(DataGridViewDataErrorContexts.Commit);
         }
-    }
-
-    /// <summary>
-    /// Scelta della cartella di backtest della riga. Era una colonna combo, ma un workspace con
-    /// qualche centinaio di cartelle rende la tendina dentro la cella inservibile: il pulsante apre
-    /// la stessa modale con filtro usata dalle schermate Titano, e la cella resta di sola lettura.
-    /// </summary>
-    private void OnGroupsGridCellClick(object? sender, DataGridViewCellEventArgs e)
-    {
-        if (e.RowIndex < 0 || e.ColumnIndex != _colGroupTitanoPick.Index || e.RowIndex >= _groups.Count)
-        {
-            return;
-        }
-
-        if (_backtests.Count == 0)
-        {
-            MessageBox.Show(this, "Il workspace non contiene backtest.", "Piano",
-                MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            return;
-        }
-
-        var row = _groups[e.RowIndex];
-        var chosen = BacktestPickerDialog.Pick(this, _backtests, row.TitanoBacktestFolder);
-        if (chosen == null)
-        {
-            return;
-        }
-
-        row.TitanoBacktestFolder = chosen.FolderName;
-        _groupsBindingSource.ResetItem(e.RowIndex);
-        MarkDirty();
     }
 
     private void OnGroupsGridCellValueChanged(object? sender, DataGridViewCellEventArgs e)
@@ -599,20 +445,11 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
         _fractionalFactorInput.Value = Clamp(_fractionalFactorInput, sizing.PortfolioRisk.FractionalFactor);
         _maximumMultiplierInput.Value = Clamp(_maximumMultiplierInput, sizing.PortfolioRisk.MaximumMultiplier);
 
-        // Un profilo Titano per gruppo (prima riga del gruppo: NormalizeAndValidateGroups garantisce
-        // che tutte le righe dello stesso GroupId lo condividano).
         _groups.RaiseListChangedEvents = false;
         _groups.Clear();
         foreach (var group in plan.Groups.GroupBy(row => row.GroupId, StringComparer.OrdinalIgnoreCase))
         {
-            var sample = group.First();
-            _groups.Add(new PlanGroupEditRow
-            {
-                GroupId = sample.GroupId,
-                RotationSetupId = sample.RotationSetupId ?? string.Empty,
-                TitanoBacktestFolder = sample.TitanoBacktestFolder ?? string.Empty,
-                ApplyTitanoFilters = sample.ApplyTitanoFilters
-            });
+            _groups.Add(new PlanGroupEditRow { GroupId = group.Key });
         }
 
         _groups.RaiseListChangedEvents = true;
@@ -934,7 +771,7 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
         {
             MessageBox.Show(
                 this,
-                "Serve almeno un gruppo nel tab Gruppi: porta il profilo Titano del piano.",
+                "Serve almeno un gruppo nel tab Gruppi.",
                 "Piano",
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Warning);
@@ -1016,7 +853,6 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
             Name = _nameTextBox.Text.Trim() is { Length: > 0 } name ? name : code,
             Groups = validAccounts.Select(row =>
             {
-                var profile = groupProfiles[row.GroupId.Trim()];
                 return new TradingGroupRow
                 {
                     GroupId = row.GroupId.Trim(),
@@ -1027,10 +863,7 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
                     ConcurrencyCountMode = Enum.TryParse<ConcurrencyCountMode>(
                         row.ConcurrencyCountMode, ignoreCase: true, out var countMode)
                         ? countMode
-                        : ConcurrencyCountMode.PositionsAndPendingOrders,
-                    RotationSetupId = NullIfEmpty(profile.RotationSetupId),
-                    TitanoBacktestFolder = NullIfEmpty(profile.TitanoBacktestFolder),
-                    ApplyTitanoFilters = profile.ApplyTitanoFilters
+                        : ConcurrencyCountMode.PositionsAndPendingOrders
                 };
             }).ToList(),
             EnforceConcurrencyLimits = _enforceConcurrencyCombo.SelectedIndex switch
@@ -1073,7 +906,6 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
             _suspendDirtyTracking = true;
             Fill(saved);
             await RefreshGroupChoicesAsync(CancellationToken.None);
-            await RefreshRotationStatusAsync(CancellationToken.None);
             _suspendDirtyTracking = false;
             SetDirty(false);
             _toolbar.Title = $"Piano {saved.Code}";

@@ -44,8 +44,11 @@ namespace cAlgo.Robots
     /// <para><b>Cosa raccogliere lo si dichiara in due modi.</b> O a mano (<c>Simboli</c> +
     /// <c>Timeframe in minuti</c>), o con un <c>Codice piano</c>: in quel caso le coppie (simbolo,
     /// timeframe) arrivano dal masterfilter del workspace del piano, gia' con il nome che ogni
-    /// simbolo ha su questo conto. Il piano vince e i due parametri manuali vengono ignorati —
-    /// tenerli entrambi vivi significherebbe due liste destinate a divergere in silenzio.</para>
+    /// simbolo ha su questo conto. Il piano vince sui timeframe scritti a mano, che vengono ignorati
+    /// — due liste di coppie tenute vive insieme divergerebbero in silenzio. <c>Simboli</c> invece
+    /// cambia mestiere: con il piano non dichiara piu' niente, <b>filtra</b> — si raccolgono solo gli
+    /// strumenti del masterfilter che vi compaiono, con i timeframe del piano. Vuoto = tutto il
+    /// piano, come prima.</para>
     ///
     /// <para><b>Finestra di date.</b> <c>Data inizio</c> e <c>Data fine</c> limitano cosa si
     /// raccoglie in questo run. Sono il modo previsto per spezzare un backfill lungo in piu'
@@ -102,10 +105,11 @@ namespace cAlgo.Robots
 
         /// <summary>
         /// Codice del piano da cui prendere gli strumenti. Valorizzato, <b>vince su
-        /// <see cref="SymbolList"/> e <see cref="TimeframeList"/></b>, che vengono ignorati: le coppie
-        /// (simbolo, timeframe) le dichiara il masterfilter del workspace del piano, e il nome che
-        /// ogni simbolo ha su questo conto arriva dalla tabella di conversione dell'account — cosi'
-        /// non c'e' niente da mappare a mano.
+        /// <see cref="TimeframeList"/></b>, che viene ignorato: le coppie (simbolo, timeframe) le
+        /// dichiara il masterfilter del workspace del piano, e il nome che ogni simbolo ha su questo
+        /// conto arriva dalla tabella di conversione dell'account — cosi' non c'e' niente da mappare
+        /// a mano. <see cref="SymbolList"/> invece resta buono: non dichiara gli strumenti, li
+        /// <b>filtra</b> (vedi la sua documentazione).
         ///
         /// <para>Il codice piano e' globale, quindi basta questo: niente workspace, niente account.
         /// E non apre nessuna sessione — un raccoglitore e' una lettura pura e non deve avere
@@ -119,11 +123,22 @@ namespace cAlgo.Robots
         public string PlanCode { get; set; }
 
         /// <summary>
-        /// Elenco dei simboli da raccogliere, separati da virgola. Ignorato se e' valorizzato
-        /// <see cref="PlanCode"/>. Ogni voce e' il nome del simbolo
+        /// Elenco dei simboli, separati da virgola. Ogni voce e' il nome del simbolo
         /// <b>del broker</b>, opzionalmente seguito dal simbolo Piootoo con cui salvarlo:
         /// <c>NAS100=@NQ, XAUUSD=@GC, US500=@ES</c>. Senza mappatura si usa il nome del broker
-        /// preceduto da <c>@</c>. Vuoto = solo il simbolo del grafico.
+        /// preceduto da <c>@</c>.
+        ///
+        /// <para><b>Ha due mestieri, secondo <see cref="PlanCode"/>.</b> Senza piano <i>dichiara</i>
+        /// gli strumenti (vuoto = solo il simbolo del grafico). Con il piano <i>filtra</i>: gli
+        /// strumenti restano quelli del masterfilter — con i loro timeframe e il loro nome sul conto
+        /// — e si raccolgono solo quelli elencati qui; vuoto = tutti. Serve a rifare la storia di un
+        /// simbolo solo senza toccare il resto del piano, che e' l'uso normale quando ci si accorge
+        /// che a un feed manca un pezzo.</para>
+        ///
+        /// <para>In filtro la voce si confronta sia con il nome del broker sia con il simbolo
+        /// Piootoo, con o senza <c>@</c>: <c>@NQ</c>, <c>NQ</c> e <c>NAS100</c> selezionano lo stesso
+        /// strumento. Una voce che non corrisponde a niente viene segnalata e ignorata — non ferma
+        /// la raccolta degli altri.</para>
         /// </summary>
         [Parameter("Simboli (broker[=@PIOOTOO], separati da virgola)", DefaultValue = "", Group = "Cosa raccogliere")]
         public string SymbolList { get; set; }
@@ -231,6 +246,22 @@ namespace cAlgo.Robots
                     "L'attributo [Robot(TimeZone = TimeZones.UTC)] e' obbligatorio per questo bot: " +
                     "le barre verrebbero salvate con un orario falso.",
                     Server.Time, Server.TimeInUtc));
+                return;
+            }
+
+            // Una virgola nel codice broker e' quasi sempre l'elenco simboli incollato nel campo
+            // sbagliato. La ripulitura la toglierebbe in silenzio ("BP,CL,GC" -> "BPCLGC") e l'intera
+            // raccolta finirebbe in una cartella che non esiste per nessuno: il bot direbbe di aver
+            // spedito migliaia di barre e il backtest continuerebbe a dichiarare il feed mancante.
+            if (!string.IsNullOrWhiteSpace(BrokerCode) &&
+                (BrokerCode.IndexOf(',') >= 0 || BrokerCode.IndexOf(';') >= 0))
+            {
+                StopWithError(string.Format(
+                    "'Codice broker' vale '{0}', ma il codice broker e' UNO: e' il nome della cartella " +
+                    "datafeed-external/ in cui finisce tutto, e le virgole verrebbero tolte in silenzio " +
+                    "('{1}'). Se volevi elencare dei simboli, il parametro e' 'Simboli'; il codice broker " +
+                    "lasciarlo vuoto lo fa dedurre dal conto.",
+                    BrokerCode.Trim(), ResolveBrokerCode()));
                 return;
             }
 
@@ -457,9 +488,9 @@ namespace cAlgo.Robots
         {
             error = null;
 
-            if (!string.IsNullOrWhiteSpace(SymbolList) || !string.IsNullOrWhiteSpace(TimeframeList))
-                Print("Codice piano impostato: 'Simboli' e 'Timeframe in minuti' vengono IGNORATI, " +
-                      "gli strumenti li dichiara il piano '{0}'.", PlanCode);
+            if (!string.IsNullOrWhiteSpace(TimeframeList))
+                Print("Codice piano impostato: 'Timeframe in minuti' viene IGNORATO, " +
+                      "le coppie (simbolo, timeframe) le dichiara il piano '{0}'.", PlanCode);
 
             var uri = string.Format("api/datafeed-external/plan-instruments?planCode={0}&accountNumber={1}",
                 Uri.EscapeDataString(PlanCode.Trim()), Uri.EscapeDataString(Account.Number.ToString()));
@@ -513,11 +544,81 @@ namespace cAlgo.Robots
 
             Print("Piano '{0}' ({1}), workspace '{2}', conto {3}: {4} strumenti dal masterfilter.",
                 plan.PlanCode, plan.PlanName, plan.WorkspaceId, plan.AccountNumber, requests.Count);
+
+            requests = ApplySymbolFilter(requests);
+            if (requests.Count == 0)
+            {
+                error = string.Format(
+                    "L'elenco simboli '{0}' non seleziona alcuno strumento del piano '{1}': " +
+                    "correggerlo, oppure svuotarlo per raccogliere tutto il piano.", SymbolList, PlanCode);
+                return null;
+            }
+
             foreach (var request in requests)
                 Print("   {0} -> {1} [{2}]", request.BrokerSymbol, request.PiootooSymbol,
                     string.Join(", ", request.TimeframesMinutes));
 
             return requests;
+        }
+
+        /// <summary>
+        /// Restringe gli strumenti del piano a quelli elencati in <see cref="SymbolList"/>. Vuoto =
+        /// nessun filtro: il comportamento storico, tutto il masterfilter.
+        ///
+        /// <para>Il filtro tocca <b>solo quali</b> strumenti si raccolgono, mai <i>come</i>: timeframe
+        /// e nome sul conto restano quelli che ha dichiarato il piano. Una voce dell'elenco puo'
+        /// quindi portare una mappatura (<c>NAS100=@NQ</c>) senza che venga usata — dei due nomi si
+        /// prendono entrambi come chiavi di confronto, perche' chi filtra scrive indifferentemente il
+        /// nome del broker o quello Piootoo.</para>
+        ///
+        /// <para>Una voce che non corrisponde a nessuno strumento del piano si segnala e si ignora:
+        /// in un elenco di cinque simboli un refuso non deve costare la raccolta degli altri quattro.
+        /// Se pero' non ne corrisponde <i>nessuna</i>, il chiamante ferma il run con un errore: un
+        /// raccoglitore che parte e non raccoglie niente e' peggio di uno che non parte.</para>
+        /// </summary>
+        private List<StreamRequest> ApplySymbolFilter(List<StreamRequest> requests)
+        {
+            var wanted = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var piece in (SymbolList ?? string.Empty).Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                foreach (var side in piece.Split('='))
+                {
+                    var key = side.Trim().TrimStart('@');
+                    if (key.Length > 0)
+                        wanted.Add(key);
+                }
+            }
+
+            if (wanted.Count == 0)
+                return requests;
+
+            var kept = new List<StreamRequest>();
+            var matched = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var request in requests)
+            {
+                var brokerKey = (request.BrokerSymbol ?? string.Empty).Trim().TrimStart('@');
+                var piootooKey = (request.PiootooSymbol ?? string.Empty).Trim().TrimStart('@');
+
+                if (!wanted.Contains(brokerKey) && !wanted.Contains(piootooKey))
+                    continue;
+
+                kept.Add(request);
+                matched.Add(brokerKey);
+                matched.Add(piootooKey);
+            }
+
+            foreach (var key in wanted)
+            {
+                if (!matched.Contains(key))
+                    Print("Elenco simboli: '{0}' non corrisponde a nessuno strumento del piano '{1}'. Ignorato.",
+                        key, PlanCode);
+            }
+
+            Print("Elenco simboli attivo come FILTRO: {0} strumenti su {1} del piano ({2}).",
+                kept.Count, requests.Count,
+                string.Join(", ", kept.Select(request => request.PiootooSymbol)));
+
+            return kept;
         }
 
         /// <summary>Gli strumenti li dichiarano i parametri: elenco simboli x elenco timeframe.</summary>

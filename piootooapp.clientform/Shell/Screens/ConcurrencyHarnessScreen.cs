@@ -16,10 +16,6 @@ public sealed class HarnessGroupRow
 
     /// <summary>Zero = illimitato, come nel contratto del server.</summary>
     public int MaxConcurrentTrades { get; set; }
-
-    public bool ApplyTitanoFilters { get; set; }
-
-    public string TitanoBacktestFolder { get; set; } = string.Empty;
 }
 
 /// <summary>Un poll: chi ha chiesto, cosa ha ottenuto e con quali numeri il server ha deciso.</summary>
@@ -252,9 +248,7 @@ public partial class ConcurrencyHarnessScreen : UserControl, IShellScreen
             {
                 GroupId = row.GroupId,
                 AccountNumber = row.AccountNumber,
-                MaxConcurrentTrades = row.MaxConcurrentTrades,
-                ApplyTitanoFilters = row.ApplyTitanoFilters,
-                TitanoBacktestFolder = row.TitanoBacktestFolder ?? string.Empty
+                MaxConcurrentTrades = row.MaxConcurrentTrades
             });
         }
 
@@ -266,9 +260,9 @@ public partial class ConcurrencyHarnessScreen : UserControl, IShellScreen
 
     /// <summary>
     /// Il limite è attivo o no <b>prima</b> di premere qualsiasi cosa, e dipende da piano e modalità:
-    /// un backtest senza filtro Titano lo disattiva per default, perché quel run deve produrre il
-    /// campione sorgente completo. Senza questo avviso si passerebbe un'ora a chiedersi perché il
-    /// limite «non funziona». Vedi <c>docs/domini/distribuzione-multi-account.md</c> §4.
+    /// un backtest lo disattiva per default, perché quel run deve produrre il campione sorgente
+    /// completo. Senza questo avviso si passerebbe un'ora a chiedersi perché il limite «non
+    /// funziona». Vedi <c>docs/domini/distribuzione-multi-account.md</c> §4.
     /// </summary>
     private void UpdateLimitsLabel()
     {
@@ -278,9 +272,7 @@ public partial class ConcurrencyHarnessScreen : UserControl, IShellScreen
             return;
         }
 
-        var runMode = SelectedRunMode;
-        var titanoDisabled = string.IsNullOrWhiteSpace(plan.TitanoBacktestFolder) || !plan.ApplyTitanoFilters;
-        var byDefault = !(runMode == ClientRunMode.Backtest && titanoDisabled);
+        var byDefault = SelectedRunMode != ClientRunMode.Backtest;
         var effective = plan.EnforceConcurrencyLimits ?? byDefault;
 
         _limitsLabel.Text = effective
@@ -289,7 +281,7 @@ public partial class ConcurrencyHarnessScreen : UserControl, IShellScreen
             : "Limiti di concorrenza: DISATTIVI" +
               (plan.EnforceConcurrencyLimits.HasValue
                   ? " (forzati dal piano) — MaxConcurrentTrades non verrà mai applicato"
-                  : " (default del backtest senza Titano) — MaxConcurrentTrades non verrà mai applicato");
+                  : " (default del backtest) — MaxConcurrentTrades non verrà mai applicato");
         _limitsLabel.ForeColor = effective ? SystemColors.ControlText : Color.Firebrick;
     }
 
@@ -473,11 +465,7 @@ public partial class ConcurrencyHarnessScreen : UserControl, IShellScreen
             {
                 GroupId = row.GroupId.Trim(),
                 AccountNumber = row.AccountNumber.Trim(),
-                MaxConcurrentTrades = row.MaxConcurrentTrades,
-                ApplyTitanoFilters = row.ApplyTitanoFilters,
-                TitanoBacktestFolder = string.IsNullOrWhiteSpace(row.TitanoBacktestFolder)
-                    ? null
-                    : row.TitanoBacktestFolder.Trim()
+                MaxConcurrentTrades = row.MaxConcurrentTrades
             })
             .ToList();
 
@@ -496,9 +484,7 @@ public partial class ConcurrencyHarnessScreen : UserControl, IShellScreen
         {
             GroupId = last?.GroupId ?? "g1",
             AccountNumber = string.Empty,
-            MaxConcurrentTrades = last?.MaxConcurrentTrades ?? 1,
-            ApplyTitanoFilters = last?.ApplyTitanoFilters ?? false,
-            TitanoBacktestFolder = last?.TitanoBacktestFolder ?? string.Empty
+            MaxConcurrentTrades = last?.MaxConcurrentTrades ?? 1
         });
     }
 

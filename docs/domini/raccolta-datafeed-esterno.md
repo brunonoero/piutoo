@@ -74,6 +74,16 @@ non a mezzanotte, e assumere l'allineamento all'epoch farebbe comparire un buco
 per ogni giornata. Ogni buco porta `spansWeekend`: il mercato chiuso non è storia
 mancante, e il bot non deve richiederlo al broker all'infinito.
 
+`spansWeekend` è vero solo se fra le due barre c'è un sabato o una domenica **e
+nessun giorno feriale intero**. La seconda metà della regola non è un dettaglio:
+il bot *salta* i blocchi che cadono dentro un buco marcato weekend, e un buco di
+tre anni di sabati ne contiene centocinquanta. Finché bastava contenerne uno, un
+feed fatto di tre barre vecchie più due mesi recenti veniva dichiarato coperto
+per tutto quello che c'era in mezzo e non si riempiva mai, per quanti run gli si
+dessero — il bot concludeva "finestra coperta" in pochi secondi con ottanta
+blocchi saltati, e il backtest continuava a trovare zero candele. Vedi
+`docs/decisioni.md` 2026-09-03.
+
 ## Una cartella per broker
 
 ```
@@ -166,13 +176,22 @@ grafico a cui è agganciato sono irrilevanti.
 
 Parametri che contano:
 
-- **Codice piano** — se valorizzato, gli strumenti li dichiara il piano e i due
-  parametri qui sotto vengono **ignorati**. Il codice piano è globale, quindi
-  basta quello: niente workspace, niente account. Su un piano reale la risposta è
-  `@NQ → USTEC, [15, 60]` — il bot chiede `USTEC` al broker e il server salva
-  `@NQ_15.json`, senza che nessuno mappi niente a mano.
+- **Codice piano** — se valorizzato, le coppie (simbolo, timeframe) le dichiara
+  il piano e **Timeframe in minuti** viene **ignorato**. Il codice piano è
+  globale, quindi basta quello: niente workspace, niente account. Su un piano
+  reale la risposta è `@NQ → USTEC, [15, 60]` — il bot chiede `USTEC` al broker e
+  il server salva `@NQ_15.json`, senza che nessuno mappi niente a mano.
 - **Simboli** — `NAS100=@NQ, XAUUSD=@GC`: nome del broker a sinistra, simbolo
   Piootoo a destra. Senza mappatura si usa il nome del broker con `@` davanti.
+  **Con il codice piano cambia mestiere: non dichiara, filtra.** Gli strumenti
+  restano quelli del masterfilter, con i loro timeframe e il loro nome sul conto,
+  e si raccolgono solo quelli elencati; vuoto = tutto il piano. La voce si
+  confronta sia con il nome del broker sia con il simbolo Piootoo, con o senza
+  `@` — `@NQ`, `NQ` e `USTEC` selezionano lo stesso strumento — così rifare la
+  storia di un simbolo solo non richiede di riscrivere a mano la sua mappatura e
+  i suoi timeframe (che è il modo in cui le due liste divergevano). Una voce che
+  non corrisponde a niente viene segnalata e ignorata; se non ne corrisponde
+  nessuna il bot non parte, invece di raccogliere il nulla.
 - **Timeframe in minuti** — `15,60,240`. Si espande per prodotto cartesiano con
   i simboli.
 - **Codice broker** — vuoto = dedotto da `Account.BrokerName` ("IC Markets" →

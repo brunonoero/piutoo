@@ -23,15 +23,6 @@ public sealed class TradingPlanApiClient : ApiClientBase
             null,
             cancellationToken);
 
-    /// <summary>Freschezza dell'ultimo run Titano della riga primaria del piano. Vedi <c>TitanoRotationStatus</c>.</summary>
-    public Task<TitanoRotationStatus> GetRotationStatusAsync(
-        string workspaceId, string code, CancellationToken cancellationToken = default)
-        => SendForAsync<TitanoRotationStatus>(
-            HttpMethod.Get,
-            $"api/v1/workspaces/{Escape(workspaceId)}/trading-plans/{Escape(code)}/rotation-status",
-            null,
-            cancellationToken);
-
     public Task<TradingPlan> SaveAsync(
         string workspaceId,
         SaveTradingPlanRequest request,

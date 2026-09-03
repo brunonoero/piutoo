@@ -215,15 +215,13 @@ public sealed class PriceScaleAndMoneyRiskTests : IDisposable
         });
 
         var sessions = new TradingSessionService(
-            workspaces, new MoneyRiskEvaluationService(),
-            new TitanoRotationService(workspaces), new PositionSizingService());
+            workspaces, new MoneyRiskEvaluationService(), new PositionSizingService());
 
         var descriptor = sessions.Create(new CreateTradingSessionRequest
         {
             WorkspaceId = workspace.Id,
             ExecutionMode = ExecutionMode.ExternalBroker,
             ClientRunMode = ClientRunMode.Realtime,
-            TitanoMode = TitanoFilterMode.Disabled,
             EnforceConcurrencyLimits = false
         });
 
@@ -234,7 +232,6 @@ public sealed class PriceScaleAndMoneyRiskTests : IDisposable
                 GroupId = "g1", AccountNumber = "1001",
                 MaxConcurrentTrades = 5,
                 ConcurrencyCountMode = ConcurrencyCountMode.PositionsAndPendingOrders,
-                ApplyTitanoFilters = false
             }
         };
         sessions.SetTradingGroups(descriptor.SessionId, descriptor.SessionToken, groups);

@@ -9,12 +9,12 @@ using Piootoo.Shared.Models.Workspaces;
 namespace Piootoo.Strategies.Tests;
 
 /// <summary>
-/// Secondo layer di filtro, quello che agisce dopo Titano: chi esegue quale segnale.
+/// Il layer che decide chi esegue quale segnale.
 ///
 /// <para>Copre i comportamenti che la matrice di
 /// <c>docs/domini/distribuzione-multi-account.md</c> descrive: il fan-out fra gruppi diversi sullo
 /// stesso template, il template perso dopo un rifiuto del broker, e il disaccoppiamento fra il
-/// limite di trade concorrenti e la modalità Titano.</para>
+/// limite di trade concorrenti.</para>
 ///
 /// <para>Dall'11/08/2026 copre anche il budget di concorrenza riscritto: <b>per account e
 /// trasversale ai simboli</b>, deduplicato per IntentId, con le due modalità di conteggio
@@ -298,24 +298,19 @@ public sealed class MultiAccountDistributionTests : IDisposable
         Assert.Equal("NoSignal", claimed.Reason);
     }
 
-    // ------------------------------------------------- disaccoppiamento dal filtro Titano
+    // ------------------------------------------------- il flag esplicito di concorrenza
 
     [Fact]
     public void ConcurrencyLimitDefault_IsOffOnlyForTheSourceBacktest()
     {
-        Assert.False(TradingSessionService.DefaultEnforceConcurrencyLimits(
-            ClientRunMode.Backtest, TitanoFilterMode.Disabled));
-        Assert.True(TradingSessionService.DefaultEnforceConcurrencyLimits(
-            ClientRunMode.Backtest, TitanoFilterMode.BacktestRotationFile));
-        Assert.True(TradingSessionService.DefaultEnforceConcurrencyLimits(
-            ClientRunMode.Realtime, TitanoFilterMode.Disabled));
+        Assert.False(TradingSessionService.DefaultEnforceConcurrencyLimits(ClientRunMode.Backtest));
+        Assert.True(TradingSessionService.DefaultEnforceConcurrencyLimits(ClientRunMode.Realtime));
     }
 
     [Fact]
-    public void ConcurrencyLimitCanBeForcedOn_InABacktestWithoutTitano()
+    public void ConcurrencyLimitCanBeForcedOn_InABacktest()
     {
-        // Il punto del disaccoppiamento: prima il limite era cablato su TitanoMode, quindi non era
-        // possibile misurare il costo del limite in isolamento dalla rotazione.
+        // Il flag e' esplicito proprio per poter misurare il costo del limite in isolamento.
         var (sessions, descriptor) = Session(
             signalsPerBar: 1,
             [Row("g1", "1001", maxConcurrent: 1)],
@@ -366,7 +361,6 @@ public sealed class MultiAccountDistributionTests : IDisposable
     {
         GroupId = groupId, AccountNumber = account,
         MaxConcurrentTrades = maxConcurrent, ConcurrencyCountMode = countMode,
-        ApplyTitanoFilters = false
     };
 
     private (TradingSessionService Sessions, TradingSessionDescriptor Descriptor) Session(
@@ -386,15 +380,13 @@ public sealed class MultiAccountDistributionTests : IDisposable
         TestAccountRegistry.Register(workspaces, groups);
 
         var sessions = new TradingSessionService(
-            workspaces, new MultiSignalEvaluationService(signalsPerBar, expiresAtUtc),
-            new TitanoRotationService(workspaces), new PositionSizingService());
+            workspaces, new MultiSignalEvaluationService(signalsPerBar, expiresAtUtc), new PositionSizingService());
 
         var descriptor = sessions.Create(new CreateTradingSessionRequest
         {
             WorkspaceId = workspace.Id,
             ExecutionMode = ExecutionMode.ExternalBroker,
             ClientRunMode = runMode,
-            TitanoMode = TitanoFilterMode.Disabled,
             EnforceConcurrencyLimits = enforceConcurrencyLimits
         });
         sessions.SetTradingGroups(descriptor.SessionId, descriptor.SessionToken, groups);

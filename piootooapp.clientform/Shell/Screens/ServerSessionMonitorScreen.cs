@@ -210,8 +210,7 @@ public partial class ServerSessionMonitorScreen : UserControl, IShellScreen
                 catch (Exception ex)
                 {
                     // Una risorsa che non risponde non deve far saltare il resto del dump: spesso è
-                    // proprio il buco che si sta cercando (per esempio rotation-log su una sessione
-                    // senza Titano), e va letto insieme a ciò che invece ha risposto.
+                    // proprio il buco che si sta cercando, e va letto insieme a ciò che invece ha risposto.
                     report.AppendLine($"!! errore: {ex.Message}");
                 }
 
@@ -270,7 +269,6 @@ public partial class ServerSessionMonitorScreen : UserControl, IShellScreen
         report.AppendLine($"chiave exec     : {s.ExecutionKey ?? "(nessuna)"}");
         report.AppendLine($"esecuzione      : {s.ExecutionMode}");
         report.AppendLine($"contesto client : {s.ClientRunMode}");
-        report.AppendLine($"Titano          : {s.TitanoMode}");
         report.AppendLine($"stato           : {s.Status}");
         report.AppendLine($"aperta il       : {s.CreatedAtUtc:yyyy-MM-dd HH:mm:ss} UTC");
 

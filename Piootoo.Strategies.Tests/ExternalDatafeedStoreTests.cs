@@ -112,6 +112,31 @@ public sealed class ExternalDatafeedStoreTests : IDisposable
     }
 
     /// <summary>
+    /// Un buco lungo contiene per forza dei fine settimana, ma non e' un fine settimana: e' storia
+    /// mancante. La distinzione non e' estetica — il bot raccoglitore <b>salta</b> i blocchi che
+    /// cadono dentro un buco marcato weekend, quindi un feed fatto di tre barre vecchie piu' due
+    /// mesi recenti veniva dichiarato coperto per gli anni in mezzo e non si riempiva mai, per
+    /// quanti run gli si dessero. Caso reale: <c>@FDAX/240</c> su FTMO, 282 barre in tutto, buco di
+    /// 1276 giorni fra il 2023-01-01 e il 2026-07-01, e ogni backtest su quel periodo trovava zero
+    /// candele.
+    /// </summary>
+    [Fact]
+    public async Task ALongGapIsMissingHistoryNotAWeekend()
+    {
+        var store = CreateStore();
+        var old = new DateTime(2022, 12, 28, 8, 0, 0, DateTimeKind.Utc);
+
+        await store.IngestBarsAsync(Request(Chunk("@FDAX", 240, old, 3)));
+        await store.IngestBarsAsync(Request(Chunk("@FDAX", 240, new DateTime(2026, 7, 1, 8, 0, 0, DateTimeKind.Utc), 3),
+            compact: true));
+
+        var status = await store.GetStatusAsync(Broker, "@FDAX", 240);
+
+        var gap = Assert.Single(status.Gaps);
+        Assert.False(gap.SpansWeekend);
+    }
+
+    /// <summary>
     /// L'artefatto finale deve essere leggibile da <see cref="DataSourceRepository"/> senza
     /// conversioni: se il feed raccolto non fosse un feed come gli altri, non servirebbe a niente.
     /// Compreso il manifest degli orologi, senza il quale la lettura si rifiuta di partire.

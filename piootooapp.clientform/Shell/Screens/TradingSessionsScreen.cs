@@ -28,7 +28,7 @@ namespace piootooapp.clientform.Shell.Screens;
 
 /// valutate arrivano sempre dal masterfilter del workspace, il piano non limita l'universo ma
 
-/// decide Titano, gruppi e concorrenza per account.
+/// decide gruppi e concorrenza per account.
 
 /// </summary>
 
@@ -52,7 +52,6 @@ public partial class TradingSessionsScreen : UserControl, IShellScreen
 
     private IReadOnlyList<string> _accountGroups = [];
 
-    private List<TitanoSetupInfo> _titanoSetups = [];
 
     private List<TradingPlan> _plans = [];
 
@@ -66,11 +65,9 @@ public partial class TradingSessionsScreen : UserControl, IShellScreen
 
     /// </summary>
 
-    private readonly List<WorkspaceBacktestInfo> _backtests = [];
 
 
 
-    private WorkspaceBacktestInfo? _selectedBacktest;
 
     private bool _suspendReload;
 
@@ -103,12 +100,6 @@ public partial class TradingSessionsScreen : UserControl, IShellScreen
         _modeCombo.Items.AddRange(Enum.GetNames<ExecutionMode>());
 
         _modeCombo.SelectedItem = nameof(ExecutionMode.ServerSimulated);
-
-        _titanoModeCombo.Items.AddRange(Enum.GetNames<TitanoFilterMode>());
-
-        _titanoModeCombo.SelectedItem = nameof(TitanoFilterMode.Disabled);
-
-        _titanoRunCombo.DropDownStyle = ComboBoxStyle.DropDown;
 
         ConfigureGroupsGrid();
 
@@ -178,8 +169,6 @@ public partial class TradingSessionsScreen : UserControl, IShellScreen
 
             Status = summary.Status,
 
-            TitanoMode = summary.TitanoMode,
-
             ClientRunMode = summary.ClientRunMode
 
         };
@@ -218,8 +207,6 @@ public partial class TradingSessionsScreen : UserControl, IShellScreen
 
             _accountGroups = await _context.Services.Api.ListAccountGroupsAsync(cancellationToken);
 
-            _titanoSetups = await _context.Services.Titano.ListSetupsAsync(cancellationToken);
-
             RefreshGroupColumnSources();
 
 
@@ -242,15 +229,9 @@ public partial class TradingSessionsScreen : UserControl, IShellScreen
 
                         mapping.GroupId,
 
-                        mapping.RotationSetupId,
-
                         mapping.AccountNumber,
 
-                        mapping.MaxConcurrentTrades,
-
-                        mapping.ApplyTitanoFilters,
-
-                        mapping.TitanoBacktestFolder);
+                        mapping.MaxConcurrentTrades);
 
                 }
 
@@ -283,7 +264,6 @@ public partial class TradingSessionsScreen : UserControl, IShellScreen
 
             await ReloadPlansAsync(cancellationToken);
 
-            await ReloadBacktestsAsync(cancellationToken);
 
             await RefreshMasterfilterInfoAsync(cancellationToken);
 
@@ -395,7 +375,6 @@ public partial class TradingSessionsScreen : UserControl, IShellScreen
 
 
 
-    private string? SelectedBacktestFolder => _selectedBacktest?.FolderName;
 
 
 
@@ -409,16 +388,6 @@ public partial class TradingSessionsScreen : UserControl, IShellScreen
 
 
 
-    private TitanoFilterMode SelectedTitanoMode =>
-
-        Enum.TryParse<TitanoFilterMode>(_titanoModeCombo.SelectedItem?.ToString(), out var mode)
-
-            ? mode
-
-            : TitanoFilterMode.Disabled;
-
-
-
 
 
 
@@ -429,21 +398,15 @@ public partial class TradingSessionsScreen : UserControl, IShellScreen
 
         _screenToolTip.SetToolTip(_creationSourceCombo,
 
-            "Manuale: configura workspace, Titano e gruppi come la console legacy. " +
+            "Manuale: configura workspace e gruppi come la console legacy. " +
 
             "Da piano: il server estrae workspace e snapshot dal piano (come il cBot).");
 
         _screenToolTip.SetToolTip(_clientRunModeCombo,
 
-            "Contesto dichiarato dal client. Backtest/Realtime abilitano la validazione incrociata " +
+            "Contesto dichiarato dal client: Backtest, Realtime, oppure Unknown per lasciare la " +
 
-            "con il filtro Titano; Unknown lascia la responsabilità a chi configura.");
-
-        _screenToolTip.SetToolTip(_titanoModeCombo,
-
-            "Disabled: tutte le strategie del masterfilter. BacktestRotationFile: rotazione offline " +
-
-            "per barra. Realtime: periodo corrente dell'ultima analisi.");
+            "responsabilità a chi configura.");
 
         _screenToolTip.SetToolTip(_distributeCheckBox,
 
@@ -453,9 +416,7 @@ public partial class TradingSessionsScreen : UserControl, IShellScreen
 
         _screenToolTip.SetToolTip(_groupsGrid,
 
-            "Solo ExternalBroker: MaxConcurrentTrades e profilo Titano per gruppo/account " +
-
-            "(claim multi-account).");
+            "Solo ExternalBroker: MaxConcurrentTrades per gruppo/account (claim multi-account).");
 
     }
 
@@ -491,24 +452,6 @@ public partial class TradingSessionsScreen : UserControl, IShellScreen
 
         {
 
-            Name = "RotationSetupId",
-
-            HeaderText = "Setup Titano",
-
-            FillWeight = 18,
-
-            DisplayMember = nameof(TitanoSetupInfo.Name),
-
-            ValueMember = nameof(TitanoSetupInfo.Id),
-
-            DisplayStyle = DataGridViewComboBoxDisplayStyle.DropDownButton
-
-        });
-
-        _groupsGrid.Columns.Add(new DataGridViewComboBoxColumn
-
-        {
-
             Name = "AccountNumber",
 
             HeaderText = "Codice account",
@@ -532,34 +475,6 @@ public partial class TradingSessionsScreen : UserControl, IShellScreen
             HeaderText = "Max trade contemporanei",
 
             FillWeight = 12
-
-        });
-
-        _groupsGrid.Columns.Add(new DataGridViewCheckBoxColumn
-
-        {
-
-            Name = "ApplyTitanoFilters",
-
-            HeaderText = "Applica Titano",
-
-            FillWeight = 10,
-
-            TrueValue = true,
-
-            FalseValue = false
-
-        });
-
-        _groupsGrid.Columns.Add(new DataGridViewTextBoxColumn
-
-        {
-
-            Name = "TitanoBacktestFolder",
-
-            HeaderText = "Cartella backtest",
-
-            FillWeight = 16
 
         });
 
@@ -594,16 +509,6 @@ public partial class TradingSessionsScreen : UserControl, IShellScreen
         {
 
             groupColumn.DataSource = _accountGroups.ToList();
-
-        }
-
-
-
-        if (_groupsGrid.Columns["RotationSetupId"] is DataGridViewComboBoxColumn setupColumn)
-
-        {
-
-            setupColumn.DataSource = _titanoSetups.ToList();
 
         }
 
@@ -655,13 +560,7 @@ public partial class TradingSessionsScreen : UserControl, IShellScreen
 
                         AccountNumber = plan.AccountNumber,
 
-                        MaxConcurrentTrades = plan.MaxConcurrentTrades,
-
-                        RotationSetupId = plan.RotationSetupId,
-
-                        TitanoBacktestFolder = plan.TitanoBacktestFolder,
-
-                        ApplyTitanoFilters = plan.ApplyTitanoFilters
+                        MaxConcurrentTrades = plan.MaxConcurrentTrades
 
                     }
 
@@ -783,10 +682,6 @@ public partial class TradingSessionsScreen : UserControl, IShellScreen
 
         _snapshotButton.Enabled = !busy && _activeSession != null;
 
-        _loadRunsButton.Enabled = !busy;
-
-        _titanoBacktestPickButton.Enabled = !busy;
-
         _saveGroupsButton.Enabled = !busy && _activeSession != null;
 
         _reloadGroupsButton.Enabled = !busy && _activeSession != null;
@@ -861,7 +756,7 @@ public partial class TradingSessionsScreen : UserControl, IShellScreen
         _derivedWorkspaceLabel.Visible = fromPlan;
 
         // Da piano questi campi non servono a nulla: OpenFromPlan non li legge mai, li ricava dal
-        // piano (ExecutionMode è sempre ExternalBroker, Titano e sizing vengono dalla riga gruppo
+        // piano (ExecutionMode è sempre ExternalBroker, il sizing viene dalla riga gruppo
         // primaria). Tenerli visibili-ma-disabilitati farebbe pensare che descrivano la sessione in
         // apertura, mentre non vengono nemmeno inviati: si nascondono, non solo si disabilitano.
         _modeLabel.Visible = !fromPlan;
@@ -869,22 +764,6 @@ public partial class TradingSessionsScreen : UserControl, IShellScreen
         _modeCombo.Visible = !fromPlan;
 
         _modeCombo.SelectedItem ??= nameof(ExecutionMode.ServerSimulated);
-
-        _titanoModeLabel.Visible = !fromPlan;
-
-        _titanoModeCombo.Visible = !fromPlan;
-
-        _titanoBacktestLabel.Visible = !fromPlan;
-
-        _titanoBacktestPanel.Visible = !fromPlan;
-
-        _titanoRunLabel.Visible = !fromPlan;
-
-        _titanoRunCombo.Visible = !fromPlan;
-
-        _loadRunsButton.Visible = !fromPlan;
-
-        _loadRunsButton.Enabled = !fromPlan && !_isBusy;
 
         _portfolioRiskEnabledCheckBox.Visible = !fromPlan;
 
@@ -968,23 +847,11 @@ public partial class TradingSessionsScreen : UserControl, IShellScreen
 
             var plan = SelectedPlan;
 
-            var runMode = SelectedClientRunMode;
-
-            var titanoMode = plan is null || !PrimaryPlanRow(plan).ApplyTitanoFilters
-
-                ? TitanoFilterMode.Disabled
-
-                : runMode == ClientRunMode.Backtest
-
-                    ? TitanoFilterMode.BacktestRotationFile
-
-                    : TitanoFilterMode.Realtime;
-
             _scenarioHintLabel.Text = plan is null
 
                 ? "Seleziona un piano: il workspace e i gruppi verranno estratti dal piano."
 
-                : DescribeScenario(runMode, titanoMode, fromPlan: true);
+                : DescribeScenario(fromPlan: true);
 
             return;
 
@@ -992,27 +859,15 @@ public partial class TradingSessionsScreen : UserControl, IShellScreen
 
 
 
-        _scenarioHintLabel.Text = DescribeScenario(SelectedClientRunMode, SelectedTitanoMode, fromPlan: false);
+        _scenarioHintLabel.Text = DescribeScenario(fromPlan: false);
 
-        _scenarioHintLabel.ForeColor = ValidateRunModeCoherence(out var message)
-
-            ? SystemColors.GrayText
-
-            : Color.DarkRed;
-
-        if (!ValidateRunModeCoherence(out message) && SelectedClientRunMode != ClientRunMode.Unknown)
-
-        {
-
-            _scenarioHintLabel.Text = message;
-
-        }
+        _scenarioHintLabel.ForeColor = SystemColors.GrayText;
 
     }
 
 
 
-    private static string DescribeScenario(ClientRunMode runMode, TitanoFilterMode titanoMode, bool fromPlan)
+    private static string DescribeScenario(bool fromPlan)
 
     {
 
@@ -1022,121 +877,13 @@ public partial class TradingSessionsScreen : UserControl, IShellScreen
 
             : "Creazione manuale: strategie dal masterfilter del workspace selezionato. ";
 
-
-
-        if (titanoMode == TitanoFilterMode.Disabled)
-
-        {
-
-            return prefix +
-
-                   "Titano disattivato — vengono valutate tutte le strategie del masterfilter " +
-
-                   "(run campione sorgente). MaxConcurrentTrades disattivato di default in backtest.";
-
-        }
-
-
-
-        if (titanoMode == TitanoFilterMode.BacktestRotationFile)
-
-        {
-
-            return prefix +
-
-                   "Backtest filtrato — per ogni barra vale la rotazione del manifest offline. " +
-
-                   "In ExternalBroker si applicano MaxConcurrentTrades e ordine di claim per account/gruppo.";
-
-        }
-
-
-
         return prefix +
 
-               "Realtime — vale il periodo corrente dell'ultima analisi Titano. " +
+               "Vengono valutate tutte le strategie del masterfilter. " +
 
-               "In ExternalBroker si applicano MaxConcurrentTrades e ordine di claim per account/gruppo.";
+               "In ExternalBroker si applicano MaxConcurrentTrades e ordine di claim per account/gruppo; " +
 
-    }
-
-
-
-    private static TradingGroupRow PrimaryPlanRow(TradingPlan plan)
-
-        => plan.Groups.FirstOrDefault(row => !string.IsNullOrWhiteSpace(row.TitanoBacktestFolder))
-
-           ?? plan.Groups.FirstOrDefault()
-
-           ?? new TradingGroupRow
-
-           {
-
-               GroupId = plan.GroupId,
-
-               AccountNumber = plan.AccountNumber,
-
-               MaxConcurrentTrades = plan.MaxConcurrentTrades,
-
-               RotationSetupId = plan.RotationSetupId,
-
-               TitanoBacktestFolder = plan.TitanoBacktestFolder,
-
-               ApplyTitanoFilters = plan.ApplyTitanoFilters
-
-           };
-
-
-
-    private bool ValidateRunModeCoherence(out string message)
-
-    {
-
-        message = string.Empty;
-
-        var runMode = SelectedClientRunMode;
-
-        var titanoMode = SelectedTitanoMode;
-
-        if (runMode == ClientRunMode.Unknown)
-
-        {
-
-            return true;
-
-        }
-
-
-
-        if (titanoMode == TitanoFilterMode.Realtime && runMode == ClientRunMode.Backtest)
-
-        {
-
-            message = "Combinazione non valida: Realtime con Backtest (look-ahead). " +
-
-                      "Usa BacktestRotationFile oppure Disabled.";
-
-            return false;
-
-        }
-
-
-
-        if (titanoMode == TitanoFilterMode.BacktestRotationFile && runMode == ClientRunMode.Realtime)
-
-        {
-
-            message = "Combinazione non valida: BacktestRotationFile con Realtime. " +
-
-                      "Usa Realtime oppure Disabled.";
-
-            return false;
-
-        }
-
-
-
-        return true;
+               "in backtest il limite è disattivato di default.";
 
     }
 
@@ -1262,13 +1009,7 @@ public partial class TradingSessionsScreen : UserControl, IShellScreen
 
                     AccountNumber = plan.AccountNumber,
 
-                    MaxConcurrentTrades = plan.MaxConcurrentTrades,
-
-                    RotationSetupId = plan.RotationSetupId,
-
-                    TitanoBacktestFolder = plan.TitanoBacktestFolder,
-
-                    ApplyTitanoFilters = plan.ApplyTitanoFilters
+                    MaxConcurrentTrades = plan.MaxConcurrentTrades
 
                 }
 
@@ -1284,327 +1025,13 @@ public partial class TradingSessionsScreen : UserControl, IShellScreen
 
                 row.GroupId,
 
-                row.RotationSetupId,
-
                 row.AccountNumber,
 
-                row.MaxConcurrentTrades,
-
-                row.ApplyTitanoFilters,
-
-                row.TitanoBacktestFolder ?? string.Empty);
+                row.MaxConcurrentTrades);
 
         }
 
     }
-
-
-
-    private async Task ReloadBacktestsAsync(CancellationToken cancellationToken)
-
-    {
-
-        if (_context == null || SelectedWorkspaceId is not { } workspaceId)
-
-        {
-
-            _backtests.Clear();
-
-            SelectBacktest(null);
-
-            return;
-
-        }
-
-
-
-        var selectedFolder = SelectedBacktestFolder;
-
-        var backtests = await _context.Services.Api.ListBacktestsAsync(workspaceId, cancellationToken);
-
-
-
-        _backtests.Clear();
-
-        _backtests.AddRange(backtests
-
-            .Where(backtest => backtest.HasResults)
-
-            .OrderByDescending(backtest => backtest.LastModifiedUtc));
-
-
-
-        // La scelta precedente sopravvive al ricarico se la cartella c'è ancora; altrimenti vale la
-
-        // più recente, che è il caso normale (sessione sul backtest appena prodotto).
-
-        var restored = selectedFolder == null
-
-            ? null
-
-            : _backtests.FirstOrDefault(backtest =>
-
-                string.Equals(backtest.FolderName, selectedFolder, StringComparison.OrdinalIgnoreCase));
-
-
-
-        SelectBacktest(restored ?? _backtests.FirstOrDefault());
-
-
-
-        if (_selectedBacktest != null && !IsFromPlan)
-
-        {
-
-            await LoadTitanoRunsAsync(showValidationError: false, cancellationToken);
-
-        }
-
-        else if (!IsFromPlan)
-
-        {
-
-            _titanoRunCombo.Items.Clear();
-
-            _titanoRunCombo.Text = string.Empty;
-
-        }
-
-    }
-
-
-
-    /// <summary>
-
-    /// Mostra nel form il backtest scelto. L'etichetta ripete cartella, origine e data perché
-
-    /// prendere un run dell'engine esterno al posto di quello interno non dà errore: dà altri numeri.
-
-    /// </summary>
-
-    private void SelectBacktest(WorkspaceBacktestInfo? backtest)
-
-    {
-
-        _selectedBacktest = backtest;
-
-        _titanoBacktestTextBox.Text = backtest == null
-
-            ? string.Empty
-
-            : $"{backtest.FolderName}  ·  {BacktestComboItem.DescribeOrigin(backtest)}  ·  " +
-
-              $"{backtest.LastModifiedUtc:yyyy-MM-dd HH:mm} UTC";
-
-    }
-
-
-
-    private async void OnPickBacktestClick(object? sender, EventArgs e)
-
-    {
-
-        if (_context == null || IsFromPlan)
-
-        {
-
-            return;
-
-        }
-
-
-
-        if (SelectedWorkspaceId is null)
-
-        {
-
-            MessageBox.Show(this, "Seleziona prima un workspace.", "Sessioni di trading",
-
-                MessageBoxButtons.OK, MessageBoxIcon.Warning);
-
-            return;
-
-        }
-
-
-
-        if (_backtests.Count == 0)
-
-        {
-
-            MessageBox.Show(this, "Il workspace non contiene backtest con risultati.", "Sessioni di trading",
-
-                MessageBoxButtons.OK, MessageBoxIcon.Warning);
-
-            return;
-
-        }
-
-
-
-        var chosen = BacktestPickerDialog.Pick(this, _backtests, _selectedBacktest?.FolderName);
-
-        if (chosen == null || string.Equals(chosen.FolderName, SelectedBacktestFolder, StringComparison.OrdinalIgnoreCase))
-
-        {
-
-            return;
-
-        }
-
-
-
-        SelectBacktest(chosen);
-
-
-
-        // Cambiare backtest cambia i run disponibili: ricaricarli qui è ciò che faceva prima
-
-        // SelectedIndexChanged della combo.
-
-        try
-
-        {
-
-            SetBusy(true);
-
-            await LoadTitanoRunsAsync(showValidationError: false, CancellationToken.None);
-
-        }
-
-        catch (Exception ex)
-
-        {
-
-            _context.Navigation.SetError(ex.Message);
-
-        }
-
-        finally
-
-        {
-
-            SetBusy(false);
-
-        }
-
-    }
-
-
-
-    private async Task LoadTitanoRunsAsync(bool showValidationError, CancellationToken cancellationToken)
-
-    {
-
-        if (_context == null || SelectedWorkspaceId is not { } workspaceId)
-
-        {
-
-            if (showValidationError)
-
-            {
-
-                MessageBox.Show(this, "Seleziona un workspace.", "Sessioni di trading",
-
-                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
-
-            }
-
-
-
-            return;
-
-        }
-
-
-
-        if (string.IsNullOrWhiteSpace(SelectedBacktestFolder))
-
-        {
-
-            if (showValidationError)
-
-            {
-
-                MessageBox.Show(this, "Seleziona un backtest sorgente.", "Sessioni di trading",
-
-                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
-
-            }
-
-
-
-            return;
-
-        }
-
-
-
-        try
-
-        {
-
-            var runs = await _context.Services.Titano.ListRunsAsync(
-
-                workspaceId, SelectedBacktestFolder, cancellationToken);
-
-            var previous = _titanoRunCombo.Text.Trim();
-
-            _titanoRunCombo.Items.Clear();
-
-            foreach (var run in runs)
-
-            {
-
-                _titanoRunCombo.Items.Add(run.RunId);
-
-            }
-
-
-
-            if (runs.Count == 0)
-
-            {
-
-                _titanoRunCombo.Text = string.Empty;
-
-                _context.Navigation.SetStatus(
-
-                    $"Nessuna rotazione Titano in '{SelectedBacktestFolder}'. Generane una dalla schermata Titano.");
-
-                return;
-
-            }
-
-
-
-            _titanoRunCombo.Text = runs.Any(run => run.RunId == previous)
-
-                ? previous
-
-                : runs[0].RunId;
-
-            _context.Navigation.SetStatus($"{runs.Count} rotazioni Titano disponibili.");
-
-        }
-
-        catch (Exception ex)
-
-        {
-
-            _context.Navigation.SetError(ex.Message);
-
-            MessageBox.Show(this, ex.Message, "Run Titano", MessageBoxButtons.OK, MessageBoxIcon.Error);
-
-        }
-
-    }
-
-
-
-    private string? SelectedTitanoRunId =>
-
-        string.IsNullOrWhiteSpace(_titanoRunCombo.Text) ? null : _titanoRunCombo.Text.Trim();
 
 
 
@@ -1718,43 +1145,7 @@ public partial class TradingSessionsScreen : UserControl, IShellScreen
 
 
 
-    private void OnRunModeOrTitanoChanged(object? sender, EventArgs e) => UpdateScenarioHint();
-
-
-
-    private async void OnLoadRunsClick(object? sender, EventArgs e)
-
-    {
-
-        if (_context == null)
-
-        {
-
-            return;
-
-        }
-
-
-
-        try
-
-        {
-
-            SetBusy(true);
-
-            await LoadTitanoRunsAsync(showValidationError: true, CancellationToken.None);
-
-        }
-
-        finally
-
-        {
-
-            SetBusy(false);
-
-        }
-
-    }
+    private void OnRunModeChanged(object? sender, EventArgs e) => UpdateScenarioHint();
 
 
 
@@ -1814,58 +1205,6 @@ public partial class TradingSessionsScreen : UserControl, IShellScreen
 
 
 
-        if (!ValidateRunModeCoherence(out var coherenceMessage))
-
-        {
-
-            MessageBox.Show(this, coherenceMessage, "Sessioni di trading",
-
-                MessageBoxButtons.OK, MessageBoxIcon.Warning);
-
-            return;
-
-        }
-
-
-
-        var titanoRunId = SelectedTitanoRunId;
-
-        var titanoBacktestFolder = SelectedBacktestFolder;
-
-        if (titanoRunId is not null && string.IsNullOrWhiteSpace(titanoBacktestFolder))
-
-        {
-
-            MessageBox.Show(this,
-
-                "Un setup Titano richiede anche la cartella del backtest sorgente.",
-
-                "Sessioni di trading", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-
-            return;
-
-        }
-
-
-
-        var titanoMode = SelectedTitanoMode;
-
-        if (titanoMode != TitanoFilterMode.Disabled && titanoRunId is null)
-
-        {
-
-            MessageBox.Show(this,
-
-                $"La modalità {titanoMode} richiede un setup Titano: seleziona una rotazione " +
-
-                "oppure passa alla modalità Disabled.",
-
-                "Sessioni di trading", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-
-            return;
-
-        }
-
 
 
         var executionMode = Enum.Parse<ExecutionMode>(
@@ -1910,19 +1249,13 @@ public partial class TradingSessionsScreen : UserControl, IShellScreen
 
                 ExecutionMode = executionMode,
 
-                TitanoRunId = titanoRunId,
-
-                TitanoBacktestFolder = titanoRunId is null ? null : titanoBacktestFolder,
-
-                TitanoMode = titanoMode,
-
                 ClientRunMode = clientRunMode,
 
                 EnforceConcurrencyLimits = clientRunMode == ClientRunMode.Unknown
 
                     ? null
 
-                    : !(clientRunMode == ClientRunMode.Backtest && titanoMode == TitanoFilterMode.Disabled),
+                    : clientRunMode != ClientRunMode.Backtest,
 
                 PositionSizing = new PositionSizingConfig
 
@@ -2118,7 +1451,7 @@ public partial class TradingSessionsScreen : UserControl, IShellScreen
 
                 $"Sessione {_activeSession.SessionId} · workspace {plan.WorkspaceId} · " +
 
-                $"Titano {_activeSession.TitanoMode} · contesto {_activeSession.ClientRunMode}.");
+                $"contesto {_activeSession.ClientRunMode}.");
 
             _mainTabControl.SelectedTab = _snapshotTab;
 
@@ -2469,15 +1802,9 @@ public partial class TradingSessionsScreen : UserControl, IShellScreen
 
                     mapping.GroupId,
 
-                    mapping.RotationSetupId,
-
                     mapping.AccountNumber,
 
-                    mapping.MaxConcurrentTrades,
-
-                    mapping.ApplyTitanoFilters,
-
-                    mapping.TitanoBacktestFolder);
+                    mapping.MaxConcurrentTrades);
 
             }
 
@@ -2513,7 +1840,6 @@ public partial class TradingSessionsScreen : UserControl, IShellScreen
 
     {
 
-        var defaultBacktestFolder = SelectedBacktestFolder;
 
         var rows = _groupsGrid.Rows.Cast<DataGridViewRow>()
 
@@ -2523,27 +1849,15 @@ public partial class TradingSessionsScreen : UserControl, IShellScreen
 
             {
 
-                var folder = Convert.ToString(row.Cells["TitanoBacktestFolder"].Value ?? string.Empty)!.Trim();
-
                 return new TradingGroupRow
 
                 {
 
                     GroupId = Convert.ToString(row.Cells["GroupId"].Value ?? string.Empty)!.Trim(),
 
-                    RotationSetupId = Convert.ToString(row.Cells["RotationSetupId"].Value ?? string.Empty)!.Trim() is { Length: > 0 } setupId
-
-                        ? setupId
-
-                        : null,
-
                     AccountNumber = Convert.ToString(row.Cells["AccountNumber"].Value ?? string.Empty)!.Trim(),
 
-                    MaxConcurrentTrades = ParseMaxConcurrentTrades(row),
-
-                    ApplyTitanoFilters = row.Cells["ApplyTitanoFilters"].Value is not false,
-
-                    TitanoBacktestFolder = folder.Length > 0 ? folder : defaultBacktestFolder
+                    MaxConcurrentTrades = ParseMaxConcurrentTrades(row)
 
                 };
 

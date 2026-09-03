@@ -184,6 +184,13 @@ namespace cAlgo.Robots
         /// </summary>
         private const int MaxSignalsPerDrain = 200;
 
+        // 4.0.1 (03/09/2026) — il pannello del grafico non elenca piu' le strategie una per una: su
+        // un piano vero erano decine di righe che coprivano il grafico, e le strategie sullo stesso
+        // stream ripetevano lo stesso conteggio di candele, perche' la finestra e' una proprieta'
+        // dello stream. Restano il NUMERO di strategie caricate e una riga sola sulla storia, che
+        // conta gli stream pronti e nomina solo quelli corti — l'unico avviso che non si poteva
+        // perdere, perche' su uno stream corto il server salta le strategie in silenzio.
+        //
         // 3.9.0 (26/08/2026) — solo lato server, il bot non cambia: il poll riconcilia le posizioni
         // aperte con lo snapshot che il bot manda, e quello che il broker non elenca piu' viene
         // tolto dai registri. Prima una chiusura non riportata — stop loss nativo, evento perso,
@@ -245,7 +252,7 @@ namespace cAlgo.Robots
         // leggendo questo sorgente.
         // Il disallineamento non blocca nulla: entrambi stampano la propria versione all'avvio, e
         // il confronto si fa leggendo i due log.
-        private const string BotVersion = "4.0.0"; // major.minor deve seguire PiootooVersion
+        private const string BotVersion = "5.0.0"; // major.minor deve seguire PiootooVersion
         private const string StatusChartObjectName = "PiootooConnectionStatus";
 
         // Riquadro rosso al centro del grafico, separato dal pannello di stato: e' l'errore fatale
@@ -1045,8 +1052,8 @@ namespace cAlgo.Robots
 
         /// <summary>
         /// Il testo del pannello. Riporta la configurazione con cui il bot sta effettivamente
-        /// lavorando — profilo del run, filtro Titano, lucchetti di concorrenza, limite di trade — e
-        /// l'elenco delle strategie con il loro timeframe.
+        /// lavorando — profilo del run, filtro Titano, lucchetti di concorrenza, limite di trade — il
+        /// numero di strategie caricate e la copertura della storia degli stream.
         ///
         /// <para>Sono tutti valori presi dal DESCRIPTOR, cioe' da come il server ha risolto il run, non
         /// dai parametri del cBot. Un bot che dichiara un piano e ne esegue un altro, o un parametro
@@ -1071,19 +1078,51 @@ namespace cAlgo.Robots
             builder.AppendLine("Titano:    " + DescribeTitano());
             builder.AppendLine("Concorr.:  " + DescribeConcurrency());
 
-            if (_strategies.Count == 0)
+            builder.AppendLine("Strategie: " + (_strategies.Count == 0 ? "-" : _strategies.Count.ToString()));
+            builder.Append("Storia:    " + DescribeHistoryCoverageSummary());
+            return builder.ToString().TrimEnd();
+        }
+
+        /// <summary>
+        /// La copertura della storia di TUTTI gli stream in una riga sola. Sostituisce l'elenco
+        /// strategia per strategia, che su un piano vero era lungo decine di righe e copriva il
+        /// grafico: le strategie sullo stesso stream ripetevano comunque lo stesso numero, perche' la
+        /// finestra e' una proprieta' dello stream, non della strategia.
+        ///
+        /// <para>Quello che non si puo' perdere e' l'avviso: finche' uno stream e' corto il server
+        /// salta in silenzio le sue strategie e il run sembra semplicemente "senza segnali". Quindi
+        /// gli stream pronti si contano e basta, e si nominano solo quelli che non lo sono.</para>
+        /// </summary>
+        private string DescribeHistoryCoverageSummary()
+        {
+            if (_pairs.Count == 0)
+                return "-";
+
+            var pending = new List<string>();
+            foreach (var pair in _pairs)
             {
-                builder.Append("Strategie: -");
-                return builder.ToString();
+                if (IsHistoryReady(pair))
+                    continue;
+                pending.Add(pair.PiootooSymbol + "/" + pair.TimeframeMinutes + "m " +
+                            DescribeHistoryCoverage(pair));
             }
 
-            builder.AppendLine("Strategie (" + _strategies.Count + "):");
-            foreach (var strategy in _strategies)
-                builder.AppendLine("  " + strategy.StrategyCode + "  " + strategy.Symbol + "/" +
-                                   strategy.TimeframeMinutes + "m  " +
-                                   DescribeStrategyHolding(strategy) + "  " +
-                                   DescribeHistoryCoverage(FindPair(strategy.Symbol, strategy.TimeframeMinutes)));
-            return builder.ToString().TrimEnd();
+            var ready = _pairs.Count - pending.Count;
+            var head = ready + "/" + _pairs.Count + " stream pronti";
+            return pending.Count == 0 ? head + " ok" : head + " - " + string.Join("; ", pending);
+        }
+
+        /// <summary>
+        /// Uno stream e' "pronto" solo quando lo dice il SERVER: e' lui a decidere se valutare, e la
+        /// serie del broker puo' essere lunga con la finestra arrivata comunque corta. Finche' non ha
+        /// risposto lo stream resta fra quelli da nominare, anche se il conteggio locale basterebbe.
+        /// </summary>
+        private static bool IsHistoryReady(Pair pair)
+        {
+            var required = pair.ServerRequiredCandles ?? pair.RequiredCandles;
+            if (required <= 0)
+                return true;
+            return pair.ServerHistoryBars.HasValue && pair.ServerHistoryBars.Value >= required;
         }
 
         /// <summary>

@@ -43,7 +43,7 @@ public sealed class TradeRow
 /// Due tab. *Riepilogo* mostra per primo il blocco <c>diagnostics</c> di
 /// <c>backtest-summary.json</c>: è la prima cosa da leggere quando un backtest non produce trade,
 /// e nel JSON grezzo si perde. *Operazioni* mostra i trade chiusi di <c>trades.json</c>, che sono
-/// l'unico input di Titano.
+/// il risultato operativo del run.
 /// </summary>
 public partial class BacktestDetailScreen : UserControl, IShellScreen
 {
@@ -123,7 +123,7 @@ public partial class BacktestDetailScreen : UserControl, IShellScreen
     }
 
     /// <summary>
-    /// Apre il report HTML del run nel visualizzatore incorporato, lo stesso del report Titano.
+    /// Apre il report HTML del run nel visualizzatore incorporato.
     ///
     /// <para>Il 404 non è un errore della schermata: i run interrotti e quelli eseguiti
     /// dall'engine esterno scrivono i trade ma non il report. Va detto con parole sue, altrimenti
@@ -413,8 +413,8 @@ public partial class BacktestDetailScreen : UserControl, IShellScreen
 
         if (TryGetInt(root, "openPositionsAtEnd") is { } open && open > 0)
         {
-            // Il P&L delle posizioni ancora aperte non entra in trades.json, quindi non entra
-            // in Titano: va detto qui, non lasciato dedurre dalla differenza fra i totali.
+            // Il P&L delle posizioni ancora aperte non entra in trades.json: va detto qui, non
+            // lasciato dedurre dalla differenza fra i totali.
             parts.Add($"{open} posizioni aperte a fine run");
         }
 

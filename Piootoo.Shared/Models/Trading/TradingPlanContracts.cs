@@ -24,15 +24,11 @@ public sealed class TradingPlan
     public string GroupId { get; init; } = string.Empty;
     public string AccountNumber { get; init; } = string.Empty;
     public int MaxConcurrentTrades { get; init; }
-    public string? RotationSetupId { get; init; }
-    public string? TitanoBacktestFolder { get; init; }
-    public bool ApplyTitanoFilters { get; init; }
 
     /// <summary>
     /// Applica <c>MaxConcurrentTrades</c> nella distribuzione multi-account. Null = default storico
-    /// (attivo ovunque tranne nel backtest senza filtro Titano, che deve produrre il campione
-    /// sorgente completo). Esplicito per poter variare concorrenza e rotazione in modo indipendente:
-    /// vedi <c>docs/domini/distribuzione-multi-account.md</c> §4.
+    /// (attivo ovunque tranne nel backtest sorgente, che deve produrre il campione completo).
+    /// Vedi <c>docs/domini/distribuzione-multi-account.md</c> §4.
     /// </summary>
     public bool? EnforceConcurrencyLimits { get; init; }
 
@@ -93,9 +89,6 @@ public sealed class SaveTradingPlanRequest
     public string? GroupId { get; init; }
     public string? AccountNumber { get; init; }
     public int MaxConcurrentTrades { get; init; }
-    public string? RotationSetupId { get; init; }
-    public string? TitanoBacktestFolder { get; init; }
-    public bool ApplyTitanoFilters { get; init; }
 
     /// <summary>
     /// Applica <c>MaxConcurrentTrades</c> nella distribuzione multi-account. Null = default storico.
@@ -147,54 +140,35 @@ public enum ConcurrencyCountMode
 }
 
 /// <summary>
-/// Che tipo di run sta aprendo il cBot. È l'unico interruttore fra i due backtest che il progetto
-/// distingue, e li nomina invece di farli dedurre da una combinazione di flag: <c>ApplyTitanoFilters</c>
-/// nel piano più <c>EnforceConcurrencyLimits</c> descrivono la stessa scelta in due posti, e due
-/// dichiarazioni della stessa cosa prima o poi divergono.
+/// Che tipo di run sta aprendo il cBot. È l'unico interruttore fra i backtest che il progetto
+/// distingue, e li nomina invece di farli dedurre da una combinazione di flag.
 /// </summary>
 public enum TradingRunProfile
 {
     /// <summary>
-    /// Comportamento storico: decide il piano con <c>ApplyTitanoFilters</c> e
-    /// <c>EnforceConcurrencyLimits</c>. È il default e non cambia nulla per le configurazioni
-    /// esistenti.
+    /// Comportamento storico: decide il piano con <c>EnforceConcurrencyLimits</c>. È il default e
+    /// non cambia nulla per le configurazioni esistenti.
     /// </summary>
     DalPiano = 0,
 
     /// <summary>
-    /// Backtest sorgente: nessun filtro Titano (tutte le strategie del masterfilter del workspace)
-    /// e nessun lucchetto di concorrenza, così ogni segnale diventa un intent. È il run che produce
-    /// il <c>trades.json</c> su cui Titano calcola le rotazioni: applicargli vincoli operativi
-    /// falserebbe la sorgente. Vedi <c>docs/domini/titano-rotation.md</c>.
+    /// Backtest sorgente: tutte le strategie del masterfilter del workspace e nessun lucchetto di
+    /// concorrenza, così ogni segnale diventa un intent. È il run che produce il campione completo:
+    /// applicargli vincoli operativi falserebbe la sorgente.
     /// </summary>
     BacktestSorgente = 1,
 
-    /// <summary>
-    /// Backtest filtrato: rotazioni storiche già generate da Titano
-    /// (<c>TitanoFilterMode.BacktestRotationFile</c>) e lucchetti di distribuzione attivi. Serve a
-    /// misurare cosa avrebbe fatto il sistema con il filtro, quindi i vincoli operativi ci vogliono.
-    /// Richiede che il piano indichi la cartella del run Titano.
-    /// </summary>
-    BacktestTitano = 2,
+    // Il valore 2 era BacktestTitano (rotazioni storiche). Rimosso con Titano: non si riusa, così i
+    // run già salvati con quel profilo non vengono riletti come qualcos'altro.
 
     /// <summary>
-    /// Backtest a filtro statico: le strategie sono quelle del masterfilter del workspace — nessuna
-    /// rotazione Titano — ma i lucchetti di concorrenza e distribuzione sono attivi.
+    /// Backtest a filtro statico: le strategie sono quelle del masterfilter del workspace e i
+    /// lucchetti di concorrenza e distribuzione sono attivi.
     ///
-    /// <para>È il termine di paragone fra gli altri due. <see cref="BacktestSorgente"/> risponde a
-    /// "quanto rende ogni strategia da sola", <see cref="BacktestTitano"/> a "quanto rende il
-    /// sistema con il filtro dinamico": in mezzo manca "quanto rende lo stesso insieme di strategie
-    /// con i soli vincoli operativi", cioè quanta parte della differenza è merito della rotazione e
-    /// quanta è soltanto l'effetto del tetto di concorrenza. Senza questo profilo quella domanda si
-    /// risponde solo cambiando a mano due flag del piano fra un run e l'altro, e la differenza fra
-    /// i due run non resta scritta da nessuna parte.</para>
-    ///
-    /// <para>Il nome dice la differenza vera con <see cref="BacktestTitano"/>: filtro
-    /// <b>statico</b> (il masterfilter, fisso per tutto il run) contro filtro <b>dinamico</b> (le
-    /// rotazioni, che cambiano nel tempo). I lucchetti sono uguali nei due, quindi nominarli non
-    /// distinguerebbe niente.</para>
-    ///
-    /// <para>Non richiede la cartella del run Titano: non ne legge nessuna.</para>
+    /// <para>È il termine di paragone di <see cref="BacktestSorgente"/>, che risponde a "quanto
+    /// rende ogni strategia da sola": qui si misura quanto rende lo stesso insieme di strategie con
+    /// i vincoli operativi addosso, cioè quanta parte della differenza è soltanto l'effetto del
+    /// tetto di concorrenza.</para>
     /// </summary>
     BacktestStaticFilter = 3
 }
@@ -222,7 +196,7 @@ public sealed class OpenTradingPlanSessionRequest
     ///
     /// <para>False = esecuzione diretta: la sessione non ha gruppi, quindi <c>POST /bars</c>
     /// restituisce intent già assegnati e il client li esegue. Serve ai cBot che non implementano
-    /// il claim; il piano continua a fornire workspace, sizing, capitale, Titano e metadata
+    /// il claim; il piano continua a fornire workspace, sizing, capitale e metadata
     /// strumenti. La sessione è per singolo account e non è condivisibile.</para>
     /// </summary>
     public bool DistributeToAccounts { get; init; } = true;

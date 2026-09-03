@@ -42,8 +42,8 @@ public class DatafeedExternalController : ControllerBase
     /// Gli strumenti che un piano tocca, per il bot che ne deve raccogliere il datafeed: coppie
     /// (simbolo, timeframe) e il nome di ogni simbolo sul conto indicato.
     ///
-    /// <para>Vengono dal <b>masterfilter</b>, non dalla rotazione Titano corrente: il feed di uno
-    /// strumento serve anche mentre le sue strategie sono spente, altrimenti alla riaccensione
+    /// <para>Vengono dal <b>masterfilter</b>: il feed di uno strumento
+    /// serve anche mentre le sue strategie sono spente, altrimenti alla riaccensione
     /// mancherebbe la storia della pausa. È una lettura pura — non apre sessioni e non tocca
     /// stato — così un raccoglitore non ha alcun effetto sull'operatività.</para>
     /// </summary>

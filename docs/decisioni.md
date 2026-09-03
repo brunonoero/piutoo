@@ -2474,3 +2474,78 @@ il cBot aggiorna il codice ma non il valore di `Mappa`, che resta quello con cui
 creata — il secondo run ha quindi girato con la mappa del primo, e i quattro simboli aggiunti nel
 frattempo non erano nell'elenco. Per raccogliere una mappa nuova serve una **nuova istanza**, o
 incollare la stringa a mano nel parametro.
+
+## 2026-09-03 — Con il piano, `Simboli` del bot raccoglitore filtra invece di essere ignorato
+
+`PiootooDatafeedSyncBot` con `Codice piano` valorizzato ignorava del tutto `Simboli` e
+`Timeframe in minuti`: gli strumenti li dichiarava il masterfilter, punto. Il caso che manca
+è il più frequente in manutenzione — a un solo feed manca un pezzo e va rifatto — e costringeva
+a spegnere il piano e riscrivere a mano mappatura e timeframe di quel simbolo, cioè a ricostruire
+la seconda lista che tenere il piano autorevole doveva evitare.
+
+Ora `Simboli` con il piano cambia mestiere: **non dichiara, filtra**. Gli strumenti restano quelli
+del masterfilter, con i loro timeframe e il nome che hanno sul conto, e si raccolgono solo quelli
+elencati; vuoto = tutto il piano, il comportamento storico. Il confronto guarda sia il nome del
+broker sia il simbolo Piootoo, con o senza `@`, perché chi filtra scrive indifferentemente l'uno o
+l'altro. `Timeframe in minuti` invece resta ignorato: lì le due liste divergerebbero davvero.
+
+Una voce che non corrisponde a nessuno strumento del piano si segnala e si ignora — in un elenco
+di cinque un refuso non deve costare gli altri quattro — ma se non ne corrisponde **nessuna** il
+bot non parte: un raccoglitore avviato che non raccoglie niente non si distingue da uno che sta
+lavorando.
+
+## 2026-09-03 — Un buco lungo non è un fine settimana (il feed esterno che non si riempiva mai)
+
+`ExternalDatafeedStore.SpansWeekend` marcava come "mercato chiuso" **qualunque** buco che
+contenesse un sabato o una domenica. Un buco di tre anni ne contiene centocinquanta, quindi
+finiva marcato anche lui — e il bot raccoglitore *salta* i blocchi che cadono dentro un buco
+weekend (`IsAlreadyCovered`). Il risultato è un feed che si dichiara coperto su tutto ciò che
+non ha, e che nessun numero di run può riempire: il bot concludeva "finestra coperta" in pochi
+secondi con ottanta blocchi saltati e zero barre nuove.
+
+Caso che l'ha fatto emergere: su FTMO, `@FDAX/240` aveva **282 barre in tutto** — tre giorni del
+dicembre 2022, poi un buco di **1276 giorni**, poi due mesi fitti dal 2026-07-01. Un backtest su
+2025-07 → 2026-07 cadeva interamente dentro il buco e falliva con "datafeed mancante"; `@GC/240`
+identico. `@GC/30`, `@GC/60`, `@BP/60` e `@CL/30` avevano la stessa forma ma una o due barre
+dentro la finestra, quindi **passavano il controllo** e avrebbero girato su un feed groviera —
+peggio dell'errore, che almeno si vede.
+
+Ora un buco è di fine settimana solo se contiene un sabato o una domenica **e nessun giorno
+feriale intero**; i buchi corti che non contengono alcun giorno intero (venerdì 21:00 → sabato
+01:00) restano weekend guardando gli estremi. Un giorno feriale intero senza barre è storia
+mancante, e va richiesta al broker. Le tre barre del 2022 sono la seconda metà del meccanismo:
+senza di esse `chunkStart < firstCandleUtc` avrebbe fatto scaricare tutto lo stesso — bastano
+tre barre vecchie per far passare per "coperto" un feed vuoto.
+
+- **2026-09-03** — **Titano rimosso dalla piattaforma.** Il filtro di rotazione
+  non esiste più in nessuno strato: schermate della console (nuova e legacy),
+  `TitanoController` e la sua registrazione DI, `TitanoRotationService` e
+  `TitanoRotationSetupService`, i modelli in `Piootoo.Shared`
+  (`TitanoFilterMode`, `TitanoRotationModels`, `TitanoParameterMetadata`) e i
+  test dedicati. Con essi spariscono il `rotation-log.json` delle sessioni
+  (`TradingDiagnosticsContracts`, l'endpoint `GET .../rotation-log`, i metodi
+  `*RotationLog` di `TradingJsonStore`), i campi Titano di
+  `BacktestingRequest`, `TradingPlan`/`SaveTradingPlanRequest`,
+  `TradingGroupRow` (`RotationSetupId`, `TitanoBacktestFolder`,
+  `ApplyTitanoFilters`) e delle sessioni (`TitanoRunId`, `TitanoMode`), e il
+  profilo `TradingRunProfile.BacktestTitano`.
+
+  Conseguenze da tenere a mente:
+  - **Il contratto verso i cBot cambia.** Descriptor e richieste non portano più
+    `TitanoMode`/`TitanoRunId`; i bot che li serializzano continuano a
+    funzionare (campi ignorati), ma i payload non sono più identici a quelli dei
+    run precedenti.
+  - **I `plans.json` esistenti restano leggibili**: i campi Titano vengono
+    semplicemente ignorati alla rilettura e non riscritti al primo salvataggio.
+  - **Il valore 2 di `TradingRunProfile` non viene riusato**, così un run già
+    salvato come `BacktestTitano` non viene riletto come qualcos'altro.
+  - `DefaultEnforceConcurrencyLimits` ora dipende solo da `ClientRunMode`: i
+    lucchetti sono spenti di default in backtest, accesi altrove. Prima la
+    condizione era «backtest **e** Titano disabilitato», che con Titano assente
+    è la stessa cosa.
+  - `ComputeStrategyPriority` usa sempre il PnL netto live della sessione: il
+    ranking per allocazione di rotazione non esiste più.
+  - I documenti `domini/titano-rotation.md`, `domini/cbot-realtime-backtest-titano.md`,
+    `titano-analisi-parametri-e-audit-2026-07-31.md`,
+    `verifica-backtest-sizing-titano-2026-07-29.md` e le cartelle
+    `titano-simulazione-*` restano come **storia**: non descrivono più il codice.

@@ -80,7 +80,6 @@ public sealed class TradingSessionsHttpTests : IDisposable
             GroupId = "PROP-A",
             AccountNumber = "12345",
             MaxConcurrentTrades = 2,
-            ApplyTitanoFilters = false
         };
         var save = await _client.PutAsJsonAsync(
             $"api/v1/workspaces/{_workspace.Id}/trading-plans/{plan.Code}", plan);
@@ -210,26 +209,22 @@ public sealed class TradingSessionsHttpTests : IDisposable
                 Name = code,
                 GroupId = groupId,
                 AccountNumber = accountNumber,
-                ApplyTitanoFilters = false
             }
             : new SaveTradingPlanRequest
             {
                 Code = code,
                 Name = code,
-                ApplyTitanoFilters = false,
                 Groups =
                 [
                     new TradingGroupRow
                     {
                         GroupId = groupId,
                         AccountNumber = accountNumber,
-                        ApplyTitanoFilters = false
                     },
                     new TradingGroupRow
                     {
                         GroupId = groupId,
                         AccountNumber = secondAccount,
-                        ApplyTitanoFilters = false
                     }
                 ]
             };
@@ -261,7 +256,6 @@ public sealed class TradingSessionsHttpTests : IDisposable
             Name = "Piano diretto",
             GroupId = "PROP-D",
             AccountNumber = "777",
-            ApplyTitanoFilters = false
         };
         var save = await _client.PutAsJsonAsync(
             $"api/v1/workspaces/{_workspace.Id}/trading-plans/{plan.Code}", plan);
@@ -329,7 +323,6 @@ public sealed class TradingSessionsHttpTests : IDisposable
             GroupId = "PROP-D",
             AccountNumber = "778",
             MaxConcurrentTrades = 2,
-            ApplyTitanoFilters = false
         };
         var save = await _client.PutAsJsonAsync(
             $"api/v1/workspaces/{_workspace.Id}/trading-plans/{plan.Code}", plan);
@@ -354,7 +347,6 @@ public sealed class TradingSessionsHttpTests : IDisposable
         {
             Code = "PLAN_MULTI",
             Name = "Piano multi",
-            ApplyTitanoFilters = false,
             Groups =
             [
                 new TradingGroupRow
@@ -362,14 +354,12 @@ public sealed class TradingSessionsHttpTests : IDisposable
                     GroupId = "PROP-A",
                     AccountNumber = "111",
                     MaxConcurrentTrades = 2,
-                    ApplyTitanoFilters = false
                 },
                 new TradingGroupRow
                 {
                     GroupId = "PROP-B",
                     AccountNumber = "222",
                     MaxConcurrentTrades = 1,
-                    ApplyTitanoFilters = false
                 }
             ]
         };
@@ -726,24 +716,6 @@ public sealed class TradingSessionsHttpTests : IDisposable
     }
 
     [Fact]
-    public async Task TitanoRunFiltersSignalsThroughHttpBoundary()
-    {
-        var workspaces = _factory.Services.GetRequiredService<WorkspaceService>();
-        var backtest = workspaces.GetBacktestPath(_workspace.Id, "titano-source");
-        var store = new TradingJsonStore(backtest);
-        store.Initialize();
-        var manifest = _factory.Services.GetRequiredService<TitanoRotationService>().Run(new TitanoRotationRequest
-        {
-            WorkspaceId = _workspace.Id, BacktestFolder = "titano-source",
-            StartUtc = Utc(2026, 1, 1), EndUtc = Utc(2026, 2, 1), MinimumTrades = 1
-        });
-        var descriptor = await Create(ExecutionMode.ServerSimulated, manifest.RunId, "titano-source");
-        descriptor = await Status(descriptor, "start", HttpStatusCode.OK);
-        var result = await Push(descriptor, 1, "titano-filter");
-        Assert.Empty(result.Intents);
-    }
-
-    [Fact]
     public async Task TradingGroupsEndpoint_PersistsProfileAndKeepsAccountGroupsCompatible()
     {
         var descriptor = await Create(ExecutionMode.ExternalBroker);
@@ -758,10 +730,7 @@ public sealed class TradingSessionsHttpTests : IDisposable
                     new TradingGroupRow
                     {
                         GroupId = "prop-a",
-                        AccountNumber = "1001",
-                        RotationSetupId = "bilanciato",
-                        TitanoBacktestFolder = "titano-source",
-                        ApplyTitanoFilters = true
+                        AccountNumber = "1001"
                     }
                 ]
             }, options: JsonOptions)
@@ -770,8 +739,7 @@ public sealed class TradingSessionsHttpTests : IDisposable
         putResponse.EnsureSuccessStatusCode();
         var snapshot = await putResponse.Content.ReadFromJsonAsync<TradingSessionSnapshot>(JsonOptions);
         Assert.NotNull(snapshot);
-        Assert.Single(snapshot!.Groups);
-        Assert.Equal("titano-source", snapshot.Groups[0].TitanoBacktestFolder);
+        Assert.Equal("1001", Assert.Single(snapshot!.Groups).AccountNumber);
 
         using var getGroupsRequest = Authorized(HttpMethod.Get,
             $"api/v1/trading-sessions/{descriptor.SessionId}/groups", descriptor.SessionToken);
@@ -924,15 +892,11 @@ public sealed class TradingSessionsHttpTests : IDisposable
         return JsonSerializer.Deserialize<SessionRunSummary>(File.ReadAllText(path), JsonOptions)!;
     }
 
-    private async Task<TradingSessionDescriptor> Create(
-        ExecutionMode mode, string? runId = null, string? folder = null)
+    private async Task<TradingSessionDescriptor> Create(ExecutionMode mode)
     {
         var response = await _client.PostAsJsonAsync("api/v1/trading-sessions", new CreateTradingSessionRequest
         {
-            WorkspaceId = _workspace.Id, ExecutionMode = mode, TitanoRunId = runId,
-            TitanoBacktestFolder = folder,
-            // Con un run collegato la sessione va filtrata: e' lo scopo del test che lo passa.
-            TitanoMode = runId is null ? TitanoFilterMode.Disabled : TitanoFilterMode.BacktestRotationFile
+            WorkspaceId = _workspace.Id, ExecutionMode = mode
         });
         response.EnsureSuccessStatusCode();
         return (await response.Content.ReadFromJsonAsync<TradingSessionDescriptor>(JsonOptions))!;

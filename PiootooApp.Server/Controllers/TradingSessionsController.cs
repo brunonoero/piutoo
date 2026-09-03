@@ -92,19 +92,6 @@ public sealed class TradingSessionsController : ControllerBase
         => ExecuteResult<IReadOnlyList<PersistedTrade>>(
             () => Ok(_sessions.GetPersistedTrades(sessionId, token)));
 
-    /// <summary>
-    /// Log diagnostico di rotazione (una riga per barra) per sessioni collegate a un run Titano: spiega
-    /// per ciascuna strategia se è stata inclusa nella valutazione e perché, incrociato con i segnali
-    /// effettivamente generati. Utile per verificare che le esclusioni Titano siano corrette e che le
-    /// strategie eseguano trade coerentemente con quanto progettato.
-    /// </summary>
-    [HttpGet("{sessionId}/rotation-log")]
-    public ActionResult<IReadOnlyList<RotationLogEntry>> RotationLog(
-        string sessionId,
-        [FromHeader(Name = "X-Session-Token")] string token)
-        => ExecuteResult<IReadOnlyList<RotationLogEntry>>(
-            () => Ok(_sessions.GetRotationLog(sessionId, token)));
-
     [HttpPost("{sessionId}/execution-reports")]
     public ActionResult<TradingSessionSnapshot> Report(string sessionId, ExecutionReportRequest request)
         => ExecuteResult<TradingSessionSnapshot>(() =>
@@ -148,7 +135,7 @@ public sealed class TradingSessionsController : ControllerBase
         string sessionId, [FromHeader(Name = "X-Session-Token")] string token)
         => ExecuteResult<IReadOnlyList<AccountGroupMapping>>(() => Ok(_sessions.GetAccountGroups(sessionId, token)));
 
-    /// <summary>Configura gruppi, account e profilo Titano per gruppo (sostituisce l'intera configurazione).</summary>
+    /// <summary>Configura gruppi e account (sostituisce l'intera configurazione).</summary>
     [HttpPut("{sessionId}/groups")]
     public ActionResult<TradingSessionSnapshot> SetTradingGroups(string sessionId, SetTradingGroupsRequest request)
         => ExecuteResult<TradingSessionSnapshot>(() =>
@@ -157,7 +144,7 @@ public sealed class TradingSessionsController : ControllerBase
             return Ok(_sessions.GetSnapshot(sessionId, request.SessionToken));
         });
 
-    /// <summary>Legge la configurazione gruppi/account/Titano corrente.</summary>
+    /// <summary>Legge la configurazione gruppi/account corrente.</summary>
     [HttpGet("{sessionId}/groups")]
     public ActionResult<IReadOnlyList<TradingGroupRow>> GetTradingGroups(
         string sessionId, [FromHeader(Name = "X-Session-Token")] string token)
@@ -194,10 +181,9 @@ public sealed class TradingSessionsController : ControllerBase
         => ExecuteResult<OrderIntent>(() => Ok(_sessions.CreateExternalCloseIntent(sessionId, request)));
 
     /// <summary>
-    /// Copia i trade della sessione in <c>&lt;workspace&gt;/backtests/{cartella}/</c>, dove le
-    /// rotazioni Titano li cercano. Chiude la catena "backtest sull'engine esterno → campione
-    /// sorgente → rotazione", che altrimenti si interrompe perché sessioni e backtest persistono
-    /// in due alberi diversi.
+    /// Copia i trade della sessione in <c>&lt;workspace&gt;/backtests/{cartella}/</c>, così che un
+    /// run sull'engine esterno sia confrontabile con uno interno: senza questo passaggio sessioni e
+    /// backtest restano in due alberi diversi.
     /// </summary>
     [HttpPost("{sessionId}/promote-to-backtest")]
     public ActionResult<PromoteSessionToBacktestResult> PromoteToBacktest(

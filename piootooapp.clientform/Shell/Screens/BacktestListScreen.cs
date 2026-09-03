@@ -236,10 +236,6 @@ public partial class BacktestListScreen : UserControl, IShellScreen
         _context.Navigation.Push(detail);
     }
 
-    /// <summary>
-    /// La conferma elenca i run Titano contenuti nella cartella: un piano che referenzia un run
-    /// cancellato non fallisce qui, fallisce all'apertura della sessione, quando è tardi.
-    /// </summary>
     private async void OnDeleteRequested(object? sender, EventArgs e)
     {
         if (_context == null || SelectedRow is not { } row || SelectedWorkspaceId is not { } workspaceId)
@@ -247,24 +243,7 @@ public partial class BacktestListScreen : UserControl, IShellScreen
             return;
         }
 
-        _toolbar.SetBusy(true);
-        IReadOnlyList<string> titanoRuns;
-        try
-        {
-            titanoRuns = await _context.Services.Api.ListBacktestTitanoRunsAsync(workspaceId, row.FolderName);
-        }
-        catch (Exception ex)
-        {
-            // Non sapere quali run ci sono dentro è già un motivo per non cancellare al buio.
-            _context.Navigation.SetError($"Impossibile elencare i run Titano di '{row.FolderName}': {ex.Message}");
-            return;
-        }
-        finally
-        {
-            _toolbar.SetBusy(false);
-        }
-
-        if (MessageBox.Show(this, BuildDeleteMessage(row, titanoRuns), "Elimina backtest",
+        if (MessageBox.Show(this, BuildDeleteMessage(row), "Elimina backtest",
                 MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
         {
             return;
@@ -288,25 +267,8 @@ public partial class BacktestListScreen : UserControl, IShellScreen
         await ReloadBacktestsAsync(CancellationToken.None);
     }
 
-    private static string BuildDeleteMessage(BacktestRow row, IReadOnlyList<string> titanoRuns)
-    {
-        var message = $"Eliminare il backtest '{row.FolderName}' con tutto il contenuto?";
-        if (titanoRuns.Count == 0)
-        {
-            return message + Environment.NewLine + Environment.NewLine +
-                   "La cartella non contiene run Titano.";
-        }
-
-        var listed = string.Join(Environment.NewLine, titanoRuns.Take(15).Select(run => $"  • {run}"));
-        if (titanoRuns.Count > 15)
-        {
-            listed += $"{Environment.NewLine}  • … e altri {titanoRuns.Count - 15}";
-        }
-
-        return message + Environment.NewLine + Environment.NewLine +
-               $"Vengono cancellati anche {titanoRuns.Count} run Titano:" + Environment.NewLine +
-               listed + Environment.NewLine + Environment.NewLine +
-               "Un piano che referenzia uno di questi run non darà errore subito: fallirà " +
-               "all'apertura della sessione.";
-    }
+    private static string BuildDeleteMessage(BacktestRow row)
+        => $"Eliminare il backtest '{row.FolderName}' con tutto il contenuto?" +
+           Environment.NewLine + Environment.NewLine +
+           "Vengono rimossi artefatti, report e log del run.";
 }

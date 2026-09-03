@@ -8,60 +8,32 @@
   ],
   "Accounts": [
     {
-      "Id": "fintok-01",
-      "Name": "fintok-01",
-      "AccountNumber": "fintok-01",
-      "GroupId": "Fintokey",
-      "Broker": "ffffff",
+      "Id": "ftmo-demo",
+      "Name": "ftmo demo",
+      "AccountNumber": "17188650",
+      "GroupId": "FTMO",
+      "Broker": "ftmo",
       "Currency": "USD",
-      "InitialBalance": 1000000,
+      "InitialBalance": 100000,
       "Enabled": true,
       "Notes": "",
-      "CreatedUtc": "2026-08-05T11:17:09.2745891Z",
-      "UpdatedUtc": "2026-08-05T11:17:09.2745891Z",
-      "SymbolConversionCode": ""
+      "CreatedUtc": "2026-09-02T04:28:30.8443864Z",
+      "UpdatedUtc": "2026-09-02T13:04:58.6095614Z",
+      "SymbolConversionCode": "cfd-ctrader-ftmo"
     },
     {
       "Id": "ic-market-demo-01",
       "Name": "ic-market-demo-01",
-      "AccountNumber": "21341234",
+      "AccountNumber": "1075035",
       "GroupId": "ICS-01",
       "Broker": "ics",
       "Currency": "USD",
-      "InitialBalance": 1000000,
+      "InitialBalance": 100000.00,
       "Enabled": true,
       "Notes": "",
       "CreatedUtc": "2026-08-05T05:14:19.6301127Z",
-      "UpdatedUtc": "2026-08-05T11:45:23.1079226Z",
+      "UpdatedUtc": "2026-09-01T14:55:33.1908012Z",
       "SymbolConversionCode": "cfd-ic"
-    },
-    {
-      "Id": "12345678",
-      "Name": "primo FTMO",
-      "AccountNumber": "1234",
-      "GroupId": "FTMO",
-      "Broker": "xxxxx",
-      "Currency": "EUR",
-      "InitialBalance": 1000000,
-      "Enabled": true,
-      "Notes": "FTMO 1",
-      "CreatedUtc": "2026-07-28T10:10:35.1847811Z",
-      "UpdatedUtc": "2026-08-04T11:49:10.9475779Z",
-      "SymbolConversionCode": "cfd-mt4-ftmo"
-    },
-    {
-      "Id": "aaaaa",
-      "Name": "Secondo FTMO",
-      "AccountNumber": "6789",
-      "GroupId": "FTMO",
-      "Broker": "aaaaa",
-      "Currency": "EUR",
-      "InitialBalance": 1000000,
-      "Enabled": true,
-      "Notes": "aaaaaa",
-      "CreatedUtc": "2026-07-28T12:31:52.4493064Z",
-      "UpdatedUtc": "2026-08-05T05:10:59.9577337Z",
-      "SymbolConversionCode": "cfd-mt4-ftmo"
     }
   ]
 }

@@ -38,8 +38,6 @@ partial class ConcurrencyHarnessScreen
         this._colGroupId = new System.Windows.Forms.DataGridViewTextBoxColumn();
         this._colAccountNumber = new System.Windows.Forms.DataGridViewTextBoxColumn();
         this._colMaxConcurrent = new System.Windows.Forms.DataGridViewTextBoxColumn();
-        this._colApplyTitano = new System.Windows.Forms.DataGridViewCheckBoxColumn();
-        this._colTitanoFolder = new System.Windows.Forms.DataGridViewTextBoxColumn();
         this._groupsCommands = new System.Windows.Forms.FlowLayoutPanel();
         this._groupsTitle = new System.Windows.Forms.Label();
         this._applyGroupsButton = new System.Windows.Forms.Button();
@@ -578,9 +576,7 @@ partial class ConcurrencyHarnessScreen
         this._groupsGrid.Columns.AddRange(new System.Windows.Forms.DataGridViewColumn[] {
             this._colGroupId,
             this._colAccountNumber,
-            this._colMaxConcurrent,
-            this._colApplyTitano,
-            this._colTitanoFolder});
+            this._colMaxConcurrent});
         this._groupsGrid.DataSource = this._groupsSource;
         this._groupsGrid.Dock = System.Windows.Forms.DockStyle.Fill;
         this._groupsGrid.Location = new System.Drawing.Point(0, 36);
@@ -606,14 +602,6 @@ partial class ConcurrencyHarnessScreen
         this._colMaxConcurrent.FillWeight = 80F;
         this._colMaxConcurrent.HeaderText = "Max concorrenti (0 = illimitato)";
         this._colMaxConcurrent.Name = "_colMaxConcurrent";
-        this._colApplyTitano.DataPropertyName = "ApplyTitanoFilters";
-        this._colApplyTitano.FillWeight = 60F;
-        this._colApplyTitano.HeaderText = "Filtro Titano";
-        this._colApplyTitano.Name = "_colApplyTitano";
-        this._colTitanoFolder.DataPropertyName = "TitanoBacktestFolder";
-        this._colTitanoFolder.FillWeight = 140F;
-        this._colTitanoFolder.HeaderText = "Cartella Titano del gruppo";
-        this._colTitanoFolder.Name = "_colTitanoFolder";
         //
         // _groupsCommands
         //
@@ -829,8 +817,6 @@ partial class ConcurrencyHarnessScreen
     private System.Windows.Forms.DataGridViewTextBoxColumn _colGroupId;
     private System.Windows.Forms.DataGridViewTextBoxColumn _colAccountNumber;
     private System.Windows.Forms.DataGridViewTextBoxColumn _colMaxConcurrent;
-    private System.Windows.Forms.DataGridViewCheckBoxColumn _colApplyTitano;
-    private System.Windows.Forms.DataGridViewTextBoxColumn _colTitanoFolder;
     private System.Windows.Forms.FlowLayoutPanel _runPanel;
     private System.Windows.Forms.Button _prepareButton;
     private System.Windows.Forms.Button _stepButton;

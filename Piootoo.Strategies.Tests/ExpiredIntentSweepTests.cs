@@ -129,20 +129,17 @@ public sealed class ExpiredIntentSweepTests : IDisposable
             {
                 GroupId = "g1", AccountNumber = "1001", MaxConcurrentTrades = 1,
                 ConcurrencyCountMode = ConcurrencyCountMode.PositionsAndPendingOrders,
-                ApplyTitanoFilters = false
             }
         };
         TestAccountRegistry.Register(workspaces, groups);
 
         var sessions = new TradingSessionService(
-            workspaces, new UnIngressoPerBarra(),
-            new TitanoRotationService(workspaces), new PositionSizingService());
+            workspaces, new UnIngressoPerBarra(), new PositionSizingService());
         var d = sessions.Create(new CreateTradingSessionRequest
         {
             WorkspaceId = workspace.Id,
             ExecutionMode = ExecutionMode.ExternalBroker,
             ClientRunMode = ClientRunMode.Realtime,
-            TitanoMode = TitanoFilterMode.Disabled,
             EnforceConcurrencyLimits = lucchetti
         });
         sessions.SetTradingGroups(d.SessionId, d.SessionToken, groups);

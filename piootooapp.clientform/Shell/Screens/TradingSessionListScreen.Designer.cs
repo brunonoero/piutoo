@@ -26,7 +26,6 @@ partial class TradingSessionListScreen
         this._colPlanCode = new System.Windows.Forms.DataGridViewTextBoxColumn();
         this._colClientRunMode = new System.Windows.Forms.DataGridViewTextBoxColumn();
         this._colExecutionMode = new System.Windows.Forms.DataGridViewTextBoxColumn();
-        this._colTitanoMode = new System.Windows.Forms.DataGridViewTextBoxColumn();
         this._colStatus = new System.Windows.Forms.DataGridViewTextBoxColumn();
         this._colCreatedAtUtc = new System.Windows.Forms.DataGridViewTextBoxColumn();
         this._filterPanel = new System.Windows.Forms.FlowLayoutPanel();
@@ -52,7 +51,6 @@ partial class TradingSessionListScreen
             this._colPlanCode,
             this._colClientRunMode,
             this._colExecutionMode,
-            this._colTitanoMode,
             this._colStatus,
             this._colCreatedAtUtc});
         this._grid.DataSource = this._bindingSource;
@@ -108,14 +106,6 @@ partial class TradingSessionListScreen
         this._colExecutionMode.HeaderText = "Esecuzione";
         this._colExecutionMode.Name = "_colExecutionMode";
         this._colExecutionMode.ReadOnly = true;
-        //
-        // _colTitanoMode
-        //
-        this._colTitanoMode.DataPropertyName = "TitanoMode";
-        this._colTitanoMode.FillWeight = 90F;
-        this._colTitanoMode.HeaderText = "Titano";
-        this._colTitanoMode.Name = "_colTitanoMode";
-        this._colTitanoMode.ReadOnly = true;
         //
         // _colStatus
         //
@@ -196,7 +186,6 @@ partial class TradingSessionListScreen
     private System.Windows.Forms.DataGridViewTextBoxColumn _colPlanCode;
     private System.Windows.Forms.DataGridViewTextBoxColumn _colClientRunMode;
     private System.Windows.Forms.DataGridViewTextBoxColumn _colExecutionMode;
-    private System.Windows.Forms.DataGridViewTextBoxColumn _colTitanoMode;
     private System.Windows.Forms.DataGridViewTextBoxColumn _colStatus;
     private System.Windows.Forms.DataGridViewTextBoxColumn _colCreatedAtUtc;
     private System.Windows.Forms.FlowLayoutPanel _filterPanel;

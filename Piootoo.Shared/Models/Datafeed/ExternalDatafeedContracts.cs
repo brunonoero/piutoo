@@ -239,11 +239,10 @@ public sealed class PlanDatafeedInstrumentDto
 /// <summary>
 /// Gli strumenti che un piano tocca, per chi deve raccoglierne il datafeed.
 ///
-/// <para><b>Vengono dal masterfilter, non dalla rotazione Titano corrente</b>, ed e' la differenza
-/// che conta: Titano abilita e disabilita strategie ogni periodo, ma il datafeed di uno strumento
-/// serve <i>sempre</i> — anche mentre e' spento, perche' quando torna attivo la sua storia deve
-/// esserci gia'. Seguendo la rotazione, il feed si interromperebbe a ogni disabilitazione e
-/// lascerebbe un buco esattamente lungo quanto la pausa.</para>
+/// <para><b>Vengono dal masterfilter</b>, ed e' la differenza che conta: le strategie attive
+/// possono cambiare nel tempo, ma il datafeed di uno strumento serve <i>sempre</i> — anche mentre
+/// e' spento, perche' quando torna attivo la sua storia deve esserci gia'. Seguendo le strategie
+/// accese, il feed si interromperebbe a ogni pausa e lascerebbe un buco lungo quanto la pausa.</para>
 /// </summary>
 public sealed class PlanDatafeedInstrumentsDto
 {

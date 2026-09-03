@@ -608,15 +608,38 @@ public sealed class ExternalDatafeedStore
         return coverage;
     }
 
+    /// <summary>
+    /// Un buco e' "di fine settimana" — mercato chiuso, non storia mancante — solo se contiene un
+    /// sabato o una domenica <b>e</b> nessun giorno feriale intero. Il secondo pezzo non e' un
+    /// dettaglio: senza, bastava che un buco contenesse un weekend qualsiasi per essere assolto, e
+    /// un buco di tre anni ne contiene centocinquanta. Il bot raccoglitore salta i buchi cosi'
+    /// marcati (<c>IsAlreadyCovered</c>), quindi un feed con tre barre del 2022 e due mesi del 2026
+    /// veniva dichiarato coperto per tutto quello che c'e' in mezzo e non si riempiva mai — per
+    /// quanto lo si rilanciasse.
+    ///
+    /// <para>Il confronto e' sui giorni <i>interi</i> compresi fra le due barre: il venerdi' della
+    /// barra prima e il lunedi' di quella dopo sono per definizione parziali, e contarli farebbe
+    /// passare per storia mancante ogni normale chiusura del fine settimana.</para>
+    /// </summary>
     private static bool SpansWeekend(DateTime fromUtc, DateTime toUtc)
     {
-        for (var day = fromUtc.Date; day <= toUtc.Date; day = day.AddDays(1))
+        var weekendSeen = false;
+
+        for (var day = fromUtc.Date.AddDays(1); day <= toUtc.Date.AddDays(-1); day = day.AddDays(1))
         {
             if (day.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday)
-                return true;
+                weekendSeen = true;
+            else
+                return false; // un giorno feriale intero senza barre e' storia mancante, punto.
         }
 
-        return false;
+        if (weekendSeen)
+            return true;
+
+        // Buco corto che non contiene alcun giorno intero (es. venerdi' 21:00 -> sabato 01:00):
+        // e' di fine settimana se uno dei due estremi cade nel weekend.
+        return fromUtc.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday ||
+               toUtc.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday;
     }
 
     // -------------------------------------------------------------------------------------------

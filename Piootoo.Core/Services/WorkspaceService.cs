@@ -12,8 +12,7 @@ public sealed class WorkspaceService
 {
     /// <summary>
     /// Nome del file di masterfilter dentro la cartella del workspace. Pubblico perché chi lo
-    /// rilegge a ogni barra (<see cref="TitanoRotationService"/>) deve poterne guardare il timestamp
-    /// senza duplicarne il nome.
+    /// rilegge deve poterne guardare il timestamp senza duplicarne il nome.
     /// </summary>
     public const string MasterFilterFileName = "masterfilter.json";
     private const string AccountsFileName = "accounts.json";
@@ -931,14 +930,7 @@ public sealed class WorkspaceService
         return report.FullName;
     }
 
-    /// <summary>
-    /// Elimina una cartella di backtest con tutto il suo contenuto.
-    ///
-    /// <para>Comprende <c>titano/&lt;run-id&gt;/</c>: i run calcolati su quel campione spariscono
-    /// con esso. Il servizio non lo impedisce — un backtest sbagliato deve poter essere buttato —
-    /// ma i piani che referenziano quei run falliranno all'apertura della sessione, non prima. Chi
-    /// chiama deve avvisare, ed è il motivo per cui <see cref="ListBacktestTitanoRunIds"/> esiste.</para>
-    /// </summary>
+    /// <summary>Elimina una cartella di backtest con tutto il suo contenuto.</summary>
     public void DeleteBacktest(string workspaceId, string folderName)
     {
         var backtestPath = GetBacktestPath(workspaceId, folderName);
@@ -946,21 +938,6 @@ public sealed class WorkspaceService
             throw new DirectoryNotFoundException($"Backtest '{folderName}' non trovato nel workspace '{workspaceId}'.");
 
         Directory.Delete(backtestPath, recursive: true);
-    }
-
-    /// <summary>Id dei run Titano presenti nel backtest, per avvisare prima di cancellarlo.</summary>
-    public IReadOnlyList<string> ListBacktestTitanoRunIds(string workspaceId, string folderName)
-    {
-        var titanoPath = Path.Combine(GetBacktestPath(workspaceId, folderName), "titano");
-        if (!Directory.Exists(titanoPath))
-            return [];
-
-        return Directory.EnumerateDirectories(titanoPath)
-            .Select(Path.GetFileName)
-            .Where(name => !string.IsNullOrEmpty(name))
-            .Select(name => name!)
-            .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
-            .ToList();
     }
 
     public void Delete(string workspaceId)

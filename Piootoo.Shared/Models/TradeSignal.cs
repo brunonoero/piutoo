@@ -31,7 +31,7 @@ public class TradeSignal
 
     /// <summary>
     /// Quantità prima della conversione dell'account, cioè quella dichiarata dalla strategia dopo
-    /// l'eventuale allocazione Titano. <see cref="Quantity"/> è la stessa grandezza dopo la
+    /// gli eventuali moltiplicatori. <see cref="Quantity"/> è la stessa grandezza dopo la
     /// conversione: tenerle entrambe evita che un consumatore riapplichi i fattori già applicati.
     /// </summary>
     public decimal QuantityBeforeAccountConversion { get; set; }

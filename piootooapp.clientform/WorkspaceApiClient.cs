@@ -395,18 +395,6 @@ public sealed class WorkspaceApiClient
         return (slug, await response.Content.ReadAsByteArrayAsync(cancellationToken));
     }
 
-    public async Task<IReadOnlyList<string>> ListBacktestTitanoRunsAsync(
-        string workspaceId,
-        string folderName,
-        CancellationToken cancellationToken = default)
-    {
-        var result = await _httpClient.GetFromJsonAsync<List<string>>(
-            $"api/Workspace/{Uri.EscapeDataString(workspaceId)}/backtests/{Uri.EscapeDataString(folderName)}/titano-runs",
-            _jsonOptions,
-            cancellationToken);
-        return result ?? new List<string>();
-    }
-
     public async Task DeleteBacktestAsync(
         string workspaceId,
         string folderName,

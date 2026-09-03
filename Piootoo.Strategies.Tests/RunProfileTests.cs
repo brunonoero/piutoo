@@ -10,14 +10,14 @@ namespace Piootoo.Strategies.Tests;
 
 /// <summary>
 /// Il profilo del run (<see cref="TradingRunProfile"/>): l'interruttore con cui il cBot dichiara
-/// QUALE backtest sta aprendo, invece di farlo dedurre da <c>ApplyTitanoFilters</c> nel piano più
-/// <c>EnforceConcurrencyLimits</c> nella sessione.
+/// QUALE backtest sta aprendo, invece di farlo dedurre da <c>EnforceConcurrencyLimits</c> nella
+/// sessione.
 ///
 /// <para>Il comportamento che questi test bloccano è quello che rendeva incomparabili il backtest
 /// del cBot distribuito e il backtest interno: i vincoli di distribuzione — budget di concorrenza
-/// per account e slot gruppo/strategia/simbolo — sono vincoli OPERATIVI, e il campione sorgente su
-/// cui Titano calcola le rotazioni non deve averli. Prima seguivano solo <c>MaxConcurrentTrades</c>,
-/// quindi restavano attivi anche nel run sorgente e ne mutilavano i segnali in silenzio.</para>
+/// per account e slot gruppo/strategia/simbolo — sono vincoli OPERATIVI, e il campione sorgente
+/// non deve averli. Prima seguivano solo <c>MaxConcurrentTrades</c>, quindi restavano attivi anche
+/// nel run sorgente e ne mutilavano i segnali in silenzio.</para>
 ///
 /// <para>Il lucchetto che NON deve mai spegnersi è <c>TemplateClaimedGroups</c>: non limita quanto
 /// si opera in parallelo, dice che un template è già stato servito a quel gruppo. Senza, il cBot che
@@ -36,90 +36,56 @@ public sealed class RunProfileTests : IDisposable
     // --------------------------------------------------------------- risoluzione del profilo
 
     [Fact]
-    public void BacktestSorgente_SpegneTitanoEILucchettiDiConcorrenza()
+    public void BacktestSorgente_SpegneILucchettiDiConcorrenza()
     {
-        var f = New(applyTitanoFilters: true, maxConcurrent: 3);
+        var f = New(maxConcurrent: 3);
 
         var descriptor = f.Open(TradingRunProfile.BacktestSorgente);
 
-        // Il profilo prevale sul piano: il piano chiedeva il filtro Titano e un limite di 3 trade.
-        Assert.Equal(TitanoFilterMode.Disabled, descriptor.TitanoMode);
+        // Il profilo prevale sul piano, che chiedeva un limite di 3 trade.
         Assert.False(descriptor.EnforceConcurrencyLimits);
         Assert.Equal(TradingRunProfile.BacktestSorgente, descriptor.RunProfile);
     }
 
     [Fact]
-    public void BacktestTitano_TieneLeRotazioniEIVincoliOperativi()
-    {
-        var f = New(applyTitanoFilters: false, maxConcurrent: 3, titanoFolder: "source");
-
-        var descriptor = f.Open(TradingRunProfile.BacktestTitano);
-
-        // Anche qui il profilo prevale: il piano diceva "niente filtro".
-        Assert.Equal(TitanoFilterMode.BacktestRotationFile, descriptor.TitanoMode);
-        Assert.True(descriptor.EnforceConcurrencyLimits);
-        Assert.Equal(3, descriptor.MaxConcurrentTrades);
-    }
-
-    [Fact]
     public void BacktestStaticFilter_TieneIlMasterfilterEIVincoliOperativi()
     {
-        var f = New(applyTitanoFilters: true, maxConcurrent: 3);
+        var f = New(maxConcurrent: 3);
 
         var descriptor = f.Open(TradingRunProfile.BacktestStaticFilter);
 
-        // È il termine di paragone fra sorgente e Titano: stesse strategie del sorgente (filtro
-        // statico del masterfilter, nessuna rotazione) ma stessi lucchetti di BacktestTitano. Se
-        // una delle due metà cedesse, il confronto con BacktestTitano non isolerebbe più il merito
-        // della rotazione dall'effetto del tetto di concorrenza.
-        Assert.Equal(TitanoFilterMode.Disabled, descriptor.TitanoMode);
+        // È il termine di paragone del sorgente: stesse strategie del masterfilter, ma i lucchetti
+        // operativi attivi. Se cedessero, il confronto con il sorgente non isolerebbe più l'effetto
+        // del tetto di concorrenza.
         Assert.True(descriptor.EnforceConcurrencyLimits);
         Assert.Equal(3, descriptor.MaxConcurrentTrades);
         Assert.Equal(TradingRunProfile.BacktestStaticFilter, descriptor.RunProfile);
     }
 
     [Fact]
-    public void BacktestStaticFilter_NonRichiedeLeRotazioni()
-    {
-        var f = New(applyTitanoFilters: true, maxConcurrent: 3);
-
-        // Nessuna cartella di run Titano: a differenza di BacktestTitano questo profilo non ne
-        // legge nessuna, quindi l'apertura non deve pretenderla.
-        var descriptor = f.Open(TradingRunProfile.BacktestStaticFilter);
-
-        Assert.Equal(TitanoFilterMode.Disabled, descriptor.TitanoMode);
-    }
-
-    [Fact]
     public void IlPiano_NonPuoDisarmareILucchettiDeiProfiliCheLiDichiarano()
     {
-        var f = New(
-            applyTitanoFilters: false,
-            maxConcurrent: 3,
-            titanoFolder: "source",
+        var f = New(maxConcurrent: 3,
             enforceConcurrencyLimits: false);
 
         // Fino al 15/08/2026 solo BacktestSorgente era blindato contro il piano: qui il piano dice
         // "niente lucchetti" e prima vinceva lui, producendo un run senza vincoli che continuava a
-        // chiamarsi Titano. La differenza si sarebbe vista solo confrontando due trades.json.
-        Assert.True(f.Open(TradingRunProfile.BacktestTitano).EnforceConcurrencyLimits);
+        // dichiararsi filtrato. La differenza si sarebbe vista solo confrontando due trades.json.
         Assert.True(f.Open(TradingRunProfile.BacktestStaticFilter).EnforceConcurrencyLimits);
 
         // Simmetrico: il sorgente resta senza lucchetti anche se il piano li chiede.
-        var conLucchetti = New(
-            applyTitanoFilters: false, maxConcurrent: 3, enforceConcurrencyLimits: true);
+        var conLucchetti = New(maxConcurrent: 3, enforceConcurrencyLimits: true);
         Assert.False(conLucchetti.Open(TradingRunProfile.BacktestSorgente).EnforceConcurrencyLimits);
     }
 
     [Fact]
     public void DalPiano_ConservaIlComportamentoStorico()
     {
-        var f = New(applyTitanoFilters: false, maxConcurrent: 3);
+        var f = New(maxConcurrent: 3);
 
         var descriptor = f.Open(TradingRunProfile.DalPiano);
 
-        // Default storico: in Backtest senza filtro Titano il limite era già disattivo.
-        Assert.Equal(TitanoFilterMode.Disabled, descriptor.TitanoMode);
+        // Default storico: in Backtest il limite era già disattivo.
         Assert.False(descriptor.EnforceConcurrencyLimits);
         Assert.Equal(TradingRunProfile.DalPiano, descriptor.RunProfile);
     }
@@ -129,7 +95,7 @@ public sealed class RunProfileTests : IDisposable
     [Fact]
     public void UnProfiloDiBacktest_InRealtimeVieneRifiutato()
     {
-        var f = New(applyTitanoFilters: false, maxConcurrent: 0);
+        var f = New(maxConcurrent: 0);
 
         // Mandare a mercato un run configurato come campione sorgente significa operare senza
         // nessuno dei vincoli che il piano dichiara. Deve fallire all'apertura, non a mercato.
@@ -140,30 +106,18 @@ public sealed class RunProfileTests : IDisposable
     }
 
     [Fact]
-    public void BacktestTitano_SenzaRotazioniVieneRifiutato()
-    {
-        var f = New(applyTitanoFilters: false, maxConcurrent: 0);
-
-        // Senza cartella di run girerebbe identico a un backtest senza filtro, e la differenza si
-        // vedrebbe solo confrontando due trades.json mesi dopo.
-        var error = Assert.Throws<ArgumentException>(() => f.Open(TradingRunProfile.BacktestTitano));
-
-        Assert.Contains("rotazioni storiche", error.Message);
-    }
-
-    [Fact]
     public void ProfiliDiversi_NonSiRiprendonoAVicenda()
     {
-        var f = New(applyTitanoFilters: false, maxConcurrent: 0, titanoFolder: "source");
+        var f = New(maxConcurrent: 0);
 
         // Stessa ExecutionKey, profilo diverso: se la chiave non includesse il profilo, il secondo
-        // run riprenderebbe il primo e continuerebbe con il Titano e i lucchetti di quello vecchio.
+        // run riprenderebbe il primo e continuerebbe con i lucchetti di quello vecchio.
         var sorgente = f.Open(TradingRunProfile.BacktestSorgente);
-        var titano = f.Open(TradingRunProfile.BacktestTitano);
+        var statico = f.Open(TradingRunProfile.BacktestStaticFilter);
 
-        Assert.NotEqual(sorgente.SessionId, titano.SessionId);
-        Assert.Equal(TitanoFilterMode.Disabled, sorgente.TitanoMode);
-        Assert.Equal(TitanoFilterMode.BacktestRotationFile, titano.TitanoMode);
+        Assert.NotEqual(sorgente.SessionId, statico.SessionId);
+        Assert.False(sorgente.EnforceConcurrencyLimits);
+        Assert.True(statico.EnforceConcurrencyLimits);
     }
 
     // --------------------------------------------------------------- il drenaggio della coda
@@ -174,7 +128,7 @@ public sealed class RunProfileTests : IDisposable
         // Tutte le strategie sono sullo stesso simbolo e timeframe: con i lucchetti attivi e
         // maxConcurrent = 1 l'account ne otterrebbe UNO solo, perché il budget conta anche il claim
         // non ancora piazzato. A lucchetti spenti li drena tutti.
-        var f = New(applyTitanoFilters: false, maxConcurrent: 1);
+        var f = New(maxConcurrent: 1);
         var descriptor = f.Open(TradingRunProfile.BacktestSorgente);
         f.PushBar(descriptor);
 
@@ -191,7 +145,7 @@ public sealed class RunProfileTests : IDisposable
     [Fact]
     public void BacktestSorgente_IlLucchettoDelGruppoRestaAttivo()
     {
-        var f = New(applyTitanoFilters: false, maxConcurrent: 1);
+        var f = New(maxConcurrent: 1);
         var descriptor = f.Open(TradingRunProfile.BacktestSorgente);
         f.PushBar(descriptor);
 
@@ -206,7 +160,7 @@ public sealed class RunProfileTests : IDisposable
     [Fact]
     public void BacktestSorgente_NonConsegnaDueIngressiDellaStessaStrategia()
     {
-        var f = New(applyTitanoFilters: false, maxConcurrent: 1);
+        var f = New(maxConcurrent: 1);
         var descriptor = f.Open(TradingRunProfile.BacktestSorgente);
 
         f.PushBar(descriptor);
@@ -228,8 +182,8 @@ public sealed class RunProfileTests : IDisposable
     public void ConILucchettiAttivi_LAccountNeOttieneUnoSolo()
     {
         // Il contrappunto del test precedente: stessa barra, stesse strategie, profilo diverso.
-        var f = New(applyTitanoFilters: false, maxConcurrent: 1, titanoFolder: "source");
-        var descriptor = f.Open(TradingRunProfile.BacktestTitano);
+        var f = New(maxConcurrent: 1);
+        var descriptor = f.Open(TradingRunProfile.BacktestStaticFilter);
         f.PushBar(descriptor);
 
         var first = f.Poll(descriptor);
@@ -246,7 +200,7 @@ public sealed class RunProfileTests : IDisposable
     [Fact]
     public void IlPushDichiaraQuantoCEDaReclamare()
     {
-        var f = New(applyTitanoFilters: false, maxConcurrent: 0);
+        var f = New(maxConcurrent: 0);
         var descriptor = f.Open(TradingRunProfile.BacktestSorgente);
 
         // Riscaldamento: il server accoda e non valuta, quindi non c'è ancora niente da reclamare.
@@ -268,7 +222,7 @@ public sealed class RunProfileTests : IDisposable
     [Fact]
     public void IlDescriptorElencaLeStrategieConSimboloETimeframe()
     {
-        var f = New(applyTitanoFilters: false, maxConcurrent: 0);
+        var f = New(maxConcurrent: 0);
 
         var descriptor = f.Open(TradingRunProfile.BacktestSorgente);
 
@@ -294,9 +248,7 @@ public sealed class RunProfileTests : IDisposable
     /// cui la differenza fra i profili si misura meglio.
     /// </summary>
     private Fixture New(
-        bool applyTitanoFilters,
         int maxConcurrent,
-        string? titanoFolder = null,
         bool? enforceConcurrencyLimits = null)
     {
         var selected = StrategyFactory.GetRegisteredStrategies()
@@ -325,8 +277,6 @@ public sealed class RunProfileTests : IDisposable
             GroupId = "g1",
             AccountNumber = "1001",
             MaxConcurrentTrades = maxConcurrent,
-            ApplyTitanoFilters = applyTitanoFilters,
-            TitanoBacktestFolder = titanoFolder,
             EnforceConcurrencyLimits = enforceConcurrencyLimits
         });
 

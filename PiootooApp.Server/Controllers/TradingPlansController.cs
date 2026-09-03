@@ -10,13 +10,8 @@ namespace PiootooApp.Server.Controllers;
 public sealed class TradingPlansController : ControllerBase
 {
     private readonly TradingPlanService _plans;
-    private readonly TitanoRotationService _titano;
 
-    public TradingPlansController(TradingPlanService plans, TitanoRotationService titano)
-    {
-        _plans = plans;
-        _titano = titano;
-    }
+    public TradingPlansController(TradingPlanService plans) => _plans = plans;
 
     [HttpGet]
     public ActionResult<IReadOnlyList<TradingPlan>> List(string workspaceId) =>
@@ -25,22 +20,6 @@ public sealed class TradingPlansController : ControllerBase
     [HttpGet("{code}")]
     public ActionResult<TradingPlan> Get(string workspaceId, string code) =>
         Execute<TradingPlan>(() => Ok(_plans.Get(workspaceId, code)));
-
-    /// <summary>
-    /// Freschezza dell'ultimo run Titano della riga primaria del piano (vedi
-    /// <see cref="TradingPlanService.SelectPrimaryRow"/>): il run non si indica più sul piano, si usa
-    /// sempre l'ultimo generato per la sua cartella di backtest.
-    /// </summary>
-    [HttpGet("{code}/rotation-status")]
-    public ActionResult<TitanoRotationStatus> GetRotationStatus(string workspaceId, string code) =>
-        Execute<TitanoRotationStatus>(() =>
-        {
-            var plan = _plans.Get(workspaceId, code);
-            var folder = plan.Groups.Count == 0 ? null : TradingPlanService.SelectPrimaryRow(plan.Groups).TitanoBacktestFolder;
-            return Ok(string.IsNullOrWhiteSpace(folder)
-                ? new TitanoRotationStatus { WorkspaceId = workspaceId, BacktestFolder = string.Empty, Freshness = TitanoRotationFreshness.NoRun }
-                : _titano.GetFreshness(workspaceId, folder));
-        });
 
     [HttpPut("{code}")]
     public ActionResult<TradingPlan> Save(string workspaceId, string code, SaveTradingPlanRequest request) =>

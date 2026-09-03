@@ -36,20 +36,12 @@ public enum QuantityRoundingMode { FuturesContracts, BrokerVolumeStep, Deferred 
 public enum OrderIntentKind { Entry, Close }
 
 /// <summary>
-/// Le tre modalità operative dell'engine rispetto al filtro Titano. Valgono identiche per l'engine
-/// interno (backtest in-process, <c>ServerSimulated</c>) e per l'engine esterno cTrader
-/// (<c>ExternalBroker</c>): il cBot invia le barre e riceve i segnali già filtrati, quindi non
-/// conosce Titano e non cambia comportamento tra una modalità e l'altra.
-/// </summary>
-/// <summary>
 /// Contesto in cui sta girando il client che ha creato la sessione. Non è una preferenza: il cBot
 /// lo ricava dalla piattaforma (<c>Robot.IsBacktesting</c>), non da un parametro, quindi non può
 /// sbagliarlo per distrazione.
 ///
 /// <para>Serve a rendere verificabile lato server una coerenza che altrimenti resterebbe negli
-/// occhi dell'operatore: una rotazione storica applicata a una sessione live, o una modalità
-/// <see cref="TitanoFilterMode.Realtime"/> usata in backtest, sono errori silenziosi che si notano
-/// solo dai risultati sbagliati. Vedi <c>CreateTradingSessionRequest.ClientRunMode</c>.</para>
+/// occhi dell'operatore. Vedi <c>CreateTradingSessionRequest.ClientRunMode</c>.</para>
 /// </summary>
 public enum ClientRunMode
 {
@@ -63,30 +55,6 @@ public enum ClientRunMode
     Backtest,
 
     /// <summary>Mercato reale, barre che arrivano man mano che si chiudono.</summary>
-    Realtime
-}
-
-public enum TitanoFilterMode
-{
-    /// <summary>
-    /// Nessun filtro: vengono valutate tutte le strategie del masterfilter. È la modalità con cui si
-    /// produce il <c>trades.json</c> su cui l'analisi Titano calcola offline le rotazioni.
-    /// </summary>
-    Disabled,
-
-    /// <summary>
-    /// Backtest con filtro: le rotazioni sono lette dal manifest calcolato <b>offline</b> sui trade
-    /// di tutte le strategie del workspace. Per ogni barra vale la decisione del periodo che la
-    /// contiene. Una barra fuori dai periodi del manifest è un errore di configurazione (manifest
-    /// non allineato all'intervallo di backtest), non un "tutto abilitato".
-    /// </summary>
-    BacktestRotationFile,
-
-    /// <summary>
-    /// Realtime: vale la decisione del periodo corrente prodotto dall'ultima analisi Titano. Le barre
-    /// successive alla fine del manifest ricadono sull'ultimo periodo disponibile — è la rotazione
-    /// in vigore finché non se ne calcola una nuova — e la cosa viene dichiarata nel rotation-log.
-    /// </summary>
     Realtime
 }
 
@@ -132,51 +100,16 @@ public sealed class CreateTradingSessionRequest
     public decimal InitialCapital { get; init; } = 100_000m;
     public decimal CommissionPerContract { get; init; } = 2m;
     public string? ClientSessionToken { get; init; }
-    public string? TitanoRunId { get; init; }
-    public string? TitanoBacktestFolder { get; init; }
 
-    /// <summary>
-    /// Modalità operativa rispetto al filtro Titano. Vedi <see cref="TitanoFilterMode"/>.
-    ///
-    /// <para><see cref="TitanoFilterMode.Disabled"/> non richiede un <see cref="TitanoRunId"/>. Se il
-    /// RunId è comunque indicato, la rotazione viene risolta e registrata nel rotation-log senza
-    /// essere applicata: serve a confrontare "cosa avrebbe fatto Titano" senza subirne gli effetti.</para>
-    ///
-    /// <para>Le altre due modalità richiedono <see cref="TitanoRunId"/> e
-    /// <see cref="TitanoBacktestFolder"/>.</para>
-    /// </summary>
-    public TitanoFilterMode TitanoMode { get; init; } = TitanoFilterMode.Disabled;
-
-    /// <summary>
-    /// Contesto dichiarato dal client (vedi <see cref="ClientRunMode"/>). Il server lo incrocia con
-    /// <see cref="TitanoMode"/> e rifiuta le combinazioni incoerenti:
-    ///
-    /// <list type="bullet">
-    /// <item><see cref="TitanoFilterMode.Realtime"/> in <see cref="ClientRunMode.Backtest"/>: la
-    /// rotazione "corrente" verrebbe applicata a barre storiche, e oltre la fine del manifest
-    /// resterebbe congelata sull'ultimo periodo — cioè look-ahead mascherato da fallback.</item>
-    /// <item><see cref="TitanoFilterMode.BacktestRotationFile"/> in
-    /// <see cref="ClientRunMode.Realtime"/>: il tempo live esce quasi subito dall'intervallo del
-    /// manifest e la sessione si fermerebbe alla prima barra scoperta.</item>
-    /// </list>
-    ///
-    /// <see cref="TitanoFilterMode.Disabled"/> è legittimo in entrambi i contesti.
-    /// </summary>
+    /// <summary>Contesto dichiarato dal client (vedi <see cref="ClientRunMode"/>).</summary>
     public ClientRunMode ClientRunMode { get; init; } = ClientRunMode.Unknown;
 
     /// <summary>
     /// Applica il limite <c>MaxConcurrentTrades</c> per account nella distribuzione multi-account.
     ///
     /// <para>Null = default: attivo ovunque tranne nel run che genera il campione sorgente, cioè
-    /// <see cref="ClientRunMode.Backtest"/> con <see cref="TitanoFilterMode.Disabled"/>. Quel run
-    /// deve produrre tutti i trade del master filter, perché è da lì che Titano calcola le
-    /// rotazioni: limitare la concorrenza eliminerebbe segnali e falserebbe la sorgente.</para>
-    ///
-    /// <para>Il flag esiste perché prima quella regola era cablata su <see cref="TitanoMode"/>, e
-    /// così concorrenza e rotazione si accendevano insieme: confrontare un run <c>Disabled</c> con
-    /// uno <c>BacktestRotationFile</c> significava muovere due variabili e attribuire a Titano una
-    /// differenza che veniva in parte dal limite di trade. Valorizzarlo esplicitamente permette di
-    /// isolare i due effetti.</para>
+    /// <see cref="ClientRunMode.Backtest"/>. Quel run deve produrre tutti i trade del master filter:
+    /// limitare la concorrenza eliminerebbe segnali e falserebbe la sorgente.</para>
     /// </summary>
     public bool? EnforceConcurrencyLimits { get; init; }
 
@@ -199,10 +132,6 @@ public sealed class TradingSessionDescriptor
     public string? ExecutionKey { get; init; }
     public required ExecutionMode ExecutionMode { get; init; }
     public required TradingSessionStatus Status { get; init; }
-    public string? TitanoRunId { get; init; }
-
-    /// <summary>Modalità operativa rispetto al filtro Titano. Vedi <see cref="TitanoFilterMode"/>.</summary>
-    public TitanoFilterMode TitanoMode { get; init; }
 
     /// <summary>Contesto dichiarato dal client alla creazione. Vedi <see cref="Trading.ClientRunMode"/>.</summary>
     public ClientRunMode ClientRunMode { get; init; }
@@ -254,7 +183,7 @@ public sealed class TradingSessionStrategyInfo
 {
     /// <summary>
     /// Il <c>Name</c>/<c>StrategyCode</c>, non l'<c>Id</c> della classe: è il codice che compare in
-    /// <c>signals.json</c>, <c>trades.json</c> e negli stati Titano. Vedi CLAUDE.md, «Id ≠ Name».
+    /// <c>signals.json</c> e <c>trades.json</c>. Vedi CLAUDE.md, «Id ≠ Name».
     /// </summary>
     public required string StrategyCode { get; init; }
     public required string Symbol { get; init; }
@@ -287,7 +216,6 @@ public sealed class TradingSessionSummary
     public required ExecutionMode ExecutionMode { get; init; }
     public required TradingSessionStatus Status { get; init; }
     public required ClientRunMode ClientRunMode { get; init; }
-    public required TitanoFilterMode TitanoMode { get; init; }
     public required DateTime CreatedAtUtc { get; init; }
 
     /// <summary>Barra più recente valutata dalla sessione. Null se non ha ancora ricevuto barre.</summary>
@@ -784,7 +712,7 @@ public sealed class TradingSessionSnapshot
     /// <summary>Mappa account -> gruppo configurata per la distribuzione dei segnali (anti copy-trading).</summary>
     public IReadOnlyList<AccountGroupMapping> AccountGroups { get; init; } = [];
 
-    /// <summary>Profilo completo gruppo/account/Titano quando configurato via PUT /groups.</summary>
+    /// <summary>Profilo completo gruppo/account quando configurato via PUT /groups.</summary>
     public IReadOnlyList<TradingGroupRow> Groups { get; init; } = [];
 }
 
@@ -805,8 +733,8 @@ public sealed class SetAccountGroupsRequest
 }
 
 /// <summary>
-/// Riga di configurazione gruppo/account con profilo Titano opzionale. Più righe con lo stesso
-/// <see cref="GroupId"/> condividono lo stesso profilo Titano del gruppo.
+/// Riga di configurazione gruppo/account. Più righe con lo stesso <see cref="GroupId"/>
+/// condividono lo stesso profilo del gruppo.
 /// </summary>
 public sealed class TradingGroupRow
 {
@@ -816,7 +744,7 @@ public sealed class TradingGroupRow
     /// <summary>
     /// Massimo numero di ingressi contemporanei per questo account, <b>sull'insieme delle
     /// strategie e trasversale ai simboli</b>: dieci significa dieci, che siano su un simbolo solo
-    /// o su dieci diversi. Zero significa illimitato. Ignorato nel backtest senza Titano.
+    /// o su dieci diversi. Zero significa illimitato.
     ///
     /// <para>Cosa venga contato — solo posizioni, oppure posizioni più ordini pendenti — lo dice
     /// <see cref="ConcurrencyCountMode"/>.</para>
@@ -828,29 +756,6 @@ public sealed class TradingGroupRow
     /// <see cref="Trading.ConcurrencyCountMode"/>.
     /// </summary>
     public ConcurrencyCountMode ConcurrencyCountMode { get; init; }
-
-    /// <summary>Riferimento al setup salvato (rotation-setups); metadata per il client, non usato a runtime.</summary>
-    public string? RotationSetupId { get; init; }
-
-    /// <summary>
-    /// Cartella di backtest da cui derivano i run Titano del gruppo. Obbligatoria se si applicano
-    /// filtri Titano al gruppo. Il run non si indica più: si usa sempre l'ultimo generato in questa
-    /// cartella, risolto al momento (<c>TitanoRotationService.ResolveLatestRun</c>) invece che
-    /// congelato sulla riga.
-    /// </summary>
-    public string? TitanoBacktestFolder { get; init; }
-
-    /// <summary>
-    /// true: al polling account il manifest del gruppo filtra i template e scala la quantità.
-    /// false: il gruppo riceve tutti i template compatibili con l'anti copy-trading, indipendentemente dal manifest.
-    ///
-    /// <para>Non va confuso con <see cref="CreateTradingSessionRequest.TitanoMode"/>: la modalità dice
-    /// <i>dove</i> si sta girando ed è della sessione, questo flag dice soltanto se <i>questo</i> gruppo
-    /// subisce il filtro del proprio run. Un gruppo senza <see cref="TitanoBacktestFolder"/> proprio eredita
-    /// la decisione della sessione — filtrata in tutte le modalità tranne
-    /// <see cref="TitanoFilterMode.Disabled"/>.</para>
-    /// </summary>
-    public bool ApplyTitanoFilters { get; init; } = true;
 }
 
 public sealed class SetTradingGroupsRequest
@@ -945,18 +850,16 @@ public sealed class AccountSignalPollRequest
 ///
 /// <para>Registra un intent <see cref="OrderIntentKind.Close"/> per la posizione aperta
 /// corrispondente, che il client referenzia nel normale POST /execution-reports per completare la
-/// chiusura e generare il PersistedTrade (input delle rotazioni Titano). Gli intent Close emessi
+/// chiusura e generare il PersistedTrade. Gli intent Close emessi
 /// dal server per un segnale <see cref="TradeSignal.ExitOnly"/> seguono invece il normale canale
 /// di consegna al client.</para>
 /// </summary>
 /// <summary>
-/// Promuove i trade di una sessione a campione sorgente per le rotazioni Titano.
+/// Promuove i trade di una sessione a backtest, così da poterli confrontare con un run interno.
 ///
 /// <para>Serve perché le due metà della catena scrivono e leggono in posti diversi: una sessione
-/// persiste in <c>&lt;workspace&gt;/sessions/&lt;id&gt;/</c>, mentre <c>TitanoRotationService</c>
-/// legge <c>&lt;workspace&gt;/backtests/&lt;cartella&gt;/trades.json</c>. Senza questo passaggio un
-/// backtest eseguito dall'engine cTrader non può alimentare Titano, pur avendone prodotto i
-/// trade.</para>
+/// persiste in <c>&lt;workspace&gt;/sessions/&lt;id&gt;/</c>, mentre gli artefatti di backtest
+/// stanno in <c>&lt;workspace&gt;/backtests/&lt;cartella&gt;/</c>.</para>
 /// </summary>
 public sealed class PromoteSessionToBacktestRequest
 {
@@ -966,8 +869,7 @@ public sealed class PromoteSessionToBacktestRequest
     public required string BacktestFolderName { get; init; }
 
     /// <summary>
-    /// Senza conferma esplicita una cartella esistente non viene toccata: sovrascriverla
-    /// cambierebbe la sorgente di run Titano già calcolati, che di quella sorgente portano l'hash.
+    /// Senza conferma esplicita una cartella esistente non viene toccata.
     /// </summary>
     public bool OverwriteExisting { get; init; }
 }

@@ -29,9 +29,8 @@ namespace Piootoo.Core.Services;
 /// <para><b>Invariante.</b> Il journal e' uno stato transitorio del run: ogni scrittura completa
 /// (<c>Write*</c>) e ogni materializzazione lo cancellano. Un run che termina normalmente chiude
 /// sempre con una scrittura completa e durabile, quindi in una cartella di backtest chiusa il
-/// <c>.jsonl</c> non esiste. Chi legge l'array senza passare da qui — <c>TitanoRotationService</c>,
-/// che gli fa l'hash — deve chiamare prima <see cref="CompactAll"/>: e' un no-op quando non c'e'
-/// journal.</para>
+/// <c>.jsonl</c> non esiste. Chi legge l'array senza passare da qui deve chiamare prima
+/// <see cref="CompactAll"/>: e' un no-op quando non c'e' journal.</para>
 /// </summary>
 public sealed class TradingJsonStore
 {
@@ -69,14 +68,12 @@ public sealed class TradingJsonStore
 
     public string SignalsPath => Path.Combine(_directory, TradingPersistenceSchema.SignalsFileName);
     public string TradesPath => Path.Combine(_directory, TradingPersistenceSchema.TradesFileName);
-    public string RotationLogPath => Path.Combine(_directory, DiagnosticsSchema.RotationLogFileName);
     public string SessionSummaryPath => Path.Combine(_directory, SessionRunSummarySchema.FileName);
 
     public void Initialize()
     {
         WriteSignals([]);
         WriteTrades([]);
-        WriteRotationLog([]);
     }
 
     /// <summary>
@@ -89,12 +86,10 @@ public sealed class TradingJsonStore
     {
         Compact<PersistedSignal>(SignalsPath, value => value.SignalId);
         Compact<PersistedTrade>(TradesPath, value => value.TradeId);
-        Compact<RotationLogEntry>(RotationLogPath, value => value.EntryId);
     }
 
     public IReadOnlyList<PersistedSignal> ReadSignals() => Read<PersistedSignal>(SignalsPath, value => value.SignalId);
     public IReadOnlyList<PersistedTrade> ReadTrades() => Read<PersistedTrade>(TradesPath, value => value.TradeId);
-    public IReadOnlyList<RotationLogEntry> ReadRotationLog() => Read<RotationLogEntry>(RotationLogPath, value => value.EntryId);
 
     public void UpsertSignals(IEnumerable<PersistedSignal> values)
     {
@@ -146,10 +141,6 @@ public sealed class TradingJsonStore
         }
     }
 
-    /// <summary>Sostituisce l'intero log di rotazione (una riga per barra) con l'elenco fornito, deduplicato per EntryId.</summary>
-    public void WriteRotationLog(IEnumerable<RotationLogEntry> values, bool durable = true) =>
-        WriteDistinct(RotationLogPath, values.ToArray(), value => value.EntryId, durable);
-
     /// <summary>
     /// Accoda al journal dei signal i soli record nuovi o modificati dall'ultimo checkpoint.
     /// Non tocca <c>signals.json</c>: la fusione avviene alla prima lettura o scrittura completa.
@@ -169,14 +160,6 @@ public sealed class TradingJsonStore
         if (materialized.Length == 0) return;
         ValidateTrades(materialized);
         Append(TradesPath, materialized);
-    }
-
-    /// <inheritdoc cref="AppendSignals"/>
-    public void AppendRotationLog(IEnumerable<RotationLogEntry> values)
-    {
-        var materialized = values.ToArray();
-        if (materialized.Length == 0) return;
-        Append(RotationLogPath, materialized);
     }
 
     private static void ValidateSignals(IEnumerable<PersistedSignal> values)

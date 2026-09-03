@@ -47,59 +47,8 @@ public partial class WorkspaceBacktestingForm : Form
     private readonly Button _refreshWorkspacesButton = new();
     private readonly Button _saveMasterFilterButton = new();
     private readonly ComboBox _backtestingWorkspaceCombo = new();
-    private readonly ComboBox _titanoWorkspaceCombo = new();
-    private readonly ComboBox _titanoBacktestCombo = new();
-    private readonly Label _titanoPathLabel = new();
-    private readonly Button _refreshTitanoBacktestsButton = new();
-    private readonly Button _openTitanoFolderButton = new();
-    private readonly ComboBox _titanoSetupCombo = new();
-    private readonly TextBox _titanoSetupName = new();
-    private readonly TextBox _titanoSetupDescription = new();
-    private readonly Button _titanoLoadSetupButton = new();
-    private readonly Button _titanoSaveSetupButton = new();
-    private readonly Button _titanoReloadSetupsButton = new();
-    private readonly ComboBox _titanoPeriodCombo = new();
-    private readonly NumericUpDown _titanoMinimumTrades = new();
-    private readonly CheckBox _titanoRequireEquityAboveMa = new() { Text = "Richiedi equity sopra la media", AutoSize = true };
-    private readonly DateTimePicker _titanoStartPicker = new();
-    private readonly DateTimePicker _titanoEndPicker = new();
-    private readonly NumericUpDown _titanoShortDays = new();
-    private readonly NumericUpDown _titanoLongDays = new();
-    private readonly NumericUpDown _titanoMaDays = new();
-    private readonly NumericUpDown _titanoMinShortReturn = new();
-    private readonly NumericUpDown _titanoMinLongReturn = new();
-    private readonly NumericUpDown _titanoMinZ = new();
-    private readonly NumericUpDown _titanoMaxZ = new();
-    private readonly NumericUpDown _titanoMaxCurrentDd = new();
-    private readonly NumericUpDown _titanoMaxDd = new();
-    private readonly NumericUpDown _titanoMaxVolatility = new();
-    private readonly NumericUpDown _titanoReenableDd = new();
-    private readonly NumericUpDown _titanoDisableScore = new();
-    private readonly NumericUpDown _titanoReenableScore = new();
-    private readonly NumericUpDown _titanoCooldown = new();
-    private readonly NumericUpDown _titanoMinOn = new();
-    private readonly NumericUpDown _titanoMinVotes = new();
-    private readonly NumericUpDown _titanoHardStop = new();
-    private readonly NumericUpDown _titanoCommission = new();
-    private readonly NumericUpDown _titanoSlippage = new();
-    private readonly NumericUpDown _titanoCalibration = new();
-    private readonly NumericUpDown _titanoEvaluation = new();
-    private readonly ComboBox _titanoWalkForwardMode = new();
-    private readonly TextBox _titanoSizingTiers = new() { Text = "0.80=100%; 0.60=50%; 0.40=25%; 0=0%" };
-    private readonly CheckBox _titanoCrossSectional =
-        new() { Text = "Sizing per percentile (rango fra le strategie del periodo)", AutoSize = true, Checked = true };
-    private readonly NumericUpDown _titanoMinAllocation = new();
-    private readonly NumericUpDown _titanoMaxAllocation = new();
-    private readonly NumericUpDown _titanoAllocationStep = new();
-    private readonly Button _titanoResetHardStopButton = new();
-    private readonly Button _openTitanoReportButton = new();
-    private TitanoRotationManifest? _lastTitanoManifest;
     private readonly ComboBox _sessionWorkspaceCombo = new();
     private readonly ComboBox _sessionModeCombo = new();
-    private readonly ComboBox _sessionTitanoRunId = new();
-    private readonly Button _sessionLoadTitanoRuns = new();
-    private readonly ComboBox _sessionTitanoMode = new();
-    private readonly ComboBox _sessionTitanoBacktest = new();
     private readonly CheckBox _sessionPortfolioRiskEnabled =
         new() { Text = "Rischio di portafoglio", AutoSize = true };
     private readonly Button _sessionCreate = new();
@@ -113,7 +62,6 @@ public partial class WorkspaceBacktestingForm : Form
     private readonly Button _sessionAddAccountGroupRow = new();
     private readonly Button _sessionSaveAccountGroups = new();
     private readonly Button _sessionReloadAccountGroups = new();
-    private readonly Button _sessionApplyTitanoToGroups = new();
     private readonly ComboBox _sessionPlanCombo = new();
     private readonly TextBox _sessionPlanCode = new();
     private readonly TextBox _sessionPlanName = new();
@@ -121,8 +69,6 @@ public partial class WorkspaceBacktestingForm : Form
     private readonly Button _sessionPlanSave = new();
     private readonly Button _sessionPlanDelete = new();
     private List<TradingPlan> _tradingPlans = new();
-    private readonly Button _runTitanoButton = new();
-    private readonly TextBox _titanoResultsTextBox = new();
     private readonly ToolTip _formToolTip = new() { AutoPopDelay = 25000, InitialDelay = 350, ReshowDelay = 100, ShowAlways = true, IsBalloon = true };
     private readonly Label _backtestingWorkspaceHint = new();
     private readonly Label _backtestingMasterFilterSummary = new();
@@ -136,13 +82,6 @@ public partial class WorkspaceBacktestingForm : Form
     private readonly DataGridView _tradingResultsGrid = new();
     private readonly Label _tradingResultsSummary = new();
     private readonly TextBox _tradingResultsFilter = new() { Width = 250, PlaceholderText = "Cerca symbol o strategia..." };
-    private readonly ComboBox _rotationsWorkspaceCombo = new();
-    private readonly ComboBox _rotationsBacktestCombo = new();
-    private readonly ComboBox _rotationsRunCombo = new();
-    private readonly Button _refreshRotationsButton = new();
-    private readonly DataGridView _rotationsGrid = new();
-    private readonly Label _rotationsSummary = new();
-    private readonly TextBox _rotationsFilter = new() { Width = 250, PlaceholderText = "Cerca symbol o strategia..." };
 
     private readonly ComboBox _accountsCombo = new();
     private readonly TextBox _accountNameTextBox = new();
@@ -172,14 +111,12 @@ public partial class WorkspaceBacktestingForm : Form
 
     private List<StrategyCatalogItem> _strategies = new();
     private List<WorkspaceInfo> _workspaces = new();
-    private List<TitanoSetupInfo> _titanoSetups = new();
     private BacktestingResult? _lastResult;
     private string? _lastJobId;
     private bool _suppressWorkspaceEvents;
     private CancellationTokenSource? _pollingCts;
     private bool _backtestRunning;
     private bool _allowClose;
-    private bool _suppressSessionTitanoBacktestEvents;
 
     public WorkspaceBacktestingForm()
     {
@@ -215,25 +152,19 @@ public partial class WorkspaceBacktestingForm : Form
         _workspacesTab = new TabPage("Workspaces");
         var backtestingTab = new TabPage("Backtesting");
         var accountsTab = new TabPage("Accounts");
-        var titanoTab = new TabPage("Titano");
         var tradingResultsTab = new TabPage("Trading Results");
-        var rotationsTab = new TabPage("Titano Rotations");
         var sessionsTab = new TabPage("Trading Session");
         _mainTabs.TabPages.Add(accountsTab);
         _mainTabs.TabPages.Add(_workspacesTab);
         _mainTabs.TabPages.Add(backtestingTab);
-        _mainTabs.TabPages.Add(titanoTab);
         _mainTabs.TabPages.Add(tradingResultsTab);
-        _mainTabs.TabPages.Add(rotationsTab);
         _mainTabs.TabPages.Add(sessionsTab);
         root.Controls.Add(_mainTabs, 0, 1);
 
         _workspacesTab.Controls.Add(BuildWorkspacesTab());
         accountsTab.Controls.Add(BuildAccountsTab());
         backtestingTab.Controls.Add(BuildBacktestingTab());
-        titanoTab.Controls.Add(BuildTitanoTab());
         tradingResultsTab.Controls.Add(BuildTradingResultsTab());
-        rotationsTab.Controls.Add(BuildTitanoRotationsTab());
         sessionsTab.Controls.Add(BuildTradingSessionTab());
     }
 
@@ -298,9 +229,9 @@ public partial class WorkspaceBacktestingForm : Form
             WrapContents = true,
             Controls =
             {
-                TitanoLabel("Workspace"), _tradingResultsWorkspaceCombo,
-                TitanoLabel("Backtest"), _tradingResultsBacktestCombo,
-                TitanoLabel("Filtro"), _tradingResultsFilter,
+                FieldLabel("Workspace"), _tradingResultsWorkspaceCombo,
+                FieldLabel("Backtest"), _tradingResultsBacktestCombo,
+                FieldLabel("Filtro"), _tradingResultsFilter,
                 _refreshTradingResultsButton
             }
         }, 0, 0);
@@ -312,47 +243,6 @@ public partial class WorkspaceBacktestingForm : Form
 
         ConfigureTradingResultsGrid();
         root.Controls.Add(_tradingResultsGrid, 0, 2);
-        return root;
-    }
-
-    private Control BuildTitanoRotationsTab()
-    {
-        var root = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 3, Padding = new Padding(12) };
-        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-
-        ConfigureResultsSelector(_rotationsWorkspaceCombo, _rotationsBacktestCombo,
-            LoadRotationBacktestsAsync, LoadTitanoRunsAsync);
-        _rotationsRunCombo.DropDownStyle = ComboBoxStyle.DropDownList;
-        _rotationsRunCombo.Width = 310;
-        _rotationsRunCombo.SelectedIndexChanged += async (_, _) => await LoadSelectedTitanoRotationAsync();
-        _refreshRotationsButton.Text = "Aggiorna rotazioni";
-        _refreshRotationsButton.AutoSize = true;
-        _refreshRotationsButton.Click += async (_, _) => await LoadTitanoRunsAsync();
-        _rotationsFilter.TextChanged += (_, _) => ApplySymbolAndStrategyFilter(_rotationsGrid, _rotationsFilter.Text);
-
-        root.Controls.Add(new FlowLayoutPanel
-        {
-            AutoSize = true,
-            WrapContents = true,
-            Controls =
-            {
-                TitanoLabel("Workspace"), _rotationsWorkspaceCombo,
-                TitanoLabel("Backtest"), _rotationsBacktestCombo,
-                TitanoLabel("Run"), _rotationsRunCombo,
-                TitanoLabel("Filtro"), _rotationsFilter,
-                _refreshRotationsButton
-            }
-        }, 0, 0);
-
-        _rotationsSummary.AutoSize = true;
-        _rotationsSummary.Padding = new Padding(0, 6, 0, 6);
-        _rotationsSummary.Text = "Seleziona un workspace e un backtest.";
-        root.Controls.Add(_rotationsSummary, 0, 1);
-
-        ConfigureRotationsGrid();
-        root.Controls.Add(_rotationsGrid, 0, 2);
         return root;
     }
 
@@ -398,19 +288,6 @@ public partial class WorkspaceBacktestingForm : Form
         _tradingResultsGrid.Columns.Add("Commission", "Commissioni");
         _tradingResultsGrid.Columns.Add("NetProfit", "P&L netto");
         _tradingResultsGrid.Columns.Add("AccountNumber", "Account");
-    }
-
-    private void ConfigureRotationsGrid()
-    {
-        ConfigureGrid(_rotationsGrid);
-        _rotationsGrid.Columns.Add("EffectiveFromUtc", "Dal UTC");
-        _rotationsGrid.Columns.Add("EffectiveToUtc", "Al UTC");
-        _rotationsGrid.Columns.Add("StrategyCode", "Strategia");
-        _rotationsGrid.Columns.Add("Symbol", "Symbol");
-        _rotationsGrid.Columns.Add("State", "Stato");
-        _rotationsGrid.Columns.Add("AllocationMultiplier", "Moltiplicatore");
-        _rotationsGrid.Columns.Add("TransitionType", "Variazione");
-        _rotationsGrid.Columns.Add("Reason", "Motivo");
     }
 
     private static void ApplySymbolAndStrategyFilter(DataGridView grid, string text)
@@ -1072,11 +949,7 @@ public partial class WorkspaceBacktestingForm : Form
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         _sessionWorkspaceCombo.DropDownStyle = ComboBoxStyle.DropDownList;
         _sessionWorkspaceCombo.Width = 320;
-        _sessionWorkspaceCombo.SelectedIndexChanged += async (_, _) =>
-        {
-            await LoadSessionTitanoBacktestsAsync();
-            await LoadTradingPlansAsync();
-        };
+        _sessionWorkspaceCombo.SelectedIndexChanged += async (_, _) => await LoadTradingPlansAsync();
         _sessionPlanCombo.DropDownStyle = ComboBoxStyle.DropDownList;
         _sessionPlanCombo.Width = 220;
         _sessionPlanCombo.SelectedIndexChanged += (_, _) => LoadSelectedTradingPlan();
@@ -1091,24 +964,6 @@ public partial class WorkspaceBacktestingForm : Form
         _sessionModeCombo.DropDownStyle = ComboBoxStyle.DropDownList;
         _sessionModeCombo.Items.AddRange(Enum.GetNames<ExecutionMode>());
         _sessionModeCombo.SelectedItem = nameof(ExecutionMode.ServerSimulated);
-        _sessionTitanoRunId.Width = 260;
-        _sessionTitanoRunId.DropDownStyle = ComboBoxStyle.DropDown; // consente anche l'incolla manuale
-        _sessionTitanoBacktest.Width = 290;
-        _sessionTitanoBacktest.DropDownStyle = ComboBoxStyle.DropDownList;
-        _sessionTitanoBacktest.SelectedIndexChanged += async (_, _) =>
-        {
-            if (!_suppressSessionTitanoBacktestEvents)
-                await LoadTitanoRunsForSessionAsync();
-        };
-        _sessionLoadTitanoRuns.Text = "Carica run";
-        _sessionLoadTitanoRuns.AutoSize = true;
-        _sessionLoadTitanoRuns.Click += async (_, _) => await LoadTitanoRunsForSessionAsync(showValidationError: true);
-        _sessionTitanoMode.Width = 200;
-        _sessionTitanoMode.DropDownStyle = ComboBoxStyle.DropDownList;
-        _sessionTitanoMode.Items.AddRange(Enum.GetNames<TitanoFilterMode>());
-        _sessionTitanoMode.SelectedItem = nameof(TitanoFilterMode.Disabled);
-        _sessionTitanoMode.SelectedIndexChanged += (_, _) => UpdateTitanoSessionControlsState();
-
         _formToolTip.SetToolTip(_sessionPortfolioRiskEnabled,
             "Attiva i freni di portafoglio del sizing: riduzione sul drawdown dal picco e sull'esposizione lorda. " +
             "In ExternalBroker il rischio di portafoglio è governato dal broker, non dal server.");
@@ -1116,26 +971,19 @@ public partial class WorkspaceBacktestingForm : Form
         var config = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, WrapContents = true };
         config.Controls.AddRange(new Control[]
         {
-            TitanoLabel("Piano", "Configurazione operativa riutilizzabile salvata nel workspace."),
+            FieldLabel("Piano", "Configurazione operativa riutilizzabile salvata nel workspace."),
             _sessionPlanCombo,
-            TitanoLabel("Codice piano", "Codice globale inserito nel cBot."),
+            FieldLabel("Codice piano", "Codice globale inserito nel cBot."),
             _sessionPlanCode,
-            TitanoLabel("Nome piano", "Nome leggibile del piano."),
+            FieldLabel("Nome piano", "Nome leggibile del piano."),
             _sessionPlanName,
             _sessionPlanNew,
             _sessionPlanSave,
             _sessionPlanDelete,
-            TitanoLabel("Workspace", "Workspace per cui viene creata e gestita la sessione di trading."),
+            FieldLabel("Workspace", "Workspace per cui viene creata e gestita la sessione di trading."),
             WithHelp(_sessionWorkspaceCombo, "Workspace per cui viene creata e gestita la sessione di trading."),
-            TitanoLabel("Modalità", "ServerSimulated: esecuzione simulata lato server. ExternalBroker: gli ordini vengono inoltrati a un broker esterno."),
+            FieldLabel("Modalità", "ServerSimulated: esecuzione simulata lato server. ExternalBroker: gli ordini vengono inoltrati a un broker esterno."),
             WithHelp(_sessionModeCombo, "ServerSimulated: esecuzione simulata lato server. ExternalBroker: gli ordini vengono inoltrati a un broker esterno."),
-            TitanoLabel("Backtest Titano", "Backtest sorgente da cui è stata generata la rotazione Titano."),
-            WithHelp(_sessionTitanoBacktest, "Elenca i backtest con risultati del workspace selezionato. Scegli quello da cui leggere o generare le rotazioni Titano."),
-            TitanoLabel("Setup Titano (run)", "Rotazione Titano salvata da collegare alla sessione. Premi 'Carica run' per elencare quelle disponibili nel backtest indicato."),
-            WithHelp(_sessionTitanoRunId, "Rotazione Titano salvata da collegare alla sessione. Lascia vuoto per non collegare alcuna rotazione."),
-            WithHelp(_sessionLoadTitanoRuns, "Elenca le rotazioni Titano già calcolate per il workspace e il backtest selezionati."),
-            TitanoLabel("Modalità Titano", TitanoModeHelp),
-            WithHelp(_sessionTitanoMode, TitanoModeHelp),
             _sessionPortfolioRiskEnabled
         });
         root.Controls.Add(config, 0, 0);
@@ -1198,12 +1046,6 @@ public partial class WorkspaceBacktestingForm : Form
         });
         _sessionAccountGroups.Columns.Add(new DataGridViewComboBoxColumn
         {
-            Name = "RotationSetupId", HeaderText = "Setup Titano", FillWeight = 25,
-            DisplayMember = nameof(TitanoSetupInfo.Name), ValueMember = nameof(TitanoSetupInfo.Id),
-            DisplayStyle = DataGridViewComboBoxDisplayStyle.DropDownButton
-        });
-        _sessionAccountGroups.Columns.Add(new DataGridViewComboBoxColumn
-        {
             Name = "AccountNumber", HeaderText = "Codice account", FillWeight = 20,
             DisplayMember = nameof(AccountNumberListItem.DisplayText),
             ValueMember = nameof(AccountNumberListItem.AccountNumber),
@@ -1212,7 +1054,7 @@ public partial class WorkspaceBacktestingForm : Form
         _sessionAccountGroups.Columns.Add(new DataGridViewTextBoxColumn
         {
             Name = "MaxConcurrentTrades", HeaderText = "Max trade contemporanei", FillWeight = 15,
-            ToolTipText = "0 = illimitato. Ignorato nel backtest senza Titano; applicato nel backtest Titano e in realtime."
+            ToolTipText = "0 = illimitato."
         });
         _sessionAccountGroups.DataError += (_, e) => e.ThrowException = false;
         _sessionAccountGroups.CurrentCellDirtyStateChanged += (_, _) =>
@@ -1231,10 +1073,6 @@ public partial class WorkspaceBacktestingForm : Form
             if (account is not null && !string.IsNullOrWhiteSpace(account.GroupId))
                 row.Cells["GroupId"].Value = account.GroupId;
         };
-        _sessionAccountGroups.Columns.Add(new DataGridViewCheckBoxColumn
-        {
-            Name = "ApplyTitanoFilters", HeaderText = "Applica Titano", FillWeight = 12, TrueValue = true, FalseValue = false
-        });
         _formToolTip.SetToolTip(_sessionAccountGroups,
             "Un account per riga. Account con lo stesso 'Gruppo' (es. la stessa prop firm) non ricevono mai lo stesso segnale di ingresso; account di gruppi diversi sì.");
         layout.Controls.Add(_sessionAccountGroups, 0, 0);
@@ -1242,21 +1080,16 @@ public partial class WorkspaceBacktestingForm : Form
         _sessionAddAccountGroupRow.Text = "Aggiungi riga";
         _sessionSaveAccountGroups.Text = "Salva gruppi account";
         _sessionReloadAccountGroups.Text = "Ricarica gruppi account";
-        _sessionApplyTitanoToGroups.Text = "Genera e applica Titano";
         _sessionAddAccountGroupRow.Click += (_, _) => _sessionAccountGroups.Rows.Add();
         _sessionSaveAccountGroups.Click += async (_, _) => await SaveAccountGroupsAsync();
         _sessionReloadAccountGroups.Click += async (_, _) => await ReloadAccountGroupsAsync();
-        _sessionApplyTitanoToGroups.Click += async (_, _) => await ApplyTitanoToGroupsAsync();
         layout.Controls.Add(new FlowLayoutPanel
         {
             Dock = DockStyle.Top, AutoSize = true,
             Controls =
             {
                 WithHelp(_sessionAddAccountGroupRow, "Aggiunge una riga vuota alla griglia."),
-                WithHelp(_sessionSaveAccountGroups,
-                    "Salva gruppi, account e gli eventuali run Titano già generati."),
-                WithHelp(_sessionApplyTitanoToGroups,
-                    "Genera un run dai setup selezionati usando il backtest Titano della sessione e lo applica ai gruppi."),
+                WithHelp(_sessionSaveAccountGroups, "Salva gruppi e account."),
                 WithHelp(_sessionReloadAccountGroups, "Ricarica dalla sessione attiva la mappa account->gruppo corrente.")
             }
         }, 0, 1);
@@ -1313,10 +1146,8 @@ public partial class WorkspaceBacktestingForm : Form
             foreach (var mapping in accounts)
                 _sessionAccountGroups.Rows.Add(
                     mapping.GroupId,
-                    mapping.RotationSetupId,
                     mapping.AccountNumber,
-                    mapping.MaxConcurrentTrades,
-                    mapping.ApplyTitanoFilters);
+                    mapping.MaxConcurrentTrades);
             ShowSession($"Caricati {accounts.Count} account configurati.");
         }
         catch (Exception ex) { MessageBox.Show(ex.Message, "Errore gruppi account", MessageBoxButtons.OK, MessageBoxIcon.Error); }
@@ -1324,19 +1155,13 @@ public partial class WorkspaceBacktestingForm : Form
 
     private List<TradingGroupRow> ReadTradingGroupRows()
     {
-        var backtestFolder = GetSelectedSessionTitanoBacktestFolder();
         var rows = _sessionAccountGroups.Rows.Cast<DataGridViewRow>()
             .Where(row => !row.IsNewRow)
             .Select(row => new TradingGroupRow
             {
                 GroupId = Convert.ToString(row.Cells["GroupId"].Value ?? string.Empty)!.Trim(),
-                RotationSetupId = Convert.ToString(row.Cells["RotationSetupId"].Value ?? string.Empty)!.Trim() is { Length: > 0 } setupId
-                    ? setupId
-                    : null,
                 AccountNumber = Convert.ToString(row.Cells["AccountNumber"].Value ?? string.Empty)!.Trim(),
-                MaxConcurrentTrades = ParseMaxConcurrentTrades(row),
-                ApplyTitanoFilters = row.Cells["ApplyTitanoFilters"].Value is not false,
-                TitanoBacktestFolder = backtestFolder
+                MaxConcurrentTrades = ParseMaxConcurrentTrades(row)
             })
             .Where(row => row.AccountNumber.Length > 0 || row.GroupId.Length > 0)
             .ToList();
@@ -1356,429 +1181,18 @@ public partial class WorkspaceBacktestingForm : Form
         return value;
     }
 
-    private async Task ApplyTitanoToGroupsAsync()
-    {
-        if (_sessionWorkspaceCombo.SelectedItem is not WorkspaceListItem workspace)
-        {
-            MessageBox.Show("Seleziona un workspace.", "Gruppi Titano",
-                MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            return;
-        }
-        if (string.IsNullOrWhiteSpace(GetSelectedSessionTitanoBacktestFolder()))
-        {
-            MessageBox.Show("Indica la cartella Backtest Titano nella configurazione sessione.", "Gruppi Titano",
-                MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            return;
-        }
-
-        try
-        {
-            NormalizeBaseAddress();
-            var rows = ReadTradingGroupRows();
-            var inconsistent = rows.GroupBy(row => row.GroupId, StringComparer.OrdinalIgnoreCase)
-                .FirstOrDefault(group => group.Select(row => row.RotationSetupId)
-                    .Distinct(StringComparer.OrdinalIgnoreCase).Count() != 1);
-            if (inconsistent is not null)
-                throw new InvalidOperationException(
-                    $"Tutte le righe del gruppo '{inconsistent.Key}' devono usare lo stesso setup Titano.");
-
-            foreach (var group in rows.GroupBy(row => row.GroupId, StringComparer.OrdinalIgnoreCase))
-            {
-                var setupId = group.First().RotationSetupId;
-                if (string.IsNullOrWhiteSpace(setupId))
-                    continue;
-                var setup = await _httpClient.GetFromJsonAsync<TitanoRotationSetup>(
-                    $"api/Titano/rotation-setups/{Uri.EscapeDataString(setupId)}", _jsonOptions)
-                    ?? throw new InvalidOperationException($"Setup Titano '{setupId}' non trovato.");
-                var rotation = BuildTitanoRequest(
-                    setup,
-                    workspace.Info.Id,
-                    GetSelectedSessionTitanoBacktestFolder()!);
-                var response = await _httpClient.PostAsJsonAsync("api/Titano/rotations", rotation, _jsonOptions);
-                response.EnsureSuccessStatusCode();
-                _ = await response.Content.ReadFromJsonAsync<TitanoRotationManifest>(_jsonOptions)
-                    ?? throw new InvalidOperationException($"Manifest Titano non ricevuto per il gruppo '{group.Key}'.");
-                // Il run generato non si assegna più a mano: la sessione userà sempre l'ultimo
-                // disponibile per la cartella al momento di ogni barra.
-            }
-
-            if (_activeSession is not null)
-                await SaveAccountGroupsAsync();
-            else if (!string.IsNullOrWhiteSpace(_sessionPlanCode.Text))
-                await SaveTradingPlanAsync();
-            ShowSession("Setup Titano generati e applicati ai gruppi.");
-        }
-        catch (Exception ex)
-        {
-            MessageBox.Show(ex.Message, "Errore gruppi Titano", MessageBoxButtons.OK, MessageBoxIcon.Error);
-        }
-    }
-
-    private Control BuildTitanoTab()
-    {
-        var root = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 4, Padding = new Padding(12) };
-        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        root.RowStyles.Add(new RowStyle(SizeType.Percent, 55));
-        root.RowStyles.Add(new RowStyle(SizeType.Percent, 45));
-        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-
-        root.Controls.Add(BuildTitanoSourceGroup(), 0, 0);
-
-        ConfigureTitanoControls();
-        var settingsScroll = new Panel { Dock = DockStyle.Fill, AutoScroll = true };
-        var settingsStack = new FlowLayoutPanel
-        {
-            FlowDirection = FlowDirection.TopDown,
-            WrapContents = false,
-            AutoSize = true,
-            AutoSizeMode = AutoSizeMode.GrowAndShrink
-        };
-
-        settingsStack.Controls.Add(BuildTitanoGroup("Setup rotazione", new Control[]
-        {
-            TitanoField("Setup salvato", _titanoSetupCombo,
-                "Configurazione di parametri Titano salvata sul server."),
-            WithHelp(_titanoLoadSetupButton, "Carica nella form il setup selezionato."),
-            WithHelp(_titanoReloadSetupsButton, "Ricarica dal server l'elenco dei setup disponibili."),
-            TitanoField("Nome", _titanoSetupName,
-                "Nome leggibile con cui salvare o aggiornare il setup."),
-            TitanoField("Descrizione e motivazioni", _titanoSetupDescription,
-                "Motivazioni operative e di rischio alla base dei parametri scelti."),
-            WithHelp(_titanoSaveSetupButton, "Salva sul server nome, descrizione e parametri correnti.")
-        }));
-
-        settingsStack.Controls.Add(BuildTitanoGroup("Periodo di rotazione", new Control[]
-        {
-            TitanoField("Periodo", _titanoPeriodCombo,
-                "Frequenza con cui Titano ricalcola i pesi delle strategie: settimanale, bisettimanale o mensile."),
-            TitanoField("Trade minimi", _titanoMinimumTrades,
-                "Numero minimo di trade richiesto per considerare statisticamente il periodo."),
-            WithHelp(_titanoRequireEquityAboveMa,
-                "Se attivo, l'equity deve essere sopra la propria media mobile per superare il filtro."),
-            TitanoField("Start UTC", _titanoStartPicker,
-                "Inizio dell'intervallo storico su cui simulare la rotazione (UTC)."),
-            TitanoField("End UTC", _titanoEndPicker,
-                "Fine dell'intervallo storico su cui simulare la rotazione (UTC).")
-        }));
-
-        settingsStack.Controls.Add(BuildTitanoGroup("Finestre di analisi (momentum)", new Control[]
-        {
-            TitanoField("Breve gg", _titanoShortDays,
-                "Giorni della finestra 'breve' usata per misurare la performance recente di ogni strategia."),
-            TitanoField("Lunga gg", _titanoLongDays,
-                "Giorni della finestra 'lunga' usata per misurare il trend di fondo di ogni strategia."),
-            TitanoField("Media gg", _titanoMaDays,
-                "Giorni della finestra usata per calcolare la media mobile dell'equity, base per lo z-score."),
-            TitanoField("Min breve %", _titanoMinShortReturn,
-                "Rendimento minimo nella finestra breve richiesto perché la strategia resti idonea."),
-            TitanoField("Min lunga %", _titanoMinLongReturn,
-                "Rendimento minimo nella finestra lunga richiesto perché la strategia resti idonea."),
-            TitanoField("Z min", _titanoMinZ,
-                "Limite inferiore accettabile per lo z-score dell'equity rispetto alla sua media mobile."),
-            TitanoField("Z max", _titanoMaxZ,
-                "Limite superiore accettabile per lo z-score dell'equity rispetto alla sua media mobile.")
-        }));
-
-        settingsStack.Controls.Add(BuildTitanoGroup("Controllo rischio e drawdown", new Control[]
-        {
-            TitanoField("DD corrente %", _titanoMaxCurrentDd,
-                "Drawdown corrente massimo tollerato: oltre questa soglia la strategia viene disattivata."),
-            TitanoField("DD max %", _titanoMaxDd,
-                "Drawdown massimo osservato tollerato nella finestra di analisi."),
-            TitanoField("Volatilità %", _titanoMaxVolatility,
-                "Volatilità massima dei rendimenti recenti tollerata prima di escludere la strategia."),
-            TitanoField("DD riattiva %", _titanoReenableDd,
-                "Soglia di drawdown corrente sotto la quale una strategia disattivata può tornare attiva."),
-            TitanoField("Hard stop %", _titanoHardStop,
-                "Drawdown oltre il quale la strategia viene bloccata definitivamente: serve un reset manuale per ripartire.")
-        }));
-
-        settingsStack.Controls.Add(BuildTitanoGroup("Scoring e isteresi ON/OFF", new Control[]
-        {
-            TitanoField("Score OFF", _titanoDisableScore,
-                "Punteggio composito sotto il quale una strategia attiva viene disattivata."),
-            TitanoField("Score ON", _titanoReenableScore,
-                "Punteggio composito sopra il quale una strategia disattivata può essere riattivata."),
-            TitanoField("Cooldown", _titanoCooldown,
-                "Periodi di attesa obbligatoria dopo una disattivazione, prima che la strategia possa rientrare."),
-            TitanoField("Min ON", _titanoMinOn,
-                "Periodi minimi consecutivi attivi richiesti prima che la strategia possa essere disattivata di nuovo."),
-            TitanoField("Voti min", _titanoMinVotes,
-                "Numero minimo di filtri superati (su 5) perché la strategia resti/diventi idonea.")
-        }));
-
-        settingsStack.Controls.Add(BuildTitanoGroup("Sizing e costi", new Control[]
-        {
-            WithHelp(_titanoCrossSectional,
-                "Attivo: l'allocazione è il rango della strategia fra quelle del periodo, mappato con " +
-                "curva continua fra allocazione minima e massima. Disattivo: media dei voti assoluti " +
-                "mappata sui tier. La scelta cambia quali campi sottostanti hanno effetto."),
-            TitanoField("Alloc. min %", _titanoMinAllocation,
-                "Allocazione della strategia eleggibile peggiore del periodo. Non è zero: chi supera i " +
-                "cancelli resta operativo, solo con size ridotta. Solo con sizing per percentile."),
-            TitanoField("Alloc. max %", _titanoMaxAllocation,
-                "Allocazione della strategia migliore del periodo. È il tetto rispetto a cui si decide " +
-                "se lo stato è Enabled. Solo con sizing per percentile."),
-            TitanoField("Passo alloc. %", _titanoAllocationStep,
-                "Granularità dell'allocazione: la curva continua viene arrotondata a questo passo. " +
-                "0 = nessun arrotondamento. Solo con sizing per percentile."),
-            TitanoField("Tier sizing", _titanoSizingTiers,
-                "Tabella soglia punteggio=percentuale allocazione, es. 0.80=100%; 0.60=50%; 0.40=25%; 0=0%. " +
-                "Ha effetto SOLO con il sizing per percentile disattivato."),
-            TitanoField("Commissione/unità", _titanoCommission,
-                "Commissione applicata per unità nella simulazione dell'equity filtrata da Titano."),
-            TitanoField("Slippage/unità", _titanoSlippage,
-                "Slippage applicato per unità nella simulazione dell'equity filtrata da Titano.")
-        }));
-
-        settingsStack.Controls.Add(BuildTitanoGroup("Validazione walk-forward", new Control[]
-        {
-            TitanoField("Calibrazione", _titanoCalibration,
-                "Numero di periodi usati per calibrare la rotazione prima di ogni finestra di verifica."),
-            TitanoField("OOS", _titanoEvaluation,
-                "Numero di periodi di verifica out-of-sample valutati dopo ogni calibrazione."),
-            TitanoField("Walk-forward", _titanoWalkForwardMode,
-                "Modalità di ricalibrazione: Rolling (finestra scorrevole) o Expanding (finestra che si allarga nel tempo).")
-        }));
-
-        settingsStack.Controls.Add(BuildTitanoGroup("Azioni", new Control[]
-        {
-            WithHelp(_runTitanoButton,
-                "Invia la configurazione al server ed esegue la rotazione Titano sul backtest selezionato."),
-            WithHelp(_openTitanoReportButton,
-                "Apre il report HTML del risultato calcolato con i parametri correnti, incluso il confronto delle equity."),
-            WithHelp(_titanoResetHardStopButton,
-                "Rimuove il blocco hard-stop di una strategia dal prossimo periodo, richiedendo motivo e responsabile.")
-        }));
-
-        settingsScroll.Controls.Add(settingsStack);
-        root.Controls.Add(settingsScroll, 0, 1);
-
-        _titanoPathLabel.Text = "Seleziona workspace e backtest per collegare Titano ai risultati.";
-        _titanoPathLabel.AutoSize = true;
-        _titanoPathLabel.Dock = DockStyle.Top;
-        _titanoResultsTextBox.Multiline = true;
-        _titanoResultsTextBox.ReadOnly = true;
-        _titanoResultsTextBox.ScrollBars = ScrollBars.Both;
-        _titanoResultsTextBox.WordWrap = false;
-        _titanoResultsTextBox.Dock = DockStyle.Fill;
-        root.Controls.Add(new GroupBox
-        {
-            Text = "Run, periodi, strategie e metriche",
-            Dock = DockStyle.Fill,
-            Padding = new Padding(12),
-            Controls = { _titanoResultsTextBox, _titanoPathLabel }
-        }, 0, 2);
-        root.Controls.Add(new Label
-        {
-            Text = "Titano usa come input/base la cartella risultati del backtest selezionato; i suoi report sono salvati nella sottocartella titano.",
-            AutoSize = true,
-            Dock = DockStyle.Bottom
-        }, 0, 3);
-        return root;
-    }
-
-    private Control BuildTitanoSourceGroup()
-    {
-        _titanoWorkspaceCombo.DropDownStyle = ComboBoxStyle.DropDownList;
-        _titanoWorkspaceCombo.Width = 360;
-        _titanoWorkspaceCombo.DisplayMember = nameof(WorkspaceListItem.DisplayText);
-        _titanoWorkspaceCombo.SelectedIndexChanged += async (_, _) =>
-        {
-            if (!_suppressWorkspaceEvents)
-                await LoadTitanoBacktestsAsync();
-        };
-        _titanoBacktestCombo.DropDownStyle = ComboBoxStyle.DropDownList;
-        _titanoBacktestCombo.Width = 430;
-        _titanoBacktestCombo.SelectedIndexChanged += (_, _) =>
-        {
-            UpdateTitanoPath();
-            ApplySelectedBacktestPeriodToTitano();
-        };
-        _refreshTitanoBacktestsButton.Text = "Aggiorna backtest";
-        _refreshTitanoBacktestsButton.AutoSize = true;
-        _refreshTitanoBacktestsButton.Click += async (_, _) => await LoadTitanoBacktestsAsync(showErrors: true);
-        _openTitanoFolderButton.Text = "Apri cartella risultati";
-        _openTitanoFolderButton.AutoSize = true;
-        _openTitanoFolderButton.Enabled = false;
-        _openTitanoFolderButton.Click += (_, _) => OpenSelectedTitanoFolder();
-
-        var stack = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, AutoSize = true, WrapContents = false };
-        stack.Controls.Add(TitanoField("Workspace obbligatorio", _titanoWorkspaceCombo,
-            "Workspace da cui Titano legge il master filter e a cui appartiene il backtest selezionato."));
-        stack.Controls.Add(new FlowLayoutPanel
-        {
-            AutoSize = true,
-            WrapContents = true,
-            Controls =
-            {
-                TitanoField("Backtest", _titanoBacktestCombo,
-                    "Backtest sorgente: Titano usa i trade salvati in questa cartella come base per la rotazione."),
-                WithHelp(_refreshTitanoBacktestsButton,
-                    "Ricarica l'elenco dei backtest disponibili per il workspace selezionato."),
-                WithHelp(_openTitanoFolderButton,
-                    "Apre la cartella dei risultati del backtest/rotazione selezionata in Esplora file.")
-            }
-        });
-
-        return new GroupBox
-        {
-            Text = "Sorgente dati",
-            Dock = DockStyle.Top,
-            AutoSize = true,
-            AutoSizeMode = AutoSizeMode.GrowAndShrink,
-            Padding = new Padding(8, 18, 8, 8),
-            Controls = { stack }
-        };
-    }
-
-    private static GroupBox BuildTitanoGroup(string title, IEnumerable<Control> fields)
-    {
-        var flow = new FlowLayoutPanel
-        {
-            AutoSize = true,
-            AutoSizeMode = AutoSizeMode.GrowAndShrink,
-            WrapContents = true,
-            Width = 1080
-        };
-        flow.Controls.AddRange(fields.ToArray());
-        return new GroupBox
-        {
-            Text = title,
-            Dock = DockStyle.Top,
-            AutoSize = true,
-            AutoSizeMode = AutoSizeMode.GrowAndShrink,
-            Width = 1100,
-            Padding = new Padding(8, 18, 8, 8),
-            Controls = { flow }
-        };
-    }
-
-    private Control TitanoField(string label, Control control, string help)
-    {
-        _formToolTip.SetToolTip(control, help);
-        var panel = new FlowLayoutPanel
-        {
-            AutoSize = true,
-            WrapContents = false,
-            Margin = new Padding(2, 2, 14, 8)
-        };
-        panel.Controls.Add(TitanoLabel(label, help));
-        panel.Controls.Add(control);
-        return panel;
-    }
-
     private Control WithHelp(Control control, string help)
     {
         _formToolTip.SetToolTip(control, help);
         return control;
     }
 
-    /// <summary>
-    /// Abilita solo i campi che hanno davvero effetto nella modalità di sizing scelta.
-    ///
-    /// <para>Con il sizing per percentile <c>SizingTiers</c>, <c>DisableCompositeScore</c> e
-    /// <c>ReenableCompositeScore</c> non vengono letti dal server; senza percentile non vengono letti
-    /// i tre moltiplicatori di allocazione. Prima erano tutti sempre modificabili e i tre inerti
-    /// cambiavano il configHash — quindi il runId — senza cambiare di una virgola il manifest.</para>
-    /// </summary>
-    private void ApplySizingModeAvailability()
-    {
-        var percentile = _titanoCrossSectional.Checked;
-        _titanoMinAllocation.Enabled = percentile;
-        _titanoMaxAllocation.Enabled = percentile;
-        _titanoAllocationStep.Enabled = percentile;
-        _titanoSizingTiers.Enabled = !percentile;
-        _titanoDisableScore.Enabled = !percentile;
-        _titanoReenableScore.Enabled = !percentile;
-    }
-
-    private void ConfigureTitanoControls()
-    {
-        _titanoSetupCombo.DropDownStyle = ComboBoxStyle.DropDownList;
-        _titanoSetupCombo.DisplayMember = nameof(TitanoSetupInfo.Name);
-        _titanoSetupCombo.Width = 240;
-        _titanoSetupName.Width = 220;
-        _titanoSetupDescription.Multiline = true;
-        _titanoSetupDescription.Width = 420;
-        _titanoSetupDescription.Height = 64;
-        _titanoLoadSetupButton.Text = "Carica";
-        _titanoLoadSetupButton.AutoSize = true;
-        _titanoLoadSetupButton.Click += async (_, _) => await LoadSelectedTitanoSetupAsync();
-        _titanoReloadSetupsButton.Text = "Aggiorna setup";
-        _titanoReloadSetupsButton.AutoSize = true;
-        _titanoReloadSetupsButton.Click += async (_, _) => await LoadTitanoSetupsAsync();
-        _titanoSaveSetupButton.Text = "Salva setup";
-        _titanoSaveSetupButton.AutoSize = true;
-        _titanoSaveSetupButton.Click += async (_, _) => await SaveTitanoSetupAsync();
-        _titanoPeriodCombo.DropDownStyle = ComboBoxStyle.DropDownList;
-        _titanoPeriodCombo.Items.AddRange(Enum.GetNames<TitanoRotationPeriod>());
-        _titanoPeriodCombo.SelectedItem = nameof(TitanoRotationPeriod.Weekly);
-        ConfigureTitanoNumber(_titanoMinimumTrades, 1, 1000, 1);
-        _titanoRequireEquityAboveMa.Checked = true;
-        ConfigureTitanoDate(_titanoStartPicker, DateTime.UtcNow.Date.AddYears(-2));
-        ConfigureTitanoDate(_titanoEndPicker, DateTime.UtcNow.Date);
-        ConfigureTitanoNumber(_titanoShortDays, 1, 2000, 90);
-        ConfigureTitanoNumber(_titanoLongDays, 1, 3000, 365);
-        ConfigureTitanoNumber(_titanoMaDays, 1, 2000, 90);
-        ConfigureTitanoNumber(_titanoMinShortReturn, -100, 1000, 0, 2);
-        ConfigureTitanoNumber(_titanoMinLongReturn, -100, 1000, 0, 2);
-        ConfigureTitanoNumber(_titanoMinZ, -10, 10, -1.5m, 2);
-        ConfigureTitanoNumber(_titanoMaxZ, -10, 10, 2.5m, 2);
-        ConfigureTitanoNumber(_titanoMaxCurrentDd, 0, 100, 15, 2);
-        ConfigureTitanoNumber(_titanoMaxDd, 0, 100, 25, 2);
-        ConfigureTitanoNumber(_titanoMaxVolatility, 0, 100, 10, 2);
-        ConfigureTitanoNumber(_titanoReenableDd, 0, 100, 10, 2);
-        ConfigureTitanoNumber(_titanoDisableScore, 0, 1, 0.40m, 2);
-        ConfigureTitanoNumber(_titanoReenableScore, 0, 1, 0.60m, 2);
-        ConfigureTitanoNumber(_titanoCooldown, 0, 100, 2);
-        ConfigureTitanoNumber(_titanoMinOn, 0, 100, 1);
-        ConfigureTitanoNumber(_titanoMinVotes, 0, 5, 4);
-        ConfigureTitanoNumber(_titanoHardStop, 0, 100, 35, 2);
-        ConfigureTitanoNumber(_titanoCommission, 0, 10000, 0, 2);
-        ConfigureTitanoNumber(_titanoSlippage, 0, 10000, 0, 2);
-        ConfigureTitanoNumber(_titanoCalibration, 1, 1000, 8);
-        ConfigureTitanoNumber(_titanoEvaluation, 1, 1000, 4);
-        _titanoWalkForwardMode.DropDownStyle = ComboBoxStyle.DropDownList;
-        _titanoWalkForwardMode.Items.AddRange(Enum.GetNames<TitanoWalkForwardMode>());
-        _titanoWalkForwardMode.SelectedItem = nameof(TitanoWalkForwardMode.Rolling);
-        _titanoSizingTiers.Width = 250;
-        ConfigureTitanoNumber(_titanoMinAllocation, 0, 100, 25, 2);
-        ConfigureTitanoNumber(_titanoMaxAllocation, 0, 100, 100, 2);
-        ConfigureTitanoNumber(_titanoAllocationStep, 0, 100, 5, 2);
-        _titanoCrossSectional.CheckedChanged += (_, _) => ApplySizingModeAvailability();
-        ApplySizingModeAvailability();
-        _runTitanoButton.Text = "Avvia Titano via HTTP";
-        _runTitanoButton.AutoSize = true;
-        _runTitanoButton.Click += async (_, _) => await RunTitanoAsync();
-        _openTitanoReportButton.Text = "Apri risultato Titano";
-        _openTitanoReportButton.AutoSize = true;
-        _openTitanoReportButton.Enabled = false;
-        _openTitanoReportButton.Click += async (_, _) => await OpenTitanoReportAsync();
-        _titanoResetHardStopButton.Text = "Reset hard-stop…";
-        _titanoResetHardStopButton.AutoSize = true;
-        _titanoResetHardStopButton.Enabled = false;
-        _titanoResetHardStopButton.Click += async (_, _) => await ResetTitanoHardStopAsync();
-    }
-
-    private Label TitanoLabel(string text, string? help = null)
+    private Label FieldLabel(string text, string? help = null)
     {
         var label = new Label { Text = text, AutoSize = true, Padding = new Padding(6, 7, 2, 0) };
         if (!string.IsNullOrEmpty(help)) _formToolTip.SetToolTip(label, help);
         return label;
     }
-    private static void ConfigureTitanoDate(DateTimePicker picker, DateTime value)
-    {
-        picker.Format = DateTimePickerFormat.Custom;
-        picker.CustomFormat = "yyyy-MM-dd";
-        picker.Value = value;
-        picker.Width = 110;
-    }
-    private static void ConfigureTitanoNumber(NumericUpDown input, decimal min, decimal max, decimal value, int decimals = 0)
-    {
-        input.Minimum = min; input.Maximum = max; input.Value = value; input.DecimalPlaces = decimals; input.Width = 70;
-    }
-
     private Control BuildParametersPanel()
     {
         var group = new GroupBox { Text = "Parametri backtesting", Dock = DockStyle.Top, Height = 205 };
@@ -1972,7 +1386,6 @@ public partial class WorkspaceBacktestingForm : Form
             _basePathTextBox.ReadOnly = true;
             await WaitForServerAndLoadStrategiesAsync();
             PopulateWorkspaceStrategiesChecklist(Array.Empty<string>());
-            await LoadTitanoSetupsAsync();
             Log("Client inizializzato.");
             await ReloadWorkspacesAsync(showErrors: false);
         }
@@ -2055,7 +1468,6 @@ public partial class WorkspaceBacktestingForm : Form
             {
                 await LoadSelectedWorkspaceDetailsAsync();
             }
-            await LoadTitanoBacktestsAsync();
             await ReloadAccountsAsync(showErrors: false);
 
             Log($"Caricati {_workspaces.Count} workspace da API.");
@@ -2085,9 +1497,7 @@ public partial class WorkspaceBacktestingForm : Form
         {
             _workspaceList.Items.Clear();
             _backtestingWorkspaceCombo.Items.Clear();
-            _titanoWorkspaceCombo.Items.Clear();
             _tradingResultsWorkspaceCombo.Items.Clear();
-            _rotationsWorkspaceCombo.Items.Clear();
             _sessionWorkspaceCombo.Items.Clear();
 
             foreach (var workspace in _workspaces)
@@ -2095,9 +1505,7 @@ public partial class WorkspaceBacktestingForm : Form
                 var item = new WorkspaceListItem(workspace);
                 _workspaceList.Items.Add(item);
                 _backtestingWorkspaceCombo.Items.Add(item);
-                _titanoWorkspaceCombo.Items.Add(new WorkspaceListItem(workspace));
                 _tradingResultsWorkspaceCombo.Items.Add(new WorkspaceListItem(workspace));
-                _rotationsWorkspaceCombo.Items.Add(new WorkspaceListItem(workspace));
                 _sessionWorkspaceCombo.Items.Add(new WorkspaceListItem(workspace));
             }
 
@@ -2113,14 +1521,8 @@ public partial class WorkspaceBacktestingForm : Form
                     _backtestingWorkspaceCombo.SelectedIndex = 0;
                 }
 
-                if (_titanoWorkspaceCombo.Items.Count > 0)
-                {
-                    _titanoWorkspaceCombo.SelectedIndex = 0;
-                }
                 if (_tradingResultsWorkspaceCombo.Items.Count > 0)
                     _tradingResultsWorkspaceCombo.SelectedIndex = 0;
-                if (_rotationsWorkspaceCombo.Items.Count > 0)
-                    _rotationsWorkspaceCombo.SelectedIndex = 0;
                 if (_sessionWorkspaceCombo.Items.Count > 0) _sessionWorkspaceCombo.SelectedIndex = 0;
             }
             else
@@ -2156,9 +1558,7 @@ public partial class WorkspaceBacktestingForm : Form
         }
 
         SelectComboWorkspace(_backtestingWorkspaceCombo, workspaceId);
-        SelectComboWorkspace(_titanoWorkspaceCombo, workspaceId);
         SelectComboWorkspace(_tradingResultsWorkspaceCombo, workspaceId);
-        SelectComboWorkspace(_rotationsWorkspaceCombo, workspaceId);
     }
 
     private static void SelectComboWorkspace(ComboBox combo, string workspaceId)
@@ -2204,7 +1604,6 @@ public partial class WorkspaceBacktestingForm : Form
         }
 
         SelectComboWorkspace(_backtestingWorkspaceCombo, item.Info.Id);
-        SelectComboWorkspace(_titanoWorkspaceCombo, item.Info.Id);
         UpdateBacktestingWorkspaceHint();
         await LoadSelectedWorkspaceDetailsAsync();
     }
@@ -2297,7 +1696,6 @@ public partial class WorkspaceBacktestingForm : Form
             return;
 
         SelectComboWorkspace(_backtestingWorkspaceCombo, item.Info.Id);
-        SelectComboWorkspace(_titanoWorkspaceCombo, item.Info.Id);
         for (var index = 0; index < _workspaceList.Items.Count; index++)
         {
             if (_workspaceList.Items[index] is WorkspaceListItem workspace &&
@@ -2567,7 +1965,6 @@ public partial class WorkspaceBacktestingForm : Form
             var jobId = await _workspaceApi.StartBacktestingAsync(request);
             _lastJobId = jobId;
             await PollJobAsync(jobId, _pollingCts.Token);
-            await LoadTitanoBacktestsAsync();
         }
         catch (OperationCanceledException) when (_pollingCts?.IsCancellationRequested == true)
         {
@@ -2700,42 +2097,6 @@ public partial class WorkspaceBacktestingForm : Form
         });
     }
 
-    private async Task LoadTitanoBacktestsAsync(bool showErrors = false)
-    {
-        _titanoBacktestCombo.Items.Clear();
-        _openTitanoFolderButton.Enabled = false;
-
-        if (_titanoWorkspaceCombo.SelectedItem is not WorkspaceListItem workspace)
-        {
-            _titanoPathLabel.Text = "Seleziona un workspace.";
-            return;
-        }
-
-        try
-        {
-            NormalizeBaseAddress();
-            var backtests = await _workspaceApi.ListBacktestsAsync(workspace.Info.Id);
-            foreach (var backtest in backtests.Where(backtest => backtest.HasResults))
-                _titanoBacktestCombo.Items.Add(new WorkspaceBacktestItem(backtest));
-
-            if (_titanoBacktestCombo.Items.Count > 0)
-            {
-                _titanoBacktestCombo.SelectedIndex = 0;
-            }
-            else
-            {
-                _titanoPathLabel.Text =
-                    $"Il workspace '{workspace.Info.Name}' non contiene backtest con risultati.";
-            }
-        }
-        catch (Exception ex)
-        {
-            _titanoPathLabel.Text = $"Impossibile caricare i backtest: {ex.Message}";
-            if (showErrors)
-                MessageBox.Show(_titanoPathLabel.Text, "Titano", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-        }
-    }
-
     private async Task LoadTradingResultsBacktestsAsync()
     {
         _tradingResultsBacktestCombo.Items.Clear();
@@ -2804,267 +2165,6 @@ public partial class WorkspaceBacktestingForm : Form
         }
     }
 
-    private async Task LoadRotationBacktestsAsync()
-    {
-        _rotationsBacktestCombo.Items.Clear();
-        _rotationsRunCombo.Items.Clear();
-        _rotationsGrid.Rows.Clear();
-        if (_rotationsWorkspaceCombo.SelectedItem is not WorkspaceListItem workspace)
-        {
-            _rotationsSummary.Text = "Seleziona un workspace.";
-            return;
-        }
-
-        try
-        {
-            NormalizeBaseAddress();
-            var backtests = await _workspaceApi.ListBacktestsAsync(workspace.Info.Id);
-            foreach (var backtest in backtests.Where(backtest => backtest.HasResults))
-                _rotationsBacktestCombo.Items.Add(new WorkspaceBacktestItem(backtest));
-            _rotationsSummary.Text = _rotationsBacktestCombo.Items.Count == 0
-                ? "Nessun backtest con risultati disponibile."
-                : "Seleziona un backtest per elencare le rotazioni Titano.";
-            if (_rotationsBacktestCombo.Items.Count > 0)
-                _rotationsBacktestCombo.SelectedIndex = 0;
-        }
-        catch (Exception ex)
-        {
-            _rotationsSummary.Text = $"Impossibile caricare i backtest: {ex.Message}";
-        }
-    }
-
-    private async Task LoadTitanoRunsAsync()
-    {
-        _rotationsRunCombo.Items.Clear();
-        _rotationsGrid.Rows.Clear();
-        if (_rotationsWorkspaceCombo.SelectedItem is not WorkspaceListItem workspace ||
-            _rotationsBacktestCombo.SelectedItem is not WorkspaceBacktestItem backtest)
-            return;
-
-        try
-        {
-            NormalizeBaseAddress();
-            var runs = await _httpClient.GetFromJsonAsync<List<TitanoRunInfo>>(
-                $"api/Titano/rotations?workspaceId={Uri.EscapeDataString(workspace.Info.Id)}" +
-                $"&backtestFolder={Uri.EscapeDataString(backtest.Info.FolderName)}",
-                _jsonOptions) ?? [];
-            foreach (var run in runs)
-                _rotationsRunCombo.Items.Add(new TitanoRunListItem(run));
-
-            _rotationsSummary.Text = runs.Count == 0
-                ? "Nessuna rotazione Titano disponibile per il backtest selezionato."
-                : $"{runs.Count} rotazioni Titano disponibili. Seleziona un run.";
-            if (_rotationsRunCombo.Items.Count > 0)
-                _rotationsRunCombo.SelectedIndex = 0;
-        }
-        catch (Exception ex)
-        {
-            _rotationsSummary.Text = $"Impossibile caricare le rotazioni: {ex.Message}";
-        }
-    }
-
-    private async Task LoadSelectedTitanoRotationAsync()
-    {
-        _rotationsGrid.Rows.Clear();
-        if (_rotationsWorkspaceCombo.SelectedItem is not WorkspaceListItem workspace ||
-            _rotationsBacktestCombo.SelectedItem is not WorkspaceBacktestItem backtest ||
-            _rotationsRunCombo.SelectedItem is not TitanoRunListItem run)
-            return;
-
-        try
-        {
-            NormalizeBaseAddress();
-            var manifest = await _httpClient.GetFromJsonAsync<TitanoRotationManifest>(
-                $"api/Titano/rotations/{Uri.EscapeDataString(run.Info.RunId)}" +
-                $"?workspaceId={Uri.EscapeDataString(workspace.Info.Id)}" +
-                $"&backtestFolder={Uri.EscapeDataString(backtest.Info.FolderName)}",
-                _jsonOptions) ?? throw new InvalidOperationException("Manifest Titano vuoto.");
-
-            foreach (var period in manifest.Periods)
-            foreach (var strategy in period.Strategies.OrderBy(state => state.StrategyCode, StringComparer.OrdinalIgnoreCase))
-            {
-                _rotationsGrid.Rows.Add(
-                    period.EffectiveFromUtc.ToString("u"),
-                    period.EffectiveToUtc.ToString("u"),
-                    strategy.StrategyCode,
-                    GetStrategySymbol(strategy.StrategyCode),
-                    strategy.Enabled ? "Accesa" : "Spenta",
-                    strategy.AllocationMultiplier.ToString("P0"),
-                    strategy.TransitionType,
-                    strategy.Reason);
-            }
-            ApplySymbolAndStrategyFilter(_rotationsGrid, _rotationsFilter.Text);
-
-            _rotationsSummary.Text =
-                $"Run {manifest.RunId}: {manifest.Periods.Count} rotazioni, " +
-                $"{manifest.Periods.Sum(period => period.Strategies.Count)} decisioni strategia.";
-        }
-        catch (Exception ex)
-        {
-            _rotationsSummary.Text = $"Impossibile leggere il manifest: {ex.Message}";
-        }
-    }
-
-    private void UpdateTitanoPath()
-    {
-        if (_titanoBacktestCombo.SelectedItem is not WorkspaceBacktestItem item)
-        {
-            _openTitanoFolderButton.Enabled = false;
-            return;
-        }
-
-        _titanoPathLabel.Text = item.Info.HasResults
-            ? $"Input/base selezionato:{Environment.NewLine}{item.Info.FullPath}"
-            : $"La cartella selezionata non contiene risultati backtest:{Environment.NewLine}{item.Info.FullPath}";
-        _openTitanoFolderButton.Enabled = item.Info.HasResults && Directory.Exists(item.Info.FullPath);
-    }
-
-    private void ApplySelectedBacktestPeriodToTitano()
-    {
-        if (_titanoBacktestCombo.SelectedItem is not WorkspaceBacktestItem item)
-            return;
-        if (item.Info.StartDateUtc is { } start)
-            _titanoStartPicker.Value = start.ToUniversalTime().Date;
-        if (item.Info.EndDateUtc is { } end)
-            _titanoEndPicker.Value = end.ToUniversalTime().Date;
-    }
-
-    private string? GetSelectedSessionTitanoBacktestFolder() =>
-        (_sessionTitanoBacktest.SelectedItem as WorkspaceBacktestItem)?.Info.FolderName;
-
-    private void SelectSessionTitanoBacktest(string? folderName)
-    {
-        var index = _sessionTitanoBacktest.Items
-            .Cast<WorkspaceBacktestItem>()
-            .ToList()
-            .FindIndex(item => string.Equals(item.Info.FolderName, folderName, StringComparison.OrdinalIgnoreCase));
-        _sessionTitanoBacktest.SelectedIndex = index;
-    }
-
-    private async Task LoadSessionTitanoBacktestsAsync()
-    {
-        var selectedFolder = GetSelectedSessionTitanoBacktestFolder();
-        _suppressSessionTitanoBacktestEvents = true;
-        try
-        {
-            _sessionTitanoBacktest.Items.Clear();
-            _sessionTitanoRunId.Items.Clear();
-
-            if (_sessionWorkspaceCombo.SelectedItem is not WorkspaceListItem workspace)
-                return;
-
-            NormalizeBaseAddress();
-            var backtests = await _workspaceApi.ListBacktestsAsync(workspace.Info.Id);
-            foreach (var backtest in backtests.Where(backtest => backtest.HasResults))
-                _sessionTitanoBacktest.Items.Add(new WorkspaceBacktestItem(backtest));
-
-            if (_sessionTitanoBacktest.Items.Count > 0)
-            {
-                SelectSessionTitanoBacktest(selectedFolder);
-                if (_sessionTitanoBacktest.SelectedIndex < 0)
-                    _sessionTitanoBacktest.SelectedIndex = 0;
-            }
-        }
-        catch (Exception ex)
-        {
-            ShowSession($"Impossibile caricare i backtest Titano: {ex.Message}");
-        }
-        finally
-        {
-            _suppressSessionTitanoBacktestEvents = false;
-        }
-
-        if (_sessionTitanoBacktest.SelectedIndex >= 0)
-            await LoadTitanoRunsForSessionAsync();
-    }
-
-    /// <summary>
-    /// Popola la combo dei setup Titano con le rotazioni già calcolate per il workspace e il
-    /// backtest selezionati. Prima il RunId andava incollato a mano: un refuso significava una
-    /// sessione che non applicava alcun filtro senza dirlo.
-    /// </summary>
-    private async Task LoadTitanoRunsForSessionAsync(bool showValidationError = false)
-    {
-        if (_sessionWorkspaceCombo.SelectedItem is not WorkspaceListItem workspace)
-        {
-            MessageBox.Show("Seleziona un workspace.", "Trading Session", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            return;
-        }
-
-        var backtestFolder = GetSelectedSessionTitanoBacktestFolder();
-        if (string.IsNullOrWhiteSpace(backtestFolder))
-        {
-            if (showValidationError)
-                MessageBox.Show("Seleziona un backtest sorgente.", "Trading Session",
-                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            return;
-        }
-
-        try
-        {
-            NormalizeBaseAddress();
-            var url = "api/Titano/rotations" +
-                      $"?workspaceId={Uri.EscapeDataString(workspace.Info.Id)}" +
-                      $"&backtestFolder={Uri.EscapeDataString(backtestFolder)}";
-            var runs = await _httpClient.GetFromJsonAsync<List<TitanoRunInfo>>(url, _jsonOptions) ?? [];
-
-            var previous = _sessionTitanoRunId.Text;
-            _sessionTitanoRunId.Items.Clear();
-            foreach (var run in runs)
-            {
-                _sessionTitanoRunId.Items.Add(run.RunId);
-            }
-
-            if (runs.Count == 0)
-            {
-                ShowSession($"Nessuna rotazione Titano trovata in '{backtestFolder}'. " +
-                            "Generane una dal tab Titano.");
-                return;
-            }
-
-            _sessionTitanoRunId.Text = runs.Any(r => r.RunId == previous) ? previous : runs[0].RunId;
-            ShowSession($"{runs.Count} rotazioni Titano disponibili in '{backtestFolder}'. " +
-                        $"Selezionata: {_sessionTitanoRunId.Text}");
-        }
-        catch (Exception ex)
-        {
-            MessageBox.Show(ex.Message, "Errore caricamento run Titano", MessageBoxButtons.OK, MessageBoxIcon.Error);
-        }
-    }
-
-    private const string TitanoModeHelp =
-        "Disabled: nessun filtro, vengono valutate tutte le strategie del masterfilter (è il run che " +
-        "produce i trade su cui Titano calcola le rotazioni). " +
-        "BacktestRotationFile: backtest filtrato con le rotazioni del manifest calcolato offline; " +
-        "per ogni barra vale la decisione del periodo che la contiene. " +
-        "Realtime: vale la decisione del periodo corrente dell'ultima analisi Titano.";
-
-    private TitanoFilterMode SelectedTitanoMode =>
-        Enum.TryParse<TitanoFilterMode>(_sessionTitanoMode.SelectedItem?.ToString(), out var mode)
-            ? mode
-            : TitanoFilterMode.Disabled;
-
-    private void UpdateTitanoSessionControlsState()
-    {
-        var mode = SelectedTitanoMode;
-        _formToolTip.SetToolTip(_sessionTitanoMode, mode switch
-        {
-            TitanoFilterMode.Disabled =>
-                "Nessun filtro: tutte le strategie del masterfilter vengono valutate. Se indichi comunque " +
-                "un run, la rotazione viene calcolata e registrata nel rotation-log per confronto.",
-            TitanoFilterMode.BacktestRotationFile =>
-                "Backtest filtrato: per ogni barra vale la decisione del periodo del manifest che la " +
-                "contiene. Il manifest deve coprire l'intero intervallo del backtest.",
-            _ =>
-                "Realtime: vale la decisione del periodo corrente. Oltre la fine del manifest resta in " +
-                "vigore l'ultimo periodo calcolato, dichiarandolo nel rotation-log."
-        });
-
-        // Le modalità filtrate senza un run non possono degradare in silenzio: il server le rifiuta.
-        _sessionTitanoRunId.Enabled = true;
-        _sessionTitanoBacktest.Enabled = true;
-    }
-
     private async Task LoadTradingPlansAsync(string? selectCode = null)
     {
         if (_sessionWorkspaceCombo.SelectedItem is not WorkspaceListItem workspace) return;
@@ -3097,10 +2197,6 @@ public partial class WorkspaceBacktestingForm : Form
         var plan = _tradingPlans[index];
         _sessionPlanCode.Text = plan.Code;
         _sessionPlanName.Text = plan.Name;
-        SelectSessionTitanoBacktest(plan.TitanoBacktestFolder);
-        // Il run non è più un campo del piano: il campo resta solo per un pin manuale opzionale
-        // sulla sessione che si sta per creare, non riflette più nulla di persistito sul piano.
-        _sessionTitanoRunId.Text = string.Empty;
         _sessionAccountGroups.Rows.Clear();
         var rows = plan.Groups.Count > 0
             ? plan.Groups
@@ -3110,17 +2206,12 @@ public partial class WorkspaceBacktestingForm : Form
                 {
                     GroupId = plan.GroupId,
                     AccountNumber = plan.AccountNumber,
-                    MaxConcurrentTrades = plan.MaxConcurrentTrades,
-                    RotationSetupId = plan.RotationSetupId,
-                    TitanoBacktestFolder = plan.TitanoBacktestFolder,
-                    ApplyTitanoFilters = plan.ApplyTitanoFilters
+                    MaxConcurrentTrades = plan.MaxConcurrentTrades
                 }
             ];
         foreach (var row in rows)
         {
-            _sessionAccountGroups.Rows.Add(
-                row.GroupId, row.RotationSetupId, row.AccountNumber, row.MaxConcurrentTrades,
-                row.ApplyTitanoFilters);
+            _sessionAccountGroups.Rows.Add(row.GroupId, row.AccountNumber, row.MaxConcurrentTrades);
         }
     }
 
@@ -3185,25 +2276,6 @@ public partial class WorkspaceBacktestingForm : Form
             MessageBox.Show("Seleziona un workspace.", "Trading Session", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
-        var titanoRunId = string.IsNullOrWhiteSpace(_sessionTitanoRunId.Text) ? null : _sessionTitanoRunId.Text.Trim();
-        var titanoBacktestFolder = GetSelectedSessionTitanoBacktestFolder();
-        if (titanoRunId is not null && string.IsNullOrWhiteSpace(titanoBacktestFolder))
-        {
-            MessageBox.Show(
-                "Un setup Titano richiede anche la cartella del backtest sorgente.",
-                "Trading Session", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            return;
-        }
-        var titanoMode = SelectedTitanoMode;
-        if (titanoMode != TitanoFilterMode.Disabled && titanoRunId is null)
-        {
-            MessageBox.Show(
-                $"La modalità {titanoMode} richiede un setup Titano: seleziona una rotazione, " +
-                "oppure passa alla modalità Disabled.",
-                "Trading Session", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            return;
-        }
-
         try
         {
             NormalizeBaseAddress();
@@ -3211,9 +2283,6 @@ public partial class WorkspaceBacktestingForm : Form
             {
                 WorkspaceId = workspace.Info.Id,
                 ExecutionMode = Enum.Parse<ExecutionMode>(_sessionModeCombo.SelectedItem?.ToString() ?? "ServerSimulated"),
-                TitanoRunId = titanoRunId,
-                TitanoBacktestFolder = titanoRunId is null ? null : titanoBacktestFolder,
-                TitanoMode = titanoMode,
                 PositionSizing = new PositionSizingConfig
                 {
                     PortfolioRisk = new PortfolioRiskSizingConfig
@@ -3259,307 +2328,6 @@ public partial class WorkspaceBacktestingForm : Form
     private void ShowSession(string message) =>
         _sessionOutput.Text = $"{message}{Environment.NewLine}{JsonSerializer.Serialize(_activeSession, new JsonSerializerOptions(_jsonOptions) { WriteIndented = true })}";
 
-    private async Task LoadTitanoSetupsAsync(string? selectId = null)
-    {
-        try
-        {
-            NormalizeBaseAddress();
-            var setups = await _httpClient.GetFromJsonAsync<List<TitanoSetupInfo>>(
-                "api/Titano/rotation-setups", _jsonOptions) ?? [];
-            _titanoSetups = setups;
-            _titanoSetupCombo.Items.Clear();
-            foreach (var setup in setups)
-                _titanoSetupCombo.Items.Add(setup);
-            if (_sessionAccountGroups.Columns["RotationSetupId"] is DataGridViewComboBoxColumn setupColumn)
-                setupColumn.DataSource = setups.ToList();
-
-            if (_titanoSetupCombo.Items.Count == 0)
-                return;
-
-            var selectedIndex = setups.FindIndex(setup =>
-                setup.Id.Equals(selectId, StringComparison.OrdinalIgnoreCase));
-            _titanoSetupCombo.SelectedIndex = selectedIndex >= 0 ? selectedIndex : 0;
-        }
-        catch (Exception ex)
-        {
-            Log($"Impossibile caricare i setup Titano: {ex.Message}");
-        }
-    }
-
-    private async Task LoadSelectedTitanoSetupAsync()
-    {
-        if (_titanoSetupCombo.SelectedItem is not TitanoSetupInfo info)
-        {
-            MessageBox.Show("Seleziona un setup Titano.", "Setup Titano",
-                MessageBoxButtons.OK, MessageBoxIcon.Information);
-            return;
-        }
-
-        try
-        {
-            NormalizeBaseAddress();
-            var setup = await _httpClient.GetFromJsonAsync<TitanoRotationSetup>(
-                $"api/Titano/rotation-setups/{Uri.EscapeDataString(info.Id)}", _jsonOptions)
-                ?? throw new InvalidOperationException("Il server ha restituito un setup vuoto.");
-            ApplyTitanoSetupToUi(setup);
-            Log($"Setup Titano caricato: {setup.Name}.");
-        }
-        catch (Exception ex)
-        {
-            MessageBox.Show(ex.Message, "Errore setup Titano",
-                MessageBoxButtons.OK, MessageBoxIcon.Error);
-        }
-    }
-
-    private async Task SaveTitanoSetupAsync()
-    {
-        if (string.IsNullOrWhiteSpace(_titanoSetupName.Text))
-        {
-            MessageBox.Show("Inserisci il nome del setup.", "Setup Titano",
-                MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            return;
-        }
-
-        try
-        {
-            NormalizeBaseAddress();
-            var setup = BuildTitanoSetupFromUi();
-            var response = await _httpClient.PostAsJsonAsync(
-                "api/Titano/rotation-setups", setup, _jsonOptions);
-            response.EnsureSuccessStatusCode();
-            var saved = await response.Content.ReadFromJsonAsync<TitanoRotationSetup>(_jsonOptions)
-                ?? throw new InvalidOperationException("Il server non ha restituito il setup salvato.");
-            await LoadTitanoSetupsAsync(saved.Id);
-            Log($"Setup Titano salvato: {saved.Name}.");
-        }
-        catch (Exception ex)
-        {
-            MessageBox.Show(ex.Message, "Errore salvataggio setup Titano",
-                MessageBoxButtons.OK, MessageBoxIcon.Error);
-        }
-    }
-
-    private TitanoRotationSetup BuildTitanoSetupFromUi() => new()
-    {
-        Id = _titanoSetupCombo.SelectedItem is TitanoSetupInfo selected &&
-             selected.Name.Equals(_titanoSetupName.Text.Trim(), StringComparison.OrdinalIgnoreCase)
-            ? selected.Id
-            : string.Empty,
-        Name = _titanoSetupName.Text.Trim(),
-        Description = _titanoSetupDescription.Text.Trim(),
-        RotationPeriod = Enum.Parse<TitanoRotationPeriod>(
-            _titanoPeriodCombo.SelectedItem?.ToString() ?? "Weekly"),
-        MinimumTrades = (int)_titanoMinimumTrades.Value,
-        ShortWindowDays = (int)_titanoShortDays.Value,
-        LongWindowDays = (int)_titanoLongDays.Value,
-        MovingAverageWindowDays = (int)_titanoMaDays.Value,
-        MinimumShortReturn = _titanoMinShortReturn.Value / 100m,
-        MinimumLongReturn = _titanoMinLongReturn.Value / 100m,
-        MinimumZScore = _titanoMinZ.Value,
-        MaximumZScore = _titanoMaxZ.Value,
-        MaximumCurrentDrawdown = _titanoMaxCurrentDd.Value / 100m,
-        MaximumObservedDrawdown = _titanoMaxDd.Value / 100m,
-        MaximumReturnVolatility = _titanoMaxVolatility.Value / 100m,
-        RequireEquityAboveMovingAverage = _titanoRequireEquityAboveMa.Checked,
-        ReenableMaximumCurrentDrawdown = _titanoReenableDd.Value / 100m,
-        DisableCompositeScore = _titanoDisableScore.Value,
-        ReenableCompositeScore = _titanoReenableScore.Value,
-        CooldownPeriodsAfterOff = (int)_titanoCooldown.Value,
-        MinimumOnPeriods = (int)_titanoMinOn.Value,
-        MinimumPassingFilters = (int)_titanoMinVotes.Value,
-        HardStopDrawdown = _titanoHardStop.Value / 100m,
-        CommissionPerUnit = _titanoCommission.Value,
-        SlippagePerUnit = _titanoSlippage.Value,
-        CalibrationPeriods = (int)_titanoCalibration.Value,
-        EvaluationPeriods = (int)_titanoEvaluation.Value,
-        WalkForwardMode = Enum.Parse<TitanoWalkForwardMode>(
-            _titanoWalkForwardMode.SelectedItem?.ToString() ?? "Rolling"),
-        CrossSectionalSizing = _titanoCrossSectional.Checked,
-        MinimumAllocationMultiplier = _titanoMinAllocation.Value / 100m,
-        MaximumAllocationMultiplier = _titanoMaxAllocation.Value / 100m,
-        AllocationStep = _titanoAllocationStep.Value / 100m,
-        SizingTiers = ParseSizingTiers(_titanoSizingTiers.Text).ToList()
-    };
-
-    private TitanoRotationRequest BuildTitanoRequest(
-        TitanoRotationSetup setup,
-        string workspaceId,
-        string backtestFolder) => new()
-    {
-        WorkspaceId = workspaceId,
-        BacktestFolder = backtestFolder,
-        SetupName = setup.Name,
-        Description = setup.Description,
-        RotationPeriod = setup.RotationPeriod,
-        StartUtc = DateTime.SpecifyKind(_titanoStartPicker.Value.Date, DateTimeKind.Utc),
-        EndUtc = DateTime.SpecifyKind(_titanoEndPicker.Value.Date, DateTimeKind.Utc),
-        BiweeklyAnchorUtc = DateTime.SpecifyKind(_titanoStartPicker.Value.Date, DateTimeKind.Utc),
-        InitialCapital = _initialCapitalInput.Value,
-        MinimumTrades = setup.MinimumTrades,
-        ShortWindowDays = setup.ShortWindowDays,
-        LongWindowDays = setup.LongWindowDays,
-        MovingAverageWindowDays = setup.MovingAverageWindowDays,
-        MinimumShortReturn = setup.MinimumShortReturn,
-        MinimumLongReturn = setup.MinimumLongReturn,
-        MinimumZScore = setup.MinimumZScore,
-        MaximumZScore = setup.MaximumZScore,
-        MaximumCurrentDrawdown = setup.MaximumCurrentDrawdown,
-        MaximumObservedDrawdown = setup.MaximumObservedDrawdown,
-        MaximumReturnVolatility = setup.MaximumReturnVolatility,
-        RequireEquityAboveMovingAverage = setup.RequireEquityAboveMovingAverage,
-        ReenableMaximumCurrentDrawdown = setup.ReenableMaximumCurrentDrawdown,
-        DisableCompositeScore = setup.DisableCompositeScore,
-        ReenableCompositeScore = setup.ReenableCompositeScore,
-        CooldownPeriodsAfterOff = setup.CooldownPeriodsAfterOff,
-        MinimumOnPeriods = setup.MinimumOnPeriods,
-        MinimumPassingFilters = setup.MinimumPassingFilters,
-        HardStopDrawdown = setup.HardStopDrawdown,
-        CommissionPerUnit = setup.CommissionPerUnit,
-        SlippagePerUnit = setup.SlippagePerUnit,
-        CalibrationPeriods = setup.CalibrationPeriods,
-        EvaluationPeriods = setup.EvaluationPeriods,
-        WalkForwardMode = setup.WalkForwardMode,
-        CrossSectionalSizing = setup.CrossSectionalSizing,
-        MinimumAllocationMultiplier = setup.MinimumAllocationMultiplier,
-        MaximumAllocationMultiplier = setup.MaximumAllocationMultiplier,
-        AllocationStep = setup.AllocationStep,
-        SizingTiers = setup.SizingTiers
-    };
-
-    private void ApplyTitanoSetupToUi(TitanoRotationSetup setup)
-    {
-        _titanoSetupName.Text = setup.Name;
-        _titanoSetupDescription.Text = setup.Description;
-        _titanoPeriodCombo.SelectedItem = setup.RotationPeriod.ToString();
-        _titanoMinimumTrades.Value = setup.MinimumTrades;
-        _titanoShortDays.Value = setup.ShortWindowDays;
-        _titanoLongDays.Value = setup.LongWindowDays;
-        _titanoMaDays.Value = setup.MovingAverageWindowDays;
-        _titanoMinShortReturn.Value = setup.MinimumShortReturn * 100m;
-        _titanoMinLongReturn.Value = setup.MinimumLongReturn * 100m;
-        _titanoMinZ.Value = setup.MinimumZScore;
-        _titanoMaxZ.Value = setup.MaximumZScore;
-        _titanoMaxCurrentDd.Value = setup.MaximumCurrentDrawdown * 100m;
-        _titanoMaxDd.Value = setup.MaximumObservedDrawdown * 100m;
-        _titanoMaxVolatility.Value = setup.MaximumReturnVolatility * 100m;
-        _titanoRequireEquityAboveMa.Checked = setup.RequireEquityAboveMovingAverage;
-        _titanoReenableDd.Value = setup.ReenableMaximumCurrentDrawdown * 100m;
-        _titanoDisableScore.Value = setup.DisableCompositeScore;
-        _titanoReenableScore.Value = setup.ReenableCompositeScore;
-        _titanoCooldown.Value = setup.CooldownPeriodsAfterOff;
-        _titanoMinOn.Value = setup.MinimumOnPeriods;
-        _titanoMinVotes.Value = setup.MinimumPassingFilters;
-        _titanoHardStop.Value = setup.HardStopDrawdown * 100m;
-        _titanoCommission.Value = setup.CommissionPerUnit;
-        _titanoSlippage.Value = setup.SlippagePerUnit;
-        _titanoCalibration.Value = setup.CalibrationPeriods;
-        _titanoEvaluation.Value = setup.EvaluationPeriods;
-        _titanoWalkForwardMode.SelectedItem = setup.WalkForwardMode.ToString();
-        _titanoCrossSectional.Checked = setup.CrossSectionalSizing;
-        _titanoMinAllocation.Value = setup.MinimumAllocationMultiplier * 100m;
-        _titanoMaxAllocation.Value = setup.MaximumAllocationMultiplier * 100m;
-        _titanoAllocationStep.Value = setup.AllocationStep * 100m;
-        ApplySizingModeAvailability();
-        _titanoSizingTiers.Text = string.Join("; ", setup.SizingTiers
-            .OrderByDescending(tier => tier.MinimumScore)
-            .Select(tier =>
-                $"{tier.MinimumScore.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)}=" +
-                $"{(tier.AllocationMultiplier * 100m).ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)}%"));
-    }
-
-    private async Task RunTitanoAsync()
-    {
-        if (_titanoWorkspaceCombo.SelectedItem is not WorkspaceListItem workspace ||
-            _titanoBacktestCombo.SelectedItem is not WorkspaceBacktestItem backtest)
-        {
-            MessageBox.Show("Seleziona workspace e backtest.", "Titano", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            return;
-        }
-
-        var request = new TitanoRotationRequest
-        {
-            WorkspaceId = workspace.Info.Id,
-            BacktestFolder = backtest.Info.FolderName,
-            SetupName = _titanoSetupName.Text.Trim(),
-            Description = _titanoSetupDescription.Text.Trim(),
-            RotationPeriod = Enum.Parse<TitanoRotationPeriod>(_titanoPeriodCombo.SelectedItem?.ToString() ?? "Weekly"),
-            StartUtc = DateTime.SpecifyKind(_titanoStartPicker.Value.Date, DateTimeKind.Utc),
-            EndUtc = DateTime.SpecifyKind(_titanoEndPicker.Value.Date, DateTimeKind.Utc),
-            BiweeklyAnchorUtc = DateTime.SpecifyKind(_titanoStartPicker.Value.Date, DateTimeKind.Utc),
-            InitialCapital = _initialCapitalInput.Value,
-            MinimumTrades = (int)_titanoMinimumTrades.Value,
-            ShortWindowDays = (int)_titanoShortDays.Value,
-            LongWindowDays = (int)_titanoLongDays.Value,
-            MovingAverageWindowDays = (int)_titanoMaDays.Value,
-            MinimumShortReturn = _titanoMinShortReturn.Value / 100m,
-            MinimumLongReturn = _titanoMinLongReturn.Value / 100m,
-            MinimumZScore = _titanoMinZ.Value,
-            MaximumZScore = _titanoMaxZ.Value,
-            MaximumCurrentDrawdown = _titanoMaxCurrentDd.Value / 100m,
-            MaximumObservedDrawdown = _titanoMaxDd.Value / 100m,
-            MaximumReturnVolatility = _titanoMaxVolatility.Value / 100m,
-            RequireEquityAboveMovingAverage = _titanoRequireEquityAboveMa.Checked,
-            ReenableMaximumCurrentDrawdown = _titanoReenableDd.Value / 100m,
-            DisableCompositeScore = _titanoDisableScore.Value,
-            ReenableCompositeScore = _titanoReenableScore.Value,
-            CooldownPeriodsAfterOff = (int)_titanoCooldown.Value,
-            MinimumOnPeriods = (int)_titanoMinOn.Value,
-            MinimumPassingFilters = (int)_titanoMinVotes.Value,
-            HardStopDrawdown = _titanoHardStop.Value / 100m,
-            CommissionPerUnit = _titanoCommission.Value,
-            SlippagePerUnit = _titanoSlippage.Value,
-            CalibrationPeriods = (int)_titanoCalibration.Value,
-            EvaluationPeriods = (int)_titanoEvaluation.Value,
-            WalkForwardMode = Enum.Parse<TitanoWalkForwardMode>(
-                _titanoWalkForwardMode.SelectedItem?.ToString() ?? "Rolling"),
-            CrossSectionalSizing = _titanoCrossSectional.Checked,
-            MinimumAllocationMultiplier = _titanoMinAllocation.Value / 100m,
-            MaximumAllocationMultiplier = _titanoMaxAllocation.Value / 100m,
-            AllocationStep = _titanoAllocationStep.Value / 100m,
-            SizingTiers = ParseSizingTiers(_titanoSizingTiers.Text)
-        };
-
-        try
-        {
-            NormalizeBaseAddress();
-            _runTitanoButton.Enabled = false;
-            var response = await _httpClient.PostAsJsonAsync("api/Titano/rotations", request, _jsonOptions);
-            await EnsureSuccessWithDetailsAsync(response, "Avvio Titano");
-            var manifest = await response.Content.ReadFromJsonAsync<TitanoRotationManifest>(_jsonOptions)
-                ?? throw new InvalidOperationException("Manifest Titano non ricevuto.");
-            _lastTitanoManifest = manifest;
-            _openTitanoReportButton.Enabled = true;
-            _titanoResetHardStopButton.Enabled = manifest.Periods.SelectMany(x => x.Strategies).Any(x => x.HardStopped);
-            var lines = new List<string>
-            {
-                $"RunId: {manifest.RunId}",
-                $"Manifest: {Path.Combine(backtest.Info.FullPath, "titano", manifest.RunId, "manifest.json")}",
-                "TitanoRunId può essere associato a sessioni ServerSimulated o ExternalBroker."
-            };
-            foreach (var period in manifest.Periods)
-            {
-                lines.Add($"{period.EffectiveFromUtc:u} -> {period.EffectiveToUtc:u}");
-                lines.AddRange(period.Strategies.Select(s =>
-                    $"  {s.State,-11} {s.StrategyCode} | alloc={s.AllocationMultiplier:P0} " +
-                    $"votes={s.PassingFilters}/{s.TotalFilters} cd={s.CooldownRemaining} | {s.Reason} | " +
-                    $"short={s.Metrics.ShortReturn:P2} long={s.Metrics.LongReturn:P2} " +
-                    $"ma={s.Metrics.MovingAverageEquity:F2} z={s.Metrics.ZScore:F2} " +
-                    $"dd={s.Metrics.CurrentDrawdown:P2}/{s.Metrics.MaximumDrawdown:P2} vol={s.Metrics.ReturnVolatility:P2}"));
-            }
-            lines.AddRange(manifest.WalkForward.Select(x =>
-                $"WF {x.EvaluationPeriodId}: IS={x.InSampleNetProfit:F2}, OOS={x.OutOfSampleNetProfit:F2}" +
-                (x.InSampleOnlyImprovementWarning ? " [WARNING: migliora solo IS]" : "")));
-            _titanoPathLabel.Visible = false;
-            _titanoResultsTextBox.Text = string.Join(Environment.NewLine, lines);
-            Log($"Titano completato: {manifest.RunId}, {manifest.Periods.Count} periodi.");
-        }
-        catch (Exception ex)
-        {
-            MessageBox.Show(ex.Message, "Errore Titano", MessageBoxButtons.OK, MessageBoxIcon.Error);
-        }
-        finally { _runTitanoButton.Enabled = true; }
-    }
-
     private static async Task EnsureSuccessWithDetailsAsync(HttpResponseMessage response, string operation)
     {
         if (response.IsSuccessStatusCode)
@@ -3586,82 +2354,6 @@ public partial class WorkspaceBacktestingForm : Form
         throw new InvalidOperationException(
             $"{operation} fallito: HTTP {(int)response.StatusCode} ({response.ReasonPhrase}). " +
             (string.IsNullOrWhiteSpace(detail) ? "Il server non ha restituito dettagli." : detail));
-    }
-
-    private async Task OpenTitanoReportAsync()
-    {
-        if (_lastTitanoManifest is null ||
-            _titanoWorkspaceCombo.SelectedItem is not WorkspaceListItem workspace ||
-            _titanoBacktestCombo.SelectedItem is not WorkspaceBacktestItem backtest)
-        {
-            MessageBox.Show("Esegui prima Titano con i parametri desiderati.", "Report Titano",
-                MessageBoxButtons.OK, MessageBoxIcon.Information);
-            return;
-        }
-
-        try
-        {
-            NormalizeBaseAddress();
-            var uri = new Uri(_httpClient.BaseAddress!,
-                $"api/Titano/rotations/{Uri.EscapeDataString(_lastTitanoManifest.RunId)}/report" +
-                $"?workspaceId={Uri.EscapeDataString(workspace.Info.Id)}" +
-                $"&backtestFolder={Uri.EscapeDataString(backtest.Info.FolderName)}");
-            await HtmlReportViewerForm.ShowFromUriAsync(this, _httpClient, uri, "Risultato Titano");
-        }
-        catch (Exception ex)
-        {
-            MessageBox.Show(ex.Message, "Report Titano", MessageBoxButtons.OK, MessageBoxIcon.Error);
-        }
-    }
-
-    private static IReadOnlyList<TitanoSizingTier> ParseSizingTiers(string value) =>
-        value.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .Select(item =>
-            {
-                var parts = item.Split('=', 2, StringSplitOptions.TrimEntries);
-                if (parts.Length != 2) throw new FormatException("Tier sizing: usare soglia=percentuale.");
-                return new TitanoSizingTier
-                {
-                    MinimumScore = decimal.Parse(parts[0], System.Globalization.CultureInfo.InvariantCulture),
-                    AllocationMultiplier = decimal.Parse(parts[1].TrimEnd('%'),
-                        System.Globalization.CultureInfo.InvariantCulture) / 100m
-                };
-            }).ToArray();
-
-    private async Task ResetTitanoHardStopAsync()
-    {
-        if (_lastTitanoManifest is null || _titanoWorkspaceCombo.SelectedItem is not WorkspaceListItem workspace ||
-            _titanoBacktestCombo.SelectedItem is not WorkspaceBacktestItem backtest) return;
-        var candidates = _lastTitanoManifest.Periods.SelectMany(x => x.Strategies)
-            .Where(x => x.HardStopped).Select(x => x.StrategyCode).Distinct().Order().ToArray();
-        if (candidates.Length == 0) return;
-        var strategy = Microsoft.VisualBasic.Interaction.InputBox(
-            $"StrategyCode hard-stopped ({string.Join(", ", candidates)}):", "Reset hard-stop", candidates[0]);
-        if (string.IsNullOrWhiteSpace(strategy) ||
-            MessageBox.Show($"Confermi reset auditato di {strategy} dal periodo successivo?",
-                "Conferma reset", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
-        var payload = new TitanoHardStopResetRequest
-        {
-            StrategyCode = strategy.Trim(), RequestedBy = Environment.UserName,
-            Reason = "Reset manuale confermato da WinForms", RequestedAtUtc = DateTime.UtcNow
-        };
-        var uri = $"api/Titano/rotations/{Uri.EscapeDataString(_lastTitanoManifest.RunId)}/hard-stop-reset" +
-                  $"?workspaceId={Uri.EscapeDataString(workspace.Info.Id)}&backtestFolder={Uri.EscapeDataString(backtest.Info.FolderName)}";
-        var response = await _httpClient.PostAsJsonAsync(uri, payload, _jsonOptions);
-        response.EnsureSuccessStatusCode();
-        Log($"Reset hard-stop auditato per {strategy}; efficace dal periodo successivo.");
-    }
-
-    private void OpenSelectedTitanoFolder()
-    {
-        if (_titanoBacktestCombo.SelectedItem is not WorkspaceBacktestItem item ||
-            !Directory.Exists(item.Info.FullPath))
-        {
-            MessageBox.Show("Cartella risultati non disponibile.", "Titano", MessageBoxButtons.OK, MessageBoxIcon.Information);
-            return;
-        }
-
-        Process.Start(new ProcessStartInfo { FileName = item.Info.FullPath, UseShellExecute = true });
     }
 
     private void Log(string message)
@@ -3990,11 +2682,4 @@ public partial class WorkspaceBacktestingForm : Form
             => $"{Info.FolderName} · {Info.ResultsCount} risultati · {Info.LastModifiedUtc.ToLocalTime():g}";
     }
 
-    private sealed class TitanoRunListItem
-    {
-        public TitanoRunListItem(TitanoRunInfo info) => Info = info;
-        public TitanoRunInfo Info { get; }
-        public override string ToString()
-            => $"{Info.RunId[..Math.Min(12, Info.RunId.Length)]}… · {Info.PeriodCount} periodi · {Info.GeneratedAtUtc.ToLocalTime():g}";
-    }
 }

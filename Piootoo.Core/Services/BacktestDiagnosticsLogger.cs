@@ -510,7 +510,7 @@ public sealed class BacktestDiagnosticsLogger : IDisposable
 
         if (summary.OpenPositionsAtEnd > 0)
             diagnostics.Add($"[posizioni] {summary.OpenPositionsAtEnd} posizioni ancora aperte a fine run: " +
-                            "il loro P&L non compare in trades.json e quindi non entra in Titano.");
+                            "il loro P&L non compare in trades.json.");
 
         if (summary.ProcessedIterations == 0)
             diagnostics.Add("[loop] nessuna iterazione elaborata: intervallo di date vuoto o interamente " +

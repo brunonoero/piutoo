@@ -9,10 +9,10 @@ namespace Piootoo.Core.Services;
 /// - <b>Id</b>: il nome della classe, es. <c>PTS_NQ_TFM_001_60</c>. È la chiave di SELEZIONE:
 ///   masterfilter del workspace, catalogo, <see cref="StrategyFactory"/>.
 /// - <b>Codice di esecuzione</b> (<c>ITradingStrategy.Name</c>), es. <c>PTS_NQ_TFM_001_60</c>. È la
-///   chiave di ESECUZIONE: segnali, trade, chiavi di posizione, stati Titano, report.
+///   chiave di ESECUZIONE: segnali, trade, chiavi di posizione, report.
 ///
-/// Ogni volta che il masterfilter va confrontato con dati di esecuzione (trades.json, segnali,
-/// decisioni Titano) bisogna passare da qui.
+/// Ogni volta che il masterfilter va confrontato con dati di esecuzione (trades.json, segnali)
+/// bisogna passare da qui.
 /// </summary>
 public static class StrategyCatalog
 {

@@ -128,13 +128,6 @@ public interface ITradingSessionService
     IReadOnlyList<PersistedSignal> GetPersistedSignals(string sessionId, string token);
     IReadOnlyList<PersistedTrade> GetPersistedTrades(string sessionId, string token);
 
-    /// <summary>
-    /// Log diagnostico di rotazione (una riga per barra) per sessioni collegate a un run Titano: per
-    /// ciascuna strategia del masterfilter riporta se è stata inclusa nella valutazione, lo stato/motivo
-    /// Titano corrente e i segnali effettivamente generati. Pensato per verificare che le strategie
-    /// eseguano (o non eseguano) trade coerentemente con la rotazione, e per individuare bug.
-    /// </summary>
-    IReadOnlyList<RotationLogEntry> GetRotationLog(string sessionId, string token);
     TradingSessionSnapshot ApplyReport(string sessionId, ExecutionReportRequest request);
 
     TradingSessionSnapshot GetSnapshot(string sessionId, string token);
@@ -149,7 +142,7 @@ public interface ITradingSessionService
 
     /// <summary>
     /// Copia i trade (e i signal) di una sessione in una cartella di backtest del workspace, così
-    /// che possano essere usati come campione sorgente da <c>TitanoRotationService</c>.
+    /// da poterli confrontare con un run interno.
     /// </summary>
     PromoteSessionToBacktestResult PromoteToBacktest(string sessionId, PromoteSessionToBacktestRequest request);
     void CancelIntent(string sessionId, string token, string intentId);
@@ -160,10 +153,10 @@ public interface ITradingSessionService
     /// <summary>Legge la mappa account -> gruppo corrente.</summary>
     IReadOnlyList<AccountGroupMapping> GetAccountGroups(string sessionId, string token);
 
-    /// <summary>Configura gruppi, account e profilo Titano per gruppo. Solo ExternalBroker.</summary>
+    /// <summary>Configura gruppi e account. Solo ExternalBroker.</summary>
     void SetTradingGroups(string sessionId, string token, IReadOnlyList<TradingGroupRow> rows);
 
-    /// <summary>Legge la configurazione gruppi/account/Titano corrente.</summary>
+    /// <summary>Legge la configurazione gruppi/account corrente.</summary>
     IReadOnlyList<TradingGroupRow> GetTradingGroups(string sessionId, string token);
 
     /// <summary>
@@ -200,27 +193,19 @@ public sealed class TradingSessionService : ITradingSessionService
         public required PiootooTradingService SimulatedEngine { get; init; }
         public required TradingJsonStore Store { get; init; }
 
-        /// <summary>
-        /// Run esplicito, valorizzato solo dal percorso non-piano (<see cref="CreateTradingSessionRequest.TitanoRunId"/>,
-        /// usato da test e sessioni create a mano). Le sessioni aperte da piano lo lasciano null: il
-        /// run effettivo si risolve sempre come "l'ultimo per questa cartella" al momento di ogni barra.
-        /// </summary>
-        public string? PinnedTitanoRunId { get; init; }
-        public string? TitanoBacktestFolder { get; init; }
-        public TitanoFilterMode TitanoMode { get; init; }
         public ClientRunMode ClientRunMode { get; init; }
 
         /// <summary>
-        /// Applica MaxConcurrentTrades nella distribuzione multi-account. Indipendente da
-        /// <see cref="TitanoMode"/>: vedi <c>docs/domini/distribuzione-multi-account.md</c> §4.
+        /// Applica MaxConcurrentTrades nella distribuzione multi-account.
+        /// Vedi <c>docs/domini/distribuzione-multi-account.md</c> §4.
         /// </summary>
         public bool EnforceConcurrencyLimits { get; init; }
 
         /// <summary>
         /// Profilo dichiarato dal cBot all'apertura. Non governa nulla a runtime — al momento
-        /// dell'apertura si è già risolto in <see cref="TitanoMode"/> e
-        /// <see cref="EnforceConcurrencyLimits"/> — ma va conservato per poterlo mostrare a chart e
-        /// nei log: sapere *come* è configurato un run è meno utile che sapere *quale* run è.
+        /// dell'apertura si è già risolto in <see cref="EnforceConcurrencyLimits"/> — ma va
+        /// conservato per poterlo mostrare a chart e nei log: sapere *come* è configurato un run è
+        /// meno utile che sapere *quale* run è.
         /// </summary>
         public TradingRunProfile RunProfile { get; set; }
 
@@ -302,13 +287,11 @@ public sealed class TradingSessionService : ITradingSessionService
 
         /// <summary>
         /// PnL netto per strategia accumulato alla chiusura di ogni trade. E' la priorita' di
-        /// consegna dei template quando non c'e' una rotazione Titano da cui prenderla: ricalcolarla
+        /// consegna dei template: ricalcolarla
         /// sommando tutti gli <see cref="ExternalTrades"/> a ogni poll costava quanto i trade gia'
         /// fatti.
         /// </summary>
         public Dictionary<string, decimal> StrategyNetPnl { get; } = new(StringComparer.OrdinalIgnoreCase);
-
-        public List<RotationLogEntry> RotationLog { get; } = [];
 
         /// <summary>
         /// Massimo numero di barre che ogni stream ha accumulato nel run, chiave <c>StreamKey</c>.
@@ -358,20 +341,6 @@ public sealed class TradingSessionService : ITradingSessionService
 
         /// <summary>C'e' stato almeno un cambiamento non ancora scritto (checkpoint saltato).</summary>
         public bool PersistPending { get; set; }
-
-        /// <summary>
-        /// Righe di rotation-log gia' su disco: il log e' append-only, se non cresce non si riscrive.
-        ///
-        /// <para><b>Parte da zero, non da -1.</b> Il valore iniziale era <c>-1</c> come sentinella di
-        /// "mai scritto", e serviva al vecchio confronto <c>!=</c> per garantire la prima scrittura
-        /// anche a log vuoto. Da quando questo campo e' anche l'<b>indice</b> da cui
-        /// <see cref="WriteArtifactsDelta"/> accoda al journal, quella sentinella e' un indice
-        /// negativo: il primo checkpoint di una sessione appena aperta entrava nel ramo
-        /// (<c>0 &gt; -1</c>) e chiamava <c>GetRange(-1, 1)</c>, che lancia. La prima scrittura
-        /// forzata resta garantita da <c>LastPersistUtc != default</c> in <c>Persist</c>, quindi la
-        /// sentinella non serviva piu' a niente se non a rompere l'apertura della sessione.</para>
-        /// </summary>
-        public int PersistedRotationEntries { get; set; }
 
         /// <summary>
         /// Buffer circolare degli ultimi eventi della sessione, per il monitor della console.
@@ -435,10 +404,6 @@ public sealed class TradingSessionService : ITradingSessionService
         public Dictionary<string, AccountSymbolConversion> AccountConversions { get; } =
             new(StringComparer.OrdinalIgnoreCase);
 
-        /// <summary>Profilo Titano per GroupId (RotationSetupId, run, flag apply).</summary>
-        public Dictionary<string, GroupTitanoProfile> GroupProfiles { get; } =
-            new(StringComparer.OrdinalIgnoreCase);
-
         /// <summary>Template di segnali di apertura non ancora reclamati: ogni gruppo può reclamarne una copia indipendente.</summary>
         public List<OrderIntent> EntryTemplates { get; } = [];
 
@@ -460,42 +425,28 @@ public sealed class TradingSessionService : ITradingSessionService
         public Dictionary<string, int> StrategyHolderCounts { get; } = new(StringComparer.OrdinalIgnoreCase);
     }
 
-    private sealed class GroupTitanoProfile
-    {
-        public string? RotationSetupId { get; init; }
-        public string? TitanoBacktestFolder { get; init; }
-        public bool ApplyTitanoFilters { get; init; } = true;
-    }
-
-    private readonly record struct ResolvedGroupTitano(
-        string? RotationSetupId,
-        string? TitanoBacktestFolder,
-        bool ApplyTitanoFilters);
-
     private readonly ConcurrentDictionary<string, Session> _sessions = new();
     private readonly ConcurrentDictionary<string, string> _planExecutions =
         new(StringComparer.OrdinalIgnoreCase);
     private readonly WorkspaceService _workspaces;
     private readonly TradingPlanService _plans;
     private readonly IStrategyEvaluationService _evaluation;
-    private readonly TitanoRotationService? _titano;
     private readonly IPositionSizingService _positionSizing;
 
     public TradingSessionService(
         WorkspaceService workspaces, TradingPlanService plans, IStrategyEvaluationService evaluation,
-        TitanoRotationService? titano = null, IPositionSizingService? positionSizing = null)
+        IPositionSizingService? positionSizing = null)
     {
         _workspaces = workspaces;
         _plans = plans;
         _evaluation = evaluation;
-        _titano = titano;
         _positionSizing = positionSizing ?? new PositionSizingService();
     }
 
     public TradingSessionService(
         WorkspaceService workspaces, IStrategyEvaluationService evaluation,
-        TitanoRotationService? titano = null, IPositionSizingService? positionSizing = null)
-        : this(workspaces, new TradingPlanService(workspaces), evaluation, titano, positionSizing)
+        IPositionSizingService? positionSizing = null)
+        : this(workspaces, new TradingPlanService(workspaces), evaluation, positionSizing)
     {
     }
 
@@ -515,7 +466,6 @@ public sealed class TradingSessionService : ITradingSessionService
                 ExecutionMode = session.Mode,
                 Status = session.Status,
                 ClientRunMode = session.ClientRunMode,
-                TitanoMode = session.TitanoMode,
                 CreatedAtUtc = session.CreatedAtUtc,
                 LastBarTimeUtc = session.LastEvaluatedBarTimeUtc
             })
@@ -556,8 +506,8 @@ public sealed class TradingSessionService : ITradingSessionService
         // solo cBot: due account sulla stessa sessione eseguirebbero gli stessi segnali due volte.
         //
         // Il profilo entra nella chiave, altrimenti lo stesso cBot rilanciato dopo aver cambiato
-        // profilo riprenderebbe la sessione precedente e continuerebbe a girare con il Titano e i
-        // lucchetti del run vecchio, senza dirlo. Si accoda solo quando non è DalPiano, così le
+        // profilo riprenderebbe la sessione precedente e continuerebbe a girare con i lucchetti
+        // del run vecchio, senza dirlo. Si accoda solo quando non è DalPiano, così le
         // chiavi delle sessioni già in corso restano quelle di prima e la ripresa non si rompe.
         var profileSuffix = runProfile == TradingRunProfile.DalPiano ? string.Empty : $"|{runProfile}";
         var executionKey = request.DistributeToAccounts
@@ -590,8 +540,8 @@ public sealed class TradingSessionService : ITradingSessionService
             {
                 discardNotice = DiscardPreviousBacktest(executionKey, existing, account);
                 // Si prosegue nel percorso di apertura: la nuova sessione riusa la stessa cartella
-                // e TradingJsonStore.Initialize() la riazzera (signals, trades, rotation log e i
-                // journal aperti). Nessun residuo del run precedente.
+                // e TradingJsonStore.Initialize() la riazzera (signals, trades e i journal
+                // aperti). Nessun residuo del run precedente.
             }
             else
             {
@@ -608,41 +558,6 @@ public sealed class TradingSessionService : ITradingSessionService
             }
         }
 
-        // Titano di sessione dalla riga primaria (prima con run, altrimenti la prima): i profili
-        // delle altre righe restano applicati da SetTradingGroups e prevalgono nel claim. In
-        // esecuzione diretta non esiste claim, e l'unica riga che descrive l'esecuzione è quella
-        // dell'account che ha aperto la sessione.
-        var primary = request.DistributeToAccounts
-            ? TradingPlanService.SelectPrimaryRow(plan.Groups)
-            : accountRow;
-        // Il profilo, quando è dichiarato, PREVALE sul piano: è il cBot a sapere che run sta
-        // aprendo, e il piano resta la fonte di tutto il resto (workspace, sizing, strumenti,
-        // cartella del run Titano). Senza profilo si ricade sul piano, com'era prima.
-        var titanoMode = runProfile switch
-        {
-            TradingRunProfile.BacktestSorgente => TitanoFilterMode.Disabled,
-            // Filtro statico: le strategie restano quelle del masterfilter, esattamente come nel
-            // sorgente. Fra i due cambiano solo i lucchetti, poco più sotto.
-            TradingRunProfile.BacktestStaticFilter => TitanoFilterMode.Disabled,
-            TradingRunProfile.BacktestTitano => TitanoFilterMode.BacktestRotationFile,
-            _ => !primary.ApplyTitanoFilters
-                ? TitanoFilterMode.Disabled
-                : request.ClientRunMode == ClientRunMode.Backtest
-                    ? TitanoFilterMode.BacktestRotationFile
-                    : TitanoFilterMode.Realtime
-        };
-
-        // Un backtest Titano senza rotazioni non è un backtest Titano: girerebbe come un run senza
-        // filtro e la differenza si vedrebbe solo confrontando due trades.json mesi dopo.
-        if (runProfile == TradingRunProfile.BacktestTitano &&
-            string.IsNullOrWhiteSpace(primary.TitanoBacktestFolder))
-            throw new ArgumentException(
-                $"Il profilo '{TradingRunProfile.BacktestTitano}' richiede le rotazioni storiche, ma la " +
-                $"riga primaria del piano '{plan.Code}' non indica alcuna cartella di run Titano. " +
-                $"Valorizza TitanoBacktestFolder, oppure apri il run con " +
-                $"'{TradingRunProfile.BacktestStaticFilter}' (stessi lucchetti, strategie dal " +
-                $"masterfilter) o '{TradingRunProfile.BacktestSorgente}' (nessun lucchetto).");
-
         // MaxConcurrentTrades è applicato solo da GetNextSignalForAccount, cioè dal percorso di
         // claim. Senza gruppi quel percorso non esiste e il limite non avrebbe alcun punto di
         // applicazione: eseguire lo stesso il piano significherebbe operare senza il limite che
@@ -650,27 +565,19 @@ public sealed class TradingSessionService : ITradingSessionService
         //
         // I profili espliciti DICHIARANO i lucchetti e il piano non li contraddice: è il senso di
         // averli nominati invece di dedurli da una combinazione di flag. Il piano decide ancora
-        // tutto il resto (workspace, sizing, strumenti, cartella Titano) e continua a decidere i
-        // lucchetti quando il profilo è DalPiano.
+        // tutto il resto (workspace, sizing, strumenti) e continua a decidere i lucchetti quando il
+        // profilo è DalPiano.
         //
         // BacktestSorgente li spegne: il campione sorgente deve contenere ogni segnale che le
         // strategie hanno prodotto, e un piano con EnforceConcurrencyLimits=true non deve poterlo
-        // mutilare di nascosto.
-        //
-        // BacktestStaticFilter e BacktestTitano li accendono, per la ragione simmetrica. Fino al
-        // 15/08/2026 solo il sorgente era blindato e gli altri ricadevano sul piano: un
-        // EnforceConcurrencyLimits=false rendeva BacktestTitano un run senza lucchetti che
-        // continuava a chiamarsi Titano, e la differenza si vedeva solo confrontando due
-        // trades.json — esattamente lo scenario che la riga sopra dice di voler evitare per il
-        // sorgente. I due profili condividono i lucchetti proprio perché la sola differenza fra
-        // loro sia il filtro, statico contro dinamico: altrimenti il confronto non isola niente.
+        // mutilare di nascosto. BacktestStaticFilter li accende, per la ragione simmetrica: è il
+        // termine di paragone, e senza i lucchetti non misurerebbe nulla di diverso dal sorgente.
         var enforceConcurrency = runProfile switch
         {
             TradingRunProfile.BacktestSorgente => false,
             TradingRunProfile.BacktestStaticFilter => true,
-            TradingRunProfile.BacktestTitano => true,
             _ => plan.EnforceConcurrencyLimits
-                 ?? DefaultEnforceConcurrencyLimits(request.ClientRunMode, titanoMode)
+                 ?? DefaultEnforceConcurrencyLimits(request.ClientRunMode)
         };
         if (!request.DistributeToAccounts && enforceConcurrency && accountRow.MaxConcurrentTrades > 0)
             throw new ArgumentException(
@@ -688,8 +595,6 @@ public sealed class TradingSessionService : ITradingSessionService
             // broker e la size di ogni account viene dal suo InitialBalance (BalanceScale) al claim.
             CommissionPerContract = plan.CommissionPerContract,
             ClientSessionToken = Convert.ToHexString(Guid.NewGuid().ToByteArray()),
-            TitanoBacktestFolder = primary.TitanoBacktestFolder,
-            TitanoMode = titanoMode,
             ClientRunMode = request.ClientRunMode,
             // Il valore già risolto, non quello del piano: qui il profilo ha eventualmente
             // prevalso, e ripassare il nullable farebbe ricalcolare a CreateCore il default,
@@ -702,7 +607,7 @@ public sealed class TradingSessionService : ITradingSessionService
         lock (_sessions[descriptor.SessionId].Gate)
         {
             var opened = _sessions[descriptor.SessionId];
-            // Conservato per la diagnostica: a runtime il profilo si è già risolto in TitanoMode e
+            // Conservato per la diagnostica: a runtime il profilo si è già risolto in
             // EnforceConcurrencyLimits, ma senza di lui il descriptor non saprebbe dire quale run è.
             opened.RunProfile = runProfile;
             if (request.DistributeToAccounts)
@@ -775,11 +680,10 @@ public sealed class TradingSessionService : ITradingSessionService
     /// Decide dove la sessione persiste i propri artefatti.
     ///
     /// <para>Una sessione di <b>backtest</b> aperta da piano scrive direttamente sotto
-    /// <c>&lt;workspace&gt;/backtests/</c>, cioè dove <c>TitanoRotationService</c> cerca il campione
-    /// sorgente. Prima finiva in <c>sessions/&lt;guid&gt;/</c> e serviva una copia esplicita per
-    /// renderla utilizzabile: due alberi per lo stesso artefatto, con un passaggio manuale in mezzo
-    /// che era facile dimenticare — e dimenticarlo non dava errore, dava una rotazione calcolata su
-    /// un campione vecchio.</para>
+    /// <c>&lt;workspace&gt;/backtests/</c>, accanto ai run interni e quindi confrontabile con essi.
+    /// Prima finiva in <c>sessions/&lt;guid&gt;/</c> e serviva una copia esplicita per renderla
+    /// utilizzabile: due alberi per lo stesso artefatto, con un passaggio manuale in mezzo che era
+    /// facile dimenticare.</para>
     ///
     /// <para>Le sessioni <b>realtime</b> restano sotto <c>sessions/</c>: non sono campioni e non
     /// vanno confuse con i backtest. Prendono però un nome parlante al posto del GUID, perché una
@@ -857,27 +761,6 @@ public sealed class TradingSessionService : ITradingSessionService
         CreateTradingSessionRequest request, string? planCode, string? executionKey,
         string? accountNumber = null)
     {
-        if (!string.IsNullOrWhiteSpace(request.TitanoRunId) &&
-            string.IsNullOrWhiteSpace(request.TitanoBacktestFolder))
-            throw new ArgumentException("TitanoRunId richiede TitanoBacktestFolder.");
-
-        // Le modalità filtrate non possono degradare in silenzio a "nessun filtro": senza rotazione
-        // la sessione eseguirebbe tutto il masterfilter, cioè l'opposto di quanto richiesto. Il run
-        // non si richiede più esplicitamente: si risolve "l'ultimo per questa cartella" qui stesso,
-        // così un run mai generato fa fallire l'apertura invece della prima barra.
-        if (request.TitanoMode != TitanoFilterMode.Disabled && string.IsNullOrWhiteSpace(request.TitanoBacktestFolder))
-            throw new ArgumentException(
-                $"La modalità {request.TitanoMode} richiede TitanoBacktestFolder. " +
-                "Usa TitanoFilterMode.Disabled per eseguire senza filtro Titano.");
-
-        var pinnedTitanoRunId = string.IsNullOrWhiteSpace(request.TitanoRunId) ? null : request.TitanoRunId.Trim();
-        if (request.TitanoMode != TitanoFilterMode.Disabled &&
-            ResolveRunIdForFolder(pinnedTitanoRunId, request.WorkspaceId, request.TitanoBacktestFolder) is null)
-            throw new ArgumentException(
-                $"Nessun run Titano trovato per la cartella '{request.TitanoBacktestFolder}': esegui prima una rotazione.");
-
-        RequireCoherentRunMode(request.TitanoMode, request.ClientRunMode);
-
         var filter = _workspaces.GetMasterFilter(request.WorkspaceId);
         if (filter.StrategiesFilter.Count == 0)
             throw new ArgumentException("Il masterfilter del workspace è vuoto.");
@@ -952,12 +835,9 @@ public sealed class TradingSessionService : ITradingSessionService
             Strategies = strategies,
             SimulatedEngine = engine,
             Store = store,
-            PinnedTitanoRunId = pinnedTitanoRunId,
-            TitanoBacktestFolder = request.TitanoBacktestFolder,
-            TitanoMode = request.TitanoMode,
             ClientRunMode = request.ClientRunMode,
             EnforceConcurrencyLimits = request.EnforceConcurrencyLimits
-                ?? DefaultEnforceConcurrencyLimits(request.ClientRunMode, request.TitanoMode),
+                ?? DefaultEnforceConcurrencyLimits(request.ClientRunMode),
             PositionSizing = ResolvePositionSizing(request.ExecutionMode, request.PositionSizing),
             Holding = request.Holding ?? AccountHoldingPolicy.Default,
             InstrumentMetadata = instrumentMetadata,
@@ -977,9 +857,8 @@ public sealed class TradingSessionService : ITradingSessionService
     /// live è governato dal broker (<c>PiootooRiskGuardianBot</c>), coerentemente con l'invariante
     /// "il server decide <i>cosa</i>, il broker decide <i>se e a che prezzo</i>".
     ///
-    /// <para>Restano attivi il moltiplicatore di allocazione Titano e il freno per volatilità di
-    /// mercato, che dipendono dalle barre e non dal capitale. Vedi <c>docs/decisioni.md</c>
-    /// (2026-08-05).</para>
+    /// <para>Resta attivo il freno per volatilità di mercato, che dipende dalle barre e non dal
+    /// capitale. Vedi <c>docs/decisioni.md</c> (2026-08-05).</para>
     /// </summary>
     private static PositionSizingConfig ResolvePositionSizing(
         ExecutionMode mode, PositionSizingConfig requested)
@@ -1001,32 +880,6 @@ public sealed class TradingSessionService : ITradingSessionService
                 MaximumMultiplier = requested.PortfolioRisk.MaximumMultiplier
             }
         };
-    }
-
-    /// <summary>
-    /// Rifiuta le combinazioni modalità Titano / contesto di esecuzione che non possono essere
-    /// corrette. Non è pignoleria: entrambe producono risultati plausibili ma sbagliati, e il primo
-    /// segnale del problema arriverebbe dai numeri, non da un errore.
-    ///
-    /// Con <see cref="ClientRunMode.Unknown"/> non si verifica nulla: il client non ha dichiarato il
-    /// contesto e inventarne uno sarebbe peggio che lasciare la responsabilità a chi configura.
-    /// </summary>
-    private static void RequireCoherentRunMode(TitanoFilterMode titanoMode, ClientRunMode runMode)
-    {
-        if (runMode == ClientRunMode.Unknown) return;
-
-        if (titanoMode == TitanoFilterMode.Realtime && runMode == ClientRunMode.Backtest)
-            throw new ArgumentException(
-                "TitanoFilterMode.Realtime non è utilizzabile da un client in backtest: la rotazione " +
-                "'corrente' verrebbe applicata a barre storiche e, oltre la fine del manifest, resterebbe " +
-                "congelata sull'ultimo periodo calcolato — cioè look-ahead. Usa BacktestRotationFile per " +
-                "filtrare con le rotazioni calcolate offline, oppure Disabled per non filtrare.");
-
-        if (titanoMode == TitanoFilterMode.BacktestRotationFile && runMode == ClientRunMode.Realtime)
-            throw new ArgumentException(
-                "TitanoFilterMode.BacktestRotationFile non è utilizzabile in tempo reale: il manifest " +
-                "copre l'intervallo del backtest da cui è stato generato, quindi il tempo live ne esce " +
-                "quasi subito e la sessione si fermerebbe alla prima barra scoperta. Usa Realtime.");
     }
 
     public TradingSessionDescriptor SetStatus(string sessionId, string token, TradingSessionStatus status)
@@ -1321,8 +1174,8 @@ public sealed class TradingSessionService : ITradingSessionService
 
     /// <summary>
     /// Corpo comune a <see cref="PushBars"/> e <see cref="PushBarWindow"/>: aggiorna i prezzi di
-    /// mercato, risolve la rotazione Titano, valuta le strategie dello stream, dimensiona e traduce i
-    /// segnali in intent. Restituisce quante strategie sono state effettivamente valutate.
+    /// mercato, valuta le strategie dello stream, dimensiona e traduce i segnali in intent.
+    /// Restituisce quante strategie sono state effettivamente valutate.
     /// </summary>
     private int EvaluateClosedBar(
         Session session, ClosedBar normalizedBar, List<OhlcvData> history, List<OrderIntent> emitted)
@@ -1345,86 +1198,20 @@ public sealed class TradingSessionService : ITradingSessionService
             session.SimulatedEngine.UpdateMarketPrices(prices, bars, bar.BarTimeUtc);
 
         IReadOnlyList<ITradingStrategy> evaluationStrategies = session.Strategies;
-        var allocations = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
-        TitanoEffectiveStrategies? effective = null;
-        string? rotationNote = null;
-        if (!string.IsNullOrWhiteSpace(session.TitanoBacktestFolder))
-        {
-            var service = _titano ?? throw new InvalidOperationException("Servizio Titano non disponibile.");
-            var runId = ResolveRunIdForFolder(session, session.TitanoBacktestFolder);
-
-            // In Disabled la rotazione non filtra niente: si risolve solo per lasciarne traccia nel
-            // rotation-log. Se non esiste ancora un run per quella cartella non c'è nulla da
-            // registrare, e pretenderlo bloccherebbe proprio il run che deve generarlo: il campione
-            // sorgente di Titano nasce da una sessione Disabled che punta alla cartella dove i suoi
-            // trade verranno promossi. L'apertura della sessione applica già la stessa regola
-            // (vedi CreateCore), quindi senza questa il piano si apriva e poi falliva a ogni barra.
-            if (runId is null && session.TitanoMode == TitanoFilterMode.Disabled)
-            {
-                rotationNote = "modalità Disabled senza run Titano per la cartella: nessun filtro da applicare";
-            }
-            else
-            {
-                if (runId is null)
-                    throw new InvalidOperationException(
-                        $"Nessun run Titano trovato per la cartella '{session.TitanoBacktestFolder}': " +
-                        "esegui prima una rotazione.");
-                effective = service.Resolve(session.WorkspaceId, session.TitanoBacktestFolder,
-                    runId, bar.BarTimeUtc, session.TitanoMode);
-                foreach (var state in effective.StrategyStates)
-                    allocations[state.StrategyCode] = state.AllocationMultiplier;
-
-                if (session.TitanoMode == TitanoFilterMode.Disabled)
-                {
-                    // Rotazione risolta e registrata, ma non applicata: le allocazioni restano
-                    // neutre e tutte le strategie del masterfilter vengono valutate. È il run che
-                    // produce i trade su cui l'analisi Titano calcolerà le rotazioni.
-                    allocations.Clear();
-                    rotationNote = "modalità Disabled: rotazione risolta solo a scopo diagnostico, nessun filtro applicato";
-                }
-                else if (!effective.HasActivePeriod)
-                {
-                    // Nessun periodo copre questa barra. In Realtime il fallback sull'ultimo periodo
-                    // è già stato tentato dentro Resolve, quindi qui siamo davvero scoperti: è un
-                    // manifest non allineato all'intervallo che si sta eseguendo. Fermarsi è meglio
-                    // che eseguire senza filtri una sessione che l'utente ha chiesto filtrata.
-                    throw new InvalidOperationException(
-                        $"Nessun periodo Titano copre la barra {bar.BarTimeUtc:O}: il manifest '{runId}' " +
-                        $"copre {effective.ManifestFromUtc:O} → {effective.ManifestToUtc:O}. " +
-                        "Rigenera la rotazione su un backtest che copra questo intervallo, oppure " +
-                        "esegui la sessione in modalità Disabled.");
-                }
-                else
-                {
-                    evaluationStrategies = session.Strategies
-                        .Where(x => effective.EffectiveStrategies.Contains(x.Name, StringComparer.OrdinalIgnoreCase))
-                        .ToArray();
-
-                    if (effective.UsedLatestPeriod)
-                        rotationNote =
-                            $"barra {bar.BarTimeUtc:O} oltre la fine del manifest ({effective.ManifestToUtc:O}): " +
-                            "applicata la rotazione dell'ultimo periodo calcolato. Rigenera l'analisi Titano.";
-                }
-            }
-        }
         var signals = _evaluation.Evaluate(
             evaluationStrategies,
             normalizedBar,
             history,
             strategy => GetExecution(session, strategy, bar.BarTimeUtc));
 
-        if (effective is not null)
-            session.RotationLog.Add(BuildRotationLogEntry(
-                session, bar.BarTimeUtc, effective, evaluationStrategies, signals, rotationNote));
         var sized = new Dictionary<TradeSignal, PositionSizingResult>();
         foreach (var signal in signals)
         {
-            var multiplier = allocations.TryGetValue(signal.StrategyCode, out var value) ? value : 1m;
             var equity = CurrentEquity(session);
             session.PeakEquity = Math.Max(session.PeakEquity, equity);
             var result = _positionSizing.Calculate(new PositionSizingRequest
             {
-                BaseQuantity = signal.Quantity, StrategyEquityMultiplier = multiplier,
+                BaseQuantity = signal.Quantity, StrategyEquityMultiplier = 1m,
                 Instrument = session.InstrumentMetadata[Normalize(signal.Symbol)],
                 Config = session.PositionSizing, AvailableBars = history,
                 TimestampUtc = bar.BarTimeUtc, InitialCapital = session.InitialCapital,
@@ -1536,16 +1323,6 @@ public sealed class TradingSessionService : ITradingSessionService
         {
             Persist(session, force: true);
             return session.Store.ReadTrades();
-        }
-    }
-
-    public IReadOnlyList<RotationLogEntry> GetRotationLog(string sessionId, string token)
-    {
-        var session = Get(sessionId, token);
-        lock (session.Gate)
-        {
-            Persist(session, force: true);
-            return session.Store.ReadRotationLog();
         }
     }
 
@@ -1668,8 +1445,8 @@ public sealed class TradingSessionService : ITradingSessionService
                         // Lo swap invece resta con segno: può essere un accredito, e su posizioni
                         // multigiorno pesa quanto una commissione moltiplicata per dieci.
                         // Il PnL per strategia si accumula qui, dove nasce il trade: e' la
-                        // priorita' di consegna dei template quando non c'e' una rotazione Titano,
-                        // e ricalcolarla a ogni poll costava quanto i trade gia' chiusi.
+                        // priorita' di consegna dei template, e ricalcolarla a ogni poll costava
+                        // quanto i trade gia' chiusi.
                         session.StrategyNetPnl[intent.StrategyCode] =
                             session.StrategyNetPnl.GetValueOrDefault(intent.StrategyCode) + net;
                         session.ExternalTrades.Add(new PersistedTrade
@@ -1864,17 +1641,16 @@ public sealed class TradingSessionService : ITradingSessionService
     }
 
     /// <summary>
-    /// Promuove i trade di una sessione a campione sorgente per Titano.
+    /// Promuove i trade di una sessione a backtest del workspace.
     ///
-    /// <para>Una sessione scrive in <c>&lt;workspace&gt;/sessions/&lt;id&gt;/</c>, le rotazioni
-    /// leggono <c>&lt;workspace&gt;/backtests/&lt;cartella&gt;/trades.json</c>: senza questo
-    /// passaggio un backtest eseguito dall'engine cTrader produce i trade ma non può alimentare
-    /// Titano. Si copiano anche i signal, che servono a ricostruire cosa il server aveva deciso
-    /// prima che il broker eseguisse.</para>
+    /// <para>Una sessione scrive in <c>&lt;workspace&gt;/sessions/&lt;id&gt;/</c>, i backtest in
+    /// <c>&lt;workspace&gt;/backtests/&lt;cartella&gt;/</c>: senza questo passaggio un backtest
+    /// eseguito dall'engine cTrader produce i trade ma non è confrontabile con un run interno. Si
+    /// copiano anche i signal, che servono a ricostruire cosa il server aveva deciso prima che il
+    /// broker eseguisse.</para>
     ///
-    /// <para>Zero trade è un errore e non una cartella vuota: una rotazione su un campione vuoto
-    /// non fallisce, produce un manifest che disabilita tutto — esattamente il tipo di risultato
-    /// plausibile e sbagliato che il progetto tratta come inaccettabile.</para>
+    /// <para>Zero trade è un errore e non una cartella vuota: una cartella di backtest senza trade
+    /// è indistinguibile da un run mai eseguito.</para>
     /// </summary>
     public PromoteSessionToBacktestResult PromoteToBacktest(string sessionId, PromoteSessionToBacktestRequest request)
     {
@@ -1892,8 +1668,8 @@ public sealed class TradingSessionService : ITradingSessionService
         if (trades.Count == 0)
         {
             throw new InvalidOperationException(
-                $"La sessione '{sessionId}' non ha trade chiusi: promuoverla darebbe un campione vuoto, " +
-                "e una rotazione su un campione vuoto disabilita tutte le strategie senza segnalare nulla.");
+                $"La sessione '{sessionId}' non ha trade chiusi: promuoverla darebbe una cartella di " +
+                "backtest vuota, indistinguibile da un run mai eseguito.");
         }
 
         var destination = _workspaces.GetBacktestPath(session.WorkspaceId, request.BacktestFolderName);
@@ -1901,8 +1677,7 @@ public sealed class TradingSessionService : ITradingSessionService
         {
             throw new InvalidOperationException(
                 $"Il backtest '{request.BacktestFolderName}' esiste già nel workspace '{session.WorkspaceId}'. " +
-                "Conferma esplicitamente la sostituzione: i run Titano già calcolati portano l'hash del " +
-                "trades.json di origine, e cambiarlo sotto di loro li rende non riproducibili.");
+                "Conferma esplicitamente la sostituzione: i trade già presenti vengono persi.");
         }
 
         Directory.CreateDirectory(destination);
@@ -1981,20 +1756,8 @@ public sealed class TradingSessionService : ITradingSessionService
             session.AccountMaxConcurrentTrades.Clear();
             session.AccountConcurrencyCountMode.Clear();
             session.AccountConversions.Clear();
-            session.GroupProfiles.Clear();
             foreach (var group in rows.GroupBy(r => r.GroupId.Trim(), StringComparer.OrdinalIgnoreCase))
             {
-                var sample = group.First();
-                session.GroupProfiles[group.Key] = new GroupTitanoProfile
-                {
-                    RotationSetupId = string.IsNullOrWhiteSpace(sample.RotationSetupId)
-                        ? null
-                        : sample.RotationSetupId.Trim(),
-                    TitanoBacktestFolder = string.IsNullOrWhiteSpace(sample.TitanoBacktestFolder)
-                        ? null
-                        : sample.TitanoBacktestFolder.Trim(),
-                    ApplyTitanoFilters = sample.ApplyTitanoFilters
-                };
                 foreach (var row in group)
                 {
                     session.AccountGroups[row.AccountNumber.Trim()] = group.Key;
@@ -2031,34 +1794,16 @@ public sealed class TradingSessionService : ITradingSessionService
             .FirstOrDefault(g => g.Count() > 1);
         if (duplicatedAccount != null)
             throw new ArgumentException($"Account '{duplicatedAccount.Key}' configurato più di una volta.");
-
-        foreach (var group in rows.GroupBy(r => r.GroupId.Trim(), StringComparer.OrdinalIgnoreCase))
-        {
-            var signatures = group.Select(r => (
-                RotationSetupId: (r.RotationSetupId ?? string.Empty).Trim(),
-                TitanoBacktestFolder: (r.TitanoBacktestFolder ?? string.Empty).Trim(),
-                r.ApplyTitanoFilters)).Distinct().ToArray();
-            if (signatures.Length > 1)
-                throw new ArgumentException(
-                    $"Profilo Titano inconsistente tra le righe del gruppo '{group.Key}'.");
-        }
     }
 
     private static IReadOnlyList<TradingGroupRow> BuildTradingGroupRows(Session session) =>
         session.AccountGroups
-            .Select(kv =>
+            .Select(kv => new TradingGroupRow
             {
-                session.GroupProfiles.TryGetValue(kv.Value, out var profile);
-                return new TradingGroupRow
-                {
-                    GroupId = kv.Value,
-                    AccountNumber = kv.Key,
-                    MaxConcurrentTrades = session.AccountMaxConcurrentTrades.GetValueOrDefault(kv.Key),
-                    ConcurrencyCountMode = session.AccountConcurrencyCountMode.GetValueOrDefault(kv.Key),
-                    RotationSetupId = profile?.RotationSetupId,
-                    TitanoBacktestFolder = profile?.TitanoBacktestFolder,
-                    ApplyTitanoFilters = profile?.ApplyTitanoFilters ?? true
-                };
+                GroupId = kv.Value,
+                AccountNumber = kv.Key,
+                MaxConcurrentTrades = session.AccountMaxConcurrentTrades.GetValueOrDefault(kv.Key),
+                ConcurrencyCountMode = session.AccountConcurrencyCountMode.GetValueOrDefault(kv.Key)
             })
             .OrderBy(x => x.GroupId, StringComparer.OrdinalIgnoreCase)
             .ThenBy(x => x.AccountNumber, StringComparer.OrdinalIgnoreCase)
@@ -2299,23 +2044,6 @@ public sealed class TradingSessionService : ITradingSessionService
                 // giorno, non a ogni barra, quindi non genera la riga-per-barra che la nota del
                 // filtro di scadenza dice di evitare.
                 () => DescribeSessionLimit(session, candidates, accountNumber));
-            // La rotazione del gruppo si risolve UNA volta per claim e non una per template.
-            //
-            // Non è solo costo — anche se il costo era il sintomo: risolvere dentro il predicato di
-            // NarrowTemplates rifaceva l'intera catena (elenco dei run della cartella, manifest,
-            // proiezione degli stati) per ogni candidato, e di nuovo in CloneForClaim. È anche
-            // coerenza: i due usi sono lo stesso giudizio — chi è ammesso e con che allocazione — e
-            // risolverli separatamente li lascia disallineabili da una rotazione che atterra fra
-            // l'uno e l'altro. Il documento dice "dalla barra successiva", non "a metà claim".
-            //
-            // La risoluzione resta DIFFERITA perché i due chiamanti hanno cortocircuiti propri
-            // (template di chiusura, gruppo senza cartella, filtri spenti) che oggi evitano di
-            // risolvere del tutto: anticiparla farebbe fallire un claim che oggi passa, quando la
-            // cartella non ha ancora un run.
-            var groupTitano = new LazyGroupTitano(() => TryResolveGroupTitano(session, groupId));
-            candidates = NarrowTemplates(candidates, ref stage,
-                t => IsTemplateEligibleForGroup(session, groupId, t, groupTitano),
-                "escluso dalla rotazione Titano del gruppo");
 
             var template = candidates
                 .OrderByDescending(t => priorities.GetValueOrDefault(t.StrategyCode, 0m))
@@ -2328,7 +2056,7 @@ public sealed class TradingSessionService : ITradingSessionService
                 return new AccountSignalResponse { Reason = "NoSignal", ReasonDetail = stage };
             }
 
-            var claim = CloneForClaim(session, template, accountNumber, groupId, groupTitano);
+            var claim = CloneForClaim(session, template, accountNumber, groupId);
             if (claim.FinalQuantity <= 0)
                 return new AccountSignalResponse
                 {
@@ -2362,8 +2090,7 @@ public sealed class TradingSessionService : ITradingSessionService
     }
 
     /// <summary>
-    /// Il limite di trade concorrenti è governato da un flag esplicito della sessione, non più
-    /// dedotto da <see cref="TitanoFilterMode"/>. Vedi
+    /// Il limite di trade concorrenti è governato da un flag esplicito della sessione. Vedi
     /// <c>CreateTradingSessionRequest.EnforceConcurrencyLimits</c> e
     /// <c>docs/domini/distribuzione-multi-account.md</c> §4.
     /// </summary>
@@ -2520,11 +2247,11 @@ public sealed class TradingSessionService : ITradingSessionService
         => session.EnforceConcurrencyLimits;
 
     /// <summary>
-    /// Default storico del flag: attivo ovunque tranne nel run che produce il <c>trades.json</c>
-    /// sorgente delle rotazioni (backtest senza filtro Titano).
+    /// Default storico del flag: attivo ovunque tranne nel backtest, che deve produrre il campione
+    /// sorgente completo.
     /// </summary>
-    public static bool DefaultEnforceConcurrencyLimits(ClientRunMode runMode, TitanoFilterMode titanoMode)
-        => !(runMode == ClientRunMode.Backtest && titanoMode == TitanoFilterMode.Disabled);
+    public static bool DefaultEnforceConcurrencyLimits(ClientRunMode runMode)
+        => runMode != ClientRunMode.Backtest;
 
     private static int CountServerPositionsForAccount(Session session, string accountNumber)
         => session.ExternalPositions.Keys.Count(key =>
@@ -2629,7 +2356,7 @@ public sealed class TradingSessionService : ITradingSessionService
                 request.Quantity, string.IsNullOrWhiteSpace(request.Reason) ? "ClientLocalExit" : request.Reason,
                 // Stessa ragione del claim: in un replay storico l'ora di sistema data la chiusura a
                 // mesi di distanza dal trade che la genera, e i PersistedTrade finirebbero fuori
-                // dall'intervallo del run — cioè fuori da qualunque periodo di rotazione Titano.
+                // dall'intervallo del run.
                 session.LastEvaluatedBarTimeUtc ?? DateTime.UtcNow);
             Persist(session);
             return intent;
@@ -2683,7 +2410,7 @@ public sealed class TradingSessionService : ITradingSessionService
     /// <para><b>Non inventa il trade.</b> Lo snapshot dice che la posizione non c'è più, non a che
     /// prezzo è uscita: <see cref="BrokerTradeSnapshot"/> porta solo l'orario di chiusura, e senza
     /// prezzo, commissione e swap un <see cref="PersistedTrade"/> costruito qui sarebbe un numero
-    /// inventato che finisce dritto nelle rotazioni Titano. Il P&amp;L resta compito del client, che
+    /// inventato che finisce dritto negli artefatti. Il P&amp;L resta compito del client, che
     /// lo riporta con il normale execution report. Qui si sblocca la strategia e si lascia una
     /// traccia esplicita in <see cref="SessionActivityKind.PosizioneChiusa"/>, così il buco è
     /// visibile nel monitor invece di essere un silenzio.</para>
@@ -2828,167 +2555,13 @@ public sealed class TradingSessionService : ITradingSessionService
         (positionDirection == SignalType.Sell && signalDirection == SignalType.Buy);
 
     /// <summary>
-    /// Priorità per strategia usata per decidere quale segnale offrire per primo quando un account libero
-    /// ha più template di ingresso disponibili in contemporanea: usa il ranking Titano del gruppo (o della
-    /// sessione come fallback), altrimenti il PnL netto live accumulato dalla strategia nella sessione.
+    /// Priorità per strategia usata per decidere quale segnale offrire per primo quando un account
+    /// libero ha più template di ingresso disponibili in contemporanea: il PnL netto live
+    /// accumulato dalla strategia nella sessione.
     /// </summary>
-    private Dictionary<string, decimal> ComputeStrategyPriority(Session session, string groupId)
-    {
-        var profile = ResolveGroupTitano(session, groupId);
-        if (!string.IsNullOrWhiteSpace(profile.TitanoBacktestFolder) && _titano != null)
-        {
-            try
-            {
-                var runId = ResolveRunIdForFolder(session, profile.TitanoBacktestFolder);
-                if (!string.IsNullOrWhiteSpace(runId))
-                {
-                    var effective = _titano.Resolve(
-                        session.WorkspaceId, profile.TitanoBacktestFolder, runId,
-                        session.LastEvaluatedBarTimeUtc ?? DateTime.UtcNow);
-                    var map = effective.StrategyStates.ToDictionary(
-                        s => s.StrategyCode, s => s.AllocationMultiplier, StringComparer.OrdinalIgnoreCase);
-                    if (map.Count > 0) return map;
-                }
-            }
-            catch (Exception)
-            {
-                // Rotazione non risolvibile (es. dati mancanti): fallback sul PnL live sotto.
-            }
-        }
-
+    private static Dictionary<string, decimal> ComputeStrategyPriority(Session session, string groupId)
         // Sola lettura, sotto il lock della sessione come tutto il resto del claim.
-        return session.StrategyNetPnl;
-    }
-
-    private static ResolvedGroupTitano ResolveGroupTitano(Session session, string groupId)
-    {
-        session.GroupProfiles.TryGetValue(groupId, out var profile);
-        var groupFolder = profile?.TitanoBacktestFolder;
-        var usesGroupFolder = !string.IsNullOrWhiteSpace(groupFolder);
-        return new ResolvedGroupTitano(
-            profile?.RotationSetupId,
-            usesGroupFolder ? groupFolder : session.TitanoBacktestFolder,
-            // La MODALITÀ (dove si sta girando) è della sessione; il gruppo può solo scegliere se
-            // subire o no il filtro della propria cartella. Un gruppo senza cartella propria eredita
-            // quindi la decisione della sessione: filtrata in tutto tranne che in Disabled.
-            usesGroupFolder ? profile!.ApplyTitanoFilters : session.TitanoMode != TitanoFilterMode.Disabled);
-    }
-
-    /// <summary>
-    /// Run effettivo per una cartella: il pin esplicito della sessione se la cartella è la sua
-    /// stessa (percorso non-piano, vedi <see cref="Session.PinnedTitanoRunId"/>), altrimenti sempre
-    /// l'ultimo generato — così una rotazione nuova si applica dalla barra successiva senza
-    /// riaprire la sessione.
-    /// </summary>
-    private string? ResolveRunIdForFolder(Session session, string? backtestFolder)
-    {
-        if (string.IsNullOrWhiteSpace(backtestFolder))
-            return null;
-        var pinned = string.Equals(backtestFolder, session.TitanoBacktestFolder, StringComparison.OrdinalIgnoreCase)
-            ? session.PinnedTitanoRunId
-            : null;
-        return ResolveRunIdForFolder(pinned, session.WorkspaceId, backtestFolder);
-    }
-
-    private string? ResolveRunIdForFolder(string? pinnedRunId, string workspaceId, string? backtestFolder)
-    {
-        if (string.IsNullOrWhiteSpace(backtestFolder))
-            return null;
-        if (!string.IsNullOrWhiteSpace(pinnedRunId))
-            return pinnedRunId;
-        return _titano?.ResolveLatestRun(workspaceId, backtestFolder)?.RunId;
-    }
-
-    /// <summary>
-    /// Rotazione del gruppo risolta al più una volta, per la durata di un singolo claim.
-    ///
-    /// <para>Non è un <c>Lazy&lt;T&gt;</c> perché quello memorizza anche l'eccezione: qui una
-    /// risoluzione fallita deve poter risalire al chiamante come faceva prima, e vive comunque
-    /// dentro un solo claim sotto il lock della sessione, dove di concorrenza non ce n'è.</para>
-    /// </summary>
-    private sealed class LazyGroupTitano(Func<TitanoEffectiveStrategies?> resolve)
-    {
-        private TitanoEffectiveStrategies? _value;
-        private bool _resolved;
-
-        public TitanoEffectiveStrategies? Value
-        {
-            get
-            {
-                if (_resolved) return _value;
-                _value = resolve();
-                _resolved = true;
-                return _value;
-            }
-        }
-    }
-
-    private TitanoEffectiveStrategies? TryResolveGroupTitano(Session session, string groupId)
-    {
-        var profile = ResolveGroupTitano(session, groupId);
-        if (string.IsNullOrWhiteSpace(profile.TitanoBacktestFolder) || _titano is null)
-            return null;
-
-        var runId = ResolveRunIdForFolder(session, profile.TitanoBacktestFolder);
-        if (string.IsNullOrWhiteSpace(runId))
-            return null;
-
-        return _titano.Resolve(
-            session.WorkspaceId, profile.TitanoBacktestFolder, runId,
-            session.LastEvaluatedBarTimeUtc ?? DateTime.UtcNow);
-    }
-
-    private bool IsTemplateEligibleForGroup(
-        Session session, string groupId, OrderIntent template, LazyGroupTitano groupTitano)
-    {
-        // Un intent di chiusura non è mai un template da reclamare (il server non ne emette), ma se
-        // ne arrivasse uno non va comunque filtrato: chiudere una posizione aperta è sempre lecito.
-        if (template.IsClose)
-            return true;
-
-        var profile = ResolveGroupTitano(session, groupId);
-        if (!profile.ApplyTitanoFilters || string.IsNullOrWhiteSpace(profile.TitanoBacktestFolder))
-            return true;
-
-        var effective = groupTitano.Value;
-        if (effective is null)
-            return true;
-
-        if (!effective.HasActivePeriod)
-            return true;
-
-        if (!effective.EffectiveStrategies.Contains(template.StrategyCode, StringComparer.OrdinalIgnoreCase))
-            return false;
-
-        var allocation = effective.StrategyStates
-            .FirstOrDefault(s => string.Equals(s.StrategyCode, template.StrategyCode, StringComparison.OrdinalIgnoreCase))
-            ?.AllocationMultiplier ?? 0m;
-        return allocation > 0m;
-    }
-
-    private decimal GetGroupStrategyAllocation(
-        Session session, string groupId, string strategyCode, LazyGroupTitano groupTitano)
-    {
-        var profile = ResolveGroupTitano(session, groupId);
-        if (!profile.ApplyTitanoFilters || string.IsNullOrWhiteSpace(profile.TitanoBacktestFolder))
-            return 1m;
-
-        // OpenFromPlan associa la stessa cartella sia alla sessione sia al suo unico gruppo, quindi
-        // risolvono sempre allo stesso run in un dato istante. PushBars ha già applicato quel
-        // moltiplicatore nel PositionSizingService: riapplicarlo qui trasformerebbe 0,5 in 0,25. Il
-        // claim deve scalare solo per la cartella di un gruppo diverso da quella della sessione.
-        if (session.TitanoMode != TitanoFilterMode.Disabled &&
-            string.Equals(profile.TitanoBacktestFolder, session.TitanoBacktestFolder, StringComparison.OrdinalIgnoreCase))
-            return 1m;
-
-        var effective = groupTitano.Value;
-        if (effective is null || !effective.HasActivePeriod)
-            return 1m;
-
-        return effective.StrategyStates
-            .FirstOrDefault(s => string.Equals(s.StrategyCode, strategyCode, StringComparison.OrdinalIgnoreCase))
-            ?.AllocationMultiplier ?? 0m;
-    }
+        => session.StrategyNetPnl;
 
     private static OrderIntent AddIntent(
         Session session, TradeSignal signal, PositionSizingResult? sizing, bool addToIntents = true,
@@ -3111,8 +2684,8 @@ public sealed class TradingSessionService : ITradingSessionService
     /// <see cref="GetNextSignalForAccount"/> risponderebbe a vuoto per qualunque account, ed è la
     /// garanzia su cui il cBot si permette di saltare il poll.
     ///
-    /// <para>Deliberatamente <b>più largo</b> del claim vero: non applica i lucchetti di gruppo, il
-    /// filtro Titano né la tabella di conversione dell'account, perché qui non si sta decidendo
+    /// <para>Deliberatamente <b>più largo</b> del claim vero: non applica i lucchetti di gruppo né
+    /// la tabella di conversione dell'account, perché qui non si sta decidendo
     /// <i>chi</i> prende <i>cosa</i> — si sta solo dicendo se c'è qualcosa. Sbagliare per eccesso
     /// costa un poll a vuoto; sbagliare per difetto perde un segnale, ed è il verso in cui non si
     /// può sbagliare.</para>
@@ -3298,9 +2871,7 @@ public sealed class TradingSessionService : ITradingSessionService
     }
 
     /// <summary>
-    /// Clona un template di ingresso in un intent concreto assegnato a un account/gruppo specifico,
-    /// applicando l'allocazione Titano <b>del gruppo</b>: gruppi diversi possono avere run distinti e
-    /// quindi ricevere lo stesso segnale con size diverse.
+    /// Clona un template di ingresso in un intent concreto assegnato a un account/gruppo specifico.
     ///
     /// <para>La quantità viene arrotondata per difetto al passo dello strumento e azzerata sotto la
     /// quantità minima: un intent con <c>FinalQuantity</c> a zero non viene consegnato all'account
@@ -3310,11 +2881,9 @@ public sealed class TradingSessionService : ITradingSessionService
     /// chiuderà la posizione.</para>
     /// </summary>
     private OrderIntent CloneForClaim(
-        Session session, OrderIntent template, string accountNumber, string groupId,
-        LazyGroupTitano groupTitano)
+        Session session, OrderIntent template, string accountNumber, string groupId)
     {
-        var groupAllocation = GetGroupStrategyAllocation(session, groupId, template.StrategyCode, groupTitano);
-        var quantity = ApplyGroupAllocation(session, template.Symbol, template.FinalQuantity, groupAllocation);
+        var quantity = template.FinalQuantity;
 
         // La conversione dell'account è l'ultimo passaggio, ed è qui e non sul template perché
         // dipende dal conto: lo stesso segnale vale size diverse su conti con capitale o contratto
@@ -3354,13 +2923,13 @@ public sealed class TradingSessionService : ITradingSessionService
             OrderType = template.OrderType,
             Quantity = convertedQuantity,
             QuantityBeforeAccountConversion = quantity,
-            AllocationMultiplier = template.AllocationMultiplier * groupAllocation,
+            AllocationMultiplier = template.AllocationMultiplier,
             BaseQuantity = template.BaseQuantity,
-            StrategyEquityMultiplier = template.StrategyEquityMultiplier * groupAllocation,
+            StrategyEquityMultiplier = template.StrategyEquityMultiplier,
             MarketVolatilityMultiplier = template.MarketVolatilityMultiplier,
             PortfolioRiskMultiplier = template.PortfolioRiskMultiplier,
             FinalQuantity = convertedQuantity,
-            SizingReason = BuildClaimSizingReason(template.SizingReason, groupId, groupAllocation, enabled, sizeFactor),
+            SizingReason = BuildClaimSizingReason(template.SizingReason, enabled, sizeFactor),
             Price = template.Price,
             Kind = OrderIntentKind.Entry,
             StopLoss = Scale(template.StopLoss),
@@ -3388,31 +2957,6 @@ public sealed class TradingSessionService : ITradingSessionService
             AssignedAccountNumber = accountNumber,
             AssignedGroupId = groupId
         };
-    }
-
-    /// <summary>
-    /// Scala una quantità per l'allocazione di gruppo rispettando i vincoli dello strumento:
-    /// arrotondamento per difetto al passo, zero sotto la quantità minima.
-    ///
-    /// <para>Se <see cref="InstrumentMetadata.RoundingMode"/> è <see cref="QuantityRoundingMode.Deferred"/>
-    /// non si arrotonda qui: è il caso <see cref="ExecutionMode.ExternalBroker"/>, dove la quantità è
-    /// ancora nei contratti Piootoo e la granularità che conta è quella del broker, applicata una
-    /// sola volta dopo la conversione d'account (vedi <see cref="CloneForClaim"/>).</para>
-    /// </summary>
-    private decimal ApplyGroupAllocation(Session session, string symbol, decimal quantity, decimal allocation)
-    {
-        if (allocation >= 1m) return quantity;
-        if (allocation <= 0m) return 0m;
-
-        var scaled = quantity * allocation;
-        if (!session.InstrumentMetadata.TryGetValue(Normalize(symbol), out var metadata) ||
-            metadata.RoundingMode == QuantityRoundingMode.Deferred)
-            return scaled;
-
-        if (metadata.QuantityStep > 0)
-            scaled = Math.Floor(scaled / metadata.QuantityStep) * metadata.QuantityStep;
-
-        return scaled < metadata.MinimumQuantity ? 0m : scaled;
     }
 
     /// <summary>
@@ -3449,11 +2993,9 @@ public sealed class TradingSessionService : ITradingSessionService
             : null;
 
     private static string? BuildClaimSizingReason(
-        string? templateReason, string groupId, decimal groupAllocation, bool symbolEnabled, decimal sizeFactor)
+        string? templateReason, bool symbolEnabled, decimal sizeFactor)
     {
-        var reason = groupAllocation == 1m
-            ? templateReason
-            : $"{templateReason} | allocazione gruppo {groupId}: {groupAllocation:0.###}";
+        var reason = templateReason;
 
         if (!symbolEnabled)
             return $"{reason} | simbolo non operativo sull'account";
@@ -3514,7 +3056,6 @@ public sealed class TradingSessionService : ITradingSessionService
         }
 
         if (force && !session.PersistPending && !session.JournalPending &&
-            session.PersistedRotationEntries == session.RotationLog.Count &&
             session.LastPersistUtc != default && elapsed < PersistCheckpointInterval)
         {
             // Flush richiesto ma non c'e' niente di nuovo da scrivere.
@@ -3542,7 +3083,6 @@ public sealed class TradingSessionService : ITradingSessionService
         session.Store.WriteSignals(
             session.Intents.Where(ShouldPersist).Select(intent => ToPersistedSignal(session, intent)), durable);
         session.Store.WriteTrades(CollectTrades(session, from: 0), durable);
-        session.Store.WriteRotationLog(session.RotationLog, durable);
         session.Store.WriteSessionSummary(BuildRunSummary(session), durable);
         session.JournalPending = false;
         ResetPersistenceWatermarks(session);
@@ -3711,17 +3251,6 @@ public sealed class TradingSessionService : ITradingSessionService
                 session.JournalPending = true;
             }
         }
-
-        if (session.RotationLog.Count > session.PersistedRotationEntries)
-        {
-            // Clamp come in CollectTrades: questo segnaposto e' un indice, e un indice fuori
-            // intervallo deve degradare in "riaccodo tutto", non far fallire la richiesta che lo
-            // ha innescato — che qui e' l'apertura stessa della sessione.
-            var from = Math.Clamp(session.PersistedRotationEntries, 0, session.RotationLog.Count);
-            session.Store.AppendRotationLog(session.RotationLog.GetRange(from, session.RotationLog.Count - from));
-            session.PersistedRotationEntries = session.RotationLog.Count;
-            session.JournalPending = true;
-        }
     }
 
     /// <summary>
@@ -3783,7 +3312,6 @@ public sealed class TradingSessionService : ITradingSessionService
         session.PersistedExternalTradeCount = session.ExternalTrades.Count;
         session.PersistedSimulatedTradeCount =
             session.Mode == ExecutionMode.ExternalBroker ? 0 : session.SimulatedEngine.ClosedTradesCount;
-        session.PersistedRotationEntries = session.RotationLog.Count;
     }
 
     /// <summary>I trade dall'indice indicato in poi. <c>from: 0</c> e' l'elenco completo.</summary>
@@ -3868,69 +3396,6 @@ public sealed class TradingSessionService : ITradingSessionService
         AssignedGroupId = intent.AssignedGroupId
     };
 
-    /// <summary>
-    /// Costruisce la riga di log diagnostico per la barra corrente, incrociando lo stato Titano
-    /// (chi è stato incluso/escluso e perché) con i segnali effettivamente generati dalle strategie
-    /// valutate. Serve a verificare che le esclusioni Titano corrispondano a strategie che non hanno
-    /// generato trade, e viceversa che le strategie incluse si comportino come progettato.
-    /// </summary>
-    private static RotationLogEntry BuildRotationLogEntry(
-        Session session, DateTime barTimeUtc, TitanoEffectiveStrategies effective,
-        IReadOnlyList<ITradingStrategy> evaluationStrategies, IReadOnlyList<TradeSignal> signals,
-        string? note = null)
-    {
-        var masterStrategies = session.Strategies.Select(s => s.Name)
-            .Distinct(StringComparer.OrdinalIgnoreCase).Order(StringComparer.Ordinal).ToArray();
-        var evaluatedNames = evaluationStrategies.Select(s => s.Name)
-            .Distinct(StringComparer.OrdinalIgnoreCase).Order(StringComparer.Ordinal).ToArray();
-
-        // Set e non Contains sull'array: l'overload con comparer è Enumerable.Contains, che scansiona
-        // linearmente, e qui viene chiamato una volta per strategia del master — O(S²) per barra, su
-        // una riga che si costruisce a OGNI barra del run. Stesso difetto già corretto nel loop del
-        // backtest interno.
-        var evaluatedSet = new HashSet<string>(evaluatedNames, StringComparer.OrdinalIgnoreCase);
-        var skipped = masterStrategies
-            .Where(x => !evaluatedSet.Contains(x))
-            .ToArray();
-        var statesByCode = effective.StrategyStates.ToDictionary(x => x.StrategyCode, StringComparer.OrdinalIgnoreCase);
-        var strategyStates = masterStrategies.Select(code =>
-        {
-            statesByCode.TryGetValue(code, out var state);
-            return new RotationStrategyState
-            {
-                StrategyCode = code,
-                Included = evaluatedSet.Contains(code),
-                AllocationMultiplier = state?.AllocationMultiplier ?? 0m,
-                State = state?.State.ToString(),
-                HardStopped = state?.HardStopped ?? false,
-                CooldownRemaining = state?.CooldownRemaining ?? 0,
-                Score = state?.Score ?? 0m,
-                PassingFilters = state?.PassingFilters ?? 0,
-                TotalFilters = state?.TotalFilters ?? 0,
-                Reason = state?.Reason ?? "strategia assente dal run Titano corrente"
-            };
-        }).ToArray();
-
-        return new RotationLogEntry
-        {
-            EntryId = $"{session.Id}-{barTimeUtc:yyyyMMddTHHmmssfffZ}",
-            SessionId = session.Id,
-            BarTimeUtc = barTimeUtc,
-            TitanoRunId = effective.RunId,
-            TitanoBacktestFolder = session.TitanoBacktestFolder,
-            PeriodId = effective.PeriodId,
-            MasterStrategies = masterStrategies,
-            EvaluatedStrategies = evaluatedNames,
-            SkippedByTitano = skipped,
-            StrategyStates = strategyStates,
-            SignalsEmitted = signals.Select(s => $"{s.StrategyCode}:{s.Type}").ToArray(),
-            FiltersApplied = session.TitanoMode != TitanoFilterMode.Disabled && effective.HasActivePeriod,
-            TitanoMode = session.TitanoMode,
-            ClientRunMode = session.ClientRunMode,
-            Note = note
-        };
-    }
-
     private static StrategyExecutionSnapshot GetExecution(Session session, ITradingStrategy strategy, DateTime time)
     {
         if (session.Mode == ExecutionMode.ServerSimulated)
@@ -3989,10 +3454,6 @@ public sealed class TradingSessionService : ITradingSessionService
         ExecutionKey = session.ExecutionKey,
         ExecutionMode = session.Mode,
         Status = session.Status,
-        // Informativo per il client (diagnosi locale): calcolato al momento, non congelato
-        // sulla sessione, così riflette una rotazione più recente senza bisogno di riaprirla.
-        TitanoRunId = ResolveRunIdForFolder(session, session.TitanoBacktestFolder),
-        TitanoMode = session.TitanoMode,
         ClientRunMode = session.ClientRunMode,
         RunProfile = session.RunProfile,
         EnforceConcurrencyLimits = session.EnforceConcurrencyLimits,

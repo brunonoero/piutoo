@@ -81,30 +81,10 @@ public class BacktestingRequest
     /// </summary>
     public decimal TrailingMinStepFraction { get; set; } = 0.10m;
 
-    /// <summary>
-    /// Modalità rispetto al filtro Titano. Identica a quella delle sessioni
-    /// (<see cref="TitanoFilterMode"/>), così backtest interno ed engine esterno cTrader si
-    /// comportano allo stesso modo.
-    ///
-    /// <para><see cref="TitanoFilterMode.Disabled"/> — nessun filtro: è il run che produce il
-    /// <c>trades.json</c> su cui l'analisi Titano calcola offline le rotazioni.</para>
-    /// <para><see cref="TitanoFilterMode.BacktestRotationFile"/> — per ogni barra vengono valutate
-    /// solo le strategie abilitate dal periodo di rotazione che la contiene. Richiede
-    /// <see cref="TitanoRunId"/> e <see cref="TitanoBacktestFolder"/>.</para>
-    /// <para><see cref="TitanoFilterMode.Realtime"/> non ha senso in backtest e viene rifiutata.</para>
-    /// </summary>
-    public TitanoFilterMode TitanoMode { get; set; } = TitanoFilterMode.Disabled;
-
-    /// <summary>Run Titano da applicare. Obbligatorio con <see cref="TitanoFilterMode.BacktestRotationFile"/>.</summary>
-    public string? TitanoRunId { get; set; }
-
-    /// <summary>Cartella di backtest che contiene il run Titano indicato.</summary>
-    public string? TitanoBacktestFolder { get; set; }
-
     // Nessun account: il backtest interno è neutro rispetto ai conti. Un run è capitale iniziale
     // + strategie del masterfilter + datafeed, con conversione simbolo e moltiplicatori fissi a 1.
-    // Il motivo sta in docs/decisioni.md (2026-08-05): questo run è il campione sorgente di Titano,
-    // e una size legata al conto farebbe dipendere le rotazioni dal capitale invece che dalle
-    // strategie. Conversione e scala per conto restano sulle sessioni ExternalBroker, dove il
-    // segnale deve diventare un ordine eseguibile su un conto reale.
+    // Il motivo sta in docs/decisioni.md (2026-08-05): una size legata al conto farebbe dipendere
+    // il campione dal capitale invece che dalle strategie. Conversione e scala per conto restano
+    // sulle sessioni ExternalBroker, dove il segnale deve diventare un ordine eseguibile su un
+    // conto reale.
 }

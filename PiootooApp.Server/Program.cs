@@ -51,8 +51,6 @@ builder.Services.AddSingleton<PiootooBacktestingService>();
 builder.Services.AddSingleton<IPiootooBacktestingService>(sp => sp.GetRequiredService<PiootooBacktestingService>());
 builder.Services.AddSingleton<IPiootooSapiooService, PiootooSapiooService>();
 builder.Services.AddSingleton<PiootooOptimizationService>();
-builder.Services.AddSingleton<TitanoRotationSetupService>();
-builder.Services.AddSingleton<TitanoRotationService>();
 builder.Services.AddSingleton<WorkspaceService>();
 builder.Services.AddSingleton<ExternalBacktestReportService>();
 builder.Services.AddSingleton<TradingPlanService>();

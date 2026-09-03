@@ -17,8 +17,6 @@ public sealed class TradingSessionRow
 
     public string ExecutionMode { get; set; } = string.Empty;
 
-    public string TitanoMode { get; set; } = string.Empty;
-
     public string Status { get; set; } = string.Empty;
 
     public DateTime CreatedAtUtc { get; set; }
@@ -76,7 +74,6 @@ public partial class TradingSessionListScreen : UserControl, IShellScreen
                     PlanCode = summary.PlanCode ?? string.Empty,
                     ClientRunMode = summary.ClientRunMode.ToString(),
                     ExecutionMode = summary.ExecutionMode.ToString(),
-                    TitanoMode = summary.TitanoMode.ToString(),
                     Status = summary.Status.ToString(),
                     CreatedAtUtc = summary.CreatedAtUtc,
                     Summary = summary

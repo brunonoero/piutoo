@@ -153,7 +153,7 @@ public partial class WorkspaceListScreen : UserControl, IShellScreen
         var confirm = MessageBox.Show(
             this,
             $"Eliminare il workspace '{row.Name}'?{Environment.NewLine}{Environment.NewLine}" +
-            "Vengono rimossi anche backtest, piani, run Titano e sessioni contenuti nella cartella.",
+            "Vengono rimossi anche backtest, piani e sessioni contenuti nella cartella.",
             "Elimina workspace",
             MessageBoxButtons.YesNo,
             MessageBoxIcon.Warning);

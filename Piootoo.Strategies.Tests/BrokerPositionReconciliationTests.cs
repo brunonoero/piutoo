@@ -189,15 +189,13 @@ public sealed class BrokerPositionReconciliationTests : IDisposable
         });
 
         var sessions = new TradingSessionService(
-            workspaces, new SingleSignalEvaluationService(),
-            new TitanoRotationService(workspaces), new PositionSizingService());
+            workspaces, new SingleSignalEvaluationService(), new PositionSizingService());
 
         var descriptor = sessions.Create(new CreateTradingSessionRequest
         {
             WorkspaceId = workspace.Id,
             ExecutionMode = ExecutionMode.ExternalBroker,
-            ClientRunMode = ClientRunMode.Realtime,
-            TitanoMode = TitanoFilterMode.Disabled
+            ClientRunMode = ClientRunMode.Realtime
         });
         sessions.SetTradingGroups(descriptor.SessionId, descriptor.SessionToken,
         [
@@ -207,7 +205,6 @@ public sealed class BrokerPositionReconciliationTests : IDisposable
                 AccountNumber = Account,
                 MaxConcurrentTrades = 5,
                 ConcurrencyCountMode = ConcurrencyCountMode.PositionsAndPendingOrders,
-                ApplyTitanoFilters = false
             }
         ]);
         sessions.SetStatus(descriptor.SessionId, descriptor.SessionToken, TradingSessionStatus.Running);

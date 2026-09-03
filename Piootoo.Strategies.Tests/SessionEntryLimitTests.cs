@@ -94,8 +94,8 @@ public sealed class SessionEntryLimitTests : IDisposable
         // gruppi diversi sono portafogli paralleli sullo stesso flusso di segnali.
         var (sessions, descriptor) = Session(
         [
-            new TradingGroupRow { GroupId = "g1", AccountNumber = "1001", MaxConcurrentTrades = 1, ApplyTitanoFilters = false },
-            new TradingGroupRow { GroupId = "g2", AccountNumber = "2001", MaxConcurrentTrades = 1, ApplyTitanoFilters = false }
+            new TradingGroupRow { GroupId = "g1", AccountNumber = "1001", MaxConcurrentTrades = 1 },
+            new TradingGroupRow { GroupId = "g2", AccountNumber = "2001", MaxConcurrentTrades = 1 }
         ]);
 
         sessions.PushBars(Bars(descriptor, SessionStart.AddHours(1)));
@@ -125,15 +125,13 @@ public sealed class SessionEntryLimitTests : IDisposable
         TestAccountRegistry.Register(workspaces, groups);
 
         var sessions = new TradingSessionService(
-            workspaces, new OneEntryPerSessionEvaluationService(),
-            new TitanoRotationService(workspaces), new PositionSizingService());
+            workspaces, new OneEntryPerSessionEvaluationService(), new PositionSizingService());
 
         var descriptor = sessions.Create(new CreateTradingSessionRequest
         {
             WorkspaceId = workspace.Id,
             ExecutionMode = ExecutionMode.ExternalBroker,
-            ClientRunMode = ClientRunMode.Realtime,
-            TitanoMode = TitanoFilterMode.Disabled
+            ClientRunMode = ClientRunMode.Realtime
         });
         if (groups is not null)
             sessions.SetTradingGroups(descriptor.SessionId, descriptor.SessionToken, groups);

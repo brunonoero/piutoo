@@ -33,12 +33,11 @@ public sealed class TradingPlanService
     /// Gli strumenti che il piano tocca, per un raccoglitore di datafeed: coppie (simbolo,
     /// timeframe) del masterfilter, più il nome che quel simbolo ha sul conto indicato.
     ///
-    /// <para><b>Dal masterfilter, non dalla rotazione Titano corrente.</b> Titano abilita e
-    /// disabilita strategie ogni periodo, ma il datafeed di uno strumento serve <i>sempre</i>:
-    /// anche mentre è spento, perché quando torna attivo la sua storia deve esserci già. Seguendo
-    /// la rotazione il feed si interromperebbe a ogni disabilitazione e lascerebbe un buco lungo
-    /// esattamente quanto la pausa — e nessuno lo scoprirebbe fino al primo backtest su quel
-    /// periodo.</para>
+    /// <para><b>Dal masterfilter.</b> Le strategie attive possono cambiare nel tempo, ma il
+    /// datafeed di uno strumento serve <i>sempre</i>: anche mentre è spento, perché quando torna
+    /// attivo la sua storia deve esserci già. Seguendo le strategie accese il feed si
+    /// interromperebbe a ogni pausa e lascerebbe un buco lungo esattamente quanto la pausa — e
+    /// nessuno lo scoprirebbe fino al primo backtest su quel periodo.</para>
     ///
     /// <para>È una lettura pura: non apre sessioni, non tocca stato. Un raccoglitore non deve
     /// avere effetti collaterali sull'operatività.</para>
@@ -148,8 +147,8 @@ public sealed class TradingPlanService
         if (request.CommissionPerContract < 0)
             throw new ArgumentException("CommissionPerContract non può essere negativa.");
 
-        // Mirror della prima riga (e, per Titano di sessione, della prima riga con run) così i
-        // piani multi-gruppo restano leggibili anche dai client che non conoscono ancora Groups.
+        // Mirror della prima riga, così i piani multi-gruppo restano leggibili anche dai client
+        // che non conoscono ancora Groups.
         var primary = SelectPrimaryRow(groups);
 
         // Una policy incoerente (overweek senza overnight, HHMM fuori scala) va rifiutata qui: se
@@ -180,9 +179,6 @@ public sealed class TradingPlanService
                 AccountNumber = primary.AccountNumber,
                 MaxConcurrentTrades = primary.MaxConcurrentTrades,
                 ConcurrencyCountMode = primary.ConcurrencyCountMode,
-                RotationSetupId = primary.RotationSetupId,
-                TitanoBacktestFolder = primary.TitanoBacktestFolder,
-                ApplyTitanoFilters = primary.ApplyTitanoFilters,
                 EnforceConcurrencyLimits = request.EnforceConcurrencyLimits,
                 CommissionPerContract = request.CommissionPerContract,
                 Holding = holding,
@@ -236,7 +232,7 @@ public sealed class TradingPlanService
 
     /// <summary>
     /// Accetta <see cref="SaveTradingPlanRequest.Groups"/> oppure i campi legacy singoli;
-    /// valida account univoci e profili Titano coerenti per gruppo.
+    /// valida che gli account siano univoci.
     /// </summary>
     public static IReadOnlyList<TradingGroupRow> NormalizeAndValidateGroups(SaveTradingPlanRequest request)
     {
@@ -255,26 +251,12 @@ public sealed class TradingPlanService
             if (row.MaxConcurrentTrades < 0)
                 throw new ArgumentException(
                     $"MaxConcurrentTrades non può essere negativo per l'account '{row.AccountNumber}'.");
-            if (row.ApplyTitanoFilters && string.IsNullOrWhiteSpace(row.TitanoBacktestFolder))
-                throw new ArgumentException(
-                    $"Applica Titano richiede una cartella di backtest per il gruppo '{row.GroupId}'.");
         }
 
         var duplicatedAccount = groups.GroupBy(r => r.AccountNumber, StringComparer.OrdinalIgnoreCase)
             .FirstOrDefault(g => g.Count() > 1);
         if (duplicatedAccount != null)
             throw new ArgumentException($"Account '{duplicatedAccount.Key}' configurato più di una volta nel piano.");
-
-        foreach (var group in groups.GroupBy(r => r.GroupId, StringComparer.OrdinalIgnoreCase))
-        {
-            var signatures = group.Select(r => (
-                RotationSetupId: r.RotationSetupId ?? string.Empty,
-                TitanoBacktestFolder: r.TitanoBacktestFolder ?? string.Empty,
-                r.ApplyTitanoFilters)).Distinct().ToArray();
-            if (signatures.Length > 1)
-                throw new ArgumentException(
-                    $"Profilo Titano inconsistente tra le righe del gruppo '{group.Key}'.");
-        }
 
         return groups;
     }
@@ -291,10 +273,7 @@ public sealed class TradingPlanService
                 GroupId = request.GroupId.Trim(),
                 AccountNumber = request.AccountNumber.Trim(),
                 MaxConcurrentTrades = request.MaxConcurrentTrades,
-                ConcurrencyCountMode = request.ConcurrencyCountMode,
-                RotationSetupId = TrimOrNull(request.RotationSetupId),
-                TitanoBacktestFolder = TrimOrNull(request.TitanoBacktestFolder),
-                ApplyTitanoFilters = request.ApplyTitanoFilters
+                ConcurrencyCountMode = request.ConcurrencyCountMode
             }
         ];
     }
@@ -312,10 +291,7 @@ public sealed class TradingPlanService
                         GroupId = plan.GroupId.Trim(),
                         AccountNumber = plan.AccountNumber.Trim(),
                         MaxConcurrentTrades = plan.MaxConcurrentTrades,
-                        ConcurrencyCountMode = plan.ConcurrencyCountMode,
-                        RotationSetupId = TrimOrNull(plan.RotationSetupId),
-                        TitanoBacktestFolder = TrimOrNull(plan.TitanoBacktestFolder),
-                        ApplyTitanoFilters = plan.ApplyTitanoFilters
+                        ConcurrencyCountMode = plan.ConcurrencyCountMode
                     }
                 ];
 
@@ -333,9 +309,6 @@ public sealed class TradingPlanService
             AccountNumber = primary.AccountNumber,
             MaxConcurrentTrades = primary.MaxConcurrentTrades,
             ConcurrencyCountMode = primary.ConcurrencyCountMode,
-            RotationSetupId = primary.RotationSetupId,
-            TitanoBacktestFolder = primary.TitanoBacktestFolder,
-            ApplyTitanoFilters = primary.ApplyTitanoFilters,
             EnforceConcurrencyLimits = plan.EnforceConcurrencyLimits,
             CommissionPerContract = plan.CommissionPerContract,
             Holding = ResolveLoadedHolding(plan),
@@ -362,21 +335,16 @@ public sealed class TradingPlanService
     }
 
     /// <summary>
-    /// Prima riga con una cartella Titano configurata, altrimenti la prima riga: alimenta i campi
-    /// mirror e la modalità Titano di sessione in <c>OpenFromPlan</c>.
+    /// La prima riga del piano: alimenta i campi mirror legacy e i default di <c>OpenFromPlan</c>.
     /// </summary>
-    public static TradingGroupRow SelectPrimaryRow(IReadOnlyList<TradingGroupRow> groups) =>
-        groups.FirstOrDefault(row => !string.IsNullOrWhiteSpace(row.TitanoBacktestFolder)) ?? groups[0];
+    public static TradingGroupRow SelectPrimaryRow(IReadOnlyList<TradingGroupRow> groups) => groups[0];
 
     private static TradingGroupRow CloneRow(TradingGroupRow row) => new()
     {
         GroupId = row.GroupId.Trim(),
         AccountNumber = row.AccountNumber.Trim(),
         MaxConcurrentTrades = row.MaxConcurrentTrades,
-        ConcurrencyCountMode = row.ConcurrencyCountMode,
-        RotationSetupId = TrimOrNull(row.RotationSetupId),
-        TitanoBacktestFolder = TrimOrNull(row.TitanoBacktestFolder),
-        ApplyTitanoFilters = row.ApplyTitanoFilters
+        ConcurrencyCountMode = row.ConcurrencyCountMode
     };
 
     private static string NormalizeCode(string code)

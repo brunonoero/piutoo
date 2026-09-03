@@ -35,15 +35,9 @@ partial class PlanDetailScreen
         this._commissionInput = new System.Windows.Forms.NumericUpDown();
         this._enforceConcurrencyLabel = new System.Windows.Forms.Label();
         this._enforceConcurrencyCombo = new System.Windows.Forms.ComboBox();
-        this._titanoRunLabel = new System.Windows.Forms.Label();
-        this._rotationStatusLabel = new System.Windows.Forms.Label();
         this._groupsTab = new System.Windows.Forms.TabPage();
         this._groupsGrid = new System.Windows.Forms.DataGridView();
         this._colGroupId = new System.Windows.Forms.DataGridViewComboBoxColumn();
-        this._colGroupRotationSetup = new System.Windows.Forms.DataGridViewComboBoxColumn();
-        this._colGroupTitanoFolder = new System.Windows.Forms.DataGridViewTextBoxColumn();
-        this._colGroupTitanoPick = new System.Windows.Forms.DataGridViewButtonColumn();
-        this._colGroupApplyTitano = new System.Windows.Forms.DataGridViewCheckBoxColumn();
         this._groupsButtons = new System.Windows.Forms.FlowLayoutPanel();
         this._addGroupButton = new System.Windows.Forms.Button();
         this._removeGroupButton = new System.Windows.Forms.Button();
@@ -175,8 +169,6 @@ partial class PlanDetailScreen
         this._generalLayout.Controls.Add(this._commissionInput, 3, 1);
         this._generalLayout.Controls.Add(this._enforceConcurrencyLabel, 0, 2);
         this._generalLayout.Controls.Add(this._enforceConcurrencyCombo, 1, 2);
-        this._generalLayout.Controls.Add(this._titanoRunLabel, 2, 2);
-        this._generalLayout.Controls.Add(this._rotationStatusLabel, 3, 2);
         this._generalLayout.Dock = System.Windows.Forms.DockStyle.Top;
         this._generalLayout.Location = new System.Drawing.Point(12, 12);
         this._generalLayout.Name = "_generalLayout";
@@ -286,26 +278,6 @@ partial class PlanDetailScreen
         this._enforceConcurrencyCombo.TabIndex = 9;
         this._enforceConcurrencyCombo.SelectedIndexChanged += new System.EventHandler(this.OnFieldChanged);
         //
-        // _titanoRunLabel
-        //
-        this._titanoRunLabel.Anchor = System.Windows.Forms.AnchorStyles.Left;
-        this._titanoRunLabel.AutoSize = true;
-        this._titanoRunLabel.Margin = new System.Windows.Forms.Padding(3, 0, 8, 0);
-        this._titanoRunLabel.Name = "_titanoRunLabel";
-        this._titanoRunLabel.Size = new System.Drawing.Size(90, 15);
-        this._titanoRunLabel.TabIndex = 10;
-        this._titanoRunLabel.Text = "Stato rotazione";
-        //
-        // _rotationStatusLabel
-        //
-        this._rotationStatusLabel.Anchor = System.Windows.Forms.AnchorStyles.Left;
-        this._rotationStatusLabel.AutoSize = true;
-        this._rotationStatusLabel.Margin = new System.Windows.Forms.Padding(3, 4, 3, 4);
-        this._rotationStatusLabel.Name = "_rotationStatusLabel";
-        this._rotationStatusLabel.Size = new System.Drawing.Size(280, 15);
-        this._rotationStatusLabel.TabIndex = 11;
-        this._rotationStatusLabel.Text = "—";
-        //
         // _groupsTab
         //
         this._groupsTab.Controls.Add(this._groupsGrid);
@@ -328,11 +300,7 @@ partial class PlanDetailScreen
         this._groupsGrid.BorderStyle = System.Windows.Forms.BorderStyle.None;
         this._groupsGrid.ColumnHeadersHeightSizeMode = System.Windows.Forms.DataGridViewColumnHeadersHeightSizeMode.AutoSize;
         this._groupsGrid.Columns.AddRange(new System.Windows.Forms.DataGridViewColumn[] {
-            this._colGroupId,
-            this._colGroupRotationSetup,
-            this._colGroupTitanoFolder,
-            this._colGroupTitanoPick,
-            this._colGroupApplyTitano});
+            this._colGroupId});
         this._groupsGrid.DataSource = this._groupsBindingSource;
         this._groupsGrid.Dock = System.Windows.Forms.DockStyle.Fill;
         this._groupsGrid.Location = new System.Drawing.Point(12, 49);
@@ -340,7 +308,6 @@ partial class PlanDetailScreen
         this._groupsGrid.RowHeadersVisible = false;
         this._groupsGrid.Size = new System.Drawing.Size(868, 464);
         this._groupsGrid.TabIndex = 1;
-        this._groupsGrid.CellClick += new System.Windows.Forms.DataGridViewCellEventHandler(this.OnGroupsGridCellClick);
         this._groupsGrid.CellValueChanged += new System.Windows.Forms.DataGridViewCellEventHandler(this.OnGroupsGridCellValueChanged);
         this._groupsGrid.CurrentCellDirtyStateChanged += new System.EventHandler(this.OnGroupsGridCurrentCellDirtyStateChanged);
         this._groupsGrid.DataError += new System.Windows.Forms.DataGridViewDataErrorEventHandler(this.OnGroupsGridDataError);
@@ -351,35 +318,6 @@ partial class PlanDetailScreen
         this._colGroupId.DisplayStyle = System.Windows.Forms.DataGridViewComboBoxDisplayStyle.DropDownButton;
         this._colGroupId.HeaderText = "Gruppo";
         this._colGroupId.Name = "_colGroupId";
-        //
-        // _colGroupRotationSetup
-        //
-        this._colGroupRotationSetup.DataPropertyName = "RotationSetupId";
-        this._colGroupRotationSetup.DisplayStyle = System.Windows.Forms.DataGridViewComboBoxDisplayStyle.DropDownButton;
-        this._colGroupRotationSetup.HeaderText = "Setup rotazione";
-        this._colGroupRotationSetup.Name = "_colGroupRotationSetup";
-        //
-        // _colGroupTitanoFolder
-        //
-        this._colGroupTitanoFolder.DataPropertyName = "TitanoBacktestFolder";
-        this._colGroupTitanoFolder.HeaderText = "Cartella backtest";
-        this._colGroupTitanoFolder.Name = "_colGroupTitanoFolder";
-        this._colGroupTitanoFolder.ReadOnly = true;
-        //
-        // _colGroupTitanoPick
-        //
-        this._colGroupTitanoPick.FillWeight = 30F;
-        this._colGroupTitanoPick.HeaderText = "";
-        this._colGroupTitanoPick.Name = "_colGroupTitanoPick";
-        this._colGroupTitanoPick.Text = "Scegli…";
-        this._colGroupTitanoPick.UseColumnTextForButtonValue = true;
-        //
-        // _colGroupApplyTitano
-        //
-        this._colGroupApplyTitano.DataPropertyName = "ApplyTitanoFilters";
-        this._colGroupApplyTitano.FillWeight = 60F;
-        this._colGroupApplyTitano.HeaderText = "Filtra";
-        this._colGroupApplyTitano.Name = "_colGroupApplyTitano";
         //
         // _groupsButtons
         //
@@ -1004,15 +942,9 @@ partial class PlanDetailScreen
     private System.Windows.Forms.NumericUpDown _commissionInput;
     private System.Windows.Forms.Label _enforceConcurrencyLabel;
     private System.Windows.Forms.ComboBox _enforceConcurrencyCombo;
-    private System.Windows.Forms.Label _titanoRunLabel;
-    private System.Windows.Forms.Label _rotationStatusLabel;
     private System.Windows.Forms.TabPage _groupsTab;
     private System.Windows.Forms.DataGridView _groupsGrid;
     private System.Windows.Forms.DataGridViewComboBoxColumn _colGroupId;
-    private System.Windows.Forms.DataGridViewComboBoxColumn _colGroupRotationSetup;
-    private System.Windows.Forms.DataGridViewTextBoxColumn _colGroupTitanoFolder;
-    private System.Windows.Forms.DataGridViewButtonColumn _colGroupTitanoPick;
-    private System.Windows.Forms.DataGridViewCheckBoxColumn _colGroupApplyTitano;
     private System.Windows.Forms.FlowLayoutPanel _groupsButtons;
     private System.Windows.Forms.Button _addGroupButton;
     private System.Windows.Forms.Button _removeGroupButton;

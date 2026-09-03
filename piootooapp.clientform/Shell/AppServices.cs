@@ -25,7 +25,6 @@ public sealed class AppServices : IDisposable
         };
         Api = new WorkspaceApiClient(_httpClient, JsonOptions);
         Plans = new TradingPlanApiClient(_httpClient, JsonOptions);
-        Titano = new TitanoApiClient(_httpClient, JsonOptions);
         Sessions = new TradingSessionApiClient(_httpClient, JsonOptions);
         Datafeed = new DatafeedApiClient(_httpClient, JsonOptions);
         ServerInfo = new ServerInfoApiClient(_httpClient, JsonOptions);
@@ -38,8 +37,6 @@ public sealed class AppServices : IDisposable
     public WorkspaceApiClient Api { get; }
 
     public TradingPlanApiClient Plans { get; }
-
-    public TitanoApiClient Titano { get; }
 
     public TradingSessionApiClient Sessions { get; }
 

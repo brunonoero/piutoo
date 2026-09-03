@@ -15,10 +15,12 @@ Non duplicare qui contenuto che sta in `docs/`: linkalo.
 ## Cos'è
 
 Piootoo è un trading system per future in .NET: backtesting locale su datafeed
-JSON, trading live via engine esterno cTrader, e "Titano" (filtro di rotazione
-che decide periodo per periodo quali strategie sono abilitate e con che
-allocazione). L'interfaccia operativa è una console WinForms che parla solo HTTP
-con l'API ASP.NET Core.
+JSON e trading live via engine esterno cTrader. L'interfaccia operativa è una
+console WinForms che parla solo HTTP con l'API ASP.NET Core.
+
+> **Titano è stato rimosso** (03/09/2026): il filtro di rotazione non esiste più
+> in nessuno strato — schermate, API, servizi, contratti. I documenti in `docs/`
+> che lo descrivono restano come storia e non descrivono più il codice.
 
 ## Build e run
 
@@ -43,7 +45,7 @@ client WinForms, `net9.0-windows` per il progetto di test. Test con xUnit +
 |---|---|
 | `Piootoo.Shared` | Modelli e contratti. **Nessuna logica, nessuna dipendenza** verso gli altri progetti. |
 | `Piootoo.Domain` | Repository di base, in particolare `DataSourceRepository` (lettura feed). |
-| `Piootoo.Core` | Tutti i servizi applicativi: `Services/` (workspace, backtesting, trading, sizing, Titano, sessioni) e `Optimization/`. |
+| `Piootoo.Core` | Tutti i servizi applicativi: `Services/` (workspace, backtesting, trading, sizing, sessioni) e `Optimization/`. |
 | `Piootoo.Strategies` | Catalogo strategie (`ITradingStrategy`), incluse quelle generate da EasyLanguage in `Easy/`. |
 | `PiootooApp.Server` | API HTTP. Solo controller sottili + DI. |
 | `Piootoo.FeedWorker` | Worker che alimenta le sessioni live con barre chiuse. |
@@ -62,7 +64,7 @@ sbaglia più spesso:
 - **Id ≠ Name.** `Id` è il nome della classe (`PTS_NQ_TFM_001_60`) e serve solo a
   *selezionare* dal catalogo (masterfilter, `StrategyFactory`). `Name` /
   `StrategyCode` (`PTS_NQ_TFM_001_60`) è ciò che finisce in tutto il dominio di
-  *esecuzione*: `signals.json`, `trades.json`, chiavi di posizione, stati Titano.
+  *esecuzione*: `signals.json`, `trades.json`, chiavi di posizione.
   Per confrontare masterfilter e dati di esecuzione passa da
   `StrategyCatalog.ResolveCodes`. Confondere i due ha già svuotato report e
   rotazioni una volta.
@@ -85,9 +87,9 @@ sbaglia più spesso:
   anche se i servizi che lo ospitano sono singleton.
 - **`AtomicFileWriter` mai dentro un loop.** Fa fsync: va bene per l'artefatto
   finale, per i checkpoint intermedi usa la variante non sincronizzata.
-- **I checkpoint non riscrivono l'artefatto intero.** `signals.json`,
-  `trades.json` e `rotation-log.json` crescono per tutto il run: riscriverli a
-  ogni checkpoint costa quanto il run già fatto, e rende il backtest quadratico.
+- **I checkpoint non riscrivono l'artefatto intero.** `signals.json` e
+  `trades.json` crescono per tutto il run: riscriverli a ogni checkpoint costa
+  quanto il run già fatto, e rende il backtest quadratico.
   I checkpoint accodano al journal `.jsonl` affiancato
   (`TradingJsonStore.Append*`); l'array viene materializzato alla lettura o alla
   scrittura autorevole di fine run. Chi legge quei file senza passare dallo

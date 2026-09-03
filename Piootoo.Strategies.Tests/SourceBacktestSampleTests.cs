@@ -10,8 +10,8 @@ namespace Piootoo.Strategies.Tests;
 
 /// <summary>
 /// Il campione sorgente: un backtest con <c>EnforceConcurrencyLimits = false</c> deve eseguire
-/// <b>tutte</b> le strategie del masterfilter, perché è il <c>trades.json</c> su cui Titano calcola
-/// le rotazioni. I due livelli di filtro vanno tenuti separati:
+/// <b>tutte</b> le strategie del masterfilter: è il <c>trades.json</c> di riferimento con cui si
+/// confronta ogni run filtrato. I due livelli di filtro vanno tenuti separati:
 ///
 /// <list type="number">
 /// <item><b>La strategia</b> — <c>MaxEntriesPerSession</c>. Sempre rispettato, in ogni profilo: è
@@ -246,7 +246,6 @@ public sealed class SourceBacktestSampleTests : IDisposable
                 GroupId = x.GroupId,
                 AccountNumber = x.Account,
                 MaxConcurrentTrades = 0,            // il tetto numerico non è ciò che questi test misurano
-                ApplyTitanoFilters = false
             })
             .ToArray();
 
@@ -262,14 +261,13 @@ public sealed class SourceBacktestSampleTests : IDisposable
 
         var evaluation = new EveryStrategyEveryBarEvaluationService(maxEntriesPerSession);
         var sessions = new TradingSessionService(
-            workspaces, evaluation, new TitanoRotationService(workspaces), new PositionSizingService());
+            workspaces, evaluation, new PositionSizingService());
 
         var descriptor = sessions.Create(new CreateTradingSessionRequest
         {
             WorkspaceId = workspace.Id,
             ExecutionMode = ExecutionMode.ExternalBroker,
             ClientRunMode = ClientRunMode.Backtest,
-            TitanoMode = TitanoFilterMode.Disabled,
             EnforceConcurrencyLimits = enforceConcurrencyLimits
         });
         sessions.SetTradingGroups(descriptor.SessionId, descriptor.SessionToken, rows);

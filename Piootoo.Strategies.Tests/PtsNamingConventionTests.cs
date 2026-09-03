@@ -20,7 +20,7 @@ namespace Piootoo.Strategies.Tests;
 ///
 /// <para>Il test esiste perché il nome non è cosmetico. <c>Name</c> è lo
 /// <c>StrategyCode</c> che finisce in <c>signals.json</c>, <c>trades.json</c>, nelle chiavi di
-/// posizione e negli stati Titano: una strategia che sfugge alla convenzione non rompe la
+/// posizione: una strategia che sfugge alla convenzione non rompe la
 /// compilazione, rompe i confronti fra artefatti mesi dopo. Vedi
 /// <c>docs/domini/strategie-catalogo.md</c>.</para>
 /// </remarks>

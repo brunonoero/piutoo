@@ -58,8 +58,8 @@ public sealed class BacktestComboItem
 
     /// <summary>
     /// L'origine è in etichetta perché da quando le sessioni di backtest scrivono anch'esse sotto
-    /// <c>backtests/</c> i due tipi convivono nella stessa lista, e scegliere come campione Titano
-    /// un run dell'engine esterno invece di quello interno non dà alcun errore: dà numeri diversi.
+    /// <c>backtests/</c> i due tipi convivono nella stessa lista, e prendere un run dell'engine
+    /// esterno invece di quello interno non dà alcun errore: dà numeri diversi.
     /// </summary>
     public override string ToString()
         => $"{Info.FolderName}  ·  {DescribeOrigin(Info)}  ·  {Info.LastModifiedUtc:yyyy-MM-dd HH:mm} UTC" +

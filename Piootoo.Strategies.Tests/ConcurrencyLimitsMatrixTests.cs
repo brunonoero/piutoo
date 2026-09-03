@@ -444,7 +444,7 @@ public sealed class ConcurrencyLimitsMatrixTests : IDisposable
     private static TradingGroupRow Row(string groupId, string account, int maxConcurrent) => new()
     {
         GroupId = groupId, AccountNumber = account,
-        MaxConcurrentTrades = maxConcurrent, ApplyTitanoFilters = false
+        MaxConcurrentTrades = maxConcurrent
     };
 
     private Fixture New(int symbols, IReadOnlyList<TradingGroupRow> groups)
@@ -470,15 +470,13 @@ public sealed class ConcurrencyLimitsMatrixTests : IDisposable
         TestAccountRegistry.Register(workspaces, groups);
 
         var sessions = new TradingSessionService(
-            workspaces, new OneSignalPerBarEvaluationService(),
-            new TitanoRotationService(workspaces), new PositionSizingService());
+            workspaces, new OneSignalPerBarEvaluationService(), new PositionSizingService());
 
         var descriptor = sessions.Create(new CreateTradingSessionRequest
         {
             WorkspaceId = workspace.Id,
             ExecutionMode = ExecutionMode.ExternalBroker,
             ClientRunMode = ClientRunMode.Realtime,
-            TitanoMode = TitanoFilterMode.Disabled,
             EnforceConcurrencyLimits = true
         });
         sessions.SetTradingGroups(descriptor.SessionId, descriptor.SessionToken, groups);

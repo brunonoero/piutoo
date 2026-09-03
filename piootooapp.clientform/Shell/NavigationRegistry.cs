@@ -53,17 +53,12 @@ public static class NavigationRegistry
             // Sola lettura: elenca cosa c'è nel repository di barre e fin dove arriva. Sta fra le
             // anagrafiche perché è ciò che un piano e un backtest possono nominare, ma non si crea
             // da qui — i feed li generano lo script di aggregazione e i cBot raccoglitori.
-            new NavigationEntry("Datafeed", () => new DatafeedListScreen()),
-            // Il setup di rotazione è globale come account e gruppi, non appartiene a un
-            // workspace: sta fra le anagrafiche, non nell'operatività. Per workspace è il run.
-            new NavigationEntry("Setup Titano", () => new TitanoSetupListScreen())),
+            new NavigationEntry("Datafeed", () => new DatafeedListScreen())),
         new NavigationSection(
             "Operatività",
             // La voce apre la lista, non il form di avvio: quest'ultimo è la destinazione di
             // "Nuovo backtest" nella lista, come per le altre anagrafiche.
             new NavigationEntry("Backtesting", () => new BacktestListScreen()),
-            // Stessa forma: la voce apre la lista dei run, "Nuova rotazione" porta a TitanoScreen.
-            new NavigationEntry("Run Titano", () => new TitanoRunListScreen()),
             // Stessa forma delle altre due: la voce apre la lista, "Apri da piano"/"Sessione diretta"
             // portano a TradingSessionsScreen — include anche le sessioni aperte da un cBot.
             new NavigationEntry("Sessioni di trading", () => new TradingSessionListScreen()),
@@ -71,8 +66,7 @@ public static class NavigationRegistry
             // è uno strumento diagnostico che crea una propria sessione usa e getta da un piano.
             // Sta qui e non sotto le sessioni perché non osserva quelle esistenti, ne fabbrica una.
             new NavigationEntry("Verifica concorrenza", () => new ConcurrencyHarnessScreen()))
-        // La sezione "Analisi" non esiste più. Conteneva "Risultati trading" e "Rotazioni Titano":
-        // i primi sono il tab Operazioni del dettaglio backtest, le seconde il dettaglio di un run.
-        // Entrambe erano la stessa cosa vista due volte, e separavano il dato da ciò che lo spiega.
+        // La sezione "Analisi" non esiste più: i risultati di trading sono il tab Operazioni del
+        // dettaglio backtest, dove stanno accanto a ciò che li spiega.
     };
 }

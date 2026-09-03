@@ -2,7 +2,12 @@
 
 Indice. Ogni file copre un concetto autoconsistente, non un progetto della
 solution. Stato: **stabile** = contenuto verificato contro il codice,
-**bozza** = solo scheletro/titoli, da scrivere.
+**bozza** = solo scheletro/titoli, da scrivere, **storia** = descrive codice che
+non esiste più, si tiene per il perché.
+
+> Titano è stato rimosso dalla piattaforma il 03/09/2026 (vedi `decisioni.md`).
+> I file marcati *Storia* qui sotto lo descrivono e non valgono più come
+> riferimento sul codice.
 
 ## Da leggere per primo
 
@@ -16,7 +21,7 @@ solution. Stato: **stabile** = contenuto verificato contro il codice,
   codice con evidenze e riferimenti puntuali. *Stabile.*
 - [`verifica-backtest-sizing-titano-2026-07-29.md`](verifica-backtest-sizing-titano-2026-07-29.md)
   — verifica riproducibile PTS, lotti decimali e applicazione Titano nei due
-  engine. *Stabile.*
+  engine. *Storia (Titano rimosso).*
 
 ## Architettura
 
@@ -56,9 +61,9 @@ solution. Stato: **stabile** = contenuto verificato contro il codice,
   — confronto fra una strategia portata e il suo riferimento esterno: cosa è
   confrontabile, procedura, cause di divergenza in ordine di impatto. *Stabile.*
 - [`domini/titano-rotation.md`](domini/titano-rotation.md) — filtro Titano:
-  formule, isteresi, sizing, calendario, artefatti, API. *Stabile.*
+  formule, isteresi, sizing, calendario, artefatti, API. *Storia (Titano rimosso).*
 - [`domini/position-sizing.md`](domini/position-sizing.md) — calcolo di
-  `FinalQuantity` (Titano × ATR × rischio portfolio). *Stabile.*
+  `FinalQuantity` (ATR × rischio portfolio). *Stabile.*
 - [`domini/trading-sessions-api.md`](domini/trading-sessions-api.md) — ciclo
   di vita di una sessione, endpoint, autorità di execution. *Stabile.*
 - [`domini/finestra-candele-e-riscaldamento.md`](domini/finestra-candele-e-riscaldamento.md)
@@ -66,7 +71,7 @@ solution. Stato: **stabile** = contenuto verificato contro il codice,
   corta a regime, perché la sovrapposizione impedisce i buchi e come si
   diagnostica una sessione che non produce segnali. *Stabile.*
 - [`domini/distribuzione-multi-account.md`](domini/distribuzione-multi-account.md)
-  — secondo layer di filtro dopo Titano: gruppi, slot, budget di concorrenza per
+  — chi esegue quale segnale: gruppi, slot, budget di concorrenza per
   account (trasversale ai simboli) e le due modalità di conteggio, con matrice di
   esempi verificati. *Stabile.*
 - [`domini/trading-plans.md`](domini/trading-plans.md) — configurazioni operative
@@ -74,7 +79,7 @@ solution. Stato: **stabile** = contenuto verificato contro il codice,
 - [`domini/cbot-realtime-backtest-titano.md`](domini/cbot-realtime-backtest-titano.md)
   — guida operativa ai cBot cTrader nei tre scenari (backtest puro, backtest con
   Titano, realtime): parametri, `open-plan`, matrice modalità, troubleshooting.
-  *Stabile.*
+  *Storia per la parte Titano; il resto (parametri, `open-plan`) vale ancora.*
 - [`domini/strategie-catalogo.md`](domini/strategie-catalogo.md) —
   `ITradingStrategy`, catalogo, generazione da EasyLanguage. *Bozza.*
 - [`domini/motori-strategie.md`](domini/motori-strategie.md) — regole comuni

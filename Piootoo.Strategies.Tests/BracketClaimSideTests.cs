@@ -119,7 +119,6 @@ public sealed class BracketClaimSideTests : IDisposable
         GroupId = groupId, AccountNumber = account,
         MaxConcurrentTrades = maxConcurrent,
         ConcurrencyCountMode = ConcurrencyCountMode.PositionsAndPendingOrders,
-        ApplyTitanoFilters = false
     };
 
     private (TradingSessionService Sessions, TradingSessionDescriptor Descriptor) Session(
@@ -137,15 +136,13 @@ public sealed class BracketClaimSideTests : IDisposable
         TestAccountRegistry.Register(workspaces, groups);
 
         var sessions = new TradingSessionService(
-            workspaces, new BracketEvaluationService(sides),
-            new TitanoRotationService(workspaces), new PositionSizingService());
+            workspaces, new BracketEvaluationService(sides), new PositionSizingService());
 
         var descriptor = sessions.Create(new CreateTradingSessionRequest
         {
             WorkspaceId = workspace.Id,
             ExecutionMode = ExecutionMode.ExternalBroker,
             ClientRunMode = ClientRunMode.Realtime,
-            TitanoMode = TitanoFilterMode.Disabled,
             EnforceConcurrencyLimits = enforceConcurrencyLimits
         });
         sessions.SetTradingGroups(descriptor.SessionId, descriptor.SessionToken, groups);

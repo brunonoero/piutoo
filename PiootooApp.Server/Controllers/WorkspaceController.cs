@@ -206,18 +206,7 @@ public sealed class WorkspaceController(
         catch (ArgumentException exception) { return BadRequest(new { error = exception.Message }); }
     }
 
-    /// <summary>Id dei run Titano contenuti nel backtest: servono ad avvisare prima di cancellarlo.</summary>
-    [HttpGet("{workspaceId}/backtests/{backtestFolder}/titano-runs")]
-    public ActionResult<IReadOnlyList<string>> ListBacktestTitanoRuns(string workspaceId, string backtestFolder)
-    {
-        try { return Ok(workspaceService.ListBacktestTitanoRunIds(workspaceId, backtestFolder)); }
-        catch (ArgumentException exception) { return BadRequest(new { error = exception.Message }); }
-    }
-
-    /// <summary>
-    /// Elimina la cartella del backtest con tutto il contenuto, run Titano compresi. I piani che
-    /// referenziano quei run falliranno all'apertura della sessione: la conferma sta al client.
-    /// </summary>
+    /// <summary>Elimina la cartella del backtest con tutto il contenuto.</summary>
     [HttpDelete("{workspaceId}/backtests/{backtestFolder}")]
     public IActionResult DeleteBacktest(string workspaceId, string backtestFolder)
     {

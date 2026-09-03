@@ -25,7 +25,6 @@ partial class PlanListScreen
         this._colName = new System.Windows.Forms.DataGridViewTextBoxColumn();
         this._colGroups = new System.Windows.Forms.DataGridViewTextBoxColumn();
         this._colMaxConcurrent = new System.Windows.Forms.DataGridViewTextBoxColumn();
-        this._colRotationStatus = new System.Windows.Forms.DataGridViewTextBoxColumn();
         this._colUpdated = new System.Windows.Forms.DataGridViewTextBoxColumn();
         this._toolbar = new piootooapp.clientform.Shell.Controls.EntityToolbar();
         ((System.ComponentModel.ISupportInitialize)(this._bindingSource)).BeginInit();
@@ -46,7 +45,6 @@ partial class PlanListScreen
             this._colName,
             this._colGroups,
             this._colMaxConcurrent,
-            this._colRotationStatus,
             this._colUpdated});
         this._grid.DataSource = this._bindingSource;
         this._grid.Dock = System.Windows.Forms.DockStyle.Fill;
@@ -97,14 +95,6 @@ partial class PlanListScreen
         this._colMaxConcurrent.Name = "_colMaxConcurrent";
         this._colMaxConcurrent.ReadOnly = true;
         // 
-        // _colRotationStatus
-        // 
-        this._colRotationStatus.DataPropertyName = "RotationStatus";
-        this._colRotationStatus.FillWeight = 120F;
-        this._colRotationStatus.HeaderText = "Rotazione";
-        this._colRotationStatus.Name = "_colRotationStatus";
-        this._colRotationStatus.ReadOnly = true;
-        // 
         // _colUpdated
         // 
         this._colUpdated.DataPropertyName = "UpdatedUtc";
@@ -151,7 +141,6 @@ partial class PlanListScreen
     private System.Windows.Forms.DataGridViewTextBoxColumn _colName;
     private System.Windows.Forms.DataGridViewTextBoxColumn _colGroups;
     private System.Windows.Forms.DataGridViewTextBoxColumn _colMaxConcurrent;
-    private System.Windows.Forms.DataGridViewTextBoxColumn _colRotationStatus;
     private System.Windows.Forms.DataGridViewTextBoxColumn _colUpdated;
     private piootooapp.clientform.Shell.Controls.EntityToolbar _toolbar;
 }
