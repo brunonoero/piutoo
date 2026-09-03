@@ -30,7 +30,18 @@ public partial class AccountDetailScreen : UserControl, IShellScreen, IDirtyAwar
     /// <summary>Strategie che questo conto puo' operare, prima del filtro di testo.</summary>
     private readonly List<AccountStrategyRow> _supported = new();
 
+    /// <summary>
+    /// Strategie del catalogo che questo conto <b>non</b> puo' operare, con il motivo.
+    ///
+    /// <para>Sono il complemento esatto di <see cref="_supported"/> sullo stesso catalogo: le due
+    /// liste insieme fanno il catalogo intero, e nessuna strategia sta in tutte e due. E' il punto
+    /// del tab — non "quante ne mancano", ma <i>quali</i> e <i>perche'</i>.</para>
+    /// </summary>
+    private readonly List<AccountStrategyRow> _excluded = new();
+
     private readonly SortableBindingList<AccountStrategyRow> _visibleStrategies = new();
+
+    private readonly SortableBindingList<AccountStrategyRow> _visibleExcluded = new();
 
     public AccountDetailScreen()
     {
@@ -38,6 +49,8 @@ public partial class AccountDetailScreen : UserControl, IShellScreen, IDirtyAwar
         ShellGridHelper.ConfigureReadableGrids(this);
         _strategiesBindingSource.DataSource = _visibleStrategies;
         _strategiesGrid.EnableColumnSorting();
+        _excludedBindingSource.DataSource = _visibleExcluded;
+        _excludedGrid.EnableColumnSorting();
     }
 
     public string ScreenTitle => IsNew
@@ -182,6 +195,7 @@ public partial class AccountDetailScreen : UserControl, IShellScreen, IDirtyAwar
     private void RefreshSupportedStrategies()
     {
         _supported.Clear();
+        _excluded.Clear();
 
         var code = (_symbolConversionCombo.SelectedItem as ValueComboItem)?.Id ?? string.Empty;
         var conversion = _conversions.FirstOrDefault(item =>
@@ -202,9 +216,8 @@ public partial class AccountDetailScreen : UserControl, IShellScreen, IDirtyAwar
             bySymbol.TryGetValue(key, out var mapping);
 
             var supportata = senzaTabella || (mapping is not null && mapping.Enabled);
-            if (!supportata) continue;
 
-            _supported.Add(new AccountStrategyRow
+            var row = new AccountStrategyRow
             {
                 Code = string.IsNullOrWhiteSpace(item.Code) ? item.Name : item.Code,
                 Symbol = item.Symbol,
@@ -213,13 +226,29 @@ public partial class AccountDetailScreen : UserControl, IShellScreen, IDirtyAwar
                     : mapping.AccountSymbol,
                 TimeframeMinutes = item.TimeframeMinutes,
                 IsActive = item.IsActive,
-                Holding = new StrategyHolding(item.Overnight, item.Overweek).Normalized().Describe()
-            });
+                Holding = new StrategyHolding(item.Overnight, item.Overweek).Normalized().Describe(),
+                // I due motivi non sono la stessa cosa e non si risolvono allo stesso modo: il
+                // simbolo assente si aggiunge alla tabella, quello disabilitato si riabilita. Dirlo
+                // in colonna evita di aprire il file di conversione per capire quale dei due e'.
+                Reason = supportata
+                    ? string.Empty
+                    : mapping is null
+                        ? "simbolo assente dalla tabella di conversione"
+                        : "simbolo presente ma disabilitato"
+            };
+
+            if (supportata) _supported.Add(row);
+            else _excluded.Add(row);
         }
 
-        _supported.Sort((a, b) => string.Compare(a.Code, b.Code, StringComparison.OrdinalIgnoreCase));
+        _supported.Sort(PerCodice);
+        _excluded.Sort(PerCodice);
         ApplyStrategiesFilter();
+        ApplyExcludedFilter();
     }
+
+    private static int PerCodice(AccountStrategyRow a, AccountStrategyRow b)
+        => string.Compare(a.Code, b.Code, StringComparison.OrdinalIgnoreCase);
 
     private static string NormalizeSymbol(string? symbol)
         => symbol is null ? string.Empty : symbol.Trim().TrimStart('@').ToUpperInvariant();
@@ -257,6 +286,63 @@ public partial class AccountDetailScreen : UserControl, IShellScreen, IDirtyAwar
             ? "catalogo non disponibile"
             : $"{attiveSupportate}/{attiveCatalogo} strategie attive" +
               (filtro.Length > 0 ? $"  ·  {_visibleStrategies.Count} nel filtro" : string.Empty);
+    }
+
+    private void OnExcludedFilterChanged(object? sender, EventArgs e) => ApplyExcludedFilter();
+
+    /// <summary>
+    /// Il gemello di <see cref="ApplyStrategiesFilter"/> sul tab delle escluse.
+    ///
+    /// <para>Il contatore e' nello stesso formato — <b>n/k strategie attive</b> — perche' i due tab
+    /// rispondono alla stessa domanda da due lati: quanta parte del sistema questo conto opera, e
+    /// quanta ne perde. Sommati fanno le attive del catalogo, ed e' cosi' che si legge se un numero
+    /// non torna.</para>
+    ///
+    /// <para>Un conto senza tabella di conversione non esclude niente e lo dice: una lista vuota da
+    /// sola non distingue "li supporta tutti" da "il catalogo non e' arrivato".</para>
+    /// </summary>
+    private void ApplyExcludedFilter()
+    {
+        var filtro = _excludedFilterTextBox.Text.Trim();
+
+        _visibleExcluded.RaiseListChangedEvents = false;
+        _visibleExcluded.Clear();
+        foreach (var row in _excluded.Where(row => Matches(row, filtro)))
+        {
+            _visibleExcluded.Add(row);
+        }
+
+        _visibleExcluded.RaiseListChangedEvents = true;
+        _visibleExcluded.ReapplySort();
+        _visibleExcluded.ResetBindings();
+
+        var attiveCatalogo = _catalog.Count(item => item.IsActive);
+        if (attiveCatalogo == 0)
+        {
+            _excludedCountLabel.Text = "catalogo non disponibile";
+            return;
+        }
+
+        if (_excluded.Count == 0)
+        {
+            _excludedCountLabel.Text = HasSymbolTable()
+                ? "nessuna esclusione: il conto opera tutti i simboli del catalogo"
+                : "nessuna esclusione: il conto non ha tabella di conversione, opera 1 a 1";
+            return;
+        }
+
+        _excludedCountLabel.Text =
+            $"{_excluded.Count(row => row.IsActive)}/{attiveCatalogo} strategie attive escluse" +
+            (filtro.Length > 0 ? $"  ·  {_visibleExcluded.Count} nel filtro" : string.Empty);
+    }
+
+    /// <summary>La tabella scelta nella combo ha almeno una riga.</summary>
+    private bool HasSymbolTable()
+    {
+        var code = (_symbolConversionCombo.SelectedItem as ValueComboItem)?.Id ?? string.Empty;
+        return _conversions.Any(item =>
+            string.Equals(item.Code, code, StringComparison.OrdinalIgnoreCase)
+            && item.Mappings.Count > 0);
     }
 
     private static bool Matches(AccountStrategyRow row, string filtro)
@@ -442,4 +528,10 @@ public sealed class AccountStrategyRow
 
     /// <summary>Cosa la strategia vuole tenere: intraday, overnight, overnight+overweek.</summary>
     public string Holding { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Perche' il conto non la opera. Vuoto sulle strategie supportate, dove non c'e' niente da
+    /// spiegare: la colonna esiste solo sul tab delle escluse.
+    /// </summary>
+    public string Reason { get; set; } = string.Empty;
 }

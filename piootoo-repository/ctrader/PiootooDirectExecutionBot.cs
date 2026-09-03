@@ -95,25 +95,21 @@ namespace cAlgo.Robots
         DalPiano,
 
         /// <summary>
-        /// Backtest sorgente: tutte le strategie del masterfilter, nessuna rotazione Titano e
-        /// nessun lucchetto di concorrenza, cosi ogni segnale diventa un intent. E' il run che
-        /// produce il trades.json su cui Titano calcola le rotazioni.
+        /// Backtest sorgente: tutte le strategie del masterfilter e nessun lucchetto di concorrenza,
+        /// cosi' ogni segnale diventa un intent. E' il run che produce il campione completo.
         /// </summary>
         BacktestSorgente,
 
         /// <summary>
-        /// Backtest a filtro statico: strategie del masterfilter come nel sorgente, ma con i vincoli
-        /// operativi ATTIVI. E' il termine di paragone che isola il merito della rotazione: fra
-        /// questo e BacktestTitano cambia solo il filtro — statico contro dinamico — e non i
-        /// vincoli. Non legge nessuna cartella di run Titano.
+        /// Backtest a filtro statico: stesse strategie del sorgente, ma con i vincoli operativi
+        /// ATTIVI. E' il termine di paragone del sorgente: fra i due cambiano solo i vincoli,
+        /// quindi la differenza misura il loro effetto.
         /// </summary>
-        BacktestStaticFilter,
+        BacktestStaticFilter
 
-        /// <summary>
-        /// Backtest filtrato con le rotazioni storiche gia' generate da Titano, e con i vincoli
-        /// operativi attivi: misura cosa avrebbe fatto il sistema *con* il filtro.
-        /// </summary>
-        BacktestTitano
+        // BacktestTitano rimosso il 03/09/2026 insieme al filtro di rotazione. NON va reintrodotto
+        // con un altro significato: il server rifiuta un profilo che non conosce, quindi un bot che
+        // lo mandasse ancora fallirebbe l'open-plan invece di aprire il run sbagliato.
     }
 
     [Robot(TimeZone = TimeZones.UTC, AccessRights = AccessRights.FullAccess)]

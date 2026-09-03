@@ -53,12 +53,27 @@ partial class AccountDetailScreen
         this._colStrategyActive = new System.Windows.Forms.DataGridViewTextBoxColumn();
         this._colStrategyHolding = new System.Windows.Forms.DataGridViewTextBoxColumn();
         this._strategiesBindingSource = new System.Windows.Forms.BindingSource(this.components);
+        this._excludedTab = new System.Windows.Forms.TabPage();
+        this._excludedHeader = new System.Windows.Forms.TableLayoutPanel();
+        this._excludedFilterTextBox = new System.Windows.Forms.TextBox();
+        this._excludedCountLabel = new System.Windows.Forms.Label();
+        this._excludedGrid = new System.Windows.Forms.DataGridView();
+        this._colExcludedCode = new System.Windows.Forms.DataGridViewTextBoxColumn();
+        this._colExcludedSymbol = new System.Windows.Forms.DataGridViewTextBoxColumn();
+        this._colExcludedTimeframe = new System.Windows.Forms.DataGridViewTextBoxColumn();
+        this._colExcludedActive = new System.Windows.Forms.DataGridViewTextBoxColumn();
+        this._colExcludedReason = new System.Windows.Forms.DataGridViewTextBoxColumn();
+        this._excludedBindingSource = new System.Windows.Forms.BindingSource(this.components);
         this._tabs.SuspendLayout();
         this._generalTab.SuspendLayout();
         this._strategiesTab.SuspendLayout();
         this._strategiesHeader.SuspendLayout();
         ((System.ComponentModel.ISupportInitialize)(this._strategiesGrid)).BeginInit();
         ((System.ComponentModel.ISupportInitialize)(this._strategiesBindingSource)).BeginInit();
+        this._excludedTab.SuspendLayout();
+        this._excludedHeader.SuspendLayout();
+        ((System.ComponentModel.ISupportInitialize)(this._excludedGrid)).BeginInit();
+        ((System.ComponentModel.ISupportInitialize)(this._excludedBindingSource)).BeginInit();
         this._fieldsLayout.SuspendLayout();
         ((System.ComponentModel.ISupportInitialize)(this._initialBalanceInput)).BeginInit();
         this.SuspendLayout();
@@ -311,6 +326,7 @@ partial class AccountDetailScreen
         //
         this._tabs.Controls.Add(this._generalTab);
         this._tabs.Controls.Add(this._strategiesTab);
+        this._tabs.Controls.Add(this._excludedTab);
         this._tabs.Dock = System.Windows.Forms.DockStyle.Fill;
         this._tabs.Location = new System.Drawing.Point(0, 71);
         this._tabs.Name = "_tabs";
@@ -456,6 +472,122 @@ partial class AccountDetailScreen
         this._colStrategyHolding.Name = "_colStrategyHolding";
         this._colStrategyHolding.ReadOnly = true;
         //
+        // _excludedTab
+        //
+        this._excludedTab.Controls.Add(this._excludedGrid);
+        this._excludedTab.Controls.Add(this._excludedHeader);
+        this._excludedTab.Location = new System.Drawing.Point(4, 27);
+        this._excludedTab.Name = "_excludedTab";
+        this._excludedTab.Padding = new System.Windows.Forms.Padding(12);
+        this._excludedTab.Size = new System.Drawing.Size(892, 498);
+        this._excludedTab.TabIndex = 2;
+        this._excludedTab.Text = "Strategie escluse";
+        this._excludedTab.UseVisualStyleBackColor = true;
+        //
+        // _excludedHeader
+        //
+        this._excludedHeader.AutoSize = true;
+        this._excludedHeader.ColumnCount = 2;
+        this._excludedHeader.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 100F));
+        this._excludedHeader.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle());
+        this._excludedHeader.Controls.Add(this._excludedFilterTextBox, 0, 0);
+        this._excludedHeader.Controls.Add(this._excludedCountLabel, 1, 0);
+        this._excludedHeader.Dock = System.Windows.Forms.DockStyle.Top;
+        this._excludedHeader.Location = new System.Drawing.Point(12, 12);
+        this._excludedHeader.Name = "_excludedHeader";
+        this._excludedHeader.RowCount = 1;
+        this._excludedHeader.RowStyles.Add(new System.Windows.Forms.RowStyle());
+        this._excludedHeader.Size = new System.Drawing.Size(868, 33);
+        this._excludedHeader.TabIndex = 0;
+        //
+        // _excludedFilterTextBox
+        //
+        this._excludedFilterTextBox.Anchor = System.Windows.Forms.AnchorStyles.Left | System.Windows.Forms.AnchorStyles.Right;
+        this._excludedFilterTextBox.Margin = new System.Windows.Forms.Padding(3, 4, 12, 4);
+        this._excludedFilterTextBox.Name = "_excludedFilterTextBox";
+        this._excludedFilterTextBox.PlaceholderText = "Filtra per codice, simbolo o timeframe...";
+        this._excludedFilterTextBox.Size = new System.Drawing.Size(600, 23);
+        this._excludedFilterTextBox.TabIndex = 0;
+        this._excludedFilterTextBox.TextChanged += new System.EventHandler(this.OnExcludedFilterChanged);
+        //
+        // _excludedCountLabel
+        //
+        this._excludedCountLabel.Anchor = System.Windows.Forms.AnchorStyles.Right;
+        this._excludedCountLabel.AutoSize = true;
+        this._excludedCountLabel.Margin = new System.Windows.Forms.Padding(3, 8, 3, 8);
+        this._excludedCountLabel.Name = "_excludedCountLabel";
+        this._excludedCountLabel.Size = new System.Drawing.Size(200, 15);
+        this._excludedCountLabel.TabIndex = 1;
+        this._excludedCountLabel.Text = "-";
+        //
+        // _excludedGrid
+        //
+        this._excludedGrid.AllowUserToAddRows = false;
+        this._excludedGrid.AllowUserToDeleteRows = false;
+        this._excludedGrid.AutoGenerateColumns = false;
+        this._excludedGrid.AutoSizeColumnsMode = System.Windows.Forms.DataGridViewAutoSizeColumnsMode.Fill;
+        this._excludedGrid.BackgroundColor = System.Drawing.SystemColors.Window;
+        this._excludedGrid.BorderStyle = System.Windows.Forms.BorderStyle.None;
+        this._excludedGrid.ColumnHeadersHeightSizeMode = System.Windows.Forms.DataGridViewColumnHeadersHeightSizeMode.AutoSize;
+        this._excludedGrid.Columns.AddRange(new System.Windows.Forms.DataGridViewColumn[] {
+            this._colExcludedCode,
+            this._colExcludedSymbol,
+            this._colExcludedTimeframe,
+            this._colExcludedActive,
+            this._colExcludedReason});
+        this._excludedGrid.DataSource = this._excludedBindingSource;
+        this._excludedGrid.Dock = System.Windows.Forms.DockStyle.Fill;
+        this._excludedGrid.EditMode = System.Windows.Forms.DataGridViewEditMode.EditProgrammatically;
+        this._excludedGrid.Location = new System.Drawing.Point(12, 45);
+        this._excludedGrid.MultiSelect = false;
+        this._excludedGrid.Name = "_excludedGrid";
+        this._excludedGrid.ReadOnly = true;
+        this._excludedGrid.RowHeadersVisible = false;
+        this._excludedGrid.SelectionMode = System.Windows.Forms.DataGridViewSelectionMode.FullRowSelect;
+        this._excludedGrid.Size = new System.Drawing.Size(868, 441);
+        this._excludedGrid.TabIndex = 1;
+        //
+        // _colExcludedCode
+        //
+        this._colExcludedCode.DataPropertyName = "Code";
+        this._colExcludedCode.FillWeight = 160F;
+        this._colExcludedCode.HeaderText = "Strategia";
+        this._colExcludedCode.Name = "_colExcludedCode";
+        this._colExcludedCode.ReadOnly = true;
+        //
+        // _colExcludedSymbol
+        //
+        this._colExcludedSymbol.DataPropertyName = "Symbol";
+        this._colExcludedSymbol.FillWeight = 60F;
+        this._colExcludedSymbol.HeaderText = "Simbolo";
+        this._colExcludedSymbol.Name = "_colExcludedSymbol";
+        this._colExcludedSymbol.ReadOnly = true;
+        //
+        // _colExcludedTimeframe
+        //
+        this._colExcludedTimeframe.DataPropertyName = "TimeframeMinutes";
+        this._colExcludedTimeframe.DefaultCellStyle.Alignment = System.Windows.Forms.DataGridViewContentAlignment.MiddleRight;
+        this._colExcludedTimeframe.FillWeight = 50F;
+        this._colExcludedTimeframe.HeaderText = "TF (min)";
+        this._colExcludedTimeframe.Name = "_colExcludedTimeframe";
+        this._colExcludedTimeframe.ReadOnly = true;
+        //
+        // _colExcludedActive
+        //
+        this._colExcludedActive.DataPropertyName = "ActiveText";
+        this._colExcludedActive.FillWeight = 50F;
+        this._colExcludedActive.HeaderText = "Attiva";
+        this._colExcludedActive.Name = "_colExcludedActive";
+        this._colExcludedActive.ReadOnly = true;
+        //
+        // _colExcludedReason
+        //
+        this._colExcludedReason.DataPropertyName = "Reason";
+        this._colExcludedReason.FillWeight = 140F;
+        this._colExcludedReason.HeaderText = "Perche' e' esclusa";
+        this._colExcludedReason.Name = "_colExcludedReason";
+        this._colExcludedReason.ReadOnly = true;
+        //
         // AccountDetailScreen
         //
         this.AutoScaleDimensions = new System.Drawing.SizeF(7F, 15F);
@@ -477,6 +609,12 @@ partial class AccountDetailScreen
         this._strategiesHeader.PerformLayout();
         ((System.ComponentModel.ISupportInitialize)(this._strategiesGrid)).EndInit();
         ((System.ComponentModel.ISupportInitialize)(this._strategiesBindingSource)).EndInit();
+        this._excludedTab.ResumeLayout(false);
+        this._excludedTab.PerformLayout();
+        this._excludedHeader.ResumeLayout(false);
+        this._excludedHeader.PerformLayout();
+        ((System.ComponentModel.ISupportInitialize)(this._excludedGrid)).EndInit();
+        ((System.ComponentModel.ISupportInitialize)(this._excludedBindingSource)).EndInit();
         this.ResumeLayout(false);
         this.PerformLayout();
     }
@@ -517,4 +655,15 @@ partial class AccountDetailScreen
     private System.Windows.Forms.DataGridViewTextBoxColumn _colStrategyActive;
     private System.Windows.Forms.DataGridViewTextBoxColumn _colStrategyHolding;
     private System.Windows.Forms.BindingSource _strategiesBindingSource;
+    private System.Windows.Forms.TabPage _excludedTab;
+    private System.Windows.Forms.TableLayoutPanel _excludedHeader;
+    private System.Windows.Forms.TextBox _excludedFilterTextBox;
+    private System.Windows.Forms.Label _excludedCountLabel;
+    private System.Windows.Forms.DataGridView _excludedGrid;
+    private System.Windows.Forms.DataGridViewTextBoxColumn _colExcludedCode;
+    private System.Windows.Forms.DataGridViewTextBoxColumn _colExcludedSymbol;
+    private System.Windows.Forms.DataGridViewTextBoxColumn _colExcludedTimeframe;
+    private System.Windows.Forms.DataGridViewTextBoxColumn _colExcludedActive;
+    private System.Windows.Forms.DataGridViewTextBoxColumn _colExcludedReason;
+    private System.Windows.Forms.BindingSource _excludedBindingSource;
 }
