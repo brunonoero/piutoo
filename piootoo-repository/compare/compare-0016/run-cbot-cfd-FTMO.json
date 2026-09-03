@@ -1,0 +1,22 @@
+{
+  "Origin": "ExternalBroker",
+  "CreatedUtc": "2026-09-03T13:35:55.3962855Z",
+  "PriceSource": {
+    "Kind": "BrokerCfd",
+    "Broker": "FTMO",
+    "FeedLabel": "CFD FTMO (datafeed-external/FTMO)"
+  },
+  "EngineVersion": "5.1.0",
+  "PlanCode": "FTMO-ALL",
+  "ExecutionKey": "BT-20260315210500",
+  "SessionId": "30b4301de5fb445ba0d869d16e72236c",
+  "AccountNumber": "17188650",
+  "ResolvedPriceSource": {
+    "Kind": "BrokerCfd",
+    "Broker": "FTMO",
+    "FeedLabel": "CFD FTMO (datafeed-external/FTMO)"
+  },
+  "RunSlug": "cbot-cfd-FTMO",
+  "IdentifiesRun": true,
+  "InitialCapital": 100000
+}
