@@ -34,6 +34,8 @@ partial class BacktestingScreen
         this._workspaceValueLabel = new System.Windows.Forms.Label();
         this._datafeedLabel = new System.Windows.Forms.Label();
         this._datafeedCombo = new System.Windows.Forms.ComboBox();
+        this._accountLabel = new System.Windows.Forms.Label();
+        this._accountCombo = new System.Windows.Forms.ComboBox();
         this._nameLabel = new System.Windows.Forms.Label();
         this._nameTextBox = new System.Windows.Forms.TextBox();
         this._weekEndCheckBox = new System.Windows.Forms.CheckBox();
@@ -95,7 +97,8 @@ partial class BacktestingScreen
         this._parametersLayout.Controls.Add(this._datafeedCombo, 3, 0);
         this._parametersLayout.Controls.Add(this._nameLabel, 0, 1);
         this._parametersLayout.Controls.Add(this._nameTextBox, 1, 1);
-        this._parametersLayout.Controls.Add(this._weekEndCheckBox, 3, 1);
+        this._parametersLayout.Controls.Add(this._accountLabel, 2, 1);
+        this._parametersLayout.Controls.Add(this._accountCombo, 3, 1);
         this._parametersLayout.Controls.Add(this._startLabel, 0, 2);
         this._parametersLayout.Controls.Add(this._startPicker, 1, 2);
         this._parametersLayout.Controls.Add(this._endLabel, 2, 2);
@@ -104,10 +107,13 @@ partial class BacktestingScreen
         this._parametersLayout.Controls.Add(this._capitalInput, 1, 3);
         this._parametersLayout.Controls.Add(this._commissionLabel, 2, 3);
         this._parametersLayout.Controls.Add(this._commissionInput, 3, 3);
+        this._parametersLayout.Controls.Add(this._weekEndCheckBox, 1, 4);
+        this._parametersLayout.SetColumnSpan(this._weekEndCheckBox, 3);
         this._parametersLayout.Dock = System.Windows.Forms.DockStyle.Fill;
         this._parametersLayout.Location = new System.Drawing.Point(12, 22);
         this._parametersLayout.Name = "_parametersLayout";
-        this._parametersLayout.RowCount = 4;
+        this._parametersLayout.RowCount = 5;
+        this._parametersLayout.RowStyles.Add(new System.Windows.Forms.RowStyle());
         this._parametersLayout.RowStyles.Add(new System.Windows.Forms.RowStyle());
         this._parametersLayout.RowStyles.Add(new System.Windows.Forms.RowStyle());
         this._parametersLayout.RowStyles.Add(new System.Windows.Forms.RowStyle());
@@ -152,6 +158,25 @@ partial class BacktestingScreen
         this._datafeedCombo.Name = "_datafeedCombo";
         this._datafeedCombo.Size = new System.Drawing.Size(300, 23);
         this._datafeedCombo.TabIndex = 3;
+        //
+        // _accountLabel
+        //
+        this._accountLabel.Anchor = System.Windows.Forms.AnchorStyles.Left;
+        this._accountLabel.AutoSize = true;
+        this._accountLabel.Margin = new System.Windows.Forms.Padding(3, 0, 8, 0);
+        this._accountLabel.Name = "_accountLabel";
+        this._accountLabel.Size = new System.Drawing.Size(70, 15);
+        this._accountLabel.TabIndex = 4;
+        this._accountLabel.Text = "Conto";
+        //
+        // _accountCombo
+        //
+        this._accountCombo.Anchor = System.Windows.Forms.AnchorStyles.Left | System.Windows.Forms.AnchorStyles.Right;
+        this._accountCombo.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
+        this._accountCombo.Margin = new System.Windows.Forms.Padding(3, 4, 3, 4);
+        this._accountCombo.Name = "_accountCombo";
+        this._accountCombo.Size = new System.Drawing.Size(300, 23);
+        this._accountCombo.TabIndex = 5;
         //
         // _nameLabel
         // 
@@ -468,6 +493,8 @@ partial class BacktestingScreen
     private System.Windows.Forms.TableLayoutPanel _parametersLayout;
     private System.Windows.Forms.Label _workspaceLabel;
     private System.Windows.Forms.Label _workspaceValueLabel;
+    private System.Windows.Forms.Label _accountLabel;
+    private System.Windows.Forms.ComboBox _accountCombo;
     private System.Windows.Forms.Label _datafeedLabel;
     private System.Windows.Forms.ComboBox _datafeedCombo;
     private System.Windows.Forms.Label _nameLabel;

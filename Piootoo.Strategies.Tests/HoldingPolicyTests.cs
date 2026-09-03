@@ -18,19 +18,90 @@ public class HoldingPolicyTests
 {
     private static readonly DateTime Barra = new(2026, 8, 27, 14, 0, 0, DateTimeKind.Utc);
 
-    /// <summary>Piano permissivo: la deadline resta quella della strategia, chiunque essa sia.</summary>
+    /// <summary>
+    /// Piano che non vieta nulla: la deadline resta quella della strategia, chiunque essa sia — e se
+    /// la strategia non ne ha, il segnale esce senza.
+    ///
+    /// <para>Il piano permissivo e' <see cref="AccountHoldingPolicy.Unrestricted"/>, non
+    /// <c>Default</c>: il default vieta l'overweek, e da quando il divieto e' una deadline sul
+    /// segnale quel piano una scadenza la impone eccome (vedi
+    /// <see cref="SenzaOverweek_LaChiusuraSettimanaleFinisceSulSegnale"/>).</para>
+    /// </summary>
     [Fact]
-    public void ConOvernightConcesso_LaParolaRestaAllaStrategia()
+    public void ConTuttoConcesso_LaParolaRestaAllaStrategia()
     {
         var deadline = Barra.AddHours(3);
 
-        var senzaDeadline = HoldingResolver.Resolve(null, Barra, AccountHoldingPolicy.Default);
-        var conDeadline = HoldingResolver.Resolve(deadline, Barra, AccountHoldingPolicy.Default);
+        var senzaDeadline = HoldingResolver.Resolve(null, Barra, AccountHoldingPolicy.Unrestricted);
+        var conDeadline = HoldingResolver.Resolve(deadline, Barra, AccountHoldingPolicy.Unrestricted);
 
         Assert.Null(senzaDeadline.AtUtc);
         Assert.False(senzaDeadline.FromAccountPolicy);
         Assert.Equal(deadline, conDeadline.AtUtc);
         Assert.False(conDeadline.FromAccountPolicy);
+    }
+
+    /// <summary>
+    /// Overnight concesso ma overweek no: il segnale esce con la chiusura del fine settimana gia'
+    /// addosso, invece di affidarla a chi lo esegue.
+    ///
+    /// <para>Prima il fine settimana era solo una finestra applicata due volte — dal loop di
+    /// backtest e dal cBot — su due orologi diversi. Portandola sul segnale l'istante e' deciso una
+    /// volta sola: <see cref="Barra"/> e' giovedi', la deadline e' il venerdi' successivo all'ora
+    /// dichiarata dal piano.</para>
+    /// </summary>
+    [Fact]
+    public void SenzaOverweek_LaChiusuraSettimanaleFinisceSulSegnale()
+    {
+        var piano = AccountHoldingPolicy.Default with
+        {
+            AllowOvernight = true,
+            AllowOverweek = false,
+            WeekEnd = new WeekEndFlatPolicy(2045, 2300)
+        };
+
+        var decisione = HoldingResolver.Resolve(null, Barra, piano);
+
+        Assert.Equal(new DateTime(2026, 8, 28, 20, 45, 0, DateTimeKind.Utc), decisione.AtUtc);
+        Assert.True(decisione.FromAccountPolicy);
+    }
+
+    /// <summary>
+    /// Anche qui vince la scadenza piu' stretta: una strategia che chiude prima del venerdi' non
+    /// viene allungata fino al fine settimana.
+    /// </summary>
+    [Fact]
+    public void SenzaOverweek_UnaStrategiaCheChiudePrima_RestaLaSua()
+    {
+        var piano = AccountHoldingPolicy.Default with { AllowOverweek = false };
+        var suo = Barra.AddHours(2);
+
+        var decisione = HoldingResolver.Resolve(suo, Barra, piano);
+
+        Assert.Equal(suo, decisione.AtUtc);
+        Assert.False(decisione.FromAccountPolicy);
+    }
+
+    /// <summary>
+    /// Con entrambi i divieti attivi vince il flat di sessione, che cade prima: la composizione e'
+    /// il minimo, non l'ultimo divieto letto.
+    /// </summary>
+    [Fact]
+    public void ConEntrambiIDivieti_VinceIlFlatDiSessione()
+    {
+        var piano = AccountHoldingPolicy.Default with
+        {
+            AllowOvernight = false,
+            AllowOverweek = false,
+            SessionFlatUtcHhmm = 2045,
+            WeekEnd = new WeekEndFlatPolicy(2045, 2300)
+        };
+
+        var decisione = HoldingResolver.Resolve(null, Barra, piano);
+
+        // Giovedi' 20:45, non venerdi': chi taglia ogni sera taglia prima del fine settimana.
+        Assert.Equal(new DateTime(2026, 8, 27, 20, 45, 0, DateTimeKind.Utc), decisione.AtUtc);
+        Assert.True(decisione.FromAccountPolicy);
     }
 
     /// <summary>

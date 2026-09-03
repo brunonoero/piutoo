@@ -39,6 +39,26 @@ partial class AccountDetailScreen
         this._symbolConversionCombo = new System.Windows.Forms.ComboBox();
         this._notesLabel = new System.Windows.Forms.Label();
         this._notesTextBox = new System.Windows.Forms.TextBox();
+        this._tabs = new System.Windows.Forms.TabControl();
+        this._generalTab = new System.Windows.Forms.TabPage();
+        this._strategiesTab = new System.Windows.Forms.TabPage();
+        this._strategiesHeader = new System.Windows.Forms.TableLayoutPanel();
+        this._strategiesFilterTextBox = new System.Windows.Forms.TextBox();
+        this._strategiesCountLabel = new System.Windows.Forms.Label();
+        this._strategiesGrid = new System.Windows.Forms.DataGridView();
+        this._colStrategyCode = new System.Windows.Forms.DataGridViewTextBoxColumn();
+        this._colStrategySymbol = new System.Windows.Forms.DataGridViewTextBoxColumn();
+        this._colAccountSymbol = new System.Windows.Forms.DataGridViewTextBoxColumn();
+        this._colStrategyTimeframe = new System.Windows.Forms.DataGridViewTextBoxColumn();
+        this._colStrategyActive = new System.Windows.Forms.DataGridViewTextBoxColumn();
+        this._colStrategyHolding = new System.Windows.Forms.DataGridViewTextBoxColumn();
+        this._strategiesBindingSource = new System.Windows.Forms.BindingSource(this.components);
+        this._tabs.SuspendLayout();
+        this._generalTab.SuspendLayout();
+        this._strategiesTab.SuspendLayout();
+        this._strategiesHeader.SuspendLayout();
+        ((System.ComponentModel.ISupportInitialize)(this._strategiesGrid)).BeginInit();
+        ((System.ComponentModel.ISupportInitialize)(this._strategiesBindingSource)).BeginInit();
         this._fieldsLayout.SuspendLayout();
         ((System.ComponentModel.ISupportInitialize)(this._initialBalanceInput)).BeginInit();
         this.SuspendLayout();
@@ -93,7 +113,7 @@ partial class AccountDetailScreen
         this._fieldsLayout.Controls.Add(this._notesLabel, 0, 5);
         this._fieldsLayout.Controls.Add(this._notesTextBox, 1, 5);
         this._fieldsLayout.Dock = System.Windows.Forms.DockStyle.Top;
-        this._fieldsLayout.Location = new System.Drawing.Point(0, 71);
+        this._fieldsLayout.Location = new System.Drawing.Point(0, 0);
         this._fieldsLayout.Name = "_fieldsLayout";
         this._fieldsLayout.Padding = new System.Windows.Forms.Padding(12, 0, 12, 8);
         this._fieldsLayout.RowCount = 6;
@@ -264,7 +284,7 @@ partial class AccountDetailScreen
         this._symbolConversionCombo.Name = "_symbolConversionCombo";
         this._symbolConversionCombo.Size = new System.Drawing.Size(700, 23);
         this._symbolConversionCombo.TabIndex = 14;
-        this._symbolConversionCombo.SelectedIndexChanged += new System.EventHandler(this.OnFieldChanged);
+        this._symbolConversionCombo.SelectedIndexChanged += new System.EventHandler(this.OnSymbolConversionChanged);
         //
         // _notesLabel
         // 
@@ -287,11 +307,160 @@ partial class AccountDetailScreen
         this._notesTextBox.TabIndex = 14;
         this._notesTextBox.TextChanged += new System.EventHandler(this.OnFieldChanged);
         //
+        // _tabs
+        //
+        this._tabs.Controls.Add(this._generalTab);
+        this._tabs.Controls.Add(this._strategiesTab);
+        this._tabs.Dock = System.Windows.Forms.DockStyle.Fill;
+        this._tabs.Location = new System.Drawing.Point(0, 71);
+        this._tabs.Name = "_tabs";
+        this._tabs.Padding = new System.Drawing.Point(12, 4);
+        this._tabs.SelectedIndex = 0;
+        this._tabs.Size = new System.Drawing.Size(900, 529);
+        this._tabs.TabIndex = 2;
+        //
+        // _generalTab
+        //
+        this._generalTab.AutoScroll = true;
+        this._generalTab.Controls.Add(this._fieldsLayout);
+        this._generalTab.Location = new System.Drawing.Point(4, 27);
+        this._generalTab.Name = "_generalTab";
+        this._generalTab.Padding = new System.Windows.Forms.Padding(0, 8, 0, 0);
+        this._generalTab.Size = new System.Drawing.Size(892, 498);
+        this._generalTab.TabIndex = 0;
+        this._generalTab.Text = "Generale";
+        this._generalTab.UseVisualStyleBackColor = true;
+        //
+        // _strategiesTab
+        //
+        this._strategiesTab.Controls.Add(this._strategiesGrid);
+        this._strategiesTab.Controls.Add(this._strategiesHeader);
+        this._strategiesTab.Location = new System.Drawing.Point(4, 27);
+        this._strategiesTab.Name = "_strategiesTab";
+        this._strategiesTab.Padding = new System.Windows.Forms.Padding(12);
+        this._strategiesTab.Size = new System.Drawing.Size(892, 498);
+        this._strategiesTab.TabIndex = 1;
+        this._strategiesTab.Text = "Strategie";
+        this._strategiesTab.UseVisualStyleBackColor = true;
+        //
+        // _strategiesHeader
+        //
+        this._strategiesHeader.AutoSize = true;
+        this._strategiesHeader.ColumnCount = 2;
+        this._strategiesHeader.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 100F));
+        this._strategiesHeader.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle());
+        this._strategiesHeader.Controls.Add(this._strategiesFilterTextBox, 0, 0);
+        this._strategiesHeader.Controls.Add(this._strategiesCountLabel, 1, 0);
+        this._strategiesHeader.Dock = System.Windows.Forms.DockStyle.Top;
+        this._strategiesHeader.Location = new System.Drawing.Point(12, 12);
+        this._strategiesHeader.Name = "_strategiesHeader";
+        this._strategiesHeader.RowCount = 1;
+        this._strategiesHeader.RowStyles.Add(new System.Windows.Forms.RowStyle());
+        this._strategiesHeader.Size = new System.Drawing.Size(868, 33);
+        this._strategiesHeader.TabIndex = 0;
+        //
+        // _strategiesFilterTextBox
+        //
+        this._strategiesFilterTextBox.Anchor = System.Windows.Forms.AnchorStyles.Left | System.Windows.Forms.AnchorStyles.Right;
+        this._strategiesFilterTextBox.Margin = new System.Windows.Forms.Padding(3, 4, 12, 4);
+        this._strategiesFilterTextBox.Name = "_strategiesFilterTextBox";
+        this._strategiesFilterTextBox.PlaceholderText = "Filtra per codice, simbolo o timeframe...";
+        this._strategiesFilterTextBox.Size = new System.Drawing.Size(600, 23);
+        this._strategiesFilterTextBox.TabIndex = 0;
+        this._strategiesFilterTextBox.TextChanged += new System.EventHandler(this.OnStrategiesFilterChanged);
+        //
+        // _strategiesCountLabel
+        //
+        this._strategiesCountLabel.Anchor = System.Windows.Forms.AnchorStyles.Right;
+        this._strategiesCountLabel.AutoSize = true;
+        this._strategiesCountLabel.Margin = new System.Windows.Forms.Padding(3, 8, 3, 8);
+        this._strategiesCountLabel.Name = "_strategiesCountLabel";
+        this._strategiesCountLabel.Size = new System.Drawing.Size(200, 15);
+        this._strategiesCountLabel.TabIndex = 1;
+        this._strategiesCountLabel.Text = "-";
+        //
+        // _strategiesGrid
+        //
+        this._strategiesGrid.AllowUserToAddRows = false;
+        this._strategiesGrid.AllowUserToDeleteRows = false;
+        this._strategiesGrid.AutoGenerateColumns = false;
+        this._strategiesGrid.AutoSizeColumnsMode = System.Windows.Forms.DataGridViewAutoSizeColumnsMode.Fill;
+        this._strategiesGrid.BackgroundColor = System.Drawing.SystemColors.Window;
+        this._strategiesGrid.BorderStyle = System.Windows.Forms.BorderStyle.None;
+        this._strategiesGrid.ColumnHeadersHeightSizeMode = System.Windows.Forms.DataGridViewColumnHeadersHeightSizeMode.AutoSize;
+        this._strategiesGrid.Columns.AddRange(new System.Windows.Forms.DataGridViewColumn[] {
+            this._colStrategyCode,
+            this._colStrategySymbol,
+            this._colAccountSymbol,
+            this._colStrategyTimeframe,
+            this._colStrategyActive,
+            this._colStrategyHolding});
+        this._strategiesGrid.DataSource = this._strategiesBindingSource;
+        this._strategiesGrid.Dock = System.Windows.Forms.DockStyle.Fill;
+        this._strategiesGrid.EditMode = System.Windows.Forms.DataGridViewEditMode.EditProgrammatically;
+        this._strategiesGrid.Location = new System.Drawing.Point(12, 45);
+        this._strategiesGrid.MultiSelect = false;
+        this._strategiesGrid.Name = "_strategiesGrid";
+        this._strategiesGrid.ReadOnly = true;
+        this._strategiesGrid.RowHeadersVisible = false;
+        this._strategiesGrid.SelectionMode = System.Windows.Forms.DataGridViewSelectionMode.FullRowSelect;
+        this._strategiesGrid.Size = new System.Drawing.Size(868, 441);
+        this._strategiesGrid.TabIndex = 1;
+        //
+        // _colStrategyCode
+        //
+        this._colStrategyCode.DataPropertyName = "Code";
+        this._colStrategyCode.FillWeight = 160F;
+        this._colStrategyCode.HeaderText = "Strategia";
+        this._colStrategyCode.Name = "_colStrategyCode";
+        this._colStrategyCode.ReadOnly = true;
+        //
+        // _colStrategySymbol
+        //
+        this._colStrategySymbol.DataPropertyName = "Symbol";
+        this._colStrategySymbol.FillWeight = 60F;
+        this._colStrategySymbol.HeaderText = "Simbolo";
+        this._colStrategySymbol.Name = "_colStrategySymbol";
+        this._colStrategySymbol.ReadOnly = true;
+        //
+        // _colAccountSymbol
+        //
+        this._colAccountSymbol.DataPropertyName = "AccountSymbol";
+        this._colAccountSymbol.FillWeight = 80F;
+        this._colAccountSymbol.HeaderText = "Simbolo conto";
+        this._colAccountSymbol.Name = "_colAccountSymbol";
+        this._colAccountSymbol.ReadOnly = true;
+        //
+        // _colStrategyTimeframe
+        //
+        this._colStrategyTimeframe.DataPropertyName = "TimeframeMinutes";
+        this._colStrategyTimeframe.DefaultCellStyle.Alignment = System.Windows.Forms.DataGridViewContentAlignment.MiddleRight;
+        this._colStrategyTimeframe.FillWeight = 50F;
+        this._colStrategyTimeframe.HeaderText = "TF (min)";
+        this._colStrategyTimeframe.Name = "_colStrategyTimeframe";
+        this._colStrategyTimeframe.ReadOnly = true;
+        //
+        // _colStrategyActive
+        //
+        this._colStrategyActive.DataPropertyName = "ActiveText";
+        this._colStrategyActive.FillWeight = 50F;
+        this._colStrategyActive.HeaderText = "Attiva";
+        this._colStrategyActive.Name = "_colStrategyActive";
+        this._colStrategyActive.ReadOnly = true;
+        //
+        // _colStrategyHolding
+        //
+        this._colStrategyHolding.DataPropertyName = "Holding";
+        this._colStrategyHolding.FillWeight = 80F;
+        this._colStrategyHolding.HeaderText = "Tenuta";
+        this._colStrategyHolding.Name = "_colStrategyHolding";
+        this._colStrategyHolding.ReadOnly = true;
+        //
         // AccountDetailScreen
         //
         this.AutoScaleDimensions = new System.Drawing.SizeF(7F, 15F);
         this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
-        this.Controls.Add(this._fieldsLayout);
+        this.Controls.Add(this._tabs);
         this.Controls.Add(this._identityLabel);
         this.Controls.Add(this._toolbar);
         this.Name = "AccountDetailScreen";
@@ -299,6 +468,15 @@ partial class AccountDetailScreen
         this._fieldsLayout.ResumeLayout(false);
         this._fieldsLayout.PerformLayout();
         ((System.ComponentModel.ISupportInitialize)(this._initialBalanceInput)).EndInit();
+        this._tabs.ResumeLayout(false);
+        this._generalTab.ResumeLayout(false);
+        this._generalTab.PerformLayout();
+        this._strategiesTab.ResumeLayout(false);
+        this._strategiesTab.PerformLayout();
+        this._strategiesHeader.ResumeLayout(false);
+        this._strategiesHeader.PerformLayout();
+        ((System.ComponentModel.ISupportInitialize)(this._strategiesGrid)).EndInit();
+        ((System.ComponentModel.ISupportInitialize)(this._strategiesBindingSource)).EndInit();
         this.ResumeLayout(false);
         this.PerformLayout();
     }
@@ -325,4 +503,18 @@ partial class AccountDetailScreen
     private System.Windows.Forms.ComboBox _symbolConversionCombo;
     private System.Windows.Forms.Label _notesLabel;
     private System.Windows.Forms.TextBox _notesTextBox;
+    private System.Windows.Forms.TabControl _tabs;
+    private System.Windows.Forms.TabPage _generalTab;
+    private System.Windows.Forms.TabPage _strategiesTab;
+    private System.Windows.Forms.TableLayoutPanel _strategiesHeader;
+    private System.Windows.Forms.TextBox _strategiesFilterTextBox;
+    private System.Windows.Forms.Label _strategiesCountLabel;
+    private System.Windows.Forms.DataGridView _strategiesGrid;
+    private System.Windows.Forms.DataGridViewTextBoxColumn _colStrategyCode;
+    private System.Windows.Forms.DataGridViewTextBoxColumn _colStrategySymbol;
+    private System.Windows.Forms.DataGridViewTextBoxColumn _colAccountSymbol;
+    private System.Windows.Forms.DataGridViewTextBoxColumn _colStrategyTimeframe;
+    private System.Windows.Forms.DataGridViewTextBoxColumn _colStrategyActive;
+    private System.Windows.Forms.DataGridViewTextBoxColumn _colStrategyHolding;
+    private System.Windows.Forms.BindingSource _strategiesBindingSource;
 }

@@ -82,6 +82,30 @@ public sealed record WeekEndFlatPolicy(int FromUtcHhmm, int UntilUtcHhmm)
     public bool IsFlatTrigger(DateTime instantUtc, DateTime previousInstantUtc) =>
         IsInsideWindow(instantUtc) && !IsInsideWindow(previousInstantUtc);
 
+    /// <summary>
+    /// Il primo istante da <paramref name="referenceUtc"/> in poi in cui il flat del fine settimana
+    /// e' in vigore: il venerdi' a <see cref="FromUtcHhmm"/>, oppure <paramref name="referenceUtc"/>
+    /// stesso se la finestra e' gia' aperta.
+    ///
+    /// <para>Serve a <see cref="HoldingResolver"/> per trasformare la finestra in una <b>deadline</b>
+    /// da mettere sul segnale. La finestra resta quello che e' — un intervallo in cui non si sta a
+    /// mercato — ma un ordine che nasce prima deve gia' sapere quando morira', altrimenti la
+    /// chiusura dipende da chi la applica: il loop di backtest a modo suo, il cBot al proprio.</para>
+    /// </summary>
+    public DateTime ResolveNextFlatUtc(DateTime referenceUtc)
+    {
+        if (IsInsideWindow(referenceUtc)) return referenceUtc;
+
+        var daysToFriday = ((int)DayOfWeek.Friday - (int)referenceUtc.DayOfWeek + 7) % 7;
+        var day = referenceUtc.Date.AddDays(daysToFriday);
+        var target = DateTime.SpecifyKind(
+            day.AddHours(FromUtcHhmm / 100).AddMinutes(FromUtcHhmm % 100), DateTimeKind.Utc);
+
+        // Stessa convenzione di AccountHoldingPolicy.ResolveSessionFlatUtc: la deadline e'
+        // strettamente successiva all'istante di riferimento, mai coincidente.
+        return target <= referenceUtc ? target.AddDays(7) : target;
+    }
+
     /// <summary>Un HHMM plausibile come orario di flat: 0000-2359, minuti veri.</summary>
     public static bool IsValidHhmm(int value) =>
         value >= 0 && value <= 2359 && value % 100 < 60;

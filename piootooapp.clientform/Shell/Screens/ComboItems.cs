@@ -50,6 +50,39 @@ public sealed class DatafeedComboItem
     public override string ToString() => Display;
 }
 
+/// <summary>
+/// Quale conto usare come <b>universo operativo</b> di un run: girano solo le strategie sui simboli
+/// che la sua tabella di conversione prevede.
+///
+/// <para>La prima voce e' l'assenza di conto, che e' il run neutro di sempre. L'etichetta nomina la
+/// tabella perche' e' quella a decidere l'universo, non il conto: due conti sulla stessa tabella
+/// producono lo stesso elenco di strategie, e un conto senza tabella non restringe niente.</para>
+/// </summary>
+public sealed class AccountComboItem
+{
+    private AccountComboItem(string accountNumber, string display)
+    {
+        AccountNumber = accountNumber;
+        Display = display;
+    }
+
+    /// <summary>Vuoto e' l'assenza di conto, non un conto chiamato "nessuno".</summary>
+    public string AccountNumber { get; }
+
+    public string Display { get; }
+
+    public static AccountComboItem None() => new(string.Empty, "Nessun conto  ·  intero masterfilter");
+
+    public static AccountComboItem Of(WorkspaceAccount account)
+        => new(account.AccountNumber,
+            $"{account.Name}  ·  {account.AccountNumber}  ·  " +
+            (string.IsNullOrWhiteSpace(account.SymbolConversionCode)
+                ? "nessuna conversione (opera tutto)"
+                : $"conversione {account.SymbolConversionCode}"));
+
+    public override string ToString() => Display;
+}
+
 public sealed class BacktestComboItem
 {
     public BacktestComboItem(WorkspaceBacktestInfo info) => Info = info;

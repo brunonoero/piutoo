@@ -217,6 +217,13 @@ public sealed class TradingSessionService : ITradingSessionService
         /// </summary>
         public required AccountHoldingPolicy Holding { get; init; }
 
+        /// <summary>
+        /// Moltiplicatore <c>k</c> del piano, applicato al fattore di conversione dell'account in
+        /// <b>ogni</b> punto in cui una quantità esce verso il client. Vedi
+        /// <see cref="TradingPlan.SizeMultiplier"/> e <see cref="ScaledSizeFactor"/>.
+        /// </summary>
+        public decimal SizeMultiplier { get; init; } = 1m;
+
         public required Dictionary<string, InstrumentMetadata> InstrumentMetadata { get; init; }
 
         /// <summary>
@@ -601,6 +608,7 @@ public sealed class TradingSessionService : ITradingSessionService
             // perdendo l'override.
             EnforceConcurrencyLimits = enforceConcurrency,
             Holding = plan.Holding,
+            SizeMultiplier = plan.SizeMultiplier,
             PositionSizing = plan.PositionSizing
         }, plan.Code, request.ExecutionKey.Trim(), account);
         AccountSymbolConversion conversion;
@@ -840,6 +848,10 @@ public sealed class TradingSessionService : ITradingSessionService
                 ?? DefaultEnforceConcurrencyLimits(request.ClientRunMode),
             PositionSizing = ResolvePositionSizing(request.ExecutionMode, request.PositionSizing),
             Holding = request.Holding ?? AccountHoldingPolicy.Default,
+            // Normalizzato e non validato: una sessione creata a mano da un client che non conosce
+            // il campo lo manda a 0, e 0 qui significherebbe nessun ordine. La validazione del
+            // minimo sta dove il numero viene scelto, cioe' sul piano.
+            SizeMultiplier = TradingPlanService.NormalizeSizeMultiplier(request.SizeMultiplier),
             InstrumentMetadata = instrumentMetadata,
             PeakEquity = request.InitialCapital,
             Status = TradingSessionStatus.Created,
@@ -1197,7 +1209,12 @@ public sealed class TradingSessionService : ITradingSessionService
         if (session.Mode == ExecutionMode.ServerSimulated)
             session.SimulatedEngine.UpdateMarketPrices(prices, bars, bar.BarTimeUtc);
 
-        IReadOnlyList<ITradingStrategy> evaluationStrategies = session.Strategies;
+        // Esecuzione diretta: il conto e' uno solo e si conosce gia' qui, quindi una strategia su
+        // un simbolo che la sua tabella non prevede non viene nemmeno valutata. In distribuzione il
+        // conto si conosce solo al claim, ed e' li' che lo stesso filtro vive
+        // (GetNextSignalForAccount): scartare a monte toglierebbe la strategia anche agli account
+        // che la supportano.
+        var evaluationStrategies = SupportedStrategies(session);
         var signals = _evaluation.Evaluate(
             evaluationStrategies,
             normalizedBar,
@@ -1962,10 +1979,15 @@ public sealed class TradingSessionService : ITradingSessionService
             var candidates = session.EntryTemplates.Where(t => t.Status == OrderIntentStatus.Pending).ToList();
 
             candidates = NarrowTemplates(candidates, ref stage,
-                // Un simbolo disabilitato sull'account non è operativo su quel conto: il template
-                // resta disponibile per gli altri account invece di essere consumato qui.
-                t => conversion.IsSymbolEnabled(t.Symbol),
-                "simbolo non abilitato sulla tabella di conversione dell'account");
+                // Un simbolo che la tabella dell'account non prevede — assente, o presente e
+                // disabilitato — non e' operativo su quel conto: il template resta disponibile per
+                // gli altri account invece di essere consumato qui.
+                //
+                // Il filtro e' per ACCOUNT e non per sessione perche' una sessione distribuita ha
+                // conti con tabelle diverse: la stessa strategia puo' essere eseguibile su un conto
+                // e non sull'altro, e scartarla a monte la toglierebbe anche a chi la supporta.
+                t => conversion.SupportsSymbol(t.Symbol),
+                "simbolo non previsto dalla tabella di conversione dell'account");
             candidates = NarrowTemplates(candidates, ref stage,
                 t => !t.ExpiresAtUtc.HasValue || t.ExpiresAtUtc.Value >= now,
                 // Niente orario della barra nel testo: il motivo viene deduplicato per stringa da
@@ -2563,15 +2585,69 @@ public sealed class TradingSessionService : ITradingSessionService
         // Sola lettura, sotto il lock della sessione come tutto il resto del claim.
         => session.StrategyNetPnl;
 
+    /// <summary>
+    /// Le strategie che questa sessione puo' davvero eseguire.
+    ///
+    /// <para>Filtra solo in <b>esecuzione diretta</b>, dove il conto e' uno e noto: una strategia su
+    /// un simbolo che la sua tabella di conversione non prevede non produce segnali invece di
+    /// produrne di inservibili, azzerati poi dalla conversione. Prima l'intent nasceva, veniva
+    /// dimensionato a zero e finiva <c>Cancelled</c> negli artefatti: un segnale che c'e' e non c'e',
+    /// che va spiegato a chi legge i trade.</para>
+    ///
+    /// <para>In distribuzione restituisce tutte le strategie: la sessione e' condivisa fra conti con
+    /// tabelle diverse e il filtro appartiene al claim del singolo account.</para>
+    /// </summary>
+    private IReadOnlyList<ITradingStrategy> SupportedStrategies(Session session)
+    {
+        if (session.DirectAccountNumber is not { } accountNumber)
+            return session.Strategies;
+
+        var conversion = ResolveAccountConversion(session, accountNumber);
+        if (!conversion.HasSymbolTable)
+            return session.Strategies;
+
+        return session.Strategies.Where(x => conversion.SupportsSymbol(x.Symbol)).ToArray();
+    }
+
+    /// <summary>
+    /// Il fattore che porta una quantità dai contratti Piootoo a quelli del conto:
+    /// <c>k × dimensione del conto × conversione del simbolo</c>, dove <c>k</c> è il
+    /// <see cref="TradingPlan.SizeMultiplier"/> del piano e gli altri due sono
+    /// <c>BalanceScale × ContractMultiplier</c> di <see cref="AccountSymbolConversion.GetSizeFactor"/>.
+    ///
+    /// <para>Esiste come metodo <b>unico</b> perché i punti in cui una quantità esce verso il client
+    /// sono due — l'intent già assegnato dell'esecuzione diretta (<see cref="AddIntent"/> con una
+    /// conversione vera) e il clone del claim (<see cref="CloneForClaim"/>) — e applicare <c>k</c> in
+    /// uno solo darebbe due size diverse per lo stesso piano a seconda di come il cBot è
+    /// configurato: una differenza che si vedrebbe solo confrontando i trade di due run.</para>
+    ///
+    /// <para><paramref name="applyMultiplier"/> è falso sui <b>template</b> non ancora reclamati,
+    /// che restano nei contratti Piootoo perché il conto non si conosce ancora: lì <c>k</c> non va
+    /// applicato, altrimenti il claim — che riparte da <c>FinalQuantity</c> del template — lo
+    /// applicherebbe una seconda volta e la size andrebbe a <c>k²</c>. Vale lo stesso per le
+    /// sessioni <c>ServerSimulated</c>, dove non c'è nessun conto e nessun client a cui consegnare.</para>
+    ///
+    /// <para>Un simbolo non operativo sull'account vale zero e non viene scalato: non è una size
+    /// piccola, è un segnale che su quel conto non si esegue.</para>
+    /// </summary>
+    private static decimal ScaledSizeFactor(
+        Session session, AccountSymbolConversion conversion, string? symbol, bool applyMultiplier)
+    {
+        if (!conversion.IsSymbolEnabled(symbol)) return 0m;
+        var factor = conversion.GetSizeFactor(symbol);
+        return applyMultiplier ? factor * session.SizeMultiplier : factor;
+    }
+
     private static OrderIntent AddIntent(
         Session session, TradeSignal signal, PositionSizingResult? sizing, bool addToIntents = true,
         AccountSymbolConversion? conversion = null)
     {
-        // Identità sui template: il conto si conosce solo al claim (vedi CloneForClaim).
+        // Una conversione valorizzata significa "il conto è noto", cioè che questo intent esce così
+        // com'è verso il client: è lì che il moltiplicatore del piano va applicato. Identità sui
+        // template, dove il conto si conosce solo al claim (vedi CloneForClaim).
+        var assegnato = conversion is not null;
         conversion ??= AccountSymbolConversion.Identity;
-        var sizeFactor = conversion.IsSymbolEnabled(signal.Symbol)
-            ? conversion.GetSizeFactor(signal.Symbol)
-            : 0m;
+        var sizeFactor = ScaledSizeFactor(session, conversion, signal.Symbol, applyMultiplier: assegnato);
         var quantityBeforeConversion = sizing?.FinalQuantity ?? signal.Quantity;
 
         // Arrotondamento alla granularità del broker (o al contratto intero se il simbolo non è
@@ -2893,7 +2969,9 @@ public sealed class TradingSessionService : ITradingSessionService
         // nulla. Vedi docs/decisioni.md (2026-08-05).
         var conversion = ResolveAccountConversion(session, accountNumber);
         var enabled = conversion.IsSymbolEnabled(template.Symbol);
-        var sizeFactor = conversion.GetSizeFactor(template.Symbol);
+        // Il moltiplicatore del piano entra qui e non sul template: il template non ha ancora un
+        // conto, e applicarlo prima lo farebbe entrare due volte (vedi ScaledSizeFactor).
+        var sizeFactor = ScaledSizeFactor(session, conversion, template.Symbol, applyMultiplier: true);
         var convertedQuantity = enabled
             ? conversion.RoundQuantity(template.Symbol, quantity * sizeFactor)
             : 0m;
@@ -2929,7 +3007,8 @@ public sealed class TradingSessionService : ITradingSessionService
             MarketVolatilityMultiplier = template.MarketVolatilityMultiplier,
             PortfolioRiskMultiplier = template.PortfolioRiskMultiplier,
             FinalQuantity = convertedQuantity,
-            SizingReason = BuildClaimSizingReason(template.SizingReason, enabled, sizeFactor),
+            SizingReason = BuildClaimSizingReason(
+                template.SizingReason, enabled, sizeFactor, session.SizeMultiplier),
             Price = template.Price,
             Kind = OrderIntentKind.Entry,
             StopLoss = Scale(template.StopLoss),
@@ -2992,13 +3071,22 @@ public sealed class TradingSessionService : ITradingSessionService
             ? ResolveAccountConversion(session, accountNumber)
             : null;
 
+    /// <summary>
+    /// Il perche' della quantita' consegnata. Il moltiplicatore del piano viene nominato a parte
+    /// anche se e' gia' dentro <paramref name="sizeFactor"/>: sono due decisioni diverse — una del
+    /// conto, una del piano — e un fattore unico costringerebbe a dividere due numeri per capire
+    /// quale delle due ha cambiato la size.
+    /// </summary>
     private static string? BuildClaimSizingReason(
-        string? templateReason, bool symbolEnabled, decimal sizeFactor)
+        string? templateReason, bool symbolEnabled, decimal sizeFactor, decimal sizeMultiplier)
     {
         var reason = templateReason;
 
         if (!symbolEnabled)
             return $"{reason} | simbolo non operativo sull'account";
+
+        if (sizeMultiplier != 1m)
+            reason = $"{reason} | moltiplicatore piano: {sizeMultiplier:0.####}";
 
         return sizeFactor == 1m
             ? reason
@@ -3468,6 +3556,9 @@ public sealed class TradingSessionService : ITradingSessionService
         ConcurrencyCountMode = accountNumber is not null
             ? session.AccountConcurrencyCountMode.GetValueOrDefault(accountNumber)
             : default,
+        // Informativo: le quantita' degli intent sono gia' moltiplicate, il client non deve
+        // rifarlo. Serve a spiegare a chart una size che altrimenti non torna con il piano.
+        SizeMultiplier = session.SizeMultiplier,
         // Ordinate per simbolo/timeframe/codice: il pannello a chart le stampa così com'è, e un
         // ordine stabile rende confrontabili a colpo d'occhio due run diversi.
         Strategies = session.Strategies

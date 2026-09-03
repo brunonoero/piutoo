@@ -147,6 +147,15 @@ public sealed class TradingPlanService
         if (request.CommissionPerContract < 0)
             throw new ArgumentException("CommissionPerContract non può essere negativa.");
 
+        // Sotto 0,1 non c'è un moltiplicatore piccolo, c'è uno spegnimento silenzioso: le size
+        // arrotondate alla granularità del broker cadrebbero tutte sotto il minimo e la sessione
+        // girerebbe senza produrre un ordine, con l'aria di funzionare.
+        var sizeMultiplier = NormalizeSizeMultiplier(request.SizeMultiplier);
+        if (sizeMultiplier < MinimumSizeMultiplier)
+            throw new ArgumentException(
+                $"SizeMultiplier deve essere almeno {MinimumSizeMultiplier:0.###}: " +
+                $"'{request.SizeMultiplier:0.####}' azzererebbe le size invece di ridurle.");
+
         // Mirror della prima riga, così i piani multi-gruppo restano leggibili anche dai client
         // che non conoscono ancora Groups.
         var primary = SelectPrimaryRow(groups);
@@ -182,6 +191,7 @@ public sealed class TradingPlanService
                 EnforceConcurrencyLimits = request.EnforceConcurrencyLimits,
                 CommissionPerContract = request.CommissionPerContract,
                 Holding = holding,
+                SizeMultiplier = sizeMultiplier,
                 PositionSizing = request.PositionSizing,
                 CreatedUtc = existing?.CreatedUtc ?? now,
                 UpdatedUtc = now
@@ -312,6 +322,7 @@ public sealed class TradingPlanService
             EnforceConcurrencyLimits = plan.EnforceConcurrencyLimits,
             CommissionPerContract = plan.CommissionPerContract,
             Holding = ResolveLoadedHolding(plan),
+            SizeMultiplier = NormalizeSizeMultiplier(plan.SizeMultiplier),
             PositionSizing = plan.PositionSizing,
             CreatedUtc = plan.CreatedUtc,
             UpdatedUtc = plan.UpdatedUtc
@@ -333,6 +344,22 @@ public sealed class TradingPlanService
         var holding = plan.Holding;
         return plan.WeekEndFlat is { } legacy ? holding with { WeekEnd = legacy } : holding;
     }
+
+    /// <summary>Valore minimo del moltiplicatore di size di un piano.</summary>
+    public const decimal MinimumSizeMultiplier = 0.1m;
+
+    /// <summary>
+    /// Un moltiplicatore non valorizzato vale 1, non 0.
+    ///
+    /// <para>Serve ai <c>plans.json</c> scritti prima che il campo esistesse, e ai client che non
+    /// lo conoscono: entrambi lo presentano a <c>0</c>, e senza questa riga il primo avvio dopo
+    /// l'aggiornamento azzererebbe la size di ogni piano già configurato senza dire niente a
+    /// nessuno. "Non valorizzato" comprende anche il negativo: è la stessa cosa detta peggio.</para>
+    ///
+    /// <para>Un valore <i>positivo</i> ma sotto il minimo non passa di qui: quello è voluto, e
+    /// <see cref="Save"/> lo rifiuta invece di correggerlo di nascosto.</para>
+    /// </summary>
+    public static decimal NormalizeSizeMultiplier(decimal value) => value <= 0m ? 1m : value;
 
     /// <summary>
     /// La prima riga del piano: alimenta i campi mirror legacy e i default di <c>OpenFromPlan</c>.

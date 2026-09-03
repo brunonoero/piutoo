@@ -90,6 +90,17 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
     private readonly List<string> _masterFilter = new();
 
     private readonly SortableBindingList<PlanHoldingConflictRow> _conflicts = new();
+
+    /// <summary>
+    /// Il <c>PositionSizing</c> del piano come letto dal server, riproposto tale e quale al
+    /// salvataggio.
+    ///
+    /// <para>Il tab che lo editava non c'è più, ma il salvataggio riscrive il piano <b>intero</b>:
+    /// senza questo campo la prima modifica fatta da questa schermata riporterebbe ai default un
+    /// blocco che nessuno ha toccato. Togliere una schermata non è una decisione su cosa il piano
+    /// contiene.</para>
+    /// </summary>
+    private PositionSizingConfig _loadedPositionSizing = new();
     private ShellContext? _context;
     private string _workspaceId = string.Empty;
     private string? _code;
@@ -401,19 +412,11 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
         _nameTextBox.Text = string.Empty;
         _commissionInput.Value = 2m;
         _enforceConcurrencyCombo.SelectedIndex = 0;
+        _sizeMultiplierInput.Value = 1m;
 
         FillHolding(AccountHoldingPolicy.Default);
 
-        _clampMultipliersCheckBox.Checked = true;
-        _volatilityEnabledCheckBox.Checked = false;
-        _atrPeriodsInput.Value = 14;
-        _targetRiskInput.Value = 1_000m;
-        _portfolioRiskEnabledCheckBox.Checked = false;
-        _maxDrawdownInput.Value = 0.20m;
-        _maxGrossExposureInput.Value = 1m;
-        _aggressiveModulesCheckBox.Checked = false;
-        _fractionalFactorInput.Value = 0.25m;
-        _maximumMultiplierInput.Value = 1m;
+        _loadedPositionSizing = new PositionSizingConfig();
 
         _groups.Clear();
         _accounts.Clear();
@@ -431,19 +434,17 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
             false => 2
         };
 
+        // Un piano scritto prima che il moltiplicatore esistesse lo presenta a 0: il minimo del
+        // controllo lo riporta a 0,1, che non e' quello che quel piano fa. Il server normalizza gia'
+        // a 1 in lettura (TradingPlanService.NormalizeSizeMultiplier); qui si ripete la stessa
+        // regola per non dipendere dall'ordine in cui server e console vengono aggiornati.
+        _sizeMultiplierInput.Value = plan.SizeMultiplier > 0m
+            ? Clamp(_sizeMultiplierInput, plan.SizeMultiplier)
+            : 1m;
+
         FillHolding(plan.Holding);
 
-        var sizing = plan.PositionSizing;
-        _clampMultipliersCheckBox.Checked = sizing.ClampMultipliersToUnitInterval;
-        _volatilityEnabledCheckBox.Checked = sizing.MarketVolatility.Enabled;
-        _atrPeriodsInput.Value = Math.Clamp(sizing.MarketVolatility.AtrPeriods, 1, 1000);
-        _targetRiskInput.Value = Clamp(_targetRiskInput, sizing.MarketVolatility.TargetRiskDollars);
-        _portfolioRiskEnabledCheckBox.Checked = sizing.PortfolioRisk.Enabled;
-        _maxDrawdownInput.Value = Clamp(_maxDrawdownInput, sizing.PortfolioRisk.MaximumDrawdown);
-        _maxGrossExposureInput.Value = Clamp(_maxGrossExposureInput, sizing.PortfolioRisk.MaximumGrossExposure);
-        _aggressiveModulesCheckBox.Checked = sizing.PortfolioRisk.EnableAggressiveModules;
-        _fractionalFactorInput.Value = Clamp(_fractionalFactorInput, sizing.PortfolioRisk.FractionalFactor);
-        _maximumMultiplierInput.Value = Clamp(_maximumMultiplierInput, sizing.PortfolioRisk.MaximumMultiplier);
+        _loadedPositionSizing = plan.PositionSizing;
 
         _groups.RaiseListChangedEvents = false;
         _groups.Clear();
@@ -499,20 +500,31 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
         }
     }
 
+    /// <summary>
+    /// Le due spunte sono in <b>positivo sul taglio</b> ("forza chiusura"), il contratto e' in
+    /// positivo sul permesso (<c>AllowOvernight</c>/<c>AllowOverweek</c>): qui e in
+    /// <see cref="ReadHolding"/> c'e' l'unica negazione, e non deve comparire altrove.
+    ///
+    /// <para>L'etichetta segue quello che il piano <i>fa</i>: spuntata, il segnale esce con una
+    /// deadline che il conto impone. Il campo del contratto resta in positivo perche' lo leggono i
+    /// <c>plans.json</c> gia' scritti e i cBot installati, e invertirlo li' ribalterebbe in silenzio
+    /// il significato di ogni file esistente.</para>
+    /// </summary>
     private void FillHolding(AccountHoldingPolicy holding)
     {
-        _allowOvernightCheckBox.Checked = holding.AllowOvernight;
-        _allowOverweekCheckBox.Checked = holding.AllowOverweek;
+        _forceNightCloseCheckBox.Checked = !holding.AllowOvernight;
+        _forceWeekCloseCheckBox.Checked = !holding.AllowOverweek;
         _sessionFlatInput.Value = Math.Clamp(holding.SessionFlatUtcHhmm, 0, 2359);
         _weekEndFromInput.Value = Math.Clamp(holding.WeekEnd.FromUtcHhmm, 0, 2359);
         _weekEndUntilInput.Value = Math.Clamp(holding.WeekEnd.UntilUtcHhmm, 0, 2359);
         ApplyHoldingEnablement();
     }
 
+    /// <inheritdoc cref="FillHolding"/>
     private AccountHoldingPolicy ReadHolding() => new()
     {
-        AllowOvernight = _allowOvernightCheckBox.Checked,
-        AllowOverweek = _allowOverweekCheckBox.Checked,
+        AllowOvernight = !_forceNightCloseCheckBox.Checked,
+        AllowOverweek = !_forceWeekCloseCheckBox.Checked,
         SessionFlatUtcHhmm = (int)_sessionFlatInput.Value,
         WeekEnd = new WeekEndFlatPolicy((int)_weekEndFromInput.Value, (int)_weekEndUntilInput.Value)
     };
@@ -521,25 +533,28 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
     /// Un orario di taglio ha senso solo se quel taglio esiste: mostrare un campo attivo che non
     /// governa nulla fa credere che il piano stia facendo qualcosa che non fa.
     ///
-    /// <para>Overweek segue overnight anche qui: tenere il fine settimana senza tenere la notte non
-    /// descrive alcun conto reale, e il server rifiuterebbe la combinazione al salvataggio.</para>
+    /// <para>Chi chiude ogni notte chiude per forza anche il fine settimana: la spunta week viene
+    /// forzata e bloccata, che e' la stessa regola che il server verifica al salvataggio
+    /// (<c>AccountHoldingPolicy.Validate</c>) espressa nel verso del taglio.</para>
     /// </summary>
     private void ApplyHoldingEnablement()
     {
-        _sessionFlatInput.Enabled = !_allowOvernightCheckBox.Checked;
-        _sessionFlatLabel.Enabled = !_allowOvernightCheckBox.Checked;
+        var cutsNight = _forceNightCloseCheckBox.Checked;
+        _sessionFlatInput.Enabled = cutsNight;
+        _sessionFlatLabel.Enabled = cutsNight;
 
-        _allowOverweekCheckBox.Enabled = _allowOvernightCheckBox.Checked;
-        if (!_allowOvernightCheckBox.Checked && _allowOverweekCheckBox.Checked)
+        if (cutsNight && !_forceWeekCloseCheckBox.Checked)
         {
-            _allowOverweekCheckBox.Checked = false;
+            _forceWeekCloseCheckBox.Checked = true;
         }
 
-        var weekEndCuts = !_allowOverweekCheckBox.Checked;
-        _weekEndFromInput.Enabled = weekEndCuts;
-        _weekEndFromLabel.Enabled = weekEndCuts;
-        _weekEndUntilInput.Enabled = weekEndCuts;
-        _weekEndUntilLabel.Enabled = weekEndCuts;
+        _forceWeekCloseCheckBox.Enabled = !cutsNight;
+
+        var cutsWeek = _forceWeekCloseCheckBox.Checked;
+        _weekEndFromInput.Enabled = cutsWeek;
+        _weekEndFromLabel.Enabled = cutsWeek;
+        _weekEndUntilInput.Enabled = cutsWeek;
+        _weekEndUntilLabel.Enabled = cutsWeek;
     }
 
     private void OnHoldingChanged(object? sender, EventArgs e)
@@ -873,26 +888,9 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
                 _ => null
             },
             CommissionPerContract = _commissionInput.Value,
+            SizeMultiplier = _sizeMultiplierInput.Value,
             Holding = ReadHolding(),
-            PositionSizing = new PositionSizingConfig
-            {
-                ClampMultipliersToUnitInterval = _clampMultipliersCheckBox.Checked,
-                MarketVolatility = new MarketVolatilitySizingConfig
-                {
-                    Enabled = _volatilityEnabledCheckBox.Checked,
-                    AtrPeriods = (int)_atrPeriodsInput.Value,
-                    TargetRiskDollars = _targetRiskInput.Value
-                },
-                PortfolioRisk = new PortfolioRiskSizingConfig
-                {
-                    Enabled = _portfolioRiskEnabledCheckBox.Checked,
-                    MaximumDrawdown = _maxDrawdownInput.Value,
-                    MaximumGrossExposure = _maxGrossExposureInput.Value,
-                    EnableAggressiveModules = _aggressiveModulesCheckBox.Checked,
-                    FractionalFactor = _fractionalFactorInput.Value,
-                    MaximumMultiplier = _maximumMultiplierInput.Value
-                }
-            }
+            PositionSizing = _loadedPositionSizing
         };
 
         _toolbar.SetBusy(true);

@@ -38,6 +38,28 @@ public sealed class TradingPlan
     /// </summary>
     public ConcurrencyCountMode ConcurrencyCountMode { get; init; }
 
+    /// <summary>
+    /// Moltiplicatore <c>k</c> applicato a <b>ogni</b> quantità che esce verso il client. La size
+    /// consegnata a un account è <c>k × dimensione del conto × conversione del simbolo</c>, cioè
+    /// <c>k</c> moltiplica il fattore che <c>AccountSymbolConversion.GetSizeFactor</c> già calcola
+    /// (<c>BalanceScale × ContractMultiplier</c>).
+    ///
+    /// <para>Sta sul piano e non sull'account perché è una scelta di <i>quanto</i> si vuole operare
+    /// con quella configurazione, non una proprietà del conto: due piani sullo stesso conto possono
+    /// legittimamente volere size diverse. Il conto porta già il proprio capitale, e quello scala da
+    /// sé.</para>
+    ///
+    /// <para><b>Minimo 0,1, nessun massimo.</b> Zero non è un moltiplicatore, è uno spegnimento
+    /// mascherato: un piano che azzera tutte le size è indistinguibile da un piano che non produce
+    /// segnali, ed è il tipo di silenzio che questo progetto non ammette. Per non operare si chiude
+    /// la sessione.</para>
+    ///
+    /// <para>Un <c>plans.json</c> scritto prima che questo campo esistesse lo rilegge a <c>0</c>:
+    /// <c>TradingPlanService.NormalizeLoadedPlan</c> lo riporta a 1, altrimenti l'aggiornamento del
+    /// server azzererebbe in silenzio la size di ogni piano esistente.</para>
+    /// </summary>
+    public decimal SizeMultiplier { get; init; } = 1m;
+
     // Nessun InitialCapital sul piano (docs/decisioni.md 2026-08-05): le sessioni aperte da un piano
     // sono sempre ExternalBroker, dove l'equity non è del server e ogni account porta il proprio
     // InitialBalance — che diventa BalanceScale ed è ciò che dimensiona davvero. Il capitale iniziale
@@ -100,6 +122,9 @@ public sealed class SaveTradingPlanRequest
     public ConcurrencyCountMode ConcurrencyCountMode { get; init; }
 
     public decimal CommissionPerContract { get; init; } = 2m;
+
+    /// <summary>Vedi <see cref="TradingPlan.SizeMultiplier"/>. Minimo 0,1.</summary>
+    public decimal SizeMultiplier { get; init; } = 1m;
 
     /// <summary>Vedi <see cref="TradingPlan.Holding"/>.</summary>
     public AccountHoldingPolicy Holding { get; init; } = AccountHoldingPolicy.Default;

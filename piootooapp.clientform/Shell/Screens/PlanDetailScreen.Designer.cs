@@ -35,6 +35,8 @@ partial class PlanDetailScreen
         this._commissionInput = new System.Windows.Forms.NumericUpDown();
         this._enforceConcurrencyLabel = new System.Windows.Forms.Label();
         this._enforceConcurrencyCombo = new System.Windows.Forms.ComboBox();
+        this._sizeMultiplierLabel = new System.Windows.Forms.Label();
+        this._sizeMultiplierInput = new System.Windows.Forms.NumericUpDown();
         this._groupsTab = new System.Windows.Forms.TabPage();
         this._groupsGrid = new System.Windows.Forms.DataGridView();
         this._colGroupId = new System.Windows.Forms.DataGridViewComboBoxColumn();
@@ -50,13 +52,12 @@ partial class PlanDetailScreen
         this._accountsButtons = new System.Windows.Forms.FlowLayoutPanel();
         this._addAccountButton = new System.Windows.Forms.Button();
         this._removeAccountButton = new System.Windows.Forms.Button();
-        this._sizingTab = new System.Windows.Forms.TabPage();
         this._holdingTab = new System.Windows.Forms.TabPage();
         this._holdingLayout = new System.Windows.Forms.TableLayoutPanel();
-        this._allowOvernightCheckBox = new System.Windows.Forms.CheckBox();
+        this._forceNightCloseCheckBox = new System.Windows.Forms.CheckBox();
         this._sessionFlatLabel = new System.Windows.Forms.Label();
         this._sessionFlatInput = new System.Windows.Forms.NumericUpDown();
-        this._allowOverweekCheckBox = new System.Windows.Forms.CheckBox();
+        this._forceWeekCloseCheckBox = new System.Windows.Forms.CheckBox();
         this._weekEndFromLabel = new System.Windows.Forms.Label();
         this._weekEndFromInput = new System.Windows.Forms.NumericUpDown();
         this._weekEndUntilLabel = new System.Windows.Forms.Label();
@@ -69,23 +70,6 @@ partial class PlanDetailScreen
         this._colConflictTimeframe = new System.Windows.Forms.DataGridViewTextBoxColumn();
         this._colConflictHolding = new System.Windows.Forms.DataGridViewTextBoxColumn();
         this._colConflictEffect = new System.Windows.Forms.DataGridViewTextBoxColumn();
-        this._sizingLayout = new System.Windows.Forms.TableLayoutPanel();
-        this._clampMultipliersCheckBox = new System.Windows.Forms.CheckBox();
-        this._volatilityEnabledCheckBox = new System.Windows.Forms.CheckBox();
-        this._atrPeriodsLabel = new System.Windows.Forms.Label();
-        this._atrPeriodsInput = new System.Windows.Forms.NumericUpDown();
-        this._targetRiskLabel = new System.Windows.Forms.Label();
-        this._targetRiskInput = new System.Windows.Forms.NumericUpDown();
-        this._portfolioRiskEnabledCheckBox = new System.Windows.Forms.CheckBox();
-        this._maxDrawdownLabel = new System.Windows.Forms.Label();
-        this._maxDrawdownInput = new System.Windows.Forms.NumericUpDown();
-        this._maxGrossExposureLabel = new System.Windows.Forms.Label();
-        this._maxGrossExposureInput = new System.Windows.Forms.NumericUpDown();
-        this._aggressiveModulesCheckBox = new System.Windows.Forms.CheckBox();
-        this._fractionalFactorLabel = new System.Windows.Forms.Label();
-        this._fractionalFactorInput = new System.Windows.Forms.NumericUpDown();
-        this._maximumMultiplierLabel = new System.Windows.Forms.Label();
-        this._maximumMultiplierInput = new System.Windows.Forms.NumericUpDown();
         ((System.ComponentModel.ISupportInitialize)(this._conflictsBindingSource)).BeginInit();
         ((System.ComponentModel.ISupportInitialize)(this._conflictsGrid)).BeginInit();
         this._sessionFlatInput.BeginInit();
@@ -97,20 +81,13 @@ partial class PlanDetailScreen
         this._generalTab.SuspendLayout();
         this._generalLayout.SuspendLayout();
         ((System.ComponentModel.ISupportInitialize)(this._commissionInput)).BeginInit();
+        ((System.ComponentModel.ISupportInitialize)(this._sizeMultiplierInput)).BeginInit();
         this._groupsTab.SuspendLayout();
         ((System.ComponentModel.ISupportInitialize)(this._groupsGrid)).BeginInit();
         this._groupsButtons.SuspendLayout();
         this._accountsTab.SuspendLayout();
         ((System.ComponentModel.ISupportInitialize)(this._accountsGrid)).BeginInit();
         this._accountsButtons.SuspendLayout();
-        this._sizingTab.SuspendLayout();
-        this._sizingLayout.SuspendLayout();
-        ((System.ComponentModel.ISupportInitialize)(this._atrPeriodsInput)).BeginInit();
-        ((System.ComponentModel.ISupportInitialize)(this._targetRiskInput)).BeginInit();
-        ((System.ComponentModel.ISupportInitialize)(this._maxDrawdownInput)).BeginInit();
-        ((System.ComponentModel.ISupportInitialize)(this._maxGrossExposureInput)).BeginInit();
-        ((System.ComponentModel.ISupportInitialize)(this._fractionalFactorInput)).BeginInit();
-        ((System.ComponentModel.ISupportInitialize)(this._maximumMultiplierInput)).BeginInit();
         this.SuspendLayout();
         //
         // _toolbar
@@ -131,7 +108,6 @@ partial class PlanDetailScreen
         this._tabs.Controls.Add(this._holdingTab);
         this._tabs.Controls.Add(this._groupsTab);
         this._tabs.Controls.Add(this._accountsTab);
-        this._tabs.Controls.Add(this._sizingTab);
         this._tabs.Dock = System.Windows.Forms.DockStyle.Fill;
         this._tabs.Location = new System.Drawing.Point(0, 44);
         this._tabs.Name = "_tabs";
@@ -169,6 +145,8 @@ partial class PlanDetailScreen
         this._generalLayout.Controls.Add(this._commissionInput, 3, 1);
         this._generalLayout.Controls.Add(this._enforceConcurrencyLabel, 0, 2);
         this._generalLayout.Controls.Add(this._enforceConcurrencyCombo, 1, 2);
+        this._generalLayout.Controls.Add(this._sizeMultiplierLabel, 2, 2);
+        this._generalLayout.Controls.Add(this._sizeMultiplierInput, 3, 2);
         this._generalLayout.Dock = System.Windows.Forms.DockStyle.Top;
         this._generalLayout.Location = new System.Drawing.Point(12, 12);
         this._generalLayout.Name = "_generalLayout";
@@ -277,6 +255,30 @@ partial class PlanDetailScreen
         this._enforceConcurrencyCombo.Size = new System.Drawing.Size(280, 23);
         this._enforceConcurrencyCombo.TabIndex = 9;
         this._enforceConcurrencyCombo.SelectedIndexChanged += new System.EventHandler(this.OnFieldChanged);
+        //
+        // _sizeMultiplierLabel
+        //
+        this._sizeMultiplierLabel.Anchor = System.Windows.Forms.AnchorStyles.Left;
+        this._sizeMultiplierLabel.AutoSize = true;
+        this._sizeMultiplierLabel.Margin = new System.Windows.Forms.Padding(3, 0, 8, 0);
+        this._sizeMultiplierLabel.Name = "_sizeMultiplierLabel";
+        this._sizeMultiplierLabel.Size = new System.Drawing.Size(140, 15);
+        this._sizeMultiplierLabel.TabIndex = 10;
+        this._sizeMultiplierLabel.Text = "Moltiplicatore size";
+        //
+        // _sizeMultiplierInput
+        //
+        this._sizeMultiplierInput.Anchor = System.Windows.Forms.AnchorStyles.Left;
+        this._sizeMultiplierInput.DecimalPlaces = 2;
+        this._sizeMultiplierInput.Increment = new decimal(new int[] { 1, 0, 0, 65536 });
+        this._sizeMultiplierInput.Margin = new System.Windows.Forms.Padding(3, 4, 3, 4);
+        this._sizeMultiplierInput.Maximum = new decimal(new int[] { 1000, 0, 0, 0 });
+        this._sizeMultiplierInput.Minimum = new decimal(new int[] { 1, 0, 0, 65536 });
+        this._sizeMultiplierInput.Name = "_sizeMultiplierInput";
+        this._sizeMultiplierInput.Size = new System.Drawing.Size(160, 23);
+        this._sizeMultiplierInput.TabIndex = 11;
+        this._sizeMultiplierInput.Value = new decimal(new int[] { 1, 0, 0, 0 });
+        this._sizeMultiplierInput.ValueChanged += new System.EventHandler(this.OnFieldChanged);
         //
         // _groupsTab
         //
@@ -462,7 +464,7 @@ partial class PlanDetailScreen
         this._holdingTab.Padding = new System.Windows.Forms.Padding(12);
         this._holdingTab.Size = new System.Drawing.Size(892, 525);
         this._holdingTab.TabIndex = 4;
-        this._holdingTab.Text = "Overnight / Overweek";
+        this._holdingTab.Text = "Chiusure forzate";
         this._holdingTab.UseVisualStyleBackColor = true;
         //
         // _holdingLayout
@@ -473,10 +475,10 @@ partial class PlanDetailScreen
         this._holdingLayout.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 50F));
         this._holdingLayout.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle());
         this._holdingLayout.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 50F));
-        this._holdingLayout.Controls.Add(this._allowOvernightCheckBox, 0, 0);
+        this._holdingLayout.Controls.Add(this._forceNightCloseCheckBox, 0, 0);
         this._holdingLayout.Controls.Add(this._sessionFlatLabel, 2, 0);
         this._holdingLayout.Controls.Add(this._sessionFlatInput, 3, 0);
-        this._holdingLayout.Controls.Add(this._allowOverweekCheckBox, 0, 1);
+        this._holdingLayout.Controls.Add(this._forceWeekCloseCheckBox, 0, 1);
         this._holdingLayout.Controls.Add(this._weekEndFromLabel, 2, 1);
         this._holdingLayout.Controls.Add(this._weekEndFromInput, 3, 1);
         this._holdingLayout.Controls.Add(this._weekEndUntilLabel, 2, 2);
@@ -491,16 +493,16 @@ partial class PlanDetailScreen
         this._holdingLayout.Size = new System.Drawing.Size(868, 96);
         this._holdingLayout.TabIndex = 0;
         //
-        // _allowOvernightCheckBox
+        // _forceNightCloseCheckBox
         //
-        this._allowOvernightCheckBox.Anchor = System.Windows.Forms.AnchorStyles.Left;
-        this._allowOvernightCheckBox.AutoSize = true;
-        this._holdingLayout.SetColumnSpan(this._allowOvernightCheckBox, 2);
-        this._allowOvernightCheckBox.Name = "_allowOvernightCheckBox";
-        this._allowOvernightCheckBox.TabIndex = 0;
-        this._allowOvernightCheckBox.Text = "Consenti overnight (posizioni oltre la fine sessione)";
-        this._allowOvernightCheckBox.UseVisualStyleBackColor = true;
-        this._allowOvernightCheckBox.CheckedChanged += new System.EventHandler(this.OnHoldingChanged);
+        this._forceNightCloseCheckBox.Anchor = System.Windows.Forms.AnchorStyles.Left;
+        this._forceNightCloseCheckBox.AutoSize = true;
+        this._holdingLayout.SetColumnSpan(this._forceNightCloseCheckBox, 2);
+        this._forceNightCloseCheckBox.Name = "_forceNightCloseCheckBox";
+        this._forceNightCloseCheckBox.TabIndex = 0;
+        this._forceNightCloseCheckBox.Text = "Forza chiusura night (nessuna posizione oltre la fine sessione)";
+        this._forceNightCloseCheckBox.UseVisualStyleBackColor = true;
+        this._forceNightCloseCheckBox.CheckedChanged += new System.EventHandler(this.OnHoldingChanged);
         //
         // _sessionFlatLabel
         //
@@ -520,16 +522,16 @@ partial class PlanDetailScreen
         this._sessionFlatInput.TabIndex = 2;
         this._sessionFlatInput.ValueChanged += new System.EventHandler(this.OnHoldingChanged);
         //
-        // _allowOverweekCheckBox
+        // _forceWeekCloseCheckBox
         //
-        this._allowOverweekCheckBox.Anchor = System.Windows.Forms.AnchorStyles.Left;
-        this._allowOverweekCheckBox.AutoSize = true;
-        this._holdingLayout.SetColumnSpan(this._allowOverweekCheckBox, 2);
-        this._allowOverweekCheckBox.Name = "_allowOverweekCheckBox";
-        this._allowOverweekCheckBox.TabIndex = 3;
-        this._allowOverweekCheckBox.Text = "Consenti overweek (posizioni oltre il fine settimana)";
-        this._allowOverweekCheckBox.UseVisualStyleBackColor = true;
-        this._allowOverweekCheckBox.CheckedChanged += new System.EventHandler(this.OnHoldingChanged);
+        this._forceWeekCloseCheckBox.Anchor = System.Windows.Forms.AnchorStyles.Left;
+        this._forceWeekCloseCheckBox.AutoSize = true;
+        this._holdingLayout.SetColumnSpan(this._forceWeekCloseCheckBox, 2);
+        this._forceWeekCloseCheckBox.Name = "_forceWeekCloseCheckBox";
+        this._forceWeekCloseCheckBox.TabIndex = 3;
+        this._forceWeekCloseCheckBox.Text = "Forza chiusura week (nessuna posizione oltre il fine settimana)";
+        this._forceWeekCloseCheckBox.UseVisualStyleBackColor = true;
+        this._forceWeekCloseCheckBox.CheckedChanged += new System.EventHandler(this.OnHoldingChanged);
         //
         // _weekEndFromLabel
         //
@@ -642,244 +644,6 @@ partial class PlanDetailScreen
         this._colConflictEffect.Name = "_colConflictEffect";
         this._colConflictEffect.ReadOnly = true;
         //
-        // _sizingTab
-        //
-        this._sizingTab.AutoScroll = true;
-        this._sizingTab.Controls.Add(this._sizingLayout);
-        this._sizingTab.Location = new System.Drawing.Point(4, 27);
-        this._sizingTab.Name = "_sizingTab";
-        this._sizingTab.Padding = new System.Windows.Forms.Padding(12);
-        this._sizingTab.Size = new System.Drawing.Size(892, 525);
-        this._sizingTab.TabIndex = 3;
-        this._sizingTab.Text = "Sizing";
-        this._sizingTab.UseVisualStyleBackColor = true;
-        //
-        // _sizingLayout
-        //
-        this._sizingLayout.AutoSize = true;
-        this._sizingLayout.ColumnCount = 4;
-        this._sizingLayout.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle());
-        this._sizingLayout.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 50F));
-        this._sizingLayout.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle());
-        this._sizingLayout.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 50F));
-        this._sizingLayout.Controls.Add(this._clampMultipliersCheckBox, 0, 0);
-        this._sizingLayout.Controls.Add(this._volatilityEnabledCheckBox, 0, 1);
-        this._sizingLayout.Controls.Add(this._atrPeriodsLabel, 0, 2);
-        this._sizingLayout.Controls.Add(this._atrPeriodsInput, 1, 2);
-        this._sizingLayout.Controls.Add(this._targetRiskLabel, 2, 2);
-        this._sizingLayout.Controls.Add(this._targetRiskInput, 3, 2);
-        this._sizingLayout.Controls.Add(this._portfolioRiskEnabledCheckBox, 0, 3);
-        this._sizingLayout.Controls.Add(this._maxDrawdownLabel, 0, 4);
-        this._sizingLayout.Controls.Add(this._maxDrawdownInput, 1, 4);
-        this._sizingLayout.Controls.Add(this._maxGrossExposureLabel, 2, 4);
-        this._sizingLayout.Controls.Add(this._maxGrossExposureInput, 3, 4);
-        this._sizingLayout.Controls.Add(this._aggressiveModulesCheckBox, 0, 5);
-        this._sizingLayout.Controls.Add(this._fractionalFactorLabel, 0, 6);
-        this._sizingLayout.Controls.Add(this._fractionalFactorInput, 1, 6);
-        this._sizingLayout.Controls.Add(this._maximumMultiplierLabel, 2, 6);
-        this._sizingLayout.Controls.Add(this._maximumMultiplierInput, 3, 6);
-        this._sizingLayout.Dock = System.Windows.Forms.DockStyle.Top;
-        this._sizingLayout.Location = new System.Drawing.Point(12, 12);
-        this._sizingLayout.Name = "_sizingLayout";
-        this._sizingLayout.RowCount = 7;
-        this._sizingLayout.RowStyles.Add(new System.Windows.Forms.RowStyle());
-        this._sizingLayout.RowStyles.Add(new System.Windows.Forms.RowStyle());
-        this._sizingLayout.RowStyles.Add(new System.Windows.Forms.RowStyle());
-        this._sizingLayout.RowStyles.Add(new System.Windows.Forms.RowStyle());
-        this._sizingLayout.RowStyles.Add(new System.Windows.Forms.RowStyle());
-        this._sizingLayout.RowStyles.Add(new System.Windows.Forms.RowStyle());
-        this._sizingLayout.RowStyles.Add(new System.Windows.Forms.RowStyle());
-        this._sizingLayout.SetColumnSpan(this._clampMultipliersCheckBox, 4);
-        this._sizingLayout.SetColumnSpan(this._volatilityEnabledCheckBox, 4);
-        this._sizingLayout.SetColumnSpan(this._portfolioRiskEnabledCheckBox, 4);
-        this._sizingLayout.SetColumnSpan(this._aggressiveModulesCheckBox, 4);
-        this._sizingLayout.Size = new System.Drawing.Size(868, 300);
-        this._sizingLayout.TabIndex = 0;
-        //
-        // _clampMultipliersCheckBox
-        //
-        this._clampMultipliersCheckBox.AutoSize = true;
-        this._clampMultipliersCheckBox.Checked = true;
-        this._clampMultipliersCheckBox.CheckState = System.Windows.Forms.CheckState.Checked;
-        this._clampMultipliersCheckBox.Margin = new System.Windows.Forms.Padding(3, 8, 3, 8);
-        this._clampMultipliersCheckBox.Name = "_clampMultipliersCheckBox";
-        this._clampMultipliersCheckBox.Size = new System.Drawing.Size(400, 19);
-        this._clampMultipliersCheckBox.TabIndex = 0;
-        this._clampMultipliersCheckBox.Text = "Limita i moltiplicatori all'intervallo [0, 1]";
-        this._clampMultipliersCheckBox.UseVisualStyleBackColor = true;
-        this._clampMultipliersCheckBox.CheckedChanged += new System.EventHandler(this.OnFieldChanged);
-        //
-        // _volatilityEnabledCheckBox
-        //
-        this._volatilityEnabledCheckBox.AutoSize = true;
-        this._volatilityEnabledCheckBox.Margin = new System.Windows.Forms.Padding(3, 8, 3, 4);
-        this._volatilityEnabledCheckBox.Name = "_volatilityEnabledCheckBox";
-        this._volatilityEnabledCheckBox.Size = new System.Drawing.Size(400, 19);
-        this._volatilityEnabledCheckBox.TabIndex = 1;
-        this._volatilityEnabledCheckBox.Text = "Sizing su volatilità di mercato (ATR)";
-        this._volatilityEnabledCheckBox.UseVisualStyleBackColor = true;
-        this._volatilityEnabledCheckBox.CheckedChanged += new System.EventHandler(this.OnFieldChanged);
-        //
-        // _atrPeriodsLabel
-        //
-        this._atrPeriodsLabel.Anchor = System.Windows.Forms.AnchorStyles.Left;
-        this._atrPeriodsLabel.AutoSize = true;
-        this._atrPeriodsLabel.Margin = new System.Windows.Forms.Padding(22, 0, 8, 0);
-        this._atrPeriodsLabel.Name = "_atrPeriodsLabel";
-        this._atrPeriodsLabel.Size = new System.Drawing.Size(90, 15);
-        this._atrPeriodsLabel.TabIndex = 2;
-        this._atrPeriodsLabel.Text = "Periodi ATR";
-        //
-        // _atrPeriodsInput
-        //
-        this._atrPeriodsInput.Anchor = System.Windows.Forms.AnchorStyles.Left;
-        this._atrPeriodsInput.Margin = new System.Windows.Forms.Padding(3, 4, 24, 4);
-        this._atrPeriodsInput.Maximum = new decimal(new int[] { 1000, 0, 0, 0 });
-        this._atrPeriodsInput.Minimum = new decimal(new int[] { 1, 0, 0, 0 });
-        this._atrPeriodsInput.Name = "_atrPeriodsInput";
-        this._atrPeriodsInput.Size = new System.Drawing.Size(120, 23);
-        this._atrPeriodsInput.TabIndex = 3;
-        this._atrPeriodsInput.Value = new decimal(new int[] { 14, 0, 0, 0 });
-        this._atrPeriodsInput.ValueChanged += new System.EventHandler(this.OnFieldChanged);
-        //
-        // _targetRiskLabel
-        //
-        this._targetRiskLabel.Anchor = System.Windows.Forms.AnchorStyles.Left;
-        this._targetRiskLabel.AutoSize = true;
-        this._targetRiskLabel.Margin = new System.Windows.Forms.Padding(3, 0, 8, 0);
-        this._targetRiskLabel.Name = "_targetRiskLabel";
-        this._targetRiskLabel.Size = new System.Drawing.Size(150, 15);
-        this._targetRiskLabel.TabIndex = 4;
-        this._targetRiskLabel.Text = "Rischio obiettivo (dollari)";
-        //
-        // _targetRiskInput
-        //
-        this._targetRiskInput.Anchor = System.Windows.Forms.AnchorStyles.Left;
-        this._targetRiskInput.DecimalPlaces = 2;
-        this._targetRiskInput.Increment = new decimal(new int[] { 100, 0, 0, 0 });
-        this._targetRiskInput.Margin = new System.Windows.Forms.Padding(3, 4, 3, 4);
-        this._targetRiskInput.Maximum = new decimal(new int[] { 100000000, 0, 0, 0 });
-        this._targetRiskInput.Name = "_targetRiskInput";
-        this._targetRiskInput.Size = new System.Drawing.Size(140, 23);
-        this._targetRiskInput.TabIndex = 5;
-        this._targetRiskInput.ThousandsSeparator = true;
-        this._targetRiskInput.Value = new decimal(new int[] { 1000, 0, 0, 0 });
-        this._targetRiskInput.ValueChanged += new System.EventHandler(this.OnFieldChanged);
-        //
-        // _portfolioRiskEnabledCheckBox
-        //
-        this._portfolioRiskEnabledCheckBox.AutoSize = true;
-        this._portfolioRiskEnabledCheckBox.Margin = new System.Windows.Forms.Padding(3, 12, 3, 4);
-        this._portfolioRiskEnabledCheckBox.Name = "_portfolioRiskEnabledCheckBox";
-        this._portfolioRiskEnabledCheckBox.Size = new System.Drawing.Size(400, 19);
-        this._portfolioRiskEnabledCheckBox.TabIndex = 6;
-        this._portfolioRiskEnabledCheckBox.Text = "Controllo del rischio di portafoglio";
-        this._portfolioRiskEnabledCheckBox.UseVisualStyleBackColor = true;
-        this._portfolioRiskEnabledCheckBox.CheckedChanged += new System.EventHandler(this.OnFieldChanged);
-        //
-        // _maxDrawdownLabel
-        //
-        this._maxDrawdownLabel.Anchor = System.Windows.Forms.AnchorStyles.Left;
-        this._maxDrawdownLabel.AutoSize = true;
-        this._maxDrawdownLabel.Margin = new System.Windows.Forms.Padding(22, 0, 8, 0);
-        this._maxDrawdownLabel.Name = "_maxDrawdownLabel";
-        this._maxDrawdownLabel.Size = new System.Drawing.Size(130, 15);
-        this._maxDrawdownLabel.TabIndex = 7;
-        this._maxDrawdownLabel.Text = "Drawdown massimo";
-        //
-        // _maxDrawdownInput
-        //
-        this._maxDrawdownInput.Anchor = System.Windows.Forms.AnchorStyles.Left;
-        this._maxDrawdownInput.DecimalPlaces = 4;
-        this._maxDrawdownInput.Increment = new decimal(new int[] { 5, 0, 0, 131072 });
-        this._maxDrawdownInput.Margin = new System.Windows.Forms.Padding(3, 4, 24, 4);
-        this._maxDrawdownInput.Maximum = new decimal(new int[] { 1, 0, 0, 0 });
-        this._maxDrawdownInput.Name = "_maxDrawdownInput";
-        this._maxDrawdownInput.Size = new System.Drawing.Size(120, 23);
-        this._maxDrawdownInput.TabIndex = 8;
-        this._maxDrawdownInput.Value = new decimal(new int[] { 20, 0, 0, 131072 });
-        this._maxDrawdownInput.ValueChanged += new System.EventHandler(this.OnFieldChanged);
-        //
-        // _maxGrossExposureLabel
-        //
-        this._maxGrossExposureLabel.Anchor = System.Windows.Forms.AnchorStyles.Left;
-        this._maxGrossExposureLabel.AutoSize = true;
-        this._maxGrossExposureLabel.Margin = new System.Windows.Forms.Padding(3, 0, 8, 0);
-        this._maxGrossExposureLabel.Name = "_maxGrossExposureLabel";
-        this._maxGrossExposureLabel.Size = new System.Drawing.Size(150, 15);
-        this._maxGrossExposureLabel.TabIndex = 9;
-        this._maxGrossExposureLabel.Text = "Esposizione lorda massima";
-        //
-        // _maxGrossExposureInput
-        //
-        this._maxGrossExposureInput.Anchor = System.Windows.Forms.AnchorStyles.Left;
-        this._maxGrossExposureInput.DecimalPlaces = 4;
-        this._maxGrossExposureInput.Increment = new decimal(new int[] { 5, 0, 0, 131072 });
-        this._maxGrossExposureInput.Margin = new System.Windows.Forms.Padding(3, 4, 3, 4);
-        this._maxGrossExposureInput.Maximum = new decimal(new int[] { 100, 0, 0, 0 });
-        this._maxGrossExposureInput.Name = "_maxGrossExposureInput";
-        this._maxGrossExposureInput.Size = new System.Drawing.Size(140, 23);
-        this._maxGrossExposureInput.TabIndex = 10;
-        this._maxGrossExposureInput.Value = new decimal(new int[] { 1, 0, 0, 0 });
-        this._maxGrossExposureInput.ValueChanged += new System.EventHandler(this.OnFieldChanged);
-        //
-        // _aggressiveModulesCheckBox
-        //
-        this._aggressiveModulesCheckBox.AutoSize = true;
-        this._aggressiveModulesCheckBox.Margin = new System.Windows.Forms.Padding(22, 8, 3, 4);
-        this._aggressiveModulesCheckBox.Name = "_aggressiveModulesCheckBox";
-        this._aggressiveModulesCheckBox.Size = new System.Drawing.Size(400, 19);
-        this._aggressiveModulesCheckBox.TabIndex = 16;
-        this._aggressiveModulesCheckBox.Text = "Abilita i moduli aggressivi";
-        this._aggressiveModulesCheckBox.UseVisualStyleBackColor = true;
-        this._aggressiveModulesCheckBox.CheckedChanged += new System.EventHandler(this.OnFieldChanged);
-        //
-        // _fractionalFactorLabel
-        //
-        this._fractionalFactorLabel.Anchor = System.Windows.Forms.AnchorStyles.Left;
-        this._fractionalFactorLabel.AutoSize = true;
-        this._fractionalFactorLabel.Margin = new System.Windows.Forms.Padding(40, 0, 8, 0);
-        this._fractionalFactorLabel.Name = "_fractionalFactorLabel";
-        this._fractionalFactorLabel.Size = new System.Drawing.Size(110, 15);
-        this._fractionalFactorLabel.TabIndex = 17;
-        this._fractionalFactorLabel.Text = "Fattore frazionale";
-        //
-        // _fractionalFactorInput
-        //
-        this._fractionalFactorInput.Anchor = System.Windows.Forms.AnchorStyles.Left;
-        this._fractionalFactorInput.DecimalPlaces = 4;
-        this._fractionalFactorInput.Increment = new decimal(new int[] { 5, 0, 0, 131072 });
-        this._fractionalFactorInput.Margin = new System.Windows.Forms.Padding(3, 4, 24, 4);
-        this._fractionalFactorInput.Maximum = new decimal(new int[] { 100, 0, 0, 0 });
-        this._fractionalFactorInput.Name = "_fractionalFactorInput";
-        this._fractionalFactorInput.Size = new System.Drawing.Size(120, 23);
-        this._fractionalFactorInput.TabIndex = 18;
-        this._fractionalFactorInput.Value = new decimal(new int[] { 25, 0, 0, 131072 });
-        this._fractionalFactorInput.ValueChanged += new System.EventHandler(this.OnFieldChanged);
-        //
-        // _maximumMultiplierLabel
-        //
-        this._maximumMultiplierLabel.Anchor = System.Windows.Forms.AnchorStyles.Left;
-        this._maximumMultiplierLabel.AutoSize = true;
-        this._maximumMultiplierLabel.Margin = new System.Windows.Forms.Padding(3, 0, 8, 0);
-        this._maximumMultiplierLabel.Name = "_maximumMultiplierLabel";
-        this._maximumMultiplierLabel.Size = new System.Drawing.Size(150, 15);
-        this._maximumMultiplierLabel.TabIndex = 19;
-        this._maximumMultiplierLabel.Text = "Moltiplicatore massimo";
-        //
-        // _maximumMultiplierInput
-        //
-        this._maximumMultiplierInput.Anchor = System.Windows.Forms.AnchorStyles.Left;
-        this._maximumMultiplierInput.DecimalPlaces = 4;
-        this._maximumMultiplierInput.Increment = new decimal(new int[] { 5, 0, 0, 131072 });
-        this._maximumMultiplierInput.Margin = new System.Windows.Forms.Padding(3, 4, 3, 4);
-        this._maximumMultiplierInput.Maximum = new decimal(new int[] { 100, 0, 0, 0 });
-        this._maximumMultiplierInput.Name = "_maximumMultiplierInput";
-        this._maximumMultiplierInput.Size = new System.Drawing.Size(140, 23);
-        this._maximumMultiplierInput.TabIndex = 20;
-        this._maximumMultiplierInput.Value = new decimal(new int[] { 1, 0, 0, 0 });
-        this._maximumMultiplierInput.ValueChanged += new System.EventHandler(this.OnFieldChanged);
-        //
         // PlanDetailScreen
         //
         this.AutoScaleDimensions = new System.Drawing.SizeF(7F, 15F);
@@ -901,6 +665,7 @@ partial class PlanDetailScreen
         this._generalLayout.ResumeLayout(false);
         this._generalLayout.PerformLayout();
         ((System.ComponentModel.ISupportInitialize)(this._commissionInput)).EndInit();
+        ((System.ComponentModel.ISupportInitialize)(this._sizeMultiplierInput)).EndInit();
         this._groupsTab.ResumeLayout(false);
         this._groupsTab.PerformLayout();
         ((System.ComponentModel.ISupportInitialize)(this._groupsGrid)).EndInit();
@@ -911,16 +676,6 @@ partial class PlanDetailScreen
         ((System.ComponentModel.ISupportInitialize)(this._accountsGrid)).EndInit();
         this._accountsButtons.ResumeLayout(false);
         this._accountsButtons.PerformLayout();
-        this._sizingTab.ResumeLayout(false);
-        this._sizingTab.PerformLayout();
-        this._sizingLayout.ResumeLayout(false);
-        this._sizingLayout.PerformLayout();
-        ((System.ComponentModel.ISupportInitialize)(this._atrPeriodsInput)).EndInit();
-        ((System.ComponentModel.ISupportInitialize)(this._targetRiskInput)).EndInit();
-        ((System.ComponentModel.ISupportInitialize)(this._maxDrawdownInput)).EndInit();
-        ((System.ComponentModel.ISupportInitialize)(this._maxGrossExposureInput)).EndInit();
-        ((System.ComponentModel.ISupportInitialize)(this._fractionalFactorInput)).EndInit();
-        ((System.ComponentModel.ISupportInitialize)(this._maximumMultiplierInput)).EndInit();
         this.ResumeLayout(false);
     }
 
@@ -942,6 +697,8 @@ partial class PlanDetailScreen
     private System.Windows.Forms.NumericUpDown _commissionInput;
     private System.Windows.Forms.Label _enforceConcurrencyLabel;
     private System.Windows.Forms.ComboBox _enforceConcurrencyCombo;
+    private System.Windows.Forms.Label _sizeMultiplierLabel;
+    private System.Windows.Forms.NumericUpDown _sizeMultiplierInput;
     private System.Windows.Forms.TabPage _groupsTab;
     private System.Windows.Forms.DataGridView _groupsGrid;
     private System.Windows.Forms.DataGridViewComboBoxColumn _colGroupId;
@@ -957,13 +714,12 @@ partial class PlanDetailScreen
     private System.Windows.Forms.FlowLayoutPanel _accountsButtons;
     private System.Windows.Forms.Button _addAccountButton;
     private System.Windows.Forms.Button _removeAccountButton;
-    private System.Windows.Forms.TabPage _sizingTab;
     private System.Windows.Forms.TabPage _holdingTab;
     private System.Windows.Forms.TableLayoutPanel _holdingLayout;
-    private System.Windows.Forms.CheckBox _allowOvernightCheckBox;
+    private System.Windows.Forms.CheckBox _forceNightCloseCheckBox;
     private System.Windows.Forms.Label _sessionFlatLabel;
     private System.Windows.Forms.NumericUpDown _sessionFlatInput;
-    private System.Windows.Forms.CheckBox _allowOverweekCheckBox;
+    private System.Windows.Forms.CheckBox _forceWeekCloseCheckBox;
     private System.Windows.Forms.Label _weekEndFromLabel;
     private System.Windows.Forms.NumericUpDown _weekEndFromInput;
     private System.Windows.Forms.Label _weekEndUntilLabel;
@@ -976,21 +732,4 @@ partial class PlanDetailScreen
     private System.Windows.Forms.DataGridViewTextBoxColumn _colConflictTimeframe;
     private System.Windows.Forms.DataGridViewTextBoxColumn _colConflictHolding;
     private System.Windows.Forms.DataGridViewTextBoxColumn _colConflictEffect;
-    private System.Windows.Forms.TableLayoutPanel _sizingLayout;
-    private System.Windows.Forms.CheckBox _clampMultipliersCheckBox;
-    private System.Windows.Forms.CheckBox _volatilityEnabledCheckBox;
-    private System.Windows.Forms.Label _atrPeriodsLabel;
-    private System.Windows.Forms.NumericUpDown _atrPeriodsInput;
-    private System.Windows.Forms.Label _targetRiskLabel;
-    private System.Windows.Forms.NumericUpDown _targetRiskInput;
-    private System.Windows.Forms.CheckBox _portfolioRiskEnabledCheckBox;
-    private System.Windows.Forms.Label _maxDrawdownLabel;
-    private System.Windows.Forms.NumericUpDown _maxDrawdownInput;
-    private System.Windows.Forms.Label _maxGrossExposureLabel;
-    private System.Windows.Forms.NumericUpDown _maxGrossExposureInput;
-    private System.Windows.Forms.CheckBox _aggressiveModulesCheckBox;
-    private System.Windows.Forms.Label _fractionalFactorLabel;
-    private System.Windows.Forms.NumericUpDown _fractionalFactorInput;
-    private System.Windows.Forms.Label _maximumMultiplierLabel;
-    private System.Windows.Forms.NumericUpDown _maximumMultiplierInput;
 }

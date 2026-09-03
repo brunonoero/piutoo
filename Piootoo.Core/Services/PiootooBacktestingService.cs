@@ -43,6 +43,12 @@ public class PiootooBacktestingService : IPiootooBacktestingService
     private readonly IDatafeedCatalog _datafeedCatalog;
     private readonly IBacktestingExecutionHook _executionHook;
 
+    /// <summary>
+    /// Serve solo a risolvere l'universo operativo di <see cref="BacktestingRequest.AccountNumber"/>.
+    /// Opzionale: un run senza conto non deve dipendere dal registro account.
+    /// </summary>
+    private readonly WorkspaceService? _workspaces;
+
     private readonly PiootooSettings _settings;
     private readonly string _resultsPath;
     private readonly JsonSerializerOptions _jsonOptions;
@@ -52,12 +58,14 @@ public class PiootooBacktestingService : IPiootooBacktestingService
         IPiootooDataFeedService dataFeedService,
         IDatafeedCatalog datafeedCatalog,
         PiootooSettings settings,
-        IBacktestingExecutionHook executionHook)
+        IBacktestingExecutionHook executionHook,
+        WorkspaceService? workspaces = null)
     {
         _settingsService = settingsService;
         _dataFeedService = dataFeedService;
         _datafeedCatalog = datafeedCatalog;
         _executionHook = executionHook;
+        _workspaces = workspaces;
         _settings = settings;
 
         _resultsPath = Path.Combine(settings.GetSettingsPath(), "results");
@@ -490,6 +498,30 @@ public class PiootooBacktestingService : IPiootooBacktestingService
             {
                 throw new InvalidOperationException(
                     $"Strategie del masterfilter non presenti nel catalogo: {string.Join(", ", missingStrategyIds)}");
+            }
+
+            // L'universo operativo del conto, quando il run ne dichiara uno: le strategie su simboli
+            // che la sua tabella di conversione non prevede non girano affatto. Va applicato QUI,
+            // prima che le istanze vengano create e prima che i simboli finiscano in
+            // SelectedSymbols: cosi' il run non pretende nemmeno il datafeed di uno strumento che
+            // non opererebbe.
+            var (strategiesForAccount, excludedByAccount) = ApplyAccountUniverse(strategies, request);
+            strategies = strategiesForAccount;
+
+            if (excludedByAccount.Count > 0)
+            {
+                Console.WriteLine(
+                    $"[Backtesting] Conto '{request.AccountNumber}': {excludedByAccount.Count} strategie " +
+                    $"escluse perche' il simbolo non e' nella sua tabella di conversione — " +
+                    string.Join(", ", excludedByAccount));
+            }
+
+            if (strategies.Count == 0)
+            {
+                throw new InvalidOperationException(
+                    $"Il conto '{request.AccountNumber}' non supporta nessuna strategia del " +
+                    "masterfilter: la sua tabella di conversione non prevede alcuno dei simboli " +
+                    "richiesti. Il run non produrrebbe un solo segnale.");
             }
 
             request.SelectedSymbols = strategies
@@ -1163,6 +1195,8 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                 WrongSideLevelsRejected = tradingService.WrongSideLevelsRejected,
                 Holding = holding,
                 DatafeedBroker = NormalizeBroker(request.DatafeedBroker),
+                AccountNumber = NormalizeAccountNumber(request.AccountNumber),
+                StrategiesNotSupportedByAccount = excludedByAccount,
                 Outcome = "Completed"
             });
             result.DiagnosticsLogFilePath = diagnostics.LogPath;
@@ -1501,22 +1535,81 @@ public class PiootooBacktestingService : IPiootooBacktestingService
         };
 
     /// <summary>
-    /// Applica al segnale la parola finale del piano: se il conto non concede l'overnight, la
-    /// posizione riceve la deadline del flat di sessione, salvo che la strategia ne dichiari gia'
-    /// una piu' stretta.
+    /// Applica al segnale la parola finale del piano: cio' che il conto non concede diventa una
+    /// deadline sul segnale — il flat di sessione se vieta l'overnight, l'apertura della finestra
+    /// del fine settimana se vieta l'overweek — salvo che la strategia ne dichiari gia' una piu'
+    /// stretta.
     ///
     /// <para>E' lo stesso <see cref="HoldingResolver"/> che la sessione chiama sul percorso live:
     /// un'unica composizione per i due motori, altrimenti backtest e conto vero tornano a tagliare
     /// in istanti diversi — che e' la classe di divergenza che questa gerarchia chiude.</para>
+    ///
+    /// <para>Il cortocircuito guarda <b>entrambi</b> i permessi: guardava solo l'overnight, e da
+    /// quando anche il fine settimana e' una deadline quel ramo saltava proprio il caso piu' comune
+    /// (overnight libero, overweek vietato) lasciando il taglio al solo <c>IsFlatTrigger</c> del
+    /// loop.</para>
     /// </summary>
     private static void ApplyAccountHolding(TradeSignal signal, AccountHoldingPolicy holding)
     {
-        if (holding.AllowOvernight) return;
+        if (holding.AllowOvernight && holding.AllowOverweek) return;
 
         var decision = HoldingResolver.Resolve(
             signal.CloseAtUtc, signal.ValidFromUtc ?? signal.Date, holding);
         signal.CloseAtUtc = decision.AtUtc;
         signal.TimeExitFromAccountPolicy = decision.FromAccountPolicy;
+    }
+
+    /// <summary>Numero di conto normalizzato; null quando il run non ne dichiara uno.</summary>
+    private static string? NormalizeAccountNumber(string? accountNumber)
+        => string.IsNullOrWhiteSpace(accountNumber) ? null : accountNumber.Trim();
+
+    /// <summary>
+    /// Restringe le strategie del masterfilter all'universo operativo del conto dichiarato dal run:
+    /// restano solo quelle il cui simbolo compare, abilitato, nella sua tabella di conversione.
+    ///
+    /// <para>Senza conto (il caso normale) non tocca niente e restituisce l'elenco intero: il
+    /// backtest resta il run neutro che misura le strategie, non il conto.</para>
+    ///
+    /// <para><b>Un conto che non esiste fa fallire l'avvio.</b> Vale la stessa regola del datafeed
+    /// mancante e del broker inesistente: ripiegare sul masterfilter intero darebbe un run
+    /// plausibile e sbagliato, con piu' strategie di quante il conto ne opererebbe davvero.</para>
+    ///
+    /// <para>Un conto <i>senza</i> tabella di conversione supporta tutto: opera 1 a 1, ed e' la
+    /// configurazione di ogni conto non ancora mappato.</para>
+    /// </summary>
+    private (List<StrategyDefinition> Strategies, IReadOnlyList<string> Excluded) ApplyAccountUniverse(
+        List<StrategyDefinition> strategies, BacktestingRequest request)
+    {
+        var accountNumber = NormalizeAccountNumber(request.AccountNumber);
+        request.AccountNumber = accountNumber;
+        if (accountNumber is null)
+            return (strategies, []);
+
+        var workspaces = _workspaces ?? throw new InvalidOperationException(
+            "Il run dichiara un conto ma il servizio di backtesting non ha il registro account: " +
+            "non puo' risolverne la tabella di conversione.");
+
+        var account = workspaces.ListAccounts().FirstOrDefault(candidate => string.Equals(
+            candidate.AccountNumber?.Trim(), accountNumber, StringComparison.OrdinalIgnoreCase))
+            ?? throw new InvalidOperationException(
+                $"Conto '{accountNumber}' non presente nel registro account: il run non puo' " +
+                "applicarne l'universo operativo.");
+
+        var conversion = AccountSymbolConversion.FromAccount(
+            account, workspaces.ResolveSymbolConversion(account.SymbolConversionCode));
+        if (!conversion.HasSymbolTable)
+            return (strategies, []);
+
+        var supported = new List<StrategyDefinition>(strategies.Count);
+        var excluded = new List<string>();
+        foreach (var strategy in strategies)
+        {
+            if (conversion.SupportsSymbol(strategy.Symbol)) supported.Add(strategy);
+            else excluded.Add(strategy.Name);
+        }
+
+        excluded.Sort(StringComparer.OrdinalIgnoreCase);
+        return (supported, excluded);
     }
 
     private static TradeSignal CloneTradeSignal(TradeSignal signal)

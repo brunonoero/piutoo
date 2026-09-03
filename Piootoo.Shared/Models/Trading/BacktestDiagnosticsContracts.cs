@@ -283,6 +283,22 @@ public sealed class BacktestRunSummary
     /// </summary>
     public string? DatafeedBroker { get; init; }
 
+    /// <summary>
+    /// Conto di cui il run ha applicato l'universo operativo: null = nessuno, il run ha eseguito
+    /// l'intero masterfilter.
+    ///
+    /// <para>Stessa ragione di <see cref="DatafeedBroker"/>: cambia <i>quali</i> strategie girano
+    /// senza lasciare traccia nei trade. Un run con conto e uno senza si distinguono solo contando
+    /// le strategie, e solo sapendo quante avrebbero dovuto essercene.</para>
+    /// </summary>
+    public string? AccountNumber { get; init; }
+
+    /// <summary>
+    /// Strategie del masterfilter escluse perche' il conto di <see cref="AccountNumber"/> non
+    /// prevede il loro simbolo. Vuoto quando non c'e' un conto, o quando li supporta tutti.
+    /// </summary>
+    public IReadOnlyList<string> StrategiesNotSupportedByAccount { get; init; } = [];
+
     public string Outcome { get; set; } = "Unknown";
     public string? ErrorMessage { get; set; }
 

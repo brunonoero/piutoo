@@ -139,10 +139,22 @@ public sealed record AccountHoldingPolicy
 /// Il punto unico che risolve la gerarchia piano → motore → strategia in una deadline.
 ///
 /// <para>Il taglio e' meccanico: <b>vince la scadenza piu' stretta</b>. La strategia porta la
-/// propria (<c>CloseAtUtc</c>, che puo' non esserci), il piano porta la sua quando vieta
-/// l'overnight, e la posizione muore alla prima delle due. Il fine settimana non passa di qui: e'
-/// una finestra e non una deadline, e lo applicano il loop di backtest e il cBot con
-/// <see cref="WeekEndFlatPolicy.IsFlatTrigger"/>.</para>
+/// propria (<c>CloseAtUtc</c>, che puo' non esserci) e il piano porta le sue — il flat di sessione
+/// quando vieta l'overnight, l'apertura della finestra del fine settimana quando vieta l'overweek —
+/// e la posizione muore alla prima di tutte.</para>
+///
+/// <para><b>Il permesso attivo non impone niente.</b> Con <c>AllowOvernight</c> e
+/// <c>AllowOverweek</c> entrambi veri il segnale esce con la sola uscita dichiarata dalla strategia:
+/// il piano concede, non obbliga. E' il verso opposto — il permesso <i>mancante</i> — a scrivere una
+/// deadline sul segnale.</para>
+///
+/// <para><b>Perche' il fine settimana e' anche una deadline.</b> Restava solo una finestra, applicata
+/// dal loop di backtest e dal cBot con <see cref="WeekEndFlatPolicy.IsFlatTrigger"/>: due
+/// implementazioni della stessa regola, in due processi diversi, su due orologi diversi. Portandola
+/// sul segnale come <c>CloseAtUtc</c> l'istante e' deciso una volta sola da chi conosce il piano — e
+/// viaggia con l'ordine, quindi lo stesso intent muore nello stesso momento ovunque venga eseguito.
+/// La finestra resta comunque in vigore in entrambi i motori come rete di sicurezza: deve reggere
+/// anche su una posizione che il server non ha mai visto nascere.</para>
 ///
 /// <para>Sta in <c>Piootoo.Shared</c> e non in un servizio perche' lo chiamano due motori diversi —
 /// il backtest interno e la sessione che costruisce gli intent per il cBot — e una regola di
@@ -163,13 +175,34 @@ public static class HoldingResolver
     public static TimeExitDecision Resolve(
         DateTime? strategyCloseAtUtc, DateTime referenceUtc, AccountHoldingPolicy policy)
     {
-        if (policy.AllowOvernight)
+        var accountDeadline = ResolveAccountDeadline(referenceUtc, policy);
+
+        // Il piano non vieta niente: vale quello che la strategia ha dichiarato, anche se e' nulla.
+        if (accountDeadline is not { } deadline)
             return new TimeExitDecision(strategyCloseAtUtc, false);
 
-        var accountFlat = policy.ResolveSessionFlatUtc(referenceUtc);
-        return strategyCloseAtUtc.HasValue && strategyCloseAtUtc.Value <= accountFlat
+        return strategyCloseAtUtc.HasValue && strategyCloseAtUtc.Value <= deadline
             ? new TimeExitDecision(strategyCloseAtUtc, false)
-            : new TimeExitDecision(accountFlat, true);
+            : new TimeExitDecision(deadline, true);
+    }
+
+    /// <summary>
+    /// La scadenza imposta dal <b>conto</b>, cioe' la piu' stretta fra i divieti che il piano
+    /// dichiara. Null quando il piano concede tutto: li' non c'e' nessuna deadline di conto e la
+    /// parola resta alla strategia.
+    /// </summary>
+    private static DateTime? ResolveAccountDeadline(DateTime referenceUtc, AccountHoldingPolicy policy)
+    {
+        DateTime? deadline = policy.AllowOvernight ? null : policy.ResolveSessionFlatUtc(referenceUtc);
+
+        if (!policy.AllowOverweek)
+        {
+            var weekEnd = policy.WeekEnd.ResolveNextFlatUtc(referenceUtc);
+            if (deadline is not { } current || weekEnd < current)
+                deadline = weekEnd;
+        }
+
+        return deadline;
     }
 
     /// <summary>

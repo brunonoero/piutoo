@@ -1,6 +1,9 @@
+using System.ComponentModel;
+using Piootoo.Shared.Models.Strategies;
 using Piootoo.Shared.Models.Trading;
 using Piootoo.Shared.Models.Workspaces;
 using piootooapp.clientform.Shell;
+using piootooapp.clientform.Shell.Controls;
 
 namespace piootooapp.clientform.Shell.Screens;
 
@@ -18,9 +21,23 @@ public partial class AccountDetailScreen : UserControl, IShellScreen, IDirtyAwar
     private bool _suspendDirtyTracking;
     private bool _isDirty;
 
+    /// <summary>Catalogo completo del server: la base su cui si calcola l'universo del conto.</summary>
+    private readonly List<StrategyCatalogItem> _catalog = new();
+
+    /// <summary>Tabelle di conversione del registro globale, per risolvere quella dell'account.</summary>
+    private readonly List<SymbolConversion> _conversions = new();
+
+    /// <summary>Strategie che questo conto puo' operare, prima del filtro di testo.</summary>
+    private readonly List<AccountStrategyRow> _supported = new();
+
+    private readonly SortableBindingList<AccountStrategyRow> _visibleStrategies = new();
+
     public AccountDetailScreen()
     {
         InitializeComponent();
+        ShellGridHelper.ConfigureReadableGrids(this);
+        _strategiesBindingSource.DataSource = _visibleStrategies;
+        _strategiesGrid.EnableColumnSorting();
     }
 
     public string ScreenTitle => IsNew
@@ -56,6 +73,9 @@ public partial class AccountDetailScreen : UserControl, IShellScreen, IDirtyAwar
             }
 
             var conversions = await _context.Services.Api.ListSymbolConversionsAsync(cancellationToken);
+            _conversions.Clear();
+            _conversions.AddRange(conversions);
+            await LoadStrategyCatalogAsync(cancellationToken);
 
             if (IsNew)
             {
@@ -123,7 +143,128 @@ public partial class AccountDetailScreen : UserControl, IShellScreen, IDirtyAwar
               $"aggiornato {account.UpdatedUtc:yyyy-MM-dd HH:mm} UTC";
 
         FillSymbolConversionCombo(conversions, account.SymbolConversionCode);
+        RefreshSupportedStrategies();
     }
+
+    /// <summary>
+    /// Il catalogo del server. Non e' una precondizione della schermata: senza, il tab Strategie
+    /// resta vuoto e lo dichiara, ma l'account si modifica e si salva lo stesso.
+    /// </summary>
+    private async Task LoadStrategyCatalogAsync(CancellationToken cancellationToken)
+    {
+        _catalog.Clear();
+        try
+        {
+            _catalog.AddRange(await _context!.Services.Api.ListStrategiesAsync(cancellationToken));
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _context!.Navigation.SetError($"Catalogo strategie non disponibile: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// L'universo operativo del conto: le strategie il cui simbolo compare, abilitato, nella
+    /// tabella di conversione scelta.
+    ///
+    /// <para>Un conto <b>senza</b> tabella non restringe niente e le opera tutte: e' il conto neutro,
+    /// non un conto che non supporta nulla. La stessa regola vale a runtime
+    /// (<c>AccountSymbolConversion.SupportsSymbol</c>), ed e' il motivo per cui questa vista puo'
+    /// essere letta come una promessa: quello che elenca e' quello che girera'.</para>
+    ///
+    /// <para>Si ricalcola sulla combo e non sull'account salvato, cosi' cambiando tabella l'elenco
+    /// segue subito la scelta invece di aspettare il salvataggio.</para>
+    /// </summary>
+    private void RefreshSupportedStrategies()
+    {
+        _supported.Clear();
+
+        var code = (_symbolConversionCombo.SelectedItem as ValueComboItem)?.Id ?? string.Empty;
+        var conversion = _conversions.FirstOrDefault(item =>
+            string.Equals(item.Code, code, StringComparison.OrdinalIgnoreCase));
+
+        var mappings = conversion?.Mappings ?? new List<AccountSymbolMapping>();
+        var bySymbol = new Dictionary<string, AccountSymbolMapping>(StringComparer.OrdinalIgnoreCase);
+        foreach (var mapping in mappings)
+        {
+            var key = NormalizeSymbol(mapping.Symbol);
+            if (key.Length > 0) bySymbol[key] = mapping;
+        }
+
+        var senzaTabella = bySymbol.Count == 0;
+        foreach (var item in _catalog)
+        {
+            var key = NormalizeSymbol(item.Symbol);
+            bySymbol.TryGetValue(key, out var mapping);
+
+            var supportata = senzaTabella || (mapping is not null && mapping.Enabled);
+            if (!supportata) continue;
+
+            _supported.Add(new AccountStrategyRow
+            {
+                Code = string.IsNullOrWhiteSpace(item.Code) ? item.Name : item.Code,
+                Symbol = item.Symbol,
+                AccountSymbol = mapping is null || string.IsNullOrWhiteSpace(mapping.AccountSymbol)
+                    ? (senzaTabella ? "(1 a 1)" : item.Symbol)
+                    : mapping.AccountSymbol,
+                TimeframeMinutes = item.TimeframeMinutes,
+                IsActive = item.IsActive,
+                Holding = new StrategyHolding(item.Overnight, item.Overweek).Normalized().Describe()
+            });
+        }
+
+        _supported.Sort((a, b) => string.Compare(a.Code, b.Code, StringComparison.OrdinalIgnoreCase));
+        ApplyStrategiesFilter();
+    }
+
+    private static string NormalizeSymbol(string? symbol)
+        => symbol is null ? string.Empty : symbol.Trim().TrimStart('@').ToUpperInvariant();
+
+    private void OnStrategiesFilterChanged(object? sender, EventArgs e) => ApplyStrategiesFilter();
+
+    /// <summary>
+    /// Applica il filtro di testo e aggiorna il contatore.
+    ///
+    /// <para>Il contatore dice <b>n/k strategie attive</b>: <c>k</c> sono le attive dell'intero
+    /// catalogo, <c>n</c> quelle che questo conto puo' operare. E' la sola forma che risponde alla
+    /// domanda vera — quanta parte del sistema questo conto e' in grado di eseguire — e non cambia
+    /// mentre si scrive nel filtro: un contatore che segue il filtro direbbe quanto si sta cercando,
+    /// non quanto il conto opera.</para>
+    /// </summary>
+    private void ApplyStrategiesFilter()
+    {
+        var filtro = _strategiesFilterTextBox.Text.Trim();
+
+        _visibleStrategies.RaiseListChangedEvents = false;
+        _visibleStrategies.Clear();
+        foreach (var row in _supported.Where(row => Matches(row, filtro)))
+        {
+            _visibleStrategies.Add(row);
+        }
+
+        _visibleStrategies.RaiseListChangedEvents = true;
+        _visibleStrategies.ReapplySort();
+        _visibleStrategies.ResetBindings();
+
+        var attiveSupportate = _supported.Count(row => row.IsActive);
+        var attiveCatalogo = _catalog.Count(item => item.IsActive);
+
+        _strategiesCountLabel.Text = attiveCatalogo == 0
+            ? "catalogo non disponibile"
+            : $"{attiveSupportate}/{attiveCatalogo} strategie attive" +
+              (filtro.Length > 0 ? $"  ·  {_visibleStrategies.Count} nel filtro" : string.Empty);
+    }
+
+    private static bool Matches(AccountStrategyRow row, string filtro)
+        => filtro.Length == 0
+           || row.Code.Contains(filtro, StringComparison.OrdinalIgnoreCase)
+           || row.Symbol.Contains(filtro, StringComparison.OrdinalIgnoreCase)
+           || row.AccountSymbol.Contains(filtro, StringComparison.OrdinalIgnoreCase)
+           || row.TimeframeMinutes.ToString().Contains(filtro, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// Un codice già persistito ma non più presente nel registro compare come «non più presente»
@@ -191,6 +332,16 @@ public partial class AccountDetailScreen : UserControl, IShellScreen, IDirtyAwar
     }
 
     private void OnFieldChanged(object? sender, EventArgs e) => MarkDirty();
+
+    /// <summary>
+    /// Cambiare tabella cambia l'universo operativo del conto: l'elenco segue subito la scelta,
+    /// senza aspettare il salvataggio. Vedere prima quali strategie si perdono e' il punto del tab.
+    /// </summary>
+    private void OnSymbolConversionChanged(object? sender, EventArgs e)
+    {
+        MarkDirty();
+        RefreshSupportedStrategies();
+    }
 
     private async void OnSaveRequested(object? sender, EventArgs e)
     {
@@ -266,4 +417,29 @@ public partial class AccountDetailScreen : UserControl, IShellScreen, IDirtyAwar
 
         _context?.Navigation.GoBack();
     }
+}
+
+/// <summary>
+/// Riga del tab Strategie del dettaglio account: una strategia del catalogo che questo conto puo'
+/// operare, con il nome che il suo simbolo ha sul broker.
+/// </summary>
+public sealed class AccountStrategyRow
+{
+    public string Code { get; set; } = string.Empty;
+
+    public string Symbol { get; set; } = string.Empty;
+
+    /// <summary>Simbolo sul broker del conto; «(1 a 1)» quando non c'e' tabella di conversione.</summary>
+    public string AccountSymbol { get; set; } = string.Empty;
+
+    public int TimeframeMinutes { get; set; }
+
+    [Browsable(false)]
+    public bool IsActive { get; set; }
+
+    /// <summary>Colonna della griglia: <see cref="IsActive"/> in forma leggibile.</summary>
+    public string ActiveText => IsActive ? "si" : "no";
+
+    /// <summary>Cosa la strategia vuole tenere: intraday, overnight, overnight+overweek.</summary>
+    public string Holding { get; set; } = string.Empty;
 }

@@ -81,10 +81,25 @@ public class BacktestingRequest
     /// </summary>
     public decimal TrailingMinStepFraction { get; set; } = 0.10m;
 
-    // Nessun account: il backtest interno è neutro rispetto ai conti. Un run è capitale iniziale
-    // + strategie del masterfilter + datafeed, con conversione simbolo e moltiplicatori fissi a 1.
-    // Il motivo sta in docs/decisioni.md (2026-08-05): una size legata al conto farebbe dipendere
-    // il campione dal capitale invece che dalle strategie. Conversione e scala per conto restano
-    // sulle sessioni ExternalBroker, dove il segnale deve diventare un ordine eseguibile su un
-    // conto reale.
+    /// <summary>
+    /// Conto di cui applicare l'<b>universo operativo</b>: le strategie su simboli che la sua tabella
+    /// di conversione non prevede non vengono eseguite. Null o vuoto = nessun conto, il run gira
+    /// sull'intero masterfilter.
+    ///
+    /// <para><b>Solo l'universo, non la size.</b> Il backtest interno resta neutro rispetto ai
+    /// conti: capitale, <c>BalanceScale</c> e moltiplicatori di contratto non entrano da qui e
+    /// restano fissi a 1. Il motivo e' quello di <c>docs/decisioni.md</c> (2026-08-05) e non e'
+    /// cambiato: una size legata al conto farebbe dipendere il campione dal capitale invece che
+    /// dalle strategie. Quello che cambia e' <i>quali</i> strategie girano, che e' una domanda
+    /// diversa da <i>con che size</i>.</para>
+    ///
+    /// <para>Il conto non arriva dal piano di proposito: un piano puo' contenere piu' account, e
+    /// l'universo operativo di un run e' quello di <b>un</b> conto — sceglierne uno per conto del
+    /// piano significherebbe indovinare.</para>
+    ///
+    /// <para>Come <see cref="DatafeedBroker"/>, il valore finisce in <c>backtest-summary.json</c>:
+    /// due run con universi diversi non sono confrontabili, e mesi dopo non c'e' altro modo di
+    /// accorgersene. Un conto inesistente fa fallire l'avvio, non ripiega sul masterfilter intero.</para>
+    /// </summary>
+    public string? AccountNumber { get; set; }
 }

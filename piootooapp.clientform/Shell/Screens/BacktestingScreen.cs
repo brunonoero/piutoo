@@ -47,6 +47,7 @@ public partial class BacktestingScreen : UserControl, IShellScreen
             _workspaceValueLabel.Text = _context.Services.Workspaces.CurrentDisplay;
 
             await LoadDatafeedSourcesAsync(cancellationToken);
+            await LoadAccountsAsync(cancellationToken);
 
             // Nessuna combo account: il backtest interno è neutro rispetto ai conti (conversione
             // simbolo e scala capitale vivono sulle sessioni). Vedi docs/decisioni.md 2026-08-05.
@@ -68,6 +69,61 @@ public partial class BacktestingScreen : UserControl, IShellScreen
 
     /// <summary>Broker selezionato, null quando la scelta è il datafeed interno.</summary>
     private string? SelectedDatafeedBroker => (_datafeedCombo.SelectedItem as DatafeedComboItem)?.Broker;
+
+    /// <summary>Conto selezionato, null quando la scelta è «nessun conto».</summary>
+    private string? SelectedAccountNumber =>
+        (_accountCombo.SelectedItem as AccountComboItem)?.AccountNumber is { Length: > 0 } number
+            ? number
+            : null;
+
+    /// <summary>
+    /// Riempie la combo dei conti. La prima voce è «nessun conto», che è il run neutro di sempre:
+    /// tutte le strategie del masterfilter, nessuna tabella di conversione di mezzo.
+    ///
+    /// <para>Scegliere un conto non cambia le size — il backtest interno resta neutro sul capitale —
+    /// ma restringe l'<b>universo</b>: girano solo le strategie sui simboli che la sua tabella
+    /// prevede, esattamente come farebbe quel conto in sessione.</para>
+    /// </summary>
+    private async Task LoadAccountsAsync(CancellationToken cancellationToken)
+    {
+        if (_context == null) return;
+
+        var previous = SelectedAccountNumber;
+        _accountCombo.Items.Clear();
+        _accountCombo.Items.Add(AccountComboItem.None());
+
+        try
+        {
+            foreach (var account in await _context.Services.Api.ListAccountsAsync(cancellationToken))
+            {
+                if (!string.IsNullOrWhiteSpace(account.AccountNumber))
+                    _accountCombo.Items.Add(AccountComboItem.Of(account));
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            // Come per i datasource esterni: senza registro si resta sul run neutro invece di
+            // bloccare la schermata.
+            Log($"Elenco conti non disponibile: {ex.Message}");
+        }
+
+        _accountCombo.SelectedIndex = 0;
+        if (previous is null) return;
+
+        for (var index = 0; index < _accountCombo.Items.Count; index++)
+        {
+            if (_accountCombo.Items[index] is AccountComboItem item
+                && string.Equals(item.AccountNumber, previous, StringComparison.OrdinalIgnoreCase))
+            {
+                _accountCombo.SelectedIndex = index;
+                return;
+            }
+        }
+    }
 
     /// <summary>
     /// Riempie la combo del datasource: prima l'interno, poi un broker per cartella di
@@ -222,6 +278,10 @@ public partial class BacktestingScreen : UserControl, IShellScreen
                 // Null = datafeed interno. Il server rifiuta un broker che non esiste invece di
                 // ripiegare sull'interno: un run letto dal feed sbagliato non si distinguerebbe.
                 DatafeedBroker = SelectedDatafeedBroker,
+                // Null = nessun conto, run sull'intero masterfilter. Con un conto il server salta le
+                // strategie sui simboli che la sua tabella di conversione non prevede, e lo dichiara
+                // nel summary: due run con universi diversi non sono confrontabili.
+                AccountNumber = SelectedAccountNumber,
                 // La spunta e' la stessa regola di prima, letta dal verso opposto: chiudere a fine
                 // settimana significa non concedere l'overweek. L'overnight non e' esposto qui —
                 // per riprodurre un piano che lo vieta serve la sua policy, non una checkbox in
@@ -238,6 +298,7 @@ public partial class BacktestingScreen : UserControl, IShellScreen
 
             Log($"Workspace {workspace.Name} ({workspace.Id})");
             Log($"Datasource: {(request.DatafeedBroker is null ? "interno" : $"esterno / {request.DatafeedBroker}")}");
+            Log($"Conto: {request.AccountNumber ?? "nessuno (intero masterfilter)"}");
             Log($"Finestra UTC {request.StartDate:yyyy-MM-dd HH:mm}Z → {request.EndDate:yyyy-MM-dd HH:mm}Z");
             Log($"Strategie dal masterfilter: {masterFilter.StrategiesFilter.Count}");
 

@@ -120,6 +120,13 @@ public sealed class CreateTradingSessionRequest
     /// </summary>
     public AccountHoldingPolicy Holding { get; init; } = AccountHoldingPolicy.Default;
 
+    /// <summary>
+    /// Moltiplicatore applicato a ogni quantità consegnata al client. Vedi
+    /// <see cref="TradingPlan.SizeMultiplier"/>: una sessione aperta da piano lo eredita da lì, una
+    /// creata a mano lo dichiara qui. Minimo 0,1; un valore non valorizzato (0) vale 1.
+    /// </summary>
+    public decimal SizeMultiplier { get; init; } = 1m;
+
     public PositionSizingConfig PositionSizing { get; init; } = new();
 }
 
@@ -165,6 +172,14 @@ public sealed class TradingSessionDescriptor
     /// contro 20:45). Vedi <see cref="AccountHoldingPolicy"/>.
     /// </summary>
     public AccountHoldingPolicy Holding { get; init; } = AccountHoldingPolicy.Default;
+
+    /// <summary>
+    /// Moltiplicatore di size in vigore sulla sessione. E' <b>informativo</b>: il server lo ha gia'
+    /// applicato alle quantita' degli intent, il client non deve rimoltiplicare. Sta nel descriptor
+    /// perche' una size a chart che non torna con il piano si spiega leggendo questo numero, e
+    /// altrimenti la si dedurrebbe dividendo due quantita'.
+    /// </summary>
+    public decimal SizeMultiplier { get; init; } = 1m;
 
     public PositionSizingConfig PositionSizing { get; init; } = new();
     public IReadOnlyList<InstrumentMetadata> InstrumentMetadata { get; init; } = [];

@@ -147,6 +147,31 @@ public sealed class AccountSymbolConversion
     public string GetAccountSymbol(string? symbol)
         => TryGet(symbol, out var entry) ? entry.AccountSymbol : symbol?.Trim() ?? string.Empty;
 
+    /// <summary>
+    /// L'account ha una tabella di conversione con almeno una riga. Falso per
+    /// <see cref="Identity"/> e per un account senza tabella: quelli operano 1 a 1 su tutto.
+    /// </summary>
+    public bool HasSymbolTable => _entries.Count > 0;
+
+    /// <summary>
+    /// Il conto può operare questo simbolo: la domanda che decide se una strategia gli viene
+    /// consegnata o ignorata.
+    ///
+    /// <para><b>Non è <see cref="IsSymbolEnabled"/>.</b> Quello risponde "la riga non lo vieta", e
+    /// un simbolo assente dalla tabella non lo vieta: passa 1 a 1. Qui la domanda è l'opposta —
+    /// "la tabella lo prevede?" — e un simbolo che il file di conversione non nomina è uno
+    /// strumento su cui quel broker non è configurato, non uno strumento da eseguire alla cieca con
+    /// il contratto Piootoo. Erano la stessa cosa finché la size sbagliata veniva comunque
+    /// arrotondata a qualcosa di plausibile.</para>
+    ///
+    /// <para>Una tabella <b>vuota</b> (o assente) vale come nessuna conversione dichiarata e
+    /// supporta tutto: e' il conto neutro, ed e' la configurazione con cui girano i test e ogni
+    /// account che non ha ancora una tabella. Trattarla come "non supporta niente" spegnerebbe
+    /// l'operativita' di quegli account senza che nessuno abbia cambiato una riga.</para>
+    /// </summary>
+    public bool SupportsSymbol(string? symbol)
+        => !HasSymbolTable || (TryGet(symbol, out var entry) && entry.Enabled);
+
     /// <summary>False solo se il simbolo è mappato ed è stato disabilitato sull'account.</summary>
     public bool IsSymbolEnabled(string? symbol)
         => !TryGet(symbol, out var entry) || entry.Enabled;
