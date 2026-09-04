@@ -27,6 +27,30 @@ public abstract class SessionBreakoutEngine : EasyEngineBase
 
     // ------------------------------------------------------------------ livelli
 
+    /// <summary>
+    /// Da dove viene il livello di rottura (<c>level_source</c> di <c>breakout.py</c>).
+    ///
+    /// <list type="bullet">
+    /// <item><description><b>0</b> — canale delle ultime <see cref="Sessions"/> sessioni
+    /// <i>complete</i>, allargato dalla sessione in corso se <see cref="IncludeCurrentSession"/>
+    /// (running <c>cummax().shift(1)</c>: la barra corrente non contribuisce mai).</description></item>
+    /// <item><description><b>1</b> — running massimo/minimo della sessione <b>corrente</b>,
+    /// <b>inclusa la barra in corso</b> (il trigger EasyLanguage <c>MyTrigger=1</c>). Non c'e'
+    /// look-ahead perche' l'ordine emesso alla barra <c>i</c> vive solo alla barra <c>i+1</c>,
+    /// quindi <c>high[i]</c> e <c>low[i]</c> sono gia' noti. <see cref="Sessions"/> e
+    /// <see cref="IncludeCurrentSession"/> sono <b>ignorati</b>, esattamente come nel
+    /// sorgente.</description></item>
+    /// </list>
+    ///
+    /// <para><b>Perche' non si ottiene con i parametri esistenti.</b> Con
+    /// <c>Sessions = 1; IncludeCurrentSession = true</c> il livello e' il massimo fra la sessione
+    /// d1 <i>chiusa</i> e il running della sessione corrente <i>senza</i> la barra in corso: due
+    /// differenze rispetto a <c>level_source = 1</c>, che ignora d1 e include la barra. Era la
+    /// traduzione di <c>PTS_KC_SBO_001_240</c> (scheda S26) e produceva un livello sempre >= a
+    /// quello della ricerca, quindi ingressi mancati o piu' tardi.</para>
+    /// </summary>
+    protected int LevelSource;
+
     /// <summary>Numero di sessioni chiuse su cui calcolare massimo e minimo (<c>nSess</c>).</summary>
     protected int Sessions = 1;
 
@@ -268,6 +292,24 @@ public abstract class SessionBreakoutEngine : EasyEngineBase
         longLevel = decimal.MinValue;
         shortLevel = decimal.MaxValue;
         var currentSession = SessionKey(barTime);
+
+        // level_source = 1: running H/L della sola sessione corrente, barra in corso INCLUSA.
+        // n_sess e lev_include_sess0 non entrano, come nel sorgente.
+        if (LevelSource == 1)
+        {
+            for (var index = 0; index < data.Length; index++)
+            {
+                var candidate = data[index];
+                if (SessionKey(candidate.DateTime) != currentSession)
+                    continue;
+
+                longLevel = Math.Max(longLevel, candidate.High);
+                shortLevel = Math.Min(shortLevel, candidate.Low);
+            }
+
+            return longLevel > decimal.MinValue && shortLevel < decimal.MaxValue;
+        }
+
         var completed = new List<(DateTime Key, decimal High, decimal Low)>();
         for (var index = 0; index < data.Length; index++)
         {

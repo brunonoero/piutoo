@@ -492,6 +492,17 @@ namespace cAlgo.Robots
             public bool WarmedUp;
 
             /// <summary>
+            /// Quante candele il riscaldamento ha davvero spedito. Non coincide con
+            /// <see cref="RequiredCandles"/> quando il broker non ha tutta quella storia, ed è
+            /// proprio quel caso a rendere il numero necessario: serve a distinguere "il server ha
+            /// poche barre perché gliene ho mandate poche" da "il server ha poche barre perché le
+            /// ha perse". Solo il secondo è un riavvio del server e merita un nuovo riscaldamento;
+            /// confrontare con <c>RequiredCandles</c> rimanderebbe la finestra a ogni barra, per
+            /// sempre, su ogni stream la cui storia il broker non copre.
+            /// </summary>
+            public int WarmUpBarsSent;
+
+            /// <summary>
             /// Candele che le strategie del server richiedono su questo stream (il massimo dei loro
             /// <c>RequiredCandles</c>, dal descriptor). È la profondità della finestra inviata a ogni
             /// barra e la quantità di storia da caricare dal broker prima di partire.
@@ -1994,8 +2005,14 @@ namespace cAlgo.Robots
             if (SendWindow(pair, pair.RequiredCandles, evaluateLastCandle: false))
             {
                 pair.WarmedUp = true;
+                // Quante ne sono partite davvero: la serie del broker può essere più corta della
+                // richiesta. Vedi Pair.WarmUpBarsSent.
+                pair.WarmUpBarsSent = pair.Series == null
+                    ? 0
+                    : Math.Min(Math.Max(1, pair.RequiredCandles), Math.Max(0, pair.Series.Count - 1));
                 if (LogOperativo)
-                    Print("Riscaldamento {0} inviato ({1} candele richieste).", pair, pair.RequiredCandles);
+                    Print("Riscaldamento {0} inviato ({1} candele su {2} richieste).",
+                        pair, pair.WarmUpBarsSent, pair.RequiredCandles);
             }
         }
 
@@ -2169,6 +2186,26 @@ namespace cAlgo.Robots
             pair.ServerHistoryBars = status.HistoryBars;
             pair.ServerRequiredCandles = status.RequiredCandles;
             RedrawStatusPanel();
+
+            // Il server ha MENO barre di quante gliene abbiamo mandate col riscaldamento: le ha
+            // perse, cioè il processo è ripartito. Il flag WarmedUp vive nella RAM del bot, quindi
+            // senza questo controllo un bot rimasto acceso non rimanda mai la storia profonda e la
+            // sessione nuova (o ripresa) resta MUTA finché non riaccumula RequiredCandles da sola —
+            // per una strategia a 240 minuti che ne chiede 606 sono settimane, e senza un solo
+            // messaggio da nessuna parte. Vedi
+            // docs/domini/riavvio-del-server-e-ripresa-sessione.md §1.
+            //
+            // Il confronto è con quante ne abbiamo spedite, non con RequiredCandles: su uno stream
+            // di cui il broker non ha tutta la storia i due numeri non coincidono, e usare il
+            // secondo farebbe rimandare la finestra a ogni barra per sempre.
+            if (pair.WarmedUp && pair.WarmUpBarsSent > 0 && status.HistoryBars < pair.WarmUpBarsSent)
+            {
+                Print("{0}: il server dichiara {1} candele, meno delle {2} del riscaldamento. " +
+                      "Le ha perse (riavvio del server): rimando la storia profonda.",
+                    pair, status.HistoryBars, pair.WarmUpBarsSent);
+                pair.WarmedUp = false;
+                pair.WarmUpBarsSent = 0;
+            }
 
             var key = MakeStreamKey(pair.PiootooSymbol, pair.TimeframeMinutes);
             if (status.SkippedForInsufficientHistory > 0)

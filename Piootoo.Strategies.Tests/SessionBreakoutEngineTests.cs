@@ -42,6 +42,42 @@ public sealed class SessionBreakoutEngineTests
         Assert.Equal(SignalType.Buy, Evaluate(new WindowBo(), bars).Type);
     }
 
+    /// <summary>
+    /// <c>level_source = 1</c> di <c>breakout.py</c>: il livello e' il running massimo/minimo della
+    /// sola sessione corrente, <b>inclusa la barra in valutazione</b>, e ignora sia <c>n_sess</c>
+    /// sia <c>lev_include_sess0</c>.
+    ///
+    /// <para>Il test misura proprio la differenza che i parametri esistenti non sanno esprimere:
+    /// con <c>level_source = 0</c> la barra in corso non contribuisce mai (il sorgente usa
+    /// <c>cummax().shift(1)</c>), quindi il suo estremo non puo' diventare il livello. Era la
+    /// traduzione sbagliata di <c>PTS_KC_SBO_001_240</c>.</para>
+    /// </summary>
+    [Fact]
+    public void PythonBo_LevelSource1_UsesRunningSessionExtremeIncludingCurrentBar()
+    {
+        var conCorrente = Evaluate(new RunningLevelBo(), BarsWithBreakoutOnLastBar());
+        var senzaCorrente = Evaluate(new Sess0Bo(), BarsWithBreakoutOnLastBar());
+
+        Assert.True(conCorrente.Type == SignalType.Buy, conCorrente.Reason);
+        Assert.True(senzaCorrente.Type == SignalType.Buy, senzaCorrente.Reason);
+
+        // level_source = 1: l'estremo della barra in valutazione E' il livello.
+        Assert.Equal(200m, conCorrente.Price);
+        Assert.Equal(50m, Assert.Single(conCorrente.CompanionSignals!).Price);
+
+        // level_source = 0: la barra in valutazione non contribuisce, resta l'estremo precedente.
+        Assert.Equal(110m, senzaCorrente.Price);
+        Assert.Equal(90m, Assert.Single(senzaCorrente.CompanionSignals!).Price);
+    }
+
+    private static OhlcvData[] BarsWithBreakoutOnLastBar()
+    {
+        var bars = BuildBars();
+        bars[^1].High = 200m;
+        bars[^1].Low = 50m;
+        return bars;
+    }
+
     [Fact]
     public void PythonBo_DailyDoesNotAttachAnIntradayClose()
     {
@@ -146,5 +182,28 @@ public sealed class SessionBreakoutEngineTests
     private sealed class DailyBo : TestBo
     {
         public DailyBo() => Timeframe = 1440;
+    }
+
+    /// <summary>level_source = 1: running della sessione corrente, barra in corso inclusa.</summary>
+    private sealed class RunningLevelBo : TestBo
+    {
+        public RunningLevelBo()
+        {
+            LevelSource = 1;
+            // Dichiarati apposta con valori che il ramo level_source = 1 deve IGNORARE.
+            Sessions = 5;
+            IncludeCurrentSession = false;
+            BreakoutOffsetTicks = 0;
+        }
+    }
+
+    /// <summary>level_source = 0 con sessione corrente inclusa: la barra in corso resta fuori.</summary>
+    private sealed class Sess0Bo : TestBo
+    {
+        public Sess0Bo()
+        {
+            IncludeCurrentSession = true;
+            BreakoutOffsetTicks = 0;
+        }
     }
 }

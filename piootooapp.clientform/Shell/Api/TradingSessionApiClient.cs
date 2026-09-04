@@ -26,6 +26,19 @@ public sealed class TradingSessionApiClient : ApiClientBase
         => SendForAsync<List<TradingSessionSummary>>(
             HttpMethod.Get, "api/v1/trading-sessions", null, cancellationToken);
 
+    /// <summary>
+    /// Presidio realtime di un conto. Non porta token: la schermata si apre proprio quando la
+    /// sessione — e con lei il token — non c'è più.
+    /// </summary>
+    public Task<AccountRealtimeWatch> GetAccountWatchAsync(
+        string accountNumber,
+        CancellationToken cancellationToken = default)
+        => SendForAsync<AccountRealtimeWatch>(
+            HttpMethod.Get,
+            $"api/v1/trading-sessions/accounts/{Escape(accountNumber)}/watch",
+            null,
+            cancellationToken);
+
     public Task<TradingSessionDescriptor> OpenFromPlanAsync(
         OpenTradingPlanSessionRequest request,
         CancellationToken cancellationToken = default)

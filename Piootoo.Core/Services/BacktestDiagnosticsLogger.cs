@@ -41,6 +41,7 @@ public sealed class BacktestDiagnosticsLogger : IDisposable
     private readonly object _gate = new();
     private readonly Dictionary<string, BacktestStrategySummary> _strategies = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<BacktestDataSourceSummary> _dataSources = [];
+    private readonly List<string> _extraDiagnostics = new();
     private readonly string _jobId;
     private readonly string _logPath;
     private readonly string _summaryPath;
@@ -78,7 +79,9 @@ public sealed class BacktestDiagnosticsLogger : IDisposable
         (symbol ?? string.Empty).Trim().TrimStart('@').ToUpperInvariant();
 
     /// <summary>Dichiara una strategia al riepilogo. Va chiamata anche per le strategie che non produrranno nulla.</summary>
-    public void RegisterStrategy(string strategyCode, string strategyName, string symbol, int timeframeMinutes)
+    public void RegisterStrategy(
+        string strategyCode, string strategyName, string symbol, int timeframeMinutes,
+        int requiredCandles = 0)
     {
         lock (_gate)
         {
@@ -89,7 +92,8 @@ public sealed class BacktestDiagnosticsLogger : IDisposable
                 StrategyCode = strategyCode,
                 StrategyName = strategyName,
                 Symbol = NormalizeSymbol(symbol),
-                TimeframeMinutes = timeframeMinutes
+                TimeframeMinutes = timeframeMinutes,
+                RequiredCandles = requiredCandles
             };
         }
     }
@@ -289,6 +293,17 @@ public sealed class BacktestDiagnosticsLogger : IDisposable
         });
     }
 
+    /// <summary>
+    /// Diagnosi che il chiamante rileva prima o fuori dal loop — quelle che i contatori non possono
+    /// produrre, perche' descrivono cio' che <b>non</b> e' successo. Finiscono in testa a
+    /// <c>Diagnostics</c> del riepilogo, dove si leggono per prime.
+    /// </summary>
+    public void AddRunDiagnostic(string message)
+    {
+        if (string.IsNullOrWhiteSpace(message)) return;
+        lock (_gate) { _extraDiagnostics.Add(message); }
+    }
+
     public void LogAnomaly(string message, DateTime? barTimeUtc = null, string? strategyCode = null, string? symbol = null) =>
         Write(new BacktestLogEvent
         {
@@ -354,7 +369,9 @@ public sealed class BacktestDiagnosticsLogger : IDisposable
             summary.TotalTrades = strategies.Sum(x => x.Trades);
             summary.WinningTrades = strategies.Sum(x => x.WinningTrades);
             summary.LosingTrades = strategies.Sum(x => x.LosingTrades);
-            summary.Diagnostics = BuildRunDiagnostics(summary, strategies);
+            var diagnosi = new List<string>(_extraDiagnostics);
+            diagnosi.AddRange(BuildRunDiagnostics(summary, strategies));
+            summary.Diagnostics = diagnosi;
 
             Write(new BacktestLogEvent
             {
@@ -389,8 +406,8 @@ public sealed class BacktestDiagnosticsLogger : IDisposable
             if (s.SkippedNoData == s.Scheduled)
                 return "mai valutata: datasource assente o vuoto per questa coppia simbolo/timeframe.";
             if (s.SkippedNotEnoughCandles > 0 && s.SkippedNotEnoughCandles >= s.Scheduled - s.SkippedStaleCandle)
-                return "mai valutata: candele disponibili sempre inferiori a RequiredCandles. " +
-                       "Il feed non copre l'intervallo richiesto, oppure RequiredCandles è sovradimensionato.";
+                return $"mai valutata: candele disponibili sempre inferiori alle {s.RequiredCandles} " +
+                       "richieste. Il feed non copre l'intervallo, oppure RequiredCandles è sovradimensionato.";
             if (s.SkippedStaleCandle > 0)
                 return "mai valutata: ultima candela sempre troppo vecchia rispetto alla barra corrente.";
             return "mai valutata, motivo non classificato.";
@@ -411,7 +428,9 @@ public sealed class BacktestDiagnosticsLogger : IDisposable
 
         if (s.SkippedNotEnoughCandles > s.Evaluations)
             return $"valutata solo {s.Evaluations} volte su {s.Scheduled} occasioni: per la maggior " +
-                   "parte del run mancavano candele a sufficienza.";
+                   $"parte del run mancavano candele a sufficienza (ne chiede {s.RequiredCandles}). " +
+                   "In sessione, dove la storia la spinge il client, una soglia cosi' alta puo' " +
+                   "impedirne del tutto la valutazione.";
 
         return null;
     }
@@ -438,6 +457,29 @@ public sealed class BacktestDiagnosticsLogger : IDisposable
             diagnostics.Add($"[strategie] {mute.Count} strategie su {strategies.Count} non sono mai state " +
                             $"valutate: {string.Join(", ", mute.Take(10).Select(x => x.StrategyCode))}" +
                             (mute.Count > 10 ? ", …" : ""));
+
+        // Riscaldamento profondo: la soglia varia di venti volte fra strategie sullo stesso stream
+        // (PTS_NQ_VBO_002_240 chiede 606 candele, le altre di @NQ_240 ne chiedono 36) e finche' il
+        // numero non stava nell'artefatto il riscaldamento sembrava un difetto del feed. E' anche la
+        // ragione per cui una strategia puo' non operare mai in sessione, dove la storia la spinge
+        // il client: se il conteggio e' alto qui, in sessione quella strategia resta muta.
+        var riscaldamento = strategies
+            .Where(x => x.RequiredCandles > 0 && x.SkippedNotEnoughCandles > 0)
+            .OrderByDescending(x => x.SkippedNotEnoughCandles)
+            .ToList();
+        var affamate = riscaldamento
+            .Where(x => x.SkippedNotEnoughCandles >= x.Evaluations)
+            .ToList();
+        if (affamate.Count > 0)
+            diagnostics.Add(
+                $"[riscaldamento] {affamate.Count} strategie hanno saltato per riscaldamento almeno " +
+                "quante barre ne hanno valutate: " +
+                string.Join(", ", affamate.Take(10).Select(x =>
+                    $"{x.StrategyCode} ({x.SkippedNotEnoughCandles} saltate contro {x.Evaluations} " +
+                    $"valutate, chiede {x.RequiredCandles} candele)")) +
+                (affamate.Count > 10 ? ", …" : "") +
+                ". Su questo feed operano su una frazione del periodo, e in sessione — dove la storia " +
+                "la spinge il client — potrebbero non essere mai valutate.");
 
         var silent = strategies
             .Where(x => x.Evaluations > 0 && x.BuySignals + x.SellSignals == 0)

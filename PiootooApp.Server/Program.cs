@@ -73,6 +73,44 @@ builder.Services.AddSwaggerGen();
 
 var app = builder.Build();
 
+// Ripresa delle sessioni realtime lasciate aperte dal processo precedente. Qui e non in un
+// IHostedService né in ApplicationStarted: entrambi possono girare quando il server ha già iniziato
+// ad accettare richieste, e un cBot che facesse open-plan in quella finestra aprirebbe una sessione
+// NUOVA accanto a quella che stava per essere ripresa — due sessioni sullo stesso piano, e le
+// posizioni aperte agganciate a quella sbagliata.
+//
+// Il log non è decorativo: una sessione che non riprende è una posizione che resta senza
+// sorveglianza lato server, e deve essere visibile senza andarla a cercare.
+// Vedi docs/domini/riavvio-del-server-e-ripresa-sessione.md.
+{
+    var restoreLogger = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("Piootoo.Ripresa");
+    try
+    {
+        var outcomes = app.Services.GetRequiredService<ITradingSessionService>().RestoreSessions();
+        foreach (var outcome in outcomes)
+        {
+            if (outcome.Restored)
+                restoreLogger.LogInformation(
+                    "Sessione {SessionId} (piano {PlanCode}) ripresa: {Reason}",
+                    outcome.SessionId, outcome.PlanCode, outcome.Reason);
+            else
+                restoreLogger.LogWarning(
+                    "Sessione {SessionId} (piano {PlanCode}) NON ripresa: {Reason}",
+                    outcome.SessionId, outcome.PlanCode, outcome.Reason);
+        }
+
+        if (outcomes.Count > 0)
+            Console.WriteLine(
+                $"[Piootoo] Sessioni realtime riprese: {outcomes.Count(o => o.Restored)} su {outcomes.Count}.");
+    }
+    catch (Exception ex)
+    {
+        // Il server parte comunque: senza ripresa si torna al comportamento di prima — il cBot apre
+        // una sessione nuova — che è degradato ma vivo. Un server che non parte non gestisce niente.
+        restoreLogger.LogError(ex, "Ripresa delle sessioni fallita: il server parte senza.");
+    }
+}
+
 app.UseDefaultFiles();
 app.UseStaticFiles();
 

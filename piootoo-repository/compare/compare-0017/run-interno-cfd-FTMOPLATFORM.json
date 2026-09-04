@@ -1,0 +1,22 @@
+{
+  "Origin": "Internal",
+  "CreatedUtc": "2026-09-04T08:33:01.5358714Z",
+  "PriceSource": {
+    "Kind": "BrokerCfd",
+    "Broker": "FTMOPLATFORM",
+    "FeedLabel": "CFD FTMOPLATFORM (datafeed-external/FTMOPLATFORM)"
+  },
+  "EngineVersion": "5.1.0",
+  "PlanCode": null,
+  "ExecutionKey": null,
+  "SessionId": null,
+  "AccountNumber": null,
+  "ResolvedPriceSource": {
+    "Kind": "BrokerCfd",
+    "Broker": "FTMOPLATFORM",
+    "FeedLabel": "CFD FTMOPLATFORM (datafeed-external/FTMOPLATFORM)"
+  },
+  "RunSlug": "interno-cfd-FTMOPLATFORM",
+  "IdentifiesRun": true,
+  "InitialCapital": null
+}

@@ -2549,3 +2549,159 @@ tre barre vecchie per far passare per "coperto" un feed vuoto.
     `titano-analisi-parametri-e-audit-2026-07-31.md`,
     `verifica-backtest-sizing-titano-2026-07-29.md` e le cartelle
     `titano-simulazione-*` restano come **storia**: non descrivono più il codice.
+
+- **2026-09-04** — **Il riavvio del server di una sessione realtime si risolve
+  reidratando lo stato piccolo e riconciliando con cTrader, non replicando lo
+  stato grosso.** Delle quattro semantiche elencate in `lavori-in-corso.md` si
+  sceglie la 4 (warm-up replay dal client) più una riconciliazione esplicita col
+  broker. Le ragioni: in `ExternalBroker` la valutazione è funzione di (storia,
+  posizione, `Entries`) — `GetExecution` nel ramo esterno non legge il
+  `RuntimeState` del motore simulato e le strategie sono stateless — quindi la
+  storia delle candele è l'unica fetta grossa, ed è già in mano al client;
+  dumparla significherebbe poter reidratare una storia stantia credendosi caldi.
+  Il dump conserva **`SessionId` e `SessionToken`**, che è la parte che porta il
+  guadagno maggiore a costo minore: senza, il file di stato locale del cBot non
+  è più `anchored` e il bot butta via break-even, trailing, `CloseAtUtc` e
+  `MaxBarsInPosition` di ogni posizione aperta — un riavvio del *server* che
+  degrada silenziosamente le uscite sul *client*. La sessione reidratata nasce
+  in quarantena e non emette ingressi finché il client non ha riconciliato:
+  operare su uno snapshot di posizione non verificato può raddoppiare
+  l'esposizione, e un ingresso mancato costa meno di un doppione. Procedura
+  completa in `domini/riavvio-del-server-e-ripresa-sessione.md`.
+
+- **2026-09-04** — **Il cBot diretto va allineato al formato di label del cBot
+  distribuito.** `PiootooDistributedExecutionBot` scrive già
+  `PiootooLive:{StrategyCode}:{IntentId}` e manda posizioni, ordini e trade del
+  broker a ogni poll di claim (`AccountSignalPollRequest` →
+  `ReconcileVanishedPositions`): su quel percorso identità e riconciliazione
+  esistono. `PiootooDirectExecutionBot` scrive invece
+  `PiootooSession:{strategyCode}` e non ha un poll, quindi dopo un riavvio il
+  riaggancio posizione → intent ricade su `FindLatestMatchingIntent`, cioè
+  «l'intent più recente con quella strategia e quel simbolo»: un'euristica che
+  sceglie per data e non per identità, e che con i motori Unger — che riemettono
+  l'ordine a ogni barra — può agganciare la posizione a un intent diverso da
+  quello che l'ha aperta, quindi a SL/TP e `MaxBarsInPosition` sbagliati, senza
+  errore. `ExtractStrategyCode` resta retrocompatibile con le label a due campi,
+  altrimenti la migrazione orfanizza le posizioni già a mercato; il prefisso
+  resta diverso fra i due bot, perché dice chi ha aperto la posizione.
+
+- **2026-09-04** — **Il presidio realtime della console calcola i verdetti sul
+  server, non nella schermata.** Sono le stesse domande che si porrà la
+  riconciliazione (posizione oltre il flat di conto, chiusura a tempo non
+  avvenuta, pending scaduto senza report, flusso di barre fermo), e scriverle
+  due volte significa vederle divergere. La schermata non afferma mai che una
+  posizione *è* aperta — la console non vede cTrader — ma solo che il server la
+  crede aperta e da quanto non lo verifica.
+
+- **2026-09-04** — **La reidratazione è stata implementata senza la quarantena
+  che il progetto prevedeva.** `RestoredPendingReconcile` doveva impedire alla
+  sessione ripresa di emettere ingressi finché il client non avesse riconciliato,
+  ma la sua unica uscita è la riconciliazione stessa (fase 3), che non esiste
+  ancora: implementarla oggi congelerebbe il sistema dopo ogni riavvio, cioè un
+  danno certo per evitarne uno possibile. Senza quarantena la reidratazione resta
+  comunque migliore del comportamento precedente in **entrambe** le direzioni:
+  prima il server ripartiva credendo il conto piatto e rientrava su una strategia
+  che a mercato aveva già una posizione (esposizione doppia); adesso sa della
+  posizione e non rientra, e il caso che resta scoperto — posizione chiusa al
+  broker mentre il server era giù, quindi ingresso non più emesso — è un costo
+  opportunità, non rischio non dichiarato. Non è invisibile: il presidio lo mostra
+  come `SessioneRipresaSenzaFlusso` e `PosizioneMaiConfermata`, e sul percorso
+  distribuito `ReconcileVanishedPositions` lo ripara da sé al primo poll.
+
+- **2026-09-04** — **Su una sessione ripresa la scrittura autorevole degli
+  artefatti diventa un merge.** Il dump contiene i soli ordini in volo, non la
+  storia della sessione: `session.Intents` dopo una ripresa è una lista corta, e
+  `WriteSignals` — che è una sostituzione — cancellerebbe tutto ciò che la
+  sessione aveva prodotto prima del riavvio. Lo farebbe per giunta sul percorso
+  più innocuo che esista, qualcuno che apre gli artefatti per leggerli, perché
+  `GetPersistedSignals` forza il flush completo. `WriteArtifactsFull` usa quindi
+  `UpsertSignals`/`UpsertTrades` quando `RestoredFromDump`. Conseguenza da
+  conoscere: i contatori di `session-summary.json` valgono dalla ripresa in poi e
+  non dall'apertura, e la scheda lo dichiara in `diagnostics`.
+
+- **2026-09-04** — **Il riscaldamento si rimanda confrontando le candele spedite,
+  non quelle richieste.** Un cBot rimasto acceso mentre il server si riavvia non
+  rimanda la storia profonda, perché `WarmedUp` vive nella sua RAM: la sessione
+  resta muta finché non riaccumula `RequiredCandles` da sola — settimane, per una
+  strategia a 240 minuti che ne chiede 606, e senza un messaggio da nessuna parte.
+  Il bot ora confronta `HistoryBars` dichiarato dal server con
+  `WarmUpBarsSent`, cioè quante ne ha davvero mandate. Il confronto con
+  `RequiredCandles` sarebbe sbagliato: su uno stream di cui il broker non ha tutta
+  la storia i due numeri non coincidono per sempre, e la finestra ripartirebbe a
+  ogni barra. È anche il prerequisito perché la reidratazione serva a qualcosa —
+  una sessione ripresa non ha storia candele, quindi senza questo sarebbe viva e
+  muta insieme.
+
+- **2026-09-04** — **`RestoreSessions()` si chiama da `Program.cs` prima di
+  `app.Run()`, non da un `IHostedService`.** Entrambe le alternative (hosted
+  service, `ApplicationStarted`) possono girare quando il server ha già iniziato
+  ad accettare richieste, e un cBot che facesse `open-plan` in quella finestra
+  aprirebbe una sessione nuova accanto a quella che stava per essere ripresa: due
+  sessioni sullo stesso piano, con le posizioni aperte agganciate a quella
+  sbagliata.
+
+
+- **2026-09-04** — **Un conto che dichiara una tabella di conversione e ne risolve
+  zero righe fa fallire il run.** `AccountSymbolConversion.SupportsSymbol` ammette
+  ogni simbolo quando la tabella è vuota — è il conto neutro, quello non ancora
+  mappato — e finché i due casi collassavano sullo stesso artefatto (nessuna
+  esclusione) un run poteva far girare strategie su simboli che il conto ha
+  disabilitati senza che niente lo dicesse. In compare-0017 lo stesso file su disco
+  ha prodotto tre esclusioni diverse in tre run consecutivi: quindici strategie,
+  poi solo le cinque HK, poi nessuna — e nell'ultimo giro sono girati 344 trade HK e
+  232 HO che il cBot, correttamente, non ha mai eseguito. Vale la regola del broker
+  inesistente sul datafeed: si fallisce all'avvio, non si ripiega in silenzio. Il
+  conto *senza* codice tabella resta il conto neutro e non fallisce.
+
+- **2026-09-04** — **Il `backtest-summary.json` dichiara l'universo del conto, le
+  convenzioni di riempimento e il catalogo.** Nuovi campi `accountUniverse`
+  (codice tabella, simboli mappati e abilitati, se è stato applicato come conto
+  neutro), `fillConventions` (priorità intrabarra, `trailingPeakIncludesCurrentBar`,
+  `trailingMinStepFraction`, `rejectWrongSideLevels`, simboli con slippage sugli
+  stop) e `catalogStrategies` / `masterfilterStrategies` /
+  `strategiesNotInMasterfilter`. Stessa ragione di `holding` e `datafeedBroker`:
+  cambiano il risultato senza comparire nei trade, e chi rilegge il run mesi dopo
+  non ha altro modo di accorgersene. Le tre domande che il summary non sapeva
+  rispondere erano «con quale tabella?», «con quale convenzione intrabarra?» e
+  «quante classi del catalogo non erano nel masterfilter?» — tutte e tre emerse in
+  compare-0017.
+
+- **2026-09-04** — **`SessionBreakoutEngine` ha il percorso `level_source = 1`.**
+  È il trigger EasyLanguage `MyTrigger=1` di `easy_engine_py/breakout.py`: running
+  massimo/minimo della sessione **corrente**, **inclusa** la barra in valutazione, con
+  `n_sess` e `lev_include_sess0` ignorati. Non si ottiene con i parametri esistenti:
+  `Sessions = 1; IncludeCurrentSession = true` è `level_source = 0` e vale
+  `max(H_d1 chiusa, running della sessione corrente **senza** la barra in corso)` —
+  due differenze, entrambe verso l'alto, quindi ingressi mancati o più tardi.
+  `PTS_KC_SBO_001_240` (scheda S26) lo dichiarava così ed è l'unico errore di
+  conversione trovato nel controllo delle 116 schede: ora dichiara `LevelSource = 1`.
+  Non c'è look-ahead perché l'ordine emesso alla barra `i` vive solo alla barra `i+1`.
+
+- **2026-09-04** — **Il `backtest-summary.json` dichiara `requiredCandles` per strategia, e il run
+  segnala il riscaldamento profondo.** `skippedNotEnoughCandles` da solo non si legge: dice quante
+  barre sono state saltate ma non contro quale soglia, e la soglia varia di venti volte fra
+  strategie dello stesso stream — `PTS_NQ_VBO_002_240` ne chiede 606, le altre di `@NQ_240` ne
+  chiedono 36. Senza il numero nell'artefatto un riscaldamento che mangia metà del run sembrava un
+  difetto del feed. Nuova diagnosi `[riscaldamento]` per le strategie che saltano almeno quante
+  barre ne valutano. È anche il numero che spiega perché una strategia può non operare **mai** in
+  sessione, dove la storia la spinge il client: nei confronti 0015, 0016 e 0017 le tre VBO non
+  hanno mai un trade dal lato cBot, e la profondità richiesta (501 e 606 candele a 4 ore) è la
+  prima ipotesi da escludere.
+
+- **2026-09-04** — **`BiasWeeklyEngine.UnreachableScheduleLegs` e la diagnosi `[calendario]`.** Il
+  BIASW entra ed esce a giorno e ora fissi con un confronto esatto: se il feed non ha una barra a
+  quell'istante la leg non esiste, e il motore non lo segnala — non è uno skip, non è un errore, è
+  *niente*. Su compare-0017 `@HO_60` non ha nessuna barra fra le 22:00 e le 23:00 di Roma, quindi
+  l'ingresso LONG di `PTS_HO_BSW_001_60` e `PTS_HO_BSW_002_60` (martedì 23:00) ha una barra
+  disponibile su trentacinque settimane e produce **zero** segnali, e l'uscita LONG di
+  `PTS_HO_BSW_003_60` (venerdì 23:00) non ne ha nessuna: otto mesi di run senza un segnale e senza
+  una riga di diagnostica. Il controllo gira **una volta sola**, sulla serie appena caricata e
+  prima che il run parta — dopo si vedrebbe solo l'assenza di segnali — e passa dall'orologio del
+  motore, non dall'ora grezza della barra.
+
+- **2026-09-04** — **Versione a 5.1.1.** Patch, non minor: cambiano i risultati del motore
+  (`level_source = 1` sul BO) e lo schema del riepilogo, ma non cambia niente di ciò che server,
+  console e cBot si dicono via HTTP. Il contratto resta `5.1`, quindi i cBot non vanno
+  ridistribuiti e `BotVersion` resta `5.1.0`. Il numero serve a distinguere due run nel
+  `engineVersion` del log di avvio: un backtest lanciato contro un server non ricompilato sarebbe
+  altrimenti indistinguibile da uno aggiornato.

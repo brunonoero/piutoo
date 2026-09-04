@@ -114,6 +114,24 @@ public interface ITradingSessionService
     /// questo la console non ha modo di scoprirle, perché le tiene solo <c>_sessions</c> in RAM.
     /// </summary>
     IReadOnlyList<TradingSessionSummary> ListSessions();
+
+    /// <summary>
+    /// Presidio di un conto: cosa il server sta governando adesso e dove rischia di non
+    /// corrispondere più a cTrader. Non richiede il token di sessione perché non è un canale di
+    /// esecuzione — è la vista di chi deve decidere se intervenire a mano sulla piattaforma, e
+    /// deve poterla aprire anche quando la sessione, e con lei il token, non esiste più.
+    /// Vedi <c>docs/domini/riavvio-del-server-e-ripresa-sessione.md</c> §8.
+    /// </summary>
+    AccountRealtimeWatch GetAccountWatch(string accountNumber);
+
+    /// <summary>
+    /// Rimette in RAM le sessioni realtime lasciate aperte dal processo precedente, leggendo i
+    /// <c>session-state.json</c> dei workspace. Va chiamata una volta all'avvio, prima che un cBot
+    /// possa bussare: una sessione ripresa dopo che il bot ha già fatto <c>open-plan</c> resterebbe
+    /// accanto a quella nuova invece di sostituirla.
+    /// </summary>
+    IReadOnlyList<SessionRestoreOutcome> RestoreSessions();
+
     TradingSessionDescriptor SetStatus(string sessionId, string token, TradingSessionStatus status);
     PushBarsResponse PushBars(PushBarsRequest request);
 
@@ -243,6 +261,31 @@ public sealed class TradingSessionService : ITradingSessionService
         /// </summary>
         public HashSet<string> JoinedAccounts { get; } = new(StringComparer.OrdinalIgnoreCase);
         public decimal PeakEquity { get; set; }
+
+        /// <summary>
+        /// La sessione è stata ricostruita da <c>session-state.json</c> dopo un riavvio del
+        /// processo, non aperta da zero.
+        ///
+        /// <para>Cambia una cosa sola, ed è importante: <see cref="Intents"/> contiene i soli
+        /// ordini in volo salvati nel dump, non la storia della sessione — quella sta in
+        /// <c>signals.json</c> e non viene reidratata. Una riscrittura completa degli artefatti
+        /// partendo da questa lista cancellerebbe tutto ciò che la sessione ha prodotto prima del
+        /// riavvio, quindi su una sessione ripresa la scrittura autorevole diventa un merge
+        /// (<c>UpsertSignals</c>) invece di una sostituzione. Vedi <c>WriteArtifactsFull</c>.</para>
+        /// </summary>
+        public bool RestoredFromDump { get; set; }
+
+        /// <summary>Quando la ripresa è avvenuta. Finisce nella scheda del run e nel monitor.</summary>
+        public DateTime? RestoredAtUtc { get; set; }
+
+        /// <summary>
+        /// Sospende la scrittura del dump mentre la sessione si sta ricostruendo. Senza, la
+        /// ricostruzione — che passa da <c>SetTradingGroups</c>, e quindi da <c>Persist</c> —
+        /// sovrascriverebbe il dump di partenza con uno stato ancora a metà: un secondo riavvio in
+        /// mezzo alla ripresa perderebbe tutto quello che non era ancora stato riapplicato.
+        /// </summary>
+        public bool StateDumpSuspended { get; set; }
+
         public TradingSessionStatus Status { get; set; }
         public required DateTime CreatedAtUtc { get; init; }
         public object Gate { get; } = new();
@@ -478,6 +521,199 @@ public sealed class TradingSessionService : ITradingSessionService
             })
             .ToList();
 
+    /// <summary>
+    /// Presidio di un conto. Raccoglie i fatti dalla RAM e li passa a <see cref="RealtimeWatchRules"/>,
+    /// che decide: qui non c'è nessuna regola, e nelle regole non c'è nessuno stato.
+    ///
+    /// <para>Non lancia mai per un dato mancante. È la schermata che si apre <b>proprio quando</b>
+    /// qualcosa non torna — sessione sparita, anagrafica incompleta, piano modificato — e un
+    /// presidio che risponde 500 invece di dire cosa vede è peggio di nessun presidio.</para>
+    /// </summary>
+    public AccountRealtimeWatch GetAccountWatch(string accountNumber)
+    {
+        if (string.IsNullOrWhiteSpace(accountNumber))
+            throw new ArgumentException("Numero di conto obbligatorio.", nameof(accountNumber));
+
+        var account = accountNumber.Trim();
+        var nowUtc = DateTime.UtcNow;
+
+        var piani = ResolvePlanCodesForAccount(account);
+        var sessioni = _sessions.Values
+            // Solo realtime: un backtest via cBot apre sempre una sessione nuova e non ha niente
+            // da presidiare, ma finisce nella stessa mappa e riempirebbe la schermata di righe che
+            // non riguardano il conto vero.
+            .Where(session => session.ClientRunMode == ClientRunMode.Realtime && BelongsToAccount(session, account))
+            .OrderByDescending(session => session.CreatedAtUtc)
+            .Select(session => BuildWatchSession(session, account, nowUtc))
+            .ToList();
+
+        var rilievi = RealtimeWatchRules.Evaluate(piani, sessioni, nowUtc);
+
+        return new AccountRealtimeWatch
+        {
+            AccountNumber = account,
+            GeneratedAtUtc = nowUtc,
+            Piani = piani,
+            Sessioni = sessioni,
+            Rilievi = rilievi,
+            Severity = RealtimeWatchRules.Worst(rilievi)
+        };
+    }
+
+    /// <summary>
+    /// I piani che nominano il conto, su tutti i workspace. Serve a distinguere "nessuna sessione
+    /// perché il conto non opera" da "nessuna sessione e invece dovrebbe averne una", che è il caso
+    /// dopo un riavvio del server. Un workspace illeggibile si salta invece di far fallire la
+    /// lettura di tutti gli altri.
+    /// </summary>
+    private IReadOnlyList<string> ResolvePlanCodesForAccount(string accountNumber)
+    {
+        var codici = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var workspace in _workspaces.List())
+        {
+            try
+            {
+                foreach (var plan in _plans.List(workspace.Id))
+                    if (plan.Groups.Any(row =>
+                            string.Equals(row.AccountNumber?.Trim(), accountNumber, StringComparison.OrdinalIgnoreCase)))
+                        codici.Add(plan.Code);
+            }
+            catch (Exception)
+            {
+                // Un piano illeggibile non è il problema che questa schermata sta cercando.
+            }
+        }
+
+        return codici.ToList();
+    }
+
+    /// <summary>
+    /// Il conto partecipa alla sessione: la esegue direttamente, l'ha aperta con <c>open-plan</c>,
+    /// oppure è una delle righe della distribuzione multi-account.
+    /// </summary>
+    private static bool BelongsToAccount(Session session, string accountNumber) =>
+        string.Equals(session.DirectAccountNumber, accountNumber, StringComparison.OrdinalIgnoreCase)
+        || session.JoinedAccounts.Contains(accountNumber)
+        || session.AccountGroups.ContainsKey(accountNumber);
+
+    private RealtimeWatchSession BuildWatchSession(Session session, string accountNumber, DateTime nowUtc)
+    {
+        lock (session.Gate)
+        {
+            // L'anagrafica del conto può mancare proprio mentre si sta indagando: si ripiega
+            // sull'identità e il simbolo dell'account resta quello Piootoo, invece di far fallire
+            // tutto il presidio per una tabella di conversione assente.
+            AccountSymbolConversion conversione;
+            try
+            {
+                conversione = ResolveAccountConversion(session, accountNumber);
+            }
+            catch (Exception)
+            {
+                conversione = AccountSymbolConversion.Identity;
+            }
+
+            var posizioni = new List<RealtimeWatchPosition>();
+            foreach (var (key, posizione) in session.ExternalPositions)
+            {
+                if (!PositionBelongsToAccount(session, posizione, accountNumber))
+                    continue;
+
+                session.ExternalPositionDetails.TryGetValue(key, out var dettagli);
+                var intent = dettagli.IntentId is { Length: > 0 } intentId
+                    ? session.IntentsById.GetValueOrDefault(intentId)
+                    : null;
+
+                posizioni.Add(new RealtimeWatchPosition
+                {
+                    StrategyCode = posizione.StrategyCode,
+                    Symbol = posizione.Symbol,
+                    AccountSymbol = conversione.GetAccountSymbol(posizione.Symbol),
+                    Direction = posizione.Direction,
+                    Quantity = posizione.Quantity,
+                    EntryPrice = posizione.EntryPrice,
+                    EntryTimeUtc = dettagli.EntryTimeUtc,
+                    IntentId = dettagli.IntentId ?? string.Empty,
+                    StopLoss = dettagli.StopLoss,
+                    TakeProfit = dettagli.TakeProfit,
+                    // CloseAtUtc e MaxBarsInPosition vivono sull'intent di ingresso, non sulla
+                    // posizione: sono la specifica di uscita che esegue il client.
+                    CloseAtUtc = intent?.CloseAtUtc,
+                    MaxBarsInPosition = intent?.MaxBarsInPosition,
+                    BrokerConfermata = session.BrokerConfirmedPositions.Contains(key)
+                });
+            }
+
+            var pendenti = session.LiveIntents
+                .Where(intent => !intent.IsClose && IntentBelongsToAccount(session, intent, accountNumber))
+                .Where(intent => intent.Status is OrderIntentStatus.Pending
+                    or OrderIntentStatus.Accepted or OrderIntentStatus.PartiallyFilled)
+                .Select(intent => new RealtimeWatchPending
+                {
+                    IntentId = intent.IntentId,
+                    StrategyCode = intent.StrategyCode,
+                    Symbol = intent.Symbol,
+                    AccountSymbol = string.IsNullOrWhiteSpace(intent.AccountSymbol)
+                        ? conversione.GetAccountSymbol(intent.Symbol)
+                        : intent.AccountSymbol,
+                    Side = intent.Side,
+                    Status = intent.Status,
+                    Price = intent.Price,
+                    Quantity = intent.FinalQuantity,
+                    TimeframeMinutes = intent.TimeframeMinutes,
+                    CreatedAtUtc = intent.CreatedAtUtc,
+                    ExpiresAtUtc = intent.ExpiresAtUtc
+                })
+                .OrderBy(intent => intent.CreatedAtUtc)
+                .ToList();
+
+            return new RealtimeWatchSession
+            {
+                SessionId = session.Id,
+                PlanCode = session.PlanCode ?? string.Empty,
+                ExecutionKey = session.ExecutionKey ?? string.Empty,
+                WorkspaceId = session.WorkspaceId,
+                Status = session.Status,
+                ExecutionMode = session.Mode,
+                CreatedAtUtc = session.CreatedAtUtc,
+                LastBarUtc = session.LastBarUtc,
+                LastEvaluatedBarUtc = session.LastEvaluatedBarTimeUtc,
+                // Il timeframe più fitto è la scala su cui un silenzio diventa anomalo: su una
+                // sessione di sole strategie a 240 minuti quattro ore senza barre sono la norma.
+                MinTimeframeMinutes = session.Strategies.Count == 0
+                    ? 0
+                    : session.Strategies.Min(strategy => strategy.TimeframeMinutes),
+                MinutiDallUltimaBarra = session.LastBarUtc is { } ultima
+                    ? (nowUtc - ultima).TotalMinutes
+                    : null,
+                Holding = session.Holding,
+                RipresaDaDumpAtUtc = session.RestoredAtUtc,
+                // Solo il percorso di claim manda al server lo stato del broker
+                // (AccountSignalPollRequest → ReconcileVanishedPositions). In esecuzione diretta
+                // non arriva mai, e ciò che il server crede non è mai stato verificato.
+                RiceveStatoBroker = session.AccountGroups.Count > 0,
+                Posizioni = posizioni,
+                Pendenti = pendenti
+            };
+        }
+    }
+
+    /// <summary>
+    /// In multi-account la posizione porta il proprio conto; in esecuzione diretta il campo è vuoto
+    /// e il proprietario è il conto della sessione.
+    /// </summary>
+    private static bool PositionBelongsToAccount(
+        Session session, TradingPositionSnapshot position, string accountNumber) =>
+        string.IsNullOrEmpty(position.AccountNumber)
+            ? string.Equals(session.DirectAccountNumber, accountNumber, StringComparison.OrdinalIgnoreCase)
+            : string.Equals(position.AccountNumber, accountNumber, StringComparison.OrdinalIgnoreCase);
+
+    /// <inheritdoc cref="PositionBelongsToAccount"/>
+    private static bool IntentBelongsToAccount(Session session, OrderIntent intent, string accountNumber) =>
+        string.IsNullOrEmpty(intent.AssignedAccountNumber)
+            ? string.Equals(session.DirectAccountNumber, accountNumber, StringComparison.OrdinalIgnoreCase)
+            : string.Equals(intent.AssignedAccountNumber, accountNumber, StringComparison.OrdinalIgnoreCase);
+
     public TradingSessionDescriptor OpenFromPlan(OpenTradingPlanSessionRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -594,23 +830,9 @@ public sealed class TradingSessionService : ITradingSessionService
                 "disattiva EnforceConcurrencyLimits, oppure usa un cBot che reclama i segnali " +
                 "da GET /accounts/{n}/signals.");
 
-        var descriptor = CreateCore(new CreateTradingSessionRequest
-        {
-            WorkspaceId = plan.WorkspaceId,
-            ExecutionMode = ExecutionMode.ExternalBroker,
-            // Nessun capitale: una sessione da piano è sempre ExternalBroker, dove il saldo è del
-            // broker e la size di ogni account viene dal suo InitialBalance (BalanceScale) al claim.
-            CommissionPerContract = plan.CommissionPerContract,
-            ClientSessionToken = Convert.ToHexString(Guid.NewGuid().ToByteArray()),
-            ClientRunMode = request.ClientRunMode,
-            // Il valore già risolto, non quello del piano: qui il profilo ha eventualmente
-            // prevalso, e ripassare il nullable farebbe ricalcolare a CreateCore il default,
-            // perdendo l'override.
-            EnforceConcurrencyLimits = enforceConcurrency,
-            Holding = plan.Holding,
-            SizeMultiplier = plan.SizeMultiplier,
-            PositionSizing = plan.PositionSizing
-        }, plan.Code, request.ExecutionKey.Trim(), account);
+        var descriptor = CreateCore(
+            BuildPlanSessionRequest(plan, request.ClientRunMode, enforceConcurrency, token: null),
+            plan.Code, request.ExecutionKey.Trim(), account);
         AccountSymbolConversion conversion;
         lock (_sessions[descriptor.SessionId].Gate)
         {
@@ -639,6 +861,34 @@ public sealed class TradingSessionService : ITradingSessionService
         _planExecutions[executionKey] = descriptor.SessionId;
         return Describe(_sessions[descriptor.SessionId], conversion, account);
     }
+
+    /// <summary>
+    /// La richiesta di creazione che un piano produce. Estratta perché la usano in due:
+    /// l'apertura dal cBot e la ripresa dopo un riavvio del processo. Divergere qui significa
+    /// riprendere una sessione con una configurazione diversa da quella con cui era nata, che è
+    /// il tipo di differenza che non dà errore da nessuna parte.
+    /// </summary>
+    /// <param name="enforceConcurrency">
+    /// Già risolto dal chiamante: il profilo del run può aver prevalso sul piano, e ripassare il
+    /// nullable farebbe ricalcolare a <c>CreateCore</c> il default, perdendo l'override.
+    /// </param>
+    /// <param name="token">Token da conservare; null ne genera uno nuovo.</param>
+    private static CreateTradingSessionRequest BuildPlanSessionRequest(
+        TradingPlan plan, ClientRunMode clientRunMode, bool enforceConcurrency, string? token) =>
+        new()
+        {
+            WorkspaceId = plan.WorkspaceId,
+            ExecutionMode = ExecutionMode.ExternalBroker,
+            // Nessun capitale: una sessione da piano è sempre ExternalBroker, dove il saldo è del
+            // broker e la size di ogni account viene dal suo InitialBalance (BalanceScale) al claim.
+            CommissionPerContract = plan.CommissionPerContract,
+            ClientSessionToken = token ?? Convert.ToHexString(Guid.NewGuid().ToByteArray()),
+            ClientRunMode = clientRunMode,
+            EnforceConcurrencyLimits = enforceConcurrency,
+            Holding = plan.Holding,
+            SizeMultiplier = plan.SizeMultiplier,
+            PositionSizing = plan.PositionSizing
+        };
 
     /// <summary>
     /// Scollega e ferma la sessione di backtest che occupava questa chiave, perche' il run che la
@@ -765,9 +1015,18 @@ public sealed class TradingSessionService : ITradingSessionService
         return RunPriceSource.Cfd(account?.Broker);
     }
 
+    /// <summary>
+    /// Identità da riusare quando la sessione non nasce ma <b>rinasce</b> da un dump.
+    ///
+    /// <para>Conservare id e token non è un dettaglio di comodo: il file di stato locale del cBot è
+    /// ancorato al session id, e con un id nuovo il bot scarta break-even, trailing e uscite a
+    /// tempo di ogni posizione aperta. È il danno più grave del riavvio, e si evita solo qui.</para>
+    /// </summary>
+    private sealed record RestoreContext(string SessionId, string SessionToken);
+
     private TradingSessionDescriptor CreateCore(
         CreateTradingSessionRequest request, string? planCode, string? executionKey,
-        string? accountNumber = null)
+        string? accountNumber = null, RestoreContext? restore = null)
     {
         var filter = _workspaces.GetMasterFilter(request.WorkspaceId);
         if (filter.StrategiesFilter.Count == 0)
@@ -807,12 +1066,12 @@ public sealed class TradingSessionService : ITradingSessionService
 
         var engine = new PiootooTradingService();
         engine.Initialize(request.InitialCapital, request.CommissionPerContract);
-        var sessionId = Guid.NewGuid().ToString("N");
+        var sessionId = restore?.SessionId ?? Guid.NewGuid().ToString("N");
         var sessionDirectory = ResolveSessionDirectory(request, planCode, executionKey, sessionId);
 
         // Una sessione di backtest scrive sotto backtests/ accanto ai run del motore interno:
         // senza marcatore le due origini sarebbero indistinguibili in elenco.
-        if (request.ClientRunMode == ClientRunMode.Backtest && !string.IsNullOrWhiteSpace(planCode))
+        if (restore is null && request.ClientRunMode == ClientRunMode.Backtest && !string.IsNullOrWhiteSpace(planCode))
         {
             WorkspaceService.WriteBacktestOrigin(sessionDirectory, new BacktestOriginInfo
             {
@@ -828,13 +1087,16 @@ public sealed class TradingSessionService : ITradingSessionService
             });
         }
         var store = new TradingJsonStore(sessionDirectory);
-        store.Initialize();
+        // Initialize() azzera signals.json e trades.json. Su una ripresa sono esattamente i file da
+        // NON toccare: contengono tutto ciò che la sessione ha prodotto prima del riavvio, e il
+        // dump non li duplica proprio perché sono già lì.
+        if (restore is null) store.Initialize();
         var session = new Session
         {
             Id = sessionId,
-            Token = string.IsNullOrWhiteSpace(request.ClientSessionToken)
+            Token = restore?.SessionToken ?? (string.IsNullOrWhiteSpace(request.ClientSessionToken)
                 ? Convert.ToHexString(Guid.NewGuid().ToByteArray())
-                : request.ClientSessionToken,
+                : request.ClientSessionToken),
             WorkspaceId = request.WorkspaceId,
             PlanCode = planCode,
             ExecutionKey = executionKey,
@@ -855,7 +1117,11 @@ public sealed class TradingSessionService : ITradingSessionService
             InstrumentMetadata = instrumentMetadata,
             PeakEquity = request.InitialCapital,
             Status = TradingSessionStatus.Created,
-            CreatedAtUtc = DateTime.UtcNow
+            CreatedAtUtc = DateTime.UtcNow,
+            RestoredFromDump = restore is not null,
+            // Il dump resta congelato finché la ripresa non ha finito di riapplicare lo stato:
+            // vedi Session.StateDumpSuspended.
+            StateDumpSuspended = restore is not null
         };
         _sessions[session.Id] = session;
         return Describe(session);
@@ -3135,6 +3401,13 @@ public sealed class TradingSessionService : ITradingSessionService
 
     private static void Persist(Session session, bool force)
     {
+        // Il dump di ripresa NON passa dal throttle degli artefatti, ed è voluto: quello serve a non
+        // riscrivere decine di MB a ogni barra, mentre qui si scrive lo stato in volo — qualche
+        // decina di record — e la cadenza giusta è "ogni volta che qualcosa è cambiato". Gli eventi
+        // che contano (execution report, chiusura esterna, claim) chiamano tutti Persist, quindi
+        // questo è l'unico punto da cui la ripresa resta allineata senza doverne intercettare cinque.
+        PersistState(session);
+
         var now = DateTime.UtcNow;
         var elapsed = now - session.LastPersistUtc;
         if (!force && elapsed < PersistCheckpointInterval)
@@ -3168,12 +3441,407 @@ public sealed class TradingSessionService : ITradingSessionService
     /// </summary>
     private static void WriteArtifactsFull(Session session, bool durable)
     {
-        session.Store.WriteSignals(
-            session.Intents.Where(ShouldPersist).Select(intent => ToPersistedSignal(session, intent)), durable);
-        session.Store.WriteTrades(CollectTrades(session, from: 0), durable);
+        var signals = session.Intents.Where(ShouldPersist).Select(intent => ToPersistedSignal(session, intent));
+        var trades = CollectTrades(session, from: 0);
+
+        if (session.RestoredFromDump)
+        {
+            // Su una sessione ripresa la memoria NON è più il tutto: session.Intents contiene i
+            // soli ordini in volo del dump, e session.ExternalTrades riparte vuota perché i trade
+            // chiusi stanno già in trades.json. Una WriteSignals/WriteTrades qui — che è una
+            // sostituzione — cancellerebbe l'intera storia della sessione prima del riavvio, e lo
+            // farebbe in silenzio, sul percorso più innocuo che ci sia: qualcuno che apre gli
+            // artefatti per leggerli. L'upsert fonde per id e lascia intatto il resto.
+            session.Store.UpsertSignals(signals);
+            session.Store.UpsertTrades(trades);
+        }
+        else
+        {
+            session.Store.WriteSignals(signals, durable);
+            session.Store.WriteTrades(trades, durable);
+        }
+
         session.Store.WriteSessionSummary(BuildRunSummary(session), durable);
         session.JournalPending = false;
         ResetPersistenceWatermarks(session);
+    }
+
+    // ---------------------------------------------------------------- Dump e ripresa (fase 0 e 1)
+    //
+    // docs/domini/riavvio-del-server-e-ripresa-sessione.md
+
+    /// <summary>
+    /// Scrive il dump di ripresa, se questa sessione ne ha uno da scrivere.
+    ///
+    /// <para>Solo realtime e solo da piano. Un backtest apre sempre una sessione nuova per
+    /// costruzione e non ha niente da riprendere; una sessione creata a mano senza piano non ha una
+    /// configurazione da cui ricostruirsi, quindi un suo dump sarebbe un file che nessuno potrà mai
+    /// rileggere.</para>
+    ///
+    /// <para>Un errore di scrittura non deve fermare la sessione: il dump è una rete di sicurezza,
+    /// e far fallire un execution report perché il disco è pieno rovescia la priorità.</para>
+    /// </summary>
+    private static void PersistState(Session session)
+    {
+        if (session.StateDumpSuspended ||
+            session.ClientRunMode != ClientRunMode.Realtime ||
+            string.IsNullOrWhiteSpace(session.PlanCode) ||
+            string.IsNullOrWhiteSpace(session.ExecutionKey))
+            return;
+
+        try
+        {
+            session.Store.WriteSessionState(BuildSessionState(session));
+        }
+        catch (Exception)
+        {
+            // Silenzioso di proposito: vedi sopra. Che il dump manchi si vede al riavvio, dove la
+            // sessione semplicemente non riprende ed è un evento rumoroso.
+        }
+    }
+
+    private static SessionStateFile BuildSessionState(Session session)
+    {
+        // Gli intent che servono a riprendere: quelli ancora capaci di cambiare, quelli non ancora
+        // assestati, e quelli referenziati da una posizione aperta — questi ultimi perché sono loro
+        // a portare la specifica di uscita (CloseAtUtc, MaxBarsInPosition) di ciò che è a mercato.
+        // NON la storia della sessione: quella è signals.json, e reidratarla costerebbe quanto il
+        // run senza servire a nessuna decisione.
+        var daSalvare = new Dictionary<string, OrderIntent>(StringComparer.Ordinal);
+        foreach (var intent in session.LiveIntents) daSalvare[intent.IntentId] = intent;
+        foreach (var intent in session.UnsettledIntents) daSalvare[intent.IntentId] = intent;
+        foreach (var dettagli in session.ExternalPositionDetails.Values)
+            if (dettagli.IntentId is { Length: > 0 } id &&
+                session.IntentsById.TryGetValue(id, out var intent))
+                daSalvare[id] = intent;
+
+        var posizioni = new List<SessionStatePosition>(session.ExternalPositions.Count);
+        foreach (var (key, snapshot) in session.ExternalPositions)
+        {
+            session.ExternalPositionDetails.TryGetValue(key, out var dettagli);
+            posizioni.Add(new SessionStatePosition
+            {
+                Key = key,
+                Snapshot = snapshot,
+                EntryTimeUtc = dettagli.EntryTimeUtc,
+                IntentId = dettagli.IntentId ?? string.Empty,
+                StopLoss = dettagli.StopLoss,
+                TakeProfit = dettagli.TakeProfit,
+                BrokerConfirmed = session.BrokerConfirmedPositions.Contains(key)
+            });
+        }
+
+        var fill = new List<SessionStateEntryFill>();
+        foreach (var (strategyKey, perSecchio) in session.EntryFills)
+            foreach (var ((secchio, account), count) in perSecchio)
+                fill.Add(new SessionStateEntryFill
+                {
+                    StrategyKey = strategyKey,
+                    SessionStartUtc = secchio,
+                    AccountNumber = account,
+                    Count = count
+                });
+
+        return new SessionStateFile
+        {
+            SessionId = session.Id,
+            SessionToken = session.Token,
+            WorkspaceId = session.WorkspaceId,
+            PlanCode = session.PlanCode!,
+            ExecutionKey = session.ExecutionKey!,
+            ExecutionIndexKey = BuildExecutionIndexKey(session),
+            ExecutionMode = session.Mode,
+            ClientRunMode = session.ClientRunMode,
+            RunProfile = session.RunProfile,
+            Status = session.Status,
+            CreatedAtUtc = session.CreatedAtUtc,
+            SavedAtUtc = DateTime.UtcNow,
+            DirectAccountNumber = session.DirectAccountNumber ?? string.Empty,
+            JoinedAccounts = session.JoinedAccounts.ToList(),
+            Distributed = session.AccountGroups.Count > 0,
+            ConfigurationFingerprint = BuildConfigurationFingerprint(session),
+            Intents = daSalvare.Values.ToList(),
+            EntryTemplates = session.EntryTemplates.ToList(),
+            Positions = posizioni,
+            TemplateClaimedGroups = session.TemplateClaimedGroups
+                .ToDictionary(entry => entry.Key, entry => entry.Value.ToList(), StringComparer.Ordinal),
+            GroupStrategySlots = session.GroupStrategySlots.ToDictionary(
+                entry => entry.Key,
+                entry => new SessionStateSlot
+                {
+                    AccountNumber = entry.Value.AccountNumber,
+                    IntentId = entry.Value.IntentId
+                },
+                StringComparer.OrdinalIgnoreCase),
+            Entries = session.Entries,
+            Fills = session.Fills,
+            IntentSequence = session.IntentSequence,
+            PeakEquity = session.PeakEquity,
+            FirstBarUtc = session.FirstBarUtc,
+            LastBarUtc = session.LastBarUtc,
+            LastEvaluatedBarTimeUtc = session.LastEvaluatedBarTimeUtc,
+            StrategyNetPnl = new Dictionary<string, decimal>(session.StrategyNetPnl, StringComparer.OrdinalIgnoreCase),
+            EntryFills = fill,
+            LastSequence = new Dictionary<string, long>(session.LastSequence, StringComparer.OrdinalIgnoreCase),
+            HistoryHighWater = new Dictionary<string, int>(session.HistoryHighWater, StringComparer.OrdinalIgnoreCase),
+            ReportIds = session.ReportIds.ToList()
+        };
+    }
+
+    /// <summary>
+    /// Ricompone la chiave con cui <c>_planExecutions</c> indicizza la sessione, cioè quella su cui
+    /// il cBot si riaggancia con <c>open-plan</c>. La forma è la stessa di
+    /// <see cref="OpenFromPlan"/> — se le due divergono, una sessione ripresa resta invisibile al
+    /// bot che la cercava e lui ne apre una seconda accanto.
+    /// </summary>
+    private static string BuildExecutionIndexKey(Session session)
+    {
+        var profileSuffix = session.RunProfile == TradingRunProfile.DalPiano
+            ? string.Empty
+            : $"|{session.RunProfile}";
+        var baseKey = $"{session.PlanCode}|{session.ClientRunMode}|{session.ExecutionKey}{profileSuffix}";
+        return session.AccountGroups.Count > 0 || session.DirectAccountNumber is null
+            ? baseKey
+            : $"{baseKey}|Direct|{session.DirectAccountNumber}";
+    }
+
+    /// <summary>
+    /// L'impronta della configurazione sotto cui le posizioni aperte sono nate: i codici strategia
+    /// risolti dal masterfilter e la policy di holding del conto.
+    ///
+    /// <para>Sono le due cose che governano l'<b>uscita</b> di ciò che è già a mercato. Riprendere
+    /// una sessione con un catalogo diverso significa sorvegliare una posizione con regole che non
+    /// sono quelle con cui è stata aperta, e riprenderla con un holding diverso significa spostarne
+    /// la scadenza: nessuna delle due dà errore, entrambe cambiano quando quel trade si chiude.
+    /// Impronta diversa quindi non è un avviso, è un rifiuto.</para>
+    /// </summary>
+    private static string BuildConfigurationFingerprint(Session session)
+    {
+        var codici = session.Strategies
+            .Select(strategy => $"{strategy.Name}@{Normalize(strategy.Symbol)}/{strategy.TimeframeMinutes}")
+            .OrderBy(value => value, StringComparer.Ordinal);
+        var holding = session.Holding;
+        var canonico = string.Join(";", codici) +
+                       $"|overnight={holding.AllowOvernight}|overweek={holding.AllowOverweek}" +
+                       $"|flat={holding.SessionFlatUtcHhmm}" +
+                       $"|weekend={holding.WeekEnd.FromUtcHhmm}-{holding.WeekEnd.UntilUtcHhmm}";
+        return Convert.ToHexString(
+            System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(canonico)));
+    }
+
+    /// <summary>
+    /// Rimette in RAM le sessioni realtime che il processo precedente aveva lasciato aperte.
+    /// Chiamata una volta all'avvio del server, prima che qualunque cBot possa bussare.
+    ///
+    /// <para>Ogni cartella viene tentata da sola: un dump illeggibile, un piano sparito o
+    /// un'impronta cambiata fanno saltare quella sessione, non la ripresa delle altre. L'esito di
+    /// ognuna torna al chiamante perché finisca nel log di avvio: una sessione che non riprende è
+    /// una posizione che resta senza sorveglianza lato server, e deve essere un evento rumoroso.</para>
+    /// </summary>
+    public IReadOnlyList<SessionRestoreOutcome> RestoreSessions()
+    {
+        var esiti = new List<SessionRestoreOutcome>();
+
+        foreach (var workspace in _workspaces.List())
+        {
+            string cartellaSessioni;
+            try
+            {
+                cartellaSessioni = Path.Combine(_workspaces.GetWorkspacePath(workspace.Id), "sessions");
+            }
+            catch (Exception)
+            {
+                continue;
+            }
+
+            if (!Directory.Exists(cartellaSessioni)) continue;
+
+            foreach (var cartella in Directory.EnumerateDirectories(cartellaSessioni))
+            {
+                var percorso = Path.Combine(cartella, SessionStateSchema.FileName);
+                var state = TradingJsonStore.ReadSessionState(percorso);
+                if (state is null) continue;
+
+                esiti.Add(RestoreSession(state));
+            }
+        }
+
+        return esiti;
+    }
+
+    private SessionRestoreOutcome RestoreSession(SessionStateFile state)
+    {
+        if (state.SchemaVersion != SessionStateSchema.Version)
+            return new SessionRestoreOutcome(state.SessionId, state.PlanCode, false,
+                $"schema {state.SchemaVersion}, atteso {SessionStateSchema.Version}");
+
+        if (state.ClientRunMode != ClientRunMode.Realtime)
+            return new SessionRestoreOutcome(state.SessionId, state.PlanCode, false,
+                "non è una sessione realtime");
+
+        // Una sessione fermata resta ferma. Il dump si tiene comunque — /resume esiste — ma
+        // riprenderla in esecuzione significherebbe rimetterla a mercato senza che nessuno l'abbia
+        // chiesto.
+        if (state.Status == TradingSessionStatus.Stopped)
+            return new SessionRestoreOutcome(state.SessionId, state.PlanCode, false,
+                "era stata fermata");
+
+        if (_sessions.ContainsKey(state.SessionId))
+            return new SessionRestoreOutcome(state.SessionId, state.PlanCode, false,
+                "già in memoria");
+
+        TradingPlan plan;
+        try
+        {
+            plan = _plans.Resolve(state.PlanCode);
+        }
+        catch (Exception ex)
+        {
+            return new SessionRestoreOutcome(state.SessionId, state.PlanCode, false,
+                $"piano non risolvibile: {ex.Message}");
+        }
+
+        var account = string.IsNullOrWhiteSpace(state.DirectAccountNumber)
+            ? state.JoinedAccounts.FirstOrDefault() ?? plan.AccountNumber
+            : state.DirectAccountNumber;
+
+        Session session;
+        try
+        {
+            var enforceConcurrency = plan.EnforceConcurrencyLimits
+                                     ?? DefaultEnforceConcurrencyLimits(state.ClientRunMode);
+            var descriptor = CreateCore(
+                BuildPlanSessionRequest(plan, state.ClientRunMode, enforceConcurrency, state.SessionToken),
+                plan.Code, state.ExecutionKey, account,
+                new RestoreContext(state.SessionId, state.SessionToken));
+            session = _sessions[descriptor.SessionId];
+        }
+        catch (Exception ex)
+        {
+            return new SessionRestoreOutcome(state.SessionId, state.PlanCode, false,
+                $"ricostruzione fallita: {ex.Message}");
+        }
+
+        var impronta = BuildConfigurationFingerprint(session);
+        if (!string.Equals(impronta, state.ConfigurationFingerprint, StringComparison.Ordinal))
+        {
+            _sessions.TryRemove(session.Id, out _);
+            return new SessionRestoreOutcome(state.SessionId, state.PlanCode, false,
+                "il piano o il masterfilter sono cambiati da quando la sessione è stata aperta: " +
+                "le posizioni aperte sarebbero sorvegliate con regole diverse da quelle con cui " +
+                "sono nate. Controllare su cTrader e chiudere a mano se serve.");
+        }
+
+        try
+        {
+            if (state.Distributed)
+                // Prima dei gruppi non c'è conversione da risolvere: SetTradingGroups azzera
+                // AccountConversions, quindi va chiamato prima di qualunque uso della cache.
+                SetTradingGroups(session.Id, session.Token, plan.Groups);
+            else
+                session.DirectAccountNumber = account;
+
+            lock (session.Gate)
+            {
+                ApplySessionState(session, state);
+                session.StateDumpSuspended = false;
+                PersistState(session);
+            }
+        }
+        catch (Exception ex)
+        {
+            _sessions.TryRemove(session.Id, out _);
+            return new SessionRestoreOutcome(state.SessionId, state.PlanCode, false,
+                $"riapplicazione dello stato fallita: {ex.Message}");
+        }
+
+        _planExecutions[state.ExecutionIndexKey] = session.Id;
+
+        var posizioni = state.Positions.Count;
+        var ordini = state.Intents.Count(intent => !intent.IsClose &&
+            intent.Status is OrderIntentStatus.Pending or OrderIntentStatus.Accepted
+                or OrderIntentStatus.PartiallyFilled);
+        return new SessionRestoreOutcome(state.SessionId, state.PlanCode, true,
+            $"{posizioni} posizione/i e {ordini} ordine/i ripresi; storia candele da ricostruire " +
+            "col riscaldamento del cBot");
+    }
+
+    /// <summary>
+    /// Riversa il dump nella sessione appena ricostruita. Va chiamata sotto il lock e con il dump
+    /// sospeso: finché non ha finito, ciò che sta in RAM è meno di ciò che sta su disco.
+    /// </summary>
+    private static void ApplySessionState(Session session, SessionStateFile state)
+    {
+        session.RunProfile = state.RunProfile;
+        session.RestoredAtUtc = DateTime.UtcNow;
+        foreach (var joined in state.JoinedAccounts) session.JoinedAccounts.Add(joined);
+
+        foreach (var intent in state.Intents)
+        {
+            session.Intents.Add(intent);
+            session.IntentsById[intent.IntentId] = intent;
+            if (!IsSettled(intent)) session.LiveIntents.Add(intent);
+        }
+
+        // Il watermark parte da quanti intent sono in lista: gli artefatti di questi record sono
+        // già su disco dal processo precedente, e riaccodarli al journal li duplicherebbe nel
+        // .jsonl finché la prima compattazione non li fonde di nuovo per id.
+        session.PersistedIntentCount = session.Intents.Count;
+        foreach (var intent in session.Intents.Where(intent => !IsSettled(intent)))
+            session.UnsettledIntents.Add(intent);
+
+        session.EntryTemplates.AddRange(state.EntryTemplates);
+
+        foreach (var posizione in state.Positions)
+        {
+            session.ExternalPositions[posizione.Key] = posizione.Snapshot;
+            session.ExternalPositionDetails[posizione.Key] =
+                (posizione.EntryTimeUtc, posizione.IntentId, posizione.StopLoss, posizione.TakeProfit);
+            if (posizione.BrokerConfirmed) session.BrokerConfirmedPositions.Add(posizione.Key);
+
+            // Canoniche e conteggio dei detentori non sono nel dump: si derivano, così non possono
+            // contraddire le posizioni da cui dipendono. La prima riga per (simbolo, strategia)
+            // diventa la canonica, ogni riga incrementa il conteggio.
+            if (session.AccountGroups.Count == 0) continue;
+            var canonicalKey = $"{posizione.Snapshot.Symbol}|{posizione.Snapshot.StrategyCode}";
+            if (!session.CanonicalPositions.ContainsKey(canonicalKey))
+                session.CanonicalPositions[canonicalKey] = posizione.Snapshot;
+            session.StrategyHolderCounts[canonicalKey] =
+                session.StrategyHolderCounts.GetValueOrDefault(canonicalKey) + 1;
+        }
+
+        foreach (var (templateId, gruppi) in state.TemplateClaimedGroups)
+            session.TemplateClaimedGroups[templateId] = new HashSet<string>(gruppi, StringComparer.OrdinalIgnoreCase);
+
+        foreach (var (slot, occupante) in state.GroupStrategySlots)
+            session.GroupStrategySlots[slot] = (occupante.AccountNumber, occupante.IntentId);
+
+        foreach (var riga in state.EntryFills)
+        {
+            if (!session.EntryFills.TryGetValue(riga.StrategyKey, out var perSecchio))
+                session.EntryFills[riga.StrategyKey] = perSecchio = new Dictionary<(DateTime, string), int>();
+            perSecchio[(riga.SessionStartUtc, riga.AccountNumber)] = riga.Count;
+        }
+
+        foreach (var (strategia, pnl) in state.StrategyNetPnl) session.StrategyNetPnl[strategia] = pnl;
+        foreach (var (stream, sequence) in state.LastSequence) session.LastSequence[stream] = sequence;
+        foreach (var (stream, barre) in state.HistoryHighWater) session.HistoryHighWater[stream] = barre;
+        foreach (var reportId in state.ReportIds) session.ReportIds.Add(reportId);
+
+        session.Entries = state.Entries;
+        session.Fills = state.Fills;
+        session.IntentSequence = state.IntentSequence;
+        session.PeakEquity = state.PeakEquity;
+        session.FirstBarUtc = state.FirstBarUtc;
+        session.LastBarUtc = state.LastBarUtc;
+        session.LastEvaluatedBarTimeUtc = state.LastEvaluatedBarTimeUtc;
+        session.Status = state.Status;
+
+        RecordActivity(session, SessionActivityKind.Sessione,
+            $"Sessione ripresa dal dump dopo un riavvio del server: {state.Positions.Count} " +
+            $"posizione/i e {session.LiveIntents.Count} ordine/i in volo. La storia delle candele " +
+            "non è stata reidratata: le strategie restano mute finché il cBot non rimanda il " +
+            "riscaldamento.");
     }
 
     /// <summary>
@@ -3195,6 +3863,17 @@ public sealed class TradingSessionService : ITradingSessionService
         var streams = new List<SessionStreamSummary>();
         var strategie = new List<SessionStrategySummary>();
         var diagnostics = new List<string>();
+
+        // Va detto per primo: su una sessione ripresa i conteggi che seguono coprono la vita del
+        // processo corrente, non quella della sessione. session.Intents riparte dai soli ordini in
+        // volo del dump — la storia completa resta in signals.json — quindi leggere "12 intent
+        // emessi" su una sessione che ne ha prodotti migliaia non è un errore del contatore.
+        if (session.RestoredFromDump && session.RestoredAtUtc is { } ripresa)
+            diagnostics.Add(
+                $"Sessione ripresa da session-state.json alle {ripresa:yyyy-MM-dd HH:mm} UTC dopo un " +
+                "riavvio del server: i conteggi di intent qui sotto valgono da quel momento, non " +
+                "dall'apertura della sessione. Gli artefatti (signals.json, trades.json) sono invece " +
+                "completi, perché la ripresa li aggiorna per merge e non li riscrive.");
 
         foreach (var gruppo in session.Strategies
                      .GroupBy(s => (Symbol: Normalize(s.Symbol), s.TimeframeMinutes))

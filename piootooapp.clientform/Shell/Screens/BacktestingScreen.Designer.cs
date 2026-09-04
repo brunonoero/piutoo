@@ -200,8 +200,8 @@ partial class BacktestingScreen
         // 
         this._weekEndCheckBox.Anchor = System.Windows.Forms.AnchorStyles.Left;
         this._weekEndCheckBox.AutoSize = true;
-        this._weekEndCheckBox.Checked = true;
-        this._weekEndCheckBox.CheckState = System.Windows.Forms.CheckState.Checked;
+        this._weekEndCheckBox.Checked = false;
+        this._weekEndCheckBox.CheckState = System.Windows.Forms.CheckState.Unchecked;
         this._weekEndCheckBox.Margin = new System.Windows.Forms.Padding(3, 6, 3, 6);
         this._weekEndCheckBox.Name = "_weekEndCheckBox";
         this._weekEndCheckBox.Size = new System.Drawing.Size(280, 19);

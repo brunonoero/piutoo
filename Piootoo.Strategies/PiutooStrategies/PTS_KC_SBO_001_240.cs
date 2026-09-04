@@ -25,8 +25,8 @@ namespace Piootoo.Strategies.PiutooStrategies;
 /// <list type="bullet">
 /// <item><description>LONG: stop buy sul <b>massimo in costruzione della sessione corrente</b></description></item>
 /// <item><description>SHORT: stop sell sul <b>minimo in costruzione della sessione corrente</b></description></item>
-/// <item><description><c>n_sess = 1</c>, <c>lev_include_sess0 = 1</c>, <c>breakout_offset_ticks = 0</c>: l'offset e' esattamente <c>0 x tick</c>, senza tick impliciti</description></item>
-/// <item><description>Il livello usa gli estremi della sessione corrente <b>prima</b> della barra in valutazione: l'ordine emesso alla barra i vive solo alla barra i+1, quindi non c'e' look-ahead</description></item>
+/// <item><description><c>level_source = 1</c>, <c>breakout_offset_ticks = 0</c>: l'offset e' esattamente <c>0 x tick</c>, senza tick impliciti. Con <c>level_source = 1</c> il sorgente <b>ignora</b> <c>n_sess</c> e <c>lev_include_sess0</c></description></item>
+/// <item><description>Il livello e' il running massimo/minimo della sola sessione corrente, <b>inclusa</b> la barra in valutazione: l'ordine emesso alla barra i vive solo alla barra i+1, quindi <c>high[i]</c>/<c>low[i]</c> sono gia' noti e non c'e' look-ahead</description></item>
 /// </list>
 ///
 /// <para><b>Filtri pattern.</b> I numeri sono quelli del dossier, con il segno che il dossier
@@ -94,8 +94,10 @@ public sealed class PTS_KC_SBO_001_240 : SessionBreakoutEngine
         // ricerca perche' ogni PTS deve dichiarare l'orologio in cui legge gli orari.
         TradingWindow = ZonedWindow.Research(0, 2359);   // nessun filtro orario, finestra piena
 
-        Sessions = 1;                  // n_sess
-        IncludeCurrentSession = true;  // lev_include_sess0 = 1
+        // level_source = 1 di breakout.py: running H/L della sessione CORRENTE, barra in corso
+        // inclusa. n_sess e lev_include_sess0 sono ignorati dal sorgente su questo ramo, quindi
+        // non si dichiarano: scriverli qui suggerirebbe che partecipano al livello.
+        LevelSource = 1;               // level_source
         BreakoutOffsetTicks = 0;       // breakout_offset_ticks
         TickSize = 0.05m;              // tick KC
         SkipDay = -1;                  // skip_day (convenzione pandas, 0 = lunedi')

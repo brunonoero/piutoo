@@ -50,7 +50,7 @@ namespace Piootoo.Shared;
 public static class PiootooVersion
 {
     /// <summary>Versione corrente del server. Vedi la nota della classe: va mossa insieme a quella del cBot.</summary>
-    public const string Current = "5.1.0";
+    public const string Current = "5.1.1";
 
     /// <summary>
     /// Parte del numero che vale come contratto: <c>major.minor</c>. È ciò che console e cBot

@@ -62,6 +62,12 @@ public static class NavigationRegistry
             // Stessa forma delle altre due: la voce apre la lista, "Apri da piano"/"Sessione diretta"
             // portano a TradingSessionsScreen — include anche le sessioni aperte da un cBot.
             new NavigationEntry("Sessioni di trading", () => new TradingSessionListScreen()),
+            // Voce a sé e non un tab della lista sessioni: quella elenca cosa il server ha, questa
+            // risponde alla domanda opposta — cosa c'è su cTrader che il server non sta più
+            // governando. Il caso che la giustifica è il riavvio del server, dove la lista sessioni
+            // diventa semplicemente vuota mentre le posizioni restano aperte sul conto. Filtra per
+            // conto, perché è il conto che si va ad aprire sulla piattaforma.
+            new NavigationEntry("Presidio realtime", () => new RealtimeWatchScreen()),
             // Unica voce che non apre una lista, e la ragione è che non ha un'anagrafica dietro:
             // è uno strumento diagnostico che crea una propria sessione usa e getta da un piano.
             // Sta qui e non sotto le sessioni perché non osserva quelle esistenti, ne fabbrica una.

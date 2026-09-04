@@ -283,10 +283,17 @@ public partial class BacktestingScreen : UserControl, IShellScreen
                 // nel summary: due run con universi diversi non sono confrontabili.
                 AccountNumber = SelectedAccountNumber,
                 // La spunta e' la stessa regola di prima, letta dal verso opposto: chiudere a fine
-                // settimana significa non concedere l'overweek. L'overnight non e' esposto qui —
-                // per riprodurre un piano che lo vieta serve la sua policy, non una checkbox in
-                // piu' che direbbe la stessa cosa in un secondo posto.
-                Holding = AccountHoldingPolicy.Default with { AllowOverweek = !_weekEndCheckBox.Checked }
+                // settimana significa non concedere l'overweek. Parte **spenta**: il run interno
+                // non impone alcun flat di conto, cosi' l'equity e' quella delle strategie e non
+                // quella del venerdi'. Chi vuole misurare il vincolo di una prop lo accende.
+                // L'overnight non e' esposto qui — per riprodurre un piano che lo vieta serve la
+                // sua policy, non una checkbox in piu' che direbbe la stessa cosa in un secondo
+                // posto — ma resta esplicitamente permesso: nessuno dei due tagli e' di default.
+                Holding = AccountHoldingPolicy.Default with
+                {
+                    AllowOvernight = true,
+                    AllowOverweek = !_weekEndCheckBox.Checked
+                }
             };
 
             SetRunningState(true);
@@ -301,6 +308,8 @@ public partial class BacktestingScreen : UserControl, IShellScreen
             Log($"Conto: {request.AccountNumber ?? "nessuno (intero masterfilter)"}");
             Log($"Finestra UTC {request.StartDate:yyyy-MM-dd HH:mm}Z → {request.EndDate:yyyy-MM-dd HH:mm}Z");
             Log($"Strategie dal masterfilter: {masterFilter.StrategiesFilter.Count}");
+            Log($"Vincoli di conto: overnight {(request.Holding.AllowOvernight ? "permesso" : "vietato")}, " +
+                $"fine settimana {(request.Holding.AllowOverweek ? "permesso" : "piatto")}");
 
             _lastJobId = await _context.Services.Api.StartBacktestingAsync(request);
             Log($"Job {_lastJobId} avviato.");

@@ -232,6 +232,68 @@ public abstract class BiasWeeklyEngine : EasyEngineBase
         return new WeeklySchedule(-1, 0, 0, -1, 0);
     }
 
+    /// <summary>
+    /// Le leg (ingresso o uscita, per verso) il cui istante programmato <b>non esiste</b> nella
+    /// serie fornita: giorno della settimana e orario per cui il feed non ha una sola barra.
+    ///
+    /// <para><b>Perche' serve.</b> Il BIASW entra ed esce a giorno e ora fissi con un confronto
+    /// esatto: se quella barra non c'e', la leg non esiste e il motore non se ne accorge — non e'
+    /// uno skip, non e' un errore, e' <i>niente</i>. Misurato su compare-0017: <c>@HO_60</c> non ha
+    /// nessuna barra fra le 22:00 e le 23:00 di Roma, quindi gli ingressi LONG di
+    /// <c>PTS_HO_BSW_001_60</c> e <c>PTS_HO_BSW_002_60</c> (marted&#236; 23:00) hanno una barra
+    /// disponibile su trentacinque settimane e producono <b>zero</b> segnali; l'uscita LONG di
+    /// <c>PTS_HO_BSW_003_60</c> (venerd&#236; 23:00) non ne ha nessuna. Otto mesi di run senza un
+    /// segnale e senza una riga di diagnostica.</para>
+    ///
+    /// <para>Il conteggio passa dall'orologio del motore, non dall'ora grezza della barra: e' lo
+    /// stesso confronto che fa <see cref="IsInScheduledEntry"/>, altrimenti la verifica
+    /// risponderebbe a una domanda diversa da quella che l'engine si pone.</para>
+    /// </summary>
+    /// <param name="data">La serie completa del proprio stream, gia' ordinata.</param>
+    public IReadOnlyList<string> UnreachableScheduleLegs(OhlcvData[] data)
+    {
+        if (data is null || data.Length == 0)
+            return Array.Empty<string>();
+
+        var legs = new List<(string Nome, int Giorno, int Hhmm)>(4);
+        if (EnableLong && EntryDayLong >= 0) legs.Add(("ingresso LONG", EntryDayLong, EntryTimeLong));
+        if (EnableLong && ExitDayLong >= 0) legs.Add(("uscita LONG", ExitDayLong, ExitTimeLong));
+        if (EnableShort && EntryDayShort >= 0) legs.Add(("ingresso SHORT", EntryDayShort, EntryTimeShort));
+        if (EnableShort && ExitDayShort >= 0) legs.Add(("uscita SHORT", ExitDayShort, ExitTimeShort));
+        if (legs.Count == 0)
+            return Array.Empty<string>();
+
+        var conteggi = new int[legs.Count];
+        foreach (var bar in data)
+        {
+            var giorno = PythonWeekday(bar.DateTime);
+            var hhmm = Hhmm(bar.DateTime);
+            for (var index = 0; index < legs.Count; index++)
+            {
+                if (legs[index].Giorno == giorno && legs[index].Hhmm == hhmm)
+                    conteggi[index]++;
+            }
+        }
+
+        var irraggiungibili = new List<string>();
+        for (var index = 0; index < legs.Count; index++)
+        {
+            if (conteggi[index] == 0)
+            {
+                irraggiungibili.Add(
+                    $"{legs[index].Nome} ({GiornoPython(legs[index].Giorno)} {legs[index].Hhmm:0000})");
+            }
+        }
+
+        return irraggiungibili;
+    }
+
+    private static string GiornoPython(int giorno) => giorno switch
+    {
+        0 => "lun", 1 => "mar", 2 => "mer", 3 => "gio", 4 => "ven", 5 => "sab", 6 => "dom",
+        _ => "?"
+    };
+
     private bool IsInScheduledEntry(DateTime barTime, WeeklySchedule schedule) =>
         schedule.EntryDay >= 0 &&
         PythonDayOfWeek(barTime) == schedule.EntryDay &&

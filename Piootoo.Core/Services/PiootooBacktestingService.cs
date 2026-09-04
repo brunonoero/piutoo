@@ -12,6 +12,7 @@ using Piootoo.Shared.Models.Backtesting;
 using Piootoo.Shared.Models.Workspaces;
 using Piootoo.Shared.Models.Trading;
 using Piootoo.Shared.Utilities;
+using Piootoo.Strategies.Easy.Engines;
 
 namespace Piootoo.Core.Services;
 
@@ -505,8 +506,27 @@ public class PiootooBacktestingService : IPiootooBacktestingService
             // prima che le istanze vengano create e prima che i simboli finiscano in
             // SelectedSymbols: cosi' il run non pretende nemmeno il datafeed di uno strumento che
             // non opererebbe.
-            var (strategiesForAccount, excludedByAccount) = ApplyAccountUniverse(strategies, request);
+            var masterfilterStrategies = strategies.Count;
+            var catalogStrategies = StrategyFactory.GetRegisteredStrategies().ToList();
+            var strategiesNotInMasterfilter = catalogStrategies
+                .Where(strategy => !selectedStrategyIds.Contains(strategy.Id))
+                .Select(strategy => strategy.Name)
+                .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            var (strategiesForAccount, excludedByAccount, accountUniverse) =
+                ApplyAccountUniverse(strategies, request);
             strategies = strategiesForAccount;
+
+            Console.WriteLine(
+                $"[Backtesting] Catalogo {catalogStrategies.Count} classi, masterfilter " +
+                $"{masterfilterStrategies}, schedulate {strategies.Count}. Universo del conto: " +
+                (accountUniverse.AccountNumber is null
+                    ? "nessun conto (run neutro)."
+                    : accountUniverse.AppliedAsNeutralAccount
+                        ? $"conto '{accountUniverse.AccountNumber}' senza tabella di conversione, ammessi tutti i simboli."
+                        : $"conto '{accountUniverse.AccountNumber}', tabella '{accountUniverse.SymbolConversionCode}' " +
+                          $"con {accountUniverse.MappedSymbols} simboli ({accountUniverse.EnabledSymbols} abilitati)."));
 
             if (excludedByAccount.Count > 0)
             {
@@ -614,7 +634,9 @@ public class PiootooBacktestingService : IPiootooBacktestingService
             tradingService.PositionClosed = diagnostics.LogExit;
             foreach (var (definition, instance) in createdStrategies)
             {
-                diagnostics.RegisterStrategy(instance.Name, definition.Name, instance.Symbol, instance.TimeframeMinutes);
+                diagnostics.RegisterStrategy(
+                    instance.Name, definition.Name, instance.Symbol, instance.TimeframeMinutes,
+                    instance.RequiredCandles);
             }
 
             diagnostics.LogRun("avvio job", new Dictionary<string, string>(StringComparer.Ordinal)
@@ -638,7 +660,19 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                 ["allowOverweek"] = holding.AllowOverweek ? "true" : "false",
                 ["weekEndFlatFromUtc"] = weekEndFlat.FromUtcHhmm.ToString("0000"),
                 ["rejectWrongSideLevels"] = request.RejectWrongSideLevels ? "true" : "false",
-                ["trailingMinStepFraction"] = request.TrailingMinStepFraction.ToString(CultureInfo.InvariantCulture)
+                ["trailingMinStepFraction"] = request.TrailingMinStepFraction.ToString(CultureInfo.InvariantCulture),
+                // Le convenzioni di riempimento cambiano il risultato quanto gli orari di tenuta e
+                // non lasciano traccia nei trade: vanno dichiarate qui e nel summary, altrimenti due
+                // run non confrontabili sono indistinguibili a posteriori.
+                ["intrabarPriority"] = "ProtectiveBeforeTarget",
+                ["trailingPeakIncludesCurrentBar"] = tradingService.TrailingPeakIncludesCurrentBar ? "true" : "false",
+                ["stopFillSlippageSymbols"] = tradingService.StopFillSlippagePoints.Count == 0
+                    ? "-"
+                    : string.Join(",", tradingService.StopFillSlippagePoints.Keys.OrderBy(x => x, StringComparer.OrdinalIgnoreCase)),
+                ["symbolConversionCode"] = accountUniverse.SymbolConversionCode ?? "-",
+                ["symbolConversionSymbols"] = accountUniverse.MappedSymbols.ToString(CultureInfo.InvariantCulture),
+                ["catalogStrategies"] = catalogStrategies.Count.ToString(CultureInfo.InvariantCulture),
+                ["masterfilterStrategies"] = masterfilterStrategies.ToString(CultureInfo.InvariantCulture)
             });
 
             var result = new BacktestingResult
@@ -717,6 +751,7 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                               $"da datafeed {_datafeedCatalog.Describe(request.DatafeedBroker)}...");
 
             var emptyDataSources = new List<string>();
+            var legIrraggiungibili = new List<string>();
             var loadedDataSources = 0;
             foreach (var ds in uniqueDataSources)
             {
@@ -737,6 +772,36 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                 var cursor = new CandleWindowCursor(candles);
                 var normalizedSymbol = NormalizeSymbol(ds.Symbol);
                 cursors[(normalizedSymbol, ds.Timeframe)] = cursor;
+
+                // Il BIASW entra ed esce a giorno e ora fissi con un confronto esatto: se il feed
+                // non ha una sola barra a quell'istante la leg non esiste, e il motore non lo
+                // segnala in alcun modo — non e' uno skip, e' niente. Il controllo va qui, sulla
+                // serie appena caricata, prima che il run parta: dopo si vedrebbe solo l'assenza
+                // di segnali. Vedi compare-0017 §3.3.
+                foreach (var (_, instance) in createdStrategies)
+                {
+                    if (instance is not BiasWeeklyEngine settimanale ||
+                        instance.TimeframeMinutes != ds.Timeframe ||
+                        !string.Equals(NormalizeSymbol(instance.Symbol), normalizedSymbol,
+                            StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+
+                    var legMorte = settimanale.UnreachableScheduleLegs(candles);
+                    if (legMorte.Count == 0)
+                        continue;
+
+                    var messaggio =
+                        $"{instance.Name}: il feed non ha nessuna barra all'istante programmato di " +
+                        $"{legMorte.Count} leg su {normalizedSymbol}/{ds.Timeframe}m — " +
+                        string.Join(", ", legMorte) +
+                        ". Quelle leg non possono produrre nulla per tutto il run.";
+                    Console.WriteLine($"[Backtesting][anomalia] {messaggio}");
+                    diagnostics.LogAnomaly(messaggio, null, instance.Name, normalizedSymbol);
+                    diagnostics.AddRunDiagnostic("[calendario] " + messaggio);
+                    legIrraggiungibili.Add(messaggio);
+                }
 
                 if (candles.Length > 0 &&
                     (!markCursors.TryGetValue(normalizedSymbol, out var existing) || ds.Timeframe < existing.Timeframe))
@@ -1197,6 +1262,20 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                 DatafeedBroker = NormalizeBroker(request.DatafeedBroker),
                 AccountNumber = NormalizeAccountNumber(request.AccountNumber),
                 StrategiesNotSupportedByAccount = excludedByAccount,
+                AccountUniverse = accountUniverse,
+                FillConventions = new BacktestFillConventions
+                {
+                    IntrabarPriority = "ProtectiveBeforeTarget",
+                    TrailingPeakIncludesCurrentBar = tradingService.TrailingPeakIncludesCurrentBar,
+                    TrailingMinStepFraction = tradingService.TrailingMinStepFraction,
+                    RejectWrongSideLevels = tradingService.RejectWrongSideLevels,
+                    StopFillSlippageSymbols = tradingService.StopFillSlippagePoints.Keys
+                        .OrderBy(symbol => symbol, StringComparer.OrdinalIgnoreCase)
+                        .ToList()
+                },
+                CatalogStrategies = catalogStrategies.Count,
+                MasterfilterStrategies = masterfilterStrategies,
+                StrategiesNotInMasterfilter = strategiesNotInMasterfilter,
                 Outcome = "Completed"
             });
             result.DiagnosticsLogFilePath = diagnostics.LogPath;
@@ -1577,13 +1656,13 @@ public class PiootooBacktestingService : IPiootooBacktestingService
     /// <para>Un conto <i>senza</i> tabella di conversione supporta tutto: opera 1 a 1, ed e' la
     /// configurazione di ogni conto non ancora mappato.</para>
     /// </summary>
-    private (List<StrategyDefinition> Strategies, IReadOnlyList<string> Excluded) ApplyAccountUniverse(
-        List<StrategyDefinition> strategies, BacktestingRequest request)
+    private (List<StrategyDefinition> Strategies, IReadOnlyList<string> Excluded, BacktestAccountUniverse Universe)
+        ApplyAccountUniverse(List<StrategyDefinition> strategies, BacktestingRequest request)
     {
         var accountNumber = NormalizeAccountNumber(request.AccountNumber);
         request.AccountNumber = accountNumber;
         if (accountNumber is null)
-            return (strategies, []);
+            return (strategies, [], new BacktestAccountUniverse { AppliedAsNeutralAccount = true });
 
         var workspaces = _workspaces ?? throw new InvalidOperationException(
             "Il run dichiara un conto ma il servizio di backtesting non ha il registro account: " +
@@ -1595,10 +1674,38 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                 $"Conto '{accountNumber}' non presente nel registro account: il run non puo' " +
                 "applicarne l'universo operativo.");
 
-        var conversion = AccountSymbolConversion.FromAccount(
-            account, workspaces.ResolveSymbolConversion(account.SymbolConversionCode));
+        var conversionCode = account.SymbolConversionCode?.Trim();
+        var table = workspaces.ResolveSymbolConversion(account.SymbolConversionCode);
+        var mappings = table.Mappings ?? [];
+        var conversion = AccountSymbolConversion.FromAccount(account, table);
+
+        // Un conto che DICHIARA una tabella e ne risolve zero righe non e' il conto neutro: e' una
+        // configurazione rotta. Distinguerli conta perche' SupportsSymbol ammette tutto quando la
+        // tabella e' vuota, quindi i due casi producevano lo stesso artefatto — nessuna esclusione —
+        // con run completamente diversi. In compare-0017 lo stesso file su disco ha dato tre
+        // esclusioni diverse in tre run senza che niente lo segnalasse. Vale la regola del broker
+        // inesistente sul datafeed: si fallisce all'avvio, non si ripiega in silenzio.
+        if (!string.IsNullOrWhiteSpace(conversionCode) && !conversion.HasSymbolTable)
+        {
+            throw new InvalidOperationException(
+                $"Il conto '{accountNumber}' dichiara la tabella di conversione '{conversionCode}' " +
+                "ma non contiene nessun simbolo. Senza tabella il run ammetterebbe ogni simbolo del " +
+                "masterfilter, compresi quelli che il conto non puo' operare: e' un run che descrive " +
+                "un conto che non esiste. Correggi la tabella, oppure togli il conto dalla richiesta " +
+                "per eseguire il masterfilter intero come run neutro.");
+        }
+
+        var universe = new BacktestAccountUniverse
+        {
+            AccountNumber = accountNumber,
+            SymbolConversionCode = string.IsNullOrWhiteSpace(conversionCode) ? null : conversionCode,
+            MappedSymbols = mappings.Count,
+            EnabledSymbols = mappings.Count(mapping => mapping.Enabled),
+            AppliedAsNeutralAccount = !conversion.HasSymbolTable
+        };
+
         if (!conversion.HasSymbolTable)
-            return (strategies, []);
+            return (strategies, [], universe);
 
         var supported = new List<StrategyDefinition>(strategies.Count);
         var excluded = new List<string>();
@@ -1609,7 +1716,7 @@ public class PiootooBacktestingService : IPiootooBacktestingService
         }
 
         excluded.Sort(StringComparer.OrdinalIgnoreCase);
-        return (supported, excluded);
+        return (supported, excluded, universe);
     }
 
     private static TradeSignal CloneTradeSignal(TradeSignal signal)

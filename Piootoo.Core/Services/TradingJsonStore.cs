@@ -69,6 +69,7 @@ public sealed class TradingJsonStore
     public string SignalsPath => Path.Combine(_directory, TradingPersistenceSchema.SignalsFileName);
     public string TradesPath => Path.Combine(_directory, TradingPersistenceSchema.TradesFileName);
     public string SessionSummaryPath => Path.Combine(_directory, SessionRunSummarySchema.FileName);
+    public string SessionStatePath => Path.Combine(_directory, SessionStateSchema.FileName);
 
     public void Initialize()
     {
@@ -138,6 +139,50 @@ public sealed class TradingJsonStore
                 SessionSummaryPath,
                 stream => JsonSerializer.Serialize(stream, summary, JsonOptions),
                 durable);
+        }
+    }
+
+    /// <summary>
+    /// Scrive il dump di ripresa della sessione. Come la scheda del run non ha journal: è un
+    /// oggetto solo e costa quanto lo stato in volo, non quanto la sessione.
+    ///
+    /// <para>Sul percorso durabile fa un fsync, quindi va chiamato sugli eventi che cambiano
+    /// posizioni od ordini — non a ogni barra. Vedi l'invariante "AtomicFileWriter mai dentro un
+    /// loop" e <c>docs/domini/riavvio-del-server-e-ripresa-sessione.md</c> §4.</para>
+    /// </summary>
+    public void WriteSessionState(SessionStateFile state, bool durable = true)
+    {
+        lock (Gates.GetOrAdd(SessionStatePath, _ => new object()))
+        {
+            AtomicFileWriter.Write(
+                SessionStatePath,
+                stream => JsonSerializer.Serialize(stream, state, JsonOptions),
+                durable);
+        }
+    }
+
+    /// <summary>
+    /// Rilegge un dump di ripresa. Statico perché all'avvio del processo si scandiscono cartelle,
+    /// non sessioni: lo store di quella cartella non esiste ancora.
+    ///
+    /// <para>Un file illeggibile torna <c>null</c> invece di lanciare. La ripresa è opportunistica:
+    /// un dump rotto costa una sessione da riaprire a mano, un'eccezione all'avvio costa il server.
+    /// </para>
+    /// </summary>
+    public static SessionStateFile? ReadSessionState(string path)
+    {
+        try
+        {
+            if (!File.Exists(path)) return null;
+            return JsonSerializer.Deserialize<SessionStateFile>(File.ReadAllText(path), JsonOptions);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+        catch (IOException)
+        {
+            return null;
         }
     }
 

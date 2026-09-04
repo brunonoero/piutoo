@@ -174,6 +174,20 @@ public sealed class BacktestStrategySummary
     public required string Symbol { get; init; }
     public required int TimeframeMinutes { get; init; }
 
+    /// <summary>
+    /// Quante candele la strategia pretende prima di poter essere valutata
+    /// (<c>ITradingStrategy.RequiredCandles</c>).
+    ///
+    /// <para><b>Perche' e' qui.</b> <see cref="SkippedNotEnoughCandles"/> da solo non si legge: dice
+    /// quante barre sono state saltate ma non contro quale soglia, e la soglia varia di venti volte
+    /// fra strategie sullo stesso stream. <c>PTS_NQ_VBO_002_240</c> ne chiede 606 e sullo stesso
+    /// <c>@NQ_240</c> le altre ne chiedono 36: senza questo numero nell'artefatto, un riscaldamento
+    /// che mangia meta' del run sembra un difetto del feed invece che della strategia. E' anche il
+    /// numero che spiega perche' una strategia non opera mai in sessione, dove la storia la spinge
+    /// il client.</para>
+    /// </summary>
+    public int RequiredCandles { get; set; }
+
     /// <summary>Barre in cui la strategia era allineata al proprio timeframe e quindi candidata alla valutazione.</summary>
     public long Scheduled { get; set; }
 
@@ -299,6 +313,42 @@ public sealed class BacktestRunSummary
     /// </summary>
     public IReadOnlyList<string> StrategiesNotSupportedByAccount { get; init; } = [];
 
+    /// <summary>
+    /// Quale tabella di conversione il run ha davvero risolto per <see cref="AccountNumber"/>.
+    ///
+    /// <para><b>Perche' non basta la lista delle escluse.</b> Una lista vuota ha due significati
+    /// opposti — «il conto li supporta tutti» e «la tabella non si e' risolta, quindi passa
+    /// tutto» — e i due producono run diversi con lo stesso artefatto. In compare-0017 lo stesso
+    /// file di conversione su disco ha dato tre esclusioni diverse in tre run, e non c'era modo di
+    /// accorgersene dal summary. Null nei summary scritti prima di questo campo.</para>
+    /// </summary>
+    public BacktestAccountUniverse? AccountUniverse { get; init; }
+
+    /// <summary>
+    /// Le convenzioni di riempimento con cui questo run e' stato eseguito.
+    ///
+    /// <para>Stessa ragione di <see cref="Holding"/>: cambiano i risultati senza comparire nei
+    /// trade. Due run con priorita' intrabarra o passo di trailing diversi non sono confrontabili,
+    /// e chi li rilegge non ha altro modo di saperlo. Null nei summary precedenti.</para>
+    /// </summary>
+    public BacktestFillConventions? FillConventions { get; init; }
+
+    /// <summary>
+    /// Quante classi il catalogo espone in tutto, contro quante il masterfilter ne ha selezionate.
+    ///
+    /// <para>Un run riporta solo cio' che ha schedulato: una classe fuori dal masterfilter e una
+    /// classe inesistente hanno lo stesso aspetto — nessuno. I due numeri qui, piu'
+    /// <see cref="StrategiesNotInMasterfilter"/>, rendono la differenza leggibile senza aprire il
+    /// masterfilter.</para>
+    /// </summary>
+    public int CatalogStrategies { get; init; }
+
+    /// <summary>Strategie selezionate dal masterfilter, prima del filtro del conto.</summary>
+    public int MasterfilterStrategies { get; init; }
+
+    /// <summary>Classi presenti nel catalogo che il masterfilter non ha selezionato.</summary>
+    public IReadOnlyList<string> StrategiesNotInMasterfilter { get; init; } = [];
+
     public string Outcome { get; set; } = "Unknown";
     public string? ErrorMessage { get; set; }
 
@@ -310,4 +360,67 @@ public sealed class BacktestRunSummary
     /// mai valutate, segnali che non si trasformano mai in trade, e simili.
     /// </summary>
     public IReadOnlyList<string> Diagnostics { get; set; } = [];
+}
+
+/// <summary>
+/// L'universo operativo che il run ha risolto per il conto dichiarato.
+///
+/// <para>Esiste perche' <c>AccountSymbolConversion.SupportsSymbol</c> ammette <b>tutto</b> quando
+/// la tabella e' vuota — e' il conto neutro, quello non ancora mappato — mentre un conto che
+/// dichiara un codice tabella e ne risolve zero righe e' una configurazione rotta, non un conto
+/// neutro. Finche' i due casi non erano distinguibili nell'artefatto, un run poteva far girare
+/// strategie su simboli che il conto ha disabilitati senza che niente lo dicesse.</para>
+/// </summary>
+public sealed class BacktestAccountUniverse
+{
+    /// <summary>Conto dichiarato dal run.</summary>
+    public string? AccountNumber { get; init; }
+
+    /// <summary>Codice della tabella di conversione dichiarato dal conto. Vuoto = conto non mappato.</summary>
+    public string? SymbolConversionCode { get; init; }
+
+    /// <summary>Righe risolte in quella tabella. Zero con un codice dichiarato e' un errore, non un conto neutro.</summary>
+    public int MappedSymbols { get; init; }
+
+    /// <summary>Quante di quelle righe sono abilitate: sono i simboli su cui il conto puo' operare.</summary>
+    public int EnabledSymbols { get; init; }
+
+    /// <summary>
+    /// Vero quando il run non ha ristretto niente perche' la tabella e' assente o vuota. E' il
+    /// caso in cui la lista delle escluse e' vuota <i>senza</i> che il conto le supporti davvero.
+    /// </summary>
+    public bool AppliedAsNeutralAccount { get; init; }
+}
+
+/// <summary>
+/// Le convenzioni con cui l'engine ha riempito ordini e uscite in questo run.
+///
+/// <para>Sono gia' documentate nel codice di <c>PiootooTradingService</c>, ma finche' non
+/// comparivano nell'artefatto due run con convenzioni diverse erano indistinguibili a posteriori,
+/// e la loro differenza vale la stessa grandezza del risultato.</para>
+/// </summary>
+public sealed class BacktestFillConventions
+{
+    /// <summary>
+    /// Chi vince quando la stessa barra contiene sia lo stop protettivo sia il target.
+    /// <c>ProtectiveBeforeTarget</c> e' la convenzione conservativa dell'engine: con sole OHLC
+    /// l'ordine reale dei tick non e' ricostruibile e si assume il percorso avverso.
+    /// </summary>
+    public string IntrabarPriority { get; init; } = "ProtectiveBeforeTarget";
+
+    /// <summary>
+    /// Se il picco del trailing include l'estremo della barra in corso, cioe' se lo stop trascinato
+    /// puo' scattare sulla stessa barra che ha segnato il nuovo massimo. Il motore di ricerca
+    /// Python non lo fa: la differenza si misura solo sapendo com'era impostato il run.
+    /// </summary>
+    public bool TrailingPeakIncludesCurrentBar { get; init; }
+
+    /// <summary>Passo minimo del trailing, in frazione della distanza dichiarata.</summary>
+    public decimal TrailingMinStepFraction { get; init; }
+
+    /// <summary>Se gli ingressi su un livello gia' scavalcato sono stati scartati.</summary>
+    public bool RejectWrongSideLevels { get; init; }
+
+    /// <summary>Simboli per cui il run ha applicato uno slippage sul riempimento degli stop protettivi.</summary>
+    public IReadOnlyList<string> StopFillSlippageSymbols { get; init; } = [];
 }

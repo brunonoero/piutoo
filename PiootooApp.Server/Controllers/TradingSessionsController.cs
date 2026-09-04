@@ -27,6 +27,15 @@ public sealed class TradingSessionsController : ControllerBase
     public ActionResult<IReadOnlyList<TradingSessionSummary>> List()
         => ExecuteResult<IReadOnlyList<TradingSessionSummary>>(() => Ok(_sessions.ListSessions()));
 
+    /// <summary>
+    /// Presidio realtime di un conto: cosa il server sta governando e dove serve un intervento a
+    /// mano su cTrader. Senza token: la si apre proprio quando la sessione non c'è più.
+    /// Vedi <c>docs/domini/riavvio-del-server-e-ripresa-sessione.md</c> §8.
+    /// </summary>
+    [HttpGet("accounts/{accountNumber}/watch")]
+    public ActionResult<AccountRealtimeWatch> AccountWatch(string accountNumber)
+        => ExecuteResult<AccountRealtimeWatch>(() => Ok(_sessions.GetAccountWatch(accountNumber)));
+
     /// <summary>Crea o riprende idempotentemente una sessione usando il solo codice piano.</summary>
     [HttpPost("open-plan")]
     public ActionResult<TradingSessionDescriptor> OpenPlan(OpenTradingPlanSessionRequest request)

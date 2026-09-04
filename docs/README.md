@@ -66,6 +66,11 @@ non esiste più, si tiene per il perché.
   `FinalQuantity` (ATR × rischio portfolio). *Stabile.*
 - [`domini/trading-sessions-api.md`](domini/trading-sessions-api.md) — ciclo
   di vita di una sessione, endpoint, autorità di execution. *Stabile.*
+- [`domini/riavvio-del-server-e-ripresa-sessione.md`](domini/riavvio-del-server-e-ripresa-sessione.md)
+  — cosa si perde quando il server si riavvia con una sessione realtime viva,
+  cosa si dumpa e cosa si ricostruisce, la procedura di riallineamento con
+  cTrader e il presidio dalla console. *Progetto per le fasi 1-4, stabile per il
+  presidio (§8).*
 - [`domini/finestra-candele-e-riscaldamento.md`](domini/finestra-candele-e-riscaldamento.md)
   — come un cBot consegna le candele al server: riscaldamento all'avvio, finestra
   corta a regime, perché la sovrapposizione impedisce i buchi e come si
