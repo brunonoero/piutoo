@@ -279,6 +279,51 @@ nessuna parte, perché un run riporta solo ciò che ha schedulato.
 
 ## 5. Errori del cBot cTrader
 
+### 5.0 Il riscaldamento delle VBO, e quanta storia il broker ha davvero
+
+`PTS_FDAX_VBO_001_240` chiede **501 candele a 4 ore** — `VolatilitySource = 3`, `AtrLength = 500`,
+cioe' l'ATR a 500 barre. **La conversione e' giusta**: la scheda S15 dice testualmente *«Sia `VOL`
+= l'ATR a 500 barre del timeframe, misurato fino alla barra precedente compresa»*, e il Python e'
+`atr(df, atr_len).shift(1)`, portato come media semplice del True Range su 500 barre spostata di
+uno. Non c'e' niente da correggere nel porting: 501 barre servono davvero.
+
+Sul feed FDAX del run sono **4,15 barre per giorno di calendario**, quindi 501 barre valgono
+**121 giorni di calendario, 86 giorni di mercato, quattro mesi**. Il backtest interno li ha per
+costruzione: precarica `RequiredCandles x 1,2 x tf / 1440 x 3`, cioe' **~300 giorni** prima
+dell'inizio, e infatti il primo trade e' del **03/07/2025**, due giorni dopo l'avvio.
+
+**La profondita' della storia non e' uniforme fra i simboli**, e questo cambia la conclusione. Il
+`backtest-summary.json` del run confrontato con i file di `datafeed-external/FTMOPLATFORM/` oggi:
+
+| | datasource | esito |
+|---|---|---|
+| coincidono esattamente | **28 su 36** | il file contiene precisamente le candele che il run dichiara |
+| hanno perso la pre-storia | **8** | il file non ha piu' le barre che il run ha letto |
+
+Gli otto sono `FDAX/240` (il run legge da **2024-09-03**, il file oggi ha uno stub del 2022 e nulla
+in mezzo), `GC/30`, `GC/60`, `GC/240`, `CL/30`, `BP/60` — cioe' **i sei gia' segnalati in
+compare-0016 §5, mai ricostruiti** — piu' `BP/15` e `FDAX/1440`, che sono file **integri** ma
+partono dal 01/07/2025 mentre il run leggeva anche giugno (mancano 2.028 barre a 15 minuti e 22
+giornaliere, cioe' esattamente un mese).
+
+Da qui due cose:
+
+1. **FTMO su FDAX a 4 ore serve storia almeno fino a settembre 2024.** Quelle 2.241 candele le ha
+   raccolte il `PiootooDatafeedSyncBot` dal conto (`source: PiootooDatafeedSyncBot/1.1.0@FTMO
+   Platform`), quindi il broker le aveva. **Il riscaldamento non e' quindi una spiegazione
+   dimostrata** per le VBO mancanti dal lato cBot: `LoadHistoryBackwards` punta a 502 barre con
+   cinquanta chiamate a `LoadMoreHistory()`, e su un simbolo con quella profondita' puo' ragionevolmente
+   arrivarci. Resta un'ipotesi da escludere, non una causa accertata — e si esclude con
+   `everEvaluable` e `historyBarsHighWater` del `session-summary.json`, che quel run non ha prodotto.
+2. **Il divario dei trade non si spiega col periodo cieco.** Dei 36 trade interni della strategia,
+   21 (+35.287 USD) cadono prima del 30/10/2025 — la data in cui il cBot sarebbe caldo *se* fosse
+   partito senza storia — ma **15 (+13.117 USD) cadono dopo, e il cBot non ne ha eseguito nessuno**.
+
+Ricaduta pratica che vale comunque: **una strategia che chiede quattro mesi di riscaldamento e'
+fragile su questo impianto**. Ogni ripartenza da zero della sessione le costa quattro mesi se il
+broker non serve la storia profonda su quel simbolo, e la profondita' cambia da simbolo a simbolo:
+va misurata per (simbolo, timeframe), non assunta.
+
 ### 5.1 Il cBot non esegue mai le VBO — terzo confronto di fila
 
 | classe | trade interni | trade cBot | netto interno |
