@@ -29,7 +29,7 @@ partial class AccountDetailScreen
         this._groupLabel = new System.Windows.Forms.Label();
         this._groupCombo = new System.Windows.Forms.ComboBox();
         this._brokerLabel = new System.Windows.Forms.Label();
-        this._brokerTextBox = new System.Windows.Forms.TextBox();
+        this._brokerCombo = new System.Windows.Forms.ComboBox();
         this._currencyLabel = new System.Windows.Forms.Label();
         this._currencyCombo = new System.Windows.Forms.ComboBox();
         this._initialBalanceLabel = new System.Windows.Forms.Label();
@@ -117,7 +117,7 @@ partial class AccountDetailScreen
         this._fieldsLayout.Controls.Add(this._groupLabel, 0, 1);
         this._fieldsLayout.Controls.Add(this._groupCombo, 1, 1);
         this._fieldsLayout.Controls.Add(this._brokerLabel, 2, 1);
-        this._fieldsLayout.Controls.Add(this._brokerTextBox, 3, 1);
+        this._fieldsLayout.Controls.Add(this._brokerCombo, 3, 1);
         this._fieldsLayout.Controls.Add(this._currencyLabel, 0, 2);
         this._fieldsLayout.Controls.Add(this._currencyCombo, 1, 2);
         this._fieldsLayout.Controls.Add(this._initialBalanceLabel, 2, 2);
@@ -211,14 +211,15 @@ partial class AccountDetailScreen
         this._brokerLabel.TabIndex = 6;
         this._brokerLabel.Text = "Broker";
         // 
-        // _brokerTextBox
+        // _brokerCombo
         // 
-        this._brokerTextBox.Anchor = System.Windows.Forms.AnchorStyles.Left | System.Windows.Forms.AnchorStyles.Right;
-        this._brokerTextBox.Margin = new System.Windows.Forms.Padding(3, 4, 3, 4);
-        this._brokerTextBox.Name = "_brokerTextBox";
-        this._brokerTextBox.Size = new System.Drawing.Size(300, 23);
-        this._brokerTextBox.TabIndex = 7;
-        this._brokerTextBox.TextChanged += new System.EventHandler(this.OnFieldChanged);
+        this._brokerCombo.Anchor = System.Windows.Forms.AnchorStyles.Left | System.Windows.Forms.AnchorStyles.Right;
+        this._brokerCombo.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
+        this._brokerCombo.Margin = new System.Windows.Forms.Padding(3, 4, 3, 4);
+        this._brokerCombo.Name = "_brokerCombo";
+        this._brokerCombo.Size = new System.Drawing.Size(300, 23);
+        this._brokerCombo.TabIndex = 7;
+        this._brokerCombo.SelectedIndexChanged += new System.EventHandler(this.OnBrokerChanged);
         // 
         // _currencyLabel
         // 
@@ -631,7 +632,7 @@ partial class AccountDetailScreen
     private System.Windows.Forms.Label _groupLabel;
     private System.Windows.Forms.ComboBox _groupCombo;
     private System.Windows.Forms.Label _brokerLabel;
-    private System.Windows.Forms.TextBox _brokerTextBox;
+    private System.Windows.Forms.ComboBox _brokerCombo;
     private System.Windows.Forms.Label _currencyLabel;
     private System.Windows.Forms.ComboBox _currencyCombo;
     private System.Windows.Forms.Label _initialBalanceLabel;

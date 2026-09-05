@@ -39,6 +39,10 @@ public sealed class TradingPlanService
     /// interromperebbe a ogni pausa e lascerebbe un buco lungo esattamente quanto la pausa — e
     /// nessuno lo scoprirebbe fino al primo backtest su quel periodo.</para>
     ///
+    /// <para>Per la stessa ragione <see cref="TradingPlan.DisabledStrategies"/> <b>non</b> si
+    /// applica qui: spegnere una strategia nel piano è una decisione operativa reversibile, e
+    /// riaccenderla non deve trovare un buco nel feed lungo quanto lo spegnimento.</para>
+    ///
     /// <para>È una lettura pura: non apre sessioni, non tocca stato. Un raccoglitore non deve
     /// avere effetti collaterali sull'operatività.</para>
     /// </summary>
@@ -111,7 +115,7 @@ public sealed class TradingPlanService
         if (account is null)
             return null;
 
-        return AccountSymbolConversion.FromAccount(account, _workspaces.ResolveSymbolConversion(account.SymbolConversionCode));
+        return AccountSymbolConversion.FromAccount(account, _workspaces.ResolveConversionForAccount(account));
     }
 
     /// <summary>Simbolo nella forma con cui il datafeed lo indicizza: <c>@NQ</c>.</summary>
@@ -140,7 +144,7 @@ public sealed class TradingPlanService
 
     public TradingPlan Save(string workspaceId, SaveTradingPlanRequest request)
     {
-        var groups = NormalizeAndValidateGroups(request);
+        var accounts = NormalizeAndValidateAccounts(request);
         var code = NormalizeCode(request.Code);
         if (string.IsNullOrWhiteSpace(request.Name))
             throw new ArgumentException("Il nome del piano è obbligatorio.");
@@ -156,9 +160,10 @@ public sealed class TradingPlanService
                 $"SizeMultiplier deve essere almeno {MinimumSizeMultiplier:0.###}: " +
                 $"'{request.SizeMultiplier:0.####}' azzererebbe le size invece di ridurle.");
 
-        // Mirror della prima riga, così i piani multi-gruppo restano leggibili anche dai client
-        // che non conoscono ancora Groups.
-        var primary = SelectPrimaryRow(groups);
+        if (request.MaxConcurrentTrades < 0)
+            throw new ArgumentException("MaxConcurrentTrades non può essere negativo.");
+
+        var brokerCode = ValidateBrokerAndAccounts(request.BrokerCode, accounts);
 
         // Una policy incoerente (overweek senza overnight, HHMM fuori scala) va rifiutata qui: se
         // passa, il primo a scoprirla e' il cBot in produzione a mercato aperto.
@@ -183,15 +188,16 @@ public sealed class TradingPlanService
                 WorkspaceId = workspaceId,
                 Code = code,
                 Name = request.Name.Trim(),
-                Groups = groups,
-                GroupId = primary.GroupId,
-                AccountNumber = primary.AccountNumber,
-                MaxConcurrentTrades = primary.MaxConcurrentTrades,
-                ConcurrencyCountMode = primary.ConcurrencyCountMode,
+                BrokerCode = brokerCode,
+                Accounts = accounts,
+                AccountNumber = accounts[0],
+                MaxConcurrentTrades = request.MaxConcurrentTrades,
+                ConcurrencyCountMode = request.ConcurrencyCountMode,
                 EnforceConcurrencyLimits = request.EnforceConcurrencyLimits,
                 CommissionPerContract = request.CommissionPerContract,
                 Holding = holding,
                 SizeMultiplier = sizeMultiplier,
+                DisabledStrategies = NormalizeDisabledStrategies(request.DisabledStrategies),
                 PositionSizing = request.PositionSizing,
                 CreatedUtc = existing?.CreatedUtc ?? now,
                 UpdatedUtc = now
@@ -241,88 +247,124 @@ public sealed class TradingPlanService
     }
 
     /// <summary>
-    /// Accetta <see cref="SaveTradingPlanRequest.Groups"/> oppure i campi legacy singoli;
-    /// valida che gli account siano univoci.
+    /// Verifica che il broker esista e che ogni conto del piano sia suo, e restituisce il codice
+    /// normalizzato.
+    ///
+    /// <para>Un piano senza broker resta valido: sono i piani scritti prima dell'anagrafica, che
+    /// continuano a operare con la tabella dichiarata sui conti. Ma un broker <b>dichiarato</b>
+    /// dev'essere vero e i conti devono essere i suoi: mescolare due broker in un piano significa
+    /// eseguire lo stesso segnale su due serie di prezzi diverse, e il risultato non corrisponde a
+    /// nessuno dei due conti.</para>
     /// </summary>
-    public static IReadOnlyList<TradingGroupRow> NormalizeAndValidateGroups(SaveTradingPlanRequest request)
+    private string ValidateBrokerAndAccounts(string? brokerCode, IReadOnlyList<string> accounts)
     {
-        ArgumentNullException.ThrowIfNull(request);
-        var groups = request.Groups.Count > 0
-            ? request.Groups.Select(CloneRow).ToList()
-            : BuildLegacyRows(request);
+        var normalized = brokerCode?.Trim() ?? string.Empty;
+        if (normalized.Length == 0)
+            return string.Empty;
 
-        if (groups.Count == 0)
-            throw new ArgumentException("Il piano richiede almeno una riga gruppo/account.");
+        var broker = _workspaces.FindBroker(normalized)
+            ?? throw new ArgumentException(
+                $"Il broker '{normalized}' non è in anagrafica: creane la scheda prima di usarlo in un piano.");
 
-        foreach (var row in groups)
+        var registry = _workspaces.ListAccounts();
+        foreach (var number in accounts)
         {
-            if (string.IsNullOrWhiteSpace(row.GroupId) || string.IsNullOrWhiteSpace(row.AccountNumber))
-                throw new ArgumentException("GroupId e AccountNumber sono obbligatori per ogni riga del piano.");
-            if (row.MaxConcurrentTrades < 0)
+            var account = registry.FirstOrDefault(candidate => string.Equals(
+                candidate.AccountNumber?.Trim(), number, StringComparison.OrdinalIgnoreCase));
+            if (account is null)
                 throw new ArgumentException(
-                    $"MaxConcurrentTrades non può essere negativo per l'account '{row.AccountNumber}'.");
+                    $"Il conto '{number}' non è nel registro conti: senza anagrafica non si può " +
+                    "risolvere né il capitale né la tabella dei simboli.");
+
+            // Un conto senza broker dichiarato non blocca il piano: e' l'anagrafica non ancora
+            // migrata, e il piano gli assegna di fatto il proprio. Un conto di un ALTRO broker si',
+            // perche' quello e' un errore di configurazione, non un file vecchio.
+            var suo = account.BrokerCode?.Trim() ?? string.Empty;
+            if (suo.Length > 0 && !suo.Equals(broker.Code, StringComparison.OrdinalIgnoreCase))
+                throw new ArgumentException(
+                    $"Il conto '{number}' è del broker '{suo}', ma il piano dichiara " +
+                    $"'{broker.Code}'. Un piano opera su un broker solo: due broker non quotano la " +
+                    "stessa serie di barre, e un run che li mescola non corrisponde a nessun conto.");
         }
 
-        var duplicatedAccount = groups.GroupBy(r => r.AccountNumber, StringComparer.OrdinalIgnoreCase)
-            .FirstOrDefault(g => g.Count() > 1);
-        if (duplicatedAccount != null)
-            throw new ArgumentException($"Account '{duplicatedAccount.Key}' configurato più di una volta nel piano.");
-
-        return groups;
+        return broker.Code;
     }
 
-    private static List<TradingGroupRow> BuildLegacyRows(SaveTradingPlanRequest request)
+    /// <summary>
+    /// I conti del piano come vanno scritti: senza vuoti, senza doppioni, nell'ordine dichiarato —
+    /// il primo è quello che <c>OpenFromPlan</c> usa quando il cBot non ne indica uno.
+    ///
+    /// <para>Accetta <see cref="SaveTradingPlanRequest.Accounts"/> oppure il singolo
+    /// <see cref="SaveTradingPlanRequest.AccountNumber"/>: un piano a un conto solo non deve
+    /// costruire una lista per dirlo.</para>
+    /// </summary>
+    public static IReadOnlyList<string> NormalizeAndValidateAccounts(SaveTradingPlanRequest request)
     {
-        if (string.IsNullOrWhiteSpace(request.GroupId) || string.IsNullOrWhiteSpace(request.AccountNumber))
-            return [];
+        ArgumentNullException.ThrowIfNull(request);
+        var accounts = (request.Accounts.Count > 0
+                ? request.Accounts
+                : string.IsNullOrWhiteSpace(request.AccountNumber) ? [] : new[] { request.AccountNumber })
+            .Select(account => account?.Trim() ?? string.Empty)
+            .Where(account => account.Length > 0)
+            .ToList();
 
-        return
-        [
-            new TradingGroupRow
-            {
-                GroupId = request.GroupId.Trim(),
-                AccountNumber = request.AccountNumber.Trim(),
-                MaxConcurrentTrades = request.MaxConcurrentTrades,
-                ConcurrencyCountMode = request.ConcurrencyCountMode
-            }
-        ];
+        if (accounts.Count == 0)
+            throw new ArgumentException("Il piano richiede almeno un conto.");
+
+        var duplicated = accounts.GroupBy(account => account, StringComparer.OrdinalIgnoreCase)
+            .FirstOrDefault(group => group.Count() > 1);
+        if (duplicated != null)
+            throw new ArgumentException($"Conto '{duplicated.Key}' configurato più di una volta nel piano.");
+
+        return accounts;
     }
 
+    /// <summary>
+    /// Il piano come lo vede il resto del sistema, qualunque sia la forma con cui sta su disco.
+    ///
+    /// <para><b>Migrazione dai gruppi.</b> Un file scritto quando il piano era una lista di righe
+    /// gruppo/account diventa la lista dei suoi conti, nell'ordine in cui stavano nel file; il tetto
+    /// di concorrenza e la modalità di conteggio sono quelli della <b>prima riga</b>. Dove le righe
+    /// dichiaravano tetti diversi la differenza si perde: il massimo allargherebbe in silenzio un
+    /// limite che una prop impone, ed è l'unico dei due errori che può costare un conto.</para>
+    ///
+    /// <para>Il gruppo non aveva altro effetto operativo: diceva che un segnale è consumato una
+    /// volta sola per gruppo, e ora lo è una volta sola per conto. Nei piani reali ogni gruppo
+    /// conteneva un conto solo, quindi la migrazione non cambia chi riceve cosa.</para>
+    /// </summary>
     private static TradingPlan NormalizeLoadedPlan(TradingPlan plan)
     {
-        var groups = plan.Groups.Count > 0
-            ? plan.Groups.Select(CloneRow).ToList()
-            : string.IsNullOrWhiteSpace(plan.GroupId) || string.IsNullOrWhiteSpace(plan.AccountNumber)
-                ? []
-                :
-                [
-                    new TradingGroupRow
-                    {
-                        GroupId = plan.GroupId.Trim(),
-                        AccountNumber = plan.AccountNumber.Trim(),
-                        MaxConcurrentTrades = plan.MaxConcurrentTrades,
-                        ConcurrencyCountMode = plan.ConcurrencyCountMode
-                    }
-                ];
+        var legacy = plan.Groups ?? [];
+        var accounts = plan.Accounts.Count > 0
+            ? plan.Accounts.Select(account => account.Trim()).Where(account => account.Length > 0).ToList()
+            : legacy.Count > 0
+                ? legacy.Select(row => row.AccountNumber?.Trim() ?? string.Empty)
+                    .Where(account => account.Length > 0)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList()
+                : string.IsNullOrWhiteSpace(plan.AccountNumber)
+                    ? []
+                    : [plan.AccountNumber.Trim()];
 
-        if (groups.Count == 0)
+        if (accounts.Count == 0)
             return plan;
 
-        var primary = SelectPrimaryRow(groups);
+        var primaryLegacy = legacy.Count > 0 ? legacy[0] : null;
         return new TradingPlan
         {
             WorkspaceId = plan.WorkspaceId,
             Code = plan.Code,
             Name = plan.Name,
-            Groups = groups,
-            GroupId = primary.GroupId,
-            AccountNumber = primary.AccountNumber,
-            MaxConcurrentTrades = primary.MaxConcurrentTrades,
-            ConcurrencyCountMode = primary.ConcurrencyCountMode,
+            BrokerCode = plan.BrokerCode?.Trim() ?? string.Empty,
+            Accounts = accounts,
+            AccountNumber = accounts[0],
+            MaxConcurrentTrades = primaryLegacy?.MaxConcurrentTrades ?? plan.MaxConcurrentTrades,
+            ConcurrencyCountMode = primaryLegacy?.ConcurrencyCountMode ?? plan.ConcurrencyCountMode,
             EnforceConcurrencyLimits = plan.EnforceConcurrencyLimits,
             CommissionPerContract = plan.CommissionPerContract,
             Holding = ResolveLoadedHolding(plan),
             SizeMultiplier = NormalizeSizeMultiplier(plan.SizeMultiplier),
+            DisabledStrategies = NormalizeDisabledStrategies(plan.DisabledStrategies),
             PositionSizing = plan.PositionSizing,
             CreatedUtc = plan.CreatedUtc,
             UpdatedUtc = plan.UpdatedUtc
@@ -345,6 +387,23 @@ public sealed class TradingPlanService
         return plan.WeekEndFlat is { } legacy ? holding with { WeekEnd = legacy } : holding;
     }
 
+    /// <summary>
+    /// Gli Id spenti come vanno scritti nel file: senza vuoti, senza doppioni, in ordine.
+    ///
+    /// <para><b>Non si validano contro il catalogo né contro il masterfilter.</b> Un piano puo'
+    /// legittimamente tenere spenta una strategia che oggi il masterfilter non contiene: se domani
+    /// vi rientra deve ritrovarsi spenta, non riaccesa di nascosto perche' nel frattempo l'Id era
+    /// diventato inutile. Scartarlo qui sarebbe una modifica silenziosa del piano fatta da un
+    /// salvataggio che l'utente credeva innocuo.</para>
+    /// </summary>
+    public static IReadOnlyList<string> NormalizeDisabledStrategies(IEnumerable<string>? ids) =>
+        (ids ?? [])
+        .Select(id => id?.Trim() ?? string.Empty)
+        .Where(id => id.Length > 0)
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .OrderBy(id => id, StringComparer.OrdinalIgnoreCase)
+        .ToArray();
+
     /// <summary>Valore minimo del moltiplicatore di size di un piano.</summary>
     public const decimal MinimumSizeMultiplier = 0.1m;
 
@@ -360,19 +419,6 @@ public sealed class TradingPlanService
     /// <see cref="Save"/> lo rifiuta invece di correggerlo di nascosto.</para>
     /// </summary>
     public static decimal NormalizeSizeMultiplier(decimal value) => value <= 0m ? 1m : value;
-
-    /// <summary>
-    /// La prima riga del piano: alimenta i campi mirror legacy e i default di <c>OpenFromPlan</c>.
-    /// </summary>
-    public static TradingGroupRow SelectPrimaryRow(IReadOnlyList<TradingGroupRow> groups) => groups[0];
-
-    private static TradingGroupRow CloneRow(TradingGroupRow row) => new()
-    {
-        GroupId = row.GroupId.Trim(),
-        AccountNumber = row.AccountNumber.Trim(),
-        MaxConcurrentTrades = row.MaxConcurrentTrades,
-        ConcurrencyCountMode = row.ConcurrencyCountMode
-    };
 
     private static string NormalizeCode(string code)
     {

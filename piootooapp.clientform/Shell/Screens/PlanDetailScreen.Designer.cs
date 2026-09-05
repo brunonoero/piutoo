@@ -37,21 +37,33 @@ partial class PlanDetailScreen
         this._enforceConcurrencyCombo = new System.Windows.Forms.ComboBox();
         this._sizeMultiplierLabel = new System.Windows.Forms.Label();
         this._sizeMultiplierInput = new System.Windows.Forms.NumericUpDown();
-        this._groupsTab = new System.Windows.Forms.TabPage();
-        this._groupsGrid = new System.Windows.Forms.DataGridView();
-        this._colGroupId = new System.Windows.Forms.DataGridViewComboBoxColumn();
-        this._groupsButtons = new System.Windows.Forms.FlowLayoutPanel();
-        this._addGroupButton = new System.Windows.Forms.Button();
-        this._removeGroupButton = new System.Windows.Forms.Button();
+        this._planBrokerLabel = new System.Windows.Forms.Label();
+        this._planBrokerCombo = new System.Windows.Forms.ComboBox();
+        this._maxConcurrentLabel = new System.Windows.Forms.Label();
+        this._maxConcurrentInput = new System.Windows.Forms.NumericUpDown();
+        this._countModeLabel = new System.Windows.Forms.Label();
+        this._countModeCombo = new System.Windows.Forms.ComboBox();
         this._accountsTab = new System.Windows.Forms.TabPage();
         this._accountsGrid = new System.Windows.Forms.DataGridView();
         this._colAccountNumber = new System.Windows.Forms.DataGridViewComboBoxColumn();
-        this._colAccountGroupId = new System.Windows.Forms.DataGridViewTextBoxColumn();
-        this._colAccountMaxConcurrent = new System.Windows.Forms.DataGridViewTextBoxColumn();
-        this._colAccountCountMode = new System.Windows.Forms.DataGridViewComboBoxColumn();
         this._accountsButtons = new System.Windows.Forms.FlowLayoutPanel();
         this._addAccountButton = new System.Windows.Forms.Button();
         this._removeAccountButton = new System.Windows.Forms.Button();
+        this._strategiesTab = new System.Windows.Forms.TabPage();
+        this._strategiesBindingSource = new System.Windows.Forms.BindingSource(this.components);
+        this._strategiesGrid = new System.Windows.Forms.DataGridView();
+        this._colStrategyActive = new System.Windows.Forms.DataGridViewCheckBoxColumn();
+        this._colStrategyCode = new System.Windows.Forms.DataGridViewTextBoxColumn();
+        this._colStrategySymbol = new System.Windows.Forms.DataGridViewTextBoxColumn();
+        this._colStrategyTimeframe = new System.Windows.Forms.DataGridViewTextBoxColumn();
+        this._colStrategyHolding = new System.Windows.Forms.DataGridViewTextBoxColumn();
+        this._colStrategyNote = new System.Windows.Forms.DataGridViewTextBoxColumn();
+        this._strategiesSummaryLabel = new System.Windows.Forms.Label();
+        this._strategiesButtons = new System.Windows.Forms.FlowLayoutPanel();
+        this._toggleAllStrategiesButton = new System.Windows.Forms.Button();
+        this._strategyFilterLabel = new System.Windows.Forms.Label();
+        this._strategyFilterBox = new System.Windows.Forms.TextBox();
+        this._onlySelectedStrategiesCheck = new System.Windows.Forms.CheckBox();
         this._holdingTab = new System.Windows.Forms.TabPage();
         this._holdingLayout = new System.Windows.Forms.TableLayoutPanel();
         this._forceNightCloseCheckBox = new System.Windows.Forms.CheckBox();
@@ -70,6 +82,10 @@ partial class PlanDetailScreen
         this._colConflictTimeframe = new System.Windows.Forms.DataGridViewTextBoxColumn();
         this._colConflictHolding = new System.Windows.Forms.DataGridViewTextBoxColumn();
         this._colConflictEffect = new System.Windows.Forms.DataGridViewTextBoxColumn();
+        ((System.ComponentModel.ISupportInitialize)(this._strategiesBindingSource)).BeginInit();
+        ((System.ComponentModel.ISupportInitialize)(this._strategiesGrid)).BeginInit();
+        this._strategiesTab.SuspendLayout();
+        this._strategiesButtons.SuspendLayout();
         ((System.ComponentModel.ISupportInitialize)(this._conflictsBindingSource)).BeginInit();
         ((System.ComponentModel.ISupportInitialize)(this._conflictsGrid)).BeginInit();
         this._sessionFlatInput.BeginInit();
@@ -82,9 +98,7 @@ partial class PlanDetailScreen
         this._generalLayout.SuspendLayout();
         ((System.ComponentModel.ISupportInitialize)(this._commissionInput)).BeginInit();
         ((System.ComponentModel.ISupportInitialize)(this._sizeMultiplierInput)).BeginInit();
-        this._groupsTab.SuspendLayout();
-        ((System.ComponentModel.ISupportInitialize)(this._groupsGrid)).BeginInit();
-        this._groupsButtons.SuspendLayout();
+        ((System.ComponentModel.ISupportInitialize)(this._maxConcurrentInput)).BeginInit();
         this._accountsTab.SuspendLayout();
         ((System.ComponentModel.ISupportInitialize)(this._accountsGrid)).BeginInit();
         this._accountsButtons.SuspendLayout();
@@ -105,8 +119,8 @@ partial class PlanDetailScreen
         // _tabs
         //
         this._tabs.Controls.Add(this._generalTab);
+        this._tabs.Controls.Add(this._strategiesTab);
         this._tabs.Controls.Add(this._holdingTab);
-        this._tabs.Controls.Add(this._groupsTab);
         this._tabs.Controls.Add(this._accountsTab);
         this._tabs.Dock = System.Windows.Forms.DockStyle.Fill;
         this._tabs.Location = new System.Drawing.Point(0, 44);
@@ -147,14 +161,22 @@ partial class PlanDetailScreen
         this._generalLayout.Controls.Add(this._enforceConcurrencyCombo, 1, 2);
         this._generalLayout.Controls.Add(this._sizeMultiplierLabel, 2, 2);
         this._generalLayout.Controls.Add(this._sizeMultiplierInput, 3, 2);
+        this._generalLayout.Controls.Add(this._maxConcurrentLabel, 0, 3);
+        this._generalLayout.Controls.Add(this._maxConcurrentInput, 1, 3);
+        this._generalLayout.Controls.Add(this._countModeLabel, 2, 3);
+        this._generalLayout.Controls.Add(this._countModeCombo, 3, 3);
+        this._generalLayout.Controls.Add(this._planBrokerLabel, 0, 4);
+        this._generalLayout.Controls.Add(this._planBrokerCombo, 1, 4);
         this._generalLayout.Dock = System.Windows.Forms.DockStyle.Top;
         this._generalLayout.Location = new System.Drawing.Point(12, 12);
         this._generalLayout.Name = "_generalLayout";
-        this._generalLayout.RowCount = 3;
+        this._generalLayout.RowCount = 5;
         this._generalLayout.RowStyles.Add(new System.Windows.Forms.RowStyle());
         this._generalLayout.RowStyles.Add(new System.Windows.Forms.RowStyle());
         this._generalLayout.RowStyles.Add(new System.Windows.Forms.RowStyle());
-        this._generalLayout.Size = new System.Drawing.Size(868, 110);
+        this._generalLayout.RowStyles.Add(new System.Windows.Forms.RowStyle());
+        this._generalLayout.RowStyles.Add(new System.Windows.Forms.RowStyle());
+        this._generalLayout.Size = new System.Drawing.Size(868, 180);
         this._generalLayout.TabIndex = 0;
         //
         // _workspaceLabel
@@ -280,79 +302,62 @@ partial class PlanDetailScreen
         this._sizeMultiplierInput.Value = new decimal(new int[] { 1, 0, 0, 0 });
         this._sizeMultiplierInput.ValueChanged += new System.EventHandler(this.OnFieldChanged);
         //
-        // _groupsTab
+        // _planBrokerLabel
         //
-        this._groupsTab.Controls.Add(this._groupsGrid);
-        this._groupsTab.Controls.Add(this._groupsButtons);
-        this._groupsTab.Location = new System.Drawing.Point(4, 27);
-        this._groupsTab.Name = "_groupsTab";
-        this._groupsTab.Padding = new System.Windows.Forms.Padding(12);
-        this._groupsTab.Size = new System.Drawing.Size(892, 525);
-        this._groupsTab.TabIndex = 1;
-        this._groupsTab.Text = "Gruppi";
-        this._groupsTab.UseVisualStyleBackColor = true;
+        this._planBrokerLabel.Anchor = System.Windows.Forms.AnchorStyles.Left;
+        this._planBrokerLabel.AutoSize = true;
+        this._planBrokerLabel.Margin = new System.Windows.Forms.Padding(3, 0, 8, 0);
+        this._planBrokerLabel.Name = "_planBrokerLabel";
+        this._planBrokerLabel.TabIndex = 16;
+        this._planBrokerLabel.Text = "Broker";
         //
-        // _groupsGrid
+        // _planBrokerCombo
         //
-        this._groupsGrid.AllowUserToAddRows = false;
-        this._groupsGrid.AllowUserToDeleteRows = false;
-        this._groupsGrid.AutoGenerateColumns = false;
-        this._groupsGrid.AutoSizeColumnsMode = System.Windows.Forms.DataGridViewAutoSizeColumnsMode.Fill;
-        this._groupsGrid.BackgroundColor = System.Drawing.SystemColors.Window;
-        this._groupsGrid.BorderStyle = System.Windows.Forms.BorderStyle.None;
-        this._groupsGrid.ColumnHeadersHeightSizeMode = System.Windows.Forms.DataGridViewColumnHeadersHeightSizeMode.AutoSize;
-        this._groupsGrid.Columns.AddRange(new System.Windows.Forms.DataGridViewColumn[] {
-            this._colGroupId});
-        this._groupsGrid.DataSource = this._groupsBindingSource;
-        this._groupsGrid.Dock = System.Windows.Forms.DockStyle.Fill;
-        this._groupsGrid.Location = new System.Drawing.Point(12, 49);
-        this._groupsGrid.Name = "_groupsGrid";
-        this._groupsGrid.RowHeadersVisible = false;
-        this._groupsGrid.Size = new System.Drawing.Size(868, 464);
-        this._groupsGrid.TabIndex = 1;
-        this._groupsGrid.CellValueChanged += new System.Windows.Forms.DataGridViewCellEventHandler(this.OnGroupsGridCellValueChanged);
-        this._groupsGrid.CurrentCellDirtyStateChanged += new System.EventHandler(this.OnGroupsGridCurrentCellDirtyStateChanged);
-        this._groupsGrid.DataError += new System.Windows.Forms.DataGridViewDataErrorEventHandler(this.OnGroupsGridDataError);
+        this._planBrokerCombo.Anchor = System.Windows.Forms.AnchorStyles.Left | System.Windows.Forms.AnchorStyles.Right;
+        this._planBrokerCombo.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
+        this._planBrokerCombo.Margin = new System.Windows.Forms.Padding(3, 4, 24, 4);
+        this._planBrokerCombo.Name = "_planBrokerCombo";
+        this._planBrokerCombo.Size = new System.Drawing.Size(280, 23);
+        this._planBrokerCombo.TabIndex = 17;
+        this._planBrokerCombo.SelectedIndexChanged += new System.EventHandler(this.OnPlanBrokerChanged);
         //
-        // _colGroupId
+        // _maxConcurrentLabel
         //
-        this._colGroupId.DataPropertyName = "GroupId";
-        this._colGroupId.DisplayStyle = System.Windows.Forms.DataGridViewComboBoxDisplayStyle.DropDownButton;
-        this._colGroupId.HeaderText = "Gruppo";
-        this._colGroupId.Name = "_colGroupId";
+        this._maxConcurrentLabel.Anchor = System.Windows.Forms.AnchorStyles.Left;
+        this._maxConcurrentLabel.AutoSize = true;
+        this._maxConcurrentLabel.Margin = new System.Windows.Forms.Padding(3, 0, 8, 0);
+        this._maxConcurrentLabel.Name = "_maxConcurrentLabel";
+        this._maxConcurrentLabel.TabIndex = 12;
+        this._maxConcurrentLabel.Text = "Max posizioni per conto (0 = illimitate)";
         //
-        // _groupsButtons
+        // _maxConcurrentInput
         //
-        this._groupsButtons.AutoSize = true;
-        this._groupsButtons.Controls.Add(this._addGroupButton);
-        this._groupsButtons.Controls.Add(this._removeGroupButton);
-        this._groupsButtons.Dock = System.Windows.Forms.DockStyle.Top;
-        this._groupsButtons.Location = new System.Drawing.Point(12, 12);
-        this._groupsButtons.Name = "_groupsButtons";
-        this._groupsButtons.Padding = new System.Windows.Forms.Padding(0, 0, 0, 6);
-        this._groupsButtons.Size = new System.Drawing.Size(868, 37);
-        this._groupsButtons.TabIndex = 0;
-        this._groupsButtons.WrapContents = false;
+        this._maxConcurrentInput.Anchor = System.Windows.Forms.AnchorStyles.Left;
+        this._maxConcurrentInput.Margin = new System.Windows.Forms.Padding(3, 4, 3, 4);
+        this._maxConcurrentInput.Maximum = new decimal(new int[] { 1000, 0, 0, 0 });
+        this._maxConcurrentInput.Name = "_maxConcurrentInput";
+        this._maxConcurrentInput.Size = new System.Drawing.Size(90, 23);
+        this._maxConcurrentInput.TabIndex = 13;
+        this._maxConcurrentInput.ValueChanged += new System.EventHandler(this.OnFieldChanged);
         //
-        // _addGroupButton
+        // _countModeLabel
         //
-        this._addGroupButton.AutoSize = true;
-        this._addGroupButton.Name = "_addGroupButton";
-        this._addGroupButton.Size = new System.Drawing.Size(100, 25);
-        this._addGroupButton.TabIndex = 0;
-        this._addGroupButton.Text = "Aggiungi riga";
-        this._addGroupButton.UseVisualStyleBackColor = true;
-        this._addGroupButton.Click += new System.EventHandler(this.OnAddGroupClick);
+        this._countModeLabel.Anchor = System.Windows.Forms.AnchorStyles.Left;
+        this._countModeLabel.AutoSize = true;
+        this._countModeLabel.Margin = new System.Windows.Forms.Padding(3, 0, 8, 0);
+        this._countModeLabel.Name = "_countModeLabel";
+        this._countModeLabel.TabIndex = 14;
+        this._countModeLabel.Text = "Il massimo conta";
         //
-        // _removeGroupButton
+        // _countModeCombo
         //
-        this._removeGroupButton.AutoSize = true;
-        this._removeGroupButton.Name = "_removeGroupButton";
-        this._removeGroupButton.Size = new System.Drawing.Size(100, 25);
-        this._removeGroupButton.TabIndex = 1;
-        this._removeGroupButton.Text = "Rimuovi riga";
-        this._removeGroupButton.UseVisualStyleBackColor = true;
-        this._removeGroupButton.Click += new System.EventHandler(this.OnRemoveGroupClick);
+        this._countModeCombo.Anchor = System.Windows.Forms.AnchorStyles.Left | System.Windows.Forms.AnchorStyles.Right;
+        this._countModeCombo.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
+        this._countModeCombo.Margin = new System.Windows.Forms.Padding(3, 4, 24, 4);
+        this._countModeCombo.Name = "_countModeCombo";
+        this._countModeCombo.Size = new System.Drawing.Size(280, 23);
+        this._countModeCombo.TabIndex = 15;
+        this._countModeCombo.SelectedIndexChanged += new System.EventHandler(this.OnFieldChanged);
         //
         // _accountsTab
         //
@@ -376,10 +381,7 @@ partial class PlanDetailScreen
         this._accountsGrid.BorderStyle = System.Windows.Forms.BorderStyle.None;
         this._accountsGrid.ColumnHeadersHeightSizeMode = System.Windows.Forms.DataGridViewColumnHeadersHeightSizeMode.AutoSize;
         this._accountsGrid.Columns.AddRange(new System.Windows.Forms.DataGridViewColumn[] {
-            this._colAccountNumber,
-            this._colAccountGroupId,
-            this._colAccountMaxConcurrent,
-            this._colAccountCountMode});
+            this._colAccountNumber});
         this._accountsGrid.DataSource = this._accountsBindingSource;
         this._accountsGrid.Dock = System.Windows.Forms.DockStyle.Fill;
         this._accountsGrid.Location = new System.Drawing.Point(12, 49);
@@ -397,29 +399,6 @@ partial class PlanDetailScreen
         this._colAccountNumber.DisplayStyle = System.Windows.Forms.DataGridViewComboBoxDisplayStyle.DropDownButton;
         this._colAccountNumber.HeaderText = "Account";
         this._colAccountNumber.Name = "_colAccountNumber";
-        //
-        // _colAccountGroupId
-        //
-        this._colAccountGroupId.DataPropertyName = "GroupId";
-        this._colAccountGroupId.FillWeight = 60F;
-        this._colAccountGroupId.HeaderText = "Gruppo";
-        this._colAccountGroupId.Name = "_colAccountGroupId";
-        this._colAccountGroupId.ReadOnly = true;
-        //
-        // _colAccountMaxConcurrent
-        //
-        this._colAccountMaxConcurrent.DataPropertyName = "MaxConcurrentTrades";
-        this._colAccountMaxConcurrent.FillWeight = 70F;
-        this._colAccountMaxConcurrent.HeaderText = "Max posizioni contemporanee (0 = illimitate)";
-        this._colAccountMaxConcurrent.Name = "_colAccountMaxConcurrent";
-        //
-        // _colAccountCountMode
-        //
-        this._colAccountCountMode.DataPropertyName = "ConcurrencyCountMode";
-        this._colAccountCountMode.DisplayStyle = System.Windows.Forms.DataGridViewComboBoxDisplayStyle.DropDownButton;
-        this._colAccountCountMode.FillWeight = 80F;
-        this._colAccountCountMode.HeaderText = "Il massimo conta";
-        this._colAccountCountMode.Name = "_colAccountCountMode";
         //
         // _accountsButtons
         //
@@ -453,6 +432,155 @@ partial class PlanDetailScreen
         this._removeAccountButton.Text = "Rimuovi riga";
         this._removeAccountButton.UseVisualStyleBackColor = true;
         this._removeAccountButton.Click += new System.EventHandler(this.OnRemoveAccountClick);
+        //
+        // _strategiesTab
+        //
+        this._strategiesTab.Controls.Add(this._strategiesGrid);
+        this._strategiesTab.Controls.Add(this._strategiesSummaryLabel);
+        this._strategiesTab.Controls.Add(this._strategiesButtons);
+        this._strategiesTab.Location = new System.Drawing.Point(4, 27);
+        this._strategiesTab.Name = "_strategiesTab";
+        this._strategiesTab.Padding = new System.Windows.Forms.Padding(12);
+        this._strategiesTab.Size = new System.Drawing.Size(892, 525);
+        this._strategiesTab.TabIndex = 5;
+        this._strategiesTab.Text = "Strategie";
+        this._strategiesTab.UseVisualStyleBackColor = true;
+        //
+        // _strategiesButtons
+        //
+        this._strategiesButtons.AutoSize = true;
+        this._strategiesButtons.Controls.Add(this._toggleAllStrategiesButton);
+        this._strategiesButtons.Controls.Add(this._strategyFilterLabel);
+        this._strategiesButtons.Controls.Add(this._strategyFilterBox);
+        this._strategiesButtons.Controls.Add(this._onlySelectedStrategiesCheck);
+        this._strategiesButtons.Dock = System.Windows.Forms.DockStyle.Top;
+        this._strategiesButtons.Location = new System.Drawing.Point(12, 12);
+        this._strategiesButtons.Name = "_strategiesButtons";
+        this._strategiesButtons.Padding = new System.Windows.Forms.Padding(0, 0, 0, 6);
+        this._strategiesButtons.Size = new System.Drawing.Size(868, 37);
+        this._strategiesButtons.TabIndex = 0;
+        this._strategiesButtons.WrapContents = false;
+        //
+        // _toggleAllStrategiesButton
+        //
+        this._toggleAllStrategiesButton.AutoSize = true;
+        this._toggleAllStrategiesButton.Margin = new System.Windows.Forms.Padding(0, 0, 16, 0);
+        this._toggleAllStrategiesButton.Name = "_toggleAllStrategiesButton";
+        this._toggleAllStrategiesButton.Size = new System.Drawing.Size(150, 25);
+        this._toggleAllStrategiesButton.TabIndex = 0;
+        this._toggleAllStrategiesButton.Text = "Seleziona tutto";
+        this._toggleAllStrategiesButton.UseVisualStyleBackColor = true;
+        this._toggleAllStrategiesButton.Click += new System.EventHandler(this.OnToggleAllStrategiesClick);
+        //
+        // _strategyFilterLabel
+        //
+        this._strategyFilterLabel.AutoSize = true;
+        this._strategyFilterLabel.Margin = new System.Windows.Forms.Padding(3, 6, 6, 0);
+        this._strategyFilterLabel.Name = "_strategyFilterLabel";
+        this._strategyFilterLabel.TabIndex = 1;
+        this._strategyFilterLabel.Text = "Cerca";
+        //
+        // _strategyFilterBox
+        //
+        this._strategyFilterBox.Margin = new System.Windows.Forms.Padding(0, 2, 3, 0);
+        this._strategyFilterBox.Name = "_strategyFilterBox";
+        this._strategyFilterBox.PlaceholderText = "codice, simbolo o timeframe";
+        this._strategyFilterBox.Size = new System.Drawing.Size(260, 23);
+        this._strategyFilterBox.TabIndex = 2;
+        this._strategyFilterBox.TextChanged += new System.EventHandler(this.OnStrategyFilterChanged);
+        //
+        // _onlySelectedStrategiesCheck
+        //
+        this._onlySelectedStrategiesCheck.AutoSize = true;
+        this._onlySelectedStrategiesCheck.Margin = new System.Windows.Forms.Padding(16, 5, 0, 0);
+        this._onlySelectedStrategiesCheck.Name = "_onlySelectedStrategiesCheck";
+        this._onlySelectedStrategiesCheck.TabIndex = 3;
+        this._onlySelectedStrategiesCheck.Text = "Solo selezionate";
+        this._onlySelectedStrategiesCheck.UseVisualStyleBackColor = true;
+        this._onlySelectedStrategiesCheck.CheckedChanged += new System.EventHandler(this.OnStrategyFilterChanged);
+        //
+        // _strategiesSummaryLabel
+        //
+        this._strategiesSummaryLabel.AutoSize = false;
+        this._strategiesSummaryLabel.Dock = System.Windows.Forms.DockStyle.Top;
+        this._strategiesSummaryLabel.Name = "_strategiesSummaryLabel";
+        this._strategiesSummaryLabel.Padding = new System.Windows.Forms.Padding(0, 0, 0, 8);
+        this._strategiesSummaryLabel.Size = new System.Drawing.Size(868, 44);
+        this._strategiesSummaryLabel.TabIndex = 1;
+        this._strategiesSummaryLabel.Text = "";
+        //
+        // _strategiesGrid
+        //
+        this._strategiesGrid.AllowUserToAddRows = false;
+        this._strategiesGrid.AllowUserToDeleteRows = false;
+        this._strategiesGrid.AutoGenerateColumns = false;
+        this._strategiesGrid.AutoSizeColumnsMode = System.Windows.Forms.DataGridViewAutoSizeColumnsMode.Fill;
+        this._strategiesGrid.BackgroundColor = System.Drawing.SystemColors.Window;
+        this._strategiesGrid.BorderStyle = System.Windows.Forms.BorderStyle.None;
+        this._strategiesGrid.ColumnHeadersHeightSizeMode = System.Windows.Forms.DataGridViewColumnHeadersHeightSizeMode.AutoSize;
+        this._strategiesGrid.Columns.AddRange(new System.Windows.Forms.DataGridViewColumn[] {
+            this._colStrategyActive,
+            this._colStrategyCode,
+            this._colStrategySymbol,
+            this._colStrategyTimeframe,
+            this._colStrategyHolding,
+            this._colStrategyNote});
+        this._strategiesGrid.DataSource = this._strategiesBindingSource;
+        this._strategiesGrid.Dock = System.Windows.Forms.DockStyle.Fill;
+        this._strategiesGrid.MultiSelect = false;
+        this._strategiesGrid.Name = "_strategiesGrid";
+        this._strategiesGrid.RowHeadersVisible = false;
+        this._strategiesGrid.SelectionMode = System.Windows.Forms.DataGridViewSelectionMode.FullRowSelect;
+        this._strategiesGrid.TabIndex = 2;
+        this._strategiesGrid.CellValueChanged += new System.Windows.Forms.DataGridViewCellEventHandler(this.OnStrategiesGridCellValueChanged);
+        this._strategiesGrid.CurrentCellDirtyStateChanged += new System.EventHandler(this.OnStrategiesGridCurrentCellDirtyStateChanged);
+        //
+        // _colStrategyActive
+        //
+        this._colStrategyActive.DataPropertyName = "Active";
+        this._colStrategyActive.FillWeight = 35F;
+        this._colStrategyActive.HeaderText = "Attiva";
+        this._colStrategyActive.Name = "_colStrategyActive";
+        //
+        // _colStrategyCode
+        //
+        this._colStrategyCode.DataPropertyName = "Strategy";
+        this._colStrategyCode.FillWeight = 150F;
+        this._colStrategyCode.HeaderText = "Strategia";
+        this._colStrategyCode.Name = "_colStrategyCode";
+        this._colStrategyCode.ReadOnly = true;
+        //
+        // _colStrategySymbol
+        //
+        this._colStrategySymbol.DataPropertyName = "Symbol";
+        this._colStrategySymbol.FillWeight = 50F;
+        this._colStrategySymbol.HeaderText = "Simbolo";
+        this._colStrategySymbol.Name = "_colStrategySymbol";
+        this._colStrategySymbol.ReadOnly = true;
+        //
+        // _colStrategyTimeframe
+        //
+        this._colStrategyTimeframe.DataPropertyName = "Timeframe";
+        this._colStrategyTimeframe.FillWeight = 40F;
+        this._colStrategyTimeframe.HeaderText = "TF";
+        this._colStrategyTimeframe.Name = "_colStrategyTimeframe";
+        this._colStrategyTimeframe.ReadOnly = true;
+        //
+        // _colStrategyHolding
+        //
+        this._colStrategyHolding.DataPropertyName = "Holding";
+        this._colStrategyHolding.FillWeight = 70F;
+        this._colStrategyHolding.HeaderText = "Tenuta";
+        this._colStrategyHolding.Name = "_colStrategyHolding";
+        this._colStrategyHolding.ReadOnly = true;
+        //
+        // _colStrategyNote
+        //
+        this._colStrategyNote.DataPropertyName = "Note";
+        this._colStrategyNote.FillWeight = 120F;
+        this._colStrategyNote.HeaderText = "Nota";
+        this._colStrategyNote.Name = "_colStrategyNote";
+        this._colStrategyNote.ReadOnly = true;
         //
         // _holdingTab
         //
@@ -652,6 +780,12 @@ partial class PlanDetailScreen
         this.Controls.Add(this._toolbar);
         this.Name = "PlanDetailScreen";
         this.Size = new System.Drawing.Size(900, 600);
+        ((System.ComponentModel.ISupportInitialize)(this._strategiesBindingSource)).EndInit();
+        ((System.ComponentModel.ISupportInitialize)(this._strategiesGrid)).EndInit();
+        this._strategiesTab.ResumeLayout(false);
+        this._strategiesTab.PerformLayout();
+        this._strategiesButtons.ResumeLayout(false);
+        this._strategiesButtons.PerformLayout();
         ((System.ComponentModel.ISupportInitialize)(this._conflictsBindingSource)).EndInit();
         ((System.ComponentModel.ISupportInitialize)(this._conflictsGrid)).EndInit();
         this._sessionFlatInput.EndInit();
@@ -666,11 +800,7 @@ partial class PlanDetailScreen
         this._generalLayout.PerformLayout();
         ((System.ComponentModel.ISupportInitialize)(this._commissionInput)).EndInit();
         ((System.ComponentModel.ISupportInitialize)(this._sizeMultiplierInput)).EndInit();
-        this._groupsTab.ResumeLayout(false);
-        this._groupsTab.PerformLayout();
-        ((System.ComponentModel.ISupportInitialize)(this._groupsGrid)).EndInit();
-        this._groupsButtons.ResumeLayout(false);
-        this._groupsButtons.PerformLayout();
+        ((System.ComponentModel.ISupportInitialize)(this._maxConcurrentInput)).EndInit();
         this._accountsTab.ResumeLayout(false);
         this._accountsTab.PerformLayout();
         ((System.ComponentModel.ISupportInitialize)(this._accountsGrid)).EndInit();
@@ -699,21 +829,33 @@ partial class PlanDetailScreen
     private System.Windows.Forms.ComboBox _enforceConcurrencyCombo;
     private System.Windows.Forms.Label _sizeMultiplierLabel;
     private System.Windows.Forms.NumericUpDown _sizeMultiplierInput;
-    private System.Windows.Forms.TabPage _groupsTab;
-    private System.Windows.Forms.DataGridView _groupsGrid;
-    private System.Windows.Forms.DataGridViewComboBoxColumn _colGroupId;
-    private System.Windows.Forms.FlowLayoutPanel _groupsButtons;
-    private System.Windows.Forms.Button _addGroupButton;
-    private System.Windows.Forms.Button _removeGroupButton;
+    private System.Windows.Forms.Label _planBrokerLabel;
+    private System.Windows.Forms.ComboBox _planBrokerCombo;
+    private System.Windows.Forms.Label _maxConcurrentLabel;
+    private System.Windows.Forms.NumericUpDown _maxConcurrentInput;
+    private System.Windows.Forms.Label _countModeLabel;
+    private System.Windows.Forms.ComboBox _countModeCombo;
     private System.Windows.Forms.TabPage _accountsTab;
     private System.Windows.Forms.DataGridView _accountsGrid;
     private System.Windows.Forms.DataGridViewComboBoxColumn _colAccountNumber;
-    private System.Windows.Forms.DataGridViewTextBoxColumn _colAccountGroupId;
-    private System.Windows.Forms.DataGridViewTextBoxColumn _colAccountMaxConcurrent;
-    private System.Windows.Forms.DataGridViewComboBoxColumn _colAccountCountMode;
     private System.Windows.Forms.FlowLayoutPanel _accountsButtons;
     private System.Windows.Forms.Button _addAccountButton;
     private System.Windows.Forms.Button _removeAccountButton;
+    private System.Windows.Forms.TabPage _strategiesTab;
+    private System.Windows.Forms.BindingSource _strategiesBindingSource;
+    private System.Windows.Forms.DataGridView _strategiesGrid;
+    private System.Windows.Forms.DataGridViewCheckBoxColumn _colStrategyActive;
+    private System.Windows.Forms.DataGridViewTextBoxColumn _colStrategyCode;
+    private System.Windows.Forms.DataGridViewTextBoxColumn _colStrategySymbol;
+    private System.Windows.Forms.DataGridViewTextBoxColumn _colStrategyTimeframe;
+    private System.Windows.Forms.DataGridViewTextBoxColumn _colStrategyHolding;
+    private System.Windows.Forms.DataGridViewTextBoxColumn _colStrategyNote;
+    private System.Windows.Forms.Label _strategiesSummaryLabel;
+    private System.Windows.Forms.FlowLayoutPanel _strategiesButtons;
+    private System.Windows.Forms.Button _toggleAllStrategiesButton;
+    private System.Windows.Forms.Label _strategyFilterLabel;
+    private System.Windows.Forms.TextBox _strategyFilterBox;
+    private System.Windows.Forms.CheckBox _onlySelectedStrategiesCheck;
     private System.Windows.Forms.TabPage _holdingTab;
     private System.Windows.Forms.TableLayoutPanel _holdingLayout;
     private System.Windows.Forms.CheckBox _forceNightCloseCheckBox;

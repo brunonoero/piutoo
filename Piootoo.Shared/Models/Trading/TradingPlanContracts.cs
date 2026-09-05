@@ -6,10 +6,11 @@ namespace Piootoo.Shared.Models.Trading;
 /// Configurazione operativa riutilizzabile, salvata nel workspace. Una sessione ne acquisisce uno
 /// snapshot alla creazione: modificare il piano non cambia le sessioni già esistenti.
 ///
-/// <para>La collezione <see cref="Groups"/> è la fonte autorevole di gruppo/account. I campi
-/// singoli (<see cref="GroupId"/>, <see cref="AccountNumber"/>, ecc.) restano come mirror della
-/// prima riga per compatibilità con i <c>plans.json</c> legacy e con i client che li leggono
-/// ancora in modo diretto.</para>
+/// <para><b>Il piano è una lista di conti, non di gruppi.</b> <see cref="Accounts"/> elenca i conti
+/// cTrader che lo eseguono: ognuno riceve <i>ogni</i> segnale della barra, ognuno con la size del
+/// proprio capitale. I gruppi non esistono più (vedi <c>docs/decisioni.md</c> 2026-09-05): erano un
+/// livello in mezzo che nei piani reali conteneva un conto solo, e il loro unico effetto operativo —
+/// «un segnale è consumato una volta per gruppo» — è ora «una volta per conto».</para>
 /// </summary>
 public sealed class TradingPlan
 {
@@ -17,12 +18,37 @@ public sealed class TradingPlan
     public required string Code { get; init; }
     public required string Name { get; init; }
 
-    /// <summary>Righe gruppo/account del piano. Almeno una. È la configurazione canonica.</summary>
-    public IReadOnlyList<TradingGroupRow> Groups { get; init; } = [];
+    /// <summary>
+    /// Il broker su cui il piano opera (<c>TradingBroker.Code</c>). Da lui vengono la tabella dei
+    /// simboli dei conti e l'archivio del datafeed.
+    ///
+    /// <para><b>Tutti i conti del piano sono di questo broker</b>, ed è il vincolo per cui il campo
+    /// esiste: due broker non producono la stessa serie di barre per lo stesso simbolo, quindi un
+    /// piano che li mescolasse non corrisponderebbe a nessun conto reale. Vuoto solo per i piani
+    /// scritti prima dell'anagrafica broker: restano leggibili e continuano a operare con la
+    /// tabella dichiarata sui conti.</para>
+    /// </summary>
+    public string BrokerCode { get; init; } = string.Empty;
 
-    /// <summary>Mirror legacy della prima riga: usato nei file vecchi e come default di sessione.</summary>
-    public string GroupId { get; init; } = string.Empty;
+    /// <summary>
+    /// I conti cTrader che eseguono il piano, per numero di conto. Almeno uno, tutti di
+    /// <see cref="BrokerCode"/>. È la configurazione canonica: <see cref="AccountNumber"/> ne è
+    /// solo il mirror del primo.
+    /// </summary>
+    public IReadOnlyList<string> Accounts { get; init; } = [];
+
+    /// <summary>Primo conto del piano: default di <c>OpenFromPlan</c> quando il cBot non lo dichiara.</summary>
     public string AccountNumber { get; init; } = string.Empty;
+
+    /// <summary>
+    /// Massimo di ingressi contemporanei <b>per conto</b>, sull'insieme delle strategie e
+    /// trasversale ai simboli: dieci significa dieci, che stiano su un simbolo solo o su dieci
+    /// diversi. Zero = illimitato.
+    ///
+    /// <para>Sta sul piano e non sul singolo conto perché è una regola di <i>come si opera</i> con
+    /// quella configurazione. Un conto che deve operare con un tetto diverso è un altro piano: due
+    /// piani sullo stesso workspace sono la cosa che questo sistema fa a costo zero.</para>
+    /// </summary>
     public int MaxConcurrentTrades { get; init; }
 
     /// <summary>
@@ -32,11 +58,20 @@ public sealed class TradingPlan
     /// </summary>
     public bool? EnforceConcurrencyLimits { get; init; }
 
-    /// <summary>
-    /// Cosa conta <c>MaxConcurrentTrades</c>. Mirror legacy della prima riga, come gli altri campi
-    /// singoli: la fonte autorevole è <see cref="TradingGroupRow.ConcurrencyCountMode"/>.
-    /// </summary>
+    /// <summary>Cosa conta <see cref="MaxConcurrentTrades"/>. Vedi <see cref="Trading.ConcurrencyCountMode"/>.</summary>
     public ConcurrencyCountMode ConcurrencyCountMode { get; init; }
+
+    /// <summary>
+    /// Solo per leggere i <c>plans.json</c> scritti quando il piano era una lista di righe
+    /// gruppo/account. <c>TradingPlanService.NormalizeLoadedPlan</c> ne ricava
+    /// <see cref="Accounts"/> e la azzera, così non viene mai riscritta.
+    ///
+    /// <para>Il tetto di concorrenza migrato è quello della <b>prima riga</b>, come ogni altro
+    /// mirror di questo contratto. Dove le righe dichiaravano tetti diversi la differenza si perde,
+    /// ed è voluto: prendere il massimo allargherebbe in silenzio un limite che una prop impone.</para>
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<LegacyPlanGroupRow>? Groups { get; init; }
 
     /// <summary>
     /// Moltiplicatore <c>k</c> applicato a <b>ogni</b> quantità che esce verso il client. La size
@@ -92,6 +127,28 @@ public sealed class TradingPlan
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public WeekEndFlatPolicy? WeekEndFlat { get; init; }
 
+    /// <summary>
+    /// Le strategie che questo piano tiene <b>spente</b>, per <c>Id</c> di catalogo — il nome della
+    /// classe, non lo <c>StrategyCode</c>: qui si sta selezionando dal catalogo, come fa il
+    /// masterfilter, non nominando esecuzioni (CLAUDE.md, «Id ≠ Name»).
+    ///
+    /// <para>È un <b>secondo</b> filtro, non un elenco alternativo: il masterfilter del workspace
+    /// dice quali strategie esistono, il piano ne spegne un sottoinsieme. Una sessione aperta dal
+    /// piano valuta <c>masterfilter − DisabledStrategies</c>.</para>
+    ///
+    /// <para><b>Si elencano le spente, non le accese.</b> Il masterfilter cambia nel tempo: se il
+    /// piano portasse l'elenco delle attive, una strategia aggiunta al masterfilter resterebbe
+    /// fuori da ogni piano già scritto senza che nulla lo dica. Elencando le spente il default è
+    /// «attiva» — cioè il piano com'era prima che questo campo esistesse — e ciò che il file
+    /// dichiara è esattamente ciò che qualcuno ha scelto di togliere.</para>
+    ///
+    /// <para>Un Id qui dentro che il masterfilter non contiene non è un errore e non viene scartato:
+    /// il masterfilter può cambiare, e una strategia che vi rientra deve ritrovare lo spegnimento
+    /// che il piano aveva dichiarato. Il datafeed continua invece a raccogliere anche gli strumenti
+    /// delle spente (vedi <c>TradingPlanService.ResolveDatafeedInstruments</c>).</para>
+    /// </summary>
+    public IReadOnlyList<string> DisabledStrategies { get; init; } = [];
+
     public PositionSizingConfig PositionSizing { get; init; } = new();
     public DateTime CreatedUtc { get; init; }
     public DateTime UpdatedUtc { get; init; }
@@ -103,13 +160,21 @@ public sealed class SaveTradingPlanRequest
     public required string Name { get; init; }
 
     /// <summary>
-    /// Righe gruppo/account da salvare. Se vuota, il server ricostruisce una riga dai campi
-    /// legacy singoli (compatibilità con i client e i test già esistenti).
+    /// I conti che eseguono il piano. Almeno uno. Se vuota si usa <see cref="AccountNumber"/>, così
+    /// un client che configura un conto solo non deve costruire una lista.
     /// </summary>
-    public IReadOnlyList<TradingGroupRow> Groups { get; init; } = [];
+    public IReadOnlyList<string> Accounts { get; init; } = [];
 
-    public string? GroupId { get; init; }
+    /// <summary>Conto singolo: alternativa a <see cref="Accounts"/> per il caso a un conto solo.</summary>
     public string? AccountNumber { get; init; }
+
+    /// <summary>
+    /// Broker del piano. Vedi <see cref="TradingPlan.BrokerCode"/>: se valorizzato, ogni conto
+    /// indicato deve appartenergli, e il salvataggio lo verifica.
+    /// </summary>
+    public string? BrokerCode { get; init; }
+
+    /// <summary>Vedi <see cref="TradingPlan.MaxConcurrentTrades"/>: è per conto, e vale per tutti.</summary>
     public int MaxConcurrentTrades { get; init; }
 
     /// <summary>
@@ -129,7 +194,27 @@ public sealed class SaveTradingPlanRequest
     /// <summary>Vedi <see cref="TradingPlan.Holding"/>.</summary>
     public AccountHoldingPolicy Holding { get; init; } = AccountHoldingPolicy.Default;
 
+    /// <summary>
+    /// Id delle strategie del masterfilter che il piano tiene spente. Vedi
+    /// <see cref="TradingPlan.DisabledStrategies"/>: si elencano le spente, non le attive. Un client
+    /// che non conosce il campo manda una lista vuota, cioè «tutte attive», che è il piano com'era.
+    /// </summary>
+    public IReadOnlyList<string> DisabledStrategies { get; init; } = [];
+
     public PositionSizingConfig PositionSizing { get; init; } = new();
+}
+
+/// <summary>
+/// Una riga gruppo/account come la scrivevano i <c>plans.json</c> prima che i gruppi sparissero.
+/// Esiste solo per rileggerli: nessun codice la produce, e alla prima riscrittura del piano il
+/// campo che la conteneva non viene più emesso.
+/// </summary>
+public sealed class LegacyPlanGroupRow
+{
+    public string GroupId { get; init; } = string.Empty;
+    public string AccountNumber { get; init; } = string.Empty;
+    public int MaxConcurrentTrades { get; init; }
+    public ConcurrencyCountMode ConcurrencyCountMode { get; init; }
 }
 
 /// <summary>
@@ -177,9 +262,17 @@ public enum TradingRunProfile
     DalPiano = 0,
 
     /// <summary>
-    /// Backtest sorgente: tutte le strategie del masterfilter del workspace e nessun lucchetto di
-    /// concorrenza, così ogni segnale diventa un intent. È il run che produce il campione completo:
-    /// applicargli vincoli operativi falserebbe la sorgente.
+    /// Backtest sorgente: le strategie del piano — masterfilter meno
+    /// <see cref="TradingPlan.DisabledStrategies"/> — e nessun lucchetto di concorrenza, così ogni
+    /// segnale diventa un intent. È il run che produce il campione completo: applicargli vincoli
+    /// operativi falserebbe la sorgente.
+    ///
+    /// <para>Il secondo filtro del piano <b>si applica anche qui</b>, a differenza dei lucchetti:
+    /// non è un vincolo operativo che mutila il campione, è quali strategie il piano fa girare. Se
+    /// il sorgente ne contenesse di più, il confronto con
+    /// <see cref="BacktestStaticFilter"/> misurerebbe la differenza fra due insiemi di strategie
+    /// invece che l'effetto del tetto di concorrenza, che è l'unica cosa che quel confronto esiste
+    /// per misurare.</para>
     /// </summary>
     BacktestSorgente = 1,
 
@@ -187,8 +280,9 @@ public enum TradingRunProfile
     // run già salvati con quel profilo non vengono riletti come qualcos'altro.
 
     /// <summary>
-    /// Backtest a filtro statico: le strategie sono quelle del masterfilter del workspace e i
-    /// lucchetti di concorrenza e distribuzione sono attivi.
+    /// Backtest a filtro statico: le strategie sono quelle del piano (masterfilter meno le spente,
+    /// come in <see cref="BacktestSorgente"/>) e i lucchetti di concorrenza e distribuzione sono
+    /// attivi.
     ///
     /// <para>È il termine di paragone di <see cref="BacktestSorgente"/>, che risponde a "quanto
     /// rende ogni strategia da sola": qui si misura quanto rende lo stesso insieme di strategie con

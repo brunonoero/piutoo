@@ -236,7 +236,6 @@ public sealed class SessionRestoreTests : IDisposable
         {
             Code = PlanCode,
             Name = "Piano ripresa",
-            GroupId = "g1",
             AccountNumber = Account,
             Holding = holding
         });

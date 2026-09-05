@@ -26,6 +26,7 @@ public partial class AccountDetailScreen : UserControl, IShellScreen, IDirtyAwar
 
     /// <summary>Tabelle di conversione del registro globale, per risolvere quella dell'account.</summary>
     private readonly List<SymbolConversion> _conversions = new();
+    private readonly List<TradingBroker> _brokers = new();
 
     /// <summary>Strategie che questo conto puo' operare, prima del filtro di testo.</summary>
     private readonly List<AccountStrategyRow> _supported = new();
@@ -88,6 +89,22 @@ public partial class AccountDetailScreen : UserControl, IShellScreen, IDirtyAwar
             var conversions = await _context.Services.Api.ListSymbolConversionsAsync(cancellationToken);
             _conversions.Clear();
             _conversions.AddRange(conversions);
+
+            // I broker servono prima del bind: e' da loro che arriva la tabella dei simboli del
+            // conto, e la combo delle tabelle diventa di sola lettura quando un broker c'e'.
+            _brokers.Clear();
+            try
+            {
+                _brokers.AddRange(await _context.Services.Api.ListBrokersAsync(cancellationToken));
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _context.Navigation.SetError($"Anagrafica broker non leggibile: {ex.Message}");
+            }
             await LoadStrategyCatalogAsync(cancellationToken);
 
             if (IsNew)
@@ -142,7 +159,7 @@ public partial class AccountDetailScreen : UserControl, IShellScreen, IDirtyAwar
         _nameTextBox.Text = account.Name;
         _accountNumberTextBox.Text = account.AccountNumber;
         _groupCombo.Text = account.GroupId;
-        _brokerTextBox.Text = account.Broker;
+        FillBrokerCombo(account);
         _currencyCombo.Text = string.IsNullOrWhiteSpace(account.Currency) ? "USD" : account.Currency;
         _initialBalanceInput.Value = Math.Clamp(
             account.InitialBalance,
@@ -155,8 +172,94 @@ public partial class AccountDetailScreen : UserControl, IShellScreen, IDirtyAwar
             : $"Id: {account.Id}  ·  creato {account.CreatedUtc:yyyy-MM-dd HH:mm} UTC  ·  " +
               $"aggiornato {account.UpdatedUtc:yyyy-MM-dd HH:mm} UTC";
 
-        FillSymbolConversionCombo(conversions, account.SymbolConversionCode);
+        FillSymbolConversionCombo(conversions, ResolveConversionCode(account));
+        ApplyBrokerToConversion();
         RefreshSupportedStrategies();
+    }
+
+    /// <summary>
+    /// La tabella con cui il conto opera davvero: quella del suo broker, o quella scritta sul conto
+    /// finche' un broker non c'e'. E' la stessa regola del server
+    /// (<c>WorkspaceService.ResolveConversionForAccount</c>): se le due divergessero, la schermata
+    /// prometterebbe un universo operativo diverso da quello che gira.
+    /// </summary>
+    private string ResolveConversionCode(WorkspaceAccount account)
+    {
+        var broker = _brokers.FirstOrDefault(item => string.Equals(
+            item.Code, account.BrokerCode?.Trim(), StringComparison.OrdinalIgnoreCase));
+        return broker is not null
+            ? broker.SymbolConversionCode ?? string.Empty
+            : account.SymbolConversionCode ?? string.Empty;
+    }
+
+    private void FillBrokerCombo(WorkspaceAccount account)
+    {
+        var items = new List<ValueComboItem> { ValueComboItem.Blank("(nessun broker)") };
+        items.AddRange(_brokers
+            .Where(broker => !string.IsNullOrWhiteSpace(broker.Code))
+            .Select(broker => ValueComboItem.Of(broker.Code, $"{broker.Name}  ·  {broker.Code}")));
+
+        var current = account.BrokerCode?.Trim() ?? string.Empty;
+        if (current.Length > 0 &&
+            !items.Any(item => string.Equals(item.Id, current, StringComparison.OrdinalIgnoreCase)))
+        {
+            items.Add(ValueComboItem.Missing(current));
+        }
+
+        _brokerCombo.DisplayMember = nameof(ValueComboItem.Display);
+        _brokerCombo.ValueMember = nameof(ValueComboItem.Id);
+        _brokerCombo.DataSource = items;
+        _brokerCombo.SelectedIndex = Math.Max(0, items.FindIndex(item =>
+            string.Equals(item.Id, current, StringComparison.OrdinalIgnoreCase)));
+    }
+
+    /// <summary>
+    /// Con un broker scelto la tabella dei simboli non si edita qui: e' sua, e mostrarla modificabile
+    /// farebbe credere che il conto possa averne una propria. Senza broker resta editabile, che e' il
+    /// modo vecchio e serve ai conti non ancora migrati.
+    /// </summary>
+    private void ApplyBrokerToConversion()
+    {
+        var broker = SelectedBroker;
+        _symbolConversionCombo.Enabled = broker is null;
+
+        if (broker is null)
+        {
+            return;
+        }
+
+        var code = broker.SymbolConversionCode ?? string.Empty;
+        for (var index = 0; index < _symbolConversionCombo.Items.Count; index++)
+        {
+            if (_symbolConversionCombo.Items[index] is ValueComboItem item &&
+                string.Equals(item.Id ?? string.Empty, code, StringComparison.OrdinalIgnoreCase))
+            {
+                _symbolConversionCombo.SelectedIndex = index;
+                return;
+            }
+        }
+
+        _symbolConversionCombo.Items.Add(ValueComboItem.Missing(code));
+        _symbolConversionCombo.SelectedIndex = _symbolConversionCombo.Items.Count - 1;
+    }
+
+    private TradingBroker? SelectedBroker
+    {
+        get
+        {
+            var code = (_brokerCombo.SelectedItem as ValueComboItem)?.Id ?? string.Empty;
+            return code.Length == 0
+                ? null
+                : _brokers.FirstOrDefault(broker =>
+                    string.Equals(broker.Code, code, StringComparison.OrdinalIgnoreCase));
+        }
+    }
+
+    private void OnBrokerChanged(object? sender, EventArgs e)
+    {
+        ApplyBrokerToConversion();
+        RefreshSupportedStrategies();
+        OnFieldChanged(sender, e);
     }
 
     /// <summary>
@@ -393,14 +496,21 @@ public partial class AccountDetailScreen : UserControl, IShellScreen, IDirtyAwar
         Name = _nameTextBox.Text.Trim(),
         AccountNumber = _accountNumberTextBox.Text.Trim(),
         GroupId = _groupCombo.Text.Trim(),
-        Broker = _brokerTextBox.Text.Trim(),
+        BrokerCode = (_brokerCombo.SelectedItem as ValueComboItem)?.Id ?? string.Empty,
+        // L'etichetta storica resta quella caricata: non e' piu' un campo di questa schermata, e
+        // riscriverla dal codice del broker cambierebbe in silenzio i marcatori dei run gia' fatti.
+        Broker = _loaded?.Broker ?? string.Empty,
         Currency = string.IsNullOrWhiteSpace(_currencyCombo.Text) ? "USD" : _currencyCombo.Text.Trim(),
         InitialBalance = _initialBalanceInput.Value,
         Enabled = _enabledCheckBox.Checked,
         Notes = _notesTextBox.Text.Trim(),
         CreatedUtc = _loaded?.CreatedUtc ?? default,
         UpdatedUtc = _loaded?.UpdatedUtc ?? default,
-        SymbolConversionCode = (_symbolConversionCombo.SelectedItem as ValueComboItem)?.Id ?? string.Empty
+        // Con un broker scelto la tabella e' sua e sul conto non si scrive: due posti che
+        // dichiarano la stessa cosa sono la premessa della divergenza.
+        SymbolConversionCode = _brokerCombo.SelectedItem is ValueComboItem { Id.Length: > 0 }
+            ? string.Empty
+            : (_symbolConversionCombo.SelectedItem as ValueComboItem)?.Id ?? string.Empty
     };
 
     private void MarkDirty()

@@ -39,8 +39,8 @@ public sealed class MultiAccountDistributionTests : IDisposable
         // stesso flusso di segnali. È il comportamento più caratteristico del layer.
         var (sessions, descriptor) = Session(signalsPerBar: 1,
         [
-            Row("g1", "1001", maxConcurrent: 1),
-            Row("g2", "2001", maxConcurrent: 1)
+            Row("1001", maxConcurrent: 1),
+            Row("2001", maxConcurrent: 1)
         ]);
 
         var pushed = sessions.PushBars(Bars(descriptor, Utc(2026, 1, 5)));
@@ -59,24 +59,41 @@ public sealed class MultiAccountDistributionTests : IDisposable
         Assert.Equal("2001", second.Intent.AssignedAccountNumber);
     }
 
+    /// <summary>
+    /// Ogni conto del piano riceve ogni segnale, una volta sola.
+    ///
+    /// <para>Fino alla rimozione dei gruppi (<c>docs/decisioni.md</c> 2026-09-05) il template era
+    /// consumato una volta per <i>gruppo</i>, quindi il secondo conto dello stesso gruppo non lo
+    /// vedeva. Ora l'unità è il conto: due conti sul piano sono due portafogli paralleli sullo
+    /// stesso flusso, ed è la configurazione che i piani reali avevano già — un conto per gruppo.</para>
+    /// </summary>
     [Fact]
-    public void SameGroup_SecondAccountDoesNotGetTheSameTemplate()
+    public void OgniConto_RiceveLoStessoTemplate_UnaVoltaSola()
     {
         var (sessions, descriptor) = Session(signalsPerBar: 1,
         [
-            Row("g1", "1001", maxConcurrent: 1),
-            Row("g1", "1002", maxConcurrent: 1)
+            Row("1001", maxConcurrent: 1),
+            Row("1002", maxConcurrent: 1)
         ]);
 
         sessions.PushBars(Bars(descriptor, Utc(2026, 1, 5)));
 
-        Assert.NotNull(sessions.GetNextSignalForAccount(
-            descriptor.SessionId, descriptor.SessionToken, "1001").Intent);
+        var primo = sessions.GetNextSignalForAccount(
+            descriptor.SessionId, descriptor.SessionToken, "1001").Intent;
+        var secondo = sessions.GetNextSignalForAccount(
+            descriptor.SessionId, descriptor.SessionToken, "1002").Intent;
 
-        var sibling = sessions.GetNextSignalForAccount(
+        Assert.NotNull(primo);
+        Assert.NotNull(secondo);
+        // Stesso segnale, due claim distinti: uno per conto.
+        Assert.Equal(primo!.StrategyCode, secondo!.StrategyCode);
+        Assert.NotEqual(primo.IntentId, secondo.IntentId);
+
+        // E nessuno dei due ne ottiene un secondo: al poll successivo il conto a budget pieno si
+        // vede riproporre l'ingresso che ha gia' in mano (stesso IntentId), non un claim nuovo.
+        var ancora = sessions.GetNextSignalForAccount(
             descriptor.SessionId, descriptor.SessionToken, "1002");
-        Assert.Null(sibling.Intent);
-        Assert.Equal("NoSignal", sibling.Reason);
+        Assert.Equal(secondo.IntentId, ancora.Intent?.IntentId);
     }
 
     [Fact]
@@ -85,7 +102,7 @@ public sealed class MultiAccountDistributionTests : IDisposable
         // Fino all'11/08/2026 il passo 1 faceva da tappo: qualunque intent pendente fermava il
         // poll, quindi un account ne deteneva uno solo alla volta qualunque fosse
         // MaxConcurrentTrades. Ora drena finché ha budget.
-        var (sessions, descriptor) = Session(signalsPerBar: 2, [Row("g1", "1001", maxConcurrent: 5)]);
+        var (sessions, descriptor) = Session(signalsPerBar: 2, [Row("1001", maxConcurrent: 5)]);
 
         sessions.PushBars(Bars(descriptor, Utc(2026, 1, 5)));
 
@@ -107,7 +124,7 @@ public sealed class MultiAccountDistributionTests : IDisposable
         // A budget esaurito il claim ripropone l'ingresso pendente invece di rispondere
         // MaxConcurrentTradesExceeded: è come si recupera un claim la cui risposta si è persa in
         // rete. Il client lo riconosce come già inviato e smette di drenare.
-        var (sessions, descriptor) = Session(signalsPerBar: 2, [Row("g1", "1001", maxConcurrent: 1)]);
+        var (sessions, descriptor) = Session(signalsPerBar: 2, [Row("1001", maxConcurrent: 1)]);
 
         sessions.PushBars(Bars(descriptor, Utc(2026, 1, 5)));
 
@@ -124,7 +141,7 @@ public sealed class MultiAccountDistributionTests : IDisposable
     {
         // Il vecchio lucchetto (account, simbolo) non si liberava al fill ma alla chiusura: un
         // secondo template sullo stesso simbolo restava irraggiungibile anche con budget libero.
-        var (sessions, descriptor) = Session(signalsPerBar: 2, [Row("g1", "1001", maxConcurrent: 5)]);
+        var (sessions, descriptor) = Session(signalsPerBar: 2, [Row("1001", maxConcurrent: 5)]);
 
         sessions.PushBars(Bars(descriptor, Utc(2026, 1, 5)));
         var claimed = sessions.GetNextSignalForAccount(
@@ -147,7 +164,7 @@ public sealed class MultiAccountDistributionTests : IDisposable
         // Lo stesso ordine è insieme un intent Pending sul server e un pending order nello
         // snapshot del broker. Sommare i due conteggi grezzi — com'era prima — lo contava due
         // volte e dimezzava il tetto configurato: con max 2 il secondo claim non passava.
-        var (sessions, descriptor) = Session(signalsPerBar: 3, [Row("g1", "1001", maxConcurrent: 2)]);
+        var (sessions, descriptor) = Session(signalsPerBar: 3, [Row("1001", maxConcurrent: 2)]);
 
         sessions.PushBars(Bars(descriptor, Utc(2026, 1, 5)));
 
@@ -175,7 +192,7 @@ public sealed class MultiAccountDistributionTests : IDisposable
         // "occupazione di slot" significa perdere il solo livello che sarebbe partito. Il tetto lo
         // fa valere il cBot al primo fill.
         var (sessions, descriptor) = Session(signalsPerBar: 2,
-            [Row("g1", "1001", maxConcurrent: 1, countMode: ConcurrencyCountMode.PositionsOnly)]);
+            [Row("1001", maxConcurrent: 1, countMode: ConcurrencyCountMode.PositionsOnly)]);
 
         sessions.PushBars(Bars(descriptor, Utc(2026, 1, 5)));
 
@@ -198,7 +215,7 @@ public sealed class MultiAccountDistributionTests : IDisposable
     public void PositionsOnly_AFilledPositionStillConsumesBudget()
     {
         var (sessions, descriptor) = Session(signalsPerBar: 2,
-            [Row("g1", "1001", maxConcurrent: 1, countMode: ConcurrencyCountMode.PositionsOnly)]);
+            [Row("1001", maxConcurrent: 1, countMode: ConcurrencyCountMode.PositionsOnly)]);
 
         sessions.PushBars(Bars(descriptor, Utc(2026, 1, 5)));
         var claimed = sessions.GetNextSignalForAccount(
@@ -218,13 +235,18 @@ public sealed class MultiAccountDistributionTests : IDisposable
         Assert.Equal("MaxConcurrentTradesExceeded", afterFill.Reason);
     }
 
+    /// <summary>
+    /// Un rifiuto del broker libera i lucchetti del conto ma non gli restituisce il template: quel
+    /// segnale, per quel conto, è stato servito. Gli altri conti del piano non ne sono toccati —
+    /// ognuno consuma il proprio.
+    /// </summary>
     [Fact]
-    public void RejectedEntry_FreesTheAccount_ButTheTemplateStaysConsumedByTheGroup()
+    public void RejectedEntry_FreesTheAccount_ButTheTemplateStaysConsumedByThatAccount()
     {
         var (sessions, descriptor) = Session(signalsPerBar: 1,
         [
-            Row("g1", "1001", maxConcurrent: 1),
-            Row("g1", "1002", maxConcurrent: 1)
+            Row("1001", maxConcurrent: 1),
+            Row("1002", maxConcurrent: 1)
         ]);
 
         sessions.PushBars(Bars(descriptor, Utc(2026, 1, 5)));
@@ -243,11 +265,12 @@ public sealed class MultiAccountDistributionTests : IDisposable
             }
         });
 
-        // Nessuno dei due account riprende quel segnale: il gruppo lo ha già consumato. Il rifiuto
-        // libera i lucchetti di slot e simbolo, non restituisce il template.
+        // Il conto che lo ha consumato non lo riprende: il rifiuto libera slot e budget, non
+        // restituisce il template.
         Assert.Null(sessions.GetNextSignalForAccount(
             descriptor.SessionId, descriptor.SessionToken, "1001").Intent);
-        Assert.Null(sessions.GetNextSignalForAccount(
+        // L'altro conto non lo aveva mai consumato, quindi lo prende: è il fan-out per conto.
+        Assert.NotNull(sessions.GetNextSignalForAccount(
             descriptor.SessionId, descriptor.SessionToken, "1002").Intent);
     }
 
@@ -264,7 +287,7 @@ public sealed class MultiAccountDistributionTests : IDisposable
         var barTime = Utc(2025, 11, 3);
         var (sessions, descriptor) = Session(
             signalsPerBar: 1,
-            [Row("g1", "1001", maxConcurrent: 1)],
+            [Row("1001", maxConcurrent: 1)],
             // Scadenza alla barra successiva, come la emette un motore Unger.
             expiresAtUtc: barTime.AddMinutes(15));
 
@@ -286,7 +309,7 @@ public sealed class MultiAccountDistributionTests : IDisposable
         var barTime = Utc(2025, 11, 3);
         var (sessions, descriptor) = Session(
             signalsPerBar: 1,
-            [Row("g1", "1001", maxConcurrent: 1)],
+            [Row("1001", maxConcurrent: 1)],
             expiresAtUtc: barTime.AddMinutes(-15));
 
         sessions.PushBars(Bars(descriptor, barTime));
@@ -313,7 +336,7 @@ public sealed class MultiAccountDistributionTests : IDisposable
         // Il flag e' esplicito proprio per poter misurare il costo del limite in isolamento.
         var (sessions, descriptor) = Session(
             signalsPerBar: 1,
-            [Row("g1", "1001", maxConcurrent: 1)],
+            [Row("1001", maxConcurrent: 1)],
             runMode: ClientRunMode.Backtest,
             enforceConcurrencyLimits: true);
 
@@ -335,7 +358,7 @@ public sealed class MultiAccountDistributionTests : IDisposable
     {
         var (sessions, descriptor) = Session(
             signalsPerBar: 1,
-            [Row("g1", "1001", maxConcurrent: 1)],
+            [Row("1001", maxConcurrent: 1)],
             runMode: ClientRunMode.Realtime,
             enforceConcurrencyLimits: false);
 
@@ -353,19 +376,15 @@ public sealed class MultiAccountDistributionTests : IDisposable
 
     // ------------------------------------------------------------------------------ helper
 
-    private static TradingGroupRow Row(
-        string groupId,
+    private static TestAccountRow Row(
         string account,
         int maxConcurrent,
-        ConcurrencyCountMode countMode = ConcurrencyCountMode.PositionsAndPendingOrders) => new()
-    {
-        GroupId = groupId, AccountNumber = account,
-        MaxConcurrentTrades = maxConcurrent, ConcurrencyCountMode = countMode,
-    };
+        ConcurrencyCountMode countMode = ConcurrencyCountMode.PositionsAndPendingOrders) =>
+        new(account, maxConcurrent, countMode);
 
     private (TradingSessionService Sessions, TradingSessionDescriptor Descriptor) Session(
         int signalsPerBar,
-        IReadOnlyList<TradingGroupRow> groups,
+        IReadOnlyList<TestAccountRow> accounts,
         ClientRunMode runMode = ClientRunMode.Realtime,
         bool? enforceConcurrencyLimits = null,
         DateTime? expiresAtUtc = null)
@@ -377,7 +396,7 @@ public sealed class MultiAccountDistributionTests : IDisposable
             Name = $"distrib-{Guid.NewGuid():N}", StrategiesFilter = [strategyId]
         });
         new TradingJsonStore(workspaces.GetBacktestPath(workspace.Id, "source")).Initialize();
-        TestAccountRegistry.Register(workspaces, groups);
+        TestAccountRegistry.Register(workspaces, accounts);
 
         var sessions = new TradingSessionService(
             workspaces, new MultiSignalEvaluationService(signalsPerBar, expiresAtUtc), new PositionSizingService());
@@ -387,9 +406,12 @@ public sealed class MultiAccountDistributionTests : IDisposable
             WorkspaceId = workspace.Id,
             ExecutionMode = ExecutionMode.ExternalBroker,
             ClientRunMode = runMode,
-            EnforceConcurrencyLimits = enforceConcurrencyLimits
+            EnforceConcurrencyLimits = enforceConcurrencyLimits,
+            MaxConcurrentTrades = TestSessionAccounts.MaxConcurrentTrades(accounts),
+            ConcurrencyCountMode = TestSessionAccounts.CountMode(accounts)
         });
-        sessions.SetTradingGroups(descriptor.SessionId, descriptor.SessionToken, groups);
+        sessions.SetSessionAccounts(
+            descriptor.SessionId, descriptor.SessionToken, TestSessionAccounts.Numbers(accounts));
         sessions.SetStatus(descriptor.SessionId, descriptor.SessionToken, TradingSessionStatus.Running);
         return (sessions, descriptor);
     }

@@ -42,8 +42,12 @@ public static class NavigationRegistry
     {
         new NavigationSection(
             "Anagrafiche",
+            new NavigationEntry("Broker", () => new BrokerListScreen()),
+            // I gruppi non hanno una voce propria: sono un campo dell'account, e la loro anagrafica
+            // mostrava soltanto l'id piu' l'elenco dei conti che lo dichiarano — cioe' una vista di
+            // dati che la lista account gia' porta in colonna. Si creano scrivendo un id nuovo nella
+            // combo del dettaglio account, che e' anche l'unico posto da cui possono cambiare.
             new NavigationEntry("Account", () => new AccountListScreen()),
-            new NavigationEntry("Gruppi", () => new GroupListScreen()),
             // Il workspace non è qui di proposito: tutto ciò che questo menu elenca vive *dentro*
             // il workspace corrente, e l'anagrafica dei workspace non può essere filtrata per sé
             // stessa. Si apre da "Gestisci workspace…" accanto al selettore, in alto.

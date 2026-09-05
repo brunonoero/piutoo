@@ -109,6 +109,20 @@ sbaglia più spesso:
  sceglie (null = interno) e `backtest-summary.json` lo dichiara: due run su feed diversi non
  sono confrontabili. Un broker inesistente fa fallire l'avvio, non ripiega sull'interno.
  Vedi `docs/domini/datafeed-generazione.md`.
+- **Oltre l'ora la griglia la costruisce il codice, mai la piattaforma.** Il grafico
+ H4 di cTrader è ancorato all'orologio del broker; il feed e i run di ricerca all'inizio
+ sessione del giorno di calendario europeo (`ZonedWindow.ResearchSession()`,
+ `aggregate_flat_feed.py`). Le barre che ne escono sono diverse e nessun errore lo
+ segnala. **Tutti e tre i cBot** — il raccoglitore e i due operativi — sottoscrivono una
+ serie fino a 60 minuti e piegano i bucket in codice: etichetta = apertura, confine
+ calcolato in ora locale e non per sottrazione dall'istante UTC. Il campo `source` del
+ feed raccolto dichiara la griglia. Il server **non** aggrega: in sessione
+ `ExternalBroker` valuta esattamente le barre che il cBot gli spinge
+ (`TradingSessionService.PushBars` accoda, non ricampiona), quindi la griglia
+ dell'esecuzione è quella che sceglie il bot. Corollario nei bot operativi: l'orologio a
+ barre — scadenza dei pending, `MaxBarsInPosition` — si conta sui **bucket**, non su
+ `Series.Count`, che con una serie base più fitta correrebbe quattro volte più in fretta.
+ Vedi `docs/domini/raccolta-datafeed-esterno.md`.
 - **In sessione `ExternalBroker` la storia è solo quella che il client spinge.**
  Il server non ha datafeed proprio e `StrategyEvaluationService` salta in
  silenzio finché `history.Count < RequiredCandles` (per una strategia a 15

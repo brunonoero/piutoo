@@ -2705,3 +2705,183 @@ tre barre vecchie per far passare per "coperto" un feed vuoto.
   ridistribuiti e `BotVersion` resta `5.1.0`. Il numero serve a distinguere due run nel
   `engineVersion` del log di avvio: un backtest lanciato contro un server non ricompilato sarebbe
   altrimenti indistinguibile da uno aggiornato.
+
+- **2026-09-05** — **Il cBot raccoglitore non chiede più alla piattaforma un timeframe
+  oltre l'ora.** Il grafico H4 di cTrader è ancorato all'orologio del broker, il feed e
+  i run di ricerca all'inizio sessione del giorno di calendario europeo: le due griglie
+  non coincidono e la differenza non dà errore, dà barre diverse. `PiootooDatafeedSyncBot`
+  sottoscrive ora una serie base fino a sessanta minuti — l'ora, salvo forzatura — e piega
+  i bucket in codice con la regola di `aggregate_flat_feed.py`, etichettandoli con
+  l'apertura come vuole il resto del feed; il campo `source` dichiara la griglia
+  (`griglia(60m->240m, Europe/Rome 00:00)`). Vale per ogni mercato, non solo per FDAX e KC
+  dove il divario si è visto. Con una sorgente ≤ 1h il ricampionamento a valle torna esatto
+  senza toccare altro, e costa un export.
+  Il confine del bucket si calcola sull'**orologio locale**, non sottraendo il resto
+  all'istante UTC come fa la scorciatoia dell'aggregatore Python: su due anni di barre
+  orarie `Europe/Rome` le due coincidono su 34.988 righe di 35.088 e divergono sui quattro
+  giorni di cambio d'ora, dove la scorciatoia mette minuti della stessa ora in bucket
+  diversi e produce barre che si scavalcano. Nel feed del vendor l'artefatto non compare
+  perché il cambio d'ora cade a mercato chiuso (zero passi più corti del timeframe nei
+  tredici file 240/1440 di `datafeed/`), ma un broker che quoti la domenica lo farebbe
+  comparire. `BotVersion` del raccoglitore 1.2.0; il contratto HTTP non cambia.
+
+- **2026-09-05** — **La stessa griglia nei due cBot operativi.** Il server **non aggrega**:
+  `TradingSessionService.PushBars` valida, deduplica e *accoda* a `session.History`, poi
+  valuta — non c'è ricampionamento da nessuna parte. Le barre su cui girano le strategie in
+  live sono quindi esattamente quelle che il cBot spinge, e un bot che prendesse l'H4 della
+  piattaforma farebbe girare l'esecuzione su candele che il backtest non ha mai visto.
+  `PiootooDirectExecutionBot` e `PiootooDistributedExecutionBot` sottoscrivono ora la serie
+  base e piegano i bucket con lo stesso codice del raccoglitore, con gli stessi tre
+  parametri. Tre conseguenze, tutte necessarie perché il cambio sia corretto e non solo
+  cosmetico: l'orologio a barre (scadenza dei pending, `MaxBarsInPosition`) passa da
+  `Series.Count` a un conteggio di **bucket chiusi** per stream, altrimenti un ordine di una
+  240 scadrebbe dopo un'ora e la posizione si chiuderebbe quattro volte troppo presto; la
+  passata di barra si fa solo quando il bucket si chiude davvero, non a ogni barra base
+  (break-even, trailing e uscite a tempo girano già a ogni tick e restano tempestive); e il
+  match fra evento e stream non si ferma più al primo che corrisponde, perché `@FDAX/60` e
+  `@FDAX/240` pendono ora dalla stessa serie oraria. `BotVersion` dei due operativi resta
+  quella del contratto HTTP, che non cambia — ma i bot **vanno ridistribuiti**, perché è
+  cambiato il loro codice.
+
+- **2026-09-05** — **Il piano filtra le strategie che il masterfilter ha già filtrato.**
+  `TradingPlan.DisabledStrategies` elenca gli `Id` di catalogo che quel piano tiene spenti, e una
+  sessione aperta dal piano valuta `masterfilter - spente`. Serviva perché lo stesso workspace —
+  cioè lo stesso masterfilter, lo stesso datafeed — viene eseguito da piani diversi su conti
+  diversi, e finora l'unico modo di far girare meno strategie su un conto era toccare il
+  masterfilter, che le toglieva a tutti.
+  **Si elencano le spente, non le accese**: il masterfilter cambia, e con l'elenco delle attive una
+  strategia aggiunta domani resterebbe fuori da ogni piano già scritto in silenzio. Così il default
+  è «attiva» e i `plans.json` esistenti valgono esattamente quanto valevano. Uno spegnimento su un
+  Id che il masterfilter non contiene resta scritto e non viene validato: se quella strategia
+  rientra, deve ritrovarsi spenta.
+  Spegnerle tutte **fa fallire l'apertura** della sessione invece di aprirne una muta. Il filtro
+  vale anche nel backtest sorgente — non è un lucchetto operativo, è l'insieme di strategie del
+  piano, e sorgente e filtro statico devono girarne lo stesso insieme perché il confronto misuri il
+  tetto di concorrenza e non altro. Il datafeed invece continua a seguire il masterfilter intero:
+  riaccendere una strategia non deve trovare un buco nel feed lungo quanto lo spegnimento.
+
+- **2026-09-05** — **I gruppi non esistono piu': il piano e' una lista di conti.**
+  `TradingPlan.Accounts` elenca i conti che eseguono il piano e `MaxConcurrentTrades` /
+  `ConcurrencyCountMode` salgono dalla riga di gruppo al piano: un numero solo, valido per ogni
+  conto. Un conto che deve operare con un tetto diverso e' un altro piano — due piani sullo stesso
+  workspace costano zero.
+  **Cosa cambia nel claim.** L'unita' di ogni lucchetto passa dal gruppo al conto:
+  `TemplateClaimedGroups` diventa `TemplateClaimedAccounts` (un template e' servito una volta per
+  conto) e `GroupStrategySlots` diventa `AccountStrategySlots` (uno slot per conto, strategia,
+  simbolo e lato). In pratica **ogni conto del piano riceve ogni segnale**, una volta sola, con la
+  size del proprio capitale.
+  **Perche' non cambia niente nei conti veri.** L'unico `plans.json` reale aveva due gruppi con un
+  conto ciascuno (ICS-01 e FTMO): il gruppo non distribuiva nulla, era cerimonia attorno a un conto
+  solo, e il fan-out fra gruppi era gia' di fatto un fan-out fra conti. La migrazione conserva quel
+  comportamento.
+  **Migrazione.** I file con `Groups` restano leggibili: `NormalizeLoadedPlan` ne ricava i conti
+  nell'ordine del file e prende tetto e modalita' dalla **prima riga**, poi il campo non viene piu'
+  riscritto. Dove le righe dichiaravano tetti diversi la differenza si perde: prendere il massimo
+  allargherebbe in silenzio un limite che una prop impone, ed e' l'unico dei due errori che puo'
+  costare un conto.
+  **API.** `PUT/GET /trading-sessions/{id}/groups` e `/account-groups` sono sostituiti da
+  `PUT/GET /trading-sessions/{id}/accounts`, che parla di soli numeri di conto;
+  `OrderIntent.AssignedGroupId` e `SessionActivityEntry.GroupId` spariscono dai contratti, e con
+  loro i campi corrispondenti nei due cBot. Il `GroupId` dell'anagrafica account resta, ma non lo
+  legge piu' nessuna logica: e' un'etichetta.
+
+- **2026-09-05** — **Contratto 5.2: il filtro per tabella dei simboli esce dal motore.** Una
+  strategia non viene piu' scartata perche' il conto "non prevede" quel simbolo — ne' alla
+  valutazione in esecuzione diretta (`SupportedStrategies`, rimossa) ne' al claim (il filtro
+  `SupportsSymbol` sui template). Quali strumenti un conto sappia negoziare e' una proprieta' del
+  broker, non un motivo per far sparire un segnale a run avviato: includere nel piano solo le
+  strategie che quel broker quota e' una scelta del setup, e ora si fa nel tab Strategie del piano.
+  Se la conversione azzera comunque la quantita', il claim lo dice ("quantita' azzerata dalla
+  conversione dell'account") invece di tacere.
+  La **versione sale a 6.0.0** (vedi la voce sulla versione in fondo) perche' cambia cio' che
+  server e cBot si dicono via HTTP: `/trading-sessions/{id}/groups` e `/account-groups` non
+  esistono piu' (al loro posto `/accounts`), e `OrderIntent.AssignedGroupId` e
+  `SessionActivityEntry.GroupId` sono spariti dai contratti. **I cBot vanno ridistribuiti**: uno
+  fermo alla 5.1 chiamerebbe endpoint che rispondono 404.
+
+- **2026-09-05** — **Il broker diventa un'entita'.** `TradingBroker` nel registro globale
+  (`accounts/brokers.json`) porta la tabella di conversione dei simboli, la cartella
+  dell'archivio `datafeed-external/` e il marcatore di price source; l'account dichiara il proprio
+  broker (`BrokerCode`) e da li' eredita la tabella; il piano dichiara il broker e puo' contenere
+  solo conti suoi.
+  **Perche'.** Erano gia' tre cose indicizzate per broker — la tabella copiata su ogni conto, la
+  cartella del feed, l'etichetta del price source — senza che il broker esistesse da nessuna parte.
+  Ma il guadagno vero non e' il mapping: e' che **un piano non puo' piu' mescolare conti di broker
+  diversi**. Due broker non quotano la stessa serie di barre per lo stesso simbolo, quindi un run
+  che li somma non corrisponde a nessuno dei due conti, e prima nulla lo impediva.
+  **Migrazione senza rotture.** Un conto senza `BrokerCode` continua a usare la tabella scritta su
+  di se': ripiegare su "nessuna conversione" moltiplicherebbe per uno ogni size in silenzio. Un
+  piano senza `BrokerCode` resta valido — sono i piani anteriori all'anagrafica — mentre un broker
+  *dichiarato* dev'essere vero e i conti devono essere i suoi.
+  In console: nuova voce *Broker* fra le anagrafiche (lista + dettaglio), la scheda conto sceglie
+  il broker da una combo e mostra la tabella dei simboli in sola lettura quando il broker c'e', il
+  dettaglio piano ha la combo broker nel tab Generale e propone come conti solo i suoi.
+
+- **2026-09-05** — **Export delle schede delle strategie** (`Esporta griglia…` nella lista
+  strategie, `POST api/strategies/export`). Un array JSON con una scheda per riga in griglia —
+  filtro compreso — con i numeri della traduzione, i commenti di conversione, il sorgente C# e il
+  motore Python di provenienza. L'unita' e' la griglia e non la riga selezionata perche' il caso
+  d'uso e' passare un paniere a chi ha scritto il run, non una strategia alla volta; il filtro della
+  lista diventa cosi' anche il filtro dell'export.
+  **Perche'.** Verificare un porting voleva dire aprire tre posti — il sorgente C#, il dossier del
+  paniere, `easy_engine_py/` — sperando di guardare le versioni giuste, e non c'era modo di
+  passare quel materiale a chi ha scritto il run di ricerca.
+  **I parametri si leggono per riflessione dall'istanza**, non da una lista dichiarata: sono campi
+  `protected` impostati nel costruttore, e una lista scritta a mano divergerebbe al primo
+  parametro nuovo — cioe' proprio nel caso in cui l'export serve.
+  **I sorgenti sono `EmbeddedResource`** in `Piootoo.Strategies.csproj` (~1,6 MB), oltre che
+  compilati: il testo esportato e' per costruzione quello che il binario esegue, mentre un
+  checkout accanto al server potrebbe descrivere altro codice.
+  **L'aggancio al dossier passa dall'impronta numerica**, non dall'S-ID scritto nella classe: gli
+  S-ID scorrono a ogni rigenerazione del dossier, e `PTS_ES_PCH_001_60` dichiara `S43`, che oggi e'
+  una NQ 15m TF_M. Allegare quella scheda avrebbe prodotto un export dall'aria completa che
+  descrive il run sbagliato. Chiave e regole come `tools/dossier-diff.py`; dove l'impronta non
+  decide (quattro coppie di schede) l'export le allega tutte e lo dichiara nei `warnings`.
+
+- **2026-09-05** — **La voce *Gruppi* esce dal menu della console** e `GroupListScreen` viene
+  eliminata. Mostrava l'id del gruppo piu' l'elenco dei conti che lo dichiarano, cioe' dati che la
+  lista account porta gia' in colonna; i gruppi si creano e si cambiano dalla combo del dettaglio
+  account, che resta l'unico punto. Nessuna capacita' persa.
+
+- **2026-09-05** — Tre schermate della console leggevano `TradingPlan.Groups.Count` e andavano in
+  `NullReferenceException` su ogni piano: `Groups` sopravvive solo per rileggere i `plans.json`
+  anteriori alla migrazione a lista di conti, e `NormalizeLoadedPlan` lo azzera. Ora leggono
+  `Accounts.Count`, e la colonna «Gruppi» della lista piani e' diventata «Conti».
+
+- **2026-09-05** — **La voce *Strategie* della console mostra il workspace corrente**, non il
+  catalogo: il masterfilter del workspace risolto sul catalogo del server.
+  **Perche'.** Il catalogo sono 111 classi che valgono per tutti i workspace, quello su cui si
+  lavora e' un sottoinsieme di poche: elencarle tutte obbligava a ricordare a memoria quali fossero
+  quelle del workspace, e faceva sembrare disponibile a un backtest anche cio' che il masterfilter
+  non contiene. Conteggio righe e riga di stato portano sempre il totale del catalogo accanto,
+  perche' un sottoinsieme senza scala si legge come "tutto".
+  Le voci del masterfilter che nessuna strategia del catalogo soddisfa vengono **elencate** nella
+  riga di stato: un Id scritto male o una strategia disabilitata dopo il salvataggio sparirebbe
+  dalla griglia senza traccia, e il workspace sembrerebbe solo piu' piccolo.
+  Cambia di conseguenza anche l'export, che esporta le righe in griglia: senza filtro sono ora le
+  strategie del workspace. Nessun effetto sul cBot: la selezione resta quella del piano.
+
+- **2026-09-05** — Nel tab Strategie del piano, casella **«Solo selezionate»** accanto alla ricerca:
+  su un masterfilter da 111 voci, verificare cosa il piano fa girare voleva dire scorrere l'elenco
+  intero cercando le spunte. Si combina con la ricerca (le condizioni valgono insieme) e i due
+  comandi che scrivono "tutto" o "i filtrati" leggono ora un unico `StrategyViewIsFiltered`, cosi'
+  non possono contraddirsi.
+  **Non si riapplica a ogni spunta**: con la casella accesa, togliere la spunta a una riga la
+  farebbe sparire subito, la griglia si accorcerebbe sotto il cursore e il clic successivo cadrebbe
+  su un'altra strategia. La riga esce alla prossima riapplicazione del filtro.
+
+- **2026-09-05** — **Versione 6.0.0.** Major e non minor: il contratto HTTP con i cBot ha perso
+  endpoint e campi, non ne ha solo aggiunti. Sono spariti `/trading-sessions/{id}/groups` e
+  `/account-groups` (sostituiti da `/accounts`), e con loro `OrderIntent.AssignedGroupId` e
+  `SessionActivityEntry.GroupId`. Un bot fermo a 5.1 non degrada: chiama endpoint che rispondono
+  404. **I cBot vanno ridistribuiti.**
+  I tre numeri si muovono insieme, come sempre: `PiootooVersion.Current`, `VersionPrefix` di
+  `Directory.Build.props`, `BotVersion` di `PiootooDistributedExecutionBot` — tutti `6.0.0`, e
+  `VersioneDelProgettoTests` fallisce se uno resta indietro. `PiootooDirectExecutionBot` tiene la
+  propria numerazione (1.6.0) e `PiootooDatafeedSyncBot` la sua (1.2.0): la voce aperta sul perche'
+  il diretto non segua questo numero, pur avendo un client HTTP, resta aperta.
+  Il 5.2.0 previsto per l'anagrafica broker non e' mai stato rilasciato — era in lavorazione in
+  questo stesso set di modifiche — quindi quel lavoro esce direttamente in 6.0.0.
+  ⚠ **Non e' il lavoro sulla console a giustificare il major**: export delle schede, filtro per
+  workspace della lista strategie e filtro «solo selezionate» del piano sono additivi o puramente
+  di presentazione, e da soli non avrebbero mosso nemmeno la minor.

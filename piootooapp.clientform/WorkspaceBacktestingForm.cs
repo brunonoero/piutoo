@@ -681,8 +681,6 @@ public partial class WorkspaceBacktestingForm : Form
         SelectComboValue(_accountGroupIdCombo, selectedEditorGroup);
         SelectComboValue(_accountGroupsCombo, selectedManagedGroup);
 
-        if (_sessionAccountGroups.Columns["GroupId"] is DataGridViewComboBoxColumn groupColumn)
-            groupColumn.DataSource = _accountGroups.ToList();
         if (_sessionAccountGroups.Columns["AccountNumber"] is DataGridViewComboBoxColumn accountColumn)
             accountColumn.DataSource = _accounts
                 .Where(account => account.Enabled && !string.IsNullOrWhiteSpace(account.AccountNumber))
@@ -1041,20 +1039,10 @@ public partial class WorkspaceBacktestingForm : Form
         _sessionAccountGroups.AutoGenerateColumns = false;
         _sessionAccountGroups.Columns.Add(new DataGridViewComboBoxColumn
         {
-            Name = "GroupId", HeaderText = "Codice gruppo", FillWeight = 20,
-            DisplayStyle = DataGridViewComboBoxDisplayStyle.DropDownButton
-        });
-        _sessionAccountGroups.Columns.Add(new DataGridViewComboBoxColumn
-        {
-            Name = "AccountNumber", HeaderText = "Codice account", FillWeight = 20,
+            Name = "AccountNumber", HeaderText = "Conto cTrader", FillWeight = 30,
             DisplayMember = nameof(AccountNumberListItem.DisplayText),
             ValueMember = nameof(AccountNumberListItem.AccountNumber),
             DisplayStyle = DataGridViewComboBoxDisplayStyle.DropDownButton
-        });
-        _sessionAccountGroups.Columns.Add(new DataGridViewTextBoxColumn
-        {
-            Name = "MaxConcurrentTrades", HeaderText = "Max trade contemporanei", FillWeight = 15,
-            ToolTipText = "0 = illimitato."
         });
         _sessionAccountGroups.DataError += (_, e) => e.ThrowException = false;
         _sessionAccountGroups.CurrentCellDirtyStateChanged += (_, _) =>
@@ -1062,19 +1050,8 @@ public partial class WorkspaceBacktestingForm : Form
             if (_sessionAccountGroups.IsCurrentCellDirty)
                 _sessionAccountGroups.CommitEdit(DataGridViewDataErrorContexts.Commit);
         };
-        _sessionAccountGroups.CellValueChanged += (_, e) =>
-        {
-            if (e.RowIndex < 0 || _sessionAccountGroups.Columns[e.ColumnIndex].Name != "AccountNumber")
-                return;
-            var row = _sessionAccountGroups.Rows[e.RowIndex];
-            var accountNumber = Convert.ToString(row.Cells["AccountNumber"].Value);
-            var account = _accounts.FirstOrDefault(item =>
-                item.AccountNumber.Equals(accountNumber, StringComparison.OrdinalIgnoreCase));
-            if (account is not null && !string.IsNullOrWhiteSpace(account.GroupId))
-                row.Cells["GroupId"].Value = account.GroupId;
-        };
         _formToolTip.SetToolTip(_sessionAccountGroups,
-            "Un account per riga. Account con lo stesso 'Gruppo' (es. la stessa prop firm) non ricevono mai lo stesso segnale di ingresso; account di gruppi diversi sì.");
+            "Un conto per riga: ognuno riceve ogni segnale della sessione, con la size del proprio capitale. Quanto puo' tenere aperto lo dice il piano, non questa griglia.");
         layout.Controls.Add(_sessionAccountGroups, 0, 0);
 
         _sessionAddAccountGroupRow.Text = "Aggiungi riga";
@@ -1108,21 +1085,21 @@ public partial class WorkspaceBacktestingForm : Form
         try
         {
             NormalizeBaseAddress();
-            var rows = ReadTradingGroupRows();
+            var conti = ReadSessionAccounts();
 
             using var request = new HttpRequestMessage(HttpMethod.Put,
-                $"api/v1/trading-sessions/{Uri.EscapeDataString(_activeSession.SessionId)}/groups")
+                $"api/v1/trading-sessions/{Uri.EscapeDataString(_activeSession.SessionId)}/accounts")
             {
-                Content = JsonContent.Create(new SetTradingGroupsRequest
+                Content = JsonContent.Create(new SetSessionAccountsRequest
                 {
                     SessionToken = _activeSession.SessionToken,
-                    Rows = rows
+                    Accounts = conti
                 }, options: _jsonOptions)
             };
             var response = await _httpClient.SendAsync(request);
             response.EnsureSuccessStatusCode();
             var snapshot = await response.Content.ReadFromJsonAsync<TradingSessionSnapshot>(_jsonOptions);
-            ShowSession($"Gruppi account salvati ({rows.Count} account).");
+            ShowSession($"Conti della sessione salvati ({conti.Count}).");
             if (snapshot != null)
                 _sessionOutput.Text += Environment.NewLine +
                     JsonSerializer.Serialize(snapshot, new JsonSerializerOptions(_jsonOptions) { WriteIndented = true });
@@ -1137,39 +1114,25 @@ public partial class WorkspaceBacktestingForm : Form
         {
             NormalizeBaseAddress();
             using var request = new HttpRequestMessage(HttpMethod.Get,
-                $"api/v1/trading-sessions/{Uri.EscapeDataString(_activeSession.SessionId)}/groups");
+                $"api/v1/trading-sessions/{Uri.EscapeDataString(_activeSession.SessionId)}/accounts");
             request.Headers.Add("X-Session-Token", _activeSession.SessionToken);
             var response = await _httpClient.SendAsync(request);
             response.EnsureSuccessStatusCode();
-            var accounts = await response.Content.ReadFromJsonAsync<List<TradingGroupRow>>(_jsonOptions) ?? [];
+            var accounts = await response.Content.ReadFromJsonAsync<List<string>>(_jsonOptions) ?? [];
             _sessionAccountGroups.Rows.Clear();
-            foreach (var mapping in accounts)
-                _sessionAccountGroups.Rows.Add(
-                    mapping.GroupId,
-                    mapping.AccountNumber,
-                    mapping.MaxConcurrentTrades);
-            ShowSession($"Caricati {accounts.Count} account configurati.");
+            foreach (var conto in accounts)
+                _sessionAccountGroups.Rows.Add(conto);
+            ShowSession($"Caricati {accounts.Count} conti configurati.");
         }
         catch (Exception ex) { MessageBox.Show(ex.Message, "Errore gruppi account", MessageBoxButtons.OK, MessageBoxIcon.Error); }
     }
 
-    private List<TradingGroupRow> ReadTradingGroupRows()
-    {
-        var rows = _sessionAccountGroups.Rows.Cast<DataGridViewRow>()
+    private List<string> ReadSessionAccounts()
+        => _sessionAccountGroups.Rows.Cast<DataGridViewRow>()
             .Where(row => !row.IsNewRow)
-            .Select(row => new TradingGroupRow
-            {
-                GroupId = Convert.ToString(row.Cells["GroupId"].Value ?? string.Empty)!.Trim(),
-                AccountNumber = Convert.ToString(row.Cells["AccountNumber"].Value ?? string.Empty)!.Trim(),
-                MaxConcurrentTrades = ParseMaxConcurrentTrades(row)
-            })
-            .Where(row => row.AccountNumber.Length > 0 || row.GroupId.Length > 0)
+            .Select(row => Convert.ToString(row.Cells["AccountNumber"].Value ?? string.Empty)!.Trim())
+            .Where(account => account.Length > 0)
             .ToList();
-
-        if (rows.Any(row => row.AccountNumber.Length == 0 || row.GroupId.Length == 0))
-            throw new InvalidOperationException("Ogni riga deve contenere codice gruppo e codice account.");
-        return rows;
-    }
 
     private static int ParseMaxConcurrentTrades(DataGridViewRow row)
     {
@@ -2198,20 +2161,9 @@ public partial class WorkspaceBacktestingForm : Form
         _sessionPlanCode.Text = plan.Code;
         _sessionPlanName.Text = plan.Name;
         _sessionAccountGroups.Rows.Clear();
-        var rows = plan.Groups.Count > 0
-            ? plan.Groups
-            :
-            [
-                new TradingGroupRow
-                {
-                    GroupId = plan.GroupId,
-                    AccountNumber = plan.AccountNumber,
-                    MaxConcurrentTrades = plan.MaxConcurrentTrades
-                }
-            ];
-        foreach (var row in rows)
+        foreach (var account in plan.Accounts)
         {
-            _sessionAccountGroups.Rows.Add(row.GroupId, row.AccountNumber, row.MaxConcurrentTrades);
+            _sessionAccountGroups.Rows.Add(account);
         }
     }
 
@@ -2228,14 +2180,14 @@ public partial class WorkspaceBacktestingForm : Form
         if (_sessionWorkspaceCombo.SelectedItem is not WorkspaceListItem workspace) return;
         try
         {
-            var rows = ReadTradingGroupRows();
-            if (rows.Count == 0)
-                throw new InvalidOperationException("Il piano richiede almeno una riga gruppo/account.");
+            var conti = ReadSessionAccounts();
+            if (conti.Count == 0)
+                throw new InvalidOperationException("Il piano richiede almeno un conto.");
             var request = new SaveTradingPlanRequest
             {
                 Code = _sessionPlanCode.Text.Trim(),
                 Name = _sessionPlanName.Text.Trim(),
-                Groups = rows,
+                Accounts = conti,
                 PositionSizing = new PositionSizingConfig
                 {
                     PortfolioRisk = new PortfolioRiskSizingConfig
@@ -2249,7 +2201,7 @@ public partial class WorkspaceBacktestingForm : Form
             var response = await _httpClient.PutAsJsonAsync(uri, request, _jsonOptions);
             response.EnsureSuccessStatusCode();
             await LoadTradingPlansAsync(request.Code);
-            ShowSession($"Piano {request.Code} salvato ({rows.Count} gruppi/account).");
+            ShowSession($"Piano {request.Code} salvato ({conti.Count} conti).");
         }
         catch (Exception ex)
         {

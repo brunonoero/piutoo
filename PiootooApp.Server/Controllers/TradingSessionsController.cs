@@ -129,40 +129,30 @@ public sealed class TradingSessionsController : ControllerBase
             report.FillPrice?.ToString("0.#####") ?? "-", spread.ToString("0.###"));
     }
 
-    /// <summary>Configura (sostituendola) la mappa account -> gruppo usata per l'anti copy-trading.</summary>
-    [HttpPut("{sessionId}/account-groups")]
-    public ActionResult<TradingSessionSnapshot> SetAccountGroups(string sessionId, SetAccountGroupsRequest request)
+    /// <summary>
+    /// Configura (sostituendoli) i conti che eseguono la sessione. Sostituisce i vecchi
+    /// <c>PUT /account-groups</c> e <c>PUT /groups</c>: i gruppi non esistono piu', e il tetto di
+    /// concorrenza lo dichiara il piano una volta sola.
+    /// </summary>
+    [HttpPut("{sessionId}/accounts")]
+    public ActionResult<TradingSessionSnapshot> SetSessionAccounts(string sessionId, SetSessionAccountsRequest request)
         => ExecuteResult<TradingSessionSnapshot>(() =>
         {
-            _sessions.SetAccountGroups(sessionId, request.SessionToken, request.Accounts);
+            _sessions.SetSessionAccounts(sessionId, request.SessionToken, request.Accounts);
             return Ok(_sessions.GetSnapshot(sessionId, request.SessionToken));
         });
 
-    /// <summary>Legge la mappa account -> gruppo corrente.</summary>
-    [HttpGet("{sessionId}/account-groups")]
-    public ActionResult<IReadOnlyList<AccountGroupMapping>> GetAccountGroups(
+    /// <summary>Legge i conti configurati sulla sessione.</summary>
+    [HttpGet("{sessionId}/accounts")]
+    public ActionResult<IReadOnlyList<string>> GetSessionAccounts(
         string sessionId, [FromHeader(Name = "X-Session-Token")] string token)
-        => ExecuteResult<IReadOnlyList<AccountGroupMapping>>(() => Ok(_sessions.GetAccountGroups(sessionId, token)));
-
-    /// <summary>Configura gruppi e account (sostituisce l'intera configurazione).</summary>
-    [HttpPut("{sessionId}/groups")]
-    public ActionResult<TradingSessionSnapshot> SetTradingGroups(string sessionId, SetTradingGroupsRequest request)
-        => ExecuteResult<TradingSessionSnapshot>(() =>
-        {
-            _sessions.SetTradingGroups(sessionId, request.SessionToken, request.Rows);
-            return Ok(_sessions.GetSnapshot(sessionId, request.SessionToken));
-        });
-
-    /// <summary>Legge la configurazione gruppi/account corrente.</summary>
-    [HttpGet("{sessionId}/groups")]
-    public ActionResult<IReadOnlyList<TradingGroupRow>> GetTradingGroups(
-        string sessionId, [FromHeader(Name = "X-Session-Token")] string token)
-        => ExecuteResult<IReadOnlyList<TradingGroupRow>>(() => Ok(_sessions.GetTradingGroups(sessionId, token)));
+        => ExecuteResult<IReadOnlyList<string>>(() => Ok(_sessions.GetSessionAccounts(sessionId, token)));
 
     /// <summary>
     /// Chiamata dal cBot di un singolo account cTrader: restituisce il prossimo segnale da eseguire
-    /// (chiusura di una posizione già assegnata, oppure un nuovo ingresso libero nel proprio gruppo,
-    /// in ordine di priorità), oppure nessun segnale se l'account è già occupato o non c'è nulla libero.
+    /// (chiusura di una posizione già assegnata, oppure un ingresso che quel conto non ha ancora
+    /// reclamato, in ordine di priorità), oppure nessun segnale se il conto ha esaurito il budget o
+    /// non c'è nulla di libero.
     /// </summary>
     [HttpPost("{sessionId}/accounts/{accountNumber}/signal")]
     public ActionResult<AccountSignalResponse> NextSignal(

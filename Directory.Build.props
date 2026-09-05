@@ -20,7 +20,7 @@
     assembly: la nota completa sta nell'XMLdoc di PiootooVersion.
   -->
   <PropertyGroup>
-    <VersionPrefix>5.1.1</VersionPrefix>
+    <VersionPrefix>6.0.0</VersionPrefix>
     <AssemblyVersion>$(VersionPrefix)</AssemblyVersion>
     <FileVersion>$(VersionPrefix)</FileVersion>
     <InformationalVersion>$(VersionPrefix)</InformationalVersion>

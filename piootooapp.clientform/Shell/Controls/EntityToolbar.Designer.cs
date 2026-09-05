@@ -24,6 +24,7 @@ partial class EntityToolbar
         this._buttons = new System.Windows.Forms.FlowLayoutPanel();
         this._createButton = new System.Windows.Forms.Button();
         this._deleteButton = new System.Windows.Forms.Button();
+        this._exportButton = new System.Windows.Forms.Button();
         this._refreshButton = new System.Windows.Forms.Button();
         this._layout.SuspendLayout();
         this._buttons.SuspendLayout();
@@ -76,6 +77,7 @@ partial class EntityToolbar
         this._buttons.AutoSizeMode = System.Windows.Forms.AutoSizeMode.GrowAndShrink;
         this._buttons.Controls.Add(this._createButton);
         this._buttons.Controls.Add(this._deleteButton);
+        this._buttons.Controls.Add(this._exportButton);
         this._buttons.Controls.Add(this._refreshButton);
         this._buttons.Margin = new System.Windows.Forms.Padding(12, 0, 0, 0);
         this._buttons.Name = "_buttons";
@@ -104,12 +106,24 @@ partial class EntityToolbar
         this._deleteButton.UseVisualStyleBackColor = true;
         this._deleteButton.Click += new System.EventHandler(this.OnDeleteClick);
         // 
+        // _exportButton
+        // 
+        this._exportButton.AutoSize = true;
+        this._exportButton.Enabled = false;
+        this._exportButton.Name = "_exportButton";
+        this._exportButton.Size = new System.Drawing.Size(75, 25);
+        this._exportButton.TabIndex = 2;
+        this._exportButton.Text = "Esporta…";
+        this._exportButton.UseVisualStyleBackColor = true;
+        this._exportButton.Visible = false;
+        this._exportButton.Click += new System.EventHandler(this.OnExportClick);
+        // 
         // _refreshButton
         // 
         this._refreshButton.AutoSize = true;
         this._refreshButton.Name = "_refreshButton";
         this._refreshButton.Size = new System.Drawing.Size(75, 25);
-        this._refreshButton.TabIndex = 2;
+        this._refreshButton.TabIndex = 3;
         this._refreshButton.Text = "Aggiorna";
         this._refreshButton.UseVisualStyleBackColor = true;
         this._refreshButton.Click += new System.EventHandler(this.OnRefreshClick);
@@ -136,5 +150,6 @@ partial class EntityToolbar
     private System.Windows.Forms.FlowLayoutPanel _buttons;
     private System.Windows.Forms.Button _createButton;
     private System.Windows.Forms.Button _deleteButton;
+    private System.Windows.Forms.Button _exportButton;
     private System.Windows.Forms.Button _refreshButton;
 }

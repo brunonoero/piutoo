@@ -42,6 +42,24 @@ public sealed class WorkspaceApiClient
             ?? new List<StrategyCatalogItem>();
     }
 
+    /// <summary>
+    /// Le schede di export delle strategie chieste, un array JSON restituito <b>come testo</b> e non
+    /// deserializzato.
+    ///
+    /// <para>Il file che l'utente salva dev'essere byte per byte quello che il server ha prodotto:
+    /// passarlo per un DTO e riserializzarlo aggiungerebbe un secondo formato da tenere allineato al
+    /// primo, e la prima volta che il server aggiunge un campo l'export salvato dalla console lo
+    /// perderebbe in silenzio. Qui la console è una condotta, non un traduttore.</para>
+    /// </summary>
+    public async Task<string> ExportStrategiesAsync(
+        IReadOnlyList<string> strategyIds,
+        CancellationToken cancellationToken = default)
+    {
+        using var response = await SendAsync(
+            HttpMethod.Post, "api/strategies/export", strategyIds, cancellationToken);
+        return await response.Content.ReadAsStringAsync(cancellationToken);
+    }
+
     public async Task<string> StartBacktestingAsync(
         BacktestingRequest request,
         CancellationToken cancellationToken = default)
@@ -169,6 +187,53 @@ public sealed class WorkspaceApiClient
             HttpMethod.Get, "api/SymbolConversions/identity", null, cancellationToken);
         return await response.Content.ReadFromJsonAsync<List<AccountSymbolMapping>>(_jsonOptions, cancellationToken)
             ?? new List<AccountSymbolMapping>();
+    }
+
+    // ------------------------------------------------------------------------------ broker
+
+    public async Task<IReadOnlyList<TradingBroker>> ListBrokersAsync(
+        CancellationToken cancellationToken = default)
+    {
+        using var response = await SendAsync(HttpMethod.Get, "api/Brokers", null, cancellationToken);
+        return await response.Content.ReadFromJsonAsync<List<TradingBroker>>(_jsonOptions, cancellationToken)
+            ?? new List<TradingBroker>();
+    }
+
+    public async Task<TradingBroker> GetBrokerAsync(
+        string code,
+        CancellationToken cancellationToken = default)
+    {
+        var encoded = Uri.EscapeDataString(code);
+        using var response = await SendAsync(HttpMethod.Get, $"api/Brokers/{encoded}", null, cancellationToken);
+        return await response.Content.ReadFromJsonAsync<TradingBroker>(_jsonOptions, cancellationToken)
+            ?? throw new InvalidOperationException($"Broker '{code}' non trovato.");
+    }
+
+    public async Task<TradingBroker> CreateBrokerAsync(
+        TradingBroker broker,
+        CancellationToken cancellationToken = default)
+    {
+        using var response = await SendAsync(HttpMethod.Post, "api/Brokers", broker, cancellationToken);
+        return await response.Content.ReadFromJsonAsync<TradingBroker>(_jsonOptions, cancellationToken)
+            ?? throw new InvalidOperationException("Risposta di creazione broker vuota.");
+    }
+
+    public async Task<TradingBroker> SaveBrokerAsync(
+        string code,
+        TradingBroker broker,
+        CancellationToken cancellationToken = default)
+    {
+        var encoded = Uri.EscapeDataString(code);
+        using var response = await SendAsync(HttpMethod.Put, $"api/Brokers/{encoded}", broker, cancellationToken);
+        return await response.Content.ReadFromJsonAsync<TradingBroker>(_jsonOptions, cancellationToken)
+            ?? throw new InvalidOperationException("Risposta di salvataggio broker vuota.");
+    }
+
+    public async Task DeleteBrokerAsync(string code, CancellationToken cancellationToken = default)
+    {
+        var encoded = Uri.EscapeDataString(code);
+        using var response = await SendAsync(HttpMethod.Delete, $"api/Brokers/{encoded}", null, cancellationToken);
+        response.Dispose();
     }
 
     public async Task<IReadOnlyList<SymbolConversion>> ListSymbolConversionsAsync(

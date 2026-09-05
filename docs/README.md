@@ -33,7 +33,7 @@ non esiste più, si tiene per il perché.
 - [`domini/workspaces-e-masterfilter.md`](domini/workspaces-e-masterfilter.md)
   — cos'è un workspace, `masterfilter.json`. *Bozza.*
 - [`domini/account-e-conversione-symbol.md`](domini/account-e-conversione-symbol.md)
-  — account di workspace, tabella di conversione symbol, moltiplicatore
+  — anagrafica broker, conti, tabella di conversione symbol, moltiplicatore
   contratto, effetto su size e `signals.json`. *Stabile.*
 - [`domini/backtesting.md`](domini/backtesting.md) — `signals.json`/
   `trades.json`, contratto cross-engine. *Bozza.*

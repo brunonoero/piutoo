@@ -1,15 +1,33 @@
-# Account e conversione symbol
+# Broker, account e conversione symbol
 
-Un **account** è la configurazione di un conto operativo: anagrafica, balance iniziale, gruppo
-anti copy-trading e un riferimento opzionale a una **tabella di conversione symbol** dal registro
-globale, che traduce il mondo Piootoo nel mondo del broker.
+Un **broker** è chi quota gli strumenti: `TradingBroker` nel registro globale
+(`accounts/brokers.json`, anagrafica *Broker* nella console). Porta le tre cose che erano già
+indicizzate per broker senza che il broker fosse un'entità:
 
-La tabella di conversione **non vive sull'account**: è un'entità globale a sé, fuori sia dal
-workspace sia dall'account, con un nome e un codice propri (`SymbolConversion`). Più account
-possono referenziare la stessa tabella; l'account porta solo il codice
-(`WorkspaceAccount.SymbolConversionCode`), non una copia dei dati. Separare i due significa che
-correggere un moltiplicatore in un posto si applica a tutti gli account che lo usano, invece di
-dover ripetere la modifica account per account.
+- la **tabella di conversione symbol** (`SymbolConversionCode`), che traduce il mondo Piootoo nel
+  mondo del broker;
+- la **cartella dell'archivio barre** sotto `datafeed-external/` (`DatafeedFolder`, vuota = il
+  codice);
+- il **marcatore di price source** con cui i run dichiarano da dove venivano i prezzi.
+
+Un **account** è la configurazione di un conto operativo: anagrafica, balance iniziale e il
+**broker su cui vive** (`WorkspaceAccount.BrokerCode`). La tabella dei simboli non è più un campo
+del conto: due conti dello stesso broker quotano gli stessi strumenti con gli stessi nomi, e
+tenerla sul conto significava copiarla e poi vederla divergere.
+
+I conti scritti prima dell'anagrafica broker restano leggibili e continuano a operare con la
+tabella dichiarata su di sé (`SymbolConversionCode`): è il ripiego di
+`WorkspaceService.ResolveConversionForAccount`, e non è cosmetico — passare in silenzio a
+"nessuna conversione" moltiplicherebbe per uno ogni size di ogni conto non ancora migrato.
+
+**Un piano dichiara un broker e contiene solo conti suoi** (`TradingPlan.BrokerCode`): due broker
+non producono la stessa serie di barre per lo stesso simbolo, quindi un piano che li mescolasse non
+corrisponderebbe a nessuno dei due conti. Il salvataggio del piano lo rifiuta nominando il conto e
+i due broker.
+
+La tabella di conversione resta un'entità a sé, fuori sia dal workspace sia dal broker, con un nome
+e un codice propri (`SymbolConversion`): due broker che nominano gli strumenti allo stesso modo
+condividono la stessa tabella, e correggere un moltiplicatore in un posto vale per entrambi.
 
 Ogni riga della tabella risponde a due domande:
 

@@ -4,9 +4,23 @@ Un piano è una configurazione operativa riutilizzabile salvata nel workspace. I
 univoco tra tutti i workspace perché costituisce l'unico identificatore configurato nel cBot.
 Nome e codice sono distinti.
 
-Il piano contiene una o più righe gruppo/account (`Groups`): ciascuna con massimo trade
-concorrenti, setup/run Titano e flag di applicazione. Contiene inoltre sizing e metadata
-strumenti condivisi. I file sono salvati in `<workspace>/plans/plans.json`.
+Il piano dichiara il **broker** su cui opera (`BrokerCode`) e contiene solo conti di quel broker:
+da lì vengono la tabella dei simboli e l'archivio del datafeed, e mescolare due broker in un piano
+significherebbe eseguire lo stesso segnale su due serie di prezzi diverse. Vedi
+[`account-e-conversione-symbol.md`](account-e-conversione-symbol.md).
+
+Il piano contiene poi l'elenco dei **conti** che lo eseguono (`Accounts`), il tetto di posizioni
+contemporanee **per conto** (`MaxConcurrentTrades`) con la sua modalità di conteggio, sizing e
+commissioni. I file sono salvati in `<workspace>/plans/plans.json`.
+
+**I gruppi non esistono più** (03/09/2026 per Titano, 05/09/2026 per la distribuzione): il piano è
+una lista di conti, e ogni conto riceve *ogni* segnale della barra — una volta sola — con la size
+del proprio capitale. Il gruppo era un livello in mezzo che nei piani reali conteneva un conto solo,
+e il suo unico effetto operativo («un segnale è consumato una volta per gruppo») è ora «una volta
+per conto». Un `plans.json` con le vecchie righe resta leggibile: `TradingPlanService` ne ricava i
+conti e prende tetto e modalità di conteggio dalla **prima riga**, poi non riscrive più il campo.
+Dove le righe dichiaravano tetti diversi la differenza si perde, ed è voluto: prendere il massimo
+allargherebbe in silenzio un limite che una prop impone.
 
 Il piano **non porta un capitale**. Le sessioni che apre sono sempre `ExternalBroker`, dove il
 saldo è del broker e la size di ogni conto viene dal suo `InitialBalance` (vedi
@@ -23,8 +37,43 @@ Il cBot apre una sessione con `POST /api/v1/trading-sessions/open-plan`, indican
 contesto `Backtest`/`Realtime`, account ed `ExecutionKey`. L'account deve appartenere alle
 righe del piano; se omesso si usa il primo. La tripla piano, contesto ed execution key è
 idempotente: richieste ripetute riprendono la stessa sessione; una execution key diversa
-crea una sessione nuova. All'apertura tutte le righe del piano sono applicate come gruppi
-della sessione (anti copy-trading e profili Titano per gruppo).
+crea una sessione nuova. All'apertura i conti del piano diventano i conti della sessione
+(`PUT /trading-sessions/{id}/accounts`).
+
+## Quali strategie gira il piano
+
+Il masterfilter del workspace dice **quali strategie esistono**; il piano ne spegne un
+sottoinsieme. `TradingPlan.DisabledStrategies` elenca gli `Id` di catalogo spenti, e una sessione
+aperta dal piano valuta `masterfilter - DisabledStrategies`. Si configura nel tab *Strategie* del
+dettaglio piano, dove la spunta è in positivo (*Attiva*).
+
+**Si elencano le spente, non le accese.** Il masterfilter cambia nel tempo: se il piano portasse
+l'elenco delle attive, una strategia aggiunta al masterfilter resterebbe fuori da ogni piano già
+scritto senza che nulla lo dicesse. Elencando le spente il default è «attiva», cioè il piano com'era
+prima che il campo esistesse, e il file dichiara esattamente ciò che qualcuno ha scelto di togliere.
+
+Un Id spento che il masterfilter non contiene (più) **non viene scartato** al salvataggio: se quella
+strategia rientra nel masterfilter deve ritrovarsi spenta, non riaccesa di nascosto. Il tab lo mostra
+in coda con la nota «fuori dal masterfilter».
+
+Spegnerle tutte non apre una sessione muta: `TradingSessionService.CreateCore` rifiuta l'apertura,
+perché una sessione senza strategie è indistinguibile da una che non produce segnali. La console
+anticipa lo stesso rifiuto al salvataggio.
+
+Due punti in cui lo spegnimento **non** arriva, di proposito:
+
+- **Il datafeed.** `ResolveDatafeedInstruments` continua a raccogliere gli strumenti di tutto il
+  masterfilter: spegnere una strategia è reversibile, e riaccenderla non deve trovare nel feed un
+  buco lungo quanto lo spegnimento. È la stessa ragione per cui il raccoglitore segue il
+  masterfilter e non le strategie attive.
+- **Il masterfilter.** Spegnere una strategia in un piano non la toglie dal workspace: altri piani
+  dello stesso workspace continuano a farla girare.
+
+Il filtro vale in **ogni** `TradingRunProfile`, backtest sorgente compreso. Non è un vincolo
+operativo che mutila il campione, è quali strategie il piano fa girare: se il sorgente ne contenesse
+di più, il confronto con `BacktestStaticFilter` misurerebbe la differenza fra due insiemi di
+strategie invece dell'effetto del tetto di concorrenza, che è l'unica cosa che quel confronto esiste
+per misurare.
 
 ## Overnight e overweek
 
@@ -39,10 +88,10 @@ taglierebbe. Regole complete in [`overnight-e-overweek.md`](overnight-e-overweek
 
 `DistributeToAccounts` (default `true`) decide come la sessione consegna i segnali.
 
-Con la distribuzione attiva le righe del piano diventano i gruppi della sessione: `POST /bars`
-restituisce template non assegnati e ogni account li reclama da `GET /accounts/{n}/signals`, dove
-vivono slot di gruppo, limite di trade concorrenti ed eleggibilità Titano. È il percorso di
-`PiootooDistributedExecutionBot`, e la sessione è condivisa fra gli account del piano.
+Con la distribuzione attiva i conti del piano diventano i conti della sessione: `POST /bars`
+restituisce template non assegnati e ogni conto li reclama da `GET /accounts/{n}/signals`, dove
+vivono lo slot del conto e il limite di trade concorrenti. È il percorso di
+`PiootooDistributedExecutionBot`, e la sessione è condivisa fra i conti del piano.
 
 Con `DistributeToAccounts=false` il server non configura alcun gruppo: `POST /bars` restituisce
 intent già assegnati, che il client esegue direttamente. Serve ai cBot che non implementano il
@@ -57,8 +106,9 @@ dichiara (con `EnforceConcurrencyLimits` attivo) restituisce `400`: meglio rifiu
 senza il limite che il piano promette.
 
 Il limite è **per account e trasversale ai simboli**: dieci significa dieci ingressi in volo, che
-stiano su un simbolo solo o su dieci diversi. Cosa venga contato lo dice `ConcurrencyCountMode`
-sulla riga del piano — `PositionsAndPendingOrders` (default) o `PositionsOnly`, dove gli ordini
+stiano su un simbolo solo o su dieci diversi. Un solo numero vale per tutti i conti del piano — un
+conto che deve operare con un tetto diverso è un altro piano. Cosa venga contato lo dice
+`ConcurrencyCountMode` del piano — `PositionsAndPendingOrders` (default) o `PositionsOnly`, dove gli ordini
 pendenti non consumano budget e il tetto viene fatto valere dal cBot al primo fill. Le due modalità,
 e perché la scelta dipende dal tipo di motore, in
 [`distribuzione-multi-account.md`](distribuzione-multi-account.md) §2 e §4.6.

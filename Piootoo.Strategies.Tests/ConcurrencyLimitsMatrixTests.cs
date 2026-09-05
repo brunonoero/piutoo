@@ -44,7 +44,7 @@ public sealed class ConcurrencyLimitsMatrixTests : IDisposable
     {
         // Due simboli liberi, nessun lucchetto chiuso su quello non ancora operato: l'unica cosa che
         // ferma il secondo ingresso è il limite dell'account.
-        var f = New(symbols: 2, [Row("g1", "1001", maxConcurrent: 1)]);
+        var f = New(symbols: 2, [Row("1001", maxConcurrent: 1)]);
 
         f.PushBar(0);
         f.PushBar(1);
@@ -68,7 +68,7 @@ public sealed class ConcurrencyLimitsMatrixTests : IDisposable
     {
         // Stessa sequenza con max = 0 (illimitato): niente tetto, quindi il secondo ingresso passa.
         // È la controprova del test precedente.
-        var f = New(symbols: 2, [Row("g1", "1001", maxConcurrent: 0)]);
+        var f = New(symbols: 2, [Row("1001", maxConcurrent: 0)]);
 
         f.PushBar(0);
         f.PushBar(1);
@@ -88,7 +88,7 @@ public sealed class ConcurrencyLimitsMatrixTests : IDisposable
     {
         // GetNextSignalForAccount senza dati del broker ricade su CountServerPositionsForAccount. È il
         // percorso dei test e dei client che non inviano lo stato: deve dare lo stesso esito.
-        var f = New(symbols: 2, [Row("g1", "1001", maxConcurrent: 1)]);
+        var f = New(symbols: 2, [Row("1001", maxConcurrent: 1)]);
 
         f.PushBar(0);
         f.PushBar(1);
@@ -105,7 +105,7 @@ public sealed class ConcurrencyLimitsMatrixTests : IDisposable
     {
         // Il server non sa nulla di ordini pendenti presso il broker: se il cBot li dichiara, entrano
         // nel conteggio insieme alle posizioni. Con max = 2 basta 1 + 1 per saturare.
-        var f = New(symbols: 2, [Row("g1", "1001", maxConcurrent: 2)]);
+        var f = New(symbols: 2, [Row("1001", maxConcurrent: 2)]);
 
         f.PushBar(0);
         f.PushBar(1);
@@ -122,17 +122,17 @@ public sealed class ConcurrencyLimitsMatrixTests : IDisposable
         Assert.NotNull(granted.Intent);
     }
 
-    // ------------------------------------------- limite per account vs lucchetti di gruppo
+    // ------------------------------------------- limite per conto vs lucchetti del conto
 
     [Fact]
-    public void TheLimitIsPerAccount_TheSiblingOfTheSameGroupKeepsWorking()
+    public void TheLimitIsPerAccount_TheOtherAccountKeepsWorking()
     {
-        // Il limite non è di gruppo: un account saturo non ferma il fratello. Se fosse di gruppo
-        // questo test fallirebbe, ed è l'errore di lettura più frequente della tabella.
+        // Il limite è del conto, non della sessione: un conto saturo non ferma l'altro. Se fosse
+        // della sessione questo test fallirebbe, ed è l'errore di lettura più frequente.
         var f = New(symbols: 2,
         [
-            Row("g1", "1001", maxConcurrent: 1),
-            Row("g1", "1002", maxConcurrent: 1)
+            Row("1001", maxConcurrent: 1),
+            Row("1002", maxConcurrent: 1)
         ]);
 
         f.PushBar(0);
@@ -142,24 +142,22 @@ public sealed class ConcurrencyLimitsMatrixTests : IDisposable
         f.Fill(first.Intent!);
         Assert.Equal("MaxConcurrentTradesExceeded", f.Poll("1001").Reason);
 
-        var sibling = f.Poll("1002");
+        var altro = f.Poll("1002");
 
-        Assert.NotNull(sibling.Intent);
-        // Il template rifiutato per limite non era stato consumato: il passo 2 precede la selezione.
-        Assert.NotEqual(first.Intent!.Symbol, sibling.Intent!.Symbol);
+        Assert.NotNull(altro.Intent);
+        // Il secondo conto non aveva consumato nulla: prende il template che vuole, e con due
+        // simboli in gioco il primo che trova è quello che il conto saturo ha già preso.
+        Assert.Equal(first.Intent!.StrategyCode, altro.Intent!.StrategyCode);
     }
 
     [Fact]
-    public void TheGroupSlotBlocksEvenWhenTheAccountHasCapacity()
+    public void TheAccountSlotBlocksEvenWhenTheAccountHasCapacity()
     {
-        // Due template della stessa strategia/simbolo su barre successive, account con limite largo:
-        // il secondo account del gruppo non prende nulla, e la ragione è NoSignal (lucchetto 4), non
-        // MaxConcurrentTradesExceeded. La ragione distingue i due vincoli.
-        var f = New(symbols: 1,
-        [
-            Row("g1", "1001", maxConcurrent: 10),
-            Row("g1", "1002", maxConcurrent: 10)
-        ]);
+        // Due template della stessa strategia/simbolo su barre successive, conto con limite largo:
+        // il conto che ha già una posizione su quella coppia non prende il secondo, e la ragione è
+        // NoSignal (lo slot del conto), non MaxConcurrentTradesExceeded. La ragione distingue i due
+        // vincoli: il primo è unicità del segnale, il secondo è quanto si opera in parallelo.
+        var f = New(symbols: 1, [Row("1001", maxConcurrent: 10)]);
 
         f.PushBar(0);
         var claimed = f.Poll("1001").Intent;
@@ -168,10 +166,10 @@ public sealed class ConcurrencyLimitsMatrixTests : IDisposable
 
         f.PushBar(0);                       // secondo template, stessa strategia e stesso simbolo
 
-        var sibling = f.Poll("1002");
+        var ancora = f.Poll("1001");
 
-        Assert.Null(sibling.Intent);
-        Assert.Equal("NoSignal", sibling.Reason);
+        Assert.Null(ancora.Intent);
+        Assert.Equal("NoSignal", ancora.Reason);
     }
 
     [Fact]
@@ -180,8 +178,8 @@ public sealed class ConcurrencyLimitsMatrixTests : IDisposable
         // Fan-out: un account saturo in g1 non toglie nulla a g2, che riceve lo stesso template.
         var f = New(symbols: 1,
         [
-            Row("g1", "1001", maxConcurrent: 1),
-            Row("g2", "2001", maxConcurrent: 1)
+            Row("1001", maxConcurrent: 1),
+            Row("2001", maxConcurrent: 1)
         ]);
 
         f.PushBar(0);
@@ -202,7 +200,7 @@ public sealed class ConcurrencyLimitsMatrixTests : IDisposable
         // Il ciclo completo: il limite si libera perché la posizione sparisce, il lucchetto 4/5 perché
         // ApplyReport di una chiusura li rimuove esplicitamente. Prima della chiusura nessuno dei due
         // è aperto, quindi un solo test copre entrambi i rilasci.
-        var f = New(symbols: 1, [Row("g1", "1001", maxConcurrent: 1)]);
+        var f = New(symbols: 1, [Row("1001", maxConcurrent: 1)]);
 
         f.PushBar(0);
         var entry = f.Poll("1001").Intent!;
@@ -233,7 +231,7 @@ public sealed class ConcurrencyLimitsMatrixTests : IDisposable
     {
         // Un ingresso rifiutato non apre posizione: né il conteggio del limite né i lucchetti devono
         // trattenerlo. Il template però resta consumato dal gruppo, quindi serve un secondo template.
-        var f = New(symbols: 2, [Row("g1", "1001", maxConcurrent: 1)]);
+        var f = New(symbols: 2, [Row("1001", maxConcurrent: 1)]);
 
         f.PushBar(0);
         f.PushBar(1);
@@ -254,7 +252,7 @@ public sealed class ConcurrencyLimitsMatrixTests : IDisposable
         // veloce sfonderebbe il tetto prima che il broker registri il primo ordine. A tetto pieno il
         // poll ripropone l'ingresso pendente invece di rispondere MaxConcurrentTradesExceeded — è
         // così che si recupera un claim la cui risposta si è persa in rete.
-        var f = New(symbols: 2, [Row("g1", "1001", maxConcurrent: 1)]);
+        var f = New(symbols: 2, [Row("1001", maxConcurrent: 1)]);
 
         f.PushBar(0);
         f.PushBar(1);
@@ -270,14 +268,15 @@ public sealed class ConcurrencyLimitsMatrixTests : IDisposable
     // ------------------------------------------------------------------ stress concorrente
 
     [Fact]
-    public async Task ParallelPolls_NeverAssignTheSameTemplateTwiceInsideAGroup()
+    public async Task ParallelPolls_NeverAssignTheSameTemplateTwiceToTheSameAccount()
     {
-        // Sei account dello stesso gruppo che pollano insieme su sei template di simboli diversi.
-        // Invariante: ogni template è consumato una volta sola dal gruppo, quindi i sei account si
-        // dividono i sei template uno a testa, senza duplicati né eccezioni.
+        // Sei conti che pollano insieme su sei template di simboli diversi, un claim a testa.
+        // Invariante: nessuno prende due volte lo stesso template e nessun poll solleva eccezioni.
+        // I sei conti possono ora prendere lo STESSO template — è il fan-out per conto — quindi
+        // l'invariante non è più "sei strategie distinte" ma "sei claim distinti, uno per conto".
         const int count = 6;
         var accounts = Enumerable.Range(1, count).Select(i => $"100{i}").ToArray();
-        var f = New(symbols: count, accounts.Select(a => Row("g1", a, maxConcurrent: 0)).ToArray());
+        var f = New(symbols: count, accounts.Select(a => Row(a, maxConcurrent: 0)).ToArray());
 
         for (var i = 0; i < count; i++) f.PushBar(i);
 
@@ -303,8 +302,6 @@ public sealed class ConcurrencyLimitsMatrixTests : IDisposable
         Assert.Empty(errors);
         Assert.Equal(count, claims.Count);
         Assert.Equal(count, claims.Select(x => x.IntentId).Distinct().Count());
-        // Un template per strategia: se due account avessero preso lo stesso, qui ci sarebbe un duplicato.
-        Assert.Equal(count, claims.Select(x => x.StrategyCode).Distinct(StringComparer.OrdinalIgnoreCase).Count());
         Assert.Equal(count, claims.Select(x => x.AssignedAccountNumber).Distinct(StringComparer.OrdinalIgnoreCase).Count());
     }
 
@@ -313,7 +310,7 @@ public sealed class ConcurrencyLimitsMatrixTests : IDisposable
     {
         // Il passo 1 legge e poi scrive: se non fosse dentro il lock della sessione, due poll
         // simultanei dello stesso account potrebbero reclamare due template diversi.
-        var f = New(symbols: 4, [Row("g1", "1001", maxConcurrent: 0)]);
+        var f = New(symbols: 4, [Row("1001", maxConcurrent: 0)]);
         for (var i = 0; i < 4; i++) f.PushBar(i);
 
         var responses = new ConcurrentBag<OrderIntent>();
@@ -347,7 +344,7 @@ public sealed class ConcurrencyLimitsMatrixTests : IDisposable
         // Molti account con limite 1 che pollano insieme mentre arrivano fill: il numero di posizioni
         // aperte per account non deve mai superare il limite dichiarato.
         const int accounts = 4;
-        var rows = Enumerable.Range(1, accounts).Select(i => Row("g1", $"100{i}", maxConcurrent: 1)).ToArray();
+        var rows = Enumerable.Range(1, accounts).Select(i => Row($"100{i}", maxConcurrent: 1)).ToArray();
         var f = New(symbols: 4, rows);
         for (var i = 0; i < 4; i++) f.PushBar(i);
 
@@ -382,17 +379,17 @@ public sealed class ConcurrencyLimitsMatrixTests : IDisposable
     }
 
     [Fact]
-    public async Task PushingBarsWhilePolling_KeepsTheGroupLocksConsistent()
+    public async Task PushingBarsWhilePolling_KeepsTheAccountLocksConsistent()
     {
-        // Scrittori e lettori insieme: PushBars crea template mentre due gruppi pollano. Invariante
-        // strutturale: dentro un gruppo non esistono due claim pendenti sulla stessa
-        // strategia/simbolo, che è esattamente ciò che il lucchetto 4 garantisce.
+        // Scrittori e lettori insieme: PushBars crea template mentre quattro conti pollano.
+        // Invariante strutturale: un conto non tiene due claim pendenti sulla stessa
+        // strategia/simbolo, che è esattamente ciò che lo slot del conto garantisce.
         var f = New(symbols: 1,
         [
-            Row("g1", "1001", maxConcurrent: 0),
-            Row("g1", "1002", maxConcurrent: 0),
-            Row("g2", "2001", maxConcurrent: 0),
-            Row("g2", "2002", maxConcurrent: 0)
+            Row("1001", maxConcurrent: 0),
+            Row("1002", maxConcurrent: 0),
+            Row("2001", maxConcurrent: 0),
+            Row("2002", maxConcurrent: 0)
         ]);
 
         var errors = new ConcurrentBag<Exception>();
@@ -429,25 +426,20 @@ public sealed class ConcurrencyLimitsMatrixTests : IDisposable
             .Where(x => x.Kind == OrderIntentKind.Entry && x.Status == OrderIntentStatus.Pending)
             .ToArray();
 
-        // Un solo claim per gruppo: g1 e g2 hanno due account ciascuno ma un solo slot
-        // (strategia, simbolo) disponibile.
+        // Un solo claim pendente per conto: lo slot (conto, strategia, simbolo, lato) è uno solo, e
+        // qui la sessione ha un simbolo e una strategia.
         Assert.All(
-            pending.GroupBy(x => Group(x.AssignedAccountNumber!)),
-            group => Assert.Single(group));
-        Assert.True(pending.Length <= 2, $"claim pendenti attesi al massimo 2, trovati {pending.Length}");
+            pending.GroupBy(x => x.AssignedAccountNumber!, StringComparer.OrdinalIgnoreCase),
+            conto => Assert.Single(conto));
+        Assert.True(pending.Length <= 4, $"claim pendenti attesi al massimo 4, trovati {pending.Length}");
     }
-
-    private static string Group(string accountNumber) => accountNumber.StartsWith('1') ? "g1" : "g2";
 
     // ------------------------------------------------------------------------------ helper
 
-    private static TradingGroupRow Row(string groupId, string account, int maxConcurrent) => new()
-    {
-        GroupId = groupId, AccountNumber = account,
-        MaxConcurrentTrades = maxConcurrent
-    };
+    private static TestAccountRow Row(string account, int maxConcurrent) =>
+        new(account, maxConcurrent);
 
-    private Fixture New(int symbols, IReadOnlyList<TradingGroupRow> groups)
+    private Fixture New(int symbols, IReadOnlyList<TestAccountRow> accounts)
     {
         // Una strategia per simbolo distinto. Serviva a poter osservare il limite per account senza
         // che il vecchio lucchetto (account, simbolo) lo anticipasse; ora serve a verificare che il
@@ -467,7 +459,7 @@ public sealed class ConcurrencyLimitsMatrixTests : IDisposable
         });
         new TradingJsonStore(workspaces.GetBacktestPath(workspace.Id, "source")).Initialize();
 
-        TestAccountRegistry.Register(workspaces, groups);
+        TestAccountRegistry.Register(workspaces, accounts);
 
         var sessions = new TradingSessionService(
             workspaces, new OneSignalPerBarEvaluationService(), new PositionSizingService());
@@ -477,9 +469,12 @@ public sealed class ConcurrencyLimitsMatrixTests : IDisposable
             WorkspaceId = workspace.Id,
             ExecutionMode = ExecutionMode.ExternalBroker,
             ClientRunMode = ClientRunMode.Realtime,
-            EnforceConcurrencyLimits = true
+            EnforceConcurrencyLimits = true,
+            MaxConcurrentTrades = TestSessionAccounts.MaxConcurrentTrades(accounts),
+            ConcurrencyCountMode = TestSessionAccounts.CountMode(accounts)
         });
-        sessions.SetTradingGroups(descriptor.SessionId, descriptor.SessionToken, groups);
+        sessions.SetSessionAccounts(
+            descriptor.SessionId, descriptor.SessionToken, TestSessionAccounts.Numbers(accounts));
         sessions.SetStatus(descriptor.SessionId, descriptor.SessionToken, TradingSessionStatus.Running);
 
         return new Fixture(sessions, descriptor, selected);

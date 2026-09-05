@@ -1,114 +1,6 @@
 {
   "Conversions": [
     {
-      "Code": "cfd-ic",
-      "Name": "CFD-ic",
-      "RoundingMode": 1,
-      "Mappings": [
-        {
-          "Symbol": "@BP",
-          "AccountSymbol": "GBPUSD",
-          "ContractMultiplier": 0.625,
-          "PriceScale": 1,
-          "MinimumQuantity": 0.01,
-          "QuantityStep": 0.01,
-          "Enabled": true
-        },
-        {
-          "Symbol": "@BTC",
-          "AccountSymbol": "BTCUSD",
-          "ContractMultiplier": 5,
-          "PriceScale": 1,
-          "MinimumQuantity": 0.01,
-          "QuantityStep": 0.01,
-          "Enabled": true
-        },
-        {
-          "Symbol": "@CL",
-          "AccountSymbol": "XTIUSD",
-          "ContractMultiplier": 10,
-          "PriceScale": 1,
-          "MinimumQuantity": 0.5,
-          "QuantityStep": 0.5,
-          "Enabled": true
-        },
-        {
-          "Symbol": "@EC",
-          "AccountSymbol": "EURUSD",
-          "ContractMultiplier": 1.25,
-          "PriceScale": 1,
-          "MinimumQuantity": 0.01,
-          "QuantityStep": 0.01,
-          "Enabled": true
-        },
-        {
-          "Symbol": "@ES",
-          "AccountSymbol": "US500",
-          "ContractMultiplier": 50,
-          "PriceScale": 1,
-          "MinimumQuantity": 0.1,
-          "QuantityStep": 0.1,
-          "Enabled": true
-        },
-        {
-          "Symbol": "@FDAX",
-          "AccountSymbol": "DE40",
-          "ContractMultiplier": 25,
-          "PriceScale": 1,
-          "MinimumQuantity": 0.1,
-          "QuantityStep": 0.1,
-          "Enabled": true
-        },
-        {
-          "Symbol": "@GC",
-          "AccountSymbol": "XAUUSD",
-          "ContractMultiplier": 1,
-          "PriceScale": 1,
-          "MinimumQuantity": 0.01,
-          "QuantityStep": 0.01,
-          "Enabled": true
-        },
-        {
-          "Symbol": "@NG",
-          "AccountSymbol": "XNGUSD",
-          "ContractMultiplier": 1,
-          "PriceScale": 1,
-          "MinimumQuantity": 0.5,
-          "QuantityStep": 0.5,
-          "Enabled": true
-        },
-        {
-          "Symbol": "@NQ",
-          "AccountSymbol": "USTEC",
-          "ContractMultiplier": 20,
-          "PriceScale": 1,
-          "MinimumQuantity": 0.1,
-          "QuantityStep": 0.1,
-          "Enabled": true
-        },
-        {
-          "Symbol": "@PL",
-          "AccountSymbol": "XPTUSD",
-          "ContractMultiplier": 0.5,
-          "PriceScale": 1,
-          "MinimumQuantity": 0.01,
-          "QuantityStep": 0.01,
-          "Enabled": true
-        },
-        {
-          "Symbol": "@YM",
-          "AccountSymbol": "US30",
-          "ContractMultiplier": 5,
-          "PriceScale": 1,
-          "MinimumQuantity": 0.1,
-          "QuantityStep": 0.1,
-          "Enabled": true
-        }
-      ],
-      "CreatedUtc": "2026-08-04T00:00:00Z",
-      "UpdatedUtc": "2026-08-04T00:00:00Z"
-    },
-    {
       "Code": "cfd-ctrader-ftmo",
       "Name": "CFD-ctrader-ftmo",
       "RoundingMode": 1,
@@ -260,6 +152,114 @@
       ],
       "CreatedUtc": "2026-08-04T00:00:00Z",
       "UpdatedUtc": "2026-09-02T12:43:54Z"
+    },
+    {
+      "Code": "cfd-ic",
+      "Name": "CFD-ic",
+      "RoundingMode": 1,
+      "Mappings": [
+        {
+          "Symbol": "@BP",
+          "AccountSymbol": "GBPUSD",
+          "ContractMultiplier": 0.625,
+          "PriceScale": 1,
+          "MinimumQuantity": 0.01,
+          "QuantityStep": 0.01,
+          "Enabled": true
+        },
+        {
+          "Symbol": "@BTC",
+          "AccountSymbol": "BTCUSD",
+          "ContractMultiplier": 5,
+          "PriceScale": 1,
+          "MinimumQuantity": 0.01,
+          "QuantityStep": 0.01,
+          "Enabled": true
+        },
+        {
+          "Symbol": "@CL",
+          "AccountSymbol": "XTIUSD",
+          "ContractMultiplier": 10,
+          "PriceScale": 1,
+          "MinimumQuantity": 0.5,
+          "QuantityStep": 0.5,
+          "Enabled": true
+        },
+        {
+          "Symbol": "@EC",
+          "AccountSymbol": "EURUSD",
+          "ContractMultiplier": 1.25,
+          "PriceScale": 1,
+          "MinimumQuantity": 0.01,
+          "QuantityStep": 0.01,
+          "Enabled": true
+        },
+        {
+          "Symbol": "@ES",
+          "AccountSymbol": "US500",
+          "ContractMultiplier": 50,
+          "PriceScale": 1,
+          "MinimumQuantity": 0.1,
+          "QuantityStep": 0.1,
+          "Enabled": true
+        },
+        {
+          "Symbol": "@FDAX",
+          "AccountSymbol": "DE40",
+          "ContractMultiplier": 25,
+          "PriceScale": 1,
+          "MinimumQuantity": 0.1,
+          "QuantityStep": 0.1,
+          "Enabled": true
+        },
+        {
+          "Symbol": "@GC",
+          "AccountSymbol": "XAUUSD",
+          "ContractMultiplier": 1,
+          "PriceScale": 1,
+          "MinimumQuantity": 0.01,
+          "QuantityStep": 0.01,
+          "Enabled": true
+        },
+        {
+          "Symbol": "@NG",
+          "AccountSymbol": "XNGUSD",
+          "ContractMultiplier": 1,
+          "PriceScale": 1,
+          "MinimumQuantity": 0.5,
+          "QuantityStep": 0.5,
+          "Enabled": true
+        },
+        {
+          "Symbol": "@NQ",
+          "AccountSymbol": "USTEC",
+          "ContractMultiplier": 20,
+          "PriceScale": 1,
+          "MinimumQuantity": 0.1,
+          "QuantityStep": 0.1,
+          "Enabled": true
+        },
+        {
+          "Symbol": "@PL",
+          "AccountSymbol": "XPTUSD",
+          "ContractMultiplier": 0.5,
+          "PriceScale": 1,
+          "MinimumQuantity": 0.01,
+          "QuantityStep": 0.01,
+          "Enabled": true
+        },
+        {
+          "Symbol": "@YM",
+          "AccountSymbol": "US30",
+          "ContractMultiplier": 5,
+          "PriceScale": 1,
+          "MinimumQuantity": 0.1,
+          "QuantityStep": 0.1,
+          "Enabled": true
+        }
+      ],
+      "CreatedUtc": "2026-08-04T00:00:00Z",
+      "UpdatedUtc": "2026-08-04T00:00:00Z"
     },
     {
       "Code": "cfd-mt5-5ers",
@@ -450,69 +450,6 @@
           "Symbol": "@NQ",
           "AccountSymbol": "NSDQp",
           "ContractMultiplier": 1,
-          "PriceScale": 1,
-          "MinimumQuantity": 1,
-          "QuantityStep": 1,
-          "Enabled": true
-        }
-      ],
-      "CreatedUtc": "2026-08-04T00:00:00Z",
-      "UpdatedUtc": "2026-08-04T00:00:00Z"
-    },
-    {
-      "Code": "cfd-mt5-next",
-      "Name": "CFD-mt5-next",
-      "RoundingMode": 0,
-      "Mappings": [
-        {
-          "Symbol": "@BP",
-          "AccountSymbol": "GBPUSDp",
-          "ContractMultiplier": 0.63,
-          "PriceScale": 1,
-          "MinimumQuantity": 1,
-          "QuantityStep": 1,
-          "Enabled": true
-        },
-        {
-          "Symbol": "@CL",
-          "AccountSymbol": "USOIL.f",
-          "ContractMultiplier": 1,
-          "PriceScale": 1,
-          "MinimumQuantity": 1,
-          "QuantityStep": 1,
-          "Enabled": true
-        },
-        {
-          "Symbol": "@EC",
-          "AccountSymbol": "EURUSDp",
-          "ContractMultiplier": 1,
-          "PriceScale": 1,
-          "MinimumQuantity": 1,
-          "QuantityStep": 1,
-          "Enabled": true
-        },
-        {
-          "Symbol": "@FDAX",
-          "AccountSymbol": "DE40.f",
-          "ContractMultiplier": 1,
-          "PriceScale": 1,
-          "MinimumQuantity": 1,
-          "QuantityStep": 1,
-          "Enabled": true
-        },
-        {
-          "Symbol": "@GC",
-          "AccountSymbol": "XAUUSDp",
-          "ContractMultiplier": 1,
-          "PriceScale": 1,
-          "MinimumQuantity": 1,
-          "QuantityStep": 1,
-          "Enabled": true
-        },
-        {
-          "Symbol": "@NQ",
-          "AccountSymbol": "USTEC.f",
-          "ContractMultiplier": 0.5,
           "PriceScale": 1,
           "MinimumQuantity": 1,
           "QuantityStep": 1,

@@ -9,7 +9,13 @@ public sealed class PlanRow
 
     public string Name { get; set; } = string.Empty;
 
-    public int Groups { get; set; }
+    /// <summary>
+    /// Quanti conti esegue il piano. Era il conteggio delle righe gruppo/account, che oggi non
+    /// esiste più: <c>TradingPlan.Groups</c> sopravvive solo per leggere i <c>plans.json</c>
+    /// anteriori alla migrazione e <c>NormalizeLoadedPlan</c> lo azzera, quindi vale <c>null</c>
+    /// su ogni piano che arriva dal server.
+    /// </summary>
+    public int Accounts { get; set; }
 
     public int MaxConcurrentTrades { get; set; }
 
@@ -91,7 +97,7 @@ public partial class PlanListScreen : UserControl, IShellScreen
                 {
                     Code = plan.Code,
                     Name = plan.Name,
-                    Groups = plan.Groups.Count,
+                    Accounts = plan.Accounts.Count,
                     MaxConcurrentTrades = plan.MaxConcurrentTrades,
                     UpdatedUtc = plan.UpdatedUtc
                 });

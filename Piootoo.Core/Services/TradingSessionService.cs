@@ -165,17 +165,13 @@ public interface ITradingSessionService
     PromoteSessionToBacktestResult PromoteToBacktest(string sessionId, PromoteSessionToBacktestRequest request);
     void CancelIntent(string sessionId, string token, string intentId);
 
-    /// <summary>Configura (sostituendola interamente) la mappa account -> gruppo per l'anti copy-trading. Solo ExternalBroker.</summary>
-    void SetAccountGroups(string sessionId, string token, IReadOnlyList<AccountGroupMapping> accounts);
+    /// <summary>
+    /// Configura (sostituendoli interamente) i conti che eseguono la sessione. Solo ExternalBroker.
+    /// </summary>
+    void SetSessionAccounts(string sessionId, string token, IReadOnlyList<string> accounts);
 
-    /// <summary>Legge la mappa account -> gruppo corrente.</summary>
-    IReadOnlyList<AccountGroupMapping> GetAccountGroups(string sessionId, string token);
-
-    /// <summary>Configura gruppi e account. Solo ExternalBroker.</summary>
-    void SetTradingGroups(string sessionId, string token, IReadOnlyList<TradingGroupRow> rows);
-
-    /// <summary>Legge la configurazione gruppi/account corrente.</summary>
-    IReadOnlyList<TradingGroupRow> GetTradingGroups(string sessionId, string token);
+    /// <summary>Legge i conti configurati sulla sessione.</summary>
+    IReadOnlyList<string> GetSessionAccounts(string sessionId, string token);
 
     /// <summary>
     /// Chiamata dal cBot di un singolo account: restituisce il prossimo segnale da eseguire (chiusura di
@@ -435,17 +431,24 @@ public sealed class TradingSessionService : ITradingSessionService
 
         // --- Distribuzione multi-account / anti copy-trading (solo ExecutionMode.ExternalBroker) ---
 
-        /// <summary>Mappa AccountNumber -> GroupId configurata dal tab Trading Session.</summary>
-        public Dictionary<string, string> AccountGroups { get; } = new(StringComparer.OrdinalIgnoreCase);
-        public Dictionary<string, int> AccountMaxConcurrentTrades { get; } =
-            new(StringComparer.OrdinalIgnoreCase);
+        /// <summary>
+        /// I conti che eseguono la sessione. Non hanno piu' un gruppo di appartenenza: ognuno
+        /// consuma ogni template una volta sola, quindi tutti i conti del piano ricevono lo stesso
+        /// flusso di segnali, ciascuno con la size del proprio capitale.
+        /// </summary>
+        public HashSet<string> ConfiguredAccounts { get; } = new(StringComparer.OrdinalIgnoreCase);
 
         /// <summary>
-        /// Cosa conta <c>MaxConcurrentTrades</c> per ogni account: parametro del piano, non
-        /// convenzione del server. Assente = <c>PositionsAndPendingOrders</c>, il default storico.
+        /// Massimo di ingressi in volo <b>per conto</b>, uguale per tutti i conti della sessione:
+        /// lo dichiara il piano. Zero = illimitato.
         /// </summary>
-        public Dictionary<string, ConcurrencyCountMode> AccountConcurrencyCountMode { get; } =
-            new(StringComparer.OrdinalIgnoreCase);
+        public int MaxConcurrentTrades { get; set; }
+
+        /// <summary>
+        /// Cosa conta <see cref="MaxConcurrentTrades"/>: parametro del piano, non convenzione del
+        /// server. Default <c>PositionsAndPendingOrders</c>, il comportamento storico.
+        /// </summary>
+        public ConcurrencyCountMode ConcurrencyCountMode { get; set; }
 
         /// <summary>
         /// Tabella di conversione per AccountNumber, risolta al primo poll dell'account: il
@@ -454,18 +457,18 @@ public sealed class TradingSessionService : ITradingSessionService
         public Dictionary<string, AccountSymbolConversion> AccountConversions { get; } =
             new(StringComparer.OrdinalIgnoreCase);
 
-        /// <summary>Template di segnali di apertura non ancora reclamati: ogni gruppo può reclamarne una copia indipendente.</summary>
+        /// <summary>Template di segnali di apertura non ancora reclamati: ogni conto può reclamarne una copia indipendente.</summary>
         public List<OrderIntent> EntryTemplates { get; } = [];
 
-        /// <summary>Per ogni template (IntentId), l'insieme dei gruppi che ne hanno già ricevuto una copia.</summary>
-        public Dictionary<string, HashSet<string>> TemplateClaimedGroups { get; } = new(StringComparer.Ordinal);
+        /// <summary>Per ogni template (IntentId), l'insieme dei conti che ne hanno già ricevuto una copia.</summary>
+        public Dictionary<string, HashSet<string>> TemplateClaimedAccounts { get; } = new(StringComparer.Ordinal);
 
-        /// <summary>Slot occupato per (gruppo, strategia, simbolo): quale account lo detiene e con quale IntentId.</summary>
-        public Dictionary<string, (string AccountNumber, string IntentId)> GroupStrategySlots { get; } =
+        /// <summary>Slot occupato per (conto, strategia, simbolo, lato): quale intent lo detiene.</summary>
+        public Dictionary<string, (string AccountNumber, string IntentId)> AccountStrategySlots { get; } =
             new(StringComparer.OrdinalIgnoreCase);
 
         // Non esiste più un lucchetto (account, simbolo). Il tetto di concorrenza è per account e
-        // trasversale ai simboli — vedi AccountMaxConcurrentTrades e CountInFlightForAccount —
+        // trasversale ai simboli — vedi MaxConcurrentTrades e CountInFlightForAccount —
         // mentre l'unicità (strategia, simbolo) è garantita da AccountHasEntryInFlight, che è una
         // guardia di identità e non un vincolo di concorrenza.
 
@@ -574,8 +577,8 @@ public sealed class TradingSessionService : ITradingSessionService
             try
             {
                 foreach (var plan in _plans.List(workspace.Id))
-                    if (plan.Groups.Any(row =>
-                            string.Equals(row.AccountNumber?.Trim(), accountNumber, StringComparison.OrdinalIgnoreCase)))
+                    if (plan.Accounts.Any(numero =>
+                            string.Equals(numero?.Trim(), accountNumber, StringComparison.OrdinalIgnoreCase)))
                         codici.Add(plan.Code);
             }
             catch (Exception)
@@ -594,7 +597,7 @@ public sealed class TradingSessionService : ITradingSessionService
     private static bool BelongsToAccount(Session session, string accountNumber) =>
         string.Equals(session.DirectAccountNumber, accountNumber, StringComparison.OrdinalIgnoreCase)
         || session.JoinedAccounts.Contains(accountNumber)
-        || session.AccountGroups.ContainsKey(accountNumber);
+        || session.ConfiguredAccounts.Contains(accountNumber);
 
     private RealtimeWatchSession BuildWatchSession(Session session, string accountNumber, DateTime nowUtc)
     {
@@ -691,7 +694,7 @@ public sealed class TradingSessionService : ITradingSessionService
                 // Solo il percorso di claim manda al server lo stato del broker
                 // (AccountSignalPollRequest → ReconcileVanishedPositions). In esecuzione diretta
                 // non arriva mai, e ciò che il server crede non è mai stato verificato.
-                RiceveStatoBroker = session.AccountGroups.Count > 0,
+                RiceveStatoBroker = session.ConfiguredAccounts.Count > 0,
                 Posizioni = posizioni,
                 Pendenti = pendenti
             };
@@ -733,16 +736,14 @@ public sealed class TradingSessionService : ITradingSessionService
                 "la configurazione operativa la porta il piano.");
 
         var plan = _plans.Resolve(request.PlanCode);
-        if (plan.Groups.Count == 0)
-            throw new InvalidOperationException($"Il piano '{plan.Code}' non contiene righe gruppo/account.");
+        if (plan.Accounts.Count == 0)
+            throw new InvalidOperationException($"Il piano '{plan.Code}' non contiene conti.");
 
         var account = string.IsNullOrWhiteSpace(request.AccountNumber)
             ? plan.AccountNumber
             : request.AccountNumber.Trim();
-        var accountRow = plan.Groups.FirstOrDefault(row =>
-                             row.AccountNumber.Equals(account, StringComparison.OrdinalIgnoreCase))
-                         ?? throw new ArgumentException(
-                             $"L'account '{account}' non appartiene al piano '{plan.Code}'.");
+        if (!plan.Accounts.Any(numero => numero.Equals(account, StringComparison.OrdinalIgnoreCase)))
+            throw new ArgumentException($"Il conto '{account}' non appartiene al piano '{plan.Code}'.");
 
         // In distribuzione la sessione è condivisa fra gli account del piano, quindi la chiave non
         // include l'account. In esecuzione diretta gli intent sono già assegnati e li consuma un
@@ -822,10 +823,10 @@ public sealed class TradingSessionService : ITradingSessionService
             _ => plan.EnforceConcurrencyLimits
                  ?? DefaultEnforceConcurrencyLimits(request.ClientRunMode)
         };
-        if (!request.DistributeToAccounts && enforceConcurrency && accountRow.MaxConcurrentTrades > 0)
+        if (!request.DistributeToAccounts && enforceConcurrency && plan.MaxConcurrentTrades > 0)
             throw new ArgumentException(
-                $"Il piano '{plan.Code}' dichiara MaxConcurrentTrades={accountRow.MaxConcurrentTrades} " +
-                $"per l'account '{account}', ma in esecuzione diretta il limite non è applicabile: " +
+                $"Il piano '{plan.Code}' dichiara MaxConcurrentTrades={plan.MaxConcurrentTrades}, " +
+                $"ma in esecuzione diretta sul conto '{account}' il limite non è applicabile: " +
                 "è governato dalla distribuzione multi-account. Azzera MaxConcurrentTrades, " +
                 "disattiva EnforceConcurrencyLimits, oppure usa un cBot che reclama i segnali " +
                 "da GET /accounts/{n}/signals.");
@@ -841,9 +842,9 @@ public sealed class TradingSessionService : ITradingSessionService
             // EnforceConcurrencyLimits, ma senza di lui il descriptor non saprebbe dire quale run è.
             opened.RunProfile = runProfile;
             if (request.DistributeToAccounts)
-                // SetTradingGroups azzera session.AccountConversions: va chiamato PRIMA di risolvere
+                // SetSessionAccounts azzera session.AccountConversions: va chiamato PRIMA di risolvere
                 // la conversione di questo account, altrimenti la cache verrebbe svuotata subito dopo.
-                SetTradingGroups(descriptor.SessionId, descriptor.SessionToken, plan.Groups);
+                SetSessionAccounts(descriptor.SessionId, descriptor.SessionToken, plan.Accounts);
             else
                 opened.DirectAccountNumber = account;
             opened.JoinedAccounts.Add(account);
@@ -885,8 +886,14 @@ public sealed class TradingSessionService : ITradingSessionService
             ClientSessionToken = token ?? Convert.ToHexString(Guid.NewGuid().ToByteArray()),
             ClientRunMode = clientRunMode,
             EnforceConcurrencyLimits = enforceConcurrency,
+            MaxConcurrentTrades = plan.MaxConcurrentTrades,
+            ConcurrencyCountMode = plan.ConcurrencyCountMode,
             Holding = plan.Holding,
             SizeMultiplier = plan.SizeMultiplier,
+            // Il secondo filtro del piano viaggia con la richiesta, non viene riletto a valle: una
+            // sessione e' lo snapshot del piano al momento in cui nasce, e una ripresa deve
+            // ricostruire lo stesso insieme di strategie (BuildConfigurationFingerprint lo verifica).
+            DisabledStrategies = plan.DisabledStrategies,
             PositionSizing = plan.PositionSizing
         };
 
@@ -1012,7 +1019,7 @@ public sealed class TradingSessionService : ITradingSessionService
 
         var account = _workspaces.ListAccounts().FirstOrDefault(candidate =>
             string.Equals(candidate.AccountNumber?.Trim(), accountNumber.Trim(), StringComparison.OrdinalIgnoreCase));
-        return RunPriceSource.Cfd(account?.Broker);
+        return RunPriceSource.Cfd(_workspaces.ResolveBrokerLabelForAccount(account));
     }
 
     /// <summary>
@@ -1040,7 +1047,24 @@ public sealed class TradingSessionService : ITradingSessionService
                 "ID strategia non eseguibili nel masterfilter: " +
                 string.Join("; ", invalid.Select(StrategyFactory.DescribeUnusableId)));
 
-        var strategies = filter.StrategiesFilter.Select(id =>
+        // Secondo filtro, dopo il masterfilter: il piano ne spegne un sottoinsieme
+        // (TradingPlan.DisabledStrategies). Si applica DOPO la verifica degli Id, perche' un Id non
+        // eseguibile del masterfilter va segnalato anche quando il piano lo terrebbe spento: il
+        // masterfilter resta sbagliato, e spegnere una strategia non e' il modo di correggerlo.
+        var disabled = new HashSet<string>(
+            TradingPlanService.NormalizeDisabledStrategies(request.DisabledStrategies),
+            StringComparer.OrdinalIgnoreCase);
+        var selectedIds = filter.StrategiesFilter.Where(id => !disabled.Contains(id)).ToArray();
+
+        // Spente tutte, la sessione partirebbe senza una strategia da valutare: sarebbe muta e
+        // identica a una che non produce segnali. E' il silenzio che questo progetto non ammette.
+        if (selectedIds.Length == 0)
+            throw new ArgumentException(
+                $"Tutte le {filter.StrategiesFilter.Count} strategie del masterfilter del workspace " +
+                $"'{request.WorkspaceId}' sono spente: la sessione non avrebbe nulla da valutare. " +
+                "Riaccendine almeno una nel piano.");
+
+        var strategies = selectedIds.Select(id =>
         {
             var d = byId[id];
             return StrategyFactory.CreateStrategy(d.Id, d.Symbol, d.TimeframeMinutes, d.Parameters)
@@ -1108,6 +1132,11 @@ public sealed class TradingSessionService : ITradingSessionService
             ClientRunMode = request.ClientRunMode,
             EnforceConcurrencyLimits = request.EnforceConcurrencyLimits
                 ?? DefaultEnforceConcurrencyLimits(request.ClientRunMode),
+            // Tetto e modalità di conteggio sono della sessione e valgono per ogni conto: vengono
+            // dal piano, che è l'unico posto in cui si dichiarano (prima stavano sulla riga di
+            // gruppo, ed erano due numeri per la stessa regola).
+            MaxConcurrentTrades = request.MaxConcurrentTrades,
+            ConcurrencyCountMode = request.ConcurrencyCountMode,
             PositionSizing = ResolvePositionSizing(request.ExecutionMode, request.PositionSizing),
             Holding = request.Holding ?? AccountHoldingPolicy.Default,
             // Normalizzato e non validato: una sessione creata a mano da un client che non conosce
@@ -1475,14 +1504,13 @@ public sealed class TradingSessionService : ITradingSessionService
         if (session.Mode == ExecutionMode.ServerSimulated)
             session.SimulatedEngine.UpdateMarketPrices(prices, bars, bar.BarTimeUtc);
 
-        // Esecuzione diretta: il conto e' uno solo e si conosce gia' qui, quindi una strategia su
-        // un simbolo che la sua tabella non prevede non viene nemmeno valutata. In distribuzione il
-        // conto si conosce solo al claim, ed e' li' che lo stesso filtro vive
-        // (GetNextSignalForAccount): scartare a monte toglierebbe la strategia anche agli account
-        // che la supportano.
-        var evaluationStrategies = SupportedStrategies(session);
+        // Si valutano TUTTE le strategie della sessione: quali strumenti un conto sappia negoziare
+        // non e' piu' un filtro del motore. La tabella dei simboli e' una proprieta' del broker, e
+        // includere nel piano solo le strategie che quel broker quota e' una scelta del setup —
+        // dichiarata nel tab Strategie del piano — non una decisione che il server prende a
+        // esecuzione avviata. Vedi docs/decisioni.md 2026-09-05.
         var signals = _evaluation.Evaluate(
-            evaluationStrategies,
+            session.Strategies,
             normalizedBar,
             history,
             strategy => GetExecution(session, strategy, bar.BarTimeUtc));
@@ -1506,7 +1534,7 @@ public sealed class TradingSessionService : ITradingSessionService
             signal.Quantity = result.FinalQuantity;
         }
         session.LastEvaluatedBarTimeUtc = bar.BarTimeUtc;
-        var multiAccount = session.AccountGroups.Count > 0;
+        var multiAccount = session.ConfiguredAccounts.Count > 0;
         foreach (var signal in signals)
         {
             if (signal.RuntimeState is not null)
@@ -1571,7 +1599,7 @@ public sealed class TradingSessionService : ITradingSessionService
 
         // "Valutate" sono le strategie di questo stream che avevano abbastanza storia: le altre
         // StrategyEvaluationService le salta in silenzio, ed è esattamente il silenzio da spiegare.
-        return evaluationStrategies.Count(s =>
+        return session.Strategies.Count(s =>
             Normalize(s.Symbol) == Normalize(bar.Symbol) &&
             s.TimeframeMinutes == bar.TimeframeMinutes &&
             history.Count >= s.RequiredCandles);
@@ -1669,19 +1697,18 @@ public sealed class TradingSessionService : ITradingSessionService
                     ? $"{intent.Status} @ {prezzo:0.#####} qty {filledQuantity:0.####}"
                     : $"{intent.Status}",
                 intent.AssignedAccountNumber ?? string.Empty,
-                intent.AssignedGroupId ?? string.Empty,
                 intent.StrategyCode, intent.Symbol, intent.IntentId);
 
             if (!intent.IsClose && intent.FilledQuantity == 0 &&
                 intent.Status is OrderIntentStatus.Rejected or OrderIntentStatus.Cancelled &&
                 intent.AssignedAccountNumber is { } rejectedAccount)
             {
-                // Ingresso mai eseguito (rifiutato/annullato dal broker): libera subito lo slot di
-                // gruppo, altrimenti resterebbe bloccato per sempre. Il budget di concorrenza
+                // Ingresso mai eseguito (rifiutato/annullato dal broker): libera subito lo slot del
+                // conto, altrimenti resterebbe bloccato per sempre. Il budget di concorrenza
                 // dell'account non ha niente da liberare: si ricalcola a ogni poll dagli intent
                 // ancora Pending, e questo ha appena smesso di esserlo.
-                if (session.AccountGroups.TryGetValue(rejectedAccount, out var freedGroupId))
-                    session.GroupStrategySlots.Remove(SlotKey(freedGroupId, intent.StrategyCode, intent.Symbol, intent.Side));
+                session.AccountStrategySlots.Remove(
+                    SlotKey(rejectedAccount, intent.StrategyCode, intent.Symbol, intent.Side));
             }
 
             if (delta > 0)
@@ -1769,11 +1796,11 @@ public sealed class TradingSessionService : ITradingSessionService
 
                     if (accountNumber != null)
                     {
-                        // Libera lo slot di gruppo: la coppia (strategia, simbolo) torna disponibile
+                        // Libera lo slot del conto: la coppia (strategia, simbolo) torna disponibile
                         // per un nuovo ingresso. Il budget di concorrenza dell'account si libera da
                         // sé, perché la posizione appena chiusa non sarà più nello snapshot broker.
-                        if (session.AccountGroups.TryGetValue(accountNumber, out var groupId))
-                            session.GroupStrategySlots.Remove(SlotKey(groupId, intent.StrategyCode, intent.Symbol, intent.Side));
+                        session.AccountStrategySlots.Remove(
+                            SlotKey(accountNumber, intent.StrategyCode, intent.Symbol, intent.Side));
 
                         if (session.StrategyHolderCounts.TryGetValue(canonicalKey, out var count) && count > 0)
                         {
@@ -1847,7 +1874,6 @@ public sealed class TradingSessionService : ITradingSessionService
         SessionActivityKind kind,
         string detail,
         string accountNumber = "",
-        string groupId = "",
         string strategyCode = "",
         string symbol = "",
         string intentId = "")
@@ -1861,7 +1887,6 @@ public sealed class TradingSessionService : ITradingSessionService
             TimestampUtc = session.LastEvaluatedBarTimeUtc ?? DateTime.UtcNow,
             Kind = kind,
             AccountNumber = accountNumber,
-            GroupId = groupId,
             StrategyCode = strategyCode,
             Symbol = symbol,
             Detail = detail,
@@ -1881,7 +1906,7 @@ public sealed class TradingSessionService : ITradingSessionService
     /// fuori dalla finestra prima che qualcuno li veda. E' la stessa deduplica che il server
     /// applica gia' al proprio log (<c>LastClaimRefusal</c> nel controller).</para>
     /// </summary>
-    private static void RecordRefusal(Session session, string accountNumber, string groupId, string stage)
+    private static void RecordRefusal(Session session, string accountNumber, string stage)
     {
         if (string.IsNullOrWhiteSpace(stage))
             return;
@@ -1889,7 +1914,7 @@ public sealed class TradingSessionService : ITradingSessionService
             return;
 
         session.LastRefusalByAccount[accountNumber] = stage;
-        RecordActivity(session, SessionActivityKind.ClaimNegato, stage, accountNumber, groupId);
+        RecordActivity(session, SessionActivityKind.ClaimNegato, stage, accountNumber);
     }
 
     /// <summary>
@@ -1993,104 +2018,56 @@ public sealed class TradingSessionService : ITradingSessionService
         }
     }
 
-    public void SetAccountGroups(string sessionId, string token, IReadOnlyList<AccountGroupMapping> accounts)
+    /// <summary>
+    /// Configura i conti che eseguono la sessione. Sostituisce <c>SetTradingGroups</c>: un conto è
+    /// un destinatario e basta, non appartiene più a un gruppo.
+    ///
+    /// <para>Il tetto di concorrenza non si passa qui: è della sessione, viene dal piano
+    /// (<c>CreateTradingSessionRequest.MaxConcurrentTrades</c>) e vale per ogni conto. Dichiararlo
+    /// due volte era il modo di farlo divergere.</para>
+    /// </summary>
+    public void SetSessionAccounts(string sessionId, string token, IReadOnlyList<string> accounts)
     {
         var session = Get(sessionId, token);
         lock (session.Gate)
         {
             if (session.Mode != ExecutionMode.ExternalBroker)
-                throw new InvalidOperationException("I gruppi account sono configurabili solo per sessioni ExternalBroker.");
-            if (accounts.Any(a => string.IsNullOrWhiteSpace(a.AccountNumber) || string.IsNullOrWhiteSpace(a.GroupId)))
-                throw new ArgumentException("AccountNumber e GroupId sono obbligatori per ogni voce.");
-            var duplicated = accounts.GroupBy(a => a.AccountNumber.Trim(), StringComparer.OrdinalIgnoreCase)
-                .FirstOrDefault(g => g.Count() > 1);
-            if (duplicated != null)
-                throw new ArgumentException($"Account '{duplicated.Key}' configurato più di una volta.");
+                throw new InvalidOperationException("I conti sono configurabili solo per sessioni ExternalBroker.");
 
-            session.AccountGroups.Clear();
-            session.AccountMaxConcurrentTrades.Clear();
-            session.AccountConcurrencyCountMode.Clear();
+            var normalized = ValidateSessionAccounts(accounts);
+
+            session.ConfiguredAccounts.Clear();
             session.AccountConversions.Clear();
-            foreach (var mapping in accounts)
-                session.AccountGroups[mapping.AccountNumber.Trim()] = mapping.GroupId.Trim();
+            foreach (var account in normalized)
+                session.ConfiguredAccounts.Add(account);
             Persist(session);
         }
     }
 
-    public IReadOnlyList<AccountGroupMapping> GetAccountGroups(string sessionId, string token)
+    public IReadOnlyList<string> GetSessionAccounts(string sessionId, string token)
     {
         var session = Get(sessionId, token);
         lock (session.Gate)
-            return session.AccountGroups
-                .Select(kv => new AccountGroupMapping { AccountNumber = kv.Key, GroupId = kv.Value })
-                .OrderBy(x => x.GroupId).ThenBy(x => x.AccountNumber).ToArray();
+            return session.ConfiguredAccounts.OrderBy(x => x, StringComparer.OrdinalIgnoreCase).ToArray();
     }
 
-    public void SetTradingGroups(string sessionId, string token, IReadOnlyList<TradingGroupRow> rows)
+    private static IReadOnlyList<string> ValidateSessionAccounts(IReadOnlyList<string> accounts)
     {
-        var session = Get(sessionId, token);
-        lock (session.Gate)
-        {
-            if (session.Mode != ExecutionMode.ExternalBroker)
-                throw new InvalidOperationException("I gruppi sono configurabili solo per sessioni ExternalBroker.");
-            ValidateTradingGroupRows(rows);
-
-            session.AccountGroups.Clear();
-            session.AccountMaxConcurrentTrades.Clear();
-            session.AccountConcurrencyCountMode.Clear();
-            session.AccountConversions.Clear();
-            foreach (var group in rows.GroupBy(r => r.GroupId.Trim(), StringComparer.OrdinalIgnoreCase))
-            {
-                foreach (var row in group)
-                {
-                    session.AccountGroups[row.AccountNumber.Trim()] = group.Key;
-                    session.AccountMaxConcurrentTrades[row.AccountNumber.Trim()] = row.MaxConcurrentTrades;
-                    session.AccountConcurrencyCountMode[row.AccountNumber.Trim()] = row.ConcurrencyCountMode;
-                }
-            }
-            Persist(session);
-        }
-    }
-
-    public IReadOnlyList<TradingGroupRow> GetTradingGroups(string sessionId, string token)
-    {
-        var session = Get(sessionId, token);
-        lock (session.Gate)
-            return BuildTradingGroupRows(session);
-    }
-
-    private static void ValidateTradingGroupRows(IReadOnlyList<TradingGroupRow> rows)
-    {
-        if (rows.Count == 0)
-            throw new ArgumentException("Almeno una riga gruppo/account è obbligatoria.");
-
-        foreach (var row in rows)
-        {
-            if (string.IsNullOrWhiteSpace(row.GroupId) || string.IsNullOrWhiteSpace(row.AccountNumber))
-                throw new ArgumentException("GroupId e AccountNumber sono obbligatori per ogni riga.");
-            if (row.MaxConcurrentTrades < 0)
-                throw new ArgumentException(
-                    $"MaxConcurrentTrades non può essere negativo per l'account '{row.AccountNumber}'.");
-        }
-
-        var duplicatedAccount = rows.GroupBy(r => r.AccountNumber.Trim(), StringComparer.OrdinalIgnoreCase)
-            .FirstOrDefault(g => g.Count() > 1);
-        if (duplicatedAccount != null)
-            throw new ArgumentException($"Account '{duplicatedAccount.Key}' configurato più di una volta.");
-    }
-
-    private static IReadOnlyList<TradingGroupRow> BuildTradingGroupRows(Session session) =>
-        session.AccountGroups
-            .Select(kv => new TradingGroupRow
-            {
-                GroupId = kv.Value,
-                AccountNumber = kv.Key,
-                MaxConcurrentTrades = session.AccountMaxConcurrentTrades.GetValueOrDefault(kv.Key),
-                ConcurrencyCountMode = session.AccountConcurrencyCountMode.GetValueOrDefault(kv.Key)
-            })
-            .OrderBy(x => x.GroupId, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(x => x.AccountNumber, StringComparer.OrdinalIgnoreCase)
+        var normalized = (accounts ?? [])
+            .Select(account => account?.Trim() ?? string.Empty)
+            .Where(account => account.Length > 0)
             .ToArray();
+
+        if (normalized.Length == 0)
+            throw new ArgumentException("Almeno un conto è obbligatorio.");
+
+        var duplicated = normalized.GroupBy(account => account, StringComparer.OrdinalIgnoreCase)
+            .FirstOrDefault(group => group.Count() > 1);
+        if (duplicated != null)
+            throw new ArgumentException($"Conto '{duplicated.Key}' configurato più di una volta.");
+
+        return normalized;
+    }
 
     public AccountSignalResponse GetNextSignalForAccount(string sessionId, string token, string accountNumber)
         => GetNextSignalForAccount(sessionId, token, accountNumber, brokerState: null);
@@ -2117,15 +2094,15 @@ public sealed class TradingSessionService : ITradingSessionService
                 throw new InvalidOperationException("La distribuzione multi-account è disponibile solo in modalità ExternalBroker.");
             if (session.Status != TradingSessionStatus.Running)
                 return new AccountSignalResponse { Reason = "SessionNotRunning" };
-            if (!session.AccountGroups.TryGetValue(accountNumber, out var groupId))
+            if (!session.ConfiguredAccounts.Contains(accountNumber))
                 throw new ArgumentException(
-                    $"Account '{accountNumber}' non configurato per questa sessione. Aggiungilo nel tab Trading Session.");
+                    $"Conto '{accountNumber}' non configurato per questa sessione. Aggiungilo al piano.");
 
             // 0) Riconciliazione con lo stato reale del broker, prima di ogni filtro: una posizione
             //    che il server crede aperta ma che sul broker non c'è più va chiusa nei registri,
             //    altrimenti tutto ciò che segue decide su una posizione fantasma.
             if (brokerState is not null)
-                ReconcileVanishedPositions(session, accountNumber, groupId, brokerState);
+                ReconcileVanishedPositions(session, accountNumber, brokerState);
 
             // 1) Le CHIUSURE assegnate a questo account si ripropongono sempre, e prima di tutto:
             //    sono ordini da eseguire, non segnali da distribuire, e perderne una lascia aperta
@@ -2172,10 +2149,10 @@ public sealed class TradingSessionService : ITradingSessionService
             //    sessione a simbolo singolo, rendeva MaxConcurrentTrades inapplicabile: il tetto
             //    effettivo era 1 qualunque valore si impostasse, e la seconda strategia sullo
             //    stesso simbolo non arrivava mai a mercato. Vedi docs/decisioni.md.
-            var countMode = session.AccountConcurrencyCountMode.GetValueOrDefault(accountNumber);
+            var countMode = session.ConcurrencyCountMode;
             var inFlight = CountInFlightForAccount(
                 session, accountNumber, brokerState, countMode, out var openPositions, out var pendingOrders);
-            var maxConcurrentTrades = session.AccountMaxConcurrentTrades.GetValueOrDefault(accountNumber);
+            var maxConcurrentTrades = session.MaxConcurrentTrades;
             if (IsConcurrentTradeLimitActive(session) &&
                 maxConcurrentTrades > 0 &&
                 inFlight >= maxConcurrentTrades)
@@ -2231,7 +2208,7 @@ public sealed class TradingSessionService : ITradingSessionService
 
             // 3) Selezione del template. L'orologio (`now`) è già stato risolto sopra: lo condivide
             // con la ripresa dell'intent bloccato, che applica lo stesso criterio di scadenza.
-            var priorities = ComputeStrategyPriority(session, groupId);
+            var priorities = ComputeStrategyPriority(session);
             var conversion = ResolveAccountConversion(session, accountNumber);
 
             // I filtri sono applicati a stadi invece che in una sola catena LINQ per poter dire QUALE
@@ -2244,16 +2221,10 @@ public sealed class TradingSessionService : ITradingSessionService
             var stage = "nessun segnale per la barra corrente";
             var candidates = session.EntryTemplates.Where(t => t.Status == OrderIntentStatus.Pending).ToList();
 
-            candidates = NarrowTemplates(candidates, ref stage,
-                // Un simbolo che la tabella dell'account non prevede — assente, o presente e
-                // disabilitato — non e' operativo su quel conto: il template resta disponibile per
-                // gli altri account invece di essere consumato qui.
-                //
-                // Il filtro e' per ACCOUNT e non per sessione perche' una sessione distribuita ha
-                // conti con tabelle diverse: la stessa strategia puo' essere eseguibile su un conto
-                // e non sull'altro, e scartarla a monte la toglierebbe anche a chi la supporta.
-                t => conversion.SupportsSymbol(t.Symbol),
-                "simbolo non previsto dalla tabella di conversione dell'account");
+            // Non c'e' piu' un filtro per tabella dei simboli: un template non viene scartato
+            // perche' il conto "non prevede" quel simbolo. Se la conversione lo azzera, il claim lo
+            // dice con la quantita' a zero (vedi sotto) invece di far sparire il segnale — e quale
+            // strategia far girare su quali strumenti resta una scelta del piano.
             candidates = NarrowTemplates(candidates, ref stage,
                 t => !t.ExpiresAtUtc.HasValue || t.ExpiresAtUtc.Value >= now,
                 // Niente orario della barra nel testo: il motivo viene deduplicato per stringa da
@@ -2261,9 +2232,9 @@ public sealed class TradingSessionService : ITradingSessionService
                 // deduplica riempiendo entrambi i log di righe identiche nella sostanza.
                 "template scaduti rispetto alla barra corrente");
             candidates = NarrowTemplates(candidates, ref stage,
-                t => !(session.TemplateClaimedGroups.TryGetValue(t.IntentId, out var claimed)
-                       && claimed.Contains(groupId)),
-                $"già reclamati dal gruppo '{groupId}'");
+                t => !(session.TemplateClaimedAccounts.TryGetValue(t.IntentId, out var claimed)
+                       && claimed.Contains(accountNumber)),
+                $"già reclamati dal conto '{accountNumber}'");
             // Lucchetto 3 bis: un account non tiene DUE ingressi in corso della stessa strategia,
             // sullo stesso simbolo E dello stesso LATO. Serve perché `MaxEntriesPerSession` si
             // applica al FILL e non al claim: due template di barre diverse reclamati prima che il
@@ -2305,8 +2276,8 @@ public sealed class TradingSessionService : ITradingSessionService
             // EnforceConcurrencyLimits insieme a MaxConcurrentTrades. Spento, ogni segnale della
             // barra diventa un intent e il campione sorgente è completo.
             //
-            // Il lucchetto 3 (TemplateClaimedGroups, sopra) resta invece SEMPRE attivo: non limita
-            // quanto si opera in parallelo, dice che un template è già stato servito a quel gruppo.
+            // Il lucchetto 3 (TemplateClaimedAccounts, sopra) resta invece SEMPRE attivo: non limita
+            // quanto si opera in parallelo, dice che un template è già stato servito a quel conto.
             // Spegnerlo non produrrebbe più segnali, produrrebbe lo stesso segnale all'infinito, e
             // il drenaggio del cBot non terminerebbe mai.
             //
@@ -2314,8 +2285,8 @@ public sealed class TradingSessionService : ITradingSessionService
             // parallelo lo dice MaxConcurrentTrades e basta, sull'insieme delle strategie.
             if (IsConcurrentTradeLimitActive(session))
                 candidates = NarrowTemplates(candidates, ref stage,
-                    t => !session.GroupStrategySlots.ContainsKey(SlotKey(groupId, t.StrategyCode, t.Symbol, t.Side)),
-                    "slot (gruppo, strategia, simbolo, lato) già occupato");
+                    t => !session.AccountStrategySlots.ContainsKey(SlotKey(accountNumber, t.StrategyCode, t.Symbol, t.Side)),
+                    "slot (conto, strategia, simbolo, lato) già occupato");
             candidates = NarrowTemplates(candidates, ref stage,
                 // Il limite di fill per sessione è per account: un template già consumato da un
                 // account resta disponibile per gli altri.
@@ -2340,11 +2311,11 @@ public sealed class TradingSessionService : ITradingSessionService
 
             if (template is null)
             {
-                RecordRefusal(session, accountNumber, groupId, stage);
+                RecordRefusal(session, accountNumber, stage);
                 return new AccountSignalResponse { Reason = "NoSignal", ReasonDetail = stage };
             }
 
-            var claim = CloneForClaim(session, template, accountNumber, groupId);
+            var claim = CloneForClaim(session, template, accountNumber);
             if (claim.FinalQuantity <= 0)
                 return new AccountSignalResponse
                 {
@@ -2361,17 +2332,17 @@ public sealed class TradingSessionService : ITradingSessionService
             session.LastRefusalByAccount.Remove(accountNumber);
             RecordActivity(session, SessionActivityKind.ClaimServito,
                 $"{claim.Side} {claim.OrderType} @ {claim.Price:0.#####} qty {claim.FinalQuantity:0.####}",
-                accountNumber, groupId, claim.StrategyCode, claim.Symbol, claim.IntentId);
-            if (!session.TemplateClaimedGroups.TryGetValue(template.IntentId, out var claimedGroups))
-                session.TemplateClaimedGroups[template.IntentId] = claimedGroups = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            claimedGroups.Add(groupId);
+                accountNumber, claim.StrategyCode, claim.Symbol, claim.IntentId);
+            if (!session.TemplateClaimedAccounts.TryGetValue(template.IntentId, out var claimedAccounts))
+                session.TemplateClaimedAccounts[template.IntentId] = claimedAccounts = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            claimedAccounts.Add(accountNumber);
 
-            // Lo slot di gruppo si scrive solo se qualcuno lo leggerà. Con EnforceConcurrencyLimits
+            // Lo slot del conto si scrive solo se qualcuno lo leggerà. Con EnforceConcurrencyLimits
             // spento sarebbe un dizionario che cresce per tutta la durata del run senza mai essere
             // consultato, e che mostrerebbe nelle diagnostiche occupazioni che nessun filtro sta
             // applicando.
             if (IsConcurrentTradeLimitActive(session))
-                session.GroupStrategySlots[SlotKey(groupId, claim.StrategyCode, claim.Symbol, claim.Side)] = (accountNumber, claim.IntentId);
+                session.AccountStrategySlots[SlotKey(accountNumber, claim.StrategyCode, claim.Symbol, claim.Side)] = (accountNumber, claim.IntentId);
             Persist(session);
             return new AccountSignalResponse { Intent = claim };
         }
@@ -2384,7 +2355,7 @@ public sealed class TradingSessionService : ITradingSessionService
     /// </summary>
     /// <summary>
     /// Toglie da <c>EntryTemplates</c> i template la cui finestra di validità è chiusa rispetto alla
-    /// barra appena arrivata, e con essi la traccia di quali gruppi li avevano reclamati.
+    /// barra appena arrivata, e con essi la traccia di quali conti li avevano reclamati.
     ///
     /// <para>Un template scaduto non è "da filtrare al prossimo giro": è morto. Tenerlo in lista
     /// costava tre cose. La lista cresceva per tutta la durata del run — un template per segnale, mai
@@ -2412,7 +2383,7 @@ public sealed class TradingSessionService : ITradingSessionService
         foreach (var template in expired)
         {
             session.EntryTemplates.Remove(template);
-            session.TemplateClaimedGroups.Remove(template.IntentId);
+            session.TemplateClaimedAccounts.Remove(template.IntentId);
         }
     }
 
@@ -2472,10 +2443,9 @@ public sealed class TradingSessionService : ITradingSessionService
             // Lo slot segue l'intent. Liberarlo solo sui percorsi che richiedono un report del broker
             // — rifiuto, chiusura, posizione sparita — significa non liberarlo mai proprio nel caso in
             // cui il report non arriva, che è il caso per cui questa spazzata esiste.
-            if (intent.AssignedAccountNumber is { } account &&
-                session.AccountGroups.TryGetValue(account, out var groupId))
-                session.GroupStrategySlots.Remove(
-                    SlotKey(groupId, intent.StrategyCode, intent.Symbol, intent.Side));
+            if (intent.AssignedAccountNumber is { } account)
+                session.AccountStrategySlots.Remove(
+                    SlotKey(account, intent.StrategyCode, intent.Symbol, intent.Side));
 
             RecordActivity(session, SessionActivityKind.IntentScaduto,
                 $"{intent.Side} scaduto a {intent.ExpiresAtUtc:O} senza esito riportato: annullato " +
@@ -2630,7 +2600,7 @@ public sealed class TradingSessionService : ITradingSessionService
 
             var symbol = Normalize(request.Symbol);
             var accountNumber = string.IsNullOrWhiteSpace(request.AccountNumber) ? null : request.AccountNumber.Trim();
-            if (session.AccountGroups.Count > 0 && accountNumber is null)
+            if (session.ConfiguredAccounts.Count > 0 && accountNumber is null)
                 throw new ArgumentException("AccountNumber obbligatorio quando la sessione ha gruppi account configurati.");
 
             var key = accountNumber is null
@@ -2704,7 +2674,7 @@ public sealed class TradingSessionService : ITradingSessionService
     /// visibile nel monitor invece di essere un silenzio.</para>
     /// </summary>
     private void ReconcileVanishedPositions(
-        Session session, string accountNumber, string groupId, AccountSignalPollRequest brokerState)
+        Session session, string accountNumber, AccountSignalPollRequest brokerState)
     {
         // Il confronto NON si fa sulle chiavi di ExternalPositions: quelle portano il simbolo
         // Piootoo (GC), mentre lo snapshot porta il simbolo del broker (XAUUSD), perché il cBot
@@ -2751,7 +2721,7 @@ public sealed class TradingSessionService : ITradingSessionService
             session.ExternalPositions.Remove(key);
             session.ExternalPositionDetails.Remove(key);
             session.BrokerConfirmedPositions.Remove(key);
-            session.GroupStrategySlots.Remove(SlotKey(groupId, position.StrategyCode, position.Symbol, position.Direction));
+            session.AccountStrategySlots.Remove(SlotKey(accountNumber, position.StrategyCode, position.Symbol, position.Direction));
 
             var canonicalKey = $"{position.Symbol}|{position.StrategyCode}";
             if (session.StrategyHolderCounts.TryGetValue(canonicalKey, out var count) && count > 0)
@@ -2767,7 +2737,7 @@ public sealed class TradingSessionService : ITradingSessionService
 
             RecordActivity(session, SessionActivityKind.PosizioneChiusa,
                 "chiusa dal broker senza report del client: strategia sbloccata, P&L non registrato",
-                accountNumber, groupId, position.StrategyCode, position.Symbol, string.Empty);
+                accountNumber, position.StrategyCode, position.Symbol, string.Empty);
         }
 
         if (vanished.Count > 0)
@@ -2847,33 +2817,10 @@ public sealed class TradingSessionService : ITradingSessionService
     /// libero ha più template di ingresso disponibili in contemporanea: il PnL netto live
     /// accumulato dalla strategia nella sessione.
     /// </summary>
-    private static Dictionary<string, decimal> ComputeStrategyPriority(Session session, string groupId)
+    private static Dictionary<string, decimal> ComputeStrategyPriority(Session session)
         // Sola lettura, sotto il lock della sessione come tutto il resto del claim.
         => session.StrategyNetPnl;
 
-    /// <summary>
-    /// Le strategie che questa sessione puo' davvero eseguire.
-    ///
-    /// <para>Filtra solo in <b>esecuzione diretta</b>, dove il conto e' uno e noto: una strategia su
-    /// un simbolo che la sua tabella di conversione non prevede non produce segnali invece di
-    /// produrne di inservibili, azzerati poi dalla conversione. Prima l'intent nasceva, veniva
-    /// dimensionato a zero e finiva <c>Cancelled</c> negli artefatti: un segnale che c'e' e non c'e',
-    /// che va spiegato a chi legge i trade.</para>
-    ///
-    /// <para>In distribuzione restituisce tutte le strategie: la sessione e' condivisa fra conti con
-    /// tabelle diverse e il filtro appartiene al claim del singolo account.</para>
-    /// </summary>
-    private IReadOnlyList<ITradingStrategy> SupportedStrategies(Session session)
-    {
-        if (session.DirectAccountNumber is not { } accountNumber)
-            return session.Strategies;
-
-        var conversion = ResolveAccountConversion(session, accountNumber);
-        if (!conversion.HasSymbolTable)
-            return session.Strategies;
-
-        return session.Strategies.Where(x => conversion.SupportsSymbol(x.Symbol)).ToArray();
-    }
 
     /// <summary>
     /// Il fattore che porta una quantità dai contratti Piootoo a quelli del conto:
@@ -3223,7 +3170,7 @@ public sealed class TradingSessionService : ITradingSessionService
     /// chiuderà la posizione.</para>
     /// </summary>
     private OrderIntent CloneForClaim(
-        Session session, OrderIntent template, string accountNumber, string groupId)
+        Session session, OrderIntent template, string accountNumber)
     {
         var quantity = template.FinalQuantity;
 
@@ -3253,7 +3200,7 @@ public sealed class TradingSessionService : ITradingSessionService
 
         return new OrderIntent
         {
-            IntentId = $"{template.IntentId}::{groupId}",
+            IntentId = $"{template.IntentId}::{accountNumber}",
             SessionId = template.SessionId,
             StrategyCode = template.StrategyCode,
             StrategyName = template.StrategyName,
@@ -3299,8 +3246,7 @@ public sealed class TradingSessionService : ITradingSessionService
             TimeExitOnlyIfProfitBelowMoneyPerContract = template.TimeExitOnlyIfProfitBelowMoneyPerContract,
             ProfitStallAfterUtc = template.ProfitStallAfterUtc,
             Reason = template.Reason,
-            AssignedAccountNumber = accountNumber,
-            AssignedGroupId = groupId
+            AssignedAccountNumber = accountNumber
         };
     }
 
@@ -3322,7 +3268,10 @@ public sealed class TradingSessionService : ITradingSessionService
                 $"Account '{accountNumber}' non presente nel registro account: impossibile risolvere " +
                 "capitale e tabella di conversione simboli. Creane l'anagrafica prima di operare.");
 
-        var table = _workspaces.ResolveSymbolConversion(account.SymbolConversionCode);
+        // La tabella dei simboli e' del BROKER del conto (ripiego sul codice scritto sul conto
+        // finche' l'anagrafica non e' migrata): due conti dello stesso broker quotano gli stessi
+        // strumenti con gli stessi nomi.
+        var table = _workspaces.ResolveConversionForAccount(account);
         var conversion = AccountSymbolConversion.FromAccount(account, table);
         session.AccountConversions[accountNumber] = conversion;
         return conversion;
@@ -3367,8 +3316,8 @@ public sealed class TradingSessionService : ITradingSessionService
     /// dell'intent o della posizione che lo chiude: i due coincidono sempre, perché un intent Buy
     /// non produce una posizione Sell.
     /// </summary>
-    private static string SlotKey(string groupId, string strategyCode, string symbol, SignalType side) =>
-        $"{groupId}|{strategyCode}|{Normalize(symbol)}|{side}";
+    private static string SlotKey(string accountNumber, string strategyCode, string symbol, SignalType side) =>
+        $"{accountNumber}|{strategyCode}|{Normalize(symbol)}|{side}";
 
     /// <summary>Intervallo minimo fra due scritture degli artefatti sul percorso caldo.</summary>
     private static readonly TimeSpan PersistCheckpointInterval = TimeSpan.FromSeconds(2);
@@ -3558,14 +3507,14 @@ public sealed class TradingSessionService : ITradingSessionService
             SavedAtUtc = DateTime.UtcNow,
             DirectAccountNumber = session.DirectAccountNumber ?? string.Empty,
             JoinedAccounts = session.JoinedAccounts.ToList(),
-            Distributed = session.AccountGroups.Count > 0,
+            Distributed = session.ConfiguredAccounts.Count > 0,
             ConfigurationFingerprint = BuildConfigurationFingerprint(session),
             Intents = daSalvare.Values.ToList(),
             EntryTemplates = session.EntryTemplates.ToList(),
             Positions = posizioni,
-            TemplateClaimedGroups = session.TemplateClaimedGroups
+            TemplateClaimedAccounts = session.TemplateClaimedAccounts
                 .ToDictionary(entry => entry.Key, entry => entry.Value.ToList(), StringComparer.Ordinal),
-            GroupStrategySlots = session.GroupStrategySlots.ToDictionary(
+            AccountStrategySlots = session.AccountStrategySlots.ToDictionary(
                 entry => entry.Key,
                 entry => new SessionStateSlot
                 {
@@ -3600,7 +3549,7 @@ public sealed class TradingSessionService : ITradingSessionService
             ? string.Empty
             : $"|{session.RunProfile}";
         var baseKey = $"{session.PlanCode}|{session.ClientRunMode}|{session.ExecutionKey}{profileSuffix}";
-        return session.AccountGroups.Count > 0 || session.DirectAccountNumber is null
+        return session.ConfiguredAccounts.Count > 0 || session.DirectAccountNumber is null
             ? baseKey
             : $"{baseKey}|Direct|{session.DirectAccountNumber}";
     }
@@ -3735,9 +3684,9 @@ public sealed class TradingSessionService : ITradingSessionService
         try
         {
             if (state.Distributed)
-                // Prima dei gruppi non c'è conversione da risolvere: SetTradingGroups azzera
+                // Prima dei conti non c'è conversione da risolvere: SetSessionAccounts azzera
                 // AccountConversions, quindi va chiamato prima di qualunque uso della cache.
-                SetTradingGroups(session.Id, session.Token, plan.Groups);
+                SetSessionAccounts(session.Id, session.Token, plan.Accounts);
             else
                 session.DirectAccountNumber = account;
 
@@ -3802,7 +3751,7 @@ public sealed class TradingSessionService : ITradingSessionService
             // Canoniche e conteggio dei detentori non sono nel dump: si derivano, così non possono
             // contraddire le posizioni da cui dipendono. La prima riga per (simbolo, strategia)
             // diventa la canonica, ogni riga incrementa il conteggio.
-            if (session.AccountGroups.Count == 0) continue;
+            if (session.ConfiguredAccounts.Count == 0) continue;
             var canonicalKey = $"{posizione.Snapshot.Symbol}|{posizione.Snapshot.StrategyCode}";
             if (!session.CanonicalPositions.ContainsKey(canonicalKey))
                 session.CanonicalPositions[canonicalKey] = posizione.Snapshot;
@@ -3810,11 +3759,11 @@ public sealed class TradingSessionService : ITradingSessionService
                 session.StrategyHolderCounts.GetValueOrDefault(canonicalKey) + 1;
         }
 
-        foreach (var (templateId, gruppi) in state.TemplateClaimedGroups)
-            session.TemplateClaimedGroups[templateId] = new HashSet<string>(gruppi, StringComparer.OrdinalIgnoreCase);
+        foreach (var (templateId, conti) in state.TemplateClaimedAccounts)
+            session.TemplateClaimedAccounts[templateId] = new HashSet<string>(conti, StringComparer.OrdinalIgnoreCase);
 
-        foreach (var (slot, occupante) in state.GroupStrategySlots)
-            session.GroupStrategySlots[slot] = (occupante.AccountNumber, occupante.IntentId);
+        foreach (var (slot, occupante) in state.AccountStrategySlots)
+            session.AccountStrategySlots[slot] = (occupante.AccountNumber, occupante.IntentId);
 
         foreach (var riga in state.EntryFills)
         {
@@ -4159,8 +4108,7 @@ public sealed class TradingSessionService : ITradingSessionService
         Status = intent.Status,
         FilledQuantity = intent.FilledQuantity,
         ExternalOrderId = intent.ExternalOrderId,
-        AssignedAccountNumber = intent.AssignedAccountNumber,
-        AssignedGroupId = intent.AssignedGroupId
+        AssignedAccountNumber = intent.AssignedAccountNumber
     };
 
     private static StrategyExecutionSnapshot GetExecution(Session session, ITradingStrategy strategy, DateTime time)
@@ -4170,7 +4118,7 @@ public sealed class TradingSessionService : ITradingSessionService
         var key = $"{Normalize(strategy.Symbol)}|{strategy.Name}";
         // In modalità multi-account la valutazione strategie usa la posizione "canonica" (indipendente
         // da quale account la detiene realmente); in modalità legacy usa le posizioni dirette come prima.
-        var positions = session.AccountGroups.Count > 0 ? session.CanonicalPositions : session.ExternalPositions;
+        var positions = session.ConfiguredAccounts.Count > 0 ? session.CanonicalPositions : session.ExternalPositions;
         positions.TryGetValue(key, out var position);
         return new StrategyExecutionSnapshot
         {
@@ -4224,17 +4172,13 @@ public sealed class TradingSessionService : ITradingSessionService
         ClientRunMode = session.ClientRunMode,
         RunProfile = session.RunProfile,
         EnforceConcurrencyLimits = session.EnforceConcurrencyLimits,
-        // Il limite è per account: senza destinatario noto (elenco sessioni, sessione distribuita
-        // descritta fuori da un'apertura) si riporta 0, che il client legge come "non dichiarato".
-        MaxConcurrentTrades = accountNumber is not null
-            ? session.AccountMaxConcurrentTrades.GetValueOrDefault(accountNumber)
-            : 0,
+        // Il tetto è della sessione e vale per ogni conto: lo si riporta sempre, anche quando il
+        // descriptor non è diretto a un conto in particolare (elenco sessioni).
+        MaxConcurrentTrades = session.MaxConcurrentTrades,
         // Il client la legge per sapere se, raggiunto il tetto sulle posizioni, deve cancellare i
         // propri ordini pendenti rimasti. È configurazione consegnata all'apertura, non un canale
         // di controllo: il server non gli dirà mai "cancella quell'ordine".
-        ConcurrencyCountMode = accountNumber is not null
-            ? session.AccountConcurrencyCountMode.GetValueOrDefault(accountNumber)
-            : default,
+        ConcurrencyCountMode = session.ConcurrencyCountMode,
         // Informativo: le quantita' degli intent sono gia' moltiplicate, il client non deve
         // rifarlo. Serve a spiegare a chart una size che altrimenti non torna con il piano.
         SizeMultiplier = session.SizeMultiplier,
@@ -4301,10 +4245,7 @@ public sealed class TradingSessionService : ITradingSessionService
             // il filtro resta scritto per dire quali stati escono di qui, non per selezionare.
             PendingIntents = Live(session).Where(x => x.Status is OrderIntentStatus.Pending
                 or OrderIntentStatus.Accepted or OrderIntentStatus.PartiallyFilled).ToArray(),
-            AccountGroups = session.AccountGroups
-                .Select(kv => new AccountGroupMapping { AccountNumber = kv.Key, GroupId = kv.Value })
-                .OrderBy(x => x.GroupId).ThenBy(x => x.AccountNumber).ToArray(),
-            Groups = BuildTradingGroupRows(session)
+            Accounts = session.ConfiguredAccounts.OrderBy(x => x, StringComparer.OrdinalIgnoreCase).ToArray()
         };
     }
 

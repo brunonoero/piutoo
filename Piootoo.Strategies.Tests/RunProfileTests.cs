@@ -274,7 +274,6 @@ public sealed class RunProfileTests : IDisposable
         {
             Code = "PLANPROFILO",
             Name = "Piano profilo",
-            GroupId = "g1",
             AccountNumber = "1001",
             MaxConcurrentTrades = maxConcurrent,
             EnforceConcurrencyLimits = enforceConcurrencyLimits

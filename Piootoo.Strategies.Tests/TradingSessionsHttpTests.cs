@@ -77,7 +77,6 @@ public sealed class TradingSessionsHttpTests : IDisposable
         {
             Code = "PLAN_HTTP",
             Name = "Piano HTTP",
-            GroupId = "PROP-A",
             AccountNumber = "12345",
             MaxConcurrentTrades = 2,
         };
@@ -99,14 +98,15 @@ public sealed class TradingSessionsHttpTests : IDisposable
         Assert.Equal(plan.Code, first.PlanCode);
         Assert.Equal(TradingSessionStatus.Running, first.Status);
 
-        using var groupsRequest = Authorized(HttpMethod.Get,
-            $"api/v1/trading-sessions/{first.SessionId}/groups", first.SessionToken);
-        var groupsResponse = await _client.SendAsync(groupsRequest);
-        groupsResponse.EnsureSuccessStatusCode();
-        var group = Assert.Single(
-            (await groupsResponse.Content.ReadFromJsonAsync<List<TradingGroupRow>>(JsonOptions))!);
-        Assert.Equal(plan.AccountNumber, group.AccountNumber);
-        Assert.Equal(2, group.MaxConcurrentTrades);
+        using var accountsRequest = Authorized(HttpMethod.Get,
+            $"api/v1/trading-sessions/{first.SessionId}/accounts", first.SessionToken);
+        var accountsResponse = await _client.SendAsync(accountsRequest);
+        accountsResponse.EnsureSuccessStatusCode();
+        var conto = Assert.Single(
+            (await accountsResponse.Content.ReadFromJsonAsync<List<string>>(JsonOptions))!);
+        Assert.Equal(plan.AccountNumber, conto);
+        // Il tetto è della sessione, non della riga: lo dichiara il piano una volta per tutti i conti.
+        Assert.Equal(2, first.MaxConcurrentTrades);
     }
 
     /// <summary>
@@ -202,31 +202,21 @@ public sealed class TradingSessionsHttpTests : IDisposable
     private async Task<SaveTradingPlanRequest> SavePlan(
         string code, string groupId, string accountNumber, string? secondAccount = null)
     {
+        // groupId non è più un dato del piano: resta nella firma perché i test lo passano come
+        // etichetta dello scenario, e cambiarli tutti non aggiungerebbe niente alla prova.
+        _ = groupId;
         var plan = secondAccount is null
             ? new SaveTradingPlanRequest
             {
                 Code = code,
                 Name = code,
-                GroupId = groupId,
                 AccountNumber = accountNumber,
             }
             : new SaveTradingPlanRequest
             {
                 Code = code,
                 Name = code,
-                Groups =
-                [
-                    new TradingGroupRow
-                    {
-                        GroupId = groupId,
-                        AccountNumber = accountNumber,
-                    },
-                    new TradingGroupRow
-                    {
-                        GroupId = groupId,
-                        AccountNumber = secondAccount,
-                    }
-                ]
+                Accounts = [accountNumber, secondAccount]
             };
         var save = await _client.PutAsJsonAsync(
             $"api/v1/workspaces/{_workspace.Id}/trading-plans/{plan.Code}", plan);
@@ -254,7 +244,6 @@ public sealed class TradingSessionsHttpTests : IDisposable
         {
             Code = "PLAN_DIRECT",
             Name = "Piano diretto",
-            GroupId = "PROP-D",
             AccountNumber = "777",
         };
         var save = await _client.PutAsJsonAsync(
@@ -285,11 +274,11 @@ public sealed class TradingSessionsHttpTests : IDisposable
         Assert.Equal(_strategy.Symbol.TrimStart('@'), instrument.Symbol);
         Assert.Contains(_strategy.TimeframeMinutes, instrument.TimeframesMinutes);
 
-        using var groupsRequest = Authorized(HttpMethod.Get,
-            $"api/v1/trading-sessions/{descriptor.SessionId}/groups", descriptor.SessionToken);
-        var groupsResponse = await _client.SendAsync(groupsRequest);
-        groupsResponse.EnsureSuccessStatusCode();
-        Assert.Empty((await groupsResponse.Content.ReadFromJsonAsync<List<TradingGroupRow>>(JsonOptions))!);
+        using var accountsRequest = Authorized(HttpMethod.Get,
+            $"api/v1/trading-sessions/{descriptor.SessionId}/accounts", descriptor.SessionToken);
+        var accountsResponse = await _client.SendAsync(accountsRequest);
+        accountsResponse.EnsureSuccessStatusCode();
+        Assert.Empty((await accountsResponse.Content.ReadFromJsonAsync<List<string>>(JsonOptions))!);
 
         var intent = Assert.Single((await Push(descriptor, 1, "direct-bar")).Intents);
         Assert.Equal(OrderIntentStatus.Pending, intent.Status);
@@ -320,7 +309,6 @@ public sealed class TradingSessionsHttpTests : IDisposable
         {
             Code = "PLAN_DIRECT_MAX",
             Name = "Piano diretto con limite",
-            GroupId = "PROP-D",
             AccountNumber = "778",
             MaxConcurrentTrades = 2,
         };
@@ -341,35 +329,22 @@ public sealed class TradingSessionsHttpTests : IDisposable
     }
 
     [Fact]
-    public async Task MultiGroupTradingPlan_PersistsAllRowsAndOpensWithAllAccounts()
+    public async Task MultiAccountTradingPlan_PersistsAllAccountsAndOpensWithEachOfThem()
     {
         var plan = new SaveTradingPlanRequest
         {
             Code = "PLAN_MULTI",
             Name = "Piano multi",
-            Groups =
-            [
-                new TradingGroupRow
-                {
-                    GroupId = "PROP-A",
-                    AccountNumber = "111",
-                    MaxConcurrentTrades = 2,
-                },
-                new TradingGroupRow
-                {
-                    GroupId = "PROP-B",
-                    AccountNumber = "222",
-                    MaxConcurrentTrades = 1,
-                }
-            ]
+            Accounts = ["111", "222"],
+            MaxConcurrentTrades = 2
         };
         var save = await _client.PutAsJsonAsync(
             $"api/v1/workspaces/{_workspace.Id}/trading-plans/{plan.Code}", plan);
         save.EnsureSuccessStatusCode();
         var saved = (await save.Content.ReadFromJsonAsync<TradingPlan>(JsonOptions))!;
-        Assert.Equal(2, saved.Groups.Count);
-        Assert.Equal("PROP-A", saved.GroupId);
+        Assert.Equal(["111", "222"], saved.Accounts);
         Assert.Equal("111", saved.AccountNumber);
+        Assert.Equal(2, saved.MaxConcurrentTrades);
 
         var open = new OpenTradingPlanSessionRequest
         {
@@ -382,15 +357,16 @@ public sealed class TradingSessionsHttpTests : IDisposable
         response.EnsureSuccessStatusCode();
         var descriptor = (await response.Content.ReadFromJsonAsync<TradingSessionDescriptor>(JsonOptions))!;
 
-        using var groupsRequest = Authorized(HttpMethod.Get,
-            $"api/v1/trading-sessions/{descriptor.SessionId}/groups", descriptor.SessionToken);
-        var groupsResponse = await _client.SendAsync(groupsRequest);
-        groupsResponse.EnsureSuccessStatusCode();
-        var groups = (await groupsResponse.Content.ReadFromJsonAsync<List<TradingGroupRow>>(JsonOptions))!;
-        Assert.Equal(2, groups.Count);
-        Assert.Contains(groups, row => row.AccountNumber == "111" && row.GroupId == "PROP-A");
-        Assert.Contains(groups, row => row.AccountNumber == "222" && row.GroupId == "PROP-B" &&
-                                       row.MaxConcurrentTrades == 1);
+        using var accountsRequest = Authorized(HttpMethod.Get,
+            $"api/v1/trading-sessions/{descriptor.SessionId}/accounts", descriptor.SessionToken);
+        var accountsResponse = await _client.SendAsync(accountsRequest);
+        accountsResponse.EnsureSuccessStatusCode();
+        var conti = (await accountsResponse.Content.ReadFromJsonAsync<List<string>>(JsonOptions))!;
+        Assert.Equal(2, conti.Count);
+        Assert.Contains("111", conti);
+        Assert.Contains("222", conti);
+        // Il tetto vale per ogni conto della sessione, non più per riga.
+        Assert.Equal(2, descriptor.MaxConcurrentTrades);
 
         var foreign = await _client.PostAsJsonAsync("api/v1/trading-sessions/open-plan",
             new OpenTradingPlanSessionRequest
@@ -404,7 +380,7 @@ public sealed class TradingSessionsHttpTests : IDisposable
     }
 
     [Fact]
-    public async Task LegacySingleRowPlanJson_IsNormalizedToGroupsOnRead()
+    public async Task LegacySingleRowPlanJson_IsNormalizedToAccountsOnRead()
     {
         var workspaces = _factory.Services.GetRequiredService<WorkspaceService>();
         var plansDir = Path.Combine(workspaces.GetWorkspacePath(_workspace.Id), "plans");
@@ -434,10 +410,12 @@ public sealed class TradingSessionsHttpTests : IDisposable
             $"api/v1/workspaces/{_workspace.Id}/trading-plans/LEGACY1");
         response.EnsureSuccessStatusCode();
         var plan = (await response.Content.ReadFromJsonAsync<TradingPlan>(JsonOptions))!;
-        var row = Assert.Single(plan.Groups);
-        Assert.Equal("PROP-L", row.GroupId);
-        Assert.Equal("555", row.AccountNumber);
-        Assert.Equal(3, row.MaxConcurrentTrades);
+        // Il gruppo del file non ha piu' un posto dove finire: resta il conto, e il tetto sale sul
+        // piano. Vedi docs/decisioni.md 2026-09-05.
+        Assert.Equal("555", Assert.Single(plan.Accounts));
+        Assert.Equal("555", plan.AccountNumber);
+        Assert.Equal(3, plan.MaxConcurrentTrades);
+        Assert.Null(plan.Groups);
     }
 
     [Theory]
@@ -716,44 +694,30 @@ public sealed class TradingSessionsHttpTests : IDisposable
     }
 
     [Fact]
-    public async Task TradingGroupsEndpoint_PersistsProfileAndKeepsAccountGroupsCompatible()
+    public async Task SessionAccountsEndpoint_PersistsTheAccountsOfTheSession()
     {
         var descriptor = await Create(ExecutionMode.ExternalBroker);
         using var putRequest = new HttpRequestMessage(HttpMethod.Put,
-            $"api/v1/trading-sessions/{descriptor.SessionId}/groups")
+            $"api/v1/trading-sessions/{descriptor.SessionId}/accounts")
         {
-            Content = JsonContent.Create(new SetTradingGroupsRequest
+            Content = JsonContent.Create(new SetSessionAccountsRequest
             {
                 SessionToken = descriptor.SessionToken,
-                Rows =
-                [
-                    new TradingGroupRow
-                    {
-                        GroupId = "prop-a",
-                        AccountNumber = "1001"
-                    }
-                ]
+                Accounts = ["1001"]
             }, options: JsonOptions)
         };
         var putResponse = await _client.SendAsync(putRequest);
         putResponse.EnsureSuccessStatusCode();
         var snapshot = await putResponse.Content.ReadFromJsonAsync<TradingSessionSnapshot>(JsonOptions);
         Assert.NotNull(snapshot);
-        Assert.Equal("1001", Assert.Single(snapshot!.Groups).AccountNumber);
+        Assert.Equal("1001", Assert.Single(snapshot!.Accounts));
 
-        using var getGroupsRequest = Authorized(HttpMethod.Get,
-            $"api/v1/trading-sessions/{descriptor.SessionId}/groups", descriptor.SessionToken);
-        var groupsResponse = await _client.SendAsync(getGroupsRequest);
-        groupsResponse.EnsureSuccessStatusCode();
-        var groups = await groupsResponse.Content.ReadFromJsonAsync<List<TradingGroupRow>>(JsonOptions);
-        Assert.Equal("1001", Assert.Single(groups!).AccountNumber);
-
-        using var legacyRequest = Authorized(HttpMethod.Get,
-            $"api/v1/trading-sessions/{descriptor.SessionId}/account-groups", descriptor.SessionToken);
-        var legacyResponse = await _client.SendAsync(legacyRequest);
-        legacyResponse.EnsureSuccessStatusCode();
-        var legacy = await legacyResponse.Content.ReadFromJsonAsync<List<AccountGroupMapping>>(JsonOptions);
-        Assert.Equal("prop-a", Assert.Single(legacy!).GroupId);
+        using var getRequest = Authorized(HttpMethod.Get,
+            $"api/v1/trading-sessions/{descriptor.SessionId}/accounts", descriptor.SessionToken);
+        var getResponse = await _client.SendAsync(getRequest);
+        getResponse.EnsureSuccessStatusCode();
+        var conti = await getResponse.Content.ReadFromJsonAsync<List<string>>(JsonOptions);
+        Assert.Equal("1001", Assert.Single(conti!));
     }
 
     /// <summary>

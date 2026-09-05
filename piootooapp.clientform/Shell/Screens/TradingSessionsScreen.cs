@@ -50,7 +50,7 @@ public partial class TradingSessionsScreen : UserControl, IShellScreen
 
     private IReadOnlyList<WorkspaceAccount> _accounts = [];
 
-    private IReadOnlyList<string> _accountGroups = [];
+
 
 
     private List<TradingPlan> _plans = [];
@@ -205,7 +205,7 @@ public partial class TradingSessionsScreen : UserControl, IShellScreen
 
             _accounts = await _context.Services.Api.ListAccountsAsync(cancellationToken);
 
-            _accountGroups = await _context.Services.Api.ListAccountGroupsAsync(cancellationToken);
+
 
             RefreshGroupColumnSources();
 
@@ -215,23 +215,14 @@ public partial class TradingSessionsScreen : UserControl, IShellScreen
 
             {
 
-                var groups = await _context.Services.Sessions.GetGroupsAsync(
-
+                var conti = await _context.Services.Sessions.GetAccountsAsync(
                     _activeSession.SessionId, _activeSession.SessionToken, cancellationToken);
 
                 _groupsGrid.Rows.Clear();
 
-                foreach (var mapping in groups)
-
+                foreach (var conto in conti)
                 {
-
-                    _groupsGrid.Rows.Add(
-
-                        mapping.GroupId,
-
-                        mapping.AccountNumber,
-
-                        mapping.MaxConcurrentTrades);
+                    _groupsGrid.Rows.Add(conto);
 
                 }
 
@@ -422,237 +413,86 @@ public partial class TradingSessionsScreen : UserControl, IShellScreen
 
 
 
+    /// <summary>
+    /// La griglia dei conti della sessione. Una colonna sola: il gruppo non esiste piu' e il tetto
+    /// di concorrenza sta sul piano, non per riga.
+    /// </summary>
     private void ConfigureGroupsGrid()
-
     {
-
         _groupsGrid.AutoGenerateColumns = false;
-
         _groupsGrid.AllowUserToAddRows = true;
-
         _groupsGrid.AllowUserToDeleteRows = true;
-
         _groupsGrid.RowHeadersVisible = false;
-
         _groupsGrid.Columns.Add(new DataGridViewComboBoxColumn
-
         {
-
-            Name = "GroupId",
-
-            HeaderText = "Codice gruppo",
-
-            FillWeight = 16,
-
-            DisplayStyle = DataGridViewComboBoxDisplayStyle.DropDownButton
-
-        });
-
-        _groupsGrid.Columns.Add(new DataGridViewComboBoxColumn
-
-        {
-
             Name = "AccountNumber",
-
-            HeaderText = "Codice account",
-
-            FillWeight = 16,
-
+            HeaderText = "Conto cTrader",
+            FillWeight = 30,
             DisplayMember = nameof(AccountNumberListItem.DisplayText),
-
             ValueMember = nameof(AccountNumberListItem.AccountNumber),
-
             DisplayStyle = DataGridViewComboBoxDisplayStyle.DropDownButton
-
-        });
-
-        _groupsGrid.Columns.Add(new DataGridViewTextBoxColumn
-
-        {
-
-            Name = "MaxConcurrentTrades",
-
-            HeaderText = "Max trade contemporanei",
-
-            FillWeight = 12
-
         });
 
         _groupsGrid.DataError += (_, e) => e.ThrowException = false;
-
         _groupsGrid.CurrentCellDirtyStateChanged += (_, _) =>
-
         {
-
             if (_groupsGrid.IsCurrentCellDirty)
-
             {
-
                 _groupsGrid.CommitEdit(DataGridViewDataErrorContexts.Commit);
-
             }
-
         };
-
-        _groupsGrid.CellValueChanged += OnGroupCellValueChanged;
-
     }
 
 
 
     private void RefreshGroupColumnSources()
-
     {
-
-        if (_groupsGrid.Columns["GroupId"] is DataGridViewComboBoxColumn groupColumn)
-
-        {
-
-            groupColumn.DataSource = _accountGroups.ToList();
-
-        }
-
-
-
         if (_groupsGrid.Columns["AccountNumber"] is DataGridViewComboBoxColumn accountColumn)
-
         {
-
             accountColumn.DataSource = _accounts
-
-                .Where(account => account.Enabled && !string.IsNullOrWhiteSpace(account.AccountNumber))
-
-                .Select(account => new AccountNumberListItem(account))
-
+                .Where(account => !string.IsNullOrWhiteSpace(account.AccountNumber))
+                .Select(account => new AccountNumberListItem(
+                    account.AccountNumber,
+                    $"{account.Name}  ·  {account.AccountNumber}"))
                 .ToList();
-
         }
-
     }
 
 
 
     private void RefreshOpenPlanAccountCombo(TradingPlan? plan)
-
     {
-
         var previous = (_openPlanAccountCombo.SelectedItem as AccountNumberListItem)?.AccountNumber;
-
         _openPlanAccountCombo.Items.Clear();
 
-        var rows = plan?.Groups.Count > 0
-
-            ? plan.Groups
-
-            : plan is null
-
-                ? []
-
-                :
-
-                [
-
-                    new TradingGroupRow
-
-                    {
-
-                        GroupId = plan.GroupId,
-
-                        AccountNumber = plan.AccountNumber,
-
-                        MaxConcurrentTrades = plan.MaxConcurrentTrades
-
-                    }
-
-                ];
-
-
-
-        foreach (var row in rows.Where(row => !string.IsNullOrWhiteSpace(row.AccountNumber)))
-
+        foreach (var account in (plan?.Accounts ?? []).Where(x => !string.IsNullOrWhiteSpace(x)))
         {
-
-            _openPlanAccountCombo.Items.Add(new AccountNumberListItem(
-
-                row.AccountNumber,
-
-                $"{row.AccountNumber} · gruppo {row.GroupId}"));
-
+            _openPlanAccountCombo.Items.Add(new AccountNumberListItem(account, account));
         }
-
-
 
         if (_openPlanAccountCombo.Items.Count == 0)
-
         {
-
             _openPlanAccountCombo.SelectedIndex = -1;
-
             return;
-
         }
-
-
 
         var restored = -1;
-
         for (var index = 0; index < _openPlanAccountCombo.Items.Count; index++)
-
         {
-
-            if (_openPlanAccountCombo.Items[index] is AccountNumberListItem item
-
-                && string.Equals(item.AccountNumber, previous, StringComparison.OrdinalIgnoreCase))
-
+            if (_openPlanAccountCombo.Items[index] is AccountNumberListItem item &&
+                string.Equals(item.AccountNumber, previous, StringComparison.OrdinalIgnoreCase))
             {
-
                 restored = index;
-
                 break;
-
             }
-
         }
-
-
 
         _openPlanAccountCombo.SelectedIndex = restored >= 0 ? restored : 0;
-
     }
 
 
 
-    private void OnGroupCellValueChanged(object? sender, DataGridViewCellEventArgs e)
 
-    {
-
-        if (e.RowIndex < 0 || _groupsGrid.Columns[e.ColumnIndex].Name != "AccountNumber")
-
-        {
-
-            return;
-
-        }
-
-
-
-        var row = _groupsGrid.Rows[e.RowIndex];
-
-        var accountNumber = Convert.ToString(row.Cells["AccountNumber"].Value);
-
-        var account = _accounts.FirstOrDefault(item =>
-
-            item.AccountNumber.Equals(accountNumber, StringComparison.OrdinalIgnoreCase));
-
-        if (account is not null && !string.IsNullOrWhiteSpace(account.GroupId))
-
-        {
-
-            row.Cells["GroupId"].Value = account.GroupId;
-
-        }
-
-    }
 
 
 
@@ -988,49 +828,12 @@ public partial class TradingSessionsScreen : UserControl, IShellScreen
 
 
     private void FillGroupsFromPlan(TradingPlan plan)
-
     {
-
         _groupsGrid.Rows.Clear();
-
-        var rows = plan.Groups.Count > 0
-
-            ? plan.Groups
-
-            :
-
-            [
-
-                new TradingGroupRow
-
-                {
-
-                    GroupId = plan.GroupId,
-
-                    AccountNumber = plan.AccountNumber,
-
-                    MaxConcurrentTrades = plan.MaxConcurrentTrades
-
-                }
-
-            ];
-
-
-
-        foreach (var row in rows)
-
+        foreach (var account in plan.Accounts.Where(x => !string.IsNullOrWhiteSpace(x)))
         {
-
-            _groupsGrid.Rows.Add(
-
-                row.GroupId,
-
-                row.AccountNumber,
-
-                row.MaxConcurrentTrades);
-
+            _groupsGrid.Rows.Add(account);
         }
-
     }
 
 
@@ -1287,15 +1090,14 @@ public partial class TradingSessionsScreen : UserControl, IShellScreen
 
             {
 
-                var rows = ReadTradingGroupRows(allowEmpty: true);
+                var conti = ReadSessionAccounts(allowEmpty: true);
 
-                if (rows.Count > 0)
+                if (conti.Count > 0)
 
                 {
 
-                    await _context.Services.Sessions.SetGroupsAsync(
-
-                        _activeSession.SessionId, _activeSession.SessionToken, rows);
+                    await _context.Services.Sessions.SetAccountsAsync(
+                        _activeSession.SessionId, _activeSession.SessionToken, conti);
 
                 }
 
@@ -1734,15 +1536,14 @@ public partial class TradingSessionsScreen : UserControl, IShellScreen
 
             SetBusy(true);
 
-            var rows = ReadTradingGroupRows(allowEmpty: false);
+            var conti = ReadSessionAccounts(allowEmpty: false);
 
-            var snapshot = await _context.Services.Sessions.SetGroupsAsync(
-
-                _activeSession.SessionId, _activeSession.SessionToken, rows);
+            var snapshot = await _context.Services.Sessions.SetAccountsAsync(
+                _activeSession.SessionId, _activeSession.SessionToken, conti);
 
             ShowSnapshot(snapshot);
 
-            _context.Navigation.SetStatus($"Gruppi salvati ({rows.Count} righe).");
+            _context.Navigation.SetStatus($"Conti salvati ({conti.Count}).");
 
         }
 
@@ -1788,29 +1589,20 @@ public partial class TradingSessionsScreen : UserControl, IShellScreen
 
             SetBusy(true);
 
-            var rows = await _context.Services.Sessions.GetGroupsAsync(
-
+            var conti = await _context.Services.Sessions.GetAccountsAsync(
                 _activeSession.SessionId, _activeSession.SessionToken);
 
             _groupsGrid.Rows.Clear();
 
-            foreach (var mapping in rows)
-
+            foreach (var conto in conti)
             {
-
-                _groupsGrid.Rows.Add(
-
-                    mapping.GroupId,
-
-                    mapping.AccountNumber,
-
-                    mapping.MaxConcurrentTrades);
+                _groupsGrid.Rows.Add(conto);
 
             }
 
 
 
-            _context.Navigation.SetStatus($"Caricati {rows.Count} gruppi account.");
+            _context.Navigation.SetStatus($"Caricati {conti.Count} conti.");
 
         }
 
@@ -1836,96 +1628,36 @@ public partial class TradingSessionsScreen : UserControl, IShellScreen
 
 
 
-    private List<TradingGroupRow> ReadTradingGroupRows(bool allowEmpty)
-
+    /// <summary>
+    /// I conti scritti nella griglia. Non c'e' piu' un gruppo da comporre: un conto e' un
+    /// destinatario, e quanto puo' tenere aperto lo dice il piano, non questa schermata.
+    /// </summary>
+    private List<string> ReadSessionAccounts(bool allowEmpty)
     {
-
-
-        var rows = _groupsGrid.Rows.Cast<DataGridViewRow>()
-
+        var accounts = _groupsGrid.Rows.Cast<DataGridViewRow>()
             .Where(row => !row.IsNewRow)
-
-            .Select(row =>
-
-            {
-
-                return new TradingGroupRow
-
-                {
-
-                    GroupId = Convert.ToString(row.Cells["GroupId"].Value ?? string.Empty)!.Trim(),
-
-                    AccountNumber = Convert.ToString(row.Cells["AccountNumber"].Value ?? string.Empty)!.Trim(),
-
-                    MaxConcurrentTrades = ParseMaxConcurrentTrades(row)
-
-                };
-
-            })
-
-            .Where(row => row.AccountNumber.Length > 0 || row.GroupId.Length > 0)
-
+            .Select(row => Convert.ToString(row.Cells["AccountNumber"].Value ?? string.Empty)!.Trim())
+            .Where(account => account.Length > 0)
             .ToList();
 
-
-
-        if (!allowEmpty && rows.Count == 0)
-
+        if (!allowEmpty && accounts.Count == 0)
         {
-
-            throw new InvalidOperationException("Serve almeno una riga gruppo/account.");
-
+            throw new InvalidOperationException("Serve almeno un conto.");
         }
 
-
-
-        if (rows.Any(row => row.AccountNumber.Length == 0 || row.GroupId.Length == 0))
-
+        var duplicato = accounts.GroupBy(account => account, StringComparer.OrdinalIgnoreCase)
+            .FirstOrDefault(gruppo => gruppo.Count() > 1);
+        if (duplicato != null)
         {
-
-            throw new InvalidOperationException("Ogni riga deve contenere codice gruppo e codice account.");
-
+            throw new InvalidOperationException($"Il conto '{duplicato.Key}' compare più di una volta.");
         }
 
-
-
-        return rows;
-
+        return accounts;
     }
 
 
 
-    private static int ParseMaxConcurrentTrades(DataGridViewRow row)
 
-    {
-
-        var raw = Convert.ToString(row.Cells["MaxConcurrentTrades"].Value ?? string.Empty)?.Trim();
-
-        if (string.IsNullOrEmpty(raw))
-
-        {
-
-            return 0;
-
-        }
-
-
-
-        if (!int.TryParse(raw, out var value) || value < 0)
-
-        {
-
-            throw new InvalidOperationException(
-
-                "Max trade contemporanei deve essere un intero maggiore o uguale a zero.");
-
-        }
-
-
-
-        return value;
-
-    }
 
 }
 

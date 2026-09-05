@@ -10,4 +10,24 @@
     <ProjectReference Include="..\Piootoo.Shared\Piootoo.Shared.csproj" />
   </ItemGroup>
 
+  <!--
+    Il sorgente delle strategie e dei motori viaggia DENTRO l'assembly, oltre che essere compilato.
+
+    Serve all'export di una strategia (`StrategyExportService`), che deve restituire i commenti di
+    conversione — l'XMLdoc di ogni classe PTS e' l'unico posto dove sta il ragionamento della
+    traduzione. Leggerli dal checkout accanto al server sarebbe piu' economico e sbagliato: il
+    server puo' girare senza sorgenti, e soprattutto un checkout aggiornato descriverebbe codice
+    diverso da quello in esecuzione. Incorporati qui, il testo esportato e' per costruzione lo
+    stesso che il binario esegue.
+
+    Costo: circa 1,6 MB sull'assembly. Il nome della risorsa lo deriva MSBuild dal percorso
+    (`Piootoo.Strategies.PiutooStrategies.PTS_ES_PCH_001_60.cs`), quindi resta univoco senza
+    doverlo dichiarare.
+  -->
+  <ItemGroup>
+    <EmbeddedResource Include="PiutooStrategies\**\*.cs" Exclude="$(DefaultItemExcludes)" />
+    <EmbeddedResource Include="Easy\**\*.cs" Exclude="$(DefaultItemExcludes)" />
+    <EmbeddedResource Include="*.cs" Exclude="$(DefaultItemExcludes)" />
+  </ItemGroup>
+
 </Project>

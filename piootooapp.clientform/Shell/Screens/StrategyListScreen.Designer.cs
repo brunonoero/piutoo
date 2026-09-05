@@ -136,6 +136,8 @@ partial class StrategyListScreen
         // 
         this._toolbar.CanCreate = false;
         this._toolbar.CanDelete = false;
+        this._toolbar.CanExport = true;
+        this._toolbar.ExportButtonText = "Esporta griglia…";
         this._toolbar.Dock = System.Windows.Forms.DockStyle.Top;
         this._toolbar.FilterPlaceholder = "Filtra per simbolo, nome, codice, id, tipo o tenuta…";
         this._toolbar.Location = new System.Drawing.Point(0, 0);
@@ -145,6 +147,7 @@ partial class StrategyListScreen
         this._toolbar.Title = "Strategie";
         this._toolbar.RefreshRequested += new System.EventHandler(this.OnRefreshRequested);
         this._toolbar.FilterChanged += new System.EventHandler(this.OnFilterChanged);
+        this._toolbar.ExportRequested += new System.EventHandler(this.OnExportRequested);
         //
         // _rowCountLabel
         //

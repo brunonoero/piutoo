@@ -23,7 +23,7 @@ partial class PlanListScreen
         this._grid = new System.Windows.Forms.DataGridView();
         this._colCode = new System.Windows.Forms.DataGridViewTextBoxColumn();
         this._colName = new System.Windows.Forms.DataGridViewTextBoxColumn();
-        this._colGroups = new System.Windows.Forms.DataGridViewTextBoxColumn();
+        this._colAccounts = new System.Windows.Forms.DataGridViewTextBoxColumn();
         this._colMaxConcurrent = new System.Windows.Forms.DataGridViewTextBoxColumn();
         this._colUpdated = new System.Windows.Forms.DataGridViewTextBoxColumn();
         this._toolbar = new piootooapp.clientform.Shell.Controls.EntityToolbar();
@@ -43,7 +43,7 @@ partial class PlanListScreen
         this._grid.Columns.AddRange(new System.Windows.Forms.DataGridViewColumn[] {
             this._colCode,
             this._colName,
-            this._colGroups,
+            this._colAccounts,
             this._colMaxConcurrent,
             this._colUpdated});
         this._grid.DataSource = this._bindingSource;
@@ -77,14 +77,14 @@ partial class PlanListScreen
         this._colName.Name = "_colName";
         this._colName.ReadOnly = true;
         // 
-        // _colGroups
+        // _colAccounts
         // 
-        this._colGroups.DataPropertyName = "Groups";
-        this._colGroups.DefaultCellStyle.Alignment = System.Windows.Forms.DataGridViewContentAlignment.MiddleRight;
-        this._colGroups.FillWeight = 50F;
-        this._colGroups.HeaderText = "Gruppi";
-        this._colGroups.Name = "_colGroups";
-        this._colGroups.ReadOnly = true;
+        this._colAccounts.DataPropertyName = "Accounts";
+        this._colAccounts.DefaultCellStyle.Alignment = System.Windows.Forms.DataGridViewContentAlignment.MiddleRight;
+        this._colAccounts.FillWeight = 50F;
+        this._colAccounts.HeaderText = "Conti";
+        this._colAccounts.Name = "_colAccounts";
+        this._colAccounts.ReadOnly = true;
         // 
         // _colMaxConcurrent
         // 
@@ -139,7 +139,7 @@ partial class PlanListScreen
     private System.Windows.Forms.DataGridView _grid;
     private System.Windows.Forms.DataGridViewTextBoxColumn _colCode;
     private System.Windows.Forms.DataGridViewTextBoxColumn _colName;
-    private System.Windows.Forms.DataGridViewTextBoxColumn _colGroups;
+    private System.Windows.Forms.DataGridViewTextBoxColumn _colAccounts;
     private System.Windows.Forms.DataGridViewTextBoxColumn _colMaxConcurrent;
     private System.Windows.Forms.DataGridViewTextBoxColumn _colUpdated;
     private piootooapp.clientform.Shell.Controls.EntityToolbar _toolbar;

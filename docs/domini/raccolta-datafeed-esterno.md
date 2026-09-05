@@ -84,6 +84,99 @@ dessero — il bot concludeva "finestra coperta" in pochi secondi con ottanta
 blocchi saltati, e il backtest continuava a trovare zero candele. Vedi
 `docs/decisioni.md` 2026-09-03.
 
+## La griglia oltre l'ora
+
+Un timeframe alto **non si chiede alla piattaforma**. Il grafico H4 di cTrader — e
+ogni serie sopra l'ora — è ancorato all'orologio del broker; il feed Piootoo e i
+run di ricerca sono ancorati all'**inizio sessione del giorno di calendario
+europeo** (`ZonedWindow.ResearchSession()`, `aggregate_flat_feed.py`, vedi
+[`datafeed-generazione.md`](datafeed-generazione.md) §"Dove cadono i bucket"). Le
+due griglie non coincidono, e la differenza non dà errore: dà barre diverse —
+apertura, estremi e volume diversi — che guardando il file non si distinguono. Un
+backtest su quel feed non corrisponde ad alcun run di ricerca, e nemmeno a
+`datafeed/`.
+
+Il bot sottoscrive quindi una **serie base fino a sessanta minuti** (l'ora, salvo
+forzatura) e costruisce i bucket in codice:
+
+- il bucket è `[inizio sessione + k·tf, +tf)` nell'orologio dichiarato, e una barra
+  base appartiene al bucket che contiene la sua **apertura**;
+- l'etichetta è l'**inizio** del bucket: è la chiave con cui il server deduplica ed
+  è la convenzione di tutto il feed;
+- fino a sessanta minuti la serie della piattaforma va bene com'è, perché lo scarto
+  di un fuso è un numero intero di ore e i due allineamenti coincidono comunque. È
+  il motivo per cui la soglia sta a 60 e non più in basso;
+- un timeframe che non divide il giorno viene rifiutato, come nell'aggregatore: i
+  bucket scivolerebbero di giorno in giorno rispetto alla sessione. Il settimanale
+  non si raccoglie.
+
+**Le formule della ricerca sono le stesse, scritte su etichette di chiusura.**
+`resample_ohlcv` e `aggregate_flat_feed.py` lavorano su righe il cui timestamp è la
+*fine* del periodo, e da lì vengono il `bin = (minuti_da_inizio_sessione − 1) / 240`
+e l'etichetta a `inizio + (bin+1)·240`. Le barre di cTrader portano invece l'orario
+di **apertura**: contando dall'apertura i confini dei bucket sono gli stessi e
+l'etichetta è già quella che il feed vuole.
+
+**Il confine si calcola sull'orologio locale, non sottraendo il resto all'istante
+UTC.** La scorciatoia `openUtc − resto` — quella dell'aggregatore Python — conta
+minuti locali su un istante UTC, e sul cambio d'ora scavalca l'ora che non esiste.
+Misurata su due anni di barre orarie a `Europe/Rome` (35.088 righe, 4h e
+giornaliero) coincide con il calcolo locale su **34.988** e diverge sui **quattro
+giorni di transizione**: lì assegna minuti della stessa ora a bucket diversi e
+produce barre che si scavalcano. Nel feed del vendor non si vede, perché il cambio
+d'ora cade di domenica a mercato chiuso — nei tredici file 240 e 1440 di
+`datafeed/` non c'è un solo passo più corto del timeframe — ma un broker che quoti
+la domenica lo farebbe comparire, e un feed con due barre sovrapposte non è più
+ordinato. Le due giornate all'anno in cui l'orario locale del confine non esiste o
+esiste due volte si risolvono con le convenzioni di `SessionClock.ToUtc`: avanti
+dell'ampiezza del salto, e prima delle due occorrenze.
+
+**Il file dichiara la propria griglia.** Il campo `source` del feed raccolto porta
+`... griglia(60m->240m, Europe/Rome 00:00)`. Due file identici nella forma ma nati
+su ancoraggi diversi non sono confrontabili, e senza questo non si
+distinguerebbero.
+
+I blocchi del backfill si arrotondano ai confini dei bucket, verso il basso: un
+bucket a cavallo della fine del blocco non si tocca — lo prende il blocco
+successivo, che ha quel confine come inizio — e il tetto di barre per invio ferma
+il giro sull'ultimo bucket **completo**. Un bucket a metà nel feed sarebbe un dato
+falso che poi nessuno distingue da uno vero, esattamente come la barra in
+formazione. A regime vale la stessa regola: un bucket si spedisce solo quando la
+barra base in formazione ne ha già cominciato un altro.
+
+### La stessa griglia nei cBot operativi
+
+La regola non riguarda solo il feed su disco: **vale identica in esecuzione**, e per
+un motivo preciso. In sessione `ExternalBroker` il server non aggrega niente —
+`TradingSessionService.PushBars` valida, deduplica sulla chiave di idempotenza,
+**accoda** a `session.History[(simbolo, timeframe)]` e valuta. Non c'è
+ricampionamento da nessuna parte. Le barre su cui girano le strategie in live sono
+quindi *esattamente* quelle che il cBot spinge: se il cBot prende l'H4 della
+piattaforma, l'esecuzione gira su candele che il backtest non ha mai visto, e
+nessuno se ne accorge dai numeri. Per questo `PiootooDirectExecutionBot` e
+`PiootooDistributedExecutionBot` sottoscrivono la serie base e piegano i bucket con
+lo stesso codice del raccoglitore, e hanno gli stessi tre parametri.
+
+Da lì discendono due conseguenze che nei bot operativi non sono opzionali.
+
+**L'orologio a barre non è più `Series.Count`.** La scadenza di un ordine "next
+bar" e `MaxBarsInPosition` sono espressi in barre *della strategia*: contarli sulla
+serie base farebbe scadere l'ordine di una 240 dopo un'ora e chiuderebbe la
+posizione quattro volte troppo presto. Ogni stream tiene quindi il proprio
+conteggio di bucket chiusi, e la marcatura del pending si scrive e si confronta su
+quello. Nel bot distribuito il pending porta direttamente l'istante della barra su
+cui è nato.
+
+**La barra base non è la barra della strategia.** Il battito della serie arriva
+quattro volte per candela di una 240: la passata di barra — ritiro dell'ordine
+scaduto, push, claim del segnale — si fa solo quando il bucket si chiude davvero.
+Break-even, trailing e uscite a tempo non passano di lì: girano già a ogni tick e a
+ogni battito del timer, quindi restano tempestive come prima.
+
+E poiché più stream possono ora pendere dalla **stessa** serie base — `@FDAX/60` e
+`@FDAX/240` vengono entrambi dall'ora — il match fra evento e stream non può più
+fermarsi al primo che corrisponde.
+
 ## Una cartella per broker
 
 ```
@@ -193,7 +286,17 @@ Parametri che contano:
   non corrisponde a niente viene segnalata e ignorata; se non ne corrisponde
   nessuna il bot non parte, invece di raccogliere il nulla.
 - **Timeframe in minuti** — `15,60,240`. Si espande per prodotto cartesiano con
-  i simboli.
+  i simboli. Oltre i sessanta minuti la serie della piattaforma non si usa: vedi
+  "La griglia oltre l'ora".
+- **Fuso dell'ancoraggio** (`Europe/Rome`), **Ora di inizio sessione** (`0`) —
+  dove cadono i bucket dei timeframe alti. Cambiarli rende il feed non
+  confrontabile con `datafeed/`, ed è per questo che finiscono nel `source`.
+- **Timeframe base in minuti** (`0` = automatico) — la serie da cui si costruiscono
+  quei bucket: automatico prende la più larga che divide il timeframe, cioè l'ora.
+  Si forza a `1` solo se si sospetta che siano le barre orarie del broker a essere
+  mal allineate, e costa molte più barre da scaricare. Il bot non parte se il fuso
+  non si risolve o se il suo scarto da UTC non è un multiplo del timeframe base —
+  un fuso a mezz'ora taglierebbe a metà una barra base.
 - **Codice broker** — vuoto = dedotto da `Account.BrokerName` ("IC Markets" →
   `ICMARKETS`) e stampato all'avvio. L'override esiste perché il nome dichiarato
   dal broker non è un identificatore stabile: cambia fra demo e reale e fra due

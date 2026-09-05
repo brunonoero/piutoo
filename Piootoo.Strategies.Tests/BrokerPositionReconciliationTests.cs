@@ -195,18 +195,10 @@ public sealed class BrokerPositionReconciliationTests : IDisposable
         {
             WorkspaceId = workspace.Id,
             ExecutionMode = ExecutionMode.ExternalBroker,
-            ClientRunMode = ClientRunMode.Realtime
+            ClientRunMode = ClientRunMode.Realtime,
+            MaxConcurrentTrades = 5
         });
-        sessions.SetTradingGroups(descriptor.SessionId, descriptor.SessionToken,
-        [
-            new TradingGroupRow
-            {
-                GroupId = "g1",
-                AccountNumber = Account,
-                MaxConcurrentTrades = 5,
-                ConcurrencyCountMode = ConcurrencyCountMode.PositionsAndPendingOrders,
-            }
-        ]);
+        sessions.SetSessionAccounts(descriptor.SessionId, descriptor.SessionToken, [Account]);
         sessions.SetStatus(descriptor.SessionId, descriptor.SessionToken, TradingSessionStatus.Running);
         return (sessions, descriptor, strategy);
     }

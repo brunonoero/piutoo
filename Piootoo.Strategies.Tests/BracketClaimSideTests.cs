@@ -46,7 +46,7 @@ public sealed class BracketClaimSideTests : IDisposable
         // La regressione vera e propria: prima della correzione il secondo claim rispondeva
         // NoSignal con «l'account ha già un ingresso in corso», e la gamba short non arrivava mai
         // al broker.
-        var (sessions, descriptor) = Session(Bracket, [Row("g1", "1001", maxConcurrent: 5)],
+        var (sessions, descriptor) = Session(Bracket, [Row("1001", maxConcurrent: 5)],
             enforceConcurrencyLimits: true);
 
         sessions.PushBars(Bars(descriptor, Utc(2026, 1, 5)));
@@ -72,7 +72,7 @@ public sealed class BracketClaimSideTests : IDisposable
         // Il caso che il filtro esisteva per fermare, e che deve restare fermo: due template dello
         // stesso lato da barre diverse, reclamati prima che il primo riempia. MaxEntriesPerSession
         // non li vede, perché si applica al fill.
-        var (sessions, descriptor) = Session(LongOnly, [Row("g1", "1001", maxConcurrent: 5)]);
+        var (sessions, descriptor) = Session(LongOnly, [Row("1001", maxConcurrent: 5)]);
 
         sessions.PushBars(Bars(descriptor, Utc(2026, 1, 5)));
         Assert.NotNull(sessions.GetNextSignalForAccount(
@@ -91,7 +91,7 @@ public sealed class BracketClaimSideTests : IDisposable
     {
         // L'OCO: la posizione aperta blocca ENTRAMBI i lati, ed è l'unico punto in cui la cecità al
         // verso è la regola giusta. Senza, la strategia resterebbe long e short insieme.
-        var (sessions, descriptor) = Session(Bracket, [Row("g1", "1001", maxConcurrent: 5)]);
+        var (sessions, descriptor) = Session(Bracket, [Row("1001", maxConcurrent: 5)]);
 
         sessions.PushBars(Bars(descriptor, Utc(2026, 1, 5)));
         var gamba = sessions.GetNextSignalForAccount(
@@ -114,16 +114,12 @@ public sealed class BracketClaimSideTests : IDisposable
     /// <summary>Una gamba sola, per il caso di controllo del doppione.</summary>
     private static readonly SignalType[] LongOnly = [SignalType.Buy];
 
-    private static TradingGroupRow Row(string groupId, string account, int maxConcurrent) => new()
-    {
-        GroupId = groupId, AccountNumber = account,
-        MaxConcurrentTrades = maxConcurrent,
-        ConcurrencyCountMode = ConcurrencyCountMode.PositionsAndPendingOrders,
-    };
+    private static TestAccountRow Row(string account, int maxConcurrent) =>
+        new(account, maxConcurrent);
 
     private (TradingSessionService Sessions, TradingSessionDescriptor Descriptor) Session(
         SignalType[] sides,
-        IReadOnlyList<TradingGroupRow> groups,
+        IReadOnlyList<TestAccountRow> accounts,
         bool? enforceConcurrencyLimits = null)
     {
         var workspaces = new WorkspaceService(new PiootooSettings { Workspaces = _root });
@@ -133,7 +129,7 @@ public sealed class BracketClaimSideTests : IDisposable
             Name = $"bracket-{Guid.NewGuid():N}", StrategiesFilter = [strategyId]
         });
         new TradingJsonStore(workspaces.GetBacktestPath(workspace.Id, "source")).Initialize();
-        TestAccountRegistry.Register(workspaces, groups);
+        TestAccountRegistry.Register(workspaces, accounts);
 
         var sessions = new TradingSessionService(
             workspaces, new BracketEvaluationService(sides), new PositionSizingService());
@@ -143,9 +139,12 @@ public sealed class BracketClaimSideTests : IDisposable
             WorkspaceId = workspace.Id,
             ExecutionMode = ExecutionMode.ExternalBroker,
             ClientRunMode = ClientRunMode.Realtime,
-            EnforceConcurrencyLimits = enforceConcurrencyLimits
+            EnforceConcurrencyLimits = enforceConcurrencyLimits,
+            MaxConcurrentTrades = TestSessionAccounts.MaxConcurrentTrades(accounts),
+            ConcurrencyCountMode = TestSessionAccounts.CountMode(accounts)
         });
-        sessions.SetTradingGroups(descriptor.SessionId, descriptor.SessionToken, groups);
+        sessions.SetSessionAccounts(
+            descriptor.SessionId, descriptor.SessionToken, TestSessionAccounts.Numbers(accounts));
         sessions.SetStatus(descriptor.SessionId, descriptor.SessionToken, TradingSessionStatus.Running);
         return (sessions, descriptor);
     }

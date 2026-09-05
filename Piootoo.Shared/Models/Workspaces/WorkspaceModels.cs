@@ -309,9 +309,24 @@ public sealed class WorkspaceAccount
     /// <summary>Codice account del broker, lo stesso usato in <c>AccountGroupMapping</c>.</summary>
     public string AccountNumber { get; set; } = string.Empty;
 
-    /// <summary>Gruppo anti copy-trading (tipicamente la prop firm) usato dalle trading session.</summary>
+    /// <summary>
+    /// Etichetta libera di raggruppamento. Non la legge piu' nessuna logica: i gruppi sono spariti
+    /// dai piani e dalle sessioni il 05/09/2026.
+    /// </summary>
     public string GroupId { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Codice del broker su cui vive il conto (<see cref="TradingBroker.Code"/>). E' da qui che
+    /// arrivano la tabella dei simboli e l'archivio del datafeed: due conti dello stesso broker
+    /// quotano gli stessi strumenti con gli stessi nomi, e tenere quella tabella sul singolo conto
+    /// significava copiarla e poi vederla divergere.
+    /// </summary>
+    public string BrokerCode { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Nome del broker come lo scrivevano i file precedenti l'anagrafica broker. Resta leggibile e
+    /// serve solo a ritrovare il broker quando <see cref="BrokerCode"/> non c'e' ancora.
+    /// </summary>
     public string Broker { get; set; } = string.Empty;
 
     public string Currency { get; set; } = "USD";
@@ -328,10 +343,68 @@ public sealed class WorkspaceAccount
     public DateTime UpdatedUtc { get; set; }
 
     /// <summary>
-    /// Codice della tabella di conversione simboli associata (<see cref="SymbolConversion.Code"/>),
-    /// dal registro globale. Vuoto = nessuna conversione, l'account opera 1 a 1.
+    /// Codice della tabella di conversione simboli scritto <b>sul conto</b>. E' il modo vecchio:
+    /// la tabella e' una proprieta' del broker, e oggi si dichiara su <see cref="TradingBroker"/>.
+    ///
+    /// <para>Resta letto come ripiego per i conti che non hanno ancora un
+    /// <see cref="BrokerCode"/> — vedi <c>WorkspaceService.ResolveConversionForAccount</c> — cosi'
+    /// un'anagrafica non ancora migrata continua a operare come prima invece di passare in silenzio
+    /// a un 1 a 1 che cambierebbe tutte le size.</para>
     /// </summary>
     public string SymbolConversionCode { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// Un broker: chi quota gli strumenti su cui i conti operano.
+///
+/// <para>Esiste perche' tre cose erano gia' indicizzate per broker senza che il broker fosse
+/// un'entita': la <b>tabella dei simboli</b> (copiata su ogni conto come
+/// <c>SymbolConversionCode</c>), l'<b>archivio del datafeed</b> (<c>datafeed-external/{BROKER}/</c>)
+/// e il <b>marcatore di price source</b> dei run. Qui stanno tutte e tre, una volta sola.</para>
+///
+/// <para>La conseguenza operativa piu' importante non e' il mapping: e' che un piano dichiara un
+/// broker e puo' contenere solo conti di quel broker. Due broker non producono la stessa serie di
+/// barre per lo stesso simbolo, quindi un piano che li mescolasse non corrisponderebbe a nessun
+/// conto — e prima nulla lo impediva.</para>
+/// </summary>
+public sealed class TradingBroker
+{
+    /// <summary>
+    /// Identificativo stabile scelto dall'operatore: e' cio' che conti e piani referenziano, ed e'
+    /// anche il default del nome cartella sotto <c>datafeed-external/</c>.
+    /// </summary>
+    public string Code { get; set; } = string.Empty;
+
+    public string Name { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Tabella di conversione simboli del broker (<see cref="SymbolConversion.Code"/>). Vuota =
+    /// nessuna conversione, i conti operano 1 a 1 sui simboli Piootoo.
+    ///
+    /// <para>Resta un'entita' a parte e non righe dentro il broker perche' due broker possono
+    /// nominare gli strumenti allo stesso modo, e in quel caso la tabella e' una sola.</para>
+    /// </summary>
+    public string SymbolConversionCode { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Cartella dell'archivio barre raccolte da questo broker, sotto <c>datafeed-external/</c>.
+    /// Vuota = si usa <see cref="Code"/>. Vedi <c>docs/domini/raccolta-datafeed-esterno.md</c>.
+    /// </summary>
+    public string DatafeedFolder { get; set; } = string.Empty;
+
+    public bool Enabled { get; set; } = true;
+
+    public string Notes { get; set; } = string.Empty;
+
+    public DateTime CreatedUtc { get; set; }
+
+    public DateTime UpdatedUtc { get; set; }
+}
+
+/// <summary>Contenuto del registro globale <c>accounts/brokers.json</c>.</summary>
+public sealed class TradingBrokersFile
+{
+    public List<TradingBroker> Brokers { get; set; } = new();
 }
 
 /// <summary>

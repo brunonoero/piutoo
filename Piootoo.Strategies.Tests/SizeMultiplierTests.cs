@@ -150,7 +150,6 @@ public sealed class SizeMultiplierTests : IDisposable
     {
         Code = code,
         Name = "Piano size",
-        GroupId = "g1",
         AccountNumber = "1001",
         SizeMultiplier = sizeMultiplier
     };

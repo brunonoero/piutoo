@@ -1,0 +1,24 @@
+{
+  "Brokers": [
+    {
+      "Code": "FTMO",
+      "Name": "FTMO",
+      "SymbolConversionCode": "cfd-ctrader-ftmo",
+      "DatafeedFolder": "",
+      "Enabled": true,
+      "Notes": "",
+      "CreatedUtc": "2026-09-05T10:23:19.5078528Z",
+      "UpdatedUtc": "2026-09-05T10:47:05.1588883Z"
+    },
+    {
+      "Code": "ICS",
+      "Name": "ICS",
+      "SymbolConversionCode": "",
+      "DatafeedFolder": "",
+      "Enabled": true,
+      "Notes": "",
+      "CreatedUtc": "2026-09-05T10:23:30.9902085Z",
+      "UpdatedUtc": "2026-09-05T10:23:30.9902085Z"
+    }
+  ]
+}

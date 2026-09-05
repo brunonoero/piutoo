@@ -1674,8 +1674,11 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                 $"Conto '{accountNumber}' non presente nel registro account: il run non puo' " +
                 "applicarne l'universo operativo.");
 
-        var conversionCode = account.SymbolConversionCode?.Trim();
-        var table = workspaces.ResolveSymbolConversion(account.SymbolConversionCode);
+        // La tabella e' quella del broker del conto; il codice serve solo a nominarla nell'errore
+        // qui sotto, e resta quello che il conto dichiara quando non ha ancora un broker.
+        var table = workspaces.ResolveConversionForAccount(account);
+        var conversionCode = workspaces.FindBroker(account.BrokerCode)?.SymbolConversionCode?.Trim()
+                             ?? account.SymbolConversionCode?.Trim();
         var mappings = table.Mappings ?? [];
         var conversion = AccountSymbolConversion.FromAccount(account, table);
 

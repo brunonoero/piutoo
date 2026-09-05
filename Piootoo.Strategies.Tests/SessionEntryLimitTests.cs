@@ -94,8 +94,8 @@ public sealed class SessionEntryLimitTests : IDisposable
         // gruppi diversi sono portafogli paralleli sullo stesso flusso di segnali.
         var (sessions, descriptor) = Session(
         [
-            new TradingGroupRow { GroupId = "g1", AccountNumber = "1001", MaxConcurrentTrades = 1 },
-            new TradingGroupRow { GroupId = "g2", AccountNumber = "2001", MaxConcurrentTrades = 1 }
+            new TestAccountRow("1001", MaxConcurrentTrades: 1),
+            new TestAccountRow("2001", MaxConcurrentTrades: 1)
         ]);
 
         sessions.PushBars(Bars(descriptor, SessionStart.AddHours(1)));
@@ -112,7 +112,7 @@ public sealed class SessionEntryLimitTests : IDisposable
     // ------------------------------------------------------------------------------ helper
 
     private (TradingSessionService Sessions, TradingSessionDescriptor Descriptor) Session(
-        IReadOnlyList<TradingGroupRow>? groups = null)
+        IReadOnlyList<TestAccountRow>? accounts = null)
     {
         var workspaces = new WorkspaceService(new PiootooSettings { Workspaces = _root });
         var strategyId = StrategyFactory.GetRegisteredStrategies().First().Id;
@@ -122,7 +122,7 @@ public sealed class SessionEntryLimitTests : IDisposable
         });
         new TradingJsonStore(workspaces.GetBacktestPath(workspace.Id, "source")).Initialize();
 
-        TestAccountRegistry.Register(workspaces, groups);
+        TestAccountRegistry.Register(workspaces, accounts);
 
         var sessions = new TradingSessionService(
             workspaces, new OneEntryPerSessionEvaluationService(), new PositionSizingService());
@@ -131,10 +131,13 @@ public sealed class SessionEntryLimitTests : IDisposable
         {
             WorkspaceId = workspace.Id,
             ExecutionMode = ExecutionMode.ExternalBroker,
-            ClientRunMode = ClientRunMode.Realtime
+            ClientRunMode = ClientRunMode.Realtime,
+            MaxConcurrentTrades = TestSessionAccounts.MaxConcurrentTrades(accounts),
+            ConcurrencyCountMode = TestSessionAccounts.CountMode(accounts)
         });
-        if (groups is not null)
-            sessions.SetTradingGroups(descriptor.SessionId, descriptor.SessionToken, groups);
+        if (accounts is not null)
+            sessions.SetSessionAccounts(
+                descriptor.SessionId, descriptor.SessionToken, TestSessionAccounts.Numbers(accounts));
         sessions.SetStatus(descriptor.SessionId, descriptor.SessionToken, TradingSessionStatus.Running);
         return (sessions, descriptor);
     }

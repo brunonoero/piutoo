@@ -123,15 +123,8 @@ public sealed class ExpiredIntentSweepTests : IDisposable
         });
         new TradingJsonStore(workspaces.GetBacktestPath(workspace.Id, "source")).Initialize();
 
-        var groups = new List<TradingGroupRow>
-        {
-            new()
-            {
-                GroupId = "g1", AccountNumber = "1001", MaxConcurrentTrades = 1,
-                ConcurrencyCountMode = ConcurrencyCountMode.PositionsAndPendingOrders,
-            }
-        };
-        TestAccountRegistry.Register(workspaces, groups);
+        var conti = new List<TestAccountRow> { new("1001", MaxConcurrentTrades: 1) };
+        TestAccountRegistry.Register(workspaces, conti);
 
         var sessions = new TradingSessionService(
             workspaces, new UnIngressoPerBarra(), new PositionSizingService());
@@ -140,9 +133,11 @@ public sealed class ExpiredIntentSweepTests : IDisposable
             WorkspaceId = workspace.Id,
             ExecutionMode = ExecutionMode.ExternalBroker,
             ClientRunMode = ClientRunMode.Realtime,
-            EnforceConcurrencyLimits = lucchetti
+            EnforceConcurrencyLimits = lucchetti,
+            MaxConcurrentTrades = TestSessionAccounts.MaxConcurrentTrades(conti),
+            ConcurrencyCountMode = TestSessionAccounts.CountMode(conti)
         });
-        sessions.SetTradingGroups(d.SessionId, d.SessionToken, groups);
+        sessions.SetSessionAccounts(d.SessionId, d.SessionToken, TestSessionAccounts.Numbers(conti));
         sessions.SetStatus(d.SessionId, d.SessionToken, TradingSessionStatus.Running);
         return (sessions, d);
     }

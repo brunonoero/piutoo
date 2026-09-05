@@ -119,21 +119,20 @@ public sealed class SourceBacktestSampleTests : IDisposable
     }
 
     [Fact]
-    public void AnExpiredEntry_ReleasesTheGroupSlotToo()
+    public void AnExpiredEntry_ReleasesTheAccountSlotToo()
     {
-        // Lo slot (gruppo, strategia, simbolo) segue l'intent: se restasse occupato, il fratello di
-        // gruppo non prenderebbe mai il template delle barre successive.
-        var f = New(strategies: 1, enforceConcurrencyLimits: true,
-            accounts: [("g1", "1001"), ("g1", "1002")]);
+        // Lo slot (conto, strategia, simbolo, lato) segue l'intent: se restasse occupato dopo la
+        // scadenza, quel conto non prenderebbe mai il template delle barre successive.
+        var f = New(strategies: 1, enforceConcurrencyLimits: true);
 
         f.PushBar();
         Assert.Single(f.Drain("1001"));
 
         f.PushBar();
-        Assert.Empty(f.Drain("1002"));          // slot ancora occupato: l'ordine è nella sua finestra
+        Assert.Empty(f.Drain("1001"));          // slot ancora occupato: l'ordine è nella sua finestra
         f.PushBar();
 
-        Assert.Single(f.Drain("1002"));
+        Assert.Single(f.Drain("1001"));
     }
 
     [Fact]
@@ -239,14 +238,9 @@ public sealed class SourceBacktestSampleTests : IDisposable
             .ToArray();
         Assert.Equal(strategies, selected.Length);
 
-        IReadOnlyList<(string GroupId, string Account)> configured = accounts ?? [("g1", "1001")];
-        var rows = configured
-            .Select(x => new TradingGroupRow
-            {
-                GroupId = x.GroupId,
-                AccountNumber = x.Account,
-                MaxConcurrentTrades = 0,            // il tetto numerico non è ciò che questi test misurano
-            })
+        // Il tetto numerico non è ciò che questi test misurano: resta a zero (illimitato).
+        IReadOnlyList<TestAccountRow> rows = (accounts ?? [("g1", "1001")])
+            .Select(x => new TestAccountRow(x.Account))
             .ToArray();
 
         var workspaces = new WorkspaceService(new PiootooSettings { Workspaces = _root });
@@ -270,7 +264,8 @@ public sealed class SourceBacktestSampleTests : IDisposable
             ClientRunMode = ClientRunMode.Backtest,
             EnforceConcurrencyLimits = enforceConcurrencyLimits
         });
-        sessions.SetTradingGroups(descriptor.SessionId, descriptor.SessionToken, rows);
+        sessions.SetSessionAccounts(
+            descriptor.SessionId, descriptor.SessionToken, TestSessionAccounts.Numbers(rows));
         sessions.SetStatus(descriptor.SessionId, descriptor.SessionToken, TradingSessionStatus.Running);
 
         return new Fixture(sessions, descriptor, selected[0], evaluation);

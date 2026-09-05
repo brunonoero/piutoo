@@ -127,6 +127,26 @@ public sealed class CreateTradingSessionRequest
     /// </summary>
     public decimal SizeMultiplier { get; init; } = 1m;
 
+    /// <summary>
+    /// Massimo di ingressi contemporanei <b>per conto</b>. Zero = illimitato. Lo dichiara il piano
+    /// (<see cref="TradingPlan.MaxConcurrentTrades"/>) e vale per tutti i conti della sessione:
+    /// dopo la rimozione dei gruppi non esiste più un tetto per singolo conto.
+    /// </summary>
+    public int MaxConcurrentTrades { get; init; }
+
+    /// <summary>Cosa conta <see cref="MaxConcurrentTrades"/>. Vedi <see cref="Trading.ConcurrencyCountMode"/>.</summary>
+    public ConcurrencyCountMode ConcurrencyCountMode { get; init; }
+
+    /// <summary>
+    /// Id delle strategie del masterfilter da <b>non</b> valutare in questa sessione. È il secondo
+    /// filtro dopo il masterfilter, e chi lo dichiara è il piano
+    /// (<see cref="TradingPlan.DisabledStrategies"/>); una sessione creata a mano lo lascia vuoto.
+    ///
+    /// <para>Spegnerle tutte non apre una sessione muta: la creazione fallisce, perché una sessione
+    /// senza strategie è indistinguibile da una che non produce segnali.</para>
+    /// </summary>
+    public IReadOnlyList<string> DisabledStrategies { get; init; } = [];
+
     public PositionSizingConfig PositionSizing { get; init; } = new();
 }
 
@@ -534,10 +554,11 @@ public sealed class OrderIntent
     public OrderIntentStatus Status { get; set; } = OrderIntentStatus.Pending;
     public decimal FilledQuantity { get; set; }
     public string? ExternalOrderId { get; set; }
-    /// <summary>Account cTrader a cui questo intent concreto è stato assegnato. Null per i template non ancora reclamati da nessun gruppo.</summary>
+    /// <summary>
+    /// Conto cTrader a cui questo intent concreto è stato assegnato. Null per i template non ancora
+    /// reclamati da nessun conto.
+    /// </summary>
     public string? AssignedAccountNumber { get; set; }
-    /// <summary>Gruppo (prop firm) a cui appartiene l'account assegnato.</summary>
-    public string? AssignedGroupId { get; set; }
 }
 
 public sealed class ExternalExecutionReport
@@ -645,7 +666,6 @@ public sealed class SessionActivityEntry
     /// <summary>Account a cui l'evento si riferisce. Vuoto per gli eventi che non nascono da un claim.</summary>
     public string AccountNumber { get; init; } = string.Empty;
 
-    public string GroupId { get; init; } = string.Empty;
     public string StrategyCode { get; init; } = string.Empty;
     public string Symbol { get; init; } = string.Empty;
 
@@ -724,59 +744,22 @@ public sealed class TradingSessionSnapshot
     public int Fills { get; init; }
     public IReadOnlyList<TradingPositionSnapshot> Positions { get; init; } = [];
     public IReadOnlyList<OrderIntent> PendingIntents { get; init; } = [];
-    /// <summary>Mappa account -> gruppo configurata per la distribuzione dei segnali (anti copy-trading).</summary>
-    public IReadOnlyList<AccountGroupMapping> AccountGroups { get; init; } = [];
 
-    /// <summary>Profilo completo gruppo/account quando configurato via PUT /groups.</summary>
-    public IReadOnlyList<TradingGroupRow> Groups { get; init; } = [];
+    /// <summary>
+    /// I conti configurati sulla sessione, cioè quelli che possono reclamare. Ognuno consuma ogni
+    /// template una volta sola; i gruppi non esistono più (<c>docs/decisioni.md</c> 2026-09-05).
+    /// </summary>
+    public IReadOnlyList<string> Accounts { get; init; } = [];
 }
 
 /// <summary>
-/// Associa un account cTrader a un gruppo (tipicamente una prop firm): gli account dello stesso
-/// gruppo non ricevono mai lo stesso segnale di ingresso, account di gruppi diversi sì.
+/// Configura i conti che eseguono la sessione. Sostituisce i vecchi <c>PUT /groups</c> e
+/// <c>PUT /accounts</c>: un conto è un destinatario, non ha più un gruppo di appartenenza.
 /// </summary>
-public sealed class AccountGroupMapping
-{
-    public required string AccountNumber { get; init; }
-    public required string GroupId { get; init; }
-}
-
-public sealed class SetAccountGroupsRequest
+public sealed class SetSessionAccountsRequest
 {
     public required string SessionToken { get; init; }
-    public required IReadOnlyList<AccountGroupMapping> Accounts { get; init; }
-}
-
-/// <summary>
-/// Riga di configurazione gruppo/account. Più righe con lo stesso <see cref="GroupId"/>
-/// condividono lo stesso profilo del gruppo.
-/// </summary>
-public sealed class TradingGroupRow
-{
-    public required string GroupId { get; init; }
-    public required string AccountNumber { get; init; }
-
-    /// <summary>
-    /// Massimo numero di ingressi contemporanei per questo account, <b>sull'insieme delle
-    /// strategie e trasversale ai simboli</b>: dieci significa dieci, che siano su un simbolo solo
-    /// o su dieci diversi. Zero significa illimitato.
-    ///
-    /// <para>Cosa venga contato — solo posizioni, oppure posizioni più ordini pendenti — lo dice
-    /// <see cref="ConcurrencyCountMode"/>.</para>
-    /// </summary>
-    public int MaxConcurrentTrades { get; init; }
-
-    /// <summary>
-    /// Cosa conta <see cref="MaxConcurrentTrades"/> per questo account. Vedi
-    /// <see cref="Trading.ConcurrencyCountMode"/>.
-    /// </summary>
-    public ConcurrencyCountMode ConcurrencyCountMode { get; init; }
-}
-
-public sealed class SetTradingGroupsRequest
-{
-    public required string SessionToken { get; init; }
-    public required IReadOnlyList<TradingGroupRow> Rows { get; init; }
+    public required IReadOnlyList<string> Accounts { get; init; }
 }
 
 /// <summary>Risposta al polling di un account per il prossimo segnale da eseguire.</summary>

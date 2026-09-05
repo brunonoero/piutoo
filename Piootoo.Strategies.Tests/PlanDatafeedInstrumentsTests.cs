@@ -109,7 +109,6 @@ public sealed class PlanDatafeedInstrumentsTests : IDisposable
         {
             Code = "PLANFEED",
             Name = "Piano raccolta feed",
-            GroupId = "g1",
             AccountNumber = "1001"
         });
 

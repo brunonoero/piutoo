@@ -86,26 +86,27 @@ public sealed class TradingSessionApiClient : ApiClientBase
             cancellationToken,
             sessionToken);
 
-    public Task<List<TradingGroupRow>> GetGroupsAsync(
+    /// <summary>I conti configurati sulla sessione. I gruppi non esistono più.</summary>
+    public Task<List<string>> GetAccountsAsync(
         string sessionId,
         string sessionToken,
         CancellationToken cancellationToken = default)
-        => SendForAsync<List<TradingGroupRow>>(
+        => SendForAsync<List<string>>(
             HttpMethod.Get,
-            $"api/v1/trading-sessions/{Escape(sessionId)}/groups",
+            $"api/v1/trading-sessions/{Escape(sessionId)}/accounts",
             null,
             cancellationToken,
             sessionToken);
 
-    public Task<TradingSessionSnapshot> SetGroupsAsync(
+    public Task<TradingSessionSnapshot> SetAccountsAsync(
         string sessionId,
         string sessionToken,
-        IReadOnlyList<TradingGroupRow> rows,
+        IReadOnlyList<string> accounts,
         CancellationToken cancellationToken = default)
         => SendForAsync<TradingSessionSnapshot>(
             HttpMethod.Put,
-            $"api/v1/trading-sessions/{Escape(sessionId)}/groups",
-            new SetTradingGroupsRequest { SessionToken = sessionToken, Rows = rows },
+            $"api/v1/trading-sessions/{Escape(sessionId)}/accounts",
+            new SetSessionAccountsRequest { SessionToken = sessionToken, Accounts = accounts },
             cancellationToken);
 
     /// <summary>

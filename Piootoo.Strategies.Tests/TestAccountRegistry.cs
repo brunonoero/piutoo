@@ -20,19 +20,19 @@ internal static class TestAccountRegistry
 {
     internal const decimal DefaultBalance = 100_000m;
 
-    /// <summary>Registra un account per ogni numero di conto distinto delle righe di gruppo.</summary>
-    internal static void Register(WorkspaceService workspaces, IEnumerable<TradingGroupRow>? groups)
+    /// <summary>Registra un conto per ogni riga distinta.</summary>
+    internal static void Register(WorkspaceService workspaces, IEnumerable<TestAccountRow>? rows)
     {
-        foreach (var row in (groups ?? [])
+        foreach (var row in (rows ?? [])
                      .Where(x => !string.IsNullOrWhiteSpace(x.AccountNumber))
                      .GroupBy(x => x.AccountNumber.Trim(), StringComparer.OrdinalIgnoreCase)
                      .Select(g => g.First()))
         {
-            Register(workspaces, row.AccountNumber, row.GroupId);
+            Register(workspaces, row.AccountNumber, groupId: string.Empty);
         }
     }
 
-    /// <summary>Registra i numeri di conto indicati, tutti nello stesso gruppo.</summary>
+    /// <summary>Registra i numeri di conto indicati.</summary>
     internal static void Register(WorkspaceService workspaces, params string[] accountNumbers)
     {
         foreach (var accountNumber in accountNumbers)

@@ -1,4 +1,12 @@
-# Distribuzione multi-account: gruppi, slot e max trade concorrenti
+# Distribuzione multi-account: conti, slot e max trade concorrenti
+
+> **I gruppi non esistono più (05/09/2026).** Il piano è una lista di conti e l'unità di ogni
+> lucchetto è il **conto**: `TemplateClaimedAccounts` (un template è servito una volta per conto),
+> `AccountStrategySlots` (uno slot per conto/strategia/simbolo/lato), `MaxConcurrentTrades` uno per
+> tutti i conti del piano. Ogni conto riceve quindi ogni segnale della barra, che è ciò che i piani
+> reali già facevano — avevano un conto per gruppo. Dove qui sotto si legge «gruppo», si legga
+> «conto»: il testo resta come storia del perché i lucchetti sono due e non uno, e non descrive più
+> i nomi del codice. Vedi `docs/decisioni.md` 2026-09-05.
 
 Il secondo layer di filtro, quello che agisce **dopo** Titano. Titano decide *quali
 strategie* possono operare e *con che size*; questo layer decide *quale account*

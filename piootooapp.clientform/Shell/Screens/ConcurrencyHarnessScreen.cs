@@ -7,11 +7,12 @@ using piootooapp.clientform.Shell.Controls;
 
 namespace piootooapp.clientform.Shell.Screens;
 
-/// <summary>Riga della griglia gruppi. Editabile, quindi mutabile: <see cref="TradingGroupRow"/> è init-only.</summary>
+/// <summary>
+/// Riga della griglia conti della prova. I gruppi non esistono più: un conto è un destinatario, e
+/// il tetto di concorrenza lo dichiara il piano una volta per tutti.
+/// </summary>
 public sealed class HarnessGroupRow
 {
-    public string GroupId { get; set; } = string.Empty;
-
     public string AccountNumber { get; set; } = string.Empty;
 
     /// <summary>Zero = illimitato, come nel contratto del server.</summary>
@@ -26,8 +27,6 @@ public sealed class PollLogRow
     public string BarSymbol { get; set; } = string.Empty;
 
     public string AccountNumber { get; set; } = string.Empty;
-
-    public string GroupId { get; set; } = string.Empty;
 
     /// <summary>Assegnato / MaxConcurrentTradesExceeded / NoSignal / SessionNotRunning.</summary>
     public string Outcome { get; set; } = string.Empty;
@@ -52,8 +51,6 @@ public sealed class AccountMatrixRow
 {
     public string AccountNumber { get; set; } = string.Empty;
 
-    public string GroupId { get; set; } = string.Empty;
-
     public int MaxConcurrentTrades { get; set; }
 
     public int Polls { get; set; }
@@ -65,13 +62,13 @@ public sealed class AccountMatrixRow
     /// <summary>Rifiuti del passo 2: il limite per account.</summary>
     public int LimitRejections { get; set; }
 
-    /// <summary>Rifiuti dei passi 3-5: template già consumato dal gruppo, slot occupato, simbolo occupato.</summary>
+    /// <summary>Rifiuti dei passi 3-5: template già consumato dal conto, slot occupato, simbolo occupato.</summary>
     public int LockRejections { get; set; }
 
     public int OpenNow { get; set; }
 }
 
-/// <summary>Un template per riga: chi lo ha consumato e chi no. È la vista del fan-out fra gruppi.</summary>
+/// <summary>Un template per riga: chi lo ha consumato e chi no. È la vista del fan-out fra conti.</summary>
 public sealed class TemplateRow
 {
     public DateTime CreatedAtUtc { get; set; }
@@ -81,8 +78,6 @@ public sealed class TemplateRow
     public string Symbol { get; set; } = string.Empty;
 
     public decimal Quantity { get; set; }
-
-    public string ClaimedByGroups { get; set; } = string.Empty;
 
     public string ClaimedByAccounts { get; set; } = string.Empty;
 
@@ -242,13 +237,14 @@ public partial class ConcurrencyHarnessScreen : UserControl, IShellScreen
         }
 
         _groupRows.Clear();
-        foreach (var row in plan.Groups)
+        foreach (var account in plan.Accounts)
         {
             _groupRows.Add(new HarnessGroupRow
             {
-                GroupId = row.GroupId,
-                AccountNumber = row.AccountNumber,
-                MaxConcurrentTrades = row.MaxConcurrentTrades
+                AccountNumber = account,
+                // Il tetto è del piano e vale per ogni conto: qui è in colonna solo per leggerlo
+                // accanto ai poll, non è più un valore per riga.
+                MaxConcurrentTrades = plan.MaxConcurrentTrades
             });
         }
 
@@ -459,22 +455,17 @@ public partial class ConcurrencyHarnessScreen : UserControl, IShellScreen
             return;
         }
 
-        var rows = _groupRows
-            .Where(row => !string.IsNullOrWhiteSpace(row.GroupId) && !string.IsNullOrWhiteSpace(row.AccountNumber))
-            .Select(row => new TradingGroupRow
-            {
-                GroupId = row.GroupId.Trim(),
-                AccountNumber = row.AccountNumber.Trim(),
-                MaxConcurrentTrades = row.MaxConcurrentTrades
-            })
+        var conti = _groupRows
+            .Where(row => !string.IsNullOrWhiteSpace(row.AccountNumber))
+            .Select(row => row.AccountNumber.Trim())
             .ToList();
 
-        if (rows.Count == 0)
+        if (conti.Count == 0)
         {
-            throw new InvalidOperationException("Serve almeno una riga gruppo/account.");
+            throw new InvalidOperationException("Serve almeno un conto.");
         }
 
-        await _context.Services.Sessions.SetGroupsAsync(_session.SessionId, _session.SessionToken, rows);
+        await _context.Services.Sessions.SetAccountsAsync(_session.SessionId, _session.SessionToken, conti);
     }
 
     private void OnAddGroupRow(object? sender, EventArgs e)
@@ -482,7 +473,6 @@ public partial class ConcurrencyHarnessScreen : UserControl, IShellScreen
         var last = _groupRows.LastOrDefault();
         _groupRows.Add(new HarnessGroupRow
         {
-            GroupId = last?.GroupId ?? "g1",
             AccountNumber = string.Empty,
             MaxConcurrentTrades = last?.MaxConcurrentTrades ?? 1
         });
@@ -668,12 +658,10 @@ public partial class ConcurrencyHarnessScreen : UserControl, IShellScreen
             BarTimeUtc = bar.BarTimeUtc,
             BarSymbol = bar.Symbol,
             AccountNumber = accountNumber,
-            GroupId = configured?.GroupId ?? string.Empty,
             OpenPositions = open.Count,
             PendingOrders = 0,
             MaxConcurrentTrades = configured?.MaxConcurrentTrades ?? 0
         };
-        var groupId = log.GroupId;
 
         if (response.Intent is not { } intent)
         {
@@ -700,12 +688,12 @@ public partial class ConcurrencyHarnessScreen : UserControl, IShellScreen
         {
             _positions[key] = new SimulatedPosition(
                 accountNumber, intent.Symbol, intent.StrategyCode, intent.IntentId, intent.FinalQuantity, _barIndex);
-            RecordClaim(intent, groupId, accountNumber);
+            RecordClaim(intent, accountNumber);
         }
     }
 
     /// <summary>Il claim si chiama <c>{template}::{gruppo}</c>: da lì si risale al template esatto.</summary>
-    private void RecordClaim(OrderIntent claim, string groupId, string accountNumber)
+    private void RecordClaim(OrderIntent claim, string accountNumber)
     {
         var separator = claim.IntentId.LastIndexOf("::", StringComparison.Ordinal);
         var templateId = separator > 0 ? claim.IntentId[..separator] : claim.IntentId;
@@ -714,7 +702,6 @@ public partial class ConcurrencyHarnessScreen : UserControl, IShellScreen
             return;
         }
 
-        row.ClaimedByGroups = Append(row.ClaimedByGroups, string.IsNullOrWhiteSpace(groupId) ? claim.AssignedGroupId ?? "?" : groupId);
         row.ClaimedByAccounts = Append(row.ClaimedByAccounts, accountNumber);
         row.State = "reclamato";
     }
@@ -828,15 +815,14 @@ public partial class ConcurrencyHarnessScreen : UserControl, IShellScreen
     {
         _matrixRows.RaiseListChangedEvents = false;
         _matrixRows.Clear();
-        foreach (var group in _groupRows.Where(row => !string.IsNullOrWhiteSpace(row.AccountNumber)))
+        foreach (var configurato in _groupRows.Where(row => !string.IsNullOrWhiteSpace(row.AccountNumber)))
         {
-            var account = group.AccountNumber.Trim();
+            var account = configurato.AccountNumber.Trim();
             var polls = _pollRows.Where(row => Same(row.AccountNumber, account)).ToList();
             _matrixRows.Add(new AccountMatrixRow
             {
                 AccountNumber = account,
-                GroupId = group.GroupId,
-                MaxConcurrentTrades = group.MaxConcurrentTrades,
+                MaxConcurrentTrades = configurato.MaxConcurrentTrades,
                 Polls = polls.Count,
                 Entries = polls.Count(row => row.Outcome == "Ingresso assegnato"),
                 Closes = polls.Count(row => row.Outcome == "Chiusura assegnata"),
@@ -943,5 +929,5 @@ public sealed class PlanComboItem
 
     public TradingPlan Plan { get; }
 
-    public override string ToString() => $"{Plan.Code}  ·  {Plan.Name}  ·  {Plan.Groups.Count} righe";
+    public override string ToString() => $"{Plan.Code}  ·  {Plan.Name}  ·  {Plan.Accounts.Count} conti";
 }

@@ -15,9 +15,18 @@ public partial class EntityToolbar : UserControl
         InitializeComponent();
     }
 
+    private bool _exportAllowed;
+
     public event EventHandler? CreateRequested;
 
     public event EventHandler? DeleteRequested;
+
+    /// <summary>
+    /// Comando facoltativo che porta fuori dalla console ciò che la lista mostra (per ora l'export
+    /// della scheda di una strategia). Nascosto salvo che la schermata lo accenda, così le liste
+    /// che non esportano nulla restano com'erano.
+    /// </summary>
+    public event EventHandler? ExportRequested;
 
     public event EventHandler? RefreshRequested;
 
@@ -61,11 +70,32 @@ public partial class EntityToolbar : UserControl
         set => _deleteButton.Visible = value;
     }
 
+    [Category("Piootoo"), DefaultValue(false)]
+    public bool CanExport
+    {
+        get => _exportButton.Visible;
+        set => _exportButton.Visible = value;
+    }
+
+    [Category("Piootoo"), DefaultValue("Esporta…")]
+    public string ExportButtonText
+    {
+        get => _exportButton.Text;
+        set => _exportButton.Text = value;
+    }
+
     /// <summary>Abilita o disabilita l'eliminazione in base alla selezione corrente.</summary>
     public void SetDeleteEnabled(bool enabled)
     {
         _deleteAllowed = enabled;
         _deleteButton.Enabled = enabled && _deleteButton.Visible;
+    }
+
+    /// <summary>Abilita o disabilita l'export in base alla selezione corrente.</summary>
+    public void SetExportEnabled(bool enabled)
+    {
+        _exportAllowed = enabled;
+        _exportButton.Enabled = enabled && _exportButton.Visible;
     }
 
     /// <summary>Disabilita i comandi durante una chiamata al server.</summary>
@@ -78,6 +108,7 @@ public partial class EntityToolbar : UserControl
 
         _createButton.Enabled = !busy && _createButton.Visible;
         _deleteButton.Enabled = !busy && _deleteAllowed && _deleteButton.Visible;
+        _exportButton.Enabled = !busy && _exportAllowed && _exportButton.Visible;
         _refreshButton.Enabled = !busy;
 
         // Il cursore di attesa va sulla schermata, non sulla barra. La barra è alta quaranta
@@ -91,6 +122,8 @@ public partial class EntityToolbar : UserControl
     private void OnCreateClick(object? sender, EventArgs e) => CreateRequested?.Invoke(this, EventArgs.Empty);
 
     private void OnDeleteClick(object? sender, EventArgs e) => DeleteRequested?.Invoke(this, EventArgs.Empty);
+
+    private void OnExportClick(object? sender, EventArgs e) => ExportRequested?.Invoke(this, EventArgs.Empty);
 
     private void OnRefreshClick(object? sender, EventArgs e) => RefreshRequested?.Invoke(this, EventArgs.Empty);
 

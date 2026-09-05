@@ -35,7 +35,7 @@ partial class ConcurrencyHarnessScreen
         this._limitsLabel = new System.Windows.Forms.Label();
         this._groupsPanel = new System.Windows.Forms.Panel();
         this._groupsGrid = new System.Windows.Forms.DataGridView();
-        this._colGroupId = new System.Windows.Forms.DataGridViewTextBoxColumn();
+
         this._colAccountNumber = new System.Windows.Forms.DataGridViewTextBoxColumn();
         this._colMaxConcurrent = new System.Windows.Forms.DataGridViewTextBoxColumn();
         this._groupsCommands = new System.Windows.Forms.FlowLayoutPanel();
@@ -56,7 +56,7 @@ partial class ConcurrencyHarnessScreen
         this._colPollBar = new System.Windows.Forms.DataGridViewTextBoxColumn();
         this._colPollBarSymbol = new System.Windows.Forms.DataGridViewTextBoxColumn();
         this._colPollAccount = new System.Windows.Forms.DataGridViewTextBoxColumn();
-        this._colPollGroup = new System.Windows.Forms.DataGridViewTextBoxColumn();
+
         this._colPollOutcome = new System.Windows.Forms.DataGridViewTextBoxColumn();
         this._colPollStrategy = new System.Windows.Forms.DataGridViewTextBoxColumn();
         this._colPollSymbol = new System.Windows.Forms.DataGridViewTextBoxColumn();
@@ -68,7 +68,7 @@ partial class ConcurrencyHarnessScreen
         this._matrixTab = new System.Windows.Forms.TabPage();
         this._matrixGrid = new System.Windows.Forms.DataGridView();
         this._colMatrixAccount = new System.Windows.Forms.DataGridViewTextBoxColumn();
-        this._colMatrixGroup = new System.Windows.Forms.DataGridViewTextBoxColumn();
+
         this._colMatrixMax = new System.Windows.Forms.DataGridViewTextBoxColumn();
         this._colMatrixPolls = new System.Windows.Forms.DataGridViewTextBoxColumn();
         this._colMatrixEntries = new System.Windows.Forms.DataGridViewTextBoxColumn();
@@ -82,7 +82,7 @@ partial class ConcurrencyHarnessScreen
         this._colTemplateStrategy = new System.Windows.Forms.DataGridViewTextBoxColumn();
         this._colTemplateSymbol = new System.Windows.Forms.DataGridViewTextBoxColumn();
         this._colTemplateQuantity = new System.Windows.Forms.DataGridViewTextBoxColumn();
-        this._colTemplateGroups = new System.Windows.Forms.DataGridViewTextBoxColumn();
+
         this._colTemplateAccounts = new System.Windows.Forms.DataGridViewTextBoxColumn();
         this._colTemplateState = new System.Windows.Forms.DataGridViewTextBoxColumn();
         this._reasonTab = new System.Windows.Forms.TabPage();
@@ -155,7 +155,7 @@ partial class ConcurrencyHarnessScreen
             this._colPollBar,
             this._colPollBarSymbol,
             this._colPollAccount,
-            this._colPollGroup,
+
             this._colPollOutcome,
             this._colPollStrategy,
             this._colPollSymbol,
@@ -194,11 +194,11 @@ partial class ConcurrencyHarnessScreen
         this._colPollAccount.HeaderText = "Account";
         this._colPollAccount.Name = "_colPollAccount";
         this._colPollAccount.ReadOnly = true;
-        this._colPollGroup.DataPropertyName = "GroupId";
-        this._colPollGroup.FillWeight = 60F;
-        this._colPollGroup.HeaderText = "Gruppo";
-        this._colPollGroup.Name = "_colPollGroup";
-        this._colPollGroup.ReadOnly = true;
+
+
+
+
+
         this._colPollOutcome.DataPropertyName = "Outcome";
         this._colPollOutcome.FillWeight = 130F;
         this._colPollOutcome.HeaderText = "Esito";
@@ -265,7 +265,7 @@ partial class ConcurrencyHarnessScreen
         this._matrixGrid.BorderStyle = System.Windows.Forms.BorderStyle.None;
         this._matrixGrid.Columns.AddRange(new System.Windows.Forms.DataGridViewColumn[] {
             this._colMatrixAccount,
-            this._colMatrixGroup,
+
             this._colMatrixMax,
             this._colMatrixPolls,
             this._colMatrixEntries,
@@ -292,11 +292,11 @@ partial class ConcurrencyHarnessScreen
         this._colMatrixAccount.HeaderText = "Account";
         this._colMatrixAccount.Name = "_colMatrixAccount";
         this._colMatrixAccount.ReadOnly = true;
-        this._colMatrixGroup.DataPropertyName = "GroupId";
-        this._colMatrixGroup.FillWeight = 70F;
-        this._colMatrixGroup.HeaderText = "Gruppo";
-        this._colMatrixGroup.Name = "_colMatrixGroup";
-        this._colMatrixGroup.ReadOnly = true;
+
+
+
+
+
         this._colMatrixMax.DataPropertyName = "MaxConcurrentTrades";
         this._colMatrixMax.DefaultCellStyle.Alignment = System.Windows.Forms.DataGridViewContentAlignment.MiddleRight;
         this._colMatrixMax.FillWeight = 50F;
@@ -364,7 +364,7 @@ partial class ConcurrencyHarnessScreen
             this._colTemplateStrategy,
             this._colTemplateSymbol,
             this._colTemplateQuantity,
-            this._colTemplateGroups,
+
             this._colTemplateAccounts,
             this._colTemplateState});
         this._templateGrid.DataSource = this._templateSource;
@@ -403,11 +403,11 @@ partial class ConcurrencyHarnessScreen
         this._colTemplateQuantity.HeaderText = "Qtà";
         this._colTemplateQuantity.Name = "_colTemplateQuantity";
         this._colTemplateQuantity.ReadOnly = true;
-        this._colTemplateGroups.DataPropertyName = "ClaimedByGroups";
-        this._colTemplateGroups.FillWeight = 110F;
-        this._colTemplateGroups.HeaderText = "Gruppi che l'hanno consumato";
-        this._colTemplateGroups.Name = "_colTemplateGroups";
-        this._colTemplateGroups.ReadOnly = true;
+
+
+
+
+
         this._colTemplateAccounts.DataPropertyName = "ClaimedByAccounts";
         this._colTemplateAccounts.FillWeight = 110F;
         this._colTemplateAccounts.HeaderText = "Account assegnatari";
@@ -574,7 +574,7 @@ partial class ConcurrencyHarnessScreen
         this._groupsGrid.BackgroundColor = System.Drawing.SystemColors.Window;
         this._groupsGrid.BorderStyle = System.Windows.Forms.BorderStyle.None;
         this._groupsGrid.Columns.AddRange(new System.Windows.Forms.DataGridViewColumn[] {
-            this._colGroupId,
+
             this._colAccountNumber,
             this._colMaxConcurrent});
         this._groupsGrid.DataSource = this._groupsSource;
@@ -589,10 +589,10 @@ partial class ConcurrencyHarnessScreen
         //
         // colonne di _groupsGrid
         //
-        this._colGroupId.DataPropertyName = "GroupId";
-        this._colGroupId.FillWeight = 80F;
-        this._colGroupId.HeaderText = "Gruppo";
-        this._colGroupId.Name = "_colGroupId";
+
+
+
+
         this._colAccountNumber.DataPropertyName = "AccountNumber";
         this._colAccountNumber.FillWeight = 90F;
         this._colAccountNumber.HeaderText = "Account";
@@ -814,7 +814,7 @@ partial class ConcurrencyHarnessScreen
     private System.Windows.Forms.Button _addRowButton;
     private System.Windows.Forms.Button _removeRowButton;
     private System.Windows.Forms.DataGridView _groupsGrid;
-    private System.Windows.Forms.DataGridViewTextBoxColumn _colGroupId;
+
     private System.Windows.Forms.DataGridViewTextBoxColumn _colAccountNumber;
     private System.Windows.Forms.DataGridViewTextBoxColumn _colMaxConcurrent;
     private System.Windows.Forms.FlowLayoutPanel _runPanel;
@@ -830,7 +830,7 @@ partial class ConcurrencyHarnessScreen
     private System.Windows.Forms.DataGridViewTextBoxColumn _colPollBar;
     private System.Windows.Forms.DataGridViewTextBoxColumn _colPollBarSymbol;
     private System.Windows.Forms.DataGridViewTextBoxColumn _colPollAccount;
-    private System.Windows.Forms.DataGridViewTextBoxColumn _colPollGroup;
+
     private System.Windows.Forms.DataGridViewTextBoxColumn _colPollOutcome;
     private System.Windows.Forms.DataGridViewTextBoxColumn _colPollStrategy;
     private System.Windows.Forms.DataGridViewTextBoxColumn _colPollSymbol;
@@ -842,7 +842,7 @@ partial class ConcurrencyHarnessScreen
     private System.Windows.Forms.TabPage _matrixTab;
     private System.Windows.Forms.DataGridView _matrixGrid;
     private System.Windows.Forms.DataGridViewTextBoxColumn _colMatrixAccount;
-    private System.Windows.Forms.DataGridViewTextBoxColumn _colMatrixGroup;
+
     private System.Windows.Forms.DataGridViewTextBoxColumn _colMatrixMax;
     private System.Windows.Forms.DataGridViewTextBoxColumn _colMatrixPolls;
     private System.Windows.Forms.DataGridViewTextBoxColumn _colMatrixEntries;
@@ -856,7 +856,7 @@ partial class ConcurrencyHarnessScreen
     private System.Windows.Forms.DataGridViewTextBoxColumn _colTemplateStrategy;
     private System.Windows.Forms.DataGridViewTextBoxColumn _colTemplateSymbol;
     private System.Windows.Forms.DataGridViewTextBoxColumn _colTemplateQuantity;
-    private System.Windows.Forms.DataGridViewTextBoxColumn _colTemplateGroups;
+
     private System.Windows.Forms.DataGridViewTextBoxColumn _colTemplateAccounts;
     private System.Windows.Forms.DataGridViewTextBoxColumn _colTemplateState;
     private System.Windows.Forms.TabPage _reasonTab;

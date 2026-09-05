@@ -8,38 +8,46 @@ using piootooapp.clientform.Shell.Controls;
 namespace piootooapp.clientform.Shell.Screens;
 
 /// <summary>
-/// Riga del tab Gruppi. <see cref="TradingGroupRow"/> è init-only, quindi non è bindabile
-/// direttamente alla griglia.
+/// Riga del tab Conti: un conto cTrader che esegue il piano. Non c'è altro sulla riga — il gruppo
+/// non esiste più e il tetto di posizioni è del piano, uguale per tutti i conti.
 /// </summary>
-public sealed class PlanGroupEditRow
-{
-    public string GroupId { get; set; } = string.Empty;
-}
-
-/// <summary>Riga del tab Account: account cTrader con il proprio limite di posizioni concorrenti.</summary>
 public sealed class PlanAccountEditRow
 {
-    /// <summary>
-    /// Sola lettura in griglia: deriva dal registro (<see cref="Piootoo.Shared.Models.Workspaces.WorkspaceAccount.GroupId"/>)
-    /// al momento in cui si sceglie <see cref="AccountNumber"/>, non è un campo scelto dall'utente.
-    /// </summary>
-    public string GroupId { get; set; } = string.Empty;
-
     public string AccountNumber { get; set; } = string.Empty;
+}
 
-    public int MaxConcurrentTrades { get; set; }
+/// <summary>
+/// Riga del tab Strategie: una strategia del masterfilter, accesa o spenta in questo piano.
+///
+/// <para>La spunta e' in <b>positivo</b> ("Attiva") mentre il piano scrive l'elenco delle
+/// <i>spente</i> (<see cref="TradingPlan.DisabledStrategies"/>): l'unica negazione sta in
+/// <see cref="PlanDetailScreen.SetStrategyActive"/>, come per le chiusure forzate. Il contratto
+/// elenca le spente perche' il masterfilter cambia, e una strategia che vi entra domani deve
+/// nascere accesa in ogni piano gia' scritto.</para>
+/// </summary>
+public sealed class PlanStrategyEditRow
+{
+    public bool Active { get; set; } = true;
+
+    /// <summary>Id di catalogo: e' cio' che il piano salva. Non ha colonna, non si edita.</summary>
+    public string Id { get; set; } = string.Empty;
 
     /// <summary>
-    /// Cosa conta <see cref="MaxConcurrentTrades"/>: solo le posizioni riempite, oppure anche gli
-    /// ordini pendenti. Vedi <c>docs/domini/distribuzione-multi-account.md</c> §2.
-    ///
-    /// <para>È il <b>nome</b> del valore di <see cref="Piootoo.Shared.Models.Trading.ConcurrencyCountMode"/>,
-    /// non il valore: <c>DataGridViewComboBoxColumn</c> confronta la cella con il ValueMember, che
-    /// per <c>ValueComboItem</c> è una stringa. Tenendo qui l'enum il binding dovrebbe convertire a
-    /// ogni cella, ed è esattamente il genere di conversione che finisce in <c>DataError</c>.</para>
+    /// Se l'Id sta nel masterfilter del workspace. Le righe che non ci stanno sono spegnimenti
+    /// dichiarati dal piano su strategie che il masterfilter non contiene (piu'): restano a video e
+    /// restano nel file, perche' a cambiare e' stato il masterfilter, non la scelta di chi ha spento.
     /// </summary>
-    public string ConcurrencyCountMode { get; set; } =
-        nameof(Piootoo.Shared.Models.Trading.ConcurrencyCountMode.PositionsAndPendingOrders);
+    public bool InMasterFilter { get; set; }
+
+    public string Strategy { get; set; } = string.Empty;
+
+    public string Symbol { get; set; } = string.Empty;
+
+    public string Timeframe { get; set; } = string.Empty;
+
+    public string Holding { get; set; } = string.Empty;
+
+    public string Note { get; set; } = string.Empty;
 }
 
 /// <summary>
@@ -71,14 +79,19 @@ public sealed class PlanHoldingConflictRow
 /// </summary>
 public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
 {
-    // Griglie editabili: restano BindingList<T> e non ordinabili per colonna, perché l'ordine è
+    // Griglia editabile: resta BindingList<T> e non ordinabile per colonna, perché l'ordine è
     // quello in cui si sta scrivendo. Vedi .cursor/rules/piutoo-console-screens.mdc.
-    private readonly BindingList<PlanGroupEditRow> _groups = new();
     private readonly BindingList<PlanAccountEditRow> _accounts = new();
 
     /// <summary>Registro globale (<c>api/Accounts</c>), non del workspace: si carica una volta.</summary>
-    private readonly List<string> _accountGroups = new();
     private readonly List<WorkspaceAccount> _registryAccounts = new();
+
+    /// <summary>
+    /// Anagrafica broker. Il piano ne dichiara uno, e i conti selezionabili sono i suoi: due broker
+    /// non quotano la stessa serie di barre, quindi un piano che li mescolasse non corrisponderebbe
+    /// a nessun conto.
+    /// </summary>
+    private readonly List<TradingBroker> _brokers = new();
 
     /// <summary>
     /// Catalogo strategie del server: serve a sapere quali strategie del masterfilter sono
@@ -90,6 +103,32 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
     private readonly List<string> _masterFilter = new();
 
     private readonly SortableBindingList<PlanHoldingConflictRow> _conflicts = new();
+
+    /// <summary>
+    /// Tutte le righe del tab Strategie: il masterfilter del workspace, piu' le spente che il
+    /// masterfilter non contiene piu'. E' l'elenco completo, indipendente dal filtro di ricerca.
+    /// </summary>
+    private readonly List<PlanStrategyEditRow> _allStrategies = new();
+
+    /// <summary>
+    /// Le righe <b>visibili</b>, cioe' quelle che passano il filtro di ricerca: e' la collezione
+    /// legata alla griglia. Ordinabile — l'ordine di questa griglia non e' un dato del piano, e' una
+    /// lente per trovare la riga da spegnere fra decine.
+    /// </summary>
+    private readonly SortableBindingList<PlanStrategyEditRow> _strategies = new();
+
+    /// <summary>
+    /// Perche' l'elenco e' vuoto, quando lo e'. Vuoto = nessun motivo, cioe' l'elenco non lo e'.
+    /// Una griglia vuota senza spiegazione e' il silenzio che questo progetto non ammette.
+    /// </summary>
+    private string _strategiesUnavailableReason = string.Empty;
+
+    /// <summary>
+    /// Gli Id spenti, cioe' esattamente cio' che finisce in <c>DisabledStrategies</c>. E' questo
+    /// l'insieme autorevole, non le spunte della griglia: un Id spento e sparito dal masterfilter
+    /// deve sopravvivere a un ricalcolo delle righe.
+    /// </summary>
+    private readonly HashSet<string> _disabled = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// Il <c>PositionSizing</c> del piano come letto dal server, riproposto tale e quale al
@@ -112,7 +151,6 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
     {
         InitializeComponent();
         ShellGridHelper.ConfigureReadableGrids(this);
-        _groupsBindingSource.DataSource = _groups;
         _accountsBindingSource.DataSource = _accounts;
         _enforceConcurrencyCombo.Items.AddRange(new object[]
         {
@@ -125,9 +163,9 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
         // Cosa conta il massimo di posizioni contemporanee. Le etichette dicono la conseguenza
         // operativa, non il nome del contratto: "PositionsOnly" da solo non fa capire che gli stop
         // pendenti restano tutti a mercato finché uno non entra.
-        _colAccountCountMode.DisplayMember = nameof(ValueComboItem.Display);
-        _colAccountCountMode.ValueMember = nameof(ValueComboItem.Id);
-        _colAccountCountMode.DataSource = new List<ValueComboItem>
+        _countModeCombo.DisplayMember = nameof(ValueComboItem.Display);
+        _countModeCombo.ValueMember = nameof(ValueComboItem.Id);
+        _countModeCombo.DataSource = new List<ValueComboItem>
         {
             ValueComboItem.Of(
                 nameof(ConcurrencyCountMode.PositionsAndPendingOrders),
@@ -137,11 +175,13 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
                 "Solo posizioni riempite")
         };
 
-        _groups.ListChanged += (_, _) => MarkDirty();
         _accounts.ListChanged += (_, _) => MarkDirty();
 
         _conflictsBindingSource.DataSource = _conflicts;
         _conflictsGrid.EnableColumnSorting();
+
+        _strategiesBindingSource.DataSource = _strategies;
+        _strategiesGrid.EnableColumnSorting();
     }
 
     public string ScreenTitle => _isNew
@@ -192,7 +232,7 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
             await RefreshGroupChoicesAsync(cancellationToken);
             await RefreshHoldingImpactAsync(cancellationToken);
             _context.Navigation.SetStatus(
-                $"Piano '{plan.Code}' con {plan.Groups.Count} righe gruppo/account, " +
+                $"Piano '{plan.Code}' su {plan.Accounts.Count} conti, " +
                 $"aggiornato il {plan.UpdatedUtc:yyyy-MM-dd HH:mm} UTC.");
         }
         catch (OperationCanceledException)
@@ -241,19 +281,16 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
     /// </summary>
     private async Task LoadAccountRegistryAsync(CancellationToken cancellationToken)
     {
-        _accountGroups.Clear();
         _registryAccounts.Clear();
         try
         {
-            var groups = await _context!.Services.Api.ListAccountGroupsAsync(cancellationToken);
-            _accountGroups.AddRange(groups
-                .Where(group => !string.IsNullOrWhiteSpace(group))
-                .OrderBy(group => group, StringComparer.OrdinalIgnoreCase));
-
-            var accounts = await _context.Services.Api.ListAccountsAsync(cancellationToken);
+            var accounts = await _context!.Services.Api.ListAccountsAsync(cancellationToken);
             _registryAccounts.AddRange(accounts
                 .Where(account => !string.IsNullOrWhiteSpace(account.AccountNumber))
                 .OrderBy(account => account.Name, StringComparer.OrdinalIgnoreCase));
+
+            _brokers.Clear();
+            _brokers.AddRange(await _context.Services.Api.ListBrokersAsync(cancellationToken));
         }
         catch (OperationCanceledException)
         {
@@ -261,15 +298,49 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
         }
         catch (Exception ex)
         {
-            _context!.Navigation.SetError($"Registro gruppi/account non leggibile: {ex.Message}");
+            _context!.Navigation.SetError($"Registro conti non leggibile: {ex.Message}");
         }
     }
 
     private Task RefreshGroupChoicesAsync(CancellationToken cancellationToken)
     {
-        RefreshGroupColumnItems();
         RefreshAccountNumberColumnItems();
         return Task.CompletedTask;
+    }
+
+    /// <summary>Il broker del piano: da lui vengono la tabella dei simboli e il feed dei conti.</summary>
+    private void FillBrokerCombo(string currentCode)
+    {
+        var items = new List<ValueComboItem> { ValueComboItem.Blank("(nessun broker)") };
+        items.AddRange(_brokers
+            .Where(broker => !string.IsNullOrWhiteSpace(broker.Code))
+            .Select(broker => ValueComboItem.Of(broker.Code, $"{broker.Name}  ·  {broker.Code}")));
+
+        var current = currentCode?.Trim() ?? string.Empty;
+        if (current.Length > 0 &&
+            !items.Any(item => string.Equals(item.Id, current, StringComparison.OrdinalIgnoreCase)))
+        {
+            items.Add(ValueComboItem.Missing(current));
+        }
+
+        _planBrokerCombo.DisplayMember = nameof(ValueComboItem.Display);
+        _planBrokerCombo.ValueMember = nameof(ValueComboItem.Id);
+        _planBrokerCombo.DataSource = items;
+        _planBrokerCombo.SelectedIndex = Math.Max(0, items.FindIndex(item =>
+            string.Equals(item.Id, current, StringComparison.OrdinalIgnoreCase)));
+    }
+
+    private string SelectedBrokerCode =>
+        (_planBrokerCombo.SelectedItem as ValueComboItem)?.Id ?? string.Empty;
+
+    /// <summary>
+    /// Cambiato il broker cambiano i conti selezionabili. Le righe già scritte non si toccano: se
+    /// una non appartiene al broker nuovo il salvataggio lo dirà, invece di sparire dalla griglia.
+    /// </summary>
+    private void OnPlanBrokerChanged(object? sender, EventArgs e)
+    {
+        RefreshAccountNumberColumnItems();
+        MarkDirty();
     }
 
     private static void SetColumnItems(
@@ -293,28 +364,7 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
         column.DataSource = items;
     }
 
-    private void RefreshGroupColumnItems()
-    {
-        var items = new List<ValueComboItem> { ValueComboItem.Blank("(nessun gruppo)") };
-        foreach (var group in _accountGroups)
-        {
-            items.Add(ValueComboItem.Of(group, group));
-        }
 
-        // I gruppi già scritti nel piano ma spariti dal registro restano selezionabili: il
-        // salvataggio riscrive il piano intero, quindi scartarli qui li cancellerebbe.
-        foreach (var row in _groups)
-        {
-            if (!string.IsNullOrWhiteSpace(row.GroupId) && !ContainsId(items, row.GroupId))
-            {
-                items.Add(ValueComboItem.Missing(row.GroupId));
-            }
-        }
-
-        _colGroupId.DisplayMember = nameof(ValueComboItem.Display);
-        _colGroupId.ValueMember = nameof(ValueComboItem.Id);
-        _colGroupId.DataSource = items;
-    }
 
     /// <summary>
     /// La colonna Account cTrader propone tutto il registro: il gruppo non si sceglie più a parte,
@@ -323,9 +373,21 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
     /// </summary>
     private void RefreshAccountNumberColumnItems()
     {
-        var items = new List<ValueComboItem> { ValueComboItem.Blank("(nessun account)") };
+        var broker = SelectedBrokerCode;
+        var items = new List<ValueComboItem> { ValueComboItem.Blank("(nessun conto)") };
+
+        // Con un broker scelto la combo propone solo i suoi conti, più quelli che non ne dichiarano
+        // ancora uno (anagrafica non migrata): proporre i conti di un altro broker sarebbe proporre
+        // una configurazione che il salvataggio rifiuta.
         foreach (var account in _registryAccounts)
         {
+            var suo = account.BrokerCode?.Trim() ?? string.Empty;
+            if (broker.Length > 0 && suo.Length > 0 &&
+                !suo.Equals(broker, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
             items.Add(ValueComboItem.Of(
                 account.AccountNumber,
                 $"{account.Name}  ·  {account.AccountNumber}"));
@@ -349,20 +411,9 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
     private static bool ContainsId(IEnumerable<ValueComboItem> items, string id)
         => items.Any(item => string.Equals(item.Id, id.Trim(), StringComparison.OrdinalIgnoreCase));
 
-    /// <summary>Senza questo una combo di griglia notifica il cambio solo all'uscita dalla cella.</summary>
-    private void OnGroupsGridCurrentCellDirtyStateChanged(object? sender, EventArgs e)
-    {
-        if (_groupsGrid.IsCurrentCellDirty && _groupsGrid.CurrentCell is DataGridViewComboBoxCell)
-        {
-            _groupsGrid.CommitEdit(DataGridViewDataErrorContexts.Commit);
-        }
-    }
 
-    private void OnGroupsGridCellValueChanged(object? sender, DataGridViewCellEventArgs e)
-    {
-        // Nessun effetto collaterale sulle altre colonne/griglie: il gruppo del tab Account deriva
-        // dall'account scelto (registro), non da questa griglia.
-    }
+
+
 
     private void OnAccountsGridCurrentCellDirtyStateChanged(object? sender, EventArgs e)
     {
@@ -373,32 +424,14 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
     }
 
     /// <summary>
-    /// Il Gruppo del tab Account è sola lettura: deriva dall'account appena scelto (registro
-    /// <c>api/Accounts</c>), non è un campo editabile separatamente.
+    /// Nessun effetto collaterale: la riga porta solo il numero di conto. Il gruppo non esiste più e
+    /// il tetto di posizioni è del piano, nel tab Generale.
     /// </summary>
     private void OnAccountsGridCellValueChanged(object? sender, DataGridViewCellEventArgs e)
     {
-        if (e.RowIndex < 0 || e.RowIndex >= _accounts.Count || e.ColumnIndex != _colAccountNumber.Index)
-        {
-            return;
-        }
-
-        var row = _accounts[e.RowIndex];
-        var matched = _registryAccounts.FirstOrDefault(account => string.Equals(
-            account.AccountNumber, row.AccountNumber, StringComparison.OrdinalIgnoreCase));
-        row.GroupId = matched?.GroupId ?? string.Empty;
-        _accounts.ResetItem(e.RowIndex);
     }
 
-    /// <summary>
-    /// Un valore fuori lista farebbe comparire un dialog di errore per cella. Le voci orfane sono
-    /// già iniettate, quindi qui si segnala e basta.
-    /// </summary>
-    private void OnGroupsGridDataError(object? sender, DataGridViewDataErrorEventArgs e)
-    {
-        e.ThrowException = false;
-        _context?.Navigation.SetError($"Valore non valido nella griglia gruppi: {e.Exception.Message}");
-    }
+
 
     private void OnAccountsGridDataError(object? sender, DataGridViewDataErrorEventArgs e)
     {
@@ -413,12 +446,17 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
         _commissionInput.Value = 2m;
         _enforceConcurrencyCombo.SelectedIndex = 0;
         _sizeMultiplierInput.Value = 1m;
+        _maxConcurrentInput.Value = 0m;
+        _countModeCombo.SelectedIndex = 0;
+        FillBrokerCombo(string.Empty);
 
         FillHolding(AccountHoldingPolicy.Default);
 
         _loadedPositionSizing = new PositionSizingConfig();
 
-        _groups.Clear();
+        _disabled.Clear();
+        RebuildStrategyRows();
+
         _accounts.Clear();
     }
 
@@ -444,29 +482,30 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
 
         FillHolding(plan.Holding);
 
-        _loadedPositionSizing = plan.PositionSizing;
-
-        _groups.RaiseListChangedEvents = false;
-        _groups.Clear();
-        foreach (var group in plan.Groups.GroupBy(row => row.GroupId, StringComparer.OrdinalIgnoreCase))
+        _disabled.Clear();
+        foreach (var id in plan.DisabledStrategies)
         {
-            _groups.Add(new PlanGroupEditRow { GroupId = group.Key });
+            if (!string.IsNullOrWhiteSpace(id))
+            {
+                _disabled.Add(id.Trim());
+            }
         }
 
-        _groups.RaiseListChangedEvents = true;
-        _groups.ResetBindings();
+        RebuildStrategyRows();
+
+        _loadedPositionSizing = plan.PositionSizing;
+
+        FillBrokerCombo(plan.BrokerCode);
+        _maxConcurrentInput.Value = Math.Clamp(
+            plan.MaxConcurrentTrades, (int)_maxConcurrentInput.Minimum, (int)_maxConcurrentInput.Maximum);
+        _countModeCombo.SelectedIndex =
+            plan.ConcurrencyCountMode == ConcurrencyCountMode.PositionsOnly ? 1 : 0;
 
         _accounts.RaiseListChangedEvents = false;
         _accounts.Clear();
-        foreach (var row in plan.Groups)
+        foreach (var account in plan.Accounts)
         {
-            _accounts.Add(new PlanAccountEditRow
-            {
-                GroupId = row.GroupId,
-                AccountNumber = row.AccountNumber,
-                MaxConcurrentTrades = row.MaxConcurrentTrades,
-                ConcurrencyCountMode = row.ConcurrencyCountMode.ToString()
-            });
+            _accounts.Add(new PlanAccountEditRow { AccountNumber = account });
         }
 
         _accounts.RaiseListChangedEvents = true;
@@ -565,29 +604,285 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
     }
 
     /// <summary>
-    /// Ricarica il masterfilter del workspace corrente e ricalcola l'avviso. Il masterfilter e' del
-    /// workspace, quindi va riletto ogni volta che il workspace cambia.
+    /// Ricarica il masterfilter del workspace corrente, ricostruisce le righe del tab Strategie e
+    /// ricalcola l'avviso delle chiusure. Il masterfilter e' del workspace, quindi va riletto ogni
+    /// volta che il workspace cambia.
+    ///
+    /// <para>Un masterfilter illeggibile <b>non</b> passa in silenzio: il motivo finisce nella
+    /// riga sopra la griglia. Una schermata che mostra un elenco vuoto senza dire perche' fa
+    /// cercare un errore di configurazione che magari e' solo un server spento.</para>
     /// </summary>
     private async Task RefreshHoldingImpactAsync(CancellationToken cancellationToken)
     {
         _masterFilter.Clear();
-        if (_context != null && !string.IsNullOrWhiteSpace(_workspaceId))
+        _strategiesUnavailableReason = string.Empty;
+
+        if (_context == null)
+        {
+            _strategiesUnavailableReason = "schermata non inizializzata";
+        }
+        else if (string.IsNullOrWhiteSpace(_workspaceId))
+        {
+            _strategiesUnavailableReason =
+                "nessun workspace selezionato: scegline uno nella barra in alto";
+        }
+        else
         {
             try
             {
                 var filter = await _context.Services.Api.GetMasterFilterAsync(_workspaceId, cancellationToken);
                 _masterFilter.AddRange(filter.StrategiesFilter);
+                if (_masterFilter.Count == 0)
+                {
+                    _strategiesUnavailableReason =
+                        $"il masterfilter del workspace '{_workspaceId}' e' vuoto: aggiungici le " +
+                        "strategie da far girare, il piano puo' solo spegnerne un sottoinsieme";
+                }
             }
             catch (OperationCanceledException)
             {
                 throw;
             }
-            catch
+            catch (Exception ex)
             {
-                // Come per il catalogo: l'avviso e' diagnostica, non una precondizione del piano.
+                _strategiesUnavailableReason =
+                    $"masterfilter del workspace '{_workspaceId}' non leggibile: {ex.Message}";
             }
         }
 
+        RebuildStrategyRows();
+        UpdateHoldingImpact();
+    }
+
+    /// <summary>
+    /// Le righe del tab Strategie: il masterfilter del workspace, piu' gli spegnimenti che il
+    /// masterfilter non copre. Si richiama a ogni cambio di masterfilter o di piano caricato; le
+    /// spunte le rilegge da <see cref="_disabled"/>, non dalle righe di prima.
+    /// </summary>
+    private void RebuildStrategyRows()
+    {
+        var byId = _catalog.ToDictionary(item => item.Id, StringComparer.OrdinalIgnoreCase);
+        var inFilter = new HashSet<string>(
+            _masterFilter.Select(id => id.Trim()).Where(id => id.Length > 0),
+            StringComparer.OrdinalIgnoreCase);
+
+        _allStrategies.Clear();
+        foreach (var id in inFilter.OrderBy(id => id, StringComparer.OrdinalIgnoreCase))
+        {
+            _allStrategies.Add(BuildStrategyRow(id, byId.GetValueOrDefault(id), inMasterFilter: true));
+        }
+
+        foreach (var id in _disabled.Where(id => !inFilter.Contains(id))
+                     .OrderBy(id => id, StringComparer.OrdinalIgnoreCase))
+        {
+            _allStrategies.Add(BuildStrategyRow(id, byId.GetValueOrDefault(id), inMasterFilter: false));
+        }
+
+        ApplyStrategyFilter();
+    }
+
+    /// <summary>
+    /// Riempie la griglia con le sole righe che passano ricerca e <i>solo selezionate</i>. Il filtro
+    /// e' una lente sulla vista: non tocca <see cref="_disabled"/>, quindi cercare non accende e non
+    /// spegne niente.
+    ///
+    /// <para><b>Perche' non si riapplica a ogni spunta.</b> Con <i>solo selezionate</i> acceso,
+    /// togliere la spunta a una riga la renderebbe subito invisibile: la griglia si accorcerebbe
+    /// sotto il cursore e il clic successivo cadrebbe su un'altra strategia. La riga sparisce alla
+    /// prossima riapplicazione del filtro — un tocco alla ricerca, la casella, un ricarico — che e'
+    /// il momento in cui l'utente sta guardando l'elenco e non le singole spunte.</para>
+    ///
+    /// <para><c>ReapplySort</c> prima di <c>ResetBindings</c>, come impone la regola delle griglie:
+    /// senza, la freccetta resta sull'intestazione mentre le righe tornano nell'ordine della
+    /// sorgente — sembra ordinata e non lo e'.</para>
+    /// </summary>
+    private void ApplyStrategyFilter()
+    {
+        var query = _strategyFilterBox.Text.Trim();
+        var soloSelezionate = _onlySelectedStrategiesCheck.Checked;
+
+        _strategies.RaiseListChangedEvents = false;
+        _strategies.Clear();
+        foreach (var row in _allStrategies.Where(row => (!soloSelezionate || row.Active) && Matches(row, query)))
+        {
+            _strategies.Add(row);
+        }
+
+        _strategies.RaiseListChangedEvents = true;
+        _strategies.ReapplySort();
+        _strategies.ResetBindings();
+        UpdateStrategiesSummary();
+        UpdateToggleAllCaption();
+    }
+
+    /// <summary>
+    /// Una riga passa la ricerca se il testo compare nel codice, nel simbolo, nel timeframe o nella
+    /// tenuta. Piu' parole separate da spazio devono comparire <b>tutte</b>: "nq 15" trova le
+    /// strategie a 15 minuti su NQ, che e' il modo in cui si cerca in un elenco lungo.
+    /// </summary>
+    private static bool Matches(PlanStrategyEditRow row, string query)
+    {
+        if (query.Length == 0)
+        {
+            return true;
+        }
+
+        var haystack = $"{row.Strategy} {row.Id} {row.Symbol} {row.Timeframe} {row.Holding}";
+        return query
+            .Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .All(term => haystack.Contains(term, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private void OnStrategyFilterChanged(object? sender, EventArgs e) => ApplyStrategyFilter();
+
+    /// <summary>
+    /// Se la griglia sta mostrando un sottoinsieme. Conta sia la ricerca sia <i>solo selezionate</i>:
+    /// e' l'unica cosa che serve sapere a chi scrive "tutto" oppure "i filtrati" in un'etichetta, e
+    /// tenerla in un posto solo evita che i due comandi si contraddicano.
+    /// </summary>
+    private bool StrategyViewIsFiltered =>
+        _strategyFilterBox.Text.Trim().Length > 0 || _onlySelectedStrategiesCheck.Checked;
+
+    /// <summary>
+    /// L'etichetta del pulsante dice cosa farebbe adesso, non cosa fa in generale: se anche una
+    /// sola riga visibile e' spenta, il clic accende tutto; se sono tutte accese, spegne tutto.
+    ///
+    /// <para>Con <i>solo selezionate</i> acceso le righe visibili sono per definizione tutte attive,
+    /// quindi il pulsante propone sempre di spegnerle: e' corretto — spegne quelle che il piano fa
+    /// girare — e dice "i filtrati" per non farlo leggere come "tutte quelle del masterfilter".</para>
+    /// </summary>
+    private void UpdateToggleAllCaption()
+    {
+        var visibili = _strategies.Count;
+        var tutteAttive = visibili > 0 && _strategies.All(row => row.Active);
+        _toggleAllStrategiesButton.Enabled = visibili > 0;
+        _toggleAllStrategiesButton.Text = tutteAttive
+            ? (StrategyViewIsFiltered ? "Deseleziona i filtrati" : "Deseleziona tutto")
+            : (StrategyViewIsFiltered ? "Seleziona i filtrati" : "Seleziona tutto");
+    }
+
+    private PlanStrategyEditRow BuildStrategyRow(string id, StrategyCatalogItem? item, bool inMasterFilter) => new()
+    {
+        Id = id,
+        Active = !_disabled.Contains(id),
+        InMasterFilter = inMasterFilter,
+        // Il codice di esecuzione quando c'e' (e' quello che si legge in trades.json), l'Id quando
+        // il catalogo non conosce la voce: meglio un Id nudo che una riga senza nome.
+        Strategy = item is null || string.IsNullOrWhiteSpace(item.Name) ? id : item.Name,
+        Symbol = item?.Symbol ?? string.Empty,
+        Timeframe = item is { TimeframeMinutes: > 0 } ? $"{item.TimeframeMinutes}m" : "—",
+        Holding = item?.HoldingLabel ?? string.Empty,
+        Note = !inMasterFilter
+            ? "fuori dal masterfilter: lo spegnimento resta scritto nel piano"
+            : item is null
+                ? "non nel catalogo: e' il masterfilter da correggere"
+                : string.Empty
+    };
+
+    /// <summary>Quante ne gira il piano e quante ne ha spente, detto sopra la griglia.</summary>
+    private void UpdateStrategiesSummary()
+    {
+        if (_strategiesUnavailableReason.Length > 0)
+        {
+            _strategiesSummaryLabel.ForeColor = Color.FromArgb(176, 84, 0);
+            _strategiesSummaryLabel.Text =
+                $"Elenco non disponibile — {_strategiesUnavailableReason}. Le strategie di un piano " +
+                "sono un sottoinsieme del masterfilter del workspace: senza masterfilter non c'e' " +
+                "nulla da accendere o spegnere.";
+            return;
+        }
+
+        var attive = _allStrategies.Count(row => row.InMasterFilter && row.Active);
+        var nelFiltro = _allStrategies.Count(row => row.InMasterFilter);
+        var orfane = _allStrategies.Count(row => !row.InMasterFilter);
+        var visibili = _strategies.Count;
+        var ricerca = StrategyViewIsFiltered && visibili != _allStrategies.Count
+            ? $" Filtro attivo: {visibili} righe su {_allStrategies.Count}."
+            : string.Empty;
+        var coda = orfane == 0
+            ? string.Empty
+            : $" Altre {orfane} spente non sono nel masterfilter: restano scritte nel piano e " +
+              "tornano a valere se il masterfilter le riprende.";
+
+        if (attive == 0)
+        {
+            _strategiesSummaryLabel.ForeColor = Color.FromArgb(176, 84, 0);
+            _strategiesSummaryLabel.Text =
+                $"Nessuna delle {nelFiltro} strategie del masterfilter e' attiva in questo piano: " +
+                "una sessione aperta cosi' viene rifiutata all'apertura, non parte muta." + coda + ricerca;
+            return;
+        }
+
+        _strategiesSummaryLabel.ForeColor = SystemColors.ControlText;
+        _strategiesSummaryLabel.Text =
+            $"Il piano fa girare {attive} strategie sulle {nelFiltro} del masterfilter " +
+            $"({nelFiltro - attive} spente). Il masterfilter decide cosa esiste nel workspace, " +
+            "il piano ne spegne un sottoinsieme." + coda + ricerca;
+    }
+
+    /// <summary>Senza questa una spunta di griglia notifica il cambio solo all'uscita dalla cella.</summary>
+    private void OnStrategiesGridCurrentCellDirtyStateChanged(object? sender, EventArgs e)
+    {
+        if (_strategiesGrid.IsCurrentCellDirty && _strategiesGrid.CurrentCell is DataGridViewCheckBoxCell)
+        {
+            _strategiesGrid.CommitEdit(DataGridViewDataErrorContexts.Commit);
+        }
+    }
+
+    private void OnStrategiesGridCellValueChanged(object? sender, DataGridViewCellEventArgs e)
+    {
+        if (e.RowIndex < 0 || e.RowIndex >= _strategies.Count || e.ColumnIndex != _colStrategyActive.Index)
+        {
+            return;
+        }
+
+        var row = _strategies[e.RowIndex];
+        SetStrategyActive(row.Id, row.Active);
+        MarkDirty();
+        UpdateStrategiesSummary();
+        UpdateToggleAllCaption();
+        // Una strategia spenta non e' piu' tagliata da nulla: l'avviso delle chiusure forzate
+        // conta solo cio' che il piano fa girare davvero.
+        UpdateHoldingImpact();
+    }
+
+    /// <summary>L'unica negazione fra la spunta "Attiva" e l'elenco delle spente del contratto.</summary>
+    private void SetStrategyActive(string id, bool active)
+    {
+        if (active)
+        {
+            _disabled.Remove(id);
+        }
+        else
+        {
+            _disabled.Add(id);
+        }
+    }
+
+    /// <summary>
+    /// Accende o spegne <b>le righe visibili</b>, cioe' quelle che la ricerca sta mostrando. Agire
+    /// sull'elenco intero mentre se ne vede una parte e' il modo piu' rapido di spegnere per
+    /// sbaglio venti strategie che non si stavano nemmeno guardando.
+    /// </summary>
+    private void OnToggleAllStrategiesClick(object? sender, EventArgs e)
+    {
+        if (_strategies.Count == 0)
+        {
+            return;
+        }
+
+        var accendi = !_strategies.All(row => row.Active);
+        foreach (var row in _strategies)
+        {
+            row.Active = accendi;
+            SetStrategyActive(row.Id, accendi);
+        }
+
+        // Ricostruzione e non semplice ResetBindings: accendendo tutto, le righe fuori dal
+        // masterfilter non hanno piu' motivo di esistere — erano li' solo per dire che quel piano le
+        // teneva spente — e lasciarle a video le farebbe contare ancora nel riepilogo.
+        RebuildStrategyRows();
+        MarkDirty();
         UpdateHoldingImpact();
     }
 
@@ -622,8 +917,13 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
         else
         {
             var byId = _catalog.ToDictionary(item => item.Id, StringComparer.OrdinalIgnoreCase);
+            // Solo le strategie che il piano fa girare: una spenta nel tab Strategie non viene
+            // troncata da questo piano, non viene proprio eseguita, e mostrarla qui come "tagliata"
+            // farebbe cercare un effetto che non c'e'.
             var selected = _masterFilter
-                .Select(id => byId.GetValueOrDefault(id.Trim()))
+                .Select(id => id.Trim())
+                .Where(id => !_disabled.Contains(id))
+                .Select(byId.GetValueOrDefault)
                 .Where(item => item is not null)
                 .Select(item => item!)
                 .ToList();
@@ -654,16 +954,16 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
             {
                 _holdingWarningLabel.ForeColor = SystemColors.ControlText;
                 _holdingWarningLabel.Text = selected.Count == 0
-                    ? "Il masterfilter del workspace e' vuoto (o le sue strategie non sono nel catalogo): " +
-                      "non c'e' nulla di cui calcolare l'impatto."
-                    : $"Nessuna delle {selected.Count} strategie del masterfilter viene tagliata: " +
+                    ? "Nessuna strategia attiva nel piano (masterfilter vuoto, tutte spente nel tab " +
+                      "Strategie, o non presenti nel catalogo): non c'e' nulla di cui calcolare l'impatto."
+                    : $"Nessuna delle {selected.Count} strategie attive del piano viene tagliata: " +
                       "chiudono tutte entro i limiti che il piano concede.";
             }
             else
             {
                 _holdingWarningLabel.ForeColor = Color.FromArgb(176, 84, 0);
                 _holdingWarningLabel.Text =
-                    $"Questo piano tronca {conflicts.Count} strategie su {selected.Count} del masterfilter. " +
+                    $"Questo piano tronca {conflicts.Count} strategie sulle {selected.Count} che fa girare. " +
                     "Sono strategie che la ricerca ha misurato multiday: su questo piano non possono esserlo, " +
                     "quindi i loro trade non saranno confrontabili con il run originale. Il taglio e' " +
                     "legittimo — e' cio' che la prop impone — ma va saputo prima, non letto dopo nei trade.";
@@ -700,26 +1000,15 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
 
     private async void OnRevertRequested(object? sender, EventArgs e) => await LoadAsync(CancellationToken.None);
 
-    private void OnAddGroupClick(object? sender, EventArgs e)
-    {
-        // Il gruppo si sceglie dalla combo: un placeholder testuale finirebbe nel piano come
-        // gruppo inesistente.
-        _groups.Add(new PlanGroupEditRow { GroupId = string.Empty });
-    }
 
-    private void OnRemoveGroupClick(object? sender, EventArgs e)
-    {
-        if (_groupsGrid.CurrentRow?.Index is { } index && index >= 0 && index < _groups.Count)
-        {
-            _groups.RemoveAt(index);
-        }
-    }
+
+
 
     private void OnAddAccountClick(object? sender, EventArgs e)
     {
-        // L'account si sceglie dalla combo: un placeholder testuale finirebbe nel piano come
-        // account inesistente. Il gruppo si popola da solo alla scelta dell'account.
-        _accounts.Add(new PlanAccountEditRow { GroupId = string.Empty, AccountNumber = string.Empty });
+        // Il conto si sceglie dalla combo: un placeholder testuale finirebbe nel piano come
+        // conto inesistente.
+        _accounts.Add(new PlanAccountEditRow { AccountNumber = string.Empty });
     }
 
     private void OnRemoveAccountClick(object? sender, EventArgs e)
@@ -752,52 +1041,11 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
             return;
         }
 
-        // Una riga con il gruppo non ancora scelto non va scartata in silenzio: prima del refactor
-        // in due tab bastava filtrarla (era anche priva di account), ma qui sparirebbe dalla
-        // griglia al giro di Fill() successivo senza che l'utente capisca perché.
-        if (_groups.Any(row => string.IsNullOrWhiteSpace(row.GroupId)))
-        {
-            MessageBox.Show(
-                this,
-                "C'è una riga senza gruppo nel tab Gruppi: scegli un gruppo dalla combo o rimuovi la riga.",
-                "Piano",
-                MessageBoxButtons.OK,
-                MessageBoxIcon.Warning);
-            return;
-        }
-
-        var duplicateGroup = _groups
-            .GroupBy(row => row.GroupId.Trim(), StringComparer.OrdinalIgnoreCase)
-            .FirstOrDefault(g => g.Count() > 1);
-        if (duplicateGroup != null)
-        {
-            MessageBox.Show(
-                this,
-                $"Il gruppo '{duplicateGroup.Key}' è configurato più di una volta nel tab Gruppi.",
-                "Piano",
-                MessageBoxButtons.OK,
-                MessageBoxIcon.Warning);
-            return;
-        }
-
-        var groupProfiles = _groups.ToDictionary(
-            row => row.GroupId.Trim(), row => row, StringComparer.OrdinalIgnoreCase);
-        if (groupProfiles.Count == 0)
-        {
-            MessageBox.Show(
-                this,
-                "Serve almeno un gruppo nel tab Gruppi.",
-                "Piano",
-                MessageBoxButtons.OK,
-                MessageBoxIcon.Warning);
-            return;
-        }
-
         if (_accounts.Any(row => string.IsNullOrWhiteSpace(row.AccountNumber)))
         {
             MessageBox.Show(
                 this,
-                "C'è una riga senza account nel tab Account: scegli un account dalla combo o rimuovi la riga.",
+                "C'è una riga senza conto nel tab Conti: scegli un conto dalla combo o rimuovi la riga.",
                 "Piano",
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Warning);
@@ -805,46 +1053,48 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
         }
 
         var validAccounts = _accounts
-            .Where(row => !string.IsNullOrWhiteSpace(row.AccountNumber))
+            .Select(row => row.AccountNumber.Trim())
+            .Where(account => account.Length > 0)
             .ToList();
         if (validAccounts.Count == 0)
         {
             MessageBox.Show(
                 this,
-                "Serve almeno un account nel tab Account: è la configurazione canonica del piano.",
+                "Serve almeno un conto nel tab Conti: è la configurazione canonica del piano.",
                 "Piano",
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Warning);
             return;
         }
 
-        var orphanAccount = validAccounts.FirstOrDefault(row => !groupProfiles.ContainsKey(row.GroupId.Trim()));
-        if (orphanAccount != null)
+        var duplicato = validAccounts
+            .GroupBy(account => account, StringComparer.OrdinalIgnoreCase)
+            .FirstOrDefault(gruppo => gruppo.Count() > 1);
+        if (duplicato != null)
         {
             MessageBox.Show(
                 this,
-                $"L'account '{orphanAccount.AccountNumber}' fa riferimento al gruppo '{orphanAccount.GroupId}', " +
-                "che non è configurato nel tab Gruppi.",
+                $"Il conto '{duplicato.Key}' è configurato più di una volta nel tab Conti.",
                 "Piano",
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Warning);
             return;
         }
 
-        // Un gruppo senza nemmeno un account non ha modo di essere scritto: TradingGroupRow è
-        // sempre una coppia gruppo+account, quindi un profilo "solo gruppo" verrebbe scartato in
-        // silenzio al salvataggio invece di comparire come errore.
-        var emptyGroup = groupProfiles.Keys.FirstOrDefault(groupId => !validAccounts.Any(row =>
-            string.Equals(row.GroupId.Trim(), groupId, StringComparison.OrdinalIgnoreCase)));
-        if (emptyGroup != null)
+        // Un piano che spegne tutto il masterfilter non è un piano che non opera: è un piano che
+        // la sessione rifiuta all'apertura (TradingSessionService.CreateCore). Scoprirlo lì
+        // significa scoprirlo dal cBot, a mercato aperto. Il controllo salta se il masterfilter non
+        // si è potuto leggere: l'avviso è diagnostica, non deve bloccare un salvataggio.
+        if (_masterFilter.Count > 0 && !_strategies.Any(row => row.InMasterFilter && row.Active))
         {
             MessageBox.Show(
                 this,
-                $"Il gruppo '{emptyGroup}' non ha nessun account nel tab Account: aggiungine almeno uno " +
-                "(o rimuovi il gruppo), altrimenti il profilo non verrebbe salvato.",
+                "Tutte le strategie del masterfilter sono spente nel tab Strategie: una sessione " +
+                "aperta con questo piano verrebbe rifiutata. Riaccendine almeno una.",
                 "Piano",
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Warning);
+            _tabs.SelectedTab = _strategiesTab;
             return;
         }
 
@@ -866,21 +1116,12 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
         {
             Code = code,
             Name = _nameTextBox.Text.Trim() is { Length: > 0 } name ? name : code,
-            Groups = validAccounts.Select(row =>
-            {
-                return new TradingGroupRow
-                {
-                    GroupId = row.GroupId.Trim(),
-                    AccountNumber = row.AccountNumber.Trim(),
-                    MaxConcurrentTrades = row.MaxConcurrentTrades,
-                    // Un valore illeggibile (piano scritto a mano, enum rinominato) ricade sul
-                    // default storico invece di far fallire il salvataggio dell'intero piano.
-                    ConcurrencyCountMode = Enum.TryParse<ConcurrencyCountMode>(
-                        row.ConcurrencyCountMode, ignoreCase: true, out var countMode)
-                        ? countMode
-                        : ConcurrencyCountMode.PositionsAndPendingOrders
-                };
-            }).ToList(),
+            BrokerCode = SelectedBrokerCode,
+            Accounts = validAccounts,
+            MaxConcurrentTrades = (int)_maxConcurrentInput.Value,
+            ConcurrencyCountMode = _countModeCombo.SelectedIndex == 1
+                ? ConcurrencyCountMode.PositionsOnly
+                : ConcurrencyCountMode.PositionsAndPendingOrders,
             EnforceConcurrencyLimits = _enforceConcurrencyCombo.SelectedIndex switch
             {
                 1 => true,
@@ -890,6 +1131,9 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
             CommissionPerContract = _commissionInput.Value,
             SizeMultiplier = _sizeMultiplierInput.Value,
             Holding = ReadHolding(),
+            // Le spente, non le accese: vedi TradingPlan.DisabledStrategies. Comprende gli Id che
+            // il masterfilter non contiene piu', che il server conserva senza validarli.
+            DisabledStrategies = _disabled.OrderBy(id => id, StringComparer.OrdinalIgnoreCase).ToList(),
             PositionSizing = _loadedPositionSizing
         };
 

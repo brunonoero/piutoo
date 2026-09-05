@@ -20,6 +20,9 @@ public sealed class WorkspaceService
     /// <summary>Registro globale delle tabelle di conversione simboli, fuori da account e workspace.</summary>
     private const string SymbolConversionsFileName = "symbol-conversions.json";
 
+    /// <summary>Registro globale dei broker, accanto a quello degli account.</summary>
+    private const string BrokersFileName = "brokers.json";
+
     /// <summary>Nome dell'account neutro: mappatura 1 a 1 sui simboli del catalogo strategie.</summary>
     public const string DefaultAccountName = "Default";
 
@@ -34,6 +37,7 @@ public sealed class WorkspaceService
     private readonly string _accountsPath;
     private readonly object _accountsGate = new();
     private readonly object _symbolConversionsGate = new();
+    private readonly object _brokersGate = new();
     private readonly JsonSerializerOptions _jsonOptions = new() { WriteIndented = true };
 
     public WorkspaceService(PiootooSettings settings)
@@ -220,6 +224,183 @@ public sealed class WorkspaceService
     }
 
     /// <summary>Tabelle di conversione simboli globali, condivise da tutti i workspace e ordinate per nome.</summary>
+    // ---------------------------------------------------------------------------- broker
+
+    public IReadOnlyList<TradingBroker> ListBrokers()
+    {
+        lock (_brokersGate)
+            return ReadBrokersFile().Brokers
+                .OrderBy(broker => broker.Name, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+    }
+
+    public TradingBroker GetBroker(string code)
+    {
+        lock (_brokersGate)
+            return FindBroker(ReadBrokersFile().Brokers, code)
+                ?? throw new KeyNotFoundException($"Broker '{code}' non trovato.");
+    }
+
+    /// <summary>Il broker con quel codice, o null. Null e non eccezione: i chiamanti hanno un ripiego.</summary>
+    public TradingBroker? FindBroker(string? code)
+    {
+        if (string.IsNullOrWhiteSpace(code)) return null;
+        lock (_brokersGate)
+            return FindBroker(ReadBrokersFile().Brokers, code);
+    }
+
+    public TradingBroker CreateBroker(TradingBroker broker)
+    {
+        lock (_brokersGate)
+        {
+            var file = ReadBrokersFile();
+            var normalized = NormalizeBroker(broker);
+            if (FindBroker(file.Brokers, normalized.Code) is not null)
+                throw new InvalidOperationException($"Il broker '{normalized.Code}' esiste già.");
+
+            normalized.CreatedUtc = DateTime.UtcNow;
+            normalized.UpdatedUtc = normalized.CreatedUtc;
+            file.Brokers.Add(normalized);
+            WriteBrokersFile(file);
+            return normalized;
+        }
+    }
+
+    public TradingBroker SaveBroker(string code, TradingBroker broker)
+    {
+        lock (_brokersGate)
+        {
+            var file = ReadBrokersFile();
+            var existing = FindBroker(file.Brokers, code)
+                ?? throw new KeyNotFoundException($"Broker '{code}' non trovato.");
+
+            var normalized = NormalizeBroker(broker);
+            // Il codice non si rinomina: e' cio' che conti e piani referenziano, e cambiarlo qui li
+            // lascerebbe a puntare a un broker che non esiste piu'.
+            normalized.Code = existing.Code;
+            normalized.CreatedUtc = existing.CreatedUtc == default ? DateTime.UtcNow : existing.CreatedUtc;
+            normalized.UpdatedUtc = DateTime.UtcNow;
+
+            file.Brokers[file.Brokers.IndexOf(existing)] = normalized;
+            WriteBrokersFile(file);
+            return normalized;
+        }
+    }
+
+    /// <summary>
+    /// Rifiuta la cancellazione se un conto lo referenzia ancora: un conto con un broker orfano non
+    /// saprebbe piu' da dove prendere la tabella dei simboli, e lo scoprirebbe alla prima size.
+    /// </summary>
+    public void DeleteBroker(string code)
+    {
+        lock (_accountsGate)
+        lock (_brokersGate)
+        {
+            var normalized = NormalizeBrokerCode(code);
+            var inUse = ReadGlobalAccountsFile().Accounts.FirstOrDefault(account =>
+                account.BrokerCode.Trim().Equals(normalized, StringComparison.OrdinalIgnoreCase));
+            if (inUse is not null)
+                throw new InvalidOperationException(
+                    $"Il broker '{normalized}' è usato dal conto '{inUse.Name}' e non può essere eliminato.");
+
+            var file = ReadBrokersFile();
+            var existing = FindBroker(file.Brokers, normalized)
+                ?? throw new KeyNotFoundException($"Broker '{normalized}' non trovato.");
+            file.Brokers.Remove(existing);
+            WriteBrokersFile(file);
+        }
+    }
+
+    /// <summary>
+    /// La tabella dei simboli con cui opera un conto: quella del suo broker.
+    ///
+    /// <para>Ripiego sul codice scritto sul conto quando il conto non dichiara ancora un broker:
+    /// un'anagrafica non migrata deve continuare a operare come prima, non passare in silenzio a un
+    /// 1 a 1 che moltiplicherebbe per uno ogni size e cambierebbe ogni ordine.</para>
+    /// </summary>
+    public SymbolConversion ResolveConversionForAccount(WorkspaceAccount account)
+    {
+        ArgumentNullException.ThrowIfNull(account);
+        var broker = FindBroker(account.BrokerCode);
+        return broker is not null
+            ? ResolveSymbolConversion(broker.SymbolConversionCode)
+            : ResolveSymbolConversion(account.SymbolConversionCode);
+    }
+
+    /// <summary>
+    /// Il nome con cui i run marcano la sorgente dei prezzi di un conto e con cui il datafeed
+    /// raccolto si indicizza: il codice del broker, o l'etichetta storica del conto finche' un
+    /// broker non c'e'.
+    /// </summary>
+    public string? ResolveBrokerLabelForAccount(WorkspaceAccount? account)
+    {
+        if (account is null) return null;
+        var broker = FindBroker(account.BrokerCode);
+        if (broker is not null)
+            return string.IsNullOrWhiteSpace(broker.DatafeedFolder) ? broker.Code : broker.DatafeedFolder.Trim();
+        return string.IsNullOrWhiteSpace(account.Broker) ? null : account.Broker.Trim();
+    }
+
+    private static TradingBroker? FindBroker(IEnumerable<TradingBroker> brokers, string? code)
+    {
+        var normalized = code?.Trim() ?? string.Empty;
+        return normalized.Length == 0
+            ? null
+            : brokers.FirstOrDefault(broker =>
+                broker.Code.Trim().Equals(normalized, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static string NormalizeBrokerCode(string? code)
+    {
+        var normalized = code?.Trim() ?? string.Empty;
+        if (normalized.Length == 0)
+            throw new ArgumentException("Il codice del broker è obbligatorio.");
+        if (normalized.Any(character => !char.IsLetterOrDigit(character) && character is not '-' and not '_'))
+            throw new ArgumentException("Il codice del broker può contenere solo lettere, numeri, '-' e '_'.");
+        return normalized;
+    }
+
+    private static TradingBroker NormalizeBroker(TradingBroker broker)
+    {
+        ArgumentNullException.ThrowIfNull(broker);
+        var code = NormalizeBrokerCode(broker.Code);
+        return new TradingBroker
+        {
+            Code = code,
+            Name = string.IsNullOrWhiteSpace(broker.Name) ? code : broker.Name.Trim(),
+            SymbolConversionCode = broker.SymbolConversionCode?.Trim() ?? string.Empty,
+            // La cartella del feed vuota non e' un buco: vale il codice, che e' come si chiamano
+            // gia' oggi le cartelle sotto datafeed-external/.
+            DatafeedFolder = broker.DatafeedFolder?.Trim() ?? string.Empty,
+            Enabled = broker.Enabled,
+            Notes = broker.Notes?.Trim() ?? string.Empty,
+            CreatedUtc = broker.CreatedUtc,
+            UpdatedUtc = broker.UpdatedUtc
+        };
+    }
+
+    private TradingBrokersFile ReadBrokersFile()
+    {
+        var file = Path.Combine(_accountsPath, BrokersFileName);
+        if (!File.Exists(file))
+            return new TradingBrokersFile();
+
+        return JsonSerializer.Deserialize<TradingBrokersFile>(File.ReadAllText(file), _jsonOptions)
+               ?? new TradingBrokersFile();
+    }
+
+    private void WriteBrokersFile(TradingBrokersFile file)
+    {
+        file.Brokers = file.Brokers
+            .OrderBy(broker => broker.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        AtomicFileWriter.WriteAllText(
+            Path.Combine(_accountsPath, BrokersFileName),
+            JsonSerializer.Serialize(file, _jsonOptions));
+    }
+
+    // -------------------------------------------------------------- tabelle di conversione
+
     public IReadOnlyList<SymbolConversion> ListSymbolConversions()
     {
         lock (_symbolConversionsGate)
@@ -285,6 +466,12 @@ public sealed class WorkspaceService
             if (inUse is not null)
                 throw new InvalidOperationException(
                     $"La tabella di conversione '{code}' è usata dall'account '{inUse.Name}' e non può essere eliminata.");
+
+            var brokerInUse = ReadBrokersFile().Brokers.FirstOrDefault(broker =>
+                broker.SymbolConversionCode.Trim().Equals(code?.Trim() ?? string.Empty, StringComparison.OrdinalIgnoreCase));
+            if (brokerInUse is not null)
+                throw new InvalidOperationException(
+                    $"La tabella di conversione '{code}' è usata dal broker '{brokerInUse.Name}' e non può essere eliminata.");
 
             var file = ReadSymbolConversionsFile();
             var existing = FindSymbolConversion(file.Conversions, code)
@@ -469,6 +656,7 @@ public sealed class WorkspaceService
             Name = account.Name.Trim(),
             AccountNumber = account.AccountNumber?.Trim() ?? string.Empty,
             GroupId = account.GroupId?.Trim() ?? string.Empty,
+            BrokerCode = account.BrokerCode?.Trim() ?? string.Empty,
             Broker = account.Broker?.Trim() ?? string.Empty,
             Currency = string.IsNullOrWhiteSpace(account.Currency) ? "USD" : account.Currency.Trim().ToUpperInvariant(),
             InitialBalance = account.InitialBalance,

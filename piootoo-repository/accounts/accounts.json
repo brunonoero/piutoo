@@ -12,28 +12,30 @@
       "Name": "ftmo demo",
       "AccountNumber": "17188650",
       "GroupId": "FTMO",
+      "BrokerCode": "FTMO",
       "Broker": "ftmo",
       "Currency": "USD",
       "InitialBalance": 100000,
       "Enabled": true,
       "Notes": "",
       "CreatedUtc": "2026-09-02T04:28:30.8443864Z",
-      "UpdatedUtc": "2026-09-02T13:04:58.6095614Z",
-      "SymbolConversionCode": "cfd-ctrader-ftmo"
+      "UpdatedUtc": "2026-09-05T10:23:43.8187697Z",
+      "SymbolConversionCode": ""
     },
     {
       "Id": "ic-market-demo-01",
       "Name": "ic-market-demo-01",
       "AccountNumber": "1075035",
       "GroupId": "ICS-01",
+      "BrokerCode": "ICS",
       "Broker": "ics",
       "Currency": "USD",
       "InitialBalance": 100000.00,
       "Enabled": true,
       "Notes": "",
       "CreatedUtc": "2026-08-05T05:14:19.6301127Z",
-      "UpdatedUtc": "2026-09-01T14:55:33.1908012Z",
-      "SymbolConversionCode": "cfd-ic"
+      "UpdatedUtc": "2026-09-05T10:23:57.7456036Z",
+      "SymbolConversionCode": ""
     }
   ]
 }

@@ -222,19 +222,11 @@ public sealed class PriceScaleAndMoneyRiskTests : IDisposable
             WorkspaceId = workspace.Id,
             ExecutionMode = ExecutionMode.ExternalBroker,
             ClientRunMode = ClientRunMode.Realtime,
-            EnforceConcurrencyLimits = false
+            EnforceConcurrencyLimits = false,
+            MaxConcurrentTrades = 5
         });
 
-        var groups = new List<TradingGroupRow>
-        {
-            new()
-            {
-                GroupId = "g1", AccountNumber = "1001",
-                MaxConcurrentTrades = 5,
-                ConcurrencyCountMode = ConcurrencyCountMode.PositionsAndPendingOrders,
-            }
-        };
-        sessions.SetTradingGroups(descriptor.SessionId, descriptor.SessionToken, groups);
+        sessions.SetSessionAccounts(descriptor.SessionId, descriptor.SessionToken, ["1001"]);
         sessions.SetStatus(descriptor.SessionId, descriptor.SessionToken, TradingSessionStatus.Running);
 
         var barTime = new DateTime(2026, 1, 5, 0, 0, 0, DateTimeKind.Utc);

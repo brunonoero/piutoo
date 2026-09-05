@@ -69,7 +69,7 @@ public sealed class SessionStateFile
     /// <summary>Conti che hanno aperto questa sessione con <c>open-plan</c>.</summary>
     public IReadOnlyList<string> JoinedAccounts { get; init; } = [];
 
-    /// <summary>Vero se la sessione aveva i gruppi configurati, cioè se distribuisce.</summary>
+    /// <summary>Vero se la sessione aveva i conti configurati, cioè se distribuisce.</summary>
     public bool Distributed { get; init; }
 
     /// <summary>
@@ -95,12 +95,12 @@ public sealed class SessionStateFile
 
     public IReadOnlyList<SessionStatePosition> Positions { get; init; } = [];
 
-    /// <summary>Template già consegnati a un gruppo: <c>IntentId</c> → gruppi che ne hanno copia.</summary>
-    public IReadOnlyDictionary<string, List<string>> TemplateClaimedGroups { get; init; } =
+    /// <summary>Template già consegnati a un conto: <c>IntentId</c> → conti che ne hanno copia.</summary>
+    public IReadOnlyDictionary<string, List<string>> TemplateClaimedAccounts { get; init; } =
         new Dictionary<string, List<string>>();
 
-    /// <summary>Slot (gruppo, strategia, simbolo, direzione) occupati: chiave → conto e intent.</summary>
-    public IReadOnlyDictionary<string, SessionStateSlot> GroupStrategySlots { get; init; } =
+    /// <summary>Slot (conto, strategia, simbolo, direzione) occupati: chiave → conto e intent.</summary>
+    public IReadOnlyDictionary<string, SessionStateSlot> AccountStrategySlots { get; init; } =
         new Dictionary<string, SessionStateSlot>();
 
     // --- Contatori ---------------------------------------------------------------------------
