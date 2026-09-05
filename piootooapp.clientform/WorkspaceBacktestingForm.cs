@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -62,13 +62,6 @@ public partial class WorkspaceBacktestingForm : Form
     private readonly Button _sessionAddAccountGroupRow = new();
     private readonly Button _sessionSaveAccountGroups = new();
     private readonly Button _sessionReloadAccountGroups = new();
-    private readonly ComboBox _sessionPlanCombo = new();
-    private readonly TextBox _sessionPlanCode = new();
-    private readonly TextBox _sessionPlanName = new();
-    private readonly Button _sessionPlanNew = new();
-    private readonly Button _sessionPlanSave = new();
-    private readonly Button _sessionPlanDelete = new();
-    private List<TradingPlan> _tradingPlans = new();
     private readonly ToolTip _formToolTip = new() { AutoPopDelay = 25000, InitialDelay = 350, ReshowDelay = 100, ShowAlways = true, IsBalloon = true };
     private readonly Label _backtestingWorkspaceHint = new();
     private readonly Label _backtestingMasterFilterSummary = new();
@@ -947,18 +940,6 @@ public partial class WorkspaceBacktestingForm : Form
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         _sessionWorkspaceCombo.DropDownStyle = ComboBoxStyle.DropDownList;
         _sessionWorkspaceCombo.Width = 320;
-        _sessionWorkspaceCombo.SelectedIndexChanged += async (_, _) => await LoadTradingPlansAsync();
-        _sessionPlanCombo.DropDownStyle = ComboBoxStyle.DropDownList;
-        _sessionPlanCombo.Width = 220;
-        _sessionPlanCombo.SelectedIndexChanged += (_, _) => LoadSelectedTradingPlan();
-        _sessionPlanCode.Width = 110;
-        _sessionPlanName.Width = 180;
-        _sessionPlanNew.Text = "Nuovo piano";
-        _sessionPlanSave.Text = "Salva piano";
-        _sessionPlanDelete.Text = "Elimina piano";
-        _sessionPlanNew.Click += (_, _) => ClearTradingPlanEditor();
-        _sessionPlanSave.Click += async (_, _) => await SaveTradingPlanAsync();
-        _sessionPlanDelete.Click += async (_, _) => await DeleteTradingPlanAsync();
         _sessionModeCombo.DropDownStyle = ComboBoxStyle.DropDownList;
         _sessionModeCombo.Items.AddRange(Enum.GetNames<ExecutionMode>());
         _sessionModeCombo.SelectedItem = nameof(ExecutionMode.ServerSimulated);
@@ -969,15 +950,7 @@ public partial class WorkspaceBacktestingForm : Form
         var config = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, WrapContents = true };
         config.Controls.AddRange(new Control[]
         {
-            FieldLabel("Piano", "Configurazione operativa riutilizzabile salvata nel workspace."),
-            _sessionPlanCombo,
-            FieldLabel("Codice piano", "Codice globale inserito nel cBot."),
-            _sessionPlanCode,
-            FieldLabel("Nome piano", "Nome leggibile del piano."),
-            _sessionPlanName,
-            _sessionPlanNew,
-            _sessionPlanSave,
-            _sessionPlanDelete,
+            PlanEditorMovedHint(),
             FieldLabel("Workspace", "Workspace per cui viene creata e gestita la sessione di trading."),
             WithHelp(_sessionWorkspaceCombo, "Workspace per cui viene creata e gestita la sessione di trading."),
             FieldLabel("Modalità", "ServerSimulated: esecuzione simulata lato server. ExternalBroker: gli ordini vengono inoltrati a un broker esterno."),
@@ -1154,6 +1127,35 @@ public partial class WorkspaceBacktestingForm : Form
     {
         var label = new Label { Text = text, AutoSize = true, Padding = new Padding(6, 7, 2, 0) };
         if (!string.IsNullOrEmpty(help)) _formToolTip.SetToolTip(label, help);
+        return label;
+    }
+
+    /// <summary>
+    /// Sostituisce l'editor dei piani che viveva in questo tab. Componeva una
+    /// <c>SaveTradingPlanRequest</c> con i soli codice/nome/gruppi e mezzo <c>PositionSizing</c>, ma
+    /// il server riscrive il piano <b>intero</b> (<c>TradingPlanService.Save</c>): salvare da qui
+    /// riportava ai default commissione, moltiplicatore di size, limiti di concorrenza e soprattutto
+    /// <c>Holding</c>, cioe' cambiava in silenzio la policy di tenuta del conto — flat notturno e di
+    /// fine settimana forzati su un piano che teneva le posizioni.
+    ///
+    /// <para>Ripassare i campi non editabili tale e quale (come fa <c>PlanDetailScreen</c> con il
+    /// suo <c>_loadedPositionSizing</c>) avrebbe chiuso il buco di oggi e riaperto lo stesso il
+    /// giorno del prossimo campo nuovo: questa console e' tenuta per storia e nessuno la aggiorna
+    /// quando il contratto cresce. L'editor completo sta in <c>Shell/Screens/PlanDetailScreen</c>.</para>
+    /// </summary>
+    private Label PlanEditorMovedHint()
+    {
+        var label = new Label
+        {
+            Text = "I piani si modificano dalla console nuova (Piani di trading).",
+            AutoSize = true,
+            Padding = new Padding(6, 7, 12, 0),
+            ForeColor = SystemColors.GrayText
+        };
+        _formToolTip.SetToolTip(label,
+            "L'editor dei piani non e' piu' qui: salvava solo codice, nome e gruppi, e il server riscrive " +
+            "il piano intero, quindi azzerava commissione, moltiplicatore di size, limiti di concorrenza e " +
+            "la policy di tenuta (overnight/overweek). Usa la console nuova: menu 'Piani di trading'.");
         return label;
     }
     private Control BuildParametersPanel()
@@ -2126,99 +2128,6 @@ public partial class WorkspaceBacktestingForm : Form
         {
             _tradingResultsSummary.Text = $"Impossibile leggere trades.json: {ex.Message}";
         }
-    }
-
-    private async Task LoadTradingPlansAsync(string? selectCode = null)
-    {
-        if (_sessionWorkspaceCombo.SelectedItem is not WorkspaceListItem workspace) return;
-        try
-        {
-            NormalizeBaseAddress();
-            _tradingPlans = await _httpClient.GetFromJsonAsync<List<TradingPlan>>(
-                $"api/v1/workspaces/{Uri.EscapeDataString(workspace.Info.Id)}/trading-plans", _jsonOptions) ?? [];
-            _sessionPlanCombo.Items.Clear();
-            foreach (var plan in _tradingPlans)
-                _sessionPlanCombo.Items.Add($"{plan.Code} — {plan.Name}");
-            if (_tradingPlans.Count > 0)
-            {
-                var index = selectCode is null
-                    ? 0
-                    : _tradingPlans.FindIndex(x => x.Code.Equals(selectCode, StringComparison.OrdinalIgnoreCase));
-                _sessionPlanCombo.SelectedIndex = Math.Max(0, index);
-            }
-        }
-        catch (Exception ex)
-        {
-            MessageBox.Show(ex.Message, "Errore piani", MessageBoxButtons.OK, MessageBoxIcon.Error);
-        }
-    }
-
-    private void LoadSelectedTradingPlan()
-    {
-        var index = _sessionPlanCombo.SelectedIndex;
-        if (index < 0 || index >= _tradingPlans.Count) return;
-        var plan = _tradingPlans[index];
-        _sessionPlanCode.Text = plan.Code;
-        _sessionPlanName.Text = plan.Name;
-        _sessionAccountGroups.Rows.Clear();
-        foreach (var account in plan.Accounts)
-        {
-            _sessionAccountGroups.Rows.Add(account);
-        }
-    }
-
-    private void ClearTradingPlanEditor()
-    {
-        _sessionPlanCombo.SelectedIndex = -1;
-        _sessionPlanCode.Clear();
-        _sessionPlanName.Clear();
-        _sessionAccountGroups.Rows.Clear();
-    }
-
-    private async Task SaveTradingPlanAsync()
-    {
-        if (_sessionWorkspaceCombo.SelectedItem is not WorkspaceListItem workspace) return;
-        try
-        {
-            var conti = ReadSessionAccounts();
-            if (conti.Count == 0)
-                throw new InvalidOperationException("Il piano richiede almeno un conto.");
-            var request = new SaveTradingPlanRequest
-            {
-                Code = _sessionPlanCode.Text.Trim(),
-                Name = _sessionPlanName.Text.Trim(),
-                Accounts = conti,
-                PositionSizing = new PositionSizingConfig
-                {
-                    PortfolioRisk = new PortfolioRiskSizingConfig
-                    {
-                        Enabled = _sessionPortfolioRiskEnabled.Checked
-                    }
-                }
-            };
-            var uri = $"api/v1/workspaces/{Uri.EscapeDataString(workspace.Info.Id)}/trading-plans/" +
-                      Uri.EscapeDataString(request.Code);
-            var response = await _httpClient.PutAsJsonAsync(uri, request, _jsonOptions);
-            response.EnsureSuccessStatusCode();
-            await LoadTradingPlansAsync(request.Code);
-            ShowSession($"Piano {request.Code} salvato ({conti.Count} conti).");
-        }
-        catch (Exception ex)
-        {
-            MessageBox.Show(ex.Message, "Errore salvataggio piano", MessageBoxButtons.OK, MessageBoxIcon.Error);
-        }
-    }
-
-    private async Task DeleteTradingPlanAsync()
-    {
-        if (_sessionWorkspaceCombo.SelectedItem is not WorkspaceListItem workspace ||
-            string.IsNullOrWhiteSpace(_sessionPlanCode.Text)) return;
-        var response = await _httpClient.DeleteAsync(
-            $"api/v1/workspaces/{Uri.EscapeDataString(workspace.Info.Id)}/trading-plans/" +
-            Uri.EscapeDataString(_sessionPlanCode.Text.Trim()));
-        response.EnsureSuccessStatusCode();
-        ClearTradingPlanEditor();
-        await LoadTradingPlansAsync();
     }
 
     private async Task CreateTradingSessionAsync()

@@ -148,6 +148,13 @@ dovrà contenere anche il contesto pending fino all'evento di apertura della pos
 
 ## Editing dalla shell
 
+Un piano si modifica **solo da qui**. La console legacy (*File → Console legacy*, tab *Trading
+Session*) aveva un proprio editor che mandava soltanto codice, nome e righe gruppo/account: siccome
+il salvataggio riscrive il piano intero, ogni salvataggio da lì riportava ai default commissione,
+moltiplicatore di size, limiti di concorrenza e `Holding` — cioè cambiava in silenzio la policy di
+tenuta del conto. È stato rimosso (vedi [`../decisioni.md`](../decisioni.md) 2026-09-05); nel tab
+legacy resta la griglia gruppi/account, che però appartiene alla **sessione** attiva, non al piano.
+
 Il dettaglio di un piano (*Anagrafiche → Piani di trading*) espone tre riferimenti come
 combo invece che come testo libero, perché sono tutti identificatori che il server risolve e
 un refuso produce un errore soltanto all'apertura della sessione.

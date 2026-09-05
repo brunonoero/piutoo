@@ -2885,3 +2885,16 @@ tre barre vecchie per far passare per "coperto" un feed vuoto.
   ⚠ **Non e' il lavoro sulla console a giustificare il major**: export delle schede, filtro per
   workspace della lista strategie e filtro «solo selezionate» del piano sono additivi o puramente
   di presentazione, e da soli non avrebbero mosso nemmeno la minor.
+
+- **2026-09-05** — **L'editor dei piani esce dalla console legacy.** Il tab *Trading Session* di
+  `WorkspaceBacktestingForm` componeva una `SaveTradingPlanRequest` con i soli `Code`, `Name`,
+  conti e mezzo `PositionSizing`, ma `TradingPlanService.Save` riscrive il piano **intero**:
+  salvare da li' riportava ai default `CommissionPerContract`, `SizeMultiplier`,
+  `EnforceConcurrencyLimits`, il resto del sizing e soprattutto `Holding` — cioe' rimetteva il flat
+  notturno e di fine settimana su un piano che teneva le posizioni, senza dirlo.
+  Ripassare i campi non editabili tale e quale (come fa `PlanDetailScreen` con
+  `_loadedPositionSizing`) avrebbe chiuso il buco di oggi e lo avrebbe riaperto al prossimo campo
+  nuovo, perche' la console legacy e' tenuta per storia e nessuno la aggiorna quando il contratto
+  cresce. Restano quindi solo lista e dettaglio della console nuova (*Piani di trading*), che
+  editano il piano completo; nel tab legacy c'e' una riga che dice dove sono andati.
+  La griglia dei conti resta: li' serve alla **sessione** attiva, non al piano.
