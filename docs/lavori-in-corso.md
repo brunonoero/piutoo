@@ -199,19 +199,26 @@ questa modifica. Misurato su un worktree di `f56f147`, cioe' il commit precedent
 551 passati, 606 totali**. Dopo la correzione del bracket: **55 falliti, 554 passati, 609 totali** —
 stessi identici fallimenti, i tre in piu' che passano sono `BracketClaimSideTests`.
 
-Dove sono concentrati:
+**Aggiornamento 2026-09-05, su `36b6896`: 43 falliti, 717 passati, 760 totali.** Dodici sono
+rientrati e 154 test sono nati da allora; le suite Titano non esistono piu'. Il censimento per
+**causa** — piu' utile di quello per suite, perche' dice quali si correggono insieme:
 
-| suite | falliti |
-|---|---|
-| `TradingSessionsHttpTests` | 8 |
-| `RunProfileTests` | 8 |
-| `SourceBacktestSampleTests` | 5 |
-| `PriceChannelEngineTests` | 5 |
-| `BiasWeeklyEngineParityTests` | 5 |
-| `BiasBarCountEngineTests` | 4 |
-| parita' motori (VBO, TFM/TFU, SBO, RHL, LFD, TDV, RBB, MAC, PCH) | 13 |
-| Titano e concorrenza (`TradingGroupTitano`, `TitanoSizingAudit`, `TitanoRotation`, `ConcurrencyLimitsMatrix`) | 4 |
-| altri (`EasyEngineContract`, `BiasWeeklyVariants`, `PtsPriceChannel`) | 3 |
+| famiglia | n. | sintomo | lettura |
+|---|---|---|---|
+| orario di sessione | 11 | `Expected 2024-01-07T17:00:00Z` → `Actual 23:00Z` | il test scrive l'HHMM dichiarato **come se fosse UTC**, il codice lo converte dal fuso dichiarato |
+| segnale non emesso | 13 | `Expected Buy` → `Actual Hold` | stessa causa a valle: con la finestra letta nel fuso giusto la barra del test cade fuori |
+| valore numerico | 9 | livelli e prezzi (`110.25`→`110.00`, `158`→`168`) | da guardare uno per uno: qui ci sono anche i due di `SourceBacktestSampleTests`, che sono la questione aperta qui sotto |
+| sessione HTTP | 8 | `409 Conflict` all'apertura, `0.25`→`1` sul sizing | isolamento fra classi di test e conversione dell'account |
+| buco di storia | 2 | `ArgumentException: Buco nella storia di NQ\|15` | la finestra del push non si sovrappone a cio' che il server ha |
+
+**Gli scarti orari non sono casuali**, ed e' l'indizio che tiene insieme le prime due famiglie:
+`+6h` e' `America/Chicago` a gennaio (sessione 1700 di ES/NQ), `+5h` e' `America/New_York`, `-1h` e'
+`Europe/Rome` (la finestra di ricerca). Sono esattamente le conversioni che `SessionClock` fa e che
+i test, scritti prima, non facevano. Se la lettura regge, in quelle 24 righe **il codice e' quello
+giusto** — e' l'invariante di `CLAUDE.md`, "gli orari dichiarano il proprio fuso e non si convertono
+mai a mano" — e sono i test a descrivere il comportamento di prima di `a4d2d71` («fix varie time di
+sessione forse tutto da rivedere»). Va verificata caso per caso prima di riscrivere: aggiornare un
+test perche' torni verde e' il modo tipico di cementare un bug.
 
 E' il punto interrogativo del messaggio di commit «refactor vari forse regression?», e va sciolto
 **prima** del run del punto 1: con i test di parita' dei motori rossi non si sa se una differenza nel

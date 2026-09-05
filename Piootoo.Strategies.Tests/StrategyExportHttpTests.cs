@@ -15,9 +15,15 @@ namespace Piootoo.Strategies.Tests;
 /// <para>Il <c>BasePath</c> punta al repository dati vero e non a una cartella temporanea: dossier e
 /// motori Python sono allegati reali, e un test che li togliesse verificherebbe soltanto che
 /// l'endpoint risponde.</para>
+///
+/// <para><b>Ma solo il BasePath.</b> Workspace, account e settings vanno su una radice temporanea:
+/// l'<c>appsettings</c> del server li deriva da <c>[BasePath]</c>, quindi lasciarli seguire il
+/// repository vero farebbe girare questo test sui workspace della macchina — e con xUnit che manda
+/// avanti le classi in parallelo, sugli stessi file di un altro test.</para>
 /// </summary>
 public sealed class StrategyExportHttpTests : IDisposable
 {
+    private readonly string _root = Path.Combine(Path.GetTempPath(), $"piootoo-export-{Guid.NewGuid():N}");
     private readonly WebApplicationFactory<Program> _factory;
     private readonly HttpClient _client;
 
@@ -28,7 +34,14 @@ public sealed class StrategyExportHttpTests : IDisposable
         {
             builder.UseEnvironment("Testing");
             builder.ConfigureAppConfiguration((_, config) => config.AddInMemoryCollection(
-                new Dictionary<string, string?> { ["Piootoo:BasePath"] = repository }));
+                new Dictionary<string, string?>
+                {
+                    ["Piootoo:BasePath"] = repository,
+                    ["Piootoo:Workspaces"] = _root,
+                    ["Piootoo:Accounts"] = Path.Combine(_root, "accounts"),
+                    ["Piootoo:SettingsPath"] = Path.Combine(_root, "settings"),
+                    ["Piootoo:RepositoryPath"] = Path.Combine(_root, "datafeed")
+                }));
         });
         _client = _factory.CreateClient();
     }
@@ -37,6 +50,7 @@ public sealed class StrategyExportHttpTests : IDisposable
     {
         _client.Dispose();
         _factory.Dispose();
+        if (Directory.Exists(_root)) Directory.Delete(_root, recursive: true);
     }
 
     [Fact]
