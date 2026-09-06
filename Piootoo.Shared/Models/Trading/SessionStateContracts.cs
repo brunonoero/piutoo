@@ -131,6 +131,14 @@ public sealed class SessionStateFile
     /// </summary>
     public IReadOnlyList<SessionStateEntryFill> EntryFills { get; init; } = [];
 
+    /// <summary>
+    /// Ingressi riempiti per (simbolo|strategia, giorno UTC). E' il numero che la strategia legge
+    /// come <c>EntriesToday</c> mentre decide se emettere: perderlo a metà giornata fa ri-emettere
+    /// una strategia che aveva già speso il proprio ingresso, cioè apre un trade che il tetto
+    /// escludeva. Distinto da <see cref="EntryFills"/>, che invece rifiuta un intent già emesso.
+    /// </summary>
+    public IReadOnlyList<SessionStateEntriesByDay> EntriesByDay { get; init; } = [];
+
     /// <summary>Ultima sequence accettata per stream.</summary>
     public IReadOnlyDictionary<string, long> LastSequence { get; init; } = new Dictionary<string, long>();
 
@@ -185,6 +193,18 @@ public sealed class SessionStateSlot
 }
 
 /// <summary>Una riga del conteggio dei fill di ingresso.</summary>
+/// <summary>Una riga di <see cref="SessionStateFile.EntriesByDay"/>.</summary>
+public sealed class SessionStateEntriesByDay
+{
+    /// <summary>Chiave <c>simbolo|strategia</c>, come la costruisce la valutazione.</summary>
+    public required string StrategyKey { get; init; }
+
+    /// <summary>Giorno UTC a cui il conteggio si riferisce.</summary>
+    public DateTime Day { get; init; }
+
+    public int Count { get; init; }
+}
+
 public sealed class SessionStateEntryFill
 {
     /// <summary>Chiave <c>strategia|simbolo</c>.</summary>

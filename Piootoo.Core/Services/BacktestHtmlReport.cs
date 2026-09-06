@@ -1,3 +1,4 @@
+﻿using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using Piootoo.Shared.Models;
@@ -39,6 +40,46 @@ public sealed record BacktestReportTrade(
         trade.ExitTimeUtc,
         trade.NetProfit);
 }
+
+/// <summary>
+/// Il piano che ha governato il run, nella forma che serve al report: chi ha deciso l'universo, cosa
+/// ha spento, cosa ha imposto su tenuta e commissione.
+/// </summary>
+/// <remarks>
+/// Un tipo proprio e non il <c>TradingPlan</c>: il report si scrive anche a posteriori dagli
+/// artefatti di un run esterno, dove del piano resta il solo codice nel marcatore di origine, e il
+/// file su disco puo' nel frattempo essere cambiato. Cio' che il report deve dichiarare e' quello
+/// che il run ha <i>applicato</i>, non quello che il piano dice oggi.
+/// </remarks>
+public sealed record BacktestPlanReportInfo(
+    string? PlanCode,
+    string? PlanName = null,
+    string? BrokerCode = null,
+    string? SymbolConversionCode = null,
+    /// <summary>
+    /// Le strategie che il piano ha lasciato girare, per nome di esecuzione: quelle che si
+    /// ritrovano in <c>trades.json</c>. Si elencano le <b>attive</b> e non le escluse — chi legge un
+    /// report vuole sapere cosa ha prodotto quella equity, non cosa non l'ha prodotta; il conto
+    /// delle esclusioni, e il perche' di ciascuna, restano in <c>backtest-summary.json</c>.
+    /// Vuota quando il report e' ricostruito a posteriori e l'elenco non e' piu' ricavabile.
+    /// </summary>
+    IReadOnlyList<string>? ActiveStrategies = null,
+    AccountHoldingPolicy? Holding = null,
+    decimal? CommissionPerContract = null);
+
+/// <summary>
+/// Lo spread che il run ha applicato all'ingresso, per simbolo, nella forma che serve al report.
+/// </summary>
+/// <param name="Source">
+/// Da dove vengono i numeri: broker, statistica e file della misura, oppure la nota che sono stati
+/// scritti a mano. E' meta' dell'informazione — <c>@NQ 2,00</c> da solo non dice se e' la mediana di
+/// agosto su FTMO o una media di due anni fa su un altro conto.
+/// </param>
+/// <param name="Points">Spread in punti dello strumento, per simbolo. Vuoto = run senza spread.</param>
+public sealed record BacktestSpreadReportInfo(
+    string Source,
+    IReadOnlyDictionary<string, decimal> Points,
+    IReadOnlyDictionary<string, IReadOnlyList<decimal>>? PointsByHour = null);
 
 /// <summary>
 /// Report HTML di un backtest: riepilogo, resoconto annuale e mensile, equity globale e per
@@ -91,11 +132,186 @@ public static class BacktestHtmlReport
         html.AppendLine($"  <p class=\"feed\">Feed: {System.Net.WebUtility.HtmlEncode(label)}</p>");
     }
 
+    /// <summary>
+    /// Il piano che ha governato il run. Vale la stessa ragione del feed: universo, strategie
+    /// spente, orari di tenuta e commissione cambiano l'equity senza comparire in un solo trade, e
+    /// due report identici in tutto il resto possono descrivere piani diversi. Un run <i>senza</i>
+    /// piano lo dice: il silenzio si leggerebbe come "il piano c'era, non l'abbiamo scritto".
+    /// </summary>
+    private static void AppendPlanHtml(StringBuilder html, BacktestPlanReportInfo? plan)
+    {
+        if (plan is null || string.IsNullOrWhiteSpace(plan.PlanCode))
+        {
+            html.AppendLine("  <p class=\"feed\">Piano: nessuno — intero masterfilter, parametri del run.</p>");
+            return;
+        }
+
+        var name = string.IsNullOrWhiteSpace(plan.PlanName)
+            ? plan.PlanCode
+            : $"{plan.PlanName} · {plan.PlanCode}";
+
+        html.AppendLine("  <div class=\"card\">");
+        html.AppendLine("    <h2>Piano</h2>");
+        html.AppendLine("    <div class=\"metrics\">");
+        html.AppendLine($"      <div class=\"metric\"><span>Piano</span><b>{System.Net.WebUtility.HtmlEncode(name)}</b></div>");
+        html.AppendLine($"      <div class=\"metric\"><span>Broker</span><b>{System.Net.WebUtility.HtmlEncode(Or(plan.BrokerCode, "nessuno"))}</b></div>");
+        html.AppendLine($"      <div class=\"metric\"><span>Tabella simboli</span><b>{System.Net.WebUtility.HtmlEncode(Or(plan.SymbolConversionCode, "nessuna (opera tutto)"))}</b></div>");
+
+        if (plan.ActiveStrategies is { Count: > 0 } active)
+        {
+            html.AppendLine($"      <div class=\"metric\"><span>Strategie attive</span><b>{active.Count}</b></div>");
+        }
+
+        if (plan.Holding is { } holding)
+        {
+            html.AppendLine($"      <div class=\"metric\"><span>Overnight</span><b>{(holding.AllowOvernight ? "permesso" : $"piatto {holding.SessionFlatUtcHhmm:0000}Z")}</b></div>");
+            html.AppendLine($"      <div class=\"metric\"><span>Fine settimana</span><b>{(holding.AllowOverweek ? "permesso" : $"piatto {holding.WeekEnd.FromUtcHhmm:0000}Z")}</b></div>");
+        }
+
+        if (plan.CommissionPerContract is { } commission)
+        {
+            html.AppendLine($"      <div class=\"metric\"><span>Commissione</span><b>{commission:F2} / contratto</b></div>");
+        }
+
+        html.AppendLine("    </div>");
+
+        // L'elenco per esteso sotto le metriche: il numero da solo dice quante hanno operato, non
+        // quali, e due run dello stesso piano a distanza di settimane possono avere lo stesso conto
+        // con strategie diverse — il masterfilter cambia, e il piano spegne per Id.
+        if (plan.ActiveStrategies is { Count: > 0 } names)
+        {
+            var joined = string.Join(", ", names.Select(System.Net.WebUtility.HtmlEncode));
+            html.AppendLine($"    <p class=\"muted\" style=\"font-size:12px;line-height:1.6\">{joined}</p>");
+        }
+
+        html.AppendLine("  </div>");
+
+        static string Or(string? value, string fallback)
+            => string.IsNullOrWhiteSpace(value) ? fallback : value;
+    }
+
+    /// <summary>
+    /// Lo spread applicato all'ingresso, un valore per simbolo. Vale la stessa ragione del feed e
+    /// del piano: cambia l'equity senza comparire in un solo trade, e due report identici in tutto
+    /// il resto possono descrivere run con costi di transazione diversi.
+    ///
+    /// <para>Si elencano <b>tutti i simboli del run</b> e non i soli misurati: un simbolo senza
+    /// spread e' un'assenza di misura, e una riga mancante si legge come "non c'era niente da dire".
+    /// E' esattamente il caso che si vuole vedere — una strategia che gira gratis perche' il suo
+    /// strumento non e' mai stato misurato.</para>
+    ///
+    /// <para>Un run <i>senza</i> spread lo dichiara invece di tacere: il silenzio si leggerebbe come
+    /// "lo spread c'era, non l'abbiamo scritto", ed e' il malinteso che rende due cartelle
+    /// indistinguibili.</para>
+    /// </summary>
+    private static void AppendSpreadHtml(
+        StringBuilder html,
+        BacktestSpreadReportInfo? spread,
+        IReadOnlyList<string> symbols)
+    {
+        // Null NON e' "nessuno spread": e' "di spread qui non si puo' dire niente". E' il caso del
+        // report ricostruito da un run dell'engine esterno, dove i trade vengono da un conto vero e
+        // lo spread l'ha pagato il broker, non un modello. Dichiarare "nessuno" li' sarebbe falso.
+        if (spread is null)
+            return;
+
+        if (spread.Points.Count == 0)
+        {
+            html.AppendLine("  <p class=\"feed\">Spread: nessuno — ingressi al prezzo del feed.</p>");
+            return;
+        }
+
+        html.AppendLine("  <div class=\"card\">");
+        html.AppendLine("    <h2>Spread applicato all'ingresso</h2>");
+        html.AppendLine($"    <p class=\"muted\">Misura: {System.Net.WebUtility.HtmlEncode(spread.Source)}. " +
+                        "Peggiora il solo prezzo di ingresso (long +spread, short −spread); " +
+                        "trigger, livelli e uscite restano sul prezzo del feed.</p>");
+
+        // Con la risoluzione per ora la colonna del simbolo non e' piu' cio' che il run ha pagato ma
+        // il ripiego delle ore senza quotazione: dirlo qui evita di leggere quel numero come il
+        // costo, che e' l'unico modo in cui questa scheda puo' ingannare.
+        var byHour = spread.PointsByHour is { Count: > 0 } ? spread.PointsByHour : null;
+        if (byHour is not null)
+        {
+            html.AppendLine("    <p class=\"muted\">Risoluzione per ora UTC: si applica il valore dell'ora " +
+                            "dell'ingresso. La colonna «Spread» e' il ripiego delle ore che il broker non " +
+                            "ha quotato, non il costo del run.</p>");
+        }
+
+        html.AppendLine("    <table class=\"summary-table\">");
+        html.AppendLine(byHour is null
+            ? "      <thead><tr><th>Symbol</th><th>Spread (punti)</th></tr></thead>"
+            : "      <thead><tr><th>Symbol</th><th>Spread (punti)</th><th>Per ora: min → max (UTC)</th></tr></thead>");
+        html.AppendLine("      <tbody>");
+
+        // I simboli del run per primi, poi gli eventuali misurati che il run non ha toccato: la
+        // tabella copre venti strumenti e il run spesso due, e vedere gli altri aiuta a capire se la
+        // misura e' quella giusta.
+        var listed = new List<string>(symbols);
+        foreach (var measured in spread.Points.Keys.OrderBy(key => key, StringComparer.OrdinalIgnoreCase))
+        {
+            if (!listed.Contains(measured, StringComparer.OrdinalIgnoreCase))
+                listed.Add(measured);
+        }
+
+        foreach (var symbol in listed)
+        {
+            var used = symbols.Contains(symbol, StringComparer.OrdinalIgnoreCase);
+            var value = spread.Points.TryGetValue(symbol, out var points)
+                ? points.ToString("0.####", CultureInfo.InvariantCulture)
+                : "non misurato";
+
+            var label = System.Net.WebUtility.HtmlEncode(symbol) + (used ? string.Empty : " <span class=\"muted\">(non usato dal run)</span>");
+
+            if (byHour is null)
+            {
+                html.AppendLine($"        <tr><td>{label}</td><td>{value}</td></tr>");
+                continue;
+            }
+
+            html.AppendLine($"        <tr><td>{label}</td><td>{value}</td><td>{DescribeHours(byHour, symbol)}</td></tr>");
+        }
+
+        html.AppendLine("      </tbody>");
+        html.AppendLine("    </table>");
+        html.AppendLine("  </div>");
+    }
+
+    /// <summary>
+    /// L'escursione oraria di un simbolo con le <b>ore</b> in cui cade, non i soli due numeri: chi
+    /// legge il report sa in che ore opera la strategia, e «12 punti alle 22 UTC» gli dice se quel
+    /// massimo la riguarda o e' la riapertura serale che non vede mai.
+    /// </summary>
+    private static string DescribeHours(
+        IReadOnlyDictionary<string, IReadOnlyList<decimal>> byHour,
+        string symbol)
+    {
+        if (!byHour.TryGetValue(symbol, out var hours) || hours.Count == 0)
+            return "<span class=\"muted\">costante per simbolo</span>";
+
+        var minHour = 0;
+        var maxHour = 0;
+        for (var hour = 1; hour < hours.Count; hour++)
+        {
+            if (hours[hour] < hours[minHour])
+                minHour = hour;
+            if (hours[hour] > hours[maxHour])
+                maxHour = hour;
+        }
+
+        return string.Format(
+            CultureInfo.InvariantCulture,
+            "{0:0.####} ({1:00}) → {2:0.####} ({3:00})",
+            hours[minHour], minHour, hours[maxHour], maxHour);
+    }
+
     public static void Write(
         string filePath,
         BacktestingResult result,
         IReadOnlyList<BacktestReportTrade> closedTrades,
-        IReadOnlyList<string>? notes = null)
+        IReadOnlyList<string>? notes = null,
+        BacktestPlanReportInfo? plan = null,
+        BacktestSpreadReportInfo? spread = null)
     {
         var series = result.StrategyResults
             .Where(row => row.Equity != 0)
@@ -171,6 +387,8 @@ public static class BacktestHtmlReport
             html.AppendLine($"<h1>{title}</h1>");
             AppendFeedHtml(html, result.PriceSource);
             AppendNotesHtml(html, notes);
+            AppendPlanHtml(html, plan);
+            AppendSpreadHtml(html, spread, symbols);
             AppendBacktestSummaryHtml(html, result, symbolsText, totalTrades, strategyCount);
             AppendYearlySummaryHtml(html, result, closedTrades);
             AppendMonthlySummaryHtml(html, result, closedTrades);
@@ -211,6 +429,8 @@ public static class BacktestHtmlReport
         html.AppendLine($"  <h1>{title}</h1>");
         AppendFeedHtml(html, result.PriceSource);
         AppendNotesHtml(html, notes);
+        AppendPlanHtml(html, plan);
+        AppendSpreadHtml(html, spread, symbols);
         AppendBacktestSummaryHtml(html, result, symbolsText, totalTrades, strategyCount);
         AppendYearlySummaryHtml(html, result, closedTrades);
         AppendMonthlySummaryHtml(html, result, closedTrades);
@@ -228,6 +448,34 @@ public static class BacktestHtmlReport
         html.AppendLine($"    const series = {chartJson};");
         html.AppendLine($"    const globalSeries = {globalChartJson};");
         html.AppendLine("    const colors = ['#38bdf8','#f97316','#22c55e','#e879f9','#facc15','#fb7185','#a78bfa','#2dd4bf','#c084fc','#f87171'];");
+        html.AppendLine("    const pad2 = n => String(n).padStart(2, '0');");
+        html.AppendLine("    function timeTicks(minTime, maxTime) {");
+        html.AppendLine("      const span = Math.max(1, maxTime - minTime), HOUR = 3600000, DAY = 24 * HOUR, target = 14;");
+        html.AppendLine("      const ticks = [], push = t => { if (t >= minTime && t <= maxTime) ticks.push(t); };");
+        // Sotto i tre giorni l'unita' leggibile e' l'ora: su una finestra cosi' corta due tick
+        // giornalieri direbbero solo che il run e' durato poco.
+        html.AppendLine("      if (span <= 3 * DAY) {");
+        html.AppendLine("        const step = [HOUR, 2 * HOUR, 3 * HOUR, 6 * HOUR, 12 * HOUR].find(s => span / s <= target) || DAY;");
+        html.AppendLine("        for (let cursor = Math.ceil(minTime / step) * step; cursor <= maxTime; cursor += step) push(cursor);");
+        html.AppendLine("        return { ticks, label: t => { const d = new Date(t); return pad2(d.getUTCDate()) + '/' + pad2(d.getUTCMonth() + 1) + ' ' + pad2(d.getUTCHours()) + ':' + pad2(d.getUTCMinutes()); } };");
+        html.AppendLine("      }");
+        // Fino a ~sette mesi si ancora alla mezzanotte UTC del primo giorno e si avanza a passo
+        // fisso: i tick restano allineati fra il grafico globale e quello per strategia.
+        html.AppendLine("      if (span <= 200 * DAY) {");
+        html.AppendLine("        const stepDays = [1, 2, 3, 7, 14, 28].find(d => span / (d * DAY) <= target) || 28;");
+        html.AppendLine("        const first = new Date(minTime);");
+        html.AppendLine("        let cursor = Date.UTC(first.getUTCFullYear(), first.getUTCMonth(), first.getUTCDate());");
+        html.AppendLine("        while (cursor <= maxTime) { push(cursor); cursor += stepDays * DAY; }");
+        html.AppendLine("        return { ticks, label: t => { const d = new Date(t); return pad2(d.getUTCDate()) + '/' + pad2(d.getUTCMonth() + 1); } };");
+        html.AppendLine("      }");
+        // Oltre, il mese di calendario: i mesi non hanno la stessa lunghezza, quindi qui si cammina
+        // sul calendario e si dirada, invece di sommare millisecondi.
+        html.AppendLine("      const months = [];");
+        html.AppendLine("      { const first = new Date(minTime); let cursor = Date.UTC(first.getUTCFullYear(), first.getUTCMonth(), 1); while (cursor <= maxTime) { if (cursor >= minTime) months.push(cursor); const c = new Date(cursor); cursor = Date.UTC(c.getUTCFullYear(), c.getUTCMonth() + 1, 1); } }");
+        html.AppendLine("      const stride = Math.max(1, Math.ceil(months.length / 14));");
+        html.AppendLine("      months.forEach((t, i) => { if (i % stride === 0) ticks.push(t); });");
+        html.AppendLine("      return { ticks, label: t => { const d = new Date(t); return pad2(d.getUTCMonth() + 1) + '/' + d.getUTCFullYear(); } };");
+        html.AppendLine("    }");
         html.AppendLine("    function drawChart(canvasId, legendId, chartSeries, showDrawdown = false) {");
         html.AppendLine("      const canvas = document.getElementById(canvasId);");
         html.AppendLine("      const legend = document.getElementById(legendId);");
@@ -249,14 +497,15 @@ public static class BacktestHtmlReport
         html.AppendLine("      ctx.clearRect(0,0,canvas.width,canvas.height);");
         html.AppendLine("      ctx.strokeStyle = '#334155'; ctx.lineWidth = 1; ctx.fillStyle = '#94a3b8'; ctx.font = '12px Arial';");
         html.AppendLine("      for (let i=0;i<=5;i++){ const yy = pad.top + i*(canvas.height-pad.top-pad.bottom)/5; ctx.beginPath(); ctx.moveTo(pad.left,yy); ctx.lineTo(canvas.width-pad.right,yy); ctx.stroke(); const val = yMax - i*(yMax-yMin)/5; ctx.fillText(val.toFixed(2), 8, yy+4); }");
-        // Asse X: un tick per mese di calendario UTC, diradato in modo da non stampare mai più di
-        // ~14 etichette. Tutti i timestamp sono UTC (invariante del progetto), quindi si usano
-        // getUTC* e non le varianti locali, altrimenti il mese cambierebbe con il fuso del browser.
-        html.AppendLine("      const monthTicks = [];");
-        html.AppendLine("      { const first = new Date(minTime); let cursor = Date.UTC(first.getUTCFullYear(), first.getUTCMonth(), 1); while (cursor <= maxTime) { if (cursor >= minTime) monthTicks.push(cursor); const c = new Date(cursor); cursor = Date.UTC(c.getUTCFullYear(), c.getUTCMonth() + 1, 1); } }");
-        html.AppendLine("      const tickStride = Math.max(1, Math.ceil(monthTicks.length / 14));");
+        // Asse X: il passo lo sceglie la DURATA del run, non il calendario. Un tick al mese lasciava
+        // un backtest di trenta giorni con una etichetta sola — e quella, per giunta, poteva cadere
+        // fuori dal range e sparire — quindi su periodi brevi si scende a giorni e poi a ore,
+        // puntando a una decina di etichette qualunque sia la scala. Tutti i timestamp sono UTC
+        // (invariante del progetto): si usano getUTC* e non le varianti locali, altrimenti giorno e
+        // mese cambierebbero con il fuso del browser.
+        html.AppendLine("      const tickInfo = timeTicks(minTime, maxTime);");
         html.AppendLine("      ctx.textAlign = 'center';");
-        html.AppendLine("      monthTicks.forEach((tick, i) => { if (i % tickStride !== 0) return; const xx = x(tick); ctx.strokeStyle = '#1e293b'; ctx.beginPath(); ctx.moveTo(xx, pad.top); ctx.lineTo(xx, canvas.height - pad.bottom); ctx.stroke(); const d = new Date(tick); ctx.fillStyle = '#94a3b8'; ctx.fillText(String(d.getUTCMonth() + 1).padStart(2, '0') + '/' + d.getUTCFullYear(), xx, canvas.height - pad.bottom + 20); });");
+        html.AppendLine("      tickInfo.ticks.forEach(tick => { const xx = x(tick); ctx.strokeStyle = '#1e293b'; ctx.beginPath(); ctx.moveTo(xx, pad.top); ctx.lineTo(xx, canvas.height - pad.bottom); ctx.stroke(); ctx.fillStyle = '#94a3b8'; ctx.fillText(tickInfo.label(tick), xx, canvas.height - pad.bottom + 20); });");
         html.AppendLine("      ctx.textAlign = 'left'; ctx.strokeStyle = '#334155'; ctx.fillStyle = '#94a3b8';");
         html.AppendLine("      if (showDrawdown) { const dd = chartSeries[0].points; const maxDd = Math.max(0, ...dd.map(p => Math.abs(p.drawdown || 0))); const plotH = canvas.height-pad.top-pad.bottom; const barW = Math.max(1, (canvas.width-pad.left-pad.right)/Math.max(1,dd.length)*0.8); ctx.fillStyle='rgba(239,68,68,0.28)'; dd.forEach(p=>{ const h=maxDd===0?0:Math.abs(p.drawdown||0)/maxDd*plotH; ctx.fillRect(x(p.time)-barW/2,canvas.height-pad.bottom-h,barW,h); }); ctx.fillStyle='#fca5a5'; for(let i=0;i<=5;i++){ const val=maxDd*(5-i)/5; const yy=pad.top+i*plotH/5; ctx.fillText(val.toFixed(2),canvas.width-pad.right+8,yy+4); } }");
         html.AppendLine("      chartSeries.forEach((s, idx) => { const color = colors[idx % colors.length]; ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.beginPath(); s.points.forEach((p, i) => { const xx = x(p.time); const yy = y(p.equity); if(i===0) ctx.moveTo(xx, yy); else ctx.lineTo(xx, yy); }); ctx.stroke(); });");

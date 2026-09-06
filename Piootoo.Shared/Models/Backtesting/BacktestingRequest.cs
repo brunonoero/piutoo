@@ -69,6 +69,69 @@ public class BacktestingRequest
     public Dictionary<string, decimal>? StopFillSlippagePoints { get; set; }
 
     /// <summary>
+    /// Spread denaro/lettera in punti dello strumento, per simbolo. Null o vuoto = nessuno spread,
+    /// che e' il comportamento storico del motore.
+    ///
+    /// <para>Peggiora il solo <b>prezzo di ingresso</b> — long a <c>fill + spread</c>, short a
+    /// <c>fill - spread</c> — e lascia dove sono trigger, livelli e uscite. Il perche', e perche' il
+    /// trigger dei pending resta sul feed, stanno su <c>PiootooTradingService.SpreadPoints</c>.</para>
+    ///
+    /// <para>Come <see cref="StopFillSlippagePoints"/> e' una misura del broker e del periodo, non
+    /// una costante: la produce <c>PiootooSpreadDumpBot</c> e va ricalibrata quando cambia l'uno o
+    /// l'altro. Un valore negativo fa fallire l'avvio: uno spread negativo non e' un modello
+    /// ottimista, e' un ingresso migliore del mercato.</para>
+    ///
+    /// <para>I simboli e i valori applicati finiscono nel log di avvio del job e in
+    /// <c>backtest-summary.json</c>: due run con spread diverso non sono confrontabili, e mesi dopo
+    /// non c'e' altro modo di accorgersene.</para>
+    /// </summary>
+    public Dictionary<string, decimal>? SpreadPoints { get; set; }
+
+    /// <summary>
+    /// Broker di cui caricare la misura di spread, da
+    /// <c>piootoo-repository/spread/{BROKER}/*spread-by-symbol*.csv</c>. Null o vuoto = nessuna
+    /// tabella: valgono i soli <see cref="SpreadPoints"/> scritti a mano, e senza nemmeno quelli il
+    /// run gira senza spread come ha sempre fatto.
+    ///
+    /// <para>Il file lo produce <c>PiootooSpreadDumpBot</c> sui tick del conto vero. Si carica da
+    /// li' e non si ricopiano i numeri nella richiesta perche' sono venti valori che nessuno
+    /// trascrive due volte allo stesso modo, e perche' il file porta con se' quando e su che conto
+    /// e' stato misurato — che e' cio' che rende un run rifacibile mesi dopo.</para>
+    ///
+    /// <para><b>Scelta indipendente da <see cref="DatafeedBroker"/> e da <see cref="PlanCode"/>.</b>
+    /// Girare sul feed interno con lo spread di un broker vero e' esattamente il confronto che dice
+    /// quanto costa quel broker; legare le due scelte lo renderebbe impossibile. Vale la stessa
+    /// regola del datafeed: un broker senza misura fa fallire l'avvio, non ripiega su "nessuno
+    /// spread".</para>
+    ///
+    /// <para>I valori della tabella sono un default per simbolo: un simbolo presente anche in
+    /// <see cref="SpreadPoints"/> prende il valore scritto a mano, cosi' si puo' correggere un
+    /// singolo strumento senza rifare la misura.</para>
+    /// </summary>
+    public string? SpreadBroker { get; set; }
+
+    /// <summary>
+    /// Quale numero della distribuzione misurata diventa lo spread del run. Conta solo quando
+    /// <see cref="SpreadBroker"/> e' valorizzato: gli <see cref="SpreadPoints"/> scritti a mano sono
+    /// gia' un numero scelto. Vedi <see cref="Piootoo.Shared.Models.Backtesting.SpreadStatistic"/>.
+    /// </summary>
+    public SpreadStatistic SpreadStatistic { get; set; } = SpreadStatistic.Median;
+
+    /// <summary>
+    /// Se lo spread e' una costante per simbolo o il valore dell'ora UTC dell'ingresso. Conta solo
+    /// quando <see cref="SpreadBroker"/> e' valorizzato, e legge il file <c>spread-by-hour</c>
+    /// della <b>stessa</b> misura — stesso broker, stessa finestra — non il piu' recente per conto
+    /// proprio: due file di mesi diversi darebbero una costante di riferimento e delle ore che non
+    /// vengono dagli stessi tick.
+    ///
+    /// <para>Sta nella richiesta e nel summary perche' due run con risoluzioni diverse non sono
+    /// confrontabili, e gli spread applicati sono numeri: un numero non dice se viene dalla riga
+    /// del simbolo o da quella delle 14 UTC. Vedi
+    /// <see cref="Piootoo.Shared.Models.Backtesting.SpreadResolution"/>.</para>
+    /// </summary>
+    public SpreadResolution SpreadResolution { get; set; } = SpreadResolution.PerSymbol;
+
+    /// <summary>
     /// Quanto deve migliorare il picco favorevole prima che il trailing lo segua, in frazione
     /// della distanza di trailing. Stesso numero e stesso significato del parametro omonimo del
     /// cBot; il perche' sta su <c>PiootooTradingService.TrailingMinStepFraction</c>.
@@ -82,24 +145,40 @@ public class BacktestingRequest
     public decimal TrailingMinStepFraction { get; set; } = 0.10m;
 
     /// <summary>
-    /// Conto di cui applicare l'<b>universo operativo</b>: le strategie su simboli che la sua tabella
-    /// di conversione non prevede non vengono eseguite. Null o vuoto = nessun conto, il run gira
-    /// sull'intero masterfilter.
+    /// Piano di cui il run riproduce le regole. Null o vuoto = nessun piano: il run gira
+    /// sull'intero masterfilter con i parametri che questa richiesta porta, ed e' il run neutro di
+    /// sempre.
+    ///
+    /// <para><b>Quando c'e' un piano, decide lui.</b> Il server ne prende l'universo operativo (i
+    /// simboli che la tabella di conversione del suo broker prevede: le strategie sugli altri non
+    /// girano affatto), le strategie che il piano tiene spente
+    /// (<c>TradingPlan.DisabledStrategies</c>), la policy di tenuta (<see cref="Holding"/>) e la
+    /// commissione per contratto. Quei tre campi della richiesta vengono <b>sovrascritti</b>, non
+    /// composti: e' l'unico modo perche' un run e il live dello stesso piano siano confrontabili
+    /// per costruzione invece che per disciplina di chi compila la richiesta. Il log di avvio del
+    /// job e <c>backtest-summary.json</c> dichiarano i valori davvero applicati.</para>
+    ///
+    /// <para><b>Il piano e non un conto.</b> La tabella dei simboli e' una proprieta' del
+    /// <i>broker</i> (<c>TradingBroker.SymbolConversionCode</c>) e tutti i conti di un piano sono
+    /// di quel broker: l'universo e' lo stesso per tutti, quindi nominare un conto per ottenerlo
+    /// significava scegliere a caso fra conti che davano la stessa risposta. Fino al 05/09/2026 qui
+    /// c'era <c>AccountNumber</c>.</para>
     ///
     /// <para><b>Solo l'universo, non la size.</b> Il backtest interno resta neutro rispetto ai
-    /// conti: capitale, <c>BalanceScale</c> e moltiplicatori di contratto non entrano da qui e
-    /// restano fissi a 1. Il motivo e' quello di <c>docs/decisioni.md</c> (2026-08-05) e non e'
-    /// cambiato: una size legata al conto farebbe dipendere il campione dal capitale invece che
-    /// dalle strategie. Quello che cambia e' <i>quali</i> strategie girano, che e' una domanda
-    /// diversa da <i>con che size</i>.</para>
+    /// conti: capitale, <c>BalanceScale</c>, moltiplicatori di contratto e il
+    /// <c>SizeMultiplier</c> del piano non entrano da qui e restano fissi a 1. Il motivo e' quello
+    /// di <c>docs/decisioni.md</c> (2026-08-05) e non e' cambiato: una size legata al conto
+    /// farebbe dipendere il campione dal capitale invece che dalle strategie. Quello che cambia e'
+    /// <i>quali</i> strategie girano, che e' una domanda diversa da <i>con che size</i>.</para>
     ///
-    /// <para>Il conto non arriva dal piano di proposito: un piano puo' contenere piu' account, e
-    /// l'universo operativo di un run e' quello di <b>un</b> conto — sceglierne uno per conto del
-    /// piano significherebbe indovinare.</para>
+    /// <para><b>Il datafeed resta una scelta a parte</b> (<see cref="DatafeedBroker"/>): il broker
+    /// del piano dice con che tabella si opera, non da quale archivio di barre si legge. Misurare
+    /// lo stesso piano sul feed interno e su quello del suo broker e' esattamente il confronto che
+    /// dice quanto vale lo spread, e legare le due scelte lo renderebbe impossibile.</para>
     ///
     /// <para>Come <see cref="DatafeedBroker"/>, il valore finisce in <c>backtest-summary.json</c>:
     /// due run con universi diversi non sono confrontabili, e mesi dopo non c'e' altro modo di
-    /// accorgersene. Un conto inesistente fa fallire l'avvio, non ripiega sul masterfilter intero.</para>
+    /// accorgersene. Un piano inesistente fa fallire l'avvio, non ripiega sul masterfilter intero.</para>
     /// </summary>
-    public string? AccountNumber { get; set; }
+    public string? PlanCode { get; set; }
 }

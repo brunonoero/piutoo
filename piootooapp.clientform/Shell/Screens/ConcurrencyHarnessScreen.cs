@@ -1,4 +1,4 @@
-using System.ComponentModel;
+﻿using System.ComponentModel;
 using Piootoo.Shared.Models;
 using Piootoo.Shared.Models.Strategies;
 using Piootoo.Shared.Models.Trading;
@@ -179,7 +179,7 @@ public partial class ConcurrencyHarnessScreen : UserControl, IShellScreen
 
     private string? SelectedWorkspaceId => _context?.Services.Workspaces.CurrentId;
 
-    private TradingPlan? SelectedPlan => (_planCombo.SelectedItem as PlanComboItem)?.Plan;
+    private TradingPlan? SelectedPlan => (_planCombo.SelectedItem as HarnessPlanComboItem)?.Plan;
 
     private ClientRunMode SelectedRunMode =>
         _runModeCombo.SelectedItem is ClientRunMode mode ? mode : ClientRunMode.Backtest;
@@ -205,7 +205,7 @@ public partial class ConcurrencyHarnessScreen : UserControl, IShellScreen
             var plans = await _context.Services.Plans.ListAsync(workspaceId, cancellationToken);
             foreach (var plan in plans.OrderBy(plan => plan.Code, StringComparer.OrdinalIgnoreCase))
             {
-                _planCombo.Items.Add(new PlanComboItem(plan));
+                _planCombo.Items.Add(new HarnessPlanComboItem(plan));
             }
 
             if (_planCombo.Items.Count > 0)
@@ -920,14 +920,18 @@ public partial class ConcurrencyHarnessScreen : UserControl, IShellScreen
 
         public bool CloseRequested { get; set; }
     }
-}
 
-/// <summary>Voce della combo piani: codice e nome, come nella lista piani.</summary>
-public sealed class PlanComboItem
-{
-    public PlanComboItem(TradingPlan plan) => Plan = plan;
+    /// <summary>
+    /// Voce della combo piani di questa schermata: nomina i <b>conti</b>, che sono cio' che
+    /// l'armatura di concorrenza distribuisce. La voce condivisa (<see cref="PlanComboItem"/>) serve
+    /// al backtest e nomina invece broker e strategie spente: stessa entita', due domande diverse.
+    /// </summary>
+    private sealed class HarnessPlanComboItem
+    {
+        public HarnessPlanComboItem(TradingPlan plan) => Plan = plan;
 
-    public TradingPlan Plan { get; }
+        public TradingPlan Plan { get; }
 
-    public override string ToString() => $"{Plan.Code}  ·  {Plan.Name}  ·  {Plan.Accounts.Count} conti";
+        public override string ToString() => $"{Plan.Code}  ·  {Plan.Name}  ·  {Plan.Accounts.Count} conti";
+    }
 }

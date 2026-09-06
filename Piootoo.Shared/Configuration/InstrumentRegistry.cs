@@ -1,4 +1,4 @@
-using Piootoo.Shared.Models.Trading;
+﻿using Piootoo.Shared.Models.Trading;
 
 namespace Piootoo.Shared.Configuration;
 
@@ -29,15 +29,43 @@ public static class InstrumentRegistry
     private const string IceNewYork = "America/New_York";   // softs ICE US: 0400 -> 1400
     private const string HkexHongKong = "Asia/Hong_Kong";   // HKEX: 0915 -> 0300
 
+    // Calendario di sessione della ricerca, §2.1.1 del dossier del paniere
+    // (run-engine/run-08-settembre). I giorni sono quelli in cui la ricerca HA una sessione: un
+    // feed CFD che quota fuori da questi crea sessioni mai esistite, e con l'uscita di fine
+    // sessione chiude posizioni ancora valide. Il dossier lo misura sul DAX: 11% del P&L.
+    //
+    // La domenica NON e' un caso da togliere sempre: sui CME e' vera nelle settimane in cui l'ora
+    // legale europea e americana sono sfasate — il future apre davvero domenica sera — e sugli
+    // europei e sui softs ICE non esiste mai. Riscontro sul feed del vendor: @NQ_240 ha 68 barre
+    // domenicali in diciannove anni, @FDAX_240 zero.
+    private static readonly IReadOnlySet<DayOfWeek> LunVen = new HashSet<DayOfWeek>
+    {
+        DayOfWeek.Monday, DayOfWeek.Tuesday, DayOfWeek.Wednesday, DayOfWeek.Thursday, DayOfWeek.Friday
+    };
+
+    /// <summary>Lunedi-venerdi piu' la domenica: colonna <c>dom</c> a 48 (27 per BTC, 16 per HK).</summary>
+    private static readonly IReadOnlySet<DayOfWeek> LunVenPiuDomenica = new HashSet<DayOfWeek>
+    {
+        DayOfWeek.Sunday,
+        DayOfWeek.Monday, DayOfWeek.Tuesday, DayOfWeek.Wednesday, DayOfWeek.Thursday, DayOfWeek.Friday
+    };
+
+    /// <summary>Lunedi-venerdi piu' il sabato: solo SB, colonna <c>sab</c> a 14.</summary>
+    private static readonly IReadOnlySet<DayOfWeek> LunVenPiuSabato = new HashSet<DayOfWeek>
+    {
+        DayOfWeek.Monday, DayOfWeek.Tuesday, DayOfWeek.Wednesday, DayOfWeek.Thursday, DayOfWeek.Friday,
+        DayOfWeek.Saturday
+    };
+
     private static readonly Dictionary<string, InstrumentSpec> Specs =
         new(StringComparer.OrdinalIgnoreCase)
         {
             // --- Indici USA -------------------------------------------------------------
-            ["ES"] = new() { Symbol = "ES", PointValue = 50m, Currency = "USD", TickSize = 0.25m, SessionTimeZone = CmeChicago, Description = "E-mini S&P 500" },
+            ["ES"] = new() { Symbol = "ES", PointValue = 50m, Currency = "USD", TickSize = 0.25m, SessionTimeZone = CmeChicago, ResearchSessionStartHour = 0, SessionDays = LunVenPiuDomenica, Description = "E-mini S&P 500" },
             ["MES"] = new() { Symbol = "MES", PointValue = 5m, Currency = "USD", TickSize = 0.25m, SessionTimeZone = CmeChicago, Description = "Micro E-mini S&P 500" },
-            ["NQ"] = new() { Symbol = "NQ", PointValue = 20m, Currency = "USD", TickSize = 0.25m, SessionTimeZone = CmeChicago, Description = "E-mini Nasdaq-100" },
+            ["NQ"] = new() { Symbol = "NQ", PointValue = 20m, Currency = "USD", TickSize = 0.25m, SessionTimeZone = CmeChicago, ResearchSessionStartHour = 0, SessionDays = LunVenPiuDomenica, Description = "E-mini Nasdaq-100" },
             ["MNQ"] = new() { Symbol = "MNQ", PointValue = 2m, Currency = "USD", TickSize = 0.25m, SessionTimeZone = CmeChicago, Description = "Micro E-mini Nasdaq-100" },
-            ["YM"] = new() { Symbol = "YM", PointValue = 5m, Currency = "USD", TickSize = 1m, SessionTimeZone = CmeChicago, Description = "E-mini Dow" },
+            ["YM"] = new() { Symbol = "YM", PointValue = 5m, Currency = "USD", TickSize = 1m, SessionTimeZone = CmeChicago, ResearchSessionStartHour = 0, SessionDays = LunVenPiuDomenica, Description = "E-mini Dow" },
             ["MYM"] = new() { Symbol = "MYM", PointValue = 0.5m, Currency = "USD", TickSize = 1m, SessionTimeZone = CmeChicago, Description = "Micro E-mini Dow" },
             ["RTY"] = new() { Symbol = "RTY", PointValue = 50m, Currency = "USD", TickSize = 0.1m, SessionTimeZone = CmeChicago, Description = "E-mini Russell 2000" },
             ["M2K"] = new() { Symbol = "M2K", PointValue = 5m, Currency = "USD", TickSize = 0.1m, SessionTimeZone = CmeChicago, Description = "Micro E-mini Russell 2000" },
@@ -45,30 +73,30 @@ public static class InstrumentRegistry
             // --- Indici europei ---------------------------------------------------------
             // Attenzione: PointValue in EUR. Il sistema non converte le valute: un portafoglio
             // misto EUR/USD somma grandezze non omogenee finché non esiste un layer FX.
-            ["FDAX"] = new() { Symbol = "FDAX", PointValue = 25m, Currency = "EUR", TickSize = 1m, SessionTimeZone = EurexFrankfurt, Description = "DAX future" },
+            ["FDAX"] = new() { Symbol = "FDAX", PointValue = 25m, Currency = "EUR", TickSize = 1m, SessionTimeZone = EurexFrankfurt, ResearchSessionStartHour = 1, SessionDays = LunVen, Description = "DAX future" },
             ["FDXM"] = new() { Symbol = "FDXM", PointValue = 5m, Currency = "EUR", TickSize = 1m, SessionTimeZone = EurexFrankfurt, Description = "Mini-DAX future" },
             ["FDXS"] = new() { Symbol = "FDXS", PointValue = 1m, Currency = "EUR", TickSize = 1m, SessionTimeZone = EurexFrankfurt, Description = "Micro-DAX future" },
             ["FESX"] = new() { Symbol = "FESX", PointValue = 10m, Currency = "EUR", TickSize = 1m, SessionTimeZone = EurexFrankfurt, Description = "Euro Stoxx 50 future" },
             ["FGBL"] = new() { Symbol = "FGBL", PointValue = 1000m, Currency = "EUR", TickSize = 0.01m, SessionTimeZone = EurexFrankfurt, Description = "Euro-Bund future" },
 
             // --- Metalli ----------------------------------------------------------------
-            ["GC"] = new() { Symbol = "GC", PointValue = 100m, Currency = "USD", TickSize = 0.1m, SessionTimeZone = NyComexNymex, Description = "Gold, 100 once troy" },
+            ["GC"] = new() { Symbol = "GC", PointValue = 100m, Currency = "USD", TickSize = 0.1m, SessionTimeZone = NyComexNymex, ResearchSessionStartHour = 0, SessionDays = LunVenPiuDomenica, Description = "Gold, 100 once troy" },
             ["MGC"] = new() { Symbol = "MGC", PointValue = 10m, Currency = "USD", TickSize = 0.1m, SessionTimeZone = NyComexNymex, Description = "Micro Gold, 10 once troy" },
             ["SI"] = new() { Symbol = "SI", PointValue = 5000m, Currency = "USD", TickSize = 0.005m, SessionTimeZone = NyComexNymex, Description = "Silver, 5.000 once troy" },
             ["HG"] = new() { Symbol = "HG", PointValue = 25000m, Currency = "USD", TickSize = 0.0005m, SessionTimeZone = NyComexNymex, Description = "Copper, 25.000 libbre ($/lb)" },
-            ["PL"] = new() { Symbol = "PL", PointValue = 50m, Currency = "USD", TickSize = 0.1m, SessionTimeZone = NyComexNymex, Description = "Platinum, 50 once troy" },
+            ["PL"] = new() { Symbol = "PL", PointValue = 50m, Currency = "USD", TickSize = 0.1m, SessionTimeZone = NyComexNymex, ResearchSessionStartHour = 0, SessionDays = LunVenPiuDomenica, Description = "Platinum, 50 once troy" },
             ["PA"] = new() { Symbol = "PA", PointValue = 100m, Currency = "USD", TickSize = 0.05m, SessionTimeZone = NyComexNymex, Description = "Palladium, 100 once troy" },
 
             // --- Energia ----------------------------------------------------------------
-            ["CL"] = new() { Symbol = "CL", PointValue = 1000m, Currency = "USD", TickSize = 0.01m, SessionTimeZone = NyComexNymex, Description = "Crude Oil WTI, 1.000 barili" },
+            ["CL"] = new() { Symbol = "CL", PointValue = 1000m, Currency = "USD", TickSize = 0.01m, SessionTimeZone = NyComexNymex, ResearchSessionStartHour = 0, SessionDays = LunVenPiuDomenica, Description = "Crude Oil WTI, 1.000 barili" },
             ["MCL"] = new() { Symbol = "MCL", PointValue = 100m, Currency = "USD", TickSize = 0.01m, SessionTimeZone = NyComexNymex, Description = "Micro Crude Oil, 100 barili" },
-            ["NG"] = new() { Symbol = "NG", PointValue = 10000m, Currency = "USD", TickSize = 0.001m, SessionTimeZone = NyComexNymex, Description = "Natural Gas, 10.000 MMBtu" },
+            ["NG"] = new() { Symbol = "NG", PointValue = 10000m, Currency = "USD", TickSize = 0.001m, SessionTimeZone = NyComexNymex, ResearchSessionStartHour = 0, SessionDays = LunVenPiuDomenica, Description = "Natural Gas, 10.000 MMBtu" },
             ["RB"] = new() { Symbol = "RB", PointValue = 42000m, Currency = "USD", TickSize = 0.0001m, SessionTimeZone = NyComexNymex, Description = "RBOB Gasoline, 42.000 galloni ($/gal)" },
-            ["HO"] = new() { Symbol = "HO", PointValue = 42000m, Currency = "USD", TickSize = 0.0001m, SessionTimeZone = NyComexNymex, Description = "Heating Oil, 42.000 galloni ($/gal)" },
+            ["HO"] = new() { Symbol = "HO", PointValue = 42000m, Currency = "USD", TickSize = 0.0001m, SessionTimeZone = NyComexNymex, ResearchSessionStartHour = 0, SessionDays = LunVenPiuDomenica, Description = "Heating Oil, 42.000 galloni ($/gal)" },
 
             // --- Cripto -----------------------------------------------------------------
             // CME BTC: contratto 5 bitcoin, $5 per punto di indice; tick 5,00 punti = $25.
-            ["BTC"] = new() { Symbol = "BTC", PointValue = 5m, Currency = "USD", TickSize = 5m, SessionTimeZone = CmeChicago, Description = "Bitcoin future (CME BTC), 5 BTC" },
+            ["BTC"] = new() { Symbol = "BTC", PointValue = 5m, Currency = "USD", TickSize = 5m, SessionTimeZone = CmeChicago, ResearchSessionStartHour = 0, SessionDays = LunVenPiuDomenica, Description = "Bitcoin future (CME BTC), 5 BTC" },
 
             // --- Softs ICE US ----------------------------------------------------------
             // Quotazione in centesimi per libbra per KC, CT e SB: il PointValue e' quindi il
@@ -76,11 +104,11 @@ public static class InstrumentRegistry
             // contratto dell'exchange e conversioni del dossier del paniere, che concordano:
             // su KC $250 di stop valgono 0,67 "punti" (250/375), su CT $3.000 valgono 6,00
             // (3000/500), su SB $2.250 valgono 2,01 (2250/1120).
-            ["KC"] = new() { Symbol = "KC", PointValue = 375m, Currency = "USD", TickSize = 0.05m, SessionTimeZone = IceNewYork, Description = "Coffee C, 37.500 libbre (centesimi/lb, $375 per centesimo)" },
-            ["CT"] = new() { Symbol = "CT", PointValue = 500m, Currency = "USD", TickSize = 0.01m, SessionTimeZone = IceNewYork, Description = "Cotton No.2, 50.000 libbre (centesimi/lb, $500 per centesimo)" },
-            ["SB"] = new() { Symbol = "SB", PointValue = 1120m, Currency = "USD", TickSize = 0.01m, SessionTimeZone = IceNewYork, Description = "Sugar No.11, 112.000 libbre (centesimi/lb, $1.120 per centesimo)" },
+            ["KC"] = new() { Symbol = "KC", PointValue = 375m, Currency = "USD", TickSize = 0.05m, SessionTimeZone = IceNewYork, ResearchSessionStartHour = 1, SessionDays = LunVen, Description = "Coffee C, 37.500 libbre (centesimi/lb, $375 per centesimo)" },
+            ["CT"] = new() { Symbol = "CT", PointValue = 500m, Currency = "USD", TickSize = 0.01m, SessionTimeZone = IceNewYork, ResearchSessionStartHour = 1, SessionDays = LunVen, Description = "Cotton No.2, 50.000 libbre (centesimi/lb, $500 per centesimo)" },
+            ["SB"] = new() { Symbol = "SB", PointValue = 1120m, Currency = "USD", TickSize = 0.01m, SessionTimeZone = IceNewYork, ResearchSessionStartHour = 1, SessionDays = LunVenPiuSabato, Description = "Sugar No.11, 112.000 libbre (centesimi/lb, $1.120 per centesimo)" },
             // Cocoa e' quotato in dollari per tonnellata su un contratto da 10 tonnellate.
-            ["CC"] = new() { Symbol = "CC", PointValue = 10m, Currency = "USD", TickSize = 1m, SessionTimeZone = IceNewYork, Description = "Cocoa, 10 tonnellate ($/tonnellata)" },
+            ["CC"] = new() { Symbol = "CC", PointValue = 10m, Currency = "USD", TickSize = 1m, SessionTimeZone = IceNewYork, ResearchSessionStartHour = 1, SessionDays = LunVen, Description = "Cocoa, 10 tonnellate ($/tonnellata)" },
 
             // --- Indici asiatici -------------------------------------------------------
             // Hang Seng: il contratto vale HKD 50 per punto indice. Il valore qui e' in USD al
@@ -90,11 +118,11 @@ public static class InstrumentRegistry
             // ⚠ E' l'unico strumento del registro il cui PointValue dipende da un cambio: se un
             // giorno l'HKD uscisse dalla banda, stop e target di queste strategie andrebbero
             // rimisurati, e la strada corretta sarebbe dichiararlo in HKD con un layer FX.
-            ["HK"] = new() { Symbol = "HK", PointValue = 6.41m, Currency = "USD", TickSize = 1m, SessionTimeZone = HkexHongKong, Description = "Hang Seng future, HKD 50 per punto convertiti a 7,8 HKD/USD" },
+            ["HK"] = new() { Symbol = "HK", PointValue = 6.41m, Currency = "USD", TickSize = 1m, SessionTimeZone = HkexHongKong, ResearchSessionStartHour = 1, SessionDays = LunVenPiuDomenica, Description = "Hang Seng future, HKD 50 per punto convertiti a 7,8 HKD/USD" },
 
             // --- Valute CME ------------------------------------------------------------
             // CME 6B: contratto £62.500, quotato USD per GBP; tick 0,0001 = $6,25.
-            ["BP"] = new() { Symbol = "BP", PointValue = 62500m, Currency = "USD", TickSize = 0.0001m, SessionTimeZone = CmeChicago, Description = "British Pound GBP/USD (CME 6B), £62.500" },
+            ["BP"] = new() { Symbol = "BP", PointValue = 62500m, Currency = "USD", TickSize = 0.0001m, SessionTimeZone = CmeChicago, ResearchSessionStartHour = 0, SessionDays = LunVenPiuDomenica, Description = "British Pound GBP/USD (CME 6B), £62.500" },
             // CME 6E: contratto €125.000, quotato USD per EUR; tick 0,00005 = $6,25.
             ["EC"] = new() { Symbol = "EC", PointValue = 125000m, Currency = "USD", TickSize = 0.00005m, SessionTimeZone = CmeChicago, Description = "Euro FX EUR/USD (CME 6E), €125.000" },
         };

@@ -1,4 +1,5 @@
-using Piootoo.Shared.Models;
+﻿using Piootoo.Shared.Models;
+using Piootoo.Shared.Models.Trading;
 using Piootoo.Shared.Models.Workspaces;
 
 namespace piootooapp.clientform.Shell.Screens;
@@ -51,34 +52,45 @@ public sealed class DatafeedComboItem
 }
 
 /// <summary>
-/// Quale conto usare come <b>universo operativo</b> di un run: girano solo le strategie sui simboli
-/// che la sua tabella di conversione prevede.
+/// Quale piano un run riproduce: da lui vengono l'universo operativo (la tabella di conversione del
+/// suo broker), le strategie spente, la policy di tenuta e la commissione per contratto.
 ///
-/// <para>La prima voce e' l'assenza di conto, che e' il run neutro di sempre. L'etichetta nomina la
-/// tabella perche' e' quella a decidere l'universo, non il conto: due conti sulla stessa tabella
-/// producono lo stesso elenco di strategie, e un conto senza tabella non restringe niente.</para>
+/// <para>La prima voce e' l'assenza di piano, che e' il run neutro di sempre. L'etichetta nomina il
+/// <b>broker</b> perche' e' lui a decidere l'universo: tutti i conti di un piano sono suoi e
+/// condividono la stessa tabella, quindi il numero di conto non aggiungerebbe niente.</para>
 /// </summary>
-public sealed class AccountComboItem
+public sealed class PlanComboItem
 {
-    private AccountComboItem(string accountNumber, string display)
+    private PlanComboItem(TradingPlan? plan, string display)
     {
-        AccountNumber = accountNumber;
+        Plan = plan;
         Display = display;
     }
 
-    /// <summary>Vuoto e' l'assenza di conto, non un conto chiamato "nessuno".</summary>
-    public string AccountNumber { get; }
+    /// <summary>Null e' l'assenza di piano, non un piano chiamato "nessuno".</summary>
+    public TradingPlan? Plan { get; }
 
     public string Display { get; }
 
-    public static AccountComboItem None() => new(string.Empty, "Nessun conto  ·  intero masterfilter");
+    public static PlanComboItem None() => new(null, "Nessun piano  ·  intero masterfilter");
 
-    public static AccountComboItem Of(WorkspaceAccount account)
-        => new(account.AccountNumber,
-            $"{account.Name}  ·  {account.AccountNumber}  ·  " +
-            (string.IsNullOrWhiteSpace(account.SymbolConversionCode)
-                ? "nessuna conversione (opera tutto)"
-                : $"conversione {account.SymbolConversionCode}"));
+    /// <param name="activeStrategies">
+    /// Quante strategie del masterfilter il piano lascia accese. Null quando il masterfilter non e'
+    /// disponibile: si tace, invece di scrivere uno zero che si leggerebbe come «non opera nulla».
+    /// Si mostra questo e non il numero delle spente perche' e' la domanda che si fa scegliendo un
+    /// piano — quante ne gira — mentre le spente sono un numero che dipende da quanto e' grande il
+    /// masterfilter e non dice quanto il piano opera.
+    /// </param>
+    public static PlanComboItem Of(TradingPlan plan, int? activeStrategies)
+        => new(plan,
+            $"{plan.Name}  ·  {plan.Code}  ·  " +
+            (string.IsNullOrWhiteSpace(plan.BrokerCode) ? "senza broker" : $"broker {plan.BrokerCode}") +
+            (activeStrategies is { } active ? $"  ·  {active} strategie attive" : string.Empty));
+
+    // Nessuna voce "non piu' presente" come per i datasource: li' basta il nome per far fallire il
+    // run in modo esplicito, qui la voce dovrebbe portarsi dietro il piano intero — universo,
+    // spente, tenuta — che non esiste piu'. Un piano cancellato riporta quindi la scelta su
+    // «nessun piano», che e' cio' che il workspace dichiara adesso.
 
     public override string ToString() => Display;
 }
@@ -141,5 +153,5 @@ public sealed class ValueComboItem
     public override string ToString() => Display;
 }
 
-// AccountComboItem rimosso con il selettore account del backtest: l'unico consumatore era la
-// schermata di avvio, e il backtest interno non conosce più i conti (docs/decisioni.md 2026-08-05).
+// Niente AccountComboItem: il backtest sceglie il piano, e il conto non decideva nulla che il piano
+// non dicesse già (docs/decisioni.md 2026-09-05).

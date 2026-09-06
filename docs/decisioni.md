@@ -2898,3 +2898,209 @@ tre barre vecchie per far passare per "coperto" un feed vuoto.
   cresce. Restano quindi solo lista e dettaglio della console nuova (*Piani di trading*), che
   editano il piano completo; nel tab legacy c'e' una riga che dice dove sono andati.
   La griglia dei conti resta: li' serve alla **sessione** attiva, non al piano.
+
+- **2026-09-05** — **Un backtest sceglie il piano, non un conto.** `BacktestingRequest.AccountNumber`
+  è diventato `PlanCode`, e con lui il server prende dal piano **tutto** ciò che governa il run:
+  l'universo operativo (la tabella di conversione del suo **broker**), le strategie che il piano
+  tiene spente, la `Holding` e la `CommissionPerContract`. I tre campi corrispondenti della
+  richiesta vengono sovrascritti, non composti — un run e il live dello stesso piano sono così
+  confrontabili per costruzione invece che per disciplina di chi compila la richiesta.
+  Il conto non serviva: la tabella dei simboli è dichiarata sul broker (`TradingBroker.SymbolConversionCode`)
+  e **tutti i conti di un piano sono di quel broker**, quindi nominarne uno significava sceglierlo a
+  caso fra conti che davano la stessa risposta. La lettura per sola tabella è
+  `AccountSymbolConversion.FromTable`, che lascia `BalanceScale` a 1: il backtest interno resta
+  neutro sulle size, `SizeMultiplier` e `PositionSizing` del piano non entrano
+  (vale ancora la decisione del 2026-08-05).
+  **Il datasource resta una scelta separata**: il broker del piano dice con che tabella si opera,
+  non da quale archivio di barre si legge. Lo stesso piano misurato sul feed interno e su quello del
+  suo broker è il confronto che quantifica lo spread, e legare le due scelte lo renderebbe
+  impossibile. La combo del backtest si posiziona sull'archivio del broker ma non si blocca.
+  Nel `backtest-summary.json` `accountNumber`/`accountUniverse`/`strategiesNotSupportedByAccount`
+  diventano `planCode`, `brokerCode`, `planUniverse`, `strategiesNotSupportedByBroker` e
+  `strategiesDisabledByPlan`: le due esclusioni restano in due liste perché hanno cause opposte —
+  una scelta operativa reversibile contro un simbolo che quel broker non opera. Un piano
+  inesistente, o un broker che il registro non conosce, fanno fallire l'avvio: vale la regola del
+  datafeed mancante.
+- **2026-09-05** — Il report HTML dichiara il piano in una scheda propria (codice, broker, tabella,
+  overnight, fine settimana, commissione) con **numero ed elenco delle strategie attive** — quelle
+  che hanno davvero operato, per nome di esecuzione — e dice «nessuno» quando il run è neutro:
+  stessa ragione della riga del feed, sono regole che cambiano l'equity senza comparire in un solo
+  trade. Per i run dell'engine esterno si dichiara il **solo codice** che sta nel marcatore di
+  origine: rileggere il piano da disco riempirebbe la scheda con la configurazione di oggi, non con
+  quella con cui la sessione ha operato.
+  Si elencano le **attive** e non le escluse: chi apre un report vuole sapere cosa ha prodotto quella
+  equity, e il numero delle spente dipende da quanto è grande il masterfilter invece che da quanto il
+  piano opera. Il conto delle esclusioni, e il perché di ciascuna, restano in `backtest-summary.json`.
+- **2026-09-05** — L'asse X dei grafici del report sceglie il passo dalla **durata** del run — ore
+  sotto i tre giorni, giorni fino a ~sette mesi, mesi di calendario oltre — puntando a una dozzina
+  di etichette a qualunque scala. Il tick mensile fisso lasciava un run di trenta giorni con una
+  etichetta sola, e su una finestra di poche ore con nessuna.
+- **2026-09-05** — **`PiootooSpreadDumpBot` 2.0.0 misura la distribuzione, non i tick.** L'uscita
+  non e' piu' un CSV per simbolo con una riga per tick (milioni di righe, centinaia di megabyte, e
+  nessuna conclusione) ma due file compatti: `spread-by-symbol` con una riga per simbolo e
+  `spread-by-hour` con 24 righe per simbolo, entrambi con `min / p50 / avg / p90 / p99 / max` in
+  prezzo e in tick di strumento. Il dump grezzo resta, spento di default.
+  **Min e max da soli non servivano**: su un mese il minimo e' il fondo dell'ora piu' liquida e il
+  massimo e' una news o la riapertura della domenica sera, cioe' un istante in cui nessuna strategia
+  sta entrando. Serve lo spread che si paga *di solito*, e serve **per ora**: una strategia opera
+  dentro la propria `TradingWindow`, e `PTS_NQ_PCH_002_15` e `PTS_NQ_TFM_001_60` stanno sullo stesso
+  strumento pagando spread diversi solo perche' entrano in ore diverse. Le ore restano **UTC e non
+  convertite**: il fuso di una strategia sta nella sua `ZonedWindow` e la conversione si fa dove
+  quella si conosce, non in un bot che le strategie non le vede. Un'ora con `ticks=0` e celle vuote
+  e' un'ora di mercato chiuso, ed e' un dato quando la finestra di una strategia ci cade dentro.
+  Lo spread si conta in **tick interi** e non in prezzo: l'istogramma tiene ogni valore osservato,
+  quindi le percentili sono esatte e non interpolate — uno spread di 1,5 tick non esiste — e la media
+  non accumula errore su milioni di somme in virgola mobile.
+- **2026-09-05** — **Lo spread entra nel backtest, e tocca il solo prezzo di ingresso.**
+  `BacktestingRequest.SpreadBroker` carica la misura da `piootoo-repository/spread/{BROKER}/`
+  (`SpreadTable`, CSV piu' recente, colonna scelta da `SpreadStatistic`, mediana di default) e
+  `SpreadPoints` la scavalca un simbolo alla volta. `PiootooTradingService.ApplySpread` peggiora
+  l'ingresso di uno spread — long `+s`, short `-s` — e lascia dove sono trigger, livelli e uscite.
+  E' l'unico punto in cui lo spread entra nel motore, e ci passano tutti e quattro gli ingressi.
+  **Non e' un costo per trade, e' il fenomeno del 2026-08-06**: stop e target si spostano insieme
+  all'ingresso, quindi la perdita quando lo stop salta resta quella dichiarata dalla strategia,
+  mentre il prezzo deve muoversi di `distanza - spread` per farlo saltare. Stessa perdita, *piu'*
+  stop. Il modello e' quello giusto per il feed che abbiamo: le barre di `datafeed-external/` sono
+  la serie **Bid** di cTrader (`MarketData.GetBars`), quindi un long entra sull'Ask e esce sul Bid,
+  e per lo short spostare l'ingresso di `-s` da' lo stesso P&L e gli stessi istanti del modello a
+  due lati.
+  **Il trigger dei pending resta sul feed**, benche' sul broker un buy stop scatti sull'Ask:
+  muoverlo cambierebbe *quali* trade nascono, e i run non sarebbero piu' confrontabili con il
+  porting dal motore di ricerca, che e' il metro con cui le strategie sono state scelte.
+  La scelta del broker di spread e' **indipendente** da `DatafeedBroker` e dal piano, per lo stesso
+  argomento del 2026-09-05 sul datasource: girare sul feed interno con lo spread di un broker vero
+  e' il confronto che quantifica quel broker. Un broker senza misura fa fallire l'avvio, come un
+  datafeed mancante. Il summary porta i **valori** e non i soli simboli (a differenza di
+  `stopFillSlippageSymbols`): lo stesso simbolo con spread 2 e con spread 8 da' risultati che non si
+  somigliano. Il report HTML ha una scheda propria che elenca **tutti** i simboli del run, anche i
+  non misurati — una strategia che gira gratis perche' il suo strumento non e' mai stato misurato e'
+  esattamente il caso da vedere.
+  Manca ancora il controllo nella console: si passa da `BacktestingRequest`. Vedi
+  `docs/domini/spread-e-costo-di-transazione.md`.
+
+## 2026-09-05 — `EntriesToday` in sessione era il totale del portafoglio, non della strategia
+
+`TradingSessionService.GetExecution` passava alle strategie `EntriesToday = session.Entries`.
+`session.Entries` è un contatore **di sessione**: si incrementa a ogni riempimento di
+qualunque strategia su qualunque simbolo e non si azzera mai, né per giorno né per strategia.
+
+I motori con un tetto di ingressi leggono quel numero **prima di emettere** —
+`VolatilityBreakoutEngine` (`MaxEntriesPerSession`), `MovingAverageCrossoverEngine`
+(`MaxEntriesPerDay`), `TrendDeveloperEngine` (`MaxTradesPerDay`) — quindi **si spegnevano
+tutti dopo il primo riempimento del portafoglio**, per il resto del run. Il backtest non ha
+mai avuto il problema: `PiootooTradingService._entriesByDay` conta per `positionKey`
+(simbolo|strategia) **e per giorno**.
+
+Misurato su `piootoo-repository/compare/compare-0021`: `PTS_FDAX_VBO_001_240` — l'unica
+strategia di quel piano che si autoferma su quel numero — ha emesso **zero** intent in due
+mesi di sessione contro dodici trade e +22.824 del backtest sullo stesso piano. Da sola, il
+**57% del divario** fra le due gambe. Il primo riempimento della sessione è di
+`PTS_BTC_BIA_001_60` il secondo giorno del run: da lì VBO è muta per sessanta giorni.
+
+Il sintomo era invisibile: lo snapshot di esecuzione non finisce in nessun artefatto, e in
+`session-summary.json` "mai valutata", "gate mai scattato" e "zittita dal contatore" hanno
+tutti e tre lo stesso aspetto — `intentsEmitted: 0` con `everEvaluable: true`.
+
+Ora `Session.EntriesByDay` conta per `simbolo|strategia` e per giorno UTC, con la stessa
+semantica del backtest, e viene persistito nello stato di sessione (`SessionStateEntriesByDay`):
+perderlo a metà giornata farebbe ri-emettere una strategia che aveva già speso il proprio
+ingresso, cioè **aprire** un trade che il tetto escludeva. Resta distinto da
+`Session.EntryFills`, che è per secchio di sessione e per account e serve a rifiutare un
+intent **già emesso** (`MaxEntriesPerSessionReached`): due conteggi, due momenti diversi.
+
+Copertura: `SessionEntriesTodayTests`. I due test che descrivono il bug — il riempimento di
+un'altra strategia non alza il conteggio, e il conteggio riparte il giorno dopo — falliscono
+entrambi se si rimette `session.Entries`.
+
+## 2026-09-05 — Il feed `datafeed-external/FTMOPLATFORM` è sulla griglia del broker: da riraccogliere
+
+Audit completo in `piootoo-repository/compare/compare-0021/audit-feed-FTMOPLATFORM.md`.
+
+Tutti e 17 gli stream oltre l'ora dell'archivio (`@*_240`, `@*_1440`) sono ancorati
+all'orologio del **broker** (EET, mezzanotte alle 23:00 di Roma) invece che al giorno di
+calendario europeo della ricerca, e l'ancoraggio non è nemmeno stabile dentro lo stesso file.
+Sono stati raccolti da `PiootooDatafeedSyncBot` **1.1.0**, che prendeva le serie oltre l'ora
+dalla piattaforma; la **1.2.0** (commit `aaec722`) le costruisce dalle barre da 60m e lo
+dichiara nel campo `source`. **Il codice è già corretto: è l'archivio a essere vecchio.**
+
+La misura che chiude la questione: rifacendo i bucket a 240m dalle barre da 60m dello stesso
+archivio, sull'ancoraggio della ricerca, gli istanti in comune con il 240m raccolto sono
+**zero** su NQ, ES, GC, YM, NG, HO e BTC — non una barra su 1.812. I conteggi però
+coincidono, quindi la riraccolta non perde dati. Le barre ≤ 60m sono giuste e sono la
+sorgente da cui i bucket si ricostruiscono: non vanno toccate.
+
+Resta aperto, e **sopravvive alla riraccolta**, il filtro delle sessioni false (§2.1.1 del
+dossier, misurato lì all'11% del P&L sul DAX): `@FDAX_1440` ha il 19,8% di barre domenicali e
+zero barre di venerdì, `@BTC_60` ha 1.065 sabati. `InstrumentSpec.SessionDays` e
+`ResearchSessionStartHour` sono in `InstrumentRegistry` ma **non sono letti da nessuno**: la
+lista di giorni ammessi presa dalla tabella del dossier basta per FDAX, CC, CT, KC e SB
+(domenica mai ammessa) ma **non per i CME**, dove il future ha una domenica ogni 3,5 anni e
+il CFD una ogni settimana — lascerebbe passare il 93% dei falsi. La regola giusta è
+derivabile e non ha bisogno di conteggi: una sessione esiste in un giorno se l'apertura di
+borsa dello strumento, convertita nell'orologio della ricerca, cade in quel giorno.
+
+- **2026-09-06** — **`BucketStartUtc` arrotonda al minuto prima di cercare il bucket**, nei tre
+cBot (raccoglitore e i due operativi). Il raccoglitore era l'unico a passargli un istante di
+orologio — i confini del blocco nascono da `Server.TimeInUtc` — e la sottrazione toglie *minuti
+interi*: i secondi sopravvivevano e `alignedEnd` usciva a `inizio bucket + qualche secondo`. In
+`FoldBackwards` l'unica barra base di quel bucket a passare `openTime >= toUtc` era allora quella
+che apre sul confine, e il bucket veniva spedito **con una barra sola**; siccome il server tiene
+l'ultima versione di una barra (`ExternalDatafeedStore.CompactLockedAsync`), la versione monca
+vinceva sulla completa spedita dal blocco precedente. Uno ogni `ChunkDays` (default 5): in
+`datafeed-external/FTMOPLATFORM/` raccolto con la 1.2.0 sono il **19,7% dei giornalieri** e il
+**~3% dei 4h**, tutti identici alla propria prima barra base — un giornaliero NQ con volume 4.904
+invece di 405.902. Il feed del vendor non ne ha nessuno. La correzione e' inerte nei due bot
+operativi (ricevono solo orari di apertura di barra) e sta li' solo perche' le tre copie della
+funzione restino identiche. `BotVersion` del raccoglitore a **1.2.1**: e' il campo `source` del
+feed a distinguere un archivio raccolto prima. Misura in
+`piootoo-repository/compare/compare-0021/esito-2026-09-06.md` §2.
+- **2026-09-06** — **`signals.json` porta `TimeframeMinutes`, `MaxEntriesPerSession` e
+`EntrySessionStartUtc`.** Il primo era gia' sul contratto ma `PersistedSignalMapper` non lo
+valorizzava (usciva sempre 0); gli altri due non c'erano affatto, ne' sul contratto ne' nel
+`ToPersistedSignal` della sessione, che scrive per conto suo. Senza, l'artefatto non ricostruisce
+il proprio run in due modi opposti: chi lo rilegge fa scadere un pending dopo un tick del
+portafoglio invece che dopo la propria barra — la trappola che `PiootooTradingService.IsExpired`
+evita proprio con quel numero — e conta ingressi che il cap per sessione aveva bloccato, visto che
+sei engine (PriceChannel, ReversalBollingerBand, Rhl, SessionBreakout, TfEngines,
+VolatilityBreakout) lo fissano a 1. Misurato rigiocando `backtest-20260906-0627` fuori dal motore:
+285 trade mancanti e 436 di troppo su 1.131, che con i tre campi si riducono a un residuo di
+confine. E' sola persistenza, nessun cambio di comportamento. Il replayer sta in
+`piootoo-repository/compare/replay-mark.py`.
+
+- **2026-09-06** — **Lo spread del backtest si può leggere per ora UTC**, non solo come costante per
+simbolo: `BacktestingRequest.SpreadResolution` (`PerSymbol` di default, `PerHour`) sceglie fra le
+due, e `ApplySpread` indicizza la tabella con l'ora dell'istante di ingresso. La risoluzione è
+**ortogonale** a `SpreadStatistic`: quella dice quale colonna del file (p50, media, p90), questa
+quale riga, e `PiootooSpreadDumpBot` scrive i due file con le stesse colonne, quindi "p90 dell'ora"
+è una domanda legittima quanto "p50 dell'ora". Il motivo è che lo spread di uno strumento varia
+dentro la giornata più di quanto vari fra un mese e l'altro, e due strategie sullo stesso simbolo
+che entrano in ore diverse pagano costi diversi: la costante è un compromesso fra le due, ed era
+già segnalata come tale in `domini/spread-e-costo-di-transazione.md`. Il file per ora è quello
+**gemello** — il nome si ricava da quello per simbolo sostituendo `spread-by-symbol` con
+`spread-by-hour`, non si cerca il più recente — perché i due escono dallo stesso run del bot e un
+run che prendesse la costante di agosto con le ore di luglio mescolerebbe due misure senza dirlo.
+Le ore che il broker non ha quotato (mercato chiuso, celle vuote) ripiegano sulla **costante del
+simbolo** e finiscono negli avvisi: zero sarebbe uno spread misurato e nullo, e un ingresso gratis
+lì non è un dato ma un buco che somiglia a un regalo. Chiedere `PerHour` senza il file per ora fa
+**fallire l'avvio**, come un datafeed mancante: un run che ripiegasse in silenzio dichiarerebbe nel
+summary una risoluzione che non ha applicato. Un `SpreadPoints` scritto a mano scavalca anche le
+ore di quel simbolo, altrimenti la correzione sarebbe ignorata in silenzio. Nel summary
+(`fillConventions`) ci sono `spreadResolution` e i 24 valori per simbolo, non il solo minimo e
+massimo: l'escursione non dice quale dei due estremi incontra una strategia che opera solo il
+pomeriggio.
+
+- **2026-09-06** — **Il guard UTC dei cBot confrontava due letture dell'orologio**, non due viste
+dello stesso istante: `Server.Time != Server.TimeInUtc` legge la prima proprietà, poi la seconda, e
+fra le due il tempo avanza. Su un bot regolarmente in UTC falliva quindi a caso, e il messaggio
+d'errore stampava le **due date identiche** — perché le rilegge, e alla seconda ricadevano nello
+stesso tick. È successo lanciando `PiootooSpreadDumpBot` per la prima misura FTMO: il bot si è
+fermato all'avvio con `Server.Time=2026-09-06T11:38:22.3140000Z` uguale a `Server.TimeInUtc`. Ora
+si legge una volta sola in due locali e si confronta con una **tolleranza di un minuto**: il fuso
+più vicino a UTC che esista dista quindici minuti (Nepal +5:45, Chatham +12:45 — tutti multipli di
+un quarto d'ora), quindi un minuto separa senza ambiguità il disallineamento vero dal tick di
+orologio. Il difetto stava in **tre copie identiche** — raccoglitore, spread dump, tick downloader
+— ed è stato corretto in tutte e tre per la stessa ragione per cui `BucketStartUtc` sta in tre
+copie uguali: se divergono, la prossima lettura non sa più quale sia quella giusta. `BotVersion`:
+raccoglitore 1.2.1 → **1.2.2**, spread dump 2.0.0 → **2.0.1**, tick downloader 1.0.0 → **1.0.1**.
+Nessun archivio raccolto è sbagliato per questa causa: il bot o partiva, e allora l'orologio era
+davvero UTC, o non partiva affatto.

@@ -4120,6 +4120,12 @@ namespace cAlgo.Robots
         /// </summary>
         private DateTime BucketStartUtc(int timeframeMinutes, DateTime openUtc)
         {
+            // Qui arrivano solo orari di apertura di barra, gia' al minuto: l'arrotondamento e'
+            // inerte. Sta comunque anche qui perche' questa funzione e' la stessa del raccoglitore
+            // — dove i secondi di Server.TimeInUtc rompevano un bucket ogni blocco — e due copie
+            // che divergono su una riga sono il modo in cui la griglia torna a scollarsi.
+            openUtc = openUtc.AddTicks(-(openUtc.Ticks % TimeSpan.TicksPerMinute));
+
             if (timeframeMinutes <= NativeCeilingMinutes)
                 return openUtc;
 

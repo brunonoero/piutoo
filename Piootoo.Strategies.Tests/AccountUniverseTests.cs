@@ -76,6 +76,44 @@ public sealed class AccountUniverseTests
         Assert.True(conversion.SupportsSymbol(symbol));
     }
 
+    /// <summary>
+    /// La tabella senza conto risponde alle stesse domande: e' la forma con cui il backtest risolve
+    /// l'universo del <b>broker</b> di un piano, dove un conto non c'e' e non servirebbe — la
+    /// tabella e' del broker, e tutti i conti del piano la condividono.
+    /// </summary>
+    [Fact]
+    public void LaTabellaDelBroker_DecideLUniverso_SenzaBisognoDiUnConto()
+    {
+        var conversion = AccountSymbolConversion.FromTable(new SymbolConversion
+        {
+            Code = "TAB",
+            Name = "Tabella",
+            Mappings = [Mapping("@NQ", enabled: true), Mapping("@GC", enabled: false)]
+        });
+
+        Assert.True(conversion.HasSymbolTable);
+        Assert.True(conversion.SupportsSymbol("@NQ"));
+        Assert.False(conversion.SupportsSymbol("@GC"));
+        Assert.False(conversion.SupportsSymbol("@CL"));
+    }
+
+    /// <summary>
+    /// Senza conto non c'e' capitale, e la scala resta 1: il backtest interno e' neutro sulle size,
+    /// e una tabella letta per l'universo non deve poterle toccare di straforo.
+    /// </summary>
+    [Fact]
+    public void LaTabellaDelBroker_NonScalaLeSize()
+    {
+        var conversion = AccountSymbolConversion.FromTable(new SymbolConversion
+        {
+            Code = "TAB",
+            Name = "Tabella",
+            Mappings = [Mapping("@NQ", enabled: true)]
+        });
+
+        Assert.Equal(1m, conversion.BalanceScale);
+    }
+
     private static AccountSymbolMapping Mapping(string symbol, bool enabled) => new()
     {
         Symbol = symbol,

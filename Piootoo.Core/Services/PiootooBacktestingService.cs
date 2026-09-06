@@ -45,10 +45,16 @@ public class PiootooBacktestingService : IPiootooBacktestingService
     private readonly IBacktestingExecutionHook _executionHook;
 
     /// <summary>
-    /// Serve solo a risolvere l'universo operativo di <see cref="BacktestingRequest.AccountNumber"/>.
-    /// Opzionale: un run senza conto non deve dipendere dal registro account.
+    /// Serve solo a risolvere il broker del piano di <see cref="BacktestingRequest.PlanCode"/> e la
+    /// sua tabella di conversione. Opzionale: un run senza piano non deve dipendere dall'anagrafica.
     /// </summary>
     private readonly WorkspaceService? _workspaces;
+
+    /// <summary>
+    /// Il registro dei piani, per la stessa ragione di <see cref="_workspaces"/>: senza
+    /// <see cref="BacktestingRequest.PlanCode"/> non viene mai toccato.
+    /// </summary>
+    private readonly TradingPlanService? _plans;
 
     private readonly PiootooSettings _settings;
     private readonly string _resultsPath;
@@ -60,13 +66,15 @@ public class PiootooBacktestingService : IPiootooBacktestingService
         IDatafeedCatalog datafeedCatalog,
         PiootooSettings settings,
         IBacktestingExecutionHook executionHook,
-        WorkspaceService? workspaces = null)
+        WorkspaceService? workspaces = null,
+        TradingPlanService? plans = null)
     {
         _settingsService = settingsService;
         _dataFeedService = dataFeedService;
         _datafeedCatalog = datafeedCatalog;
         _executionHook = executionHook;
         _workspaces = workspaces;
+        _plans = plans;
         _settings = settings;
 
         _resultsPath = Path.Combine(settings.GetSettingsPath(), "results");
@@ -101,6 +109,18 @@ public class PiootooBacktestingService : IPiootooBacktestingService
         // ResolveRoot alza ArgumentException/DirectoryNotFoundException, che il controller traduce.
         request.DatafeedBroker = NormalizeBroker(request.DatafeedBroker);
         _datafeedCatalog.ResolveRoot(request.DatafeedBroker);
+
+        // Il piano si risolve qui per la stessa ragione del broker del datafeed: un piano che non
+        // esiste e' lo stesso errore dell'archivio mancante, e va detto prima di creare la cartella
+        // invece che a run avviato. Quello che porta entra SUBITO nella richiesta, cosi' il log di
+        // avvio e il summary dichiarano i valori che hanno davvero governato l'esecuzione e non
+        // quelli che il client aveva proposto.
+        var plan = ResolvePlan(request);
+        if (plan is not null)
+        {
+            request.Holding = plan.Holding;
+            request.CommissionPerContract = plan.CommissionPerContract;
+        }
 
         request.BacktestFolderName = WorkspaceBacktestPaths.NormalizeFolderName(request.BacktestFolderName);
         var workspacePath = ResolveWorkspacePath(request.WorkspaceId);
@@ -147,7 +167,7 @@ public class PiootooBacktestingService : IPiootooBacktestingService
         _jobCancellations[job.JobId] = cancellation;
 
         // Avvia il backtesting in background
-        _ = Task.Run(() => ExecuteBacktesting(job, request, outputPath, cancellation.Token));
+        _ = Task.Run(() => ExecuteBacktesting(job, request, plan, outputPath, cancellation.Token));
 
         return job.JobId;
         }
@@ -165,6 +185,37 @@ public class PiootooBacktestingService : IPiootooBacktestingService
     /// </summary>
     private static string? NormalizeBroker(string? broker)
         => string.IsNullOrWhiteSpace(broker) ? null : broker.Trim();
+
+    /// <summary>
+    /// Il piano dichiarato dal run, gia' normalizzato sulla richiesta; null quando non ce n'e' uno,
+    /// che e' il run neutro sull'intero masterfilter.
+    ///
+    /// <para><b>Un piano che non esiste fa fallire l'avvio.</b> Vale la stessa regola del datafeed
+    /// mancante e del broker inesistente: ripiegare sul masterfilter intero darebbe un run
+    /// plausibile e sbagliato — piu' strategie di quante il piano ne opererebbe, e per giunta con
+    /// la tenuta e la commissione della richiesta invece che le sue.</para>
+    /// </summary>
+    private TradingPlan? ResolvePlan(BacktestingRequest request)
+    {
+        request.PlanCode = string.IsNullOrWhiteSpace(request.PlanCode) ? null : request.PlanCode.Trim();
+        if (request.PlanCode is null) return null;
+
+        var plans = _plans ?? throw new InvalidOperationException(
+            "Il run dichiara un piano ma il servizio di backtesting non ha il registro dei piani: " +
+            "non puo' risolverne broker, tenuta e strategie spente.");
+
+        try
+        {
+            return plans.Get(request.WorkspaceId, request.PlanCode);
+        }
+        catch (KeyNotFoundException ex)
+        {
+            // Tradotta perche' il controller sa gia' rendere InvalidOperationException all'utente:
+            // una KeyNotFoundException finirebbe nel 500 generico, che di un piano sbagliato non
+            // dice niente.
+            throw new InvalidOperationException(ex.Message, ex);
+        }
+    }
 
     public BacktestingJob? GetJobStatus(string jobId)
     {
@@ -456,6 +507,7 @@ public class PiootooBacktestingService : IPiootooBacktestingService
     private async Task ExecuteBacktesting(
         BacktestingJob job,
         BacktestingRequest request,
+        TradingPlan? plan,
         string outputPath,
         CancellationToken cancellationToken)
     {
@@ -514,34 +566,44 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                 .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
-            var (strategiesForAccount, excludedByAccount, accountUniverse) =
-                ApplyAccountUniverse(strategies, request);
-            strategies = strategiesForAccount;
+            var (strategiesForPlan, excludedByBroker, disabledByPlan, planUniverse) =
+                ApplyPlanUniverse(strategies, plan);
+            strategies = strategiesForPlan;
 
             Console.WriteLine(
                 $"[Backtesting] Catalogo {catalogStrategies.Count} classi, masterfilter " +
-                $"{masterfilterStrategies}, schedulate {strategies.Count}. Universo del conto: " +
-                (accountUniverse.AccountNumber is null
-                    ? "nessun conto (run neutro)."
-                    : accountUniverse.AppliedAsNeutralAccount
-                        ? $"conto '{accountUniverse.AccountNumber}' senza tabella di conversione, ammessi tutti i simboli."
-                        : $"conto '{accountUniverse.AccountNumber}', tabella '{accountUniverse.SymbolConversionCode}' " +
-                          $"con {accountUniverse.MappedSymbols} simboli ({accountUniverse.EnabledSymbols} abilitati)."));
+                $"{masterfilterStrategies}, schedulate {strategies.Count}. Universo del piano: " +
+                (planUniverse.PlanCode is null
+                    ? "nessun piano (run neutro)."
+                    : planUniverse.AppliedAsNeutralUniverse
+                        ? $"piano '{planUniverse.PlanCode}' (broker '{planUniverse.BrokerCode ?? "-"}') " +
+                          "senza tabella di conversione, ammessi tutti i simboli."
+                        : $"piano '{planUniverse.PlanCode}', broker '{planUniverse.BrokerCode}', tabella " +
+                          $"'{planUniverse.SymbolConversionCode}' con {planUniverse.MappedSymbols} simboli " +
+                          $"({planUniverse.EnabledSymbols} abilitati)."));
 
-            if (excludedByAccount.Count > 0)
+            if (disabledByPlan.Count > 0)
             {
                 Console.WriteLine(
-                    $"[Backtesting] Conto '{request.AccountNumber}': {excludedByAccount.Count} strategie " +
-                    $"escluse perche' il simbolo non e' nella sua tabella di conversione — " +
-                    string.Join(", ", excludedByAccount));
+                    $"[Backtesting] Piano '{request.PlanCode}': {disabledByPlan.Count} strategie " +
+                    $"spente dal piano — {string.Join(", ", disabledByPlan)}");
+            }
+
+            if (excludedByBroker.Count > 0)
+            {
+                Console.WriteLine(
+                    $"[Backtesting] Piano '{request.PlanCode}': {excludedByBroker.Count} strategie " +
+                    $"escluse perche' il simbolo non e' nella tabella di conversione del broker " +
+                    $"'{planUniverse.BrokerCode}' — {string.Join(", ", excludedByBroker)}");
             }
 
             if (strategies.Count == 0)
             {
                 throw new InvalidOperationException(
-                    $"Il conto '{request.AccountNumber}' non supporta nessuna strategia del " +
-                    "masterfilter: la sua tabella di conversione non prevede alcuno dei simboli " +
-                    "richiesti. Il run non produrrebbe un solo segnale.");
+                    $"Il piano '{request.PlanCode}' non lascia nessuna strategia del masterfilter: " +
+                    $"{disabledByPlan.Count} spente dal piano, {excludedByBroker.Count} su simboli che " +
+                    "la tabella di conversione del suo broker non prevede. Il run non produrrebbe un " +
+                    "solo segnale.");
             }
 
             request.SelectedSymbols = strategies
@@ -610,6 +672,70 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                 foreach (var (sym, points) in slippage)
                     tradingService.StopFillSlippagePoints[sym] = points;
 
+            // Lo spread misurato dal broker prima, le correzioni a mano dopo: la tabella e' un
+            // default per simbolo e la richiesta puo' scavalcarne uno senza rifare la misura. Un
+            // broker senza misura fa fallire l'avvio come un datafeed mancante — un run che ripiega
+            // in silenzio su "nessuno spread" e' indistinguibile da uno con lo spread, e vale
+            // un'altra cosa.
+            var spreadSource = "nessuno";
+            if (!string.IsNullOrWhiteSpace(request.SpreadBroker))
+            {
+                var spreadTable = SpreadTable.Load(
+                    _settings.GetSpreadPath(),
+                    request.SpreadBroker,
+                    request.SpreadStatistic,
+                    request.SpreadResolution);
+
+                foreach (var (sym, points) in spreadTable.Points)
+                    tradingService.SpreadPoints[sym] = points;
+
+                // Le ore quando il run le chiede. La costante resta comunque caricata: e' il ripiego
+                // dei simboli che nel file per ora non ci sono, ed e' il numero che il summary e il
+                // report mostrano come misura di riferimento.
+                foreach (var (sym, hours) in spreadTable.PointsByHour)
+                    tradingService.SpreadPointsByHour[sym] = hours;
+
+                spreadSource = spreadTable.Describe();
+
+                // Gli avvisi non fermano il run: la misura c'e', e' solo meno solida di quanto
+                // sembri (finestra coperta a meta', simbolo senza tick). Vanno pero' detti, perche'
+                // nel summary lo spread e' un numero e un numero non dice su cosa e' stato misurato.
+                foreach (var warning in spreadTable.Warnings)
+                    Console.WriteLine($"[Backtesting][spread] {warning}");
+            }
+
+            // Uno spread negativo farebbe entrare meglio del mercato: non e' un modello ottimista,
+            // e' un errore di compilazione della richiesta, e in silenzio produrrebbe un run che
+            // sembra normale. Zero invece e' legittimo — e' il run senza spread.
+            if (request.SpreadPoints is { Count: > 0 } spreads)
+            {
+                foreach (var (sym, points) in spreads)
+                {
+                    if (points < 0m)
+                    {
+                        throw new ArgumentException(
+                            "SpreadPoints non puo' essere negativo: " + sym + " = " +
+                            points.ToString(CultureInfo.InvariantCulture) + ".",
+                            nameof(request));
+                    }
+
+                    // Normalizzato come le chiavi della tabella: il motore normalizza comunque in
+                    // lettura, ma il report affianca questi simboli a quelli del run e "@NQ" e "NQ"
+                    // gli sembrerebbero due strumenti diversi.
+                    var key = StrategyKeys.NormalizeSymbol(sym);
+                    tradingService.SpreadPoints[key] = points;
+
+                    // Un valore scritto a mano scavalca la misura, e la misura comprende le ore: se
+                    // restassero, il motore leggerebbe la tabella oraria e la correzione sarebbe
+                    // ignorata in silenzio — cioe' il contrario di cio' che chi la scrive si aspetta.
+                    tradingService.SpreadPointsByHour.Remove(key);
+                }
+
+                spreadSource = spreadSource == "nessuno"
+                    ? "richiesta (valori scritti a mano)"
+                    : spreadSource + " + correzioni dalla richiesta";
+            }
+
             // Il cBot dichiara lo stesso passo minimo fra 0 e 1 (MinValue/MaxValue sul parametro):
             // fuori da quell'intervallo il numero non ha un significato che i due motori
             // condividano, e un run che lo usasse non sarebbe confrontabile con nulla.
@@ -669,8 +795,36 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                 ["stopFillSlippageSymbols"] = tradingService.StopFillSlippagePoints.Count == 0
                     ? "-"
                     : string.Join(",", tradingService.StopFillSlippagePoints.Keys.OrderBy(x => x, StringComparer.OrdinalIgnoreCase)),
-                ["symbolConversionCode"] = accountUniverse.SymbolConversionCode ?? "-",
-                ["symbolConversionSymbols"] = accountUniverse.MappedSymbols.ToString(CultureInfo.InvariantCulture),
+                // Con i valori e non i soli simboli: lo spread cambia l'esito in proporzione alla
+                // propria misura, e "c'era lo spread su NQ" non dice se il run e' confrontabile con
+                // quello di ieri.
+                ["entrySpreadSource"] = spreadSource,
+                ["entrySpreadPoints"] = tradingService.SpreadPoints.Count == 0
+                    ? "-"
+                    : string.Join(",", tradingService.SpreadPoints
+                        .OrderBy(entry => entry.Key, StringComparer.OrdinalIgnoreCase)
+                        .Select(entry => entry.Key + "=" + entry.Value.ToString(CultureInfo.InvariantCulture))),
+                // Con la risoluzione per ora i valori sopra sono il ripiego, non quello che si paga:
+                // qui va l'escursione fra le 24 ore, che e' il numero da cui si vede se la scelta ha
+                // cambiato qualcosa. Un simbolo che va da 1,5 a 12 non e' lo stesso strumento a
+                // seconda di quando entra.
+                ["entrySpreadResolution"] = tradingService.SpreadPointsByHour.Count == 0
+                    ? "per simbolo"
+                    : "per ora UTC",
+                ["entrySpreadHourRange"] = tradingService.SpreadPointsByHour.Count == 0
+                    ? "-"
+                    : string.Join(",", tradingService.SpreadPointsByHour
+                        .OrderBy(entry => entry.Key, StringComparer.OrdinalIgnoreCase)
+                        .Select(entry => entry.Key + "=" +
+                                         entry.Value.Min().ToString(CultureInfo.InvariantCulture) + ".." +
+                                         entry.Value.Max().ToString(CultureInfo.InvariantCulture))),
+                // Il piano governa universo, tenuta e commissione: senza il suo codice qui, due run
+                // con piani diversi hanno lo stesso log di avvio e differiscono solo nei risultati.
+                ["planCode"] = plan?.Code ?? "-",
+                ["planBroker"] = planUniverse.BrokerCode ?? "-",
+                ["planDisabledStrategies"] = disabledByPlan.Count.ToString(CultureInfo.InvariantCulture),
+                ["symbolConversionCode"] = planUniverse.SymbolConversionCode ?? "-",
+                ["symbolConversionSymbols"] = planUniverse.MappedSymbols.ToString(CultureInfo.InvariantCulture),
                 ["catalogStrategies"] = catalogStrategies.Count.ToString(CultureInfo.InvariantCulture),
                 ["masterfilterStrategies"] = masterfilterStrategies.ToString(CultureInfo.InvariantCulture)
             });
@@ -1208,7 +1362,39 @@ public class PiootooBacktestingService : IPiootooBacktestingService
             BacktestHtmlReport.Write(
                 htmlReportPath,
                 result,
-                closedTrades.Select(trade => BacktestReportTrade.From(trade)).ToList());
+                closedTrades.Select(trade => BacktestReportTrade.From(trade)).ToList(),
+                // Lo spread nel report per la stessa ragione del piano e del feed: cambia l'equity
+                // senza comparire in un solo trade, e due report identici in tutto il resto possono
+                // descrivere run con costi di transazione diversi.
+                spread: new BacktestSpreadReportInfo(
+                    spreadSource,
+                    tradingService.SpreadPoints
+                        .OrderBy(entry => entry.Key, StringComparer.OrdinalIgnoreCase)
+                        .ToDictionary(entry => entry.Key, entry => entry.Value, StringComparer.OrdinalIgnoreCase),
+                    tradingService.SpreadPointsByHour
+                        .OrderBy(entry => entry.Key, StringComparer.OrdinalIgnoreCase)
+                        .ToDictionary(
+                            entry => entry.Key,
+                            entry => (IReadOnlyList<decimal>)entry.Value.ToList(),
+                            StringComparer.OrdinalIgnoreCase)),
+                // Il piano nel report per la stessa ragione per cui sta nel summary: universo,
+                // spente, orari e commissione cambiano l'equity senza comparire in un trade. I
+                // numeri sono quelli che il run ha applicato, non quelli che il piano dice adesso.
+                plan: plan is null
+                    ? null
+                    : new BacktestPlanReportInfo(
+                        plan.Code,
+                        plan.Name,
+                        planUniverse.BrokerCode,
+                        planUniverse.SymbolConversionCode,
+                        // Le attive per nome di esecuzione — quello che si ritrova nei trade — e non
+                        // per Id di catalogo: il report parla di esecuzioni (CLAUDE.md, «Id ≠ Name»).
+                        strategies
+                            .Select(strategy => strategy.Name)
+                            .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+                            .ToList(),
+                        holding,
+                        request.CommissionPerContract));
             result.HtmlReportFilePath = htmlReportPath;
 
             // Scrittura autorevole: qui sì, durabile.
@@ -1260,9 +1446,11 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                 WrongSideLevelsRejected = tradingService.WrongSideLevelsRejected,
                 Holding = holding,
                 DatafeedBroker = NormalizeBroker(request.DatafeedBroker),
-                AccountNumber = NormalizeAccountNumber(request.AccountNumber),
-                StrategiesNotSupportedByAccount = excludedByAccount,
-                AccountUniverse = accountUniverse,
+                PlanCode = plan?.Code,
+                BrokerCode = planUniverse.BrokerCode,
+                StrategiesNotSupportedByBroker = excludedByBroker,
+                StrategiesDisabledByPlan = disabledByPlan,
+                PlanUniverse = planUniverse,
                 FillConventions = new BacktestFillConventions
                 {
                     IntrabarPriority = "ProtectiveBeforeTarget",
@@ -1271,7 +1459,20 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                     RejectWrongSideLevels = tradingService.RejectWrongSideLevels,
                     StopFillSlippageSymbols = tradingService.StopFillSlippagePoints.Keys
                         .OrderBy(symbol => symbol, StringComparer.OrdinalIgnoreCase)
-                        .ToList()
+                        .ToList(),
+                    SpreadPoints = tradingService.SpreadPoints
+                        .OrderBy(entry => entry.Key, StringComparer.OrdinalIgnoreCase)
+                        .ToDictionary(entry => entry.Key, entry => entry.Value, StringComparer.OrdinalIgnoreCase),
+                    SpreadPointsByHour = tradingService.SpreadPointsByHour
+                        .OrderBy(entry => entry.Key, StringComparer.OrdinalIgnoreCase)
+                        .ToDictionary(
+                            entry => entry.Key,
+                            entry => (IReadOnlyList<decimal>)entry.Value.ToList(),
+                            StringComparer.OrdinalIgnoreCase),
+                    SpreadResolution = tradingService.SpreadPointsByHour.Count == 0
+                        ? "per simbolo"
+                        : "per ora UTC",
+                    SpreadSource = spreadSource
                 },
                 CatalogStrategies = catalogStrategies.Count,
                 MasterfilterStrategies = masterfilterStrategies,
@@ -1638,77 +1839,105 @@ public class PiootooBacktestingService : IPiootooBacktestingService
         signal.TimeExitFromAccountPolicy = decision.FromAccountPolicy;
     }
 
-    /// <summary>Numero di conto normalizzato; null quando il run non ne dichiara uno.</summary>
-    private static string? NormalizeAccountNumber(string? accountNumber)
-        => string.IsNullOrWhiteSpace(accountNumber) ? null : accountNumber.Trim();
-
     /// <summary>
-    /// Restringe le strategie del masterfilter all'universo operativo del conto dichiarato dal run:
-    /// restano solo quelle il cui simbolo compare, abilitato, nella sua tabella di conversione.
+    /// Restringe le strategie del masterfilter a quelle che il piano dichiarato dal run lascia
+    /// operare: prima toglie quelle che il piano tiene spente, poi quelle il cui simbolo non
+    /// compare, abilitato, nella tabella di conversione del suo <b>broker</b>.
     ///
-    /// <para>Senza conto (il caso normale) non tocca niente e restituisce l'elenco intero: il
-    /// backtest resta il run neutro che misura le strategie, non il conto.</para>
+    /// <para>Senza piano (il run neutro) non tocca niente e restituisce l'elenco intero: il
+    /// backtest resta la misura delle strategie, non del conto con cui verrebbero operate.</para>
     ///
-    /// <para><b>Un conto che non esiste fa fallire l'avvio.</b> Vale la stessa regola del datafeed
-    /// mancante e del broker inesistente: ripiegare sul masterfilter intero darebbe un run
-    /// plausibile e sbagliato, con piu' strategie di quante il conto ne opererebbe davvero.</para>
+    /// <para><b>Le due esclusioni restano separate.</b> Producono lo stesso effetto — la strategia
+    /// non gira — da cause opposte: una scelta operativa reversibile, contro uno strumento che quel
+    /// broker non opera. Sommarle manderebbe a cercare la tabella di conversione per una strategia
+    /// che qualcuno ha semplicemente spento.</para>
     ///
-    /// <para>Un conto <i>senza</i> tabella di conversione supporta tutto: opera 1 a 1, ed e' la
-    /// configurazione di ogni conto non ancora mappato.</para>
+    /// <para>Un piano <i>senza</i> broker — quelli scritti prima dell'anagrafica — non restringe i
+    /// simboli e vale come universo neutro; le sue strategie spente si applicano lo stesso. Un
+    /// broker che il registro non conosce fa invece fallire il run, come il datafeed mancante.</para>
     /// </summary>
-    private (List<StrategyDefinition> Strategies, IReadOnlyList<string> Excluded, BacktestAccountUniverse Universe)
-        ApplyAccountUniverse(List<StrategyDefinition> strategies, BacktestingRequest request)
+    private (List<StrategyDefinition> Strategies,
+             IReadOnlyList<string> ExcludedByBroker,
+             IReadOnlyList<string> DisabledByPlan,
+             BacktestPlanUniverse Universe)
+        ApplyPlanUniverse(List<StrategyDefinition> strategies, TradingPlan? plan)
     {
-        var accountNumber = NormalizeAccountNumber(request.AccountNumber);
-        request.AccountNumber = accountNumber;
-        if (accountNumber is null)
-            return (strategies, [], new BacktestAccountUniverse { AppliedAsNeutralAccount = true });
+        if (plan is null)
+            return (strategies, [], [], new BacktestPlanUniverse { AppliedAsNeutralUniverse = true });
+
+        // Le spente il piano le nomina per Id di catalogo — il nome della classe — perche' li' si
+        // sta selezionando dal catalogo come fa il masterfilter, non nominando esecuzioni
+        // (CLAUDE.md, «Id ≠ Name»). Nel summary finisce invece il nome di esecuzione, che e' quello
+        // che si ritrova in signals.json e trades.json.
+        var disabledIds = plan.DisabledStrategies.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var disabledByPlan = new List<string>();
+        if (disabledIds.Count > 0)
+        {
+            var kept = new List<StrategyDefinition>(strategies.Count);
+            foreach (var strategy in strategies)
+            {
+                if (disabledIds.Contains(strategy.Id)) disabledByPlan.Add(strategy.Name);
+                else kept.Add(strategy);
+            }
+
+            disabledByPlan.Sort(StringComparer.OrdinalIgnoreCase);
+            strategies = kept;
+        }
+
+        var brokerCode = string.IsNullOrWhiteSpace(plan.BrokerCode) ? null : plan.BrokerCode.Trim();
+        if (brokerCode is null)
+        {
+            return (strategies, [], disabledByPlan, new BacktestPlanUniverse
+            {
+                PlanCode = plan.Code,
+                AppliedAsNeutralUniverse = true
+            });
+        }
 
         var workspaces = _workspaces ?? throw new InvalidOperationException(
-            "Il run dichiara un conto ma il servizio di backtesting non ha il registro account: " +
-            "non puo' risolverne la tabella di conversione.");
+            "Il run dichiara un piano ma il servizio di backtesting non ha il registro delle " +
+            "anagrafiche: non puo' risolvere la tabella di conversione del suo broker.");
 
-        var account = workspaces.ListAccounts().FirstOrDefault(candidate => string.Equals(
-            candidate.AccountNumber?.Trim(), accountNumber, StringComparison.OrdinalIgnoreCase))
+        var broker = workspaces.FindBroker(brokerCode)
             ?? throw new InvalidOperationException(
-                $"Conto '{accountNumber}' non presente nel registro account: il run non puo' " +
-                "applicarne l'universo operativo.");
+                $"Il piano '{plan.Code}' dichiara il broker '{brokerCode}', che non e' nel registro: " +
+                "il run non puo' applicarne l'universo operativo.");
 
-        // La tabella e' quella del broker del conto; il codice serve solo a nominarla nell'errore
-        // qui sotto, e resta quello che il conto dichiara quando non ha ancora un broker.
-        var table = workspaces.ResolveConversionForAccount(account);
-        var conversionCode = workspaces.FindBroker(account.BrokerCode)?.SymbolConversionCode?.Trim()
-                             ?? account.SymbolConversionCode?.Trim();
+        var conversionCode = string.IsNullOrWhiteSpace(broker.SymbolConversionCode)
+            ? null
+            : broker.SymbolConversionCode.Trim();
+        var table = workspaces.ResolveSymbolConversion(conversionCode);
         var mappings = table.Mappings ?? [];
-        var conversion = AccountSymbolConversion.FromAccount(account, table);
+        var conversion = AccountSymbolConversion.FromTable(table);
 
-        // Un conto che DICHIARA una tabella e ne risolve zero righe non e' il conto neutro: e' una
+        // Un broker che DICHIARA una tabella e ne risolve zero righe non e' il broker neutro: e' una
         // configurazione rotta. Distinguerli conta perche' SupportsSymbol ammette tutto quando la
         // tabella e' vuota, quindi i due casi producevano lo stesso artefatto — nessuna esclusione —
         // con run completamente diversi. In compare-0017 lo stesso file su disco ha dato tre
         // esclusioni diverse in tre run senza che niente lo segnalasse. Vale la regola del broker
         // inesistente sul datafeed: si fallisce all'avvio, non si ripiega in silenzio.
-        if (!string.IsNullOrWhiteSpace(conversionCode) && !conversion.HasSymbolTable)
+        if (conversionCode is not null && !conversion.HasSymbolTable)
         {
             throw new InvalidOperationException(
-                $"Il conto '{accountNumber}' dichiara la tabella di conversione '{conversionCode}' " +
-                "ma non contiene nessun simbolo. Senza tabella il run ammetterebbe ogni simbolo del " +
-                "masterfilter, compresi quelli che il conto non puo' operare: e' un run che descrive " +
-                "un conto che non esiste. Correggi la tabella, oppure togli il conto dalla richiesta " +
-                "per eseguire il masterfilter intero come run neutro.");
+                $"Il broker '{brokerCode}' del piano '{plan.Code}' dichiara la tabella di conversione " +
+                $"'{conversionCode}' ma non contiene nessun simbolo. Senza tabella il run ammetterebbe " +
+                "ogni simbolo del masterfilter, compresi quelli che quel broker non opera: e' un run " +
+                "che descrive un conto che non esiste. Correggi la tabella, oppure togli il piano " +
+                "dalla richiesta per eseguire il masterfilter intero come run neutro.");
         }
 
-        var universe = new BacktestAccountUniverse
+        var universe = new BacktestPlanUniverse
         {
-            AccountNumber = accountNumber,
-            SymbolConversionCode = string.IsNullOrWhiteSpace(conversionCode) ? null : conversionCode,
+            PlanCode = plan.Code,
+            BrokerCode = brokerCode,
+            SymbolConversionCode = conversionCode,
             MappedSymbols = mappings.Count,
             EnabledSymbols = mappings.Count(mapping => mapping.Enabled),
-            AppliedAsNeutralAccount = !conversion.HasSymbolTable
+            AppliedAsNeutralUniverse = !conversion.HasSymbolTable
         };
 
         if (!conversion.HasSymbolTable)
-            return (strategies, [], universe);
+            return (strategies, [], disabledByPlan, universe);
 
         var supported = new List<StrategyDefinition>(strategies.Count);
         var excluded = new List<string>();
@@ -1719,7 +1948,7 @@ public class PiootooBacktestingService : IPiootooBacktestingService
         }
 
         excluded.Sort(StringComparer.OrdinalIgnoreCase);
-        return (supported, excluded, universe);
+        return (supported, excluded, disabledByPlan, universe);
     }
 
     private static TradeSignal CloneTradeSignal(TradeSignal signal)

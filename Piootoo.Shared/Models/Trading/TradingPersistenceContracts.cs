@@ -91,6 +91,25 @@ public sealed class PersistedSignal
     public int? MaxBarsInPosition { get; init; }
 
     /// <summary>
+    /// Fill ammessi per la sessione che comincia in <see cref="EntrySessionStartUtc"/>. Null o 0 =
+    /// nessun limite.
+    ///
+    /// <para>Persistito insieme al suo confine perché senza i due numeri <c>signals.json</c> non
+    /// ricostruisce il proprio run: quasi tutte le strategie portate dalla ricerca dichiarano un
+    /// solo ingresso per sessione, e chi rilegge i segnali senza il cap ne conta molti di più —
+    /// rigiocando <c>backtest-20260906-0627</c> senza questi campi uscivano 436 trade di troppo.
+    /// Vale la stessa ragione di <see cref="TimeExitOnlyIfProfitBelowMoneyPerContract"/>.</para>
+    /// </summary>
+    public int? MaxEntriesPerSession { get; init; }
+
+    /// <summary>
+    /// Inizio della sessione a cui si riferisce <see cref="MaxEntriesPerSession"/>. È il confine
+    /// che la strategia dichiara per sé — per i port dalla ricerca il giorno di calendario
+    /// europeo — e non si deduce dal timestamp del segnale.
+    /// </summary>
+    public DateTime? EntrySessionStartUtc { get; init; }
+
+    /// <summary>
     /// Soglia di utile per contratto sotto la quale la chiusura a <see cref="TimeExitUtc"/> viene
     /// eseguita. Persistita perché senza di essa, rileggendo <c>signals.json</c>, non si
     /// distinguerebbe una chiusura a tempo condizionata da una incondizionata.

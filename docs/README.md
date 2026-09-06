@@ -57,6 +57,10 @@ non esiste più, si tiene per il perché.
   blocchi, journal e compattazione, deduplica delle sovrapposizioni, buchi
   dichiarati, una cartella per broker. API `api/datafeed-external` e cBot
   `PiootooDatafeedSyncBot`. *Stabile.*
+- [`domini/spread-e-costo-di-transazione.md`](domini/spread-e-costo-di-transazione.md)
+  — come si misura lo spread di un broker (`PiootooSpreadDumpBot`, distribuzione
+  per simbolo e per ora UTC) e come entra nel backtest: peggiora il solo prezzo
+  di ingresso, il numero che conta è `spread / distanza di stop`. *Stabile.*
 - [`domini/parita-riferimento-esterno.md`](domini/parita-riferimento-esterno.md)
   — confronto fra una strategia portata e il suo riferimento esterno: cosa è
   confrontabile, procedura, cause di divergenza in ordine di impatto. *Stabile.*

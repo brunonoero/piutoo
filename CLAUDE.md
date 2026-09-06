@@ -109,6 +109,16 @@ sbaglia più spesso:
  sceglie (null = interno) e `backtest-summary.json` lo dichiara: due run su feed diversi non
  sono confrontabili. Un broker inesistente fa fallire l'avvio, non ripiega sull'interno.
  Vedi `docs/domini/datafeed-generazione.md`.
+- **Un backtest che dichiara un piano lo esegue tutto.** `BacktestingRequest.PlanCode`
+ (null = run neutro sul masterfilter intero) porta dal piano l'universo operativo — la tabella di
+ conversione del suo **broker**, non di un conto: i conti di un piano sono tutti suoi e danno la
+ stessa risposta —, le strategie spente, la `Holding` e la commissione, e quei campi della
+ richiesta li **sovrascrive**: un run e il live dello stesso piano devono essere confrontabili per
+ costruzione, non per disciplina di chi compila la richiesta. Le size restano neutre
+ (`AccountSymbolConversion.FromTable` lascia `BalanceScale` a 1). Il **datasource resta una scelta
+ separata** (`DatafeedBroker`): lo stesso piano sul feed interno e su quello del suo broker e' il
+ confronto che misura lo spread. Piano o broker inesistenti fanno fallire l'avvio.
+ Vedi `docs/domini/backtesting.md`.
 - **Oltre l'ora la griglia la costruisce il codice, mai la piattaforma.** Il grafico
  H4 di cTrader è ancorato all'orologio del broker; il feed e i run di ricerca all'inizio
  sessione del giorno di calendario europeo (`ZonedWindow.ResearchSession()`,
@@ -141,6 +151,21 @@ sbaglia più spesso:
  entrambi. E si raccoglie **a blocchi**, mai in un'unica chiamata: l'unità è
  idempotente perché la chiave è l'istante di apertura della barra, i blocchi si
  accodano a un journal e il file piatto si materializza alla compattazione.
+- **Lo spread è una misura, non un parametro, e tocca il solo prezzo di ingresso.**
+ `BacktestingRequest.SpreadBroker` carica la distribuzione misurata da
+ `piootoo-repository/spread/{BROKER}/` (la produce `PiootooSpreadDumpBot`), `SpreadStatistic`
+ sceglie mediana/media/p90, `SpreadResolution` sceglie fra la costante per simbolo e il valore
+ dell'ora UTC dell'ingresso — dal file gemello `spread-by-hour`, non dal piu' recente, e le ore che
+ il broker non ha quotato ripiegano sulla costante — e `SpreadPoints` scavalca un simbolo alla
+ volta, ore comprese.
+ `PiootooTradingService.ApplySpread` peggiora l'ingresso (long `+s`, short `-s`) e non tocca
+ trigger, livelli né uscite: il feed di `datafeed-external/` è la serie **Bid** di cTrader,
+ quindi un long entra sull'Ask e esce sul Bid. L'effetto non è un costo per trade ma
+ *stessa perdita, più stop* — stop e target si spostano insieme all'ingresso — e il numero
+ che lo misura è `spread / distanza di stop`. Il trigger dei pending resta sul feed: muoverlo
+ cambierebbe quali trade nascono e i run non sarebbero più confrontabili con il porting dalla
+ ricerca. Broker di spread, datafeed e piano sono **tre scelte separate**. Un broker senza
+ misura fa fallire l'avvio. Vedi `docs/domini/spread-e-costo-di-transazione.md`.
 - **Barra di esecuzione ≠ prezzo di mark.** L'orologio del loop è sintetico e sui
  tick senza barre il cursore restituisce l'ultima barra chiusa. Quel prezzo va
  usato per il mark-to-market (altrimenti stop e time exit non sono valutabili) ma

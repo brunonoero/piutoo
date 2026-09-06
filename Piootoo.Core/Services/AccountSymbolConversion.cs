@@ -93,6 +93,30 @@ public sealed class AccountSymbolConversion
         ArgumentNullException.ThrowIfNull(account);
         ArgumentNullException.ThrowIfNull(conversion);
 
+        return new AccountSymbolConversion(
+            account.Id, account.Name, account.InitialBalance, conversion.RoundingMode,
+            BuildEntries(conversion));
+    }
+
+    /// <summary>
+    /// La sola tabella, senza conto. Serve alle domande che sono del <b>broker</b> e non del
+    /// singolo conto — quali simboli prevede, come li nomina, con che granularità — cioè quelle che
+    /// decidono l'<i>universo operativo</i>: la tabella è dichiarata su <c>TradingBroker</c>, e
+    /// tutti i conti di un piano ne condividono una sola.
+    ///
+    /// <para>Capitale e scala restano neutri (<see cref="BalanceScale"/> vale 1): <i>quanto</i> si
+    /// opera è una proprietà del conto, e per quella serve <see cref="FromAccount"/>.</para>
+    /// </summary>
+    public static AccountSymbolConversion FromTable(SymbolConversion conversion)
+    {
+        ArgumentNullException.ThrowIfNull(conversion);
+
+        return new AccountSymbolConversion(
+            string.Empty, string.Empty, 0m, conversion.RoundingMode, BuildEntries(conversion));
+    }
+
+    private static Dictionary<string, AccountSymbolConversionEntry> BuildEntries(SymbolConversion conversion)
+    {
         var entries = new Dictionary<string, AccountSymbolConversionEntry>(StringComparer.OrdinalIgnoreCase);
         foreach (var mapping in conversion.Mappings ?? new List<AccountSymbolMapping>())
         {
@@ -113,8 +137,7 @@ public sealed class AccountSymbolConversion
                 mapping.PriceScale <= 0 ? 1m : mapping.PriceScale);
         }
 
-        return new AccountSymbolConversion(
-            account.Id, account.Name, account.InitialBalance, conversion.RoundingMode, entries);
+        return entries;
     }
 
     /// <summary>Stessa normalizzazione del backtest: <c>@NQ</c> e <c>nq</c> collassano su <c>NQ</c>.</summary>

@@ -298,31 +298,56 @@ public sealed class BacktestRunSummary
     public string? DatafeedBroker { get; init; }
 
     /// <summary>
-    /// Conto di cui il run ha applicato l'universo operativo: null = nessuno, il run ha eseguito
-    /// l'intero masterfilter.
+    /// Piano di cui il run ha applicato le regole: null = nessuno, il run ha eseguito l'intero
+    /// masterfilter con i parametri della richiesta.
     ///
-    /// <para>Stessa ragione di <see cref="DatafeedBroker"/>: cambia <i>quali</i> strategie girano
-    /// senza lasciare traccia nei trade. Un run con conto e uno senza si distinguono solo contando
-    /// le strategie, e solo sapendo quante avrebbero dovuto essercene.</para>
+    /// <para>Stessa ragione di <see cref="DatafeedBroker"/>: cambia <i>quali</i> strategie girano —
+    /// e con quale tenuta e quale commissione — senza lasciare traccia nei trade. Un run con piano
+    /// e uno senza si distinguono solo contando le strategie, e solo sapendo quante avrebbero
+    /// dovuto essercene.</para>
+    ///
+    /// <para>Nei summary scritti fino al 05/09/2026 al suo posto c'era il numero di conto: la
+    /// tabella dei simboli e' del broker, non del conto, e il conto non selezionava niente che il
+    /// piano non dicesse gia'.</para>
     /// </summary>
-    public string? AccountNumber { get; init; }
+    public string? PlanCode { get; init; }
 
     /// <summary>
-    /// Strategie del masterfilter escluse perche' il conto di <see cref="AccountNumber"/> non
-    /// prevede il loro simbolo. Vuoto quando non c'e' un conto, o quando li supporta tutti.
+    /// Broker del piano, cioe' di chi e' la tabella di conversione che ha deciso l'universo. Null
+    /// quando il run non dichiara un piano, o quando il piano e' uno di quelli scritti prima
+    /// dell'anagrafica broker.
     /// </summary>
-    public IReadOnlyList<string> StrategiesNotSupportedByAccount { get; init; } = [];
+    public string? BrokerCode { get; init; }
 
     /// <summary>
-    /// Quale tabella di conversione il run ha davvero risolto per <see cref="AccountNumber"/>.
+    /// Strategie del masterfilter escluse perche' il broker di <see cref="BrokerCode"/> non prevede
+    /// il loro simbolo. Vuoto quando non c'e' un piano, o quando li prevede tutti.
+    /// </summary>
+    public IReadOnlyList<string> StrategiesNotSupportedByBroker { get; init; } = [];
+
+    /// <summary>
+    /// Strategie del masterfilter che il piano tiene <b>spente</b>
+    /// (<c>TradingPlan.DisabledStrategies</c>), per nome di esecuzione.
+    ///
+    /// <para>Sta accanto a <see cref="StrategiesNotSupportedByBroker"/> e non insieme: le due
+    /// esclusioni hanno lo stesso effetto — la strategia non gira — ma cause opposte. Una e' una
+    /// scelta operativa reversibile, l'altra e' un simbolo che quel broker non opera, e
+    /// confonderle manderebbe a cercare la tabella di conversione per una strategia che qualcuno ha
+    /// semplicemente spento.</para>
+    /// </summary>
+    public IReadOnlyList<string> StrategiesDisabledByPlan { get; init; } = [];
+
+    /// <summary>
+    /// Quale tabella di conversione il run ha davvero risolto per il broker di
+    /// <see cref="PlanCode"/>.
     ///
     /// <para><b>Perche' non basta la lista delle escluse.</b> Una lista vuota ha due significati
-    /// opposti — «il conto li supporta tutti» e «la tabella non si e' risolta, quindi passa
+    /// opposti — «il broker li prevede tutti» e «la tabella non si e' risolta, quindi passa
     /// tutto» — e i due producono run diversi con lo stesso artefatto. In compare-0017 lo stesso
     /// file di conversione su disco ha dato tre esclusioni diverse in tre run, e non c'era modo di
     /// accorgersene dal summary. Null nei summary scritti prima di questo campo.</para>
     /// </summary>
-    public BacktestAccountUniverse? AccountUniverse { get; init; }
+    public BacktestPlanUniverse? PlanUniverse { get; init; }
 
     /// <summary>
     /// Le convenzioni di riempimento con cui questo run e' stato eseguito.
@@ -363,33 +388,37 @@ public sealed class BacktestRunSummary
 }
 
 /// <summary>
-/// L'universo operativo che il run ha risolto per il conto dichiarato.
+/// L'universo operativo che il run ha risolto per il piano dichiarato: la tabella di conversione
+/// del suo broker, e quanto di essa il run ha davvero applicato.
 ///
 /// <para>Esiste perche' <c>AccountSymbolConversion.SupportsSymbol</c> ammette <b>tutto</b> quando
-/// la tabella e' vuota — e' il conto neutro, quello non ancora mappato — mentre un conto che
-/// dichiara un codice tabella e ne risolve zero righe e' una configurazione rotta, non un conto
+/// la tabella e' vuota — e' il broker neutro, quello non ancora mappato — mentre un broker che
+/// dichiara un codice tabella e ne risolve zero righe e' una configurazione rotta, non un broker
 /// neutro. Finche' i due casi non erano distinguibili nell'artefatto, un run poteva far girare
-/// strategie su simboli che il conto ha disabilitati senza che niente lo dicesse.</para>
+/// strategie su simboli disabilitati senza che niente lo dicesse.</para>
 /// </summary>
-public sealed class BacktestAccountUniverse
+public sealed class BacktestPlanUniverse
 {
-    /// <summary>Conto dichiarato dal run.</summary>
-    public string? AccountNumber { get; init; }
+    /// <summary>Piano dichiarato dal run.</summary>
+    public string? PlanCode { get; init; }
 
-    /// <summary>Codice della tabella di conversione dichiarato dal conto. Vuoto = conto non mappato.</summary>
+    /// <summary>Broker del piano: e' sua la tabella. Vuoto nei piani scritti prima dell'anagrafica broker.</summary>
+    public string? BrokerCode { get; init; }
+
+    /// <summary>Codice della tabella di conversione dichiarato dal broker. Vuoto = broker non mappato.</summary>
     public string? SymbolConversionCode { get; init; }
 
-    /// <summary>Righe risolte in quella tabella. Zero con un codice dichiarato e' un errore, non un conto neutro.</summary>
+    /// <summary>Righe risolte in quella tabella. Zero con un codice dichiarato e' un errore, non un broker neutro.</summary>
     public int MappedSymbols { get; init; }
 
-    /// <summary>Quante di quelle righe sono abilitate: sono i simboli su cui il conto puo' operare.</summary>
+    /// <summary>Quante di quelle righe sono abilitate: sono i simboli su cui il piano puo' operare.</summary>
     public int EnabledSymbols { get; init; }
 
     /// <summary>
     /// Vero quando il run non ha ristretto niente perche' la tabella e' assente o vuota. E' il
-    /// caso in cui la lista delle escluse e' vuota <i>senza</i> che il conto le supporti davvero.
+    /// caso in cui la lista delle escluse e' vuota <i>senza</i> che il broker le preveda davvero.
     /// </summary>
-    public bool AppliedAsNeutralAccount { get; init; }
+    public bool AppliedAsNeutralUniverse { get; init; }
 }
 
 /// <summary>
@@ -423,4 +452,43 @@ public sealed class BacktestFillConventions
 
     /// <summary>Simboli per cui il run ha applicato uno slippage sul riempimento degli stop protettivi.</summary>
     public IReadOnlyList<string> StopFillSlippageSymbols { get; init; } = [];
+
+    /// <summary>
+    /// Spread applicato all'ingresso, per simbolo, in punti dello strumento. Vuoto = run senza
+    /// spread.
+    ///
+    /// <para>Qui ci sono i <b>valori</b> e non i soli simboli come in
+    /// <see cref="StopFillSlippageSymbols"/>, perche' due run che dichiarano lo stesso simbolo con
+    /// spread 2 e con spread 8 danno risultati che non si somigliano: sapere che lo spread c'era non
+    /// basta a rendere confrontabili due cartelle.</para>
+    /// </summary>
+    public IReadOnlyDictionary<string, decimal> SpreadPoints { get; init; } =
+        new Dictionary<string, decimal>();
+
+    /// <summary>
+    /// Con la risoluzione per ora, i 24 valori UTC per simbolo effettivamente applicati — indice 0 =
+    /// ore 00 UTC. Vuoto = il run ha usato la costante per simbolo, che e' <see cref="SpreadPoints"/>.
+    ///
+    /// <para>Ci stanno per intero e non come minimo/massimo per la stessa ragione per cui
+    /// <see cref="SpreadPoints"/> porta i valori: con le ore, la costante da sola non dice cosa il
+    /// run ha pagato, e un'escursione 1,5–12 non dice quale delle due ha incontrato una strategia
+    /// che opera solo il pomeriggio. Le ore in cui il broker non quotava portano il ripiego, quindi
+    /// l'array e' sempre pieno.</para>
+    /// </summary>
+    public IReadOnlyDictionary<string, IReadOnlyList<decimal>> SpreadPointsByHour { get; init; } =
+        new Dictionary<string, IReadOnlyList<decimal>>();
+
+    /// <summary>
+    /// Se lo spread era una costante per simbolo o il valore dell'ora di ingresso. Due run che
+    /// dichiarano gli stessi <see cref="SpreadPoints"/> con risoluzioni diverse non hanno pagato lo
+    /// stesso costo, e senza questo campo sono indistinguibili.
+    /// </summary>
+    public string? SpreadResolution { get; init; }
+
+    /// <summary>
+    /// Da dove vengono quei valori: broker, statistica e file della misura, oppure la nota che sono
+    /// stati scritti a mano. Senza, due run con lo stesso spread su NQ possono venire da una mediana
+    /// e da una media di due mesi diversi, e nel summary sono indistinguibili.
+    /// </summary>
+    public string? SpreadSource { get; init; }
 }

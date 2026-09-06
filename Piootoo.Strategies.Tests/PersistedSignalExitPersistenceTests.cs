@@ -118,6 +118,56 @@ public sealed class PersistedSignalExitPersistenceTests : IDisposable
         Assert.Equal(150m, copy.TakeProfitMoneyPerFutureContract!.Value / 20m);
     }
 
+    /// <summary>
+    /// I tre campi che rendono <c>signals.json</c> capace di ricostruire il proprio run.
+    ///
+    /// <para>Non e' pedanteria di copertura: passavano dal mapper senza essere scritti, e chi
+    /// rigioca i segnali senza di loro sbaglia in due modi opposti. Senza
+    /// <c>TimeframeMinutes</c> (che sul contratto c'era gia' ma usciva sempre 0) un pending
+    /// scade dopo un tick del portafoglio invece che dopo la propria barra, ed e' la trappola
+    /// che <c>PiootooTradingService.IsExpired</c> evita proprio con quel numero; senza il cap
+    /// per sessione — che quasi tutte le strategie portate dalla ricerca dichiarano a 1 — si
+    /// contano ingressi che il motore non ha mai riempito. Rigiocando
+    /// <c>backtest-20260906-0627</c> valevano 285 trade mancanti e 436 di troppo su 1.131.</para>
+    /// </summary>
+    [Fact]
+    public void IlMapper_PortaTimeframeECapDiSessione()
+    {
+        var sessionStart = new DateTime(2024, 1, 2, 23, 0, 0, DateTimeKind.Utc);
+        var tradeSignal = new TradeSignal
+        {
+            Date = new DateTime(2024, 1, 3, 16, 0, 0, DateTimeKind.Utc),
+            Type = SignalType.Buy,
+            Price = 15_000m,
+            Symbol = "@NQ",
+            StrategyCode = "PTS_NQ_PCH_001_15",
+            StrategyName = "PTS_NQ_PCH_001_15",
+            Quantity = 1m,
+            OrderType = TradeOrderType.Stop,
+            ValidFromUtc = new DateTime(2024, 1, 3, 17, 0, 0, DateTimeKind.Utc),
+            ExpiresAtUtc = new DateTime(2024, 1, 3, 17, 0, 0, DateTimeKind.Utc),
+            TimeframeMinutes = 240,
+            MaxEntriesPerSession = 1,
+            EntrySessionStartUtc = sessionStart
+        };
+
+        var persisted = PersistedSignalMapper.FromTradeSignal(
+            tradeSignal,
+            signalId: "job-signal-0000000001",
+            correlationId: "job");
+
+        Assert.Equal(240, persisted.TimeframeMinutes);
+        Assert.Equal(1, persisted.MaxEntriesPerSession);
+        Assert.Equal(sessionStart, persisted.EntrySessionStartUtc);
+
+        var copy = JsonSerializer.Deserialize<PersistedSignal>(
+            JsonSerializer.Serialize(persisted, JsonOptions), JsonOptions)!;
+
+        Assert.Equal(240, copy.TimeframeMinutes);
+        Assert.Equal(1, copy.MaxEntriesPerSession);
+        Assert.Equal(sessionStart, copy.EntrySessionStartUtc);
+    }
+
     [Fact]
     public void LegacySignalsWithoutMoneyFields_DeserializeWithNullExits()
     {

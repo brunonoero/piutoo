@@ -50,8 +50,15 @@ public static class PersistedSignalMapper
             BreakEven = signal.BreakEven,
             BreakEvenMoneyPerFutureContract = signal.BreakEvenMoneyPerFutureContract,
             TrailingStopMoneyPerFutureContract = signal.TrailingStopMoneyPerFutureContract,
+            // Quanto dura la barra su cui l'ordine vive. Il campo esisteva sul contratto ma non
+            // veniva valorizzato: nel file usciva sempre 0, e chi rileggeva i segnali faceva
+            // scadere un pending dopo un tick del portafoglio invece che dopo la propria barra —
+            // la trappola che PiootooTradingService.IsExpired evita proprio con questo numero.
+            TimeframeMinutes = signal.TimeframeMinutes ?? 0,
             TimeExitUtc = signal.CloseAtUtc,
             MaxBarsInPosition = signal.MaxBarsInPosition,
+            MaxEntriesPerSession = signal.MaxEntriesPerSession,
+            EntrySessionStartUtc = signal.EntrySessionStartUtc,
             TimeExitOnlyIfProfitBelowMoneyPerContract = signal.TimeExitOnlyIfProfitBelowMoneyPerContract,
             ProfitStallAfterUtc = signal.ProfitStallAfterUtc,
             Reason = signal.Reason

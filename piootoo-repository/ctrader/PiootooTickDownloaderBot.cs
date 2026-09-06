@@ -48,7 +48,7 @@ namespace cAlgo.Robots
     {
         // Versione propria: questo bot non ha alcun contratto con il server Piootoo — non lo
         // contatta nemmeno — quindi non ha senso legarlo a PiootooVersion.
-        private const string BotVersion = "1.0.0";
+        private const string BotVersion = "1.0.1";
 
         [Parameter("Simboli (separati da virgola, vuoto = simbolo del grafico)", DefaultValue = "", Group = "Cosa scaricare")]
         public string SymbolList { get; set; }
@@ -115,13 +115,23 @@ namespace cAlgo.Robots
             // dichiarato dall'attributo [Robot]. Se quello non fosse UTC, la finestra verrebbe
             // confrontata con orari locali e si scaricherebbe un periodo spostato di ore senza che
             // niente lo segnali.
-            if (Server.Time != Server.TimeInUtc)
+            //
+            // Le due proprieta' sono letture indipendenti dell'orologio, non due viste dello stesso
+            // istante: fra l'una e l'altra il tempo avanza, e il confronto secco falliva a caso anche
+            // su un bot davvero in UTC. Si e' visto in produzione con le due date IDENTICHE nel
+            // messaggio d'errore — che le rilegge, e la seconda volta ricadevano nello stesso tick.
+            // Si legge una volta sola e si confronta con una tolleranza: il fuso piu' vicino a UTC
+            // che esista dista quindici minuti, quindi un minuto separa senza ambiguita' il
+            // disallineamento vero dall'orologio che e' avanzato fra le due letture.
+            var serverTime = Server.Time;
+            var serverTimeUtc = Server.TimeInUtc;
+            if ((serverTime - serverTimeUtc).Duration() > TimeSpan.FromMinutes(1))
             {
                 StopWithError(string.Format(
                     "Il robot non sta girando in UTC (Server.Time={0:O}, Server.TimeInUtc={1:O}). " +
                     "L'attributo [Robot(TimeZone = TimeZones.UTC)] e' obbligatorio: la finestra di " +
                     "date verrebbe interpretata in un fuso diverso da quello dei tick.",
-                    Server.Time, Server.TimeInUtc));
+                    serverTime, serverTimeUtc));
                 return;
             }
 

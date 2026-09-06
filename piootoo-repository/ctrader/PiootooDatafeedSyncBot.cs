@@ -91,7 +91,10 @@ namespace cAlgo.Robots
         // (i blocchi sono idempotenti). Legarlo alla versione del progetto vorrebbe dire che ogni
         // release del server fa comparire un finto disallineamento nel log di un bot che non e'
         // cambiato — o costringe a ri-deployarlo per niente.
-        private const string BotVersion = "1.2.0";
+        // 1.2.1: i confini del blocco si arrotondano al minuto prima di cercare il bucket. Senza,
+        // un bucket ogni ChunkDays veniva spedito con una barra base sola. La versione finisce nel
+        // campo `source` del feed ed e' il solo modo di distinguere un archivio raccolto prima.
+        private const string BotVersion = "1.2.2";
 
         /// <summary>
         /// Tetto ai giri di <c>LoadMoreHistory</c> in un solo battito di timer. Il broker risponde a
@@ -300,13 +303,23 @@ namespace cAlgo.Robots
             // etichettarle bisogna essere certi che l'etichetta sia vera. Se qualcuno cambia
             // l'attributo, SpecifyKind trasformerebbe in silenzio un orario locale in "UTC" e il
             // feed nascerebbe sfalsato di un'ora per sempre. Meglio non partire.
-            if (Server.Time != Server.TimeInUtc)
+            //
+            // Le due proprieta' sono letture indipendenti dell'orologio, non due viste dello stesso
+            // istante: fra l'una e l'altra il tempo avanza, e il confronto secco falliva a caso anche
+            // su un bot davvero in UTC. Si e' visto in produzione con le due date IDENTICHE nel
+            // messaggio d'errore — che le rilegge, e la seconda volta ricadevano nello stesso tick.
+            // Si legge una volta sola e si confronta con una tolleranza: il fuso piu' vicino a UTC
+            // che esista dista quindici minuti, quindi un minuto separa senza ambiguita' il
+            // disallineamento vero dall'orologio che e' avanzato fra le due letture.
+            var serverTime = Server.Time;
+            var serverTimeUtc = Server.TimeInUtc;
+            if ((serverTime - serverTimeUtc).Duration() > TimeSpan.FromMinutes(1))
             {
                 StopWithError(string.Format(
                     "Il robot non sta girando in UTC (Server.Time={0:O}, Server.TimeInUtc={1:O}). " +
                     "L'attributo [Robot(TimeZone = TimeZones.UTC)] e' obbligatorio per questo bot: " +
                     "le barre verrebbero salvate con un orario falso.",
-                    Server.Time, Server.TimeInUtc));
+                    serverTime, serverTimeUtc));
                 return;
             }
 
@@ -1484,9 +1497,23 @@ namespace cAlgo.Robots
         /// del vendor non si vede perche' il cambio d'ora cade sempre di domenica, a mercato chiuso,
         /// dove non ci sono righe; un broker che quotasse la domenica lo farebbe comparire. Contare
         /// in locale e riconvertire costa una conversione in piu' e non ha quel caso.</para>
+        ///
+        /// <para><b>I secondi si buttano prima di contare.</b> Non tutti gli <paramref name="openUtc"/>
+        /// sono orari di barra: i confini del blocco arrivano da <c>Server.TimeInUtc</c> e si portano
+        /// dietro secondi e frazioni. La sottrazione toglie <i>minuti interi</i>, quindi quei secondi
+        /// sopravvivevano e il confine usciva a <c>inizio bucket + qualche secondo</c>. In
+        /// <see cref="FoldBackwards"/> l'unica barra base di quel bucket a passare
+        /// <c>openTime &gt;= toUtc</c> era allora quella che apre sul confine: il bucket veniva
+        /// spedito con UNA barra sola, e siccome il server tiene l'ultima versione di una barra
+        /// (<c>ExternalDatafeedStore.CompactLockedAsync</c>) quella monca vinceva sulla completa.
+        /// Uno ogni <see cref="ChunkDays"/>: nell'archivio FTMOPLATFORM raccolto con la 1.2.0 sono
+        /// il 19,7% dei giornalieri e il 3% dei 4h, tutti identici alla propria prima barra base.
+        /// Vedi <c>piootoo-repository/compare/compare-0021/esito-2026-09-06.md</c> §2.</para>
         /// </summary>
         private DateTime BucketStartUtc(SyncStream stream, DateTime openUtc)
         {
+            openUtc = openUtc.AddTicks(-(openUtc.Ticks % TimeSpan.TicksPerMinute));
+
             if (!stream.Aggregated)
                 return openUtc;
 

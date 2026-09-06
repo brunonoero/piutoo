@@ -18,27 +18,47 @@ namespace cAlgo.Robots
     /// <summary>
     /// cBot MISURATORE DI SPREAD. Di un piano legge solo quali strumenti tocca — come fa
     /// <c>PiootooDatafeedSyncBot</c>, e con lo stesso parametro <c>Codice piano</c> — poi per ogni
-    /// simbolo scarica i tick di una finestra (un mese di default) e li riversa in un <b>CSV per
-    /// simbolo</b> con una riga per tick: istante UTC, bid, ask, spread in prezzo e spread in pip.
+    /// simbolo scorre i tick di una finestra (un mese di default) e ne riassume la
+    /// <b>distribuzione dello spread</b> in due CSV compatti: una riga per simbolo e una riga per
+    /// simbolo × ora UTC. Il dump tick per tick c'e' ancora ma e' <b>spento di default</b>.
     ///
     /// <para><b>Perche' esiste.</b> Il costo di transazione non e' un parametro del backtest: e' una
     /// misura, e cambia per simbolo, per ora del giorno e per broker. Le barre non lo contengono —
     /// il feed e' bid o mid — quindi l'unico modo di conoscerlo e' guardare i tick del conto vero.
-    /// Questo bot produce il dato grezzo, non la conclusione: chi vuole lo spread medio della
-    /// finestra di trading di una strategia se lo calcola dal CSV, dove ogni riga ha il proprio
-    /// istante.</para>
+    /// Il numero che serve e' <b>spread / distanza di stop</b> della strategia: su uno stop da 12,5
+    /// punti uno spread di 2 vale il 16% del rischio, sullo stesso strumento con stop da 50 vale il
+    /// 4% (vedi <c>docs/decisioni.md</c> 2026-08-06). Per calcolarlo basta la distribuzione, non
+    /// servono i tick.</para>
+    ///
+    /// <para><b>Perche' non solo min e max.</b> Su una finestra di un mese sono i due numeri meno
+    /// rappresentativi che si possano produrre: il minimo e' il fondo dell'ora piu' liquida — spesso
+    /// un tick, a volte zero — e il massimo e' una news o la riapertura della domenica sera, cioe' un
+    /// istante in cui nessuna strategia sta entrando. Il bot li scrive entrambi, ma accanto mette
+    /// <b>mediana, media, p90 e p99</b>, e soprattutto <b>ripete tutto per ora UTC</b>: una strategia
+    /// opera dentro la propria <c>TradingWindow</c>, e lo spread che paga e' quello di quelle ore, non
+    /// quello del mese. Le percentili sono esatte, non interpolate: lo spread si conta in tick interi
+    /// e l'istogramma tiene ogni valore osservato.</para>
+    ///
+    /// <para><b>Cosa esce.</b> <c>{BROKER}_spread-by-symbol_{da}-{a}.csv</c> (una riga per simbolo) e
+    /// <c>{BROKER}_spread-by-hour_{da}-{a}.csv</c> (24 righe per simbolo, anche le ore senza tick:
+    /// un'ora vuota dice che il mercato e' chiuso, ed e' un dato quando la finestra di una strategia
+    /// ci cade dentro). Le ore sono <b>UTC</b> e non vengono convertite: i fusi delle strategie stanno
+    /// in <c>docs/domini/orari-di-sessione-e-fusi.md</c> e la conversione si fa li', dove si conosce
+    /// la <c>ZonedWindow</c>. Con <c>Scrivi il dump tick per tick</c> esce in piu' un
+    /// <c>{BROKER}_{SIMBOLO}_ticks_{da}-{a}.csv</c> per simbolo, che e' il dato grezzo da cui tutto
+    /// il resto e' calcolato.</para>
     ///
     /// <para><b>Cosa NON fa.</b> Non apre posizioni, non apre sessioni e non spedisce niente al
     /// server: al server chiede soltanto l'elenco degli strumenti del piano
     /// (<c>GET api/datafeed-external/plan-instruments</c>), che e' una lettura pura. Non scrive
     /// nemmeno in <c>datafeed-external/</c>: quello e' il feed di barre e tick del repository,
     /// scritto dal raccoglitore attraverso il server, e non va contaminato con file di misura. Qui
-    /// i CSV finiscono nella cartella di output del bot.</para>
+    /// i CSV finiscono nella cartella di output del bot. E non decide niente: misura e basta.</para>
     ///
     /// <para><b>Un simbolo alla volta, e per una ragione.</b> Un mese di tick di uno strumento
     /// liquido sono milioni di righe, e la serie tick sta in RAM per intero mentre la si carica.
     /// Il bot quindi non lavora a giro: prende un simbolo, lo carica a blocchi corti restituendo il
-    /// thread alla piattaforma fra un blocco e l'altro, lo scrive a fette, e solo allora passa al
+    /// thread alla piattaforma fra un blocco e l'altro, lo misura a fette, e solo allora passa al
     /// successivo. Con venti simboli in parallelo la piattaforma finirebbe la memoria a metà del
     /// primo mese, e morendo non lascerebbe nemmeno un CSV.</para>
     ///
@@ -67,7 +87,12 @@ namespace cAlgo.Robots
         // Versione propria e non PiootooVersion: questo bot non tocca il contratto di esecuzione
         // (sessioni, intent, report di fill). Legarlo a quella versione farebbe comparire un finto
         // disallineamento nel log a ogni release del server.
-        private const string BotVersion = "1.0.0";
+        //
+        // 2.0.0: l'uscita non e' piu' il dump tick per tick ma la DISTRIBUZIONE dello spread, per
+        // simbolo e per ora UTC. Cambio maggiore perche' i file di uscita sono altri: chi leggeva
+        // "{BROKER}_{SIMBOLO}_{da}-{a}.csv" non lo trova piu' (ora e' "..._ticks_...", e solo se il
+        // dump e' acceso) e "spread-summary" e' diventato "spread-by-symbol" con altre colonne.
+        private const string BotVersion = "2.0.1";
 
         /// <summary>
         /// Tetto ai giri di <c>LoadMoreHistory</c> in un solo battito di timer. Senza, un simbolo con
@@ -76,7 +101,7 @@ namespace cAlgo.Robots
         /// </summary>
         private const int MaxHistoryLoadsPerTick = 20;
 
-        [Parameter("Server Base Url", DefaultValue = "http://localhost:5142", Group = "Server")]
+        [Parameter("Server Base Url", DefaultValue = "http://localhost:5000", Group = "Server")]
         public string ServerBaseUrl { get; set; }
 
         [Parameter("Http Timeout (secondi)", DefaultValue = 60, MinValue = 5, Group = "Server")]
@@ -144,11 +169,11 @@ namespace cAlgo.Robots
         public int SecondsBetweenChunks { get; set; }
 
         /// <summary>
-        /// Righe scritte in un solo battito. La scrittura e' a fette per la stessa ragione per cui il
-        /// caricamento e' a blocchi: riversare cinque milioni di righe in una volta blocca il thread
-        /// dell'algoritmo per decine di secondi.
+        /// Tick esaminati in un solo battito. La misura e' a fette per la stessa ragione per cui il
+        /// caricamento e' a blocchi: attraversare cinque milioni di tick in una volta blocca il
+        /// thread dell'algoritmo per decine di secondi.
         /// </summary>
-        [Parameter("Righe scritte per battito", DefaultValue = 200000, MinValue = 1000, MaxValue = 5000000, Group = "Ritmo")]
+        [Parameter("Tick esaminati per battito", DefaultValue = 200000, MinValue = 1000, MaxValue = 5000000, Group = "Ritmo")]
         public int RowsPerTick { get; set; }
 
         /// <summary>
@@ -169,13 +194,25 @@ namespace cAlgo.Robots
         public string OutputFolder { get; set; }
 
         /// <summary>
-        /// Scrive anche <c>spread-summary.csv</c>: una riga per simbolo con conteggio, primo e ultimo
-        /// tick, spread medio, minimo e massimo. E' un riassunto, non la misura: gli spread non si
-        /// distribuiscono normalmente e la media di un mese intero comprende l'apertura asiatica e le
-        /// news. Serve per accorgersi a occhio di un simbolo fuori scala, poi si torna al CSV.
+        /// Scrive <c>spread-by-hour</c>: le stesse misure ripetute per ora UTC, 24 righe per simbolo.
+        /// E' il file che serve davvero a giudicare una strategia, perche' una strategia non opera
+        /// tutto il giorno: <c>PTS_NQ_PCH_002_15</c> e <c>PTS_NQ_TFM_001_60</c> stanno sullo stesso
+        /// strumento e pagano spread diversi solo perche' entrano in ore diverse. Spegnerlo lascia il
+        /// solo riepilogo per simbolo, che di quella differenza non sa niente.
         /// </summary>
-        [Parameter("Scrivi il riepilogo per simbolo", DefaultValue = true, Group = "Output")]
-        public bool WriteSummary { get; set; }
+        [Parameter("Scrivi la distribuzione per ora UTC", DefaultValue = true, Group = "Output")]
+        public bool WriteHourlyBreakdown { get; set; }
+
+        /// <summary>
+        /// Scrive anche il dump grezzo: un CSV per simbolo con una riga per tick (istante UTC, bid,
+        /// ask, spread in prezzo e in pip). <b>Spento di default</b>, perche' un mese di tick di uno
+        /// strumento liquido sono milioni di righe e centinaia di megabyte, e i due file di
+        /// distribuzione contengono gia' tutto quello che se ne ricaverebbe. Si accende quando si
+        /// vuole guardare i singoli istanti — un picco di spread da spiegare, una finestra di news —
+        /// non per l'esercizio normale.
+        /// </summary>
+        [Parameter("Scrivi il dump tick per tick", DefaultValue = false, Group = "Output")]
+        public bool WriteTickCsv { get; set; }
 
         [Parameter("Livello di log", DefaultValue = LivelloLogSpread.Operativo, Group = "Diagnostica")]
         public LivelloLogSpread LivelloDiLog { get; set; }
@@ -201,19 +238,29 @@ namespace cAlgo.Robots
 
         protected override void OnStart()
         {
-            Print("Piootoo Spread Dump v{0} — un CSV bid/ask/spread per simbolo, niente ordini.", BotVersion);
+            Print("Piootoo Spread Dump v{0} — distribuzione dello spread per simbolo e per ora UTC, niente ordini.", BotVersion);
 
             // I tick arrivano nel fuso dichiarato dall'attributo [Robot] con Kind Unspecified: prima
             // di etichettarli UTC bisogna essere certi che l'etichetta sia vera. Se qualcuno cambiasse
             // l'attributo, la finestra sarebbe confrontata con orari locali e i CSV nascerebbero
             // spostati di ore senza che niente lo segnali.
-            if (Server.Time != Server.TimeInUtc)
+            //
+            // Le due proprieta' sono letture indipendenti dell'orologio, non due viste dello stesso
+            // istante: fra l'una e l'altra il tempo avanza, e il confronto secco falliva a caso anche
+            // su un bot davvero in UTC. Si e' visto in produzione con le due date IDENTICHE nel
+            // messaggio d'errore — che le rilegge, e la seconda volta ricadevano nello stesso tick.
+            // Si legge una volta sola e si confronta con una tolleranza: il fuso piu' vicino a UTC
+            // che esista dista quindici minuti, quindi un minuto separa senza ambiguita' il
+            // disallineamento vero dall'orologio che e' avanzato fra le due letture.
+            var serverTime = Server.Time;
+            var serverTimeUtc = Server.TimeInUtc;
+            if ((serverTime - serverTimeUtc).Duration() > TimeSpan.FromMinutes(1))
             {
                 StopWithError(string.Format(
                     "Il robot non sta girando in UTC (Server.Time={0:O}, Server.TimeInUtc={1:O}). " +
                     "L'attributo [Robot(TimeZone = TimeZones.UTC)] e' obbligatorio: gli istanti dei " +
                     "tick verrebbero scritti con un orario falso.",
-                    Server.Time, Server.TimeInUtc));
+                    serverTime, serverTimeUtc));
                 return;
             }
 
@@ -407,6 +454,11 @@ namespace cAlgo.Robots
                     PiootooSymbol = request.PiootooSymbol,
                     Digits = symbol.Digits,
                     PipSize = symbol.PipSize,
+                    // Lo spread si quantizza sul TICK dello strumento, non sul pip: e' il passo piu'
+                    // fine che il broker sa quotare, quindi ogni spread osservato ci cade sopra esatto
+                    // e l'istogramma non perde nulla. Sul pip, che su un indice vale cento tick, un
+                    // bucket conterrebbe tutta la distribuzione e le percentili sarebbero costanti.
+                    TickSize = symbol.TickSize > 0 ? symbol.TickSize : Math.Pow(10, -symbol.Digits),
                     Series = series,
                     CursorEndUtc = _windowEndUtc
                 });
@@ -577,7 +629,7 @@ namespace cAlgo.Robots
             if (stream.Stage == Stage.Caricamento)
                 LoadChunk(stream);
             else
-                WriteSlice(stream);
+                MeasureSlice(stream);
         }
 
         /// <summary>
@@ -615,7 +667,7 @@ namespace cAlgo.Robots
                             Print("{0}: finestra coperta, {1} tick in memoria dal {2:yyyy-MM-dd HH:mm}.",
                                 stream, stream.Series.Count, Oldest(stream));
 
-                        stream.Stage = Stage.Scrittura;
+                        stream.Stage = Stage.Misura;
                         return;
                     }
 
@@ -628,7 +680,7 @@ namespace cAlgo.Robots
                           "coperta solo da {2:yyyy-MM-dd HH:mm}. Il CSV viene scritto con quello che c'e'.",
                         stream, MaxMillionTicksPerSymbol, Oldest(stream));
                     stream.Truncated = true;
-                    stream.Stage = Stage.Scrittura;
+                    stream.Stage = Stage.Misura;
                     return;
                 }
 
@@ -647,7 +699,7 @@ namespace cAlgo.Robots
                     // scrive quello che si e' preso e si passa avanti.
                     Print("{0}: caricamento fallito ({1}). Si scrive quello che c'e'.", stream, failure.Message);
                     stream.Truncated = true;
-                    stream.Stage = Stage.Scrittura;
+                    stream.Stage = Stage.Misura;
                     return;
                 }
 
@@ -659,7 +711,7 @@ namespace cAlgo.Robots
                                 ? Oldest(stream).ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture)
                                 : "mai (nessun tick)");
 
-                    stream.Stage = Stage.Scrittura;
+                    stream.Stage = Stage.Misura;
                     return;
                 }
 
@@ -671,19 +723,27 @@ namespace cAlgo.Robots
         }
 
         /// <summary>
-        /// Scrive una fetta di righe. Il file resta aperto fra un battito e l'altro: chiuderlo e
-        /// riaprirlo a ogni fetta significherebbe un fsync ogni duecentomila righe su un file che
-        /// nessuno legge finche' il bot non ha finito.
+        /// Esamina una fetta di tick: li riversa nell'istogramma del simbolo e, se il dump grezzo e'
+        /// acceso, anche nel CSV. La misura e' a fette per la stessa ragione per cui il caricamento e'
+        /// a blocchi: attraversare cinque milioni di tick in un solo battito tiene occupato il thread
+        /// dell'algoritmo per decine di secondi e la piattaforma legge il bot come piantato.
+        ///
+        /// <para>Il budget del battito si spende sui tick <b>esaminati</b> e non su quelli dentro
+        /// finestra: la serie contiene anche la coda scaricata prima dell'inizio — il blocco di
+        /// caricamento non si ferma al giorno esatto — e scartarla senza contarla vorrebbe dire un
+        /// battito lungo quanto un blocco intero.</para>
         /// </summary>
-        private void WriteSlice(SpreadStream stream)
+        private void MeasureSlice(SpreadStream stream)
         {
-            if (stream.Writer == null && !OpenWriter(stream))
+            if (WriteTickCsv && stream.Writer == null && !OpenWriter(stream))
                 return;
 
-            var written = 0;
-            while (stream.Cursor < stream.Series.Count && written < RowsPerTick)
+            var examined = 0;
+            while (stream.Cursor < stream.Series.Count && examined < RowsPerTick)
             {
                 var tick = stream.Series[stream.Cursor++];
+                examined++;
+
                 var time = DateTime.SpecifyKind(tick.Time, DateTimeKind.Utc);
 
                 if (time < _windowStartUtc)
@@ -691,45 +751,54 @@ namespace cAlgo.Robots
 
                 if (time >= _windowEndUtc)
                 {
-                    // La serie e' ordinata: oltre la fine finestra non c'e' piu' niente da scrivere.
+                    // La serie e' ordinata: oltre la fine finestra non c'e' piu' niente da misurare.
                     stream.Cursor = stream.Series.Count;
                     break;
                 }
 
                 var spread = tick.Ask - tick.Bid;
+                var spreadTicks = stream.ToTicks(spread);
 
-                stream.Writer.Write(time.ToString("yyyy-MM-ddTHH:mm:ss.fffZ", CultureInfo.InvariantCulture));
-                stream.Writer.Write(',');
-                stream.Writer.Write(tick.Bid.ToString(stream.PriceFormat, CultureInfo.InvariantCulture));
-                stream.Writer.Write(',');
-                stream.Writer.Write(tick.Ask.ToString(stream.PriceFormat, CultureInfo.InvariantCulture));
-                stream.Writer.Write(',');
-                stream.Writer.Write(spread.ToString(stream.PriceFormat, CultureInfo.InvariantCulture));
-                stream.Writer.Write(',');
-                stream.Writer.Write((stream.PipSize > 0 ? spread / stream.PipSize : 0d).ToString("F2", CultureInfo.InvariantCulture));
-                stream.Writer.Write('\n');
+                stream.Overall.Add(spreadTicks);
+                stream.ByHour[time.Hour].Add(spreadTicks);
 
-                stream.Rows++;
-                written++;
-                stream.SpreadSum += spread;
-                if (spread < stream.SpreadMin) stream.SpreadMin = spread;
-                if (spread > stream.SpreadMax) stream.SpreadMax = spread;
-                if (spread <= 0) stream.NonPositiveSpreads++;
                 if (stream.FirstRowUtc == null) stream.FirstRowUtc = time;
                 stream.LastRowUtc = time;
+
+                if (stream.Writer != null)
+                {
+                    stream.Writer.Write(time.ToString("yyyy-MM-ddTHH:mm:ss.fffZ", CultureInfo.InvariantCulture));
+                    stream.Writer.Write(',');
+                    stream.Writer.Write(tick.Bid.ToString(stream.PriceFormat, CultureInfo.InvariantCulture));
+                    stream.Writer.Write(',');
+                    stream.Writer.Write(tick.Ask.ToString(stream.PriceFormat, CultureInfo.InvariantCulture));
+                    stream.Writer.Write(',');
+                    stream.Writer.Write(spread.ToString(stream.PriceFormat, CultureInfo.InvariantCulture));
+                    stream.Writer.Write(',');
+                    stream.Writer.Write((stream.PipSize > 0 ? spread / stream.PipSize : 0d).ToString("F2", CultureInfo.InvariantCulture));
+                    stream.Writer.Write('\n');
+                    stream.Rows++;
+                }
             }
 
-            if (LogDiagnostico && written > 0)
-                Print("{0}: scritte {1} righe (totale {2}).", stream, written, stream.Rows);
+            if (LogDiagnostico && examined > 0)
+                Print("{0}: esaminati {1} tick (nella finestra {2}).", stream, examined, stream.Overall.Count);
 
             if (stream.Cursor >= stream.Series.Count)
-                CloseWriter(stream);
+                CloseStream(stream);
         }
 
+        /// <summary>
+        /// Apre il CSV grezzo. Il file resta aperto fra un battito e l'altro: chiuderlo e riaprirlo a
+        /// ogni fetta significherebbe un fsync ogni duecentomila righe su un file che nessuno legge
+        /// finche' il bot non ha finito.
+        /// </summary>
         private bool OpenWriter(SpreadStream stream)
         {
+            // "_ticks" nel nome: accanto ci stanno i due file di distribuzione, e un CSV di spread di
+            // cui non si sa se e' il grezzo o il riassunto non si legge.
             stream.Path = Path.Combine(_outputFolder, string.Format(CultureInfo.InvariantCulture,
-                "{0}_{1}_{2:yyyyMMdd}-{3:yyyyMMdd}.csv",
+                "{0}_{1}_ticks_{2:yyyyMMdd}-{3:yyyyMMdd}.csv",
                 _brokerCode, stream.PiootooSymbol.TrimStart('@'), _windowStartUtc, _windowEndUtc.AddDays(-1)));
 
             try
@@ -738,10 +807,13 @@ namespace cAlgo.Robots
             }
             catch (Exception failure)
             {
-                Print("{0}: impossibile scrivere '{1}': {2}. Simbolo saltato.", stream, stream.Path, failure.Message);
-                stream.Stage = Stage.Fatto;
-                stream.Note = "file non scrivibile";
-                return false;
+                // Il dump grezzo e' un di piu': se non si puo' scrivere, la misura prosegue senza. Far
+                // saltare il simbolo costerebbe la distribuzione, che e' il risultato vero.
+                Print("{0}: impossibile scrivere il dump '{1}': {2}. Si misura senza dump.",
+                    stream, stream.Path, failure.Message);
+                stream.Path = null;
+                stream.Note = AppendNote(stream.Note, "dump non scrivibile");
+                return true;
             }
 
             // Intestazione commentata prima di quella vera: il CSV deve dire da solo di che broker,
@@ -749,17 +821,24 @@ namespace cAlgo.Robots
             // il nome del file lo si perde alla prima copia.
             stream.Writer.Write(string.Format(CultureInfo.InvariantCulture,
                 "# Piootoo Spread Dump v{0} — broker {1} (conto {2}), simbolo {3} ({4} sul broker)\n" +
-                "# Finestra UTC {5:yyyy-MM-ddTHH:mm:ssZ} -> {6:yyyy-MM-ddTHH:mm:ssZ}, pipSize {7}, digits {8}\n" +
+                "# Finestra UTC {5:yyyy-MM-ddTHH:mm:ssZ} -> {6:yyyy-MM-ddTHH:mm:ssZ}, pipSize {7}, tickSize {8}, digits {9}\n" +
                 "# spread = ask - bid in prezzo; spreadPips = spread / pipSize\n",
                 BotVersion, _brokerCode, Account.Number, stream.PiootooSymbol, stream.BrokerSymbol,
                 _windowStartUtc, _windowEndUtc,
-                stream.PipSize.ToString(CultureInfo.InvariantCulture), stream.Digits));
+                stream.PipSize.ToString(CultureInfo.InvariantCulture),
+                stream.TickSize.ToString(CultureInfo.InvariantCulture), stream.Digits));
             stream.Writer.Write("timeUtc,bid,ask,spread,spreadPips\n");
 
             return true;
         }
 
-        private void CloseWriter(SpreadStream stream)
+        /// <summary>
+        /// Chiude il simbolo: il dump se era aperto, e in ogni caso la riga di riepilogo a log. E' la
+        /// riga che si legge mentre il bot gira, quindi porta gia' la distribuzione e non i soli
+        /// estremi: min e mediana insieme dicono se lo strumento e' utilizzabile, il massimo da solo
+        /// no.
+        /// </summary>
+        private void CloseStream(SpreadStream stream)
         {
             try
             {
@@ -771,33 +850,35 @@ namespace cAlgo.Robots
             }
             catch (Exception failure)
             {
-                Print("{0}: chiusura del file fallita: {1}", stream, failure.Message);
+                Print("{0}: chiusura del dump fallita: {1}", stream, failure.Message);
             }
 
             stream.Writer = null;
             stream.Stage = Stage.Fatto;
 
-            if (stream.Rows == 0)
+            if (stream.Overall.Count == 0)
             {
-                // Un CSV con la sola intestazione e' un risultato, non un errore: dice che in quella
-                // finestra il broker non ha consegnato tick per quel simbolo. Va detto a voce, perche'
-                // a colpo d'occhio un file da 300 byte sembra un file scritto.
-                Print("{0}: NESSUN tick nella finestra. Il file contiene solo l'intestazione ({1}).",
-                    stream, stream.Path);
-                stream.Note = "nessun tick nella finestra";
+                // Zero tick e' un risultato, non un errore: dice che in quella finestra il broker non
+                // ha consegnato tick per quel simbolo. Va detto a voce, perche' una riga di riepilogo
+                // con tutti zero a colpo d'occhio sembra una misura riuscita.
+                Print("{0}: NESSUN tick nella finestra — nessuna misura per questo simbolo.", stream);
+                stream.Note = AppendNote(stream.Note, "nessun tick nella finestra");
                 return;
             }
 
-            Print("{0}: {1} righe da {2:yyyy-MM-dd HH:mm} a {3:yyyy-MM-dd HH:mm}. " +
-                  "Spread medio {4}, min {5}, max {6}{7}. File: {8}",
-                stream, stream.Rows, stream.FirstRowUtc, stream.LastRowUtc,
-                Format(stream.SpreadSum / stream.Rows, stream.PriceFormat),
-                Format(stream.SpreadMin, stream.PriceFormat),
-                Format(stream.SpreadMax, stream.PriceFormat),
-                stream.NonPositiveSpreads > 0
-                    ? string.Format(CultureInfo.InvariantCulture, " — ATTENZIONE: {0} tick con spread <= 0", stream.NonPositiveSpreads)
+            Print("{0}: {1} tick da {2:yyyy-MM-dd HH:mm} a {3:yyyy-MM-dd HH:mm}. " +
+                  "Spread min {4} / p50 {5} / medio {6} / p90 {7} / max {8} (in tick: {9} / {10} / {11}){12}{13}",
+                stream, stream.Overall.Count, stream.FirstRowUtc, stream.LastRowUtc,
+                stream.PriceOf(stream.Overall.Min),
+                stream.PriceOf(stream.Overall.PercentileTicks(0.50)),
+                stream.PriceOf(stream.Overall.MeanTicks),
+                stream.PriceOf(stream.Overall.PercentileTicks(0.90)),
+                stream.PriceOf(stream.Overall.Max),
+                stream.Overall.Min, stream.Overall.PercentileTicks(0.50), stream.Overall.Max,
+                stream.Overall.NonPositive > 0
+                    ? string.Format(CultureInfo.InvariantCulture, " — ATTENZIONE: {0} tick con spread <= 0", stream.Overall.NonPositive)
                     : string.Empty,
-                stream.Path);
+                stream.Path == null ? string.Empty : " Dump: " + stream.Path);
         }
 
         // -----------------------------------------------------------------------------------------
@@ -806,8 +887,9 @@ namespace cAlgo.Robots
 
         private void Finish()
         {
-            if (WriteSummary)
-                WriteSummaryFile();
+            WriteSymbolFile();
+            if (WriteHourlyBreakdown)
+                WriteHourFile();
 
             Report();
             Print("Misura completata. Il bot si ferma.");
@@ -815,42 +897,149 @@ namespace cAlgo.Robots
             Stop();
         }
 
-        private void WriteSummaryFile()
+        /// <summary>
+        /// Una riga per simbolo. Le colonne sono ordinate come si legge una distribuzione — min, p50,
+        /// media, p90, p99, max — e non con gli estremi in testa: chi guarda la riga deve vedere per
+        /// primo lo spread che il simbolo pratica di solito, non quello di una domenica sera.
+        ///
+        /// <para>Ogni misura esce due volte, in <b>prezzo</b> e in <b>tick</b>. Il prezzo e' l'unita'
+        /// in cui le strategie dichiarano gli stop, quindi e' quella con cui si calcola
+        /// <c>spread / distanza di stop</c>; il tick e' l'unita' in cui il broker quota, quindi e'
+        /// quella in cui la misura e' esatta e in cui due simboli si confrontano.</para>
+        /// </summary>
+        private void WriteSymbolFile()
         {
             var path = Path.Combine(_outputFolder, string.Format(CultureInfo.InvariantCulture,
-                "{0}_spread-summary_{1:yyyyMMdd}-{2:yyyyMMdd}.csv",
+                "{0}_spread-by-symbol_{1:yyyyMMdd}-{2:yyyyMMdd}.csv",
                 _brokerCode, _windowStartUtc, _windowEndUtc.AddDays(-1)));
 
             try
             {
                 var text = new StringBuilder();
-                text.Append("broker,symbol,brokerSymbol,ticks,firstTickUtc,lastTickUtc,")
-                    .Append("avgSpread,minSpread,maxSpread,avgSpreadPips,nonPositiveSpreads,truncated\n");
+                text.Append("# Piootoo Spread Dump v").Append(BotVersion)
+                    .Append(" — broker ").Append(_brokerCode)
+                    .Append(" (conto ").Append(Account.Number.ToString(CultureInfo.InvariantCulture)).Append(')')
+                    .Append(", finestra UTC ").Append(_windowStartUtc.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture))
+                    .Append(" -> ").Append(_windowEndUtc.AddDays(-1).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture))
+                    .Append('\n');
+                text.Append("# spread = ask - bid. Le colonne *Ticks sono la stessa misura in tick di strumento (spread / tickSize).\n");
+                text.Append("broker,symbol,brokerSymbol,ticks,firstTickUtc,lastTickUtc,tickSize,pipSize,")
+                    .Append("minSpread,p50Spread,avgSpread,p90Spread,p99Spread,maxSpread,")
+                    .Append("minSpreadTicks,p50SpreadTicks,avgSpreadTicks,p90SpreadTicks,p99SpreadTicks,maxSpreadTicks,")
+                    .Append("nonPositiveTicks,truncated,note\n");
 
                 foreach (var stream in _streams)
                 {
-                    var average = stream.Rows > 0 ? stream.SpreadSum / stream.Rows : 0d;
+                    var stats = stream.Overall;
+
                     text.Append(_brokerCode).Append(',')
                         .Append(stream.PiootooSymbol).Append(',')
                         .Append(stream.BrokerSymbol).Append(',')
-                        .Append(stream.Rows.ToString(CultureInfo.InvariantCulture)).Append(',')
+                        .Append(stats.Count.ToString(CultureInfo.InvariantCulture)).Append(',')
                         .Append(stream.FirstRowUtc.HasValue ? stream.FirstRowUtc.Value.ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture) : string.Empty).Append(',')
                         .Append(stream.LastRowUtc.HasValue ? stream.LastRowUtc.Value.ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture) : string.Empty).Append(',')
-                        .Append(Format(average, stream.PriceFormat)).Append(',')
-                        .Append(stream.Rows > 0 ? Format(stream.SpreadMin, stream.PriceFormat) : string.Empty).Append(',')
-                        .Append(stream.Rows > 0 ? Format(stream.SpreadMax, stream.PriceFormat) : string.Empty).Append(',')
-                        .Append((stream.PipSize > 0 ? average / stream.PipSize : 0d).ToString("F2", CultureInfo.InvariantCulture)).Append(',')
-                        .Append(stream.NonPositiveSpreads.ToString(CultureInfo.InvariantCulture)).Append(',')
-                        .Append(stream.Truncated ? "true" : "false").Append('\n');
+                        .Append(stream.TickSize.ToString(CultureInfo.InvariantCulture)).Append(',')
+                        .Append(stream.PipSize.ToString(CultureInfo.InvariantCulture)).Append(',');
+
+                    AppendDistribution(text, stream, stats);
+
+                    text.Append(stats.NonPositive.ToString(CultureInfo.InvariantCulture)).Append(',')
+                        .Append(stream.Truncated ? "true" : "false").Append(',')
+                        .Append(Csv(stream.Note)).Append('\n');
                 }
 
                 File.WriteAllText(path, text.ToString(), new UTF8Encoding(false));
-                Print("Riepilogo scritto in {0}", path);
+                Print("Spread per simbolo scritto in {0}", path);
             }
             catch (Exception failure)
             {
-                Print("Riepilogo non scritto: {0}", failure.Message);
+                Print("Spread per simbolo NON scritto: {0}", failure.Message);
             }
+        }
+
+        /// <summary>
+        /// Ventiquattro righe per simbolo, ora UTC per ora UTC, <b>anche le ore senza tick</b>: se la
+        /// finestra di una strategia cade su un'ora vuota il file lo deve dire, e una riga assente si
+        /// confonde con un simbolo che manca. Le ore restano UTC e non si convertono qui: il fuso di
+        /// una strategia sta nella sua <c>ZonedWindow</c> e la conversione si fa dove quella si
+        /// conosce (<c>docs/domini/orari-di-sessione-e-fusi.md</c>), non in un bot che le strategie
+        /// non le vede nemmeno.
+        /// </summary>
+        private void WriteHourFile()
+        {
+            var path = Path.Combine(_outputFolder, string.Format(CultureInfo.InvariantCulture,
+                "{0}_spread-by-hour_{1:yyyyMMdd}-{2:yyyyMMdd}.csv",
+                _brokerCode, _windowStartUtc, _windowEndUtc.AddDays(-1)));
+
+            try
+            {
+                var text = new StringBuilder();
+                text.Append("# Piootoo Spread Dump v").Append(BotVersion)
+                    .Append(" — broker ").Append(_brokerCode)
+                    .Append(", finestra UTC ").Append(_windowStartUtc.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture))
+                    .Append(" -> ").Append(_windowEndUtc.AddDays(-1).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture))
+                    .Append('\n');
+                text.Append("# hourUtc = ora UTC di apertura del bucket (0..23), NON convertita nel fuso della strategia.\n");
+                text.Append("# Un'ora con ticks=0 e celle vuote e' un'ora in cui il broker non ha quotato: mercato chiuso.\n");
+                text.Append("broker,symbol,hourUtc,ticks,tickSize,")
+                    .Append("minSpread,p50Spread,avgSpread,p90Spread,p99Spread,maxSpread,")
+                    .Append("minSpreadTicks,p50SpreadTicks,avgSpreadTicks,p90SpreadTicks,p99SpreadTicks,maxSpreadTicks,")
+                    .Append("nonPositiveTicks\n");
+
+                foreach (var stream in _streams)
+                {
+                    for (var hour = 0; hour < 24; hour++)
+                    {
+                        var stats = stream.ByHour[hour];
+
+                        text.Append(_brokerCode).Append(',')
+                            .Append(stream.PiootooSymbol).Append(',')
+                            .Append(hour.ToString(CultureInfo.InvariantCulture)).Append(',')
+                            .Append(stats.Count.ToString(CultureInfo.InvariantCulture)).Append(',')
+                            .Append(stream.TickSize.ToString(CultureInfo.InvariantCulture)).Append(',');
+
+                        AppendDistribution(text, stream, stats);
+
+                        text.Append(stats.NonPositive.ToString(CultureInfo.InvariantCulture)).Append('\n');
+                    }
+                }
+
+                File.WriteAllText(path, text.ToString(), new UTF8Encoding(false));
+                Print("Spread per ora UTC scritto in {0}", path);
+            }
+            catch (Exception failure)
+            {
+                Print("Spread per ora UTC NON scritto: {0}", failure.Message);
+            }
+        }
+
+        /// <summary>
+        /// Le dodici colonne della distribuzione — sei in prezzo e le stesse sei in tick — scritte
+        /// nello stesso ordine dai due file, perche' chi li affianca deve poterli leggere con lo
+        /// stesso occhio. Su un campione vuoto escono celle vuote e non zeri: zero e' uno spread
+        /// misurato, il vuoto e' l'assenza di misura, e confonderli fa sembrare gratis un'ora in cui
+        /// il mercato e' chiuso.
+        /// </summary>
+        private static void AppendDistribution(StringBuilder text, SpreadStream stream, SpreadStats stats)
+        {
+            if (stats.Count == 0)
+            {
+                text.Append(",,,,,,,,,,,,");
+                return;
+            }
+
+            text.Append(stream.PriceOf(stats.Min)).Append(',')
+                .Append(stream.PriceOf(stats.PercentileTicks(0.50))).Append(',')
+                .Append(stream.PriceOf(stats.MeanTicks)).Append(',')
+                .Append(stream.PriceOf(stats.PercentileTicks(0.90))).Append(',')
+                .Append(stream.PriceOf(stats.PercentileTicks(0.99))).Append(',')
+                .Append(stream.PriceOf(stats.Max)).Append(',')
+                .Append(stats.Min.ToString(CultureInfo.InvariantCulture)).Append(',')
+                .Append(stats.PercentileTicks(0.50).ToString(CultureInfo.InvariantCulture)).Append(',')
+                .Append(stats.MeanTicks.ToString("F2", CultureInfo.InvariantCulture)).Append(',')
+                .Append(stats.PercentileTicks(0.90).ToString(CultureInfo.InvariantCulture)).Append(',')
+                .Append(stats.PercentileTicks(0.99).ToString(CultureInfo.InvariantCulture)).Append(',')
+                .Append(stats.Max.ToString(CultureInfo.InvariantCulture)).Append(',');
         }
 
         private void Report()
@@ -859,16 +1048,31 @@ namespace cAlgo.Robots
             Print("--- Riepilogo ({0:hh\\:mm\\:ss}) ---", elapsed);
             foreach (var stream in _streams)
             {
-                Print("   {0}: {1} righe su {2} tick scaricati dal broker{3}{4}",
-                    stream, stream.Rows, stream.Loaded,
+                Print("   {0}: {1} tick misurati su {2} scaricati dal broker{3}{4}{5}",
+                    stream, stream.Overall.Count, stream.Loaded,
+                    stream.Rows > 0 ? string.Format(CultureInfo.InvariantCulture, ", {0} righe di dump", stream.Rows) : string.Empty,
                     stream.Truncated ? " (finestra coperta solo in parte)" : string.Empty,
                     string.IsNullOrEmpty(stream.Note) ? string.Empty : " — " + stream.Note);
             }
         }
 
-        private static string Format(double value, string format)
+        /// <summary>Le note si accumulano: un simbolo puo' avere insieme il dump non scrivibile e zero
+        /// tick, e la seconda non deve cancellare la prima.</summary>
+        private static string AppendNote(string existing, string note)
         {
-            return value.ToString(format, CultureInfo.InvariantCulture);
+            return string.IsNullOrEmpty(existing) ? note : existing + "; " + note;
+        }
+
+        /// <summary>Le note finiscono in una colonna CSV e possono contenere virgole: si quota.</summary>
+        private static string Csv(string value)
+        {
+            if (string.IsNullOrEmpty(value))
+                return string.Empty;
+
+            if (value.IndexOf(',') < 0 && value.IndexOf('"') < 0 && value.IndexOf('\n') < 0)
+                return value;
+
+            return "\"" + value.Replace("\"", "\"\"") + "\"";
         }
 
         private static DateTime Oldest(SpreadStream stream)
@@ -900,15 +1104,17 @@ namespace cAlgo.Robots
 
         protected override void OnStop()
         {
-            // Spegnimento a metà: i file aperti vanno chiusi, altrimenti l'ultimo megabyte di buffer
-            // resta in RAM e il CSV finisce troncato a metà riga.
+            // Spegnimento a metà: i dump aperti vanno chiusi, altrimenti l'ultimo megabyte di buffer
+            // resta in RAM e il CSV finisce troncato a metà riga. La distribuzione dei simboli non
+            // ancora chiusi si perde, ed e' giusto: e' una misura parziale su una finestra che nessuno
+            // ha dichiarato.
             foreach (var stream in _streams.Where(candidate => candidate.Writer != null))
             {
                 stream.Truncated = true;
-                CloseWriter(stream);
+                CloseStream(stream);
             }
 
-            Print("Piootoo Spread Dump fermato. Righe scritte in totale: {0}.", _streams.Sum(stream => (long)stream.Rows));
+            Print("Piootoo Spread Dump fermato. Tick misurati in totale: {0}.", _streams.Sum(stream => stream.Overall.Count));
         }
 
         // -----------------------------------------------------------------------------------------
@@ -918,7 +1124,7 @@ namespace cAlgo.Robots
         private enum Stage
         {
             Caricamento,
-            Scrittura,
+            Misura,
             Fatto
         }
 
@@ -929,12 +1135,105 @@ namespace cAlgo.Robots
             public string PiootooSymbol;
         }
 
+        /// <summary>
+        /// Distribuzione dello spread di un campione — un simbolo, o un simbolo in una certa ora —
+        /// misurata in <b>tick interi</b>.
+        ///
+        /// <para>Tiene un istogramma e non i soli estremi perche' min e max, da soli, sono i due
+        /// numeri meno rappresentativi che un mese di tick possa produrre: il minimo e' il fondo
+        /// dell'ora piu' liquida e il massimo e' una news o la riapertura della domenica sera. La
+        /// mediana e la p90 dicono cosa paga davvero una strategia che entra in quell'ora.</para>
+        ///
+        /// <para>In tick e non in prezzo per due ragioni. Le percentili sono <b>esatte</b>: i valori
+        /// osservati sono interi piccoli, l'istogramma li tiene tutti e la percentile e' un conteggio,
+        /// non un'interpolazione su bucket scelti a priori. E la media non accumula errore: si somma
+        /// <c>chiave × conteggio</c> una volta sola alla fine, invece di sommare milioni di
+        /// <c>double</c> uno dopo l'altro.</para>
+        /// </summary>
+        private sealed class SpreadStats
+        {
+            private readonly Dictionary<int, long> _histogram = new Dictionary<int, long>();
+            private int[] _sortedKeys;
+
+            public long Count;
+            public int Min = int.MaxValue;
+            public int Max = int.MinValue;
+
+            /// <summary>Tick con spread &lt;= 0: bid e ask allo stesso prezzo, o incrociati. Non e' un
+            /// dato da mediare via — e' un difetto del feed del broker, e va visto.</summary>
+            public long NonPositive;
+
+            public void Add(int spreadTicks)
+            {
+                long current;
+                _histogram.TryGetValue(spreadTicks, out current);
+                _histogram[spreadTicks] = current + 1;
+
+                Count++;
+                if (spreadTicks < Min) Min = spreadTicks;
+                if (spreadTicks > Max) Max = spreadTicks;
+                if (spreadTicks <= 0) NonPositive++;
+
+                _sortedKeys = null;
+            }
+
+            public double MeanTicks
+            {
+                get
+                {
+                    if (Count == 0)
+                        return 0d;
+
+                    var total = 0d;
+                    foreach (var entry in _histogram)
+                        total += (double)entry.Key * entry.Value;
+
+                    return total / Count;
+                }
+            }
+
+            /// <summary>
+            /// Percentile per conteggio: il primo valore osservato che copre almeno il quantile
+            /// chiesto. Nessuna interpolazione fra due valori — uno spread di 1,5 tick non esiste, e
+            /// inventarlo renderebbe la misura meno vera invece che piu' precisa.
+            /// </summary>
+            public int PercentileTicks(double quantile)
+            {
+                if (Count == 0)
+                    return 0;
+
+                if (_sortedKeys == null)
+                {
+                    _sortedKeys = _histogram.Keys.ToArray();
+                    Array.Sort(_sortedKeys);
+                }
+
+                var target = (long)Math.Ceiling(quantile * Count);
+                if (target < 1)
+                    target = 1;
+
+                long cumulative = 0;
+                foreach (var key in _sortedKeys)
+                {
+                    cumulative += _histogram[key];
+                    if (cumulative >= target)
+                        return key;
+                }
+
+                return _sortedKeys[_sortedKeys.Length - 1];
+            }
+        }
+
         private sealed class SpreadStream
         {
             public string BrokerSymbol;
             public string PiootooSymbol;
             public int Digits;
             public double PipSize;
+
+            /// <summary>Passo di quotazione dello strumento: e' l'unita' in cui si conta lo spread.</summary>
+            public double TickSize;
+
             public Ticks Series;
 
             /// <summary>Fine (esclusa) del prossimo blocco: cammina all'indietro verso l'inizio finestra.</summary>
@@ -948,16 +1247,51 @@ namespace cAlgo.Robots
             public StreamWriter Writer;
             public string Path;
 
-            /// <summary>Indice della prossima riga da scrivere nella serie tick.</summary>
+            /// <summary>Indice del prossimo tick da esaminare nella serie.</summary>
             public int Cursor;
 
-            public int Rows;
-            public double SpreadSum;
-            public double SpreadMin = double.MaxValue;
-            public double SpreadMax = double.MinValue;
-            public int NonPositiveSpreads;
+            /// <summary>Righe scritte nel dump grezzo. Zero quando il dump e' spento: i tick misurati
+            /// sono <see cref="Overall"/>.Count, che e' un'altra cosa.</summary>
+            public long Rows;
+
+            public readonly SpreadStats Overall = new SpreadStats();
+
+            /// <summary>Una distribuzione per ora UTC di apertura. Ventiquattro sempre allocate: crearle
+            /// su richiesta costringerebbe ogni lettore a distinguere "ora vuota" da "ora mai vista",
+            /// che qui sono la stessa cosa.</summary>
+            public readonly SpreadStats[] ByHour = NewHours();
+
             public DateTime? FirstRowUtc;
             public DateTime? LastRowUtc;
+
+            private static SpreadStats[] NewHours()
+            {
+                var hours = new SpreadStats[24];
+                for (var hour = 0; hour < 24; hour++)
+                    hours[hour] = new SpreadStats();
+
+                return hours;
+            }
+
+            /// <summary>
+            /// Spread in prezzo -> spread in tick. Arrotondamento e non troncamento: il broker quota
+            /// sul tick e un <c>ask - bid</c> in virgola mobile cade appena sotto il multiplo tanto
+            /// spesso quanto appena sopra, quindi troncare sposterebbe meta' della distribuzione di un
+            /// tick verso il basso.
+            /// </summary>
+            public int ToTicks(double spread)
+            {
+                if (TickSize <= 0)
+                    return 0;
+
+                return (int)Math.Round(spread / TickSize, MidpointRounding.AwayFromZero);
+            }
+
+            /// <summary>Da tick a prezzo, con le cifre decimali dello strumento.</summary>
+            public string PriceOf(double spreadTicks)
+            {
+                return (spreadTicks * TickSize).ToString(PriceFormat, CultureInfo.InvariantCulture);
+            }
 
             /// <summary>Prezzi scritti con le cifre decimali dichiarate dal simbolo, non con quelle di
             /// <c>double.ToString()</c>: "1.09" e "1.0900" sono lo stesso prezzo, ma un CSV con un

@@ -425,6 +425,23 @@ public sealed class TradingSessionService : ITradingSessionService
 
         public List<PersistedTrade> ExternalTrades { get; } = [];
         public int Entries { get; set; }
+
+        /// <summary>
+        /// Ingressi riempiti per <c>simbolo|strategia</c> e per giorno UTC. E' il numero che le
+        /// strategie leggono come <c>EntriesToday</c>, ed e' <b>per strategia e per giorno</b>
+        /// esattamente come <c>PiootooTradingService._entriesByDay</c> del backtest: la parita' fra
+        /// i due motori dipende da questo.
+        ///
+        /// <para><b>Perche' non basta <see cref="Entries"/>.</b> Quello e' il totale della
+        /// sessione — ogni riempimento di qualunque strategia su qualunque simbolo, mai azzerato —
+        /// e passarlo come <c>EntriesToday</c> spegneva ogni strategia con un tetto di ingressi
+        /// dopo il PRIMO riempimento del portafoglio, per il resto del run. Misurato su
+        /// <c>compare-0021</c>: <c>PTS_FDAX_VBO_001_240</c> muta dal secondo giorno, zero intent in
+        /// due mesi contro dodici trade del backtest. Vedi <c>docs/decisioni.md</c> 2026-09-05.</para>
+        /// </summary>
+        public Dictionary<string, (DateTime Day, int Count)> EntriesByDay { get; }
+            = new(StringComparer.OrdinalIgnoreCase);
+
         public int Fills { get; set; }
         public DateTime? LastEvaluatedBarTimeUtc { get; set; }
         public int IntentSequence { get; set; }
@@ -1683,7 +1700,7 @@ public sealed class TradingSessionService : ITradingSessionService
             // Il tetto di ingressi per sessione conta i fill, e li conta su un indice: il momento in
             // cui un ingresso passa da zero a riempito e' l'unico in cui quell'indice cambia.
             if (!intent.IsClose && primoRiempimento)
-                RegisterEntryFill(session, intent);
+                RegisterEntryFill(session, intent, report.EventTimeUtc);
 
             // Un report che riporta indietro un intent gia' assestato — il broker che accetta dopo
             // aver rifiutato — lo rimette fra quelli in volo. E' l'unico verso in cui la potatura
@@ -3058,6 +3075,15 @@ public sealed class TradingSessionService : ITradingSessionService
         $"{strategyCode.ToUpperInvariant()}|{symbol.ToUpperInvariant()}";
 
     /// <summary>
+    /// Chiave di <see cref="Session.EntriesByDay"/>: <c>simbolo|strategia</c>, cioe' la stessa
+    /// forma con cui <see cref="GetExecution"/> cerca la posizione canonica. L'ordine e' invertito
+    /// rispetto a <see cref="EntryFillKey"/> apposta: sono due indici distinti e confonderli
+    /// leggerebbe il conteggio sbagliato senza sbagliare tipo.
+    /// </summary>
+    private static string EntriesByDayKey(string strategyCode, string symbol) =>
+        $"{Normalize(symbol)}|{strategyCode}";
+
+    /// <summary>
     /// Quanti intent di ingresso di quella coppia hanno almeno un riempimento nel secchio indicato.
     /// <paramref name="accountNumber"/> null significa "qualunque account", come il conteggio per
     /// scansione che questo indice ha sostituito.
@@ -3076,10 +3102,30 @@ public sealed class TradingSessionService : ITradingSessionService
     /// Registra il PRIMO riempimento di un intent di ingresso. Si conta l'intent, non la quantita':
     /// un fill parziale seguito dal completamento resta un ingresso solo, come nel conteggio per
     /// scansione da cui questo indice deriva.
+    ///
+    /// <para>Aggiorna <b>due</b> conteggi, che rispondono a domande diverse e non vanno fusi:
+    /// <see cref="Session.EntriesByDay"/> — per strategia e per giorno — e' cio' che la strategia
+    /// legge come <c>EntriesToday</c> mentre decide se emettere; <see cref="Session.EntryFills"/> —
+    /// per secchio di sessione dichiarato dal segnale e per account — e' cio' su cui il server
+    /// rifiuta un intent gia' emesso (<see cref="MaxEntriesPerSessionReached"/>). Il primo si
+    /// aggiorna sempre, il secondo solo quando l'intent dichiara il proprio secchio.</para>
     /// </summary>
-    private static void RegisterEntryFill(Session session, OrderIntent intent)
+    private static void RegisterEntryFill(Session session, OrderIntent intent, DateTime fillTimeUtc)
     {
-        if (intent.Kind != OrderIntentKind.Entry || intent.EntrySessionStartUtc is not { } secchio)
+        if (intent.Kind != OrderIntentKind.Entry)
+            return;
+
+        // Il giorno e' quello del riempimento, come nel backtest (entryTime.Date): la chiave e'
+        // canonica — simbolo|strategia, senza account — perche' la valutazione delle strategie
+        // lavora sulla posizione canonica, non su quella del singolo conto.
+        var giorno = fillTimeUtc.Date;
+        var canonica = EntriesByDayKey(intent.StrategyCode, intent.Symbol);
+        session.EntriesByDay[canonica] =
+            session.EntriesByDay.TryGetValue(canonica, out var visto) && visto.Day == giorno
+                ? (giorno, visto.Count + 1)
+                : (giorno, 1);
+
+        if (intent.EntrySessionStartUtc is not { } secchio)
             return;
 
         var chiave = EntryFillKey(intent.StrategyCode, intent.Symbol);
@@ -3531,6 +3577,14 @@ public sealed class TradingSessionService : ITradingSessionService
             LastEvaluatedBarTimeUtc = session.LastEvaluatedBarTimeUtc,
             StrategyNetPnl = new Dictionary<string, decimal>(session.StrategyNetPnl, StringComparer.OrdinalIgnoreCase),
             EntryFills = fill,
+            EntriesByDay = session.EntriesByDay
+                .Select(voce => new SessionStateEntriesByDay
+                {
+                    StrategyKey = voce.Key,
+                    Day = voce.Value.Day,
+                    Count = voce.Value.Count
+                })
+                .ToList(),
             LastSequence = new Dictionary<string, long>(session.LastSequence, StringComparer.OrdinalIgnoreCase),
             HistoryHighWater = new Dictionary<string, int>(session.HistoryHighWater, StringComparer.OrdinalIgnoreCase),
             ReportIds = session.ReportIds.ToList()
@@ -3771,6 +3825,9 @@ public sealed class TradingSessionService : ITradingSessionService
                 session.EntryFills[riga.StrategyKey] = perSecchio = new Dictionary<(DateTime, string), int>();
             perSecchio[(riga.SessionStartUtc, riga.AccountNumber)] = riga.Count;
         }
+
+        foreach (var riga in state.EntriesByDay)
+            session.EntriesByDay[riga.StrategyKey] = (riga.Day, riga.Count);
 
         foreach (var (strategia, pnl) in state.StrategyNetPnl) session.StrategyNetPnl[strategia] = pnl;
         foreach (var (stream, sequence) in state.LastSequence) session.LastSequence[stream] = sequence;
@@ -4104,6 +4161,8 @@ public sealed class TradingSessionService : ITradingSessionService
         TimeExitUtc = intent.CloseAtUtc,
         Reason = intent.Reason,
         MaxBarsInPosition = intent.MaxBarsInPosition,
+        MaxEntriesPerSession = intent.MaxEntriesPerSession,
+        EntrySessionStartUtc = intent.EntrySessionStartUtc,
         IsClose = intent.IsClose,
         Status = intent.Status,
         FilledQuantity = intent.FilledQuantity,
@@ -4120,12 +4179,21 @@ public sealed class TradingSessionService : ITradingSessionService
         // da quale account la detiene realmente); in modalità legacy usa le posizioni dirette come prima.
         var positions = session.ConfiguredAccounts.Count > 0 ? session.CanonicalPositions : session.ExternalPositions;
         positions.TryGetValue(key, out var position);
+
+        // Ingressi di QUESTA strategia OGGI, non il totale della sessione: e' il numero su cui i
+        // motori con un tetto per sessione (VolatilityBreakoutEngine, MovingAverageCrossoverEngine,
+        // TrendDeveloperEngine) decidono se emettere. Passare session.Entries li spegneva tutti
+        // dopo il primo riempimento del portafoglio. Vedi Session.EntriesByDay.
+        var entriesToday = session.EntriesByDay.TryGetValue(key, out var oggi) && oggi.Day == time.Date
+            ? oggi.Count
+            : 0;
+
         return new StrategyExecutionSnapshot
         {
             StrategyCode = strategy.Name,
             Symbol = Normalize(strategy.Symbol),
             BarTimeUtc = time,
-            EntriesToday = session.Entries,
+            EntriesToday = entriesToday,
             Position = position is null ? null : new StrategyPositionSnapshot
             {
                 Direction = position.Direction,

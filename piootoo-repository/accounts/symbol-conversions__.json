@@ -1,159 +1,6 @@
 {
   "Conversions": [
     {
-      "Code": "cfd-ctrader-ftmo",
-      "Name": "CFD-ctrader-ftmo",
-      "RoundingMode": 1,
-      "Mappings": [
-        {
-          "Symbol": "@BP",
-          "AccountSymbol": "GBPUSD",
-          "ContractMultiplier": 0.625,
-          "PriceScale": 1,
-          "MinimumQuantity": 0.01,
-          "QuantityStep": 0.01,
-          "Enabled": true
-        },
-        {
-          "Symbol": "@BTC",
-          "AccountSymbol": "BTCUSD",
-          "ContractMultiplier": 5,
-          "PriceScale": 1,
-          "MinimumQuantity": 0.01,
-          "QuantityStep": 0.01,
-          "Enabled": true
-        },
-        {
-          "Symbol": "@CC",
-          "AccountSymbol": "COCOA.c",
-          "ContractMultiplier": 10,
-          "PriceScale": 1,
-          "MinimumQuantity": 1,
-          "QuantityStep": 1,
-          "Enabled": true
-        },
-        {
-          "Symbol": "@CL",
-          "AccountSymbol": "USOIL.cash",
-          "ContractMultiplier": 10,
-          "PriceScale": 1,
-          "MinimumQuantity": 0.01,
-          "QuantityStep": 0.01,
-          "Enabled": true
-        },
-        {
-          "Symbol": "@CT",
-          "AccountSymbol": "COTTON.c",
-          "ContractMultiplier": 500,
-          "PriceScale": 1,
-          "MinimumQuantity": 1,
-          "QuantityStep": 1,
-          "Enabled": true
-        },
-        {
-          "Symbol": "@ES",
-          "AccountSymbol": "US500.cash",
-          "ContractMultiplier": 50,
-          "PriceScale": 1,
-          "MinimumQuantity": 0.01,
-          "QuantityStep": 0.01,
-          "Enabled": true
-        },
-        {
-          "Symbol": "@FDAX",
-          "AccountSymbol": "GER40.cash",
-          "ContractMultiplier": 25,
-          "PriceScale": 1,
-          "MinimumQuantity": 0.01,
-          "QuantityStep": 0.01,
-          "Enabled": true
-        },
-        {
-          "Symbol": "@GC",
-          "AccountSymbol": "XAUUSD",
-          "ContractMultiplier": 1,
-          "PriceScale": 1,
-          "MinimumQuantity": 0.01,
-          "QuantityStep": 0.01,
-          "Enabled": true
-        },
-        {
-          "Symbol": "@HK",
-          "AccountSymbol": "HK50.cash",
-          "ContractMultiplier": 50,
-          "PriceScale": 1,
-          "MinimumQuantity": 0.01,
-          "QuantityStep": 0.01,
-          "Enabled": true
-        },
-        {
-          "Symbol": "@HO",
-          "AccountSymbol": "HEATOIL.c",
-          "ContractMultiplier": 420,
-          "PriceScale": 1,
-          "MinimumQuantity": 0.01,
-          "QuantityStep": 0.01,
-          "Enabled": true
-        },
-        {
-          "Symbol": "@KC",
-          "AccountSymbol": "COFFEE.c",
-          "ContractMultiplier": 375,
-          "PriceScale": 1,
-          "MinimumQuantity": 1,
-          "QuantityStep": 1,
-          "Enabled": true
-        },
-        {
-          "Symbol": "@NG",
-          "AccountSymbol": "NATGAS.cash",
-          "ContractMultiplier": 10,
-          "PriceScale": 1,
-          "MinimumQuantity": 0.01,
-          "QuantityStep": 0.01,
-          "Enabled": true
-        },
-        {
-          "Symbol": "@NQ",
-          "AccountSymbol": "US100.cash",
-          "ContractMultiplier": 20,
-          "PriceScale": 1,
-          "MinimumQuantity": 0.01,
-          "QuantityStep": 0.01,
-          "Enabled": true
-        },
-        {
-          "Symbol": "@PL",
-          "AccountSymbol": "XPTUSD",
-          "ContractMultiplier": 0.5,
-          "PriceScale": 1,
-          "MinimumQuantity": 0.01,
-          "QuantityStep": 0.01,
-          "Enabled": true
-        },
-        {
-          "Symbol": "@SB",
-          "AccountSymbol": "SUGAR.c",
-          "ContractMultiplier": 1120,
-          "PriceScale": 1,
-          "MinimumQuantity": 1,
-          "QuantityStep": 1,
-          "Enabled": true
-        },
-        {
-          "Symbol": "@YM",
-          "AccountSymbol": "US30.cash",
-          "ContractMultiplier": 5,
-          "PriceScale": 1,
-          "MinimumQuantity": 0.01,
-          "QuantityStep": 0.01,
-          "Enabled": true
-        }
-      ],
-      "CreatedUtc": "2026-09-02T12:26:21Z",
-      "UpdatedUtc": "2026-09-05T06:48:54.6875994Z"
-    },
-    {
       "Code": "cfd-ic",
       "Name": "CFD-ic",
       "RoundingMode": 1,
@@ -260,6 +107,159 @@
       ],
       "CreatedUtc": "2026-08-04T00:00:00Z",
       "UpdatedUtc": "2026-08-04T00:00:00Z"
+    },
+    {
+      "Code": "cfd-ctrader-ftmo",
+      "Name": "CFD-ctrader-ftmo",
+      "RoundingMode": 1,
+      "Mappings": [
+        {
+          "Symbol": "@BP",
+          "AccountSymbol": "GBPUSD",
+          "ContractMultiplier": 0.625,
+          "PriceScale": 1,
+          "MinimumQuantity": 0.01,
+          "QuantityStep": 0.01,
+          "Enabled": true
+        },
+        {
+          "Symbol": "@BTC",
+          "AccountSymbol": "BTCUSD",
+          "ContractMultiplier": 5,
+          "PriceScale": 1,
+          "MinimumQuantity": 0.01,
+          "QuantityStep": 0.01,
+          "Enabled": true
+        },
+        {
+          "Symbol": "@CC",
+          "AccountSymbol": "COCOA.c",
+          "ContractMultiplier": 10,
+          "PriceScale": 1,
+          "MinimumQuantity": 1,
+          "QuantityStep": 1,
+          "Enabled": true
+        },
+        {
+          "Symbol": "@CL",
+          "AccountSymbol": "USOIL.cash",
+          "ContractMultiplier": 10,
+          "PriceScale": 1,
+          "MinimumQuantity": 0.01,
+          "QuantityStep": 0.01,
+          "Enabled": true
+        },
+        {
+          "Symbol": "@CT",
+          "AccountSymbol": "COTTON.c",
+          "ContractMultiplier": 1,
+          "PriceScale": 1,
+          "MinimumQuantity": 0,
+          "QuantityStep": 0,
+          "Enabled": false
+        },
+        {
+          "Symbol": "@ES",
+          "AccountSymbol": "US500.cash",
+          "ContractMultiplier": 50,
+          "PriceScale": 1,
+          "MinimumQuantity": 0.01,
+          "QuantityStep": 0.01,
+          "Enabled": true
+        },
+        {
+          "Symbol": "@FDAX",
+          "AccountSymbol": "GER40.cash",
+          "ContractMultiplier": 25,
+          "PriceScale": 1,
+          "MinimumQuantity": 0.01,
+          "QuantityStep": 0.01,
+          "Enabled": true
+        },
+        {
+          "Symbol": "@GC",
+          "AccountSymbol": "XAUUSD",
+          "ContractMultiplier": 1,
+          "PriceScale": 1,
+          "MinimumQuantity": 0.01,
+          "QuantityStep": 0.01,
+          "Enabled": true
+        },
+        {
+          "Symbol": "@HK",
+          "AccountSymbol": "HK50.cash",
+          "ContractMultiplier": 1,
+          "PriceScale": 1,
+          "MinimumQuantity": 0,
+          "QuantityStep": 0,
+          "Enabled": false
+        },
+        {
+          "Symbol": "@HO",
+          "AccountSymbol": "HEATOIL.c",
+          "ContractMultiplier": 1,
+          "PriceScale": 1,
+          "MinimumQuantity": 0,
+          "QuantityStep": 0,
+          "Enabled": false
+        },
+        {
+          "Symbol": "@KC",
+          "AccountSymbol": "COFFEE.c",
+          "ContractMultiplier": 375,
+          "PriceScale": 1,
+          "MinimumQuantity": 1,
+          "QuantityStep": 1,
+          "Enabled": true
+        },
+        {
+          "Symbol": "@NG",
+          "AccountSymbol": "NATGAS.cash",
+          "ContractMultiplier": 10,
+          "PriceScale": 1,
+          "MinimumQuantity": 0.01,
+          "QuantityStep": 0.01,
+          "Enabled": true
+        },
+        {
+          "Symbol": "@NQ",
+          "AccountSymbol": "US100.cash",
+          "ContractMultiplier": 20,
+          "PriceScale": 1,
+          "MinimumQuantity": 0.01,
+          "QuantityStep": 0.01,
+          "Enabled": true
+        },
+        {
+          "Symbol": "@PL",
+          "AccountSymbol": "XPTUSD",
+          "ContractMultiplier": 0.5,
+          "PriceScale": 1,
+          "MinimumQuantity": 0.01,
+          "QuantityStep": 0.01,
+          "Enabled": true
+        },
+        {
+          "Symbol": "@SB",
+          "AccountSymbol": "SUGAR.c",
+          "ContractMultiplier": 1,
+          "PriceScale": 1,
+          "MinimumQuantity": 0,
+          "QuantityStep": 0,
+          "Enabled": false
+        },
+        {
+          "Symbol": "@YM",
+          "AccountSymbol": "US30.cash",
+          "ContractMultiplier": 5,
+          "PriceScale": 1,
+          "MinimumQuantity": 0.01,
+          "QuantityStep": 0.01,
+          "Enabled": true
+        }
+      ],
+      "CreatedUtc": "2026-08-04T00:00:00Z",
+      "UpdatedUtc": "2026-09-02T12:43:54Z"
     },
     {
       "Code": "cfd-mt5-5ers",
@@ -593,24 +593,6 @@
         {
           "Symbol": "@PL",
           "AccountSymbol": "@PL",
-          "ContractMultiplier": 1,
-          "PriceScale": 1,
-          "MinimumQuantity": 1,
-          "QuantityStep": 1,
-          "Enabled": true
-        },
-        {
-          "Symbol": "@HK",
-          "AccountSymbol": "@HK",
-          "ContractMultiplier": 1,
-          "PriceScale": 1,
-          "MinimumQuantity": 1,
-          "QuantityStep": 1,
-          "Enabled": true
-        },
-        {
-          "Symbol": "@HO",
-          "AccountSymbol": "@HO",
           "ContractMultiplier": 1,
           "PriceScale": 1,
           "MinimumQuantity": 1,

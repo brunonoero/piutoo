@@ -1,4 +1,4 @@
-using Piootoo.Shared.Models.Backtesting;
+﻿using Piootoo.Shared.Models.Backtesting;
 using Piootoo.Shared.Models.Trading;
 
 namespace piootooapp.clientform.Shell.Screens;
@@ -14,6 +14,13 @@ public partial class BacktestingScreen : UserControl, IShellScreen
     private string? _lastJobId;
     private bool _isRunning;
     private string? _reportTempHtmlPath;
+
+    /// <summary>
+    /// Gli Id del masterfilter del workspace, come erano al caricamento della schermata: servono
+    /// solo a contare quante strategie ogni piano lascia accese. Null quando il server non l'ha
+    /// dato.
+    /// </summary>
+    private IReadOnlyCollection<string>? _masterFilterIds;
 
     public BacktestingScreen()
     {
@@ -47,10 +54,8 @@ public partial class BacktestingScreen : UserControl, IShellScreen
             _workspaceValueLabel.Text = _context.Services.Workspaces.CurrentDisplay;
 
             await LoadDatafeedSourcesAsync(cancellationToken);
-            await LoadAccountsAsync(cancellationToken);
+            await LoadPlansAsync(cancellationToken);
 
-            // Nessuna combo account: il backtest interno è neutro rispetto ai conti (conversione
-            // simbolo e scala capitale vivono sulle sessioni). Vedi docs/decisioni.md 2026-08-05.
             _context.Navigation.SetStatus(SelectedWorkspaceId is { } workspaceId
                 ? $"Nuovo backtest nel workspace '{workspaceId}'."
                 : "Nessun workspace selezionato: scegline uno nella barra in alto.");
@@ -70,34 +75,55 @@ public partial class BacktestingScreen : UserControl, IShellScreen
     /// <summary>Broker selezionato, null quando la scelta è il datafeed interno.</summary>
     private string? SelectedDatafeedBroker => (_datafeedCombo.SelectedItem as DatafeedComboItem)?.Broker;
 
-    /// <summary>Conto selezionato, null quando la scelta è «nessun conto».</summary>
-    private string? SelectedAccountNumber =>
-        (_accountCombo.SelectedItem as AccountComboItem)?.AccountNumber is { Length: > 0 } number
-            ? number
-            : null;
+    /// <summary>Piano selezionato, null quando la scelta è «nessun piano».</summary>
+    private TradingPlan? SelectedPlan => (_planCombo.SelectedItem as PlanComboItem)?.Plan;
 
     /// <summary>
-    /// Riempie la combo dei conti. La prima voce è «nessun conto», che è il run neutro di sempre:
-    /// tutte le strategie del masterfilter, nessuna tabella di conversione di mezzo.
+    /// Riempie la combo dei piani. La prima voce è «nessun piano», che è il run neutro di sempre:
+    /// tutte le strategie del masterfilter, e i parametri di questa schermata così come sono.
     ///
-    /// <para>Scegliere un conto non cambia le size — il backtest interno resta neutro sul capitale —
-    /// ma restringe l'<b>universo</b>: girano solo le strategie sui simboli che la sua tabella
-    /// prevede, esattamente come farebbe quel conto in sessione.</para>
+    /// <para>Scegliere un piano non cambia le size — il backtest interno resta neutro sul capitale,
+    /// e il <c>SizeMultiplier</c> del piano non entra — ma governa tutto il resto: l'<b>universo</b>
+    /// (girano solo le strategie sui simboli che la tabella del suo broker prevede), le strategie
+    /// che il piano tiene spente, la policy di tenuta e la commissione. È il server ad applicarle,
+    /// da <c>PlanCode</c>: qui si mostrano soltanto, così il run e il live dello stesso piano
+    /// restano confrontabili per costruzione.</para>
     /// </summary>
-    private async Task LoadAccountsAsync(CancellationToken cancellationToken)
+    private async Task LoadPlansAsync(CancellationToken cancellationToken)
     {
         if (_context == null) return;
 
-        var previous = SelectedAccountNumber;
-        _accountCombo.Items.Clear();
-        _accountCombo.Items.Add(AccountComboItem.None());
+        var previous = SelectedPlan?.Code;
+        _planCombo.Items.Clear();
+        _planCombo.Items.Add(PlanComboItem.None());
 
         try
         {
-            foreach (var account in await _context.Services.Api.ListAccountsAsync(cancellationToken))
+            if (SelectedWorkspaceId is { } workspaceId)
             {
-                if (!string.IsNullOrWhiteSpace(account.AccountNumber))
-                    _accountCombo.Items.Add(AccountComboItem.Of(account));
+                // Il masterfilter serve a dire quante strategie ogni piano lascia accese: il piano
+                // elenca le spente, e da solo quel numero non dice quanto opera. Se non arriva si
+                // prosegue senza il conteggio invece di bloccare la scelta del piano.
+                try
+                {
+                    _masterFilterIds = (await _context.Services.Api.GetMasterFilterAsync(workspaceId, cancellationToken))
+                        .StrategiesFilter;
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    _masterFilterIds = null;
+                    Log($"Masterfilter non disponibile, piani senza conteggio strategie: {ex.Message}");
+                }
+
+                foreach (var plan in await _context.Services.Plans.ListAsync(workspaceId, cancellationToken))
+                {
+                    if (!string.IsNullOrWhiteSpace(plan.Code))
+                        _planCombo.Items.Add(PlanComboItem.Of(plan, CountActiveStrategies(plan, _masterFilterIds)));
+                }
             }
         }
         catch (OperationCanceledException)
@@ -106,24 +132,92 @@ public partial class BacktestingScreen : UserControl, IShellScreen
         }
         catch (Exception ex)
         {
-            // Come per i datasource esterni: senza registro si resta sul run neutro invece di
+            // Come per i datasource esterni: senza elenco si resta sul run neutro invece di
             // bloccare la schermata.
-            Log($"Elenco conti non disponibile: {ex.Message}");
+            Log($"Elenco piani non disponibile: {ex.Message}");
         }
 
-        _accountCombo.SelectedIndex = 0;
-        if (previous is null) return;
-
-        for (var index = 0; index < _accountCombo.Items.Count; index++)
+        _planCombo.SelectedIndex = 0;
+        if (previous is not null)
         {
-            if (_accountCombo.Items[index] is AccountComboItem item
-                && string.Equals(item.AccountNumber, previous, StringComparison.OrdinalIgnoreCase))
+            for (var index = 0; index < _planCombo.Items.Count; index++)
             {
-                _accountCombo.SelectedIndex = index;
-                return;
+                if (_planCombo.Items[index] is PlanComboItem item
+                    && string.Equals(item.Plan?.Code, previous, StringComparison.OrdinalIgnoreCase))
+                {
+                    _planCombo.SelectedIndex = index;
+                    break;
+                }
             }
         }
+
+        ApplySelectedPlanToParameters();
     }
+
+    /// <summary>
+    /// Quante strategie del masterfilter il piano lascia accese: <c>masterfilter −
+    /// DisabledStrategies</c>, confrontate per <b>Id</b> di catalogo, che è come il piano le nomina
+    /// (CLAUDE.md, «Id ≠ Name»). Null senza masterfilter.
+    ///
+    /// <para>Non tiene conto della tabella del broker, che vive sul server: qui si dice quante il
+    /// piano <i>accende</i>, non quante il broker potrà operare. La differenza, quando c'è, la
+    /// dichiara il summary del run.</para>
+    /// </summary>
+    private static int? CountActiveStrategies(TradingPlan plan, IReadOnlyCollection<string>? masterFilter)
+    {
+        if (masterFilter is null) return null;
+
+        var disabled = plan.DisabledStrategies.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return masterFilter.Count(id => !disabled.Contains(id));
+    }
+
+    /// <summary>
+    /// Mostra nei campi ciò che il piano imporrà al run, e li blocca: tenuta e commissione le
+    /// decide lui, e lasciarli modificabili significherebbe far compilare all'operatore dei valori
+    /// che il server sovrascrive comunque.
+    ///
+    /// <para><b>Il datasource resta libero</b>: il broker del piano dice con che tabella si opera,
+    /// non da quale archivio di barre si legge. Lo stesso piano misurato sul feed interno e su
+    /// quello del suo broker è il confronto che dice quanto vale lo spread — quindi la combo si
+    /// posiziona sull'archivio del broker, se c'è, ma non si blocca.</para>
+    /// </summary>
+    private void ApplySelectedPlanToParameters()
+    {
+        var plan = SelectedPlan;
+
+        _commissionInput.Enabled = plan is null;
+        _weekEndCheckBox.Enabled = plan is null;
+
+        if (plan is null)
+        {
+            _planDerivedLabel.Text =
+                "Nessun piano: il run gira sull'intero masterfilter con i parametri qui sopra.";
+            return;
+        }
+
+        // Clamp e non assegnazione diretta: il campo ha un massimo, e una commissione fuori scala
+        // farebbe eccezione nella schermata invece di mostrarsi come il valore assurdo che e'. Il
+        // run usa comunque quella del piano — la applica il server — e la riga qui sotto la dice.
+        _commissionInput.Value = Math.Clamp(
+            plan.CommissionPerContract, _commissionInput.Minimum, _commissionInput.Maximum);
+        _weekEndCheckBox.Checked = !plan.Holding.AllowOverweek;
+
+        if (!string.IsNullOrWhiteSpace(plan.BrokerCode))
+        {
+            var index = FindDatafeedIndex(plan.BrokerCode);
+            if (index >= 0) _datafeedCombo.SelectedIndex = index;
+        }
+
+        var active = CountActiveStrategies(plan, _masterFilterIds);
+        _planDerivedLabel.Text =
+            $"Dal piano: universo del broker {(string.IsNullOrWhiteSpace(plan.BrokerCode) ? "—" : plan.BrokerCode)}"
+            + (active is { } count ? $"  ·  {count} strategie attive" : string.Empty)
+            + $"  ·  overnight {(plan.Holding.AllowOvernight ? "permesso" : $"piatto {plan.Holding.SessionFlatUtcHhmm:0000}Z")}"
+            + $"  ·  fine settimana {(plan.Holding.AllowOverweek ? "permesso" : $"piatto {plan.Holding.WeekEnd.FromUtcHhmm:0000}Z")}"
+            + $"  ·  commissione {plan.CommissionPerContract:0.##}/contratto";
+    }
+
+    private void OnPlanChanged(object? sender, EventArgs e) => ApplySelectedPlanToParameters();
 
     /// <summary>
     /// Riempie la combo del datasource: prima l'interno, poi un broker per cartella di
@@ -278,22 +372,24 @@ public partial class BacktestingScreen : UserControl, IShellScreen
                 // Null = datafeed interno. Il server rifiuta un broker che non esiste invece di
                 // ripiegare sull'interno: un run letto dal feed sbagliato non si distinguerebbe.
                 DatafeedBroker = SelectedDatafeedBroker,
-                // Null = nessun conto, run sull'intero masterfilter. Con un conto il server salta le
-                // strategie sui simboli che la sua tabella di conversione non prevede, e lo dichiara
-                // nel summary: due run con universi diversi non sono confrontabili.
-                AccountNumber = SelectedAccountNumber,
-                // La spunta e' la stessa regola di prima, letta dal verso opposto: chiudere a fine
-                // settimana significa non concedere l'overweek. Parte **spenta**: il run interno
-                // non impone alcun flat di conto, cosi' l'equity e' quella delle strategie e non
-                // quella del venerdi'. Chi vuole misurare il vincolo di una prop lo accende.
-                // L'overnight non e' esposto qui — per riprodurre un piano che lo vieta serve la
-                // sua policy, non una checkbox in piu' che direbbe la stessa cosa in un secondo
-                // posto — ma resta esplicitamente permesso: nessuno dei due tagli e' di default.
-                Holding = AccountHoldingPolicy.Default with
+                // Null = nessun piano, run sull'intero masterfilter. Con un piano il server ne
+                // applica universo, strategie spente, tenuta e commissione, e lo dichiara nel
+                // summary: due run con piani diversi non sono confrontabili.
+                PlanCode = SelectedPlan?.Code,
+                // Senza piano la spunta e' la stessa regola di prima, letta dal verso opposto:
+                // chiudere a fine settimana significa non concedere l'overweek. Parte **spenta**:
+                // il run interno non impone alcun flat di conto, cosi' l'equity e' quella delle
+                // strategie e non quella del venerdi'. Chi vuole misurare il vincolo di una prop lo
+                // accende, o sceglie il piano che lo dichiara.
+                //
+                // Con un piano questo campo non decide nulla: il server lo sovrascrive con la
+                // policy del piano, che e' la stessa che scende in sessione e nel cBot. Si manda
+                // comunque quella del piano perche' il log di avvio del client dica il vero.
+                Holding = SelectedPlan?.Holding ?? (AccountHoldingPolicy.Default with
                 {
                     AllowOvernight = true,
                     AllowOverweek = !_weekEndCheckBox.Checked
-                }
+                })
             };
 
             SetRunningState(true);
@@ -305,7 +401,11 @@ public partial class BacktestingScreen : UserControl, IShellScreen
 
             Log($"Workspace {workspace.Name} ({workspace.Id})");
             Log($"Datasource: {(request.DatafeedBroker is null ? "interno" : $"esterno / {request.DatafeedBroker}")}");
-            Log($"Conto: {request.AccountNumber ?? "nessuno (intero masterfilter)"}");
+            Log($"Piano: {request.PlanCode ?? "nessuno (intero masterfilter)"}" +
+                (SelectedPlan is { } selectedPlan
+                    ? $" · broker {(string.IsNullOrWhiteSpace(selectedPlan.BrokerCode) ? "-" : selectedPlan.BrokerCode)}" +
+                      $" · {CountActiveStrategies(selectedPlan, _masterFilterIds)?.ToString() ?? "?"} strategie attive"
+                    : string.Empty));
             Log($"Finestra UTC {request.StartDate:yyyy-MM-dd HH:mm}Z → {request.EndDate:yyyy-MM-dd HH:mm}Z");
             Log($"Strategie dal masterfilter: {masterFilter.StrategiesFilter.Count}");
             Log($"Vincoli di conto: overnight {(request.Holding.AllowOvernight ? "permesso" : "vietato")}, " +

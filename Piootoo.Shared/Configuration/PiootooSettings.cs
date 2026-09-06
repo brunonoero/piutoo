@@ -16,6 +16,15 @@ public class PiootooSettings
     /// confrontabili tutti i backtest gia' fatti. Quando manca, vale <c>[BasePath]\datafeed-external</c>.
     /// </summary>
     public string ExternalRepositoryPath { get; set; } = string.Empty;
+    /// <summary>
+    /// Cartella delle misure di spread, una sottocartella per broker, con dentro i CSV
+    /// <c>spread-by-symbol</c> prodotti da <c>PiootooSpreadDumpBot</c>. Separata da
+    /// <see cref="ExternalRepositoryPath"/> di proposito: quella e' il feed che il server scrive, e
+    /// mescolarci file di misura fa sembrare dati di feed quello che non lo e'. Quando manca, vale
+    /// <c>[BasePath]\spread</c>.
+    /// </summary>
+    public string SpreadPath { get; set; } = string.Empty;
+
     public string SettingsPath { get; set; } = string.Empty;
     public string Workspaces { get; set; } = string.Empty;
     public string Accounts { get; set; } = string.Empty;
@@ -30,6 +39,7 @@ public class PiootooSettings
         {
             RepositoryPath = ResolvePath(RepositoryPath);
             ExternalRepositoryPath = ResolvePath(ExternalRepositoryPath);
+            SpreadPath = ResolvePath(SpreadPath);
             SettingsPath = ResolvePath(SettingsPath);
             Workspaces = ResolvePath(Workspaces);
             Accounts = ResolvePath(Accounts);
@@ -58,6 +68,16 @@ public class PiootooSettings
         => string.IsNullOrWhiteSpace(ExternalRepositoryPath)
             ? Path.Combine(string.IsNullOrWhiteSpace(BasePath) ? "." : BasePath, "datafeed-external")
             : ResolvePath(ExternalRepositoryPath);
+
+    /// <summary>
+    /// Cartella delle misure di spread. Come per i feed esterni il default non e' configurato
+    /// altrove: un server a cui manca la voce deve comunque avere un posto dove cercarle, e dire
+    /// che non ci sono, invece di non sapere dove guardare.
+    /// </summary>
+    public string GetSpreadPath()
+        => string.IsNullOrWhiteSpace(SpreadPath)
+            ? Path.Combine(string.IsNullOrWhiteSpace(BasePath) ? "." : BasePath, "spread")
+            : ResolvePath(SpreadPath);
 
     /// <summary>
     /// Ottiene il path completo dei settings

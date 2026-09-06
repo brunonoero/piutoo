@@ -88,7 +88,14 @@ public sealed class ExternalBacktestReportService(WorkspaceService workspaces)
             reportPath,
             result,
             trades.Select(trade => BacktestReportTrade.From(trade)).ToList(),
-            notes);
+            notes,
+            // Di un run dell'engine esterno il marcatore di origine conserva il solo codice del
+            // piano: si dichiara quello e nient'altro. Rileggere il piano da disco riempirebbe la
+            // scheda con la configurazione di oggi, che non e' quella con cui la sessione ha
+            // operato — ed e' esattamente l'errore che la scheda esiste per impedire.
+            string.IsNullOrWhiteSpace(origin?.PlanCode)
+                ? null
+                : new BacktestPlanReportInfo(origin.PlanCode));
 
         return reportPath;
     }

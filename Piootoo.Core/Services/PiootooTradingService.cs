@@ -98,6 +98,65 @@ public class PiootooTradingService : IPiootooTradingService
         new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
+    /// Spread denaro/lettera in punti dello strumento, per simbolo. Vuoto = nessuno spread, che e'
+    /// il comportamento storico del motore.
+    ///
+    /// <para><b>Cosa fa.</b> Peggiora il <i>prezzo di ingresso</i> di uno spread intero e nient'altro:
+    /// un long entra a <c>fill + spread</c>, uno short a <c>fill - spread</c>. Trigger, livelli e
+    /// uscite restano sul prezzo del feed. Non e' un'approssimazione comoda, e' il modello giusto per
+    /// il feed che abbiamo: le barre di <c>datafeed-external/</c> le raccoglie un cBot da
+    /// <c>MarketData.GetBars</c>, che in cTrader e' la serie <b>Bid</b>. Su un long si entra sull'Ask
+    /// (<c>Bid + spread</c>) e si esce sul Bid, che e' esattamente cio' che questa riga produce; su
+    /// uno short il conto vero entra sul Bid e valuta l'uscita sull'Ask, e spostare l'ingresso di
+    /// <c>-spread</c> da' lo stesso P&amp;L e fa scattare stop e target sugli stessi istanti.</para>
+    ///
+    /// <para><b>Cosa ne esce.</b> Non un costo fisso per trade, ma il fenomeno di
+    /// <c>docs/decisioni.md</c> 2026-08-06: la perdita quando lo stop salta resta quella dichiarata
+    /// dalla strategia — stop e target si spostano insieme all'ingresso — ma il prezzo deve muoversi
+    /// di <c>distanza - spread</c> invece che di <c>distanza</c> per farlo saltare. Stessa perdita,
+    /// <i>piu'</i> stop. Il numero che misura il danno e' <c>spread / distanza di stop</c>: su
+    /// <c>PTS_NQ_PCH_002_15</c> (stop 12,5 punti) uno spread di 2 vale il 16%, su
+    /// <c>PTS_NQ_TFM_001_60</c> (stop 50) il 4%. Due strategie sullo stesso strumento, due esiti
+    /// diversi.</para>
+    ///
+    /// <para><b>Cosa NON fa: il trigger.</b> Sul broker un buy stop scatta sull'Ask, cioe' quando il
+    /// Bid arriva a <c>livello - spread</c>. Qui no: i pending si valutano sulla barra del feed come
+    /// prima. Muovere anche il trigger cambierebbe <i>quali</i> trade nascono, e i run non sarebbero
+    /// piu' confrontabili con il porting dal motore di ricerca — che e' il metro con cui le strategie
+    /// sono state scelte. Lo spread qui e' un costo, non un'altra regola d'ingresso.</para>
+    ///
+    /// <para>Come <see cref="StopFillSlippagePoints"/> e' <b>una misura</b> e non una costante: la
+    /// produce <c>PiootooSpreadDumpBot</c> sui tick del conto vero, cambia per broker, per simbolo e
+    /// per ora del giorno, e il valore giusto e' la mediana delle ore in cui la strategia opera —
+    /// non la media del mese, che comprende la riapertura della domenica sera. Vedi
+    /// <c>docs/domini/spread-e-costo-di-transazione.md</c>.</para>
+    /// </summary>
+    public Dictionary<string, decimal> SpreadPoints { get; } =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Lo stesso spread misurato <b>per ora UTC</b>: 24 valori per simbolo, quando il run lo chiede
+    /// (<c>SpreadResolution.PerHour</c>). Vuoto = si usa la costante di <see cref="SpreadPoints"/>,
+    /// che resta il ripiego anche per i simboli qui assenti.
+    ///
+    /// <para><b>Perche' l'ora e non solo il simbolo.</b> Lo spread di uno strumento varia dentro la
+    /// giornata piu' di quanto vari fra un mese e l'altro, e una strategia paga quello delle ore in
+    /// cui la sua <c>TradingWindow</c> la fa entrare: due strategie sullo stesso simbolo che operano
+    /// in ore diverse pagano costi diversi, e una costante sola e' un compromesso fra le due.</para>
+    ///
+    /// <para>L'ora e' quella dell'<b>istante di ingresso</b>, UTC come tutto il dominio, ed e' la
+    /// stessa convenzione del file: <c>PiootooSpreadDumpBot</c> scrive i bucket in UTC e non li
+    /// converte, perche' il fuso di una strategia sta nella sua <c>ZonedWindow</c> e la conversione
+    /// si fa dove quella si conosce.</para>
+    ///
+    /// <para>Ogni array ha sempre 24 caselle piene: le ore che il broker non ha quotato le riempie
+    /// <c>SpreadTable</c> con la costante per simbolo. Qui dentro non c'e' un caso "mancante" da
+    /// controllare, ed e' voluto — si sta sul percorso di ogni ingresso.</para>
+    /// </summary>
+    public Dictionary<string, decimal[]> SpreadPointsByHour { get; } =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
     /// Scarta un pending il cui livello e' gia' oltrepassato quando l'ordine nasce: uno stop buy
     /// sotto il prezzo, uno stop sell sopra, e i due casi speculari per il limit.
     ///
@@ -643,7 +702,11 @@ public class PiootooTradingService : IPiootooTradingService
 
         currentBars.TryGetValue(NormalizeSymbol(signalSymbol), out var bar);
         currentPrices.TryGetValue(NormalizeSymbol(signalSymbol), out var markPrice);
-        var entryPrice = explicitFillPrice ?? ResolveFillPrice(signal, bar, markPrice);
+        var entryPrice = ApplySpread(
+            signal.Type,
+            signalSymbol,
+            explicitFillPrice ?? ResolveFillPrice(signal, bar, markPrice),
+            currentTime);
 
         OpenPosition(
             positionKey,
@@ -666,6 +729,39 @@ public class PiootooTradingService : IPiootooTradingService
             signal.TimeExitFromAccountPolicy);
 
         RecordEntry(positionKey, currentTime, signal);
+    }
+
+    /// <summary>
+    /// Il lato su cui si entra davvero. E' l'UNICO punto in cui lo spread entra nel motore, ed e'
+    /// voluto: passa di qui ogni ingresso — market immediato, market differito, stop e limit — quindi
+    /// una sola riga copre tutti e quattro senza che nessuno debba ricordarsene aggiungendone un
+    /// quinto. Le uscite non passano di qui e non devono: il feed e' Bid, e sul Bid si esce.
+    ///
+    /// <para>Lo spread si applica dopo il prezzo di fill e non dentro il suo calcolo, cosi'
+    /// <c>Math.Max(bar.Open, signal.Price)</c> e il gap all'apertura restano quello che erano: sono
+    /// convenzioni sul <i>prezzo del feed</i>, e mescolarci il lato del book renderebbe illeggibili
+    /// entrambe.</para>
+    /// </summary>
+    private decimal ApplySpread(SignalType direction, string symbol, decimal fillPrice, DateTime entryTimeUtc)
+    {
+        if (SpreadPoints.Count == 0)
+            return fillPrice;
+
+        var key = NormalizeSymbol(symbol);
+
+        // La tabella per ora quando c'e', la costante per simbolo altrimenti: non e' un ripiego per
+        // errore ma la stessa misura a due risoluzioni, e un simbolo puo' avere solo la seconda
+        // (misura senza righe orarie, oppure valore scritto a mano nella richiesta, che scavalca).
+        // L'ora e' UTC come tutto il dominio ed e' quella del file: i bucket del bot non si
+        // convertono.
+        var spread = SpreadPointsByHour.TryGetValue(key, out var byHour)
+            ? byHour[entryTimeUtc.Hour]
+            : SpreadPoints.TryGetValue(key, out var constant) ? constant : 0m;
+
+        if (spread <= 0m)
+            return fillPrice;
+
+        return direction == SignalType.Buy ? fillPrice + spread : fillPrice - spread;
     }
 
     private bool CanFillEntry(string positionKey, TradeSignal signal)
