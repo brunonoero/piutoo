@@ -3104,3 +3104,19 @@ copie uguali: se divergono, la prossima lettura non sa più quale sia quella giu
 raccoglitore 1.2.1 → **1.2.2**, spread dump 2.0.0 → **2.0.1**, tick downloader 1.0.0 → **1.0.1**.
 Nessun archivio raccolto è sbagliato per questa causa: il bot o partiva, e allora l'orologio era
 davvero UTC, o non partiva affatto.
+
+- **2026-09-06** — **Lo spread si sceglie e si vede nella schermata di backtesting.** Prima stava
+solo sulla `BacktestingRequest`, quindi dalla console non era raggiungibile, e i valori applicati
+comparivano soltanto a run finito nella scheda del report. È l'unico parametro del run che non si
+scrive ma si **trova** — viene da una misura sul disco — e un broker sbagliato o un simbolo mai
+quotato costavano un backtest intero per essere scoperti. Ora ci sono tre combo (misura, statistica,
+risoluzione), una riga di riepilogo che dice se la scelta cambia qualcosa (`escursione oraria
+massima 28,3x su BP`) e un pulsante che apre la griglia ordinabile di tutti i simboli misurati, con
+ora del minimo e del massimo e ore ripiegate. L'anteprima passa da `ISpreadCatalog.GetTable`, che
+carica con lo **stesso** `SpreadTable.Load` del backtest: un secondo lettore avrebbe dato fiducia a
+un numero che poi non è quello applicato. Con nessuna misura raccolta la combo ha la sola voce
+«nessuno» e lo dichiara — girare senza spread è un run valido, ed è quello che il backtest ha
+sempre fatto —; un broker senza il file per ora riporta la risoluzione sulla costante invece di
+lasciar scegliere un'opzione che farebbe fallire l'avvio. Endpoint `api/Spread/brokers` e
+`api/Spread/table`, accanto a `api/Datafeed/*` e per la stessa ragione: la console non apre le
+cartelle del repository.

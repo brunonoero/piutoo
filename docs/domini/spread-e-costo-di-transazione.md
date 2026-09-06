@@ -203,6 +203,32 @@ L'ora è **UTC e non convertita**, come nel file: il fuso di una strategia sta n
 - **Report HTML**: una colonna in più, `min → max` con le ore in cui cadono, e la nota che la
   colonna «Spread» è il ripiego.
 
+## Nella console
+
+La schermata di backtesting ha tre combo — **misura**, **statistica**, **risoluzione** — e un
+pulsante *Vedi gli spread…* che apre la griglia di tutto ciò che il run applicherebbe: un simbolo
+per riga, con la costante, l'ora del minimo e del massimo, il rapporto `max/min` e quante delle 24
+ore portano il ripiego. Sotto le combo una riga sola dice se la scelta cambia qualcosa
+(`16 simboli · colonna p50Spread · escursione oraria massima 28,3x su BP (0,00003–0,00085)`).
+
+L'anteprima **non ricalcola niente**: passa da `ISpreadCatalog.GetTable`, che chiama lo stesso
+`SpreadTable.Load` del backtest. Un secondo lettore avrebbe dato fiducia a un numero che poi non è
+quello applicato, ed è l'errore peggiore che un'anteprima possa fare.
+
+### Quando la misura non c'è
+
+| Situazione | Cosa succede |
+|---|---|
+| Nessuna cartella sotto `spread/` | La combo ha la sola voce «nessuno» e lo dice: il run gira agli ingressi del feed, che è quello che il backtest ha sempre fatto. Non è un errore. |
+| Broker scelto ma cartella sparita | Il preventivo mostra l'errore del server (`Disponibili: …`) e la scelta **resta**: è chi lancia a doverla correggere sapendo cosa manca. |
+| Broker senza `spread-by-hour` | La combo lo etichetta *senza le ore*, e scegliere «per ora UTC» riporta la risoluzione sulla costante spiegando perché. Il run non parte più per fallire all'avvio. |
+| Simbolo senza misura nel file | Nessun errore: quel simbolo entra al prezzo del feed. Compare nella griglia dell'anteprima e nella scheda del report, perché una riga mancante si leggerebbe come «non c'era niente da dire». |
+| File senza la colonna della statistica | Errore esplicito con il nome della colonna: è un file di una versione vecchia del bot. |
+
+La regola sotto è sempre la stessa: **un broker chiesto e non trovato ferma l'avvio**, un simbolo
+non misurato no. Il primo è una richiesta che non si può soddisfare; il secondo è un'assenza di
+misura, e dichiararla vale più che rifiutarsi di partire.
+
 ## La scelta è indipendente dal datafeed e dal piano
 
 `SpreadBroker` non segue né `DatafeedBroker` né il broker del `PlanCode`. Girare sul feed
@@ -237,4 +263,8 @@ cui datasource e piano sono già separati (vedi [`backtesting.md`](backtesting.m
 - `Piootoo.Core/Services/BacktestHtmlReport.cs` — `AppendSpreadHtml`.
 - `Piootoo.Shared/Models/Backtesting/BacktestingRequest.cs`, `SpreadStatistic.cs`,
   `SpreadResolution.cs`.
+- `Piootoo.Core/Services/SpreadCatalog.cs`, `PiootooApp.Server/Controllers/SpreadController.cs` —
+  l'anagrafica e l'anteprima.
+- `piootooapp.clientform/Shell/Screens/BacktestingScreen.cs`,
+  `Shell/Controls/SpreadPreviewDialog.cs` — le combo e la griglia.
 - `Piootoo.Strategies.Tests/EntrySpreadTests.cs`.

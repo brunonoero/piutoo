@@ -1,5 +1,7 @@
-﻿using Piootoo.Shared.Models.Backtesting;
+﻿using Piootoo.Shared.Models;
+using Piootoo.Shared.Models.Backtesting;
 using Piootoo.Shared.Models.Trading;
+using piootooapp.clientform.Shell.Controls;
 
 namespace piootooapp.clientform.Shell.Screens;
 
@@ -22,6 +24,13 @@ public partial class BacktestingScreen : UserControl, IShellScreen
     /// </summary>
     private IReadOnlyCollection<string>? _masterFilterIds;
 
+    /// <summary>
+    /// La misura caricata per la combinazione scelta, o null quando lo spread è «nessuno» o il
+    /// server non l'ha data. È quella che il pulsante di anteprima mostra: non si ricalcola
+    /// all'apertura della finestra, così ciò che si guarda è esattamente ciò che è stato letto.
+    /// </summary>
+    private SpreadTableInfo? _spreadTable;
+
     public BacktestingScreen()
     {
         InitializeComponent();
@@ -32,6 +41,23 @@ public partial class BacktestingScreen : UserControl, IShellScreen
         _startPicker.Value = DateTime.UtcNow.Date.AddDays(-30);
         _endPicker.Value = DateTime.UtcNow.Date;
         _nameTextBox.Text = $"backtest-{DateTime.UtcNow:yyyyMMdd-HHmm}";
+
+        // Statistica e risoluzione sono due assi indipendenti della stessa misura — quale colonna
+        // del file, e quale riga — quindi sono due combo e non una sola con sei voci.
+        _spreadStatisticCombo.Items.AddRange(
+        [
+            new SpreadStatisticItem(SpreadStatistic.Median, "Mediana (p50)  ·  lo spread che si paga di solito"),
+            new SpreadStatisticItem(SpreadStatistic.Mean, "Media  ·  comprende news e riapertura domenicale"),
+            new SpreadStatisticItem(SpreadStatistic.P90, "p90  ·  il caso brutto, entrare nel momento sbagliato")
+        ]);
+        _spreadStatisticCombo.SelectedIndex = 0;
+
+        _spreadResolutionCombo.Items.AddRange(
+        [
+            new SpreadResolutionItem(SpreadResolution.PerSymbol, "Costante per simbolo"),
+            new SpreadResolutionItem(SpreadResolution.PerHour, "Per ora UTC  ·  il valore dell'ora di ingresso")
+        ]);
+        _spreadResolutionCombo.SelectedIndex = 0;
     }
 
     // Non è più una voce di menu: ci si arriva solo da "Nuovo backtest" nella lista, e la
@@ -54,6 +80,7 @@ public partial class BacktestingScreen : UserControl, IShellScreen
             _workspaceValueLabel.Text = _context.Services.Workspaces.CurrentDisplay;
 
             await LoadDatafeedSourcesAsync(cancellationToken);
+            await LoadSpreadSourcesAsync(cancellationToken);
             await LoadPlansAsync(cancellationToken);
 
             _context.Navigation.SetStatus(SelectedWorkspaceId is { } workspaceId
@@ -74,6 +101,15 @@ public partial class BacktestingScreen : UserControl, IShellScreen
 
     /// <summary>Broker selezionato, null quando la scelta è il datafeed interno.</summary>
     private string? SelectedDatafeedBroker => (_datafeedCombo.SelectedItem as DatafeedComboItem)?.Broker;
+
+    /// <summary>Broker della misura di spread, null quando il run gira senza spread.</summary>
+    private string? SelectedSpreadBroker => (_spreadCombo.SelectedItem as SpreadComboItem)?.Broker;
+
+    private SpreadStatistic SelectedSpreadStatistic
+        => (_spreadStatisticCombo.SelectedItem as SpreadStatisticItem)?.Statistic ?? SpreadStatistic.Median;
+
+    private SpreadResolution SelectedSpreadResolution
+        => (_spreadResolutionCombo.SelectedItem as SpreadResolutionItem)?.Resolution ?? SpreadResolution.PerSymbol;
 
     /// <summary>Piano selezionato, null quando la scelta è «nessun piano».</summary>
     private TradingPlan? SelectedPlan => (_planCombo.SelectedItem as PlanComboItem)?.Plan;
@@ -274,6 +310,175 @@ public partial class BacktestingScreen : UserControl, IShellScreen
         _datafeedCombo.SelectedIndex = 0;
     }
 
+    /// <summary>
+    /// Riempie la combo dello spread: prima «nessuno», poi un broker per cartella misurata. Un
+    /// server senza misure lascia la sola voce «nessuno» e lo <b>dice</b>: girare senza spread è un
+    /// run valido — è quello che il backtest ha sempre fatto — e la schermata non deve sembrare
+    /// rotta per un file che nessuno ha ancora raccolto.
+    /// </summary>
+    private async Task LoadSpreadSourcesAsync(CancellationToken cancellationToken)
+    {
+        if (_context == null)
+        {
+            return;
+        }
+
+        var previousBroker = SelectedSpreadBroker;
+        _spreadCombo.Items.Clear();
+        _spreadCombo.Items.Add(SpreadComboItem.None());
+
+        var measured = 0;
+        try
+        {
+            foreach (var broker in await _context.Services.Spread.ListBrokersAsync(cancellationToken))
+            {
+                _spreadCombo.Items.Add(SpreadComboItem.Measured(broker));
+                measured++;
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            // Come per i datasource: l'elenco non è indispensabile per far girare un backtest, si
+            // segnala e si prosegue senza spread invece di bloccare la schermata.
+            Log($"Elenco delle misure di spread non disponibile: {ex.Message}");
+        }
+
+        var index = previousBroker is null ? -1 : FindSpreadIndex(previousBroker);
+        _spreadCombo.SelectedIndex = index < 0 ? 0 : index;
+
+        if (measured == 0)
+        {
+            _spreadSummaryLabel.Text =
+                "Nessuna misura in piootoo-repository/spread: il run gira senza spread, agli ingressi " +
+                "del feed. La misura la produce PiootooSpreadDumpBot.";
+        }
+    }
+
+    private int FindSpreadIndex(string broker)
+    {
+        for (var index = 0; index < _spreadCombo.Items.Count; index++)
+        {
+            if (_spreadCombo.Items[index] is SpreadComboItem item
+                && string.Equals(item.Broker, broker, StringComparison.OrdinalIgnoreCase))
+            {
+                return index;
+            }
+        }
+
+        return -1;
+    }
+
+    private async void OnSpreadChanged(object? sender, EventArgs e) => await RefreshSpreadPreviewAsync();
+
+    /// <summary>
+    /// Rilegge dal server gli spread che il run applicherebbe, a ogni cambio delle tre scelte.
+    ///
+    /// <para>Lo spread è l'unico parametro del run che non si scrive ma si <b>trova</b>: viene da
+    /// una misura sul disco, e prima si vedeva solo a run finito nella scheda del report. Un broker
+    /// senza il file per ora, o un simbolo mai quotato, costavano un run intero per essere
+    /// scoperti.</para>
+    /// </summary>
+    private async Task RefreshSpreadPreviewAsync()
+    {
+        if (_context == null || _isRunning)
+        {
+            return;
+        }
+
+        _spreadTable = null;
+        _spreadPreviewButton.Enabled = false;
+
+        if (SelectedSpreadBroker is not { } broker)
+        {
+            _spreadSummaryLabel.Text = _spreadCombo.Items.Count > 1
+                ? "Nessuno spread: gli ingressi restano al prezzo del feed."
+                : _spreadSummaryLabel.Text;
+            return;
+        }
+
+        // Un broker senza il file per ora non può girare per ora: il run fallirebbe all'avvio, e
+        // farlo scoprire dopo il lancio sarebbe scortese. Si riporta la scelta sulla costante e si
+        // dice perché, invece di lasciare selezionata un'opzione che non esiste per questo broker.
+        if (SelectedSpreadResolution == SpreadResolution.PerHour
+            && _spreadCombo.SelectedItem is SpreadComboItem { HasHourly: false })
+        {
+            _spreadResolutionCombo.SelectedIndex = 0;
+            _spreadSummaryLabel.Text =
+                $"{broker} non ha il file spread-by-hour: risoluzione riportata sulla costante per simbolo. " +
+                "Rilancia PiootooSpreadDumpBot con «Scrivi la distribuzione per ora UTC» acceso.";
+            return;
+        }
+
+        UseWaitCursor = true;
+        _spreadSummaryLabel.Text = $"Lettura della misura di {broker}…";
+        try
+        {
+            var table = await _context.Services.Spread.GetTableAsync(
+                broker, SelectedSpreadStatistic, SelectedSpreadResolution);
+
+            _spreadTable = table;
+            _spreadPreviewButton.Enabled = true;
+            _spreadSummaryLabel.Text = DescribeSpread(table);
+        }
+        catch (Exception ex)
+        {
+            // L'errore è lo stesso che il backtest darebbe all'avvio: qui arriva prima e non costa
+            // un run. Non si azzera la scelta — è l'utente a doverla correggere sapendo cosa manca.
+            _spreadSummaryLabel.Text = $"Misura non leggibile: {ex.Message}";
+            Log($"Spread di {broker}: {ex.Message}");
+        }
+        finally
+        {
+            UseWaitCursor = false;
+        }
+    }
+
+    /// <summary>
+    /// Una riga che dice se questa misura cambia qualcosa: quanti simboli copre, e quale ha
+    /// l'escursione oraria più larga. Il rapporto max/min è il numero che distingue una risoluzione
+    /// oraria che conta da una che ripete la costante ventiquattro volte.
+    /// </summary>
+    private static string DescribeSpread(SpreadTableInfo table)
+    {
+        var summary = $"{table.Symbols.Count} simboli · colonna {table.Column}";
+
+        if (table.Resolution == SpreadResolution.PerHour)
+        {
+            var widest = table.Symbols
+                .Where(symbol => symbol is { HasHours: true, HourMin: > 0m })
+                .OrderByDescending(symbol => symbol.HourMax / symbol.HourMin)
+                .FirstOrDefault();
+
+            if (widest is not null)
+            {
+                summary += $" · escursione oraria massima {widest.HourMax / widest.HourMin:0.0}x su {widest.Symbol}" +
+                           $" ({widest.HourMin:0.#####}–{widest.HourMax:0.#####})";
+            }
+        }
+
+        if (table.Warnings.Count > 0)
+        {
+            summary += $" · {table.Warnings.Count} avvisi";
+        }
+
+        return summary;
+    }
+
+    private void OnSpreadPreviewClick(object? sender, EventArgs e)
+    {
+        if (_spreadTable is not { } table)
+        {
+            return;
+        }
+
+        using var dialog = new SpreadPreviewDialog(table, []);
+        dialog.ShowDialog(this);
+    }
+
     private int FindDatafeedIndex(string broker)
     {
         for (var index = 0; index < _datafeedCombo.Items.Count; index++)
@@ -376,6 +581,12 @@ public partial class BacktestingScreen : UserControl, IShellScreen
                 // applica universo, strategie spente, tenuta e commissione, e lo dichiara nel
                 // summary: due run con piani diversi non sono confrontabili.
                 PlanCode = SelectedPlan?.Code,
+                // Null = nessuno spread, ingressi al prezzo del feed. La scelta è indipendente dal
+                // datasource e dal piano: girare sul feed interno con lo spread di un broker vero è
+                // il confronto che dice quanto costa quel broker.
+                SpreadBroker = SelectedSpreadBroker,
+                SpreadStatistic = SelectedSpreadStatistic,
+                SpreadResolution = SelectedSpreadResolution,
                 // Senza piano la spunta e' la stessa regola di prima, letta dal verso opposto:
                 // chiudere a fine settimana significa non concedere l'overweek. Parte **spenta**:
                 // il run interno non impone alcun flat di conto, cosi' l'equity e' quella delle
@@ -406,6 +617,7 @@ public partial class BacktestingScreen : UserControl, IShellScreen
                     ? $" · broker {(string.IsNullOrWhiteSpace(selectedPlan.BrokerCode) ? "-" : selectedPlan.BrokerCode)}" +
                       $" · {CountActiveStrategies(selectedPlan, _masterFilterIds)?.ToString() ?? "?"} strategie attive"
                     : string.Empty));
+            Log($"Spread: {(request.SpreadBroker is null ? "nessuno (ingressi al prezzo del feed)" : $"{request.SpreadBroker} · {request.SpreadStatistic} · {request.SpreadResolution}")}");
             Log($"Finestra UTC {request.StartDate:yyyy-MM-dd HH:mm}Z → {request.EndDate:yyyy-MM-dd HH:mm}Z");
             Log($"Strategie dal masterfilter: {masterFilter.StrategiesFilter.Count}");
             Log($"Vincoli di conto: overnight {(request.Holding.AllowOvernight ? "permesso" : "vietato")}, " +

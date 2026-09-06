@@ -1,4 +1,5 @@
 ﻿using Piootoo.Shared.Models;
+using Piootoo.Shared.Models.Backtesting;
 using Piootoo.Shared.Models.Trading;
 using Piootoo.Shared.Models.Workspaces;
 
@@ -155,3 +156,70 @@ public sealed class ValueComboItem
 
 // Niente AccountComboItem: il backtest sceglie il piano, e il conto non decideva nulla che il piano
 // non dicesse già (docs/decisioni.md 2026-09-05).
+
+/// <summary>
+/// Da quale misura prendere lo spread degli ingressi: nessuna, oppure quella di un broker sotto
+/// <c>piootoo-repository/spread</c>.
+///
+/// <para>L'etichetta porta simboli, data e <b>se ci sono le ore</b>: senza il file
+/// <c>spread-by-hour</c> la risoluzione oraria non è proponibile per quel broker, e scoprirlo dopo
+/// il lancio costerebbe il run.</para>
+/// </summary>
+public sealed class SpreadComboItem
+{
+    private SpreadComboItem(string? broker, bool hasHourly, string display)
+    {
+        Broker = broker;
+        HasHourly = hasHourly;
+        Display = display;
+    }
+
+    /// <summary>Null è l'assenza di misura: il run entra al prezzo del feed, come ha sempre fatto.</summary>
+    public string? Broker { get; }
+
+    /// <summary>Se esiste il file per ora della stessa misura.</summary>
+    public bool HasHourly { get; }
+
+    public string Display { get; }
+
+    public static SpreadComboItem None() => new(null, false, "Nessuno  ·  ingressi al prezzo del feed");
+
+    public static SpreadComboItem Measured(SpreadBrokerInfo info)
+        => new(info.Broker, info.HasHourly,
+            $"{info.Broker}  ·  {info.SymbolCount} simboli  ·  {info.LastWriteUtc:yyyy-MM-dd}" +
+            (info.HasHourly ? "  ·  con le ore" : "  ·  senza le ore"));
+
+    public override string ToString() => Display;
+}
+
+/// <summary>Quale colonna della distribuzione diventa il numero del run.</summary>
+public sealed class SpreadStatisticItem
+{
+    public SpreadStatisticItem(SpreadStatistic statistic, string display)
+    {
+        Statistic = statistic;
+        Display = display;
+    }
+
+    public SpreadStatistic Statistic { get; }
+
+    public string Display { get; }
+
+    public override string ToString() => Display;
+}
+
+/// <summary>Quale riga: la costante del simbolo, o l'ora UTC dell'ingresso.</summary>
+public sealed class SpreadResolutionItem
+{
+    public SpreadResolutionItem(SpreadResolution resolution, string display)
+    {
+        Resolution = resolution;
+        Display = display;
+    }
+
+    public SpreadResolution Resolution { get; }
+
+    public string Display { get; }
+
+    public override string ToString() => Display;
+}
