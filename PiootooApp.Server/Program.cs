@@ -43,6 +43,9 @@ builder.Services.AddSingleton<IPiootooSettingsService, PiootooSettingsService>()
 // datafeed-external/{BROKER}/. Vedi DatafeedCatalog.
 builder.Services.AddSingleton<IDatafeedCatalog, DatafeedCatalog>();
 builder.Services.AddSingleton<IPiootooDataFeedService, PiootooDataFeedService>();
+// Stessa idea per le misure di spread: un nome di broker diventa un percorso qui e in nessun
+// altro punto. Vedi SpreadCatalog.
+builder.Services.AddSingleton<ISpreadCatalog, SpreadCatalog>();
 // NB: questa istanza è condivisa. Il backtesting NON la usa: crea un motore per job, perché
 // PiootooTradingService è mutabile e due backtest concorrenti si corromperebbero a vicenda.
 builder.Services.AddSingleton<IPiootooTradingService, PiootooTradingService>();

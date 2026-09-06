@@ -240,6 +240,24 @@ public sealed class SpreadTable
     }
 
     /// <summary>
+    /// Il file per ora gemello di un file per simbolo: stesso nome, token sostituito. Pubblico
+    /// perche' anche l'anagrafica deve poter dire se un broker ha le ore <b>senza</b> caricarle —
+    /// se non le ha, la risoluzione oraria non va nemmeno proposta.
+    /// </summary>
+    public static string HourFilePathOf(FileInfo symbolFile)
+    {
+        if (!symbolFile.Name.Contains(SymbolToken, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidDataException(
+                $"{symbolFile.Name} non ha '{SymbolToken}' nel nome: non si puo' ricavare il file per ora della stessa misura.");
+        }
+
+        return Path.Combine(
+            symbolFile.DirectoryName!,
+            symbolFile.Name.Replace(SymbolToken, HourToken, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
     /// Le 24 ore UTC per simbolo, dal file <c>spread-by-hour</c> <b>della stessa misura</b>: il nome
     /// si ricava da quello per simbolo, non si ricerca. I due file escono dallo stesso run del bot e
     /// devono restare accoppiati — la costante di ripiego e le ore vengono dagli stessi tick, o il
@@ -258,15 +276,7 @@ public sealed class SpreadTable
         List<string> warnings)
     {
         var fileName = symbolFile.Name;
-        if (!fileName.Contains(SymbolToken, StringComparison.OrdinalIgnoreCase))
-        {
-            throw new InvalidDataException(
-                $"{fileName} non ha '{SymbolToken}' nel nome: non si puo' ricavare il file per ora della stessa misura.");
-        }
-
-        var hourPath = Path.Combine(
-            symbolFile.DirectoryName!,
-            fileName.Replace(SymbolToken, HourToken, StringComparison.OrdinalIgnoreCase));
+        var hourPath = HourFilePathOf(symbolFile);
 
         if (!File.Exists(hourPath))
         {

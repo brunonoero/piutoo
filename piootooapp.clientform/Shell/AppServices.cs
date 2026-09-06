@@ -27,6 +27,7 @@ public sealed class AppServices : IDisposable
         Plans = new TradingPlanApiClient(_httpClient, JsonOptions);
         Sessions = new TradingSessionApiClient(_httpClient, JsonOptions);
         Datafeed = new DatafeedApiClient(_httpClient, JsonOptions);
+        Spread = new SpreadApiClient(_httpClient, JsonOptions);
         ServerInfo = new ServerInfoApiClient(_httpClient, JsonOptions);
         Workspaces = new WorkspaceSelection(Api);
         SetServerUrl(DefaultServerUrl);
@@ -41,6 +42,8 @@ public sealed class AppServices : IDisposable
     public TradingSessionApiClient Sessions { get; }
 
     public DatafeedApiClient Datafeed { get; }
+
+    public SpreadApiClient Spread { get; }
 
     public ServerInfoApiClient ServerInfo { get; }
 

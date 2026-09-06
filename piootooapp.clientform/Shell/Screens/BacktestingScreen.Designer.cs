@@ -48,6 +48,14 @@ partial class BacktestingScreen
         this._capitalInput = new System.Windows.Forms.NumericUpDown();
         this._commissionLabel = new System.Windows.Forms.Label();
         this._commissionInput = new System.Windows.Forms.NumericUpDown();
+        this._spreadLabel = new System.Windows.Forms.Label();
+        this._spreadCombo = new System.Windows.Forms.ComboBox();
+        this._spreadStatisticLabel = new System.Windows.Forms.Label();
+        this._spreadStatisticCombo = new System.Windows.Forms.ComboBox();
+        this._spreadResolutionLabel = new System.Windows.Forms.Label();
+        this._spreadResolutionCombo = new System.Windows.Forms.ComboBox();
+        this._spreadPreviewButton = new System.Windows.Forms.Button();
+        this._spreadSummaryLabel = new System.Windows.Forms.Label();
         this._commandsPanel = new System.Windows.Forms.FlowLayoutPanel();
         this._runButton = new System.Windows.Forms.Button();
         this._cancelButton = new System.Windows.Forms.Button();
@@ -112,10 +120,22 @@ partial class BacktestingScreen
         this._parametersLayout.SetColumnSpan(this._weekEndCheckBox, 3);
         this._parametersLayout.Controls.Add(this._planDerivedLabel, 1, 5);
         this._parametersLayout.SetColumnSpan(this._planDerivedLabel, 3);
+        this._parametersLayout.Controls.Add(this._spreadLabel, 0, 6);
+        this._parametersLayout.Controls.Add(this._spreadCombo, 1, 6);
+        this._parametersLayout.Controls.Add(this._spreadStatisticLabel, 2, 6);
+        this._parametersLayout.Controls.Add(this._spreadStatisticCombo, 3, 6);
+        this._parametersLayout.Controls.Add(this._spreadResolutionLabel, 0, 7);
+        this._parametersLayout.Controls.Add(this._spreadResolutionCombo, 1, 7);
+        this._parametersLayout.Controls.Add(this._spreadPreviewButton, 3, 7);
+        this._parametersLayout.Controls.Add(this._spreadSummaryLabel, 1, 8);
+        this._parametersLayout.SetColumnSpan(this._spreadSummaryLabel, 3);
         this._parametersLayout.Dock = System.Windows.Forms.DockStyle.Fill;
         this._parametersLayout.Location = new System.Drawing.Point(12, 22);
         this._parametersLayout.Name = "_parametersLayout";
-        this._parametersLayout.RowCount = 6;
+        this._parametersLayout.RowCount = 9;
+        this._parametersLayout.RowStyles.Add(new System.Windows.Forms.RowStyle());
+        this._parametersLayout.RowStyles.Add(new System.Windows.Forms.RowStyle());
+        this._parametersLayout.RowStyles.Add(new System.Windows.Forms.RowStyle());
         this._parametersLayout.RowStyles.Add(new System.Windows.Forms.RowStyle());
         this._parametersLayout.RowStyles.Add(new System.Windows.Forms.RowStyle());
         this._parametersLayout.RowStyles.Add(new System.Windows.Forms.RowStyle());
@@ -307,9 +327,91 @@ partial class BacktestingScreen
         this._commissionInput.Size = new System.Drawing.Size(160, 23);
         this._commissionInput.TabIndex = 14;
         this._commissionInput.Value = new decimal(new int[] { 2, 0, 0, 0 });
-        // 
+        //
+        // _spreadLabel
+        //
+        this._spreadLabel.Anchor = System.Windows.Forms.AnchorStyles.Left;
+        this._spreadLabel.AutoSize = true;
+        this._spreadLabel.Margin = new System.Windows.Forms.Padding(3, 0, 8, 0);
+        this._spreadLabel.Name = "_spreadLabel";
+        this._spreadLabel.Size = new System.Drawing.Size(70, 15);
+        this._spreadLabel.TabIndex = 16;
+        this._spreadLabel.Text = "Spread";
+        //
+        // _spreadCombo
+        //
+        this._spreadCombo.Anchor = System.Windows.Forms.AnchorStyles.Left | System.Windows.Forms.AnchorStyles.Right;
+        this._spreadCombo.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
+        this._spreadCombo.Margin = new System.Windows.Forms.Padding(3, 4, 3, 4);
+        this._spreadCombo.Name = "_spreadCombo";
+        this._spreadCombo.Size = new System.Drawing.Size(300, 23);
+        this._spreadCombo.TabIndex = 17;
+        this._spreadCombo.SelectedIndexChanged += new System.EventHandler(this.OnSpreadChanged);
+        //
+        // _spreadStatisticLabel
+        //
+        this._spreadStatisticLabel.Anchor = System.Windows.Forms.AnchorStyles.Left;
+        this._spreadStatisticLabel.AutoSize = true;
+        this._spreadStatisticLabel.Margin = new System.Windows.Forms.Padding(3, 0, 8, 0);
+        this._spreadStatisticLabel.Name = "_spreadStatisticLabel";
+        this._spreadStatisticLabel.Size = new System.Drawing.Size(70, 15);
+        this._spreadStatisticLabel.TabIndex = 18;
+        this._spreadStatisticLabel.Text = "Statistica";
+        //
+        // _spreadStatisticCombo
+        //
+        this._spreadStatisticCombo.Anchor = System.Windows.Forms.AnchorStyles.Left | System.Windows.Forms.AnchorStyles.Right;
+        this._spreadStatisticCombo.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
+        this._spreadStatisticCombo.Margin = new System.Windows.Forms.Padding(3, 4, 3, 4);
+        this._spreadStatisticCombo.Name = "_spreadStatisticCombo";
+        this._spreadStatisticCombo.Size = new System.Drawing.Size(300, 23);
+        this._spreadStatisticCombo.TabIndex = 19;
+        this._spreadStatisticCombo.SelectedIndexChanged += new System.EventHandler(this.OnSpreadChanged);
+        //
+        // _spreadResolutionLabel
+        //
+        this._spreadResolutionLabel.Anchor = System.Windows.Forms.AnchorStyles.Left;
+        this._spreadResolutionLabel.AutoSize = true;
+        this._spreadResolutionLabel.Margin = new System.Windows.Forms.Padding(3, 0, 8, 0);
+        this._spreadResolutionLabel.Name = "_spreadResolutionLabel";
+        this._spreadResolutionLabel.Size = new System.Drawing.Size(70, 15);
+        this._spreadResolutionLabel.TabIndex = 20;
+        this._spreadResolutionLabel.Text = "Risoluzione";
+        //
+        // _spreadResolutionCombo
+        //
+        this._spreadResolutionCombo.Anchor = System.Windows.Forms.AnchorStyles.Left | System.Windows.Forms.AnchorStyles.Right;
+        this._spreadResolutionCombo.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
+        this._spreadResolutionCombo.Margin = new System.Windows.Forms.Padding(3, 4, 3, 4);
+        this._spreadResolutionCombo.Name = "_spreadResolutionCombo";
+        this._spreadResolutionCombo.Size = new System.Drawing.Size(300, 23);
+        this._spreadResolutionCombo.TabIndex = 21;
+        this._spreadResolutionCombo.SelectedIndexChanged += new System.EventHandler(this.OnSpreadChanged);
+        //
+        // _spreadPreviewButton
+        //
+        this._spreadPreviewButton.Anchor = System.Windows.Forms.AnchorStyles.Left;
+        this._spreadPreviewButton.AutoSize = true;
+        this._spreadPreviewButton.Enabled = false;
+        this._spreadPreviewButton.Margin = new System.Windows.Forms.Padding(3, 4, 3, 4);
+        this._spreadPreviewButton.Name = "_spreadPreviewButton";
+        this._spreadPreviewButton.Size = new System.Drawing.Size(150, 25);
+        this._spreadPreviewButton.TabIndex = 22;
+        this._spreadPreviewButton.Text = "Vedi gli spread…";
+        this._spreadPreviewButton.UseVisualStyleBackColor = true;
+        this._spreadPreviewButton.Click += new System.EventHandler(this.OnSpreadPreviewClick);
+        //
+        // _spreadSummaryLabel
+        //
+        this._spreadSummaryLabel.Anchor = System.Windows.Forms.AnchorStyles.Left;
+        this._spreadSummaryLabel.AutoSize = true;
+        this._spreadSummaryLabel.Margin = new System.Windows.Forms.Padding(3, 2, 3, 6);
+        this._spreadSummaryLabel.Name = "_spreadSummaryLabel";
+        this._spreadSummaryLabel.Size = new System.Drawing.Size(600, 15);
+        this._spreadSummaryLabel.TabIndex = 23;
+        //
         // _commandsPanel
-        // 
+        //
         this._commandsPanel.AutoSize = true;
         this._commandsPanel.Controls.Add(this._runButton);
         this._commandsPanel.Controls.Add(this._cancelButton);
@@ -523,6 +625,14 @@ partial class BacktestingScreen
     private System.Windows.Forms.NumericUpDown _capitalInput;
     private System.Windows.Forms.Label _commissionLabel;
     private System.Windows.Forms.NumericUpDown _commissionInput;
+    private System.Windows.Forms.Label _spreadLabel;
+    private System.Windows.Forms.ComboBox _spreadCombo;
+    private System.Windows.Forms.Label _spreadStatisticLabel;
+    private System.Windows.Forms.ComboBox _spreadStatisticCombo;
+    private System.Windows.Forms.Label _spreadResolutionLabel;
+    private System.Windows.Forms.ComboBox _spreadResolutionCombo;
+    private System.Windows.Forms.Button _spreadPreviewButton;
+    private System.Windows.Forms.Label _spreadSummaryLabel;
     private System.Windows.Forms.FlowLayoutPanel _commandsPanel;
     private System.Windows.Forms.Button _runButton;
     private System.Windows.Forms.Button _cancelButton;
