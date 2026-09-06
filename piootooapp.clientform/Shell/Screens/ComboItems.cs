@@ -223,3 +223,28 @@ public sealed class SpreadResolutionItem
 
     public override string ToString() => Display;
 }
+
+/// <summary>
+/// Su quale barra gira l'orologio del loop, e quindi da quale barra esce il prezzo di
+/// riempimento: il timeframe delle strategie, oppure il minuto.
+///
+/// <para>Non è una scelta di prestazione. Su una barra da un'ora che contiene sia lo stop sia il
+/// target, quale dei due scatti prima è oggi una <b>convenzione</b>; con l'orologio a un minuto
+/// diventa una misura. Il prezzo è il tempo di calcolo: sessanta volte le iterazioni su un
+/// portafoglio orario.</para>
+/// </summary>
+public sealed class ClockComboItem
+{
+    public ClockComboItem(int? minutes, string display)
+    {
+        Minutes = minutes;
+        Display = display;
+    }
+
+    /// <summary>Null è il timeframe più corto del run: l'assenza di forzatura, non un valore.</summary>
+    public int? Minutes { get; }
+
+    public string Display { get; }
+
+    public override string ToString() => Display;
+}

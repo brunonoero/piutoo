@@ -48,6 +48,8 @@ partial class BacktestingScreen
         this._capitalInput = new System.Windows.Forms.NumericUpDown();
         this._commissionLabel = new System.Windows.Forms.Label();
         this._commissionInput = new System.Windows.Forms.NumericUpDown();
+        this._clockLabel = new System.Windows.Forms.Label();
+        this._clockCombo = new System.Windows.Forms.ComboBox();
         this._spreadLabel = new System.Windows.Forms.Label();
         this._spreadCombo = new System.Windows.Forms.ComboBox();
         this._spreadStatisticLabel = new System.Windows.Forms.Label();
@@ -120,19 +122,22 @@ partial class BacktestingScreen
         this._parametersLayout.SetColumnSpan(this._weekEndCheckBox, 3);
         this._parametersLayout.Controls.Add(this._planDerivedLabel, 1, 5);
         this._parametersLayout.SetColumnSpan(this._planDerivedLabel, 3);
-        this._parametersLayout.Controls.Add(this._spreadLabel, 0, 6);
-        this._parametersLayout.Controls.Add(this._spreadCombo, 1, 6);
-        this._parametersLayout.Controls.Add(this._spreadStatisticLabel, 2, 6);
-        this._parametersLayout.Controls.Add(this._spreadStatisticCombo, 3, 6);
-        this._parametersLayout.Controls.Add(this._spreadResolutionLabel, 0, 7);
-        this._parametersLayout.Controls.Add(this._spreadResolutionCombo, 1, 7);
-        this._parametersLayout.Controls.Add(this._spreadPreviewButton, 3, 7);
-        this._parametersLayout.Controls.Add(this._spreadSummaryLabel, 1, 8);
+        this._parametersLayout.Controls.Add(this._clockLabel, 0, 6);
+        this._parametersLayout.Controls.Add(this._clockCombo, 1, 6);
+        this._parametersLayout.Controls.Add(this._spreadLabel, 0, 7);
+        this._parametersLayout.Controls.Add(this._spreadCombo, 1, 7);
+        this._parametersLayout.Controls.Add(this._spreadStatisticLabel, 2, 7);
+        this._parametersLayout.Controls.Add(this._spreadStatisticCombo, 3, 7);
+        this._parametersLayout.Controls.Add(this._spreadResolutionLabel, 0, 8);
+        this._parametersLayout.Controls.Add(this._spreadResolutionCombo, 1, 8);
+        this._parametersLayout.Controls.Add(this._spreadPreviewButton, 3, 8);
+        this._parametersLayout.Controls.Add(this._spreadSummaryLabel, 1, 9);
         this._parametersLayout.SetColumnSpan(this._spreadSummaryLabel, 3);
         this._parametersLayout.Dock = System.Windows.Forms.DockStyle.Fill;
         this._parametersLayout.Location = new System.Drawing.Point(12, 22);
         this._parametersLayout.Name = "_parametersLayout";
-        this._parametersLayout.RowCount = 9;
+        this._parametersLayout.RowCount = 10;
+        this._parametersLayout.RowStyles.Add(new System.Windows.Forms.RowStyle());
         this._parametersLayout.RowStyles.Add(new System.Windows.Forms.RowStyle());
         this._parametersLayout.RowStyles.Add(new System.Windows.Forms.RowStyle());
         this._parametersLayout.RowStyles.Add(new System.Windows.Forms.RowStyle());
@@ -327,6 +332,25 @@ partial class BacktestingScreen
         this._commissionInput.Size = new System.Drawing.Size(160, 23);
         this._commissionInput.TabIndex = 14;
         this._commissionInput.Value = new decimal(new int[] { 2, 0, 0, 0 });
+        //
+        // _clockLabel
+        //
+        this._clockLabel.Anchor = System.Windows.Forms.AnchorStyles.Left;
+        this._clockLabel.AutoSize = true;
+        this._clockLabel.Margin = new System.Windows.Forms.Padding(3, 0, 8, 0);
+        this._clockLabel.Name = "_clockLabel";
+        this._clockLabel.Size = new System.Drawing.Size(70, 15);
+        this._clockLabel.TabIndex = 24;
+        this._clockLabel.Text = "Orologio";
+        //
+        // _clockCombo
+        //
+        this._clockCombo.Anchor = System.Windows.Forms.AnchorStyles.Left | System.Windows.Forms.AnchorStyles.Right;
+        this._clockCombo.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
+        this._clockCombo.Margin = new System.Windows.Forms.Padding(3, 4, 3, 4);
+        this._clockCombo.Name = "_clockCombo";
+        this._clockCombo.Size = new System.Drawing.Size(300, 23);
+        this._clockCombo.TabIndex = 25;
         //
         // _spreadLabel
         //
@@ -625,6 +649,8 @@ partial class BacktestingScreen
     private System.Windows.Forms.NumericUpDown _capitalInput;
     private System.Windows.Forms.Label _commissionLabel;
     private System.Windows.Forms.NumericUpDown _commissionInput;
+    private System.Windows.Forms.Label _clockLabel;
+    private System.Windows.Forms.ComboBox _clockCombo;
     private System.Windows.Forms.Label _spreadLabel;
     private System.Windows.Forms.ComboBox _spreadCombo;
     private System.Windows.Forms.Label _spreadStatisticLabel;

@@ -35,6 +35,21 @@ public class PiootooTradingService : IPiootooTradingService
         /// seconda barra in poi il pending e' un ordine vivo, non un ordine che nasce.
         /// </summary>
         public bool Placed { get; set; }
+
+        /// <summary>
+        /// Apertura della <b>prima barra vera</b> su cui l'ordine e' risultato attivo, cioe' la
+        /// barra che <c>next bar</c> nomina. Finche' e' <c>null</c> quella barra non e' ancora
+        /// arrivata e l'ordine non puo' scadere: vedi <see cref="IsPendingExpired"/>.
+        /// </summary>
+        public DateTime? ActivatedAtUtc { get; set; }
+
+        /// <summary>
+        /// La generazione successiva dello stesso ordine, in attesa che questa finisca la propria
+        /// barra. Le strategie riemettono il "next bar" a ogni barra e il segnale nuovo vale
+        /// <b>dalla barra dopo</b>: metterlo subito al posto dell'incumbent gli toglierebbe il
+        /// resto della barra su cui e' vivo. Vedi <see cref="EnqueuePendingOrder"/>.
+        /// </summary>
+        public PendingOrder? Next { get; set; }
     }
 
     /// <summary>
@@ -333,7 +348,7 @@ public class PiootooTradingService : IPiootooTradingService
 
             if (RequiresDeferredExecution(signal, currentTime))
             {
-                EnqueuePendingOrder(positionKey, signal);
+                EnqueuePendingOrder(positionKey, signal, currentTime);
                 continue;
             }
 
@@ -351,7 +366,7 @@ public class PiootooTradingService : IPiootooTradingService
             else if (signal.OrderType == TradeOrderType.Stop)
             {
                 // Posizione già aperta: mantieni lo stop come pending per un eventuale reverse fill.
-                EnqueuePendingOrder(positionKey, signal);
+                EnqueuePendingOrder(positionKey, signal, currentTime);
             }
         }
 
@@ -404,15 +419,76 @@ public class PiootooTradingService : IPiootooTradingService
         return signal.OrderType is TradeOrderType.Stop or TradeOrderType.Limit;
     }
 
-    private void EnqueuePendingOrder(string positionKey, TradeSignal signal)
+    /// <summary>
+    /// Accoda un ordine pendente, oppure lo mette in coda a quello che sta ancora vivendo la
+    /// propria barra.
+    ///
+    /// <para><b>Perche' non e' una semplice sostituzione.</b> Le strategie EasyLanguage riemettono
+    /// il "next bar" a ogni barra finche' la condizione regge, e il segnale nuovo nasce con
+    /// <c>ValidFromUtc</c> sulla barra <i>successiva</i>. Sostituire l'incumbent nel momento in cui
+    /// il nuovo arriva significa togliere all'ordine vivo tutto il resto della propria barra e
+    /// lasciare lo slot a un ordine che non e' ancora valido: fra i due istanti non c'e' nessun
+    /// ordine sul mercato, mentre sul broker ce n'e' uno.</para>
+    ///
+    /// <para><b>Perche' non si vedeva.</b> L'unica finestra che restava all'incumbent era la
+    /// <c>TryFillPendingOrders</c> in testa a <c>ProcessSignals</c>, che gira prima di questo
+    /// metodo: larga quanto la barra dell'orologio. Finche' l'orologio coincideva con il timeframe
+    /// della strategia era la barra intera e il risultato non cambiava. Con un orologio piu' fitto
+    /// e' una frazione — a un minuto su una strategia a 60, un sessantesimo. Misurato in
+    /// <c>piootoo-repository/compare/compare-0022</c>: <c>PTS_BTC_BIA_001_60</c> aveva 72 occasioni
+    /// di riempimento sulle barre da 1 minuto dell'archivio, il cBot ne ha prese 72 e il motore
+    /// interno 9, cioe' i soli livelli toccati nel primo minuto.</para>
+    ///
+    /// <para>Le generazioni non si buttano: la nuova aspetta in <see cref="PendingOrder.Next"/> e
+    /// subentra quando l'incumbent ha finito, in <see cref="ResolveLivePending"/>. E' quello che fa
+    /// il broker, che tiene un ordine per lato e lo ripiazza a ogni barra.</para>
+    /// </summary>
+    private void EnqueuePendingOrder(string positionKey, TradeSignal signal, DateTime currentTime)
     {
         // Chiave per direzione: long e short stop possono coesistere (OCO logico).
         var pendingKey = $"{positionKey}|{(int)signal.Type}|{(int)signal.OrderType}";
-        _pendingOrders[pendingKey] = new PendingOrder
+        var arrivato = new PendingOrder
         {
             PositionKey = positionKey,
             Signal = signal
         };
+
+        // Si cede il posto solo a chi e' gia' valido. Un incumbent che non ha ancora visto la
+        // propria barra (ActivatedAtUtc null) non e' un ordine vivo ma una prenotazione, e la
+        // versione piu' recente della stessa prenotazione e' semplicemente migliore.
+        if (_pendingOrders.TryGetValue(pendingKey, out var incumbent) &&
+            incumbent.ActivatedAtUtc is not null &&
+            !IsPendingExpired(incumbent, currentTime) &&
+            signal.ValidFromUtc is { } validFrom &&
+            currentTime < validFrom)
+        {
+            incumbent.Next = arrivato;
+            return;
+        }
+
+        _pendingOrders[pendingKey] = arrivato;
+    }
+
+    /// <summary>
+    /// L'ordine vivo su questo slot adesso, dopo aver fatto scadere le generazioni finite e fatto
+    /// subentrare quella in coda. <c>null</c> quando lo slot si e' svuotato.
+    /// </summary>
+    private PendingOrder? ResolveLivePending(string pendingKey, PendingOrder pending, DateTime currentTime)
+    {
+        while (IsPendingExpired(pending, currentTime))
+        {
+            if (pending.Next is not { } successivo)
+            {
+                _pendingOrders.Remove(pendingKey);
+                return null;
+            }
+
+            pending.Next = null;
+            _pendingOrders[pendingKey] = successivo;
+            pending = successivo;
+        }
+
+        return pending;
     }
 
     private void CancelPendingOrders(string positionKey)
@@ -435,12 +511,15 @@ public class PiootooTradingService : IPiootooTradingService
                 continue;
             }
 
-            var signal = pending.Signal;
-            if (IsExpired(signal, currentTime))
+            // Le generazioni finite lasciano il posto a quella in coda, e si riparte da quella:
+            // l'ordine che subentra ha diritto alla barra corrente, non alla prossima.
+            if (ResolveLivePending(pendingKey, pending, currentTime) is not { } vivo)
             {
-                _pendingOrders.Remove(pendingKey);
                 continue;
             }
+
+            pending = vivo;
+            var signal = pending.Signal;
 
             if (signal.ValidFromUtc.HasValue && currentTime < signal.ValidFromUtc.Value)
             {
@@ -463,6 +542,9 @@ public class PiootooTradingService : IPiootooTradingService
             if (!pending.Placed && bar is not null)
             {
                 pending.Placed = true;
+                // La barra che "next bar" nomina e' questa, qualunque istante porti: da qui parte
+                // la vita dell'ordine. Vedi IsPendingExpired.
+                pending.ActivatedAtUtc = TradingDateTime.ToFeedUtc(bar.DateTime);
                 if (RejectWrongSideLevels && IsWrongSideLevel(signal, bar.Open))
                 {
                     WrongSideLevelsRejected++;
@@ -637,6 +719,52 @@ public class PiootooTradingService : IPiootooTradingService
     }
 
     /// <summary>
+    /// Se un ordine gia' in coda ha finito la propria barra. Non e' <see cref="IsExpired"/>:
+    /// quello misura la scadenza sull'<b>orologio</b>, questo sulla <b>barra</b>.
+    ///
+    /// <para><b>Perche' i due non coincidono.</b> <c>ValidFromUtc</c> nasce da
+    /// <c>EasyLib.EstimateNextBarUtc</c>, che proietta <c>barTime + timeframe</c> perche' al
+    /// momento del segnale la barra successiva non esiste ancora. Attraverso un buco della serie —
+    /// fine settimana, festivita', pausa di sessione — quella proiezione cade dove non c'e' nessuna
+    /// barra, e con la sola scadenza a orologio l'ordine moriva prima che la barra che
+    /// <c>next bar</c> nomina fosse arrivata: nasceva e spariva senza che una sola barra lo
+    /// guardasse. Misurato sui feed interni, le barre seguite da un buco sono il 20,2% su
+    /// <c>@NQ_1440</c>, il 15,0% su <c>@FDAX_240</c>, il 3,9% sui 4h CME e circa il 2% sugli
+    /// intraday: sul giornaliero e' sistematicamente il segnale della sessione di venerdi', quello
+    /// che deve operare sul lunedi'.</para>
+    ///
+    /// <para>Il conteggio parte quindi dalla <b>prima barra vera</b> su cui l'ordine e' risultato
+    /// attivo (<see cref="PendingOrder.ActivatedAtUtc"/>), non dall'istante stimato. Senza buchi i
+    /// due coincidono e il comportamento e' identico a prima; con un buco l'ordine attraversa il
+    /// vuoto e vive la barra seguente della serie, che e' la semantica <c>next bar</c> di
+    /// EasyLanguage e la riga successiva del dataframe del motore di ricerca.</para>
+    ///
+    /// <para><b>Limite noto.</b> Un ordine che non incontra piu' nessuna barra — feed che finisce,
+    /// buco di settimane — resta in coda invece di scadere. Non riempie (senza barra non si
+    /// riempie), viene sostituito dalla riemissione successiva e sparisce a fine run; ma se il
+    /// buco e' patologico il fill arriva molto dopo, e la difesa e' il fail fast sul datafeed
+    /// mancante, non una scadenza a orologio che qui falserebbe i buchi legittimi.</para>
+    /// </summary>
+    private static bool IsPendingExpired(PendingOrder pending, DateTime currentTime)
+    {
+        var signal = pending.Signal;
+        if (!signal.ExpiresAtUtc.HasValue)
+        {
+            return false;
+        }
+
+        // La barra che l'ordine aspetta non e' ancora arrivata: non c'e' niente da far scadere.
+        if (pending.ActivatedAtUtc is not { } activated)
+        {
+            return false;
+        }
+
+        return signal.TimeframeMinutes is > 0
+            ? currentTime >= activated.AddMinutes(signal.TimeframeMinutes.Value)
+            : currentTime > activated;
+    }
+
+    /// <summary>
     /// Se il livello del pending e' gia' dalla parte sbagliata del mercato nel momento in cui
     /// l'ordine nasce. Il riferimento e' l'apertura della barra, che nell'engine e' l'equivalente
     /// del Bid/Ask con cui il cBot fa lo stesso controllo: qui non c'e' spread.
@@ -773,7 +901,7 @@ public class PiootooTradingService : IPiootooTradingService
             return true;
         }
 
-        var sessionKey = MakeEntrySessionKey(positionKey, signal.EntrySessionStartUtc.Value);
+        var sessionKey = MakeEntrySessionKey(positionKey, signal.Type, signal.EntrySessionStartUtc.Value);
         return !_entriesBySession.TryGetValue(sessionKey, out var entries) ||
                entries < signal.MaxEntriesPerSession.Value;
     }
@@ -794,14 +922,27 @@ public class PiootooTradingService : IPiootooTradingService
             signal.MaxEntriesPerSession.Value > 0 &&
             signal.EntrySessionStartUtc.HasValue)
         {
-            var sessionKey = MakeEntrySessionKey(positionKey, signal.EntrySessionStartUtc.Value);
+            var sessionKey = MakeEntrySessionKey(positionKey, signal.Type, signal.EntrySessionStartUtc.Value);
             _entriesBySession.TryGetValue(sessionKey, out var entries);
             _entriesBySession[sessionKey] = entries + 1;
         }
     }
 
-    private static string MakeEntrySessionKey(string positionKey, DateTime sessionStartUtc) =>
-        $"{positionKey}|{TradingDateTime.ToFeedUtc(sessionStartUtc):O}";
+    /// <summary>
+    /// Il secchio di <see cref="TradeSignal.MaxEntriesPerSession"/>: strategia, simbolo, <b>lato</b>
+    /// e inizio sessione.
+    ///
+    /// <para><b>Il lato fa parte della chiave.</b> Il motore di ricerca dichiara
+    /// <c>single_entry_per_session</c> come «al massimo UNA entrata per sessione <b>per
+    /// direzione</b>» (<c>easy_engine_py/base.py</c>, <c>EngineSignals</c>), e il dossier lo ripete
+    /// in §2.2. Senza il lato, il primo fill della sessione spegneva anche la gamba opposta: sui
+    /// motori mirrored — TF_M, PC, BO, VBO, RBB_M, RHL, cioè quasi tutto il paniere — le due gambe
+    /// nascono sulla stessa barra e sono due segnali indipendenti, non un doppione. È lo stesso
+    /// difetto già corretto nel cBot (<c>CancelStrategyPendingOrders</c> per strategia <i>e
+    /// lato</i>) e nel lucchetto di distribuzione del server.</para>
+    /// </summary>
+    private static string MakeEntrySessionKey(string positionKey, SignalType side, DateTime sessionStartUtc) =>
+        $"{positionKey}|{(int)side}|{TradingDateTime.ToFeedUtc(sessionStartUtc):O}";
 
     public TradingSnapshot UpdateMarketPrices(Dictionary<string, decimal> currentPrices, DateTime currentTime)
     {
@@ -1369,7 +1510,18 @@ public class PiootooTradingService : IPiootooTradingService
                 continue;
             }
 
-            if (position.EntryTime == currentTime || position.LastProcessedBarTime == currentTime)
+            var currentBar = GetCurrentBar(position, currentBars);
+
+            // Si contano BARRE, non tick dell'orologio. Il loop di backtest gira al timeframe
+            // minimo del portafoglio e batte anche dove il feed non ha nulla — la pausa notturna
+            // CME, un festivo, il fine settimana: contare quei tick faceva morire per MaxBars una
+            // posizione molto prima delle N barre dichiarate, e la distorsione cresceva con la
+            // lunghezza del buco. E' la stessa regola che CLAUDE.md impone ai cBot ("l'orologio a
+            // barre si conta sui bucket, non su Series.Count"). La conversione fra barre della
+            // strategia e barre dell'orologio resta di ScaleSignalMaxBarsInPosition.
+            if (currentBar is null ||
+                position.EntryTime == currentTime ||
+                position.LastProcessedBarTime == currentTime)
             {
                 continue;
             }
@@ -1382,7 +1534,6 @@ public class PiootooTradingService : IPiootooTradingService
                 continue;
             }
 
-            var currentBar = GetCurrentBar(position, currentBars);
             var currentPrice = GetCurrentPrice(position, currentPrices, fallbackPrice);
             var exitPrice = currentBar?.Close ?? currentPrice;
             if (exitPrice.HasValue)

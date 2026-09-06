@@ -117,7 +117,7 @@ namespace cAlgo.Robots
     {
         private const string LabelPrefix = "PiootooSession";
         private const string BotName = "PiootooDirectExecutionBot";
-        private const string BotVersion = "1.6.0"; // aggiornare qui ad ogni release
+        private const string BotVersion = "1.6.1"; // aggiornare qui ad ogni release
         private const string ChartInfoObjectName = "PiootooDirectExecutionBot_InfoPanel";
 
         // ---------------------------------------------------------------- Connessione / sessione
@@ -1028,7 +1028,7 @@ namespace cAlgo.Robots
             var lastBucket = DateTime.MinValue;
             for (var offset = 0; offset < series.Count; offset++)
             {
-                var bucket = BucketStartUtc(stream.TimeframeMinutes,
+                var bucket = BucketStartUtc(stream,
                     BarOpenTimeUtc(series.Last(offset).OpenTime));
                 if (bucket == lastBucket)
                     continue;
@@ -1223,7 +1223,8 @@ namespace cAlgo.Robots
                     {
                         Print("{0}: barre costruite dal bot sulle {1} minuti, ancoraggio {2} {3:00}:00 — " +
                               "la serie nativa da {4} minuti della piattaforma NON viene usata.",
-                            stream, baseMinutes, SessionTimeZoneId.Trim(), SessionStartHour, timeframeMinutes);
+                            stream, baseMinutes, SessionTimeZoneId.Trim(),
+                            SessionStartHourOf(stream.PiootooSymbol), timeframeMinutes);
                     }
                 }
             }
@@ -2065,8 +2066,9 @@ namespace cAlgo.Robots
         /// barra in un bucket precedente a quello della barra prima. Vedi docs/decisioni.md
         /// 2026-09-05.</para>
         /// </summary>
-        private DateTime BucketStartUtc(int timeframeMinutes, DateTime openUtc)
+        private DateTime BucketStartUtc(PlanStream stream, DateTime openUtc)
         {
+            var timeframeMinutes = stream.TimeframeMinutes;
             // Qui arrivano solo orari di apertura di barra, gia' al minuto: l'arrotondamento e'
             // inerte. Sta comunque anche qui perche' questa funzione e' la stessa del raccoglitore
             // — dove i secondi di Server.TimeInUtc rompevano un bucket ogni blocco — e due copie
@@ -2079,11 +2081,40 @@ namespace cAlgo.Robots
             var local = TimeZoneInfo.ConvertTimeFromUtc(
                 DateTime.SpecifyKind(openUtc, DateTimeKind.Utc), _sessionZone);
 
-            var minutesFromAnchor = (int)local.TimeOfDay.TotalMinutes - SessionStartHour * 60;
+            var minutesFromAnchor =
+                (int)local.TimeOfDay.TotalMinutes - SessionStartHourOf(stream.PiootooSymbol) * 60;
             if (minutesFromAnchor < 0)
                 minutesFromAnchor += 1440;
 
             return SessionLocalToUtc(local.AddMinutes(-(double)(minutesFromAnchor % timeframeMinutes)));
+        }
+
+        /// <summary>
+        /// L'ancoraggio dei bucket oltre l'ora, <b>per simbolo</b>: la tabella §2.4 del dossier del
+        /// paniere da' 01:00 CET a FDAX, CC, CT, KC, SB e HK, e la stessa tabella sta lato C# in
+        /// <c>InstrumentSpec.ResearchSessionStartHour</c>. Per tutto il resto vale il parametro
+        /// <see cref="SessionStartHour"/>, che resta il default e l'unica via per uno strumento che
+        /// la tabella non conosce.
+        ///
+        /// <para>Gemello di <c>PiootooDatafeedSyncBot.SessionStartHourOf</c> e di quello del bot
+        /// distribuito: le copie restano identiche o la prossima lettura non sa piu' quale sia quella
+        /// giusta, esattamente come per <see cref="BucketStartUtc"/>.</para>
+        /// </summary>
+        private int SessionStartHourOf(string piootooSymbol)
+        {
+            var nome = (piootooSymbol ?? string.Empty).TrimStart('@').ToUpperInvariant();
+            switch (nome)
+            {
+                case "FDAX":
+                case "CC":
+                case "CT":
+                case "KC":
+                case "SB":
+                case "HK":
+                    return 1;
+                default:
+                    return SessionStartHour;
+            }
         }
 
         /// <summary>
@@ -2182,13 +2213,13 @@ namespace cAlgo.Robots
             if (series == null || series.Count < 2)
                 return null;
 
-            var frontier = BucketStartUtc(stream.TimeframeMinutes, BarOpenTimeUtc(series.Last(0).OpenTime));
+            var frontier = BucketStartUtc(stream, BarOpenTimeUtc(series.Last(0).OpenTime));
 
             for (var offset = 1; offset < series.Count; offset++)
             {
                 var openTime = BarOpenTimeUtc(series.Last(offset).OpenTime);
                 if (openTime < frontier)
-                    return BucketStartUtc(stream.TimeframeMinutes, openTime);
+                    return BucketStartUtc(stream, openTime);
             }
 
             return null;
@@ -2207,7 +2238,7 @@ namespace cAlgo.Robots
             if (series == null || series.Count < 2 || count <= 0)
                 return result;
 
-            var frontier = BucketStartUtc(stream.TimeframeMinutes, BarOpenTimeUtc(series.Last(0).OpenTime));
+            var frontier = BucketStartUtc(stream, BarOpenTimeUtc(series.Last(0).OpenTime));
 
             OhlcvDto current = null;
             var currentStart = DateTime.MinValue;
@@ -2219,7 +2250,7 @@ namespace cAlgo.Robots
                 if (openTime >= frontier)
                     continue;
 
-                var bucket = BucketStartUtc(stream.TimeframeMinutes, openTime);
+                var bucket = BucketStartUtc(stream, openTime);
                 if (current != null && bucket != currentStart)
                 {
                     result.Add(current);

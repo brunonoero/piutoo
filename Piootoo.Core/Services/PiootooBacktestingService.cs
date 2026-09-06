@@ -656,8 +656,24 @@ public class PiootooBacktestingService : IPiootooBacktestingService
             Console.WriteLine($"[Backtesting] Totale strategie create: {strategyInstances.Count}");
 
             // Calcola il minimo timeframe tra tutte le strategie
-            var minTimeframeMinutes = strategyInstances.Min(s => s.TimeframeMinutes);
-            Console.WriteLine($"Timeframe minimo calcolato: {minTimeframeMinutes} minuti per {strategyInstances.Count} strategie");
+            var strategyMinTimeframe = strategyInstances.Min(s => s.TimeframeMinutes);
+            Console.WriteLine($"Timeframe minimo calcolato: {strategyMinTimeframe} minuti per {strategyInstances.Count} strategie");
+
+            // L'orologio del loop: di norma il timeframe piu' corto delle strategie, ma la richiesta
+            // puo' chiederne uno piu' fitto. Non e' un dettaglio di prestazione — da questa barra
+            // esce il prezzo di riempimento, quindi e' una convenzione di fill a tutti gli effetti.
+            var minTimeframeMinutes = BacktestClock.Resolve(
+                request.ClockTimeframeMinutes,
+                strategyMinTimeframe,
+                strategyInstances.Select(instance => (instance.Name, instance.TimeframeMinutes)));
+            var clockIsFiner = minTimeframeMinutes < strategyMinTimeframe;
+            if (clockIsFiner)
+            {
+                Console.WriteLine(
+                    $"[Backtesting] Orologio del loop forzato a {minTimeframeMinutes} minuti " +
+                    $"(le strategie piu' corte sono a {strategyMinTimeframe}): i riempimenti si " +
+                    "valutano sulle barre dell'orologio, non su quelle delle strategie.");
+            }
 
             Directory.CreateDirectory(outputPath);
             var tradingJsonStore = new TradingJsonStore(outputPath);
@@ -778,6 +794,10 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                 ["initialCapital"] = request.InitialCapital.ToString(CultureInfo.InvariantCulture),
                 ["commissionPerContract"] = request.CommissionPerContract.ToString(CultureInfo.InvariantCulture),
                 ["minTimeframeMinutes"] = minTimeframeMinutes.ToString(),
+                // L'orologio accanto al minimo delle strategie: quando i due numeri differiscono i
+                // riempimenti escono da barre diverse, e due run cosi' non sono confrontabili.
+                ["strategyMinTimeframeMinutes"] = strategyMinTimeframe.ToString(),
+                ["clockTimeframeMinutes"] = minTimeframeMinutes.ToString(),
                 ["strategies"] = strategyInstances.Count.ToString(),
                 ["allowOvernight"] = holding.AllowOvernight ? "true" : "false",
                 ["sessionFlatFromUtc"] = holding.AllowOvernight
@@ -900,6 +920,37 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                 .OrderBy(x => x.Symbol, StringComparer.Ordinal)
                 .ThenBy(x => x.Timeframe)
                 .ToList();
+
+            // Le barre dell'orologio, uno stream per simbolo, in piu' di quelli che le strategie
+            // chiedono. Passano dallo stesso caricamento: cosi' ereditano diagnostica, avvisi di
+            // copertura e — soprattutto — il fail fast sul datasource vuoto. Un simbolo senza le
+            // barre dell'orologio resterebbe altrimenti al proprio timeframe, e il run mescolerebbe
+            // due risoluzioni di riempimento senza dirlo.
+            if (clockIsFiner)
+            {
+                var clockSymbols = strategyInstances
+                    .Select(instance => NormalizeSymbolWithPrefix(instance.Symbol))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .Where(symbol => !uniqueDataSources.Any(ds =>
+                        ds.Timeframe == minTimeframeMinutes &&
+                        string.Equals(ds.Symbol, symbol, StringComparison.OrdinalIgnoreCase)))
+                    // Il lookback serve alle strategie per riempire la propria finestra di candele;
+                    // l'orologio non ne ha una, gli basta il periodo del run. Chiedere qui le stesse
+                    // centinaia di barre delle strategie moltiplicherebbe per il timeframe la
+                    // memoria di uno stream che e' gia' il piu' pesante dell'archivio.
+                    .Select(symbol => (Symbol: symbol, Timeframe: minTimeframeMinutes, MaxRequiredCandles: 1))
+                    .ToList();
+
+                uniqueDataSources.AddRange(clockSymbols);
+                uniqueDataSources = uniqueDataSources
+                    .OrderBy(x => x.Symbol, StringComparer.Ordinal)
+                    .ThenBy(x => x.Timeframe)
+                    .ToList();
+
+                Console.WriteLine(
+                    $"[Backtesting] Orologio: {clockSymbols.Count} stream a {minTimeframeMinutes}m in piu' " +
+                    "di quelli delle strategie.");
+            }
 
             Console.WriteLine($"[Backtesting] Pre-caricamento {uniqueDataSources.Count} datasource unici " +
                               $"da datafeed {_datafeedCatalog.Describe(request.DatafeedBroker)}...");
@@ -1051,8 +1102,23 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                         job.ProgressMessage = "Esecuzione strategie";
                     }
                 }
-                // Skip weekend
-                if (currentDate.DayOfWeek == DayOfWeek.Saturday || currentDate.DayOfWeek == DayOfWeek.Sunday)
+                // Il fine settimana NON si salta per calendario. La sessione della ricerca e' il
+                // giorno di calendario europeo, quindi la riapertura del lunedi' cade alle
+                // 22:00 (ora legale) o 23:00 (ora solare) UTC di DOMENICA: saltare il sabato e la
+                // domenica UTC toglieva al motore l'apertura di ogni lunedi' — niente valutazione,
+                // niente fill, niente mark-to-market — e su BTC, che quota 24/7, due giorni pieni
+                // a settimana. Nel feed interno le barre di sabato/domenica UTC sono il 21,0% su
+                // @NQ_1440 (sono tutti i lunedi'), il 3,6% sui 4h CME e l'1,4% sugli intraday;
+                // sul confronto compare-0021 il motore interno aveva ZERO trade nel fine settimana
+                // UTC contro 110 su 1.273 del cBot sullo stesso feed e sulla stessa finestra, e
+                // sul giornaliero 3 lunedi' contro 12.
+                //
+                // Resta il salto quando e' il PIANO a vietare l'overweek: li' il conto deve essere
+                // piatto e senza ordini fino alla riapertura, quindi non c'e' niente da valutare.
+                // Il tick su cui il flat SCATTA passa — e' quello che chiude le posizioni e
+                // cancella i pending, in fondo al corpo del loop — e vengono saltati solo quelli
+                // dopo, fino a WeekEndFlatPolicy.UntilUtcHhmm.
+                if (IterationIsSkippedByWeekEndFlat(holding, currentDate, minTimeframeMinutes))
                 {
                     currentDate = currentDate.AddMinutes(minTimeframeMinutes);
                     iterationCount++;
@@ -1472,7 +1538,9 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                     SpreadResolution = tradingService.SpreadPointsByHour.Count == 0
                         ? "per simbolo"
                         : "per ora UTC",
-                    SpreadSource = spreadSource
+                    SpreadSource = spreadSource,
+                    ClockTimeframeMinutes = minTimeframeMinutes,
+                    ClockFinerThanStrategies = clockIsFiner
                 },
                 CatalogStrategies = catalogStrategies.Count,
                 MasterfilterStrategies = masterfilterStrategies,
@@ -1976,7 +2044,18 @@ public class PiootooBacktestingService : IPiootooBacktestingService
             BreakEven = signal.BreakEven,
             BreakEvenMoneyPerFutureContract = signal.BreakEvenMoneyPerFutureContract,
             TrailingStopMoneyPerFutureContract = signal.TrailingStopMoneyPerFutureContract,
-            MaxBarsInPosition = signal.MaxBarsInPosition
+            MaxBarsInPosition = signal.MaxBarsInPosition,
+            // Da qui in giu' sono i campi che PersistedSignalMapper legge e che il clone lasciava
+            // indietro: il segnale eseguito li aveva, signals.json no. TimeframeMinutes usciva 0 su
+            // tutti i segnali di ogni run, e 0 e' proprio il valore che fa concludere a chi legge
+            // che un pending muore dopo un tick invece che dopo la propria barra — un'ora di
+            // indagine sprecata in compare-0022. Il clone serve solo a persistere: aggiungere
+            // verita' qui non cambia nessuna esecuzione.
+            TimeframeMinutes = signal.TimeframeMinutes,
+            MaxEntriesPerSession = signal.MaxEntriesPerSession,
+            EntrySessionStartUtc = signal.EntrySessionStartUtc,
+            TimeExitOnlyIfProfitBelowMoneyPerContract = signal.TimeExitOnlyIfProfitBelowMoneyPerContract,
+            ProfitStallAfterUtc = signal.ProfitStallAfterUtc
         };
         TradingDateTime.NormalizeSignalToUtc(clone);
         return clone;
@@ -2125,11 +2204,60 @@ public class PiootooBacktestingService : IPiootooBacktestingService
     private static bool BelongsToCurrentTick(DateTime barTimeUtc, DateTime currentDate, int tickMinutes) =>
         (currentDate - barTimeUtc).TotalMinutes < Math.Max(1, tickMinutes);
 
+    /// <summary>
+    /// Se il loop deve saltare questo tick perche' il conto e' dentro la finestra di flat del fine
+    /// settimana.
+    ///
+    /// <para><b>Non e' piu' il calendario.</b> Fino al 06/09/2026 il loop saltava sabato e domenica
+    /// UTC per ogni run. Ma la sessione della ricerca e' il giorno di calendario <b>europeo</b>: la
+    /// riapertura del lunedi' cade alle 22:00 (ora legale) o 23:00 (ora solare) UTC di
+    /// <b>domenica</b>, quindi quel salto toglieva al motore l'apertura di ogni lunedi' e, su un
+    /// mercato che quota 24/7 come BTC, due giorni pieni a settimana.</para>
+    ///
+    /// <para>Resta il salto quando e' il <b>piano</b> a vietare l'overweek: li' il conto deve essere
+    /// piatto e senza ordini fino alla riapertura, quindi non c'e' niente da valutare. Il tick su
+    /// cui il flat <b>scatta</b> non si salta — e' quello che chiude le posizioni e cancella i
+    /// pending — e con <c>AllowOverweek</c> il fine settimana si percorre tutto, che e' la
+    /// condizione dei run di parita' con la ricerca.</para>
+    /// </summary>
+    public static bool IterationIsSkippedByWeekEndFlat(
+        AccountHoldingPolicy holding, DateTime instantUtc, int tickMinutes)
+    {
+        if (holding.AllowOverweek)
+            return false;
+
+        var weekEnd = holding.WeekEnd;
+        return weekEnd.IsInsideWindow(instantUtc) &&
+               !weekEnd.IsFlatTrigger(instantUtc, instantUtc.AddMinutes(-Math.Max(1, tickMinutes)));
+    }
+
+    /// <summary>
+    /// Se l'ultima candela della strategia e' troppo vecchia perche' valutarla abbia senso.
+    ///
+    /// <para><b>Intraday.</b> Dentro un buco del feed — pausa di sessione, festivo, fine settimana —
+    /// il cursore restituisce sempre la stessa ultima barra chiusa, quindi la strategia verrebbe
+    /// rivalutata a ogni tick dell'orologio su input identici e riemetterebbe lo stesso segnale
+    /// decine di volte. Quei doppioni non producono trade (nascono gia' scaduti e
+    /// <c>ProcessSignals</c> li scarta) ma finiscono in <c>signals.json</c> e costano un giro di
+    /// motore ciascuno: da quando il loop non salta piu' il fine settimana sarebbero circa
+    /// quarantanove ore di tick a vuoto la settimana, per ogni strategia.</para>
+    ///
+    /// <para>La soglia e' <b>due barre della strategia</b>, non una: <c>ShouldEvaluateStrategy</c>
+    /// allinea per conteggio di iterazioni, non sulla griglia della serie, quindi una strategia a
+    /// 4 ore su orologio da 15 minuti puo' legittimamente essere valutata qualche tick dopo
+    /// l'apertura della propria barra. Un margine di una barra piena lascia passare quel caso e
+    /// taglia solo i buchi veri.</para>
+    ///
+    /// <para><b>Daily e oltre.</b> Restano a giorni di calendario: li' <c>ShouldEvaluateStrategy</c>
+    /// impone la mezzanotte UTC, che con la barra ancorata alla mezzanotte europea cade gia'
+    /// un'ora dopo l'apertura, e una soglia in barre le spegnerebbe tutte.</para>
+    /// </summary>
     private static bool IsStrategyCandleStale(int timeframeMinutes, DateTime lastCandleTime, DateTime currentDate)
     {
         if (timeframeMinutes < 1440)
         {
-            return false;
+            return timeframeMinutes > 0 &&
+                   (currentDate - lastCandleTime).TotalMinutes >= 2.0 * timeframeMinutes;
         }
 
         var maxAgeDays = timeframeMinutes >= 10080 ? 10 : 4;

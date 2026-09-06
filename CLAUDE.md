@@ -72,6 +72,24 @@ sbaglia più spesso:
  `Kind != Utc`: è voluto, non "aggiustarlo" con `SpecifyKind` a valle. E
  "adesso" è `DateTime.UtcNow`: `DateTime.Now`, `ToLocalTime` e affini sono
  vietati fuori dalla console WinForms, e `UtcOnlyConformanceTests` lo verifica.
+- **L'ora di inizio sessione è dello strumento, non della classe.** `ResearchSession(h)` prende `h`
+ da `InstrumentSpec.ResearchSessionStartHour` — la tabella §2.4 del dossier: **01:00 CET per FDAX,
+ CC, CT, KC, SB e HK**, 00:00 per tutti gli altri — e `ResearchSessionStartConformanceTests` lo
+ impone su ogni `PTS_*`. La stessa ora ancora i bucket oltre l'ora: `SESSION_START_HOUR` in
+ `aggregate_flat_feed.py` e `SessionStartHourOf` nei tre cBot, che lo
+ risolvono per SIMBOLO e non per istanza — un piano che mette insieme NQ e FDAX è il caso
+ normale, e un parametro unico lo renderebbe non eseguibile.
+ Un ancoraggio sbagliato non dà barre sbagliate, dà barre **diverse** e nessun errore.
+- **Il confine di sessione sta in un punto solo** (`EasyLib.ClassifySessionBar`). Il feed etichetta
+ le barre sull'**apertura**, quindi una sessione a giornata piena `(ancoraggio, 2359)` va da `h:00`
+ di `D` a `h:00` di `D+1` escluso e ogni barra sta in una sessione. Il confronto stretto
+ `t > sessionStartTime` della sorgente EasyLanguage presuppone l'etichetta sulla chiusura: applicato
+ alle aperture lasciava fuori da ogni sessione le barre fino all'ancoraggio, 22 su 24 su una serie
+ oraria. Le sessioni di borsa (`1700/1659`) restano sul percorso storico.
+- **Un fill per sessione vale PER LATO.** `single_entry_per_session` della ricerca è «una entrata per
+ sessione **per direzione**»: il lato fa parte della chiave sia in `MakeEntrySessionKey` sia in
+ `EntryFillKey`. Sui motori mirrored le due gambe nascono sulla stessa barra e sono due segnali
+ indipendenti. L'OCO — un solo ingresso in volo per strategia e simbolo — è un vincolo diverso.
 - **Gli orari di una strategia dichiarano il proprio fuso, e non si convertono mai a mano.**
  `Session` e `TradingWindow` sono due `ZonedWindow` distinte — orario locale più fuso IANA — e il
  confronto passa da `SessionClock`, mai dall'ora grezza della barra. Per le strategie portate dai
@@ -177,8 +195,23 @@ sbaglia più spesso:
  `ExpiresAtUtc + TimeframeMinutes` del segnale. Il loop gira al timeframe *minimo* del
  portafoglio e `currentBars` tiene una sola barra per simbolo — la piu' fitta — quindi
  confrontare i due istanti fa morire l'ordine di una strategia a 60 minuti dopo mezz'ora,
- e gli fa vedere meta' del proprio range. Vedi
- `docs/domini/orologio-barre-e-fill.md`.
+ e gli fa vedere meta' del proprio range. E **quella barra e' quella che arriva davvero, non
+ quella proiettata**: `ValidFromUtc` nasce come `barTime + timeframe` perche' al momento del
+ segnale la barra dopo non esiste ancora, e attraverso un buco (fine settimana, festivo, pausa)
+ la proiezione cade nel vuoto — il 20,2% delle barre di `@NQ_1440`, il 15,0% di `@FDAX_240`.
+ Il conteggio parte quindi dalla prima barra vera su cui l'ordine e' attivo
+ (`PendingOrder.ActivatedAtUtc`); `IsExpired` sul *segnale* resta a orologio e serve a scartare
+ all'arrivo un intent gia' passato. Vedi `docs/domini/orologio-barre-e-fill.md`.
+- **Il fine settimana del backtest lo decide il piano, non il calendario.** La sessione della
+ ricerca e' il giorno di calendario *europeo*, quindi la riapertura del lunedi' e' domenica
+ 22:00/23:00 UTC: saltare sabato e domenica UTC toglieva al motore l'apertura di ogni lunedi'
+ (il 21,0% delle barre di `@NQ_1440` sono lunedi' timbrati domenica) e su BTC due giorni pieni.
+ `IterationIsSkippedByWeekEndFlat` salta solo quando `AllowOverweek` e' falso, e solo la finestra
+ di `WeekEndFlatPolicy` — mai il tick su cui il flat scatta.
+- **`MaxBarsInPosition` conta barre, non tick dell'orologio.** Il contatore avanza solo dove il
+ simbolo ha davvero stampato una barra: contare i tick a vuoto (pausa notturna, festivi, fine
+ settimana) fa morire la posizione prima delle N barre dichiarate. E' la stessa regola gia'
+ imposta ai cBot sui bucket.
 - **Un livello gia' scavalcato non e' un ordine.** Uno stop buy sotto il prezzo si
  riempirebbe all'apertura, ma il cBot lo scarta al piazzamento
  (`RejectWrongSideLevels`) e quel trade nel conto vero non esiste. L'engine interno ha

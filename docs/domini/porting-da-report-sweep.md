@@ -55,17 +55,29 @@ Mai convertirli nell'ora di borsa del simbolo. La conversione a mano — meno se
 sei per GC — è esatta solo fuori dalle settimane di disallineamento fra ora legale americana ed
 europea, ed è stata la causa di una divergenza reale.
 
-**2. La sessione è il giorno di calendario europeo, non quella del broker.** Il motore taglia con
-`(timestamp − 1 min − session_start_hour).normalize()`, e con `session_start_hour = 0` questo dà
+**2. La sessione è il giorno di calendario della ricerca, non quella del broker.** Il motore taglia
+con `(timestamp − 1 min − session_start_hour).normalize()`, e con `session_start_hour = 0` questo dà
 00:00 → 00:00 in ora europea. **Non** è la sessione CME 17:00→16:00 di New York. È una scelta di
 modello dichiarata dalla ricerca, e il port deve riprodurre quella, non il broker:
 
 ```csharp
-Session = ZonedWindow.ResearchSession();   // session_start_hour = 0
+Session = ZonedWindow.ResearchSession();    // session_start_hour = 0
+Session = ZonedWindow.ResearchSession(1);   // session_start_hour = 1
 ```
 
-Il `− 1 minuto` non è un dettaglio: la barra delle `00:00` appartiene alla sessione **precedente**.
-`EasyLib.OHLCMulti5` lo riproduce con il confronto stretto `t > sessionStartTime`.
+**L'ora non si sceglie: è dello strumento.** La tabella §2.4 del dossier del paniere dà `1` a FDAX,
+CC, CT, KC, SB e HK e `0` a tutti gli altri; la stessa tabella sta in
+`InstrumentSpec.ResearchSessionStartHour`, e `ResearchSessionStartConformanceTests` la impone su
+ogni `PTS_*`.
+
+Il `− 1 minuto` non è un dettaglio: la barra etichettata all'ancoraggio appartiene alla sessione
+**precedente**. Il feed Piootoo etichetta però le barre sull'**apertura**, quindi la sessione
+ancorata a `h:00` va da `h:00` del giorno `D` a `h:00` del giorno `D+1` escluso, e ogni barra sta
+in una sessione. `EasyLib.OHLCMulti5` lo riproduce con il giorno di sessione di
+`ClassifySessionBar`. Fino al 07/09/2026 la compensazione era scritta solo per l'ancoraggio a
+mezzanotte, e con `session_start_hour = 1` restava il confronto stretto `t > sessionStartTime`, che
+lasciava **fuori da ogni sessione** le barre fino all'ancoraggio incluso: 22 barre su 24 su una
+serie oraria, 5 bucket su 6 su una 4h.
 
 Le due sessioni — europea e CME — coincidono per gran parte dell'anno, perché mezzanotte a Roma
 sono le 17:00 a Chicago. Non coincidono nelle circa quattro settimane in cui gli Stati Uniti sono

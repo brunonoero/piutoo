@@ -61,10 +61,14 @@ rimisurati.
 Le finestre orarie sono riportate **verbatim** dal dossier, con
 `ZonedWindow.ResearchHours(start_hour, end_hour)` o `ZonedWindow.Research(startHhmm, endHhmm)`, e
 la sessione con `ZonedWindow.ResearchSession()`. Per i mercati che la ricerca apre alle 01:00 CET —
-FDAX, CC, KC, SB, CT, HK — la sessione è `ZonedWindow.ResearchSession(1)`, che è la forma imposta
-da `StrategyClockConformanceTests`. ⚠ Su HK questo lascia scoperta la fascia 00:00–01:00 rispetto a
-una ricostruzione a giorno di calendario pieno: è la stessa semplificazione che fa il resto del
-catalogo, e non è stata compensata a mano su un singolo mercato.
+FDAX, CC, KC, SB, CT, HK — la sessione è `ZonedWindow.ResearchSession(1)`.
+
+**Quale ora vale per quale mercato non è una scelta della classe**: è
+`InstrumentSpec.ResearchSessionStartHour`, cioè la tabella §2.4 del dossier, e
+`ResearchSessionStartConformanceTests` la impone su tutte le `PTS_*`. Fino al 07/09/2026 questo
+paragrafo diceva che la forma era «imposta da `StrategyClockConformanceTests`»: non era vero — quel
+test verifica che *un* fuso sia dichiarato, non *quale* ora — e infatti tutte e sette le FDAX
+dichiaravano 00:00. Vedi [`../decisioni.md`](../decisioni.md), voce del 07/09/2026.
 
 Le sigle `BIA` (`BiasBarCountEngine`) e `BSW` (`BiasWeeklyEngine`) hanno ora sottoclassi concrete
 per la prima volta su HO, NG, HK, BTC e YM: erano fra i motori "esistenti ma senza sottoclassi"

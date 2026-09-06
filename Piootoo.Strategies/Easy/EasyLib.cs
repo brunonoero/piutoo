@@ -42,6 +42,88 @@ namespace Piootoo.Strategies.Easy;
 public static class EasyLib
 {
     /// <summary>
+    /// Una sessione dichiarata come <c>(ancoraggio, 2359)</c> copre l'intera giornata a partire
+    /// dall'ancoraggio: è la forma di <c>ZonedWindow.ResearchSession(h)</c>, cioè il taglio del
+    /// motore di ricerca <c>(timestamp − 1 min − session_start_hour).normalize()</c>. Ogni barra
+    /// appartiene a una sessione e il confine è l'ancoraggio, non una finestra di negoziazione.
+    ///
+    /// <para>Si distingue dalle sessioni <b>di borsa</b> — <c>(1700, 1659)</c>, <c>(1700, 1600)</c>,
+    /// <c>(0900, 1600)</c> — dove le barre fuori orario davvero non appartengono a nessuna
+    /// sessione, e che continuano a seguire il percorso storico.</para>
+    /// </summary>
+    private static bool IsFullDaySession(int sessionStartTime, int sessionEndTime) =>
+        sessionStartTime < sessionEndTime && sessionEndTime >= 2359;
+
+    /// <summary>
+    /// Il giorno di sessione di una barra su una sessione a giornata piena: la data locale,
+    /// arretrata di un giorno quando la barra cade <b>prima</b> dell'ancoraggio.
+    ///
+    /// <para>Il feed etichetta le barre sull'<b>apertura</b>, quindi la sessione ancorata a
+    /// <c>h:00</c> va da <c>h:00</c> del giorno <c>D</c> a <c>h:00</c> del giorno <c>D+1</c>
+    /// escluso. La sorgente EasyLanguage assume invece l'etichetta sulla chiusura
+    /// (<c>isBarTimeEndTime = true</c>) e la compensa con il confronto stretto
+    /// <c>t &gt; sessionStartTime</c>: applicato a etichette di apertura, quel confronto lascia
+    /// fuori da <b>ogni</b> sessione le barre fino all'ancoraggio incluso — due ore su una serie
+    /// oraria ancorata all'01:00, un bucket su sei su una 4h. Misurato con una sonda su questa
+    /// funzione: 22 barre su 24 e 5 bucket su 6.</para>
+    /// </summary>
+    private static DateTime FullDaySessionDay(SessionClock clock, int sessionStartTime, DateTime barTime)
+    {
+        var day = clock.SessionDay(barTime);
+        return clock.Hhmm(barTime) >= sessionStartTime ? day : day.AddDays(-1);
+    }
+
+    /// <summary>
+    /// Il confine di sessione, in <b>un punto solo</b>: dice se la barra appartiene a una sessione
+    /// e se ne apre una nuova rispetto alla precedente.
+    ///
+    /// <para>Prima la stessa regola era scritta due volte — dentro <see cref="OHLCMulti5"/> e dentro
+    /// <c>InSessionBars</c> — con un commento che chiedeva alle copie di restare d'accordo. Restare
+    /// d'accordo non è una proprietà che si ottiene chiedendola: <c>d0..d5</c> e le serie derivate
+    /// devono parlare della stessa sessione per costruzione.</para>
+    /// </summary>
+    private static (bool InSession, bool StartsNewSession) ClassifySessionBar(
+        SessionClock clock, int sessionStartTime, int sessionEndTime,
+        DateTime barTime, DateTime? previousBarTime)
+    {
+        if (IsFullDaySession(sessionStartTime, sessionEndTime))
+        {
+            var day = FullDaySessionDay(clock, sessionStartTime, barTime);
+            var startsNew = previousBarTime is { } fullDayPrevious &&
+                            FullDaySessionDay(clock, sessionStartTime, fullDayPrevious) != day;
+            return (true, startsNew);
+        }
+
+        // Percorso storico: sessioni di borsa, con le barre fuori orario che non appartengono a
+        // nessuna sessione.
+        var oneDaySession = sessionStartTime < sessionEndTime;
+        var t = clock.Hhmm(barTime);
+        var timeStarted = t > sessionStartTime;
+        var timeNotEnded = t <= sessionEndTime;
+
+        var inSession = oneDaySession
+            ? timeStarted && timeNotEnded
+            : timeStarted || timeNotEnded;
+
+        if (previousBarTime is not { } previous)
+            return (inSession, false);
+
+        var prevT = clock.Hhmm(previous);
+        var prevTimeLessSTime = prevT <= sessionStartTime;
+        var day2 = clock.SessionDay(barTime);
+        var prevDay = clock.SessionDay(previous);
+
+        var startsNewSession = timeStarted && prevTimeLessSTime;
+        startsNewSession = oneDaySession
+            ? startsNewSession || day2 != prevDay
+            : startsNewSession ||
+              (day2 != prevDay && prevTimeLessSTime) ||
+              day2 > prevDay.AddDays(1);
+
+        return (inSession, inSession && startsNewSession);
+    }
+
+    /// <summary>
     /// Calcola OHLC per le ultime 5 sessioni più la sessione corrente,
     /// allineato a f__OHLCMulti5 (isBarTimeEndTime = true).
     /// Restituisce true se la barra corrente è l'inizio di una nuova sessione.
@@ -58,14 +140,6 @@ public static class EasyLib
         if (bars.Length == 0)
             return false;
 
-        bool oneDaySession = sessionStartTime < sessionEndTime;
-
-        // Sessione ancorata alla mezzanotte: il confronto stretto t > sessionStartTime
-        // scarterebbe la barra delle 00:00, che su un feed etichettato all'apertura è la prima
-        // della giornata, e la perderebbe da ogni sessione invece di assegnarla al giorno. Con
-        // questo confine la segmentazione è il puro cambio di data.
-        bool calendarDaySession = sessionStartTime == 0;
-
         decimal actO = 0, actH = 0, actL = 0, actC = 0;
         int actDayIdx = 0;
         var pastOpen = new decimal[20];
@@ -78,38 +152,9 @@ public static class EasyLib
         for (int i = 0; i < bars.Length; i++)
         {
             var bar = bars[i];
-            int t = clock.Hhmm(bar.DateTime);
-            int prevT = i > 0 ? clock.Hhmm(bars[i - 1].DateTime) : t;
-            var day = clock.SessionDay(bar.DateTime);
-            var prevDay = i > 0 ? clock.SessionDay(bars[i - 1].DateTime) : day;
-
-            // isBarTimeEndTime = true (default EasyLanguage)
-            bool timeStarted = t > sessionStartTime;
-            bool timeNotEnded = t <= sessionEndTime;
-            bool prevTimeLessSTime = prevT <= sessionStartTime;
-
-            bool inSessionTime = calendarDaySession
-                ? timeNotEnded
-                : oneDaySession
-                    ? timeStarted && timeNotEnded
-                    : timeStarted || timeNotEnded;
-
-            // Con l'inizio a mezzanotte prevTimeLessSTime è vero solo dopo la barra delle 00:00 e
-            // spezzerebbe la giornata alla seconda barra: resta il solo cambio di data, sotto.
-            bool isStartOfSession = !calendarDaySession
-                && inSessionTime && timeStarted && prevTimeLessSTime;
-
-            if (!oneDaySession)
-            {
-                // sessione overnight: giorno nuovo e ancora prima dello start
-                isStartOfSession = isStartOfSession || (inSessionTime && day != prevDay && prevTimeLessSTime);
-                // split se manca un giorno di calendario
-                isStartOfSession = isStartOfSession || (inSessionTime && day > prevDay.AddDays(1));
-            }
-            else
-            {
-                isStartOfSession = isStartOfSession || (inSessionTime && day != prevDay);
-            }
+            var (inSessionTime, isStartOfSession) = ClassifySessionBar(
+                clock, sessionStartTime, sessionEndTime,
+                bar.DateTime, i > 0 ? bars[i - 1].DateTime : null);
 
             if (!initialized)
             {
@@ -270,42 +315,20 @@ public static class EasyLib
     private static IEnumerable<(OhlcvData Bar, bool StartsNewSession)> InSessionBars(
         SessionClock clock, int sessionStartTime, int sessionEndTime, OhlcvData[] bars, int count)
     {
-        var oneDaySession = sessionStartTime < sessionEndTime;
-
-        // Stessa guardia di OHLCMulti5: con l'inizio a mezzanotte la barra delle 00:00 appartiene
-        // al giorno e la segmentazione è il cambio di data. Le tre funzioni devono restare
-        // d'accordo, altrimenti d0..d5 e le serie derivate parlano di sessioni diverse.
-        var calendarDaySession = sessionStartTime == 0;
-
+        // Il confine è quello di ClassifySessionBar, lo stesso che usa OHLCMulti5: d0..d5 e le
+        // serie derivate devono parlare della stessa sessione per costruzione, non per disciplina
+        // di chi tiene allineate due copie della regola.
         var first = true;
 
         for (var i = 0; i < count; i++)
         {
             var bar = bars[i];
-            var t = clock.Hhmm(bar.DateTime);
-            var prevT = i > 0 ? clock.Hhmm(bars[i - 1].DateTime) : t;
-            var day = clock.SessionDay(bar.DateTime);
-            var prevDay = i > 0 ? clock.SessionDay(bars[i - 1].DateTime) : day;
-
-            var timeStarted = t > sessionStartTime;
-            var timeNotEnded = t <= sessionEndTime;
-            var prevTimeLessSTime = prevT <= sessionStartTime;
-
-            var inSessionTime = calendarDaySession
-                ? timeNotEnded
-                : oneDaySession
-                    ? timeStarted && timeNotEnded
-                    : timeStarted || timeNotEnded;
+            var (inSessionTime, isStartOfSession) = ClassifySessionBar(
+                clock, sessionStartTime, sessionEndTime,
+                bar.DateTime, i > 0 ? bars[i - 1].DateTime : null);
 
             if (!inSessionTime)
                 continue;
-
-            var isStartOfSession = !calendarDaySession && timeStarted && prevTimeLessSTime;
-            isStartOfSession = oneDaySession
-                ? isStartOfSession || day != prevDay
-                : isStartOfSession ||
-                  (day != prevDay && prevTimeLessSTime) ||
-                  day > prevDay.AddDays(1);
 
             yield return (bar, !first && isStartOfSession);
             first = false;

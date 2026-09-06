@@ -260,7 +260,7 @@ namespace cAlgo.Robots
         // leggendo questo sorgente.
         // Il disallineamento non blocca nulla: entrambi stampano la propria versione all'avvio, e
         // il confronto si fa leggendo i due log.
-        private const string BotVersion = "6.0.0"; // major.minor deve seguire PiootooVersion
+        private const string BotVersion = "6.0.1"; // major.minor deve seguire PiootooVersion
         private const string StatusChartObjectName = "PiootooConnectionStatus";
 
         // Riquadro rosso al centro del grafico, separato dal pannello di stato: e' l'errore fatale
@@ -835,7 +835,8 @@ namespace cAlgo.Robots
                 if (pair.Aggregated)
                     Print("{0}: barre costruite dal bot sulle {1} minuti, ancoraggio {2} {3:00}:00 — " +
                           "la serie nativa da {4} minuti della piattaforma NON viene usata.",
-                        pair, baseMinutes, SessionTimeZoneId.Trim(), SessionStartHour, pair.TimeframeMinutes);
+                        pair, baseMinutes, SessionTimeZoneId.Trim(),
+                        SessionStartHourOf(pair.PiootooSymbol), pair.TimeframeMinutes);
 
                 // Storia caricata all'indietro PRIMA di partire: cTrader tiene in serie solo le barre
                 // che gli servono per il grafico, e senza questo la prima finestra spedita al server
@@ -4118,8 +4119,44 @@ namespace cAlgo.Robots
         /// l'ora che non esiste e manda la barra in un bucket precedente a quello della barra prima.
         /// Vedi il raccoglitore e la misura riportata in docs/decisioni.md 2026-09-05.</para>
         /// </summary>
-        private DateTime BucketStartUtc(int timeframeMinutes, DateTime openUtc)
+        /// <summary>
+        /// L'ancoraggio dei bucket oltre l'ora, <b>per simbolo</b>: la tabella §2.4 del dossier del
+        /// paniere da' 01:00 CET a FDAX, CC, CT, KC, SB e HK, e la stessa tabella sta lato C# in
+        /// <c>InstrumentSpec.ResearchSessionStartHour</c>. Per tutto il resto vale il parametro
+        /// <see cref="SessionStartHour"/>, che resta il default e l'unica via per uno strumento che
+        /// la tabella non conosce.
+        ///
+        /// <para><b>Perche' per simbolo e non per istanza.</b> L'ancoraggio e' una proprieta' dello
+        /// strumento, non una scelta del piano: un parametro unico renderebbe non eseguibile un piano
+        /// che mette insieme NQ e FDAX, cioe' il caso normale. Un ancoraggio sbagliato non produce
+        /// barre sbagliate — produce barre <i>diverse</i>, tutte plausibili, sfasate di un'ora
+        /// rispetto alla griglia su cui le strategie sono state trovate — e nessun controllo a valle
+        /// se ne accorge: meglio non poterlo sbagliare che accorgersene.</para>
+        ///
+        /// <para>Gemello di <c>PiootooDatafeedSyncBot.SessionStartHourOf</c>: le copie restano
+        /// identiche o la prossima lettura non sa piu' quale sia quella giusta, esattamente come per
+        /// <see cref="BucketStartUtc"/>.</para>
+        /// </summary>
+        private int SessionStartHourOf(string piootooSymbol)
         {
+            var nome = (piootooSymbol ?? string.Empty).TrimStart('@').ToUpperInvariant();
+            switch (nome)
+            {
+                case "FDAX":
+                case "CC":
+                case "CT":
+                case "KC":
+                case "SB":
+                case "HK":
+                    return 1;
+                default:
+                    return SessionStartHour;
+            }
+        }
+
+        private DateTime BucketStartUtc(Pair pair, DateTime openUtc)
+        {
+            var timeframeMinutes = pair.TimeframeMinutes;
             // Qui arrivano solo orari di apertura di barra, gia' al minuto: l'arrotondamento e'
             // inerte. Sta comunque anche qui perche' questa funzione e' la stessa del raccoglitore
             // — dove i secondi di Server.TimeInUtc rompevano un bucket ogni blocco — e due copie
@@ -4132,7 +4169,8 @@ namespace cAlgo.Robots
             var local = TimeZoneInfo.ConvertTimeFromUtc(
                 DateTime.SpecifyKind(openUtc, DateTimeKind.Utc), _sessionZone);
 
-            var minutesFromAnchor = (int)local.TimeOfDay.TotalMinutes - SessionStartHour * 60;
+            var minutesFromAnchor =
+                (int)local.TimeOfDay.TotalMinutes - SessionStartHourOf(pair.PiootooSymbol) * 60;
             if (minutesFromAnchor < 0)
                 minutesFromAnchor += 1440;
 
@@ -4239,14 +4277,14 @@ namespace cAlgo.Robots
             if (series is null || series.Count < 2)
                 return null;
 
-            var frontier = BucketStartUtc(pair.TimeframeMinutes,
+            var frontier = BucketStartUtc(pair,
                 DateTime.SpecifyKind(series.Last(0).OpenTime, DateTimeKind.Utc));
 
             for (var offset = 1; offset < series.Count; offset++)
             {
                 var openTime = DateTime.SpecifyKind(series.Last(offset).OpenTime, DateTimeKind.Utc);
                 if (openTime < frontier)
-                    return BucketStartUtc(pair.TimeframeMinutes, openTime);
+                    return BucketStartUtc(pair, openTime);
             }
 
             return null;
@@ -4265,7 +4303,7 @@ namespace cAlgo.Robots
             if (series is null || series.Count < 2 || count <= 0)
                 return result;
 
-            var frontier = BucketStartUtc(pair.TimeframeMinutes,
+            var frontier = BucketStartUtc(pair,
                 DateTime.SpecifyKind(series.Last(0).OpenTime, DateTimeKind.Utc));
 
             OhlcvDto current = null;
@@ -4278,7 +4316,7 @@ namespace cAlgo.Robots
                 if (openTime >= frontier)
                     continue;
 
-                var bucket = BucketStartUtc(pair.TimeframeMinutes, openTime);
+                var bucket = BucketStartUtc(pair, openTime);
                 if (current is not null && bucket != currentStart)
                 {
                     result.Add(current);

@@ -491,4 +491,23 @@ public sealed class BacktestFillConventions
     /// e da una media di due mesi diversi, e nel summary sono indistinguibili.
     /// </summary>
     public string? SpreadSource { get; init; }
+
+    /// <summary>
+    /// Timeframe dell'orologio del loop, in minuti: il minimo fra le strategie quando la richiesta
+    /// non lo forza, oppure il valore chiesto (tipicamente <c>1</c>).
+    ///
+    /// <para>Sta qui fra le convenzioni di riempimento e non fra i parametri perche' e' esattamente
+    /// questo: decide da quale barra esce il prezzo di fill. Due run con orologi diversi hanno
+    /// riempimenti diversi sulle stesse strategie e sullo stesso feed, e senza questo campo sono
+    /// indistinguibili a posteriori.</para>
+    /// </summary>
+    public int ClockTimeframeMinutes { get; init; }
+
+    /// <summary>
+    /// Se l orologio e piu fitto del timeframe piu corto del run. Quando e <c>true</c>
+    /// <see cref="IntrabarPriority"/> perde quasi tutto il proprio peso: l ordine fra stop e
+    /// target dentro la barra della strategia non si decide piu per convenzione ma si legge dalle
+    /// barre dell orologio.
+    /// </summary>
+    public bool ClockFinerThanStrategies { get; init; }
 }

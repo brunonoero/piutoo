@@ -132,6 +132,33 @@ public class BacktestingRequest
     public SpreadResolution SpreadResolution { get; set; } = SpreadResolution.PerSymbol;
 
     /// <summary>
+    /// Timeframe dell'<b>orologio</b> del loop, in minuti. Null = il minimo fra le strategie del
+    /// run, che e' il comportamento di sempre; <c>1</c> fa girare il loop sulle barre a un minuto
+    /// pur continuando a valutare ogni strategia sul proprio timeframe.
+    ///
+    /// <para><b>A cosa serve.</b> Il prezzo di riempimento esce dalla barra che sta in
+    /// <c>currentBars</c>, cioe' dalla piu' fitta caricata per quel simbolo. Su una barra da
+    /// sessanta minuti che contiene sia lo stop protettivo sia il target, quale dei due scatti
+    /// prima non e' un dato: e' la convenzione <c>ProtectiveBeforeTarget</c>, dichiarata nel summary
+    /// proprio perche' e' una scelta. Con l'orologio a un minuto diventa una misura, e con essa i
+    /// trigger dei pending e il mark-to-market. E' la voce piu' grossa che resta fra engine interno
+    /// e conto vero dopo lo spread.</para>
+    ///
+    /// <para><b>Non e' un default.</b> Il loop fa sessanta volte le iterazioni su un portafoglio a
+    /// un'ora, e il feed a un minuto e' quasi tutto il peso dell'archivio. E' una modalita' di
+    /// verifica, come <c>RejectWrongSideLevels</c> spento: si accende per misurare la fedelta' dei
+    /// riempimenti, non per l'esercizio normale.</para>
+    ///
+    /// <para><b>Vincoli.</b> Dev'essere positivo, non maggiore del timeframe piu' corto del run — un
+    /// orologio piu' lento delle strategie non le farebbe mai valutare — e deve <b>dividere</b> il
+    /// timeframe di ogni strategia, altrimenti quelle non divisibili verrebbero saltate in silenzio.
+    /// Un simbolo del run senza il feed dell'orologio fa fallire l'avvio come qualsiasi datafeed
+    /// mancante: se restasse al proprio timeframe, il run mescolerebbe due risoluzioni di
+    /// riempimento senza dirlo.</para>
+    /// </summary>
+    public int? ClockTimeframeMinutes { get; set; }
+
+    /// <summary>
     /// Quanto deve migliorare il picco favorevole prima che il trailing lo segua, in frazione
     /// della distanza di trailing. Stesso numero e stesso significato del parametro omonimo del
     /// cBot; il perche' sta su <c>PiootooTradingService.TrailingMinStepFraction</c>.

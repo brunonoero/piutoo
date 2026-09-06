@@ -87,9 +87,9 @@ public sealed class PTS_HK_PCH_002_240 : PriceChannelEngine
     public PTS_HK_PCH_002_240()
     {
         // session_start_hour = 1 (tabella §2.1 del dossier): la sessione va da 01:00 a 01:00
-        // nell'orologio della ricerca. Su HK la fascia 00:00-01:00 ha barre, e il taglio stretto
-        // t > 0100 di OHLCMulti5 le assegna alla sessione precedente - esattamente come il
-        // (timestamp - 1 min - 1h).normalize() del motore Python.
+        // nell'orologio della ricerca. La barra che apre a mezzanotte appartiene alla
+        // sessione PRECEDENTE, come nel taglio (timestamp - 1 min - session_start_hour) del
+        // motore Python.
         Session = ZonedWindow.ResearchSession(1);
         Contracts = 1;
 

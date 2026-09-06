@@ -3120,3 +3120,160 @@ sempre fatto —; un broker senza il file per ora riporta la risoluzione sulla c
 lasciar scegliere un'opzione che farebbe fallire l'avvio. Endpoint `api/Spread/brokers` e
 `api/Spread/table`, accanto a `api/Datafeed/*` e per la stessa ragione: la console non apre le
 cartelle del repository.
+
+- **2026-09-06** — **L'orologio del loop di backtesting si può forzare a un minuto**
+(`BacktestingRequest.ClockTimeframeMinutes`, null = il minimo fra le strategie, come è sempre
+stato). Non è una scelta di prestazione ma una **convenzione di riempimento**: il motore riempie
+sulla barra che sta in `currentBars`, cioè la più fitta caricata per quel simbolo, quindi su una
+barra da sessanta minuti che contiene sia lo stop protettivo sia il target quale dei due scatti
+prima non è un dato — è `intrabarPriority = ProtectiveBeforeTarget`, dichiarata nel summary proprio
+perché è una scelta. Con l'orologio a un minuto quella domanda ha una risposta misurata, e con essa
+i trigger dei pending e il mark-to-market. È la voce più grossa rimasta fra engine interno e conto
+vero dopo lo spread. Gli stream dell'orologio si caricano **in più** di quelli delle strategie, uno
+per simbolo, e passano dallo stesso caricamento: così ereditano diagnostica, avvisi di copertura e
+il fail fast sul datasource vuoto — un simbolo senza le barre dell'orologio ferma l'avvio invece di
+restare al proprio timeframe, che mescolerebbe due risoluzioni di riempimento nello stesso run. La
+validazione sta in `BacktestClock.Resolve` e rifiuta tre casi che altrimenti darebbero un run
+apparentemente normale: orologio non positivo, orologio più lento del timeframe più corto (quelle
+strategie non verrebbero mai valutate) e orologio che non divide il timeframe di qualche strategia
+— `ShouldEvaluateStrategy` esce su `tf % min != 0`, quindi il run finirebbe «completo» con meno
+strategie di quelle chieste e l'unico indizio sarebbe l'equity più bassa. `MaxBarsInPosition` era
+già al sicuro: `ScaleSignalMaxBarsInPosition` lo moltiplica per `tf/min` prima che il segnale arrivi
+al motore. Il costo è il tempo — sessanta volte le iterazioni su un portafoglio orario, più il feed
+a un minuto che è quasi tutto il peso dell'archivio esterno — quindi resta una modalità di verifica,
+come `RejectWrongSideLevels` spento. Nel summary (`fillConventions`) ci sono `clockTimeframeMinutes`
+e `clockFinerThanStrategies`; nella console è una combo a due voci.
+
+- **2026-09-07** — **Il fine settimana non si salta piu' per calendario, e un pending attraversa i
+buchi del feed.** Sono due difetti dello stesso motore interno, trovati insieme misurando perche' i
+run C# non somigliano al paniere della ricerca (`run-engine/run-08-settembre`).
+Il primo: il loop di `PiootooBacktestingService` saltava **sabato e domenica UTC**, ma la sessione
+della ricerca e' il giorno di calendario **europeo**, quindi la riapertura del lunedi' cade alle
+22:00 (ora legale) o 23:00 (ora solare) UTC di **domenica**. Il motore non vedeva quindi l'apertura
+di nessun lunedi' — niente valutazione, niente fill, niente mark-to-market — e su BTC, che quota
+24/7, due giorni pieni a settimana. Nel feed interno le barre di sabato/domenica UTC sono il
+**21,0%** di `@NQ_1440` (sono tutti i lunedi': la giornaliera del lunedi' europeo e' timbrata
+domenica 23:00 UTC), il 3,6% dei 4h CME e l'1,4% degli intraday; in `compare-0021`, stesso feed e
+stessa finestra, il motore interno aveva **zero** trade nel fine settimana UTC contro **110 su
+1.273** del cBot, e sul giornaliero **3 lunedi' contro 12** (60 trade contro 85). Ora il salto lo
+decide il **piano** e non il calendario (`IterationIsSkippedByWeekEndFlat`): resta solo con
+`AllowOverweek` falso, dove il conto dev'essere piatto e senza ordini, e vale esattamente la
+finestra di `WeekEndFlatPolicy` — il tick su cui il flat *scatta* non si salta mai, perche' e'
+quello che chiude e cancella.
+Il secondo: `ValidFromUtc` nasce da `EasyLib.EstimateNextBarUtc`, che proietta
+`barTime + timeframe` perche' al momento del segnale la barra successiva non esiste ancora.
+Attraverso un buco quella proiezione cade nel vuoto e l'ordine moriva **prima** che la barra che
+"next bar" nomina fosse arrivata. Le barre seguite da un buco sono il **20,2%** su `@NQ_1440` — ed
+e' sistematicamente il segnale della sessione di **venerdi'**, quello che deve operare sul lunedi' —
+il **15,0%** su `@FDAX_240`, il 3,9% sui 4h CME, circa il 2% sugli intraday. La scadenza di un
+pending si misura ora dalla **prima barra vera** su cui e' risultato attivo
+(`PendingOrder.ActivatedAtUtc`, agganciata dove si decide `Placed`), non dall'istante proiettato:
+senza buchi i due coincidono, con un buco l'ordine vive la barra seguente della serie, che e' la
+semantica `next bar` di EasyLanguage e la riga dopo nel dataframe della ricerca. `IsExpired` sul
+**segnale** resta a orologio e continua a scartare all'arrivo un intent gia' passato: sono due
+controlli diversi e confonderli riapre il fill fantasma.
+Due cambi che sono parte della correzione, non effetti collaterali. **`MaxBarsInPosition` conta
+barre, non tick**: il contatore avanzava a ogni giro dell'orologio, quindi con il fine settimana
+percorso una posizione sarebbe morta due giorni prima del dovuto — ora avanza solo dove il simbolo
+ha davvero stampato una barra, che corregge anche la pausa notturna CME e i festivi. E
+**`IsStrategyCandleStale` vale anche sotto il giornaliero**, con soglia a **due** barre della
+strategia: dentro un buco il cursore restituisce sempre l'ultima barra chiusa, e senza guardia la
+strategia riemetterebbe lo stesso segnale a ogni tick — quarantanove ore la settimana, tutte in
+`signals.json`. Due barre e non una perche' `ShouldEvaluateStrategy` allinea per conteggio di
+iterazioni e non sulla griglia della serie.
+Nessuna regressione: gli stessi 64 test rossi prima e dopo, piu' 24 verdi nuovi
+(`PendingOrderAcrossGapTests`, `WeekEndIterationTests`). Vedi
+`domini/orologio-barre-e-fill.md`.
+
+- **2026-09-07** — **Il confine di sessione vale per qualunque ora di ancoraggio, e l'ora la dichiara
+lo strumento.** `EasyLib.OHLCMulti5` compensava l'etichettatura all'apertura del feed **solo** per
+`session_start_hour = 0` (il ramo `calendarDaySession`); con un ancoraggio diverso restava il
+confronto stretto `t > sessionStartTime`, che presuppone barre etichettate alla chiusura e lasciava
+**fuori da ogni sessione** — ne' d0 ne' d1..d5 — le barre fino all'ancoraggio incluso. Misurato con
+una sonda sulla funzione: **22 barre su 24** su serie oraria e **5 bucket su 6** su serie 4h. Con
+`H_d1`/`L_d1` che per TF_M, BO e RHL *sono il livello d'ingresso*, la sessione monca non produce
+segnali sbagliati: ne produce di diversi. Ora la regola sta in `ClassifySessionBar`, in **un punto
+solo** invece delle due copie che un commento chiedeva di tenere allineate, e per una sessione a
+giornata piena `(ancoraggio, 2359)` calcola il giorno di sessione — la data locale arretrata di un
+giorno se la barra cade prima dell'ancoraggio. Le sessioni di borsa (`1700/1659`, `1700/1600`,
+`0900/1600`) restano sul percorso storico, dove le barre fuori orario davvero non appartengono a
+nessuna sessione.
+Di conseguenza sono cadute le deroghe: **tutte e sette le FDAX** dichiaravano
+`ResearchSession()` invece di `ResearchSession(1)`, tre con una deroga documentata proprio per
+questo difetto e quattro senza accorgersene — fra queste S11 e S15, il primo e il secondo del
+paniere per P&L fuori campione ($330.157 e $337.481). L'ora ora non e' piu' una scelta della classe:
+e' `InstrumentSpec.ResearchSessionStartHour` (la tabella §2.4 del dossier: 01:00 CET per FDAX, CC,
+CT, KC, SB e HK, 00:00 per gli altri) e `ResearchSessionStartConformanceTests` la impone su tutte e
+124 le `PTS_*`. `domini/mappa-strategie-pts.md` affermava che la forma era «imposta da
+`StrategyClockConformanceTests`»: quel test verifica che *un* fuso sia dichiarato, non *quale* ora —
+ed e' la differenza fra una convenzione scritta e una imposta.
+
+- **2026-09-07** — **`MaxEntriesPerSession` vale per lato.** Il motore di ricerca dichiara
+`single_entry_per_session` come «al massimo UNA entrata per sessione **per direzione**»
+(`easy_engine_py/base.py`, `EngineSignals`) e il dossier lo ripete in §2.2, ma la chiave del
+contatore era `simbolo|strategia` senza il lato — sia nel backtest (`MakeEntrySessionKey`) sia in
+sessione (`EntryFillKey`). Riempito il long, lo short restava bloccato per tutto il resto della
+sessione: sui motori mirrored — TF_M, PC, BO, VBO, RBB_M, RHL, cioe' quasi tutto il paniere — le due
+gambe nascono sulla stessa barra e sono due segnali indipendenti, non un doppione. Il lato era gia'
+nella chiave di `AccountHasEntryInFlight` e degli slot di concorrenza, ed era gia' stato corretto
+nel cBot (`CancelStrategyPendingOrders` per strategia *e lato*): mancava qui. Il lucchetto dell'OCO
+— un solo ingresso in volo per strategia e simbolo — e' un vincolo diverso e resta. Nota di
+migrazione: le righe di `session-state.json` scritte con la chiave a due campi non corrispondono
+piu' e il conteggio riparte da zero per il secchio in corso, cioe' una entrata in piu' una volta
+sola sulla sessione a cavallo dell'aggiornamento. Non vale una migrazione: una chiave vecchia letta
+come «entrambi i lati» reintrodurrebbe il difetto proprio dove lo si sta togliendo.
+
+- **2026-09-07** — **La griglia oltre l'ora si ancora all'inizio sessione dello strumento, e un
+ancoraggio sbagliato ferma il bot.** `aggregate_flat_feed.py` calcolava il bucket con
+`minutes_since_midnight % tf` per **ogni** simbolo, e i due cBot che piegano i bucket hanno
+`SessionStartHour` come parametro con default 0. Per i sei mercati che la ricerca apre alle 01:00
+CET questo sposta di un'ora tutti i bucket da 4h in su: le barre non sono sbagliate, sono barre
+diverse — tutte plausibili — e nessun controllo a valle se ne accorge. Ora lo script ha
+`SESSION_START_HOUR` (la stessa tabella §2.4) e stampa l'ancoraggio in testa alla conversione, e i
+tre cBot risolvono l'ancoraggio **per simbolo** in `SessionStartHourOf`, che `BucketStartUtc` chiama
+al posto del parametro. Il parametro `SessionStartHour` resta il default e l'unica via per uno
+strumento che la tabella non conosce.
+**Prima versione sbagliata, corretta lo stesso giorno.** Il primo tentativo teneva l'ancoraggio per
+istanza e lo difendeva con una guardia fatale (`TryValidateSessionStartHour`) che rifiutava l'avvio
+quando i simboli richiesti non concordavano col parametro. E' la forma sbagliata, e si e' vista al
+primo avvio reale: un'istanza sul piano FTMO raccoglie insieme `@CC @CT @FDAX @KC @SB` e
+`@BTC @CL @ES @GC @NG @NQ @PL @YM`, cioe' entrambi gli ancoraggi, e nessun valore del parametro e'
+giusto — il bot si fermava senza spedire una barra. Obbligare a un'istanza per gruppo di ancoraggio
+per difendere un parametro che non doveva esistere e' curare il sintomo: se l'ancoraggio e' una
+proprieta' dello strumento, va letto dallo strumento. La tabella e' in quattro copie (script e tre
+cBot) per la stessa ragione per cui lo e' `BucketStartUtc`: il bot gira dentro cTrader e non vede
+`InstrumentRegistry`. Sotto l'ora i due ancoraggi coincidono, quindi i file a 15/30/60 minuti non
+cambiano. Il campo `source` del feed dichiara l'ancoraggio **davvero applicato a quello stream**,
+non il parametro: dichiararne uno non applicato sarebbe peggio che non dichiararne nessuno.
+`BotVersion`: raccoglitore 1.2.2 -> **1.3.1** (la 1.3.0 e' la versione con la guardia, che non ha
+mai raccolto niente), distribuito 6.0.0 -> **6.0.1**, diretto 1.6.0 -> **1.6.1**. **`datafeed/@FDAX_240.json` e' sulla griglia
+vecchia e va rigenerato**; nell'archivio esterno lo sono i 240 e 1440 di FDAX, CC, CT, KC, SB e HK.
+Vedi `domini/datafeed-generazione.md`.
+
+- **2026-09-07** — **Una riemissione non uccide l'ordine che sta vivendo la propria barra.**
+`EnqueuePendingOrder` indicizza su `positionKey|lato|tipo` e sostituiva senza condizioni. Le
+strategie EasyLanguage pero' riemettono il "next bar" a ogni barra finche' la condizione regge
+(`EasyEngineBase`: `ValidFromUtc = ExpiresAtUtc = nextBar`), quindi il segnale nuovo — valido
+**dalla barra dopo** — prendeva il posto di quello valido **adesso**, e fra i due istanti sul
+mercato non c'era nessun ordine mentre sul broker ce n'era uno. L'unica finestra che restava
+all'incumbent era la `TryFillPendingOrders` in testa a `ProcessSignals`, larga quanto la barra
+dell'**orologio**: finche' l'orologio coincideva con il timeframe della strategia era la barra
+intera e il difetto non produceva nessuna differenza, ed e' per questo che e' vissuto fin qui. Con
+`ClockTimeframeMinutes` piu' fitto vale una frazione — a un minuto su una strategia a 60, un
+sessantesimo. Misura in `piootoo-repository/compare/compare-0022`: `PTS_BTC_BIA_001_60` aveva **72**
+occasioni di riempimento sulle barre da 1 minuto dell'archivio, il cBot ne ha prese **72**, il
+motore interno **9** — e 9 e' esattamente il numero dei livelli toccati nel primo minuto della
+barra. Non e' un difetto dell'orologio fine: era gia' li' e mordeva gia', perche' l'orologio non
+puo' superare il timeframe piu' corto del portafoglio (`BacktestClock.Resolve`) e con una strategia
+a 15 minuti in paniere una a 60 vedeva comunque un quarto della propria barra. Ora la generazione
+nuova aspetta in `PendingOrder.Next` e subentra quando l'incumbent ha finito
+(`ResolveLivePending`), con diritto alla barra corrente: un ordine per lato, ripiazzato a ogni
+barra, come fa il broker. Si cede il posto solo a un incumbent **gia' attivo** (`ActivatedAtUtc`
+valorizzato): una prenotazione che non ha ancora visto la propria barra viene sostituita dalla
+versione piu' recente, come prima. `PendingOrderReemissionTests` copre i due casi rotti, il fill
+fantasma del livello vecchio nell'ora della generazione dopo, e la regressione a orologio uguale al
+timeframe. Nella stessa passata `CloneTradeSignal` ha ripreso i campi diagnostici che lasciava
+indietro — `TimeframeMinutes`, `MaxEntriesPerSession`, `EntrySessionStartUtc` e i due qualificatori
+di time exit: il clone serve solo a persistere, e `signals.json` usciva con `timeframeMinutes: 0` su
+tutti i 35.067 segnali del run, cioe' «l'ordine muore dopo un tick», l'esatto contrario di quello
+che il motore fa. Difetto di artefatto, non di esecuzione, ma e' costato mezza indagine.

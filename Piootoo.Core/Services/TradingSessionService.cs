@@ -3060,7 +3060,7 @@ public sealed class TradingSessionService : ITradingSessionService
             return false;
 
         var fills = CountEntryFills(
-            session, intent.StrategyCode, intent.Symbol, sessionStart, accountNumber);
+            session, intent.StrategyCode, intent.Symbol, intent.Side, sessionStart, accountNumber);
 
         return fills >= intent.MaxEntriesPerSession.Value;
     }
@@ -3071,8 +3071,26 @@ public sealed class TradingSessionService : ITradingSessionService
     /// </summary>
     private const string AnyAccount = "*";
 
-    private static string EntryFillKey(string strategyCode, string symbol) =>
-        $"{strategyCode.ToUpperInvariant()}|{symbol.ToUpperInvariant()}";
+    /// <summary>
+    /// Chiave di <see cref="Session.EntryFills"/>: strategia, simbolo e <b>lato</b>.
+    ///
+    /// <para><b>Il lato fa parte della chiave.</b> Il motore di ricerca dichiara
+    /// <c>single_entry_per_session</c> come «al massimo UNA entrata per sessione <b>per
+    /// direzione</b>» (<c>easy_engine_py/base.py</c>), e il dossier lo ripete in §2.2. Senza il
+    /// lato, il primo fill della sessione spegneva anche la gamba opposta: sui motori mirrored le
+    /// due gambe nascono sulla stessa barra e sono due segnali indipendenti. È la stessa ragione
+    /// per cui il lato sta già nella chiave di <c>AccountHasEntryInFlight</c> e degli slot di
+    /// concorrenza.</para>
+    ///
+    /// <para><b>Sessioni riprese dalla versione precedente.</b> Le righe di
+    /// <c>session-state.json</c> scritte con la chiave a due campi non corrispondono più e il
+    /// conteggio riparte da zero per il secchio in corso: una entrata in più, una volta sola, sulla
+    /// sessione a cavallo dell'aggiornamento. Non vale una migrazione — il secchio è il giorno, e
+    /// una chiave vecchia interpretata come «entrambi i lati» reintrodurrebbe il difetto proprio
+    /// dove lo si sta togliendo.</para>
+    /// </summary>
+    private static string EntryFillKey(string strategyCode, string symbol, SignalType side) =>
+        $"{strategyCode.ToUpperInvariant()}|{symbol.ToUpperInvariant()}|{side}";
 
     /// <summary>
     /// Chiave di <see cref="Session.EntriesByDay"/>: <c>simbolo|strategia</c>, cioe' la stessa
@@ -3089,9 +3107,10 @@ public sealed class TradingSessionService : ITradingSessionService
     /// scansione che questo indice ha sostituito.
     /// </summary>
     private static int CountEntryFills(
-        Session session, string strategyCode, string symbol, DateTime secchio, string? accountNumber)
+        Session session, string strategyCode, string symbol, SignalType side,
+        DateTime secchio, string? accountNumber)
     {
-        if (!session.EntryFills.TryGetValue(EntryFillKey(strategyCode, symbol), out var perSecchio))
+        if (!session.EntryFills.TryGetValue(EntryFillKey(strategyCode, symbol, side), out var perSecchio))
             return 0;
 
         var chiave = accountNumber is null ? AnyAccount : accountNumber.ToUpperInvariant();
@@ -3128,7 +3147,7 @@ public sealed class TradingSessionService : ITradingSessionService
         if (intent.EntrySessionStartUtc is not { } secchio)
             return;
 
-        var chiave = EntryFillKey(intent.StrategyCode, intent.Symbol);
+        var chiave = EntryFillKey(intent.StrategyCode, intent.Symbol, intent.Side);
         if (!session.EntryFills.TryGetValue(chiave, out var perSecchio))
             session.EntryFills[chiave] = perSecchio = new Dictionary<(DateTime, string), int>();
 
@@ -3170,16 +3189,16 @@ public sealed class TradingSessionService : ITradingSessionService
             return testa;
 
         var dettagli = candidates
-            .Select(t => new { t.StrategyCode, t.Symbol, Secchio = t.EntrySessionStartUtc, Tetto = t.MaxEntriesPerSession })
+            .Select(t => new { t.StrategyCode, t.Symbol, t.Side, Secchio = t.EntrySessionStartUtc, Tetto = t.MaxEntriesPerSession })
             .Distinct()
             .Select(c =>
             {
                 var fillNelSecchio = c.Secchio is { } secchio
-                    ? CountEntryFills(session, c.StrategyCode, c.Symbol, secchio, accountNumber)
+                    ? CountEntryFills(session, c.StrategyCode, c.Symbol, c.Side, secchio, accountNumber)
                     : 0;
 
                 var secchiConFill =
-                    session.EntryFills.TryGetValue(EntryFillKey(c.StrategyCode, c.Symbol), out var perSecchio)
+                    session.EntryFills.TryGetValue(EntryFillKey(c.StrategyCode, c.Symbol, c.Side), out var perSecchio)
                         ? perSecchio.Keys
                             .Where(k => k.Account != AnyAccount)
                             .Select(k => Secchio(k.Secchio) +
@@ -3191,7 +3210,9 @@ public sealed class TradingSessionService : ITradingSessionService
                             .ToList()
                         : [];
 
-                return $"{c.StrategyCode}/{c.Symbol} secchio {Secchio(c.Secchio)} " +
+                // Il lato e' nel messaggio perche' e' nella chiave: senza, due righe identiche
+                // direbbero di due secchi diversi.
+                return $"{c.StrategyCode}/{c.Symbol} {c.Side} secchio {Secchio(c.Secchio)} " +
                        $"fill {fillNelSecchio}/{(c.Tetto?.ToString() ?? "n/d")}" +
                        (secchiConFill.Count == 0
                            ? ", nessun fill della strategia"

@@ -129,6 +129,20 @@ SYMBOL_SOURCES: dict[str, str] = {
 # ogni timeframe in piu' e' un file che nessuno legge ma che pesa quanto gli altri.
 # @EC non ha ancora strategie: gli si da' il set completo degli altri indici,
 # perche' e' il simbolo su cui si sta lavorando.
+# Ora in cui la ricerca fa cominciare la sessione, nell'orologio del feed (CET).
+# E' la tabella §2.4 del dossier del paniere, e la stessa che
+# `InstrumentSpec.ResearchSessionStartHour` porta lato C#. Conta solo da 4h in su:
+# sotto l'ora i due ancoraggi coincidono comunque, perche' l'offset e' intero.
+# Un simbolo assente vale 0.
+SESSION_START_HOUR: dict[str, int] = {
+    "@FDAX": 1,
+    "@CC": 1,
+    "@CT": 1,
+    "@KC": 1,
+    "@SB": 1,
+    "@HK": 1,
+}
+
 SYMBOL_TIMEFRAMES: dict[str, tuple[int, ...]] = {
     "@BP": (15, 60),
     "@BTC": (240,),
@@ -374,15 +388,26 @@ def read_minutes(csv_path: Path, clock: SourceClock) -> Iterator[tuple[datetime,
             yield row_utc, local_naive, row[2], high, row[3], low, row[4], row[5], volume
 
 
-def minutes_into_bucket(local_minute_end: datetime, timeframe_minutes: int) -> int:
+def minutes_into_bucket(
+    local_minute_end: datetime, timeframe_minutes: int, session_start_hour: int = 0
+) -> int:
     """
     Quanti minuti separano l'inizio del bucket dall'inizio del minuto che sta
     arrivando. Il conto e' su `t - 1 minuto` perche' il timestamp del CSV e' la
     fine del minuto (vedi il docstring del modulo).
+
+    L'ancoraggio non e' la mezzanotte per tutti: `session_start_hour` e' l'ora in
+    cui la ricerca fa cominciare la sessione di quello strumento (tabella §2.4
+    del dossier del paniere), ed e' 1 per FDAX, CC, CT, KC, SB e HK. Ancorare
+    quei sei alla mezzanotte sposta di un'ora tutti i bucket da 4h in su rispetto
+    alla griglia su cui le strategie sono state trovate: le barre non sono
+    sbagliate, sono barre diverse, e nessun errore lo segnala.
     """
     start = local_minute_end - timedelta(minutes=1)
-    minutes_since_midnight = start.hour * 60 + start.minute
-    return minutes_since_midnight % timeframe_minutes
+    minutes_since_anchor = (
+        start.hour * 60 + start.minute - session_start_hour * 60
+    ) % (24 * 60)
+    return minutes_since_anchor % timeframe_minutes
 
 
 def convert_symbol(
@@ -417,9 +442,11 @@ def convert_symbol(
                 )
 
     clock = SourceClock(zone)
+    session_start_hour = SESSION_START_HOUR.get(symbol, 0)
     print(
         f"{symbol}: {csv_path.name} -> "
-        + ", ".join(f"{feed.destination.name}" for feed in feeds),
+        + ", ".join(f"{feed.destination.name}" for feed in feeds)
+        + f"  [ancoraggio {session_start_hour:02d}:00 locali]",
         flush=True,
     )
 
@@ -433,7 +460,9 @@ def convert_symbol(
             for feed in feeds:
                 feed.add(
                     row_utc,
-                    minutes_into_bucket(local_naive, feed.timeframe_minutes),
+                    minutes_into_bucket(
+                        local_naive, feed.timeframe_minutes, session_start_hour
+                    ),
                     open_text,
                     high,
                     high_text,

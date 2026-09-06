@@ -14,12 +14,12 @@ namespace Piootoo.Strategies.PiutooStrategies;
 ///
 /// <para><b>Che cosa fa.</b> Breakout sugli estremi delle ultime N sessioni.</para>
 ///
-/// <para><b>Sessione e fuso.</b> Le sessioni <c>d0..d5</c> su cui girano i pattern sono il
-/// <b>giorno di calendario europeo</b>, 00:00 -> 00:00, come il motore Python che taglia con
-/// <c>(timestamp - 1 min - session_start_hour).normalize()</c> e <c>session_start_hour = 0</c>.
-/// Non e' la sessione del broker: le due coincidono quasi sempre, ma non nelle settimane in cui
-/// l'ora legale americana ed europea non sono allineate. Gli orari della finestra operativa sono
-/// riportati <b>verbatim</b> dalla ricerca, mai convertiti nell'ora di borsa del simbolo.</para>
+/// <para><b>Sessione e fuso.</b> Le sessioni <c>d0..d5</c> su cui girano i pattern cominciano alle
+/// <b>01:00 dell'orologio della ricerca</b> (CET) e durano fino alla stessa ora del giorno dopo:
+/// e' quanto la tabella §2.1 del dossier dichiara per FDAX, cioe' <c>session_start_hour = 1</c> nel
+/// taglio <c>(timestamp - 1 min - session_start_hour).normalize()</c> del motore Python. Non e' la
+/// sessione Eurex. Gli orari della finestra operativa sono riportati <b>verbatim</b> dalla ricerca,
+/// mai convertiti nell'ora di borsa del simbolo.</para>
 ///
 /// <para><b>Livelli di ingresso.</b></para>
 /// <list type="bullet">
@@ -83,11 +83,11 @@ public sealed class PTS_FDAX_SBO_001_240 : SessionBreakoutEngine
 
     public PTS_FDAX_SBO_001_240()
     {
-        // Confine di sessione del run: giorno di calendario europeo, come
-        // (timestamp - 1 min - session_start_hour).normalize() del motore Python.
-        // NON e' la sessione del broker: le due divergono nelle settimane di
-        // disallineamento fra ora legale americana ed europea.
-        Session = ZonedWindow.ResearchSession();
+        // session_start_hour = 1 (tabella §2.1 del dossier): la sessione va da 01:00 a 01:00
+        // nell'orologio della ricerca. La barra che apre a mezzanotte appartiene alla
+        // sessione PRECEDENTE, come nel taglio (timestamp - 1 min - session_start_hour) del
+        // motore Python.
+        Session = ZonedWindow.ResearchSession(1);
         Contracts = 1;
 
         // Finestra operativa: start_hour/end_hour del run, verbatim nell'orologio

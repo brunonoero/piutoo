@@ -99,6 +99,132 @@ occasioni. Nel confronto del 26/08/2026 le due strategie a limite a 60 minuti
 avevano 29 fill interni contro 69 esterni, e il **54%** dei fill del broker
 cadeva nella seconda mezz'ora dell'ora — esattamente la metà invisibile.
 
+### La riemissione non lo sostituisce finché è vivo
+
+Le strategie EasyLanguage riemettono il "next bar" **a ogni barra** finché la
+condizione regge: è la semantica di EasyLanguage e la si vede in
+`EasyEngineBase`, che ogni volta produce un segnale con
+`ValidFromUtc = ExpiresAtUtc = nextBar`. Chi lo esegue tiene però **un solo
+ordine per lato** (`positionKey|lato|tipo`), e il segnale nuovo vale *dalla
+barra dopo*: metterlo subito al posto dell'incumbent toglie all'ordine vivo il
+resto della propria barra e lascia lo slot a uno che non è ancora valido. Fra i
+due istanti sul mercato non c'è nessun ordine, mentre sul broker ce n'è uno.
+
+La generazione nuova quindi **aspetta** in `PendingOrder.Next` e subentra quando
+l'incumbent ha finito la propria barra (`ResolveLivePending`), con diritto alla
+barra corrente e non alla successiva. Si cede il posto solo a un incumbent già
+attivo — `ActivatedAtUtc` valorizzato, cioè che ha visto almeno una barra vera:
+una prenotazione che la propria barra non l'ha ancora vista viene sostituita
+dalla versione più recente, che è semplicemente migliore.
+
+**Perché è vissuto fin qui.** L'unica finestra che restava all'incumbent era la
+`TryFillPendingOrders` in testa a `ProcessSignals`, che gira *prima* che il
+segnale nuovo lo rimpiazzi — ed è larga quanto la barra dell'**orologio**:
+
+| orologio | cosa vede l'incumbent prima di essere sostituito |
+|---|---|
+| = timeframe della strategia | la barra intera, cioè tutto il proprio range |
+| più fitto | la sola prima barra dell'orologio |
+
+Con l'orologio uguale al timeframe il difetto non produce nessuna differenza. Ma
+l'orologio non può superare il timeframe più corto del portafoglio
+(`BacktestClock.Resolve`), quindi bastava una strategia a 15 minuti in paniere
+perché una a 60 vedesse un quarto della propria barra.
+
+**Misura** (`piootoo-repository/compare/compare-0022`, gennaio-marzo 2026,
+`PTS_BTC_BIA_001_60` a 60 minuti con l'orologio a 1): 424 segnali di ingresso,
+45 con il livello già scavalcato all'apertura, **72** occasioni in cui il
+livello viene toccato dentro la propria ora. Il cBot ne ha prese **72**, il
+motore interno **9** — e 9 è esattamente il conto dei livelli toccati nel primo
+minuto della barra, più i tre casi in cui la strategia tace sull'ora dopo e
+nessuno sovrascrive.
+
+### Attraverso un buco: la barra è quella che arriva, non quella proiettata
+
+`ValidFromUtc` nasce da `EasyLib.EstimateNextBarUtc`, che proietta
+`barTime + timeframe` — al momento del segnale la barra successiva **non esiste
+ancora**, quindi non c'è altro da cui ricavarla. Attraverso un buco della serie
+(fine settimana, festività, pausa di sessione) quella proiezione cade dove non
+c'è nessuna barra, e con la scadenza misurata sull'orologio l'ordine moriva
+**prima** che la barra che "next bar" nomina fosse arrivata: nasceva e spariva
+senza che una sola barra lo guardasse.
+
+Quanto pesa, contando le barre seguite da un buco:
+
+| feed | barre seguite da un buco |
+|---|---|
+| `@NQ_1440` | **20,2%** |
+| `@FDAX_240` | **15,0%** |
+| `@NQ_240`, `@ES_240` | 3,9% |
+| `@NQ_60` | 2,7% |
+| `@NQ_15` | 2,0% |
+
+Sul giornaliero non è una coda: è **sistematicamente il segnale della sessione di
+venerdì**, cioè quello che deve operare sul lunedì. Il buco è sempre lo stesso.
+
+La scadenza di un pending si misura quindi dalla **prima barra vera** su cui
+l'ordine è risultato attivo (`PendingOrder.ActivatedAtUtc`, agganciata nello
+stesso punto in cui si decide `Placed`), non dall'istante proiettato. Senza buchi
+i due coincidono e il comportamento è identico; con un buco l'ordine attraversa
+il vuoto e vive la barra seguente della serie — che è la semantica `next bar` di
+EasyLanguage e la riga successiva del dataframe del motore di ricerca.
+
+`ExpiresAtUtc` sul **segnale** resta a orologio e continua a servire all'arrivo:
+un intent consegnato quando la sua finestra è già passata va scartato, non
+eseguito al proprio livello. Sono due controlli diversi — `IsExpired` sul
+segnale, `IsPendingExpired` sull'ordine in coda — e confonderli riapre il fill
+fantasma.
+
+**Limite noto.** Un ordine che non incontra più nessuna barra resta in coda
+invece di scadere. Non riempie (senza barra non si riempie), viene sostituito
+dalla riemissione successiva e sparisce a fine run; ma se il buco è patologico il
+fill arriva molto dopo. La difesa è il fail fast sul datafeed mancante, non una
+scadenza a orologio che falserebbe i buchi legittimi.
+
+## Il fine settimana non si salta per calendario
+
+Il loop di backtesting saltava sabato e domenica **UTC** per ogni run. Ma la
+sessione della ricerca è il giorno di calendario **europeo**: la riapertura del
+lunedì cade alle 22:00 (ora legale) o 23:00 (ora solare) UTC di **domenica**.
+Quel salto toglieva quindi al motore l'apertura di ogni lunedì — niente
+valutazione, niente fill, niente mark-to-market — e su un mercato che quota 24/7
+come BTC due giorni pieni a settimana.
+
+Barre di sabato/domenica UTC nel feed interno: **21,0%** su `@NQ_1440` (sono
+tutti i lunedì: la barra giornaliera del lunedì europeo è timbrata domenica
+23:00 UTC), 3,6% sui 4h CME, 1,4% sugli intraday. Sul confronto `compare-0021`,
+stesso feed e stessa finestra, il motore interno aveva **zero** trade nel fine
+settimana UTC contro **110 su 1.273** del cBot, e sul giornaliero **3 lunedì
+contro 12** (60 trade contro 85 in totale).
+
+Oggi il salto lo decide il **piano**, non il calendario
+(`IterationIsSkippedByWeekEndFlat`): resta solo quando `AllowOverweek` è falso,
+perché lì il conto deve essere piatto e senza ordini fino alla riapertura, e in
+quel caso si salta esattamente la finestra di `WeekEndFlatPolicy` — non il
+sabato e la domenica di calendario. Il tick su cui il flat **scatta** non si
+salta mai: è quello che chiude le posizioni e cancella i pending. Con
+`AllowOverweek` — la condizione dei run di parità con la ricerca — il fine
+settimana si percorre tutto.
+
+Due conseguenze che sono parte della correzione, non effetti collaterali:
+
+- **`MaxBarsInPosition` conta barre, non tick.** Il contatore avanzava a ogni
+  tick dell'orologio, quindi anche dove il feed non ha nulla: con il fine
+  settimana percorso, una posizione sarebbe morta per `MaxBars` due giorni prima
+  del dovuto. Ora avanza solo quando il simbolo ha davvero stampato una barra su
+  quel tick. È la stessa regola che `CLAUDE.md` impone ai cBot — l'orologio a
+  barre si conta sui bucket, non su `Series.Count` — e corregge anche la pausa
+  notturna CME e i festivi, dove la distorsione c'era già.
+- **`IsStrategyCandleStale` vale anche sotto il giornaliero.** Dentro un buco il
+  cursore restituisce sempre la stessa ultima barra chiusa: senza guardia la
+  strategia verrebbe rivalutata a ogni tick su input identici e riemetterebbe lo
+  stesso segnale decine di volte — circa quarantanove ore di tick a vuoto la
+  settimana, per ogni strategia, tutte in `signals.json`. La soglia è **due
+  barre** della strategia, non una, perché `ShouldEvaluateStrategy` allinea per
+  conteggio di iterazioni e non sulla griglia della serie: una 4 ore su orologio
+  da 15 minuti può legittimamente essere valutata qualche tick dopo l'apertura
+  della propria barra.
+
 ## Un livello già scavalcato non è un ordine
 
 Uno stop buy sotto il prezzo corrente non è più il breakout che la strategia
@@ -240,26 +366,70 @@ ingressi "di sabato" che non esistono.
 
 ## Cosa resta scoperto
 
-`IsStrategyCandleStale` è inerte sotto il giornaliero: ritorna `false` per
-`timeframeMinutes < 1440`, quindi non protegge nessuna strategia intraday. La
-protezione effettiva oggi è `BelongsToCurrentTick`; il contatore
-`skippedStaleCandle` resta di conseguenza a zero sugli intraday e non va letto
-come "nessuna barra stantia incontrata".
-
 Resta aperto il punto già elencato in [`../PROGETTO.md`](../PROGETTO.md) §8: le
 strategie con timeframe superiore al minimo del run sono valutate sull'orologio
-sintetico e non sui confini reali della loro barra.
+sintetico e non sui confini reali della loro barra. L'orologio a un minuto della
+sezione qui sotto **non** lo chiude — sposta il tick, non l'allineamento — ma
+riduce l'errore al minuto invece che al timeframe più corto del portafoglio.
+
+## L'orologio si può infittire
+
+`BacktestingRequest.ClockTimeframeMinutes` (null = il minimo fra le strategie) porta il tick del
+loop a un timeframe più corto di quello di ogni strategia, tipicamente **un minuto**. Le strategie
+continuano a essere valutate sul proprio timeframe — `ShouldEvaluateStrategy` non cambia — ma
+`currentBars` porta la barra dell'orologio, ed è da lì che escono trigger e riempimenti.
+
+**Perché conta.** Tutto ciò che questo file chiama convenzione lo è perché la barra è larga.
+`intrabarPriority = ProtectiveBeforeTarget` esiste solo perché su una barra da sessanta minuti che
+tocca sia lo stop sia il target l'ordine non è nelle OHLC. Con l'orologio a un minuto quell'ordine
+si legge, e la convenzione resta a coprire il solo caso in cui i due prezzi cadono nella *stessa*
+barra da un minuto — che è raro quanto basta.
+
+**Cosa non cambia.** `MaxBarsInPosition` è al sicuro due volte: `ScaleSignalMaxBarsInPosition` lo
+moltiplica per `tf/min` prima che il segnale entri nel motore, e il contatore avanza solo sui tick
+in cui il simbolo ha davvero una barra — quindi una 60 minuti con cinque barre esce dopo cinque ore
+anche con il tick a un minuto, e anche attraverso un buco del feed. La vita di un pending si misura
+sulla propria barra e non sul tick — **scadenza e riemissione**: la prima da `ExpiresAtUtc +
+TimeframeMinutes`, la seconda perché la generazione nuova aspetta invece di sostituire quella viva.
+La seconda metà della regola è arrivata dopo, con `compare-0022`: l'orologio fine non l'ha rotta, ha
+reso visibile che mancava.
+
+**Cosa fa fallire l'avvio.** Un orologio più lento del timeframe più corto (quelle strategie non
+verrebbero mai valutate), uno che non divide il timeframe di qualche strategia (verrebbero saltate
+in silenzio: il run finirebbe «completo» con meno strategie, e l'unico indizio sarebbe l'equity più
+bassa) e un simbolo del run senza le barre dell'orologio. L'ultimo è la stessa regola del datafeed
+mancante: lasciare quel simbolo al proprio timeframe mescolerebbe due risoluzioni di riempimento
+nello stesso run.
+
+**Cosa costa.** Sessanta volte le iterazioni su un portafoglio orario, e il feed a un minuto è quasi
+tutto il peso di `datafeed-external/`. È una modalità di verifica, non un default: si accende per
+misurare la fedeltà dei riempimenti, come si spegne `RejectWrongSideLevels` per misurare il porting.
+
+Nel summary: `clockTimeframeMinutes` e `clockFinerThanStrategies`, in `fillConventions`. Nella
+console è una combo a due voci nella schermata di backtesting.
 
 ## Riferimenti codice
 
 - `Piootoo.Core/Services/PiootooBacktestingService.cs` — loop, `currentPrices` /
-  `currentBars`, `BelongsToCurrentTick`
+  `currentBars`, `BelongsToCurrentTick`, `IterationIsSkippedByWeekEndFlat`,
+  `IsStrategyCandleStale`
 - `Piootoo.Core/Services/PiootooTradingService.cs` — `ProcessSignals`,
   `RequiresDeferredExecution`, `TryFillPendingOrders`, `CanExecuteOnBar`,
-  `ResolveFillPrice`
+  `IsExpired` / `IsPendingExpired`, `EnqueuePendingOrder` / `ResolveLivePending`,
+  `ResolveFillPrice`, `CheckTimeExits`
 - `Piootoo.Shared/Models/TradeSignal.cs` — `ValidFromUtc`, `ExpiresAtUtc`
 - `Piootoo.Strategies.Tests/TrailingStepAndGapFillTests.cs` — regressioni del
   passo minimo di trailing e del fill sul gap
 - `Piootoo.Strategies.Tests/PendingStopOrderTests.cs` — regressioni
   `GapInFeed_DoesNotFillStopWithoutABar`,
   `ExpiredStopIntent_IsDiscardedInsteadOfFilledAtItsLevel`
+- `Piootoo.Strategies.Tests/PendingOrderAcrossGapTests.cs` — il pending
+  attraversa il buco e vive la prima barra che arriva; `MaxBars` conta barre
+- `Piootoo.Strategies.Tests/PendingOrderBarLifetimeTests.cs` — un ordine a 60
+  minuti si riempie anche nella seconda mezz'ora, e oltre la propria ora non più
+- `Piootoo.Strategies.Tests/PendingOrderReemissionTests.cs` — la riemissione non
+  toglie all'incumbent il resto della propria barra, la generazione in coda
+  subentra col proprio livello, e il livello vecchio non si riempie dopo
+- `Piootoo.Strategies.Tests/WeekEndIterationTests.cs` — quali tick del fine
+  settimana il loop salta, e per volere di chi
+- `Piootoo.Core/Services/BacktestClock.cs` — la validazione dell'orologio.

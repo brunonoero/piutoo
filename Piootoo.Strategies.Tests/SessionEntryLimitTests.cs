@@ -109,10 +109,52 @@ public sealed class SessionEntryLimitTests : IDisposable
             descriptor.SessionId, descriptor.SessionToken, "2001").Intent);
     }
 
+    /// <summary>
+    /// Il limite è per <b>lato</b>, non per strategia: riempito il long, lo short della stessa
+    /// sessione deve ancora poter entrare.
+    ///
+    /// <para>Il motore di ricerca dichiara <c>single_entry_per_session</c> come «una entrata per
+    /// sessione <b>per direzione</b>» (<c>easy_engine_py/base.py</c>, ripetuto in §2.2 del
+    /// dossier), e sui motori mirrored — TF_M, PC, BO, VBO, RBB_M, RHL, cioè quasi tutto il
+    /// paniere — le due gambe nascono sulla stessa barra e sono due segnali indipendenti. Con la
+    /// chiave senza lato il primo fill spegneva anche la gamba opposta per il resto della
+    /// sessione.</para>
+    ///
+    /// <para>La posizione va chiusa prima: il lucchetto dell'OCO — un solo ingresso in volo per
+    /// strategia e simbolo — è un vincolo diverso e resta.</para>
+    /// </summary>
+    [Fact]
+    public void DopoIlFillDelLong_LoShortDellaStessaSessionePuoAncoraEntrare()
+    {
+        var (sessions, descriptor) = Session(evaluation: new MirroredEvaluationService());
+
+        var primaBarra = sessions.PushBars(Bars(descriptor, SessionStart.AddHours(1))).Intents;
+        var buy = Assert.Single(primaBarra, i => i.Side == SignalType.Buy);
+        Assert.Contains(primaBarra, i => i.Side == SignalType.Sell);
+
+        Fill(sessions, descriptor, buy);
+
+        var close = sessions.CreateExternalCloseIntent(descriptor.SessionId, new CreateExternalCloseIntentRequest
+        {
+            SessionToken = descriptor.SessionToken,
+            StrategyCode = buy.StrategyCode,
+            Symbol = buy.Symbol
+        });
+        Fill(sessions, descriptor, close);
+
+        var secondaBarra = sessions.PushBars(Bars(descriptor, SessionStart.AddHours(2))).Intents;
+
+        // Lo short non ha ancora riempito in questa sessione: passa.
+        Assert.Contains(secondaBarra, i => i.Side == SignalType.Sell);
+        // Il long invece ha consumato il proprio limite.
+        Assert.DoesNotContain(secondaBarra, i => i.Side == SignalType.Buy);
+    }
+
     // ------------------------------------------------------------------------------ helper
 
     private (TradingSessionService Sessions, TradingSessionDescriptor Descriptor) Session(
-        IReadOnlyList<TestAccountRow>? accounts = null)
+        IReadOnlyList<TestAccountRow>? accounts = null,
+        IStrategyEvaluationService? evaluation = null)
     {
         var workspaces = new WorkspaceService(new PiootooSettings { Workspaces = _root });
         var strategyId = StrategyFactory.GetRegisteredStrategies().First().Id;
@@ -125,7 +167,7 @@ public sealed class SessionEntryLimitTests : IDisposable
         TestAccountRegistry.Register(workspaces, accounts);
 
         var sessions = new TradingSessionService(
-            workspaces, new OneEntryPerSessionEvaluationService(), new PositionSizingService());
+            workspaces, evaluation ?? new OneEntryPerSessionEvaluationService(), new PositionSizingService());
 
         var descriptor = sessions.Create(new CreateTradingSessionRequest
         {
@@ -216,6 +258,48 @@ public sealed class SessionEntryLimitTests : IDisposable
                     MaxEntriesPerSession = 1,
                     EntrySessionStartUtc = sessionStart
                 }
+            ];
+        }
+    }
+
+    /// <summary>
+    /// Le due gambe di un motore mirrored sulla stessa barra: stesso limite, stesso secchio, lati
+    /// opposti. È la forma con cui TF_M, PC, BO, VBO, RBB_M e RHL emettono.
+    /// </summary>
+    private sealed class MirroredEvaluationService : IStrategyEvaluationService
+    {
+        public IReadOnlyList<TradeSignal> Evaluate(
+            IReadOnlyList<ITradingStrategy> strategies,
+            ClosedBar closedBar,
+            IReadOnlyList<OhlcvData> history,
+            Func<ITradingStrategy, StrategyExecutionSnapshot> executionSnapshot)
+        {
+            var strategy = strategies.FirstOrDefault();
+            if (strategy is null) return [];
+
+            var sessionStart = closedBar.BarTimeUtc < SessionStart.AddDays(1)
+                ? SessionStart
+                : SessionStart.AddDays(1);
+
+            TradeSignal Gamba(SignalType side, decimal price) => new()
+            {
+                StrategyCode = strategy.Name,
+                StrategyName = strategy.Name,
+                Symbol = strategy.Symbol,
+                Date = closedBar.BarTimeUtc,
+                Type = side,
+                OrderType = TradeOrderType.Stop,
+                Quantity = 4m,
+                Price = price,
+                ValidFromUtc = closedBar.BarTimeUtc.AddMinutes(closedBar.TimeframeMinutes),
+                MaxEntriesPerSession = 1,
+                EntrySessionStartUtc = sessionStart
+            };
+
+            return
+            [
+                Gamba(SignalType.Buy, closedBar.Bar.Close + 1m),
+                Gamba(SignalType.Sell, closedBar.Bar.Close - 1m)
             ];
         }
     }

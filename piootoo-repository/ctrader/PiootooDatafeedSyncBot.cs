@@ -94,7 +94,7 @@ namespace cAlgo.Robots
         // 1.2.1: i confini del blocco si arrotondano al minuto prima di cercare il bucket. Senza,
         // un bucket ogni ChunkDays veniva spedito con una barra base sola. La versione finisce nel
         // campo `source` del feed ed e' il solo modo di distinguere un archivio raccolto prima.
-        private const string BotVersion = "1.2.2";
+        private const string BotVersion = "1.3.1";
 
         /// <summary>
         /// Tetto ai giri di <c>LoadMoreHistory</c> in un solo battito di timer. Il broker risponde a
@@ -191,6 +191,12 @@ namespace cAlgo.Robots
         /// <summary>
         /// Ora locale — nel fuso dichiarato sopra — in cui comincia la sessione, cioe' da dove si
         /// contano i bucket. <c>0</c> e' il <c>session_start_hour</c> dei run di ricerca.
+        ///
+        /// <para><b>E' il default, non l'ultima parola.</b> Per i sei mercati che la tabella §2.4 del
+        /// dossier apre alle 01:00 CET — FDAX, CC, CT, KC, SB, HK — l'ancoraggio lo decide
+        /// <see cref="SessionStartHourOf"/> e questo parametro non li tocca: l'ora d'inizio sessione
+        /// e' una proprieta' dello strumento, e un valore unico per istanza renderebbe non
+        /// raccoglibile in un colpo solo un piano che mette insieme NQ e FDAX.</para>
         /// </summary>
         [Parameter("Ora di inizio sessione", DefaultValue = 0, MinValue = 0, MaxValue = 23, Group = "Griglia oltre l'ora")]
         public int SessionStartHour { get; set; }
@@ -559,7 +565,8 @@ namespace cAlgo.Robots
                     if (stream.Aggregated)
                         Print("{0}: bucket costruiti qui dalle barre da {1} minuti, ancoraggio {2} {3:00}:00 — " +
                               "la serie nativa da {4} minuti della piattaforma NON viene usata.",
-                            stream, baseMinutes, SessionTimeZoneId.Trim(), SessionStartHour, minutes);
+                            stream, baseMinutes, SessionTimeZoneId.Trim(),
+                            SessionStartHourOf(stream.PiootooSymbol), minutes);
                 }
             }
 
@@ -1416,8 +1423,9 @@ namespace cAlgo.Robots
                 return false;
             }
 
-            Print("Ancoraggio dei bucket oltre l'ora: {0}, sessione dalle {1:00}:00 — la stessa griglia " +
-                  "di datafeed-future/aggregate_flat_feed.py e di ZonedWindow.ResearchSession().",
+            Print("Ancoraggio dei bucket oltre l'ora: {0}, sessione dalle {1:00}:00 salvo i simboli che la " +
+                  "tabella §2.4 apre alle 01:00 (FDAX, CC, CT, KC, SB, HK) — la stessa griglia di " +
+                  "datafeed-future/aggregate_flat_feed.py e di ZonedWindow.ResearchSession().",
                 id, SessionStartHour);
             return true;
         }
@@ -1430,6 +1438,42 @@ namespace cAlgo.Robots
         /// barre orarie a meta' e ogni bucket ne erediterebbe una in piu' o in meno, senza che niente
         /// lo segnali. Meglio non partire.
         /// </summary>
+        /// <summary>
+        /// L'ancoraggio dei bucket oltre l'ora, <b>per simbolo</b>: la tabella §2.4 del dossier del
+        /// paniere da' 01:00 CET a FDAX, CC, CT, KC, SB e HK, e la stessa tabella sta lato C# in
+        /// <c>InstrumentSpec.ResearchSessionStartHour</c>. Per tutto il resto vale il parametro
+        /// <see cref="SessionStartHour"/>, che resta il default e l'unica via per uno strumento che
+        /// la tabella non conosce.
+        ///
+        /// <para><b>Perche' per simbolo e non per istanza.</b> L'ancoraggio e' una proprieta' dello
+        /// strumento, non una scelta della raccolta: un parametro unico obbligherebbe a un'istanza
+        /// per gruppo di ancoraggio, e un piano che mette insieme NQ e FDAX — cioe' il caso normale —
+        /// non sarebbe raccoglibile in un colpo solo. Un ancoraggio sbagliato, del resto, non produce
+        /// barre sbagliate: produce barre <i>diverse</i>, tutte plausibili, sfasate di un'ora
+        /// rispetto alla griglia su cui le strategie sono state trovate, e nessun controllo a valle
+        /// se ne accorge. Meglio non poterlo sbagliare che accorgersene.</para>
+        ///
+        /// <para>E' una copia della tabella — il bot gira dentro cTrader e non vede
+        /// <c>InstrumentRegistry</c> — e vale la stessa regola di <see cref="BucketStartUtc"/>: le
+        /// copie restano identiche o la prossima lettura non sa piu' quale sia quella giusta.</para>
+        /// </summary>
+        private int SessionStartHourOf(string piootooSymbol)
+        {
+            var nome = (piootooSymbol ?? string.Empty).TrimStart('@').ToUpperInvariant();
+            switch (nome)
+            {
+                case "FDAX":
+                case "CC":
+                case "CT":
+                case "KC":
+                case "SB":
+                case "HK":
+                    return 1;
+                default:
+                    return SessionStartHour;
+            }
+        }
+
         private bool TryValidateSessionOffsets(out string error)
         {
             error = null;
@@ -1520,7 +1564,8 @@ namespace cAlgo.Robots
             var local = TimeZoneInfo.ConvertTimeFromUtc(
                 DateTime.SpecifyKind(openUtc, DateTimeKind.Utc), _sessionZone);
 
-            var minutesFromAnchor = (int)local.TimeOfDay.TotalMinutes - SessionStartHour * 60;
+            var minutesFromAnchor =
+                (int)local.TimeOfDay.TotalMinutes - SessionStartHourOf(stream.PiootooSymbol) * 60;
             if (minutesFromAnchor < 0)
                 minutesFromAnchor += 1440;
 
@@ -1728,9 +1773,13 @@ namespace cAlgo.Robots
             if (!stream.Aggregated)
                 return tag;
 
+            // L'ancoraggio dichiarato e' quello DAVVERO usato per questo stream, non il parametro:
+            // il campo `source` e' l'unico modo per distinguere a posteriori un archivio raccolto
+            // su una griglia da uno raccolto su un'altra, e dichiararne una che non e' stata
+            // applicata e' peggio che non dichiararne nessuna.
             return string.Format("{0} griglia({1}m->{2}m, {3} {4:00}:00)",
                 tag, stream.BaseTimeframeMinutes, stream.TimeframeMinutes,
-                SessionTimeZoneId.Trim(), SessionStartHour);
+                SessionTimeZoneId.Trim(), SessionStartHourOf(stream.PiootooSymbol));
         }
 
         private static bool TryToTimeFrame(int minutes, out TimeFrame timeFrame)

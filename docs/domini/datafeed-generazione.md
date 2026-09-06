@@ -82,15 +82,31 @@ tutti, altrimenti le serie non sono più confrontabili fra loro.
 
 ## Allineamento dei bucket
 
-`bucket_start` allinea sempre a partire dalla mezzanotte, non dall'ora
-corrente: così il 4h cade su 00, 04, 08, 12, 16 e 20, e la regola vale
-identica per tutti i timeframe. Da qui il vincolo che lo script verifica in
-ingresso, cioè che il timeframe divida i 1440 minuti del giorno; un timeframe
-che non lo fa produrrebbe barre che scivolano di giorno in giorno.
+L'allineamento parte dall'**ora d'inizio sessione dello strumento** nell'orologio
+del feed, non dall'ora corrente: per i mercati ancorati a mezzanotte il 4h cade
+su 00, 04, 08, 12, 16 e 20, e la regola vale identica per tutti i timeframe. Da
+qui il vincolo che lo script verifica in ingresso, cioè che il timeframe divida i
+1440 minuti del giorno; un timeframe che non lo fa produrrebbe barre che
+scivolano di giorno in giorno.
 
-Il **settimanale non si genera**: l'allineamento dalla mezzanotte non sa dove
-comincia la settimana, e nessuna strategia lo chiede. Lo script lo rifiuta
-esplicitamente invece di produrre barre plausibili e sbagliate.
+**L'ancoraggio non è la mezzanotte per tutti.** La tabella §2.4 del dossier del
+paniere dà `session_start_hour = 1` a FDAX, CC, CT, KC, SB e HK — su quei sei il
+4h cade su 01, 05, 09, 13, 17 e 21 e il giornaliero va da 01:00 a 01:00.
+`SESSION_START_HOUR` nello script è quella tabella, la stessa che lato C# sta in
+`InstrumentSpec.ResearchSessionStartHour` e che i cBot ricopiano in
+`SessionStartHourOf`, dove è risolta **per simbolo** e non per istanza: un
+piano che mette insieme NQ e FDAX è il caso normale, e un parametro unico lo
+renderebbe non raccoglibile in un colpo solo. Conta solo da 4h in su: sotto
+l'ora i due ancoraggi coincidono comunque, perché l'offset è un numero intero
+di ore.
+Ancorare quei sei alla mezzanotte non produce barre sbagliate — produce barre
+**diverse**, tutte plausibili, sfasate di un'ora rispetto alla griglia su cui le
+strategie sono state trovate, e nessun errore lo segnala. Fino al 07/09/2026 lo
+script ancorava tutti alla mezzanotte: `@FDAX_240` va rigenerato.
+
+Il **settimanale non si genera**: l'allineamento non sa dove comincia la
+settimana, e nessuna strategia lo chiede. Lo script lo rifiuta esplicitamente
+invece di produrre barre plausibili e sbagliate.
 
 Il **giornaliero** è il giorno di calendario del CSV, e per questo feed non è
 una scelta arbitraria: nell'orologio del sorgente la pausa di manutenzione cade

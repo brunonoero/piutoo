@@ -58,6 +58,17 @@ public partial class BacktestingScreen : UserControl, IShellScreen
             new SpreadResolutionItem(SpreadResolution.PerHour, "Per ora UTC  ·  il valore dell'ora di ingresso")
         ]);
         _spreadResolutionCombo.SelectedIndex = 0;
+
+        // L'orologio non e' una scelta di prestazione: da quella barra esce il prezzo di
+        // riempimento. Due voci sole perche' le alternative sensate sono due — il timeframe delle
+        // strategie, che e' sempre stato il comportamento, e il minuto, che e' la risoluzione a cui
+        // il feed esterno viene raccolto.
+        _clockCombo.Items.AddRange(
+        [
+            new ClockComboItem(null, "Timeframe della strategia  ·  come sempre"),
+            new ClockComboItem(1, "1 minuto  ·  fill e trigger sulle barre a 1m (lento)")
+        ]);
+        _clockCombo.SelectedIndex = 0;
     }
 
     // Non è più una voce di menu: ci si arriva solo da "Nuovo backtest" nella lista, e la
@@ -110,6 +121,9 @@ public partial class BacktestingScreen : UserControl, IShellScreen
 
     private SpreadResolution SelectedSpreadResolution
         => (_spreadResolutionCombo.SelectedItem as SpreadResolutionItem)?.Resolution ?? SpreadResolution.PerSymbol;
+
+    /// <summary>Timeframe dell'orologio del loop, null quando è quello delle strategie.</summary>
+    private int? SelectedClockTimeframe => (_clockCombo.SelectedItem as ClockComboItem)?.Minutes;
 
     /// <summary>Piano selezionato, null quando la scelta è «nessun piano».</summary>
     private TradingPlan? SelectedPlan => (_planCombo.SelectedItem as PlanComboItem)?.Plan;
@@ -587,6 +601,11 @@ public partial class BacktestingScreen : UserControl, IShellScreen
                 SpreadBroker = SelectedSpreadBroker,
                 SpreadStatistic = SelectedSpreadStatistic,
                 SpreadResolution = SelectedSpreadResolution,
+                // Null = orologio al timeframe più corto del run, come è sempre stato. Con 1 il
+                // loop gira sulle barre a un minuto e i riempimenti si valutano lì: il server
+                // rifiuta l'avvio se un simbolo del run non ha quel feed, invece di lasciarlo al
+                // proprio timeframe e mescolare due risoluzioni di fill nello stesso run.
+                ClockTimeframeMinutes = SelectedClockTimeframe,
                 // Senza piano la spunta e' la stessa regola di prima, letta dal verso opposto:
                 // chiudere a fine settimana significa non concedere l'overweek. Parte **spenta**:
                 // il run interno non impone alcun flat di conto, cosi' l'equity e' quella delle
@@ -617,6 +636,7 @@ public partial class BacktestingScreen : UserControl, IShellScreen
                     ? $" · broker {(string.IsNullOrWhiteSpace(selectedPlan.BrokerCode) ? "-" : selectedPlan.BrokerCode)}" +
                       $" · {CountActiveStrategies(selectedPlan, _masterFilterIds)?.ToString() ?? "?"} strategie attive"
                     : string.Empty));
+            Log($"Orologio del loop: {(request.ClockTimeframeMinutes is { } clock ? $"{clock} minuti (fill valutati qui)" : "timeframe più corto delle strategie")}");
             Log($"Spread: {(request.SpreadBroker is null ? "nessuno (ingressi al prezzo del feed)" : $"{request.SpreadBroker} · {request.SpreadStatistic} · {request.SpreadResolution}")}");
             Log($"Finestra UTC {request.StartDate:yyyy-MM-dd HH:mm}Z → {request.EndDate:yyyy-MM-dd HH:mm}Z");
             Log($"Strategie dal masterfilter: {masterFilter.StrategiesFilter.Count}");
