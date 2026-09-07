@@ -78,24 +78,6 @@
           "Enabled": true
         },
         {
-          "Symbol": "@HK",
-          "AccountSymbol": "HK50.cash",
-          "ContractMultiplier": 50,
-          "PriceScale": 1,
-          "MinimumQuantity": 0.01,
-          "QuantityStep": 0.01,
-          "Enabled": true
-        },
-        {
-          "Symbol": "@HO",
-          "AccountSymbol": "HEATOIL.c",
-          "ContractMultiplier": 420,
-          "PriceScale": 1,
-          "MinimumQuantity": 0.01,
-          "QuantityStep": 0.01,
-          "Enabled": true
-        },
-        {
           "Symbol": "@KC",
           "AccountSymbol": "COFFEE.c",
           "ContractMultiplier": 375,
@@ -593,24 +575,6 @@
         {
           "Symbol": "@PL",
           "AccountSymbol": "@PL",
-          "ContractMultiplier": 1,
-          "PriceScale": 1,
-          "MinimumQuantity": 1,
-          "QuantityStep": 1,
-          "Enabled": true
-        },
-        {
-          "Symbol": "@HK",
-          "AccountSymbol": "@HK",
-          "ContractMultiplier": 1,
-          "PriceScale": 1,
-          "MinimumQuantity": 1,
-          "QuantityStep": 1,
-          "Enabled": true
-        },
-        {
-          "Symbol": "@HO",
-          "AccountSymbol": "@HO",
           "ContractMultiplier": 1,
           "PriceScale": 1,
           "MinimumQuantity": 1,

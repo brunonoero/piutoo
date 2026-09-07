@@ -1,3 +1,4 @@
+using Piootoo.Shared.Interfaces;
 using Piootoo.Shared.Configuration;
 using Piootoo.Strategies.Easy.Engines;
 
@@ -78,6 +79,8 @@ namespace Piootoo.Strategies.PiutooStrategies;
 /// <c>4h fam01-3</c> del dossier: emettono gli stessi ordini di entrata, e due sistemi che
 /// mandano gli stessi ordini sono copy trading.</para>
 /// </summary>
+[StrategiaDisabilitata(
+    "Strumento fuori dal paniere operativo (07/09/2026): @HO e' stato tolto da InstrumentRegistry e non ha piu' una specifica verificata, quindi ogni conversione denaro->punti di stop e target userebbe un valore inventato. La classe resta istanziabile per nome perche' i confronti storici (compare-0016..0022) citano questo codice.")]
 public sealed class PTS_HO_BIA_001_240 : BiasBarCountEngine
 {
     public override string Name => "PTS_HO_BIA_001_240";

@@ -1,3 +1,4 @@
+using Piootoo.Shared.Interfaces;
 using Piootoo.Shared.Configuration;
 using Piootoo.Strategies.Easy.Engines;
 
@@ -76,6 +77,8 @@ namespace Piootoo.Strategies.PiutooStrategies;
 /// prezzo. Il riferimento addebita commissione per trade e <b>1 tick di slippage per lato</b>,
 /// che l'engine non applica: va rettificato al confronto, non compensato sul livello.</para>
 /// </summary>
+[StrategiaDisabilitata(
+    "Strumento fuori dal paniere operativo (07/09/2026): @HK e' stato tolto da InstrumentRegistry e non ha piu' una specifica verificata, quindi ogni conversione denaro->punti di stop e target userebbe un valore inventato. La classe resta istanziabile per nome perche' i confronti storici (compare-0016..0022) citano questo codice.")]
 public sealed class PTS_HK_PCH_002_240 : PriceChannelEngine
 {
     public override string Name => "PTS_HK_PCH_002_240";

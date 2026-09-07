@@ -193,7 +193,7 @@ namespace cAlgo.Robots
         /// contano i bucket. <c>0</c> e' il <c>session_start_hour</c> dei run di ricerca.
         ///
         /// <para><b>E' il default, non l'ultima parola.</b> Per i sei mercati che la tabella §2.4 del
-        /// dossier apre alle 01:00 CET — FDAX, CC, CT, KC, SB, HK — l'ancoraggio lo decide
+        /// dossier apre alle 01:00 CET — FDAX, CC, CT, KC, SB — l'ancoraggio lo decide
         /// <see cref="SessionStartHourOf"/> e questo parametro non li tocca: l'ora d'inizio sessione
         /// e' una proprieta' dello strumento, e un valore unico per istanza renderebbe non
         /// raccoglibile in un colpo solo un piano che mette insieme NQ e FDAX.</para>
@@ -1424,7 +1424,7 @@ namespace cAlgo.Robots
             }
 
             Print("Ancoraggio dei bucket oltre l'ora: {0}, sessione dalle {1:00}:00 salvo i simboli che la " +
-                  "tabella §2.4 apre alle 01:00 (FDAX, CC, CT, KC, SB, HK) — la stessa griglia di " +
+                  "tabella §2.4 apre alle 01:00 (FDAX, CC, CT, KC, SB) — la stessa griglia di " +
                   "datafeed-future/aggregate_flat_feed.py e di ZonedWindow.ResearchSession().",
                 id, SessionStartHour);
             return true;
@@ -1467,7 +1467,6 @@ namespace cAlgo.Robots
                 case "CT":
                 case "KC":
                 case "SB":
-                case "HK":
                     return 1;
                 default:
                     return SessionStartHour;

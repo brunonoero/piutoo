@@ -2110,7 +2110,6 @@ namespace cAlgo.Robots
                 case "CT":
                 case "KC":
                 case "SB":
-                case "HK":
                     return 1;
                 default:
                     return SessionStartHour;

@@ -1,3 +1,4 @@
+using Piootoo.Shared.Interfaces;
 using Piootoo.Shared.Configuration;
 using Piootoo.Strategies.Easy.Engines;
 
@@ -74,6 +75,8 @@ namespace Piootoo.Strategies.PiutooStrategies;
 /// trade di riferimento il costo per trade pesa piu' che altrove: e' la strategia del paniere
 /// con l'atteso per trade piu' basso.</para>
 /// </summary>
+[StrategiaDisabilitata(
+    "Strumento fuori dal paniere operativo (07/09/2026): @HO e' stato tolto da InstrumentRegistry e non ha piu' una specifica verificata, quindi ogni conversione denaro->punti di stop e target userebbe un valore inventato. La classe resta istanziabile per nome perche' i confronti storici (compare-0016..0022) citano questo codice.")]
 public sealed class PTS_HO_PCH_001_30 : PriceChannelEngine
 {
     public override string Name => "PTS_HO_PCH_001_30";

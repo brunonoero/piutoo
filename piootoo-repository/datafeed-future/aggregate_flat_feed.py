@@ -140,7 +140,6 @@ SESSION_START_HOUR: dict[str, int] = {
     "@CT": 1,
     "@KC": 1,
     "@SB": 1,
-    "@HK": 1,
 }
 
 SYMBOL_TIMEFRAMES: dict[str, tuple[int, ...]] = {
@@ -398,8 +397,8 @@ def minutes_into_bucket(
 
     L'ancoraggio non e' la mezzanotte per tutti: `session_start_hour` e' l'ora in
     cui la ricerca fa cominciare la sessione di quello strumento (tabella §2.4
-    del dossier del paniere), ed e' 1 per FDAX, CC, CT, KC, SB e HK. Ancorare
-    quei sei alla mezzanotte sposta di un'ora tutti i bucket da 4h in su rispetto
+    del dossier del paniere), ed e' 1 per FDAX, CC, CT, KC e SB. Ancorare
+    quei cinque alla mezzanotte sposta di un'ora tutti i bucket da 4h in su rispetto
     alla griglia su cui le strategie sono state trovate: le barre non sono
     sbagliate, sono barre diverse, e nessun errore lo segnala.
     """

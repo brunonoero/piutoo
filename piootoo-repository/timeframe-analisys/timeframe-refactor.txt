@@ -1,0 +1,78 @@
+Il modo migliore è trattare la normalizzazione come **un unico layer puro, condiviso tra backtest e live**. Non due percorsi che "si assomigliano": lo stesso identico modulo, stessa funzione, stesso file di configurazione. Il 90% dei bug in questo tipo di sistema nasce dall'avere un preprocessing offline in pandas e uno online scritto a mano dentro il bot.
+
+## 1. Il calendario è un dato, non codice
+
+Definisci per ogni simbolo una spec versionata (YAML/JSON) che descrive le fasi. La trappola che devi gestire fin da subito è che **le fasi non hanno tutte lo stesso ancoraggio**: sul FDAX l'apertura notturna è fissa a 00:15 UTC (è agganciata a Singapore), mentre chiusura e sessione cash seguono l'orologio di Berlino. Se modelli tutto in local time sbagli l'apertura di un'ora per metà anno; se modelli tutto in UTC sbagli tutto il resto.
+
+Quindi ogni fase ha bisogno del proprio riferimento:
+
+```yaml
+FDAX:
+  tz: Europe/Berlin
+  phases:
+    - {name: asian,    start: "00:15", anchor: UTC,   end: "08:00", end_anchor: local}
+    - {name: european, start: "08:00", anchor: local, end: "09:00", end_anchor: local}
+    - {name: cash,     start: "09:00", anchor: local, end: "17:30", end_anchor: local}
+    - {name: late,     start: "17:30", anchor: local, end: "22:00", end_anchor: local}
+  holidays: eurex_2026.csv
+  early_close: {12-24: "12:30", 12-31: "12:30"}
+```
+
+Il resolver espande la spec in intervalli UTC concreti giorno per giorno usando `zoneinfo`, mai offset hardcoded. E il calendario festivi va tenuto separato e aggiornato: il CFD quota anche a Eurex chiusa, quindi quei giorni vanno eliminati interamente.
+
+## 2. Pipeline a stadi, ognuno ispezionabile
+
+```
+raw (1m, UTC, immutabile)
+  → validate      dedup, monotonicità, gap detection
+  → classify      ogni barra riceve phase, session_id, flags
+  → mask          quality: spread, tick count, staleness
+  → filter        drop delle fasi chiuse
+  → aggregate     resample ancorato agli eventi di sessione
+  → emit          bar + session context alla strategia
+```
+
+Il punto chiave è che **`filter` non cancella nulla dal raw**. Il raw resta immutabile su disco (parquet), la normalizzazione è una funzione pura e versionata. Così puoi rigenerare tutto quando scopri un errore nella spec, e puoi fare audit su un trade dubbio.
+
+Sul mask: non basta filtrare per orario. Anche dentro la finestra aperta ci sono barre spazzatura. I tre criteri che funzionano sono lo spread sopra il suo quantile alto per quella fascia oraria, il tick count sotto soglia, e la staleness (OHLC tutti uguali su un CFD = quotazione ferma, non mercato fermo). Marca queste barre invece di eliminarle: la strategia decide se ignorarle, l'analisi vuole vederle.
+
+## 3. Due canali distinti verso il bot
+
+Questo è il pezzo che salta di più nelle implementazioni, e per te è critico visto il vincolo FTMO:
+
+- **Decision feed** — filtrato, emula il future, alimenta la logica dei segnali e degli stop operativi.
+- **Risk feed** — raw, sempre attivo, non si ferma mai. Serve al monitor che controlla il floating drawdown e fa scattare la protezione di emergenza.
+
+La strategia non deve vedere le ore morte. Il risk manager deve vederle sempre. Sono due consumatori dello stesso stream con filtri diversi, e vanno tenuti architetturalmente separati.
+
+## 4. Convenzioni sui timestamp: decidile una volta e scrivile
+
+Barra etichettata con l'**open time**, intervallo semiaperto `[t, t+Δ)`, tutto in UTC tz-aware. Mai naive datetime, mai conversione a locale se non per il display. L'off-by-one al confine di sessione — la barra delle 21:59 che finisce dentro la sessione sbagliata — è il bug classico e silenzioso.
+
+Aggiungi un `session_id` esplicito su ogni barra (la data della sessione, non del calendario). Sul FDAX coincidono quasi sempre, ma se un domani estendi a NQ la sessione inizia il giorno prima e senza session_id la logica giornaliera si rompe.
+
+## 5. Aggregazione ancorata
+
+Il resample non va mai fatto col default a mezzanotte. Va ancorato all'inizio della sessione o, meglio per il FDAX, agli eventi di mercato (09:00 / 13:00 / 17:30). Ogni barra aggregata porta con sé due flag: `complete` (ha visto tutti i minuti attesi) e `spans_boundary` (attraversa un confine di sessione). Una barra 4h a cavallo del gap notturno non deve mai arrivare alla strategia senza essere segnalata.
+
+## 6. Cosa consegni alla strategia
+
+Non solo la barra. Un oggetto con la barra più il contesto già calcolato dal layer: `phase`, `session_id`, `bar_index_in_session`, `is_first_bar_after_gap`, `minutes_since_session_open`, `quality_flags`.
+
+Il motivo è che la strategia non deve **ricalcolare** la sessione dai timestamp. Se lo fa, hai la logica del calendario duplicata in n posti, e prima o poi divergono. Il layer è l'unica fonte di verità sulle sessioni; la strategia consuma e basta.
+
+## 7. Validazione: l'unico modo per sapere se funziona
+
+Procurati qualche mese di dati FDAX veri e confronta la serie emulata contro quella reale. Le tre metriche che contano: correlazione dei rendimenti barra per barra in sessione, distribuzione della differenza di prezzo (che ti dà il profilo del basis e dello skew del broker), e il conteggio delle barre in cui il CFD si è mosso oltre soglia mentre il future era piatto. Quest'ultimo numero è la misura diretta di quanto rumore stai eliminando.
+
+## 8. Tre trappole residue
+
+**I livelli assoluti non sono confrontabili.** Il CFD accumula gli aggiustamenti di rollover, quindi il suo prezzo diverge progressivamente da quello del future. Qualunque logica su livelli assoluti o su serie lunghe va riscritta in termini relativi o ricalibrata sul feed che usi realmente in esecuzione.
+
+**Il warmup deve venire da dati filtrati.** Se inizializzi le medie con lo storico grezzo e poi giri su quello filtrato, i primi giorni di live divergono dal backtest senza motivo apparente.
+
+**Zero look-ahead nel classificatore.** La fase e i flag di una barra devono dipendere solo da informazioni disponibili alla sua chiusura. Un `quality_flag` calcolato su quantili dell'intero dataset è look-ahead: va calcolato su finestra rolling.
+
+---
+
+Se vuoi, ti scrivo il modulo vero: resolver del calendario con la spec YAML, classificatore, mask, aggregatore ancorato e un test di validazione contro il FDAX. Dimmi solo in che linguaggio gira il bot e con che granularità arriva il feed da FTMO (1m via MT5, o altro), così lo taglio sulla tua struttura invece di darti pseudocodice generico.

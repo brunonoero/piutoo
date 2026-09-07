@@ -10,7 +10,8 @@ namespace Piootoo.Strategies.Tests;
 /// della singola classe.
 ///
 /// <para><b>Perché questo test esiste.</b> La tabella §2.4 del dossier dà 01:00 CET a sei mercati —
-/// CC, CT, FDAX, HK, KC, SB — e 00:00 a tutti gli altri. `InstrumentSpec.ResearchSessionStartHour`
+/// CC, CT, FDAX, HK, KC, SB — e 00:00 a tutti gli altri. HK e HO sono usciti dal registro il
+/// 07/09/2026 con le loro PTS, quindi le liste qui sotto non li nominano piu'. `InstrumentSpec.ResearchSessionStartHour`
 /// riporta quella tabella, ma non lo leggeva nessuno: le sette FDAX dichiaravano
 /// <c>ResearchSession()</c> invece di <c>ResearchSession(1)</c>, cioè la sessione sbagliata sui due
 /// maggiori contributori del paniere per P&amp;L fuori campione. Il documento
@@ -59,7 +60,7 @@ public sealed class ResearchSessionStartConformanceTests
     [Fact]
     public void IlRegistroRiproduceLaTabellaDelDossier()
     {
-        string[] alleUnaCet = ["CC", "CT", "FDAX", "HK", "KC", "SB"];
+        string[] alleUnaCet = ["CC", "CT", "FDAX", "KC", "SB"];
 
         foreach (var symbol in alleUnaCet)
         {
@@ -67,7 +68,7 @@ public sealed class ResearchSessionStartConformanceTests
             Assert.Equal(1, spec.ResearchSessionStartHour);
         }
 
-        foreach (var symbol in new[] { "BP", "BTC", "CL", "ES", "GC", "HO", "NG", "NQ", "PL", "YM" })
+        foreach (var symbol in new[] { "BP", "BTC", "CL", "ES", "GC", "NG", "NQ", "PL", "YM" })
         {
             Assert.True(InstrumentRegistry.TryGet(symbol, out var spec), $"{symbol} assente dal registro");
             Assert.Equal(0, spec.ResearchSessionStartHour);

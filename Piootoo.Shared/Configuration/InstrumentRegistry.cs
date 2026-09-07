@@ -27,7 +27,6 @@ public static class InstrumentRegistry
     private const string NyComexNymex = "America/New_York"; // sorgenti COMEX/NYMEX: 1800 -> 1700
     private const string EurexFrankfurt = "Europe/Berlin";  // sorgenti Eurex: 0800 -> 2200
     private const string IceNewYork = "America/New_York";   // softs ICE US: 0400 -> 1400
-    private const string HkexHongKong = "Asia/Hong_Kong";   // HKEX: 0915 -> 0300
 
     // Calendario di sessione della ricerca, §2.1.1 del dossier del paniere
     // (run-engine/run-08-settembre). I giorni sono quelli in cui la ricerca HA una sessione: un
@@ -43,7 +42,7 @@ public static class InstrumentRegistry
         DayOfWeek.Monday, DayOfWeek.Tuesday, DayOfWeek.Wednesday, DayOfWeek.Thursday, DayOfWeek.Friday
     };
 
-    /// <summary>Lunedi-venerdi piu' la domenica: colonna <c>dom</c> a 48 (27 per BTC, 16 per HK).</summary>
+    /// <summary>Lunedi-venerdi piu' la domenica: colonna <c>dom</c> a 48 (27 per BTC).</summary>
     private static readonly IReadOnlySet<DayOfWeek> LunVenPiuDomenica = new HashSet<DayOfWeek>
     {
         DayOfWeek.Sunday,
@@ -92,7 +91,6 @@ public static class InstrumentRegistry
             ["MCL"] = new() { Symbol = "MCL", PointValue = 100m, Currency = "USD", TickSize = 0.01m, SessionTimeZone = NyComexNymex, Description = "Micro Crude Oil, 100 barili" },
             ["NG"] = new() { Symbol = "NG", PointValue = 10000m, Currency = "USD", TickSize = 0.001m, SessionTimeZone = NyComexNymex, ResearchSessionStartHour = 0, SessionDays = LunVenPiuDomenica, Description = "Natural Gas, 10.000 MMBtu" },
             ["RB"] = new() { Symbol = "RB", PointValue = 42000m, Currency = "USD", TickSize = 0.0001m, SessionTimeZone = NyComexNymex, Description = "RBOB Gasoline, 42.000 galloni ($/gal)" },
-            ["HO"] = new() { Symbol = "HO", PointValue = 42000m, Currency = "USD", TickSize = 0.0001m, SessionTimeZone = NyComexNymex, ResearchSessionStartHour = 0, SessionDays = LunVenPiuDomenica, Description = "Heating Oil, 42.000 galloni ($/gal)" },
 
             // --- Cripto -----------------------------------------------------------------
             // CME BTC: contratto 5 bitcoin, $5 per punto di indice; tick 5,00 punti = $25.
@@ -109,16 +107,6 @@ public static class InstrumentRegistry
             ["SB"] = new() { Symbol = "SB", PointValue = 1120m, Currency = "USD", TickSize = 0.01m, SessionTimeZone = IceNewYork, ResearchSessionStartHour = 1, SessionDays = LunVenPiuSabato, Description = "Sugar No.11, 112.000 libbre (centesimi/lb, $1.120 per centesimo)" },
             // Cocoa e' quotato in dollari per tonnellata su un contratto da 10 tonnellate.
             ["CC"] = new() { Symbol = "CC", PointValue = 10m, Currency = "USD", TickSize = 1m, SessionTimeZone = IceNewYork, ResearchSessionStartHour = 1, SessionDays = LunVen, Description = "Cocoa, 10 tonnellate ($/tonnellata)" },
-
-            // --- Indici asiatici -------------------------------------------------------
-            // Hang Seng: il contratto vale HKD 50 per punto indice. Il valore qui e' in USD al
-            // cambio fisso della banda HKD (7,8), cioe' i $6,41 con cui il dossier del paniere
-            // converte i propri stop: $3.000 = 468,02 punti e $250 = 39,00. La tabella §2.4 del
-            // dossier arrotonda a "$6", che non torna con le sue stesse conversioni.
-            // ⚠ E' l'unico strumento del registro il cui PointValue dipende da un cambio: se un
-            // giorno l'HKD uscisse dalla banda, stop e target di queste strategie andrebbero
-            // rimisurati, e la strada corretta sarebbe dichiararlo in HKD con un layer FX.
-            ["HK"] = new() { Symbol = "HK", PointValue = 6.41m, Currency = "USD", TickSize = 1m, SessionTimeZone = HkexHongKong, ResearchSessionStartHour = 1, SessionDays = LunVenPiuDomenica, Description = "Hang Seng future, HKD 50 per punto convertiti a 7,8 HKD/USD" },
 
             // --- Valute CME ------------------------------------------------------------
             // CME 6B: contratto £62.500, quotato USD per GBP; tick 0,0001 = $6,25.
@@ -144,6 +132,8 @@ public static class InstrumentRegistry
             ["FC"] = "Feeder Cattle — quotazione in centesimi per libbra",
             ["LH"] = "Lean Hogs — quotazione in centesimi per libbra",
             ["ETHUSDT"] = "Cripto: definire la dimensione del lotto del broker",
+            ["HO"] = "Heating Oil — ritirato dal paniere il 07/09/2026 insieme alle sue otto PTS",
+            ["HK"] = "Hang Seng — ritirato dal paniere il 07/09/2026 insieme alle sue cinque PTS",
         };
 
     /// <summary>Normalizza un simbolo alla chiave canonica (senza '@', maiuscolo).</summary>
