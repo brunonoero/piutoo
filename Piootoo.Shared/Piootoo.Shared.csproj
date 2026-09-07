@@ -6,4 +6,13 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <ItemGroup>
+    <!--
+      Il calendario di mercato viaggia dentro l'assembly: serve a test, server e client, e non tutti
+      hanno un piootoo-repository/ sotto mano. Il file su disco resta come override facoltativo
+      (MarketCalendarRegistry.InitializeFromRepository).
+    -->
+    <EmbeddedResource Include="MarketData\market-calendars.json" />
+  </ItemGroup>
+
 </Project>

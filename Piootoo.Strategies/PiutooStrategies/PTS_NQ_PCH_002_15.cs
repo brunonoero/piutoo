@@ -31,11 +31,6 @@ public sealed class PTS_NQ_PCH_002_15 : PriceChannelEngine
 {
     public PTS_NQ_PCH_002_15()
     {
-        // Confine di sessione del run: giorno di calendario europeo, come
-        // (timestamp - 1 min - session_start_hour).normalize() del motore Python.
-        // NON e' la sessione del broker: le due divergono nelle settimane di
-        // disallineamento fra ora legale americana ed europea.
-        Session = ZonedWindow.ResearchSession();
         ChannelBars = 100;
         EnableLong = true;
         EnableShort = false;

@@ -1,5 +1,6 @@
-using System.Reflection;
+﻿using System.Reflection;
 using System.Text.RegularExpressions;
+using Piootoo.Shared.MarketData;
 using Piootoo.Shared.Configuration;
 using Piootoo.Shared.Interfaces;
 using Piootoo.Strategies.PiutooStrategies;
@@ -69,27 +70,73 @@ public sealed class StrategyClockConformanceTests
     }
 
     /// <summary>
-    /// Il fuso della sessione è una proprietà <b>della strategia</b>, non del simbolo. Dedurlo dal
-    /// registro strumenti resta possibile per compatibilità, ma una <c>PTS_*</c> lo dichiara
-    /// sempre: un simbolo può ospitare strategie con sessioni diverse, ed è tutto il punto.
+    /// La sessione non si dichiara più: la governa il calendario del simbolo. Qui si verifica che
+    /// <b>si risolva</b> e che dichiari il proprio fuso — non che la classe la scriva.
+    ///
+    /// <para><b>I simboli che il calendario non conosce si saltano</b>, con lo stesso criterio del
+    /// test gemello <c>ResearchSessionStartConformanceTests</c>: sono un buco noto del registro, non
+    /// un porting da correggere, e una strategia su un simbolo non verificato non è comunque
+    /// eseguibile — il <c>PointValue</c> le manca prima ancora della sessione. Quante siano lo dice
+    /// <see cref="StrategiesOnSymbolsWithoutACalendarAreDeclared"/>.</para>
     /// </summary>
     [Theory]
     [MemberData(nameof(PtsStrategyTypes))]
-    public void EveryPtsStrategyDeclaresItsOwnSessionAndWindow(Type type)
+    public void EveryPtsStrategyResolvesItsSessionAndDeclaresItsWindow(Type type)
     {
         var strategy = (ITradingStrategy)Activator.CreateInstance(type)!;
 
+        if (!MarketCalendarRegistry.Current.TryGet(strategy.Symbol, out _))
+            return;
+
         var session = ReadProtected<ZonedWindow>(strategy, "Session");
-        Assert.True(session is not null, $"{type.Name}: nessuna sessione dichiarata.");
-        Assert.True(session!.HasDeclaredTimeZone,
-            $"{type.Name}: la sessione non dichiara il proprio fuso e lo eredita dal simbolo.");
+        Assert.True(session is not null, $"{type.Name}: sessione non risolta dal calendario.");
 
         var window = ReadProtected<ZonedWindow>(strategy, "TradingWindow");
         Assert.True(window is not null,
             $"{type.Name}: nessuna finestra operativa dichiarata.");
-        Assert.True(window!.HasDeclaredTimeZone,
-            $"{type.Name}: la finestra operativa non dichiara il proprio fuso. Gli orari dei run " +
-            "sono in ora della ricerca: usa ZonedWindow.ResearchHours e riportali verbatim.");
+
+        // L'orologio non si "dichiara" piu' come stringa: e' nel tipo, e il fuso vero lo risolve il
+        // calendario del simbolo. Resta pero' da imporre QUALE: tutte le PTS vengono da run di
+        // ricerca, che scrivono le finestre in CET per ogni simbolo. Una finestra in ora di borsa
+        // qui significherebbe un porting da sorgente EasyLanguage, che e' un caso legittimo ma da
+        // decidere — non da scoprire mesi dopo dai numeri.
+        Assert.True(window!.Clock == InstrumentClock.Research,
+            $"{type.Name}: la finestra operativa e' dichiarata in ora di BORSA. Le PTS vengono dai " +
+            "run di ricerca, che scrivono start_hour/end_hour in CET per ogni simbolo: se questa " +
+            "arriva davvero da una sorgente EasyLanguage va messa in lista, non lasciata passare.");
+    }
+
+    /// <summary>
+    /// Le strategie su simboli che il calendario non conosce, contate una per una invece che
+    /// saltate in silenzio. <b>Non sono eseguibili</b>: manca loro il <c>PointValue</c> prima ancora
+    /// della sessione, quindi un backtest che le includa si ferma con un errore esplicito.
+    ///
+    /// <para>L'elenco è fissato qui perché il numero cambi solo di proposito: se cresce, qualcuno ha
+    /// portato una strategia su un simbolo mai verificato; se cala, un simbolo è stato verificato e
+    /// la voce va tolta.</para>
+    /// </summary>
+    [Fact]
+    public void StrategiesOnSymbolsWithoutACalendarAreDeclared()
+    {
+        var senzaCalendario = PtsStrategyTypes
+            .Cast<object[]>()
+            .Select(row => (ITradingStrategy)Activator.CreateInstance((Type)row[0])!)
+            .Where(strategy => !MarketCalendarRegistry.Current.TryGet(strategy.Symbol, out _))
+            .GroupBy(strategy => MarketCalendar.Normalize(strategy.Symbol), StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.Count(), StringComparer.Ordinal);
+
+        // HK e HO sono usciti dal paniere il 07/09/2026 ma le loro classi sono ancora sul disco;
+        // JY non e' mai stato verificato (la quotazione del 6J e' in unita' di 0,000001).
+        var attese = new Dictionary<string, int>(StringComparer.Ordinal)
+        {
+            ["HK"] = 5,
+            ["HO"] = 8,
+            ["JY"] = 8
+        };
+
+        Assert.Equal(
+            attese.OrderBy(x => x.Key, StringComparer.Ordinal),
+            senzaCalendario.OrderBy(x => x.Key, StringComparer.Ordinal));
     }
 
     public static TheoryData<Type> PtsStrategyTypes

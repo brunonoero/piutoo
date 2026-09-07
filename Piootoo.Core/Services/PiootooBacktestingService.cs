@@ -6,6 +6,7 @@ using Piootoo.Core.Services.Interfaces;
 using Piootoo.Shared.Configuration;
 using Piootoo.Shared.Enums;
 using Piootoo.Shared.Interfaces;
+using Piootoo.Shared.MarketData;
 using Piootoo.Shared;
 using Piootoo.Shared.Models;
 using Piootoo.Shared.Models.Backtesting;
@@ -1023,6 +1024,14 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                         ? null
                         : $"copertura parziale: {cursor.FirstBarUtc:yyyy-MM-dd} → {cursor.LastBarUtc:yyyy-MM-dd}";
 
+                // Il layer legge la serie e dice su che griglia sta. E' l'unica forma di errore
+                // del feed che il conteggio delle candele e la copertura NON vedono: una serie nata
+                // su un ancoraggio diverso ha il numero di barre giusto e copre l'intervallo
+                // giusto — sono semplicemente barre altre. Descrive e non decide: il run non si
+                // ferma, perche' anche il feed del vendor ha una barra fuori griglia all'anno per
+                // file giornaliero. Vedi docs/domini/layer-barre-e-calendario.md.
+                var calendarSummary = DescribeFeedCalendar(normalizedSymbol, ds.Timeframe, candles, diagnostics);
+
                 diagnostics.LogDataSource(new BacktestDataSourceSummary
                 {
                     Symbol = normalizedSymbol,
@@ -1031,7 +1040,8 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                     FirstBarUtc = cursor.FirstBarUtc,
                     LastBarUtc = cursor.LastBarUtc,
                     CoversRequestedRange = coversRange,
-                    Warning = warning
+                    Warning = warning,
+                    Calendar = calendarSummary
                 });
 
                 if (candles.Length == 0)
@@ -2252,6 +2262,87 @@ public class PiootooBacktestingService : IPiootooBacktestingService
     /// impone la mezzanotte UTC, che con la barra ancorata alla mezzanotte europea cade gia'
     /// un'ora dopo l'apertura, e una soglia in barre le spegnerebbe tutte.</para>
     /// </summary>
+    /// <summary>
+    /// Passa una serie caricata attraverso il layer e ne riporta la struttura di sessione nel
+    /// riepilogo, segnalando fra i <c>diagnostics</c> le due anomalie che contano.
+    ///
+    /// <para><b>Barre fuori griglia.</b> La serie e' nata su un ancoraggio diverso da quello
+    /// dichiarato per il simbolo. Non produce barre malformate: produce barre <i>diverse</i>, e un
+    /// backtest ci gira sopra senza accorgersene. Nel caso peggiore visto — <c>@KC_240</c> —
+    /// il file conteneva DUE griglie, 880 barre ciascuna, perche' la deduplica e' sull'istante di
+    /// apertura e due raccolte con ancoraggi diversi si sommano invece di sovrascriversi.</para>
+    ///
+    /// <para><b>Barre in giorni senza sessione.</b> Un feed CFD quota anche quando il future e'
+    /// chiuso. Quelle barre non generano trade ma spezzano la sessione, e con l'uscita di fine
+    /// sessione chiudono posizioni ancora valide: il dossier lo misura sul DAX all'11% del
+    /// P&amp;L.</para>
+    ///
+    /// <para><b>Non ferma il run.</b> Un simbolo senza calendario verificato non e' un errore qui —
+    /// lo e' gia' altrove, dove serve il <c>PointValue</c> — e il feed del vendor ha una barra
+    /// fuori griglia all'anno per ogni file giornaliero (la domenica in cui l'orologio torna
+    /// indietro). Trasformare questo controllo in un blocco fermerebbe run che oggi girano, e va
+    /// fatto quando i feed saranno rigenerati dal minuto, non prima.</para>
+    /// </summary>
+    private static BacktestFeedCalendarSummary? DescribeFeedCalendar(
+        string symbol,
+        int timeframeMinutes,
+        OhlcvData[] candles,
+        BacktestDiagnosticsLogger diagnostics)
+    {
+        if (candles.Length == 0 || !SessionGrid.DividesTheDay(timeframeMinutes))
+            return null;
+
+        if (!MarketCalendarRegistry.Current.TryGet(symbol, out var calendar))
+            return null;
+
+        FeedCalendarReport report;
+        try
+        {
+            report = FeedCalendarReport.Analyze(calendar, timeframeMinutes, candles);
+        }
+        catch (Exception failure)
+        {
+            // Una serie non ordinata fa lanciare il segmentatore. E' una diagnosi, non un
+            // requisito del run: si segnala e si prosegue.
+            diagnostics.AddRunDiagnostic(
+                $"[calendario] {symbol}/{timeframeMinutes}m: struttura di sessione non calcolabile " +
+                $"({failure.Message}).");
+            return null;
+        }
+
+        if (report.BarsOffGrid > 0)
+        {
+            diagnostics.AddRunDiagnostic(
+                $"[calendario] {symbol}/{timeframeMinutes}m: {report.BarsOffGrid} barre su {report.Bars} " +
+                $"NON stanno sulla griglia dichiarata ({report.Grid}). Il feed e' nato su un " +
+                "ancoraggio diverso da quello su cui le strategie sono state trovate: le barre non " +
+                "sono malformate, sono altre, e il run gira su una serie che non corrisponde a " +
+                "nessun run di ricerca.");
+        }
+
+        if (report.BarsOnNonSessionDay > 0)
+        {
+            diagnostics.AddRunDiagnostic(
+                $"[calendario] {symbol}/{timeframeMinutes}m: {report.BarsOnNonSessionDay} barre su " +
+                $"{report.Bars} cadono in giorni in cui {symbol} non ha sessione. Sono sessioni che " +
+                "il feed fabbrica e il future non ha: non generano trade, ma spezzano la sessione e " +
+                "con l'uscita di fine sessione chiudono posizioni ancora valide.");
+        }
+
+        return new BacktestFeedCalendarSummary
+        {
+            Grid = report.Grid,
+            Sessions = report.Sessions,
+            BarsOffGrid = report.BarsOffGrid,
+            BarsOnNonSessionDay = report.BarsOnNonSessionDay,
+            StaleBars = report.StaleBars,
+            Gaps = report.Gaps,
+            FirstSessionId = report.FirstSessionId,
+            LastSessionId = report.LastSessionId,
+            SessionDaysDeclared = report.SessionDaysDeclared
+        };
+    }
+
     private static bool IsStrategyCandleStale(int timeframeMinutes, DateTime lastCandleTime, DateTime currentDate)
     {
         if (timeframeMinutes < 1440)

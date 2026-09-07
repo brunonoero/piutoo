@@ -1,4 +1,4 @@
-using Piootoo.Shared.Enums;
+﻿using Piootoo.Shared.Enums;
 using Piootoo.Shared.Models;
 using Piootoo.Shared.Models.Trading;
 using Piootoo.Strategies.Easy.Engines;
@@ -61,8 +61,6 @@ public sealed class EasyEngineContractTests
     {
         public ContractProbe()
         {
-            SessionStartTime = 1700;
-            SessionEndTime = 1600;
             StopMoney = 1500;
             ProfitMoney = 4500;
             BreakEvenMoney = 800;

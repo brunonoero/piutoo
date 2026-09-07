@@ -1,4 +1,4 @@
-using Piootoo.Shared.Configuration;
+﻿using Piootoo.Shared.Configuration;
 using Piootoo.Strategies.Easy.Engines;
 
 namespace Piootoo.Strategies.PiutooStrategies;
@@ -82,11 +82,6 @@ public sealed class PTS_NQ_PCH_001_15 : PriceChannelEngine
 
     public PTS_NQ_PCH_001_15()
     {
-        // Confine di sessione del run: giorno di calendario europeo, come
-        // (timestamp - 1 min - session_start_hour).normalize() del motore Python.
-        // NON e' la sessione del broker: le due divergono nelle settimane di
-        // disallineamento fra ora legale americana ed europea.
-        Session = ZonedWindow.ResearchSession();
         ChannelBars = 100;
         EnableLong = true;
         EnableShort = false;
@@ -126,10 +121,6 @@ public sealed class PTS_NQ_PCH_001_15 : PriceChannelEngine
             _symbol = symbol?.ToString() ?? _symbol;
         if (parameters.TryGetValue("TimeframeMinutes", out var timeframe))
             _timeframeMinutes = Convert.ToInt32(timeframe);
-        if (parameters.TryGetValue("SessionStartTime", out var sessionStart))
-            SessionStartTime = Convert.ToInt32(sessionStart);
-        if (parameters.TryGetValue("SessionEndTime", out var sessionEnd))
-            SessionEndTime = Convert.ToInt32(sessionEnd);
         if (parameters.TryGetValue("StartHour", out var startHour))
             TradingWindow = TradingWindow! with { StartHhmm = Convert.ToInt32(startHour) * 100 };
         if (parameters.TryGetValue("EndHour", out var endHour))

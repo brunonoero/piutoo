@@ -1,4 +1,4 @@
-using Piootoo.Core.Services;
+﻿using Piootoo.Core.Services;
 using Piootoo.Shared.Enums;
 using Piootoo.Shared.Models;
 using Piootoo.Strategies.Easy.Engines;
@@ -62,8 +62,6 @@ public sealed class BiasWeeklyVariantsTests
     {
         public VariantBiasWeekly()
         {
-            SessionStartTime = 1800;
-            SessionEndTime = 1700;
             LongSchedules =
             [
                 new WeeklySchedule(0, 1000, 1000, 3, 1500, SkipMonth: 8),

@@ -1,4 +1,4 @@
-using Piootoo.Shared.Configuration;
+﻿using Piootoo.Shared.Configuration;
 using Piootoo.Shared.Enums;
 using Piootoo.Shared.Models;
 
@@ -16,11 +16,6 @@ namespace Piootoo.Strategies.Easy.Engines;
 /// </summary>
 public abstract class RbbMirroredEngine : EasyEngineBase
 {
-    protected RbbMirroredEngine()
-    {
-        SessionStartTime = 1700;
-        SessionEndTime = 1659;
-    }
 
     /// <summary>Periodo delle Bollinger Bands.</summary>
     protected int BollingerLength = 20;
@@ -182,11 +177,6 @@ public abstract class RbbMirroredEngine : EasyEngineBase
 /// </summary>
 public abstract class RbbUnmirroredEngine : EasyEngineBase
 {
-    protected RbbUnmirroredEngine()
-    {
-        SessionStartTime = 1700;
-        SessionEndTime = 1659;
-    }
 
     /// <summary>Periodo delle Bollinger Bands.</summary>
     protected int BollingerLength = 20;

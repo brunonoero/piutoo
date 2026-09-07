@@ -87,11 +87,6 @@ public sealed class PTS_FDAX_PCH_001_240 : PriceChannelEngine
 
     public PTS_FDAX_PCH_001_240()
     {
-        // session_start_hour = 1 (tabella §2.1 del dossier): la sessione va da 01:00 a 01:00
-        // nell'orologio della ricerca. La barra che apre a mezzanotte appartiene alla
-        // sessione PRECEDENTE, come nel taglio (timestamp - 1 min - session_start_hour) del
-        // motore Python.
-        Session = ZonedWindow.ResearchSession(1);
         Contracts = 1;
 
         // Finestra operativa: start_hour/end_hour del run, verbatim nell'orologio

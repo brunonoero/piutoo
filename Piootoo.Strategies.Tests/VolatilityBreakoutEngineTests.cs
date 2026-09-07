@@ -1,4 +1,4 @@
-using Piootoo.Shared.Enums;
+﻿using Piootoo.Shared.Enums;
 using Piootoo.Shared.Models;
 using Piootoo.Shared.Models.Trading;
 using Piootoo.Strategies.Easy.Engines;
@@ -115,8 +115,6 @@ public sealed class VolatilityBreakoutEngineTests
         // Costruttore senza parametri obbligatorio: Evaluate clona via Activator.
         public TestVbo()
         {
-            SessionStartTime = 1700;
-            SessionEndTime = 1600;
             AtrMultiplierLong = 1m;
             AtrMultiplierShort = -1m;
         }

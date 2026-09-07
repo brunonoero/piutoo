@@ -1,4 +1,4 @@
-using Piootoo.Shared.Enums;
+﻿using Piootoo.Shared.Enums;
 using Piootoo.Shared.Models;
 using Piootoo.Shared.Models.Trading;
 using Piootoo.Strategies.Easy.Engines;
@@ -98,8 +98,6 @@ public sealed class TrendDeveloperEngineTests
 
         public TestTrendDeveloper()
         {
-            SessionStartTime = 1700;
-            SessionEndTime = 1659;
             Trigger = TrendTrigger.CurrentSessionOhlc;
             StartTrade = 0;
             EndTrade = 2359;

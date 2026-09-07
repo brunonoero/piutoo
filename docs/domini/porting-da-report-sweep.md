@@ -55,34 +55,112 @@ Mai convertirli nell'ora di borsa del simbolo. La conversione a mano — meno se
 sei per GC — è esatta solo fuori dalle settimane di disallineamento fra ora legale americana ed
 europea, ed è stata la causa di una divergenza reale.
 
-**2. La sessione è il giorno di calendario della ricerca, non quella del broker.** Il motore taglia
-con `(timestamp − 1 min − session_start_hour).normalize()`, e con `session_start_hour = 0` questo dà
-00:00 → 00:00 in ora europea. **Non** è la sessione CME 17:00→16:00 di New York. È una scelta di
-modello dichiarata dalla ricerca, e il port deve riprodurre quella, non il broker:
+**2. La sessione NON si dichiara più: la governa il calendario.** Dal 07/09/2026 il confine di
+sessione di una strategia viene da `MarketData/market-calendars.json`, per simbolo. Una classe
+`PTS_*` non scrive nulla sulla sessione:
 
 ```csharp
-Session = ZonedWindow.ResearchSession();    // session_start_hour = 0
-Session = ZonedWindow.ResearchSession(1);   // session_start_hour = 1
+// PRIMA: ogni classe dichiarava il proprio ancoraggio, e doveva indovinare quello giusto.
+Session = ZonedWindow.ResearchSession(1);
+
+// DOPO: niente. L'ancoraggio di FDAX e' 01:00 perche' lo dice il calendario, in un posto solo.
 ```
 
-**L'ora non si sceglie: è dello strumento.** La tabella §2.4 del dossier del paniere dà `1` a FDAX,
-CC, CT, KC, SB e HK e `0` a tutti gli altri; la stessa tabella sta in
-`InstrumentSpec.ResearchSessionStartHour`, e `ResearchSessionStartConformanceTests` la impone su
-ogni `PTS_*`.
+Il modello resta quello della ricerca — il motore Python taglia con
+`(timestamp − 1 min − session_start_hour).normalize()`, cioè il **giorno di calendario europeo**,
+non la sessione CME 17:00→16:00 di New York — ma l'ora non è più una scelta di chi porta: è un dato
+dello strumento.
 
-Il `− 1 minuto` non è un dettaglio: la barra etichettata all'ancoraggio appartiene alla sessione
-**precedente**. Il feed Piootoo etichetta però le barre sull'**apertura**, quindi la sessione
-ancorata a `h:00` va da `h:00` del giorno `D` a `h:00` del giorno `D+1` escluso, e ogni barra sta
-in una sessione. `EasyLib.OHLCMulti5` lo riproduce con il giorno di sessione di
-`ClassifySessionBar`. Fino al 07/09/2026 la compensazione era scritta solo per l'ancoraggio a
-mezzanotte, e con `session_start_hour = 1` restava il confronto stretto `t > sessionStartTime`, che
-lasciava **fuori da ogni sessione** le barre fino all'ancoraggio incluso: 22 barre su 24 su una
-serie oraria, 5 bucket su 6 su una 4h.
+### 2.1 Gli interi `1700` delle sorgenti EasyLanguage non sono un ancoraggio
 
-Le due sessioni — europea e CME — coincidono per gran parte dell'anno, perché mezzanotte a Roma
-sono le 17:00 a Chicago. Non coincidono nelle circa quattro settimane in cui gli Stati Uniti sono
-già passati all'ora legale e l'Europa no. È l'unico posto dove la differenza si vede, ed è
-esattamente il posto in cui un port sbagliato non se ne accorge.
+È la trappola che costa di più, perché il numero *sembra* pronto da copiare.
+
+Una sorgente EasyLanguage dichiara `SessBegin = 1700`, `SessEnd = 1600`. Quello è **l'orario della
+borsa** — le 17:00 di Chicago, la riapertura Globex — ed è un **modello di sessione diverso** da
+quello della ricerca, non lo stesso orario scritto in un altro fuso. Nella sessione di borsa le
+barre fuori orario non appartengono a nessuna sessione; nella sessione della ricerca ogni barra sta
+in una sessione e il confine è l'ancoraggio.
+
+**Non c'è nessuna aritmetica che porti da `1700` a un ancoraggio, e cercarne una è l'errore.** Le
+due coincidono per gran parte dell'anno — mezzanotte a Roma sono le 17:00 a Chicago — e divergono
+nelle circa quattro settimane in cui gli Stati Uniti sono già passati all'ora legale e l'Europa no.
+Un port che "converte" il numero è esatto tranne lì, ed è esattamente il posto in cui non se ne
+accorge.
+
+**Cosa farne, allora.** L'intero della sorgente è una **verifica**, non un ingresso:
+
+1. **Dice quale borsa la sorgente assumeva.** `1700`→`1600` è ora di Chicago, `1800`→`1700` è New
+   York, `0800`→`2200` è Eurex. Si controlla che `exchangeTz` del simbolo nel calendario sia quella
+   — il campo esiste per questo, e la coppia deve tornare *in quel fuso*.
+2. **Dice se la sorgente usa davvero una sessione di borsa.** Se la sorgente si affida al fatto che
+   le barre fuori orario non appartengano a nessuna sessione, il porting **si ferma e lo si
+   segnala**: è il modello che oggi non supportiamo, e convertirlo in silenzio produrrebbe una
+   strategia che opera su sessioni diverse da quelle su cui è stata trovata.
+3. **Non dice l'ancoraggio.** Quello viene dal dossier della ricerca (tabella §2.4,
+   `session_start_hour`), che è la stessa cosa che sta in `sessionStartHour` del calendario.
+
+**Se il simbolo non è nel calendario**, va aggiunto *prima* di portare la strategia, dopo aver
+verificato fuso di borsa, ancoraggio e giorni di sessione. Non esiste un default: un simbolo
+sconosciuto è un errore esplicito, come per `PointValue`.
+
+### 2.1bis La finestra operativa NON segue la stessa strada
+
+Domanda naturale una volta che il calendario governa la sessione: allora anche
+`ZonedWindow.ResearchHours(6, 5)` andrebbe convertito col calendario? **No**, e le ragioni sono
+due, entrambe misurate.
+
+**È una proprietà della strategia, non del simbolo.** Sul solo NQ il catalogo ha **24 finestre
+diverse** — da `(0, 17)` a `(22, 21)` — su GC sei, su ES tre. Il calendario dichiara una cosa per
+simbolo: una finestra per simbolo non esiste, e metterla lì è strutturalmente impossibile prima
+ancora che sbagliato.
+
+**Le ore non si convertono, mai.** Il filtro orario del motore Python confronta l'orario *della
+barra stessa* (`filters.py`: `minuti = index.hour * 60 + index.minute`) senza alcun riferimento a
+dove inizi la sessione: le due regole sono **indipendenti**. Convertire `start_hour`/`end_hour`
+nell'ora di borsa del simbolo — meno sette ore per NQ, meno sei per GC — è esatto <i>tranne</i>
+nelle settimane in cui l'ora legale americana ed europea non sono allineate, ed è già stato la
+causa di una divergenza reale.
+
+**E il fuso?** `ResearchHours` dichiara `Europe/Rome`, e il calendario lo dichiara di nuovo in
+`researchTz`. È una duplicazione, ma **non può divergere**:
+`MarketCalendarConformanceTests.ResearchTimeZoneIsTheOneDeclaredByZonedWindow` verifica che i due
+coincidano per tutti e trenta i simboli. Non c'è niente da consolidare.
+
+### 2.1ter Da dove viene la strategia decide in che orologio è la sua finestra
+
+È la distinzione che conta quando arriva una strategia nuova, e si sbaglia in silenzio.
+
+| Provenienza | La finestra è scritta in | Come si porta |
+|---|---|---|
+| Run di ricerca Python (`parametri.csv`, dossier) | **orologio della ricerca**, CET, per ogni simbolo | `ZonedWindow.ResearchHours(start, end)`, verbatim |
+| Sorgente EasyLanguage (`StartTrade`/`EndTrade`) | **ora di borsa** dello strumento | `new ZonedWindow(start, end, fuso di borsa)` — il fuso è `exchangeTz` del calendario |
+
+**Un numero da solo non dice da dove viene.** `1700` in un report di ricerca sono le 17:00 CET; in
+una sorgente EasyLanguage su NQ sono le 17:00 di Chicago, cioè un istante diverso per sei o sette
+ore. Prima di scrivere la finestra bisogna sapere quale delle due cose si ha in mano, e la risposta
+sta nella provenienza del file, non nel numero.
+
+Vale per **tutti** gli orari della sorgente, non solo per la finestra: le uscite a tempo e i filtri
+sul giorno della settimana hanno lo stesso problema. Un `dayofweek()` letto nell'orologio sbagliato
+cambia giorno nel mezzo della sessione serale americana.
+
+### 2.2 L'override, quando serve davvero
+
+Una strategia può avere un ancoraggio diverso da quello del suo simbolo. Deve dichiararlo, e
+dichiarare **perché**:
+
+```csharp
+OverrideSessionAnchor(1, "run X: il report taglia le sessioni all'01:00 anche su NQ");
+```
+
+Due limiti voluti. Il motivo è **obbligatorio**: un override senza motivo scritto è
+indistinguibile da una distrazione, e non compila. E si può cambiare **solo l'ora**: la sessione di
+borsa — dove le barre fuori orario non stanno in nessuna sessione — non è un parametro diverso, è un
+modello diverso, e non è supportata. Nessuna strategia la usa; costruirla ora significherebbe far
+rinascere la seconda fonte di verità che il calendario esiste per eliminare.
+
+Gli override sono elencati in `SessionAnchorOverrideTests`. Uno nuovo fa fallire il test finché non
+viene messo in lista: così nasce da una decisione e non da un merge.
 
 **3. L'orologio della ricerca è `Europe/Rome`, con le regole DST europee.** Misurato, non dedotto:
 prendendo la barra a volume massimo di ogni giorno del 2024 — quella che marca l'apertura o la
@@ -94,7 +172,8 @@ esisterebbe.
 
 **4. Nessuna strategia legge l'ora di una barra.** Legge il suo istante e lo confronta con una
 finestra che dichiara il proprio fuso. `StrategyClockConformanceTests` lo impone sul sorgente, e
-impone anche che ogni `PTS_*` dichiari sia `Session` sia `TradingWindow` con fuso esplicito. Il
+impone anche che ogni `PTS_*` dichiari la propria `TradingWindow` con fuso esplicito. La sessione
+non si dichiara più (vedi la regola 2). Il
 feed dichiara il proprio orologio in `datafeed/feed-clocks.json` e viene convertito a UTC vero una
 volta sola al caricamento: da lì in poi il port non dipende più da come sono stampate le barre.
 

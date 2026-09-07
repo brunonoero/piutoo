@@ -91,9 +91,6 @@ public sealed class PTS_ES_PCH_002_60 : PriceChannelEngine
 
     public PTS_ES_PCH_002_60()
     {
-        // Confine di sessione del run: giorno di calendario europeo, come
-        // (timestamp - 1 min - session_start_hour).normalize() del motore Python.
-        Session = ZonedWindow.ResearchSession();
         Contracts = 1;
 
         ChannelBars = 1;  // channel_len: canale INCLUSA la barra di segnale

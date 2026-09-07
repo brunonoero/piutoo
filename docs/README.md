@@ -44,6 +44,11 @@ non esiste più, si tiene per il perché.
   decide se una posizione resta aperta oltre la sessione o oltre il fine
   settimana: la gerarchia piano → motore → strategia, dove si dichiara e dove
   si vede. *Stabile.*
+- [`domini/layer-barre-e-calendario.md`](domini/layer-barre-e-calendario.md) —
+  il layer unico che normalizza le barre per backtest interno, backtest su feed
+  di broker e realtime: calendario di mercato come dato, pipeline a stadi,
+  aggregazione ancorata, orologio a barre con logica future sul fine settimana.
+  *Migrazione in corso: il §7 dice cosa e' gia' fatto e cosa no.*
 - [`domini/orari-di-sessione-e-fusi.md`](domini/orari-di-sessione-e-fusi.md) —
   in che orologio vanno letti gli orari di sessione delle sorgenti
   EasyLanguage, come si accerta il fuso di un feed, cosa costa sbagliarlo, cosa

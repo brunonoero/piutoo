@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
@@ -16,7 +16,7 @@ namespace cAlgo.Robots
     /// strumenti tocca. L'unica cosa che fa e' portare al server le barre (e, se richiesto, i tick)
     /// dei simboli che gli si elencano, perche' il server li scriva in
     /// <c>piootoo-repository/datafeed-external/{CODICE-BROKER}/</c> con la stessa convenzione dei
-    /// feed del vendor: <c>@NQ_60.json</c>, <c>@ES_15.json</c>. Il codice broker lo deduce dal conto
+    /// feed del vendor: <c>@NQ_1.json</c>. Il codice broker lo deduce dal conto
     /// (<c>Account.BrokerName</c>) e lo si puo' forzare: e' cio' che tiene separati i dati di due
     /// broker, che per lo stesso simbolo NON producono la stessa serie.
     ///
@@ -31,7 +31,7 @@ namespace cAlgo.Robots
     /// <c>OnStart</c> significa bloccare il thread dell'algoritmo per minuti — la piattaforma lo
     /// interpreta come un bot piantato — e un invio unico da centomila barre finisce in timeout
     /// HTTP, lasciando a terra tutto il lavoro fatto. Qui il ciclo e' l'opposto: a ogni battito di
-    /// timer si fa <b>un solo blocco</b> (default cinque giorni, al massimo 2000 barre), lo si
+    /// timer si fa <b>un solo blocco</b> (default due giorni, al massimo 5000 barre), lo si
     /// spedisce e si passa allo stream successivo. Se il bot muore a meta', quello che e' arrivato
     /// e' gia' sul disco del server, e al riavvio si riprende da dove si era rimasti: la prima cosa
     /// che il bot chiede per ogni stream e' <c>GET status</c>, cioe' "cosa hai gia'".</para>
@@ -41,24 +41,31 @@ namespace cAlgo.Robots
     /// nella status invece di riempirli. Se il broker non ha un periodo, quel periodo resta vuoto e
     /// si vede.</para>
     ///
-    /// <para><b>Cosa raccogliere lo si dichiara in due modi.</b> O a mano (<c>Simboli</c> +
-    /// <c>Timeframe in minuti</c>), o con un <c>Codice piano</c>: in quel caso le coppie (simbolo,
-    /// timeframe) arrivano dal masterfilter del workspace del piano, gia' con il nome che ogni
-    /// simbolo ha su questo conto. Il piano vince sui timeframe scritti a mano, che vengono ignorati
-    /// — due liste di coppie tenute vive insieme divergerebbero in silenzio. <c>Simboli</c> invece
-    /// cambia mestiere: con il piano non dichiara piu' niente, <b>filtra</b> — si raccolgono solo gli
-    /// strumenti del masterfilter che vi compaiono, con i timeframe del piano. Vuoto = tutto il
-    /// piano, come prima.</para>
+    /// <para><b>Cosa raccogliere lo si dichiara in due modi.</b> O a mano (<c>Simboli</c>), o con un
+    /// <c>Codice piano</c>: in quel caso gli strumenti arrivano dal masterfilter del workspace del
+    /// piano, gia' con il nome che ognuno ha su questo conto. Con il piano <c>Simboli</c> cambia
+    /// mestiere: non dichiara piu' niente, <b>filtra</b> — si raccolgono solo gli strumenti del
+    /// masterfilter che vi compaiono. Vuoto = tutto il piano.</para>
     ///
-    /// <para><b>La griglia oltre l'ora non e' quella della piattaforma.</b> Il grafico H4 (e ogni
-    /// timeframe sopra l'ora) di cTrader e' ancorato all'orologio del broker; il feed Piootoo e i run
-    /// di ricerca sono ancorati all'inizio sessione del giorno di calendario europeo. Le due griglie
-    /// non coincidono, e la differenza non da' errore: da' barre diverse, con aperture e massimi
-    /// diversi, che nessuno distingue guardando il file. Per questo il bot <b>non chiede mai alla
-    /// piattaforma una serie oltre i sessanta minuti</b>: sottoscrive la serie base (l'ora, o quella
-    /// che si forza) e costruisce i bucket qui, con la stessa regola di
-    /// <c>datafeed-future/aggregate_flat_feed.py</c>. Vale per ogni mercato, non solo per quelli in
-    /// cui il disallineamento si e' visto: e' cio' che tiene confrontabili backtest ed esecuzione.</para>
+    /// <para><b>Raccoglie SOLO barre da un minuto UTC.</b> Dalla 2.0.0 il bot non costruisce piu'
+    /// nessun timeframe: chiede alla piattaforma la serie da un minuto, la spedisce cosi' com'e', e
+    /// tutto cio' che sta sopra lo deriva il server dal minuto. Il minuto e' il solo dato su cui non
+    /// c'e' niente da decidere — nessun ancoraggio, nessun fuso, nessuna convenzione sul cambio
+    /// d'ora — quindi e' il solo che un bot possa raccogliere senza poter sbagliare.</para>
+    ///
+    /// <para><b>Perche' e' cambiato.</b> La griglia dei timeframe alti dipende dall'ora di inizio
+    /// sessione dello strumento, che e' un dato del calendario di mercato: una tabella che il server
+    /// ha e che cTrader non vede. Il bot ne teneva una copia, e finche' le due sono rimaste
+    /// d'accordo ha funzionato. Quando hanno smesso, il risultato non e' stato un errore: e' stato un
+    /// file con DUE griglie dentro — la deduplica e' sull'istante di apertura, quindi due raccolte
+    /// con ancoraggi diversi non si sovrascrivono, si sommano — meta' barre ciascuna, tutte
+    /// plausibili. Sull'archivio FTMOPLATFORM erano <c>@KC_240</c>, <c>@KC_1440</c> e
+    /// <c>@CT_1440</c>. Vedi <c>docs/domini/layer-barre-e-calendario.md</c>.</para>
+    ///
+    /// <para><b>Gli aggregati li chiede a fine backfill</b>
+    /// (<c>POST api/datafeed-external/rebuild-from-minutes</c>), cosi' una raccolta non lascia
+    /// l'archivio con il solo minuto e i backtest a mani vuote. Quali timeframe derivare lo dice il
+    /// masterfilter del piano, o il parametro apposito quando un piano non c'e'.</para>
     ///
     /// <para><b>Finestra di date.</b> <c>Data inizio</c> e <c>Data fine</c> limitano cosa si
     /// raccoglie in questo run. Sono il modo previsto per spezzare un backfill lungo in piu'
@@ -91,10 +98,14 @@ namespace cAlgo.Robots
         // (i blocchi sono idempotenti). Legarlo alla versione del progetto vorrebbe dire che ogni
         // release del server fa comparire un finto disallineamento nel log di un bot che non e'
         // cambiato — o costringe a ri-deployarlo per niente.
-        // 1.2.1: i confini del blocco si arrotondano al minuto prima di cercare il bucket. Senza,
-        // un bucket ogni ChunkDays veniva spedito con una barra base sola. La versione finisce nel
-        // campo `source` del feed ed e' il solo modo di distinguere un archivio raccolto prima.
-        private const string BotVersion = "1.3.1";
+        // 2.0.0: il bot raccoglie SOLO barre da un minuto. Spariti i tre parametri della griglia
+        // (fuso, ora di inizio sessione, timeframe base) e il codice che piegava i bucket: quella
+        // regola vive adesso in un punto solo, lato server (Piootoo.Shared/MarketData/SessionGrid).
+        // Il salto di major e' dovuto: un archivio raccolto con la 1.x contiene aggregati costruiti
+        // dal bot, uno raccolto con la 2.x contiene il minuto e aggregati derivati dal server, e i
+        // due non sono la stessa cosa. La versione finisce nel campo `source` del feed ed e' il solo
+        // modo di distinguerli a posteriori.
+        private const string BotVersion = "2.0.0";
 
         /// <summary>
         /// Tetto ai giri di <c>LoadMoreHistory</c> in un solo battito di timer. Il broker risponde a
@@ -108,19 +119,17 @@ namespace cAlgo.Robots
         private const int LiveHealingBars = 3;
 
         /// <summary>
-        /// Fin dove ci si fida delle serie della piattaforma. Fino all'ora i bucket di cTrader e
-        /// quelli del feed coincidono comunque, perche' lo scarto di un fuso e' un numero intero di
-        /// ore; oltre no — e la differenza non produce un errore, produce barre diverse. Da li' in
-        /// su il bucket lo costruisce questo bot (<see cref="BucketStartUtc"/>).
+        /// Tolleranza usata per decidere cos'e' un buco quando non la si dichiara: quattro giorni.
+        /// Un fine settimana lungo con un festivo attaccato ci sta dentro; una storia davvero
+        /// mancante no.
         /// </summary>
-        private const int NativeCeilingMinutes = 60;
+        private const int DefaultGapToleranceMinutes = 4 * 24 * 60;
 
         /// <summary>
-        /// Serie base ammesse per costruire un timeframe alto, dalla piu' larga alla piu' fitta: si
-        /// prende la prima che divide il timeframe richiesto. Meno barre da leggere significa meno
-        /// <c>LoadMoreHistory</c> e backfill piu' corti, quindi l'ora viene per prima.
+        /// L'unico timeframe che questo bot raccoglie. Il minuto e' il dato autorevole: tutto cio'
+        /// che sta sopra e' derivato, e derivarlo e' compito del server, in un punto solo.
         /// </summary>
-        private static readonly int[] BaseCandidates = { 60, 30, 15, 10, 5, 3, 2, 1 };
+        private const int CollectedTimeframeMinutes = 1;
 
         /// <summary>
         /// Blocchi gia' coperti consumati in un solo battito. Serve a scorrere in fretta un periodo
@@ -171,44 +180,28 @@ namespace cAlgo.Robots
         [Parameter("Simboli (broker[=@PIOOTOO], separati da virgola)", DefaultValue = "", Group = "Cosa raccogliere")]
         public string SymbolList { get; set; }
 
-        [Parameter("Timeframe in minuti (separati da virgola)", DefaultValue = "15,60", Group = "Cosa raccogliere")]
+        /// <summary>
+        /// I timeframe che il <b>server</b> deve derivare dal minuto a fine backfill. Non e' piu'
+        /// "cosa raccogliere": si raccoglie il minuto e basta.
+        ///
+        /// <para>Vuoto = si ricostruisce quello che sul disco c'e' gia'. Con <see cref="PlanCode"/>
+        /// questo campo viene <b>ignorato</b>: i timeframe li dichiara il masterfilter del piano, che
+        /// resta l'unica fonte di verita' su quali servono — un elenco scritto qui accanto
+        /// divergerebbe in silenzio il giorno in cui si aggiunge una strategia.</para>
+        /// </summary>
+        [Parameter("Timeframe da far derivare al server (vuoto = quelli gia' presenti)", DefaultValue = "", Group = "Aggregati")]
         public string TimeframeList { get; set; }
 
         /// <summary>
-        /// Fuso IANA su cui cade l'ancoraggio dei bucket oltre l'ora. Il default e' quello della
-        /// ricerca e del feed del vendor (<c>ZonedWindow.ResearchTimeZone</c>,
-        /// <c>datafeed-future/aggregate_flat_feed.py</c>): il giorno di calendario europeo.
+        /// A fine backfill chiede al server di riscrivere gli aggregati dal minuto appena raccolto
+        /// (<c>POST api/datafeed-external/rebuild-from-minutes</c>).
         ///
-        /// <para><b>Cambiarlo rende il feed non confrontabile</b> con <c>datafeed/</c> e con i run
-        /// di ricerca da cui le strategie PTS sono state portate: sposta i confini dei bucket, quindi
-        /// le barre a 4h e giornaliere aggregano minuti diversi. Il valore finisce nel campo
-        /// <c>source</c> del feed proprio perche' due file identici nella forma ma nati su ancoraggi
-        /// diversi non si distinguerebbero altrimenti.</para>
+        /// <para>Acceso di default perche' altrimenti una raccolta su un archivio nuovo lascerebbe
+        /// <b>solo</b> il minuto, e ogni backtest a 15, 60 o 240 minuti troverebbe il datafeed
+        /// mancante senza che nulla spieghi il perche'.</para>
         /// </summary>
-        [Parameter("Fuso dell'ancoraggio (IANA)", DefaultValue = "Europe/Rome", Group = "Griglia oltre l'ora")]
-        public string SessionTimeZoneId { get; set; }
-
-        /// <summary>
-        /// Ora locale — nel fuso dichiarato sopra — in cui comincia la sessione, cioe' da dove si
-        /// contano i bucket. <c>0</c> e' il <c>session_start_hour</c> dei run di ricerca.
-        ///
-        /// <para><b>E' il default, non l'ultima parola.</b> Per i sei mercati che la tabella §2.4 del
-        /// dossier apre alle 01:00 CET — FDAX, CC, CT, KC, SB — l'ancoraggio lo decide
-        /// <see cref="SessionStartHourOf"/> e questo parametro non li tocca: l'ora d'inizio sessione
-        /// e' una proprieta' dello strumento, e un valore unico per istanza renderebbe non
-        /// raccoglibile in un colpo solo un piano che mette insieme NQ e FDAX.</para>
-        /// </summary>
-        [Parameter("Ora di inizio sessione", DefaultValue = 0, MinValue = 0, MaxValue = 23, Group = "Griglia oltre l'ora")]
-        public int SessionStartHour { get; set; }
-
-        /// <summary>
-        /// Serie della piattaforma da cui si costruiscono i timeframe alti. <c>0</c> = automatico:
-        /// la piu' larga fra <see cref="BaseCandidates"/> che divide il timeframe richiesto, cioe'
-        /// l'ora nei casi normali. Si forza a <c>1</c> quando si sospetta che siano le barre orarie
-        /// del broker a essere mal allineate: costa molte piu' barre da scaricare.
-        /// </summary>
-        [Parameter("Timeframe base in minuti (0 = automatico)", DefaultValue = 0, MinValue = 0, MaxValue = 60, Group = "Griglia oltre l'ora")]
-        public int BaseTimeframeMinutes { get; set; }
+        [Parameter("Fai derivare gli aggregati a fine backfill", DefaultValue = true, Group = "Aggregati")]
+        public bool RebuildAggregates { get; set; }
 
         /// <summary>
         /// Codice del broker: e' la sottocartella in cui il server salva questi feed
@@ -235,10 +228,10 @@ namespace cAlgo.Robots
         [Parameter("Data fine (yyyy-MM-dd, vuoto = adesso)", DefaultValue = "", Group = "Finestra di date")]
         public string EndDateText { get; set; }
 
-        [Parameter("Giorni per blocco", DefaultValue = 5, MinValue = 1, MaxValue = 3650, Group = "Finestra di date")]
+        [Parameter("Giorni per blocco", DefaultValue = 2, MinValue = 1, MaxValue = 3650, Group = "Finestra di date")]
         public int ChunkDays { get; set; }
 
-        [Parameter("Barre massime per invio", DefaultValue = 2000, MinValue = 50, MaxValue = 20000, Group = "Finestra di date")]
+        [Parameter("Barre massime per invio", DefaultValue = 5000, MinValue = 50, MaxValue = 20000, Group = "Finestra di date")]
         public int MaxBarsPerPost { get; set; }
 
         /// <summary>
@@ -247,6 +240,15 @@ namespace cAlgo.Robots
         /// </summary>
         [Parameter("Salta i periodi gia' presenti sul server", DefaultValue = true, Group = "Finestra di date")]
         public bool SkipCovered { get; set; }
+
+        /// <summary>
+        /// Da quanti minuti in su un vuoto fra due barre e' un <b>buco</b> invece che mercato
+        /// chiuso. <c>0</c> = quattro giorni, che e' la scelta giusta per una serie a un minuto:
+        /// alzarla fa dare per coperti periodi che mancano, abbassarla fa rispedire ogni volta
+        /// tutta la storia perche' ogni notte diventa un buco.
+        /// </summary>
+        [Parameter("Tolleranza buchi in minuti (0 = quattro giorni)", DefaultValue = 0, MinValue = 0, Group = "Finestra di date")]
+        public int GapToleranceMinutes { get; set; }
 
         [Parameter("Resta in ascolto dopo il backfill", DefaultValue = true, Group = "Regime")]
         public bool KeepInSync { get; set; }
@@ -285,7 +287,6 @@ namespace cAlgo.Robots
         private readonly JsonSerializerOptions _json = new JsonSerializerOptions(JsonSerializerDefaults.Web);
 
         private string _brokerCode;
-        private TimeZoneInfo _sessionZone;
         private DateTime _windowStartUtc;
         private DateTime _windowEndUtc;
         private DateTime _lastTickFlushUtc;
@@ -370,26 +371,26 @@ namespace cAlgo.Robots
             };
             _http.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
-            if (!TryResolveSessionZone(out var zoneError))
-            {
-                StopWithError(zoneError);
-                return;
-            }
-
             if (!TryBuildStreams(out var streamError))
             {
                 StopWithError(streamError);
                 return;
             }
 
-            if (!TryValidateSessionOffsets(out var offsetError))
-            {
-                StopWithError(offsetError);
-                return;
-            }
-
-            Print("Finestra richiesta: {0:yyyy-MM-dd} -> {1:yyyy-MM-dd} — {2} stream, blocchi da {3} giorni (max {4} barre).",
+            Print("Finestra richiesta: {0:yyyy-MM-dd} -> {1:yyyy-MM-dd} — {2} simboli a UN MINUTO, " +
+                  "blocchi da {3} giorni (max {4} barre).",
                 _windowStartUtc, _windowEndUtc, _streams.Count, ChunkDays, MaxBarsPerPost);
+
+            // La RAM e' il vincolo vero di una raccolta a un minuto, ed e' bene saperlo prima e non
+            // a meta'. La serie resta in memoria per intero mentre si cammina all'indietro: un anno
+            // sono circa 370.000 barre per simbolo contro le 1.500 di una 240. Su molti simboli
+            // insieme conviene spezzare per finestre di date — che e' esattamente a cosa servono
+            // 'Data inizio' e 'Data fine' — invece di chiedere tutta la storia in un run solo.
+            var giorni = Math.Max(1, (_windowEndUtc - _windowStartUtc).TotalDays);
+            Print("Attese fino a ~{0:N0} barre per simbolo ({1:N0} complessive): la serie da un minuto " +
+                  "resta in RAM mentre si cammina all'indietro. Se la piattaforma rallenta, spezzare " +
+                  "la finestra di date invece di allargare i blocchi.",
+                giorni * 1440, giorni * 1440 * _streams.Count);
 
             if (SyncTicks)
                 SubscribeTicks();
@@ -518,62 +519,48 @@ namespace cAlgo.Robots
                     continue;
                 }
 
-                foreach (var minutes in request.TimeframesMinutes)
+                // Uno stream per SIMBOLO, non per coppia (simbolo, timeframe): si raccoglie il
+                // minuto e basta, e i timeframe che il piano dichiara servono al server per
+                // derivarli, non a questo bot per raccoglierli.
+                if (_streams.Any(existing => string.Equals(
+                        existing.BrokerSymbol, brokerSymbol.Name, StringComparison.OrdinalIgnoreCase)))
                 {
-                    int baseMinutes;
-                    TimeFrame baseTimeFrame;
-                    string reason;
-                    if (!TryResolveBase(minutes, out baseMinutes, out baseTimeFrame, out reason))
-                    {
-                        Print("{0}: timeframe {1} minuti non costruibile ({2}). Stream saltato.",
-                            request.PiootooSymbol, minutes, reason);
-                        continue;
-                    }
-
-                    var series = MarketData.GetBars(baseTimeFrame, brokerSymbol.Name);
-                    if (series == null)
-                    {
-                        Print("{0}: serie base da {1} minuti non disponibile. Stream saltato.",
-                            request.PiootooSymbol, baseMinutes);
-                        continue;
-                    }
-
-                    var stream = new SyncStream
-                    {
-                        BrokerSymbol = brokerSymbol.Name,
-                        PiootooSymbol = request.PiootooSymbol,
-                        TimeframeMinutes = minutes,
-                        BaseTimeframeMinutes = baseMinutes,
-                        Series = series,
-                        CursorEndUtc = _windowEndUtc
-                    };
-
-                    _streams.Add(stream);
-
-                    // Una sottoscrizione per SERIE, non per stream: la stessa serie base alimenta
-                    // piu' stream (@FDAX_60 e @FDAX_240 vengono entrambi dall'ora), e sottoscrivere
-                    // due volte lo stesso evento lo farebbe scattare due volte per ogni barra.
-                    List<SyncStream> pendenti;
-                    if (!_bySeries.TryGetValue(series, out pendenti))
-                    {
-                        _bySeries[series] = pendenti = new List<SyncStream>();
-                        series.BarOpened += OnSeriesBarOpened;
-                    }
-
-                    pendenti.Add(stream);
-
-                    if (stream.Aggregated)
-                        Print("{0}: bucket costruiti qui dalle barre da {1} minuti, ancoraggio {2} {3:00}:00 — " +
-                              "la serie nativa da {4} minuti della piattaforma NON viene usata.",
-                            stream, baseMinutes, SessionTimeZoneId.Trim(),
-                            SessionStartHourOf(stream.PiootooSymbol), minutes);
+                    continue;
                 }
+
+                var series = MarketData.GetBars(TimeFrame.Minute, brokerSymbol.Name);
+                if (series == null)
+                {
+                    Print("{0}: serie da un minuto non disponibile su questo account. Stream saltato.",
+                        request.PiootooSymbol);
+                    continue;
+                }
+
+                var stream = new SyncStream
+                {
+                    BrokerSymbol = brokerSymbol.Name,
+                    PiootooSymbol = request.PiootooSymbol,
+                    TimeframeMinutes = CollectedTimeframeMinutes,
+                    Series = series,
+                    CursorEndUtc = _windowEndUtc
+                };
+
+                _streams.Add(stream);
+
+                List<SyncStream> pendenti;
+                if (!_bySeries.TryGetValue(series, out pendenti))
+                {
+                    _bySeries[series] = pendenti = new List<SyncStream>();
+                    series.BarOpened += OnSeriesBarOpened;
+                }
+
+                pendenti.Add(stream);
             }
 
             if (_streams.Count == 0)
             {
                 error = string.IsNullOrWhiteSpace(PlanCode)
-                    ? "Nessuno stream valido: controllare l'elenco simboli e i timeframe."
+                    ? "Nessuno stream valido: controllare l'elenco simboli."
                     : string.Format("Nessuno stream valido: nessuno strumento del piano '{0}' e' " +
                                     "disponibile su questo account.", PlanCode);
                 return false;
@@ -602,8 +589,8 @@ namespace cAlgo.Robots
             error = null;
 
             if (!string.IsNullOrWhiteSpace(TimeframeList))
-                Print("Codice piano impostato: 'Timeframe in minuti' viene IGNORATO, " +
-                      "le coppie (simbolo, timeframe) le dichiara il piano '{0}'.", PlanCode);
+                Print("Codice piano impostato: 'Timeframe da far derivare al server' viene IGNORATO, " +
+                      "li dichiara il masterfilter del piano '{0}'.", PlanCode);
 
             var uri = string.Format("api/datafeed-external/plan-instruments?planCode={0}&accountNumber={1}",
                 Uri.EscapeDataString(PlanCode.Trim()), Uri.EscapeDataString(Account.Number.ToString()));
@@ -639,8 +626,11 @@ namespace cAlgo.Robots
             var requests = new List<StreamRequest>();
             foreach (var instrument in plan.Instruments)
             {
-                if (string.IsNullOrWhiteSpace(instrument.Symbol) ||
-                    instrument.TimeframesMinutes == null || instrument.TimeframesMinutes.Count == 0)
+                // I timeframe del piano NON si guardano piu' qui: si raccoglie il minuto per ogni
+                // strumento del masterfilter, e quali aggregati derivarne lo dice il piano al
+                // server (POST rebuild-from-minutes?planCode=...). Uno strumento senza timeframe
+                // resta comunque uno strumento da raccogliere: il minuto serve lo stesso.
+                if (string.IsNullOrWhiteSpace(instrument.Symbol))
                     continue;
 
                 requests.Add(new StreamRequest
@@ -650,8 +640,7 @@ namespace cAlgo.Robots
                     BrokerSymbol = string.IsNullOrWhiteSpace(instrument.AccountSymbol)
                         ? instrument.Symbol
                         : instrument.AccountSymbol,
-                    PiootooSymbol = NormalizePiootooSymbol(instrument.Symbol),
-                    TimeframesMinutes = instrument.TimeframesMinutes
+                    PiootooSymbol = NormalizePiootooSymbol(instrument.Symbol)
                 });
             }
 
@@ -668,8 +657,7 @@ namespace cAlgo.Robots
             }
 
             foreach (var request in requests)
-                Print("   {0} -> {1} [{2}]", request.BrokerSymbol, request.PiootooSymbol,
-                    string.Join(", ", request.TimeframesMinutes));
+                Print("   {0} -> {1}", request.BrokerSymbol, request.PiootooSymbol);
 
             return requests;
         }
@@ -739,34 +727,6 @@ namespace cAlgo.Robots
         {
             error = null;
 
-            var timeframes = new List<int>();
-            foreach (var piece in (TimeframeList ?? string.Empty).Split(new[] { ',', ';', ' ' }, StringSplitOptions.RemoveEmptyEntries))
-            {
-                int minutes;
-                if (!int.TryParse(piece.Trim(), out minutes) || minutes <= 0)
-                {
-                    error = string.Format("Timeframe '{0}' non valido: attesi minuti interi (es. '15,60,240').", piece);
-                    return null;
-                }
-
-                string reason;
-                if (!TryResolveBase(minutes, out _, out _, out reason))
-                {
-                    error = string.Format("Timeframe {0} minuti non costruibile: {1}", minutes, reason);
-                    return null;
-                }
-
-                if (!timeframes.Contains(minutes))
-                    timeframes.Add(minutes);
-            }
-
-            if (timeframes.Count == 0)
-            {
-                error = "Nessun timeframe indicato: valorizzare 'Timeframe in minuti', " +
-                        "oppure impostare 'Codice piano' e lasciare che gli strumenti li dichiari il piano.";
-                return null;
-            }
-
             var entries = new List<string>();
             foreach (var piece in (SymbolList ?? string.Empty).Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries))
             {
@@ -797,8 +757,7 @@ namespace cAlgo.Robots
                 requests.Add(new StreamRequest
                 {
                     BrokerSymbol = brokerName,
-                    PiootooSymbol = NormalizePiootooSymbol(piootooSymbol),
-                    TimeframesMinutes = timeframes
+                    PiootooSymbol = NormalizePiootooSymbol(piootooSymbol)
                 });
             }
 
@@ -891,11 +850,29 @@ namespace cAlgo.Robots
         /// riprendibile: senza, ogni riavvio ricomincerebbe il backfill da capo e riverserebbe
         /// megabyte di barre gia' presenti solo per farsele contare come duplicate.
         /// </summary>
+        /// <summary>
+        /// Cosa il server ha gia' per questo stream. La risposta decide cosa chiedere al broker e
+        /// cosa saltare.
+        ///
+        /// <para><b>La tolleranza sui buchi va dichiarata, a un minuto.</b> Il default del server e'
+        /// due volte il passo dominante — a un minuto, due minuti — e su una serie a un minuto vera
+        /// ogni notte e' un buco: la pausa di manutenzione CME, la chiusura serale degli europei, i
+        /// festivi. Un anno ne produce centinaia, l'elenco che il server restituisce viene troncato
+        /// a duecento, e un elenco troncato fa dire a <see cref="IsAlreadyCovered"/> "non so" per
+        /// ogni blocco. Risultato: <c>Salta i periodi gia' presenti</c> non salterebbe mai niente e
+        /// ogni run rispedirebbe milioni di barre che il server contera' come duplicate.</para>
+        ///
+        /// <para>Con <see cref="GapToleranceMinutes"/> a zero si usano quattro giorni, che coprono un
+        /// fine settimana lungo e un festivo attaccato: sotto quella soglia il mercato era chiuso,
+        /// sopra manca davvero della storia.</para>
+        /// </summary>
         private void FetchStatus(SyncStream stream)
         {
+            var tolerance = GapToleranceMinutes > 0 ? GapToleranceMinutes : DefaultGapToleranceMinutes;
             var uri = string.Format(
-                "api/datafeed-external/status?broker={0}&symbol={1}&timeframeMinutes={2}",
-                Uri.EscapeDataString(_brokerCode), Uri.EscapeDataString(stream.PiootooSymbol), stream.TimeframeMinutes);
+                "api/datafeed-external/status?broker={0}&symbol={1}&timeframeMinutes={2}&gapToleranceMinutes={3}",
+                Uri.EscapeDataString(_brokerCode), Uri.EscapeDataString(stream.PiootooSymbol),
+                stream.TimeframeMinutes, tolerance);
 
             try
             {
@@ -978,21 +955,15 @@ namespace cAlgo.Robots
                     return; // si riprende dallo stesso punto al prossimo battito
             }
 
-            // I confini del blocco si arrotondano ai confini dei bucket, verso il basso. E' cio' che
-            // impedisce di spedire un bucket a meta': quello che comincia prima di chunkStart viene
-            // letto per intero QUI (si scende fino ad alignedStart), e quello a cavallo di chunkEnd
-            // non si tocca — lo prende il blocco che ha quel confine come inizio. I due blocchi si
-            // cuciono esattamente, senza duplicati e senza buchi. Per uno stream nativo i due
-            // arrotondamenti non fanno niente.
-            var alignedStart = BucketStartUtc(stream, chunkStart);
-            var alignedEnd = BucketStartUtc(stream, chunkEnd);
-
-            if (!EnsureHistoryReaches(stream, alignedStart))
+            // Niente da allineare: a un minuto il confine del blocco cade sempre fra due barre, e
+            // una barra appartiene a un blocco solo. L'arrotondamento ai confini dei bucket serviva
+            // a non spedire mezzo bucket, e i bucket qui non esistono piu'.
+            if (!EnsureHistoryReaches(stream, chunkStart))
                 return; // il broker sta ancora consegnando: si riprende al prossimo battito
 
             DateTime oldestSent;
             bool truncated;
-            var candles = FoldBackwards(stream, alignedStart, alignedEnd, MaxBarsPerPost, out oldestSent, out truncated);
+            var candles = CollectBackwards(stream, chunkStart, chunkEnd, MaxBarsPerPost, out oldestSent, out truncated);
 
             if (candles.Count > 0)
             {
@@ -1043,9 +1014,103 @@ namespace cAlgo.Robots
             _backfillReported = true;
             var totalSent = _streams.Sum(stream => stream.SentBars);
             var totalNew = _streams.Sum(stream => stream.AcceptedBars);
-            Print("Backfill completato su {0} stream: {1} barre spedite, {2} nuove sul server.{3}",
+            Print("Backfill completato su {0} simboli: {1} barre da un minuto spedite, {2} nuove sul server.{3}",
                 _streams.Count, totalSent, totalNew,
                 KeepInSync ? " Si resta in ascolto delle barre nuove." : string.Empty);
+
+            RequestAggregateRebuild();
+        }
+
+        /// <summary>
+        /// Chiede al server di derivare gli aggregati dal minuto appena raccolto.
+        ///
+        /// <para><b>Perche' il bot lo chiede e non lo fa.</b> La griglia dei timeframe alti dipende
+        /// dall'ancoraggio di sessione dello strumento, che e' un dato del calendario di mercato —
+        /// una tabella che il server ha e cTrader no. Fino alla 1.3.1 il bot ne teneva una copia e
+        /// piegava i bucket da se': due copie della stessa tabella, e quando hanno smesso di essere
+        /// d'accordo il risultato non e' stato un errore ma un file con DUE griglie dentro, meta'
+        /// barre ciascuna, tutte plausibili. Vedi docs/domini/layer-barre-e-calendario.md §7bis.</para>
+        ///
+        /// <para><b>Quali timeframe.</b> Con un piano li dichiara il masterfilter, che e' la stessa
+        /// fonte da cui vengono gli strumenti da raccogliere; senza piano vale
+        /// <see cref="TimeframeList"/>, e se e' vuoto si rifanno quelli che sul disco ci sono
+        /// gia'.</para>
+        ///
+        /// <para>Un fallimento qui non e' fatale: il minuto — che e' il dato che conta — e' gia'
+        /// salvato, e la ricostruzione si puo' rifare a mano con la stessa chiamata. Ma va detto,
+        /// perche' senza aggregati ogni backtest sopra il minuto trova il datafeed mancante.</para>
+        /// </summary>
+        private void RequestAggregateRebuild()
+        {
+            if (!RebuildAggregates)
+            {
+                Print("Aggregati NON derivati (parametro spento): sul disco c'e' il solo minuto. " +
+                      "Un backtest a 15, 60 o 240 minuti trovera' il datafeed mancante finche' non si " +
+                      "chiama POST api/datafeed-external/rebuild-from-minutes.");
+                return;
+            }
+
+            var uri = new StringBuilder("api/datafeed-external/rebuild-from-minutes?broker=");
+            uri.Append(Uri.EscapeDataString(_brokerCode));
+
+            if (!string.IsNullOrWhiteSpace(PlanCode))
+            {
+                uri.Append("&planCode=").Append(Uri.EscapeDataString(PlanCode.Trim()));
+            }
+            else
+            {
+                foreach (var piece in (TimeframeList ?? string.Empty)
+                             .Split(new[] { ',', ';', ' ' }, StringSplitOptions.RemoveEmptyEntries))
+                {
+                    int minutes;
+                    if (int.TryParse(piece.Trim(), out minutes) && minutes > 1)
+                        uri.Append("&timeframeMinutes=").Append(minutes);
+                }
+            }
+
+            // Senza piano e senza timeframe si ricostruisce tutto l'archivio del broker, non il solo
+            // simbolo: e' la scelta prudente perche' i simboli raccolti in questo run sono comunque
+            // parte dello stesso archivio, e rifare un aggregato gia' corretto e' innocuo.
+            Print("Derivazione degli aggregati dal minuto: {0}", uri);
+
+            try
+            {
+                using (var response = _http.Send(BuildRequest(HttpMethod.Post, uri.ToString())))
+                {
+                    var body = ReadBody(response);
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        Print("Derivazione degli aggregati NON riuscita: {0}. Il minuto e' salvato: " +
+                              "si puo' rifare con la stessa chiamata.", Truncate(body, 300));
+                        return;
+                    }
+
+                    var esito = JsonSerializer.Deserialize<RebuildResponseDto>(body, _json);
+                    if (esito == null || esito.Streams == null || esito.Streams.Count == 0)
+                    {
+                        Print("Derivazione degli aggregati: nessuno stream costruito. Se l'archivio e' " +
+                              "nuovo, dichiarare i timeframe (parametro 'Timeframe da far derivare al " +
+                              "server') oppure un codice piano: senza, si rifanno solo gli aggregati " +
+                              "che esistono gia'.");
+                        return;
+                    }
+
+                    foreach (var stream in esito.Streams)
+                    {
+                        if (stream.Rebuilt)
+                            Print("   {0}/{1}m: {2} barre (prima {3}, di cui {4} fuori griglia).",
+                                stream.Symbol, stream.TimeframeMinutes, stream.BarsAfter,
+                                stream.BarsBefore, stream.OffGridBefore);
+                        else
+                            Print("   {0}/{1}m: saltato — {2}", stream.Symbol, stream.TimeframeMinutes, stream.Skipped);
+                    }
+                }
+            }
+            catch (Exception failure)
+            {
+                Print("Derivazione degli aggregati NON riuscita: {0}. Il minuto e' salvato: " +
+                      "si puo' rifare con la stessa chiamata.", failure.Message);
+            }
         }
 
         /// <summary>
@@ -1131,27 +1196,18 @@ namespace cAlgo.Robots
                 if (stream.Series.Count < 2)
                     continue;
 
-                // La barra in formazione e' l'ultima della serie, e tutto cio' che comincia prima
-                // dell'inizio del SUO bucket e' definitivamente chiuso. E' la stessa regola per uno
-                // stream nativo — dove il bucket coincide con la barra, quindi la frontiera e'
-                // l'ultima barra chiusa — e per uno aggregato, dove un bucket e' completo solo
-                // quando la barra in formazione ne ha gia' cominciato un altro.
-                var forming = DateTime.SpecifyKind(stream.Series.OpenTimes[stream.Series.Count - 1], DateTimeKind.Utc);
-                var frontier = BucketStartUtc(stream, forming);
-
-                // Uno stream aggregato riceve il battito a ogni barra BASE, non a ogni bucket: senza
-                // questo, un 240 costruito dall'ora rispedirebbe (e farebbe ricompattare al server)
-                // le stesse tre candele quattro volte per bucket, un giornaliero ventiquattro. La
-                // frontiera si muove solo quando un bucket si chiude davvero.
+                // La barra in formazione e' l'ultima della serie: tutto cio' che comincia prima di
+                // lei e' definitivamente chiuso, ed e' la frontiera. Non c'e' piu' un bucket da
+                // aspettare, perche' il bucket coincide con la barra.
+                var frontier = DateTime.SpecifyKind(stream.Series.OpenTimes[stream.Series.Count - 1], DateTimeKind.Utc);
                 if (frontier <= stream.LastLiveFrontierUtc)
                     continue;
 
-                var from = BucketStartUtc(stream,
-                    frontier.AddMinutes(-(double)(LiveHealingBars + 2) * stream.TimeframeMinutes));
+                var from = frontier.AddMinutes(-(double)(LiveHealingBars + 2));
 
                 DateTime oldest;
                 bool truncated;
-                var candles = FoldBackwards(stream, from, frontier, LiveHealingBars, out oldest, out truncated);
+                var candles = CollectBackwards(stream, from, frontier, LiveHealingBars, out oldest, out truncated);
                 if (candles.Count == 0)
                     continue;
 
@@ -1389,314 +1445,36 @@ namespace cAlgo.Robots
         }
 
         // -----------------------------------------------------------------------------------------
-        // La griglia oltre l'ora
+        // Lettura della serie
         // -----------------------------------------------------------------------------------------
 
         /// <summary>
-        /// Risolve il fuso dell'ancoraggio. Si fa in <c>OnStart</c> e si ferma il bot se non si
-        /// risolve: un fuso sbagliato non produce un errore piu' avanti, produce un feed intero con
-        /// i bucket spostati.
+        /// Percorre la serie da un minuto all'indietro fra due istanti e restituisce le barre in
+        /// ordine <b>cronologico</b> — come le vuole il server — insieme all'apertura della piu'
+        /// vecchia emessa.
+        ///
+        /// <para><b>All'indietro</b> perche' e' il verso in cui il broker consegna la storia, e
+        /// perche' e' il verso in cui si tronca: <paramref name="maxCandles"/> ferma il giro e il
+        /// cursore riparte esattamente da li'.</para>
+        ///
+        /// <para><b>L'ultima barra della serie non si guarda mai</b>: si parte da <c>Count - 2</c>.
+        /// E' quella in formazione, e una barra a meta' salvata nel feed e' un dato falso che poi
+        /// nessuno distingue piu' da uno vero.</para>
+        ///
+        /// <para><b>Non c'e' piu' niente da piegare.</b> Fino alla 1.3.1 questo metodo si chiamava
+        /// <c>FoldBackwards</c> e costruiva qui i bucket dei timeframe alti, con l'ancoraggio, il
+        /// fuso e le convenzioni sul cambio d'ora replicati dentro il bot — una delle quattro copie
+        /// della stessa regola. Adesso il bot raccoglie il minuto e basta: la griglia la costruisce
+        /// il server, in un punto solo. Vedi <c>docs/domini/layer-barre-e-calendario.md</c>.</para>
         /// </summary>
-        private bool TryResolveSessionZone(out string error)
-        {
-            error = null;
-
-            var id = (SessionTimeZoneId ?? string.Empty).Trim();
-            if (id.Length == 0)
-            {
-                error = "'Fuso dell'ancoraggio' e' vuoto: senza fuso i bucket oltre l'ora non hanno un " +
-                        "inizio sessione a cui appoggiarsi. Il valore della ricerca e del feed del " +
-                        "vendor e' 'Europe/Rome'.";
-                return false;
-            }
-
-            try
-            {
-                _sessionZone = TimeZoneInfo.FindSystemTimeZoneById(id);
-            }
-            catch (Exception failure)
-            {
-                error = string.Format(
-                    "Fuso '{0}' non riconosciuto ({1}). Serve un identificatore IANA (es. 'Europe/Rome'): " +
-                    ".NET li accetta anche su Windows tramite ICU, ma un identificatore inventato qui " +
-                    "sposterebbe in silenzio ogni confine di bucket.", id, failure.Message);
-                return false;
-            }
-
-            Print("Ancoraggio dei bucket oltre l'ora: {0}, sessione dalle {1:00}:00 salvo i simboli che la " +
-                  "tabella §2.4 apre alle 01:00 (FDAX, CC, CT, KC, SB) — la stessa griglia di " +
-                  "datafeed-future/aggregate_flat_feed.py e di ZonedWindow.ResearchSession().",
-                id, SessionStartHour);
-            return true;
-        }
-
-        /// <summary>
-        /// I confini dei bucket cadono sull'orologio della sessione, le barre base cadono su confini
-        /// UTC: perche' un confine di bucket coincida sempre con l'inizio di una barra base, lo scarto
-        /// del fuso dev'essere un multiplo intero del timeframe base. Per i fusi che si usano lo e'
-        /// sempre — sono ore piene — ma un fuso a mezz'ora (India, Nepal, Lord Howe) taglierebbe le
-        /// barre orarie a meta' e ogni bucket ne erediterebbe una in piu' o in meno, senza che niente
-        /// lo segnali. Meglio non partire.
-        /// </summary>
-        /// <summary>
-        /// L'ancoraggio dei bucket oltre l'ora, <b>per simbolo</b>: la tabella §2.4 del dossier del
-        /// paniere da' 01:00 CET a FDAX, CC, CT, KC, SB e HK, e la stessa tabella sta lato C# in
-        /// <c>InstrumentSpec.ResearchSessionStartHour</c>. Per tutto il resto vale il parametro
-        /// <see cref="SessionStartHour"/>, che resta il default e l'unica via per uno strumento che
-        /// la tabella non conosce.
-        ///
-        /// <para><b>Perche' per simbolo e non per istanza.</b> L'ancoraggio e' una proprieta' dello
-        /// strumento, non una scelta della raccolta: un parametro unico obbligherebbe a un'istanza
-        /// per gruppo di ancoraggio, e un piano che mette insieme NQ e FDAX — cioe' il caso normale —
-        /// non sarebbe raccoglibile in un colpo solo. Un ancoraggio sbagliato, del resto, non produce
-        /// barre sbagliate: produce barre <i>diverse</i>, tutte plausibili, sfasate di un'ora
-        /// rispetto alla griglia su cui le strategie sono state trovate, e nessun controllo a valle
-        /// se ne accorge. Meglio non poterlo sbagliare che accorgersene.</para>
-        ///
-        /// <para>E' una copia della tabella — il bot gira dentro cTrader e non vede
-        /// <c>InstrumentRegistry</c> — e vale la stessa regola di <see cref="BucketStartUtc"/>: le
-        /// copie restano identiche o la prossima lettura non sa piu' quale sia quella giusta.</para>
-        /// </summary>
-        private int SessionStartHourOf(string piootooSymbol)
-        {
-            var nome = (piootooSymbol ?? string.Empty).TrimStart('@').ToUpperInvariant();
-            switch (nome)
-            {
-                case "FDAX":
-                case "CC":
-                case "CT":
-                case "KC":
-                case "SB":
-                    return 1;
-                default:
-                    return SessionStartHour;
-            }
-        }
-
-        private bool TryValidateSessionOffsets(out string error)
-        {
-            error = null;
-
-            var smallestBase = 0;
-            foreach (var stream in _streams)
-            {
-                if (!stream.Aggregated)
-                    continue;
-                if (smallestBase == 0 || stream.BaseTimeframeMinutes < smallestBase)
-                    smallestBase = stream.BaseTimeframeMinutes;
-            }
-
-            if (smallestBase == 0)
-                return true; // nessuno stream aggregato: la griglia non entra in gioco
-
-            // Gennaio e luglio di ogni anno della finestra: bastano a vedere entrambe le stagioni, e
-            // anche le riforme storiche degli scarti, che cadono fra un anno e l'altro.
-            for (var year = _windowStartUtc.Year; year <= _windowEndUtc.Year; year++)
-            {
-                for (var month = 1; month <= 7; month += 6)
-                {
-                    var sample = new DateTime(year, month, 1, 0, 0, 0, DateTimeKind.Utc);
-                    var offset = _sessionZone.GetUtcOffset(sample);
-                    if (offset.Seconds == 0 && offset.Milliseconds == 0 &&
-                        (int)offset.TotalMinutes % smallestBase == 0)
-                        continue;
-
-                    error = string.Format(
-                        "Il fuso '{0}' ha uno scarto di {1} da UTC il {2:yyyy-MM-dd}, che non e' un " +
-                        "multiplo del timeframe base ({3} minuti): i confini dei bucket cadrebbero " +
-                        "dentro una barra base. Usare un timeframe base piu' fitto ('Timeframe base " +
-                        "in minuti') oppure un fuso a ore piene.",
-                        SessionTimeZoneId.Trim(), offset, sample, smallestBase);
-                    return false;
-                }
-            }
-
-            return true;
-        }
-
-        /// <summary>
-        /// Inizio del bucket a cui appartiene una barra che si apre in <paramref name="openUtc"/>.
-        /// Per uno stream non aggregato e' l'istante stesso, e tutto il resto del codice puo' quindi
-        /// trattare i due casi allo stesso modo.
-        ///
-        /// <para><b>La regola.</b> I bucket cadono ogni <c>TimeframeMinutes</c> a partire
-        /// dall'inizio sessione nell'orologio dichiarato — mezzanotte europea, di default — e la
-        /// barra appartiene al bucket che contiene la sua <b>apertura</b>.</para>
-        ///
-        /// <para><b>Perche' qui non compare il "meno un minuto"</b> che sta in
-        /// <c>aggregate_flat_feed.py</c> e nel <c>resample_ohlcv</c> della ricerca: li' il timestamp
-        /// di una riga e' la <i>fine</i> del minuto, e quelle formule (<c>bin = (minuti - 1) / 240</c>,
-        /// etichetta a <c>inizio + (bin+1) * 240</c>) sono la stessa cosa scritta su etichette di
-        /// chiusura. Le barre di cTrader portano invece l'orario di <b>apertura</b>, che e' anche la
-        /// chiave con cui il server deduplica: contando dall'apertura i confini dei bucket sono
-        /// identici e l'etichetta e' quella che il feed vuole.</para>
-        ///
-        /// <para><b>Il confine si calcola sull'orologio locale, non sottraendo il resto all'istante
-        /// UTC.</b> La scorciatoia — <c>openUtc - resto</c>, che e' quella di
-        /// <c>aggregate_flat_feed.py</c> — conta minuti locali su un istante UTC e sul salto in
-        /// avanti dell'ora legale scavalca l'ora che non esiste: la barra che apre alle 03:00 locali
-        /// della domenica di marzo finisce in un bucket etichettato <i>prima</i> di quello della
-        /// barra precedente, e un feed con due barre che si scavalcano non e' piu' ordinato. Nel feed
-        /// del vendor non si vede perche' il cambio d'ora cade sempre di domenica, a mercato chiuso,
-        /// dove non ci sono righe; un broker che quotasse la domenica lo farebbe comparire. Contare
-        /// in locale e riconvertire costa una conversione in piu' e non ha quel caso.</para>
-        ///
-        /// <para><b>I secondi si buttano prima di contare.</b> Non tutti gli <paramref name="openUtc"/>
-        /// sono orari di barra: i confini del blocco arrivano da <c>Server.TimeInUtc</c> e si portano
-        /// dietro secondi e frazioni. La sottrazione toglie <i>minuti interi</i>, quindi quei secondi
-        /// sopravvivevano e il confine usciva a <c>inizio bucket + qualche secondo</c>. In
-        /// <see cref="FoldBackwards"/> l'unica barra base di quel bucket a passare
-        /// <c>openTime &gt;= toUtc</c> era allora quella che apre sul confine: il bucket veniva
-        /// spedito con UNA barra sola, e siccome il server tiene l'ultima versione di una barra
-        /// (<c>ExternalDatafeedStore.CompactLockedAsync</c>) quella monca vinceva sulla completa.
-        /// Uno ogni <see cref="ChunkDays"/>: nell'archivio FTMOPLATFORM raccolto con la 1.2.0 sono
-        /// il 19,7% dei giornalieri e il 3% dei 4h, tutti identici alla propria prima barra base.
-        /// Vedi <c>piootoo-repository/compare/compare-0021/esito-2026-09-06.md</c> §2.</para>
-        /// </summary>
-        private DateTime BucketStartUtc(SyncStream stream, DateTime openUtc)
-        {
-            openUtc = openUtc.AddTicks(-(openUtc.Ticks % TimeSpan.TicksPerMinute));
-
-            if (!stream.Aggregated)
-                return openUtc;
-
-            var local = TimeZoneInfo.ConvertTimeFromUtc(
-                DateTime.SpecifyKind(openUtc, DateTimeKind.Utc), _sessionZone);
-
-            var minutesFromAnchor =
-                (int)local.TimeOfDay.TotalMinutes - SessionStartHourOf(stream.PiootooSymbol) * 60;
-            if (minutesFromAnchor < 0)
-                minutesFromAnchor += 1440;
-
-            return SessionLocalToUtc(local.AddMinutes(-(double)(minutesFromAnchor % stream.TimeframeMinutes)));
-        }
-
-        /// <summary>
-        /// Da orario locale della sessione a istante UTC, con le stesse convenzioni di
-        /// <c>Piootoo.Shared.Configuration.SessionClock.ToUtc</c> — che e' il punto del sistema in
-        /// cui questa scelta e' gia' stata fatta, e due convenzioni diverse per la stessa domanda
-        /// sarebbero peggio di qualunque convenzione.
-        ///
-        /// <para>Nei due giorni all'anno in cui l'ora cambia, un orario locale puo' non esistere
-        /// (salto in avanti) o esistere due volte (ritorno indietro). Il primo si sposta avanti
-        /// dell'ampiezza della transizione — il confine cade al primo istante che esiste davvero — il
-        /// secondo si risolve sulla prima delle due occorrenze. Sono convenzioni, non verita': quel
-        /// che conta e' che siano dichiarate e stabili, perche' un'eccezione qui fermerebbe una
-        /// raccolta a meta'.</para>
-        /// </summary>
-        private DateTime SessionLocalToUtc(DateTime sessionLocal)
-        {
-            var local = DateTime.SpecifyKind(sessionLocal, DateTimeKind.Unspecified);
-
-            if (_sessionZone.IsInvalidTime(local))
-            {
-                var delta = _sessionZone.GetUtcOffset(local.AddDays(1)) - _sessionZone.GetUtcOffset(local.AddDays(-1));
-                local = local.Add(delta);
-            }
-
-            if (_sessionZone.IsAmbiguousTime(local))
-            {
-                var offsets = _sessionZone.GetAmbiguousTimeOffsets(local);
-                var scelto = offsets[0];
-                foreach (var offset in offsets)
-                {
-                    if (offset > scelto)
-                        scelto = offset;
-                }
-
-                return DateTime.SpecifyKind(local - scelto, DateTimeKind.Utc);
-            }
-
-            return TimeZoneInfo.ConvertTimeToUtc(local, _sessionZone);
-        }
-
-        /// <summary>
-        /// Da quale serie della piattaforma si costruisce un timeframe. Fino all'ora si prende quella
-        /// nativa — i due allineamenti coincidono comunque, perche' lo scarto di un fuso e' un numero
-        /// intero di ore. Oltre l'ora <b>mai</b>: si sceglie una serie base che divida il timeframe e
-        /// i bucket li costruisce <see cref="FoldBackwards"/>.
-        /// </summary>
-        private bool TryResolveBase(int minutes, out int baseMinutes, out TimeFrame baseTimeFrame, out string reason)
-        {
-            baseMinutes = 0;
-            baseTimeFrame = TimeFrame.Hour;
-            reason = null;
-
-            if (minutes <= 0)
-            {
-                reason = "il timeframe dev'essere un numero di minuti positivo";
-                return false;
-            }
-
-            if (minutes <= NativeCeilingMinutes && TryToTimeFrame(minutes, out baseTimeFrame))
-            {
-                baseMinutes = minutes;
-                return true;
-            }
-
-            // Stesso vincolo di aggregate_flat_feed.py: un timeframe che non divide il giorno
-            // produrrebbe bucket che scivolano di giorno in giorno rispetto alla sessione.
-            if (1440 % minutes != 0)
-            {
-                reason = string.Format("{0} minuti non divide il giorno: i bucket scivolerebbero " +
-                                       "di giorno in giorno rispetto all'inizio sessione", minutes);
-                return false;
-            }
-
-            if (BaseTimeframeMinutes > 0)
-            {
-                if (minutes % BaseTimeframeMinutes != 0 || !TryToTimeFrame(BaseTimeframeMinutes, out baseTimeFrame))
-                {
-                    reason = string.Format(
-                        "il timeframe base forzato ({0} minuti) non divide {1} oppure non esiste su cTrader",
-                        BaseTimeframeMinutes, minutes);
-                    return false;
-                }
-
-                baseMinutes = BaseTimeframeMinutes;
-                return true;
-            }
-
-            foreach (var candidate in BaseCandidates)
-            {
-                if (minutes % candidate != 0 || !TryToTimeFrame(candidate, out baseTimeFrame))
-                    continue;
-
-                baseMinutes = candidate;
-                return true;
-            }
-
-            reason = string.Format("nessuna serie base fino a {0} minuti divide {1}",
-                NativeCeilingMinutes, minutes);
-            return false;
-        }
-
-        /// <summary>
-        /// Percorre la serie base all'indietro fra due confini di bucket e piega le barre nei bucket
-        /// dello stream. Restituisce le candele in ordine <b>cronologico</b> — come le vuole il
-        /// server — insieme all'inizio del bucket piu' vecchio emesso.
-        ///
-        /// <para>All'indietro perche' e' il verso in cui il broker consegna la storia, e perche' e'
-        /// il verso in cui si tronca: <paramref name="maxCandles"/> ferma il giro sull'ultimo bucket
-        /// <i>completo</i>, mai a meta' di uno. Un bucket viene emesso solo quando si incontra una
-        /// barra che appartiene a un bucket piu' vecchio, o quando si esce dall'intervallo: e'
-        /// l'unico modo di sapere che non ne arriveranno altre.</para>
-        ///
-        /// <para>L'ultima barra della serie — quella in formazione — non si guarda mai: si parte da
-        /// <c>Count - 2</c>. Una barra a meta' salvata nel feed e' un dato falso che poi nessuno
-        /// distingue piu' da uno vero, e vale a maggior ragione per un bucket costruito su di
-        /// essa.</para>
-        /// </summary>
-        private List<CandleDto> FoldBackwards(SyncStream stream, DateTime fromUtc, DateTime toUtc,
-                                              int maxCandles, out DateTime oldestBucketStart, out bool truncated)
+        private List<CandleDto> CollectBackwards(SyncStream stream, DateTime fromUtc, DateTime toUtc,
+            int maxCandles, out DateTime oldestSentUtc, out bool truncated)
         {
             var candles = new List<CandleDto>();
-            oldestBucketStart = fromUtc;
+            oldestSentUtc = fromUtc;
             truncated = false;
 
             var series = stream.Series;
-            CandleDto current = null;
-            var currentStart = DateTime.MinValue;
 
             for (var i = series.Count - 2; i >= 0; i--)
             {
@@ -1706,54 +1484,23 @@ namespace cAlgo.Robots
                 if (openTime < fromUtc)
                     break;
 
-                var bucketStart = BucketStartUtc(stream, openTime);
-
-                if (current != null && bucketStart != currentStart)
+                candles.Add(new CandleDto
                 {
-                    candles.Add(current);
-                    oldestBucketStart = currentStart;
-                    current = null;
+                    DateTime = openTime,
+                    Open = (decimal)series.OpenPrices[i],
+                    High = (decimal)series.HighPrices[i],
+                    Low = (decimal)series.LowPrices[i],
+                    Close = (decimal)series.ClosePrices[i],
+                    Volume = (decimal)series.TickVolumes[i]
+                });
 
-                    if (candles.Count >= maxCandles)
-                    {
-                        truncated = true;
-                        break;
-                    }
-                }
+                oldestSentUtc = openTime;
 
-                var high = (decimal)series.HighPrices[i];
-                var low = (decimal)series.LowPrices[i];
-
-                if (current == null)
+                if (candles.Count >= maxCandles)
                 {
-                    // Andando all'indietro la prima barra che si incontra e' l'ULTIMA del bucket:
-                    // e' lei a portarne la chiusura.
-                    currentStart = bucketStart;
-                    current = new CandleDto
-                    {
-                        DateTime = bucketStart,
-                        Open = (decimal)series.OpenPrices[i],
-                        High = high,
-                        Low = low,
-                        Close = (decimal)series.ClosePrices[i],
-                        Volume = (decimal)series.TickVolumes[i]
-                    };
+                    truncated = true;
+                    break;
                 }
-                else
-                {
-                    // Ogni barra successiva e' piu' vecchia: sposta l'apertura, allarga gli estremi,
-                    // somma il volume. La chiusura non si tocca piu'.
-                    current.Open = (decimal)series.OpenPrices[i];
-                    if (high > current.High) current.High = high;
-                    if (low < current.Low) current.Low = low;
-                    current.Volume += (decimal)series.TickVolumes[i];
-                }
-            }
-
-            if (current != null && !truncated)
-            {
-                candles.Add(current);
-                oldestBucketStart = currentStart;
             }
 
             candles.Reverse();
@@ -1761,46 +1508,16 @@ namespace cAlgo.Robots
         }
 
         /// <summary>
-        /// La targa che il server scrive nel campo <c>source</c> del feed. Per uno stream aggregato
-        /// dichiara anche la griglia — serie base, fuso, inizio sessione — perche' due file identici
-        /// nella forma ma nati su ancoraggi diversi non sono confrontabili e senza questo non si
-        /// distinguerebbero.
+        /// La targa che il server scrive nel campo <c>source</c> del feed.
+        ///
+        /// <para>Non dichiara piu' alcuna griglia, e non e' una perdita di informazione: a un
+        /// minuto la griglia non esiste: il bucket coincide con la barra. La griglia la dichiara
+        /// l'aggregato, che ora lo produce il server ed e' lui a firmarlo.</para>
         /// </summary>
         private string SourceTag(SyncStream stream)
         {
-            var tag = string.Format("PiootooDatafeedSyncBot/{0}@{1}", BotVersion, Account.BrokerName);
-            if (!stream.Aggregated)
-                return tag;
-
-            // L'ancoraggio dichiarato e' quello DAVVERO usato per questo stream, non il parametro:
-            // il campo `source` e' l'unico modo per distinguere a posteriori un archivio raccolto
-            // su una griglia da uno raccolto su un'altra, e dichiararne una che non e' stata
-            // applicata e' peggio che non dichiararne nessuna.
-            return string.Format("{0} griglia({1}m->{2}m, {3} {4:00}:00)",
-                tag, stream.BaseTimeframeMinutes, stream.TimeframeMinutes,
-                SessionTimeZoneId.Trim(), SessionStartHourOf(stream.PiootooSymbol));
-        }
-
-        private static bool TryToTimeFrame(int minutes, out TimeFrame timeFrame)
-        {
-            switch (minutes)
-            {
-                case 1: timeFrame = TimeFrame.Minute; return true;
-                case 2: timeFrame = TimeFrame.Minute2; return true;
-                case 3: timeFrame = TimeFrame.Minute3; return true;
-                case 5: timeFrame = TimeFrame.Minute5; return true;
-                case 10: timeFrame = TimeFrame.Minute10; return true;
-                case 15: timeFrame = TimeFrame.Minute15; return true;
-                case 30: timeFrame = TimeFrame.Minute30; return true;
-                case 60: timeFrame = TimeFrame.Hour; return true;
-                case 120: timeFrame = TimeFrame.Hour2; return true;
-                case 240: timeFrame = TimeFrame.Hour4; return true;
-                case 360: timeFrame = TimeFrame.Hour6; return true;
-                case 720: timeFrame = TimeFrame.Hour12; return true;
-                case 1440: timeFrame = TimeFrame.Daily; return true;
-                case 10080: timeFrame = TimeFrame.Weekly; return true;
-                default: timeFrame = TimeFrame.Hour; return false;
-            }
+            return string.Format("PiootooDatafeedSyncBot/{0}@{1} solo 1m UTC",
+                BotVersion, Account.BrokerName);
         }
 
         private void StopWithError(string message)
@@ -1845,28 +1562,14 @@ namespace cAlgo.Robots
             public string PiootooSymbol;
             public int TimeframeMinutes;
 
-            /// <summary>
-            /// Timeframe della serie letta dalla piattaforma. Uguale a <see cref="TimeframeMinutes"/>
-            /// quando la piattaforma ha gia' la griglia giusta; piu' fitto quando i bucket li
-            /// costruisce il bot.
-            /// </summary>
-            public int BaseTimeframeMinutes;
-
             public Bars Series;
-
-            /// <summary>I bucket li costruisce il bot invece di prenderli dalla piattaforma.</summary>
-            public bool Aggregated
-            {
-                get { return BaseTimeframeMinutes != TimeframeMinutes; }
-            }
 
             /// <summary>Fine (esclusa) del prossimo blocco: cammina all'indietro verso l'inizio finestra.</summary>
             public DateTime CursorEndUtc;
 
             /// <summary>
-            /// Ultima frontiera gia' spedita a regime, cioe' l'inizio del bucket in cui stava la
-            /// barra in formazione all'invio precedente. Serve a non rispedire — e non far
-            /// ricompattare — gli stessi bucket a ogni barra base.
+            /// Apertura della barra in formazione all'invio precedente. Serve a non rispedire — e a
+            /// non far ricompattare al server — le stesse barre piu' di una volta.
             /// </summary>
             public DateTime LastLiveFrontierUtc;
 
@@ -1989,7 +1692,22 @@ namespace cAlgo.Robots
         {
             public string BrokerSymbol;
             public string PiootooSymbol;
-            public List<int> TimeframesMinutes;
+        }
+
+        private sealed class RebuildStreamDto
+        {
+            public string Symbol { get; set; }
+            public int TimeframeMinutes { get; set; }
+            public bool Rebuilt { get; set; }
+            public string Skipped { get; set; }
+            public int BarsBefore { get; set; }
+            public int BarsAfter { get; set; }
+            public int OffGridBefore { get; set; }
+        }
+
+        private sealed class RebuildResponseDto
+        {
+            public List<RebuildStreamDto> Streams { get; set; }
         }
 
         private sealed class TickDto

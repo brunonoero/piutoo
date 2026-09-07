@@ -85,11 +85,6 @@ public sealed class PTS_FDAX_TFU_001_1440 : TfUnmirroredEngine
 
     public PTS_FDAX_TFU_001_1440()
     {
-        // session_start_hour = 1 (tabella §2.1 del dossier): la sessione va da 01:00 a 01:00
-        // nell'orologio della ricerca. La barra che apre a mezzanotte appartiene alla
-        // sessione PRECEDENTE, come nel taglio (timestamp - 1 min - session_start_hour) del
-        // motore Python.
-        Session = ZonedWindow.ResearchSession(1);
         Contracts = 1;
 
         // Nessun filtro orario nel run: finestra piena, dichiarata comunque nell'orologio della

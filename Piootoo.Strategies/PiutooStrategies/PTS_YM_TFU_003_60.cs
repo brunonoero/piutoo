@@ -86,11 +86,6 @@ public sealed class PTS_YM_TFU_003_60 : TfUnmirroredEngine
 
     public PTS_YM_TFU_003_60()
     {
-        // Confine di sessione del run: giorno di calendario europeo, come
-        // (timestamp - 1 min - session_start_hour).normalize() del motore Python.
-        // NON e' la sessione del broker: le due divergono nelle settimane di
-        // disallineamento fra ora legale americana ed europea.
-        Session = ZonedWindow.ResearchSession();
         Contracts = 1;
 
         // Finestra operativa: start_hour/end_hour del run, verbatim nell'orologio

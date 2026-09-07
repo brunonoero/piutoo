@@ -2,6 +2,7 @@ using Piootoo.Core.Services;
 using Piootoo.Core.Services.Interfaces;
 using Piootoo.Shared;
 using Piootoo.Shared.Configuration;
+using Piootoo.Shared.MarketData;
 
 // Prima riga del log, prima ancora dell'host: è il numero da confrontare con quello che il cBot
 // distribuito stampa al proprio avvio. Sono la stessa versione tenuta allineata a mano — vedi
@@ -26,6 +27,30 @@ builder.Services.AddSingleton(new PiootooApp.Server.ServerRuntime());
 
 // Configurazione Piootoo
 builder.Services.Configure<PiootooSettings>(builder.Configuration.GetSection("Piootoo"));
+
+// Calendario di mercato: l'override su disco va applicato PRIMA che qualunque servizio legga il
+// registro strumenti, perche' due griglie nello stesso processo darebbero barre diverse a chi ha
+// letto prima e a chi legge dopo. Senza file resta in vigore quello incorporato nell'assembly, che
+// e' il caso normale. Vedi docs/domini/layer-barre-e-calendario.md.
+{
+    var calendarSettings = builder.Configuration.GetSection("Piootoo").Get<PiootooSettings>()
+        ?? new PiootooSettings();
+    calendarSettings.ResolvePaths();
+
+    if (MarketCalendarRegistry.InitializeFromSettingsFolder(calendarSettings.SettingsPath))
+    {
+        Console.WriteLine(
+            $"[Piootoo] Calendario di mercato: override da {calendarSettings.SettingsPath} " +
+            $"(spec {MarketCalendarRegistry.Current.SpecVersion}).");
+    }
+    else
+    {
+        Console.WriteLine(
+            $"[Piootoo] Calendario di mercato: incorporato, spec " +
+            $"{MarketCalendarRegistry.Current.SpecVersion}, " +
+            $"{MarketCalendarRegistry.Current.Symbols.Count} simboli.");
+    }
+}
 
 // Risolvi PiootooSettings per i servizi
 builder.Services.AddSingleton<PiootooSettings>(sp =>

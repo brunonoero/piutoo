@@ -295,7 +295,13 @@ Vedi `docs/decisioni.md` 2026-09-01.
   (`SortableBindingList<T>` + `EnableColumnSorting()`), busy su ogni chiamata al server,
   lista → dettaglio con gli artefatti in sola lettura, elenchi che non deserializzano ciò
   che elencano.
-- Documentazione e commenti in italiano, come il resto del progetto.
+- **Due lingue, un confine netto.** Documentazione, commenti, messaggi di errore e
+  di log in **italiano**, come il resto del progetto. Il **codice in inglese**:
+  nomi di classi, metodi, proprietà, variabili locali, parametri, costanti e
+  nomi dei test. Vale anche per i test, dove i nomi dei metodi sono codice —
+  `EmptySessionDaysListIsRejected`, non `UnaListaVuotaVieneRifiutata`. Alcune
+  classi storiche non la rispettano ancora: si allineano quando le si tocca, non
+  con una passata a tappeto.
 - `docs/`: un file per concetto, nome in kebab-case, prosa tecnica compatta;
   ogni file di dominio chiude con "Riferimenti codice" invece di ripetere firme.
 - Messaggi di commit in italiano, descrittivi.

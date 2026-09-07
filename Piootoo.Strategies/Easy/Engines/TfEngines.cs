@@ -1,4 +1,4 @@
-using Piootoo.Shared.Enums;
+﻿using Piootoo.Shared.Enums;
 using Piootoo.Shared.Models;
 
 namespace Piootoo.Strategies.Easy.Engines;
@@ -31,11 +31,6 @@ public abstract class TfEngineBase : EasyEngineBase
     /// <inheritdoc />
     protected override bool AppliesSessionExitDeclared => true;
 
-    protected TfEngineBase()
-    {
-        SessionStartTime = 1700;
-        SessionEndTime = 1659;
-    }
 
     /// <summary>Valutazione comune; i gate sono definiti dalla variante mirrored/unmirrored.</summary>
     public TradeSignal GenerateSignal(OhlcvData[] data, DateTime currentDate)

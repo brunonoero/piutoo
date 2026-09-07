@@ -255,3 +255,62 @@ public sealed class PlanDatafeedInstrumentsDto
 
     public List<PlanDatafeedInstrumentDto> Instruments { get; set; } = new();
 }
+
+/// <summary>
+/// Esito della ricostruzione di uno stream aggregato a partire dalle sue barre da un minuto.
+///
+/// <para><b>A cosa serve.</b> Il minuto e' il dato autorevole; tutto cio' che sta sopra e' derivato
+/// e rigenerabile. Serve quando un aggregato e' nato su una griglia sbagliata — o su due griglie
+/// insieme, che e' il difetto che la deduplica per istante di apertura rende inevitabile quando due
+/// raccolte usano ancoraggi diversi: le etichette non si sovrascrivono, si sommano. Vedi
+/// <c>docs/domini/layer-barre-e-calendario.md</c> §7bis.</para>
+/// </summary>
+public sealed class RebuildStreamResultDto
+{
+    public string Broker { get; set; } = string.Empty;
+    public string Symbol { get; set; } = string.Empty;
+    public int TimeframeMinutes { get; set; }
+
+    /// <summary>Il file e' stato riscritto.</summary>
+    public bool Rebuilt { get; set; }
+
+    /// <summary>Perche' lo stream e' stato saltato. Nullo quando <see cref="Rebuilt"/> e' vero.</summary>
+    public string? Skipped { get; set; }
+
+    /// <summary>Barre da un minuto lette come sorgente.</summary>
+    public int MinuteBars { get; set; }
+
+    /// <summary>Barre nel file prima della ricostruzione.</summary>
+    public int BarsBefore { get; set; }
+
+    /// <summary>Barre nel file dopo.</summary>
+    public int BarsAfter { get; set; }
+
+    /// <summary>
+    /// Quante barre del file precedente <b>non</b> stavano su un confine di bucket della griglia
+    /// dichiarata dal simbolo. E' la misura diretta del difetto che la ricostruzione ripara: se e'
+    /// zero il file era gia' sano e la differenza viene solo dalla copertura del minuto.
+    /// </summary>
+    public int OffGridBefore { get; set; }
+
+    /// <summary>
+    /// Bucket scartati perche' l'input non ne copriva tutto l'arco: il primo, troncato dall'inizio
+    /// del journal a un minuto, e l'ultimo, ancora in formazione. Un bucket a meta' nel feed
+    /// sarebbe un dato falso che poi nessuno distingue da uno vero.
+    /// </summary>
+    public int IncompleteDropped { get; set; }
+
+    /// <summary>La griglia dichiarata, come finisce nel campo <c>source</c> del file.</summary>
+    public string Grid { get; set; } = string.Empty;
+
+    public ExternalFeedCoverageDto? Coverage { get; set; }
+}
+
+/// <summary>Esito complessivo di una ricostruzione dal minuto.</summary>
+public sealed class RebuildFromMinutesResponseDto
+{
+    public List<RebuildStreamResultDto> Streams { get; set; } = new();
+
+    public int RebuiltCount => Streams.Count(stream => stream.Rebuilt);
+    public int SkippedCount => Streams.Count(stream => !stream.Rebuilt);
+}

@@ -1,8 +1,98 @@
 ﻿# Lavori in corso
 
-Stato al **2026-08-04**. Questo file è volutamente deperibile: quando una voce è chiusa si
+Stato al **2026-09-07**. Questo file è volutamente deperibile: quando una voce è chiusa si
 cancella da qui, e la motivazione della scelta resta in [`decisioni.md`](decisioni.md). Se una
 sezione qui contraddice il codice, ha ragione il codice.
+
+---
+
+# ⇦ RIPRENDERE DA QUI: refactor del layer barre, passo 5
+
+Piano completo e stato passo per passo in
+[`domini/layer-barre-e-calendario.md`](domini/layer-barre-e-calendario.md) §7. Il metodo è sempre
+lo stesso e va tenuto: **si misura prima**, si cambia, si rimisura sul paniere completo.
+
+## Dove siamo
+
+Chiusi il 07/09/2026: **passo 0** (il metro), **1** (calendario come dato), **2** (il layer),
+**3** (il backtest ci passa), **4a** (il calendario governa la sessione), la parte *raccoglitore*
+del **6**, e la **prima voce del 5** (la deadline di fine sessione). Il progetto è alla **7.0.0**.
+
+Suite: 1.107 test, **42 rossi preesistenti** (erano 43 a inizio sessione — uno si è risolto da
+solo togliendo una finta sessione di borsa dai test dei motori). Nessun rosso nuovo introdotto.
+
+## Le due voci che restano del passo 5
+
+Sono quelle che realizzano la **logica future sul fine settimana**: il conteggio delle barre deve
+seguire il calendario, non il feed.
+
+### 5b — `MaxBarsInPosition` conta le barre del calendario
+
+Oggi `PiootooTradingService` incrementa `BarsInPosition` quando il feed ha consegnato una barra per
+quel simbolo. Conseguenza diretta e misurata al passo 3: le **972 barre di sabato su BTC/60m** e le
+**53 domeniche su FDAX** fanno avanzare il contatore, chiudendo posizioni in anticipo rispetto al
+future. Il contatore deve avanzare solo dove `BarContext.IsSessionDay` non è falso.
+
+Nella stessa passata va eliminato **`ScaleSignalMaxBarsInPosition`**
+(`PiootooBacktestingService`): moltiplica N per il rapporto fra timeframe della strategia e
+orologio del loop *prima* di sapere quante barre esisteranno davvero. Con il conteggio sul
+calendario non serve più — il numero è già in barre della strategia.
+
+Riguarda **62 strategie su 124** (quelle con `MaxBars > 0`), quindi è la voce che sposterà di più.
+
+### 5c — `SessionBarToUtc` diventa un conteggio di barre vere
+
+`EasyEngineBase.SessionBarToUtc` proietta la N-esima barra di sessione sull'orologio, e il suo
+stesso commento dichiara il limite: *«su una sessione con barre mancanti la chiusura cade
+sull'orario atteso, non sulla N-esima barra ricevuta»*. Lo usa `BiasBarCountEngine`. Va sostituito
+con `BarContext.BarIndexInSession`.
+
+Da guardare nella stessa passata, perché è aritmetica a giorni di calendario della stessa famiglia:
+`MaxDaysInTrade` / `MaxDaysFlatTime` in `PriceChannelEngine` (`AddDays()` su giorni di calendario).
+
+## Le altre voci aperte del piano
+
+- **4b — gli engine consumano `BarContext`.** Eliminare `EasyLib.ClassifySessionBar`,
+  `FullDaySessionDay`, `ResolveEntrySessionStartUtc` e le sue tre copie nei motori. Include il ramo
+  "sessione di borsa" di `ClassifySessionBar`, ora **provatamente irraggiungibile** (tutte e 124 le
+  PTS usano la forma a giornata piena). Tocca i motori, non il catalogo.
+  Guadagno collaterale: `OHLCMulti5` fa `Where().OrderBy().ToArray()` a **ogni valutazione** — LINQ
+  nel punto più caldo del sistema, che CLAUDE.md vieta.
+- **6 (parte operativa) — i due cBot di esecuzione.** `PiootooDirectExecutionBot` e
+  `PiootooDistributedExecutionBot` piegano ancora i bucket con una copia del vecchio codice,
+  ancoraggio compreso: sono le ultime **due copie della tabella** su quattro.
+- **7 — riscaldamento dal disco.** Il server legge `datafeed-external/{BROKER}/@SYM_1.json` e il
+  client manda solo la coda. Fa sparire R2 e R3 di
+  [`domini/finestra-candele-e-riscaldamento.md`](domini/finestra-candele-e-riscaldamento.md).
+- **8 — `aggregate_flat_feed.py` produce solo il minuto.** I CSV del vendor sono sul disco
+  (`datafeed-future/FUTURES_Historical_Data/`, 200-360 MB per simbolo), quindi non serve nessuna
+  raccolta. Chiude da sé il difetto §7quater: una barra giornaliera all'anno per simbolo è fuori
+  griglia, sempre l'ultima domenica di ottobre.
+
+## Da fare fuori dal codice
+
+- **Ricompilare i cBot in cTrader.** Il salto a 7.0.0 è un cambio di contratto: i due bot operativi
+  stampano un disallineamento finché non vengono ricompilati e ridistribuiti. Il raccoglitore
+  (2.0.0, numerazione propria) va ricompilato perché è cambiato del tutto.
+- **La raccolta a un minuto** può partire quando vuoi: il server nuovo è il prerequisito, perché
+  `rebuild-from-minutes` non esiste su quello vecchio e senza aggregati i backtest sopra il minuto
+  non trovano il datafeed.
+- **Ventuno classi PTS sono su simboli fuori dal calendario** — HK (5), HO (8), JY (8) — e non sono
+  eseguibili: manca loro il `PointValue` prima ancora della sessione. HK e HO sono usciti dal
+  paniere il 07/09/2026 ma le classi sono rimaste sul disco. Decisione non presa: aggiungerli al
+  calendario, o cancellarli.
+  `StrategyClockConformanceTests.StrategiesOnSymbolsWithoutACalendarAreDeclared` fissa il numero.
+- **`ResearchSessionStartConformanceTests` è diventato tautologico** dopo il 4a: legge `Session`
+  dalla strategia, che ora viene dal calendario, e la confronta col calendario. Il controllo utile
+  (i mercati che aprono all'01:00 sono quelli del dossier) è già in
+  `MarketCalendarConformanceTests.OnlyTheDossierMarketsOpenAtOneCet`. Da potare.
+
+## Niente di tutto questo è stato committato
+
+Il lavoro è nel working tree. `git status` per vederlo; `docs/decisioni.md` ha una voce per ogni
+scelta, in ordine.
+
+---
 
 ## Nulla di quanto segue è stato compilato
 

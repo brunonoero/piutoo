@@ -1,0 +1,70 @@
+{
+  "specVersion": "2026-09-07.1",
+
+  "_leggimi": [
+    "Il calendario di mercato di ogni simbolo. E' un DATO, non codice: fino al 07/09/2026 la stessa",
+    "conoscenza viveva in sette posti (la tabella C# di InstrumentRegistry, SESSION_START_HOUR in",
+    "aggregate_flat_feed.py, una copia in ciascuno dei tre cBot, piu' la ricostruzione implicita in",
+    "EasyLib e EasyEngineBase) e nessuna copia poteva sapere se le altre erano ancora d'accordo.",
+    "Vedi docs/domini/layer-barre-e-calendario.md.",
+    "",
+    "exchangeTz  - il fuso in cui tornano gli orari delle sorgenti EasyLanguage. NON e' 'dove ha",
+    "              sede la borsa': metalli ed energia stanno su New York pur essendo prodotti CME",
+    "              Group, perche' le loro sorgenti scrivono 1800->1700, che e' la sessione in ora di",
+    "              New York, mentre gli indici scrivono 1700->1600, la stessa sessione in ora di",
+    "              Chicago. I softs ICE US scrivono 0400->1400, di nuovo New York.",
+    "researchTz  - il fuso in cui i run di ricerca Python hanno scritto le finestre operative. E'",
+    "              CET per OGNI simbolo, e per questo non si deduce da exchangeTz.",
+    "sessionStartHour - l'ora, in researchTz, da cui la ricerca segmenta le sessioni. Tabella §2.4",
+    "              del dossier del paniere: 01:00 per FDAX, CC, CT, KC, SB; 00:00 per tutti gli",
+    "              altri. E' anche l'ancoraggio dei bucket oltre l'ora.",
+    "sessionDays - i giorni in cui lo strumento HA una sessione nella ricerca. ASSENTE significa",
+    "              'non dichiarato', che e' diverso da lista vuota: chi legge non deve inventarlo.",
+    "              La domenica non e' un caso da togliere sempre - sui CME e' vera nelle settimane",
+    "              in cui l'ora legale europea e americana sono sfasate (@NQ_240 ha 68 barre",
+    "              domenicali in diciannove anni, @FDAX_240 zero).",
+    "phases / holidays / earlyClose - il formato li prevede, i dati non ci sono ancora. Restano",
+    "              dichiarati e vuoti: popolarli senza una fonte verificata introdurrebbe numeri",
+    "              inventati, che e' l'errore che questo registro esiste per impedire."
+  ],
+
+  "symbols": {
+
+    "ES":   { "exchangeTz": "America/Chicago",  "researchTz": "Europe/Rome", "sessionStartHour": 0, "sessionDays": ["Sun","Mon","Tue","Wed","Thu","Fri"] },
+    "MES":  { "exchangeTz": "America/Chicago",  "researchTz": "Europe/Rome", "sessionStartHour": 0 },
+    "NQ":   { "exchangeTz": "America/Chicago",  "researchTz": "Europe/Rome", "sessionStartHour": 0, "sessionDays": ["Sun","Mon","Tue","Wed","Thu","Fri"] },
+    "MNQ":  { "exchangeTz": "America/Chicago",  "researchTz": "Europe/Rome", "sessionStartHour": 0 },
+    "YM":   { "exchangeTz": "America/Chicago",  "researchTz": "Europe/Rome", "sessionStartHour": 0, "sessionDays": ["Sun","Mon","Tue","Wed","Thu","Fri"] },
+    "MYM":  { "exchangeTz": "America/Chicago",  "researchTz": "Europe/Rome", "sessionStartHour": 0 },
+    "RTY":  { "exchangeTz": "America/Chicago",  "researchTz": "Europe/Rome", "sessionStartHour": 0 },
+    "M2K":  { "exchangeTz": "America/Chicago",  "researchTz": "Europe/Rome", "sessionStartHour": 0 },
+
+    "FDAX": { "exchangeTz": "Europe/Berlin",    "researchTz": "Europe/Rome", "sessionStartHour": 1, "sessionDays": ["Mon","Tue","Wed","Thu","Fri"] },
+    "FDXM": { "exchangeTz": "Europe/Berlin",    "researchTz": "Europe/Rome", "sessionStartHour": 0 },
+    "FDXS": { "exchangeTz": "Europe/Berlin",    "researchTz": "Europe/Rome", "sessionStartHour": 0 },
+    "FESX": { "exchangeTz": "Europe/Berlin",    "researchTz": "Europe/Rome", "sessionStartHour": 0 },
+    "FGBL": { "exchangeTz": "Europe/Berlin",    "researchTz": "Europe/Rome", "sessionStartHour": 0 },
+
+    "GC":   { "exchangeTz": "America/New_York", "researchTz": "Europe/Rome", "sessionStartHour": 0, "sessionDays": ["Sun","Mon","Tue","Wed","Thu","Fri"], "note": "COMEX: la sorgente scrive 1800->1700, sessione in ora di New York" },
+    "MGC":  { "exchangeTz": "America/New_York", "researchTz": "Europe/Rome", "sessionStartHour": 0 },
+    "SI":   { "exchangeTz": "America/New_York", "researchTz": "Europe/Rome", "sessionStartHour": 0 },
+    "HG":   { "exchangeTz": "America/New_York", "researchTz": "Europe/Rome", "sessionStartHour": 0 },
+    "PL":   { "exchangeTz": "America/New_York", "researchTz": "Europe/Rome", "sessionStartHour": 0, "sessionDays": ["Sun","Mon","Tue","Wed","Thu","Fri"] },
+    "PA":   { "exchangeTz": "America/New_York", "researchTz": "Europe/Rome", "sessionStartHour": 0 },
+
+    "CL":   { "exchangeTz": "America/New_York", "researchTz": "Europe/Rome", "sessionStartHour": 0, "sessionDays": ["Sun","Mon","Tue","Wed","Thu","Fri"], "note": "NYMEX: come COMEX, sorgenti 1800->1700" },
+    "MCL":  { "exchangeTz": "America/New_York", "researchTz": "Europe/Rome", "sessionStartHour": 0 },
+    "NG":   { "exchangeTz": "America/New_York", "researchTz": "Europe/Rome", "sessionStartHour": 0, "sessionDays": ["Sun","Mon","Tue","Wed","Thu","Fri"] },
+    "RB":   { "exchangeTz": "America/New_York", "researchTz": "Europe/Rome", "sessionStartHour": 0 },
+
+    "BTC":  { "exchangeTz": "America/Chicago",  "researchTz": "Europe/Rome", "sessionStartHour": 0, "sessionDays": ["Sun","Mon","Tue","Wed","Thu","Fri"], "note": "CME BTC: quota 24/7 sul CFD ma la ricerca ha le sessioni del future" },
+
+    "KC":   { "exchangeTz": "America/New_York", "researchTz": "Europe/Rome", "sessionStartHour": 1, "sessionDays": ["Mon","Tue","Wed","Thu","Fri"], "note": "softs ICE US: sorgenti 0400->1400, ora di New York" },
+    "CT":   { "exchangeTz": "America/New_York", "researchTz": "Europe/Rome", "sessionStartHour": 1, "sessionDays": ["Mon","Tue","Wed","Thu","Fri"] },
+    "SB":   { "exchangeTz": "America/New_York", "researchTz": "Europe/Rome", "sessionStartHour": 1, "sessionDays": ["Mon","Tue","Wed","Thu","Fri","Sat"], "note": "l'unico con il sabato: colonna sab a 14 nel dossier" },
+    "CC":   { "exchangeTz": "America/New_York", "researchTz": "Europe/Rome", "sessionStartHour": 1, "sessionDays": ["Mon","Tue","Wed","Thu","Fri"] },
+
+    "BP":   { "exchangeTz": "America/Chicago",  "researchTz": "Europe/Rome", "sessionStartHour": 0, "sessionDays": ["Sun","Mon","Tue","Wed","Thu","Fri"], "note": "valute CME: sorgenti 1700->1600, ora di Chicago" },
+    "EC":   { "exchangeTz": "America/Chicago",  "researchTz": "Europe/Rome", "sessionStartHour": 0 }
+  }
+}

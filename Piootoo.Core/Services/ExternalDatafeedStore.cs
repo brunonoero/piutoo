@@ -3,7 +3,10 @@ using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Piootoo.Shared;
 using Piootoo.Shared.Configuration;
+using Piootoo.Shared.MarketData;
+using Piootoo.Shared.Models;
 using Piootoo.Shared.Models.Datafeed;
 
 namespace Piootoo.Core.Services;
@@ -330,6 +333,206 @@ public sealed class ExternalDatafeedStore
         }
 
         return response;
+    }
+
+    // -------------------------------------------------------------------------------------------
+    // Ricostruzione degli aggregati dal minuto
+    // -------------------------------------------------------------------------------------------
+
+    /// <summary>
+    /// Riscrive uno o piu' aggregati a partire dalle barre da un minuto dello stesso stream, usando
+    /// il layer (<see cref="BarAggregator"/>) e la griglia dichiarata dal calendario del simbolo.
+    ///
+    /// <para><b>Perche' esiste.</b> Il minuto e' l'unico dato autorevole: tutto cio' che sta sopra
+    /// e' derivato. Un aggregato puo' essere nato su una griglia sbagliata — o su DUE griglie
+    /// insieme, che e' il difetto che la deduplica per istante di apertura rende inevitabile quando
+    /// due raccolte usano ancoraggi diversi: le etichette non coincidono, quindi non si
+    /// sovrascrivono, si <i>sommano</i>. Il file che ne esce ha il doppio delle barre, tutte
+    /// plausibili, meta' su una griglia che nessuna strategia ha mai visto. Nell'archivio
+    /// FTMOPLATFORM erano <c>@KC_240</c> (880 barre fuori griglia su 1.760), <c>@KC_1440</c> e
+    /// <c>@CT_1440</c> (295 su 590).</para>
+    ///
+    /// <para><b>Il journal del bersaglio si cancella.</b> Contiene blocchi arrivati dal
+    /// raccoglitore sulla vecchia griglia: lasciarlo li' significherebbe che la prima compattazione
+    /// successiva li rifonde dentro, e il file tornerebbe misto senza che nulla lo segnali.</para>
+    ///
+    /// <para><b>I bucket incompleti si scartano</b>: il primo, troncato dall'inizio del journal a un
+    /// minuto, e l'ultimo, ancora in formazione. Un bucket a meta' nel feed e' un dato falso che poi
+    /// nessuno distingue da uno vero.</para>
+    /// </summary>
+    /// <param name="broker">Broker, o <c>null</c> per tutti.</param>
+    /// <param name="symbol">Simbolo, o <c>null</c> per tutti.</param>
+    /// <param name="timeframeMinutes">
+    /// Timeframe da ricostruire, o <c>null</c> per tutti quelli gia' presenti sul disco. Il minuto
+    /// non e' mai un bersaglio: e' la sorgente.
+    /// </param>
+    public async Task<RebuildFromMinutesResponseDto> RebuildFromMinutesAsync(
+        string? broker,
+        string? symbol,
+        IReadOnlyCollection<int>? timeframeMinutes)
+    {
+        var brokerFilter = string.IsNullOrWhiteSpace(broker) ? null : NormalizeBroker(broker);
+        var symbolFilter = string.IsNullOrWhiteSpace(symbol) ? null : NormalizeSymbol(symbol);
+
+        // Broker, simbolo e timeframe tutti dichiarati: sono BERSAGLI, non filtri, e si costruiscono
+        // anche se il file non esiste ancora. E' il caso che conta dopo una raccolta rifatta da
+        // capo, dove sul disco c'e' solo il minuto e non c'e' nessun aggregato da enumerare:
+        // filtrando su cio' che esiste, una ricostruzione su un archivio nuovo non farebbe niente e
+        // lo direbbe come "zero stream", che e' indistinguibile da "e' andato tutto bene".
+        // Stessa semantica di CompactAsync.
+        var targets = brokerFilter is not null && symbolFilter is not null && timeframeMinutes is { Count: > 0 }
+            ? timeframeMinutes
+                .Where(minutes => minutes > 1)
+                .Distinct()
+                .OrderBy(minutes => minutes)
+                .Select(minutes => (Broker: brokerFilter, Symbol: symbolFilter, TimeframeMinutes: minutes))
+                .ToList()
+            : EnumerateFeeds()
+                .Where(feed => feed.TimeframeMinutes > 1)
+                .Where(feed => brokerFilter is null ||
+                               string.Equals(brokerFilter, feed.Broker, StringComparison.OrdinalIgnoreCase))
+                .Where(feed => symbolFilter is null ||
+                               string.Equals(symbolFilter, feed.Symbol, StringComparison.OrdinalIgnoreCase))
+                .Where(feed => timeframeMinutes is null || timeframeMinutes.Contains(feed.TimeframeMinutes))
+                .OrderBy(feed => feed.Broker, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(feed => feed.Symbol, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(feed => feed.TimeframeMinutes)
+                .ToList();
+
+        var response = new RebuildFromMinutesResponseDto();
+        foreach (var target in targets)
+            response.Streams.Add(await RebuildOneAsync(target.Broker, target.Symbol, target.TimeframeMinutes));
+
+        return response;
+    }
+
+    private async Task<RebuildStreamResultDto> RebuildOneAsync(string broker, string symbol, int timeframe)
+    {
+        var result = new RebuildStreamResultDto
+        {
+            Broker = broker,
+            Symbol = symbol,
+            TimeframeMinutes = timeframe
+        };
+
+        if (!MarketCalendarRegistry.Current.TryGet(symbol, out var calendar))
+        {
+            result.Skipped =
+                $"'{symbol}' non e' nel calendario di mercato: senza griglia dichiarata non si sa " +
+                "dove cadono i suoi bucket, e sceglierne una a caso produrrebbe barre diverse " +
+                "invece di un errore.";
+            return result;
+        }
+
+        if (!SessionGrid.DividesTheDay(timeframe))
+        {
+            result.Skipped = $"{timeframe} minuti non divide il giorno: i bucket scivolerebbero.";
+            return result;
+        }
+
+        result.Grid =
+            $"griglia(1m->{timeframe}m, {calendar.ResearchTimeZone} {calendar.SessionStartHour:00}:00)";
+
+        // Il minuto si legge e si rilascia prima di prendere il gate del bersaglio: cosi' non si
+        // tengono mai due lock insieme.
+        var minutes = await ReadCompactedAsync(broker, symbol, 1);
+        result.MinuteBars = minutes.Count;
+        if (minutes.Count == 0)
+        {
+            result.Skipped =
+                $"nessuna barra da un minuto per {symbol} su {broker}: la sorgente autorevole non " +
+                "c'e', e ricostruire da un aggregato sarebbe ricostruire dal derivato.";
+            return result;
+        }
+
+        var aggregated = new BarAggregator(calendar, timeframe).Aggregate(
+            minutes.Select(candle => new OhlcvData
+            {
+                DateTime = candle.DateTime,
+                Open = candle.Open,
+                High = candle.High,
+                Low = candle.Low,
+                Close = candle.Close,
+                Volume = candle.Volume
+            }));
+
+        result.IncompleteDropped = aggregated.Count(bar => !bar.Complete);
+
+        var rebuilt = aggregated
+            .Where(bar => bar.Complete)
+            .Select(bar => new FlatCandleDto
+            {
+                Timestamp = new DateTimeOffset(
+                    DateTime.SpecifyKind(bar.Bar.DateTime, DateTimeKind.Utc)).ToUnixTimeSeconds(),
+                DateTime = bar.Bar.DateTime,
+                DateTimeFormatted = bar.Bar.DateTime.ToString(
+                    "yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture),
+                Open = bar.Bar.Open,
+                High = bar.Bar.High,
+                Low = bar.Bar.Low,
+                Close = bar.Bar.Close,
+                Volume = bar.Bar.Volume
+            })
+            .ToList();
+
+        var state = GetState(broker, symbol, timeframe);
+        await state.Gate.WaitAsync();
+        try
+        {
+            await state.EnsureIndexLoadedAsync();
+
+            var previous = await ReadFlatCandlesAsync(state.FlatPath);
+            result.BarsBefore = previous.Count;
+
+            var grid = new SessionGrid(calendar);
+            result.OffGridBefore = previous.Count(candle =>
+                grid.BucketStartUtc(candle.DateTime, timeframe) != candle.DateTime);
+
+            state.Source =
+                $"rebuild-from-1m/{PiootooVersion.Current}@{broker} {result.Grid}";
+            state.LastUpdate = DateTime.UtcNow;
+            WriteFlatFeed(state, rebuilt);
+
+            // Il journal del bersaglio porta blocchi sulla vecchia griglia: se restasse, la prima
+            // compattazione successiva li rifonderebbe dentro e il file tornerebbe misto.
+            if (File.Exists(state.JournalPath))
+                File.Delete(state.JournalPath);
+            state.PendingJournalCandles = 0;
+
+            state.Index = rebuilt.ToDictionary(candle => candle.DateTime.Ticks, Fingerprint);
+
+            result.BarsAfter = rebuilt.Count;
+            result.Coverage = BuildCoverage(rebuilt);
+            result.Rebuilt = true;
+        }
+        finally
+        {
+            state.Gate.Release();
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Candele di uno stream, journal compreso. Compatta prima di leggere per la stessa ragione per
+    /// cui lo fa <c>status</c>: una lettura che ignorasse il journal direbbe che mancano barre
+    /// appena arrivate.
+    /// </summary>
+    private async Task<List<FlatCandleDto>> ReadCompactedAsync(string broker, string symbol, int timeframe)
+    {
+        var state = GetState(broker, symbol, timeframe);
+        await state.Gate.WaitAsync();
+        try
+        {
+            await state.EnsureIndexLoadedAsync();
+            return state.PendingJournalCandles > 0
+                ? await CompactLockedAsync(state)
+                : await ReadFlatCandlesAsync(state.FlatPath);
+        }
+        finally
+        {
+            state.Gate.Release();
+        }
     }
 
     // -------------------------------------------------------------------------------------------

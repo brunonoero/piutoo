@@ -1,4 +1,4 @@
-using Piootoo.Core.Services;
+﻿using Piootoo.Core.Services;
 using Piootoo.Shared.Enums;
 using Piootoo.Shared.Models;
 using Piootoo.Shared.Models.Trading;
@@ -129,7 +129,6 @@ public sealed class MovingAverageCrossoverEngineTests
             SlowPeriod = 3;
             GradientPeriod = 0;
             UseDailyFilter = false;
-            SessionEndTime = 1700;
         }
 
         public override string Name => "MAC_TEST";

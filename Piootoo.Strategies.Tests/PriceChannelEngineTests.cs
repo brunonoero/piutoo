@@ -1,4 +1,4 @@
-using Piootoo.Shared.Enums;
+﻿using Piootoo.Shared.Enums;
 using Piootoo.Shared.Models;
 using Piootoo.Shared.Models.Trading;
 using Piootoo.Strategies.Easy;
@@ -210,8 +210,6 @@ public sealed class PriceChannelEngineTests
     {
         public TestPriceChannel()
         {
-            SessionStartTime = 1700;
-            SessionEndTime = 1600;
             ChannelBars = 3;
             TickSize = 0.25m;
             OffsetTicks = 2;
@@ -234,8 +232,6 @@ public sealed class PriceChannelEngineTests
     {
         public PythonPriceChannel()
         {
-            SessionStartTime = 1700;
-            SessionEndTime = 1600;
             ChannelBars = 3;
             TickSize = 0.25m;
             IntradayOnly = true;
@@ -256,8 +252,6 @@ public sealed class PriceChannelEngineTests
         public SessionExtremeLegacyPriceChannel()
         {
             UseLegacyVariant = true;
-            SessionStartTime = 800;
-            SessionEndTime = 2200;
             ChannelBars = 3;
             UseCurrentSessionExtremesForEntries = true;
             NeutralYes = 55;
@@ -279,8 +273,6 @@ public sealed class PriceChannelEngineTests
         public SessionAdxLegacyPriceChannel()
         {
             UseLegacyVariant = true;
-            SessionStartTime = 800;
-            SessionEndTime = 2200;
             ChannelBars = 3;
             NeutralYes = 55;
             NeutralNo = 56;

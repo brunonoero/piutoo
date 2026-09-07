@@ -83,11 +83,6 @@ public sealed class PTS_KC_SBO_001_240 : SessionBreakoutEngine
 
     public PTS_KC_SBO_001_240()
     {
-        // session_start_hour = 1 (tabella §2.1 del dossier): la sessione va da 01:00 a 01:00
-        // nell'orologio della ricerca, non dalla mezzanotte e non nell'ora ICE di New York.
-        // La barra che apre a mezzanotte appartiene alla sessione PRECEDENTE, come nel taglio
-        // (timestamp - 1 min - session_start_hour) del motore Python.
-        Session = ZonedWindow.ResearchSession(1);
         Contracts = 1;
 
         // Nessun filtro orario nel run: finestra piena, dichiarata comunque nell'orologio della

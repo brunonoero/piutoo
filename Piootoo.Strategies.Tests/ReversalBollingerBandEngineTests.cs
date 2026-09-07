@@ -1,4 +1,4 @@
-using Piootoo.Core.Services;
+﻿using Piootoo.Core.Services;
 using Piootoo.Shared.Enums;
 using Piootoo.Shared.Models;
 using Piootoo.Shared.Models.Trading;
@@ -188,8 +188,6 @@ public sealed class ReversalBollingerBandEngineTests
 
         public TestRbbUnmirrored()
         {
-            SessionStartTime = 1700;
-            SessionEndTime = 1600;
             BollingerLength = 2;
             BollingerNumDevs = 0.5m;
             FastYesLong = 152;

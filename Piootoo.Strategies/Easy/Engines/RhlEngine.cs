@@ -1,4 +1,4 @@
-using Piootoo.Shared.Enums;
+﻿using Piootoo.Shared.Enums;
 using Piootoo.Shared.Models;
 
 namespace Piootoo.Strategies.Easy.Engines;
@@ -18,16 +18,6 @@ public abstract class RhlEngine : EasyEngineBase
 {
     // ------------------------------------------------------------------ sessione e finestra
 
-    /// <summary>
-    /// Inizializza la sessione OHLC dell'originale (<c>SessBegin=1700</c>,
-    /// <c>SessEnd=1600</c>). I campi sono ereditati: non vanno nascosti, perché
-    /// <see cref="EasyEngineBase.BuildSessionOhlc"/> li legge direttamente.
-    /// </summary>
-    protected RhlEngine()
-    {
-        SessionStartTime = 1700;
-        SessionEndTime = 1600;
-    }
 
     // ------------------------------------------------------------------ livelli e gate
 

@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <!--
+      Campi assegnati e mai letti, e viceversa: nei cBot capita per costruzione (i parametri li
+      valorizza la piattaforma). Qui non interessano: si cercano errori di sintassi e di tipo.
+    -->
+    <NoWarn>CS0169;CS0414;CS0649;CS0067;CS1591</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- I sorgenti dei cBot stanno nella cartella sopra e NON si copiano qui: si compilano da li'. -->
+    <Compile Include="..\PiootooDatafeedSyncBot.cs" />
+  </ItemGroup>
+
+</Project>

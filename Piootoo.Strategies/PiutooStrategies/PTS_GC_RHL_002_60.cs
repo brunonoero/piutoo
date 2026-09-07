@@ -98,11 +98,6 @@ public sealed class PTS_GC_RHL_002_60 : RhlEngine
 
     public PTS_GC_RHL_002_60()
     {
-        // Confine di sessione del run: giorno di calendario europeo, come
-        // (timestamp - 1 min - session_start_hour).normalize() del motore Python.
-        // NON e' la sessione del broker: le due divergono nelle settimane di
-        // disallineamento fra ora legale americana ed europea.
-        Session = ZonedWindow.ResearchSession();
         Contracts = 1;
 
         TickSize = 0.1m;             // tick GC

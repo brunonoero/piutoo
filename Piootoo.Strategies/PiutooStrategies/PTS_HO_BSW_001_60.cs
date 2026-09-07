@@ -84,11 +84,6 @@ public sealed class PTS_HO_BSW_001_60 : BiasWeeklyEngine
 
     public PTS_HO_BSW_001_60()
     {
-        // Confine di sessione del run: giorno di calendario europeo, come
-        // (timestamp - 1 min - session_start_hour).normalize() del motore Python.
-        // NON e' la sessione del broker: le due divergono nelle settimane di
-        // disallineamento fra ora legale americana ed europea.
-        Session = ZonedWindow.ResearchSession();
 
         // Il BIASW non ha finestra operativa: giorno e ora di ingresso sono gia' la regola di
         // entrata. La finestra e' dichiarata piena, nell'orologio della ricerca, perche' ogni

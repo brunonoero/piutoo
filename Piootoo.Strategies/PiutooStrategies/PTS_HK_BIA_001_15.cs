@@ -94,11 +94,6 @@ public sealed class PTS_HK_BIA_001_15 : BiasBarCountEngine
 
     public PTS_HK_BIA_001_15()
     {
-        // session_start_hour = 1 (tabella §2.1 del dossier): la sessione va da 01:00 a 01:00
-        // nell'orologio della ricerca. La barra che apre a mezzanotte appartiene alla
-        // sessione PRECEDENTE, come nel taglio (timestamp - 1 min - session_start_hour) del
-        // motore Python.
-        Session = ZonedWindow.ResearchSession(1);
         Contracts = 1;
 
         // Il BIAS non ha finestra operativa: gli indici di barra sono la regola di entrata. La

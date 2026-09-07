@@ -3277,3 +3277,214 @@ indietro — `TimeframeMinutes`, `MaxEntriesPerSession`, `EntrySessionStartUtc` 
 di time exit: il clone serve solo a persistere, e `signals.json` usciva con `timeframeMinutes: 0` su
 tutti i 35.067 segnali del run, cioe' «l'ordine muore dopo un tick», l'esatto contrario di quello
 che il motore fa. Difetto di artefatto, non di esecuzione, ma e' costato mezza indagine.
+- **2026-09-07** — **Il calendario di mercato e' un dato, non codice.** Fuso di borsa, fuso della
+  ricerca, ora di inizio sessione e giorni di sessione vivono ora in
+  `Piootoo.Shared/MarketData/market-calendars.json` (risorsa incorporata, spec `2026-09-07.1`, 30
+  simboli), con override facoltativo in `piootoo-repository/settings/` che deve dichiarare la stessa
+  versione. `InstrumentRegistry` tiene la sola parte economica — `PointValue`, `Currency`,
+  `TickSize` — e unisce le due: un contratto senza calendario e' un errore esplicito, non un
+  default. Motivo: la stessa conoscenza viveva in **sette** posti — la tabella C#,
+  `SESSION_START_HOUR` in `aggregate_flat_feed.py`, una copia in ciascuno dei tre cBot, piu' la
+  ricostruzione implicita in `EasyLib.ClassifySessionBar` e nei sei helper di `EasyEngineBase` — e
+  il commento su `SessionStartHourOf` lo ammetteva gia': «e' una copia della tabella, le copie
+  restano identiche o la prossima lettura non sa piu' quale sia quella giusta». Il Python e i cBot
+  non possono vedere `InstrumentRegistry`; un file lo possono leggere tutti. E' il **passo 1** del
+  refactor descritto in `domini/layer-barre-e-calendario.md`: comportamento invariato, provato da
+  `MarketCalendarConformanceTests`, che tiene la tabella pre-migrazione trascritta a mano come copia
+  indipendente. `sessionDays` assente resta assente e una lista vuota viene rifiutata: "non
+  dichiarato" e "nessun giorno" non sono la stessa cosa, e confonderli spegnerebbe uno strumento.
+  `phases`, `holidays` ed `earlyClose` sono nel formato ma vuoti — popolarli senza una fonte
+  verificata introdurrebbe numeri inventati, che e' l'errore che il registro esiste per impedire.
+- **2026-09-07** — **Il metro dell'aggregazione** (`piootoo-repository/timeframe-analisys/
+  metro_aggregazione.py`): riaggrega un feed dal 1 minuto con la regola del layer e lo confronta con
+  l'aggregato che il cBot ha gia' prodotto. Su `FTMOPLATFORM` la corrispondenza e' esatta su OHLC e
+  volume — `@FDAX_240` 1.847 bucket con 2 differenze, `@NQ_240` 1.816 con 2, `@NQ_15` 27.752 con 1 —
+  e **tutte le differenze stanno ai bordi**: primo bucket troncato perche' il journal 1m comincia
+  piu' tardi del 60m da cui l'aggregato e' nato, ultimo ancora in formazione. E' la prova, presa
+  prima di scrivere qualunque riga del layer, che aggregare dal minuto lato server riproduce la
+  griglia su cui le strategie sono state trovate: il refactor sposta *dove* si aggrega senza
+  spostare *cosa* esce.
+- **2026-09-07** — **Il layer delle barre: `SessionGrid`, `BarAggregator`, `SessionSegmenter`,
+  `BarContext`** in `Piootoo.Shared/MarketData/`. Passo 2 del refactor
+  (`domini/layer-barre-e-calendario.md`): una sola implementazione dell'aggregazione e della
+  segmentazione, API incrementale con la variante batch che la incapsula — cosi' il file storico e
+  il minuto che arriva adesso passano letteralmente per lo stesso codice, che e' il punto. Nessun
+  consumatore ci passa ancora: comportamento invariato, 43 rossi preesistenti invariati, suite da
+  1.032 a 1.087 test.
+- **2026-09-07** — **Sotto l'ora il bucket si calcola in UTC, non in ora locale.** Il giro
+  attraverso l'orologio locale e' corretto solo sopra l'ora: per un timeframe che divide l'ora le
+  due griglie sono lo stesso insieme di confini — i fusi del calendario hanno scarti a ore piene —
+  tranne nell'ora che esiste DUE volte al ritorno dell'ora solare, dove il giro locale manda
+  entrambe le occorrenze sulla stessa etichetta e le **fonde in una barra sola**. Sui future non si
+  vede, perche' il cambio d'ora cade di domenica a mercato chiuso; su BTC, che quota 24/7, sono le
+  barre del 26/10/2025 dall'01:00 all'01:45 UTC — quattro sul 15 minuti, due sul 30, una sull'ora.
+  E' anche il comportamento che i file raccolti gia' hanno, perche' fino a sessanta minuti il cBot
+  spedisce la serie nativa della piattaforma senza piegarla. `SessionGrid` impone inoltre che il
+  fuso di ancoraggio abbia scarti a ore piene: e' cio' che rende la regola dimostrabile invece che
+  sperata.
+- **2026-09-07** — **Tre aggregati di `datafeed-external/FTMOPLATFORM` contengono due griglie
+  mescolate** e vanno rifatti dal minuto: `@KC_240.json` (880 barre fuori griglia su 1.760),
+  `@KC_1440.json` e `@CT_1440.json` (295 su 590). Esattamente la meta' in tutti e tre, e su
+  `@KC_240` la verifica e' conclusiva: le 1.760 barre sono l'unione **esatta** della griglia
+  ancorata alle 00:00 e di quella ancorata alle 01:00, 880 ciascuna, zero sovrapposizioni. Il
+  meccanismo lo rende inevitabile: la chiave di deduplica e' l'istante di apertura della barra,
+  quindi due raccolte con ancoraggi diversi producono etichette diverse per lo stesso periodo e non
+  si sovrascrivono — si sommano. CC, SB e FDAX hanno lo stesso ancoraggio e sono puliti, quindi e'
+  una raccolta fatta prima che il cBot imparasse la tabella §2.4. Trovato da
+  `BarAggregatorMetroTests.CollectedAggregatesSitOnTheirOwnGrid`, che tiene l'elenco dei difetti noti
+  e va rosso sia se ne compare uno nuovo sia quando uno viene rigenerato.
+- **2026-09-07** — **I tre file sono stati rigenerati dal minuto** e l'elenco dei difetti noti e'
+  vuoto: `@KC_240` 1.760 -> 878 barre, `@KC_1440` e `@CT_1440` 590 -> 293. Oltre alle barre fuori
+  griglia la ricostruzione scarta i due bordi incompleti — il primo bucket, troncato dall'inizio del
+  journal a un minuto, e l'ultimo, in formazione — perche' un bucket a meta' nel feed e' un dato
+  falso che poi nessuno distingue da uno vero. Le copie precedenti restano come
+  `*.json.bak-grigliemiste-20260907`.
+- **2026-09-07** — **`POST api/datafeed-external/rebuild-from-minutes`**
+  (`ExternalDatafeedStore.RebuildFromMinutesAsync`): riscrive un aggregato dalle barre da un minuto
+  dello stesso stream, sulla griglia che il calendario dichiara per il simbolo. E' una funzione e
+  non lo script usa-e-getta con cui si sarebbero potuti riparare i tre file, per due ragioni: usa il
+  layer — una conversione scritta a parte sarebbe stata la **quarta** implementazione della regola
+  dei bucket, cioe' il problema che il refactor esiste per chiudere — e serve di nuovo a ogni
+  raccolta rifatta da capo, perche' e' il §6 del piano ("gli aggregati diventano una cache
+  derivata") che arriva in anticipo. Il **journal del bersaglio si cancella**: contiene blocchi
+  sulla vecchia griglia, e lasciarlo li' vorrebbe dire che la prima compattazione successiva li
+  rifonde dentro e il file torna misto senza che nulla lo segnali. Il campo `source` dichiara la
+  derivazione (`rebuild-from-1m/{versione}@{BROKER} griglia(1m->240m, Europe/Rome 01:00)`).
+- **2026-09-07** — **Il cBot raccoglitore (`PiootooDatafeedSyncBot` 2.0.0) raccoglie SOLO barre da
+  un minuto UTC.** Spariti i tre parametri della griglia — fuso dell'ancoraggio, ora di inizio
+  sessione, timeframe base — e il codice che li usava (`BucketStartUtc`, `SessionLocalToUtc`,
+  `SessionStartHourOf`, `TryValidateSessionOffsets`, `TryResolveBase`, `FoldBackwards`), con loro il
+  tetto dei sessanta minuti: se l'unico ingresso e' il minuto, non c'e' nessuna serie della
+  piattaforma di cui fidarsi a nessun timeframe. Motivo: la griglia oltre l'ora dipende dall'ora di
+  inizio sessione dello strumento, che e' un dato del calendario di mercato — una tabella che il
+  server ha e cTrader no — e il bot ne teneva una copia. Quando le due hanno smesso di essere
+  d'accordo il risultato non e' stato un errore ma un file con DUE griglie dentro. Il minuto e'
+  invece il solo dato su cui non c'e' niente da decidere, quindi il solo che un bot possa
+  raccogliere senza poter sbagliare. Major perche' un archivio raccolto con la 1.x e uno raccolto
+  con la 2.x non sono la stessa cosa; il campo `source` li distingue. `Timeframe in minuti` resta
+  ma cambia mestiere: dice cosa far **derivare al server** a fine backfill. Passo 6 del refactor,
+  parte raccoglitore: i due bot operativi piegano ancora i bucket e restano da fare.
+- **2026-09-07** — **Il bot chiede la derivazione degli aggregati a fine backfill.** Senza,
+  una raccolta su un archivio nuovo lascerebbe il solo minuto e ogni backtest a 15, 60 o 240 minuti
+  troverebbe il datafeed mancante senza che nulla spieghi il perche'. Da qui due aggiunte
+  all'endpoint `rebuild-from-minutes`: accetta `planCode` — i timeframe li dichiara il masterfilter,
+  la stessa fonte da cui vengono gli strumenti da raccogliere — e quando broker, simbolo e timeframe
+  sono tutti dichiarati li tratta come **bersagli e non come filtri**, costruendoli anche se il file
+  non esiste ancora. Filtrando su cio' che esiste, una ricostruzione su un archivio nuovo non
+  avrebbe fatto niente dicendolo come "zero stream", indistinguibile da "e' andato tutto bene".
+- **2026-09-07** — **La tolleranza sui buchi si dichiara, a un minuto.** Il default del server e'
+  due volte il passo dominante, cioe' due minuti: su una serie a un minuto vera ogni notte e' un
+  buco — pausa CME, chiusura serale degli europei, festivi. Un anno ne produce centinaia, l'elenco
+  si tronca a duecento, e un elenco troncato fa dire a `IsAlreadyCovered` "non so" per ogni blocco:
+  `Salta i periodi gia' presenti` non salterebbe mai niente e ogni run rispedirebbe milioni di barre.
+  Il bot chiede la status con quattro giorni di tolleranza, che coprono un fine settimana lungo con
+  un festivo attaccato.
+- **2026-09-07** — **`piootoo-repository/ctrader/syntax-check/`**: un progetto che compila i
+  sorgenti dei cBot contro uno stub minimo dell'API cAlgo. Verifica sintassi, tipi e metodi rimasti
+  senza chiamanti; non il comportamento. Esiste perche' i cBot si compilavano **solo dentro
+  cTrader** — `lavori-in-corso.md` lo dice: «nulla di quanto segue e' stato compilato» — e un file
+  da duemila righe modificato a mano e' esattamente il posto in cui un refuso non si vede a lettura.
+  La prova di fedelta' dello stub e' che compila **anche la versione precedente** di un bot: uno
+  stub che riuscisse a compilare solo quella nuova sarebbe stato piegato su di essa.
+- **2026-09-07** — **Il backtest interno fa passare il proprio feed dal layer** e ne riporta la
+  struttura di sessione in `backtest-summary.json` (`dataSources[].calendar`) e fra i
+  `diagnostics`. Passo 3 del refactor. **Descrive, non decide**: il run non si ferma, ed e'
+  deliberato — anche il feed del vendor ha barre fuori griglia, e trasformare il controllo in un
+  blocco fermerebbe run che oggi girano. Aggiunge cio' che `candleCount` e `coversRequestedRange`
+  non vedono: un feed nato su un ancoraggio diverso ha il numero di barre giusto e copre
+  l'intervallo giusto — sono semplicemente barre *altre*. **Parita' dimostrata** sul paniere
+  `all-in` su FTMOPLATFORM, un anno, 30 stream e 3.973 trade: tutti gli aggregati identici prima e
+  dopo, e in `trades.json` gli unici campi diversi sono `tradeId` e `correlationId`, che contengono
+  il GUID del job.
+- **2026-09-07** — **Il layer ha trovato sessioni che il future non ha, al primo run.** Zero barre
+  fuori griglia su tutti e trenta gli stream (l'archivio e' pulito dopo la conversione), ma
+  `BTC/60m` ha 972 barre su 9.051 e `BTC/240m` 265 su 2.299 in giorni senza sessione — i sabati,
+  perche' il CFD quota 24/7 e il future CME no — e `FDAX/240m` 53 su 1.708, `FDAX/1440m` **53 su
+  327, il 16,2%**: le domeniche, cioe' precisamente le sessioni che il dossier misura sul DAX
+  all'11% del P&L, e su cui girano le sette `PTS_FDAX_*`. Quelle barre non generano trade da sole
+  ma **spezzano la sessione**, e con l'uscita di fine sessione chiudono posizioni ancora valide. Il
+  rimedio non e' nel passo 3: filtrarle cambia i risultati, e va misurato da solo ai passi 4 e 5.
+- **2026-09-07** — **Anche il feed del vendor ha barre fuori griglia**, ma solo i giornalieri: 18-19
+  su ~5.000 per file, e sono **una all'anno, l'ultima domenica di ottobre**. La causa e' la
+  scorciatoia di `aggregate_flat_feed.py`, che calcola l'inizio del bucket come
+  `row_utc - minuti_dall'ancoraggio` contando minuti *locali* su un istante *UTC*: su una giornata
+  di 25 ore l'etichetta esce a 01:00 locali invece che a mezzanotte. E' il difetto che i documenti
+  attribuivano gia' alla scorciatoia ma davano per invisibile nel feed del vendor — la verifica
+  fatta allora era «nessun passo piu' corto del timeframe», che una barra mal etichettata non viola.
+  Si chiude da se' al passo 8, quando il vendor produrra' il minuto e il layer aggreghera'.
+- **2026-09-07** — **Il calendario governa la sessione delle strategie** (passo 4a).
+  `EasyEngineBase.Session` non e' piu' scrivibile: si deriva da `MarketCalendarRegistry` tramite il
+  simbolo. Le 124 `PTS_*` hanno perso la riga che la dichiarava — 617 righe, tutte cancellazioni —
+  e con essa la possibilita' di dichiarare un ancoraggio diverso da quello del proprio strumento
+  per distrazione. L'override esiste (`OverrideSessionAnchor(hour, reason)`) ma cambia **solo
+  l'ora**, e il motivo e' obbligatorio: un override senza motivo scritto e' indistinguibile da una
+  distrazione, ed e' la sola cosa che sposta il confine di sessione senza produrre alcun messaggio.
+  La sessione **di borsa** — dove le barre fuori orario non appartengono a nessuna sessione — non e'
+  supportata: e' un modello diverso, non un parametro diverso, e nessuna strategia la usa. Parita'
+  dimostrata su `all-in`/FTMOPLATFORM, un anno, 3.973 trade: solo `tradeId` e `correlationId`
+  differiscono.
+- **2026-09-07** — **Tre motori dichiaravano una sessione di borsa che non si applicava mai.**
+  `RhlEngine`, `TfEngines` e `ReversalBollingerBandEngines` impostavano `SessionStartTime = 1700` nel
+  proprio costruttore, ma il costruttore base gira **prima** di quello della sottoclasse e tutte e
+  124 le PTS lo sovrascrivevano con `ResearchSession()`. Codice morto che documentava una sessione
+  inesistente — il tipo di commento che poi qualcuno crede. Rimosso.
+- **2026-09-07** — **I test dei motori giravano su un modello di sessione che la produzione non
+  usa.** Nove file di test costruivano i propri doppioni con `SessionStartTime = 1700`, cioe'
+  esercitavano il ramo "sessione di borsa" di `EasyLib.ClassifySessionBar` che nessuna strategia
+  esegue, e **non** esercitavano quello a giornata piena che le esegue tutte. Tolta la finta
+  sessione, `TfEngineParityTests.TfM_UsesPythonHourWindowAndMondayBasedDayFilter` e' tornato verde:
+  era rosso da prima per quella ragione. I rossi preesistenti passano da 43 a 42.
+- **2026-09-07** — **Gli interi `1700` delle sorgenti EasyLanguage non diventano mai un
+  ancoraggio**, ed e' scritto come regola in `domini/porting-da-report-sweep.md` §2.1 perche' le
+  prossime strategie da convertire arriveranno tutte con quei numeri. Sono l'orario della **borsa** e
+  appartengono a un **modello di sessione diverso** da quello della ricerca: non c'e' aritmetica che
+  porti da `1700` a un ancoraggio, e cercarne una e' l'errore — le due coincidono per gran parte
+  dell'anno e divergono nelle settimane in cui l'ora legale americana ed europea non sono allineate.
+  L'intero della sorgente serve a **verificare** (quale borsa assumeva, quindi `exchangeTz`; se usa
+  davvero una sessione di borsa, e allora il porting si ferma), non a produrre l'ancoraggio, che
+  viene dal dossier della ricerca via il calendario.
+- **2026-09-07** — **La deadline di fine sessione e' ancorata al giorno di CALENDARIO, non alla
+  sessione: difetto misurato.** `EasyEngineBase.ResolveCloseAtUtc` risolve l'orario su
+  `SessionClock.SessionDay`, che e' la data locale, mentre la sessione e' ancorata a
+  `sessionStartHour`. Sui simboli ad ancoraggio 0 le due coincidono e la deadline cade **un minuto**
+  prima della fine sessione, che e' la semantica voluta di `2359`. Sui cinque ad ancoraggio 1 —
+  FDAX, CC, CT, KC, SB — cade **61 minuti** prima: `2359` sono le 23:59 del giorno di calendario, ma
+  la sessione finisce all'01:00 del giorno dopo. Su una 4h la chiusura cade quindi *dentro* l'ultimo
+  bucket della sessione. Tocca `PTS_FDAX_PCH_001_240`, `PTS_FDAX_VBO_001_240`, `PTS_CC_PCH_001_240`
+  e `PTS_KC_SBO_001_240`, su ogni trade. Esiste un secondo difetto piu' grave sulla stessa causa —
+  per una barra nella fascia 00:00-01:00 locali la deadline cade **22h59m dopo** la chiusura della
+  propria sessione, cioe' la posizione sopravvive a una sessione intera — che oggi **non e'
+  raggiungibile**: le quattro strategie sono tutte a 240 minuti e con ancoraggio 01:00 nessun bucket
+  apre in quella fascia. Basterebbe una 60 minuti intraday su uno di quei simboli. Tutti e tre i
+  comportamenti sono fissati in `SessionCloseAtAnchorTests`, numeri compresi: quando il difetto sara'
+  corretto (passo 5) i test diventeranno rossi e andranno riscritti sull'atteso.
+- **2026-09-07** — **`ZonedWindow` non porta piu' un fuso, porta un OROLOGIO** (`InstrumentClock`:
+  `Research` o `Exchange`), e il fuso vero lo risolve chi conosce il simbolo, dal calendario. Motivo:
+  l'identificatore IANA era duplicato — una stringa libera sulla finestra e il campo del calendario —
+  con la possibilita' che divergessero e che un refuso spostasse in silenzio ogni confronto orario.
+  Le costanti di borsa `ZonedWindow.CmeChicago` e `NyComexNymex` avevano **zero usi** e sono sparite.
+  **Non** si e' fatto il passo che sembrava naturale — dedurre il fuso della finestra dal simbolo —
+  perche' un simbolo ha **due** orologi e non sono intercambiabili: `1700` da una sorgente
+  EasyLanguage su NQ sono le 17:00 di Chicago, `17` da un run di ricerca sullo stesso NQ sono le
+  17:00 CET, sei o sette ore di differenza. Quale usare e' una proprieta' della **provenienza** della
+  finestra, non dello strumento, e se il tipo non sapesse esprimerla portare una strategia da
+  EasyLanguage costringerebbe alla conversione a mano — l'errore gia' pagato una volta. Zero
+  modifiche ai 124 call site (`ResearchHours(6, 5)` e' identico), parita' verificata su
+  `all-in`/FTMOPLATFORM: 3.973 trade, solo `tradeId` e `correlationId` diversi.
+- **2026-09-07** — **La deadline di fine sessione si risolve DENTRO la sessione**, non sul giorno di
+  calendario, e `2359` e' trattato per quello che e': la **sentinella** "ultimo minuto della
+  sessione", non le 23:59 di un giorno. Prima voce del passo 5. Corregge i due difetti misurati in
+  `SessionCloseAtAnchorTests`: sui cinque simboli ad ancoraggio 1 la deadline cadeva 61 minuti prima
+  della fine sessione invece che uno, e per una barra nella fascia 00:00-01:00 locali 22h59m **dopo**
+  la chiusura della propria sessione. **Misura su `all-in`/FTMOPLATFORM, un anno**: 3.973 trade prima
+  e dopo, **nessun trade nuovo o perso**, e **29 uscite spostate** — tutte e sole nelle quattro
+  strategie previste (`PTS_KC_SBO_001_240` 15, `PTS_FDAX_PCH_001_240` 5, `PTS_FDAX_VBO_001_240` 5,
+  `PTS_CC_PCH_001_240` 4). NetProfit da 850.551,58 a 845.254,45, cioe' **-0,62%**. L'insieme colpito
+  coincide esattamente con quello predetto dalla diagnosi, che e' la conferma che serviva.
+- **2026-09-07** — **Versione 7.0.0.** Il refactor del layer barre cambia il contratto: il
+  raccoglitore spedisce solo il minuto, il server deriva gli aggregati, la sessione la governa il
+  calendario e la deadline di fine sessione cade in un punto diverso. Aggiornati i tre punti che
+  `VersioneDelProgettoTests` tiene insieme — `PiootooVersion.Current`, `VersionPrefix` in
+  `Directory.Build.props` e `PiootooDistributedExecutionBot.BotVersion`. `PiootooDatafeedSyncBot`
+  resta sulla propria numerazione (2.0.0): non parla il contratto di esecuzione, solo
+  `api/datafeed-external`.

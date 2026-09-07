@@ -160,6 +160,57 @@ public sealed class BacktestDataSourceSummary
 
     /// <summary>Descrizione del problema quando il datasource è vuoto o incompleto.</summary>
     public string? Warning { get; init; }
+
+    /// <summary>
+    /// Cosa il layer ha da dire su questa serie: su che griglia sta, quante sessioni copre, e
+    /// quali barre non tornano con il calendario del simbolo.
+    ///
+    /// <para>Sta qui perché è la sola forma di errore del feed che <see cref="CandleCount"/> e
+    /// <see cref="CoversRequestedRange"/> non vedono: un feed nato su un ancoraggio diverso ha il
+    /// numero di barre giusto e copre l'intervallo giusto — semplicemente sono barre <i>altre</i>.
+    /// Null nei summary scritti prima del 07/09/2026.</para>
+    /// </summary>
+    public BacktestFeedCalendarSummary? Calendar { get; init; }
+}
+
+/// <summary>
+/// Il verdetto del layer su un datasource, come finisce nel riepilogo. È la trascrizione di
+/// <c>FeedCalendarReport</c>: qui si tengono solo i numeri, perché il contratto del summary non
+/// deve dipendere dai tipi del layer.
+/// </summary>
+public sealed class BacktestFeedCalendarSummary
+{
+    /// <summary>La griglia su cui il feed è stato verificato, per esteso.</summary>
+    public string Grid { get; init; } = string.Empty;
+
+    /// <summary>Sessioni distinte coperte dalla serie.</summary>
+    public int Sessions { get; init; }
+
+    /// <summary>
+    /// Barre la cui etichetta non coincide con l'inizio del proprio bucket. Zero è la condizione
+    /// normale; qualunque altro numero dice che la serie è nata su un ancoraggio diverso da quello
+    /// su cui le strategie sono state trovate.
+    /// </summary>
+    public int BarsOffGrid { get; init; }
+
+    /// <summary>
+    /// Barre in giorni in cui il calendario dichiara che lo strumento non ha sessione. Sono le
+    /// sessioni che un CFD fabbrica e il future non ha: non generano trade, ma spezzano la sessione
+    /// e con l'uscita di fine sessione chiudono posizioni ancora valide.
+    /// </summary>
+    public int BarsOnNonSessionDay { get; init; }
+
+    /// <summary>Barre con OHLC tutti uguali.</summary>
+    public int StaleBars { get; init; }
+
+    /// <summary>Discontinuità nella serie. Non è un difetto: pause, fine settimana e festivi lo sono.</summary>
+    public int Gaps { get; init; }
+
+    public DateTime? FirstSessionId { get; init; }
+    public DateTime? LastSessionId { get; init; }
+
+    /// <summary>Falso quando il calendario non dichiara i giorni di sessione del simbolo.</summary>
+    public bool SessionDaysDeclared { get; init; }
 }
 
 /// <summary>

@@ -1,4 +1,4 @@
-using System.Reflection;
+﻿using System.Reflection;
 using Piootoo.Shared.Configuration;
 using Piootoo.Shared.Interfaces;
 using Xunit;
@@ -49,7 +49,7 @@ public sealed class ResearchSessionStartConformanceTests
         // sul percorso delle sessioni di borsa, dove le barre fuori orario non appartengono a
         // nessuna sessione.
         Assert.Equal(2359, session.EndHhmm);
-        Assert.Equal(ZonedWindow.ResearchTimeZone, session.TimeZoneId);
+        Assert.Equal(InstrumentClock.Research, session.Clock);
     }
 
     /// <summary>

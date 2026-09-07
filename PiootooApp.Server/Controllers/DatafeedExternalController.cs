@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Piootoo.Core.Services;
+using Piootoo.Shared.MarketData;
 using Piootoo.Shared.Models.Datafeed;
 
 namespace PiootooApp.Server.Controllers;
@@ -159,6 +160,97 @@ public class DatafeedExternalController : ControllerBase
         catch (ArgumentException error)
         {
             return Problem(title: "Richiesta non valida", detail: error.Message, statusCode: 400);
+        }
+    }
+
+    /// <summary>
+    /// Riscrive gli aggregati a partire dalle barre da un minuto dello stesso stream, sulla griglia
+    /// che il calendario dichiara per il simbolo.
+    ///
+    /// <para><b>Quando serve.</b> Il minuto e' l'unico dato autorevole; tutto cio' che sta sopra e'
+    /// derivato e rigenerabile. Un aggregato puo' essere nato su una griglia sbagliata, o su
+    /// <b>due</b> griglie insieme — la deduplica e' sull'istante di apertura della barra, quindi due
+    /// raccolte con ancoraggi diversi non si sovrascrivono, si sommano — e in quel caso il file ha il
+    /// doppio delle barre, tutte plausibili, meta' su una griglia che nessuna strategia ha mai visto.
+    /// Senza parametri ricostruisce tutto cio' che e' derivabile.</para>
+    ///
+    /// <para><b>Riscrive file dell'archivio.</b> La risposta dice, per stream, quante barre c'erano
+    /// prima, quante dopo, quante erano fuori griglia e quanti bucket incompleti sono stati
+    /// scartati.</para>
+    /// </summary>
+    /// <param name="planCode">
+    /// Quando c'e', le coppie (simbolo, timeframe) da costruire vengono dal <b>masterfilter</b> del
+    /// workspace del piano, esattamente come per la raccolta. E' la forma da usare dopo una
+    /// raccolta rifatta da capo, dove sul disco c'e' solo il minuto: senza, non ci sarebbe alcun
+    /// aggregato da enumerare e la ricostruzione non farebbe niente. Il masterfilter resta l'unica
+    /// fonte di verita' su quali timeframe servono — un elenco scritto altrove divergerebbe.
+    /// </param>
+    [HttpPost("rebuild-from-minutes")]
+    public async Task<ActionResult<RebuildFromMinutesResponseDto>> RebuildFromMinutes(
+        [FromQuery] string? broker = null,
+        [FromQuery] string? symbol = null,
+        [FromQuery] int[]? timeframeMinutes = null,
+        [FromQuery] string? planCode = null)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(planCode))
+            {
+                return Ok(await _store.RebuildFromMinutesAsync(
+                    broker,
+                    symbol,
+                    timeframeMinutes is { Length: > 0 } ? timeframeMinutes : null));
+            }
+
+            if (string.IsNullOrWhiteSpace(broker))
+            {
+                return Problem(
+                    title: "Richiesta non valida",
+                    detail: "Con 'planCode' serve anche 'broker': il piano dice quali coppie " +
+                            "(simbolo, timeframe) servono, non su quale archivio ricostruirle.",
+                    statusCode: 400);
+            }
+
+            var plan = _plans.ResolveDatafeedInstruments(planCode, accountNumber: null);
+            var response = new RebuildFromMinutesResponseDto();
+
+            foreach (var instrument in plan.Instruments)
+            {
+                if (!string.IsNullOrWhiteSpace(symbol) &&
+                    !string.Equals(
+                        instrument.Symbol.TrimStart('@'),
+                        symbol.TrimStart('@'),
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                var wanted = instrument.TimeframesMinutes
+                    .Where(minutes => minutes > 1)
+                    .Where(minutes => timeframeMinutes is not { Length: > 0 } ||
+                                      timeframeMinutes.Contains(minutes))
+                    .ToArray();
+
+                if (wanted.Length == 0)
+                    continue;
+
+                var partial = await _store.RebuildFromMinutesAsync(broker, instrument.Symbol, wanted);
+                response.Streams.AddRange(partial.Streams);
+            }
+
+            return Ok(response);
+        }
+        catch (KeyNotFoundException error)
+        {
+            return Problem(title: "Piano non trovato", detail: error.Message, statusCode: 404);
+        }
+        catch (ArgumentException error)
+        {
+            return Problem(title: "Richiesta non valida", detail: error.Message, statusCode: 400);
+        }
+        catch (MarketCalendarException error)
+        {
+            return Problem(title: "Calendario di mercato", detail: error.Message, statusCode: 400);
         }
     }
 }

@@ -1,3 +1,4 @@
+﻿using Piootoo.Shared.MarketData;
 using Piootoo.Shared.Configuration;
 using Piootoo.Shared.Enums;
 using Piootoo.Shared.Models;
@@ -40,16 +41,71 @@ public abstract class EasyEngineBase : StatelessEasyStrategyBase
     /// <para>Con <see cref="ZonedWindow.TimeZoneId"/> a <c>null</c> il fuso resta quello del
     /// registro: è la compatibilità per le classi non ancora migrate, non la forma consigliata.</para>
     /// </summary>
-    protected ZonedWindow Session
+    protected ZonedWindow Session => _session ??= ResolveSession();
+
+    /// <summary>
+    /// L'ancoraggio del simbolo, o quello dichiarato da <see cref="OverrideSessionAnchor"/>.
+    ///
+    /// <para>La forma e' sempre quella della ricerca — <c>(ancoraggio, 2359)</c>, giornata piena a
+    /// partire dall'ancoraggio — perche' e' l'unico modello di sessione che il sistema esegue. La
+    /// sessione <b>di borsa</b>, dove le barre fuori orario non appartengono a nessuna sessione, e'
+    /// un modello diverso e non e' supportata: nessuna strategia la usa, e costruirla ora
+    /// significherebbe far rinascere la seconda fonte di verita' che il calendario elimina.</para>
+    /// </summary>
+    private ZonedWindow ResolveSession()
     {
-        get => _session;
-        set
-        {
-            _session = value;
-            _clock = null;
-            _windowClock = null;
-        }
+        if (_sessionAnchorOverride is { } overridden)
+            return ZonedWindow.ResearchSession(overridden);
+
+        return ZonedWindow.ResearchSession(
+            MarketCalendarRegistry.Current.Get(Symbol).SessionStartHour);
     }
+
+    /// <summary>
+    /// Sposta l'ancoraggio di sessione di <b>questa</b> strategia, dichiarando perche'.
+    ///
+    /// <para><b>Quando serve.</b> Quasi mai: l'ancoraggio e' una proprieta' dello strumento e il
+    /// calendario lo dichiara per simbolo. Serve se un run di ricerca ha tagliato le sessioni a
+    /// un'ora diversa da quella con cui lo strumento e' registrato — cioe' se la strategia e' stata
+    /// <i>trovata</i> su una segmentazione diversa. In quel caso riprodurla e' il porting corretto,
+    /// e non dichiararla sarebbe l'errore.</para>
+    ///
+    /// <para><b>Il motivo e' obbligatorio</b> perche' un override senza motivo scritto e'
+    /// indistinguibile da una distrazione, e questa e' la sola cosa che, sbagliata, sposta il
+    /// confine di sessione senza produrre alcun messaggio.</para>
+    ///
+    /// <para>Gli override sono elencati in <c>SessionAnchorOverrideTests</c>: uno nuovo fa fallire
+    /// il test finche' non viene messo in lista, cosi' nasce da una decisione e non da un merge.</para>
+    /// </summary>
+    /// <param name="hour">Ora di inizio sessione nell'orologio della ricerca, 0-23.</param>
+    /// <param name="reason">Perche' questa strategia non segue l'ancoraggio del proprio simbolo.</param>
+    protected void OverrideSessionAnchor(int hour, string reason)
+    {
+        if (hour is < 0 or > 23)
+            throw new ArgumentOutOfRangeException(nameof(hour), hour, "Ora di sessione fuori da 0-23.");
+
+        if (string.IsNullOrWhiteSpace(reason))
+        {
+            throw new ArgumentException(
+                $"{GetType().Name}: un override dell'ancoraggio di sessione deve dichiarare il " +
+                "motivo. Senza, e' indistinguibile da una distrazione — ed e' la sola cosa che, " +
+                "sbagliata, sposta il confine di sessione senza produrre alcun messaggio.",
+                nameof(reason));
+        }
+
+        _sessionAnchorOverride = hour;
+        SessionAnchorOverrideReason = reason.Trim();
+        _session = null;
+        _grid = null;
+        _clock = null;
+        _windowClock = null;
+    }
+
+    /// <summary>
+    /// Perche' questa strategia non segue l'ancoraggio del proprio simbolo. Null = lo segue, che e'
+    /// il caso normale. E' pubblico perche' l'override deve vedersi senza leggere il codice.
+    /// </summary>
+    public string? SessionAnchorOverrideReason { get; private set; }
 
     /// <summary>
     /// <b>La finestra operativa, con il proprio fuso.</b> È <c>start_hour</c>/<c>end_hour</c> dei
@@ -72,29 +128,25 @@ public abstract class EasyEngineBase : StatelessEasyStrategyBase
         }
     }
 
-    private ZonedWindow _session = new(1800, 1700);
+    private ZonedWindow? _session;
+    private SessionGrid? _grid;
+    private int? _sessionAnchorOverride;
     private ZonedWindow? _tradingWindow;
 
     /// <summary>
-    /// Orario HHMM di inizio sessione, <b>in ora di borsa</b> — es. 1700 per la riapertura CME
-    /// degli indici, che e' l'orario di Chicago. Non e' UTC e non e' l'orologio del feed: viene
-    /// confrontato passando da <see cref="Clock"/>.
+    /// Orario HHMM di inizio sessione, nell'orologio della ricerca. <b>Sola lettura</b>: lo dichiara
+    /// il calendario del simbolo, non la strategia. Per spostarlo esiste
+    /// <see cref="OverrideSessionAnchor"/>.
     ///
-    /// <para>Inoltra su <see cref="Session"/>, che è la fonte di verità: i due interi restano per
-    /// non dover riscrivere in un colpo solo i dodici motori e le classi che li assegnano.</para>
+    /// <para><b>Non e' l'orario di borsa della sorgente EasyLanguage.</b> Un <c>SessBegin = 1700</c>
+    /// e' la riapertura Globex in ora di Chicago e appartiene a un modello di sessione diverso:
+    /// non c'e' nessuna aritmetica che lo porti a un ancoraggio, e cercarne una e' l'errore. Vedi
+    /// <c>docs/domini/porting-da-report-sweep.md</c> §2.1.</para>
     /// </summary>
-    protected int SessionStartTime
-    {
-        get => _session.StartHhmm;
-        set => Session = _session with { StartHhmm = value };
-    }
+    protected int SessionStartTime => Session.StartHhmm;
 
-    /// <summary>Orario HHMM di fine sessione. Inoltra su <see cref="Session"/>.</summary>
-    protected int SessionEndTime
-    {
-        get => _session.EndHhmm;
-        set => Session = _session with { EndHhmm = value };
-    }
+    /// <summary>Orario HHMM di fine sessione. Sola lettura, come <see cref="SessionStartTime"/>.</summary>
+    protected int SessionEndTime => Session.EndHhmm;
 
     /// <summary>Contratti dichiarati dalla strategia, prima di sizing e conversione account.</summary>
     protected int Contracts = 1;
@@ -179,7 +231,7 @@ public abstract class EasyEngineBase : StatelessEasyStrategyBase
     /// thread-safe come documentato in <see cref="SessionClock"/>: l'ipotesi e' una per strategia,
     /// che e' come l'engine la usa.</para>
     /// </summary>
-    protected SessionClock Clock => _clock ??= ResolveClock(_session.TimeZoneId);
+    protected SessionClock Clock => _clock ??= ResolveClock(Session.Clock);
 
     /// <summary>
     /// Orologio della <see cref="TradingWindow"/>. È separato da <see cref="Clock"/> perché il
@@ -188,17 +240,27 @@ public abstract class EasyEngineBase : StatelessEasyStrategyBase
     /// un fuso proprio, i due coincidono e il comportamento è quello storico.
     /// </summary>
     protected SessionClock WindowClock =>
-        _windowClock ??= ResolveClock(_tradingWindow?.TimeZoneId ?? _session.TimeZoneId);
+        _windowClock ??= ResolveClock(_tradingWindow?.Clock ?? Session.Clock);
 
     /// <summary>
-    /// Fuso dichiarato se c'è, altrimenti quello di borsa del simbolo. Il secondo ramo è la
-    /// compatibilità con le classi non ancora migrate: resta un errore esplicito, non un fallback
-    /// silenzioso, perché un simbolo senza specifica verificata fa fallire il registro.
+    /// Traduce l'orologio dichiarato da una finestra nel fuso vero, prendendolo dal <b>calendario
+    /// del simbolo</b>: l'unico posto in cui un identificatore IANA compare verificato.
+    ///
+    /// <para>Un simbolo ne ha due e non sono intercambiabili — <c>1700</c> da una sorgente
+    /// EasyLanguage sono le 17:00 di Chicago, <c>17</c> da un run di ricerca sono le 17:00 CET, sei
+    /// o sette ore di differenza sullo stesso strumento. Quale dei due usare lo dice la finestra,
+    /// non il simbolo: è una proprietà della sua provenienza.</para>
+    ///
+    /// <para>Un simbolo che il calendario non conosce fa fallire qui, e va bene: senza calendario
+    /// non si sa in che orologio leggere alcun orario di quella strategia, e sceglierne uno a caso
+    /// sposterebbe ogni confronto senza produrre un messaggio.</para>
     /// </summary>
-    private SessionClock ResolveClock(string? timeZoneId) =>
-        string.IsNullOrWhiteSpace(timeZoneId)
-            ? InstrumentRegistry.CreateSessionClock(Symbol)
-            : new SessionClock(timeZoneId);
+    private SessionClock ResolveClock(InstrumentClock clock)
+    {
+        var calendar = MarketCalendarRegistry.Current.Get(Symbol);
+        return new SessionClock(
+            clock == InstrumentClock.Exchange ? calendar.ExchangeTimeZone : calendar.ResearchTimeZone);
+    }
 
     // ------------------------------------------------------------------ specifica di uscita
 
@@ -417,16 +479,75 @@ public abstract class EasyEngineBase : StatelessEasyStrategyBase
         };
 
     /// <summary>
-    /// Deadline di chiusura a un orario HHMM, risolta sul calendario della sessione corrente.
-    /// Serve a esprimere <c>setexitonclose</c> e le uscite di fine sessione come
+    /// La griglia di sessione di <b>questa strategia</b>: quella del simbolo, salvo che
+    /// <see cref="OverrideSessionAnchor"/> abbia spostato l'ancoraggio.
+    ///
+    /// <para>L'override va applicato <b>anche qui</b> e non solo su <see cref="Session"/>: la
+    /// griglia decide a quale sessione appartiene una barra e dove quella sessione finisce, quindi
+    /// una griglia che lo ignorasse farebbe convivere due confini diversi nella stessa strategia —
+    /// la finestra li dichiarerebbe spostati e le deadline no.</para>
+    ///
+    /// <para>Un'istanza per strategia, come l'orologio: <c>SessionGrid</c> non e' thread-safe.</para>
+    /// </summary>
+    private SessionGrid Grid => _grid ??= BuildGrid();
+
+    private SessionGrid BuildGrid()
+    {
+        var calendar = MarketCalendarRegistry.Current.Get(Symbol);
+        if (_sessionAnchorOverride is { } hour && hour != calendar.SessionStartHour)
+            calendar = calendar with { SessionStartHour = hour };
+
+        return new SessionGrid(calendar);
+    }
+
+    /// <summary>
+    /// Deadline di chiusura a un orario HHMM, risolta <b>dentro la sessione</b> che contiene la
+    /// barra. Serve a esprimere <c>setexitonclose</c> e le uscite di fine sessione come
     /// <c>CloseAtUtc</c> sull'ingresso, invece che come segnale di chiusura a runtime — che in
     /// <c>ExternalBroker</c> non verrebbe mai eseguito, perché il server emette solo intent di
     /// ingresso.
+    ///
+    /// <para><b>Perché non basta il giorno di calendario.</b> Fino al 07/09/2026 l'orario veniva
+    /// risolto su <c>SessionClock.SessionDay</c>, cioè la data locale, mentre la sessione è ancorata
+    /// a <c>sessionStartHour</c>. Sui simboli ad ancoraggio 0 le due coincidono; sui cinque ad
+    /// ancoraggio 1 — FDAX, CC, CT, KC, SB — no, e la deadline cadeva <b>61 minuti prima</b> della
+    /// fine sessione invece che uno, cioè dentro l'ultimo bucket di una 4h. Peggio: per una barra
+    /// nella fascia 00:00–01:00 locali cadeva <b>22h59m dopo</b> la chiusura della propria sessione,
+    /// e la posizione sopravviveva a una sessione intera. Misurato in
+    /// <c>SessionCloseAtAnchorTests</c>.</para>
+    ///
+    /// <para><b><c>2359</c> è una sentinella, non un orario.</b> È il valore che
+    /// <c>ZonedWindow.ResearchSession</c> mette come fine, e significa "l'ultimo minuto della
+    /// sessione": si risolve quindi sulla chiusura vera della sessione meno un minuto, qualunque sia
+    /// l'ancoraggio. Trattarlo come le 23:59 di un giorno è precisamente l'errore corretto qui.</para>
     /// </summary>
     protected DateTime ResolveCloseAtUtc(DateTime barTime, int hhmm)
     {
-        var target = Clock.SessionInstantUtc(barTime, hhmm);
-        return target <= barTime ? Clock.SessionInstantUtc(barTime.AddDays(1), hhmm) : target;
+        var sessionDay = Grid.SessionDayOf(barTime);
+        var open = Grid.SessionOpenUtc(sessionDay);
+        var close = Grid.SessionOpenUtc(sessionDay.AddDays(1));
+
+        if (hhmm >= 2359)
+            return close.AddMinutes(-1);
+
+        // L'orario si colloca dentro l'arco della sessione, non del giorno di calendario: una
+        // sessione ancorata all'01:00 contiene le 00:30 del giorno DOPO, non quelle del proprio.
+        var target = Clock.ToUtc(sessionDay.AddMinutes(hhmm / 100 * 60 + hhmm % 100));
+        if (target < open)
+            target = Clock.ToUtc(sessionDay.AddDays(1).AddMinutes(hhmm / 100 * 60 + hhmm % 100));
+
+        // Orario gia' passato per questa sessione: vale per la prossima. Si riparte dal giorno di
+        // sessione successivo e non da "+1 giorno" sull'istante, perche' fra i due c'e' il cambio
+        // d'ora.
+        if (target <= barTime)
+        {
+            var next = sessionDay.AddDays(1);
+            target = Clock.ToUtc(next.AddMinutes(hhmm / 100 * 60 + hhmm % 100));
+            if (target < Grid.SessionOpenUtc(next))
+                target = Clock.ToUtc(next.AddDays(1).AddMinutes(hhmm / 100 * 60 + hhmm % 100));
+        }
+
+        return target;
     }
 
     // ------------------------------------------------------------------ contratto ITradingStrategy

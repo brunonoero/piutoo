@@ -1,4 +1,4 @@
-using Piootoo.Shared.Enums;
+﻿using Piootoo.Shared.Enums;
 using Piootoo.Shared.Models;
 using Piootoo.Shared.Models.Trading;
 using Piootoo.Strategies.Easy.Engines;
@@ -141,8 +141,6 @@ public sealed class SessionBreakoutEngineTests
 
         public TestBo()
         {
-            SessionStartTime = 1700;
-            SessionEndTime = 1600;
             Sessions = 1;
             TickSize = 0.25m;
             IntradayOnly = true;

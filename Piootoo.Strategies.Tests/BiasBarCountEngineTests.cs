@@ -1,4 +1,4 @@
-using Piootoo.Shared.Enums;
+﻿using Piootoo.Shared.Enums;
 using Piootoo.Shared.Models;
 using Piootoo.Shared.Models.Trading;
 using Piootoo.Strategies.Easy.Engines;
@@ -116,8 +116,6 @@ public sealed class BiasBarCountEngineTests
     {
         public TestBias(BiasEntryType entryType, int notEntryDayLong = -1)
         {
-            SessionStartTime = 1800;
-            SessionEndTime = 1700;
             ArmBarLong = 2;
             ArmBarShort = 99;
             ExitBarLong = 4;
@@ -145,8 +143,6 @@ public sealed class BiasBarCountEngineTests
     {
         public TestCustomBias()
         {
-            SessionStartTime = 0;
-            SessionEndTime = 2359;
             StopMoney = 3000;
         }
 

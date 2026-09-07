@@ -93,9 +93,6 @@ public sealed class PTS_ES_BSW_003_15 : BiasWeeklyEngine
 
     public PTS_ES_BSW_003_15()
     {
-        // Confine di sessione del run: giorno di calendario europeo, come
-        // (timestamp - 1 min - session_start_hour).normalize() del motore Python.
-        Session = ZonedWindow.ResearchSession();
 
         // Il BIASW non ha finestra operativa: giorno e ora di ingresso sono gia' la regola di
         // entrata. Dichiarata piena nell'orologio della ricerca per l'invariante degli orari.

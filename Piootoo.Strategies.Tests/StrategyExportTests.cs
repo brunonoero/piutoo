@@ -1,4 +1,4 @@
-using Piootoo.Core.Services;
+﻿using Piootoo.Core.Services;
 using Piootoo.Shared.Configuration;
 using Piootoo.Shared.Models.Strategies;
 
@@ -53,7 +53,7 @@ public sealed class StrategyExportTests
         var finestra = Assert.IsType<ZonedWindow>(export.Parameters["TradingWindow"].Value);
         Assert.Equal(300, finestra.StartHhmm);
         Assert.Equal(200, finestra.EndHhmm);
-        Assert.Equal(ZonedWindow.ResearchTimeZone, finestra.TimeZoneId);
+        Assert.Equal(InstrumentClock.Research, finestra.Clock);
     }
 
     [Fact]

@@ -86,12 +86,6 @@ public sealed class PTS_GC_TFU_001_30 : TfUnmirroredEngine
 
     public PTS_GC_TFU_001_30()
     {
-        // Sessione della ricerca (00:00 CET) scritta in ora di borsa GC.
-        // Confine di sessione del run: giorno di calendario europeo, come
-        // (timestamp - 1 min - session_start_hour).normalize() del motore Python.
-        // NON e' la sessione del broker: le due divergono nelle settimane di
-        // disallineamento fra ora legale americana ed europea.
-        Session = ZonedWindow.ResearchSession();
         Contracts = 1;
 
         // Finestra operativa: start_hour/end_hour del run, verbatim nell'orologio
