@@ -12,6 +12,7 @@ using Piootoo.Shared.Models;
 using Piootoo.Shared.Models.Backtesting;
 using Piootoo.Shared.Models.Workspaces;
 using Piootoo.Shared.Models.Trading;
+using Piootoo.Strategies.Easy.Engines;
 using Piootoo.Shared.Utilities;
 using Piootoo.Strategies.Easy.Engines;
 
@@ -644,6 +645,11 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                         $"Impossibile creare la strategia '{strategyDef.Id}' ({strategyDef.Name}) del masterfilter.");
                 }
 
+                // La convenzione di lettura della finestra e' del RUN, non della classe: il
+                // motore la riceve da qui e le PTS_* non la dichiarano.
+                if (strategy is EasyEngineBase easyEngine)
+                    easyEngine.WindowsOnBarClose = request.ResearchWindowOnBarClose;
+
                 Console.WriteLine($"[Backtesting] Strategia creata con successo: {strategy.Name} (Type: {strategy.GetType().Name}), Symbol: {strategy.Symbol}, Timeframe: {strategy.TimeframeMinutes}");
                 createdStrategies.Add((strategyDef, strategy));
             }
@@ -808,6 +814,10 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                 ["weekEndFlatFromUtc"] = weekEndFlat.FromUtcHhmm.ToString("0000"),
                 ["rejectWrongSideLevels"] = request.RejectWrongSideLevels ? "true" : "false",
                 ["trailingMinStepFraction"] = request.TrailingMinStepFraction.ToString(CultureInfo.InvariantCulture),
+                // Quale etichetta della barra legge la finestra operativa. Sposta di una
+                // barra quali segnali nascono, quindi due run che non concordano qui non
+                // sono confrontabili nemmeno a parita' di feed.
+                ["researchWindowOnBarClose"] = request.ResearchWindowOnBarClose ? "true" : "false",
                 // Le convenzioni di riempimento cambiano il risultato quanto gli orari di tenuta e
                 // non lasciano traccia nei trade: vanno dichiarate qui e nel summary, altrimenti due
                 // run non confrontabili sono indistinguibili a posteriori.
@@ -1269,7 +1279,6 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                         if (string.IsNullOrWhiteSpace(signal.Symbol)) signal.Symbol = strategySymbol;
                         if (string.IsNullOrWhiteSpace(signal.StrategyCode)) signal.StrategyCode = strategyCode;
                         if (string.IsNullOrWhiteSpace(signal.StrategyName)) signal.StrategyName = strategyCode;
-                        ScaleSignalMaxBarsInPosition(signal, strategy.TimeframeMinutes, minTimeframeMinutes);
                         // Prima di essere accodato e prima di essere persistito: signals.json deve
                         // riportare la deadline che verra' davvero eseguita, non quella che la
                         // strategia avrebbe voluto se il piano gliela avesse concessa.
@@ -1286,7 +1295,6 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                                 if (string.IsNullOrWhiteSpace(companion.Symbol)) companion.Symbol = strategySymbol;
                                 if (string.IsNullOrWhiteSpace(companion.StrategyCode)) companion.StrategyCode = strategyCode;
                                 if (string.IsNullOrWhiteSpace(companion.StrategyName)) companion.StrategyName = strategyCode;
-                                ScaleSignalMaxBarsInPosition(companion, strategy.TimeframeMinutes, minTimeframeMinutes);
                                 ApplyAccountHolding(companion, holding);
                                 signals.Add(companion);
                                 emittedTradeSignals.Add(CloneTradeSignal(companion));
@@ -1550,7 +1558,8 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                         : "per ora UTC",
                     SpreadSource = spreadSource,
                     ClockTimeframeMinutes = minTimeframeMinutes,
-                    ClockFinerThanStrategies = clockIsFiner
+                    ClockFinerThanStrategies = clockIsFiner,
+                    ResearchWindowOnBarClose = request.ResearchWindowOnBarClose
                 },
                 CatalogStrategies = catalogStrategies.Count,
                 MasterfilterStrategies = masterfilterStrategies,
@@ -2353,27 +2362,6 @@ public class PiootooBacktestingService : IPiootooBacktestingService
 
         var maxAgeDays = timeframeMinutes >= 10080 ? 10 : 4;
         return (currentDate.Date - lastCandleTime.Date).TotalDays > maxAgeDays;
-    }
-
-    private static void ScaleSignalMaxBarsInPosition(TradeSignal signal, int strategyTimeframeMinutes, int minTimeframeMinutes)
-    {
-        if (!signal.MaxBarsInPosition.HasValue || signal.MaxBarsInPosition.Value <= 0)
-        {
-            return;
-        }
-
-        if (strategyTimeframeMinutes <= minTimeframeMinutes)
-        {
-            return;
-        }
-
-        if (strategyTimeframeMinutes % minTimeframeMinutes != 0)
-        {
-            return;
-        }
-
-        var scale = strategyTimeframeMinutes / minTimeframeMinutes;
-        signal.MaxBarsInPosition = signal.MaxBarsInPosition.Value * scale;
     }
 
     /// <summary>

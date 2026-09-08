@@ -1,6 +1,7 @@
 using Piootoo.Core.Services.Interfaces;
 using Piootoo.Shared.Configuration;
 using Piootoo.Shared.Enums;
+using Piootoo.Shared.MarketData;
 using Piootoo.Shared.Models;
 using Piootoo.Shared.Models.Backtesting;
 using Piootoo.Shared.Models.Trading;
@@ -23,6 +24,13 @@ public class PiootooTradingService : IPiootooTradingService
     private readonly Dictionary<string, PendingOrder> _pendingOrders = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, (DateTime Day, int Count)> _entriesByDay = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, int> _entriesBySession = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Una griglia per simbolo, costruita al primo uso. <see cref="SessionGrid"/> non è
+    /// thread-safe, ma questo servizio non lo è già: un <c>PiootooTradingService</c> per job.
+    /// La cache serve perché il conteggio delle barre passa di qui a ogni posizione e a ogni tick.
+    /// </summary>
+    private readonly Dictionary<string, SessionGrid> _sessionGrids = new(StringComparer.OrdinalIgnoreCase);
 
     private sealed class PendingOrder
     {
@@ -854,7 +862,8 @@ public class PiootooTradingService : IPiootooTradingService
             signal.Reason,
             signal.TimeExitOnlyIfProfitBelowMoneyPerContract,
             signal.ProfitStallAfterUtc,
-            signal.TimeExitFromAccountPolicy);
+            signal.TimeExitFromAccountPolicy,
+            signal.TimeframeMinutes);
 
         RecordEntry(positionKey, currentTime, signal);
     }
@@ -1229,7 +1238,7 @@ public class PiootooTradingService : IPiootooTradingService
         WrongSideLevelsRejected = 0;
     }
 
-    private void OpenPosition(string positionKey, string strategyName, string strategyCode, string symbol, SignalType direction, decimal entryPrice, DateTime entryTime, decimal quantity, decimal? stopLoss, decimal? takeProfit, decimal? breakEven = null, decimal? trailingStop = null, int? maxBarsInPosition = null, DateTime? closeAtUtc = null, string? reason = null, decimal? timeExitOnlyIfProfitBelow = null, DateTime? profitStallAfterUtc = null, bool timeExitFromAccountPolicy = false)
+    private void OpenPosition(string positionKey, string strategyName, string strategyCode, string symbol, SignalType direction, decimal entryPrice, DateTime entryTime, decimal quantity, decimal? stopLoss, decimal? takeProfit, decimal? breakEven = null, decimal? trailingStop = null, int? maxBarsInPosition = null, DateTime? closeAtUtc = null, string? reason = null, decimal? timeExitOnlyIfProfitBelow = null, DateTime? profitStallAfterUtc = null, bool timeExitFromAccountPolicy = false, int? timeframeMinutes = null)
     {
         if (quantity <= 0m)
             throw new ArgumentOutOfRangeException(nameof(quantity), "La quantità di ingresso deve essere positiva.");
@@ -1251,8 +1260,10 @@ public class PiootooTradingService : IPiootooTradingService
             MaxBarsInPosition = maxBarsInPosition,
             CloseAtUtc = closeAtUtc,
             TimeExitFromAccountPolicy = timeExitFromAccountPolicy,
+            TimeframeMinutes = timeframeMinutes,
             BarsInPosition = 0,
-            LastProcessedBarTime = entryTime,
+            // La barra di ingresso non conta: il bucket che la contiene nasce già contato.
+            LastCountedBucketUtc = BucketStartOf(symbol, entryTime, timeframeMinutes),
             BreakEvenActivated = false,
             TimeExitOnlyIfProfitBelowMoneyPerContract = timeExitOnlyIfProfitBelow,
             ProfitStallAfterUtc = profitStallAfterUtc
@@ -1512,22 +1523,42 @@ public class PiootooTradingService : IPiootooTradingService
 
             var currentBar = GetCurrentBar(position, currentBars);
 
-            // Si contano BARRE, non tick dell'orologio. Il loop di backtest gira al timeframe
-            // minimo del portafoglio e batte anche dove il feed non ha nulla — la pausa notturna
-            // CME, un festivo, il fine settimana: contare quei tick faceva morire per MaxBars una
-            // posizione molto prima delle N barre dichiarate, e la distorsione cresceva con la
-            // lunghezza del buco. E' la stessa regola che CLAUDE.md impone ai cBot ("l'orologio a
-            // barre si conta sui bucket, non su Series.Count"). La conversione fra barre della
-            // strategia e barre dell'orologio resta di ScaleSignalMaxBarsInPosition.
-            if (currentBar is null ||
-                position.EntryTime == currentTime ||
-                position.LastProcessedBarTime == currentTime)
+            // Si contano le BARRE DELLA STRATEGIA sul calendario, non i tick dell'orologio e non le
+            // barre che il feed ha consegnato.
+            //
+            // Due cose in una riga. Primo: l'orologio del loop gira al timeframe MINIMO del
+            // portafoglio, quindi un bucket della strategia contiene piu' tick e va contato una
+            // volta sola — e' il lavoro che faceva ScaleSignalMaxBarsInPosition moltiplicando N
+            // *prima* di sapere quante barre sarebbero esistite davvero, ed e' il motivo per cui
+            // quel metodo non esiste piu': qui il numero e' gia' in barre della strategia, la
+            // stessa unita' in cui l'intent lo manda ai cBot. Secondo: il contatore avanza solo
+            // dove il calendario dichiara una sessione. Un CFD quota il sabato e la domenica dove
+            // il future non ha grafico — 972 barre di sabato su BTC/60m, 53 domeniche su FDAX —
+            // e contarle fa morire per MaxBars una posizione multiday prima delle N barre
+            // dichiarate. E' la logica future del fine settimana: fra la chiusura del venerdi' e la
+            // riapertura non passa nessuna barra, e la posizione arriva al lunedi' con le stesse
+            // barre residue. Stessa regola che CLAUDE.md impone ai cBot ("l'orologio a barre si
+            // conta sui bucket, non su Series.Count").
+            if (currentBar is null)
+            {
+                continue;
+            }
+
+            var bucketStart = BucketStartOf(position.Symbol, currentBar.DateTime, position.TimeframeMinutes);
+            if (position.LastCountedBucketUtc is { } lastCounted && bucketStart <= lastCounted)
+            {
+                continue;
+            }
+
+            position.LastCountedBucketUtc = bucketStart;
+
+            // Giorni non dichiarati (null) = non si inventano: si conta, come prima del calendario.
+            if (IsSessionDayOf(position.Symbol, bucketStart) == false)
             {
                 continue;
             }
 
             position.BarsInPosition++;
-            position.LastProcessedBarTime = currentTime;
 
             if (position.BarsInPosition < position.MaxBarsInPosition.Value)
             {
@@ -1748,6 +1779,50 @@ public class PiootooTradingService : IPiootooTradingService
         }
 
         return fallbackPrice > 0 ? fallbackPrice : null;
+    }
+
+    /// <summary>
+    /// La griglia del simbolo. Un simbolo che può avere una posizione ha per forza un calendario:
+    /// <c>InstrumentRegistry</c> unisce economia e calendario e rifiuta un contratto che non abbia
+    /// entrambi, e senza spec non si apre nulla. Quindi qui l'assenza è un errore esplicito, non un
+    /// ripiego silenzioso su una griglia inventata.
+    /// </summary>
+    private SessionGrid GridOf(string symbol)
+    {
+        var key = NormalizeSymbol(symbol);
+        if (!_sessionGrids.TryGetValue(key, out var cached))
+        {
+            cached = new SessionGrid(MarketCalendarRegistry.Current.Get(key));
+            _sessionGrids[key] = cached;
+        }
+
+        return cached;
+    }
+
+    /// <summary>
+    /// Inizio del bucket di <paramref name="timeframeMinutes"/> che contiene
+    /// <paramref name="instantUtc"/>, sulla griglia del simbolo. Senza timeframe dichiarato ricade
+    /// sull'istante stesso — ogni barra consegnata vale un bucket — che è la sola risposta onesta
+    /// quando non si sa su che griglia il segnale è nato.
+    /// </summary>
+    private DateTime BucketStartOf(string symbol, DateTime instantUtc, int? timeframeMinutes)
+    {
+        if (timeframeMinutes is not { } timeframe || !SessionGrid.DividesTheDay(timeframe))
+        {
+            return instantUtc;
+        }
+
+        return GridOf(symbol).BucketStartUtc(instantUtc, timeframe);
+    }
+
+    /// <summary>
+    /// Se il calendario dichiara una sessione nel giorno che contiene <paramref name="instantUtc"/>.
+    /// <c>null</c> = giorni non dichiarati per quel simbolo.
+    /// </summary>
+    private bool? IsSessionDayOf(string symbol, DateTime instantUtc)
+    {
+        var grid = GridOf(symbol);
+        return grid.IsSessionDay(grid.SessionDayOf(instantUtc));
     }
 
     private static OhlcvData? GetCurrentBar(OpenPosition position, Dictionary<string, OhlcvData> currentBars)

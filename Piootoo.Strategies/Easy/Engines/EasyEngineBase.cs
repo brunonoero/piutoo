@@ -331,6 +331,40 @@ public abstract class EasyEngineBase : StatelessEasyStrategyBase
     protected int Hhmm(DateTime barTime) => Clock.Hhmm(barTime);
 
     /// <summary>
+    /// La finestra operativa confronta l'etichetta di <b>chiusura</b> della barra invece di quella
+    /// di apertura. Default <c>false</c>: il comportamento di sempre.
+    ///
+    /// <para>Lo imposta chi esegue il run — <c>BacktestingRequest.ResearchWindowOnBarClose</c> — e
+    /// non la classe della strategia: è una convenzione di confronto del run, non un parametro
+    /// portato dalla ricerca. Vive qui perché la finestra si valuta qui.</para>
+    /// </summary>
+    public bool WindowsOnBarClose { get; set; }
+
+    /// <summary>
+    /// L'istante con cui la finestra operativa confronta le proprie soglie.
+    ///
+    /// <para><b>Perché esiste.</b> Il feed Piootoo etichetta la barra sull'<b>apertura</b>; il
+    /// motore di ricerca da cui le soglie vengono lavora su barre etichettate sulla
+    /// <b>chiusura</b>, e <c>filters.py</c> confronta <c>start_hour</c>/<c>end_hour</c> con
+    /// <i>quella</i>. Confrontarle con l'apertura sposta la finestra di una barra in avanti:
+    /// prendiamo la barra dopo la fine e perdiamo quella prima dell'inizio. Con
+    /// <see cref="WindowsOnBarClose"/> acceso il confronto avviene su <c>apertura + timeframe</c>,
+    /// che è la stessa barra letta con l'etichetta della ricerca.</para>
+    ///
+    /// <para><b>I minuti si sommano in UTC</b>, e l'<c>Hhmm</c> si prende dopo: sommarli sull'orario
+    /// locale sbaglierebbe nei due giorni all'anno del cambio d'ora, che è esattamente il posto in
+    /// cui l'errore non si vede.</para>
+    ///
+    /// <para>Riguarda la <b>sola</b> finestra operativa. Il confine di sessione compensa già
+    /// l'etichettatura per conto suo (<see cref="EasyLib"/>, <c>ClassifySessionBar</c>) e non passa
+    /// di qui; il filtro del giorno (<see cref="PythonWeekday"/>) ha lo stesso difetto ma non è
+    /// incluso, perché su una barra giornaliera sposterebbe <c>skip_day</c> di un giorno intero e va
+    /// misurato da solo.</para>
+    /// </summary>
+    protected DateTime WindowInstant(DateTime barTime) =>
+        WindowsOnBarClose ? barTime.AddMinutes(TimeframeMinutes) : barTime;
+
+    /// <summary>
     /// Valuta la <see cref="TradingWindow"/> dichiarata sull'orologio che essa dichiara.
     /// Restituisce <c>null</c> quando la strategia non la dichiara: in quel caso il motore ricade
     /// sul proprio percorso storico, che confronta i campi interi sull'orologio di sessione.
@@ -341,7 +375,8 @@ public abstract class EasyEngineBase : StatelessEasyStrategyBase
     /// </summary>
     protected bool? InDeclaredWindow(DateTime barTime) =>
         TradingWindow is { } window
-            ? EasyLib.TimeWindowInclusive(WindowClock, window.StartHhmm, window.EndHhmm, barTime)
+            ? EasyLib.TimeWindowInclusive(
+                WindowClock, window.StartHhmm, window.EndHhmm, WindowInstant(barTime))
             : null;
 
     /// <summary>
@@ -570,30 +605,5 @@ public abstract class EasyEngineBase : StatelessEasyStrategyBase
     {
         var barsPerDay = Math.Max(1, 1440 / Math.Max(1, TimeframeMinutes));
         return sessions * barsPerDay;
-    }
-
-    /// <summary>
-    /// Orario UTC della barra numero <paramref name="sessionBarIndex"/> (1-based) della sessione
-    /// che contiene <paramref name="barTime"/>.
-    ///
-    /// <para><b>Limite noto e voluto.</b> L'originale EasyLanguage conta <i>barre</i>, non
-    /// orologio, su un grafico TradeStation continuo. Il feed Piootoo ha buchi (la pausa CME, i
-    /// giorni corti), quindi indice di barra e orario divergono. Proiettare sull'orologio è
-    /// deterministico e non dipende da quante barre il feed ha effettivamente consegnato: è la
-    /// scelta più stabile delle due, ma va sapendo che su una sessione con barre mancanti la
-    /// chiusura cade sull'orario atteso, non sulla N-esima barra ricevuta.</para>
-    /// </summary>
-    protected DateTime SessionBarToUtc(DateTime barTime, int sessionBarIndex)
-    {
-        var offsetMinutes = (sessionBarIndex - 1) * TimeframeMinutes;
-        var sessionStart = Clock.SessionInstantUtc(barTime, SessionStartTime);
-
-        // Sessione che attraversa la mezzanotte: se la barra corrente è prima dell'orario di
-        // apertura, la sessione in corso è iniziata il giorno precedente.
-        if (SessionStartTime > SessionEndTime && Hhmm(barTime) < SessionStartTime)
-            sessionStart = Clock.SessionInstantUtc(barTime.AddDays(-1), SessionStartTime);
-
-        var target = sessionStart.AddMinutes(offsetMinutes);
-        return target <= barTime ? target.AddDays(1) : target;
     }
 }

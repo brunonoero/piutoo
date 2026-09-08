@@ -87,7 +87,7 @@ public abstract class TfEngineBase : EasyEngineBase
         return EasyLib.TimeWindowInclusive(Clock, 
             StartHour < 0 ? 0 : StartHour * 100,
             EndHour < 0 ? 2400 : EndHour * 100,
-            barTime);
+            WindowInstant(barTime));
     }
 
     private bool IsSkippedPythonWeekday(DateTime barTime) =>

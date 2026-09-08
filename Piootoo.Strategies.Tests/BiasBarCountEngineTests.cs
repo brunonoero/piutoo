@@ -20,7 +20,11 @@ public sealed class BiasBarCountEngineTests
         Assert.Equal(SignalType.Buy, signal.Type);
         Assert.Equal(TradeOrderType.Market, signal.OrderType);
         Assert.Equal(mondayStart.AddHours(1), signal.ValidFromUtc);
-        Assert.Equal(new DateTime(2024, 1, 8, 22, 0, 0, DateTimeKind.Utc), signal.CloseAtUtc);
+        // L'uscita a indice di barra e' un conteggio di barre vere, non una deadline sull'orologio:
+        // ingresso alla barra 2 (ArmBarLong), uscita dichiarata alla 4, quindi la posizione muore
+        // sulla 5 e vive tre barre.
+        Assert.Equal(3, signal.MaxBarsInPosition);
+        Assert.Null(signal.CloseAtUtc);
 
         var blocked = new TestBias(BiasEntryType.MarketOnArmBar, notEntryDayLong: 0);
         Assert.Equal(SignalType.Hold, blocked.GenerateSignal(BarsThrough(bars, mondayStart), mondayStart).Type);
@@ -54,7 +58,33 @@ public sealed class BiasBarCountEngineTests
         Assert.Equal(orderType, signal.OrderType);
         Assert.Equal(expectedLevel, signal.Price);
         Assert.Equal(trigger.AddHours(1), signal.ValidFromUtc);
-        Assert.Equal(sessionStart.AddHours(3), signal.CloseAtUtc);
+        // Ingresso alla barra 3 — la successiva al trigger — e uscita dichiarata alla 4: due barre.
+        Assert.Equal(2, signal.MaxBarsInPosition);
+        Assert.Null(signal.CloseAtUtc);
+    }
+
+    /// <summary>
+    /// Indice di uscita gia' passato: la posizione muore nella sessione seguente, e il conteggio
+    /// attraversa il confine aggiungendo una sessione piena di barre. E' il caso normale, non
+    /// l'eccezione: <c>PTS_BTC_BIA_001_60</c> apre lo short fra la barra 10 e la 20 e lo chiude
+    /// alla 7.
+    /// </summary>
+    [Fact]
+    public void ExitBarAlreadyPassed_CountsThroughToTheNextSession()
+    {
+        var bars = BuildBars(new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc), 9 * 24);
+        var sessionStart = new DateTime(2024, 1, 8, 19, 0, 0, DateTimeKind.Utc);
+        var strategy = new TestBias(BiasEntryType.BreakoutStop, exitBarLong: 1);
+
+        strategy.GenerateSignal(BarsThrough(bars, sessionStart), sessionStart);
+
+        var trigger = sessionStart.AddHours(1);
+        var signal = strategy.GenerateSignal(BarsThrough(bars, trigger), trigger);
+
+        // Ingresso alla barra 3, uscita dichiarata alla 1: la barra che uccide la posizione e' la 2
+        // della sessione dopo, cioe' ventitre barre piu' avanti su un timeframe da 60 minuti.
+        Assert.Equal(SignalType.Buy, signal.Type);
+        Assert.Equal(23, signal.MaxBarsInPosition);
     }
 
     [Fact]
@@ -114,11 +144,11 @@ public sealed class BiasBarCountEngineTests
 
     private sealed class TestBias : BiasBarCountEngine
     {
-        public TestBias(BiasEntryType entryType, int notEntryDayLong = -1)
+        public TestBias(BiasEntryType entryType, int notEntryDayLong = -1, int exitBarLong = 4)
         {
             ArmBarLong = 2;
             ArmBarShort = 99;
-            ExitBarLong = 4;
+            ExitBarLong = exitBarLong;
             EndLong = 4;
             EntryType = entryType;
             PatternLongYes = 152;

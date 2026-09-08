@@ -112,7 +112,7 @@ public abstract class RbbMirroredEngine : EasyEngineBase
         return EasyLib.TimeWindowInclusive(Clock, 
             StartTrade < 0 ? 0 : StartTrade,
             EndTrade < 0 ? 2400 : EndTrade,
-            barTime);
+            WindowInstant(barTime));
     }
 
     private TradeSignal WithPythonSettings(TradeSignal signal)
@@ -271,7 +271,7 @@ public abstract class RbbUnmirroredEngine : EasyEngineBase
         return EasyLib.TimeWindowInclusive(Clock, 
             StartTrade < 0 ? 0 : StartTrade,
             EndTrade < 0 ? 2400 : EndTrade,
-            barTime);
+            WindowInstant(barTime));
     }
 
     private TradeSignal WithPythonSettings(TradeSignal signal)

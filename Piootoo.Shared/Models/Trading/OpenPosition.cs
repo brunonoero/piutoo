@@ -68,15 +68,30 @@ public class OpenPosition
     public bool TimeExitFromAccountPolicy { get; set; }
 
     /// <summary>
-    /// Barre trascorse dalla barra di ingresso.
+    /// Timeframe in minuti della strategia che ha emesso il segnale. È l'unità in cui
+    /// <see cref="MaxBarsInPosition"/> è espresso, quindi l'unità in cui
+    /// <see cref="BarsInPosition"/> deve contare: l'orologio del backtest gira al timeframe
+    /// <i>minimo</i> del portafoglio e non è quello della strategia. Null = sconosciuto, e il
+    /// conteggio ricade sulle barre consegnate.
+    /// </summary>
+    public int? TimeframeMinutes { get; set; }
+
+    /// <summary>
+    /// Barre della strategia trascorse dalla barra di ingresso. Conta i <b>bucket del calendario</b>
+    /// in cui il simbolo ha davvero stampato una barra e in cui il calendario dichiara una
+    /// sessione: vedi <see cref="LastCountedBucketUtc"/>.
     /// </summary>
     public int BarsInPosition { get; set; }
 
     /// <summary>
-    /// Ultima barra processata per il conteggio temporale.
+    /// Inizio dell'ultimo bucket già contato in <see cref="BarsInPosition"/>, sulla griglia di
+    /// <see cref="TimeframeMinutes"/>. È il campo che rende il conteggio idempotente rispetto ai
+    /// tick dell'orologio: un bucket della strategia contiene più barre dell'orologio e va contato
+    /// una volta sola.
     /// </summary>
-    public DateTime? LastProcessedBarTime { get; set; }
-    
+    public DateTime? LastCountedBucketUtc { get; set; }
+
+
     /// <summary>
     /// Indica se il break even è stato attivato (stop loss spostato a entry price)
     /// </summary>

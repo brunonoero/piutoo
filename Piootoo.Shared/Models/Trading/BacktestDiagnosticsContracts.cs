@@ -501,6 +501,19 @@ public sealed class BacktestFillConventions
     /// <summary>Se gli ingressi su un livello gia' scavalcato sono stati scartati.</summary>
     public bool RejectWrongSideLevels { get; init; }
 
+    /// <summary>
+    /// Se la finestra operativa ha confrontato le proprie soglie con l'etichetta di <b>chiusura</b>
+    /// della barra invece che con quella di apertura.
+    ///
+    /// <para>Il feed etichetta sull'apertura, il motore di ricerca da cui le soglie
+    /// (<c>start_hour</c>/<c>end_hour</c>) vengono lavora su etichette di chiusura: confrontarle con
+    /// l'apertura sposta la finestra di una barra in avanti. A <c>false</c> — il default — il run ha
+    /// la convenzione storica. Sta qui perche' cambia <i>quali segnali nascono</i>, quindi due
+    /// cartelle che non concordano su questo campo non sono confrontabili nemmeno sullo stesso
+    /// feed e nello stesso periodo.</para>
+    /// </summary>
+    public bool ResearchWindowOnBarClose { get; init; }
+
     /// <summary>Simboli per cui il run ha applicato uno slippage sul riempimento degli stop protettivi.</summary>
     public IReadOnlyList<string> StopFillSlippageSymbols { get; init; } = [];
 

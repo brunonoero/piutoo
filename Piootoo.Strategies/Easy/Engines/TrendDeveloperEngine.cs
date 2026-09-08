@@ -302,11 +302,11 @@ public abstract class TrendDeveloperEngine : EasyEngineBase
     private bool OutsidePause(DateTime barTime)
     {
         if (PauseStart < 0 || PauseEnd < 0) return true;
-        var t = Hhmm(barTime);
+        var t = Hhmm(WindowInstant(barTime));
         return t < PauseStart || t > PauseEnd;
     }
 
     private bool InWindow(DateTime barTime) => InclusiveWindowEnd
-        ? EasyLib.TimeWindowInclusive(Clock, StartTrade, EndTrade, barTime)
-        : EasyLib.TimeWindow(Clock, StartTrade, EndTrade, barTime);
+        ? EasyLib.TimeWindowInclusive(Clock, StartTrade, EndTrade, WindowInstant(barTime))
+        : EasyLib.TimeWindow(Clock, StartTrade, EndTrade, WindowInstant(barTime));
 }

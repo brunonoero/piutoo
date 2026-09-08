@@ -120,7 +120,7 @@ public abstract class MovingAverageCrossoverEngine : EasyEngineBase
 
         var bar = data[^1];
         var barTime = bar.DateTime;
-        if (UseTradingWindow && !EasyLib.TimeWindow(Clock, StartTradeTime, EndTradeTime, barTime))
+        if (UseTradingWindow && !EasyLib.TimeWindow(Clock, StartTradeTime, EndTradeTime, WindowInstant(barTime)))
             return Hold(bar.Close, barTime);
 
         if (MaxEntriesPerDay > 0 && EntriesTodayCount >= MaxEntriesPerDay)

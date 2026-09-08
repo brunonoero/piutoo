@@ -50,7 +50,7 @@ public enum BiasEntryType
 /// veri ordini <c>next bar ... stop/limit</c> valutati dall'engine, invece di un confronto
 /// <c>close &gt;= highest(high,N)</c> sulla barra corrente — che era vero quasi solo quando il
 /// close coincideva col massimo, e riduceva drasticamente il numero di ingressi. Le uscite a
-/// indice di barra sono dichiarate come <c>CloseAtUtc</c> sul segnale d'ingresso invece che
+/// indice di barra sono dichiarate come <c>MaxBarsInPosition</c> sul segnale d'ingresso invece che
 /// emesse a runtime, così sopravvivono anche in <c>ExternalBroker</c>, dove il server emette
 /// solo intent di ingresso. E l'ingresso non è più bloccato quando esiste una posizione opposta:
 /// l'originale in quel caso inverte, e l'engine Piootoo sa farlo.</para>
@@ -220,7 +220,7 @@ public abstract class BiasBarCountEngine : EasyEngineBase
                     ? EntryStopNextBar(side, level, data, barTime, reason)
                     : EntryLimitNextBar(side, level, data, barTime, reason);
 
-                entries.Add(WithExit(signal, barTime, ExitBarLong));
+                entries.Add(WithExit(signal, nextBarTime, ExitBarLong));
             }
 
             if (windowShort && _okShort)
@@ -234,7 +234,7 @@ public abstract class BiasBarCountEngine : EasyEngineBase
                     ? EntryStopNextBar(side, level, data, barTime, reason)
                     : EntryLimitNextBar(side, level, data, barTime, reason);
 
-                entries.Add(WithExit(signal, barTime, ExitBarShort));
+                entries.Add(WithExit(signal, nextBarTime, ExitBarShort));
             }
         }
 
@@ -269,17 +269,48 @@ public abstract class BiasBarCountEngine : EasyEngineBase
     }
 
     /// <summary>
-    /// Applica l'uscita a indice di barra alla specifica dell'ingresso.
+    /// Applica l'uscita a indice di barra alla specifica dell'ingresso, come <b>conteggio di barre
+    /// vere</b>.
+    ///
+    /// <para><b>Perché non è più una deadline sull'orologio.</b> Fino al 08/09/2026 l'indice veniva
+    /// proiettato sull'orologio (<c>SessionBarToUtc</c>) e diventava un <c>CloseAtUtc</c>. La
+    /// proiezione è deterministica ma risponde alla domanda sbagliata: l'originale conta
+    /// <i>barre</i> su un grafico TradeStation continuo, e su una sessione con barre mancanti — la
+    /// pausa CME, un giorno corto, un invio perso — la chiusura cadeva sull'orario atteso invece
+    /// che sulla N-esima barra ricevuta. Il numero di barre è ora quello che l'engine conta
+    /// davvero, sulle barre che il calendario dichiara: la stessa unità in cui l'intent lo manda ai
+    /// cBot, e la stessa che il backtest esegue.</para>
+    ///
+    /// <para><b>L'aritmetica.</b> La barra che uccide la posizione è quella di indice
+    /// <c>BarCountStartsAt + exitBarIndex</c> — è dove cadeva la vecchia deadline, cioè la chiusura
+    /// della barra <c>exitBarIndex</c> — e si conta a partire dalla barra di ingresso. Quando
+    /// l'indice di uscita è già passato la posizione muore nella sessione seguente, ed è il caso
+    /// normale e non l'eccezione: <c>PTS_BTC_BIA_001_60</c> apre lo short fra la barra 10 e la 20 e
+    /// lo chiude alla 7. Lì si aggiunge una sessione piena di barre.</para>
     /// </summary>
-    protected TradeSignal WithExit(TradeSignal signal, DateTime barTime, int exitBarIndex)
+    /// <param name="entryBarTime">Apertura della barra su cui l'ingresso avviene, cioè la barra
+    /// successiva a quella di segnale.</param>
+    protected TradeSignal WithExit(TradeSignal signal, DateTime entryBarTime, int exitBarIndex)
     {
-        if (exitBarIndex > 0)
-        {
-            // BuildSessionOhlc conta la prima candela chiusa dopo SessionStartTime come barra 1
-            // (18:00–19:00 ha timestamp 19:00). Allineare la deadline allo stesso riferimento
-            // evita un'uscita una barra prima del confronto Python bar_num == lx/sx_bar.
-            signal.CloseAtUtc = SessionBarToUtc(barTime, exitBarIndex).AddMinutes(TimeframeMinutes);
-        }
+        if (exitBarIndex <= 0)
+            return signal;
+
+        // Indice della barra di ingresso: la successiva a quella corrente, salvo che apra una
+        // sessione nuova — allora il conteggio è già ripartito e l'ingresso è la prima barra.
+        var entryBarIndex = Hhmm(entryBarTime) == SessionStartTime
+            ? BarCountStartsAt
+            : _mycount + 1;
+
+        var bars = BarCountStartsAt + exitBarIndex - entryBarIndex;
+        if (bars <= 0)
+            bars += SessionsToCandles(1);
+
+        // Un MaxBars già dichiarato dalla strategia resta il limite più stretto dei due: l'uscita a
+        // indice di barra è una deadline, non un permesso di restare più a lungo.
+        signal.MaxBarsInPosition = signal.MaxBarsInPosition is { } declared && declared > 0
+            ? Math.Min(declared, bars)
+            : bars;
+
         return signal;
     }
 

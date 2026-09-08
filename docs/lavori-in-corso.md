@@ -1,12 +1,12 @@
 ﻿# Lavori in corso
 
-Stato al **2026-09-07**. Questo file è volutamente deperibile: quando una voce è chiusa si
+Stato al **2026-09-08**. Questo file è volutamente deperibile: quando una voce è chiusa si
 cancella da qui, e la motivazione della scelta resta in [`decisioni.md`](decisioni.md). Se una
 sezione qui contraddice il codice, ha ragione il codice.
 
 ---
 
-# ⇦ RIPRENDERE DA QUI: refactor del layer barre, passo 5
+# ⇦ RIPRENDERE DA QUI: misurare la finestra operativa
 
 Piano completo e stato passo per passo in
 [`domini/layer-barre-e-calendario.md`](domini/layer-barre-e-calendario.md) §7. Il metodo è sempre
@@ -16,39 +16,64 @@ lo stesso e va tenuto: **si misura prima**, si cambia, si rimisura sul paniere c
 
 Chiusi il 07/09/2026: **passo 0** (il metro), **1** (calendario come dato), **2** (il layer),
 **3** (il backtest ci passa), **4a** (il calendario governa la sessione), la parte *raccoglitore*
-del **6**, e la **prima voce del 5** (la deadline di fine sessione). Il progetto è alla **7.0.0**.
+del **6**, e la prima voce del **5** (la deadline di fine sessione).
 
-Suite: 1.107 test, **42 rossi preesistenti** (erano 43 a inizio sessione — uno si è risolto da
-solo togliendo una finta sessione di borsa dai test dei motori). Nessun rosso nuovo introdotto.
+Chiuso l'08/09/2026: **il resto del passo 5**.
 
-## Le due voci che restano del passo 5
+- **5b — `MaxBarsInPosition` conta le barre della strategia sul calendario.**
+  `PiootooTradingService` bucketizza la barra sulla griglia della strategia e conta una volta per
+  bucket, saltando i giorni in cui `IsSessionDay` è falso — le 972 barre di sabato di BTC/60m, le 53
+  domeniche di FDAX. `ScaleSignalMaxBarsInPosition` è sparito: N era già in barre della strategia,
+  la stessa unità in cui l'intent lo manda ai cBot, e il backtest lo convertiva in tick mentre il
+  live no. Riguarda 62 strategie su 124.
+- **5c — `SessionBarToUtc` è un conteggio di barre vere.** `BiasBarCountEngine.WithExit` non proietta
+  più sull'orologio: calcola `BarCountStartsAt + exitBar − indiceBarraIngresso` e, quando l'indice di
+  uscita è già passato, aggiunge una sessione piena. Il caso "già passato" è la norma:
+  `PTS_BTC_BIA_001_60` apre lo short fra la barra 10 e la 20 e lo chiude alla 7.
+  `SessionBarToUtc` è stato rimosso da `EasyEngineBase`.
+- **`MaxDaysInTrade` / `MaxDaysFlatTime` sono codice morto.** Il piano li segnalava come aritmetica a
+  giorni di calendario della stessa famiglia: zero `PTS_*` su 124 li valorizzano (229 usano
+  `MaxBars`) e nessun percorso li scrive da masterfilter o da parametri. Da cancellare nel 4b, non
+  da correggere.
 
-Sono quelle che realizzano la **logica future sul fine settimana**: il conteggio delle barre deve
-seguire il calendario, non il feed.
+Suite: **1.114 test, 40 rossi preesistenti** (erano 43; tre di `BiasBarCountEngineTests` sono
+tornati verdi perché asserivano proprio il `CloseAtUtc` a indice di barra). Nessun rosso nuovo.
 
-### 5b — `MaxBarsInPosition` conta le barre del calendario
+## La misura che manca — e il run da fare
 
-Oggi `PiootooTradingService` incrementa `BarsInPosition` quando il feed ha consegnato una barra per
-quel simbolo. Conseguenza diretta e misurata al passo 3: le **972 barre di sabato su BTC/60m** e le
-**53 domeniche su FDAX** fanno avanzare il contatore, chiudendo posizioni in anticipo rispetto al
-future. Il contatore deve avanzare solo dove `BarContext.IsSessionDay` non è falso.
+Il passo 5 **cambia i risultati di proposito**, e il piano chiede di misurarlo e dichiararlo. Il run
+`all-in` su `FTMOPLATFORM` prima/dopo **non è ancora stato fatto**.
 
-Nella stessa passata va eliminato **`ScaleSignalMaxBarsInPosition`**
-(`PiootooBacktestingService`): moltiplica N per il rapporto fra timeframe della strategia e
-orologio del loop *prima* di sapere quante barre esisteranno davvero. Con il conteggio sul
-calendario non serve più — il numero è già in barre della strategia.
+Accanto ce n'è un secondo, indipendente, e l'interruttore è già pronto.
 
-Riguarda **62 strategie su 124** (quelle con `MaxBars > 0`), quindi è la voce che sposterà di più.
+### `researchWindowOnBarClose` — la finestra operativa legge l'etichetta sbagliata
 
-### 5c — `SessionBarToUtc` diventa un conteggio di barre vere
+Il feed Piootoo etichetta ogni barra sull'**apertura**; il motore di ricerca da cui `start_hour` e
+`end_hour` vengono lavora su barre etichettate sulla **chiusura**, e `filters.py` confronta la
+finestra con *quella*. Confrontarla con l'apertura sposta la finestra di **una barra in avanti**: si
+prende la barra dopo la fine e si perde quella prima dell'inizio. Riguarda **83 strategie su 124**.
 
-`EasyEngineBase.SessionBarToUtc` proietta la N-esima barra di sessione sull'orologio, e il suo
-stesso commento dichiara il limite: *«su una sessione con barre mancanti la chiusura cade
-sull'orario atteso, non sulla N-esima barra ricevuta»*. Lo usa `BiasBarCountEngine`. Va sostituito
-con `BarContext.BarIndexInSession`.
+La prova indipendente è già nel dossier del porting: allineando gli `entry_time` del report ai nostri
+`entryTimeUtc` su NQ 15m il massimo di corrispondenze è a **−15 minuti**, 345 contro 78 a offset
+nullo — esattamente una barra.
 
-Da guardare nella stessa passata, perché è aritmetica a giorni di calendario della stessa famiglia:
-`MaxDaysInTrade` / `MaxDaysFlatTime` in `PriceChannelEngine` (`AddDays()` su giorni di calendario).
+`BacktestingRequest.ResearchWindowOnBarClose` (default `false`, nessun run esistente cambia) fa
+confrontare `apertura + timeframe`. Le soglie restano quelle di `parametri.csv`, verbatim. Il valore
+finisce nel log di avvio del job e in `backtest-summary.json` sotto `fillConventions`. Due run dello
+stesso periodo sullo stesso feed, un solo campo diverso.
+
+Fuori dall'interruttore, di proposito:
+
+- **il filtro del giorno** (`PythonWeekday`) ha lo stesso difetto, ma su una barra giornaliera
+  sposterebbe `skip_day` di un giorno intero: va misurato da solo;
+- **`BiasWeeklyEngine`**, che è una schedula esatta e non una finestra;
+- **l'inclusività degli estremi**, che è la voce aperta del 2026-08-02 e riguarda altro.
+
+Da rivedere quando la misura c'è: la voce *«Le etichette delle barre non coincidono — questione
+aperta»* di [`domini/porting-da-report-sweep.md`](domini/porting-da-report-sweep.md) e la voce
+2026-08-02 di [`decisioni.md`](decisioni.md) quantificano le conseguenze sul modello di sessione CME
+17:00–16:00, che dal 4a **non esiste più**: metà del problema è chiusa e quei numeri non descrivono
+più il codice.
 
 ## Le altre voci aperte del piano
 
@@ -87,10 +112,11 @@ Da guardare nella stessa passata, perché è aritmetica a giorni di calendario d
   (i mercati che aprono all'01:00 sono quelli del dossier) è già in
   `MarketCalendarConformanceTests.OnlyTheDossierMarketsOpenAtOneCet`. Da potare.
 
-## Niente di tutto questo è stato committato
+## Cosa è committato e cosa no
 
-Il lavoro è nel working tree. `git status` per vederlo; `docs/decisioni.md` ha una voce per ogni
-scelta, in ordine.
+Il lavoro del 07/09 è in `7ecaae4`. Quello dell'08/09 — il resto del passo 5 e l'interruttore della
+finestra — è ancora nel working tree: `git status` per vederlo. `docs/decisioni.md` ha una voce per
+ogni scelta, in ordine.
 
 ---
 
