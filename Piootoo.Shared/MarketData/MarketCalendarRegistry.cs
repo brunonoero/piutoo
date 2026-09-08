@@ -212,6 +212,7 @@ public static class MarketCalendarRegistry
             SessionStartHour = hour,
             SessionDays = ParseSessionDays(element, symbol, origin),
             Phases = ParsePhases(element, symbol, origin),
+            TradingWindows = ParseTradingWindows(element, symbol, origin),
             Holidays = ParseHolidays(element, symbol, origin),
             EarlyClose = ParseEarlyClose(element),
             Note = element.TryGetProperty("note", out var note) && note.ValueKind == JsonValueKind.String
@@ -294,6 +295,169 @@ public static class MarketCalendarRegistry
         }
 
         return parsed;
+    }
+
+    /// <summary>
+    /// Le finestre di negoziazione. Assenti restano assenti, come <c>sessionDays</c>: la maschera
+    /// non deve inventare quando un mercato è aperto.
+    /// </summary>
+    private static IReadOnlyList<TradingWindow> ParseTradingWindows(
+        JsonElement element, string symbol, string origin)
+    {
+        if (!element.TryGetProperty("tradingWindows", out var windows))
+            return [];
+
+        if (windows.ValueKind != JsonValueKind.Array)
+        {
+            throw new MarketCalendarException(
+                $"'tradingWindows' di '{symbol}' in '{origin}' non è un array.");
+        }
+
+        var parsed = new List<TradingWindow>();
+        foreach (var window in windows.EnumerateArray())
+        {
+            parsed.Add(new TradingWindow
+            {
+                Open = ParseEdge(window, "open", symbol, origin),
+                Close = ParseEdge(window, "close", symbol, origin),
+                OpensOn = ParseOpensOn(window, symbol, origin),
+                From = OptionalMonthDay(window, "from", symbol, origin),
+                To = OptionalMonthDay(window, "to", symbol, origin),
+                Source = window.TryGetProperty("source", out var source) &&
+                         source.ValueKind == JsonValueKind.String
+                    ? source.GetString()
+                    : null
+            });
+        }
+
+        if (parsed.Count == 0)
+        {
+            throw new MarketCalendarException(
+                $"'tradingWindows' di '{symbol}' in '{origin}' è un array vuoto. Uno strumento che " +
+                "non negozia mai non esiste: per dire 'non lo sappiamo' si omette il campo.");
+        }
+
+        RequireExactlyOneWindowPerDay(parsed, symbol, origin);
+        return parsed;
+    }
+
+    /// <summary>
+    /// Ogni giorno dell'anno deve essere coperto da <b>esattamente una</b> finestra. Due finestre
+    /// sullo stesso giorno rendono la risposta dipendente dall'ordine di lettura; zero finestre
+    /// significa "mercato chiuso tutto il giorno" <i>per silenzio</i>, che è il modo peggiore di
+    /// dirlo — un buco nella copertura spegnerebbe lo strumento senza che niente lo segnali.
+    /// </summary>
+    private static void RequireExactlyOneWindowPerDay(
+        IReadOnlyList<TradingWindow> windows, string symbol, string origin)
+    {
+        // Un anno bisestile: copre anche il 29 febbraio, che altrimenti resterebbe l'unico giorno
+        // non verificato e salterebbe fuori una volta ogni quattro anni.
+        for (var day = new DateOnly(2024, 1, 1); day.Year == 2024; day = day.AddDays(1))
+        {
+            var covering = windows.Count(window => CoversDay(window, day));
+            if (covering == 1)
+                continue;
+
+            throw new MarketCalendarException(
+                covering == 0
+                    ? $"Le finestre di '{symbol}' in '{origin}' non coprono il {day:MM-dd}: un " +
+                      "giorno scoperto vale 'sempre chiuso' senza dirlo. Usa 'from'/'to' che si " +
+                      "richiudono, oppure una sola finestra per tutto l'anno."
+                    : $"Il {day:MM-dd} è coperto da {covering} finestre di '{symbol}' in " +
+                      $"'{origin}'. I periodi devono essere disgiunti: sovrapposti, la risposta " +
+                      "dipenderebbe da quale si legge per prima.");
+        }
+    }
+
+    private static bool CoversDay(TradingWindow window, DateOnly day)
+    {
+        if (window.IsAllYear)
+            return true;
+
+        var current = day.Month * 100 + day.Day;
+        var from = window.From is null ? 101 : MonthDayOf(window.From);
+        var to = window.To is null ? 1231 : MonthDayOf(window.To);
+
+        return from <= to
+            ? current >= from && current <= to
+            : current >= from || current <= to;
+    }
+
+    private static int MonthDayOf(string monthDay)
+    {
+        var parts = monthDay.Split('-');
+        return int.Parse(parts[0]) * 100 + int.Parse(parts[1]);
+    }
+
+    private static WindowEdge ParseEdge(
+        JsonElement window, string property, string symbol, string origin)
+    {
+        if (!window.TryGetProperty(property, out var edge) || edge.ValueKind != JsonValueKind.Object)
+        {
+            throw new MarketCalendarException(
+                $"La finestra di '{symbol}' in '{origin}' non dichiara '{property}' come oggetto " +
+                "{ \"at\": \"HH:MM\", \"anchor\": \"local\"|\"utc\" }.");
+        }
+
+        return new WindowEdge(
+            ParseHhmm(RequiredString(edge, "at", symbol, origin), symbol, origin),
+            ParseAnchor(edge, "anchor", symbol, origin));
+    }
+
+    private static IReadOnlySet<DayOfWeek> ParseOpensOn(
+        JsonElement window, string symbol, string origin)
+    {
+        if (!window.TryGetProperty("opensOn", out var days) || days.ValueKind != JsonValueKind.Array)
+        {
+            throw new MarketCalendarException(
+                $"La finestra di '{symbol}' in '{origin}' non dichiara 'opensOn'. Sono i giorni, " +
+                "in ORA DI BORSA, in cui una giornata di negoziazione può aprirsi — non i " +
+                "'sessionDays', che sono nell'orologio della ricerca e rispondono a un'altra " +
+                "domanda: sul cotone la giornata che apre domenica sera a New York è la sessione " +
+                "di lunedì della ricerca.");
+        }
+
+        var parsed = new HashSet<DayOfWeek>();
+        foreach (var day in days.EnumerateArray())
+        {
+            var text = day.GetString();
+            if (text is null || !TryParseDay(text, out var value))
+            {
+                throw new MarketCalendarException(
+                    $"'{text}' non è un giorno valido in 'opensOn' di '{symbol}' ('{origin}'). " +
+                    "Attesi: Sun, Mon, Tue, Wed, Thu, Fri, Sat.");
+            }
+
+            parsed.Add(value);
+        }
+
+        if (parsed.Count == 0)
+        {
+            throw new MarketCalendarException(
+                $"'opensOn' di '{symbol}' in '{origin}' è vuoto: una finestra che non si apre mai " +
+                "non è una finestra.");
+        }
+
+        return parsed;
+    }
+
+    private static string? OptionalMonthDay(
+        JsonElement window, string property, string symbol, string origin)
+    {
+        if (!window.TryGetProperty(property, out var value) || value.ValueKind == JsonValueKind.Null)
+            return null;
+
+        var text = value.GetString();
+        if (text is null || text.Split('-') is not [var month, var day] ||
+            !int.TryParse(month, out var m) || !int.TryParse(day, out var d) ||
+            m is < 1 or > 12 || d is < 1 or > 31)
+        {
+            throw new MarketCalendarException(
+                $"'{text}' non è un '{property}' valido per '{symbol}' ('{origin}'): atteso " +
+                "'MM-dd'. È un giorno dell'anno, non una data: i periodi stagionali si ripetono.");
+        }
+
+        return text;
     }
 
     private static PhaseAnchor ParseAnchor(

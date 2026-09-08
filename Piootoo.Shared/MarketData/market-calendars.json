@@ -1,6 +1,5 @@
 {
-  "specVersion": "2026-09-07.1",
-
+  "specVersion": "2026-09-08.1",
   "_leggimi": [
     "Il calendario di mercato di ogni simbolo. E' un DATO, non codice: fino al 07/09/2026 la stessa",
     "conoscenza viveva in sette posti (la tabella C# di InstrumentRegistry, SESSION_START_HOUR in",
@@ -27,44 +26,930 @@
     "              dichiarati e vuoti: popolarli senza una fonte verificata introdurrebbe numeri",
     "              inventati, che e' l'errore che questo registro esiste per impedire."
   ],
-
   "symbols": {
-
-    "ES":   { "exchangeTz": "America/Chicago",  "researchTz": "Europe/Rome", "sessionStartHour": 0, "sessionDays": ["Sun","Mon","Tue","Wed","Thu","Fri"] },
-    "MES":  { "exchangeTz": "America/Chicago",  "researchTz": "Europe/Rome", "sessionStartHour": 0 },
-    "NQ":   { "exchangeTz": "America/Chicago",  "researchTz": "Europe/Rome", "sessionStartHour": 0, "sessionDays": ["Sun","Mon","Tue","Wed","Thu","Fri"] },
-    "MNQ":  { "exchangeTz": "America/Chicago",  "researchTz": "Europe/Rome", "sessionStartHour": 0 },
-    "YM":   { "exchangeTz": "America/Chicago",  "researchTz": "Europe/Rome", "sessionStartHour": 0, "sessionDays": ["Sun","Mon","Tue","Wed","Thu","Fri"] },
-    "MYM":  { "exchangeTz": "America/Chicago",  "researchTz": "Europe/Rome", "sessionStartHour": 0 },
-    "RTY":  { "exchangeTz": "America/Chicago",  "researchTz": "Europe/Rome", "sessionStartHour": 0 },
-    "M2K":  { "exchangeTz": "America/Chicago",  "researchTz": "Europe/Rome", "sessionStartHour": 0 },
-
-    "FDAX": { "exchangeTz": "Europe/Berlin",    "researchTz": "Europe/Rome", "sessionStartHour": 1, "sessionDays": ["Mon","Tue","Wed","Thu","Fri"] },
-    "FDXM": { "exchangeTz": "Europe/Berlin",    "researchTz": "Europe/Rome", "sessionStartHour": 0 },
-    "FDXS": { "exchangeTz": "Europe/Berlin",    "researchTz": "Europe/Rome", "sessionStartHour": 0 },
-    "FESX": { "exchangeTz": "Europe/Berlin",    "researchTz": "Europe/Rome", "sessionStartHour": 0 },
-    "FGBL": { "exchangeTz": "Europe/Berlin",    "researchTz": "Europe/Rome", "sessionStartHour": 0 },
-
-    "GC":   { "exchangeTz": "America/New_York", "researchTz": "Europe/Rome", "sessionStartHour": 0, "sessionDays": ["Sun","Mon","Tue","Wed","Thu","Fri"], "note": "COMEX: la sorgente scrive 1800->1700, sessione in ora di New York" },
-    "MGC":  { "exchangeTz": "America/New_York", "researchTz": "Europe/Rome", "sessionStartHour": 0 },
-    "SI":   { "exchangeTz": "America/New_York", "researchTz": "Europe/Rome", "sessionStartHour": 0 },
-    "HG":   { "exchangeTz": "America/New_York", "researchTz": "Europe/Rome", "sessionStartHour": 0 },
-    "PL":   { "exchangeTz": "America/New_York", "researchTz": "Europe/Rome", "sessionStartHour": 0, "sessionDays": ["Sun","Mon","Tue","Wed","Thu","Fri"] },
-    "PA":   { "exchangeTz": "America/New_York", "researchTz": "Europe/Rome", "sessionStartHour": 0 },
-
-    "CL":   { "exchangeTz": "America/New_York", "researchTz": "Europe/Rome", "sessionStartHour": 0, "sessionDays": ["Sun","Mon","Tue","Wed","Thu","Fri"], "note": "NYMEX: come COMEX, sorgenti 1800->1700" },
-    "MCL":  { "exchangeTz": "America/New_York", "researchTz": "Europe/Rome", "sessionStartHour": 0 },
-    "NG":   { "exchangeTz": "America/New_York", "researchTz": "Europe/Rome", "sessionStartHour": 0, "sessionDays": ["Sun","Mon","Tue","Wed","Thu","Fri"] },
-    "RB":   { "exchangeTz": "America/New_York", "researchTz": "Europe/Rome", "sessionStartHour": 0 },
-
-    "BTC":  { "exchangeTz": "America/Chicago",  "researchTz": "Europe/Rome", "sessionStartHour": 0, "sessionDays": ["Sun","Mon","Tue","Wed","Thu","Fri"], "note": "CME BTC: quota 24/7 sul CFD ma la ricerca ha le sessioni del future" },
-
-    "KC":   { "exchangeTz": "America/New_York", "researchTz": "Europe/Rome", "sessionStartHour": 1, "sessionDays": ["Mon","Tue","Wed","Thu","Fri"], "note": "softs ICE US: sorgenti 0400->1400, ora di New York" },
-    "CT":   { "exchangeTz": "America/New_York", "researchTz": "Europe/Rome", "sessionStartHour": 1, "sessionDays": ["Mon","Tue","Wed","Thu","Fri"] },
-    "SB":   { "exchangeTz": "America/New_York", "researchTz": "Europe/Rome", "sessionStartHour": 1, "sessionDays": ["Mon","Tue","Wed","Thu","Fri","Sat"], "note": "l'unico con il sabato: colonna sab a 14 nel dossier" },
-    "CC":   { "exchangeTz": "America/New_York", "researchTz": "Europe/Rome", "sessionStartHour": 1, "sessionDays": ["Mon","Tue","Wed","Thu","Fri"] },
-
-    "BP":   { "exchangeTz": "America/Chicago",  "researchTz": "Europe/Rome", "sessionStartHour": 0, "sessionDays": ["Sun","Mon","Tue","Wed","Thu","Fri"], "note": "valute CME: sorgenti 1700->1600, ora di Chicago" },
-    "EC":   { "exchangeTz": "America/Chicago",  "researchTz": "Europe/Rome", "sessionStartHour": 0 }
+    "ES": {
+      "exchangeTz": "America/Chicago",
+      "researchTz": "Europe/Rome",
+      "sessionStartHour": 0,
+      "sessionDays": [
+        "Sun",
+        "Mon",
+        "Tue",
+        "Wed",
+        "Thu",
+        "Fri"
+      ],
+      "tradingWindows": [
+        {
+          "open": {
+            "at": "17:00",
+            "anchor": "local"
+          },
+          "close": {
+            "at": "16:00",
+            "anchor": "local"
+          },
+          "opensOn": [
+            "Sun",
+            "Mon",
+            "Tue",
+            "Wed",
+            "Thu"
+          ],
+          "from": null,
+          "to": null,
+          "source": "misurata: @NQ_15/@ES_15/@BP_15/@EC_15 2024+, pausa unica 16:00-17:00 Chicago"
+        }
+      ]
+    },
+    "MES": {
+      "exchangeTz": "America/Chicago",
+      "researchTz": "Europe/Rome",
+      "sessionStartHour": 0,
+      "tradingWindows": [
+        {
+          "open": {
+            "at": "17:00",
+            "anchor": "local"
+          },
+          "close": {
+            "at": "16:00",
+            "anchor": "local"
+          },
+          "opensOn": [
+            "Sun",
+            "Mon",
+            "Tue",
+            "Wed",
+            "Thu"
+          ],
+          "from": null,
+          "to": null,
+          "source": "misurata: @NQ_15/@ES_15/@BP_15/@EC_15 2024+, pausa unica 16:00-17:00 Chicago"
+        }
+      ]
+    },
+    "NQ": {
+      "exchangeTz": "America/Chicago",
+      "researchTz": "Europe/Rome",
+      "sessionStartHour": 0,
+      "sessionDays": [
+        "Sun",
+        "Mon",
+        "Tue",
+        "Wed",
+        "Thu",
+        "Fri"
+      ],
+      "tradingWindows": [
+        {
+          "open": {
+            "at": "17:00",
+            "anchor": "local"
+          },
+          "close": {
+            "at": "16:00",
+            "anchor": "local"
+          },
+          "opensOn": [
+            "Sun",
+            "Mon",
+            "Tue",
+            "Wed",
+            "Thu"
+          ],
+          "from": null,
+          "to": null,
+          "source": "misurata: @NQ_15/@ES_15/@BP_15/@EC_15 2024+, pausa unica 16:00-17:00 Chicago"
+        }
+      ]
+    },
+    "MNQ": {
+      "exchangeTz": "America/Chicago",
+      "researchTz": "Europe/Rome",
+      "sessionStartHour": 0,
+      "tradingWindows": [
+        {
+          "open": {
+            "at": "17:00",
+            "anchor": "local"
+          },
+          "close": {
+            "at": "16:00",
+            "anchor": "local"
+          },
+          "opensOn": [
+            "Sun",
+            "Mon",
+            "Tue",
+            "Wed",
+            "Thu"
+          ],
+          "from": null,
+          "to": null,
+          "source": "misurata: @NQ_15/@ES_15/@BP_15/@EC_15 2024+, pausa unica 16:00-17:00 Chicago"
+        }
+      ]
+    },
+    "YM": {
+      "exchangeTz": "America/Chicago",
+      "researchTz": "Europe/Rome",
+      "sessionStartHour": 0,
+      "sessionDays": [
+        "Sun",
+        "Mon",
+        "Tue",
+        "Wed",
+        "Thu",
+        "Fri"
+      ],
+      "tradingWindows": [
+        {
+          "open": {
+            "at": "17:00",
+            "anchor": "local"
+          },
+          "close": {
+            "at": "16:00",
+            "anchor": "local"
+          },
+          "opensOn": [
+            "Sun",
+            "Mon",
+            "Tue",
+            "Wed",
+            "Thu"
+          ],
+          "from": null,
+          "to": null,
+          "source": "misurata: @NQ_15/@ES_15/@BP_15/@EC_15 2024+, pausa unica 16:00-17:00 Chicago"
+        }
+      ]
+    },
+    "MYM": {
+      "exchangeTz": "America/Chicago",
+      "researchTz": "Europe/Rome",
+      "sessionStartHour": 0,
+      "tradingWindows": [
+        {
+          "open": {
+            "at": "17:00",
+            "anchor": "local"
+          },
+          "close": {
+            "at": "16:00",
+            "anchor": "local"
+          },
+          "opensOn": [
+            "Sun",
+            "Mon",
+            "Tue",
+            "Wed",
+            "Thu"
+          ],
+          "from": null,
+          "to": null,
+          "source": "misurata: @NQ_15/@ES_15/@BP_15/@EC_15 2024+, pausa unica 16:00-17:00 Chicago"
+        }
+      ]
+    },
+    "RTY": {
+      "exchangeTz": "America/Chicago",
+      "researchTz": "Europe/Rome",
+      "sessionStartHour": 0,
+      "tradingWindows": [
+        {
+          "open": {
+            "at": "17:00",
+            "anchor": "local"
+          },
+          "close": {
+            "at": "16:00",
+            "anchor": "local"
+          },
+          "opensOn": [
+            "Sun",
+            "Mon",
+            "Tue",
+            "Wed",
+            "Thu"
+          ],
+          "from": null,
+          "to": null,
+          "source": "misurata: @NQ_15/@ES_15/@BP_15/@EC_15 2024+, pausa unica 16:00-17:00 Chicago"
+        }
+      ]
+    },
+    "M2K": {
+      "exchangeTz": "America/Chicago",
+      "researchTz": "Europe/Rome",
+      "sessionStartHour": 0,
+      "tradingWindows": [
+        {
+          "open": {
+            "at": "17:00",
+            "anchor": "local"
+          },
+          "close": {
+            "at": "16:00",
+            "anchor": "local"
+          },
+          "opensOn": [
+            "Sun",
+            "Mon",
+            "Tue",
+            "Wed",
+            "Thu"
+          ],
+          "from": null,
+          "to": null,
+          "source": "misurata: @NQ_15/@ES_15/@BP_15/@EC_15 2024+, pausa unica 16:00-17:00 Chicago"
+        }
+      ]
+    },
+    "FDAX": {
+      "exchangeTz": "Europe/Berlin",
+      "researchTz": "Europe/Rome",
+      "sessionStartHour": 1,
+      "sessionDays": [
+        "Mon",
+        "Tue",
+        "Wed",
+        "Thu",
+        "Fri"
+      ],
+      "tradingWindows": [
+        {
+          "open": {
+            "at": "00:15",
+            "anchor": "utc"
+          },
+          "close": {
+            "at": "22:00",
+            "anchor": "local"
+          },
+          "opensOn": [
+            "Mon",
+            "Tue",
+            "Wed",
+            "Thu",
+            "Fri"
+          ],
+          "from": null,
+          "to": null,
+          "source": "misurata sul minuto del vendor 2024+: apertura 00:16 UTC in ENTRAMBE le stagioni (ancoraggio Singapore), chiusura 21:02/20:01 UTC = 22:00 locali"
+        }
+      ]
+    },
+    "FDXM": {
+      "exchangeTz": "Europe/Berlin",
+      "researchTz": "Europe/Rome",
+      "sessionStartHour": 0,
+      "tradingWindows": [
+        {
+          "open": {
+            "at": "00:15",
+            "anchor": "utc"
+          },
+          "close": {
+            "at": "22:00",
+            "anchor": "local"
+          },
+          "opensOn": [
+            "Mon",
+            "Tue",
+            "Wed",
+            "Thu",
+            "Fri"
+          ],
+          "from": null,
+          "to": null,
+          "source": "orario Eurex T7, ereditato da FDAX (stessa piattaforma): NON misurato, nessun feed disponibile"
+        }
+      ]
+    },
+    "FDXS": {
+      "exchangeTz": "Europe/Berlin",
+      "researchTz": "Europe/Rome",
+      "sessionStartHour": 0,
+      "tradingWindows": [
+        {
+          "open": {
+            "at": "00:15",
+            "anchor": "utc"
+          },
+          "close": {
+            "at": "22:00",
+            "anchor": "local"
+          },
+          "opensOn": [
+            "Mon",
+            "Tue",
+            "Wed",
+            "Thu",
+            "Fri"
+          ],
+          "from": null,
+          "to": null,
+          "source": "orario Eurex T7, ereditato da FDAX (stessa piattaforma): NON misurato, nessun feed disponibile"
+        }
+      ]
+    },
+    "FESX": {
+      "exchangeTz": "Europe/Berlin",
+      "researchTz": "Europe/Rome",
+      "sessionStartHour": 0,
+      "tradingWindows": [
+        {
+          "open": {
+            "at": "00:15",
+            "anchor": "utc"
+          },
+          "close": {
+            "at": "22:00",
+            "anchor": "local"
+          },
+          "opensOn": [
+            "Mon",
+            "Tue",
+            "Wed",
+            "Thu",
+            "Fri"
+          ],
+          "from": null,
+          "to": null,
+          "source": "orario Eurex T7, ereditato da FDAX (stessa piattaforma): NON misurato, nessun feed disponibile"
+        }
+      ]
+    },
+    "FGBL": {
+      "exchangeTz": "Europe/Berlin",
+      "researchTz": "Europe/Rome",
+      "sessionStartHour": 0,
+      "tradingWindows": [
+        {
+          "open": {
+            "at": "00:15",
+            "anchor": "utc"
+          },
+          "close": {
+            "at": "22:00",
+            "anchor": "local"
+          },
+          "opensOn": [
+            "Mon",
+            "Tue",
+            "Wed",
+            "Thu",
+            "Fri"
+          ],
+          "from": null,
+          "to": null,
+          "source": "orario Eurex T7, ereditato da FDAX (stessa piattaforma): NON misurato, nessun feed disponibile"
+        }
+      ]
+    },
+    "GC": {
+      "exchangeTz": "America/New_York",
+      "researchTz": "Europe/Rome",
+      "sessionStartHour": 0,
+      "sessionDays": [
+        "Sun",
+        "Mon",
+        "Tue",
+        "Wed",
+        "Thu",
+        "Fri"
+      ],
+      "note": "COMEX: la sorgente scrive 1800->1700, sessione in ora di New York",
+      "tradingWindows": [
+        {
+          "open": {
+            "at": "18:00",
+            "anchor": "local"
+          },
+          "close": {
+            "at": "17:00",
+            "anchor": "local"
+          },
+          "opensOn": [
+            "Sun",
+            "Mon",
+            "Tue",
+            "Wed",
+            "Thu"
+          ],
+          "from": null,
+          "to": null,
+          "source": "misurata: @CL_30/@GC_30 2024+, pausa unica 17:00-18:00 New York (stesso istante del CME)"
+        }
+      ]
+    },
+    "MGC": {
+      "exchangeTz": "America/New_York",
+      "researchTz": "Europe/Rome",
+      "sessionStartHour": 0,
+      "tradingWindows": [
+        {
+          "open": {
+            "at": "18:00",
+            "anchor": "local"
+          },
+          "close": {
+            "at": "17:00",
+            "anchor": "local"
+          },
+          "opensOn": [
+            "Sun",
+            "Mon",
+            "Tue",
+            "Wed",
+            "Thu"
+          ],
+          "from": null,
+          "to": null,
+          "source": "misurata: @CL_30/@GC_30 2024+, pausa unica 17:00-18:00 New York (stesso istante del CME)"
+        }
+      ]
+    },
+    "SI": {
+      "exchangeTz": "America/New_York",
+      "researchTz": "Europe/Rome",
+      "sessionStartHour": 0,
+      "tradingWindows": [
+        {
+          "open": {
+            "at": "18:00",
+            "anchor": "local"
+          },
+          "close": {
+            "at": "17:00",
+            "anchor": "local"
+          },
+          "opensOn": [
+            "Sun",
+            "Mon",
+            "Tue",
+            "Wed",
+            "Thu"
+          ],
+          "from": null,
+          "to": null,
+          "source": "misurata: @CL_30/@GC_30 2024+, pausa unica 17:00-18:00 New York (stesso istante del CME)"
+        }
+      ]
+    },
+    "HG": {
+      "exchangeTz": "America/New_York",
+      "researchTz": "Europe/Rome",
+      "sessionStartHour": 0,
+      "tradingWindows": [
+        {
+          "open": {
+            "at": "18:00",
+            "anchor": "local"
+          },
+          "close": {
+            "at": "17:00",
+            "anchor": "local"
+          },
+          "opensOn": [
+            "Sun",
+            "Mon",
+            "Tue",
+            "Wed",
+            "Thu"
+          ],
+          "from": null,
+          "to": null,
+          "source": "misurata: @CL_30/@GC_30 2024+, pausa unica 17:00-18:00 New York (stesso istante del CME)"
+        }
+      ]
+    },
+    "PL": {
+      "exchangeTz": "America/New_York",
+      "researchTz": "Europe/Rome",
+      "sessionStartHour": 0,
+      "sessionDays": [
+        "Sun",
+        "Mon",
+        "Tue",
+        "Wed",
+        "Thu",
+        "Fri"
+      ],
+      "tradingWindows": [
+        {
+          "open": {
+            "at": "18:00",
+            "anchor": "local"
+          },
+          "close": {
+            "at": "17:00",
+            "anchor": "local"
+          },
+          "opensOn": [
+            "Sun",
+            "Mon",
+            "Tue",
+            "Wed",
+            "Thu"
+          ],
+          "from": null,
+          "to": null,
+          "source": "misurata: @CL_30/@GC_30 2024+, pausa unica 17:00-18:00 New York (stesso istante del CME)"
+        }
+      ]
+    },
+    "PA": {
+      "exchangeTz": "America/New_York",
+      "researchTz": "Europe/Rome",
+      "sessionStartHour": 0,
+      "tradingWindows": [
+        {
+          "open": {
+            "at": "18:00",
+            "anchor": "local"
+          },
+          "close": {
+            "at": "17:00",
+            "anchor": "local"
+          },
+          "opensOn": [
+            "Sun",
+            "Mon",
+            "Tue",
+            "Wed",
+            "Thu"
+          ],
+          "from": null,
+          "to": null,
+          "source": "misurata: @CL_30/@GC_30 2024+, pausa unica 17:00-18:00 New York (stesso istante del CME)"
+        }
+      ]
+    },
+    "CL": {
+      "exchangeTz": "America/New_York",
+      "researchTz": "Europe/Rome",
+      "sessionStartHour": 0,
+      "sessionDays": [
+        "Sun",
+        "Mon",
+        "Tue",
+        "Wed",
+        "Thu",
+        "Fri"
+      ],
+      "note": "NYMEX: come COMEX, sorgenti 1800->1700",
+      "tradingWindows": [
+        {
+          "open": {
+            "at": "18:00",
+            "anchor": "local"
+          },
+          "close": {
+            "at": "17:00",
+            "anchor": "local"
+          },
+          "opensOn": [
+            "Sun",
+            "Mon",
+            "Tue",
+            "Wed",
+            "Thu"
+          ],
+          "from": null,
+          "to": null,
+          "source": "misurata: @CL_30/@GC_30 2024+, pausa unica 17:00-18:00 New York (stesso istante del CME)"
+        }
+      ]
+    },
+    "MCL": {
+      "exchangeTz": "America/New_York",
+      "researchTz": "Europe/Rome",
+      "sessionStartHour": 0,
+      "tradingWindows": [
+        {
+          "open": {
+            "at": "18:00",
+            "anchor": "local"
+          },
+          "close": {
+            "at": "17:00",
+            "anchor": "local"
+          },
+          "opensOn": [
+            "Sun",
+            "Mon",
+            "Tue",
+            "Wed",
+            "Thu"
+          ],
+          "from": null,
+          "to": null,
+          "source": "misurata: @CL_30/@GC_30 2024+, pausa unica 17:00-18:00 New York (stesso istante del CME)"
+        }
+      ]
+    },
+    "NG": {
+      "exchangeTz": "America/New_York",
+      "researchTz": "Europe/Rome",
+      "sessionStartHour": 0,
+      "sessionDays": [
+        "Sun",
+        "Mon",
+        "Tue",
+        "Wed",
+        "Thu",
+        "Fri"
+      ],
+      "tradingWindows": [
+        {
+          "open": {
+            "at": "18:00",
+            "anchor": "local"
+          },
+          "close": {
+            "at": "17:00",
+            "anchor": "local"
+          },
+          "opensOn": [
+            "Sun",
+            "Mon",
+            "Tue",
+            "Wed",
+            "Thu"
+          ],
+          "from": null,
+          "to": null,
+          "source": "misurata: @CL_30/@GC_30 2024+, pausa unica 17:00-18:00 New York (stesso istante del CME)"
+        }
+      ]
+    },
+    "RB": {
+      "exchangeTz": "America/New_York",
+      "researchTz": "Europe/Rome",
+      "sessionStartHour": 0,
+      "tradingWindows": [
+        {
+          "open": {
+            "at": "18:00",
+            "anchor": "local"
+          },
+          "close": {
+            "at": "17:00",
+            "anchor": "local"
+          },
+          "opensOn": [
+            "Sun",
+            "Mon",
+            "Tue",
+            "Wed",
+            "Thu"
+          ],
+          "from": null,
+          "to": null,
+          "source": "misurata: @CL_30/@GC_30 2024+, pausa unica 17:00-18:00 New York (stesso istante del CME)"
+        }
+      ]
+    },
+    "BTC": {
+      "exchangeTz": "America/Chicago",
+      "researchTz": "Europe/Rome",
+      "sessionStartHour": 0,
+      "sessionDays": [
+        "Sun",
+        "Mon",
+        "Tue",
+        "Wed",
+        "Thu",
+        "Fri"
+      ],
+      "note": "CME BTC: quota 24/7 sul CFD ma la ricerca ha le sessioni del future",
+      "tradingWindows": [
+        {
+          "open": {
+            "at": "17:00",
+            "anchor": "local"
+          },
+          "close": {
+            "at": "16:00",
+            "anchor": "local"
+          },
+          "opensOn": [
+            "Sun",
+            "Mon",
+            "Tue",
+            "Wed",
+            "Thu"
+          ],
+          "from": null,
+          "to": null,
+          "source": "misurata: @NQ_15/@ES_15/@BP_15/@EC_15 2024+, pausa unica 16:00-17:00 Chicago"
+        }
+      ]
+    },
+    "KC": {
+      "exchangeTz": "America/New_York",
+      "researchTz": "Europe/Rome",
+      "sessionStartHour": 1,
+      "sessionDays": [
+        "Mon",
+        "Tue",
+        "Wed",
+        "Thu",
+        "Fri"
+      ],
+      "note": "softs ICE US: sorgenti 0400->1400, ora di New York",
+      "tradingWindows": [
+        {
+          "open": {
+            "at": "04:15",
+            "anchor": "local"
+          },
+          "close": {
+            "at": "13:30",
+            "anchor": "local"
+          },
+          "opensOn": [
+            "Mon",
+            "Tue",
+            "Wed",
+            "Thu",
+            "Fri"
+          ],
+          "from": null,
+          "to": null,
+          "source": "orario ICE US, verificato sul feed FTMOPLATFORM (bordi misurati a 0415)"
+        }
+      ]
+    },
+    "CT": {
+      "exchangeTz": "America/New_York",
+      "researchTz": "Europe/Rome",
+      "sessionStartHour": 1,
+      "sessionDays": [
+        "Mon",
+        "Tue",
+        "Wed",
+        "Thu",
+        "Fri"
+      ],
+      "tradingWindows": [
+        {
+          "open": {
+            "at": "21:00",
+            "anchor": "local"
+          },
+          "close": {
+            "at": "14:20",
+            "anchor": "local"
+          },
+          "opensOn": [
+            "Sun",
+            "Mon",
+            "Tue",
+            "Wed",
+            "Thu"
+          ],
+          "from": null,
+          "to": null,
+          "source": "orario ICE US, verificato sul feed FTMOPLATFORM (bordi misurati a 21:05)"
+        }
+      ]
+    },
+    "SB": {
+      "exchangeTz": "America/New_York",
+      "researchTz": "Europe/Rome",
+      "sessionStartHour": 1,
+      "sessionDays": [
+        "Mon",
+        "Tue",
+        "Wed",
+        "Thu",
+        "Fri",
+        "Sat"
+      ],
+      "note": "l'unico con il sabato: colonna sab a 14 nel dossier",
+      "tradingWindows": [
+        {
+          "open": {
+            "at": "03:30",
+            "anchor": "local"
+          },
+          "close": {
+            "at": "13:00",
+            "anchor": "local"
+          },
+          "opensOn": [
+            "Mon",
+            "Tue",
+            "Wed",
+            "Thu",
+            "Fri"
+          ],
+          "from": null,
+          "to": null,
+          "source": "orario ICE US, verificato sul feed FTMOPLATFORM (bordi misurati a 0330)"
+        }
+      ]
+    },
+    "CC": {
+      "exchangeTz": "America/New_York",
+      "researchTz": "Europe/Rome",
+      "sessionStartHour": 1,
+      "sessionDays": [
+        "Mon",
+        "Tue",
+        "Wed",
+        "Thu",
+        "Fri"
+      ],
+      "tradingWindows": [
+        {
+          "open": {
+            "at": "04:45",
+            "anchor": "local"
+          },
+          "close": {
+            "at": "13:30",
+            "anchor": "local"
+          },
+          "opensOn": [
+            "Mon",
+            "Tue",
+            "Wed",
+            "Thu",
+            "Fri"
+          ],
+          "from": null,
+          "to": null,
+          "source": "orario ICE US, verificato sul feed FTMOPLATFORM (bordi misurati a 0445)"
+        }
+      ]
+    },
+    "BP": {
+      "exchangeTz": "America/Chicago",
+      "researchTz": "Europe/Rome",
+      "sessionStartHour": 0,
+      "sessionDays": [
+        "Sun",
+        "Mon",
+        "Tue",
+        "Wed",
+        "Thu",
+        "Fri"
+      ],
+      "note": "valute CME: sorgenti 1700->1600, ora di Chicago",
+      "tradingWindows": [
+        {
+          "open": {
+            "at": "17:00",
+            "anchor": "local"
+          },
+          "close": {
+            "at": "16:00",
+            "anchor": "local"
+          },
+          "opensOn": [
+            "Sun",
+            "Mon",
+            "Tue",
+            "Wed",
+            "Thu"
+          ],
+          "from": null,
+          "to": null,
+          "source": "misurata: @NQ_15/@ES_15/@BP_15/@EC_15 2024+, pausa unica 16:00-17:00 Chicago"
+        }
+      ]
+    },
+    "EC": {
+      "exchangeTz": "America/Chicago",
+      "researchTz": "Europe/Rome",
+      "sessionStartHour": 0,
+      "tradingWindows": [
+        {
+          "open": {
+            "at": "17:00",
+            "anchor": "local"
+          },
+          "close": {
+            "at": "16:00",
+            "anchor": "local"
+          },
+          "opensOn": [
+            "Sun",
+            "Mon",
+            "Tue",
+            "Wed",
+            "Thu"
+          ],
+          "from": null,
+          "to": null,
+          "source": "misurata: @NQ_15/@ES_15/@BP_15/@EC_15 2024+, pausa unica 16:00-17:00 Chicago"
+        }
+      ]
+    }
   }
 }

@@ -67,8 +67,23 @@ public sealed record SymbolCalendar
     /// Le fasi della giornata, ciascuna con il proprio ancoraggio. <b>Oggi vuote per tutti</b>: il
     /// formato le prevede perché aggiungerle dopo vorrebbe dire rileggere ogni consumatore, ma
     /// popolarle senza una fonte verificata introdurrebbe numeri inventati.
+    ///
+    /// <para>Le fasi <b>etichettano</b>; la finestra di <see cref="TradingWindows"/> <b>decide</b>.
+    /// Sono due mestieri diversi e per questo non sono lo stesso campo: un giorno <c>premarket</c> o
+    /// <c>containsSettlement</c> sarà un'informazione che la strategia legge, non un motivo per cui
+    /// una barra sparisce.</para>
     /// </summary>
     public IReadOnlyList<MarketPhase> Phases { get; init; } = [];
+
+    /// <summary>
+    /// Quando questo strumento negozia davvero. Vuoto = <b>non dichiarato</b>, e la maschera lascia
+    /// passare tutto invece di spegnere lo strumento.
+    ///
+    /// <para>Più di una voce solo dove una borsa cambia orario nel corso dell'anno. L'ora legale
+    /// <b>non</b> si dichiara qui: la risolve <see cref="ExchangeTimeZone"/>. Vedi
+    /// <see cref="TradingWindow"/>.</para>
+    /// </summary>
+    public IReadOnlyList<TradingWindow> TradingWindows { get; init; } = [];
 
     /// <summary>
     /// Giorni di chiusura totale della borsa. <b>Oggi vuoti per tutti</b>: non esiste ancora una

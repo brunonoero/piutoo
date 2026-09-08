@@ -335,8 +335,7 @@ public static class BacktestHtmlReport
             .ToList();
 
         var chartJson = JsonSerializer.Serialize(series, JsonOptions);
-        var globalSeries = result.HourlyResults
-            .OrderBy(row => row.DateTime)
+        var globalSeries = BuildGlobalChartPoints(result.HourlyResults)
             .Select(row => new
             {
                 t = row.DateTime.ToString("O"),
@@ -507,7 +506,12 @@ public static class BacktestHtmlReport
         html.AppendLine("      ctx.textAlign = 'center';");
         html.AppendLine("      tickInfo.ticks.forEach(tick => { const xx = x(tick); ctx.strokeStyle = '#1e293b'; ctx.beginPath(); ctx.moveTo(xx, pad.top); ctx.lineTo(xx, canvas.height - pad.bottom); ctx.stroke(); ctx.fillStyle = '#94a3b8'; ctx.fillText(tickInfo.label(tick), xx, canvas.height - pad.bottom + 20); });");
         html.AppendLine("      ctx.textAlign = 'left'; ctx.strokeStyle = '#334155'; ctx.fillStyle = '#94a3b8';");
-        html.AppendLine("      if (showDrawdown) { const dd = chartSeries[0].points; const maxDd = Math.max(0, ...dd.map(p => Math.abs(p.drawdown || 0))); const plotH = canvas.height-pad.top-pad.bottom; const barW = Math.max(1, (canvas.width-pad.left-pad.right)/Math.max(1,dd.length)*0.8); ctx.fillStyle='rgba(239,68,68,0.28)'; dd.forEach(p=>{ const h=maxDd===0?0:Math.abs(p.drawdown||0)/maxDd*plotH; ctx.fillRect(x(p.time)-barW/2,canvas.height-pad.bottom-h,barW,h); }); ctx.fillStyle='#fca5a5'; for(let i=0;i<=5;i++){ const val=maxDd*(5-i)/5; const yy=pad.top+i*plotH/5; ctx.fillText(val.toFixed(2),canvas.width-pad.right+8,yy+4); } }");
+        // Stesso `Math.max(...array)` di cui sopra, sopravvissuto sul drawdown: e' l'ultimo punto
+        // del disegno che passa un argomento per elemento, e su 570.000 punti lancia RangeError.
+        // Lanciandolo qui, dentro la prima chiamata a drawChart, interrompeva lo script prima della
+        // seconda: non spariva il solo grafico globale, sparivano tutti e due.
+        html.AppendLine("      let maxDd = 0; if (showDrawdown) { for (const p of chartSeries[0].points) { const v = Math.abs(p.drawdown || 0); if (v > maxDd) maxDd = v; } }");
+        html.AppendLine("      if (showDrawdown) { const dd = chartSeries[0].points; const plotH = canvas.height-pad.top-pad.bottom; const barW = Math.max(1, (canvas.width-pad.left-pad.right)/Math.max(1,dd.length)*0.8); ctx.fillStyle='rgba(239,68,68,0.28)'; dd.forEach(p=>{ const h=maxDd===0?0:Math.abs(p.drawdown||0)/maxDd*plotH; ctx.fillRect(x(p.time)-barW/2,canvas.height-pad.bottom-h,barW,h); }); ctx.fillStyle='#fca5a5'; for(let i=0;i<=5;i++){ const val=maxDd*(5-i)/5; const yy=pad.top+i*plotH/5; ctx.fillText(val.toFixed(2),canvas.width-pad.right+8,yy+4); } }");
         html.AppendLine("      chartSeries.forEach((s, idx) => { const color = colors[idx % colors.length]; ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.beginPath(); s.points.forEach((p, i) => { const xx = x(p.time); const yy = y(p.equity); if(i===0) ctx.moveTo(xx, yy); else ctx.lineTo(xx, yy); }); ctx.stroke(); });");
         html.AppendLine("      legend.innerHTML = chartSeries.map((s,idx)=>`<span><i class=\"swatch\" style=\"background:${colors[idx % colors.length]}\"></i>${s.label}</span>`).join('') + (showDrawdown ? '<span><i class=\"swatch\" style=\"background:rgba(239,68,68,.55)\"></i>Drawdown globale (scala destra)</span>' : '');");
         html.AppendLine("    }");
@@ -706,6 +710,96 @@ public static class BacktestHtmlReport
             var label = System.Net.WebUtility.HtmlEncode(row.Key);
             return $"{label} <span class=\"{cssClass}\">{row.Profit:F2}</span> <span class=\"muted\">({row.Trades})</span>";
         }));
+    }
+
+    /// <summary>
+    /// Larghezza del canvas dell'equity globale. La riduzione punta a questa, non a un numero
+    /// arbitrario: e' il limite oltre il quale due punti cadono nello stesso pixel.
+    /// </summary>
+    private const int GlobalChartCanvasWidth = 1400;
+
+    /// <summary>
+    /// Sotto questa soglia la serie globale finisce nel report intera: un run corto non ha niente
+    /// da guadagnare dalla riduzione, e il report resta punto per punto quello del motore.
+    /// </summary>
+    private const int GlobalChartFullDetailThreshold = 8000;
+
+    /// <summary>
+    /// Riduce la serie di equity globale alla risoluzione che il grafico puo' davvero disegnare.
+    /// </summary>
+    /// <remarks>
+    /// <para><c>HourlyResults</c> ha una riga per ogni tick dell'orologio, sempre: e' la serie su
+    /// cui si calcolano <c>MaxDrawdown</c> e i resoconti annuale e mensile, e li' la risoluzione
+    /// piena serve. Al <b>grafico</b> no. Un run di tredici mesi con orologio a un minuto produce
+    /// 570.000 punti su un canvas largo 1400 pixel — quattrocento punti per colonna — e il report
+    /// arrivava a 131 MB, di cui 106 di soli punti globali. Peggio: <c>Math.max(0, ...punti)</c>
+    /// nel disegno del drawdown passava un argomento per elemento e lanciava RangeError, che
+    /// interrompeva lo script e lasciava <b>entrambi</b> i grafici bianchi (08/09/2026). Il limite
+    /// dello spread e' via, ma una serie che nessuno puo' vedere resta peso inutile nel file.</para>
+    ///
+    /// <para><b>Non e' un campionamento a passo fisso.</b> Prendere un punto ogni N taglierebbe i
+    /// picchi, e su una curva di equity il picco e' l'informazione: il massimo, il minimo e il
+    /// drawdown peggiore sono esattamente cio' che si guarda. Le righe si dividono in colonne
+    /// contigue larghe un pixel e da ognuna si tengono la prima, l'ultima, quella di equity minima,
+    /// quella di equity massima e quella di drawdown massimo — in ordine di tempo e senza
+    /// ripetizioni. Il tracciato che ne esce e' pixel per pixel quello della serie intera, con gli
+    /// estremi al posto giusto, e la scala del drawdown resta quella vera.</para>
+    /// </remarks>
+    private static List<HourlyResult> BuildGlobalChartPoints(List<HourlyResult> rows)
+    {
+        var ordered = rows.OrderBy(row => row.DateTime).ToList();
+        if (ordered.Count <= GlobalChartFullDetailThreshold)
+        {
+            return ordered;
+        }
+
+        var kept = new List<HourlyResult>(GlobalChartCanvasWidth * 5);
+        var lastKeptIndex = -1;
+        for (var column = 0; column < GlobalChartCanvasWidth; column++)
+        {
+            var from = (int)((long)column * ordered.Count / GlobalChartCanvasWidth);
+            var to = (int)((long)(column + 1) * ordered.Count / GlobalChartCanvasWidth) - 1;
+            if (to < from)
+            {
+                continue;
+            }
+
+            var minEquityIndex = from;
+            var maxEquityIndex = from;
+            var maxDrawdownIndex = from;
+            for (var index = from + 1; index <= to; index++)
+            {
+                if (ordered[index].Equity < ordered[minEquityIndex].Equity)
+                {
+                    minEquityIndex = index;
+                }
+
+                if (ordered[index].Equity > ordered[maxEquityIndex].Equity)
+                {
+                    maxEquityIndex = index;
+                }
+
+                if (Math.Abs(ordered[index].Drawdown) > Math.Abs(ordered[maxDrawdownIndex].Drawdown))
+                {
+                    maxDrawdownIndex = index;
+                }
+            }
+
+            // Ordinati per indice e non per ruolo: la spezzata si disegna nell'ordine in cui i
+            // punti stanno nella lista, e invertirli farebbe tornare indietro la linea nel tempo.
+            Span<int> candidates = [from, minEquityIndex, maxEquityIndex, maxDrawdownIndex, to];
+            candidates.Sort();
+            foreach (var index in candidates)
+            {
+                if (index > lastKeptIndex)
+                {
+                    kept.Add(ordered[index]);
+                    lastKeptIndex = index;
+                }
+            }
+        }
+
+        return kept;
     }
 
     /// <summary>
