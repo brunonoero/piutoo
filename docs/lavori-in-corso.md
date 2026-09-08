@@ -6,74 +6,72 @@ sezione qui contraddice il codice, ha ragione il codice.
 
 ---
 
-# ⇦ RIPRENDERE DA QUI: misurare la finestra operativa
+# ⇦ RIPRENDERE DA QUI: due misure sul paniere
+
+Sessione del 08/09/2026 interrotta qui, di proposito. Il **codice è finito e verde**; quello che
+manca sono due run, e nessuno dei due è stato lanciato.
 
 Piano completo e stato passo per passo in
 [`domini/layer-barre-e-calendario.md`](domini/layer-barre-e-calendario.md) §7. Il metodo è sempre
 lo stesso e va tenuto: **si misura prima**, si cambia, si rimisura sul paniere completo.
 
-## Dove siamo
+## Le due misure che mancano
 
-Chiusi il 07/09/2026: **passo 0** (il metro), **1** (calendario come dato), **2** (il layer),
-**3** (il backtest ci passa), **4a** (il calendario governa la sessione), la parte *raccoglitore*
-del **6**, e la prima voce del **5** (la deadline di fine sessione).
+Servono due run `all-in` su `FTMOPLATFORM`, un anno, prima/dopo. **Indipendenti**: tenerli separati
+o non si sa quale numero venga da cosa.
 
-Chiuso l'08/09/2026: **il resto del passo 5**.
+1. **Passo 5** — `MaxBarsInPosition` sul calendario e l'uscita a indice di barra come conteggio di
+   barre vere. Riguarda 62 strategie su 124.
+2. **Etichetta della barra** — la finestra, il filtro del giorno e le pause leggono ora la chiusura.
+   Riguarda 83 strategie su 124 per la finestra, tutte e 13 le giornaliere per il giorno. Il
+   confronto si fa con `BacktestingRequest.LegacyBarOpenLabels = true` contro il default.
 
-- **5b — `MaxBarsInPosition` conta le barre della strategia sul calendario.**
-  `PiootooTradingService` bucketizza la barra sulla griglia della strategia e conta una volta per
-  bucket, saltando i giorni in cui `IsSessionDay` è falso — le 972 barre di sabato di BTC/60m, le 53
-  domeniche di FDAX. `ScaleSignalMaxBarsInPosition` è sparito: N era già in barre della strategia,
-  la stessa unità in cui l'intent lo manda ai cBot, e il backtest lo convertiva in tick mentre il
-  live no. Riguarda 62 strategie su 124.
-- **5c — `SessionBarToUtc` è un conteggio di barre vere.** `BiasBarCountEngine.WithExit` non proietta
-  più sull'orologio: calcola `BarCountStartsAt + exitBar − indiceBarraIngresso` e, quando l'indice di
-  uscita è già passato, aggiunge una sessione piena. Il caso "già passato" è la norma:
-  `PTS_BTC_BIA_001_60` apre lo short fra la barra 10 e la 20 e lo chiude alla 7.
-  `SessionBarToUtc` è stato rimosso da `EasyEngineBase`.
-- **`MaxDaysInTrade` / `MaxDaysFlatTime` sono codice morto.** Il piano li segnalava come aritmetica a
-  giorni di calendario della stessa famiglia: zero `PTS_*` su 124 li valorizzano (229 usano
-  `MaxBars`) e nessun percorso li scrive da masterfilter o da parametri. Da cancellare nel 4b, non
-  da correggere.
+Servono a **dichiarare** di quanto si spostano i risultati, non a decidere: le due modifiche sono
+correzioni di difetti, non opzioni. E dicono quali cartelle archiviate non sono più confrontabili.
 
-Suite: **1.114 test, 40 rossi preesistenti** (erano 43; tre di `BiasBarCountEngineTests` sono
-tornati verdi perché asserivano proprio il `CloseAtUtc` a indice di barra). Nessun rosso nuovo.
+## Fatto l'08/09/2026
 
-## La misura che manca — e il run da fare
+- **Passo 5 completo** — `MaxBarsInPosition` conta le barre della strategia sul calendario,
+  `ScaleSignalMaxBarsInPosition` eliminato, `SessionBarToUtc` sostituito da un conteggio di barre
+  vere in `BiasBarCountEngine.WithExit`. `MaxDaysInTrade`/`MaxDaysFlatTime` verificati **codice
+  morto**: zero PTS su 124 li valorizzano.
+- **Passo 7** — il riscaldamento di una sessione lo legge il server dal disco
+  (`datafeed-external/{BROKER}/@SYM_1.json`). R2 e R3 di
+  [`domini/finestra-candele-e-riscaldamento.md`](domini/finestra-candele-e-riscaldamento.md)
+  **restano**: chiudono col passo 6-operativo.
+- **L'etichetta della barra in un punto solo** — `SessionClock.BarLabelHhmm`/`BarLabelDay`, e
+  `EasyLib.TimeWindow` prende un `HHMM` e non più una barra, così nessun chiamante può rispondere
+  per conto proprio. Il flag è rovesciato (`LegacyBarOpenLabels`, default `false`): **il default è
+  quello corretto**, quindi la sessione live non deve impostare niente. La guida di conversione,
+  per le strategie che arriveranno, è in
+  [`domini/porting-da-report-sweep.md`](domini/porting-da-report-sweep.md) §"La regola degli orari".
+- **Cancellati**: le 21 classi PTS su simboli fuori calendario (HK, HO, JY),
+  `ResearchSessionStartConformanceTests`, il motore a **rotazione settimanale** (`TradingEngine`,
+  `StrategyRotationManager`, `WeeklyRotationScheduler` e i tre endpoint che lo esponevano — era un
+  terzo percorso di valutazione senza niente dell'ultimo mese), e la **SPA Angular**.
 
-Il passo 5 **cambia i risultati di proposito**, e il piano chiede di misurarlo e dichiararlo. Il run
-`all-in` su `FTMOPLATFORM` prima/dopo **non è ancora stato fatto**.
+Suite: **931 test, 40 rossi preesistenti**, nessuno nuovo in nessuno dei cinque commit. Tutto sul
+ramo `claude/layer-barre-passo-5`.
 
-Accanto ce n'è un secondo, indipendente, e l'interruttore è già pronto.
+## Il resto, in ordine
 
-### `researchWindowOnBarClose` — la finestra operativa legge l'etichetta sbagliata
-
-Il feed Piootoo etichetta ogni barra sull'**apertura**; il motore di ricerca da cui `start_hour` e
-`end_hour` vengono lavora su barre etichettate sulla **chiusura**, e `filters.py` confronta la
-finestra con *quella*. Confrontarla con l'apertura sposta la finestra di **una barra in avanti**: si
-prende la barra dopo la fine e si perde quella prima dell'inizio. Riguarda **83 strategie su 124**.
-
-La prova indipendente è già nel dossier del porting: allineando gli `entry_time` del report ai nostri
-`entryTimeUtc` su NQ 15m il massimo di corrispondenze è a **−15 minuti**, 345 contro 78 a offset
-nullo — esattamente una barra.
-
-`BacktestingRequest.ResearchWindowOnBarClose` (default `false`, nessun run esistente cambia) fa
-confrontare `apertura + timeframe`. Le soglie restano quelle di `parametri.csv`, verbatim. Il valore
-finisce nel log di avvio del job e in `backtest-summary.json` sotto `fillConventions`. Due run dello
-stesso periodo sullo stesso feed, un solo campo diverso.
-
-Fuori dall'interruttore, di proposito:
-
-- **il filtro del giorno** (`PythonWeekday`) ha lo stesso difetto, ma su una barra giornaliera
-  sposterebbe `skip_day` di un giorno intero: va misurato da solo;
-- **`BiasWeeklyEngine`**, che è una schedula esatta e non una finestra;
-- **l'inclusività degli estremi**, che è la voce aperta del 2026-08-02 e riguarda altro.
-
-Da rivedere quando la misura c'è: la voce *«Le etichette delle barre non coincidono — questione
-aperta»* di [`domini/porting-da-report-sweep.md`](domini/porting-da-report-sweep.md) e la voce
-2026-08-02 di [`decisioni.md`](decisioni.md) quantificano le conseguenze sul modello di sessione CME
-17:00–16:00, che dal 4a **non esiste più**: metà del problema è chiusa e quei numeri non descrivono
-più il codice.
+- **Il feed `@FDAX_240.json` è ancorato a 00:00 e il calendario dice 01:00.** Misurato: 20.795
+  barre, tutte su ore locali `{0,4,8,12,16,20}`. Il file è del 25/08, `SESSION_START_HOUR` è entrato
+  nell'aggregatore il 07/09 e il feed non è stato rigenerato. Si ripara **rigenerando un file**,
+  senza toccare codice — `@FDAX: 1` e `@FDAX: (240,)` sono già nelle tabelle di
+  `aggregate_flat_feed.py`. FDAX è l'unico ancoraggio-1 con un feed sopra l'ora nell'archivio
+  interno: CC, CT, KC e SB non hanno né `_240` né `_1440`, che è un buco diverso.
+- **L'estrazione del passo di valutazione.** Backtest e sessione chiamano `strategy.Evaluate`
+  ognuno per conto proprio: `RequiredCandles * 1.2` è un letterale in **sei punti**, la regola sulla
+  storia insufficiente ha due comportamenti (contata da una parte, silenziosa dall'altra), e le
+  convenzioni del motore le imposta solo il backtest. Coincidono oggi solo perché i default
+  coincidono. Un punto solo che possieda finestra, regola sulla storia, convenzioni e rifinitura del
+  segnale; da lì cade da sé la dichiarazione delle convenzioni nel `session-summary.json`.
+- **I sei punti di `verifica-offset-conversione-2026-09-08.md`.** Due sono chiusi da oggi (finestra
+  e filtro del giorno). Restano: BIASW `le_time`/`lx_time`, l'uscita del venerdì di MAC
+  (`Hhmm(barEnd) == SessionEndTime` con `SessionEndTime = 2359`, che è una sentinella — il test è
+  rosso), e le tre copie di "inizio sessione" (`SessionKey`, `ResolveEntrySessionStartUtc`) che
+  arretrano solo se `Start > End`, mai vero per una sessione della ricerca.
 
 ## Le altre voci aperte del piano
 
