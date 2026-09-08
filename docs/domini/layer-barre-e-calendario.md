@@ -1,10 +1,11 @@
 # Il layer delle barre e il calendario di mercato
 
 > **Stato: migrazione in corso.** Il §7 è il piano e dice, passo per passo, cosa è
-> già fatto e cosa no. Al 07/09/2026 sono chiusi il **passo 0** (il metro),
+> già fatto e cosa no. All'08/09/2026 sono chiusi il **passo 0** (il metro),
 > il **1** (il calendario come dato), il **2** (il layer), il **3** (il backtest interno), il **4a**
-> (il calendario governa la sessione) e la parte *raccoglitore* del **6**; restano
-> il 4b, i passi 5, i due cBot operativi, il 7 e l'8. Fuori da lì il codice descrive ancora il modello vecchio: in caso di
+> (il calendario governa la sessione), il **5** (l'orologio a barre), la parte *raccoglitore*
+> del **6** e il **7** per la metà che non dipende dal 6; restano il 4b, i due cBot
+> operativi e l'8. Fuori da lì il codice descrive ancora il modello vecchio: in caso di
 > contraddizione ha ragione il codice, e questo file dice dove si sta andando.
 > Origine della richiesta:
 > `piootoo-repository/timeframe-analisys/timeframe-refactor.txt`.
@@ -557,10 +558,27 @@ uno stub minimo dell'API cAlgo. Verifica sintassi e tipi, non il comportamento �
 la sua prova di fedeltà è che compila **anche la versione precedente** del bot: uno
 stub che riuscisse a compilare solo quella nuova sarebbe stato piegato su di essa.
 
-**Passo 7 — riscaldamento e `PushBars`.** Il server aggrega ciò che il client
-spinge, il riscaldamento viene dal disco, R2/R3 di
-[`finestra-candele-e-riscaldamento.md`](finestra-candele-e-riscaldamento.md)
-spariscono.
+**Passo 7 — riscaldamento dal disco. Fatto l'08/09/2026, per la metà che non
+dipende dal passo 6.** All'apertura di una sessione `ExternalBroker` il server
+riempie da sé la storia di ogni stream leggendo
+`datafeed-external/{BROKER}/@SYM_1.json` e aggregando col layer
+(`TradingSessionService.WarmUpFromDisk` → `ExternalDatafeedStore.ReadWarmUpAsync`).
+Si legge sempre dal **minuto**: gli aggregati su disco sono cache derivata, e
+riscaldarsi da lì sarebbe riscaldarsi dal derivato. L'archivio è quello del broker
+del conto che esegue, la stessa risoluzione del price source della sessione.
+
+**Dichiarato, non fatale.** Archivio mancante o vuoto, simbolo fuori calendario,
+broker non risolvibile: l'apertura non si ferma — il percorso del client è ancora
+lì ed è il ripiego — ma ogni stream porta nel descriptor le barre che ha oppure il
+motivo per cui non ne ha (`TradingInstrument.WarmUpByTimeframe`). Quel che non
+deve succedere è partire senza storia *senza dirlo*.
+
+**R2 e R3 non spariscono ancora**, e non possono: finché i bot operativi mandano
+barre già aggregate (passo 6-operativo) il client deve poter caricare la propria
+storia dal broker, ed è comunque l'unica strada dopo un riavvio del server. Il
+guadagno immediato è su due casi reali: la serie del broker più corta di
+`RequiredCandles`, che oggi lascia la sessione muta, e la prima barra, che diventa
+valutabile invece di essere la 577ª.
 
 **Passo 8 — `aggregate_flat_feed.py` a solo 1m** e rigenerazione della cache del
 vendor.

@@ -284,6 +284,44 @@ public sealed class TradingInstrument
     /// </summary>
     public IReadOnlyDictionary<int, int> RequiredCandlesByTimeframe { get; init; } =
         new Dictionary<int, int>();
+
+    /// <summary>
+    /// Cosa il server si e' gia' caricato da solo dall'archivio del broker, per timeframe. Vuoto
+    /// quando il riscaldamento dal disco non e' stato possibile — e in quel caso
+    /// <see cref="StreamWarmUp.Skipped"/> di ogni voce dice perche'.
+    ///
+    /// <para><b>A cosa serve al client.</b> A sapere <i>da dove</i> continuare invece di rispedire
+    /// la storia profonda: <see cref="StreamWarmUp.LastBarUtc"/> e' l'ultima candela che il server
+    /// ha gia'. Finche' il client manda una finestra che la contiene, il server accoda solo cio' che
+    /// non ha e non c'e' nessun buco da ricucire.</para>
+    /// </summary>
+    public IReadOnlyDictionary<int, StreamWarmUp> WarmUpByTimeframe { get; init; } =
+        new Dictionary<int, StreamWarmUp>();
+}
+
+/// <summary>
+/// Il riscaldamento che il server ha fatto da solo su uno stream, letto dall'archivio del broker
+/// (<c>datafeed-external/{BROKER}/@SYM_1.json</c>) e aggregato col layer.
+///
+/// <para>Viaggia nel descriptor perche' la domanda che il client deve poter fare all'apertura e'
+/// una sola: «quanta storia hai gia' e fino a quando?». Senza risposta il client non puo' che
+/// rispedirla tutta, che e' il problema che il disco risolve.</para>
+/// </summary>
+public sealed class StreamWarmUp
+{
+    /// <summary>Candele che il server ha caricato in storia per questo stream.</summary>
+    public int Bars { get; init; }
+
+    /// <summary>Apertura dell'ultima candela caricata. Null quando non ce n'e' nessuna.</summary>
+    public DateTime? LastBarUtc { get; init; }
+
+    /// <summary>Archivio da cui viene, cioe' la cartella broker di <c>datafeed-external</c>.</summary>
+    public string Broker { get; init; } = string.Empty;
+
+    /// <summary>
+    /// Perche' il riscaldamento dal disco non c'e' stato, in parole. Null = e' andato bene.
+    /// </summary>
+    public string? Skipped { get; init; }
 }
 
 public sealed class ClosedBar

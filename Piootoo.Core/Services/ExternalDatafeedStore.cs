@@ -406,6 +406,105 @@ public sealed class ExternalDatafeedStore
         return response;
     }
 
+    /// <summary>
+    /// La storia con cui una sessione <c>ExternalBroker</c> si riscalda: le ultime
+    /// <paramref name="bars"/> candele dello stream, costruite dall'archivio del broker.
+    ///
+    /// <para><b>Si legge sempre dal minuto.</b> Gli <c>@SYM_{tf}.json</c> sopra il minuto sono cache
+    /// derivata: riscaldarsi da li' vorrebbe dire riscaldarsi dal derivato, e una cache rigenerata
+    /// con un calendario diverso non lo direbbe. L'aggregazione passa dallo stesso
+    /// <see cref="BarAggregator"/> che costruisce il feed, quindi la storia con cui la sessione
+    /// parte sta sulla stessa griglia delle barre su cui poi girera'.</para>
+    ///
+    /// <para><b>Non solleva.</b> Un archivio mancante, vuoto o su un simbolo fuori calendario
+    /// riempie <see cref="WarmUpSeriesDto.Skipped"/> e basta: chi apre la sessione decide se e'
+    /// fatale, e in ogni caso deve poterlo <i>dire</i>. E' la differenza fra una sessione che parte
+    /// senza storia dichiarandolo e una che parte muta.</para>
+    ///
+    /// <para><b>Costo.</b> Legge e aggrega l'intero minuto dello stream — per un anno sono ~370.000
+    /// barre per simbolo — per tenerne le ultime poche centinaia. Si paga una volta all'apertura
+    /// della sessione, non a ogni barra, ed e' lo stesso costo che il client pagherebbe in rete.</para>
+    /// </summary>
+    public async Task<WarmUpSeriesDto> ReadWarmUpAsync(string? broker, string symbol, int timeframeMinutes, int bars)
+    {
+        var normalizedBroker = NormalizeBroker(broker);
+        var result = new WarmUpSeriesDto
+        {
+            Broker = normalizedBroker,
+            Symbol = symbol,
+            TimeframeMinutes = timeframeMinutes
+        };
+
+        if (bars <= 0)
+        {
+            result.Skipped = "nessuna candela richiesta.";
+            return result;
+        }
+
+        if (!MarketCalendarRegistry.Current.TryGet(symbol, out var calendar))
+        {
+            result.Skipped =
+                $"'{symbol}' non e' nel calendario di mercato: senza griglia dichiarata non si sa " +
+                "dove cadono i suoi bucket.";
+            return result;
+        }
+
+        if (!SessionGrid.DividesTheDay(timeframeMinutes))
+        {
+            result.Skipped = $"{timeframeMinutes} minuti non divide il giorno: i bucket scivolerebbero.";
+            return result;
+        }
+
+        result.Grid = timeframeMinutes == 1
+            ? "griglia(1m)"
+            : $"griglia(1m->{timeframeMinutes}m, {calendar.ResearchTimeZone} {calendar.SessionStartHour:00}:00)";
+
+        var minutes = await ReadCompactedAsync(normalizedBroker, symbol, 1);
+        result.MinuteBars = minutes.Count;
+        if (minutes.Count == 0)
+        {
+            result.Skipped =
+                $"nessuna barra da un minuto per {symbol} su {normalizedBroker}: l'archivio non c'e' " +
+                "o non e' mai stato raccolto.";
+            return result;
+        }
+
+        var serie = minutes.Select(candle => new OhlcvData
+        {
+            DateTime = candle.DateTime,
+            Open = candle.Open,
+            High = candle.High,
+            Low = candle.Low,
+            Close = candle.Close,
+            Volume = candle.Volume
+        });
+
+        // A un minuto non c'e' niente da aggregare, e passare comunque dall'aggregatore
+        // scarterebbe l'ultimo bucket come "in formazione" senza motivo.
+        var complete = timeframeMinutes == 1
+            ? serie.ToList()
+            : new BarAggregator(calendar, timeframeMinutes)
+                .Aggregate(serie)
+                .Where(bar => bar.Complete)
+                .Select(bar => bar.Bar)
+                .ToList();
+
+        result.AvailableBars = complete.Count;
+        if (complete.Count == 0)
+        {
+            result.Skipped =
+                $"l'archivio di {symbol} su {normalizedBroker} ha {minutes.Count} barre da un minuto " +
+                $"ma nessun bucket completo da {timeframeMinutes} minuti.";
+            return result;
+        }
+
+        result.Candles = complete.Count <= bars
+            ? complete
+            : complete.GetRange(complete.Count - bars, bars);
+        result.LastBarUtc = result.Candles[^1].DateTime;
+        return result;
+    }
+
     private async Task<RebuildStreamResultDto> RebuildOneAsync(string broker, string symbol, int timeframe)
     {
         var result = new RebuildStreamResultDto

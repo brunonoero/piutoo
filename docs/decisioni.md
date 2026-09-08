@@ -3551,3 +3551,35 @@ che il motore fa. Difetto di artefatto, non di esecuzione, ma e' costato mezza i
   17:00-16:00, che dal passo 4a **non esiste piu'** — tutte e 124 le PTS usano la sessione a
   giornata piena e il ramo di borsa e' provatamente irraggiungibile. Meta' del problema e' chiusa
   (`ClassifySessionBar`), l'altra meta' e' la voce sulla finestra qui sopra.
+- **2026-09-08** — **Il riscaldamento di una sessione lo legge il server dal disco, non il client dal
+  broker.** Passo 7, per la meta' che non dipende dal 6. All'apertura di una sessione
+  `ExternalBroker` il server riempie da se' la storia di ogni stream leggendo
+  `datafeed-external/{BROKER}/@SYM_1.json` e aggregando col layer
+  (`TradingSessionService.WarmUpFromDisk` → `ExternalDatafeedStore.ReadWarmUpAsync`). Il problema e'
+  aritmetico: `PTS_NQ_VBO_002_240` chiede 606 barre a 240 minuti, cioe' **145.440 barre da un
+  minuto**, e spedirle dal client all'avvio ricrea il problema che il journal a blocchi del
+  raccoglitore ha gia' risolto.
+
+  **Si legge sempre dal minuto**, mai dagli `@SYM_{tf}.json`: quelli sono cache derivata, e
+  riscaldarsi da li' sarebbe riscaldarsi dal derivato — una cache rigenerata con un calendario
+  diverso non lo direbbe. L'aggregazione passa dallo stesso `BarAggregator` che costruisce il feed,
+  quindi la storia con cui la sessione parte sta sulla stessa griglia delle barre su cui poi girera',
+  per costruzione e non per disciplina. L'ultimo bucket resta fuori anche quando i minuti ci
+  sarebbero tutti: dal disco non si puo' sapere se e' finito o solo l'ultimo arrivato, e una barra in
+  formazione nel riscaldamento diventa una barra falsa che nessuno distingue piu' da una vera.
+
+  **Dichiarato, non fatale.** Archivio mancante o vuoto, simbolo fuori calendario, broker non
+  risolvibile: l'apertura non si ferma — il percorso del client e' ancora li' ed e' il ripiego — ma
+  ogni stream porta nel descriptor le barre che ha oppure **il motivo** per cui non ne ha
+  (`TradingInstrument.WarmUpByTimeframe` → `StreamWarmUp.Skipped`). Quel che non deve succedere e'
+  partire senza storia *senza dirlo*: e' la classe di errore per cui esiste `session-summary.json`.
+  L'archivio e' quello del broker del conto che esegue, la stessa risoluzione con cui la sessione
+  dichiara il proprio price source — riscaldarsi da un broker e operare su un altro mescolerebbe due
+  serie di prezzi diverse per lo stesso simbolo.
+
+  **R2 e R3 di `domini/finestra-candele-e-riscaldamento.md` non spariscono ancora**, contro quanto
+  il piano prevedeva: finche' i bot operativi mandano barre gia' aggregate (passo 6-operativo) il
+  client deve poter caricare la propria storia dal broker, ed e' comunque l'unica strada dopo un
+  riavvio del server. Il guadagno immediato sta su due casi reali: la serie del broker piu' corta di
+  `RequiredCandles`, che oggi lascia la sessione muta, e la prima barra, che diventa valutabile
+  invece di essere la 577esima.

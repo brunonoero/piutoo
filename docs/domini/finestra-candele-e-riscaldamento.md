@@ -49,12 +49,39 @@ Non esiste un parametro locale del cBot che dichiari la stessa cifra, ed è
 voluto: sarebbe una seconda verità, e divergerebbe dal masterfilter in silenzio
 il giorno in cui si aggiunge una strategia più esigente.
 
-### R2 — Il client carica la storia dal broker prima di partire
+### R2 — La storia la legge il server dal disco; il client è il ripiego
 
-cTrader tiene in serie solo le barre che gli servono per il grafico. Il cBot
-chiama `Bars.LoadMoreHistory()` su ogni stream finché la serie non copre
-`RequiredCandles`, e se non ci arriva lo dice a log invece di procedere in
-silenzio.
+**Dall'08/09/2026** l'apertura di una sessione `ExternalBroker` riempie da sé la storia di ogni
+stream leggendo `datafeed-external/{BROKER}/@SYM_1.json` e aggregando col layer
+(`TradingSessionService.WarmUpFromDisk` → `ExternalDatafeedStore.ReadWarmUpAsync`).
+
+Il problema che risolve è aritmetico: `PTS_NQ_VBO_002_240` chiede 606 barre a 240 minuti, cioè
+**145.440 barre da un minuto**. Spedirle dal client all'avvio ricrea esattamente il problema che il
+journal a blocchi del raccoglitore ha già risolto. Il disco tiene la storia, il client porta la coda.
+
+**Si legge sempre dal minuto**, mai dagli `@SYM_{tf}.json`: quelli sono cache derivata, e riscaldarsi
+da lì sarebbe riscaldarsi dal derivato. L'aggregazione passa dallo stesso `BarAggregator` che
+costruisce il feed, quindi la storia con cui la sessione parte sta sulla stessa griglia delle barre
+su cui poi girerà — per costruzione, non per disciplina. **L'ultimo bucket resta fuori** anche
+quando i minuti ci sarebbero tutti: dal disco non si può sapere se è finito o solo l'ultimo
+arrivato.
+
+**Non è fatale, ma è dichiarato.** Archivio mancante, vuoto, simbolo fuori calendario, broker non
+risolvibile: l'apertura non si ferma — il percorso del client esiste ancora ed è il ripiego — ma
+ogni stream porta nel descriptor o le barre che ha, o **il motivo** per cui non ne ha
+(`TradingInstrument.WarmUpByTimeframe` → `StreamWarmUp.Skipped`). Quello che non deve succedere è
+che la sessione parta senza storia *senza dirlo*.
+
+L'archivio da cui leggere è quello del **broker del conto che esegue**, la stessa risoluzione con cui
+la sessione dichiara il proprio price source: riscaldarsi dall'archivio di un broker e operare su un
+altro mescolerebbe due serie di prezzi diverse per lo stesso simbolo.
+
+**Il client carica ancora la storia dal broker.** `LoadMoreHistory` e `SendWarmUpWindow` non sono
+spariti: restano la strada quando il disco non ha niente, e restano l'unica strada dopo un riavvio
+del server. Spariranno con il passo 6-operativo, quando i bot manderanno solo il minuto. Nel
+frattempo il guadagno è già reale in due casi: quando la serie del broker è **più corta** di
+`RequiredCandles` — oggi la sessione resta muta e lo dice soltanto a log — e sulla prima barra, che
+ora è valutabile invece di essere la 577ª.
 
 ### R3 — Le candele viaggiano in due tempi
 
@@ -67,9 +94,10 @@ Il riscaldamento non fa valutare nulla perché le sue barre sono già passate:
 valutarle produrrebbe intent sul passato, che il bot eseguirebbe al prezzo di
 adesso. Per lo stesso motivo non consuma l'idempotency key e non avanza la
 sequence — la stessa barra può tornare più tardi come barra da valutare, e in
-quel momento non deve sembrare un replay.
+quel momento non deve sembrare un replay. Vale identico per il riscaldamento dal
+disco di R2, che infatti non passa da `PushBars`: riempie la storia e basta.
 
-Se il riscaldamento fallisce (server ancora irraggiungibile all'avvio) il client
+Se il riscaldamento del client fallisce (server ancora irraggiungibile all'avvio) il client
 lo ritenta alla prima barra: senza storia profonda il server non valuterebbe
 comunque, quindi procedere sarebbe lavoro a vuoto.
 

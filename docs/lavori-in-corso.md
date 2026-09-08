@@ -86,9 +86,12 @@ più il codice.
 - **6 (parte operativa) — i due cBot di esecuzione.** `PiootooDirectExecutionBot` e
   `PiootooDistributedExecutionBot` piegano ancora i bucket con una copia del vecchio codice,
   ancoraggio compreso: sono le ultime **due copie della tabella** su quattro.
-- **7 — riscaldamento dal disco.** Il server legge `datafeed-external/{BROKER}/@SYM_1.json` e il
-  client manda solo la coda. Fa sparire R2 e R3 di
-  [`domini/finestra-candele-e-riscaldamento.md`](domini/finestra-candele-e-riscaldamento.md).
+- **7 — riscaldamento dal disco. Fatto per la meta' che non dipende dal 6.** Il server riempie la
+  storia all'apertura leggendo `datafeed-external/{BROKER}/@SYM_1.json`. R2 e R3 di
+  [`domini/finestra-candele-e-riscaldamento.md`](domini/finestra-candele-e-riscaldamento.md)
+  **restano**: finche' i bot operativi mandano barre gia' aggregate il client deve poter
+  caricare la propria storia dal broker, ed e' comunque l'unica strada dopo un riavvio del
+  server. Chiude col passo 6-operativo.
 - **8 — `aggregate_flat_feed.py` produce solo il minuto.** I CSV del vendor sono sul disco
   (`datafeed-future/FUTURES_Historical_Data/`, 200-360 MB per simbolo), quindi non serve nessuna
   raccolta. Chiude da sé il difetto §7quater: una barra giornaliera all'anno per simbolo è fuori

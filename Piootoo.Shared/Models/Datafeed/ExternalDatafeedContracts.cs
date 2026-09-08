@@ -314,3 +314,47 @@ public sealed class RebuildFromMinutesResponseDto
     public int RebuiltCount => Streams.Count(stream => stream.Rebuilt);
     public int SkippedCount => Streams.Count(stream => !stream.Rebuilt);
 }
+
+/// <summary>
+/// Riscaldamento di uno stream letto dall'archivio del broker: la storia che il server si carica da
+/// solo all'apertura di una sessione <c>ExternalBroker</c>, invece di aspettare che il client gliela
+/// spinga barra per barra.
+///
+/// <para><b>Perche' esiste.</b> Il problema e' aritmetico: <c>PTS_NQ_VBO_002_240</c> chiede 606
+/// barre a 240 minuti, cioe' 145.440 barre da un minuto. Spedirle dal client all'avvio ricrea
+/// esattamente il problema che il journal a blocchi del raccoglitore ha gia' risolto. Il disco tiene
+/// la storia, il client porta la coda.</para>
+///
+/// <para>La sorgente autorevole e' sempre <c>@SYM_1.json</c>: gli aggregati su disco sono cache, e
+/// riscaldarsi da una cache sarebbe riscaldarsi dal derivato. Sopra il minuto l'aggregazione passa
+/// dallo stesso <c>BarAggregator</c> che costruisce il feed, quindi la storia con cui la sessione
+/// parte e quella su cui gira sono sulla stessa griglia per costruzione.</para>
+/// </summary>
+public sealed class WarmUpSeriesDto
+{
+    public string Broker { get; set; } = string.Empty;
+    public string Symbol { get; set; } = string.Empty;
+    public int TimeframeMinutes { get; set; }
+
+    /// <summary>Barre da un minuto lette dall'archivio, journal compreso.</summary>
+    public int MinuteBars { get; set; }
+
+    /// <summary>Bucket completi che l'archivio poteva offrire, prima del taglio a quante ne servono.</summary>
+    public int AvailableBars { get; set; }
+
+    /// <summary>Le candele consegnate, in ordine cronologico. Vuoto quando <see cref="Skipped"/> parla.</summary>
+    public List<Piootoo.Shared.Models.OhlcvData> Candles { get; set; } = new();
+
+    /// <summary>Apertura dell'ultima candela consegnata: e' da li' che il client deve continuare.</summary>
+    public DateTime? LastBarUtc { get; set; }
+
+    /// <summary>
+    /// Perche' non c'e' riscaldamento, in parole. Null = e' andato bene. Non e' un errore di per se':
+    /// il client ha ancora la propria strada, ma la sessione deve poterlo <b>dire</b> invece di
+    /// partire muta.
+    /// </summary>
+    public string? Skipped { get; set; }
+
+    /// <summary>La griglia con cui e' stato costruito, nella stessa forma del campo <c>source</c> del feed.</summary>
+    public string Grid { get; set; } = string.Empty;
+}

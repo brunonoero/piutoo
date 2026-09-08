@@ -289,6 +289,91 @@ public sealed class ExternalDatafeedStoreTests : IDisposable
 
     // ---------------------------------------------------------------------------------------------
 
+    /// <summary>
+    /// Il riscaldamento di una sessione si legge dal <b>minuto</b> e si aggrega col layer: la storia
+    /// con cui la sessione parte sta sulla stessa griglia delle barre su cui poi girera'.
+    ///
+    /// <para>Sei ore di minuti danno un bucket da 240 completo e uno solo: il secondo si ferma a
+    /// meta' ed e' scartato, perche' un bucket parziale nel riscaldamento e' un dato falso che poi
+    /// nessuno distingue da uno vero.</para>
+    /// </summary>
+    [Fact]
+    public async Task WarmUpIsBuiltFromTheMinuteAndKeepsOnlyCompleteBuckets()
+    {
+        var store = CreateStore();
+
+        // @NQ e' ancorato a mezzanotte europea: d'inverno il bucket da 240 apre alle 23:00 UTC.
+        var start = new DateTime(2026, 1, 12, 23, 0, 0, DateTimeKind.Utc);
+        await store.IngestBarsAsync(Request(Chunk("@NQ", 1, start, 6 * 60), compact: true));
+
+        var warmUp = await store.ReadWarmUpAsync(Broker, "@NQ", 240, bars: 10);
+
+        Assert.Null(warmUp.Skipped);
+        Assert.Equal(360, warmUp.MinuteBars);
+        Assert.Equal(1, warmUp.AvailableBars);
+        Assert.Equal(start, warmUp.LastBarUtc);
+        Assert.Contains("1m->240m", warmUp.Grid);
+    }
+
+    /// <summary>
+    /// Si consegnano le ULTIME candele, non le prime: e' la coda che serve a partire. E l'ultimo
+    /// bucket resta fuori anche quando i minuti ci sarebbero tutti — dal disco non si puo' sapere se
+    /// e' finito o solo l'ultimo arrivato, e una barra in formazione nel riscaldamento diventa una
+    /// barra falsa che nessuno distingue piu' da una vera.
+    /// </summary>
+    [Fact]
+    public async Task WarmUpReturnsTheMostRecentBarsAndDropsTheOneStillForming()
+    {
+        var store = CreateStore();
+        var start = new DateTime(2026, 1, 12, 0, 0, 0, DateTimeKind.Utc);
+
+        // Dieci ore di minuti: 00:00 -> 09:59.
+        await store.IngestBarsAsync(Request(Chunk("@NQ", 1, start, 600), compact: true));
+
+        var warmUp = await store.ReadWarmUpAsync(Broker, "@NQ", 60, bars: 3);
+
+        Assert.Null(warmUp.Skipped);
+        Assert.Equal(3, warmUp.Candles.Count);
+        Assert.Equal(start.AddHours(8), warmUp.Candles[^1].DateTime);
+        Assert.Equal(start.AddHours(6), warmUp.Candles[0].DateTime);
+        Assert.Equal(warmUp.Candles[^1].DateTime, warmUp.LastBarUtc);
+    }
+
+    /// <summary>
+    /// Archivio assente: si dichiara, non si solleva. Chi apre la sessione decide se e' fatale, ma
+    /// deve poterlo <b>dire</b> — una sessione che parte senza storia in silenzio e' la classe di
+    /// errore per cui esiste <c>session-summary.json</c>.
+    /// </summary>
+    [Fact]
+    public async Task WarmUpOnAnEmptyArchiveIsDeclaredNotThrown()
+    {
+        var store = CreateStore();
+
+        var warmUp = await store.ReadWarmUpAsync(Broker, "@NQ", 240, bars: 10);
+
+        Assert.NotNull(warmUp.Skipped);
+        Assert.Empty(warmUp.Candles);
+        Assert.Null(warmUp.LastBarUtc);
+    }
+
+    /// <summary>
+    /// Il riscaldamento NON si legge dall'aggregato su disco: quello e' cache derivata, e una cache
+    /// rigenerata con un calendario diverso non lo direbbe. Qui i 240 su disco ci sono, il minuto no.
+    /// </summary>
+    [Fact]
+    public async Task WarmUpDoesNotFallBackOnTheAggregatedCache()
+    {
+        var store = CreateStore();
+        var start = new DateTime(2026, 1, 12, 23, 0, 0, DateTimeKind.Utc);
+        await store.IngestBarsAsync(Request(Chunk("@NQ", 240, start, 20), compact: true));
+
+        var warmUp = await store.ReadWarmUpAsync(Broker, "@NQ", 240, bars: 10);
+
+        Assert.NotNull(warmUp.Skipped);
+        Assert.Contains("un minuto", warmUp.Skipped);
+        Assert.Empty(warmUp.Candles);
+    }
+
     private static IngestBarsRequestDto Request(ExternalBarChunkDto chunk, bool compact = false)
         => new() { Chunks = new List<ExternalBarChunkDto> { chunk }, Compact = compact };
 

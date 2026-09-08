@@ -4,6 +4,7 @@ using Piootoo.Shared.Configuration;
 using Piootoo.Shared.Enums;
 using Piootoo.Shared.Interfaces;
 using Piootoo.Shared.Models;
+using Piootoo.Shared.Models.Datafeed;
 using Piootoo.Shared.Models.Optimization;
 using Piootoo.Shared.Models.Trading;
 using Piootoo.Shared.Models.Workspaces;
@@ -286,6 +287,13 @@ public sealed class TradingSessionService : ITradingSessionService
         public required DateTime CreatedAtUtc { get; init; }
         public object Gate { get; } = new();
         public Dictionary<string, List<OhlcvData>> History { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// Esito del riscaldamento dal disco, per stream. Viaggia nel descriptor: il client deve
+        /// sapere quanta storia il server ha gia' e fino a quando, altrimenti non puo' che
+        /// rispedirla tutta.
+        /// </summary>
+        public Dictionary<string, StreamWarmUp> WarmUp { get; } = new(StringComparer.OrdinalIgnoreCase);
         public Dictionary<string, long> LastSequence { get; } = new(StringComparer.OrdinalIgnoreCase);
         public HashSet<string> BarKeys { get; } = new(StringComparer.Ordinal);
         public HashSet<string> ReportIds { get; } = new(StringComparer.Ordinal);
@@ -503,14 +511,22 @@ public sealed class TradingSessionService : ITradingSessionService
     private readonly IStrategyEvaluationService _evaluation;
     private readonly IPositionSizingService _positionSizing;
 
+    /// <summary>
+    /// L'archivio del datafeed esterno, da cui una sessione <c>ExternalBroker</c> si riscalda
+    /// all'apertura. <c>null</c> = non collegato: il riscaldamento resta quello del client, e la
+    /// sessione lo <b>dichiara</b> invece di sembrare riscaldata.
+    /// </summary>
+    private readonly ExternalDatafeedStore? _externalFeeds;
+
     public TradingSessionService(
         WorkspaceService workspaces, TradingPlanService plans, IStrategyEvaluationService evaluation,
-        IPositionSizingService? positionSizing = null)
+        IPositionSizingService? positionSizing = null, ExternalDatafeedStore? externalFeeds = null)
     {
         _workspaces = workspaces;
         _plans = plans;
         _evaluation = evaluation;
         _positionSizing = positionSizing ?? new PositionSizingService();
+        _externalFeeds = externalFeeds;
     }
 
     public TradingSessionService(
@@ -1170,7 +1186,142 @@ public sealed class TradingSessionService : ITradingSessionService
             StateDumpSuspended = restore is not null
         };
         _sessions[session.Id] = session;
+
+        // Il riscaldamento dal disco prima di consegnare il descriptor: il client deve sapere
+        // gia' nella risposta di apertura quanta storia il server ha e fino a quando, altrimenti
+        // non puo' che rispedirla tutta — che e' esattamente il problema che il disco risolve.
+        // Su una ripresa non si rifa': la storia della sessione e' quella che aveva.
+        if (restore is null) WarmUpFromDisk(session, accountNumber);
+
         return Describe(session);
+    }
+
+
+    /// <summary>
+    /// Riempie la storia di ogni stream leggendola dall'archivio del broker, all'apertura della
+    /// sessione, invece di aspettare che il client la spinga barra per barra.
+    ///
+    /// <para><b>Perche' il disco e non il client.</b> Il problema e' aritmetico:
+    /// <c>PTS_NQ_VBO_002_240</c> chiede 606 barre a 240 minuti, cioe' 145.440 barre da un minuto.
+    /// Spedirle all'avvio ricrea il problema che il journal a blocchi del raccoglitore ha gia'
+    /// risolto. Il disco tiene la storia, il client porta la coda.</para>
+    ///
+    /// <para><b>Non e' fatale, ma e' dichiarato.</b> Un archivio mancante non ferma l'apertura: il
+    /// percorso del client esiste ancora ed e' il ripiego. Quello che non deve succedere e' che la
+    /// sessione parta senza storia <i>senza dirlo</i> — e' la classe di errore per cui esiste
+    /// <c>session-summary.json</c>. Ogni stream porta nel descriptor o le barre che ha, o il motivo
+    /// per cui non ne ha.</para>
+    ///
+    /// <para><b>Solo <see cref="ExecutionMode.ExternalBroker"/>.</b> Una sessione simulata dal server
+    /// ha il proprio datafeed e non passa di qui.</para>
+    /// </summary>
+    private void WarmUpFromDisk(Session session, string? accountNumber)
+    {
+        if (session.Mode != ExecutionMode.ExternalBroker)
+            return;
+
+        var streams = session.Strategies
+            .GroupBy(s => (Symbol: Normalize(s.Symbol), s.TimeframeMinutes))
+            .Select(g => (g.Key.Symbol, g.Key.TimeframeMinutes, Required: g.Max(s => s.RequiredCandles)))
+            .OrderBy(x => x.Symbol, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(x => x.TimeframeMinutes)
+            .ToList();
+
+        if (streams.Count == 0)
+            return;
+
+        if (_externalFeeds is null)
+        {
+            DeclareNoWarmUp(session, streams, string.Empty,
+                "archivio del datafeed esterno non collegato a questo server.");
+            return;
+        }
+
+        var broker = ResolveWarmUpBroker(accountNumber);
+        if (string.IsNullOrWhiteSpace(broker))
+        {
+            DeclareNoWarmUp(session, streams, string.Empty,
+                "nessun broker risolvibile per questa sessione: senza sapere da quale archivio " +
+                "leggere, sceglierne uno a caso darebbe barre di un altro conto.");
+            return;
+        }
+
+        foreach (var (symbol, timeframe, required) in streams)
+        {
+            var stream = StreamKey(symbol, timeframe);
+            WarmUpSeriesDto serie;
+            try
+            {
+                // Blocca, ed e' voluto: si paga una volta all'apertura, prima che la sessione sia
+                // utilizzabile. Renderla asincrona vorrebbe dire rendere asincrona l'apertura, che
+                // e' sincrona da contratto fino ai controller.
+                serie = _externalFeeds
+                    .ReadWarmUpAsync(broker, symbol, timeframe, required)
+                    .GetAwaiter().GetResult();
+            }
+            catch (Exception ex)
+            {
+                // Un archivio illeggibile non impedisce di aprire la sessione, ma non puo' passare
+                // in silenzio: il client ha ancora la propria strada e deve sapere di doverla usare.
+                session.WarmUp[stream] = new StreamWarmUp
+                {
+                    Broker = broker!,
+                    Skipped = $"lettura fallita: {ex.Message}"
+                };
+                Console.WriteLine($"[Sessione {session.Id}] Riscaldamento {stream}: {ex.Message}");
+                continue;
+            }
+
+            if (serie.Skipped is { } motivo)
+            {
+                session.WarmUp[stream] = new StreamWarmUp { Broker = broker!, Skipped = motivo };
+                Console.WriteLine($"[Sessione {session.Id}] Riscaldamento {stream}: {motivo}");
+                continue;
+            }
+
+            var history = session.History.TryGetValue(stream, out var esistente)
+                ? esistente
+                : session.History[stream] = [];
+            history.AddRange(serie.Candles);
+            TrimHistory(session, symbol, timeframe, history);
+
+            session.WarmUp[stream] = new StreamWarmUp
+            {
+                Bars = history.Count,
+                LastBarUtc = serie.LastBarUtc,
+                Broker = broker!
+            };
+
+            Console.WriteLine(
+                $"[Sessione {session.Id}] Riscaldamento {stream}: {history.Count} candele da {broker} " +
+                $"fino a {serie.LastBarUtc:yyyy-MM-dd HH:mm}Z (ne servono {required}).");
+        }
+    }
+
+    /// <summary>
+    /// Da quale archivio leggere il riscaldamento: la cartella datafeed del broker del conto che
+    /// esegue. E' la stessa risoluzione con cui la sessione dichiara il proprio price source, e
+    /// deve restare la stessa: riscaldarsi dall'archivio di un broker e operare su un altro
+    /// mescolerebbe due serie di prezzi diverse per lo stesso simbolo.
+    /// </summary>
+    private string? ResolveWarmUpBroker(string? accountNumber)
+    {
+        if (string.IsNullOrWhiteSpace(accountNumber))
+            return null;
+
+        var account = _workspaces.ListAccounts().FirstOrDefault(candidate =>
+            string.Equals(candidate.AccountNumber?.Trim(), accountNumber.Trim(), StringComparison.OrdinalIgnoreCase));
+        return _workspaces.ResolveBrokerLabelForAccount(account);
+    }
+
+    private static void DeclareNoWarmUp(
+        Session session,
+        IEnumerable<(string Symbol, int TimeframeMinutes, int Required)> streams,
+        string broker,
+        string motivo)
+    {
+        foreach (var (symbol, timeframe, _) in streams)
+            session.WarmUp[StreamKey(symbol, timeframe)] = new StreamWarmUp { Broker = broker, Skipped = motivo };
     }
 
     /// <summary>
@@ -4297,7 +4448,13 @@ public sealed class TradingSessionService : ITradingSessionService
                 // Quanta storia serve al server per valutare quello stream: il client la usa per
                 // sapere quante candele caricare dal broker e quanto profonda spedire la finestra.
                 RequiredCandlesByTimeframe = g.GroupBy(x => x.TimeframeMinutes)
-                    .ToDictionary(tf => tf.Key, tf => tf.Max(x => x.RequiredCandles))
+                    .ToDictionary(tf => tf.Key, tf => tf.Max(x => x.RequiredCandles)),
+                // Cosa il server si e' gia' letto dal disco, per timeframe. E' la risposta alla sola
+                // domanda che il client deve poter fare all'apertura: quanta storia hai gia' e fino
+                // a quando. Senza, non puo' che rispedirla tutta.
+                WarmUpByTimeframe = g.Select(x => x.TimeframeMinutes).Distinct()
+                    .Where(tf => session.WarmUp.ContainsKey(StreamKey(g.Key, tf)))
+                    .ToDictionary(tf => tf, tf => session.WarmUp[StreamKey(g.Key, tf)])
             }).ToArray()
     };
 
