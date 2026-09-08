@@ -41,11 +41,14 @@ namespace cAlgo.Robots
     /// nella status invece di riempirli. Se il broker non ha un periodo, quel periodo resta vuoto e
     /// si vede.</para>
     ///
-    /// <para><b>Cosa raccogliere lo si dichiara in due modi.</b> O a mano (<c>Simboli</c>), o con un
-    /// <c>Codice piano</c>: in quel caso gli strumenti arrivano dal masterfilter del workspace del
-    /// piano, gia' con il nome che ognuno ha su questo conto. Con il piano <c>Simboli</c> cambia
-    /// mestiere: non dichiara piu' niente, <b>filtra</b> — si raccolgono solo gli strumenti del
-    /// masterfilter che vi compaiono. Vuoto = tutto il piano.</para>
+    /// <para><b>Cosa raccogliere lo dichiara il piano, e nient'altro.</b> Il <c>Codice piano</c> e'
+    /// obbligatorio: gli strumenti arrivano dal masterfilter del suo workspace, gia' con il nome che
+    /// ognuno ha su questo conto, e i timeframe da far derivare al server vengono dalla stessa
+    /// lista. Dalla 7.1.0 non c'e' piu' un elenco di simboli ne' di timeframe da scrivere a mano:
+    /// erano una seconda copia di cio' che il masterfilter dice gia', e due liste della stessa cosa
+    /// divergono in silenzio. Per rifare un pezzo di storia si stringe la <b>finestra di date</b>,
+    /// non l'elenco dei simboli: la raccolta e' idempotente e ripassare su tutto il piano non
+    /// riscrive niente di gia' presente.</para>
     ///
     /// <para><b>Raccoglie SOLO barre da un minuto UTC.</b> Dalla 2.0.0 il bot non costruisce piu'
     /// nessun timeframe: chiede alla piattaforma la serie da un minuto, la spedisce cosi' com'e', e
@@ -90,22 +93,28 @@ namespace cAlgo.Robots
     [Robot(TimeZone = TimeZones.UTC, AccessRights = AccessRights.FullAccess)]
     public partial class PiootooDatafeedSyncBot : Robot
     {
-        // Versione PROPRIA, non quella di Piootoo.Shared.PiootooVersion — e il perche' va detto,
-        // visto che il bot distribuito invece la segue. Quel numero e' la sintesi del contratto di
-        // esecuzione (sessioni, intent, report di fill): muoverlo significa che server e bot
-        // operativi devono essere aggiornati insieme. Questo raccoglitore non tocca quel contratto:
-        // parla solo con api/datafeed-external, che e' additivo e retrocompatibile per costruzione
-        // (i blocchi sono idempotenti). Legarlo alla versione del progetto vorrebbe dire che ogni
-        // release del server fa comparire un finto disallineamento nel log di un bot che non e'
-        // cambiato — o costringe a ri-deployarlo per niente.
-        // 2.0.0: il bot raccoglie SOLO barre da un minuto. Spariti i tre parametri della griglia
-        // (fuso, ora di inizio sessione, timeframe base) e il codice che piegava i bucket: quella
-        // regola vive adesso in un punto solo, lato server (Piootoo.Shared/MarketData/SessionGrid).
-        // Il salto di major e' dovuto: un archivio raccolto con la 1.x contiene aggregati costruiti
-        // dal bot, uno raccolto con la 2.x contiene il minuto e aggregati derivati dal server, e i
-        // due non sono la stessa cosa. La versione finisce nel campo `source` del feed ed e' il solo
-        // modo di distinguerli a posteriori.
-        private const string BotVersion = "2.0.0";
+        // Dalla 7.1.0 il raccoglitore segue la numerazione del progetto, come i due bot operativi:
+        // una sola linea di versioni per tutto cio' che si distribuisce in cTrader, cosi' "quale
+        // release ho su questo grafico" ha una risposta sola. Fino alla 3.0.0 aveva una
+        // numerazione propria, sull'argomento che non tocca il contratto di esecuzione e che
+        // ogni release del server gli avrebbe fatto comparire un finto disallineamento; il costo
+        // di quella scelta era pero' avere due scale di versioni per tre bot, e la versione finisce
+        // nel campo `source` del feed — dove un 2.x accanto a un 7.x non dice piu' niente a nessuno.
+        //
+        // Storia delle rotture, che restano leggibili nel `source` degli archivi gia' raccolti:
+        // - 2.0.0: il bot raccoglie SOLO barre da un minuto. Spariti i tre parametri della griglia
+        //   (fuso, ora di inizio sessione, timeframe base) e il codice che piegava i bucket: quella
+        //   regola vive adesso in un punto solo, lato server (Piootoo.Shared/MarketData/SessionGrid).
+        //   Un archivio raccolto con la 1.x contiene aggregati costruiti dal bot, uno raccolto dopo
+        //   contiene il minuto e aggregati derivati dal server, e i due non sono la stessa cosa.
+        // - 7.1.0 (era 3.0.0): il PIANO e' l'unica fonte. Spariti 'Simboli' e 'Timeframe da far
+        //   derivare al server': erano una seconda lista delle stesse cose che il masterfilter
+        //   dichiara gia', e l'elenco timeframe senza il simbolo produceva una derivazione che non
+        //   costruiva niente e lo riportava come "zero stream" — indistinguibile da un successo. La
+        //   derivazione passa sempre da planCode ed e' rifatta anche allo stop, per la coda raccolta
+        //   in sincronia. Due parametri salvati nelle istanze spariscono, e un'istanza senza codice
+        //   piano non parte piu': va riconfigurata, non solo ricompilata.
+        private const string BotVersion = "7.1.0";
 
         /// <summary>
         /// Tetto ai giri di <c>LoadMoreHistory</c> in un solo battito di timer. Il broker risponde a
@@ -141,12 +150,14 @@ namespace cAlgo.Robots
         public string ServerBaseUrl { get; set; }
 
         /// <summary>
-        /// Codice del piano da cui prendere gli strumenti. Valorizzato, <b>vince su
-        /// <see cref="TimeframeList"/></b>, che viene ignorato: le coppie (simbolo, timeframe) le
-        /// dichiara il masterfilter del workspace del piano, e il nome che ogni simbolo ha su questo
-        /// conto arriva dalla tabella di conversione dell'account — cosi' non c'e' niente da mappare
-        /// a mano. <see cref="SymbolList"/> invece resta buono: non dichiara gli strumenti, li
-        /// <b>filtra</b> (vedi la sua documentazione).
+        /// Codice del piano da cui prendere gli strumenti. <b>Obbligatorio</b>: e' l'unica fonte
+        /// degli strumenti da raccogliere e dei timeframe da far derivare al server.
+        ///
+        /// <para><b>Perche' e' l'unica.</b> Gli strumenti li dichiara il masterfilter del workspace
+        /// del piano, e il nome che ognuno ha su questo conto arriva dalla tabella di conversione
+        /// dell'account: non c'e' niente da mappare a mano. Un elenco scritto qui accanto sarebbe
+        /// una seconda lista della stessa cosa, e divergerebbe in silenzio il giorno in cui si
+        /// aggiunge una strategia su un simbolo nuovo — il feed mancherebbe proprio dove serve.</para>
         ///
         /// <para>Il codice piano e' globale, quindi basta questo: niente workspace, niente account.
         /// E non apre nessuna sessione — un raccoglitore e' una lettura pura e non deve avere
@@ -155,42 +166,13 @@ namespace cAlgo.Robots
         /// <para><b>Niente Titano.</b> Gli strumenti vengono dal masterfilter, non dalla rotazione
         /// corrente: il datafeed di uno strumento serve anche mentre le sue strategie sono spente,
         /// altrimenti alla riaccensione mancherebbe la storia della pausa.</para>
+        ///
+        /// <para><b>Per rifare un simbolo solo</b> si usa la finestra di date, non un filtro sui
+        /// simboli: la raccolta e' idempotente — la chiave e' l'istante di apertura della barra —
+        /// quindi ripassare su tutto il piano non riscrive niente di gia' presente.</para>
         /// </summary>
-        [Parameter("Codice piano (vuoto = usa l'elenco simboli)", DefaultValue = "", Group = "Cosa raccogliere")]
+        [Parameter("Codice piano (obbligatorio)", DefaultValue = "", Group = "Cosa raccogliere")]
         public string PlanCode { get; set; }
-
-        /// <summary>
-        /// Elenco dei simboli, separati da virgola. Ogni voce e' il nome del simbolo
-        /// <b>del broker</b>, opzionalmente seguito dal simbolo Piootoo con cui salvarlo:
-        /// <c>NAS100=@NQ, XAUUSD=@GC, US500=@ES</c>. Senza mappatura si usa il nome del broker
-        /// preceduto da <c>@</c>.
-        ///
-        /// <para><b>Ha due mestieri, secondo <see cref="PlanCode"/>.</b> Senza piano <i>dichiara</i>
-        /// gli strumenti (vuoto = solo il simbolo del grafico). Con il piano <i>filtra</i>: gli
-        /// strumenti restano quelli del masterfilter — con i loro timeframe e il loro nome sul conto
-        /// — e si raccolgono solo quelli elencati qui; vuoto = tutti. Serve a rifare la storia di un
-        /// simbolo solo senza toccare il resto del piano, che e' l'uso normale quando ci si accorge
-        /// che a un feed manca un pezzo.</para>
-        ///
-        /// <para>In filtro la voce si confronta sia con il nome del broker sia con il simbolo
-        /// Piootoo, con o senza <c>@</c>: <c>@NQ</c>, <c>NQ</c> e <c>NAS100</c> selezionano lo stesso
-        /// strumento. Una voce che non corrisponde a niente viene segnalata e ignorata — non ferma
-        /// la raccolta degli altri.</para>
-        /// </summary>
-        [Parameter("Simboli (broker[=@PIOOTOO], separati da virgola)", DefaultValue = "", Group = "Cosa raccogliere")]
-        public string SymbolList { get; set; }
-
-        /// <summary>
-        /// I timeframe che il <b>server</b> deve derivare dal minuto a fine backfill. Non e' piu'
-        /// "cosa raccogliere": si raccoglie il minuto e basta.
-        ///
-        /// <para>Vuoto = si ricostruisce quello che sul disco c'e' gia'. Con <see cref="PlanCode"/>
-        /// questo campo viene <b>ignorato</b>: i timeframe li dichiara il masterfilter del piano, che
-        /// resta l'unica fonte di verita' su quali servono — un elenco scritto qui accanto
-        /// divergerebbe in silenzio il giorno in cui si aggiunge una strategia.</para>
-        /// </summary>
-        [Parameter("Timeframe da far derivare al server (vuoto = quelli gia' presenti)", DefaultValue = "", Group = "Aggregati")]
-        public string TimeframeList { get; set; }
 
         /// <summary>
         /// A fine backfill chiede al server di riscrivere gli aggregati dal minuto appena raccolto
@@ -330,8 +312,8 @@ namespace cAlgo.Robots
                 return;
             }
 
-            // Una virgola nel codice broker e' quasi sempre l'elenco simboli incollato nel campo
-            // sbagliato. La ripulitura la toglierebbe in silenzio ("BP,CL,GC" -> "BPCLGC") e l'intera
+            // Una virgola nel codice broker e' quasi sempre un elenco di simboli incollato nel
+            // campo sbagliato. La ripulitura la toglierebbe in silenzio ("BP,CL,GC" -> "BPCLGC") e l'intera
             // raccolta finirebbe in una cartella che non esiste per nessuno: il bot direbbe di aver
             // spedito migliaia di barre e il backtest continuerebbe a dichiarare il feed mancante.
             if (!string.IsNullOrWhiteSpace(BrokerCode) &&
@@ -340,9 +322,18 @@ namespace cAlgo.Robots
                 StopWithError(string.Format(
                     "'Codice broker' vale '{0}', ma il codice broker e' UNO: e' il nome della cartella " +
                     "datafeed-external/ in cui finisce tutto, e le virgole verrebbero tolte in silenzio " +
-                    "('{1}'). Se volevi elencare dei simboli, il parametro e' 'Simboli'; il codice broker " +
-                    "lasciarlo vuoto lo fa dedurre dal conto.",
+                    "('{1}'). Gli strumenti da raccogliere li dichiara il piano, non questo campo; " +
+                    "il codice broker lasciarlo vuoto lo fa dedurre dal conto.",
                     BrokerCode.Trim(), ResolveBrokerCode()));
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(PlanCode))
+            {
+                StopWithError(
+                    "'Codice piano' e' obbligatorio: e' da li' che arrivano gli strumenti da " +
+                    "raccogliere e i timeframe che il server deve derivare. Senza, il bot non " +
+                    "saprebbe che cosa raccogliere e partirebbe a vuoto.");
                 return;
             }
 
@@ -486,15 +477,14 @@ namespace cAlgo.Robots
         }
 
         /// <summary>
-        /// Espande l'elenco simboli x l'elenco timeframe. Uno stream che il broker non conosce non
-        /// ferma il run: si segnala e si prosegue con gli altri, perche' in un elenco di venti
-        /// simboli uno sbagliato non deve costare la raccolta degli altri diciannove.
+        /// Apre uno stream da un minuto per ogni strumento del piano. Uno stream che il broker non
+        /// conosce non ferma il run: si segnala e si prosegue con gli altri, perche' in un piano di
+        /// venti simboli uno non quotato su questo conto non deve costare la raccolta degli altri
+        /// diciannove.
         /// </summary>
         private bool TryBuildStreams(out string error)
         {
-            var requests = string.IsNullOrWhiteSpace(PlanCode)
-                ? BuildRequestsFromParameters(out error)
-                : BuildRequestsFromPlan(out error);
+            var requests = BuildRequestsFromPlan(out error);
 
             if (requests == null)
                 return false;
@@ -559,10 +549,8 @@ namespace cAlgo.Robots
 
             if (_streams.Count == 0)
             {
-                error = string.IsNullOrWhiteSpace(PlanCode)
-                    ? "Nessuno stream valido: controllare l'elenco simboli."
-                    : string.Format("Nessuno stream valido: nessuno strumento del piano '{0}' e' " +
-                                    "disponibile su questo account.", PlanCode);
+                error = string.Format("Nessuno stream valido: nessuno strumento del piano '{0}' e' " +
+                                      "disponibile su questo account.", PlanCode);
                 return false;
             }
 
@@ -587,10 +575,6 @@ namespace cAlgo.Robots
         private List<StreamRequest> BuildRequestsFromPlan(out string error)
         {
             error = null;
-
-            if (!string.IsNullOrWhiteSpace(TimeframeList))
-                Print("Codice piano impostato: 'Timeframe da far derivare al server' viene IGNORATO, " +
-                      "li dichiara il masterfilter del piano '{0}'.", PlanCode);
 
             var uri = string.Format("api/datafeed-external/plan-instruments?planCode={0}&accountNumber={1}",
                 Uri.EscapeDataString(PlanCode.Trim()), Uri.EscapeDataString(Account.Number.ToString()));
@@ -647,119 +631,8 @@ namespace cAlgo.Robots
             Print("Piano '{0}' ({1}), workspace '{2}', conto {3}: {4} strumenti dal masterfilter.",
                 plan.PlanCode, plan.PlanName, plan.WorkspaceId, plan.AccountNumber, requests.Count);
 
-            requests = ApplySymbolFilter(requests);
-            if (requests.Count == 0)
-            {
-                error = string.Format(
-                    "L'elenco simboli '{0}' non seleziona alcuno strumento del piano '{1}': " +
-                    "correggerlo, oppure svuotarlo per raccogliere tutto il piano.", SymbolList, PlanCode);
-                return null;
-            }
-
             foreach (var request in requests)
                 Print("   {0} -> {1}", request.BrokerSymbol, request.PiootooSymbol);
-
-            return requests;
-        }
-
-        /// <summary>
-        /// Restringe gli strumenti del piano a quelli elencati in <see cref="SymbolList"/>. Vuoto =
-        /// nessun filtro: il comportamento storico, tutto il masterfilter.
-        ///
-        /// <para>Il filtro tocca <b>solo quali</b> strumenti si raccolgono, mai <i>come</i>: timeframe
-        /// e nome sul conto restano quelli che ha dichiarato il piano. Una voce dell'elenco puo'
-        /// quindi portare una mappatura (<c>NAS100=@NQ</c>) senza che venga usata — dei due nomi si
-        /// prendono entrambi come chiavi di confronto, perche' chi filtra scrive indifferentemente il
-        /// nome del broker o quello Piootoo.</para>
-        ///
-        /// <para>Una voce che non corrisponde a nessuno strumento del piano si segnala e si ignora:
-        /// in un elenco di cinque simboli un refuso non deve costare la raccolta degli altri quattro.
-        /// Se pero' non ne corrisponde <i>nessuna</i>, il chiamante ferma il run con un errore: un
-        /// raccoglitore che parte e non raccoglie niente e' peggio di uno che non parte.</para>
-        /// </summary>
-        private List<StreamRequest> ApplySymbolFilter(List<StreamRequest> requests)
-        {
-            var wanted = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var piece in (SymbolList ?? string.Empty).Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries))
-            {
-                foreach (var side in piece.Split('='))
-                {
-                    var key = side.Trim().TrimStart('@');
-                    if (key.Length > 0)
-                        wanted.Add(key);
-                }
-            }
-
-            if (wanted.Count == 0)
-                return requests;
-
-            var kept = new List<StreamRequest>();
-            var matched = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var request in requests)
-            {
-                var brokerKey = (request.BrokerSymbol ?? string.Empty).Trim().TrimStart('@');
-                var piootooKey = (request.PiootooSymbol ?? string.Empty).Trim().TrimStart('@');
-
-                if (!wanted.Contains(brokerKey) && !wanted.Contains(piootooKey))
-                    continue;
-
-                kept.Add(request);
-                matched.Add(brokerKey);
-                matched.Add(piootooKey);
-            }
-
-            foreach (var key in wanted)
-            {
-                if (!matched.Contains(key))
-                    Print("Elenco simboli: '{0}' non corrisponde a nessuno strumento del piano '{1}'. Ignorato.",
-                        key, PlanCode);
-            }
-
-            Print("Elenco simboli attivo come FILTRO: {0} strumenti su {1} del piano ({2}).",
-                kept.Count, requests.Count,
-                string.Join(", ", kept.Select(request => request.PiootooSymbol)));
-
-            return kept;
-        }
-
-        /// <summary>Gli strumenti li dichiarano i parametri: elenco simboli x elenco timeframe.</summary>
-        private List<StreamRequest> BuildRequestsFromParameters(out string error)
-        {
-            error = null;
-
-            var entries = new List<string>();
-            foreach (var piece in (SymbolList ?? string.Empty).Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries))
-            {
-                var trimmed = piece.Trim();
-                if (trimmed.Length > 0)
-                    entries.Add(trimmed);
-            }
-
-            if (entries.Count == 0)
-                entries.Add(SymbolName);
-
-            var requests = new List<StreamRequest>();
-            foreach (var entry in entries)
-            {
-                string brokerName, piootooSymbol;
-                var separator = entry.IndexOf('=');
-                if (separator > 0)
-                {
-                    brokerName = entry.Substring(0, separator).Trim();
-                    piootooSymbol = entry.Substring(separator + 1).Trim();
-                }
-                else
-                {
-                    brokerName = entry;
-                    piootooSymbol = entry;
-                }
-
-                requests.Add(new StreamRequest
-                {
-                    BrokerSymbol = brokerName,
-                    PiootooSymbol = NormalizePiootooSymbol(piootooSymbol)
-                });
-            }
 
             return requests;
         }
@@ -1031,10 +904,21 @@ namespace cAlgo.Robots
         /// d'accordo il risultato non e' stato un errore ma un file con DUE griglie dentro, meta'
         /// barre ciascuna, tutte plausibili. Vedi docs/domini/layer-barre-e-calendario.md §7bis.</para>
         ///
-        /// <para><b>Quali timeframe.</b> Con un piano li dichiara il masterfilter, che e' la stessa
-        /// fonte da cui vengono gli strumenti da raccogliere; senza piano vale
-        /// <see cref="TimeframeList"/>, e se e' vuoto si rifanno quelli che sul disco ci sono
-        /// gia'.</para>
+        /// <para><b>Quali timeframe.</b> Li dichiara il masterfilter del piano, che e' la stessa
+        /// fonte da cui vengono gli strumenti da raccogliere: una sola lista, che non puo'
+        /// divergere da se stessa.</para>
+        ///
+        /// <para><b>Il simbolo va detto, e lo dice il server.</b> Broker, simbolo e timeframe
+        /// insieme sono dei <i>bersagli</i>, che il server costruisce anche quando il file non
+        /// esiste ancora; se manca anche uno solo dei tre restano dei <i>filtri</i> su cio' che sul
+        /// disco c'e' gia'. Una richiesta senza simbolo, su un archivio appena raccolto, non
+        /// costruisce quindi niente e lo riporta come "zero stream" — indistinguibile da un
+        /// successo. Passando da <c>planCode</c> il simbolo lo mette il server, uno per strumento
+        /// del masterfilter, e il caso non si presenta.</para>
+        ///
+        /// <para><b>Quando.</b> A fine backfill e di nuovo allo stop: con 'Resta in sincronia' fra
+        /// i due momenti possono passare giorni di minuti raccolti, che altrimenti non finirebbero
+        /// in nessun aggregato.</para>
         ///
         /// <para>Un fallimento qui non e' fatale: il minuto — che e' il dato che conta — e' gia'
         /// salvato, e la ricostruzione si puo' rifare a mano con la stessa chiamata. Ma va detto,
@@ -1050,32 +934,33 @@ namespace cAlgo.Robots
                 return;
             }
 
-            var uri = new StringBuilder("api/datafeed-external/rebuild-from-minutes?broker=");
-            uri.Append(Uri.EscapeDataString(_brokerCode));
+            // Il simbolo lo mette il server, ciclando sugli strumenti del masterfilter del piano:
+            // broker, simbolo e timeframe insieme sono per lui dei BERSAGLI, che costruisce anche
+            // quando il file non esiste ancora. Una richiesta senza simbolo puo' invece soltanto
+            // filtrare cio' che sul disco c'e' gia', e su un archivio appena raccolto non
+            // costruirebbe niente riportandolo come "zero stream" — indistinguibile da un successo.
+            PostAggregateRebuild(
+                "api/datafeed-external/rebuild-from-minutes?broker=" +
+                Uri.EscapeDataString(_brokerCode) +
+                "&planCode=" + Uri.EscapeDataString(PlanCode.Trim()),
+                true);
+        }
 
-            if (!string.IsNullOrWhiteSpace(PlanCode))
-            {
-                uri.Append("&planCode=").Append(Uri.EscapeDataString(PlanCode.Trim()));
-            }
-            else
-            {
-                foreach (var piece in (TimeframeList ?? string.Empty)
-                             .Split(new[] { ',', ';', ' ' }, StringSplitOptions.RemoveEmptyEntries))
-                {
-                    int minutes;
-                    if (int.TryParse(piece.Trim(), out minutes) && minutes > 1)
-                        uri.Append("&timeframeMinutes=").Append(minutes);
-                }
-            }
-
-            // Senza piano e senza timeframe si ricostruisce tutto l'archivio del broker, non il solo
-            // simbolo: e' la scelta prudente perche' i simboli raccolti in questo run sono comunque
-            // parte dello stesso archivio, e rifare un aggregato gia' corretto e' innocuo.
+        /// <summary>
+        /// Esegue una chiamata di derivazione e ne stampa l'esito.
+        /// </summary>
+        /// <param name="declaresTargets">
+        /// Vero quando la richiesta dichiara dei bersagli — un piano, oppure simbolo e timeframe —
+        /// e quindi "zero stream" e' un difetto da spiegare. Falso quando si stanno soltanto
+        /// riscrivendo gli aggregati esistenti, dove zero vuol dire che non ce n'erano.
+        /// </param>
+        private void PostAggregateRebuild(string uri, bool declaresTargets)
+        {
             Print("Derivazione degli aggregati dal minuto: {0}", uri);
 
             try
             {
-                using (var response = _http.Send(BuildRequest(HttpMethod.Post, uri.ToString())))
+                using (var response = _http.Send(BuildRequest(HttpMethod.Post, uri)))
                 {
                     var body = ReadBody(response);
                     if (!response.IsSuccessStatusCode)
@@ -1088,10 +973,21 @@ namespace cAlgo.Robots
                     var esito = JsonSerializer.Deserialize<RebuildResponseDto>(body, _json);
                     if (esito == null || esito.Streams == null || esito.Streams.Count == 0)
                     {
-                        Print("Derivazione degli aggregati: nessuno stream costruito. Se l'archivio e' " +
-                              "nuovo, dichiarare i timeframe (parametro 'Timeframe da far derivare al " +
-                              "server') oppure un codice piano: senza, si rifanno solo gli aggregati " +
-                              "che esistono gia'.");
+                        if (declaresTargets)
+                        {
+                            Print("Derivazione degli aggregati: nessuno stream costruito, benche' la " +
+                                  "richiesta dichiarasse dei bersagli. Il simbolo potrebbe non essere " +
+                                  "nel calendario di mercato del server, oppure il minuto non essere " +
+                                  "arrivato.");
+                        }
+                        else
+                        {
+                            Print("Derivazione degli aggregati: nessuno stream costruito. Sul disco non " +
+                                  "c'era alcun aggregato da riscrivere, e senza bersagli non se ne " +
+                                  "creano: serve il codice piano, oppure il parametro 'Timeframe da far " +
+                                  "derivare al server'.");
+                        }
+
                         return;
                     }
 
@@ -1548,6 +1444,13 @@ namespace cAlgo.Robots
             // Una sottoscrizione per serie, non per stream: vedi TryBuildStreams.
             foreach (var series in _bySeries.Keys)
                 series.BarOpened -= OnSeriesBarOpened;
+
+            // Di nuovo allo stop, non solo a fine backfill: con 'Resta in sincronia' il bot
+            // continua a spedire minuti per ore o giorni dopo che il backfill e' finito, e quella
+            // coda non sarebbe in nessun aggregato. La chiamata e' idempotente — riscrive dal
+            // minuto, che e' il dato autorevole — quindi rifarla non costa correttezza.
+            if (_backfillReported)
+                RequestAggregateRebuild();
 
             Print("Piootoo Datafeed Sync fermato. Barre spedite in totale: {0}.", _streams.Sum(stream => stream.SentBars));
         }
