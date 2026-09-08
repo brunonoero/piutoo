@@ -50,8 +50,8 @@ correzioni di difetti, non opzioni. E dicono quali cartelle archiviate non sono 
   `StrategyRotationManager`, `WeeklyRotationScheduler` e i tre endpoint che lo esponevano — era un
   terzo percorso di valutazione senza niente dell'ultimo mese), e la **SPA Angular**.
 
-Suite: **931 test, 40 rossi preesistenti**, nessuno nuovo in nessuno dei cinque commit. Tutto sul
-ramo `claude/layer-barre-passo-5`.
+Suite: **931 test, 40 rossi preesistenti**, nessuno nuovo in nessuno dei cinque commit. Tutto su
+`main` (`origin/main` allineato l'08/09/2026).
 
 ## Il resto, in ordine
 
