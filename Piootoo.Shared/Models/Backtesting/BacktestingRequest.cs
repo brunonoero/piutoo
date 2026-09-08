@@ -172,37 +172,28 @@ public class BacktestingRequest
     public decimal TrailingMinStepFraction { get; set; } = 0.10m;
 
     /// <summary>
-    /// La <b>finestra operativa</b> confronta l'etichetta di chiusura della barra invece di quella
-    /// di apertura. Default <c>false</c>: il comportamento di sempre, nessun run esistente cambia.
+    /// Riproduce l'etichettatura vecchia: le soglie dei parametri si confrontano con l'<b>apertura</b>
+    /// della barra invece che con la sua chiusura. Default <c>false</c>, cioè il comportamento
+    /// corretto.
     ///
-    /// <para><b>Cosa misura.</b> Il feed Piootoo etichetta ogni barra sull'<b>apertura</b>; il
-    /// motore di ricerca da cui le <c>PTS_*</c> sono portate lavora su barre etichettate sulla
-    /// <b>chiusura</b> — le righe del vendor sono la fine del minuto, e <c>resample_ohlcv</c>
-    /// etichetta il bucket a <c>inizio + Δ</c>. <c>filters.py</c> confronta <c>start_hour</c> e
-    /// <c>end_hour</c> con l'orario <i>di quella</i> etichetta, mentre noi li confrontiamo con
-    /// l'apertura: la finestra risulta spostata di <b>una barra in avanti</b>. Con questo
-    /// interruttore acceso il confronto avviene su <c>apertura + timeframe</c>, che è la stessa
-    /// barra vista con l'etichetta della ricerca — le soglie restano quelle di
-    /// <c>parametri.csv</c>, verbatim, e la regola del porting non cambia.</para>
+    /// <para><b>Non è una scelta di porting.</b> Il feed Piootoo etichetta la barra sull'apertura;
+    /// TradeStation e il motore di ricerca da cui le <c>PTS_*</c> vengono la etichettano sulla
+    /// chiusura, e <c>start_hour</c>, <c>end_hour</c>, <c>skip_day</c> e gli orari di uscita sono
+    /// tarati contro <i>quel</i> nome. Confrontarli con l'apertura sposta ogni confronto di
+    /// esattamente una barra: è un difetto, non un'opzione, e il requisito è che la strategia faccia
+    /// quello che faceva l'originale. La regola vive in un punto solo,
+    /// <c>SessionClock.BarLabelHhmm</c>.</para>
     ///
-    /// <para><b>La prova che lo scarto è reale.</b> Allineando gli <c>entry_time</c> del report
-    /// della ricerca ai nostri <c>entryTimeUtc</c> su NQ 15m, il massimo di corrispondenze è a
-    /// <b>−15 minuti</b> — 345 contro 78 a offset nullo. Quindici minuti su un feed a 15 minuti è
-    /// esattamente una barra. Riguarda le <b>83 strategie su 124</b> che dichiarano una finestra.</para>
+    /// <para><b>A cosa serve allora questo campo.</b> A rimettere a confronto un run archiviato con
+    /// uno nuovo, come <see cref="RejectWrongSideLevels"/> spento. Il valore finisce nel log di
+    /// avvio del job e in <c>backtest-summary.json</c> sotto <c>fillConventions</c>: due cartelle
+    /// che non concordano non sono confrontabili nemmeno sullo stesso feed.</para>
     ///
-    /// <para><b>Cosa NON tocca.</b> Solo la finestra operativa. Il confine di sessione compensa già
-    /// l'etichettatura per conto suo (<c>EasyLib.ClassifySessionBar</c>, dal 07/09/2026) e non passa
-    /// di qui. Il filtro del giorno (<c>PythonWeekday</c>) ha lo stesso difetto ma non è incluso:
-    /// su una barra giornaliera sposterebbe <i>skip_day</i> di un giorno intero, e va misurato da
-    /// solo. Nemmeno l'inclusività degli estremi cambia — chi confronta le sole ore continua a
-    /// farlo.</para>
-    ///
-    /// <para><b>È una modalità di verifica</b>, come <see cref="RejectWrongSideLevels"/> spento:
-    /// due run dello stesso periodo sullo stesso feed, un solo campo diverso. Il valore finisce in
-    /// <c>backtest-summary.json</c> sotto <c>fillConventions</c> e nel log di avvio del job: due
-    /// cartelle con convenzioni diverse non sono confrontabili, e devono dirlo da sole.</para>
+    /// <para>Misura dello scarto che corregge: allineando gli <c>entry_time</c> del report della
+    /// ricerca ai nostri <c>entryTimeUtc</c> su NQ 15m, il massimo di corrispondenze cade a
+    /// <b>−15 minuti</b> — 345 contro 78 a scarto nullo, cioè esattamente una barra.</para>
     /// </summary>
-    public bool ResearchWindowOnBarClose { get; set; }
+    public bool LegacyBarOpenLabels { get; set; }
 
     /// <summary>
     /// Piano di cui il run riproduce le regole. Null o vuoto = nessun piano: il run gira

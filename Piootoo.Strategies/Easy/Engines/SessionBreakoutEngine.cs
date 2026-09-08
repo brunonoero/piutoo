@@ -394,7 +394,7 @@ public abstract class SessionBreakoutEngine : EasyEngineBase
         // con finestra 10-05 e 13-06 non esiste alcun ingresso dopo end_hour:00 + una barra.
         var start = StartTime < 0 ? 0 : StartTime;
         var end = EndTime < 0 ? 2359 : EndTime;
-        var time = Hhmm(WindowInstant(barTime));
+        var time = ParamHhmm(barTime);
         return start <= end ? time >= start && time <= end : time >= start || time <= end;
     }
 
@@ -450,13 +450,13 @@ public abstract class SessionBreakoutEngine : EasyEngineBase
     {
         // tw() ha fine esclusiva: replicarla è importante perché la variante inclusiva esiste
         // altrove nella stessa libreria e le due differiscono di una barra sul bordo.
-        if (!EasyLib.TimeWindow(Clock, StartTime, EndTime, WindowInstant(barTime)))
+        if (!EasyLib.TimeWindow(StartTime, EndTime, ParamHhmm(barTime)))
             return false;
 
         if (PauseStart < 0 || PauseEnd < 0)
             return true;
 
-        var t = Hhmm(WindowInstant(barTime));
+        var t = ParamHhmm(barTime);
         return t < PauseStart || t > PauseEnd;
     }
 

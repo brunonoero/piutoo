@@ -985,11 +985,15 @@ public static class EasyLib
     /// <summary>
     /// Time Window - verifica se l'ora corrente è nel range specificato (fine esclusiva, come tw()).
     /// Gestisce anche il caso in cui startTime > endTime (sessione che attraversa la mezzanotte).
+    ///
+    /// <para><b>Prende un <c>HHMM</c>, non una barra</b>, ed è voluto: quale nome porti una barra
+    /// quando la si confronta con una soglia dei parametri lo decide un punto solo,
+    /// <c>SessionClock.BarLabelHhmm</c> via <c>EasyEngineBase.ParamHhmm</c>. Se questa funzione
+    /// accettasse un istante, ogni chiamante potrebbe rispondere a quella domanda per conto proprio
+    /// — che è come la convenzione si era sparpagliata in ventidue punti.</para>
     /// </summary>
-    public static bool TimeWindow(SessionClock clock, int startTime, int endTime, DateTime currentDate)
+    public static bool TimeWindow(int startTime, int endTime, int currentTime)
     {
-        var currentTime = clock.Hhmm(currentDate);
-        
         if (startTime > endTime)
         {
             // Sessione che attraversa la mezzanotte (es. 1700-1600)
@@ -1003,10 +1007,8 @@ public static class EasyLib
     /// <summary>
     /// Finestra oraria con estremi inclusivi, come la logica inline di Easy 152.
     /// </summary>
-    public static bool TimeWindowInclusive(SessionClock clock, int startTime, int endTime, DateTime currentDate)
+    public static bool TimeWindowInclusive(int startTime, int endTime, int currentTime)
     {
-        var currentTime = clock.Hhmm(currentDate);
-
         if (startTime > endTime)
         {
             return currentTime >= startTime || currentTime <= endTime;

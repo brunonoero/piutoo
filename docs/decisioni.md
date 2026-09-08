@@ -3624,3 +3624,44 @@ che il motore fa. Difetto di artefatto, non di esecuzione, ma e' costato mezza i
   solo HTTP con l'API. Tolte le righe corrispondenti da `CLAUDE.md`, `PROGETTO.md` e
   `architettura/overview.md`; la voce 2026-07-25 che ne racconta lo scollegamento resta dov'e',
   perche' e' storia.
+- **2026-09-08** — **Come si chiama una barra lo decide UN punto solo, e la conversione e' accesa di
+  default.** Il feed Piootoo etichetta la barra sull'apertura; TradeStation e il motore di ricerca
+  Python da cui le `PTS_*` vengono la etichettano sulla chiusura. Stessa barra, nome diverso. Finche'
+  si confrontano barre con barre non cambia niente; cambia quando si confronta il *nome* della barra
+  con un orario di parete preso dai parametri — `start_hour`, `end_hour`, `skip_day`, un orario di
+  uscita — perche' quei numeri sono tarati contro nomi di chiusura: il confronto si sposta di
+  **esattamente una barra**.
+
+  **Non e' una scelta di porting, e' un difetto.** Il requisito e' che la strategia faccia quello che
+  faceva l'originale, quindi la compensazione va accesa e basta. Il primo tentativo — un
+  `ResearchWindowOnBarClose` con default `false` e la conversione ripetuta in ventidue punti di
+  confronto — era sbagliato due volte: metteva dietro un'opzione un bug, e sparpagliava la regola.
+
+  Ora la regola sta in `SessionClock.BarLabelHhmm`/`BarLabelDay`, e i motori la raggiungono da
+  `EasyEngineBase.ParamHhmm`, `WindowParamHhmm` e `PythonWeekday`. `EasyLib.TimeWindow` e
+  `TimeWindowInclusive` prendono un **`HHMM` e non piu' una barra**: e' cio' che rende impossibile a
+  un chiamante rispondere per conto proprio alla domanda "come si chiama questa barra".
+  `Hhmm(barTime)` resta ed e' l'**apertura**, perche' serve a dire a quale *sessione* appartiene una
+  barra — domanda diversa, con la sua risposta gia' in `EasyLib.ClassifySessionBar`.
+
+  Il flag e' rovesciato: `BacktestingRequest.LegacyBarOpenLabels`, default `false`, riproduce
+  l'etichettatura vecchia per confrontare un run archiviato con uno nuovo. **Il default e' quello
+  giusto**, quindi chi dimentica di impostarlo — la sessione live, per esempio — ottiene la
+  conversione corretta: e' anche la risposta al disallineamento fra backtest e live, che con un
+  default sbagliato sarebbe rimasto.
+
+  Coperte le tre voci che il primo tentativo aveva lasciato fuori: il filtro del giorno
+  (`PythonWeekday`, che su una **giornaliera sposta `skip_day` di un giorno intero** — misurato:
+  5.081 barre su 5.081 di `@NQ_1440` hanno giorno di apertura e di chiusura diversi), la schedula di
+  `BiasWeeklyEngine` e le pause. Due test di parita' — `TfEngineParityTests` e
+  `TrendDeveloperEngineTests` — spostano la barra di confine di un'ora: erano tarati sull'etichetta
+  vecchia. **La misura sul paniere non e' ancora stata fatta.**
+
+  In `domini/porting-da-report-sweep.md` la sezione «La regola degli orari» e' ora la guida di
+  conversione: i tre presupposti della sorgente EasyLanguage che qui non valgono — timestamp a fine
+  candela, orari in ora locale di una borsa sola, giorno della settimana come intero — la tabella di
+  cosa si scrive e cosa no, e la regola sulle due convenzioni del giorno. Segnalato come **latente**
+  `DayToFilter` dei motori RBB, letto con `EasyDayOfWeek` (0 = domenica) mentre i `parametri.csv`
+  scrivono `skip_day` pandas (0 = lunedi'): l'unica classe che lo valorizza ci mette `-1`, quindi
+  oggi non sbaglia, ma la prima RBB con un giorno escluso davvero escluderebbe il giovedi' al posto
+  del venerdi'.

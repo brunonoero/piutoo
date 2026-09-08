@@ -36,10 +36,11 @@ public sealed class StrategyClockConformanceTests
     /// <summary>
     /// Leggere un componente di un valore <b>già passato dall'orologio</b> è la forma corretta,
     /// non una violazione: <c>Clock.SessionDay(bar).DayOfWeek</c> è il giorno di borsa, non il
-    /// giorno grezzo della barra. Queste occorrenze si tolgono prima del controllo.
+    /// giorno grezzo della barra, e <c>Clock.BarLabelDay(bar, tf).DayOfWeek</c> e' il giorno con
+    /// cui la ricerca chiamava quella barra. Queste occorrenze si tolgono prima del controllo.
     /// </summary>
     private static readonly Regex ClockDerivedRead = new(
-        @"\b\w*Clock\.(SessionDay|ToSessionTime)\([^)]*\)\.(Hour|Minute|DayOfWeek|TimeOfDay|Date)\b",
+        @"\b\w*Clock\.(SessionDay|ToSessionTime|BarLabelDay)\([^)]*\)\)?\.(Hour|Minute|DayOfWeek|TimeOfDay|Date)\b",
         RegexOptions.Compiled);
 
     [Fact]

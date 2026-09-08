@@ -40,7 +40,12 @@ public sealed class TrendDeveloperEngineTests
     public void HoldsOutsideTradingWindow()
     {
         var strategy = new TestTrendDeveloper { Start = 1200, End = 1400 };
-        var bars = BuildSessions(new DateTime(2024, 1, 8, 10, 0, 0, DateTimeKind.Utc));
+
+        // La finestra si confronta con l'etichetta di CHIUSURA della barra, che e' il nome con cui
+        // la ricerca la chiama. Questa apre alle 09:00 UTC — le 10:00 locali d'inverno — e chiude
+        // alle 11:00 locali: fuori da 1200-1400. La barra che apre alle 10:00 UTC chiude alle 12:00
+        // ed e' la PRIMA dentro, non l'ultima fuori.
+        var bars = BuildSessions(new DateTime(2024, 1, 8, 9, 0, 0, DateTimeKind.Utc));
 
         var signal = strategy.GenerateSignal(bars, bars[^1].DateTime);
         Assert.Equal(SignalType.Hold, signal.Type);

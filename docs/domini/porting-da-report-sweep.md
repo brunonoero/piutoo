@@ -39,25 +39,104 @@ in [`motori-strategie.md`](motori-strategie.md) §"Catalogo dei motori".
 
 ## La regola degli orari — leggila prima di scrivere una riga
 
-Sbagliare qui non produce un errore, produce numeri plausibili. La fonte è il motore Python, e le
-sue due regole sono **indipendenti fra loro**.
+Sbagliare qui non produce un errore, produce numeri plausibili. Sono **tre** regole indipendenti e
+vanno tenute separate anche quando parlano tutte di orari: il **confine di sessione**, la
+**finestra operativa** e il **nome della barra**. Due sono automatiche, una si riporta a mano.
 
-**1. La finestra operativa confronta l'orario della barra, e basta.** `filters.py` calcola
-`minuti = index.hour * 60 + index.minute` e verifica `minuti >= start && minuti <= end` — oppure
-l'OR, se la finestra attraversa la mezzanotte. Nessun riferimento a dove inizi la sessione. Quindi
-`start_hour`/`end_hour` di `parametri.csv` si riportano **verbatim**:
+| cosa | chi la decide | cosa scrivi nella classe |
+|---|---|---|
+| confine di sessione | il calendario, **per simbolo** | **niente** |
+| fuso in cui leggere gli orari | il calendario, **per simbolo** | **niente** |
+| finestra operativa | il `parametri.csv` del run | `ZonedWindow.ResearchHours(start, end)`, **verbatim** |
+| nome della barra nei confronti | `SessionClock.BarLabelHhmm`, un punto solo | **niente** |
 
-```csharp
-TradingWindow = ZonedWindow.ResearchHours(17, 10);   // start_hour 17, end_hour 10
-```
+Se ti trovi a scrivere un numero che non sia `start_hour`/`end_hour` copiato dal CSV, ti stai
+sbagliando: quel numero esiste gia' da qualche altra parte, e la seconda copia diverge in silenzio.
 
-Mai convertirli nell'ora di borsa del simbolo. La conversione a mano — meno sette ore per NQ, meno
-sei per GC — è esatta solo fuori dalle settimane di disallineamento fra ora legale americana ed
-europea, ed è stata la causa di una divergenza reale.
+### I presupposti della sorgente, che qui non valgono
 
-**2. La sessione NON si dichiara più: la governa il calendario.** Dal 07/09/2026 il confine di
-sessione di una strategia viene da `MarketData/market-calendars.json`, per simbolo. Una classe
-`PTS_*` non scrive nulla sulla sessione:
+Le sorgenti EasyLanguage davano per scontate tre cose. Nessuna e' vera nel nostro sistema, e
+nessuna delle tre, se sbagliata, produce un errore.
+
+**1. Il timestamp di una barra e' la sua fine.** TradeStation etichetta sulla chiusura, e il CSV
+del vendor pure: su 200.000 righe di @NQ ce ne sono **201 alle `00:01` e 4 alle `00:00`**, perche'
+la prima barra della sessione — quella che copre 00:00->00:01 — e' stampata `00:01`. Il nostro
+feed etichetta sull'apertura. Conseguenze e regola in §0.
+
+**2. Gli orari sono ora locale di borsa, e la borsa e' una sola.** `SessBegin = 1700`,
+`StartTrade = 900`: numeri scritti nell'ora della borsa su cui quella sorgente girava, senza
+dichiararlo, perche' una sorgente EasyLanguage gira **su un simbolo solo** e poteva permetterselo.
+Qui ogni simbolo ha due orologi — `exchangeTz` e `researchTz` del calendario — e la stessa costante
+scritta a mano vorrebbe dire cose diverse su NQ e su FDAX. Per questo quei numeri **non si
+riportano**: la sessione la dichiara il calendario (§1) e la finestra viene dal `parametri.csv` del
+run (§2). L'intero della sorgente serve solo come **verifica** (§2.1).
+
+**3. Il giorno della settimana e' un intero, e ogni linguaggio lo numera a modo suo.**
+
+| convenzione | 0 vale | da dove arriva il numero | accessor da usare |
+|---|---|---|---|
+| pandas / motore di ricerca | lunedi' | `skip_day`, `not_entry_day` di `parametri.csv` | `PythonWeekday` |
+| `dayofweek()` di EasyLanguage (= .NET) | domenica | sorgenti EasyLanguage | `EasyDayOfWeek` |
+
+Le due sono **sfasate di un giorno** e nessuna delle due sbaglia: sbaglia chi legge un numero con
+l'accessor dell'altra. La regola e' che **la convenzione segue la provenienza del numero, non il
+motore che lo legge**: se viene da un run di ricerca si legge con `PythonWeekday`, se viene da una
+sorgente EasyLanguage con `EasyDayOfWeek`, e il campo lo dice nel proprio nome o nel commento.
+
+Stato verificato al 08/09/2026: `NotEntryDayLong`/`NotEntryDayShort` e `SkipDay` sono letti con
+`PythonWeekday`, ed e' giusto — vengono tutti da `parametri.csv`. **`DayToFilter` dei motori RBB e'
+letto con `EasyDayOfWeek`**, e l'unica classe che lo valorizza (`PTS_NQ_RBM_001_15`) ci scrive
+`-1`, cioe' nessun giorno: il difetto e' **latente, non attivo**. La prima RBB che porta un giorno
+escluso davvero lo attiva — un `skip_day = 4` (venerdi' per pandas) scritto li' escluderebbe il
+**giovedi'**.
+
+> **Da decidere quando succede**, e non da indovinare sul momento: o si converte il numero al
+> momento del porting (una riga esplicita nella classe, con il commento che dice da quale
+> convenzione a quale), o si cambia l'accessor del motore a `PythonWeekday` verificando che
+> nessun'altra RBB dipenda da quello vecchio. La prima e' locale e reversibile, la seconda e'
+> giusta ma tocca un motore condiviso. Chi ci arriva scriva la scelta in `decisioni.md`.
+
+E vale comunque §0: il giorno si legge sull'**etichetta** della barra, non sulla sua apertura. Su
+una 4h cambia su un bucket su sei; su una **giornaliera cambia sempre**, perche' apre lunedi' a
+mezzanotte e chiude martedi' a mezzanotte.
+
+### 0. Il nome della barra: la trappola che non si vede
+
+**Una barra copre un intervallo ma porta un timestamp solo.** Il feed Piootoo la etichetta
+sull'**apertura**: la barra 16:00->17:00 si chiama `16:00`. TradeStation e il motore di ricerca
+Python la etichettano sulla **chiusura**: la stessa barra si chiama `17:00`. Stessi prezzi, nome
+diverso.
+
+Finche' confronti barre con barre non cambia niente. Cambia quando confronti il **nome** della
+barra con un orario di parete preso dai parametri — `start_hour`, `end_hour`, `skip_day`, un orario
+di uscita — perche' quei numeri sono tarati contro nomi di chiusura. Il confronto si sposta di
+**esattamente una barra**, e non lo segnala nessuno. La misura: allineando gli `entry_time` del
+report ai nostri `entryTimeUtc` su NQ 15m, il massimo di corrispondenze cade a **-15 minuti**, 345
+contro 78 a scarto nullo.
+
+**Non devi farci niente.** Dall'08/09/2026 la conversione vive in un punto solo,
+`SessionClock.BarLabelHhmm`, e i motori la raggiungono da `EasyEngineBase`. Quello che devi fare e'
+**non aggirarla**:
+
+- SI: `ParamHhmm(barTime)`, `WindowParamHhmm(barTime)`, `PythonWeekday(barTime)`,
+  `InDeclaredWindow(barTime)`
+- SI: `EasyLib.TimeWindow(start, end, ParamHhmm(barTime))` — prende un `HHMM` e non una barra,
+  apposta: cosi' la domanda "come si chiama questa barra" ha una sola risposta possibile
+- NO: `Clock.Hhmm(barTime)` per confrontare un parametro, `barTime.Hour`, `barTime.DayOfWeek`,
+  `barTime.AddMinutes(TimeframeMinutes)` a mano. Il primo lo blocca
+  `StrategyClockConformanceTests`, gli altri si fermano in review.
+
+`Hhmm(barTime)` **resta** ed e' l'orario di **apertura**: serve a dire *a quale sessione*
+appartiene una barra, che e' una domanda diversa e ha gia' la sua risposta in
+`EasyLib.ClassifySessionBar`. Se stai confrontando con un parametro non e' quello che vuoi.
+
+L'interruttore `BacktestingRequest.LegacyBarOpenLabels` rimette l'etichettatura vecchia. Serve a
+una cosa sola, confrontare un run archiviato con uno nuovo: non e' una scelta di porting.
+
+### 1. Il confine di sessione non si dichiara
+
+Dal 07/09/2026 lo governa `MarketData/market-calendars.json`, per simbolo. Una classe `PTS_*` non
+scrive nulla:
 
 ```csharp
 // PRIMA: ogni classe dichiarava il proprio ancoraggio, e doveva indovinare quello giusto.
@@ -67,9 +146,25 @@ Session = ZonedWindow.ResearchSession(1);
 ```
 
 Il modello resta quello della ricerca — il motore Python taglia con
-`(timestamp − 1 min − session_start_hour).normalize()`, cioè il **giorno di calendario europeo**,
-non la sessione CME 17:00→16:00 di New York — ma l'ora non è più una scelta di chi porta: è un dato
-dello strumento.
+`(timestamp - 1 min - session_start_hour).normalize()`, cioe' il **giorno di calendario europeo**,
+non la sessione CME 17:00->16:00 di New York — ma l'ora non e' piu' una scelta di chi porta: e' un
+dato dello strumento. Se il run di ricerca ha tagliato le sessioni a un'ora diversa da quella del
+calendario non si corregge il numero: si dichiara con `OverrideSessionAnchor(ora, motivo)` (§2.2).
+
+### 2. La finestra operativa si riporta verbatim
+
+`filters.py` calcola `minuti = index.hour * 60 + index.minute` e verifica
+`minuti >= start && minuti <= end` — l'OR se attraversa la mezzanotte. Nessun riferimento a dove
+inizi la sessione: le due regole sono **indipendenti**. Quindi `start_hour`/`end_hour` di
+`parametri.csv` si riportano cosi' come sono:
+
+```csharp
+TradingWindow = ZonedWindow.ResearchHours(17, 10);   // start_hour 17, end_hour 10
+```
+
+Mai convertirli nell'ora di borsa del simbolo. La conversione a mano — meno sette ore per NQ, meno
+sei per GC — è esatta solo fuori dalle settimane di disallineamento fra ora legale americana ed
+europea, ed è stata la causa di una divergenza reale.
 
 ### 2.1 Gli interi `1700` delle sorgenti EasyLanguage non sono un ancoraggio
 

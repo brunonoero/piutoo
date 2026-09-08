@@ -36,13 +36,18 @@ public sealed class TfEngineParityTests
     {
         var strategy = new TestTfMirrored { Start = 16, End = 3 };
 
+        // Finestra e filtro del giorno leggono l'etichetta di CHIUSURA della barra, il nome con cui
+        // la ricerca la chiama. Con 16-3 l'ultima barra dentro e' quella che apre alle 01:00 UTC —
+        // le 02:00 locali d'inverno — e chiude alle 03:00.
         var outside = BuildSessions(new DateTime(2024, 1, 8, 10, 0, 0, DateTimeKind.Utc));
-        var overnight = BuildSessions(new DateTime(2024, 1, 8, 2, 0, 0, DateTimeKind.Utc));
+        var overnight = BuildSessions(new DateTime(2024, 1, 8, 1, 0, 0, DateTimeKind.Utc));
         Assert.Equal(SignalType.Hold, strategy.GenerateSignal(outside, outside[^1].DateTime).Type);
         Assert.Equal(SignalType.Buy, strategy.GenerateSignal(overnight, overnight[^1].DateTime).Type);
 
         strategy.Skip = 4; // Python: Monday = 0, Friday = 4.
-        var friday = BuildSessions(new DateTime(2024, 1, 12, 2, 0, 0, DateTimeKind.Utc));
+        // Stessa barra del venerdi': dentro la finestra, quindi lo Hold viene dal filtro del giorno
+        // e non dall'orario — che e' cio' che questo pezzo di test deve dimostrare.
+        var friday = BuildSessions(new DateTime(2024, 1, 12, 1, 0, 0, DateTimeKind.Utc));
         Assert.Equal(SignalType.Hold, strategy.GenerateSignal(friday, friday[^1].DateTime).Type);
     }
 

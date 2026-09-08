@@ -290,12 +290,12 @@ public abstract class PriceChannelEngine : EasyEngineBase
     private bool InTradingWindow(DateTime barTime)
     {
         var inWindow = TradingWindowInclusive
-            ? EasyLib.TimeWindowInclusive(Clock, StartTime, EndTime, WindowInstant(barTime))
-            : EasyLib.TimeWindow(Clock, StartTime, EndTime, WindowInstant(barTime));
+            ? EasyLib.TimeWindowInclusive(StartTime, EndTime, ParamHhmm(barTime))
+            : EasyLib.TimeWindow(StartTime, EndTime, ParamHhmm(barTime));
         if (!inWindow || PauseStart < 0 || PauseEnd < 0)
             return inWindow;
 
-        var time = Hhmm(WindowInstant(barTime));
+        var time = ParamHhmm(barTime);
         return time < PauseStart || time > PauseEnd;
     }
 
@@ -507,7 +507,7 @@ public abstract class PriceChannelEngine : EasyEngineBase
         // anche le barre 04:15–04:45, che nella fonte non producono segnali.
         var start = StartTime < 0 ? 0 : StartTime;
         var end = EndTime < 0 ? 2359 : EndTime;
-        var time = Hhmm(WindowInstant(barTime));
+        var time = ParamHhmm(barTime);
         return start <= end ? time >= start && time <= end : time >= start || time <= end;
     }
 

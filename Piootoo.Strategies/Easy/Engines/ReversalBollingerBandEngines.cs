@@ -109,10 +109,9 @@ public abstract class RbbMirroredEngine : EasyEngineBase
             return true;
 
         // Estremi inclusi, come TF e PC: vedi la nota in TfEngineBase.InTradingWindow.
-        return EasyLib.TimeWindowInclusive(Clock, 
-            StartTrade < 0 ? 0 : StartTrade,
+        return EasyLib.TimeWindowInclusive(StartTrade < 0 ? 0 : StartTrade,
             EndTrade < 0 ? 2400 : EndTrade,
-            WindowInstant(barTime));
+            ParamHhmm(barTime));
     }
 
     private TradeSignal WithPythonSettings(TradeSignal signal)
@@ -268,10 +267,9 @@ public abstract class RbbUnmirroredEngine : EasyEngineBase
             return true;
 
         // Estremi inclusi, come TF e PC: vedi la nota in TfEngineBase.InTradingWindow.
-        return EasyLib.TimeWindowInclusive(Clock, 
-            StartTrade < 0 ? 0 : StartTrade,
+        return EasyLib.TimeWindowInclusive(StartTrade < 0 ? 0 : StartTrade,
             EndTrade < 0 ? 2400 : EndTrade,
-            WindowInstant(barTime));
+            ParamHhmm(barTime));
     }
 
     private TradeSignal WithPythonSettings(TradeSignal signal)

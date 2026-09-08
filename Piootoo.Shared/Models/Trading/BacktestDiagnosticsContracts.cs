@@ -512,7 +512,7 @@ public sealed class BacktestFillConventions
     /// cartelle che non concordano su questo campo non sono confrontabili nemmeno sullo stesso
     /// feed e nello stesso periodo.</para>
     /// </summary>
-    public bool ResearchWindowOnBarClose { get; init; }
+    public bool LegacyBarOpenLabels { get; init; }
 
     /// <summary>Simboli per cui il run ha applicato uno slippage sul riempimento degli stop protettivi.</summary>
     public IReadOnlyList<string> StopFillSlippageSymbols { get; init; } = [];

@@ -648,7 +648,7 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                 // La convenzione di lettura della finestra e' del RUN, non della classe: il
                 // motore la riceve da qui e le PTS_* non la dichiarano.
                 if (strategy is EasyEngineBase easyEngine)
-                    easyEngine.WindowsOnBarClose = request.ResearchWindowOnBarClose;
+                    easyEngine.LegacyBarOpenLabels = request.LegacyBarOpenLabels;
 
                 Console.WriteLine($"[Backtesting] Strategia creata con successo: {strategy.Name} (Type: {strategy.GetType().Name}), Symbol: {strategy.Symbol}, Timeframe: {strategy.TimeframeMinutes}");
                 createdStrategies.Add((strategyDef, strategy));
@@ -817,7 +817,7 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                 // Quale etichetta della barra legge la finestra operativa. Sposta di una
                 // barra quali segnali nascono, quindi due run che non concordano qui non
                 // sono confrontabili nemmeno a parita' di feed.
-                ["researchWindowOnBarClose"] = request.ResearchWindowOnBarClose ? "true" : "false",
+                ["legacyBarOpenLabels"] = request.LegacyBarOpenLabels ? "true" : "false",
                 // Le convenzioni di riempimento cambiano il risultato quanto gli orari di tenuta e
                 // non lasciano traccia nei trade: vanno dichiarate qui e nel summary, altrimenti due
                 // run non confrontabili sono indistinguibili a posteriori.
@@ -1559,7 +1559,7 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                     SpreadSource = spreadSource,
                     ClockTimeframeMinutes = minTimeframeMinutes,
                     ClockFinerThanStrategies = clockIsFiner,
-                    ResearchWindowOnBarClose = request.ResearchWindowOnBarClose
+                    LegacyBarOpenLabels = request.LegacyBarOpenLabels
                 },
                 CatalogStrategies = catalogStrategies.Count,
                 MasterfilterStrategies = masterfilterStrategies,

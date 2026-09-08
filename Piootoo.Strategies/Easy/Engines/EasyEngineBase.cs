@@ -331,38 +331,36 @@ public abstract class EasyEngineBase : StatelessEasyStrategyBase
     protected int Hhmm(DateTime barTime) => Clock.Hhmm(barTime);
 
     /// <summary>
-    /// La finestra operativa confronta l'etichetta di <b>chiusura</b> della barra invece di quella
-    /// di apertura. Default <c>false</c>: il comportamento di sempre.
+    /// Riproduce l'etichettatura vecchia: la barra si confronta con le soglie usando la propria
+    /// <b>apertura</b>, com'era prima dell'08/09/2026. Default <c>false</c>, cioè il comportamento
+    /// corretto — chi dimentica di impostarlo ottiene quello giusto.
     ///
-    /// <para>Lo imposta chi esegue il run — <c>BacktestingRequest.ResearchWindowOnBarClose</c> — e
-    /// non la classe della strategia: è una convenzione di confronto del run, non un parametro
-    /// portato dalla ricerca. Vive qui perché la finestra si valuta qui.</para>
+    /// <para>Serve a una cosa sola: rimettere a confronto un run archiviato con uno nuovo. Non è
+    /// una scelta di porting — la strategia deve fare quello che faceva l'originale, e confrontare
+    /// un'etichetta di apertura con una soglia tarata sulla chiusura è un difetto, non un'opzione.</para>
     /// </summary>
-    public bool WindowsOnBarClose { get; set; }
+    public bool LegacyBarOpenLabels { get; set; }
 
     /// <summary>
-    /// L'istante con cui la finestra operativa confronta le proprie soglie.
+    /// L'orario <c>HHMM</c> con cui questa barra va confrontata con le soglie dei parametri
+    /// (<c>start_hour</c>, <c>end_hour</c>, pause, orari di uscita), letto sull'orologio di sessione.
     ///
-    /// <para><b>Perché esiste.</b> Il feed Piootoo etichetta la barra sull'<b>apertura</b>; il
-    /// motore di ricerca da cui le soglie vengono lavora su barre etichettate sulla
-    /// <b>chiusura</b>, e <c>filters.py</c> confronta <c>start_hour</c>/<c>end_hour</c> con
-    /// <i>quella</i>. Confrontarle con l'apertura sposta la finestra di una barra in avanti:
-    /// prendiamo la barra dopo la fine e perdiamo quella prima dell'inizio. Con
-    /// <see cref="WindowsOnBarClose"/> acceso il confronto avviene su <c>apertura + timeframe</c>,
-    /// che è la stessa barra letta con l'etichetta della ricerca.</para>
-    ///
-    /// <para><b>I minuti si sommano in UTC</b>, e l'<c>Hhmm</c> si prende dopo: sommarli sull'orario
-    /// locale sbaglierebbe nei due giorni all'anno del cambio d'ora, che è esattamente il posto in
-    /// cui l'errore non si vede.</para>
-    ///
-    /// <para>Riguarda la <b>sola</b> finestra operativa. Il confine di sessione compensa già
-    /// l'etichettatura per conto suo (<see cref="EasyLib"/>, <c>ClassifySessionBar</c>) e non passa
-    /// di qui; il filtro del giorno (<see cref="PythonWeekday"/>) ha lo stesso difetto ma non è
-    /// incluso, perché su una barra giornaliera sposterebbe <c>skip_day</c> di un giorno intero e va
-    /// misurato da solo.</para>
+    /// <para><b>Non è <see cref="Hhmm"/>.</b> Quello è l'orario di apertura della barra e serve a
+    /// dire a quale <i>sessione</i> appartiene, che è una domanda diversa e ha già la sua risposta
+    /// in <see cref="EasyLib"/>. Questo è il nome con cui la ricerca chiamava la stessa barra, e la
+    /// regola vive in un punto solo: <see cref="SessionClock.BarLabelHhmm"/>.</para>
     /// </summary>
-    protected DateTime WindowInstant(DateTime barTime) =>
-        WindowsOnBarClose ? barTime.AddMinutes(TimeframeMinutes) : barTime;
+    protected int ParamHhmm(DateTime barTime) =>
+        LegacyBarOpenLabels ? Clock.Hhmm(barTime) : Clock.BarLabelHhmm(barTime, TimeframeMinutes);
+
+    /// <summary>
+    /// Come <see cref="ParamHhmm"/>, ma sull'orologio della <see cref="TradingWindow"/>. I due fusi
+    /// non coincidono e non vanno riconciliati a mano: la finestra dichiara il proprio.
+    /// </summary>
+    protected int WindowParamHhmm(DateTime barTime) =>
+        LegacyBarOpenLabels
+            ? WindowClock.Hhmm(barTime)
+            : WindowClock.BarLabelHhmm(barTime, TimeframeMinutes);
 
     /// <summary>
     /// Valuta la <see cref="TradingWindow"/> dichiarata sull'orologio che essa dichiara.
@@ -375,8 +373,7 @@ public abstract class EasyEngineBase : StatelessEasyStrategyBase
     /// </summary>
     protected bool? InDeclaredWindow(DateTime barTime) =>
         TradingWindow is { } window
-            ? EasyLib.TimeWindowInclusive(
-                WindowClock, window.StartHhmm, window.EndHhmm, WindowInstant(barTime))
+            ? EasyLib.TimeWindowInclusive(window.StartHhmm, window.EndHhmm, WindowParamHhmm(barTime))
             : null;
 
     /// <summary>
@@ -389,7 +386,9 @@ public abstract class EasyEngineBase : StatelessEasyStrategyBase
     /// giorno nel mezzo della sessione serale americana.</para>
     /// </summary>
     protected int PythonWeekday(DateTime barTime) =>
-        ((int)WindowClock.SessionDay(barTime).DayOfWeek + 6) % 7;
+        ((int)(LegacyBarOpenLabels
+            ? WindowClock.SessionDay(barTime)
+            : WindowClock.BarLabelDay(barTime, TimeframeMinutes)).DayOfWeek + 6) % 7;
 
     /// <summary>
     /// Giorno della settimana nella convenzione EasyLanguage <c>dayofweek()</c>:

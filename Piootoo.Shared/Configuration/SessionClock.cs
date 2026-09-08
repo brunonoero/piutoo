@@ -89,6 +89,54 @@ public sealed class SessionClock
     public DateTime SessionDay(DateTime instantUtc) => ToSessionTime(instantUtc).Date;
 
     /// <summary>
+    /// L'orario <c>HHMM</c> con cui una barra va confrontata con le soglie dei parametri, e il
+    /// giorno corrispondente. <b>È l'unico punto del sistema che sa come si chiama una barra.</b>
+    ///
+    /// <para><b>Il problema, una volta sola.</b> Una barra copre un intervallo — 16:00→17:00 — ma
+    /// porta un timestamp solo, e ci sono due convenzioni per sceglierlo. Il feed Piootoo etichetta
+    /// sull'<b>apertura</b> (la chiama <c>16:00</c>); TradeStation e il motore di ricerca Python da
+    /// cui le <c>PTS_*</c> vengono etichettano sulla <b>chiusura</b> (la chiamano <c>17:00</c>).
+    /// Stessa barra, stessi prezzi, nome diverso.</para>
+    ///
+    /// <para>Finché si confrontano barre con barre non cambia niente. Cambia quando si confronta il
+    /// <i>nome</i> della barra con un orario di parete preso dai parametri — <c>start_hour</c>,
+    /// <c>end_hour</c>, <c>skip_day</c>, un orario di uscita — perché quei numeri sono stati tarati
+    /// contro nomi di chiusura. Confrontarli contro nomi di apertura sposta ogni confronto di
+    /// <b>esattamente una barra</b>. Misurato: allineando gli <c>entry_time</c> del report della
+    /// ricerca ai nostri su NQ 15m, il massimo di corrispondenze cade a −15 minuti, 345 contro 78 a
+    /// scarto nullo.</para>
+    ///
+    /// <para><b>Perché sta qui e non nei motori.</b> Il calendario converte l'<i>orologio</i> — in
+    /// che fuso leggere il numero — e lo fa già. Questa è l'altra conversione, quella
+    /// dell'<i>etichetta</i>, ed è la stessa domanda: "come si legge questo istante". Scriverla nei
+    /// punti di confronto significherebbe ventidue copie di una regola, che è esattamente il difetto
+    /// che questo refactor esiste per togliere.</para>
+    ///
+    /// <para><b>I minuti si sommano in UTC</b> e la conversione al fuso viene dopo: sommarli
+    /// sull'orario locale sbaglierebbe nei due giorni all'anno del cambio d'ora, che è il posto in
+    /// cui l'errore non si vedrebbe mai.</para>
+    /// </summary>
+    /// <param name="barOpenUtc">Apertura della barra, come la etichetta il feed.</param>
+    /// <param name="timeframeMinutes">Ampiezza della barra. Zero o negativo = nessuna conversione.</param>
+    public int BarLabelHhmm(DateTime barOpenUtc, int timeframeMinutes) =>
+        Hhmm(BarLabelUtc(barOpenUtc, timeframeMinutes));
+
+    /// <summary>
+    /// Il giorno di calendario dell'etichetta della barra. Stessa regola di
+    /// <see cref="BarLabelHhmm"/>, ed è ciò che <c>skip_day</c> deve leggere.
+    ///
+    /// <para>Sopra l'ora non è un dettaglio: su una barra da 4h il giorno cambia su un bucket su
+    /// sei, e su una <b>giornaliera cambia sempre</b> — apre lunedì a mezzanotte e chiude martedì a
+    /// mezzanotte, quindi per la ricerca è martedì.</para>
+    /// </summary>
+    public DateTime BarLabelDay(DateTime barOpenUtc, int timeframeMinutes) =>
+        SessionDay(BarLabelUtc(barOpenUtc, timeframeMinutes));
+
+    /// <summary>L'istante che dà il nome alla barra: la sua chiusura.</summary>
+    public static DateTime BarLabelUtc(DateTime barOpenUtc, int timeframeMinutes) =>
+        timeframeMinutes > 0 ? barOpenUtc.AddMinutes(timeframeMinutes) : barOpenUtc;
+
+    /// <summary>
     /// Istante UTC di un orario di borsa. E' la direzione inversa di <see cref="ToSessionTime"/> e
     /// serve alle scadenze dichiarate sul segnale — <c>CloseAtUtc</c>, l'inizio della sessione di
     /// appartenenza — che la strategia esprime in ora di borsa e l'engine deve confrontare in UTC.

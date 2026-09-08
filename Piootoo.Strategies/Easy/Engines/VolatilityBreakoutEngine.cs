@@ -266,7 +266,7 @@ public abstract class VolatilityBreakoutEngine : EasyEngineBase
         if (sessionOpen <= 0m || previousOpen <= 0m)
             return Hold(bar.Close, barTime, "OHLC di sessione non disponibile");
 
-        if (!EasyLib.TimeWindow(Clock, StartTrade, EndTrade, WindowInstant(barTime)) || IsInPause(barTime))
+        if (!EasyLib.TimeWindow(StartTrade, EndTrade, ParamHhmm(barTime)) || IsInPause(barTime))
             return Hold(bar.Close, barTime);
 
         if (MaxEntriesPerSession > 0 && EntriesTodayCount >= MaxEntriesPerSession)
@@ -424,7 +424,7 @@ public abstract class VolatilityBreakoutEngine : EasyEngineBase
         // fino a HH:59 e prendeva barre che la fonte non prende.
         var start = StartTrade < 0 ? 0 : StartTrade;
         var end = EndTrade < 0 ? 2359 : EndTrade;
-        var time = WindowClock.Hhmm(WindowInstant(barTime));
+        var time = WindowParamHhmm(barTime);
         return start <= end ? time >= start && time <= end : time >= start || time <= end;
     }
 
@@ -462,7 +462,7 @@ public abstract class VolatilityBreakoutEngine : EasyEngineBase
     private bool IsInPause(DateTime barTime)
     {
         if (PauseStart < 0 || PauseEnd < 0) return false;
-        var time = Hhmm(WindowInstant(barTime));
+        var time = ParamHhmm(barTime);
         return time >= PauseStart && time <= PauseEnd;
     }
 
