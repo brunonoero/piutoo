@@ -22,6 +22,9 @@ non esiste più, si tiene per il perché.
 - [`verifica-backtest-sizing-titano-2026-07-29.md`](verifica-backtest-sizing-titano-2026-07-29.md)
   — verifica riproducibile PTS, lotti decimali e applicazione Titano nei due
   engine. *Storia (Titano rimosso).*
+- [`verifica-offset-conversione-2026-09-08.md`](verifica-offset-conversione-2026-09-08.md)
+  — confronto a tre fra sorgenti EasyLanguage, motori Python e engine C#: quali
+  offset di etichetta, fuso e ancoraggio sono compensati e quali no. *Stabile.*
 
 ## Architettura
 
