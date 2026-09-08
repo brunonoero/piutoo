@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
@@ -1778,15 +1778,31 @@ public class PiootooBacktestingService : IPiootooBacktestingService
     /// doveva scansionare sempre piu' card sporche. Il costo per barra cresceva con le barre gia'
     /// fatte — la ragione per cui il run rallentava andando avanti.</para>
     ///
-    /// <para>Una riga viene emessa quando l'equity della strategia e' cambiata, quando c'e' un
-    /// segnale, oppure — battito — al primo giro di ogni giornata di calendario. Le righe scartate
-    /// sono quelle con <c>Profit = 0</c> e nessun segnale: ripetono l'equity gia' nota e non
-    /// entrano in nessuna delle aggregazioni a valle, che sommano <c>Profit</c> o contano i segnali
-    /// (<see cref="CalculateWeeklyResults"/>, AdvancedStrategyFilter, BasicStrategyFilter,
-    /// PiootooOptimizationService, PiootooSapiooService). Il battito giornaliero serve proprio a
-    /// loro: garantisce che ogni strategia resti presente in ogni settimana del run anche se non ha
-    /// mai operato, cosi' le finestre "ultime N settimane" contano le settimane ferme come zero
-    /// invece di saltarle.</para>
+    /// <para>Una riga viene emessa quando c'e' un <b>segnale</b>, oppure — battito — al primo giro
+    /// di ogni giornata di calendario. Nient'altro: le aggregazioni a valle sommano <c>Profit</c> o
+    /// contano i segnali (<see cref="CalculateWeeklyResults"/>, AdvancedStrategyFilter,
+    /// BasicStrategyFilter, PiootooOptimizationService, PiootooSapiooService), e il battito
+    /// giornaliero garantisce che ogni strategia resti presente in ogni settimana del run anche se
+    /// non ha mai operato — cosi' le finestre "ultime N settimane" contano le settimane ferme come
+    /// zero invece di saltarle.</para>
+    ///
+    /// <para><b>Perche' non basta "l'equity e' cambiata".</b> Era il terzo motivo di emissione, ed
+    /// e' stato tolto l'08/09/2026: l'equity di una strategia e' <b>mark-to-market</b>
+    /// (<c>PiootooTradingService.GetStrategyEquities</c> somma il profitto non realizzato), quindi
+    /// cambia a ogni tick in cui una posizione e' aperta. Quel motivo non diceva "e' successo
+    /// qualcosa", diceva "c'e' una posizione aperta", e il filtro non filtrava niente. Su una
+    /// finestra di tredici mesi con orologio a un minuto e 98 strategie faceva fino a 57 milioni di
+    /// oggetti: il run moriva di <c>OutOfMemoryException</c> dopo tre minuti, e quando arrivava in
+    /// fondo il report HTML pesava 320 MB con 2,17 milioni di punti e i grafici non si
+    /// disegnavano.</para>
+    ///
+    /// <para><b>Non e' un campionamento, e' un'aggregazione esatta.</b> <c>Profit</c> si calcola
+    /// come differenza dall'ultima equity <i>emessa</i>, non dall'ultimo tick: saltando le righe
+    /// intermedie, la riga giornaliera porta il delta dell'intera giornata. Ogni somma a valle
+    /// restituisce gli stessi totali di prima. Cambia invece cosa conta
+    /// <c>WeeklyResult.WinningTrades</c>, che sommava le righe con profitto positivo: erano "tick
+    /// con posizione in guadagno", diventano "giornate in guadagno". Non era un conteggio di trade
+    /// ne' prima ne' dopo.</para>
     /// </summary>
     private void AppendStrategyEquityResults(
         BacktestingResult result,
@@ -1820,15 +1836,22 @@ public class PiootooBacktestingService : IPiootooBacktestingService
             var equity = snapshot.StrategyEquities.TryGetValue(strategyKey, out var snapshotEquity)
                 ? snapshotEquity
                 : previousEquity;
-            strategyEquityCache[strategyKey] = equity;
-
             var profit = equity - previousEquity;
             var isHeartbeat = track.LastEmittedDay != day;
-            if (profit == 0m && signal is null && !isHeartbeat)
+            if (signal is null && !isHeartbeat)
             {
-                // Ripeterebbe l'equity gia' nota senza aggiungere informazione.
+                // Nessun segnale e la giornata e' gia' stata aperta: la riga direbbe solo di quanto
+                // si e' mosso il mark-to-market di una posizione ancora aperta, che non entra in
+                // nessuna aggregazione. Il delta non si perde: lo porta per intero la prossima riga
+                // emessa, perche' previousEquity e' l'ultima EMESSA e non l'ultimo tick.
                 continue;
             }
+
+            // La cache tiene l'ultima equity EMESSA, non l'ultima vista a ogni tick: e' esattamente
+            // cio' che fa telescopare i profitti sulle righe che restano. Aggiornarla anche sui tick
+            // saltati farebbe portare alla riga giornaliera il solo delta dell'ultimo minuto, e la
+            // somma del run non tornerebbe piu'.
+            strategyEquityCache[strategyKey] = equity;
 
             track.LastEmittedDay = day;
 
