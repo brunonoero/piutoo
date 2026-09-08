@@ -3,6 +3,7 @@ using Piootoo.Shared;
 using Piootoo.Shared.Configuration;
 using Piootoo.Shared.Enums;
 using Piootoo.Shared.Interfaces;
+using Piootoo.Shared.MarketData;
 using Piootoo.Shared.Models;
 using Piootoo.Shared.Models.Datafeed;
 using Piootoo.Shared.Models.Optimization;
@@ -1120,6 +1121,23 @@ public sealed class TradingSessionService : ITradingSessionService
                     ? QuantityRoundingMode.Deferred
                     : QuantityRoundingMode.FuturesContracts
             }, StringComparer.OrdinalIgnoreCase);
+
+        // Senza calendario non c'e' un ancoraggio da dichiarare, e il client non puo' costruire i
+        // bucket oltre l'ora: sceglierne uno a caso darebbe barre diverse da quelle su cui le
+        // strategie sono state trovate, tutte plausibili e senza nessun errore a valle. Meglio non
+        // aprire. Vale anche a un timeframe basso, dove la griglia non servirebbe: una sessione che
+        // parte oggi perche' tutte le sue strategie stanno sotto l'ora si romperebbe il giorno in
+        // cui il masterfilter ne aggiunge una a quattro ore, e non nel punto in cui l'hanno cambiata.
+        var withoutCalendar = instrumentMetadata.Keys
+            .Where(symbol => !MarketCalendarRegistry.Current.TryGet(symbol, out _))
+            .OrderBy(symbol => symbol, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (withoutCalendar.Length != 0)
+            throw new ArgumentException(
+                $"Strumenti fuori dal calendario di mercato: {string.Join(", ", withoutCalendar)}. " +
+                "Senza inizio sessione e fuso dichiarati non si sa dove cadono i confini delle barre " +
+                "oltre l'ora, e una griglia scelta a caso produce barre diverse invece di un errore. " +
+                "Aggiungerli a Piootoo.Shared/MarketData/market-calendars.json.");
 
         var engine = new PiootooTradingService();
         engine.Initialize(request.InitialCapital, request.CommissionPerContract);
@@ -4399,6 +4417,23 @@ public sealed class TradingSessionService : ITradingSessionService
         return Describe(session, conversion, session.DirectAccountNumber);
     }
 
+    /// <summary>
+    /// La griglia dichiarata dal calendario di mercato per un simbolo. Lancia se il simbolo non c'e':
+    /// l'apertura lo ha gia' verificato, quindi arrivare qui senza calendario sarebbe un difetto.
+    /// </summary>
+    private static InstrumentBarGrid BarGridOf(string symbol)
+    {
+        if (!MarketCalendarRegistry.Current.TryGet(symbol, out var calendar))
+            throw new InvalidOperationException(
+                $"'{symbol}' non e' nel calendario di mercato: la sessione non doveva potersi aprire.");
+
+        return new InstrumentBarGrid
+        {
+            SessionStartHour = calendar.SessionStartHour,
+            ResearchTimeZone = calendar.ResearchTimeZone
+        };
+    }
+
     private TradingSessionDescriptor Describe(
         Session session, AccountSymbolConversion conversion, string? accountNumber = null) => new()
     {
@@ -4445,6 +4480,10 @@ public sealed class TradingSessionService : ITradingSessionService
                 Symbol = g.Key,
                 AccountSymbol = conversion.GetAccountSymbol(g.Key),
                 TimeframesMinutes = g.Select(x => x.TimeframeMinutes).Distinct().Order().ToArray(),
+                // La griglia dei bucket oltre l'ora, dal calendario di mercato. CreateCore ha gia'
+                // rifiutato l'apertura per un simbolo che il calendario non conosce, quindi qui
+                // c'e' sempre.
+                BarGrid = BarGridOf(g.Key),
                 // Quanta storia serve al server per valutare quello stream: il client la usa per
                 // sapere quante candele caricare dal broker e quanto profonda spedire la finestra.
                 RequiredCandlesByTimeframe = g.GroupBy(x => x.TimeframeMinutes)

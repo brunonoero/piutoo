@@ -114,7 +114,7 @@ namespace cAlgo.Robots
         //   derivazione passa sempre da planCode ed e' rifatta anche allo stop, per la coda raccolta
         //   in sincronia. Due parametri salvati nelle istanze spariscono, e un'istanza senza codice
         //   piano non parte piu': va riconfigurata, non solo ricompilata.
-        private const string BotVersion = "7.1.0";
+        private const string BotVersion = "7.2.0";
 
         /// <summary>
         /// Tetto ai giri di <c>LoadMoreHistory</c> in un solo battito di timer. Il broker risponde a
@@ -184,20 +184,6 @@ namespace cAlgo.Robots
         /// </summary>
         [Parameter("Fai derivare gli aggregati a fine backfill", DefaultValue = true, Group = "Aggregati")]
         public bool RebuildAggregates { get; set; }
-
-        /// <summary>
-        /// Codice del broker: e' la sottocartella in cui il server salva questi feed
-        /// (<c>datafeed-external/ICMARKETS/@NQ_60.json</c>). Vuoto = dedotto da
-        /// <c>Account.BrokerName</c>, ripulito dei caratteri non ammessi in un nome di cartella.
-        ///
-        /// <para>Esiste l'override perche' il nome che il broker dichiara non e' un identificatore
-        /// stabile: cambia fra conto demo e reale, e fra due server dello stesso broker. Il codice
-        /// invece e' il nome di una cartella che contiene anni di storico — se cambia da solo, il
-        /// backfill riparte da zero in una cartella nuova e nessuno se ne accorge finche' non manca
-        /// meta' feed. Il valore dedotto viene stampato all'avvio proprio per poterlo fissare.</para>
-        /// </summary>
-        [Parameter("Codice broker (vuoto = dedotto dal conto)", DefaultValue = "", Group = "Cosa raccogliere")]
-        public string BrokerCode { get; set; }
 
         /// <summary>
         /// Inizio della finestra raccolta in questo run (yyyy-MM-dd, UTC, incluso). Vuoto = tutta la
@@ -312,22 +298,6 @@ namespace cAlgo.Robots
                 return;
             }
 
-            // Una virgola nel codice broker e' quasi sempre un elenco di simboli incollato nel
-            // campo sbagliato. La ripulitura la toglierebbe in silenzio ("BP,CL,GC" -> "BPCLGC") e l'intera
-            // raccolta finirebbe in una cartella che non esiste per nessuno: il bot direbbe di aver
-            // spedito migliaia di barre e il backtest continuerebbe a dichiarare il feed mancante.
-            if (!string.IsNullOrWhiteSpace(BrokerCode) &&
-                (BrokerCode.IndexOf(',') >= 0 || BrokerCode.IndexOf(';') >= 0))
-            {
-                StopWithError(string.Format(
-                    "'Codice broker' vale '{0}', ma il codice broker e' UNO: e' il nome della cartella " +
-                    "datafeed-external/ in cui finisce tutto, e le virgole verrebbero tolte in silenzio " +
-                    "('{1}'). Gli strumenti da raccogliere li dichiara il piano, non questo campo; " +
-                    "il codice broker lasciarlo vuoto lo fa dedurre dal conto.",
-                    BrokerCode.Trim(), ResolveBrokerCode()));
-                return;
-            }
-
             if (string.IsNullOrWhiteSpace(PlanCode))
             {
                 StopWithError(
@@ -336,18 +306,6 @@ namespace cAlgo.Robots
                     "saprebbe che cosa raccogliere e partirebbe a vuoto.");
                 return;
             }
-
-            _brokerCode = ResolveBrokerCode();
-            if (string.IsNullOrEmpty(_brokerCode))
-            {
-                StopWithError(string.Format(
-                    "Codice broker non ricavabile da '{0}': valorizzare a mano il parametro 'Codice broker'.",
-                    Account.BrokerName));
-                return;
-            }
-
-            Print("Codice broker: {0} (conto {1} presso '{2}') — i feed andranno in datafeed-external/{0}/.",
-                _brokerCode, Account.Number, Account.BrokerName);
 
             if (!TryParseWindow(out var windowError))
             {
@@ -396,22 +354,6 @@ namespace cAlgo.Robots
         /// "IC Markets" -> <c>ICMARKETS</c>, "Pepperstone Ltd" -> <c>PEPPERSTONELTD</c>. La stessa
         /// ripulitura la rifa' il server sul valore ricevuto, quindi i due non possono divergere.
         /// </summary>
-        private string ResolveBrokerCode()
-        {
-            var source = string.IsNullOrWhiteSpace(BrokerCode) ? Account.BrokerName : BrokerCode;
-            if (string.IsNullOrWhiteSpace(source))
-                return string.Empty;
-
-            var builder = new StringBuilder(source.Length);
-            foreach (var character in source.Trim().ToUpperInvariant())
-            {
-                if (char.IsLetterOrDigit(character) || character == '-' || character == '_')
-                    builder.Append(character);
-            }
-
-            return builder.ToString();
-        }
-
         /// <summary>
         /// La finestra e' l'unico posto in cui questo bot interpreta delle date scritte a mano.
         /// Vengono lette come giorni di calendario UTC: inizio incluso, fine esclusa (la fine e'
@@ -628,8 +570,22 @@ namespace cAlgo.Robots
                 });
             }
 
+            if (string.IsNullOrWhiteSpace(plan.DatafeedBroker))
+            {
+                error = string.Format(
+                    "Il server non dichiara la cartella del datafeed per il conto {0} del piano '{1}': " +
+                    "il conto non ha un broker in anagrafica, oppure il server e' precedente alla 7.2.0. " +
+                    "Senza, non c'e' una cartella in cui scrivere le barre.",
+                    plan.AccountNumber, plan.PlanCode);
+                return null;
+            }
+
+            _brokerCode = plan.DatafeedBroker.Trim().ToUpperInvariant();
+
             Print("Piano '{0}' ({1}), workspace '{2}', conto {3}: {4} strumenti dal masterfilter.",
                 plan.PlanCode, plan.PlanName, plan.WorkspaceId, plan.AccountNumber, requests.Count);
+            Print("Codice broker dichiarato dal server: {0} — i feed andranno in datafeed-external/{0}/.",
+                _brokerCode);
 
             foreach (var request in requests)
                 Print("   {0} -> {1}", request.BrokerSymbol, request.PiootooSymbol);
@@ -1587,6 +1543,14 @@ namespace cAlgo.Robots
             public string PlanName { get; set; }
             public string WorkspaceId { get; set; }
             public string AccountNumber { get; set; }
+
+            /// <summary>
+            /// La cartella di datafeed-external/ in cui va questo feed. La decide il registro dei
+            /// broker lato server, che e' lo stesso posto da cui il server la rilegge: un nome
+            /// costruito qui da Account.BrokerName sarebbe un secondo nome per la stessa cosa.
+            /// </summary>
+            public string DatafeedBroker { get; set; }
+
             public List<PlanInstrumentDto> Instruments { get; set; }
         }
 

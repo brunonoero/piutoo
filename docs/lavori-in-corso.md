@@ -1,4 +1,4 @@
-﻿# Lavori in corso
+# Lavori in corso
 
 Stato al **2026-09-08**. Questo file è volutamente deperibile: quando una voce è chiusa si
 cancella da qui, e la motivazione della scelta resta in [`decisioni.md`](decisioni.md). Se una
@@ -81,9 +81,13 @@ Suite: **931 test, 40 rossi preesistenti**, nessuno nuovo in nessuno dei cinque 
   PTS usano la forma a giornata piena). Tocca i motori, non il catalogo.
   Guadagno collaterale: `OHLCMulti5` fa `Where().OrderBy().ToArray()` a **ogni valutazione** — LINQ
   nel punto più caldo del sistema, che CLAUDE.md vieta.
-- **6 (parte operativa) — i due cBot di esecuzione.** `PiootooDirectExecutionBot` e
-  `PiootooDistributedExecutionBot` piegano ancora i bucket con una copia del vecchio codice,
-  ancoraggio compreso: sono le ultime **due copie della tabella** su quattro.
+- ~~**6 (parte operativa) — i due cBot di esecuzione.**~~ **Chiuso il 08/09/2026 (7.2.0).** Il bot
+  diretto e' stato **tolto** — un distribuito con un simbolo solo e' nelle stesse condizioni, e un
+  terzo percorso di esecuzione da tenere allineato non dava niente in cambio — e il distribuito
+  legge ora ancoraggio e fuso dal descriptor (`TradingInstrument.BarGrid`, dal calendario di
+  mercato). Spariti `SessionStartHourOf` e i parametri *Fuso dell'ancoraggio* e *Ora di inizio
+  sessione*: la tabella §2.4 vive in un punto solo. Uno strumento fuori dal calendario **non fa
+  piu' aprire la sessione**.
 - **7 — riscaldamento dal disco. Fatto per la meta' che non dipende dal 6.** Il server riempie la
   storia all'apertura leggendo `datafeed-external/{BROKER}/@SYM_1.json`. R2 e R3 di
   [`domini/finestra-candele-e-riscaldamento.md`](domini/finestra-candele-e-riscaldamento.md)

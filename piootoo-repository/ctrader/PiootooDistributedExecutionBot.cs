@@ -260,7 +260,7 @@ namespace cAlgo.Robots
         // leggendo questo sorgente.
         // Il disallineamento non blocca nulla: entrambi stampano la propria versione all'avvio, e
         // il confronto si fa leggendo i due log.
-        private const string BotVersion = "7.1.0"; // major.minor deve seguire PiootooVersion
+        private const string BotVersion = "7.2.0"; // major.minor deve seguire PiootooVersion
         private const string StatusChartObjectName = "PiootooConnectionStatus";
 
         // Riquadro rosso al centro del grafico, separato dal pannello di stato: e' l'errore fatale
@@ -286,19 +286,6 @@ namespace cAlgo.Robots
         // finestra invece di accodare una serie bucata, e lo si vede subito nel log.
         [Parameter("Barre per finestra a regime", DefaultValue = 20, MinValue = 2)]
         public int IncrementalWindowBars { get; set; }
-
-        /// <summary>
-        /// Fuso IANA su cui cade l'ancoraggio dei bucket oltre l'ora. Default: quello della ricerca e
-        /// del feed (<c>ZonedWindow.ResearchTimeZone</c>), cioe' il giorno di calendario europeo.
-        /// Cambiarlo qui e non nel raccoglitore — o viceversa — fa girare l'esecuzione su barre
-        /// diverse da quelle del backtest, ed e' esattamente il disallineamento che questo parametro
-        /// esiste per rendere visibile.
-        /// </summary>
-        [Parameter("Fuso dell'ancoraggio (IANA)", DefaultValue = "Europe/Rome", Group = "Griglia oltre l'ora")]
-        public string SessionTimeZoneId { get; set; }
-
-        [Parameter("Ora di inizio sessione", DefaultValue = 0, MinValue = 0, MaxValue = 23, Group = "Griglia oltre l'ora")]
-        public int SessionStartHour { get; set; }
 
         /// <summary>
         /// Serie della piattaforma da cui si costruiscono i timeframe alti. <c>0</c> = automatico: la
@@ -510,6 +497,14 @@ namespace cAlgo.Robots
         /// </summary>
         private sealed class Pair
         {
+            /// <summary>
+            /// Ancoraggio e fuso dei bucket oltre l'ora per questo strumento, dal descriptor. Non
+            /// sono parametri del bot: vedi il commento in <see cref="BucketStartUtc"/>.
+            /// </summary>
+            public int SessionStartHour;
+            public TimeZoneInfo SessionZone;
+            public string SessionTimeZoneId;
+
             public string PiootooSymbol;
             public string AccountSymbol;
 
@@ -723,22 +718,12 @@ namespace cAlgo.Robots
         private readonly Dictionary<int, decimal> _peakProfitAfterStall = new();
 
         /// <summary>Fuso su cui cadono i confini dei bucket oltre l'ora. Risolto in OnStart.</summary>
-        private TimeZoneInfo _sessionZone;
 
         protected override void OnStart()
         {
             if (string.IsNullOrWhiteSpace(PlanCode))
             {
                 StopWithError("Codice piano non impostato: valorizzare il parametro 'Codice piano'.");
-                return;
-            }
-
-            // Prima di qualunque cosa tocchi il server: un fuso non risolvibile sposterebbe i confini
-            // di ogni barra oltre l'ora, e le strategie girerebbero su candele che il backtest non ha
-            // mai visto. Meglio non aprire nemmeno la sessione.
-            if (!TryResolveSessionZone(out var zoneError))
-            {
-                StopWithError(zoneError);
                 return;
             }
 
@@ -826,7 +811,7 @@ namespace cAlgo.Robots
                     return;
                 }
 
-                if (!TryValidateSessionOffsets(baseMinutes, out var offsetError))
+                if (!TryValidateSessionOffsets(pair, baseMinutes, out var offsetError))
                 {
                     StopWithError(offsetError);
                     return;
@@ -835,8 +820,8 @@ namespace cAlgo.Robots
                 if (pair.Aggregated)
                     Print("{0}: barre costruite dal bot sulle {1} minuti, ancoraggio {2} {3:00}:00 — " +
                           "la serie nativa da {4} minuti della piattaforma NON viene usata.",
-                        pair, baseMinutes, SessionTimeZoneId.Trim(),
-                        SessionStartHourOf(pair.PiootooSymbol), pair.TimeframeMinutes);
+                        pair, baseMinutes, pair.SessionTimeZoneId,
+                        pair.SessionStartHour, pair.TimeframeMinutes);
 
                 // Storia caricata all'indietro PRIMA di partire: cTrader tiene in serie solo le barre
                 // che gli servono per il grafico, e senza questo la prima finestra spedita al server
@@ -3846,6 +3831,31 @@ namespace cAlgo.Robots
                     ? instrument.Symbol
                     : instrument.AccountSymbol;
 
+                // La griglia dei bucket la dichiara il server per ogni strumento. Se manca non si
+                // tira a indovinare: un ancoraggio sbagliato non da' barre sbagliate, da' barre
+                // diverse da quelle su cui la strategia e' stata trovata, e nessun controllo a valle
+                // se ne accorge.
+                if (instrument.BarGrid == null ||
+                    string.IsNullOrWhiteSpace(instrument.BarGrid.ResearchTimeZone))
+                {
+                    error = "il server non ha dichiarato la griglia delle barre per '" + instrument.Symbol +
+                            "'. Un server precedente alla 7.2.0 non la manda: aggiornarlo.";
+                    return false;
+                }
+
+                TimeZoneInfo zone;
+                try
+                {
+                    zone = TimeZoneInfo.FindSystemTimeZoneById(instrument.BarGrid.ResearchTimeZone.Trim());
+                }
+                catch (Exception failure)
+                {
+                    error = "fuso '" + instrument.BarGrid.ResearchTimeZone.Trim() + "' dichiarato per '" +
+                            instrument.Symbol + "' non riconosciuto da questa macchina (" + failure.Message +
+                            "): i confini delle barre oltre l'ora non sarebbero calcolabili.";
+                    return false;
+                }
+
                 foreach (var tf in instrument.TimeframesMinutes ?? Array.Empty<int>())
                 {
                     if (tf <= 0)
@@ -3862,7 +3872,10 @@ namespace cAlgo.Robots
                         PiootooSymbol = instrument.Symbol,
                         AccountSymbol = accountSymbol,
                         TimeframeMinutes = tf,
-                        RequiredCandles = Math.Max(1, required)
+                        RequiredCandles = Math.Max(1, required),
+                        SessionStartHour = instrument.BarGrid.SessionStartHour,
+                        SessionZone = zone,
+                        SessionTimeZoneId = instrument.BarGrid.ResearchTimeZone.Trim()
                     });
                 }
             }
@@ -4041,41 +4054,13 @@ namespace cAlgo.Robots
         // docs/domini/raccolta-datafeed-esterno.md, "La griglia oltre l'ora".
         // -----------------------------------------------------------------------------------------
 
-        /// <summary>Risolve il fuso dell'ancoraggio; senza, il bot non parte.</summary>
-        private bool TryResolveSessionZone(out string error)
-        {
-            error = null;
-
-            var id = (SessionTimeZoneId ?? string.Empty).Trim();
-            if (id.Length == 0)
-            {
-                error = "'Fuso dell'ancoraggio' e' vuoto: senza fuso i bucket oltre l'ora non hanno un " +
-                        "inizio sessione a cui appoggiarsi. Il valore della ricerca e del feed e' 'Europe/Rome'.";
-                return false;
-            }
-
-            try
-            {
-                _sessionZone = TimeZoneInfo.FindSystemTimeZoneById(id);
-            }
-            catch (Exception failure)
-            {
-                error = $"Fuso '{id}' non riconosciuto ({failure.Message}). Serve un identificatore IANA " +
-                        "(es. 'Europe/Rome'): .NET li accetta anche su Windows tramite ICU, ma un " +
-                        "identificatore inventato qui sposterebbe in silenzio ogni confine di barra.";
-                return false;
-            }
-
-            return true;
-        }
-
         /// <summary>
         /// I confini dei bucket cadono sull'orologio della sessione, le barre base su confini UTC:
         /// perche' un confine coincida sempre con l'inizio di una barra base, lo scarto del fuso
         /// dev'essere un multiplo intero del timeframe base. Per i fusi che si usano lo e' sempre —
         /// sono ore piene — ma uno a mezz'ora taglierebbe a meta' una barra base senza dirlo.
         /// </summary>
-        private bool TryValidateSessionOffsets(int baseMinutes, out string error)
+        private bool TryValidateSessionOffsets(Pair pair, int baseMinutes, out string error)
         {
             error = null;
             if (baseMinutes <= 0)
@@ -4087,15 +4072,16 @@ namespace cAlgo.Robots
                 for (var month = 1; month <= 7; month += 6)
                 {
                     var sample = new DateTime(y, month, 1, 0, 0, 0, DateTimeKind.Utc);
-                    var offset = _sessionZone.GetUtcOffset(sample);
+                    var offset = pair.SessionZone.GetUtcOffset(sample);
                     if (offset.Seconds == 0 && offset.Milliseconds == 0 &&
                         (int)offset.TotalMinutes % baseMinutes == 0)
                         continue;
 
-                    error = $"Il fuso '{SessionTimeZoneId?.Trim()}' ha uno scarto di {offset} da UTC il " +
-                            $"{sample:yyyy-MM-dd}, che non e' un multiplo del timeframe base ({baseMinutes} " +
-                            "minuti): i confini delle barre cadrebbero dentro una barra base. Usare un " +
-                            "timeframe base piu' fitto oppure un fuso a ore piene.";
+                    error = $"Il fuso '{pair.SessionTimeZoneId}' dichiarato per {pair.PiootooSymbol} ha uno " +
+                            $"scarto di {offset} da UTC il {sample:yyyy-MM-dd}, che non e' un multiplo del " +
+                            $"timeframe base ({baseMinutes} minuti): i confini delle barre cadrebbero dentro " +
+                            "una barra base. Serve un timeframe base piu' fitto, oppure il calendario di " +
+                            "mercato dichiara per quel simbolo un fuso che non e' a ore piene.";
                     return false;
                 }
             }
@@ -4119,40 +4105,6 @@ namespace cAlgo.Robots
         /// l'ora che non esiste e manda la barra in un bucket precedente a quello della barra prima.
         /// Vedi il raccoglitore e la misura riportata in docs/decisioni.md 2026-09-05.</para>
         /// </summary>
-        /// <summary>
-        /// L'ancoraggio dei bucket oltre l'ora, <b>per simbolo</b>: la tabella §2.4 del dossier del
-        /// paniere da' 01:00 CET a FDAX, CC, CT, KC, SB e HK, e la stessa tabella sta lato C# in
-        /// <c>InstrumentSpec.ResearchSessionStartHour</c>. Per tutto il resto vale il parametro
-        /// <see cref="SessionStartHour"/>, che resta il default e l'unica via per uno strumento che
-        /// la tabella non conosce.
-        ///
-        /// <para><b>Perche' per simbolo e non per istanza.</b> L'ancoraggio e' una proprieta' dello
-        /// strumento, non una scelta del piano: un parametro unico renderebbe non eseguibile un piano
-        /// che mette insieme NQ e FDAX, cioe' il caso normale. Un ancoraggio sbagliato non produce
-        /// barre sbagliate — produce barre <i>diverse</i>, tutte plausibili, sfasate di un'ora
-        /// rispetto alla griglia su cui le strategie sono state trovate — e nessun controllo a valle
-        /// se ne accorge: meglio non poterlo sbagliare che accorgersene.</para>
-        ///
-        /// <para>Gemello di <c>PiootooDatafeedSyncBot.SessionStartHourOf</c>: le copie restano
-        /// identiche o la prossima lettura non sa piu' quale sia quella giusta, esattamente come per
-        /// <see cref="BucketStartUtc"/>.</para>
-        /// </summary>
-        private int SessionStartHourOf(string piootooSymbol)
-        {
-            var nome = (piootooSymbol ?? string.Empty).TrimStart('@').ToUpperInvariant();
-            switch (nome)
-            {
-                case "FDAX":
-                case "CC":
-                case "CT":
-                case "KC":
-                case "SB":
-                    return 1;
-                default:
-                    return SessionStartHour;
-            }
-        }
-
         private DateTime BucketStartUtc(Pair pair, DateTime openUtc)
         {
             var timeframeMinutes = pair.TimeframeMinutes;
@@ -4165,15 +4117,20 @@ namespace cAlgo.Robots
             if (timeframeMinutes <= NativeCeilingMinutes)
                 return openUtc;
 
+            // Ancoraggio e fuso sono quelli che il SERVER ha dichiarato per questo strumento nel
+            // descriptor (TradingInstrument.BarGrid), letti dal calendario di mercato. Fino alla
+            // 7.1.0 stavano qui, in una tabella per simbolo piu' due parametri dell'istanza: una
+            // seconda copia di una regola che vive gia' altrove, e quando le due hanno smesso di
+            // essere d'accordo il risultato non e' stato un errore ma un feed con due griglie
+            // dentro, meta' barre ciascuna, tutte plausibili.
             var local = TimeZoneInfo.ConvertTimeFromUtc(
-                DateTime.SpecifyKind(openUtc, DateTimeKind.Utc), _sessionZone);
+                DateTime.SpecifyKind(openUtc, DateTimeKind.Utc), pair.SessionZone);
 
-            var minutesFromAnchor =
-                (int)local.TimeOfDay.TotalMinutes - SessionStartHourOf(pair.PiootooSymbol) * 60;
+            var minutesFromAnchor = (int)local.TimeOfDay.TotalMinutes - pair.SessionStartHour * 60;
             if (minutesFromAnchor < 0)
                 minutesFromAnchor += 1440;
 
-            return SessionLocalToUtc(local.AddMinutes(-(double)(minutesFromAnchor % timeframeMinutes)));
+            return SessionLocalToUtc(pair, local.AddMinutes(-(double)(minutesFromAnchor % timeframeMinutes)));
         }
 
         /// <summary>
@@ -4181,19 +4138,20 @@ namespace cAlgo.Robots
         /// <c>Piootoo.Shared.Configuration.SessionClock.ToUtc</c>: l'orario che non esiste si sposta
         /// avanti dell'ampiezza del salto, quello ambiguo si risolve sulla prima delle due occorrenze.
         /// </summary>
-        private DateTime SessionLocalToUtc(DateTime sessionLocal)
+        private DateTime SessionLocalToUtc(Pair pair, DateTime sessionLocal)
         {
+            var zone = pair.SessionZone;
             var local = DateTime.SpecifyKind(sessionLocal, DateTimeKind.Unspecified);
 
-            if (_sessionZone.IsInvalidTime(local))
+            if (zone.IsInvalidTime(local))
             {
-                var delta = _sessionZone.GetUtcOffset(local.AddDays(1)) - _sessionZone.GetUtcOffset(local.AddDays(-1));
+                var delta = zone.GetUtcOffset(local.AddDays(1)) - zone.GetUtcOffset(local.AddDays(-1));
                 local = local.Add(delta);
             }
 
-            if (_sessionZone.IsAmbiguousTime(local))
+            if (zone.IsAmbiguousTime(local))
             {
-                var offsets = _sessionZone.GetAmbiguousTimeOffsets(local);
+                var offsets = zone.GetAmbiguousTimeOffsets(local);
                 var scelto = offsets[0];
                 foreach (var offset in offsets)
                 {
@@ -4204,7 +4162,7 @@ namespace cAlgo.Robots
                 return DateTime.SpecifyKind(local - scelto, DateTimeKind.Utc);
             }
 
-            return TimeZoneInfo.ConvertTimeToUtc(local, _sessionZone);
+            return TimeZoneInfo.ConvertTimeToUtc(local, zone);
         }
 
         /// <summary>
@@ -4578,6 +4536,19 @@ namespace cAlgo.Robots
             /// questa coppia: sotto quella soglia il server non valuta e la sessione resta muta.
             /// </summary>
             public Dictionary<int, int> RequiredCandlesByTimeframe { get; set; }
+
+            /// <summary>
+            /// Dove cadono i confini delle barre oltre l'ora per questo strumento. Lo dichiara il
+            /// server dal calendario di mercato, che cTrader non ha.
+            /// </summary>
+            public InstrumentBarGridDto BarGrid { get; set; }
+        }
+
+        /// <summary>Ancoraggio dei bucket: ora di inizio sessione e fuso in cui leggerla.</summary>
+        private sealed class InstrumentBarGridDto
+        {
+            public int SessionStartHour { get; set; }
+            public string ResearchTimeZone { get; set; }
         }
 
         private sealed class OrderIntentDto

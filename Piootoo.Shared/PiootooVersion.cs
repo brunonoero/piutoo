@@ -37,10 +37,11 @@
 /// solo fa fallire la build dei test.</para>
 ///
 /// <para><c>PiootooBarCycleTestBot</c> ha una versione propria e non segue questa: non parla HTTP
-/// con il server, quindi non c'è un contratto comune di cui il numero sia la sintesi.
-/// <c>PiootooDirectExecutionBot</c> invece <b>un client HTTP ce l'ha</b> (parametro
-/// <c>API Base Url</c>) pur portando una versione propria (1.4.0): o segue anche lui questo
-/// numero, o va detto perché non deve. Voce aperta, non risolta qui.</para>
+/// con il server, quindi non c'è un contratto comune di cui il numero sia la sintesi. Era una voce
+/// aperta anche per <c>PiootooDirectExecutionBot</c>, che un client HTTP ce l'aveva pur portando
+/// una versione propria: risolta togliendolo (7.2.0). Un bot distribuito con un simbolo solo è
+/// nelle stesse condizioni, e un terzo percorso di esecuzione da tenere allineato agli altri due
+/// non dava niente in cambio.</para>
 ///
 /// <para>Il disallineamento non è bloccante ed è volutamente solo diagnostico: server e cBot
 /// stampano la propria versione all'avvio, e il confronto si fa leggendo i due log. Un blocco
@@ -50,7 +51,7 @@
 public static class PiootooVersion
 {
     /// <summary>Versione corrente del server. Vedi la nota della classe: va mossa insieme a quella del cBot.</summary>
-    public const string Current = "7.1.0";
+    public const string Current = "7.2.0";
 
     /// <summary>
     /// Parte del numero che vale come contratto: <c>major.minor</c>. È ciò che console e cBot

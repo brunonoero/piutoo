@@ -1,4 +1,4 @@
-namespace Piootoo.Shared.Models.Datafeed;
+﻿namespace Piootoo.Shared.Models.Datafeed;
 
 /// <summary>
 /// Contratti dell'ingestione datafeed esterno: un cBot raccoglitore spinge barre e tick a pezzi,
@@ -252,6 +252,20 @@ public sealed class PlanDatafeedInstrumentsDto
 
     /// <summary>Conto di cui si e' usata la tabella di conversione per <c>AccountSymbol</c>.</summary>
     public string AccountNumber { get; set; } = string.Empty;
+
+    /// <summary>
+    /// La cartella di <c>datafeed-external/</c> in cui va il feed raccolto per questo conto: il
+    /// <c>DatafeedFolder</c> del broker se c'e', altrimenti il suo <c>Code</c>.
+    ///
+    /// <para><b>Perche' lo dice il server.</b> E' lo stesso nome con cui il server poi rilegge
+    /// l'archivio — riscaldamento di sessione, sorgente dei prezzi di un run — quindi deve essere
+    /// deciso una volta sola. Un raccoglitore che se lo costruisce da <c>Account.BrokerName</c>
+    /// produce un nome diverso ("FTMO Platform" diventa FTMOPLATFORM mentre il registro dice FTMO),
+    /// e nessuno se ne accorge finche' non ci sono due archivi a meta' per lo stesso broker: e'
+    /// successo l'08/09/2026. Vuoto quando il conto non ha un broker: in quel caso il raccoglitore
+    /// non ha una cartella in cui scrivere e non parte.</para>
+    /// </summary>
+    public string DatafeedBroker { get; set; } = string.Empty;
 
     public List<PlanDatafeedInstrumentDto> Instruments { get; set; } = new();
 }

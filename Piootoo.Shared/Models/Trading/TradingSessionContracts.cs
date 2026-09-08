@@ -1,4 +1,4 @@
-using Piootoo.Shared.Enums;
+﻿using Piootoo.Shared.Enums;
 using Piootoo.Shared.Models;
 
 namespace Piootoo.Shared.Models.Trading;
@@ -257,6 +257,31 @@ public sealed class TradingSessionSummary
     public DateTime? LastBarTimeUtc { get; init; }
 }
 
+/// <summary>
+/// La griglia su cui cadono i bucket oltre l'ora per uno strumento: l'ora di inizio sessione e il
+/// fuso in cui va letta.
+///
+/// <para><b>Perché viaggia nel descriptor.</b> È una proprietà dello <i>strumento</i> — la tabella
+/// §2.4 del dossier dà 01:00 a FDAX, CC, CT, KC e SB, mezzanotte a tutti gli altri — e il server la
+/// conosce dal calendario di mercato, il client no. Tenerne una copia nel cBot significa due
+/// tabelle che devono restare uguali per sempre: quando hanno smesso di esserlo il risultato non è
+/// stato un errore ma un feed con <b>due griglie dentro</b>, metà barre ciascuna, tutte plausibili
+/// (<c>@KC_240</c>, 880 su 1.760). Un ancoraggio sbagliato non dà barre sbagliate, dà barre
+/// <i>diverse</i> da quelle su cui le strategie sono state trovate, e nessun controllo a valle se
+/// ne accorge.</para>
+///
+/// <para>Stessa ragione di <see cref="TradingInstrument.RequiredCandlesByTimeframe"/>: non è un
+/// parametro del client di proposito.</para>
+/// </summary>
+public sealed class InstrumentBarGrid
+{
+    /// <summary>Ora locale a cui si apre la sessione dello strumento, nel fuso qui sotto.</summary>
+    public required int SessionStartHour { get; init; }
+
+    /// <summary>Fuso IANA in cui leggere l'ancoraggio: quello della ricerca, non quello di borsa.</summary>
+    public required string ResearchTimeZone { get; init; }
+}
+
 public sealed class TradingInstrument
 {
     public required string Symbol { get; init; }
@@ -270,6 +295,12 @@ public sealed class TradingInstrument
     public string AccountSymbol { get; init; } = string.Empty;
 
     public required IReadOnlyList<int> TimeframesMinutes { get; init; }
+
+    /// <summary>
+    /// Dove cadono i confini delle barre oltre l'ora per questo strumento. Il client costruisce i
+    /// bucket con questi due numeri e non con i propri: vedi <see cref="InstrumentBarGrid"/>.
+    /// </summary>
+    public required InstrumentBarGrid BarGrid { get; init; }
 
     /// <summary>
     /// Per ogni timeframe di <see cref="TimeframesMinutes"/>, quante candele servono al server per

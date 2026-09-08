@@ -1,6 +1,7 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using Piootoo.Shared.Models.Datafeed;
 using Piootoo.Shared.Models.Trading;
+using Piootoo.Shared.Models.Workspaces;
 using Piootoo.Shared.Utilities;
 
 namespace Piootoo.Core.Services;
@@ -85,6 +86,9 @@ public sealed class TradingPlanService
             PlanName = plan.Name,
             WorkspaceId = plan.WorkspaceId,
             AccountNumber = account ?? string.Empty,
+            // La cartella dell'archivio la decide il registro dei broker, non chi raccoglie: e' lo
+            // stesso nome che il server usa per rileggerla.
+            DatafeedBroker = _workspaces.ResolveBrokerLabelForAccount(ResolveAccount(account)) ?? string.Empty,
             Instruments = pairs
                 .GroupBy(definition => NormalizeSymbol(definition.Symbol), StringComparer.OrdinalIgnoreCase)
                 .Select(group => new PlanDatafeedInstrumentDto
@@ -107,15 +111,20 @@ public sealed class TradingPlanService
     /// </summary>
     private AccountSymbolConversion? ResolveConversion(string? accountNumber)
     {
+        var account = ResolveAccount(accountNumber);
+        return account is null
+            ? null
+            : AccountSymbolConversion.FromAccount(account, _workspaces.ResolveConversionForAccount(account));
+    }
+
+    /// <summary>L'anagrafica del conto, o null se il numero non corrisponde a nessuno.</summary>
+    private WorkspaceAccount? ResolveAccount(string? accountNumber)
+    {
         if (string.IsNullOrWhiteSpace(accountNumber))
             return null;
 
-        var account = _workspaces.ListAccounts().FirstOrDefault(candidate =>
+        return _workspaces.ListAccounts().FirstOrDefault(candidate =>
             string.Equals(candidate.AccountNumber?.Trim(), accountNumber.Trim(), StringComparison.OrdinalIgnoreCase));
-        if (account is null)
-            return null;
-
-        return AccountSymbolConversion.FromAccount(account, _workspaces.ResolveConversionForAccount(account));
     }
 
     /// <summary>Simbolo nella forma con cui il datafeed lo indicizza: <c>@NQ</c>.</summary>

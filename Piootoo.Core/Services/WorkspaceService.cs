@@ -1,4 +1,4 @@
-using System.IO.Compression;
+﻿using System.IO.Compression;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Piootoo.Shared.Configuration;
@@ -370,8 +370,14 @@ public sealed class WorkspaceService
             Name = string.IsNullOrWhiteSpace(broker.Name) ? code : broker.Name.Trim(),
             SymbolConversionCode = broker.SymbolConversionCode?.Trim() ?? string.Empty,
             // La cartella del feed vuota non e' un buco: vale il codice, che e' come si chiamano
-            // gia' oggi le cartelle sotto datafeed-external/.
-            DatafeedFolder = broker.DatafeedFolder?.Trim() ?? string.Empty,
+            // gia' oggi le cartelle sotto datafeed-external/. Quando c'e' pero' e' un nome di
+            // cartella a tutti gli effetti, quindi si valida come il codice: senza, un valore con
+            // uno spazio veniva accettato qui e ripulito in silenzio tre strati piu' in la' da
+            // ExternalDatafeedStore.NormalizeBroker ("FTMO Live" -> FTMOLIVE), cioe' si scriveva un
+            // nome e se ne otteneva un altro.
+            DatafeedFolder = string.IsNullOrWhiteSpace(broker.DatafeedFolder)
+                ? string.Empty
+                : NormalizeBrokerCode(broker.DatafeedFolder),
             Enabled = broker.Enabled,
             Notes = broker.Notes?.Trim() ?? string.Empty,
             CreatedUtc = broker.CreatedUtc,
