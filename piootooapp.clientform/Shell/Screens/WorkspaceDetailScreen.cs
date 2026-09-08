@@ -3,15 +3,46 @@ using Piootoo.Shared.Models.Workspaces;
 
 namespace piootooapp.clientform.Shell.Screens;
 
-/// <summary>Voce spuntabile del catalogo strategie.</summary>
+/// <summary>
+/// Voce spuntabile del masterfilter. Rappresenta una strategia del catalogo oppure un id che sta
+/// nel masterfilter ma <b>non</b> nel catalogo, perche' e' stata disabilitata o rimossa dopo che
+/// il workspace era gia' stato salvato.
+///
+/// <para>La seconda forma esiste per un motivo solo: senza una voce propria quell'id resterebbe
+/// invisibile nell'elenco e nessuno potrebbe toglierlo dal masterfilter, mentre l'apertura di una
+/// sessione lo rifiuta (<c>TradingSessionService.CreateCore</c>). Il workspace resterebbe
+/// inutilizzabile senza che la schermata mostri il perche'.</para>
+/// </summary>
 public sealed class StrategyChecklistItem
 {
-    public StrategyChecklistItem(StrategyCatalogItem strategy) => Strategy = strategy;
+    public StrategyChecklistItem(StrategyCatalogItem strategy)
+    {
+        Strategy = strategy;
+        Id = strategy.Id;
+    }
 
-    public StrategyCatalogItem Strategy { get; }
+    private StrategyChecklistItem(string strategyId)
+    {
+        Strategy = null;
+        Id = strategyId;
+    }
+
+    /// <summary>Voce per un id del masterfilter che il catalogo non elenca piu'.</summary>
+    public static StrategyChecklistItem OutOfCatalog(string strategyId) => new(strategyId);
+
+    /// <summary>Null quando l'id non e' nel catalogo.</summary>
+    public StrategyCatalogItem? Strategy { get; }
+
+    /// <summary>Id di classe: la chiave che finisce nel masterfilter, sempre valorizzata.</summary>
+    public string Id { get; }
 
     public override string ToString()
     {
+        if (Strategy is null)
+        {
+            return $"(!)  fuori catalogo: disabilitata o rimossa  ·  togli la spunta per pulire il masterfilter   [{Id}]";
+        }
+
         var timeframe = Strategy.TimeframeMinutes > 0 ? $"{Strategy.TimeframeMinutes}m" : "—";
         // La tenuta si legge qui perche' e' qui che si sceglie: un masterfilter pieno di multiday
         // su un piano che vieta l'overnight e' un run che misura il flat, non le strategie.
@@ -29,6 +60,13 @@ public partial class WorkspaceDetailScreen : UserControl, IShellScreen, IDirtyAw
 {
     private readonly List<StrategyCatalogItem> _catalog = new();
     private readonly HashSet<string> _selectedIds = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Id gia' nel masterfilter che il catalogo non elenca. Restano in elenco per tutta la vita
+    /// della schermata anche dopo che si e' tolta la spunta: e' cosi' che si vede di averli tolti,
+    /// e che si puo' rimettere una spunta data per sbaglio.
+    /// </summary>
+    private readonly List<string> _outOfCatalogIds = new();
     private ShellContext? _context;
     private string? _workspaceId;
     private string _masterFilterName = string.Empty;
@@ -68,6 +106,7 @@ public partial class WorkspaceDetailScreen : UserControl, IShellScreen, IDirtyAw
                 .ThenBy(strategy => strategy.Name, StringComparer.OrdinalIgnoreCase));
 
             _selectedIds.Clear();
+            _outOfCatalogIds.Clear();
             if (IsNew)
             {
                 _masterFilterName = string.Empty;
@@ -80,6 +119,16 @@ public partial class WorkspaceDetailScreen : UserControl, IShellScreen, IDirtyAw
                 var filter = await _context.Services.Api.GetMasterFilterAsync(_workspaceId!, cancellationToken);
                 _masterFilterName = filter.Name;
                 _selectedIds.UnionWith(filter.StrategiesFilter);
+
+                // Il catalogo non elenca le strategie disabilitate: gli id del masterfilter che non
+                // vi compaiono vanno mostrati lo stesso, altrimenti ogni salvataggio li riscrive e
+                // l'apertura di una sessione continua a rifiutare il workspace.
+                var catalogIds = new HashSet<string>(
+                    _catalog.Select(strategy => strategy.Id), StringComparer.OrdinalIgnoreCase);
+                _outOfCatalogIds.AddRange(_selectedIds
+                    .Where(id => !catalogIds.Contains(id))
+                    .OrderBy(id => id, StringComparer.OrdinalIgnoreCase));
+
                 _nameTextBox.Text = string.IsNullOrWhiteSpace(filter.Name) ? _workspaceId! : filter.Name;
                 // Il nome del workspace è la cartella su disco: l'API non espone una rinomina.
                 _nameTextBox.ReadOnly = true;
@@ -88,13 +137,20 @@ public partial class WorkspaceDetailScreen : UserControl, IShellScreen, IDirtyAw
 
             _infoLabel.Text = IsNew
                 ? "Il nome diventa la cartella del workspace. Le strategie spuntate finiscono nel masterfilter."
-                : $"Id: {_workspaceId}  ·  catalogo: {_catalog.Count} strategie disponibili";
+                : $"Id: {_workspaceId}  ·  catalogo: {_catalog.Count} strategie disponibili"
+                  + (_outOfCatalogIds.Count == 0
+                      ? string.Empty
+                      : $"  ·  {_outOfCatalogIds.Count} id fuori catalogo: togli la spunta e salva, "
+                        + "altrimenti la sessione rifiuta il workspace");
 
             ApplyStrategyFilter();
             SetDirty(false);
             _context.Navigation.SetStatus(IsNew
                 ? $"Catalogo caricato: {_catalog.Count} strategie."
-                : $"Masterfilter di '{_workspaceId}': {_selectedIds.Count} strategie selezionate.");
+                : $"Masterfilter di '{_workspaceId}': {_selectedIds.Count} strategie selezionate."
+                  + (_outOfCatalogIds.Count == 0
+                      ? string.Empty
+                      : $" {_outOfCatalogIds.Count} fuori catalogo: {string.Join(", ", _outOfCatalogIds)}."));
         }
         catch (OperationCanceledException)
         {
@@ -122,6 +178,16 @@ public partial class WorkspaceDetailScreen : UserControl, IShellScreen, IDirtyAw
         _suppressItemCheck = true;
         _strategiesList.BeginUpdate();
         _strategiesList.Items.Clear();
+
+        // In testa, cosi' si vedono senza cercarli: sono l'unica cosa che impedisce al workspace
+        // di aprire una sessione.
+        foreach (var id in _outOfCatalogIds.Where(id =>
+                     MatchesId(id, filter) && (!onlySelected || _selectedIds.Contains(id))))
+        {
+            var outOfCatalogIndex = _strategiesList.Items.Add(StrategyChecklistItem.OutOfCatalog(id));
+            _strategiesList.SetItemChecked(outOfCatalogIndex, _selectedIds.Contains(id));
+        }
+
         foreach (var strategy in _catalog.Where(strategy =>
                      Matches(strategy, filter)
                      && (!onlySelected || _selectedIds.Contains(strategy.Id))))
@@ -134,6 +200,10 @@ public partial class WorkspaceDetailScreen : UserControl, IShellScreen, IDirtyAw
         _suppressItemCheck = false;
         UpdateSelectionCount();
     }
+
+    /// <summary>Filtro per le voci fuori catalogo, di cui si conosce il solo id.</summary>
+    private static bool MatchesId(string strategyId, string filter)
+        => filter.Length == 0 || strategyId.Contains(filter, StringComparison.OrdinalIgnoreCase);
 
     private static bool Matches(StrategyCatalogItem strategy, string filter)
     {
@@ -151,8 +221,10 @@ public partial class WorkspaceDetailScreen : UserControl, IShellScreen, IDirtyAw
     private void UpdateSelectionCount()
     {
         var shown = _strategiesList.Items.Count;
+        var outOfCatalogSelected = _outOfCatalogIds.Count(_selectedIds.Contains);
         _selectionCountLabel.Text = $"{_selectedIds.Count} selezionate su {_catalog.Count}" +
-            (shown != _catalog.Count ? $"  ·  {shown} in elenco" : string.Empty);
+            (shown != _catalog.Count ? $"  ·  {shown} in elenco" : string.Empty) +
+            (outOfCatalogSelected > 0 ? $"  ·  {outOfCatalogSelected} fuori catalogo" : string.Empty);
     }
 
     private void SetDirty(bool dirty)
@@ -180,11 +252,11 @@ public partial class WorkspaceDetailScreen : UserControl, IShellScreen, IDirtyAw
 
         if (e.NewValue == CheckState.Checked)
         {
-            _selectedIds.Add(item.Strategy.Id);
+            _selectedIds.Add(item.Id);
         }
         else
         {
-            _selectedIds.Remove(item.Strategy.Id);
+            _selectedIds.Remove(item.Id);
         }
 
         SetDirty(true);
@@ -213,11 +285,11 @@ public partial class WorkspaceDetailScreen : UserControl, IShellScreen, IDirtyAw
             _strategiesList.SetItemChecked(index, isChecked);
             if (isChecked)
             {
-                _selectedIds.Add(item.Strategy.Id);
+                _selectedIds.Add(item.Id);
             }
             else
             {
-                _selectedIds.Remove(item.Strategy.Id);
+                _selectedIds.Remove(item.Id);
             }
         }
 
