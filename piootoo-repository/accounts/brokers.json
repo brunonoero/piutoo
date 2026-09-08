@@ -4,9 +4,9 @@
       "Code": "FTMO",
       "Name": "FTMO",
       "SymbolConversionCode": "cfd-ctrader-ftmo",
-      "DatafeedFolder": "",
+      "DatafeedFolder": "FTMOPLATFORM",
       "Enabled": true,
-      "Notes": "",
+      "Notes": "La cartella dell'archivio si chiama FTMOPLATFORM, il codice del broker FTMO: e' a questo che serve DatafeedFolder.",
       "CreatedUtc": "2026-09-05T11:22:29.1508658Z",
       "UpdatedUtc": "2026-09-05T11:37:21.7591061Z"
     },
