@@ -102,21 +102,6 @@ più il codice.
 - **La raccolta a un minuto** può partire quando vuoi: il server nuovo è il prerequisito, perché
   `rebuild-from-minutes` non esiste su quello vecchio e senza aggregati i backtest sopra il minuto
   non trovano il datafeed.
-- **Ventuno classi PTS sono su simboli fuori dal calendario** — HK (5), HO (8), JY (8) — e non sono
-  eseguibili: manca loro il `PointValue` prima ancora della sessione. HK e HO sono usciti dal
-  paniere il 07/09/2026 ma le classi sono rimaste sul disco. Decisione non presa: aggiungerli al
-  calendario, o cancellarli.
-  `StrategyClockConformanceTests.StrategiesOnSymbolsWithoutACalendarAreDeclared` fissa il numero.
-- **`ResearchSessionStartConformanceTests` è diventato tautologico** dopo il 4a: legge `Session`
-  dalla strategia, che ora viene dal calendario, e la confronta col calendario. Il controllo utile
-  (i mercati che aprono all'01:00 sono quelli del dossier) è già in
-  `MarketCalendarConformanceTests.OnlyTheDossierMarketsOpenAtOneCet`. Da potare.
-
-## Cosa è committato e cosa no
-
-Il lavoro del 07/09 è in `7ecaae4`. Quello dell'08/09 — il resto del passo 5 e l'interruttore della
-finestra — è ancora nel working tree: `git status` per vederlo. `docs/decisioni.md` ha una voce per
-ogni scelta, in ordine.
 
 ---
 

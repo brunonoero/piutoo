@@ -111,9 +111,10 @@ public sealed class StrategyClockConformanceTests
     /// saltate in silenzio. <b>Non sono eseguibili</b>: manca loro il <c>PointValue</c> prima ancora
     /// della sessione, quindi un backtest che le includa si ferma con un errore esplicito.
     ///
-    /// <para>L'elenco è fissato qui perché il numero cambi solo di proposito: se cresce, qualcuno ha
-    /// portato una strategia su un simbolo mai verificato; se cala, un simbolo è stato verificato e
-    /// la voce va tolta.</para>
+    /// <para>Dall'08/09/2026 l'elenco è <b>vuoto</b>: le 21 classi che ci stavano — HK (5), HO (8),
+    /// JY (8) — sono state cancellate invece di essere verificate. Il test resta perché la lista
+    /// torni a crescere solo di proposito: una classe nuova su un simbolo che il calendario non
+    /// conosce lo fa fallire subito, invece di essere saltata in silenzio dal catalogo.</para>
     /// </summary>
     [Fact]
     public void StrategiesOnSymbolsWithoutACalendarAreDeclared()
@@ -125,14 +126,8 @@ public sealed class StrategyClockConformanceTests
             .GroupBy(strategy => MarketCalendar.Normalize(strategy.Symbol), StringComparer.Ordinal)
             .ToDictionary(group => group.Key, group => group.Count(), StringComparer.Ordinal);
 
-        // HK e HO sono usciti dal paniere il 07/09/2026 ma le loro classi sono ancora sul disco;
-        // JY non e' mai stato verificato (la quotazione del 6J e' in unita' di 0,000001).
-        var attese = new Dictionary<string, int>(StringComparer.Ordinal)
-        {
-            ["HK"] = 5,
-            ["HO"] = 8,
-            ["JY"] = 8
-        };
+        // Vuoto di proposito: ogni PTS_* del catalogo sta su un simbolo che il calendario dichiara.
+        var attese = new Dictionary<string, int>(StringComparer.Ordinal);
 
         Assert.Equal(
             attese.OrderBy(x => x.Key, StringComparer.Ordinal),

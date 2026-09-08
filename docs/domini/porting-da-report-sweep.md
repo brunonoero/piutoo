@@ -252,20 +252,24 @@ l'orario completo contro gli estremi `"HH:00"` con fine inclusa. `PriceChannelEn
 `SessionBreakoutEngine` confrontano ancora le sole ore, quindi la loro finestra
 si allarga fino a `HH:59` e prende barre che la fonte non prende.
 
-**Le etichette delle barre non coincidono — questione aperta.** Il datafeed
-Piootoo etichetta ogni barra sull'**apertura**, `EasyLib.OHLCMulti5` la assume
-etichettata sulla **chiusura** (`isBarTimeEndTime = true`, confine
-`t > sessionStartTime`). Conseguenze misurate su NQ 15m: i timestamp del
-riferimento risultano 15 minuti avanti ai nostri; con sessione CME 17:00–16:00 la
-barra 16:00 finisce dentro la sessione già chiusa e la barra 17:00, prima della
-nuova, resta fuori da ogni sessione; su 1.684 sessioni del 2020–2025 l'`open` di
-sessione differisce nell'82,6% dei casi e il `close` nell'82% con scarto medio di
-13,7 punti. Sulle barre della pausa CME (16:15–17:00), che non appartengono a
-nessuna sessione, i gate leggono un `d0` stantio — la sessione precedente
-completa — e i pattern direzionali passano quasi sempre: per `PTS_NQ_PCH_001_15` sono
-175 trade su 1.084 e $36.785 di utile. Chi porta una strategia la cui finestra
-attraversa la pausa di sessione deve aspettarsi questo scarto finché la
-convenzione non viene decisa (voce in [`../decisioni.md`](../decisioni.md)).
+**Le etichette delle barre non coincidono, e la compensazione sta in due punti.** Il datafeed
+Piootoo etichetta ogni barra sull'**apertura**; le fonti da cui le PTS vengono la mettono sulla
+**chiusura** — le righe del CSV del vendor sono la fine del minuto, il resample della ricerca
+etichetta il bucket a `inizio + Δ`. Metà del problema è chiusa: il confine di sessione compensa da
+sé dal 07/09/2026 (`EasyLib.ClassifySessionBar`, confronto `>= sessionStartTime`), e la conversione
+del feed pure (`aggregate_flat_feed.py` fa `floor(t − 1 min)` e scrive l'apertura del bucket).
+
+L'altra metà è la **finestra operativa**: `filters.py` confronta `start_hour`/`end_hour` con
+l'etichetta di chiusura, noi con l'apertura, e la finestra risulta spostata di **una barra in
+avanti** sulle 83 strategie che ne dichiarano una. La misura è l'allineamento fra gli `entry_time`
+del report e i nostri `entryTimeUtc`: su NQ 15m il massimo di corrispondenze è a **−15 minuti**,
+345 contro 78 a offset nullo, cioè esattamente una barra.
+
+`BacktestingRequest.ResearchWindowOnBarClose` (default `false`) fa confrontare
+`apertura + timeframe`. Gli orari di `parametri.csv` si riportano verbatim in ogni caso: la regola
+del porting non cambia, cambia solo con quale etichetta vengono confrontati. Il campo finisce in
+`backtest-summary.json` sotto `fillConventions`, perché due run che non concordano non sono
+confrontabili. Quanto valga non è ancora stato misurato sul paniere.
 
 **Le uscite devono essere eseguibili anche live.** Una strategia portata correttamente vale quanto
 il client che la esegue: se il cBot non applica una delle uscite dichiarate dall'intent, in

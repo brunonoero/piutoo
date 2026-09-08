@@ -6,6 +6,12 @@ risalire dalla classe alla sua fonte senza riaprire i CSV a tentativi. La proced
 traduzione sta in [`porting-da-report-sweep.md`](porting-da-report-sweep.md); i motori sono
 descritti in [`motori-strategie.md`](motori-strategie.md).
 
+> **Ventuno classi di questo file non esistono più.** L'08/09/2026 sono state cancellate le
+> `PTS_*` su HK (5), HO (8) e JY (8): il calendario non conosce quei simboli e senza `PointValue`
+> non erano eseguibili. Le righe che le nominano restano qui perché questo file è **storia del
+> porting** — dice da quale riga di quale run venivano — non l'elenco del catalogo. Il catalogo
+> è `Piootoo.Strategies/PiutooStrategies/`. Vedi [`../decisioni.md`](../decisioni.md), 2026-09-08.
+
 ## Il paniere del 02/09/2026: `DOSSIER_PANIERE (1).md` — la fonte corrente
 
 La fonte autorevole per il porting è

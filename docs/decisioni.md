@@ -223,17 +223,6 @@ in ordine cronologico. Non è un changelog di codice: quello resta nei commit.
   Lo stesso confronto per ore vive ancora in `VolatilityBreakoutEngine`,
   `LevelFaderEngine` e `SessionBreakoutEngine`: allinearli cambierebbe i risultati di quelle
   strategie, quindi resta da decidere.
-- **2026-08-02** — **Aperto: il datafeed etichetta le barre sull'apertura, `OHLCMulti5` le
-  assume etichettate sulla chiusura** (`isBarTimeEndTime = true`, confine `t > sessionStartTime`).
-  Con sessione CME 17:00–16:00 la barra 16:00 finisce dentro la sessione che si è già chiusa e
-  la barra 17:00, che è la prima della nuova, resta fuori da ogni sessione. Misure su NQ 15m
-  2020–2025 (1.684 sessioni): `open` di sessione diverso nell'82,6% dei casi, `close` nell'82%
-  con scarto medio 13,7 punti, `high` e `low` nel ~14,6%. Le barre della pausa CME
-  (16:15–17:00) non appartengono a nessuna sessione e su di esse i gate leggono un `d0`
-  stantio, cioè la sessione precedente completa: per PTS_002 sono 175 trade su 1.084 (16%) e
-  $36.785 di utile, per PTS_003 98 su 816 (12%) e $21.983. Le altre sette strategie NQ del
-  catalogo non hanno trade in quella fascia, perché le loro finestre operative la escludono.
-  Correggerlo cambia i risultati di tutto il catalogo: decisione rinviata.
 - **2026-08-02** — **Una barra stantia non può più riempire un ordine, e un intent scaduto si
   scarta invece di eseguirsi al proprio livello.** L'orologio del loop è sintetico: sui tick in
   cui il feed non ha barre il cursore restituisce l'ultima barra chiusa, la strategia la
@@ -3488,3 +3477,77 @@ che il motore fa. Difetto di artefatto, non di esecuzione, ma e' costato mezza i
   `Directory.Build.props` e `PiootooDistributedExecutionBot.BotVersion`. `PiootooDatafeedSyncBot`
   resta sulla propria numerazione (2.0.0): non parla il contratto di esecuzione, solo
   `api/datafeed-external`.
+- **2026-09-08** — **`MaxBarsInPosition` conta le barre della STRATEGIA sul calendario**, non le
+  barre che il feed consegna ne' i tick dell'orologio. Seconda voce del passo 5.
+  `PiootooTradingService` bucketizza la barra sulla griglia della strategia (`SessionGrid`) e conta
+  una volta per bucket, e il contatore avanza solo dove `IsSessionDay` non e' falso. Due difetti in
+  uno. Il primo: `ScaleSignalMaxBarsInPosition` moltiplicava N per il rapporto fra timeframe della
+  strategia e orologio del loop *prima* di sapere quante barre sarebbero esistite davvero, mentre
+  l'intent mandato ai cBot portava N **non** scalato — backtest e live contavano su unita' diverse.
+  Il metodo e' stato cancellato: il numero e' gia' in barre della strategia in tutti e due i posti.
+  Il secondo: un CFD quota dove il future non ha grafico — **972 barre di sabato su BTC/60m**, **53
+  domeniche su FDAX** — e contarle faceva morire una posizione multiday prima delle N barre
+  dichiarate. E' la logica future del fine settimana: fra la chiusura del venerdi' e la riapertura
+  non passa nessuna barra. Riguarda **62 strategie su 124** (quelle con `MaxBars > 0`).
+  `MaxBarsOnTheCalendarTests` fissa i tre casi: bucket della strategia, sabato di BTC, ripiego
+  quando il segnale non dichiara il timeframe. **La misura sul paniere non e' ancora stata fatta.**
+- **2026-09-08** — **L'uscita a indice di barra e' un conteggio di barre vere, non una proiezione
+  sull'orologio.** Terza voce del passo 5. `SessionBarToUtc` proiettava la N-esima barra di sessione
+  sull'orologio e il suo stesso commento dichiarava il limite: su una sessione con barre mancanti la
+  chiusura cadeva sull'orario atteso, non sulla N-esima barra ricevuta. `BiasBarCountEngine.WithExit`
+  ora calcola `BarCountStartsAt + exitBar - indiceBarraIngresso` e lo mette su
+  `MaxBarsInPosition`, che dopo la voce qui sopra conta barre vere sul calendario; quando l'indice di
+  uscita e' gia' passato aggiunge una sessione piena di barre. Il caso "gia' passato" e' la **norma**
+  e non l'eccezione: `PTS_BTC_BIA_001_60` apre lo short fra la barra 10 e la 20 e lo chiude alla 7.
+  `SessionBarToUtc` e' stato rimosso da `EasyEngineBase`. Tre test di `BiasBarCountEngineTests` sono
+  tornati verdi: asserivano proprio il `CloseAtUtc` a indice di barra.
+
+  Nella stessa passata e' stato verificato che **`MaxDaysInTrade` e `MaxDaysFlatTime` sono codice
+  morto** — il piano li segnalava come aritmetica a giorni di calendario della stessa famiglia. Zero
+  `PTS_*` su 124 li valorizzano (229 usano `MaxBars`) e nessun percorso li scrive da masterfilter o
+  da parametri. Da cancellare nel passo 4b, non da correggere.
+- **2026-09-08** — **La finestra operativa legge l'etichetta sbagliata della barra, e la
+  compensazione va dietro un interruttore invece che accesa.** Il feed etichetta sull'**apertura**;
+  il motore di ricerca da cui `start_hour`/`end_hour` vengono lavora su barre etichettate sulla
+  **chiusura** — le righe del vendor sono la fine del minuto, `resample_ohlcv` etichetta il bucket a
+  `inizio + Δ` — e `filters.py` confronta *quella*. Confrontarla con l'apertura sposta la finestra
+  di **una barra in avanti**: si prende la barra dopo la fine e si perde quella prima dell'inizio.
+  Riguarda **83 strategie su 124**. La misura indipendente e' l'allineamento con il report della
+  ricerca: su NQ 15m il massimo di corrispondenze fra i suoi `entry_time` e i nostri `entryTimeUtc`
+  e' a **-15 minuti**, 345 contro 78 a offset nullo, cioe' esattamente una barra.
+
+  `BacktestingRequest.ResearchWindowOnBarClose` (default `false`: nessun run esistente cambia) fa
+  confrontare `apertura + timeframe`. Le soglie di `parametri.csv` si riportano verbatim in ogni
+  caso — la regola del porting non cambia, cambia con quale etichetta vengono confrontate. Un punto
+  solo, `EasyEngineBase.WindowInstant`, e ci passano tutti e 22 i confronti di finestra e di pausa
+  degli undici motori; i minuti si sommano in **UTC** e l'`Hhmm` si prende dopo, perche' sommarli
+  sull'orario locale sbaglierebbe nei due giorni del cambio d'ora. Il valore finisce nel log di
+  avvio del job e in `backtest-summary.json` sotto `fillConventions`: due run che non concordano
+  non sono confrontabili nemmeno sullo stesso feed.
+
+  **Fuori dall'interruttore di proposito**: il filtro del giorno (`PythonWeekday`) ha lo stesso
+  difetto, ma su una barra giornaliera sposterebbe `skip_day` di un giorno intero e va misurato da
+  solo; la schedula di `BiasWeeklyEngine`, che e' un orario esatto e non una finestra;
+  l'inclusivita' degli estremi, che e' un'altra questione. **La misura non e' ancora stata fatta**:
+  finche' non c'e', il default resta il comportamento storico.
+- **2026-09-08** — **Cancellate le 21 classi PTS su simboli fuori dal calendario** — HK (5), HO (8),
+  JY (8). Non erano eseguibili: manca loro il `PointValue` prima ancora della sessione, quindi un
+  backtest che le includesse si fermava con un errore esplicito. HK e HO sono usciti dal paniere il
+  07/09/2026; JY non e' mai stato verificato (la quotazione del 6J e' in unita' di 0,000001). La
+  scelta era fra aggiungerli al calendario e cancellarli, ed e' stata la seconda: verificare tre
+  strumenti per riportare in vita strategie che nessuno esegue non paga.
+  `StrategyClockConformanceTests.StrategiesOnSymbolsWithoutACalendarAreDeclared` resta, con l'elenco
+  ora **vuoto**: una classe nuova su un simbolo che il calendario non conosce lo fa fallire subito
+  invece di essere saltata in silenzio dal catalogo. La corrispondenza fra codici `S*` della ricerca
+  e classi resta in `domini/mappa-strategie-pts.md`, che e' storia del porting.
+
+  Cancellato anche **`ResearchSessionStartConformanceTests`**, diventato tautologico col passo 4a:
+  leggeva `Session` dalla strategia — che ora viene dal calendario — e la confrontava col
+  calendario. Il controllo utile, cioe' che i mercati che aprono all'01:00 siano quelli del dossier,
+  e' gia' in `MarketCalendarConformanceTests.OnlyTheDossierMarketsOpenAtOneCet`.
+
+  Ritirata la voce **2026-08-02 «il datafeed etichetta le barre sull'apertura, `OHLCMulti5` le
+  assume etichettate sulla chiusura»**: quantificava le conseguenze sul modello di sessione CME
+  17:00-16:00, che dal passo 4a **non esiste piu'** — tutte e 124 le PTS usano la sessione a
+  giornata piena e il ramo di borsa e' provatamente irraggiungibile. Meta' del problema e' chiusa
+  (`ClassifySessionBar`), l'altra meta' e' la voce sulla finestra qui sopra.
