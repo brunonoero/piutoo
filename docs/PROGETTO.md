@@ -38,7 +38,6 @@ finché la prima non copre tutte le funzioni. Vedi `decisioni.md` (2026-08-03).
 | `PiootooApp.Server` | API HTTP. Solo controller sottili + DI. | Core |
 | `Piootoo.FeedWorker` | Worker che alimenta le sessioni live con barre chiuse. | Core |
 | `piootooapp.clientform` | Console WinForms: shell nuovo con menu e navigazione lista → dettaglio, più la vecchia finestra a tab. Client HTTP puro. | Shared |
-| `piootooapp.client` | SPA Angular, scollegata dal debug F5. | — |
 | `piootoo-repository/` | Dati fuori dal codice: `datafeed/` (JSON OHLCV), `ctrader/` (sorgenti cBot), `easy/` (sorgenti EasyLanguage). | — |
 
 Regola: `Piootoo.Shared` non deve mai dipendere dagli altri progetti. I controller

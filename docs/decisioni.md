@@ -3609,3 +3609,18 @@ che il motore fa. Difetto di artefatto, non di esecuzione, ma e' costato mezza i
   `PiootooRealtime/current-setup`). Non e' una regressione introdotta qui: chiamava gia'
   `PiootooRealtime/signals/{symbol}`, che nel controller non c'e' mai stato. La SPA e' scollegata
   dal debug F5 e resta da decidere se tenerla.
+- **2026-09-08** — **Cancellata la SPA Angular (`piootooapp.client`).** Era scollegata dal debug F5
+  dal 25/07/2026 e non compariva nemmeno in `PiootooApp.sln`: nessun `ProjectReference`, nessun
+  `SpaProxy`, nessuna riga di collegamento in `PiootooApp.Server`. Una cartella di 1,1 MB che il
+  build non toccava.
+
+  Quello che l'ha decisa e' che era anche **sbagliata**: chiamava
+  `PiootooRealtime/signals/{symbol}`, che nel controller non e' mai esistito, e — dopo la rimozione
+  del motore a rotazione, poche ore prima — anche `PiootooBacktesting/run` e
+  `PiootooRealtime/current-setup`. Un client che punta a tre endpoint inesistenti non e' un client
+  fermo, e' documentazione falsa di che cosa l'API offre.
+
+  L'interfaccia operativa resta una sola, la console WinForms (`piootooapp.clientform`), che parla
+  solo HTTP con l'API. Tolte le righe corrispondenti da `CLAUDE.md`, `PROGETTO.md` e
+  `architettura/overview.md`; la voce 2026-07-25 che ne racconta lo scollegamento resta dov'e',
+  perche' e' storia.
