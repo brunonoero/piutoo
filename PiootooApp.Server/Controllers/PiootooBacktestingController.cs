@@ -4,12 +4,12 @@ using Piootoo.Core;
 using Piootoo.Domain.Repositories;
 using Piootoo.Shared.Configuration;
 using Piootoo.Shared.Models;
-using Piootoo.Strategies;
 
 namespace PiootooApp.Server.Controllers;
 
 /// <summary>
-/// Controller per il backtesting delle strategie
+/// Letture del repository dati e calcolo di performance su una lista di trade. Il backtest
+/// vero e' PiootooBacktestingService, su api/backtesting: qui non gira nessun motore.
 /// </summary>
 [ApiController]
 [Route("api/[controller]")]
@@ -23,54 +23,6 @@ public class PiootooBacktestingController : ControllerBase
         _logger = logger;
         _settings = settings.Value;
         _settings.ResolvePaths();
-    }
-
-    /// <summary>
-    /// Esegue un backtest con rotazione settimanale
-    /// </summary>
-    [HttpPost("run")]
-    public async Task<ActionResult<BacktestResult>> RunBacktest([FromBody] BacktestRequest request)
-    {
-        try
-        {
-            var repository = new DataSourceRepository(_settings.GetRepositoryPath());
-            var data = await repository.LoadDataRangeAsync(
-                request.Symbol, 
-                request.StartDate, 
-                request.EndDate, 
-                request.BarType ?? "OneMinute");
-
-            if (!data.Any())
-            {
-                return NotFound($"Nessun dato trovato per {request.Symbol} nel periodo specificato");
-            }
-
-            var config = request.ScoringConfig ?? new ScoringConfiguration();
-            var rotationManager = new StrategyRotationManager(config)
-            {
-                EvaluationWeeks = request.EvaluationWeeks ?? 4,
-                TopStrategiesToEnable = request.TopStrategies ?? 2
-            };
-
-            var engine = new TradingEngine(
-                rotationManager, 
-                request.InitialBalance ?? 10000m, 
-                request.CommissionPerTrade ?? 2m);
-
-
-            // Esegui backtest
-            var result = engine.RunBacktestWithWeeklyRotation(
-                data.ToArray(), 
-                request.StartDate, 
-                request.EndDate);
-
-            return Ok(result);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Errore durante il backtest");
-            return StatusCode(500, $"Errore: {ex.Message}");
-        }
     }
 
     /// <summary>
@@ -133,31 +85,6 @@ public class PiootooBacktestingController : ControllerBase
         var dates = repository.GetAvailableDates(symbol, barType);
         return Ok(dates);
     }
-}
-
-/// <summary>
-/// Request per il backtest
-/// </summary>
-public class BacktestRequest
-{
-    public string Symbol { get; set; } = "@ES";
-    public DateTime StartDate { get; set; }
-    public DateTime EndDate { get; set; }
-    public string? BarType { get; set; }
-    public decimal? InitialBalance { get; set; }
-    public decimal? CommissionPerTrade { get; set; }
-    public int? EvaluationWeeks { get; set; }
-    public int? TopStrategies { get; set; }
-    public ScoringConfiguration? ScoringConfig { get; set; }
-    
-    // Parametri Moving Average
-    public int? MaShortPeriod { get; set; }
-    public int? MaLongPeriod { get; set; }
-    
-    // Parametri RSI
-    public int? RsiPeriod { get; set; }
-    public decimal? RsiOversold { get; set; }
-    public decimal? RsiOverbought { get; set; }
 }
 
 /// <summary>

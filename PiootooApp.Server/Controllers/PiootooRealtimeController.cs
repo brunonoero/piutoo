@@ -1,17 +1,14 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
-using Piootoo.Core;
 using Piootoo.Domain.Repositories;
 using Piootoo.Shared.Configuration;
-using Piootoo.Shared.Enums;
-using Piootoo.Shared.Interfaces;
 using Piootoo.Shared.Models;
-using Piootoo.Strategies;
 
 namespace PiootooApp.Server.Controllers;
 
 /// <summary>
-/// Controller per il trading in tempo reale
+/// Letture del repository dati usate dalla console. Il trading in tempo reale non passa
+/// di qui: sta su api/v1/trading-sessions.
 /// </summary>
 [ApiController]
 [Route("api/[controller]")]
@@ -25,48 +22,6 @@ public class PiootooRealtimeController : ControllerBase
         _logger = logger;
         _settings = settings.Value;
         _settings.ResolvePaths();
-    }
-
-    /// <summary>
-    /// Ottiene il setup settimanale corrente
-    /// </summary>
-    [HttpGet("current-setup")]
-    public ActionResult<WeeklySetup> GetCurrentSetup()
-    {
-        var config = new ScoringConfiguration();
-        var rotationManager = new StrategyRotationManager(config);
-        var scheduler = new WeeklyRotationScheduler(rotationManager);
-        
-        // Registra le strategie
-        rotationManager.RegisterStrategy("Moving Average Crossover");
-        rotationManager.RegisterStrategy("RSI Strategy");
-        
-        var setup = scheduler.GetCurrentSetup();
-        return Ok(setup);
-    }
-
-
-    /// <summary>
-    /// Esegue la rotazione settimanale delle strategie
-    /// </summary>
-    [HttpPost("rotate")]
-    public ActionResult<WeeklySetup> ExecuteRotation([FromBody] ScoringConfiguration? config = null)
-    {
-        config ??= new ScoringConfiguration();
-        
-        var rotationManager = new StrategyRotationManager(config)
-        {
-            EvaluationWeeks = 4,
-            TopStrategiesToEnable = 2
-        };
-        
-        rotationManager.RegisterStrategy("Moving Average Crossover");
-        rotationManager.RegisterStrategy("RSI Strategy");
-        
-        var scheduler = new WeeklyRotationScheduler(rotationManager);
-        var setup = scheduler.ExecuteWeeklyRotation(DateTime.UtcNow);
-        
-        return Ok(setup);
     }
 
     /// <summary>

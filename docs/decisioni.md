@@ -3583,3 +3583,29 @@ che il motore fa. Difetto di artefatto, non di esecuzione, ma e' costato mezza i
   riavvio del server. Il guadagno immediato sta su due casi reali: la serie del broker piu' corta di
   `RequiredCandles`, che oggi lascia la sessione muta, e la prima barra, che diventa valutabile
   invece di essere la 577esima.
+- **2026-09-08** — **Cancellato il terzo percorso di valutazione: il motore a rotazione
+  settimanale.** `TradingEngine`, `StrategyRotationManager`, `WeeklyRotationScheduler`,
+  `WeeklySetup`, `BacktestResult`, l'azione `POST api/PiootooBacktesting/run` e le due
+  `api/PiootooRealtime/current-setup` e `/rotate`.
+
+  **Cos'era.** Un terzo chiamante di `ITradingStrategy.Evaluate`, accanto al backtest interno e alle
+  sessioni, con un proprio motore, una propria idea di settimana e due strategie **registrate a
+  mano** per nome (`"Moving Average Crossover"`, `"RSI Strategy"`). Non aveva niente dell'ultimo
+  mese: ne' calendario, ne' `CandleWindowCursor`, ne' convenzioni di finestra, ne' `MaxBarsInPosition`
+  sul calendario. Un run lanciato li' dava numeri plausibili e diversi da tutto il resto — che e' la
+  forma peggiore di codice morto, perche' risponde.
+
+  CLAUDE.md dichiarava dal 03/09/2026 che «Titano e' stato rimosso: il filtro di rotazione non esiste
+  piu' in nessuno strato — schermate, API, servizi, contratti». Era vero per Titano e falso per
+  questo, che e' il suo antenato e vive in `Piootoo.Core` invece che nei servizi. Ora la frase e'
+  esatta.
+
+  **Cosa resta dei due controller.** Solo letture del repository dati:
+  `PiootooRealtime/{symbols, repository-info, data/{symbol}/latest}` — l'ultima la usa la console
+  WinForms — e `PiootooBacktesting/{calculate-performance, data/{symbol}, available-dates/{symbol}}`.
+  Nessun motore gira piu' li' dentro, e il commento di classe di entrambi lo dice.
+
+  **La SPA Angular chiama endpoint che non esistono piu'** (`PiootooBacktesting/run`,
+  `PiootooRealtime/current-setup`). Non e' una regressione introdotta qui: chiamava gia'
+  `PiootooRealtime/signals/{symbol}`, che nel controller non c'e' mai stato. La SPA e' scollegata
+  dal debug F5 e resta da decidere se tenerla.
