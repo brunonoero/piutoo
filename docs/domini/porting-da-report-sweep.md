@@ -135,7 +135,7 @@ una cosa sola, confrontare un run archiviato con uno nuovo: non e' una scelta di
 
 ### 1. Il confine di sessione non si dichiara
 
-Dal 07/09/2026 lo governa `MarketData/market-calendars.json`, per simbolo. Una classe `PTS_*` non
+Dal 07/09/2026 lo governa `piootoo-repository/marketdata/market-calendars.json`, per simbolo. Una classe `PTS_*` non
 scrive nulla:
 
 ```csharp

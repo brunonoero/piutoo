@@ -8,11 +8,15 @@
 
   <ItemGroup>
     <!--
-      Il calendario di mercato viaggia dentro l'assembly: serve a test, server e client, e non tutti
-      hanno un piootoo-repository/ sotto mano. Il file su disco resta come override facoltativo
-      (MarketCalendarRegistry.InitializeFromRepository).
+      Il calendario di mercato e' un DATO, quindi il file vive con gli altri dati in
+      piootoo-repository/marketdata/. Viaggia comunque dentro l'assembly: serve a test, server e
+      client, e non tutti hanno un piootoo-repository/ sotto mano. LogicalName tiene fermo il nome
+      della risorsa (MarketCalendarRegistry.EmbeddedResourceName) nonostante il file sia fuori dal
+      progetto. Il file su disco resta come override facoltativo
+      (MarketCalendarRegistry.InitializeFromSettingsFolder).
     -->
-    <EmbeddedResource Include="MarketData\market-calendars.json" />
+    <EmbeddedResource Include="..\piootoo-repository\marketdata\market-calendars.json"
+                      LogicalName="Piootoo.Shared.MarketData.market-calendars.json" />
   </ItemGroup>
 
 </Project>

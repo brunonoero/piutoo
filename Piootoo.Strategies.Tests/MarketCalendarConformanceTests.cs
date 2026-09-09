@@ -6,7 +6,7 @@ namespace Piootoo.Strategies.Tests;
 
 /// <summary>
 /// Passo 1 del refactor del layer barre: il calendario di mercato è diventato un <b>dato</b>
-/// (<c>Piootoo.Shared/MarketData/market-calendars.json</c>) e <see cref="InstrumentRegistry"/> lo
+/// (<c>piootoo-repository/marketdata/market-calendars.json</c>) e <see cref="InstrumentRegistry"/> lo
 /// inoltra invece di deciderlo.
 ///
 /// <para><b>Perché questo test esiste.</b> Spostare una tabella da C# a JSON è il tipo di modifica

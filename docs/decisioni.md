@@ -3268,7 +3268,7 @@ tutti i 35.067 segnali del run, cioe' «l'ordine muore dopo un tick», l'esatto 
 che il motore fa. Difetto di artefatto, non di esecuzione, ma e' costato mezza indagine.
 - **2026-09-07** — **Il calendario di mercato e' un dato, non codice.** Fuso di borsa, fuso della
   ricerca, ora di inizio sessione e giorni di sessione vivono ora in
-  `Piootoo.Shared/MarketData/market-calendars.json` (risorsa incorporata, spec `2026-09-07.1`, 30
+  `piootoo-repository/marketdata/market-calendars.json` (risorsa incorporata, spec `2026-09-07.1`, 30
   simboli), con override facoltativo in `piootoo-repository/settings/` che deve dichiarare la stessa
   versione. `InstrumentRegistry` tiene la sola parte economica — `PointValue`, `Currency`,
   `TickSize` — e unisce le due: un contratto senza calendario e' un errore esplicito, non un

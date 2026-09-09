@@ -1137,7 +1137,7 @@ public sealed class TradingSessionService : ITradingSessionService
                 $"Strumenti fuori dal calendario di mercato: {string.Join(", ", withoutCalendar)}. " +
                 "Senza inizio sessione e fuso dichiarati non si sa dove cadono i confini delle barre " +
                 "oltre l'ora, e una griglia scelta a caso produce barre diverse invece di un errore. " +
-                "Aggiungerli a Piootoo.Shared/MarketData/market-calendars.json.");
+                "Aggiungerli a piootoo-repository/marketdata/market-calendars.json.");
 
         var engine = new PiootooTradingService();
         engine.Initialize(request.InitialCapital, request.CommissionPerContract);

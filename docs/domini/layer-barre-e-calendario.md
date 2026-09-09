@@ -123,11 +123,15 @@ Tre punti su cui il formato è deliberatamente più ricco dei dati che abbiamo:
   domenica sera è una sessione vera nelle settimane in cui l'ora legale europea e
   americana sono sfasate.
 
-**Dove vive il file.** Risorsa incorporata in `Piootoo.Shared`, così test, server
-e client hanno sempre un calendario senza dipendere da un percorso su disco; con
-override facoltativo in `piootoo-repository/settings/market-calendars.json`, che
-deve dichiarare la stessa `specVersion` o l'avvio fallisce. Un simbolo assente è
-un errore esplicito, come oggi per `PointValue`.
+**Dove vive il file.** Il calendario è un dato, quindi dal 09/09/2026 il file sta
+con gli altri dati, in `piootoo-repository/marketdata/market-calendars.json`. Resta
+però **risorsa incorporata** in `Piootoo.Shared` — il csproj lo include da fuori la
+cartella di progetto e ne fissa il `LogicalName`, così il nome della risorsa non
+cambia — perché test, server e client devono avere sempre un calendario senza
+dipendere da un percorso su disco. Con override facoltativo in
+`piootoo-repository/settings/market-calendars.json`, che deve dichiarare la stessa
+`specVersion` o l'avvio fallisce. Un simbolo assente è un errore esplicito, come
+oggi per `PointValue`.
 
 `InstrumentRegistry` **non sparisce**: resta la sorgente della parte economica
 (`PointValue`, `TickSize`, `Currency`), che con il calendario non c'entra. Cede
@@ -385,7 +389,7 @@ refactor sposta *dove* si aggrega senza spostare *cosa* esce. Il metro resta com
 test di regressione dei passi 2 e 8.
 
 **Passo 1 — il calendario come dato. Fatto il 07/09/2026.**
-`Piootoo.Shared/MarketData/market-calendars.json` (risorsa incorporata, spec
+`piootoo-repository/marketdata/market-calendars.json` (risorsa incorporata, spec
 `2026-09-07.1`, 30 simboli) è ora la sorgente di fuso di borsa, fuso della
 ricerca, ora di inizio sessione e giorni di sessione. `InstrumentRegistry` tiene
 la sola parte economica — `PointValue`, `Currency`, `TickSize` — e unisce le due

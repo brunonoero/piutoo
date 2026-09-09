@@ -22,7 +22,7 @@ namespace Piootoo.Shared.Configuration;
 ///
 /// <para><b>Come estendere.</b> Aggiungi la voce qui sotto solo dopo aver verificato la
 /// dimensione del contratto e l'unità di quotazione sul sito dell'exchange, <b>e</b> la voce
-/// corrispondente in <c>MarketData/market-calendars.json</c>. Un valore sbagliato qui è invisibile
+/// corrispondente in <c>piootoo-repository/marketdata/market-calendars.json</c>. Un valore sbagliato qui è invisibile
 /// a valle: falsa stop, target, P&amp;L ed equity insieme, mantenendo numeri plausibili. I simboli
 /// che non sono ancora stati verificati sono deliberatamente assenti.</para>
 /// </summary>
@@ -118,7 +118,7 @@ public static class InstrumentRegistry
                 throw new InstrumentSpecNotFoundException(
                     $"Il simbolo '{contract.Symbol}' è nel registro dei contratti ma non nel " +
                     $"calendario di mercato ({calendar.Origin}, spec {calendar.SpecVersion}). " +
-                    "Aggiungilo in MarketData/market-calendars.json: senza calendario non si sa in " +
+                    "Aggiungilo in piootoo-repository/marketdata/market-calendars.json: senza calendario non si sa in " +
                     "che orologio leggere i suoi orari di sessione né da che ora la ricerca " +
                     "segmenta le sue sessioni.");
             }
@@ -185,7 +185,7 @@ public static class InstrumentRegistry
             $"Nessuna specifica per il simbolo '{symbol}' (chiave '{key}').{hint} " +
             $"Aggiungila in {nameof(InstrumentRegistry)} dopo aver verificato dimensione del " +
             "contratto e unità di quotazione sull'exchange, e il suo calendario in " +
-            "MarketData/market-calendars.json: un PointValue sbagliato falsa stop, target e P&L " +
+            "piootoo-repository/marketdata/market-calendars.json: un PointValue sbagliato falsa stop, target e P&L " +
             "senza produrre alcun errore visibile.");
     }
 
