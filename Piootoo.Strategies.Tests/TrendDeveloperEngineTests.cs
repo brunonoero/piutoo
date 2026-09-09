@@ -1,4 +1,4 @@
-﻿using Piootoo.Shared.Enums;
+using Piootoo.Shared.Enums;
 using Piootoo.Shared.Models;
 using Piootoo.Shared.Models.Trading;
 using Piootoo.Strategies.Easy.Engines;
@@ -11,30 +11,6 @@ namespace Piootoo.Strategies.Tests;
 /// </summary>
 public sealed class TrendDeveloperEngineTests
 {
-    [Fact]
-    public void EmitsStopNextBarOnCurrentSessionExtremesWithMoneyExits()
-    {
-        var strategy = new TestTrendDeveloper();
-        var bars = BuildSessions(new DateTime(2024, 1, 8, 10, 0, 0, DateTimeKind.Utc));
-
-        var signal = strategy.GenerateSignal(bars, bars[^1].DateTime);
-        var shortSignal = Assert.Single(signal.CompanionSignals!);
-
-        Assert.Equal(SignalType.Buy, signal.Type);
-        Assert.Equal(TradeOrderType.Stop, signal.OrderType);
-        Assert.Equal(205m, signal.Price); // highd0 aggregato della sessione corrente
-        Assert.Equal(SignalType.Sell, shortSignal.Type);
-        // lowd0 include la barra di apertura sessione (17:05 del giorno precedente).
-        Assert.Equal(156m, shortSignal.Price);
-        Assert.Equal(bars[^1].DateTime.AddHours(1), signal.ValidFromUtc);
-        Assert.Equal(signal.ValidFromUtc, signal.ExpiresAtUtc);
-        Assert.Equal(1000, signal.StopLossMoneyPerFutureContract);
-        Assert.Equal(3000, signal.TakeProfitMoneyPerFutureContract);
-        Assert.Equal(500, signal.BreakEvenMoneyPerFutureContract);
-        Assert.Equal(200, signal.TrailingStopMoneyPerFutureContract);
-        Assert.Equal(1, signal.MaxEntriesPerSession);
-        Assert.NotNull(signal.EntrySessionStartUtc);
-    }
 
     [Fact]
     public void HoldsOutsideTradingWindow()

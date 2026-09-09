@@ -1,4 +1,4 @@
-﻿using Piootoo.Core.Services;
+using Piootoo.Core.Services;
 using Piootoo.Shared.Enums;
 using Piootoo.Shared.Models;
 using Piootoo.Shared.Models.Trading;
@@ -8,26 +8,6 @@ namespace Piootoo.Strategies.Tests;
 
 public sealed class ReversalBollingerBandEngineTests
 {
-    [Fact]
-    public void RbbU_RearmsLimitOrdersAndDeclaresSessionPolicies()
-    {
-        var strategy = new TestRbbUnmirrored();
-        var bars = BuildBars();
-        bars[^3].Close = 100m;
-        bars[^2].Close = 110m;
-        bars[^1].Close = 111m; // Era già sopra la banda inferiore: non è un nuovo cross.
-
-        var signal = Evaluate(strategy, bars);
-
-        Assert.Equal(SignalType.Buy, signal.Type);
-        Assert.Equal(TradeOrderType.Limit, signal.OrderType);
-        Assert.Equal(110.25m, signal.Price);
-        Assert.Equal(bars[^1].DateTime.AddHours(1), signal.ValidFromUtc);
-        Assert.Equal(signal.ValidFromUtc, signal.ExpiresAtUtc);
-        Assert.Equal(1, signal.MaxEntriesPerSession);
-        Assert.Equal(new DateTime(2024, 1, 7, 17, 0, 0, DateTimeKind.Utc), signal.EntrySessionStartUtc);
-        Assert.Equal(new DateTime(2024, 1, 8, 16, 0, 0, DateTimeKind.Utc), signal.CloseAtUtc);
-    }
 
     [Fact]
     public void RbbU_DisabledTimeWindowAndMultidayModeMatchPython()

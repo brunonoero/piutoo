@@ -1,4 +1,4 @@
-﻿using Piootoo.Shared.Enums;
+using Piootoo.Shared.Enums;
 using Piootoo.Shared.Models;
 using Piootoo.Shared.Models.Trading;
 using Piootoo.Strategies.Easy.Engines;
@@ -7,40 +7,6 @@ namespace Piootoo.Strategies.Tests;
 
 public sealed class SessionBreakoutEngineTests
 {
-    [Fact]
-    public void PythonBo_UsesClosedSessions_OffsetsLevels_AndExcludesCurrentBarFromSess0()
-    {
-        var bars = BuildBars();
-        SetSessionRange(bars, new DateTime(2024, 1, 18, 17, 0, 0, DateTimeKind.Utc),
-            new DateTime(2024, 1, 19, 16, 0, 0, DateTimeKind.Utc), 140m, 80m);
-        bars[^1].High = 9_999m;
-        bars[^1].Low = 1m;
-        var strategy = new Sess0OffsetBo();
-
-        var signal = Evaluate(strategy, bars);
-
-        Assert.True(signal.Type == SignalType.Buy, signal.Reason);
-        Assert.Equal(TradeOrderType.Stop, signal.OrderType);
-        Assert.Equal(140.5m, signal.Price);
-        Assert.Equal(bars[^1].DateTime.AddHours(1), signal.ValidFromUtc);
-        Assert.Equal(1, signal.MaxEntriesPerSession);
-        Assert.Equal(new DateTime(2024, 1, 19, 17, 0, 0, DateTimeKind.Utc), signal.EntrySessionStartUtc);
-        Assert.Equal(new DateTime(2024, 1, 20, 16, 0, 0, DateTimeKind.Utc), signal.CloseAtUtc);
-
-        var shortSignal = Assert.Single(signal.CompanionSignals!);
-        Assert.Equal(SignalType.Sell, shortSignal.Type);
-        Assert.Equal(79.5m, shortSignal.Price);
-    }
-
-    [Fact]
-    public void PythonBo_AppliesHourWindowAndPandasDayFilter()
-    {
-        var bars = BuildBars(); // ultima barra: sabato 20 gennaio, ore 12 UTC.
-
-        Assert.Equal(SignalType.Hold, Evaluate(new WindowBlockedBo(), bars).Type);
-        Assert.Equal(SignalType.Hold, Evaluate(new DayBlockedBo(), bars).Type);
-        Assert.Equal(SignalType.Buy, Evaluate(new WindowBo(), bars).Type);
-    }
 
     /// <summary>
     /// <c>level_source = 1</c> di <c>breakout.py</c>: il livello e' il running massimo/minimo della

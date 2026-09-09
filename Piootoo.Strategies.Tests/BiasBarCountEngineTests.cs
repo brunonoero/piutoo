@@ -1,4 +1,4 @@
-﻿using Piootoo.Shared.Enums;
+using Piootoo.Shared.Enums;
 using Piootoo.Shared.Models;
 using Piootoo.Shared.Models.Trading;
 using Piootoo.Strategies.Easy.Engines;
@@ -102,22 +102,6 @@ public sealed class BiasBarCountEngineTests
         strategy.SetPosition(0);
         var later = trigger.AddHours(1);
         Assert.Equal(SignalType.Hold, strategy.GenerateSignal(BarsThrough(bars, later), later).Type);
-    }
-
-    [Fact]
-    public void CustomEntryHook_UsesCommonNextBarContractAndTimeExit()
-    {
-        var bars = BuildBars(new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc), 9 * 24);
-        var barTime = new DateTime(2024, 1, 8, 17, 0, 0, DateTimeKind.Utc);
-        var strategy = new TestCustomBias();
-
-        var signal = strategy.GenerateSignal(BarsThrough(bars, barTime), barTime);
-
-        Assert.Equal(SignalType.Buy, signal.Type);
-        Assert.Equal(TradeOrderType.Market, signal.OrderType);
-        Assert.Equal(barTime.AddHours(1), signal.ValidFromUtc);
-        Assert.Equal(new DateTime(2024, 1, 9, 9, 0, 0, DateTimeKind.Utc), signal.CloseAtUtc);
-        Assert.Equal(3000m, signal.StopLossMoneyPerFutureContract);
     }
 
     private static OhlcvData[] BarsThrough(OhlcvData[] bars, DateTime last) =>

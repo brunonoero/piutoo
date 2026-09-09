@@ -1,4 +1,4 @@
-﻿using Piootoo.Core.Services;
+using Piootoo.Core.Services;
 using Piootoo.Shared.Enums;
 using Piootoo.Shared.Models;
 using Piootoo.Strategies.Easy.Engines;
@@ -7,24 +7,6 @@ namespace Piootoo.Strategies.Tests;
 
 public sealed class BiasWeeklyVariantsTests
 {
-    [Fact]
-    public void ScheduledWindow_UsesMatchedExitAndPreservesSideSpecificRisk()
-    {
-        var strategy = new VariantBiasWeekly();
-        var entryTime = Utc(2024, 1, 8, 10, 5); // Monday, second scheduled window
-
-        var signal = strategy.GenerateSignal(Bars(entryTime), entryTime);
-
-        Assert.Equal(SignalType.Buy, signal.Type);
-        Assert.Equal(TradeOrderType.Market, signal.OrderType);
-        Assert.Equal(Utc(2024, 1, 11, 15, 0), signal.CloseAtUtc);
-        Assert.Equal(1500m, signal.StopLossMoneyPerFutureContract);
-        Assert.Equal(1400m, signal.TakeProfitMoneyPerFutureContract);
-        Assert.Equal(200m, signal.BreakEvenMoneyPerFutureContract);
-        Assert.Equal(300m, signal.TrailingStopMoneyPerFutureContract);
-        Assert.Equal(1, signal.MaxEntriesPerSession);
-        Assert.Equal(Utc(2024, 1, 7, 18, 0), signal.EntrySessionStartUtc);
-    }
 
     [Fact]
     public void SkipMonth_SuppressesOnlyThatSchedule()

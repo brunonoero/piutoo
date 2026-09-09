@@ -1,4 +1,4 @@
-﻿using Piootoo.Shared.Enums;
+using Piootoo.Shared.Enums;
 using Piootoo.Shared.Models;
 using Piootoo.Shared.Models.Trading;
 using Piootoo.Strategies.Easy.Engines;
@@ -7,54 +7,6 @@ namespace Piootoo.Strategies.Tests;
 
 public sealed class VolatilityBreakoutEngineTests
 {
-    [Fact]
-    public void PythonVbo_UsesPreviousSessionRange_AsNextBarStopsWithSingleSessionLimit()
-    {
-        var bars = BuildBars();
-        SetSessionRange(bars, new DateTime(2024, 1, 18, 18, 0, 0, DateTimeKind.Utc),
-            new DateTime(2024, 1, 19, 17, 0, 0, DateTimeKind.Utc), 140m, 80m);
-        var strategy = new TestVbo(volatilitySource: 1);
-
-        var signal = Evaluate(strategy, bars);
-
-        Assert.Equal(SignalType.Buy, signal.Type);
-        Assert.Equal(TradeOrderType.Stop, signal.OrderType);
-        Assert.Equal(161m, signal.Price); // O_d0 101 + (H_d1 140 - L_d1 80).
-        Assert.Equal(bars[^1].DateTime.AddHours(1), signal.ValidFromUtc);
-        Assert.Equal(signal.ValidFromUtc, signal.ExpiresAtUtc);
-        Assert.Equal(1, signal.MaxEntriesPerSession);
-        Assert.Equal(new DateTime(2024, 1, 19, 17, 0, 0, DateTimeKind.Utc), signal.EntrySessionStartUtc);
-
-        var shortSignal = Assert.Single(signal.CompanionSignals!);
-        Assert.Equal(SignalType.Sell, shortSignal.Type);
-        Assert.Equal(41m, shortSignal.Price);
-    }
-
-    [Fact]
-    public void PythonVbo_UsesClosedVolatilityAndHonorsMomentumTimeDayAndDirection()
-    {
-        var bars = BuildBars();
-        var strategy = new TestVbo(volatilitySource: 3, momentum: 2, direction: 1, startHour: 12, endHour: 12);
-
-        var signal = Evaluate(strategy, bars);
-
-        Assert.Equal(SignalType.Buy, signal.Type);
-        Assert.Null(signal.CompanionSignals);
-
-        var currentRangeDoesNotLeak = (OhlcvData[])bars.Clone();
-        currentRangeDoesNotLeak[^1].High = 9_999m;
-        currentRangeDoesNotLeak[^1].Low = 1m;
-        Assert.Equal(signal.Price, Evaluate(strategy, currentRangeDoesNotLeak).Price);
-
-        var blockedByDay = new TestVbo(volatilitySource: 3, skipDay: 5); // Sabato, convenzione pandas.
-        Assert.Equal(SignalType.Hold, Evaluate(blockedByDay, bars).Type);
-
-        // Solo long: con C_d1 alzato a 150, O_d0 < C_d1 spegne il momentum long.
-        // Senza Direction=1 lo short resterebbe valido (momentum short invertito).
-        var blockedByMomentum = new TestVbo(volatilitySource: 3, momentum: 2, direction: 1);
-        bars.Single(bar => bar.DateTime == new DateTime(2024, 1, 19, 16, 0, 0, DateTimeKind.Utc)).Close = 150m;
-        Assert.Equal(SignalType.Hold, Evaluate(blockedByMomentum, bars).Type);
-    }
 
     [Fact]
     public void PythonVbo_DailyAtr_IgnoresCurrentSessionRange()

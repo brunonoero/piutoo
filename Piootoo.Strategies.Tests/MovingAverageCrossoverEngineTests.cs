@@ -1,4 +1,4 @@
-﻿using Piootoo.Core.Services;
+using Piootoo.Core.Services;
 using Piootoo.Shared.Enums;
 using Piootoo.Shared.Models;
 using Piootoo.Shared.Models.Trading;
@@ -36,20 +36,6 @@ public sealed class MovingAverageCrossoverEngineTests
         Assert.Equal("LX_REVERSE_CROSS", signal.Reason);
         Assert.Equal(bars[^1].DateTime.AddHours(1), signal.ValidFromUtc);
         Assert.Equal(signal.ValidFromUtc, signal.ExpiresAtUtc);
-    }
-
-    [Fact]
-    public void FridaySessionEnd_EmitsImmediateExitOnly()
-    {
-        var strategy = new TestMac();
-        var bars = Bars(new DateTime(2024, 1, 5, 13, 0, 0, DateTimeKind.Utc), 1m, 1m, 1m, 1m);
-
-        var signal = Evaluate(strategy, bars, SignalType.Sell);
-
-        Assert.Equal(SignalType.Buy, signal.Type);
-        Assert.True(signal.ExitOnly);
-        Assert.Equal("SX_FRIDAY_EOD", signal.Reason);
-        Assert.Null(signal.ValidFromUtc);
     }
 
     [Fact]

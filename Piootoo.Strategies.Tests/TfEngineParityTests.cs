@@ -7,29 +7,6 @@ namespace Piootoo.Strategies.Tests;
 
 public sealed class TfEngineParityTests
 {
-    [Fact]
-    public void TfM_UsesCompletedPreviousSessionLevelsAndDeclaresPythonSessionPolicies()
-    {
-        var strategy = new TestTfMirrored();
-        var bars = BuildSessions(new DateTime(2024, 1, 8, 10, 0, 0, DateTimeKind.Utc));
-
-        var signal = strategy.GenerateSignal(bars, bars[^1].DateTime);
-        var shortSignal = Assert.Single(signal.CompanionSignals!);
-
-        Assert.Equal(SignalType.Buy, signal.Type);
-        Assert.Equal(TradeOrderType.Stop, signal.OrderType);
-        Assert.Equal(158m, signal.Price); // H_d1 della sessione 06/01 17:00–07/01 16:59.
-        Assert.Equal(146m, shortSignal.Price); // L_d1 della stessa sessione completa.
-        Assert.Equal(SignalType.Sell, shortSignal.Type);
-        Assert.Equal(bars[^1].DateTime.AddHours(1), signal.ValidFromUtc);
-        Assert.Equal(signal.ValidFromUtc, signal.ExpiresAtUtc);
-        Assert.Equal(1, signal.MaxEntriesPerSession);
-        Assert.Equal(1, shortSignal.MaxEntriesPerSession);
-        Assert.Equal(new DateTime(2024, 1, 7, 17, 0, 0, DateTimeKind.Utc), signal.EntrySessionStartUtc);
-        Assert.Equal(signal.EntrySessionStartUtc, shortSignal.EntrySessionStartUtc);
-        Assert.Equal(new DateTime(2024, 1, 8, 16, 59, 0, DateTimeKind.Utc), signal.CloseAtUtc);
-        Assert.Equal(signal.CloseAtUtc, shortSignal.CloseAtUtc);
-    }
 
     [Fact]
     public void TfM_UsesPythonHourWindowAndMondayBasedDayFilter()

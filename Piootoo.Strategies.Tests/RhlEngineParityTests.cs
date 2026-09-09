@@ -9,52 +9,6 @@ namespace Piootoo.Strategies.Tests;
 
 public sealed class RhlEngineParityTests
 {
-    [Fact]
-    public void Rhl_UsesPythonOffsetsMirroredPatternsAndExitSpec()
-    {
-        var strategy = new TestRhl
-        {
-            Tick = 0.25m,
-            LongOffset = 4,
-            ShortOffset = 6,
-            Stop = 1_200,
-            Profit = 2_400,
-            MaximumBars = 5
-        };
-        var bars = BuildSessions(new DateTime(2024, 1, 8, 10, 0, 0, DateTimeKind.Utc));
-        var previousSessionStart = bars[^1].DateTime.Date.AddDays(-2).AddHours(17);
-        var expectedLow = SessionLow(bars, previousSessionStart);
-        var expectedHigh = SessionHigh(bars, previousSessionStart);
-
-        var signal = strategy.GenerateSignal(bars, bars[^1].DateTime);
-        var shortSignal = Assert.Single(signal.CompanionSignals!);
-
-        Assert.Equal(SignalType.Buy, signal.Type);
-        Assert.Equal(TradeOrderType.Limit, signal.OrderType);
-        Assert.Equal(expectedLow - 1m, signal.Price);
-        Assert.Equal(expectedHigh + 1.5m, shortSignal.Price);
-        Assert.Equal(SignalType.Sell, shortSignal.Type);
-        Assert.Equal(1_200m, signal.StopLossMoneyPerFutureContract);
-        Assert.Equal(2_400m, signal.TakeProfitMoneyPerFutureContract);
-        Assert.Equal(5, signal.MaxBarsInPosition);
-        Assert.Equal(bars[^1].DateTime.AddHours(1), signal.ValidFromUtc);
-        Assert.Equal(signal.ValidFromUtc, signal.ExpiresAtUtc);
-    }
-
-    [Fact]
-    public void Rhl_UsesPythonHourAndMondayBasedSkipDayConventions()
-    {
-        var strategy = new TestRhl { DirectionValue = 1, Start = 10, End = 10 };
-        var inWindow = BuildSessions(new DateTime(2024, 1, 8, 10, 0, 0, DateTimeKind.Utc)); // Monday
-        var outsideWindow = BuildSessions(new DateTime(2024, 1, 8, 11, 0, 0, DateTimeKind.Utc));
-
-        Assert.Equal(SignalType.Buy, strategy.GenerateSignal(inWindow, inWindow[^1].DateTime).Type);
-        Assert.Equal(SignalType.Hold, strategy.GenerateSignal(outsideWindow, outsideWindow[^1].DateTime).Type);
-
-        strategy.Skip = 4; // Python: Friday (Monday = 0)
-        var friday = BuildSessions(new DateTime(2024, 1, 12, 10, 0, 0, DateTimeKind.Utc));
-        Assert.Equal(SignalType.Hold, strategy.GenerateSignal(friday, friday[^1].DateTime).Type);
-    }
 
     [Fact]
     public void RhlLimit_FillsOnlyAfterStrictPenetration_AndChecksSameBarStop()

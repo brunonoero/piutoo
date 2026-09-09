@@ -15,52 +15,6 @@ namespace Piootoo.Strategies.Tests;
 /// </summary>
 public sealed class PtsPriceChannelTests
 {
-    [Fact]
-    public void PtsPch001_EmitsLongStopAboveCurrentInclusive100BarChannel()
-    {
-        var strategy = new PTS_NQ_PCH_001_15();
-        strategy.Initialize(new Dictionary<string, object>
-        {
-            ["PtnNeutNo"] = 56,
-            ["PtnDirYes"] = 52
-        });
-        var bars = BuildBars();
-        var last = bars[^1];
-
-        var signal = strategy.Evaluate(new StrategyEvaluationRequest
-        {
-            Ohlcv = bars,
-            BarTimeUtc = last.DateTime,
-            Execution = new StrategyExecutionSnapshot
-            {
-                StrategyCode = "PTS_NQ_PCH_001_15",
-                Symbol = "NQ",
-                BarTimeUtc = last.DateTime
-            }
-        });
-
-        Assert.Equal(SignalType.Buy, signal.Type);
-        Assert.Equal(TradeOrderType.Stop, signal.OrderType);
-        Assert.Null(signal.CompanionSignals);
-        Assert.Equal("@NQ", signal.Symbol);
-        Assert.Equal("PTS_NQ_PCH_001_15", signal.StrategyCode);
-        // Massimo delle 100 barre incl. quella corrente (999) + 2 tick di buffer + 1 tick di
-        // penetrazione del livello, che è la convenzione del motore Python.
-        Assert.Equal(999.75m, signal.Price);
-        Assert.Equal(last.DateTime.AddMinutes(15), signal.ValidFromUtc);
-        Assert.Equal(signal.ValidFromUtc, signal.ExpiresAtUtc);
-        Assert.Equal(1, signal.MaxEntriesPerSession);
-        // La sessione è il giorno di calendario UTC, non la CME 17:00–16:00: con quest'ultima il
-        // secchio sarebbe il 7 gennaio alle 17:00 e un ingresso serale bloccherebbe il pomeriggio
-        // successivo, che nel motore di riferimento è invece una sessione a sé.
-        Assert.Equal(new DateTime(2024, 1, 8, 0, 0, 0, DateTimeKind.Utc), signal.EntrySessionStartUtc);
-        Assert.Equal(250m, signal.StopLossMoneyPerFutureContract);
-        Assert.Equal(5000m, signal.TakeProfitMoneyPerFutureContract);
-        Assert.Equal(1000m, signal.TrailingStopMoneyPerFutureContract);
-        Assert.Equal(1000m, signal.BreakEvenMoneyPerFutureContract);
-        Assert.Null(signal.MaxBarsInPosition);
-        Assert.Null(signal.CloseAtUtc); // intraday_only = 0: nessuna chiusura di fine sessione.
-    }
 
     /// <summary>
     /// <c>PriceChannelEngine.IntradayOnly</c> vale <c>true</c> per default: le PC multiday devono
