@@ -1,0 +1,22 @@
+{
+  "Origin": "Internal",
+  "CreatedUtc": "2026-09-09T08:52:26.1655101Z",
+  "PriceSource": {
+    "Kind": "BrokerCfd",
+    "Broker": "FTMO",
+    "FeedLabel": "CFD FTMO (datafeed-external/FTMO)"
+  },
+  "EngineVersion": "7.2.0",
+  "PlanCode": null,
+  "ExecutionKey": null,
+  "SessionId": null,
+  "AccountNumber": null,
+  "ResolvedPriceSource": {
+    "Kind": "BrokerCfd",
+    "Broker": "FTMO",
+    "FeedLabel": "CFD FTMO (datafeed-external/FTMO)"
+  },
+  "RunSlug": "interno-cfd-FTMO",
+  "IdentifiesRun": true,
+  "InitialCapital": null
+}

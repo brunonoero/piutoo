@@ -1,4 +1,4 @@
-namespace piootooapp.clientform.Shell.Screens;
+﻿namespace piootooapp.clientform.Shell.Screens;
 
 partial class StrategyDetailScreen
 {
@@ -42,8 +42,11 @@ partial class StrategyDetailScreen
         this._sourceTextBox = new System.Windows.Forms.TextBox();
         this._descriptionGroup = new System.Windows.Forms.GroupBox();
         this._descriptionTextBox = new System.Windows.Forms.TextBox();
+        this._hoursGroup = new System.Windows.Forms.GroupBox();
+        this._hoursTextBox = new System.Windows.Forms.TextBox();
         this._fieldsLayout.SuspendLayout();
         this._descriptionGroup.SuspendLayout();
+        this._hoursGroup.SuspendLayout();
         this.SuspendLayout();
         // 
         // _toolbar
@@ -289,15 +292,41 @@ partial class StrategyDetailScreen
         this._holdingTextBox.Size = new System.Drawing.Size(250, 23);
         this._holdingTextBox.TabIndex = 19;
         // 
+        // _hoursGroup
+        // 
+        this._hoursGroup.Controls.Add(this._hoursTextBox);
+        this._hoursGroup.Dock = System.Windows.Forms.DockStyle.Top;
+        this._hoursGroup.Location = new System.Drawing.Point(0, 215);
+        this._hoursGroup.Name = "_hoursGroup";
+        this._hoursGroup.Padding = new System.Windows.Forms.Padding(12, 6, 12, 12);
+        this._hoursGroup.Size = new System.Drawing.Size(900, 260);
+        this._hoursGroup.TabIndex = 2;
+        this._hoursGroup.TabStop = false;
+        this._hoursGroup.Text = "Orari e finestre";
+        // 
+        // _hoursTextBox
+        // 
+        this._hoursTextBox.BorderStyle = System.Windows.Forms.BorderStyle.None;
+        this._hoursTextBox.Dock = System.Windows.Forms.DockStyle.Fill;
+        this._hoursTextBox.Font = new System.Drawing.Font("Consolas", 9F);
+        this._hoursTextBox.Location = new System.Drawing.Point(12, 22);
+        this._hoursTextBox.Multiline = true;
+        this._hoursTextBox.Name = "_hoursTextBox";
+        this._hoursTextBox.ReadOnly = true;
+        this._hoursTextBox.ScrollBars = System.Windows.Forms.ScrollBars.Both;
+        this._hoursTextBox.WordWrap = false;
+        this._hoursTextBox.Size = new System.Drawing.Size(876, 226);
+        this._hoursTextBox.TabIndex = 0;
+        // 
         // _descriptionGroup
         // 
         this._descriptionGroup.Controls.Add(this._descriptionTextBox);
         this._descriptionGroup.Dock = System.Windows.Forms.DockStyle.Fill;
-        this._descriptionGroup.Location = new System.Drawing.Point(0, 215);
+        this._descriptionGroup.Location = new System.Drawing.Point(0, 475);
         this._descriptionGroup.Name = "_descriptionGroup";
         this._descriptionGroup.Padding = new System.Windows.Forms.Padding(12, 6, 12, 12);
-        this._descriptionGroup.Size = new System.Drawing.Size(900, 385);
-        this._descriptionGroup.TabIndex = 2;
+        this._descriptionGroup.Size = new System.Drawing.Size(900, 125);
+        this._descriptionGroup.TabIndex = 3;
         this._descriptionGroup.TabStop = false;
         this._descriptionGroup.Text = "Descrizione";
         // 
@@ -310,7 +339,7 @@ partial class StrategyDetailScreen
         this._descriptionTextBox.Name = "_descriptionTextBox";
         this._descriptionTextBox.ReadOnly = true;
         this._descriptionTextBox.ScrollBars = System.Windows.Forms.ScrollBars.Vertical;
-        this._descriptionTextBox.Size = new System.Drawing.Size(876, 351);
+        this._descriptionTextBox.Size = new System.Drawing.Size(876, 91);
         this._descriptionTextBox.TabIndex = 0;
         // 
         // StrategyDetailScreen
@@ -318,6 +347,7 @@ partial class StrategyDetailScreen
         this.AutoScaleDimensions = new System.Drawing.SizeF(7F, 15F);
         this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
         this.Controls.Add(this._descriptionGroup);
+        this.Controls.Add(this._hoursGroup);
         this.Controls.Add(this._fieldsLayout);
         this.Controls.Add(this._toolbar);
         this.Name = "StrategyDetailScreen";
@@ -326,6 +356,8 @@ partial class StrategyDetailScreen
         this._fieldsLayout.PerformLayout();
         this._descriptionGroup.ResumeLayout(false);
         this._descriptionGroup.PerformLayout();
+        this._hoursGroup.ResumeLayout(false);
+        this._hoursGroup.PerformLayout();
         this.ResumeLayout(false);
         this.PerformLayout();
     }
@@ -356,4 +388,6 @@ partial class StrategyDetailScreen
     private System.Windows.Forms.TextBox _sourceTextBox;
     private System.Windows.Forms.GroupBox _descriptionGroup;
     private System.Windows.Forms.TextBox _descriptionTextBox;
+    private System.Windows.Forms.GroupBox _hoursGroup;
+    private System.Windows.Forms.TextBox _hoursTextBox;
 }

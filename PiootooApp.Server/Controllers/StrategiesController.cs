@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Mvc;
 using Piootoo.Core.Services;
@@ -11,10 +11,12 @@ namespace PiootooApp.Server.Controllers;
 public sealed class StrategiesController : ControllerBase
 {
     private readonly StrategyExportService _export;
+    private readonly StrategyHoursService _hours;
 
-    public StrategiesController(StrategyExportService export)
+    public StrategiesController(StrategyExportService export, StrategyHoursService hours)
     {
         _export = export;
+        _hours = hours;
     }
 
     /// <summary>
@@ -53,6 +55,29 @@ public sealed class StrategiesController : ControllerBase
             .OrderBy(strategy => strategy.Symbol)
             .ThenBy(strategy => strategy.Name)
             .ToList());
+
+    /// <summary>
+    /// La scheda oraria di una strategia: ancoraggio di sessione, finestra operativa e finestra di
+    /// negoziazione dello strumento, risolti nei fusi veri del suo simbolo.
+    ///
+    /// <para>Ed è una risposta a sé e non un campo del catalogo perché due dei tre piani vengono dal
+    /// calendario di mercato: metterli nell'elenco vorrebbe dire risolvere quarantuno calendari per
+    /// disegnare una griglia in cui se ne guarda una riga.</para>
+    ///
+    /// <para><c>id</c> accetta sia l'Id di classe sia il codice di esecuzione.</para>
+    /// </summary>
+    [HttpGet("{id}/hours")]
+    public ActionResult<StrategyHoursCard> Hours(string id)
+    {
+        try
+        {
+            return Ok(_hours.Build(id));
+        }
+        catch (KeyNotFoundException ex)
+        {
+            return NotFound(new ProblemDetails { Title = "Strategia inesistente", Detail = ex.Message });
+        }
+    }
 
     /// <summary>
     /// Scheda completa di una strategia: parametri della traduzione, commenti di conversione,

@@ -40,8 +40,13 @@ public abstract class EasyEngineBase : StatelessEasyStrategyBase
     ///
     /// <para>Con <see cref="ZonedWindow.TimeZoneId"/> a <c>null</c> il fuso resta quello del
     /// registro: è la compatibilità per le classi non ancora migrate, non la forma consigliata.</para>
+    ///
+    /// <para><b>È pubblica</b> per la stessa ragione di <see cref="SessionAnchorOverrideReason"/>:
+    /// il confine su cui una strategia taglia le sessioni deve potersi leggere senza aprire il
+    /// sorgente — la scheda oraria del catalogo la mostra, ed è così che un ancoraggio sbagliato
+    /// si vede invece di restare in silenzio.</para>
     /// </summary>
-    protected ZonedWindow Session => _session ??= ResolveSession();
+    public ZonedWindow Session => _session ??= ResolveSession();
 
     /// <summary>
     /// L'ancoraggio del simbolo, o quello dichiarato da <see cref="OverrideSessionAnchor"/>.
@@ -117,11 +122,14 @@ public abstract class EasyEngineBase : StatelessEasyStrategyBase
     ///
     /// <para><c>null</c> significa "non dichiarata": i motori ricadono sul fuso della sessione,
     /// che è il comportamento storico.</para>
+    ///
+    /// <para><b>Si legge da fuori, si scrive solo da dentro</b>: la dichiara il costruttore della
+    /// strategia, ma la scheda oraria del catalogo deve poterla mostrare senza riflessione.</para>
     /// </summary>
-    protected ZonedWindow? TradingWindow
+    public ZonedWindow? TradingWindow
     {
         get => _tradingWindow;
-        set
+        protected set
         {
             _tradingWindow = value;
             _windowClock = null;

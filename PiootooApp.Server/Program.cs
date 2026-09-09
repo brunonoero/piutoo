@@ -1,4 +1,4 @@
-using Piootoo.Core.Services;
+﻿using Piootoo.Core.Services;
 using Piootoo.Core.Services.Interfaces;
 using Piootoo.Shared;
 using Piootoo.Shared.Configuration;
@@ -91,6 +91,7 @@ builder.Services.AddSingleton<ExternalDatafeedStore>();
 // Export della scheda di una strategia. Senza stato proprio: singleton come il resto, e perche'
 // non ha senso ricostruirlo a ogni richiesta.
 builder.Services.AddSingleton<StrategyExportService>();
+builder.Services.AddSingleton<StrategyHoursService>();
 
 builder.Services.AddControllers()
     .AddJsonOptions(options =>

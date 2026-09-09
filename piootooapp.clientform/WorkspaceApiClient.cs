@@ -1,4 +1,4 @@
-using System.Net.Http.Json;
+﻿using System.Net.Http.Json;
 using System.Text.Json;
 using Piootoo.Shared.Models.Backtesting;
 using Piootoo.Shared.Models.Strategies;
@@ -40,6 +40,24 @@ public sealed class WorkspaceApiClient
         using var response = await SendAsync(HttpMethod.Get, "api/strategies", null, cancellationToken);
         return await response.Content.ReadFromJsonAsync<List<StrategyCatalogItem>>(_jsonOptions, cancellationToken)
             ?? new List<StrategyCatalogItem>();
+    }
+
+    /// <summary>
+    /// La scheda oraria di una strategia: ancoraggio di sessione, finestra operativa e finestra di
+    /// negoziazione dello strumento, gia' risolti nei fusi veri dal server.
+    ///
+    /// <para>Non e' un campo del catalogo: la console non ha il calendario di mercato e non deve
+    /// dedurre un fuso da un simbolo. Si chiede per la strategia che si sta guardando.</para>
+    /// </summary>
+    public async Task<StrategyHoursCard> GetStrategyHoursAsync(
+        string strategyId,
+        CancellationToken cancellationToken = default)
+    {
+        using var response = await SendAsync(
+            HttpMethod.Get, $"api/strategies/{Uri.EscapeDataString(strategyId)}/hours", null, cancellationToken);
+        return await response.Content.ReadFromJsonAsync<StrategyHoursCard>(_jsonOptions, cancellationToken)
+            ?? throw new InvalidOperationException(
+                $"Il server non ha restituito la scheda oraria di '{strategyId}'.");
     }
 
     /// <summary>

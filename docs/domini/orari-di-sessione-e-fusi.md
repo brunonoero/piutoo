@@ -249,6 +249,33 @@ classi `PTS_*` che dichiarano sessione e finestra con il proprio fuso.
 
 **I backtest @NQ archiviati prima del 19/08/2026 non sono confrontabili** con quelli successivi.
 
+## Come si verifica il setup di una strategia
+
+La console lo mostra in **Strategie → dettaglio → «Orari e finestre»**, che chiede al server
+`GET api/strategies/{id}/hours` e riceve una `StrategyHoursCard` gia' risolta. Il riquadro mette
+insieme i tre piani che decidono quando una strategia opera, e che nessuno dei tre si legge dagli
+altri:
+
+1. **Sessione** — l'ancoraggio con cui la strategia taglia `d0..d5`, il secchio delle entrate e
+   l'uscita di fine sessione. Viene dal calendario del simbolo, oppure da `OverrideSessionAnchor`, e
+   in quel caso la scheda stampa `OVERRIDE` con il motivo dichiarato accanto all'ora del calendario.
+2. **Finestra operativa** — `start_hour`/`end_hour` del run di ricerca, verbatim, con l'orologio in
+   cui sono scritti. Una `0000-2359` non e' un filtro: e' la forma in cui un run che non ha filtrato
+   per ora scrive i propri orari, e la scheda lo dice invece di elencare una fascia esclusa che non
+   esiste.
+3. **Negoziazione dello strumento** — le finestre di `SessionMask`, cioe' quando il mercato e'
+   davvero aperto. Sono la ragione per cui una barra del feed di un broker CFD puo' non arrivare mai
+   alla strategia, ed e' l'unico dei tre piani che non appartiene alla strategia.
+
+Ogni finestra e' resa **anche in UTC in due stagioni**, gennaio e luglio. Non e' ridondanza: un
+orario locale e' fisso e il suo istante UTC no, e l'ora di scarto fra le due stagioni e' esattamente
+quella che separa un run dal grafico del broker. Una sessione ancorata all'01:00 di Roma comincia a
+mezzanotte UTC d'inverno e alle 23:00 del **giorno prima** d'estate.
+
+Il riscaldamento sta nello stesso riquadro perche' e' la prima domanda quando una strategia non
+opera: sotto `RequiredCandles` il server la salta in silenzio, e le soglie variano di venti volte fra
+strategie sullo stesso stream.
+
 ## Riferimenti codice
 
 - `Piootoo.Shared/Configuration/SessionClock.cs` — conversione, cache
@@ -268,3 +295,5 @@ classi `PTS_*` che dichiarano sessione e finestra con il proprio fuso.
   l'orologio di un feed e come si generano i timeframe.
 - [`motori-strategie.md`](motori-strategie.md) — regole comuni dei motori e
   guida di porting.
+- `Piootoo.Core/Services/StrategyHoursService.cs` — la scheda oraria del
+  catalogo; `Piootoo.Strategies.Tests/StrategyHoursCardTests.cs` la copre.
