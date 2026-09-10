@@ -502,6 +502,17 @@ public sealed class BacktestFillConventions
     public bool RejectWrongSideLevels { get; init; }
 
     /// <summary>
+    /// Fattore con cui il run ha allargato la distanza di stop dichiarata dalle strategie.
+    /// 1 = gli stop della ricerca, tali e quali.
+    ///
+    /// <para>Sta accanto allo spread perche' misura la stessa cosa da parte opposta: su parecchie
+    /// strategie portate dalla ricerca lo spread misurato e' maggiore della distanza di stop, e uno
+    /// stop cosi' stretto non e' eseguibile su un conto vero. Due run con moltiplicatori diversi non
+    /// sono confrontabili — cambia quante posizioni sopravvivono, non solo quanto perdono.</para>
+    /// </summary>
+    public decimal StopMoneyMultiplier { get; init; } = 1m;
+
+    /// <summary>
     /// Se la finestra operativa ha confrontato le proprie soglie con l'etichetta di <b>chiusura</b>
     /// della barra invece che con quella di apertura.
     ///

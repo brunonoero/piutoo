@@ -132,12 +132,34 @@ livello)` e il gap all'apertura sono convenzioni sul *prezzo del feed*
 (vedi [`orologio-barre-e-fill.md`](orologio-barre-e-fill.md)), e mescolarci il lato del book
 renderebbe illeggibili entrambe.
 
+### Lo stop allargato
+
+Il numero che misura l'effetto dello spread non è il costo per trade, è **`spread / distanza di
+stop`**: stop e target si spostano insieme all'ingresso, quindi lo spread non toglie dollari al
+trade, lo avvicina allo stop. Su parecchie strategie portate dalla ricerca quel rapporto supera 1
+— lo spread misurato è più largo della distanza di stop dichiarata — e una taratura del genere non
+è eseguibile su un conto vero, per quanto bene misuri in backtest.
+
+`StopMoneyPolicy` moltiplica per 3 la **sola** distanza di stop. Sta in un punto solo,
+l'arricchimento del segnale in `StatelessEasyStrategyBase.Evaluate`: è l'unico passaggio che ogni
+ingresso attraversa, qualunque motore l'abbia prodotto, e lo percorrono sia il backtest sia la
+sessione live. Le classi `PTS_*` continuano quindi a dichiarare i numeri della ricerca
+**verbatim** — l'impronta con cui `StrategyExportService` le riaggancia al dossier resta quella —
+e il segnale nasce già con la distanza eseguibile: artefatti, console e intent per il cBot portano
+tutti lo stesso numero, non esiste uno stop «dichiarato» diverso da quello eseguito.
+
+Target, breakeven e trailing restano quelli della ricerca. Allargare anche loro sarebbe una
+strategia diversa, non la stessa strategia resa eseguibile; il rapporto rischio/rendimento del
+porting cambia di conseguenza, ed è voluto.
+
 ### Dove si vede
 
-- **Log di avvio del job**: `entrySpreadSource` (broker, statistica, file, data) e
-  `entrySpreadPoints` (simbolo=valore).
-- **`backtest-summary.json`**, in `fillConventions`: `spreadPoints` con i **valori** e
-  `spreadSource`. I valori e non i soli simboli come per `stopFillSlippageSymbols`: due run
+- **Log di avvio del job**: `entrySpreadSource` (broker, statistica, file, data),
+  `entrySpreadPoints` (simbolo=valore) e `stopMoneyMultiplier`.
+- **`backtest-summary.json`**, in `fillConventions`: `spreadPoints` con i **valori**,
+  `spreadSource` e `stopMoneyMultiplier`. Quest'ultimo sta anche in `session-summary.json`, per
+  la stessa ragione: due run con moltiplicatori diversi non sono confrontabili, e dagli intent
+  riempiti non si risale al fattore. I valori e non i soli simboli come per `stopFillSlippageSymbols`: due run
   che dichiarano lo stesso simbolo con spread 2 e con spread 8 danno risultati che non si
   somigliano.
 - **Report HTML**, scheda «Spread applicato all'ingresso»: una riga per simbolo, con la
@@ -259,6 +281,8 @@ cui datasource e piano sono già separati (vedi [`backtesting.md`](backtesting.m
 - `piootoo-repository/ctrader/PiootooSpreadDumpBot.cs` — la misura.
 - `Piootoo.Core/Services/SpreadTable.cs` — il caricamento del CSV.
 - `Piootoo.Core/Services/PiootooTradingService.cs` — `SpreadPoints`, `ApplySpread`.
+- `Piootoo.Shared/Configuration/StopMoneyPolicy.cs` — il fattore di allargamento dello stop,
+  applicato in `Piootoo.Strategies/Easy/StatelessEasyStrategyBase.cs`.
 - `Piootoo.Core/Services/PiootooBacktestingService.cs` — il cablaggio, il log, il summary.
 - `Piootoo.Core/Services/BacktestHtmlReport.cs` — `AppendSpreadHtml`.
 - `Piootoo.Shared/Models/Backtesting/BacktestingRequest.cs`, `SpreadStatistic.cs`,
@@ -267,4 +291,5 @@ cui datasource e piano sono già separati (vedi [`backtesting.md`](backtesting.m
   l'anagrafica e l'anteprima.
 - `piootooapp.clientform/Shell/Screens/BacktestingScreen.cs`,
   `Shell/Controls/SpreadPreviewDialog.cs` — le combo e la griglia.
-- `Piootoo.Strategies.Tests/EntrySpreadTests.cs`.
+- `Piootoo.Strategies.Tests/EntrySpreadTests.cs`,
+  `Piootoo.Strategies.Tests/StopMoneyPolicyConformanceTests.cs`.

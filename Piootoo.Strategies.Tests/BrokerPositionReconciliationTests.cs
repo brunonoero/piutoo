@@ -94,6 +94,144 @@ public sealed class BrokerPositionReconciliationTests : IDisposable
         Assert.Empty(sessions.GetSnapshot(descriptor.SessionId, descriptor.SessionToken).Positions);
     }
 
+    [Fact]
+    public void SnapshotWithADifferentPositionOnTheSamePair_StillClosesTheRegisteredOne()
+    {
+        // La coppia (simbolo, strategia) c'è ancora nello snapshot, ma è un'ALTRA posizione: la
+        // nostra è chiusa e va tolta. Confrontando le coppie la risposta è "c'è", e la voce resta
+        // nei registri per sempre — è la posizione fantasma che questa riconciliazione esiste per
+        // uccidere, e che il confronto per coppia non vede quando la strategia rientra subito.
+        var (sessions, descriptor, _) = Session();
+        var intent = OpenPosition(sessions, descriptor, brokerPositionId: "77");
+
+        Poll(sessions, descriptor, WithPosition(intent.StrategyCode, positionId: "77"));
+        Poll(sessions, descriptor, WithPosition(intent.StrategyCode, positionId: "78"));
+
+        Assert.Empty(sessions.GetSnapshot(descriptor.SessionId, descriptor.SessionToken).Positions);
+    }
+
+    [Fact]
+    public void SnapshotWithTheSamePositionId_KeepsThePositionOpen()
+    {
+        var (sessions, descriptor, _) = Session();
+        var intent = OpenPosition(sessions, descriptor, brokerPositionId: "77");
+
+        Poll(sessions, descriptor, WithPosition(intent.StrategyCode, positionId: "77"));
+        Poll(sessions, descriptor, WithPosition(intent.StrategyCode, positionId: "77"));
+
+        Assert.Single(sessions.GetSnapshot(descriptor.SessionId, descriptor.SessionToken).Positions);
+    }
+
+    [Fact]
+    public void CloseOfAPositionTheReconciliationHadDroppedIsAccountedAnyway()
+    {
+        // Il caso che è costato 123 trade nel confronto compare-0032: la riconciliazione dà la
+        // posizione per sparita, il client la chiude davvero e chiede di registrarla, il server
+        // risponde 404 e il P&L — già realizzato al broker — non entra in nessun artefatto.
+        var (sessions, descriptor, _) = Session();
+        var entry = OpenPosition(sessions, descriptor);
+
+        Poll(sessions, descriptor, WithPosition(entry.StrategyCode));
+        Poll(sessions, descriptor, NoPositions());
+        Assert.Empty(sessions.GetSnapshot(descriptor.SessionId, descriptor.SessionToken).Positions);
+
+        var close = sessions.CreateExternalCloseIntent(descriptor.SessionId, new CreateExternalCloseIntentRequest
+        {
+            SessionToken = descriptor.SessionToken,
+            StrategyCode = entry.StrategyCode,
+            Symbol = entry.Symbol,
+            AccountNumber = Account,
+            Quantity = entry.Quantity,
+            Reason = "LocalExit:StopLoss"
+        });
+
+        sessions.ApplyReport(descriptor.SessionId, new ExecutionReportRequest
+        {
+            SessionToken = descriptor.SessionToken,
+            Report = new ExternalExecutionReport
+            {
+                ReportId = $"r-{close.IntentId}",
+                IntentId = close.IntentId,
+                Status = ExecutionReportStatus.Filled,
+                CumulativeFilledQuantity = close.Quantity,
+                FillPrice = 110m,
+                EventTimeUtc = Utc(2026, 1, 7)
+            }
+        });
+
+        var trade = Assert.Single(sessions.GetPersistedTrades(descriptor.SessionId, descriptor.SessionToken));
+        Assert.Equal(entry.StrategyCode, trade.StrategyCode);
+        // L'ingresso viene dalla lapide: senza, il trade non sarebbe ricostruibile affatto.
+        Assert.Equal(100m, trade.EntryPrice);
+        Assert.Equal(110m, trade.ExitPrice);
+        Assert.Equal("LocalExit:StopLoss", trade.ExitReason);
+
+        // E la posizione non resta in piedi: la chiusura l'ha consumata.
+        Assert.Empty(sessions.GetSnapshot(descriptor.SessionId, descriptor.SessionToken).Positions);
+    }
+
+    [Fact]
+    public void CloseOfAPositionThatWasNeverOpenIsStillRejected()
+    {
+        // La lapide serve a non buttare via un P&L reale, non ad accettare qualunque chiusura: una
+        // strategia che non ha mai aperto niente non deve poter fabbricare un trade.
+        var (sessions, descriptor, strategy) = Session();
+
+        Assert.Throws<KeyNotFoundException>(() =>
+            sessions.CreateExternalCloseIntent(descriptor.SessionId, new CreateExternalCloseIntentRequest
+            {
+                SessionToken = descriptor.SessionToken,
+                StrategyCode = strategy.Name,
+                Symbol = strategy.Symbol,
+                AccountNumber = Account,
+                Quantity = 1m,
+                Reason = "LocalExit:StopLoss"
+            }));
+    }
+
+    [Fact]
+    public void ANewEntryOnTheSameKeyDiscardsTheTombstone()
+    {
+        // Riaperta la stessa strategia sullo stesso simbolo, la lapide vecchia non vale più: una
+        // chiusura in ritardo che la servisse scriverebbe un trade con il prezzo di ingresso della
+        // posizione precedente.
+        var (sessions, descriptor, strategy) = Session();
+        var entry = OpenPosition(sessions, descriptor);
+
+        Poll(sessions, descriptor, WithPosition(entry.StrategyCode));
+        Poll(sessions, descriptor, NoPositions());
+
+        sessions.PushBars(Bars(descriptor, strategy, Utc(2026, 1, 6)));
+        OpenPosition(sessions, descriptor, pushBars: false, fillPrice: 200m);
+
+        var close = sessions.CreateExternalCloseIntent(descriptor.SessionId, new CreateExternalCloseIntentRequest
+        {
+            SessionToken = descriptor.SessionToken,
+            StrategyCode = entry.StrategyCode,
+            Symbol = entry.Symbol,
+            AccountNumber = Account,
+            Quantity = entry.Quantity,
+            Reason = "LocalExit:StopLoss"
+        });
+
+        sessions.ApplyReport(descriptor.SessionId, new ExecutionReportRequest
+        {
+            SessionToken = descriptor.SessionToken,
+            Report = new ExternalExecutionReport
+            {
+                ReportId = $"r-{close.IntentId}",
+                IntentId = close.IntentId,
+                Status = ExecutionReportStatus.Filled,
+                CumulativeFilledQuantity = close.Quantity,
+                FillPrice = 210m,
+                EventTimeUtc = Utc(2026, 1, 7)
+            }
+        });
+
+        var trade = Assert.Single(sessions.GetPersistedTrades(descriptor.SessionId, descriptor.SessionToken));
+        Assert.Equal(200m, trade.EntryPrice);
+    }
+
     // ------------------------------------------------------------------------------ helper
 
     private static AccountSignalPollRequest NoPositions() => new() { SessionToken = string.Empty };
@@ -106,14 +244,14 @@ public sealed class BrokerPositionReconciliationTests : IDisposable
             Positions = request.Positions
         });
 
-    private static AccountSignalPollRequest WithPosition(string strategyCode) => new()
+    private static AccountSignalPollRequest WithPosition(string strategyCode, string positionId = "1") => new()
     {
         SessionToken = string.Empty,
         Positions =
         [
             new BrokerPositionSnapshot
             {
-                PositionId = "1",
+                PositionId = positionId,
                 // Il nome del BROKER, come lo manda il cBot: è il cuore del test.
                 Symbol = BrokerSymbol,
                 StrategyCode = strategyCode
@@ -121,10 +259,16 @@ public sealed class BrokerPositionReconciliationTests : IDisposable
         ]
     };
 
-    private OrderIntent OpenPosition(TradingSessionService sessions, TradingSessionDescriptor descriptor)
+    private OrderIntent OpenPosition(
+        TradingSessionService sessions,
+        TradingSessionDescriptor descriptor,
+        string? brokerPositionId = null,
+        bool pushBars = true,
+        decimal fillPrice = 100m)
     {
         var strategy = StrategyFactory.GetRegisteredStrategies().First();
-        sessions.PushBars(Bars(descriptor, strategy, Utc(2026, 1, 5)));
+        if (pushBars)
+            sessions.PushBars(Bars(descriptor, strategy, Utc(2026, 1, 5)));
 
         var claimed = sessions.GetNextSignalForAccount(
             descriptor.SessionId, descriptor.SessionToken, Account).Intent;
@@ -137,9 +281,12 @@ public sealed class BrokerPositionReconciliationTests : IDisposable
             {
                 ReportId = $"r-{claimed!.IntentId}",
                 IntentId = claimed.IntentId,
+                // È da qui che il server prende l'id della posizione sul broker: il cBot lo dichiara
+                // nel report di ingresso, e senza la riconciliazione può solo confrontare coppie.
+                ExternalOrderId = brokerPositionId,
                 Status = ExecutionReportStatus.Filled,
                 CumulativeFilledQuantity = claimed.Quantity,
-                FillPrice = 100m,
+                FillPrice = fillPrice,
                 EventTimeUtc = Utc(2026, 1, 5)
             }
         });

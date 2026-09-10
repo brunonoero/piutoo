@@ -705,6 +705,21 @@ public sealed class TradingPositionSnapshot
     public decimal EntryPrice { get; init; }
     /// <summary>Account cTrader proprietario della posizione. Vuoto in modalità legacy senza gruppi.</summary>
     public string AccountNumber { get; init; } = string.Empty;
+
+    /// <summary>
+    /// Id della posizione sulla piattaforma del broker, come il client lo dichiara in
+    /// <see cref="ExternalExecutionReport.ExternalOrderId"/> al fill di ingresso. Vuoto per le
+    /// posizioni aperte da un client che non lo manda.
+    ///
+    /// <para><b>Perché serve.</b> È l'unica cosa che identifica <i>questa</i> posizione. La chiave
+    /// di <c>ExternalPositions</c> è <c>conto|simbolo|strategia</c> e non porta né il lato né la
+    /// posizione, quindi la riconciliazione con lo snapshot del broker può solo chiedersi «la
+    /// strategia ha qualcosa aperto su quel simbolo?». Su quella domanda una posizione viva può
+    /// risultare sparita, e la sua chiusura vera viene poi rifiutata con un 404: nel run
+    /// <c>compare-0032</c> sono 123 trade su 4.268, per lo più lunghi e in utile, mai finiti in
+    /// <c>trades.json</c>.</para>
+    /// </summary>
+    public string BrokerPositionId { get; init; } = string.Empty;
 }
 
 /// <summary>

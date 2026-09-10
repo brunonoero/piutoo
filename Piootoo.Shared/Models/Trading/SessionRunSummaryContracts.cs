@@ -33,6 +33,14 @@ public sealed class SessionRunSummary
     public DateTime? FirstBarUtc { get; init; }
     public DateTime? LastBarUtc { get; init; }
 
+    /// <summary>
+    /// Fattore con cui gli intent di questa sessione hanno allargato la distanza di stop dichiarata
+    /// dalle strategie. 1 = gli stop della ricerca, tali e quali. Sta qui per lo stesso motivo per
+    /// cui sta in <c>backtest-summary.json</c>: due run con moltiplicatori diversi non sono
+    /// confrontabili, e dagli intent riempiti non si risale al fattore.
+    /// </summary>
+    public decimal StopMoneyMultiplier { get; init; } = 1m;
+
     public int IntentsEmitted { get; init; }
     public int IntentsFilled { get; init; }
     public int IntentsRejected { get; init; }

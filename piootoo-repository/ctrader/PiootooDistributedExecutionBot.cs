@@ -431,6 +431,20 @@ namespace cAlgo.Robots
             new(StringComparer.OrdinalIgnoreCase);
 
         /// <summary>
+        /// Le chiusure che il server ha rifiutato di registrare. Ogni riga qui dentro e' un trade
+        /// avvenuto davvero al broker, con il suo P&amp;L, che negli artefatti della sessione non
+        /// esiste.
+        ///
+        /// <para><b>Perche' una lista e non un Print.</b> Fino alla 7.2.0 un rifiuto era una riga di
+        /// log e basta, e il run si dichiarava concluso normalmente. Nel confronto
+        /// <c>compare-0032</c> erano 123 chiusure su 4.268 — l'80% su un confine di barra, quasi
+        /// tutte lunghe e in utile — e <c>trades.json</c> riportava −45.415,67 dove il conto vero
+        /// era −22.868,60. Un errore che si vede solo rileggendo un anno di log non e' un errore
+        /// segnalato: il totale va confrontato allo stop, e la differenza dichiarata.</para>
+        /// </summary>
+        private readonly List<UnregisteredClose> _unregisteredCloses = new();
+
+        /// <summary>
         /// Quanto il server ha dichiarato di avere da consegnare nell'ultimo push. Null = non
         /// dichiarato, quindi si polla. Zero = si puo' saltare il poll.
         /// </summary>
@@ -3350,6 +3364,78 @@ namespace cAlgo.Robots
             }
 
             Print("  TOTALE: {0} trade, netto {1:0.00}.", trades, totale);
+            PrintUnregisteredCloses(trades, totale);
+        }
+
+        /// <summary>
+        /// Dichiara la differenza fra quello che il bot ha chiuso e quello che il server ha
+        /// accettato di registrare.
+        ///
+        /// <para>Senza questo blocco un run che perde trade si chiude con un riepilogo pulito, e la
+        /// differenza si scopre solo confrontando a mano il log con <c>trades.json</c> — cioe' mai.
+        /// La riga si stampa <b>anche quando non manca niente</b>: "0 perse" e' un'informazione, la
+        /// sua assenza no.</para>
+        /// </summary>
+        private void PrintUnregisteredCloses(int closedTrades, decimal closedNet)
+        {
+            if (_unregisteredCloses.Count == 0)
+            {
+                Print("  Registrate sul server: {0} su {0}. Gli artefatti della sessione contengono " +
+                      "tutti i trade di questo run.", closedTrades);
+                return;
+            }
+
+            var lostNet = 0m;
+            foreach (var item in _unregisteredCloses)
+                lostNet += item.NetProfit;
+
+            Print("--- ATTENZIONE: {0} chiusure su {1} NON sono state registrate sul server ---",
+                _unregisteredCloses.Count, closedTrades);
+            Print("  Sono trade avvenuti davvero al broker: netto {0:0.00} su {1:0.00} totali. " +
+                  "trades.json di questa sessione riporta {2:0.00} e NON e' il risultato del run.",
+                lostNet, closedNet, closedNet - lostNet);
+            Print("  Le righe qui sotto sono tutto quello che serve a ricostruirli a mano.");
+
+            foreach (var item in _unregisteredCloses)
+            {
+                Print("  PERSA {0:yyyy-MM-dd HH:mm:ss} {1} {2} qty {3} | {4:0.#####} -> {5:0.#####} | " +
+                      "netto {6:0.00} | {7} | intent {8} | {9}",
+                    item.ClosedAtUtc, item.StrategyCode, item.Symbol, item.Quantity,
+                    item.EntryPrice, item.ClosePrice, item.NetProfit, item.Reason,
+                    item.EntryIntentId, item.Error);
+
+                LogJsonEvent("trade/non-registrato", new
+                {
+                    item.ClosedAtUtc,
+                    item.StrategyCode,
+                    item.Symbol,
+                    item.EntryIntentId,
+                    item.Quantity,
+                    item.EntryPrice,
+                    item.ClosePrice,
+                    item.NetProfit,
+                    item.Reason,
+                    item.Error
+                });
+            }
+        }
+
+        /// <summary>
+        /// Una chiusura avvenuta al broker che il server non ha accettato. Porta tutto quello che
+        /// serve a ricostruire il trade a mano: il P&amp;L e' gia' quello del broker.
+        /// </summary>
+        private sealed class UnregisteredClose
+        {
+            public DateTime ClosedAtUtc;
+            public string StrategyCode;
+            public string Symbol;
+            public string EntryIntentId;
+            public decimal Quantity;
+            public decimal EntryPrice;
+            public decimal? ClosePrice;
+            public decimal NetProfit;
+            public string Reason;
+            public string Error;
         }
 
         /// <summary>Spread misurati ai fill, per strategia. Serve solo al riepilogo diagnostico.</summary>
@@ -3578,24 +3664,76 @@ namespace cAlgo.Robots
                     // che prima non ci arrivava affatto.
                     Reason = $"{prefissoMotivo}:{reason}"
                 };
-                using var request = BuildRequest(HttpMethod.Post, $"api/v1/trading-sessions/{_sessionId}/intents/close-external");
-                request.Content = new StringContent(JsonSerializer.Serialize(closeIntentRequest, _json), Encoding.UTF8, "application/json");
-                var response = _http.Send(request);
-                if (!response.IsSuccessStatusCode)
+                // Due tentativi, non uno: il primo puo' cadere su uno stato del server che si sta
+                // ancora assestando (un report di ingresso appena inviato, una riconciliazione in
+                // corso). Il payload e' identico e la chiamata e' idempotente lato dominio — crea
+                // l'intent di chiusura di UNA posizione aperta — quindi ripetere non raddoppia
+                // niente: o la posizione c'e' e il secondo tentativo passa, o non c'e' e fallisce
+                // di nuovo allo stesso modo.
+                HttpResponseMessage response = null;
+                string error = null;
+                for (var attempt = 1; attempt <= 2; attempt++)
                 {
-                    Print("Registrazione chiusura esterna fallita per {0}/{1}: {2}", ctx.Symbol, ctx.StrategyCode, ReadError(response));
+                    using var request = BuildRequest(HttpMethod.Post, $"api/v1/trading-sessions/{_sessionId}/intents/close-external");
+                    request.Content = new StringContent(JsonSerializer.Serialize(closeIntentRequest, _json), Encoding.UTF8, "application/json");
+                    response = _http.Send(request);
+                    if (response.IsSuccessStatusCode)
+                        break;
+
+                    error = ReadError(response);
+                    Print("Registrazione chiusura esterna fallita per {0}/{1} (tentativo {2} di 2): {3}",
+                        ctx.Symbol, ctx.StrategyCode, attempt, error);
+                    response.Dispose();
+                    response = null;
+                }
+
+                if (response == null)
+                {
+                    // Il trade esiste, il suo P&L pure: quello che non esiste e' il record sul
+                    // server. Va tenuto e dichiarato allo stop, non lasciato in una riga di log in
+                    // mezzo a un anno di run.
+                    _unregisteredCloses.Add(new UnregisteredClose
+                    {
+                        ClosedAtUtc = Server.TimeInUtc,
+                        StrategyCode = ctx.StrategyCode,
+                        Symbol = ctx.Symbol,
+                        EntryIntentId = ctx.EntryIntentId,
+                        Quantity = quantity,
+                        EntryPrice = (decimal)ctx.EntryPrice,
+                        ClosePrice = closePrice,
+                        NetProfit = netProfit ?? (grossProfit ?? 0m) - Math.Abs(commission) + swap,
+                        Reason = $"{prefissoMotivo}:{reason}",
+                        Error = error
+                    });
                     return;
                 }
 
-                var closeBody = ReadBody(response);
-                LogJsonResponse("intents/close-external", closeBody);
-                var closeIntent = JsonSerializer.Deserialize<OrderIntentDto>(closeBody, _json);
-                ReportExecution(closeIntent.IntentId, brokerSymbolName, ExecutionReportStatusDto.Filled, quantity, closePrice, null, commission,
-                    swap: swap, grossProfit: grossProfit, netProfit: netProfit);
+                using (response)
+                {
+                    var closeBody = ReadBody(response);
+                    LogJsonResponse("intents/close-external", closeBody);
+                    var closeIntent = JsonSerializer.Deserialize<OrderIntentDto>(closeBody, _json);
+                    ReportExecution(closeIntent.IntentId, brokerSymbolName, ExecutionReportStatusDto.Filled, quantity, closePrice, null, commission,
+                        swap: swap, grossProfit: grossProfit, netProfit: netProfit);
+                }
             }
             catch (Exception ex)
             {
+                // Stessa ragione del ramo sopra: l'eccezione fa perdere il record, non il trade.
                 Print("Errore registrazione chiusura esterna {0}/{1}: {2}", ctx.Symbol, ctx.StrategyCode, ex.Message);
+                _unregisteredCloses.Add(new UnregisteredClose
+                {
+                    ClosedAtUtc = Server.TimeInUtc,
+                    StrategyCode = ctx.StrategyCode,
+                    Symbol = ctx.Symbol,
+                    EntryIntentId = ctx.EntryIntentId,
+                    Quantity = quantity,
+                    EntryPrice = (decimal)ctx.EntryPrice,
+                    ClosePrice = closePrice,
+                    NetProfit = netProfit ?? (grossProfit ?? 0m) - Math.Abs(commission) + swap,
+                    Reason = $"{prefissoMotivo}:{reason}",
+                    Error = ex.Message
+                });
             }
         }
 

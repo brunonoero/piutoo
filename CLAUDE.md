@@ -224,6 +224,17 @@ sbaglia più spesso:
  senza, il primo ritracciamento lo toglieva e l'engine era pessimista di un fattore
  cinque sulle uscite in trailing. Entrambi i numeri stanno sulla `BacktestingRequest` e
  nel log di avvio del job. Vedi `docs/domini/orologio-barre-e-fill.md`.
+- **Lo stop dichiarato dalla strategia non e' quello eseguito, e il fattore sta in un punto solo.**
+ `StopMoneyPolicy.Multiplier` (3) moltiplica la **sola** distanza di stop, applicato
+ nell'arricchimento del segnale di `StatelessEasyStrategyBase.Evaluate`: l'unico passaggio che ogni
+ ingresso attraversa e che percorrono sia il backtest sia la sessione live. Le classi `PTS_*`
+ continuano a dichiarare i numeri della ricerca **verbatim** — l'impronta che le riaggancia al
+ dossier dipende da quei numeri — e non vanno ritoccate una per una. Motivo: lo spread misurato e'
+ piu' largo della distanza di stop su parecchie strategie portate, e il numero che conta e'
+ `spread / distanza di stop`, non il costo per trade. Target, breakeven e trailing restano quelli
+ della ricerca. Il fattore e' dichiarato nel log di avvio, in `fillConventions.stopMoneyMultiplier`
+ e in `session-summary.json`: due run con moltiplicatori diversi non sono confrontabili.
+ Vedi `docs/domini/spread-e-costo-di-transazione.md`.
 - **Overnight e overweek: decide prima il piano, poi motore e strategia.**
  `tiene = pianoPermette && strategiaVuole`. `AccountHoldingPolicy` sta sul `TradingPlan`,
  scende nella sessione, esce nel descriptor e la eseguono i cBot; la stessa

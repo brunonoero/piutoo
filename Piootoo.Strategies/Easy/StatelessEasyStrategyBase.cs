@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Reflection;
+using Piootoo.Shared.Configuration;
 using Piootoo.Shared.Enums;
 using Piootoo.Shared.Interfaces;
 using Piootoo.Shared.Models;
@@ -101,6 +102,13 @@ public abstract class StatelessEasyStrategyBase : ITradingStrategy
             : signal.StrategyCode;
 
         AttachMoneyRiskFromEasyInputs(evaluationInstance, signal);
+
+        // L'allargamento dello stop sta qui e non nei motori: e' l'unico punto che ogni segnale
+        // di ingresso attraversa, quindi vale per i dieci motori e per le sorgenti EasyLanguage
+        // senza doverlo ripetere in nessuno di loro. Il segnale nasce gia' con lo stop eseguibile:
+        // artefatti, console e intent per il cBot portano tutti lo stesso numero.
+        signal.StopLossMoneyPerFutureContract =
+            StopMoneyPolicy.Widen(signal.StopLossMoneyPerFutureContract);
     }
 
     // ------------------------------------------------------------------ riflessione cacheata

@@ -1,4 +1,5 @@
 using Piootoo.Core.Services;
+using Piootoo.Shared.Configuration;
 using Piootoo.Shared.Enums;
 using Piootoo.Shared.Models;
 using Piootoo.Shared.Models.Trading;
@@ -40,7 +41,9 @@ public sealed class PtsEngineAuditTests
         Assert.Equal("PTS_NQ_TFM_001_60", signal.StrategyCode);
         Assert.Equal("@NQ", signal.Symbol);
         Assert.Equal(1m, signal.Quantity);
-        Assert.Equal(StopMoney, signal.StopLossMoneyPerFutureContract);
+        // Lo stop del segnale e' quello dichiarato dal motore per il fattore di StopMoneyPolicy:
+        // il segnale nasce gia' con la distanza eseguibile, non con quella della ricerca.
+        Assert.Equal(StopMoney * StopMoneyPolicy.Multiplier, signal.StopLossMoneyPerFutureContract);
         Assert.Equal(TakeProfitMoney, signal.TakeProfitMoneyPerFutureContract);
         Assert.Null(signal.StopLoss);
         Assert.Null(signal.TakeProfit);

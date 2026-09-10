@@ -14,6 +14,7 @@
   <ItemGroup>
     <!-- I sorgenti dei cBot stanno nella cartella sopra e NON si copiano qui: si compilano da li'. -->
     <Compile Include="..\PiootooDatafeedSyncBot.cs" />
+    <Compile Include="..\PiootooDistributedExecutionBot.cs" />
   </ItemGroup>
 
 </Project>

@@ -3665,3 +3665,84 @@ che il motore fa. Difetto di artefatto, non di esecuzione, ma e' costato mezza i
   scrivono `skip_day` pandas (0 = lunedi'): l'unica classe che lo valorizza ci mette `-1`, quindi
   oggi non sbaglia, ma la prima RBB con un giorno escluso davvero escluderebbe il giovedi' al posto
   del venerdi'.
+
+- **2026-09-10** — **Una chiusura riportata dal client non puo' piu' essere buttata via.** Nel
+  confronto `compare-0032` il cBot ha chiuso 4.268 trade e `trades.json` ne ha 4.145: 123
+  registrazioni sono state rifiutate con `404 Nessuna posizione aperta` da
+  `TradingSessionService.CreateExternalCloseIntent`, e con esse il P&L. Non erano trade qualunque —
+  l'80% si chiudeva su un confine di barra, la vita mediana era 2.399 minuti contro 130, e 85 su 123
+  uscivano in take profit: l'artefatto dichiarava −45.415,67 dove il conto vero era −22.868,60.
+  Tre cambi, e servono tutti e tre.
+
+  **La riconciliazione confronta posizioni, non coppie.** `ReconcileVanishedPositions` chiedeva «la
+  strategia ha qualcosa aperto su quel simbolo?», che e' una domanda diversa da «questa posizione
+  c'e' ancora» e da' la risposta sbagliata ogni volta che la coppia si libera e si riprende dentro
+  la finestra fra due poll. Il cBot manda `PositionId` a ogni poll da sempre; ora il server lo
+  conserva in `TradingPositionSnapshot.BrokerPositionId` dal report di ingresso e confronta su
+  quello, ripiegando sulla coppia solo per le posizioni che non lo dichiarano.
+
+  **Una posizione tolta dalla riconciliazione lascia una lapide.** La deduzione «non e' nello
+  snapshot, quindi e' chiusa» puo' sbagliare, e quando sbaglia il client chiude la posizione vera e
+  chiede di registrarla: senza prezzo e ora di ingresso — che stavano solo in
+  `ExternalPositionDetails` — il trade non e' ricostruibile e l'unica risposta possibile e' il 404.
+  `Session.VanishedPositions` li tiene da parte e `CreateExternalCloseIntent` rimette la posizione
+  in piedi, cosi' la chiusura prosegue per la strada normale, quella che scrive il
+  `PersistedTrade` con i prezzi giusti. Ci finisce **solo** cio' che esce dalla riconciliazione: una
+  chiusura regolare rimuove la posizione dopo aver scritto il trade, e conservarla lascerebbe a un
+  report in ritardo la possibilita' di scriverlo due volte. Un ingresso nuovo sulla stessa chiave
+  scarta la lapide. Non si salva nello stato: e' una finestra di riparazione, non contabilita'.
+
+  **Il cBot non chiude piu' il run dicendo che e' andato tutto bene.** `RegisterExternalCloseAndReport`
+  stampava il rifiuto e usciva: due tentativi, e se il secondo fallisce la chiusura finisce in
+  `_unregisteredCloses` con tutto quello che serve a ricostruirla. Il riepilogo di `OnStop` confronta
+  i propri trade con quelli accettati dal server e dichiara la differenza — e stampa la riga anche
+  quando non manca niente, perche' «0 perse» e' un'informazione e la sua assenza no.
+
+  `BrokerPositionReconciliationTests` copre i due casi rotti (la posizione fantasma che il confronto
+  per coppia non vede, e la chiusura rifiutata) e i due modi in cui la lapide potrebbe far danno
+  (una chiusura senza nessuna posizione mai aperta, e una lapide servita dopo che la strategia e'
+  rientrata). Entrambi i primi due falliscono sul codice di prima.
+
+  **Cosa questi tre cambi non fanno.** Non spiegano perche' quelle posizioni fossero fuori dallo
+  snapshot: l'id rende esatto il confronto, la lapide rende innocuo l'errore, ma la causa a monte —
+  chi ha tolto la posizione, e perche' quasi sempre su un confine di barra — resta da capire, e il
+  blocco nuovo di `OnStop` e' anche lo strumento per accorgersene al primo run. Vedi
+  `piootoo-repository/compare/compare-0032/esito.md`.
+
+- **2026-09-10** — `PiootooDistributedExecutionBot` entra nel controllo sintattico
+  (`piootoo-repository/ctrader/syntax-check/`). Lo stub cAlgo cresce della superficie di esecuzione
+  — posizioni, ordini pendenti, storico, grafico, i metodi di trading del `Robot` — in
+  `CalgoStubTrading.cs`, piu' i membri di `Symbol`, `Bars.Last` e `IsBacktesting` che mancavano in
+  `CalgoStub.cs`. Verifica di fedelta' fatta come chiede il README: **anche la versione precedente
+  del bot compila**, quindi lo stub non e' stato piegato sulla modifica di oggi.
+
+- **2026-09-10** — **Lo stop delle strategie si allarga per tre, in un punto solo.** Il confronto
+  fra gli stop veri del cBot e la barra da un minuto nello stesso minuto dice che l'archivio di
+  `datafeed-external/` e' la serie **Bid**: sui long nessuna uscita cade fuori dal range della
+  barra, su tutti e quattordici i simboli; sugli short ci cade il 100% su NG, il 94% su CC, il 92%
+  su KC e il 24% su NQ, e la distanza e' esattamente lo spread misurato. Uno short si copre
+  sull'Ask, quindi il suo stop scatta uno spread prima.
+
+  La misura che ne consegue non e' il costo per trade — stop e target si spostano insieme
+  all'ingresso — ma il rapporto **`spread / distanza di stop`**. Su parecchie strategie portate
+  dalla ricerca quel rapporto supera 1: lo spread misurato e' piu' largo dello stop dichiarato, e
+  una taratura cosi' non e' eseguibile su un conto vero per quanto bene misuri in backtest.
+
+  Il fattore vive in `StopMoneyPolicy.Multiplier` e si applica **in un punto solo**: l'arricchimento
+  del segnale in `StatelessEasyStrategyBase.Evaluate`, l'unico passaggio che ogni ingresso
+  attraversa — dieci motori e le sorgenti EasyLanguage — e che percorrono sia il backtest sia la
+  sessione live. Le 103 classi `PTS_*` **non sono state toccate**: continuano a dichiarare i numeri
+  della ricerca verbatim, cosi' l'impronta con cui `StrategyExportService` le riaggancia al dossier
+  resta valida e il fattore si toglie cambiando una costante invece di 103 file. Il segnale nasce
+  gia' con la distanza eseguibile, quindi `signals.json`, la console e l'intent che arriva al cBot
+  portano tutti lo stesso numero.
+
+  Tocca il **solo stop**: target, breakeven e trailing restano quelli della ricerca. Il rapporto
+  rischio/rendimento del porting cambia, ed e' la scelta.
+
+  Dichiarato nel log di avvio del job, in `fillConventions.stopMoneyMultiplier` di
+  `backtest-summary.json` e in `session-summary.json`: due run con moltiplicatori diversi non sono
+  confrontabili. `StopMoneyPolicyConformanceTests` verifica le due meta' della regola — che nessuna
+  strategia del catalogo stia fuori da quel passaggio, e che l'ingresso emesso porti davvero lo stop
+  dichiarato per il fattore (61 delle 98 registrate entrano sui dati sintetici; per le altre vale la
+  prima verifica). Dettaglio in `domini/spread-e-costo-di-transazione.md`.

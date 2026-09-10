@@ -813,6 +813,11 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                 ["allowOverweek"] = holding.AllowOverweek ? "true" : "false",
                 ["weekEndFlatFromUtc"] = weekEndFlat.FromUtcHhmm.ToString("0000"),
                 ["rejectWrongSideLevels"] = request.RejectWrongSideLevels ? "true" : "false",
+                // Gli stop della ricerca sono piu' stretti dello spread misurato su parecchie
+                // strategie: il moltiplicatore li rende eseguibili e cambia quante posizioni
+                // sopravvivono, non solo quanto perdono. Due run che non concordano qui non sono
+                // confrontabili.
+                ["stopMoneyMultiplier"] = StopMoneyPolicy.Multiplier.ToString(CultureInfo.InvariantCulture),
                 ["trailingMinStepFraction"] = request.TrailingMinStepFraction.ToString(CultureInfo.InvariantCulture),
                 // Quale etichetta della barra legge la finestra operativa. Sposta di una
                 // barra quali segnali nascono, quindi due run che non concordano qui non
@@ -1541,6 +1546,7 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                     TrailingPeakIncludesCurrentBar = tradingService.TrailingPeakIncludesCurrentBar,
                     TrailingMinStepFraction = tradingService.TrailingMinStepFraction,
                     RejectWrongSideLevels = tradingService.RejectWrongSideLevels,
+                    StopMoneyMultiplier = StopMoneyPolicy.Multiplier,
                     StopFillSlippageSymbols = tradingService.StopFillSlippagePoints.Keys
                         .OrderBy(symbol => symbol, StringComparer.OrdinalIgnoreCase)
                         .ToList(),

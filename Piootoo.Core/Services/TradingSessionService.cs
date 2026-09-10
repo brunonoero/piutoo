@@ -421,6 +421,30 @@ public sealed class TradingSessionService : ITradingSessionService
         public Dictionary<string, TradingPositionSnapshot> ExternalPositions { get; } = new(StringComparer.OrdinalIgnoreCase);
         public Dictionary<string, (DateTime EntryTimeUtc, string IntentId, decimal? StopLoss, decimal? TakeProfit)>
             ExternalPositionDetails { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// Le posizioni che la riconciliazione ha tolto dai registri senza che ne nascesse un trade,
+        /// tenute da parte con i propri dati di ingresso.
+        ///
+        /// <para><b>Perché non basta rimuoverle.</b> La riconciliazione toglie una posizione perché
+        /// lo snapshot del broker non la elenca più, e quella deduzione può sbagliare. Quando
+        /// sbaglia, il client chiude la posizione vera e chiede di registrarla: senza prezzo e ora
+        /// di ingresso — che stanno solo qui — il server non può costruire il
+        /// <see cref="PersistedTrade"/> e l'unica risposta possibile è un 404 che butta via un P&amp;L
+        /// già realizzato. La lapide rende quella richiesta servibile.</para>
+        ///
+        /// <para>Ci finisce <b>solo</b> ciò che esce dalla riconciliazione: una chiusura regolare
+        /// rimuove la posizione dopo aver scritto il trade, e conservarla lì permetterebbe a un
+        /// report in ritardo di scriverlo una seconda volta.</para>
+        ///
+        /// <para>Vive in memoria e non si salva nello stato: è una finestra di riparazione, non
+        /// contabilità. Un server riavviato con la sessione aperta torna al comportamento di prima,
+        /// cioè rifiuta la chiusura — meglio che reidratare una posizione che nel frattempo
+        /// potrebbe essere stata chiusa davvero.</para>
+        /// </summary>
+        public Dictionary<string, (TradingPositionSnapshot Position,
+            (DateTime EntryTimeUtc, string IntentId, decimal? StopLoss, decimal? TakeProfit) Details)>
+            VanishedPositions { get; } = new(StringComparer.OrdinalIgnoreCase);
         /// <summary>
         /// Chiavi di <see cref="ExternalPositions"/> che il broker ha davvero confermato almeno una
         /// volta nel proprio snapshot di posizioni aperte.
@@ -2010,11 +2034,19 @@ public sealed class TradingSessionService : ITradingSessionService
                         Direction = intent.Side,
                         Quantity = report.CumulativeFilledQuantity,
                         EntryPrice = report.FillPrice ?? intent.Price,
-                        AccountNumber = accountNumber ?? string.Empty
+                        AccountNumber = accountNumber ?? string.Empty,
+                        // Il client manda l'id della posizione del broker qui fin dal primo report di
+                        // ingresso: è ciò che permette alla riconciliazione di confrontare posizioni e
+                        // non coppie (simbolo, strategia). Vedi ReconcileVanishedPositions.
+                        BrokerPositionId = report.ExternalOrderId ?? string.Empty
                     };
                     session.ExternalPositions[key] = snapshot;
                     session.ExternalPositionDetails[key] =
                         (report.EventTimeUtc, intent.IntentId, intent.StopLoss, intent.TakeProfit);
+                    // Un ingresso nuovo sulla stessa chiave chiude la finestra di riparazione: da qui
+                    // in avanti una chiusura su quella chiave riguarda QUESTA posizione, e servire la
+                    // lapide vecchia scriverebbe un trade con l'ingresso sbagliato.
+                    session.VanishedPositions.Remove(key);
 
                     if (accountNumber != null)
                     {
@@ -2793,7 +2825,35 @@ public sealed class TradingSessionService : ITradingSessionService
                 ? $"{symbol}|{request.StrategyCode}"
                 : $"{accountNumber}|{symbol}|{request.StrategyCode}";
             if (!session.ExternalPositions.TryGetValue(key, out var position))
-                throw new KeyNotFoundException($"Nessuna posizione aperta per '{key}'.");
+            {
+                // Il client non sta chiedendo il permesso di chiudere: sta riportando una chiusura
+                // già avvenuta al broker, con dentro un P&L reale. Se la posizione manca solo perché
+                // la riconciliazione l'aveva data per sparita, la si rimette in piedi e la chiusura
+                // prosegue per la strada normale — è quella che scrive il PersistedTrade con prezzo
+                // e ora di ingresso giusti. Rifiutare qui significa buttare via il trade: nel run
+                // compare-0032 sono 123 trade su 4.268, per lo più lunghi e in utile.
+                if (!session.VanishedPositions.Remove(key, out var recovered))
+                    throw new KeyNotFoundException($"Nessuna posizione aperta per '{key}'.");
+
+                position = recovered.Position;
+                session.ExternalPositions[key] = position;
+                session.ExternalPositionDetails[key] = recovered.Details;
+
+                // La riconciliazione aveva già scalato il detentore: il fill della chiusura lo
+                // scalerà di nuovo, quindi va rimesso, o il conteggio va sotto per le altre gambe
+                // della stessa strategia.
+                if (accountNumber != null)
+                {
+                    var canonicalKey = $"{position.Symbol}|{position.StrategyCode}";
+                    session.StrategyHolderCounts[canonicalKey] =
+                        session.StrategyHolderCounts.GetValueOrDefault(canonicalKey) + 1;
+                }
+
+                RecordActivity(session, SessionActivityKind.PosizioneChiusa,
+                    "chiusura di una posizione che la riconciliazione aveva dato per sparita: " +
+                    "registri ripristinati, il P&L viene contabilizzato",
+                    accountNumber ?? string.Empty, position.StrategyCode, position.Symbol, string.Empty);
+            }
 
             var intent = CreateCloseIntent(
                 session, request.StrategyCode, symbol, position, accountNumber,
@@ -2876,6 +2936,24 @@ public sealed class TradingSessionService : ITradingSessionService
         foreach (var position in brokerState.Positions)
             atBroker.Add(BrokerKey(position.Symbol, position.StrategyCode));
 
+        // L'id della posizione sul broker, quando il client lo dichiara. È il confronto giusto:
+        // (simbolo, strategia) risponde a «la strategia ha qualcosa aperto lì», che è una domanda
+        // diversa da «questa posizione c'è ancora». Le due divergono ogni volta che la coppia si
+        // libera e si riprende dentro la stessa finestra, e su quella differenza una posizione viva
+        // veniva dichiarata sparita. Vedi TradingPositionSnapshot.BrokerPositionId.
+        var idsAtBroker = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var position in brokerState.Positions)
+            if (!string.IsNullOrWhiteSpace(position.PositionId))
+                idsAtBroker.Add(position.PositionId);
+
+        // Vera quando lo snapshot dice che QUESTA posizione è ancora aperta. Con l'id si risponde
+        // sull'id; senza — posizione aperta prima di questo campo, o client che non lo manda — si
+        // ripiega sulla coppia, che è il comportamento storico.
+        bool StillAtBroker(TradingPositionSnapshot position, string brokerKey)
+            => string.IsNullOrWhiteSpace(position.BrokerPositionId)
+                ? atBroker.Contains(brokerKey)
+                : idsAtBroker.Contains(position.BrokerPositionId);
+
         // Prima si conferma, poi si giudica: una posizione entra nel raggio della riconciliazione
         // solo dopo essere comparsa almeno una volta nello snapshot.
         var mine = session.ExternalPositions
@@ -2886,14 +2964,14 @@ public sealed class TradingSessionService : ITradingSessionService
                 BrokerKey: BrokerKey(conversion.GetAccountSymbol(entry.Value.Symbol), entry.Value.StrategyCode)))
             .ToList();
 
-        foreach (var (key, _, brokerKey) in mine)
-            if (atBroker.Contains(brokerKey))
+        foreach (var (key, position, brokerKey) in mine)
+            if (StillAtBroker(position, brokerKey))
                 session.BrokerConfirmedPositions.Add(key);
 
         var vanished = mine
             .Where(entry =>
                 session.BrokerConfirmedPositions.Contains(entry.Key) &&
-                !atBroker.Contains(entry.BrokerKey))
+                !StillAtBroker(entry.Position, entry.BrokerKey))
             .Select(entry => (entry.Key, entry.Position))
             .ToList();
 
@@ -2903,6 +2981,11 @@ public sealed class TradingSessionService : ITradingSessionService
             // il client lo completerà con il proprio execution report, che porta anche il P&L.
             if (HasPendingCloseIntent(session, position.StrategyCode, position.Symbol, accountNumber))
                 continue;
+
+            // La posizione esce dai registri ma i suoi dati di ingresso no: se la deduzione era
+            // sbagliata, la chiusura vera arriverà e senza questi il P&L non è ricostruibile.
+            if (session.ExternalPositionDetails.TryGetValue(key, out var vanishedDetails))
+                session.VanishedPositions[key] = (position, vanishedDetails);
 
             session.ExternalPositions.Remove(key);
             session.ExternalPositionDetails.Remove(key);
@@ -4133,6 +4216,7 @@ public sealed class TradingSessionService : ITradingSessionService
             GeneratedAtUtc = DateTime.UtcNow,
             FirstBarUtc = session.FirstBarUtc,
             LastBarUtc = session.LastBarUtc,
+            StopMoneyMultiplier = StopMoneyPolicy.Multiplier,
             IntentsEmitted = apertura.Length,
             IntentsFilled = apertura.Count(i => i.Status is OrderIntentStatus.Filled or OrderIntentStatus.PartiallyFilled),
             IntentsRejected = apertura.Count(i => i.Status == OrderIntentStatus.Rejected),

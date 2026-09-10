@@ -35,6 +35,11 @@ peggio di non avere lo stub.
 Verifica di fedeltà: **anche la versione precedente di un bot deve compilare**. Se lo stub
 riesce a compilare solo la versione nuova, è stato piegato su di essa.
 
-Oggi copre `PiootooDatafeedSyncBot`. Gli altri bot si aggiungono con una riga `<Compile Include=...>`
-— tenendo presente che due bot nello stesso progetto devono avere classi con nomi diversi, cosa
-che oggi è vera.
+Oggi copre `PiootooDatafeedSyncBot` e `PiootooDistributedExecutionBot`. Gli altri bot si aggiungono
+con una riga `<Compile Include=...>` — tenendo presente che due bot nello stesso progetto devono
+avere classi con nomi diversi, cosa che oggi è vera.
+
+Lo stub sta in due file per tenere separate due superfici che si allargano per ragioni diverse:
+`CalgoStub.cs` ha la piattaforma (robot, parametri, barre, simboli, orologio), `CalgoStubTrading.cs`
+l'esecuzione (posizioni, ordini pendenti, storico, grafico, i metodi di trading del `Robot`). Solo
+l'esecutivo usa il secondo.
