@@ -270,72 +270,28 @@ Punti da controllare al primo run verde:
   mai avuto una griglia di conversione inline (solo una combo di selezione, vedi
   `docs/domini/account-e-conversione-symbol.md`), quindi il punto 6 originale non si applicava lì.
 
-## Da fare dopo il prossimo backtest + run cTrader: `MaxEntriesPerSession` per direzione (2026-08-31)
+## `MaxEntriesPerSession` per direzione — chiuso il 07/09/2026
 
-Secondo tempo della correzione del 31/08 sul bracket (voce in [`decisioni.md`](decisioni.md)). Il
-primo tempo — il lato dentro i lucchetti del claim — e' fatto e rilasciato come **3.13.0**. Questo
-no, ed e' volutamente rimandato al **dopo**: cambia i trade dei backtest gia' fatti, quindi non deve
-entrare nel run che serve a misurare il primo tempo.
+Il verso sta in entrambe le chiavi (`EntryFillKey` sul server, `MakeEntrySessionKey` nell'engine),
+con regressioni in `EntryLimitPerSideTests` e `SessionEntryLimitTests`; voce in
+[`decisioni.md`](decisioni.md) 2026-09-07. Questa sezione restava qui per errore e ha fatto
+riproporre il punto come aperto l'11/09.
 
-**Cosa resta rotto.** `MaxEntriesPerSession` conta gli ingressi per (strategia, simbolo, sessione)
-senza il verso, in **tutti e due** i motori:
+## La suite rossa: stato all'11/09/2026
 
-- server: `EntryFillKey(strategyCode, symbol)` in `TradingSessionService`;
-- engine interno: `MakeEntrySessionKey(positionKey, ...)` in `PiootooTradingService`, dove
-  `positionKey` e' `simbolo|strategia`.
+**13 falliti, 927 passati, 940 totali** (erano 43 su 760 il 05/09, 55 su 606 il 31/08). Le
+famiglie «orario di sessione» e «segnale non emesso» del censimento del 05/09 sono rientrate.
+Restano:
 
-I docstring delle strategie dicono invece «una entrata per sessione **e per direzione**» — e' cosi'
-che il limite e' scritto nei run di ricerca da cui sono portate. Con il conteggio attuale, la prima
-gamba che si riempie consuma la sessione anche per la gamba opposta.
+| famiglia | test | lettura |
+|---|---|---|
+| sessione HTTP | 8 di `TradingSessionsHttpTests` (`409 Conflict` all'apertura, sizing `0.25`→`1`) | isolamento fra classi di test e conversione dell'account |
+| campione sorgente | i 2 di `SourceBacktestSampleTests` | la questione `AccountHasEntryInFlight` qui sotto |
+| profilo di run | `RunProfileTests.IlPiano_NonPuoDisarmareILucchetti…`, `IlPushDichiaraQuantoCEDaReclamare` | da guardare uno per uno |
+| concorrenza | `ConcurrencyLimitsMatrixTests.ParallelPollsOfTheSameAccount_ProduceExactlyOneClaim` | da guardare |
 
-**Perche' i due vanno mossi insieme.** Sono cechi allo stesso modo, quindi oggi concordano.
-Correggerne uno solo li fa divergere: il server diventerebbe piu' permissivo del backtest, e il
-confronto interno/esterno ricomincerebbe a misurare due regole diverse invece dello stesso motore.
-
-**Perche' dopo il run.** Cambiare `MakeEntrySessionKey` cambia quali trade produce un backtest: i
-run precedenti non sarebbero piu' confrontabili, esattamente come per le 3.10/3.11/3.12. Il run che
-verifica il bracket deve girare con l'engine di adesso, altrimenti non si sa quale delle due
-modifiche ha prodotto la differenza.
-
-**Ordine dei lavori:**
-
-1. ~~Backtest interno + run cTrader con 3.13.0 da entrambe le parti.~~ **Fatto**, e' `compare-0010`
-   (31/08, lug-dic 2024). L'atteso si e' verificato: `PTS_GC_PCH_004_240` fa 28 short contro i 29 del
-   backtest, le strategie con zero short esterni scendono da otto a due, e i numeri stanno nella voce
-   di `decisioni.md`. Il run e' quindi il riferimento da cui misurare il punto 2.
-2. Il verso nelle due chiavi di `MaxEntriesPerSession`, con la propria regressione e la propria voce
-   in `decisioni.md`, come release a se'. **Non ancora sbloccato**: vedi la nota sulla suite rossa
-   qui sotto.
-
-**Aperto a parte, e piu' grosso di quanto sembrasse:** la suite su `main` e' rossa **da prima** di
-questa modifica. Misurato su un worktree di `f56f147`, cioe' il commit precedente: **55 falliti,
-551 passati, 606 totali**. Dopo la correzione del bracket: **55 falliti, 554 passati, 609 totali** —
-stessi identici fallimenti, i tre in piu' che passano sono `BracketClaimSideTests`.
-
-**Aggiornamento 2026-09-05, su `36b6896`: 43 falliti, 717 passati, 760 totali.** Dodici sono
-rientrati e 154 test sono nati da allora; le suite Titano non esistono piu'. Il censimento per
-**causa** — piu' utile di quello per suite, perche' dice quali si correggono insieme:
-
-| famiglia | n. | sintomo | lettura |
-|---|---|---|---|
-| orario di sessione | 11 | `Expected 2024-01-07T17:00:00Z` → `Actual 23:00Z` | il test scrive l'HHMM dichiarato **come se fosse UTC**, il codice lo converte dal fuso dichiarato |
-| segnale non emesso | 13 | `Expected Buy` → `Actual Hold` | stessa causa a valle: con la finestra letta nel fuso giusto la barra del test cade fuori |
-| valore numerico | 9 | livelli e prezzi (`110.25`→`110.00`, `158`→`168`) | da guardare uno per uno: qui ci sono anche i due di `SourceBacktestSampleTests`, che sono la questione aperta qui sotto |
-| sessione HTTP | 8 | `409 Conflict` all'apertura, `0.25`→`1` sul sizing | isolamento fra classi di test e conversione dell'account |
-| buco di storia | 2 | `ArgumentException: Buco nella storia di NQ\|15` | la finestra del push non si sovrappone a cio' che il server ha |
-
-**Gli scarti orari non sono casuali**, ed e' l'indizio che tiene insieme le prime due famiglie:
-`+6h` e' `America/Chicago` a gennaio (sessione 1700 di ES/NQ), `+5h` e' `America/New_York`, `-1h` e'
-`Europe/Rome` (la finestra di ricerca). Sono esattamente le conversioni che `SessionClock` fa e che
-i test, scritti prima, non facevano. Se la lettura regge, in quelle 24 righe **il codice e' quello
-giusto** — e' l'invariante di `CLAUDE.md`, "gli orari dichiarano il proprio fuso e non si convertono
-mai a mano" — e sono i test a descrivere il comportamento di prima di `a4d2d71` («fix varie time di
-sessione forse tutto da rivedere»). Va verificata caso per caso prima di riscrivere: aggiornare un
-test perche' torni verde e' il modo tipico di cementare un bug.
-
-E' il punto interrogativo del messaggio di commit «refactor vari forse regression?», e va sciolto
-**prima** del run del punto 1: con i test di parita' dei motori rossi non si sa se una differenza nel
-confronto interno/esterno venga dal bracket o da li'.
+Regola invariata: un test che torna verde perche' riscritto e' il modo tipico di cementare un
+bug; ogni caso va letto contro l'invariante di `CLAUDE.md` prima di toccarlo.
 
 ## Da decidere: `AccountHasEntryInFlight` segue i lucchetti operativi, o no? (2026-08-31)
 
