@@ -15,7 +15,7 @@ public sealed class TrendDeveloperEngineTests
     [Fact]
     public void HoldsOutsideTradingWindow()
     {
-        var strategy = new TestTrendDeveloper { Start = 1200, End = 1400 };
+        var strategy = new TestTrendDeveloper { Start = new TimeOnly(12, 0), End = new TimeOnly(14, 0) };
 
         // La finestra si confronta con l'etichetta di CHIUSURA della barra, che e' il nome con cui
         // la ricerca la chiama. Questa apre alle 09:00 UTC — le 10:00 locali d'inverno — e chiude
@@ -73,15 +73,14 @@ public sealed class TrendDeveloperEngineTests
 
     private sealed class TestTrendDeveloper : TrendDeveloperEngine
     {
-        public int Start { set => StartTrade = value; }
-        public int End { set => EndTrade = value; }
+        public TimeOnly? Start { set => StartTrade = value; }
+        public TimeOnly? End { set => EndTrade = value; }
         public bool UseMarket { set => MarketEntry = value; }
 
         public TestTrendDeveloper()
         {
             Trigger = TrendTrigger.CurrentSessionOhlc;
-            StartTrade = 0;
-            EndTrade = 2359;
+            // Nessun estremo dichiarato: la finestra e' tutta la giornata.
             InclusiveWindowEnd = true;
             NeutralYes = 55;
             NeutralNo = 56;

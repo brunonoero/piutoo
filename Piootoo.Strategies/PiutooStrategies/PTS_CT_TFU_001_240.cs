@@ -88,7 +88,7 @@ public sealed class PTS_CT_TFU_001_240 : TfUnmirroredEngine
 
         // Il run non dichiara filtro orario: la finestra e' piena, nell'orologio della ricerca,
         // perche' ogni PTS deve dichiarare l'orologio in cui legge gli orari.
-        TradingWindow = ZonedWindow.Research(0, 2359);   // nessun filtro orario, finestra piena
+        TradingWindow = ZonedWindow.AllDay;   // nessun filtro orario, finestra piena
 
         FastYesLong = 5;       // ptn_fast_yes_long
         FastNoLong = 114;      // ptn_fast_no_long
@@ -129,8 +129,8 @@ public sealed class PTS_CT_TFU_001_240 : TfUnmirroredEngine
         if (parameters.TryGetValue("FastNoShort", out var fastNoShort))
             FastNoShort = Convert.ToInt32(fastNoShort);
         if (parameters.TryGetValue("StartHour", out var startHour))
-            TradingWindow = TradingWindow! with { StartHhmm = Convert.ToInt32(startHour) * 100 };
+            TradingWindow = TradingWindow! with { Start = new TimeOnly(Convert.ToInt32(startHour), 0) };
         if (parameters.TryGetValue("EndHour", out var endHour))
-            TradingWindow = TradingWindow! with { EndHhmm = Convert.ToInt32(endHour) * 100 };
+            TradingWindow = TradingWindow! with { End = new TimeOnly(Convert.ToInt32(endHour), 0) };
     }
 }

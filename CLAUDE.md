@@ -71,16 +71,24 @@ sbaglia più spesso:
  `Kind != Utc`: è voluto, non "aggiustarlo" con `SpecifyKind` a valle. E
  "adesso" è `DateTime.UtcNow`: `DateTime.Now`, `ToLocalTime` e affini sono
  vietati fuori dalla console WinForms, e `UtcOnlyConformanceTests` lo verifica.
-- **L'ora di inizio sessione è dello strumento, non della classe.** `ResearchSession(h)` prende `h`
- da `InstrumentSpec.ResearchSessionStartHour` — la tabella §2.4 del dossier: **01:00 CET per FDAX,
+- **L'ora di inizio sessione è dello strumento, non della classe.** `ResearchSession(start)` prende
+ `start` dal calendario di mercato (`SymbolCalendar.SessionStart`, esposto da
+ `InstrumentSpec.ResearchSessionStart`) — la tabella §2.4 del dossier: **01:00 CET per FDAX,
  CC, CT, KC, SB e HK**, 00:00 per tutti gli altri — e `ResearchSessionStartConformanceTests` lo
  impone su ogni `PTS_*`. La stessa ora ancora i bucket oltre l'ora: `SESSION_START_HOUR` in
- `aggregate_flat_feed.py` e `SessionStartHourOf` nei tre cBot, che lo
- risolvono per SIMBOLO e non per istanza — un piano che mette insieme NQ e FDAX è il caso
+ `aggregate_flat_feed.py` e `BarGrid.SessionStart` nel descriptor che i cBot ricevono, risolto
+ per SIMBOLO e non per istanza — un piano che mette insieme NQ e FDAX è il caso
  normale, e un parametro unico lo renderebbe non eseguibile.
  Un ancoraggio sbagliato non dà barre sbagliate, dà barre **diverse** e nessun errore.
+- **Un orario è un `TimeOnly`, mai un intero `HHMM`.** `ZonedWindow`, `SessionClock`
+ (`TimeOfDay`, `BarLabelTime`), i campi dei motori, la `Holding` del piano e il calendario parlano
+ `TimeOnly`; verso i cBot (.NET 6) viaggia un `TimeSpan` serializzato `HH:mm:ss`. "Fino a fine
+ giornata" è `ZonedWindow.EndOfDay`, non la sentinella `2359`; "tutta la sessione" è
+ `ZonedWindow.AllDay`; un estremo di motore a `null` è "nessun limite". La codifica `HHMM` delle
+ sorgenti entra in un punto solo, `EasyEngineBase.TimeFromLegacyHhmm`. Vedi
+ `docs/domini/orari-di-sessione-e-fusi.md` §"Come si dichiara oggi".
 - **Il confine di sessione sta in un punto solo** (`EasyLib.ClassifySessionBar`). Il feed etichetta
- le barre sull'**apertura**, quindi una sessione a giornata piena `(ancoraggio, 2359)` va da `h:00`
+ le barre sull'**apertura**, quindi una sessione a giornata piena `ResearchSession(ancoraggio)` va da `h:00`
  di `D` a `h:00` di `D+1` escluso e ogni barra sta in una sessione. Il confronto stretto
  `t > sessionStartTime` della sorgente EasyLanguage presuppone l'etichetta sulla chiusura: applicato
  alle aperture lasciava fuori da ogni sessione le barre fino all'ancoraggio, 22 su 24 su una serie
@@ -292,8 +300,8 @@ Quando invece i trade ci sono ma l'equity non torna con la ricerca, la prima rig
 da cercare e' `[fine settimana]`: dice a quali strategie il flat ha chiuso una
 quota rilevante dei trade. Il flat e' una regola del **conto**, non della
 strategia, e su una multiday (`IntradayOnly = false`) le taglia i trade a meta'
-senza che l'uscita sembri anomala. Il summary porta anche
-`weekEndFlatFromUtcHhmm`: due run con orari diversi non sono confrontabili.
+senza che l'uscita sembri anomala. Il summary porta anche la `holding` del run
+(`weekEnd.fromUtc`, `HH:mm:ss`): due run con orari diversi non sono confrontabili.
 
 ## Diagnosticare una sessione (cBot, `ExternalBroker`)
 

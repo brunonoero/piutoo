@@ -14,7 +14,7 @@ namespace Piootoo.Shared.Models.Strategies;
 /// diversi, e un errore su uno qualsiasi non produce barre sbagliate: produce barre <b>diverse</b>,
 /// in silenzio.</para>
 ///
-/// <para><b>Cosa è dichiarato e cosa è derivato.</b> Gli <c>Hhmm</c> sono quelli scritti nel codice,
+/// <para><b>Cosa è dichiarato e cosa è derivato.</b> Gli orari sono quelli scritti nel codice,
 /// verbatim. Gli orari UTC sono <i>derivati</i> dal fuso e servono a rendere confrontabile un run
 /// con quello che si vede a chart: cambiano con l'ora legale, ed è per questo che ce ne sono due —
 /// gennaio e luglio — invece di uno solo che sembrerebbe fisso.</para>
@@ -43,15 +43,15 @@ public sealed class StrategyHoursCard
 
     /// <summary>
     /// Il confine di sessione della strategia. È sempre nella forma della ricerca
-    /// <c>(ancoraggio, 2359)</c>: la giornata piena a partire dall'ancoraggio.
+    /// <c>(ancoraggio, fine giornata)</c>: la giornata piena a partire dall'ancoraggio.
     /// </summary>
     public StrategyHoursWindow Session { get; set; } = new();
 
     /// <summary>Ora di inizio sessione effettivamente usata da questa strategia.</summary>
-    public int SessionAnchorHour { get; set; }
+    public TimeOnly SessionAnchor { get; set; }
 
     /// <summary>Ora di inizio sessione che il calendario dichiara per il simbolo.</summary>
-    public int CalendarSessionStartHour { get; set; }
+    public TimeOnly CalendarSessionStart { get; set; }
 
     /// <summary>
     /// Perché questa strategia non segue l'ancoraggio del proprio simbolo. <c>null</c> = lo segue,
@@ -99,11 +99,11 @@ public sealed class StrategyHoursCard
 /// </summary>
 public sealed class StrategyHoursWindow
 {
-    /// <summary>Orario di inizio come <c>HHMM</c>, verbatim dal codice.</summary>
-    public int StartHhmm { get; set; }
+    /// <summary>Orario di inizio, verbatim dal codice.</summary>
+    public TimeOnly Start { get; set; }
 
-    /// <summary>Orario di fine come <c>HHMM</c>, verbatim dal codice.</summary>
-    public int EndHhmm { get; set; }
+    /// <summary>Orario di fine, verbatim dal codice; <c>23:59:59.9999999</c> = fino a fine giornata.</summary>
+    public TimeOnly End { get; set; }
 
     /// <summary>In quale dei due orologi dello strumento è scritta: "ricerca" o "borsa".</summary>
     public string Clock { get; set; } = string.Empty;

@@ -83,17 +83,17 @@ public abstract class VolatilityBreakoutEngine : EasyEngineBase
 
     // ------------------------------------------------------------------ tempo e frequenza
 
-    /// <summary>Inizio della finestra operativa HHMM; -1 = non limitare.</summary>
-    protected int StartTrade = -1;
+    /// <summary>Inizio della finestra operativa; <c>null</c> = non limitare.</summary>
+    protected TimeOnly? StartTrade;
 
-    /// <summary>Fine esclusiva della finestra operativa HHMM, come <c>tw()</c>.</summary>
-    protected int EndTrade = -1;
+    /// <summary>Fine esclusiva della finestra operativa, come <c>tw()</c>; <c>null</c> = non limitare.</summary>
+    protected TimeOnly? EndTrade;
 
-    /// <summary>Inizio pausa HHMM. -1 = nessuna pausa.</summary>
-    protected int PauseStart = -1;
+    /// <summary>Inizio pausa. <c>null</c> = nessuna pausa.</summary>
+    protected TimeOnly? PauseStart;
 
-    /// <summary>Fine pausa HHMM. Una coppia invertita mantiene la pausa inattiva, come le sorgenti.</summary>
-    protected int PauseEnd = -1;
+    /// <summary>Fine pausa. Una coppia invertita mantiene la pausa inattiva, come le sorgenti.</summary>
+    protected TimeOnly? PauseEnd;
 
     // MaxEntriesPerSession è dichiarato in EasyEngineBase e applicato da BuildEntry.
 
@@ -266,7 +266,7 @@ public abstract class VolatilityBreakoutEngine : EasyEngineBase
         if (sessionOpen <= 0m || previousOpen <= 0m)
             return Hold(bar.Close, barTime, "OHLC di sessione non disponibile");
 
-        if (!EasyLib.TimeWindow(StartTrade, EndTrade, ParamHhmm(barTime)) || IsInPause(barTime))
+        if (!InWindow(StartTrade, EndTrade, ParamTime(barTime), inclusiveEnd: false) || IsInPause(barTime))
             return Hold(bar.Close, barTime);
 
         if (MaxEntriesPerSession > 0 && EntriesTodayCount >= MaxEntriesPerSession)
@@ -404,7 +404,7 @@ public abstract class VolatilityBreakoutEngine : EasyEngineBase
         signal.EntrySessionStartUtc = SessionKey(signal.ValidFromUtc!.Value);
 
         if (AppliesSessionExit)
-            signal.CloseAtUtc = ResolveCloseAtUtc(signal.ValidFromUtc!.Value, SessionEndTime);
+            signal.CloseAtUtc = ResolveCloseAtUtc(signal.ValidFromUtc!.Value, SessionEnd);
 
         return signal;
     }
@@ -416,25 +416,19 @@ public abstract class VolatilityBreakoutEngine : EasyEngineBase
         if (InDeclaredWindow(barTime) is { } declared)
             return declared;
 
-        if (StartTrade < 0 && EndTrade < 0)
-            return true;
-
-        // Confronto su HHMM pieni, fine inclusa — la stessa semantica di PriceChannelEngine e
-        // SessionBreakoutEngine. Prima si confrontavano le sole ore: la finestra si allargava
-        // fino a HH:59 e prendeva barre che la fonte non prende.
-        var start = StartTrade < 0 ? 0 : StartTrade;
-        var end = EndTrade < 0 ? 2359 : EndTrade;
-        var time = WindowParamHhmm(barTime);
-        return start <= end ? time >= start && time <= end : time >= start || time <= end;
+        // Fine inclusa — la stessa semantica di PriceChannelEngine e SessionBreakoutEngine. Prima
+        // si confrontavano le sole ore: la finestra si allargava fino a HH:59 e prendeva barre che
+        // la fonte non prende.
+        return InWindow(StartTrade, EndTrade, WindowParamTime(barTime), inclusiveEnd: true);
     }
 
     private int PythonDayOfWeek(DateTime value) => PythonWeekday(value);
 
     private DateTime SessionKey(DateTime time)
     {
-        var start = Clock.SessionInstantUtc(time, SessionStartTime);
-        return SessionStartTime > SessionEndTime && time <= start
-            ? Clock.SessionInstantUtc(time.AddDays(-1), SessionStartTime)
+        var start = Clock.SessionInstantUtc(time, SessionStart);
+        return SessionStart > SessionEnd && time <= start
+            ? Clock.SessionInstantUtc(time.AddDays(-1), SessionStart)
             : start;
     }
 
@@ -459,12 +453,7 @@ public abstract class VolatilityBreakoutEngine : EasyEngineBase
         return level;
     }
 
-    private bool IsInPause(DateTime barTime)
-    {
-        if (PauseStart < 0 || PauseEnd < 0) return false;
-        var time = ParamHhmm(barTime);
-        return time >= PauseStart && time <= PauseEnd;
-    }
+    private bool IsInPause(DateTime barTime) => InPause(PauseStart, PauseEnd, ParamTime(barTime));
 
     private bool PassesLongPatterns(decimal[] ohlc) =>
         EasyLib.PatternFast(FastYesLong, ohlc) &&

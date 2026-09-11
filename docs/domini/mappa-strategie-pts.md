@@ -65,12 +65,14 @@ convertiti a 7,8 HKD/USD): se l'HKD uscisse dalla banda, stop e target delle cin
 rimisurati.
 
 Le finestre orarie sono riportate **verbatim** dal dossier, con
-`ZonedWindow.ResearchHours(start_hour, end_hour)` o `ZonedWindow.Research(startHhmm, endHhmm)`, e
-la sessione con `ZonedWindow.ResearchSession()`. Per i mercati che la ricerca apre alle 01:00 CET —
-FDAX, CC, KC, SB, CT, HK — la sessione è `ZonedWindow.ResearchSession(1)`.
+`ZonedWindow.ResearchHours(start_hour, end_hour)` (ore piene) o `ZonedWindow.Research(start, end)`
+(due `TimeOnly`); un run che non ha filtrato per ora dichiara `ZonedWindow.AllDay`, uno che filtra
+solo dall'inizio `ZonedWindow.ResearchFrom(start_hour)`. La sessione la risolve il calendario del
+simbolo (`ZonedWindow.ResearchSession(calendar.SessionStart)`): per i mercati che la ricerca apre
+alle 01:00 CET — FDAX, CC, KC, SB, CT, HK — l'ancoraggio è `01:00`.
 
 **Quale ora vale per quale mercato non è una scelta della classe**: è
-`InstrumentSpec.ResearchSessionStartHour`, cioè la tabella §2.4 del dossier, e
+`InstrumentSpec.ResearchSessionStart` (un `TimeOnly`), cioè la tabella §2.4 del dossier, e
 `ResearchSessionStartConformanceTests` la impone su tutte le `PTS_*`. Fino al 07/09/2026 questo
 paragrafo diceva che la forma era «imposta da `StrategyClockConformanceTests`»: non era vero — quel
 test verifica che *un* fuso sia dichiarato, non *quale* ora — e infatti tutte e sette le FDAX

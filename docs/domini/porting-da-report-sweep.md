@@ -48,7 +48,7 @@ vanno tenute separate anche quando parlano tutte di orari: il **confine di sessi
 | confine di sessione | il calendario, **per simbolo** | **niente** |
 | fuso in cui leggere gli orari | il calendario, **per simbolo** | **niente** |
 | finestra operativa | il `parametri.csv` del run | `ZonedWindow.ResearchHours(start, end)`, **verbatim** |
-| nome della barra nei confronti | `SessionClock.BarLabelHhmm`, un punto solo | **niente** |
+| nome della barra nei confronti | `SessionClock.BarLabelTime`, un punto solo | **niente** |
 
 Se ti trovi a scrivere un numero che non sia `start_hour`/`end_hour` copiato dal CSV, ti stai
 sbagliando: quel numero esiste gia' da qualche altra parte, e la seconda copia diverge in silenzio.
@@ -115,18 +115,20 @@ report ai nostri `entryTimeUtc` su NQ 15m, il massimo di corrispondenze cade a *
 contro 78 a scarto nullo.
 
 **Non devi farci niente.** Dall'08/09/2026 la conversione vive in un punto solo,
-`SessionClock.BarLabelHhmm`, e i motori la raggiungono da `EasyEngineBase`. Quello che devi fare e'
+`SessionClock.BarLabelTime`, e i motori la raggiungono da `EasyEngineBase`. Quello che devi fare e'
 **non aggirarla**:
 
-- SI: `ParamHhmm(barTime)`, `WindowParamHhmm(barTime)`, `PythonWeekday(barTime)`,
+- SI: `ParamTime(barTime)`, `WindowParamTime(barTime)`, `PythonWeekday(barTime)`,
   `InDeclaredWindow(barTime)`
-- SI: `EasyLib.TimeWindow(start, end, ParamHhmm(barTime))` — prende un `HHMM` e non una barra,
-  apposta: cosi' la domanda "come si chiama questa barra" ha una sola risposta possibile
-- NO: `Clock.Hhmm(barTime)` per confrontare un parametro, `barTime.Hour`, `barTime.DayOfWeek`,
-  `barTime.AddMinutes(TimeframeMinutes)` a mano. Il primo lo blocca
-  `StrategyClockConformanceTests`, gli altri si fermano in review.
+- SI: `InWindow(start, end, ParamTime(barTime), inclusiveEnd)` — prende un `TimeOnly` e non una
+  barra, apposta: cosi' la domanda "come si chiama questa barra" ha una sola risposta possibile.
+  Gli estremi dei motori sono `TimeOnly?`, e `null` vuol dire "nessun limite da quel lato".
+- NO: `Clock.TimeOfDay(barTime)` per confrontare un parametro, `barTime.Hour`, `barTime.DayOfWeek`,
+  `barTime.AddMinutes(TimeframeMinutes)` a mano, un intero `HHMM` fuori da
+  `TimeFromLegacyHhmm`. I primi li blocca `StrategyClockConformanceTests`, gli altri si fermano in
+  review.
 
-`Hhmm(barTime)` **resta** ed e' l'orario di **apertura**: serve a dire *a quale sessione*
+`TimeOfDay(barTime)` **resta** ed e' l'orario di **apertura**: serve a dire *a quale sessione*
 appartiene una barra, che e' una domanda diversa e ha gia' la sua risposta in
 `EasyLib.ClassifySessionBar`. Se stai confrontando con un parametro non e' quello che vuoi.
 
@@ -341,7 +343,7 @@ sbagliato non produce errori, semplicemente non ha effetto: in
 `PTS_NQ_PCH_001_15.Initialize` il parametro `SkipDay` viene ancora scritto su
 `NotEntryDayLong`, che il ramo attivo non legge.
 
-**La finestra operativa confronta HHMM, non le ore.** Il motore Python valuta
+**La finestra operativa confronta l'orario pieno, non le ore.** Il motore Python valuta
 l'orario completo contro gli estremi `"HH:00"` con fine inclusa. `PriceChannelEngine`
 è stato allineato il 2026-08-02; `VolatilityBreakoutEngine`, `LevelFaderEngine` e
 `SessionBreakoutEngine` confrontano ancora le sole ore, quindi la loro finestra

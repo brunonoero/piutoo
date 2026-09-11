@@ -86,7 +86,7 @@ public sealed class PTS_NG_BSW_001_30 : BiasWeeklyEngine
         // Il BIASW non ha finestra operativa: giorno e ora di ingresso sono gia' la regola di
         // entrata. La finestra e' dichiarata piena, nell'orologio della ricerca, perche' ogni
         // PTS deve dichiarare l'orologio in cui legge gli orari.
-        TradingWindow = ZonedWindow.Research(0, 2359);
+        TradingWindow = ZonedWindow.AllDay;
 
         Contracts = 1;
 
@@ -94,14 +94,14 @@ public sealed class PTS_NG_BSW_001_30 : BiasWeeklyEngine
         EnableShort = true;
 
         EntryDayLong = 0;      // le_day: lunedi' (convenzione pandas, 0 = lunedi')
-        EntryTimeLong = 2000;  // le_time: 20:00 ora della ricerca (CET)
+        EntryTimeLong = new TimeOnly(20, 0);  // le_time: 20:00 ora della ricerca (CET)
         ExitDayLong = 3;       // lx_day: giovedi'
-        ExitTimeLong = 200;    // lx_time: 02:00
+        ExitTimeLong = new TimeOnly(2, 0);    // lx_time: 02:00
 
         EntryDayShort = 3;     // se_day: giovedi'
-        EntryTimeShort = 2300; // se_time: 23:00
+        EntryTimeShort = new TimeOnly(23, 0); // se_time: 23:00
         ExitDayShort = 1;      // sx_day: martedi'
-        ExitTimeShort = 0;     // sx_time: 00:00
+        ExitTimeShort = new TimeOnly(0, 0);     // sx_time: 00:00
 
         FastYesLong = 63;     // ptn_ly_yes: H_d0 < L_d0 * (1 + 0.015)
         FastNoLong = 134;     // ptn_ly_no:  (H_d2 < H_d1) E (L_d2 > L_d1)
@@ -136,19 +136,19 @@ public sealed class PTS_NG_BSW_001_30 : BiasWeeklyEngine
         if (parameters.TryGetValue("EntryDayLong", out var entryDayLong))
             EntryDayLong = Convert.ToInt32(entryDayLong);
         if (parameters.TryGetValue("EntryTimeLong", out var entryTimeLong))
-            EntryTimeLong = Convert.ToInt32(entryTimeLong);
+            EntryTimeLong = TimeFromLegacyHhmm(entryTimeLong);
         if (parameters.TryGetValue("ExitDayLong", out var exitDayLong))
             ExitDayLong = Convert.ToInt32(exitDayLong);
         if (parameters.TryGetValue("ExitTimeLong", out var exitTimeLong))
-            ExitTimeLong = Convert.ToInt32(exitTimeLong);
+            ExitTimeLong = TimeFromLegacyHhmm(exitTimeLong);
         if (parameters.TryGetValue("EntryDayShort", out var entryDayShort))
             EntryDayShort = Convert.ToInt32(entryDayShort);
         if (parameters.TryGetValue("EntryTimeShort", out var entryTimeShort))
-            EntryTimeShort = Convert.ToInt32(entryTimeShort);
+            EntryTimeShort = TimeFromLegacyHhmm(entryTimeShort);
         if (parameters.TryGetValue("ExitDayShort", out var exitDayShort))
             ExitDayShort = Convert.ToInt32(exitDayShort);
         if (parameters.TryGetValue("ExitTimeShort", out var exitTimeShort))
-            ExitTimeShort = Convert.ToInt32(exitTimeShort);
+            ExitTimeShort = TimeFromLegacyHhmm(exitTimeShort);
         if (parameters.TryGetValue("PtnLyYes", out var lyYes))
             FastYesLong = Convert.ToInt32(lyYes);
         if (parameters.TryGetValue("PtnLyNo", out var lyNo))

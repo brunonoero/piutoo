@@ -74,23 +74,22 @@ public sealed class SessionClock
             : instantUtc + OffsetOf(instantUtc);
     }
 
-    /// <summary>Ora del giorno in formato <c>HHMM</c>, come la legge EasyLanguage.</summary>
-    public int Hhmm(DateTime instantUtc)
-    {
-        var local = ToSessionTime(instantUtc);
-        return local.Hour * 100 + local.Minute;
-    }
+    /// <summary>
+    /// Ora del giorno nell'orologio di sessione, come <see cref="TimeOnly"/>. È l'orario con cui
+    /// EasyLanguage leggeva <c>time</c>, senza più la codifica <c>HHMM</c> in un intero.
+    /// </summary>
+    public TimeOnly TimeOfDay(DateTime instantUtc) => TimeOnly.FromDateTime(ToSessionTime(instantUtc));
 
     /// <summary>
     /// Giorno di calendario in ora di borsa. Serve alla segmentazione delle sessioni tanto quanto
-    /// <see cref="Hhmm"/>: il cambio di giorno è una delle condizioni che aprono una sessione nuova,
-    /// e se lo si leggesse in UTC cadrebbe nel mezzo della sessione invece che nella pausa.
+    /// <see cref="TimeOfDay"/>: il cambio di giorno è una delle condizioni che aprono una sessione
+    /// nuova, e se lo si leggesse in UTC cadrebbe nel mezzo della sessione invece che nella pausa.
     /// </summary>
     public DateTime SessionDay(DateTime instantUtc) => ToSessionTime(instantUtc).Date;
 
     /// <summary>
-    /// L'orario <c>HHMM</c> con cui una barra va confrontata con le soglie dei parametri, e il
-    /// giorno corrispondente. <b>È l'unico punto del sistema che sa come si chiama una barra.</b>
+    /// L'orario con cui una barra va confrontata con le soglie dei parametri, e il giorno
+    /// corrispondente. <b>È l'unico punto del sistema che sa come si chiama una barra.</b>
     ///
     /// <para><b>Il problema, una volta sola.</b> Una barra copre un intervallo — 16:00→17:00 — ma
     /// porta un timestamp solo, e ci sono due convenzioni per sceglierlo. Il feed Piootoo etichetta
@@ -118,12 +117,12 @@ public sealed class SessionClock
     /// </summary>
     /// <param name="barOpenUtc">Apertura della barra, come la etichetta il feed.</param>
     /// <param name="timeframeMinutes">Ampiezza della barra. Zero o negativo = nessuna conversione.</param>
-    public int BarLabelHhmm(DateTime barOpenUtc, int timeframeMinutes) =>
-        Hhmm(BarLabelUtc(barOpenUtc, timeframeMinutes));
+    public TimeOnly BarLabelTime(DateTime barOpenUtc, int timeframeMinutes) =>
+        TimeOfDay(BarLabelUtc(barOpenUtc, timeframeMinutes));
 
     /// <summary>
     /// Il giorno di calendario dell'etichetta della barra. Stessa regola di
-    /// <see cref="BarLabelHhmm"/>, ed è ciò che <c>skip_day</c> deve leggere.
+    /// <see cref="BarLabelTime"/>, ed è ciò che <c>skip_day</c> deve leggere.
     ///
     /// <para>Sopra l'ora non è un dettaglio: su una barra da 4h il giorno cambia su un bucket su
     /// sei, e su una <b>giornaliera cambia sempre</b> — apre lunedì a mezzanotte e chiude martedì a
@@ -179,13 +178,13 @@ public sealed class SessionClock
     }
 
     /// <summary>
-    /// Istante UTC dell'orario <paramref name="hhmm"/> nel giorno di borsa che contiene
+    /// Istante UTC dell'orario di borsa <paramref name="time"/> nel giorno di borsa che contiene
     /// <paramref name="referenceUtc"/>. Sostituisce <c>EasyLib.CombineDateAndHhmm</c>, che
     /// componeva la data UTC della barra con un HHMM di borsa: due orologi diversi nello stesso
     /// <c>DateTime</c>.
     /// </summary>
-    public DateTime SessionInstantUtc(DateTime referenceUtc, int hhmm) =>
-        ToUtc(SessionDay(referenceUtc).AddMinutes(hhmm / 100 * 60 + hhmm % 100));
+    public DateTime SessionInstantUtc(DateTime referenceUtc, TimeOnly time) =>
+        ToUtc(SessionDay(referenceUtc).Add(time.ToTimeSpan()));
 
     private TimeSpan OffsetOf(DateTime instantUtc) =>
         _zone.GetUtcOffset(DateTime.SpecifyKind(instantUtc, DateTimeKind.Utc));

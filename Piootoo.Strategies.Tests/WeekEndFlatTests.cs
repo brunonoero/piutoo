@@ -156,7 +156,7 @@ public class WeekEndFlatTests
         int year, int month, int day, int hour, int minute, bool dentro)
     {
         var policy = WeekEndFlatPolicy.Default;
-        Assert.Equal(2045, policy.FromUtcHhmm);
+        Assert.Equal(new TimeOnly(20, 45), policy.FromUtc);
         Assert.Equal(dentro, policy.IsInsideWindow(new DateTime(year, month, day, hour, minute, 0, DateTimeKind.Utc)));
     }
 

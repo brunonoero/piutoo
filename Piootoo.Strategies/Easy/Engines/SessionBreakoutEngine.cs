@@ -85,17 +85,17 @@ public abstract class SessionBreakoutEngine : EasyEngineBase
 
     // ------------------------------------------------------------------ finestra oraria
 
-    /// <summary>Inizio finestra operativa HHMM (<c>MyStartTime</c>).</summary>
-    protected int StartTime;
+    /// <summary>Inizio finestra operativa (<c>MyStartTime</c>). <c>null</c> = da inizio giornata.</summary>
+    protected TimeOnly? StartTime;
 
-    /// <summary>Fine finestra operativa HHMM, esclusa, come <c>tw()</c> (<c>MyEndTime</c>).</summary>
-    protected int EndTime = 2359;
+    /// <summary>Fine finestra operativa, esclusa come <c>tw()</c> (<c>MyEndTime</c>). <c>null</c> = fino a fine giornata.</summary>
+    protected TimeOnly? EndTime;
 
-    /// <summary>Inizio della pausa in cui non si opera (<c>MyStartPause</c>).</summary>
-    protected int PauseStart = -1;
+    /// <summary>Inizio della pausa in cui non si opera (<c>MyStartPause</c>). <c>null</c> = nessuna pausa.</summary>
+    protected TimeOnly? PauseStart;
 
     /// <summary>Fine della pausa (<c>MyEndPause</c>).</summary>
-    protected int PauseEnd = -1;
+    protected TimeOnly? PauseEnd;
 
     // ------------------------------------------------------------------ gate di pattern
 
@@ -229,7 +229,7 @@ public abstract class SessionBreakoutEngine : EasyEngineBase
 
             // L'originale sposta di uno l'indice di giornata quando la sessione attraversa la
             // mezzanotte, perché la sessione "di lunedì" comincia domenica sera.
-            _sessionOfWeek = SessionStartTime > SessionEndTime
+            _sessionOfWeek = SessionStart > SessionEnd
                 ? EasyDayOfWeek(barTime) + 1
                 : EasyDayOfWeek(barTime);
         }
@@ -374,7 +374,7 @@ public abstract class SessionBreakoutEngine : EasyEngineBase
         signal.EntrySessionStartUtc = SessionKey(signal.ValidFromUtc!.Value);
 
         if (AppliesSessionExit)
-            signal.CloseAtUtc = ResolveCloseAtUtc(signal.ValidFromUtc.Value, SessionEndTime);
+            signal.CloseAtUtc = ResolveCloseAtUtc(signal.ValidFromUtc.Value, SessionEnd);
 
         return signal;
     }
@@ -384,27 +384,21 @@ public abstract class SessionBreakoutEngine : EasyEngineBase
         if (InDeclaredWindow(barTime) is { } declared)
             return declared;
 
-        if (StartTime < 0 && EndTime < 0)
-            return true;
-
-        // Confronto su HHMM pieni, fine inclusa — identico a PriceChannelEngine. Prima si
-        // confrontavano le sole ore: la finestra si allargava fino a HH:59 e prendeva barre che la
-        // fonte non prende. I trade di riferimento lo mostrano: con finestra 05-04 l'ultimo
-        // ingresso e' alle 04:15 (segnale alle 04:00, incluso) e non ce n'e' nessuno oltre, mentre
-        // con finestra 10-05 e 13-06 non esiste alcun ingresso dopo end_hour:00 + una barra.
-        var start = StartTime < 0 ? 0 : StartTime;
-        var end = EndTime < 0 ? 2359 : EndTime;
-        var time = ParamHhmm(barTime);
-        return start <= end ? time >= start && time <= end : time >= start || time <= end;
+        // Fine inclusa — identico a PriceChannelEngine. Prima si confrontavano le sole ore: la
+        // finestra si allargava fino a HH:59 e prendeva barre che la fonte non prende. I trade di
+        // riferimento lo mostrano: con finestra 05-04 l'ultimo ingresso e' alle 04:15 (segnale
+        // alle 04:00, incluso) e non ce n'e' nessuno oltre, mentre con finestra 10-05 e 13-06 non
+        // esiste alcun ingresso dopo end_hour:00 + una barra.
+        return InWindow(StartTime, EndTime, ParamTime(barTime), inclusiveEnd: true);
     }
 
     private int PythonDayOfWeek(DateTime instantUtc) => PythonWeekday(instantUtc);
 
     private DateTime SessionKey(DateTime time)
     {
-        var start = Clock.SessionInstantUtc(time, SessionStartTime);
-        return SessionStartTime > SessionEndTime && time < start
-            ? Clock.SessionInstantUtc(time.AddDays(-1), SessionStartTime)
+        var start = Clock.SessionInstantUtc(time, SessionStart);
+        return SessionStart > SessionEnd && time < start
+            ? Clock.SessionInstantUtc(time.AddDays(-1), SessionStart)
             : start;
     }
 
@@ -450,14 +444,8 @@ public abstract class SessionBreakoutEngine : EasyEngineBase
     {
         // tw() ha fine esclusiva: replicarla è importante perché la variante inclusiva esiste
         // altrove nella stessa libreria e le due differiscono di una barra sul bordo.
-        if (!EasyLib.TimeWindow(StartTime, EndTime, ParamHhmm(barTime)))
-            return false;
-
-        if (PauseStart < 0 || PauseEnd < 0)
-            return true;
-
-        var t = ParamHhmm(barTime);
-        return t < PauseStart || t > PauseEnd;
+        var t = ParamTime(barTime);
+        return InWindow(StartTime, EndTime, t, inclusiveEnd: false) && !InPause(PauseStart, PauseEnd, t);
     }
 
     private bool PassesNeutralGates(decimal[] ohlc) =>

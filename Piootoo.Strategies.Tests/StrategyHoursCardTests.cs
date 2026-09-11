@@ -1,4 +1,5 @@
 ﻿using Piootoo.Core.Services;
+using Piootoo.Shared.Configuration;
 using Xunit;
 
 namespace Piootoo.Strategies.Tests;
@@ -25,8 +26,8 @@ public sealed class StrategyHoursCardTests
     {
         var card = _service.Build("PTS_FDAX_PCH_001_240");
 
-        Assert.Equal(1, card.SessionAnchorHour);
-        Assert.Equal(1, card.CalendarSessionStartHour);
+        Assert.Equal(new TimeOnly(1, 0), card.SessionAnchor);
+        Assert.Equal(new TimeOnly(1, 0), card.CalendarSessionStart);
         Assert.Null(card.SessionAnchorOverrideReason);
         Assert.Equal("Europe/Rome", card.Session.TimeZoneId);
         Assert.Equal("inizio 00:00Z", card.Session.WinterUtc);
@@ -44,8 +45,8 @@ public sealed class StrategyHoursCardTests
         var card = _service.Build("PTS_FDAX_PCH_001_240");
 
         Assert.NotNull(card.TradingWindow);
-        Assert.Equal(700, card.TradingWindow!.StartHhmm);
-        Assert.Equal(1300, card.TradingWindow.EndHhmm);
+        Assert.Equal(new TimeOnly(7, 0), card.TradingWindow!.Start);
+        Assert.Equal(new TimeOnly(13, 0), card.TradingWindow.End);
         Assert.Equal("ricerca", card.TradingWindow.Clock);
         Assert.Equal("Europe/Rome", card.TradingWindow.TimeZoneId);
         Assert.Equal("Europe/Berlin", card.ExchangeTimeZone);
@@ -79,15 +80,16 @@ public sealed class StrategyHoursCardTests
     {
         var card = _service.Build("PTS_NQ_TFM_014_240");
 
-        Assert.Equal(0, card.SessionAnchorHour);
+        Assert.Equal(TimeOnly.MinValue, card.SessionAnchor);
         Assert.Equal("inizio 23:00Z (giorno prima)", card.Session.WinterUtc);
         Assert.Equal("inizio 22:00Z (giorno prima)", card.Session.SummerUtc);
     }
 
     /// <summary>
-    /// Una finestra <c>0000-2359</c> è la forma in cui un run che non ha filtrato per ora scrive i
-    /// propri orari: la scheda deve dire che non esclude nulla, non elencare una fascia vuota fra le
-    /// 23:59 e la mezzanotte che manderebbe a cercare un vincolo inesistente.
+    /// Una finestra a giornata piena (<see cref="ZonedWindow.AllDay"/>) è la forma in cui un run che
+    /// non ha filtrato per ora scrive i propri orari: la scheda deve dire che non esclude nulla, non
+    /// elencare una fascia vuota a cavallo della mezzanotte che manderebbe a cercare un vincolo
+    /// inesistente.
     /// </summary>
     [Fact]
     public void FullDayWindowIsReportedAsNoFilter()
@@ -95,8 +97,8 @@ public sealed class StrategyHoursCardTests
         var card = _service.Build("PTS_CT_TFU_001_240");
 
         Assert.NotNull(card.TradingWindow);
-        Assert.Equal(0, card.TradingWindow!.StartHhmm);
-        Assert.Equal(2359, card.TradingWindow.EndHhmm);
+        Assert.Equal(TimeOnly.MinValue, card.TradingWindow!.Start);
+        Assert.Equal(ZonedWindow.EndOfDay, card.TradingWindow.End);
         Assert.Contains("non esclude nulla", card.TradingWindowNote);
     }
 

@@ -68,7 +68,7 @@ sessione (`TradingSessionStrategyInfo.Holding`).
 | Campo | Significato |
 |---|---|
 | `AllowOvernight` | Il conto può restare in posizione oltre la fine sessione. |
-| `SessionFlatUtcHhmm` | Ora UTC del flat giornaliero, usata solo se l'overnight è vietato. |
+| `SessionFlatUtc` | Orario UTC del flat giornaliero (`TimeOnly`, sul filo `HH:mm:ss`), usato solo se l'overnight è vietato. |
 | `AllowOverweek` | Il conto può attraversare il fine settimana. |
 | `WeekEnd` | La finestra di flat del weekend (`WeekEndFlatPolicy`), usata solo se l'overweek è vietato. |
 
@@ -159,8 +159,8 @@ non compariva da nessuna parte.
 
 Il flat resta comunque una regola di **sicurezza del bot** e non un ordine
 impartito barra per barra: la policy ricevuta all'apertura vive in campi locali
-(`_allowOvernight`, `_allowOverweek`, `_sessionFlatUtcHhmm`,
-`_weekEndFlatFromUtc/UntilUtc`) e continua a valere anche a server muto. Un
+(`_allowOvernight`, `_allowOverweek`, `_sessionFlatUtc`,
+`_weekEndFlatFromUtc/UntilUtc`, tutti `TimeSpan` come ora del giorno UTC) e continua a valere anche a server muto. Un
 descriptor senza policy, o con orari implausibili, lascia i default storici
 invece di spegnere il flat: un campo mancante non è un permesso.
 
@@ -172,7 +172,9 @@ nell'intent, che il bot già rispetta in `CloseExpiredPositions`.
 - `Piootoo.Shared/Models/Trading/HoldingPolicy.cs` — `StrategyHolding`,
   `AccountHoldingPolicy`, `HoldingResolver`, `HoldingConflict`.
 - `Piootoo.Shared/Models/Trading/TradingConventions.cs` —
-  `WeekEndFlatPolicy`, i default HHMM.
+  `WeekEndFlatPolicy`, i default (`TimeOnly`: 20:45, 23:00).
+- `Piootoo.Core/Services/TradingPlanService.cs` — `MigrateLegacyHoldingTimes`, che traduce i
+  `plans.json` scritti fino alla 7.2 con gli orari come interi `HHMM`.
 - `Piootoo.Strategies/Easy/Engines/EasyEngineBase.cs` — `IntradayOnly`,
   `AppliesSessionExit`, `SessionExitFromIntradayOnly`, `Holding`.
 - `Piootoo.Core/Services/TradingPlanService.cs` — validazione e migrazione dei

@@ -64,7 +64,7 @@ public sealed record InstrumentSpec
     /// feed, che vale <c>0</c> per tutti (<c>aggregate_flat_feed.py</c>): è l'ora da cui la ricerca
     /// segmenta le sessioni <c>d0..d5</c>.</para>
     /// </summary>
-    public int ResearchSessionStartHour { get; init; }
+    public TimeOnly ResearchSessionStart { get; init; }
 
     /// <summary>
     /// I giorni della settimana in cui questo strumento ha una sessione nella ricerca, letti sul

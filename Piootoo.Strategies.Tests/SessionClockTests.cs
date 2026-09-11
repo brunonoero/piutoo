@@ -17,7 +17,7 @@ public sealed class SessionClockTests
         var clock = InstrumentRegistry.CreateSessionClock("@NQ");
         var instant = new DateTime(2025, month, day, utcHour, 0, 0, DateTimeKind.Utc);
 
-        Assert.Equal(1700, clock.Hhmm(instant));
+        Assert.Equal(new TimeOnly(17, 0), clock.TimeOfDay(instant));
     }
 
     [Fact]
@@ -27,8 +27,8 @@ public sealed class SessionClockTests
         // ragione per cui il registro tiene il fuso e non riscrive gli orari.
         var open = new DateTime(2025, 1, 15, 23, 0, 0, DateTimeKind.Utc);
 
-        Assert.Equal(1700, InstrumentRegistry.CreateSessionClock("@NQ").Hhmm(open));
-        Assert.Equal(1800, InstrumentRegistry.CreateSessionClock("@GC").Hhmm(open));
+        Assert.Equal(new TimeOnly(17, 0), InstrumentRegistry.CreateSessionClock("@NQ").TimeOfDay(open));
+        Assert.Equal(new TimeOnly(18, 0), InstrumentRegistry.CreateSessionClock("@GC").TimeOfDay(open));
     }
 
     [Fact]
@@ -37,8 +37,8 @@ public sealed class SessionClockTests
         // Le sorgenti FDAX dichiarano 0800->2200, cioè l'orario Eurex in ora di Francoforte.
         var clock = InstrumentRegistry.CreateSessionClock("@FDAX");
 
-        Assert.Equal(800, clock.Hhmm(new DateTime(2025, 1, 15, 7, 0, 0, DateTimeKind.Utc)));
-        Assert.Equal(800, clock.Hhmm(new DateTime(2025, 7, 15, 6, 0, 0, DateTimeKind.Utc)));
+        Assert.Equal(new TimeOnly(8, 0), clock.TimeOfDay(new DateTime(2025, 1, 15, 7, 0, 0, DateTimeKind.Utc)));
+        Assert.Equal(new TimeOnly(8, 0), clock.TimeOfDay(new DateTime(2025, 7, 15, 6, 0, 0, DateTimeKind.Utc)));
     }
 
     /// <summary>

@@ -31,8 +31,8 @@ public sealed class ReversalBollingerBandEngineTests
     {
         var strategy = new TestRbbUnmirrored
         {
-            Start = 1000,
-            End = 1100
+            Start = new TimeOnly(10, 0),
+            End = new TimeOnly(11, 0)
         };
         var bars = BuildBars(lastTime: new DateTime(2024, 1, 8, 11, 0, 0, DateTimeKind.Utc));
         bars[^2].Close = 110m;
@@ -156,12 +156,12 @@ public sealed class ReversalBollingerBandEngineTests
             set => IntradayOnly = value;
         }
 
-        public int Start
+        public TimeOnly? Start
         {
             set => StartTrade = value;
         }
 
-        public int End
+        public TimeOnly? End
         {
             set => EndTrade = value;
         }

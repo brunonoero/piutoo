@@ -28,10 +28,11 @@ public sealed class StrategyClockConformanceTests
     /// <summary>
     /// Letture dell'orologio di un <c>DateTime</c>. Dentro <c>Piootoo.Strategies</c> non ne
     /// esistono di legittime: l'istante di una barra è UTC e non dice nulla di utile finché non
-    /// viene portato in un fuso dichiarato.
+    /// viene portato in un fuso dichiarato. Sono proprietà, mai chiamate: <c>Clock.TimeOfDay(bar)</c>
+    /// è il metodo di <see cref="SessionClock"/> che fa la conversione, cioè la forma corretta.
     /// </summary>
     private static readonly Regex RawClockRead = new(
-        @"\.(Hour|Minute|DayOfWeek|TimeOfDay)\b", RegexOptions.Compiled);
+        @"\.(Hour|Minute|DayOfWeek|TimeOfDay)\b(?!\s*\()", RegexOptions.Compiled);
 
     /// <summary>
     /// Leggere un componente di un valore <b>già passato dall'orologio</b> è la forma corretta,

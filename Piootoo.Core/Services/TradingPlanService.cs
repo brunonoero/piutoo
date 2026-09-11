@@ -1,4 +1,5 @@
 ﻿using System.Text.Json;
+using System.Text.Json.Nodes;
 using Piootoo.Shared.Models.Datafeed;
 using Piootoo.Shared.Models.Trading;
 using Piootoo.Shared.Models.Workspaces;
@@ -174,7 +175,7 @@ public sealed class TradingPlanService
 
         var brokerCode = ValidateBrokerAndAccounts(request.BrokerCode, accounts);
 
-        // Una policy incoerente (overweek senza overnight, HHMM fuori scala) va rifiutata qui: se
+        // Una policy incoerente (overweek senza overnight) va rifiutata qui: se
         // passa, il primo a scoprirla e' il cBot in produzione a mercato aperto.
         var holding = request.Holding ?? AccountHoldingPolicy.Default;
         holding.Validate();
@@ -234,8 +235,54 @@ public sealed class TradingPlanService
     {
         var file = GetFile(workspaceId);
         if (!File.Exists(file)) return [];
-        var plans = JsonSerializer.Deserialize<List<TradingPlan>>(File.ReadAllText(file), _json) ?? [];
+        var document = JsonNode.Parse(File.ReadAllText(file));
+        MigrateLegacyHoldingTimes(document);
+        var plans = document.Deserialize<List<TradingPlan>>(_json) ?? [];
         return plans.Select(NormalizeLoadedPlan).ToList();
+    }
+
+    /// <summary>
+    /// Fino alla 7.2 la <c>Holding</c> di un piano scriveva gli orari come interi <c>HHMM</c>
+    /// (<c>SessionFlatUtcHhmm</c>, <c>WeekEnd.FromUtcHhmm</c>, <c>WeekEnd.UntilUtcHhmm</c>). Oggi
+    /// sono orari (<c>HH:mm:ss</c>) e i campi vecchi non esistono piu' nel modello: senza questa
+    /// traduzione un piano salvato prima tornerebbe con i default, cioe' con orari diversi da
+    /// quelli che l'utente aveva scelto, e nessun errore lo direbbe. Il file viene riscritto nella
+    /// forma nuova alla prima modifica; qui si traduce soltanto.
+    /// </summary>
+    private static void MigrateLegacyHoldingTimes(JsonNode? document)
+    {
+        if (document is not JsonArray plans)
+            return;
+
+        foreach (var plan in plans)
+        {
+            if (plan?["Holding"] is not JsonObject holding)
+                continue;
+
+            MoveLegacyTime(holding, "SessionFlatUtcHhmm", "SessionFlatUtc");
+            if (holding["WeekEnd"] is JsonObject weekEnd)
+            {
+                MoveLegacyTime(weekEnd, "FromUtcHhmm", "FromUtc");
+                MoveLegacyTime(weekEnd, "UntilUtcHhmm", "UntilUtc");
+            }
+        }
+    }
+
+    private static void MoveLegacyTime(JsonObject owner, string legacyKey, string key)
+    {
+        if (owner[legacyKey] is not JsonValue legacy)
+            return;
+
+        owner.Remove(legacyKey);
+        if (owner.ContainsKey(key) || !legacy.TryGetValue<int>(out var hhmm))
+            return;
+
+        var hour = hhmm / 100;
+        var minute = hhmm % 100;
+        if (hour is < 0 or > 23 || minute is < 0 or > 59)
+            return;
+
+        owner[key] = new TimeOnly(hour, minute).ToString("HH:mm:ss");
     }
 
     private void Write(string workspaceId, List<TradingPlan> plans)

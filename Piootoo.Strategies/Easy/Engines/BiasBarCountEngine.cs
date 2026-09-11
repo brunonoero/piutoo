@@ -297,7 +297,7 @@ public abstract class BiasBarCountEngine : EasyEngineBase
 
         // Indice della barra di ingresso: la successiva a quella corrente, salvo che apra una
         // sessione nuova — allora il conteggio è già ripartito e l'ingresso è la prima barra.
-        var entryBarIndex = Hhmm(entryBarTime) == SessionStartTime
+        var entryBarIndex = TimeOfDay(entryBarTime) == SessionStart
             ? BarCountStartsAt
             : _mycount + 1;
 
@@ -319,7 +319,7 @@ public abstract class BiasBarCountEngine : EasyEngineBase
     /// alla barra di segnale, quindi un'uscita mattutina successiva a un ingresso serale cade il
     /// giorno seguente.
     /// </summary>
-    protected TradeSignal WithExitTime(TradeSignal signal, DateTime barTime, int exitTime)
+    protected TradeSignal WithExitTime(TradeSignal signal, DateTime barTime, TimeOnly exitTime)
     {
         signal.CloseAtUtc = ResolveCloseAtUtc(barTime, exitTime);
         return signal;
@@ -335,7 +335,7 @@ public abstract class BiasBarCountEngine : EasyEngineBase
 
     private bool IsBeforeMarketArmBar(int armBar, DateTime nextBarTime) =>
         _mycount == armBar - 1 ||
-        (armBar == 1 && Hhmm(nextBarTime) == SessionStartTime);
+        (armBar == 1 && TimeOfDay(nextBarTime) == SessionStart);
 
     protected int PythonDayOfWeek(DateTime barTime) =>
         PythonWeekday(barTime);

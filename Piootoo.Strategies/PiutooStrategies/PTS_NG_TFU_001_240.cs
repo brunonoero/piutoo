@@ -85,7 +85,7 @@ public sealed class PTS_NG_TFU_001_240 : TfUnmirroredEngine
 
         // Finestra operativa: start_hour/end_hour del run, verbatim nell'orologio
         // della ricerca. Nessuna conversione: il fuso viaggia con il dato.
-        TradingWindow = ZonedWindow.Research(1400, 2359);   // start_hour 14, fine a 23:59
+        TradingWindow = ZonedWindow.ResearchFrom(14);   // start_hour 14, fine a 23:59
 
         FastYesLong = 85;     // ptn_fast_yes_long
         FastNoLong = 23;      // ptn_fast_no_long
@@ -126,8 +126,8 @@ public sealed class PTS_NG_TFU_001_240 : TfUnmirroredEngine
         if (parameters.TryGetValue("FastNoShort", out var fastNoShort))
             FastNoShort = Convert.ToInt32(fastNoShort);
         if (parameters.TryGetValue("StartHour", out var startHour))
-            TradingWindow = TradingWindow! with { StartHhmm = Convert.ToInt32(startHour) * 100 };
+            TradingWindow = TradingWindow! with { Start = new TimeOnly(Convert.ToInt32(startHour), 0) };
         if (parameters.TryGetValue("EndHour", out var endHour))
-            TradingWindow = TradingWindow! with { EndHhmm = Convert.ToInt32(endHour) * 100 };
+            TradingWindow = TradingWindow! with { End = new TimeOnly(Convert.ToInt32(endHour), 0) };
     }
 }

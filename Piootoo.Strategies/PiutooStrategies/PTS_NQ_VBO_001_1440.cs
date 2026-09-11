@@ -94,7 +94,7 @@ public sealed class PTS_NQ_VBO_001_1440 : VolatilityBreakoutEngine
 
         // Finestra operativa: start_hour/end_hour del run, verbatim nell'orologio
         // della ricerca. Nessuna conversione: il fuso viaggia con il dato.
-        TradingWindow = ZonedWindow.Research(0, 2359);   // nessun filtro orario, finestra piena
+        TradingWindow = ZonedWindow.AllDay;   // nessun filtro orario, finestra piena
 
         EntryOrderType = TradeOrderType.Stop;
         EntryLevel = VolatilityBreakoutLevel.SessionOpenAtrBand;

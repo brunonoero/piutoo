@@ -87,7 +87,7 @@ public sealed class PTS_NQ_PCH_008_240 : PriceChannelEngine
 
         // Finestra operativa: start_hour/end_hour del run, verbatim nell'orologio
         // della ricerca. Nessuna conversione: il fuso viaggia con il dato.
-        TradingWindow = ZonedWindow.Research(600, 2359);   // start_hour 6, fine a 23:59
+        TradingWindow = ZonedWindow.ResearchFrom(6);   // start_hour 6, fine a 23:59
 
         ChannelBars = 10;               // channel_len, canale INCLUSA la barra di segnale
         OffsetTicks = 2;               // breakout_offset_ticks: offset esatto, nessun tick implicito
@@ -139,8 +139,8 @@ public sealed class PTS_NQ_PCH_008_240 : PriceChannelEngine
         if (parameters.TryGetValue("OffsetTicks", out var offsetTicks))
             OffsetTicks = Convert.ToInt32(offsetTicks);
         if (parameters.TryGetValue("StartHour", out var startHour))
-            TradingWindow = TradingWindow! with { StartHhmm = Convert.ToInt32(startHour) * 100 };
+            TradingWindow = TradingWindow! with { Start = new TimeOnly(Convert.ToInt32(startHour), 0) };
         if (parameters.TryGetValue("EndHour", out var endHour))
-            TradingWindow = TradingWindow! with { EndHhmm = Convert.ToInt32(endHour) * 100 };
+            TradingWindow = TradingWindow! with { End = new TimeOnly(Convert.ToInt32(endHour), 0) };
     }
 }

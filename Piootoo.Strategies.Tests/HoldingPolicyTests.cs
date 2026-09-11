@@ -57,7 +57,7 @@ public class HoldingPolicyTests
         {
             AllowOvernight = true,
             AllowOverweek = false,
-            WeekEnd = new WeekEndFlatPolicy(2045, 2300)
+            WeekEnd = new WeekEndFlatPolicy(new TimeOnly(20, 45), new TimeOnly(23, 0))
         };
 
         var decisione = HoldingResolver.Resolve(null, Barra, piano);
@@ -93,8 +93,8 @@ public class HoldingPolicyTests
         {
             AllowOvernight = false,
             AllowOverweek = false,
-            SessionFlatUtcHhmm = 2045,
-            WeekEnd = new WeekEndFlatPolicy(2045, 2300)
+            SessionFlatUtc = new TimeOnly(20, 45),
+            WeekEnd = new WeekEndFlatPolicy(new TimeOnly(20, 45), new TimeOnly(23, 0))
         };
 
         var decisione = HoldingResolver.Resolve(null, Barra, piano);
@@ -111,7 +111,7 @@ public class HoldingPolicyTests
     [Fact]
     public void SenzaOvernight_UnaMultidayRiceveLaDeadlineDelConto()
     {
-        var piano = AccountHoldingPolicy.Default with { AllowOvernight = false, SessionFlatUtcHhmm = 2045 };
+        var piano = AccountHoldingPolicy.Default with { AllowOvernight = false, SessionFlatUtc = new TimeOnly(20, 45) };
 
         var decisione = HoldingResolver.Resolve(null, Barra, piano);
 
@@ -126,7 +126,7 @@ public class HoldingPolicyTests
     [Fact]
     public void SenzaOvernight_UnaIntradayChiudeComunquePrima()
     {
-        var piano = AccountHoldingPolicy.Default with { AllowOvernight = false, SessionFlatUtcHhmm = 2045 };
+        var piano = AccountHoldingPolicy.Default with { AllowOvernight = false, SessionFlatUtc = new TimeOnly(20, 45) };
         var fineSessione = new DateTime(2026, 8, 27, 16, 59, 0, DateTimeKind.Utc);
 
         var decisione = HoldingResolver.Resolve(fineSessione, Barra, piano);
@@ -142,7 +142,7 @@ public class HoldingPolicyTests
     [Fact]
     public void SenzaOvernight_UnaDeadlineOltreIlFlatVieneTroncata()
     {
-        var piano = AccountHoldingPolicy.Default with { AllowOvernight = false, SessionFlatUtcHhmm = 2045 };
+        var piano = AccountHoldingPolicy.Default with { AllowOvernight = false, SessionFlatUtc = new TimeOnly(20, 45) };
 
         var decisione = HoldingResolver.Resolve(Barra.AddDays(3), Barra, piano);
 
@@ -157,7 +157,7 @@ public class HoldingPolicyTests
     [Fact]
     public void IlFlatSiMisuraSullaBarraDellOrdine_NonSulCalendario()
     {
-        var piano = AccountHoldingPolicy.Default with { AllowOvernight = false, SessionFlatUtcHhmm = 2045 };
+        var piano = AccountHoldingPolicy.Default with { AllowOvernight = false, SessionFlatUtc = new TimeOnly(20, 45) };
         var dopoIlFlat = new DateTime(2026, 8, 27, 23, 30, 0, DateTimeKind.Utc);
 
         var decisione = HoldingResolver.Resolve(null, dopoIlFlat, piano);

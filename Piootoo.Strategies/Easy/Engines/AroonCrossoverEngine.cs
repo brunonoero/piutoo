@@ -18,11 +18,11 @@ public abstract class AroonCrossoverEngine : EasyEngineBase, IMultiTimeframeTrad
     /// <summary>Timeframe aggiuntivo in minuti (data2).</summary>
     protected int HigherTimeframeMinutes = 120;
 
-    /// <summary>Inizio finestra operativa HHMM.</summary>
-    protected int StartTrade;
+    /// <summary>Inizio finestra operativa. <c>null</c> = da inizio giornata.</summary>
+    protected TimeOnly? StartTrade;
 
-    /// <summary>Fine finestra operativa HHMM.</summary>
-    protected int EndTrade = 2359;
+    /// <summary>Fine finestra operativa, esclusa come <c>tw()</c>. <c>null</c> = fino a fine giornata.</summary>
+    protected TimeOnly? EndTrade;
 
     /// <summary>Giorno EasyLanguage escluso per il long. -1 = nessuno.</summary>
     protected int NotEntryDayLong = -1;
@@ -68,7 +68,7 @@ public abstract class AroonCrossoverEngine : EasyEngineBase, IMultiTimeframeTrad
         var bar = data[^1];
         var barTime = bar.DateTime;
 
-        if (!EasyLib.TimeWindow(StartTrade, EndTrade, ParamHhmm(barTime)))
+        if (!InWindow(StartTrade, EndTrade, ParamTime(barTime), inclusiveEnd: false))
             return Hold(bar.Close, barTime);
 
         BuildSessionOhlc(data, barTime, out var ohlc);

@@ -639,22 +639,28 @@ void MatchTrades(List<Trade> ints, List<Trade> cbs, Dictionary<string, StratInfo
     }
 }
 
+// ----------------------------------------------------------------------------- orari a testo
+// La fine di giornata (ZonedWindow.EndOfDay) si scrive 24:00: e' la mezzanotte successiva.
+static string TimeText(TimeOnly? time) =>
+    time is null ? "-" : time.Value == ZonedWindow.EndOfDay ? "24:00" : time.Value.ToString("HH\\:mm");
+static string WindowText(ZonedWindow w) => $"{TimeText(w.Start)}-{TimeText(w.End)}";
+
 // ----------------------------------------------------------------------------- verifiche per trade
-(bool inWindow, int label, bool skipped, string note) WindowCheck(Trade t, StratInfo s)
+(bool inWindow, TimeOnly? label, bool skipped, string note) WindowCheck(Trade t, StratInfo s)
 {
     var bars = FeedFor(s.Symbol, s.Tf);
-    if (bars.Length == 0) return (true, -1, false, "feed assente");
+    if (bars.Length == 0) return (true, null, false, "feed assente");
     // barra che contiene il fill
     DateTime bucket;
     try { bucket = s.Grid.BucketStartUtc(t.Entry, s.Tf); } catch { bucket = t.Entry; }
     var idx = Array.BinarySearch(bars.Select(b => b.Open).ToArray(), bucket);
     if (idx < 0) idx = ~idx - 1; // ultima barra con apertura <= bucket
-    if (idx <= 0) return (true, -1, false, "prima barra");
+    if (idx <= 0) return (true, null, false, "prima barra");
     var fillBar = bars[idx];
     var prev = bars[idx - 1];
     // se il fill cade in un buco (nessuna barra apre nel bucket) la barra di segnale è comunque la precedente
-    var label = s.WindowClock.BarLabelHhmm(prev.Open, s.Tf);
-    var inWin = s.Window is null || EasyLib.TimeWindowInclusive(s.Window.StartHhmm, s.Window.EndHhmm, label);
+    var label = s.WindowClock.BarLabelTime(prev.Open, s.Tf);
+    var inWin = s.Window is null || EasyLib.TimeWindowInclusive(s.Window.Start, s.Window.End, label);
     var skipped = s.SkipDay >= 0 && (((int)s.WindowClock.BarLabelDay(prev.Open, s.Tf).DayOfWeek + 6) % 7) == s.SkipDay;
     var note = fillBar.Open != bucket ? "fill fuori griglia" : "";
     return (inWin, label, skipped, note);
@@ -906,7 +912,7 @@ void WriteReport(StringBuilder o)
     // ---- 3. trading window
     o.AppendLine("## 3. Finestra operativa (TradingWindow) e giorno saltato");
     o.AppendLine();
-    o.AppendLine("Per ogni trade si ricava la barra di segnale (la barra della strategia che precede quella del fill) e si etichetta come fa il motore (`BarLabelHhmm` sull'orologio della finestra). Fuori finestra = un ingresso che la strategia non avrebbe dovuto emettere.");
+    o.AppendLine("Per ogni trade si ricava la barra di segnale (la barra della strategia che precede quella del fill) e si etichetta come fa il motore (`BarLabelTime` sull'orologio della finestra). Fuori finestra = un ingresso che la strategia non avrebbe dovuto emettere.");
     o.AppendLine();
     o.AppendLine("| strategia | finestra | fuso | int fuori/tot | cBot fuori/tot | int giorno saltato | cBot giorno saltato | fill fuori griglia int/cBot |");
     o.AppendLine("|---|---|---|---:|---:|---:|---:|---:|");
@@ -920,7 +926,7 @@ void WriteReport(StringBuilder o)
         foreach (var t in ai) { var r = WindowCheck(t, s); t.WindowLabel = r.label; t.OutOfWindow = !r.inWindow; t.SkippedDay = r.skipped; if (!r.inWindow) oi++; if (r.skipped) si2++; if (r.note != "") gi++; }
         foreach (var t in bc) { var r = WindowCheck(t, s); t.WindowLabel = r.label; t.OutOfWindow = !r.inWindow; t.SkippedDay = r.skipped; if (!r.inWindow) oc++; if (r.skipped) sc2++; if (r.note != "") gc++; }
         winTotals[0] += oi; winTotals[1] += oc; winTotals[2] += si2; winTotals[3] += sc2; winTotals[4] += gi; winTotals[5] += gc;
-        var win = s.Window is null ? "(non dichiarata)" : $"{s.Window.StartHhmm:0000}-{s.Window.EndHhmm:0000}";
+        var win = s.Window is null ? "(non dichiarata)" : WindowText(s.Window);
         o.AppendLine($"| {code} | {win} | {s.Window?.Clock.ToString() ?? "-"} | {oi}/{ai.Count} | {oc}/{bc.Count} | {si2} | {sc2} | {gi}/{gc} |");
     }
     o.AppendLine($"| **TOTALE** | | | {winTotals[0]} | {winTotals[1]} | {winTotals[2]} | {winTotals[3]} | {winTotals[4]}/{winTotals[5]} |");
@@ -933,7 +939,7 @@ void WriteReport(StringBuilder o)
         o.AppendLine("| lato | strategia | ingresso UTC | etichetta barra di segnale | finestra |");
         o.AppendLine("|---|---|---|---:|---|");
         foreach (var t in oow)
-            o.AppendLine($"| {(t.IsCbot ? "cBot" : "int")} | {t.Strategy} | {t.Entry:yyyy-MM-dd HH:mm} | {t.WindowLabel:0000} | {strategies[t.Strategy].Window!.StartHhmm:0000}-{strategies[t.Strategy].Window!.EndHhmm:0000} |");
+            o.AppendLine($"| {(t.IsCbot ? "cBot" : "int")} | {t.Strategy} | {t.Entry:yyyy-MM-dd HH:mm} | {TimeText(t.WindowLabel)} | {WindowText(strategies[t.Strategy].Window!)} |");
         o.AppendLine();
     }
 
@@ -957,7 +963,7 @@ void WriteReport(StringBuilder o)
         sessViolInt += vi; sessViolCb += vc;
         var we = ai.Count(t => t.Entry.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday);
         var wc = bc.Count(t => t.Entry.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday);
-        o.AppendLine($"| {code} | {s.Session.StartHhmm:0000}-{s.Session.EndHhmm:0000} | {s.MaxEntries} | {vi} | {vc} | {we} | {wc} |");
+        o.AppendLine($"| {code} | {WindowText(s.Session)} | {s.MaxEntries} | {vi} | {vc} | {we} | {wc} |");
     }
     o.AppendLine($"| **TOTALE** | | | {sessViolInt} | {sessViolCb} | | |");
     o.AppendLine();
@@ -1170,13 +1176,13 @@ void WriteCsvs()
     var sbo = new StringBuilder();
     sbo.AppendLine("lato;strategy;dir;entry;entry_px;exit;exit_px;reason;net_ctr;causa;fuori_finestra;etichetta");
     foreach (var t in intOverlap.Where(t => t.Match is null).Concat(cbOverlap.Where(t => t.Match is null)).OrderBy(t => t.Entry))
-        sbo.AppendLine(string.Join(";", t.IsCbot ? "cbot" : "int", t.Strategy, t.Side, t.Entry.ToString("s"), t.EntryPx.ToString(ci), t.Exit.ToString("s"), t.ExitPx.ToString(ci), t.LogClose?.Esito ?? t.Reason, t.NetPerContract.ToString("0.00", ci), t.Cause, t.OutOfWindow, t.WindowLabel));
+        sbo.AppendLine(string.Join(";", t.IsCbot ? "cbot" : "int", t.Strategy, t.Side, t.Entry.ToString("s"), t.EntryPx.ToString(ci), t.Exit.ToString("s"), t.ExitPx.ToString(ci), t.LogClose?.Esito ?? t.Reason, t.NetPerContract.ToString("0.00", ci), t.Cause, t.OutOfWindow, TimeText(t.WindowLabel)));
     File.WriteAllText(Path.Combine(outDir, "trade-non-abbinati.csv"), sbo.ToString(), Encoding.UTF8);
 
     var sbs = new StringBuilder();
     sbs.AppendLine("code;symbol;tf;engine;window;windowClock;session;holding;intradayOnly;stopMoney;stopMoneyEff;profitMoney;profitMoneyEff;breakEven;trailing;maxBars;maxEntries;skipDay;pointValue;stopPoints;widened");
     foreach (var s in strategies.Values.OrderBy(s => s.Code))
-        sbs.AppendLine(string.Join(";", s.Code, s.Symbol, s.Tf, s.Engine, s.Window is null ? "" : $"{s.Window.StartHhmm:0000}-{s.Window.EndHhmm:0000}", s.Window?.Clock, $"{s.Session.StartHhmm:0000}-{s.Session.EndHhmm:0000}", s.Holding, s.IntradayOnly, s.StopMoney, s.StopMoneyEff, s.ProfitMoney, s.ProfitMoneyEff, s.BreakEvenMoney, s.TrailingMoney, s.MaxBars, s.MaxEntries, s.SkipDay, s.PointValue, s.StopPoints.ToString("0.####", ci), s.Widened));
+        sbs.AppendLine(string.Join(";", s.Code, s.Symbol, s.Tf, s.Engine, s.Window is null ? "" : WindowText(s.Window), s.Window?.Clock, WindowText(s.Session), s.Holding, s.IntradayOnly, s.StopMoney, s.StopMoneyEff, s.ProfitMoney, s.ProfitMoneyEff, s.BreakEvenMoney, s.TrailingMoney, s.MaxBars, s.MaxEntries, s.SkipDay, s.PointValue, s.StopPoints.ToString("0.####", ci), s.Widened));
     File.WriteAllText(Path.Combine(outDir, "strategie.csv"), sbs.ToString(), Encoding.UTF8);
 }
 
@@ -1238,6 +1244,6 @@ sealed class Trade
     public decimal NetPerContract => Contracts > 0 ? Net / Contracts : 0;
     public Trade? Match;
     public LogClose? LogClose; public decimal? SpreadAtFill, StopAtFill, RequestedEntry; public XPosition? XPos;
-    public string? Cause; public bool OutOfWindow, SkippedDay, NoBarEntry; public int WindowLabel = -1;
+    public string? Cause; public bool OutOfWindow, SkippedDay, NoBarEntry; public TimeOnly? WindowLabel;
     public double? IntentAttesa; public string? IntentType;
 }

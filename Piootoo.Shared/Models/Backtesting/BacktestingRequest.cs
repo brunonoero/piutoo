@@ -182,7 +182,7 @@ public class BacktestingRequest
     /// tarati contro <i>quel</i> nome. Confrontarli con l'apertura sposta ogni confronto di
     /// esattamente una barra: è un difetto, non un'opzione, e il requisito è che la strategia faccia
     /// quello che faceva l'originale. La regola vive in un punto solo,
-    /// <c>SessionClock.BarLabelHhmm</c>.</para>
+    /// <c>SessionClock.BarLabelTime</c>.</para>
     ///
     /// <para><b>A cosa serve allora questo campo.</b> A rimettere a confronto un run archiviato con
     /// uno nuovo, come <see cref="RejectWrongSideLevels"/> spento. Il valore finisce nel log di

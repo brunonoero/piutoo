@@ -3856,3 +3856,46 @@ che il motore fa. Difetto di artefatto, non di esecuzione, ma e' costato mezza i
   (l'interno inverte, il server non consegna intent con posizione aperta), le commissioni per
   simbolo e la conversione EUR→USD nel backtest, la scadenza conservativa dei template sul server
   (gia' in `lavori-in-corso.md`). Compare-0033 va rifatto con 7.2.1 su entrambe le gambe.
+
+- **2026-09-11** — **Gli orari sono `TimeOnly`, in ogni strato: sparisce l'intero `HHMM` e con lui
+  la sentinella `2359` (7.3.0).** `SessionEndTime = 2359` era un numero che fingeva di essere un
+  orario: leggerlo come "le 23:59" era sbagliato (la sessione finisce a `h:00` del giorno dopo,
+  non un minuto prima di mezzanotte), confrontarlo con l'orario di chiusura di una barra non era
+  mai vero — e' il motivo per cui l'uscita del venerdi' di MAC non scattava — e ogni motore
+  portava una propria aritmetica `hhmm / 100`, `* 100`, `-1 = nessun limite`, `2500 = fine
+  sessione`. La regola ora e' una: **se un numero rappresenta un orario, e' un orario**.
+
+  `ZonedWindow(TimeOnly Start, TimeOnly End, InstrumentClock)`, con `EndOfDay = TimeOnly.MaxValue`
+  al posto di `2359`, `AllDay` per "tutta la sessione", `ResearchFrom(h)` per "dalle h in poi",
+  `ResearchSession(TimeOnly)` con l'ancoraggio del calendario. `SessionClock.Hhmm` diventa
+  `TimeOfDay`, `BarLabelHhmm` diventa `BarLabelTime`, `SessionInstantUtc` prende un `TimeOnly`.
+  Nei motori `ParamTime`/`WindowParamTime` restituiscono `TimeOnly`; i campi storici
+  (`StartTime/EndTime`, `StartTrade/EndTrade`, `PauseStart/PauseEnd`, `CloseAtTime`,
+  `MaxDaysFlatTime`, i `WindowStart/WindowEnd` di TF e RHL) sono `TimeOnly?` con `null` = nessun
+  limite, e il confronto passa da `EasyEngineBase.InWindow`/`InPause` invece di essere riscritto
+  in ciascun motore. `TimeFromLegacyHhmm` e' l'unico punto in cui la codifica `HHMM` dei parametri
+  sweep entra ancora nel codice. `LevelFader` risolve "fine sessione" con `EffectiveSessionEnd`
+  (`End == EndOfDay ? Start : End`) e la finestra a ore piene senza leggere `.Hour`; MAC chiede
+  alla griglia `IsLastBarOfSession(barTime)` invece di confrontare orari.
+
+  Fuori dalle strategie: `SymbolCalendar.SessionStart`, `MarketPhase.Start/End`, `WindowEdge.Time`,
+  `SessionGrid.SessionStart`, `InstrumentSpec.ResearchSessionStart`, `StrategyHoursCard` e
+  `StrategyHoursWindow` sono `TimeOnly` (il JSON `market-calendars.json` tiene la chiave
+  `sessionStartHour`, che e' un'ora intera per costruzione). La `Holding` del piano ha
+  `SessionFlatUtc` e `WeekEnd.FromUtc/UntilUtc` come `TimeOnly`, serializzati `HH:mm:ss`;
+  `WeekEndFlatPolicy` non e' piu' posizionale e i suoi default (20:45, 23:00) valgono anche per un
+  JSON che non li dichiara. I `plans.json` scritti fino alla 7.2 con `SessionFlatUtcHhmm`,
+  `FromUtcHhmm`, `UntilUtcHhmm` li traduce `TradingPlanService.MigrateLegacyHoldingTimes` alla
+  lettura (`PlanHoldingTimesMigrationTests`): senza, un piano salvato tornava con i default e
+  nessun errore lo diceva. La console li edita con un `DateTimePicker` `HH:mm` al posto dei
+  `NumericUpDown` 0-2359.
+
+  **Contratto con il cBot: 7.3.0.** `InstrumentBarGrid.SessionStart` e la `Holding` viaggiano come
+  `HH:mm:ss`; il bot (.NET 6, dove `System.Text.Json` non legge `TimeOnly`) li riceve come
+  `TimeSpan` — `Pair.SessionStart`, `_sessionFlatUtc`, `_weekEndFlatFromUtc/UntilUtc` — e
+  `IsWeekEndFlatWindow` confronta `nowUtc.TimeOfDay`. Un bot 7.2 contro un server 7.3 leggerebbe
+  zero al posto dell'ancoraggio dei bucket: il refuso di versione lo ferma prima.
+
+  Le schede e i log stampano `HH:mm`, e la fine di giornata `24:00`. `StrategyClockConformanceTests`
+  distingue ora una proprieta' (`.Hour`, `.TimeOfDay` di un `DateTime`, vietati) da una chiamata
+  (`Clock.TimeOfDay(bar)`, la forma corretta). Suite: 929 verdi, gli stessi 13 rossi di prima.

@@ -81,8 +81,9 @@ public sealed class TfEngineParityTests
 
     private sealed class TestTfMirrored : TfMirroredEngine
     {
-        public int Start { set => StartHour = value; }
-        public int End { set => EndHour = value; }
+        /// <summary>Ore piene come <c>start_hour</c>/<c>end_hour</c> Python; -1 = nessun limite.</summary>
+        public int Start { set => WindowStart = value < 0 ? null : new TimeOnly(value, 0); }
+        public int End { set => WindowEnd = value < 0 ? null : new TimeOnly(value, 0); }
         public int Skip { set => SkipDay = value; }
 
         public override string Name => "TEST_TF_M";

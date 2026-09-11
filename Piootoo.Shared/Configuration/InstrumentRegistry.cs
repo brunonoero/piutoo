@@ -131,7 +131,7 @@ public static class InstrumentRegistry
                 TickSize = contract.TickSize,
                 Description = contract.Description,
                 SessionTimeZone = market.ExchangeTimeZone,
-                ResearchSessionStartHour = market.SessionStartHour,
+                ResearchSessionStart = market.SessionStart,
                 SessionDays = market.SessionDays
             };
         }

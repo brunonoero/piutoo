@@ -45,11 +45,11 @@ public abstract class TrendDeveloperEngine : EasyEngineBase
 
     // ------------------------------------------------------------------ finestra e limiti
 
-    /// <summary>Inizio finestra operativa HHMM (<c>MyStartTrade</c>).</summary>
-    protected int StartTrade;
+    /// <summary>Inizio finestra operativa (<c>MyStartTrade</c>). <c>null</c> = da inizio giornata.</summary>
+    protected TimeOnly? StartTrade;
 
-    /// <summary>Fine finestra operativa HHMM (<c>MyEndTrade</c>).</summary>
-    protected int EndTrade = 2359;
+    /// <summary>Fine finestra operativa (<c>MyEndTrade</c>). <c>null</c> = fino a fine giornata.</summary>
+    protected TimeOnly? EndTrade;
 
     /// <summary>
     /// Se true la fine finestra è inclusa. L'originale 291 usa <c>tw()</c>, che esclude la fine;
@@ -69,10 +69,10 @@ public abstract class TrendDeveloperEngine : EasyEngineBase
     /// pausa risulta <b>disattivata</b>. È il modo idiomatico con cui quelle strategie la
     /// spengono senza rimuovere il codice: va riprodotto, non "corretto".</para>
     /// </summary>
-    protected int PauseStart = -1;
+    protected TimeOnly? PauseStart;
 
     /// <summary>Fine della pausa (<c>MyEndPause</c>).</summary>
-    protected int PauseEnd = -1;
+    protected TimeOnly? PauseEnd;
 
     // ------------------------------------------------------------------ gate di pattern
 
@@ -189,7 +189,7 @@ public abstract class TrendDeveloperEngine : EasyEngineBase
     /// identica in backtest e in <c>ExternalBroker</c>, dove i segnali di sola chiusura non
     /// verrebbero mai eseguiti.</para>
     /// </summary>
-    protected int CloseAtTime = -1;
+    protected TimeOnly? CloseAtTime;
 
     // ------------------------------------------------------------------ estensione per sottoclassi
 
@@ -243,7 +243,7 @@ public abstract class TrendDeveloperEngine : EasyEngineBase
         // apertura in multipli di volatilità. Calcolato una volta per barra, non per verso.
         var sessionOpen = ohlc[0];
         var atrSeries = AtrGateOnSessionSeries
-            ? EasyLib.BuildSessionSeries(Clock, SessionStartTime, SessionEndTime, data, barTime)
+            ? EasyLib.BuildSessionSeries(Clock, SessionStart, SessionEnd, data, barTime)
             : data;
         var atr = AtrGateLength > 0 ? EasyLib.AvgTrueRange(atrSeries, AtrGateLength) : 0m;
         var atrGateLong = AtrGateLength <= 0 || AtrGateMultiplierLong <= 0m ||
@@ -294,19 +294,13 @@ public abstract class TrendDeveloperEngine : EasyEngineBase
 
     private TradeSignal WithSessionClose(TradeSignal signal, DateTime barTime)
     {
-        if (CloseAtTime >= 0)
-            signal.CloseAtUtc = ResolveCloseAtUtc(barTime, CloseAtTime);
+        if (CloseAtTime is { } closeAt)
+            signal.CloseAtUtc = ResolveCloseAtUtc(barTime, closeAt);
         return signal;
     }
 
-    private bool OutsidePause(DateTime barTime)
-    {
-        if (PauseStart < 0 || PauseEnd < 0) return true;
-        var t = ParamHhmm(barTime);
-        return t < PauseStart || t > PauseEnd;
-    }
+    private bool OutsidePause(DateTime barTime) => !InPause(PauseStart, PauseEnd, ParamTime(barTime));
 
-    private bool InWindow(DateTime barTime) => InclusiveWindowEnd
-        ? EasyLib.TimeWindowInclusive(StartTrade, EndTrade, ParamHhmm(barTime))
-        : EasyLib.TimeWindow(StartTrade, EndTrade, ParamHhmm(barTime));
+    private bool InWindow(DateTime barTime) =>
+        InWindow(StartTrade, EndTrade, ParamTime(barTime), InclusiveWindowEnd);
 }

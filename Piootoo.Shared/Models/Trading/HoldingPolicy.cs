@@ -59,7 +59,7 @@ public sealed record AccountHoldingPolicy
 {
     /// <summary>
     /// Il conto puo' restare in posizione oltre la fine della sessione. Quando e' falso ogni
-    /// posizione riceve una deadline a <see cref="SessionFlatUtcHhmm"/>, salvo che la strategia ne
+    /// posizione riceve una deadline a <see cref="SessionFlatUtc"/>, salvo che la strategia ne
     /// dichiari gia' una piu' stretta.
     /// </summary>
     public bool AllowOvernight { get; init; } = true;
@@ -71,10 +71,11 @@ public sealed record AccountHoldingPolicy
     public bool AllowOverweek { get; init; }
 
     /// <summary>
-    /// Ora UTC HHMM del flat giornaliero, usata solo quando <see cref="AllowOvernight"/> e' falso.
-    /// Un numero solo per tutto il conto: vedi la nota di tipo.
+    /// Ora UTC del flat giornaliero, usata solo quando <see cref="AllowOvernight"/> e' falso.
+    /// Un orario solo per tutto il conto: vedi la nota di tipo. E' UTC perche' e' del conto, non
+    /// di una borsa: non passa da <c>SessionClock</c> e non ha fuso da risolvere.
     /// </summary>
-    public int SessionFlatUtcHhmm { get; init; } = TradingConventions.SessionFlatFromUtcHhmm;
+    public TimeOnly SessionFlatUtc { get; init; } = TradingConventions.SessionFlatFromUtc;
 
     /// <summary>Finestra di flat del fine settimana, usata quando <see cref="AllowOverweek"/> e' falso.</summary>
     public WeekEndFlatPolicy WeekEnd { get; init; } = WeekEndFlatPolicy.Default;
@@ -103,36 +104,27 @@ public sealed record AccountHoldingPolicy
             throw new InvalidOperationException(
                 "Un piano non puo' permettere l'overweek vietando l'overnight: tenere il fine " +
                 "settimana e' un caso particolare di tenere oltre la sessione.");
-
-        if (!AllowOvernight && !WeekEndFlatPolicy.IsValidHhmm(SessionFlatUtcHhmm))
-            throw new InvalidOperationException(
-                $"Orario di flat di sessione non valido: {SessionFlatUtcHhmm}. Atteso HHMM UTC, es. 2045.");
     }
 
     /// <summary>
-    /// La prima occorrenza di <see cref="SessionFlatUtcHhmm"/> <b>successiva</b> all'istante di
+    /// La prima occorrenza di <see cref="SessionFlatUtc"/> <b>successiva</b> all'istante di
     /// riferimento, che e' la barra su cui l'ordine e' valido. Stessa convenzione di
     /// <c>EasyEngineBase.ResolveCloseAtUtc</c>, ma su orologio UTC puro: questo orario e' del conto,
     /// non della borsa, quindi non passa da <c>SessionClock</c> e non ha fuso da risolvere.
     /// </summary>
     public DateTime ResolveSessionFlatUtc(DateTime referenceUtc)
     {
-        var day = referenceUtc.Date;
-        var target = DateTime.SpecifyKind(
-            day.AddHours(SessionFlatUtcHhmm / 100).AddMinutes(SessionFlatUtcHhmm % 100),
-            DateTimeKind.Utc);
+        var target = DateTime.SpecifyKind(referenceUtc.Date.Add(SessionFlatUtc.ToTimeSpan()), DateTimeKind.Utc);
         return target <= referenceUtc ? target.AddDays(1) : target;
     }
 
     /// <summary>Etichetta compatta per pannelli e log: dice cosa il conto concede, non come e' scritto.</summary>
     public string Describe() => (AllowOvernight, AllowOverweek) switch
     {
-        (false, _) => $"flat di sessione {Hhmm(SessionFlatUtcHhmm)} UTC",
-        (true, false) => $"overnight, flat weekend ven {Hhmm(WeekEnd.FromUtcHhmm)} → dom {Hhmm(WeekEnd.UntilUtcHhmm)} UTC",
+        (false, _) => $"flat di sessione {SessionFlatUtc:HH\\:mm} UTC",
+        (true, false) => $"overnight, flat weekend {WeekEnd.Describe()}",
         (true, true) => "overnight e overweek liberi"
     };
-
-    private static string Hhmm(int value) => $"{value / 100:00}:{value % 100:00}";
 }
 
 /// <summary>

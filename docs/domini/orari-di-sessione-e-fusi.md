@@ -122,13 +122,13 @@ sessione in ora di New York.
 
 `SessionClock` è l'unico punto del sistema in cui compare un fuso diverso da
 UTC. Converte l'istante della barra in ora di borsa ed espone le tre cose che
-servono alla segmentazione: `ToSessionTime`, `Hhmm` e `SessionDay`.
+servono alla segmentazione: `ToSessionTime`, `TimeOfDay` (un `TimeOnly`) e `SessionDay`.
 
 Il **giorno di calendario conta quanto l'ora**. Il cambio di giorno è una delle
 condizioni che aprono una sessione nuova in `OHLCMulti5` e in `InSessionBars`,
 e se lo si leggesse in UTC mentre l'ora è in ora di borsa cadrebbe nel mezzo
 della sessione invece che nella pausa. Chi tocca quelle funzioni deve convertire
-entrambi, non solo `Hhmm`.
+entrambi, non solo `TimeOfDay`.
 
 L'istanza tiene in cache l'offset dell'ultimo giorno UTC visto, perché le barre
 arrivano in ordine e senza cache si pagherebbe una ricerca sul fuso per ogni
@@ -190,12 +190,24 @@ Una strategia dichiara **due** finestre, ciascuna con il proprio fuso, ed e' l'u
 sapere sugli orari:
 
 ```csharp
-// il confine di sessione: governa d0..d5, un'entrata per sessione, chiusura di fine sessione
-Session = new ZonedWindow(1700, 1600, ZonedWindow.CmeChicago);
+// il confine di sessione: governa d0..d5, un'entrata per sessione, chiusura di fine sessione.
+// Lo risolve il calendario del simbolo (ZonedWindow.ResearchSession(calendar.SessionStart));
+// una sessione di borsa si scriverebbe cosi':
+Session = ZonedWindow.Exchange(new TimeOnly(17, 0), new TimeOnly(16, 0));
 
 // la finestra operativa: start_hour/end_hour del run, verbatim, senza convertirli
 TradingWindow = ZonedWindow.ResearchHours(17, 10);
 ```
+
+**Un orario e' un `TimeOnly`, mai un intero** (dall'11/09/2026). `ZonedWindow.Start`/`End`,
+`SessionClock.TimeOfDay`/`BarLabelTime`, i campi dei motori (`StartTime`, `PauseStart`,
+`CloseAtTime`, ...), la `Holding` del piano e il calendario di mercato sono tutti `TimeOnly`; sul filo
+verso i cBot (.NET 6) viaggiano come `TimeSpan`, serializzati `HH:mm:ss`. La codifica `HHMM` delle
+sorgenti EasyLanguage entra in un punto solo, `EasyEngineBase.TimeFromLegacyHhmm`, per i parametri
+che una `PTS_*` riceve ancora come numero. "Fino a fine giornata" e' `ZonedWindow.EndOfDay`
+(`TimeOnly.MaxValue`, che le schede stampano `24:00`) e non piu' la sentinella `2359`: una finestra
+"tutta la sessione" e' `ZonedWindow.AllDay`, una "dalle N in poi" e' `ZonedWindow.ResearchFrom(N)`,
+e un campo di motore a `null` vuol dire "nessun limite da quel lato".
 
 Sono due perche' vivono in orologi diversi. Il confine di sessione e' nell'ora di **borsa** dello
 strumento — `1700` Chicago per NQ, `1800` New York per GC, che sono lo stesso istante. La finestra
@@ -260,7 +272,7 @@ altri:
    l'uscita di fine sessione. Viene dal calendario del simbolo, oppure da `OverrideSessionAnchor`, e
    in quel caso la scheda stampa `OVERRIDE` con il motivo dichiarato accanto all'ora del calendario.
 2. **Finestra operativa** — `start_hour`/`end_hour` del run di ricerca, verbatim, con l'orologio in
-   cui sono scritti. Una `0000-2359` non e' un filtro: e' la forma in cui un run che non ha filtrato
+   cui sono scritti. Una finestra a giornata piena (`ZonedWindow.AllDay`) non e' un filtro: e' la forma in cui un run che non ha filtrato
    per ora scrive i propri orari, e la scheda lo dice invece di elencare una fascia esclusa che non
    esiste.
 3. **Negoziazione dello strumento** — le finestre di `SessionMask`, cioe' quando il mercato e'
@@ -286,9 +298,11 @@ strategie sullo stesso stream.
   perché non è "la borsa dello strumento".
 - `Piootoo.Strategies/Easy/EasyLib.cs` — `OHLCMulti5`, `BuildSessionSeries`,
   `LastBarOfPreviousSession`, `InSessionBars`, `TimeWindow`,
-  `IsSessionLastBar`, `CombineDateAndHhmm`.
+  `IsSessionLastBar`.
 - `Piootoo.Strategies/Easy/Engines/EasyEngineBase.cs` — `BuildSessionOhlc`,
-  `Hhmm`, `EasyDayOfWeek`.
+  `TimeOfDay`, `ParamTime`, `InWindow`, `TimeFromLegacyHhmm`, `EasyDayOfWeek`.
+- `Piootoo.Shared/Configuration/ZonedWindow.cs` — `EndOfDay`, `AllDay`,
+  `ResearchSession`, `ResearchHours`, `ResearchFrom`.
 - `Piootoo.Strategies.Tests/SessionClockTests.cs` — regressioni sull'ora
   legale.
 - [`datafeed-generazione.md`](datafeed-generazione.md) — come si accerta

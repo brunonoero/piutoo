@@ -173,7 +173,7 @@ public sealed class SessionRestoreTests : IDisposable
         SavePlan(aperta.WorkspaceId, new AccountHoldingPolicy
         {
             AllowOvernight = false,
-            SessionFlatUtcHhmm = 2045
+            SessionFlatUtc = new TimeOnly(20, 45)
         });
 
         var secondo = NewService();

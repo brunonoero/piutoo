@@ -44,8 +44,11 @@ public sealed record SymbolCalendar
     /// da 4h in su: sotto l'ora i due ancoraggi coincidono comunque, perché lo scarto di un fuso è
     /// un numero intero di ore. Un ancoraggio sbagliato non dà barre sbagliate: dà barre diverse, e
     /// nessun controllo a valle se ne accorge.</para>
+    ///
+    /// <para>Nel file resta <c>sessionStartHour</c>, un'ora piena: qui è un orario, perché ogni
+    /// aritmetica che lo consuma (griglia, sessione, deadline) lavora su orari e non su interi.</para>
     /// </summary>
-    public required int SessionStartHour { get; init; }
+    public required TimeOnly SessionStart { get; init; }
 
     /// <summary>
     /// I giorni in cui questo strumento ha una sessione, letti sul giorno di calendario
@@ -121,15 +124,15 @@ public sealed record SymbolCalendar
 /// locale sbaglia l'apertura per metà anno; modellare tutto in UTC sbaglia tutto il resto.</para>
 /// </summary>
 /// <param name="Name">Nome della fase (<c>asian</c>, <c>cash</c>, …).</param>
-/// <param name="StartHhmm">Orario di inizio, <c>HHMM</c>, nell'orologio di <paramref name="StartAnchor"/>.</param>
-/// <param name="StartAnchor">In che orologio è scritto <paramref name="StartHhmm"/>.</param>
-/// <param name="EndHhmm">Orario di fine, <c>HHMM</c>, nell'orologio di <paramref name="EndAnchor"/>.</param>
-/// <param name="EndAnchor">In che orologio è scritto <paramref name="EndHhmm"/>.</param>
+/// <param name="Start">Orario di inizio, nell'orologio di <paramref name="StartAnchor"/>.</param>
+/// <param name="StartAnchor">In che orologio è scritto <paramref name="Start"/>.</param>
+/// <param name="End">Orario di fine, nell'orologio di <paramref name="EndAnchor"/>.</param>
+/// <param name="EndAnchor">In che orologio è scritto <paramref name="End"/>.</param>
 public sealed record MarketPhase(
     string Name,
-    int StartHhmm,
+    TimeOnly Start,
     PhaseAnchor StartAnchor,
-    int EndHhmm,
+    TimeOnly End,
     PhaseAnchor EndAnchor);
 
 /// <summary>L'orologio in cui è scritto un orario di fase.</summary>

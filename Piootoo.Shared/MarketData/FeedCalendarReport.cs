@@ -87,7 +87,7 @@ public sealed record FeedCalendarReport
 
         var grid = new SessionGrid(calendar);
         var gridLabel =
-            $"{timeframeMinutes}m ancorati a {calendar.SessionStartHour:00}:00 {calendar.ResearchTimeZone}";
+            $"{timeframeMinutes}m ancorati a {calendar.SessionStart:HH\\:mm} {calendar.ResearchTimeZone}";
 
         if (bars.Count == 0)
         {

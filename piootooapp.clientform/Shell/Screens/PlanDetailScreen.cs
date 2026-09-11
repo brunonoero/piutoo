@@ -553,9 +553,9 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
     {
         _forceNightCloseCheckBox.Checked = !holding.AllowOvernight;
         _forceWeekCloseCheckBox.Checked = !holding.AllowOverweek;
-        _sessionFlatInput.Value = Math.Clamp(holding.SessionFlatUtcHhmm, 0, 2359);
-        _weekEndFromInput.Value = Math.Clamp(holding.WeekEnd.FromUtcHhmm, 0, 2359);
-        _weekEndUntilInput.Value = Math.Clamp(holding.WeekEnd.UntilUtcHhmm, 0, 2359);
+        SetTime(_sessionFlatInput, holding.SessionFlatUtc);
+        SetTime(_weekEndFromInput, holding.WeekEnd.FromUtc);
+        SetTime(_weekEndUntilInput, holding.WeekEnd.UntilUtc);
         ApplyHoldingEnablement();
     }
 
@@ -564,9 +564,21 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
     {
         AllowOvernight = !_forceNightCloseCheckBox.Checked,
         AllowOverweek = !_forceWeekCloseCheckBox.Checked,
-        SessionFlatUtcHhmm = (int)_sessionFlatInput.Value,
-        WeekEnd = new WeekEndFlatPolicy((int)_weekEndFromInput.Value, (int)_weekEndUntilInput.Value)
+        SessionFlatUtc = GetTime(_sessionFlatInput),
+        WeekEnd = new WeekEndFlatPolicy(GetTime(_weekEndFromInput), GetTime(_weekEndUntilInput))
     };
+
+    /// <summary>
+    /// I tre orari sono UTC puri: il controllo mostra solo <c>HH:mm</c> e la data che porta con se'
+    /// e' un giorno fisso, mai quello di oggi, cosi' nessun fuso della macchina entra nel valore.
+    /// </summary>
+    private static readonly DateTime TimeAnchorDay = new(2000, 1, 1, 0, 0, 0, DateTimeKind.Unspecified);
+
+    private static void SetTime(DateTimePicker input, TimeOnly time) =>
+        input.Value = TimeAnchorDay.Add(time.ToTimeSpan());
+
+    private static TimeOnly GetTime(DateTimePicker input) =>
+        new(input.Value.Hour, input.Value.Minute);
 
     /// <summary>
     /// Un orario di taglio ha senso solo se quel taglio esiste: mostrare un campo attivo che non
@@ -945,8 +957,8 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
                     Timeframe = strategy.TimeframeMinutes > 0 ? $"{strategy.TimeframeMinutes}m" : "—",
                     Holding = conflict.Holding.Describe(),
                     Effect = conflict.CutAtSessionFlat
-                        ? $"chiusa ogni giorno alle {Hhmm(holding.SessionFlatUtcHhmm)} UTC"
-                        : $"chiusa il venerdi alle {Hhmm(holding.WeekEnd.FromUtcHhmm)} UTC"
+                        ? $"chiusa ogni giorno alle {holding.SessionFlatUtc:HH\\:mm} UTC"
+                        : $"chiusa il venerdi alle {holding.WeekEnd.FromUtc:HH\\:mm} UTC"
                 });
             }
 
@@ -974,8 +986,6 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
         _conflicts.ReapplySort();
         _conflicts.ResetBindings();
     }
-
-    private static string Hhmm(int value) => $"{value / 100:00}:{value % 100:00}";
 
     private static decimal Clamp(NumericUpDown input, decimal value)
         => Math.Clamp(value, input.Minimum, input.Maximum);
@@ -1101,8 +1111,8 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
         var holding = ReadHolding();
         try
         {
-            // Stessa validazione del server, anticipata: un HHMM impossibile va detto mentre lo si
-            // sta scrivendo, non come 400 al salvataggio.
+            // Stessa validazione del server, anticipata: una policy incoerente va detta mentre la
+            // si sta scrivendo, non come 400 al salvataggio.
             holding.Validate();
         }
         catch (InvalidOperationException ex)

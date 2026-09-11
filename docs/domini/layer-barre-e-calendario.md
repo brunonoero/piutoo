@@ -27,7 +27,7 @@ producono un errore — producono barre *diverse*, tutte plausibili.
 | `PiootooDistributedExecutionBot` | i bucket dell'esecuzione distribuita | quarta copia |
 | `EasyLib.ClassifySessionBar` + `FullDaySessionDay` | il confine di `d0..d5`, il secchio degli ingressi, l'uscita di fine sessione | ricalcolato dai timestamp a ogni valutazione |
 | `EasyEngineBase.ResolveEntrySessionStartUtc` / `SessionBarToUtc` / `ResolveCloseAtUtc`, più le copie in `PriceChannelEngine`, `BiasWeeklyEngine`, `ReversalBollingerBandEngines` | l'inizio della sessione di appartenenza di un segnale | aritmetica a **giorni di calendario** (`AddDays(±1)`) |
-| `InstrumentRegistry` (`SessionTimeZone`, `ResearchSessionStartHour`, `SessionDays`) | il fuso e i giorni di sessione | tabella C# hardcoded |
+| `InstrumentRegistry` (`SessionTimeZone`, `ResearchSessionStart`, `SessionDays`) | il fuso e i giorni di sessione | tabella C# hardcoded |
 
 Il commento su `SessionStartHourOf` nel cBot lo dice già senza giri di parole:
 «È una copia della tabella — il bot gira dentro cTrader e non vede
@@ -135,7 +135,7 @@ oggi per `PointValue`.
 
 `InstrumentRegistry` **non sparisce**: resta la sorgente della parte economica
 (`PointValue`, `TickSize`, `Currency`), che con il calendario non c'entra. Cede
-al calendario `SessionTimeZone`, `ResearchSessionStartHour` e `SessionDays`, e per
+al calendario `SessionTimeZone`, `ResearchSessionStart` e `SessionDays`, e per
 un periodo continua a esporne i getter inoltrando al layer, così le 124 classi
 `PTS_*` non vanno toccate tutte insieme.
 
@@ -764,7 +764,7 @@ Stato attuale, da leggere prima di toccare qualunque passo del §7.
   `ResearchHours`, i fusi.
 - `Piootoo.Shared/Configuration/InstrumentRegistry.cs` — la tabella che diventa un
   file.
-- `Piootoo.Shared/Models/Trading/InstrumentSpec.cs` — `ResearchSessionStartHour`,
+- `Piootoo.Shared/Models/Trading/InstrumentSpec.cs` — `ResearchSessionStart`,
   `SessionDays`.
 - `Piootoo.Strategies/Easy/EasyLib.cs` — `ClassifySessionBar`,
   `FullDaySessionDay`, `OHLCMulti5`, `BuildSessionSeries`, `InSessionBars`.

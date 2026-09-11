@@ -42,7 +42,7 @@ namespace Piootoo.Strategies.Easy;
 public static class EasyLib
 {
     /// <summary>
-    /// Una sessione dichiarata come <c>(ancoraggio, 2359)</c> copre l'intera giornata a partire
+    /// Una sessione dichiarata come <c>(ancoraggio, fine giornata)</c> copre l'intera giornata a partire
     /// dall'ancoraggio: è la forma di <c>ZonedWindow.ResearchSession(h)</c>, cioè il taglio del
     /// motore di ricerca <c>(timestamp − 1 min − session_start_hour).normalize()</c>. Ogni barra
     /// appartiene a una sessione e il confine è l'ancoraggio, non una finestra di negoziazione.
@@ -51,8 +51,8 @@ public static class EasyLib
     /// <c>(0900, 1600)</c> — dove le barre fuori orario davvero non appartengono a nessuna
     /// sessione, e che continuano a seguire il percorso storico.</para>
     /// </summary>
-    private static bool IsFullDaySession(int sessionStartTime, int sessionEndTime) =>
-        sessionStartTime < sessionEndTime && sessionEndTime >= 2359;
+    private static bool IsFullDaySession(TimeOnly sessionStartTime, TimeOnly sessionEndTime) =>
+        sessionStartTime < sessionEndTime && sessionEndTime == ZonedWindow.EndOfDay;
 
     /// <summary>
     /// Il giorno di sessione di una barra su una sessione a giornata piena: la data locale,
@@ -67,10 +67,10 @@ public static class EasyLib
     /// oraria ancorata all'01:00, un bucket su sei su una 4h. Misurato con una sonda su questa
     /// funzione: 22 barre su 24 e 5 bucket su 6.</para>
     /// </summary>
-    private static DateTime FullDaySessionDay(SessionClock clock, int sessionStartTime, DateTime barTime)
+    private static DateTime FullDaySessionDay(SessionClock clock, TimeOnly sessionStartTime, DateTime barTime)
     {
         var day = clock.SessionDay(barTime);
-        return clock.Hhmm(barTime) >= sessionStartTime ? day : day.AddDays(-1);
+        return clock.TimeOfDay(barTime) >= sessionStartTime ? day : day.AddDays(-1);
     }
 
     /// <summary>
@@ -83,7 +83,7 @@ public static class EasyLib
     /// devono parlare della stessa sessione per costruzione.</para>
     /// </summary>
     private static (bool InSession, bool StartsNewSession) ClassifySessionBar(
-        SessionClock clock, int sessionStartTime, int sessionEndTime,
+        SessionClock clock, TimeOnly sessionStartTime, TimeOnly sessionEndTime,
         DateTime barTime, DateTime? previousBarTime)
     {
         if (IsFullDaySession(sessionStartTime, sessionEndTime))
@@ -97,7 +97,7 @@ public static class EasyLib
         // Percorso storico: sessioni di borsa, con le barre fuori orario che non appartengono a
         // nessuna sessione.
         var oneDaySession = sessionStartTime < sessionEndTime;
-        var t = clock.Hhmm(barTime);
+        var t = clock.TimeOfDay(barTime);
         var timeStarted = t > sessionStartTime;
         var timeNotEnded = t <= sessionEndTime;
 
@@ -108,7 +108,7 @@ public static class EasyLib
         if (previousBarTime is not { } previous)
             return (inSession, false);
 
-        var prevT = clock.Hhmm(previous);
+        var prevT = clock.TimeOfDay(previous);
         var prevTimeLessSTime = prevT <= sessionStartTime;
         var day2 = clock.SessionDay(barTime);
         var prevDay = clock.SessionDay(previous);
@@ -128,7 +128,7 @@ public static class EasyLib
     /// allineato a f__OHLCMulti5 (isBarTimeEndTime = true).
     /// Restituisce true se la barra corrente è l'inizio di una nuova sessione.
     /// </summary>
-    public static bool OHLCMulti5(SessionClock clock, int sessionStartTime, int sessionEndTime, OhlcvData[] data, DateTime currentDate, out decimal[] ohlcValues)
+    public static bool OHLCMulti5(SessionClock clock, TimeOnly sessionStartTime, TimeOnly sessionEndTime, OhlcvData[] data, DateTime currentDate, out decimal[] ohlcValues)
     {
         ohlcValues = new decimal[24];
 
@@ -229,7 +229,7 @@ public static class EasyLib
     /// compone, coerente con <c>isBarTimeEndTime = true</c>.</para>
     /// </summary>
     public static OhlcvData[] BuildSessionSeries(
-        SessionClock clock, int sessionStartTime, int sessionEndTime, OhlcvData[] data, DateTime currentDate)
+        SessionClock clock, TimeOnly sessionStartTime, TimeOnly sessionEndTime, OhlcvData[] data, DateTime currentDate)
     {
         if (data is null || data.Length == 0)
             return [];
@@ -283,7 +283,7 @@ public static class EasyLib
     /// <para>Restituisce <c>null</c> se nella finestra non c'è nemmeno una sessione conclusa.</para>
     /// </summary>
     public static OhlcvData? LastBarOfPreviousSession(
-        SessionClock clock, int sessionStartTime, int sessionEndTime, OhlcvData[] data, DateTime currentDate)
+        SessionClock clock, TimeOnly sessionStartTime, TimeOnly sessionEndTime, OhlcvData[] data, DateTime currentDate)
     {
         if (data is null || data.Length == 0)
             return null;
@@ -313,7 +313,7 @@ public static class EasyLib
     /// inizio: apre la sessione troncata da cui comincia la finestra.</para>
     /// </summary>
     private static IEnumerable<(OhlcvData Bar, bool StartsNewSession)> InSessionBars(
-        SessionClock clock, int sessionStartTime, int sessionEndTime, OhlcvData[] bars, int count)
+        SessionClock clock, TimeOnly sessionStartTime, TimeOnly sessionEndTime, OhlcvData[] bars, int count)
     {
         // Il confine è quello di ClassifySessionBar, lo stesso che usa OHLCMulti5: d0..d5 e le
         // serie derivate devono parlare della stessa sessione per costruzione, non per disciplina
@@ -986,13 +986,13 @@ public static class EasyLib
     /// Time Window - verifica se l'ora corrente è nel range specificato (fine esclusiva, come tw()).
     /// Gestisce anche il caso in cui startTime > endTime (sessione che attraversa la mezzanotte).
     ///
-    /// <para><b>Prende un <c>HHMM</c>, non una barra</b>, ed è voluto: quale nome porti una barra
+    /// <para><b>Prende un orario, non una barra</b>, ed è voluto: quale nome porti una barra
     /// quando la si confronta con una soglia dei parametri lo decide un punto solo,
-    /// <c>SessionClock.BarLabelHhmm</c> via <c>EasyEngineBase.ParamHhmm</c>. Se questa funzione
+    /// <c>SessionClock.BarLabelTime</c> via <c>EasyEngineBase.ParamTime</c>. Se questa funzione
     /// accettasse un istante, ogni chiamante potrebbe rispondere a quella domanda per conto proprio
     /// — che è come la convenzione si era sparpagliata in ventidue punti.</para>
     /// </summary>
-    public static bool TimeWindow(int startTime, int endTime, int currentTime)
+    public static bool TimeWindow(TimeOnly startTime, TimeOnly endTime, TimeOnly currentTime)
     {
         if (startTime > endTime)
         {
@@ -1007,7 +1007,7 @@ public static class EasyLib
     /// <summary>
     /// Finestra oraria con estremi inclusivi, come la logica inline di Easy 152.
     /// </summary>
-    public static bool TimeWindowInclusive(int startTime, int endTime, int currentTime)
+    public static bool TimeWindowInclusive(TimeOnly startTime, TimeOnly endTime, TimeOnly currentTime)
     {
         if (startTime > endTime)
         {
@@ -1036,13 +1036,13 @@ public static class EasyLib
     /// <summary>
     /// Verifica se è l'ultima barra della sessione (semplificato)
     /// </summary>
-    public static bool IsSessionLastBar(SessionClock clock, OhlcvData[] data, DateTime currentDate, int sessionStartTime, int sessionEndTime)
+    public static bool IsSessionLastBar(SessionClock clock, OhlcvData[] data, DateTime currentDate, TimeOnly sessionStartTime, TimeOnly sessionEndTime)
     {
         if (data == null || data.Length == 0)
             return false;
         
-        var currentTime = clock.Hhmm(currentDate);
-        var nextBarTime = clock.Hhmm(currentDate.AddMinutes(GetTimeframeMinutes(data)));
+        var currentTime = clock.TimeOfDay(currentDate);
+        var nextBarTime = clock.TimeOfDay(currentDate.AddMinutes(GetTimeframeMinutes(data)));
         
         // Se la prossima barra sarebbe fuori dalla sessione, questa è l'ultima
         if (sessionStartTime > sessionEndTime)

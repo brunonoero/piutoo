@@ -209,7 +209,7 @@ public static class MarketCalendarRegistry
             Symbol = MarketCalendar.Normalize(symbol),
             ExchangeTimeZone = exchangeTz,
             ResearchTimeZone = researchTz,
-            SessionStartHour = hour,
+            SessionStart = new TimeOnly(hour, 0),
             SessionDays = ParseSessionDays(element, symbol, origin),
             Phases = ParsePhases(element, symbol, origin),
             TradingWindows = ParseTradingWindows(element, symbol, origin),
@@ -288,9 +288,9 @@ public static class MarketCalendarRegistry
         {
             parsed.Add(new MarketPhase(
                 RequiredString(phase, "name", symbol, origin),
-                ParseHhmm(RequiredString(phase, "start", symbol, origin), symbol, origin),
+                ParseTime(RequiredString(phase, "start", symbol, origin), symbol, origin),
                 ParseAnchor(phase, "startAnchor", symbol, origin),
-                ParseHhmm(RequiredString(phase, "end", symbol, origin), symbol, origin),
+                ParseTime(RequiredString(phase, "end", symbol, origin), symbol, origin),
                 ParseAnchor(phase, "endAnchor", symbol, origin)));
         }
 
@@ -400,7 +400,7 @@ public static class MarketCalendarRegistry
         }
 
         return new WindowEdge(
-            ParseHhmm(RequiredString(edge, "at", symbol, origin), symbol, origin),
+            ParseTime(RequiredString(edge, "at", symbol, origin), symbol, origin),
             ParseAnchor(edge, "anchor", symbol, origin));
     }
 
@@ -478,15 +478,12 @@ public static class MarketCalendarRegistry
         };
     }
 
-    private static int ParseHhmm(string text, string symbol, string origin)
+    private static TimeOnly ParseTime(string text, string symbol, string origin)
     {
-        var parts = text.Split(':');
-        if (parts.Length == 2 &&
-            int.TryParse(parts[0], out var hours) &&
-            int.TryParse(parts[1], out var minutes) &&
-            hours is >= 0 and <= 23 && minutes is >= 0 and <= 59)
+        if (TimeOnly.TryParseExact(text, "HH:mm", System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.None, out var time))
         {
-            return hours * 100 + minutes;
+            return time;
         }
 
         throw new MarketCalendarException(

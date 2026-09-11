@@ -90,7 +90,7 @@ public sealed class PTS_NQ_SBO_005_1440 : SessionBreakoutEngine
 
         // Finestra operativa: start_hour/end_hour del run, verbatim nell'orologio
         // della ricerca. Nessuna conversione: il fuso viaggia con il dato.
-        TradingWindow = ZonedWindow.Research(0, 2359);   // nessun filtro orario, finestra piena
+        TradingWindow = ZonedWindow.AllDay;   // nessun filtro orario, finestra piena
 
         Sessions = 1;                  // n_sess
         IncludeCurrentSession = false;; // lev_include_sess0 = 0

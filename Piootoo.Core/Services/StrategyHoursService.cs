@@ -73,7 +73,7 @@ public sealed class StrategyHoursService
 
         card.ResearchTimeZone = calendar.ResearchTimeZone;
         card.ExchangeTimeZone = calendar.ExchangeTimeZone;
-        card.CalendarSessionStartHour = calendar.SessionStartHour;
+        card.CalendarSessionStart = calendar.SessionStart;
         card.DeclaresSessionDays = calendar.DeclaresSessionDays;
         card.SessionDays = calendar.SessionDays is null
             ? []
@@ -101,7 +101,7 @@ public sealed class StrategyHoursService
         }
 
         card.SessionAnchorOverrideReason = engine.SessionAnchorOverrideReason;
-        card.SessionAnchorHour = engine.Session.StartHhmm / 100;
+        card.SessionAnchor = engine.Session.Start;
         card.Session = DescribeSession(engine.Session, calendar);
 
         if (engine.TradingWindow is { } window)
@@ -122,46 +122,46 @@ public sealed class StrategyHoursService
     /// <summary>
     /// Cosa la finestra operativa esclude, detto a parole.
     ///
-    /// <para><b>Una finestra <c>0000-2359</c> non è un filtro</b>: è la forma in cui un run di
+    /// <para><b>Una finestra a giornata piena non è un filtro</b>: è la forma in cui un run di
     /// ricerca che non ha filtrato per ora scrive <c>start_hour</c>/<c>end_hour</c>, e leggerla come
     /// "esclude dalle 23:59 alle 00:00" farebbe cercare un vincolo che non c'è. La distinzione conta
     /// perché è il caso di quasi metà delle finestre a 1440 del catalogo.</para>
     /// </summary>
     private static string DescribeEffect(ZonedWindow window)
     {
-        if (window.StartHhmm == 0 && window.EndHhmm == 2359)
+        if (window.IsAllDay)
         {
             return "Copre tutta la sessione: il run di ricerca non ha filtrato per ora, " +
                    "quindi la finestra non esclude nulla.";
         }
 
         return window.CrossesMidnight
-            ? $"Entra solo fra le {Hhmm(window.StartHhmm)} e le {Hhmm(window.EndHhmm)} del giorno dopo; " +
+            ? $"Entra solo fra le {Label(window.Start)} e le {Label(window.End)} del giorno dopo; " +
               "fuori da quella fascia nessun ingresso nasce."
-            : $"Entra solo fra le {Hhmm(window.StartHhmm)} e le {Hhmm(window.EndHhmm)}; " +
-              $"dalle {Hhmm(window.EndHhmm)} alle {Hhmm(window.StartHhmm)} nessun ingresso nasce.";
+            : $"Entra solo fra le {Label(window.Start)} e le {Label(window.End)}; " +
+              $"dalle {Label(window.End)} alle {Label(window.Start)} nessun ingresso nasce.";
     }
 
     /// <summary>
-    /// La sessione. La forma è sempre <c>(ancoraggio, 2359)</c>, cioè la giornata piena che parte
-    /// dall'ancoraggio: l'etichetta lo dice a parole invece di stampare un <c>2359</c> che si legge
-    /// come "finisce un minuto prima di mezzanotte" e non è quello che succede.
+    /// La sessione. La forma è sempre la giornata piena che parte dall'ancoraggio
+    /// (<see cref="ZonedWindow.ResearchSession"/>): l'etichetta lo dice a parole invece di stampare
+    /// una fine che si legge come "finisce un minuto prima di mezzanotte" e non è quello che succede.
     /// </summary>
     private static StrategyHoursWindow DescribeSession(ZonedWindow session, SymbolCalendar calendar)
     {
         var zone = ZoneOf(session.Clock, calendar);
         var clock = new SessionClock(zone);
-        var start = Hhmm(session.StartHhmm);
+        var start = Label(session.Start);
 
         return new StrategyHoursWindow
         {
-            StartHhmm = session.StartHhmm,
-            EndHhmm = session.EndHhmm,
+            Start = session.Start,
+            End = session.End,
             Clock = ClockName(session.Clock),
             TimeZoneId = zone,
             Label = $"{start} → {start} del giorno dopo · {zone} (orologio {ClockName(session.Clock)})",
-            WinterUtc = $"inizio {InstantOf(clock, WinterReference, session.StartHhmm)}",
-            SummerUtc = $"inizio {InstantOf(clock, SummerReference, session.StartHhmm)}"
+            WinterUtc = $"inizio {InstantOf(clock, WinterReference, session.Start)}",
+            SummerUtc = $"inizio {InstantOf(clock, SummerReference, session.Start)}"
         };
     }
 
@@ -172,16 +172,16 @@ public sealed class StrategyHoursService
 
         return new StrategyHoursWindow
         {
-            StartHhmm = window.StartHhmm,
-            EndHhmm = window.EndHhmm,
+            Start = window.Start,
+            End = window.End,
             Clock = ClockName(window.Clock),
             TimeZoneId = zone,
-            Label = $"{Hhmm(window.StartHhmm)} → {Hhmm(window.EndHhmm)} · {zone} " +
+            Label = $"{Label(window.Start)} → {Label(window.End)} · {zone} " +
                     $"(orologio {ClockName(window.Clock)})",
-            WinterUtc = $"{InstantOf(clock, WinterReference, window.StartHhmm)} → " +
-                        $"{InstantOf(clock, WinterReference, window.EndHhmm)}",
-            SummerUtc = $"{InstantOf(clock, SummerReference, window.StartHhmm)} → " +
-                        $"{InstantOf(clock, SummerReference, window.EndHhmm)}"
+            WinterUtc = $"{InstantOf(clock, WinterReference, window.Start)} → " +
+                        $"{InstantOf(clock, WinterReference, window.End)}",
+            SummerUtc = $"{InstantOf(clock, SummerReference, window.Start)} → " +
+                        $"{InstantOf(clock, SummerReference, window.End)}"
         };
     }
 
@@ -205,7 +205,7 @@ public sealed class StrategyHoursService
             To = window.To,
             Source = window.Source,
             Label = $"{open} → {close}" +
-                    (window.Close.Hhmm <= window.Open.Hhmm ? " del giorno dopo" : string.Empty) +
+                    (window.Close.Time <= window.Open.Time ? " del giorno dopo" : string.Empty) +
                     $" · apre {(days.Count == 0 ? "mai" : string.Join(" ", days))} · {period}"
         };
     }
@@ -217,18 +217,21 @@ public sealed class StrategyHoursService
     /// </summary>
     private static string DescribeEdge(WindowEdge edge, SymbolCalendar calendar) =>
         edge.Anchor == PhaseAnchor.Utc
-            ? $"{Hhmm(edge.Hhmm)} UTC"
-            : $"{Hhmm(edge.Hhmm)} {calendar.ExchangeTimeZone}";
+            ? $"{Label(edge.Time)} UTC"
+            : $"{Label(edge.Time)} {calendar.ExchangeTimeZone}";
 
     /// <summary>
     /// L'istante UTC di un orario locale nel giorno di riferimento, detto rispetto a quel giorno:
     /// una sessione ancorata all'01:00 di Roma comincia il <i>giorno prima</i> in UTC per metà anno,
     /// e omettere lo scarto di data farebbe leggere "23:00Z" come se fosse la sera dello stesso
-    /// giorno.
+    /// giorno. La fine di giornata si risolve come la mezzanotte successiva, che è l'istante che
+    /// rappresenta.
     /// </summary>
-    private static string InstantOf(SessionClock clock, DateTime localDay, int hhmm)
+    private static string InstantOf(SessionClock clock, DateTime localDay, TimeOnly time)
     {
-        var local = localDay.Date.AddHours(hhmm / 100).AddMinutes(hhmm % 100);
+        var local = time == ZonedWindow.EndOfDay
+            ? localDay.Date.AddDays(1)
+            : localDay.Date.Add(time.ToTimeSpan());
         var utc = clock.ToUtc(local);
         var shift = utc.Date.DayNumber() - localDay.Date.DayNumber();
 
@@ -246,8 +249,9 @@ public sealed class StrategyHoursService
     private static string ClockName(InstrumentClock clock) =>
         clock == InstrumentClock.Exchange ? "borsa" : "ricerca";
 
-    private static string Hhmm(int hhmm) =>
-        $"{hhmm / 100:00}:{hhmm % 100:00}";
+    /// <summary>La fine di giornata si legge "24:00": è la mezzanotte successiva, non le 23:59.</summary>
+    private static string Label(TimeOnly time) =>
+        time == ZonedWindow.EndOfDay ? "24:00" : time.ToString("HH:mm", CultureInfo.InvariantCulture);
 
     /// <summary>
     /// La tenuta dichiarata dalla strategia, con lo stesso ripiego del catalogo: chi non deriva da

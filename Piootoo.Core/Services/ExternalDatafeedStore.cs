@@ -457,7 +457,7 @@ public sealed class ExternalDatafeedStore
 
         result.Grid = timeframeMinutes == 1
             ? "griglia(1m)"
-            : $"griglia(1m->{timeframeMinutes}m, {calendar.ResearchTimeZone} {calendar.SessionStartHour:00}:00)";
+            : $"griglia(1m->{timeframeMinutes}m, {calendar.ResearchTimeZone} {calendar.SessionStart:HH\\:mm})";
 
         var minutes = await ReadCompactedAsync(normalizedBroker, symbol, 1);
         result.MinuteBars = minutes.Count;
@@ -530,7 +530,7 @@ public sealed class ExternalDatafeedStore
         }
 
         result.Grid =
-            $"griglia(1m->{timeframe}m, {calendar.ResearchTimeZone} {calendar.SessionStartHour:00}:00)";
+            $"griglia(1m->{timeframe}m, {calendar.ResearchTimeZone} {calendar.SessionStart:HH\\:mm})";
 
         // Il minuto si legge e si rilascia prima di prendere il gate del bersaglio: cosi' non si
         // tengono mai due lock insieme.

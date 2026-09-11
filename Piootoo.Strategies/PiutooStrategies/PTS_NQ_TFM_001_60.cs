@@ -73,8 +73,8 @@ public sealed class PTS_NQ_TFM_001_60 : TfMirroredEngine
         if (parameters.TryGetValue("TakeProfit", out var profit))
             ProfitMoney = Convert.ToInt32(profit);
         if (parameters.TryGetValue("StartHour", out var startHour))
-            TradingWindow = TradingWindow! with { StartHhmm = Convert.ToInt32(startHour) * 100 };
+            TradingWindow = TradingWindow! with { Start = new TimeOnly(Convert.ToInt32(startHour), 0) };
         if (parameters.TryGetValue("EndHour", out var endHour))
-            TradingWindow = TradingWindow! with { EndHhmm = Convert.ToInt32(endHour) * 100 };
+            TradingWindow = TradingWindow! with { End = new TimeOnly(Convert.ToInt32(endHour), 0) };
     }
 }

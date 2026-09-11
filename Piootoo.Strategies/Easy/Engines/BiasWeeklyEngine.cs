@@ -23,7 +23,7 @@ namespace Piootoo.Strategies.Easy.Engines;
 /// motori generano il segnale nello stesso istante.</para>
 ///
 /// <para><b>L'orario pianificato e' l'etichetta di chiusura della barra</b>, come lo scrive il
-/// dossier e come dal 08/09/2026 leggono finestra e filtro del giorno (<c>ParamHhmm</c>,
+/// dossier e come dal 08/09/2026 leggono finestra e filtro del giorno (<c>ParamTime</c>,
 /// <c>PythonWeekday</c>): la barra dell'ingresso e' quella la cui chiusura cade a <c>le_time</c>,
 /// e si entra alla sua apertura. Lo stesso per <c>lx_time</c>: la deadline e' l'apertura della
 /// barra che chiude a quell'ora. Con <c>LegacyBarOpenLabels</c> si torna al confronto
@@ -56,10 +56,10 @@ public abstract class BiasWeeklyEngine : EasyEngineBase
     /// </summary>
     protected sealed record WeeklySchedule(
         int EntryDay,
-        int EntryStartTime,
-        int EntryEndTime,
+        TimeOnly EntryStartTime,
+        TimeOnly EntryEndTime,
         int ExitDay,
-        int ExitTime,
+        TimeOnly ExitTime,
         int SkipMonth = 0);
 
     // ------------------------------------------------------------------ abilitazione e calendario
@@ -71,9 +71,9 @@ public abstract class BiasWeeklyEngine : EasyEngineBase
     protected int EntryDayLong = -1;
     protected int EntryDayShort = -1;
 
-    /// <summary>Orario HHMM del singolo ingresso long/short programmato.</summary>
-    protected int EntryTimeLong;
-    protected int EntryTimeShort;
+    /// <summary>Orario del singolo ingresso long/short programmato, come etichetta di chiusura della barra.</summary>
+    protected TimeOnly EntryTimeLong;
+    protected TimeOnly EntryTimeShort;
 
     /// <summary>
     /// Programmazioni aggiuntive. Se vuote, il motore usa i campi singoli storici qui sopra per
@@ -98,13 +98,13 @@ public abstract class BiasWeeklyEngine : EasyEngineBase
 
     // ------------------------------------------------------------------ calendario di uscita
 
-    /// <summary>Giorno/orario Python (0 = lunedì) dell'uscita long; -1 disabilita la deadline.</summary>
+    /// <summary>Giorno Python (0 = lunedì) e orario dell'uscita long; giorno -1 disabilita la deadline.</summary>
     protected int ExitDayLong = -1;
-    protected int ExitTimeLong;
+    protected TimeOnly ExitTimeLong;
 
-    /// <summary>Giorno/orario Python (0 = lunedì) dell'uscita short; -1 disabilita la deadline.</summary>
+    /// <summary>Giorno Python (0 = lunedì) e orario dell'uscita short; giorno -1 disabilita la deadline.</summary>
     protected int ExitDayShort = -1;
-    protected int ExitTimeShort;
+    protected TimeOnly ExitTimeShort;
 
     // ------------------------------------------------------------------ uscite monetarie, per verso
 
@@ -239,9 +239,9 @@ public abstract class BiasWeeklyEngine : EasyEngineBase
     private WeeklySchedule FindSchedule(
         IReadOnlyList<WeeklySchedule> schedules,
         int entryDay,
-        int entryTime,
+        TimeOnly entryTime,
         int exitDay,
-        int exitTime,
+        TimeOnly exitTime,
         DateTime barTime)
     {
         if (schedules.Count == 0)
@@ -253,7 +253,7 @@ public abstract class BiasWeeklyEngine : EasyEngineBase
                 return schedule;
         }
 
-        return new WeeklySchedule(-1, 0, 0, -1, 0);
+        return new WeeklySchedule(-1, TimeOnly.MinValue, TimeOnly.MinValue, -1, TimeOnly.MinValue);
     }
 
     /// <summary>
@@ -279,7 +279,7 @@ public abstract class BiasWeeklyEngine : EasyEngineBase
         if (data is null || data.Length == 0)
             return Array.Empty<string>();
 
-        var legs = new List<(string Nome, int Giorno, int Hhmm)>(4);
+        var legs = new List<(string Nome, int Giorno, TimeOnly Orario)>(4);
         if (EnableLong && EntryDayLong >= 0) legs.Add(("ingresso LONG", EntryDayLong, EntryTimeLong));
         if (EnableLong && ExitDayLong >= 0) legs.Add(("uscita LONG", ExitDayLong, ExitTimeLong));
         if (EnableShort && EntryDayShort >= 0) legs.Add(("ingresso SHORT", EntryDayShort, EntryTimeShort));
@@ -292,10 +292,10 @@ public abstract class BiasWeeklyEngine : EasyEngineBase
         {
             // Stessa etichetta con cui IsInScheduledEntry giudica la barra: la chiusura.
             var giorno = PythonWeekday(bar.DateTime);
-            var hhmm = ParamHhmm(bar.DateTime);
+            var orario = ParamTime(bar.DateTime);
             for (var index = 0; index < legs.Count; index++)
             {
-                if (legs[index].Giorno == giorno && legs[index].Hhmm == hhmm)
+                if (legs[index].Giorno == giorno && legs[index].Orario == orario)
                     conteggi[index]++;
             }
         }
@@ -306,7 +306,7 @@ public abstract class BiasWeeklyEngine : EasyEngineBase
             if (conteggi[index] == 0)
             {
                 irraggiungibili.Add(
-                    $"{legs[index].Nome} ({GiornoPython(legs[index].Giorno)} {legs[index].Hhmm:0000})");
+                    $"{legs[index].Nome} ({GiornoPython(legs[index].Giorno)} {legs[index].Orario:HH\\:mm})");
             }
         }
 
@@ -321,7 +321,7 @@ public abstract class BiasWeeklyEngine : EasyEngineBase
 
     /// <summary>
     /// Se la barra che apre in <paramref name="entryBarUtc"/> e' quella pianificata: giorno e
-    /// orario si leggono sulla sua <b>etichetta di chiusura</b> (<see cref="EasyEngineBase.ParamHhmm"/>,
+    /// orario si leggono sulla sua <b>etichetta di chiusura</b> (<see cref="EasyEngineBase.ParamTime"/>,
     /// <see cref="EasyEngineBase.PythonWeekday"/>), come per la finestra operativa degli altri motori.
     /// </summary>
     private bool IsInScheduledEntry(DateTime entryBarUtc, WeeklySchedule schedule)
@@ -329,9 +329,9 @@ public abstract class BiasWeeklyEngine : EasyEngineBase
         if (schedule.EntryDay < 0 || PythonDayOfWeek(entryBarUtc) != schedule.EntryDay)
             return false;
 
-        var hhmm = ParamHhmm(entryBarUtc);
-        return hhmm >= schedule.EntryStartTime &&
-               hhmm <= schedule.EntryEndTime &&
+        var orario = ParamTime(entryBarUtc);
+        return orario >= schedule.EntryStartTime &&
+               orario <= schedule.EntryEndTime &&
                (schedule.SkipMonth == 0 || LabelDay(entryBarUtc).Month != schedule.SkipMonth);
     }
 
@@ -341,9 +341,9 @@ public abstract class BiasWeeklyEngine : EasyEngineBase
 
     private DateTime GetSessionStartUtc(DateTime barTime)
     {
-        var sessionStart = Clock.SessionInstantUtc(barTime, SessionStartTime);
-        if (SessionStartTime > SessionEndTime && Hhmm(barTime) < SessionStartTime)
-            sessionStart = Clock.SessionInstantUtc(barTime.AddDays(-1), SessionStartTime);
+        var sessionStart = Clock.SessionInstantUtc(barTime, SessionStart);
+        if (SessionStart > SessionEnd && TimeOfDay(barTime) < SessionStart)
+            sessionStart = Clock.SessionInstantUtc(barTime.AddDays(-1), SessionStart);
         return sessionStart;
     }
 
@@ -354,9 +354,9 @@ public abstract class BiasWeeklyEngine : EasyEngineBase
     ///
     /// <para><c>lx_time</c> e' l'etichetta di chiusura della barra di uscita, come <c>le_time</c>
     /// per l'ingresso: la deadline e' quindi l'apertura di quella barra, un timeframe prima
-    /// dell'istante <c>HHMM</c>. Con <c>LegacyBarOpenLabels</c> resta l'istante stesso.</para>
+    /// dell'istante dichiarato. Con <c>LegacyBarOpenLabels</c> resta l'istante stesso.</para>
     /// </summary>
-    protected DateTime ResolveScheduledExitUtc(DateTime entryBarTime, int exitDay, int exitTime)
+    protected DateTime ResolveScheduledExitUtc(DateTime entryBarTime, int exitDay, TimeOnly exitTime)
     {
         for (var offset = 0; offset <= 7; offset++)
         {

@@ -23,16 +23,16 @@ public sealed class BiasWeeklyEngineParityTests
         var strategy = new TestBiasWeekly
         {
             LongEntryDay = 0,
-            LongEntryTime = 1000,   // c'e': la serie ha tutte le ore piene
+            LongEntryTime = new TimeOnly(10, 0),   // c'e': la serie ha tutte le ore piene
             LongExitDay = 1,
-            LongExitTime = 1030     // non c'e': serie oraria, nessuna barra a :30
+            LongExitTime = new TimeOnly(10, 30)    // non c'e': serie oraria, nessuna barra a :30
         };
 
         var morte = strategy.UnreachableScheduleLegs(SerieFitta());
 
         var leg = Assert.Single(morte);
         Assert.Contains("uscita LONG", leg);
-        Assert.Contains("1030", leg);
+        Assert.Contains("10:30", leg);
     }
 
     [Fact]
@@ -41,9 +41,9 @@ public sealed class BiasWeeklyEngineParityTests
         var strategy = new TestBiasWeekly
         {
             LongEntryDay = 0,
-            LongEntryTime = 1000,
+            LongEntryTime = new TimeOnly(10, 0),
             LongExitDay = 4,
-            LongExitTime = 1500
+            LongExitTime = new TimeOnly(15, 0)
         };
 
         Assert.Empty(strategy.UnreachableScheduleLegs(SerieFitta()));
@@ -65,9 +65,9 @@ public sealed class BiasWeeklyEngineParityTests
         var strategy = new TestBiasWeekly
         {
             LongEntryDay = 0,
-            LongEntryTime = 1000,
+            LongEntryTime = new TimeOnly(10, 0),
             LongExitDay = 4,
-            LongExitTime = 1500,
+            LongExitTime = new TimeOnly(15, 0),
             LongFastYes = 47,   // chiusure di sessione crescenti: vero sulla serie in salita
             LongFastNo = 48     // chiusure decrescenti: falso
         };
@@ -137,9 +137,9 @@ public sealed class BiasWeeklyEngineParityTests
     private sealed class TestBiasWeekly : BiasWeeklyEngine
     {
         public int LongEntryDay { set => EntryDayLong = value; }
-        public int LongEntryTime { set => EntryTimeLong = value; }
+        public TimeOnly LongEntryTime { set => EntryTimeLong = value; }
         public int LongExitDay { set => ExitDayLong = value; }
-        public int LongExitTime { set => ExitTimeLong = value; }
+        public TimeOnly LongExitTime { set => ExitTimeLong = value; }
         public int LongFastYes { set => FastYesLong = value; }
         public int LongFastNo { set => FastNoLong = value; }
 

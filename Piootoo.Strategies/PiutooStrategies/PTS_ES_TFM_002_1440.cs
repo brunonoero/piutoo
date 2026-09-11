@@ -85,7 +85,7 @@ public sealed class PTS_ES_TFM_002_1440 : TfMirroredEngine
 
         // Finestra operativa: start_hour/end_hour del run, verbatim nell'orologio
         // della ricerca. Nessuna conversione: il fuso viaggia con il dato.
-        TradingWindow = ZonedWindow.Research(0, 2359);   // nessun filtro orario, finestra piena
+        TradingWindow = ZonedWindow.AllDay;   // nessun filtro orario, finestra piena
 
         NeutralYes = 3;      // ptn_neut_yes
         NeutralNo = 34;       // ptn_neut_no

@@ -13,7 +13,7 @@ namespace Piootoo.Shared.MarketData;
 /// due divergono sui quattro giorni all'anno in cui l'ora legale cambia.</para>
 ///
 /// <para><b>L'orologio è quello della ricerca, non quello di borsa.</b> I bucket e il taglio delle
-/// sessioni <c>d0..d5</c> sono ancorati a <see cref="SymbolCalendar.SessionStartHour"/> nel fuso
+/// sessioni <c>d0..d5</c> sono ancorati a <see cref="SymbolCalendar.SessionStart"/> nel fuso
 /// <see cref="SymbolCalendar.ResearchTimeZone"/> — la mezzanotte europea, o l'01:00 per FDAX, CC,
 /// CT, KC e SB. Non è la sessione del broker né quella dell'exchange: è la scelta di modello che
 /// la ricerca ha fatto, ed è quella che il port deve riprodurre.</para>
@@ -71,7 +71,7 @@ public sealed class SessionGrid
     public SymbolCalendar Calendar { get; }
 
     /// <summary>Ora di inizio sessione, nell'orologio della ricerca.</summary>
-    public int SessionStartHour => Calendar.SessionStartHour;
+    public TimeOnly SessionStart => Calendar.SessionStart;
 
     /// <summary>
     /// Un timeframe è utilizzabile solo se divide il giorno. Un timeframe che non lo divide farebbe
@@ -94,12 +94,12 @@ public sealed class SessionGrid
     public DateTime SessionDayOf(DateTime instantUtc)
     {
         var day = _clock.SessionDay(instantUtc);
-        return _clock.Hhmm(instantUtc) >= SessionStartHour * 100 ? day : day.AddDays(-1);
+        return _clock.TimeOfDay(instantUtc) >= SessionStart ? day : day.AddDays(-1);
     }
 
     /// <summary>Istante UTC in cui si apre la sessione del giorno <paramref name="sessionDay"/>.</summary>
     public DateTime SessionOpenUtc(DateTime sessionDay) =>
-        _clock.ToUtc(sessionDay.Date.AddHours(SessionStartHour));
+        _clock.ToUtc(sessionDay.Date.Add(SessionStart.ToTimeSpan()));
 
     /// <summary>
     /// Vero se il simbolo ha una sessione in quel giorno. <c>null</c> quando il calendario non
@@ -168,7 +168,7 @@ public sealed class SessionGrid
         // ricerca, che segmenta sul giorno di calendario locale, e il port deve riprodurlo.
         var local = _clock.ToSessionTime(truncated);
 
-        var minutesFromAnchor = (int)local.TimeOfDay.TotalMinutes - SessionStartHour * 60;
+        var minutesFromAnchor = (int)(local.TimeOfDay - SessionStart.ToTimeSpan()).TotalMinutes;
         if (minutesFromAnchor < 0)
             minutesFromAnchor += 1440;
 

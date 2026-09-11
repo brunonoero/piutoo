@@ -108,7 +108,7 @@ public sealed class MarketCalendarConformanceTests
         var spec = InstrumentRegistry.Get(symbol);
 
         Assert.Equal(timeZone, spec.SessionTimeZone);
-        Assert.Equal(sessionStartHour, spec.ResearchSessionStartHour);
+        Assert.Equal(new TimeOnly(sessionStartHour, 0), spec.ResearchSessionStart);
 
         if (sessionDays is null)
         {
@@ -138,7 +138,7 @@ public sealed class MarketCalendarConformanceTests
         var market = MarketCalendarRegistry.Current.Get(symbol);
 
         Assert.Equal(market.ExchangeTimeZone, spec.SessionTimeZone);
-        Assert.Equal(market.SessionStartHour, spec.ResearchSessionStartHour);
+        Assert.Equal(market.SessionStart, spec.ResearchSessionStart);
         Assert.Equal(market.SessionDays, spec.SessionDays);
     }
 
@@ -197,7 +197,7 @@ public sealed class MarketCalendarConformanceTests
     {
         var calendar = MarketCalendarRegistry.Current;
         var openingAtOne = calendar.Symbols
-            .Where(symbol => calendar.Get(symbol).SessionStartHour == 1)
+            .Where(symbol => calendar.Get(symbol).SessionStart == new TimeOnly(1, 0))
             .OrderBy(symbol => symbol, StringComparer.Ordinal)
             .ToArray();
 
@@ -331,9 +331,9 @@ public sealed class MarketCalendarParsingTests
 
         var phase = Assert.Single(calendar.Get("NQ").Phases);
         Assert.Equal("asian", phase.Name);
-        Assert.Equal(15, phase.StartHhmm);
+        Assert.Equal(new TimeOnly(0, 15), phase.Start);
         Assert.Equal(PhaseAnchor.Utc, phase.StartAnchor);
-        Assert.Equal(800, phase.EndHhmm);
+        Assert.Equal(new TimeOnly(8, 0), phase.End);
         Assert.Equal(PhaseAnchor.Local, phase.EndAnchor);
     }
 
@@ -383,7 +383,7 @@ public sealed class MarketCalendarParsingTests
             var loaded = MarketCalendarRegistry.LoadOverrideFile(path);
 
             Assert.Equal(embedded.SpecVersion, loaded.SpecVersion);
-            Assert.Equal(0, loaded.Get("NQ").SessionStartHour);
+            Assert.Equal(TimeOnly.MinValue, loaded.Get("NQ").SessionStart);
         }
         finally
         {

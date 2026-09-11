@@ -140,7 +140,7 @@ public sealed class PriceChannelEngineTests
             DirectionalYes = 52;
             DirectionalNo = 53;
             MaxDaysInTrade = 3;
-            MaxDaysFlatTime = 2130;
+            MaxDaysFlatTime = new TimeOnly(21, 30);
         }
 
         public override string Name => "TEST_LEGACY_PC_FDAX_60";

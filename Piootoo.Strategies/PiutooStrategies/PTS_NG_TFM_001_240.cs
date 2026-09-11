@@ -85,7 +85,7 @@ public sealed class PTS_NG_TFM_001_240 : TfMirroredEngine
 
         // Finestra operativa: start_hour/end_hour del run, verbatim nell'orologio
         // della ricerca. Nessuna conversione: il fuso viaggia con il dato.
-        TradingWindow = ZonedWindow.Research(1000, 2359);   // start_hour 10, fine a 23:59
+        TradingWindow = ZonedWindow.ResearchFrom(10);   // start_hour 10, fine a 23:59
 
         NeutralYes = 4;      // ptn_neut_yes
         NeutralNo = 54;       // ptn_neut_no
@@ -126,8 +126,8 @@ public sealed class PTS_NG_TFM_001_240 : TfMirroredEngine
         if (parameters.TryGetValue("PtnDirNo", out var dirNo))
             DirectionalNo = Convert.ToInt32(dirNo);
         if (parameters.TryGetValue("StartHour", out var startHour))
-            TradingWindow = TradingWindow! with { StartHhmm = Convert.ToInt32(startHour) * 100 };
+            TradingWindow = TradingWindow! with { Start = new TimeOnly(Convert.ToInt32(startHour), 0) };
         if (parameters.TryGetValue("EndHour", out var endHour))
-            TradingWindow = TradingWindow! with { EndHhmm = Convert.ToInt32(endHour) * 100 };
+            TradingWindow = TradingWindow! with { End = new TimeOnly(Convert.ToInt32(endHour), 0) };
     }
 }

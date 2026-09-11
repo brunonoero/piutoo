@@ -52,11 +52,11 @@ public abstract class MovingAverageCrossoverEngine : EasyEngineBase
     /// <summary>Abilita la finestra oraria di ingresso.</summary>
     protected bool UseTradingWindow;
 
-    /// <summary>Inizio finestra HHMM, inclusa.</summary>
-    protected int StartTradeTime;
+    /// <summary>Inizio finestra, incluso. <c>null</c> = da inizio giornata.</summary>
+    protected TimeOnly? StartTradeTime;
 
-    /// <summary>Fine finestra HHMM, esclusa, coerente con <c>tw()</c>.</summary>
-    protected int EndTradeTime = 2359;
+    /// <summary>Fine finestra, esclusa, coerente con <c>tw()</c>. <c>null</c> = fino a fine giornata.</summary>
+    protected TimeOnly? EndTradeTime;
 
     /// <summary>Numero massimo di ingressi giornalieri; 0 significa illimitato.</summary>
     protected int MaxEntriesPerDay;
@@ -120,7 +120,7 @@ public abstract class MovingAverageCrossoverEngine : EasyEngineBase
 
         var bar = data[^1];
         var barTime = bar.DateTime;
-        if (UseTradingWindow && !EasyLib.TimeWindow(StartTradeTime, EndTradeTime, ParamHhmm(barTime)))
+        if (UseTradingWindow && !InWindow(StartTradeTime, EndTradeTime, ParamTime(barTime), inclusiveEnd: false))
             return Hold(bar.Close, barTime);
 
         if (MaxEntriesPerDay > 0 && EntriesTodayCount >= MaxEntriesPerDay)
@@ -186,14 +186,14 @@ public abstract class MovingAverageCrossoverEngine : EasyEngineBase
         return Combine(entries, Hold(bar.Close, barTime));
     }
 
-    private bool IsFridaySessionEnd(DateTime barTime)
-    {
-        if (Clock.SessionDay(barTime).DayOfWeek != DayOfWeek.Friday)
-            return false;
-
-        var barEnd = barTime.AddMinutes(TimeframeMinutes);
-        return Hhmm(barEnd) == SessionEndTime;
-    }
+    /// <summary>
+    /// L'ultima barra della sessione di venerdì. Il confine lo decide la griglia di sessione, non
+    /// un confronto fra l'orario di chiusura della barra e la fine sessione: su una sessione a
+    /// giornata piena quella fine era la sentinella di fine giornata e il confronto non era mai
+    /// vero, quindi l'uscita del venerdì non scattava.
+    /// </summary>
+    private bool IsFridaySessionEnd(DateTime barTime) =>
+        Clock.SessionDay(barTime).DayOfWeek == DayOfWeek.Friday && IsLastBarOfSession(barTime);
 
     private TradeSignal ExitMarketNextBar(
         SignalType side, decimal referencePrice, OhlcvData[] data, DateTime barTime, string reason)

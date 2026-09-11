@@ -78,8 +78,8 @@ public sealed class VolatilityBreakoutEngineTests
             AtrLength = atrLength;
             Momentum = momentum;
             Direction = direction;
-            StartTrade = startHour < 0 ? -1 : startHour * 100;
-            EndTrade = endHour < 0 ? -1 : endHour * 100;
+            StartTrade = startHour < 0 ? null : new TimeOnly(startHour, 0);
+            EndTrade = endHour < 0 ? null : new TimeOnly(endHour, 0);
             SkipDay = skipDay;
         }
 

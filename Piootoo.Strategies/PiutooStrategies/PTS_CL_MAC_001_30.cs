@@ -86,7 +86,7 @@ public sealed class PTS_CL_MAC_001_30 : MovingAverageCrossoverEngine
 
         // Finestra operativa: start_hour/end_hour del run, verbatim nell'orologio
         // della ricerca. Nessuna conversione: il fuso viaggia con il dato.
-        TradingWindow = ZonedWindow.Research(0, 2359);   // nessun filtro orario, finestra piena
+        TradingWindow = ZonedWindow.AllDay;   // nessun filtro orario, finestra piena
 
         AverageType = MovingAverageType.Simple;
         FastPeriod = 20;                // media veloce

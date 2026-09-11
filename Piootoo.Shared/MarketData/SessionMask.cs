@@ -12,7 +12,7 @@ namespace Piootoo.Shared.MarketData;
 /// percorsi: prefill del backtest interno, backtest su feed di broker, sessione realtime.</para>
 ///
 /// <para><b>Cosa NON fa.</b> Non tocca la griglia dei bucket: quella resta ancorata a
-/// <see cref="SymbolCalendar.SessionStartHour"/> nell'orologio della ricerca, perché è la griglia su
+/// <see cref="SymbolCalendar.SessionStart"/> nell'orologio della ricerca, perché è la griglia su
 /// cui le strategie sono state trovate. Mascherare barre e ri-ancorare la griglia sono due cose
 /// diverse, e confonderle invaliderebbe il porting in silenzio. Vedi
 /// <c>docs/domini/layer-barre-e-calendario.md</c>.</para>
@@ -94,15 +94,10 @@ public sealed class SessionMask
     /// <paramref name="day"/>. Un bordo ancorato in locale passa dal fuso di borsa; uno ancorato in
     /// UTC è già un istante e non va convertito — è il caso dell'apertura notturna del FDAX.
     /// </summary>
-    private DateTime Resolve(WindowEdge edge, DateOnly day)
-    {
-        var hours = edge.Hhmm / 100;
-        var minutes = edge.Hhmm % 100;
-
-        return edge.Anchor == PhaseAnchor.Utc
-            ? new DateTime(day.Year, day.Month, day.Day, hours, minutes, 0, DateTimeKind.Utc)
-            : _exchange.ToUtc(day.ToDateTime(TimeOnly.MinValue).AddHours(hours).AddMinutes(minutes));
-    }
+    private DateTime Resolve(WindowEdge edge, DateOnly day) =>
+        edge.Anchor == PhaseAnchor.Utc
+            ? DateTime.SpecifyKind(day.ToDateTime(edge.Time), DateTimeKind.Utc)
+            : _exchange.ToUtc(day.ToDateTime(edge.Time));
 
     /// <summary>
     /// Se la finestra vale in quel giorno dell'anno. Il confronto è su <c>MM-dd</c> e non

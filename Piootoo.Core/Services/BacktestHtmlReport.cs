@@ -164,8 +164,8 @@ public static class BacktestHtmlReport
 
         if (plan.Holding is { } holding)
         {
-            html.AppendLine($"      <div class=\"metric\"><span>Overnight</span><b>{(holding.AllowOvernight ? "permesso" : $"piatto {holding.SessionFlatUtcHhmm:0000}Z")}</b></div>");
-            html.AppendLine($"      <div class=\"metric\"><span>Fine settimana</span><b>{(holding.AllowOverweek ? "permesso" : $"piatto {holding.WeekEnd.FromUtcHhmm:0000}Z")}</b></div>");
+            html.AppendLine($"      <div class=\"metric\"><span>Overnight</span><b>{(holding.AllowOvernight ? "permesso" : $"piatto {holding.SessionFlatUtc:HH\\:mm}Z")}</b></div>");
+            html.AppendLine($"      <div class=\"metric\"><span>Fine settimana</span><b>{(holding.AllowOverweek ? "permesso" : $"piatto {holding.WeekEnd.FromUtc:HH\\:mm}Z")}</b></div>");
         }
 
         if (plan.CommissionPerContract is { } commission)

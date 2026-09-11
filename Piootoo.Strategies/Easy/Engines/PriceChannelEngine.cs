@@ -63,20 +63,20 @@ public abstract class PriceChannelEngine : EasyEngineBase
 
     // ------------------------------------------------------------------ gate temporali e daily
 
-    /// <summary>Inizio della finestra operativa HHMM.</summary>
-    protected int StartTime;
+    /// <summary>Inizio della finestra operativa, nell'orologio di sessione. <c>null</c> = da inizio giornata.</summary>
+    protected TimeOnly? StartTime;
 
-    /// <summary>Fine della finestra operativa HHMM.</summary>
-    protected int EndTime = 2359;
+    /// <summary>Fine della finestra operativa. <c>null</c> = fino a fine giornata.</summary>
+    protected TimeOnly? EndTime;
 
     /// <summary>True per estremi inclusivi; false per la semantica <c>tw()</c> con fine esclusiva.</summary>
     protected bool TradingWindowInclusive = true;
 
-    /// <summary>Inizio pausa intraday. -1 = nessuna pausa.</summary>
-    protected int PauseStart = -1;
+    /// <summary>Inizio pausa intraday. <c>null</c> = nessuna pausa.</summary>
+    protected TimeOnly? PauseStart;
 
-    /// <summary>Fine pausa intraday. -1 = nessuna pausa.</summary>
-    protected int PauseEnd = -1;
+    /// <summary>Fine pausa intraday. <c>null</c> = nessuna pausa.</summary>
+    protected TimeOnly? PauseEnd;
 
     /// <summary>Giorno EasyLanguage escluso per il long (0 = domenica). -1 = nessuno.</summary>
     protected int NotEntryDayLong = -1;
@@ -127,7 +127,7 @@ public abstract class PriceChannelEngine : EasyEngineBase
     /// <summary>
     /// Orario HHMM della chiusura dopo <see cref="MaxDaysInTrade"/>. -1 usa la deadline generica.
     /// </summary>
-    protected int MaxDaysFlatTime = -1;
+    protected TimeOnly? MaxDaysFlatTime;
 
     // ------------------------------------------------------------------ gate pattern
 
@@ -266,7 +266,7 @@ public abstract class PriceChannelEngine : EasyEngineBase
         signal.EntrySessionStartUtc = SessionKey(signal.ValidFromUtc!.Value);
 
         if (AppliesSessionExit)
-            signal.CloseAtUtc = ResolveCloseAtUtc(signal.ValidFromUtc.Value, SessionEndTime);
+            signal.CloseAtUtc = ResolveCloseAtUtc(signal.ValidFromUtc.Value, SessionEnd);
 
         return signal;
     }
@@ -281,7 +281,7 @@ public abstract class PriceChannelEngine : EasyEngineBase
             signal.EntrySessionStartUtc = GetSessionStartUtc(signal.ValidFromUtc!.Value);
         }
 
-        if (MaxDaysInTrade > 0 && MaxDaysFlatTime >= 0)
+        if (MaxDaysInTrade > 0 && MaxDaysFlatTime is not null)
             signal.CloseAtUtc = ResolveMaxDaysCloseAt(signal.ValidFromUtc!.Value);
 
         return signal;
@@ -289,14 +289,8 @@ public abstract class PriceChannelEngine : EasyEngineBase
 
     private bool InTradingWindow(DateTime barTime)
     {
-        var inWindow = TradingWindowInclusive
-            ? EasyLib.TimeWindowInclusive(StartTime, EndTime, ParamHhmm(barTime))
-            : EasyLib.TimeWindow(StartTime, EndTime, ParamHhmm(barTime));
-        if (!inWindow || PauseStart < 0 || PauseEnd < 0)
-            return inWindow;
-
-        var time = ParamHhmm(barTime);
-        return time < PauseStart || time > PauseEnd;
+        var time = ParamTime(barTime);
+        return InWindow(StartTime, EndTime, time, TradingWindowInclusive) && !InPause(PauseStart, PauseEnd, time);
     }
 
     private bool PassesNeutralGates(decimal[] ohlc) =>
@@ -479,18 +473,19 @@ public abstract class PriceChannelEngine : EasyEngineBase
 
     private DateTime ResolveMaxDaysCloseAt(DateTime entryValidFrom)
     {
+        var flatTime = MaxDaysFlatTime ?? TimeOnly.MinValue;
         var target = Clock.SessionInstantUtc(
-            entryValidFrom.AddDays(Math.Max(0, MaxDaysInTrade - 1)), MaxDaysFlatTime);
+            entryValidFrom.AddDays(Math.Max(0, MaxDaysInTrade - 1)), flatTime);
         return target > entryValidFrom
             ? target
-            : Clock.SessionInstantUtc(entryValidFrom.AddDays(Math.Max(1, MaxDaysInTrade)), MaxDaysFlatTime);
+            : Clock.SessionInstantUtc(entryValidFrom.AddDays(Math.Max(1, MaxDaysInTrade)), flatTime);
     }
 
     private DateTime GetSessionStartUtc(DateTime timeUtc)
     {
-        var sessionStart = Clock.SessionInstantUtc(timeUtc, SessionStartTime);
+        var sessionStart = Clock.SessionInstantUtc(timeUtc, SessionStart);
         return timeUtc < sessionStart
-            ? Clock.SessionInstantUtc(timeUtc.AddDays(-1), SessionStartTime)
+            ? Clock.SessionInstantUtc(timeUtc.AddDays(-1), SessionStart)
             : sessionStart;
     }
 
@@ -499,25 +494,19 @@ public abstract class PriceChannelEngine : EasyEngineBase
         if (InDeclaredWindow(barTime) is { } declared)
             return declared;
 
-        if (StartTime < 0 && EndTime < 0)
-            return true;
-
         // Il motore Python confronta l'orario completo con gli estremi "HH:00", fine inclusa.
         // Confrontare le sole ore allargava la finestra fino a HH:59: con end_hour = 4 entravano
         // anche le barre 04:15–04:45, che nella fonte non producono segnali.
-        var start = StartTime < 0 ? 0 : StartTime;
-        var end = EndTime < 0 ? 2359 : EndTime;
-        var time = ParamHhmm(barTime);
-        return start <= end ? time >= start && time <= end : time >= start || time <= end;
+        return InWindow(StartTime, EndTime, ParamTime(barTime), inclusiveEnd: true);
     }
 
     private int PythonDayOfWeek(DateTime instantUtc) => PythonWeekday(instantUtc);
 
     private DateTime SessionKey(DateTime time)
     {
-        var start = Clock.SessionInstantUtc(time, SessionStartTime);
-        return SessionStartTime > SessionEndTime && time < start
-            ? Clock.SessionInstantUtc(time.AddDays(-1), SessionStartTime)
+        var start = Clock.SessionInstantUtc(time, SessionStart);
+        return SessionStart > SessionEnd && time < start
+            ? Clock.SessionInstantUtc(time.AddDays(-1), SessionStart)
             : start;
     }
 }

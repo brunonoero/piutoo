@@ -91,7 +91,7 @@ public sealed class PTS_ES_BSW_002_15 : BiasWeeklyEngine
 
         // Il BIASW non ha finestra operativa: giorno e ora di ingresso sono gia' la regola di
         // entrata. Dichiarata piena nell'orologio della ricerca per l'invariante degli orari.
-        TradingWindow = ZonedWindow.Research(0, 2359);
+        TradingWindow = ZonedWindow.AllDay;
 
         Contracts = 1;
 
@@ -99,9 +99,9 @@ public sealed class PTS_ES_BSW_002_15 : BiasWeeklyEngine
         EnableShort = false;
 
         EntryDayLong = 4;     // le_day: 4 = venerdi' (convenzione pandas)
-        EntryTimeLong = 300;  // le_time: 03:00 ora della ricerca (CET)
+        EntryTimeLong = new TimeOnly(3, 0);  // le_time: 03:00 ora della ricerca (CET)
         ExitDayLong = 4;      // lx_day: venerdi'
-        ExitTimeLong = 100;   // lx_time: 01:00 - risolto alla settimana successiva
+        ExitTimeLong = new TimeOnly(1, 0);   // lx_time: 01:00 - risolto alla settimana successiva
 
         EntryDayShort = -1;   // se_day: lato short spento
         ExitDayShort = -1;
@@ -133,11 +133,11 @@ public sealed class PTS_ES_BSW_002_15 : BiasWeeklyEngine
         if (parameters.TryGetValue("EntryDayLong", out var entryDayLong))
             EntryDayLong = Convert.ToInt32(entryDayLong);
         if (parameters.TryGetValue("EntryTimeLong", out var entryTimeLong))
-            EntryTimeLong = Convert.ToInt32(entryTimeLong);
+            EntryTimeLong = TimeFromLegacyHhmm(entryTimeLong);
         if (parameters.TryGetValue("ExitDayLong", out var exitDayLong))
             ExitDayLong = Convert.ToInt32(exitDayLong);
         if (parameters.TryGetValue("ExitTimeLong", out var exitTimeLong))
-            ExitTimeLong = Convert.ToInt32(exitTimeLong);
+            ExitTimeLong = TimeFromLegacyHhmm(exitTimeLong);
         if (parameters.TryGetValue("PtnLyYes", out var lyYes))
             FastYesLong = Convert.ToInt32(lyYes);
         if (parameters.TryGetValue("PtnLyNo", out var lyNo))

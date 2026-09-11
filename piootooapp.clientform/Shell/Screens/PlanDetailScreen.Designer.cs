@@ -68,12 +68,12 @@ partial class PlanDetailScreen
         this._holdingLayout = new System.Windows.Forms.TableLayoutPanel();
         this._forceNightCloseCheckBox = new System.Windows.Forms.CheckBox();
         this._sessionFlatLabel = new System.Windows.Forms.Label();
-        this._sessionFlatInput = new System.Windows.Forms.NumericUpDown();
+        this._sessionFlatInput = new System.Windows.Forms.DateTimePicker();
         this._forceWeekCloseCheckBox = new System.Windows.Forms.CheckBox();
         this._weekEndFromLabel = new System.Windows.Forms.Label();
-        this._weekEndFromInput = new System.Windows.Forms.NumericUpDown();
+        this._weekEndFromInput = new System.Windows.Forms.DateTimePicker();
         this._weekEndUntilLabel = new System.Windows.Forms.Label();
-        this._weekEndUntilInput = new System.Windows.Forms.NumericUpDown();
+        this._weekEndUntilInput = new System.Windows.Forms.DateTimePicker();
         this._holdingWarningLabel = new System.Windows.Forms.Label();
         this._conflictsBindingSource = new System.Windows.Forms.BindingSource(this.components);
         this._conflictsGrid = new System.Windows.Forms.DataGridView();
@@ -88,9 +88,6 @@ partial class PlanDetailScreen
         this._strategiesButtons.SuspendLayout();
         ((System.ComponentModel.ISupportInitialize)(this._conflictsBindingSource)).BeginInit();
         ((System.ComponentModel.ISupportInitialize)(this._conflictsGrid)).BeginInit();
-        this._sessionFlatInput.BeginInit();
-        this._weekEndFromInput.BeginInit();
-        this._weekEndUntilInput.BeginInit();
         ((System.ComponentModel.ISupportInitialize)(this._groupsBindingSource)).BeginInit();
         ((System.ComponentModel.ISupportInitialize)(this._accountsBindingSource)).BeginInit();
         this._tabs.SuspendLayout();
@@ -639,12 +636,14 @@ partial class PlanDetailScreen
         this._sessionFlatLabel.Margin = new System.Windows.Forms.Padding(3, 0, 8, 0);
         this._sessionFlatLabel.Name = "_sessionFlatLabel";
         this._sessionFlatLabel.TabIndex = 1;
-        this._sessionFlatLabel.Text = "Flat di sessione (HHMM UTC)";
+        this._sessionFlatLabel.Text = "Flat di sessione (HH:mm UTC)";
         //
         // _sessionFlatInput
         //
         this._sessionFlatInput.Anchor = System.Windows.Forms.AnchorStyles.Left;
-        this._sessionFlatInput.Maximum = new decimal(new int[] { 2359, 0, 0, 0 });
+        this._sessionFlatInput.CustomFormat = "HH:mm";
+        this._sessionFlatInput.Format = System.Windows.Forms.DateTimePickerFormat.Custom;
+        this._sessionFlatInput.ShowUpDown = true;
         this._sessionFlatInput.Name = "_sessionFlatInput";
         this._sessionFlatInput.Size = new System.Drawing.Size(90, 23);
         this._sessionFlatInput.TabIndex = 2;
@@ -668,12 +667,14 @@ partial class PlanDetailScreen
         this._weekEndFromLabel.Margin = new System.Windows.Forms.Padding(3, 0, 8, 0);
         this._weekEndFromLabel.Name = "_weekEndFromLabel";
         this._weekEndFromLabel.TabIndex = 4;
-        this._weekEndFromLabel.Text = "Flat weekend da (ven, HHMM UTC)";
+        this._weekEndFromLabel.Text = "Flat weekend da (ven, HH:mm UTC)";
         //
         // _weekEndFromInput
         //
         this._weekEndFromInput.Anchor = System.Windows.Forms.AnchorStyles.Left;
-        this._weekEndFromInput.Maximum = new decimal(new int[] { 2359, 0, 0, 0 });
+        this._weekEndFromInput.CustomFormat = "HH:mm";
+        this._weekEndFromInput.Format = System.Windows.Forms.DateTimePickerFormat.Custom;
+        this._weekEndFromInput.ShowUpDown = true;
         this._weekEndFromInput.Name = "_weekEndFromInput";
         this._weekEndFromInput.Size = new System.Drawing.Size(90, 23);
         this._weekEndFromInput.TabIndex = 5;
@@ -686,12 +687,14 @@ partial class PlanDetailScreen
         this._weekEndUntilLabel.Margin = new System.Windows.Forms.Padding(3, 0, 8, 0);
         this._weekEndUntilLabel.Name = "_weekEndUntilLabel";
         this._weekEndUntilLabel.TabIndex = 6;
-        this._weekEndUntilLabel.Text = "fino a (dom, HHMM UTC)";
+        this._weekEndUntilLabel.Text = "fino a (dom, HH:mm UTC)";
         //
         // _weekEndUntilInput
         //
         this._weekEndUntilInput.Anchor = System.Windows.Forms.AnchorStyles.Left;
-        this._weekEndUntilInput.Maximum = new decimal(new int[] { 2359, 0, 0, 0 });
+        this._weekEndUntilInput.CustomFormat = "HH:mm";
+        this._weekEndUntilInput.Format = System.Windows.Forms.DateTimePickerFormat.Custom;
+        this._weekEndUntilInput.ShowUpDown = true;
         this._weekEndUntilInput.Name = "_weekEndUntilInput";
         this._weekEndUntilInput.Size = new System.Drawing.Size(90, 23);
         this._weekEndUntilInput.TabIndex = 7;
@@ -788,9 +791,6 @@ partial class PlanDetailScreen
         this._strategiesButtons.PerformLayout();
         ((System.ComponentModel.ISupportInitialize)(this._conflictsBindingSource)).EndInit();
         ((System.ComponentModel.ISupportInitialize)(this._conflictsGrid)).EndInit();
-        this._sessionFlatInput.EndInit();
-        this._weekEndFromInput.EndInit();
-        this._weekEndUntilInput.EndInit();
         ((System.ComponentModel.ISupportInitialize)(this._groupsBindingSource)).EndInit();
         ((System.ComponentModel.ISupportInitialize)(this._accountsBindingSource)).EndInit();
         this._tabs.ResumeLayout(false);
@@ -860,12 +860,12 @@ partial class PlanDetailScreen
     private System.Windows.Forms.TableLayoutPanel _holdingLayout;
     private System.Windows.Forms.CheckBox _forceNightCloseCheckBox;
     private System.Windows.Forms.Label _sessionFlatLabel;
-    private System.Windows.Forms.NumericUpDown _sessionFlatInput;
+    private System.Windows.Forms.DateTimePicker _sessionFlatInput;
     private System.Windows.Forms.CheckBox _forceWeekCloseCheckBox;
     private System.Windows.Forms.Label _weekEndFromLabel;
-    private System.Windows.Forms.NumericUpDown _weekEndFromInput;
+    private System.Windows.Forms.DateTimePicker _weekEndFromInput;
     private System.Windows.Forms.Label _weekEndUntilLabel;
-    private System.Windows.Forms.NumericUpDown _weekEndUntilInput;
+    private System.Windows.Forms.DateTimePicker _weekEndUntilInput;
     private System.Windows.Forms.Label _holdingWarningLabel;
     private System.Windows.Forms.BindingSource _conflictsBindingSource;
     private System.Windows.Forms.DataGridView _conflictsGrid;

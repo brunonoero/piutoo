@@ -39,8 +39,8 @@ correzioni di difetti, non opzioni. E dicono quali cartelle archiviate non sono 
   (`datafeed-external/{BROKER}/@SYM_1.json`). R2 e R3 di
   [`domini/finestra-candele-e-riscaldamento.md`](domini/finestra-candele-e-riscaldamento.md)
   **restano**: chiudono col passo 6-operativo.
-- **L'etichetta della barra in un punto solo** — `SessionClock.BarLabelHhmm`/`BarLabelDay`, e
-  `EasyLib.TimeWindow` prende un `HHMM` e non più una barra, così nessun chiamante può rispondere
+- **L'etichetta della barra in un punto solo** — `SessionClock.BarLabelTime`/`BarLabelDay`, e
+  `EasyLib.TimeWindow` prende un `TimeOnly` e non più una barra, così nessun chiamante può rispondere
   per conto proprio. Il flag è rovesciato (`LegacyBarOpenLabels`, default `false`): **il default è
   quello corretto**, quindi la sessione live non deve impostare niente. La guida di conversione,
   per le strategie che arriveranno, è in
@@ -67,12 +67,13 @@ Suite: **931 test, 40 rossi preesistenti**, nessuno nuovo in nessuno dei cinque 
   convenzioni del motore le imposta solo il backtest. Coincidono oggi solo perché i default
   coincidono. Un punto solo che possieda finestra, regola sulla storia, convenzioni e rifinitura del
   segnale; da lì cade da sé la dichiarazione delle convenzioni nel `session-summary.json`.
-- **I sei punti di `verifica-offset-conversione-2026-09-08.md`.** Tre sono chiusi (finestra,
-  filtro del giorno, e dall'11/09 BIASW `le_time`/`lx_time`, che leggono l'etichetta di chiusura e
-  nascono sulla barra prima). Restano: l'uscita del venerdì di MAC
-  (`Hhmm(barEnd) == SessionEndTime` con `SessionEndTime = 2359`, che è una sentinella — il test è
-  rosso), e le tre copie di "inizio sessione" (`SessionKey`, `ResolveEntrySessionStartUtc`) che
-  arretrano solo se `Start > End`, mai vero per una sessione della ricerca.
+- **I sei punti di `verifica-offset-conversione-2026-09-08.md`.** Quattro sono chiusi (finestra,
+  filtro del giorno, dall'11/09 BIASW `le_time`/`lx_time`, che leggono l'etichetta di chiusura e
+  nascono sulla barra prima, e dall'11/09 l'uscita del venerdì di MAC, che ora chiede alla griglia
+  di sessione `IsLastBarOfSession` invece di confrontare l'orario di chiusura della barra con una
+  fine sessione che era la sentinella `2359`). Restano le tre copie di "inizio sessione"
+  (`SessionKey`, `ResolveEntrySessionStartUtc`) che arretrano solo se `Start > End`, mai vero per
+  una sessione della ricerca.
 
 ## Le altre voci aperte del piano
 

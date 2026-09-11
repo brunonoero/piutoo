@@ -87,7 +87,7 @@ public sealed class PTS_KC_SBO_001_240 : SessionBreakoutEngine
 
         // Nessun filtro orario nel run: finestra piena, dichiarata comunque nell'orologio della
         // ricerca perche' ogni PTS deve dichiarare l'orologio in cui legge gli orari.
-        TradingWindow = ZonedWindow.Research(0, 2359);   // nessun filtro orario, finestra piena
+        TradingWindow = ZonedWindow.AllDay;   // nessun filtro orario, finestra piena
 
         // level_source = 1 di breakout.py: running H/L della sessione CORRENTE, barra in corso
         // inclusa. n_sess e lev_include_sess0 sono ignorati dal sorgente su questo ramo, quindi
@@ -139,8 +139,8 @@ public sealed class PTS_KC_SBO_001_240 : SessionBreakoutEngine
         if (parameters.TryGetValue("BreakoutOffsetTicks", out var offsetTicks))
             BreakoutOffsetTicks = Convert.ToInt32(offsetTicks);
         if (parameters.TryGetValue("StartHour", out var startHour))
-            TradingWindow = TradingWindow! with { StartHhmm = Convert.ToInt32(startHour) * 100 };
+            TradingWindow = TradingWindow! with { Start = new TimeOnly(Convert.ToInt32(startHour), 0) };
         if (parameters.TryGetValue("EndHour", out var endHour))
-            TradingWindow = TradingWindow! with { EndHhmm = Convert.ToInt32(endHour) * 100 };
+            TradingWindow = TradingWindow! with { End = new TimeOnly(Convert.ToInt32(endHour), 0) };
     }
 }

@@ -17,8 +17,8 @@ namespace Piootoo.Strategies.Tests;
 /// <c>end_hour</c>, <c>skip_day</c>, un orario di uscita — perché quei numeri sono tarati contro
 /// nomi di chiusura: il confronto si sposta di <b>esattamente una barra</b>.</para>
 ///
-/// <para><b>La regola vive in un punto solo</b>, <see cref="SessionClock.BarLabelHhmm"/>, e i motori
-/// la raggiungono da <c>EasyEngineBase.ParamHhmm</c>. Questi test difendono quel punto e il fatto
+/// <para><b>La regola vive in un punto solo</b>, <see cref="SessionClock.BarLabelTime"/>, e i motori
+/// la raggiungono da <c>EasyEngineBase.ParamTime</c>. Questi test difendono quel punto e il fatto
 /// che il default sia il comportamento <i>corretto</i>: chi dimentica di configurare qualcosa
 /// ottiene la conversione giusta, non quella vecchia.</para>
 /// </summary>
@@ -84,7 +84,7 @@ public sealed class BarLabelTests
         // della SECONDA occorrenza — non alle 03:00.
         var ambigua = new DateTime(2025, 10, 26, 0, 0, 0, DateTimeKind.Utc);
 
-        Assert.Equal(200, new WindowProbe().WindowHhmm(ambigua));
+        Assert.Equal(new TimeOnly(2, 0), new WindowProbe().WindowTime(ambigua));
     }
 
     private static DateTime Utc(int hour) => new(2025, 2, 10, hour, 0, 0, DateTimeKind.Utc);
@@ -105,7 +105,7 @@ public sealed class BarLabelTests
         public override int RequiredCandles => 1;
 
         public bool IsInWindow(DateTime barTime) => InDeclaredWindow(barTime) ?? false;
-        public int WindowHhmm(DateTime barTime) => WindowParamHhmm(barTime);
+        public TimeOnly WindowTime(DateTime barTime) => WindowParamTime(barTime);
         public int Weekday(DateTime barTime) => PythonWeekday(barTime);
 
         public TradeSignal GenerateSignal(OhlcvData[] data, DateTime currentDate) =>

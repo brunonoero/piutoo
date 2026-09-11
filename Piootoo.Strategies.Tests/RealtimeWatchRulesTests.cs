@@ -96,7 +96,7 @@ public class RealtimeWatchRulesTests
         var sessione = Sessione(
             minutiDiSilenzio: 5,
             posizioni: [Posizione(chiusuraPrevista: null, ingresso: Adesso.AddDays(-1))],
-            holding: new AccountHoldingPolicy { AllowOvernight = false, SessionFlatUtcHhmm = 2045 });
+            holding: new AccountHoldingPolicy { AllowOvernight = false, SessionFlatUtc = new TimeOnly(20, 45) });
 
         var rilievi = RealtimeWatchRules.Evaluate(["PIANO_A"], [sessione], Adesso);
 

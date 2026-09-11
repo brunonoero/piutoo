@@ -51,8 +51,8 @@ public sealed class StrategyExportTests
         // interi nudi rimetterebbe chi legge davanti alla conversione a mano che il progetto ha
         // gia' pagato una volta. Vedi docs/domini/orari-di-sessione-e-fusi.md.
         var finestra = Assert.IsType<ZonedWindow>(export.Parameters["TradingWindow"].Value);
-        Assert.Equal(300, finestra.StartHhmm);
-        Assert.Equal(200, finestra.EndHhmm);
+        Assert.Equal(new TimeOnly(3, 0), finestra.Start);
+        Assert.Equal(new TimeOnly(2, 0), finestra.End);
         Assert.Equal(InstrumentClock.Research, finestra.Clock);
     }
 

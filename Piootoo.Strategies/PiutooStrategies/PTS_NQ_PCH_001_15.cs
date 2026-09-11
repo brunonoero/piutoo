@@ -122,9 +122,9 @@ public sealed class PTS_NQ_PCH_001_15 : PriceChannelEngine
         if (parameters.TryGetValue("TimeframeMinutes", out var timeframe))
             _timeframeMinutes = Convert.ToInt32(timeframe);
         if (parameters.TryGetValue("StartHour", out var startHour))
-            TradingWindow = TradingWindow! with { StartHhmm = Convert.ToInt32(startHour) * 100 };
+            TradingWindow = TradingWindow! with { Start = new TimeOnly(Convert.ToInt32(startHour), 0) };
         if (parameters.TryGetValue("EndHour", out var endHour))
-            TradingWindow = TradingWindow! with { EndHhmm = Convert.ToInt32(endHour) * 100 };
+            TradingWindow = TradingWindow! with { End = new TimeOnly(Convert.ToInt32(endHour), 0) };
         if (parameters.TryGetValue("SkipDay", out var skipDay))
             NotEntryDayLong = ToEasyLanguageDayOfWeek(Convert.ToInt32(skipDay));
         if (parameters.TryGetValue("PtnNeutYes", out var ptnNeutYes))

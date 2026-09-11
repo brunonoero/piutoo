@@ -22,8 +22,8 @@ public class SessionSeriesTests
     /// </summary>
     private static readonly SessionClock Orologio = SessionClock.Utc;
 
-    private const int SessionStart = 1800;
-    private const int SessionEnd = 1700;
+    private static readonly TimeOnly SessionStart = new(18, 0);
+    private static readonly TimeOnly SessionEnd = new(17, 0);
 
     [Fact]
     public void BuildSessionSeries_SegmentsLikeOHLCMulti5()
@@ -48,7 +48,7 @@ public class SessionSeriesTests
         var bars = OvernightSeries.Build(timeframeMinutes: 15, sessionCount: 3);
 
         // Ci si ferma a metà dell'ultima sessione: l'aggregato deve fermarsi lì, non anticipare.
-        var midSession = bars.Last(bar => Orologio.Hhmm(bar.DateTime) == 900);
+        var midSession = bars.Last(bar => Orologio.TimeOfDay(bar.DateTime) == new TimeOnly(9, 0));
         var truncated = bars.Where(bar => bar.DateTime <= midSession.DateTime).ToArray();
 
         var sessions = BuildSessionSeries(Orologio, SessionStart, SessionEnd, truncated, midSession.DateTime);
@@ -132,8 +132,8 @@ public class SessionSeriesTests
         var bars = CalendarDays(dayCount: 3);
         var last = bars[^1].DateTime;
 
-        OHLCMulti5(Orologio, 0, 2359, bars, last, out var ohlc);
-        var sessions = BuildSessionSeries(Orologio, 0, 2359, bars, last);
+        OHLCMulti5(Orologio, TimeOnly.MinValue, ZonedWindow.EndOfDay, bars, last, out var ohlc);
+        var sessions = BuildSessionSeries(Orologio, TimeOnly.MinValue, ZonedWindow.EndOfDay, bars, last);
 
         Assert.Equal(3, sessions.Length);
         AssertSameSession(ohlc, dayIndex: 0, sessions[^1]);
@@ -197,8 +197,8 @@ public class SessionSeriesTests
     {
         for (var index = bars.Length - 1; index > 0; index--)
         {
-            if (Orologio.Hhmm(bars[index].DateTime) > SessionStart &&
-                Orologio.Hhmm(bars[index - 1].DateTime) <= SessionStart)
+            if (Orologio.TimeOfDay(bars[index].DateTime) > SessionStart &&
+                Orologio.TimeOfDay(bars[index - 1].DateTime) <= SessionStart)
             {
                 return bars[index].DateTime;
             }

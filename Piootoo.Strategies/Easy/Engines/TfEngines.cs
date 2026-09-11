@@ -11,16 +11,17 @@ namespace Piootoo.Strategies.Easy.Engines;
 public abstract class TfEngineBase : EasyEngineBase
 {
     /// <summary>
-    /// Inizio della finestra operativa in ore UTC (<c>start_hour</c> Python).
-    /// <c>-1</c> disabilita il relativo limite.
+    /// Inizio della finestra operativa nell'orologio di sessione (<c>start_hour</c> Python).
+    /// <c>null</c> disabilita il relativo limite. È il percorso storico: le <c>PTS_*</c> dichiarano
+    /// <see cref="EasyEngineBase.TradingWindow"/>, che vince.
     /// </summary>
-    protected int StartHour = -1;
+    protected TimeOnly? WindowStart;
 
     /// <summary>
-    /// Fine esclusiva della finestra operativa in ore UTC (<c>end_hour</c> Python).
-    /// <c>-1</c> disabilita il relativo limite.
+    /// Fine della finestra operativa nell'orologio di sessione (<c>end_hour</c> Python), inclusa.
+    /// <c>null</c> disabilita il relativo limite.
     /// </summary>
-    protected int EndHour = -1;
+    protected TimeOnly? WindowEnd;
 
     /// <summary>Giorno Python da escludere: 0 = lunedì … 4 = venerdì; -1 = nessuno.</summary>
     protected int SkipDay = -1;
@@ -75,18 +76,13 @@ public abstract class TfEngineBase : EasyEngineBase
         if (InDeclaredWindow(barTime) is { } declared)
             return declared;
 
-        if (StartHour < 0 && EndHour < 0)
-            return true;
-
-        // Estremi INCLUSI, su HHMM pieni. Prima si usava EasyLib.TimeWindow, che ha la fine
-        // esclusiva come tw(): la barra di segnale a esattamente end_hour:00 veniva scartata e con
-        // essa i suoi ingressi. La semantica giusta e' misurata sui trade di riferimento della
-        // ricerca — su 15m con finestra 17-10 esiste un ingresso alle 10:15, cioe' un segnale alle
-        // 10:00; su 30m con finestra 09-19 un ingresso alle 19:30, cioe' un segnale alle 19:00 —
-        // e coincide con quella gia' adottata da PriceChannelEngine.
-        return EasyLib.TimeWindowInclusive(StartHour < 0 ? 0 : StartHour * 100,
-            EndHour < 0 ? 2400 : EndHour * 100,
-            ParamHhmm(barTime));
+        // Estremi INCLUSI. Prima si usava EasyLib.TimeWindow, che ha la fine esclusiva come tw():
+        // la barra di segnale a esattamente end_hour:00 veniva scartata e con essa i suoi
+        // ingressi. La semantica giusta e' misurata sui trade di riferimento della ricerca — su
+        // 15m con finestra 17-10 esiste un ingresso alle 10:15, cioe' un segnale alle 10:00; su
+        // 30m con finestra 09-19 un ingresso alle 19:30, cioe' un segnale alle 19:00 — e coincide
+        // con quella gia' adottata da PriceChannelEngine.
+        return InWindow(WindowStart, WindowEnd, ParamTime(barTime), inclusiveEnd: true);
     }
 
     private bool IsSkippedPythonWeekday(DateTime barTime) =>
@@ -101,16 +97,16 @@ public abstract class TfEngineBase : EasyEngineBase
         signal.EntrySessionStartUtc = GetSessionStartUtc(signal.ValidFromUtc!.Value);
 
         if (AppliesSessionExit)
-            signal.CloseAtUtc = ResolveCloseAtUtc(signal.ValidFromUtc!.Value, SessionEndTime);
+            signal.CloseAtUtc = ResolveCloseAtUtc(signal.ValidFromUtc!.Value, SessionEnd);
 
         return signal;
     }
 
     private DateTime GetSessionStartUtc(DateTime timeUtc)
     {
-        var sessionStart = Clock.SessionInstantUtc(timeUtc, SessionStartTime);
+        var sessionStart = Clock.SessionInstantUtc(timeUtc, SessionStart);
         return timeUtc < sessionStart
-            ? Clock.SessionInstantUtc(timeUtc.AddDays(-1), SessionStartTime)
+            ? Clock.SessionInstantUtc(timeUtc.AddDays(-1), SessionStart)
             : sessionStart;
     }
 }

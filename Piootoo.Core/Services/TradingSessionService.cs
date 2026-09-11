@@ -3899,8 +3899,8 @@ public sealed class TradingSessionService : ITradingSessionService
         var holding = session.Holding;
         var canonico = string.Join(";", codici) +
                        $"|overnight={holding.AllowOvernight}|overweek={holding.AllowOverweek}" +
-                       $"|flat={holding.SessionFlatUtcHhmm}" +
-                       $"|weekend={holding.WeekEnd.FromUtcHhmm}-{holding.WeekEnd.UntilUtcHhmm}";
+                       $"|flat={holding.SessionFlatUtc:HH\\:mm}" +
+                       $"|weekend={holding.WeekEnd.FromUtc:HH\\:mm}-{holding.WeekEnd.UntilUtc:HH\\:mm}";
         return Convert.ToHexString(
             System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(canonico)));
     }
@@ -4515,7 +4515,7 @@ public sealed class TradingSessionService : ITradingSessionService
 
         return new InstrumentBarGrid
         {
-            SessionStartHour = calendar.SessionStartHour,
+            SessionStart = calendar.SessionStart,
             ResearchTimeZone = calendar.ResearchTimeZone
         };
     }

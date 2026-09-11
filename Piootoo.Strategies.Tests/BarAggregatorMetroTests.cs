@@ -112,7 +112,7 @@ public sealed class BarAggregatorMetroTests(ITestOutputHelper output)
         Assert.True(
             mismatches.Count == 0,
             $"{symbol}/{timeframe}m: {mismatches.Count} bucket diversi su {interior.Length} " +
-            $"confrontati (ancoraggio {MarketCalendarRegistry.Current.Get(symbol).SessionStartHour:00}:00 " +
+            $"confrontati (ancoraggio {MarketCalendarRegistry.Current.Get(symbol).SessionStart:HH\\:mm}" +
             $"{MarketCalendarRegistry.Current.Get(symbol).ResearchTimeZone}). Primi:\n" +
             string.Join("\n", mismatches));
     }
@@ -231,7 +231,7 @@ public sealed class BarAggregatorMetroTests(ITestOutputHelper output)
             offenders.Add($"{Path.GetFileName(file)}");
             output.WriteLine(
                 $"{Path.GetFileName(file)}: {offGrid} barre su {bars.Count} NON sono su un confine " +
-                $"di bucket dell'ancoraggio {calendar.SessionStartHour:00}:00 {calendar.ResearchTimeZone}.");
+                $"di bucket dell'ancoraggio {calendar.SessionStart:HH\\:mm}{calendar.ResearchTimeZone}.");
         }
 
         Assert.True(

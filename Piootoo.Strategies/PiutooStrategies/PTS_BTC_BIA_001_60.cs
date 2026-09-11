@@ -93,7 +93,7 @@ public sealed class PTS_BTC_BIA_001_60 : BiasBarCountEngine
         // Il BIAS non ha finestra operativa: gli indici di barra sono la regola di entrata. La
         // finestra e' dichiarata piena, nell'orologio della ricerca, perche' ogni PTS deve
         // dichiarare l'orologio in cui legge gli orari.
-        TradingWindow = ZonedWindow.Research(0, 2359);   // nessun filtro orario, finestra piena
+        TradingWindow = ZonedWindow.AllDay;   // nessun filtro orario, finestra piena
 
         EntryType = BiasEntryType.BreakoutStop;   // entrytype = 2
         PatternLibrary = EasyPatternLibrary.Fast;

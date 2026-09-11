@@ -48,11 +48,12 @@ public abstract class RhlEngine : EasyEngineBase
     protected int DirectionalNo = 53;
 
     /// <summary>
-    /// Finestra oraria in ore UTC, inclusiva; <c>-1</c> disabilita il rispettivo limite,
-    /// come <c>start_hour</c>/<c>end_hour</c> Python.
+    /// Finestra operativa nell'orologio di sessione, inclusiva; <c>null</c> disabilita il
+    /// rispettivo limite, come <c>start_hour</c>/<c>end_hour</c> Python. Percorso storico: le
+    /// <c>PTS_*</c> dichiarano <see cref="EasyEngineBase.TradingWindow"/>, che vince.
     /// </summary>
-    protected int StartHour = -1;
-    protected int EndHour = -1;
+    protected TimeOnly? WindowStart;
+    protected TimeOnly? WindowEnd;
 
     /// <summary>Giorno da escludere: 0 = lunedì … 4 = venerdì; -1 = nessuno.</summary>
     protected int SkipDay = -1;
@@ -134,7 +135,7 @@ public abstract class RhlEngine : EasyEngineBase
         signal.EntrySessionStartUtc = ResolveEntrySessionStartUtc(signal.ValidFromUtc!.Value);
 
         if (AppliesSessionExit)
-            signal.CloseAtUtc = ResolveCloseAtUtc(signal.ValidFromUtc.Value, SessionEndTime);
+            signal.CloseAtUtc = ResolveCloseAtUtc(signal.ValidFromUtc.Value, SessionEnd);
 
         return signal;
     }
@@ -144,12 +145,7 @@ public abstract class RhlEngine : EasyEngineBase
         if (InDeclaredWindow(barTime) is { } declared)
             return declared;
 
-        if (StartHour < 0 && EndHour < 0)
-            return true;
-
-        var startTime = Math.Max(0, StartHour) * 100;
-        var endTime = EndHour < 0 ? 2359 : EndHour * 100;
-        return EasyLib.TimeWindowInclusive(startTime, endTime, ParamHhmm(barTime));
+        return InWindow(WindowStart, WindowEnd, ParamTime(barTime), inclusiveEnd: true);
     }
 
     private bool IsSkippedPythonWeekday(DateTime barTime) =>

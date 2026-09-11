@@ -137,8 +137,8 @@ public sealed class PTS_FDAX_SBO_001_240 : SessionBreakoutEngine
         if (parameters.TryGetValue("BreakoutOffsetTicks", out var offsetTicks))
             BreakoutOffsetTicks = Convert.ToInt32(offsetTicks);
         if (parameters.TryGetValue("StartHour", out var startHour))
-            TradingWindow = TradingWindow! with { StartHhmm = Convert.ToInt32(startHour) * 100 };
+            TradingWindow = TradingWindow! with { Start = new TimeOnly(Convert.ToInt32(startHour), 0) };
         if (parameters.TryGetValue("EndHour", out var endHour))
-            TradingWindow = TradingWindow! with { EndHhmm = Convert.ToInt32(endHour) * 100 };
+            TradingWindow = TradingWindow! with { End = new TimeOnly(Convert.ToInt32(endHour), 0) };
     }
 }

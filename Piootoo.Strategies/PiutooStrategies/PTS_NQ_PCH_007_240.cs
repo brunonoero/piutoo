@@ -143,8 +143,8 @@ public sealed class PTS_NQ_PCH_007_240 : PriceChannelEngine
         if (parameters.TryGetValue("OffsetTicks", out var offsetTicks))
             OffsetTicks = Convert.ToInt32(offsetTicks);
         if (parameters.TryGetValue("StartHour", out var startHour))
-            TradingWindow = TradingWindow! with { StartHhmm = Convert.ToInt32(startHour) * 100 };
+            TradingWindow = TradingWindow! with { Start = new TimeOnly(Convert.ToInt32(startHour), 0) };
         if (parameters.TryGetValue("EndHour", out var endHour))
-            TradingWindow = TradingWindow! with { EndHhmm = Convert.ToInt32(endHour) * 100 };
+            TradingWindow = TradingWindow! with { End = new TimeOnly(Convert.ToInt32(endHour), 0) };
     }
 }

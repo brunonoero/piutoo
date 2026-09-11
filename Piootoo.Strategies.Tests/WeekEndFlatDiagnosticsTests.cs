@@ -87,13 +87,13 @@ public class WeekEndFlatDiagnosticsTests : IDisposable
         var summary = logger.Complete(new BacktestRunSummary
         {
             JobId = "job-4",
-            Holding = AccountHoldingPolicy.Default with { AllowOvernight = false, SessionFlatUtcHhmm = 2045 }
+            Holding = AccountHoldingPolicy.Default with { AllowOvernight = false, SessionFlatUtc = new TimeOnly(20, 45) }
         });
 
         Assert.NotNull(summary.Holding);
         Assert.False(summary.Holding!.AllowOvernight);
-        Assert.Equal(2045, summary.Holding.SessionFlatUtcHhmm);
-        Assert.Equal(2045, summary.Holding.WeekEnd.FromUtcHhmm);
+        Assert.Equal(new TimeOnly(20, 45), summary.Holding.SessionFlatUtc);
+        Assert.Equal(new TimeOnly(20, 45), summary.Holding.WeekEnd.FromUtc);
     }
 
     /// <summary>

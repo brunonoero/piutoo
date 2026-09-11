@@ -1,9 +1,9 @@
-﻿namespace Piootoo.Shared.Configuration;
+namespace Piootoo.Shared.Configuration;
 
 /// <summary>
 /// In quale dei due orologi di uno strumento sono scritti gli orari di una finestra.
 ///
-/// <para><b>Perché un simbolo ha due orologi.</b> <c>1700</c> in una sorgente EasyLanguage su NQ
+/// <para><b>Perché un simbolo ha due orologi.</b> <c>17:00</c> in una sorgente EasyLanguage su NQ
 /// sono le 17:00 di <i>Chicago</i>; <c>17</c> in un report di ricerca sullo stesso NQ sono le 17:00
 /// <i>CET</i>. Sei o sette ore di differenza, stesso simbolo. Il calendario di mercato dichiara
 /// entrambi (<c>exchangeTz</c> e <c>researchTz</c>) e la finestra dice quale dei due usare.</para>
@@ -35,9 +35,10 @@ public enum InstrumentClock
 }
 
 /// <summary>
-/// Finestra oraria che dichiara <b>in quale orologio</b> è scritta: <c>(HHMM di inizio, HHMM di
-/// fine, orologio)</c>. Il fuso vero — l'identificatore IANA — non sta qui: lo dichiara il
-/// calendario di mercato del simbolo, che è l'unico posto in cui un fuso è verificato.
+/// Finestra oraria che dichiara <b>in quale orologio</b> è scritta: <c>(inizio, fine,
+/// orologio)</c>, con gli orari come <see cref="TimeOnly"/>. Il fuso vero — l'identificatore IANA —
+/// non sta qui: lo dichiara il calendario di mercato del simbolo, che è l'unico posto in cui un fuso
+/// è verificato.
 ///
 /// <para><b>Perché esiste.</b> Un <c>1700</c> da solo è un numero di cui nessuno sa l'orologio, e
 /// questo ha già prodotto due classi di errori. Il primo: gli orari venivano confrontati con l'ora
@@ -53,6 +54,12 @@ public enum InstrumentClock
 /// confronto passa da <see cref="SessionClock"/>, che è l'unico punto del sistema in cui compare un
 /// fuso diverso da UTC.</para>
 ///
+/// <para><b>Gli orari sono orari, non interi.</b> Fino all'11/09/2026 la finestra portava due
+/// <c>int</c> in forma <c>HHMM</c>, e "fine della giornata" era la sentinella <c>2359</c>: un numero
+/// che si legge come "un minuto prima di mezzanotte" e non lo è, e che ogni consumatore doveva
+/// riconoscere per conto proprio. Ora l'orario è un <see cref="TimeOnly"/> e la fine della giornata
+/// è <see cref="EndOfDay"/>, un valore con un nome e un solo significato.</para>
+///
 /// <para><b>Il fuso non è più una stringa.</b> Fino al 07/09/2026 questo tipo portava un
 /// identificatore IANA libero, duplicando quello che il calendario dichiara già per simbolo — con
 /// la possibilità che i due divergessero, e che un refuso spostasse in silenzio ogni confronto
@@ -63,11 +70,20 @@ public enum InstrumentClock
 /// <c>Piootoo.Shared/Models/Trading/TradingSessionContracts.cs</c> "sessione" indica già il run di
 /// trading applicativo, e propagare la collisione costerebbe più che scegliere un altro nome.</para>
 /// </summary>
-/// <param name="StartHhmm">Orario di inizio in formato <c>HHMM</c>, nell'orologio dichiarato.</param>
-/// <param name="EndHhmm">Orario di fine in formato <c>HHMM</c>, nell'orologio dichiarato.</param>
+/// <param name="Start">Orario di inizio, nell'orologio dichiarato.</param>
+/// <param name="End">Orario di fine, nell'orologio dichiarato; <see cref="EndOfDay"/> = fino alla fine della giornata.</param>
 /// <param name="Clock">In quale dei due orologi dello strumento sono scritti i due orari.</param>
-public sealed record ZonedWindow(int StartHhmm, int EndHhmm, InstrumentClock Clock = InstrumentClock.Research)
+public sealed record ZonedWindow(TimeOnly Start, TimeOnly End, InstrumentClock Clock = InstrumentClock.Research)
 {
+    /// <summary>
+    /// La fine della giornata: l'ultimo istante rappresentabile di un <see cref="TimeOnly"/>. È il
+    /// valore di <see cref="End"/> di una sessione a giornata piena e di una finestra che non
+    /// filtra per ora, e un confronto <c>t &lt;= EndOfDay</c> è vero per ogni orario: è così che una
+    /// finestra "fino a fine giornata" non lascia fuori l'ultimo minuto, come faceva <c>2359</c> con
+    /// una barra etichettata <c>23:59:30</c>.
+    /// </summary>
+    public static readonly TimeOnly EndOfDay = TimeOnly.MaxValue;
+
     /// <summary>
     /// <b>Il confine di sessione dei run di ricerca.</b> Non è la sessione del broker: il motore
     /// Python taglia le sessioni con
@@ -87,8 +103,8 @@ public sealed record ZonedWindow(int StartHhmm, int EndHhmm, InstrumentClock Clo
     /// simbolo. Resta il modo in cui l'engine costruisce la finestra di sessione una volta risolto
     /// l'ancoraggio.</para>
     /// </summary>
-    public static ZonedWindow ResearchSession(int sessionStartHour = 0) =>
-        new(sessionStartHour * 100, 2359);
+    public static ZonedWindow ResearchSession(TimeOnly sessionStart) =>
+        new(sessionStart, EndOfDay);
 
     /// <summary>
     /// Finestra scritta nell'orologio della ricerca. È la forma in cui vanno riportati
@@ -98,12 +114,26 @@ public sealed record ZonedWindow(int StartHhmm, int EndHhmm, InstrumentClock Clo
     /// finestra (<c>filters.py</c>: <c>minuti = index.hour * 60 + index.minute</c>), senza alcun
     /// riferimento a dove inizi la sessione. Le due cose sono indipendenti.</para>
     /// </summary>
-    public static ZonedWindow Research(int startHhmm, int endHhmm) =>
-        new(startHhmm, endHhmm);
+    public static ZonedWindow Research(TimeOnly start, TimeOnly end) =>
+        new(start, end);
 
-    /// <summary>Come <see cref="Research(int,int)"/> ma partendo dalle ore piene dei run.</summary>
+    /// <summary>Come <see cref="Research(TimeOnly,TimeOnly)"/> ma partendo dalle ore piene dei run.</summary>
     public static ZonedWindow ResearchHours(int startHour, int endHour) =>
-        new(startHour * 100, endHour * 100);
+        new(new TimeOnly(startHour, 0), new TimeOnly(endHour, 0));
+
+    /// <summary>
+    /// Dall'ora piena indicata fino alla fine della giornata: la forma di un run che dichiara
+    /// <c>start_hour</c> e lascia <c>end_hour</c> a fine giornata.
+    /// </summary>
+    public static ZonedWindow ResearchFrom(int startHour) =>
+        new(new TimeOnly(startHour, 0), EndOfDay);
+
+    /// <summary>
+    /// Tutta la giornata: la forma in cui un run che <b>non ha filtrato per ora</b> scrive
+    /// <c>start_hour</c>/<c>end_hour</c>. Non è un filtro, e chi la descrive deve dirlo invece di
+    /// elencare una fascia esclusa che non esiste.
+    /// </summary>
+    public static ZonedWindow AllDay { get; } = new(TimeOnly.MinValue, EndOfDay);
 
     /// <summary>
     /// Finestra scritta nell'<b>ora di borsa</b> dello strumento: è la forma degli orari di una
@@ -114,15 +144,22 @@ public sealed record ZonedWindow(int StartHhmm, int EndHhmm, InstrumentClock Clo
     /// che orologio leggerli, e convertirli a mano nell'orologio della ricerca sarebbe lo stesso
     /// errore fatto nel verso opposto.</para>
     /// </summary>
-    public static ZonedWindow Exchange(int startHhmm, int endHhmm) =>
-        new(startHhmm, endHhmm, InstrumentClock.Exchange);
+    public static ZonedWindow Exchange(TimeOnly start, TimeOnly end) =>
+        new(start, end, InstrumentClock.Exchange);
 
     /// <summary>
     /// Vero quando la finestra attraversa la mezzanotte, cioè quando l'orario di fine è minore di
     /// quello di inizio. Non è un caso degenere: è la forma normale delle finestre serali.
     /// </summary>
-    public bool CrossesMidnight => StartHhmm > EndHhmm;
+    public bool CrossesMidnight => Start > End;
+
+    /// <summary>Vero quando la finestra arriva fino alla fine della giornata (<see cref="EndOfDay"/>).</summary>
+    public bool EndsWithTheDay => End == EndOfDay;
+
+    /// <summary>Vero quando la finestra copre l'intera giornata e quindi non filtra nulla.</summary>
+    public bool IsAllDay => Start == TimeOnly.MinValue && EndsWithTheDay;
 
     public override string ToString() =>
-        $"{StartHhmm:0000}->{EndHhmm:0000} ({(Clock == InstrumentClock.Exchange ? "ora di borsa" : "orologio della ricerca")})";
+        $"{Start:HH\\:mm}->{(EndsWithTheDay ? "fine giornata" : End.ToString("HH\\:mm"))} " +
+        $"({(Clock == InstrumentClock.Exchange ? "ora di borsa" : "orologio della ricerca")})";
 }

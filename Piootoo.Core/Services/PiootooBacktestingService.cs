@@ -809,9 +809,9 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                 ["allowOvernight"] = holding.AllowOvernight ? "true" : "false",
                 ["sessionFlatFromUtc"] = holding.AllowOvernight
                     ? "-"
-                    : holding.SessionFlatUtcHhmm.ToString("0000"),
+                    : holding.SessionFlatUtc.ToString("HH:mm", CultureInfo.InvariantCulture),
                 ["allowOverweek"] = holding.AllowOverweek ? "true" : "false",
-                ["weekEndFlatFromUtc"] = weekEndFlat.FromUtcHhmm.ToString("0000"),
+                ["weekEndFlatFromUtc"] = weekEndFlat.FromUtc.ToString("HH:mm", CultureInfo.InvariantCulture),
                 ["rejectWrongSideLevels"] = request.RejectWrongSideLevels ? "true" : "false",
                 // Gli stop della ricerca sono piu' stretti dello spread misurato su parecchie
                 // strategie: il moltiplicatore li rende eseguibili e cambia quante posizioni
@@ -1149,7 +1149,7 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                 // piatto e senza ordini fino alla riapertura, quindi non c'e' niente da valutare.
                 // Il tick su cui il flat SCATTA passa — e' quello che chiude le posizioni e
                 // cancella i pending, in fondo al corpo del loop — e vengono saltati solo quelli
-                // dopo, fino a WeekEndFlatPolicy.UntilUtcHhmm.
+                // dopo, fino a WeekEndFlatPolicy.UntilUtc.
                 if (IterationIsSkippedByWeekEndFlat(holding, currentDate, minTimeframeMinutes))
                 {
                     currentDate = currentDate.AddMinutes(minTimeframeMinutes);
@@ -1516,12 +1516,12 @@ public class PiootooBacktestingService : IPiootooBacktestingService
 
             if (weekEndCancelledOrders > 0)
                 diagnostics.LogRun(
-                    $"Flat settimanale dalle {weekEndFlat.FromUtcHhmm:0000} UTC del venerdi': " +
+                    $"Flat settimanale dalle {weekEndFlat.FromUtc:HH\\:mm} UTC del venerdi': " +
                     $"{weekEndCancelledOrders} ordini pendenti cancellati.",
                     new Dictionary<string, string>(StringComparer.Ordinal)
                     {
                         ["weekEndCancelledOrders"] = weekEndCancelledOrders.ToString(CultureInfo.InvariantCulture),
-                        ["weekEndFlatFromUtc"] = weekEndFlat.FromUtcHhmm.ToString("0000")
+                        ["weekEndFlatFromUtc"] = weekEndFlat.FromUtc.ToString("HH:mm", CultureInfo.InvariantCulture)
                     });
 
             // Un numero alto qui non e' un difetto: e' la misura di quanti ingressi il backtest

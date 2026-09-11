@@ -1,4 +1,5 @@
 ﻿using System.Reflection;
+using Piootoo.Shared.Configuration;
 using Piootoo.Shared.Interfaces;
 using Piootoo.Shared.MarketData;
 using Piootoo.Strategies.PiutooStrategies;
@@ -101,7 +102,7 @@ public sealed class SessionCloseAtAnchorTests(ITestOutputHelper output)
         var calendar = MarketCalendarRegistry.Current.Get(strategy.Symbol);
         var grid = new SessionGrid(calendar);
 
-        var end = (int)FindProperty(type, "SessionEndTime").GetValue(strategy)!;
+        var end = (TimeOnly)FindProperty(type, "SessionEnd").GetValue(strategy)!;
         var deadline = (DateTime)FindMethod(type, "ResolveCloseAtUtc").Invoke(strategy, [barUtc, end])!;
 
         var sessionDay = grid.SessionDayOf(barUtc);
@@ -109,7 +110,7 @@ public sealed class SessionCloseAtAnchorTests(ITestOutputHelper output)
         var sessionClose = grid.SessionOpenUtc(sessionDay.AddDays(1));
 
         output.WriteLine(
-            $"{type.Name} [ancoraggio {calendar.SessionStartHour:00}:00, SessionEndTime {end}]");
+            $"{type.Name} [ancoraggio {calendar.SessionStart:HH\\:mm}, SessionEnd {(end == ZonedWindow.EndOfDay ? "fine giornata" : end.ToString("HH\\:mm"))}]");
         output.WriteLine($"    barra      {barUtc:yyyy-MM-dd HH:mm}Z");
         output.WriteLine($"    sessione   {sessionOpen:yyyy-MM-dd HH:mm}Z -> {sessionClose:yyyy-MM-dd HH:mm}Z");
         output.WriteLine($"    CloseAtUtc {deadline:yyyy-MM-dd HH:mm}Z  (scarto dalla chiusura: {sessionClose - deadline})");

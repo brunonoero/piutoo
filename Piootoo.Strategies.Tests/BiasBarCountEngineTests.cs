@@ -177,6 +177,6 @@ public sealed class BiasBarCountEngineTests
             entries.Add(WithExitTime(
                 EntryMarketNextBar(SignalType.Buy, data[^1].Close, data, barTime, "LE_CUSTOM"),
                 barTime,
-                900));
+                new TimeOnly(9, 0)));
     }
 }

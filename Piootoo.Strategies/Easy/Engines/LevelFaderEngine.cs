@@ -1,3 +1,4 @@
+using Piootoo.Shared.Configuration;
 using Piootoo.Shared.Enums;
 using Piootoo.Shared.Models;
 
@@ -42,17 +43,16 @@ public abstract class LevelFaderEngine : EasyEngineBase
     // ------------------------------------------------------------------ finestra operativa
 
     /// <summary>
-    /// Inizio della finestra operativa nell'ora Python/pandas (0–23).
-    /// <c>-1</c> disabilita il limite, come <c>start_hour</c>.
+    /// Inizio della finestra operativa nell'orologio della finestra; il confronto è sull'ora
+    /// piena (0–23), come <c>start_hour</c> Python. <c>null</c> disabilita il limite.
     /// </summary>
-    protected int StartTrade = -1;
+    protected TimeOnly? StartTrade;
 
     /// <summary>
-    /// Fine della finestra operativa nell'ora Python/pandas (0–23).
-    /// <c>-1</c> disabilita il limite; gli estremi attivi sono inclusivi, come
-    /// <c>time_window</c> del port Python.
+    /// Fine della finestra operativa, confrontata sull'ora piena (0–23). <c>null</c> disabilita il
+    /// limite; gli estremi attivi sono inclusivi, come <c>time_window</c> del port Python.
     /// </summary>
-    protected int EndTrade = -1;
+    protected TimeOnly? EndTrade;
 
     /// <summary>
     /// Usa la finestra di test della sorgente: due ore dopo l'apertura e due ore prima della
@@ -101,10 +101,10 @@ public abstract class LevelFaderEngine : EasyEngineBase
     protected int StrategyId;
 
     /// <summary>
-    /// Orario HHMM di chiusura. Il sentinella 2500 usa la fine della sessione effettiva, come
+    /// Orario di chiusura. <c>null</c> usa la fine della sessione effettiva, come
     /// <c>UACalcEndTime(sessionStartTimeA, endsession)</c>.
     /// </summary>
-    protected int CloseAtTime = 2500;
+    protected TimeOnly? CloseAtTime;
 
     // ------------------------------------------------------------------ stato di sessione
 
@@ -196,21 +196,24 @@ public abstract class LevelFaderEngine : EasyEngineBase
         if (!UseSessionTestWindow)
             return InPythonTradingWindow(barTime);
 
-        var start = AddHours(SessionStartTime, 2);
-        var end = AddHours(EffectiveSessionEndTime, -2);
-        return EasyLib.TimeWindow(start, end, ParamHhmm(barTime));
+        var start = SessionStart.AddHours(2);
+        var end = EffectiveSessionEndTime.AddHours(-2);
+        return EasyLib.TimeWindow(start, end, ParamTime(barTime));
     }
 
     private bool InPythonTradingWindow(DateTime barTime)
     {
-        if (StartTrade < 0 && EndTrade < 0)
+        if (StartTrade is null && EndTrade is null)
             return true;
 
-        var start = StartTrade < 0 ? 0 : StartTrade;
-        var end = EndTrade < 0 ? 23 : EndTrade;
-        // L'ora si legge sull'orologio della finestra, mai su quello grezzo della barra.
-        var hour = WindowParamHhmm(barTime) / 100;
-        return start <= end ? hour >= start && hour <= end : hour >= start || hour <= end;
+        // Il port Python confronta le ORE piene, estremi inclusi: `hour >= start && hour <= end`.
+        // In orari pieni e' la finestra da start:00 all'ultimo istante dell'ora di end, letta
+        // sull'orologio della finestra, mai su quello grezzo della barra.
+        var start = StartTrade ?? TimeOnly.MinValue;
+        var end = (EndTrade ?? new TimeOnly(23, 0))
+            .Add(TimeSpan.FromHours(1))
+            .Add(TimeSpan.FromTicks(-1));
+        return EasyLib.TimeWindowInclusive(start, end, WindowParamTime(barTime));
     }
 
     private int PythonDayOfWeek(DateTime value) => PythonWeekday(value);
@@ -219,20 +222,17 @@ public abstract class LevelFaderEngine : EasyEngineBase
     {
         if (StrategyId == 0)
         {
-            var closeTime = CloseAtTime == 2500 ? EffectiveSessionEndTime : CloseAtTime;
+            var closeTime = CloseAtTime ?? EffectiveSessionEndTime;
             signal.CloseAtUtc = ResolveCloseAtUtc(signal.ValidFromUtc!.Value, closeTime);
         }
 
         return signal;
     }
 
-    private int EffectiveSessionEndTime =>
-        SessionEndTime >= 2400 ? SessionStartTime : SessionEndTime;
-
-    private static int AddHours(int hhmm, int hours)
-    {
-        var totalMinutes = (hhmm / 100) * 60 + hhmm % 100 + hours * 60;
-        totalMinutes = (totalMinutes % 1440 + 1440) % 1440;
-        return totalMinutes / 60 * 100 + totalMinutes % 60;
-    }
+    /// <summary>
+    /// La fine di sessione "vera": su una sessione a giornata piena è l'ancoraggio stesso, cioè
+    /// l'istante in cui riapre la successiva (<c>UACalcEndTime</c> della sorgente).
+    /// </summary>
+    private TimeOnly EffectiveSessionEndTime =>
+        SessionEnd == ZonedWindow.EndOfDay ? SessionStart : SessionEnd;
 }

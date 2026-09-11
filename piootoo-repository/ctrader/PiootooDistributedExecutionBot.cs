@@ -260,7 +260,7 @@ namespace cAlgo.Robots
         // leggendo questo sorgente.
         // Il disallineamento non blocca nulla: entrambi stampano la propria versione all'avvio, e
         // il confronto si fa leggendo i due log.
-        private const string BotVersion = "7.2.1"; // major.minor deve seguire PiootooVersion
+        private const string BotVersion = "7.3.0"; // major.minor deve seguire PiootooVersion
         private const string StatusChartObjectName = "PiootooConnectionStatus";
 
         // Riquadro rosso al centro del grafico, separato dal pannello di stato: e' l'errore fatale
@@ -381,7 +381,7 @@ namespace cAlgo.Robots
         // la prima apertura di sessione riuscita, quando il piano non e' ancora noto.
         private bool _allowOvernight = true;
         private bool _allowOverweek;
-        private int _sessionFlatUtcHhmm = 2045;
+        private TimeSpan _sessionFlatUtc = new TimeSpan(20, 45, 0);
 
         private HttpClient _http;
         private string _accountNumber;
@@ -397,13 +397,13 @@ namespace cAlgo.Robots
         private int _maxConcurrentTrades;
 
         /// <summary>
-        /// Orario di flat del fine settimana in vigore, in HHMM UTC. Nasce dai parametri e viene
-        /// sovrascritto dal descriptor appena la sessione si apre: il numero e' del server, perche'
-        /// deve essere lo stesso che usa il backtest. I parametri restano la rete per il caso in cui
-        /// il server non lo dichiari (versione vecchia) e per la finestra prima dell'apertura.
+        /// Orario di flat del fine settimana in vigore, come ora del giorno UTC. Nasce dai default
+        /// e viene sovrascritto dal descriptor appena la sessione si apre: il numero e' del server,
+        /// perche' deve essere lo stesso che usa il backtest. I default restano la rete per il caso
+        /// in cui il server non lo dichiari e per la finestra prima dell'apertura.
         /// </summary>
-        private int _weekEndFlatFromUtc = 2045;
-        private int _weekEndFlatUntilUtc = 2300;
+        private TimeSpan _weekEndFlatFromUtc = new TimeSpan(20, 45, 0);
+        private TimeSpan _weekEndFlatUntilUtc = new TimeSpan(23, 0, 0);
 
         /// <summary>
         /// Il piano conta solo le posizioni riempite: gli ordini pendenti non consumano budget lato
@@ -515,7 +515,7 @@ namespace cAlgo.Robots
             /// Ancoraggio e fuso dei bucket oltre l'ora per questo strumento, dal descriptor. Non
             /// sono parametri del bot: vedi il commento in <see cref="BucketStartUtc"/>.
             /// </summary>
-            public int SessionStartHour;
+            public TimeSpan SessionStart;
             public TimeZoneInfo SessionZone;
             public string SessionTimeZoneId;
 
@@ -832,10 +832,10 @@ namespace cAlgo.Robots
                 }
 
                 if (pair.Aggregated)
-                    Print("{0}: barre costruite dal bot sulle {1} minuti, ancoraggio {2} {3:00}:00 — " +
+                    Print("{0}: barre costruite dal bot sulle {1} minuti, ancoraggio {2} {3} — " +
                           "la serie nativa da {4} minuti della piattaforma NON viene usata.",
                         pair, baseMinutes, pair.SessionTimeZoneId,
-                        pair.SessionStartHour, pair.TimeframeMinutes);
+                        Hhmm(pair.SessionStart), pair.TimeframeMinutes);
 
                 // Storia caricata all'indietro PRIMA di partire: cTrader tiene in serie solo le barre
                 // che gli servono per il grafico, e senza questo la prima finestra spedita al server
@@ -969,20 +969,24 @@ namespace cAlgo.Robots
 
             _allowOvernight = holding.AllowOvernight;
             _allowOverweek = holding.AllowOverweek;
-            if (IsValidHhmm(holding.SessionFlatUtcHhmm))
-                _sessionFlatUtcHhmm = holding.SessionFlatUtcHhmm;
+            if (IsTimeOfDay(holding.SessionFlatUtc))
+                _sessionFlatUtc = holding.SessionFlatUtc.Value;
 
             if (holding.WeekEnd != null &&
-                IsValidHhmm(holding.WeekEnd.FromUtcHhmm) &&
-                IsValidHhmm(holding.WeekEnd.UntilUtcHhmm))
+                IsTimeOfDay(holding.WeekEnd.FromUtc) &&
+                IsTimeOfDay(holding.WeekEnd.UntilUtc))
             {
-                _weekEndFlatFromUtc = holding.WeekEnd.FromUtcHhmm;
-                _weekEndFlatUntilUtc = holding.WeekEnd.UntilUtcHhmm;
+                _weekEndFlatFromUtc = holding.WeekEnd.FromUtc.Value;
+                _weekEndFlatUntilUtc = holding.WeekEnd.UntilUtc.Value;
             }
         }
 
-        private static bool IsValidHhmm(int hhmm) =>
-            hhmm >= 0 && hhmm <= 2359 && hhmm % 100 < 60;
+        /// <summary>
+        /// Il server serializza gli orari come <c>HH:mm:ss</c>; un campo assente (server piu'
+        /// vecchio) o fuori dalla giornata lascia in vigore il valore corrente.
+        /// </summary>
+        private static bool IsTimeOfDay(TimeSpan? value) =>
+            value.HasValue && value.Value >= TimeSpan.Zero && value.Value < TimeSpan.FromDays(1);
 
         private void LogSessionDescriptor()
         {
@@ -1271,7 +1275,7 @@ namespace cAlgo.Robots
         private string DescribeHolding()
         {
             if (!_allowOvernight)
-                return "flat di sessione " + Hhmm(_sessionFlatUtcHhmm) + " UTC (niente overnight)";
+                return "flat di sessione " + Hhmm(_sessionFlatUtc) + " UTC (niente overnight)";
             if (!_allowOverweek)
                 return "overnight SI, flat weekend ven " + Hhmm(_weekEndFlatFromUtc) +
                        " -> dom " + Hhmm(_weekEndFlatUntilUtc) + " UTC";
@@ -1298,8 +1302,8 @@ namespace cAlgo.Robots
             return "[multiday]";
         }
 
-        private static string Hhmm(int value) =>
-            (value / 100).ToString("00") + ":" + (value % 100).ToString("00");
+        private static string Hhmm(TimeSpan value) =>
+            value.Hours.ToString("00") + ":" + value.Minutes.ToString("00");
 
         /// <summary>
         /// "Disabled" e' il nome del contratto ma dice poco a chi guarda il grafico: qui interessa
@@ -1980,15 +1984,15 @@ namespace cAlgo.Robots
         /// </summary>
         private bool IsWeekEndFlatWindow(DateTime nowUtc)
         {
-            var hhmm = nowUtc.Hour * 100 + nowUtc.Minute;
+            var timeOfDay = nowUtc.TimeOfDay;
             switch (nowUtc.DayOfWeek)
             {
                 case DayOfWeek.Friday:
-                    return hhmm >= _weekEndFlatFromUtc;
+                    return timeOfDay >= _weekEndFlatFromUtc;
                 case DayOfWeek.Saturday:
                     return true;
                 case DayOfWeek.Sunday:
-                    return hhmm < _weekEndFlatUntilUtc;
+                    return timeOfDay < _weekEndFlatUntilUtc;
                 default:
                     return false;
             }
@@ -4018,7 +4022,7 @@ namespace cAlgo.Robots
                         AccountSymbol = accountSymbol,
                         TimeframeMinutes = tf,
                         RequiredCandles = Math.Max(1, required),
-                        SessionStartHour = instrument.BarGrid.SessionStartHour,
+                        SessionStart = instrument.BarGrid.SessionStart,
                         SessionZone = zone,
                         SessionTimeZoneId = instrument.BarGrid.ResearchTimeZone.Trim()
                     });
@@ -4271,7 +4275,7 @@ namespace cAlgo.Robots
             var local = TimeZoneInfo.ConvertTimeFromUtc(
                 DateTime.SpecifyKind(openUtc, DateTimeKind.Utc), pair.SessionZone);
 
-            var minutesFromAnchor = (int)local.TimeOfDay.TotalMinutes - pair.SessionStartHour * 60;
+            var minutesFromAnchor = (int)(local.TimeOfDay - pair.SessionStart).TotalMinutes;
             if (minutesFromAnchor < 0)
                 minutesFromAnchor += 1440;
 
@@ -4634,15 +4638,16 @@ namespace cAlgo.Robots
         {
             public bool AllowOvernight { get; set; }
             public bool AllowOverweek { get; set; }
-            public int SessionFlatUtcHhmm { get; set; }
+            /// <summary>Ora del giorno UTC, sul filo <c>HH:mm:ss</c>.</summary>
+            public TimeSpan? SessionFlatUtc { get; set; }
             public WeekEndFlatDto WeekEnd { get; set; }
         }
 
-        /// <summary>Finestra di flat del fine settimana, in HHMM UTC, come la dichiara il server.</summary>
+        /// <summary>Finestra di flat del fine settimana, ore del giorno UTC, come la dichiara il server.</summary>
         private sealed class WeekEndFlatDto
         {
-            public int FromUtcHhmm { get; set; }
-            public int UntilUtcHhmm { get; set; }
+            public TimeSpan? FromUtc { get; set; }
+            public TimeSpan? UntilUtc { get; set; }
         }
 
         /// <summary>Una strategia in sessione: codice di esecuzione, simbolo, timeframe, tenuta.</summary>
@@ -4689,10 +4694,10 @@ namespace cAlgo.Robots
             public InstrumentBarGridDto BarGrid { get; set; }
         }
 
-        /// <summary>Ancoraggio dei bucket: ora di inizio sessione e fuso in cui leggerla.</summary>
+        /// <summary>Ancoraggio dei bucket: orario di inizio sessione (<c>HH:mm:ss</c>) e fuso in cui leggerlo.</summary>
         private sealed class InstrumentBarGridDto
         {
-            public int SessionStartHour { get; set; }
+            public TimeSpan SessionStart { get; set; }
             public string ResearchTimeZone { get; set; }
         }
 

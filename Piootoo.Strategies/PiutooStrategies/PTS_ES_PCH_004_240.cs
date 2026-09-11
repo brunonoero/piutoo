@@ -87,7 +87,7 @@ public sealed class PTS_ES_PCH_004_240 : PriceChannelEngine
 
         // Finestra operativa: start_hour/end_hour del run, verbatim nell'orologio
         // della ricerca. Nessuna conversione: il fuso viaggia con il dato.
-        TradingWindow = ZonedWindow.Research(0, 2359);   // nessun filtro orario, finestra piena
+        TradingWindow = ZonedWindow.AllDay;   // nessun filtro orario, finestra piena
 
         ChannelBars = 1;               // channel_len, canale INCLUSA la barra di segnale
         OffsetTicks = 5;               // breakout_offset_ticks: offset esatto, nessun tick implicito

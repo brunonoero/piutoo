@@ -23,11 +23,11 @@ public abstract class RbbMirroredEngine : EasyEngineBase
     /// <summary>Numero di deviazioni standard delle Bollinger Bands.</summary>
     protected decimal BollingerNumDevs = 2m;
 
-    /// <summary>Inizio della finestra operativa HHMM.</summary>
-    protected int StartTrade = -1;
+    /// <summary>Inizio della finestra operativa; <c>null</c> = non limitare.</summary>
+    protected TimeOnly? StartTrade;
 
-    /// <summary>Fine della finestra operativa HHMM, con semantica <c>tw()</c>.</summary>
-    protected int EndTrade = -1;
+    /// <summary>Fine della finestra operativa, inclusa; <c>null</c> = non limitare.</summary>
+    protected TimeOnly? EndTrade;
 
     /// <summary>Giorno EasyLanguage escluso (0 = domenica). -1 = nessuno.</summary>
     protected int DayToFilter = -1;
@@ -105,13 +105,8 @@ public abstract class RbbMirroredEngine : EasyEngineBase
         if (InDeclaredWindow(barTime) is { } declared)
             return declared;
 
-        if (StartTrade < 0 && EndTrade < 0)
-            return true;
-
         // Estremi inclusi, come TF e PC: vedi la nota in TfEngineBase.InTradingWindow.
-        return EasyLib.TimeWindowInclusive(StartTrade < 0 ? 0 : StartTrade,
-            EndTrade < 0 ? 2400 : EndTrade,
-            ParamHhmm(barTime));
+        return InWindow(StartTrade, EndTrade, ParamTime(barTime), inclusiveEnd: true);
     }
 
     private TradeSignal WithPythonSettings(TradeSignal signal)
@@ -119,15 +114,15 @@ public abstract class RbbMirroredEngine : EasyEngineBase
         signal.MaxEntriesPerSession = 1;
         signal.EntrySessionStartUtc = GetSessionStartUtc(signal.ValidFromUtc!.Value);
         if (AppliesSessionExit)
-            signal.CloseAtUtc = ResolveCloseAtUtc(signal.ValidFromUtc.Value, SessionEndTime);
+            signal.CloseAtUtc = ResolveCloseAtUtc(signal.ValidFromUtc.Value, SessionEnd);
         return signal;
     }
 
     private DateTime GetSessionStartUtc(DateTime timeUtc)
     {
-        var sessionStart = Clock.SessionInstantUtc(timeUtc, SessionStartTime);
+        var sessionStart = Clock.SessionInstantUtc(timeUtc, SessionStart);
         return timeUtc < sessionStart
-            ? Clock.SessionInstantUtc(timeUtc.AddDays(-1), SessionStartTime)
+            ? Clock.SessionInstantUtc(timeUtc.AddDays(-1), SessionStart)
             : sessionStart;
     }
 
@@ -183,11 +178,11 @@ public abstract class RbbUnmirroredEngine : EasyEngineBase
     /// <summary>Numero di deviazioni standard delle Bollinger Bands.</summary>
     protected decimal BollingerNumDevs = 2m;
 
-    /// <summary>Inizio della finestra operativa HHMM.</summary>
-    protected int StartTrade = -1;
+    /// <summary>Inizio della finestra operativa; <c>null</c> = non limitare.</summary>
+    protected TimeOnly? StartTrade;
 
-    /// <summary>Fine della finestra operativa HHMM, con semantica <c>tw()</c>.</summary>
-    protected int EndTrade = -1;
+    /// <summary>Fine della finestra operativa, inclusa; <c>null</c> = non limitare.</summary>
+    protected TimeOnly? EndTrade;
 
     /// <summary>Giorno EasyLanguage escluso (0 = domenica). -1 = nessuno.</summary>
     protected int DayToFilter = -1;
@@ -263,13 +258,8 @@ public abstract class RbbUnmirroredEngine : EasyEngineBase
         if (InDeclaredWindow(barTime) is { } declared)
             return declared;
 
-        if (StartTrade < 0 && EndTrade < 0)
-            return true;
-
         // Estremi inclusi, come TF e PC: vedi la nota in TfEngineBase.InTradingWindow.
-        return EasyLib.TimeWindowInclusive(StartTrade < 0 ? 0 : StartTrade,
-            EndTrade < 0 ? 2400 : EndTrade,
-            ParamHhmm(barTime));
+        return InWindow(StartTrade, EndTrade, ParamTime(barTime), inclusiveEnd: true);
     }
 
     private TradeSignal WithPythonSettings(TradeSignal signal)
@@ -277,15 +267,15 @@ public abstract class RbbUnmirroredEngine : EasyEngineBase
         signal.MaxEntriesPerSession = 1;
         signal.EntrySessionStartUtc = GetSessionStartUtc(signal.ValidFromUtc!.Value);
         if (AppliesSessionExit)
-            signal.CloseAtUtc = ResolveCloseAtUtc(signal.ValidFromUtc.Value, SessionEndTime);
+            signal.CloseAtUtc = ResolveCloseAtUtc(signal.ValidFromUtc.Value, SessionEnd);
         return signal;
     }
 
     private DateTime GetSessionStartUtc(DateTime timeUtc)
     {
-        var sessionStart = Clock.SessionInstantUtc(timeUtc, SessionStartTime);
+        var sessionStart = Clock.SessionInstantUtc(timeUtc, SessionStart);
         return timeUtc < sessionStart
-            ? Clock.SessionInstantUtc(timeUtc.AddDays(-1), SessionStartTime)
+            ? Clock.SessionInstantUtc(timeUtc.AddDays(-1), SessionStart)
             : sessionStart;
     }
 

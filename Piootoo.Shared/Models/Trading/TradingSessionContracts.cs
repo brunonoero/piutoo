@@ -275,8 +275,11 @@ public sealed class TradingSessionSummary
 /// </summary>
 public sealed class InstrumentBarGrid
 {
-    /// <summary>Ora locale a cui si apre la sessione dello strumento, nel fuso qui sotto.</summary>
-    public required int SessionStartHour { get; init; }
+    /// <summary>
+    /// Ora locale a cui si apre la sessione dello strumento, nel fuso qui sotto. Sul filo viaggia
+    /// come <c>"HH:mm:ss"</c>; il cBot la legge come <c>TimeSpan</c>.
+    /// </summary>
+    public required TimeOnly SessionStart { get; init; }
 
     /// <summary>Fuso IANA in cui leggere l'ancoraggio: quello della ricerca, non quello di borsa.</summary>
     public required string ResearchTimeZone { get; init; }

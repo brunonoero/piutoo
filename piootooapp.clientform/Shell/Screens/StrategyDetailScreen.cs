@@ -107,9 +107,9 @@ public partial class StrategyDetailScreen : UserControl, IShellScreen
         {
             text.AppendLine($"  Finestra       {card.Session.Label}");
             text.AppendLine(
-                $"  Ancoraggio     {card.SessionAnchorHour:00}:00 · " +
+                $"  Ancoraggio     {card.SessionAnchor:HH\\:mm} · " +
                 (card.SessionAnchorOverrideReason is { Length: > 0 } reason
-                    ? $"OVERRIDE della strategia (il calendario dice {card.CalendarSessionStartHour:00}:00) — {reason}"
+                    ? $"OVERRIDE della strategia (il calendario dice {card.CalendarSessionStart:HH\\:mm}) — {reason}"
                     : $"dal calendario di {card.Symbol}"));
             text.AppendLine($"  In UTC         gennaio {card.Session.WinterUtc}   ·   luglio {card.Session.SummerUtc}");
         }

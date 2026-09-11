@@ -51,7 +51,7 @@ public abstract class EasyEngineBase : StatelessEasyStrategyBase
     /// <summary>
     /// L'ancoraggio del simbolo, o quello dichiarato da <see cref="OverrideSessionAnchor"/>.
     ///
-    /// <para>La forma e' sempre quella della ricerca — <c>(ancoraggio, 2359)</c>, giornata piena a
+    /// <para>La forma e' sempre quella della ricerca — <c>(ancoraggio, fine giornata)</c>, giornata piena a
     /// partire dall'ancoraggio — perche' e' l'unico modello di sessione che il sistema esegue. La
     /// sessione <b>di borsa</b>, dove le barre fuori orario non appartengono a nessuna sessione, e'
     /// un modello diverso e non e' supportata: nessuna strategia la usa, e costruirla ora
@@ -63,7 +63,7 @@ public abstract class EasyEngineBase : StatelessEasyStrategyBase
             return ZonedWindow.ResearchSession(overridden);
 
         return ZonedWindow.ResearchSession(
-            MarketCalendarRegistry.Current.Get(Symbol).SessionStartHour);
+            MarketCalendarRegistry.Current.Get(Symbol).SessionStart);
     }
 
     /// <summary>
@@ -82,13 +82,10 @@ public abstract class EasyEngineBase : StatelessEasyStrategyBase
     /// <para>Gli override sono elencati in <c>SessionAnchorOverrideTests</c>: uno nuovo fa fallire
     /// il test finche' non viene messo in lista, cosi' nasce da una decisione e non da un merge.</para>
     /// </summary>
-    /// <param name="hour">Ora di inizio sessione nell'orologio della ricerca, 0-23.</param>
+    /// <param name="anchor">Orario di inizio sessione nell'orologio della ricerca.</param>
     /// <param name="reason">Perche' questa strategia non segue l'ancoraggio del proprio simbolo.</param>
-    protected void OverrideSessionAnchor(int hour, string reason)
+    protected void OverrideSessionAnchor(TimeOnly anchor, string reason)
     {
-        if (hour is < 0 or > 23)
-            throw new ArgumentOutOfRangeException(nameof(hour), hour, "Ora di sessione fuori da 0-23.");
-
         if (string.IsNullOrWhiteSpace(reason))
         {
             throw new ArgumentException(
@@ -98,7 +95,7 @@ public abstract class EasyEngineBase : StatelessEasyStrategyBase
                 nameof(reason));
         }
 
-        _sessionAnchorOverride = hour;
+        _sessionAnchorOverride = anchor;
         SessionAnchorOverrideReason = reason.Trim();
         _session = null;
         _grid = null;
@@ -138,11 +135,11 @@ public abstract class EasyEngineBase : StatelessEasyStrategyBase
 
     private ZonedWindow? _session;
     private SessionGrid? _grid;
-    private int? _sessionAnchorOverride;
+    private TimeOnly? _sessionAnchorOverride;
     private ZonedWindow? _tradingWindow;
 
     /// <summary>
-    /// Orario HHMM di inizio sessione, nell'orologio della ricerca. <b>Sola lettura</b>: lo dichiara
+    /// Orario di inizio sessione, nell'orologio della ricerca. <b>Sola lettura</b>: lo dichiara
     /// il calendario del simbolo, non la strategia. Per spostarlo esiste
     /// <see cref="OverrideSessionAnchor"/>.
     ///
@@ -151,10 +148,13 @@ public abstract class EasyEngineBase : StatelessEasyStrategyBase
     /// non c'e' nessuna aritmetica che lo porti a un ancoraggio, e cercarne una e' l'errore. Vedi
     /// <c>docs/domini/porting-da-report-sweep.md</c> §2.1.</para>
     /// </summary>
-    protected int SessionStartTime => Session.StartHhmm;
+    protected TimeOnly SessionStart => Session.Start;
 
-    /// <summary>Orario HHMM di fine sessione. Sola lettura, come <see cref="SessionStartTime"/>.</summary>
-    protected int SessionEndTime => Session.EndHhmm;
+    /// <summary>
+    /// Orario di fine sessione. Sola lettura, come <see cref="SessionStart"/>; vale
+    /// <see cref="ZonedWindow.EndOfDay"/> per le sessioni a giornata piena della ricerca.
+    /// </summary>
+    protected TimeOnly SessionEnd => Session.End;
 
     /// <summary>Contratti dichiarati dalla strategia, prima di sizing e conversione account.</summary>
     protected int Contracts = 1;
@@ -333,10 +333,10 @@ public abstract class EasyEngineBase : StatelessEasyStrategyBase
     /// nuova. Wrapper su <see cref="EasyLib.OHLCMulti5"/> con i parametri di sessione del motore.
     /// </summary>
     protected bool BuildSessionOhlc(OhlcvData[] data, DateTime barTime, out decimal[] ohlc) =>
-        EasyLib.OHLCMulti5(Clock, SessionStartTime, SessionEndTime, data, barTime, out ohlc);
+        EasyLib.OHLCMulti5(Clock, SessionStart, SessionEnd, data, barTime, out ohlc);
 
-    /// <summary>Orario HHMM della barra, letto in ora di borsa.</summary>
-    protected int Hhmm(DateTime barTime) => Clock.Hhmm(barTime);
+    /// <summary>Orario di apertura della barra, letto in ora di borsa.</summary>
+    protected TimeOnly TimeOfDay(DateTime barTime) => Clock.TimeOfDay(barTime);
 
     /// <summary>
     /// Riproduce l'etichettatura vecchia: la barra si confronta con le soglie usando la propria
@@ -350,38 +350,74 @@ public abstract class EasyEngineBase : StatelessEasyStrategyBase
     public bool LegacyBarOpenLabels { get; set; }
 
     /// <summary>
-    /// L'orario <c>HHMM</c> con cui questa barra va confrontata con le soglie dei parametri
+    /// L'orario con cui questa barra va confrontata con le soglie dei parametri
     /// (<c>start_hour</c>, <c>end_hour</c>, pause, orari di uscita), letto sull'orologio di sessione.
     ///
-    /// <para><b>Non è <see cref="Hhmm"/>.</b> Quello è l'orario di apertura della barra e serve a
+    /// <para><b>Non è <see cref="TimeOfDay"/>.</b> Quello è l'orario di apertura della barra e serve a
     /// dire a quale <i>sessione</i> appartiene, che è una domanda diversa e ha già la sua risposta
     /// in <see cref="EasyLib"/>. Questo è il nome con cui la ricerca chiamava la stessa barra, e la
-    /// regola vive in un punto solo: <see cref="SessionClock.BarLabelHhmm"/>.</para>
+    /// regola vive in un punto solo: <see cref="SessionClock.BarLabelTime"/>.</para>
     /// </summary>
-    protected int ParamHhmm(DateTime barTime) =>
-        LegacyBarOpenLabels ? Clock.Hhmm(barTime) : Clock.BarLabelHhmm(barTime, TimeframeMinutes);
+    protected TimeOnly ParamTime(DateTime barTime) =>
+        LegacyBarOpenLabels ? Clock.TimeOfDay(barTime) : Clock.BarLabelTime(barTime, TimeframeMinutes);
 
     /// <summary>
-    /// Come <see cref="ParamHhmm"/>, ma sull'orologio della <see cref="TradingWindow"/>. I due fusi
+    /// Come <see cref="ParamTime"/>, ma sull'orologio della <see cref="TradingWindow"/>. I due fusi
     /// non coincidono e non vanno riconciliati a mano: la finestra dichiara il proprio.
     /// </summary>
-    protected int WindowParamHhmm(DateTime barTime) =>
+    protected TimeOnly WindowParamTime(DateTime barTime) =>
         LegacyBarOpenLabels
-            ? WindowClock.Hhmm(barTime)
-            : WindowClock.BarLabelHhmm(barTime, TimeframeMinutes);
+            ? WindowClock.TimeOfDay(barTime)
+            : WindowClock.BarLabelTime(barTime, TimeframeMinutes);
+
+    /// <summary>
+    /// Confronto di un orario con una finestra a estremi opzionali: <c>null</c> da un lato vuol
+    /// dire "nessun limite" da quel lato, e senza limiti la finestra è tutta la giornata. Con
+    /// <paramref name="inclusiveEnd"/> la fine è inclusa (semantica della ricerca), altrimenti
+    /// esclusa (semantica <c>tw()</c>). Gli orari sono già sull'orologio giusto: qui non si converte.
+    /// </summary>
+    protected static bool InWindow(TimeOnly? start, TimeOnly? end, TimeOnly time, bool inclusiveEnd)
+    {
+        if (start is null && end is null)
+            return true;
+
+        var from = start ?? TimeOnly.MinValue;
+        var to = end ?? ZonedWindow.EndOfDay;
+        return inclusiveEnd
+            ? EasyLib.TimeWindowInclusive(from, to, time)
+            : EasyLib.TimeWindow(from, to, time);
+    }
+
+    /// <summary>
+    /// Pausa intraday a estremi inclusi; una pausa senza uno dei due estremi, o invertita, è
+    /// inattiva come nelle sorgenti EasyLanguage.
+    /// </summary>
+    protected static bool InPause(TimeOnly? pauseStart, TimeOnly? pauseEnd, TimeOnly time) =>
+        pauseStart is { } from && pauseEnd is { } to && time >= from && time <= to;
+
+    /// <summary>
+    /// Converte un parametro storico espresso come intero <c>HHMM</c> (le sorgenti EasyLanguage
+    /// e i report sweep lo scrivono così) nell'orario che rappresenta. È l'unico punto in cui
+    /// quella codifica entra nel codice: da qui in poi esiste solo <see cref="TimeOnly"/>.
+    /// </summary>
+    protected static TimeOnly TimeFromLegacyHhmm(object value)
+    {
+        var hhmm = Convert.ToInt32(value);
+        return new TimeOnly(hhmm / 100, hhmm % 100);
+    }
 
     /// <summary>
     /// Valuta la <see cref="TradingWindow"/> dichiarata sull'orologio che essa dichiara.
     /// Restituisce <c>null</c> quando la strategia non la dichiara: in quel caso il motore ricade
-    /// sul proprio percorso storico, che confronta i campi interi sull'orologio di sessione.
+    /// sul proprio percorso storico, che confronta i propri campi sull'orologio di sessione.
     ///
-    /// <para>Gli estremi sono <b>inclusi</b> e il confronto è su HHMM pieni, come
+    /// <para>Gli estremi sono <b>inclusi</b> e il confronto è sull'orario pieno, come
     /// <c>time_window</c> del motore Python: la barra esattamente su <c>end_hour:00</c> entra
     /// nella finestra.</para>
     /// </summary>
     protected bool? InDeclaredWindow(DateTime barTime) =>
         TradingWindow is { } window
-            ? EasyLib.TimeWindowInclusive(window.StartHhmm, window.EndHhmm, WindowParamHhmm(barTime))
+            ? EasyLib.TimeWindowInclusive(window.Start, window.End, WindowParamTime(barTime))
             : null;
 
     /// <summary>
@@ -467,7 +503,7 @@ public abstract class EasyEngineBase : StatelessEasyStrategyBase
             TrailingStopMoneyPerFutureContract = TrailingStopMoney > 0 ? TrailingStopMoney : null,
             MaxBarsInPosition = MaxBars > 0 ? MaxBars : null,
             CloseAtUtc = MaxDaysInTrade > 0
-                ? Clock.SessionInstantUtc(barTime.AddDays(MaxDaysInTrade), 0)
+                ? Clock.SessionInstantUtc(barTime.AddDays(MaxDaysInTrade), TimeOnly.MinValue)
                 : null,
             TimeExitOnlyIfProfitBelowMoneyPerContract = TimeExitOnlyIfProfitBelow,
             Reason = reason
@@ -484,14 +520,14 @@ public abstract class EasyEngineBase : StatelessEasyStrategyBase
 
     /// <summary>
     /// Inizio della sessione di trading che contiene <paramref name="timeUtc"/>. Usa
-    /// <see cref="SessionStartTime"/>/<see cref="SessionEndTime"/> del motore, così il limite
+    /// <see cref="SessionStart"/>/<see cref="SessionEnd"/> del motore, così il limite
     /// di fill per sessione coincide con il calendario dei pattern.
     /// </summary>
     protected virtual DateTime ResolveEntrySessionStartUtc(DateTime timeUtc)
     {
-        var sessionStart = Clock.SessionInstantUtc(timeUtc, SessionStartTime);
-        return SessionStartTime > SessionEndTime && timeUtc < sessionStart
-            ? Clock.SessionInstantUtc(timeUtc.AddDays(-1), SessionStartTime)
+        var sessionStart = Clock.SessionInstantUtc(timeUtc, SessionStart);
+        return SessionStart > SessionEnd && timeUtc < sessionStart
+            ? Clock.SessionInstantUtc(timeUtc.AddDays(-1), SessionStart)
             : sessionStart;
     }
 
@@ -531,19 +567,28 @@ public abstract class EasyEngineBase : StatelessEasyStrategyBase
     ///
     /// <para>Un'istanza per strategia, come l'orologio: <c>SessionGrid</c> non e' thread-safe.</para>
     /// </summary>
-    private SessionGrid Grid => _grid ??= BuildGrid();
+    protected SessionGrid Grid => _grid ??= BuildGrid();
 
     private SessionGrid BuildGrid()
     {
         var calendar = MarketCalendarRegistry.Current.Get(Symbol);
-        if (_sessionAnchorOverride is { } hour && hour != calendar.SessionStartHour)
-            calendar = calendar with { SessionStartHour = hour };
+        if (_sessionAnchorOverride is { } anchor && anchor != calendar.SessionStart)
+            calendar = calendar with { SessionStart = anchor };
 
         return new SessionGrid(calendar);
     }
 
     /// <summary>
-    /// Deadline di chiusura a un orario HHMM, risolta <b>dentro la sessione</b> che contiene la
+    /// Vero se la barra che apre in <paramref name="barTime"/> è l'ultima della propria sessione:
+    /// la barra successiva appartiene a un altro giorno di sessione della griglia. Sostituisce il
+    /// confronto <c>orario di chiusura == fine sessione</c>, che con la sessione a giornata piena
+    /// confrontava un orario con la sentinella di fine giornata e non era mai vero.
+    /// </summary>
+    protected bool IsLastBarOfSession(DateTime barTime) =>
+        Grid.SessionDayOf(barTime) != Grid.SessionDayOf(barTime.AddMinutes(TimeframeMinutes));
+
+    /// <summary>
+    /// Deadline di chiusura a un orario di sessione, risolta <b>dentro la sessione</b> che contiene la
     /// barra. Serve a esprimere <c>setexitonclose</c> e le uscite di fine sessione come
     /// <c>CloseAtUtc</c> sull'ingresso, invece che come segnale di chiusura a runtime — che in
     /// <c>ExternalBroker</c> non verrebbe mai eseguito, perché il server emette solo intent di
@@ -558,25 +603,26 @@ public abstract class EasyEngineBase : StatelessEasyStrategyBase
     /// e la posizione sopravviveva a una sessione intera. Misurato in
     /// <c>SessionCloseAtAnchorTests</c>.</para>
     ///
-    /// <para><b><c>2359</c> è una sentinella, non un orario.</b> È il valore che
-    /// <c>ZonedWindow.ResearchSession</c> mette come fine, e significa "l'ultimo minuto della
-    /// sessione": si risolve quindi sulla chiusura vera della sessione meno un minuto, qualunque sia
-    /// l'ancoraggio. Trattarlo come le 23:59 di un giorno è precisamente l'errore corretto qui.</para>
+    /// <para><b><see cref="ZonedWindow.EndOfDay"/> significa "l'ultimo minuto della sessione"</b>,
+    /// qualunque sia l'ancoraggio: si risolve sulla chiusura vera della sessione meno un minuto.
+    /// Trattarlo come le 23:59 di un giorno di calendario è precisamente l'errore corretto qui.</para>
     /// </summary>
-    protected DateTime ResolveCloseAtUtc(DateTime barTime, int hhmm)
+    protected DateTime ResolveCloseAtUtc(DateTime barTime, TimeOnly time)
     {
         var sessionDay = Grid.SessionDayOf(barTime);
         var open = Grid.SessionOpenUtc(sessionDay);
         var close = Grid.SessionOpenUtc(sessionDay.AddDays(1));
 
-        if (hhmm >= 2359)
+        if (time == ZonedWindow.EndOfDay)
             return close.AddMinutes(-1);
+
+        var offset = time.ToTimeSpan();
 
         // L'orario si colloca dentro l'arco della sessione, non del giorno di calendario: una
         // sessione ancorata all'01:00 contiene le 00:30 del giorno DOPO, non quelle del proprio.
-        var target = Clock.ToUtc(sessionDay.AddMinutes(hhmm / 100 * 60 + hhmm % 100));
+        var target = Clock.ToUtc(sessionDay.Add(offset));
         if (target < open)
-            target = Clock.ToUtc(sessionDay.AddDays(1).AddMinutes(hhmm / 100 * 60 + hhmm % 100));
+            target = Clock.ToUtc(sessionDay.AddDays(1).Add(offset));
 
         // Orario gia' passato per questa sessione: vale per la prossima. Si riparte dal giorno di
         // sessione successivo e non da "+1 giorno" sull'istante, perche' fra i due c'e' il cambio
@@ -584,9 +630,9 @@ public abstract class EasyEngineBase : StatelessEasyStrategyBase
         if (target <= barTime)
         {
             var next = sessionDay.AddDays(1);
-            target = Clock.ToUtc(next.AddMinutes(hhmm / 100 * 60 + hhmm % 100));
+            target = Clock.ToUtc(next.Add(offset));
             if (target < Grid.SessionOpenUtc(next))
-                target = Clock.ToUtc(next.AddDays(1).AddMinutes(hhmm / 100 * 60 + hhmm % 100));
+                target = Clock.ToUtc(next.AddDays(1).Add(offset));
         }
 
         return target;

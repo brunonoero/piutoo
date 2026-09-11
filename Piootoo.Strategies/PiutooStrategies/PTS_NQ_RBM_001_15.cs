@@ -133,9 +133,9 @@ public sealed class PTS_NQ_RBM_001_15 : RbbMirroredEngine
         // Sulla finestra dichiarata, non sui campi interi: quelli il motore non li legge piu'
         // quando TradingWindow c'e', e scriverli sarebbe un no-op silenzioso.
         if (parameters.TryGetValue("StartHour", out var startHour))
-            TradingWindow = TradingWindow! with { StartHhmm = Convert.ToInt32(startHour) * 100 };
+            TradingWindow = TradingWindow! with { Start = new TimeOnly(Convert.ToInt32(startHour), 0) };
         if (parameters.TryGetValue("EndHour", out var endHour))
-            TradingWindow = TradingWindow! with { EndHhmm = Convert.ToInt32(endHour) * 100 };
+            TradingWindow = TradingWindow! with { End = new TimeOnly(Convert.ToInt32(endHour), 0) };
         if (parameters.TryGetValue("BbLength", out var bbLength))
             BollingerLength = Convert.ToInt32(bbLength);
         if (parameters.TryGetValue("BbNumDevs", out var bbNumDevs))

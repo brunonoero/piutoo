@@ -96,7 +96,7 @@ public sealed class PTS_ES_BSW_001_60 : BiasWeeklyEngine
         // Il BIASW non ha finestra operativa: giorno e ora di ingresso sono gia' la regola di
         // entrata. La finestra e' dichiarata piena, nell'orologio della ricerca, perche' ogni
         // PTS deve dichiarare l'orologio in cui legge gli orari (StrategyClockConformanceTests).
-        TradingWindow = ZonedWindow.Research(0, 2359);
+        TradingWindow = ZonedWindow.AllDay;
 
         Contracts = 1;
 
@@ -104,9 +104,9 @@ public sealed class PTS_ES_BSW_001_60 : BiasWeeklyEngine
         EnableShort = false;
 
         EntryDayLong = 0;     // le_day: 0 = lunedi' (convenzione pandas)
-        EntryTimeLong = 200;  // le_time: 02:00 ora della ricerca (CET)
+        EntryTimeLong = new TimeOnly(2, 0);  // le_time: 02:00 ora della ricerca (CET)
         ExitDayLong = 0;      // lx_day: lunedi'
-        ExitTimeLong = 100;   // lx_time: 01:00 - risolto alla settimana successiva
+        ExitTimeLong = new TimeOnly(1, 0);   // lx_time: 01:00 - risolto alla settimana successiva
 
         EntryDayShort = -1;   // se_day: lato short spento
         ExitDayShort = -1;
@@ -138,11 +138,11 @@ public sealed class PTS_ES_BSW_001_60 : BiasWeeklyEngine
         if (parameters.TryGetValue("EntryDayLong", out var entryDayLong))
             EntryDayLong = Convert.ToInt32(entryDayLong);
         if (parameters.TryGetValue("EntryTimeLong", out var entryTimeLong))
-            EntryTimeLong = Convert.ToInt32(entryTimeLong);
+            EntryTimeLong = TimeFromLegacyHhmm(entryTimeLong);
         if (parameters.TryGetValue("ExitDayLong", out var exitDayLong))
             ExitDayLong = Convert.ToInt32(exitDayLong);
         if (parameters.TryGetValue("ExitTimeLong", out var exitTimeLong))
-            ExitTimeLong = Convert.ToInt32(exitTimeLong);
+            ExitTimeLong = TimeFromLegacyHhmm(exitTimeLong);
         if (parameters.TryGetValue("PtnLyYes", out var lyYes))
             FastYesLong = Convert.ToInt32(lyYes);
         if (parameters.TryGetValue("PtnLyNo", out var lyNo))

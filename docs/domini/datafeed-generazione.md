@@ -92,9 +92,10 @@ scivolano di giorno in giorno.
 **L'ancoraggio non è la mezzanotte per tutti.** La tabella §2.4 del dossier del
 paniere dà `session_start_hour = 1` a FDAX, CC, CT, KC, SB e HK — su quei sei il
 4h cade su 01, 05, 09, 13, 17 e 21 e il giornaliero va da 01:00 a 01:00.
-`SESSION_START_HOUR` nello script è quella tabella, la stessa che lato C# sta in
-`InstrumentSpec.ResearchSessionStartHour` e che i cBot ricopiano in
-`SessionStartHourOf`, dove è risolta **per simbolo** e non per istanza: un
+`SESSION_START_HOUR` nello script è quella tabella, la stessa che lato C# sta nel
+calendario di mercato (`SymbolCalendar.SessionStart`, un `TimeOnly`, esposto anche da
+`InstrumentSpec.ResearchSessionStart`) e che i cBot ricevono dal descriptor di sessione
+(`BarGrid.SessionStart`), dove è risolta **per simbolo** e non per istanza: un
 piano che mette insieme NQ e FDAX è il caso normale, e un parametro unico lo
 renderebbe non raccoglibile in un colpo solo. Conta solo da 4h in su: sotto
 l'ora i due ancoraggi coincidono comunque, perché l'offset è un numero intero

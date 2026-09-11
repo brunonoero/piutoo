@@ -46,8 +46,8 @@ public sealed class BiasWeeklyVariantsTests
         {
             LongSchedules =
             [
-                new WeeklySchedule(0, 1000, 1000, 3, 1500, SkipMonth: 8),
-                new WeeklySchedule(0, 1005, 1010, 3, 1500)
+                new WeeklySchedule(0, new TimeOnly(10, 0), new TimeOnly(10, 0), 3, new TimeOnly(15, 0), SkipMonth: 8),
+                new WeeklySchedule(0, new TimeOnly(10, 5), new TimeOnly(10, 10), 3, new TimeOnly(15, 0))
             ];
             LongPatternRules = [new WeeklyPatternRule(WeeklyPatternKind.Fast, 153, false)];
             StopMoneyLong = 1500;

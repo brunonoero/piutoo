@@ -11,9 +11,9 @@ namespace Piootoo.Shared.MarketData;
 /// finestra: modellarli entrambi in locale sbaglia l'apertura per metà anno, entrambi in UTC
 /// sbaglia tutto il resto.</para>
 /// </summary>
-/// <param name="Hhmm">Orario come <c>HHMM</c>, nell'orologio di <paramref name="Anchor"/>.</param>
-/// <param name="Anchor">In che orologio è scritto <paramref name="Hhmm"/>.</param>
-public readonly record struct WindowEdge(int Hhmm, PhaseAnchor Anchor);
+/// <param name="Time">Orario, nell'orologio di <paramref name="Anchor"/>.</param>
+/// <param name="Anchor">In che orologio è scritto <paramref name="Time"/>.</param>
+public readonly record struct WindowEdge(TimeOnly Time, PhaseAnchor Anchor);
 
 /// <summary>
 /// La finestra in cui lo strumento <b>negozia davvero</b>: quando si apre una giornata di

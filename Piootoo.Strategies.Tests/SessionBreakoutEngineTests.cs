@@ -130,7 +130,7 @@ public sealed class SessionBreakoutEngineTests
 
     private sealed class WindowBlockedBo : TestBo
     {
-        public WindowBlockedBo() => StartTime = EndTime = 1300;
+        public WindowBlockedBo() => StartTime = EndTime = new TimeOnly(13, 0);
     }
 
     private sealed class DayBlockedBo : TestBo
@@ -140,7 +140,7 @@ public sealed class SessionBreakoutEngineTests
 
     private sealed class WindowBo : TestBo
     {
-        public WindowBo() => StartTime = EndTime = 1200;
+        public WindowBo() => StartTime = EndTime = new TimeOnly(12, 0);
     }
 
     private sealed class DailyBo : TestBo
