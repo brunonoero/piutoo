@@ -67,8 +67,9 @@ Suite: **931 test, 40 rossi preesistenti**, nessuno nuovo in nessuno dei cinque 
   convenzioni del motore le imposta solo il backtest. Coincidono oggi solo perché i default
   coincidono. Un punto solo che possieda finestra, regola sulla storia, convenzioni e rifinitura del
   segnale; da lì cade da sé la dichiarazione delle convenzioni nel `session-summary.json`.
-- **I sei punti di `verifica-offset-conversione-2026-09-08.md`.** Due sono chiusi da oggi (finestra
-  e filtro del giorno). Restano: BIASW `le_time`/`lx_time`, l'uscita del venerdì di MAC
+- **I sei punti di `verifica-offset-conversione-2026-09-08.md`.** Tre sono chiusi (finestra,
+  filtro del giorno, e dall'11/09 BIASW `le_time`/`lx_time`, che leggono l'etichetta di chiusura e
+  nascono sulla barra prima). Restano: l'uscita del venerdì di MAC
   (`Hhmm(barEnd) == SessionEndTime` con `SessionEndTime = 2359`, che è una sentinella — il test è
   rosso), e le tre copie di "inizio sessione" (`SessionKey`, `ResolveEntrySessionStartUtc`) che
   arretrano solo se `Start > End`, mai vero per una sessione della ricerca.
@@ -101,6 +102,12 @@ Suite: **931 test, 40 rossi preesistenti**, nessuno nuovo in nessuno dei cinque 
 
 ## Da fare fuori dal codice
 
+- **Rifare compare-0033 con la 7.2.1** su entrambe le gambe (backtest interno e run cBot
+  ricompilato): le cinque correzioni dell'11/09 (`decisioni.md`) cambiano i trade di YM_BIA,
+  ES_BSW, dei market su tick senza barra e dei livelli dentro lo spread. Lo strumento di confronto
+  è in `piootoo-repository/compare/compare-0033/analisi/strumento/`. Le decisioni ancora aperte
+  dal confronto: inversione sul segnale opposto, commissioni per simbolo e conversione EUR→USD nel
+  backtest.
 - **Ricompilare i cBot in cTrader.** Il salto a 7.0.0 è un cambio di contratto: i due bot operativi
   stampano un disallineamento finché non vengono ricompilati e ridistribuiti. Il raccoglitore
   (2.0.0, numerazione propria) va ricompilato perché è cambiato del tutto.

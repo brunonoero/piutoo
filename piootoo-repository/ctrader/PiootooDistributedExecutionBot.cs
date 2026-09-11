@@ -260,7 +260,7 @@ namespace cAlgo.Robots
         // leggendo questo sorgente.
         // Il disallineamento non blocca nulla: entrambi stampano la propria versione all'avvio, e
         // il confronto si fa leggendo i due log.
-        private const string BotVersion = "7.2.0"; // major.minor deve seguire PiootooVersion
+        private const string BotVersion = "7.2.1"; // major.minor deve seguire PiootooVersion
         private const string StatusChartObjectName = "PiootooConnectionStatus";
 
         // Riquadro rosso al centro del grafico, separato dal pannello di stato: e' l'errore fatale
@@ -2644,7 +2644,14 @@ namespace cAlgo.Robots
             // emettono sempre: un breakout di Donchian a 40 punti dal prezzo verrebbe rifiutato ogni
             // volta. Lo slippage di un pending lo governa il broker al fill, non il bot al
             // piazzamento.
-            if (intent.OrderType == TradeOrderTypeDto.Market && MaxEntrySlippagePips > 0 && intent.Price > 0)
+            //
+            // E' un filtro discrezionale come distanza e spread, e come loro resta spento nel
+            // profilo sorgente: li' ogni segnale deve diventare un ordine, e un market rifiutato
+            // perche' il prezzo si e' mosso di sei pip e' un trade che il motore di ricerca ha
+            // preso. Su compare-0033 erano 46 scarti, 34 dei quali trade in utile nel backtest
+            // interno (+30 k per contratto), tutti su YM_BIA e ES_BSW.
+            if (intent.OrderType == TradeOrderTypeDto.Market && MaxEntrySlippagePips > 0 &&
+                !FiltriIngressoSospesi && intent.Price > 0)
             {
                 var currentPrice = intent.Side == SignalTypeDto.Buy ? symbol.Ask : symbol.Bid;
                 var distancePips = Math.Abs(currentPrice - (double)intent.Price) / symbol.PipSize;

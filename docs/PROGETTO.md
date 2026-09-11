@@ -458,8 +458,9 @@ server le perde. È un limite noto, non un comportamento voluto.
 * Unificazione dei due modelli di configurazione Titano (filtro e rotazione).
 * `RequiredCandles` hardcoded a 100 nelle strategie generate: va derivato dal
   lookback reale.
-* Le strategie con timeframe superiore al minimo vengono valutate su un orologio
-  sintetico e non sui confini reali della loro barra.
+* ~~Le strategie con timeframe superiore al minimo vengono valutate su un orologio
+  sintetico e non sui confini reali della loro barra.~~ Chiuso il 11/09/2026: una barra si
+  valuta una volta, sul tick in cui si chiude (`IsStrategyBarClosedInTick`).
 * TTL sui template di ingresso nelle sessioni multi-account.
 * Copertura del datafeed limitata a @GC 5m/15m.
 

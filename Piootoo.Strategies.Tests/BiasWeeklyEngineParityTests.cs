@@ -49,6 +49,61 @@ public sealed class BiasWeeklyEngineParityTests
         Assert.Empty(strategy.UnreachableScheduleLegs(SerieFitta()));
     }
 
+    /// <summary>
+    /// Il segnale nasce sulla barra <b>prima</b> di quella pianificata, come <c>next bar at market</c>,
+    /// con <c>ValidFromUtc</c> all'apertura della barra pianificata. Prima nasceva sulla barra
+    /// pianificata stessa: il backtest la vede al suo inizio, il server solo quando il cBot la
+    /// spinge chiusa, e il cBot entrava sempre una barra dopo (compare-0033).
+    ///
+    /// <para>L'orario e' l'etichetta di <b>chiusura</b> nell'orologio della ricerca (Roma): con
+    /// ingresso lunedi' 10:00 la barra pianificata e' quella che apre alle 09:00 di Roma, cioe'
+    /// alle 08:00 UTC a gennaio, e il segnale nasce sulla barra delle 07:00 UTC.</para>
+    /// </summary>
+    [Fact]
+    public void IlSegnaleNasceSullaBarraPrimaDiQuellaPianificata()
+    {
+        var strategy = new TestBiasWeekly
+        {
+            LongEntryDay = 0,
+            LongEntryTime = 1000,
+            LongExitDay = 4,
+            LongExitTime = 1500,
+            LongFastYes = 47,   // chiusure di sessione crescenti: vero sulla serie in salita
+            LongFastNo = 48     // chiusure decrescenti: falso
+        };
+
+        var barraDiSegnale = Utc(2024, 1, 8, 7, 0);   // lunedi' 08:00 Roma
+        var barraPianificata = Utc(2024, 1, 8, 8, 0); // lunedi' 09:00 Roma, chiude alle 10:00
+
+        var signal = strategy.GenerateSignal(SerieInSalita(barraDiSegnale), barraDiSegnale);
+
+        Assert.Equal(SignalType.Buy, signal.Type);
+        Assert.Equal(TradeOrderType.Market, signal.OrderType);
+        Assert.Equal(barraPianificata, signal.ValidFromUtc);
+        Assert.Equal(barraPianificata, signal.ExpiresAtUtc);
+        // Uscita venerdi' 15:00 Roma = etichetta di chiusura: la deadline e' l'apertura di quella
+        // barra, le 14:00 di Roma, cioe' le 13:00 UTC.
+        Assert.Equal(Utc(2024, 1, 12, 13, 0), signal.CloseAtUtc);
+
+        // Sulla barra pianificata stessa non nasce piu' niente.
+        var tardi = strategy.GenerateSignal(SerieInSalita(barraPianificata), barraPianificata);
+        Assert.Equal(SignalType.Hold, tardi.Type);
+    }
+
+    /// <summary>Barre orarie in salita costante dal 1° gennaio 2024 fino a <paramref name="fine"/> inclusa.</summary>
+    private static OhlcvData[] SerieInSalita(DateTime fine)
+    {
+        var inizio = Utc(2024, 1, 1, 0, 0);
+        var count = (int)(fine - inizio).TotalHours + 1;
+        var barre = new OhlcvData[count];
+        for (var index = 0; index < count; index++)
+        {
+            var open = 100m + index * 0.1m;
+            barre[index] = Bar(inizio.AddHours(index), open, open + 0.05m);
+        }
+        return barre;
+    }
+
     /// <summary>Tre settimane di barre orarie senza buchi: ogni coppia (giorno, ora piena) esiste.</summary>
     private static OhlcvData[] SerieFitta()
     {

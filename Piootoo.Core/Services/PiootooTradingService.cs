@@ -365,6 +365,25 @@ public class PiootooTradingService : IPiootooTradingService
                 continue;
             }
 
+            // Un market "next bar" la cui barra di validita' e' gia' cominciata si esegue
+            // all'apertura di una barra VERA, mai al prezzo di mark. Senza una barra fresca del
+            // simbolo su questo tick — fine settimana, pausa di sessione, strategia rivalutata su
+            // una barra vecchia — l'ordine aspetta in coda la prima barra che arriva, come uno
+            // stop: il percorso differito ha gia' la guardia CanExecuteOnBar. Prima riempiva qui,
+            // con ResolveFillPrice che ripiegava sul mark: su compare-0033 erano 170 ingressi
+            // interni su minuti in cui il feed non ha una barra, 71 dei 131 di
+            // PTS_YM_BIA_001_240, quasi tutti sabato 00:00 UTC alla chiusura del venerdi'.
+            //
+            // Un market SENZA barra di validita' e' invece "a mercato adesso", e il mark e' il
+            // prezzo di adesso: e' la forma dei segnali non "next bar" e dei test del motore.
+            if (signal.OrderType == TradeOrderType.Market &&
+                signal.ValidFromUtc.HasValue &&
+                !currentBars.ContainsKey(NormalizeSymbol(signalSymbol)))
+            {
+                EnqueuePendingOrder(positionKey, signal, currentTime);
+                continue;
+            }
+
             // Se non c'è già una posizione aperta per questa strategia, aprine una
             if (!_state.OpenPositions.ContainsKey(positionKey) &&
                 CanFillEntry(positionKey, signal))
@@ -553,7 +572,8 @@ public class PiootooTradingService : IPiootooTradingService
                 // La barra che "next bar" nomina e' questa, qualunque istante porti: da qui parte
                 // la vita dell'ordine. Vedi IsPendingExpired.
                 pending.ActivatedAtUtc = TradingDateTime.ToFeedUtc(bar.DateTime);
-                if (RejectWrongSideLevels && IsWrongSideLevel(signal, bar.Open))
+                if (RejectWrongSideLevels &&
+                    IsWrongSideLevel(signal, bar.Open, ResolveSpread(signalSymbol, currentTime)))
                 {
                     WrongSideLevelsRejected++;
                     _pendingOrders.Remove(pendingKey);
@@ -774,15 +794,26 @@ public class PiootooTradingService : IPiootooTradingService
 
     /// <summary>
     /// Se il livello del pending e' gia' dalla parte sbagliata del mercato nel momento in cui
-    /// l'ordine nasce. Il riferimento e' l'apertura della barra, che nell'engine e' l'equivalente
-    /// del Bid/Ask con cui il cBot fa lo stesso controllo: qui non c'e' spread.
+    /// l'ordine nasce. Il riferimento e' l'apertura della barra, che e' il <b>Bid</b> (il feed dei
+    /// broker e' la serie Bid); il lato che compra si confronta con l'<b>Ask</b>, cioe' apertura
+    /// piu' spread, esattamente come fa il cBot con <c>symbol.Ask</c>.
+    ///
+    /// <para><b>Perche' lo spread entra qui e non nel trigger.</b> Il trigger dei pending resta sul
+    /// feed per non cambiare quali trade nascono rispetto al motore di ricerca; questo controllo
+    /// invece decide se l'ordine <i>puo' essere piazzato</i>, ed e' una regola del broker: un buy
+    /// stop con il livello fra Bid e Ask e' gia' oltrepassato. Senza lo spread l'engine riempiva al
+    /// livello dove il conto vero rifiutava l'ordine: su compare-0033 erano 68 trade per 37,7 k
+    /// per contratto, tutti inesistenti sul conto. Senza tabella di spread lo spread e' zero e il
+    /// controllo e' quello di prima.</para>
     /// </summary>
-    private static bool IsWrongSideLevel(TradeSignal signal, decimal open)
+    private static bool IsWrongSideLevel(TradeSignal signal, decimal open, decimal spread)
     {
         if (signal.Price <= 0m)
         {
             return false;
         }
+
+        var ask = open + Math.Max(0m, spread);
 
         // Disuguaglianza STRETTA: un livello esattamente sull'apertura non e' "gia' superato", e'
         // il breakout che comincia li'. Il fill sarebbe comunque l'apertura — Math.Max(open,
@@ -792,13 +823,28 @@ public class PiootooTradingService : IPiootooTradingService
         return signal.OrderType switch
         {
             TradeOrderType.Stop => signal.Type == SignalType.Buy
-                ? signal.Price < open
+                ? signal.Price < ask
                 : signal.Price > open,
             TradeOrderType.Limit => signal.Type == SignalType.Buy
-                ? signal.Price > open
+                ? signal.Price > ask
                 : signal.Price < open,
             _ => false
         };
+    }
+
+    /// <summary>
+    /// Lo spread da applicare a un simbolo in un istante: la riga oraria quando c'e', la costante
+    /// per simbolo altrimenti, zero senza tabella. E' la stessa lettura di <see cref="ApplySpread"/>.
+    /// </summary>
+    private decimal ResolveSpread(string symbol, DateTime whenUtc)
+    {
+        if (SpreadPoints.Count == 0)
+            return 0m;
+
+        var key = NormalizeSymbol(symbol);
+        return SpreadPointsByHour.TryGetValue(key, out var byHour)
+            ? byHour[whenUtc.Hour]
+            : SpreadPoints.TryGetValue(key, out var constant) ? constant : 0m;
     }
 
     private static decimal ResolveFillPrice(TradeSignal signal, OhlcvData? bar, decimal markPrice)
@@ -884,16 +930,12 @@ public class PiootooTradingService : IPiootooTradingService
         if (SpreadPoints.Count == 0)
             return fillPrice;
 
-        var key = NormalizeSymbol(symbol);
-
         // La tabella per ora quando c'e', la costante per simbolo altrimenti: non e' un ripiego per
         // errore ma la stessa misura a due risoluzioni, e un simbolo puo' avere solo la seconda
         // (misura senza righe orarie, oppure valore scritto a mano nella richiesta, che scavalca).
         // L'ora e' UTC come tutto il dominio ed e' quella del file: i bucket del bot non si
         // convertono.
-        var spread = SpreadPointsByHour.TryGetValue(key, out var byHour)
-            ? byHour[entryTimeUtc.Hour]
-            : SpreadPoints.TryGetValue(key, out var constant) ? constant : 0m;
+        var spread = ResolveSpread(symbol, entryTimeUtc);
 
         if (spread <= 0m)
             return fillPrice;

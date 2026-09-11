@@ -28,8 +28,9 @@ public sealed class EntrySpreadTests
     private static readonly DateTime IstanteIngresso = IstanteSegnale.AddMinutes(15);
 
     /// <summary>
-    /// Un long entra sull'Ask. La barra (Bid) apre a 100 e il livello dello stop buy e' 100, quindi
-    /// senza spread si entra a 100; con due punti di spread si entra a 102, e lo stop dichiarato di
+    /// Un long entra sull'Ask. La barra (Bid) apre a 96 e sale fino a 100,5, il livello dello stop
+    /// buy e' 100 — sopra l'Ask all'apertura, quindi un ordine che il broker accetta — e senza
+    /// spread si entra a 100; con due punti di spread si entra a 102, e lo stop dichiarato di
     /// 5 punti (100 dollari su NQ, 20 $/punto) sta a 97 invece che a 95.
     /// </summary>
     [Theory]
@@ -500,6 +501,11 @@ public sealed class EntrySpreadTests
     /// <summary>
     /// Apre un long con uno stop buy a 100 servito sulla seconda barra e verifica il prezzo di
     /// ingresso: e' li' che lo spread si vede, ed e' il presupposto di tutto il resto.
+    ///
+    /// <para>La barra di ingresso apre a 96, ben sotto il livello anche contando lo spread: dal
+    /// 11/09/2026 il livello di un buy stop si confronta con l'<b>Ask</b> all'apertura, e un
+    /// livello fra Bid e Ask viene scartato come dal lato sbagliato, come fa il cBot. La barra e'
+    /// rialzista, quindi il minimo precede il fill e non tocca lo stop.</para>
     /// </summary>
     private static void ApriLong(PiootooTradingService service, decimal ingressoAtteso)
     {
@@ -510,7 +516,7 @@ public sealed class EntrySpreadTests
             IstanteSegnale);
 
         service.UpdateMarketPrices(
-            Prezzi(100m), Barre(IstanteIngresso, 100m, 100m, 99m, 100m), IstanteIngresso);
+            Prezzi(100m), Barre(IstanteIngresso, 96m, 100.5m, 96m, 100m), IstanteIngresso);
 
         var posizione = service.GetExecutionSnapshot(Code, "NQ", IstanteIngresso).Position;
         Assert.NotNull(posizione);

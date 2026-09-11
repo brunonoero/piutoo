@@ -3746,3 +3746,113 @@ che il motore fa. Difetto di artefatto, non di esecuzione, ma e' costato mezza i
   strategia del catalogo stia fuori da quel passaggio, e che l'ingresso emesso porti davvero lo stop
   dichiarato per il fattore (61 delle 98 registrate entrano sui dati sintetici; per le altre vale la
   prima verifica). Dettaglio in `domini/spread-e-costo-di-transazione.md`.
+
+- **2026-09-10** — **L'allargamento dello stop ha un interruttore, `StopMoneyPolicy.Enabled`.** Il
+  confronto fra le due gambe sullo stesso periodo, stesso feed, stesso piano e le stesse 98
+  strategie dice che il fattore tre **peggiora** l'equity complessiva: profitto netto da 862.452 a
+  547.953 e drawdown massimo dal 14,3% al 34,1%. Il meccanismo si legge nelle uscite — gli stop
+  scattati passano da 2.354 a 1.405, e quei trade non diventano vincenti, escono per tempo o sul
+  segnale opposto — e non e' uniforme: su 96 strategie con trade, 56 peggiorano e 31 migliorano.
+  Un fattore unico per tutte non e' quindi la risposta definitiva, ma l'alternativa (allargare solo
+  dove `spread / distanza di stop` supera 1) va misurata prima di essere adottata.
+
+  Per misurarla serve poter spegnere e riaccendere l'allargamento senza riscrivere il codice che lo
+  applica, e senza che i due run diventino indistinguibili a posteriori. Da qui l'interruttore. Sta
+  **accanto al fattore**, nella stessa classe, e non nella configurazione del server: i due numeri
+  sono la stessa decisione, cambiarli cambia quali posizioni sopravvivono, quindi vanno letti e
+  versionati insieme — chi confronta due run non deve andare a cercare quale `appsettings` girava
+  quel giorno.
+
+  Il corollario che rende l'interruttore sicuro: gli artefatti dichiarano
+  `StopMoneyPolicy.EffectiveMultiplier`, **mai** `Multiplier`. `EffectiveMultiplier` vale 1 a
+  interruttore spento, quindi `fillConventions.stopMoneyMultiplier` e `session-summary.json` dicono
+  sempre il fattore davvero applicato. Senza questo, un run spento direbbe di aver allargato stop
+  che non ha allargato, ed e' esattamente il modo in cui due run non confrontabili sembrano
+  confrontabili. `StopMoneyPolicyConformanceTests` lo verifica in entrambe le posizioni
+  dell'interruttore, senza assumerne nessuna.
+
+- **2026-09-10** — **L'allargamento dello stop diventa selettivo: 33 strategie su 98.** Il fattore
+  unico non e' la risposta, perche' non c'e' un problema unico. Il confronto fra le due gambe dice
+  che allargare tutto peggiora l'equity complessiva e raddoppia il drawdown, e che l'effetto e'
+  bidirezionale: su 96 strategie con trade, 56 peggiorano e 31 migliorano. L'allargamento e' una
+  **correzione** — lo stop della ricerca non e' eseguibile perche' piu' stretto dello spread
+  misurato — non una taratura da estendere per simmetria: dove lo stop e' gia' eseguibile,
+  allargarlo cambia la strategia senza motivo, e infatti toglie alle bias e alle breakout di
+  sessione quello che da' ai trend following unmirrored.
+
+  L'elenco vive in `StopMoneyPolicy.WidenedStrategies`, la chiave e' lo `StrategyCode`, e il punto
+  di applicazione resta uno solo. Nel sorgente e' scritto in **due gruppi**: 25 strategie che con
+  l'allargamento restano o tornano in utile, e 8 che restano in perdita ma la riducono. Il secondo
+  gruppo e' quello da rimettere in discussione per primo se il porting cambia, e tenerli separati
+  costa due righe di commento invece di una rilettura dei backtest.
+
+  Il corollario negli artefatti: accanto a `stopMoneyMultiplier` ora c'e'
+  `stopMoneyWidenedStrategies`, in `fillConventions` di `backtest-summary.json`, nel log di avvio e
+  in `session-summary.json`. Con un allargamento selettivo il solo fattore non descrive piu' il
+  run: due run che allargano strategie diverse dichiarerebbero lo stesso 3 e non sarebbero
+  confrontabili.
+
+  Due verifiche nuove in `StopMoneyPolicyConformanceTests`, e sono le due che possono fallire in
+  silenzio. Che una strategia **fuori** elenco tenga la distanza della ricerca: senza, un elenco
+  ignorato allargherebbe tutto e nessun test se ne accorgerebbe. E che ogni codice dell'elenco
+  esista nel catalogo: un refuso non fa rumore, la strategia semplicemente non viene allargata
+  mentre il summary dichiara un nome che non opera.
+
+- **2026-09-11** — **Le correzioni di compare-0033: la strategia si valuta alla chiusura della propria
+  barra, un market "next bar" non si riempie senza barra, il BIASW nasce sulla barra prima, il
+  livello di un buy si confronta con l'Ask, il filtro slippage del cBot segue il profilo.** Il
+  confronto fra il run cBot su FTMO e il backtest interno sullo stesso feed
+  (`piootoo-repository/compare/compare-0033/analisi-2026-09-11.md`) ha isolato cinque cause
+  meccaniche, e tutte e cinque stanno in un punto solo ciascuna.
+
+  **La valutazione segue la barra, non il contatore.** `ShouldEvaluateStrategy` valutava una
+  strategia ai multipli del suo timeframe dall'avvio del run, e le giornaliere alla mezzanotte
+  UTC. Con l'orologio uguale al timeframe le due regole coincidono; con l'orologio a un minuto no,
+  e il feed di un broker e' ancorato all'orologio della ricerca: le barre a 240 minuti aprono alle
+  22:00, 02:00, 06:00 UTC e la valutazione cadeva alle 00:00, 04:00, 08:00, due ore dopo la
+  chiusura, con `ValidFromUtc` gia' passato per ogni "next bar" — e a fine settimana sulla barra del
+  venerdi' rivalutata al sabato. Ora `IsStrategyBarClosedInTick` valuta una barra **una volta**,
+  sul tick in cui si chiude, e `lastEvaluatedBar` impedisce di rivalutarla sui tick senza barre. Il
+  punto aperto di `PROGETTO.md` §8 e di `orologio-barre-e-fill.md` e' chiuso.
+
+  **Un market con barra di validita' non si esegue al mark.** Il percorso immediato di
+  `ProcessSignals` apriva anche senza una barra del simbolo sul tick, ripiegando sull'ultima
+  chiusura nota: su compare-0033 erano 170 ingressi interni su minuti senza barra, 71 dei 131 di
+  `PTS_YM_BIA_001_240`, quasi tutti sabato 00:00 UTC. Ora aspetta in coda la prima barra vera e
+  apre alla sua apertura, come gia' facevano stop e limit attraverso un buco. Un market **senza**
+  `ValidFromUtc` resta "a mercato adesso" al mark: e' la forma dei segnali non "next bar" e dei test.
+
+  **`BiasWeeklyEngine` emette sulla barra prima di quella pianificata**, come `next bar at market`.
+  Prima il segnale nasceva *sulla* barra pianificata con `ValidFromUtc` alla sua apertura: il
+  backtest la vede al suo inizio, il server solo quando il cBot la spinge chiusa, e il cBot entrava
+  sempre una barra dopo — tutti gli intent market a 15 e 60 minuti del run in ritardo di una barra
+  intera, −36 k per contratto sulle tre `PTS_ES_BSW_*`. L'orario pianificato e' ora l'**etichetta
+  di chiusura** (`ParamHhmm`, `PythonWeekday`), come lo scrive il dossier e come dal 08/09 leggono
+  finestra e filtro del giorno; `lx_time` segue la stessa regola e la deadline e' l'apertura della
+  barra che chiude a quell'ora. Chiude la voce BIASW di `verifica-offset-conversione-2026-09-08.md`
+  §3.4. **I run BIASW precedenti non sono confrontabili**: entrano una barra prima.
+
+  **Il livello di un buy si confronta con l'Ask.** `IsWrongSideLevel` giudicava sull'apertura
+  della barra, che e' il Bid: un buy stop con il livello fra Bid e Ask passava e si riempiva al
+  livello, dove il broker rifiuta l'ordine. Erano 68 trade per 37,7 k per contratto, tutti
+  inesistenti sul conto. Ora il lato che compra si confronta con apertura piu' spread, letto dalla
+  stessa tabella di `ApplySpread` (`ResolveSpread`): senza tabella lo spread e' zero e il controllo
+  e' quello di prima. Il trigger dei pending resta sul feed, per la ragione di
+  `spread-e-costo-di-transazione.md`: qui si decide se l'ordine si puo' piazzare, non quando scatta.
+
+  **Il filtro slippage del cBot resta spento nel profilo sorgente**, come distanza e spread:
+  `RejectUnsoundIntent` li sospendeva e il controllo su `MaxEntrySlippagePips` no, quindi nel run
+  sorgente 46 market venivano rifiutati perche' il prezzo si era mosso di sei pip — 34 dei quali
+  trade in utile nel backtest, +30 k per contratto. `BotVersion` e `PiootooVersion` a **7.2.1**:
+  stesso contratto, il cBot va ricompilato in cTrader per prendere la fix.
+
+  Regressioni: `MarketOrderWithoutBarTests`,
+  `BiasWeeklyEngineParityTests.IlSegnaleNasceSullaBarraPrimaDiQuellaPianificata`; i fixture di
+  `EntrySpreadTests` aprono ora sotto il livello meno lo spread, perche' un livello sull'apertura
+  con due punti di spread e' esattamente l'ordine che il broker scarta. Suite: 927 verdi, gli
+  stessi 13 rossi di prima.
+
+  **Restano aperti**, perche' sono decisioni e non difetti: l'inversione sul segnale opposto
+  (l'interno inverte, il server non consegna intent con posizione aperta), le commissioni per
+  simbolo e la conversione EUR→USD nel backtest, la scadenza conservativa dei template sul server
+  (gia' in `lavori-in-corso.md`). Compare-0033 va rifatto con 7.2.1 su entrambe le gambe.

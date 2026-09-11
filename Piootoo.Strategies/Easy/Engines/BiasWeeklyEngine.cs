@@ -12,6 +12,23 @@ namespace Piootoo.Strategies.Easy.Engines;
 /// al segnale d'ingresso come <see cref="TradeSignal.CloseAtUtc"/> e non dipende da un
 /// futuro segnale <c>LX</c>/<c>SX</c>.</para>
 ///
+/// <para><b>Il segnale nasce sulla barra prima di quella pianificata</b> (dal 11/09/2026), come
+/// <c>buy next bar at market</c>: valutando la barra <c>B</c> il motore chiede se la barra
+/// <i>successiva</i> e' quella dell'ingresso e, se si', emette un market con
+/// <c>ValidFromUtc</c> = apertura di quella barra. Prima il segnale nasceva <i>sulla</i> barra
+/// pianificata con <c>ValidFromUtc</c> = la sua apertura: nel backtest funzionava perche' il
+/// loop la vede al suo inizio, ma il server la vede solo quando il cBot la spinge chiusa, quindi
+/// il cBot entrava sempre una barra dopo (compare-0033: tutti gli intent market a 15 e 60 minuti
+/// in ritardo di una barra intera, −36 k per contratto sulle tre <c>PTS_ES_BSW_*</c>). Ora i due
+/// motori generano il segnale nello stesso istante.</para>
+///
+/// <para><b>L'orario pianificato e' l'etichetta di chiusura della barra</b>, come lo scrive il
+/// dossier e come dal 08/09/2026 leggono finestra e filtro del giorno (<c>ParamHhmm</c>,
+/// <c>PythonWeekday</c>): la barra dell'ingresso e' quella la cui chiusura cade a <c>le_time</c>,
+/// e si entra alla sua apertura. Lo stesso per <c>lx_time</c>: la deadline e' l'apertura della
+/// barra che chiude a quell'ora. Con <c>LegacyBarOpenLabels</c> si torna al confronto
+/// sull'apertura.</para>
+///
 /// <para>I gate Fast indipendenti long/short coprono la forma standard del motore Python; le
 /// varianti storiche possono aggiungere gate Neutral, Directional e BaseSA, inclusi più divieti
 /// per lo stesso verso. Ogni gate <c>yes</c> deve essere vero e ogni gate <c>no</c> falso.</para>
@@ -109,52 +126,59 @@ public abstract class BiasWeeklyEngine : EasyEngineBase
 
         var bar = data[^1];
         var barTime = bar.DateTime;
-        // BIASW entra all'open della barra pianificata. Il Fast deve quindi essere noto alla
-        // sua apertura: come lo shift(1) del Python, usiamo soltanto la barra precedente.
-        var previousData = data[..^1];
-        BuildSessionOhlc(previousData, previousData[^1].DateTime, out var ohlc);
+
+        // La barra pianificata e' la PROSSIMA: questa (B) e' quella su cui il segnale nasce, e i
+        // gate si leggono sulle barre fino a B inclusa — lo shift(1) del Python rispetto alla
+        // barra dell'ingresso. Il timeframe e' quello dichiarato, non dedotto dalla serie:
+        // attraverso un buco la distanza fra le ultime due barre e' il buco.
+        var entryBarUtc = EasyLib.EstimateNextBarUtc(data, barTime, TimeframeMinutes);
+        BuildSessionOhlc(data, barTime, out var ohlc);
 
         var entries = new List<TradeSignal>(2);
-        if (CanEnterLong(barTime, ohlc, out var longSchedule))
-            entries.Add(BuildEntry(SignalType.Buy, bar, barTime, longSchedule));
+        if (CanEnterLong(entryBarUtc, ohlc, out var longSchedule))
+            entries.Add(BuildEntry(SignalType.Buy, bar, barTime, entryBarUtc, longSchedule));
 
-        if (CanEnterShort(barTime, ohlc, out var shortSchedule))
-            entries.Add(BuildEntry(SignalType.Sell, bar, barTime, shortSchedule));
+        if (CanEnterShort(entryBarUtc, ohlc, out var shortSchedule))
+            entries.Add(BuildEntry(SignalType.Sell, bar, barTime, entryBarUtc, shortSchedule));
 
         return Combine(entries, Hold(bar.Close, barTime));
     }
 
-    private bool CanEnterLong(DateTime barTime, decimal[] ohlc, out WeeklySchedule schedule)
+    private bool CanEnterLong(DateTime entryBarUtc, decimal[] ohlc, out WeeklySchedule schedule)
     {
-        schedule = FindSchedule(LongSchedules, EntryDayLong, EntryTimeLong, ExitDayLong, ExitTimeLong, barTime);
+        schedule = FindSchedule(LongSchedules, EntryDayLong, EntryTimeLong, ExitDayLong, ExitTimeLong, entryBarUtc);
         return EnableLong &&
                CurrentMP != 1 &&
-               IsInScheduledEntry(barTime, schedule) &&
+               IsInScheduledEntry(entryBarUtc, schedule) &&
                PassesGates(FastYesLong, FastNoLong, LongPatternRules, ohlc);
     }
 
-    private bool CanEnterShort(DateTime barTime, decimal[] ohlc, out WeeklySchedule schedule)
+    private bool CanEnterShort(DateTime entryBarUtc, decimal[] ohlc, out WeeklySchedule schedule)
     {
-        schedule = FindSchedule(ShortSchedules, EntryDayShort, EntryTimeShort, ExitDayShort, ExitTimeShort, barTime);
+        schedule = FindSchedule(ShortSchedules, EntryDayShort, EntryTimeShort, ExitDayShort, ExitTimeShort, entryBarUtc);
         return EnableShort &&
                CurrentMP != -1 &&
-               IsInScheduledEntry(barTime, schedule) &&
+               IsInScheduledEntry(entryBarUtc, schedule) &&
                PassesGates(FastYesShort, FastNoShort, ShortPatternRules, ohlc);
     }
 
+    /// <param name="bar">La barra di segnale, l'ultima chiusa.</param>
+    /// <param name="barTime">Apertura della barra di segnale.</param>
+    /// <param name="entryBarUtc">Apertura della barra pianificata, su cui il market si esegue.</param>
     private TradeSignal BuildEntry(
-        SignalType side, OhlcvData bar, DateTime barTime, WeeklySchedule schedule)
+        SignalType side, OhlcvData bar, DateTime barTime, DateTime entryBarUtc, WeeklySchedule schedule)
     {
         var signal = new TradeSignal
         {
             Date = barTime,
             Type = side,
-            Price = bar.Open,
+            // Prezzo di riferimento: l'engine riempie all'apertura effettiva della barra pianificata.
+            Price = bar.Close,
             StrategyName = Name,
             Quantity = Contracts,
             OrderType = TradeOrderType.Market,
-            ValidFromUtc = barTime,
-            ExpiresAtUtc = barTime,
+            ValidFromUtc = entryBarUtc,
+            ExpiresAtUtc = entryBarUtc,
             TimeframeMinutes = TimeframeMinutes,
             Reason = side == SignalType.Buy ? "LE_BIASW" : "SE_BIASW"
         };
@@ -167,12 +191,12 @@ public abstract class BiasWeeklyEngine : EasyEngineBase
 
         var exitDay = schedule.ExitDay;
         if (exitDay >= 0)
-            signal.CloseAtUtc = ResolveScheduledExitUtc(barTime, exitDay, schedule.ExitTime);
+            signal.CloseAtUtc = ResolveScheduledExitUtc(entryBarUtc, exitDay, schedule.ExitTime);
 
         if (MaxEntriesPerSession > 0)
         {
             signal.MaxEntriesPerSession = MaxEntriesPerSession;
-            signal.EntrySessionStartUtc = GetSessionStartUtc(barTime);
+            signal.EntrySessionStartUtc = GetSessionStartUtc(entryBarUtc);
         }
 
         return signal;
@@ -266,8 +290,9 @@ public abstract class BiasWeeklyEngine : EasyEngineBase
         var conteggi = new int[legs.Count];
         foreach (var bar in data)
         {
+            // Stessa etichetta con cui IsInScheduledEntry giudica la barra: la chiusura.
             var giorno = PythonWeekday(bar.DateTime);
-            var hhmm = Hhmm(bar.DateTime);
+            var hhmm = ParamHhmm(bar.DateTime);
             for (var index = 0; index < legs.Count; index++)
             {
                 if (legs[index].Giorno == giorno && legs[index].Hhmm == hhmm)
@@ -294,12 +319,25 @@ public abstract class BiasWeeklyEngine : EasyEngineBase
         _ => "?"
     };
 
-    private bool IsInScheduledEntry(DateTime barTime, WeeklySchedule schedule) =>
-        schedule.EntryDay >= 0 &&
-        PythonDayOfWeek(barTime) == schedule.EntryDay &&
-        Hhmm(barTime) >= schedule.EntryStartTime &&
-        Hhmm(barTime) <= schedule.EntryEndTime &&
-        (schedule.SkipMonth == 0 || Clock.SessionDay(barTime).Month != schedule.SkipMonth);
+    /// <summary>
+    /// Se la barra che apre in <paramref name="entryBarUtc"/> e' quella pianificata: giorno e
+    /// orario si leggono sulla sua <b>etichetta di chiusura</b> (<see cref="EasyEngineBase.ParamHhmm"/>,
+    /// <see cref="EasyEngineBase.PythonWeekday"/>), come per la finestra operativa degli altri motori.
+    /// </summary>
+    private bool IsInScheduledEntry(DateTime entryBarUtc, WeeklySchedule schedule)
+    {
+        if (schedule.EntryDay < 0 || PythonDayOfWeek(entryBarUtc) != schedule.EntryDay)
+            return false;
+
+        var hhmm = ParamHhmm(entryBarUtc);
+        return hhmm >= schedule.EntryStartTime &&
+               hhmm <= schedule.EntryEndTime &&
+               (schedule.SkipMonth == 0 || LabelDay(entryBarUtc).Month != schedule.SkipMonth);
+    }
+
+    /// <summary>Il giorno con cui la ricerca chiama una barra: quello della chiusura, salvo etichettatura legacy.</summary>
+    private DateTime LabelDay(DateTime barOpenUtc) =>
+        LegacyBarOpenLabels ? Clock.SessionDay(barOpenUtc) : Clock.BarLabelDay(barOpenUtc, TimeframeMinutes);
 
     private DateTime GetSessionStartUtc(DateTime barTime)
     {
@@ -313,6 +351,10 @@ public abstract class BiasWeeklyEngine : EasyEngineBase
     /// Trova la prima occorrenza dell'orario di uscita nel giorno Python richiesto, fino a sette
     /// giorni dopo l'ingresso. Gestisce sia le uscite nella stessa settimana sia quelle della
     /// settimana successiva (per esempio venerdì → lunedì).
+    ///
+    /// <para><c>lx_time</c> e' l'etichetta di chiusura della barra di uscita, come <c>le_time</c>
+    /// per l'ingresso: la deadline e' quindi l'apertura di quella barra, un timeframe prima
+    /// dell'istante <c>HHMM</c>. Con <c>LegacyBarOpenLabels</c> resta l'istante stesso.</para>
     /// </summary>
     protected DateTime ResolveScheduledExitUtc(DateTime entryBarTime, int exitDay, int exitTime)
     {
@@ -323,6 +365,8 @@ public abstract class BiasWeeklyEngine : EasyEngineBase
                 continue;
 
             var candidate = Clock.SessionInstantUtc(giorno, exitTime);
+            if (!LegacyBarOpenLabels)
+                candidate = candidate.AddMinutes(-TimeframeMinutes);
             if (candidate > entryBarTime)
                 return candidate;
         }

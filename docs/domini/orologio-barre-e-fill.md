@@ -364,13 +364,42 @@ nel fuso locale quando li interpreta come `DateTime`. Analizzando le ore degli
 ingressi conviene estrarre le cifre dalla stringa, altrimenti si inseguono
 ingressi "di sabato" che non esistono.
 
-## Cosa resta scoperto
+## La strategia si valuta alla chiusura della propria barra (dal 11/09/2026)
 
-Resta aperto il punto già elencato in [`../PROGETTO.md`](../PROGETTO.md) §8: le
-strategie con timeframe superiore al minimo del run sono valutate sull'orologio
-sintetico e non sui confini reali della loro barra. L'orologio a un minuto della
-sezione qui sotto **non** lo chiude — sposta il tick, non l'allineamento — ma
-riduce l'errore al minuto invece che al timeframe più corto del portafoglio.
+Una barra della strategia si valuta **una volta**, sul tick in cui si chiude
+(`IsStrategyBarClosedInTick`: `apertura + timeframe ≤ tick + orologio`), e mai di nuovo sui
+tick successivi senza barre (`lastEvaluatedBar`). Con l'orologio uguale al timeframe è lo
+stesso istante di sempre; con un orologio più fitto è l'unico istante giusto.
+
+Prima la valutazione seguiva il contatore delle iterazioni — ai multipli del timeframe
+dall'avvio del run, e alla mezzanotte UTC per le giornaliere. Il feed di un broker è ancorato
+all'orologio della ricerca, quindi le barre a 240 minuti aprono alle 22:00, 02:00, 06:00 UTC e
+la valutazione cadeva alle 00:00, 04:00, 08:00: due ore **dopo** la chiusura, con `ValidFromUtc`
+già passato per ogni "next bar", e a fine settimana la barra del venerdì veniva rivalutata al
+sabato. Su compare-0033 è così che `PTS_YM_BIA_001_240` ha aperto 71 posizioni su 131 su un
+istante senza barra. Ora il segnale nasce quando nasce sul server, che valuta ogni barra una
+volta quando il cBot la spinge chiusa. Il punto di [`../PROGETTO.md`](../PROGETTO.md) §8 è chiuso.
+
+## Un market "next bar" senza barra aspetta la prima che arriva
+
+Il percorso immediato di `ProcessSignals` — un market con `ValidFromUtc` già raggiunto — apriva
+anche senza una barra del simbolo sul tick, ripiegando sul prezzo di mark: l'ultima chiusura
+nota, di ore o giorni prima. Ora l'ordine va in coda e si riempie all'apertura della prima barra
+vera, con la stessa regola degli stop attraverso un buco; la scadenza parte da quella barra
+(`ActivatedAtUtc`). Un market **senza** `ValidFromUtc` resta "a mercato adesso" al mark.
+Regressione in `MarketOrderWithoutBarTests`.
+
+Corollario sui motori a mercato programmato: `BiasWeeklyEngine` emette ora il segnale sulla
+barra **prima** di quella pianificata, con `ValidFromUtc` alla sua apertura, così backtest e
+server lo generano nello stesso istante (voce in [`../decisioni.md`](../decisioni.md) 2026-09-11).
+
+## Il livello dal lato sbagliato si giudica sull'Ask
+
+`IsWrongSideLevel` confronta il livello con l'apertura della barra, che è il **Bid**. Per un buy
+stop o un buy limit il riferimento è l'**Ask**, apertura più spread, letto dalla stessa tabella di
+`ApplySpread`: un livello fra Bid e Ask è un ordine che il broker rifiuta, e l'engine lo riempiva
+al livello (68 trade, +37,7 k per contratto su compare-0033, inesistenti sul conto). Senza
+tabella di spread il controllo è quello descritto sopra. Il trigger dei pending resta sul feed.
 
 ## L'orologio si può infittire
 

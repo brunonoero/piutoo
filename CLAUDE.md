@@ -211,11 +211,21 @@ sbaglia più spesso:
  simbolo ha davvero stampato una barra: contare i tick a vuoto (pausa notturna, festivi, fine
  settimana) fa morire la posizione prima delle N barre dichiarate. E' la stessa regola gia'
  imposta ai cBot sui bucket.
+- **Una barra si valuta una volta, quando si chiude.** Il loop di backtest valuta la strategia sul
+ tick in cui la sua barra si chiude (`IsStrategyBarClosedInTick`), non ai multipli del timeframe
+ dall'avvio del run: con un orologio piu' fitto e un feed ancorato a Roma le due cose distano
+ ore, e la barra del venerdi' finiva rivalutata al sabato. Un market "next bar" senza barra sul
+ tick aspetta la prima barra vera e apre alla sua apertura, mai al mark. I motori a mercato
+ programmato (`BiasWeeklyEngine`) emettono sulla barra **prima** di quella pianificata, cosi'
+ backtest e server generano il segnale nello stesso istante. Vedi
+ `docs/domini/orologio-barre-e-fill.md`.
 - **Un livello gia' scavalcato non e' un ordine.** Uno stop buy sotto il prezzo si
  riempirebbe all'apertura, ma il cBot lo scarta al piazzamento
  (`RejectWrongSideLevels`) e quel trade nel conto vero non esiste. L'engine interno ha
  lo stesso filtro, acceso di default: spegnerlo serve solo a misurare la fedelta' del
- porting rispetto al motore di ricerca.
+ porting rispetto al motore di ricerca. Per il lato che compra il riferimento e' l'**Ask**,
+ apertura piu' spread, quando il run ha una tabella di spread: un livello dentro lo spread
+ e' un ordine che il broker rifiuta.
 - **Le uscite protettive hanno le stesse convenzioni degli ingressi.** Uno stop
  originale su una barra che *apre* oltre il livello si riempie all'apertura, come fa da
  sempre l'ingresso; un trailing o un break-even no, perche' possono essere nati
@@ -224,16 +234,29 @@ sbaglia più spesso:
  senza, il primo ritracciamento lo toglieva e l'engine era pessimista di un fattore
  cinque sulle uscite in trailing. Entrambi i numeri stanno sulla `BacktestingRequest` e
  nel log di avvio del job. Vedi `docs/domini/orologio-barre-e-fill.md`.
-- **Lo stop dichiarato dalla strategia non e' quello eseguito, e il fattore sta in un punto solo.**
- `StopMoneyPolicy.Multiplier` (3) moltiplica la **sola** distanza di stop, applicato
- nell'arricchimento del segnale di `StatelessEasyStrategyBase.Evaluate`: l'unico passaggio che ogni
- ingresso attraversa e che percorrono sia il backtest sia la sessione live. Le classi `PTS_*`
- continuano a dichiarare i numeri della ricerca **verbatim** — l'impronta che le riaggancia al
- dossier dipende da quei numeri — e non vanno ritoccate una per una. Motivo: lo spread misurato e'
- piu' largo della distanza di stop su parecchie strategie portate, e il numero che conta e'
- `spread / distanza di stop`, non il costo per trade. Target, breakeven e trailing restano quelli
- della ricerca. Il fattore e' dichiarato nel log di avvio, in `fillConventions.stopMoneyMultiplier`
- e in `session-summary.json`: due run con moltiplicatori diversi non sono confrontabili.
+- **Lo stop dichiarato dalla strategia non e' quello eseguito, il fattore sta in un punto solo e
+ non vale per tutte.** `StopMoneyPolicy.Multiplier` (3) moltiplica la **sola** distanza di stop,
+ applicato nell'arricchimento del segnale di `StatelessEasyStrategyBase.Evaluate`: l'unico
+ passaggio che ogni ingresso attraversa e che percorrono sia il backtest sia la sessione live. Le
+ classi `PTS_*` continuano a dichiarare i numeri della ricerca **verbatim** — l'impronta che le
+ riaggancia al dossier dipende da quei numeri — e non vanno ritoccate una per una. Motivo: lo
+ spread misurato e' piu' largo della distanza di stop su parecchie strategie portate, e il numero
+ che conta e' `spread / distanza di stop`, non il costo per trade. Target, breakeven e trailing
+ restano quelli della ricerca.
+
+ **L'allargamento e' selettivo**: si applica alle sole strategie di
+ `StopMoneyPolicy.WidenedStrategies`, e la chiave e' lo `StrategyCode`. Applicarlo a tutto il
+ catalogo peggiora l'equity complessiva e raddoppia il drawdown — su 96 strategie con trade, 56
+ peggiorano e 31 migliorano — perche' e' una correzione, non una taratura da estendere per
+ simmetria: dove lo stop e' gia' eseguibile, allargarlo cambia la strategia senza motivo.
+
+ L'allargamento si spegne da `StopMoneyPolicy.Enabled` e da nessun altro posto: a interruttore
+ spento ogni strategia torna alla distanza della ricerca, elenco compreso. Chi dichiara il fattore
+ agli artefatti usa `StopMoneyPolicy.EffectiveMultiplier`, **mai** `Multiplier`, e ci mette
+ **accanto l'elenco**: il solo fattore non dice a quali strategie e' stato applicato, e due run che
+ ne allargano di diverse sembrerebbero identici. Stanno nel log di avvio, in
+ `fillConventions.stopMoneyMultiplier` e `stopMoneyWidenedStrategies` e in `session-summary.json`:
+ due run che non concordano su fattore o elenco non sono confrontabili.
  Vedi `docs/domini/spread-e-costo-di-transazione.md`.
 - **Overnight e overweek: decide prima il piano, poi motore e strategia.**
  `tiene = pianoPermette && strategiaVuole`. `AccountHoldingPolicy` sta sul `TradingPlan`,

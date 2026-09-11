@@ -816,8 +816,12 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                 // Gli stop della ricerca sono piu' stretti dello spread misurato su parecchie
                 // strategie: il moltiplicatore li rende eseguibili e cambia quante posizioni
                 // sopravvivono, non solo quanto perdono. Due run che non concordano qui non sono
-                // confrontabili.
-                ["stopMoneyMultiplier"] = StopMoneyPolicy.Multiplier.ToString(CultureInfo.InvariantCulture),
+                // confrontabili. L'elenco sta accanto al fattore perche' l'allargamento e'
+                // selettivo: il solo fattore non direbbe A QUALI strategie e' stato applicato, e
+                // due run che ne allargano di diverse sembrerebbero identici.
+                ["stopMoneyMultiplier"] = StopMoneyPolicy.EffectiveMultiplier.ToString(CultureInfo.InvariantCulture),
+                ["targetMoneyMultiplier"] = StopMoneyPolicy.EffectiveTargetMultiplier.ToString(CultureInfo.InvariantCulture),
+                ["stopMoneyWidenedStrategies"] = string.Join(",", StopMoneyPolicy.WidenedStrategies),
                 ["trailingMinStepFraction"] = request.TrailingMinStepFraction.ToString(CultureInfo.InvariantCulture),
                 // Quale etichetta della barra legge la finestra operativa. Sposta di una
                 // barra quali segnali nascono, quindi due run che non concordano qui non
@@ -1106,6 +1110,9 @@ public class PiootooBacktestingService : IPiootooBacktestingService
             var totalIterations = totalMinutes > 0 ? totalMinutes / minTimeframeMinutes : 0;
             var processedIterations = 0;
             var iterationCount = 0; // Contatore per calcolare l'allineamento delle strategie
+            // L'ultima barra su cui ogni strategia e' stata valutata: una barra si valuta una volta
+            // sola, alla propria chiusura. Vedi IsStrategyBarClosedInTick.
+            var lastEvaluatedBar = new Dictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase);
             var markedToMarketBars = 0L;
             var weekEndCancelledOrders = 0L;
             var lastPersistedIteration = 0;
@@ -1200,14 +1207,12 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                     {
                         cancellationToken.ThrowIfCancellationRequested();
 
-                        // Una strategia viene valutata quando il numero di iterazioni è un multiplo
-                        // del rapporto tra il suo timeframe e il minimo del portafoglio.
-                        if (!ShouldEvaluateStrategy(currentDate, iterationCount, strategy.TimeframeMinutes, minTimeframeMinutes))
+                        // Il timeframe della strategia deve essere un multiplo dell'orologio; il
+                        // momento della valutazione lo decide la barra, piu' sotto.
+                        if (!ShouldEvaluateStrategy(strategy.TimeframeMinutes, minTimeframeMinutes))
                         {
                             continue;
                         }
-
-                        diagnostics.CountScheduled(strategySymbol, strategyCode);
 
                         var requiredCandles = (int)(strategy.RequiredCandles * 1.2);
                         if (!cursors.TryGetValue((NormalizeSymbol(strategySymbol), strategy.TimeframeMinutes), out var cursor))
@@ -1227,6 +1232,23 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                         }
 
                         var currentBar = candles[^1];
+
+                        // Una barra si valuta UNA volta, sul tick in cui si chiude: ne' prima (la
+                        // sua chiusura non e' ancora nota) ne' dopo (l'ordine "next bar" nascerebbe
+                        // con la barra successiva gia' in corso). Vedi IsStrategyBarClosedInTick.
+                        if (!IsStrategyBarClosedInTick(currentBar.DateTime, strategy.TimeframeMinutes, currentDate, minTimeframeMinutes))
+                        {
+                            continue;
+                        }
+
+                        if (lastEvaluatedBar.TryGetValue(strategyCode, out var lastBar) && lastBar == currentBar.DateTime)
+                        {
+                            continue;
+                        }
+
+                        lastEvaluatedBar[strategyCode] = currentBar.DateTime;
+                        diagnostics.CountScheduled(strategySymbol, strategyCode);
+
                         if (IsStrategyCandleStale(strategy.TimeframeMinutes, currentBar.DateTime, currentDate))
                         {
                             diagnostics.CountSkipStaleCandle(strategySymbol, strategyCode);
@@ -1546,7 +1568,9 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                     TrailingPeakIncludesCurrentBar = tradingService.TrailingPeakIncludesCurrentBar,
                     TrailingMinStepFraction = tradingService.TrailingMinStepFraction,
                     RejectWrongSideLevels = tradingService.RejectWrongSideLevels,
-                    StopMoneyMultiplier = StopMoneyPolicy.Multiplier,
+                    StopMoneyMultiplier = StopMoneyPolicy.EffectiveMultiplier,
+                    TargetMoneyMultiplier = StopMoneyPolicy.EffectiveTargetMultiplier,
+                    StopMoneyWidenedStrategies = [.. StopMoneyPolicy.WidenedStrategies],
                     StopFillSlippageSymbols = tradingService.StopFillSlippagePoints.Keys
                         .OrderBy(symbol => symbol, StringComparer.OrdinalIgnoreCase)
                         .ToList(),
@@ -2162,37 +2186,48 @@ public class PiootooBacktestingService : IPiootooBacktestingService
     /// Determina se una strategia deve essere valutata all'iterazione corrente
     /// Una strategia viene valutata quando il numero di iterazioni è un multiplo del rapporto tra il suo timeframe e il minimo
     /// </summary>
-    private bool ShouldEvaluateStrategy(DateTime currentDate, int iterationCount, int strategyTimeframeMinutes, int minTimeframeMinutes)
+    /// <summary>
+    /// Se una strategia puo' essere valutata su questo orologio: il suo timeframe deve essere un
+    /// multiplo del tick. <b>Quando</b> valutarla lo decide <see cref="IsStrategyBarClosedInTick"/>.
+    /// </summary>
+    private static bool ShouldEvaluateStrategy(int strategyTimeframeMinutes, int minTimeframeMinutes)
     {
-        // Se il timeframe della strategia è uguale al minimo, valuta sempre
         if (strategyTimeframeMinutes == minTimeframeMinutes)
         {
             return true;
         }
 
-        // Verifica se il timeframe della strategia è un multiplo del minimo
-        if (strategyTimeframeMinutes % minTimeframeMinutes != 0)
-        {
-            // Niente log qui: e' un percorso chiamato per strategia per barra e Console.Out e'
-            // sincrono e serializzato. La condizione e' statica per strategia, quindi va segnalata
-            // una volta sola in fase di setup, non dentro il loop.
-            return false;
-        }
-
-        // Strategie daily+ : allinea alla mezzanotte UTC (evita drift da iterazioni weekend)
-        if (strategyTimeframeMinutes >= 1440)
-        {
-            return currentDate is { Hour: 0, Minute: 0 };
-        }
-
-        // Calcola quanti periodi minimi corrispondono a un periodo della strategia
-        var multiplier = strategyTimeframeMinutes / minTimeframeMinutes;
-        
-        // Valuta la strategia quando il numero di iterazioni è un multiplo del multiplier
-        var shouldEvaluate = iterationCount % multiplier == 0;
-        
-        return shouldEvaluate;
+        // Niente log qui: e' un percorso chiamato per strategia per barra e Console.Out e'
+        // sincrono e serializzato. La condizione e' statica per strategia, quindi va segnalata
+        // una volta sola in fase di setup, non dentro il loop (BacktestClock.Resolve).
+        return strategyTimeframeMinutes % minTimeframeMinutes == 0;
     }
+
+    /// <summary>
+    /// Se la barra della strategia che apre in <paramref name="barOpenUtc"/> si chiude dentro
+    /// questo tick, cioe' entro <c>currentDate + orologio</c>. E' il momento in cui la strategia va
+    /// valutata: la barra e' completa e la successiva non e' ancora cominciata.
+    ///
+    /// <para><b>Perche' non piu' "ogni N iterazioni".</b> Fino al 11/09/2026 una strategia a 240
+    /// minuti veniva valutata ai multipli di 240 minuti dall'avvio del run, e le giornaliere alla
+    /// mezzanotte UTC. Con un orologio uguale al timeframe le due regole coincidono; con un
+    /// orologio piu' fitto no, e il feed di un broker e' ancorato all'orologio della ricerca
+    /// (00:00 di Roma, 22:00 o 23:00 UTC): le barre a 240 minuti aprono alle 22:00, 02:00, 06:00
+    /// UTC e la valutazione cadeva alle 00:00, 04:00, 08:00 — due ore <i>dopo</i> la chiusura, con
+    /// <c>ValidFromUtc</c> gia' passato per ogni "next bar", e a fine settimana sulla barra del
+    /// venerdi' rivalutata al sabato. Su compare-0033 e' cosi' che <c>PTS_YM_BIA_001_240</c> ha
+    /// aperto 71 posizioni su 131 su un istante senza barra. Con la valutazione sulla chiusura il
+    /// segnale nasce quando nasce sul server, che valuta ogni barra una volta quando il cBot la
+    /// spinge chiusa.</para>
+    ///
+    /// <para>Il tick <c>T</c> dell'orologio rappresenta l'intervallo <c>[T, T + orologio)</c>: la
+    /// barra da un minuto etichettata <c>T</c> e' quella del tick, e una barra piu' lunga si
+    /// chiude "in questo tick" quando la sua chiusura cade entro la fine dell'intervallo. Con
+    /// orologio uguale al timeframe la condizione e' vera esattamente sul tick etichettato come la
+    /// barra, cioe' il comportamento di sempre.</para>
+    /// </summary>
+    private static bool IsStrategyBarClosedInTick(DateTime barOpenUtc, int strategyTimeframeMinutes, DateTime currentDate, int minTimeframeMinutes) =>
+        barOpenUtc.AddMinutes(strategyTimeframeMinutes) <= currentDate.AddMinutes(Math.Max(1, minTimeframeMinutes));
 
     private static IEnumerable<(string Symbol, int Timeframe, int RequiredCandles)> GetStrategyDataRequirements(ITradingStrategy strategy)
     {

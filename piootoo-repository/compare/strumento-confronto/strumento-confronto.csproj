@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <InvariantGlobalization>false</InvariantGlobalization>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <NoWarn>CS8600;CS8601;CS8602;CS8603;CS8604;CS8618;CS8625;CS0618</NoWarn>
+  </PropertyGroup>
+
+  <!--
+    Strumento di confronto fra un run cBot e un backtest interno sulla stessa finestra: legge una
+    cartella piootoo-repository/compare/compare-NNNN e scrive analisi/report.md e i CSV.
+    Non fa parte della solution: si lancia da qui con
+      dotnet run -c Release - - <cartella compare> [cartella output] [broker feed]
+    Le strategie e i calendari li prende dalle stesse assembly del server, per non reimplementarli.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\Piootoo.Shared\Piootoo.Shared.csproj" />
+    <ProjectReference Include="..\..\..\Piootoo.Strategies\Piootoo.Strategies.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -141,6 +141,9 @@ Desktop.ini
 /piootoo-repository/compare/**
 !/piootoo-repository/compare/**/
 !/piootoo-repository/compare/confronta-trades.py
+!/piootoo-repository/compare/strumento-confronto/**
+/piootoo-repository/compare/strumento-confronto/bin/
+/piootoo-repository/compare/strumento-confronto/obj/
 !/piootoo-repository/compare/**/*.md
 !/piootoo-repository/compare/**/backtest-summary*.json
 !/piootoo-repository/compare/**/origin.json
