@@ -107,8 +107,18 @@ public abstract class StatelessEasyStrategyBase : ITradingStrategy
         // di ingresso attraversa, quindi vale per i dieci motori e per le sorgenti EasyLanguage
         // senza doverlo ripetere in nessuno di loro. Il segnale nasce gia' con lo stop eseguibile:
         // artefatti, console e intent per il cBot portano tutti lo stesso numero.
+        //
+        // Si applica per strategia, non a tutto il catalogo, e la chiave e' lo StrategyCode appena
+        // risolto qui sopra: va letto DOPO quella riga, altrimenti un segnale che non porta il
+        // proprio codice non verrebbe mai allargato.
         signal.StopLossMoneyPerFutureContract =
-            StopMoneyPolicy.Widen(signal.StopLossMoneyPerFutureContract);
+            StopMoneyPolicy.Widen(signal.StrategyCode, signal.StopLossMoneyPerFutureContract);
+
+        // Il target segue lo stop nello stesso punto e con lo stesso elenco, ma con un fattore
+        // proprio: a 1 — il default — la strategia tiene l'obiettivo della ricerca e cambia il solo
+        // rischio, che e' il comportamento da cui ogni confronto parte.
+        signal.TakeProfitMoneyPerFutureContract =
+            StopMoneyPolicy.WidenTarget(signal.StrategyCode, signal.TakeProfitMoneyPerFutureContract);
     }
 
     // ------------------------------------------------------------------ riflessione cacheata

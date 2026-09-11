@@ -41,6 +41,20 @@ public sealed class SessionRunSummary
     /// </summary>
     public decimal StopMoneyMultiplier { get; init; } = 1m;
 
+    /// <summary>
+    /// Le strategie, per <c>StrategyCode</c>, a cui la sessione ha applicato
+    /// <see cref="StopMoneyMultiplier"/>. Vuoto = nessuna. Sta qui per lo stesso motivo del fattore:
+    /// l'allargamento e' selettivo, e il solo fattore non dice su chi ha agito.
+    /// </summary>
+    public List<string> StopMoneyWidenedStrategies { get; init; } = [];
+
+    /// <summary>
+    /// Fattore con cui la sessione ha scalato il <b>target</b> delle stesse strategie. 1 = i target
+    /// della ricerca. Sta qui per lo stesso motivo del fattore dello stop: i due insieme dicono se
+    /// e' cambiato il solo rischio o anche l'obiettivo.
+    /// </summary>
+    public decimal TargetMoneyMultiplier { get; init; } = 1m;
+
     public int IntentsEmitted { get; init; }
     public int IntentsFilled { get; init; }
     public int IntentsRejected { get; init; }

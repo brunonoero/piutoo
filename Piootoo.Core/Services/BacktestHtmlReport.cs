@@ -650,7 +650,7 @@ public static class BacktestHtmlReport
         html.AppendLine("    <h2>Resoconto mensile</h2>");
         AppendCoverageNoteHtml(html, result);
         html.AppendLine("    <table class=\"summary-table\">");
-        html.AppendLine("      <thead><tr><th>Mese</th><th>Equity iniziale</th><th>Equity finale</th><th>Profit</th><th>Return %</th><th>Max DD mese</th><th>Max DD %</th><th>Trade win</th><th>Trade persi</th><th>Migliori 3 strategie</th></tr></thead>");
+        html.AppendLine("      <thead><tr><th>Mese</th><th>Equity iniziale</th><th>Equity finale</th><th>Profit</th><th>Return %</th><th>Max DD mese</th><th>Max DD %</th><th>Trade win</th><th>Trade persi</th><th>Migliori 3 strategie</th><th>Peggiori 3 strategie</th></tr></thead>");
         html.AppendLine("      <tbody>");
 
         foreach (var monthGroup in orderedRows.GroupBy(row => new { row.DateTime.Year, row.DateTime.Month }).OrderBy(group => group.Key.Year).ThenBy(group => group.Key.Month))
@@ -666,9 +666,10 @@ public static class BacktestHtmlReport
                 .ToList();
             var profitClass = profit >= 0 ? "positive" : "negative";
             var topStrategiesHtml = BuildTopStrategiesCellHtml(monthTrades);
+            var worstStrategiesHtml = BuildWorstStrategiesCellHtml(monthTrades);
 
             html.AppendLine(
-                $"        <tr><td>{monthGroup.Key.Year}-{monthGroup.Key.Month:00}</td><td>{previousMonthEndEquity:F2}</td><td>{endEquity:F2}</td><td class=\"{profitClass}\">{profit:F2}</td><td class=\"{profitClass}\">{returnPct:F2}%</td><td class=\"negative\">{maxDrawdown:F2}</td><td class=\"negative\">{maxDrawdownPercent:F2}%</td><td>{monthTrades.Count(trade => trade.NetProfit > 0)}</td><td>{monthTrades.Count(trade => trade.NetProfit < 0)}</td><td class=\"top-strategies\">{topStrategiesHtml}</td></tr>");
+                $"        <tr><td>{monthGroup.Key.Year}-{monthGroup.Key.Month:00}</td><td>{previousMonthEndEquity:F2}</td><td>{endEquity:F2}</td><td class=\"{profitClass}\">{profit:F2}</td><td class=\"{profitClass}\">{returnPct:F2}%</td><td class=\"negative\">{maxDrawdown:F2}</td><td class=\"negative\">{maxDrawdownPercent:F2}%</td><td>{monthTrades.Count(trade => trade.NetProfit > 0)}</td><td>{monthTrades.Count(trade => trade.NetProfit < 0)}</td><td class=\"top-strategies\">{topStrategiesHtml}</td><td class=\"top-strategies\">{worstStrategiesHtml}</td></tr>");
 
             previousMonthEndEquity = endEquity;
         }
@@ -679,7 +680,12 @@ public static class BacktestHtmlReport
     }
 
     /// <summary>
-    /// Le tre strategie con il profit netto piu' alto nel periodo, gia' formattate come cella HTML.
+    /// Profit netto e numero di trade di una strategia nel periodo, per la classifica.
+    /// </summary>
+    private sealed record PeriodStrategyResult(string Key, decimal Profit, int Trades);
+
+    /// <summary>
+    /// Le strategie del periodo, ordinate per profit netto decrescente e a parita' per chiave.
     /// </summary>
     /// <remarks>
     /// La classifica e' sui trade <em>chiusi</em> nel periodo, l'unica grandezza confrontabile fra
@@ -687,29 +693,47 @@ public static class BacktestHtmlReport
     /// vincere il mese a chi ha solo un trade ancora in corso. La chiave e' (Symbol, StrategyCode)
     /// come nel resto del report, cosi' la stessa strategia su due simboli resta distinta.
     /// </remarks>
-    private static string BuildTopStrategiesCellHtml(IReadOnlyList<BacktestReportTrade> periodTrades)
-    {
-        if (periodTrades.Count == 0)
-        {
-            return "<span class=\"muted\">-</span>";
-        }
-
-        var top = periodTrades
+    private static List<PeriodStrategyResult> RankStrategies(IReadOnlyList<BacktestReportTrade> periodTrades)
+        => periodTrades
             .GroupBy(trade => StrategyKeys.MakeStrategyKey(
                 trade.Symbol,
                 string.IsNullOrWhiteSpace(trade.StrategyCode) ? trade.StrategyName : trade.StrategyCode))
-            .Select(group => new { Key = group.Key, Profit = group.Sum(trade => trade.NetProfit), Trades = group.Count() })
+            .Select(group => new PeriodStrategyResult(group.Key, group.Sum(trade => trade.NetProfit), group.Count()))
             .OrderByDescending(row => row.Profit)
             .ThenBy(row => row.Key, StringComparer.OrdinalIgnoreCase)
-            .Take(3)
             .ToList();
 
-        return string.Join("<br>", top.Select(row =>
+    /// <summary>
+    /// Le tre strategie con il profit netto piu' alto nel periodo, gia' formattate come cella HTML.
+    /// </summary>
+    private static string BuildTopStrategiesCellHtml(IReadOnlyList<BacktestReportTrade> periodTrades)
+        => BuildStrategiesCellHtml(RankStrategies(periodTrades).Take(3));
+
+    /// <summary>
+    /// Le tre strategie con il profit netto piu' basso nel periodo, dalla peggiore in su, gia'
+    /// formattate come cella HTML.
+    /// </summary>
+    /// <remarks>
+    /// Stessa classifica delle migliori, letta dal fondo: chi ha una strategia sola la vede in
+    /// entrambe le colonne, ed e' corretto — e' insieme la migliore e la peggiore del mese. Non si
+    /// filtra sul segno: in un mese in cui tutte guadagnano la "peggiore" e' quella che ha
+    /// guadagnato meno, e vale la pena vederla.
+    /// </remarks>
+    private static string BuildWorstStrategiesCellHtml(IReadOnlyList<BacktestReportTrade> periodTrades)
+        => BuildStrategiesCellHtml(RankStrategies(periodTrades).AsEnumerable().Reverse().Take(3));
+
+    private static string BuildStrategiesCellHtml(IEnumerable<PeriodStrategyResult> rows)
+    {
+        var lines = rows.Select(row =>
         {
             var cssClass = row.Profit >= 0 ? "positive" : "negative";
             var label = System.Net.WebUtility.HtmlEncode(row.Key);
             return $"{label} <span class=\"{cssClass}\">{row.Profit:F2}</span> <span class=\"muted\">({row.Trades})</span>";
-        }));
+        }).ToList();
+
+        return lines.Count == 0
+            ? "<span class=\"muted\">-</span>"
+            : string.Join("<br>", lines);
     }
 
     /// <summary>

@@ -140,7 +140,8 @@ trade, lo avvicina allo stop. Su parecchie strategie portate dalla ricerca quel 
 — lo spread misurato è più largo della distanza di stop dichiarata — e una taratura del genere non
 è eseguibile su un conto vero, per quanto bene misuri in backtest.
 
-`StopMoneyPolicy` moltiplica per 3 la **sola** distanza di stop. Sta in un punto solo,
+`StopMoneyPolicy` moltiplica per 3 la **sola** distanza di stop, e delle **sole strategie che
+elenca** (§«A chi si applica»). Sta in un punto solo,
 l'arricchimento del segnale in `StatelessEasyStrategyBase.Evaluate`: è l'unico passaggio che ogni
 ingresso attraversa, qualunque motore l'abbia prodotto, e lo percorrono sia il backtest sia la
 sessione live. Le classi `PTS_*` continuano quindi a dichiarare i numeri della ricerca
@@ -152,16 +153,44 @@ Target, breakeven e trailing restano quelli della ricerca. Allargare anche loro 
 strategia diversa, non la stessa strategia resa eseguibile; il rapporto rischio/rendimento del
 porting cambia di conseguenza, ed è voluto.
 
+### A chi si applica
+
+Non a tutte. Il confronto fra le due gambe sullo stesso periodo, stesso feed e stesso piano dice
+che allargare tutto il catalogo **peggiora** l'equity complessiva e raddoppia il drawdown, e che
+l'effetto è bidirezionale: su 96 strategie con trade, 56 peggiorano e 31 migliorano. Il motivo sta
+nella natura della modifica. L'allargamento è una **correzione** di uno stop non eseguibile, non una
+taratura da estendere per simmetria: dove `spread / distanza di stop` sta già sotto 1, allargarlo
+cambia la strategia senza motivo. Nei numeri lo si vede come un travaso, dalle bias e dalle breakout
+di sessione verso i trend following unmirrored.
+
+L'elenco vive in **`StopMoneyPolicy.WidenedStrategies`** e la chiave è lo `StrategyCode`. Nel
+sorgente è scritto in due gruppi: le strategie che con l'allargamento restano o tornano in utile, e
+quelle che restano in perdita ma la riducono. Il secondo gruppo è quello da rimettere in discussione
+per primo se il porting cambia.
+
+### L'interruttore
+
+L'allargamento si accende e si spegne da **`StopMoneyPolicy.Enabled`**, e da nessun altro posto:
+a interruttore spento ogni strategia emette la distanza di stop della ricerca, elenco compreso.
+L'interruttore sta accanto al fattore e non nella configurazione del server perché i due sono la
+stessa decisione, e chi confronta due run non deve andare a cercare quale `appsettings` girava quel
+giorno. Chi dichiara il fattore agli artefatti legge **`EffectiveMultiplier`** — il fattore davvero
+in vigore, 1 a interruttore spento — e mai `Multiplier`: altrimenti un run spento direbbe di aver
+allargato stop che non ha allargato. E ci mette **accanto l'elenco**: con un allargamento selettivo
+il solo fattore non dice a quali strategie è stato applicato, e due run che ne allargano di diverse
+dichiarerebbero lo stesso 3 senza essere confrontabili.
+
 ### Dove si vede
 
 - **Log di avvio del job**: `entrySpreadSource` (broker, statistica, file, data),
-  `entrySpreadPoints` (simbolo=valore) e `stopMoneyMultiplier`.
+  `entrySpreadPoints` (simbolo=valore), `stopMoneyMultiplier` e `stopMoneyWidenedStrategies`.
 - **`backtest-summary.json`**, in `fillConventions`: `spreadPoints` con i **valori**,
-  `spreadSource` e `stopMoneyMultiplier`. Quest'ultimo sta anche in `session-summary.json`, per
-  la stessa ragione: due run con moltiplicatori diversi non sono confrontabili, e dagli intent
-  riempiti non si risale al fattore. I valori e non i soli simboli come per `stopFillSlippageSymbols`: due run
-  che dichiarano lo stesso simbolo con spread 2 e con spread 8 danno risultati che non si
-  somigliano.
+  `spreadSource`, `stopMoneyMultiplier` e `stopMoneyWidenedStrategies`. Gli ultimi due stanno anche
+  in `session-summary.json`, per la stessa ragione: due run che non concordano su fattore o elenco
+  non sono confrontabili, e dagli intent riempiti non si risale né all'uno né all'altro. Sempre i
+  **valori** e non i soli nomi, come per `spreadPoints` e a differenza di
+  `stopFillSlippageSymbols`: due run che dichiarano lo stesso simbolo con spread 2 e con spread 8
+  danno risultati che non si somigliano, e due che allargano strategie diverse nemmeno.
 - **Report HTML**, scheda «Spread applicato all'ingresso»: una riga per simbolo, con la
   misura in testa. Si elencano **tutti i simboli del run** e non i soli misurati — un
   simbolo senza spread è un'assenza di misura, e una riga mancante si leggerebbe come «non

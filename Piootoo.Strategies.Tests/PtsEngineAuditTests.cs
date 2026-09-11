@@ -41,10 +41,18 @@ public sealed class PtsEngineAuditTests
         Assert.Equal("PTS_NQ_TFM_001_60", signal.StrategyCode);
         Assert.Equal("@NQ", signal.Symbol);
         Assert.Equal(1m, signal.Quantity);
-        // Lo stop del segnale e' quello dichiarato dal motore per il fattore di StopMoneyPolicy:
-        // il segnale nasce gia' con la distanza eseguibile, non con quella della ricerca.
-        Assert.Equal(StopMoney * StopMoneyPolicy.Multiplier, signal.StopLossMoneyPerFutureContract);
-        Assert.Equal(TakeProfitMoney, signal.TakeProfitMoneyPerFutureContract);
+        // Lo stop del segnale e' quello dichiarato dal motore per il fattore di StopMoneyPolicy,
+        // se a questa strategia l'allargamento si applica: il segnale nasce gia' con la distanza
+        // eseguibile, non con quella della ricerca. Il fattore si chiede alla policy invece di
+        // scriverlo qui, cosi' il test non va aggiornato quando l'elenco cambia.
+        var expectedStop = StopMoneyPolicy.AppliesTo(signal.StrategyCode)
+            ? StopMoney * StopMoneyPolicy.EffectiveMultiplier
+            : StopMoney;
+        Assert.Equal(expectedStop, signal.StopLossMoneyPerFutureContract);
+        var expectedTarget = StopMoneyPolicy.AppliesTo(signal.StrategyCode)
+            ? TakeProfitMoney * StopMoneyPolicy.EffectiveTargetMultiplier
+            : TakeProfitMoney;
+        Assert.Equal(expectedTarget, signal.TakeProfitMoneyPerFutureContract);
         Assert.Null(signal.StopLoss);
         Assert.Null(signal.TakeProfit);
         Assert.Equal(bar.DateTime.AddMinutes(60), signal.ValidFromUtc);

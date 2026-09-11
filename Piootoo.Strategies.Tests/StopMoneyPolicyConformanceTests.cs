@@ -12,14 +12,16 @@ using Xunit.Abstractions;
 namespace Piootoo.Strategies.Tests;
 
 /// <summary>
-/// L'allargamento dello stop di <see cref="StopMoneyPolicy"/> deve valere per <b>tutte</b> le
-/// strategie del catalogo, senza eccezioni e senza doverlo ripetere in ogni classe.
+/// L'allargamento dello stop di <see cref="StopMoneyPolicy"/> deve valere per le strategie
+/// elencate nella policy, per <b>tutte</b> quelle e per nessun'altra, senza doverlo ripetere in
+/// ogni classe.
 ///
 /// <para>Vale per costruzione perche' il fattore si applica in un punto solo — l'arricchimento del
 /// segnale in <c>StatelessEasyStrategyBase.Evaluate</c>, l'unico passaggio che backtest e sessione
-/// percorrono entrambi. Questi test verificano le due meta' di quella frase: che nessuna strategia
-/// del catalogo stia fuori da quel passaggio, e che il segnale che ne esce porti davvero lo stop
-/// dichiarato moltiplicato.</para>
+/// percorrono entrambi. Questi test verificano le meta' di quella frase: che nessuna strategia del
+/// catalogo stia fuori da quel passaggio, che il segnale di una strategia in elenco porti lo stop
+/// dichiarato moltiplicato, che quello di una strategia fuori elenco porti la distanza della
+/// ricerca, e che nessun codice dell'elenco sia un refuso.</para>
 /// </summary>
 public sealed class StopMoneyPolicyConformanceTests(ITestOutputHelper output)
 {
@@ -95,8 +97,85 @@ public sealed class StopMoneyPolicyConformanceTests(ITestOutputHelper output)
     [Fact]
     public void NoDeclaredStopStaysWithoutStop()
     {
-        Assert.Null(StopMoneyPolicy.Widen(null));
-        Assert.Equal(0m, StopMoneyPolicy.Widen(0m));
+        var widened = StopMoneyPolicy.WidenedStrategies[0];
+
+        Assert.Null(StopMoneyPolicy.Widen(widened, null));
+        Assert.Equal(0m, StopMoneyPolicy.Widen(widened, 0m));
+    }
+
+    /// <summary>
+    /// L'interruttore governa davvero l'allargamento, e il fattore dichiarato agli artefatti e'
+    /// quello davvero applicato. Il test vale in entrambe le posizioni dell'interruttore perche'
+    /// non ne assume nessuna: fallisce se qualcuno spegne <c>Enabled</c> lasciando <c>Widen</c> a
+    /// moltiplicare, o se lo accende lasciando <c>EffectiveMultiplier</c> a 1 — cioe' esattamente
+    /// nei casi in cui un run direbbe di aver fatto una cosa e ne avrebbe fatta un'altra.
+    /// </summary>
+    [Fact]
+    public void TheSwitchGovernsBothTheWideningAndWhatTheRunDeclares()
+    {
+        Assert.Equal(
+            StopMoneyPolicy.Enabled ? StopMoneyPolicy.Multiplier : 1m,
+            StopMoneyPolicy.EffectiveMultiplier);
+
+        var widened = StopMoneyPolicy.WidenedStrategies[0];
+
+        Assert.Equal(StopMoneyPolicy.Enabled, StopMoneyPolicy.AppliesTo(widened));
+        Assert.Equal(
+            1000m * StopMoneyPolicy.EffectiveMultiplier,
+            StopMoneyPolicy.Widen(widened, 1000m));
+
+        // Il target ha un fattore proprio e lo stesso interruttore: a 1 la strategia tiene
+        // l'obiettivo della ricerca anche mentre lo stop si allarga.
+        Assert.Equal(
+            StopMoneyPolicy.Enabled ? StopMoneyPolicy.TargetMultiplier : 1m,
+            StopMoneyPolicy.EffectiveTargetMultiplier);
+        Assert.Equal(
+            2000m * StopMoneyPolicy.EffectiveTargetMultiplier,
+            StopMoneyPolicy.WidenTarget(widened, 2000m));
+    }
+
+    /// <summary>
+    /// Una strategia fuori elenco tiene la distanza di stop della ricerca. E' la meta' che
+    /// distingue un allargamento selettivo da uno generale, e senza questa verifica un elenco
+    /// ignorato passerebbe inosservato: gli stop sarebbero tutti allargati e nessun test se ne
+    /// accorgerebbe.
+    /// </summary>
+    [Fact]
+    public void AStrategyOutsideTheListKeepsTheResearchStop()
+    {
+        var outside = StrategyFactory.GetRegisteredStrategies()
+            .Select(definition => definition.Id)
+            .FirstOrDefault(id => !StopMoneyPolicy.AppliesTo(id));
+
+        Assert.NotNull(outside);
+        Assert.False(StopMoneyPolicy.AppliesTo(outside));
+        Assert.Equal(1000m, StopMoneyPolicy.Widen(outside, 1000m));
+        Assert.Equal(1000m, StopMoneyPolicy.Widen(null, 1000m));
+        Assert.Equal(1000m, StopMoneyPolicy.Widen("   ", 1000m));
+        Assert.Equal(2000m, StopMoneyPolicy.WidenTarget(outside, 2000m));
+        Assert.Null(StopMoneyPolicy.WidenTarget(outside, null));
+    }
+
+    /// <summary>
+    /// Ogni codice dell'elenco esiste nel catalogo. Un codice scritto male non fa rumore — la
+    /// strategia semplicemente non viene allargata, il run gira e il summary dichiara un elenco che
+    /// contiene un nome che non opera — quindi il refuso va trovato qui e non leggendo un'equity
+    /// che non torna.
+    /// </summary>
+    [Fact]
+    public void EveryListedStrategyExistsInTheCatalogue()
+    {
+        var catalogue = StrategyFactory.GetRegisteredStrategies()
+            .Select(definition => definition.Id)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var unknown = StopMoneyPolicy.WidenedStrategies
+            .Where(code => !catalogue.Contains(code))
+            .ToList();
+
+        Assert.True(unknown.Count == 0,
+            "Codici in StopMoneyPolicy che il catalogo non conosce:" + Environment.NewLine +
+            string.Join(Environment.NewLine, unknown));
     }
 
     /// <returns><c>true</c> se la strategia ha emesso almeno un ingresso.</returns>
@@ -130,12 +209,15 @@ public sealed class StopMoneyPolicyConformanceTests(ITestOutputHelper output)
                 seenEntry = true;
 
                 var declared = ReadDeclaredStop(strategy, emitted.Type);
-                var expected = declared > 0m ? declared * StopMoneyPolicy.Multiplier : (decimal?)null;
+                var factor = StopMoneyPolicy.AppliesTo(emitted.StrategyCode)
+                    ? StopMoneyPolicy.EffectiveMultiplier
+                    : 1m;
+                var expected = declared > 0m ? declared * factor : (decimal?)null;
 
                 if (emitted.StopLossMoneyPerFutureContract != expected)
                 {
                     violations.Add(
-                        $"{id}: dichiarato {declared}, atteso {Describe(expected)}, " +
+                        $"{id}: dichiarato {declared}, fattore {factor}, atteso {Describe(expected)}, " +
                         $"emesso {Describe(emitted.StopLossMoneyPerFutureContract)}.");
                 }
             }

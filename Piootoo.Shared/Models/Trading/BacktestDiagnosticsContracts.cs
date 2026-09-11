@@ -513,6 +513,26 @@ public sealed class BacktestFillConventions
     public decimal StopMoneyMultiplier { get; init; } = 1m;
 
     /// <summary>
+    /// Le strategie, per <c>StrategyCode</c>, a cui il run ha applicato
+    /// <see cref="StopMoneyMultiplier"/>. Vuoto = nessuna, e allora il fattore non ha toccato niente.
+    ///
+    /// <para>Sta accanto al fattore perche' l'allargamento e' <b>selettivo</b>: il solo fattore non
+    /// dice a quali strategie e' stato applicato, e due run che ne allargano di diverse
+    /// sembrerebbero identici pur non essendo confrontabili.</para>
+    /// </summary>
+    public List<string> StopMoneyWidenedStrategies { get; init; } = [];
+
+    /// <summary>
+    /// Fattore con cui il run ha scalato il <b>target</b> delle stesse strategie di
+    /// <see cref="StopMoneyWidenedStrategies"/>. 1 = i target della ricerca, tali e quali.
+    ///
+    /// <para>Sta accanto al fattore dello stop perche' i due insieme dicono se il run ha cambiato
+    /// il solo rischio o anche l'obiettivo, cioe' se il rapporto rischio/rendimento delle strategie
+    /// e' quello della ricerca o un altro. Due run che non concordano non sono confrontabili.</para>
+    /// </summary>
+    public decimal TargetMoneyMultiplier { get; init; } = 1m;
+
+    /// <summary>
     /// Se la finestra operativa ha confrontato le proprie soglie con l'etichetta di <b>chiusura</b>
     /// della barra invece che con quella di apertura.
     ///
