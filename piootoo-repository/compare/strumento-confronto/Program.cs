@@ -976,7 +976,13 @@ void WriteReport(StringBuilder o)
     // ---- 5. spread
     o.AppendLine("## 5. Spread");
     o.AppendLine();
-    o.AppendLine("Il backtest interno gira senza spread (`spreadSource: nessuno`). Il cBot lo paga davvero: costo per trade ≈ spread al fill × valore punto × contratti (una volta per round trip). Lo stop è quello eseguito (allargato ×" + stopMult + " dove previsto).");
+    var internalSpreadSource = summary.RootElement.TryGetProperty("fillConventions", out var fcSpread)
+        && fcSpread.TryGetProperty("spreadSource", out var spreadSourceEl)
+        && spreadSourceEl.ValueKind == JsonValueKind.String
+        && !string.IsNullOrWhiteSpace(spreadSourceEl.GetString())
+        ? spreadSourceEl.GetString()!
+        : "nessuno";
+    o.AppendLine("Spread dell'interno, dal summary: `" + internalSpreadSource + "`. Il cBot lo paga sui tick: costo per trade ≈ spread al fill × valore punto × contratti (una volta per round trip). Lo stop è quello eseguito (allargato ×" + stopMult + " dove previsto).");
     o.AppendLine();
     o.AppendLine("| strategia | simbolo | fill con spread | spread medio (punti) | stop (punti) | spread/stop | costo spread tot (per contratto, $) | netto/ctr cBot | netto/ctr senza spread | costo/trade ($/ctr) |");
     o.AppendLine("|---|---|---:|---:|---:|---:|---:|---:|---:|---:|");
@@ -1017,7 +1023,9 @@ void WriteReport(StringBuilder o)
     // ---- 6. curva crescente
     o.AppendLine("## 6. Strategie con curva di equity crescente");
     o.AppendLine();
-    o.AppendLine("Metriche su netto per contratto, trade ordinati per uscita. R² = fit lineare della curva cumulata sull'indice dei trade. Crescente = netto > 0, R² ≥ 0,6, chiusura ad almeno il 70% del picco, ≥ 8 trade. Il cBot è calcolato sull'intero run (31/08/2025 → 05/09/2026), l'interno sull'intero run (01/08/2025 → 01/08/2026).");
+    var cbotSpan = cbotTrades.Count > 0 ? $"{cbotTrades.Min(t => t.Entry):dd/MM/yyyy} → {cbotTrades.Max(t => t.Entry):dd/MM/yyyy}" : "nessun trade";
+    var internalSpan = internalTrades.Count > 0 ? $"{internalTrades.Min(t => t.Entry):dd/MM/yyyy} → {internalTrades.Max(t => t.Entry):dd/MM/yyyy}" : "nessun trade";
+    o.AppendLine("Metriche su netto per contratto, trade ordinati per uscita. R² = fit lineare della curva cumulata sull'indice dei trade. Crescente = netto > 0, R² ≥ 0,6, chiusura ad almeno il 70% del picco, ≥ 8 trade. Il cBot è calcolato sull'intero run (ingressi " + cbotSpan + "), l'interno sull'intero run (ingressi " + internalSpan + ").");
     o.AppendLine();
     o.AppendLine("| strategia | cBot n | cBot netto/ctr | PF | R² | DD max/ctr | fine/picco | **cBot** | int n | int netto/ctr | PF | R² | DD max/ctr | fine/picco | **int** |");
     o.AppendLine("|---|---:|---:|---:|---:|---:|---:|---|---:|---:|---:|---:|---:|---:|---|");
