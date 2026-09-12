@@ -18,6 +18,15 @@ public sealed class BacktestRow
 
     public string Range { get; set; } = string.Empty;
 
+    /// <summary>
+    /// P&amp;L netto in percentuale del capitale iniziale e drawdown massimo in percentuale dal
+    /// picco di equity, dal <c>backtest-summary.json</c>. Null — cella vuota, in fondo a ogni
+    /// ordinamento — quando la cartella non ha il summary: run interrotti e run del cBot.
+    /// </summary>
+    public decimal? NetProfitPercent { get; set; }
+
+    public decimal? MaxDrawdownPercent { get; set; }
+
     /// <summary>Serve al filtro: l'etichetta è per l'occhio, la discriminante è l'enum.</summary>
     [Browsable(false)]
     public BacktestOrigin OriginKind { get; set; } = BacktestOrigin.Unknown;
@@ -137,7 +146,9 @@ public partial class BacktestListScreen : UserControl, IShellScreen
                     PlanCode = backtest.PlanCode ?? string.Empty,
                     LastModifiedUtc = backtest.LastModifiedUtc,
                     ResultsCount = backtest.ResultsCount,
-                    Range = DescribeRange(backtest)
+                    Range = DescribeRange(backtest),
+                    NetProfitPercent = backtest.NetProfitPercent,
+                    MaxDrawdownPercent = backtest.MaxDrawdownPercent
                 });
             }
 

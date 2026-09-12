@@ -226,6 +226,26 @@ public sealed class WorkspaceBacktestInfo
 
     /// <summary>Piano che ha prodotto il run, per l'origine esterna.</summary>
     public string? PlanCode { get; set; }
+
+    /// <summary>
+    /// Cifre di chiusura del run, lette da <c>backtest-summary.json</c>: capitale iniziale e P&amp;L
+    /// netto in denaro. Null quando la cartella non ha il summary — un run interno interrotto, o un
+    /// run dell'engine esterno, che scrive <c>session-summary.json</c> e non ha una curva equity
+    /// mark-to-market da cui misurarle.
+    /// </summary>
+    public decimal? InitialCapital { get; set; }
+    public decimal? TotalNetProfit { get; set; }
+
+    /// <summary>
+    /// Drawdown massimo mark-to-market in percentuale <b>dal picco di equity</b>, il
+    /// <c>maxDrawdown</c> del summary tale e quale: e' l'unita' di <c>TradingState.UpdateDrawdown</c>,
+    /// che moltiplica per 100, e non un importo da rapportare al capitale. Null senza summary.
+    /// </summary>
+    public decimal? MaxDrawdownPercent { get; set; }
+
+    /// <summary>P&amp;L netto in percentuale del capitale iniziale (la <c>TotalReturn</c> del risultato).</summary>
+    public decimal? NetProfitPercent
+        => InitialCapital is > 0 && TotalNetProfit is { } profit ? profit / InitialCapital.Value * 100m : null;
 }
 
 public sealed class CreateWorkspaceRequest

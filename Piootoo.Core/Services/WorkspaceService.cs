@@ -823,6 +823,7 @@ public sealed class WorkspaceService
                     .ToArray();
                 var (startDateUtc, endDateUtc) = ReadBacktestPeriod(resultFiles.FirstOrDefault());
                 var origin = ReadBacktestOrigin(path);
+                var figures = ReadBacktestFigures(path);
                 return new WorkspaceBacktestInfo
                 {
                     FolderName = Path.GetFileName(path),
@@ -832,7 +833,10 @@ public sealed class WorkspaceService
                     StartDateUtc = startDateUtc,
                     EndDateUtc = endDateUtc,
                     Origin = origin?.Origin ?? BacktestOrigin.Unknown,
-                    PlanCode = origin?.PlanCode
+                    PlanCode = origin?.PlanCode,
+                    InitialCapital = figures.InitialCapital,
+                    TotalNetProfit = figures.TotalNetProfit,
+                    MaxDrawdownPercent = figures.MaxDrawdownPercent
                 };
             })
             .OrderByDescending(backtest => backtest.LastModifiedUtc)
@@ -978,6 +982,67 @@ public sealed class WorkspaceService
 
         return (start, end);
     }
+
+    /// <summary>
+    /// Legge capitale iniziale, P&amp;L netto e drawdown massimo da <c>backtest-summary.json</c>. Il
+    /// <c>maxDrawdown</c> del summary e' gia' una percentuale dal picco di equity
+    /// (<c>TradingState.UpdateDrawdown</c>), non un importo: si riporta tale e quale.
+    ///
+    /// <para>Le stesse cifre stanno anche nel file di risultato, ma <b>dopo</b> <c>HourlyResults</c>:
+    /// leggerle da li' vorrebbe dire scorrere l'equity ora per ora, cioe' il costo che
+    /// <see cref="ReadBacktestPeriod"/> evita. Il summary e' dell'ordine dei 100 KB e le porta in
+    /// testa. Il file si legge come albero e non nel modello tipizzato per lo stesso motivo di
+    /// <see cref="GetBacktestSummary"/>: il contratto evolve e un summary vecchio non deve far
+    /// sparire le cifre dall'elenco.</para>
+    ///
+    /// <para>Tutto null quando il summary manca o non si legge: e' il caso normale di un run
+    /// interrotto e di un run dell'engine esterno, non un errore di elenco.</para>
+    /// </summary>
+    private static (decimal? InitialCapital, decimal? TotalNetProfit, decimal? MaxDrawdownPercent) ReadBacktestFigures(
+        string backtestPath)
+    {
+        var summaryPath = Path.Combine(backtestPath, BacktestDiagnosticsSchema.SummaryFileName);
+        if (!File.Exists(summaryPath))
+            return (null, null, null);
+
+        try
+        {
+            // FileShare.ReadWrite: il summary lo scrive AtomicFileWriter a fine run, ma l'elenco non
+            // deve contendere il lock con un backtest che sta chiudendo nella stessa cartella.
+            using var stream = new FileStream(
+                summaryPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, bufferSize: 4096,
+                FileOptions.SequentialScan);
+            using var document = JsonDocument.Parse(stream);
+            var root = document.RootElement;
+            if (root.ValueKind != JsonValueKind.Object)
+                return (null, null, null);
+
+            return (
+                ReadDecimal(root, "initialCapital"),
+                ReadDecimal(root, "totalNetProfit"),
+                ReadDecimal(root, "maxDrawdown"));
+        }
+        catch (IOException)
+        {
+            return (null, null, null);
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return (null, null, null);
+        }
+        catch (JsonException)
+        {
+            // Summary troncato o corrotto: cifre ignote, non un errore di elenco.
+            return (null, null, null);
+        }
+    }
+
+    private static decimal? ReadDecimal(JsonElement root, string propertyName)
+        => root.TryGetProperty(propertyName, out var value)
+           && value.ValueKind == JsonValueKind.Number
+           && value.TryGetDecimal(out var parsed)
+            ? parsed
+            : null;
 
     public string GetBacktestPath(string workspaceId, string folderName)
         => WorkspaceBacktestPaths.ResolveBacktestPath(GetExistingWorkspacePath(workspaceId), folderName);

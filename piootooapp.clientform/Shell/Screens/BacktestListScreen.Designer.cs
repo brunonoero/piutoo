@@ -26,6 +26,8 @@ partial class BacktestListScreen
         this._colLastModifiedUtc = new System.Windows.Forms.DataGridViewTextBoxColumn();
         this._colResultsCount = new System.Windows.Forms.DataGridViewTextBoxColumn();
         this._colRange = new System.Windows.Forms.DataGridViewTextBoxColumn();
+        this._colNetProfitPercent = new System.Windows.Forms.DataGridViewTextBoxColumn();
+        this._colMaxDrawdownPercent = new System.Windows.Forms.DataGridViewTextBoxColumn();
         this._filterPanel = new System.Windows.Forms.FlowLayoutPanel();
         this._originLabel = new System.Windows.Forms.Label();
         this._originCombo = new System.Windows.Forms.ComboBox();
@@ -49,7 +51,9 @@ partial class BacktestListScreen
             this._colOrigin,
             this._colLastModifiedUtc,
             this._colResultsCount,
-            this._colRange});
+            this._colRange,
+            this._colNetProfitPercent,
+            this._colMaxDrawdownPercent});
         this._grid.DataSource = this._bindingSource;
         this._grid.Dock = System.Windows.Forms.DockStyle.Fill;
         this._grid.EditMode = System.Windows.Forms.DataGridViewEditMode.EditProgrammatically;
@@ -104,6 +108,28 @@ partial class BacktestListScreen
         this._colRange.HeaderText = "Intervallo";
         this._colRange.Name = "_colRange";
         this._colRange.ReadOnly = true;
+        //
+        // _colNetProfitPercent
+        //
+        this._colNetProfitPercent.DataPropertyName = "NetProfitPercent";
+        this._colNetProfitPercent.DefaultCellStyle.Alignment = System.Windows.Forms.DataGridViewContentAlignment.MiddleRight;
+        this._colNetProfitPercent.DefaultCellStyle.Format = "N1";
+        this._colNetProfitPercent.FillWeight = 55F;
+        this._colNetProfitPercent.HeaderText = "Equity %";
+        this._colNetProfitPercent.Name = "_colNetProfitPercent";
+        this._colNetProfitPercent.ReadOnly = true;
+        this._colNetProfitPercent.ToolTipText = "P&L netto in percentuale del capitale iniziale, dal backtest-summary.json";
+        //
+        // _colMaxDrawdownPercent
+        //
+        this._colMaxDrawdownPercent.DataPropertyName = "MaxDrawdownPercent";
+        this._colMaxDrawdownPercent.DefaultCellStyle.Alignment = System.Windows.Forms.DataGridViewContentAlignment.MiddleRight;
+        this._colMaxDrawdownPercent.DefaultCellStyle.Format = "N1";
+        this._colMaxDrawdownPercent.FillWeight = 55F;
+        this._colMaxDrawdownPercent.HeaderText = "DD %";
+        this._colMaxDrawdownPercent.Name = "_colMaxDrawdownPercent";
+        this._colMaxDrawdownPercent.ReadOnly = true;
+        this._colMaxDrawdownPercent.ToolTipText = "Drawdown massimo mark-to-market in percentuale dal picco di equity, dal backtest-summary.json";
         //
         // _filterPanel
         //
@@ -178,6 +204,8 @@ partial class BacktestListScreen
     private System.Windows.Forms.DataGridViewTextBoxColumn _colLastModifiedUtc;
     private System.Windows.Forms.DataGridViewTextBoxColumn _colResultsCount;
     private System.Windows.Forms.DataGridViewTextBoxColumn _colRange;
+    private System.Windows.Forms.DataGridViewTextBoxColumn _colNetProfitPercent;
+    private System.Windows.Forms.DataGridViewTextBoxColumn _colMaxDrawdownPercent;
     private System.Windows.Forms.FlowLayoutPanel _filterPanel;
     private System.Windows.Forms.Label _originLabel;
     private System.Windows.Forms.ComboBox _originCombo;
