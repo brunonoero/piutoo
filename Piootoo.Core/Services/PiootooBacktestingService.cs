@@ -666,13 +666,11 @@ public class PiootooBacktestingService : IPiootooBacktestingService
             var strategyMinTimeframe = strategyInstances.Min(s => s.TimeframeMinutes);
             Console.WriteLine($"Timeframe minimo calcolato: {strategyMinTimeframe} minuti per {strategyInstances.Count} strategie");
 
-            // L'orologio del loop: di norma il timeframe piu' corto delle strategie, ma la richiesta
-            // puo' chiederne uno piu' fitto. Non e' un dettaglio di prestazione — da questa barra
-            // esce il prezzo di riempimento, quindi e' una convenzione di fill a tutti gli effetti.
-            var minTimeframeMinutes = BacktestClock.Resolve(
-                request.ClockTimeframeMinutes,
-                strategyMinTimeframe,
-                strategyInstances.Select(instance => (instance.Name, instance.TimeframeMinutes)));
+            // L'orologio del loop e' sempre il minuto (BacktestClock): non e' un dettaglio di
+            // prestazione — da questa barra esce il prezzo di riempimento, quindi e' una convenzione
+            // di fill a tutti gli effetti, e compare-0040 ha misurato che con un orologio piu' largo
+            // i riempimenti non sono confrontabili con il conto.
+            var minTimeframeMinutes = BacktestClock.TimeframeMinutes;
             var clockIsFiner = minTimeframeMinutes < strategyMinTimeframe;
             if (clockIsFiner)
             {
@@ -2198,8 +2196,8 @@ public class PiootooBacktestingService : IPiootooBacktestingService
         }
 
         // Niente log qui: e' un percorso chiamato per strategia per barra e Console.Out e'
-        // sincrono e serializzato. La condizione e' statica per strategia, quindi va segnalata
-        // una volta sola in fase di setup, non dentro il loop (BacktestClock.Resolve).
+        // sincrono e serializzato. Con l'orologio al minuto (BacktestClock) la divisione vale per
+        // ogni timeframe del catalogo, e BacktestClockTests lo fissa.
         return strategyTimeframeMinutes % minTimeframeMinutes == 0;
     }
 

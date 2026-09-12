@@ -401,14 +401,14 @@ stop o un buy limit il riferimento è l'**Ask**, apertura più spread, letto dal
 al livello (68 trade, +37,7 k per contratto su compare-0033, inesistenti sul conto). Senza
 tabella di spread il controllo è quello descritto sopra. Il trigger dei pending resta sul feed.
 
-## L'orologio si può infittire
+## L'orologio è il minuto
 
-`BacktestingRequest.ClockTimeframeMinutes` (null = il minimo fra le strategie) porta il tick del
-loop a un timeframe più corto di quello di ogni strategia, tipicamente **un minuto**. Dal
-12/09/2026 la console lo manda **sempre a 1** e non lo chiede più: compare-0040 ha misurato che con
+Il tick del loop è **sempre un minuto** (`BacktestClock.TimeframeMinutes`), e dal 12/09/2026 non
+è più un campo della richiesta né una scelta della console: compare-0040 ha misurato che con
 l'orologio al timeframe delle strategie le coppie di trade che coincidono al minuto con il cBot
 scendono da 1.259 su 1.433 a 131 su 641, e le FDAX giornaliere entrano con 80–100 minuti di
-scarto. Il null resta nel contratto per la console legacy e per l'API. Le strategie
+scarto, quindi un run che non gira al minuto non è confrontabile con il conto. Il summary continua
+a dichiararlo in `fillConventions.clockTimeframeMinutes`, così un run vecchio si riconosce. Le strategie
 continuano a essere valutate sul proprio timeframe — `ShouldEvaluateStrategy` non cambia — ma
 `currentBars` porta la barra dell'orologio, ed è da lì che escono trigger e riempimenti.
 

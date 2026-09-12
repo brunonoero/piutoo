@@ -111,16 +111,6 @@ public partial class BacktestingScreen : UserControl, IShellScreen
     private SpreadResolution SelectedSpreadResolution
         => (_spreadResolutionCombo.SelectedItem as SpreadResolutionItem)?.Resolution ?? SpreadResolution.PerSymbol;
 
-    /// <summary>
-    /// Orologio del loop: sempre il minuto. Non e' piu' una scelta della schermata dal 12/09/2026:
-    /// compare-0040 ha misurato che con l'orologio al timeframe delle strategie le coppie di trade
-    /// che coincidono al minuto con il cBot scendono da 1.259 su 1.433 a 131 su 641, e le FDAX
-    /// giornaliere entrano con 80-100 minuti di scarto. Il prezzo di riempimento esce dalla barra
-    /// dell'orologio, quindi un run a 15 minuti non e' confrontabile con il conto. Il server rifiuta
-    /// l'avvio se un simbolo del run non ha il feed a un minuto.
-    /// </summary>
-    private const int ClockTimeframeMinutes = 1;
-
     /// <summary>Piano selezionato, null quando la scelta è «nessun piano».</summary>
     private TradingPlan? SelectedPlan => (_planCombo.SelectedItem as PlanComboItem)?.Plan;
 
@@ -597,10 +587,8 @@ public partial class BacktestingScreen : UserControl, IShellScreen
                 SpreadBroker = SelectedSpreadBroker,
                 SpreadStatistic = SelectedSpreadStatistic,
                 SpreadResolution = SelectedSpreadResolution,
-                // Sempre 1: il loop gira sulle barre a un minuto e i riempimenti si valutano lì.
-                // Il server rifiuta l'avvio se un simbolo del run non ha quel feed, invece di
-                // lasciarlo al proprio timeframe e mescolare due risoluzioni di fill nello stesso run.
-                ClockTimeframeMinutes = ClockTimeframeMinutes,
+                // L'orologio del loop non si manda: il server gira sempre sulle barre a un minuto
+                // (dal 12/09/2026) e rifiuta l'avvio se un simbolo del run non ha quel feed.
                 // Senza piano la spunta e' la stessa regola di prima, letta dal verso opposto:
                 // chiudere a fine settimana significa non concedere l'overweek. Parte **spenta**:
                 // il run interno non impone alcun flat di conto, cosi' l'equity e' quella delle
@@ -631,7 +619,7 @@ public partial class BacktestingScreen : UserControl, IShellScreen
                     ? $" · broker {(string.IsNullOrWhiteSpace(selectedPlan.BrokerCode) ? "-" : selectedPlan.BrokerCode)}" +
                       $" · {CountActiveStrategies(selectedPlan, _masterFilterIds)?.ToString() ?? "?"} strategie attive"
                     : string.Empty));
-            Log($"Orologio del loop: {request.ClockTimeframeMinutes} minuto (fill e trigger valutati sulle barre a 1m)");
+            Log("Orologio del loop: 1 minuto (fill e trigger valutati sulle barre a 1m)");
             Log($"Spread: {(request.SpreadBroker is null ? "nessuno (ingressi al prezzo del feed)" : $"{request.SpreadBroker} · {request.SpreadStatistic} · {request.SpreadResolution}")}");
             Log($"Finestra UTC {request.StartDate:yyyy-MM-dd HH:mm}Z → {request.EndDate:yyyy-MM-dd HH:mm}Z");
             Log($"Strategie dal masterfilter: {masterFilter.StrategiesFilter.Count}");
