@@ -3899,3 +3899,43 @@ che il motore fa. Difetto di artefatto, non di esecuzione, ma e' costato mezza i
   Le schede e i log stampano `HH:mm`, e la fine di giornata `24:00`. `StrategyClockConformanceTests`
   distingue ora una proprieta' (`.Hour`, `.TimeOfDay` di un `DateTime`, vietati) da una chiamata
   (`Clock.TimeOfDay(bar)`, la forma corretta). Suite: 929 verdi, gli stessi 13 rossi di prima.
+
+- **2026-09-11** — **Il fattore di allargamento dello stop torna a 1, e lo spread seleziona le
+  strategie del piano invece di allargare lo stop.** La misura sui 3.789 fill del run cBot di
+  compare-0033 (tick FTMO, 13 mesi, tutte le 88 strategie del piano) dice che
+  `spread / stop della ricerca` supera il 10% su 15 strategie soltanto — cacao, caffe', platino,
+  e le NQ e FDAX con stop sotto i 13 punti — e che 23 delle 33 in `WidenedStrategies` stavano
+  sotto il 5%: l'elenco era stato scelto per effetto sull'equity, non per spread, e le due cose
+  non coincidono. Su compare-0034 (stop x3, target x1) contro 0033 (stop x2, target x2) le 30
+  allargate non-BSW fanno −1,4 k in cinque mesi sulle size del piano.
+
+  Deciso: `StopMoneyPolicy.Multiplier = 1` — meccanismo, elenco e dichiarazione negli artefatti
+  restano come leva per rimisurare — e nel piano FTMO-NONG restano le strategie con rapporto
+  <= 10% piu' `PTS_CC_SBO_001_60` (11%), l'unica fuori soglia con utile positivo e curva
+  crescente su tutti i run cBot dal 0030 in poi. Escono 14. Elenco e motivazioni in
+  `compare-0034/strategie-da-tenere.md`, tabella in `spread-su-stop-ricerca.md`.
+
+  Sul target: `TargetMultiplier` vale 1 dal 10/09 alle 13:36 UTC, cioe' il target della ricerca;
+  compare-0033 era partito tredici minuti prima con uno stato intermedio non committato che
+  raddoppiava stop **e** target, ed e' l'unico run con il target doppio.
+
+  BTC: lo spread ai fill si allarga a scatti (p90 fra 7 e 22 punti contro una mediana di 1) in
+  tutte le fasce orarie, senza una finestra da escludere; le tre BTC a 60 minuti restano nel piano
+  e il controllo e' `MaxSpreadPercentOfStop` del cBot al momento del fill.
+
+- **2026-09-11** — La lista dei backtest mostra *Equity %* e *DD %*. Le due percentuali hanno
+  **basi diverse**, e sono quelle che il report HTML gia' usa: *Equity %* e' il P&L netto sul
+  **capitale iniziale** (`totalNetProfit / initialCapital`), *DD %* e' il `maxDrawdown` del summary
+  **tale e quale**, che e' gia' una percentuale **dal picco di equity** — l'unita' di
+  `TradingState.UpdateDrawdown`, che moltiplica per 100 — e non un importo: rapportarlo al capitale
+  dava 0,0 su un run con il 21,6% di drawdown. `WorkspaceBacktestInfo` porta `InitialCapital`,
+  `TotalNetProfit`, `MaxDrawdownPercent` e la `NetProfitPercent` derivata;
+  `WorkspaceService.ListBacktests` le legge da `backtest-summary.json` (`ReadBacktestFigures`),
+  come albero e non nel modello tipizzato, con `FileShare.ReadWrite`.
+
+  Non dal file di risultato: li' `FinalEquity` e `MaxDrawdown` stanno **dopo** `HourlyResults`, e
+  leggerli riporterebbe l'elenco al costo tolto il 2026-08-04. Il summary e' dell'ordine dei 100 KB
+  per cartella. Una cartella senza summary — run interrotto, run del cBot, che scrive
+  `session-summary.json` e non ha una curva mark-to-market — ha le celle **vuote**, in fondo a ogni
+  ordinamento: ricostruire le cifre dai trade darebbe l'equity realizzata, un numero diverso sotto
+  la stessa intestazione. `BacktestListFiguresTests`.

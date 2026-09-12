@@ -140,8 +140,17 @@ trade, lo avvicina allo stop. Su parecchie strategie portate dalla ricerca quel 
 — lo spread misurato è più largo della distanza di stop dichiarata — e una taratura del genere non
 è eseguibile su un conto vero, per quanto bene misuri in backtest.
 
-`StopMoneyPolicy` moltiplica per 3 la **sola** distanza di stop, e delle **sole strategie che
-elenca** (§«A chi si applica»). Sta in un punto solo,
+> **Dal 11/09/2026 il fattore vale 1** (`StopMoneyPolicy.Multiplier = 1m`): lo stop eseguito è
+> quello della ricerca per tutte le strategie. La misura su 3.789 fill FTMO
+> (`compare-0034/spread-su-stop-ricerca.md`) dice che `spread / stop della ricerca` supera il 10%
+> solo su 15 delle 88 strategie del piano, e che 23 delle 33 in elenco stavano sotto il 5%: l'elenco
+> era stato scelto per effetto sull'equity, non per spread. La scelta è togliere dal piano le
+> strategie con lo stop vicino allo spread (`compare-0034/strategie-da-tenere.md`) invece di
+> allargarlo. Il meccanismo descritto sotto resta, con l'elenco e la dichiarazione negli
+> artefatti, come leva per rimisurare.
+
+`StopMoneyPolicy` moltiplica per `Multiplier` la **sola** distanza di stop, e delle **sole
+strategie che elenca** (§«A chi si applica»). Sta in un punto solo,
 l'arricchimento del segnale in `StatelessEasyStrategyBase.Evaluate`: è l'unico passaggio che ogni
 ingresso attraversa, qualunque motore l'abbia prodotto, e lo percorrono sia il backtest sia la
 sessione live. Le classi `PTS_*` continuano quindi a dichiarare i numeri della ricerca

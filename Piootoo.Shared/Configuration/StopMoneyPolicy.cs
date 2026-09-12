@@ -54,8 +54,16 @@ public static class StopMoneyPolicy
     /// <summary>
     /// Fattore applicato alla distanza di stop, quando <see cref="Enabled"/> e' acceso e la
     /// strategia sta in <see cref="WidenedStrategies"/>. 1 = nessun allargamento.
+    ///
+    /// <para><b>Dal 11/09/2026 vale 1.</b> La misura di compare-0033 (3.789 fill sui tick FTMO)
+    /// dice che il rapporto <c>spread / stop della ricerca</c> supera il 10% solo su 15 delle 88
+    /// strategie del piano, e che 23 delle 33 in elenco stanno sotto il 5%: l'elenco era stato scelto
+    /// per effetto sull'equity, non per spread. La decisione e' di togliere dal piano le strategie con
+    /// lo stop vicino allo spread invece di allargarlo, e di far girare tutte le altre con lo stop
+    /// della ricerca. Il meccanismo, l'elenco e la dichiarazione negli artefatti restano: sono la
+    /// leva per rimisurare. Tabella in <c>compare-0034/spread-su-stop-ricerca.md</c>.</para>
     /// </summary>
-    public const decimal Multiplier = 3m;
+    public const decimal Multiplier = 1m;
 
     /// <summary>
     /// Fattore applicato al <b>target</b>, alle stesse condizioni di <see cref="Multiplier"/>:

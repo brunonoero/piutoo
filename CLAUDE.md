@@ -243,7 +243,10 @@ sbaglia più spesso:
  cinque sulle uscite in trailing. Entrambi i numeri stanno sulla `BacktestingRequest` e
  nel log di avvio del job. Vedi `docs/domini/orologio-barre-e-fill.md`.
 - **Lo stop dichiarato dalla strategia non e' quello eseguito, il fattore sta in un punto solo e
- non vale per tutte.** `StopMoneyPolicy.Multiplier` (3) moltiplica la **sola** distanza di stop,
+ non vale per tutte.** Dal 11/09/2026 il fattore vale **1** — lo stop eseguito e' quello della
+ ricerca per tutte — perche' la scelta e' stata togliere dal piano le strategie con lo spread vicino
+ allo stop invece di allargarlo (`compare-0034/spread-su-stop-ricerca.md`); il meccanismo resta ed e'
+ descritto qui. `StopMoneyPolicy.Multiplier` moltiplica la **sola** distanza di stop,
  applicato nell'arricchimento del segnale di `StatelessEasyStrategyBase.Evaluate`: l'unico
  passaggio che ogni ingresso attraversa e che percorrono sia il backtest sia la sessione live. Le
  classi `PTS_*` continuano a dichiarare i numeri della ricerca **verbatim** — l'impronta che le
