@@ -404,7 +404,11 @@ tabella di spread il controllo è quello descritto sopra. Il trigger dei pending
 ## L'orologio si può infittire
 
 `BacktestingRequest.ClockTimeframeMinutes` (null = il minimo fra le strategie) porta il tick del
-loop a un timeframe più corto di quello di ogni strategia, tipicamente **un minuto**. Le strategie
+loop a un timeframe più corto di quello di ogni strategia, tipicamente **un minuto**. Dal
+12/09/2026 la console lo manda **sempre a 1** e non lo chiede più: compare-0040 ha misurato che con
+l'orologio al timeframe delle strategie le coppie di trade che coincidono al minuto con il cBot
+scendono da 1.259 su 1.433 a 131 su 641, e le FDAX giornaliere entrano con 80–100 minuti di
+scarto. Il null resta nel contratto per la console legacy e per l'API. Le strategie
 continuano a essere valutate sul proprio timeframe — `ShouldEvaluateStrategy` non cambia — ma
 `currentBars` porta la barra dell'orologio, ed è da lì che escono trigger e riempimenti.
 

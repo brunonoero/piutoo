@@ -3923,6 +3923,17 @@ che il motore fa. Difetto di artefatto, non di esecuzione, ma e' costato mezza i
   tutte le fasce orarie, senza una finestra da escludere; le tre BTC a 60 minuti restano nel piano
   e il controllo e' `MaxSpreadPercentOfStop` del cBot al momento del fill.
 
+- **2026-09-12** — **La console manda sempre l'orologio a un minuto: il combo e' tolto.** Il
+  confronto di compare-0040 fra il run cBot di stamattina e il backtest interno gemello (stesso
+  piano, stesso fattore di stop) ha misurato il costo dell'orologio al timeframe delle strategie:
+  le coppie di trade che coincidono al minuto scendono da 1.259 su 1.433 (run a 1 minuto del
+  giorno prima) a 131 su 641, le FDAX giornaliere entrano con 80-100 minuti di scarto e in ottobre
+  passano da +5 k a −11 k per contratto. Il prezzo di riempimento esce dalla barra dell'orologio,
+  quindi un run a 15 minuti non e' confrontabile con il conto. `BacktestingScreen` manda
+  `ClockTimeframeMinutes = 1` senza chiederlo; il contratto della richiesta resta com'era (null =
+  timeframe minimo) per la console legacy e per chi chiama l'API a mano. Lettura in
+  `compare-0040/analisi-2026-09-12.md`.
+
 - **2026-09-11** — La lista dei backtest mostra *Equity %* e *DD %*. Le due percentuali hanno
   **basi diverse**, e sono quelle che il report HTML gia' usa: *Equity %* e' il P&L netto sul
   **capitale iniziale** (`totalNetProfit / initialCapital`), *DD %* e' il `maxDrawdown` del summary
