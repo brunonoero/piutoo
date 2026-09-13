@@ -20,6 +20,28 @@ public interface IStrategyEvaluationService
         ClosedBar closedBar,
         IReadOnlyList<OhlcvData> history,
         Func<ITradingStrategy, StrategyExecutionSnapshot> executionSnapshot);
+
+    /// <summary>
+    /// Come l'overload senza callback, e in piu' consegna la memoria di ogni strategia valutata —
+    /// anche quando la barra si chiude in <c>Hold</c> — perche' chi ospita la sessione la conservi
+    /// fino alla barra dopo.
+    ///
+    /// <para><b>Perche' non basta il segnale.</b> Il risultato contiene solo gli ingressi, e i motori
+    /// che contano barre o armano una direzione aggiornano il proprio stato soprattutto sulle barre
+    /// che non emettono: salvarlo solo dai segnali restituiti lo perdeva quasi sempre.
+    /// <c>PTS_BTC_BIA_001_60</c> in sessione <c>ExternalBroker</c> ripartiva da barra 1 a ogni
+    /// valutazione e riemetteva il long a ogni ora (compare-0041).</para>
+    ///
+    /// <para>L'implementazione di default ignora il callback: le valutazioni finte dei test non
+    /// hanno memoria da conservare.</para>
+    /// </summary>
+    IReadOnlyList<TradeSignal> Evaluate(
+        IReadOnlyList<ITradingStrategy> strategies,
+        ClosedBar closedBar,
+        IReadOnlyList<OhlcvData> history,
+        Func<ITradingStrategy, StrategyExecutionSnapshot> executionSnapshot,
+        Action<ITradingStrategy, IReadOnlyDictionary<string, object?>> captureRuntimeState) =>
+        Evaluate(strategies, closedBar, history, executionSnapshot);
 }
 
 public sealed class StrategyEvaluationService : IStrategyEvaluationService
@@ -28,7 +50,15 @@ public sealed class StrategyEvaluationService : IStrategyEvaluationService
         IReadOnlyList<ITradingStrategy> strategies,
         ClosedBar closedBar,
         IReadOnlyList<OhlcvData> history,
-        Func<ITradingStrategy, StrategyExecutionSnapshot> executionSnapshot)
+        Func<ITradingStrategy, StrategyExecutionSnapshot> executionSnapshot) =>
+        Evaluate(strategies, closedBar, history, executionSnapshot, static (_, _) => { });
+
+    public IReadOnlyList<TradeSignal> Evaluate(
+        IReadOnlyList<ITradingStrategy> strategies,
+        ClosedBar closedBar,
+        IReadOnlyList<OhlcvData> history,
+        Func<ITradingStrategy, StrategyExecutionSnapshot> executionSnapshot,
+        Action<ITradingStrategy, IReadOnlyDictionary<string, object?>> captureRuntimeState)
     {
         var result = new List<TradeSignal>();
         foreach (var strategy in strategies.Where(s =>
@@ -44,8 +74,11 @@ public sealed class StrategyEvaluationService : IStrategyEvaluationService
                 BarTimeUtc = closedBar.BarTimeUtc,
                 Execution = executionSnapshot(strategy)
             });
+            // La memoria si consegna PRIMA di scartare i Hold: e' sulle barre che non emettono che i
+            // motori contano le barre e armano le direzioni. Il backtest fa lo stesso
+            // (PiootooBacktestingService, CaptureStrategyRuntimeState dopo ogni Evaluate).
             if (signal?.RuntimeState is not null)
-                signal.StrategyCode = string.IsNullOrWhiteSpace(signal.StrategyCode) ? strategy.Name : signal.StrategyCode;
+                captureRuntimeState(strategy, signal.RuntimeState);
             if (signal is null || signal.Type == SignalType.Hold)
                 continue;
 
@@ -1719,11 +1752,15 @@ public sealed class TradingSessionService : ITradingSessionService
         // includere nel piano solo le strategie che quel broker quota e' una scelta del setup —
         // dichiarata nel tab Strategie del piano — non una decisione che il server prende a
         // esecuzione avviata. Vedi docs/decisioni.md 2026-09-05.
+        // La memoria delle strategie vive nell'engine della sessione in entrambe le modalita', con
+        // la stessa chiave (strategia, simbolo) con cui GetExecution la rilegge.
         var signals = _evaluation.Evaluate(
             session.Strategies,
             normalizedBar,
             history,
-            strategy => GetExecution(session, strategy, bar.BarTimeUtc));
+            strategy => GetExecution(session, strategy, bar.BarTimeUtc),
+            (strategy, runtimeState) => session.SimulatedEngine.CaptureStrategyRuntimeState(
+                strategy.Name, strategy.Symbol, runtimeState));
 
         var sized = new Dictionary<TradeSignal, PositionSizingResult>();
         foreach (var signal in signals)
@@ -1747,9 +1784,6 @@ public sealed class TradingSessionService : ITradingSessionService
         var multiAccount = session.ConfiguredAccounts.Count > 0;
         foreach (var signal in signals)
         {
-            if (signal.RuntimeState is not null)
-                session.SimulatedEngine.CaptureStrategyRuntimeState(
-                    signal.StrategyCode, signal.Symbol, signal.RuntimeState);
             var result = sized.GetValueOrDefault(signal);
 
             // Un ExitOnly chiude la posizione opposta già confermata dal broker; non viene
@@ -4476,7 +4510,13 @@ public sealed class TradingSessionService : ITradingSessionService
                 EntryPrice = position.EntryPrice,
                 EntryTimeUtc = time,
                 Contracts = (int)position.Quantity
-            }
+            },
+            // La memoria della strategia fra una barra e l'altra. Senza, in ExternalBroker ogni
+            // valutazione ripartiva da uno stato vuoto: i contatori di barra tornavano a 1 e le
+            // direzioni armate si perdevano (compare-0041, PTS_BTC_BIA_001_60).
+            RuntimeState = session.SimulatedEngine
+                .GetExecutionSnapshot(strategy.Name, strategy.Symbol, time)
+                .RuntimeState
         };
     }
 

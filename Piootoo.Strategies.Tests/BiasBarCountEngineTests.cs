@@ -104,6 +104,49 @@ public sealed class BiasBarCountEngineTests
         Assert.Equal(SignalType.Hold, strategy.GenerateSignal(BarsThrough(bars, later), later).Type);
     }
 
+    /// <summary>
+    /// Lo stesso armamento di <see cref="Types2And3_ArmAtTrigger_AndUseOnlyPreviousCompletedBars"/>,
+    /// ma passando da <c>StrategyEvaluationService</c> come fa la sessione: ogni barra e' valutata su
+    /// un clone effimero, e il contatore di barre arriva alla barra dopo solo attraverso la memoria
+    /// consegnata al callback. Senza, la barra di trigger vedeva di nuovo <c>mycount = 1</c> e restava
+    /// in Hold — il difetto di compare-0041 su <c>PTS_BTC_BIA_001_60</c>.
+    /// </summary>
+    [Fact]
+    public void ThroughTheEvaluationService_TheBarCountReachesTheTriggerBar()
+    {
+        var bars = BuildBars(new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc), 9 * 24);
+        var sessionStart = new DateTime(2024, 1, 8, 19, 0, 0, DateTimeKind.Utc);
+        var strategy = new EvaluatedTestBias();
+        var service = new Piootoo.Core.Services.StrategyEvaluationService();
+        IReadOnlyDictionary<string, object?> memory = new Dictionary<string, object?>();
+
+        IReadOnlyList<TradeSignal> Evaluate(DateTime barTime) => service.Evaluate(
+            [strategy],
+            new ClosedBar
+            {
+                Symbol = strategy.Symbol,
+                TimeframeMinutes = strategy.TimeframeMinutes,
+                BarTimeUtc = barTime,
+                Sequence = barTime.Ticks,
+                IdempotencyKey = $"bar-{barTime:O}",
+                Bar = BarsThrough(bars, barTime)[^1]
+            },
+            BarsThrough(bars, barTime),
+            s => new StrategyExecutionSnapshot
+            {
+                StrategyCode = s.Name, Symbol = s.Symbol, BarTimeUtc = barTime, RuntimeState = memory
+            },
+            (_, state) => memory = state);
+
+        Assert.Empty(Evaluate(sessionStart));   // prima barra della sessione: mycount = 1, Hold
+
+        var signal = Assert.Single(Evaluate(sessionStart.AddHours(1)));
+
+        Assert.Equal(SignalType.Buy, signal.Type);
+        Assert.Equal(TradeOrderType.Stop, signal.OrderType);
+        Assert.Equal(2, signal.MaxBarsInPosition);
+    }
+
     private static OhlcvData[] BarsThrough(OhlcvData[] bars, DateTime last) =>
         bars.Where(bar => bar.DateTime <= last).ToArray();
 
@@ -151,6 +194,35 @@ public sealed class BiasBarCountEngineTests
         public override int RequiredCandles => 1;
 
         public void SetPosition(int position) => _currentMP = position;
+    }
+
+    /// <summary>
+    /// Gli stessi parametri di <see cref="TestBias"/> con <see cref="BiasEntryType.BreakoutStop"/>,
+    /// con un costruttore senza argomenti — <c>Evaluate</c> valuta un clone creato per riflessione — e
+    /// abbastanza candele richieste perché la finestra di valutazione contenga la sessione intera.
+    /// </summary>
+    private sealed class EvaluatedTestBias : BiasBarCountEngine
+    {
+        public EvaluatedTestBias()
+        {
+            ArmBarLong = 2;
+            ArmBarShort = 99;
+            ExitBarLong = 4;
+            EndLong = 4;
+            EntryType = BiasEntryType.BreakoutStop;
+            PatternLongYes = 152;
+            PatternLongNo = 153;
+            PatternShortYes = 153;
+            PatternShortNo = 153;
+            BreakoutBarsHigh = 2;
+            BreakoutBarsLow = 2;
+        }
+
+        public override string Name => "TEST_BIAS_EVALUATED";
+        public override string Description => "Strategia BIAS di prova valutata come in sessione";
+        public override string Symbol => "@GC";
+        public override int TimeframeMinutes => 60;
+        public override int RequiredCandles => 150;
     }
 
     private sealed class TestCustomBias : BiasBarCountEngine
