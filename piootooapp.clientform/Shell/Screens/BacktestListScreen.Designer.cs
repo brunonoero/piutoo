@@ -58,7 +58,7 @@ partial class BacktestListScreen
         this._grid.Dock = System.Windows.Forms.DockStyle.Fill;
         this._grid.EditMode = System.Windows.Forms.DataGridViewEditMode.EditProgrammatically;
         this._grid.Location = new System.Drawing.Point(0, 82);
-        this._grid.MultiSelect = false;
+        this._grid.MultiSelect = true;
         this._grid.Name = "_grid";
         this._grid.ReadOnly = true;
         this._grid.RowHeadersVisible = false;
@@ -165,8 +165,10 @@ partial class BacktestListScreen
         //
         // _toolbar
         //
+        this._toolbar.CanExport = true;
         this._toolbar.CreateButtonText = "Nuovo backtest";
         this._toolbar.Dock = System.Windows.Forms.DockStyle.Top;
+        this._toolbar.ExportButtonText = "Confronta…";
         this._toolbar.FilterPlaceholder = "Filtra per nome…";
         this._toolbar.Location = new System.Drawing.Point(0, 0);
         this._toolbar.Name = "_toolbar";
@@ -175,6 +177,7 @@ partial class BacktestListScreen
         this._toolbar.Title = "Backtesting";
         this._toolbar.CreateRequested += new System.EventHandler(this.OnCreateRequested);
         this._toolbar.DeleteRequested += new System.EventHandler(this.OnDeleteRequested);
+        this._toolbar.ExportRequested += new System.EventHandler(this.OnCompareRequested);
         this._toolbar.RefreshRequested += new System.EventHandler(this.OnRefreshRequested);
         this._toolbar.FilterChanged += new System.EventHandler(this.OnFilterChanged);
         //

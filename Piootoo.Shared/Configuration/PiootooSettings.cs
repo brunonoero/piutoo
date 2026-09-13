@@ -25,6 +25,13 @@ public class PiootooSettings
     /// </summary>
     public string SpreadPath { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Cartella dei confronti fra run (<c>compare-NNNN</c>), quella in cui il server crea i confronti
+    /// avviati dalla console. Quando manca, vale <c>[BasePath]\compare</c>: e' la cartella del
+    /// repository dati, dove i confronti fatti a mano stanno gia'.
+    /// </summary>
+    public string ComparePath { get; set; } = string.Empty;
+
     public string SettingsPath { get; set; } = string.Empty;
     public string Workspaces { get; set; } = string.Empty;
     public string Accounts { get; set; } = string.Empty;
@@ -40,6 +47,7 @@ public class PiootooSettings
             RepositoryPath = ResolvePath(RepositoryPath);
             ExternalRepositoryPath = ResolvePath(ExternalRepositoryPath);
             SpreadPath = ResolvePath(SpreadPath);
+            ComparePath = ResolvePath(ComparePath);
             SettingsPath = ResolvePath(SettingsPath);
             Workspaces = ResolvePath(Workspaces);
             Accounts = ResolvePath(Accounts);
@@ -78,6 +86,12 @@ public class PiootooSettings
         => string.IsNullOrWhiteSpace(SpreadPath)
             ? Path.Combine(string.IsNullOrWhiteSpace(BasePath) ? "." : BasePath, "spread")
             : ResolvePath(SpreadPath);
+
+    /// <summary>Cartella dei confronti fra run. Il default e' <c>[BasePath]\compare</c>.</summary>
+    public string GetComparePath()
+        => string.IsNullOrWhiteSpace(ComparePath)
+            ? Path.Combine(string.IsNullOrWhiteSpace(BasePath) ? "." : BasePath, "compare")
+            : ResolvePath(ComparePath);
 
     /// <summary>
     /// Ottiene il path completo dei settings

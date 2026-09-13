@@ -18,8 +18,7 @@
     Le strategie e i calendari li prende dalle stesse assembly del server, per non reimplementarli.
   -->
   <ItemGroup>
-    <ProjectReference Include="..\..\..\Piootoo.Shared\Piootoo.Shared.csproj" />
-    <ProjectReference Include="..\..\..\Piootoo.Strategies\Piootoo.Strategies.csproj" />
+    <ProjectReference Include="..\..\..\Piootoo.Core\Piootoo.Core.csproj" />
   </ItemGroup>
 
 </Project>

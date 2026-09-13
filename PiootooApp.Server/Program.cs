@@ -81,6 +81,11 @@ builder.Services.AddSingleton<IPiootooSapiooService, PiootooSapiooService>();
 builder.Services.AddSingleton<PiootooOptimizationService>();
 builder.Services.AddSingleton<WorkspaceService>();
 builder.Services.AddSingleton<ExternalBacktestReportService>();
+// Singleton perche' tiene i job di confronto in memoria e serializza le analisi. Costruito a mano:
+// il secondo costruttore (radice e analisi iniettate) e' per i test.
+builder.Services.AddSingleton(sp => new Piootoo.Core.Services.Compare.CompareService(
+    sp.GetRequiredService<WorkspaceService>(),
+    sp.GetRequiredService<PiootooSettings>()));
 builder.Services.AddSingleton<TradingPlanService>();
 builder.Services.AddSingleton<IStrategyEvaluationService, StrategyEvaluationService>();
 builder.Services.AddSingleton<IPositionSizingService, PositionSizingService>();

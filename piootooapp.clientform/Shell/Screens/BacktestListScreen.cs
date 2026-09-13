@@ -1,4 +1,6 @@
 using System.ComponentModel;
+using System.Diagnostics;
+using Piootoo.Shared.Models.Backtesting;
 using Piootoo.Shared.Models.Workspaces;
 using piootooapp.clientform.Shell.Controls;
 
@@ -190,7 +192,7 @@ public partial class BacktestListScreen : UserControl, IShellScreen
         _visibleRows.RaiseListChangedEvents = true;
         _visibleRows.ReapplySort();
         _visibleRows.ResetBindings();
-        UpdateDeleteAvailability();
+        UpdateCommandAvailability();
     }
 
     private BacktestRow? SelectedRow
@@ -202,9 +204,29 @@ public partial class BacktestListScreen : UserControl, IShellScreen
         }
     }
 
-    private void UpdateDeleteAvailability() => _toolbar.SetDeleteEnabled(SelectedRow != null);
+    /// <summary>Le righe selezionate, nell'ordine della griglia.</summary>
+    private IReadOnlyList<BacktestRow> SelectedRows
+        => _grid.SelectedRows
+            .Cast<DataGridViewRow>()
+            .Select(row => row.Index)
+            .Where(index => index >= 0 && index < _visibleRows.Count)
+            .OrderBy(index => index)
+            .Select(index => _visibleRows[index])
+            .ToList();
 
-    private void OnSelectionChanged(object? sender, EventArgs e) => UpdateDeleteAvailability();
+    /// <summary>
+    /// Eliminare vale per una riga sola: con la selezione multipla accesa, cancellare "quella
+    /// corrente" mentre ne sono evidenziate due sarebbe un gesto ambiguo. Il confronto vuole
+    /// esattamente due righe.
+    /// </summary>
+    private void UpdateCommandAvailability()
+    {
+        var selected = SelectedRows.Count;
+        _toolbar.SetDeleteEnabled(selected == 1 && SelectedRow != null);
+        _toolbar.SetExportEnabled(selected == 2);
+    }
+
+    private void OnSelectionChanged(object? sender, EventArgs e) => UpdateCommandAvailability();
 
     private void OnFilterChanged(object? sender, EventArgs e) => ApplyFilter();
 
@@ -249,7 +271,7 @@ public partial class BacktestListScreen : UserControl, IShellScreen
 
     private async void OnDeleteRequested(object? sender, EventArgs e)
     {
-        if (_context == null || SelectedRow is not { } row || SelectedWorkspaceId is not { } workspaceId)
+        if (_context == null || SelectedRows.Count != 1 || SelectedRow is not { } row || SelectedWorkspaceId is not { } workspaceId)
         {
             return;
         }
@@ -276,6 +298,80 @@ public partial class BacktestListScreen : UserControl, IShellScreen
         }
 
         await ReloadBacktestsAsync(CancellationToken.None);
+    }
+
+    /// <summary>
+    /// Confronta le due righe selezionate: il server crea la cartella <c>compare-NNNN</c>
+    /// successiva, ci copia trade, summary e marcatore dei due run e fa girare lo strumento di
+    /// confronto. Quale dei due sia il cBot lo decide il server da <c>origin.json</c>; una coppia che
+    /// non si confronta (due interni, broker diversi, run senza marcatore) torna con le sue parole.
+    /// </summary>
+    private async void OnCompareRequested(object? sender, EventArgs e)
+    {
+        if (_context == null || SelectedWorkspaceId is not { } workspaceId || SelectedRows is not { Count: 2 } rows)
+        {
+            return;
+        }
+
+        var nl = Environment.NewLine;
+        var question = "Confrontare questi due run?" + nl + nl +
+                       $"{rows[0].FolderName}  ({rows[0].Origin}){nl}" +
+                       $"{rows[1].FolderName}  ({rows[1].Origin}){nl}{nl}" +
+                       "Il server crea la cartella compare-NNNN successiva, ci copia trade, summary e " +
+                       "origin dei due run e lancia lo strumento di confronto. Il log del cBot e l'export " +
+                       "Events di cTrader si aggiungono a mano.";
+        if (MessageBox.Show(this, question, "Confronta backtest", MessageBoxButtons.YesNo, MessageBoxIcon.Question)
+            != DialogResult.Yes)
+        {
+            return;
+        }
+
+        _toolbar.SetBusy(true);
+        try
+        {
+            var job = await _context.Services.Api.StartCompareAsync(workspaceId, rows[0].FolderName, rows[1].FolderName);
+            job = await _context.Services.Api.PollCompareUntilTerminalAsync(
+                job.JobId,
+                progress => _context.Navigation.SetStatus($"Confronto {progress.FolderName}: {progress.ProgressMessage}"));
+
+            if (job.Status != BacktestingJobStatus.Completed)
+            {
+                MessageBox.Show(this, $"{job.FolderName}: {job.ErrorMessage ?? job.ProgressMessage}",
+                    "Confronta backtest", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+
+            _context.Navigation.SetStatus($"Confronto scritto in {job.FolderName}.");
+            if (MessageBox.Show(this, $"Confronto scritto in{nl}{job.FolderPath}{nl}{nl}Aprire la cartella?",
+                    "Confronta backtest", MessageBoxButtons.YesNo, MessageBoxIcon.Information) == DialogResult.Yes)
+            {
+                OpenFolder(job.FolderPath);
+            }
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, ex.Message, "Confronta backtest", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+        finally
+        {
+            _toolbar.SetBusy(false);
+        }
+    }
+
+    /// <summary>
+    /// Il percorso e' quello del server: si apre solo se la console gira sulla stessa macchina, e
+    /// altrimenti lo si dice invece di aprire una finestra su una cartella che non esiste.
+    /// </summary>
+    private void OpenFolder(string path)
+    {
+        if (!Directory.Exists(path))
+        {
+            MessageBox.Show(this, $"La cartella {path} e' sul server e non e' raggiungibile da questo computer.",
+                "Confronta backtest", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        Process.Start(new ProcessStartInfo("explorer.exe", $"\"{path}\"") { UseShellExecute = true });
     }
 
     private static string BuildDeleteMessage(BacktestRow row)

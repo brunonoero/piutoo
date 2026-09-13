@@ -1105,6 +1105,66 @@ public sealed class WorkspaceService
     /// </summary>
     public CompareExportBundle CreateCompareExport(string workspaceId, string folderName)
     {
+        var (backtestPath, origin) = ResolveComparableRun(workspaceId, folderName);
+        var slug = origin.RunSlug;
+
+        using var buffer = new MemoryStream();
+        var inclusi = new List<string>();
+        using (var archive = new ZipArchive(buffer, ZipArchiveMode.Create, leaveOpen: true))
+        {
+            foreach (var (path, exported) in CollectCompareArtifacts(backtestPath, slug))
+            {
+                using (var entry = archive.CreateEntry(exported, CompressionLevel.Optimal).Open())
+                using (var artefatto = File.OpenRead(path))
+                    artefatto.CopyTo(entry);
+                inclusi.Add(exported);
+            }
+        }
+
+        if (inclusi.Count == 0)
+            throw new FileNotFoundException(
+                $"Il backtest '{folderName}' non contiene nessun artefatto da esportare.", backtestPath);
+
+        return new CompareExportBundle(slug, $"{slug}.zip", inclusi, buffer.ToArray());
+    }
+
+    /// <summary>
+    /// Gli stessi artefatti di <see cref="CreateCompareExport"/>, con gli stessi nomi, scritti
+    /// direttamente in una cartella del server invece che in uno zip: e' il gesto del confronto
+    /// avviato dalla console, che la cartella <c>compare-NNNN</c> la crea sul server.
+    ///
+    /// <para>Un file gia' presente con lo stesso nome non si sovrascrive: nella cartella di un
+    /// confronto e' l'altro lato del paragone, e perderlo in silenzio vuol dire rifare un run.</para>
+    /// </summary>
+    public (BacktestOriginInfo Origin, IReadOnlyList<string> Files) WriteCompareArtifacts(
+        string workspaceId,
+        string folderName,
+        string destinationFolder)
+    {
+        var (backtestPath, origin) = ResolveComparableRun(workspaceId, folderName);
+        Directory.CreateDirectory(destinationFolder);
+
+        var scritti = new List<string>();
+        foreach (var (path, exported) in CollectCompareArtifacts(backtestPath, origin.RunSlug))
+        {
+            File.Copy(path, Path.Combine(destinationFolder, exported), overwrite: false);
+            scritti.Add(exported);
+        }
+
+        if (scritti.Count == 0)
+            throw new FileNotFoundException(
+                $"Il backtest '{folderName}' non contiene nessun artefatto da esportare.", backtestPath);
+
+        return (origin, scritti);
+    }
+
+    /// <summary>
+    /// La cartella del run e il suo marcatore, se il run dichiara motore e serie di prezzi. Un run
+    /// che non sa dire su quali prezzi è girato non entra in un confronto: vedi
+    /// <see cref="CreateCompareExport"/>.
+    /// </summary>
+    private (string BacktestPath, BacktestOriginInfo Origin) ResolveComparableRun(string workspaceId, string folderName)
+    {
         var backtestPath = GetBacktestPath(workspaceId, folderName);
         if (!Directory.Exists(backtestPath))
             throw new DirectoryNotFoundException($"Backtest '{folderName}' non trovato nel workspace '{workspaceId}'.");
@@ -1121,8 +1181,15 @@ public sealed class WorkspaceService
                 "del broker non identifica una serie di prezzi. Rifai il run, oppure copia i file " +
                 "a mano assumendoti il nome che gli dai.");
 
-        var slug = origin.RunSlug;
+        return (backtestPath, origin);
+    }
 
+    /// <summary>
+    /// I file del run da portare in un confronto, con il nome che prendono. Compatta il journal
+    /// prima di elencarli: durante il run i trade si accodano al <c>.jsonl</c> e l'array è indietro.
+    /// </summary>
+    private static IReadOnlyList<(string Path, string Exported)> CollectCompareArtifacts(string backtestPath, string slug)
+    {
         new TradingJsonStore(backtestPath).CompactAll();
 
         var sorgenti = new (string Source, string Exported)[]
@@ -1132,30 +1199,12 @@ public sealed class WorkspaceService
             (BacktestOriginInfo.FileName, $"run-{slug}.json")
         };
 
-        using var buffer = new MemoryStream();
-        var inclusi = new List<string>();
-        using (var archive = new ZipArchive(buffer, ZipArchiveMode.Create, leaveOpen: true))
-        {
-            foreach (var (source, exported) in sorgenti)
-            {
-                var path = Path.Combine(backtestPath, source);
-                // Il summary manca nei run interrotti e in quelli dell'engine esterno: è
-                // un'assenza normale, non un motivo per non esportare i trade.
-                if (!File.Exists(path))
-                    continue;
-
-                using (var entry = archive.CreateEntry(exported, CompressionLevel.Optimal).Open())
-                using (var artefatto = File.OpenRead(path))
-                    artefatto.CopyTo(entry);
-                inclusi.Add(exported);
-            }
-        }
-
-        if (inclusi.Count == 0)
-            throw new FileNotFoundException(
-                $"Il backtest '{folderName}' non contiene nessun artefatto da esportare.", backtestPath);
-
-        return new CompareExportBundle(slug, $"{slug}.zip", inclusi, buffer.ToArray());
+        // Il summary manca nei run interrotti e in quelli dell'engine esterno: è un'assenza
+        // normale, non un motivo per non esportare i trade.
+        return sorgenti
+            .Select(item => (Path: Path.Combine(backtestPath, item.Source), item.Exported))
+            .Where(item => File.Exists(item.Path))
+            .ToList();
     }
 
     /// <summary>

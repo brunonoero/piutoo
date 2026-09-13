@@ -502,6 +502,78 @@ public sealed class WorkspaceApiClient
         return result ?? new List<PersistedTrade>();
     }
 
+    /// <summary>
+    /// Avvia il confronto fra due run del workspace. Il server crea la cartella
+    /// <c>compare-NNNN</c> successiva prima di rispondere, quindi il nome arriva subito; l'analisi
+    /// si segue con <see cref="PollCompareUntilTerminalAsync"/>. L'ordine dei due run non conta.
+    /// </summary>
+    public async Task<CompareJob> StartCompareAsync(
+        string workspaceId,
+        string firstBacktest,
+        string secondBacktest,
+        CancellationToken cancellationToken = default)
+    {
+        using var response = await SendAsync(
+            HttpMethod.Post,
+            "api/Compare/start",
+            new StartCompareRequest
+            {
+                WorkspaceId = workspaceId,
+                FirstBacktest = firstBacktest,
+                SecondBacktest = secondBacktest
+            },
+            cancellationToken);
+        return await response.Content.ReadFromJsonAsync<CompareJob>(_jsonOptions, cancellationToken)
+            ?? throw new InvalidOperationException("Il server non ha restituito il confronto avviato.");
+    }
+
+    public async Task<CompareJob> GetCompareStatusAsync(
+        string jobId,
+        CancellationToken cancellationToken = default)
+    {
+        using var response = await SendAsync(
+            HttpMethod.Get,
+            $"api/Compare/status/{Uri.EscapeDataString(jobId)}",
+            null,
+            cancellationToken);
+        return await response.Content.ReadFromJsonAsync<CompareJob>(_jsonOptions, cancellationToken)
+            ?? throw new InvalidOperationException("Risposta stato confronto vuota.");
+    }
+
+    public async Task<CompareJob> PollCompareUntilTerminalAsync(
+        string jobId,
+        Action<CompareJob>? onProgress = null,
+        CancellationToken cancellationToken = default)
+    {
+        var delay = TimeSpan.FromMilliseconds(500);
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var job = await GetCompareStatusAsync(jobId, cancellationToken);
+            onProgress?.Invoke(job);
+            if (job.Status is BacktestingJobStatus.Completed
+                or BacktestingJobStatus.Failed
+                or BacktestingJobStatus.Cancelled)
+                return job;
+
+            await Task.Delay(delay, cancellationToken);
+            delay = TimeSpan.FromMilliseconds(Math.Min(delay.TotalMilliseconds * 1.25, 2000));
+        }
+    }
+
+    /// <summary>Il <c>report.md</c> di una cartella di confronto, come testo.</summary>
+    public async Task<string> GetCompareReportAsync(
+        string folderName,
+        CancellationToken cancellationToken = default)
+    {
+        using var response = await SendAsync(
+            HttpMethod.Get,
+            $"api/Compare/{Uri.EscapeDataString(folderName)}/report",
+            null,
+            cancellationToken);
+        return await response.Content.ReadAsStringAsync(cancellationToken);
+    }
+
     private static async Task EnsureSuccessAsync(HttpResponseMessage response)
     {
         if (response.IsSuccessStatusCode)

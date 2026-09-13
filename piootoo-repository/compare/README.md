@@ -1,9 +1,20 @@
 # Confronti fra run
 
-Questa cartella tiene gli artefatti dei confronti (`compare-NNNN/`), esportati a
-mano dai run e dagli eventi cTrader. Nessun codice li scrive e nessun codice li
-legge: l'unico strumento è `confronta-trades.py`, che prende i due percorsi come
-argomenti.
+Questa cartella tiene gli artefatti dei confronti (`compare-NNNN/`) fra un run del
+cBot e un backtest interno.
+
+**Dalla console**: nella lista dei backtest selezioni i due run (Ctrl+clic) e premi
+**Confronta…**. Il server crea la `compare-NNNN` successiva alla più alta che c'è,
+ci scrive `trades-<slug>.json`, `backtest-summary-<slug>.json` e `run-<slug>.json`
+dei due run (gli stessi dell'export per confronto), una traccia di `esito.md`, e fa
+girare `strumento-confronto` che scrive `analisi/report.md` e i CSV. La coppia deve
+essere un run del cBot e un backtest interno sullo stesso broker, con il summary
+dell'interno: una coppia diversa si rifiuta prima di creare la cartella.
+
+`log.txt` del cBot e l'export Events di cTrader (`.xlsx`) il server non li ha: si
+copiano a mano nella cartella e si rilancia lo strumento da riga di comando (vedi
+`strumento-confronto/LEGGIMI.md`). `confronta-trades.py` resta per il controllo A/B
+di due `trades.json`.
 
 ## I tre tipi di backtest
 
