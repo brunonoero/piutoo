@@ -13,8 +13,10 @@ Questa coppia isola **il motore a parità di feed** (entrambe le gambe leggono C
 
 **Esito in una riga: cBot, server ed engine interno ora chiudono le posizioni con lo stesso criterio.**
 L'unica divergenza strutturale trovata — l'inversione sul segnale opposto dell'interno — è corretta e
-verificata sul run: `OppositeSignal` è passato da 95 uscite a **0**. Quello che resta del divario è
-esecuzione (spread, commissioni, swap) e granularità barra/tick, più un punto aperto su BiasBarCount.
+verificata sul run: `OppositeSignal` è passato da 95 uscite a **0**. L'asimmetria di BiasBarCount aveva
+una causa diversa, nel server: le sessioni cBot perdevano la memoria delle strategie fra una barra e
+l'altra (§1b), corretto con `a764ef5`. Quello che resta del divario è esecuzione (spread, commissioni,
+swap) e granularità barra/tick.
 
 ## Le due gambe
 
@@ -75,13 +77,54 @@ La voce «cBot già in posizione» non misura più un'inversione: con l'interno 
 cui il cBot è uscito **dopo** l'interno (tipicamente uno stop più tardi o un target) e l'interno è rientrato
 nel frattempo.
 
-### 1b. Ancora aperto: BiasBarCount
+### 1b. BiasBarCount: il server perdeva la memoria della strategia (chiuso)
 
-L'asimmetria di lato resta e **non** era l'inversione. Su `PTS_BTC_BIA_001_60` il **cBot** apre 143 Buy che
-l'interno non ha (+23.656), l'**interno** apre 101 Sell e 29 Buy che il cBot non ha (+5.730). Esempio BTC_BIA
-del 08/10: stesso ingresso Buy delle 08:33, il cBot esce per stop, l'interno tiene fino a barra 14. È
-`BiasBarCountEngine`, finestra LONG [1,12) e SHORT [10,21), uscita a barra 14/7: il sospetto resta il
-conteggio delle barre di sessione nelle finestre, diverso fra i due engine. Da isolare.
+L'asimmetria di lato **non** era l'inversione, e non era un conteggio diverso delle barre fra i due engine.
+Su `PTS_BTC_BIA_001_60` il **cBot** apre 143 Buy che l'interno non ha (+23.656), l'**interno** apre 101 Sell e
+29 Buy che il cBot non ha (+5.730). Sull'intero run il cBot ha 303 trade BTC_BIA, **tutti Buy**; l'interno
+197 Buy e 102 Sell.
+
+**Cosa succedeva.** `BiasBarCountEngine` conta le barre della sessione in `_mycount`: il long si arma alla
+barra 1 e vive fino alla 12, lo short si arma alla 10 e vive fino alla 21. In sessione cBot il contatore
+ripartiva da zero a ogni valutazione e valeva sempre 1, cioè la barra di armamento del long. Il long si
+riarmava e riemetteva lo stop a ogni barra, lo short non scattava mai. Le prove:
+
+- nel `log.txt` gli intent BTC_BIA sono **solo `Buy Stop`**, da 46 a 124 per ciascuna delle 24 ore UTC; il
+  `session-summary.json` conta 2.088 intent emessi, 303 riempiti e 1.659 cancellati per scadenza;
+- tutti i 303 ingressi del cBot hanno `MaxBarsInPosition = 12`, cioè `14 − (_mycount + 1)` con
+  `_mycount = 1`; nell'interno quel numero cambia con la barra di ingresso;
+- gli abbinati sono tutti Buy entrati fra le 00 e le 11 UTC (la finestra long vera); i Buy solo cBot cadono
+  fra le 11 e le 23, le stesse ore degli short solo interno.
+
+**Dove si perdeva.** Due difetti sommati in `TradingSessionService`, mentre il backtest salvava la memoria
+dopo ogni valutazione (`PiootooBacktestingService`):
+
+1. `StrategyEvaluationService.Evaluate` scartava i `Hold` prima che qualcuno ne salvasse il `RuntimeState`, e
+   `EvaluateClosedBar` lo salvava solo dai segnali restituiti: le barre senza ingresso, che sono quelle su cui
+   i motori contano le barre e armano le direzioni, non aggiornavano la memoria;
+2. in `ExternalBroker` `GetExecution` costruiva lo snapshot della strategia **senza** `RuntimeState`: anche lo
+   stato salvato non tornava mai alla strategia.
+
+I test del motore non l'avevano visto perché chiamano `GenerateSignal` sempre sulla stessa istanza, dove i
+campi restano in memoria; nessuno passava da `Evaluate` dentro una sessione.
+
+**Chi altro ne soffriva.** Tengono stato in campi privati anche `PriceChannelEngine`, `SessionBreakoutEngine`,
+`VolatilityBreakoutEngine`, `RhlEngine` e `LevelFaderEngine`, ma in questa cartella abbinano fra il 96% e il
+100%: ricalcolano quasi tutto dai dati a ogni barra, e il rientro che non bloccano più lo blocca già il
+limite di ingressi per sessione. `PTS_YM_BIA_001_240` abbina il 98,8%: il suo long si arma sulla prima barra
+di sessione, un percorso che non usa il contatore, e lo short non esce nemmeno nell'interno. Solo BTC_BIA,
+dove il contatore **è** la regola di ingresso, cambiava strategia.
+
+**Correzione** (`a764ef5`, installata il 13/09): `IStrategyEvaluationService` consegna la memoria di ogni
+strategia valutata, `Hold` compresi; la sessione la salva per nome e simbolo della strategia e
+`GetExecution` la rilegge anche in `ExternalBroker`. Regressione in `SessionStrategyRuntimeStateTests` e
+`BiasBarCountEngineTests.ThroughTheEvaluationService_TheBarCountReachesTheTriggerBar`.
+
+**Conseguenze per questa cartella.** I trade cBot di BTC_BIA vengono dal server con il difetto e non
+descrivono la strategia: il confronto su BTC_BIA va rifatto con un nuovo run del cBot. Sui numeri corretti
+dell'interno la strategia resta comunque fragile — 299 trade, netto con commissioni vere +7.954 $/ctr, profit
+factor 1,10, drawdown 27.196, tutto il guadagno da 4 target — ed è stata **disabilitata** nei piani FTMO-44,
+FTMO-55, FTMO-ALL e COMP-004X in attesa della verifica di parità con i trade della ricerca.
 
 ## 2. Architettura: i segnali sono autocontenuti, l'engine è solo esecutore
 
@@ -168,7 +211,7 @@ strategie NG con spread/stop fra il 27% e il 197% (`PTS_NG_TFM_002_240` ha lo st
 
 ## Aperto
 
-1. **BiasBarCount, asimmetria Buy/Sell** (§1b): 143 Buy solo cBot contro 101 Sell solo interno su BTC_BIA. Sospetto: conteggio delle barre di sessione nelle finestre [arm, end) diverso fra i due engine.
+1. **BTC_BIA da rimisurare e da validare** (§1b): la causa dell'asimmetria è chiusa, ma il confronto va rifatto con un nuovo run del cBot sul server corretto (la strategia è disabilitata in COMP-004X: va riaccesa per quel run). E va verificata la parità degli ingressi con i trade della ricerca (`BTC_1h/consegna/trades/fam03_BIAS.csv`, non nel repository): 27 $/trade realizzati contro 741 attesi sono troppo lontani per escludere un errore di porting.
 2. **Le 28 coppie con esito opposto sullo stesso ingresso** (7 TakeProfit→Stop, 21 Stop→TakeProfit, ±72-76 k): risoluzione intrabarra dell'interno (`ProtectiveBeforeTarget` su barre da 1 min) contro i tick del cBot. Decidere se l'approssimazione a barre è accettabile.
 3. **I 4 ingressi cBot fuori finestra alle 23:05 UTC** (interno 0): confine di giornata, etichettatura della barra.
 4. **Commissioni per simbolo e swap nel modello dell'interno**: con 4,0 $ piatti il netto per strategia dell'interno non è confrontabile con il conto.
@@ -181,6 +224,7 @@ strategie NG con spread/stop fra il 27% e il 197% (`PTS_NG_TFM_002_240` ha lo st
 - **L'inversione era un difetto dell'engine interno, ed è corretta** — 0 inversioni su 2.717 trade di riferimento della ricerca; cBot e server bloccano; con `7c49e99` l'interno passa da 95 uscite `OppositeSignal` nella finestra (109 sul run) a 0, MAC comprese, che non ne avevano; `OppositeSignalDoesNotReverseTests`.
 - **L'architettura del disaccoppiamento regge** per SL/TP/trailing/breakeven/tempo: sono tutti nel `TradeSignal` e l'esecutore li applica soltanto. L'unica violazione trovata, l'inversione cablata nell'interno, non c'è più.
 - **`ExitOnly` è la scappatoia giusta e sufficiente** per le uscite runtime (MAC): la condizione resta nella strategia.
+- **L'asimmetria di BiasBarCount era il server che perdeva la memoria delle strategie in sessione** — intent BTC_BIA solo `Buy Stop` a ogni ora, `MaxBarsInPosition` sempre 12, zero short; corretto con `a764ef5`, `SessionStrategyRuntimeStateTests` (§1b).
 - **Le famiglie d'uscita corrispondono**; i segnali sparano sulle stesse barre (89% ≤ 1 min sugli abbinati); il limite per sessione è identico; l'interno non riempie su minuti senza barra (0).
 - **Lo spread modellato dall'interno è corretto per l'ingresso**: il costo che manca è quello pagato in uscita e sui gap, ora misurato dal log (270.921 $/ctr sul run).
 - Le somme quadrano: −143.888 − 72.550 − 6.173 = **−222.611**.
@@ -193,3 +237,4 @@ strategie NG con spread/stop fra il 27% e il 197% (`PTS_NG_TFM_002_240` ha lo st
 4. **Swap in §0 del report grezzo (−616), in questo esito per contratto (−6.173)**: non sommarli com'è.
 5. **Saldi grezzi non confrontabili** (100k/0,1 ctr contro 1M/1 ctr): solo i valori per contratto sulla finestra comune.
 6. **«cBot già in posizione (nessuna inversione)»** nel report è l'etichetta storica della causa: con l'interno corretto indica uscite sfasate, non inversioni.
+7. **I trade cBot di `PTS_BTC_BIA_001_60` non descrivono la strategia**: vengono dal server che perdeva la memoria delle strategie (§1b). Contano nel totale e nei blocchi C e D della §3, ma non vanno letti come il comportamento di BTC_BIA; gli altri motori con stato non ne risultano toccati.
