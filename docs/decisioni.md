@@ -3953,3 +3953,32 @@ che il motore fa. Difetto di artefatto, non di esecuzione, ma e' costato mezza i
   `session-summary.json` e non ha una curva mark-to-market — ha le celle **vuote**, in fondo a ogni
   ordinamento: ricostruire le cifre dai trade darebbe l'equity realizzata, un numero diverso sotto
   la stessa intestazione. `BacktestListFiguresTests`.
+
+- **2026-09-13** — **Un solo repository dati, `C:\piootoo-dev\piootoo-repository`, e il confronto
+  cBot/interno si avvia dalla console (7.4.0).** Per un giorno i dati sono vissuti in due copie
+  (`C:\piootoo\piootoo-repository`, letta dall'installazione, e quella del checkout): il feed piu'
+  recente, i backtest dell'11-12/09 e compare-0040 da una parte, sorgenti tracciati e 15 backtest
+  dall'altra. Ora c'e' solo quella del checkout, dentro git: `BasePath` punta li' sia in
+  `PiootooApp.Server/appsettings.json` sia nell'installazione `C:\piootoo\server\publish_run`.
+
+  *Il confronto.* Nella lista dei backtest si selezionano due run e **Confronta…**: `CompareService`
+  riconosce cBot e interno da `origin.json`, rifiuta le coppie che lo strumento non sa leggere (stesso
+  motore, broker diversi, interno senza summary, run senza marcatore) **prima** di creare la cartella,
+  poi crea la `compare-NNNN` successiva alla piu' alta, ci scrive gli artefatti con
+  `WorkspaceService.WriteCompareArtifacts` (stessi nomi e stessa compattazione dell'export zip) e una
+  traccia di `esito.md`, e fa girare l'analisi in background, una alla volta. `log.txt` e l'export
+  Events restano a mano: li produce cTrader.
+
+  *Lo strumento diventa libreria.* Lo script `compare/strumento-confronto/Program.cs` (0877d43) e'
+  passato in `Piootoo.Core/Services/Compare/CompareRunner.cs` con una trasformazione meccanica — stesso
+  corpo dentro un metodo, `Console` sostituito da un `TextWriter` — e la riga di comando lo richiama.
+  Riscrivere le 1.250 righe in classi avrebbe cambiato il report senza che nessuno se ne accorgesse;
+  cosi' la prova e' semplice: su compare-0040 `report.md` e i tre CSV escono identici riga per riga.
+  `CompareServiceTests`.
+
+  *Aggiornare l'installazione.* `tools/aggiorna-installazione.ps1` pubblica server e client e copia in
+  `C:\piootoo` solo le DLL dell'applicazione (e quelle nuove), senza toccare `appsettings*.json` ne' il
+  runtime self-contained; ferma e riavvia i processi. `tools/aggiorna-cbot.ps1` copia
+  `ctrader/PiootooDistributedExecutionBot.cs` nel progetto di cTrader e lo compila con `dotnet build`,
+  e si ferma se la copia in cTrader e' piu' recente e diversa: una modifica fatta dentro cTrader va
+  riportata nel repository, non sovrascritta.
