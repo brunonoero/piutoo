@@ -45,18 +45,30 @@ public sealed class EntryLimitPerSideTests
         Assert.NotNull(dopoLong);
         Assert.Equal(SignalType.Buy, dopoLong!.Direction);
 
-        // Barra 3: il motore riemette entrambe le gambe (valide sulla barra dopo).
+        // Barra 3: il long esce (uscita dichiarata dalla strategia). Un segnale opposto da solo non
+        // lo chiuderebbe: l'engine non inverte (compare-0041).
         var t3 = t2.AddHours(1);
         service.ProcessSignals(
-            [Stop(SignalType.Buy, 110m, t3), Stop(SignalType.Sell, 94m, t3)],
-            Prices(106m), Barre(t3, 106m, 107m, 105m, 106m), t3);
+            [new TradeSignal
+            {
+                Date = t3, Type = SignalType.Sell, OrderType = TradeOrderType.Market, Price = 104m,
+                Symbol = "NQ", StrategyCode = Code, StrategyName = Code, Quantity = 1, ExitOnly = true
+            }],
+            Prices(104m), Barre(t3, 106m, 106m, 103m, 104m), t3);
+        Assert.Null(service.GetExecutionSnapshot(Code, "NQ", t3).Position);
 
-        // Barra 4: il prezzo rompe al ribasso. Lo short chiude il long per segnale opposto e apre:
-        // e' la seconda entrata della sessione, ma la PRIMA di quel lato.
+        // Barra 4: il motore riarma lo short, valido sulla barra dopo.
         var t4 = t3.AddHours(1);
-        service.UpdateMarketPrices(Prices(93m), Barre(t4, 106m, 107m, 92m, 93m), t4);
+        service.ProcessSignals(
+            [Stop(SignalType.Sell, 94m, t4)],
+            Prices(104m), Barre(t4, 104m, 105m, 103m, 104m), t4);
 
-        var dopoShort = service.GetExecutionSnapshot(Code, "NQ", t4).Position;
+        // Barra 5: il prezzo rompe al ribasso e lo short entra: e' la seconda entrata della
+        // sessione, ma la PRIMA di quel lato.
+        var t5 = t4.AddHours(1);
+        service.UpdateMarketPrices(Prices(93m), Barre(t5, 104m, 105m, 92m, 93m), t5);
+
+        var dopoShort = service.GetExecutionSnapshot(Code, "NQ", t5).Position;
         Assert.NotNull(dopoShort);
         Assert.Equal(SignalType.Sell, dopoShort!.Direction);
     }

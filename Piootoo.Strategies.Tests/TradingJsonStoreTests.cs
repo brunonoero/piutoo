@@ -52,9 +52,9 @@ public sealed class TradingJsonStoreTests : IDisposable
         engine.ProcessSignals([new TradeSignal
         {
             Date = time.AddMinutes(1), Type = SignalType.Sell, Symbol = "NQ", StrategyCode = "s",
-            // Segnale opposto: chiude la posizione aperta sopra. Le strategie non emettono più
-            // segnali di sola chiusura.
-            StrategyName = "Strategy", Price = 101m, Quantity = 1m
+            // Uscita dichiarata (ExitOnly): e' l'unico segnale opposto che chiude una posizione.
+            // Un ingresso opposto semplice non inverte (compare-0041).
+            StrategyName = "Strategy", Price = 101m, Quantity = 1m, ExitOnly = true
         }], new Dictionary<string, decimal> { ["NQ"] = 101m }, time.AddMinutes(1));
 
         Assert.Single(engine.GetClosedTrades());

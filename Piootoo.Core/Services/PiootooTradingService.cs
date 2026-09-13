@@ -310,21 +310,13 @@ public class PiootooTradingService : IPiootooTradingService
                     continue;
                 }
 
-                // Un segnale opposto chiude la posizione esistente e viene consumato.
-                if ((position.Direction == SignalType.Buy && signal.Type == SignalType.Sell) ||
-                    (position.Direction == SignalType.Sell && signal.Type == SignalType.Buy))
-                {
-                    if (signal.OrderType is TradeOrderType.Stop or TradeOrderType.Limit)
-                    {
-                        // Gli ordini condizionati di entry/reversal restano pendenti e non chiudono
-                        // a mercato subito.
-                        continue;
-                    }
-
-                    ClosePosition(positionKey, ResolveSignalPrice(signal, currentPrices), currentTime,
-                        TradeExitReason.OppositeSignal);
-                    CancelPendingOrders(positionKey);
-                }
+                // Un segnale opposto NON inverte la posizione (compare-0041): mentre si è in
+                // posizione per (strategia, simbolo) l'ingresso opposto è bloccato, come già fanno
+                // il cBot (alreadyOpenOnStrategy -> annulla) e il server (AccountHasEntryInFlight,
+                // OCO). Il paniere non ha strategie stop-and-reverse: i trade di riferimento della
+                // ricerca non invertono mai, mentre questo ramo produceva 110 inversioni fantasma.
+                // L'unica uscita su segnale opposto ammessa è quella dichiarata dalla strategia con
+                // ExitOnly (ramo sopra), non una regola cablata qui nell'engine.
             }
         }
 
@@ -384,16 +376,14 @@ public class PiootooTradingService : IPiootooTradingService
                 continue;
             }
 
-            // Se non c'è già una posizione aperta per questa strategia, aprine una
+            // Se non c'è già una posizione aperta per questa strategia, aprine una. Se c'è, non si
+            // accoda lo stop opposto per un reverse fill (compare-0041): mentre si è in posizione la
+            // gamba opposta è OCO e resta fuori, come nel cBot e nel server. Vedi anche il ramo del
+            // reverse in TryFillPendingOrders.
             if (!_state.OpenPositions.ContainsKey(positionKey) &&
                 CanFillEntry(positionKey, signal))
             {
                 OpenFromSignal(positionKey, signal, signalSymbol, currentPrices, currentBars, currentTime);
-            }
-            else if (signal.OrderType == TradeOrderType.Stop)
-            {
-                // Posizione già aperta: mantieni lo stop come pending per un eventuale reverse fill.
-                EnqueuePendingOrder(positionKey, signal, currentTime);
             }
         }
 
@@ -607,15 +597,13 @@ public class PiootooTradingService : IPiootooTradingService
                     ? Math.Max(bar.Open, signal.Price)
                     : Math.Min(bar.Open, signal.Price);
 
-                if (_state.OpenPositions.TryGetValue(pending.PositionKey, out var existing))
+                // Posizione già aperta = niente reverse fill (compare-0041): la gamba opposta è OCO
+                // e il pending viene cancellato, non usato per invertire. Blocca sia lo stesso verso
+                // sia l'opposto.
+                if (_state.OpenPositions.ContainsKey(pending.PositionKey))
                 {
-                    if (existing.Direction == signal.Type)
-                    {
-                        _pendingOrders.Remove(pendingKey);
-                        continue;
-                    }
-
-                    ClosePosition(pending.PositionKey, fillPrice, currentTime, TradeExitReason.OppositeSignal);
+                    _pendingOrders.Remove(pendingKey);
+                    continue;
                 }
 
                 OpenFromSignal(pending.PositionKey, signal, signalSymbol, currentPrices, currentBars, currentTime, fillPrice);
@@ -652,15 +640,11 @@ public class PiootooTradingService : IPiootooTradingService
                     ? Math.Min(bar.Open, signal.Price)
                     : Math.Max(bar.Open, signal.Price);
 
-                if (_state.OpenPositions.TryGetValue(pending.PositionKey, out var existing))
+                // Posizione già aperta = niente reverse fill (compare-0041): vedi il ramo Stop sopra.
+                if (_state.OpenPositions.ContainsKey(pending.PositionKey))
                 {
-                    if (existing.Direction == signal.Type)
-                    {
-                        _pendingOrders.Remove(pendingKey);
-                        continue;
-                    }
-
-                    ClosePosition(pending.PositionKey, fillPrice, currentTime, TradeExitReason.OppositeSignal);
+                    _pendingOrders.Remove(pendingKey);
+                    continue;
                 }
 
                 OpenFromSignal(pending.PositionKey, signal, signalSymbol, currentPrices, currentBars, currentTime, fillPrice);
