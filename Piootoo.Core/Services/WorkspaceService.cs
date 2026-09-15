@@ -823,6 +823,8 @@ public sealed class WorkspaceService
                     .ToArray();
                 var (startDateUtc, endDateUtc) = ReadBacktestPeriod(resultFiles.FirstOrDefault());
                 var origin = ReadBacktestOrigin(path);
+                if (startDateUtc is null && endDateUtc is null && origin?.Origin == BacktestOrigin.ExternalBroker)
+                    (startDateUtc, endDateUtc) = ReadExternalSessionPeriod(path, origin);
                 var figures = ReadBacktestFigures(path);
                 return new WorkspaceBacktestInfo
                 {
@@ -834,6 +836,8 @@ public sealed class WorkspaceService
                     EndDateUtc = endDateUtc,
                     Origin = origin?.Origin ?? BacktestOrigin.Unknown,
                     PlanCode = origin?.PlanCode,
+                    EngineVersion = origin?.EngineVersion,
+                    ClientVersion = origin?.ClientVersion,
                     InitialCapital = figures.InitialCapital,
                     TotalNetProfit = figures.TotalNetProfit,
                     MaxDrawdownPercent = figures.MaxDrawdownPercent
@@ -937,6 +941,56 @@ public sealed class WorkspaceService
         {
             return (null, null);
         }
+    }
+
+    /// <summary>
+    /// Periodo di un run dell'engine esterno, che non scrive <c>backtest_*.json</c>.
+    ///
+    /// <para>L'inizio e' l'istante codificato nell'execution key (<c>BT-yyyyMMddHHmmss</c>), cioe'
+    /// l'avvio del backtest in cTrader: <c>firstBarUtc</c> di <c>session-summary.json</c> cade prima,
+    /// perche' conta anche le barre di riscaldamento, e resta solo come ripiego per una chiave in un
+    /// altro formato. La fine e' <c>lastBarUtc</c> della scheda; un run ancora in corso non ha la
+    /// scheda e resta senza fine, che e' la verita'.</para>
+    /// </summary>
+    private static (DateTime? StartDateUtc, DateTime? EndDateUtc) ReadExternalSessionPeriod(
+        string backtestPath, BacktestOriginInfo origin)
+    {
+        DateTime? start = null;
+        DateTime? end = null;
+
+        var key = origin.ExecutionKey?.Trim();
+        var stamp = key is null ? null : key[(key.LastIndexOf('-') + 1)..];
+        if (stamp is { Length: 14 } &&
+            DateTime.TryParseExact(stamp, "yyyyMMddHHmmss", System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.AdjustToUniversal | System.Globalization.DateTimeStyles.AssumeUniversal,
+                out var fromKey))
+            start = fromKey;
+
+        var summaryPath = Path.Combine(backtestPath, Piootoo.Shared.Models.Trading.SessionRunSummarySchema.FileName);
+        if (!File.Exists(summaryPath))
+            return (start, end);
+
+        try
+        {
+            using var stream = new FileStream(
+                summaryPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, bufferSize: 4096,
+                FileOptions.SequentialScan);
+            using var document = JsonDocument.Parse(stream);
+            var root = document.RootElement;
+            if (root.ValueKind != JsonValueKind.Object)
+                return (start, end);
+
+            if (start is null && root.TryGetProperty("firstBarUtc", out var first) && first.TryGetDateTime(out var firstBar))
+                start = firstBar.ToUniversalTime();
+            if (root.TryGetProperty("lastBarUtc", out var last) && last.TryGetDateTime(out var lastBar))
+                end = lastBar.ToUniversalTime();
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException)
+        {
+            // Scheda illeggibile: fine ignota, non un errore di elenco.
+        }
+
+        return (start, end);
     }
 
     private static (DateTime? StartDateUtc, DateTime? EndDateUtc) ReadPeriodFromHead(ReadOnlySpan<byte> head)

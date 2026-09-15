@@ -109,8 +109,16 @@ public sealed class BacktestOriginInfo
     /// <summary>La serie di prezzi letta dal run. Assente nei run precedenti al campo.</summary>
     public RunPriceSource? PriceSource { get; set; }
 
-    /// <summary>Versione del binario che ha eseguito il run (<c>PiootooVersion.Current</c>).</summary>
+    /// <summary>Versione del server che ha eseguito il run (<c>PiootooVersion.Current</c>).</summary>
     public string? EngineVersion { get; set; }
+
+    /// <summary>
+    /// Versione del cBot che ha aperto la sessione, come dichiarata in <c>open-plan</c>. Solo per
+    /// l'origine esterna; null nei marcatori scritti prima del campo o da un bot che non lo manda.
+    /// In un run del cBot i fill li genera il bot, non il server: e' questa la versione che dice
+    /// con che motore di esecuzione e' nato il run.
+    /// </summary>
+    public string? ClientVersion { get; set; }
 
     /// <summary>Valorizzati solo per l'origine esterna.</summary>
     public string? PlanCode { get; set; }
@@ -226,6 +234,15 @@ public sealed class WorkspaceBacktestInfo
 
     /// <summary>Piano che ha prodotto il run, per l'origine esterna.</summary>
     public string? PlanCode { get; set; }
+
+    /// <summary>Versione del server che ha eseguito il run, da <c>origin.json</c>. Null senza marcatore.</summary>
+    public string? EngineVersion { get; set; }
+
+    /// <summary>
+    /// Versione del cBot che ha aperto la sessione, per l'origine esterna. Null per i run interni
+    /// e per quelli aperti da un bot che non la dichiara (precedenti al campo).
+    /// </summary>
+    public string? ClientVersion { get; set; }
 
     /// <summary>
     /// Cifre di chiusura del run, lette da <c>backtest-summary.json</c>: capitale iniziale e P&amp;L

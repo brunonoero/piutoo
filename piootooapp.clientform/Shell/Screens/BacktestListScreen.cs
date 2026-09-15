@@ -14,10 +14,22 @@ public sealed class BacktestRow
     /// <summary>Etichetta leggibile dell'origine, la stessa usata dalle combo.</summary>
     public string Origin { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Chi ha generato i fill: la versione del server per un run interno, quella del cBot per un
+    /// run dell'engine esterno. Vuota quando la cartella non la dichiara — run senza marcatore, o
+    /// run del cBot aperti da un bot che non manda ancora la propria versione.
+    /// </summary>
+    public string Version { get; set; } = string.Empty;
+
     public DateTime LastModifiedUtc { get; set; }
 
     public int ResultsCount { get; set; }
 
+    /// <summary>
+    /// Periodo del run. Per un run interno sono le date della richiesta; per un run del cBot
+    /// l'avvio del backtest in cTrader e l'ultima barra vista, e finche' il run e' in corso la fine
+    /// manca e si scrive <c>…</c>: un intervallo vuoto direbbe "periodo ignoto", che non e' vero.
+    /// </summary>
     public string Range { get; set; } = string.Empty;
 
     /// <summary>
@@ -146,6 +158,7 @@ public partial class BacktestListScreen : UserControl, IShellScreen
                     Origin = BacktestComboItem.DescribeOrigin(backtest),
                     OriginKind = backtest.Origin,
                     PlanCode = backtest.PlanCode ?? string.Empty,
+                    Version = DescribeVersion(backtest),
                     LastModifiedUtc = backtest.LastModifiedUtc,
                     ResultsCount = backtest.ResultsCount,
                     Range = DescribeRange(backtest),
@@ -168,10 +181,26 @@ public partial class BacktestListScreen : UserControl, IShellScreen
         }
     }
 
-    private static string DescribeRange(WorkspaceBacktestInfo info)
-        => info is { StartDateUtc: { } start, EndDateUtc: { } end }
-            ? $"{start:yyyy-MM-dd} → {end:yyyy-MM-dd}"
-            : string.Empty;
+    private static string DescribeRange(WorkspaceBacktestInfo info) => info switch
+    {
+        { StartDateUtc: { } start, EndDateUtc: { } end } => $"{start:yyyy-MM-dd} → {end:yyyy-MM-dd}",
+        // Un run del cBot ancora in corso ha l'avvio (dall'execution key) ma non l'ultima barra:
+        // la scheda di fine run non c'e' ancora.
+        { StartDateUtc: { } start } => $"{start:yyyy-MM-dd} → …",
+        _ => string.Empty
+    };
+
+    /// <summary>
+    /// La versione di chi ha generato i fill. Per il cBot e' quella del bot e non quella del server
+    /// che ha ospitato la sessione: sono i due numeri che <c>origin.json</c> tiene distinti, e
+    /// mostrare il server per un run del bot direbbe la versione sbagliata senza sembrare sbagliata.
+    /// </summary>
+    private static string DescribeVersion(WorkspaceBacktestInfo info) => info.Origin switch
+    {
+        BacktestOrigin.Internal => info.EngineVersion ?? string.Empty,
+        BacktestOrigin.ExternalBroker => info.ClientVersion ?? string.Empty,
+        _ => string.Empty
+    };
 
     private void ApplyFilter()
     {

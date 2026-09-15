@@ -327,4 +327,15 @@ public sealed class OpenTradingPlanSessionRequest
     /// produrre in silenzio un run che non è quello che dichiara di essere.
     /// </summary>
     public TradingRunProfile? RunProfile { get; init; }
+
+    /// <summary>
+    /// Versione del cBot che apre la sessione (<c>BotVersion</c> del sorgente). Facoltativa: un
+    /// bot che non conosce il campo la omette e il server non la rifiuta.
+    ///
+    /// <para>Serve all'elenco dei backtest: <c>origin.json</c> registrava la sola versione del
+    /// server, ma in un run del cBot chi genera i fill e' il bot, e due run con lo stesso server e
+    /// bot diversi non sono confrontabili. Solo diagnostica, come la versione del server: un
+    /// disallineamento non blocca l'apertura.</para>
+    /// </summary>
+    public string? ClientVersion { get; init; }
 }

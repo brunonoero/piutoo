@@ -128,7 +128,7 @@ Il percorso dipende dal contesto, e non è un dettaglio organizzativo:
 
 | Sessione | Cartella |
 |---|---|
-| Aperta da piano, `ClientRunMode = Backtest` | `<workspace>/backtests/{piano}-{executionKey}/` |
+| Aperta da piano, `ClientRunMode = Backtest` | `<workspace>/backtests/{piano}-{executionKey}-v{versione}-{yyyyMMdd-HHmm UTC di apertura}/` (dal 13/09/2026: un rilancio dello stesso periodo non sovrascrive il run precedente) |
 | Aperta da piano, `Realtime` | `<workspace>/sessions/{piano}-{executionKey}/` |
 | Creata direttamente (`POST /trading-sessions`) | `<workspace>/sessions/{guid}/` |
 

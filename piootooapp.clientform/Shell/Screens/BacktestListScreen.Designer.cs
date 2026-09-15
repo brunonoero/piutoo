@@ -23,6 +23,7 @@ partial class BacktestListScreen
         this._grid = new System.Windows.Forms.DataGridView();
         this._colFolderName = new System.Windows.Forms.DataGridViewTextBoxColumn();
         this._colOrigin = new System.Windows.Forms.DataGridViewTextBoxColumn();
+        this._colVersion = new System.Windows.Forms.DataGridViewTextBoxColumn();
         this._colLastModifiedUtc = new System.Windows.Forms.DataGridViewTextBoxColumn();
         this._colResultsCount = new System.Windows.Forms.DataGridViewTextBoxColumn();
         this._colRange = new System.Windows.Forms.DataGridViewTextBoxColumn();
@@ -49,6 +50,7 @@ partial class BacktestListScreen
         this._grid.Columns.AddRange(new System.Windows.Forms.DataGridViewColumn[] {
             this._colFolderName,
             this._colOrigin,
+            this._colVersion,
             this._colLastModifiedUtc,
             this._colResultsCount,
             this._colRange,
@@ -84,6 +86,15 @@ partial class BacktestListScreen
         this._colOrigin.HeaderText = "Origine";
         this._colOrigin.Name = "_colOrigin";
         this._colOrigin.ReadOnly = true;
+        //
+        // _colVersion
+        //
+        this._colVersion.DataPropertyName = "Version";
+        this._colVersion.FillWeight = 45F;
+        this._colVersion.HeaderText = "Versione";
+        this._colVersion.Name = "_colVersion";
+        this._colVersion.ReadOnly = true;
+        this._colVersion.ToolTipText = "Versione di chi ha generato i fill: il server per un run interno, il cBot per un run dell'engine esterno (da origin.json)";
         //
         // _colLastModifiedUtc
         //
@@ -204,6 +215,7 @@ partial class BacktestListScreen
     private System.Windows.Forms.DataGridView _grid;
     private System.Windows.Forms.DataGridViewTextBoxColumn _colFolderName;
     private System.Windows.Forms.DataGridViewTextBoxColumn _colOrigin;
+    private System.Windows.Forms.DataGridViewTextBoxColumn _colVersion;
     private System.Windows.Forms.DataGridViewTextBoxColumn _colLastModifiedUtc;
     private System.Windows.Forms.DataGridViewTextBoxColumn _colResultsCount;
     private System.Windows.Forms.DataGridViewTextBoxColumn _colRange;

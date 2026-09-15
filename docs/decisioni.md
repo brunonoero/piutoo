@@ -3982,3 +3982,50 @@ che il motore fa. Difetto di artefatto, non di esecuzione, ma e' costato mezza i
   `ctrader/PiootooDistributedExecutionBot.cs` nel progetto di cTrader e lo compila con `dotnet build`,
   e si ferma se la copia in cTrader e' piu' recente e diversa: una modifica fatta dentro cTrader va
   riportata nel repository, non sovrascritta.
+
+- **2026-09-13** — **Due ingressi che il cBot eseguiva e non doveva (compare-0043, 7.4.1).** Il
+  confronto COMP-005B (9 strategie, cBot e interno sullo stesso feed FTMO) abbina 646 trade su 667, e
+  i non abbinati hanno portato a due difetti, entrambi con la riga `ATTENZIONE ... intent non allineato`
+  nel log: il bot la stampava e piazzava lo stesso.
+
+  *Il template della barra prima.* Mentre il conto e' in posizione i template della strategia restano
+  in lista non reclamati. Il claim li considerava validi finche' `ExpiresAtUtc >= LastEvaluatedBarTimeUtc`
+  — una barra oltre la loro, perche' l'ultima barra valutata e' quella appena *chiusa* — e fra due
+  validi sceglieva il piu' vecchio (`ThenBy(CreatedAtUtc)`). Alla chiusura della posizione il cBot
+  riceveva quindi il template della barra precedente, e da li' ogni barra consegnava quello di una
+  barra prima: 447 intent da 15 minuti, 134 da 30, 68 da 240 in ritardo di una barra intera; 29 trade
+  nati cosi', uno fuori finestra (`PTS_NQ_TFU_003_15`, 03/12/2025 02:26). Ora il claim chiede
+  `IsTemplateBarOver`: la barra di un template e' finita quando l'ultima barra valutata **del suo
+  stream** ha apertura `>= ExpiresAtUtc`. Attraverso un buco il template resta valido — la barra che
+  "next bar" nomina e' la prima che arriva, come `PendingOrder.ActivatedAtUtc` nell'interno — e su una
+  sessione multi-timeframe il 15m non fa scadere il 60m. `Session.LastBarTimeByStream` entra nel dump.
+  Non tocca la convenzione di `PurgeExpiredEntryIntents` sugli intent gia' reclamati
+  (`AnExpiredEntry_ReleasesTheStrategyOnceItsWindowCloses`), che resta la questione aperta di
+  `lavori-in-corso.md`. `StaleTemplateClaimTests`.
+
+  *La deadline gia' passata.* Il template del venerdi' di una strategia intraday attraversa il fine
+  settimana, ma il suo `CloseAtUtc` e' la fine della sessione di `ValidFromUtc`: il bot lo piazzava alla
+  riapertura, riempiva e `CloseExpiredPositions` chiudeva un secondo dopo. Sette ingressi
+  `PTS_GC_PCH_004_240` chiusi `Closed` a 0 barre, nessuno nell'interno. `RejectUnsoundIntent` scarta ora
+  un ingresso con la deadline gia' passata, e lo riporta `Rejected` come gli altri scarti non
+  discrezionali. Il bot va ricompilato (7.4.1, stesso contratto).
+
+- **2026-09-13** — **La cartella di un backtest del cBot porta versione e ora di apertura.** Il nome era
+  `{piano}-{executionKey}`, e l'execution key di un backtest e' l'ora *simulata* di avvio: rilanciare
+  lo stesso periodo — esattamente cio' che serve per misurare una correzione contro il run di prima —
+  ricadeva sulla stessa cartella e la riazzerava. Ora e' `{piano}-bt-{yyyyMMdd-HHmm}-v{versione}-{yyyyMMdd-HHmm}`,
+  con la versione del server e l'istante UTC di apertura (secondi e contatore se due aperture cadono
+  nello stesso minuto). Vale solo per i backtest: non si riprendono mai, mentre le sessioni realtime
+  restano sul nome stabile perche' la ripresa dopo un riavvio ci si appoggia. L'identita' della
+  sessione resta l'execution key; il nome della cartella e' solo dove scrive.
+
+- **2026-09-15** — **L'elenco dei backtest dice con quale versione e' nato ogni run.** `origin.json`
+  registrava la sola versione del server (`EngineVersion`) anche per i run del cBot, dove i fill li
+  genera il bot: due run con lo stesso server e bot diversi sembravano lo stesso run. Il cBot dichiara
+  ora la propria versione in `open-plan` (`OpenTradingPlanSessionRequest.ClientVersion`, facoltativa:
+  un bot che non la manda non viene rifiutato), il marcatore la conserva come `ClientVersion` accanto a
+  quella del server, `WorkspaceBacktestInfo` espone entrambe e la griglia dei backtest ha la colonna
+  *Versione*: il server per un run interno, il cBot per un run esterno, vuota dove la cartella non la
+  dichiara. Nella stessa griglia l'*Intervallo* di un run del cBot ancora in corso si scrive
+  `inizio → …` invece di restare vuoto: l'avvio lo si sa dall'execution key, e' la fine che manca.
+  Bot ricompilato a 7.4.2, stesso contratto. `BacktestListVersionTests`.

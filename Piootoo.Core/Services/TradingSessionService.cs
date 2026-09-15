@@ -510,6 +510,15 @@ public sealed class TradingSessionService : ITradingSessionService
 
         public int Fills { get; set; }
         public DateTime? LastEvaluatedBarTimeUtc { get; set; }
+
+        /// <summary>
+        /// Apertura dell'ultima barra chiusa valutata, per stream (<c>StreamKey</c>). E' l'orologio con
+        /// cui il claim decide se la barra di validita' di un template e' gia' finita: quello globale,
+        /// <see cref="LastEvaluatedBarTimeUtc"/>, e' in ritardo di una barra per costruzione e su una
+        /// sessione multi-timeframe appartiene a un altro stream. Vedi <c>IsTemplateBarOver</c>.
+        /// </summary>
+        public Dictionary<string, DateTime> LastBarTimeByStream { get; } = new(StringComparer.OrdinalIgnoreCase);
+
         public int IntentSequence { get; set; }
 
         // --- Distribuzione multi-account / anti copy-trading (solo ExecutionMode.ExternalBroker) ---
@@ -924,7 +933,8 @@ public sealed class TradingSessionService : ITradingSessionService
 
         var descriptor = CreateCore(
             BuildPlanSessionRequest(plan, request.ClientRunMode, enforceConcurrency, token: null),
-            plan.Code, request.ExecutionKey.Trim(), account);
+            plan.Code, request.ExecutionKey.Trim(), account,
+            clientVersion: NormalizeClientVersion(request.ClientVersion));
         AccountSymbolConversion conversion;
         lock (_sessions[descriptor.SessionId].Gate)
         {
@@ -1056,8 +1066,36 @@ public sealed class TradingSessionService : ITradingSessionService
 
         var folderName = SanitizeFolderName($"{planCode}-{FormatExecutionKeyForFolder(executionKey)}");
         return request.ClientRunMode == ClientRunMode.Backtest
-            ? WorkspaceBacktestPaths.ResolveBacktestPath(workspacePath, folderName)
+            ? ResolveUniqueBacktestDirectory(workspacePath, folderName)
             : Path.Combine(workspacePath, "sessions", folderName);
+    }
+
+    /// <summary>
+    /// Cartella di un backtest del cBot: al nome da piano ed execution key si aggiungono la versione
+    /// del server e l'istante reale (UTC) di apertura, <c>{piano}-bt-{yyyyMMdd-HHmm}-v{versione}-{yyyyMMdd-HHmm}</c>.
+    ///
+    /// <para><b>Perche'.</b> L'execution key di un backtest e' l'ora <i>simulata</i> di avvio, quindi
+    /// rifare lo stesso periodo ricadeva sulla stessa cartella e la riazzerava: il run di prima — quello
+    /// contro cui si voleva misurare una correzione — spariva. Un backtest non si riprende mai (ogni
+    /// apertura e' una sessione nuova, e <see cref="RestoreSessions"/> tratta solo le realtime), quindi
+    /// il nome non deve essere stabile: deve dire quale run e con quale motore. Le sessioni realtime
+    /// restano sul nome stabile, perche' li' la ripresa lo richiede.</para>
+    ///
+    /// <para>Due aperture nello stesso minuto aggiungono i secondi, e poi un contatore: la cartella di
+    /// un run non si riusa mai.</para>
+    /// </summary>
+    private static string ResolveUniqueBacktestDirectory(string workspacePath, string folderName)
+    {
+        var now = DateTime.UtcNow;
+        var baseName = $"{folderName}-v{PiootooVersion.Current}-{now:yyyyMMdd-HHmm}";
+        var candidate = WorkspaceBacktestPaths.ResolveBacktestPath(workspacePath, baseName);
+        if (!Directory.Exists(candidate))
+            return candidate;
+
+        candidate = WorkspaceBacktestPaths.ResolveBacktestPath(workspacePath, $"{baseName}{now:ss}");
+        for (var suffix = 2; Directory.Exists(candidate); suffix++)
+            candidate = WorkspaceBacktestPaths.ResolveBacktestPath(workspacePath, $"{baseName}{now:ss}-{suffix}");
+        return candidate;
     }
 
     /// <summary>
@@ -1122,9 +1160,20 @@ public sealed class TradingSessionService : ITradingSessionService
     /// </summary>
     private sealed record RestoreContext(string SessionId, string SessionToken);
 
+    /// <summary>
+    /// La versione dichiarata dal cBot, ripulita: vuota o solo spazi vale "non dichiarata", cosi'
+    /// nel marcatore resta <c>null</c> e non una stringa vuota che in elenco sembrerebbe una versione.
+    /// </summary>
+    private static string? NormalizeClientVersion(string? clientVersion)
+        => string.IsNullOrWhiteSpace(clientVersion) ? null : clientVersion.Trim();
+
+    /// <param name="clientVersion">
+    /// Versione del cBot che apre la sessione, per il marcatore della cartella. Null quando il
+    /// client non la dichiara o quando la sessione non nasce da un cBot.
+    /// </param>
     private TradingSessionDescriptor CreateCore(
         CreateTradingSessionRequest request, string? planCode, string? executionKey,
-        string? accountNumber = null, RestoreContext? restore = null)
+        string? accountNumber = null, RestoreContext? restore = null, string? clientVersion = null)
     {
         var filter = _workspaces.GetMasterFilter(request.WorkspaceId);
         if (filter.StrategiesFilter.Count == 0)
@@ -1211,6 +1260,10 @@ public sealed class TradingSessionService : ITradingSessionService
                 CreatedUtc = DateTime.UtcNow,
                 PriceSource = ResolveExternalPriceSource(accountNumber),
                 EngineVersion = PiootooVersion.Current,
+                // In un run del cBot i fill li genera il bot: la sua versione e' quella che
+                // identifica il motore di esecuzione, e senza di lei due run con lo stesso server
+                // e bot diversi sembrerebbero lo stesso run.
+                ClientVersion = clientVersion,
                 PlanCode = planCode,
                 ExecutionKey = executionKey,
                 SessionId = sessionId,
@@ -1781,6 +1834,7 @@ public sealed class TradingSessionService : ITradingSessionService
             signal.Quantity = result.FinalQuantity;
         }
         session.LastEvaluatedBarTimeUtc = bar.BarTimeUtc;
+        session.LastBarTimeByStream[StreamKey(bar.Symbol, bar.TimeframeMinutes)] = bar.BarTimeUtc;
         var multiAccount = session.ConfiguredAccounts.Count > 0;
         foreach (var signal in signals)
         {
@@ -2478,7 +2532,7 @@ public sealed class TradingSessionService : ITradingSessionService
             // dice con la quantita' a zero (vedi sotto) invece di far sparire il segnale — e quale
             // strategia far girare su quali strumenti resta una scelta del piano.
             candidates = NarrowTemplates(candidates, ref stage,
-                t => !t.ExpiresAtUtc.HasValue || t.ExpiresAtUtc.Value >= now,
+                t => !IsTemplateBarOver(session, t, now),
                 // Niente orario della barra nel testo: il motivo viene deduplicato per stringa da
                 // client e server, e un valore che cambia a ogni barra manderebbe a vuoto la
                 // deduplica riempiendo entrambi i log di righe identiche nella sostanza.
@@ -2621,6 +2675,37 @@ public sealed class TradingSessionService : ITradingSessionService
     /// <c>ExpiresAtUtc</c> non hanno una finestra da far scadere, e su una sessione multi-timeframe
     /// un template del 60m deve sopravvivere alle barre del 15m che gli passano accanto.</para>
     /// </summary>
+    /// <summary>
+    /// Se la barra su cui un template e' valido e' gia' finita, cioe' se il template non si puo' piu'
+    /// consegnare.
+    ///
+    /// <para><b>L'orologio e' lo stream del template.</b> Un ingresso "next bar" vale la barra che si
+    /// apre a <c>ExpiresAtUtc</c>; quella barra e' finita quando il client l'ha spinta chiusa, cioe'
+    /// quando l'ultima barra valutata del suo stream ha apertura <c>&gt;= ExpiresAtUtc</c>. Il confronto
+    /// con <see cref="Session.LastEvaluatedBarTimeUtc"/> (<c>ExpiresAtUtc &gt;= now</c>) teneva vivo il
+    /// template una barra in piu': innocuo finche' il template veniva reclamato nella propria barra,
+    /// ma un template rimasto in lista mentre il conto era in posizione veniva consegnato alla
+    /// chiusura — e siccome la selezione prende il piu' vecchio, da li' in poi ogni barra riceveva
+    /// quello della barra prima (compare-0043, <c>StaleTemplateClaimTests</c>).</para>
+    ///
+    /// <para><b>Attraverso un buco resta valido</b>: finche' dopo il segnale non arriva una barra
+    /// dello stesso stream il template vive, per quanto tempo passi. E' la semantica di
+    /// <c>PendingOrder.ActivatedAtUtc</c> nell'engine interno.</para>
+    ///
+    /// <para>Uno stream mai visto (sessione ripresa da uno stato senza la mappa) ripiega sul confronto
+    /// conservativo di prima: meglio un template tenuto una barra in piu' che uno buttato valido.</para>
+    /// </summary>
+    private static bool IsTemplateBarOver(Session session, OrderIntent template, DateTime now)
+    {
+        if (template.ExpiresAtUtc is not { } expiresAt)
+            return false;
+
+        return session.LastBarTimeByStream.TryGetValue(
+                   StreamKey(template.Symbol, template.TimeframeMinutes), out var lastBar)
+            ? lastBar >= expiresAt
+            : expiresAt < now;
+    }
+
     private static void PurgeExpiredTemplates(Session session, DateTime barTimeUtc)
     {
         if (session.EntryTemplates.Count == 0)
@@ -3289,8 +3374,7 @@ public sealed class TradingSessionService : ITradingSessionService
     {
         var now = session.LastEvaluatedBarTimeUtc ?? DateTime.UtcNow;
         var templates = session.EntryTemplates.Count(t =>
-            t.Status == OrderIntentStatus.Pending &&
-            (!t.ExpiresAtUtc.HasValue || t.ExpiresAtUtc.Value >= now));
+            t.Status == OrderIntentStatus.Pending && !IsTemplateBarOver(session, t, now));
         var assigned = Live(session).Count(i =>
             i.Status == OrderIntentStatus.Pending && i.AssignedAccountNumber is not null);
         return templates + assigned;
@@ -3882,6 +3966,7 @@ public sealed class TradingSessionService : ITradingSessionService
             FirstBarUtc = session.FirstBarUtc,
             LastBarUtc = session.LastBarUtc,
             LastEvaluatedBarTimeUtc = session.LastEvaluatedBarTimeUtc,
+            LastBarTimeByStream = new Dictionary<string, DateTime>(session.LastBarTimeByStream, StringComparer.OrdinalIgnoreCase),
             StrategyNetPnl = new Dictionary<string, decimal>(session.StrategyNetPnl, StringComparer.OrdinalIgnoreCase),
             EntryFills = fill,
             EntriesByDay = session.EntriesByDay
@@ -4148,6 +4233,8 @@ public sealed class TradingSessionService : ITradingSessionService
         session.FirstBarUtc = state.FirstBarUtc;
         session.LastBarUtc = state.LastBarUtc;
         session.LastEvaluatedBarTimeUtc = state.LastEvaluatedBarTimeUtc;
+        foreach (var (stream, lastBar) in state.LastBarTimeByStream)
+            session.LastBarTimeByStream[stream] = lastBar;
         session.Status = state.Status;
 
         RecordActivity(session, SessionActivityKind.Sessione,

@@ -120,6 +120,10 @@ public sealed class SessionStateFile
 
     public DateTime? LastEvaluatedBarTimeUtc { get; init; }
 
+    /// <summary>Apertura dell'ultima barra valutata per stream (<c>SIMBOLO|minuti</c>): l'orologio della scadenza dei template.</summary>
+    public IReadOnlyDictionary<string, DateTime> LastBarTimeByStream { get; init; } =
+        new Dictionary<string, DateTime>();
+
     /// <summary>PnL netto per strategia: è la priorità di consegna dei template.</summary>
     public IReadOnlyDictionary<string, decimal> StrategyNetPnl { get; init; } =
         new Dictionary<string, decimal>();

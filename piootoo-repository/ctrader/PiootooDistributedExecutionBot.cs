@@ -192,6 +192,11 @@ namespace cAlgo.Robots
         /// </summary>
         private const int MaxSignalsPerDrain = 200;
 
+        // 7.4.1 (13/09/2026) — un ingresso con la deadline CloseAtUtc gia' passata viene scartato al
+        // piazzamento invece di aprire una posizione che CloseExpiredPositions chiude un secondo
+        // dopo (compare-0043, PTS_GC_PCH_004_240 alla riapertura). Lato server, nella stessa patch,
+        // il claim non consegna piu' un template la cui barra e' gia' finita.
+        //
         // 4.0.1 (03/09/2026) — il pannello del grafico non elenca piu' le strategie una per una: su
         // un piano vero erano decine di righe che coprivano il grafico, e le strategie sullo stesso
         // stream ripetevano lo stesso conteggio di candele, perche' la finestra e' una proprieta'
@@ -260,7 +265,7 @@ namespace cAlgo.Robots
         // leggendo questo sorgente.
         // Il disallineamento non blocca nulla: entrambi stampano la propria versione all'avvio, e
         // il confronto si fa leggendo i due log.
-        private const string BotVersion = "7.4.0"; // major.minor deve seguire PiootooVersion
+        private const string BotVersion = "7.4.2"; // major.minor deve seguire PiootooVersion
         private const string StatusChartObjectName = "PiootooConnectionStatus";
 
         // Riquadro rosso al centro del grafico, separato dal pannello di stato: e' l'errore fatale
@@ -892,7 +897,11 @@ namespace cAlgo.Robots
                     AccountNumber = _accountNumber,
                     // Null invece di "DalPiano": un campo assente lascia decidere il piano, ed e'
                     // esattamente il comportamento storico per i server che non conoscono il campo.
-                    RunProfile = RunProfile == RunProfileParam.DalPiano ? null : RunProfile.ToString()
+                    RunProfile = RunProfile == RunProfileParam.DalPiano ? null : RunProfile.ToString(),
+                    // Finisce in origin.json della cartella del run e nell'elenco dei backtest: e'
+                    // il bot a generare i fill, quindi e' la sua versione a dire con che motore e'
+                    // nato il run. Un server che non conosce il campo lo ignora.
+                    ClientVersion = BotVersion
                 });
             }
             catch (Exception ex)
@@ -3133,6 +3142,17 @@ namespace cAlgo.Robots
                              $"(ValidFrom {intent.ValidFromUtc.Value:yyyy-MM-dd HH:mm:ss}Z)";
             }
 
+            // Deadline gia' passata. Non e' discrezionale: una posizione aperta oltre il proprio
+            // CloseAtUtc la chiude CloseExpiredPositions al primo giro, un secondo dopo, e il trade
+            // paga spread e commissioni senza mai esistere come idea della strategia. Succede alla
+            // riapertura dopo un buco: il template del venerdi' attraversa il fine settimana (e' la
+            // semantica "next bar"), ma la sua deadline e' la fine della sessione del venerdi'.
+            // compare-0043: 7 ingressi PTS_GC_PCH_004_240 chiusi `Closed` a 0 barre, alla riapertura
+            // di domenica e al Labor Day; nessuno nell'interno.
+            if (motivo is null && intent.CloseAtUtc is { } closeAt && closeAt <= Server.TimeInUtc)
+                motivo = $"deadline CloseAtUtc {closeAt:yyyy-MM-dd HH:mm:ss}Z gia' passata: " +
+                         "la posizione verrebbe chiusa al primo controllo";
+
             var stop = (double)(intent.StopLoss ?? 0m);
 
             // Nel profilo sorgente ogni segnale deve diventare un ordine: e' il run che misura la
@@ -4598,6 +4618,9 @@ namespace cAlgo.Robots
 
             /// <summary>Nome del <c>TradingRunProfile</c>. Null = comportamento storico.</summary>
             public string RunProfile { get; set; }
+
+            /// <summary>Versione di questo bot (<c>BotVersion</c>), per il marcatore della cartella del run.</summary>
+            public string ClientVersion { get; set; }
         }
 
         private sealed class TradingSessionDescriptorDto
