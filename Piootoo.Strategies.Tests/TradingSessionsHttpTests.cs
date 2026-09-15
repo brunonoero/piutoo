@@ -61,6 +61,11 @@ public sealed class TradingSessionsHttpTests : IDisposable
         {
             Name = "HTTP", StrategiesFilter = [_strategy.Id]
         });
+
+        // Un conto senza anagrafica non apre sessione (409): il server non saprebbe capitale e tabella
+        // di conversione. I conti dei piani di questi test vanno quindi registrati come in produzione;
+        // "999" resta fuori di proposito, e' il conto estraneo al piano.
+        TestAccountRegistry.Register(workspaces, "12345", "777", "778", "111", "222", "9001", "9002", "9003", "9004");
     }
 
     /// <summary>
@@ -227,7 +232,10 @@ public sealed class TradingSessionsHttpTests : IDisposable
     private async Task<TradingSessionDescriptor> OpenPlan(OpenTradingPlanSessionRequest request)
     {
         var response = await _client.PostAsJsonAsync("api/v1/trading-sessions/open-plan", request);
-        response.EnsureSuccessStatusCode();
+        // Il corpo e' un ProblemDetails che dice il perche': EnsureSuccessStatusCode lo buttava via e
+        // lasciava solo "409 (Conflict)".
+        Assert.True(response.IsSuccessStatusCode,
+            $"open-plan {(int)response.StatusCode}: {await response.Content.ReadAsStringAsync()}");
         return (await response.Content.ReadFromJsonAsync<TradingSessionDescriptor>(JsonOptions))!;
     }
 
@@ -282,7 +290,11 @@ public sealed class TradingSessionsHttpTests : IDisposable
 
         var intent = Assert.Single((await Push(descriptor, 1, "direct-bar")).Intents);
         Assert.Equal(OrderIntentStatus.Pending, intent.Status);
-        Assert.Equal(3.75m, intent.FinalQuantity);
+        // In esecuzione diretta la conversione del conto si applica alla nascita dell'intent: 3,9
+        // contratti Piootoo sul capitale di riferimento (1.000.000) diventano 0,39 su un conto da
+        // 100.000 (TestAccountRegistry.DefaultBalance). Il passo 0,25 della sessione non esiste piu':
+        // la granularita' e' della tabella di conversione (docs/decisioni.md 2026-08-05).
+        Assert.Equal(0.39m, intent.FinalQuantity);
 
         // Stessa chiave ma distribuzione attiva: è un'altra esecuzione, non la stessa ripresa.
         var distributed = await _client.PostAsJsonAsync("api/v1/trading-sessions/open-plan",
@@ -424,12 +436,16 @@ public sealed class TradingSessionsHttpTests : IDisposable
     public async Task FullLifecycleUsesSharedSizingAndProblemDetails(ExecutionMode mode)
     {
         var descriptor = await Create(mode);
-        Assert.Equal(0.25m, descriptor.InstrumentMetadata.Single().QuantityStep);
+        // La granularita' di volume non e' piu' della sessione ma della tabella di conversione del
+        // conto (docs/decisioni.md 2026-08-05): sulla sessione resta il contratto intero.
+        Assert.Equal(1m, descriptor.InstrumentMetadata.Single().QuantityStep);
         descriptor = await Status(descriptor, "start", HttpStatusCode.OK);
 
         var first = await Push(descriptor, 1, $"{mode}-one");
         var intent = Assert.Single(first.Intents);
-        Assert.Equal(3.75m, intent.FinalQuantity);
+        // ServerSimulated arrotonda ai contratti interi (FuturesContracts); ExternalBroker rinvia
+        // l'arrotondamento al conto (Deferred) e senza conto la conversione e' l'identita'.
+        Assert.Equal(mode == ExecutionMode.ServerSimulated ? 3m : 3.9m, intent.FinalQuantity);
         Assert.Equal(3.9m, intent.BaseQuantity);
         Assert.Equal(1m, intent.StrategyEquityMultiplier);
 

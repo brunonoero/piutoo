@@ -2548,22 +2548,14 @@ public sealed class TradingSessionService : ITradingSessionService
             // 14/10/2024 13:15) hanno prodotto due stop order riempiti allo stesso prezzo e due
             // posizioni da 20 lotti sullo stesso segnale.
             //
-            // ATTENZIONE, punto contestato e NON risolto qui. `docs/domini/distribuzione-multi-account.md`
-            // §4.3 dice che questo filtro deve seguire `EnforceConcurrencyLimits` come i lucchetti 2
-            // e 4 — è concorrenza, non identità del segnale — e misura cosa costa lasciarlo
-            // incondizionato: su un backtest sorgente NQ del 17/03/2026, nove template per barra e UN
-            // solo claim servito, otto strategie su nove fuori dal campione. Nella stessa direzione
-            // vanno `SourceBacktestSampleTests.WithoutOperationalLocks_TheStrategyIsServedAgainOnEveryBar`
-            // e `TheStrategyLimitCountsFills_NotUnexecutedOrders`, che infatti oggi FALLISCONO.
-            //
-            // In direzione opposta va `RunProfileTests.BacktestSorgente_NonConsegnaDueIngressiDellaStessaStrategia`,
-            // che oggi PASSA e pretende il filtro attivo anche a lucchetti spenti. Le due aspettative
-            // non sono conciliabili con la scadenza: sulla barra N+1 l'intent della barra N è ancora
-            // dentro la propria finestra (`>=`, vedi la nota in SourceBacktestSampleTests), quindi o
-            // il filtro lo blocca o il claim consegna il secondo ordine.
-            //
-            // Finché non è deciso quale delle due valga, resta incondizionato: è il comportamento in
-            // produzione oggi, e cambiarlo altera quali trade fa un run sorgente.
+            // Vale SEMPRE, anche a lucchetti spenti (deciso il 15/09/2026). Si era sostenuto che
+            // dovesse seguire `EnforceConcurrencyLimits`, perche' il campione sorgente su cui Titano
+            // calcolava le rotazioni doveva contenere ogni segnale; Titano non c'e' piu', e resta solo
+            // il rischio del doppio ordine. La scadenza non basta a sostituirlo: sulla barra N+1
+            // l'intent della barra N e' ancora dentro la propria finestra, quindi o lo blocca questo
+            // filtro o il claim consegna il secondo ordine. Vedi
+            // `docs/domini/distribuzione-multi-account.md` §4.3 ter e
+            // `RunProfileTests.BacktestSorgente_NonConsegnaDueIngressiDellaStessaStrategia`.
             //
             // Il LATO fa parte della chiave, e senza di esso questo filtro scioglie i bracket:
             // le due gambe di un motore non simmetrico nascono sulla STESSA barra e sono due motivi

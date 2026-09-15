@@ -306,10 +306,14 @@ public sealed class ConcurrencyLimitsMatrixTests : IDisposable
     }
 
     [Fact]
-    public async Task ParallelPollsOfTheSameAccount_ProduceExactlyOneClaim()
+    public async Task ParallelPollsOfTheSameAccount_NeverClaimTheSameTemplateTwice()
     {
         // Il passo 1 legge e poi scrive: se non fosse dentro il lock della sessione, due poll
-        // simultanei dello stesso account potrebbero reclamare due template diversi.
+        // simultanei dello stesso account potrebbero reclamare due volte lo stesso template.
+        //
+        // Quattro template su quattro simboli, tetto illimitato: il conto li prende legittimamente
+        // tutti e quattro (il lucchetto conto+simbolo non esiste piu', vedi docs/decisioni.md
+        // 2026-08-11). L'invariante non e' "un claim solo" ma "ogni template una volta sola".
         var f = New(symbols: 4, [Row("1001", maxConcurrent: 0)]);
         for (var i = 0; i < 4; i++) f.PushBar(i);
 
@@ -329,13 +333,16 @@ public sealed class ConcurrencyLimitsMatrixTests : IDisposable
 
         Assert.Empty(errors);
         Assert.NotEmpty(responses);
-        Assert.Single(responses.Select(x => x.IntentId).Distinct());
-        // E in sessione esiste davvero un solo intent di ingresso: nessun claim orfano.
+        // Ogni risposta e' un claim diverso, e ogni claim e' di un template diverso.
+        Assert.Equal(responses.Count, responses.Select(x => x.IntentId).Distinct().Count());
+        Assert.Equal(responses.Count, responses.Select(x => (x.StrategyCode, x.Symbol)).Distinct().Count());
+        Assert.True(responses.Count <= 4);
+        // E in sessione esistono esattamente gli intent consegnati: nessun claim orfano.
         var entries = f.Sessions
             .GetIntents(f.Descriptor.SessionId, f.Descriptor.SessionToken)
             .Where(x => x.Kind == OrderIntentKind.Entry)
             .ToArray();
-        Assert.Single(entries);
+        Assert.Equal(responses.Count, entries.Length);
     }
 
     [Fact]

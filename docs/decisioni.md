@@ -4029,3 +4029,23 @@ che il motore fa. Difetto di artefatto, non di esecuzione, ma e' costato mezza i
   dichiara. Nella stessa griglia l'*Intervallo* di un run del cBot ancora in corso si scrive
   `inizio → …` invece di restare vuoto: l'avvio lo si sa dall'execution key, e' la fine che manca.
   Bot ricompilato a 7.4.2, stesso contratto. `BacktestListVersionTests`.
+
+- **2026-09-15** — **La suite torna verde: 11 test aggiornati alle regole attuali, 2 tolti.** I 13 rossi
+  dell'11/09 non erano difetti del codice ma test rimasti indietro rispetto a decisioni gia' prese.
+  Letti uno per uno contro le invarianti prima di toccarli:
+
+  | test | causa | correzione |
+  |---|---|---|
+  | 6 di `TradingSessionsHttpTests` | `409`: i piani usavano conti mai registrati, e dal registro globale un conto senza anagrafica non apre sessione | conti registrati nel costruttore; `OpenPlan` riporta il `ProblemDetails` invece del solo codice |
+  | `FullLifecycleUsesSharedSizingAndProblemDetails` ×2 | passo di volume 0,25 sulla sessione, spostato sulla tabella di conversione il 05/08 | passo 1; quantita' 3 in `ServerSimulated` (contratti interi), 3,9 in `ExternalBroker` (`Deferred`) |
+  | `DirectExecutionPlan_…` | quantita' 3,75 | 0,39: in esecuzione diretta la conversione del conto scala per 100.000 / 1.000.000 |
+  | `RunProfileTests.IlPiano_NonPuoDisarmare…` | due piani con lo stesso codice, che dal registro e' unico fra i workspace | codice piano unico per fixture |
+  | `RunProfileTests.IlPushDichiaraQuantoCEDaReclamare` | finestra che non si sovrappone, rifiutata di proposito (R7) | la finestra comincia dalla candela precedente, come quella del cBot |
+  | `ConcurrencyLimitsMatrixTests.ParallelPollsOfTheSameAccount_…` | pretendeva un claim solo; con quattro simboli e tetto illimitato quattro sono corretti dall'11/08 | rinominato `…NeverClaimTheSameTemplateTwice`: ogni template una volta, nessun claim orfano |
+
+  **`AccountHasEntryInFlight` vale sempre**, e sono tolti i due test di `SourceBacktestSampleTests` che
+  pretendevano che seguisse i lucchetti operativi (`WithoutOperationalLocks_TheStrategyIsServedAgainOnEveryBar`,
+  `TheStrategyLimitCountsFills_NotUnexecutedOrders`). L'argomento per spegnerlo era il campione sorgente
+  completo per Titano, rimosso il 03/09; resta il doppione reale del 14/10/2024, e la scadenza da sola
+  non lo ferma, perche' sulla barra N+1 l'intent della barra N e' ancora dentro la propria finestra.
+  `distribuzione-multi-account.md` §4.3 ter; chiusa la voce «Da decidere» di `lavori-in-corso.md`.

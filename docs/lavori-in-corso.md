@@ -278,57 +278,14 @@ con regressioni in `EntryLimitPerSideTests` e `SessionEntryLimitTests`; voce in
 [`decisioni.md`](decisioni.md) 2026-09-07. Questa sezione restava qui per errore e ha fatto
 riproporre il punto come aperto l'11/09.
 
-## La suite rossa: stato all'11/09/2026
+## La suite: verde dal 15/09/2026
 
-**13 falliti, 927 passati, 940 totali** (erano 43 su 760 il 05/09, 55 su 606 il 31/08). Le
-famiglie «orario di sessione» e «segnale non emesso» del censimento del 05/09 sono rientrate.
-Restano:
-
-| famiglia | test | lettura |
-|---|---|---|
-| sessione HTTP | 8 di `TradingSessionsHttpTests` (`409 Conflict` all'apertura, sizing `0.25`→`1`) | isolamento fra classi di test e conversione dell'account |
-| campione sorgente | i 2 di `SourceBacktestSampleTests` | la questione `AccountHasEntryInFlight` qui sotto |
-| profilo di run | `RunProfileTests.IlPiano_NonPuoDisarmareILucchetti…`, `IlPushDichiaraQuantoCEDaReclamare` | da guardare uno per uno |
-| concorrenza | `ConcurrencyLimitsMatrixTests.ParallelPollsOfTheSameAccount_ProduceExactlyOneClaim` | da guardare |
+**0 falliti** (erano 13 l'11/09, 43 il 05/09, 55 il 31/08). I 13 erano tutti test rimasti indietro
+rispetto a regole introdotte dopo, nessuno un difetto del codice: dettaglio in
+[`decisioni.md`](decisioni.md) 2026-09-15.
 
 Regola invariata: un test che torna verde perche' riscritto e' il modo tipico di cementare un
 bug; ogni caso va letto contro l'invariante di `CLAUDE.md` prima di toccarlo.
-
-## Da decidere: `AccountHasEntryInFlight` segue i lucchetti operativi, o no? (2026-08-31)
-
-Due test si contraddicono, e non e' una svista di uno dei due: descrivono due progetti diversi dello
-stesso filtro. Finche' non e' deciso, il codice tiene il comportamento **di produzione** — filtro
-incondizionato — e due test restano rossi.
-
-**Tesi A — deve seguire `EnforceConcurrencyLimits`.** La sostengono
-`docs/domini/distribuzione-multi-account.md` §4.3 (che porta anche la misura: backtest sorgente NQ del
-17/03/2026, nove template per barra, **un solo** claim servito, otto strategie su nove fuori dal
-campione) e i due test ancora rossi
-`SourceBacktestSampleTests.WithoutOperationalLocks_TheStrategyIsServedAgainOnEveryBar` e
-`TheStrategyLimitCountsFills_NotUnexecutedOrders`. L'argomento e' che il campione sorgente deve
-contenere tutte le strategie del masterfilter, perche' e' il `trades.json` su cui Titano calcola le
-rotazioni: applicargli un vincolo operativo lo falsa.
-
-**Tesi B — deve valere sempre.** La sostiene
-`RunProfileTests.BacktestSorgente_NonConsegnaDueIngressiDellaStessaStrategia`, che oggi passa.
-L'argomento e' il doppione reale del 14/10/2024 (PTS_NQ_PCH_002_15, due stop riempiti allo stesso
-prezzo): a lucchetti spenti niente lo fermerebbe.
-
-**Perche' la scadenza non le concilia.** §4.3 sostiene che `PurgeExpiredEntryIntents` toglie la
-condizione che genera il doppione. Non basta: sulla barra N+1 l'intent della barra N e' ancora
-**dentro** la propria finestra — `ExpiresAtUtc` e' l'apertura dell'ultima barra valida e il confronto
-e' conservativo, come dice la nota in `SourceBacktestSampleTests` — quindi muore solo su N+2. Nella
-barra N+1 o lo blocca il filtro, o il claim consegna il secondo ordine. Non c'e' una terza strada che
-non sia cambiare la convenzione di scadenza, che a sua volta romperebbe
-`AnExpiredEntry_ReleasesTheStrategyOnceItsWindowCloses`.
-
-**Cosa serve per decidere**, ed e' una domanda di dominio, non di codice: nel run sorgente, due ordini
-della stessa strategia e dello stesso lato vivi insieme su barre diverse sono un campione **piu'**
-fedele (il motore quel livello lo riemette davvero) o **meno** fedele (il conto vero non li avrebbe
-mai entrambi, perche' in produzione i lucchetti sono accesi)? Se vale la prima, tesi A e si aggiorna
-`RunProfileTests`; se vale la seconda, tesi B e si aggiornano §4.3 e i due test di
-`SourceBacktestSampleTests`. In entrambi i casi va corretto il documento di dominio, che oggi descrive
-un codice che non esiste.
 
 ## Riferimenti codice
 

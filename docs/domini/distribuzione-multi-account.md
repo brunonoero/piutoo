@@ -106,23 +106,20 @@ claim la cui risposta si è persa in rete, e il client lo riconosce come già in
 (`_submittedIntentIds`) e smette di drenare. Senza budget residuo non ci sarebbe
 comunque niente di nuovo da consegnargli.
 
-### Passo 3 — un ingresso per coppia (strategia, simbolo), solo a lucchetti accesi
+### Passo 3 — un ingresso per (strategia, simbolo, lato), sempre
 
 ```csharp
-if (IsConcurrentTradeLimitActive(session))
-    .Where(t => !AccountHasEntryInFlight(account, t.StrategyCode, t.Symbol))
+.Where(t => !AccountHasEntryInFlight(account, t.StrategyCode, t.Symbol, t.Side))
 ```
 
-Un account non riceve un template di una coppia (strategia, simbolo) su cui ha già
+Un account non riceve un template di una terna (strategia, simbolo, lato) su cui ha già
 un ingresso `Pending` o una posizione aperta: quel segnale è già in mano al broker, e
 un secondo ordine sarebbe rischio doppio sullo stesso motivo di ingresso.
 
-**È un vincolo di concorrenza** — dice *quanti* ordini della stessa strategia possono
-stare a mercato insieme — quindi segue `EnforceConcurrencyLimits` come il passo 2 e il
-lucchetto 4. Il tetto della *strategia* è un altro livello, sta in
-`MaxEntriesPerSession`, e quello vale in ogni profilo. Fino al 18/08/2026 questo filtro
-era incondizionato e classificato come "identità del segnale": §4.3 dice cosa è
-costato.
+**Vale in ogni profilo, lucchetti spenti compresi.** La classificazione è cambiata due
+volte — incondizionato fino al 18/08, poi descritto come vincolo di concorrenza che segue
+`EnforceConcurrencyLimits` (§4.3 bis), mentre il codice era rimasto incondizionato — ed è
+chiusa il 15/09/2026 nel verso del codice: §4.3 ter.
 
 ### Passi 4-7 — selezione del template
 
@@ -404,6 +401,30 @@ cBot: è la metà mancante dello stallo descritto in `docs/decisioni.md` (15/08)
 Resta scoperto il motore che non dichiara `ExpiresAtUtc`: lì due ordini della stessa
 coppia possono coesistere per costruzione, e nel run sorgente è il comportamento voluto.
 A lucchetti accesi il passo 3 li ferma come prima.
+
+### 4.3 ter Il passo 3 vale sempre — deciso il 2026-09-15
+
+§4.3 bis descrive un codice che non è mai esistito: `AccountHasEntryInFlight` è rimasto
+incondizionato, e due test (`SourceBacktestSampleTests.WithoutOperationalLocks_TheStrategyIsServedAgainOnEveryBar`
+e `TheStrategyLimitCountsFills_NotUnexecutedOrders`) sono rimasti rossi dal 31/08 perché
+pretendevano la versione del documento. Il 15/09 la scelta è stata fatta nel verso del
+codice, e i due test sono stati tolti.
+
+**Perché.** L'argomento per spegnerlo era il campione sorgente: il `trades.json` su cui
+Titano calcolava le rotazioni doveva contenere ogni segnale del masterfilter. Titano è
+stato rimosso il 03/09/2026, e con lui il motivo. Resta il rischio che il filtro esiste
+per fermare, il doppione reale del 14/10/2024.
+
+**Perché la scadenza non lo sostituisce.** `ExpiresAtUtc` è l'apertura dell'ultima barra
+su cui l'intent vale e il confronto della spazzata è conservativo: sulla barra N+1
+l'intent della barra N è ancora dentro la propria finestra e muore solo su N+2. In quella
+barra, o lo blocca il passo 3, o il claim consegna il secondo ordine. La tabella di §4.3
+va letta quindi con il passo 3 su «**no, mai**».
+
+Il costo misurato in §4.3 bis resta vero: a lucchetti spenti una strategia che ha un
+ordine non riempito in volo non riceve il livello ricalcolato della barra dopo, finché la
+spazzata non lo annulla. È il comportamento del conto vero, dove i lucchetti sono accesi.
+Lo difende `RunProfileTests.BacktestSorgente_NonConsegnaDueIngressiDellaStessaStrategia`.
 
 ### 4.4 Il profilo del run
 

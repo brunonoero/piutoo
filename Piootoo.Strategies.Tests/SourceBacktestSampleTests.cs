@@ -16,16 +16,20 @@ namespace Piootoo.Strategies.Tests;
 /// <list type="number">
 /// <item><b>La strategia</b> — <c>MaxEntriesPerSession</c>. Sempre rispettato, in ogni profilo: è
 /// una regola del motore, non della piattaforma.</item>
-/// <item><b>La piattaforma</b> — <c>MaxConcurrentTrades</c>, slot di gruppo,
-/// <c>AccountHasEntryInFlight</c>. Sono i vincoli operativi del setup del server, e nel run sorgente
-/// si spengono: applicarli falserebbe il campione.</item>
+/// <item><b>La piattaforma</b> — <c>MaxConcurrentTrades</c> e lo slot per conto. Sono i vincoli
+/// operativi del setup del server, e nel run sorgente si spengono: applicarli falserebbe il
+/// campione.</item>
 /// </list>
 ///
+/// <para><c>AccountHasEntryInFlight</c> — un solo ingresso in volo per (strategia, simbolo, lato) —
+/// non sta in nessuno dei due livelli e vale <b>sempre</b>, lucchetti spenti compresi: e' la difesa
+/// contro il doppio ordine reale del 14/10/2024 (PTS_NQ_PCH_002_15). Deciso il 15/09/2026, quando
+/// sono stati tolti i due test che pretendevano il contrario; vedi
+/// <c>docs/domini/distribuzione-multi-account.md</c> §4.3 ter.</para>
+///
 /// <para>Il caso che ha portato a questi test è un backtest sorgente NQ del 17/03/2026: nove
-/// template di ingresso per barra, un solo claim servito, e per tutti gli altri <i>l'account ha già
-/// un ingresso in corso per quella strategia su quel simbolo</i>. Il lucchetto di identità era
-/// incondizionato (livello 2 applicato in un profilo che lo spegne) e nessuno annullava gli intent
-/// reclamati e mai eseguiti, che restavano <c>Pending</c> per il resto del run.</para>
+/// template di ingresso per barra, un solo claim servito, e nessuno annullava gli intent reclamati e
+/// mai eseguiti, che restavano <c>Pending</c> per il resto del run.</para>
 ///
 /// <para>Riferimenti: <c>docs/domini/distribuzione-multi-account.md</c> §4.3,
 /// <c>TradingSessionService.PurgeExpiredEntryIntents</c>.</para>
@@ -56,21 +60,6 @@ public sealed class SourceBacktestSampleTests : IDisposable
 
         Assert.Equal(3, claimed.Count);
         Assert.Equal(3, claimed.Select(x => x.StrategyCode).Distinct(StringComparer.OrdinalIgnoreCase).Count());
-    }
-
-    [Fact]
-    public void WithoutOperationalLocks_TheStrategyIsServedAgainOnEveryBar()
-    {
-        // Barra dopo barra il campione non si degrada: gli stop della barra precedente scadono, e la
-        // stessa strategia torna a mercato con il livello ricalcolato. È il punto in cui il run
-        // vecchio si spegneva dopo il primo claim.
-        var f = New(strategies: 3, enforceConcurrencyLimits: false);
-
-        for (var bar = 0; bar < 5; bar++)
-        {
-            f.PushBar();
-            Assert.Equal(3, f.Drain("1001").Count);
-        }
     }
 
     [Fact]
@@ -188,21 +177,6 @@ public sealed class SourceBacktestSampleTests : IDisposable
         f.PushBar();
 
         Assert.Empty(f.Drain("1001"));
-    }
-
-    [Fact]
-    public void TheStrategyLimitCountsFills_NotUnexecutedOrders()
-    {
-        // Uno stop non eseguito non consuma il tetto: è il caso normale del Price Channel, che
-        // riemette il livello sulla barra dopo.
-        var f = New(strategies: 1, enforceConcurrencyLimits: false, maxEntriesPerSession: 1);
-
-        f.PushBar();
-        Assert.Single(f.Drain("1001"));
-
-        f.PushBar();
-
-        Assert.Single(f.Drain("1001"));
     }
 
     [Fact]

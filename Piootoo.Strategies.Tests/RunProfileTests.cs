@@ -242,6 +242,8 @@ public sealed class RunProfileTests : IDisposable
 
     // --------------------------------------------------------------------------------- fixture
 
+    private static int _planSequence;
+
     /// <summary>
     /// Un piano su un solo account e un masterfilter di strategie tutte sulla stessa coppia
     /// (simbolo, timeframe): è la configurazione in cui i lucchetti mordono di più, quindi quella in
@@ -269,10 +271,12 @@ public sealed class RunProfileTests : IDisposable
         new TradingJsonStore(workspaces.GetBacktestPath(workspace.Id, "source")).Initialize();
         TestAccountRegistry.Register(workspaces, "1001");
 
+        // Il codice piano e' unico fra i workspace: un test che crea due fixture ne vuole due.
+        var planCode = $"PLANPROFILO{Interlocked.Increment(ref _planSequence)}";
         var plans = new TradingPlanService(workspaces);
         plans.Save(workspace.Id, new SaveTradingPlanRequest
         {
-            Code = "PLANPROFILO",
+            Code = planCode,
             Name = "Piano profilo",
             AccountNumber = "1001",
             MaxConcurrentTrades = maxConcurrent,
@@ -282,10 +286,11 @@ public sealed class RunProfileTests : IDisposable
         var sessions = new TradingSessionService(
             workspaces, plans, new AllStrategiesEvaluationService(), positionSizing: new PositionSizingService());
 
-        return new Fixture(sessions, selected);
+        return new Fixture(sessions, selected, planCode);
     }
 
-    private sealed class Fixture(TradingSessionService sessions, IReadOnlyList<StrategyDefinition> strategies)
+    private sealed class Fixture(
+        TradingSessionService sessions, IReadOnlyList<StrategyDefinition> strategies, string planCode)
     {
         private static readonly DateTime Origin = new(2026, 1, 5, 0, 0, 0, DateTimeKind.Utc);
 
@@ -298,7 +303,7 @@ public sealed class RunProfileTests : IDisposable
             TradingRunProfile profile, ClientRunMode runMode = ClientRunMode.Backtest) =>
             sessions.OpenFromPlan(new OpenTradingPlanSessionRequest
             {
-                PlanCode = "PLANPROFILO",
+                PlanCode = planCode,
                 ClientRunMode = runMode,
                 // Volutamente la STESSA chiave per ogni apertura: è così che si verifica che il
                 // profilo entri nell'identità dell'esecuzione (ProfiliDiversi_NonSiRiprendonoAVicenda).
@@ -358,8 +363,16 @@ public sealed class RunProfileTests : IDisposable
                         Sequence = barTime.Ticks,
                         IdempotencyKey = $"win-{barTime:O}",
                         EvaluateLastCandle = evaluateLastCandle,
+                        // La finestra comincia dalla candela precedente, come quella del cBot: il
+                        // server rifiuta una finestra che non si sovrappone a cio' che ha gia'
+                        // (R7 di finestra-candele-e-riscaldamento.md), invece di accodare un buco.
                         Candles =
                         [
+                            new OhlcvData
+                            {
+                                DateTime = barTime.AddMinutes(-strategy.TimeframeMinutes),
+                                Open = 100, High = 101, Low = 99, Close = 100, Volume = 1
+                            },
                             new OhlcvData
                             {
                                 DateTime = barTime, Open = 100, High = 101, Low = 99, Close = 100, Volume = 1
