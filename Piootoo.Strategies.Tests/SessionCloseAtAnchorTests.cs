@@ -95,6 +95,37 @@ public sealed class SessionCloseAtAnchorTests(ITestOutputHelper output)
         Assert.Equal(TimeSpan.FromMinutes(1), sessionClose - deadline);
     }
 
+    /// <summary>
+    /// La barra proiettata di un ordine "next bar" nato sull'ultima barra del venerdì cade di
+    /// sabato, dove nessun calendario ha sessione. La deadline non si risolve lì ma alla fine del
+    /// primo giorno di sessione che il calendario dichiara: lunedì per FDAX, domenica per NQ ed ES,
+    /// che la dichiarano per le settimane in cui il future apre davvero domenica sera. Che quella
+    /// domenica abbia poi una barra o no lo sa solo il fill: se la deadline è ancora passata quando
+    /// l'ordine si riempie, la risolve <c>PiootooTradingService</c> sulla sessione del fill
+    /// (<c>SessionExitAfterGapFillTests</c>).
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(AnchorOneWithSessionExit))]
+    [MemberData(nameof(AnchorZeroWithSessionExit))]
+    public void AProjectedBarOnANonSessionDayClosesAtTheEndOfTheNextDeclaredSession(Type type)
+    {
+        // Sabato 17/01/2026 00:00Z: la barra 4h proiettata dopo l'ultima del venerdì (FDAX,
+        // 21:00-01:00 Roma), o comunque un istante di sabato.
+        var saturday = Utc("2026-01-17T00:00:00Z");
+        var (deadline, _, _) = Measure(type, saturday);
+
+        var strategy = (ITradingStrategy)Activator.CreateInstance(type)!;
+        var grid = new SessionGrid(MarketCalendarRegistry.Current.Get(strategy.Symbol));
+        var projectedDay = grid.SessionDayOf(saturday);
+        Assert.False(grid.IsSessionDay(projectedDay));
+
+        var firstSessionDay = projectedDay.AddDays(1);
+        while (grid.IsSessionDay(firstSessionDay) == false)
+            firstSessionDay = firstSessionDay.AddDays(1);
+
+        Assert.Equal(grid.SessionOpenUtc(firstSessionDay.AddDays(1)).AddMinutes(-1), deadline);
+    }
+
     private (DateTime Deadline, DateTime SessionClose, DateTime SessionOpen) Measure(
         Type type, DateTime barUtc)
     {

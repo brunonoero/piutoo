@@ -49,19 +49,32 @@ orologio supera `CloseAtUtc`, cioe' all'apertura di quella barra, un'ora prima: 
 i due esecutori che vale per ogni BIASW, non una scelta di questo porting, ed e' da misurare al primo
 confronto (vedi `compare/`).
 
-## Cosa NON e' verificato
+## Cosa e' verificato e cosa no
 
-- **Nessuna delle quattro e' verificata sui trade.** Il dossier cita le liste di riferimento
+**Le due FDAX sul feed interno, 24/01/2022 → 30/05/2025** (workspace `v02-fdax-interno`, run
+`pt2-fdax-interno-2022-2025-v2`, senza spread, `RejectWrongSideLevels` spento, versione 7.4.4):
+
+| Scheda | Trade scheda | Trade nostri | Netto scheda | Netto nostro |
+|---|---|---|---|---|
+| S01 BSW 1h | 166 | **166** | $191.311 | 180.711 |
+| S03 PC 4h | 884 | 850 | $264.639 | 274.000 |
+
+Il numero di trade e' il criterio del dossier (§5) in assenza delle liste; il primo run, prima delle
+due correzioni del motore del 16/09 (rollover BIASW, deadline di sessione sul fill: `decisioni.md`),
+dava 84 e 873. Il confronto entrata per entrata resta da fare.
+
+- **Le liste trade del dossier non sono nel repository.** Il dossier le cita
   (`FDAX_1h/consegna/trades/fam01_BIASW.csv`, `NQ_4h/consegna/trades/fam01_PC.csv`,
-  `FDAX_4h/consegna/trades/fam01_PC.csv`, `NQ_30m/consegna/trades/fam01_PC.csv`) ma in
-  `run-engine-v2/` c'e' il solo dossier: **le liste vanno chieste a chi lo ha prodotto** e messe
-  accanto al dossier prima di qualunque confronto. Procedura in
+  `FDAX_4h/consegna/trades/fam01_PC.csv`, `NQ_30m/consegna/trades/fam01_PC.csv`): **vanno chieste a
+  chi lo ha prodotto** e messe accanto al dossier. Procedura in
   [`porting-da-report-sweep.md`](porting-da-report-sweep.md) §"Verificare il porting".
-- **Datafeed.** `@NQ_240` e `@NQ_30` esistono. `@FDAX_60` **non esiste** e va generato con
-  `aggregate_flat_feed.py` (ancoraggio 01:00, gia' in tabella). `@FDAX_240` esiste ma e' ancorato a
-  00:00 (voce in [`../lavori-in-corso.md`](../lavori-in-corso.md)): va rigenerato, altrimenti canale e
-  sessioni di `S03` sono su bucket diversi da quelli della ricerca e il confronto e' inquinato in
-  partenza.
+- **Datafeed.** `@FDAX_1`, `@FDAX_60` e `@FDAX_240` sono generati dal CSV del vendor in
+  `datafeed-future/` (UTC, etichetta di apertura, ancoraggio 01:00). Per NQ il loop al minuto
+  pretende `@NQ_1.json`, che non esiste: serve `@NQ-ASCII Mapping-CME-Futures-Minute-Trade.csv`
+  nella stessa cartella, poi `aggregate_flat_feed.py --symbols NQ --timeframes 1`.
+- **Il rollover della BSW nel cBot.** Il backtest rientra alla stessa apertura in cui esce; il bot
+  oggi annulla un intent dello stesso verso mentre la posizione e' aperta. Da allineare prima di
+  mandare `S01` in vivo.
 - **La finestra di S02.** La scheda dice «12:00 e 16:00» e subito dopo «ordini emessi sulle barre che
   *chiudono* fra le 12:00 e le 16:00»: la seconda frase e' quella dei dossier a etichetta di chiusura
   e contraddice §2.6. La classe segue §2.6 (barre che *aprono* alle 12:00 e alle 16:00); se la lista

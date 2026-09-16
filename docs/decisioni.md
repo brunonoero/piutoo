@@ -4096,3 +4096,38 @@ che il motore fa. Difetto di artefatto, non di esecuzione, ma e' costato mezza i
   **Cosa non c'e'.** Le liste trade che il dossier cita non sono nel repository, quindi nessuna PT2
   e' verificata sulle entrate; `@FDAX_60` non esiste e `@FDAX_240` e' ancora ancorato a 00:00.
   Voce in `lavori-in-corso.md`.
+
+- **2026-09-16** — **Il primo run di parita' delle PT2 sul feed interno trova due difetti del motore,
+  non del porting (7.4.4).** Generati `@FDAX_1`, `@FDAX_60` e rigenerato `@FDAX_240` dal CSV del
+  vendor (`datafeed-future/@FDAX-Minute-Trade.csv`, ora CET confermata dal picco di volume
+  dell'apertura Xetra: 08 UTC a gennaio, 07 UTC a luglio), e girate le due FDAX su
+  24/01/2022 → 30/05/2025 senza spread e con `RejectWrongSideLevels` spento. Prima delle correzioni:
+  PC 873 trade contro 884 della scheda, BSW **84 contro 166**.
+
+  **Il BIASW con uscita e ingresso sulla stessa barra deve fare il rollover.** La ricerca esce dalla
+  posizione della settimana prima e rientra alla stessa apertura: un trade a settimana. Da noi il
+  segnale nasce sulla barra prima, quando la posizione e' ancora aperta, e `CurrentMP != 1` lo
+  bloccava: una settimana si' e una no, con gli ingressi a 14 giorni. `BiasWeeklyEngine` emette
+  ora l'ingresso anche in posizione quando giorno e ora di uscita coincidono con quelli di
+  ingresso (`RollsOverOnTheEntryBar`); il resto era gia' a posto, perche' `UpdateMarketPrices`
+  esegue le uscite a tempo prima dei fill dei pending nello stesso tick. Dopo: **166 trade, uno
+  ogni 7 giorni**, netto 180.711 contro 191.311. Le `PTS_ES_BSW_*` hanno giorni diversi e non
+  cambiano. **Aperto sul cBot**: il bot annulla un intent dello stesso verso mentre la posizione e'
+  aperta (`alreadyOpenOnStrategy`), quindi in vivo il rollover oggi non avverrebbe; deve accettare
+  il market quando la posizione ha `CloseAtUtc` uguale all'istante di validita' dell'intent.
+
+  **La deadline di fine sessione non si risolve su una barra proiettata.** Un ordine "next bar"
+  nato sull'ultima barra del venerdi' porta `ValidFromUtc` di sabato, e la chiusura di sessione
+  calcolata li' cade in una sessione che non esiste (FDAX) o in quella di domenica (NQ, ES, che il
+  calendario dichiara): quando l'ordine si riempie il lunedi' la deadline e' gia' passata e la
+  posizione moriva nello stesso minuto del fill — 36 trade su 873. La ricerca chiude a fine della
+  sessione della barra su cui l'ordine si e' riempito. Due correzioni, una per parte:
+  `EasyEngineBase.ResolveCloseAtUtc` avanza al primo giorno che il calendario dichiara come
+  sessione (basta per FDAX), e `PiootooTradingService.OpenPosition` risolve una deadline gia'
+  passata al fill sulla sessione che contiene il fill (serve per NQ ed ES, dove la domenica e'
+  dichiarata ma quella settimana puo' non avere barre). Il flat del conto non e' toccato. Dopo:
+  PC **850 trade, netto 274.000 contro 264.639**, zero trade nello stesso minuto.
+  `SessionExitAfterGapFillTests`, `SessionCloseAtAnchorTests`, `Pt2ScheduleAndWindowTests`.
+
+  Restano fuori: NQ (manca il CSV del vendor per generare `@NQ_1`), le liste trade del dossier per
+  il confronto entrata per entrata, e il rollover nel cBot.

@@ -103,7 +103,12 @@ di ore.
 Ancorare quei sei alla mezzanotte non produce barre sbagliate — produce barre
 **diverse**, tutte plausibili, sfasate di un'ora rispetto alla griglia su cui le
 strategie sono state trovate, e nessun errore lo segnala. Fino al 07/09/2026 lo
-script ancorava tutti alla mezzanotte: `@FDAX_240` va rigenerato.
+script ancorava tutti alla mezzanotte; `@FDAX_240` è stato rigenerato il
+16/09/2026 insieme a `@FDAX_1` e `@FDAX_60`, dal CSV `@FDAX-Minute-Trade.csv`
+messo direttamente in `datafeed-future/` (`--source-directory .`). Il minuto
+serve perché il loop del backtest gira sempre a un minuto (`BacktestClock`) e
+senza `@SYM_1.json` l'avvio fallisce: per ogni simbolo su cui si vuole girare va
+generato anche `1`, ed è per questo che `SYMBOL_TIMEFRAMES` di `@FDAX` lo elenca.
 
 Il **settimanale non si genera**: l'allineamento non sa dove comincia la
 settimana, e nessuna strategia lo chiede. Lo script lo rifiuta esplicitamente

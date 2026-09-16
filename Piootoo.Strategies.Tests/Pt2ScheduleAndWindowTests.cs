@@ -60,6 +60,55 @@ public sealed class Pt2ScheduleAndWindowTests
         Assert.Null(signal.CompanionSignals);
     }
 
+    /// <summary>
+    /// Il rollover settimanale: uscita e ingresso cadono sulla stessa barra, quindi la posizione
+    /// della settimana prima e' ancora aperta quando nasce il segnale (sulla barra precedente). La
+    /// ricerca esce e rientra alla stessa apertura, un trade a settimana: il segnale deve nascere
+    /// anche in posizione. Senza, la strategia entrava una settimana si' e una no (84 trade contro
+    /// 166 della scheda).
+    /// </summary>
+    [Fact]
+    public void BiasWeekly_RollsOverWhileStillInPosition()
+    {
+        var strategy = new PT2_FDAX_BSW_001_60();
+        var bars = HourlyBarsUntil(MondayEntryBarOpenUtc.AddHours(-1));
+
+        var signal = Evaluate(strategy, bars, "FDAX", new StrategyPositionSnapshot
+        {
+            Direction = SignalType.Buy,
+            EntryPrice = bars[0].Open,
+            EntryTimeUtc = MondayEntryBarOpenUtc.AddDays(-7),
+            Contracts = 1
+        });
+
+        Assert.Equal(SignalType.Buy, signal.Type);
+        Assert.Equal(MondayEntryBarOpenUtc, signal.ValidFromUtc);
+        Assert.Equal(MondayEntryBarOpenUtc.AddDays(7), signal.CloseAtUtc);
+    }
+
+    /// <summary>
+    /// Il rollover vale solo quando uscita e ingresso coincidono: una BIASW con uscita su un'altra
+    /// barra (ES: ingresso lunedì 02:00, uscita lunedì 01:00) in posizione resta ferma.
+    /// </summary>
+    [Fact]
+    public void BiasWeekly_WithADifferentExitBarDoesNotEnterWhileInPosition()
+    {
+        var strategy = new PiutooStrategies.PTS_ES_BSW_001_60();
+        strategy.Initialize(new Dictionary<string, object> { ["PtnLyYes"] = 152, ["PtnLyNo"] = 153 });
+        // Barra 00:00-01:00 Roma di lunedì 8/9/2025 = 22:00Z di domenica: la prossima e' la 02:00 (etichetta di chiusura).
+        var signalBar = new DateTime(2025, 9, 7, 22, 0, 0, DateTimeKind.Utc);
+        var bars = BarsUntil(new DateTime(2025, 8, 24, 22, 0, 0, DateTimeKind.Utc), signalBar, 60, weekdaysOnly: false);
+
+        var flat = Evaluate(strategy, bars, "ES");
+        var inPosition = Evaluate(strategy, bars, "ES", new StrategyPositionSnapshot
+        {
+            Direction = SignalType.Buy, EntryPrice = bars[0].Open, EntryTimeUtc = signalBar.AddDays(-7), Contracts = 1
+        });
+
+        Assert.Equal(SignalType.Buy, flat.Type);
+        Assert.Equal(SignalType.Hold, inPosition.Type);
+    }
+
     [Fact]
     public void BiasWeekly_ExitIsTheSameBarOfTheFollowingMonday()
     {
@@ -171,7 +220,8 @@ public sealed class Pt2ScheduleAndWindowTests
 
     // ------------------------------------------------------------------ helper
 
-    private static TradeSignal Evaluate(Easy.Engines.EasyEngineBase strategy, OhlcvData[] bars, string symbol) =>
+    private static TradeSignal Evaluate(
+        Easy.Engines.EasyEngineBase strategy, OhlcvData[] bars, string symbol, StrategyPositionSnapshot? position = null) =>
         strategy.Evaluate(new StrategyEvaluationRequest
         {
             Ohlcv = bars,
@@ -181,6 +231,7 @@ public sealed class Pt2ScheduleAndWindowTests
                 StrategyCode = strategy.Name,
                 Symbol = symbol,
                 BarTimeUtc = bars[^1].DateTime,
+                Position = position,
                 EntriesToday = 0
             }
         });

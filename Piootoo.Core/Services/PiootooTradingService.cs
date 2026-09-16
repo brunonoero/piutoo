@@ -1269,6 +1269,22 @@ public class PiootooTradingService : IPiootooTradingService
         if (quantity <= 0m)
             throw new ArgumentOutOfRangeException(nameof(quantity), "La quantità di ingresso deve essere positiva.");
 
+        // Una deadline gia' passata al fill non e' una chiusura: e' una proiezione sbagliata. Un
+        // ordine "next bar" nasce con ValidFromUtc = barTime + timeframe, e dall'ultima barra del
+        // venerdi' la barra proiettata cade nel fine settimana; la strategia risolve la chiusura di
+        // fine sessione su quella proiezione, che per NQ ed ES e' la sessione di domenica (il
+        // calendario la dichiara, per le settimane in cui il future apre davvero domenica sera) e
+        // per FDAX nessuna. L'ordine si riempie invece sulla prima barra VERA, il lunedi', e la
+        // ricerca chiude a fine della sessione di quella barra. Qui si sa qual e': la deadline si
+        // risolve sulla sessione che contiene il fill. Prima la posizione moriva nello stesso
+        // minuto del fill: 36 trade su 873 su PT2_FDAX_PCH_001_240, feed interno 2022-2025. Il
+        // flat del conto (timeExitFromAccountPolicy) resta com'e': non e' una proiezione.
+        if (closeAtUtc is { } declared && declared <= entryTime && !timeExitFromAccountPolicy)
+        {
+            var grid = GridOf(symbol);
+            closeAtUtc = grid.SessionOpenUtc(grid.SessionDayOf(entryTime).AddDays(1)).AddMinutes(-1);
+        }
+
         var position = new OpenPosition
         {
             StrategyName = strategyName,

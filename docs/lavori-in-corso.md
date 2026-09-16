@@ -57,23 +57,24 @@ Suite: **931 test, 40 rossi preesistenti**, nessuno nuovo in nessuno dei cinque 
 
 Le quattro schede di `run-engine-v2/DOSSIER_PANIERE_001.md` sono tradotte in
 `Piootoo.Strategies/PT2Strategies/` e registrate ([`domini/mappa-strategie-pt2.md`](domini/mappa-strategie-pt2.md)).
-Per chiuderle manca, in ordine:
+Le due FDAX sono girate sul feed interno 2022-2025 e tornano sul numero di trade (166 su 166, 850
+su 884). Per chiuderle manca, in ordine:
 
-1. **Le liste trade di riferimento.** Il dossier le cita (`*/consegna/trades/fam01_*.csv`) ma in
-   `run-engine-v2/` non ci sono: senza, nessun confronto sulle entrate e' possibile.
-2. **`@FDAX_60`** non esiste e **`@FDAX_240`** e' ancorato a 00:00 (voce sotto): `S01` e `S03` non
-   hanno un feed su cui girare fedelmente.
-3. **Un run su `@NQ_240` e `@NQ_30`** per `S02` e `S04`, che il feed ce l'hanno, con
-   `closeAllPositionsAtWeekEnd: false` e senza spread, per il primo confronto con le metriche della scheda.
+1. **Il CSV di NQ del vendor** (`@NQ-ASCII Mapping-CME-Futures-Minute-Trade.csv`) in
+   `piootoo-repository/datafeed-future/`: il loop al minuto pretende `@NQ_1.json`, e senza CSV non si
+   genera. Poi lo stesso run per `S02` e `S04`.
+2. **Le liste trade di riferimento.** Il dossier le cita (`*/consegna/trades/fam01_*.csv`) ma in
+   `run-engine-v2/` non ci sono: senza, il confronto entrata per entrata non e' possibile.
+3. **Il rollover della BSW nel cBot** (`decisioni.md` 2026-09-16): il bot annulla un intent dello
+   stesso verso mentre la posizione e' aperta, quindi in vivo `S01` entrerebbe una settimana si' e
+   una no. Va allineato prima di mandarla in vivo.
 
 ## Il resto, in ordine
 
-- **Il feed `@FDAX_240.json` è ancorato a 00:00 e il calendario dice 01:00.** Misurato: 20.795
-  barre, tutte su ore locali `{0,4,8,12,16,20}`. Il file è del 25/08, `SESSION_START_HOUR` è entrato
-  nell'aggregatore il 07/09 e il feed non è stato rigenerato. Si ripara **rigenerando un file**,
-  senza toccare codice — `@FDAX: 1` e `@FDAX: (240,)` sono già nelle tabelle di
-  `aggregate_flat_feed.py`. FDAX è l'unico ancoraggio-1 con un feed sopra l'ora nell'archivio
-  interno: CC, CT, KC e SB non hanno né `_240` né `_1440`, che è un buco diverso.
+- ~~**Il feed `@FDAX_240.json` è ancorato a 00:00 e il calendario dice 01:00.**~~ **Rigenerato il
+  16/09/2026** dal CSV del vendor insieme a `@FDAX_1` e `@FDAX_60` (ancoraggio 01:00, UTC, etichetta
+  di apertura; la copia vecchia e' fuori dal repository). CC, CT, KC e SB non hanno né `_240` né
+  `_1440`, che è un buco diverso.
 - **L'estrazione del passo di valutazione.** Backtest e sessione chiamano `strategy.Evaluate`
   ognuno per conto proprio: `RequiredCandles * 1.2` è un letterale in **sei punti**, la regola sulla
   storia insufficiente ha due comportamenti (contata da una parte, silenziosa dall'altra), e le

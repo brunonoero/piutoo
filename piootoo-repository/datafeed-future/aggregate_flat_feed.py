@@ -148,7 +148,8 @@ SYMBOL_TIMEFRAMES: dict[str, tuple[int, ...]] = {
     "@CL": (30,),
     "@EC": (15, 30, 60, 240, 1440),
     "@ES": (15, 60, 240, 1440),
-    "@FDAX": (240,),
+    # 1 e' l'orologio del backtest (BacktestClock), 60 la PT2_FDAX_BSW_001_60.
+    "@FDAX": (1, 60, 240),
     "@GC": (30, 60, 240),
     "@JY": (240,),
     "@NG": (240,),

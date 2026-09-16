@@ -149,7 +149,7 @@ public abstract class BiasWeeklyEngine : EasyEngineBase
     {
         schedule = FindSchedule(LongSchedules, EntryDayLong, EntryTimeLong, ExitDayLong, ExitTimeLong, entryBarUtc);
         return EnableLong &&
-               CurrentMP != 1 &&
+               (CurrentMP != 1 || RollsOverOnTheEntryBar(schedule)) &&
                IsInScheduledEntry(entryBarUtc, schedule) &&
                PassesGates(FastYesLong, FastNoLong, LongPatternRules, ohlc);
     }
@@ -158,10 +158,26 @@ public abstract class BiasWeeklyEngine : EasyEngineBase
     {
         schedule = FindSchedule(ShortSchedules, EntryDayShort, EntryTimeShort, ExitDayShort, ExitTimeShort, entryBarUtc);
         return EnableShort &&
-               CurrentMP != -1 &&
+               (CurrentMP != -1 || RollsOverOnTheEntryBar(schedule)) &&
                IsInScheduledEntry(entryBarUtc, schedule) &&
                PassesGates(FastYesShort, FastNoShort, ShortPatternRules, ohlc);
     }
+
+    /// <summary>
+    /// Vero quando uscita e ingresso programmati cadono sulla <b>stessa barra</b> della settimana:
+    /// la posizione aperta la settimana prima chiude per costruzione all'apertura di quella barra
+    /// (<see cref="ResolveScheduledExitUtc"/> prende l'occorrenza successiva), e la ricerca rientra
+    /// alla stessa apertura — un trade per settimana. Senza questo caso il segnale, che nasce sulla
+    /// barra prima quando la posizione e' ancora aperta, veniva bloccato e la strategia entrava una
+    /// settimana si' e una no: 84 trade contro i 166 della scheda su
+    /// <c>PT2_FDAX_BSW_001_60</c>, feed interno 2022-2025. L'engine esegue le uscite a tempo prima
+    /// dei fill dei pending nello stesso tick, quindi il rollover non richiede altro.
+    /// </summary>
+    private static bool RollsOverOnTheEntryBar(WeeklySchedule schedule) =>
+        schedule.EntryDay >= 0 &&
+        schedule.ExitDay == schedule.EntryDay &&
+        schedule.ExitTime >= schedule.EntryStartTime &&
+        schedule.ExitTime <= schedule.EntryEndTime;
 
     /// <param name="bar">La barra di segnale, l'ultima chiusa.</param>
     /// <param name="barTime">Apertura della barra di segnale.</param>

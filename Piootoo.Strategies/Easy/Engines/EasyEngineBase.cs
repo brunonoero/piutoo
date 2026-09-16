@@ -638,6 +638,18 @@ public abstract class EasyEngineBase : StatelessEasyStrategyBase
     protected DateTime ResolveCloseAtUtc(DateTime barTime, TimeOnly time)
     {
         var sessionDay = Grid.SessionDayOf(barTime);
+
+        // La barra puo' essere PROIETTATA, non vera: un ordine "next bar" nasce con
+        // ValidFromUtc = barTime + timeframe, e dall'ultima barra del venerdi' quella proiezione
+        // cade di sabato, in una sessione che il calendario non ha. Risolvere la deadline li'
+        // dava una chiusura gia' passata quando l'ordine si riempiva davvero, il lunedi': la
+        // posizione moriva nello stesso minuto del fill (36 trade su 873 su PT2_FDAX_PCH_001_240,
+        // feed interno 2022-2025). La ricerca tiene l'ordine sulla prima barra vera e chiude a fine
+        // della SUA sessione: si avanza al primo giorno in cui il simbolo ha una sessione. Un
+        // calendario che non dichiara i giorni (null) lascia tutto com'e'.
+        while (Grid.IsSessionDay(sessionDay) == false)
+            sessionDay = sessionDay.AddDays(1);
+
         var open = Grid.SessionOpenUtc(sessionDay);
         var close = Grid.SessionOpenUtc(sessionDay.AddDays(1));
 
