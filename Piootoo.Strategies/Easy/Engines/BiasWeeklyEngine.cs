@@ -22,12 +22,13 @@ namespace Piootoo.Strategies.Easy.Engines;
 /// in ritardo di una barra intera, −36 k per contratto sulle tre <c>PTS_ES_BSW_*</c>). Ora i due
 /// motori generano il segnale nello stesso istante.</para>
 ///
-/// <para><b>L'orario pianificato e' l'etichetta di chiusura della barra</b>, come lo scrive il
-/// dossier e come dal 08/09/2026 leggono finestra e filtro del giorno (<c>ParamTime</c>,
-/// <c>PythonWeekday</c>): la barra dell'ingresso e' quella la cui chiusura cade a <c>le_time</c>,
-/// e si entra alla sua apertura. Lo stesso per <c>lx_time</c>: la deadline e' l'apertura della
-/// barra che chiude a quell'ora. Con <c>LegacyBarOpenLabels</c> si torna al confronto
-/// sull'apertura.</para>
+/// <para><b>L'orario pianificato e' l'etichetta della barra nella ricerca di provenienza</b>, come
+/// dal 08/09/2026 leggono finestra e filtro del giorno (<c>ParamTime</c>, <c>PythonWeekday</c>):
+/// per le <c>PTS_*</c> la chiusura — la barra dell'ingresso e' quella la cui chiusura cade a
+/// <c>le_time</c>, e si entra alla sua apertura — per le <c>PT2_*</c>, che dichiarano
+/// <c>ResearchLabelsBarsOnOpen</c>, l'apertura. Lo stesso per <c>lx_time</c>: la deadline e'
+/// l'apertura della barra etichettata a quell'ora, e l'engine la esegue al mark di quella barra.
+/// Con <c>LegacyBarOpenLabels</c> tutte tornano al confronto sull'apertura.</para>
 ///
 /// <para>I gate Fast indipendenti long/short coprono la forma standard del motore Python; le
 /// varianti storiche possono aggiungere gate Neutral, Directional e BaseSA, inclusi più divieti
@@ -335,9 +336,9 @@ public abstract class BiasWeeklyEngine : EasyEngineBase
                (schedule.SkipMonth == 0 || LabelDay(entryBarUtc).Month != schedule.SkipMonth);
     }
 
-    /// <summary>Il giorno con cui la ricerca chiama una barra: quello della chiusura, salvo etichettatura legacy.</summary>
+    /// <summary>Il giorno con cui la ricerca chiama una barra: chiusura o apertura secondo <c>BarLabelsOnOpen</c>.</summary>
     private DateTime LabelDay(DateTime barOpenUtc) =>
-        LegacyBarOpenLabels ? Clock.SessionDay(barOpenUtc) : Clock.BarLabelDay(barOpenUtc, TimeframeMinutes);
+        BarLabelsOnOpen ? Clock.SessionDay(barOpenUtc) : Clock.BarLabelDay(barOpenUtc, TimeframeMinutes);
 
     private DateTime GetSessionStartUtc(DateTime barTime)
     {
@@ -352,9 +353,10 @@ public abstract class BiasWeeklyEngine : EasyEngineBase
     /// giorni dopo l'ingresso. Gestisce sia le uscite nella stessa settimana sia quelle della
     /// settimana successiva (per esempio venerdì → lunedì).
     ///
-    /// <para><c>lx_time</c> e' l'etichetta di chiusura della barra di uscita, come <c>le_time</c>
-    /// per l'ingresso: la deadline e' quindi l'apertura di quella barra, un timeframe prima
-    /// dell'istante dichiarato. Con <c>LegacyBarOpenLabels</c> resta l'istante stesso.</para>
+    /// <para><c>lx_time</c> e' l'etichetta della barra di uscita, come <c>le_time</c> per
+    /// l'ingresso: la deadline e' l'apertura di quella barra, cioe' un timeframe prima dell'istante
+    /// dichiarato quando la ricerca etichetta sulla chiusura, l'istante stesso quando etichetta
+    /// sull'apertura (<c>BarLabelsOnOpen</c>).</para>
     /// </summary>
     protected DateTime ResolveScheduledExitUtc(DateTime entryBarTime, int exitDay, TimeOnly exitTime)
     {
@@ -365,7 +367,7 @@ public abstract class BiasWeeklyEngine : EasyEngineBase
                 continue;
 
             var candidate = Clock.SessionInstantUtc(giorno, exitTime);
-            if (!LegacyBarOpenLabels)
+            if (!BarLabelsOnOpen)
                 candidate = candidate.AddMinutes(-TimeframeMinutes);
             if (candidate > entryBarTime)
                 return candidate;

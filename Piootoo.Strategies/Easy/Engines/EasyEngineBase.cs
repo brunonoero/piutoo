@@ -350,23 +350,51 @@ public abstract class EasyEngineBase : StatelessEasyStrategyBase
     public bool LegacyBarOpenLabels { get; set; }
 
     /// <summary>
+    /// <b>Con quale etichetta la ricerca da cui viene questa strategia chiamava le barre.</b>
+    /// <c>false</c> (default): sulla <b>chiusura</b>, come TradeStation e i run Python dei dossier di
+    /// agosto e settembre da cui vengono le <c>PTS_*</c>. <c>true</c>: sull'<b>apertura</b>, come il
+    /// feed Piootoo e come i run di <c>run-engine-v2/</c> (§2.6 del dossier: «le candele sono
+    /// etichettate al loro inizio»), da cui vengono le <c>PT2_*</c>.
+    ///
+    /// <para><b>Perche' lo dichiara la strategia e non il run.</b> E' una proprieta' della
+    /// <i>provenienza</i> dei numeri, come l'orologio della finestra: <c>start_hour = 12</c> in un run
+    /// che etichetta sulla chiusura e' la barra 08:00-12:00, in uno che etichetta sull'apertura e' la
+    /// 12:00-16:00, e sono due strategie diverse. Un run che contenga strategie delle due serie deve
+    /// confrontare ognuna con l'etichetta della propria ricerca; un interruttore unico per run
+    /// (<see cref="LegacyBarOpenLabels"/>, che resta per confrontare gli archivi) ne sposterebbe
+    /// meta' di una barra. Riportare i numeri verbatim e dichiarare l'etichetta e' la stessa regola
+    /// della finestra: mai convertire a mano.</para>
+    ///
+    /// <para>Si scrive nel costruttore, si legge da fuori: la scheda oraria del catalogo deve poter
+    /// dire con quale etichetta una strategia legge i propri orari senza aprire il sorgente.</para>
+    /// </summary>
+    public bool ResearchLabelsBarsOnOpen { get; protected set; }
+
+    /// <summary>
+    /// L'etichetta davvero in uso: quella dichiarata dalla strategia, oppure l'apertura se il run
+    /// chiede il confronto con gli archivi. E' l'unico punto che i motori interrogano.
+    /// </summary>
+    protected bool BarLabelsOnOpen => LegacyBarOpenLabels || ResearchLabelsBarsOnOpen;
+
+    /// <summary>
     /// L'orario con cui questa barra va confrontata con le soglie dei parametri
     /// (<c>start_hour</c>, <c>end_hour</c>, pause, orari di uscita), letto sull'orologio di sessione.
     ///
     /// <para><b>Non è <see cref="TimeOfDay"/>.</b> Quello è l'orario di apertura della barra e serve a
     /// dire a quale <i>sessione</i> appartiene, che è una domanda diversa e ha già la sua risposta
     /// in <see cref="EasyLib"/>. Questo è il nome con cui la ricerca chiamava la stessa barra, e la
-    /// regola vive in un punto solo: <see cref="SessionClock.BarLabelTime"/>.</para>
+    /// regola vive in un punto solo: <see cref="SessionClock.BarLabelTime"/>, salvo che la strategia
+    /// dichiari <see cref="ResearchLabelsBarsOnOpen"/>.</para>
     /// </summary>
     protected TimeOnly ParamTime(DateTime barTime) =>
-        LegacyBarOpenLabels ? Clock.TimeOfDay(barTime) : Clock.BarLabelTime(barTime, TimeframeMinutes);
+        BarLabelsOnOpen ? Clock.TimeOfDay(barTime) : Clock.BarLabelTime(barTime, TimeframeMinutes);
 
     /// <summary>
     /// Come <see cref="ParamTime"/>, ma sull'orologio della <see cref="TradingWindow"/>. I due fusi
     /// non coincidono e non vanno riconciliati a mano: la finestra dichiara il proprio.
     /// </summary>
     protected TimeOnly WindowParamTime(DateTime barTime) =>
-        LegacyBarOpenLabels
+        BarLabelsOnOpen
             ? WindowClock.TimeOfDay(barTime)
             : WindowClock.BarLabelTime(barTime, TimeframeMinutes);
 
@@ -430,7 +458,7 @@ public abstract class EasyEngineBase : StatelessEasyStrategyBase
     /// giorno nel mezzo della sessione serale americana.</para>
     /// </summary>
     protected int PythonWeekday(DateTime barTime) =>
-        ((int)(LegacyBarOpenLabels
+        ((int)(BarLabelsOnOpen
             ? WindowClock.SessionDay(barTime)
             : WindowClock.BarLabelDay(barTime, TimeframeMinutes)).DayOfWeek + 6) % 7;
 

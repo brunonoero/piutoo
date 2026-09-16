@@ -31,8 +31,14 @@ partial class StrategyListScreen
         this._colIsActive = new System.Windows.Forms.DataGridViewCheckBoxColumn();
         this._toolbar = new piootooapp.clientform.Shell.Controls.EntityToolbar();
         this._rowCountLabel = new System.Windows.Forms.Label();
+        this._filtersPanel = new System.Windows.Forms.FlowLayoutPanel();
+        this._symbolLabel = new System.Windows.Forms.Label();
+        this._symbolCombo = new System.Windows.Forms.ComboBox();
+        this._seriesLabel = new System.Windows.Forms.Label();
+        this._seriesCombo = new System.Windows.Forms.ComboBox();
         ((System.ComponentModel.ISupportInitialize)(this._bindingSource)).BeginInit();
         ((System.ComponentModel.ISupportInitialize)(this._grid)).BeginInit();
+        this._filtersPanel.SuspendLayout();
         this.SuspendLayout();
         // 
         // _grid
@@ -149,6 +155,53 @@ partial class StrategyListScreen
         this._toolbar.FilterChanged += new System.EventHandler(this.OnFilterChanged);
         this._toolbar.ExportRequested += new System.EventHandler(this.OnExportRequested);
         //
+        // _filtersPanel — simbolo e serie, sotto la barra: due lenti sulla stessa griglia.
+        //
+        this._filtersPanel.AutoSize = true;
+        this._filtersPanel.Controls.Add(this._symbolLabel);
+        this._filtersPanel.Controls.Add(this._symbolCombo);
+        this._filtersPanel.Controls.Add(this._seriesLabel);
+        this._filtersPanel.Controls.Add(this._seriesCombo);
+        this._filtersPanel.Dock = System.Windows.Forms.DockStyle.Top;
+        this._filtersPanel.Location = new System.Drawing.Point(0, 44);
+        this._filtersPanel.Name = "_filtersPanel";
+        this._filtersPanel.Padding = new System.Windows.Forms.Padding(8, 2, 8, 4);
+        this._filtersPanel.Size = new System.Drawing.Size(900, 33);
+        this._filtersPanel.TabIndex = 3;
+        this._filtersPanel.WrapContents = false;
+        //
+        // _symbolLabel
+        //
+        this._symbolLabel.AutoSize = true;
+        this._symbolLabel.Margin = new System.Windows.Forms.Padding(3, 6, 6, 0);
+        this._symbolLabel.Name = "_symbolLabel";
+        this._symbolLabel.Text = "Simbolo";
+        //
+        // _symbolCombo
+        //
+        this._symbolCombo.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
+        this._symbolCombo.Margin = new System.Windows.Forms.Padding(0, 2, 16, 0);
+        this._symbolCombo.Name = "_symbolCombo";
+        this._symbolCombo.Size = new System.Drawing.Size(110, 23);
+        this._symbolCombo.TabIndex = 0;
+        this._symbolCombo.SelectedIndexChanged += new System.EventHandler(this.OnFilterChanged);
+        //
+        // _seriesLabel
+        //
+        this._seriesLabel.AutoSize = true;
+        this._seriesLabel.Margin = new System.Windows.Forms.Padding(3, 6, 6, 0);
+        this._seriesLabel.Name = "_seriesLabel";
+        this._seriesLabel.Text = "Serie";
+        //
+        // _seriesCombo
+        //
+        this._seriesCombo.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
+        this._seriesCombo.Margin = new System.Windows.Forms.Padding(0, 2, 3, 0);
+        this._seriesCombo.Name = "_seriesCombo";
+        this._seriesCombo.Size = new System.Drawing.Size(90, 23);
+        this._seriesCombo.TabIndex = 1;
+        this._seriesCombo.SelectedIndexChanged += new System.EventHandler(this.OnFilterChanged);
+        //
         // _rowCountLabel
         //
         this._rowCountLabel.Dock = System.Windows.Forms.DockStyle.Bottom;
@@ -165,18 +218,28 @@ partial class StrategyListScreen
         this.AutoScaleDimensions = new System.Drawing.SizeF(7F, 15F);
         this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
         // L'ordine di aggiunta determina l'ordine di docking (dall'ultimo al primo):
-        // toolbar in alto, conteggio righe in basso, griglia a riempire il resto.
+        // toolbar in alto, sotto i filtri simbolo/serie, conteggio righe in basso, griglia a
+        // riempire il resto.
         this.Controls.Add(this._grid);
         this.Controls.Add(this._rowCountLabel);
+        this.Controls.Add(this._filtersPanel);
         this.Controls.Add(this._toolbar);
         this.Name = "StrategyListScreen";
         this.Size = new System.Drawing.Size(900, 500);
         ((System.ComponentModel.ISupportInitialize)(this._bindingSource)).EndInit();
         ((System.ComponentModel.ISupportInitialize)(this._grid)).EndInit();
+        this._filtersPanel.ResumeLayout(false);
+        this._filtersPanel.PerformLayout();
         this.ResumeLayout(false);
     }
 
     #endregion
+
+    private System.Windows.Forms.FlowLayoutPanel _filtersPanel;
+    private System.Windows.Forms.Label _symbolLabel;
+    private System.Windows.Forms.ComboBox _symbolCombo;
+    private System.Windows.Forms.Label _seriesLabel;
+    private System.Windows.Forms.ComboBox _seriesCombo;
 
     private System.Windows.Forms.BindingSource _bindingSource;
     private System.Windows.Forms.DataGridView _grid;

@@ -3,15 +3,19 @@ using System.Text.RegularExpressions;
 using Piootoo.Shared.Interfaces;
 using Piootoo.Strategies.Easy.Engines;
 using Piootoo.Strategies.PiutooStrategies;
+using Piootoo.Strategies.PT2Strategies;
 using Xunit;
 
 namespace Piootoo.Strategies.Tests;
 
 /// <summary>
-/// Impone la convenzione di nome delle strategie PTS: <c>PTS_[SYMBOL]_[ENG]_[NNN]_[TF]</c>.
+/// Impone la convenzione di nome delle strategie di catalogo:
+/// <c>[SERIE]_[SYMBOL]_[ENG]_[NNN]_[TF]</c>, con la serie fra quelle di <see cref="Series"/>.
 /// </summary>
 /// <remarks>
-/// <para>Esempio: <c>PTS_NQ_PCH_001_15</c> — la prima PriceChannel su NQ a 15 minuti.</para>
+/// <para>Esempio: <c>PTS_NQ_PCH_001_15</c> — la prima PriceChannel su NQ a 15 minuti della serie
+/// PTS; <c>PT2_NQ_PCH_001_240</c> la prima della serie PT2, che nasce dal rifacimento dell'analisi
+/// (<c>run-engine-v2/</c>, dal 16/09/2026) e numera per conto proprio.</para>
 ///
 /// <para>Il nome porta quattro informazioni perché sono le quattro che servono a leggere un
 /// report senza aprire il codice: su cosa opera, con che logica, quale variante e su che
@@ -44,8 +48,19 @@ public sealed class PtsNamingConventionTests
         [typeof(MovingAverageCrossoverEngine)] = "MAC"
     };
 
+    /// <summary>
+    /// Le serie del catalogo, ognuna con il proprio namespace. Una serie nuova si aggiunge qui: il
+    /// prefisso entra nella convenzione di nome e il namespace nell'enumerazione, cosi' le classi
+    /// della serie passano dagli stessi controlli delle altre invece di essere saltate in silenzio.
+    /// </summary>
+    private static readonly IReadOnlyDictionary<string, string> Series = new Dictionary<string, string>
+    {
+        ["PTS"] = typeof(PTS_NQ_TFM_001_60).Namespace!,
+        ["PT2"] = typeof(PT2_NQ_PCH_001_240).Namespace!
+    };
+
     private static readonly Regex NamePattern = new(
-        @"^PTS_(?<symbol>[A-Z0-9]+)_(?<engine>[A-Z]{3})_(?<number>\d{3})_(?<timeframe>\d+)$",
+        @"^(?<series>PTS|PT2)_(?<symbol>[A-Z0-9]+)_(?<engine>[A-Z]{3})_(?<number>\d{3})_(?<timeframe>\d+)$",
         RegexOptions.Compiled);
 
     public static TheoryData<Type> PtsStrategyTypes
@@ -71,7 +86,12 @@ public sealed class PtsNamingConventionTests
         var match = NamePattern.Match(strategy.Name);
         Assert.True(
             match.Success,
-            $"{type.Name}: Name '{strategy.Name}' non rispetta PTS_[SYMBOL]_[ENG]_[NNN]_[TF].");
+            $"{type.Name}: Name '{strategy.Name}' non rispetta [PTS|PT2]_[SYMBOL]_[ENG]_[NNN]_[TF].");
+
+        // La serie del nome deve essere quella della cartella: una PT2 nel namespace delle PTS, o
+        // viceversa, sarebbe trovata dal catalogo ma descritta dal documento sbagliato.
+        var expectedSeries = Series.Single(pair => pair.Value == type.Namespace).Key;
+        Assert.Equal(expectedSeries, match.Groups["series"].Value);
 
         // Id (nome della classe) e Name devono coincidere per le PTS: l'Id seleziona dal catalogo,
         // il Name viaggia nei dati di esecuzione, e tenerli allineati evita di dover passare da
@@ -110,6 +130,7 @@ public sealed class PtsNamingConventionTests
             .Select(strategy => NamePattern.Match(strategy.Name))
             .Where(match => match.Success)
             .GroupBy(match => (
+                Series: match.Groups["series"].Value,
                 Symbol: match.Groups["symbol"].Value,
                 Engine: match.Groups["engine"].Value));
 
@@ -122,9 +143,11 @@ public sealed class PtsNamingConventionTests
 
             Assert.Equal(numbers.Count, numbers.Distinct().Count());
 
-            // Il progressivo riparte da 001 per ogni coppia (symbol, motore) e non salta:
+            // Il progressivo riparte da 001 per ogni tripla (serie, symbol, motore) e non salta:
             // un buco significa quasi sempre una strategia rimossa senza rinumerare, e da lì
-            // in poi il numero smette di dire "la n-esima di questo tipo".
+            // in poi il numero smette di dire "la n-esima di questo tipo". Le serie numerano
+            // ognuna per conto proprio: PT2_NQ_PCH_001 non e' la nona PCH su NQ, e' la prima
+            // dell'analisi rifatta.
             Assert.Equal(Enumerable.Range(1, numbers.Count).ToList(), numbers);
         }
     }
@@ -133,7 +156,7 @@ public sealed class PtsNamingConventionTests
         Assembly.GetAssembly(typeof(PTS_NQ_TFM_001_60))!
             .GetTypes()
             .Where(type => type is { IsAbstract: false, IsClass: true }
-                           && type.Namespace == typeof(PTS_NQ_TFM_001_60).Namespace
+                           && type.Namespace is { } ns && Series.Values.Contains(ns)
                            && typeof(ITradingStrategy).IsAssignableFrom(type))
             .OrderBy(type => type.Name);
 

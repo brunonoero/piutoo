@@ -1,5 +1,6 @@
 using Piootoo.Shared.Models.Strategies;
 using Piootoo.Shared.Models.Workspaces;
+using piootooapp.clientform.Shell.Controls;
 
 namespace piootooapp.clientform.Shell.Screens;
 
@@ -76,6 +77,10 @@ public partial class WorkspaceDetailScreen : UserControl, IShellScreen, IDirtyAw
     public WorkspaceDetailScreen()
     {
         InitializeComponent();
+        // Serie: PT2 di default, e' quella su cui si lavora. Il simbolo si riempie a ogni carico
+        // con i simboli del catalogo.
+        StrategyFilters.InitializeSeries(_seriesCombo);
+        StrategyFilters.SetSymbols(_symbolCombo, Array.Empty<string>());
     }
 
     public string ScreenTitle => IsNew ? "Nuovo workspace" : _workspaceId ?? "Workspace";
@@ -143,6 +148,7 @@ public partial class WorkspaceDetailScreen : UserControl, IShellScreen, IDirtyAw
                       : $"  ·  {_outOfCatalogIds.Count} id fuori catalogo: togli la spunta e salva, "
                         + "altrimenti la sessione rifiuta il workspace");
 
+            StrategyFilters.SetSymbols(_symbolCombo, _catalog.Select(strategy => strategy.Symbol));
             ApplyStrategyFilter();
             SetDirty(false);
             _context.Navigation.SetStatus(IsNew
@@ -175,14 +181,19 @@ public partial class WorkspaceDetailScreen : UserControl, IShellScreen, IDirtyAw
     {
         var filter = _strategyFilterTextBox.Text.Trim();
         var onlySelected = _onlySelectedCheckBox.Checked;
+        var wantedSymbol = StrategyFilters.SelectedSymbol(_symbolCombo);
+        var wantedSeries = StrategyFilters.SelectedSeries(_seriesCombo);
         _suppressItemCheck = true;
         _strategiesList.BeginUpdate();
         _strategiesList.Items.Clear();
 
         // In testa, cosi' si vedono senza cercarli: sono l'unica cosa che impedisce al workspace
-        // di aprire una sessione.
+        // di aprire una sessione. Di loro si conosce il solo id, quindi il filtro per serie li
+        // legge dal prefisso e quello per simbolo non li tocca: un avviso non si nasconde.
         foreach (var id in _outOfCatalogIds.Where(id =>
-                     MatchesId(id, filter) && (!onlySelected || _selectedIds.Contains(id))))
+                     MatchesId(id, filter)
+                     && (wantedSeries is null || StrategyFilters.SeriesOf(id) == wantedSeries)
+                     && (!onlySelected || _selectedIds.Contains(id))))
         {
             var outOfCatalogIndex = _strategiesList.Items.Add(StrategyChecklistItem.OutOfCatalog(id));
             _strategiesList.SetItemChecked(outOfCatalogIndex, _selectedIds.Contains(id));
@@ -190,6 +201,7 @@ public partial class WorkspaceDetailScreen : UserControl, IShellScreen, IDirtyAw
 
         foreach (var strategy in _catalog.Where(strategy =>
                      Matches(strategy, filter)
+                     && StrategyFilters.Passes(strategy.Id, strategy.Symbol, wantedSymbol, wantedSeries)
                      && (!onlySelected || _selectedIds.Contains(strategy.Id))))
         {
             var index = _strategiesList.Items.Add(new StrategyChecklistItem(strategy));

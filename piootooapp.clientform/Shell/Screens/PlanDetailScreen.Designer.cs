@@ -64,6 +64,10 @@ partial class PlanDetailScreen
         this._strategyFilterLabel = new System.Windows.Forms.Label();
         this._strategyFilterBox = new System.Windows.Forms.TextBox();
         this._onlySelectedStrategiesCheck = new System.Windows.Forms.CheckBox();
+        this._strategySymbolLabel = new System.Windows.Forms.Label();
+        this._strategySymbolCombo = new System.Windows.Forms.ComboBox();
+        this._strategySeriesLabel = new System.Windows.Forms.Label();
+        this._strategySeriesCombo = new System.Windows.Forms.ComboBox();
         this._holdingTab = new System.Windows.Forms.TabPage();
         this._holdingLayout = new System.Windows.Forms.TableLayoutPanel();
         this._forceNightCloseCheckBox = new System.Windows.Forms.CheckBox();
@@ -449,6 +453,10 @@ partial class PlanDetailScreen
         this._strategiesButtons.Controls.Add(this._toggleAllStrategiesButton);
         this._strategiesButtons.Controls.Add(this._strategyFilterLabel);
         this._strategiesButtons.Controls.Add(this._strategyFilterBox);
+        this._strategiesButtons.Controls.Add(this._strategySymbolLabel);
+        this._strategiesButtons.Controls.Add(this._strategySymbolCombo);
+        this._strategiesButtons.Controls.Add(this._strategySeriesLabel);
+        this._strategiesButtons.Controls.Add(this._strategySeriesCombo);
         this._strategiesButtons.Controls.Add(this._onlySelectedStrategiesCheck);
         this._strategiesButtons.Dock = System.Windows.Forms.DockStyle.Top;
         this._strategiesButtons.Location = new System.Drawing.Point(12, 12);
@@ -485,6 +493,38 @@ partial class PlanDetailScreen
         this._strategyFilterBox.Size = new System.Drawing.Size(260, 23);
         this._strategyFilterBox.TabIndex = 2;
         this._strategyFilterBox.TextChanged += new System.EventHandler(this.OnStrategyFilterChanged);
+        //
+        // _strategySymbolLabel
+        //
+        this._strategySymbolLabel.AutoSize = true;
+        this._strategySymbolLabel.Margin = new System.Windows.Forms.Padding(16, 6, 6, 0);
+        this._strategySymbolLabel.Name = "_strategySymbolLabel";
+        this._strategySymbolLabel.Text = "Simbolo";
+        //
+        // _strategySymbolCombo
+        //
+        this._strategySymbolCombo.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
+        this._strategySymbolCombo.Margin = new System.Windows.Forms.Padding(0, 2, 3, 0);
+        this._strategySymbolCombo.Name = "_strategySymbolCombo";
+        this._strategySymbolCombo.Size = new System.Drawing.Size(110, 23);
+        this._strategySymbolCombo.TabIndex = 4;
+        this._strategySymbolCombo.SelectedIndexChanged += new System.EventHandler(this.OnStrategyFilterChanged);
+        //
+        // _strategySeriesLabel
+        //
+        this._strategySeriesLabel.AutoSize = true;
+        this._strategySeriesLabel.Margin = new System.Windows.Forms.Padding(16, 6, 6, 0);
+        this._strategySeriesLabel.Name = "_strategySeriesLabel";
+        this._strategySeriesLabel.Text = "Serie";
+        //
+        // _strategySeriesCombo
+        //
+        this._strategySeriesCombo.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
+        this._strategySeriesCombo.Margin = new System.Windows.Forms.Padding(0, 2, 3, 0);
+        this._strategySeriesCombo.Name = "_strategySeriesCombo";
+        this._strategySeriesCombo.Size = new System.Drawing.Size(90, 23);
+        this._strategySeriesCombo.TabIndex = 5;
+        this._strategySeriesCombo.SelectedIndexChanged += new System.EventHandler(this.OnStrategyFilterChanged);
         //
         // _onlySelectedStrategiesCheck
         //
@@ -856,6 +896,10 @@ partial class PlanDetailScreen
     private System.Windows.Forms.Label _strategyFilterLabel;
     private System.Windows.Forms.TextBox _strategyFilterBox;
     private System.Windows.Forms.CheckBox _onlySelectedStrategiesCheck;
+    private System.Windows.Forms.Label _strategySymbolLabel;
+    private System.Windows.Forms.ComboBox _strategySymbolCombo;
+    private System.Windows.Forms.Label _strategySeriesLabel;
+    private System.Windows.Forms.ComboBox _strategySeriesCombo;
     private System.Windows.Forms.TabPage _holdingTab;
     private System.Windows.Forms.TableLayoutPanel _holdingLayout;
     private System.Windows.Forms.CheckBox _forceNightCloseCheckBox;

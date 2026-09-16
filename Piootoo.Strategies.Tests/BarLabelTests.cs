@@ -56,6 +56,28 @@ public sealed class BarLabelTests
     }
 
     /// <summary>
+    /// Una strategia che viene da una ricerca che etichetta le barre all'inizio (i run di
+    /// <c>run-engine-v2</c>, le <c>PT2_*</c>) lo dichiara con <c>ResearchLabelsBarsOnOpen</c>, e la
+    /// finestra legge l'apertura <b>per quella strategia sola</b>, senza l'interruttore di run: in un
+    /// run che mescola le due serie ognuna legge l'etichetta della propria ricerca.
+    /// </summary>
+    [Fact]
+    public void AStrategyFromOpenLabelledResearchReadsTheOpenOnItsOwn()
+    {
+        var pt2 = new OpenLabelledProbe();
+        var pts = new WindowProbe();
+
+        Assert.False(pt2.IsInWindow(ChiudeSullApertura));
+        Assert.True(pt2.IsInWindow(DentroInEntrambe));
+        Assert.True(pt2.IsInWindow(ApreSullaChiusura));
+
+        // La dichiarazione e' della strategia: l'altra, nello stesso run, non si sposta.
+        Assert.True(pts.IsInWindow(ChiudeSullApertura));
+        Assert.False(pts.IsInWindow(ApreSullaChiusura));
+        Assert.False(pts.ResearchLabelsBarsOnOpen);
+    }
+
+    /// <summary>
     /// <c>skip_day</c> legge lo stesso nome della finestra. Su una barra da 4h il giorno cambia su
     /// un bucket su sei; su una <b>giornaliera cambia sempre</b> — apre lunedì a mezzanotte e chiude
     /// martedì a mezzanotte — ed è il caso che nessun test copriva.
@@ -115,5 +137,11 @@ public sealed class BarLabelTests
     private sealed class DailyProbe : WindowProbe
     {
         public override int TimeframeMinutes => 1440;
+    }
+
+    /// <summary>Come una PT2: stessa finestra verbatim, etichetta dichiarata sull'apertura.</summary>
+    private sealed class OpenLabelledProbe : WindowProbe
+    {
+        public OpenLabelledProbe() => ResearchLabelsBarsOnOpen = true;
     }
 }

@@ -1,9 +1,17 @@
-"""Diff fra le schede del dossier del paniere e le classi PTS_* presenti nel catalogo.
+"""Diff fra le schede di un dossier del paniere e le classi di una serie del catalogo.
 
 Non usa gli S-ID: la numerazione cambia da un'edizione del dossier all'altra e le classi
 tradotte prima citano quella vecchia. L'impronta e' invece l'insieme dei numeri che
 identificano un run: simbolo, timeframe, motore, stop, target, trailing, uscita a tempo.
+
+Senza argomenti confronta il dossier di settembre con la serie PTS. Per la serie PT2:
+
+    python tools/dossier-diff.py --dossier piootoo-repository/run-engine-v2/DOSSIER_PANIERE_001.md \\
+        --classes Piootoo.Strategies/PT2Strategies --prefix PT2
+
+`--abbinate` stampa la tabella S-ID -> classe gia' formattata per la mappa in docs/domini/.
 """
+import argparse
 import re
 import sys
 from collections import defaultdict
@@ -12,6 +20,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 DOSSIER = ROOT / "piootoo-repository/run-engine/run-08-settembre/DOSSIER_PANIERE (1).md"
 CLASSES = ROOT / "Piootoo.Strategies/PiutooStrategies"
+PREFIX = "PTS"
 
 TF_MIN = {"15m": 15, "30m": 30, "1h": 60, "4h": 240, "day": 1440}
 ENGINE_BY_BASE = {
@@ -62,9 +71,9 @@ def parse_dossier():
 
 def parse_classes():
     out = []
-    for path in sorted(CLASSES.glob("PTS_*.cs")):
+    for path in sorted(CLASSES.glob(f"{PREFIX}_*.cs")):
         text = path.read_text(encoding="utf-8")
-        base = re.search(r"class (PTS_\w+)\s*:\s*(\w+)", text)
+        base = re.search(rf"class ({PREFIX}_\w+)\s*:\s*(\w+)", text)
         sym = (re.search(r'Symbol => "@?(\w+)"', text)
                or re.search(r'_symbol = "@?(\w+)"', text))
         tf = (re.search(r"TimeframeMinutes => (\d+)", text)
@@ -94,10 +103,25 @@ def key(item):
     return (item["sym"], item["tf"], item["engine"], item["stop"], item["profit"])
 
 
+def parse_args():
+    global DOSSIER, CLASSES, PREFIX
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--dossier", type=Path, default=DOSSIER, help="il file .md del dossier")
+    parser.add_argument("--classes", type=Path, default=CLASSES, help="la cartella delle classi della serie")
+    parser.add_argument("--prefix", default=PREFIX, help="il prefisso della serie (PTS, PT2)")
+    parser.add_argument("--abbinate", action="store_true", help="stampa anche la tabella S-ID -> classe")
+    args = parser.parse_args()
+    DOSSIER = args.dossier if args.dossier.is_absolute() else ROOT / args.dossier
+    CLASSES = args.classes if args.classes.is_absolute() else ROOT / args.classes
+    PREFIX = args.prefix
+    return args
+
+
 def main():
+    args = parse_args()
     dossier = parse_dossier()
     classes = parse_classes()
-    print(f"schede dossier: {len(dossier)}   classi PTS: {len(classes)}")
+    print(f"schede dossier: {len(dossier)}   classi {PREFIX}: {len(classes)}")
 
     have = defaultdict(list)
     for c in classes:
@@ -125,7 +149,7 @@ def main():
         print("\n--- ABBINATE MA CON NUMERI DIVERSI ---")
         for d, n, note in divergenti:
             print(f"  {d['sid']:>5}  {n:<24} {'; '.join(note)}")
-    if "--abbinate" in sys.argv:
+    if args.abbinate:
         print("\n--- ABBINATE ---")
         for d, n, _ in sorted(matched, key=lambda x: int(x[0]["sid"][1:])):
             print(f"| `{d['sid']}` | `{n}` | {d['sym']} {d['tf']}m {d['engine']} |")

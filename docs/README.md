@@ -110,6 +110,10 @@ non esiste più, si tiene per il perché.
   run e da quale riga approvata viene ogni classe `PTS_*`, sigle dei motori,
   strategie disabilitate perché doppioni, motori senza più sottoclassi.
   *Stabile.*
+- [`domini/mappa-strategie-pt2.md`](domini/mappa-strategie-pt2.md) — la serie
+  `PT2_*` (`Piootoo.Strategies/PT2Strategies/`), porting del paniere rifatto di
+  `run-engine-v2/DOSSIER_PANIERE_001.md`: scheda → classe, parametri, cosa non è
+  ancora verificato, come si estende la serie. *Stabile.*
 - [`domini/feed-worker.md`](domini/feed-worker.md) — `FeedRunner`/
   `FeedWorker`, invio barre chiuse. *Bozza.*
 

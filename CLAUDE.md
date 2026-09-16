@@ -46,7 +46,7 @@ client WinForms, `net9.0-windows` per il progetto di test. Test con xUnit +
 | `Piootoo.Shared` | Modelli e contratti. **Nessuna logica, nessuna dipendenza** verso gli altri progetti. |
 | `Piootoo.Domain` | Repository di base, in particolare `DataSourceRepository` (lettura feed). |
 | `Piootoo.Core` | Tutti i servizi applicativi: `Services/` (workspace, backtesting, trading, sizing, sessioni) e `Optimization/`. |
-| `Piootoo.Strategies` | Catalogo strategie (`ITradingStrategy`), incluse quelle generate da EasyLanguage in `Easy/`. |
+| `Piootoo.Strategies` | Catalogo strategie (`ITradingStrategy`): i motori in `Easy/`, la serie `PTS_*` in `PiutooStrategies/` (dossier di agosto/settembre) e la serie `PT2_*` in `PT2Strategies/` (paniere rifatto di `piootoo-repository/run-engine-v2/`, dal 16/09/2026). Le due serie convivono e numerano per conto proprio; mappe in `docs/domini/mappa-strategie-pts.md` e `mappa-strategie-pt2.md`. |
 | `PiootooApp.Server` | API HTTP. Solo controller sottili + DI. |
 | `Piootoo.FeedWorker` | Worker che alimenta le sessioni live con barre chiuse. |
 | `piootooapp.clientform` | Console WinForms. Client HTTP puro. Due interfacce: la nuova `Shell/MainShellForm` (menu a sinistra, lista → dettaglio, schermate designer-first) e la storica `WorkspaceBacktestingForm` a tab, raggiungibile da *File → Console legacy*. |

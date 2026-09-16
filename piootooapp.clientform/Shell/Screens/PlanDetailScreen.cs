@@ -152,6 +152,9 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
         InitializeComponent();
         ShellGridHelper.ConfigureReadableGrids(this);
         _accountsBindingSource.DataSource = _accounts;
+        // Tab Strategie: serie PT2 di default, simboli riempiti a ogni ricostruzione delle righe.
+        StrategyFilters.InitializeSeries(_strategySeriesCombo);
+        StrategyFilters.SetSymbols(_strategySymbolCombo, Array.Empty<string>());
         _enforceConcurrencyCombo.Items.AddRange(new object[]
         {
             "Default (come da storico)",
@@ -690,6 +693,7 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
             _allStrategies.Add(BuildStrategyRow(id, byId.GetValueOrDefault(id), inMasterFilter: false));
         }
 
+        StrategyFilters.SetSymbols(_strategySymbolCombo, _allStrategies.Select(row => row.Symbol));
         ApplyStrategyFilter();
     }
 
@@ -712,10 +716,15 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
     {
         var query = _strategyFilterBox.Text.Trim();
         var soloSelezionate = _onlySelectedStrategiesCheck.Checked;
+        var wantedSymbol = StrategyFilters.SelectedSymbol(_strategySymbolCombo);
+        var wantedSeries = StrategyFilters.SelectedSeries(_strategySeriesCombo);
 
         _strategies.RaiseListChangedEvents = false;
         _strategies.Clear();
-        foreach (var row in _allStrategies.Where(row => (!soloSelezionate || row.Active) && Matches(row, query)))
+        foreach (var row in _allStrategies.Where(row =>
+                     (!soloSelezionate || row.Active)
+                     && Matches(row, query)
+                     && StrategyFilters.Passes(row.Id, row.Symbol, wantedSymbol, wantedSeries)))
         {
             _strategies.Add(row);
         }
@@ -753,7 +762,10 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
     /// tenerla in un posto solo evita che i due comandi si contraddicano.
     /// </summary>
     private bool StrategyViewIsFiltered =>
-        _strategyFilterBox.Text.Trim().Length > 0 || _onlySelectedStrategiesCheck.Checked;
+        _strategyFilterBox.Text.Trim().Length > 0
+        || _onlySelectedStrategiesCheck.Checked
+        || StrategyFilters.SelectedSymbol(_strategySymbolCombo) is not null
+        || StrategyFilters.SelectedSeries(_strategySeriesCombo) is not null;
 
     /// <summary>
     /// L'etichetta del pulsante dice cosa farebbe adesso, non cosa fa in generale: se anche una

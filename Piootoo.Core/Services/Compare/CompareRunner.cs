@@ -270,7 +270,13 @@ public static class CompareRunner
             var asm = typeof(EasyEngineBase).Assembly;
             foreach (var type in asm.GetTypes())
             {
-                if (type.IsAbstract || !type.Name.StartsWith("PTS_", StringComparison.Ordinal)) continue;
+                // Le serie di catalogo: PTS_* e, dal 16/09/2026, PT2_* (l'analisi rifatta).
+                if (type.IsAbstract ||
+                    !(type.Name.StartsWith("PTS_", StringComparison.Ordinal) ||
+                      type.Name.StartsWith("PT2_", StringComparison.Ordinal)))
+                {
+                    continue;
+                }
                 if (!typeof(ITradingStrategy).IsAssignableFrom(type)) continue;
                 if (type.GetConstructor(Type.EmptyTypes) is null) continue;
                 object inst;

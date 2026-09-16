@@ -2,16 +2,17 @@
 
 > Bozza — contenuto da scrivere, tranne la sezione sulla convenzione di nome.
 
-## Convenzione di nome delle strategie PTS
+## Convenzione di nome delle strategie di catalogo
 
-`PTS_[SYMBOL]_[ENG]_[NNN]_[TF]` — per esempio `PTS_NQ_PCH_001_15`, la prima
-PriceChannel su NQ a 15 minuti.
+`[SERIE]_[SYMBOL]_[ENG]_[NNN]_[TF]` — per esempio `PTS_NQ_PCH_001_15`, la prima
+PriceChannel su NQ a 15 minuti della serie PTS.
 
 | Campo | Significato |
 |---|---|
+| `SERIE` | `PTS` (`PiutooStrategies/`, i dossier di agosto e settembre) oppure `PT2` (`PT2Strategies/`, il paniere rifatto di `run-engine-v2/`, dal 16/09/2026). Ogni serie ha la propria cartella, il proprio namespace e la propria mappa in `docs/domini/`. |
 | `SYMBOL` | Simbolo senza il prefisso feed: `@NQ` diventa `NQ`. |
 | `ENG` | Sigla di tre lettere del motore. `TFM` = `TfMirroredEngine`, `PCH` = `PriceChannelEngine`. |
-| `NNN` | Progressivo a tre cifre, **che riparte da 001 per ogni coppia (symbol, motore)**. |
+| `NNN` | Progressivo a tre cifre, **che riparte da 001 per ogni tripla (serie, symbol, motore)**: le serie numerano ognuna per conto proprio. |
 | `TF` | Timeframe in minuti, coerente con `TimeframeMinutes`. |
 
 La sigla del motore precede il numero perché il numero da solo è ambiguo: senza
@@ -24,9 +25,12 @@ Per le PTS `Id` (nome della classe, che è anche il nome del file) e `Name` /
 `StrategyCatalog.ResolveCodes` per risalire dal trade al sorgente.
 
 `PtsNamingConventionTests` verifica formato, coerenza fra nome e proprietà,
-presenza della sigla motore e contiguità dei progressivi. Aggiungendo un motore
-va dichiarata la sua sigla nella tabella `EngineCodes` del test, altrimenti
-fallisce.
+presenza della sigla motore, coerenza fra serie e namespace e contiguità dei
+progressivi. Aggiungendo un motore va dichiarata la sua sigla nella tabella
+`EngineCodes` del test, altrimenti fallisce; aggiungendo una serie vanno
+dichiarati prefisso e namespace in `Series` (e in
+`StrategyClockConformanceTests.CatalogNamespaces`), altrimenti le sue classi
+non passano da nessun controllo.
 
 **Le `Easy_*` non seguono questa convenzione**: mantengono
 `Easy_[numero]_[symbol]_[tf]`, dove il numero è quello del sorgente

@@ -26,6 +26,7 @@
   -->
   <ItemGroup>
     <EmbeddedResource Include="PiutooStrategies\**\*.cs" Exclude="$(DefaultItemExcludes)" />
+    <EmbeddedResource Include="PT2Strategies\**\*.cs" Exclude="$(DefaultItemExcludes)" />
     <EmbeddedResource Include="Easy\**\*.cs" Exclude="$(DefaultItemExcludes)" />
     <EmbeddedResource Include="*.cs" Exclude="$(DefaultItemExcludes)" />
   </ItemGroup>

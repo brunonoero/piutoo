@@ -53,6 +53,19 @@ correzioni di difetti, non opzioni. E dicono quali cartelle archiviate non sono 
 Suite: **931 test, 40 rossi preesistenti**, nessuno nuovo in nessuno dei cinque commit. Tutto su
 `main` (`origin/main` allineato l'08/09/2026).
 
+## La serie PT2 (16/09/2026): tradotta, non verificata
+
+Le quattro schede di `run-engine-v2/DOSSIER_PANIERE_001.md` sono tradotte in
+`Piootoo.Strategies/PT2Strategies/` e registrate ([`domini/mappa-strategie-pt2.md`](domini/mappa-strategie-pt2.md)).
+Per chiuderle manca, in ordine:
+
+1. **Le liste trade di riferimento.** Il dossier le cita (`*/consegna/trades/fam01_*.csv`) ma in
+   `run-engine-v2/` non ci sono: senza, nessun confronto sulle entrate e' possibile.
+2. **`@FDAX_60`** non esiste e **`@FDAX_240`** e' ancorato a 00:00 (voce sotto): `S01` e `S03` non
+   hanno un feed su cui girare fedelmente.
+3. **Un run su `@NQ_240` e `@NQ_30`** per `S02` e `S04`, che il feed ce l'hanno, con
+   `closeAllPositionsAtWeekEnd: false` e senza spread, per il primo confronto con le metriche della scheda.
+
 ## Il resto, in ordine
 
 - **Il feed `@FDAX_240.json` è ancorato a 00:00 e il calendario dice 01:00.** Misurato: 20.795

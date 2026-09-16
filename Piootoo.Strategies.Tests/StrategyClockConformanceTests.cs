@@ -4,6 +4,7 @@ using Piootoo.Shared.MarketData;
 using Piootoo.Shared.Configuration;
 using Piootoo.Shared.Interfaces;
 using Piootoo.Strategies.PiutooStrategies;
+using Piootoo.Strategies.PT2Strategies;
 using Xunit;
 
 namespace Piootoo.Strategies.Tests;
@@ -136,6 +137,17 @@ public sealed class StrategyClockConformanceTests
             senzaCalendario.OrderBy(x => x.Key, StringComparer.Ordinal));
     }
 
+    /// <summary>
+    /// I namespace delle serie di catalogo: <c>PTS_*</c> e, dal 16/09/2026, <c>PT2_*</c>
+    /// (<c>Piootoo.Strategies/PT2Strategies/</c>, l'analisi rifatta di <c>run-engine-v2/</c>). Una
+    /// serie nuova si dichiara qui, altrimenti le sue classi non passano da questi controlli.
+    /// </summary>
+    private static readonly string[] CatalogNamespaces =
+    [
+        typeof(PTS_NQ_TFM_001_60).Namespace!,
+        typeof(PT2_NQ_PCH_001_240).Namespace!
+    ];
+
     public static TheoryData<Type> PtsStrategyTypes
     {
         get
@@ -144,7 +156,7 @@ public sealed class StrategyClockConformanceTests
             foreach (var type in Assembly.GetAssembly(typeof(PTS_NQ_TFM_001_60))!
                          .GetTypes()
                          .Where(t => t is { IsAbstract: false, IsClass: true }
-                                     && t.Namespace == typeof(PTS_NQ_TFM_001_60).Namespace
+                                     && t.Namespace is { } ns && CatalogNamespaces.Contains(ns)
                                      && typeof(ITradingStrategy).IsAssignableFrom(t))
                          .OrderBy(t => t.Name))
             {

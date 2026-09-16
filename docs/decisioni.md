@@ -4049,3 +4049,50 @@ che il motore fa. Difetto di artefatto, non di esecuzione, ma e' costato mezza i
   completo per Titano, rimosso il 03/09; resta il doppione reale del 14/10/2024, e la scadenza da sola
   non lo ferma, perche' sulla barra N+1 l'intent della barra N e' ancora dentro la propria finestra.
   `distribuzione-multi-account.md` §4.3 ter; chiusa la voce «Da decidere» di `lavori-in-corso.md`.
+
+- **2026-09-16** — **Una seconda serie di strategie, `PT2_*`, dal paniere rifatto.** L'analisi che
+  aveva prodotto le `PTS_*` conteneva errori e il paniere e' stato rifatto:
+  `piootoo-repository/run-engine-v2/DOSSIER_PANIERE_001.md`, quattro schede su FDAX e NQ (BIASW 1h,
+  PC 4h ×2, PC 30m). Le quattro sono tradotte in `Piootoo.Strategies/PT2Strategies/`, namespace
+  proprio e prefisso proprio, **accanto** alle `PTS_*` e non al loro posto: le vecchie classi restano
+  perche' descrivono righe di un altro dossier e i confronti archiviati le citano. La serie numera
+  per conto suo — `PT2_NQ_PCH_001_240` e' la prima PC su NQ *di questa serie* — e il progressivo si
+  verifica per tripla (serie, simbolo, motore). Mappa in `domini/mappa-strategie-pt2.md`.
+
+  **Un catalogo, due namespace.** `StrategyFactory` enumera l'assembly e le trova da solo; i
+  controlli che enumeravano *per namespace* — `PtsNamingConventionTests`,
+  `StrategyClockConformanceTests` — e i filtri *per prefisso* (`CompareRunner`, `dossier-diff.py`)
+  avrebbero invece saltato le PT2 in silenzio, che e' il modo in cui una classe finisce eseguibile
+  senza essere mai passata da nessuna verifica. I namespace di catalogo sono ora dichiarati in un
+  punto per test (`Series`, `CatalogNamespaces`) e una serie nuova si aggiunge li'.
+
+  **L'etichetta della barra la dichiara la strategia.** I run di `run-engine-v2` etichettano le
+  candele **all'inizio** (§2.6 del dossier), come il feed Piootoo e al contrario dei run delle
+  `PTS_*`: per loro la compensazione di `SessionClock.BarLabelTime` non va applicata, e applicarla
+  sposterebbe finestra, giorno e orari BIASW di una barra. Non e' una proprieta' del run — un run
+  che mescola le due serie deve leggere ognuna con la propria etichetta — ne' un numero da
+  convertire a mano: e' la provenienza dei parametri, come l'orologio della finestra. Da qui
+  `EasyEngineBase.ResearchLabelsBarsOnOpen`, dichiarato nel costruttore e letto da `ParamTime`,
+  `WindowParamTime`, `PythonWeekday` e dalla deadline BIASW; `LegacyBarOpenLabels` resta come
+  interruttore di run per i confronti con gli archivi. I numeri del dossier si riportano verbatim
+  (`le_time = 08:00` e' la barra 08:00-09:00, `ResearchHours(12, 16)` sono le barre che aprono alle
+  12:00 e alle 16:00), e ogni PT2 dichiara l'etichetta anche dove oggi non ha orari: il primo
+  parametro orario aggiunto sarebbe letto giusto. Ingresso e uscita di S01 cadono sulla stessa barra
+  del lunedì e il motore risolve l'uscita al lunedì successivo: la posizione dura una settimana,
+  l'unica lettura compatibile con le metriche della scheda. `BarLabelTests` e
+  `Pt2ScheduleAndWindowTests` provano le due serie fianco a fianco; la tabella delle frasi non
+  ovvie del dossier v2 e' in `domini/porting-da-report-sweep.md` §"Il dossier di `run-engine-v2`".
+  Aperto: la scheda S02 dice anche «barre che *chiudono* fra le 12:00 e le 16:00», frase dei dossier
+  precedenti che contraddice §2.6; vale §2.6, da confermare sulla lista trade.
+
+  **Nella console le tre schermate che elencano strategie** — elenco strategie, masterfilter del
+  workspace, tab Strategie del piano — hanno due filtri in piu', **simbolo** e **serie**, con la
+  serie a **PT2** per default (`Shell/Controls/StrategyFilters.cs`, un punto solo per tutte e tre).
+  Il default e' PT2 perche' e' la serie su cui si lavora e un elenco che mostra anche le PTS fa
+  sembrare disponibile un catalogo che non si vuole piu' eseguire; «tutte» resta per il catalogo
+  intero. Nel masterfilter le voci fuori catalogo seguono il filtro serie (dal prefisso) ma non
+  quello simbolo, che non conoscono: un avviso non si nasconde.
+
+  **Cosa non c'e'.** Le liste trade che il dossier cita non sono nel repository, quindi nessuna PT2
+  e' verificata sulle entrate; `@FDAX_60` non esiste e `@FDAX_240` e' ancora ancorato a 00:00.
+  Voce in `lavori-in-corso.md`.

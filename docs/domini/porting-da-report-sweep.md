@@ -259,6 +259,53 @@ rinascere la seconda fonte di verità che il calendario esiste per eliminare.
 Gli override sono elencati in `SessionAnchorOverrideTests`. Uno nuovo fa fallire il test finché non
 viene messo in lista: così nasce da una decisione e non da un merge.
 
+### 3. L'etichetta della barra la dichiara la strategia, e i numeri restano verbatim
+
+§0 dice che il feed etichetta sull'apertura e la ricerca sulla chiusura, e che la compensazione vive
+in `SessionClock.BarLabelTime`. Dal 16/09/2026 questo e' vero **per serie**, non per sistema: i run
+di `run-engine-v2/` etichettano le candele **all'inizio** (§2.6 del dossier: «le candele sono
+etichettate al loro inizio»), come il feed. Per quelle strategie non c'e' niente da compensare, e
+compensare lo stesso sposterebbe finestra, giorno e orari BIASW di una barra.
+
+La provenienza la dichiara la classe, come per l'orologio della finestra:
+
+```csharp
+ResearchLabelsBarsOnOpen = true;   // run-engine-v2, §2.6: etichetta = apertura
+TradingWindow = ZonedWindow.ResearchHours(12, 16);   // verbatim, come sempre
+EntryTimeLong = new TimeOnly(8, 0);                  // le_time verbatim, come sempre
+```
+
+`EasyEngineBase.ParamTime`, `WindowParamTime`, `PythonWeekday` e la deadline BIASW leggono
+l'apertura quando la strategia lo dichiara, la chiusura altrimenti; l'interruttore di run
+`LegacyBarOpenLabels` resta per i confronti con gli archivi e vale per tutte. `BarLabelTests` e
+`Pt2ScheduleAndWindowTests` provano che le due serie nello stesso run leggono ognuna la propria
+etichetta. **La regola che non cambia**: i numeri si riportano verbatim. Il modo sbagliato di
+ottenere lo stesso effetto e' scrivere `09:00` al posto di `08:00` in una PT2 — funzionerebbe fino
+alla prima strategia con un `end_hour` e a nessun errore.
+
+Come si legge il dossier, con l'etichetta giusta:
+
+| Dossier | Etichetta | Come scrive l'ingresso BIASW | Campo |
+|---|---|---|---|
+| settembre (`run-08-settembre`) | chiusura | «MARKET all'apertura della barra delle **02:00**» | `EntryTimeLong = 02:00`, cioe' la barra 01:00-02:00 |
+| `run-engine-v2` | apertura | «MARKET alle **08:00** (apertura della barra che chiude alle 09:00)» | `EntryTimeLong = 08:00`, la barra 08:00-09:00, con `ResearchLabelsBarsOnOpen` |
+
+Il motore Python (`bias_weekly.py`) entra sulla barra il cui **timestamp** coincide con `le_time` e
+riempie alla sua apertura, con la maschera dei pattern spostata di una barra (`shift(1)`); il
+timestamp e' la chiusura o l'apertura secondo come e' etichettato il feed della ricerca, ed e'
+esattamente cio' che la dichiarazione dice all'engine. L'uscita segue `lx_time` con la stessa
+regola: «lunedì alle 09:00, market alla chiusura della barra che termina a quell'ora» e' la barra
+08:00-09:00, `lx_time = 08:00` — il dossier stampa l'istante della chiusura. L'engine risolve la
+deadline all'apertura di quella barra e la esegue al mark della barra stessa, cioe' alla chiusura,
+come il dossier descrive; il cBot chiude all'apertura, e la differenza e' degli esecutori, non del
+porting.
+
+Quando ingresso e uscita cadono sulla **stessa barra** della settimana (S01 di `run-engine-v2`:
+entrambi lunedì, barra 08:00-09:00) il motore risolve l'uscita alla settimana **successiva**,
+perche' `ResolveScheduledExitUtc` prende la prima occorrenza strettamente dopo la barra di
+ingresso: la posizione dura una settimana, ed e' l'unica lettura compatibile con le metriche della
+scheda.
+
 **3. L'orologio della ricerca è `Europe/Rome`, con le regole DST europee.** Misurato, non dedotto:
 prendendo la barra a volume massimo di ogni giorno del 2024 — quella che marca l'apertura o la
 chiusura del cash americano — il picco sta alle 22:00 a febbraio, alle **21:00 dall'11 al 28
@@ -382,6 +429,38 @@ sui fill stop, l'engine Piootoo zero, e nel motore di esecuzione non esiste un
 parametro di slippage — quello in `TitanoRotationRequest` riguarda solo la
 simulazione di equity di Titano. Su NQ la rettifica da applicare a mano è $10 per
 trade (1 tick da $5 all'ingresso e 1 all'uscita).
+
+## Il dossier di `run-engine-v2`: cosa cambia nella lettura
+
+Dal 16/09/2026 esiste una seconda serie di classi, `PT2_*` in `Piootoo.Strategies/PT2Strategies/`,
+tradotta da `piootoo-repository/run-engine-v2/DOSSIER_PANIERE_001.md` — il paniere rifatto dopo aver
+trovato errori nell'analisi che aveva prodotto le `PTS_*`. Mappa in
+[`mappa-strategie-pt2.md`](mappa-strategie-pt2.md). Le regole di questo documento valgono tutte;
+queste sono le frasi del nuovo dossier che si traducono in modo non ovvio, verificate una per una
+sul motore Python e sul motore C#.
+
+**Prima di tutto: §2.6, «le candele sono etichettate al loro inizio».** E' la differenza strutturale
+rispetto ai dossier precedenti, e ogni PT2 la dichiara con `ResearchLabelsBarsOnOpen = true` (§3
+della regola degli orari). Tutto il resto si riporta verbatim.
+
+| Frase del dossier | Traduzione | Perche' |
+|---|---|---|
+| «MARKET alle 08:00 (apertura della barra che chiude alle 09:00)» | `EntryTimeLong = 08:00` | `le_time` verbatim: con l'etichetta sull'apertura e' la barra 08:00-09:00 |
+| «uscita lunedì alle 09:00, market alla chiusura della barra che termina a quell'ora» | `ExitTimeLong = 08:00` | la barra che termina alle 09:00 e' la 08:00-09:00; stessa barra dell'ingresso → settimana successiva |
+| «Opera solo fra 12:00 e 16:00» | `ZonedWindow.ResearchHours(12, 16)` | verbatim, letta sull'apertura: le barre 12:00-16:00 e 16:00-20:00. ⚠ La scheda aggiunge «ordini emessi sulle barre che **chiudono** fra le 12:00 e le 16:00»: e' la frase dei dossier a etichetta di chiusura e contraddice §2.6. Vale §2.6; da confermare sulla lista trade |
+| «Nessun filtro orario: opera su tutte le 24 ore» | `ZonedWindow.AllDay` | `start_hour = end_hour = -1` del run; non e' una fascia esclusa |
+| «deve essere FALSO — neutrale 7» e nessun «deve essere VERO» | `NeutralYes = 55`, `NeutralNo = 7` | il gate richiesto resta alla sentinella; il divieto e' il numero del dossier, e `EasyLib.PatternNeutralFast` caso 7 ha la stessa formula `\|O_d1-C_d1\| > 0.75 * (H_d1-L_d1)` |
+| «*Nessun filtro pattern*» | sentinelle 55/56, 52/53 (PC) o 152/153 (BIASW) | un gate alla sentinella non filtra nulla |
+| «Chiude tutto a fine sessione (nessun overnight)» | `IntradayOnly = true` | `intraday_only = 1`; la chiusura cade all'ultimo minuto della sessione ancorata dal calendario (01:00 su FDAX) |
+| «Puo' restare aperta oltre la sessione (multiday)» | `IntradayOnly = false` **esplicito** | il default del motore e' `true` (trappola gia' vista) |
+| «**Solo long**: il lato short non opera mai», con il livello short comunque elencato | `Direction = 1` | il dossier stampa entrambi i livelli per completezza |
+| «+ 10 tick (10 pt)» su FDAX | `OffsetTicks = 10`, `TickSize = 1m` | offset esatto, nessun tick implicito |
+| «Uscita a tempo dopo 5 barre (20 ore)» | `MaxBars = 5` | in barre della strategia, contate sul calendario |
+| «Stop loss: $44,700 per contratto = 1,788.00 pt» | `StopMoneyLong = 44700m` | dollari per contratto, verbatim; i punti sono la verifica contro `InstrumentRegistry` |
+
+Due cose che il dossier **non** porta con se': le liste trade che cita (`*/consegna/trades/*.csv`)
+non sono nel repository, quindi nessuna PT2 e' verificata sulle entrate; e per FDAX a 60 minuti non
+esiste un datafeed interno. Entrambe stanno in [`../lavori-in-corso.md`](../lavori-in-corso.md).
 
 ## Verificare il porting contro il report
 
