@@ -238,6 +238,9 @@ public sealed class TradingSessionService : ITradingSessionService
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, SessionGrid?> _sessionGrids =
         new(StringComparer.OrdinalIgnoreCase);
 
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, SessionMask?> _sessionMasks =
+        new(StringComparer.OrdinalIgnoreCase);
+
     private sealed class Session
     {
         public required string Id { get; init; }
@@ -1422,9 +1425,13 @@ public sealed class TradingSessionService : ITradingSessionService
             // Le barre nei giorni senza sessione non esistono per le strategie: stessa regola del
             // backtest, stesso punto (SessionGrid.DropNonSessionDays), applicata anche al
             // riscaldamento dal disco, che viene da un archivio CFD.
-            history.AddRange(DropNonSessionDays(symbol, serie.Candles, out var fuoriSessione));
+            var warmCandles = DropNonSessionDays(symbol, serie.Candles, out var fuoriSessione);
+            warmCandles = DropOutsideWindow(symbol, warmCandles, timeframe, out var fuoriFinestra);
+            history.AddRange(warmCandles);
             if (fuoriSessione > 0)
                 Console.WriteLine($"[Sessione {session.Id}] Riscaldamento {stream}: {fuoriSessione} barre in giorni senza sessione scartate.");
+            if (fuoriFinestra > 0)
+                Console.WriteLine($"[Sessione {session.Id}] Riscaldamento {stream}: {fuoriFinestra} barre fuori dalla finestra di negoziazione scartate.");
             TrimHistory(session, symbol, timeframe, history);
 
             session.WarmUp[stream] = new StreamWarmUp
@@ -1521,6 +1528,7 @@ public sealed class TradingSessionService : ITradingSessionService
             var accepted = 0;
             var duplicates = 0;
             var nonSession = 0;
+            var outsideWindow = 0;
             var emitted = new List<OrderIntent>();
             foreach (var bar in request.Bars)
             {
@@ -1551,6 +1559,15 @@ public sealed class TradingSessionService : ITradingSessionService
                     continue;
                 }
 
+                // Stessa regola un livello piu' sotto: una barra che non tocca la finestra di
+                // negoziazione del simbolo (SessionMask) — l'ora delle 22:00 di Roma su un CFD del
+                // DAX — per le strategie non esiste.
+                if (!TouchesTradingWindow(bar.Symbol, normalizedBar.Bar.DateTime, bar.TimeframeMinutes))
+                {
+                    outsideWindow++;
+                    continue;
+                }
+
                 if (!session.History.TryGetValue(stream, out var history))
                     session.History[stream] = history = [];
                 history.Add(normalizedBar.Bar);
@@ -1562,7 +1579,8 @@ public sealed class TradingSessionService : ITradingSessionService
             Persist(session);
             return new PushBarsResponse
             {
-                AcceptedBars = accepted, DuplicateBars = duplicates, NonSessionBars = nonSession, Intents = emitted
+                AcceptedBars = accepted, DuplicateBars = duplicates, NonSessionBars = nonSession,
+                OutsideWindowBars = outsideWindow, Intents = emitted
             };
         }
     }
@@ -1593,6 +1611,7 @@ public sealed class TradingSessionService : ITradingSessionService
             var duplicates = 0;
             var backfilled = 0;
             var nonSession = 0;
+            var outsideWindow = 0;
             var emitted = new List<OrderIntent>();
             var streams = new List<StreamHistoryStatus>();
 
@@ -1638,6 +1657,8 @@ public sealed class TradingSessionService : ITradingSessionService
                 // il controllo di sovrapposizione si fa sulla finestra ripulita.
                 var candles = DropNonSessionDays(window.Symbol, window.Candles, out var fuoriSessione);
                 nonSession += fuoriSessione;
+                candles = DropOutsideWindow(window.Symbol, candles, window.TimeframeMinutes, out var fuoriFinestra);
+                outsideWindow += fuoriFinestra;
                 if (candles.Length == 0)
                 {
                     streams.Add(BuildStreamStatus(session, window.Symbol, window.TimeframeMinutes, history.Count, evaluated: 0));
@@ -1661,7 +1682,9 @@ public sealed class TradingSessionService : ITradingSessionService
                 // quel momento non deve sembrare un replay. Lo stesso vale quando la barra chiusa
                 // sta in un giorno senza sessione: le candele buone della finestra entrano in storia,
                 // ma quella barra non si valuta — per le strategie non e' mai esistita.
-                if (!window.EvaluateLastCandle || !IsOnSessionDay(window.Symbol, closedBar.BarTimeUtc))
+                if (!window.EvaluateLastCandle ||
+                    !IsOnSessionDay(window.Symbol, closedBar.BarTimeUtc) ||
+                    !TouchesTradingWindow(window.Symbol, closedBar.BarTimeUtc, window.TimeframeMinutes))
                 {
                     backfilled += Backfill(history, candles, lastKnownUtc);
                     streams.Add(BuildStreamStatus(session, window.Symbol, window.TimeframeMinutes, history.Count, evaluated: 0));
@@ -1717,6 +1740,7 @@ public sealed class TradingSessionService : ITradingSessionService
                 DuplicateBars = duplicates,
                 BackfilledBars = Math.Max(0, backfilled),
                 NonSessionBars = nonSession,
+                OutsideWindowBars = outsideWindow,
                 Intents = emitted,
                 Streams = streams,
                 ClaimableIntents = CountClaimableIntents(session)
@@ -1742,6 +1766,40 @@ public sealed class TradingSessionService : ITradingSessionService
     /// <summary>Vero se la barra sta in un giorno di sessione del simbolo, o se il calendario non lo dice.</summary>
     private bool IsOnSessionDay(string symbol, DateTime barOpenUtc) =>
         SessionGridOf(symbol)?.IsOnSessionDay(barOpenUtc) ?? true;
+
+    /// <summary>
+    /// La maschera di negoziazione del simbolo, una per simbolo e costruita al primo uso; <c>null</c>
+    /// se il calendario non lo conosce o non dichiara la finestra, e allora nulla si scarta.
+    /// </summary>
+    private SessionMask? SessionMaskOf(string symbol)
+    {
+        var key = MarketCalendar.Normalize(symbol);
+        if (_sessionMasks.TryGetValue(key, out var cached))
+            return cached;
+
+        var mask = MarketCalendarRegistry.Current.TryGet(key, out var calendar) ? new SessionMask(calendar) : null;
+        if (mask is { DeclaresWindow: false })
+            mask = null;
+        _sessionMasks[key] = mask;
+        return mask;
+    }
+
+    /// <summary>Vero se la barra tocca la finestra di negoziazione del simbolo, o se non e' dichiarata.</summary>
+    private bool TouchesTradingWindow(string symbol, DateTime barOpenUtc, int timeframeMinutes) =>
+        SessionMaskOf(symbol)?.Overlaps(barOpenUtc, timeframeMinutes) != false;
+
+    /// <summary>Le sole candele che toccano la finestra di negoziazione: <c>SessionMask.DropOutsideWindow</c>.</summary>
+    private OhlcvData[] DropOutsideWindow(string symbol, IReadOnlyList<OhlcvData> candles, int timeframeMinutes, out int dropped)
+    {
+        var mask = SessionMaskOf(symbol);
+        if (mask is null)
+        {
+            dropped = 0;
+            return candles as OhlcvData[] ?? candles.ToArray();
+        }
+
+        return mask.DropOutsideWindow(candles, timeframeMinutes, out dropped);
+    }
 
     /// <summary>Le sole candele nei giorni di sessione del simbolo: <c>SessionGrid.DropNonSessionDays</c>.</summary>
     private OhlcvData[] DropNonSessionDays(string symbol, IReadOnlyList<OhlcvData> candles, out int dropped)
@@ -4754,11 +4812,39 @@ public sealed class TradingSessionService : ITradingSessionService
             throw new InvalidOperationException(
                 $"'{symbol}' non e' nel calendario di mercato: la sessione non doveva potersi aprire.");
 
+        // La finestra di negoziazione viaggia con la griglia: il cBot non piega nelle proprie
+        // candele le barre base che non la toccano, con la stessa regola di SessionMask. Una sola
+        // finestra per simbolo oggi (vedi TradingWindow.From/To); se un giorno saranno piu' d'una
+        // il descriptor dovra' portarle tutte, e questo punto lo dira' con un errore.
+        InstrumentTradingWindow? window = null;
+        if (calendar.TradingWindows.Count > 1)
+            throw new InvalidOperationException(
+                $"'{symbol}' dichiara {calendar.TradingWindows.Count} finestre di negoziazione: il " +
+                "descriptor ne porta una sola al cBot, e mandargli la prima sarebbe una maschera diversa da quella del server.");
+        if (calendar.TradingWindows.Count == 1)
+        {
+            var declared = calendar.TradingWindows[0];
+            window = new InstrumentTradingWindow
+            {
+                OpenAt = declared.Open.Time,
+                OpenAnchor = AnchorName(declared.Open.Anchor),
+                CloseAt = declared.Close.Time,
+                CloseAnchor = AnchorName(declared.Close.Anchor),
+                ExchangeTimeZone = calendar.ExchangeTimeZone,
+                OpensOn = declared.OpensOn.OrderBy(day => day).Select(day => day.ToString()).ToList(),
+                From = declared.From,
+                To = declared.To
+            };
+        }
+
         return new InstrumentBarGrid
         {
             SessionStart = calendar.SessionStart,
-            ResearchTimeZone = calendar.ResearchTimeZone
+            ResearchTimeZone = calendar.ResearchTimeZone,
+            TradingWindow = window
         };
+
+        static string AnchorName(PhaseAnchor anchor) => anchor == PhaseAnchor.Utc ? "utc" : "local";
     }
 
     private TradingSessionDescriptor Describe(

@@ -283,6 +283,45 @@ public sealed class InstrumentBarGrid
 
     /// <summary>Fuso IANA in cui leggere l'ancoraggio: quello della ricerca, non quello di borsa.</summary>
     public required string ResearchTimeZone { get; init; }
+
+    /// <summary>
+    /// Quando lo strumento <b>negozia davvero</b>: la finestra di <c>SessionMask</c>, dal calendario
+    /// di mercato. Il cBot non piega nelle proprie candele le barre base che non la toccano: un feed
+    /// CFD quota anche quando il future è chiuso, e quei minuti finivano nelle barre 4h. <c>null</c>
+    /// quando il calendario non la dichiara: allora nulla si scarta. Dal 7.5.0.
+    /// </summary>
+    public InstrumentTradingWindow? TradingWindow { get; init; }
+}
+
+/// <summary>
+/// La finestra di negoziazione di uno strumento come viaggia verso il cBot: gli stessi campi di
+/// <c>TradingWindow</c> del calendario, con ancoraggi e giorni come testo perché il bot (.NET 6,
+/// senza le nostre assembly) li legga senza dipendere dalla serializzazione degli enum.
+/// </summary>
+public sealed class InstrumentTradingWindow
+{
+    /// <summary>Apertura, <c>HH:mm:ss</c> sul filo, nell'orologio di <see cref="OpenAnchor"/>.</summary>
+    public required TimeOnly OpenAt { get; init; }
+
+    /// <summary><c>"utc"</c> oppure <c>"local"</c> (ora di borsa, <see cref="ExchangeTimeZone"/>).</summary>
+    public required string OpenAnchor { get; init; }
+
+    /// <summary>Chiusura. Uguale o precedente all'apertura = scavalca la mezzanotte.</summary>
+    public required TimeOnly CloseAt { get; init; }
+
+    public required string CloseAnchor { get; init; }
+
+    /// <summary>Fuso IANA della borsa, in cui si leggono i bordi ancorati in locale.</summary>
+    public required string ExchangeTimeZone { get; init; }
+
+    /// <summary>Giorni, in ora di borsa, in cui una giornata di negoziazione si apre: <c>"Monday"</c>…</summary>
+    public required IReadOnlyList<string> OpensOn { get; init; }
+
+    /// <summary>Primo giorno dell'anno in cui vale, <c>MM-dd</c>; null = sempre.</summary>
+    public string? From { get; init; }
+
+    /// <summary>Ultimo giorno dell'anno in cui vale, <c>MM-dd</c>; null = sempre.</summary>
+    public string? To { get; init; }
 }
 
 public sealed class TradingInstrument
@@ -385,6 +424,13 @@ public sealed class PushBarsResponse
     /// come consegna, ma non entrate nella storia e non valutate (<c>SessionGrid.DropNonSessionDays</c>).
     /// </summary>
     public int NonSessionBars { get; init; }
+
+    /// <summary>
+    /// Barre ricevute che non toccano la finestra di negoziazione del simbolo
+    /// (<c>SessionMask.DropOutsideWindow</c>): accettate come consegna, non entrate nella storia e
+    /// non valutate. Dal 7.5.0.
+    /// </summary>
+    public int OutsideWindowBars { get; init; }
     public IReadOnlyList<OrderIntent> Intents { get; init; } = [];
 }
 
@@ -470,6 +516,9 @@ public sealed class PushBarWindowResponse
     /// ma non valutata.
     /// </summary>
     public int NonSessionBars { get; init; }
+
+    /// <summary>Come in <see cref="PushBarsResponse.OutsideWindowBars"/>: fuori dalla finestra di negoziazione.</summary>
+    public int OutsideWindowBars { get; init; }
     public IReadOnlyList<OrderIntent> Intents { get; init; } = [];
     public IReadOnlyList<StreamHistoryStatus> Streams { get; init; } = [];
 

@@ -1000,8 +1000,17 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                 // SessionGrid.DropNonSessionDays; qui si applica e si dichiara nel summary.
                 var candles = loadedCandles;
                 var nonSessionDropped = 0;
+                var outsideWindowDropped = 0;
                 if (MarketCalendarRegistry.Current.TryGet(normalizedSymbol, out var symbolCalendar))
+                {
                     candles = new SessionGrid(symbolCalendar).DropNonSessionDays(loadedCandles, out nonSessionDropped);
+                    // Un livello piu' sotto, stessa regola: le barre che non toccano la finestra di
+                    // negoziazione (SessionMask) non esistono per le strategie. Sui bucket costruiti
+                    // dal minuto con la 7.5.0 non toglie nulla, perche' la maschera e' gia' passata
+                    // nell'aggregatore; morde sulle serie native (l'ora delle 22:00 di Roma sul CFD
+                    // del DAX) e sugli archivi aggregati prima della maschera.
+                    candles = new SessionMask(symbolCalendar).DropOutsideWindow(candles, ds.Timeframe, out outsideWindowDropped);
+                }
 
                 var cursor = new CandleWindowCursor(candles);
                 cursors[(normalizedSymbol, ds.Timeframe)] = cursor;
@@ -1058,7 +1067,7 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                 // ferma, perche' anche il feed del vendor ha una barra fuori griglia all'anno per
                 // file giornaliero. Vedi docs/domini/layer-barre-e-calendario.md.
                 var calendarSummary = DescribeFeedCalendar(
-                    normalizedSymbol, ds.Timeframe, loadedCandles, nonSessionDropped, diagnostics);
+                    normalizedSymbol, ds.Timeframe, loadedCandles, nonSessionDropped, outsideWindowDropped, diagnostics);
 
                 diagnostics.LogDataSource(new BacktestDataSourceSummary
                 {
@@ -1079,6 +1088,7 @@ public class PiootooBacktestingService : IPiootooBacktestingService
 
                 Console.WriteLine($"[Backtesting] {normalizedSymbol}/{ds.Timeframe}m: {candles.Length} candele" +
                                   (nonSessionDropped > 0 ? $" ({nonSessionDropped} scartate: giorni senza sessione)" : "") +
+                                  (outsideWindowDropped > 0 ? $" ({outsideWindowDropped} scartate: fuori dalla finestra di negoziazione)" : "") +
                                   (warning is null ? "" : $" — {warning}"));
 
                 loadedDataSources++;
@@ -2379,6 +2389,7 @@ public class PiootooBacktestingService : IPiootooBacktestingService
         int timeframeMinutes,
         OhlcvData[] candles,
         int nonSessionDropped,
+        int outsideWindowDropped,
         BacktestDiagnosticsLogger diagnostics)
     {
         if (candles.Length == 0 || !SessionGrid.DividesTheDay(timeframeMinutes))
@@ -2423,6 +2434,14 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                     : ". Il calendario non dichiara i giorni di sessione, quindi sono rimaste nella serie."));
         }
 
+        if (outsideWindowDropped > 0)
+        {
+            diagnostics.AddRunDiagnostic(
+                $"[calendario] {symbol}/{timeframeMinutes}m: {outsideWindowDropped} barre non toccano la " +
+                $"finestra di negoziazione di {symbol} (SessionMask) e sono state tolte dalla serie prima " +
+                "del run. Sono ore in cui il feed quota e il future e' chiuso.");
+        }
+
         return new BacktestFeedCalendarSummary
         {
             Grid = report.Grid,
@@ -2430,6 +2449,7 @@ public class PiootooBacktestingService : IPiootooBacktestingService
             BarsOffGrid = report.BarsOffGrid,
             BarsOnNonSessionDay = report.BarsOnNonSessionDay,
             NonSessionBarsDropped = nonSessionDropped,
+            OutsideWindowBarsDropped = outsideWindowDropped,
             StaleBars = report.StaleBars,
             Gaps = report.Gaps,
             FirstSessionId = report.FirstSessionId,

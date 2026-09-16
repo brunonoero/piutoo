@@ -208,6 +208,14 @@ public sealed class BacktestFeedCalendarSummary
     /// </summary>
     public int NonSessionBarsDropped { get; init; }
 
+    /// <summary>
+    /// Barre tolte dalla serie prima del run perché <b>non toccano la finestra di negoziazione</b>
+    /// del simbolo (<c>SessionMask.DropOutsideWindow</c>, dal 16/09/2026): l'ora nativa delle 22:00
+    /// di Roma su un CFD del DAX, per esempio. Sui bucket costruiti dal minuto vale zero, perché la
+    /// maschera è già passata nell'aggregatore; qui conta su feed aggregati altrove o prima.
+    /// </summary>
+    public int OutsideWindowBarsDropped { get; init; }
+
     /// <summary>Barre con OHLC tutti uguali.</summary>
     public int StaleBars { get; init; }
 

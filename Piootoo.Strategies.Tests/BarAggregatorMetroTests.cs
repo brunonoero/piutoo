@@ -72,7 +72,11 @@ public sealed class BarAggregatorMetroTests(ITestOutputHelper output)
         Assert.NotEmpty(minutes);
         Assert.NotEmpty(reference);
 
-        var mine = new BarAggregator(MarketCalendarRegistry.Current.Get(symbol), timeframe)
+        // Il metro misura la GRIGLIA, e il riferimento e' un aggregato raccolto prima della 7.5.0,
+        // senza maschera di negoziazione: si aggrega senza maschera (mask: null, una scelta
+        // dichiarata) perche' sul FDAX la maschera cambia per costruzione i bucket delle 21:00 e
+        // dell'01:00. La maschera ha il proprio metro: BarAggregatorMaskTests e SessionMaskArchiveTests.
+        var mine = new BarAggregator(SessionGrid.For(symbol), timeframe, mask: null)
             .Aggregate(minutes)
             .ToDictionary(bar => bar.Bar.DateTime, bar => bar.Bar);
 
@@ -136,7 +140,8 @@ public sealed class BarAggregatorMetroTests(ITestOutputHelper output)
         var minutes = await repository.LoadAllDataAsync(symbol, "OneMinute");
         var reference = await repository.LoadAllDataAsync(symbol, BarTypeOf(timeframe));
 
-        var mine = new BarAggregator(MarketCalendarRegistry.Current.Get(symbol), timeframe)
+        // Senza maschera, per la stessa ragione del test sopra: qui si misura la griglia.
+        var mine = new BarAggregator(SessionGrid.For(symbol), timeframe, mask: null)
             .Aggregate(minutes)
             .Select(bar => bar.Bar.DateTime)
             .ToHashSet();

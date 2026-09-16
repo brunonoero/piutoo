@@ -4186,3 +4186,42 @@ che il motore fa. Difetto di artefatto, non di esecuzione, ma e' costato mezza i
   La 7.4.7 ripristina l'ordine in entrambi i percorsi e `TimeExitBeforeEvaluationTests` lo tiene
   fermo, con i numeri nel commento: chi lo cambia rimisura. Il cBot non e' coinvolto in nessuna
   delle due versioni.
+
+- **2026-09-16** — **La maschera di negoziazione e' collegata (7.5.0): le ore in cui il CFD quota e
+  il future e' chiuso non esistono per le strategie.** `SessionMask` era nata l'08/09 con la finestra
+  misurata sul vendor (FDAX 00:15 UTC → 22:00 Berlino, lun-ven) e un test che ne contava l'effetto
+  sull'archivio FTMO (11% dei minuti del DAX); la classe diceva «la usano tutti e tre i percorsi» e
+  nessun percorso la chiamava. L'ha fatta trovare il confronto fra il paniere sul future (+31,9% sui
+  12 mesi 06/2024-05/2025 con spread) e sul CFD (+5,0% su 09/2025-08/2026): tre strategie su
+  quattro nel loro ordine di grandezza, tutto il buco su `PT2_FDAX_PCH_001_240` (−99.377). FTMO
+  quota il DAX dalle 00:00 alle 23:00 di Roma, l'Eurex dalle 01:15 alle 22:00: i minuti in mezzo
+  entravano nelle barre 4h delle 21:00 e delle 01:00 e spostavano canale e massimi di sessione.
+  Misurato prima di scrivere codice, con un archivio FTMO filtrato a mano alle ore Eurex:
+
+  | FTMO 31/08/2025-31/08/2026, piano V02-001 | FDAX PC | paniere |
+  |---|---|---|
+  | feed pieno, con spread | −99.377 | +50.383 (+5,0%) |
+  | FDAX filtrato alle ore Eurex, con spread | −40.491 | +111.230 (+11,1%) |
+  | feed pieno, senza spread | −64.767 | +48.835 |
+  | FDAX filtrato, senza spread | −18.238 | +97.325 |
+
+  **Dove sta la regola.** Nel calendario, come per i giorni senza sessione, un livello piu' sotto.
+  La applica `BarAggregator` sui minuti, prima di piegarli in bucket: un minuto fuori finestra non
+  entra in nessun bucket e non ne chiude nessuno (il bucket delle 21:00 si chiude con il primo
+  minuto dell'01:15). Passano di li' la ricostruzione degli archivi di broker
+  (`rebuild-from-minutes`, che ora scrive la finestra nel `source` del file e riporta
+  `maskedMinutes`) e il riscaldamento dal disco. Sulle barre gia' piegate — quelle che una sessione
+  riceve dal cBot e quelle che il backtest legge — vale «la barra tocca la finestra»
+  (`SessionMask.Overlaps`, `DropOutsideWindow`): il bucket 4h dell'01:00 di Roma apre alle 00:00 UTC,
+  un quarto d'ora prima dell'Eurex, ed e' una barra vera; l'ora nativa delle 22:00 no. Il cBot
+  riceve la finestra nel descriptor (`InstrumentBarGrid.TradingWindow`, contratto 7.5), non piega
+  nelle proprie candele le barre base che non la toccano e sceglie la serie base sui bordi della
+  finestra: per il FDAX i 15 minuti invece dell'ora, cosi' il quarto d'ora prima dell'apertura esce
+  esatto. **Il feed da un minuto non si maschera**: e' il feed di rischio (mark, stop, uscite a
+  tempo) e un conto vero quelle ore le vive. Il vendor sta gia' dentro la finestra (0,11% dei
+  minuti fuori, le stampe di chiusura): `aggregate_flat_feed.py` non cambia.
+
+  **Gli archivi di broker aggregati prima della 7.5.0 contengono i minuti morti** e vanno
+  ricostruiti (`POST api/datafeed-external/rebuild-from-minutes?broker=FTMO`): il campo `source`
+  del file dice con quale finestra e' stato costruito, e un `source` senza «finestra» e' un file
+  vecchio. Fatto per FTMO il 16/09/2026. Numeri dopo il collegamento nella voce seguente.

@@ -455,9 +455,8 @@ public sealed class ExternalDatafeedStore
             return result;
         }
 
-        result.Grid = timeframeMinutes == 1
-            ? "griglia(1m)"
-            : $"griglia(1m->{timeframeMinutes}m, {calendar.ResearchTimeZone} {calendar.SessionStart:HH\\:mm})";
+        var aggregator = timeframeMinutes == 1 ? null : new BarAggregator(calendar, timeframeMinutes);
+        result.Grid = aggregator is null ? "griglia(1m)" : DescribeGrid(calendar, aggregator);
 
         var minutes = await ReadCompactedAsync(normalizedBroker, symbol, 1);
         result.MinuteBars = minutes.Count;
@@ -481,14 +480,15 @@ public sealed class ExternalDatafeedStore
 
         // A un minuto non c'e' niente da aggregare, e passare comunque dall'aggregatore
         // scarterebbe l'ultimo bucket come "in formazione" senza motivo.
-        var complete = timeframeMinutes == 1
+        var complete = aggregator is null
             ? serie.ToList()
-            : new BarAggregator(calendar, timeframeMinutes)
+            : aggregator
                 .Aggregate(serie)
                 .Where(bar => bar.Complete)
                 .Select(bar => bar.Bar)
                 .ToList();
 
+        result.MaskedMinutes = aggregator?.MaskedMinutes ?? 0;
         result.AvailableBars = complete.Count;
         if (complete.Count == 0)
         {
@@ -503,6 +503,18 @@ public sealed class ExternalDatafeedStore
             : complete.GetRange(complete.Count - bars, bars);
         result.LastBarUtc = result.Candles[^1].DateTime;
         return result;
+    }
+
+    /// <summary>
+    /// La griglia in parole, finestra di negoziazione compresa: e' il testo che finisce nel campo
+    /// <c>source</c> del feed, e da cui si legge con quale maschera un archivio e' stato costruito.
+    /// Un archivio il cui <c>source</c> non porta «finestra» e' stato ricostruito prima della 7.5.0
+    /// e contiene i minuti fuori orario: va ricostruito.
+    /// </summary>
+    private static string DescribeGrid(SymbolCalendar calendar, BarAggregator aggregator)
+    {
+        var grid = $"griglia(1m->{aggregator.TimeframeMinutes}m, {calendar.ResearchTimeZone} {calendar.SessionStart:HH\\:mm}";
+        return aggregator.MaskDescription.Length == 0 ? grid + ")" : $"{grid}, {aggregator.MaskDescription})";
     }
 
     private async Task<RebuildStreamResultDto> RebuildOneAsync(string broker, string symbol, int timeframe)
@@ -529,8 +541,10 @@ public sealed class ExternalDatafeedStore
             return result;
         }
 
-        result.Grid =
-            $"griglia(1m->{timeframe}m, {calendar.ResearchTimeZone} {calendar.SessionStart:HH\\:mm})";
+        // L'aggregatore porta la maschera di negoziazione del simbolo: i minuti in cui il CFD quota
+        // e il future e' chiuso non entrano nei bucket, e il campo source del file lo dichiara.
+        var aggregator = new BarAggregator(calendar, timeframe);
+        result.Grid = DescribeGrid(calendar, aggregator);
 
         // Il minuto si legge e si rilascia prima di prendere il gate del bersaglio: cosi' non si
         // tengono mai due lock insieme.
@@ -544,7 +558,7 @@ public sealed class ExternalDatafeedStore
             return result;
         }
 
-        var aggregated = new BarAggregator(calendar, timeframe).Aggregate(
+        var aggregated = aggregator.Aggregate(
             minutes.Select(candle => new OhlcvData
             {
                 DateTime = candle.DateTime,
@@ -555,6 +569,7 @@ public sealed class ExternalDatafeedStore
                 Volume = candle.Volume
             }));
 
+        result.MaskedMinutes = aggregator.MaskedMinutes;
         result.IncompleteDropped = aggregated.Count(bar => !bar.Complete);
 
         var rebuilt = aggregated

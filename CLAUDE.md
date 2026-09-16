@@ -176,7 +176,18 @@ sbaglia più spesso:
  nei cursori, e la sessione live su riscaldamento, `PushBars` e `PushBarWindow`. Un simbolo che
  non dichiara i giorni non scarta nulla; NQ dichiara la domenica perché sui CME è una sessione
  vera. Il summary dichiara quante barre ha tolto (`nonSessionBarsDropped`). Vedi `decisioni.md`
- 2026-09-16.
+ 2026-09-16. **Un livello piu' sotto vale la stessa regola sulle ore** (7.5.0): le barre fuori
+ dalla finestra di negoziazione del future (`SessionMask`, i `tradingWindows` del calendario:
+ FDAX 00:15 UTC → 22:00 Berlino) non esistono per le strategie. FTMO quota il DAX dalle 22:00
+ all'01:15 di Roma, l'11% dei minuti, e quei minuti finivano nelle barre 4h: su
+ `PT2_FDAX_PCH_001_240` valevano 59.000 in un anno. La maschera la applica `BarAggregator` sui
+ minuti (ricostruzione degli archivi di broker e riscaldamento: un archivio il cui `source` non
+ porta «finestra» e' stato costruito prima e va ricostruito con `rebuild-from-minutes`), la
+ sessione e il backtest sulle barre gia' piegate (`SessionMask.DropOutsideWindow`, «tocca la
+ finestra»: il bucket 4h dell'01:00 apre alle 00:00 UTC ed e' una barra vera), il cBot sulle
+ barre base con la finestra che riceve nel descriptor (`InstrumentBarGrid.TradingWindow`), con
+ la serie base scelta sui bordi della finestra. Il feed da un minuto — il feed di rischio, per
+ mark, stop e uscite a tempo — **non** si maschera: un conto vero quelle ore le vive.
 - **Il feed di un broker non si mescola a quello di un altro, né a quello del
  vendor.** Il datafeed raccolto vive in `datafeed-external/{BROKER}/`, con la
  stessa convenzione `@SYM_{minuti}.json` e un `feed-clocks.json` proprio. Per lo

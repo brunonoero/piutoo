@@ -314,7 +314,14 @@ public sealed class RebuildStreamResultDto
     /// </summary>
     public int IncompleteDropped { get; set; }
 
-    /// <summary>La griglia dichiarata, come finisce nel campo <c>source</c> del file.</summary>
+    /// <summary>
+    /// Minuti scartati perche' fuori dalla finestra di negoziazione del simbolo
+    /// (<c>SessionMask</c>): un CFD quota anche quando il future e' chiuso, e quei minuti non
+    /// entrano nei bucket. Zero se il calendario non dichiara la finestra.
+    /// </summary>
+    public int MaskedMinutes { get; set; }
+
+    /// <summary>La griglia dichiarata, finestra compresa, come finisce nel campo <c>source</c> del file.</summary>
     public string Grid { get; set; } = string.Empty;
 
     public ExternalFeedCoverageDto? Coverage { get; set; }
@@ -355,6 +362,9 @@ public sealed class WarmUpSeriesDto
 
     /// <summary>Bucket completi che l'archivio poteva offrire, prima del taglio a quante ne servono.</summary>
     public int AvailableBars { get; set; }
+
+    /// <summary>Minuti scartati perche' fuori dalla finestra di negoziazione (<c>SessionMask</c>).</summary>
+    public int MaskedMinutes { get; set; }
 
     /// <summary>Le candele consegnate, in ordine cronologico. Vuoto quando <see cref="Skipped"/> parla.</summary>
     public List<Piootoo.Shared.Models.OhlcvData> Candles { get; set; } = new();

@@ -1,4 +1,5 @@
 using Piootoo.Shared.Configuration;
+using Piootoo.Shared.Models;
 
 namespace Piootoo.Shared.MarketData;
 
@@ -8,8 +9,20 @@ namespace Piootoo.Shared.MarketData;
 /// <para><b>È il punto unico che decide.</b> Prima della maschera il calendario sapeva già che
 /// alcune barre erano fuori sessione — <c>FeedCalendarReport</c> le contava nel
 /// <c>backtest-summary.json</c> — ma nessuno le toglieva, e l'unico consumatore che <i>decideva</i>
-/// era il contatore di <c>MaxBarsInPosition</c>. Qui la risposta è una e la usano tutti e tre i
-/// percorsi: prefill del backtest interno, backtest su feed di broker, sessione realtime.</para>
+/// era il contatore di <c>MaxBarsInPosition</c>. Qui la risposta è una.</para>
+///
+/// <para><b>Chi la applica, dal 16/09/2026 (7.5.0).</b> Nata l'08/09 con la finestra misurata e un
+/// test che ne contava l'effetto, per otto giorni non l'ha usata nessuno: la classe diceva «la usano
+/// tutti e tre i percorsi» e nessun percorso la chiamava. Misurato su <c>PT2_FDAX_PCH_001_240</c>,
+/// FTMO 09/2025-08/2026: l'11% dei minuti del CFD sta fuori dall'orario Eurex (22:00-01:15 di Roma),
+/// finisce nelle barre 4h delle 21:00 e delle 01:00 e sposta canale e massimi di sessione; con la
+/// maschera la strategia passa da −99.377 a −40.491 e il paniere da +5,0% a +11,1%. Ora la
+/// applicano: <see cref="BarAggregator"/>, che scarta i minuti fuori finestra prima di piegarli in
+/// bucket (ricostruzione degli archivi di broker e riscaldamento dal disco); la sessione live, che
+/// scarta le barre spinte che non toccano la finestra; il backtest, allo stesso modo, sulle serie
+/// caricate; il cBot, che non piega nelle proprie candele le barre base fuori finestra e riceve la
+/// finestra dal descriptor. Il feed da un minuto — il feed di <i>rischio</i>, che alimenta mark,
+/// stop e uscite a tempo — non si maschera: un conto vero quelle ore le vive.</para>
 ///
 /// <para><b>Cosa NON fa.</b> Non tocca la griglia dei bucket: quella resta ancorata a
 /// <see cref="SymbolCalendar.SessionStart"/> nell'orologio della ricerca, perché è la griglia su
@@ -87,6 +100,69 @@ public sealed class SessionMask
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Se una barra che apre in <paramref name="openUtc"/> e dura <paramref name="timeframeMinutes"/>
+    /// <b>tocca</b> la finestra di negoziazione: <c>null</c> quando la finestra non è dichiarata.
+    ///
+    /// <para><b>Perché "tocca" e non "apre dentro".</b> Su un minuto le due cose coincidono. Su una
+    /// barra più larga no: il bucket 4h del FDAX ancorato all'01:00 di Roma apre alle 00:00 UTC
+    /// d'inverno, un quarto d'ora <i>prima</i> dell'apertura Eurex, ed è una barra vera; l'ora
+    /// nativa delle 22:00 di Roma sta invece tutta fuori. La regola sui minuti la applica
+    /// <see cref="BarAggregator"/>; questa vale per le barre già piegate — quelle che una sessione
+    /// riceve dal cBot e quelle che il backtest legge dal disco — e per le barre base del cBot.</para>
+    /// </summary>
+    public bool? Overlaps(DateTime openUtc, int timeframeMinutes)
+    {
+        if (!DeclaresWindow)
+            return null;
+
+        if (timeframeMinutes <= 1)
+            return IsOpen(openUtc);
+
+        return IsOpen(openUtc) == true || IsOpen(openUtc.AddMinutes(timeframeMinutes - 1)) == true;
+    }
+
+    /// <summary>
+    /// <b>Le barre fuori dall'orario di negoziazione non esistono per le strategie.</b> Restituisce
+    /// la serie senza le barre che non toccano la finestra dichiarata, e dice quante ne ha tolte.
+    /// Senza finestra dichiarata non toglie nulla: stessa forma di
+    /// <see cref="SessionGrid.DropNonSessionDays"/>, un livello più sotto — là i giorni, qui le ore.
+    /// </summary>
+    public OhlcvData[] DropOutsideWindow(IReadOnlyList<OhlcvData> bars, int timeframeMinutes, out int dropped)
+    {
+        ArgumentNullException.ThrowIfNull(bars);
+        dropped = 0;
+        if (!DeclaresWindow || bars.Count == 0)
+            return bars as OhlcvData[] ?? bars.ToArray();
+
+        var kept = new List<OhlcvData>(bars.Count);
+        foreach (var bar in bars)
+        {
+            if (Overlaps(bar.DateTime, timeframeMinutes) == false)
+                dropped++;
+            else
+                kept.Add(bar);
+        }
+
+        return dropped == 0 ? bars as OhlcvData[] ?? bars.ToArray() : kept.ToArray();
+    }
+
+    /// <summary>
+    /// La finestra in parole, per il campo <c>source</c> dei feed e per i log: chi legge un archivio
+    /// deve poter vedere con quale finestra è stato costruito. Vuoto se non dichiarata.
+    /// </summary>
+    public string Describe()
+    {
+        if (!DeclaresWindow)
+            return string.Empty;
+
+        var parts = _windows.Select(window =>
+            $"{window.Open.Time:HH\\:mm}{Suffix(window.Open.Anchor)}-{window.Close.Time:HH\\:mm}{Suffix(window.Close.Anchor)}");
+        return $"finestra {string.Join('|', parts)} {Calendar.ExchangeTimeZone}";
+
+        static string Suffix(PhaseAnchor anchor) => anchor == PhaseAnchor.Utc ? "Z" : "L";
     }
 
     /// <summary>

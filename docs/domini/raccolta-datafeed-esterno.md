@@ -234,7 +234,7 @@ storico", ed è voluto: sarebbe l'unica che può andare in timeout.
 | `GET /index[?broker][&gapToleranceMinutes]` | Tutti i feed raccolti, di tutti i broker o di uno. |
 | `GET /plan-instruments?planCode[&accountNumber]` | Le coppie (simbolo, timeframe) che un piano tocca, con il nome di ogni simbolo sul conto. Lettura pura: non apre sessioni. |
 | `POST /compact[?broker&symbol&timeframeMinutes]` | Materializza i journal. Senza parametri, tutto: è la chiamata da fare a mano quando un bot è morto a metà backfill. |
-| `POST /rebuild-from-minutes[?broker&symbol&timeframeMinutes]` | Riscrive un aggregato dalle barre da un minuto dello stesso stream, sulla griglia dichiarata dal calendario del simbolo. Serve quando un file è nato sull'ancoraggio sbagliato — o su **due** ancoraggi insieme. Vedi sotto. |
+| `POST /rebuild-from-minutes[?broker&symbol&timeframeMinutes]` | Riscrive un aggregato dalle barre da un minuto dello stesso stream, sulla griglia dichiarata dal calendario del simbolo e **dentro la sua finestra di negoziazione** (`SessionMask`, dal 7.5.0: i minuti in cui il CFD quota e il future è chiuso non entrano nei bucket; `maskedMinutes` dice quanti, e il `source` del file riporta la finestra). Serve quando un file è nato sull'ancoraggio sbagliato — o su **due** ancoraggi insieme — e per ogni archivio aggregato prima della 7.5.0. Vedi sotto. |
 
 ### Quando un aggregato nasce su due griglie
 

@@ -38,11 +38,19 @@ public readonly record struct AggregatedBar(OhlcvData Bar, int MinuteCount, bool
 /// che rende letteralmente lo stesso codice quello che gira sul file storico e quello che gira sul
 /// minuto che arriva adesso.</para>
 ///
+/// <para><b>I minuti fuori dall'orario di negoziazione non entrano nei bucket.</b> Un feed CFD
+/// quota quando il future è chiuso — FTMO tiene il DAX aperto dalle 22:00 all'01:15 di Roma, l'11%
+/// dei suoi minuti — e quei minuti finivano nelle barre 4h delle 21:00 e delle 01:00, spostando
+/// canale e massimi di sessione rispetto alla ricerca. La <see cref="SessionMask"/> del simbolo li
+/// scarta prima di piegarli; <see cref="MaskedMinutes"/> dice quanti. Chi vuole l'aggregazione
+/// grezza passa <c>mask: null</c> e lo dichiara. Vedi <c>decisioni.md</c> 2026-09-16.</para>
+///
 /// <para><b>Non è thread-safe</b> e ha stato: una istanza per stream.</para>
 /// </summary>
 public sealed class BarAggregator
 {
     private readonly SessionGrid _grid;
+    private readonly SessionMask? _mask;
     private readonly int _timeframeMinutes;
 
     private DateTime _bucketStart = DateTime.MinValue;
@@ -54,11 +62,20 @@ public sealed class BarAggregator
     private int _minutes;
 
     public BarAggregator(SymbolCalendar calendar, int timeframeMinutes)
-        : this(new SessionGrid(calendar), timeframeMinutes)
+        : this(new SessionGrid(calendar), timeframeMinutes, new SessionMask(calendar))
     {
     }
 
     public BarAggregator(SessionGrid grid, int timeframeMinutes)
+        : this(grid, timeframeMinutes, new SessionMask(grid.Calendar))
+    {
+    }
+
+    /// <param name="mask">
+    /// La finestra di negoziazione del simbolo. <c>null</c> = nessuna maschera, ogni minuto entra:
+    /// è una scelta da dichiarare, non il default.
+    /// </param>
+    public BarAggregator(SessionGrid grid, int timeframeMinutes, SessionMask? mask)
     {
         ArgumentNullException.ThrowIfNull(grid);
 
@@ -71,11 +88,18 @@ public sealed class BarAggregator
         }
 
         _grid = grid;
+        _mask = mask is { DeclaresWindow: true } ? mask : null;
         _timeframeMinutes = timeframeMinutes;
     }
 
     /// <summary>Il timeframe prodotto, in minuti.</summary>
     public int TimeframeMinutes => _timeframeMinutes;
+
+    /// <summary>La finestra applicata, in parole; vuoto se il simbolo non la dichiara.</summary>
+    public string MaskDescription => _mask?.Describe() ?? string.Empty;
+
+    /// <summary>Minuti scartati perché fuori dalla finestra di negoziazione.</summary>
+    public int MaskedMinutes { get; private set; }
 
     /// <summary>C'è un bucket in formazione che <see cref="Flush"/> restituirebbe.</summary>
     public bool HasPendingBucket => _hasBucket;
@@ -111,6 +135,16 @@ public sealed class BarAggregator
         if (_firstInputUtc == DateTime.MinValue)
             _firstInputUtc = openUtc;
         _lastMinuteUtc = openUtc;
+
+        // Un minuto fuori finestra non entra in nessun bucket e non ne chiude nessuno: il bucket
+        // delle 21:00 del FDAX si chiude con il primo minuto dell'01:15, non con uno delle 22:00.
+        // Conta pero' come input visto, quindi il bordo sinistro del primo bucket resta corretto.
+        if (_mask is not null && _mask.IsOpen(openUtc) == false)
+        {
+            MaskedMinutes++;
+            closed = default;
+            return false;
+        }
 
         var start = _grid.BucketStartUtc(openUtc, _timeframeMinutes);
 

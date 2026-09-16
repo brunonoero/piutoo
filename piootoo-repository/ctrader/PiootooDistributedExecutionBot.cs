@@ -192,6 +192,17 @@ namespace cAlgo.Robots
         /// </summary>
         private const int MaxSignalsPerDrain = 200;
 
+        // 7.5.0 (16/09/2026) — finestra di negoziazione: il descriptor porta, per ogni strumento,
+        // quando il future negozia davvero (BarGrid.TradingWindow, la SessionMask del server). Le
+        // barre base che non la toccano non entrano nelle candele costruite dal bot e non si
+        // spediscono: un CFD quota anche quando il future e' chiuso (FTMO tiene il DAX aperto dalle
+        // 22:00 all'01:15 di Roma, l'11% dei minuti) e quei minuti finivano nelle barre 4h delle
+        // 21:00 e delle 01:00, spostando canale e massimi di sessione rispetto alla ricerca. La
+        // serie base si sceglie allineata ai bordi della finestra (per il FDAX, che apre alle
+        // 00:15 UTC, i 15 minuti invece dell'ora), cosi' il quarto d'ora prima dell'apertura esce
+        // esatto. Stessa regola in backtest e in sessione lato server. Contratto 7.5: un server
+        // precedente non manda la finestra e il bot lo dice all'avvio.
+        //
         // 7.4.4 (16/09/2026) — rollover: un ingresso dello stesso verso mentre la posizione della
         // strategia scade proprio all'istante di validita' dell'intent chiude quella posizione e
         // rientra, invece di essere annullato. E' il ciclo settimanale del BIASW con uscita e
@@ -271,7 +282,7 @@ namespace cAlgo.Robots
         // leggendo questo sorgente.
         // Il disallineamento non blocca nulla: entrambi stampano la propria versione all'avvio, e
         // il confronto si fa leggendo i due log.
-        private const string BotVersion = "7.4.4"; // major.minor deve seguire PiootooVersion
+        private const string BotVersion = "7.5.0"; // major.minor deve seguire PiootooVersion
         private const string StatusChartObjectName = "PiootooConnectionStatus";
 
         // Riquadro rosso al centro del grafico, separato dal pannello di stato: e' l'errore fatale
@@ -529,6 +540,20 @@ namespace cAlgo.Robots
             public TimeSpan SessionStart;
             public TimeZoneInfo SessionZone;
             public string SessionTimeZoneId;
+
+            /// <summary>
+            /// Quando lo strumento negozia davvero, dal descriptor (la SessionMask del server). Null
+            /// se il calendario non la dichiara: allora ogni barra base entra.
+            /// </summary>
+            public TradingWindowMask Window;
+
+            /// <summary>
+            /// Vero se una barra BASE che apre in <paramref name="openUtc"/> tocca la finestra di
+            /// negoziazione, o se la finestra non e' dichiarata. Una barra che non la tocca non entra
+            /// nelle candele dello stream e non si spedisce.
+            /// </summary>
+            public bool TouchesWindow(DateTime openUtc) =>
+                Window == null || Window.Overlaps(openUtc, BaseTimeframeMinutes);
 
             public string PiootooSymbol;
             public string AccountSymbol;
@@ -821,11 +846,18 @@ namespace cAlgo.Robots
                 // Oltre l'ora la serie della piattaforma NON si usa: il suo H4 e' ancorato
                 // all'orologio del broker, il feed e la ricerca all'inizio sessione del giorno di
                 // calendario europeo. Si sottoscrive la serie base e i bucket li costruisce il bot.
-                if (!TryResolveBase(pair.TimeframeMinutes, out var baseMinutes, out var baseTimeFrame, out var gridError))
+                if (!TryResolveBase(pair.TimeframeMinutes, pair.Window, out var baseMinutes, out var baseTimeFrame, out var gridError))
                 {
                     StopWithError("Stream " + pair + " non costruibile: " + gridError + ".");
                     return;
                 }
+
+                if (pair.Window != null)
+                    Print("{0}: finestra di negoziazione {1} — le barre base da {2} minuti fuori finestra non entrano nelle candele{3}.",
+                        pair, pair.Window.Describe(), baseMinutes,
+                        pair.Window.AlignsWith(baseMinutes)
+                            ? ""
+                            : " (serie base NON allineata ai bordi della finestra: una barra a cavallo del bordo entra intera)");
 
                 pair.BaseTimeframeMinutes = baseMinutes;
                 pair.Series = MarketData.GetBars(baseTimeFrame, pair.AccountSymbol);
@@ -1488,6 +1520,10 @@ namespace cAlgo.Robots
             // strategia il riscaldamento partirebbe lungo un quarto e il server non valuterebbe.
             var perBucket = Math.Max(1, pair.TimeframeMinutes / Math.Max(1, pair.BaseTimeframeMinutes));
             var target = (pair.RequiredCandles + 1) * perBucket;
+            // Con una finestra di negoziazione una parte delle barre base non entra nelle candele
+            // (sul DAX di FTMO l'11%): si chiede un quinto in piu' perche' le candele utili bastino.
+            if (pair.Window != null)
+                target += target / 5;
             var attempts = 0;
             while (pair.Series.Count < target && attempts++ < MaxHistoryLoadAttempts)
             {
@@ -4057,6 +4093,17 @@ namespace cAlgo.Robots
                     return false;
                 }
 
+                // La finestra di negoziazione (7.5.0): e' del server come la griglia, e per la
+                // stessa ragione non e' un parametro del bot. Assente = il calendario non la
+                // dichiara, e non si scarta nulla.
+                TradingWindowMask window = null;
+                if (instrument.BarGrid.TradingWindow != null &&
+                    !TradingWindowMask.TryCreate(instrument.BarGrid.TradingWindow, out window, out var windowError))
+                {
+                    error = "finestra di negoziazione di '" + instrument.Symbol + "' non leggibile: " + windowError;
+                    return false;
+                }
+
                 foreach (var tf in instrument.TimeframesMinutes ?? Array.Empty<int>())
                 {
                     if (tf <= 0)
@@ -4076,7 +4123,8 @@ namespace cAlgo.Robots
                         RequiredCandles = Math.Max(1, required),
                         SessionStart = instrument.BarGrid.SessionStart,
                         SessionZone = zone,
-                        SessionTimeZoneId = instrument.BarGrid.ResearchTimeZone.Trim()
+                        SessionTimeZoneId = instrument.BarGrid.ResearchTimeZone.Trim(),
+                        Window = window
                     });
                 }
             }
@@ -4388,8 +4436,14 @@ namespace cAlgo.Robots
         /// <summary>
         /// Da quale serie della piattaforma si costruisce un timeframe. Fino all'ora quella nativa;
         /// oltre, mai: si prende una serie base che divida il timeframe.
+        ///
+        /// <para><b>Con una finestra di negoziazione dichiarata la base si allinea ai suoi bordi</b>
+        /// (7.5.0): il FDAX apre alle 00:15 UTC, e sull'ora la barra 00:00-01:00 sta a cavallo del
+        /// bordo — entrerebbe intera con il quarto d'ora morto dentro. Sui 15 minuti il bordo e' un
+        /// confine di barra e la maschera sulle barre base e' esatta come quella del server sui
+        /// minuti. Si prende la base piu' larga che divide il timeframe E sta sui bordi.</para>
         /// </summary>
-        private bool TryResolveBase(int minutes, out int baseMinutes, out TimeFrame baseTimeFrame, out string reason)
+        private bool TryResolveBase(int minutes, TradingWindowMask window, out int baseMinutes, out TimeFrame baseTimeFrame, out string reason)
         {
             baseMinutes = 0;
             baseTimeFrame = TimeFrame.Hour;
@@ -4423,6 +4477,14 @@ namespace cAlgo.Robots
                     return false;
                 }
 
+                if (window != null && !window.AlignsWith(BaseTimeframeMinutes))
+                {
+                    reason = $"il timeframe base forzato ({BaseTimeframeMinutes} minuti) non sta sui bordi della " +
+                             "finestra di negoziazione " + window.Describe() + ": una barra base a cavallo del bordo " +
+                             "entrerebbe intera con i minuti morti dentro";
+                    return false;
+                }
+
                 baseMinutes = BaseTimeframeMinutes;
                 return true;
             }
@@ -4432,11 +4494,15 @@ namespace cAlgo.Robots
                 if (minutes % candidate != 0 || !TryToTimeFrame(candidate, out baseTimeFrame))
                     continue;
 
+                if (window != null && !window.AlignsWith(candidate))
+                    continue;
+
                 baseMinutes = candidate;
                 return true;
             }
 
-            reason = $"nessuna serie base fino a {NativeCeilingMinutes} minuti divide {minutes}";
+            reason = $"nessuna serie base fino a {NativeCeilingMinutes} minuti divide {minutes}" +
+                     (window != null ? " stando sui bordi della finestra di negoziazione " + window.Describe() : "");
             return false;
         }
 
@@ -4460,7 +4526,9 @@ namespace cAlgo.Robots
             for (var offset = 1; offset < series.Count; offset++)
             {
                 var openTime = DateTime.SpecifyKind(series.Last(offset).OpenTime, DateTimeKind.Utc);
-                if (openTime < frontier)
+                // Una barra base fuori dalla finestra di negoziazione non esiste per lo stream: non
+                // chiude nessun bucket e non ne apre nessuno, come il minuto scartato dal server.
+                if (openTime < frontier && pair.TouchesWindow(openTime))
                     return BucketStartUtc(pair, openTime);
             }
 
@@ -4491,6 +4559,11 @@ namespace cAlgo.Robots
                 var bar = series.Last(offset);
                 var openTime = DateTime.SpecifyKind(bar.OpenTime, DateTimeKind.Utc);
                 if (openTime >= frontier)
+                    continue;
+
+                // Fuori dalla finestra di negoziazione la barra base non entra nella candela: e' la
+                // maschera del server (SessionMask) applicata qui, dove le candele si costruiscono.
+                if (!pair.TouchesWindow(openTime))
                     continue;
 
                 var bucket = BucketStartUtc(pair, openTime);
@@ -4773,6 +4846,208 @@ namespace cAlgo.Robots
         {
             public TimeSpan SessionStart { get; set; }
             public string ResearchTimeZone { get; set; }
+
+            /// <summary>Quando lo strumento negozia davvero. Null = non dichiarata (o server precedente alla 7.5).</summary>
+            public InstrumentTradingWindowDto TradingWindow { get; set; }
+        }
+
+        /// <summary>
+        /// La finestra di negoziazione come la manda il server: bordi con il proprio orologio
+        /// ("utc" oppure "local", ora di borsa), fuso di borsa e giorni in cui si apre.
+        /// </summary>
+        private sealed class InstrumentTradingWindowDto
+        {
+            public TimeSpan OpenAt { get; set; }
+            public string OpenAnchor { get; set; }
+            public TimeSpan CloseAt { get; set; }
+            public string CloseAnchor { get; set; }
+            public string ExchangeTimeZone { get; set; }
+            public IReadOnlyList<string> OpensOn { get; set; }
+            public string From { get; set; }
+            public string To { get; set; }
+        }
+
+        /// <summary>
+        /// Copia fedele di <c>Piootoo.Shared.MarketData.SessionMask</c>: risponde alla domanda «in
+        /// questo istante lo strumento negoziava?». Le due copie devono restare uguali per la stessa
+        /// ragione per cui la griglia viaggia nel descriptor: se il bot e il server mascherano in due
+        /// modi, le barre su cui gira il live non sono quelle del backtest e nessun numero lo dice.
+        /// </summary>
+        private sealed class TradingWindowMask
+        {
+            private readonly TimeSpan _openAt;
+            private readonly bool _openUtc;
+            private readonly TimeSpan _closeAt;
+            private readonly bool _closeUtc;
+            private readonly TimeZoneInfo _exchange;
+            private readonly HashSet<DayOfWeek> _opensOn;
+            private readonly int? _from;
+            private readonly int? _to;
+
+            private TradingWindowMask(TimeSpan openAt, bool openUtc, TimeSpan closeAt, bool closeUtc,
+                TimeZoneInfo exchange, HashSet<DayOfWeek> opensOn, int? from, int? to)
+            {
+                _openAt = openAt;
+                _openUtc = openUtc;
+                _closeAt = closeAt;
+                _closeUtc = closeUtc;
+                _exchange = exchange;
+                _opensOn = opensOn;
+                _from = from;
+                _to = to;
+            }
+
+            public string ExchangeTimeZoneId => _exchange.Id;
+
+            public static bool TryCreate(InstrumentTradingWindowDto dto, out TradingWindowMask mask, out string error)
+            {
+                mask = null;
+                error = null;
+
+                TimeZoneInfo exchange;
+                try
+                {
+                    exchange = TimeZoneInfo.FindSystemTimeZoneById((dto.ExchangeTimeZone ?? string.Empty).Trim());
+                }
+                catch (Exception failure)
+                {
+                    error = "fuso di borsa '" + dto.ExchangeTimeZone + "' non riconosciuto da questa macchina (" +
+                            failure.Message + ")";
+                    return false;
+                }
+
+                var days = new HashSet<DayOfWeek>();
+                foreach (var name in dto.OpensOn ?? Array.Empty<string>())
+                {
+                    if (!Enum.TryParse<DayOfWeek>(name, true, out var day))
+                    {
+                        error = "giorno '" + name + "' non riconosciuto";
+                        return false;
+                    }
+                    days.Add(day);
+                }
+
+                if (days.Count == 0)
+                {
+                    error = "nessun giorno di apertura dichiarato";
+                    return false;
+                }
+
+                if (!TryParseAnchor(dto.OpenAnchor, out var openUtc) || !TryParseAnchor(dto.CloseAnchor, out var closeUtc))
+                {
+                    error = "ancoraggio '" + dto.OpenAnchor + "'/'" + dto.CloseAnchor + "' non riconosciuto: attesi 'utc' o 'local'";
+                    return false;
+                }
+
+                mask = new TradingWindowMask(dto.OpenAt, openUtc, dto.CloseAt, closeUtc, exchange, days,
+                    ParseMonthDay(dto.From), ParseMonthDay(dto.To));
+                return true;
+            }
+
+            /// <summary>
+            /// Vero se la serie base da <paramref name="baseMinutes"/> ha un confine di barra su
+            /// entrambi i bordi della finestra: allora una barra base o sta tutta dentro o tutta
+            /// fuori, e la maschera sulle barre base e' esatta come quella sui minuti.
+            /// </summary>
+            public bool AlignsWith(int baseMinutes) =>
+                baseMinutes > 0 && _openAt.Minutes % baseMinutes == 0 && _closeAt.Minutes % baseMinutes == 0;
+
+            public string Describe() =>
+                Hhmm(_openAt) + (_openUtc ? "Z" : "L") + "-" + Hhmm(_closeAt) + (_closeUtc ? "Z" : "L") + " " + _exchange.Id;
+
+            /// <summary>Se una barra che apre in <paramref name="openUtc"/> e dura <paramref name="minutes"/> tocca la finestra.</summary>
+            public bool Overlaps(DateTime openUtc, int minutes)
+            {
+                if (minutes <= 1)
+                    return IsOpen(openUtc);
+                return IsOpen(openUtc) || IsOpen(openUtc.AddMinutes(minutes - 1));
+            }
+
+            /// <summary>Se l'istante cade dentro una giornata di negoziazione. Stesse tre date di SessionMask.IsOpen.</summary>
+            public bool IsOpen(DateTime instantUtc)
+            {
+                var utc = DateTime.SpecifyKind(instantUtc, DateTimeKind.Utc);
+                for (var offset = -1; offset <= 1; offset++)
+                {
+                    var day = utc.Date.AddDays(offset);
+                    if (!Covers(day) || !_opensOn.Contains(day.DayOfWeek))
+                        continue;
+
+                    var open = Resolve(_openAt, _openUtc, day);
+                    var close = Resolve(_closeAt, _closeUtc, day);
+                    if (close <= open)
+                        close = Resolve(_closeAt, _closeUtc, day.AddDays(1));
+
+                    if (open <= utc && utc < close)
+                        return true;
+                }
+
+                return false;
+            }
+
+            private DateTime Resolve(TimeSpan time, bool anchoredUtc, DateTime day)
+            {
+                var local = DateTime.SpecifyKind(day.Date.Add(time), DateTimeKind.Unspecified);
+                if (anchoredUtc)
+                    return DateTime.SpecifyKind(local, DateTimeKind.Utc);
+
+                // Stesse convenzioni di SessionClock.ToUtc: l'orario che non esiste si sposta avanti
+                // del salto, quello ambiguo si risolve sulla prima delle due occorrenze.
+                if (_exchange.IsInvalidTime(local))
+                {
+                    var delta = _exchange.GetUtcOffset(local.AddDays(1)) - _exchange.GetUtcOffset(local.AddDays(-1));
+                    local = local.Add(delta);
+                }
+
+                if (_exchange.IsAmbiguousTime(local))
+                {
+                    var offsets = _exchange.GetAmbiguousTimeOffsets(local);
+                    var scelto = offsets[0];
+                    foreach (var candidate in offsets)
+                    {
+                        if (candidate > scelto)
+                            scelto = candidate;
+                    }
+
+                    return DateTime.SpecifyKind(local - scelto, DateTimeKind.Utc);
+                }
+
+                return TimeZoneInfo.ConvertTimeToUtc(local, _exchange);
+            }
+
+            private bool Covers(DateTime day)
+            {
+                if (_from == null && _to == null)
+                    return true;
+
+                var current = day.Month * 100 + day.Day;
+                var from = _from ?? 101;
+                var to = _to ?? 1231;
+                return from <= to
+                    ? current >= from && current <= to
+                    : current >= from || current <= to;
+            }
+
+            private static bool TryParseAnchor(string anchor, out bool utc)
+            {
+                utc = false;
+                var text = (anchor ?? string.Empty).Trim();
+                if (string.Equals(text, "utc", StringComparison.OrdinalIgnoreCase))
+                {
+                    utc = true;
+                    return true;
+                }
+
+                return string.Equals(text, "local", StringComparison.OrdinalIgnoreCase);
+            }
+
+            private static int? ParseMonthDay(string monthDay)
+            {
+                if (string.IsNullOrWhiteSpace(monthDay))
+                    return null;
+                var parts = monthDay.Split('-');
+                return int.Parse(parts[0]) * 100 + int.Parse(parts[1]);
+            }
         }
 
         private sealed class OrderIntentDto
