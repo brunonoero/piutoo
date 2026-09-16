@@ -4167,17 +4167,22 @@ che il motore fa. Difetto di artefatto, non di esecuzione, ma e' costato mezza i
   +50.200 a +48.835). La correzione resta: e' la regola del dossier, e il lunedi' lo dimostra; la
   perdita della PC FDAX sul CFD in questo anno non era la domenica.
 
-- **2026-09-16** — **Le uscite a tempo dovute sul tick si eseguono prima della valutazione (7.4.6).**
-  Quando la barra di una strategia intraday chiude esattamente a fine sessione (FDAX 4h, barra
-  21:00-01:00, deadline 00:59) il loop la valutava sul tick 00:59 e applicava l'uscita di sessione
-  nello stesso tick ma **dopo**, in `UpdateMarketPrices`: la strategia si vedeva in posizione e non
-  emetteva l'ordine per la prima barra della sessione dopo, che la ricerca emette (esce a fine
-  barra, poi entra). Misurato sul future 2022-2025, `PT2_FDAX_PCH_001_240`: **525 sessioni chiuse a
-  fine sessione, zero segnali sulla loro barra delle 21:00**, contro 192 su 316 quando la posizione
-  era gia' chiusa prima. Ora il loop chiama `PiootooTradingService.ApplyDueTimeExits` — solo le
-  uscite a tempo, con lo stesso mark — prima di valutare, e `UpdateMarketPrices` non trova piu'
-  nulla da chiudere; stop e target restano dove erano. La sessione live non esegue la chiusura
-  (lo fa il cBot, e il report puo' arrivare dopo la barra): `GetExecution` presenta come chiusa
-  una posizione la cui deadline, letta dall'intent che l'ha aperta, cade entro la chiusura della
-  barra valutata (`EveryPositionExpiresBy`), e solo se ogni posizione della coppia scade.
-  `TimeExitBeforeEvaluationTests`. Numeri prima/dopo nella voce seguente.
+- **2026-09-16** — **L'ordine valutazione → uscita di sessione dentro il tick resta com'e': e' la
+  parita' con la ricerca (7.4.6 provata e ritirata, 7.4.7).** Quando la barra di una strategia
+  intraday chiude esattamente a fine sessione (FDAX 4h, barra 21:00-01:00, deadline 00:59) il loop
+  la valuta sul tick 00:59 e applica l'uscita di sessione nello stesso tick ma **dopo**, in
+  `UpdateMarketPrices`: la strategia si vede in posizione e non emette l'ordine per la prima barra
+  della sessione dopo. Verificato sul future 2022-2025, `PT2_FDAX_PCH_001_240`: **525 sessioni
+  chiuse a fine sessione, zero segnali sulla loro barra delle 21:00**, contro 192 su 316 quando la
+  posizione era gia' chiusa prima. Sembrava un difetto — «la ricerca esce a fine barra e poi
+  entra» — e la 7.4.6 lo ha corretto: uscite a tempo dovute eseguite prima della valutazione nel
+  backtest, e in sessione la posizione con deadline entro la barra presentata come chiusa.
+
+  **La misura dice il contrario.** Con la correzione la strategia passa da 850 trade e +274.000 —
+  la scheda ne ha 884 e $264.639 — a **969 trade e +100.524**: 433 ingressi in piu' sulla barra
+  notturna 01:00-05:00 (da 132 a 565, media da +632 a +102) al posto di quelli delle 05:00-09:00
+  (da 450 a 195). Il motore di ricerca fa quindi come faceva il loop: sull'ultima barra della
+  sessione decide gli ingressi prima di applicare l'uscita, e la strategia in posizione non emette.
+  La 7.4.7 ripristina l'ordine in entrambi i percorsi e `TimeExitBeforeEvaluationTests` lo tiene
+  fermo, con i numeri nel commento: chi lo cambia rimisura. Il cBot non e' coinvolto in nessuna
+  delle due versioni.

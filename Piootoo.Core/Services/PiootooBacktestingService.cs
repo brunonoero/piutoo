@@ -1208,15 +1208,14 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                     }
                 }
 
-                // Le uscite a tempo dovute su questo tick si eseguono PRIMA di valutare: una
-                // strategia intraday la cui barra chiude a fine sessione deve vedersi flat, come
-                // nella ricerca (esce a fine barra, poi entra), altrimenti non emette l'ordine per
-                // la prima barra della sessione dopo. Vedi PiootooTradingService.ApplyDueTimeExits.
-                if (currentPrices.Count > 0)
-                {
-                    tradingService.ApplyDueTimeExits(currentPrices, currentBars, currentDate);
-                }
-
+                // L'ordine dentro il tick e' voluto e misurato: prima si valutano le strategie, poi
+                // UpdateMarketPrices applica stop, target e uscite a tempo. Su una barra che chiude
+                // esattamente a fine sessione la strategia si vede quindi ANCORA in posizione e non
+                // emette l'ordine per la prima barra della sessione dopo. Sembra un difetto ed e'
+                // invece la parita' con il motore di ricerca: invertendo l'ordine (16/09/2026,
+                // 7.4.6) PT2_FDAX_PCH_001_240 sul future 2022-2025 passava da 850 trade e +274.000 —
+                // la scheda ne ha 884 e $264.639 — a 969 trade e +100.524, con 433 ingressi in piu'
+                // sulla barra notturna 01:00-05:00. Ripristinato nella 7.4.7. Vedi decisioni.md.
                 foreach (var strategy in strategyInstances)
                 {
                     var strategySymbol = strategy.Symbol;
