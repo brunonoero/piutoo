@@ -4224,4 +4224,32 @@ che il motore fa. Difetto di artefatto, non di esecuzione, ma e' costato mezza i
   **Gli archivi di broker aggregati prima della 7.5.0 contengono i minuti morti** e vanno
   ricostruiti (`POST api/datafeed-external/rebuild-from-minutes?broker=FTMO`): il campo `source`
   del file dice con quale finestra e' stato costruito, e un `source` senza «finestra» e' un file
-  vecchio. Fatto per FTMO il 16/09/2026. Numeri dopo il collegamento nella voce seguente.
+  vecchio. Fatto per FTMO il 16/09/2026.
+
+  **Due correzioni trovate rimisurando** (7.5.1, 7.5.2). La prima misura dopo il collegamento dava
+  −40.491 sulla FDAX PC, ma con due errori che si compensavano male: il backtest mascherava anche la
+  serie da un minuto — il feed di rischio, e sul CFD sparivano 36.630 minuti in cui un conto vero
+  prende gli stop — e la finestra chiusa alle 22:00 toglieva al vendor le stampe dell'asta di
+  chiusura (22:01-22:06 locali) che la ricerca aveva, portando la FDAX PC sul future da 850/274.000
+  a 849/271.454. Ora la serie da un minuto non si maschera e la finestra chiude alle 22:10 (7.5.1):
+  il future torna esatto, 850 trade e 274.000. Con il minuto intero pero' i pending si riempivano
+  sui minuti morti: 13 ingressi della FDAX PC fra le 22:10 e le 01:15 di Roma, −13.202, inesistenti
+  sul future. **Fuori finestra un ordine di ingresso non esiste** (7.5.2): il motore interno non
+  riempie un pending su un minuto fuori finestra (`FillsHeldOutsideWindow`), il cBot annulla i
+  pending degli stream la cui finestra e' chiusa (`CancelPendingOrdersOutsideTradingWindow`, sul
+  timer). Le posizioni aperte vedono ogni minuto: stop, target e uscite a tempo restano, e
+  l'esposizione notturna misurata sulla FDAX PC vale +4.066 in un anno, zero stop notturni.
+
+  | FTMO 31/08/2025-31/08/2026, piano V02-001 | FDAX PC | paniere |
+  |---|---|---|
+  | 7.4.7, senza maschera, con spread | −99.377 | +50.383 (+5,0%) |
+  | 7.5.2, con spread | **−60.873** | **+88.887 (+8,0%)** |
+  | 7.4.7, senza spread | −64.767 | +48.835 |
+  | 7.5.2, senza spread | −31.601 | +82.001 |
+
+  Sul future nulla cambia (paniere 2022-2025 +744.108, 06/2024-05/2025 con spread +318.956): il
+  vendor sta gia' dentro la finestra. La FDAX PC sul CFD resta in perdita, concentrata nelle barre
+  05:00-13:00 dove sul future guadagna di piu': con i dati disponibili non si distingue il feed
+  dall'anno, perche' i due feed non si sovrappongono (il future finisce il 30/05/2025, FTMO parte
+  il 01/07/2025). Il test che lo decide e' far raccogliere al bot raccoglitore lo storico FTMO dal
+  06/2024 e rifare 06/2024-05/2025 sui due feed.
