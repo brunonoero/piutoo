@@ -4675,6 +4675,36 @@ public sealed class TradingSessionService : ITradingSessionService
         AssignedAccountNumber = intent.AssignedAccountNumber
     };
 
+    /// <summary>
+    /// Vero se tutte le posizioni aperte per la chiave canonica <c>simbolo|strategia</c> hanno una
+    /// deadline nota non oltre <paramref name="barCloseUtc"/>. Le chiavi di
+    /// <c>ExternalPositionDetails</c> sono <c>simbolo|strategia</c> oppure
+    /// <c>conto|simbolo|strategia</c>: si confrontano gli ultimi due segmenti.
+    /// </summary>
+    private static bool EveryPositionExpiresBy(Session session, string canonicalKey, DateTime barCloseUtc)
+    {
+        var found = false;
+        foreach (var (positionKey, details) in session.ExternalPositionDetails)
+        {
+            if (!(string.Equals(positionKey, canonicalKey, StringComparison.OrdinalIgnoreCase) ||
+                  positionKey.EndsWith("|" + canonicalKey, StringComparison.OrdinalIgnoreCase)))
+            {
+                continue;
+            }
+
+            found = true;
+            if (string.IsNullOrEmpty(details.IntentId) ||
+                !session.IntentsById.TryGetValue(details.IntentId, out var opening) ||
+                opening.CloseAtUtc is not { } closeAt ||
+                closeAt > barCloseUtc)
+            {
+                return false;
+            }
+        }
+
+        return found;
+    }
+
     private static StrategyExecutionSnapshot GetExecution(Session session, ITradingStrategy strategy, DateTime time)
     {
         if (session.Mode == ExecutionMode.ServerSimulated)
@@ -4684,6 +4714,17 @@ public sealed class TradingSessionService : ITradingSessionService
         // da quale account la detiene realmente); in modalità legacy usa le posizioni dirette come prima.
         var positions = session.ConfiguredAccounts.Count > 0 ? session.CanonicalPositions : session.ExternalPositions;
         positions.TryGetValue(key, out var position);
+
+        // Una posizione la cui deadline (CloseAtUtc dell'intent che l'ha aperta) cade entro la
+        // chiusura della barra che si sta valutando e' gia' chiusa per la strategia: la ricerca
+        // esce a fine barra e poi entra, e il motore interno fa lo stesso dal 16/09/2026
+        // (PiootooTradingService.ApplyDueTimeExits prima della valutazione). Qui la chiusura la
+        // esegue il cBot e il suo report puo' arrivare dopo la barra: senza questa lettura la
+        // strategia si vedrebbe in posizione e non emetterebbe l'ordine per la prima barra della
+        // sessione dopo. Vale solo se OGNI posizione di questa (simbolo, strategia) scade entro la
+        // barra: una sola con deadline oltre, o senza intent noto, resta in posizione.
+        if (position is not null && EveryPositionExpiresBy(session, key, time.AddMinutes(strategy.TimeframeMinutes)))
+            position = null;
 
         // Ingressi di QUESTA strategia OGGI, non il totale della sessione: e' il numero su cui i
         // motori con un tetto per sessione (VolatilityBreakoutEngine, MovingAverageCrossoverEngine,

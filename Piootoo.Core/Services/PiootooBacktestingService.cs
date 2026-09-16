@@ -1208,6 +1208,15 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                     }
                 }
 
+                // Le uscite a tempo dovute su questo tick si eseguono PRIMA di valutare: una
+                // strategia intraday la cui barra chiude a fine sessione deve vedersi flat, come
+                // nella ricerca (esce a fine barra, poi entra), altrimenti non emette l'ordine per
+                // la prima barra della sessione dopo. Vedi PiootooTradingService.ApplyDueTimeExits.
+                if (currentPrices.Count > 0)
+                {
+                    tradingService.ApplyDueTimeExits(currentPrices, currentBars, currentDate);
+                }
+
                 foreach (var strategy in strategyInstances)
                 {
                     var strategySymbol = strategy.Symbol;

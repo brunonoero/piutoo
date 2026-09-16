@@ -984,6 +984,31 @@ public class PiootooTradingService : IPiootooTradingService
         return UpdateMarketPrices(currentPrices, new Dictionary<string, OhlcvData>(StringComparer.OrdinalIgnoreCase), currentTime);
     }
 
+    /// <summary>
+    /// Esegue le sole uscite a tempo gia' dovute su questo tick (<c>CloseAtUtc</c>, limite di barre,
+    /// stallo dell'utile), <b>prima</b> che le strategie vengano valutate. Restituisce quante
+    /// posizioni ha chiuso.
+    ///
+    /// <para><b>Perche' esiste, separato da <see cref="UpdateMarketPrices"/>.</b> Il loop valuta la
+    /// barra sul tick in cui si chiude e applica il mark-to-market — uscite a tempo comprese — dopo.
+    /// Per una strategia intraday la cui barra chiude esattamente a fine sessione (FDAX 4h, barra
+    /// 21:00-01:00, deadline 00:59) la strategia si vedeva quindi ancora in posizione e non
+    /// emetteva l'ordine per la prima barra della sessione dopo, che la ricerca emette: esce a fine
+    /// barra, poi entra. Misurato sul future 2022-2025: 525 sessioni chiuse a fine sessione, zero
+    /// segnali sulla loro barra delle 21:00, contro 192 su 316 quando la posizione era gia' chiusa.
+    /// Chiamarla prima della valutazione mette il motore nell'ordine della ricerca; le stesse
+    /// uscite ricontrollate poi da <see cref="UpdateMarketPrices"/> non trovano piu' nulla.</para>
+    /// </summary>
+    public int ApplyDueTimeExits(Dictionary<string, decimal> currentPrices, Dictionary<string, OhlcvData> currentBars, DateTime currentTime)
+    {
+        currentTime = TradingDateTime.ToFeedUtc(currentTime);
+        currentPrices = NormalizeCurrentPrices(currentPrices);
+        currentBars = NormalizeCurrentBars(currentBars);
+        var before = _state.OpenPositions.Count;
+        CheckTimeExits(currentPrices, currentBars, 0m, currentTime);
+        return before - _state.OpenPositions.Count;
+    }
+
     public TradingSnapshot UpdateMarketPrices(Dictionary<string, decimal> currentPrices, Dictionary<string, OhlcvData> currentBars, DateTime currentTime)
     {
         currentTime = TradingDateTime.ToFeedUtc(currentTime);

@@ -234,8 +234,12 @@ sbaglia più spesso:
  ore, e la barra del venerdi' finiva rivalutata al sabato. Un market "next bar" senza barra sul
  tick aspetta la prima barra vera e apre alla sua apertura, mai al mark. I motori a mercato
  programmato (`BiasWeeklyEngine`) emettono sulla barra **prima** di quella pianificata, cosi'
- backtest e server generano il segnale nello stesso istante. Vedi
- `docs/domini/orologio-barre-e-fill.md`.
+ backtest e server generano il segnale nello stesso istante. E **le uscite a tempo dovute sul
+ tick si eseguono prima della valutazione** (`PiootooTradingService.ApplyDueTimeExits`): una
+ strategia intraday la cui barra chiude a fine sessione deve vedersi flat, come nella ricerca
+ (esce a fine barra, poi entra); la sessione live ottiene lo stesso presentando come chiusa una
+ posizione la cui deadline cade entro la chiusura della barra valutata (`EveryPositionExpiresBy`).
+ Vedi `docs/domini/orologio-barre-e-fill.md` e `decisioni.md` 2026-09-16.
 - **Un livello gia' scavalcato non e' un ordine.** Uno stop buy sotto il prezzo si
  riempirebbe all'apertura, ma il cBot lo scarta al piazzamento
  (`RejectWrongSideLevels`) e quel trade nel conto vero non esiste. L'engine interno ha
