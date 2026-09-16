@@ -168,6 +168,15 @@ sbaglia più spesso:
  disco è compito di un cBot raccoglitore dedicato (`PiootooDatafeedSyncBot` →
  `api/datafeed-external`, vedi `docs/domini/raccolta-datafeed-esterno.md`).
  Regole complete in `docs/domini/finestra-candele-e-riscaldamento.md`.
+- **Le barre nei giorni senza sessione non esistono per le strategie.** Un feed CFD quota
+ anche quando il future è chiuso (FTMO apre il DAX la domenica sera, BTC quota il sabato) e ne
+ escono sessioni che la ricerca non ha: il dossier §2.1.1 le misura all'11% del P&L e prescrive
+ di scartarle. La regola sta nel **calendario** (`SessionGrid.DropNonSessionDays`, sui
+ `sessionDays` del simbolo) e la applicano allo stesso modo il backtest, prima che la serie entri
+ nei cursori, e la sessione live su riscaldamento, `PushBars` e `PushBarWindow`. Un simbolo che
+ non dichiara i giorni non scarta nulla; NQ dichiara la domenica perché sui CME è una sessione
+ vera. Il summary dichiara quante barre ha tolto (`nonSessionBarsDropped`). Vedi `decisioni.md`
+ 2026-09-16.
 - **Il feed di un broker non si mescola a quello di un altro, né a quello del
  vendor.** Il datafeed raccolto vive in `datafeed-external/{BROKER}/`, con la
  stessa convenzione `@SYM_{minuti}.json` e un `feed-clocks.json` proprio. Per lo

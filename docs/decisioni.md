@@ -4135,3 +4135,25 @@ che il motore fa. Difetto di artefatto, non di esecuzione, ma e' costato mezza i
 
   Restano fuori: NQ (il CSV del vendor e' arrivato nel pomeriggio, `@NQ_1` in generazione) e le
   liste trade del dossier per il confronto entrata per entrata.
+
+- **2026-09-16** — **Le barre nei giorni senza sessione non esistono per le strategie (7.4.5).** Il
+  feed FTMO ha una barra 4h di FDAX ogni domenica (apertura 21:00 Roma: il CFD quota dalle 23:00,
+  un'ora prima dell'ancoraggio delle 01:00), 50 in un anno; il future non ce l'ha e il dossier
+  §2.1.1 prescrive di scartarla. Il layer la contava e la segnalava (§7ter di
+  `layer-barre-e-calendario.md`) ma la serie arrivava intera alle strategie. Su
+  `PT2_FDAX_PCH_001_240` — canale a una barra, gate neutrale 7 sulla sessione precedente — il primo
+  ordine del lunedi' era la rottura di una barra di due ore notturne e il gate leggeva una
+  "sessione" di domenica: lunedi' **−37.710 in un anno su FTMO** contro +25.215 in tre anni e mezzo
+  sul future, e tre ingressi di domenica. Spread e filtro non c'entrano: senza, la strategia perdeva
+  uguale.
+
+  La regola sta nel **calendario**, non nei servizi: `SessionGrid.DropNonSessionDays` toglie le
+  barre nei giorni che `sessionDays` non dichiara, e la chiamano il backtest (prima dei cursori,
+  orologio al minuto compreso: su una domenica fantasma non si valuta, non si riempie, non si marca)
+  e la sessione live sul riscaldamento dal disco, su `PushBars` (consegna accettata, chiave e
+  sequence avanzano, la barra non entra in storia ne' si valuta) e su `PushBarWindow` (le candele
+  buone della finestra entrano, la barra chiusa di domenica non si valuta). Un simbolo senza
+  `sessionDays` non scarta nulla; NQ dichiara la domenica perche' sui CME e' una sessione vera nelle
+  settimane a ora legale sfasata, e non cambia. Il summary porta `nonSessionBarsDropped` accanto a
+  `barsOnNonSessionDay`, e le risposte dei push `nonSessionBars`. `NonSessionDayBarsTests`.
+  Risultati prima/dopo sul run FTMO 31/08/2025 → 31/08/2026 qui sotto, nella stessa voce.

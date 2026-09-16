@@ -681,9 +681,15 @@ Quelle barre non generano trade da sole, ma **spezzano la sessione**: aprono un
 `SessionId` che nella ricerca non esiste, e con l'uscita di fine sessione chiudono
 posizioni ancora valide. Finora nessuno strumento le vedeva.
 
-**Il rimedio non è in questo passo.** Filtrarle cambia i risultati, e cambiare i
-risultati è lavoro dei passi 4 e 5, dove va misurato da solo invece che mescolato
-al resto. Qui si è ottenuto ciò che serviva: il difetto ha un numero.
+**Il rimedio non era in questo passo**, ed è arrivato il 16/09/2026, misurato da
+solo: `SessionGrid.DropNonSessionDays` toglie quelle barre dalla serie sui
+`sessionDays` del calendario, e la chiamano il backtest (prima dei cursori, orologio
+compreso) e la sessione live (riscaldamento, `PushBars`, `PushBarWindow`). Il
+summary dichiara quante ne ha tolte (`nonSessionBarsDropped`). La misura che lo ha
+deciso: su `PT2_FDAX_PCH_001_240`, canale a una barra e gate sulla sessione
+precedente, il lunedì leggeva la barra di domenica di FTMO e valeva −37.710 in un
+anno, contro +25.215 in tre anni e mezzo sul future. Numeri prima/dopo in
+`decisioni.md`.
 
 Nota di lettura sui **gap**: `CC/60m` ha 271 discontinuità su 272 sessioni, cioè
 una per sessione. Non è un difetto — è la pausa notturna di un soft, che quota nove

@@ -200,6 +200,14 @@ public sealed class BacktestFeedCalendarSummary
     /// </summary>
     public int BarsOnNonSessionDay { get; init; }
 
+    /// <summary>
+    /// Quante di quelle barre sono state <b>tolte dalla serie prima del run</b>
+    /// (<c>SessionGrid.DropNonSessionDays</c>, dal 16/09/2026): le strategie non le hanno mai viste.
+    /// Coincide con <see cref="BarsOnNonSessionDay"/> quando il calendario dichiara i giorni; vale
+    /// zero quando non li dichiara, e allora le barre sono rimaste.
+    /// </summary>
+    public int NonSessionBarsDropped { get; init; }
+
     /// <summary>Barre con OHLC tutti uguali.</summary>
     public int StaleBars { get; init; }
 

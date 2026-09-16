@@ -985,15 +985,25 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                 // N*timeframe minuti. Con un fattore 1 il feed veniva tagliato e la prima parte
                 // del backtest restava senza dati.
                 var lookbackDays = Math.Max(30d, ds.MaxRequiredCandles * ds.Timeframe / (24d * 60d) * 3d);
-                var candles = await _dataFeedService.GetCandlesRangeAsync(
+                var loadedCandles = await _dataFeedService.GetCandlesRangeAsync(
                     ds.Symbol,
                     request.StartDate.AddDays(-lookbackDays),
                     request.EndDate,
                     ds.Timeframe,
                     request.DatafeedBroker);
+                var normalizedSymbol = NormalizeSymbol(ds.Symbol);
+
+                // Le barre nei giorni senza sessione non esistono per le strategie: le toglie il
+                // calendario del simbolo, prima che la serie entri nei cursori — quelli delle
+                // strategie e quello dell'orologio, cosi' su una domenica fantasma non si valuta,
+                // non si riempie e non si marca. La regola e il perche' stanno su
+                // SessionGrid.DropNonSessionDays; qui si applica e si dichiara nel summary.
+                var candles = loadedCandles;
+                var nonSessionDropped = 0;
+                if (MarketCalendarRegistry.Current.TryGet(normalizedSymbol, out var symbolCalendar))
+                    candles = new SessionGrid(symbolCalendar).DropNonSessionDays(loadedCandles, out nonSessionDropped);
 
                 var cursor = new CandleWindowCursor(candles);
-                var normalizedSymbol = NormalizeSymbol(ds.Symbol);
                 cursors[(normalizedSymbol, ds.Timeframe)] = cursor;
 
                 // Il BIASW entra ed esce a giorno e ora fissi con un confronto esatto: se il feed
@@ -1047,7 +1057,8 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                 // giusto — sono semplicemente barre altre. Descrive e non decide: il run non si
                 // ferma, perche' anche il feed del vendor ha una barra fuori griglia all'anno per
                 // file giornaliero. Vedi docs/domini/layer-barre-e-calendario.md.
-                var calendarSummary = DescribeFeedCalendar(normalizedSymbol, ds.Timeframe, candles, diagnostics);
+                var calendarSummary = DescribeFeedCalendar(
+                    normalizedSymbol, ds.Timeframe, loadedCandles, nonSessionDropped, diagnostics);
 
                 diagnostics.LogDataSource(new BacktestDataSourceSummary
                 {
@@ -1067,6 +1078,7 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                 }
 
                 Console.WriteLine($"[Backtesting] {normalizedSymbol}/{ds.Timeframe}m: {candles.Length} candele" +
+                                  (nonSessionDropped > 0 ? $" ({nonSessionDropped} scartate: giorni senza sessione)" : "") +
                                   (warning is null ? "" : $" — {warning}"));
 
                 loadedDataSources++;
@@ -2358,6 +2370,7 @@ public class PiootooBacktestingService : IPiootooBacktestingService
         string symbol,
         int timeframeMinutes,
         OhlcvData[] candles,
+        int nonSessionDropped,
         BacktestDiagnosticsLogger diagnostics)
     {
         if (candles.Length == 0 || !SessionGrid.DividesTheDay(timeframeMinutes))
@@ -2396,8 +2409,10 @@ public class PiootooBacktestingService : IPiootooBacktestingService
             diagnostics.AddRunDiagnostic(
                 $"[calendario] {symbol}/{timeframeMinutes}m: {report.BarsOnNonSessionDay} barre su " +
                 $"{report.Bars} cadono in giorni in cui {symbol} non ha sessione. Sono sessioni che " +
-                "il feed fabbrica e il future non ha: non generano trade, ma spezzano la sessione e " +
-                "con l'uscita di fine sessione chiudono posizioni ancora valide.");
+                "il feed fabbrica e il future non ha" +
+                (nonSessionDropped > 0
+                    ? $": {nonSessionDropped} tolte dalla serie prima del run, le strategie non le hanno viste."
+                    : ". Il calendario non dichiara i giorni di sessione, quindi sono rimaste nella serie."));
         }
 
         return new BacktestFeedCalendarSummary
@@ -2406,6 +2421,7 @@ public class PiootooBacktestingService : IPiootooBacktestingService
             Sessions = report.Sessions,
             BarsOffGrid = report.BarsOffGrid,
             BarsOnNonSessionDay = report.BarsOnNonSessionDay,
+            NonSessionBarsDropped = nonSessionDropped,
             StaleBars = report.StaleBars,
             Gaps = report.Gaps,
             FirstSessionId = report.FirstSessionId,

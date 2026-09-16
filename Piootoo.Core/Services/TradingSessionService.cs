@@ -229,6 +229,15 @@ public interface ITradingSessionService
 
 public sealed class TradingSessionService : ITradingSessionService
 {
+    /// <summary>
+    /// Una griglia di sessione per simbolo, costruita al primo uso, <c>null</c> per i simboli che il
+    /// calendario non conosce. Serve a togliere dagli stream le barre nei giorni senza sessione;
+    /// il servizio e' un singleton e le sessioni girano sotto il proprio <c>Gate</c>, ma la mappa e'
+    /// condivisa fra sessioni e va quindi protetta da sola.
+    /// </summary>
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, SessionGrid?> _sessionGrids =
+        new(StringComparer.OrdinalIgnoreCase);
+
     private sealed class Session
     {
         public required string Id { get; init; }
@@ -1410,7 +1419,12 @@ public sealed class TradingSessionService : ITradingSessionService
             var history = session.History.TryGetValue(stream, out var esistente)
                 ? esistente
                 : session.History[stream] = [];
-            history.AddRange(serie.Candles);
+            // Le barre nei giorni senza sessione non esistono per le strategie: stessa regola del
+            // backtest, stesso punto (SessionGrid.DropNonSessionDays), applicata anche al
+            // riscaldamento dal disco, che viene da un archivio CFD.
+            history.AddRange(DropNonSessionDays(symbol, serie.Candles, out var fuoriSessione));
+            if (fuoriSessione > 0)
+                Console.WriteLine($"[Sessione {session.Id}] Riscaldamento {stream}: {fuoriSessione} barre in giorni senza sessione scartate.");
             TrimHistory(session, symbol, timeframe, history);
 
             session.WarmUp[stream] = new StreamWarmUp
@@ -1506,6 +1520,7 @@ public sealed class TradingSessionService : ITradingSessionService
 
             var accepted = 0;
             var duplicates = 0;
+            var nonSession = 0;
             var emitted = new List<OrderIntent>();
             foreach (var bar in request.Bars)
             {
@@ -1526,6 +1541,16 @@ public sealed class TradingSessionService : ITradingSessionService
                 accepted++;
 
                 var normalizedBar = CloneUtc(bar);
+
+                // Una barra in un giorno senza sessione per il calendario del simbolo non esiste
+                // per le strategie: consegna accettata (chiave e sequence avanzano, il client non
+                // deve rispedirla), ma niente storia e niente valutazione. Stessa regola del backtest.
+                if (!IsOnSessionDay(bar.Symbol, normalizedBar.Bar.DateTime))
+                {
+                    nonSession++;
+                    continue;
+                }
+
                 if (!session.History.TryGetValue(stream, out var history))
                     session.History[stream] = history = [];
                 history.Add(normalizedBar.Bar);
@@ -1535,7 +1560,10 @@ public sealed class TradingSessionService : ITradingSessionService
                 TrimHistory(session, bar.Symbol, bar.TimeframeMinutes, history);
             }
             Persist(session);
-            return new PushBarsResponse { AcceptedBars = accepted, DuplicateBars = duplicates, Intents = emitted };
+            return new PushBarsResponse
+            {
+                AcceptedBars = accepted, DuplicateBars = duplicates, NonSessionBars = nonSession, Intents = emitted
+            };
         }
     }
 
@@ -1564,6 +1592,7 @@ public sealed class TradingSessionService : ITradingSessionService
             var accepted = 0;
             var duplicates = 0;
             var backfilled = 0;
+            var nonSession = 0;
             var emitted = new List<OrderIntent>();
             var streams = new List<StreamHistoryStatus>();
 
@@ -1604,24 +1633,37 @@ public sealed class TradingSessionService : ITradingSessionService
 
                 var lastKnownUtc = history.Count == 0 ? (DateTime?)null : history[^1].DateTime;
 
+                // Le barre nei giorni senza sessione non esistono per le strategie (calendario del
+                // simbolo, SessionGrid.DropNonSessionDays): escono dalla finestra prima di tutto, e
+                // il controllo di sovrapposizione si fa sulla finestra ripulita.
+                var candles = DropNonSessionDays(window.Symbol, window.Candles, out var fuoriSessione);
+                nonSession += fuoriSessione;
+                if (candles.Length == 0)
+                {
+                    streams.Add(BuildStreamStatus(session, window.Symbol, window.TimeframeMinutes, history.Count, evaluated: 0));
+                    continue;
+                }
+
                 // La finestra deve SOVRAPPORSI alla storia già presente: se comincia dopo l'ultima
                 // candela nota, fra le due c'è un buco che nessuno colmerà più, e le strategie
                 // girerebbero su una serie bucata senza che nulla lo segnali. Il criterio è la
                 // sovrapposizione e non l'aritmetica sui timestamp perché gli stream hanno buchi
                 // legittimi — fine settimana, festivi, mercati chiusi — che una differenza in minuti
                 // scambierebbe per barre perse.
-                if (lastKnownUtc is { } lastKnown && window.Candles[0].DateTime > lastKnown)
+                if (lastKnownUtc is { } lastKnown && candles[0].DateTime > lastKnown)
                     throw new ArgumentException(
-                        $"Buco nella storia di {stream}: la finestra parte da {window.Candles[0].DateTime:O} " +
+                        $"Buco nella storia di {stream}: la finestra parte da {candles[0].DateTime:O} " +
                         $"ma il server è fermo a {lastKnown:O}. Il client deve includere almeno una candela " +
                         "già nota, oppure ricaricare dal broker abbastanza storia da coprire l'intervallo.");
 
                 // Riscaldamento: si accoda e basta. Niente idempotency key consumata e niente sequence
                 // avanzata, perché la stessa barra può tornare più tardi come barra da valutare e in
-                // quel momento non deve sembrare un replay.
-                if (!window.EvaluateLastCandle)
+                // quel momento non deve sembrare un replay. Lo stesso vale quando la barra chiusa
+                // sta in un giorno senza sessione: le candele buone della finestra entrano in storia,
+                // ma quella barra non si valuta — per le strategie non e' mai esistita.
+                if (!window.EvaluateLastCandle || !IsOnSessionDay(window.Symbol, closedBar.BarTimeUtc))
                 {
-                    backfilled += Backfill(history, window.Candles, lastKnownUtc);
+                    backfilled += Backfill(history, candles, lastKnownUtc);
                     streams.Add(BuildStreamStatus(session, window.Symbol, window.TimeframeMinutes, history.Count, evaluated: 0));
                     continue;
                 }
@@ -1642,7 +1684,7 @@ public sealed class TradingSessionService : ITradingSessionService
                 session.LastSequence[stream] = window.Sequence;
                 accepted++;
 
-                backfilled += Math.Max(0, Backfill(history, window.Candles, lastKnownUtc) - 1);
+                backfilled += Math.Max(0, Backfill(history, candles, lastKnownUtc) - 1);
 
                 // La sequence è passata ma la candela finale non è entrata: vuol dire che il client
                 // numera le sequence in modo scollegato dagli orari delle barre. Valutare comunque
@@ -1674,11 +1716,44 @@ public sealed class TradingSessionService : ITradingSessionService
                 AcceptedBars = accepted,
                 DuplicateBars = duplicates,
                 BackfilledBars = Math.Max(0, backfilled),
+                NonSessionBars = nonSession,
                 Intents = emitted,
                 Streams = streams,
                 ClaimableIntents = CountClaimableIntents(session)
             };
         }
+    }
+
+    /// <summary>
+    /// La griglia di sessione del simbolo, una per simbolo e costruita al primo uso; <c>null</c> se
+    /// il calendario non lo conosce, e allora nessuna barra viene scartata.
+    /// </summary>
+    private SessionGrid? SessionGridOf(string symbol)
+    {
+        var key = MarketCalendar.Normalize(symbol);
+        if (_sessionGrids.TryGetValue(key, out var cached))
+            return cached;
+
+        var grid = MarketCalendarRegistry.Current.TryGet(key, out var calendar) ? new SessionGrid(calendar) : null;
+        _sessionGrids[key] = grid;
+        return grid;
+    }
+
+    /// <summary>Vero se la barra sta in un giorno di sessione del simbolo, o se il calendario non lo dice.</summary>
+    private bool IsOnSessionDay(string symbol, DateTime barOpenUtc) =>
+        SessionGridOf(symbol)?.IsOnSessionDay(barOpenUtc) ?? true;
+
+    /// <summary>Le sole candele nei giorni di sessione del simbolo: <c>SessionGrid.DropNonSessionDays</c>.</summary>
+    private OhlcvData[] DropNonSessionDays(string symbol, IReadOnlyList<OhlcvData> candles, out int dropped)
+    {
+        var grid = SessionGridOf(symbol);
+        if (grid is null)
+        {
+            dropped = 0;
+            return candles as OhlcvData[] ?? candles.ToArray();
+        }
+
+        return grid.DropNonSessionDays(candles, out dropped);
     }
 
     /// <summary>

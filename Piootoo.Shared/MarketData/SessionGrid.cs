@@ -1,4 +1,5 @@
 using Piootoo.Shared.Configuration;
+using Piootoo.Shared.Models;
 
 namespace Piootoo.Shared.MarketData;
 
@@ -107,6 +108,50 @@ public sealed class SessionGrid
     /// </summary>
     public bool? IsSessionDay(DateTime sessionDay) =>
         Calendar.HasSessionOn(sessionDay.DayOfWeek);
+
+    /// <summary>
+    /// Vero se la barra che apre in <paramref name="barOpenUtc"/> sta in un giorno in cui il
+    /// calendario dichiara una sessione, oppure se il calendario non dichiara i giorni: in
+    /// quel caso non si sa e non si scarta nulla.
+    /// </summary>
+    public bool IsOnSessionDay(DateTime barOpenUtc) =>
+        IsSessionDay(SessionDayOf(barOpenUtc)) != false;
+
+    /// <summary>
+    /// <b>Le barre nei giorni senza sessione non esistono per le strategie.</b> Restituisce la
+    /// serie senza le barre che cadono in un giorno che il calendario non dichiara come sessione,
+    /// e dice quante ne ha tolte.
+    ///
+    /// <para><b>Perché è il calendario a farlo.</b> Un feed CFD quota anche quando il future è
+    /// chiuso: FTMO apre il DAX la domenica sera, un'ora prima dell'ancoraggio delle 01:00, e ne
+    /// esce una barra 4h di domenica ogni settimana. Il dossier del paniere (§2.1.1) dà zero
+    /// sessioni domenicali al DAX e prescrive di scartarle: non generano trade da sole, ma
+    /// fabbricano una sessione che la ricerca non ha, e una strategia che legge la sessione
+    /// precedente o l'ultima barra la legge da lì. Su <c>PT2_FDAX_PCH_001_240</c> (canale a una
+    /// barra, gate sulla sessione precedente) il lunedì valeva −37.710 in un anno su FTMO contro
+    /// +25.215 in tre anni e mezzo sul future. Sui CME la domenica è invece una sessione vera nelle
+    /// settimane in cui l'ora legale è sfasata, e il calendario di NQ la dichiara: qui non si toglie
+    /// nulla. La regola è una, sta dove sta il calendario, e la applicano backtest e sessione
+    /// live nello stesso modo.</para>
+    /// </summary>
+    public OhlcvData[] DropNonSessionDays(IReadOnlyList<OhlcvData> bars, out int dropped)
+    {
+        ArgumentNullException.ThrowIfNull(bars);
+        dropped = 0;
+        if (!Calendar.DeclaresSessionDays || bars.Count == 0)
+            return bars as OhlcvData[] ?? bars.ToArray();
+
+        var kept = new List<OhlcvData>(bars.Count);
+        foreach (var bar in bars)
+        {
+            if (IsOnSessionDay(bar.DateTime))
+                kept.Add(bar);
+            else
+                dropped++;
+        }
+
+        return dropped == 0 ? bars as OhlcvData[] ?? bars.ToArray() : kept.ToArray();
+    }
 
     /// <summary>
     /// Inizio del bucket a cui appartiene una barra che si apre in <paramref name="openUtc"/>.

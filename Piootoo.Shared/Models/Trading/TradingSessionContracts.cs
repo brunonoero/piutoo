@@ -379,6 +379,12 @@ public sealed class PushBarsResponse
 {
     public int AcceptedBars { get; init; }
     public int DuplicateBars { get; init; }
+
+    /// <summary>
+    /// Barre ricevute in un giorno in cui il calendario del simbolo non ha sessione: accettate
+    /// come consegna, ma non entrate nella storia e non valutate (<c>SessionGrid.DropNonSessionDays</c>).
+    /// </summary>
+    public int NonSessionBars { get; init; }
     public IReadOnlyList<OrderIntent> Intents { get; init; } = [];
 }
 
@@ -457,6 +463,13 @@ public sealed class PushBarWindowResponse
 
     /// <summary>Candele accodate alla storia perché il server non le aveva (riscaldamento).</summary>
     public int BackfilledBars { get; init; }
+
+    /// <summary>
+    /// Candele della finestra cadute in un giorno senza sessione per il calendario del simbolo:
+    /// tolte prima di entrare nella storia. Se e' la barra chiusa stessa, la finestra e' accettata
+    /// ma non valutata.
+    /// </summary>
+    public int NonSessionBars { get; init; }
     public IReadOnlyList<OrderIntent> Intents { get; init; } = [];
     public IReadOnlyList<StreamHistoryStatus> Streams { get; init; } = [];
 
