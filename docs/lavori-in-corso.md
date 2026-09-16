@@ -60,14 +60,13 @@ Le quattro schede di `run-engine-v2/DOSSIER_PANIERE_001.md` sono tradotte in
 Le due FDAX sono girate sul feed interno 2022-2025 e tornano sul numero di trade (166 su 166, 850
 su 884). Per chiuderle manca, in ordine:
 
-1. **Il CSV di NQ del vendor** (`@NQ-ASCII Mapping-CME-Futures-Minute-Trade.csv`) in
-   `piootoo-repository/datafeed-future/`: il loop al minuto pretende `@NQ_1.json`, e senza CSV non si
-   genera. Poi lo stesso run per `S02` e `S04`.
+1. **Il run NQ** per `S02` e `S04`: il CSV del vendor e' in `datafeed-future/FUTURES_Historical_Data/`
+   e `@NQ_1.json` e' in generazione (16/09 pomeriggio). Stesso run delle FDAX.
 2. **Le liste trade di riferimento.** Il dossier le cita (`*/consegna/trades/fam01_*.csv`) ma in
    `run-engine-v2/` non ci sono: senza, il confronto entrata per entrata non e' possibile.
-3. **Il rollover della BSW nel cBot** (`decisioni.md` 2026-09-16): il bot annulla un intent dello
-   stesso verso mentre la posizione e' aperta, quindi in vivo `S01` entrerebbe una settimana si' e
-   una no. Va allineato prima di mandarla in vivo.
+3. **Il rollover della BSW in vivo** e' allineato (server e cBot 7.4.4, `decisioni.md`
+   2026-09-16) ma non ancora osservato su un conto: al primo lunedì di `S01` controllare nel log del
+   bot la riga `Rollover ...` e nel server che la chiusura e il nuovo ingresso portino lo stesso istante.
 
 ## Il resto, in ordine
 

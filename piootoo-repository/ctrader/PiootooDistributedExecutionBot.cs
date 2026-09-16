@@ -192,6 +192,12 @@ namespace cAlgo.Robots
         /// </summary>
         private const int MaxSignalsPerDrain = 200;
 
+        // 7.4.4 (16/09/2026) — rollover: un ingresso dello stesso verso mentre la posizione della
+        // strategia scade proprio all'istante di validita' dell'intent chiude quella posizione e
+        // rientra, invece di essere annullato. E' il ciclo settimanale del BIASW con uscita e
+        // ingresso sulla stessa barra (PT2_FDAX_BSW_001_60): senza, il bot entrava una settimana
+        // si' e una no. Lato server il claim non rifiuta piu' quel template (AccountHasEntryInFlight).
+        //
         // 7.4.1 (13/09/2026) — un ingresso con la deadline CloseAtUtc gia' passata viene scartato al
         // piazzamento invece di aprire una posizione che CloseExpiredPositions chiude un secondo
         // dopo (compare-0043, PTS_GC_PCH_004_240 alla riapertura). Lato server, nella stessa patch,
@@ -265,7 +271,7 @@ namespace cAlgo.Robots
         // leggendo questo sorgente.
         // Il disallineamento non blocca nulla: entrambi stampano la propria versione all'avvio, e
         // il confronto si fa leggendo i due log.
-        private const string BotVersion = "7.4.2"; // major.minor deve seguire PiootooVersion
+        private const string BotVersion = "7.4.4"; // major.minor deve seguire PiootooVersion
         private const string StatusChartObjectName = "PiootooConnectionStatus";
 
         // Riquadro rosso al centro del grafico, separato dal pannello di stato: e' l'errore fatale
@@ -2600,20 +2606,46 @@ namespace cAlgo.Robots
             // Fino al 11/08/2026 il controllo era per simbolo, e su una sessione a simbolo singolo
             // rendeva inapplicabile qualunque valore di MaxConcurrentTrades: la seconda strategia
             // non arrivava mai a mercato.
-            var alreadyOpenOnStrategy = Positions.Any(p =>
+            var alreadyOpenOnStrategy = Positions.FirstOrDefault(p =>
                 p.SymbolName.Equals(brokerSymbolName, StringComparison.OrdinalIgnoreCase) &&
                 p.Label != null &&
                 p.Label.StartsWith(MakeStrategyLabelPrefix(intent.StrategyCode), StringComparison.Ordinal));
-            if (alreadyOpenOnStrategy)
+            if (alreadyOpenOnStrategy != null)
             {
-                // Annullato, non ignorato: un intent lasciato Pending sul server resta assegnato a
-                // questo account, viene riproposto a ogni poll e tiene chiusi i lucchetti finché il
-                // run non finisce. E comunque non andrebbe eseguito più tardi: il segnale di un
-                // motore Unger vale la sua barra, non quella in cui la strategia tornerà libera.
-                Print("Ingresso {0}/{1} annullato: posizione già aperta per questa strategia.",
-                    intent.Symbol, intent.StrategyCode);
-                ReportExecution(intent.IntentId, intent.Symbol, ExecutionReportStatusDto.Cancelled, 0, null);
-                return;
+                if (IsRolloverOf(alreadyOpenOnStrategy, intent, out var scadenza))
+                {
+                    // 7.4.4 — Rollover: la posizione aperta chiude per costruzione all'istante in cui
+                    // questo ingresso diventa valido (la sua deadline CloseAtUtc non e' oltre
+                    // ValidFromUtc) ed e' dello stesso verso. E' il ciclo settimanale del BIASW con
+                    // uscita e ingresso sulla stessa barra: la ricerca esce e rientra alla stessa
+                    // apertura, un trade a settimana, e il backtest interno fa lo stesso. Annullare
+                    // qui l'intent faceva entrare la strategia una settimana si' e una no. Si chiude
+                    // subito, senza aspettare CloseExpiredPositions: fra i due giri del timer
+                    // l'ordine di arrivo non e' garantito, e l'intent va eseguito ORA, sulla sua
+                    // barra. La chiusura arriva al server da OnPositionClosed come tutte le altre.
+                    Print("Rollover {0}/{1}: posizione {2} in scadenza alle {3:yyyy-MM-dd HH:mm:ss}Z, " +
+                          "stessa barra del nuovo ingresso (ValidFrom {4:yyyy-MM-dd HH:mm:ss}Z): chiusa prima di rientrare.",
+                        intent.Symbol, intent.StrategyCode, alreadyOpenOnStrategy.Id, scadenza, intent.ValidFromUtc);
+                    var chiusura = ClosePosition(alreadyOpenOnStrategy);
+                    if (!chiusura.IsSuccessful)
+                    {
+                        Print("Ingresso {0}/{1} annullato: rollover fallito, la posizione {2} non si chiude ({3}).",
+                            intent.Symbol, intent.StrategyCode, alreadyOpenOnStrategy.Id, chiusura.Error);
+                        ReportExecution(intent.IntentId, intent.Symbol, ExecutionReportStatusDto.Cancelled, 0, null);
+                        return;
+                    }
+                }
+                else
+                {
+                    // Annullato, non ignorato: un intent lasciato Pending sul server resta assegnato a
+                    // questo account, viene riproposto a ogni poll e tiene chiusi i lucchetti finché il
+                    // run non finisce. E comunque non andrebbe eseguito più tardi: il segnale di un
+                    // motore Unger vale la sua barra, non quella in cui la strategia tornerà libera.
+                    Print("Ingresso {0}/{1} annullato: posizione già aperta per questa strategia.",
+                        intent.Symbol, intent.StrategyCode);
+                    ReportExecution(intent.IntentId, intent.Symbol, ExecutionReportStatusDto.Cancelled, 0, null);
+                    return;
+                }
             }
 
             // Tetto locale sulle posizioni riempite. Il server ha gia' applicato il proprio budget
@@ -4167,6 +4199,25 @@ namespace cAlgo.Robots
         /// <summary>Prefisso comune a tutte le label di una strategia, per i match che ignorano l'intent.</summary>
         private static string MakeStrategyLabelPrefix(string strategyCode) =>
             $"{LabelPrefix}{LabelSeparator}{strategyCode}{LabelSeparator}";
+
+        /// <summary>
+        /// Se <paramref name="intent"/> e' il rollover di <paramref name="position"/>: stesso verso e
+        /// deadline della posizione (il <c>CloseAtUtc</c> dell'intent che l'ha aperta, nel contesto
+        /// locale) non oltre l'istante di validita' del nuovo ingresso. Il verso opposto resta OCO.
+        /// Una posizione di cui il bot non ha il contesto (aperta da un altro avvio senza
+        /// riconciliazione) non e' un rollover: non si sa quando scade.
+        /// </summary>
+        private bool IsRolloverOf(Position position, OrderIntentDto intent, out DateTime scadenza)
+        {
+            scadenza = default;
+            var stessoVerso = position.TradeType == (intent.Side == SignalTypeDto.Buy ? TradeType.Buy : TradeType.Sell);
+            if (!stessoVerso || !intent.ValidFromUtc.HasValue)
+                return false;
+            if (!_openPositions.TryGetValue(position.Id, out var ctx) || !ctx.CloseAtUtc.HasValue)
+                return false;
+            scadenza = ctx.CloseAtUtc.Value;
+            return scadenza <= intent.ValidFromUtc.Value;
+        }
 
         /// <summary>
         /// Scompone una label del bot. Tollera le label del formato precedente

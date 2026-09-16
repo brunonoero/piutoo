@@ -4112,9 +4112,13 @@ che il motore fa. Difetto di artefatto, non di esecuzione, ma e' costato mezza i
   ingresso (`RollsOverOnTheEntryBar`); il resto era gia' a posto, perche' `UpdateMarketPrices`
   esegue le uscite a tempo prima dei fill dei pending nello stesso tick. Dopo: **166 trade, uno
   ogni 7 giorni**, netto 180.711 contro 191.311. Le `PTS_ES_BSW_*` hanno giorni diversi e non
-  cambiano. **Aperto sul cBot**: il bot annulla un intent dello stesso verso mentre la posizione e'
-  aperta (`alreadyOpenOnStrategy`), quindi in vivo il rollover oggi non avverrebbe; deve accettare
-  il market quando la posizione ha `CloseAtUtc` uguale all'istante di validita' dell'intent.
+  cambiano. **Il vivo fa lo stesso** (server e cBot 7.4.4): il claim non rifiuta piu' un template
+  dello stesso verso quando la posizione aperta della strategia scade non oltre l'istante di
+  validita' del template (`AccountHasEntryInFlight` → `IsRolloverOf`, la deadline letta
+  dall'intent che ha aperto la posizione), e il bot, invece di annullare l'intent per
+  `alreadyOpenOnStrategy`, chiude subito quella posizione e rientra — senza aspettare
+  `CloseExpiredPositions`, perche' fra due giri del timer l'ordine di arrivo non e' garantito e
+  l'intent va eseguito sulla sua barra. Il verso opposto resta OCO. `RolloverClaimTests`.
 
   **La deadline di fine sessione non si risolve su una barra proiettata.** Un ordine "next bar"
   nato sull'ultima barra del venerdi' porta `ValidFromUtc` di sabato, e la chiusura di sessione
@@ -4129,5 +4133,5 @@ che il motore fa. Difetto di artefatto, non di esecuzione, ma e' costato mezza i
   PC **850 trade, netto 274.000 contro 264.639**, zero trade nello stesso minuto.
   `SessionExitAfterGapFillTests`, `SessionCloseAtAnchorTests`, `Pt2ScheduleAndWindowTests`.
 
-  Restano fuori: NQ (manca il CSV del vendor per generare `@NQ_1`), le liste trade del dossier per
-  il confronto entrata per entrata, e il rollover nel cBot.
+  Restano fuori: NQ (il CSV del vendor e' arrivato nel pomeriggio, `@NQ_1` in generazione) e le
+  liste trade del dossier per il confronto entrata per entrata.

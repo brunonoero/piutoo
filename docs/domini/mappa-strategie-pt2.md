@@ -72,9 +72,9 @@ dava 84 e 873. Il confronto entrata per entrata resta da fare.
   `datafeed-future/` (UTC, etichetta di apertura, ancoraggio 01:00). Per NQ il loop al minuto
   pretende `@NQ_1.json`, che non esiste: serve `@NQ-ASCII Mapping-CME-Futures-Minute-Trade.csv`
   nella stessa cartella, poi `aggregate_flat_feed.py --symbols NQ --timeframes 1`.
-- **Il rollover della BSW nel cBot.** Il backtest rientra alla stessa apertura in cui esce; il bot
-  oggi annulla un intent dello stesso verso mentre la posizione e' aperta. Da allineare prima di
-  mandare `S01` in vivo.
+- **Il rollover della BSW in vivo** e' allineato dal 16/09/2026 (server e cBot 7.4.4): il claim
+  consegna il template dello stesso verso quando la posizione scade al suo istante di validita', e
+  il bot chiude e rientra. Non ancora osservato su un conto.
 - **La finestra di S02.** La scheda dice «12:00 e 16:00» e subito dopo «ordini emessi sulle barre che
   *chiudono* fra le 12:00 e le 16:00»: la seconda frase e' quella dei dossier a etichetta di chiusura
   e contraddice §2.6. La classe segue §2.6 (barre che *aprono* alle 12:00 e alle 16:00); se la lista

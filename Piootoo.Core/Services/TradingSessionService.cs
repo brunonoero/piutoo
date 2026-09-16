@@ -2567,7 +2567,7 @@ public sealed class TradingSessionService : ITradingSessionService
             // cBot il 26/08/2026 (`CancelStrategyPendingOrders` per strategia *e lato*): lì il
             // gemello lato server non era stato fatto.
             candidates = NarrowTemplates(candidates, ref stage,
-                t => !AccountHasEntryInFlight(session, accountNumber, t.StrategyCode, t.Symbol, t.Side),
+                t => !AccountHasEntryInFlight(session, accountNumber, t),
                 "l'account ha già un ingresso in corso per quella strategia su quel simbolo e lato");
 
             // Lucchetto 4: è un vincolo di CONCORRENZA, non di distribuzione, quindi segue
@@ -3395,25 +3395,66 @@ public sealed class TradingSessionService : ITradingSessionService
     /// una gamba si è riempita, l'altra non deve entrare, altrimenti la strategia resta long e short
     /// insieme. È l'OCO, ed è la stessa cosa che il cBot impone con <c>EnforceBracketOco</c> e
     /// <c>alreadyOpenOnStrategy</c>.</para>
+    ///
+    /// <para><b>L'eccezione: il rollover.</b> Una posizione la cui deadline (<c>CloseAtUtc</c>
+    /// dell'intent che l'ha aperta) cade <b>all'istante di validità</b> del nuovo template, o
+    /// prima, e dello stesso verso, non è un ingresso in volo: è la posizione che il client chiude
+    /// per costruzione all'apertura della barra su cui il template entra. È il ciclo settimanale
+    /// del BIASW con uscita e ingresso sulla stessa barra (<c>PT2_FDAX_BSW_001_60</c>): la ricerca
+    /// esce e rientra alla stessa apertura, un trade a settimana, e il motore interno fa lo stesso
+    /// dal 16/09/2026 (<c>BiasWeeklyEngine.RollsOverOnTheEntryBar</c>). Rifiutare qui il template
+    /// faceva entrare la strategia una settimana sì e una no in vivo. Il verso opposto resta OCO:
+    /// un rollover che inverte non esiste nel paniere.</para>
     /// </summary>
-    private static bool AccountHasEntryInFlight(
-        Session session, string accountNumber, string strategyCode, string symbol, SignalType side)
+    private static bool AccountHasEntryInFlight(Session session, string accountNumber, OrderIntent template)
     {
         var pending = Live(session).Any(intent =>
             intent.Kind == OrderIntentKind.Entry &&
             intent.Status == OrderIntentStatus.Pending &&
-            intent.Side == side &&
+            intent.Side == template.Side &&
             string.Equals(intent.AssignedAccountNumber, accountNumber, StringComparison.OrdinalIgnoreCase) &&
-            string.Equals(intent.StrategyCode, strategyCode, StringComparison.OrdinalIgnoreCase) &&
-            string.Equals(intent.Symbol, symbol, StringComparison.OrdinalIgnoreCase));
+            string.Equals(intent.StrategyCode, template.StrategyCode, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(intent.Symbol, template.Symbol, StringComparison.OrdinalIgnoreCase));
         if (pending)
             return true;
 
         // Nessun confronto sul lato: vedi il secondo paragrafo del sommario. È l'OCO.
-        return session.ExternalPositions.Values.Any(position =>
-            string.Equals(position.AccountNumber, accountNumber, StringComparison.OrdinalIgnoreCase) &&
-            string.Equals(position.StrategyCode, strategyCode, StringComparison.OrdinalIgnoreCase) &&
-            string.Equals(position.Symbol, symbol, StringComparison.OrdinalIgnoreCase));
+        foreach (var (key, position) in session.ExternalPositions)
+        {
+            if (!string.Equals(position.AccountNumber, accountNumber, StringComparison.OrdinalIgnoreCase) ||
+                !string.Equals(position.StrategyCode, template.StrategyCode, StringComparison.OrdinalIgnoreCase) ||
+                !string.Equals(position.Symbol, template.Symbol, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (IsRolloverOf(session, key, position, template))
+                continue;
+
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Se <paramref name="template"/> è il rollover di <paramref name="position"/>: stesso verso e
+    /// deadline della posizione non oltre l'istante di validità del template. La deadline vive
+    /// sull'intent di ingresso, non sulla posizione (<c>ExternalPositionDetails</c> → <c>IntentsById</c>).
+    /// </summary>
+    private static bool IsRolloverOf(Session session, string positionKey, TradingPositionSnapshot position, OrderIntent template)
+    {
+        if (position.Direction != template.Side || template.ValidFromUtc is not { } validFrom)
+            return false;
+
+        if (!session.ExternalPositionDetails.TryGetValue(positionKey, out var details) ||
+            string.IsNullOrEmpty(details.IntentId) ||
+            !session.IntentsById.TryGetValue(details.IntentId, out var opening))
+        {
+            return false;
+        }
+
+        return opening.CloseAtUtc is { } closeAt && closeAt <= validFrom;
     }
 
     private static bool MaxEntriesPerSessionReached(Session session, OrderIntent intent, string? accountNumber)
