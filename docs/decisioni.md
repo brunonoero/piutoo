@@ -4156,4 +4156,20 @@ che il motore fa. Difetto di artefatto, non di esecuzione, ma e' costato mezza i
   `sessionDays` non scarta nulla; NQ dichiara la domenica perche' sui CME e' una sessione vera nelle
   settimane a ora legale sfasata, e non cambia. Il summary porta `nonSessionBarsDropped` accanto a
   `barsOnNonSessionDay`, e le risposte dei push `nonSessionBars`. `NonSessionDayBarsTests`.
-  Risultati prima/dopo sul run FTMO 31/08/2025 → 31/08/2026 qui sotto, nella stessa voce.
+
+  **Misura, run FTMO 31/08/2025 → 31/08/2026** (piano V02-001, spread FTMOPLATFORM per ora, filtro
+  livelli acceso; fra parentesi il run senza spread ne' filtro). Le tre strategie senza barre
+  fantasma non cambiano di un centesimo. `PT2_FDAX_PCH_001_240`: il lunedi' passa da −37.710 a
+  −9.872 (da −11.702 a +8.004) e gli ingressi di domenica spariscono, cioe' il difetto e' chiuso;
+  ma il netto dell'anno passa da −62.416 a **−99.377** (da −64.389 a −64.767), perche' cambiando il
+  lunedi' cambia il percorso dei giorni dopo — il martedi' da +28.282 a −26.752 — e il venerdi'
+  resta a −46.086 con o senza barre fantasma. Il portafoglio scende da +88.258 a +50.383 (da
+  +50.200 a +48.835). La correzione resta: e' la regola del dossier, e il lunedi' lo dimostra; la
+  perdita della PC FDAX sul CFD in questo anno non era la domenica.
+
+  Da verificare, emerso leggendo il percorso: quando la barra di una strategia intraday chiude
+  esattamente a fine sessione (FDAX 4h, barra 21:00-01:00), il loop la valuta sul tick 00:59 e
+  applica l'uscita di sessione nello stesso tick ma **dopo**, in `UpdateMarketPrices`; se la
+  posizione era ancora aperta, la strategia si vede in posizione e non emette l'ordine per la
+  prima barra della sessione dopo, che la ricerca invece emette (esce a fine barra, poi entra).
+  Sul future 2022-2025 i segnali nati sulla barra 21:00 sono 328 contro 1.168 su quella delle 01:00.
