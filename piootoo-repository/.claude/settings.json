@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(Get-ChildItem *)",
+      "Bash(Get-Content *)",
+      "Bash(Select-String *)",
+      "Bash(Get-Process *)",
+      "Bash(Test-Path *)",
+      "Bash(dotnet build *)",
+      "Bash(dotnet test *)"
+    ]
+  }
+}
