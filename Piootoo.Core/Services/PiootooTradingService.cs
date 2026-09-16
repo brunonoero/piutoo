@@ -32,6 +32,19 @@ public class PiootooTradingService : IPiootooTradingService
     /// </summary>
     private readonly Dictionary<string, SessionGrid> _sessionGrids = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// Una maschera di negoziazione per simbolo, costruita al primo uso; <c>null</c> se il simbolo
+    /// non e' nel calendario o non dichiara la finestra. Vedi <see cref="MaskOf"/>.
+    /// </summary>
+    private readonly Dictionary<string, SessionMask?> _sessionMasks = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Quante volte un pending non e' stato riempito su un minuto fuori dalla finestra di
+    /// negoziazione del simbolo. Un tick per pending: e' una misura di quanto il feed quota fuori
+    /// orario, non un conteggio di ordini.
+    /// </summary>
+    public int FillsHeldOutsideWindow { get; private set; }
+
     private sealed class PendingOrder
     {
         public required string PositionKey { get; init; }
@@ -551,6 +564,20 @@ public class PiootooTradingService : IPiootooTradingService
 
             currentBars.TryGetValue(NormalizeSymbol(signalSymbol), out var bar);
             currentPrices.TryGetValue(NormalizeSymbol(signalSymbol), out var markPrice);
+
+            // Fuori dalla finestra di negoziazione del future un ordine di ingresso non esiste: il
+            // CFD quota, ma la ricerca non ha quei minuti e il cBot annulla i pending quando la
+            // finestra chiude. Sul DAX di FTMO i fill fra le 22:10 e l'01:15 di Roma valevano 13
+            // trade e -13.202 in un anno su PT2_FDAX_PCH_001_240, tutti inesistenti sul future.
+            // La barra qui e' quella piu' fitta del run (il minuto): si giudica il suo istante.
+            // Le posizioni gia' aperte NON passano di qui: stop, target e uscite a tempo vedono
+            // ogni minuto, perche' un conto vero quelle ore le vive.
+            if (bar is not null &&
+                MaskOf(signalSymbol)?.IsOpen(TradingDateTime.ToFeedUtc(bar.DateTime)) == false)
+            {
+                FillsHeldOutsideWindow++;
+                continue;
+            }
 
             // Il livello va giudicato quando l'ordine nasce, cioe' sulla prima barra su cui e'
             // attivo, e su quella soltanto: dopo, un pending vivo che il mercato raggiunge e'
@@ -1839,6 +1866,25 @@ public class PiootooTradingService : IPiootooTradingService
         }
 
         return cached;
+    }
+
+    /// <summary>
+    /// La maschera di negoziazione del simbolo, o <c>null</c> se il calendario non lo conosce o
+    /// non dichiara la finestra: allora ogni minuto e' buono per un fill, come prima della 7.5.2.
+    /// A differenza di <see cref="GridOf"/> qui l'assenza non e' un errore, perche' un pending puo'
+    /// riferirsi a un simbolo di test senza calendario.
+    /// </summary>
+    private SessionMask? MaskOf(string symbol)
+    {
+        var key = NormalizeSymbol(symbol);
+        if (_sessionMasks.TryGetValue(key, out var cached))
+            return cached;
+
+        var mask = MarketCalendarRegistry.Current.TryGet(key, out var calendar) ? new SessionMask(calendar) : null;
+        if (mask is { DeclaresWindow: false })
+            mask = null;
+        _sessionMasks[key] = mask;
+        return mask;
     }
 
     /// <summary>

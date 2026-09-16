@@ -202,6 +202,9 @@ namespace cAlgo.Robots
         // 00:15 UTC, i 15 minuti invece dell'ora), cosi' il quarto d'ora prima dell'apertura esce
         // esatto. Stessa regola in backtest e in sessione lato server. Contratto 7.5: un server
         // precedente non manda la finestra e il bot lo dice all'avvio.
+        // 7.5.2: a finestra chiusa i pending di ingresso si annullano (CancelPendingOrdersOutsideTradingWindow),
+        // perche' sul future in quelle ore niente li riempirebbe; le posizioni restano con i loro
+        // stop nativi.
         //
         // 7.4.4 (16/09/2026) — rollover: un ingresso dello stesso verso mentre la posizione della
         // strategia scade proprio all'istante di validita' dell'intent chiude quella posizione e
@@ -282,7 +285,7 @@ namespace cAlgo.Robots
         // leggendo questo sorgente.
         // Il disallineamento non blocca nulla: entrambi stampano la propria versione all'avvio, e
         // il confronto si fa leggendo i due log.
-        private const string BotVersion = "7.5.0"; // major.minor deve seguire PiootooVersion
+        private const string BotVersion = "7.5.2"; // major.minor deve seguire PiootooVersion
         private const string StatusChartObjectName = "PiootooConnectionStatus";
 
         // Riquadro rosso al centro del grafico, separato dal pannello di stato: e' l'errore fatale
@@ -1816,6 +1819,32 @@ namespace cAlgo.Robots
             }
         }
 
+        /// <summary>
+        /// Fuori dalla finestra di negoziazione del future un ordine di ingresso non esiste (7.5.2):
+        /// il CFD quota, ma la ricerca non ha quei minuti — sul future l'ordine per la barra delle
+        /// 21:00 del FDAX vive fino alle 22:10 e poi non c'e' piu' niente che lo riempia — e il
+        /// motore interno non riempie fuori finestra. Qui si annullano i pending degli stream la cui
+        /// finestra e' chiusa adesso; il report al server libera l'intent come per ogni altro
+        /// annullamento. Le POSIZIONI non si toccano: stop e target nativi restano al broker, perche'
+        /// un conto vero quelle ore le vive.
+        /// </summary>
+        private void CancelPendingOrdersOutsideTradingWindow()
+        {
+            if (_pendingOrderBar.Count == 0)
+                return;
+
+            var now = Server.TimeInUtc;
+            foreach (var entry in _pendingOrderBar.ToList())
+            {
+                var window = entry.Value?.Stream?.Window;
+                if (window == null || window.IsOpen(now))
+                    continue;
+
+                CancelPendingOrders(entry.Key, "finestra di negoziazione chiusa (" + window.Describe() + "): fuori dall'orario del future l'ordine non esiste");
+                _pendingOrderBar.Remove(entry.Key);
+            }
+        }
+
         private void CancelPendingOrders(string label, string reason)
         {
             foreach (var order in PendingOrders.Where(o => o.Label == label).ToList())
@@ -1985,6 +2014,8 @@ namespace cAlgo.Robots
 
             if (EnforceWeekEndFlat())
                 return;
+
+            CancelPendingOrdersOutsideTradingWindow();
 
             if (ShouldPollOnTimer())
                 PollNextSignal();

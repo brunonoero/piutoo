@@ -186,8 +186,11 @@ sbaglia più spesso:
  sessione e il backtest sulle barre gia' piegate (`SessionMask.DropOutsideWindow`, «tocca la
  finestra»: il bucket 4h dell'01:00 apre alle 00:00 UTC ed e' una barra vera), il cBot sulle
  barre base con la finestra che riceve nel descriptor (`InstrumentBarGrid.TradingWindow`), con
- la serie base scelta sui bordi della finestra. Il feed da un minuto — il feed di rischio, per
- mark, stop e uscite a tempo — **non** si maschera: un conto vero quelle ore le vive.
+ la serie base scelta sui bordi della finestra. **E fuori finestra un ordine di ingresso non
+ esiste**: il motore interno non riempie un pending su un minuto fuori finestra
+ (`PiootooTradingService.FillsHeldOutsideWindow`) e il cBot annulla i pending quando la finestra
+ chiude. Il feed da un minuto — il feed di rischio, per mark, stop e uscite a tempo — **non** si
+ maschera e le posizioni aperte vedono ogni minuto: un conto vero quelle ore le vive.
 - **Il feed di un broker non si mescola a quello di un altro, né a quello del
  vendor.** Il datafeed raccolto vive in `datafeed-external/{BROKER}/`, con la
  stessa convenzione `@SYM_{minuti}.json` e un `feed-clocks.json` proprio. Per lo
