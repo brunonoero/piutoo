@@ -66,7 +66,7 @@ public sealed class StrategyHoursCardTests
 
         var window = Assert.Single(card.InstrumentTradingWindows);
         Assert.Equal("00:15 UTC", window.Open);
-        Assert.Equal("22:00 Europe/Berlin", window.Close);
+        Assert.Equal("22:10 Europe/Berlin", window.Close);
         Assert.Equal(["Lun", "Mar", "Mer", "Gio", "Ven"], window.OpensOn);
     }
 

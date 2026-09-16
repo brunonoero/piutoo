@@ -285,7 +285,7 @@
             "anchor": "utc"
           },
           "close": {
-            "at": "22:00",
+            "at": "22:10",
             "anchor": "local"
           },
           "opensOn": [
@@ -297,7 +297,7 @@
           ],
           "from": null,
           "to": null,
-          "source": "misurata sul minuto del vendor 2024+: apertura 00:16 UTC in ENTRAMBE le stagioni (ancoraggio Singapore), chiusura 21:02/20:01 UTC = 22:00 locali"
+          "source": "misurata sul minuto del vendor 2024+: apertura 00:16 UTC in ENTRAMBE le stagioni (ancoraggio Singapore); l'ultima stampa e' l'asta di chiusura, 22:01-22:06 locali (21:03/20:03 UTC): la finestra chiude alle 22:10 perche' quelle stampe la ricerca le aveva, e con la chiusura alle 22:00 la maschera le toglieva (16/09/2026, 7.5.1)"
         }
       ]
     },

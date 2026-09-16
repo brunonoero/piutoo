@@ -1009,7 +1009,12 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                     // dal minuto con la 7.5.0 non toglie nulla, perche' la maschera e' gia' passata
                     // nell'aggregatore; morde sulle serie native (l'ora delle 22:00 di Roma sul CFD
                     // del DAX) e sugli archivi aggregati prima della maschera.
-                    candles = new SessionMask(symbolCalendar).DropOutsideWindow(candles, ds.Timeframe, out outsideWindowDropped);
+                    // La serie da UN minuto NON si maschera: e' il feed di rischio — orologio del
+                    // loop, mark-to-market, stop e uscite a tempo — e un conto vero le ore in cui il
+                    // CFD quota le vive. Mascherarla farebbe sparire dal backtest gli stop presi di
+                    // notte, che sul conto scattano.
+                    if (ds.Timeframe > 1)
+                        candles = new SessionMask(symbolCalendar).DropOutsideWindow(candles, ds.Timeframe, out outsideWindowDropped);
                 }
 
                 var cursor = new CandleWindowCursor(candles);
