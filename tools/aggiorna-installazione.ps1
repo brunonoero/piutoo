@@ -63,6 +63,22 @@ function Stop-Installazione($inst) {
         Stop-Process -Id $p.ProcessId -Force
         Wait-Process -Id $p.ProcessId -Timeout 30 -ErrorAction SilentlyContinue
     }
+    if ($processi.Count -gt 0) {
+        # Wait-Process torna quando il processo e' uscito, non quando il sistema ha rilasciato
+        # i suoi file: copiare subito dopo fallisce con "file in uso" su Piootoo.Core.dll e
+        # lascia l'installazione a meta' (16/09/2026, due volte). Si aspetta che una DLL
+        # dell'applicazione si apra in scrittura.
+        $sonda = Join-Path $inst.Destinazione 'Piootoo.Core.dll'
+        $scadenza = (Get-Date).AddSeconds(60)
+        while ((Get-Date) -lt $scadenza) {
+            try {
+                $h = [IO.File]::Open($sonda, [IO.FileMode]::Open, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+                $h.Close()
+                break
+            }
+            catch { Start-Sleep -Milliseconds 500 }
+        }
+    }
     return $processi.Count -gt 0
 }
 
