@@ -980,9 +980,14 @@ public sealed class WorkspaceService
             if (root.ValueKind != JsonValueKind.Object)
                 return (start, end);
 
-            if (start is null && root.TryGetProperty("firstBarUtc", out var first) && first.TryGetDateTime(out var firstBar))
+            // TryGetDateTime non tollera il tipo sbagliato: su un elemento null — una scheda di un
+            // run senza barre, o ancora in corso — lancia InvalidOperationException invece di
+            // restituire false. Il ValueKind si controlla prima.
+            if (start is null && root.TryGetProperty("firstBarUtc", out var first) &&
+                first.ValueKind == JsonValueKind.String && first.TryGetDateTime(out var firstBar))
                 start = firstBar.ToUniversalTime();
-            if (root.TryGetProperty("lastBarUtc", out var last) && last.TryGetDateTime(out var lastBar))
+            if (root.TryGetProperty("lastBarUtc", out var last) &&
+                last.ValueKind == JsonValueKind.String && last.TryGetDateTime(out var lastBar))
                 end = lastBar.ToUniversalTime();
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException)
