@@ -13,12 +13,12 @@
     {
       "Code": "ICS",
       "Name": "ICS",
-      "SymbolConversionCode": "",
+      "SymbolConversionCode": "cfd-ic",
       "DatafeedFolder": "",
       "Enabled": true,
       "Notes": "",
       "CreatedUtc": "2026-09-05T11:22:53.3433134Z",
-      "UpdatedUtc": "2026-09-05T11:22:53.3433134Z"
+      "UpdatedUtc": "2026-09-17T07:34:03.0166771Z"
     }
   ]
 }

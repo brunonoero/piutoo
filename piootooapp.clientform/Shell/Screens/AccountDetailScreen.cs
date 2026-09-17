@@ -21,8 +21,23 @@ public partial class AccountDetailScreen : UserControl, IShellScreen, IDirtyAwar
     private bool _suspendDirtyTracking;
     private bool _isDirty;
 
-    /// <summary>Catalogo completo del server: la base su cui si calcola l'universo del conto.</summary>
+    /// <summary>
+    /// Le strategie del <b>workspace corrente</b> — il suo masterfilter risolto sul catalogo del
+    /// server — e la base su cui si calcola l'universo del conto.
+    ///
+    /// <para>Non e' il catalogo intero, che sono classi valide per tutti i workspace: elencarle
+    /// tutte qui faceva leggere come universo operativo del conto un centinaio di strategie che nel
+    /// workspace su cui si sta lavorando non esistono. E' la stessa vista di
+    /// <see cref="StrategyListScreen"/>.</para>
+    /// </summary>
     private readonly List<StrategyCatalogItem> _catalog = new();
+
+    /// <summary>Quante ne ha il catalogo del server, workspace a parte. Distingue "masterfilter
+    /// vuoto" da "catalogo non letto", che a griglia vuota si assomigliano.</summary>
+    private int _catalogTotal;
+
+    /// <summary>Workspace su cui i due tab Strategie sono calcolati; vuoto se non ce n'e' uno.</summary>
+    private string _workspaceId = string.Empty;
 
     /// <summary>Tabelle di conversione del registro globale, per risolvere quella dell'account.</summary>
     private readonly List<SymbolConversion> _conversions = new();
@@ -32,10 +47,10 @@ public partial class AccountDetailScreen : UserControl, IShellScreen, IDirtyAwar
     private readonly List<AccountStrategyRow> _supported = new();
 
     /// <summary>
-    /// Strategie del catalogo che questo conto <b>non</b> puo' operare, con il motivo.
+    /// Strategie del workspace che questo conto <b>non</b> puo' operare, con il motivo.
     ///
-    /// <para>Sono il complemento esatto di <see cref="_supported"/> sullo stesso catalogo: le due
-    /// liste insieme fanno il catalogo intero, e nessuna strategia sta in tutte e due. E' il punto
+    /// <para>Sono il complemento esatto di <see cref="_supported"/> sullo stesso insieme: le due
+    /// liste insieme fanno le strategie del workspace, e nessuna sta in tutte e due. E' il punto
     /// del tab — non "quante ne mancano", ma <i>quali</i> e <i>perche'</i>.</para>
     /// </summary>
     private readonly List<AccountStrategyRow> _excluded = new();
@@ -263,15 +278,40 @@ public partial class AccountDetailScreen : UserControl, IShellScreen, IDirtyAwar
     }
 
     /// <summary>
-    /// Il catalogo del server. Non e' una precondizione della schermata: senza, il tab Strategie
-    /// resta vuoto e lo dichiara, ma l'account si modifica e si salva lo stesso.
+    /// Le strategie del workspace corrente: il catalogo del server ristretto al masterfilter, come
+    /// in <see cref="StrategyListScreen"/>. Un conto opera dentro un workspace, e il catalogo
+    /// intero qui prometteva un universo che quel workspace non contiene.
+    ///
+    /// <para>Non e' una precondizione della schermata: senza workspace, senza masterfilter o senza
+    /// catalogo i due tab Strategie restano vuoti e lo dichiarano, ma l'account si modifica e si
+    /// salva lo stesso.</para>
     /// </summary>
     private async Task LoadStrategyCatalogAsync(CancellationToken cancellationToken)
     {
         _catalog.Clear();
+        _catalogTotal = 0;
+        _workspaceId = _context!.Services.Workspaces.CurrentId ?? string.Empty;
+        if (_workspaceId.Length == 0)
+        {
+            return;
+        }
+
         try
         {
-            _catalog.AddRange(await _context!.Services.Api.ListStrategiesAsync(cancellationToken));
+            var strategies = await _context.Services.Api.ListStrategiesAsync(cancellationToken);
+            var masterFilter = await _context.Services.Api.GetMasterFilterAsync(_workspaceId, cancellationToken);
+            _catalogTotal = strategies.Count;
+
+            // Il masterfilter puo' portare l'Id della classe o il codice di esecuzione: si
+            // confrontano tutti e due, che e' la stessa regola dell'elenco strategie.
+            var wanted = new HashSet<string>(
+                masterFilter.StrategiesFilter
+                    .Where(id => !string.IsNullOrWhiteSpace(id))
+                    .Select(id => id.Trim()),
+                StringComparer.OrdinalIgnoreCase);
+
+            _catalog.AddRange(strategies.Where(item =>
+                wanted.Contains(item.Id) || wanted.Contains(item.Name)));
         }
         catch (OperationCanceledException)
         {
@@ -279,13 +319,16 @@ public partial class AccountDetailScreen : UserControl, IShellScreen, IDirtyAwar
         }
         catch (Exception ex)
         {
-            _context!.Navigation.SetError($"Catalogo strategie non disponibile: {ex.Message}");
+            _catalog.Clear();
+            _catalogTotal = 0;
+            _context.Navigation.SetError(
+                $"Strategie del workspace '{_workspaceId}' non disponibili: {ex.Message}");
         }
     }
 
     /// <summary>
-    /// L'universo operativo del conto: le strategie il cui simbolo compare, abilitato, nella
-    /// tabella di conversione scelta.
+    /// L'universo operativo del conto: fra le strategie del workspace, quelle il cui simbolo
+    /// compare, abilitato, nella tabella di conversione scelta.
     ///
     /// <para>Un conto <b>senza</b> tabella non restringe niente e le opera tutte: e' il conto neutro,
     /// non un conto che non supporta nulla. La stessa regola vale a runtime
@@ -361,11 +404,11 @@ public partial class AccountDetailScreen : UserControl, IShellScreen, IDirtyAwar
     /// <summary>
     /// Applica il filtro di testo e aggiorna il contatore.
     ///
-    /// <para>Il contatore dice <b>n/k strategie attive</b>: <c>k</c> sono le attive dell'intero
-    /// catalogo, <c>n</c> quelle che questo conto puo' operare. E' la sola forma che risponde alla
-    /// domanda vera — quanta parte del sistema questo conto e' in grado di eseguire — e non cambia
-    /// mentre si scrive nel filtro: un contatore che segue il filtro direbbe quanto si sta cercando,
-    /// non quanto il conto opera.</para>
+    /// <para>Il contatore dice <b>n/k strategie attive del workspace</b>: <c>k</c> sono le attive
+    /// del masterfilter, <c>n</c> quelle che questo conto puo' operare. E' la sola forma che
+    /// risponde alla domanda vera — quanta parte di cio' che il workspace fa girare questo conto e'
+    /// in grado di eseguire — e non cambia mentre si scrive nel filtro: un contatore che segue il
+    /// filtro direbbe quanto si sta cercando, non quanto il conto opera.</para>
     /// </summary>
     private void ApplyStrategiesFilter()
     {
@@ -383,12 +426,33 @@ public partial class AccountDetailScreen : UserControl, IShellScreen, IDirtyAwar
         _visibleStrategies.ResetBindings();
 
         var attiveSupportate = _supported.Count(row => row.IsActive);
-        var attiveCatalogo = _catalog.Count(item => item.IsActive);
+        var attiveWorkspace = _catalog.Count(item => item.IsActive);
 
-        _strategiesCountLabel.Text = attiveCatalogo == 0
+        _strategiesCountLabel.Text = DescribeEmptyScope()
+            ?? $"{attiveSupportate}/{attiveWorkspace} strategie attive del workspace" +
+               (filtro.Length > 0 ? $"  ·  {_visibleStrategies.Count} nel filtro" : string.Empty);
+    }
+
+    /// <summary>
+    /// Perche' non c'e' niente da contare, o null quando invece c'e'. Le tre cause si risolvono in
+    /// posti diversi — scegliere un workspace, riempirne il masterfilter, far tornare il catalogo —
+    /// e una griglia vuota da sola non le distingue.
+    /// </summary>
+    private string? DescribeEmptyScope()
+    {
+        if (_workspaceId.Length == 0)
+        {
+            return "nessun workspace selezionato";
+        }
+
+        if (_catalog.Count > 0)
+        {
+            return null;
+        }
+
+        return _catalogTotal == 0
             ? "catalogo non disponibile"
-            : $"{attiveSupportate}/{attiveCatalogo} strategie attive" +
-              (filtro.Length > 0 ? $"  ·  {_visibleStrategies.Count} nel filtro" : string.Empty);
+            : $"nessuna strategia nel masterfilter del workspace '{_workspaceId}'";
     }
 
     private void OnExcludedFilterChanged(object? sender, EventArgs e) => ApplyExcludedFilter();
@@ -396,13 +460,13 @@ public partial class AccountDetailScreen : UserControl, IShellScreen, IDirtyAwar
     /// <summary>
     /// Il gemello di <see cref="ApplyStrategiesFilter"/> sul tab delle escluse.
     ///
-    /// <para>Il contatore e' nello stesso formato — <b>n/k strategie attive</b> — perche' i due tab
-    /// rispondono alla stessa domanda da due lati: quanta parte del sistema questo conto opera, e
-    /// quanta ne perde. Sommati fanno le attive del catalogo, ed e' cosi' che si legge se un numero
-    /// non torna.</para>
+    /// <para>Il contatore e' nello stesso formato — <b>n/k strategie attive del workspace</b> —
+    /// perche' i due tab rispondono alla stessa domanda da due lati: quanta parte del workspace
+    /// questo conto opera, e quanta ne perde. Sommati fanno le attive del masterfilter, ed e' cosi'
+    /// che si legge se un numero non torna.</para>
     ///
     /// <para>Un conto senza tabella di conversione non esclude niente e lo dice: una lista vuota da
-    /// sola non distingue "li supporta tutti" da "il catalogo non e' arrivato".</para>
+    /// sola non distingue "li supporta tutti" da "le strategie del workspace non sono arrivate".</para>
     /// </summary>
     private void ApplyExcludedFilter()
     {
@@ -419,23 +483,23 @@ public partial class AccountDetailScreen : UserControl, IShellScreen, IDirtyAwar
         _visibleExcluded.ReapplySort();
         _visibleExcluded.ResetBindings();
 
-        var attiveCatalogo = _catalog.Count(item => item.IsActive);
-        if (attiveCatalogo == 0)
+        if (DescribeEmptyScope() is { } vuoto)
         {
-            _excludedCountLabel.Text = "catalogo non disponibile";
+            _excludedCountLabel.Text = vuoto;
             return;
         }
 
         if (_excluded.Count == 0)
         {
             _excludedCountLabel.Text = HasSymbolTable()
-                ? "nessuna esclusione: il conto opera tutti i simboli del catalogo"
+                ? "nessuna esclusione: il conto opera tutti i simboli del workspace"
                 : "nessuna esclusione: il conto non ha tabella di conversione, opera 1 a 1";
             return;
         }
 
+        var attiveWorkspace = _catalog.Count(item => item.IsActive);
         _excludedCountLabel.Text =
-            $"{_excluded.Count(row => row.IsActive)}/{attiveCatalogo} strategie attive escluse" +
+            $"{_excluded.Count(row => row.IsActive)}/{attiveWorkspace} strategie attive del workspace escluse" +
             (filtro.Length > 0 ? $"  ·  {_visibleExcluded.Count} nel filtro" : string.Empty);
     }
 
@@ -616,7 +680,7 @@ public partial class AccountDetailScreen : UserControl, IShellScreen, IDirtyAwar
 }
 
 /// <summary>
-/// Riga del tab Strategie del dettaglio account: una strategia del catalogo che questo conto puo'
+/// Riga del tab Strategie del dettaglio account: una strategia del workspace che questo conto puo'
 /// operare, con il nome che il suo simbolo ha sul broker.
 /// </summary>
 public sealed class AccountStrategyRow

@@ -23,18 +23,18 @@
       "SymbolConversionCode": ""
     },
     {
-      "Id": "ic-market-demo-01",
-      "Name": "ic-market-demo-01",
-      "AccountNumber": "1075035",
+      "Id": "ics-v2",
+      "Name": "ICS-V2",
+      "AccountNumber": "2094690",
       "GroupId": "ICS-01",
       "BrokerCode": "ICS",
-      "Broker": "ics",
+      "Broker": "",
       "Currency": "USD",
-      "InitialBalance": 100000.00,
+      "InitialBalance": 1000000,
       "Enabled": true,
       "Notes": "",
-      "CreatedUtc": "2026-08-05T05:14:19.6301127Z",
-      "UpdatedUtc": "2026-09-05T11:23:08.2972951Z",
+      "CreatedUtc": "2026-09-17T07:35:15.7211565Z",
+      "UpdatedUtc": "2026-09-17T07:37:23.70394Z",
       "SymbolConversionCode": ""
     }
   ]

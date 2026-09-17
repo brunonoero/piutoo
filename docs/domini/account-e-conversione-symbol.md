@@ -99,6 +99,14 @@ Le due entità hanno schermate separate nella Shell:
 - **Anagrafiche → Account** (`AccountListScreen` / `AccountDetailScreen`) — anagrafica del conto
   e una sola combo per scegliere quale tabella di conversione referenziare. Non c'è editing della
   tabella qui.
+
+  I due tab *Strategie* e *Strategie escluse* partono dalle strategie del **workspace corrente**
+  (il masterfilter risolto sul catalogo), non dal catalogo intero: è la stessa vista di
+  `StrategyListScreen`. Il catalogo sono classi valide per tutti i workspace, e mostrarlo tutto
+  faceva leggere come universo operativo del conto un centinaio di strategie che nel workspace su
+  cui si sta lavorando non esistono. I contatori dicono `n/k strategie attive del workspace`, e
+  quando non c'è niente da contare dicono quale delle tre cause sia — nessun workspace scelto,
+  masterfilter vuoto, catalogo non letto.
 - **Anagrafiche → Conversioni simbolo** (`SymbolConversionListScreen` /
   `SymbolConversionDetailScreen`) — CRUD del registro globale: nome, codice (immutabile dopo il
   primo salvataggio, è l'identificativo con cui gli account la referenziano) e la griglia delle
