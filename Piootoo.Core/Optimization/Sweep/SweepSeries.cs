@@ -56,6 +56,32 @@ public sealed class SweepSeries
     public Dictionary<int, (int NonSessionDays, int OutsideWindow)> Dropped { get; } = [];
 
     /// <summary>
+    /// Le stesse barre su un periodo diverso. <b>Non copia niente</b>: gli array restano condivisi e
+    /// cambia solo la finestra che l'orologio del run percorre. E' cosi' che in campione e fuori
+    /// campione costano un caricamento solo — il feed da un minuto di @NQ e' 1,2 GB, e leggerlo due
+    /// volte per tagliarlo in due sarebbe il costo dominante della validazione.
+    ///
+    /// <para><b>Le barre oltre la fine restano nell'array, e non e' look-ahead:</b> il cursore
+    /// restituisce solo le barre fino all'istante corrente, quindi una strategia che gira sul
+    /// periodo in campione non puo' vedere quelle del fuori campione. Il guadagno e' anche
+    /// dall'altra parte: il periodo fuori campione parte con la storia vera davanti, non con un
+    /// riscaldamento ricostruito, che e' esattamente la condizione in cui girerebbe dal vivo.</para>
+    /// </summary>
+    public SweepSeries Between(DateTime startUtc, DateTime endUtc)
+    {
+        if (endUtc <= startUtc)
+            throw new ArgumentException($"periodo vuoto: {startUtc:u} → {endUtc:u}.", nameof(endUtc));
+
+        var slice = new SweepSeries(Symbol, startUtc, endUtc, Broker);
+        foreach (var (timeframe, bars) in _byTimeframe)
+            slice._byTimeframe[timeframe] = bars;
+        foreach (var (timeframe, dropped) in Dropped)
+            slice.Dropped[timeframe] = dropped;
+
+        return slice;
+    }
+
+    /// <summary>
     /// Carica i timeframe richiesti per un simbolo. Il <paramref name="warmupDays"/> e' il
     /// riscaldamento prima dell'inizio del run: e' in giorni di <b>calendario</b> e non in barre,
     /// come nel servizio di backtest, perche' i future hanno pause e fine settimana e N barre
