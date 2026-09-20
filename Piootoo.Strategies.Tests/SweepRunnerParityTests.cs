@@ -80,6 +80,37 @@ public sealed class SweepRunnerParityTests(ITestOutputHelper output)
     }
 
     /// <summary>
+    /// <b>Il limite del percorso veloce, misurato.</b> Senza il feed da un minuto lo stop viene
+    /// valutato sulla barra della strategia invece che dentro, e uno stop stretto ne esce molto
+    /// meglio di quanto sia: la barra che lo avrebbe colpito e poi recuperato non lo colpisce.
+    ///
+    /// <para>Non e' rumore ma una distorsione con un verso: piu' lo stop e' stretto, piu' il
+    /// percorso veloce e' ottimista. Una fase di ricerca sul risk management girata li' scegliere
+    /// sempre lo stop piu' stretto della griglia, che nel conto vero e' il peggiore. Il test la
+    /// misura e la rende un fatto scritto; la conseguenza operativa sta in
+    /// <c>SweepJob.ClockTimeframeMinutes</c>.</para>
+    /// </summary>
+    [Fact]
+    public async Task FastClockOverstatesTightStops()
+    {
+        var series = await LoadAsync([240, 1]);
+        if (series is null) return;
+
+        var runner = new SweepRunner(series);
+        foreach (var stop in new[] { 1000, 2500, 4595 })
+        {
+            var parameters = new Dictionary<string, object> { ["StopLoss"] = stop };
+            var fast = runner.Run(ReferenceJob() with { Parameters = parameters });
+            var accurate = runner.Run(ReferenceJob() with { Parameters = parameters, ClockTimeframeMinutes = 1 });
+
+            output.WriteLine(
+                $"stop {stop,5}: veloce {fast.Trades,4} trade netto {fast.NetProfit,10:N0} | " +
+                $"minuto {accurate.Trades,4} trade netto {accurate.NetProfit,10:N0} | " +
+                $"scarto {fast.NetProfit - accurate.NetProfit,10:N0}");
+        }
+    }
+
+    /// <summary>
     /// I parametri arrivano davvero al motore: la stessa strategia con <c>Direction = 1</c> perde i
     /// trade short. E' la prova che una sweep cambia qualcosa — senza, misurerebbe la stessa
     /// configurazione migliaia di volte.
