@@ -39,7 +39,18 @@ namespace Piootoo.Strategies.PT2Strategies;
 ///
 /// <para><b>Quando puo' operare.</b></para>
 /// <list type="bullet">
-/// <item><description>Opera solo fra <b>12:00 e 16:00</b>, ora della ricerca (CET): <c>start_hour = 12</c>, <c>end_hour = 16</c>, verbatim, confrontati con l'<b>apertura</b> della barra perche' i run di <c>run-engine-v2</c> etichettano le candele all'inizio (§2.6; <c>ResearchLabelsBarsOnOpen = true</c>). Su una 4h ancorata a mezzanotte sono le barre <b>12:00-16:00</b> e <b>16:00-20:00</b>, fine inclusa. ⚠ La scheda dice anche «ordini emessi sulle barre che <b>chiudono</b> fra le 12:00 e le 16:00»: e' la frase dei dossier precedenti, che etichettavano sulla chiusura, e con §2.6 non torna. Qui vale §2.6 e il numero verbatim; da confermare sulla lista trade appena c'e'.</description></item>
+/// <item><description>Opera solo fra <b>12:00 e 16:00</b>, ora della ricerca (CET): <c>start_hour = 12</c>, <c>end_hour = 16</c>, verbatim, confrontati con la <b>chiusura</b> della barra (<c>ResearchLabelsBarsOnOpen = false</c>, il default). Su una 4h ancorata a mezzanotte sono le barre <b>08:00-12:00</b> e <b>12:00-16:00</b>, fine inclusa.
+/// <para>⚠ <b>Qui §2.6 del dossier dice due cose diverse in una frase</b> e vanno separate: «le candele sono etichettate al loro <i>inizio</i>» descrive il <i>timestamp del feed</i>, «e si valutano <i>sulla chiusura della barra</i>» descrive il <i>confronto</i>, che e' quello che conta per <c>start_hour</c>/<c>end_hour</c>. Tre fonti indipendenti concordano sulla seconda: la scheda S02 («ordini emessi sulle barre che <b>chiudono</b> fra le 12:00 e le 16:00, cioe' attivi da quell'ora in poi» — con l'etichetta di apertura un ordine sulla barra delle 12:00 sarebbe attivo dalle 16:00, non «da quell'ora»); il motore di ricerca <c>easy_engine_py/</c>, che si dichiara <b>END-labeled</b>; e la sorgente EasyLanguage <c>easy/s_UA_MC_SIGNALS_DONCHIAN_CHANNEL</c>, il cui <c>if Time &gt;= BeginTime</c> legge <c>Time</c> = ora di <i>chiusura</i> della barra, che e' la convenzione TradeStation.</para>
+/// <para>Fino al 20/09/2026 questa classe dichiarava <c>true</c> e la finestra cadeva sulle barre
+/// 12:00-16:00 e 16:00-20:00: quattro ore piu' avanti, una sola barra in comune su due. Misurato sul
+/// feed interno 2022-01-24 → 2025-05-31: <b>824 trade e $182.219</b> con l'apertura, <b>861 e
+/// $235.266</b> con la chiusura. Il riferimento del dossier e' <b>1023 trade</b>: nessuna delle due
+/// ci arriva, e il residuo e' un'altra questione (vedi la nota sul gate di posizione in
+/// <c>PriceChannelEngine</c>).</para>
+/// <para>La sorella <c>PT2_FDAX_BSW_001_60</c> resta su <c>true</c> e non e' in contraddizione: per il
+/// BIASW il dossier stampa gli orari <b>gia' convertiti</b> all'etichetta di apertura («MARKET alle
+/// 08:00 di lunedi', apertura della barra da 60 minuti che chiude alle 09:00»), mentre per il PC
+/// stampa il numero grezzo della ricerca.</para></description></item>
 /// <item><description>Nessun giorno escluso (<c>skip_day = -1</c>)</description></item>
 /// <item><description>Puo' restare aperta <b>oltre la sessione</b> (multiday): <c>intraday_only = 0</c>, quindi <c>IntradayOnly = false</c> esplicito</description></item>
 /// <item><description>Al massimo <b>una entrata per sessione e per direzione</b> - limite sul fill, non sull'emissione dello stop</description></item>
@@ -83,9 +94,11 @@ public sealed class PT2_NQ_PCH_001_240 : PriceChannelEngine
     {
         Contracts = 1;
 
-        // I run di run-engine-v2 etichettano le barre all'INIZIO (§2.6 del dossier): la finestra
-        // si confronta con l'apertura della barra, non con la chiusura come per le PTS_*.
-        ResearchLabelsBarsOnOpen = true;
+        // La finestra si confronta con la CHIUSURA della barra: e' il default (false, dichiarato qui
+        // per non lasciarlo implicito) e riproduce il motore di ricerca END-labeled, la scheda S02 e
+        // la sorgente EasyLanguage. §2.6 del dossier parla dell'etichetta del feed, non del
+        // confronto. Vedi la nota estesa nel commento della classe.
+        ResearchLabelsBarsOnOpen = false;
 
         // Finestra operativa: start_hour/end_hour del run, verbatim nell'orologio
         // della ricerca. Nessuna conversione: il fuso e l'etichetta viaggiano con il dato.

@@ -46,6 +46,7 @@ public abstract class PriceChannelEngine : EasyEngineBase
     /// <summary>0 = entrambi, 1 = solo long, 2 = solo short, come il motore Python.</summary>
     protected int Direction;
 
+
     /// <summary>Buffer espresso in tick, sommato al buffer in punti.</summary>
     protected int OffsetTicks;
 
@@ -178,6 +179,15 @@ public abstract class PriceChannelEngine : EasyEngineBase
         DateTime barTime,
         decimal[] ohlc)
     {
+        // Il gate di posizione non ha corrispondente nel motore Python, che emette la maschera su
+        // tutta la serie e lascia decidere al simulatore. Non e' pero' ridondante rispetto al blocco
+        // dell'engine (compare-0041, che agisce al FILL): dentro un tick le uscite precedono i fill,
+        // quindi senza questo gate l'ordine emesso mentre si era in posizione si riempirebbe nel
+        // tick stesso in cui lo stop la chiude — una ripartenza immediata al livello del canale.
+        // Misurato il 20/09/2026 su PT2_NQ_PCH_001_240, feed interno 2022-01-24 → 2025-05-31:
+        // toglierlo porta da 861 trade e $231.822 a 890 e $136.295, cioe' 29 trade che valgono
+        // -$95.527. La lista di riferimento della ricerca ha piu' trade *e* piu' profitto (1023 e
+        // $507.868): il divario residuo non e' qui, e queste ripartenze non ne fanno parte.
         if (CurrentMP != 0 ||
             !InPythonTradingWindow(barTime) ||
             PythonDayOfWeek(barTime) == SkipDay ||

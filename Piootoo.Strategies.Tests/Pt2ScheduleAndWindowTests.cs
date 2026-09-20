@@ -11,19 +11,20 @@ namespace Piootoo.Strategies.Tests;
 /// dichiarate nel commento della classe (vedi <c>docs/domini/porting-da-report-sweep.md</c>
 /// §"Il dossier di run-engine-v2").
 ///
-/// <para><b>L'etichetta.</b> I run di <c>run-engine-v2</c> etichettano le barre all'<b>inizio</b>
-/// (§2.6 del dossier), al contrario di quelli delle <c>PTS_*</c>: ogni PT2 dichiara
-/// <c>ResearchLabelsBarsOnOpen</c> e riporta gli orari verbatim, e l'engine li confronta con
-/// l'apertura.</para>
+/// <para><b>L'etichetta, che non e' la stessa per tutte.</b> §2.6 del dossier dice due cose in una
+/// frase: le candele del feed sono etichettate all'<b>inizio</b>, ma i confronti orari si fanno
+/// sulla <b>chiusura</b>. Quale delle due vale per una strategia dipende da come il dossier ne
+/// stampa i numeri — convertiti per il BIASW, grezzi dalla ricerca (END-labeled) per il PC — quindi
+/// ognuna dichiara la propria.</para>
 ///
 /// <para><b>BIASW.</b> «MARKET alle 08:00 di lunedì (apertura della barra da 60 minuti che chiude
 /// alle 09:00)» e' <c>le_time = 08:00</c>, la barra 08:00-09:00; il segnale nasce sulla barra prima.
 /// Ingresso e uscita sono sulla stessa barra della settimana, quindi l'uscita e' la stessa barra del
 /// lunedì <i>successivo</i>.</para>
 ///
-/// <para><b>PC.</b> <c>ResearchHours(12, 16)</c> verbatim, letta sull'apertura: sulla 4h ancorata a
-/// mezzanotte entrano le barre 12:00-16:00 e 16:00-20:00 di Roma, non quelle che <i>chiudono</i> fra
-/// le 12:00 e le 16:00 come sarebbe per una PTS.</para>
+/// <para><b>PC.</b> <c>ResearchHours(12, 16)</c> verbatim, letta sulla chiusura: sulla 4h ancorata a
+/// mezzanotte entrano le barre 08:00-12:00 e 12:00-16:00 di Roma, cioe' quelle che <i>chiudono</i>
+/// dentro la finestra.</para>
 ///
 /// <para>Le date sono di settembre 2025, ora legale europea: Roma = UTC+2.</para>
 /// </summary>
@@ -32,16 +33,22 @@ public sealed class Pt2ScheduleAndWindowTests
     // Lunedì 8 settembre 2025. La barra 08:00-09:00 di Roma apre alle 06:00 UTC.
     private static readonly DateTime MondayEntryBarOpenUtc = new(2025, 9, 8, 6, 0, 0, DateTimeKind.Utc);
 
+    /// <summary>
+    /// L'etichetta non e' una proprieta' della <i>serie</i> PT2 ma di come il dossier stampa i numeri
+    /// di quella strategia: per il BIASW li converte all'apertura («MARKET alle 08:00 di lunedi',
+    /// apertura della barra che chiude alle 09:00»), per il PC stampa il numero grezzo della ricerca,
+    /// che e' END-labeled. Una tabella esplicita invece di una regola unica, perche' la regola unica
+    /// era falsa per meta' del paniere.
+    /// </summary>
     [Theory]
-    [InlineData(typeof(PT2_FDAX_BSW_001_60))]
-    [InlineData(typeof(PT2_NQ_PCH_001_240))]
-    [InlineData(typeof(PT2_FDAX_PCH_001_240))]
-    [InlineData(typeof(PT2_NQ_PCH_002_30))]
-    public void EveryPt2DeclaresOpenLabelledBars(Type type)
+    [InlineData(typeof(PT2_FDAX_BSW_001_60), true)]
+    [InlineData(typeof(PT2_NQ_PCH_001_240), false)]
+    [InlineData(typeof(PT2_FDAX_PCH_001_240), true)]
+    [InlineData(typeof(PT2_NQ_PCH_002_30), true)]
+    public void EveryPt2DeclaresItsOwnBarLabel(Type type, bool labelsOnOpen)
     {
         var strategy = (Easy.Engines.EasyEngineBase)Activator.CreateInstance(type)!;
-        Assert.True(strategy.ResearchLabelsBarsOnOpen,
-            $"{type.Name}: viene da run-engine-v2, che etichetta le barre all'inizio (§2.6), e deve dichiararlo.");
+        Assert.Equal(labelsOnOpen, strategy.ResearchLabelsBarsOnOpen);
     }
 
     [Fact]
@@ -142,12 +149,18 @@ public sealed class Pt2ScheduleAndWindowTests
         Assert.Equal(SignalType.Hold, signal.Type);
     }
 
+    /// <summary>
+    /// La finestra del PC si legge sull'etichetta di <b>chiusura</b>: <c>start_hour/end_hour</c>
+    /// arrivano grezzi dal motore di ricerca, che e' END-labeled, e la scheda S02 lo scrive
+    /// («ordini emessi sulle barre che <b>chiudono</b> fra le 12:00 e le 16:00, cioe' attivi da
+    /// quell'ora in poi»). Vedi la nota nel commento di <c>PT2_NQ_PCH_001_240</c>.
+    /// </summary>
     [Theory]
-    [InlineData(10, true)]  // 12:00-16:00 Roma, apre alle 12:00: dentro
-    [InlineData(14, true)]  // 16:00-20:00 Roma, apre alle 16:00: dentro (estremo incluso)
-    [InlineData(6, false)]  // 08:00-12:00 Roma, apre alle 08:00: fuori, anche se CHIUDE dentro la finestra (sarebbe dentro per una PTS)
-    [InlineData(18, false)] // 20:00-00:00 Roma, apre alle 20:00: fuori
-    public void PriceChannel_WindowIsReadOnTheOpeningLabel(int signalBarOpenHourUtc, bool expectsEntry)
+    [InlineData(6, true)]   // 08:00-12:00 Roma, chiude alle 12:00: dentro (estremo incluso)
+    [InlineData(10, true)]  // 12:00-16:00 Roma, chiude alle 16:00: dentro (estremo incluso)
+    [InlineData(14, false)] // 16:00-20:00 Roma, chiude alle 20:00: fuori
+    [InlineData(2, false)]  // 04:00-08:00 Roma, chiude alle 08:00: fuori
+    public void PriceChannel_WindowIsReadOnTheClosingLabel(int signalBarOpenHourUtc, bool expectsEntry)
     {
         var strategy = new PT2_NQ_PCH_001_240();
         var signalBar = new DateTime(2025, 9, 9, signalBarOpenHourUtc, 0, 0, DateTimeKind.Utc); // martedì
