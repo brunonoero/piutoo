@@ -150,8 +150,20 @@ public sealed class PT2_FDAX_PCH_001_240 : PriceChannelEngine
         if (parameters.TryGetValue("OffsetTicks", out var offsetTicks))
             OffsetTicks = Convert.ToInt32(offsetTicks);
         if (parameters.TryGetValue("StartHour", out var startHour))
-            TradingWindow = TradingWindow! with { Start = new TimeOnly(Convert.ToInt32(startHour), 0) };
+            TradingWindow = TradingWindow! with { Start = ResearchHourOrOff(startHour, TimeOnly.MinValue) };
         if (parameters.TryGetValue("EndHour", out var endHour))
-            TradingWindow = TradingWindow! with { End = new TimeOnly(Convert.ToInt32(endHour), 0) };
+            TradingWindow = TradingWindow! with { End = ResearchHourOrOff(endHour, ZonedWindow.EndOfDay) };
+
+        // Gli ultimi quattro parametri di price_channel.py, che fino al 20/09/2026 non erano
+        // raggiungibili da Initialize: senza Direction una sweep non puo' nemmeno trovare una
+        // long-only, che e' meta' del catalogo. Nomi e semantica del motore di ricerca.
+        if (parameters.TryGetValue("Direction", out var direction))
+            Direction = Convert.ToInt32(direction);              // 0 = entrambi, 1 = solo long, 2 = solo short
+        if (parameters.TryGetValue("IntradayOnly", out var intradayOnly))
+            IntradayOnly = Convert.ToInt32(intradayOnly) != 0;   // 1 = flat a fine sessione, 0 = multiday
+        if (parameters.TryGetValue("SkipDay", out var skipDay))
+            SkipDay = Convert.ToInt32(skipDay);                  // 0 = lunedi' .. 4 = venerdi', -1 = nessuno
+        if (parameters.TryGetValue("DvolMin", out var dvolMin))
+            DvolMin = Convert.ToDecimal(dvolMin);                // ATR di 14 sessioni chiuse, $ per contratto
     }
 }

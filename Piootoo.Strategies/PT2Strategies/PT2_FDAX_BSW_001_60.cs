@@ -153,5 +153,49 @@ public sealed class PT2_FDAX_BSW_001_60 : BiasWeeklyEngine
             FastYesLong = Convert.ToInt32(lyYes);
         if (parameters.TryGetValue("PtnLyNo", out var lyNo))
             FastNoLong = Convert.ToInt32(lyNo);
+
+        // Il lato SHORT, che fino al 20/09/2026 non era raggiungibile da Initialize: questa classe
+        // nasce long-only, ma <c>bias_weekly.py</c> ottimizza le due direzioni in quattro fasi
+        // separate (se_day/sx_day, poi se_time/sx_time, poi i pattern short) e senza queste chiavi
+        // una sweep poteva esplorare solo meta' dello spazio.
+        //
+        // Come nel motore di ricerca, <b>il giorno accende la direzione</b>: se_day = -1 la spegne,
+        // un giorno valido la accende. Lasciare Enable* a carico di chi compone i parametri
+        // significherebbe due interruttori per una decisione sola, e uno dei due dimenticato.
+        if (parameters.TryGetValue("EntryDayShort", out var entryDayShort))
+        {
+            EntryDayShort = Convert.ToInt32(entryDayShort);      // se_day: 0 = lunedi' .. 4 = venerdi', -1 = spento
+            EnableShort = EntryDayShort >= 0;
+        }
+        if (parameters.TryGetValue("EntryTimeShort", out var entryTimeShort))
+            EntryTimeShort = TimeFromLegacyHhmm(entryTimeShort); // se_time, HHMM
+        if (parameters.TryGetValue("ExitDayShort", out var exitDayShort))
+            ExitDayShort = Convert.ToInt32(exitDayShort);        // sx_day
+        if (parameters.TryGetValue("ExitTimeShort", out var exitTimeShort))
+            ExitTimeShort = TimeFromLegacyHhmm(exitTimeShort);   // sx_time, HHMM
+        if (parameters.TryGetValue("PtnSyYes", out var syYes))
+            FastYesShort = Convert.ToInt32(syYes);               // ptn_sy_yes
+        if (parameters.TryGetValue("PtnSyNo", out var syNo))
+            FastNoShort = Convert.ToInt32(syNo);                 // ptn_sy_no
+
+        // Stesso trattamento per il long: il giorno e' l'interruttore della direzione.
+        if (parameters.ContainsKey("EntryDayLong"))
+            EnableLong = EntryDayLong >= 0;
+
+        // Nel motore di ricerca stop_loss e take_profit sono parametri UNICI per le due direzioni,
+        // quindi "StopLoss"/"TakeProfit" valgono per entrambe: prima toccavano il solo long, e uno
+        // short acceso sarebbe nato senza stop. Chi ha bisogno di distinguerli ha le chiavi per lato.
+        if (parameters.TryGetValue("StopLoss", out var stopBoth))
+            StopMoneyShort = Convert.ToDecimal(stopBoth);
+        if (parameters.TryGetValue("TakeProfit", out var profitBoth))
+            ProfitMoneyShort = Convert.ToDecimal(profitBoth);
+        if (parameters.TryGetValue("StopLossLong", out var stopLong))
+            StopMoneyLong = Convert.ToDecimal(stopLong);
+        if (parameters.TryGetValue("StopLossShort", out var stopShort))
+            StopMoneyShort = Convert.ToDecimal(stopShort);
+        if (parameters.TryGetValue("TakeProfitLong", out var profitLong))
+            ProfitMoneyLong = Convert.ToDecimal(profitLong);
+        if (parameters.TryGetValue("TakeProfitShort", out var profitShort))
+            ProfitMoneyShort = Convert.ToDecimal(profitShort);
     }
 }

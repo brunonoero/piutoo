@@ -435,6 +435,24 @@ public abstract class EasyEngineBase : StatelessEasyStrategyBase
     }
 
     /// <summary>
+    /// Un'ora della ricerca (<c>start_hour</c>/<c>end_hour</c>) come la scrive un report sweep: un
+    /// intero 0..23, oppure la sentinella <b>-1</b> che significa "nessun limite da questo lato"
+    /// (<c>OFF_SENTINELS</c> di <c>base.py</c>).
+    ///
+    /// <para>Serve a <c>Initialize</c>: senza, un parametro a -1 — che nelle griglie della ricerca e'
+    /// il <i>primo</i> valore, cioe' il default di ogni sweep — costruirebbe un <c>TimeOnly(-1, 0)</c>
+    /// e farebbe eccezione. Sta qui e non in ogni classe perche' e' la stessa conversione di
+    /// <see cref="TimeFromLegacyHhmm"/>, per l'altra codifica.</para>
+    /// </summary>
+    /// <param name="value">Il valore grezzo del parametro.</param>
+    /// <param name="off">L'estremo da usare quando il parametro e' spento: inizio o fine giornata.</param>
+    protected static TimeOnly ResearchHourOrOff(object value, TimeOnly off)
+    {
+        var hour = Convert.ToInt32(value);
+        return hour < 0 ? off : new TimeOnly(hour, 0);
+    }
+
+    /// <summary>
     /// Valuta la <see cref="TradingWindow"/> dichiarata sull'orologio che essa dichiara.
     /// Restituisce <c>null</c> quando la strategia non la dichiara: in quel caso il motore ricade
     /// sul proprio percorso storico, che confronta i propri campi sull'orologio di sessione.

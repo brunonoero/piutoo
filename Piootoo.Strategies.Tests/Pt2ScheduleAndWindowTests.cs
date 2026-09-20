@@ -231,6 +231,86 @@ public sealed class Pt2ScheduleAndWindowTests
         Assert.Null(signal.TakeProfitMoneyPerFutureContract);
     }
 
+    /// <summary>
+    /// I parametri di <c>price_channel.py</c> aggiunti a <c>Initialize</c> il 20/09/2026. Senza di
+    /// loro una sweep non puo' esplorare il proprio spazio: <c>direction</c> in particolare e'
+    /// nella <b>prima</b> fase del motore di ricerca, non fra i filtri.
+    /// </summary>
+    [Fact]
+    public void PriceChannel_ExposesDirectionAndTheOtherResearchParameters()
+    {
+        var strategy = new PT2_NQ_PCH_001_240();
+        strategy.Initialize(new Dictionary<string, object>
+        {
+            ["Direction"] = 1,        // solo long
+            ["IntradayOnly"] = 1,     // flat a fine sessione
+            ["SkipDay"] = 4,          // niente venerdi'
+            ["DvolMin"] = 0
+        });
+
+        Assert.Equal(StrategyHolding.Intraday, strategy.Holding);
+
+        // Martedi': il filtro del venerdi' non scatta, ma il lato short e' spento da direction.
+        var signalBar = new DateTime(2025, 9, 9, 6, 0, 0, DateTimeKind.Utc);
+        var signal = Evaluate(strategy, FourHourBarsUntil(signalBar), "NQ");
+
+        Assert.Equal(SignalType.Buy, signal.Type);
+        Assert.Null(signal.CompanionSignals);
+    }
+
+    /// <summary>
+    /// <c>skip_day</c> e la sentinella <c>-1</c> degli orari: nelle griglie della ricerca -1 e' il
+    /// primo valore, cioe' il default di ogni sweep, e costruiva un <c>TimeOnly(-1, 0)</c>.
+    /// </summary>
+    [Fact]
+    public void PriceChannel_SkipDayAndTheOffSentinelOnHours()
+    {
+        var strategy = new PT2_NQ_PCH_001_240();
+        strategy.Initialize(new Dictionary<string, object>
+        {
+            ["StartHour"] = -1,
+            ["EndHour"] = -1,
+            ["SkipDay"] = 1           // martedi' escluso, letto sull'etichetta della barra
+        });
+
+        Assert.Equal(TimeOnly.MinValue, strategy.TradingWindow!.Start);
+        Assert.Equal(Shared.Configuration.ZonedWindow.EndOfDay, strategy.TradingWindow!.End);
+
+        // Barra 08:00-12:00 di martedi': fuori finestra non e', ma il giorno e' escluso.
+        var signalBar = new DateTime(2025, 9, 9, 6, 0, 0, DateTimeKind.Utc);
+        Assert.Equal(SignalType.Hold, Evaluate(strategy, FourHourBarsUntil(signalBar), "NQ").Type);
+    }
+
+    /// <summary>
+    /// Il lato short del BIASW, che la classe nasce senza. Come nel motore di ricerca il giorno
+    /// accende la direzione: <c>se_day</c> valido = short acceso, e lo stop del lato arriva dal
+    /// parametro unico <c>stop_loss</c>.
+    /// </summary>
+    [Fact]
+    public void BiasWeekly_ShortSideIsReachableFromInitialize()
+    {
+        var strategy = new PT2_FDAX_BSW_001_60();
+        strategy.Initialize(new Dictionary<string, object>
+        {
+            ["EntryDayShort"] = 0,      // se_day: lunedi'
+            ["EntryTimeShort"] = 800,   // se_time: 08:00
+            ["ExitDayShort"] = 0,
+            ["ExitTimeShort"] = 800,
+            ["StopLoss"] = 44700
+        });
+
+        var bars = HourlyBarsUntil(MondayEntryBarOpenUtc.AddHours(-1));
+        var signal = Evaluate(strategy, bars, "FDAX");
+
+        var legs = new List<TradeSignal> { signal };
+        if (signal.CompanionSignals is not null) legs.AddRange(signal.CompanionSignals);
+
+        var sell = Assert.Single(legs, leg => leg.Type == SignalType.Sell);
+        Assert.Equal(MondayEntryBarOpenUtc, sell.ValidFromUtc);
+        Assert.Equal(44700m, sell.StopLossMoneyPerFutureContract);
+        Assert.Contains(legs, leg => leg.Type == SignalType.Buy);
+    }
+
     // ------------------------------------------------------------------ helper
 
     private static TradeSignal Evaluate(
