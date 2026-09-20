@@ -160,6 +160,23 @@ public sealed class SweepValidator(
             return false;
         }
 
+        // Un punteggio negativo e' ordinabile — serve all'ottimizzatore per far progredire le fasi
+        // quando nessuna configurazione e' ancora in utile — ma qui vuol dire perdita fuori
+        // campione, e non c'e' soglia di tenuta che la renda accettabile.
+        if (!NetOverDrawdownObjective.IsProfitable(validation.OutOfSampleScore))
+        {
+            verdict = $"fuori campione in perdita ({validation.OutOfSample.NetProfit:N0})";
+            return false;
+        }
+
+        // In campione in perdita: la configurazione non e' stata scelta perche' buona, e un fuori
+        // campione in utile davanti a un campione in perdita e' un caso, non una conferma.
+        if (!NetOverDrawdownObjective.IsProfitable(validation.InSampleScore))
+        {
+            verdict = $"in campione in perdita ({validation.InSample.NetProfit:N0})";
+            return false;
+        }
+
         var retention = validation.ScoreRetention;
         if (retention.HasValue && retention.Value < _options.MinScoreRetention)
         {

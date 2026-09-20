@@ -167,10 +167,25 @@ public sealed class SweepOptimizer(
 
             if (_options.Verbose)
             {
+                // Quando una fase non produce nulla, il conteggio dei trade dice subito se il
+                // problema e' la soglia o se la strategia non sta operando affatto. Sono due cause
+                // opposte e senza questo numero si distinguono solo rilanciando.
+                var diagnosi = " → nessuna ammissibile, semi invariati";
+                if (next.Count > 0)
+                {
+                    diagnosi = $" → {next[0].Outcome}";
+                }
+                else if (evaluated.Count > 0)
+                {
+                    var maxTrade = evaluated.Max(candidate => candidate.Outcome.Trades);
+                    diagnosi += maxTrade == 0
+                        ? " — NESSUNA combinazione ha prodotto un solo trade: non e' la soglia, la strategia non opera (orario o giorno che il feed non ha?)"
+                        : $" — il massimo osservato e' {maxTrade} trade";
+                }
+
                 Console.WriteLine(
                     $"[sweep] {space.Engine}/{phase.Name}: {combinations:N0} combinazioni × {Math.Max(1, seeds.Count)} semi, " +
-                    $"{ranked.Count:N0} ammissibili, {phaseStarted.Elapsed.TotalSeconds:N1}s" +
-                    (next.Count > 0 ? $" → {next[0].Outcome}" : " → nessuna ammissibile, semi invariati"));
+                    $"{ranked.Count:N0} ammissibili, {phaseStarted.Elapsed.TotalSeconds:N1}s{diagnosi}");
             }
         }
 

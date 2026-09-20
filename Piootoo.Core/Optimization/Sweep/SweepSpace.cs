@@ -328,7 +328,22 @@ public static class SweepSpaces
     /// pandas (0 = lunedi'), e <c>-1</c> sul giorno di ingresso <b>spegne la direzione</b>: e'
     /// l'interruttore, non un valore mancante.</para>
     /// </summary>
-    public static SweepSpace BiasWeekly()
+    /// <param name="defaultHourHhmm">
+    /// L'ora da cui parte la sweep, <c>HHMM</c> nell'orologio della ricerca.
+    ///
+    /// <para><b>Perche' non e' l'01:00 di <c>bias_weekly.py</c>.</b> Il BIASW entra con un confronto
+    /// <i>esatto</i> sull'istante programmato: se il feed non ha una barra a quell'ora la leg non
+    /// nasce, e non e' uno skip che si vede — e' il nulla. L'01:00 e' precisamente l'ora che sui
+    /// feed di broker non sopravvive: la finestra di negoziazione del DAX comincia alle 00:15 UTC e
+    /// in ora legale l'01:00 locale cade prima dell'apertura. Misurato il 20/09/2026 su FDAX 1h,
+    /// feed ICS 2014-2026: con <c>le_time = 01:00</c> la strategia fa <b>zero</b> trade a qualunque
+    /// giorno, con <c>09:00</c> ne fa 372. Con lo zero la prima fase non ha nulla da ordinare e
+    /// l'intera ricerca resta ferma ai default.</para>
+    ///
+    /// <para>Non e' una taratura: e' il punto di partenza della sweep, che la fase degli orari
+    /// sposta subito. Ma deve essere un'ora in cui il mercato quota, altrimenti non c'e' sweep.</para>
+    /// </param>
+    public static SweepSpace BiasWeekly(int defaultHourHhmm = 900)
     {
         object[] hours = Enumerable.Range(0, 24).Select(h => (object)(h * 100)).ToArray();
         object[] entryDays = [-1, 0, 1, 2, 3, 4];
@@ -370,10 +385,10 @@ public static class SweepSpaces
         {
             ["EntryDayLong"] = -1,
             ["EntryDayShort"] = -1,
-            ["EntryTimeLong"] = 100,
-            ["ExitTimeLong"] = 100,
-            ["EntryTimeShort"] = 100,
-            ["ExitTimeShort"] = 100,
+            ["EntryTimeLong"] = defaultHourHhmm,
+            ["ExitTimeLong"] = defaultHourHhmm,
+            ["EntryTimeShort"] = defaultHourHhmm,
+            ["ExitTimeShort"] = defaultHourHhmm,
             ["StopLoss"] = 0,
             ["TakeProfit"] = 0
         };

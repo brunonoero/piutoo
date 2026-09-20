@@ -9,9 +9,12 @@
 #
 # Uso:
 #   powershell -NoProfile -ExecutionPolicy Bypass -File tools\sweep-paniere.ps1
-#   powershell ... -File tools\sweep-paniere.ps1 -Celle fdax-4h,nq-30m
-#   powershell ... -File tools\sweep-paniere.ps1 -Beam 1        # dimezza i tempi, perde interazioni
-#   powershell ... -File tools\sweep-paniere.ps1 -SoloStima     # dice cosa farebbe e si ferma
+#
+# Con piu' celle serve -Command e non -File: con -File gli argomenti sono stringhe letterali, la
+# lista "a,b" arriva come una cella sola e "a b" finisce meta' sul parametro dopo.
+#   powershell -NoProfile -ExecutionPolicy Bypass -Command "& 'C:\piootoo-dev\tools\sweep-paniere.ps1' -Celle fdax-1h,nq-30m"
+#   powershell ... -Command "& '...\sweep-paniere.ps1' -Beam 1"       # dimezza i tempi, perde interazioni
+#   powershell ... -Command "& '...\sweep-paniere.ps1' -SoloStima"    # dice cosa farebbe e si ferma
 #
 # I resoconti finiscono in piootoo-repository\ricerca\<cella>-ics-ftmo.md, i log accanto.
 
@@ -39,8 +42,13 @@ $definizioni = [ordered]@{
         SpezzaPattern = $false; Stima = "~2,5 ore"
     }
     "nq-30m"  = @{
+        # Col prodotto completo questa cella e' impraticabile, e non per stima ma per misura: il
+        # 20/09/2026 la sola fase dei pattern neutrali (3.025 x 2 semi) ha richiesto 2 ore e 22
+        # minuti, contro i 10 minuti della stessa fase su una 4h - 88.000 barre in campione invece
+        # di 11.500. Con i direzionali, tre volte e mezzo piu' grandi, il totale superava le dieci
+        # ore. Fasi spezzate, con il prezzo dichiarato sulle interazioni fra pattern.
         Strategia = "PT2_NQ_PCH_002_30"; Simbolo = "@NQ"; Timeframe = 30; Motore = "PC"
-        SpezzaPattern = $false; Stima = "~7,5 ore"
+        SpezzaPattern = $true; Stima = "~2 ore, fasi pattern spezzate"
     }
     "fdax-1h" = @{
         # Le due fasi pattern del BIASW sono 153 x 152 combinazioni ciascuna: col prodotto completo

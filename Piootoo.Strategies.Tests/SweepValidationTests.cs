@@ -85,7 +85,8 @@ public sealed class SweepValidationTests(ITestOutputHelper output)
         else
         {
             Assert.True(
-                validation.OutOfSampleScore is null ||
+                validation.OutOfSampleScore is null or <= 0m ||
+                validation.InSampleScore is null or <= 0m ||
                 validation.OutOfSample.Trades < 20 ||
                 validation.ScoreRetention < 0.5m ||
                 validation.ProfitableWindows < 3);
