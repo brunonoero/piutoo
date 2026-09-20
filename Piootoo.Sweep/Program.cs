@@ -98,6 +98,14 @@ public static class Program
             _ => throw new ArgumentException($"motore sconosciuto: {options.Engine}")
         };
 
+        if (options.SplitPatternPhases)
+        {
+            space = space.SplitPatternPhases();
+            Console.WriteLine("[sweep] fasi pattern spezzate: il prodotto fra pattern richiesto e vietato " +
+                              "diventa una somma. E' una DEVIAZIONE dal motore di ricerca, che li ottimizza " +
+                              "insieme: un pattern che rende solo in coppia con un certo divieto non verra' trovato.");
+        }
+
         foreach (var phase in space.Phases)
         {
             Console.WriteLine($"[sweep] fase {phase.Name}: {space.CombinationCount(phase):N0} combinazioni" +
@@ -160,6 +168,10 @@ public static class Program
             $"- Campione di ricerca: {series.StartUtc:yyyy-MM-dd} → {options.SplitUtc:yyyy-MM-dd}",
             $"- Validazione: {options.SplitUtc:yyyy-MM-dd} → {series.EndUtc:yyyy-MM-dd}",
             $"- Obiettivo: {result.Optimization.Objective}",
+            $"- Beam: {options.BeamWidth}" +
+            (options.SplitPatternPhases
+                ? " · **fasi pattern spezzate** (deviazione dal motore di ricerca: il pattern richiesto e quello vietato sono ottimizzati uno alla volta, quindi le coppie che rendono solo insieme non sono raggiungibili)"
+                : string.Empty),
             $"- Durata: {elapsed.TotalMinutes:N1} minuti",
             string.Empty,
             "## Fasi",
@@ -228,6 +240,7 @@ public static class Program
                           [--engine PC|BIASW] [--broker <BROKER>] [--spread-broker <BROKER>]
                           [--from <yyyy-MM-dd>] [--to <yyyy-MM-dd>] [--beam N] [--top N]
                           [--min-trades N] [--commission N] [--max-combinations N] [--out <file.md>]
+                          [--split-pattern-phases]
             """;
 
         public required string Strategy { get; init; }
@@ -245,6 +258,9 @@ public static class Program
         public decimal Commission { get; init; } = 4m;
         public decimal InitialCapital { get; init; } = 1_000_000m;
         public long MaxCombinationsPerPhase { get; init; } = 50_000;
+
+        /// <summary>Vedi <see cref="SweepSpace.SplitPatternPhases"/>: si guadagna tempo, si perde l'interazione.</summary>
+        public bool SplitPatternPhases { get; init; }
         public string RepositoryPath { get; init; } = @"C:\piootoo-dev\piootoo-repository";
         public string? OutputPath { get; init; }
 
@@ -255,10 +271,14 @@ public static class Program
             {
                 if (!args[index].StartsWith("--", StringComparison.Ordinal))
                     throw new ArgumentException($"argomento inatteso: {args[index]}");
-                if (index + 1 >= args.Length)
-                    throw new ArgumentException($"manca il valore di {args[index]}");
 
-                values[args[index][2..]] = args[++index];
+                var key = args[index][2..];
+
+                // Un'opzione senza valore e' un interruttore: --split-pattern-phases da solo vale
+                // "acceso". Senza questo ramo andrebbe scritto con un valore finto, che e' il genere
+                // di dettaglio che si sbaglia lanciando una corsa di nove ore.
+                var isSwitch = index + 1 >= args.Length || args[index + 1].StartsWith("--", StringComparison.Ordinal);
+                values[key] = isSwitch ? "true" : args[++index];
             }
 
             string Required(string key) => values.TryGetValue(key, out var value)
@@ -288,6 +308,7 @@ public static class Program
                 MinTrades = Number("min-trades", 30),
                 Commission = Number("commission", 4),
                 MaxCombinationsPerPhase = Number("max-combinations", 50_000),
+                SplitPatternPhases = values.ContainsKey("split-pattern-phases"),
                 OutputPath = values.GetValueOrDefault("out")
             };
         }

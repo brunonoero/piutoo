@@ -138,6 +138,45 @@ public sealed class SweepSpace
     /// <summary>Quante combinazioni ha una fase. Serve a sapere cosa si sta per lanciare.</summary>
     public long CombinationCount(SweepPhase phase) =>
         phase.Keys.Aggregate(1L, (count, key) => count * ByKey[key].Values.Count);
+
+    /// <summary>
+    /// Spezza le fasi che ottimizzano <b>due pattern insieme</b> — quello richiesto e quello
+    /// vietato — in due fasi consecutive da un pattern ciascuna.
+    ///
+    /// <para><b>Che cosa si guadagna.</b> Il prodotto diventa una somma: le due fasi pattern del
+    /// BIAS settimanale passano da 23.256 combinazioni ciascuna (153 × 152) a 153 e 152, cioe' da
+    /// nove ore a pochi minuti su una cella a un'ora di barre. Sul Price Channel i direzionali
+    /// passano da 10.609 a 103 + 103.</para>
+    ///
+    /// <para><b>Che cosa si perde, e va detto.</b> L'interazione fra i due: un pattern richiesto che
+    /// rende solo insieme a un certo divieto non viene piu' trovato, perche' quando si sceglie il
+    /// primo il secondo e' ancora alla sentinella. Il motore di ricerca Python li ottimizza
+    /// <i>insieme</i>, quindi questa e' una <b>deviazione</b> dal metodo, non una sua variante
+    /// equivalente: si adotta quando il prodotto completo non e' eseguibile nel tempo disponibile, e
+    /// il resoconto del run deve dichiararlo. Il beam K ≥ 2 ne recupera una parte, come per le
+    /// interazioni fra fasi.</para>
+    /// </summary>
+    public SweepSpace SplitPatternPhases()
+    {
+        var phases = new List<SweepPhase>(Phases.Count + 2);
+        foreach (var phase in Phases)
+        {
+            var patternKeys = phase.Keys
+                .Where(key => PatternSentinels.ContainsKey(key))
+                .ToArray();
+
+            if (patternKeys.Length < 2 || patternKeys.Length != phase.Keys.Count)
+            {
+                phases.Add(phase);
+                continue;
+            }
+
+            foreach (var key in patternKeys)
+                phases.Add(phase with { Name = $"{phase.Name}: {key}", Keys = [key] });
+        }
+
+        return new SweepSpace(Engine, Parameters, phases, Defaults, PatternSentinels);
+    }
 }
 
 /// <summary>
