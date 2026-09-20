@@ -32,6 +32,21 @@ public sealed record SweepJob(
     public IReadOnlyDictionary<string, decimal>? SpreadPoints { get; init; }
 
     /// <summary>
+    /// Spread per <b>ora UTC</b> dell'ingresso, ventiquattro valori per simbolo. Quando c'e', vince
+    /// sulla costante di <see cref="SpreadPoints"/>; le ore che il broker non ha quotato ripiegano
+    /// su quella.
+    ///
+    /// <para><b>Perche' una ricerca ne ha bisogno piu' di un backtest.</b> Un backtest misura una
+    /// strategia i cui orari sono gia' decisi; una sweep <i>sceglie</i> gli orari, e sceglie anche
+    /// in base al costo. Con una costante giornaliera le fasce a spread largo sembrano economiche
+    /// quanto le altre, e la ricerca ci si infila. Misurato su FDAX in agosto 2026: 1,13-1,33 punti
+    /// fra le 07 e le 19 UTC, 2,93-3,33 fra le 22 e le 05 — due volte e mezzo, sulla stessa
+    /// giornata. Una finestra notturna valutata alla mediana giornaliera paga meno di un terzo del
+    /// costo vero.</para>
+    /// </summary>
+    public IReadOnlyDictionary<string, decimal[]>? SpreadPointsByHour { get; init; }
+
+    /// <summary>
     /// Scarta gli ordini il cui livello e' gia' stato scavalcato, come fa il cBot. Acceso e' cio'
     /// che fa il conto vero; spento e' la parita' con il motore di ricerca, che quegli ordini li
     /// esegue. <b>Il default e' spento</b> perche' una sweep confronta configurazioni fra loro e il

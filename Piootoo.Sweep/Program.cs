@@ -53,9 +53,15 @@ public static class Program
         // Lo spread e' una MISURA, e la si carica dalla stessa tabella che userebbe il backtest:
         // scriverne il numero a mano qui significherebbe avere due verita' che nessuno riconcilia.
         var spread = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
+        var spreadByHour = new Dictionary<string, decimal[]>(StringComparer.OrdinalIgnoreCase);
         if (!string.IsNullOrWhiteSpace(options.SpreadBroker))
         {
-            var table = SpreadTable.Load(settings.GetSpreadPath(), options.SpreadBroker, SpreadStatistic.Median);
+            // Per ora e non per simbolo, quando la ricerca puo' scegliere gli orari: con una costante
+            // giornaliera le fasce a spread largo sembrano economiche quanto le altre e la sweep ci
+            // si infila. Vedi SweepJob.SpreadPointsByHour.
+            var table = SpreadTable.Load(
+                settings.GetSpreadPath(), options.SpreadBroker, SpreadStatistic.Median,
+                options.SpreadPerHour ? SpreadResolution.PerHour : SpreadResolution.PerSymbol);
             Console.WriteLine($"[sweep] spread: {table.Describe()}");
             foreach (var warning in table.Warnings)
                 Console.WriteLine($"[sweep] spread, attenzione: {warning}");
@@ -71,6 +77,19 @@ public static class Program
 
             spread[key] = points;
             Console.WriteLine($"[sweep] spread {key}: {points} punti (mediana)");
+
+            if (options.SpreadPerHour && table.PointsByHour.TryGetValue(key, out var byHour))
+            {
+                spreadByHour[key] = byHour;
+                var quoted = byHour.Where(value => value > 0m).ToArray();
+                Console.WriteLine(
+                    $"[sweep] spread {key} per ora UTC: da {quoted.Min()} a {quoted.Max()} punti " +
+                    $"({quoted.Length} ore quotate; le altre usano la costante)");
+            }
+            else if (options.SpreadPerHour)
+            {
+                Console.WriteLine($"[sweep] attenzione: nessuna misura oraria per {key}, si usa la costante.");
+            }
         }
 
         Console.WriteLine($"[sweep] carico {options.Symbol} {options.Timeframe}m" +
@@ -117,8 +136,30 @@ public static class Program
             InitialCapital = options.InitialCapital,
             CommissionPerContract = options.Commission,
             Holding = AccountHoldingPolicy.Default with { AllowOvernight = true, AllowOverweek = true },
-            SpreadPoints = spread.Count > 0 ? spread : null
+            SpreadPoints = spread.Count > 0 ? spread : null,
+            SpreadPointsByHour = spreadByHour.Count > 0 ? spreadByHour : null
         };
+
+        // Sola validazione: si salta la ricerca e si misura una configurazione gia' scelta, dentro e
+        // fuori campione. Serve a rimisurare una finalista quando cambia un'ipotesi di costo — e a
+        // misurare su un feed nuovo una strategia che esiste gia', che e' la stessa operazione.
+        if (options.Parameters is not null)
+        {
+            var validator = new SweepValidator(
+                series.Between(series.StartUtc, options.SplitUtc),
+                series.Between(options.SplitUtc, series.EndUtc),
+                new NetOverDrawdownObjective(options.MinTrades),
+                new SweepValidationOptions(),
+                1);
+
+            var single = validator.Validate(template, options.Parameters);
+            Console.WriteLine();
+            Console.WriteLine(single.ToString());
+            foreach (var window in single.StabilityWindows)
+                Console.WriteLine($"  {window.FromUtc:yyyy-MM-dd} → {window.ToUtc:yyyy-MM-dd}: {window.Trades} trade, {window.NetProfit:N0}");
+
+            return single.Passed ? 0 : 1;
+        }
 
         var result = SweepSearch.Run(
             series,
@@ -261,8 +302,41 @@ public static class Program
 
         /// <summary>Vedi <see cref="SweepSpace.SplitPatternPhases"/>: si guadagna tempo, si perde l'interazione.</summary>
         public bool SplitPatternPhases { get; init; }
+
+        /// <summary>Spread per ora UTC invece che costante. Vedi <see cref="SweepJob.SpreadPointsByHour"/>.</summary>
+        public bool SpreadPerHour { get; init; }
+
+        /// <summary>
+        /// Con <c>--params "Chiave=valore;Altra=valore"</c> non si cerca niente: si misura questa
+        /// configurazione dentro e fuori campione. Vuoto = ricerca completa.
+        /// </summary>
+        public IReadOnlyDictionary<string, object>? Parameters { get; init; }
         public string RepositoryPath { get; init; } = @"C:\piootoo-dev\piootoo-repository";
         public string? OutputPath { get; init; }
+
+        /// <summary>
+        /// <c>"ChannelBars=1;StopLoss=750"</c>. I valori sono interi perche' lo sono tutti i
+        /// parametri dei motori portati: un valore non numerico e' quasi sempre un errore di
+        /// battitura, e farlo passare come stringa lo trasformerebbe in un parametro ignorato.
+        /// </summary>
+        private static IReadOnlyDictionary<string, object>? ParseParameters(string? raw)
+        {
+            if (string.IsNullOrWhiteSpace(raw)) return null;
+
+            var parameters = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
+            foreach (var entry in raw.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                var parts = entry.Split('=', 2, StringSplitOptions.TrimEntries);
+                if (parts.Length != 2)
+                    throw new ArgumentException($"parametro malformato: '{entry}' (serve Chiave=valore)");
+                if (!int.TryParse(parts[1], out var value))
+                    throw new ArgumentException($"il valore di {parts[0]} non e' un intero: '{parts[1]}'");
+
+                parameters[parts[0]] = value;
+            }
+
+            return parameters;
+        }
 
         public static Options Parse(string[] args)
         {
@@ -309,6 +383,8 @@ public static class Program
                 Commission = Number("commission", 4),
                 MaxCombinationsPerPhase = Number("max-combinations", 50_000),
                 SplitPatternPhases = values.ContainsKey("split-pattern-phases"),
+                SpreadPerHour = values.ContainsKey("spread-per-hour"),
+                Parameters = ParseParameters(values.GetValueOrDefault("params")),
                 OutputPath = values.GetValueOrDefault("out")
             };
         }

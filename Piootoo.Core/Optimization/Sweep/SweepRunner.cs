@@ -73,6 +73,12 @@ public sealed class SweepRunner(SweepSeries series)
                 trading.SpreadPoints[StrategyKeys.NormalizeSymbol(spreadSymbol)] = points;
         }
 
+        if (job.SpreadPointsByHour is not null)
+        {
+            foreach (var (spreadSymbol, byHour) in job.SpreadPointsByHour)
+                trading.SpreadPointsByHour[StrategyKeys.NormalizeSymbol(spreadSymbol)] = byHour;
+        }
+
         var strategyCursor = new CandleWindowCursor(strategyBars);
         var markCursor = clock == strategy.TimeframeMinutes ? strategyCursor : new CandleWindowCursor(markBars);
         var symbol = StrategyKeys.NormalizeSymbol(strategy.Symbol);
