@@ -20,7 +20,13 @@
 
 [CmdletBinding()]
 param(
-    [string[]] $Celle = @("fdax-4h", "nq-30m", "fdax-1h"),
+    # In ordine di durata: un errore di impostazione si scopre in venti minuti invece che in due ore.
+    [string[]] $Celle = @("fdax-1h", "fdax-4h", "nq-4h", "nq-30m"),
+    # Spread per ora e non costante. E' il default perche' una sweep SCEGLIE gli orari: con una
+    # costante giornaliera le fasce a spread largo sembrano economiche e la ricerca ci si infila.
+    # Misurato il 20/09/2026: FDAX 1,13-1,33 punti di giorno e 2,93-3,33 di notte, e due celle su
+    # due avevano scelto proprio le ore notturne.
+    [bool] $SpreadPerOra = $true,
     [int] $Beam = 2,
     [string] $Da = "2014-07-17",
     [string] $Split = "2022-01-01",
@@ -37,6 +43,10 @@ $exe = Join-Path $radice "Piootoo.Sweep\bin\Release\net8.0\piootoo-sweep.exe"
 # Le celle, nell'ordine in cui conviene lanciarle: prima le piu' corte, cosi' i primi risultati
 # arrivano presto e un errore di impostazione si scopre in due ore invece che in dieci.
 $definizioni = [ordered]@{
+    "nq-4h" = @{
+        Strategia = "PT2_NQ_PCH_001_240"; Simbolo = "@NQ"; Timeframe = 240; Motore = "PC"
+        SpezzaPattern = $false; Stima = "~1,5 ore"
+    }
     "fdax-4h" = @{
         Strategia = "PT2_FDAX_PCH_001_240"; Simbolo = "@FDAX"; Timeframe = 240; Motore = "PC"
         SpezzaPattern = $false; Stima = "~2,5 ore"
@@ -69,7 +79,8 @@ foreach ($cella in $Celle) {
     $d = $definizioni[$cella]
     Write-Host ("  {0,-8} {1,-22} {2,-6} {3,4}m  {4}" -f $cella, $d.Strategia, $d.Motore, $d.Timeframe, $d.Stima)
 }
-Write-Host ("Campione {0} -> {1}, validazione {1} -> {2}, beam {3}, spread FTMOPLATFORM, feed ICS." -f $Da, $Split, $A, $Beam)
+$modello = if ($SpreadPerOra) { "spread FTMOPLATFORM PER ORA" } else { "spread FTMOPLATFORM costante" }
+Write-Host ("Campione {0} -> {1}, validazione {1} -> {2}, beam {3}, {4}, feed ICS." -f $Da, $Split, $A, $Beam, $modello)
 
 if ($SoloStima) { return }
 
@@ -82,8 +93,12 @@ if ($LASTEXITCODE -ne 0) { throw "compilazione fallita: non lancio niente." }
 
 foreach ($cella in $Celle) {
     $d = $definizioni[$cella]
-    $log = Join-Path $uscita "$cella-ics-ftmo.log"
-    $md = Join-Path $uscita "$cella-ics-ftmo.md"
+
+    # I due modelli di costo scrivono su file diversi: sovrascriverli renderebbe impossibile dire
+    # con quale spread e' stato prodotto un resoconto gia' letto.
+    $suffisso = if ($SpreadPerOra) { "-ics-ftmo-per-ora" } else { "-ics-ftmo" }
+    $log = Join-Path $uscita "$cella$suffisso.log"
+    $md = Join-Path $uscita "$cella$suffisso.md"
 
     $argomenti = @(
         "--strategy", $d.Strategia, "--symbol", $d.Simbolo, "--timeframe", $d.Timeframe,
@@ -92,6 +107,7 @@ foreach ($cella in $Celle) {
         "--beam", $Beam, "--top", 5, "--min-trades", $TradeMinimi, "--out", $md
     )
     if ($d.SpezzaPattern) { $argomenti += "--split-pattern-phases" }
+    if ($SpreadPerOra) { $argomenti += "--spread-per-hour" }
 
     Write-Host ""
     Write-Host ("=== {0} ({1}) - avvio {2}" -f $cella, $d.Stima, (Get-Date -Format "HH:mm"))
