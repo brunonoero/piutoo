@@ -2002,7 +2002,7 @@ public class PiootooBacktestingService : IPiootooBacktestingService
     /// (overnight libero, overweek vietato) lasciando il taglio al solo <c>IsFlatTrigger</c> del
     /// loop.</para>
     /// </summary>
-    private static void ApplyAccountHolding(TradeSignal signal, AccountHoldingPolicy holding)
+    internal static void ApplyAccountHolding(TradeSignal signal, AccountHoldingPolicy holding)
     {
         if (holding.AllowOvernight && holding.AllowOverweek) return;
 
@@ -2223,7 +2223,7 @@ public class PiootooBacktestingService : IPiootooBacktestingService
     /// Se una strategia puo' essere valutata su questo orologio: il suo timeframe deve essere un
     /// multiplo del tick. <b>Quando</b> valutarla lo decide <see cref="IsStrategyBarClosedInTick"/>.
     /// </summary>
-    private static bool ShouldEvaluateStrategy(int strategyTimeframeMinutes, int minTimeframeMinutes)
+    internal static bool ShouldEvaluateStrategy(int strategyTimeframeMinutes, int minTimeframeMinutes)
     {
         if (strategyTimeframeMinutes == minTimeframeMinutes)
         {
@@ -2259,7 +2259,7 @@ public class PiootooBacktestingService : IPiootooBacktestingService
     /// orologio uguale al timeframe la condizione e' vera esattamente sul tick etichettato come la
     /// barra, cioe' il comportamento di sempre.</para>
     /// </summary>
-    private static bool IsStrategyBarClosedInTick(DateTime barOpenUtc, int strategyTimeframeMinutes, DateTime currentDate, int minTimeframeMinutes) =>
+    internal static bool IsStrategyBarClosedInTick(DateTime barOpenUtc, int strategyTimeframeMinutes, DateTime currentDate, int minTimeframeMinutes) =>
         barOpenUtc.AddMinutes(strategyTimeframeMinutes) <= currentDate.AddMinutes(Math.Max(1, minTimeframeMinutes));
 
     private static IEnumerable<(string Symbol, int Timeframe, int RequiredCandles)> GetStrategyDataRequirements(ITradingStrategy strategy)
@@ -2317,7 +2317,7 @@ public class PiootooBacktestingService : IPiootooBacktestingService
     /// livello di un breakout coincide spesso con l'estremo della barra che lo ha generato, il
     /// fill risulta a un prezzo mai scambiato.</para>
     /// </summary>
-    private static bool BelongsToCurrentTick(DateTime barTimeUtc, DateTime currentDate, int tickMinutes) =>
+    internal static bool BelongsToCurrentTick(DateTime barTimeUtc, DateTime currentDate, int tickMinutes) =>
         (currentDate - barTimeUtc).TotalMinutes < Math.Max(1, tickMinutes);
 
     /// <summary>
@@ -2463,7 +2463,7 @@ public class PiootooBacktestingService : IPiootooBacktestingService
         };
     }
 
-    private static bool IsStrategyCandleStale(int timeframeMinutes, DateTime lastCandleTime, DateTime currentDate)
+    internal static bool IsStrategyCandleStale(int timeframeMinutes, DateTime lastCandleTime, DateTime currentDate)
     {
         if (timeframeMinutes < 1440)
         {

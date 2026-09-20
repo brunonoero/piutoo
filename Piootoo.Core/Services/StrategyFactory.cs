@@ -155,17 +155,30 @@ public static class StrategyFactory
     /// <para>Risolve anche le strategie marcate <see cref="StrategiaDisabilitataAttribute"/>, che
     /// il catalogo non elenca: servono ai test di parita' e ai confronti con artefatti storici.</para>
     /// </summary>
+    /// <summary>
+    /// Se la creazione di una strategia si racconta sulla console. Acceso e' quello che serve a un
+    /// run, dove le istanze sono decine e la riga dice quale classe ha risolto un nome. Va spento
+    /// da chi ne crea a migliaia — una sweep — perche' li' <c>Console.Out</c> e' sincrono e
+    /// serializzato, e due righe per istanza diventano il costo dominante oltre che rumore.
+    /// </summary>
+    public static bool LogStrategyCreation { get; set; } = true;
+
     public static ITradingStrategy? CreateStrategy(string strategyName, string symbol, int timeframeMinutes = 60, Dictionary<string, object>? parameters = null)
     {
-        Console.WriteLine($"[StrategyFactory] Tentativo di creare strategia: Name='{strategyName}', Symbol='{symbol}', Timeframe={timeframeMinutes}");
+        var verbose = LogStrategyCreation;
+        if (verbose)
+            Console.WriteLine($"[StrategyFactory] Tentativo di creare strategia: Name='{strategyName}', Symbol='{symbol}', Timeframe={timeframeMinutes}");
 
         var registeredStrategy = CreateRegisteredStrategy(strategyName, symbol, timeframeMinutes, parameters);
         if (registeredStrategy != null)
         {
-            Console.WriteLine($"[StrategyFactory] Strategia registrata creata con successo: {registeredStrategy.GetType().Name}");
+            if (verbose)
+                Console.WriteLine($"[StrategyFactory] Strategia registrata creata con successo: {registeredStrategy.GetType().Name}");
             return registeredStrategy;
         }
 
+        // Il fallimento si dice sempre: e' il caso in cui qualcuno sta cercando una strategia che
+        // non esiste, e il silenzio lo farebbe sembrare un run senza segnali.
         Console.WriteLine($"[StrategyFactory] Nessuna strategia trovata per '{strategyName}'");
         return null;
     }
