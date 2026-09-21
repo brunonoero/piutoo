@@ -60,7 +60,7 @@ public static class Program
             // giornaliera le fasce a spread largo sembrano economiche quanto le altre e la sweep ci
             // si infila. Vedi SweepJob.SpreadPointsByHour.
             var table = SpreadTable.Load(
-                settings.GetSpreadPath(), options.SpreadBroker, SpreadStatistic.Median,
+                settings.GetSpreadPath(), options.SpreadBroker, options.SpreadStatistic,
                 options.SpreadPerHour ? SpreadResolution.PerHour : SpreadResolution.PerSymbol);
             Console.WriteLine($"[sweep] spread: {table.Describe()}");
             foreach (var warning in table.Warnings)
@@ -210,9 +210,16 @@ public static class Program
         if (spread.Count == 0)
             return "**nessuno** — la ricerca non paga alcun costo di transazione";
 
+        var statistica = options.SpreadStatistic switch
+        {
+            SpreadStatistic.Mean => "media",
+            SpreadStatistic.P90 => "**p90** (il caso brutto)",
+            _ => "mediana"
+        };
+
         var costante = string.Join(", ", spread.Select(entry => $"{entry.Key} {entry.Value} pt"));
         if (byHour.Count == 0)
-            return $"{options.SpreadBroker}, mediana **costante** per simbolo: {costante}";
+            return $"{options.SpreadBroker}, {statistica} **costante** per simbolo: {costante}";
 
         var estremi = string.Join(", ", byHour.Select(entry =>
         {
@@ -222,7 +229,7 @@ public static class Program
                 : $"{entry.Key} nessuna ora quotata";
         }));
 
-        return $"{options.SpreadBroker}, mediana **per ora UTC** ({estremi}); costante di riserva: {costante}";
+        return $"{options.SpreadBroker}, {statistica} **per ora UTC** ({estremi}); costante di riserva: {costante}";
     }
 
     private static string Report(
@@ -346,6 +353,14 @@ public static class Program
         public bool SpreadPerHour { get; init; }
 
         /// <summary>
+        /// Quale numero della distribuzione misurata diventa il costo: <c>median</c> (il costo
+        /// tipico, default), <c>mean</c>, oppure <c>p90</c> — il caso brutto, che serve a chiedersi
+        /// quanto resta di una strategia quando entra nel momento sbagliato. Una candidata che con
+        /// il p90 evapora non aveva un margine: stava dentro il costo.
+        /// </summary>
+        public SpreadStatistic SpreadStatistic { get; init; } = SpreadStatistic.Median;
+
+        /// <summary>
         /// Il criterio di ricerca: <c>worst-period</c> (default, giudica sul peggiore dei tratti del
         /// campione) o <c>net-over-dd</c> (il totale, che e' quello che premiava la fortuna).
         /// </summary>
@@ -429,6 +444,15 @@ public static class Program
                 MaxCombinationsPerPhase = Number("max-combinations", 50_000),
                 SplitPatternPhases = values.ContainsKey("split-pattern-phases"),
                 SpreadPerHour = values.ContainsKey("spread-per-hour"),
+                SpreadStatistic = values.TryGetValue("spread-statistic", out var statistic)
+                    ? statistic.ToLowerInvariant() switch
+                    {
+                        "median" or "p50" => SpreadStatistic.Median,
+                        "mean" or "avg" => SpreadStatistic.Mean,
+                        "p90" => SpreadStatistic.P90,
+                        _ => throw new ArgumentException($"statistica di spread sconosciuta: '{statistic}' (median, mean, p90)")
+                    }
+                    : SpreadStatistic.Median,
                 Objective = values.TryGetValue("objective", out var objective)
                     ? objective.ToLowerInvariant()
                     : "worst-period",
