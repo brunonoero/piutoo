@@ -49,26 +49,30 @@ public sealed class SwapTable
             throw new ArgumentException($"Nome di broker non valido: '{broker}'.", nameof(broker));
         }
 
-        // Il file puo' stare nella cartella del broker o direttamente nella radice, come i CSV di
-        // spread gia' presenti.
-        var candidati = new List<string>();
+        // Una sottocartella per broker, come per lo spread: il NOME DEL FILE non conta, conta la
+        // cartella. Serve perche' i due nomi possono non coincidere — cTrader scrive l'entita'
+        // legale ("RAWTRADINGLTD") mentre il sistema conosce il broker con il proprio codice
+        // ("ICS") — e il nome del file resta cosi' la traccia di chi ha prodotto la misura.
         var cartella = Path.Combine(root, name);
-        if (Directory.Exists(cartella))
-            candidati.AddRange(Directory.GetFiles(cartella, FilePattern));
-        if (Directory.Exists(root))
-            candidati.AddRange(Directory.GetFiles(root, name + FilePattern));
-
-        var file = candidati
-            .OrderByDescending(path => File.GetLastWriteTimeUtc(path))
-            .FirstOrDefault();
-
-        if (file is null)
+        if (!Directory.Exists(cartella))
         {
-            throw new FileNotFoundException(
-                $"Nessuna misura di swap per il broker {name}: cercato '{FilePattern}' in " +
-                $"{cartella} e in {root}. Compilala dalla scheda del simbolo in cTrader " +
-                "(swap long/short, pip position, swap time, 3-day swaps).");
+            var presenti = Directory.Exists(root)
+                ? Directory.EnumerateDirectories(root).Select(Path.GetFileName).ToList()
+                : [];
+
+            throw new DirectoryNotFoundException(
+                $"Nessuna misura di swap per il broker {name}: manca la cartella {cartella}" +
+                (presenti.Count > 0 ? $" (ci sono: {string.Join(", ", presenti)})" : string.Empty) +
+                ". Il file si compila dalla scheda del simbolo in cTrader — swap long/short, " +
+                "pip position, swap time, 3-day swaps.");
         }
+
+        var file = new DirectoryInfo(cartella)
+            .EnumerateFiles(FilePattern, SearchOption.TopDirectoryOnly)
+            .OrderByDescending(candidate => candidate.LastWriteTimeUtc)
+            .FirstOrDefault()?.FullName
+            ?? throw new FileNotFoundException(
+                $"In {cartella} non c'e' nessun file '{FilePattern}'.");
 
         var specs = new Dictionary<string, SwapSpec>(StringComparer.OrdinalIgnoreCase);
         foreach (var riga in File.ReadLines(file))
@@ -105,6 +109,52 @@ public sealed class SwapTable
 
         static decimal Decimal(string campo) =>
             decimal.Parse(campo.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture);
+    }
+
+    /// <summary>
+    /// Il costo <b>peggiore</b> fra piu' broker, voce per voce.
+    ///
+    /// <para><b>Perche' voce per voce e non "il broker piu' caro".</b> Non esiste il broker piu'
+    /// caro: su @FDAX, ICS costa piu' di FTMO sullo swap (5,05 punti per notte contro 4,53 sul long,
+    /// 1,22 contro 0,05 sullo short) e molto meno sullo spread (0,50 contro 1,23). Scegliere un
+    /// broker solo lascerebbe fuori meta' del costo peggiore.</para>
+    ///
+    /// <para>Il rollover peggiore e' il <b>piu' presto</b>: anticiparlo di un minuto — FTMO fa
+    /// rollover alle 20:59 e ICS alle 21:00 — allarga la finestra in cui una posizione lo attraversa.
+    /// Il giorno del triplo si prende dal primo che lo dichiara: nessuno dei due, finora, ne ha uno
+    /// diverso.</para>
+    ///
+    /// <para><b>A cosa serve.</b> Una strategia cercata sui costi di un broker vive dentro il listino
+    /// di quel broker: se il listino cambia, o se si cambia prop firm, non e' piu' la strategia che
+    /// si era validata. Cercare sul peggiore da' configurazioni che dove si opera renderanno di piu'
+    /// di quanto promesso, mai di meno — ed e' la stessa logica del criterio sul peggior
+    /// sotto-periodo, applicata al costo invece che al tempo.</para>
+    /// </summary>
+    public static IReadOnlyDictionary<string, SwapSpec> Worst(IEnumerable<SwapTable> tables)
+    {
+        var peggiore = new Dictionary<string, SwapSpec>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var table in tables)
+        {
+            foreach (var (symbol, spec) in table.Specs)
+            {
+                if (!peggiore.TryGetValue(symbol, out var corrente))
+                {
+                    peggiore[symbol] = spec;
+                    continue;
+                }
+
+                peggiore[symbol] = corrente with
+                {
+                    LongPointsPerNight = Math.Max(corrente.LongPointsPerNight, spec.LongPointsPerNight),
+                    ShortPointsPerNight = Math.Max(corrente.ShortPointsPerNight, spec.ShortPointsPerNight),
+                    RolloverUtc = corrente.RolloverUtc <= spec.RolloverUtc ? corrente.RolloverUtc : spec.RolloverUtc,
+                    TripleDay = corrente.TripleDay ?? spec.TripleDay
+                };
+            }
+        }
+
+        return peggiore;
     }
 
     /// <summary>

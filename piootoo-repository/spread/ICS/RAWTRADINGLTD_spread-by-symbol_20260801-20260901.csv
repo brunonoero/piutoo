@@ -1,0 +1,5 @@
+# Piootoo Spread Dump v2.0.1 — broker RAWTRADINGLTD (conto 2094690), finestra UTC 2026-08-01 -> 2026-09-01
+# spread = ask - bid. Le colonne *Ticks sono la stessa misura in tick di strumento (spread / tickSize).
+broker,symbol,brokerSymbol,ticks,firstTickUtc,lastTickUtc,tickSize,pipSize,minSpread,p50Spread,avgSpread,p90Spread,p99Spread,maxSpread,minSpreadTicks,p50SpreadTicks,avgSpreadTicks,p90SpreadTicks,p99SpreadTicks,maxSpreadTicks,nonPositiveTicks,truncated,note
+RAWTRADINGLTD,@FDAX,DE40,1228471,2026-08-02T22:05:15Z,2026-09-01T23:59:50Z,0.01,0.1,0.50,0.50,1.07,2.00,4.00,28.00,50,50,106.81,200,400,2800,0,false,
+RAWTRADINGLTD,@NQ,USTEC,5697851,2026-08-02T22:00:15Z,2026-09-01T23:59:59Z,0.01,0.1,0.90,1.00,0.98,1.00,1.70,7.20,90,100,97.90,100,170,720,0,false,

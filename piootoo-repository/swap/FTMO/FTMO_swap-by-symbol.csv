@@ -1,0 +1,20 @@
+# Finanziamento overnight per simbolo, broker FTMO (conto 17188650).
+# Dalle schede GER40.cash e US100.cash di cTrader, 21/09/2026.
+#
+# ATTENZIONE al pip: qui "Pip position" vale 0, quindi 1 pip = 1 PUNTO, mentre su ICS vale 1 e un
+# pip sono 0,1 punti. Applicare la conversione di ICS a questi numeri sbaglierebbe lo swap di dieci
+# volte, e nella stessa direzione su tutti i simboli - cioe' in un modo che non si nota.
+#
+# Confronto con ICS, in punti per notte:
+#   @FDAX  long 4,53 contro 5,05   short 0,05 contro 1,22   -> ICS costa di piu'
+#   @NQ    long 6,71 contro 6,74   short credito contro 0,36 -> quasi pari sul long
+#
+# Lo swap SHORT di @NQ e' positivo sulla scheda (+0,3292 pips), cioe' un credito: il caricatore lo
+# porta a zero invece di regalarlo al backtest, perche' un credito incassato dipende dal conto e dal
+# momento, e una strategia che vivesse di quello non sarebbe una strategia.
+#
+# NON MODELLATO: FTMO dichiara "P&L conversion fee rate 0.70%" su entrambi i simboli, mentre ICS
+# dichiara 0,00%. E' un costo proporzionale al P&L che il motore oggi non applica.
+broker,symbol,longPipsPerNight,shortPipsPerNight,pipInPoints,rolloverUtc,tripleDay,source
+FTMO,@FDAX,-4.5288,-0.0457,1,20:59,Friday,scheda GER40.cash cTrader 2026-09-21
+FTMO,@NQ,-6.7098,0.3292,1,20:59,Friday,scheda US100.cash cTrader 2026-09-21

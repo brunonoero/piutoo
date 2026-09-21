@@ -37,6 +37,15 @@ param(
     [string] $Split = "2022-01-01",
     [string] $A = "2026-09-17",
     [int] $TradeMinimi = 50,
+    # I costi veri del broker su cui si opererebbe. Misurati, non ipotizzati:
+    #  - spread: dump di tick di PiootooSpreadDumpBot, per ORA (FDAX va da 0,50 a 4,00 punti
+    #    secondo l'ora, e una sweep che sceglie gli orari con una media ci si infila);
+    #  - swap: scheda del simbolo, verificata su due history di backtest su tick;
+    #  - commissione: PER LATO. ICS stampa 38,46 dollari di round turn, quindi qui 19,23.
+    #    Passare il round turn raddoppia il costo senza che si veda.
+    [string] $BrokerSpread = "ICS",
+    [string] $BrokerSwap = "ICS",
+    [decimal] $CommissionePerLato = 19.23,
     [switch] $SoloStima
 )
 
@@ -84,7 +93,8 @@ foreach ($cella in $Celle) {
     $d = $definizioni[$cella]
     Write-Host ("  {0,-8} {1,-22} {2,-6} {3,4}m  {4}" -f $cella, $d.Strategia, $d.Motore, $d.Timeframe, $d.Stima)
 }
-$modello = if ($SpreadPerOra) { "spread FTMOPLATFORM PER ORA" } else { "spread FTMOPLATFORM costante" }
+$modello = "spread $BrokerSpread" + $(if ($SpreadPerOra) { " PER ORA" } else { " costante" }) +
+           ", swap $BrokerSwap, commissione $CommissionePerLato per lato"
 Write-Host ("Campione {0} -> {1}, validazione {1} -> {2}, beam {3}, {4}, criterio {5}, feed ICS." -f $Da, $Split, $A, $Beam, $modello, $Criterio)
 
 if ($SoloStima) { return }
@@ -102,15 +112,18 @@ foreach ($cella in $Celle) {
     # Modello di costo e criterio finiscono nel NOME del file: sovrascrivere un resoconto gia' letto
     # con uno prodotto sotto altre ipotesi e' il modo piu' rapido per confrontare due cose diverse
     # credendo di confrontare la stessa.
-    $suffisso = "-ics-ftmo"
+    $suffisso = "-ics-" + $BrokerSpread.ToLower()
     if ($SpreadPerOra) { $suffisso += "-per-ora" }
     if ($Criterio -eq "worst-period") { $suffisso += "-peggior-tratto" }
+    if ($BrokerSwap) { $suffisso += "-swap" }
     $log = Join-Path $uscita "$cella$suffisso.log"
     $md = Join-Path $uscita "$cella$suffisso.md"
 
     $argomenti = @(
         "--strategy", $d.Strategia, "--symbol", $d.Simbolo, "--timeframe", $d.Timeframe,
-        "--engine", $d.Motore, "--broker", "ICS", "--spread-broker", "FTMOPLATFORM",
+        "--engine", $d.Motore, "--broker", "ICS",
+        "--spread-broker", $BrokerSpread, "--swap-broker", $BrokerSwap,
+        "--commission", $CommissionePerLato.ToString([System.Globalization.CultureInfo]::InvariantCulture),
         "--from", $Da, "--split", $Split, "--to", $A,
         "--beam", $Beam, "--top", 5, "--min-trades", $TradeMinimi,
         "--objective", $Criterio, "--out", $md

@@ -59,52 +59,92 @@ public static class Program
             // Per ora e non per simbolo, quando la ricerca puo' scegliere gli orari: con una costante
             // giornaliera le fasce a spread largo sembrano economiche quanto le altre e la sweep ci
             // si infila. Vedi SweepJob.SpreadPointsByHour.
-            var table = SpreadTable.Load(
-                settings.GetSpreadPath(), options.SpreadBroker, options.SpreadStatistic,
-                options.SpreadPerHour ? SpreadResolution.PerHour : SpreadResolution.PerSymbol);
+            // Anche qui piu' broker separati da virgola: per ogni simbolo, e per ogni ora, vince il
+            // piu' caro. Su @FDAX e' FTMO (1,23 contro 0,50 di mediana), mentre sullo swap e' ICS:
+            // il costo peggiore si costruisce voce per voce, non scegliendo un listino.
+            var spreadBrokers = options.SpreadBroker
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            var resolution = options.SpreadPerHour ? SpreadResolution.PerHour : SpreadResolution.PerSymbol;
+            var tavole = spreadBrokers
+                .Select(broker => SpreadTable.Load(
+                    settings.GetSpreadPath(), broker, options.SpreadStatistic, resolution))
+                .ToList();
+
+            var table = tavole[0];
             Console.WriteLine($"[sweep] spread: {table.Describe()}");
             foreach (var warning in table.Warnings)
                 Console.WriteLine($"[sweep] spread, attenzione: {warning}");
 
             var key = StrategyKeys.NormalizeSymbol(options.Symbol);
-            if (!table.Points.TryGetValue(key, out var points))
+            var costanti = tavole
+                .Where(t => t.Points.ContainsKey(key))
+                .Select(t => t.Points[key])
+                .ToList();
+
+            if (costanti.Count == 0)
             {
                 Console.Error.WriteLine(
-                    $"La tabella spread di {options.SpreadBroker} non misura {key}. Un costo mancante " +
+                    $"Nessuna fra le tabelle di {options.SpreadBroker} misura {key}. Un costo mancante " +
                     "non si sostituisce con zero: la ricerca girerebbe senza il costo che poi paghera'.");
                 return 3;
             }
 
-            spread[key] = points;
-            Console.WriteLine($"[sweep] spread {key}: {points} punti (mediana)");
+            spread[key] = costanti.Max();
+            Console.WriteLine($"[sweep] spread {key}: {spread[key]} punti" +
+                              (spreadBrokers.Length > 1 ? $" — PEGGIORE fra {string.Join(", ", spreadBrokers)}" : string.Empty));
 
-            if (options.SpreadPerHour && table.PointsByHour.TryGetValue(key, out var byHour))
+            if (options.SpreadPerHour)
             {
-                spreadByHour[key] = byHour;
-                var quoted = byHour.Where(value => value > 0m).ToArray();
-                Console.WriteLine(
-                    $"[sweep] spread {key} per ora UTC: da {quoted.Min()} a {quoted.Max()} punti " +
-                    $"({quoted.Length} ore quotate; le altre usano la costante)");
-            }
-            else if (options.SpreadPerHour)
-            {
-                Console.WriteLine($"[sweep] attenzione: nessuna misura oraria per {key}, si usa la costante.");
+                // Ora per ora: la fascia cara di un broker puo' non essere quella dell'altro, e una
+                // strategia che sceglie gli orari deve trovarle entrambe care.
+                var orarie = tavole.Where(t => t.PointsByHour.ContainsKey(key)).Select(t => t.PointsByHour[key]).ToList();
+                if (orarie.Count > 0)
+                {
+                    var peggiori = new decimal[24];
+                    for (var ora = 0; ora < 24; ora++)
+                        peggiori[ora] = orarie.Max(valori => ora < valori.Length ? valori[ora] : 0m);
+
+                    spreadByHour[key] = peggiori;
+                    var quotate = peggiori.Where(valore => valore > 0m).ToArray();
+                    Console.WriteLine(
+                        $"[sweep] spread {key} per ora UTC: da {quotate.Min()} a {quotate.Max()} punti " +
+                        $"({quotate.Length} ore quotate; le altre usano la costante)");
+                }
+                else
+                {
+                    Console.WriteLine($"[sweep] attenzione: nessuna misura oraria per {key}, si usa la costante.");
+                }
             }
         }
 
         // Il finanziamento oltre il rollover. Senza, tenere una posizione fino a mezzanotte e'
         // gratis e la ricerca ci si infila, esattamente come faceva con le ore a spread largo.
+        // Piu' broker separati da virgola: si prende il costo PEGGIORE voce per voce. Vedi
+        // SwapTable.Worst — non esiste "il broker piu' caro", e sceglierne uno lascia fuori meta'
+        // del costo.
         var swap = new Dictionary<string, SwapSpec>(StringComparer.OrdinalIgnoreCase);
         if (!string.IsNullOrWhiteSpace(options.SwapBroker))
         {
-            var table = SwapTable.Load(settings.GetSwapPath(), options.SwapBroker);
+            var brokers = options.SwapBroker
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            var tables = brokers.Select(broker => SwapTable.Load(settings.GetSwapPath(), broker)).ToList();
+            var specs = brokers.Length == 1 ? tables[0].Specs : SwapTable.Worst(tables);
+
             var key = StrategyKeys.NormalizeSymbol(options.Symbol);
-            var spec = table.For(key);   // solleva se il simbolo non e' misurato
+            if (!specs.TryGetValue(key, out var spec))
+            {
+                Console.Error.WriteLine(
+                    $"Nessuno fra {string.Join(", ", brokers)} misura lo swap di {key}: un costo che " +
+                    "non si conosce non vale zero.");
+                return 3;
+            }
+
             swap[key] = spec;
             Console.WriteLine(
                 $"[sweep] swap {key}: long {spec.LongPointsPerNight} pt/notte, " +
                 $"short {spec.ShortPointsPerNight} pt/notte, rollover {spec.RolloverUtc:HH\\:mm} UTC, " +
-                $"triplo {(spec.TripleDay?.ToString() ?? "nessuno")} ({table.Describe()})");
+                $"triplo {(spec.TripleDay?.ToString() ?? "nessuno")}" +
+                (brokers.Length > 1 ? $" — PEGGIORE fra {string.Join(", ", brokers)}" : $" ({tables[0].Describe()})"));
         }
 
         Console.WriteLine($"[sweep] carico {options.Symbol} {options.Timeframe}m" +
