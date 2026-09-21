@@ -177,7 +177,7 @@ public static class Program
             options.TopCandidates);
 
         started.Stop();
-        var report = Report(options, series, result, spread, started.Elapsed);
+        var report = Report(options, series, result, spread, spreadByHour, started.Elapsed);
         Console.WriteLine();
         Console.WriteLine(report);
 
@@ -191,11 +191,35 @@ public static class Program
         return result.Survivor is null ? 1 : 0;
     }
 
+    private static string DescribeSpread(
+        Options options,
+        IReadOnlyDictionary<string, decimal> spread,
+        IReadOnlyDictionary<string, decimal[]> byHour)
+    {
+        if (spread.Count == 0)
+            return "**nessuno** — la ricerca non paga alcun costo di transazione";
+
+        var costante = string.Join(", ", spread.Select(entry => $"{entry.Key} {entry.Value} pt"));
+        if (byHour.Count == 0)
+            return $"{options.SpreadBroker}, mediana **costante** per simbolo: {costante}";
+
+        var estremi = string.Join(", ", byHour.Select(entry =>
+        {
+            var quotate = entry.Value.Where(value => value > 0m).ToArray();
+            return quotate.Length > 0
+                ? $"{entry.Key} da {quotate.Min()} a {quotate.Max()} pt"
+                : $"{entry.Key} nessuna ora quotata";
+        }));
+
+        return $"{options.SpreadBroker}, mediana **per ora UTC** ({estremi}); costante di riserva: {costante}";
+    }
+
     private static string Report(
         Options options,
         SweepSeries series,
         SweepSearchResult result,
         IReadOnlyDictionary<string, decimal> spread,
+        IReadOnlyDictionary<string, decimal[]> spreadByHour,
         TimeSpan elapsed)
     {
         var lines = new List<string>
@@ -204,7 +228,11 @@ public static class Program
             string.Empty,
             $"- Strategia di partenza: `{options.Strategy}`",
             $"- Datafeed: {options.Broker ?? "interno (vendor)"}",
-            $"- Spread: {(spread.Count > 0 ? $"{options.SpreadBroker}, mediana, {string.Join(", ", spread.Select(entry => $"{entry.Key} {entry.Value} pt"))}" : "nessuno")}",
+            // Il modello di costo va dichiarato nel resoconto e non solo nel nome del file: due
+            // ricerche sulla stessa cella con spread costante e spread orario scelgono orari diversi
+            // — misurato su FDAX 4h, che con la costante sceglie 00:00-06:00 e con le ore vere
+            // 03:00-18:00 — e un resoconto che non lo dice e' un numero senza la sua ipotesi.
+            $"- Spread: {DescribeSpread(options, spread, spreadByHour)}",
             $"- Commissione: ${options.Commission} per contratto e per lato",
             $"- Campione di ricerca: {series.StartUtc:yyyy-MM-dd} → {options.SplitUtc:yyyy-MM-dd}",
             $"- Validazione: {options.SplitUtc:yyyy-MM-dd} → {series.EndUtc:yyyy-MM-dd}",
