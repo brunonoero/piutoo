@@ -26,6 +26,14 @@ public class PiootooSettings
     public string SpreadPath { get; set; } = string.Empty;
 
     /// <summary>
+    /// Cartella delle misure di finanziamento overnight. Separata da <see cref="SpreadPath"/>
+    /// perche' sono due misure diverse dello stesso broker, prese da fonti diverse — lo spread da
+    /// un dump di tick, lo swap dalla scheda del simbolo — e tenerle insieme farebbe sembrare l'una
+    /// un dettaglio dell'altra.
+    /// </summary>
+    public string SwapPath { get; set; } = string.Empty;
+
+    /// <summary>
     /// Cartella dei confronti fra run (<c>compare-NNNN</c>), quella in cui il server crea i confronti
     /// avviati dalla console. Quando manca, vale <c>[BasePath]\compare</c>: e' la cartella del
     /// repository dati, dove i confronti fatti a mano stanno gia'.
@@ -86,6 +94,12 @@ public class PiootooSettings
         => string.IsNullOrWhiteSpace(SpreadPath)
             ? Path.Combine(string.IsNullOrWhiteSpace(BasePath) ? "." : BasePath, "spread")
             : ResolvePath(SpreadPath);
+
+    /// <summary>Cartella delle misure di swap. Il default e' <c>[BasePath]\swap</c>.</summary>
+    public string GetSwapPath()
+        => string.IsNullOrWhiteSpace(SwapPath)
+            ? Path.Combine(string.IsNullOrWhiteSpace(BasePath) ? "." : BasePath, "swap")
+            : ResolvePath(SwapPath);
 
     /// <summary>Cartella dei confronti fra run. Il default e' <c>[BasePath]\compare</c>.</summary>
     public string GetComparePath()

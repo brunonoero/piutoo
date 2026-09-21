@@ -47,6 +47,13 @@ public sealed record SweepJob(
     public IReadOnlyDictionary<string, decimal[]>? SpreadPointsByHour { get; init; }
 
     /// <summary>
+    /// Il finanziamento oltre il rollover, per simbolo. Senza, tenere una posizione fino a
+    /// mezzanotte e' gratis — e la ricerca lo sfrutta, perche' e' il suo mestiere trovare dove il
+    /// modello e' generoso. Vedi <see cref="SwapSpec"/>.
+    /// </summary>
+    public IReadOnlyDictionary<string, SwapSpec>? Swap { get; init; }
+
+    /// <summary>
     /// Scarta gli ordini il cui livello e' gia' stato scavalcato, come fa il cBot. Acceso e' cio'
     /// che fa il conto vero; spento e' la parita' con il motore di ricerca, che quegli ordini li
     /// esegue. <b>Il default e' spento</b> perche' una sweep confronta configurazioni fra loro e il

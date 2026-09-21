@@ -1,0 +1,14 @@
+# Finanziamento overnight per simbolo, broker ICS.
+# Le colonne *Pips sono come le stampa la scheda del simbolo in cTrader (negative = costo).
+# pipInPoints converte i pip in punti di prezzo: su DE40 "Pip position 1" con "Min change 0.01"
+# significa 1 pip = 0,1 punti.
+# rolloverUtc e' l'ora della voce "Swap time"; tripleDay quella di "3-day swaps".
+# Verificato contro la history di 1.317 trade del backtest su tick del 21/09/2026: ogni long che
+# attraversa il rollover paga 126,35 dollari e ogni short 30,38, con un contratto da 25 euro a punto.
+# @NQ verificato allo stesso modo su una history di 1.111 trade (2023-01 -> 2026-09, tutti long):
+# ogni addebito vale 116,37 su una posizione da ~17,27 lotti, cioe' 6,738 punti a notte per lotto,
+# contro i 6,739 che la scheda dichiara (67,39 pip x 0,1). Lo squilibrio fra i lati e' molto piu'
+# marcato che su DE40: tenere long costa DICIANNOVE volte tenere short.
+broker,symbol,longPipsPerNight,shortPipsPerNight,pipInPoints,rolloverUtc,tripleDay,source
+ICS,@FDAX,-50.54,-12.15,0.1,21:00,Friday,scheda DE40 cTrader 2026-09-21 + history 1317 trade
+ICS,@NQ,-67.39,-3.55,0.1,21:00,Friday,scheda USTEC cTrader 2026-09-21 + history 1111 trade

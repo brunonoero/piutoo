@@ -92,6 +92,21 @@ public static class Program
             }
         }
 
+        // Il finanziamento oltre il rollover. Senza, tenere una posizione fino a mezzanotte e'
+        // gratis e la ricerca ci si infila, esattamente come faceva con le ore a spread largo.
+        var swap = new Dictionary<string, SwapSpec>(StringComparer.OrdinalIgnoreCase);
+        if (!string.IsNullOrWhiteSpace(options.SwapBroker))
+        {
+            var table = SwapTable.Load(settings.GetSwapPath(), options.SwapBroker);
+            var key = StrategyKeys.NormalizeSymbol(options.Symbol);
+            var spec = table.For(key);   // solleva se il simbolo non e' misurato
+            swap[key] = spec;
+            Console.WriteLine(
+                $"[sweep] swap {key}: long {spec.LongPointsPerNight} pt/notte, " +
+                $"short {spec.ShortPointsPerNight} pt/notte, rollover {spec.RolloverUtc:HH\\:mm} UTC, " +
+                $"triplo {(spec.TripleDay?.ToString() ?? "nessuno")} ({table.Describe()})");
+        }
+
         Console.WriteLine($"[sweep] carico {options.Symbol} {options.Timeframe}m" +
                           (options.Broker is null ? " dal feed interno" : $" da {options.Broker}") +
                           $", {options.FromUtc:yyyy-MM-dd} → {options.ToUtc:yyyy-MM-dd}, piu' il minuto per le fasi di rischio...");
@@ -137,7 +152,8 @@ public static class Program
             CommissionPerContract = options.Commission,
             Holding = AccountHoldingPolicy.Default with { AllowOvernight = true, AllowOverweek = true },
             SpreadPoints = spread.Count > 0 ? spread : null,
-            SpreadPointsByHour = spreadByHour.Count > 0 ? spreadByHour : null
+            SpreadPointsByHour = spreadByHour.Count > 0 ? spreadByHour : null,
+            Swap = swap.Count > 0 ? swap : null
         };
 
         // Sola validazione: si salta la ricerca e si misura una configurazione gia' scelta, dentro e
@@ -155,6 +171,29 @@ public static class Program
             var single = validator.Validate(template, options.Parameters);
             Console.WriteLine();
             Console.WriteLine(single.ToString());
+
+            // Con --out la modalita' di sola misura scrive anche i trade: senza la lista, un totale
+            // che non torna con quello del broker non si puo' diagnosticare.
+            if (!string.IsNullOrWhiteSpace(options.OutputPath))
+            {
+                var righe = new List<string>
+                {
+                    "entry;exit;side;entryPrice;exitPrice;gross;commission;swap;net;reason"
+                };
+                foreach (var trade in single.OutOfSample.ClosedTrades)
+                {
+                    righe.Add(string.Join(';',
+                        trade.EntryDate.ToString("yyyy-MM-dd HH:mm"),
+                        trade.ExitDate.ToString("yyyy-MM-dd HH:mm"),
+                        trade.Direction,
+                        trade.EntryPrice, trade.ExitPrice,
+                        trade.GrossProfit, trade.Commission, trade.Swap, trade.NetProfit,
+                        trade.ExitReason));
+                }
+
+                await File.WriteAllLinesAsync(options.OutputPath, righe);
+                Console.WriteLine($"[sweep] {righe.Count - 1} trade fuori campione scritti in {options.OutputPath}");
+            }
             foreach (var window in single.StabilityWindows)
                 Console.WriteLine($"  {window.FromUtc:yyyy-MM-dd} → {window.ToUtc:yyyy-MM-dd}: {window.Trades} trade, {window.NetProfit:N0}");
 
@@ -188,7 +227,7 @@ public static class Program
             options.TopCandidates);
 
         started.Stop();
-        var report = Report(options, series, result, spread, spreadByHour, started.Elapsed);
+        var report = Report(options, series, result, spread, spreadByHour, swap, started.Elapsed);
         Console.WriteLine();
         Console.WriteLine(report);
 
@@ -238,6 +277,7 @@ public static class Program
         SweepSearchResult result,
         IReadOnlyDictionary<string, decimal> spread,
         IReadOnlyDictionary<string, decimal[]> spreadByHour,
+        IReadOnlyDictionary<string, SwapSpec> swap,
         TimeSpan elapsed)
     {
         var lines = new List<string>
@@ -251,7 +291,8 @@ public static class Program
             // — misurato su FDAX 4h, che con la costante sceglie 00:00-06:00 e con le ore vere
             // 03:00-18:00 — e un resoconto che non lo dice e' un numero senza la sua ipotesi.
             $"- Spread: {DescribeSpread(options, spread, spreadByHour)}",
-            $"- Commissione: ${options.Commission} per contratto e per lato",
+            $"- Swap: {(swap.Count > 0 ? string.Join(", ", swap.Select(entry => $"**{entry.Key}** long {entry.Value.LongPointsPerNight} pt/notte, short {entry.Value.ShortPointsPerNight} pt/notte, rollover {entry.Value.RolloverUtc:HH\\:mm} UTC ({options.SwapBroker})")) : "**nessuno** — tenere una posizione oltre il rollover non costa niente")}",
+            $"- Commissione: ${options.Commission} per contratto e per lato, cioe' ${options.Commission * 2} per trade",
             $"- Campione di ricerca: {series.StartUtc:yyyy-MM-dd} → {options.SplitUtc:yyyy-MM-dd}",
             $"- Validazione: {options.SplitUtc:yyyy-MM-dd} → {series.EndUtc:yyyy-MM-dd}",
             $"- Obiettivo: {result.Optimization.Objective}",
@@ -342,6 +383,12 @@ public static class Program
         public int BeamWidth { get; init; } = 2;
         public int TopCandidates { get; init; } = 5;
         public int MinTrades { get; init; } = 30;
+        /// <summary>
+        /// Commissione per contratto e <b>per lato</b>: il motore la addebita due volte, all'entrata
+        /// e all'uscita. La scheda di un broker stampa di solito il <i>round turn</i> — su ICS/DE40
+        /// sono $38,46 a trade, cioe' 19,23 qui. Sbagliarlo raddoppia il costo senza che si veda: la
+        /// strategia sembra semplicemente peggiore.
+        /// </summary>
         public decimal Commission { get; init; } = 4m;
         public decimal InitialCapital { get; init; } = 1_000_000m;
         public long MaxCombinationsPerPhase { get; init; } = 50_000;
@@ -359,6 +406,12 @@ public static class Program
         /// il p90 evapora non aveva un margine: stava dentro il costo.
         /// </summary>
         public SpreadStatistic SpreadStatistic { get; init; } = SpreadStatistic.Median;
+
+        /// <summary>
+        /// Broker di cui applicare il finanziamento overnight, da <c>piootoo-repository/swap/</c>.
+        /// Vuoto = nessuno swap. Un simbolo che la tabella non misura fa fallire l'avvio.
+        /// </summary>
+        public string? SwapBroker { get; init; }
 
         /// <summary>
         /// Il criterio di ricerca: <c>worst-period</c> (default, giudica sul peggiore dei tratti del
@@ -435,12 +488,17 @@ public static class Program
                 Engine = values.TryGetValue("engine", out var engine) ? engine.ToUpperInvariant() : "PC",
                 Broker = values.GetValueOrDefault("broker"),
                 SpreadBroker = values.GetValueOrDefault("spread-broker"),
+                SwapBroker = values.GetValueOrDefault("swap-broker"),
                 FromUtc = Date("from", new DateTime(2014, 1, 1, 0, 0, 0, DateTimeKind.Utc)),
                 ToUtc = Date("to", DateTime.UtcNow.Date),
                 BeamWidth = Number("beam", 2),
                 TopCandidates = Number("top", 5),
                 MinTrades = Number("min-trades", 30),
-                Commission = Number("commission", 4),
+                // Decimale: la meta' di un round turn raramente e' un intero.
+                Commission = values.TryGetValue("commission", out var commissione)
+                    ? decimal.Parse(commissione, System.Globalization.NumberStyles.Float,
+                        System.Globalization.CultureInfo.InvariantCulture)
+                    : 4m,
                 MaxCombinationsPerPhase = Number("max-combinations", 50_000),
                 SplitPatternPhases = values.ContainsKey("split-pattern-phases"),
                 SpreadPerHour = values.ContainsKey("spread-per-hour"),

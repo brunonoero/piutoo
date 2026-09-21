@@ -111,6 +111,22 @@ public class BacktestingRequest
     public string? SpreadBroker { get; set; }
 
     /// <summary>
+    /// Broker di cui applicare il <b>finanziamento overnight</b>, letto da
+    /// <c>piootoo-repository/swap/</c>. Null = nessuno swap, che resta il comportamento dei run sui
+    /// future del vendor — li' non esiste.
+    ///
+    /// <para>E' una scelta separata da <see cref="DatafeedBroker"/> e da <see cref="SpreadBroker"/>,
+    /// come quelle: si puo' misurare lo stesso feed con il costo di finanziamento di un broker
+    /// diverso. Un broker senza misura, o un simbolo che la misura non copre, fanno fallire
+    /// l'avvio.</para>
+    ///
+    /// <para><b>Non riguarda le sole strategie multiday.</b> Una intraday la cui fine sessione cade
+    /// dopo il rollover lo paga tutti i giorni: su <c>PT3B_FDAX_PCH_001_240</c> erano 879 trade su
+    /// 1.317 e il 28% del lordo.</para>
+    /// </summary>
+    public string? SwapBroker { get; set; }
+
+    /// <summary>
     /// Quale numero della distribuzione misurata diventa lo spread del run. Conta solo quando
     /// <see cref="SpreadBroker"/> e' valorizzato: gli <see cref="SpreadPoints"/> scritti a mano sono
     /// gia' un numero scelto. Vedi <see cref="Piootoo.Shared.Models.Backtesting.SpreadStatistic"/>.

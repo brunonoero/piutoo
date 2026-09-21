@@ -725,6 +725,21 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                     Console.WriteLine($"[Backtesting][spread] {warning}");
             }
 
+            // Il finanziamento oltre il rollover, con la stessa regola dello spread: un broker senza
+            // misura fa fallire l'avvio. Non riguarda le sole multiday — una intraday la cui fine
+            // sessione cade dopo il rollover lo paga ogni giorno, e su PT3B_FDAX_PCH_001_240 era il
+            // 28% del lordo.
+            var swapSource = "nessuno";
+            if (!string.IsNullOrWhiteSpace(request.SwapBroker))
+            {
+                var swapTable = SwapTable.Load(_settings.GetSwapPath(), request.SwapBroker);
+                foreach (var (sym, spec) in swapTable.Specs)
+                    tradingService.SwapSpecs[sym] = spec;
+
+                swapSource = swapTable.Describe();
+                Console.WriteLine($"[Backtesting][swap] {swapSource}");
+            }
+
             // Uno spread negativo farebbe entrare meglio del mercato: non e' un modello ottimista,
             // e' un errore di compilazione della richiesta, e in silenzio produrrebbe un run che
             // sembra normale. Zero invece e' legittimo — e' il run senza spread.
