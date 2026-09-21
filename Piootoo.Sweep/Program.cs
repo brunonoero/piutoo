@@ -161,12 +161,23 @@ public static class Program
             return single.Passed ? 0 : 1;
         }
 
+        // Due criteri per due domande: quello della RICERCA sceglie fra decine di migliaia di
+        // combinazioni e deve punire la fortuna; quello della VALIDAZIONE dice quanto ha reso
+        // rispetto a quanto ha rischiato, e resta semplice perche' deve voler dire la stessa cosa
+        // qualunque sia il criterio con cui si e' cercato.
+        ISweepObjective objective = options.Objective switch
+        {
+            "net-over-dd" => new NetOverDrawdownObjective(options.MinTrades),
+            _ => new WorstSubPeriodObjective(options.MinTrades)
+        };
+        Console.WriteLine($"[sweep] criterio di ricerca: {objective.Describe()}");
+
         var result = SweepSearch.Run(
             series,
             options.SplitUtc,
             space,
             template,
-            new NetOverDrawdownObjective(options.MinTrades),
+            objective,
             new SweepOptimizerOptions
             {
                 BeamWidth = options.BeamWidth,
@@ -335,6 +346,12 @@ public static class Program
         public bool SpreadPerHour { get; init; }
 
         /// <summary>
+        /// Il criterio di ricerca: <c>worst-period</c> (default, giudica sul peggiore dei tratti del
+        /// campione) o <c>net-over-dd</c> (il totale, che e' quello che premiava la fortuna).
+        /// </summary>
+        public string Objective { get; init; } = "worst-period";
+
+        /// <summary>
         /// Con <c>--params "Chiave=valore;Altra=valore"</c> non si cerca niente: si misura questa
         /// configurazione dentro e fuori campione. Vuoto = ricerca completa.
         /// </summary>
@@ -412,6 +429,9 @@ public static class Program
                 MaxCombinationsPerPhase = Number("max-combinations", 50_000),
                 SplitPatternPhases = values.ContainsKey("split-pattern-phases"),
                 SpreadPerHour = values.ContainsKey("spread-per-hour"),
+                Objective = values.TryGetValue("objective", out var objective)
+                    ? objective.ToLowerInvariant()
+                    : "worst-period",
                 Parameters = ParseParameters(values.GetValueOrDefault("params")),
                 OutputPath = values.GetValueOrDefault("out")
             };

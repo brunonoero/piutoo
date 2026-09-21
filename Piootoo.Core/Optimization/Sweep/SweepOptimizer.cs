@@ -18,12 +18,20 @@ public sealed record SweepCandidate(
     decimal? SmoothedScore);
 
 /// <summary>Cosa e' successo in una fase.</summary>
+/// <param name="Seeds">Le configurazioni che passano alla fase successiva: il beam.</param>
+/// <param name="Top">
+/// Le prime classificate, quante ne chiede <see cref="SweepOptimizerOptions.KeepTopPerPhase"/>.
+/// Sono di piu' dei semi perche' servono a un'altra cosa: la validazione va fatta su piu' di una
+/// finalista, e la prima classificata in campione e' spesso proprio quella che ha sfruttato meglio
+/// il rumore. Con i soli semi si validavano due configurazioni quasi identiche fra loro.
+/// </param>
 public sealed record SweepPhaseReport(
     string Phase,
     long Combinations,
     int Evaluated,
     int Admissible,
     IReadOnlyList<SweepCandidate> Seeds,
+    IReadOnlyList<SweepCandidate> Top,
     TimeSpan Elapsed);
 
 /// <summary>L'esito di una ricerca.</summary>
@@ -81,6 +89,12 @@ public sealed record SweepOptimizerOptions
     /// della griglia vince sempre, e non perche' sia migliore.
     /// </summary>
     public int AccurateClockMinutes { get; init; } = 1;
+
+    /// <summary>
+    /// Quante configurazioni conservare per fase nel resoconto, oltre al beam. Non costa run in
+    /// piu': sono gia' state valutate tutte.
+    /// </summary>
+    public int KeepTopPerPhase { get; init; } = 10;
 
     /// <summary>Una riga per fase sulla console. Spegnerlo serve ai test.</summary>
     public bool Verbose { get; init; } = true;
@@ -150,7 +164,9 @@ public sealed class SweepOptimizer(
                 .OrderByDescending(candidate => candidate.SmoothedScore!.Value)
                 .ToList();
 
-            var next = Distinct(ranked, phase).Take(Math.Max(1, _options.BeamWidth)).ToList();
+            var distinct = Distinct(ranked, phase).ToList();
+            var next = distinct.Take(Math.Max(1, _options.BeamWidth)).ToList();
+            var top = distinct.Take(Math.Max(_options.BeamWidth, _options.KeepTopPerPhase)).ToList();
 
             // Una fase senza nemmeno una configurazione ammissibile non fa ripartire da capo: i semi
             // restano quelli, cosi' la ricerca prosegue con la fase dopo invece di fermarsi. Succede
@@ -163,7 +179,7 @@ public sealed class SweepOptimizer(
             }
 
             reports.Add(new SweepPhaseReport(
-                phase.Name, combinations, evaluated.Count, ranked.Count, next, phaseStarted.Elapsed));
+                phase.Name, combinations, evaluated.Count, ranked.Count, next, top, phaseStarted.Elapsed));
 
             if (_options.Verbose)
             {

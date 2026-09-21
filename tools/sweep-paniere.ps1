@@ -27,6 +27,11 @@ param(
     # Misurato il 20/09/2026: FDAX 1,13-1,33 punti di giorno e 2,93-3,33 di notte, e due celle su
     # due avevano scelto proprio le ore notturne.
     [bool] $SpreadPerOra = $true,
+    # Criterio di ricerca: "worst-period" giudica una configurazione sul PEGGIORE dei tratti del
+    # campione, "net-over-dd" sul totale. Il secondo premiava la fortuna: il 20/09/2026, su quattro
+    # celle, le tre bocciate avevano i punteggi in campione piu' ALTI (fino a 26,2 contro l'1,0
+    # fuori campione) e l'unica promossa il piu' basso.
+    [string] $Criterio = "worst-period",
     [int] $Beam = 2,
     [string] $Da = "2014-07-17",
     [string] $Split = "2022-01-01",
@@ -80,7 +85,7 @@ foreach ($cella in $Celle) {
     Write-Host ("  {0,-8} {1,-22} {2,-6} {3,4}m  {4}" -f $cella, $d.Strategia, $d.Motore, $d.Timeframe, $d.Stima)
 }
 $modello = if ($SpreadPerOra) { "spread FTMOPLATFORM PER ORA" } else { "spread FTMOPLATFORM costante" }
-Write-Host ("Campione {0} -> {1}, validazione {1} -> {2}, beam {3}, {4}, feed ICS." -f $Da, $Split, $A, $Beam, $modello)
+Write-Host ("Campione {0} -> {1}, validazione {1} -> {2}, beam {3}, {4}, criterio {5}, feed ICS." -f $Da, $Split, $A, $Beam, $modello, $Criterio)
 
 if ($SoloStima) { return }
 
@@ -94,9 +99,12 @@ if ($LASTEXITCODE -ne 0) { throw "compilazione fallita: non lancio niente." }
 foreach ($cella in $Celle) {
     $d = $definizioni[$cella]
 
-    # I due modelli di costo scrivono su file diversi: sovrascriverli renderebbe impossibile dire
-    # con quale spread e' stato prodotto un resoconto gia' letto.
-    $suffisso = if ($SpreadPerOra) { "-ics-ftmo-per-ora" } else { "-ics-ftmo" }
+    # Modello di costo e criterio finiscono nel NOME del file: sovrascrivere un resoconto gia' letto
+    # con uno prodotto sotto altre ipotesi e' il modo piu' rapido per confrontare due cose diverse
+    # credendo di confrontare la stessa.
+    $suffisso = "-ics-ftmo"
+    if ($SpreadPerOra) { $suffisso += "-per-ora" }
+    if ($Criterio -eq "worst-period") { $suffisso += "-peggior-tratto" }
     $log = Join-Path $uscita "$cella$suffisso.log"
     $md = Join-Path $uscita "$cella$suffisso.md"
 
@@ -104,7 +112,8 @@ foreach ($cella in $Celle) {
         "--strategy", $d.Strategia, "--symbol", $d.Simbolo, "--timeframe", $d.Timeframe,
         "--engine", $d.Motore, "--broker", "ICS", "--spread-broker", "FTMOPLATFORM",
         "--from", $Da, "--split", $Split, "--to", $A,
-        "--beam", $Beam, "--top", 5, "--min-trades", $TradeMinimi, "--out", $md
+        "--beam", $Beam, "--top", 5, "--min-trades", $TradeMinimi,
+        "--objective", $Criterio, "--out", $md
     )
     if ($d.SpezzaPattern) { $argomenti += "--split-pattern-phases" }
     if ($SpreadPerOra) { $argomenti += "--spread-per-hour" }

@@ -76,3 +76,84 @@ public sealed record NetOverDrawdownObjective(int MinTrades = 30, decimal MinAve
         $"netto/drawdown, almeno {MinTrades} trade" +
         (MinAverageTrade > 0m ? $" e utile medio ≥ {MinAverageTrade:N0}" : string.Empty);
 }
+
+/// <summary>
+/// Il punteggio del <b>peggiore</b> dei sotto-periodi del campione, non quello del totale.
+///
+/// <para><b>Il problema che risolve.</b> Su decine di migliaia di combinazioni, il massimo di
+/// <see cref="NetOverDrawdownObjective"/> e' quasi sempre una configurazione che nel campione non ha
+/// mai incontrato un brutto tratto — non perche' sia robusta, ma perche' fra tante qualcuna e'
+/// fortunata. Misurato il 20/09/2026 sul feed ICS, campione 2014-2022 e validazione 2022-2026: su
+/// NQ 4h la vincitrice aveva punteggio <b>26,19</b> in campione e <b>1,04</b> fuori, e su FDAX 1h
+/// 16,10 contro 1,14. Le due celle promosse avevano invece i punteggi in campione piu' <i>bassi</i>.
+/// Un massimo troppo bello non e' un risultato migliore: e' un avvertimento.</para>
+///
+/// <para><b>Come lo rompe.</b> Il campione viene diviso in <paramref name="SubPeriods"/> tratti
+/// consecutivi e ognuno riceve il proprio punteggio; vince il <b>minimo</b>. Una configurazione che
+/// deve tutto a un anno buono viene giudicata sull'anno cattivo, ed e' l'unico modo di distinguerla
+/// da una che funziona sempre un po'. Non costa un run in piu': i sotto-periodi si ricavano dai
+/// trade gia' chiusi.</para>
+///
+/// <para><b>Il pavimento sul drawdown.</b> Il denominatore non scende mai sotto la <b>peggiore
+/// perdita singola</b> del tratto: un conto che ha incassato una perdita di X ha visto almeno X di
+/// escursione negativa, e senza questo pavimento una configurazione con drawdown minuscolo — di
+/// nuovo, quasi sempre fortuna — otteneva un punteggio enorme dividendo per quasi zero.</para>
+///
+/// <para>Un tratto con meno di <paramref name="MinTradesPerSubPeriod"/> trade vale <b>zero</b>, non
+/// viene saltato: una strategia che opera solo in un pezzo del campione non e' una strategia buona
+/// con un buco, e saltare i tratti vuoti la premierebbe.</para>
+/// </summary>
+public sealed record WorstSubPeriodObjective(
+    int MinTrades = 50,
+    int SubPeriods = 4,
+    int MinTradesPerSubPeriod = 5,
+    decimal MinAverageTrade = 0m) : ISweepObjective
+{
+    public decimal? Score(SweepOutcome outcome)
+    {
+        if (outcome.Trades < MinTrades) return null;
+        if (outcome.AverageTrade < MinAverageTrade) return null;
+        if (outcome.ClosedTrades.Count == 0 || SubPeriods < 1) return null;
+
+        var trades = outcome.ClosedTrades.OrderBy(trade => trade.ExitDate).ToArray();
+        var from = trades[0].ExitDate;
+        var to = trades[^1].ExitDate;
+        if (to <= from) return null;
+
+        var span = (to - from) / SubPeriods;
+        var worst = decimal.MaxValue;
+
+        for (var index = 0; index < SubPeriods; index++)
+        {
+            var start = from + span * index;
+            var end = index == SubPeriods - 1 ? to.AddTicks(1) : start + span;
+            var slice = trades.Where(trade => trade.ExitDate >= start && trade.ExitDate < end).ToArray();
+
+            var score = slice.Length < MinTradesPerSubPeriod ? 0m : ScoreOf(slice);
+            if (score < worst) worst = score;
+        }
+
+        return worst == decimal.MaxValue ? null : worst;
+    }
+
+    private static decimal ScoreOf(IReadOnlyList<Piootoo.Shared.Models.TradingResult> trades)
+    {
+        decimal net = 0m, peak = 0m, drawdown = 0m, worstTrade = 0m;
+        foreach (var trade in trades)
+        {
+            net += trade.NetProfit;
+            if (trade.NetProfit < worstTrade) worstTrade = trade.NetProfit;
+            if (net > peak) peak = net;
+            var gap = peak - net;
+            if (gap > drawdown) drawdown = gap;
+        }
+
+        var floor = Math.Max(drawdown, -worstTrade);
+        return floor > 0m ? net / floor : net;
+    }
+
+    public string Describe() =>
+        $"peggiore di {SubPeriods} sotto-periodi (netto/drawdown con pavimento sulla perdita massima), " +
+        $"almeno {MinTrades} trade e {MinTradesPerSubPeriod} per tratto" +
+        (MinAverageTrade > 0m ? $", utile medio ≥ {MinAverageTrade:N0}" : string.Empty);
+}

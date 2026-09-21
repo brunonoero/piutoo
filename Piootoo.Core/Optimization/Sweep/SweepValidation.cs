@@ -160,10 +160,11 @@ public sealed class SweepValidator(
             return false;
         }
 
-        // Un punteggio negativo e' ordinabile — serve all'ottimizzatore per far progredire le fasi
-        // quando nessuna configurazione e' ancora in utile — ma qui vuol dire perdita fuori
-        // campione, e non c'e' soglia di tenuta che la renda accettabile.
-        if (!NetOverDrawdownObjective.IsProfitable(validation.OutOfSampleScore))
+        // Il controllo e' sul NETTO e non sul punteggio: il punteggio dipende dall'obiettivo in uso
+        // — quello sul peggior sotto-periodo e' negativo anche per una configurazione che nel
+        // complesso guadagna — mentre "fuori campione in perdita" deve voler dire la stessa cosa
+        // qualunque criterio si stia usando per cercare.
+        if (validation.OutOfSample.NetProfit <= 0m)
         {
             verdict = $"fuori campione in perdita ({validation.OutOfSample.NetProfit:N0})";
             return false;
@@ -171,7 +172,7 @@ public sealed class SweepValidator(
 
         // In campione in perdita: la configurazione non e' stata scelta perche' buona, e un fuori
         // campione in utile davanti a un campione in perdita e' un caso, non una conferma.
-        if (!NetOverDrawdownObjective.IsProfitable(validation.InSampleScore))
+        if (validation.InSample.NetProfit <= 0m)
         {
             verdict = $"in campione in perdita ({validation.InSample.NetProfit:N0})";
             return false;
@@ -250,7 +251,8 @@ public static class SweepSearch
         SweepOptimizerOptions? optimizerOptions = null,
         SweepValidationOptions? validationOptions = null,
         int topCandidates = 5,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        ISweepObjective? validationObjective = null)
     {
         if (inSampleEndUtc <= series.StartUtc || inSampleEndUtc >= series.EndUtc)
         {
@@ -267,9 +269,11 @@ public static class SweepSearch
         var optimization = new SweepOptimizer(inSample, space, objective, options)
             .Optimize(template, cancellationToken);
 
-        // Le finaliste sono i semi dell'ultima fase, che il beam ha gia' ordinato e deduplicato.
+        // Le finaliste sono le prime classificate dell'ultima fase, non i soli semi del beam: con
+        // quelli se ne validavano due, quasi identiche fra loro, e la seconda o la terza reggono
+        // fuori campione piu' spesso della prima.
         var finalists = optimization.Phases.Count > 0
-            ? optimization.Phases[^1].Seeds.Select(candidate => candidate.Parameters).Take(topCandidates).ToList()
+            ? optimization.Phases[^1].Top.Select(candidate => candidate.Parameters).Take(topCandidates).ToList()
             : [];
 
         // Il vincitore dopo l'ablation puo' non coincidere con nessun seme: va validato comunque, e
@@ -280,8 +284,16 @@ public static class SweepSearch
             finalists.Insert(0, optimization.Best.Parameters);
         }
 
+        // La validazione misura con un metro SEMPLICE anche quando la ricerca cerca con uno severo.
+        // Sono due domande diverse: "quale configurazione preferisco fra diecimila" chiede un
+        // criterio che punisca la fortuna, "questa regge fuori campione" chiede di sapere quanto ha
+        // reso rispetto a quanto ha rischiato. Usare il criterio severo anche qui sommerebbe due
+        // penalizzazioni — la tenuta e il peggior sotto-periodo — su configurazioni che il
+        // walk-forward di stabilita' gia' giudica tratto per tratto.
         var validator = new SweepValidator(
-            inSample, outOfSample, objective, validationOptions, options.AccurateClockMinutes);
+            inSample, outOfSample,
+            validationObjective ?? new NetOverDrawdownObjective(),
+            validationOptions, options.AccurateClockMinutes);
         var validations = validator.Validate(template, finalists, cancellationToken);
 
         started.Stop();
