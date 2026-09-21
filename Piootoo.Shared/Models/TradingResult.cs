@@ -36,7 +36,17 @@ public class TradingResult
         : (EntryPrice - ExitPrice) * Quantity * ContractPointValue;
     
     public decimal Commission { get; set; }
-    public decimal NetProfit => GrossProfit - Commission;
+
+    /// <summary>
+    /// Finanziamento addebitato per i rollover attraversati. <b>Positivo = costo</b>, come la
+    /// commissione.
+    ///
+    /// <para>Non e' un costo delle sole posizioni multiday: una strategia intraday la cui fine
+    /// sessione cade dopo il rollover del broker lo paga tutti i giorni. Vedi <see cref="SwapSpec"/>.</para>
+    /// </summary>
+    public decimal Swap { get; set; }
+
+    public decimal NetProfit => GrossProfit - Commission - Swap;
     public decimal ReturnPercent => EntryPrice != 0 ? (NetProfit / (EntryPrice * Quantity)) * 100 : 0;
     public bool IsWinner => NetProfit > 0;
     public TimeSpan Duration => ExitDate - EntryDate;

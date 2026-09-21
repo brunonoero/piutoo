@@ -1098,6 +1098,29 @@ public class PiootooTradingService : IPiootooTradingService
         };
     }
 
+    /// <summary>
+    /// Il finanziamento per simbolo, come <see cref="SpreadPoints"/> e' lo spread: una <b>misura</b>
+    /// presa dalle specifiche del broker, non una scelta del run. Vuoto = nessuno swap, che e' il
+    /// comportamento storico e resta quello dei run sui future del vendor.
+    /// </summary>
+    public Dictionary<string, SwapSpec> SwapSpecs { get; } =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Quanto costa, in denaro, tenere questa posizione oltre i rollover che ha attraversato.
+    /// Zero quando il simbolo non ha una misura: un costo che non si conosce non si inventa.
+    /// </summary>
+    private decimal ResolveSwap(OpenPosition position, DateTime exitTime)
+    {
+        if (SwapSpecs.Count == 0) return 0m;
+
+        var key = NormalizeSymbol(position.Symbol);
+        if (!SwapSpecs.TryGetValue(key, out var spec)) return 0m;
+
+        var punti = spec.PointsFor(position.EntryTime, exitTime, position.Direction == SignalType.Buy);
+        return punti * position.ContractPointValue * position.Contracts;
+    }
+
     public IReadOnlyList<TradingResult> GetClosedTrades() => _closedTrades.ToArray();
 
     /// <summary>
@@ -1684,14 +1707,18 @@ public class PiootooTradingService : IPiootooTradingService
             ContractPointValue = position.ContractPointValue,
             ExitReason = exitReason,
             BarsInPosition = position.BarsInPosition,
-            Commission = _commissionPerContract * position.Contracts * 2 // Entry + Exit
+            Commission = _commissionPerContract * position.Contracts * 2, // Entry + Exit
+            Swap = ResolveSwap(position, exitTime)
         };
 
         // Calcola profit
         var grossProfit = trade.GrossProfit;
         var exitCommission = _commissionPerContract * position.Contracts;
-        _state.Balance += grossProfit - exitCommission;
-        AddStrategyCashAdjustment(positionKey, grossProfit - exitCommission);
+        // Lo swap si addebita tutto alla chiusura, come la commissione di uscita: il conto lo
+        // vedrebbe maturare a ogni rollover, ma il trade e' l'unita' su cui questo motore ragiona e
+        // spalmarlo non cambierebbe ne' l'equity finale ne' il drawdown sui trade chiusi.
+        _state.Balance += grossProfit - exitCommission - trade.Swap;
+        AddStrategyCashAdjustment(positionKey, grossProfit - exitCommission - trade.Swap);
         
         // Aggiorna equity: balance + unrealized P&L di eventuali altre posizioni aperte
         // Non impostare semplicemente Equity = Balance perché potrebbero esserci altre posizioni aperte
