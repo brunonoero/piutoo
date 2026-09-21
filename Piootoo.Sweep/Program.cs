@@ -246,8 +246,11 @@ public static class Program
         // qualunque sia il criterio con cui si e' cercato.
         ISweepObjective objective = options.Objective switch
         {
-            "net-over-dd" => new NetOverDrawdownObjective(options.MinTrades),
-            _ => new WorstSubPeriodObjective(options.MinTrades)
+            "net-over-dd" => new NetOverDrawdownObjective(options.MinTrades, options.MinAverageTrade),
+            _ => new WorstSubPeriodObjective(
+                options.MinTrades,
+                MinAverageTrade: options.MinAverageTrade,
+                MinProfitFactor: options.MinProfitFactor)
         };
         Console.WriteLine($"[sweep] criterio di ricerca: {objective.Describe()}");
 
@@ -460,6 +463,18 @@ public static class Program
         public string Objective { get; init; } = "worst-period";
 
         /// <summary>
+        /// Profit factor minimo perche' una configurazione sia ammissibile. Sotto, non entra in
+        /// classifica: un margine dell'1% lo mangia il primo costo dimenticato.
+        /// </summary>
+        public decimal MinProfitFactor { get; init; }
+
+        /// <summary>
+        /// Utile medio per trade minimo, in denaro. Va tarato sul <b>costo</b> per trade: su
+        /// ICS/DE40 sono ~$50 fra commissione e spread, quindi 150 chiede tre volte il costo.
+        /// </summary>
+        public decimal MinAverageTrade { get; init; }
+
+        /// <summary>
         /// Con <c>--params "Chiave=valore;Altra=valore"</c> non si cerca niente: si misura questa
         /// configurazione dentro e fuori campione. Vuoto = ricerca completa.
         /// </summary>
@@ -519,6 +534,12 @@ public static class Program
             int Number(string key, int fallback) =>
                 values.TryGetValue(key, out var value) ? int.Parse(value) : fallback;
 
+            decimal Decimale(string key, decimal fallback) =>
+                values.TryGetValue(key, out var value)
+                    ? decimal.Parse(value, System.Globalization.NumberStyles.Float,
+                        System.Globalization.CultureInfo.InvariantCulture)
+                    : fallback;
+
             return new Options
             {
                 Strategy = Required("strategy"),
@@ -554,6 +575,8 @@ public static class Program
                 Objective = values.TryGetValue("objective", out var objective)
                     ? objective.ToLowerInvariant()
                     : "worst-period",
+                MinProfitFactor = Decimale("min-profit-factor", 0m),
+                MinAverageTrade = Decimale("min-average-trade", 0m),
                 Parameters = ParseParameters(values.GetValueOrDefault("params")),
                 OutputPath = values.GetValueOrDefault("out")
             };

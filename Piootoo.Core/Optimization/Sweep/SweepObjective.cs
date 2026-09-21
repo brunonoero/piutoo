@@ -103,17 +103,46 @@ public sealed record NetOverDrawdownObjective(int MinTrades = 30, decimal MinAve
 /// viene saltato: una strategia che opera solo in un pezzo del campione non e' una strategia buona
 /// con un buco, e saltare i tratti vuoti la premierebbe.</para>
 /// </summary>
+/// <param name="MinProfitFactor">
+/// Profit factor minimo perche' la configurazione sia ammissibile.
+///
+/// <para><b>Perche' serve, oltre al drawdown.</b> Il punteggio guarda il rapporto fra utile e
+/// drawdown, e di quanto margine ci sia su <i>ogni trade</i> non sa niente: una configurazione con
+/// profit factor 1,01 — i profitti superano le perdite dell'1% — puo' arrivare in cima a una fase
+/// se il netto e' positivo e la curva e' liscia. Ma un margine dell'1% lo mangia il primo costo che
+/// ci si e' dimenticati, e ce n'e' gia' uno noto: la fee di conversione del P&amp;L dello 0,70% che
+/// FTMO dichiara e il motore non applica. Sotto questa soglia la configurazione non entra in
+/// classifica affatto.</para>
+/// </param>
+/// <param name="MinAverageTrade">
+/// Utile medio per trade minimo, in denaro.
+///
+/// <para>E' la stessa idea del rapporto <c>spread / distanza di stop</c> che il progetto gia' usa
+/// per scegliere le coppie strategia/strumento: quello che conta non e' il target in se' — un
+/// target largo abbassa il win rate e puo' peggiorare tutto — ma che l'utile medio sia <b>molto
+/// piu' grande del costo per trade</b>. Su ICS/DE40 il costo e' ~$50 fra commissione e spread: una
+/// configurazione che ne guadagna 78 ne lascia due terzi sul tavolo e muore al primo tick di
+/// slippage, una che ne guadagna 300 no.</para>
+/// </param>
 public sealed record WorstSubPeriodObjective(
     int MinTrades = 50,
     int SubPeriods = 4,
     int MinTradesPerSubPeriod = 5,
-    decimal MinAverageTrade = 0m) : ISweepObjective
+    decimal MinAverageTrade = 0m,
+    decimal MinProfitFactor = 0m) : ISweepObjective
 {
     public decimal? Score(SweepOutcome outcome)
     {
         if (outcome.Trades < MinTrades) return null;
         if (outcome.AverageTrade < MinAverageTrade) return null;
         if (outcome.ClosedTrades.Count == 0 || SubPeriods < 1) return null;
+
+        // Il profit factor si controlla sul complesso e non tratto per tratto: su un quarto di
+        // campione e' troppo rumoroso per essere una soglia, mentre sull'intero dice quanto margine
+        // ha la configurazione su ogni trade. Un profit factor nullo (nessuna perdita) passa: e'
+        // raro e non e' un difetto.
+        if (MinProfitFactor > 0m && outcome.ProfitFactor is { } pf && pf < MinProfitFactor)
+            return null;
 
         var trades = outcome.ClosedTrades.OrderBy(trade => trade.ExitDate).ToArray();
         var from = trades[0].ExitDate;
@@ -155,5 +184,6 @@ public sealed record WorstSubPeriodObjective(
     public string Describe() =>
         $"peggiore di {SubPeriods} sotto-periodi (netto/drawdown con pavimento sulla perdita massima), " +
         $"almeno {MinTrades} trade e {MinTradesPerSubPeriod} per tratto" +
-        (MinAverageTrade > 0m ? $", utile medio ≥ {MinAverageTrade:N0}" : string.Empty);
+        (MinAverageTrade > 0m ? $", utile medio ≥ {MinAverageTrade:N0}" : string.Empty) +
+        (MinProfitFactor > 0m ? $", profit factor ≥ {MinProfitFactor:N2}" : string.Empty);
 }

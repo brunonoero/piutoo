@@ -37,14 +37,26 @@ param(
     [string] $Split = "2022-01-01",
     [string] $A = "2026-09-17",
     [int] $TradeMinimi = 50,
+    # Due soglie di AMMISSIBILITA', non di punteggio: sotto, la configurazione non entra in
+    # classifica. Il punteggio guarda utile contro drawdown e non sa niente del margine su ogni
+    # trade: un profit factor di 1,01 puo' arrivare in cima a una fase, e quel margine lo mangia il
+    # primo costo dimenticato - la fee di conversione dello 0,70% di FTMO, per dirne uno noto.
+    # L'utile medio va tarato sul COSTO per trade: su ICS/DE40 sono ~50 dollari fra commissione e
+    # spread, quindi 150 chiede tre volte il costo.
+    [decimal] $ProfitFactorMinimo = 1.25,
+    [decimal] $UtileMedioMinimo = 150,
     # I costi veri del broker su cui si opererebbe. Misurati, non ipotizzati:
     #  - spread: dump di tick di PiootooSpreadDumpBot, per ORA (FDAX va da 0,50 a 4,00 punti
     #    secondo l'ora, e una sweep che sceglie gli orari con una media ci si infila);
     #  - swap: scheda del simbolo, verificata su due history di backtest su tick;
     #  - commissione: PER LATO. ICS stampa 38,46 dollari di round turn, quindi qui 19,23.
     #    Passare il round turn raddoppia il costo senza che si veda.
-    [string] $BrokerSpread = "ICS",
-    [string] $BrokerSwap = "ICS",
+    # Piu' broker separati da virgola: la ricerca paga il costo PEGGIORE voce per voce. Non esiste
+    # il broker piu' caro - su @FDAX, FTMO costa di piu' sullo spread (1,23 contro 0,50) e ICS sullo
+    # swap (5,05 contro 4,53 sul long) - quindi sceglierne uno lascerebbe fuori meta' del costo.
+    # Cosi' una configurazione che sopravvive rende di piu' del previsto dove si opera, mai di meno.
+    [string] $BrokerSpread = "ICS,FTMOPLATFORM",
+    [string] $BrokerSwap = "ICS,FTMO",
     [decimal] $CommissionePerLato = 19.23,
     [switch] $SoloStima
 )
@@ -96,6 +108,7 @@ foreach ($cella in $Celle) {
 $modello = "spread $BrokerSpread" + $(if ($SpreadPerOra) { " PER ORA" } else { " costante" }) +
            ", swap $BrokerSwap, commissione $CommissionePerLato per lato"
 Write-Host ("Campione {0} -> {1}, validazione {1} -> {2}, beam {3}, {4}, criterio {5}, feed ICS." -f $Da, $Split, $A, $Beam, $modello, $Criterio)
+Write-Host ("Ammissibilita': almeno {0} trade, profit factor >= {1}, utile medio >= {2}." -f $TradeMinimi, $ProfitFactorMinimo, $UtileMedioMinimo)
 
 if ($SoloStima) { return }
 
@@ -112,10 +125,10 @@ foreach ($cella in $Celle) {
     # Modello di costo e criterio finiscono nel NOME del file: sovrascrivere un resoconto gia' letto
     # con uno prodotto sotto altre ipotesi e' il modo piu' rapido per confrontare due cose diverse
     # credendo di confrontare la stessa.
-    $suffisso = "-ics-" + $BrokerSpread.ToLower()
+    $costo = if ($BrokerSpread -match ",") { "costo-peggiore" } else { "costo-" + $BrokerSpread.ToLower() }
+    $suffisso = "-ics-$costo"
     if ($SpreadPerOra) { $suffisso += "-per-ora" }
     if ($Criterio -eq "worst-period") { $suffisso += "-peggior-tratto" }
-    if ($BrokerSwap) { $suffisso += "-swap" }
     $log = Join-Path $uscita "$cella$suffisso.log"
     $md = Join-Path $uscita "$cella$suffisso.md"
 
@@ -126,6 +139,8 @@ foreach ($cella in $Celle) {
         "--commission", $CommissionePerLato.ToString([System.Globalization.CultureInfo]::InvariantCulture),
         "--from", $Da, "--split", $Split, "--to", $A,
         "--beam", $Beam, "--top", 5, "--min-trades", $TradeMinimi,
+        "--min-profit-factor", $ProfitFactorMinimo.ToString([System.Globalization.CultureInfo]::InvariantCulture),
+        "--min-average-trade", $UtileMedioMinimo.ToString([System.Globalization.CultureInfo]::InvariantCulture),
         "--objective", $Criterio, "--out", $md
     )
     if ($d.SpezzaPattern) { $argomenti += "--split-pattern-phases" }
