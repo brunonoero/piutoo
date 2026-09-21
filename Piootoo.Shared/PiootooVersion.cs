@@ -51,7 +51,7 @@
 public static class PiootooVersion
 {
     /// <summary>Versione corrente del server. Vedi la nota della classe: va mossa insieme a quella del cBot.</summary>
-    public const string Current = "7.5.3";
+    public const string Current = "7.5.4";
 
     /// <summary>
     /// Parte del numero che vale come contratto: <c>major.minor</c>. È ciò che console e cBot
