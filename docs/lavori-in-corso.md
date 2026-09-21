@@ -1,8 +1,88 @@
 # Lavori in corso
 
-Stato al **2026-09-08**. Questo file è volutamente deperibile: quando una voce è chiusa si
-cancella da qui, e la motivazione della scelta resta in [`decisioni.md`](decisioni.md). Se una
-sezione qui contraddice il codice, ha ragione il codice.
+Questo file è volutamente deperibile: quando una voce è chiusa si cancella da qui, e la motivazione
+della scelta resta in [`decisioni.md`](decisioni.md). Se una sezione qui contraddice il codice, ha
+ragione il codice.
+
+---
+
+# ⇦ RIPRENDERE DA QUI: la ricerca PT3B, stato al 21/09/2026
+
+Due giorni di lavoro hanno prodotto un **ottimizzatore interno** funzionante e una prima strategia
+(`PT3B_FDAX_PCH_001_240`). Il codice è committato e verde: 1.035 test. Quello che manca sono due
+correzioni note e una decisione sul periodo di ricerca.
+
+Come funziona il tutto sta in [`domini/ricerca-parametri.md`](domini/ricerca-parametri.md); i costi
+in [`domini/spread-e-costo-di-transazione.md`](domini/spread-e-costo-di-transazione.md); il perché
+delle scelte in `decisioni.md` alle voci del 20 e 21 settembre.
+
+## Le due correzioni da fare PRIMA di rilanciare la ricerca
+
+**1. Le soglie di qualità sono applicate nella fase sbagliata.** `MinProfitFactor` (1,25) e
+`MinAverageTrade` (150) valgono oggi per *tutte* le fasi, ma le prime ottimizzano il trigger quando
+stop e target sono ancora a zero: la configurazione è grezza per costruzione e non può avere un buon
+profit factor. Sul BIAS settimanale la prima fase dà **zero ammissibili con 381 trade osservati**, e
+la ricerca muore prima di cominciare. Vanno applicate solo dalle fasi di rischio in poi
+(`SweepPhase.RequiresAccurateClock` è già il flag che le distingue) o in validazione.
+
+**2. Il periodo di ricerca usa costi che in quel periodo non esistevano.** Il campione 2014-2022
+gira con lo spread misurato ad **agosto 2026**. Misurato sul backtest a tick di cTrader, stesso
+periodo e stessi segnali:
+
+| periodo | lordo nostro | lordo cTrader | scarto per trade |
+|---|---:|---:|---:|
+| 2014-2018 | $138.028 | $7.005 | **−$123** (≈5 punti FDAX) |
+| 2022-2026 | $179.983 | $212.344 | +$24 |
+
+Nel 2014 i CFD retail avevano spread di 4-5 punti sul DAX; oggi ICS ne quota 0,50. **Cercare dal
+2014 significa cercare in un mondo con costi finti.** La proposta sul tavolo è campione
+2021-01 → 2024-06 e validazione 2024-06 → 2026-09: meno storia, ma costi veri.
+
+## Cosa c'è già e funziona
+
+- **`piootoo-sweep`** — ricerca a fasi, validazione fuori campione, costo peggiore fra più broker.
+  Lanci dal paniere con `tools/sweep-paniere.ps1` (`-SoloStima` per vedere cosa farebbe).
+- **Swap nel motore** (`SwapSpec`, `SwapTable`) e spread per ora: misure in
+  `piootoo-repository/swap/{BROKER}/` e `spread/{BROKER}/`, con ICS e FTMO già compilati.
+- **`PT3B_FDAX_PCH_001_240`** — validata, scheda in `piootoo-repository/ricerca/`.
+- **Workspace `v03-pt3b`** con due piani: `PT3B-FDAX` (ICS) e `PT3B-FDAX-FTMO`.
+
+## Il nodo aperto sul backtest in cTrader
+
+Tre run `ExternalBroker` sullo stesso piano danno risultati inconciliabili:
+
+| periodo | trade | netto | note |
+|---|---:|---:|---|
+| 2023-01 → 2026-09 | 1.035 | **+$57.278** | coerente col nostro modello |
+| 2022-01 → 2026-09 | 1.317 | **+$103.128** | coerente |
+| 2023-01 → **2026-04** | 902 | **−$99.735** | conto azzerato, drawdown 99,75% |
+
+L'ultimo si è fermato ad aprile 2026 in **margin call**, e la perdita singola peggiore è
+**raddoppiata** ($13.379 contro $6.466 sullo stesso stop da 200 punti): o la size è doppia, o due
+posizioni si sono sovrapposte sullo stesso simbolo. Da chiarire con il `RunProfile` usato e la
+history esportata. Sospetto su `BacktestSorgente`, che toglie i lucchetti di concorrenza.
+
+Indipendentemente dalla causa: **un contratto FDAX su $100.000 è troppo**. Il drawdown misurato nel
+periodo buono era già ~$47.000.
+
+## Le direzioni che valgono di più, in ordine
+
+1. **Meno trade, più margine ciascuno.** 1.317 trade da $78 netti è il profilo peggiore: i costi
+   sono proporzionali ai trade, il margine no.
+2. **Non attraversare il rollover.** $58.564 di swap su $212.344 di lordo, pagati per tenere
+   posizioni poche ore oltre le 21:00. Oggi la chiusura è legata alla fine sessione: **renderla un
+   parametro della ricerca** è una modifica piccola che vale un quarto del lordo.
+3. **Futures invece di CFD** — niente swap, commissioni minori, spread di un tick.
+4. **Gli altri otto motori.** Provati solo Price Channel e BIAS settimanale.
+5. **Altri simboli.** Solo FDAX e NQ, perché il feed ICS ha solo quelli.
+
+## Fuori dal modello, da non dimenticare
+
+- **`P&L conversion fee 0,70%`** che FTMO dichiara e ICS no. Il motore non la applica. Si misura
+  confrontando lo stesso backtest `ExternalBroker` sui due broker: la differenza che spread e swap
+  non spiegano è lei.
+- Lo **short perde in ogni periodo misurato** su FDAX. `Direction` è già nella prima fase della
+  ricerca: va lasciato decidere a lei, non forzato a mano.
 
 ---
 
