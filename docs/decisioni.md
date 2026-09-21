@@ -4253,3 +4253,37 @@ che il motore fa. Difetto di artefatto, non di esecuzione, ma e' costato mezza i
   dall'anno, perche' i due feed non si sovrappongono (il future finisce il 30/05/2025, FTMO parte
   il 01/07/2025). Il test che lo decide e' far raccogliere al bot raccoglitore lo storico FTMO dal
   06/2024 e rifare 06/2024-05/2025 sui due feed.
+- **2026-09-20/21** — **Il sistema cerca le strategie, non solo le esegue.** Nasce
+  `Piootoo.Core/Optimization/Sweep/`: ricerca sequenziale a fasi sul metodo Unger, con le griglie
+  di `easy_engine_py/` riportate verbatim, validazione fuori campione e walk-forward di stabilita'.
+  Le strategie che ne escono sono la serie `PT3B_*`. Il runner non e' un simulatore nuovo ma il
+  motore di esecuzione vero dentro lo stesso loop del backtest, e un test lo tara: con l'orologio al
+  minuto deve dare gli stessi numeri del backtest ufficiale. Regole in
+  `domini/ricerca-parametri.md`.
+- **2026-09-20** — **Il percorso veloce della ricerca sopravvaluta gli stop stretti**, e in modo
+  monotono: valutato sulla chiusura della barra della strategia invece che dentro, uno stop da
+  $1.000 su `PT2_NQ_PCH_001_240` dichiara $733.145 contro i $186.543 dell'orologio al minuto, uno da
+  $4.595 dichiara $11.641 in meno. Le fasi che decidono lo stop girano quindi sull'orologio fitto;
+  le altre sul veloce, che costa trenta volte meno. Senza, la ricerca avrebbe scelto sempre lo stop
+  piu' stretto della griglia.
+- **2026-09-21** — **Il criterio di ricerca giudica il peggiore dei quattro tratti del campione**,
+  non il totale, con un pavimento sul drawdown pari alla peggiore perdita singola. Su quattro celle,
+  le tre bocciate dalla validazione avevano i punteggi in campione piu' ALTI (fino a 26,2 contro 1,0
+  fuori) e l'unica promossa il piu' basso: un massimo troppo bello non e' un risultato migliore, e'
+  un avvertimento. Ricerca e validazione usano da qui criteri diversi, perche' rispondono a domande
+  diverse.
+- **2026-09-21** — **Il motore addebita il finanziamento oltre il rollover.** Non riguarda le sole
+  multiday: una strategia intraday la cui fine sessione cade dopo il rollover del broker lo paga
+  tutti i giorni. Su `PT3B_FDAX_PCH_001_240` erano 879 trade su 1.317 e il 28% del lordo, che il
+  motore non vedeva. La misura si prende dalla scheda del simbolo, con l'avvertenza che il pip non
+  e' uguale fra broker — `Pip position` 1 su ICS e 0 su FTMO, cioe' un fattore dieci nella stessa
+  direzione su tutti i simboli. Vedi `domini/spread-e-costo-di-transazione.md`.
+- **2026-09-21** — **La ricerca paga il costo PEGGIORE fra piu' broker, voce per voce.** Non esiste
+  il broker piu' caro: su @FDAX, FTMO costa di piu' sullo spread (1,23 contro 0,50) e ICS sullo swap
+  (5,05 contro 4,53 sul long). Una strategia cercata sui costi di un broker vive dentro il listino
+  di quel broker; cercata sul peggiore, dove si opera rendera' di piu' del previsto e mai di meno.
+- **2026-09-21** — **Una finalista promossa a classe va rieseguita prima del backtest.** La classe
+  di partenza della sweep non e' solo un contenitore di parametri: porta l'etichetta della barra e
+  l'ancoraggio di sessione, che dei parametri non fanno parte e che nessun resoconto stampa. Sulla
+  prima `PT3B_*` la dimenticanza spostava la finestra di quattro ore e il campione da +216.830 a
+  meno 2.527.

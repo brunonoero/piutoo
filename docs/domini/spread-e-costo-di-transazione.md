@@ -296,6 +296,49 @@ interno con lo spread di un broker vero è esattamente il confronto che dice qua
 quel broker, e legare le due scelte lo renderebbe impossibile — è lo stesso argomento con
 cui datasource e piano sono già separati (vedi [`backtesting.md`](backtesting.md)).
 
+## Il finanziamento oltre il rollover (swap)
+
+Dal 21/09/2026 il motore addebita anche lo **swap**, con la stessa impostazione dello spread: una
+misura per broker e simbolo, in `piootoo-repository/swap/{BROKER}/`, scelta dalla richiesta con
+`BacktestingRequest.SwapBroker`. Un broker senza cartella, o un simbolo che il file non copre, fanno
+fallire l'avvio.
+
+**Non riguarda le sole strategie multiday, ed è questo il punto.** Una strategia *intraday* la cui
+fine sessione cade dopo il rollover del broker lo paga tutti i giorni:
+`PT3B_FDAX_PCH_001_240` chiude a fine sessione — l'01:00 di Roma, cioè le 23:59 UTC — mentre ICS fa
+rollover alle 21:00. Nel backtest su tick di cTrader sono **879 trade su 1.317** che restano aperti
+oltre il rollover per poche ore e pagano una notte intera: **$58.564 su $212.344 di lordo, il 28%**,
+che il motore non vedeva affatto.
+
+Il file si compila dalla scheda del simbolo in cTrader: swap long/short in pip, `Pip position`,
+`Swap time`, `3-day swaps`.
+
+⚠ **Il pip non è uguale ovunque.** Su ICS/DE40 `Pip position` vale 1 e un pip sono 0,1 punti; su
+FTMO vale **0** e un pip è un punto intero. Applicare la conversione di un broker ai numeri
+dell'altro sbaglia lo swap di dieci volte, nella stessa direzione su tutti i simboli — cioè in un
+modo che non si nota. Il controllo che conferma la conversione: con i fattori giusti i due broker
+costano quasi identico sul long di `@NQ` (6,71 contro 6,74 punti a notte).
+
+Tre regole che la misura ha imposto, verificate su una history di 1.317 trade:
+
+- il **fine settimana non si addebita** mai;
+- il **triplo** (venerdì su entrambi i broker) tocca solo chi sopravvive al fine settimana: dei 91
+  long entrati di venerdì e usciti dopo il rollover ne hanno pagato **tre**, e quei tre al triplo;
+- uno swap **positivo** sulla scheda è un credito (lo short di `@NQ` su FTMO), e il caricatore lo
+  porta a zero invece di regalarlo al backtest: un credito incassato dipende dal conto e dal
+  momento, e una strategia che vivesse di quello non sarebbe una strategia.
+
+Lo swap si addebita tutto alla chiusura, come la commissione di uscita: il conto lo vedrebbe maturare
+a ogni rollover, ma il trade è l'unità su cui il motore ragiona e spalmarlo non cambierebbe né
+l'equity finale né il drawdown sui trade chiusi.
+
+## La commissione è per LATO
+
+`CommissionPerContract` è per contratto **e per lato**: il motore la addebita due volte. Le schede
+dei broker stampano invece il *round turn* — su ICS/DE40 sono $38,46 a trade, cioè **19,23** da
+configurare. Passare il round turn raddoppia il costo senza che si veda: la strategia sembra solo
+peggiore, ed è esattamente quello che è successo al primo confronto con cTrader.
+
 ## Cosa resta fuori
 
 - **Le uscite.** Lo spread non tocca il prezzo a cui si chiude: sul feed Bid è corretto per
@@ -313,12 +356,22 @@ cui datasource e piano sono già separati (vedi [`backtesting.md`](backtesting.m
 - **Lo spread sui trigger**, per la ragione detta sopra.
 - **Il live.** In sessione `ExternalBroker` lo spread è quello vero del momento, e il cBot
   lo misura al fill (`ExternalExecutionReport.SpreadAtFill`): lì non c'è niente da modellare.
+- **La fee di conversione del P&L.** FTMO dichiara `P&L conversion fee rate 0,70%` su GER40 e US100,
+  dove ICS dichiara 0,00%. È un costo proporzionale al P&L che il motore non applica, e su una
+  strategia con profit factor vicino a 1 — dove il netto è la differenza fra due numeri grandi — non
+  è trascurabile. Per misurarla servirebbe confrontare lo stesso backtest `ExternalBroker` sui due
+  broker: la differenza che spread e swap non spiegano è lei.
 
 ## Riferimenti codice
 
-- `piootoo-repository/ctrader/PiootooSpreadDumpBot.cs` — la misura.
+- `piootoo-repository/ctrader/PiootooSpreadDumpBot.cs` — la misura. Il parametro `Lavori` separa le
+  specifiche degli strumenti (secondi, si rileggono ogni giorno) dalla misura dello spread (ore di
+  tick): `SoloSpecifiche` è il giro da fare su un broker nuovo.
 - `Piootoo.Core/Services/SpreadTable.cs` — il caricamento del CSV.
-- `Piootoo.Core/Services/PiootooTradingService.cs` — `SpreadPoints`, `ApplySpread`.
+- `Piootoo.Core/Services/SwapTable.cs` — le misure di finanziamento, e `Worst()` per il costo
+  peggiore fra più broker (vedi [ricerca-parametri.md](ricerca-parametri.md)).
+- `Piootoo.Shared/Models/Trading/SwapSpec.cs` — quanti rollover attraversa una posizione.
+- `Piootoo.Core/Services/PiootooTradingService.cs` — `SpreadPoints`, `ApplySpread`, `SwapSpecs`.
 - `Piootoo.Shared/Configuration/StopMoneyPolicy.cs` — il fattore di allargamento dello stop,
   applicato in `Piootoo.Strategies/Easy/StatelessEasyStrategyBase.cs`.
 - `Piootoo.Core/Services/PiootooBacktestingService.cs` — il cablaggio, il log, il summary.

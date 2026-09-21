@@ -106,6 +106,11 @@ non esiste più, si tiene per il perché.
   come si legge un run di ottimizzazione esterno, mappa parametri → campi del
   motore, trappole verificate e procedura di verifica contro il report.
   *Stabile.*
+- [`domini/ricerca-parametri.md`](domini/ricerca-parametri.md) — l'ottimizzatore
+  **interno** (`piootoo-sweep`): fasi, griglie, i due orologi e perché il percorso
+  veloce non può scegliere gli stop, il criterio sul peggior tratto, la validazione
+  fuori campione e il costo peggiore fra più broker. È da qui che vengono le
+  `PT3B_*`, mentre il file sopra copre i parametri che arrivano da fuori. *Bozza.*
 - [`domini/mappa-strategie-pts.md`](domini/mappa-strategie-pts.md) — da quale
   run e da quale riga approvata viene ogni classe `PTS_*`, sigle dei motori,
   strategie disabilitate perché doppioni, motori senza più sottoclassi.
