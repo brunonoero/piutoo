@@ -4437,3 +4437,21 @@ che il motore fa. Difetto di artefatto, non di esecuzione, ma e' costato mezza i
   controllo «feed assente»: xUnit 2.9 non ha uno skip deciso a runtime, e la riga stampata dice che
   non ha misurato nulla. La guardia delle griglie grosse sta in `CoarseGridStudy.RunAsync`, cosi' una
   cella nuova la eredita. Comandi in `lavori-in-corso.md`.
+
+- **2026-09-22** — **I contenitori di ricerca sono un dato dichiarato, e il server li rifiuta**
+  (`ITradingStrategy.IsResearchContainer`). Le classi che danno a uno studio un simbolo, un
+  timeframe e un `Initialize` che legge ogni leva — `PT3B_NQ_PCH_001_15`, `PT3B_CL_PCH_001_30` —
+  hanno i pattern alle sentinelle e parametri che nessuna validazione ha visto. Fino a oggi la
+  distinzione viveva nel solo commento XML della classe, che nessuna schermata mostra: nel catalogo,
+  nel masterfilter e nel tab Strategie del piano erano identiche a una finalista. Cosi'
+  `PT3B_NQ_PCH_001_15` e' finito in un piano eseguito su un conto vero (334 trade, -17.612).
+  **Non una cartella separata**: il catalogo si costruisce per riflessione sui tipi
+  (`StrategyFactory`, `assembly.GetTypes()`), quindi un namespace diverso non toglie niente da
+  nessuna schermata — sposta il file e lascia il problema. **Due rifiuti e non uno**: al salvataggio
+  del masterfilter, che e' l'imbuto da cui passano backtest, piani e sessioni; e all'apertura della
+  sessione, perche' i masterfilter scritti prima del primo controllo sono ancora su disco e la
+  sessione e' l'ultimo punto prima di ordini veri. Il **backtest no**: li' non c'e' un broker,
+  misurare un contenitore e' legittimo, e basta la riga `[contenitore]` nel summary — rifiutare
+  avrebbe tolto uno strumento senza togliere un rischio. La guardia contro la dimenticanza e'
+  `AStrategyWithBlankPatternsDeclaresItselfAContainer`: una classe con tutti e quattro i gate alle
+  sentinelle o si dichiara contenitore o porta i pattern della ricerca.

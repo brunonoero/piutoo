@@ -68,6 +68,12 @@ public class StrategyDefinition
     public Trading.StrategyHolding Holding { get; set; } = Trading.StrategyHolding.Multiday;
 
     /// <summary>
+    /// Contenitore di ricerca, non una strategia: vedi <c>ITradingStrategy.IsResearchContainer</c>.
+    /// Il server rifiuta di metterlo in un masterfilter e di aprirci una sessione.
+    /// </summary>
+    public bool IsResearchContainer { get; set; }
+
+    /// <summary>
     /// Parametri della strategia (input dal file EasyLanguage)
     /// </summary>
     public Dictionary<string, object> Parameters { get; set; } = new();

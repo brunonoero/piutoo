@@ -432,7 +432,12 @@ trade (1 tick da $5 all'ingresso e 1 all'uscita).
 
 ## Il dossier di `run-engine-v2`: cosa cambia nella lettura
 
-Dal 16/09/2026 esiste una seconda serie di classi, `PT2_*` in `Piootoo.Strategies/PT2Strategies/`,
+⚠ **La serie `PT2_*` è stata rimossa dal progetto il 22/09/2026**: nessuna delle quattro classi
+aveva superato la validazione ai costi veri. Il paragrafo che segue resta come storia del porting,
+e le sue regole valgono per chiunque traduca oggi da un dossier. Vedi
+[`mappa-strategie-pt2.md`](mappa-strategie-pt2.md).
+
+Dal 16/09/2026 esisteva una seconda serie di classi, `PT2_*` in `Piootoo.Strategies/PT2Strategies/`,
 tradotta da `piootoo-repository/run-engine-v2/DOSSIER_PANIERE_001.md` — il paniere rifatto dopo aver
 trovato errori nell'analisi che aveva prodotto le `PTS_*`. Mappa in
 [`mappa-strategie-pt2.md`](mappa-strategie-pt2.md). Le regole di questo documento valgono tutte;

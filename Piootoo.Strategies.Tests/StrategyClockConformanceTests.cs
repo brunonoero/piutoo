@@ -1,10 +1,9 @@
-﻿using System.Reflection;
+using System.Reflection;
 using System.Text.RegularExpressions;
 using Piootoo.Shared.MarketData;
 using Piootoo.Shared.Configuration;
 using Piootoo.Shared.Interfaces;
 using Piootoo.Strategies.PiutooStrategies;
-using Piootoo.Strategies.PT2Strategies;
 using Xunit;
 
 namespace Piootoo.Strategies.Tests;
@@ -138,14 +137,16 @@ public sealed class StrategyClockConformanceTests
     }
 
     /// <summary>
-    /// I namespace delle serie di catalogo: <c>PTS_*</c> e, dal 16/09/2026, <c>PT2_*</c>
-    /// (<c>Piootoo.Strategies/PT2Strategies/</c>, l'analisi rifatta di <c>run-engine-v2/</c>). Una
-    /// serie nuova si dichiara qui, altrimenti le sue classi non passano da questi controlli.
+    /// I namespace delle serie di catalogo: <c>PTS_*</c> e <c>PT3B_*</c>. Una serie nuova si dichiara
+    /// qui, altrimenti le sue classi non passano da questi controlli.
+    ///
+    /// <para>La serie <c>PT2_*</c> stava qui dal 16/09/2026 ed e' stata rimossa dal progetto il
+    /// 22/09: le sue quattro classi non avevano superato la validazione ai costi veri.</para>
     /// </summary>
     private static readonly string[] CatalogNamespaces =
     [
         typeof(PTS_NQ_TFM_001_60).Namespace!,
-        typeof(PT2_NQ_PCH_001_240).Namespace!
+        typeof(PT3BStrategies.PT3B_FDAX_PCH_001_240).Namespace!
     ];
 
     public static TheoryData<Type> PtsStrategyTypes

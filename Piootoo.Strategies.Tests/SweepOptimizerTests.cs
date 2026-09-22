@@ -202,7 +202,10 @@ public sealed class SweepOptimizerTests(ITestOutputHelper output)
 
     // ------------------------------------------------------------------ infrastruttura
 
-    private static SweepJob Template() => new("PT2_NQ_PCH_001_240")
+    // Su @FDAX dal 22/09/2026: la classe di prima era PT2_NQ_PCH_001_240, rimossa con il resto
+    // della serie PT2. Qui serve una Price Channel a 4 ore che legga tutte le chiavi della sweep, e
+    // quale simbolo sia non cambia cosa il test misura.
+    private static SweepJob Template() => new("PT3B_FDAX_PCH_001_240")
     {
         InitialCapital = 1_000_000m,
         CommissionPerContract = 4m,
@@ -222,7 +225,7 @@ public sealed class SweepOptimizerTests(ITestOutputHelper output)
         };
 
         return SweepSeries
-            .LoadAsync(new PiootooDataFeedService(new DatafeedCatalog(settings)), "@NQ",
+            .LoadAsync(new PiootooDataFeedService(new DatafeedCatalog(settings)), "@FDAX",
                 timeframes ?? [240], StartUtc, EndUtc)
             .GetAwaiter().GetResult();
     }

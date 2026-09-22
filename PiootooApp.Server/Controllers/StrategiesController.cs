@@ -33,9 +33,16 @@ public sealed class StrategiesController : ControllerBase
         Converters = { new JsonStringEnumConverter() }
     };
 
+    /// <summary>
+    /// Il catalogo <b>intero</b>, contenitori di ricerca compresi: qui si guarda, non si sceglie, e
+    /// un contenitore che sparisse dall'elenco sarebbe impossibile da riconoscere per chi legge il
+    /// nome di una classe in un resoconto. Le schermate li marcano con
+    /// <see cref="StrategyCatalogItem.IsResearchContainer"/>; a scegliere fra le strategie
+    /// selezionabili ci pensa il masterfilter, che invece li rifiuta.
+    /// </summary>
     [HttpGet]
     public ActionResult<IReadOnlyList<StrategyCatalogItem>> List()
-        => Ok(StrategyFactory.GetRegisteredStrategies()
+        => Ok(StrategyFactory.GetRegisteredStrategies(includeResearchContainers: true)
             .Select(strategy => new StrategyCatalogItem
             {
                 Id = strategy.Id,
@@ -50,7 +57,8 @@ public sealed class StrategiesController : ControllerBase
                 SourceFileName = strategy.FileName,
                 Overnight = strategy.Holding.Overnight,
                 Overweek = strategy.Holding.Overweek,
-                HoldingLabel = strategy.Holding.Describe()
+                HoldingLabel = strategy.Holding.Describe(),
+                IsResearchContainer = strategy.IsResearchContainer
             })
             .OrderBy(strategy => strategy.Symbol)
             .ThenBy(strategy => strategy.Name)

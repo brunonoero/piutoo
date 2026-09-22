@@ -144,6 +144,14 @@ public abstract class PriceChannelEngine : EasyEngineBase
     /// <summary>Pattern direzionale che blocca l'ingresso. 53 può essere usato come sentinella falsa.</summary>
     protected int DirectionalNo = 53;
 
+    // I quattro gate alle sentinelle NON distinguono un contenitore di ricerca da una strategia
+    // vera, e conviene saperlo prima di provarci: PT2_NQ_PCH_002_30 ha tutti e quattro i gate
+    // spenti, la finestra a giornata piena, SkipDay a -1 e DvolMin a zero — cioe' la stessa
+    // configurazione di PT3B_NQ_PCH_001_15 — ed e' una strategia portata da un run di ricerca che
+    // per quella cella non ha scelto alcun pattern. "Nessun filtro" e' una configurazione
+    // legittima, non una firma. La distinzione e' quindi dichiarata e basta:
+    // ITradingStrategy.IsResearchContainer. Vedi ResearchContainerTests.
+
     // MaxEntriesPerSession e TrailingStopMoney vivono in EasyEngineBase e vengono
     // applicati da BuildEntry; i helper sotto ne rafforzano solo la policy Python/legacy.
 

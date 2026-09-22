@@ -18,7 +18,7 @@ namespace Piootoo.Strategies.Tests;
 /// <para><b>Il caso.</b> FTMO quota il DAX dalla domenica sera, un'ora prima dell'ancoraggio delle
 /// 01:00: ne esce una barra 4h di domenica ogni settimana, che il future non ha e che il dossier
 /// (§2.1.1) prescrive di scartare. Con un canale a una barra e un gate sulla sessione precedente,
-/// il lunedì di <c>PT2_FDAX_PCH_001_240</c> leggeva quella barra: −37.710 in un anno su FTMO contro
+/// il lunedì di <c>PT3B_FDAX_PCH_001_240</c> leggeva quella barra: −37.710 in un anno su FTMO contro
 /// +25.215 in tre anni e mezzo sul future. Sui CME la domenica è una sessione vera in certe
 /// settimane e il calendario di NQ la dichiara: lì non si toglie nulla.</para>
 /// </summary>
@@ -92,7 +92,7 @@ public sealed class NonSessionDayBarsTests : IDisposable
         var workspaces = new WorkspaceService(new PiootooSettings { Workspaces = _root });
         var workspace = workspaces.Create(new CreateWorkspaceRequest
         {
-            Name = $"nosess-{Guid.NewGuid():N}", StrategiesFilter = ["PT2_FDAX_PCH_001_240"]
+            Name = $"nosess-{Guid.NewGuid():N}", StrategiesFilter = ["PT3B_FDAX_PCH_001_240"]
         });
         new TradingJsonStore(workspaces.GetBacktestPath(workspace.Id, "source")).Initialize();
 

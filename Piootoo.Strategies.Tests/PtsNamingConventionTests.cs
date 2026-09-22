@@ -3,7 +3,6 @@ using System.Text.RegularExpressions;
 using Piootoo.Shared.Interfaces;
 using Piootoo.Strategies.Easy.Engines;
 using Piootoo.Strategies.PiutooStrategies;
-using Piootoo.Strategies.PT2Strategies;
 using Xunit;
 
 namespace Piootoo.Strategies.Tests;
@@ -56,7 +55,8 @@ public sealed class PtsNamingConventionTests
     private static readonly IReadOnlyDictionary<string, string> Series = new Dictionary<string, string>
     {
         ["PTS"] = typeof(PTS_NQ_TFM_001_60).Namespace!,
-        ["PT2"] = typeof(PT2_NQ_PCH_001_240).Namespace!,
+        // PT2 rimossa dal progetto il 22/09/2026: le sue quattro classi non avevano superato la
+        // validazione ai costi veri e restavano selezionabili nelle schermate.
         // PT3B: non viene da un dossier ma dall'ottimizzatore interno (piootoo-sweep). Numera per
         // conto proprio come le altre due — PT3B_FDAX_PCH_001 non e' la seconda PCH su FDAX, e' la
         // prima della sua serie.
@@ -64,7 +64,7 @@ public sealed class PtsNamingConventionTests
     };
 
     private static readonly Regex NamePattern = new(
-        @"^(?<series>PTS|PT2|PT3B)_(?<symbol>[A-Z0-9]+)_(?<engine>[A-Z]{3})_(?<number>\d{3})_(?<timeframe>\d+)$",
+        @"^(?<series>PTS|PT3B)_(?<symbol>[A-Z0-9]+)_(?<engine>[A-Z]{3})_(?<number>\d{3})_(?<timeframe>\d+)$",
         RegexOptions.Compiled);
 
     public static TheoryData<Type> PtsStrategyTypes

@@ -1,3 +1,21 @@
+> **⚠ Serie rimossa dal progetto il 22/09/2026.** Le quattro classi `PT2_*` non ci sono più:
+> `Piootoo.Strategies/PT2Strategies/` è stata cancellata, e con lei `Pt2ScheduleAndWindowTests`.
+> Motivo: nessuna delle quattro aveva superato la validazione ai costi veri — `PT2_NQ_PCH_001_240`
+> perde 47.114 fuori campione, `PT2_NQ_PCH_002_30` ha il campione a zero e un fuori campione che è
+> vento — e restavano selezionabili nel catalogo, nel masterfilter e nel tab Strategie del piano
+> come se fossero candidate. La serie `PT2` è sparita anche dal filtro delle schermate
+> (`StrategyFilters`): un Id `PT2_*` rimasto in un masterfilter vecchio finisce ora in «altro», che
+> nessuna combo elenca, ed è voluto.
+>
+> **Questo documento resta come storia**, non descrive più il codice. Serve a due cose: sapere da
+> quale riga del dossier veniva ciascuna classe, se un giorno la si volesse rifare; e ricordare che
+> `PT2_FDAX_PCH_001_240` era la classe su cui la ricerca ha prodotto `PT3B_FDAX_PCH_002_240`, che
+> oggi è l'unica strategia validata del progetto.
+>
+> Cosa è andato con loro: la taratura di tre celle su quattro di `tools/sweep-paniere.ps1` (restano
+> commentate lì dentro) e il riferimento di calibrazione di `SweepRunnerParityTests`, 861 trade e
+> 231.822 dollari, che era misurato su `PT2_NQ_PCH_001_240` e non è stato sostituito.
+
 # Mappa: da quale scheda viene ogni strategia PT2
 
 La serie `PT2_*` e' il porting del **paniere rifatto** — `piootoo-repository/run-engine-v2/DOSSIER_PANIERE_001.md`,

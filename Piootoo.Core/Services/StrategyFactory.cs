@@ -26,8 +26,17 @@ public static class StrategyFactory
     ///
     /// <para>Sono escluse anche quelle marcate <see cref="StrategiaDisabilitataAttribute"/>: non
     /// sono rotte, si e' scelto di non eseguirle. Il motivo e' nell'attributo.</para>
+    ///
+    /// <para>E sono escluse, per default, i <b>contenitori di ricerca</b>
+    /// (<see cref="ITradingStrategy.IsResearchContainer"/>): questo elenco e' cio' fra cui si
+    /// <i>sceglie</i> — masterfilter, piani, sessioni — e un contenitore non e' una scelta possibile.
+    /// Chi vuole il catalogo intero lo chiede con <paramref name="includeResearchContainers"/>: lo
+    /// fanno l'endpoint delle strategie, che li mostra marcati, e i due punti che devono poterli
+    /// <i>nominare</i> per rifiutarli con un messaggio che dice quale. Gli studi non passano di qui:
+    /// istanziano per Id con <see cref="CreateStrategy"/>.</para>
     /// </summary>
-    public static List<StrategyDefinition> GetRegisteredStrategies(string? name = null, string? symbol = null)
+    public static List<StrategyDefinition> GetRegisteredStrategies(
+        string? name = null, string? symbol = null, bool includeResearchContainers = false)
     {
         InitializeStrategyCache();
 
@@ -52,6 +61,13 @@ public static class StrategyFactory
             {
                 // Disabilitata deliberatamente: corretta ma non da eseguire. Resta istanziabile per
                 // nome da CreateStrategy, cosi' i test di parita' e i confronti storici la vedono.
+                continue;
+            }
+
+            if (instance.IsResearchContainer && !includeResearchContainers)
+            {
+                // Contenitore di ricerca: vedi la nota sul metodo. Resta istanziabile per Id, che e'
+                // come lo usano gli studi.
                 continue;
             }
 
@@ -81,6 +97,7 @@ public static class StrategyFactory
                 Description = instance.Description,
                 IsActive = true,
                 Holding = instance.Holding.Normalized(),
+                IsResearchContainer = instance.IsResearchContainer,
                 LastModified = DateTime.MinValue,
                 FilePath = strategyType.FullName ?? className
             });

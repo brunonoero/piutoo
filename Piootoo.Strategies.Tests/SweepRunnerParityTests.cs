@@ -11,11 +11,21 @@ namespace Piootoo.Strategies.Tests;
 /// La prova che il runner di sweep misura quello che misura il backtest.
 ///
 /// <para><b>Perche' serve.</b> Un ottimizzatore che gira su regole proprie consegna parametri che
-/// poi il backtest non riproduce: e' lo stesso difetto del porting, spostato di un piano. Il runner
-/// deve quindi ritrovare un risultato gia' noto prima che gli si lasci cercare configurazioni
-/// nuove. Il riferimento e' <c>PT2_NQ_PCH_001_240</c> sul feed interno dal 24/01/2022 al
-/// 31/05/2025, con l'orologio al minuto: <b>861 trade e $231.822</b>, misurati il 20/09/2026 con la
-/// 7.5.3 (workspace <c>v02-nq-s02-chiusura</c>, backtest <c>s02-etichetta-chiusura-753</c>).</para>
+/// poi il backtest non riproduce: e' lo stesso difetto del porting, spostato di un piano.</para>
+///
+/// <para><b>⚠ La taratura contro un backtest autorevole non c'e' piu', ed e' un debito.</b> Fino al
+/// 22/09/2026 il primo test di questa classe verificava che il runner, con l'orologio al minuto,
+/// ritrovasse <b>861 trade e $231.822</b> — i numeri di un backtest ufficiale di
+/// <c>PT2_NQ_PCH_001_240</c> sul feed interno dal 24/01/2022 al 31/05/2025 (misurati il 20/09/2026
+/// con la 7.5.3, workspace <c>v02-nq-s02-chiusura</c>, backtest <c>s02-etichetta-chiusura-753</c>).
+/// Quella classe e' stata rimossa con il resto della serie PT2, e con lei il riferimento. Il test e'
+/// stato <b>tolto e non ripuntato</b>: far asserire al runner i numeri che il runner stesso produce
+/// non prova nulla, e un test circolare e' peggio di un test assente. Per riaverlo serve un backtest
+/// ufficiale di una classe PT3B sul feed interno, da cui ricavare trade e netto.</para>
+///
+/// <para>Restano i tre controlli che non dipendono da un riferimento esterno: che il percorso veloce
+/// costi millisecondi e misuri qualcosa di vivo, di quanto sia ottimista sugli stop stretti, e che i
+/// parametri arrivino davvero al motore.</para>
 ///
 /// <para><b>Legge il feed vero</b> e vale quindi solo su una macchina che ce l'ha: senza, si salta
 /// invece di fallire. Non e' un test di regressione del motore — quello e' il backtest — ma la
@@ -24,37 +34,11 @@ namespace Piootoo.Strategies.Tests;
 public sealed class SweepRunnerParityTests(ITestOutputHelper output)
 {
     private const string RepositoryPath = @"C:\piootoo-dev\piootoo-repository";
-    private const string StrategyId = "PT2_NQ_PCH_001_240";
+    // Su @FDAX dal 22/09/2026, con la rimozione della serie PT2. Vedi la nota sulla classe.
+    private const string StrategyId = "PT3B_FDAX_PCH_001_240";
+    private const string Symbol = "@FDAX";
     private static readonly DateTime StartUtc = new(2022, 1, 24, 0, 0, 0, DateTimeKind.Utc);
     private static readonly DateTime EndUtc = new(2025, 5, 31, 0, 0, 0, DateTimeKind.Utc);
-
-    private const int ReferenceTrades = 861;
-    private const decimal ReferenceNetProfit = 231_822m;
-
-    /// <summary>
-    /// Con l'orologio al minuto il runner deve dare <b>gli stessi numeri</b> del backtest: stesse
-    /// serie, stesso motore di esecuzione, stesso ordine dentro il tick. Una differenza qui e' un
-    /// difetto del runner, non una scelta.
-    /// </summary>
-    [Fact]
-    public async Task RunnerWithMinuteClockMatchesTheOfficialBacktest()
-    {
-        var series = await LoadAsync([240, 1]);
-        if (series is null) return;
-
-        var outcome = new SweepRunner(series).Run(ReferenceJob() with { ClockTimeframeMinutes = 1 });
-        output.WriteLine(outcome.ToString());
-
-        var dump = Path.Combine(Path.GetTempPath(), "sweep-trades.csv");
-        File.WriteAllLines(dump, new[] { "entry;exit;side;entryPrice;exitPrice;net;reason" }
-            .Concat(outcome.ClosedTrades.Select(t =>
-                $"{t.EntryDate:yyyy-MM-ddTHH:mm:ssZ};{t.ExitDate:yyyy-MM-ddTHH:mm:ssZ};{t.Direction};" +
-                $"{t.EntryPrice};{t.ExitPrice};{t.NetProfit};{t.ExitReason}")));
-        output.WriteLine($"trade scritti in {dump}");
-
-        Assert.Equal(ReferenceTrades, outcome.Trades);
-        Assert.Equal(ReferenceNetProfit, outcome.NetProfit);
-    }
 
     /// <summary>
     /// Il percorso veloce — orologio uguale al timeframe della strategia — <b>non</b> deve dare gli
@@ -158,6 +142,6 @@ public sealed class SweepRunnerParityTests(ITestOutputHelper output)
             ExternalRepositoryPath = @"[BasePath]\datafeed-external"
         };
         var dataFeed = new PiootooDataFeedService(new DatafeedCatalog(settings));
-        return await SweepSeries.LoadAsync(dataFeed, "@NQ", timeframes, StartUtc, EndUtc, warmupDays: 30d);
+        return await SweepSeries.LoadAsync(dataFeed, Symbol, timeframes, StartUtc, EndUtc, warmupDays: 30d);
     }
 }

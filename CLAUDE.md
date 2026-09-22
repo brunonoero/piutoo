@@ -46,7 +46,7 @@ client WinForms, `net9.0-windows` per il progetto di test. Test con xUnit +
 | `Piootoo.Shared` | Modelli e contratti. **Nessuna logica, nessuna dipendenza** verso gli altri progetti. |
 | `Piootoo.Domain` | Repository di base, in particolare `DataSourceRepository` (lettura feed). |
 | `Piootoo.Core` | Tutti i servizi applicativi: `Services/` (workspace, backtesting, trading, sizing, sessioni) e `Optimization/`. |
-| `Piootoo.Strategies` | Catalogo strategie (`ITradingStrategy`): i motori in `Easy/`, la serie `PTS_*` in `PiutooStrategies/` (dossier di agosto/settembre) e la serie `PT2_*` in `PT2Strategies/` (paniere rifatto di `piootoo-repository/run-engine-v2/`, dal 16/09/2026). Le due serie convivono e numerano per conto proprio; mappe in `docs/domini/mappa-strategie-pts.md` e `mappa-strategie-pt2.md`. |
+| `Piootoo.Strategies` | Catalogo strategie (`ITradingStrategy`): i motori in `Easy/`, la serie `PTS_*` in `PiutooStrategies/` (dossier di agosto/settembre) e la serie `PT3B_*` in `PT3BStrategies/` (ricerca interna con `piootoo-sweep`, dal 21/09/2026). Le due serie convivono e numerano per conto proprio; mappe in `docs/domini/mappa-strategie-pts.md`. La serie `PT2_*` e' stata **rimossa il 22/09/2026** (nessuna delle quattro aveva superato la validazione ai costi veri): `mappa-strategie-pt2.md` resta come storia. |
 | `PiootooApp.Server` | API HTTP. Solo controller sottili + DI. |
 | `Piootoo.FeedWorker` | Worker che alimenta le sessioni live con barre chiuse. |
 | `piootooapp.clientform` | Console WinForms. Client HTTP puro. Due interfacce: la nuova `Shell/MainShellForm` (menu a sinistra, lista → dettaglio, schermate designer-first) e la storica `WorkspaceBacktestingForm` a tab, raggiungibile da *File → Console legacy*. |
@@ -315,6 +315,17 @@ sbaglia più spesso:
  broker (`SwapSpec.RolloverUtc`): il run lo controlla e scrive `[rollover]` nel summary. E' il
  modo di tenere le strategie lontane dal rollover senza riscriverle; la sweep lo onora con
  `--flat-utc`, e senza gira a overnight libero. Vedi `docs/domini/overnight-e-overweek.md`.
+- **Un contenitore di ricerca non entra in un masterfilter.** Le classi che esistono solo per dare
+ a uno studio un simbolo, un timeframe e un `Initialize` che legga ogni leva — pattern alle
+ sentinelle, `PriceChannelEngine.HasBlankPatterns` — dichiarano
+ `ITradingStrategy.IsResearchContainer`. Il server **rifiuta** di salvarle in un masterfilter
+ (`WorkspaceService.RejectResearchContainers`) e di aprirci una sessione; il backtest le ammette e
+ scrive `[contenitore]` nel summary, perche' li' non ci sono ordini veri. Gli studi le istanziano
+ per Id e non passano dal masterfilter: e' il loro mestiere. Fino al 22/09/2026 la distinzione
+ stava nel solo commento XML, che nessuna schermata mostra, e `PT3B_NQ_PCH_001_15` e' finito in un
+ piano eseguito: 334 trade e -17.612 con parametri che nessuna validazione aveva visto. Una cella
+ che produce una finalista non cancella il contenitore: nasce una classe accanto, e il contenitore
+ serve al giro dopo. Vedi `ResearchContainerTests`.
 - **Il server decide *cosa*, il broker decide *se e a che prezzo*.** Non
   assumere mai un fill.
 

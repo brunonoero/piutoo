@@ -114,85 +114,13 @@ public sealed class SweepFastClockRankingTests(ITestOutputHelper output)
         output.WriteLine($"  minuto: {string.Join(", ", topMinuto)}");
     }
 
-    /// <summary>
-    /// La stessa domanda su NQ e con un orologio intermedio. Serve a due cose: sapere se lo 0,021 di
-    /// FDAX e' un fatto della cella o dell'architettura, e sapere se un orologio a <b>15 minuti</b>
-    /// basta a ordinare. Il secondo punto decide la scaletta dei simboli: il vendor ha il minuto solo
-    /// per FDAX e NQ, ma ha i 15 minuti anche per ES, BP ed EC. Se 15m ordina come 1m, quelle tre
-    /// celle si possono cercare oggi; se no, servono i minuti e non ci sono.
-    /// </summary>
-    [Theory]
-    [InlineData(240)]
-    [InlineData(15)]
-    [Trait("Category", ResearchStudy.Category)]
-    public async Task OnNqAnIntermediateClockIsMeasuredAgainstTheMinute(int candidateClock)
-    {
-        if (ResearchStudy.IsSkipped(output)) return;
-
-        var series = await LoadNqAsync();
-        if (series is null)
-        {
-            output.WriteLine("feed assente: saltato.");
-            return;
-        }
-
-        var runner = new SweepRunner(series);
-        // Le soglie della sweep del 21/09 (50 trade, 5 per tratto, nessun minimo di perdite): la
-        // misura confronta gli orologi, e deve restare confrontabile con i numeri di quella sera —
-        // i default del criterio sono stati alzati il 22/09 e qui non c'entrano.
-        var objective = new WorstSubPeriodObjective(MinTrades: 50, MinTradesPerSubPeriod: 5, MinLosingTrades: 0);
-        var configurazioni = BuildConfigurations();
-        output.WriteLine($"@NQ 240m, orologio candidato {candidateClock}m contro 1m, {configurazioni.Count} configurazioni\n");
-
-        var misure = new List<(string Nome, decimal? Cand, decimal? Minuto, decimal NetCand, decimal NetMinuto)>();
-        foreach (var (nome, parametri) in configurazioni)
-        {
-            var candidate = runner.Run(NqJob() with { Parameters = parametri, ClockTimeframeMinutes = candidateClock });
-            var accurate = runner.Run(NqJob() with { Parameters = parametri, ClockTimeframeMinutes = 1 });
-            misure.Add((nome, objective.Score(candidate), objective.Score(accurate), candidate.NetProfit, accurate.NetProfit));
-            output.WriteLine(
-                $"{nome,-26} {candidateClock,3}m {candidate.Trades,4}t {candidate.NetProfit,9:N0} (p {Fmt(objective.Score(candidate))}) | " +
-                $"1m {accurate.Trades,4}t {accurate.NetProfit,9:N0} (p {Fmt(objective.Score(accurate))})");
-        }
-
-        var confrontabili = misure.Where(m => m.Cand.HasValue && m.Minuto.HasValue).ToList();
-        output.WriteLine($"\nammissibili su entrambi: {confrontabili.Count} su {misure.Count}");
-        if (confrontabili.Count < 5) return;
-
-        var rhoPunteggio = Spearman(confrontabili.Select(m => m.Cand!.Value).ToList(), confrontabili.Select(m => m.Minuto!.Value).ToList());
-        var rhoNetto = Spearman(confrontabili.Select(m => m.NetCand).ToList(), confrontabili.Select(m => m.NetMinuto).ToList());
-        var topCand = confrontabili.OrderByDescending(m => m.Cand!.Value).Take(3).Select(m => m.Nome).ToHashSet();
-        var topMin = confrontabili.OrderByDescending(m => m.Minuto!.Value).Take(3).Select(m => m.Nome).ToHashSet();
-
-        output.WriteLine($"Spearman sul PUNTEGGIO ({candidateClock}m vs 1m): {rhoPunteggio:N3}");
-        output.WriteLine($"Spearman sul NETTO:                     {rhoNetto:N3}");
-        output.WriteLine($"prime 3 in comune: {topCand.Intersect(topMin).Count()} su 3");
-    }
-
-    private static SweepJob NqJob() => new("PT2_NQ_PCH_001_240")
-    {
-        InitialCapital = 1_000_000m,
-        CommissionPerContract = 4m,
-        Holding = AccountHoldingPolicy.Default with { AllowOvernight = true, AllowOverweek = true }
-    };
-
-    private static async Task<SweepSeries?> LoadNqAsync()
-    {
-        if (!Directory.Exists(Path.Combine(RepositoryPath, "datafeed")))
-            return null;
-
-        var settings = new PiootooSettings
-        {
-            BasePath = RepositoryPath,
-            RepositoryPath = @"[BasePath]\datafeed",
-            ExternalRepositoryPath = @"[BasePath]\datafeed-external"
-        };
-        var dataFeed = new PiootooDataFeedService(new DatafeedCatalog(settings));
-        // Feed del vendor: e' l'unico che ha 240, 15 e 1 minuto insieme sullo stesso simbolo.
-        return await SweepSeries.LoadAsync(
-            dataFeed, "@NQ", [240, 15, 1], StartUtc, EndUtc, warmupDays: 30d);
-    }
-
+    // La stessa misura su NQ a 4 ore, con un orologio intermedio, viveva qui fino al 22/09/2026 e
+    // girava su PT2_NQ_PCH_001_240. Quella classe e' stata rimossa insieme al resto della serie
+    // PT2 e non ha un sostituto a 4 ore nel catalogo, quindi lo studio e' stato tolto invece di
+    // essere ripuntato su una cella che non e' la sua. La risposta che aveva dato resta in
+    // decisioni.md (22/09/2026): su NQ l'orologio a 15 minuti ordina come quello al minuto,
+    // Spearman 0,980 e 2 prime 3 su 3, mentre su FDAX il veloce dava 0,021. Serviva a sapere se
+    // ES, BP ed EC — che dal vendor hanno i 15 minuti ma non il minuto — fossero cercabili.
     private static string Fmt(decimal? value) => value.HasValue ? value.Value.ToString("N2") : "n/d";
 
     /// <summary>

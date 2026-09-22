@@ -235,6 +235,20 @@ sweep a 4 ore.
   se ne tiene una per coppia. Limite dichiarato: serie sparse, misura sui giorni di chiusura e non
   sull'esposizione. Per la scaletta dei motori vale l'ordine pratico (classi di partenza e griglie
   pronte), non la famiglia.
+- **Le tre griglie grosse del 22/09 dicono tutte no, e ora sui costi veri.** GC 4h sul periodo lungo
+  (icerca/gc-4h-griglia-grossa-lunga.md): 203 ammissibili su 450 e **34 equilibrate**, ma con i
+  criteri del metodo **zero** passano — il miglior UngerFit in campione è 0,76 contro 1, il miglior
+  guadagno annuo su drawdown è 0,45 contro 2. Fuori campione tutto migliora di tre o quattro volte
+  mentre la volatilità dell'oro cresce di due volte e mezzo: il sistema non migliora, segue il
+  mercato. CL 30m su dieci anni (icerca/cl-30m-griglia-grossa.md): **zero equilibrate**, profit
+  factor 1,0-1,09, average trade 4,77 dollari contro un tick da 10. NQ 15m: già scritto stamattina.
+  **Tre celle su tre: il Price Channel nudo non regge le soglie.** Il prossimo test non è un'altra
+  griglia sullo stesso motore.
+  Due leve misurate che restano: sull'oro lo **short perde** e l'**uscita prima del rollover** batte
+  quella a fine sessione (26 equilibrate su 34 contro 8) — la stessa leva che su FDAX ha prodotto la
+  002, e il giro corto l'aveva dichiarata irrilevante perché in quel periodo guadagnava tutto. Su CL
+  è il contrario: lo short è l'unica direzione con media fuori campione positiva.
+
 - **Raccolta ICS di GC, CL, BP avviata la notte del 21/09**: piano di sola raccolta `RACCOLTA-ICS`
   (workspace `raccolta-ics`), `PiootooDatafeedSyncBot` un anno per run, `PiootooSpreadDumpBot` un
   mese con broker `ICS` esplicito. Lo **swap ICS** dei tre è già in

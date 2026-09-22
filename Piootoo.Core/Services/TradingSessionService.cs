@@ -1191,7 +1191,10 @@ public sealed class TradingSessionService : ITradingSessionService
         if (filter.StrategiesFilter.Count == 0)
             throw new ArgumentException("Il masterfilter del workspace è vuoto.");
 
-        var definitions = StrategyFactory.GetRegisteredStrategies();
+        // Con i contenitori: servono per NOMINARLI nel rifiuto poco piu' sotto. Senza, un masterfilter
+        // che ne contiene uno direbbe soltanto "ID non eseguibile", che manda a cercare un errore di
+        // battitura invece della cosa vera.
+        var definitions = StrategyFactory.GetRegisteredStrategies(includeResearchContainers: true);
         var byId = definitions.ToDictionary(x => x.Id, StringComparer.OrdinalIgnoreCase);
         var invalid = filter.StrategiesFilter.Where(id => !byId.ContainsKey(id)).ToArray();
         if (invalid.Length != 0)
@@ -1215,6 +1218,20 @@ public sealed class TradingSessionService : ITradingSessionService
                 $"Tutte le {filter.StrategiesFilter.Count} strategie del masterfilter del workspace " +
                 $"'{request.WorkspaceId}' sono spente: la sessione non avrebbe nulla da valutare. " +
                 "Riaccendine almeno una nel piano.");
+
+        // Seconda rete sui contenitori di ricerca. La prima e' il rifiuto al salvataggio del
+        // masterfilter (WorkspaceService.RejectResearchContainers), ma i masterfilter scritti prima
+        // di quel controllo sono ancora su disco: la sessione e' l'ultimo punto prima che un
+        // contenitore mandi ordini veri, e qui non si prosegue in silenzio. Spegnerlo nel piano e'
+        // sufficiente, perche' il controllo guarda cio' che resta acceso.
+        var containers = selectedIds.Where(id => byId[id].IsResearchContainer).ToArray();
+        if (containers.Length != 0)
+            throw new ArgumentException(
+                "Contenitori di ricerca accesi nel masterfilter: " + string.Join(", ", containers) +
+                ". Sono classi che danno a uno studio un simbolo e un timeframe, con i pattern alle " +
+                "sentinelle, e i loro parametri non sono stati scelti da nessuno: una sessione che li " +
+                "esegue manda ordini veri su una strategia che non esiste. Toglili dal masterfilter " +
+                "oppure spegnili nel piano.");
 
         var strategies = selectedIds.Select(id =>
         {

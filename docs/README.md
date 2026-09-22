@@ -116,9 +116,10 @@ non esiste più, si tiene per il perché.
   strategie disabilitate perché doppioni, motori senza più sottoclassi.
   *Stabile.*
 - [`domini/mappa-strategie-pt2.md`](domini/mappa-strategie-pt2.md) — la serie
-  `PT2_*` (`Piootoo.Strategies/PT2Strategies/`), porting del paniere rifatto di
-  `run-engine-v2/DOSSIER_PANIERE_001.md`: scheda → classe, parametri, cosa non è
-  ancora verificato, come si estende la serie. *Stabile.*
+  `PT2_*`, porting del paniere rifatto di `run-engine-v2/DOSSIER_PANIERE_001.md`:
+  scheda → classe e parametri. **Serie rimossa dal progetto il 22/09/2026**
+  perché nessuna delle quattro classi aveva superato la validazione ai costi
+  veri. *Storia: non descrive più il codice.*
 - [`domini/feed-worker.md`](domini/feed-worker.md) — `FeedRunner`/
   `FeedWorker`, invio barre chiuse. *Bozza.*
 

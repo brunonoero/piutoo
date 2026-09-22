@@ -887,6 +887,27 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                 ["masterfilterStrategies"] = masterfilterStrategies.ToString(CultureInfo.InvariantCulture)
             });
 
+            // Un contenitore di ricerca nel masterfilter: qui non si rifiuta — un backtest non manda
+            // ordini, e misurare un contenitore e' legittimo — ma il run non misura una strategia, e
+            // chi rilegge il summary fra un mese deve trovarlo scritto. La sessione invece lo
+            // rifiuta, perche' li' gli ordini sono veri.
+            var contenitori = createdStrategies
+                .Where(entry => entry.Instance.IsResearchContainer)
+                .Select(entry => entry.Instance.Name)
+                .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            if (contenitori.Count > 0)
+            {
+                var avviso =
+                    $"[contenitore] il run include {contenitori.Count} contenitori di ricerca: " +
+                    string.Join(", ", contenitori) +
+                    ". Hanno i pattern alle sentinelle e parametri che nessuna validazione ha visto: " +
+                    "il loro P&L misura il motore nudo, non una strategia, e sommato alle altre " +
+                    "sposta l'equity del portafoglio senza dire nulla su di esse.";
+                Console.WriteLine($"[Backtesting] {avviso}");
+                diagnostics.AddRunDiagnostic(avviso);
+            }
+
             // Il flat di sessione promette di non attraversare il rollover: la promessa regge solo se
             // il rollover del broker cade DENTRO la finestra. Un piano che flatta alle 20:45 su un
             // broker che fa rollover alle 20:30 paga il finanziamento ogni giorno lo stesso, e senza

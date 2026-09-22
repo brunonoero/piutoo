@@ -94,12 +94,21 @@ public sealed class SweepValidationTests(ITestOutputHelper output)
     }
 
     /// <summary>
-    /// Una configurazione che in campione sembra ottima e fuori campione non regge deve essere
-    /// <b>scartata</b>. Si costruisce apposta: lo stop strettissimo che il percorso veloce premia,
-    /// misurato dove va misurato — sull'orologio fitto, dove non regge.
+    /// Il validatore <b>discrimina</b>: una configurazione che non regge viene scartata con un
+    /// verdetto che dice perche', e una che regge passa. Sono due asserzioni nello stesso test di
+    /// proposito — un validatore che scarta tutto passerebbe la prima e fallirebbe la seconda, ed e'
+    /// il modo tipico in cui una validazione smette di validare senza che nessuno se ne accorga.
+    ///
+    /// <para><b>La configurazione scartata cade in campione, non fuori</b>, ed e' un cambiamento
+    /// rispetto a prima. Fino al 22/09/2026 il test girava su <c>PT2_NQ_PCH_001_240</c> e costruiva
+    /// il caso opposto: bene dentro, male fuori. Su <c>@FDAX</c> in questo periodo quel caso non
+    /// esiste — misurato su sei stop da 100 a 5000, il fuori campione e' sempre migliore del
+    /// campione, con tenute fra il 119% e il 5.322% — quindi asserirlo avrebbe richiesto di
+    /// scegliere un periodo apposta, cioe' di costruire il risultato invece di misurarlo. Lo stop a
+    /// 500 e' l'unico dei sei che cade, e cade perche' in campione perde 7.911.</para>
     /// </summary>
     [Fact]
-    public void AConfigurationThatCollapsesOutOfSampleIsRejected()
+    public void TheValidatorRejectsWhatDoesNotHoldAndPassesWhatDoes()
     {
         var series = LoadSeries([240, 1]);
         if (series is null) return;
@@ -117,12 +126,16 @@ public sealed class SweepValidationTests(ITestOutputHelper output)
                 MinProfitableWindows = 2
             });
 
-        var validation = validator.Validate(Template(),
-            new Dictionary<string, object> { ["StopLoss"] = 250, ["MaxBars"] = 0 });
+        var scartata = validator.Validate(Template(),
+            new Dictionary<string, object> { ["StopLoss"] = 500, ["MaxBars"] = 0 });
+        output.WriteLine($"scartata: {scartata}");
+        Assert.False(scartata.Passed);
+        Assert.NotEmpty(scartata.Verdict);
 
-        output.WriteLine(validation.ToString());
-        Assert.False(validation.Passed);
-        Assert.NotEmpty(validation.Verdict);
+        var promossa = validator.Validate(Template(),
+            new Dictionary<string, object> { ["StopLoss"] = 2000, ["MaxBars"] = 0 });
+        output.WriteLine($"promossa: {promossa}");
+        Assert.True(promossa.Passed, $"doveva passare: {promossa}");
     }
 
     /// <summary>
@@ -185,7 +198,10 @@ public sealed class SweepValidationTests(ITestOutputHelper output)
 
     // ------------------------------------------------------------------ infrastruttura
 
-    private static SweepJob Template() => new("PT2_NQ_PCH_001_240")
+    // Su @FDAX dal 22/09/2026: la classe di prima era PT2_NQ_PCH_001_240, rimossa con il resto
+    // della serie PT2. Qui serve una Price Channel a 4 ore che legga tutte le chiavi della sweep, e
+    // quale simbolo sia non cambia cosa il test misura.
+    private static SweepJob Template() => new("PT3B_FDAX_PCH_001_240")
     {
         InitialCapital = 1_000_000m,
         CommissionPerContract = 4m,
@@ -205,7 +221,7 @@ public sealed class SweepValidationTests(ITestOutputHelper output)
         };
 
         return SweepSeries
-            .LoadAsync(new PiootooDataFeedService(new DatafeedCatalog(settings)), "@NQ",
+            .LoadAsync(new PiootooDataFeedService(new DatafeedCatalog(settings)), "@FDAX",
                 timeframes ?? [240], StartUtc, EndUtc)
             .GetAwaiter().GetResult();
     }

@@ -20,8 +20,9 @@
 
 [CmdletBinding()]
 param(
-    # In ordine di durata: un errore di impostazione si scopre in venti minuti invece che in due ore.
-    [string[]] $Celle = @("fdax-1h", "fdax-4h", "nq-4h", "nq-30m"),
+    # Resta la sola fdax-4h: le altre tre celle hanno perso la classe di partenza con la rimozione
+    # della serie PT2 il 22/09/2026, e stanno commentate piu' sotto con la loro taratura.
+    [string[]] $Celle = @("fdax-4h"),
     # Spread per ora e non costante. E' il default perche' una sweep SCEGLIE gli orari: con una
     # costante giornaliera le fasce a spread largo sembrano economiche e la ricerca ci si infila.
     # Misurato il 20/09/2026: FDAX 1,13-1,33 punti di giorno e 2,93-3,33 di notte, e due celle su
@@ -75,31 +76,45 @@ $exe = Join-Path $radice "Piootoo.Sweep\bin\Release\net8.0\piootoo-sweep.exe"
 
 # Le celle, nell'ordine in cui conviene lanciarle: prima le piu' corte, cosi' i primi risultati
 # arrivano presto e un errore di impostazione si scopre in due ore invece che in dieci.
+#
+# LA CLASSE DI PARTENZA NON E' UN DETTAGLIO: la sweep la istanzia e le sovrascrive i parametri, ma
+# eredita cio' che i parametri NON coprono - l'etichetta della barra, il fuso della finestra, il
+# tick. Deve quindi essere del simbolo e del timeframe della cella.
+#
+# Il 22/09/2026 la serie PT2 e' stata rimossa dal progetto e con lei le classi di partenza di tre
+# celle su quattro: nq-4h (PT2_NQ_PCH_001_240), nq-30m (PT2_NQ_PCH_002_30) e fdax-1h
+# (PT2_FDAX_BSW_001_60). Quelle celle restano qui COMMENTATE e non cancellate, perche' la loro
+# taratura - fasi spezzate, stime, il perche' - e' informazione misurata che non conviene riscrivere
+# da zero. Per rilanciarle serve prima una classe di partenza PT3B su quella cella.
+#
+# La ricerca su NQ, nel frattempo, ha gia' dato la sua risposta: ne' la 4h ne' i 15 minuti hanno un
+# edge che regga (ricerca/nq-catalogo-costi-veri.md, nq-15m-griglia-grossa.md), quindi le due celle
+# NQ non sono una priorita'.
 $definizioni = [ordered]@{
-    "nq-4h" = @{
-        Strategia = "PT2_NQ_PCH_001_240"; Simbolo = "@NQ"; Timeframe = 240; Motore = "PC"
-        SpezzaPattern = $false; Stima = "~1,5 ore"
-    }
     "fdax-4h" = @{
-        Strategia = "PT2_FDAX_PCH_001_240"; Simbolo = "@FDAX"; Timeframe = 240; Motore = "PC"
+        Strategia = "PT3B_FDAX_PCH_001_240"; Simbolo = "@FDAX"; Timeframe = 240; Motore = "PC"
         SpezzaPattern = $false; Stima = "~2,5 ore"
     }
-    "nq-30m"  = @{
-        # Col prodotto completo questa cella e' impraticabile, e non per stima ma per misura: il
-        # 20/09/2026 la sola fase dei pattern neutrali (3.025 x 2 semi) ha richiesto 2 ore e 22
-        # minuti, contro i 10 minuti della stessa fase su una 4h - 88.000 barre in campione invece
-        # di 11.500. Con i direzionali, tre volte e mezzo piu' grandi, il totale superava le dieci
-        # ore. Fasi spezzate, con il prezzo dichiarato sulle interazioni fra pattern.
-        Strategia = "PT2_NQ_PCH_002_30"; Simbolo = "@NQ"; Timeframe = 30; Motore = "PC"
-        SpezzaPattern = $true; Stima = "~2 ore, fasi pattern spezzate"
-    }
-    "fdax-1h" = @{
-        # Le due fasi pattern del BIASW sono 153 x 152 combinazioni ciascuna: col prodotto completo
-        # questa cella da sola supera le nove ore. Spezzate diventano minuti, al prezzo dichiarato:
-        # una coppia richiesto+vietato che rende solo insieme non e' piu' raggiungibile.
-        Strategia = "PT2_FDAX_BSW_001_60"; Simbolo = "@FDAX"; Timeframe = 60; Motore = "BIASW"
-        SpezzaPattern = $true; Stima = "~1 ora, fasi pattern spezzate"
-    }
+    # "nq-4h" = @{
+    #     Strategia = "<serve una PT3B su @NQ 240>"; Simbolo = "@NQ"; Timeframe = 240; Motore = "PC"
+    #     SpezzaPattern = $false; Stima = "~1,5 ore"
+    # }
+    # "nq-30m"  = @{
+    #     # Col prodotto completo questa cella e' impraticabile, e non per stima ma per misura: il
+    #     # 20/09/2026 la sola fase dei pattern neutrali (3.025 x 2 semi) ha richiesto 2 ore e 22
+    #     # minuti, contro i 10 minuti della stessa fase su una 4h - 88.000 barre in campione invece
+    #     # di 11.500. Con i direzionali, tre volte e mezzo piu' grandi, il totale superava le dieci
+    #     # ore. Fasi spezzate, con il prezzo dichiarato sulle interazioni fra pattern.
+    #     Strategia = "<serve una PT3B su @NQ 30>"; Simbolo = "@NQ"; Timeframe = 30; Motore = "PC"
+    #     SpezzaPattern = $true; Stima = "~2 ore, fasi pattern spezzate"
+    # }
+    # "fdax-1h" = @{
+    #     # Le due fasi pattern del BIASW sono 153 x 152 combinazioni ciascuna: col prodotto completo
+    #     # questa cella da sola supera le nove ore. Spezzate diventano minuti, al prezzo dichiarato:
+    #     # una coppia richiesto+vietato che rende solo insieme non e' piu' raggiungibile.
+    #     Strategia = "<serve una PT3B su @FDAX 60 BIASW>"; Simbolo = "@FDAX"; Timeframe = 60; Motore = "BIASW"
+    #     SpezzaPattern = $true; Stima = "~1 ora, fasi pattern spezzate"
+    # }
 }
 
 New-Item -ItemType Directory -Force $uscita | Out-Null

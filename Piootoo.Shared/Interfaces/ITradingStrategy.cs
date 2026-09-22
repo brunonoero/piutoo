@@ -62,6 +62,28 @@ public interface ITradingStrategy
     /// </summary>
     StrategyHolding Holding => StrategyHolding.Multiday;
 
+    /// <summary>
+    /// <b>Contenitore di ricerca</b>: una classe che esiste solo per dare a uno studio un simbolo,
+    /// un timeframe e un <c>Initialize</c> che legga ogni leva. Non e' una strategia, e i suoi
+    /// parametri non sono stati scelti da nessuno — tipicamente sono le sentinelle che spengono i
+    /// pattern.
+    ///
+    /// <para><b>Perche' e' un dato e non un commento.</b> Fino al 22/09/2026 la distinzione viveva
+    /// solo nel commento XML della classe, che nessuna schermata mostra: nel catalogo, nel
+    /// masterfilter e nel tab Strategie del piano un contenitore era indistinguibile da una
+    /// finalista. E' cosi' che <c>PT3B_NQ_PCH_001_15</c> e' finito in un piano eseguito, dove ha
+    /// prodotto 334 trade e −17.612 con parametri che nessuna validazione aveva mai visto.</para>
+    ///
+    /// <para><b>Cosa comporta.</b> Il server <b>rifiuta</b> di metterlo in un masterfilter e di
+    /// aprirci una sessione: non e' un avviso da leggere dopo, perche' il danno si vede solo a conto
+    /// mosso. Resta invece pienamente utilizzabile dagli studi, che lo istanziano per Id senza
+    /// passare dal masterfilter — ed e' esattamente il suo mestiere.</para>
+    ///
+    /// <para>Una cella che produce una finalista non cancella il contenitore: nasce una classe
+    /// accanto, con i parametri trovati e i numeri nel commento. Il contenitore serve al giro dopo.</para>
+    /// </summary>
+    bool IsResearchContainer => false;
+
 
     /// <summary>
     /// Valuta la strategia usando dati OHLC e lo stato di esecuzione fornito

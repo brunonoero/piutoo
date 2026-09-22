@@ -240,6 +240,14 @@ public abstract class EasyEngineBase : StatelessEasyStrategyBase
     public virtual StrategyHolding Holding =>
         AppliesSessionExit ? StrategyHolding.Intraday : StrategyHolding.Multiday;
 
+    /// <summary>
+    /// Contenitore di ricerca: vedi <see cref="ITradingStrategy.IsResearchContainer"/>. Dichiarata
+    /// qui come membro virtuale — e non lasciata al solo default dell'interfaccia — perche' un
+    /// contenitore deve poterla scrivere con <c>override</c> accanto a simbolo e timeframe, dove
+    /// chi legge la classe la trova.
+    /// </summary>
+    public virtual bool IsResearchContainer => false;
+
     // ------------------------------------------------------------------ orologio di borsa
 
     private SessionClock? _clock;

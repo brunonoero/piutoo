@@ -25,4 +25,11 @@ public sealed class StrategyCatalogItem
 
     /// <summary>Etichetta pronta per la griglia: "intraday", "overnight", "overnight+overweek".</summary>
     public string HoldingLabel { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Contenitore di ricerca, non una strategia da eseguire: vedi
+    /// <c>ITradingStrategy.IsResearchContainer</c>. Le schermate lo marcano e il server rifiuta di
+    /// metterlo in un masterfilter o in una sessione.
+    /// </summary>
+    public bool IsResearchContainer { get; set; }
 }

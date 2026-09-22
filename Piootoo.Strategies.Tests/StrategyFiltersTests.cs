@@ -18,10 +18,13 @@ public sealed class StrategyFiltersTests
     [Theory]
     [InlineData("PT3B_FDAX_PCH_001_240", StrategyFilters.SeriesPt3b)]
     [InlineData("PT3B_NQ_PCH_001_15", StrategyFilters.SeriesPt3b)]
-    [InlineData("PT2_NQ_PCH_001_240", StrategyFilters.SeriesPt2)]
     [InlineData("PTS_GC_PCH_004_240", StrategyFilters.SeriesPts)]
     [InlineData("Easy_218_GC_60", "altro")]
     [InlineData("", "altro")]
+    // La serie PT2 e' stata rimossa dal progetto il 22/09/2026. Un Id rimasto in un masterfilter
+    // vecchio deve finire in «altro», che nessuna combo elenca: quell'Id non e' piu' eseguibile e
+    // deve saltare all'occhio invece di nascondersi sotto una serie.
+    [InlineData("PT2_NQ_PCH_001_240", "altro")]
     public void TheSeriesOfAStrategyIsThePrefixOfItsId(string strategyId, string expected) =>
         Assert.Equal(expected, StrategyFilters.SeriesOf(strategyId));
 
@@ -55,6 +58,6 @@ public sealed class StrategyFiltersTests
         Assert.True(StrategyFilters.Passes(id, "@FDAX", null, null));
         Assert.True(StrategyFilters.Passes(id, "@FDAX", "@FDAX", StrategyFilters.SeriesPt3b));
         Assert.False(StrategyFilters.Passes(id, "@FDAX", "@NQ", StrategyFilters.SeriesPt3b));
-        Assert.False(StrategyFilters.Passes(id, "@FDAX", null, StrategyFilters.SeriesPt2));
+        Assert.False(StrategyFilters.Passes(id, "@FDAX", null, StrategyFilters.SeriesPts));
     }
 }

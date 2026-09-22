@@ -15,7 +15,7 @@ namespace Piootoo.Sweep;
 /// suo esito e' un documento da leggere e archiviare, non un verde o un rosso.</para>
 ///
 /// <example>
-/// piootoo-sweep --strategy PT2_NQ_PCH_001_240 --symbol @NQ --timeframe 240 ^
+/// piootoo-sweep --strategy PT3B_FDAX_PCH_001_240 --symbol @FDAX --timeframe 240 ^
 ///               --broker ICS --spread-broker FTMOPLATFORM ^
 ///               --from 2014-07-17 --split 2022-01-01 --to 2026-09-17 ^
 ///               --out C:\ricerca\nq-4h.md

@@ -104,10 +104,48 @@ public sealed class WorkspaceService
         var path = GetExistingWorkspacePath(workspaceId);
         filter.Name = string.IsNullOrWhiteSpace(filter.Name) ? workspaceId : filter.Name.Trim();
         filter.StrategiesFilter = filter.StrategiesFilter.Distinct(StringComparer.OrdinalIgnoreCase).Order().ToList();
+        RejectResearchContainers(filter.StrategiesFilter);
         AtomicFileWriter.WriteAllText(
             Path.Combine(path, MasterFilterFileName),
             JsonSerializer.Serialize(filter, _jsonOptions));
         return filter;
+    }
+
+    /// <summary>
+    /// Rifiuta un masterfilter che contenga <b>contenitori di ricerca</b>
+    /// (<c>ITradingStrategy.IsResearchContainer</c>): classi che esistono per dare a uno studio un
+    /// simbolo e un timeframe, con i parametri alle sentinelle, e che nessuna validazione ha mai
+    /// visto.
+    ///
+    /// <para><b>Perche' qui.</b> Il masterfilter e' l'imbuto: da li' passano il backtest interno, i
+    /// piani e le sessioni. Un controllo piu' a valle avrebbe dovuto essere ripetuto in tre punti, e
+    /// il terzo che manca e' quello che costa. <c>PT3B_NQ_PCH_001_15</c> e' arrivato in un piano
+    /// eseguito proprio cosi'.</para>
+    ///
+    /// <para><b>Non e' un avviso.</b> Un contenitore in esecuzione non si riconosce dai trade: fa
+    /// segnali plausibili con parametri che nessuno ha scelto, e il conto lo scopre dopo. Gli studi
+    /// non passano di qui — istanziano la classe per Id — quindi il contenitore resta pienamente
+    /// utilizzabile dove serve.</para>
+    /// </summary>
+    private static void RejectResearchContainers(IEnumerable<string> strategyIds)
+    {
+        var containers = StrategyFactory.GetRegisteredStrategies(includeResearchContainers: true)
+            .Where(strategy => strategy.IsResearchContainer)
+            .Select(strategy => strategy.Id)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var refused = strategyIds
+            .Where(id => containers.Contains(id.Trim()))
+            .ToList();
+
+        if (refused.Count == 0) return;
+
+        throw new InvalidOperationException(
+            $"Il masterfilter non puo' contenere contenitori di ricerca: {string.Join(", ", refused)}. " +
+            "Sono classi che esistono per dare a uno studio un simbolo e un timeframe, con i pattern " +
+            "alle sentinelle, e i loro parametri non sono stati scelti da nessuno. Gli studi le usano " +
+            "direttamente per Id, senza masterfilter. Quando una cella produce una finalista, nasce " +
+            "una classe accanto al contenitore: e' quella che va nel masterfilter.");
     }
 
     /// <summary>Account globali, condivisi da tutti i workspace e ordinati per nome.</summary>
