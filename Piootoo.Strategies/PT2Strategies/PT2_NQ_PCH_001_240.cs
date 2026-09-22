@@ -165,6 +165,12 @@ public sealed class PT2_NQ_PCH_001_240 : PriceChannelEngine
             Direction = Convert.ToInt32(direction);              // 0 = entrambi, 1 = solo long, 2 = solo short
         if (parameters.TryGetValue("IntradayOnly", out var intradayOnly))
             IntradayOnly = Convert.ToInt32(intradayOnly) != 0;   // 1 = flat a fine sessione, 0 = multiday
+        // ExitHour della sweep (21/09/2026): -1 = fine sessione, cioe' il comportamento del motore di
+        // ricerca; un'ora e' l'uscita anticipata prima del rollover. Vedi EasyEngineBase.SessionExitTime.
+        if (parameters.TryGetValue("ExitHour", out var exitHour))
+            SessionExitTime = Convert.ToInt32(exitHour) < 0
+                ? null
+                : new TimeOnly(Convert.ToInt32(exitHour), 0);
         if (parameters.TryGetValue("SkipDay", out var skipDay))
             SkipDay = Convert.ToInt32(skipDay);                  // 0 = lunedi' .. 4 = venerdi', -1 = nessuno
         if (parameters.TryGetValue("DvolMin", out var dvolMin))

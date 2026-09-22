@@ -24,12 +24,12 @@ trade su 861 erano diversi.
 Quello che il runner non fa: artefatti su disco, diagnostica per evento, equity per ora. Sono le
 ragioni per cui un run costa millisecondi invece di decine di secondi.
 
-## I due orologi, e perché non sono intercambiabili
+## Un orologio solo: il minuto
 
-| orologio | uso | costo |
-|---|---|---|
-| timeframe della strategia | ricerca: **ordina** le configurazioni | ~250 ms |
-| un minuto | verifica e fasi di rischio: **misura** una configurazione | ~8,5 s |
+Dal 21/09/2026 **ogni fase** gira sul feed da un minuto. Fino a quel giorno le fasi che decidono
+lo stop giravano al minuto e le altre — trigger, pattern, orari — sull'orologio al timeframe della
+strategia, tredici volte più economico. La distinzione è stata tolta perché misurata falsa, e la
+storia merita di restare scritta.
 
 Senza il feed da un minuto lo stop è valutato sulla chiusura della barra della strategia invece che
 dentro, e la barra che lo avrebbe colpito per poi recuperare non lo colpisce. **L'errore ha un
@@ -42,9 +42,31 @@ verso**: più lo stop è stretto, più il percorso veloce è ottimista. Misurato
 | $2.500 | $417.198 | $173.165 | +$244.033 |
 | $4.595 | $220.181 | $231.822 | −$11.641 |
 
-Una fase di risk management girata sul percorso veloce sceglierebbe **sempre** lo stop più stretto
-della griglia, che nel conto vero è il peggiore. Per questo le fasi che decidono lo stop dichiarano
-`SweepPhase.RequiresAccurateClock`.
+Questo si sapeva, ed è il motivo per cui lo stop non si è mai scelto sul veloce. L'argomento per
+tenerlo sulle altre fasi era che sbagliasse i *valori* ma conservasse l'*ordinamento*: dentro una
+fase lo stop è fisso, quindi tutte le combinazioni sbaglierebbero nello stesso verso. Nessuno
+l'aveva misurato. `SweepFastClockRankingTests` lo ha fatto su 22 configurazioni vere di `@FDAX
+240m`, stop fisso a 1500:
+
+| | Spearman fra i due orologi |
+|---|---:|
+| sul punteggio dell'obiettivo (quello che ordina) | **0,021** |
+| sul netto | 0,694 |
+| prime 3 in comune | 1 su 3 |
+
+Il netto correla poco; il punteggio per niente. Il punteggio è netto **diviso** il drawdown del
+peggior tratto, e il drawdown è esattamente ciò che il veloce non vede — e non lo vede in misura
+diversa da configurazione a configurazione, a seconda di quante barre volatili ciascuna attraversa.
+Al veloce i punteggi andavano da 1,7 a 3,6; al minuto erano quasi tutti negativi. Le fasi veloci
+ordinavano rumore, e la sweep del 21/09 sera lo ha mostrato dal lato pratico: sei finaliste tutte in
+perdita fuori campione, battute dalla configurazione di partenza con un solo parametro cambiato a
+mano.
+
+Il costo di girare tutto al minuto: su `@FDAX 240m` da 37 minuti a circa tre ore, sei core in
+parallelo. `SweepOptimizerOptions.UseFastClockForOrderingPhases` riaccende il comportamento vecchio
+per rimisurarlo, e il log di avvio dichiara l'orologio di ogni fase — perché fasi misurate su
+orologi diversi non sono confrontabili, e il resoconto le stampava nella stessa colonna senza dirlo.
+La riserva: 0,021 viene da una cella sola, e il test va ripetuto su NQ.
 
 ## Le fasi
 
@@ -63,6 +85,40 @@ direzionali **negativi** del mirroring invertito senza cui i setup contrarian no
 somma — sul BIAS settimanale da 23.256 combinazioni a 153 e 152, cioè da nove ore a pochi minuti —
 al prezzo dichiarato: una coppia richiesto+vietato che rende solo insieme non è più raggiungibile.
 È una **deviazione** dal metodo, non una variante equivalente, e il resoconto la stampa in testa.
+
+### L'ora di uscita di sessione: la seconda deviazione dichiarata
+
+`ExitHour` (PC intraday, dal 21/09/2026) sceglie **a che ora** l'uscita di sessione chiude la
+posizione. `-1` — primo valore della griglia, quindi il punto di partenza della sweep — è la fine
+della sessione, cioè il comportamento di sempre.
+
+Esiste perché la sessione della ricerca è il **giorno di calendario europeo**: per FDAX finisce
+alle 00:59, cioè *dopo* il rollover del broker (21:00 su ICS, 20:59 su FTMO). Una PC dichiarata
+`intraday_only = 1` attraversa quindi il rollover ogni giorno e paga il finanziamento come una
+multiday — su `PT3B_FDAX_PCH_001_240` sono 879 trade su 1.317 e il 28% del lordo. Non è un costo
+che compra qualcosa: la posizione resta aperta nelle ore in cui il future è chiuso e quota solo il
+CFD.
+
+Come `SplitPatternPhases`, è una **deviazione** dal metodo e non una sua variante: `price_channel.py`
+conosce il solo `exit_on_session_end` booleano, e una configurazione con `ExitHour != -1` non è
+riproducibile dal motore Python. Il resoconto la dichiara.
+
+Tre scelte che la rendono onesta:
+
+- **`SessionEnd` non si tocca.** Quel valore definisce anche gli OHLC di sessione, i pattern e la
+  chiave del limite di ingressi: spostarlo sarebbe un'altra strategia, non un altro orario di
+  uscita. `SessionExitTime` è un campo suo e tocca la sola deadline.
+- **Un ingresso che nascerebbe dopo la propria ora di uscita non nasce.** Il comportamento storico
+  di `ResolveCloseAtUtc` rimanda alla sessione successiva, e qui trasformerebbe in overnight proprio
+  la posizione che quell'ora esiste per chiudere prima della notte, smentendo la `Holding`
+  dichiarata. L'overload con `rollToNextSession: false` restituisce `null` e il motore scarta.
+- **La fase gira sull'orologio fitto.** `CloseAtUtc` lo applica `UpdateMarketPrices`, che sul
+  percorso veloce gira una volta per barra della strategia: una chiusura alle 20:00 misurata a 240
+  minuti cadrebbe sulla barra dopo, cioè fino a quattro ore di finanziamento *in più* di quelle che
+  il parametro toglie. La misura direbbe il contrario del vero.
+
+La fase sta **dopo gli orari e prima dello stop**: è una decisione di durata, parente di `MaxBars`,
+e va scelta prima che stop e target vengano tarati addosso a una durata diversa.
 
 ## Il criterio: il peggiore dei tratti, non il totale
 

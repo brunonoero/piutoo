@@ -16,6 +16,135 @@ Come funziona il tutto sta in [`domini/ricerca-parametri.md`](domini/ricerca-par
 in [`domini/spread-e-costo-di-transazione.md`](domini/spread-e-costo-di-transazione.md); il perché
 delle scelte in `decisioni.md` alle voci del 20 e 21 settembre.
 
+## Mattina del 22/09: prima di toccare qualunque cosa, una rilettura senza codice
+
+Il primo lavoro della mattina non è produrre conclusioni, è **rileggere quelle di ieri**, in una
+sessione separata e **senza aprire il codice**. Un lettore fresco non ha i bias di chi ha passato
+la giornata dentro i run: se una strada è stata presa per abitudine, la vede lui. Due documenti:
+
+1. **`compare/compare-0048/esito.md`** — il nodo dei tre run cTrader. Domande da fargli, non da
+   dargli per scontate: la partizione 0%/100% sul minuto tondo basta davvero a dire "tick contro
+   barre", o c'è un'altra spiegazione compatibile? I 13 stop confrontati col feed ICS sono scelti
+   come i più slittati: il meccanismo vale anche sugli altri 107? Il test t in §6 bis usa i netti
+   per trade come indipendenti: lo sono? E la conclusione "più celle, non più storia" è una
+   deduzione o una preferenza?
+2. **Il resoconto della ricerca FDAX 4h al minuto** (`ricerca/fdax-4h-pc-tutto-al-minuto.md`,
+   partita la sera del 21/09). La domanda che le era stata assegnata è "batte la 002 fuori
+   campione?": prima di rispondere, controllare che il confronto sia sullo stesso split, gli stessi
+   costi (ICS+FTMO, il peggiore) e lo stesso orologio, altrimenti la risposta non vale.
+
+Il lettore scrive le obiezioni in fondo ai due file, sotto un titolo «Rilettura del 22/09», e
+**non corregge niente**: ciò che regge resta, ciò che non regge torna qui come voce aperta. Solo
+dopo si riprende dalla sezione seguente.
+
+**Fatta.** Le obiezioni stanno in coda a `compare-0048/esito.md` (R1-R8),
+`ricerca/fdax-4h-pc-tutto-al-minuto.md` (F1-F7) e `ricerca/nq-4h-pc-tutto-al-minuto.md` (N1-N3).
+Quello che non regge, in ordine di peso:
+
+1. **I numeri di §6 di compare-0048 mescolano due run a tick** (R1): +34% in euro è il rilancio,
+   +57% in dollari e il drawdown $62.614 sono il run `...0935`. Il paragrafo «resta aperto il
+   numero» qui sotto ha ereditato la cucitura. E due run a tick dello stesso piano che distano
+   ≈$18.000 sono un fatto da spiegare prima di dire che la modalità dati spiega tutto.
+2. **Il motore interno è più pessimista del run a tick di ≈$48.000 sul lordo** su 2022-2026 a
+   parità di trade (R4): mai confrontato, ed è il confronto che conta.
+3. **Il fallimento della sweep al minuto è attribuito a una causa fra quattro cambiate insieme**
+   (F4): serve il run controllato vecchio obiettivo + minuto + stesso split prima di «si tara a
+   mano».
+4. **`MinTrades = 300` non cambia il gradiente del criterio** (F5, N1): previsione da verificare
+   sulla sweep GC, convergenza su ~300 trade esatti. E il taglio lo fanno i pattern con lo stop al
+   seme, non la fase di rischio (F6).
+5. **`ExitHour = 21` della 002: a priori o guardando la validazione?** (F1) Decide se +52.310 è
+   fuori campione. E manca la 001 sullo stesso split (F2).
+6. Minori: il salto ICS del 23/03 chiamato artefatto senza confronto col vendor (R7); tick dal
+   2014 su cTrader da verificare prima del run (R8); `MinTrades` 30 o 50 e `MinProfitFactor` in
+   fase trigger (F7); finaliste duplicate per parametri inerti (F3, N2).
+
+## Sera del 21/09: l'orologio veloce era rotto, la 002 è il candidato, la ricerca gira al minuto
+
+- **L'orologio veloce della sweep ordinava rumore** — Spearman **0,021** sul punteggio fra veloce e
+  minuto, su 22 configurazioni vere (`SweepFastClockRankingTests`). Spento: ogni fase gira al
+  minuto, ~3 ore per FDAX 4h. Voce in `decisioni.md` 2026-09-21 e §"Un orologio solo" di
+  `domini/ricerca-parametri.md`. **Ripetuto su NQ**: 240m vs 1m = 0,623 (non basta), **15m vs
+  1m = 0,980** (basta). Quindi ES, BP ed EC — che il vendor ha a 15 minuti dal 2006-08 — si
+  cercano con l'orologio a 15m; GC e CL (solo 30m) e gli altri restano fermi finche' non si
+  compra il minuto.
+- **La ricerca FDAX 4h interamente al minuto ha consegnato alle 2:30 del 22/09** — 177 minuti —
+  e **non batte la 002. Nessuna delle nove finaliste sopravvive.** Stesso split, stessi costi
+  (ICS+FTMO, il peggiore), stesso orologio del confronto con la 002:
+
+  | | campione | fuori campione | finestre |
+  |---|---:|---:|---:|
+  | 002 (uscita alle 21, scelta a mano) | 51.951 su 787 trade | **+52.310** su 475 | 3/4 |
+  | migliore finalista al minuto | 50.386 su **52** trade | **−20.300** su 32 | 0/4 |
+  | le altre otto | 12.689 … 39.293 su 52 | da −5.469 a −11.731 | 0-1/4 |
+
+  Il modo in cui ha fallito è più istruttivo dell'esito. Il criterio ha stretto la configurazione
+  fino a **52 trade in tre anni** (pattern neutrale 19 + direzionale 45 con DvolMin 3000, solo
+  long, finestra fino alle 10): punteggio in campione **16,38**, il più alto mai visto, e fuori
+  campione zero finestre in utile su quattro. È lo stesso segnale delle 173 trade dopo i pattern
+  neutrali, portato all'estremo: con `MinTrades = 50` e 5 per tratto, il "peggiore dei quattro
+  tratti" premia chi fa così pochi trade da non avere un tratto brutto. Il pavimento sulla perdita
+  singola non basta. **Il minimo di trade va alzato di molto** (ordine di 300 su tre anni a 4 ore,
+  cioè due a settimana) e vale come vincolo anche per NQ e GC che girano stanotte con il vecchio.
+  Con l'orologio giusto la sweep ha smesso di ordinare rumore e ha cominciato a ordinare fortuna:
+  è un progresso, ma non ancora una ricerca. Conclusione di ieri confermata: su questa cella si
+  tara a mano un parametro alla volta, e la 002 resta il candidato.
+- **NQ 4h al minuto, consegnata alle 5:40 del 22/09** (`ricerca/nq-4h-pc-tutto-al-minuto.md`, 177
+  minuti): **nessuna delle dieci finaliste sopravvive**, e la patologia è la stessa di FDAX portata
+  al limite. Il criterio ha stretto a **42 trade** in tre anni con **drawdown zero e nessun trade in
+  perdita** in campione — punteggio **19.115**, cioè un numero senza senso prodotto dalla divisione
+  per un drawdown nullo che il pavimento sulla perdita singola non ha fermato, perché di perdite
+  non ce n'erano — e fuori campione −2.808 su 33 trade. Due difetti del criterio, entrambi da
+  correggere prima di qualunque altra sweep: (1) **`MinTrades` troppo basso** (30-50 su tre anni):
+  una configurazione che fa un trade ogni tre settimane non ha un tratto brutto per costruzione;
+  (2) **un drawdown zero o un profit factor infinito devono rendere la configurazione NON
+  ammissibile**, non vincente — sono la firma di un campione troppo piccolo, non della qualità.
+  Anche qui la fase nuova ha scelto `ExitHour = 15`, su una configurazione `IntradayOnly = 0` dove
+  è inerte. La ricerca GC che segue parte già con `--min-trades 250`.
+- **GC 4h al minuto partita alle 5:45 del 22/09** (`ricerca/gc-4h-pc-tutto-al-minuto.md`, fine
+  prevista ~9:00): XAUUSD da ICS — l'archivio raccolto stanotte parte dal **2022-09-21**, quindi il
+  campione è 2,3 anni e non 3 come FDAX e NQ, stesso split al 2025-01-01 — spread **FTMO** (lo
+  `SpreadDumpBot` ICS non ha ancora scritto), swap ICS dalla scheda, commissione 10,8,
+  `--min-trades 250`. ~~Il caricamento dice «scartate 0 fuori sessione, 0 fuori finestra», quindi
+  il calendario di GC non dichiara la finestra~~ — **sbagliato, corretto la mattina del 22/09**: il
+  calendario di `GC` dichiara giorni (dom-ven) e finestra COMEX (18:00→17:00 New York) come tutti
+  gli altri, e lo zero è **giusto**: XAUUSD su ICS ha esattamente la pausa del future — nel feed a
+  un minuto del 2025 l'ora 22 UTC ha **zero barre** d'inverno e l'ora 21 zero d'estate, con il
+  passaggio a marzo — quindi non c'era niente da mascherare. A differenza del DAX su FTMO, il CFD
+  dell'oro non quota quando il COMEX è chiuso. Nessun lavoro sul calendario prima degli step a mano
+  su GC.
+- **`PT3B_FDAX_PCH_002_240`** = la 001 con `SessionExitTime = 21:00`. Verificata: riproduce al
+  dollaro la misura col parametro. Nel catalogo del server 7.5.5, nel masterfilter, attiva nel piano
+  `PT3B-FDAX`, disattivata in `PT3B-FDAX-FTMO`. **È il candidato per il backtest cTrader** —
+  a tick — e il confronto pulito è con la 001 nello stesso run.
+- **Secondo giro delle fasi orari e uscita dopo il rischio** (da fare sulla prossima ricerca): la
+  fase orari sceglie con lo stop al default 1500 (60 punti FDAX), non con quello finale. Vedi
+  `decisioni.md`.
+- **Il paniere è l'unità di misura**, non la singola cella: selezione per cella con soglie
+  permissive, validazione del paniere fuori campione **con lo stesso split per tutte le celle**.
+  Ordine: FDAX (in corso) → NQ (feed ICS) → i dieci simboli del vendor con costi CFD peggiori →
+  paniere. La diversificazione compensa la varianza, non l'assenza di edge.
+- **Correlazione fra motori su NQ, misurata la notte del 22/09** (`ricerca/nq-correlazione-motori.md`
+  e `.csv`, 37 strategie, P&L giornaliero al minuto 2022-2026): **media 0,056**, e fra famiglie
+  di motori tutto fra 0,00 e 0,08 — TFM contro TFU 0,06, TFM contro PCH 0,04, dentro TFM 0,08.
+  **La regola del pollice della sera prima era sbagliata**: sullo stesso simbolo i trend following
+  non perdono negli stessi giorni, se timeframe e filtri sono diversi. Le uniche coppie sopra 0,45
+  sono gemelle (`PCH_001_15`~`PCH_002_15` a 0,86, `TFM_001_60`~`TFM_009_60` a 0,50): nel paniere
+  se ne tiene una per coppia. Limite dichiarato: serie sparse, misura sui giorni di chiusura e non
+  sull'esposizione. Per la scaletta dei motori vale l'ordine pratico (classi di partenza e griglie
+  pronte), non la famiglia.
+- **Raccolta ICS di GC, CL, BP avviata la notte del 21/09**: piano di sola raccolta `RACCOLTA-ICS`
+  (workspace `raccolta-ics`), `PiootooDatafeedSyncBot` un anno per run, `PiootooSpreadDumpBot` un
+  mese con broker `ICS` esplicito. Lo **swap ICS** dei tre è già in
+  `swap/ICS/ICS_swap-by-symbol.csv` dalle schede del 22/09 — pip position 2 (oro, petrolio) e 4
+  (sterlina), crediti azzerati, triplo di mercoledì su oro e sterlina. **Commissione per simbolo**,
+  da passare a mano alla sweep: GC ~10,8 per lato, CL 0, BP ~4, contro il 19,23 del DAX. EC non è
+  raccoglibile finché non esiste una classe `@EC` nel catalogo.
+- **Non ancora fatto**: il controllo diagnostico «uscita della strategia contro rollover del
+  broker» nel log di avvio del job (`SwapSpec.RolloverUtc` esiste già); la modalità dati del
+  backtest cTrader in `origin.json` (compare-0048 §7); l'errore esplicito della sweep su archivio
+  di broker senza il simbolo (oggi `IndexOutOfRangeException`).
+
 ## Le due correzioni da fare PRIMA di rilanciare la ricerca
 
 **1. Le soglie di qualità sono applicate nella fase sbagliata.** `MinProfitFactor` (1,25) e
@@ -26,17 +155,16 @@ la ricerca muore prima di cominciare. Vanno applicate solo dalle fasi di rischio
 (`SweepPhase.RequiresAccurateClock` è già il flag che le distingue) o in validazione.
 
 **2. Il periodo di ricerca usa costi che in quel periodo non esistevano.** Il campione 2014-2022
-gira con lo spread misurato ad **agosto 2026**. Misurato sul backtest a tick di cTrader, stesso
-periodo e stessi segnali:
+gira con lo spread misurato ad **agosto 2026**. Nel 2014 i CFD retail avevano spread di 4-5 punti
+sul DAX; oggi ICS ne quota 0,50. **Cercare dal 2014 significa cercare in un mondo con costi
+finti.** La proposta sul tavolo è campione 2021-01 → 2024-06 e validazione 2024-06 → 2026-09:
+meno storia, ma costi veri.
 
-| periodo | lordo nostro | lordo cTrader | scarto per trade |
-|---|---:|---:|---:|
-| 2014-2018 | $138.028 | $7.005 | **−$123** (≈5 punti FDAX) |
-| 2022-2026 | $179.983 | $212.344 | +$24 |
-
-Nel 2014 i CFD retail avevano spread di 4-5 punti sul DAX; oggi ICS ne quota 0,50. **Cercare dal
-2014 significa cercare in un mondo con costi finti.** La proposta sul tavolo è campione
-2021-01 → 2024-06 e validazione 2024-06 → 2026-09: meno storia, ma costi veri.
+⚠ **La misura che sosteneva questo punto non è valida e va rifatta.** La tabella di confronto
+2014-2018 (scarto −$123 per trade, ≈5 punti FDAX) era presa contro il run cTrader
+`...20140801-0000-...1449`, che gira a **barre al minuto** e non a tick: quello scarto contiene
+slittamento di simulazione in quantità ignota. Vedi `compare-0048/esito.md`. La tesi resta
+plausibile, il numero no: serve un run a tick sul 2014-2018 prima di decidere il periodo.
 
 ## Cosa c'è già e funziona
 
@@ -47,25 +175,47 @@ Nel 2014 i CFD retail avevano spread di 4-5 punti sul DAX; oggi ICS ne quota 0,5
 - **`PT3B_FDAX_PCH_001_240`** — validata, scheda in `piootoo-repository/ricerca/`.
 - **Workspace `v03-pt3b`** con due piani: `PT3B-FDAX` (ICS) e `PT3B-FDAX-FTMO`.
 
-## Il nodo aperto sul backtest in cTrader
+## Il nodo del backtest in cTrader — chiuso il 21/09/2026
 
-Tre run `ExternalBroker` sullo stesso piano danno risultati inconciliabili:
+I tre run `ExternalBroker` inconciliabili si spiegano per intero con la **modalità dati scelta
+nella finestra di backtest di cTrader**: tick contro barre al minuto. Il cBot e il server non
+c'entrano. Analisi completa in `compare/compare-0048/esito.md`; in breve:
 
-| periodo | trade | netto | note |
-|---|---:|---:|---|
-| 2023-01 → 2026-09 | 1.035 | **+$57.278** | coerente col nostro modello |
-| 2022-01 → 2026-09 | 1.317 | **+$103.128** | coerente |
-| 2023-01 → **2026-04** | 902 | **−$99.735** | conto azzerato, drawdown 99,75% |
+- `quantity = 25` su **tutti** i trade di tutti i run e **zero sovrapposizioni**: le due ipotesi
+  (size doppia, posizioni concorrenti) erano sbagliate, e il run incriminato girava col profilo
+  `DalPiano`, quindi `BacktestSorgente` non era nemmeno in gioco;
+- la percentuale di ingressi sul minuto tondo esatto partiziona i run **0% / 100%** senza
+  sfumature: i due "coerenti" sono a tick, i tre negativi a barre;
+- rilanciato a tick, il run che faceva −$98.613 chiude a **+33.535 € (+34%)**;
+- causa: a barre m1 cTrader sintetizza pochi tick per barra dai soli OHLC, e lo stop si riempie
+  **all'estremo della barra** anziché al livello — verificato con scarto 0,0-0,1 su 12 casi su 13.
+  Lo slittamento è l'intera escursione della barra oltre il livello: fino a 333 punti su uno stop
+  da 200.
 
-L'ultimo si è fermato ad aprile 2026 in **margin call**, e la perdita singola peggiore è
-**raddoppiata** ($13.379 contro $6.466 sullo stesso stop da 200 punti): o la size è doppia, o due
-posizioni si sono sovrapposte sullo stesso simbolo. Da chiarire con il `RunProfile` usato e la
-history esportata. Sospetto su `BacktestSorgente`, che toglie i lucchetti di concorrenza.
-
-Indipendentemente dalla causa: **un contratto FDAX su $100.000 è troppo**. Il drawdown misurato nel
-periodo buono era già ~$47.000.
+**Resta aperto il numero, che non è buono.** Il run sano fa +34% in 3 anni e 8 mesi con un
+**drawdown del 62,6%** ($62.614, minimo a $37.386 nell'ottobre 2023) — non il ~$47.000 stimato
+finora. Win rate 49,4%, vincita media $2.691 contro perdita media $2.515, peggior singolo trade
+5,3% del conto, fino a 8 perdite consecutive (13 sul run dal 2022). Un contratto FDAX su $100.000
+è troppo, ma ridurre la size non migliora il rapporto: lo scala. Il margine per trade è troppo
+sottile rispetto alla varianza, ed è quello il bersaglio delle direzioni 1 e 2 qui sotto.
 
 ## Le direzioni che valgono di più, in ordine
+
+0. **Una cella sola non ha la potenza statistica per decidere niente.** Sui 1.035 netti per trade
+   del run sano il test t dà **t = 0,57** (media $55,3, deviazione standard $3.142): l'intervallo
+   di confidenza al 95% sull'utile annuo va da **−$38.000 a +$69.000**. Il +34% è compatibile con
+   un'aspettativa nulla, e servirebbe `t ≈ 2` — di più, visto che la configurazione è stata scelta
+   fra decine di migliaia. Non significa che la strategia sia cattiva: significa che **non lo
+   sappiamo**, e che nessuna taratura del criterio su questa cella può dirlo. Il campione si
+   allarga con più **celle** (simbolo × timeframe × motore), non con più storia sullo stesso
+   mercato: quella cresce piano e porta costi d'epoca che non esistono più.
+
+0 bis. **Il criterio di selezione deve guardare il rapporto, non il netto.** 34% di utile con 62%
+   di drawdown non è una strategia da mettere in produzione, ed è uscita da una ricerca che quel
+   rapporto non lo vincola: `WorstSubPeriodObjective` lo usa per *ordinare* le combinazioni, ma
+   nessuna soglia di ammissibilità lo impone, né in campione né in validazione. Un tetto esplicito
+   al drawdown — e un pavimento al rapporto netto/DD — appartiene alle soglie insieme a
+   `MinProfitFactor` e `MinAverageTrade`, e come loro va applicato dalle fasi di rischio in poi.
 
 1. **Meno trade, più margine ciascuno.** 1.317 trade da $78 netti è il profilo peggiore: i costi
    sono proporzionali ai trade, il margine no.

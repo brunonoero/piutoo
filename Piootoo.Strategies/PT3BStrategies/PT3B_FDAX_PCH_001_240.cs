@@ -133,6 +133,13 @@ public sealed class PT3B_FDAX_PCH_001_240 : PriceChannelEngine
             Direction = Convert.ToInt32(direction);
         if (parameters.TryGetValue("IntradayOnly", out var intradayOnly))
             IntradayOnly = Convert.ToInt32(intradayOnly) != 0;
+        // -1 = fine sessione, cioe' il comportamento del motore di ricerca: il campo resta null e
+        // il motore usa SessionEnd. Qualunque altra ora e' una deviazione dichiarata, vedi
+        // EasyEngineBase.SessionExitTime.
+        if (parameters.TryGetValue("ExitHour", out var exitHour))
+            SessionExitTime = Convert.ToInt32(exitHour) < 0
+                ? null
+                : new TimeOnly(Convert.ToInt32(exitHour), 0);
         if (parameters.TryGetValue("SkipDay", out var skipDay))
             SkipDay = Convert.ToInt32(skipDay);
         if (parameters.TryGetValue("DvolMin", out var dvolMin))

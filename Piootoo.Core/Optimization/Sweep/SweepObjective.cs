@@ -124,12 +124,31 @@ public sealed record NetOverDrawdownObjective(int MinTrades = 30, decimal MinAve
 /// configurazione che ne guadagna 78 ne lascia due terzi sul tavolo e muore al primo tick di
 /// slippage, una che ne guadagna 300 no.</para>
 /// </param>
+/// <param name="MinLosingTrades">
+/// Numero minimo di trade <b>in perdita</b> perche' la configurazione sia ammissibile.
+///
+/// <para><b>Perche' esiste (22/09/2026).</b> Le prime due sweep interamente al minuto sono
+/// collassate su configurazioni rarissime: FDAX 52 trade in tre anni, NQ <b>42 trade senza una
+/// sola perdita</b>, drawdown zero, punteggio 19.115 — un numero che non significa niente, nato
+/// dal dividere per un pavimento che non c'era, perche' il pavimento e' la peggior perdita
+/// <i>osservata</i> e di perdite non ce n'erano. Fuori campione entrambe in rosso. Il difetto
+/// non e' lo zero in se': come nota la rilettura del 22/09 (N1), basterebbe una perdita minuscola
+/// per farlo passare con un punteggio ancora assurdo. Il difetto e' che il criterio non ha visto
+/// la <b>coda</b> della distribuzione — con stop 3000 e target 500 la strategia vince quasi
+/// sempre poco e perde raramente molto, e tre anni possono non contenere il "raramente".</para>
+///
+/// <para>Una configurazione che in campione ha perso meno di <paramref name="MinLosingTrades"/>
+/// volte non ha mostrato la propria coda, e non si puo' giudicare: <c>null</c>, come per pochi
+/// trade. E' una soglia sul <i>campione</i>, non un giudizio di qualita' — dieci perdite su
+/// trecento trade sono una strategia che vince il 97% delle volte, non una cattiva strategia.</para>
+/// </param>
 public sealed record WorstSubPeriodObjective(
-    int MinTrades = 50,
+    int MinTrades = 250,
     int SubPeriods = 4,
-    int MinTradesPerSubPeriod = 5,
+    int MinTradesPerSubPeriod = 25,
     decimal MinAverageTrade = 0m,
-    decimal MinProfitFactor = 0m) : ISweepObjective
+    decimal MinProfitFactor = 0m,
+    int MinLosingTrades = 10) : ISweepObjective
 {
     public decimal? Score(SweepOutcome outcome)
     {
@@ -137,10 +156,14 @@ public sealed record WorstSubPeriodObjective(
         if (outcome.AverageTrade < MinAverageTrade) return null;
         if (outcome.ClosedTrades.Count == 0 || SubPeriods < 1) return null;
 
+        // La coda: senza abbastanza perdite la configurazione non e' misurata (vedi il parametro).
+        // Copre anche il drawdown zero, che ne e' il caso limite.
+        if (outcome.ClosedTrades.Count(trade => trade.NetProfit < 0m) < MinLosingTrades)
+            return null;
+
         // Il profit factor si controlla sul complesso e non tratto per tratto: su un quarto di
         // campione e' troppo rumoroso per essere una soglia, mentre sull'intero dice quanto margine
-        // ha la configurazione su ogni trade. Un profit factor nullo (nessuna perdita) passa: e'
-        // raro e non e' un difetto.
+        // ha la configurazione su ogni trade.
         if (MinProfitFactor > 0m && outcome.ProfitFactor is { } pf && pf < MinProfitFactor)
             return null;
 
@@ -183,7 +206,7 @@ public sealed record WorstSubPeriodObjective(
 
     public string Describe() =>
         $"peggiore di {SubPeriods} sotto-periodi (netto/drawdown con pavimento sulla perdita massima), " +
-        $"almeno {MinTrades} trade e {MinTradesPerSubPeriod} per tratto" +
+        $"almeno {MinTrades} trade, {MinTradesPerSubPeriod} per tratto e {MinLosingTrades} in perdita" +
         (MinAverageTrade > 0m ? $", utile medio ≥ {MinAverageTrade:N0}" : string.Empty) +
         (MinProfitFactor > 0m ? $", profit factor ≥ {MinProfitFactor:N2}" : string.Empty);
 }

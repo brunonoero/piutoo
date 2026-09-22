@@ -177,6 +177,31 @@ public abstract class EasyEngineBase : StatelessEasyStrategyBase
     protected virtual bool AppliesSessionExit => false;
 
     /// <summary>
+    /// Orario a cui l'uscita di sessione chiude la posizione. <c>null</c> = la fine della sessione
+    /// (<see cref="SessionEnd"/>), che e' il comportamento del motore di ricerca e resta il default.
+    ///
+    /// <para><b>Perche' non basta <see cref="SessionEnd"/>.</b> La sessione della ricerca e' il
+    /// giorno di calendario europeo, quindi per FDAX finisce alle 00:59 locali — <b>dopo</b> il
+    /// rollover del broker (21:00 su ICS, 20:59 su FTMO). Una strategia dichiarata <i>intraday</i>
+    /// paga percio' il finanziamento tutti i giorni: su <c>PT3B_FDAX_PCH_001_240</c> sono 879 trade
+    /// su 1.317 e il 28% del lordo. Chiudere qualche ora prima non e' una taratura di comodo, e'
+    /// togliere un costo che non compra nulla — la posizione resta aperta nelle ore in cui il
+    /// future e' chiuso e quota solo il CFD.</para>
+    ///
+    /// <para><b>Non e' <see cref="SessionEnd"/> con un altro valore</b>, ed e' il motivo per cui e'
+    /// un campo a se'. <see cref="SessionEnd"/> definisce l'arco su cui si ricostruiscono gli OHLC
+    /// di sessione (<see cref="BuildSessionOhlc"/>), la chiave del limite di ingressi per sessione
+    /// e i bucket: spostarlo cambierebbe i <i>pattern</i>, cioe' un'altra strategia. Questo campo
+    /// tocca la sola deadline di chiusura.</para>
+    ///
+    /// <para><b>Deviazione dichiarata dal motore di ricerca.</b> <c>price_channel.py</c> ha il solo
+    /// <c>exit_on_session_end</c> booleano e non conosce un'ora di uscita: una configurazione che
+    /// valorizza questo campo non e' riproducibile dal motore Python. Vedi
+    /// <c>docs/domini/ricerca-parametri.md</c>.</para>
+    /// </summary>
+    protected TimeOnly? SessionExitTime;
+
+    /// <summary>
     /// L'uscita di sessione dei motori che portano <c>intraday_only</c>, con la regola di parita'
     /// del motore di ricerca: <b>su D1 quell'uscita non viene applicata</b>, quindi una daily resta
     /// multiday anche dichiarando <c>intraday_only = 1</c>.
@@ -653,7 +678,24 @@ public abstract class EasyEngineBase : StatelessEasyStrategyBase
     /// qualunque sia l'ancoraggio: si risolve sulla chiusura vera della sessione meno un minuto.
     /// Trattarlo come le 23:59 di un giorno di calendario è precisamente l'errore corretto qui.</para>
     /// </summary>
-    protected DateTime ResolveCloseAtUtc(DateTime barTime, TimeOnly time)
+    protected DateTime ResolveCloseAtUtc(DateTime barTime, TimeOnly time) =>
+        ResolveCloseAtUtc(barTime, time, rollToNextSession: true)!.Value;
+
+    /// <summary>
+    /// Come <see cref="ResolveCloseAtUtc(DateTime, TimeOnly)"/>, ma con il controllo su cosa fare
+    /// quando l'orario e' <b>gia' passato</b> nella sessione della barra.
+    ///
+    /// <para><paramref name="rollToNextSession"/> a <c>true</c> e' il comportamento storico: la
+    /// deadline vale per la sessione successiva. E' quello che serve a <c>MaxDaysInTrade</c> e alle
+    /// uscite programmate, dove l'orario e' un appuntamento futuro.</para>
+    ///
+    /// <para>A <c>false</c> restituisce <c>null</c>: e' quello che serve a un'uscita di sessione
+    /// con un'ora propria (<see cref="SessionExitTime"/>). Rimandare li' alla sessione dopo
+    /// trasformerebbe in overnight proprio la posizione che quell'ora esiste per chiudere prima
+    /// della notte, e la <see cref="Holding"/> dichiarata dalla strategia — <c>Intraday</c> — non
+    /// sarebbe piu' vera. Il chiamante scarta l'ingresso.</para>
+    /// </summary>
+    protected DateTime? ResolveCloseAtUtc(DateTime barTime, TimeOnly time, bool rollToNextSession)
     {
         var sessionDay = Grid.SessionDayOf(barTime);
 
@@ -687,6 +729,9 @@ public abstract class EasyEngineBase : StatelessEasyStrategyBase
         // d'ora.
         if (target <= barTime)
         {
+            if (!rollToNextSession)
+                return null;
+
             var next = sessionDay.AddDays(1);
             target = Clock.ToUtc(next.Add(offset));
             if (target < Grid.SessionOpenUtc(next))

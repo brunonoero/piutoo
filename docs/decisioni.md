@@ -4287,3 +4287,99 @@ che il motore fa. Difetto di artefatto, non di esecuzione, ma e' costato mezza i
   l'ancoraggio di sessione, che dei parametri non fanno parte e che nessun resoconto stampa. Sulla
   prima `PT3B_*` la dimenticanza spostava la finestra di quattro ore e il campione da +216.830 a
   meno 2.527.
+- **2026-09-21** — **Un backtest cTrader a barre al minuto non e' confrontabile con uno a tick, e
+  un run `ExternalBroker` deve dichiarare quale dei due e'.** Tre run dello stesso piano
+  `PT3B-FDAX` davano +103k, +57k e meno 98k, l'ultimo con il conto azzerato: sembrava un difetto
+  del cBot (size doppia o posizioni sovrapposte) e non lo era — `quantity` e' 25 su tutti i trade
+  di tutti i run, le sovrapposizioni sono zero, e il run incriminato girava col profilo
+  `DalPiano`, quindi nemmeno `BacktestSorgente`. La percentuale di ingressi sul minuto tondo
+  partiziona i cinque run **0% o 100%**, senza sfumature; rilanciato a tick, quello da meno 98.613
+  chiude a +33.535 euro.
+
+  Il meccanismo: in modalita' "m1 bars" cAlgo sintetizza pochi tick per barra dalle sole OHLC, il
+  prezzo salta da open a high a low a close, e un livello interno al range non esiste come prezzo
+  raggiungibile — lo stop si riempie all'**estremo della barra**. Verificato con scarto 0,0-0,1 su
+  12 casi su 13 (lo 0,1 e' mezzo tick di spread sugli short, il feed e' Bid). Lo slittamento non e'
+  un costo fisso ma l'intera escursione della barra oltre il livello: 15-30 punti su una barra
+  tranquilla, 333 su una violenta, contro uno stop dichiarato da 200. I target si allargano allo
+  stesso modo (187 punti medi contro 180) e i due errori non si compensano: quando una barra
+  contiene stop e target la sequenza sintetica decide arbitrariamente chi scatta prima, e nella
+  finestra comune 16 trade migrano da target a stop. Tutta la differenza fra i due run sta li': le
+  uscite a tempo coincidono (meno 165.529 contro meno 164.378 su 618 e 623 trade).
+
+  Corollario sui tre motori: l'engine interno riempie **al livello esatto**
+  (`PiootooTradingService.ProtectiveFillPrice`), salvo gap d'apertura e `StopFillSlippagePoints`,
+  e il run a tick misura 201,0 punti medi contro i 200 dichiarati. L'assunzione dell'engine interno
+  e' dunque a un punto dalla realta', e il backtest a m1 di cTrader e' l'unico dei tre a sbagliare
+  di molto: risponde a una domanda che con le sole OHLC non e' rispondibile invece di rifiutarsi.
+
+  Da fare: la modalita' dati va in `origin.json` accanto a broker, feed, versione e fattore di
+  stop. Finche' non c'e', due run non confrontabili hanno lo stesso aspetto di due confrontabili.
+  Misure e verifiche in `compare/compare-0048/esito.md`.
+- **2026-09-21** — **L'ora dell'uscita di sessione e' un parametro della ricerca (`ExitHour`), e
+  «fine sessione» resta il default.** La sessione della ricerca e' il giorno di calendario europeo:
+  per FDAX finisce alle 00:59, cioe' DOPO il rollover del broker (21:00 ICS, 20:59 FTMO). Una PC
+  dichiarata `intraday_only = 1` lo attraversa quindi ogni giorno e paga il finanziamento come una
+  multiday — su `PT3B_FDAX_PCH_001_240` 879 trade su 1.317 e il 28% del lordo — senza comprare
+  nulla: quelle sono le ore in cui il future e' chiuso e quota il solo CFD. Prima non c'era modo di
+  dirle «chiudi alle 20»: l'uscita era inchiodata a `SessionEnd`.
+
+  `SessionExitTime` e' un campo **separato** da `SessionEnd`, e non un altro valore di quello: la
+  fine sessione definisce anche gli OHLC di sessione, i pattern e la chiave del limite di ingressi,
+  quindi spostarla sarebbe un'altra strategia invece che un altro orario di uscita. Un ingresso che
+  nascerebbe **dopo** la propria ora di chiusura non nasce (`ResolveCloseAtUtc` con
+  `rollToNextSession: false` torna `null`): il comportamento storico rimanda alla sessione dopo, e
+  qui farebbe diventare overnight proprio la posizione che quell'ora esiste per chiudere prima
+  della notte, smentendo la `Holding` dichiarata. La fase gira sull'orologio al minuto, perche'
+  `CloseAtUtc` lo applica `UpdateMarketPrices` e sul percorso veloce una chiusura alle 20:00
+  misurata su barre da 4 ore cadrebbe sulla barra dopo — la misura direbbe il contrario del vero
+  proprio sul costo che il parametro toglie. Sta dopo gli orari e prima dello stop: e' una
+  decisione di durata, parente di `MaxBars`, e si sceglie prima che stop e target le vengano tarati
+  addosso.
+
+  **Deviazione dichiarata**, la seconda dopo `SplitPatternPhases`: `price_channel.py` conosce il
+  solo `exit_on_session_end` booleano, e una configurazione con `ExitHour != -1` non e'
+  riproducibile dal motore di ricerca. La sentinella `-1` e' pero' il primo valore della griglia,
+  quindi la sweep parte dal comportamento del motore Python e le configurazioni gia' trovate
+  restano raggiungibili. Vedi `domini/ricerca-parametri.md` e `SessionExitHourTests`.
+- **2026-09-21** — **L'orologio veloce della ricerca e' spento: ogni fase gira al minuto.** La
+  scelta del 20/09 — le fasi che decidono lo stop sul minuto, le altre sul veloce — si reggeva su un
+  argomento mai misurato: che il percorso veloce sbagliasse i *valori* ma conservasse
+  l'*ordinamento*, perche' dentro una fase lo stop e' fisso e tutte le combinazioni sbagliano nello
+  stesso verso. `SweepFastClockRankingTests` lo ha misurato su 22 configurazioni vere di `@FDAX 240m`
+  (canale, direzione, orari, pattern, offset; stop fisso a 1500, campione 2022-2024): la
+  correlazione di rango di Spearman fra i due orologi vale **0,021 sul punteggio
+  dell'obiettivo** — zero — e delle prime tre del veloce una sola sta fra le prime tre del minuto.
+  Sul netto vale 0,694, debole ma viva: e' il *rapporto* con il drawdown che diventa rumore, perche'
+  il drawdown e' esattamente cio' che il veloce non vede — non vede i trade stoppati, e non li vede
+  in misura uguale fra configurazioni. Al veloce i punteggi andavano da 1,7 a 3,6; al minuto erano
+  quasi tutti negativi.
+
+  Conseguenze. Le prime cinque fasi di ogni sweep girata finora hanno ordinato rumore, compresa
+  quella che ha trovato `PT3B_FDAX_PCH_001_240`: che regga lo dicono le sue misure al minuto, non
+  la ricerca da cui e' uscita. La sweep FDAX della sera del 21/09 ha consegnato sei finaliste tutte
+  in perdita fuori campione (da −25.563 a −60.902), battute dalla configurazione di partenza con un
+  solo parametro cambiato a mano (`ExitHour = 21`: +52.310). E il resoconto stampava i numeri dei
+  due orologi nella stessa colonna «migliore in campione» senza dirlo: 293.501 con DD 14.498 su una
+  riga, 45.691 con DD 34.897 sulla successiva, per la stessa base.
+
+  `SweepOptimizerOptions.UseFastClockForOrderingPhases`, default **spento**, riaccende il
+  comportamento vecchio per rimisurarlo; il log di avvio dichiara l'orologio di ogni fase. Il costo:
+  su @FDAX 240m una ricerca completa passa da 37 minuti a circa tre ore.
+
+  **Ripetuto su NQ la stessa sera** (feed del vendor, `PT2_NQ_PCH_001_240`, stesse 22
+  configurazioni, 17 ammissibili): l'orologio a 240m contro il minuto da' Spearman **0,623** sul
+  punteggio e 1 su 3 fra le prime tre — meglio di FDAX, quindi lo 0,021 era in parte della cella,
+  ma non abbastanza per ordinare. L'orologio a **15 minuti** contro il minuto da' **0,980** e 2 su
+  3: un orologio intermedio ordina quasi come il minuto. Conseguenza pratica per la scaletta dei
+  simboli: il vendor ha il minuto solo per FDAX e NQ, ma ha i 15 minuti per ES, BP ed EC, e quelle
+  tre celle si possono cercare con `AccurateClockMinutes = 15` senza comprare altro. Su GC e CL c'e'
+  solo il 30m, non misurato.
+
+  Da fare sulla prossima ricerca, non su questa: un **secondo giro** delle fasi *orari* e *uscita di
+  sessione* dopo il rischio. La fase orari gira con lo stop al default della sweep (1500, cioe' 60
+  punti su FDAX) e sceglie le ore in cui funziona *quello* stop, non quello finale (5000). Spostare
+  gli orari per ultimi creerebbe il problema simmetrico — uno stop tarato su H24, mix di notte e
+  apertura — quindi la fase resta dov'e' e si ripete a rischio scelto: 1.259 combinazioni al
+  minuto, otto minuti, e se sposta la finestra si e' imparato che il default decideva al posto
+  nostro.

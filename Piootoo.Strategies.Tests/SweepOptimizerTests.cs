@@ -85,7 +85,9 @@ public sealed class SweepOptimizerTests(ITestOutputHelper output)
     [Fact]
     public void PlateauSmoothingAveragesWithOrdinalNeighboursOnly()
     {
-        var series = LoadSeries();
+        // Anche il minuto: dal 21/09/2026 ogni fase gira sull'orologio fitto, e senza la serie da
+        // un minuto il runner non ha barre su cui marcare.
+        var series = LoadSeries([240, 1]);
         if (series is null) return;
 
         var space = new SweepSpace(
@@ -140,6 +142,14 @@ public sealed class SweepOptimizerTests(ITestOutputHelper output)
     /// <summary>
     /// Lo spazio del Price Channel e' quello del motore di ricerca: le fasi nell'ordine del metodo,
     /// con i pattern separati dal risk management, e le griglie riportate verbatim.
+    ///
+    /// <para><b>«uscita di sessione» e' l'unica fase che <c>price_channel.py</c> non ha</b>, ed e'
+    /// una deviazione dichiarata (21/09/2026): il motore Python conosce il solo
+    /// <c>exit_on_session_end</c> booleano e chiude sempre a fine sessione, che per la sessione
+    /// della ricerca — il giorno di calendario europeo — cade dopo il rollover del broker. La
+    /// sentinella <c>-1</c> e' pero' il primo valore della griglia, quindi il <i>punto di partenza</i>
+    /// della sweep resta quello del motore di ricerca e le configurazioni gia' trovate sono ancora
+    /// raggiungibili. Vedi <c>SessionExitHourTests</c> e <c>domini/ricerca-parametri.md</c>.</para>
     /// </summary>
     [Fact]
     public void PriceChannelSpaceMirrorsTheResearchEngine()
@@ -148,7 +158,7 @@ public sealed class SweepOptimizerTests(ITestOutputHelper output)
 
         Assert.Equal(
             ["trigger", "volatilita'", "pattern neutrali", "pattern direzionali", "orari e giorni",
-             "stop e target", "trailing e breakeven"],
+             "uscita di sessione", "stop e target", "trailing e breakeven"],
             space.Phases.Select(phase => phase.Name));
 
         // Il vincolo del metodo: pattern e stop/target mai nella stessa fase.

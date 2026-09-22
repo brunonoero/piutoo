@@ -141,9 +141,27 @@ public sealed class PTS_GC_PCH_004_240 : PriceChannelEngine
             ChannelBars = Convert.ToInt32(channelBars);
         if (parameters.TryGetValue("OffsetTicks", out var offsetTicks))
             OffsetTicks = Convert.ToInt32(offsetTicks);
+        // -1 e' la sentinella "nessun limite" della ricerca, ed e' il PRIMO valore della griglia:
+        // new TimeOnly(-1, 0) faceva eccezione alla prima fase di qualunque sweep su questa classe.
         if (parameters.TryGetValue("StartHour", out var startHour))
-            TradingWindow = TradingWindow! with { Start = new TimeOnly(Convert.ToInt32(startHour), 0) };
+            TradingWindow = TradingWindow! with { Start = ResearchHourOrOff(startHour, TimeOnly.MinValue) };
         if (parameters.TryGetValue("EndHour", out var endHour))
-            TradingWindow = TradingWindow! with { End = new TimeOnly(Convert.ToInt32(endHour), 0) };
+            TradingWindow = TradingWindow! with { End = ResearchHourOrOff(endHour, ZonedWindow.EndOfDay) };
+
+        // Le chiavi del trigger e dei filtri che lo spazio PC permuta: senza, la sweep credeva di
+        // cambiarle e misurava la stessa configurazione migliaia di volte (22/09/2026).
+        if (parameters.TryGetValue("Direction", out var direction))
+            Direction = Convert.ToInt32(direction);
+        if (parameters.TryGetValue("IntradayOnly", out var intradayOnly))
+            IntradayOnly = Convert.ToInt32(intradayOnly) != 0;
+        if (parameters.TryGetValue("SkipDay", out var skipDay))
+            SkipDay = Convert.ToInt32(skipDay);
+        if (parameters.TryGetValue("DvolMin", out var dvolMin))
+            DvolMin = Convert.ToDecimal(dvolMin);
+        // -1 = fine sessione (il motore di ricerca); un'ora = uscita prima del rollover.
+        if (parameters.TryGetValue("ExitHour", out var exitHour))
+            SessionExitTime = Convert.ToInt32(exitHour) < 0
+                ? null
+                : new TimeOnly(Convert.ToInt32(exitHour), 0);
     }
 }

@@ -12,3 +12,21 @@
 broker,symbol,longPipsPerNight,shortPipsPerNight,pipInPoints,rolloverUtc,tripleDay,source
 ICS,@FDAX,-50.54,-12.15,0.1,21:00,Friday,scheda DE40 cTrader 2026-09-21 + history 1317 trade
 ICS,@NQ,-67.39,-3.55,0.1,21:00,Friday,scheda USTEC cTrader 2026-09-21 + history 1111 trade
+# @GC (XAUUSD): "Pip position 2" con "Min change 0.01", quindi 1 pip = 0,01 punti, non 0,1 come
+# sugli indici. Un lotto e' 100 once e vale 1 dollaro per pip: -59,49 pips = 59,49 dollari a notte
+# per lotto sul long. Lo SHORT e' un CREDITO (+41,3 pips): il caricatore lo porta a zero, come per
+# FTMO. Il triplo e' di MERCOLEDI', non di venerdi': e' spot, la convenzione dei metalli.
+# Non ancora verificato contro una history di trade.
+ICS,@GC,-59.49,41.3,0.01,21:00,Wednesday,scheda XAUUSD cTrader 2026-09-22
+# @CL (XTIUSD): "Pip position 2", 1 pip = 0,01 dollari al barile; un lotto e' 100 barili, quindi
+# 1 dollaro per pip. Qui e' il LONG a essere un credito (+12,9 pips, portato a zero) e lo SHORT a
+# costare: -21,32 pips = 21,32 dollari a notte per lotto. Commissione ZERO sulla scheda, a
+# differenza dell'oro (30 dollari per milione): nella ricerca su CL va passato --commission 0.
+# Non ancora verificato contro una history di trade.
+ICS,@CL,12.9,-21.32,0.01,21:00,Friday,scheda XTIUSD cTrader 2026-09-22
+# @BP (GBPUSD): "Pip position 4" con "Min change 0.00001", quindi 1 pip = 0,0001. Un lotto sono
+# 100.000 sterline, cioe' 10 dollari per pip: -0,49 pips = 4,90 dollari a notte per lotto sul long,
+# 3,10 sullo short. Entrambi costi, nessun credito. Triplo di mercoledi' (convenzione forex).
+# Commissione 30 dollari per milione di volume, ~4 dollari per lato a lotto.
+# Non ancora verificato contro una history di trade.
+ICS,@BP,-0.49,-0.31,0.0001,21:00,Wednesday,scheda GBPUSD cTrader 2026-09-22

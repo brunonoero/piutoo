@@ -305,16 +305,16 @@ Parametri che contano:
   risposta è `@NQ → USTEC` — il bot chiede `USTEC` al broker e il server salva `@NQ_1.json`,
   senza che nessuno mappi niente a mano. I timeframe del piano non servono alla raccolta ma
   alla **derivazione**: il bot li passa al server a fine backfill.
-- **Simboli** — `NAS100=@NQ, XAUUSD=@GC`: nome del broker a sinistra, simbolo
-  Piootoo a destra. Senza mappatura si usa il nome del broker con `@` davanti.
-  **Con il codice piano cambia mestiere: non dichiara, filtra.** Gli strumenti
-  restano quelli del masterfilter, con il loro nome sul conto, e si raccolgono solo quelli
-  elencati; vuoto = tutto il piano. La voce si
-  confronta sia con il nome del broker sia con il simbolo Piootoo, con o senza
-  `@` — `@NQ`, `NQ` e `USTEC` selezionano lo stesso strumento — così rifare la
-  storia di un simbolo solo non richiede di riscrivere a mano la sua mappatura. Una voce che
-  non corrisponde a niente viene segnalata e ignorata; se non ne corrisponde
-  nessuna il bot non parte, invece di raccogliere il nulla.
+- ~~**Simboli**~~ — **tolto nella 7.2.0**: il codice piano è **obbligatorio** ed è l'unica fonte
+  degli strumenti. Un elenco scritto accanto sarebbe una seconda lista della stessa cosa, e
+  divergerebbe in silenzio il giorno in cui si aggiunge una strategia su un simbolo nuovo.
+  Per raccogliere simboli su cui non si opera si fa un **piano di sola raccolta**: un workspace
+  con un masterfilter che elenca una strategia per coppia (simbolo, timeframe) — servono solo a
+  dichiarare cosa raccogliere, non girano — e un piano con il broker e il conto giusti.
+  `RACCOLTA-ICS` (workspace `raccolta-ics`, 21/09/2026) raccoglie GC, CL e BP da ICS così. Un
+  simbolo senza nessuna classe nel catalogo (EC, al 21/09) non è dichiarabile e non si raccoglie.
+  `GET api/datafeed-external/plan-instruments?planCode=…` dice in anticipo cosa il bot chiederà
+  al broker e in quale cartella scriverà.
 - **Timeframe da far derivare al server** — `15,60,240`. Non è cosa raccogliere: si raccoglie
   il minuto e basta. È cosa il server deve derivarne a fine backfill. Con un codice piano
   viene **ignorato**, perché quei timeframe li dichiara il masterfilter — l'unica fonte di
@@ -324,11 +324,11 @@ Parametri che contano:
 - **Tolleranza buchi in minuti** (`0` = quattro giorni) — da quanto in su un vuoto fra due
   barre è un buco invece che mercato chiuso. A un minuto il default del server (due minuti)
   renderebbe ogni notte un buco. Vedi "Due conseguenze pratiche".
-- **Codice broker** — vuoto = dedotto da `Account.BrokerName` ("IC Markets" →
-  `ICMARKETS`) e stampato all'avvio. L'override esiste perché il nome dichiarato
-  dal broker non è un identificatore stabile: cambia fra demo e reale e fra due
-  server dello stesso broker, e se cambia da solo il backfill riparte da zero in
-  una cartella nuova senza che niente lo segnali.
+- ~~**Codice broker**~~ — **tolto**: la cartella dell'archivio la decide il registro dei broker
+  dal conto del piano (`ResolveBrokerLabelForAccount`), lo stesso nome che il server usa per
+  rileggerla. La deduzione dal nome del broker esisteva perché quel nome non è un identificatore
+  stabile e faceva ripartire il backfill in una cartella nuova senza dirlo: `RAWTRADINGLTD` accanto
+  a `ICS` è il residuo di quel meccanismo.
 - **Data inizio / Data fine** (`yyyy-MM-dd`, UTC; fine inclusa nel giorno) — la
   finestra di *questo* run. È il modo previsto per spezzare un backfill lungo in
   più sessioni corte, un anno per volta: i pezzi non si pestano, perché quello

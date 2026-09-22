@@ -83,12 +83,38 @@ public sealed record SweepOptimizerOptions
     public long MaxCombinationsPerPhase { get; init; } = 50_000;
 
     /// <summary>
-    /// L'orologio delle fasi che lo richiedono (<see cref="SweepPhase.RequiresAccurateClock"/>):
-    /// tipicamente il feed da un minuto, che va caricato nelle serie. Costa trenta volte un run
-    /// veloce ed e' l'unico modo di scegliere uno stop: sul percorso veloce lo stop piu' stretto
-    /// della griglia vince sempre, e non perche' sia migliore.
+    /// L'orologio con cui gira <b>ogni</b> fase: il feed da un minuto, che va caricato nelle serie.
+    /// Costa tredici volte un run veloce ed e' l'unico che vede dentro la barra.
     /// </summary>
     public int AccurateClockMinutes { get; init; } = 1;
+
+    /// <summary>
+    /// Fa girare sull'orologio veloce le fasi che non dichiarano
+    /// <see cref="SweepPhase.RequiresAccurateClock"/>, come si faceva fino al 21/09/2026.
+    /// <b>Default spento</b>, e va acceso solo per rimisurare quella scelta.
+    ///
+    /// <para><b>Perche' e' stato spento.</b> L'architettura a due orologi si reggeva su un
+    /// argomento mai verificato: che il percorso veloce sbagliasse i <i>valori</i> ma conservasse
+    /// l'<i>ordinamento</i>, perche' dentro una fase lo stop e' fisso e tutte le combinazioni
+    /// sbagliano nello stesso verso. <c>SweepFastClockRankingTests</c> lo ha misurato su 22
+    /// configurazioni vere di <c>@FDAX 240m</c>, stop fisso a 1500: la correlazione di rango di
+    /// Spearman fra i due orologi vale <b>0,021 sul punteggio dell'obiettivo</b> — cioe' zero — e
+    /// delle prime tre del veloce solo una sta fra le prime tre del minuto.</para>
+    ///
+    /// <para><b>Perche' proprio il punteggio.</b> Sul netto la correlazione e' 0,694: debole ma
+    /// viva. Il punteggio e' pero' netto <i>diviso</i> il drawdown, e il drawdown e' esattamente
+    /// cio' che l'orologio veloce non puo' vedere — non vede i trade stoppati, e non li vede in
+    /// misura uguale fra configurazioni, perche' dipende da quante barre volatili ciascuna
+    /// attraversa. Numeratore gonfiato di un fattore, denominatore di un altro, e il rapporto
+    /// diventa rumore. Poiche' e' il punteggio che ordina e sceglie, le fasi veloci sceglievano a
+    /// caso: la sweep FDAX del 21/09 ha consegnato sei finaliste tutte in perdita fuori campione,
+    /// battute dalla configurazione di partenza con un solo parametro cambiato a mano.</para>
+    ///
+    /// <para><b>Cosa costa spegnerlo.</b> Le fasi di ordinamento passano da ~0,3 s a ~0,35 s per
+    /// run in parallelo: su @FDAX 240m una ricerca completa va da 37 minuti a circa tre ore. E' il
+    /// prezzo per ordinare qualcosa invece che niente.</para>
+    /// </summary>
+    public bool UseFastClockForOrderingPhases { get; init; }
 
     /// <summary>
     /// Quante configurazioni conservare per fase nel resoconto, oltre al beam. Non costa run in
@@ -145,9 +171,12 @@ public sealed class SweepOptimizer(
             var phaseStarted = Stopwatch.StartNew();
             var evaluated = new List<SweepCandidate>((int)Math.Min(combinations * seeds.Count, 200_000));
 
-            // Le fasi che decidono lo stop girano sull'orologio fitto, le altre sul veloce: e' la
-            // differenza fra ordinare configurazioni e misurarne una.
-            var phaseTemplate = phase.RequiresAccurateClock
+            // TUTTE le fasi girano sull'orologio fitto dal 21/09/2026. Prima lo facevano solo
+            // quelle che decidono lo stop, sull'argomento che il veloce bastasse a ORDINARE anche
+            // se sbagliava i valori: misurato, quell'argomento e' falso — Spearman 0,021 sul
+            // punteggio. Vedi SweepOptimizerOptions.UseFastClockForOrderingPhases, che riaccende il
+            // comportamento vecchio per rimisurarlo.
+            var phaseTemplate = phase.RequiresAccurateClock || !_options.UseFastClockForOrderingPhases
                 ? template with { ClockTimeframeMinutes = _options.AccurateClockMinutes }
                 : template;
 

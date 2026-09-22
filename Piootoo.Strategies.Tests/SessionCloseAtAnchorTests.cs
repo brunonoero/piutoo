@@ -134,7 +134,8 @@ public sealed class SessionCloseAtAnchorTests(ITestOutputHelper output)
         var grid = new SessionGrid(calendar);
 
         var end = (TimeOnly)FindProperty(type, "SessionEnd").GetValue(strategy)!;
-        var deadline = (DateTime)FindMethod(type, "ResolveCloseAtUtc").Invoke(strategy, [barUtc, end])!;
+        var deadline = (DateTime)FindMethod(
+            type, "ResolveCloseAtUtc", [typeof(DateTime), typeof(TimeOnly)]).Invoke(strategy, [barUtc, end])!;
 
         var sessionDay = grid.SessionDayOf(barUtc);
         var sessionOpen = grid.SessionOpenUtc(sessionDay);
@@ -149,12 +150,18 @@ public sealed class SessionCloseAtAnchorTests(ITestOutputHelper output)
         return (deadline, sessionClose, sessionOpen);
     }
 
-    private static MethodInfo FindMethod(Type type, string name)
+    /// <summary>
+    /// I tipi dei parametri sono espliciti perché <c>ResolveCloseAtUtc</c> ha due overload dal
+    /// 21/09/2026 — quello storico e quello che può non rimandare alla sessione successiva — e la
+    /// ricerca per solo nome sarebbe ambigua.
+    /// </summary>
+    private static MethodInfo FindMethod(Type type, string name, Type[] parameterTypes)
     {
         for (var t = type; t is not null; t = t.BaseType)
         {
             var m = t.GetMethod(name, BindingFlags.Instance | BindingFlags.NonPublic |
-                                      BindingFlags.Public | BindingFlags.DeclaredOnly);
+                                      BindingFlags.Public | BindingFlags.DeclaredOnly,
+                                binder: null, types: parameterTypes, modifiers: null);
             if (m is not null) return m;
         }
 

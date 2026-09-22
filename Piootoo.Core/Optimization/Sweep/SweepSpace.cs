@@ -275,7 +275,28 @@ public static class SweepSpaces
         // intraday_only fa parte del trigger e su daily non si ottimizza: il motore di ricerca non
         // applica l'uscita di sessione su D1, quindi li' il parametro e' inerte.
         if (!daily)
+        {
             parameters.Insert(2, new SweepParameter("IntradayOnly", [1, 0], Categorical: true));
+
+            // ExitHour: a che ora l'uscita di sessione chiude la posizione. -1 = fine sessione,
+            // cioe' il comportamento del motore di ricerca, ed e' il primo valore della griglia
+            // perche' la sweep parte da li'.
+            //
+            // DEVIAZIONE DICHIARATA: price_channel.py non ha questo parametro — conosce il solo
+            // exit_on_session_end booleano. Una configurazione con ExitHour != -1 non e'
+            // riproducibile dal motore Python, e il resoconto lo stampa come fa per
+            // SplitPatternPhases.
+            //
+            // Perche' esiste: la sessione della ricerca e' il giorno di calendario europeo, che
+            // per FDAX finisce alle 00:59 — dopo il rollover del broker. Una PC dichiarata
+            // intraday paga cosi' il finanziamento ogni giorno: su PT3B_FDAX_PCH_001_240 sono
+            // 879 trade su 1.317 e il 28% del lordo. La griglia copre il pomeriggio e la sera
+            // perche' e' li' che cade il rollover di tutti i broker misurati (20:59 FTMO,
+            // 21:00 ICS); chiudere prima di mezzogiorno e' un'altra strategia, non un risparmio,
+            // e per quello ci sono gia' StartHour/EndHour.
+            parameters.Add(new SweepParameter(
+                "ExitHour", [-1, 15, 16, 17, 18, 19, 20, 21, 22], OffSentinel: -1));
+        }
 
         var trigger = daily
             ? new[] { "ChannelBars", "OffsetTicks", "Direction" }
@@ -298,6 +319,18 @@ public static class SweepSpaces
             new("stop e target", ["StopLoss", "TakeProfit", "MaxBars"], RequiresAccurateClock: true),
             new("trailing e breakeven", ["TrailingStop", "BreakEven"], RequiresAccurateClock: true)
         };
+
+        // L'ora di uscita e' una decisione di DURATA, parente di MaxBars e non dei filtri orari:
+        // sceglie quanto a lungo la posizione resta, non quando puo' nascere. Per questo sta dopo
+        // gli orari e prima dello stop — la si giudica con il campione che gli orari hanno gia'
+        // selezionato, e prima che stop e target siano tarati addosso a una durata diversa.
+        //
+        // Sull'orologio FITTO, obbligatoriamente: CloseAtUtc lo applica UpdateMarketPrices, che sul
+        // percorso veloce gira una volta per barra della strategia. Una chiusura alle 20:00 misurata
+        // a 240 minuti cadrebbe sulla barra dopo — fino a quattro ore di finanziamento in piu' di
+        // quelle che il parametro esiste per togliere, cioe' la misura direbbe il contrario del vero.
+        if (!daily)
+            phases.Insert(5, new SweepPhase("uscita di sessione", ["ExitHour"], RequiresAccurateClock: true));
 
         // get_default_params(): una base senza stop ne' target fa vincere la sentinella a ogni fase.
         var defaults = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase)

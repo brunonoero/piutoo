@@ -149,11 +149,11 @@ public static class Program
 
         Console.WriteLine($"[sweep] carico {options.Symbol} {options.Timeframe}m" +
                           (options.Broker is null ? " dal feed interno" : $" da {options.Broker}") +
-                          $", {options.FromUtc:yyyy-MM-dd} → {options.ToUtc:yyyy-MM-dd}, piu' il minuto per le fasi di rischio...");
+                          $", {options.FromUtc:yyyy-MM-dd} → {options.ToUtc:yyyy-MM-dd}, piu' l'orologio a {options.ClockMinutes}m per tutte le fasi...");
 
         var dataFeed = new PiootooDataFeedService(new DatafeedCatalog(settings));
         var series = await SweepSeries.LoadAsync(
-            dataFeed, options.Symbol, [options.Timeframe, 1], options.FromUtc, options.ToUtc, options.Broker);
+            dataFeed, options.Symbol, [options.Timeframe, options.ClockMinutes], options.FromUtc, options.ToUtc, options.Broker);
 
         foreach (var timeframe in series.Timeframes.OrderBy(tf => tf))
         {
@@ -180,10 +180,23 @@ public static class Program
                               "insieme: un pattern che rende solo in coppia con un certo divieto non verra' trovato.");
         }
 
+        var optimizerOptions = new SweepOptimizerOptions
+        {
+            BeamWidth = options.BeamWidth,
+            MaxCombinationsPerPhase = options.MaxCombinationsPerPhase,
+            AccurateClockMinutes = options.ClockMinutes,
+            Verbose = true
+        };
+
+        // Dal 21/09/2026 ogni fase gira al minuto: l'etichetta dice quale orologio ha misurato quel
+        // numero, perche' fasi misurate su orologi diversi non sono confrontabili fra loro e il
+        // resoconto le stampava nella stessa colonna senza dirlo.
         foreach (var phase in space.Phases)
         {
-            Console.WriteLine($"[sweep] fase {phase.Name}: {space.CombinationCount(phase):N0} combinazioni" +
-                              (phase.RequiresAccurateClock ? " (orologio al minuto)" : string.Empty));
+            var orologio = phase.RequiresAccurateClock || !optimizerOptions.UseFastClockForOrderingPhases
+                ? $" (orologio a {options.ClockMinutes}m)"
+                : $" (orologio veloce, {options.Timeframe}m)";
+            Console.WriteLine($"[sweep] fase {phase.Name}: {space.CombinationCount(phase):N0} combinazioni{orologio}");
         }
 
         var template = new SweepJob(options.Strategy)
@@ -206,7 +219,7 @@ public static class Program
                 series.Between(options.SplitUtc, series.EndUtc),
                 new NetOverDrawdownObjective(options.MinTrades),
                 new SweepValidationOptions(),
-                1);
+                options.ClockMinutes);
 
             var single = validator.Validate(template, options.Parameters);
             Console.WriteLine();
@@ -250,7 +263,8 @@ public static class Program
             _ => new WorstSubPeriodObjective(
                 options.MinTrades,
                 MinAverageTrade: options.MinAverageTrade,
-                MinProfitFactor: options.MinProfitFactor)
+                MinProfitFactor: options.MinProfitFactor,
+                MinLosingTrades: options.MinLosingTrades)
         };
         Console.WriteLine($"[sweep] criterio di ricerca: {objective.Describe()}");
 
@@ -260,12 +274,7 @@ public static class Program
             space,
             template,
             objective,
-            new SweepOptimizerOptions
-            {
-                BeamWidth = options.BeamWidth,
-                MaxCombinationsPerPhase = options.MaxCombinationsPerPhase,
-                Verbose = true
-            },
+            optimizerOptions,
             new SweepValidationOptions(),
             options.TopCandidates);
 
@@ -411,12 +420,23 @@ public static class Program
                           [--engine PC|BIASW] [--broker <BROKER>] [--spread-broker <BROKER>]
                           [--from <yyyy-MM-dd>] [--to <yyyy-MM-dd>] [--beam N] [--top N]
                           [--min-trades N] [--commission N] [--max-combinations N] [--out <file.md>]
-                          [--split-pattern-phases]
+                          [--split-pattern-phases] [--clock <minuti, default 1>]
+                          [--min-losing-trades N, default 10]  (--min-trades default 250)
             """;
 
         public required string Strategy { get; init; }
         public required string Symbol { get; init; }
         public required int Timeframe { get; init; }
+
+        /// <summary>
+        /// L'orologio con cui gira OGNI fase, in minuti. Default 1. Dal 21/09/2026 il veloce e'
+        /// spento (ordinava rumore, Spearman 0,021 sul punteggio su FDAX); un orologio intermedio
+        /// pero' ordina: su NQ, 15m contro 1m vale 0,980. Serve per i simboli di cui il vendor ha i
+        /// 15 minuti ma non il minuto — ES, BP, EC — che altrimenti non sarebbero cercabili.
+        /// Va caricato nelle serie, quindi il feed deve avere quel timeframe.
+        /// </summary>
+        public int ClockMinutes { get; init; } = 1;
+
         public string Engine { get; init; } = "PC";
         public string? Broker { get; init; }
         public string? SpreadBroker { get; init; }
@@ -425,7 +445,19 @@ public static class Program
         public DateTime ToUtc { get; init; } = DateTime.UtcNow.Date;
         public int BeamWidth { get; init; } = 2;
         public int TopCandidates { get; init; } = 5;
-        public int MinTrades { get; init; } = 30;
+        /// <summary>
+        /// Trade minimi in campione perche' una configurazione sia giudicata. Era 30 e il criterio
+        /// del peggior tratto convergeva su 42-52 trade in tre anni (FDAX e NQ al minuto, 22/09):
+        /// chi fa pochissimi trade non ha un tratto brutto per costruzione. 250 su tre anni a 4 ore
+        /// sono meno di due a settimana. Vedi <see cref="WorstSubPeriodObjective"/>.
+        /// </summary>
+        public int MinTrades { get; init; } = 250;
+
+        /// <summary>
+        /// Trade in perdita minimi in campione: sotto, la coda non e' stata vista e la configurazione
+        /// non e' misurata. NQ al minuto: 42 trade, zero perdite, punteggio 19.115.
+        /// </summary>
+        public int MinLosingTrades { get; init; } = 10;
         /// <summary>
         /// Commissione per contratto e <b>per lato</b>: il motore la addebita due volte, all'entrata
         /// e all'uscita. La scheda di un broker stampa di solito il <i>round turn</i> — su ICS/DE40
@@ -545,6 +577,7 @@ public static class Program
                 Strategy = Required("strategy"),
                 Symbol = Required("symbol"),
                 Timeframe = int.Parse(Required("timeframe")),
+                ClockMinutes = Number("clock", 1),
                 SplitUtc = DateTime.SpecifyKind(DateTime.Parse(Required("split")), DateTimeKind.Utc),
                 Engine = values.TryGetValue("engine", out var engine) ? engine.ToUpperInvariant() : "PC",
                 Broker = values.GetValueOrDefault("broker"),
@@ -554,7 +587,8 @@ public static class Program
                 ToUtc = Date("to", DateTime.UtcNow.Date),
                 BeamWidth = Number("beam", 2),
                 TopCandidates = Number("top", 5),
-                MinTrades = Number("min-trades", 30),
+                MinTrades = Number("min-trades", 250),
+                MinLosingTrades = Number("min-losing-trades", 10),
                 // Decimale: la meta' di un round turn raramente e' un intero.
                 Commission = values.TryGetValue("commission", out var commissione)
                     ? decimal.Parse(commissione, System.Globalization.NumberStyles.Float,
