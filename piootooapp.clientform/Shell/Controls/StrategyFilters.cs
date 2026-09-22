@@ -7,9 +7,11 @@ namespace piootooapp.clientform.Shell.Controls;
 ///
 /// <para><b>La serie</b> e' il prefisso dell'Id di classe: <c>PTS_*</c> sono le traduzioni dei dossier
 /// di agosto e settembre, <c>PT2_*</c> quelle del paniere rifatto di <c>run-engine-v2/</c>
-/// (16/09/2026). Il default e' <b>PT2</b>: e' la serie su cui si lavora, e un elenco che mostra
-/// anche le PTS fa sembrare disponibile un catalogo che non si vuole piu' eseguire. La voce
-/// «tutte» resta per guardare l'intero catalogo e per le classi fuori serie.</para>
+/// (16/09/2026), <c>PT3B_*</c> quelle nate dalla ricerca interna con <c>piootoo-sweep</c>
+/// (21/09/2026). Le voci sono in ordine di eta', dalla piu' recente. Il default resta <b>PT2</b>:
+/// cambiarlo mostrerebbe un elenco vuoto a chi apre un piano costruito su un'altra serie, che
+/// sembra un guasto e non un filtro. La voce «tutte» resta per guardare l'intero catalogo e per le
+/// classi fuori serie.</para>
 ///
 /// <para><b>Il simbolo</b> si legge dalle strategie caricate, non da un'anagrafica: la combo elenca
 /// solo i simboli che compaiono davvero nell'elenco, con «tutti» in testa.</para>
@@ -18,6 +20,7 @@ public static class StrategyFilters
 {
     public const string AllSymbols = "(tutti)";
     public const string AllSeries = "(tutte)";
+    public const string SeriesPt3b = "PT3B";
     public const string SeriesPt2 = "PT2";
     public const string SeriesPts = "PTS";
 
@@ -33,21 +36,27 @@ public static class StrategyFilters
         var prefix = underscore > 0 ? strategyId[..underscore] : strategyId;
         return prefix.ToUpperInvariant() switch
         {
+            SeriesPt3b => SeriesPt3b,
             SeriesPt2 => SeriesPt2,
             SeriesPts => SeriesPts,
             _ => "altro"
         };
     }
 
-    /// <summary>Riempie la combo delle serie una volta sola, con PT2 selezionata.</summary>
+    /// <summary>
+    /// Riempie la combo delle serie una volta sola, in ordine di eta' e con PT2 selezionata.
+    /// La selezione si dichiara per <b>valore</b> e non per indice: aggiungendo una serie in testa,
+    /// un indice avrebbe cambiato il default in silenzio.
+    /// </summary>
     public static void InitializeSeries(ComboBox combo)
     {
         combo.DropDownStyle = ComboBoxStyle.DropDownList;
         combo.Items.Clear();
+        combo.Items.Add(SeriesPt3b);
         combo.Items.Add(SeriesPt2);
         combo.Items.Add(SeriesPts);
         combo.Items.Add(AllSeries);
-        combo.SelectedIndex = 0;
+        combo.SelectedItem = SeriesPt2;
     }
 
     /// <summary>

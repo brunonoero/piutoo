@@ -645,6 +645,35 @@ rispetto a regole introdotte dopo, nessuno un difetto del codice: dettaglio in
 Regola invariata: un test che torna verde perche' riscritto e' il modo tipico di cementare un
 bug; ogni caso va letto contro l'invariante di `CLAUDE.md` prima di toccarlo.
 
+### Gli studi di ricerca non girano con la suite
+
+Quattro classi del progetto di test non sono test: **misurano**, girano per ore sul feed vero e
+riscrivono file in `piootoo-repository/ricerca/`. Sono `NqCoarseGridTests` e `GcCoarseGridTests`
+(entrambe via `CoarseGridStudy`), `NqEngineCorrelationTests` e `SweepFastClockRankingTests`.
+
+Il 22/09/2026 un `dotnet test` senza argomenti non e' finito in quaranta minuti, e lo studio
+interrotto a meta' aveva gia' riscritto `nq-correlazione-motori.csv`, che e' tracciato da git.
+
+Da allora gli studi sono **spenti di default**: escono subito, stampano il motivo e il test resta
+verde, come gia' succede quando il feed non c'e'. L'interruttore e' la variabile d'ambiente
+`PIOOTOO_STUDI` (vedi `ResearchStudy`), la stessa convenzione di `PIOOTOO_PERSIST_ALL_INTENTS`.
+Un filtro di default andrebbe ricordato; una variabile spenta no.
+
+```bash
+dotnet test Piootoo.Strategies.Tests/Piootoo.Strategies.Tests.csproj
+```
+
+gira i test veri in poco piu' di tre minuti. Per far girare gli studi, da PowerShell:
+
+```bash
+$env:PIOOTOO_STUDI='1'; dotnet test Piootoo.Strategies.Tests/Piootoo.Strategies.Tests.csproj --filter "Category=Studio"
+```
+
+Il filtro non accende nulla: serve a non trascinare gli altri mille test in un giro che ne vuole
+quattro. Uno studio nuovo porta **entrambi**, la guardia e il trait `Category=Studio`; se nasce
+come cella di `CoarseGridStudy` la guardia ce l'ha gia'. Dopo un giro interrotto conviene
+controllare `git status -- piootoo-repository/ricerca`.
+
 ## Riferimenti codice
 
 `PiootooApp.Server/Controllers/WorkspaceController.cs`,

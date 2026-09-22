@@ -12,6 +12,7 @@ namespace Piootoo.Strategies.Tests;
 public sealed class GcCoarseGridTests(ITestOutputHelper output)
 {
     [Fact]
+    [Trait("Category", ResearchStudy.Category)]
     public async Task CoarseGridOnGcMeasuredInAndOutOfSample()
     {
         // Stop e target in dollari per contratto GC ($100 al punto): 1000 = 10 punti d'oro, 8000 = 80.

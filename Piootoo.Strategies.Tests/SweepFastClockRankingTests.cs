@@ -45,8 +45,11 @@ public sealed class SweepFastClockRankingTests(ITestOutputHelper output)
     private static readonly DateTime EndUtc = new(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
     [Fact]
+    [Trait("Category", ResearchStudy.Category)]
     public async Task FastClockRankingAgreesWithTheMinuteClock()
     {
+        if (ResearchStudy.IsSkipped(output)) return;
+
         var series = await LoadAsync();
         if (series is null)
         {
@@ -121,8 +124,11 @@ public sealed class SweepFastClockRankingTests(ITestOutputHelper output)
     [Theory]
     [InlineData(240)]
     [InlineData(15)]
+    [Trait("Category", ResearchStudy.Category)]
     public async Task OnNqAnIntermediateClockIsMeasuredAgainstTheMinute(int candidateClock)
     {
+        if (ResearchStudy.IsSkipped(output)) return;
+
         var series = await LoadNqAsync();
         if (series is null)
         {

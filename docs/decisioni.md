@@ -4422,3 +4422,18 @@ che il motore fa. Difetto di artefatto, non di esecuzione, ma e' costato mezza i
   finalista. L'impronta di sessione include la durata solo a overnight vietato, cosi' le sessioni
   salvate prima si riagganciano. Test: `HoldingPolicyTests` (finestra, trigger, blocco, rollover,
   validazione), `PlanHoldingTimesMigrationTests.APlanWithoutFlatWindowGetsTheDefaultDuration`.
+
+- **2026-09-22** — **Gli studi di ricerca non girano piu' con la suite** (`ResearchStudy`,
+  variabile `PIOOTOO_STUDI`, trait `Category=Studio`). Quattro classi del progetto di test non sono
+  test — `NqCoarseGridTests`, `GcCoarseGridTests` (via `CoarseGridStudy`), `NqEngineCorrelationTests`,
+  `SweepFastClockRankingTests` — ma misure che girano per ore sul feed vero e riscrivono file in
+  `piootoo-repository/ricerca/`. Un `dotnet test` senza argomenti non e' finito in quaranta minuti e
+  lo studio interrotto aveva gia' riscritto `nq-correlazione-motori.csv`, tracciato da git; senza
+  quelle quattro la suite passa in 3 minuti e 19 secondi (1084 test). Scelta la **variabile
+  d'ambiente** e non un filtro di default nel `.runsettings`: un filtro va ricordato e chi non lo
+  ricorda paga le ore, mentre un default spento non si puo' dimenticare — ed e' la convenzione gia'
+  in uso per `PIOOTOO_PERSIST_ALL_INTENTS`. Il trait resta per **selezionarli** come gruppo, non per
+  accenderli. A interruttore spento lo studio esce subito e il test e' verde, come gia' fa il
+  controllo «feed assente»: xUnit 2.9 non ha uno skip deciso a runtime, e la riga stampata dice che
+  non ha misurato nulla. La guardia delle griglie grosse sta in `CoarseGridStudy.RunAsync`, cosi' una
+  cella nuova la eredita. Comandi in `lavori-in-corso.md`.

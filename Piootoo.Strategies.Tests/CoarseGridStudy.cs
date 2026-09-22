@@ -59,6 +59,10 @@ public static class CoarseGridStudy
 
     public static async Task<List<Cell>?> RunAsync(CoarseGridSpec spec, ITestOutputHelper output)
     {
+        // L'interruttore sta QUI e non nelle singole celle: una cella nuova e' un file di dieci
+        // righe, e chi lo scrive non deve ricordarsi di spegnerla. Vedi ResearchStudy.
+        if (ResearchStudy.IsSkipped(output)) return null;
+
         var settings = new PiootooSettings
         {
             BasePath = RepositoryPath,

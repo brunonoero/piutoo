@@ -35,8 +35,11 @@ public sealed class NqEngineCorrelationTests(ITestOutputHelper output)
     private static readonly DateTime EndUtc = new(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc);
 
     [Fact]
+    [Trait("Category", ResearchStudy.Category)]
     public async Task DailyPnlCorrelationAcrossEnginesOnNq()
     {
+        if (ResearchStudy.IsSkipped(output)) return;
+
         var nq = StrategyFactory.GetRegisteredStrategies()
             .Where(d => string.Equals(d.Symbol?.Trim().TrimStart('@'), "NQ", StringComparison.OrdinalIgnoreCase))
             .Where(d => d.TimeframeMinutes > 0)

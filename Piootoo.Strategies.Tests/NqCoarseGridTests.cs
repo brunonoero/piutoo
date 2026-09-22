@@ -12,6 +12,7 @@ namespace Piootoo.Strategies.Tests;
 public sealed class NqCoarseGridTests(ITestOutputHelper output)
 {
     [Fact]
+    [Trait("Category", ResearchStudy.Category)]
     public async Task CoarseGridOnNq15MeasuredInAndOutOfSample()
     {
         // Stop e target in dollari per contratto NQ ($20 al punto): 500 = 25 punti, 4000 = 200.
