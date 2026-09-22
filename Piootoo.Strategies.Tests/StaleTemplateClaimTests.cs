@@ -86,7 +86,12 @@ public sealed class StaleTemplateClaimTests : IDisposable
             ClientRunMode = ClientRunMode.Realtime,
             EnforceConcurrencyLimits = false,
             MaxConcurrentTrades = TestSessionAccounts.MaxConcurrentTrades(conti),
-            ConcurrencyCountMode = TestSessionAccounts.CountMode(conti)
+            ConcurrencyCountMode = TestSessionAccounts.CountMode(conti),
+            // Il caso del venerdi' sera vuole che l'ingresso ESISTA: con il piano di default, che
+            // vieta l'overweek, un ingresso valido dentro la finestra del fine settimana non nasce
+            // (HoldingResolver.BlocksEntry). Qui si misura la validita' attraverso un buco, non il
+            // flat: la tenuta e' quella dei run di parita'.
+            Holding = AccountHoldingPolicy.Unrestricted
         });
         sessions.SetSessionAccounts(d.SessionId, d.SessionToken, TestSessionAccounts.Numbers(conti));
         sessions.SetStatus(d.SessionId, d.SessionToken, TradingSessionStatus.Running);

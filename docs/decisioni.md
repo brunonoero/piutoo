@@ -4399,3 +4399,26 @@ che il motore fa. Difetto di artefatto, non di esecuzione, ma e' costato mezza i
   griglia grossa lo prova con `CoarseGridSpec.AtrStops` (stop e target in decimi di ATR). Test:
   `AtrStopTests`. Il `ClosedSessionAtr` privato del PC e' salito nella base
   (`ClosedSessionAtrPoints`).
+
+- **2026-09-22** — **Il flat di sessione del piano e' una finestra, la sweep lo onora e il run
+  controlla che copra il rollover.** Tre modifiche insieme, nate dalla stessa domanda: come tenere
+  le strategie lontane dal rollover del broker senza riscriverle una per una (la via di
+  `PT3B_FDAX_PCH_002_240`, `SessionExitTime` dentro la classe). La risposta e' il piano che vieta
+  l'overnight, che gia' esisteva; mancavano tre cose. (1) `AccountHoldingPolicy.
+  SessionFlatWindowMinutes` (default 30): il flat era un istante e un ordine valido fra il flat e
+  il rollover — la barra delle 20:45 di una 15 minuti, uno stop che si riempie alle 20:50 —
+  riceveva la deadline del giorno dopo e attraversava la notte che il flat esiste per evitare.
+  Ora e' `[flat, flat + minuti)`, stessa forma del fine settimana: dentro non nascono ingressi
+  (`HoldingResolver.BlocksEntry`, chiamato da backtest, sweep e sessione) e i pending si
+  cancellano; il cBot ripete la barriera (7.6.0: campo nuovo nel descriptor, contratto nuovo) (`EnforceSessionFlat`, `HandleEntryIntent`). Una
+  durata e non un'ora di fine perche' un'ora di fine puo' cadere prima dell'inizio e rovesciare la
+  finestra in silenzio. (2) `piootoo-sweep --flat-utc HH:mm [--flat-window N]`: la ricerca girava
+  sempre a overnight libero, quindi validava una strategia diversa da quella che il piano avrebbe
+  operato. (3) L'avviso `[rollover]` — summary, log di avvio, resoconto della sweep — quando
+  `SwapSpec.RolloverUtc` di un simbolo non cade dentro la finestra: avviso e non errore, perche'
+  misurare un flat dopo il rollover puo' essere l'esperimento. **Scartata** la variante
+  «overnight permesso sul lato il cui swap e' un credito»: legherebbe quali trade esistono a un
+  listino che il broker cambia, il contrario di `SwapTable.Worst`; e oggi non la userebbe nessuna
+  finalista. L'impronta di sessione include la durata solo a overnight vietato, cosi' le sessioni
+  salvate prima si riagganciano. Test: `HoldingPolicyTests` (finestra, trigger, blocco, rollover,
+  validazione), `PlanHoldingTimesMigrationTests.APlanWithoutFlatWindowGetsTheDefaultDuration`.

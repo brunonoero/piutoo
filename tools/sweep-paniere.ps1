@@ -58,6 +58,13 @@ param(
     [string] $BrokerSpread = "ICS,FTMOPLATFORM",
     [string] $BrokerSwap = "ICS,FTMO",
     [decimal] $CommissionePerLato = 19.23,
+    # Tenuta con cui la strategia verra' operata. Vuoto = overnight e overweek liberi (parita' con
+    # il motore di ricerca). "20:45" = la ricerca gira come il piano che vieta l'overnight: deadline
+    # al flat e nessun ingresso nella finestra [flat, flat + FinestraFlat minuti), che deve coprire il
+    # rollover del broker (20:59 FTMO, 21:00 ICS). Cercare con una tenuta e operare con un'altra
+    # valida una strategia diversa da quella che si opera.
+    [string] $FlatUtc = "",
+    [int] $FinestraFlat = 30,
     [switch] $SoloStima
 )
 
@@ -106,7 +113,8 @@ foreach ($cella in $Celle) {
     Write-Host ("  {0,-8} {1,-22} {2,-6} {3,4}m  {4}" -f $cella, $d.Strategia, $d.Motore, $d.Timeframe, $d.Stima)
 }
 $modello = "spread $BrokerSpread" + $(if ($SpreadPerOra) { " PER ORA" } else { " costante" }) +
-           ", swap $BrokerSwap, commissione $CommissionePerLato per lato"
+           ", swap $BrokerSwap, commissione $CommissionePerLato per lato" +
+           $(if ($FlatUtc) { ", flat di sessione $FlatUtc UTC per $FinestraFlat minuti" } else { ", overnight libero" })
 Write-Host ("Campione {0} -> {1}, validazione {1} -> {2}, beam {3}, {4}, criterio {5}, feed ICS." -f $Da, $Split, $A, $Beam, $modello, $Criterio)
 Write-Host ("Ammissibilita': almeno {0} trade, profit factor >= {1}, utile medio >= {2}." -f $TradeMinimi, $ProfitFactorMinimo, $UtileMedioMinimo)
 
@@ -129,6 +137,7 @@ foreach ($cella in $Celle) {
     $suffisso = "-ics-$costo"
     if ($SpreadPerOra) { $suffisso += "-per-ora" }
     if ($Criterio -eq "worst-period") { $suffisso += "-peggior-tratto" }
+    if ($FlatUtc) { $suffisso += "-flat-" + $FlatUtc.Replace(":", "") }
     $log = Join-Path $uscita "$cella$suffisso.log"
     $md = Join-Path $uscita "$cella$suffisso.md"
 
@@ -145,6 +154,7 @@ foreach ($cella in $Celle) {
     )
     if ($d.SpezzaPattern) { $argomenti += "--split-pattern-phases" }
     if ($SpreadPerOra) { $argomenti += "--spread-per-hour" }
+    if ($FlatUtc) { $argomenti += @("--flat-utc", $FlatUtc, "--flat-window", $FinestraFlat) }
 
     Write-Host ""
     Write-Host ("=== {0} ({1}) - avvio {2}" -f $cella, $d.Stima, (Get-Date -Format "HH:mm"))

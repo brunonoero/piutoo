@@ -93,6 +93,49 @@ public sealed class PlanHoldingTimesMigrationTests : IDisposable
         Assert.Equal(new TimeOnly(21, 30), plans.Get(workspace.Id, "LEGACYRW").Holding.SessionFlatUtc);
     }
 
+    /// <summary>
+    /// Un piano scritto prima che il flat fosse una finestra non dichiara la durata: vale il default
+    /// di trenta minuti, che copre il rollover dei broker misurati, e alla riscrittura si salva la
+    /// durata e non l'ora di fine, che e' derivata.
+    /// </summary>
+    [Fact]
+    public void APlanWithoutFlatWindowGetsTheDefaultDuration()
+    {
+        var (workspaces, workspace) = NewWorkspace();
+        WriteLegacyPlan(workspaces, workspace.Id, """
+              {
+                "WorkspaceId": "%WS%",
+                "Code": "NOWINDOW",
+                "Name": "piano senza finestra",
+                "Accounts": ["21341234"],
+                "AccountNumber": "21341234",
+                "Holding": { "AllowOvernight": false, "AllowOverweek": false, "SessionFlatUtc": "20:45:00" },
+                "CreatedUtc": "2026-08-05T04:13:41Z",
+                "UpdatedUtc": "2026-08-05T06:36:03Z"
+              }
+            """);
+
+        var plans = new TradingPlanService(workspaces);
+        var letto = plans.Get(workspace.Id, "NOWINDOW");
+        Assert.Equal(TradingConventions.SessionFlatWindowMinutes, letto.Holding.SessionFlatWindowMinutes);
+        Assert.Equal(new TimeOnly(21, 15), letto.Holding.SessionFlatUntilUtc);
+
+        plans.Save(workspace.Id, new SaveTradingPlanRequest
+        {
+            Code = letto.Code,
+            Name = letto.Name,
+            Accounts = letto.Accounts,
+            Holding = letto.Holding with { SessionFlatWindowMinutes = 45 }
+        });
+
+        var file = File.ReadAllText(Path.Combine(
+            workspaces.GetWorkspacePath(workspace.Id), "plans", "plans.json"));
+
+        Assert.Contains("\"SessionFlatWindowMinutes\": 45", file);
+        Assert.DoesNotContain("SessionFlatUntilUtc", file);
+        Assert.Equal(new TimeOnly(21, 30), plans.Get(workspace.Id, "NOWINDOW").Holding.SessionFlatUntilUtc);
+    }
+
     private void WriteLegacyPlan(WorkspaceService workspaces, string workspaceId, string plan)
     {
         var directory = Path.Combine(workspaces.GetWorkspacePath(workspaceId), "plans");

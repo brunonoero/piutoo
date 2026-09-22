@@ -557,6 +557,8 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
         _forceNightCloseCheckBox.Checked = !holding.AllowOvernight;
         _forceWeekCloseCheckBox.Checked = !holding.AllowOverweek;
         SetTime(_sessionFlatInput, holding.SessionFlatUtc);
+        _sessionFlatWindowInput.Value = Math.Clamp(
+            holding.SessionFlatWindowMinutes, (int)_sessionFlatWindowInput.Minimum, (int)_sessionFlatWindowInput.Maximum);
         SetTime(_weekEndFromInput, holding.WeekEnd.FromUtc);
         SetTime(_weekEndUntilInput, holding.WeekEnd.UntilUtc);
         ApplyHoldingEnablement();
@@ -568,6 +570,7 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
         AllowOvernight = !_forceNightCloseCheckBox.Checked,
         AllowOverweek = !_forceWeekCloseCheckBox.Checked,
         SessionFlatUtc = GetTime(_sessionFlatInput),
+        SessionFlatWindowMinutes = (int)_sessionFlatWindowInput.Value,
         WeekEnd = new WeekEndFlatPolicy(GetTime(_weekEndFromInput), GetTime(_weekEndUntilInput))
     };
 
@@ -596,6 +599,8 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
         var cutsNight = _forceNightCloseCheckBox.Checked;
         _sessionFlatInput.Enabled = cutsNight;
         _sessionFlatLabel.Enabled = cutsNight;
+        _sessionFlatWindowInput.Enabled = cutsNight;
+        _sessionFlatWindowLabel.Enabled = cutsNight;
 
         if (cutsNight && !_forceWeekCloseCheckBox.Checked)
         {
@@ -969,7 +974,7 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
                     Timeframe = strategy.TimeframeMinutes > 0 ? $"{strategy.TimeframeMinutes}m" : "—",
                     Holding = conflict.Holding.Describe(),
                     Effect = conflict.CutAtSessionFlat
-                        ? $"chiusa ogni giorno alle {holding.SessionFlatUtc:HH\\:mm} UTC"
+                        ? $"chiusa ogni giorno alle {holding.SessionFlatUtc:HH\\:mm} UTC, nessun ingresso fino alle {holding.SessionFlatUntilUtc:HH\\:mm}"
                         : $"chiusa il venerdi alle {holding.WeekEnd.FromUtc:HH\\:mm} UTC"
                 });
             }

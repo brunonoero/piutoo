@@ -77,6 +77,28 @@ public sealed record AccountHoldingPolicy
     /// </summary>
     public TimeOnly SessionFlatUtc { get; init; } = TradingConventions.SessionFlatFromUtc;
 
+    /// <summary>
+    /// Durata in minuti della finestra di flat giornaliero che parte da <see cref="SessionFlatUtc"/>.
+    /// Dentro la finestra il conto e' piatto e <b>non nascono ingressi</b>: e' la stessa forma della
+    /// regola del fine settimana, applicata a tutti i giorni.
+    ///
+    /// <para><b>Perche' una finestra e non un istante.</b> Con il solo istante, un ordine valido fra il
+    /// flat e il rollover del broker — la barra delle 20:45 di una strategia a 15 minuti — riceveva la
+    /// deadline del giorno <i>dopo</i> e attraversava proprio il rollover che il flat esiste per
+    /// evitare. Il fine della finestra va messo <b>oltre il rollover</b>: 30 minuti dalle 20:45 sono
+    /// le 21:15, contro un rollover alle 20:59 (FTMO) o 21:00 (ICS).</para>
+    ///
+    /// <para><b>Perche' una durata e non un'ora di fine.</b> Un orario di fine puo' cadere prima
+    /// dell'inizio — un <c>plans.json</c> con il flat alle 21:30 e il default di fine alle 21:15 —
+    /// e la finestra si rovescerebbe in silenzio; una durata non puo'. La regola e' una sola:
+    /// <c>[SessionFlatUtc, SessionFlatUtc + minuti)</c>, anche a cavallo della mezzanotte.</para>
+    /// </summary>
+    public int SessionFlatWindowMinutes { get; init; } = TradingConventions.SessionFlatWindowMinutes;
+
+    /// <summary>Fine della finestra di flat giornaliero, come ora del giorno UTC. Derivata, non si salva.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public TimeOnly SessionFlatUntilUtc => SessionFlatUtc.AddMinutes(SessionFlatWindowMinutes);
+
     /// <summary>Finestra di flat del fine settimana, usata quando <see cref="AllowOverweek"/> e' falso.</summary>
     public WeekEndFlatPolicy WeekEnd { get; init; } = WeekEndFlatPolicy.Default;
 
@@ -104,24 +126,78 @@ public sealed record AccountHoldingPolicy
             throw new InvalidOperationException(
                 "Un piano non puo' permettere l'overweek vietando l'overnight: tenere il fine " +
                 "settimana e' un caso particolare di tenere oltre la sessione.");
+
+        // Una finestra vuota o di mezza giornata non descrive alcun conto: la prima riaprirebbe
+        // in silenzio il buco fra flat e rollover, la seconda terrebbe il conto fermo per ore.
+        if (SessionFlatWindowMinutes is < 1 or > 720)
+            throw new InvalidOperationException(
+                $"La finestra del flat di sessione deve durare fra 1 e 720 minuti: " +
+                $"ricevuti {SessionFlatWindowMinutes}.");
     }
 
     /// <summary>
-    /// La prima occorrenza di <see cref="SessionFlatUtc"/> <b>successiva</b> all'istante di
-    /// riferimento, che e' la barra su cui l'ordine e' valido. Stessa convenzione di
-    /// <c>EasyEngineBase.ResolveCloseAtUtc</c>, ma su orologio UTC puro: questo orario e' del conto,
-    /// non della borsa, quindi non passa da <c>SessionClock</c> e non ha fuso da risolvere.
+    /// Vero quando l'istante cade nella finestra di flat giornaliero
+    /// <c>[SessionFlatUtc, SessionFlatUtc + SessionFlatWindowMinutes)</c>. La finestra puo' passare
+    /// la mezzanotte, quindi la distanza dall'inizio si misura modulo un giorno.
+    /// </summary>
+    public bool IsInsideSessionFlatWindow(DateTime instantUtc)
+    {
+        var minutesSinceFlat = (int)((instantUtc.TimeOfDay - SessionFlatUtc.ToTimeSpan()).TotalMinutes + 1440) % 1440;
+        return minutesSinceFlat < SessionFlatWindowMinutes;
+    }
+
+    /// <summary>
+    /// Vero sul tick in cui il flat giornaliero <b>scatta</b>: l'ora del flat cade dopo il tick
+    /// precedente e non oltre questo. Serve al backtest e alla sweep per cancellare i pending una
+    /// volta sola, sulla prima barra utile, come <see cref="WeekEndFlatPolicy.IsFlatTrigger"/>.
+    ///
+    /// <para>Si misura l'<i>attraversamento</i> dell'ora e non "dentro adesso, fuori prima" perche'
+    /// la finestra dura mezz'ora e l'orologio del loop puo' essere piu' largo: con un tick a quattro
+    /// ore nessun tick cadrebbe dentro e il flat non scatterebbe mai. Presuppone due tick a meno di
+    /// un giorno di distanza, che e' vero per ogni orologio del sistema.</para>
+    /// </summary>
+    public bool IsSessionFlatTrigger(DateTime instantUtc, DateTime previousInstantUtc)
+    {
+        var flat = DateTime.SpecifyKind(instantUtc.Date.Add(SessionFlatUtc.ToTimeSpan()), DateTimeKind.Utc);
+        if (flat > instantUtc) flat = flat.AddDays(-1);
+        return flat > previousInstantUtc;
+    }
+
+    /// <summary>
+    /// Vero se l'ora di rollover del broker cade <b>dentro</b> la finestra di flat: e' la condizione
+    /// perche' il flat eviti davvero il finanziamento. Un rollover prima dell'inizio della finestra
+    /// viene pagato da ogni posizione ancora aperta; uno alla fine o dopo puo' essere attraversato da
+    /// un ingresso nato appena la finestra si chiude.
+    /// </summary>
+    public bool SessionFlatWindowCoversRollover(TimeOnly rolloverUtc)
+    {
+        var minutesSinceFlat = (int)((rolloverUtc.ToTimeSpan() - SessionFlatUtc.ToTimeSpan()).TotalMinutes + 1440) % 1440;
+        return minutesSinceFlat < SessionFlatWindowMinutes;
+    }
+
+    /// <summary>
+    /// Il primo istante da <paramref name="referenceUtc"/> in poi in cui il flat giornaliero e' in
+    /// vigore: <see cref="SessionFlatUtc"/> stesso se la finestra e' aperta, altrimenti la prossima
+    /// occorrenza <b>successiva</b> all'istante di riferimento, che e' la barra su cui l'ordine e'
+    /// valido. Stessa convenzione di <c>WeekEndFlatPolicy.ResolveNextFlatUtc</c>, su orologio UTC
+    /// puro: questo orario e' del conto, non della borsa, quindi non passa da <c>SessionClock</c> e
+    /// non ha fuso da risolvere.
     /// </summary>
     public DateTime ResolveSessionFlatUtc(DateTime referenceUtc)
     {
+        if (IsInsideSessionFlatWindow(referenceUtc)) return referenceUtc;
+
         var target = DateTime.SpecifyKind(referenceUtc.Date.Add(SessionFlatUtc.ToTimeSpan()), DateTimeKind.Utc);
         return target <= referenceUtc ? target.AddDays(1) : target;
     }
 
+    /// <summary>La finestra giornaliera come si legge nei pannelli: <c>20:45 → 21:15 UTC</c>.</summary>
+    public string DescribeSessionFlat() => $"{SessionFlatUtc:HH\\:mm} → {SessionFlatUntilUtc:HH\\:mm} UTC";
+
     /// <summary>Etichetta compatta per pannelli e log: dice cosa il conto concede, non come e' scritto.</summary>
     public string Describe() => (AllowOvernight, AllowOverweek) switch
     {
-        (false, _) => $"flat di sessione {SessionFlatUtc:HH\\:mm} UTC",
+        (false, _) => $"flat di sessione {DescribeSessionFlat()}",
         (true, false) => $"overnight, flat weekend {WeekEnd.Describe()}",
         (true, true) => "overnight e overweek liberi"
     };
@@ -176,6 +252,38 @@ public static class HoldingResolver
         return strategyCloseAtUtc.HasValue && strategyCloseAtUtc.Value <= deadline
             ? new TimeExitDecision(strategyCloseAtUtc, false)
             : new TimeExitDecision(deadline, true);
+    }
+
+    /// <summary>
+    /// Vero se un ingresso valido da <paramref name="referenceUtc"/> nasce <b>dentro</b> una finestra
+    /// di flat del conto e quindi non deve nascere affatto: il flat giornaliero quando il piano vieta
+    /// l'overnight, quello del fine settimana quando vieta l'overweek.
+    ///
+    /// <para><b>Perche' scartare e non datare.</b> Un ordine valido fra il flat e il rollover riceveva
+    /// da <see cref="Resolve"/> la deadline del giorno dopo — la prossima occorrenza del flat — e
+    /// viveva una notte intera attraversando proprio il rollover che il flat esiste per evitare. La
+    /// finestra chiude il buco alla sorgente, nello stesso punto per backtest, sweep e sessione; il
+    /// cBot ripete il controllo come ultima barriera, com'e' gia' per il fine settimana. Le uscite
+    /// (<c>ExitOnly</c>) non passano di qui: ridurre il rischio e' sempre permesso.</para>
+    /// </summary>
+    public static bool BlocksEntry(DateTime referenceUtc, AccountHoldingPolicy policy) =>
+        (!policy.AllowOvernight && policy.IsInsideSessionFlatWindow(referenceUtc)) ||
+        (!policy.AllowOverweek && policy.WeekEnd.IsInsideWindow(referenceUtc));
+
+    /// <summary>
+    /// I simboli il cui rollover cade <b>fuori</b> dalla finestra di flat del piano: per ciascuno il
+    /// flat non evita il finanziamento, e il run va corretto o letto sapendolo. Vuoto quando il piano
+    /// permette l'overnight, perche' li' non promette niente.
+    /// </summary>
+    public static IReadOnlyList<string> RolloversOutsideSessionFlatWindow(
+        AccountHoldingPolicy policy, IEnumerable<SwapSpec> swaps)
+    {
+        if (policy.AllowOvernight) return [];
+
+        return swaps
+            .Where(swap => !policy.SessionFlatWindowCoversRollover(swap.RolloverUtc))
+            .Select(swap => $"{swap.Symbol} rollover {swap.RolloverUtc:HH\\:mm} UTC")
+            .ToList();
     }
 
     /// <summary>

@@ -177,6 +177,163 @@ public class HoldingPolicyTests
         Assert.Throws<InvalidOperationException>(piano.Validate);
     }
 
+    // ------------------------------------------------------------ la finestra del flat di sessione
+
+    private static readonly AccountHoldingPolicy FlatAlle2045 = AccountHoldingPolicy.Default with
+    {
+        AllowOvernight = false,
+        AllowOverweek = false,
+        SessionFlatUtc = new TimeOnly(20, 45),
+        SessionFlatWindowMinutes = 30
+    };
+
+    /// <summary>
+    /// Il flat e' una finestra <c>[flat, flat + minuti)</c>: l'istante di inizio e' dentro, quello
+    /// di fine e' fuori, e un secondo prima dell'inizio e' fuori. Il caso del secondo prima e'
+    /// quello che un troncamento a intero sbaglia: <c>(int)(-0,5)</c> vale 0.
+    /// </summary>
+    [Theory]
+    [InlineData(20, 44, 59, false)]
+    [InlineData(20, 45, 0, true)]
+    [InlineData(20, 45, 30, true)]
+    [InlineData(21, 14, 59, true)]
+    [InlineData(21, 15, 0, false)]
+    [InlineData(23, 30, 0, false)]
+    public void LaFinestraDelFlatIncludeLInizioEdEscludeLaFine(int ora, int minuto, int secondo, bool dentro)
+    {
+        var istante = new DateTime(2026, 8, 27, ora, minuto, secondo, DateTimeKind.Utc);
+
+        Assert.Equal(dentro, FlatAlle2045.IsInsideSessionFlatWindow(istante));
+    }
+
+    /// <summary>Una finestra puo' passare la mezzanotte: la distanza dall'inizio si misura modulo un giorno.</summary>
+    [Fact]
+    public void LaFinestraDelFlatPuoPassareLaMezzanotte()
+    {
+        var piano = FlatAlle2045 with { SessionFlatUtc = new TimeOnly(23, 50), SessionFlatWindowMinutes = 30 };
+
+        Assert.True(piano.IsInsideSessionFlatWindow(new DateTime(2026, 8, 27, 23, 55, 0, DateTimeKind.Utc)));
+        Assert.True(piano.IsInsideSessionFlatWindow(new DateTime(2026, 8, 28, 0, 10, 0, DateTimeKind.Utc)));
+        Assert.False(piano.IsInsideSessionFlatWindow(new DateTime(2026, 8, 28, 0, 20, 0, DateTimeKind.Utc)));
+        Assert.Equal(new TimeOnly(0, 20), piano.SessionFlatUntilUtc);
+    }
+
+    /// <summary>
+    /// Il trigger scatta una volta sola, sul primo tick che raggiunge o supera l'ora del flat: e'
+    /// cio' che permette al backtest di cancellare i pending senza ripeterlo a ogni barra. E scatta
+    /// anche con un orologio piu' largo della finestra — un tick a quattro ore salta le 20:45 ma
+    /// arriva alle 00:00 — altrimenti su quei run il flat non esisterebbe.
+    /// </summary>
+    [Fact]
+    public void IlTriggerDelFlatScattaUnaVoltaSolaAlPrimoTickCheRaggiungeLOra()
+    {
+        var prima = new DateTime(2026, 8, 27, 20, 30, 0, DateTimeKind.Utc);
+        var flat = new DateTime(2026, 8, 27, 20, 45, 0, DateTimeKind.Utc);
+        var dopo = new DateTime(2026, 8, 27, 21, 0, 0, DateTimeKind.Utc);
+
+        Assert.True(FlatAlle2045.IsSessionFlatTrigger(flat, prima));
+        Assert.False(FlatAlle2045.IsSessionFlatTrigger(dopo, flat));
+        Assert.False(FlatAlle2045.IsSessionFlatTrigger(prima, prima.AddMinutes(-15)));
+
+        // Orologio a quattro ore: il tick delle 00:00 e' il primo dopo le 20:45.
+        var mezzanotte = new DateTime(2026, 8, 28, 0, 0, 0, DateTimeKind.Utc);
+        Assert.True(FlatAlle2045.IsSessionFlatTrigger(mezzanotte, mezzanotte.AddHours(-4)));
+        Assert.False(FlatAlle2045.IsSessionFlatTrigger(mezzanotte.AddHours(4), mezzanotte));
+    }
+
+    /// <summary>
+    /// Il buco che la finestra chiude: un ingresso valido fra il flat e il rollover riceveva la
+    /// deadline del giorno dopo e attraversava la notte. Ora non nasce. Un ingresso valido dopo la
+    /// finestra nasce, e la sua deadline e' il flat del giorno dopo: nessun rollover in mezzo.
+    /// </summary>
+    [Fact]
+    public void UnIngressoDentroLaFinestraDelFlatNonNasce()
+    {
+        var dentro = new DateTime(2026, 8, 27, 20, 45, 0, DateTimeKind.Utc);
+        var dopo = new DateTime(2026, 8, 27, 21, 15, 0, DateTimeKind.Utc);
+
+        Assert.True(HoldingResolver.BlocksEntry(dentro, FlatAlle2045));
+        Assert.False(HoldingResolver.BlocksEntry(dopo, FlatAlle2045));
+        Assert.Equal(
+            new DateTime(2026, 8, 28, 20, 45, 0, DateTimeKind.Utc),
+            HoldingResolver.Resolve(null, dopo, FlatAlle2045).AtUtc);
+    }
+
+    /// <summary>Con l'overnight permesso la finestra giornaliera non esiste: il piano non promette niente.</summary>
+    [Fact]
+    public void ConOvernightPermesso_LaFinestraDelFlatNonBloccaNiente()
+    {
+        var dentro = new DateTime(2026, 8, 27, 20, 45, 0, DateTimeKind.Utc);
+
+        Assert.False(HoldingResolver.BlocksEntry(dentro, AccountHoldingPolicy.Unrestricted));
+        Assert.False(HoldingResolver.BlocksEntry(dentro, AccountHoldingPolicy.Default));
+        Assert.Empty(HoldingResolver.RolloversOutsideSessionFlatWindow(
+            AccountHoldingPolicy.Unrestricted, [new SwapSpec("@FDAX", 5m, 1m, new TimeOnly(9, 0))]));
+    }
+
+    /// <summary>
+    /// La finestra del fine settimana blocca allo stesso modo: e' la stessa regola su un altro
+    /// asse, e con l'overweek concesso il venerdi' sera resta un venerdi' qualunque.
+    /// </summary>
+    [Fact]
+    public void LaFinestraDelFineSettimanaBloccaGliIngressiSoloSeIlPianoVietaLOverweek()
+    {
+        var venerdiSera = new DateTime(2026, 8, 28, 21, 30, 0, DateTimeKind.Utc);
+
+        Assert.True(HoldingResolver.BlocksEntry(venerdiSera, AccountHoldingPolicy.Default));
+        Assert.False(HoldingResolver.BlocksEntry(venerdiSera, AccountHoldingPolicy.Unrestricted));
+    }
+
+    /// <summary>
+    /// Il flat promette di non attraversare il rollover, e la promessa regge solo se il rollover
+    /// cade dentro la finestra: prima dell'inizio lo pagano le posizioni ancora aperte, alla fine o
+    /// dopo lo attraversa un ingresso nato appena la finestra si chiude.
+    /// </summary>
+    [Theory]
+    [InlineData(20, 59, true)]
+    [InlineData(21, 0, true)]
+    [InlineData(20, 45, true)]
+    [InlineData(20, 30, false)]
+    [InlineData(21, 15, false)]
+    [InlineData(22, 0, false)]
+    public void IlRolloverDeveCadereDentroLaFinestraDelFlat(int ora, int minuto, bool coperto)
+    {
+        var rollover = new TimeOnly(ora, minuto);
+
+        Assert.Equal(coperto, FlatAlle2045.SessionFlatWindowCoversRollover(rollover));
+
+        var fuori = HoldingResolver.RolloversOutsideSessionFlatWindow(
+            FlatAlle2045, [new SwapSpec("@GC", 0.6m, 0m, rollover)]);
+        Assert.Equal(coperto ? 0 : 1, fuori.Count);
+        if (!coperto) Assert.Contains("@GC", fuori[0]);
+    }
+
+    /// <summary>
+    /// Una finestra vuota riaprirebbe in silenzio il buco fra flat e rollover; una di mezza giornata
+    /// terrebbe il conto fermo per ore. Nessuna delle due descrive un conto.
+    /// </summary>
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-5)]
+    [InlineData(721)]
+    public void UnaFinestraDelFlatFuoriMisuraVieneRifiutata(int minuti)
+    {
+        var piano = FlatAlle2045 with { SessionFlatWindowMinutes = minuti };
+
+        Assert.Throws<InvalidOperationException>(piano.Validate);
+        FlatAlle2045.Validate();
+    }
+
+    /// <summary>Il flat dentro la propria finestra e' "adesso", come per il fine settimana: una posizione li' non deve esistere.</summary>
+    [Fact]
+    public void DentroLaFinestra_IlFlatEAdesso()
+    {
+        var dentro = new DateTime(2026, 8, 27, 20, 50, 0, DateTimeKind.Utc);
+
+        Assert.Equal(dentro, FlatAlle2045.ResolveSessionFlatUtc(dentro));
+        Assert.Equal("flat di sessione 20:45 → 21:15 UTC", FlatAlle2045.Describe());
+    }
+
     /// <summary>
     /// L'elenco che alimenta l'avviso del dettaglio piano: solo le strategie che il piano taglia,
     /// ciascuna col taglio che le tocca. Una intraday non compare mai, qualunque sia il piano.

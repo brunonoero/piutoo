@@ -308,7 +308,13 @@ sbaglia più spesso:
  chiusura forzata: il flat *come regola di sicurezza* resta nel bot — deve tenere a server
  muto — ma il permesso e gli orari no. Quando vivevano solo li', il backtest ne usava altri
  (l'ultimo slot prima di sabato, le 23:30 contro le 20:45) e i due run non erano confrontabili.
- Vedi `docs/domini/overnight-e-overweek.md`.
+ **Il flat di sessione e' una finestra**, `[SessionFlatUtc, +SessionFlatWindowMinutes)`, non un
+ istante: dentro non nascono ingressi (`HoldingResolver.BlocksEntry`) e i pending si cancellano,
+ perche' un ordine valido fra il flat e il rollover riceverebbe la deadline del giorno dopo e
+ attraverserebbe proprio la notte che il flat evita. La finestra deve **coprire il rollover** del
+ broker (`SwapSpec.RolloverUtc`): il run lo controlla e scrive `[rollover]` nel summary. E' il
+ modo di tenere le strategie lontane dal rollover senza riscriverle; la sweep lo onora con
+ `--flat-utc`, e senza gira a overnight libero. Vedi `docs/domini/overnight-e-overweek.md`.
 - **Il server decide *cosa*, il broker decide *se e a che prezzo*.** Non
   assumere mai un fill.
 

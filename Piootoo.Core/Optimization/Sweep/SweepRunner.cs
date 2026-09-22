@@ -170,6 +170,14 @@ public sealed class SweepRunner(SweepSeries series)
                 trading.CancelAllPendingOrders();
             }
 
+            // Stessa regola del backtest sul flat giornaliero: sulla prima barra dentro la finestra
+            // i pending muoiono, altrimenti uno stop riempirebbe fra il flat e il rollover.
+            if (!job.Holding.AllowOvernight &&
+                job.Holding.IsSessionFlatTrigger(currentDate, currentDate.AddMinutes(-clock)))
+            {
+                trading.CancelAllPendingOrders();
+            }
+
             currentDate = currentDate.AddMinutes(clock);
         }
 
@@ -214,6 +222,12 @@ public sealed class SweepRunner(SweepSeries series)
             if (string.IsNullOrWhiteSpace(accepted.Symbol)) accepted.Symbol = symbol;
             if (string.IsNullOrWhiteSpace(accepted.StrategyCode)) accepted.StrategyCode = strategy.Name;
             if (string.IsNullOrWhiteSpace(accepted.StrategyName)) accepted.StrategyName = strategy.Name;
+
+            // Un ingresso dentro una finestra di flat del conto non nasce, come nel backtest: la
+            // ricerca deve misurare la strategia con la stessa tenuta con cui poi verra' operata.
+            if (PiootooBacktestingService.IsBlockedByAccountFlat(accepted, holding))
+                return;
+
             PiootooBacktestingService.ApplyAccountHolding(accepted, holding);
             signals.Add(accepted);
         }

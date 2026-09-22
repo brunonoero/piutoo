@@ -219,6 +219,16 @@ cambia, o si cambia prop firm, non è più la strategia che si era validata.
 ⚠ **Non modellato**: FTMO dichiara `P&L conversion fee rate 0,70%` dove ICS dichiara 0,00%. È un
 costo proporzionale al P&L che il motore non applica.
 
+### La tenuta con cui si opererà
+
+Senza opzioni la sweep gira a overnight e overweek liberi, la parità con il motore Python. Con
+`--flat-utc 20:45 [--flat-window 30]` gira con la stessa `AccountHoldingPolicy` del piano che
+vieta l'overnight: deadline al flat, nessun ingresso nella finestra `[flat, flat + minuti)`,
+pending cancellati al flat. È il modo di tenere una strategia lontana dal rollover **senza
+riscriverla** — e il resoconto dichiara la tenuta e se la finestra copre il rollover degli swap
+caricati. Cercare con una tenuta e operare con un'altra valida una strategia diversa da quella
+che si opera. Vedi [overnight-e-overweek.md](overnight-e-overweek.md).
+
 ## Promuovere una finalista a classe
 
 La classe di partenza della sweep **non è solo un contenitore di parametri**: porta con sé

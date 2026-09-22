@@ -199,11 +199,34 @@ public static class Program
             Console.WriteLine($"[sweep] fase {phase.Name}: {space.CombinationCount(phase):N0} combinazioni{orologio}");
         }
 
+        // La tenuta con cui la strategia verra' operata. Senza --flat-utc la ricerca gira come il
+        // motore Python, overnight e overweek liberi; con il flat gira come il piano che vieta
+        // l'overnight, cioe' con la deadline al flat e senza ingressi dentro la finestra. Cercare con
+        // una tenuta e operare con un'altra valida una strategia diversa da quella che si opera.
+        var holding = options.FlatUtc is { } flat
+            ? AccountHoldingPolicy.Default with
+            {
+                AllowOvernight = false,
+                AllowOverweek = false,
+                SessionFlatUtc = flat,
+                SessionFlatWindowMinutes = options.FlatWindowMinutes
+            }
+            : AccountHoldingPolicy.Default with { AllowOvernight = true, AllowOverweek = true };
+        holding.Validate();
+        Console.WriteLine($"[sweep] tenuta: {holding.Describe()}");
+
+        // Il flat promette di non attraversare il rollover: vale solo se il rollover cade dentro la
+        // finestra. Si avvisa e si prosegue, perche' misurare un flat DOPO il rollover puo' essere
+        // proprio l'esperimento — ma il resoconto deve dirlo.
+        foreach (var fuori in HoldingResolver.RolloversOutsideSessionFlatWindow(holding, swap.Values))
+            Console.WriteLine($"[sweep] ATTENZIONE: il flat ({holding.DescribeSessionFlat()}) non copre {fuori}: " +
+                              "le posizioni pagano il finanziamento lo stesso, o un ingresso appena dopo la finestra lo attraversa.");
+
         var template = new SweepJob(options.Strategy)
         {
             InitialCapital = options.InitialCapital,
             CommissionPerContract = options.Commission,
-            Holding = AccountHoldingPolicy.Default with { AllowOvernight = true, AllowOverweek = true },
+            Holding = holding,
             SpreadPoints = spread.Count > 0 ? spread : null,
             SpreadPointsByHour = spreadByHour.Count > 0 ? spreadByHour : null,
             Swap = swap.Count > 0 ? swap : null
@@ -345,6 +368,9 @@ public static class Program
             $"- Spread: {DescribeSpread(options, spread, spreadByHour)}",
             $"- Swap: {(swap.Count > 0 ? string.Join(", ", swap.Select(entry => $"**{entry.Key}** long {entry.Value.LongPointsPerNight} pt/notte, short {entry.Value.ShortPointsPerNight} pt/notte, rollover {entry.Value.RolloverUtc:HH\\:mm} UTC ({options.SwapBroker})")) : "**nessuno** — tenere una posizione oltre il rollover non costa niente")}",
             $"- Commissione: ${options.Commission} per contratto e per lato, cioe' ${options.Commission * 2} per trade",
+            // La tenuta cambia quali trade esistono e quanto durano: un resoconto che non la dichiara
+            // e' confrontabile solo per caso con uno cercato a tenuta diversa.
+            $"- Tenuta: {(options.FlatUtc is null ? "**overnight e overweek liberi** (parita' con il motore di ricerca)" : $"**flat di sessione {options.FlatUtc:HH\\:mm} UTC per {options.FlatWindowMinutes} minuti** — niente posizioni ne' ingressi nella finestra" + DescribeRolloverCoverage(options, swap))}",
             $"- Campione di ricerca: {series.StartUtc:yyyy-MM-dd} → {options.SplitUtc:yyyy-MM-dd}",
             $"- Validazione: {options.SplitUtc:yyyy-MM-dd} → {series.EndUtc:yyyy-MM-dd}",
             $"- Obiettivo: {result.Optimization.Objective}",
@@ -413,6 +439,24 @@ public static class Program
         return string.Join(Environment.NewLine, lines);
     }
 
+    /// <summary>
+    /// Se il flat dichiarato copre il rollover degli swap caricati. E' la riga che distingue un flat
+    /// che evita il finanziamento da uno che lo paga lo stesso.
+    /// </summary>
+    private static string DescribeRolloverCoverage(Options options, IReadOnlyDictionary<string, SwapSpec> swap)
+    {
+        if (options.FlatUtc is not { } flat || swap.Count == 0) return string.Empty;
+
+        var holding = AccountHoldingPolicy.Default with
+        {
+            AllowOvernight = false, SessionFlatUtc = flat, SessionFlatWindowMinutes = options.FlatWindowMinutes
+        };
+        var fuori = HoldingResolver.RolloversOutsideSessionFlatWindow(holding, swap.Values);
+        return fuori.Count == 0
+            ? "; il rollover cade dentro la finestra"
+            : $"; **ATTENZIONE**: la finestra non copre {string.Join(", ", fuori)}";
+    }
+
     private sealed record Options
     {
         public const string Usage = """
@@ -422,6 +466,7 @@ public static class Program
                           [--min-trades N] [--commission N] [--max-combinations N] [--out <file.md>]
                           [--split-pattern-phases] [--clock <minuti, default 1>]
                           [--min-losing-trades N, default 10]  (--min-trades default 250)
+                          [--flat-utc <HH:mm>] [--flat-window <minuti, default 30>]
             """;
 
         public required string Strategy { get; init; }
@@ -487,6 +532,17 @@ public static class Program
         /// Vuoto = nessuno swap. Un simbolo che la tabella non misura fa fallire l'avvio.
         /// </summary>
         public string? SwapBroker { get; init; }
+
+        /// <summary>
+        /// Ora UTC del flat di sessione con cui la strategia verra' operata. Vuoto = overnight e
+        /// overweek liberi, la parita' con il motore di ricerca. Valorizzato, la ricerca gira con la
+        /// stessa <see cref="AccountHoldingPolicy"/> del piano che vieta l'overnight: deadline al
+        /// flat e nessun ingresso nella finestra <c>[flat, flat + FlatWindowMinutes)</c>.
+        /// </summary>
+        public TimeOnly? FlatUtc { get; init; }
+
+        /// <summary>Durata della finestra di flat, in minuti. Vedi <see cref="AccountHoldingPolicy.SessionFlatWindowMinutes"/>.</summary>
+        public int FlatWindowMinutes { get; init; } = TradingConventions.SessionFlatWindowMinutes;
 
         /// <summary>
         /// Il criterio di ricerca: <c>worst-period</c> (default, giudica sul peggiore dei tratti del
@@ -611,6 +667,13 @@ public static class Program
                     : "worst-period",
                 MinProfitFactor = Decimale("min-profit-factor", 0m),
                 MinAverageTrade = Decimale("min-average-trade", 0m),
+                FlatUtc = values.TryGetValue("flat-utc", out var flatUtc)
+                    ? TimeOnly.TryParseExact(flatUtc, "HH:mm", System.Globalization.CultureInfo.InvariantCulture,
+                        System.Globalization.DateTimeStyles.None, out var parsedFlat)
+                        ? parsedFlat
+                        : throw new ArgumentException($"--flat-utc vuole un orario HH:mm UTC, ricevuto '{flatUtc}'")
+                    : null,
+                FlatWindowMinutes = Number("flat-window", TradingConventions.SessionFlatWindowMinutes),
                 Parameters = ParseParameters(values.GetValueOrDefault("params")),
                 OutputPath = values.GetValueOrDefault("out")
             };

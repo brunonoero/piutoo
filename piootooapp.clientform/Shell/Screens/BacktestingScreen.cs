@@ -248,7 +248,7 @@ public partial class BacktestingScreen : UserControl, IShellScreen
         _planDerivedLabel.Text =
             $"Dal piano: universo del broker {(string.IsNullOrWhiteSpace(plan.BrokerCode) ? "—" : plan.BrokerCode)}"
             + (active is { } count ? $"  ·  {count} strategie attive" : string.Empty)
-            + $"  ·  overnight {(plan.Holding.AllowOvernight ? "permesso" : $"piatto {plan.Holding.SessionFlatUtc:HH\\:mm}Z")}"
+            + $"  ·  overnight {(plan.Holding.AllowOvernight ? "permesso" : $"piatto {plan.Holding.DescribeSessionFlat()}")}"
             + $"  ·  fine settimana {(plan.Holding.AllowOverweek ? "permesso" : $"piatto {plan.Holding.WeekEnd.FromUtc:HH\\:mm}Z")}"
             + $"  ·  commissione {plan.CommissionPerContract:0.##}/contratto";
     }

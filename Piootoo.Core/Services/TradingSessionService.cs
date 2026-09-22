@@ -1948,6 +1948,30 @@ public sealed class TradingSessionService : ITradingSessionService
             (strategy, runtimeState) => session.SimulatedEngine.CaptureStrategyRuntimeState(
                 strategy.Name, strategy.Symbol, runtimeState));
 
+        // Un ingresso valido dentro una finestra di flat del conto non diventa un intent: e' lo
+        // stesso scarto che fa il backtest alla sorgente (PiootooBacktestingService.
+        // IsBlockedByAccountFlat) e che il cBot ripete come ultima barriera. Senza, il segnale
+        // riceveva la deadline del giorno dopo e attraversava il rollover. Le uscite passano.
+        if (signals.Count > 0 && !(session.Holding.AllowOvernight && session.Holding.AllowOverweek))
+        {
+            var ammessi = new List<TradeSignal>(signals.Count);
+            foreach (var signal in signals)
+            {
+                if (PiootooBacktestingService.IsBlockedByAccountFlat(signal, session.Holding))
+                {
+                    RecordActivity(session, SessionActivityKind.IntentCreato,
+                        $"scartato: ingresso valido dalle {(signal.ValidFromUtc ?? signal.Date):HH:mm}Z, dentro una " +
+                        $"finestra di flat del piano ({session.Holding.Describe()})",
+                        strategyCode: signal.StrategyCode, symbol: Normalize(signal.Symbol));
+                    continue;
+                }
+
+                ammessi.Add(signal);
+            }
+
+            signals = ammessi;
+        }
+
         var sized = new Dictionary<TradeSignal, PositionSizingResult>();
         foreach (var signal in signals)
         {
@@ -4184,7 +4208,11 @@ public sealed class TradingSessionService : ITradingSessionService
         var holding = session.Holding;
         var canonico = string.Join(";", codici) +
                        $"|overnight={holding.AllowOvernight}|overweek={holding.AllowOverweek}" +
+                       // La finestra entra nell'impronta solo quando conta: con l'overnight permesso
+                       // non cambia un solo trade, e cambiare l'impronta rifiuterebbe il riaggancio
+                       // di ogni sessione salvata prima che il campo esistesse.
                        $"|flat={holding.SessionFlatUtc:HH\\:mm}" +
+                       (holding.AllowOvernight ? string.Empty : $"+{holding.SessionFlatWindowMinutes}") +
                        $"|weekend={holding.WeekEnd.FromUtc:HH\\:mm}-{holding.WeekEnd.UntilUtc:HH\\:mm}";
         return Convert.ToHexString(
             System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(canonico)));

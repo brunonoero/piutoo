@@ -73,6 +73,8 @@ partial class PlanDetailScreen
         this._forceNightCloseCheckBox = new System.Windows.Forms.CheckBox();
         this._sessionFlatLabel = new System.Windows.Forms.Label();
         this._sessionFlatInput = new System.Windows.Forms.DateTimePicker();
+        this._sessionFlatWindowLabel = new System.Windows.Forms.Label();
+        this._sessionFlatWindowInput = new System.Windows.Forms.NumericUpDown();
         this._forceWeekCloseCheckBox = new System.Windows.Forms.CheckBox();
         this._weekEndFromLabel = new System.Windows.Forms.Label();
         this._weekEndFromInput = new System.Windows.Forms.DateTimePicker();
@@ -643,19 +645,22 @@ partial class PlanDetailScreen
         this._holdingLayout.Controls.Add(this._forceNightCloseCheckBox, 0, 0);
         this._holdingLayout.Controls.Add(this._sessionFlatLabel, 2, 0);
         this._holdingLayout.Controls.Add(this._sessionFlatInput, 3, 0);
-        this._holdingLayout.Controls.Add(this._forceWeekCloseCheckBox, 0, 1);
-        this._holdingLayout.Controls.Add(this._weekEndFromLabel, 2, 1);
-        this._holdingLayout.Controls.Add(this._weekEndFromInput, 3, 1);
-        this._holdingLayout.Controls.Add(this._weekEndUntilLabel, 2, 2);
-        this._holdingLayout.Controls.Add(this._weekEndUntilInput, 3, 2);
+        this._holdingLayout.Controls.Add(this._sessionFlatWindowLabel, 2, 1);
+        this._holdingLayout.Controls.Add(this._sessionFlatWindowInput, 3, 1);
+        this._holdingLayout.Controls.Add(this._forceWeekCloseCheckBox, 0, 2);
+        this._holdingLayout.Controls.Add(this._weekEndFromLabel, 2, 2);
+        this._holdingLayout.Controls.Add(this._weekEndFromInput, 3, 2);
+        this._holdingLayout.Controls.Add(this._weekEndUntilLabel, 2, 3);
+        this._holdingLayout.Controls.Add(this._weekEndUntilInput, 3, 3);
         this._holdingLayout.Dock = System.Windows.Forms.DockStyle.Top;
         this._holdingLayout.Location = new System.Drawing.Point(12, 12);
         this._holdingLayout.Name = "_holdingLayout";
-        this._holdingLayout.RowCount = 3;
+        this._holdingLayout.RowCount = 4;
         this._holdingLayout.RowStyles.Add(new System.Windows.Forms.RowStyle());
         this._holdingLayout.RowStyles.Add(new System.Windows.Forms.RowStyle());
         this._holdingLayout.RowStyles.Add(new System.Windows.Forms.RowStyle());
-        this._holdingLayout.Size = new System.Drawing.Size(868, 96);
+        this._holdingLayout.RowStyles.Add(new System.Windows.Forms.RowStyle());
+        this._holdingLayout.Size = new System.Drawing.Size(868, 128);
         this._holdingLayout.TabIndex = 0;
         //
         // _forceNightCloseCheckBox
@@ -688,6 +693,26 @@ partial class PlanDetailScreen
         this._sessionFlatInput.Size = new System.Drawing.Size(90, 23);
         this._sessionFlatInput.TabIndex = 2;
         this._sessionFlatInput.ValueChanged += new System.EventHandler(this.OnHoldingChanged);
+        //
+        // _sessionFlatWindowLabel
+        //
+        this._sessionFlatWindowLabel.Anchor = System.Windows.Forms.AnchorStyles.Left;
+        this._sessionFlatWindowLabel.AutoSize = true;
+        this._sessionFlatWindowLabel.Margin = new System.Windows.Forms.Padding(3, 0, 8, 0);
+        this._sessionFlatWindowLabel.Name = "_sessionFlatWindowLabel";
+        this._sessionFlatWindowLabel.TabIndex = 8;
+        this._sessionFlatWindowLabel.Text = "per (minuti, niente ingressi; deve coprire il rollover)";
+        //
+        // _sessionFlatWindowInput
+        //
+        this._sessionFlatWindowInput.Anchor = System.Windows.Forms.AnchorStyles.Left;
+        this._sessionFlatWindowInput.Minimum = new decimal(new int[] { 1, 0, 0, 0 });
+        this._sessionFlatWindowInput.Maximum = new decimal(new int[] { 720, 0, 0, 0 });
+        this._sessionFlatWindowInput.Value = new decimal(new int[] { 30, 0, 0, 0 });
+        this._sessionFlatWindowInput.Name = "_sessionFlatWindowInput";
+        this._sessionFlatWindowInput.Size = new System.Drawing.Size(90, 23);
+        this._sessionFlatWindowInput.TabIndex = 9;
+        this._sessionFlatWindowInput.ValueChanged += new System.EventHandler(this.OnHoldingChanged);
         //
         // _forceWeekCloseCheckBox
         //
@@ -905,6 +930,8 @@ partial class PlanDetailScreen
     private System.Windows.Forms.CheckBox _forceNightCloseCheckBox;
     private System.Windows.Forms.Label _sessionFlatLabel;
     private System.Windows.Forms.DateTimePicker _sessionFlatInput;
+    private System.Windows.Forms.Label _sessionFlatWindowLabel;
+    private System.Windows.Forms.NumericUpDown _sessionFlatWindowInput;
     private System.Windows.Forms.CheckBox _forceWeekCloseCheckBox;
     private System.Windows.Forms.Label _weekEndFromLabel;
     private System.Windows.Forms.DateTimePicker _weekEndFromInput;

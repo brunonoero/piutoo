@@ -38,6 +38,15 @@ public static class TradingConventions
     /// fine settimana. Vedi <see cref="AccountHoldingPolicy"/>.
     /// </summary>
     public static readonly TimeOnly SessionFlatFromUtc = new(20, 45);
+
+    /// <summary>
+    /// Quanto dura la finestra del flat giornaliero, in minuti, a partire da
+    /// <see cref="SessionFlatFromUtc"/>. Dentro la finestra non nascono ingressi: un ordine valido
+    /// fra il flat e il rollover del broker riceverebbe la deadline del giorno dopo e attraverserebbe
+    /// proprio il rollover che il flat esiste per evitare. Trenta minuti dalle 20:45 chiudono alle
+    /// 21:15, quindici minuti oltre il rollover dei broker misurati (20:59 FTMO, 21:00 ICS).
+    /// </summary>
+    public const int SessionFlatWindowMinutes = 30;
 }
 
 /// <summary>

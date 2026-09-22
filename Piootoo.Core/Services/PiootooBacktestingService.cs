@@ -823,6 +823,11 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                 ["sessionFlatFromUtc"] = holding.AllowOvernight
                     ? "-"
                     : holding.SessionFlatUtc.ToString("HH:mm", CultureInfo.InvariantCulture),
+                // La finestra e non il solo istante: due run con lo stesso flat e finestre diverse
+                // lasciano nascere ingressi diversi fra il flat e il rollover.
+                ["sessionFlatUntilUtc"] = holding.AllowOvernight
+                    ? "-"
+                    : holding.SessionFlatUntilUtc.ToString("HH:mm", CultureInfo.InvariantCulture),
                 ["allowOverweek"] = holding.AllowOverweek ? "true" : "false",
                 ["weekEndFlatFromUtc"] = weekEndFlat.FromUtc.ToString("HH:mm", CultureInfo.InvariantCulture),
                 ["rejectWrongSideLevels"] = request.RejectWrongSideLevels ? "true" : "false",
@@ -881,6 +886,28 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                 ["catalogStrategies"] = catalogStrategies.Count.ToString(CultureInfo.InvariantCulture),
                 ["masterfilterStrategies"] = masterfilterStrategies.ToString(CultureInfo.InvariantCulture)
             });
+
+            // Il flat di sessione promette di non attraversare il rollover: la promessa regge solo se
+            // il rollover del broker cade DENTRO la finestra. Un piano che flatta alle 20:45 su un
+            // broker che fa rollover alle 20:30 paga il finanziamento ogni giorno lo stesso, e senza
+            // questa riga la cosa si scoprirebbe solo sommando la colonna swap dei trade.
+            var rolloverFuoriFinestra = HoldingResolver.RolloversOutsideSessionFlatWindow(
+                holding, tradingService.SwapSpecs.Values);
+            if (rolloverFuoriFinestra.Count > 0)
+            {
+                var avviso =
+                    $"[rollover] il flat di sessione ({holding.DescribeSessionFlat()}) non copre il rollover di " +
+                    $"{string.Join(", ", rolloverFuoriFinestra)}: le posizioni chiuse dal flat pagano comunque " +
+                    "il finanziamento, oppure un ingresso nato appena la finestra si chiude lo attraversa. " +
+                    "Sposta il flat o allunga la finestra del piano.";
+                Console.WriteLine($"[Backtesting][swap] {avviso}");
+                diagnostics.AddRunDiagnostic(avviso);
+                diagnostics.LogRun(avviso, new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    ["sessionFlat"] = holding.DescribeSessionFlat(),
+                    ["rolloversOutsideFlatWindow"] = string.Join(",", rolloverFuoriFinestra)
+                });
+            }
 
             var result = new BacktestingResult
             {
@@ -1155,6 +1182,10 @@ public class PiootooBacktestingService : IPiootooBacktestingService
             var lastEvaluatedBar = new Dictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase);
             var markedToMarketBars = 0L;
             var weekEndCancelledOrders = 0L;
+            var sessionFlatCancelledOrders = 0L;
+            // Ingressi nati dentro una finestra di flat del conto e mai accodati. Non e' un difetto:
+            // e' la misura di quanti ordini il piano ha impedito, e va dichiarata a fine run.
+            var flatWindowBlockedSignals = 0L;
             var lastPersistedIteration = 0;
             // Segnaposto della persistenza incrementale: quanti segnali e quanti trade sono gia'
             // finiti nel journal. Entrambe le liste sono append-only, quindi basta l'indice.
@@ -1351,30 +1382,37 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                             continue;
                         }
 
-                        if (string.IsNullOrWhiteSpace(signal.Symbol)) signal.Symbol = strategySymbol;
-                        if (string.IsNullOrWhiteSpace(signal.StrategyCode)) signal.StrategyCode = strategyCode;
-                        if (string.IsNullOrWhiteSpace(signal.StrategyName)) signal.StrategyName = strategyCode;
-                        // Prima di essere accodato e prima di essere persistito: signals.json deve
-                        // riportare la deadline che verra' davvero eseguita, non quella che la
-                        // strategia avrebbe voluto se il piano gliela avesse concessa.
-                        ApplyAccountHolding(signal, holding);
-
-                        signals.Add(signal);
-                        emittedTradeSignals.Add(CloneTradeSignal(signal));
-                        diagnostics.LogSignal(signal, strategyCode, strategySymbol, strategy.TimeframeMinutes, currentDate);
+                        Accept(signal);
 
                         if (signal.CompanionSignals is not null)
                         {
                             foreach (var companion in signal.CompanionSignals)
+                                Accept(companion);
+                        }
+
+                        void Accept(TradeSignal accepted)
+                        {
+                            if (string.IsNullOrWhiteSpace(accepted.Symbol)) accepted.Symbol = strategySymbol;
+                            if (string.IsNullOrWhiteSpace(accepted.StrategyCode)) accepted.StrategyCode = strategyCode;
+                            if (string.IsNullOrWhiteSpace(accepted.StrategyName)) accepted.StrategyName = strategyCode;
+
+                            // Un ingresso che nasce dentro una finestra di flat del conto non nasce:
+                            // datarlo gli darebbe la deadline del giorno dopo e la notte in mezzo.
+                            // Le uscite passano sempre. Vedi HoldingResolver.BlocksEntry.
+                            if (IsBlockedByAccountFlat(accepted, holding))
                             {
-                                if (string.IsNullOrWhiteSpace(companion.Symbol)) companion.Symbol = strategySymbol;
-                                if (string.IsNullOrWhiteSpace(companion.StrategyCode)) companion.StrategyCode = strategyCode;
-                                if (string.IsNullOrWhiteSpace(companion.StrategyName)) companion.StrategyName = strategyCode;
-                                ApplyAccountHolding(companion, holding);
-                                signals.Add(companion);
-                                emittedTradeSignals.Add(CloneTradeSignal(companion));
-                                diagnostics.LogSignal(companion, strategyCode, strategySymbol, strategy.TimeframeMinutes, currentDate);
+                                flatWindowBlockedSignals++;
+                                return;
                             }
+
+                            // Prima di essere accodato e prima di essere persistito: signals.json deve
+                            // riportare la deadline che verra' davvero eseguita, non quella che la
+                            // strategia avrebbe voluto se il piano gliela avesse concessa.
+                            ApplyAccountHolding(accepted, holding);
+
+                            signals.Add(accepted);
+                            emittedTradeSignals.Add(CloneTradeSignal(accepted));
+                            diagnostics.LogSignal(accepted, strategyCode, strategySymbol, strategy.TimeframeMinutes, currentDate);
                         }
                     }
                     catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -1427,6 +1465,26 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                     {
                         snapshot = tradingService.CloseAllOpenPositions(
                             currentPrices, currentBars, currentDate, TradeExitReason.WeekEnd);
+                        AppendStrategyEquityResults(result, snapshot, currentDate, signals, strategyEquityCache, strategyTracks);
+                    }
+                }
+
+                // Il flat giornaliero ha la stessa forma: sulla prima barra dentro la finestra si
+                // cancellano i pending, perche' uno stop ancora vivo riempirebbe fra il flat e il
+                // rollover e la posizione morirebbe un tick dopo avendo pagato spread e commissioni.
+                // Le posizioni le ha gia' chiuse la deadline in UpdateMarketPrices; qui resta la rete
+                // di sicurezza, che a conto piatto non fa niente.
+                if (!holding.AllowOvernight &&
+                    holding.IsSessionFlatTrigger(currentDate, currentDate.AddMinutes(-minTimeframeMinutes)))
+                {
+                    var cancelled = tradingService.CancelAllPendingOrders();
+                    if (cancelled > 0)
+                        sessionFlatCancelledOrders += cancelled;
+
+                    if (snapshot.OpenPositionsCount > 0)
+                    {
+                        snapshot = tradingService.CloseAllOpenPositions(
+                            currentPrices, currentBars, currentDate, TradeExitReason.SessionFlat);
                         AppendStrategyEquityResults(result, snapshot, currentDate, signals, strategyEquityCache, strategyTracks);
                     }
                 }
@@ -1570,6 +1628,18 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                     {
                         ["weekEndCancelledOrders"] = weekEndCancelledOrders.ToString(CultureInfo.InvariantCulture),
                         ["weekEndFlatFromUtc"] = weekEndFlat.FromUtc.ToString("HH:mm", CultureInfo.InvariantCulture)
+                    });
+
+            if (sessionFlatCancelledOrders > 0 || flatWindowBlockedSignals > 0)
+                diagnostics.LogRun(
+                    $"Finestre di flat del conto: {flatWindowBlockedSignals} ingressi mai nati perche' validi dentro " +
+                    $"una finestra, {sessionFlatCancelledOrders} ordini pendenti cancellati al flat di sessione " +
+                    $"({holding.DescribeSessionFlat()}).",
+                    new Dictionary<string, string>(StringComparer.Ordinal)
+                    {
+                        ["flatWindowBlockedSignals"] = flatWindowBlockedSignals.ToString(CultureInfo.InvariantCulture),
+                        ["sessionFlatCancelledOrders"] = sessionFlatCancelledOrders.ToString(CultureInfo.InvariantCulture),
+                        ["sessionFlat"] = holding.DescribeSessionFlat()
                     });
 
             // Un numero alto qui non e' un difetto: e' la misura di quanti ingressi il backtest
@@ -2026,6 +2096,16 @@ public class PiootooBacktestingService : IPiootooBacktestingService
         signal.CloseAtUtc = decision.AtUtc;
         signal.TimeExitFromAccountPolicy = decision.FromAccountPolicy;
     }
+
+    /// <summary>
+    /// Se il piano impedisce a questo segnale di nascere: un <b>ingresso</b> valido dentro una
+    /// finestra di flat del conto. Le uscite (<c>ExitOnly</c>) non si bloccano mai. Lo stesso
+    /// riferimento — la barra su cui l'ordine e' valido — che usa <see cref="ApplyAccountHolding"/>,
+    /// e lo stesso punto per backtest e sweep; la sessione fa la stessa domanda prima dell'intent.
+    /// </summary>
+    internal static bool IsBlockedByAccountFlat(TradeSignal signal, AccountHoldingPolicy holding) =>
+        !signal.ExitOnly &&
+        HoldingResolver.BlocksEntry(signal.ValidFromUtc ?? signal.Date, holding);
 
     /// <summary>
     /// Restringe le strategie del masterfilter a quelle che il piano dichiarato dal run lascia

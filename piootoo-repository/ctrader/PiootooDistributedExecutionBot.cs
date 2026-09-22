@@ -206,6 +206,15 @@ namespace cAlgo.Robots
         // perche' sul future in quelle ore niente li riempirebbe; le posizioni restano con i loro
         // stop nativi.
         //
+        // 7.6.0 (22/09/2026) — il flat di sessione del piano e' una FINESTRA, non un istante:
+        // [flat, flat + SessionFlatWindowMinutes), stessa forma del fine settimana. Dentro, il bot
+        // cancella i pending, chiude cio' che resta (di norma niente: le posizioni portano gia' la
+        // deadline) e rifiuta gli ingressi (EnforceSessionFlat, HandleEntryIntent). Prima un intent
+        // valido fra il flat e il rollover del broker riceveva la deadline del giorno dopo e pagava
+        // la notte che il flat esiste per evitare. La durata arriva dal descriptor (campo nuovo,
+        // quindi contratto nuovo: minor); un server precedente non la manda e vale il default di
+        // 30 minuti.
+        //
         // 7.4.4 (16/09/2026) — rollover: un ingresso dello stesso verso mentre la posizione della
         // strategia scade proprio all'istante di validita' dell'intent chiude quella posizione e
         // rientra, invece di essere annullato. E' il ciclo settimanale del BIASW con uscita e
@@ -285,7 +294,7 @@ namespace cAlgo.Robots
         // leggendo questo sorgente.
         // Il disallineamento non blocca nulla: entrambi stampano la propria versione all'avvio, e
         // il confronto si fa leggendo i due log.
-        private const string BotVersion = "7.5.2"; // major.minor deve seguire PiootooVersion
+        private const string BotVersion = "7.6.0"; // major.minor deve seguire PiootooVersion
         private const string StatusChartObjectName = "PiootooConnectionStatus";
 
         // Riquadro rosso al centro del grafico, separato dal pannello di stato: e' l'errore fatale
@@ -407,6 +416,10 @@ namespace cAlgo.Robots
         private bool _allowOvernight = true;
         private bool _allowOverweek;
         private TimeSpan _sessionFlatUtc = new TimeSpan(20, 45, 0);
+        // Durata della finestra di flat giornaliero: dentro [flat, flat + minuti) niente ingressi e
+        // niente pending, come nel fine settimana. Il default copre il rollover dei broker misurati
+        // (20:59 FTMO, 21:00 ICS) con quindici minuti di margine.
+        private int _sessionFlatWindowMinutes = 30;
 
         private HttpClient _http;
         private string _accountNumber;
@@ -1021,6 +1034,9 @@ namespace cAlgo.Robots
             _allowOverweek = holding.AllowOverweek;
             if (IsTimeOfDay(holding.SessionFlatUtc))
                 _sessionFlatUtc = holding.SessionFlatUtc.Value;
+            // Un server precedente non manda la durata: resta il default, che e' anche il suo.
+            if (holding.SessionFlatWindowMinutes.HasValue && holding.SessionFlatWindowMinutes.Value > 0)
+                _sessionFlatWindowMinutes = holding.SessionFlatWindowMinutes.Value;
 
             if (holding.WeekEnd != null &&
                 IsTimeOfDay(holding.WeekEnd.FromUtc) &&
@@ -1325,7 +1341,8 @@ namespace cAlgo.Robots
         private string DescribeHolding()
         {
             if (!_allowOvernight)
-                return "flat di sessione " + Hhmm(_sessionFlatUtc) + " UTC (niente overnight)";
+                return "flat di sessione " + Hhmm(_sessionFlatUtc) + " -> " + Hhmm(SessionFlatUntilUtc()) +
+                       " UTC (niente overnight, niente ingressi nella finestra)";
             if (!_allowOverweek)
                 return "overnight SI, flat weekend ven " + Hhmm(_weekEndFlatFromUtc) +
                        " -> dom " + Hhmm(_weekEndFlatUntilUtc) + " UTC";
@@ -1440,9 +1457,9 @@ namespace cAlgo.Robots
             }
 
             // La barra è già stata pubblicata (la storia del server non deve avere buchi), ma
-            // dentro la finestra di flat non si reclama nessun intent: sarebbe un ingresso che
+            // dentro una finestra di flat non si reclama nessun intent: sarebbe un ingresso che
             // HandleEntryIntent scarterebbe comunque, e il polling costa una chiamata.
-            if (EnforceWeekEndFlat())
+            if (EnforceAccountFlat())
             {
                 SaveLocalState();
                 return;
@@ -1484,8 +1501,8 @@ namespace cAlgo.Robots
             if (!HasOpenPositionOn(args.SymbolName))
                 return;
 
-            // Dentro la finestra di fine settimana non c'e' nulla da proteggere: va solo chiuso.
-            if (EnforceWeekEndFlat())
+            // Dentro una finestra di flat non c'e' nulla da proteggere: va solo chiuso.
+            if (EnforceAccountFlat())
                 return;
 
             TrackExcursions();
@@ -2012,7 +2029,7 @@ namespace cAlgo.Robots
             // settimana: verrebbero scartati da HandleEntryIntent, ma a costo di una chiamata ognuno.
             _timerTicks++;
 
-            if (EnforceWeekEndFlat())
+            if (EnforceAccountFlat())
                 return;
 
             CancelPendingOrdersOutsideTradingWindow();
@@ -2058,6 +2075,68 @@ namespace cAlgo.Robots
             }
 
             return true;
+        }
+
+        /// <summary>
+        /// Le due finestre di flat del conto insieme: quella del fine settimana e quella giornaliera.
+        /// Vero quando almeno una e' attiva, cioe' quando in questa passata non si apre nulla.
+        /// </summary>
+        private bool EnforceAccountFlat()
+        {
+            var weekEnd = EnforceWeekEndFlat();
+            var session = EnforceSessionFlat();
+            return weekEnd || session;
+        }
+
+        /// <summary>
+        /// Il flat giornaliero, con la stessa forma di <see cref="EnforceWeekEndFlat"/>: dentro la
+        /// finestra <c>[flat, flat + minuti)</c> prima si cancellano i pending, poi si chiudono le
+        /// posizioni. Le posizioni portano gia' la deadline del piano (<c>CloseAtUtc</c>), quindi di
+        /// norma qui non c'e' niente da chiudere: e' la rete di sicurezza a server muto, e la
+        /// cancellazione dei pending — che una deadline non copre — perche' uno stop ancora vivo
+        /// riempirebbe fra il flat e il rollover e la posizione morirebbe un secondo dopo.
+        /// </summary>
+        private bool EnforceSessionFlat()
+        {
+            if (_allowOvernight || !IsSessionFlatWindow(Server.TimeInUtc))
+                return false;
+
+            foreach (var order in PendingOrders
+                .Where(o => o.Label != null && o.Label.StartsWith(LabelPrefix, StringComparison.Ordinal))
+                .ToList())
+                CancelAndReport(order, "flat di sessione");
+            _pendingOrderBar.Clear();
+
+            foreach (var position in Positions
+                .Where(p => p.Label != null && p.Label.StartsWith(LabelPrefix, StringComparison.Ordinal))
+                .ToList())
+            {
+                var result = ClosePosition(position);
+                if (result.IsSuccessful)
+                    Print("Posizione {0} chiusa per il flat di sessione.", position.Id);
+                else
+                    Print("Impossibile chiudere {0} per il flat di sessione: {1}", position.Id, result.Error);
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// La finestra giornaliera parte dall'ora di flat e dura i minuti dichiarati dal piano; puo'
+        /// passare la mezzanotte, quindi la distanza dall'inizio si misura modulo un giorno. Stessa
+        /// regola di <c>AccountHoldingPolicy.IsInsideSessionFlatWindow</c> sul server.
+        /// </summary>
+        private bool IsSessionFlatWindow(DateTime nowUtc)
+        {
+            // Il +1440 va PRIMA del troncamento: (int)(-0,5) e' 0, e le 20:44:30 sembrerebbero dentro.
+            var minutesSinceFlat = (int)((nowUtc.TimeOfDay - _sessionFlatUtc).TotalMinutes + 1440) % 1440;
+            return minutesSinceFlat < _sessionFlatWindowMinutes;
+        }
+
+        private TimeSpan SessionFlatUntilUtc()
+        {
+            var until = _sessionFlatUtc + TimeSpan.FromMinutes(_sessionFlatWindowMinutes);
+            return until >= TimeSpan.FromDays(1) ? until - TimeSpan.FromDays(1) : until;
         }
 
         /// <summary>
@@ -2655,6 +2734,16 @@ namespace cAlgo.Robots
             {
                 Print("Ingresso {0}/{1} scartato: finestra di flat di fine settimana.",
                     intent.Symbol, intent.StrategyCode);
+                ReportExecution(intent.IntentId, intent.Symbol, ExecutionReportStatusDto.Rejected, 0, null);
+                return;
+            }
+
+            // 7.6.0 — stessa barriera per il flat giornaliero: il server non manda ingressi validi
+            // dentro la finestra, ma un intent reclamato un attimo prima arriva qui dentro.
+            if (!_allowOvernight && IsSessionFlatWindow(Server.TimeInUtc))
+            {
+                Print("Ingresso {0}/{1} scartato: finestra di flat di sessione ({2} -> {3} UTC).",
+                    intent.Symbol, intent.StrategyCode, Hhmm(_sessionFlatUtc), Hhmm(SessionFlatUntilUtc()));
                 ReportExecution(intent.IntentId, intent.Symbol, ExecutionReportStatusDto.Rejected, 0, null);
                 return;
             }
@@ -4818,6 +4907,8 @@ namespace cAlgo.Robots
             public bool AllowOverweek { get; set; }
             /// <summary>Ora del giorno UTC, sul filo <c>HH:mm:ss</c>.</summary>
             public TimeSpan? SessionFlatUtc { get; set; }
+            /// <summary>Durata della finestra giornaliera in minuti; assente su un server precedente.</summary>
+            public int? SessionFlatWindowMinutes { get; set; }
             public WeekEndFlatDto WeekEnd { get; set; }
         }
 
