@@ -34,6 +34,15 @@ public class PiootooSettings
     public string SwapPath { get; set; } = string.Empty;
 
     /// <summary>
+    /// Cartella delle specifiche che un broker dichiara sui propri strumenti — moltiplicatori,
+    /// volumi, tariffe di finanziamento — raccolte da un cBot e tenute a <b>scatti datati</b>.
+    /// E' la fonte da cui si derivano lo swap e la riconciliazione della tabella di conversione, e
+    /// sta separata da entrambi perche' e' una <i>misura</i>: quei due file contengono anche
+    /// decisioni, e un file che cambia per due ragioni non si legge piu' in un diff.
+    /// </summary>
+    public string SymbolInfoPath { get; set; } = string.Empty;
+
+    /// <summary>
     /// Cartella dei confronti fra run (<c>compare-NNNN</c>), quella in cui il server crea i confronti
     /// avviati dalla console. Quando manca, vale <c>[BasePath]\compare</c>: e' la cartella del
     /// repository dati, dove i confronti fatti a mano stanno gia'.
@@ -55,6 +64,8 @@ public class PiootooSettings
             RepositoryPath = ResolvePath(RepositoryPath);
             ExternalRepositoryPath = ResolvePath(ExternalRepositoryPath);
             SpreadPath = ResolvePath(SpreadPath);
+            SwapPath = ResolvePath(SwapPath);
+            SymbolInfoPath = ResolvePath(SymbolInfoPath);
             ComparePath = ResolvePath(ComparePath);
             SettingsPath = ResolvePath(SettingsPath);
             Workspaces = ResolvePath(Workspaces);
@@ -100,6 +111,15 @@ public class PiootooSettings
         => string.IsNullOrWhiteSpace(SwapPath)
             ? Path.Combine(string.IsNullOrWhiteSpace(BasePath) ? "." : BasePath, "swap")
             : ResolvePath(SwapPath);
+
+    /// <summary>
+    /// Cartella delle specifiche che ogni broker dichiara sui propri strumenti. Il default e'
+    /// <c>[BasePath]\symbol-info</c>.
+    /// </summary>
+    public string GetSymbolInfoPath()
+        => string.IsNullOrWhiteSpace(SymbolInfoPath)
+            ? Path.Combine(string.IsNullOrWhiteSpace(BasePath) ? "." : BasePath, "symbol-info")
+            : ResolvePath(SymbolInfoPath);
 
     /// <summary>Cartella dei confronti fra run. Il default e' <c>[BasePath]\compare</c>.</summary>
     public string GetComparePath()

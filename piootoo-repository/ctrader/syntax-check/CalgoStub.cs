@@ -114,8 +114,36 @@ namespace cAlgo.API
         public event Action<SymbolTickEventArgs> Tick;
     }
 
-    public sealed class Symbols { public Symbol GetSymbol(string name) { return null; } }
-    public sealed class MarketData { public Bars GetBars(TimeFrame tf, string symbol) { return null; } }
+    /// <summary>Un singolo tick: istante e i due lati del book. E' uno struct in cAlgo.</summary>
+    public struct Tick
+    {
+        public DateTime Time { get { return default(DateTime); } }
+        public double Bid { get { return 0; } }
+        public double Ask { get { return 0; } }
+    }
+
+    public sealed class Ticks : IEnumerable<Tick>
+    {
+        public int Count { get { return 0; } }
+        public Tick this[int index] { get { return default(Tick); } }
+        public Tick Last(int index) { return default(Tick); }
+        public int LoadMoreHistory() { return 0; }
+        public IEnumerator<Tick> GetEnumerator() { return null; }
+        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() { return null; }
+    }
+
+    public sealed class Symbols : IEnumerable<string>
+    {
+        public Symbol GetSymbol(string name) { return null; }
+        public IEnumerator<string> GetEnumerator() { return null; }
+        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() { return null; }
+    }
+
+    public sealed class MarketData
+    {
+        public Bars GetBars(TimeFrame tf, string symbol) { return null; }
+        public Ticks GetTicks(string symbol) { return null; }
+    }
     public sealed class Server { public DateTime Time { get { return default(DateTime); } } public DateTime TimeInUtc { get { return default(DateTime); } } }
     public sealed class Account { public string BrokerName { get { return null; } } public long Number { get { return 0; } } }
     public sealed class Timer { public void Start(TimeSpan interval) { } public void Stop() { } }

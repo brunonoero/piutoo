@@ -7,7 +7,10 @@
     "Correggere a mano una voce e\u0027 lecito: il codice non sovrascrive quelle esistenti."
   ],
   "orologi": {
+    "BP": "UTC",
+    "CL": "UTC",
     "FDAX": "UTC",
+    "GC": "UTC",
     "NQ": "UTC"
   }
 }

@@ -1,0 +1,23 @@
+{
+  "Origin": "ExternalBroker",
+  "CreatedUtc": "2026-09-17T12:43:12.5867927Z",
+  "PriceSource": {
+    "Kind": "BrokerCfd",
+    "Broker": "ICS",
+    "FeedLabel": "CFD ICS (datafeed-external/ICS)"
+  },
+  "EngineVersion": "7.5.3",
+  "ClientVersion": "7.5.2",
+  "PlanCode": "V2-ICS-BEST2",
+  "ExecutionKey": "BT-20201230000000",
+  "SessionId": "63ceb632df6b4065aa32de5fc6339af5",
+  "AccountNumber": "2094690",
+  "ResolvedPriceSource": {
+    "Kind": "BrokerCfd",
+    "Broker": "ICS",
+    "FeedLabel": "CFD ICS (datafeed-external/ICS)"
+  },
+  "RunSlug": "cbot-cfd-ICS",
+  "IdentifiesRun": true,
+  "InitialCapital": 100000
+}

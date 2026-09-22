@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Headers;
+using System.Reflection;
 using System.Text;
 using System.Text.Json;
 using cAlgo.API;
@@ -67,6 +68,26 @@ namespace cAlgo.Robots
     /// <c>PiootooTickDownloaderBot</c> sulla stessa finestra: fa solo quello, e a quel punto qui i
     /// tick si trovano già in cache.</para>
     /// </summary>
+    /// <summary>
+    /// I lavori che questo bot sa fare verso il server. Sono due misure diverse dello stesso broker,
+    /// e la distinzione serve perche' costano ordini di grandezza diversi: le specifiche si leggono
+    /// in un istante e si rileggono ogni giorno, lo spread richiede un mese di tick.
+    /// </summary>
+    public enum LavoriSonda
+    {
+        /// <summary>Specifiche degli strumenti, poi la distribuzione dello spread.</summary>
+        Tutto,
+
+        /// <summary>
+        /// Solo le specifiche, poi il bot si ferma. E' il giro di <b>inizializzazione di un broker
+        /// nuovo</b>: il server impara cosa quel broker dichiara sugli strumenti del piano.
+        /// </summary>
+        SoloSpecifiche,
+
+        /// <summary>Solo lo spread, saltando la rilevazione delle specifiche.</summary>
+        SoloSpread
+    }
+
     public enum LivelloLogSpread
     {
         /// <summary>Solo avvio, riepiloghi ed errori.</summary>
@@ -214,12 +235,30 @@ namespace cAlgo.Robots
         [Parameter("Scrivi il dump tick per tick", DefaultValue = false, Group = "Output")]
         public bool WriteTickCsv { get; set; }
 
+        /// <summary>
+        /// Quali lavori fare in questo giro. I due hanno costi che non si somigliano: la rilevazione
+        /// delle specifiche dura secondi, la misura dello spread ore e molta RAM.
+        ///
+        /// <para><c>SoloSpecifiche</c> e' il giro da fare su un <b>broker nuovo</b>: registra al
+        /// server cosa quel broker dichiara sugli strumenti del piano — moltiplicatori, volumi,
+        /// tariffe di finanziamento — e si ferma. E' il passo con cui un broker entra in Piootoo,
+        /// senza aspettare un mese di tick.</para>
+        /// </summary>
+        [Parameter("Lavori", DefaultValue = LavoriSonda.Tutto, Group = "Cosa misurare")]
+        public LavoriSonda Lavori { get; set; }
+
         [Parameter("Livello di log", DefaultValue = LivelloLogSpread.Operativo, Group = "Diagnostica")]
         public LivelloLogSpread LivelloDiLog { get; set; }
 
         private HttpClient _http;
         private readonly JsonSerializerOptions _json = new JsonSerializerOptions(JsonSerializerDefaults.Web);
         private readonly List<SpreadStream> _streams = new List<SpreadStream>();
+
+        /// <summary>
+        /// Strumenti del piano che questo conto non ha. Non e' un errore ed e' anzi il risultato piu'
+        /// utile del giro su un broker nuovo: dice quali strumenti del piano quel broker non offre.
+        /// </summary>
+        private readonly List<string> _skipped = new List<string>();
 
         private string _brokerCode;
         private string _outputFolder;
@@ -308,6 +347,20 @@ namespace cAlgo.Robots
             }
 
             _startedAtUtc = Server.TimeInUtc;
+
+            // Le specifiche PRIMA dei tick: durano secondi, e un giro che poi muore a meta' della
+            // misura dello spread ha comunque registrato la cosa piu' difficile da rifare a mano.
+            if (Lavori != LavoriSonda.SoloSpread)
+                PublishSymbolInfo();
+
+            if (Lavori == LavoriSonda.SoloSpecifiche)
+            {
+                Print("Lavori = SoloSpecifiche: niente tick, il bot si ferma qui.");
+                _stopped = true;
+                Stop();
+                return;
+            }
+
             Print("Broker {0} (conto {1} presso '{2}'). Finestra {3:yyyy-MM-dd} -> {4:yyyy-MM-dd} su {5} simboli, " +
                   "blocchi da {6} giorni. Output in {7}",
                 _brokerCode, Account.Number, Account.BrokerName,
@@ -432,12 +485,14 @@ namespace cAlgo.Robots
                 catch (Exception failure)
                 {
                     Print("Simbolo '{0}' non disponibile su questo account: {1}. Saltato.", request.BrokerSymbol, failure.Message);
+                    _skipped.Add(request.BrokerSymbol + " (" + failure.Message + ")");
                     continue;
                 }
 
                 if (symbol == null)
                 {
                     Print("Simbolo '{0}' non disponibile su questo account. Saltato.", request.BrokerSymbol);
+                    _skipped.Add(request.BrokerSymbol + " (non disponibile su questo conto)");
                     continue;
                 }
 
@@ -445,6 +500,7 @@ namespace cAlgo.Robots
                 if (series == null)
                 {
                     Print("Serie tick di '{0}' non disponibile. Saltato.", symbol.Name);
+                    _skipped.Add(symbol.Name + " (serie tick non disponibile)");
                     continue;
                 }
 
@@ -599,6 +655,195 @@ namespace cAlgo.Robots
         private static string NormalizePiootooSymbol(string symbol)
         {
             return "@" + symbol.Trim().TrimStart('@').ToUpperInvariant();
+        }
+
+        // -----------------------------------------------------------------------------------------
+        // Specifiche degli strumenti (symbol-info)
+        // -----------------------------------------------------------------------------------------
+
+        /// <summary>
+        /// Registra al server cosa questo broker dichiara sugli strumenti del piano.
+        ///
+        /// <para><b>Perche' passa dal server e non da un file.</b> Le stesse specifiche oggi si
+        /// ricopiano a mano dalla scheda del simbolo in cTrader in tre posti — il moltiplicatore di
+        /// contratto in <c>symbol-conversions.json</c>, il finanziamento nel CSV di swap, tick e pip
+        /// altrove. Venti strumenti per ogni broker nuovo, a mano, e' il punto in cui un numero
+        /// sbagliato non lo vede nessuno: nessun test puo' accorgersene, perche' il numero vero sta
+        /// su uno schermo.</para>
+        ///
+        /// <para><b>Si manda tutto, per reflection.</b> Non i soli campi che oggi si leggono: il dump
+        /// intero costa niente e fra sei mesi servira' un campo che oggi non guardiamo. Per
+        /// reflection e non con un elenco scritto a mano perche' questi sorgenti si compilano solo
+        /// dentro cTrader: un nome di proprieta' sbagliato fermerebbe la build proprio dove non si
+        /// puo' provarla prima.</para>
+        ///
+        /// <para>Un invio fallito <b>non ferma</b> il giro: la misura dello spread e' indipendente, e
+        /// perderla perche' il server era spento sarebbe il peggiore dei baratti.</para>
+        /// </summary>
+        private void PublishSymbolInfo()
+        {
+            var payload = new StringBuilder();
+            payload.Append("{\"broker\":").Append(JsonString(_brokerCode))
+                .Append(",\"accountNumber\":").Append(JsonString(Account.Number.ToString(CultureInfo.InvariantCulture)))
+                .Append(",\"botVersion\":").Append(JsonString(BotVersion))
+                .Append(",\"takenUtc\":").Append(JsonString(Server.TimeInUtc.ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture)))
+                .Append(",\"symbols\":[");
+
+            var written = 0;
+            foreach (var stream in _streams)
+            {
+                Symbol symbol;
+                try
+                {
+                    symbol = Symbols.GetSymbol(stream.BrokerSymbol);
+                }
+                catch (Exception failure)
+                {
+                    Print("{0}: specifiche non leggibili ({1}).", stream, failure.Message);
+                    continue;
+                }
+
+                if (symbol == null)
+                    continue;
+
+                if (written > 0)
+                    payload.Append(',');
+
+                AppendSymbolInfo(payload, stream, symbol);
+                written++;
+            }
+
+            payload.Append("]}");
+
+            if (written == 0)
+            {
+                Print("Nessuna specifica da registrare: nessuno strumento leggibile.");
+                return;
+            }
+
+            try
+            {
+                using (var request = new HttpRequestMessage(HttpMethod.Post, "api/symbol-info"))
+                {
+                    request.Content = new StringContent(payload.ToString(), Encoding.UTF8, "application/json");
+                    using (var response = _http.Send(request))
+                    {
+                        var body = ReadBody(response);
+                        if (!response.IsSuccessStatusCode)
+                        {
+                            Print("Specifiche NON registrate: {0} {1}", (int)response.StatusCode, Truncate(body, 300));
+                            return;
+                        }
+
+                        // La risposta si stampa grezza e non si deserializza: dice quanti simboli
+                        // sono cambiati e quali proprieta', ed e' l'unica riga di questo bot che
+                        // qualcuno leggera' davvero. Un DTO in piu' qui servirebbe solo a nasconderla.
+                        Print("Specifiche registrate per {0} strumenti su {1}. Risposta: {2}",
+                            written, _brokerCode, Truncate(body, 600));
+                    }
+                }
+            }
+            catch (Exception failure)
+            {
+                Print("Specifiche NON registrate ({0}). La misura dello spread prosegue lo stesso.", failure.Message);
+            }
+
+            if (_skipped.Count > 0)
+            {
+                Print("Strumenti del piano NON disponibili su questo conto ({0}): {1}",
+                    _skipped.Count, string.Join(", ", _skipped));
+            }
+        }
+
+        /// <summary>
+        /// Un elemento dell'array <c>symbols</c>. Il JSON si compone a mano invece che con
+        /// <c>JsonSerializer</c> perche' i valori sono gia' stringhe e il dizionario delle proprieta'
+        /// si costruisce leggendo: serializzare passerebbe da un tipo intermedio che non aggiunge
+        /// niente.
+        /// </summary>
+        private static void AppendSymbolInfo(StringBuilder payload, SpreadStream stream, Symbol symbol)
+        {
+            payload.Append("{\"brokerSymbol\":").Append(JsonString(stream.BrokerSymbol))
+                .Append(",\"piootooSymbol\":").Append(JsonString(stream.PiootooSymbol))
+                .Append(",\"properties\":{");
+
+            var written = 0;
+            var warnings = new List<string>();
+
+            foreach (var property in symbol.GetType()
+                         .GetProperties(BindingFlags.Public | BindingFlags.Instance)
+                         .Where(candidate => candidate.CanRead && candidate.GetIndexParameters().Length == 0)
+                         .OrderBy(candidate => candidate.Name, StringComparer.Ordinal))
+            {
+                string value;
+                try
+                {
+                    var raw = property.GetValue(symbol);
+                    value = raw == null ? string.Empty : Convert.ToString(raw, CultureInfo.InvariantCulture);
+                }
+                catch (Exception failure)
+                {
+                    // Una proprieta' che solleva non fa perdere le altre, ma non si scrive neppure
+                    // come vuota: una cella vuota si legge come "il broker non lo dichiara", che e'
+                    // un'altra cosa.
+                    warnings.Add(property.Name + " non leggibile: " + failure.Message);
+                    continue;
+                }
+
+                if (written > 0)
+                    payload.Append(',');
+
+                payload.Append(JsonString(property.Name)).Append(':').Append(JsonString(value));
+                written++;
+            }
+
+            payload.Append('}');
+
+            // Senza quotazione PipValue e TickValue possono valere zero, e uno zero archiviato oggi
+            // sembra una misura fra sei mesi. Si dichiara invece di tacerlo.
+            if (symbol.PipValue <= 0 || symbol.TickSize <= 0)
+                warnings.Add("valori a zero: probabilmente non erano ancora arrivate quotazioni (mercato chiuso?).");
+
+            payload.Append(",\"warnings\":[");
+            for (var index = 0; index < warnings.Count; index++)
+            {
+                if (index > 0)
+                    payload.Append(',');
+
+                payload.Append(JsonString(warnings[index]));
+            }
+
+            payload.Append("]}");
+        }
+
+        /// <summary>Stringa JSON con le sole fughe che servono: i valori qui sono nomi e numeri.</summary>
+        private static string JsonString(string value)
+        {
+            if (value == null)
+                return "null";
+
+            var builder = new StringBuilder(value.Length + 2);
+            builder.Append('"');
+            foreach (var character in value)
+            {
+                switch (character)
+                {
+                    case '"': builder.Append("\\\""); break;
+                    case '\\': builder.Append("\\\\"); break;
+                    case '\n': builder.Append("\\n"); break;
+                    case '\r': builder.Append("\\r"); break;
+                    case '\t': builder.Append("\\t"); break;
+                    default:
+                        if (character < ' ')
+                            builder.Append("\\u").Append(((int)character).ToString("x4", CultureInfo.InvariantCulture));
+                        else
+                            builder.Append(character);
+                        break;
+                }
+            }
+
+            builder.Append('"');
+            return builder.ToString();
         }
 
         // -----------------------------------------------------------------------------------------

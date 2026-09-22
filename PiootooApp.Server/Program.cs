@@ -93,6 +93,9 @@ builder.Services.AddSingleton<ITradingSessionService, TradingSessionService>();
 // Singleton non per abitudine: tiene in RAM l'indice per stream e i lock che serializzano gli
 // invii concorrenti dello stesso feed. Due istanze si sovrascriverebbero il journal a vicenda.
 builder.Services.AddSingleton<ExternalDatafeedStore>();
+// Stessa ragione: tiene i lock per strumento che serializzano due rilevazioni dello stesso simbolo.
+builder.Services.AddSingleton<SymbolInfoStore>();
+builder.Services.AddSingleton<SymbolConversionReconciler>();
 // Export della scheda di una strategia. Senza stato proprio: singleton come il resto, e perche'
 // non ha senso ricostruirlo a ogni richiesta.
 builder.Services.AddSingleton<StrategyExportService>();

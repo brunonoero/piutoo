@@ -1,0 +1,23 @@
+{
+  "Origin": "Internal",
+  "CreatedUtc": "2026-09-17T12:46:15.7651185Z",
+  "PriceSource": {
+    "Kind": "BrokerCfd",
+    "Broker": "ICS",
+    "FeedLabel": "CFD ICS (datafeed-external/ICS)"
+  },
+  "EngineVersion": "7.5.3",
+  "ClientVersion": null,
+  "PlanCode": null,
+  "ExecutionKey": null,
+  "SessionId": null,
+  "AccountNumber": null,
+  "ResolvedPriceSource": {
+    "Kind": "BrokerCfd",
+    "Broker": "ICS",
+    "FeedLabel": "CFD ICS (datafeed-external/ICS)"
+  },
+  "RunSlug": "interno-cfd-ICS",
+  "IdentifiesRun": true,
+  "InitialCapital": null
+}

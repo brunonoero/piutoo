@@ -35,7 +35,7 @@ peggio di non avere lo stub.
 Verifica di fedeltà: **anche la versione precedente di un bot deve compilare**. Se lo stub
 riesce a compilare solo la versione nuova, è stato piegato su di essa.
 
-Oggi copre `PiootooDatafeedSyncBot` e `PiootooDistributedExecutionBot`. Gli altri bot si aggiungono
+Oggi copre `PiootooDatafeedSyncBot`, `PiootooDistributedExecutionBot` e `PiootooSwapProbeBot`. Gli altri bot si aggiungono
 con una riga `<Compile Include=...>` — tenendo presente che due bot nello stesso progetto devono
 avere classi con nomi diversi, cosa che oggi è vera.
 
