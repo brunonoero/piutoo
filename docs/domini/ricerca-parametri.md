@@ -120,6 +120,33 @@ Tre scelte che la rendono onesta:
 La fase sta **dopo gli orari e prima dello stop**: è una decisione di durata, parente di `MaxBars`,
 e va scelta prima che stop e target vengano tarati addosso a una durata diversa.
 
+### Stop e target in ATR: la terza deviazione dichiarata
+
+`StopAtr` e `TargetAtr` (dal 22/09/2026, `EasyEngineBase.StopAtrMultiplier` /
+`TargetAtrMultiplier`) esprimono stop e target come **multipli dell'ATR delle sessioni chiuse**
+invece che in dollari per contratto. `0` è spento: vale `StopLoss`/`TakeProfit` in denaro, il
+comportamento di sempre.
+
+Esiste perché uno stop in denaro è tarato sul regime del campione. La griglia NQ 15 lo ha mostrato:
+in campione vinceva lo stop a 4000, fuori quello a 1000, e la differenza era la volatilità, non la
+strategia. Un multiplo dell'ATR è un solo parametro che vale in ogni fase, e con la size a %f sullo
+stop dà un rischio in dollari costante per trade — il %Vol di Unger scritto dalla parte dello stop.
+
+Tre scelte che la rendono onesta:
+
+- **L'ATR è quello delle sessioni chiuse**, a 14 sessioni, lo stesso del filtro `DvolMin`
+  (`session_atr(df, 14, shift=1)`): la sessione in corso non entra mai (Legge Zero). Il periodo è
+  fisso e non in griglia — ogni parametro in più è selezione in più.
+- **Il segnale esce in denaro.** La conversione — ATR in punti × valore del punto × multiplo —
+  avviene al momento del segnale in `BuildEntry`, e `StopLossMoneyPerFutureContract` è numerico
+  come oggi: backtest e cBot ricevono uno stop in dollari e non sanno da dove viene. Nessun cambio
+  di contratto. Senza 15 sessioni di storia si ripiega sul denaro fisso, mai su "nessuno stop".
+- **Non è riproducibile dal motore Python**, che conosce solo `stop_loss`/`take_profit` in dollari:
+  una configurazione con `StopAtr != 0` è una deviazione dichiarata, come `ExitHour`.
+
+Nella griglia grossa si accende con `CoarseGridSpec.AtrStops`: `Stops` e `Targets` diventano decimi
+di ATR (10 = 1,0) e il denaro fisso va a zero, così un target a 0 è davvero "nessun target".
+
 ## Il criterio: il peggiore dei tratti, non il totale
 
 Su decine di migliaia di combinazioni il massimo di `netto/drawdown` è quasi sempre una
@@ -209,5 +236,8 @@ della ricerca**, prima del backtest e non dopo.
 `Piootoo.Core/Optimization/Sweep/` — `SweepRunner`, `SweepSeries`, `SweepSpace`, `SweepOptimizer`,
 `SweepObjective`, `SweepValidation`. `Piootoo.Core/Services/SwapTable.cs` e `SpreadTable.cs` per i
 costi. `Piootoo.Sweep/Program.cs` per la riga di comando, `tools/sweep-paniere.ps1` per i lanci.
-Test: `SweepRunnerParityTests`, `SweepOptimizerTests`, `SweepValidationTests`, `SwapSpecTests`.
+`Piootoo.Strategies/Easy/Engines/EasyEngineBase.cs` per `SessionExitTime`, `StopAtrMultiplier` e
+`ClosedSessionAtrPoints`; `Piootoo.Strategies.Tests/CoarseGridStudy.cs` per la griglia grossa.
+Test: `SweepRunnerParityTests`, `SweepOptimizerTests`, `SweepValidationTests`, `SwapSpecTests`,
+`SessionExitHourTests`, `AtrStopTests`.
 Resoconti dei run in `piootoo-repository/ricerca/`.

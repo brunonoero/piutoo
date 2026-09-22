@@ -397,58 +397,11 @@ public abstract class PriceChannelEngine : EasyEngineBase
         if (DvolMin <= 0m)
             return true;
 
-        var atr = ClosedSessionAtr(data, barTime);
+        // Python: session_atr(df, 14, shift=1). Lo stesso ATR delle sessioni chiuse che dal
+        // 22/09/2026 serve anche allo stop in ATR (EasyEngineBase.StopAtrMultiplier): il punto
+        // valore trasforma i punti nel valore monetario richiesto da dvol_min.
+        var atr = ClosedSessionAtrPoints(data, barTime);
         return atr.HasValue && atr.Value * InstrumentRegistry.PointValue(Symbol) >= DvolMin;
-    }
-
-    // Python: session_atr(df, 14, shift=1). d0 non entra mai nel calcolo e il punto
-    // valore trasforma l'ATR in punti nel valore monetario richiesto da dvol_min.
-    private decimal? ClosedSessionAtr(OhlcvData[] data, DateTime barTime)
-    {
-        const int atrLength = 14;
-        var currentSession = SessionKey(barTime);
-        var sessions = new List<(DateTime Key, decimal High, decimal Low, decimal Close)>();
-        DateTime? key = null;
-        decimal high = 0m, low = 0m, close = 0m;
-
-        foreach (var candidate in data)
-        {
-            var candidateKey = SessionKey(candidate.DateTime);
-            if (candidateKey >= currentSession)
-                break;
-
-            if (key != candidateKey)
-            {
-                if (key.HasValue)
-                    sessions.Add((key.Value, high, low, close));
-                key = candidateKey;
-                high = candidate.High;
-                low = candidate.Low;
-            }
-            else
-            {
-                high = Math.Max(high, candidate.High);
-                low = Math.Min(low, candidate.Low);
-            }
-
-            close = candidate.Close;
-        }
-
-        if (key.HasValue)
-            sessions.Add((key.Value, high, low, close));
-        if (sessions.Count < atrLength + 1)
-            return null;
-
-        decimal sum = 0m;
-        for (var index = sessions.Count - atrLength; index < sessions.Count; index++)
-        {
-            var session = sessions[index];
-            var previousClose = sessions[index - 1].Close;
-            sum += Math.Max(session.High - session.Low,
-                Math.Max(Math.Abs(session.High - previousClose), Math.Abs(session.Low - previousClose)));
-        }
-
-        return sum / atrLength;
     }
 
     private decimal HighestChannelHigh(OhlcvData[] data)

@@ -59,6 +59,17 @@ Quello che non regge, in ordine di peso:
    2014 su cTrader da verificare prima del run (R8); `MinTrades` 30 o 50 e `MinProfitFactor` in
    fase trigger (F7); finaliste duplicate per parametri inerti (F3, N2).
 
+## 22/09, dopo la rilettura: stop e target in ATR — scritto, da misurare
+
+`StopAtr`/`TargetAtr` sui motori (`EasyEngineBase.StopAtrMultiplier`, 0 = denaro fisso di sempre;
+`decisioni.md` 2026-09-22, `ricerca-parametri.md` §"Stop e target in ATR"). Compilato, tre test
+verdi (`AtrStopTests`), **nessuna griglia ancora lanciata**. Il primo uso è la griglia grossa NQ 15
+con `CoarseGridSpec.AtrStops = true` — stop {1, 1.5, 2, 3} × target {0, 2, 3, 5} ATR — a confronto
+con la stessa griglia in dollari: la domanda è se la cella in ATR regge fuori campione dove quella
+in dollari cambiava stop fra campione e validazione. Poi la 002 con lo stesso stop espresso in
+ATR (5000 $ ≈ 200 punti: quanti ATR erano nel 2022 e quanti nel 2026?). Non entra in nessun piano
+finché non è misurata.
+
 ## Sera del 21/09: l'orologio veloce era rotto, la 002 è il candidato, la ricerca gira al minuto
 
 - **L'orologio veloce della sweep ordinava rumore** — Spearman **0,021** sul punteggio fra veloce e
@@ -124,6 +135,84 @@ Quello che non regge, in ordine di peso:
   permissive, validazione del paniere fuori campione **con lo stesso split per tutte le celle**.
   Ordine: FDAX (in corso) → NQ (feed ICS) → i dieci simboli del vendor con costi CFD peggiori →
   paniere. La diversificazione compensa la varianza, non l'assenza di edge.
+- **Il feed NQ del vendor finisce il 2025-05-30** (`datafeed/@NQ_1`, `_15`, `_240`: ultima barra
+  30/05/2025). Scoperto la mattina del 22/09 misurando le 39 strategie NQ del catalogo ai costi
+  veri sul vendor: fuori campione 2025-01 → 2026-09 avevano 5 mesi invece di 20 (108 trade per la
+  `PT2_NQ_PCH_001_240` contro i ~430 attesi), quindi **quella misura non vale per il fuori
+  campione** e va rifatta sull'archivio ICS, che arriva a settembre 2026 (aggregati 15/60/1440 in
+  derivazione dal minuto). Vale anche per la correlazione fra motori: i ranghi restano validi, i
+  netti coprono 2022-01 → 2025-05.
+- **FDAX 4h al minuto con il criterio 2 (250 trade, 25 per tratto, 10 perdite), consegnata alle
+  13:30 del 22/09** (`ricerca/fdax-4h-pc-tutto-al-minuto-criterio-2.md`, 361 minuti):
+  **nessuna delle nove finaliste sopravvive, e F5 è confermata per intero** — tutte e nove stanno
+  fra **260 e 264 trade**, cioè esattamente sul pavimento di 250, come le 52 con il pavimento a 50.
+  Alzare il minimo ha spostato la convergenza, non l'ha tolta: il criterio sceglie il conteggio.
+  E la configurazione scelta è la trappola già documentata nel progetto: finestra **19:00 → 05:00**
+  di Roma, cioè la notte, con lo spread **costante** a 1,23 che rende le ore care uguali alle
+  altre (la sweep era senza `--spread-per-hour`). Campione +113.074 su 260 trade, fuori campione
+  +9.234 su 155, una finestra su quattro; le altre otto varianti in perdita. **Conclusione: la
+  sweep a fasi con questo criterio non è uno strumento di ricerca**, con nessuno dei due pavimenti.
+  O si cambia il denominatore del punteggio (scalato con il numero di trade, F5), o la si tiene
+  come controllo e si cerca con la griglia grossa — che nel frattempo ha già risposto su GC in
+  due ore. Da oggi la griglia è lo strumento; la sweep NQ criterio 2 in corso è l'ultima.
+- **La sweep GC 4h al minuto (criterio vecchio, `--min-trades 250`) ha consegnato alle 9:20 del
+  22/09** (`ricerca/gc-4h-pc-tutto-al-minuto.md`, 214 minuti): **quattro finaliste su sei passano**,
+  ed è la prima volta che una sweep consegna qualcosa con il profilo della 002 — centinaia di trade
+  da entrambe le parti, utile da entrambe le parti:
+
+  | # | IS trade | IS netto | OOS trade | OOS netto | finestre | tenuta |
+  |---:|---:|---:|---:|---:|---:|---:|
+  | **3** | 285 | +51.866 | 386 | **+115.029** | **4/4** | 88% |
+  | 4 | 322 | +33.303 | 405 | +90.175 | 3/4 | 144% |
+  | 5 | 353 | +8.701 | 404 | +96.609 | 4/4 | — |
+  | 6 | 304 | +36.988 | 397 | +93.266 | 3/4 | 150% |
+
+  Configurazione (una sola, in quattro varianti di break-even/trailing — F3 di nuovo): canale 1,
+  offset 10 tick, **solo long**, neutrale 31 richiesto / 52 vietato, direzionale −40 vietato,
+  **multiday** (`IntradayOnly = 0`, `ExitHour` inerte), `MaxBars = 12`, stop 2.500 (25 punti),
+  target 5.000, tutto il giorno. Le quattro finestre della 3: 44.658 → 35.605 → 22.321 → 12.467.
+
+  **Le riserve, prima di innamorarsene.** (a) È **solo long sull'oro nel 2025-26**, l'anno del
+  rally: il fuori campione batte il campione di 2-3 volte e **decresce finestra dopo finestra** man
+  mano che il rally rallenta — regime, non necessariamente edge. (b) Multiday con swap long a
+  $59 a notte: regge lo stesso, ma la leva dell'uscita non è stata provata perché con
+  `IntradayOnly = 0` la fase non fa nulla. (c) Spread FTMO, non ICS (non ancora misurato).
+  (d) F5 mezza confermata: le finaliste 1-2 sono a 250 e 254 trade, esattamente il pavimento.
+  **Il confronto con la griglia grossa è arrivato alle 11:00 ed è netto**
+  (`ricerca/gc-4h-griglia-grossa.md`): il motore **nudo**, senza un solo pattern, è in utile fuori
+  campione in **146 celle su 148** ammissibili, media ~110k, qualunque uscita e qualunque
+  direzione (entrambe 119k > solo long 92k). La finalista 3 (+115k) sta nella media del nudo: **il
+  fuori campione GC è il rally dell'oro 2025-26, non i pattern.** In campione il nudo fa 14-17k su
+  tre anni. **Nessuna classe GC oggi.** Il test che decide: raccogliere XAUUSD ICS indietro fino al
+  2014 (il bot, un anno per run) e rifare la griglia con campione 2014-2021 e validazione
+  2022-2024 — sette anni con rialzi, ribassi e laterali. L'ora di uscita sull'oro è inerte
+  (103-113k in ogni caso).
+- **Griglia grossa NQ 15 minuti, consegnata alle 15:40 del 22/09** (`ricerca/nq-15m-griglia-grossa.md`,
+  220 minuti): 92 ammissibili su 450, 30 in utile fuori con ≥ 3 finestre, **una sola equilibrata**
+  (canale 20, stop 4000, target 8000, fine sessione, entrambe: IS 947 trade +112k / DD 96k, OOS
+  590 trade +82k / DD 72k, 4/4). Letta con i criteri del metodo: avg trade $119 al limite della
+  soglia del 15% del $ATR, guadagno annuo/DD **0,39** contro il 2 di Titan, **UngerFit 0,35**.
+  Su NQ 15 il PC nudo non regge gli standard. Leve che parlano: uscita alle 21 aiuta fuori
+  campione (16,6k contro 9,2k), lo short perde. Se si torna su NQ è con un altro motore (le TF 15
+  del catalogo), non con filtri sul PC.
+- **Criteri: letto il metodo (slide TSS2/TSE/PS/MPS e skill `metodo-unger`) il 22/09.** Il nostro
+  `netto/DD del peggior tratto` è `N/R` — ordina sul numero di trade (skill §13.6, F5 della
+  rilettura, e i pavimenti 250/260/253 delle sweep). Da adottare: **UngerFit** = √(avg_trade/soglia
+  × 100/R) come ordinamento, con **cancelli binari** prima (campione ≥ 50 IS / 20 OOS con il floor
+  intraday più alto, avg trade ≥ max(6-7 tick, 15% $ATR), anni positivi, outlier < 30% del netto,
+  segnali di look-ahead), il DD come cancello e non come denominatore, e l'accettazione con lo
+  **sconto walk-forward** (avg trade IS × 0,2-0,5 deve restare sopra soglia). Il 20% di DD è un
+  vincolo di **sizing** (%f 1,25% sul worst day), non di ricerca: in ricerca il DD si giudica in
+  rapporto (guadagno annuo ≥ 2 × max DD). Con questi la 002 (avg trade $66 IS, $110 OOS;
+  guadagno/DD ~0,3-0,7) **non passerebbe il filtro di Titan da sola**: è una componente di
+  paniere, non una strategia da conto.
+- **Le 39 NQ del catalogo ai costi veri su ICS, fuori campione intero** (`ricerca/nq-catalogo-costi-veri.md`):
+  **sei passano, nessuna con il profilo della 002** — tre in campione a zero (`PT2_NQ_PCH_002_30`
+  +2.281 su 748 trade e poi +64.037 fuori: vento, non edge), tre TF a 15 minuti coerenti ma con
+  100-200 trade (`TFU_003_15` 4/4 finestre è la migliore). La 4h Price Channel `PT2_NQ_PCH_001_240`,
+  767 trade, **perde 47.114 fuori campione**: la sweep al minuto aveva ragione a bocciare la cella.
+  Nessuna NQ è un candidato oggi; l'unico passo sensato è il mini-paniere delle tre TF 15 sullo
+  stesso split, prima di qualunque taratura a mano.
 - **Correlazione fra motori su NQ, misurata la notte del 22/09** (`ricerca/nq-correlazione-motori.md`
   e `.csv`, 37 strategie, P&L giornaliero al minuto 2022-2026): **media 0,056**, e fra famiglie
   di motori tutto fra 0,00 e 0,08 — TFM contro TFU 0,06, TFM contro PCH 0,04, dentro TFM 0,08.

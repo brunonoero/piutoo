@@ -4383,3 +4383,19 @@ che il motore fa. Difetto di artefatto, non di esecuzione, ma e' costato mezza i
   apertura — quindi la fase resta dov'e' e si ripete a rischio scelto: 1.259 combinazioni al
   minuto, otto minuti, e se sposta la finestra si e' imparato che il default decideva al posto
   nostro.
+
+- **2026-09-22** — **Stop e target in multipli dell'ATR delle sessioni chiuse** (`StopAtrMultiplier`,
+  `TargetAtrMultiplier` su `EasyEngineBase`; chiavi `StopAtr`/`TargetAtr` in `Initialize`; 0 =
+  spento, cioe' il denaro fisso di sempre). Motivo: uno stop in dollari e' tarato sul regime del
+  campione — la griglia NQ 15 sceglieva 4000 in campione e 1000 fuori, perche' la volatilita' era
+  cambiata — mentre un multiplo dell'ATR e' un parametro solo che vale in ogni fase, e con la size
+  a %f sullo stop da' un rischio in dollari costante per trade: e' il %Vol di Unger scritto dalla
+  parte dello stop. Tre scelte: l'ATR e' quello a **14 sessioni chiuse** gia' usato da `DvolMin`
+  (Legge Zero: la sessione in corso non entra mai; il periodo e' fisso e non in griglia); il
+  denaro per contratto si risolve **al momento del segnale** (`ATR × valore del punto × multiplo`,
+  in `BuildEntry`) e il segnale esce con `StopLossMoneyPerFutureContract` numerico come oggi, quindi
+  **nessun cambio di contratto** e il cBot non si tocca; senza 15 sessioni di storia si ripiega sul
+  denaro fisso, mai su "nessuno stop". Deviazione dichiarata dal motore Python, come `ExitHour`. La
+  griglia grossa lo prova con `CoarseGridSpec.AtrStops` (stop e target in decimi di ATR). Test:
+  `AtrStopTests`. Il `ClosedSessionAtr` privato del PC e' salito nella base
+  (`ClosedSessionAtrPoints`).

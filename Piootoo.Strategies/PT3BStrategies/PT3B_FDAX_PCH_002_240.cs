@@ -144,5 +144,11 @@ public sealed class PT3B_FDAX_PCH_002_240 : PriceChannelEngine
             SkipDay = Convert.ToInt32(skipDay);
         if (parameters.TryGetValue("DvolMin", out var dvolMin))
             DvolMin = Convert.ToDecimal(dvolMin);
+        // Stop e target in multipli dell'ATR delle sessioni chiuse (0 = denaro fisso). Vedi
+        // EasyEngineBase.StopAtrMultiplier.
+        if (parameters.TryGetValue("StopAtr", out var stopAtr))
+            StopAtrMultiplier = Convert.ToDecimal(stopAtr);
+        if (parameters.TryGetValue("TargetAtr", out var targetAtr))
+            TargetAtrMultiplier = Convert.ToDecimal(targetAtr);
     }
 }

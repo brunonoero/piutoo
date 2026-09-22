@@ -163,5 +163,9 @@ public sealed class PTS_GC_PCH_004_240 : PriceChannelEngine
             SessionExitTime = Convert.ToInt32(exitHour) < 0
                 ? null
                 : new TimeOnly(Convert.ToInt32(exitHour), 0);
+        if (parameters.TryGetValue("StopAtr", out var stopAtr))
+            StopAtrMultiplier = Convert.ToDecimal(stopAtr);
+        if (parameters.TryGetValue("TargetAtr", out var targetAtr))
+            TargetAtrMultiplier = Convert.ToDecimal(targetAtr);
     }
 }

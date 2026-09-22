@@ -171,6 +171,10 @@ public sealed class PT2_NQ_PCH_001_240 : PriceChannelEngine
             SessionExitTime = Convert.ToInt32(exitHour) < 0
                 ? null
                 : new TimeOnly(Convert.ToInt32(exitHour), 0);
+        if (parameters.TryGetValue("StopAtr", out var stopAtr))
+            StopAtrMultiplier = Convert.ToDecimal(stopAtr);
+        if (parameters.TryGetValue("TargetAtr", out var targetAtr))
+            TargetAtrMultiplier = Convert.ToDecimal(targetAtr);
         if (parameters.TryGetValue("SkipDay", out var skipDay))
             SkipDay = Convert.ToInt32(skipDay);                  // 0 = lunedi' .. 4 = venerdi', -1 = nessuno
         if (parameters.TryGetValue("DvolMin", out var dvolMin))

@@ -144,5 +144,9 @@ public sealed class PT3B_FDAX_PCH_001_240 : PriceChannelEngine
             SkipDay = Convert.ToInt32(skipDay);
         if (parameters.TryGetValue("DvolMin", out var dvolMin))
             DvolMin = Convert.ToDecimal(dvolMin);
+        if (parameters.TryGetValue("StopAtr", out var stopAtr))
+            StopAtrMultiplier = Convert.ToDecimal(stopAtr);
+        if (parameters.TryGetValue("TargetAtr", out var targetAtr))
+            TargetAtrMultiplier = Convert.ToDecimal(targetAtr);
     }
 }

@@ -303,6 +303,40 @@ public abstract class EasyEngineBase : StatelessEasyStrategyBase
     /// <summary>Target in denaro per contratto di riferimento. 0 = nessun target.</summary>
     protected int ProfitMoney;
 
+    /// <summary>
+    /// Stop in multipli dell'ATR delle sessioni chiuse, al posto di <see cref="StopMoney"/>.
+    /// 0 = spento (vale il denaro fisso), che e' il default e il comportamento di sempre.
+    ///
+    /// <para><b>Perche' esiste (22/09/2026).</b> Uno stop in denaro fisso e' tarato sul regime del
+    /// campione: 200 punti di FDAX nel 2022 a volatilita' bassa e nel 2026 a volatilita' doppia sono
+    /// lo stesso numero e due stop diversi. La griglia NQ 15 lo ha mostrato: stop 4000 vince in
+    /// campione e stop 1000 fuori, perche' la volatilita' e' cambiata. In ATR e' un parametro solo
+    /// che vale in ogni regime — un parametro in meno da tarare e' selezione in meno.</para>
+    ///
+    /// <para><b>Come.</b> L'ATR e' quello a <see cref="AtrSessions"/> sessioni <b>chiuse</b>, lo
+    /// stesso del filtro <c>DvolMin</c> (Python <c>session_atr(df, 14, shift=1)</c>): la sessione in
+    /// corso non entra mai, che e' la Legge Zero. Il denaro per contratto si risolve <b>al momento
+    /// del segnale</b> — ATR in punti × valore del punto × multiplo — e il segnale esce con
+    /// <c>StopLossMoneyPerFutureContract</c> gia' numerico, come oggi: chi esegue, backtest o cBot,
+    /// riceve uno stop in denaro e non sa ne' deve sapere da dove viene. Nessun cambio di contratto.
+    /// Se l'ATR non e' ancora calcolabile (meno di 15 sessioni di storia) si ripiega sul denaro fisso.</para>
+    ///
+    /// <para>Non e' nel corso di Unger — che usa stop in denaro scelti sul plateau e l'ATR per la
+    /// size (%Vol) — ma e' coerente con la sua struttura, e con la size a %f sullo stop da' un
+    /// rischio in dollari costante per trade qualunque sia la fase: e' il %Vol scritto dalla parte
+    /// dello stop. Deviazione dichiarata, come <c>ExitHour</c>.</para>
+    /// </summary>
+    protected decimal StopAtrMultiplier;
+
+    /// <summary>Target in multipli dell'ATR delle sessioni chiuse. 0 = spento (vale <see cref="ProfitMoney"/>).</summary>
+    protected decimal TargetAtrMultiplier;
+
+    /// <summary>
+    /// Sessioni chiuse su cui si misura l'ATR di <see cref="StopAtrMultiplier"/>: 14, come il
+    /// filtro <c>DvolMin</c>. Fisso e non in griglia: ogni parametro in piu' e' selezione in piu'.
+    /// </summary>
+    protected const int AtrSessions = 14;
+
     /// <summary>Soglia di breakeven in denaro per contratto di riferimento. 0 = disattivo.</summary>
     protected int BreakEvenMoney;
 
@@ -568,8 +602,8 @@ public abstract class EasyEngineBase : StatelessEasyStrategyBase
             // minimo del portafoglio, e senza questo numero terrebbe l'ordine vivo per un tick del
             // portafoglio invece che per una barra della strategia.
             TimeframeMinutes = TimeframeMinutes,
-            StopLossMoneyPerFutureContract = StopMoney > 0 ? StopMoney : null,
-            TakeProfitMoneyPerFutureContract = ProfitMoney > 0 ? ProfitMoney : null,
+            StopLossMoneyPerFutureContract = ResolveMoneyPerContract(StopAtrMultiplier, StopMoney, data, barTime),
+            TakeProfitMoneyPerFutureContract = ResolveMoneyPerContract(TargetAtrMultiplier, ProfitMoney, data, barTime),
             BreakEvenMoneyPerFutureContract = BreakEvenMoney > 0 ? BreakEvenMoney : null,
             TrailingStopMoneyPerFutureContract = TrailingStopMoney > 0 ? TrailingStopMoney : null,
             MaxBarsInPosition = MaxBars > 0 ? MaxBars : null,
@@ -587,6 +621,75 @@ public abstract class EasyEngineBase : StatelessEasyStrategyBase
         }
 
         return signal;
+    }
+
+    /// <summary>
+    /// Stop o target in denaro per contratto per QUESTO segnale: il multiplo dell'ATR delle sessioni
+    /// chiuse se dichiarato, altrimenti il denaro fisso. Vedi <see cref="StopAtrMultiplier"/>.
+    /// </summary>
+    private decimal? ResolveMoneyPerContract(decimal atrMultiplier, int fixedMoney, OhlcvData[] data, DateTime barTime)
+    {
+        if (atrMultiplier > 0m)
+        {
+            var atr = ClosedSessionAtrPoints(data, barTime);
+            if (atr.HasValue && atr.Value > 0m)
+                return Math.Round(atr.Value * InstrumentRegistry.PointValue(Symbol) * atrMultiplier, 2);
+        }
+
+        return fixedMoney > 0 ? fixedMoney : null;
+    }
+
+    /// <summary>
+    /// ATR in punti sulle ultime <see cref="AtrSessions"/> sessioni <b>chiuse</b> prima della barra:
+    /// Python <c>session_atr(df, 14, shift=1)</c>. La sessione in corso non entra mai nel calcolo.
+    /// <c>null</c> se la storia non copre <c>AtrSessions + 1</c> sessioni. Le sessioni sono quelle
+    /// della strategia (<see cref="SessionStart"/>), le stesse dei pattern.
+    /// </summary>
+    protected decimal? ClosedSessionAtrPoints(OhlcvData[] data, DateTime barTime)
+    {
+        var currentSession = ResolveEntrySessionStartUtc(barTime);
+        var sessions = new List<(decimal High, decimal Low, decimal Close)>();
+        DateTime? key = null;
+        decimal high = 0m, low = 0m, close = 0m;
+
+        foreach (var candidate in data)
+        {
+            var candidateKey = ResolveEntrySessionStartUtc(candidate.DateTime);
+            if (candidateKey >= currentSession)
+                break;
+
+            if (key != candidateKey)
+            {
+                if (key.HasValue)
+                    sessions.Add((high, low, close));
+                key = candidateKey;
+                high = candidate.High;
+                low = candidate.Low;
+            }
+            else
+            {
+                high = Math.Max(high, candidate.High);
+                low = Math.Min(low, candidate.Low);
+            }
+
+            close = candidate.Close;
+        }
+
+        if (key.HasValue)
+            sessions.Add((high, low, close));
+        if (sessions.Count < AtrSessions + 1)
+            return null;
+
+        decimal sum = 0m;
+        for (var index = sessions.Count - AtrSessions; index < sessions.Count; index++)
+        {
+            var session = sessions[index];
+            var previousClose = sessions[index - 1].Close;
+            sum += Math.Max(session.High - session.Low,
+                Math.Max(Math.Abs(session.High - previousClose), Math.Abs(session.Low - previousClose)));
+        }
+
+        return sum / AtrSessions;
     }
 
     /// <summary>

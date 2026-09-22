@@ -1,0 +1,40 @@
+﻿strategia;timeframe;esito;IS_trade;IS_netto;IS_punteggio;OOS_trade;OOS_netto;OOS_punteggio;tenuta;finestre;nota
+PTS_NQ_PCH_001_15;15;SCARTA;264;8062;1.42;38;1215;0.28;19%;;tenuta 19%, sotto il minimo 50%
+PTS_NQ_PCH_002_15;15;SCARTA;192;4492;0.79;28;855;;;;fuori campione non ammissibile per l'obiettivo (in perdita o sotto le soglie)
+PTS_NQ_RBM_001_15;15;SCARTA;381;69739;2.56;66;19490;0.77;30%;;tenuta 30%, sotto il minimo 50%
+PTS_NQ_SBO_001_15;15;SCARTA;91;58611;2.92;20;1862;;;;fuori campione non ammissibile per l'obiettivo (in perdita o sotto le soglie)
+PTS_NQ_SBO_002_15;15;SCARTA;78;34619;1.36;6;1365;;;;fuori campione solo 6 trade
+PTS_NQ_SBO_003_15;15;SCARTA;87;29948;1.32;17;-9154;;;;fuori campione solo 17 trade
+PTS_NQ_TFM_002_15;15;SCARTA;112;46715;1.90;19;11723;;;;fuori campione solo 19 trade
+PTS_NQ_TFM_003_15;15;SCARTA;149;44937;1.58;17;-2097;;;;fuori campione solo 17 trade
+PTS_NQ_TFM_005_15;15;SCARTA;121;11957;0.44;20;30550;;;;fuori campione non ammissibile per l'obiettivo (in perdita o sotto le soglie)
+PTS_NQ_TFU_001_15;15;SCARTA;117;2827;0.09;19;1876;;;;fuori campione solo 19 trade
+PTS_NQ_TFU_002_15;15;SCARTA;237;-7919;;27;23594;;;;fuori campione non ammissibile per l'obiettivo (in perdita o sotto le soglie)
+PTS_NQ_TFU_003_15;15;SCARTA;202;9624;0.47;26;11033;;;;fuori campione non ammissibile per l'obiettivo (in perdita o sotto le soglie)
+PT2_NQ_PCH_002_30;30;SCARTA;745;-17704;;102;15095;0.46;;;in campione in perdita (-17,704)
+PTS_NQ_PCH_003_30;30;SCARTA;205;49332;3.72;32;-857;;;;fuori campione non ammissibile per l'obiettivo (in perdita o sotto le soglie)
+PTS_NQ_PCH_004_30;30;SCARTA;125;13781;1.26;25;-2972;;;;fuori campione non ammissibile per l'obiettivo (in perdita o sotto le soglie)
+PTS_NQ_TFM_006_30;30;SCARTA;150;26973;1.01;14;12518;;;;fuori campione solo 14 trade
+PTS_NQ_TFM_007_30;30;SCARTA;195;55219;1.63;23;5991;;;;fuori campione non ammissibile per l'obiettivo (in perdita o sotto le soglie)
+PTS_NQ_TFM_008_30;30;SCARTA;131;-4003;;22;2154;;;;fuori campione non ammissibile per l'obiettivo (in perdita o sotto le soglie)
+PTS_NQ_SBO_004_60;60;SCARTA;41;7723;0.49;6;-3500;;;;fuori campione solo 6 trade
+PTS_NQ_TFM_001_60;60;SCARTA;210;72985;4.30;27;3820;;;;fuori campione non ammissibile per l'obiettivo (in perdita o sotto le soglie)
+PTS_NQ_TFM_009_60;60;SCARTA;230;34540;2.89;29;4500;;;;fuori campione non ammissibile per l'obiettivo (in perdita o sotto le soglie)
+PTS_NQ_TFM_010_60;60;SCARTA;82;15256;0.77;17;-6753;;;;fuori campione solo 17 trade
+PTS_NQ_TFM_011_60;60;SCARTA;141;4954;0.27;25;20005;;;;fuori campione non ammissibile per l'obiettivo (in perdita o sotto le soglie)
+PTS_NQ_TFU_004_60;60;SCARTA;183;50898;2.27;31;-5255;;;;fuori campione non ammissibile per l'obiettivo (in perdita o sotto le soglie)
+PTS_NQ_TFU_005_60;60;SCARTA;159;14340;0.57;24;29431;;;;fuori campione non ammissibile per l'obiettivo (in perdita o sotto le soglie)
+PT2_NQ_PCH_001_240;240;SCARTA;767;54324;0.67;108;38210;0.78;116%;;solo 1 finestre su 4 in utile
+PTS_NQ_PCH_007_240;240;SCARTA;82;-1240;;13;-1711;;;;fuori campione solo 13 trade
+PTS_NQ_PCH_008_240;240;SCARTA;122;37305;3.39;23;-11421;;;;fuori campione non ammissibile per l'obiettivo (in perdita o sotto le soglie)
+PTS_NQ_SBO_006_240;240;SCARTA;138;10409;0.59;27;-1011;;;;fuori campione non ammissibile per l'obiettivo (in perdita o sotto le soglie)
+PTS_NQ_TFM_014_240;240;SCARTA;147;34768;1.89;24;-6923;;;;fuori campione non ammissibile per l'obiettivo (in perdita o sotto le soglie)
+PTS_NQ_TFM_015_240;240;SCARTA;145;25456;1.04;40;-879;;;;fuori campione non ammissibile per l'obiettivo (in perdita o sotto le soglie)
+PTS_NQ_TFU_008_240;240;SCARTA;168;203;0.01;18;301;;;;fuori campione solo 18 trade
+PTS_NQ_VBO_002_240;240;SCARTA;107;36000;1.42;10;-2512;;;;fuori campione solo 10 trade
+PTS_NQ_SBO_005_1440;1440;SCARTA;34;21297;0.92;5;-5462;;;;fuori campione solo 5 trade
+PTS_NQ_TFM_012_1440;1440;SCARTA;23;11865;;3;-3385;;;;fuori campione solo 3 trade
+PTS_NQ_TFM_013_1440;1440;SCARTA;41;8353;0.27;7;-7574;;;;fuori campione solo 7 trade
+PTS_NQ_TFU_006_1440;1440;SCARTA;160;-3472;;27;2167;;;;fuori campione non ammissibile per l'obiettivo (in perdita o sotto le soglie)
+PTS_NQ_TFU_007_1440;1440;SCARTA;80;-20114;;13;-7443;;;;fuori campione solo 13 trade
+PTS_NQ_VBO_001_1440;1440;SCARTA;44;-2065;;5;-2975;;;;fuori campione solo 5 trade
