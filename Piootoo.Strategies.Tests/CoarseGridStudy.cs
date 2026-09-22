@@ -42,6 +42,29 @@ public sealed record CoarseGridSpec(
     string CsvName,
     int MinInSampleTrades = 250,
     /// <summary>
+    /// Nome del motore, per le intestazioni del CSV e del resoconto. Non seleziona nulla — il motore
+    /// e' quello della classe di partenza — ma un file che non lo dichiara diventa illeggibile
+    /// appena esistono due griglie sulla stessa cella con motori diversi, che e' precisamente il
+    /// confronto per cui la griglia e' stata generalizzata.
+    /// </summary>
+    string EngineName = "Price Channel",
+    /// <summary>
+    /// La chiave della <b>prima leva</b>, quella strutturale del motore: <c>ChannelBars</c> per il
+    /// Price Channel (quante barre fa il canale), <c>MaxBars</c> per il trend following (dopo quante
+    /// barre la posizione muore, visto che il livello e' l'estremo del giorno prima e non si sceglie).
+    /// I valori restano in <see cref="Channels"/>.
+    /// </summary>
+    string FirstLeverKey = "ChannelBars",
+    /// <summary>Come la prima leva si chiama nel CSV e nel resoconto.</summary>
+    string FirstLeverLabel = "channelBars",
+    /// <summary>
+    /// Se il motore ha una leva <c>Direction</c>. Il Price Channel si', il trend following no —
+    /// emette entrambi i lati e la direzione la decidono i gate di pattern. Quando e' falso
+    /// <see cref="Directions"/> va lasciato a un valore solo: passare la chiave a una classe che non
+    /// la legge farebbe girare tre volte la stessa combinazione senza che nulla lo dica.
+    /// </summary>
+    bool VariesDirection = true,
+    /// <summary>
     /// Se vero, <see cref="Stops"/> e <see cref="Targets"/> sono multipli dell'ATR delle sessioni
     /// chiuse in <b>decimi</b> (10 = 1,0 ATR, 15 = 1,5) invece che dollari per contratto: la
     /// griglia passa <c>StopAtr</c>/<c>TargetAtr</c> e azzera il denaro fisso. Stesse colonne nel
@@ -114,12 +137,18 @@ public static class CoarseGridStudy
         };
 
         // Il motore nudo: pattern alle sentinelle, nessun filtro, tutto il giorno, niente trailing.
+        // Le chiavi che la classe di partenza non legge vengono ignorate: OffsetTicks e DvolMin
+        // esistono solo sul Price Channel, MaxBars su entrambi ma come leva solo sul trend following.
         var fixedParameters = new Dictionary<string, object>
         {
             ["PtnNeutYes"] = 55, ["PtnNeutNo"] = 56, ["PtnDirYes"] = 52, ["PtnDirNo"] = 53,
             ["StartHour"] = -1, ["EndHour"] = -1, ["DvolMin"] = 0, ["SkipDay"] = -1,
-            ["IntradayOnly"] = 1, ["OffsetTicks"] = 0, ["MaxBars"] = 0, ["TrailingStop"] = 0, ["BreakEven"] = 0
+            ["IntradayOnly"] = 1, ["OffsetTicks"] = 0, ["TrailingStop"] = 0, ["BreakEven"] = 0
         };
+
+        // MaxBars resta fisso a zero solo quando non e' la prima leva: altrimenti lo scrive il combo.
+        if (!string.Equals(spec.FirstLeverKey, "MaxBars", StringComparison.Ordinal))
+            fixedParameters["MaxBars"] = 0;
 
         var combos = (from c in spec.Channels from s in spec.Stops from t in spec.Targets from e in spec.ExitHours from d in spec.Directions
                       select (c, s, t, e, d)).ToList();
@@ -138,8 +167,9 @@ public static class CoarseGridStudy
             {
                 var parameters = new Dictionary<string, object>(fixedParameters)
                 {
-                    ["ChannelBars"] = combo.c, ["ExitHour"] = combo.e, ["Direction"] = combo.d
+                    [spec.FirstLeverKey] = combo.c, ["ExitHour"] = combo.e
                 };
+                if (spec.VariesDirection) parameters["Direction"] = combo.d;
                 if (spec.AtrStops)
                 {
                     // Decimi di ATR: 10 = 1,0. Il denaro fisso va a zero, cosi' un target a 0 ATR
@@ -182,7 +212,7 @@ public static class CoarseGridStudy
         if (admissible.Count == 0) return;
 
         output.WriteLine("\nle 15 migliori fuori campione fra le ammissibili (netto OOS / DD OOS):");
-        output.WriteLine("  can  stop  targ  exit dir |   IS n    IS netto    IS DD |  OOS n   OOS netto   OOS DD  fin");
+        output.WriteLine($"  {spec.FirstLeverLabel,-4} stop  targ  exit dir |   IS n    IS netto    IS DD |  OOS n   OOS netto   OOS DD  fin");
         foreach (var c in admissible.OrderByDescending(c => Ratio(c.OutOfSample)).Take(15))
             output.WriteLine(Row(c));
 
@@ -199,9 +229,16 @@ public static class CoarseGridStudy
         output.WriteLine("\nora di uscita, media del netto sulle ammissibili:");
         foreach (var g in admissible.GroupBy(c => c.ExitHour).OrderBy(g => g.Key))
             output.WriteLine($"  ExitHour={g.Key,3}: {g.Count(),3} celle, IS medio {g.Average(c => c.InSample.NetProfit),10:N0}, OOS medio {g.Average(c => c.OutOfSample.NetProfit),10:N0}");
-        output.WriteLine("\ndirezione, media del netto sulle ammissibili:");
-        foreach (var g in admissible.GroupBy(c => c.Direction).OrderBy(g => g.Key))
-            output.WriteLine($"  Direction={g.Key}: {g.Count(),3} celle, IS medio {g.Average(c => c.InSample.NetProfit),10:N0}, OOS medio {g.Average(c => c.OutOfSample.NetProfit),10:N0}");
+        if (spec.VariesDirection)
+        {
+            output.WriteLine("\ndirezione, media del netto sulle ammissibili:");
+            foreach (var g in admissible.GroupBy(c => c.Direction).OrderBy(g => g.Key))
+                output.WriteLine($"  Direction={g.Key}: {g.Count(),3} celle, IS medio {g.Average(c => c.InSample.NetProfit),10:N0}, OOS medio {g.Average(c => c.OutOfSample.NetProfit),10:N0}");
+        }
+
+        output.WriteLine($"\n{spec.FirstLeverLabel}, media del netto sulle ammissibili:");
+        foreach (var g in admissible.GroupBy(c => c.ChannelBars).OrderBy(g => g.Key))
+            output.WriteLine($"  {spec.FirstLeverLabel}={g.Key,4}: {g.Count(),3} celle, IS medio {g.Average(c => c.InSample.NetProfit),10:N0}, OOS medio {g.Average(c => c.OutOfSample.NetProfit),10:N0}");
         output.WriteLine("\nstop, media del netto sulle ammissibili:");
         foreach (var g in admissible.GroupBy(c => c.StopLoss).OrderBy(g => g.Key))
             output.WriteLine($"  Stop={g.Key,5}: {g.Count(),3} celle, IS medio {g.Average(c => c.InSample.NetProfit),10:N0}, OOS medio {g.Average(c => c.OutOfSample.NetProfit),10:N0}");
@@ -232,11 +269,11 @@ public static class CoarseGridStudy
     {
         var path = Path.Combine(RepositoryPath, "ricerca", spec.CsvName);
         var sb = new StringBuilder();
-        sb.AppendLine($"# Griglia grossa {spec.Symbol} {spec.TimeframeMinutes}m Price Channel, motore nudo (pattern spenti, nessun filtro orario), {cells.Count} combinazioni.");
+        sb.AppendLine($"# Griglia grossa {spec.Symbol} {spec.TimeframeMinutes}m {spec.EngineName}, motore nudo (pattern spenti, nessun filtro orario), {cells.Count} combinazioni.");
         if (spec.AtrStops)
             sb.AppendLine("# stopLoss e takeProfit sono DECIMI di ATR delle sessioni chiuse (10 = 1,0 ATR), non dollari.");
         sb.AppendLine($"# Feed {spec.FeedBroker}, spread peggiore fra {string.Join("/", spec.SpreadBrokers)}, swap peggiore fra {string.Join("/", spec.SwapBrokers)}, commissione {spec.CommissionPerSide}/lato, orologio al minuto. Campione {spec.StartUtc:yyyy-MM-dd} -> {spec.SplitUtc:yyyy-MM-dd}, fuori campione -> {spec.EndUtc:yyyy-MM-dd}.");
-        sb.AppendLine("channelBars;stopLoss;takeProfit;exitHour;direction;isTrades;isNet;isDD;isPF;oosTrades;oosNet;oosDD;oosPF;oosWindowsInProfit");
+        sb.AppendLine($"{spec.FirstLeverLabel};stopLoss;takeProfit;exitHour;direction;isTrades;isNet;isDD;isPF;oosTrades;oosNet;oosDD;oosPF;oosWindowsInProfit");
         foreach (var c in cells.OrderBy(c => c.ChannelBars).ThenBy(c => c.StopLoss).ThenBy(c => c.TakeProfit).ThenBy(c => c.ExitHour).ThenBy(c => c.Direction))
         {
             sb.Append(string.Join(';',

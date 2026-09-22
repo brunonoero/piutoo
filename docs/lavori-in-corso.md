@@ -235,6 +235,41 @@ sweep a 4 ore.
   se ne tiene una per coppia. Limite dichiarato: serie sparse, misura sui giorni di chiusura e non
   sull'esposizione. Per la scaletta dei motori vale l'ordine pratico (classi di partenza e griglie
   pronte), non la famiglia.
+- **⇦ SEI GRIGLIE GROSSE, 22/09 sera: la 002 regge su dodici anni, e FDAX e' l'unica cella con un
+  edge.** Tutte con costi ICS veri (spread misurato, swap dalle schede, commissione per simbolo) e
+  orologio al minuto. Rapporti in `ricerca/*-griglia-grossa*.md`.
+
+  | cella | ammissibili | equilibrate | miglior avg trade IS | soglia | % | miglior UngerFit IS |
+  |---|---:|---:|---:|---:|---:|---:|
+  | **FDAX 4h** (2014-2026) | **332/450** | **60** | **404** | 266 | **152%** | **1,95** |
+  | GC 4h (2014-2026) | 203/450 | 34 | 77 | 100 | 77% | 0,76 |
+  | NQ 15m (2022-2026) | 92/450 | 1 | 119 | 120 | 99% | 0,35 |
+  | NQ 4h (2014-2026) | 127/450 | 31 | 44 | 125 | 35% | 0,45 |
+  | CL 30m (2016-2026) | 87/450 | 0 | 39 | 60 | 65% | - |
+  | BP 60m (2014-2026) | 229/450 | 0 | 12 | 40 | 30% | 0,18 |
+
+  **FDAX e' l'unica cella in cui qualcosa supera le soglie del metodo dove conta, cioe' in
+  campione**: 33 celle con UngerFit sopra 1 e 27 con l'average trade sopra soglia. Sulle altre
+  cinque il massimo e' 0,76. Su tutte e sei resta zero il criterio guadagno annuo su drawdown >= 2.
+
+  **La 002 e' stata riverificata su dodici anni** (`Pt3b002LongPeriodTests`) perche' la griglia
+  aveva mostrato che i suoi parametri strutturali - canale 1, entrambe le direzioni - stanno nella
+  regione peggiore: il motore nudo li' fa **-121.891** fuori campione, e tutte e 25 le combinazioni
+  di stop e target in quella regione hanno il fuori campione negativo. Esito: **la 002 regge**.
+  1.609 trade e +157.820 in campione, 1.527 e +106.254 in validazione, PF 1,11 e 1,06. I suoi due
+  filtri - pattern 44 (sessione stretta) e finestra 03-18 - erano stati scelti su tre anni e
+  tengono su dodici: valgono 228.145 sul fuori campione. **Ma l'average trade e' 98 e 70 contro
+  soglie di 266 e 365**, il 37% e il 19%: edge reale e stabile, troppo piccolo per unita' di
+  rischio. Da tenere con una size proporzionata, non da far portare da sola un conto.
+
+  **L'uscita alle 21 e' confermata quattro volte indipendenti**: FDAX (40 equilibrate su 60), GC
+  (26 su 34), NQ 4h (118 ammissibili su 127 e tutte e 31 le equilibrate), e la 002 contro la 001 sul
+  lungo (la 001 in validazione scende a 15 dollari di average trade contro 70). **Lo short perde** su
+  FDAX (0 equilibrate su 103 celle) e su GC; su CL e' il contrario.
+
+  **Dove cercare la 003**: canale 20, solo long, uscita alle 21, su FDAX. E' la regione che la
+  griglia lunga indica e che la 002 non occupa.
+
 - **Le tre griglie grosse del 22/09 dicono tutte no, e ora sui costi veri.** GC 4h sul periodo lungo
   (icerca/gc-4h-griglia-grossa-lunga.md): 203 ammissibili su 450 e **34 equilibrate**, ma con i
   criteri del metodo **zero** passano — il miglior UngerFit in campione è 0,76 contro 1, il miglior
