@@ -70,6 +70,19 @@ in dollari cambiava stop fra campione e validazione. Poi la 002 con lo stesso st
 ATR (5000 $ ≈ 200 punti: quanti ATR erano nel 2022 e quanti nel 2026?). Non entra in nessun piano
 finché non è misurata.
 
+**NQ 4h al minuto con il criterio 2 (250 trade, 25 per tratto, 10 perdite), consegnata alle 13:20
+del 22/09** (`ricerca/nq-4h-pc-tutto-al-minuto-criterio-2.md`, 344 minuti): **nessuna delle dieci
+sopravvive**, e la previsione F5/N1 è confermata alla lettera. Le fasi convergono sul pavimento
+nuovo — 260, 257, 252, **250, 250, 250, 250** trade — cioè il criterio ha cambiato *dove* stringe,
+non *se* stringe. La migliore in campione (97.255 su 250 trade, punteggio 6,31, overnight con
+finestra 10→05 e pattern 16/1/47/−40) fa **−23.667** fuori campione, 1 finestra su 4; le altre nove
+sono la stessa configurazione con trailing e breakeven diversi (tenuta 2-12%). Le fasi *stop e
+target* e *uscita di sessione* non hanno spostato nulla: 1.352 combinazioni e lo stesso seme.
+Conclusione che chiude la questione sweep su NQ 4h: il PC a 4 ore su NQ non regge fuori campione
+con nessun criterio provato (vecchio, 2, griglia grossa), e alzare il pavimento sposta solo il
+punto di convergenza. Il prossimo tentativo su NQ è la griglia in ATR a 15 minuti, non un'altra
+sweep a 4 ore.
+
 ## Sera del 21/09: l'orologio veloce era rotto, la 002 è il candidato, la ricerca gira al minuto
 
 - **L'orologio veloce della sweep ordinava rumore** — Spearman **0,021** sul punteggio fra veloce e
@@ -229,10 +242,23 @@ finché non è misurata.
   (sterlina), crediti azzerati, triplo di mercoledì su oro e sterlina. **Commissione per simbolo**,
   da passare a mano alla sweep: GC ~10,8 per lato, CL 0, BP ~4, contro il 19,23 del DAX. EC non è
   raccoglibile finché non esiste una classe `@EC` nel catalogo.
-- **Non ancora fatto**: il controllo diagnostico «uscita della strategia contro rollover del
-  broker» nel log di avvio del job (`SwapSpec.RolloverUtc` esiste già); la modalità dati del
-  backtest cTrader in `origin.json` (compare-0048 §7); l'errore esplicito della sweep su archivio
-  di broker senza il simbolo (oggi `IndexOutOfRangeException`).
+- **Flat prima del rollover come parametro del piano, 22/09**: non si riscrivono le strategie
+  (la via di `PT3B_FDAX_PCH_002_240`), si vieta l'overnight nel piano. Tre cose chiuse insieme,
+  vedi `domini/overnight-e-overweek.md` §3–4 e `decisioni.md`: (1) la sweep onora la tenuta con
+  `--flat-utc HH:mm [--flat-window N]` (`sweep-paniere.ps1 -FlatUtc 20:45`), prima girava sempre a
+  overnight libero e validava una strategia diversa da quella operata; (2) il flat di sessione è
+  una **finestra** `[flat, flat + minuti)`, default 30, dentro la quale non nascono ingressi e i
+  pending si cancellano — con il solo istante la barra delle 20:45 di una 15 minuti riceveva la
+  deadline del giorno dopo e attraversava il rollover; (3) l'avviso `[rollover]` in testa al
+  summary e nel resoconto della sweep quando `SwapSpec.RolloverUtc` non cade dentro la finestra.
+  Versione **7.6.0** (campo nuovo nel descriptor = contratto nuovo): server, console e cBot
+  (`EnforceSessionFlat`, barriera in `HandleEntryIntent`) vanno distribuiti insieme. **Non
+  misurato**: un piano con flat alle 20:45 su GC, CL, BP; la 002 di FDAX resta la misura di
+  riferimento e la variante «overnight solo sul lato in credito» è stata scartata perché
+  legherebbe le strategie al listino dello swap.
+- **Non ancora fatto**: la modalità dati del backtest cTrader in `origin.json` (compare-0048 §7);
+  l'errore esplicito della sweep su archivio di broker senza il simbolo (oggi
+  `IndexOutOfRangeException`).
 
 ## Le due correzioni da fare PRIMA di rilanciare la ricerca
 
