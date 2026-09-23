@@ -40,6 +40,10 @@ state fatte tutte e tre la mattina del 23/09. Voci in `decisioni.md` 2026-09-23.
    mai partita. La configurazione iniziale fa −21.923 in campione e −67.346 fuori, e nessun passo
    singolo arriva a PF 1,25 e 120 per trade. Non è un verdetto sul motore. In coda dopo le griglie la
    stessa cella senza quelle due soglie nelle fasi (`tools/coda-nq-tfu-senza-soglie-2026-09-23.ps1`).
+   **Seconda corsa, 20:19**: la ricerca sale da −43.402 a **+119.647** in campione con quattro pattern
+   scelti uno alla volta (346 trade, PF 1,58) e fuori campione **perde −31.155**, 1/4 finestre. Questo
+   è un no che vale: il TF unmirrored NQ 15m cercato da zero non ha edge. Resta il passo a mano dalla
+   `PTS_NQ_TFU_003_15`.
 
 Le due ricerche girano **in sequenza** da `tools/lancia-ricerche-2026-09-23.ps1`, log in
 `ricerca/lancio-2026-09-23.log`. Quando finiscono: leggere i due resoconti con i criteri di

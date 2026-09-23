@@ -50,6 +50,35 @@ FDAX partiva da un profit factor di 1,22), e bloccano la ricerca quando la parte
 - **Per lo skill `sweep-cella`**: le soglie di profit factor e utile medio sono un filtro per la
   validazione e per le celle che partono vicine, non un cancello per ogni fase.
 
+## La seconda corsa, senza soglie nelle fasi: la ricerca parte, e il risultato è sovradattamento
+
+`nq-15m-tfu-senza-soglie-nelle-fasi.md`, stessa cella, stessi costi, stesso split; profit factor e
+utile medio tolti dalle fasi (l'utile medio a un valore negativo, perché con 0 il criterio scarta
+comunque le configurazioni in perdita: il primo lancio con 0 si era bloccato di nuovo). Restano 250
+trade minimi e i vincoli per tratto. 166 minuti.
+
+Stavolta la ricerca sale, un filtro alla volta:
+
+| dopo la fase | trade IS | netto IS | drawdown IS | PF |
+|---|---:|---:|---:|---:|
+| uscita base | 773 | −43.402 | 68.531 | 0,93 |
+| pattern long richiesto (33) | 644 | 73.597 | 22.468 | 1,17 |
+| pattern long vietato (115) | 609 | 72.479 | 20.391 | 1,18 |
+| pattern short richiesto (25) | 439 | 94.643 | 18.216 | 1,34 |
+| pattern short vietato (6) | 347 | 116.645 | 12.234 | 1,57 |
+| orari (08 → 02), uscita, stop | 346 | **119.647** | 12.234 | 1,58 |
+
+E fuori campione crolla: **tutte e cinque le finaliste perdono**, la migliore −31.155 su 220 trade,
+una finestra su quattro in utile. Le cinque sono la stessa configurazione con `MaxBars` e `ExitHour`
+diversi, entrambi inerti o quasi su una intraday.
+
+**Questo è un no che vale.** Quattro pattern scelti uno dopo l'altro su tre anni hanno portato una
+configurazione che perdeva 43.000 a guadagnarne 120.000 in campione, con un rapporto netto su drawdown
+di quasi 10 — un numero troppo bello, come quelli che il 20/09 avevano segnalato le celle bocciate — e
+il fuori campione non ne conserva niente. Il trend following unmirrored a 15 minuti su NQ, cercato da
+zero, non ha un edge sui costi veri. La sola strada rimasta è il passo a mano dalla
+`PTS_NQ_TFU_003_15`, con un'ipotesi a priori.
+
 ## Riferimenti
 
 `nq-15m-tfu-ics-costo-peggiore-per-ora-peggior-tratto.md` e `.log`, `nq-4h-tf-griglia-grossa.md`,

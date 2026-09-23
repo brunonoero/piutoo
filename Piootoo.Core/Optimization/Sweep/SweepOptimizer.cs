@@ -169,6 +169,11 @@ public sealed class SweepOptimizer(
             }
 
             var phaseStarted = Stopwatch.StartNew();
+            // I semi con cui la fase GIRA, fissati qui: piu' sotto `seeds` diventa il beam per la fase
+            // dopo, e stampare quello faceva leggere "3.025 × 2 semi" su una fase partita da un seme
+            // solo — il 23/09/2026 ha raddoppiato la stima del tempo per run e sbagliato di tre ore la
+            // previsione di fine sweep.
+            var seedsUsed = Math.Max(1, seeds.Count);
             var evaluated = new List<SweepCandidate>((int)Math.Min(combinations * seeds.Count, 200_000));
 
             // TUTTE le fasi girano sull'orologio fitto dal 21/09/2026. Prima lo facevano solo
@@ -229,7 +234,7 @@ public sealed class SweepOptimizer(
                 }
 
                 Console.WriteLine(
-                    $"[sweep] {space.Engine}/{phase.Name}: {combinations:N0} combinazioni × {Math.Max(1, seeds.Count)} semi, " +
+                    $"[sweep] {space.Engine}/{phase.Name}: {combinations:N0} combinazioni × {seedsUsed} semi, " +
                     $"{ranked.Count:N0} ammissibili, {phaseStarted.Elapsed.TotalSeconds:N1}s{diagnosi}");
             }
         }
