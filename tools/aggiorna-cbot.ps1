@@ -18,6 +18,10 @@
   Le istanze del cBot gia' avviate in cTrader continuano con la versione vecchia: vanno fermate e
   riavviate.
 
+.PARAMETER Nome
+  Il cBot da aggiornare: il nome del file in piootoo-repository\ctrader e del progetto in cTrader.
+  Di default il bot operativo; per il raccoglitore -Nome PiootooDatafeedSyncBot.
+
 .PARAMETER Force
   Sovrascrive anche una copia in cTrader piu' recente del repository.
 
@@ -28,13 +32,14 @@
   powershell -NoProfile -ExecutionPolicy Bypass -File tools\aggiorna-cbot.ps1
 #>
 param(
+    [string]$Nome = 'PiootooDistributedExecutionBot',
     [switch]$Force,
     [switch]$NoBuild,
     [string]$CtraderRobots = (Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'cAlgo\Sources\Robots')
 )
 
 $ErrorActionPreference = 'Stop'
-$nome = 'PiootooDistributedExecutionBot'
+$nome = $Nome
 $checkout = Split-Path -Parent $PSScriptRoot
 $sorgente = Join-Path $checkout "piootoo-repository\ctrader\$nome.cs"
 $progetto = Join-Path $CtraderRobots "$nome\$nome"
