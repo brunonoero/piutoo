@@ -46,6 +46,10 @@ public sealed class ResearchContainerTests : IDisposable
         Assert.Contains("PT3B_NQ_PCH_001_15", containers);
         Assert.Contains("PT3B_CL_PCH_001_30", containers);
         Assert.Contains("PT3B_NQ_TFU_001_15", containers);
+        Assert.Contains("PT3B_FDAX_SBO_001_240", containers);
+        Assert.Contains("PT3B_FDAX_RBM_001_240", containers);
+        Assert.Contains("PT3B_FDAX_VBO_001_240", containers);
+        Assert.Contains("PT3B_FDAX_PCH_003_60", containers);
         Assert.DoesNotContain("PT3B_FDAX_PCH_002_240", containers);
 
         // E l'elenco di default — quello fra cui si sceglie — non ne contiene nessuno: e' la ragione

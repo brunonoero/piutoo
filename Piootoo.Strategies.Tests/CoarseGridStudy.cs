@@ -58,6 +58,13 @@ public sealed record CoarseGridSpec(
     /// <summary>Come la prima leva si chiama nel CSV e nel resoconto.</summary>
     string FirstLeverLabel = "channelBars",
     /// <summary>
+    /// Divisore applicato ai valori di <see cref="Channels"/> prima di passarli alla classe: la
+    /// griglia e' di interi, ma la leva strutturale di un motore puo' essere un moltiplicatore
+    /// (il <c>k</c> del volatility breakout, 0,5…4,0). Con 10 i valori sono decimi: 5 = 0,5. Nel CSV
+    /// resta l'intero, e l'intestazione dichiara l'unita'.
+    /// </summary>
+    decimal FirstLeverDivisor = 1m,
+    /// <summary>
     /// Se il motore ha una leva <c>Direction</c>. Il Price Channel si', il trend following no —
     /// emette entrambi i lati e la direzione la decidono i gate di pattern. Quando e' falso
     /// <see cref="Directions"/> va lasciato a un valore solo: passare la chiave a una classe che non
@@ -167,7 +174,8 @@ public static class CoarseGridStudy
             {
                 var parameters = new Dictionary<string, object>(fixedParameters)
                 {
-                    [spec.FirstLeverKey] = combo.c, ["ExitHour"] = combo.e
+                    [spec.FirstLeverKey] = spec.FirstLeverDivisor == 1m ? combo.c : combo.c / spec.FirstLeverDivisor,
+                    ["ExitHour"] = combo.e
                 };
                 if (spec.VariesDirection) parameters["Direction"] = combo.d;
                 if (spec.AtrStops)
@@ -272,6 +280,8 @@ public static class CoarseGridStudy
         sb.AppendLine($"# Griglia grossa {spec.Symbol} {spec.TimeframeMinutes}m {spec.EngineName}, motore nudo (pattern spenti, nessun filtro orario), {cells.Count} combinazioni.");
         if (spec.AtrStops)
             sb.AppendLine("# stopLoss e takeProfit sono DECIMI di ATR delle sessioni chiuse (10 = 1,0 ATR), non dollari.");
+        if (spec.FirstLeverDivisor != 1m)
+            sb.AppendLine($"# {spec.FirstLeverLabel} e' un intero da dividere per {spec.FirstLeverDivisor}: il valore passato alla classe e' {spec.FirstLeverLabel}/{spec.FirstLeverDivisor}.");
         sb.AppendLine($"# Feed {spec.FeedBroker}, spread peggiore fra {string.Join("/", spec.SpreadBrokers)}, swap peggiore fra {string.Join("/", spec.SwapBrokers)}, commissione {spec.CommissionPerSide}/lato, orologio al minuto. Campione {spec.StartUtc:yyyy-MM-dd} -> {spec.SplitUtc:yyyy-MM-dd}, fuori campione -> {spec.EndUtc:yyyy-MM-dd}.");
         sb.AppendLine($"{spec.FirstLeverLabel};stopLoss;takeProfit;exitHour;direction;isTrades;isNet;isDD;isPF;oosTrades;oosNet;oosDD;oosPF;oosWindowsInProfit");
         foreach (var c in cells.OrderBy(c => c.ChannelBars).ThenBy(c => c.StopLoss).ThenBy(c => c.TakeProfit).ThenBy(c => c.ExitHour).ThenBy(c => c.Direction))

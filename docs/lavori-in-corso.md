@@ -38,6 +38,37 @@ Le due ricerche girano **in sequenza** da `tools/lancia-ricerche-2026-09-23.ps1`
 ≥ 2), confrontarli con i riferimenti qui sopra, scrivere il rapporto e — solo se una finalista
 batte il riferimento e regge — la classe accanto al contenitore.
 
+## La coda di griglie che segue (`tools/coda-griglie-2026-09-23.ps1`, log `ricerca/coda-griglie-2026-09-23.log`)
+
+Parte da sola quando le due sweep hanno finito, in sequenza. L'ordine è dal segnale più forte al
+più debole, e **gli altri simboli non ci sono**: GC, NQ 4h, CL e BP con il Price Channel nudo hanno
+già detto no su dodici anni, e rifarli con un motore che su FDAX non ha edge è tempo perso. Ci
+tornano solo se B o C dicono qualcosa.
+
+- **A. I filtri della 002 sulla regione FDAX 4h nuda** — cinque misure con `--params`
+  (`ricerca/fdax-4h-regione-filtri-002.log`): nuda, pattern 44, finestra 03-18, i due insieme, tutti
+  i gate della 002 con la finestra. È il lavoro «a mano» come sul DAX, con ipotesi a priori: i filtri
+  sono validati su dodici anni su un'altra cella, non scelti guardando questa. Da confrontare con la
+  regione nuda (+96.324 / +102.480) e con la finalista della sweep sulla stessa regione.
+- **B. Altri motori sulla cella FDAX 4h** (`FdaxEnginesCoarseGridTests`, tre contenitori nuovi
+  `PT3B_FDAX_SBO_001_240`, `PT3B_FDAX_RBM_001_240`, `PT3B_FDAX_VBO_001_240`): breakout di sessione
+  (leva `Sessions`, 200 combinazioni), reversal Bollinger mirrored (leva `BbLength`, 150), volatility
+  breakout dal range d1 (leva k in decimi, con direzione, 600). Stessi stop, target, uscite, periodo e
+  costi della griglia Price Channel: cambia solo il motore. La domanda: l'edge è del mercato o del
+  Price Channel? CSV `fdax-4h-{bo,rbm,vbo}-griglia-grossa.csv`.
+- **C. Il Price Channel su FDAX a 1 ora** (`Fdax1hCoarseGridTests`, contenitore
+  `PT3B_FDAX_PCH_003_60`, 450 combinazioni): l'edge sopravvive a una barra quattro volte più fitta?
+  CSV `fdax-1h-griglia-grossa-lunga.csv`. **Il 15 minuti non si può ancora fare**: l'archivio ICS
+  ha `@FDAX_1`, `_60` e `_240`, il 15 va derivato dal minuto con `rebuild-from-minutes` (server
+  acceso, un piano che dichiari FDAX 15).
+
+**Sul numero 003.** Il contenitore a 1 ora porta `003` perché la convenzione vuole i progressivi
+contigui per (serie, simbolo, motore) senza distinguere il timeframe. La finalista della regione FDAX
+4h, quella chiamata «la 003» nei documenti del 22/09, nascerà quindi come **`004`**.
+
+`CoarseGridSpec.FirstLeverDivisor` (nuovo) permette una prima leva decimale: il k del volatility
+breakout viaggia in decimi.
+
 ---
 
 # La ricerca PT3B, stato al 21/09/2026
