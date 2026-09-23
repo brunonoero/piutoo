@@ -77,9 +77,7 @@ public partial class WorkspaceDetailScreen : UserControl, IShellScreen, IDirtyAw
     public WorkspaceDetailScreen()
     {
         InitializeComponent();
-        // Serie: PT2 di default, e' quella su cui si lavora. Il simbolo si riempie a ogni carico
-        // con i simboli del catalogo.
-        StrategyFilters.InitializeSeries(_seriesCombo);
+        // Il simbolo si riempie a ogni carico con i simboli del catalogo.
         StrategyFilters.SetSymbols(_symbolCombo, Array.Empty<string>());
     }
 
@@ -182,17 +180,17 @@ public partial class WorkspaceDetailScreen : UserControl, IShellScreen, IDirtyAw
         var filter = _strategyFilterTextBox.Text.Trim();
         var onlySelected = _onlySelectedCheckBox.Checked;
         var wantedSymbol = StrategyFilters.SelectedSymbol(_symbolCombo);
-        var wantedSeries = StrategyFilters.SelectedSeries(_seriesCombo);
+        var wantedPrefix = StrategyFilters.WantedPrefix(_prefixTextBox);
         _suppressItemCheck = true;
         _strategiesList.BeginUpdate();
         _strategiesList.Items.Clear();
 
         // In testa, cosi' si vedono senza cercarli: sono l'unica cosa che impedisce al workspace
-        // di aprire una sessione. Di loro si conosce il solo id, quindi il filtro per serie li
-        // legge dal prefisso e quello per simbolo non li tocca: un avviso non si nasconde.
+        // di aprire una sessione. Di loro si conosce il solo id: il prefisso li filtra, il simbolo
+        // non li tocca, perche' un avviso non si nasconde.
         foreach (var id in _outOfCatalogIds.Where(id =>
                      MatchesId(id, filter)
-                     && (wantedSeries is null || StrategyFilters.SeriesOf(id) == wantedSeries)
+                     && StrategyFilters.StartsWithPrefix(id, wantedPrefix)
                      && (!onlySelected || _selectedIds.Contains(id))))
         {
             var outOfCatalogIndex = _strategiesList.Items.Add(StrategyChecklistItem.OutOfCatalog(id));
@@ -201,7 +199,7 @@ public partial class WorkspaceDetailScreen : UserControl, IShellScreen, IDirtyAw
 
         foreach (var strategy in _catalog.Where(strategy =>
                      Matches(strategy, filter)
-                     && StrategyFilters.Passes(strategy.Id, strategy.Symbol, wantedSymbol, wantedSeries)
+                     && StrategyFilters.Passes(strategy.Id, strategy.Symbol, wantedSymbol, wantedPrefix)
                      && (!onlySelected || _selectedIds.Contains(strategy.Id))))
         {
             var index = _strategiesList.Items.Add(new StrategyChecklistItem(strategy));

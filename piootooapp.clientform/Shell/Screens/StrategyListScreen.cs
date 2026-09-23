@@ -58,9 +58,7 @@ public partial class StrategyListScreen : UserControl, IShellScreen
         ShellGridHelper.ConfigureReadableGrids(this);
         _bindingSource.DataSource = _visibleRows;
         _grid.EnableColumnSorting();
-        // Serie: PT2 di default, e' quella su cui si lavora. Il simbolo si riempie a ogni carico
-        // con i simboli delle strategie del workspace.
-        StrategyFilters.InitializeSeries(_seriesCombo);
+        // Il simbolo si riempie a ogni carico con i simboli delle strategie del workspace.
         StrategyFilters.SetSymbols(_symbolCombo, Array.Empty<string>());
         UpdateRowCount();
         UpdateExportAvailability();
@@ -160,12 +158,12 @@ public partial class StrategyListScreen : UserControl, IShellScreen
     {
         var filter = _toolbar.FilterText;
         var wantedSymbol = StrategyFilters.SelectedSymbol(_symbolCombo);
-        var wantedSeries = StrategyFilters.SelectedSeries(_seriesCombo);
+        var wantedPrefix = StrategyFilters.WantedPrefix(_prefixTextBox);
         _visibleRows.RaiseListChangedEvents = false;
         _visibleRows.Clear();
         foreach (var strategy in _catalog.Where(strategy =>
                      Matches(strategy, filter)
-                     && StrategyFilters.Passes(strategy.Id, strategy.Symbol, wantedSymbol, wantedSeries)))
+                     && StrategyFilters.Passes(strategy.Id, strategy.Symbol, wantedSymbol, wantedPrefix)))
         {
             _visibleRows.Add(new StrategyRow
             {

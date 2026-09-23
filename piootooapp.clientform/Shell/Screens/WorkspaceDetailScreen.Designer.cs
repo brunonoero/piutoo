@@ -29,8 +29,8 @@ partial class WorkspaceDetailScreen
         this._strategyFilterTextBox = new System.Windows.Forms.TextBox();
         this._symbolLabel = new System.Windows.Forms.Label();
         this._symbolCombo = new System.Windows.Forms.ComboBox();
-        this._seriesLabel = new System.Windows.Forms.Label();
-        this._seriesCombo = new System.Windows.Forms.ComboBox();
+        this._prefixLabel = new System.Windows.Forms.Label();
+        this._prefixTextBox = new System.Windows.Forms.TextBox();
         this._onlySelectedCheckBox = new System.Windows.Forms.CheckBox();
         this._selectAllButton = new System.Windows.Forms.Button();
         this._selectNoneButton = new System.Windows.Forms.Button();
@@ -129,8 +129,8 @@ partial class WorkspaceDetailScreen
         this._strategyFilterPanel.Controls.Add(this._strategyFilterTextBox, 0, 0);
         this._strategyFilterPanel.Controls.Add(this._symbolLabel, 1, 0);
         this._strategyFilterPanel.Controls.Add(this._symbolCombo, 2, 0);
-        this._strategyFilterPanel.Controls.Add(this._seriesLabel, 3, 0);
-        this._strategyFilterPanel.Controls.Add(this._seriesCombo, 4, 0);
+        this._strategyFilterPanel.Controls.Add(this._prefixLabel, 3, 0);
+        this._strategyFilterPanel.Controls.Add(this._prefixTextBox, 4, 0);
         this._strategyFilterPanel.Controls.Add(this._onlySelectedCheckBox, 5, 0);
         this._strategyFilterPanel.Controls.Add(this._selectAllButton, 6, 0);
         this._strategyFilterPanel.Controls.Add(this._selectNoneButton, 7, 0);
@@ -171,23 +171,23 @@ partial class WorkspaceDetailScreen
         this._symbolCombo.TabIndex = 5;
         this._symbolCombo.SelectedIndexChanged += new System.EventHandler(this.OnStrategyFilterChanged);
         //
-        // _seriesLabel
+        // _prefixLabel
         //
-        this._seriesLabel.Anchor = System.Windows.Forms.AnchorStyles.Left;
-        this._seriesLabel.AutoSize = true;
-        this._seriesLabel.Margin = new System.Windows.Forms.Padding(3, 0, 6, 0);
-        this._seriesLabel.Name = "_seriesLabel";
-        this._seriesLabel.Text = "Serie";
+        this._prefixLabel.Anchor = System.Windows.Forms.AnchorStyles.Left;
+        this._prefixLabel.AutoSize = true;
+        this._prefixLabel.Margin = new System.Windows.Forms.Padding(3, 0, 6, 0);
+        this._prefixLabel.Name = "_prefixLabel";
+        this._prefixLabel.Text = "Inizia con";
         //
-        // _seriesCombo
+        // _prefixTextBox
         //
-        this._seriesCombo.Anchor = System.Windows.Forms.AnchorStyles.Left;
-        this._seriesCombo.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
-        this._seriesCombo.Margin = new System.Windows.Forms.Padding(0, 4, 12, 4);
-        this._seriesCombo.Name = "_seriesCombo";
-        this._seriesCombo.Size = new System.Drawing.Size(90, 23);
-        this._seriesCombo.TabIndex = 6;
-        this._seriesCombo.SelectedIndexChanged += new System.EventHandler(this.OnStrategyFilterChanged);
+        this._prefixTextBox.Anchor = System.Windows.Forms.AnchorStyles.Left;
+        this._prefixTextBox.Margin = new System.Windows.Forms.Padding(0, 4, 12, 4);
+        this._prefixTextBox.Name = "_prefixTextBox";
+        this._prefixTextBox.PlaceholderText = "es. PT3";
+        this._prefixTextBox.Size = new System.Drawing.Size(110, 23);
+        this._prefixTextBox.TabIndex = 6;
+        this._prefixTextBox.TextChanged += new System.EventHandler(this.OnStrategyFilterChanged);
         //
         // _onlySelectedCheckBox
         //
@@ -277,8 +277,8 @@ partial class WorkspaceDetailScreen
     private System.Windows.Forms.TextBox _strategyFilterTextBox;
     private System.Windows.Forms.Label _symbolLabel;
     private System.Windows.Forms.ComboBox _symbolCombo;
-    private System.Windows.Forms.Label _seriesLabel;
-    private System.Windows.Forms.ComboBox _seriesCombo;
+    private System.Windows.Forms.Label _prefixLabel;
+    private System.Windows.Forms.TextBox _prefixTextBox;
     private System.Windows.Forms.CheckBox _onlySelectedCheckBox;
     private System.Windows.Forms.Button _selectAllButton;
     private System.Windows.Forms.Button _selectNoneButton;

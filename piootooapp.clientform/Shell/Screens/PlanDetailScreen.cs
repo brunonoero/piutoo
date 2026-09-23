@@ -152,8 +152,7 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
         InitializeComponent();
         ShellGridHelper.ConfigureReadableGrids(this);
         _accountsBindingSource.DataSource = _accounts;
-        // Tab Strategie: serie PT2 di default, simboli riempiti a ogni ricostruzione delle righe.
-        StrategyFilters.InitializeSeries(_strategySeriesCombo);
+        // Tab Strategie: simboli riempiti a ogni ricostruzione delle righe.
         StrategyFilters.SetSymbols(_strategySymbolCombo, Array.Empty<string>());
         _enforceConcurrencyCombo.Items.AddRange(new object[]
         {
@@ -722,14 +721,14 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
         var query = _strategyFilterBox.Text.Trim();
         var soloSelezionate = _onlySelectedStrategiesCheck.Checked;
         var wantedSymbol = StrategyFilters.SelectedSymbol(_strategySymbolCombo);
-        var wantedSeries = StrategyFilters.SelectedSeries(_strategySeriesCombo);
+        var wantedPrefix = StrategyFilters.WantedPrefix(_strategyPrefixBox);
 
         _strategies.RaiseListChangedEvents = false;
         _strategies.Clear();
         foreach (var row in _allStrategies.Where(row =>
                      (!soloSelezionate || row.Active)
                      && Matches(row, query)
-                     && StrategyFilters.Passes(row.Id, row.Symbol, wantedSymbol, wantedSeries)))
+                     && StrategyFilters.Passes(row.Id, row.Symbol, wantedSymbol, wantedPrefix)))
         {
             _strategies.Add(row);
         }
@@ -770,7 +769,7 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
         _strategyFilterBox.Text.Trim().Length > 0
         || _onlySelectedStrategiesCheck.Checked
         || StrategyFilters.SelectedSymbol(_strategySymbolCombo) is not null
-        || StrategyFilters.SelectedSeries(_strategySeriesCombo) is not null;
+        || StrategyFilters.WantedPrefix(_strategyPrefixBox) is not null;
 
     /// <summary>
     /// L'etichetta del pulsante dice cosa farebbe adesso, non cosa fa in generale: se anche una

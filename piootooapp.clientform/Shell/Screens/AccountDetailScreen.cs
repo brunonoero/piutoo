@@ -413,10 +413,12 @@ public partial class AccountDetailScreen : UserControl, IShellScreen, IDirtyAwar
     private void ApplyStrategiesFilter()
     {
         var filtro = _strategiesFilterTextBox.Text.Trim();
+        var prefisso = StrategyFilters.WantedPrefix(_strategiesPrefixTextBox);
 
         _visibleStrategies.RaiseListChangedEvents = false;
         _visibleStrategies.Clear();
-        foreach (var row in _supported.Where(row => Matches(row, filtro)))
+        foreach (var row in _supported.Where(row =>
+                     Matches(row, filtro) && StrategyFilters.StartsWithPrefix(row.Code, prefisso)))
         {
             _visibleStrategies.Add(row);
         }
@@ -430,7 +432,7 @@ public partial class AccountDetailScreen : UserControl, IShellScreen, IDirtyAwar
 
         _strategiesCountLabel.Text = DescribeEmptyScope()
             ?? $"{attiveSupportate}/{attiveWorkspace} strategie attive del workspace" +
-               (filtro.Length > 0 ? $"  ·  {_visibleStrategies.Count} nel filtro" : string.Empty);
+               (filtro.Length > 0 || prefisso is not null ? $"  ·  {_visibleStrategies.Count} nel filtro" : string.Empty);
     }
 
     /// <summary>
@@ -471,10 +473,12 @@ public partial class AccountDetailScreen : UserControl, IShellScreen, IDirtyAwar
     private void ApplyExcludedFilter()
     {
         var filtro = _excludedFilterTextBox.Text.Trim();
+        var prefisso = StrategyFilters.WantedPrefix(_excludedPrefixTextBox);
 
         _visibleExcluded.RaiseListChangedEvents = false;
         _visibleExcluded.Clear();
-        foreach (var row in _excluded.Where(row => Matches(row, filtro)))
+        foreach (var row in _excluded.Where(row =>
+                     Matches(row, filtro) && StrategyFilters.StartsWithPrefix(row.Code, prefisso)))
         {
             _visibleExcluded.Add(row);
         }
@@ -500,7 +504,7 @@ public partial class AccountDetailScreen : UserControl, IShellScreen, IDirtyAwar
         var attiveWorkspace = _catalog.Count(item => item.IsActive);
         _excludedCountLabel.Text =
             $"{_excluded.Count(row => row.IsActive)}/{attiveWorkspace} strategie attive del workspace escluse" +
-            (filtro.Length > 0 ? $"  ·  {_visibleExcluded.Count} nel filtro" : string.Empty);
+            (filtro.Length > 0 || prefisso is not null ? $"  ·  {_visibleExcluded.Count} nel filtro" : string.Empty);
     }
 
     /// <summary>La tabella scelta nella combo ha almeno una riga.</summary>

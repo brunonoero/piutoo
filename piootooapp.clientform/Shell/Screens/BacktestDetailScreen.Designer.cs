@@ -48,6 +48,8 @@ partial class BacktestDetailScreen
         this._colAccount = new System.Windows.Forms.DataGridViewTextBoxColumn();
         this._tradesFilterPanel = new System.Windows.Forms.TableLayoutPanel();
         this._tradesFilterBox = new System.Windows.Forms.TextBox();
+        this._tradesPrefixLabel = new System.Windows.Forms.Label();
+        this._tradesPrefixBox = new System.Windows.Forms.TextBox();
         this._tradesSummaryLabel = new System.Windows.Forms.Label();
         ((System.ComponentModel.ISupportInitialize)(this._tradesBindingSource)).BeginInit();
         this._tabs.SuspendLayout();
@@ -356,11 +358,15 @@ partial class BacktestDetailScreen
         // _tradesFilterPanel
         //
         this._tradesFilterPanel.AutoSize = true;
-        this._tradesFilterPanel.ColumnCount = 2;
+        this._tradesFilterPanel.ColumnCount = 4;
         this._tradesFilterPanel.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 100F));
         this._tradesFilterPanel.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle());
+        this._tradesFilterPanel.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle());
+        this._tradesFilterPanel.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle());
         this._tradesFilterPanel.Controls.Add(this._tradesFilterBox, 0, 0);
-        this._tradesFilterPanel.Controls.Add(this._tradesSummaryLabel, 1, 0);
+        this._tradesFilterPanel.Controls.Add(this._tradesPrefixLabel, 1, 0);
+        this._tradesFilterPanel.Controls.Add(this._tradesPrefixBox, 2, 0);
+        this._tradesFilterPanel.Controls.Add(this._tradesSummaryLabel, 3, 0);
         this._tradesFilterPanel.Dock = System.Windows.Forms.DockStyle.Top;
         this._tradesFilterPanel.Location = new System.Drawing.Point(12, 12);
         this._tradesFilterPanel.Name = "_tradesFilterPanel";
@@ -379,6 +385,24 @@ partial class BacktestDetailScreen
         this._tradesFilterBox.Size = new System.Drawing.Size(500, 23);
         this._tradesFilterBox.TabIndex = 0;
         this._tradesFilterBox.TextChanged += new System.EventHandler(this.OnTradesFilterChanged);
+        //
+        // _tradesPrefixLabel
+        //
+        this._tradesPrefixLabel.Anchor = System.Windows.Forms.AnchorStyles.Left;
+        this._tradesPrefixLabel.AutoSize = true;
+        this._tradesPrefixLabel.Margin = new System.Windows.Forms.Padding(3, 0, 6, 0);
+        this._tradesPrefixLabel.Name = "_tradesPrefixLabel";
+        this._tradesPrefixLabel.Text = "Inizia con";
+        //
+        // _tradesPrefixBox
+        //
+        this._tradesPrefixBox.Anchor = System.Windows.Forms.AnchorStyles.Left;
+        this._tradesPrefixBox.Margin = new System.Windows.Forms.Padding(0, 4, 20, 4);
+        this._tradesPrefixBox.Name = "_tradesPrefixBox";
+        this._tradesPrefixBox.PlaceholderText = "es. PT3";
+        this._tradesPrefixBox.Size = new System.Drawing.Size(110, 23);
+        this._tradesPrefixBox.TabIndex = 2;
+        this._tradesPrefixBox.TextChanged += new System.EventHandler(this.OnTradesFilterChanged);
         //
         // _tradesSummaryLabel
         //
@@ -430,6 +454,8 @@ partial class BacktestDetailScreen
     private System.Windows.Forms.TabPage _tradesTab;
     private System.Windows.Forms.TableLayoutPanel _tradesFilterPanel;
     private System.Windows.Forms.TextBox _tradesFilterBox;
+    private System.Windows.Forms.Label _tradesPrefixLabel;
+    private System.Windows.Forms.TextBox _tradesPrefixBox;
     private System.Windows.Forms.Label _tradesSummaryLabel;
     private System.Windows.Forms.DataGridView _grid;
     private System.Windows.Forms.DataGridViewTextBoxColumn _colStrategy;

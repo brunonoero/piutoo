@@ -1,4 +1,4 @@
-namespace piootooapp.clientform.Shell.Screens;
+﻿namespace piootooapp.clientform.Shell.Screens;
 
 partial class AccountDetailScreen
 {
@@ -44,6 +44,8 @@ partial class AccountDetailScreen
         this._strategiesTab = new System.Windows.Forms.TabPage();
         this._strategiesHeader = new System.Windows.Forms.TableLayoutPanel();
         this._strategiesFilterTextBox = new System.Windows.Forms.TextBox();
+        this._strategiesPrefixLabel = new System.Windows.Forms.Label();
+        this._strategiesPrefixTextBox = new System.Windows.Forms.TextBox();
         this._strategiesCountLabel = new System.Windows.Forms.Label();
         this._strategiesGrid = new System.Windows.Forms.DataGridView();
         this._colStrategyCode = new System.Windows.Forms.DataGridViewTextBoxColumn();
@@ -56,6 +58,8 @@ partial class AccountDetailScreen
         this._excludedTab = new System.Windows.Forms.TabPage();
         this._excludedHeader = new System.Windows.Forms.TableLayoutPanel();
         this._excludedFilterTextBox = new System.Windows.Forms.TextBox();
+        this._excludedPrefixLabel = new System.Windows.Forms.Label();
+        this._excludedPrefixTextBox = new System.Windows.Forms.TextBox();
         this._excludedCountLabel = new System.Windows.Forms.Label();
         this._excludedGrid = new System.Windows.Forms.DataGridView();
         this._colExcludedCode = new System.Windows.Forms.DataGridViewTextBoxColumn();
@@ -363,11 +367,15 @@ partial class AccountDetailScreen
         // _strategiesHeader
         //
         this._strategiesHeader.AutoSize = true;
-        this._strategiesHeader.ColumnCount = 2;
+        this._strategiesHeader.ColumnCount = 4;
         this._strategiesHeader.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 100F));
         this._strategiesHeader.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle());
+        this._strategiesHeader.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle());
+        this._strategiesHeader.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle());
         this._strategiesHeader.Controls.Add(this._strategiesFilterTextBox, 0, 0);
-        this._strategiesHeader.Controls.Add(this._strategiesCountLabel, 1, 0);
+        this._strategiesHeader.Controls.Add(this._strategiesPrefixLabel, 1, 0);
+        this._strategiesHeader.Controls.Add(this._strategiesPrefixTextBox, 2, 0);
+        this._strategiesHeader.Controls.Add(this._strategiesCountLabel, 3, 0);
         this._strategiesHeader.Dock = System.Windows.Forms.DockStyle.Top;
         this._strategiesHeader.Location = new System.Drawing.Point(12, 12);
         this._strategiesHeader.Name = "_strategiesHeader";
@@ -385,6 +393,24 @@ partial class AccountDetailScreen
         this._strategiesFilterTextBox.Size = new System.Drawing.Size(600, 23);
         this._strategiesFilterTextBox.TabIndex = 0;
         this._strategiesFilterTextBox.TextChanged += new System.EventHandler(this.OnStrategiesFilterChanged);
+        //
+        // _strategiesPrefixLabel
+        //
+        this._strategiesPrefixLabel.Anchor = System.Windows.Forms.AnchorStyles.Left;
+        this._strategiesPrefixLabel.AutoSize = true;
+        this._strategiesPrefixLabel.Margin = new System.Windows.Forms.Padding(3, 0, 6, 0);
+        this._strategiesPrefixLabel.Name = "_strategiesPrefixLabel";
+        this._strategiesPrefixLabel.Text = "Inizia con";
+        //
+        // _strategiesPrefixTextBox
+        //
+        this._strategiesPrefixTextBox.Anchor = System.Windows.Forms.AnchorStyles.Left;
+        this._strategiesPrefixTextBox.Margin = new System.Windows.Forms.Padding(0, 4, 12, 4);
+        this._strategiesPrefixTextBox.Name = "_strategiesPrefixTextBox";
+        this._strategiesPrefixTextBox.PlaceholderText = "es. PT3";
+        this._strategiesPrefixTextBox.Size = new System.Drawing.Size(110, 23);
+        this._strategiesPrefixTextBox.TabIndex = 2;
+        this._strategiesPrefixTextBox.TextChanged += new System.EventHandler(this.OnStrategiesFilterChanged);
         //
         // _strategiesCountLabel
         //
@@ -488,11 +514,15 @@ partial class AccountDetailScreen
         // _excludedHeader
         //
         this._excludedHeader.AutoSize = true;
-        this._excludedHeader.ColumnCount = 2;
+        this._excludedHeader.ColumnCount = 4;
         this._excludedHeader.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 100F));
         this._excludedHeader.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle());
+        this._excludedHeader.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle());
+        this._excludedHeader.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle());
         this._excludedHeader.Controls.Add(this._excludedFilterTextBox, 0, 0);
-        this._excludedHeader.Controls.Add(this._excludedCountLabel, 1, 0);
+        this._excludedHeader.Controls.Add(this._excludedPrefixLabel, 1, 0);
+        this._excludedHeader.Controls.Add(this._excludedPrefixTextBox, 2, 0);
+        this._excludedHeader.Controls.Add(this._excludedCountLabel, 3, 0);
         this._excludedHeader.Dock = System.Windows.Forms.DockStyle.Top;
         this._excludedHeader.Location = new System.Drawing.Point(12, 12);
         this._excludedHeader.Name = "_excludedHeader";
@@ -510,6 +540,24 @@ partial class AccountDetailScreen
         this._excludedFilterTextBox.Size = new System.Drawing.Size(600, 23);
         this._excludedFilterTextBox.TabIndex = 0;
         this._excludedFilterTextBox.TextChanged += new System.EventHandler(this.OnExcludedFilterChanged);
+        //
+        // _excludedPrefixLabel
+        //
+        this._excludedPrefixLabel.Anchor = System.Windows.Forms.AnchorStyles.Left;
+        this._excludedPrefixLabel.AutoSize = true;
+        this._excludedPrefixLabel.Margin = new System.Windows.Forms.Padding(3, 0, 6, 0);
+        this._excludedPrefixLabel.Name = "_excludedPrefixLabel";
+        this._excludedPrefixLabel.Text = "Inizia con";
+        //
+        // _excludedPrefixTextBox
+        //
+        this._excludedPrefixTextBox.Anchor = System.Windows.Forms.AnchorStyles.Left;
+        this._excludedPrefixTextBox.Margin = new System.Windows.Forms.Padding(0, 4, 12, 4);
+        this._excludedPrefixTextBox.Name = "_excludedPrefixTextBox";
+        this._excludedPrefixTextBox.PlaceholderText = "es. PT3";
+        this._excludedPrefixTextBox.Size = new System.Drawing.Size(110, 23);
+        this._excludedPrefixTextBox.TabIndex = 2;
+        this._excludedPrefixTextBox.TextChanged += new System.EventHandler(this.OnExcludedFilterChanged);
         //
         // _excludedCountLabel
         //
@@ -647,6 +695,8 @@ partial class AccountDetailScreen
     private System.Windows.Forms.TabPage _strategiesTab;
     private System.Windows.Forms.TableLayoutPanel _strategiesHeader;
     private System.Windows.Forms.TextBox _strategiesFilterTextBox;
+    private System.Windows.Forms.Label _strategiesPrefixLabel;
+    private System.Windows.Forms.TextBox _strategiesPrefixTextBox;
     private System.Windows.Forms.Label _strategiesCountLabel;
     private System.Windows.Forms.DataGridView _strategiesGrid;
     private System.Windows.Forms.DataGridViewTextBoxColumn _colStrategyCode;
@@ -659,6 +709,8 @@ partial class AccountDetailScreen
     private System.Windows.Forms.TabPage _excludedTab;
     private System.Windows.Forms.TableLayoutPanel _excludedHeader;
     private System.Windows.Forms.TextBox _excludedFilterTextBox;
+    private System.Windows.Forms.Label _excludedPrefixLabel;
+    private System.Windows.Forms.TextBox _excludedPrefixTextBox;
     private System.Windows.Forms.Label _excludedCountLabel;
     private System.Windows.Forms.DataGridView _excludedGrid;
     private System.Windows.Forms.DataGridViewTextBoxColumn _colExcludedCode;

@@ -347,27 +347,32 @@ public partial class RealtimeWatchScreen : UserControl, IShellScreen
     /// <summary>
     /// Il filtro vale su strategia e simbolo, che è come si cerca una posizione quando si ha
     /// cTrader aperto accanto. Le sessioni non si filtrano: sono poche e servono da contesto.
+    /// «Inizia con» vale sul codice della strategia e si somma alla ricerca.
     /// </summary>
     private void ApplyFilter()
     {
         var filtro = _toolbar.FilterText;
+        var prefisso = StrategyFilters.WantedPrefix(_prefixTextBox);
 
         Riempi(_findings, _allFindings.Where(row =>
-            filtro.Length == 0
-            || Contiene(row.Strategia, filtro)
-            || Contiene(row.Simbolo, filtro)
-            || Contiene(row.Rilievo, filtro)));
+            StrategyFilters.StartsWithPrefix(row.Strategia, prefisso)
+            && (filtro.Length == 0
+                || Contiene(row.Strategia, filtro)
+                || Contiene(row.Simbolo, filtro)
+                || Contiene(row.Rilievo, filtro))));
 
         Riempi(_positions, _allPositions.Where(row =>
-            filtro.Length == 0
-            || Contiene(row.Strategia, filtro)
-            || Contiene(row.Simbolo, filtro)
-            || Contiene(row.SimboloSuCTrader, filtro)));
+            StrategyFilters.StartsWithPrefix(row.Strategia, prefisso)
+            && (filtro.Length == 0
+                || Contiene(row.Strategia, filtro)
+                || Contiene(row.Simbolo, filtro)
+                || Contiene(row.SimboloSuCTrader, filtro))));
 
         Riempi(_pending, _allPending.Where(row =>
-            filtro.Length == 0
-            || Contiene(row.Strategia, filtro)
-            || Contiene(row.Simbolo, filtro)));
+            StrategyFilters.StartsWithPrefix(row.Strategia, prefisso)
+            && (filtro.Length == 0
+                || Contiene(row.Strategia, filtro)
+                || Contiene(row.Simbolo, filtro))));
     }
 
     private static void Riempi<T>(SortableBindingList<T> destinazione, IEnumerable<T> righe)

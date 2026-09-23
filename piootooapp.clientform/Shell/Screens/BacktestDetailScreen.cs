@@ -490,12 +490,14 @@ public partial class BacktestDetailScreen : UserControl, IShellScreen
     private void ApplyTradeFilter()
     {
         var filter = _tradesFilterBox.Text.Trim();
+        var wantedPrefix = StrategyFilters.WantedPrefix(_tradesPrefixBox);
         _visibleTrades.RaiseListChangedEvents = false;
         _visibleTrades.Clear();
 
         decimal net = 0;
         var winners = 0;
-        foreach (var trade in _trades.Where(trade => Matches(trade, filter)))
+        foreach (var trade in _trades.Where(trade =>
+                     Matches(trade, filter) && StrategyFilters.StartsWithPrefix(trade.StrategyCode, wantedPrefix)))
         {
             net += trade.NetProfit;
             if (trade.NetProfit > 0)

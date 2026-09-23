@@ -66,8 +66,8 @@ partial class PlanDetailScreen
         this._onlySelectedStrategiesCheck = new System.Windows.Forms.CheckBox();
         this._strategySymbolLabel = new System.Windows.Forms.Label();
         this._strategySymbolCombo = new System.Windows.Forms.ComboBox();
-        this._strategySeriesLabel = new System.Windows.Forms.Label();
-        this._strategySeriesCombo = new System.Windows.Forms.ComboBox();
+        this._strategyPrefixLabel = new System.Windows.Forms.Label();
+        this._strategyPrefixBox = new System.Windows.Forms.TextBox();
         this._holdingTab = new System.Windows.Forms.TabPage();
         this._holdingLayout = new System.Windows.Forms.TableLayoutPanel();
         this._forceNightCloseCheckBox = new System.Windows.Forms.CheckBox();
@@ -457,8 +457,8 @@ partial class PlanDetailScreen
         this._strategiesButtons.Controls.Add(this._strategyFilterBox);
         this._strategiesButtons.Controls.Add(this._strategySymbolLabel);
         this._strategiesButtons.Controls.Add(this._strategySymbolCombo);
-        this._strategiesButtons.Controls.Add(this._strategySeriesLabel);
-        this._strategiesButtons.Controls.Add(this._strategySeriesCombo);
+        this._strategiesButtons.Controls.Add(this._strategyPrefixLabel);
+        this._strategiesButtons.Controls.Add(this._strategyPrefixBox);
         this._strategiesButtons.Controls.Add(this._onlySelectedStrategiesCheck);
         this._strategiesButtons.Dock = System.Windows.Forms.DockStyle.Top;
         this._strategiesButtons.Location = new System.Drawing.Point(12, 12);
@@ -512,21 +512,21 @@ partial class PlanDetailScreen
         this._strategySymbolCombo.TabIndex = 4;
         this._strategySymbolCombo.SelectedIndexChanged += new System.EventHandler(this.OnStrategyFilterChanged);
         //
-        // _strategySeriesLabel
+        // _strategyPrefixLabel
         //
-        this._strategySeriesLabel.AutoSize = true;
-        this._strategySeriesLabel.Margin = new System.Windows.Forms.Padding(16, 6, 6, 0);
-        this._strategySeriesLabel.Name = "_strategySeriesLabel";
-        this._strategySeriesLabel.Text = "Serie";
+        this._strategyPrefixLabel.AutoSize = true;
+        this._strategyPrefixLabel.Margin = new System.Windows.Forms.Padding(16, 6, 6, 0);
+        this._strategyPrefixLabel.Name = "_strategyPrefixLabel";
+        this._strategyPrefixLabel.Text = "Inizia con";
         //
-        // _strategySeriesCombo
+        // _strategyPrefixBox
         //
-        this._strategySeriesCombo.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
-        this._strategySeriesCombo.Margin = new System.Windows.Forms.Padding(0, 2, 3, 0);
-        this._strategySeriesCombo.Name = "_strategySeriesCombo";
-        this._strategySeriesCombo.Size = new System.Drawing.Size(90, 23);
-        this._strategySeriesCombo.TabIndex = 5;
-        this._strategySeriesCombo.SelectedIndexChanged += new System.EventHandler(this.OnStrategyFilterChanged);
+        this._strategyPrefixBox.Margin = new System.Windows.Forms.Padding(0, 2, 3, 0);
+        this._strategyPrefixBox.Name = "_strategyPrefixBox";
+        this._strategyPrefixBox.PlaceholderText = "es. PT3";
+        this._strategyPrefixBox.Size = new System.Drawing.Size(110, 23);
+        this._strategyPrefixBox.TabIndex = 5;
+        this._strategyPrefixBox.TextChanged += new System.EventHandler(this.OnStrategyFilterChanged);
         //
         // _onlySelectedStrategiesCheck
         //
@@ -923,8 +923,8 @@ partial class PlanDetailScreen
     private System.Windows.Forms.CheckBox _onlySelectedStrategiesCheck;
     private System.Windows.Forms.Label _strategySymbolLabel;
     private System.Windows.Forms.ComboBox _strategySymbolCombo;
-    private System.Windows.Forms.Label _strategySeriesLabel;
-    private System.Windows.Forms.ComboBox _strategySeriesCombo;
+    private System.Windows.Forms.Label _strategyPrefixLabel;
+    private System.Windows.Forms.TextBox _strategyPrefixBox;
     private System.Windows.Forms.TabPage _holdingTab;
     private System.Windows.Forms.TableLayoutPanel _holdingLayout;
     private System.Windows.Forms.CheckBox _forceNightCloseCheckBox;

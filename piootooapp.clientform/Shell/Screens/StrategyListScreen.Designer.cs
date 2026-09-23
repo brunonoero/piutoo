@@ -34,8 +34,8 @@ partial class StrategyListScreen
         this._filtersPanel = new System.Windows.Forms.FlowLayoutPanel();
         this._symbolLabel = new System.Windows.Forms.Label();
         this._symbolCombo = new System.Windows.Forms.ComboBox();
-        this._seriesLabel = new System.Windows.Forms.Label();
-        this._seriesCombo = new System.Windows.Forms.ComboBox();
+        this._prefixLabel = new System.Windows.Forms.Label();
+        this._prefixTextBox = new System.Windows.Forms.TextBox();
         ((System.ComponentModel.ISupportInitialize)(this._bindingSource)).BeginInit();
         ((System.ComponentModel.ISupportInitialize)(this._grid)).BeginInit();
         this._filtersPanel.SuspendLayout();
@@ -155,13 +155,13 @@ partial class StrategyListScreen
         this._toolbar.FilterChanged += new System.EventHandler(this.OnFilterChanged);
         this._toolbar.ExportRequested += new System.EventHandler(this.OnExportRequested);
         //
-        // _filtersPanel — simbolo e serie, sotto la barra: due lenti sulla stessa griglia.
+        // _filtersPanel — simbolo e prefisso dell'id, sotto la barra: due lenti sulla stessa griglia.
         //
         this._filtersPanel.AutoSize = true;
         this._filtersPanel.Controls.Add(this._symbolLabel);
         this._filtersPanel.Controls.Add(this._symbolCombo);
-        this._filtersPanel.Controls.Add(this._seriesLabel);
-        this._filtersPanel.Controls.Add(this._seriesCombo);
+        this._filtersPanel.Controls.Add(this._prefixLabel);
+        this._filtersPanel.Controls.Add(this._prefixTextBox);
         this._filtersPanel.Dock = System.Windows.Forms.DockStyle.Top;
         this._filtersPanel.Location = new System.Drawing.Point(0, 44);
         this._filtersPanel.Name = "_filtersPanel";
@@ -186,21 +186,21 @@ partial class StrategyListScreen
         this._symbolCombo.TabIndex = 0;
         this._symbolCombo.SelectedIndexChanged += new System.EventHandler(this.OnFilterChanged);
         //
-        // _seriesLabel
+        // _prefixLabel
         //
-        this._seriesLabel.AutoSize = true;
-        this._seriesLabel.Margin = new System.Windows.Forms.Padding(3, 6, 6, 0);
-        this._seriesLabel.Name = "_seriesLabel";
-        this._seriesLabel.Text = "Serie";
+        this._prefixLabel.AutoSize = true;
+        this._prefixLabel.Margin = new System.Windows.Forms.Padding(3, 6, 6, 0);
+        this._prefixLabel.Name = "_prefixLabel";
+        this._prefixLabel.Text = "Inizia con";
         //
-        // _seriesCombo
+        // _prefixTextBox
         //
-        this._seriesCombo.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
-        this._seriesCombo.Margin = new System.Windows.Forms.Padding(0, 2, 3, 0);
-        this._seriesCombo.Name = "_seriesCombo";
-        this._seriesCombo.Size = new System.Drawing.Size(90, 23);
-        this._seriesCombo.TabIndex = 1;
-        this._seriesCombo.SelectedIndexChanged += new System.EventHandler(this.OnFilterChanged);
+        this._prefixTextBox.Margin = new System.Windows.Forms.Padding(0, 2, 3, 0);
+        this._prefixTextBox.Name = "_prefixTextBox";
+        this._prefixTextBox.PlaceholderText = "es. PT3";
+        this._prefixTextBox.Size = new System.Drawing.Size(110, 23);
+        this._prefixTextBox.TabIndex = 1;
+        this._prefixTextBox.TextChanged += new System.EventHandler(this.OnFilterChanged);
         //
         // _rowCountLabel
         //
@@ -218,7 +218,7 @@ partial class StrategyListScreen
         this.AutoScaleDimensions = new System.Drawing.SizeF(7F, 15F);
         this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
         // L'ordine di aggiunta determina l'ordine di docking (dall'ultimo al primo):
-        // toolbar in alto, sotto i filtri simbolo/serie, conteggio righe in basso, griglia a
+        // toolbar in alto, sotto i filtri simbolo/prefisso, conteggio righe in basso, griglia a
         // riempire il resto.
         this.Controls.Add(this._grid);
         this.Controls.Add(this._rowCountLabel);
@@ -238,8 +238,8 @@ partial class StrategyListScreen
     private System.Windows.Forms.FlowLayoutPanel _filtersPanel;
     private System.Windows.Forms.Label _symbolLabel;
     private System.Windows.Forms.ComboBox _symbolCombo;
-    private System.Windows.Forms.Label _seriesLabel;
-    private System.Windows.Forms.ComboBox _seriesCombo;
+    private System.Windows.Forms.Label _prefixLabel;
+    private System.Windows.Forms.TextBox _prefixTextBox;
 
     private System.Windows.Forms.BindingSource _bindingSource;
     private System.Windows.Forms.DataGridView _grid;

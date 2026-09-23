@@ -74,6 +74,8 @@ partial class RealtimeWatchScreen
         this._accountLabel = new System.Windows.Forms.Label();
         this._accountCombo = new System.Windows.Forms.ComboBox();
         this._severityLabel = new System.Windows.Forms.Label();
+        this._prefixLabel = new System.Windows.Forms.Label();
+        this._prefixTextBox = new System.Windows.Forms.TextBox();
         this._disclaimerLabel = new System.Windows.Forms.Label();
         this._toolbar = new piootooapp.clientform.Shell.Controls.EntityToolbar();
         ((System.ComponentModel.ISupportInitialize)(this._findingsSource)).BeginInit();
@@ -588,6 +590,8 @@ partial class RealtimeWatchScreen
         this._headerPanel.AutoSize = true;
         this._headerPanel.Controls.Add(this._accountLabel);
         this._headerPanel.Controls.Add(this._accountCombo);
+        this._headerPanel.Controls.Add(this._prefixLabel);
+        this._headerPanel.Controls.Add(this._prefixTextBox);
         this._headerPanel.Controls.Add(this._severityLabel);
         this._headerPanel.Controls.Add(this._disclaimerLabel);
         this._headerPanel.Dock = System.Windows.Forms.DockStyle.Top;
@@ -615,6 +619,22 @@ partial class RealtimeWatchScreen
         this._accountCombo.Size = new System.Drawing.Size(300, 23);
         this._accountCombo.TabIndex = 1;
         this._accountCombo.SelectedIndexChanged += new System.EventHandler(this.OnAccountChanged);
+        //
+        // _prefixLabel
+        //
+        this._prefixLabel.AutoSize = true;
+        this._prefixLabel.Margin = new System.Windows.Forms.Padding(3, 8, 3, 3);
+        this._prefixLabel.Name = "_prefixLabel";
+        this._prefixLabel.Text = "Inizia con:";
+        //
+        // _prefixTextBox
+        //
+        this._prefixTextBox.Margin = new System.Windows.Forms.Padding(3, 4, 12, 3);
+        this._prefixTextBox.Name = "_prefixTextBox";
+        this._prefixTextBox.PlaceholderText = "es. PT3";
+        this._prefixTextBox.Size = new System.Drawing.Size(110, 23);
+        this._prefixTextBox.TabIndex = 4;
+        this._prefixTextBox.TextChanged += new System.EventHandler(this.OnFilterChanged);
         //
         // _severityLabel
         //
@@ -736,6 +756,8 @@ partial class RealtimeWatchScreen
     private System.Windows.Forms.Label _accountLabel;
     private System.Windows.Forms.ComboBox _accountCombo;
     private System.Windows.Forms.Label _severityLabel;
+    private System.Windows.Forms.Label _prefixLabel;
+    private System.Windows.Forms.TextBox _prefixTextBox;
     private System.Windows.Forms.Label _disclaimerLabel;
     private piootooapp.clientform.Shell.Controls.EntityToolbar _toolbar;
 }
