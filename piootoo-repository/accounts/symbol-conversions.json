@@ -148,10 +148,136 @@
           "MinimumQuantity": 0.01,
           "QuantityStep": 0.01,
           "Enabled": true
+        },
+        {
+          "Symbol": "@FESX",
+          "AccountSymbol": "EU50.cash",
+          "ContractMultiplier": 10,
+          "PriceScale": 1,
+          "MinimumQuantity": 0.01,
+          "QuantityStep": 0.01,
+          "Enabled": true
+        },
+        {
+          "Symbol": "@FCE",
+          "AccountSymbol": "FRA40.cash",
+          "ContractMultiplier": 10,
+          "PriceScale": 1,
+          "MinimumQuantity": 0.01,
+          "QuantityStep": 0.01,
+          "Enabled": true
+        },
+        {
+          "Symbol": "@Z",
+          "AccountSymbol": "UK100.cash",
+          "ContractMultiplier": 10,
+          "PriceScale": 1,
+          "MinimumQuantity": 0.01,
+          "QuantityStep": 0.01,
+          "Enabled": true
+        },
+        {
+          "Symbol": "@NIY",
+          "AccountSymbol": "JP225.cash",
+          "ContractMultiplier": 50,
+          "PriceScale": 1,
+          "MinimumQuantity": 0.01,
+          "QuantityStep": 0.01,
+          "Enabled": true
+        },
+        {
+          "Symbol": "@RTY",
+          "AccountSymbol": "US2000.cash",
+          "ContractMultiplier": 50,
+          "PriceScale": 1,
+          "MinimumQuantity": 0.01,
+          "QuantityStep": 0.01,
+          "Enabled": true
+        },
+        {
+          "Symbol": "@AP",
+          "AccountSymbol": "AUS200.cash",
+          "ContractMultiplier": 25,
+          "PriceScale": 1,
+          "MinimumQuantity": 0.01,
+          "QuantityStep": 0.01,
+          "Enabled": true
+        },
+        {
+          "Symbol": "@SI",
+          "AccountSymbol": "XAGUSD",
+          "ContractMultiplier": 1,
+          "PriceScale": 1,
+          "MinimumQuantity": 0.01,
+          "QuantityStep": 0.01,
+          "Enabled": true
+        },
+        {
+          "Symbol": "@BRN",
+          "AccountSymbol": "UKOIL.cash",
+          "ContractMultiplier": 10,
+          "PriceScale": 1,
+          "MinimumQuantity": 0.01,
+          "QuantityStep": 0.01,
+          "Enabled": true
+        },
+        {
+          "Symbol": "@ETH",
+          "AccountSymbol": "ETHUSD",
+          "ContractMultiplier": 5,
+          "PriceScale": 1,
+          "MinimumQuantity": 0.01,
+          "QuantityStep": 0.01,
+          "Enabled": true
+        },
+        {
+          "Symbol": "@SOL",
+          "AccountSymbol": "SOLUSD",
+          "ContractMultiplier": 5,
+          "PriceScale": 1,
+          "MinimumQuantity": 0.01,
+          "QuantityStep": 0.01,
+          "Enabled": true
+        },
+        {
+          "Symbol": "@XRP",
+          "AccountSymbol": "XRPUSD",
+          "ContractMultiplier": 5,
+          "PriceScale": 1,
+          "MinimumQuantity": 0.01,
+          "QuantityStep": 0.01,
+          "Enabled": true
+        },
+        {
+          "Symbol": "@C",
+          "AccountSymbol": "CORN.c",
+          "ContractMultiplier": 50,
+          "PriceScale": 1,
+          "MinimumQuantity": 1,
+          "QuantityStep": 1,
+          "Enabled": true
+        },
+        {
+          "Symbol": "@S",
+          "AccountSymbol": "SOYBEAN.c",
+          "ContractMultiplier": 50,
+          "PriceScale": 1,
+          "MinimumQuantity": 1,
+          "QuantityStep": 1,
+          "Enabled": true
+        },
+        {
+          "Symbol": "@W",
+          "AccountSymbol": "WHEAT.c",
+          "ContractMultiplier": 50,
+          "PriceScale": 1,
+          "MinimumQuantity": 1,
+          "QuantityStep": 1,
+          "Enabled": true
         }
       ],
       "CreatedUtc": "2026-09-02T12:26:21Z",
-      "UpdatedUtc": "2026-09-05T06:48:54.6875994Z"
+      "UpdatedUtc": "2026-09-23T12:00:00Z"
     },
     {
       "Code": "cfd-ic",

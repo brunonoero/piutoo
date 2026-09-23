@@ -68,6 +68,32 @@ public class DatafeedExternalController : ControllerBase
     }
 
     /// <summary>
+    /// Gli strumenti di un raccoglitore senza piano: un elenco di simboli Piootoo, tradotti con la
+    /// tabella di conversione del conto, e la cartella del broker del conto. Serve a raccogliere
+    /// simboli su cui non opera ancora nessun piano. Vedi
+    /// <see cref="TradingPlanService.ResolveListedDatafeedInstruments"/>.
+    /// </summary>
+    /// <param name="symbols">Voci separate da virgola: <c>@FESX</c> o <c>EU50.cash=@FESX</c>.</param>
+    /// <param name="timeframeMinutes">Timeframe da derivare dal minuto a fine backfill.</param>
+    [HttpGet("listed-instruments")]
+    public ActionResult<PlanDatafeedInstrumentsDto> GetListedInstruments(
+        [FromQuery] string accountNumber,
+        [FromQuery] string symbols,
+        [FromQuery] int[]? timeframeMinutes = null)
+    {
+        try
+        {
+            var entries = (symbols ?? string.Empty)
+                .Split([',', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            return Ok(_plans.ResolveListedDatafeedInstruments(accountNumber, entries, timeframeMinutes ?? []));
+        }
+        catch (Exception error) when (error is ArgumentException or InvalidOperationException)
+        {
+            return Problem(title: "Elenco simboli non utilizzabile", detail: error.Message, statusCode: 400);
+        }
+    }
+
+    /// <summary>
     /// Accoda uno o piu' blocchi di barre. Idempotente: rimandare lo stesso periodo produce
     /// duplicati contati e nessuna scrittura.
     /// </summary>

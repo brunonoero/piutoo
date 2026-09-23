@@ -94,6 +94,93 @@ public sealed class PlanDatafeedInstrumentsTests : IDisposable
         Assert.Equal(instrument.Symbol, instrument.AccountSymbol);
     }
 
+    /// <summary>
+    /// L'elenco simboli senza piano: il nome sul broker viene dalla tabella del conto e la cartella
+    /// dal suo broker, esattamente come con il piano. L'elenco dice solo quali simboli.
+    /// </summary>
+    [Fact]
+    public void ListedSymbolsAreTranslatedByTheAccountTable()
+    {
+        var plans = CreateBrokerAccount();
+
+        var resolved = plans.ResolveListedDatafeedInstruments("5001", ["@FESX", "SI"], [60, 1, 240, 60]);
+
+        Assert.Equal("FTMO", resolved.DatafeedBroker);
+        Assert.Equal(string.Empty, resolved.PlanCode);
+        Assert.Equal(["@FESX", "@SI"], resolved.Instruments.Select(x => x.Symbol));
+        Assert.Equal(["EU50.cash", "XAGUSD"], resolved.Instruments.Select(x => x.AccountSymbol));
+        // Il minuto non e' un bersaglio di derivazione: e' la sorgente.
+        Assert.All(resolved.Instruments, x => Assert.Equal([60, 240], x.TimeframesMinutes));
+    }
+
+    /// <summary>
+    /// La forma esplicita <c>NOMEBROKER=@SIMBOLO</c> scavalca la tabella: e' quella del bot degli
+    /// spread, e serve per un simbolo che la tabella non mappa ancora.
+    /// </summary>
+    [Fact]
+    public void ExplicitBrokerNameIsTakenVerbatim()
+    {
+        var plans = CreateBrokerAccount();
+
+        var resolved = plans.ResolveListedDatafeedInstruments("5001", ["ETHUSD=@ETH"], [240]);
+
+        var instrument = Assert.Single(resolved.Instruments);
+        Assert.Equal("@ETH", instrument.Symbol);
+        Assert.Equal("ETHUSD", instrument.AccountSymbol);
+    }
+
+    /// <summary>
+    /// Un simbolo che la tabella non mappa e uno fuori calendario sono errori, e il messaggio li
+    /// nomina tutti e due: un raccoglitore che parte su meta' dell'elenco sembra funzionare.
+    /// </summary>
+    [Fact]
+    public void UnmappedOrUncalendaredSymbolsAreRejectedTogether()
+    {
+        var plans = CreateBrokerAccount();
+
+        var error = Assert.Throws<ArgumentException>(() =>
+            plans.ResolveListedDatafeedInstruments("5001", ["@FESX", "@NQ", "XYZ.cash=@XYZ"], [60]));
+
+        Assert.Contains("@NQ", error.Message);
+        Assert.Contains("@XYZ", error.Message);
+        Assert.DoesNotContain("@FESX", error.Message);
+    }
+
+    /// <summary>
+    /// Senza un conto in anagrafica non c'e' una cartella in cui scrivere: a differenza del piano,
+    /// che ripiega sul simbolo Piootoo, qui non c'e' nient'altro da cui dedurla.
+    /// </summary>
+    [Fact]
+    public void UnknownAccountIsAnErrorForTheList()
+    {
+        var plans = CreateBrokerAccount();
+
+        Assert.Throws<InvalidOperationException>(() =>
+            plans.ResolveListedDatafeedInstruments("9999-inesistente", ["@FESX"], [60]));
+    }
+
+    private TradingPlanService CreateBrokerAccount()
+    {
+        var workspaces = new WorkspaceService(new PiootooSettings { Workspaces = _root });
+        workspaces.CreateSymbolConversion(new SymbolConversion
+        {
+            Code = "cfd-test",
+            Name = "CFD test",
+            Mappings =
+            [
+                new AccountSymbolMapping { Symbol = "@FESX", AccountSymbol = "EU50.cash", Enabled = true },
+                new AccountSymbolMapping { Symbol = "@SI", AccountSymbol = "XAGUSD", Enabled = true }
+            ]
+        });
+        workspaces.CreateBroker(new TradingBroker { Code = "FTMO", Name = "FTMO", SymbolConversionCode = "cfd-test" });
+        workspaces.CreateAccount(new WorkspaceAccount
+        {
+            Name = "conto-ftmo", AccountNumber = "5001", BrokerCode = "FTMO", InitialBalance = 100_000m
+        });
+
+        return new TradingPlanService(workspaces);
+    }
+
     private TradingPlanService CreatePlan(List<string> strategyIds)
     {
         var workspaces = new WorkspaceService(new PiootooSettings { Workspaces = _root });

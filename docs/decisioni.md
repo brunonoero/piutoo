@@ -4490,3 +4490,26 @@ che il motore fa. Difetto di artefatto, non di esecuzione, ma e' costato mezza i
   alla griglia del 22/09 (unmirrored, 15 minuti, pattern cercati), come quel resoconto prescriveva:
   la sola TF coerente del catalogo ai costi veri era `PTS_NQ_TFU_003_15`. Celle `fdax-4h-003` e
   `nq-15m-tfu` in `tools/sweep-paniere.ps1`. Test: `SweepSpaceTests`.
+- **2026-09-23** — **Il raccoglitore accetta di nuovo un elenco simboli, alternativo al piano, e
+  quindici simboli FTMO entrano in registro, calendario e tabella `cfd-ctrader-ftmo`.** Serve a
+  raccogliere il minuto FTMO delle celle nuove da valutare (indici, metalli, energia, cripto,
+  granaglie) prima che esista una strategia. Il piano di sola raccolta non bastava: un simbolo nuovo
+  ha al piu' un contenitore di ricerca, e il masterfilter li rifiuta — ammetterli li' per la sola
+  raccolta avrebbe aperto proprio la porta da cui `PT3B_NQ_PCH_001_15` era finito in un piano
+  eseguito. L'elenco porta solo simboli Piootoo: nome sul broker e cartella li dichiara il server
+  (`GET listed-instruments`), come per il piano, e un simbolo non mappato, fuori calendario o su un
+  conto senza broker ferma l'avvio. La regola del 7.2.0 resta per cio' su cui si opera: li' l'elenco
+  sarebbe una seconda copia del masterfilter. **Codici**: il future equivalente, per poter un giorno
+  comprare lo storico lungo — `FCE` (FRA40), `Z` (UK100), `NIY` (JP225, in yen perche' il CFD quota
+  in yen), `AP` (AUS200), `BRN` (UKOIL), `ETH`, `SOL`, `XRP`, `C`/`S`/`W` (granaglie, centesimi per
+  bushel come il CFD); `FESX`, `RTY` e `SI` c'erano gia'. Specifiche cripto e NIY rilette su
+  cmegroup.com; le altre sono le specifiche d'exchange note, da riconfermare. **Calendario**: ora
+  d'inizio 00:00 (nessun dossier, e `OnlyTheDossierMarketsOpenAtOneCet` lo impone); giorni **non
+  dichiarati**; finestra = orario del **future**, non misurato, come vuole
+  `EverySymbolInTheCalendarDeclaresATradingWindow` e come si fa per FDAX. Confrontata con gli orari
+  FTMO pubblicati coincide ovunque tranne sul FTSE, dove la maschera toglie le ore in cui il CFD
+  quota e ICE e' chiuso. Il formato vuole una finestra per giorno, quindi SPI e granaglie hanno la
+  pausa di sessione dentro la finestra (nel feed quei minuti non ci sono). L'ancoraggio 00:00 va
+  rivisto prima della prima cella su EU50/FRA40: la griglia 4h di FDAX e' ancorata all'01:00.
+  **Escluso il rame**: `XCUUSD` quota in centesimi per libbra (651 il 23/09) e `HG` in dollari, quindi
+  il feed raccolto come `@HG` falserebbe il P&L di cento volte senza errori.

@@ -41,14 +41,16 @@ namespace cAlgo.Robots
     /// nella status invece di riempirli. Se il broker non ha un periodo, quel periodo resta vuoto e
     /// si vede.</para>
     ///
-    /// <para><b>Cosa raccogliere lo dichiara il piano, e nient'altro.</b> Il <c>Codice piano</c> e'
-    /// obbligatorio: gli strumenti arrivano dal masterfilter del suo workspace, gia' con il nome che
-    /// ognuno ha su questo conto, e i timeframe da far derivare al server vengono dalla stessa
-    /// lista. Dalla 7.1.0 non c'e' piu' un elenco di simboli ne' di timeframe da scrivere a mano:
-    /// erano una seconda copia di cio' che il masterfilter dice gia', e due liste della stessa cosa
-    /// divergono in silenzio. Per rifare un pezzo di storia si stringe la <b>finestra di date</b>,
-    /// non l'elenco dei simboli: la raccolta e' idempotente e ripassare su tutto il piano non
-    /// riscrive niente di gia' presente.</para>
+    /// <para><b>Cosa raccogliere lo dichiara il piano, o un elenco di simboli.</b> Con il
+    /// <c>Codice piano</c> gli strumenti arrivano dal masterfilter del suo workspace, gia' con il nome
+    /// che ognuno ha su questo conto, e i timeframe da far derivare al server vengono dalla stessa
+    /// lista: per i simboli su cui si opera e' l'unica forma giusta, perche' un elenco accanto
+    /// sarebbe una seconda copia del masterfilter. L'<c>elenco simboli</c> serve ai simboli su cui
+    /// NON opera ancora nessun piano — le celle da valutare — che un piano di sola raccolta non
+    /// potrebbe dichiarare: avrebbero solo contenitori di ricerca, e nel masterfilter non entrano.
+    /// Anche con l'elenco il nome sul broker e la cartella li decide il server. Per rifare un pezzo
+    /// di storia si stringe la <b>finestra di date</b>: la raccolta e' idempotente e ripassare su
+    /// tutto non riscrive niente di gia' presente.</para>
     ///
     /// <para><b>Raccoglie SOLO barre da un minuto UTC.</b> Dalla 2.0.0 il bot non costruisce piu'
     /// nessun timeframe: chiede alla piattaforma la serie da un minuto, la spedisce cosi' com'e', e
@@ -114,7 +116,11 @@ namespace cAlgo.Robots
         //   derivazione passa sempre da planCode ed e' rifatta anche allo stop, per la coda raccolta
         //   in sincronia. Due parametri salvati nelle istanze spariscono, e un'istanza senza codice
         //   piano non parte piu': va riconfigurata, non solo ricompilata.
-        private const string BotVersion = "7.2.0";
+        // - 7.6.3 (23/09/2026): torna un elenco 'Simboli', ma ALTERNATIVO al piano e per i soli
+        //   simboli senza piano. Le voci sono simboli Piootoo; nome sul broker e cartella li
+        //   dichiara il server (GET listed-instruments), come per il piano. Richiede un server
+        //   7.6.3 o successivo. Le istanze con il codice piano non cambiano comportamento.
+        private const string BotVersion = "7.6.3";
 
         /// <summary>
         /// Tetto ai giri di <c>LoadMoreHistory</c> in un solo battito di timer. Il broker risponde a
@@ -171,8 +177,33 @@ namespace cAlgo.Robots
         /// simboli: la raccolta e' idempotente — la chiave e' l'istante di apertura della barra —
         /// quindi ripassare su tutto il piano non riscrive niente di gia' presente.</para>
         /// </summary>
-        [Parameter("Codice piano (obbligatorio)", DefaultValue = "", Group = "Cosa raccogliere")]
+        [Parameter("Codice piano (vuoto = usa l'elenco simboli)", DefaultValue = "", Group = "Cosa raccogliere")]
         public string PlanCode { get; set; }
+
+        /// <summary>
+        /// Elenco di simboli Piootoo, separati da virgola, <b>alternativo</b> al piano: si usa per
+        /// raccogliere strumenti su cui non opera ancora nessun piano, le celle nuove da valutare.
+        /// Un piano di sola raccolta non si puo' fare per loro: vorrebbe una strategia per simbolo nel
+        /// masterfilter, e un simbolo senza strategie ha solo contenitori di ricerca, che nel
+        /// masterfilter non entrano.
+        ///
+        /// <para>Le voci sono simboli Piootoo (<c>@FESX</c>): il nome sul broker lo traduce il server
+        /// con la tabella di conversione del conto, e la cartella la decide il registro dei broker,
+        /// come con il piano. Un simbolo che la tabella non mappa si scrive <c>EU50.cash=@FESX</c>,
+        /// la stessa forma del bot degli spread, cosi' lo stesso elenco si incolla nei due.</para>
+        ///
+        /// <para>Piano ed elenco si escludono: con tutti e due valorizzati il bot non parte, perche'
+        /// non e' chiaro quale dei due si intendeva.</para>
+        /// </summary>
+        [Parameter("Simboli (@SIMBOLO o BROKER=@SIMBOLO, alternativa al piano)", DefaultValue = "", Group = "Cosa raccogliere")]
+        public string SymbolList { get; set; }
+
+        /// <summary>
+        /// Timeframe che il server deriva dal minuto a fine backfill, <b>solo con l'elenco
+        /// simboli</b>: con il piano li dichiara il masterfilter e questo parametro e' ignorato.
+        /// </summary>
+        [Parameter("Timeframe da derivare con l'elenco (minuti, separati da virgola)", DefaultValue = "15,60,240", Group = "Cosa raccogliere")]
+        public string ListTimeframesText { get; set; }
 
         /// <summary>
         /// A fine backfill chiede al server di riscrivere gli aggregati dal minuto appena raccolto
@@ -255,12 +286,21 @@ namespace cAlgo.Robots
         private readonly JsonSerializerOptions _json = new JsonSerializerOptions(JsonSerializerDefaults.Web);
 
         private string _brokerCode;
+        private readonly List<int> _listTimeframes = new List<int>();
         private DateTime _windowStartUtc;
         private DateTime _windowEndUtc;
         private DateTime _lastTickFlushUtc;
         private int _roundRobin;
         private bool _backfillReported;
         private bool _stopped;
+
+        /// <summary>Gli strumenti vengono dall'elenco e non da un piano.</summary>
+        private bool UsesSymbolList => string.IsNullOrWhiteSpace(PlanCode);
+
+        /// <summary>Da dove vengono gli strumenti, per i messaggi.</summary>
+        private string SourceLabel => UsesSymbolList
+            ? "dell'elenco simboli"
+            : string.Format("del piano '{0}'", PlanCode.Trim());
 
         private bool LogOperativo => LivelloDiLog >= LivelloLogSync.Operativo;
         private bool LogDiagnostico => LivelloDiLog >= LivelloLogSync.Diagnostico;
@@ -298,12 +338,18 @@ namespace cAlgo.Robots
                 return;
             }
 
-            if (string.IsNullOrWhiteSpace(PlanCode))
+            if (string.IsNullOrWhiteSpace(PlanCode) == string.IsNullOrWhiteSpace(SymbolList))
             {
                 StopWithError(
-                    "'Codice piano' e' obbligatorio: e' da li' che arrivano gli strumenti da " +
-                    "raccogliere e i timeframe che il server deve derivare. Senza, il bot non " +
-                    "saprebbe che cosa raccogliere e partirebbe a vuoto.");
+                    "Serve UNO fra 'Codice piano' e 'Simboli': e' da li' che arrivano gli strumenti " +
+                    "da raccogliere e i timeframe che il server deve derivare. Nessuno dei due, e il bot " +
+                    "partirebbe a vuoto; tutti e due, e non e' chiaro quale si intendeva.");
+                return;
+            }
+
+            if (UsesSymbolList && !TryParseListTimeframes(out var timeframesError))
+            {
+                StopWithError(timeframesError);
                 return;
             }
 
@@ -404,6 +450,34 @@ namespace cAlgo.Robots
             return true;
         }
 
+        /// <summary>
+        /// I timeframe da far derivare con l'elenco simboli. Il minuto non e' un bersaglio — e' la
+        /// sorgente — e una voce che non e' un numero ferma il bot invece di sparire: un 240 perso
+        /// per un refuso si scoprirebbe solo al primo backtest a quattro ore.
+        /// </summary>
+        private bool TryParseListTimeframes(out string error)
+        {
+            error = null;
+            _listTimeframes.Clear();
+
+            foreach (var piece in (ListTimeframesText ?? string.Empty).Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                int minutes;
+                if (!int.TryParse(piece.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out minutes) || minutes < 1)
+                {
+                    error = string.Format("Timeframe '{0}' non valido in '{1}': attesi minuti interi separati da virgola.",
+                        piece.Trim(), ListTimeframesText);
+                    return false;
+                }
+
+                if (minutes > 1 && !_listTimeframes.Contains(minutes))
+                    _listTimeframes.Add(minutes);
+            }
+
+            _listTimeframes.Sort();
+            return true;
+        }
+
         private static bool TryParseDay(string text, out DateTime day)
         {
             DateTime parsed;
@@ -426,7 +500,7 @@ namespace cAlgo.Robots
         /// </summary>
         private bool TryBuildStreams(out string error)
         {
-            var requests = BuildRequestsFromPlan(out error);
+            var requests = BuildRequestsFromServer(out error);
 
             if (requests == null)
                 return false;
@@ -491,8 +565,8 @@ namespace cAlgo.Robots
 
             if (_streams.Count == 0)
             {
-                error = string.Format("Nessuno stream valido: nessuno strumento del piano '{0}' e' " +
-                                      "disponibile su questo account.", PlanCode);
+                error = string.Format("Nessuno stream valido: nessuno strumento {0} e' " +
+                                      "disponibile su questo account.", SourceLabel);
                 return false;
             }
 
@@ -513,13 +587,31 @@ namespace cAlgo.Robots
         /// descriptor; un raccoglitore no — è una lettura pura, e non deve avere alcun effetto
         /// sull'operatività. Non c'è nemmeno un elenco locale di ripiego: duplicherebbe il
         /// masterfilter e le due liste divergerebbero in silenzio.</para>
+        ///
+        /// <para><b>Con l'elenco simboli</b> la risposta ha la stessa forma, da un'altra chiamata
+        /// (<c>GET listed-instruments</c>): il server traduce i simboli con la tabella del conto e
+        /// dichiara la cartella, esattamente come per il piano. L'elenco dice solo <i>quali</i>
+        /// simboli, non come si chiamano sul broker ne' dove vanno.</para>
         /// </summary>
-        private List<StreamRequest> BuildRequestsFromPlan(out string error)
+        private List<StreamRequest> BuildRequestsFromServer(out string error)
         {
             error = null;
 
-            var uri = string.Format("api/datafeed-external/plan-instruments?planCode={0}&accountNumber={1}",
-                Uri.EscapeDataString(PlanCode.Trim()), Uri.EscapeDataString(Account.Number.ToString()));
+            string uri;
+            if (UsesSymbolList)
+            {
+                var builder = new StringBuilder();
+                builder.AppendFormat("api/datafeed-external/listed-instruments?accountNumber={0}&symbols={1}",
+                    Uri.EscapeDataString(Account.Number.ToString()), Uri.EscapeDataString(SymbolList.Trim()));
+                foreach (var minutes in _listTimeframes)
+                    builder.Append("&timeframeMinutes=").Append(minutes.ToString(CultureInfo.InvariantCulture));
+                uri = builder.ToString();
+            }
+            else
+            {
+                uri = string.Format("api/datafeed-external/plan-instruments?planCode={0}&accountNumber={1}",
+                    Uri.EscapeDataString(PlanCode.Trim()), Uri.EscapeDataString(Account.Number.ToString()));
+            }
 
             PlanInstrumentsDto plan;
             try
@@ -529,8 +621,8 @@ namespace cAlgo.Robots
                     var body = ReadBody(response);
                     if (!response.IsSuccessStatusCode)
                     {
-                        error = string.Format("Strumenti del piano '{0}' non ottenibili: {1} {2}",
-                            PlanCode, (int)response.StatusCode, Truncate(body, 300));
+                        error = string.Format("Strumenti {0} non ottenibili: {1} {2}",
+                            SourceLabel, (int)response.StatusCode, Truncate(body, 300));
                         return null;
                     }
 
@@ -539,13 +631,13 @@ namespace cAlgo.Robots
             }
             catch (Exception failure)
             {
-                error = string.Format("Strumenti del piano '{0}' non ottenibili: {1}", PlanCode, failure.Message);
+                error = string.Format("Strumenti {0} non ottenibili: {1}", SourceLabel, failure.Message);
                 return null;
             }
 
             if (plan == null || plan.Instruments == null || plan.Instruments.Count == 0)
             {
-                error = string.Format("Il piano '{0}' non dichiara alcuno strumento.", PlanCode);
+                error = string.Format("Nessuno strumento {0}.", SourceLabel);
                 return null;
             }
 
@@ -573,17 +665,22 @@ namespace cAlgo.Robots
             if (string.IsNullOrWhiteSpace(plan.DatafeedBroker))
             {
                 error = string.Format(
-                    "Il server non dichiara la cartella del datafeed per il conto {0} del piano '{1}': " +
+                    "Il server non dichiara la cartella del datafeed per il conto {0} {1}: " +
                     "il conto non ha un broker in anagrafica, oppure il server e' precedente alla 7.2.0. " +
                     "Senza, non c'e' una cartella in cui scrivere le barre.",
-                    plan.AccountNumber, plan.PlanCode);
+                    plan.AccountNumber, SourceLabel);
                 return null;
             }
 
             _brokerCode = plan.DatafeedBroker.Trim().ToUpperInvariant();
 
-            Print("Piano '{0}' ({1}), workspace '{2}', conto {3}: {4} strumenti dal masterfilter.",
-                plan.PlanCode, plan.PlanName, plan.WorkspaceId, plan.AccountNumber, requests.Count);
+            if (UsesSymbolList)
+                Print("Elenco simboli, conto {0}: {1} strumenti, aggregati da derivare: {2}.",
+                    plan.AccountNumber, requests.Count,
+                    _listTimeframes.Count == 0 ? "nessuno" : string.Join(",", _listTimeframes));
+            else
+                Print("Piano '{0}' ({1}), workspace '{2}', conto {3}: {4} strumenti dal masterfilter.",
+                    plan.PlanCode, plan.PlanName, plan.WorkspaceId, plan.AccountNumber, requests.Count);
             Print("Codice broker dichiarato dal server: {0} — i feed andranno in datafeed-external/{0}/.",
                 _brokerCode);
 
@@ -895,6 +992,31 @@ namespace cAlgo.Robots
             // quando il file non esiste ancora. Una richiesta senza simbolo puo' invece soltanto
             // filtrare cio' che sul disco c'e' gia', e su un archivio appena raccolto non
             // costruirebbe niente riportandolo come "zero stream" — indistinguibile da un successo.
+            if (UsesSymbolList)
+            {
+                // Senza piano i bersagli li dichiara il bot: broker, simbolo e timeframe insieme, uno
+                // stream alla volta, che per il server e' la stessa forma "a bersaglio" del piano.
+                if (_listTimeframes.Count == 0)
+                {
+                    Print("Nessun timeframe da derivare nell'elenco: sul disco resta il solo minuto.");
+                    return;
+                }
+
+                foreach (var symbol in _streams.Select(stream => stream.PiootooSymbol).Distinct(StringComparer.OrdinalIgnoreCase))
+                {
+                    var builder = new StringBuilder();
+                    builder.Append("api/datafeed-external/rebuild-from-minutes?broker=")
+                        .Append(Uri.EscapeDataString(_brokerCode))
+                        .Append("&symbol=")
+                        .Append(Uri.EscapeDataString(symbol));
+                    foreach (var minutes in _listTimeframes)
+                        builder.Append("&timeframeMinutes=").Append(minutes.ToString(CultureInfo.InvariantCulture));
+                    PostAggregateRebuild(builder.ToString(), true);
+                }
+
+                return;
+            }
+
             PostAggregateRebuild(
                 "api/datafeed-external/rebuild-from-minutes?broker=" +
                 Uri.EscapeDataString(_brokerCode) +

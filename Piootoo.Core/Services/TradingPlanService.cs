@@ -1,5 +1,6 @@
 ﻿using System.Text.Json;
 using System.Text.Json.Nodes;
+using Piootoo.Shared.MarketData;
 using Piootoo.Shared.Models.Datafeed;
 using Piootoo.Shared.Models.Trading;
 using Piootoo.Shared.Models.Workspaces;
@@ -101,6 +102,108 @@ public sealed class TradingPlanService
                 })
                 .OrderBy(instrument => instrument.Symbol, StringComparer.OrdinalIgnoreCase)
                 .ToList()
+        };
+    }
+
+    /// <summary>
+    /// Gli strumenti di un raccoglitore <b>senza piano</b>: un elenco di simboli scritto nel
+    /// bot, per raccogliere strumenti su cui non si opera ancora — le celle nuove da valutare.
+    ///
+    /// <para><b>Perche' esiste accanto al piano.</b> Un piano di sola raccolta vuole un masterfilter
+    /// con una strategia per simbolo, e per un simbolo senza strategie l'unica classe possibile e'
+    /// un contenitore di ricerca, che in un masterfilter non puo' entrare
+    /// (<c>WorkspaceService.RejectResearchContainers</c>). Qui la lista non duplica nessun
+    /// masterfilter: e' l'unica dichiarazione di quegli strumenti. Quando un simbolo avra' una
+    /// strategia in un piano, lo raccogliera' il piano.</para>
+    ///
+    /// <para><b>Cosa resta uguale al piano.</b> La cartella la decide il registro dei broker dal
+    /// conto, e il nome sul broker la tabella di conversione del conto: la lista porta solo i
+    /// simboli Piootoo. Un simbolo che la tabella non mappa si scrive <c>NOMEBROKER=@SIMBOLO</c>,
+    /// la stessa forma che accetta il bot degli spread.</para>
+    ///
+    /// <para><b>Niente ripieghi.</b> Conto senza anagrafica o senza broker, simbolo non mappato o
+    /// fuori dal calendario di mercato sono errori, tutti insieme in un messaggio solo: un
+    /// raccoglitore che parte su meta' della lista sembra funzionare, e un simbolo senza
+    /// calendario raccoglie un minuto da cui il server non sa costruire nessun aggregato.</para>
+    /// </summary>
+    /// <param name="entries">Voci <c>@SIMBOLO</c> oppure <c>NOMEBROKER=@SIMBOLO</c>.</param>
+    /// <param name="timeframesMinutes">Timeframe che il server deve derivare dal minuto.</param>
+    public PlanDatafeedInstrumentsDto ResolveListedDatafeedInstruments(
+        string? accountNumber,
+        IReadOnlyCollection<string> entries,
+        IReadOnlyCollection<int> timeframesMinutes)
+    {
+        var account = ResolveAccount(accountNumber)
+            ?? throw new InvalidOperationException(
+                $"Il conto '{accountNumber}' non e' in anagrafica: senza non si sa in quale cartella " +
+                "di datafeed-external/ scrivere, ne' come si chiamano i simboli sul broker.");
+
+        var broker = _workspaces.ResolveBrokerLabelForAccount(account);
+        if (string.IsNullOrWhiteSpace(broker))
+            throw new InvalidOperationException(
+                $"Il conto '{account.AccountNumber}' non ha un broker in anagrafica: non c'e' una " +
+                "cartella in cui scrivere le barre.");
+
+        var conversion = AccountSymbolConversion.FromAccount(account, _workspaces.ResolveConversionForAccount(account));
+        var timeframes = timeframesMinutes.Where(minutes => minutes > 1).Distinct().Order().ToList();
+
+        var instruments = new List<PlanDatafeedInstrumentDto>();
+        var errors = new List<string>();
+        foreach (var raw in entries)
+        {
+            var entry = raw.Trim();
+            if (entry.Length == 0)
+                continue;
+
+            var separator = entry.IndexOf('=');
+            var symbol = NormalizeSymbol(separator > 0 ? entry[(separator + 1)..] : entry);
+            var accountSymbol = separator > 0 ? entry[..separator].Trim() : null;
+
+            if (accountSymbol is null)
+            {
+                if (conversion.HasSymbolTable && !conversion.SupportsSymbol(symbol))
+                {
+                    errors.Add($"{symbol}: la tabella di conversione del conto non lo mappa " +
+                               $"(scrivilo NOMEBROKER={symbol}, o aggiungilo alla tabella)");
+                    continue;
+                }
+
+                accountSymbol = conversion.GetAccountSymbol(symbol);
+            }
+
+            if (!MarketCalendarRegistry.Current.TryGet(symbol, out _))
+            {
+                errors.Add($"{symbol}: non e' nel calendario di mercato, il server non saprebbe " +
+                           "costruirne gli aggregati");
+                continue;
+            }
+
+            if (instruments.Any(existing => existing.Symbol.Equals(symbol, StringComparison.OrdinalIgnoreCase)))
+                continue;
+
+            instruments.Add(new PlanDatafeedInstrumentDto
+            {
+                Symbol = symbol,
+                AccountSymbol = accountSymbol,
+                TimeframesMinutes = timeframes.ToList()
+            });
+        }
+
+        if (errors.Count > 0)
+            throw new ArgumentException(
+                "Elenco simboli non utilizzabile: " + string.Join("; ", errors) + ".");
+
+        if (instruments.Count == 0)
+            throw new ArgumentException("L'elenco simboli e' vuoto.");
+
+        return new PlanDatafeedInstrumentsDto
+        {
+            PlanCode = string.Empty,
+            PlanName = "elenco simboli",
+            WorkspaceId = string.Empty,
+            AccountNumber = account.AccountNumber ?? string.Empty,
+            DatafeedBroker = broker,
+            Instruments = instruments.OrderBy(instrument => instrument.Symbol, StringComparer.OrdinalIgnoreCase).ToList()
         };
     }
 

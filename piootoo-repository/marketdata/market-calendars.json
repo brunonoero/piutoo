@@ -950,6 +950,320 @@
           "source": "misurata: @NQ_15/@ES_15/@BP_15/@EC_15 2024+, pausa unica 16:00-17:00 Chicago"
         }
       ]
+    },
+    "FCE": {
+      "exchangeTz": "Europe/Paris",
+      "researchTz": "Europe/Rome",
+      "sessionStartHour": 0,
+      "note": "CAC 40 Euronext. Aggiunto il 23/09/2026 per la raccolta FTMO (FRA40.cash): nessun dossier, nessuna sorgente. Giorni NON dichiarati: si misurano sul feed raccolto.",
+      "tradingWindows": [
+        {
+          "open": {
+            "at": "08:00",
+            "anchor": "local"
+          },
+          "close": {
+            "at": "22:00",
+            "anchor": "local"
+          },
+          "opensOn": [
+            "Mon",
+            "Tue",
+            "Wed",
+            "Thu",
+            "Fri"
+          ],
+          "from": null,
+          "to": null,
+          "source": "orario dell'exchange (23/09/2026), NON misurato su un feed; coincide con l'orario FTMO pubblicato"
+        }
+      ]
+    },
+    "Z": {
+      "exchangeTz": "Europe/London",
+      "researchTz": "Europe/Rome",
+      "sessionStartHour": 0,
+      "note": "FTSE 100 ICE Futures Europe. Aggiunto il 23/09/2026 per la raccolta FTMO (UK100.cash): giorni NON dichiarati, da misurare sul feed raccolto.",
+      "tradingWindows": [
+        {
+          "open": {
+            "at": "01:00",
+            "anchor": "local"
+          },
+          "close": {
+            "at": "21:00",
+            "anchor": "local"
+          },
+          "opensOn": [
+            "Mon",
+            "Tue",
+            "Wed",
+            "Thu",
+            "Fri"
+          ],
+          "from": null,
+          "to": null,
+          "source": "orario ICE Futures Europe (23/09/2026), NON misurato; FTMO quota anche 23:05-01:00 e 21:00-21:50 di Londra, fuori dal future come il DAX fuori Eurex"
+        }
+      ]
+    },
+    "NIY": {
+      "exchangeTz": "America/Chicago",
+      "researchTz": "Europe/Rome",
+      "sessionStartHour": 0,
+      "note": "Nikkei 225 in yen, CME Globex. Aggiunto il 23/09/2026 per la raccolta FTMO (JP225.cash, quotato in JPY): giorni NON dichiarati, da misurare sul feed raccolto.",
+      "tradingWindows": [
+        {
+          "open": {
+            "at": "17:00",
+            "anchor": "local"
+          },
+          "close": {
+            "at": "16:00",
+            "anchor": "local"
+          },
+          "opensOn": [
+            "Sun",
+            "Mon",
+            "Tue",
+            "Wed",
+            "Thu"
+          ],
+          "from": null,
+          "to": null,
+          "source": "orario dell'exchange (23/09/2026), NON misurato su un feed; coincide con l'orario FTMO pubblicato"
+        }
+      ]
+    },
+    "AP": {
+      "exchangeTz": "Australia/Sydney",
+      "researchTz": "Europe/Rome",
+      "sessionStartHour": 0,
+      "note": "SPI 200 ASX. Aggiunto il 23/09/2026 per la raccolta FTMO (AUS200.cash, con una pausa in sessione): giorni NON dichiarati, da misurare sul feed raccolto.",
+      "tradingWindows": [
+        {
+          "open": {
+            "at": "09:50",
+            "anchor": "local"
+          },
+          "close": {
+            "at": "07:00",
+            "anchor": "local"
+          },
+          "opensOn": [
+            "Mon",
+            "Tue",
+            "Wed",
+            "Thu",
+            "Fri"
+          ],
+          "from": null,
+          "to": null,
+          "source": "ASX 24 (23/09/2026), NON misurata: dalla diurna (09:50) alla fine della notturna (07:00 del giorno dopo); la pausa 16:30-17:10 resta dentro perche' il formato vuole una finestra per giorno. Coincide con FTMO"
+        }
+      ]
+    },
+    "BRN": {
+      "exchangeTz": "Europe/London",
+      "researchTz": "Europe/Rome",
+      "sessionStartHour": 0,
+      "note": "Brent ICE Futures Europe. Aggiunto il 23/09/2026 per la raccolta FTMO (UKOIL.cash): giorni NON dichiarati, da misurare sul feed raccolto.",
+      "tradingWindows": [
+        {
+          "open": {
+            "at": "01:00",
+            "anchor": "local"
+          },
+          "close": {
+            "at": "23:00",
+            "anchor": "local"
+          },
+          "opensOn": [
+            "Mon",
+            "Tue",
+            "Wed",
+            "Thu",
+            "Fri"
+          ],
+          "from": null,
+          "to": null,
+          "source": "orario dell'exchange (23/09/2026), NON misurato su un feed; coincide con l'orario FTMO pubblicato"
+        }
+      ]
+    },
+    "ETH": {
+      "exchangeTz": "America/Chicago",
+      "researchTz": "Europe/Rome",
+      "sessionStartHour": 0,
+      "note": "CME Ether, oggi 24/7 come le altre cripto CME. Aggiunto il 23/09/2026 per la raccolta FTMO (ETHUSD): giorni NON dichiarati di proposito, il CFD quota anche il fine settimana e scartarlo e' una scelta di ricerca, non di calendario.",
+      "tradingWindows": [
+        {
+          "open": {
+            "at": "00:00",
+            "anchor": "local"
+          },
+          "close": {
+            "at": "00:00",
+            "anchor": "local"
+          },
+          "opensOn": [
+            "Sun",
+            "Mon",
+            "Tue",
+            "Wed",
+            "Thu",
+            "Fri",
+            "Sat"
+          ],
+          "from": null,
+          "to": null,
+          "source": "24/7 come il CFD e il future CME (23/09/2026)"
+        }
+      ]
+    },
+    "SOL": {
+      "exchangeTz": "America/Chicago",
+      "researchTz": "Europe/Rome",
+      "sessionStartHour": 0,
+      "note": "CME Solana, 24/7. Aggiunto il 23/09/2026 per la raccolta FTMO (SOLUSD): giorni NON dichiarati.",
+      "tradingWindows": [
+        {
+          "open": {
+            "at": "00:00",
+            "anchor": "local"
+          },
+          "close": {
+            "at": "00:00",
+            "anchor": "local"
+          },
+          "opensOn": [
+            "Sun",
+            "Mon",
+            "Tue",
+            "Wed",
+            "Thu",
+            "Fri",
+            "Sat"
+          ],
+          "from": null,
+          "to": null,
+          "source": "24/7 come il CFD e il future CME (23/09/2026)"
+        }
+      ]
+    },
+    "XRP": {
+      "exchangeTz": "America/Chicago",
+      "researchTz": "Europe/Rome",
+      "sessionStartHour": 0,
+      "note": "CME XRP, 24/7. Aggiunto il 23/09/2026 per la raccolta FTMO (XRPUSD): giorni NON dichiarati.",
+      "tradingWindows": [
+        {
+          "open": {
+            "at": "00:00",
+            "anchor": "local"
+          },
+          "close": {
+            "at": "00:00",
+            "anchor": "local"
+          },
+          "opensOn": [
+            "Sun",
+            "Mon",
+            "Tue",
+            "Wed",
+            "Thu",
+            "Fri",
+            "Sat"
+          ],
+          "from": null,
+          "to": null,
+          "source": "24/7 come il CFD e il future CME (23/09/2026)"
+        }
+      ]
+    },
+    "C": {
+      "exchangeTz": "America/Chicago",
+      "researchTz": "Europe/Rome",
+      "sessionStartHour": 0,
+      "note": "Corn CBOT, centesimi per bushel. Aggiunto il 23/09/2026 per la raccolta FTMO (CORN.c): giorni NON dichiarati, da misurare sul feed raccolto.",
+      "tradingWindows": [
+        {
+          "open": {
+            "at": "19:00",
+            "anchor": "local"
+          },
+          "close": {
+            "at": "13:20",
+            "anchor": "local"
+          },
+          "opensOn": [
+            "Sun",
+            "Mon",
+            "Tue",
+            "Wed",
+            "Thu"
+          ],
+          "from": null,
+          "to": null,
+          "source": "CBOT (23/09/2026), NON misurata: dalla notturna (19:00) alla fine della diurna (13:20 del giorno dopo); la pausa 07:45-08:30 resta dentro perche' il formato vuole una finestra per giorno. Coincide con FTMO"
+        }
+      ]
+    },
+    "S": {
+      "exchangeTz": "America/Chicago",
+      "researchTz": "Europe/Rome",
+      "sessionStartHour": 0,
+      "note": "Soybeans CBOT, centesimi per bushel. Aggiunto il 23/09/2026 per la raccolta FTMO (SOYBEAN.c): giorni NON dichiarati.",
+      "tradingWindows": [
+        {
+          "open": {
+            "at": "19:00",
+            "anchor": "local"
+          },
+          "close": {
+            "at": "13:20",
+            "anchor": "local"
+          },
+          "opensOn": [
+            "Sun",
+            "Mon",
+            "Tue",
+            "Wed",
+            "Thu"
+          ],
+          "from": null,
+          "to": null,
+          "source": "CBOT (23/09/2026), NON misurata: dalla notturna (19:00) alla fine della diurna (13:20 del giorno dopo); la pausa 07:45-08:30 resta dentro perche' il formato vuole una finestra per giorno. Coincide con FTMO"
+        }
+      ]
+    },
+    "W": {
+      "exchangeTz": "America/Chicago",
+      "researchTz": "Europe/Rome",
+      "sessionStartHour": 0,
+      "note": "Wheat CBOT, centesimi per bushel. Aggiunto il 23/09/2026 per la raccolta FTMO (WHEAT.c): giorni NON dichiarati.",
+      "tradingWindows": [
+        {
+          "open": {
+            "at": "19:00",
+            "anchor": "local"
+          },
+          "close": {
+            "at": "13:20",
+            "anchor": "local"
+          },
+          "opensOn": [
+            "Sun",
+            "Mon",
+            "Tue",
+            "Wed",
+            "Thu"
+          ],
+          "from": null,
+          "to": null,
+          "source": "CBOT (23/09/2026), NON misurata: dalla notturna (19:00) alla fine della diurna (13:20 del giorno dopo); la pausa 07:45-08:30 resta dentro perche' il formato vuole una finestra per giorno. Coincide con FTMO"
+        }
+      ]
     }
   }
 }

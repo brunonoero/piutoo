@@ -266,8 +266,10 @@ sessione, e rifiutarli svuoterebbe il feed giornaliero.
 
 ## Da dove arriva l'elenco degli strumenti
 
-Due modi, e il piano vince sui parametri manuali: tenerli entrambi vivi
-significherebbe due liste destinate a divergere in silenzio.
+Due modi che si escludono: il **piano**, per i simboli su cui si opera, e l'**elenco
+simboli**, per quelli su cui non opera ancora nessun piano (vedi il parametro *Simboli* più
+sotto). Un simbolo non va dichiarato in tutti e due: diventerebbero due liste destinate a
+divergere in silenzio.
 
 Con **Codice piano**, le coppie (simbolo, timeframe) vengono dal **masterfilter**
 del workspace del piano, e ogni simbolo arriva già tradotto nel nome che ha sul
@@ -305,20 +307,23 @@ Parametri che contano:
   risposta è `@NQ → USTEC` — il bot chiede `USTEC` al broker e il server salva `@NQ_1.json`,
   senza che nessuno mappi niente a mano. I timeframe del piano non servono alla raccolta ma
   alla **derivazione**: il bot li passa al server a fine backfill.
-- ~~**Simboli**~~ — **tolto nella 7.2.0**: il codice piano è **obbligatorio** ed è l'unica fonte
-  degli strumenti. Un elenco scritto accanto sarebbe una seconda lista della stessa cosa, e
-  divergerebbe in silenzio il giorno in cui si aggiunge una strategia su un simbolo nuovo.
-  Per raccogliere simboli su cui non si opera si fa un **piano di sola raccolta**: un workspace
-  con un masterfilter che elenca una strategia per coppia (simbolo, timeframe) — servono solo a
-  dichiarare cosa raccogliere, non girano — e un piano con il broker e il conto giusti.
-  `RACCOLTA-ICS` (workspace `raccolta-ics`, 21/09/2026) raccoglie GC, CL e BP da ICS così. Un
-  simbolo senza nessuna classe nel catalogo (EC, al 21/09) non è dichiarabile e non si raccoglie.
-  `GET api/datafeed-external/plan-instruments?planCode=…` dice in anticipo cosa il bot chiederà
-  al broker e in quale cartella scriverà.
-- **Timeframe da far derivare al server** — `15,60,240`. Non è cosa raccogliere: si raccoglie
-  il minuto e basta. È cosa il server deve derivarne a fine backfill. Con un codice piano
-  viene **ignorato**, perché quei timeframe li dichiara il masterfilter — l'unica fonte di
-  verità su quali servono. Vuoto e senza piano: si rifanno gli aggregati già presenti.
+- **Simboli** — tolto nella 7.2.0, **tornato il 23/09/2026 come alternativa al piano**, non
+  come ripiego: piano ed elenco si escludono e con tutti e due il bot non parte. Serve ai
+  simboli su cui **non opera ancora nessun piano** — le celle nuove da valutare. Per loro un
+  piano di sola raccolta non si può fare: il masterfilter vorrebbe una strategia per simbolo, un
+  simbolo nuovo ha al più un contenitore di ricerca, e i contenitori nel masterfilter non entrano
+  (`WorkspaceService.RejectResearchContainers`). Le voci sono **simboli Piootoo** (`@FESX`):
+  nome sul broker e cartella li dichiara il server (`GET api/datafeed-external/listed-instruments`)
+  con la tabella di conversione e il registro dei broker del conto, come per il piano. Un simbolo
+  che la tabella non mappa si scrive `EU50.cash=@FESX`, la forma del bot degli spread. Conto senza
+  broker, simbolo non mappato o fuori calendario fanno fallire l'avvio, tutti in un messaggio.
+  Per i simboli su cui si opera resta il piano: lì un elenco sarebbe una seconda copia del
+  masterfilter. `RACCOLTA-ICS` (workspace `raccolta-ics`, 21/09/2026) è un piano di sola
+  raccolta costruito su strategie PTS che esistevano già.
+- **Timeframe da derivare con l'elenco** — `15,60,240`. Non è cosa raccogliere: si raccoglie
+  il minuto e basta. È cosa il server deve derivarne a fine backfill, simbolo per simbolo in forma
+  a bersaglio (`rebuild-from-minutes?broker&symbol&timeframeMinutes`). Con un codice piano
+  viene **ignorato**, perché quei timeframe li dichiara il masterfilter.
 - **Fai derivare gli aggregati a fine backfill** (acceso) — la chiamata a
   `rebuild-from-minutes`. Spegnendolo, sul disco resta il solo minuto.
 - **Tolleranza buchi in minuti** (`0` = quattro giorni) — da quanto in su un vuoto fra due

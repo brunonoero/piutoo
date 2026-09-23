@@ -60,6 +60,16 @@ public static class InstrumentRegistry
         new("FESX", 10m, "EUR", 1m, "Euro Stoxx 50 future"),
         new("FGBL", 1000m, "EUR", 0.01m, "Euro-Bund future"),
 
+        // --- Indici aggiunti per la raccolta FTMO (23/09/2026) -------------------------
+        // Nessun feed del vendor: la sola serie sara' quella del CFD. Le valute sono quelle del
+        // contratto (EUR, GBP, JPY, AUD) e il sistema non le converte, come per FDAX.
+        new("FCE", 10m, "EUR", 0.5m, "CAC 40 future (Euronext), EUR 10 per punto"),
+        new("Z", 10m, "GBP", 0.5m, "FTSE 100 future (ICE Europe), GBP 10 per punto"),
+        // CME NIY e non NKD: il CFD JP225 quota in yen, e la regola del moltiplicatore vuole
+        // future e CFD nella stessa valuta di quotazione. Specifica riletta su cmegroup.com.
+        new("NIY", 500m, "JPY", 5m, "Nikkei 225 in yen (CME NIY), JPY 500 per punto"),
+        new("AP", 25m, "AUD", 1m, "SPI 200 future (ASX), AUD 25 per punto"),
+
         // --- Metalli ----------------------------------------------------------------
         new("GC", 100m, "USD", 0.1m, "Gold, 100 once troy"),
         new("MGC", 10m, "USD", 0.1m, "Micro Gold, 10 once troy"),
@@ -73,10 +83,16 @@ public static class InstrumentRegistry
         new("MCL", 100m, "USD", 0.01m, "Micro Crude Oil, 100 barili"),
         new("NG", 10000m, "USD", 0.001m, "Natural Gas, 10.000 MMBtu"),
         new("RB", 42000m, "USD", 0.0001m, "RBOB Gasoline, 42.000 galloni ($/gal)"),
+        new("BRN", 1000m, "USD", 0.01m, "Brent (ICE Europe), 1.000 barili"),
 
         // --- Cripto -----------------------------------------------------------------
         // CME BTC: contratto 5 bitcoin, $5 per punto di indice; tick 5,00 punti = $25.
         new("BTC", 5m, "USD", 5m, "Bitcoin future (CME BTC), 5 BTC"),
+        // Aggiunti per la raccolta FTMO (23/09/2026), specifiche rilette su cmegroup.com: il tick
+        // e' quello dell'outright, non quello BTIC.
+        new("ETH", 50m, "USD", 0.5m, "Ether future (CME ETH), 50 ether"),
+        new("SOL", 500m, "USD", 0.05m, "Solana future (CME SOL), 500 SOL"),
+        new("XRP", 50000m, "USD", 0.0005m, "XRP future (CME XRP), 50.000 XRP"),
 
         // --- Softs ICE US ----------------------------------------------------------
         // Quotazione in centesimi per libbra per KC, CT e SB: il PointValue e' quindi il
@@ -89,6 +105,14 @@ public static class InstrumentRegistry
         new("SB", 1120m, "USD", 0.01m, "Sugar No.11, 112.000 libbre (centesimi/lb, $1.120 per centesimo)"),
         // Cocoa e' quotato in dollari per tonnellata su un contratto da 10 tonnellate.
         new("CC", 10m, "USD", 1m, "Cocoa, 10 tonnellate ($/tonnellata)"),
+
+        // --- Granaglie CBOT (23/09/2026, raccolta FTMO) ------------------------------
+        // Quotazione in centesimi per bushel su 5.000 bushel: $50 per centesimo, tick 1/4 di
+        // centesimo = $12,50. Il CFD FTMO quota nella stessa unita' (SOYBEAN.c ~1.310, WHEAT.c
+        // ~698 il 23/09/2026), quindi il feed raccolto e i punti del contratto coincidono.
+        new("C", 50m, "USD", 0.25m, "Corn CBOT, 5.000 bushel (centesimi/bu, $50 per centesimo)"),
+        new("S", 50m, "USD", 0.25m, "Soybeans CBOT, 5.000 bushel (centesimi/bu, $50 per centesimo)"),
+        new("W", 50m, "USD", 0.25m, "Wheat CBOT, 5.000 bushel (centesimi/bu, $50 per centesimo)"),
 
         // --- Valute CME ------------------------------------------------------------
         // CME 6B: contratto £62.500, quotato USD per GBP; tick 0,0001 = $6,25.
@@ -151,7 +175,6 @@ public static class InstrumentRegistry
             ["JY"] = "Japanese Yen (6J) — quotazione in unità di 0,000001, particolarmente insidiosa",
             ["AD"] = "Australian Dollar (6A)",
             ["CD"] = "Canadian Dollar (6C)",
-            ["C"] = "Corn — verificare se il feed quota in centesimi o dollari per bushel",
             ["LC"] = "Live Cattle — quotazione in centesimi per libbra",
             ["FC"] = "Feeder Cattle — quotazione in centesimi per libbra",
             ["LH"] = "Lean Hogs — quotazione in centesimi per libbra",
