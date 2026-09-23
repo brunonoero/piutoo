@@ -43,6 +43,7 @@ studi stampano numeri e non asseriscono.
 | cella | campione | validazione |
 |---|---:|---:|
 | FDAX 4h (2014-21 / 2021-26) | 266 | 365 |
+| FDAX 1h (2014-21 / 2021-26) | 137 | 191 |
 | NQ 4h (2014-21) | 125 | |
 | NQ 15m (2022-25) | 120 | |
 | GC 4h (2014-21) | 100 | |

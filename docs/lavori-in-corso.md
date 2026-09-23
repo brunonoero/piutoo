@@ -78,6 +78,15 @@ contigui per (serie, simbolo, motore) senza distinguere il timeframe. La finalis
 `CoarseGridSpec.FirstLeverDivisor` (nuovo) permette una prima leva decimale: il k del volatility
 breakout viaggia in decimi.
 
+**Esito della coda, 17:26** (`ricerca/fdax-coda-2026-09-23.md`): **A** i filtri della 002 non
+migliorano la regione nuda (4,45/4,13 di netto su DD contro 2,5-4,4): nessuna 004 da questa strada.
+**B** l'edge è del Price Channel: breakout di sessione 2 equilibrate e fuori campione negativo, reversal
+di Bollinger zero ammissibili, volatility breakout 4 equilibrate. **C** a 1 ora il PC sul DAX regge
+(364 ammissibili, 42 equilibrate; uscita 21 e solo long come a 4h); sui costi peggiori la cella canale
+20 entrambe le direzioni fa +191.859 / +117.267 con 4/4 finestre, ma average trade al 36% della soglia
+fuori campione. Il DAX offre tre componenti PC (002, regione 4h, cella 1h): **prima di sommarle va
+misurata la correlazione**.
+
 ---
 
 # La ricerca PT3B, stato al 21/09/2026
