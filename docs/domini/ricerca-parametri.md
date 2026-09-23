@@ -88,9 +88,19 @@ al prezzo dichiarato: una coppia richiesto+vietato che rende solo insieme non è
 
 ### L'ora di uscita di sessione: la seconda deviazione dichiarata
 
-`ExitHour` (PC intraday, dal 21/09/2026) sceglie **a che ora** l'uscita di sessione chiude la
-posizione. `-1` — primo valore della griglia, quindi il punto di partenza della sweep — è la fine
+`ExitHour` (dal 21/09/2026, sui motori intraday) sceglie **a che ora** l'uscita di sessione chiude
+la posizione. `-1` — primo valore della griglia, quindi il punto di partenza della sweep — è la fine
 della sessione, cioè il comportamento di sempre.
+
+**Vale per ogni motore dal 23/09/2026.** Fino a quel giorno la leggeva il solo `PriceChannelEngine`:
+il campo `SessionExitTime` stava su `EasyEngineBase`, quindi ogni motore lo ereditava e ogni classe
+poteva dichiararlo, ma sei motori su sette risolvevano la deadline per conto proprio su `SessionEnd`.
+Impostare `ExitHour` su una trend following non faceva niente, in silenzio, e la griglia grossa TF
+del 22/09 ha misurato 25 combinazioni credendo di misurarne 250
+(`ricerca/nq-4h-tf-griglia-grossa.md`). Ora la deadline la risolve **un punto solo**,
+`EasyEngineBase.WithSessionExit`, chiamato da tutti i motori che applicano l'uscita di sessione, e
+`SessionExitHourTests.EveryEngineResolvesTheSessionExitInOnePlace` impedisce a un motore di
+risolverla da sé.
 
 Esiste perché la sessione della ricerca è il **giorno di calendario europeo**: per FDAX finisce
 alle 00:59, cioè *dopo* il rollover del broker (21:00 su ICS, 20:59 su FTMO). Una PC dichiarata
@@ -146,6 +156,27 @@ Tre scelte che la rendono onesta:
 
 Nella griglia grossa si accende con `CoarseGridSpec.AtrStops`: `Stops` e `Targets` diventano decimi
 di ATR (10 = 1,0) e il denaro fisso va a zero, così un target a 0 è davvero "nessun target".
+
+### Cercare dentro una regione: `--fix`
+
+`piootoo-sweep --fix "ChannelBars=20;Direction=1;ExitHour=21"` (dal 23/09/2026, `SweepSpace.Fix`)
+riduce la griglia di quei parametri a un valore solo, che diventa anche il default: le fasi che li
+nominano li vedono come una costante, tutto il resto dello spazio resta quello. Serve quando una
+misura più grossa ha già detto **dove** sta l'edge — la griglia grossa su FDAX 4 ore indica canale
+20, solo long, uscita alle 21 — e la ricerca deve scegliere pattern, orari e stop **dentro** quella
+regione invece di riscoprirla o, come è già successo, andare altrove. Non è una deviazione dal
+metodo: il trigger si sceglie per primo comunque, qui da una misura invece che da una fase. Ma una
+finalista trovata in una regione fissata non è confrontabile con una trovata nello spazio intero, e
+il resoconto lo dichiara in testa (`Spazio: regione fissata`).
+
+### Gli spazi disponibili
+
+`SweepSpaces.PriceChannel` (`--engine PC`), `SweepSpaces.BiasWeekly` (`BIASW`) e, dal 23/09/2026,
+`SweepSpaces.TrendFollowingUnmirrored` (`TFU`): la traduzione di `tf_unmirrored.py`, senza trigger da
+scegliere — il livello è l'estremo della sessione precedente — e con i pattern come seconda e terza
+fase, perché sulle TF sono il filtro principale. Le due fasi pattern sono 152 × 153 combinazioni col
+prodotto completo e su una cella a 15 minuti al minuto vanno spezzate (`--split-pattern-phases`). La
+direzione la scelgono i pattern: il 153, sempre falso, sul `Yes` di un lato lo spegne.
 
 ## Il criterio: il peggiore dei tratti, non il totale
 
@@ -246,8 +277,8 @@ della ricerca**, prima del backtest e non dopo.
 `Piootoo.Core/Optimization/Sweep/` — `SweepRunner`, `SweepSeries`, `SweepSpace`, `SweepOptimizer`,
 `SweepObjective`, `SweepValidation`. `Piootoo.Core/Services/SwapTable.cs` e `SpreadTable.cs` per i
 costi. `Piootoo.Sweep/Program.cs` per la riga di comando, `tools/sweep-paniere.ps1` per i lanci.
-`Piootoo.Strategies/Easy/Engines/EasyEngineBase.cs` per `SessionExitTime`, `StopAtrMultiplier` e
-`ClosedSessionAtrPoints`; `Piootoo.Strategies.Tests/CoarseGridStudy.cs` per la griglia grossa.
-Test: `SweepRunnerParityTests`, `SweepOptimizerTests`, `SweepValidationTests`, `SwapSpecTests`,
-`SessionExitHourTests`, `AtrStopTests`.
+`Piootoo.Strategies/Easy/Engines/EasyEngineBase.cs` per `SessionExitTime`, `WithSessionExit`,
+`StopAtrMultiplier` e `ClosedSessionAtrPoints`; `Piootoo.Strategies.Tests/CoarseGridStudy.cs` per la
+griglia grossa. Test: `SweepRunnerParityTests`, `SweepOptimizerTests`, `SweepValidationTests`,
+`SweepSpaceTests`, `SwapSpecTests`, `SessionExitHourTests`, `AtrStopTests`.
 Resoconti dei run in `piootoo-repository/ricerca/`.

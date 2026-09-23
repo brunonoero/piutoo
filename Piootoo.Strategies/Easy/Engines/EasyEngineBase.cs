@@ -198,8 +198,70 @@ public abstract class EasyEngineBase : StatelessEasyStrategyBase
     /// <c>exit_on_session_end</c> booleano e non conosce un'ora di uscita: una configurazione che
     /// valorizza questo campo non e' riproducibile dal motore Python. Vedi
     /// <c>docs/domini/ricerca-parametri.md</c>.</para>
+    ///
+    /// <para><b>La legge un punto solo, <see cref="WithSessionExit"/>, per tutti i motori.</b> Fino al
+    /// 23/09/2026 la leggeva il solo <c>PriceChannelEngine</c>: il campo stava qui, quindi ogni motore
+    /// lo ereditava e ogni classe poteva dichiararlo, ma sei motori su sette chiudevano su
+    /// <see cref="SessionEnd"/> e basta. Impostare <c>ExitHour</c> su una trend following non faceva
+    /// niente, in silenzio, e la griglia TF del 22/09 ha misurato 25 combinazioni credendo di
+    /// misurarne 250 (<c>ricerca/nq-4h-tf-griglia-grossa.md</c>). Un motore che risolve la deadline
+    /// da solo, senza passare da <see cref="WithSessionExit"/>, riaprirebbe il difetto:
+    /// <c>SessionExitHourTests.EveryEngineResolvesTheSessionExitInOnePlace</c> lo impedisce.</para>
     /// </summary>
     protected TimeOnly? SessionExitTime;
+
+    /// <summary>
+    /// Applica al segnale l'uscita di sessione, se questo motore la prevede
+    /// (<see cref="AppliesSessionExit"/>): la deadline cade a <see cref="SessionExitTime"/> quando e'
+    /// dichiarata, altrimenti a fine sessione (<see cref="SessionEnd"/>), che e' il comportamento del
+    /// motore di ricerca e resta il default.
+    ///
+    /// <para>Restituisce <c>null</c> quando l'ingresso nascerebbe <b>dopo</b> la propria ora di
+    /// chiusura: con un'ora propria la finestra utile della sessione finisce li', e un ordine che non
+    /// potrebbe stare aperto nemmeno un minuto non e' un ordine. Rimandare la deadline alla sessione
+    /// dopo — il comportamento storico di <see cref="ResolveCloseAtUtc(DateTime, TimeOnly)"/> —
+    /// trasformerebbe in overnight proprio la posizione che quell'ora esiste per chiudere prima della
+    /// notte, e la <see cref="Holding"/> dichiarata non sarebbe piu' vera. Il chiamante accoda con
+    /// <see cref="AddEntry"/>, che scarta il <c>null</c>.</para>
+    /// </summary>
+    protected TradeSignal? WithSessionExit(TradeSignal signal)
+    {
+        if (!AppliesSessionExit)
+            return signal;
+
+        var closeAt = ResolveCloseAtUtc(
+            signal.ValidFromUtc!.Value,
+            SessionExitTime ?? SessionEnd,
+            rollToNextSession: SessionExitTime is null);
+
+        if (closeAt is null)
+            return null;
+
+        signal.CloseAtUtc = closeAt;
+        return signal;
+    }
+
+    /// <summary>
+    /// Accoda un ingresso, se esiste. Il <c>null</c> e' l'ingresso che <see cref="WithSessionExit"/>
+    /// ha scartato perche' nascerebbe dopo la propria ora di uscita: non e' un errore, e' un ordine
+    /// che non deve nascere.
+    /// </summary>
+    protected static void AddEntry(List<TradeSignal> entries, TradeSignal? entry)
+    {
+        if (entry is not null)
+            entries.Add(entry);
+    }
+
+    /// <summary>
+    /// L'ora di uscita come la scrive la ricerca (<c>ExitHour</c>): un intero, l'ora piena
+    /// nell'orologio della ricerca, con <c>-1</c> per "fine sessione". Vale per ogni motore, perche'
+    /// <see cref="SessionExitTime"/> vale per ogni motore.
+    /// </summary>
+    protected static TimeOnly? ResearchExitHourOrOff(object value)
+    {
+        var hour = Convert.ToInt32(value);
+        return hour < 0 ? null : new TimeOnly(hour, 0);
+    }
 
     /// <summary>
     /// L'uscita di sessione dei motori che portano <c>intraday_only</c>, con la regola di parita'

@@ -95,6 +95,25 @@ $definizioni = [ordered]@{
         Strategia = "PT3B_FDAX_PCH_001_240"; Simbolo = "@FDAX"; Timeframe = 240; Motore = "PC"
         SpezzaPattern = $false; Stima = "~2,5 ore"
     }
+    # La ricerca della 003 (23/09/2026): la griglia grossa lunga ha indicato la regione - canale 20,
+    # solo long, uscita alle 21 - e qui la sweep sceglie pattern, orari e stop DENTRO quella regione
+    # (--fix). Una finalista trovata qui non e' confrontabile con una dello spazio intero, e il
+    # resoconto lo dichiara. Va lanciata con -Split 2021-01-01 -A 2026-09-01 come la griglia, cosi'
+    # i numeri si confrontano; il default del paniere (2022) e' un altro split.
+    "fdax-4h-003" = @{
+        Strategia = "PT3B_FDAX_PCH_001_240"; Simbolo = "@FDAX"; Timeframe = 240; Motore = "PC"
+        SpezzaPattern = $false; Stima = "~2 ore"
+        Fissati = "ChannelBars=20;Direction=1;ExitHour=21"
+    }
+    # La seconda prova del trend following (23/09/2026), che cambia tre cose insieme rispetto alla
+    # griglia TF del 22/09: unmirrored, 15 minuti, e con i pattern cercati dalla sweep. Le due fasi
+    # pattern sono 152 x 153 col prodotto completo: spezzate, con il prezzo dichiarato. L'archivio
+    # ICS di NQ al minuto parte dal 2022: -Da 2022-01-01 -Split 2025-01-01 -A 2026-09-01, e
+    # -UtileMedioMinimo 120 (15% del range medio della barra da 15 minuti, nq-15m-griglia-grossa.md).
+    "nq-15m-tfu" = @{
+        Strategia = "PT3B_NQ_TFU_001_15"; Simbolo = "@NQ"; Timeframe = 15; Motore = "TFU"
+        SpezzaPattern = $true; Stima = "~3 ore, fasi pattern spezzate"
+    }
     # "nq-4h" = @{
     #     Strategia = "<serve una PT3B su @NQ 240>"; Simbolo = "@NQ"; Timeframe = 240; Motore = "PC"
     #     SpezzaPattern = $false; Stima = "~1,5 ore"
@@ -153,6 +172,7 @@ foreach ($cella in $Celle) {
     if ($SpreadPerOra) { $suffisso += "-per-ora" }
     if ($Criterio -eq "worst-period") { $suffisso += "-peggior-tratto" }
     if ($FlatUtc) { $suffisso += "-flat-" + $FlatUtc.Replace(":", "") }
+    if ($d.Fissati) { $suffisso += "-regione" }
     $log = Join-Path $uscita "$cella$suffisso.log"
     $md = Join-Path $uscita "$cella$suffisso.md"
 
@@ -168,6 +188,7 @@ foreach ($cella in $Celle) {
         "--objective", $Criterio, "--out", $md
     )
     if ($d.SpezzaPattern) { $argomenti += "--split-pattern-phases" }
+    if ($d.Fissati) { $argomenti += @("--fix", $d.Fissati) }
     if ($SpreadPerOra) { $argomenti += "--spread-per-hour" }
     if ($FlatUtc) { $argomenti += @("--flat-utc", $FlatUtc, "--flat-window", $FinestraFlat) }
 

@@ -197,14 +197,14 @@ public abstract class SessionBreakoutEngine : EasyEngineBase
         if (EasyLib.PatternDirectionalFast(+DirectionalYes, ohlc) &&
             !EasyLib.PatternDirectionalFast(+DirectionalNo, ohlc))
         {
-            entries.Add(WithPythonSettings(
+            AddEntry(entries, WithPythonSettings(
                 EntryStopNextBar(SignalType.Buy, longLevel + offset, data, barTime, "LE BO")));
         }
 
         if (EasyLib.PatternDirectionalFast(-DirectionalYes, ohlc) &&
             !EasyLib.PatternDirectionalFast(-DirectionalNo, ohlc))
         {
-            entries.Add(WithPythonSettings(
+            AddEntry(entries, WithPythonSettings(
                 EntryStopNextBar(SignalType.Sell, shortLevel - offset, data, barTime, "SE BO")));
         }
 
@@ -366,17 +366,14 @@ public abstract class SessionBreakoutEngine : EasyEngineBase
         return longLevel > decimal.MinValue && shortLevel < decimal.MaxValue;
     }
 
-    private TradeSignal WithPythonSettings(TradeSignal signal)
+    private TradeSignal? WithPythonSettings(TradeSignal signal)
     {
         // EngineSignals.single_entry_per_session del Python è un limite sul fill, non
         // sull'emissione dello stop: un ordine non eseguito deve poter essere riemesso.
         signal.MaxEntriesPerSession = 1;
         signal.EntrySessionStartUtc = SessionKey(signal.ValidFromUtc!.Value);
 
-        if (AppliesSessionExit)
-            signal.CloseAtUtc = ResolveCloseAtUtc(signal.ValidFromUtc.Value, SessionEnd);
-
-        return signal;
+        return WithSessionExit(signal);
     }
 
     private bool InPythonTradingWindow(DateTime barTime)

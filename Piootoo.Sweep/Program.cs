@@ -168,9 +168,19 @@ public static class Program
         var space = options.Engine switch
         {
             "PC" => SweepSpaces.PriceChannel(options.Timeframe),
+            "TFU" => SweepSpaces.TrendFollowingUnmirrored(options.Timeframe),
             "BIASW" => SweepSpaces.BiasWeekly(),
             _ => throw new ArgumentException($"motore sconosciuto: {options.Engine}")
         };
+
+        // Una regione gia' scelta da una misura piu' grossa: i parametri fissati non si cercano.
+        if (options.FixedParameters is not null)
+        {
+            space = space.Fix(options.FixedParameters);
+            Console.WriteLine("[sweep] parametri FISSATI, non cercati: " +
+                              string.Join(", ", options.FixedParameters.Select(entry => $"{entry.Key} = {entry.Value}")) +
+                              ". La ricerca resta dentro questa regione dello spazio.");
+        }
 
         if (options.SplitPatternPhases)
         {
@@ -378,6 +388,12 @@ public static class Program
             (options.SplitPatternPhases
                 ? " · **fasi pattern spezzate** (deviazione dal motore di ricerca: il pattern richiesto e quello vietato sono ottimizzati uno alla volta, quindi le coppie che rendono solo insieme non sono raggiungibili)"
                 : string.Empty),
+            // Una finalista trovata in una regione fissata non e' confrontabile con una trovata nello
+            // spazio intero: il resoconto deve dire dentro quali muri ha cercato.
+            options.FixedParameters is null
+                ? "- Spazio: intero"
+                : "- Spazio: **regione fissata** — " + string.Join(", ", options.FixedParameters.Select(entry => $"`{entry.Key} = {entry.Value}`")) +
+                  " (scelti da una misura precedente, non cercati)",
             $"- Durata: {elapsed.TotalMinutes:N1} minuti",
             string.Empty,
             "## Fasi",
@@ -461,12 +477,13 @@ public static class Program
     {
         public const string Usage = """
             piootoo-sweep --strategy <Id> --symbol <@SYM> --timeframe <minuti> --split <yyyy-MM-dd>
-                          [--engine PC|BIASW] [--broker <BROKER>] [--spread-broker <BROKER>]
+                          [--engine PC|TFU|BIASW] [--broker <BROKER>] [--spread-broker <BROKER>]
                           [--from <yyyy-MM-dd>] [--to <yyyy-MM-dd>] [--beam N] [--top N]
                           [--min-trades N] [--commission N] [--max-combinations N] [--out <file.md>]
                           [--split-pattern-phases] [--clock <minuti, default 1>]
                           [--min-losing-trades N, default 10]  (--min-trades default 250)
                           [--flat-utc <HH:mm>] [--flat-window <minuti, default 30>]
+                          [--fix "Chiave=valore;Altra=valore"]  (parametri fissati, non cercati)
             """;
 
         public required string Strategy { get; init; }
@@ -567,6 +584,13 @@ public static class Program
         /// configurazione dentro e fuori campione. Vuoto = ricerca completa.
         /// </summary>
         public IReadOnlyDictionary<string, object>? Parameters { get; init; }
+
+        /// <summary>
+        /// Con <c>--fix "Chiave=valore;Altra=valore"</c> quei parametri non si cercano: la griglia di
+        /// ciascuno si riduce al valore dato. Serve a cercare dentro una regione gia' scelta da una
+        /// misura piu' grossa. Vedi <see cref="SweepSpace.Fix"/>.
+        /// </summary>
+        public IReadOnlyDictionary<string, object>? FixedParameters { get; init; }
         public string RepositoryPath { get; init; } = @"C:\piootoo-dev\piootoo-repository";
         public string? OutputPath { get; init; }
 
@@ -675,6 +699,7 @@ public static class Program
                     : null,
                 FlatWindowMinutes = Number("flat-window", TradingConventions.SessionFlatWindowMinutes),
                 Parameters = ParseParameters(values.GetValueOrDefault("params")),
+                FixedParameters = ParseParameters(values.GetValueOrDefault("fix")),
                 OutputPath = values.GetValueOrDefault("out")
             };
         }

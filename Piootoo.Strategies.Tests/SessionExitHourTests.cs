@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using Piootoo.Core.Optimization.Sweep;
 using Piootoo.Shared.Configuration;
 using Piootoo.Shared.Enums;
@@ -22,9 +23,118 @@ namespace Piootoo.Strategies.Tests;
 /// dichiarata intraday paga percio' il finanziamento ogni giorno — su
 /// <c>PT3B_FDAX_PCH_001_240</c> erano 879 trade su 1.317 e il 28% del lordo. Vedi
 /// <c>docs/domini/ricerca-parametri.md</c> e <c>compare/compare-0048/esito.md</c>.</para>
+///
+/// <para><b>Vale per ogni motore, dal 23/09/2026.</b> Fino a quel giorno la leggeva il solo Price
+/// Channel: il campo stava su <c>EasyEngineBase</c> e ogni classe poteva dichiararlo, ma sei motori
+/// su sette chiudevano su <c>SessionEnd</c> e basta, e la griglia TF del 22/09 ha misurato 25
+/// combinazioni credendo di misurarne 250. Ora la risolve un punto solo,
+/// <c>EasyEngineBase.WithSessionExit</c>, e i test sul trend following qui sotto sono gli stessi
+/// del Price Channel, con lo stesso esito.</para>
 /// </summary>
 public sealed class SessionExitHourTests(ITestOutputHelper output)
 {
+    /// <summary>
+    /// Il trend following chiude alla stessa ora del Price Channel: le 20:00 di Roma sono le 19:00Z
+    /// in gennaio. Prima del 23/09/2026 questo test avrebbe trovato la fine sessione, perche' il
+    /// motore non leggeva il campo.
+    /// </summary>
+    [Fact]
+    public void ATrendFollowingClosesAtItsExitHourLikeThePriceChannel()
+    {
+        var bars = BuildFourHourBars(new DateTime(2026, 1, 15, 8, 0, 0, DateTimeKind.Utc));
+        var signal = EvaluateTf(new IntradayTrendFollowing { ExitHour = new TimeOnly(20, 0) }, bars);
+
+        // Mirrored col motore nudo: nascono entrambi i lati, il long e' il primario e lo short
+        // viaggia come compagno. Devono chiudere allo stesso istante.
+        Assert.Equal(SignalType.Buy, signal.Type);
+        var atteso = new DateTime(2026, 1, 15, 19, 0, 0, DateTimeKind.Utc);
+        Assert.Equal(atteso, signal.CloseAtUtc);
+        var compagno = Assert.Single(signal.CompanionSignals!);
+        Assert.Equal(SignalType.Sell, compagno.Type);
+        Assert.Equal(atteso, compagno.CloseAtUtc);
+    }
+
+    /// <summary>Senza l'ora propria il trend following chiude a fine sessione, come ha sempre fatto.</summary>
+    [Fact]
+    public void ATrendFollowingWithoutAnExitHourStillClosesAtTheEndOfTheSession()
+    {
+        var bars = BuildFourHourBars(new DateTime(2026, 1, 15, 8, 0, 0, DateTimeKind.Utc));
+        var signal = EvaluateTf(new IntradayTrendFollowing(), bars);
+
+        Assert.Equal(SignalType.Buy, signal.Type);
+        var grid = new SessionGrid(MarketCalendarRegistry.Current.Get("@FDAX"));
+        var sessionClose = grid.SessionOpenUtc(grid.SessionDayOf(signal.ValidFromUtc!.Value).AddDays(1));
+        Assert.Equal(sessionClose.AddMinutes(-1), signal.CloseAtUtc);
+    }
+
+    /// <summary>
+    /// Anche sul trend following l'ingresso che nascerebbe dopo la propria ora di uscita non nasce:
+    /// e' lo scarto di <c>WithSessionExit</c>, e vale per entrambi i lati.
+    /// </summary>
+    [Fact]
+    public void ATrendFollowingEntryBornAfterItsExitHourIsNotEmitted()
+    {
+        var bars = BuildFourHourBars(new DateTime(2026, 1, 15, 16, 0, 0, DateTimeKind.Utc));
+
+        var senzaOra = EvaluateTf(new IntradayTrendFollowing(), bars);
+        Assert.Equal(SignalType.Buy, senzaOra.Type);
+
+        var conOra = EvaluateTf(new IntradayTrendFollowing { ExitHour = new TimeOnly(20, 0) }, bars);
+        Assert.Equal(SignalType.Hold, conOra.Type);
+    }
+
+    /// <summary>
+    /// Toglie commenti di riga: il vincolo e' sul codice, e una spiegazione che nomina la forma
+    /// vietata per dire di non usarla non e' una violazione.
+    /// </summary>
+    private static readonly Regex SessionEndDeadline = new(
+        @"ResolveCloseAtUtc\s*\([^;]*\bSessionEnd\b", RegexOptions.Compiled);
+
+    /// <summary>
+    /// <b>La deadline di fine sessione la risolve un punto solo.</b> Un motore che chiamasse
+    /// <c>ResolveCloseAtUtc(..., SessionEnd)</c> per conto proprio ignorerebbe <c>SessionExitTime</c>
+    /// e riaprirebbe il difetto del 22/09: una classe che dichiara l'ora di uscita e non la ottiene,
+    /// in silenzio. Il controllo e' sul sorgente perche' e' li' che il difetto nasce, e perche' un
+    /// motore nuovo lo erediterebbe copiando <c>WithPythonSettings</c> da uno vecchio.
+    /// </summary>
+    [Fact]
+    public void EveryEngineResolvesTheSessionExitInOnePlace()
+    {
+        var root = FindRepositoryRoot();
+        var engines = Path.Combine(root, "Piootoo.Strategies", "Easy", "Engines");
+        var violations = new List<string>();
+
+        foreach (var file in Directory.EnumerateFiles(engines, "*.cs"))
+        {
+            if (Path.GetFileName(file) == "EasyEngineBase.cs") continue;
+
+            var lines = File.ReadAllLines(file);
+            for (var index = 0; index < lines.Length; index++)
+            {
+                var trimmed = lines[index].TrimStart();
+                if (trimmed.StartsWith("//", StringComparison.Ordinal)) continue;
+                var code = lines[index].Split("//", 2)[0];
+                if (SessionEndDeadline.IsMatch(code))
+                    violations.Add($"{Path.GetRelativePath(root, file)}({index + 1}): {trimmed}");
+            }
+        }
+
+        Assert.True(violations.Count == 0,
+            "Un motore non risolve la deadline di fine sessione da solo: passa da " +
+            "EasyEngineBase.WithSessionExit, che legge SessionExitTime per tutti." +
+            Environment.NewLine + string.Join(Environment.NewLine, violations));
+    }
+
+    private static string FindRepositoryRoot()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null && !File.Exists(Path.Combine(directory.FullName, "PiootooApp.sln")))
+            directory = directory.Parent;
+
+        return directory?.FullName
+            ?? throw new DirectoryNotFoundException($"PiootooApp.sln non trovata risalendo da {AppContext.BaseDirectory}.");
+    }
+
     /// <summary>
     /// Il default non cambia niente: senza <c>SessionExitTime</c> la deadline resta l'ultimo minuto
     /// della sessione. E' la garanzia che questo parametro non tocchi le strategie gia' portate.
@@ -160,7 +270,13 @@ public sealed class SessionExitHourTests(ITestOutputHelper output)
     }
 
     private static TradeSignal Evaluate(PriceChannelEngine strategy, OhlcvData[] bars) =>
-        strategy.Evaluate(new StrategyEvaluationRequest
+        strategy.Evaluate(Request(strategy, bars));
+
+    private static TradeSignal EvaluateTf(TfEngineBase strategy, OhlcvData[] bars) =>
+        strategy.Evaluate(Request(strategy, bars));
+
+    private static StrategyEvaluationRequest Request(EasyEngineBase strategy, OhlcvData[] bars) =>
+        new()
         {
             Ohlcv = bars,
             BarTimeUtc = bars[^1].DateTime,
@@ -170,7 +286,7 @@ public sealed class SessionExitHourTests(ITestOutputHelper output)
                 Symbol = "FDAX",
                 BarTimeUtc = bars[^1].DateTime
             }
-        });
+        };
 
     /// <summary>
     /// Barre da 4 ore piatte, con l'ultima che allarga il canale verso l'alto: basta a far nascere
@@ -210,6 +326,26 @@ public sealed class SessionExitHourTests(ITestOutputHelper output)
 
         public override string Name => "TEST_EXITHOUR_PC_FDAX_240";
         public override string Description => "Price Channel di prova con ora di uscita";
+        public override string Symbol => "@FDAX";
+        public override int TimeframeMinutes => 240;
+    }
+
+    /// <summary>
+    /// Trend following mirrored nudo: le sentinelle dei pattern fanno passare entrambi i lati, e
+    /// sulle barre piatte del test l'estremo della sessione precedente e' un livello valido.
+    /// </summary>
+    private sealed class IntradayTrendFollowing : TfMirroredEngine
+    {
+        public IntradayTrendFollowing()
+        {
+            IntradayOnly = true;
+            SkipDay = -1;
+        }
+
+        public TimeOnly? ExitHour { set => SessionExitTime = value; }
+
+        public override string Name => "TEST_EXITHOUR_TF_FDAX_240";
+        public override string Description => "Trend following di prova con ora di uscita";
         public override string Symbol => "@FDAX";
         public override int TimeframeMinutes => 240;
     }

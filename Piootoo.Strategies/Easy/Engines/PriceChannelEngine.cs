@@ -224,19 +224,15 @@ public abstract class PriceChannelEngine : EasyEngineBase
         if (Direction != 2 &&
             PassesDirectionalGates(+1, ohlc))
         {
-            var entry = WithPythonSettings(
-                EntryStopNextBar(SignalType.Buy, HighestChannelHigh(data) + offset, data, barTime, "PC_LE"));
-            if (entry is not null)
-                entries.Add(entry);
+            AddEntry(entries, WithPythonSettings(
+                EntryStopNextBar(SignalType.Buy, HighestChannelHigh(data) + offset, data, barTime, "PC_LE")));
         }
 
         if (Direction != 1 &&
             PassesDirectionalGates(-1, ohlc))
         {
-            var entry = WithPythonSettings(
-                EntryStopNextBar(SignalType.Sell, LowestChannelLow(data) - offset, data, barTime, "PC_SE"));
-            if (entry is not null)
-                entries.Add(entry);
+            AddEntry(entries, WithPythonSettings(
+                EntryStopNextBar(SignalType.Sell, LowestChannelLow(data) - offset, data, barTime, "PC_SE")));
         }
 
         return Combine(entries, Hold(bar.Close, barTime));
@@ -282,11 +278,9 @@ public abstract class PriceChannelEngine : EasyEngineBase
     }
 
     /// <summary>
-    /// Restituisce <c>null</c> quando l'ingresso nascerebbe <b>dopo</b> la propria ora di chiusura:
-    /// con <see cref="EasyEngineBase.SessionExitTime"/> valorizzato, la finestra utile della
-    /// sessione finisce li', e un ordine che non potrebbe stare aperto nemmeno un minuto non e' un
-    /// ordine. Senza questo scarto la deadline slitterebbe alla sessione dopo e la strategia
-    /// diventerebbe overnight proprio dove ha dichiarato di non esserlo.
+    /// Policy del motore di ricerca sul segnale; l'uscita di sessione — con l'ora propria e lo
+    /// scarto dell'ingresso che nascerebbe dopo — e' <see cref="EasyEngineBase.WithSessionExit"/>,
+    /// la stessa di tutti i motori. <c>null</c> = l'ingresso non deve nascere.
     /// </summary>
     private TradeSignal? WithPythonSettings(TradeSignal signal)
     {
@@ -294,21 +288,7 @@ public abstract class PriceChannelEngine : EasyEngineBase
         signal.MaxEntriesPerSession = 1;
         signal.EntrySessionStartUtc = SessionKey(signal.ValidFromUtc!.Value);
 
-        if (AppliesSessionExit)
-        {
-            // SessionEnd resta il default: e' il comportamento del motore di ricerca, e senza un
-            // orario proprio nulla cambia rispetto a prima.
-            var exitTime = SessionExitTime ?? SessionEnd;
-            var closeAt = ResolveCloseAtUtc(
-                signal.ValidFromUtc.Value, exitTime, rollToNextSession: SessionExitTime is null);
-
-            if (closeAt is null)
-                return null;
-
-            signal.CloseAtUtc = closeAt;
-        }
-
-        return signal;
+        return WithSessionExit(signal);
     }
 
     private TradeSignal WithLegacySettings(TradeSignal signal)

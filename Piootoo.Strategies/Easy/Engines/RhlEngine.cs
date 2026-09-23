@@ -104,7 +104,7 @@ public abstract class RhlEngine : EasyEngineBase
             Direction != 2)
         {
             var level = lowD1 - LongLevelOffsetTicks * TickSize;
-            entries.Add(WithPythonSettings(
+            AddEntry(entries, WithPythonSettings(
                 EntryLimitNextBar(SignalType.Buy, level, data, barTime, "LE RHL")));
         }
 
@@ -116,7 +116,7 @@ public abstract class RhlEngine : EasyEngineBase
             Direction != 1)
         {
             var level = highD1 + ShortLevelOffsetTicks * TickSize;
-            entries.Add(WithPythonSettings(
+            AddEntry(entries, WithPythonSettings(
                 EntryLimitNextBar(SignalType.Sell, level, data, barTime, "SE RHL")));
         }
 
@@ -129,15 +129,12 @@ public abstract class RhlEngine : EasyEngineBase
     /// riempito deve poter essere riemesso alla barra dopo, e in sessione <c>ExternalBroker</c>
     /// il server emette solo intent di ingresso, quindi l'uscita di fine sessione va scritta qui.
     /// </summary>
-    private TradeSignal WithPythonSettings(TradeSignal signal)
+    private TradeSignal? WithPythonSettings(TradeSignal signal)
     {
         signal.MaxEntriesPerSession = 1;
         signal.EntrySessionStartUtc = ResolveEntrySessionStartUtc(signal.ValidFromUtc!.Value);
 
-        if (AppliesSessionExit)
-            signal.CloseAtUtc = ResolveCloseAtUtc(signal.ValidFromUtc.Value, SessionEnd);
-
-        return signal;
+        return WithSessionExit(signal);
     }
 
     private bool InTradingWindow(DateTime barTime)

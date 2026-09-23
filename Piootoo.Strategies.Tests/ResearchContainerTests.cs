@@ -45,6 +45,7 @@ public sealed class ResearchContainerTests : IDisposable
 
         Assert.Contains("PT3B_NQ_PCH_001_15", containers);
         Assert.Contains("PT3B_CL_PCH_001_30", containers);
+        Assert.Contains("PT3B_NQ_TFU_001_15", containers);
         Assert.DoesNotContain("PT3B_FDAX_PCH_002_240", containers);
 
         // E l'elenco di default — quello fra cui si sceglie — non ne contiene nessuno: e' la ragione
@@ -124,44 +125,6 @@ public sealed class ResearchContainerTests : IDisposable
         }
 
         return null;
-    }
-
-    /// <summary>
-    /// <b><c>SessionExitTime</c> la legge solo il Price Channel</b>, e una classe di un altro motore
-    /// che la dichiarasse non otterrebbe niente — in silenzio.
-    ///
-    /// <para>Il campo sta su <c>EasyEngineBase</c>, quindi lo ereditano tutti e dieci i motori, ma
-    /// <c>PriceChannelEngine.WithPythonSettings</c> e' l'unico che lo usa: <c>TfEngineBase</c> chiude
-    /// su <c>SessionEnd</c> e basta. Non e' un dettaglio: l'uscita prima del rollover e' la leva che
-    /// ha prodotto <c>PT3B_FDAX_PCH_002_240</c> e che quattro griglie indipendenti hanno confermato,
-    /// e chi la applicasse a una trend following otterrebbe gli stessi numeri di prima concludendo
-    /// che «su questa non serve». La griglia TF del 22/09 ci ha perso meta' corsa: 250 combinazioni
-    /// che ne misuravano 25.</para>
-    ///
-    /// <para>Finche' la leva non e' portata su <c>EasyEngineBase</c> per tutti i motori, questo test
-    /// impedisce che una classe la dichiari dove non fa niente.</para>
-    /// </summary>
-    [Fact]
-    public void OnlyThePriceChannelDeclaresASessionExitTime()
-    {
-        var sospette = new List<string>();
-
-        foreach (var definition in StrategyFactory.GetRegisteredStrategies(includeResearchContainers: true))
-        {
-            var instance = StrategyFactory.CreateStrategy(
-                definition.Id, definition.Symbol, definition.TimeframeMinutes);
-            if (instance is null or Piootoo.Strategies.Easy.Engines.PriceChannelEngine) continue;
-
-            var field = Campo(instance.GetType(), "SessionExitTime");
-            if (field?.GetValue(instance) is not null)
-                sospette.Add(definition.Id);
-        }
-
-        Assert.True(sospette.Count == 0,
-            "Classi non Price Channel che dichiarano SessionExitTime, dove il motore non la legge: " +
-            string.Join(", ", sospette) +
-            ". O si porta la leva su EasyEngineBase per tutti i motori, o quella dichiarazione non " +
-            "fa niente e va tolta. Vedi ricerca/nq-4h-tf-griglia-grossa.md.");
     }
 
     /// <summary>Un masterfilter con dentro un contenitore non si salva, e l'errore dice quale.</summary>

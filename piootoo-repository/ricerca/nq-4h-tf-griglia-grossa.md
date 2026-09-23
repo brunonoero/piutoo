@@ -57,6 +57,14 @@ applicarla a una TF otterrebbe gli stessi numeri di prima e concluderebbe che «
 non serve». Va deciso se portarla in `EasyEngineBase` per tutti i motori o se vincolarla al solo
 Price Channel con un controllo che la renda non dichiarabile altrove.
 
+**Deciso e fatto il 23/09/2026: portata su tutti i motori.** La deadline di fine sessione la
+risolve un punto solo, `EasyEngineBase.WithSessionExit`, e i sette motori che applicano l'uscita di
+sessione ci passano; un test sul sorgente (`EveryEngineResolvesTheSessionExitInOnePlace`) impedisce
+a un motore di risolverla da sé. Il contenitore `PT3B_NQ_TFM_001_240` legge di nuovo `ExitHour`.
+Questa griglia **non è stata rilanciata**: la conclusione qui sotto dice perché la prossima prova sul
+trend following non è un altro giro della stessa griglia, ed è quella che è partita
+(`ricerca/nq-15m-tfu-*.md`, sweep con `SweepSpaces.TrendFollowingUnmirrored`).
+
 ## Conclusione
 
 **Su NQ a 4 ore il trend following mirrored nudo è peggio del Price Channel**, che già non bastava.

@@ -229,7 +229,7 @@ public abstract class VolatilityBreakoutEngine : EasyEngineBase
             EasyLib.PatternDirectionalFast(+DirectionalYes, ohlc) &&
             !EasyLib.PatternDirectionalFast(+DirectionalNo, ohlc))
         {
-            entries.Add(WithPythonSessionLimit(
+            AddEntry(entries, WithPythonSessionLimit(
                 EntryStopNextBar(SignalType.Buy, longLevel, data, barTime, "LE VBO")));
         }
 
@@ -237,7 +237,7 @@ public abstract class VolatilityBreakoutEngine : EasyEngineBase
             EasyLib.PatternDirectionalFast(-DirectionalYes, ohlc) &&
             !EasyLib.PatternDirectionalFast(-DirectionalNo, ohlc))
         {
-            entries.Add(WithPythonSessionLimit(
+            AddEntry(entries, WithPythonSessionLimit(
                 EntryStopNextBar(SignalType.Sell, shortLevel, data, barTime, "SE VBO")));
         }
 
@@ -397,16 +397,13 @@ public abstract class VolatilityBreakoutEngine : EasyEngineBase
         return sum / AtrLength;
     }
 
-    private TradeSignal WithPythonSessionLimit(TradeSignal signal)
+    private TradeSignal? WithPythonSessionLimit(TradeSignal signal)
     {
         // VBO Python richiede un solo fill per sessione; il contatore è dell'engine, non locale.
         signal.MaxEntriesPerSession = 1;
         signal.EntrySessionStartUtc = SessionKey(signal.ValidFromUtc!.Value);
 
-        if (AppliesSessionExit)
-            signal.CloseAtUtc = ResolveCloseAtUtc(signal.ValidFromUtc!.Value, SessionEnd);
-
-        return signal;
+        return WithSessionExit(signal);
     }
 
     private bool InPythonTradingWindow(DateTime barTime)

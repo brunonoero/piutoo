@@ -82,7 +82,7 @@ public abstract class RbbMirroredEngine : EasyEngineBase
             EasyLib.PatternDirectionalFast(+DirectionalYes, ohlc) &&
             !EasyLib.PatternDirectionalFast(+DirectionalNo, ohlc))
         {
-            entries.Add(WithPythonSettings(
+            AddEntry(entries, WithPythonSettings(
                 EntryLimitNextBar(SignalType.Sell, upperBand, data, barTime, "SE RBB_M")));
         }
 
@@ -90,7 +90,7 @@ public abstract class RbbMirroredEngine : EasyEngineBase
             EasyLib.PatternDirectionalFast(-DirectionalYes, ohlc) &&
             !EasyLib.PatternDirectionalFast(-DirectionalNo, ohlc))
         {
-            entries.Add(WithPythonSettings(
+            AddEntry(entries, WithPythonSettings(
                 EntryLimitNextBar(SignalType.Buy, lowerBand, data, barTime, "LE RBB_M")));
         }
 
@@ -109,13 +109,11 @@ public abstract class RbbMirroredEngine : EasyEngineBase
         return InWindow(StartTrade, EndTrade, ParamTime(barTime), inclusiveEnd: true);
     }
 
-    private TradeSignal WithPythonSettings(TradeSignal signal)
+    private TradeSignal? WithPythonSettings(TradeSignal signal)
     {
         signal.MaxEntriesPerSession = 1;
         signal.EntrySessionStartUtc = GetSessionStartUtc(signal.ValidFromUtc!.Value);
-        if (AppliesSessionExit)
-            signal.CloseAtUtc = ResolveCloseAtUtc(signal.ValidFromUtc.Value, SessionEnd);
-        return signal;
+        return WithSessionExit(signal);
     }
 
     private DateTime GetSessionStartUtc(DateTime timeUtc)
@@ -235,7 +233,7 @@ public abstract class RbbUnmirroredEngine : EasyEngineBase
             EasyLib.PatternFast(FastYesShort, ohlc) &&
             !EasyLib.PatternFast(FastNoShort, ohlc))
         {
-            entries.Add(WithPythonSettings(
+            AddEntry(entries, WithPythonSettings(
                 EntryLimitNextBar(SignalType.Sell, upperBand, data, barTime, "SE RBB_U")));
         }
 
@@ -243,7 +241,7 @@ public abstract class RbbUnmirroredEngine : EasyEngineBase
             EasyLib.PatternFast(FastYesLong, ohlc) &&
             !EasyLib.PatternFast(FastNoLong, ohlc))
         {
-            entries.Add(WithPythonSettings(
+            AddEntry(entries, WithPythonSettings(
                 EntryLimitNextBar(SignalType.Buy, lowerBand, data, barTime, "LE RBB_U")));
         }
 
@@ -262,13 +260,11 @@ public abstract class RbbUnmirroredEngine : EasyEngineBase
         return InWindow(StartTrade, EndTrade, ParamTime(barTime), inclusiveEnd: true);
     }
 
-    private TradeSignal WithPythonSettings(TradeSignal signal)
+    private TradeSignal? WithPythonSettings(TradeSignal signal)
     {
         signal.MaxEntriesPerSession = 1;
         signal.EntrySessionStartUtc = GetSessionStartUtc(signal.ValidFromUtc!.Value);
-        if (AppliesSessionExit)
-            signal.CloseAtUtc = ResolveCloseAtUtc(signal.ValidFromUtc.Value, SessionEnd);
-        return signal;
+        return WithSessionExit(signal);
     }
 
     private DateTime GetSessionStartUtc(DateTime timeUtc)

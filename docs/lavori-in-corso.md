@@ -6,7 +6,41 @@ ragione il codice.
 
 ---
 
-# ⇦ RIPRENDERE DA QUI: la ricerca PT3B, stato al 21/09/2026
+# ⇦ RIPRENDERE DA QUI: le tre decisioni del 23/09, tutte prese e in corsa
+
+Le tre cose lasciate aperte la sera del 22/09 (in fondo alla sezione «sei griglie grosse») sono
+state fatte tutte e tre la mattina del 23/09. Voci in `decisioni.md` 2026-09-23.
+
+1. **`SessionExitTime` vale per ogni motore.** Portata su `EasyEngineBase.WithSessionExit`, un
+   punto solo che risolve la deadline di fine sessione per i sette motori con uscita di sessione, con
+   lo scarto dell'ingresso che nascerebbe dopo la propria ora. Test sul sorgente
+   (`EveryEngineResolvesTheSessionExitInOnePlace`) e comportamentali sul TF, gli stessi del PC. Il
+   default non cambia. La griglia TF 4h del 22/09 **non** è stata rilanciata: il suo stesso rapporto
+   diceva che il prossimo giro non doveva essere quello.
+2. **La 003 su FDAX, cercata dentro la regione.** `piootoo-sweep --fix "ChannelBars=20;Direction=1;
+   ExitHour=21"` (`SweepSpace.Fix`): la sweep sceglie pattern, orari e stop **dentro** la regione
+   che la griglia lunga ha indicato, con lo stesso split della griglia (2021-01-01) e i costi del
+   paniere (spread per ora peggiore ICS/FTMO, swap peggiore, 19,23 per lato). Riferimento nudo della
+   regione: stop 2.500, target 9.000 fa **+96.324 IS / +102.480 OOS** su 577/528 trade, PF 1,22/1,20,
+   avg trade 167/194 contro soglie 266/365. Una finalista deve battere **questo**, non lo zero. Cella
+   `fdax-4h-003` in `tools/sweep-paniere.ps1`; resoconto in
+   `ricerca/fdax-4h-003-ics-costo-peggiore-per-ora-peggior-tratto-regione.md`.
+3. **Il trend following, seconda prova, tre cose cambiate insieme**: unmirrored, 15 minuti, pattern
+   cercati dalla sweep (`SweepSpaces.TrendFollowingUnmirrored`, `--engine TFU`, fasi pattern
+   spezzate). Contenitore `PT3B_NQ_TFU_001_15`. 2022-01 → 2025-01 → 2026-09, feed ICS, utile medio
+   minimo 120. Il riferimento è `PTS_NQ_TFU_003_15`, la sola TF coerente del catalogo ai costi veri
+   (IS +16.578 su 195 trade, OOS +41.872 su 128, 4/4). Cella `nq-15m-tfu`; resoconto in
+   `ricerca/nq-15m-tfu-ics-costo-peggiore-per-ora-peggior-tratto.md`.
+
+Le due ricerche girano **in sequenza** da `tools/lancia-ricerche-2026-09-23.ps1`, log in
+`ricerca/lancio-2026-09-23.log`. Quando finiscono: leggere i due resoconti con i criteri di
+`metodo-unger` §8.2 (avg trade ≥ 266/365 su FDAX, ≥ 120 su NQ 15; UngerFit ≥ 1; guadagno annuo su DD
+≥ 2), confrontarli con i riferimenti qui sopra, scrivere il rapporto e — solo se una finalista
+batte il riferimento e regge — la classe accanto al contenitore.
+
+---
+
+# La ricerca PT3B, stato al 21/09/2026
 
 Due giorni di lavoro hanno prodotto un **ottimizzatore interno** funzionante e una prima strategia
 (`PT3B_FDAX_PCH_001_240`). Il codice è committato e verde: 1.035 test. Quello che manca sono due

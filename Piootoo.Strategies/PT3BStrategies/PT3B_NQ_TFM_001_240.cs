@@ -91,10 +91,11 @@ public sealed class PT3B_NQ_TFM_001_240 : TfMirroredEngine
             TradingWindow = TradingWindow! with { End = ResearchHourOrOff(endHour, ZonedWindow.EndOfDay) };
         if (parameters.TryGetValue("IntradayOnly", out var intradayOnly))
             IntradayOnly = Convert.ToInt32(intradayOnly) != 0;
-        // ExitHour NON si legge, di proposito: SessionExitTime e' dichiarata su EasyEngineBase ma la
-        // usa il solo PriceChannelEngine — TfEngineBase chiude su SessionEnd e basta. Leggerla qui
-        // farebbe credere che la leva esista, e la griglia del 22/09 ci si e' gia' persa mezza corsa:
-        // 250 combinazioni che ne misuravano 25. Vedi ricerca/nq-4h-tf-griglia-grossa.md.
+        // Dal 23/09/2026 la legge anche il trend following: l'uscita di sessione passa da
+        // EasyEngineBase.WithSessionExit per tutti i motori. Nella griglia del 22/09 la leva era
+        // inerte e 250 combinazioni ne misuravano 25 (ricerca/nq-4h-tf-griglia-grossa.md).
+        if (parameters.TryGetValue("ExitHour", out var exitHour))
+            SessionExitTime = ResearchExitHourOrOff(exitHour);
         if (parameters.TryGetValue("SkipDay", out var skipDay))
             SkipDay = Convert.ToInt32(skipDay);
         if (parameters.TryGetValue("StopAtr", out var stopAtr))

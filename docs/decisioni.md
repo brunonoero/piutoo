@@ -4455,3 +4455,38 @@ che il motore fa. Difetto di artefatto, non di esecuzione, ma e' costato mezza i
   avrebbe tolto uno strumento senza togliere un rischio. La guardia contro la dimenticanza e'
   `AStrategyWithBlankPatternsDeclaresItselfAContainer`: una classe con tutti e quattro i gate alle
   sentinelle o si dichiara contenitore o porta i pattern della ricerca.
+
+- **2026-09-23** — **`SessionExitTime` vale per ogni motore, e la deadline di fine sessione la
+  risolve un punto solo** (`EasyEngineBase.WithSessionExit`). Il campo stava sulla base dal 21/09,
+  quindi tutti e dieci i motori lo ereditavano e ogni classe poteva dichiararlo, ma lo leggeva il
+  solo `PriceChannelEngine`: gli altri sei motori con uscita di sessione — TF mirrored e unmirrored,
+  RBB (due), BO, RHL, VBO — chiamavano `ResolveCloseAtUtc(..., SessionEnd)` per conto proprio.
+  Impostare `ExitHour` su una trend following non faceva niente, in silenzio, e la griglia grossa TF
+  del 22/09 ha misurato 25 combinazioni su 250 credendo di misurarle tutte
+  (`ricerca/nq-4h-tf-griglia-grossa.md`). Scelta la via del **porto su tutti** e non quella del
+  vincolo al solo Price Channel, perche' l'uscita prima del rollover e' la leva confermata da quattro
+  griglie indipendenti e negarla agli altri motori avrebbe reso il confronto fra motori impossibile
+  per costruzione. `WithSessionExit` porta anche lo scarto dell'ingresso che nascerebbe dopo la
+  propria ora (prima era del solo PC), quindi i sette `WithPythonSettings` restituiscono `TradeSignal?`
+  e accodano con `AddEntry`. Il default non cambia: senza ora propria ogni motore chiude a fine
+  sessione come prima. Il test di conformita' e' sul **sorgente**
+  (`SessionExitHourTests.EveryEngineResolvesTheSessionExitInOnePlace`: nessun motore chiama
+  `ResolveCloseAtUtc` con `SessionEnd`), perche' un motore nuovo erediterebbe il difetto copiando
+  `WithPythonSettings` da uno vecchio; i test comportamentali sul TF sono gli stessi del PC. Tolto
+  `OnlyThePriceChannelDeclaresASessionExitTime`, che vincolava il contrario.
+
+- **2026-09-23** — **La sweep cerca dentro una regione (`--fix`) e conosce il trend following
+  unmirrored (`--engine TFU`).** Due strumenti per i due lavori del giorno. (1) `SweepSpace.Fix`
+  riduce la griglia dei parametri dati a un valore solo, che diventa anche il default: la griglia
+  grossa lunga su FDAX ha detto dove sta l'edge (canale 20, solo long, uscita alle 21) e la ricerca
+  della 003 deve scegliere pattern, orari e stop **dentro** quella regione, non riscoprirla — sulle
+  celle gia' cercate la prima fase e' andata altrove. Non e' una deviazione dal metodo (il trigger si
+  sceglie per primo comunque, qui da una misura) ma una finalista trovata in una regione non e'
+  confrontabile con una dello spazio intero, e il resoconto lo dichiara (`Spazio: regione fissata`).
+  (2) `SweepSpaces.TrendFollowingUnmirrored` traduce `tf_unmirrored.py` verbatim — nessun trigger da
+  scegliere, i pattern come seconda e terza fase, il 153 sui `Yes` per spegnere un lato — piu'
+  `ExitHour` come deviazione dichiarata, che dal porto di oggi ha senso su una TF. Contenitore
+  `PT3B_NQ_TFU_001_15`. E' la seconda prova del trend following e cambia tre cose insieme rispetto
+  alla griglia del 22/09 (unmirrored, 15 minuti, pattern cercati), come quel resoconto prescriveva:
+  la sola TF coerente del catalogo ai costi veri era `PTS_NQ_TFU_003_15`. Celle `fdax-4h-003` e
+  `nq-15m-tfu` in `tools/sweep-paniere.ps1`. Test: `SweepSpaceTests`.

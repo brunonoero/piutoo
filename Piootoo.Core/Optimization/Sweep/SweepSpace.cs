@@ -177,6 +177,45 @@ public sealed class SweepSpace
 
         return new SweepSpace(Engine, Parameters, phases, Defaults, PatternSentinels);
     }
+
+    /// <summary>
+    /// <b>Fissa</b> alcuni parametri a un valore solo: la griglia di ciascuno si riduce a quel
+    /// valore, che diventa anche il default, e le fasi che li nominano li vedono come una costante.
+    ///
+    /// <para><b>A cosa serve.</b> A cercare dentro una <i>regione</i> gia' scelta da una misura piu'
+    /// grossa. La griglia grossa su FDAX 4 ore (<c>ricerca/fdax-4h-griglia-grossa-lunga.md</c>) ha
+    /// detto dove sta l'edge — canale 20, solo long, uscita alle 21 — e la ricerca della 003 non deve
+    /// riscoprirlo: deve scegliere pattern, orari e stop <b>dentro</b> quella regione. Senza il
+    /// vincolo la prima fase e' libera di andare altrove, e sulle celle gia' cercate ci e' andata.</para>
+    ///
+    /// <para><b>E' una restrizione dello spazio, non una deviazione dal metodo</b>: il metodo prevede
+    /// che il trigger si scelga per primo, e qui e' scelto da una misura invece che da una fase. Il
+    /// resoconto lo dichiara, perche' una finalista trovata in una regione fissata non e' confrontabile
+    /// con una trovata nello spazio intero.</para>
+    /// </summary>
+    public SweepSpace Fix(IReadOnlyDictionary<string, object> fixedValues)
+    {
+        var unknown = fixedValues.Keys.Where(key => !ByKey.ContainsKey(key)).ToList();
+        if (unknown.Count > 0)
+        {
+            throw new ArgumentException(
+                $"{Engine}: si chiede di fissare parametri che lo spazio non dichiara: {string.Join(", ", unknown)}.");
+        }
+
+        // Costruttore e non `with`: il record tiene in cache l'ordine naturale dei valori, e una
+        // copia lo porterebbe con se' gia' calcolato sulla griglia intera.
+        var parameters = Parameters
+            .Select(parameter => fixedValues.TryGetValue(parameter.Key, out var value)
+                ? new SweepParameter(parameter.Key, [value], parameter.Categorical, parameter.OffSentinel)
+                : parameter)
+            .ToList();
+
+        var defaults = new Dictionary<string, object>(Defaults, StringComparer.OrdinalIgnoreCase);
+        foreach (var (key, value) in fixedValues)
+            defaults[key] = value;
+
+        return new SweepSpace(Engine, parameters, Phases, defaults, PatternSentinels);
+    }
 }
 
 /// <summary>
@@ -351,6 +390,85 @@ public static class SweepSpaces
         };
 
         return new SweepSpace("PC", parameters, phases, defaults, sentinels);
+    }
+
+    /// <summary>
+    /// <c>tf_unmirrored.py</c>: breakout stop sull'estremo della sessione precedente, con i quattro
+    /// gate <c>PatternFast</c> indipendenti per lato. Non ha un trigger da scegliere — il livello e'
+    /// <c>H_d1</c>/<c>L_d1</c> e non e' un parametro — quindi la prima fase e' la sola uscita base
+    /// (<c>intraday_only</c>), e i pattern vengono subito dopo: sulle TF sono il filtro principale,
+    /// non un raffinamento.
+    ///
+    /// <para><b>La direzione la scelgono i pattern.</b> Le liste <c>*Yes</c> includono 153, che e'
+    /// sempre falso: messo sul <c>Yes</c> di un lato lo spegne, ed e' cosi' che una TF a senso unico
+    /// e' raggiungibile senza un parametro <c>Direction</c>.</para>
+    ///
+    /// <para><b>Le due fasi pattern sono 152 × 153 combinazioni ciascuna</b> col prodotto completo:
+    /// su una cella a 15 minuti al minuto non e' eseguibile, e si lancia con
+    /// <see cref="SweepSpace.SplitPatternPhases"/>, deviazione dichiarata come per il BIAS
+    /// settimanale.</para>
+    ///
+    /// <para><c>ExitHour</c> e' la stessa deviazione dichiarata del Price Channel, e dal 23/09/2026 la
+    /// legge ogni motore (<c>EasyEngineBase.WithSessionExit</c>): prima di quel giorno su una TF non
+    /// faceva niente, e la griglia del 22/09 se n'e' accorta misurando 25 combinazioni su 250.</para>
+    /// </summary>
+    public static SweepSpace TrendFollowingUnmirrored(int timeframeMinutes)
+    {
+        var daily = timeframeMinutes >= 1440;
+
+        var parameters = new List<SweepParameter>
+        {
+            new("PtnLyYes", Fast(152), Categorical: true),
+            new("PtnLyNo", Fast(153), Categorical: true),
+            new("PtnSyYes", Fast(152), Categorical: true),
+            new("PtnSyNo", Fast(153), Categorical: true),
+            new("StartHour", daily ? [-1] : Hours, OffSentinel: -1),
+            new("EndHour", daily ? [-1] : Hours, OffSentinel: -1),
+            new("SkipDay", [-1, 4], Categorical: true),
+            new("StopLoss", daily ? [3000, 1000, 2000, 5000, 8000] : StopLossGrid),
+            new("TakeProfit", daily ? [0, 2000, 4000, 6000, 10000, 15000] : TakeProfitGrid, OffSentinel: 0),
+            new("MaxBars", daily ? [0, 5, 10, 20] : MaxBars(timeframeMinutes), OffSentinel: 0)
+        };
+
+        var phases = new List<SweepPhase>
+        {
+            new("pattern long", ["PtnLyYes", "PtnLyNo"]),
+            new("pattern short", ["PtnSyYes", "PtnSyNo"]),
+            new("orari e giorni", ["StartHour", "EndHour", "SkipDay"]),
+            new("stop e target", ["StopLoss", "TakeProfit", "MaxBars"], RequiresAccurateClock: true)
+        };
+
+        if (!daily)
+        {
+            // FASE 0 del motore Python: l'uscita base, flat a fine sessione oppure multiday.
+            parameters.Insert(0, new SweepParameter("IntradayOnly", [1, 0], Categorical: true));
+            parameters.Add(new SweepParameter(
+                "ExitHour", [-1, 15, 16, 17, 18, 19, 20, 21, 22], OffSentinel: -1));
+
+            phases.Insert(0, new SweepPhase("uscita base", ["IntradayOnly"]));
+            // Dopo gli orari e prima dello stop, per la stessa ragione del Price Channel: e' una
+            // decisione di durata e va presa prima che stop e target le si tarino addosso.
+            phases.Insert(4, new SweepPhase("uscita di sessione", ["ExitHour"], RequiresAccurateClock: true));
+        }
+
+        // get_default_params(): senza stop ne' target il TF intraday perde sempre e a ogni fase
+        // vince la sentinella.
+        var defaults = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["StopLoss"] = daily ? 3000 : 1000,
+            ["TakeProfit"] = daily ? 6000 : 3000,
+            ["MaxBars"] = 0
+        };
+
+        var sentinels = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["PtnLyYes"] = 152,
+            ["PtnLyNo"] = 153,
+            ["PtnSyYes"] = 152,
+            ["PtnSyNo"] = 153
+        };
+
+        return new SweepSpace("TFU", parameters, phases, defaults, sentinels);
     }
 
     /// <summary>

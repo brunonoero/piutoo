@@ -54,11 +54,11 @@ public abstract class TfEngineBase : EasyEngineBase
 
         var entries = new List<TradeSignal>(2);
         if (PassesLongGates(ohlc))
-            entries.Add(WithPythonSettings(
+            AddEntry(entries, WithPythonSettings(
                 EntryStopNextBar(SignalType.Buy, highD1, data, barTime, "LE TF")));
 
         if (PassesShortGates(ohlc))
-            entries.Add(WithPythonSettings(
+            AddEntry(entries, WithPythonSettings(
                 EntryStopNextBar(SignalType.Sell, lowD1, data, barTime, "SE TF")));
 
         return Combine(entries, Hold(bar.Close, barTime));
@@ -88,7 +88,7 @@ public abstract class TfEngineBase : EasyEngineBase
     private bool IsSkippedPythonWeekday(DateTime barTime) =>
         SkipDay >= 0 && PythonWeekday(barTime) == SkipDay;
 
-    private TradeSignal WithPythonSettings(TradeSignal signal)
+    private TradeSignal? WithPythonSettings(TradeSignal signal)
     {
         // Python impone una sola entrata eseguita per lato/sessione. Il limite va
         // dichiarato sul segnale, non dedotto dal contatore giornaliero locale:
@@ -96,10 +96,8 @@ public abstract class TfEngineBase : EasyEngineBase
         signal.MaxEntriesPerSession = 1;
         signal.EntrySessionStartUtc = GetSessionStartUtc(signal.ValidFromUtc!.Value);
 
-        if (AppliesSessionExit)
-            signal.CloseAtUtc = ResolveCloseAtUtc(signal.ValidFromUtc!.Value, SessionEnd);
-
-        return signal;
+        // L'uscita di sessione, con l'ora propria se dichiarata: e' la stessa di tutti i motori.
+        return WithSessionExit(signal);
     }
 
     private DateTime GetSessionStartUtc(DateTime timeUtc)
