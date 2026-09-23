@@ -75,7 +75,8 @@ namespace cAlgo.Robots
         // Versione propria, come per la sonda dello spread: questo bot non tocca il contratto di
         // esecuzione, e legarlo a PiootooVersion farebbe comparire un finto disallineamento a ogni
         // release del server.
-        private const string BotVersion = "1.0.0";
+        // 1.1.0 (23/09/2026): nome, versione e broker sul grafico, come tutta la suite.
+        private const string BotVersion = "1.1.0";
 
         /// <summary>
         /// Sotto questa soglia una variazione di <c>Position.Swap</c> non e' un addebito ma il
@@ -145,8 +146,44 @@ namespace cAlgo.Robots
         // Avvio
         // -----------------------------------------------------------------------------------------
 
+        /// <summary>
+        /// Nome, versione, broker e conto in alto a destra sul grafico: la prima cosa da vedere per
+        /// sapere quale bot gira e su quale broker, senza aprire il log. Il broker e' quello che
+        /// dichiara cTrader (<c>Account.BrokerName</c>) ripulito come in tutta la suite: "FTMO
+        /// Platform" -> <c>FTMOPLATFORM</c>. E' un'informazione, non una chiave: la cartella dei dati
+        /// la decide il registro dei broker del server.
+        /// </summary>
+        private void DrawIdentity(string title)
+        {
+            try
+            {
+                Chart.DrawStaticText("PiootooIdentity",
+                    string.Format("{0} v{1}\nBroker: {2}\nConto:  {3}",
+                        title, BotVersion, PlatformBrokerCode(Account.BrokerName), Account.Number),
+                    VerticalAlignment.Top, HorizontalAlignment.Right, Color.LightGray);
+            }
+            catch (System.Exception)
+            {
+                // Senza grafico (ottimizzazione) non c'e' dove scrivere: non e' un motivo per fermarsi.
+            }
+        }
+
+        private static string PlatformBrokerCode(string brokerName)
+        {
+            if (string.IsNullOrWhiteSpace(brokerName))
+                return "-";
+
+            var builder = new System.Text.StringBuilder(brokerName.Length);
+            foreach (var character in brokerName.Trim().ToUpperInvariant())
+                if (char.IsLetterOrDigit(character) || character == '-' || character == '_')
+                    builder.Append(character);
+            return builder.Length == 0 ? "-" : builder.ToString();
+        }
+
         protected override void OnStart()
         {
+            DrawIdentity("Piootoo Swap Probe");
+
             Print("Piootoo Swap Probe v{0} — quanto costa tenere una notte, notte per notte, sui due lati.", BotVersion);
 
             // Stesso controllo della sonda dello spread: i tempi si scrivono etichettati UTC, e

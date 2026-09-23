@@ -9,7 +9,7 @@ namespace Piootoo.Shared.Models;
 /// </summary>
 public sealed class SpreadBrokerInfo
 {
-    /// <summary>Nome della cartella, es. <c>FTMOPLATFORM</c>. E' cio' che va in <c>SpreadBroker</c>.</summary>
+    /// <summary>Nome della cartella, es. <c>FTMO</c>. E' cio' che va in <c>SpreadBroker</c>.</summary>
     public required string Broker { get; init; }
 
     /// <summary>Simboli misurati nel file per simbolo.</summary>
@@ -81,4 +81,48 @@ public sealed class SpreadSymbolInfo
 
     /// <summary>Ore delle 24 che il broker non ha quotato e che portano il ripiego.</summary>
     public int FallbackHours { get; init; }
+}
+
+/// <summary>
+/// Una misura di <c>PiootooSpreadDumpBot</c> spinta al server: i due CSV cosi' come il bot li
+/// scrive, e il conto su cui sono stati misurati. La cartella sotto <c>spread/</c> non la dice il
+/// bot: la ricava il server dal conto, con il registro dei broker (<c>TradingBroker.SpreadFolder</c>).
+/// </summary>
+public sealed class SpreadMeasurementRequest
+{
+    public string AccountNumber { get; set; } = string.Empty;
+
+    public string BotVersion { get; set; } = string.Empty;
+
+    /// <summary>Primo giorno della finestra misurata (UTC), per il nome del file.</summary>
+    public DateTime WindowFromUtc { get; set; }
+
+    /// <summary>Ultimo giorno della finestra misurata (UTC, incluso), per il nome del file.</summary>
+    public DateTime WindowToUtc { get; set; }
+
+    /// <summary>Il file <c>spread-by-symbol</c>, intestazione compresa.</summary>
+    public string BySymbolCsv { get; set; } = string.Empty;
+
+    /// <summary>Il file <c>spread-by-hour</c>. Null quando il bot non l'ha prodotto.</summary>
+    public string? ByHourCsv { get; set; }
+}
+
+/// <summary>Cosa ha fatto il server con una misura: dove l'ha scritta e cosa ha tenuto della precedente.</summary>
+public sealed class SpreadMeasurementResponse
+{
+    /// <summary>Cartella sotto <c>spread/</c>: e' il valore da mettere in <c>SpreadBroker</c>.</summary>
+    public string Broker { get; set; } = string.Empty;
+
+    public string SymbolFile { get; set; } = string.Empty;
+
+    public string? HourFile { get; set; }
+
+    /// <summary>Simboli presi da questa misura.</summary>
+    public List<string> Measured { get; set; } = new();
+
+    /// <summary>Simboli della misura precedente che questa non ha toccato e che restano nel file.</summary>
+    public List<string> Kept { get; set; } = new();
+
+    /// <summary>File spostati in <c>storico/</c>: la coppia sostituita e la misura grezza.</summary>
+    public List<string> Archived { get; set; } = new();
 }

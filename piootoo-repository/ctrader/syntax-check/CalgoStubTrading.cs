@@ -31,6 +31,7 @@ namespace cAlgo.API
         public static Color Red { get { return default(Color); } }
         public static Color LightGreen { get { return default(Color); } }
         public static Color OrangeRed { get { return default(Color); } }
+        public static Color LightGray { get { return default(Color); } }
     }
 
     public sealed class Position

@@ -56,7 +56,7 @@ param(
     # il broker piu' caro - su @FDAX, FTMO costa di piu' sullo spread (1,23 contro 0,50) e ICS sullo
     # swap (5,05 contro 4,53 sul long) - quindi sceglierne uno lascerebbe fuori meta' del costo.
     # Cosi' una configurazione che sopravvive rende di piu' del previsto dove si opera, mai di meno.
-    [string] $BrokerSpread = "ICS,FTMOPLATFORM",
+    [string] $BrokerSpread = "ICS,FTMO",
     [string] $BrokerSwap = "ICS,FTMO",
     [decimal] $CommissionePerLato = 19.23,
     # Tenuta con cui la strategia verra' operata. Vuoto = overnight e overweek liberi (parita' con

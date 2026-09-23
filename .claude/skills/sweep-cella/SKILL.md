@@ -25,7 +25,7 @@ edge trova rumore con un punteggio alto: è successo su NQ 4h due volte.
 Da `tools/sweep-paniere.ps1`, che porta i costi giusti e nomina il resoconto con le ipotesi dentro:
 
 - **Costi del paniere**: spread **per ora** e peggiore fra ICS e FTMO (`--spread-broker
-  ICS,FTMOPLATFORM --spread-per-hour`), swap peggiore (`--swap-broker ICS,FTMO`), commissione per
+  ICS,FTMO --spread-per-hour`), swap peggiore (`--swap-broker ICS,FTMO`), commissione per
   lato. Con lo spread costante la sweep sceglie la notte: misurato due volte.
 - **Orologio al minuto** su ogni fase (default). Il veloce ordinava rumore, Spearman 0,021.
 - **Ammissibilità**: `--min-trades` (250 su 4h, 3 anni), `--min-profit-factor 1.25`,

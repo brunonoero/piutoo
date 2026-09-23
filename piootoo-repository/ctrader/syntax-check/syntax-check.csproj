@@ -17,6 +17,7 @@
     <Compile Include="..\PiootooDistributedExecutionBot.cs" />
     <Compile Include="..\PiootooSpreadDumpBot.cs" />
     <Compile Include="..\PiootooSwapProbeBot.cs" />
+    <Compile Include="..\PiootooTickDownloaderBot.cs" />
   </ItemGroup>
 
 </Project>

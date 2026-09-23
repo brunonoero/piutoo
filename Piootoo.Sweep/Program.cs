@@ -16,7 +16,7 @@ namespace Piootoo.Sweep;
 ///
 /// <example>
 /// piootoo-sweep --strategy PT3B_FDAX_PCH_001_240 --symbol @FDAX --timeframe 240 ^
-///               --broker ICS --spread-broker FTMOPLATFORM ^
+///               --broker ICS --spread-broker FTMO ^
 ///               --from 2014-07-17 --split 2022-01-01 --to 2026-09-17 ^
 ///               --out C:\ricerca\nq-4h.md
 /// </example>

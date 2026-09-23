@@ -23,7 +23,7 @@ public sealed class NqCoarseGridTests(ITestOutputHelper output)
             Symbol: "@NQ",
             TimeframeMinutes: 15,
             FeedBroker: "ICS",
-            SpreadBrokers: ["ICS", "FTMOPLATFORM"],
+            SpreadBrokers: ["ICS", "FTMO"],
             SwapBrokers: ["ICS", "FTMO"],
             CommissionPerSide: 19.23m,
             StartUtc: new DateTime(2022, 1, 1, 0, 0, 0, DateTimeKind.Utc),

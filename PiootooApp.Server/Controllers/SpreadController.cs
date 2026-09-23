@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using Piootoo.Core.Services;
 using Piootoo.Core.Services.Interfaces;
 using Piootoo.Shared.Models;
 using Piootoo.Shared.Models.Backtesting;
@@ -14,8 +15,46 @@ namespace PiootooApp.Server.Controllers;
 public class SpreadController : ControllerBase
 {
     private readonly ISpreadCatalog _catalog;
+    private readonly SpreadMeasurementStore _measurements;
+    private readonly ILogger<SpreadController> _logger;
 
-    public SpreadController(ISpreadCatalog catalog) => _catalog = catalog;
+    public SpreadController(
+        ISpreadCatalog catalog, SpreadMeasurementStore measurements, ILogger<SpreadController> logger)
+    {
+        _catalog = catalog;
+        _measurements = measurements;
+        _logger = logger;
+    }
+
+    /// <summary>
+    /// Una misura di <c>PiootooSpreadDumpBot</c>: il server la scrive in <c>spread/{BROKER}/</c>, con
+    /// la cartella ricavata dal conto, e la unisce alla misura che c'era. Vedi
+    /// <see cref="SpreadMeasurementStore"/>.
+    /// </summary>
+    [HttpPost("measurements")]
+    public ActionResult<SpreadMeasurementResponse> PostMeasurement([FromBody] SpreadMeasurementRequest request)
+    {
+        try
+        {
+            var response = _measurements.Ingest(request);
+            _logger.LogInformation(
+                "[spread] {Broker}: misura di {Measured} simboli scritta in {File}, {Kept} simboli della misura precedente tenuti.",
+                response.Broker, response.Measured.Count, response.SymbolFile, response.Kept.Count);
+            return Ok(response);
+        }
+        catch (ArgumentException error)
+        {
+            return Problem(title: "Misura non valida", detail: error.Message, statusCode: 400);
+        }
+        catch (InvalidOperationException error)
+        {
+            return Problem(title: "Conto non utilizzabile", detail: error.Message, statusCode: 400);
+        }
+        catch (InvalidDataException error)
+        {
+            return Problem(title: "Misura non unibile", detail: error.Message, statusCode: 409);
+        }
+    }
 
     /// <summary>
     /// Broker con una misura. Elenco vuoto = nessuna misura raccolta, che non e' un errore: un run

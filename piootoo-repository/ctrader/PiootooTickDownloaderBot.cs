@@ -48,7 +48,8 @@ namespace cAlgo.Robots
     {
         // Versione propria: questo bot non ha alcun contratto con il server Piootoo — non lo
         // contatta nemmeno — quindi non ha senso legarlo a PiootooVersion.
-        private const string BotVersion = "1.0.1";
+        // 1.1.0 (23/09/2026): nome, versione e broker sul grafico, come tutta la suite.
+        private const string BotVersion = "1.1.0";
 
         [Parameter("Simboli (separati da virgola, vuoto = simbolo del grafico)", DefaultValue = "", Group = "Cosa scaricare")]
         public string SymbolList { get; set; }
@@ -107,8 +108,44 @@ namespace cAlgo.Robots
         // Avvio
         // -----------------------------------------------------------------------------------------
 
+        /// <summary>
+        /// Nome, versione, broker e conto in alto a destra sul grafico: la prima cosa da vedere per
+        /// sapere quale bot gira e su quale broker, senza aprire il log. Il broker e' quello che
+        /// dichiara cTrader (<c>Account.BrokerName</c>) ripulito come in tutta la suite: "FTMO
+        /// Platform" -> <c>FTMOPLATFORM</c>. E' un'informazione, non una chiave: la cartella dei dati
+        /// la decide il registro dei broker del server.
+        /// </summary>
+        private void DrawIdentity(string title)
+        {
+            try
+            {
+                Chart.DrawStaticText("PiootooIdentity",
+                    string.Format("{0} v{1}\nBroker: {2}\nConto:  {3}",
+                        title, BotVersion, PlatformBrokerCode(Account.BrokerName), Account.Number),
+                    VerticalAlignment.Top, HorizontalAlignment.Right, Color.LightGray);
+            }
+            catch (System.Exception)
+            {
+                // Senza grafico (ottimizzazione) non c'e' dove scrivere: non e' un motivo per fermarsi.
+            }
+        }
+
+        private static string PlatformBrokerCode(string brokerName)
+        {
+            if (string.IsNullOrWhiteSpace(brokerName))
+                return "-";
+
+            var builder = new System.Text.StringBuilder(brokerName.Length);
+            foreach (var character in brokerName.Trim().ToUpperInvariant())
+                if (char.IsLetterOrDigit(character) || character == '-' || character == '_')
+                    builder.Append(character);
+            return builder.Length == 0 ? "-" : builder.ToString();
+        }
+
         protected override void OnStart()
         {
+            DrawIdentity("Piootoo Tick Downloader");
+
             Print("Piootoo Tick Downloader v{0} — scarica solo nella cache di cTrader, non invia nulla.", BotVersion);
 
             // Le date della finestra si leggono come UTC e i tempi dei tick arrivano nel fuso

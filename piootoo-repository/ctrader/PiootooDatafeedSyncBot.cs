@@ -120,7 +120,8 @@ namespace cAlgo.Robots
         //   simboli senza piano. Le voci sono simboli Piootoo; nome sul broker e cartella li
         //   dichiara il server (GET listed-instruments), come per il piano. Richiede un server
         //   7.6.3 o successivo. Le istanze con il codice piano non cambiano comportamento.
-        private const string BotVersion = "7.6.3";
+        // - 7.6.4 (23/09/2026): nome, versione e broker sul grafico, come tutta la suite.
+        private const string BotVersion = "7.6.4";
 
         /// <summary>
         /// Tetto ai giri di <c>LoadMoreHistory</c> in un solo battito di timer. Il broker risponde a
@@ -309,8 +310,44 @@ namespace cAlgo.Robots
         // Avvio
         // -----------------------------------------------------------------------------------------
 
+        /// <summary>
+        /// Nome, versione, broker e conto in alto a destra sul grafico: la prima cosa da vedere per
+        /// sapere quale bot gira e su quale broker, senza aprire il log. Il broker e' quello che
+        /// dichiara cTrader (<c>Account.BrokerName</c>) ripulito come in tutta la suite: "FTMO
+        /// Platform" -> <c>FTMOPLATFORM</c>. E' un'informazione, non una chiave: la cartella dei dati
+        /// la decide il registro dei broker del server.
+        /// </summary>
+        private void DrawIdentity(string title)
+        {
+            try
+            {
+                Chart.DrawStaticText("PiootooIdentity",
+                    string.Format("{0} v{1}\nBroker: {2}\nConto:  {3}",
+                        title, BotVersion, PlatformBrokerCode(Account.BrokerName), Account.Number),
+                    VerticalAlignment.Top, HorizontalAlignment.Right, Color.LightGray);
+            }
+            catch (System.Exception)
+            {
+                // Senza grafico (ottimizzazione) non c'e' dove scrivere: non e' un motivo per fermarsi.
+            }
+        }
+
+        private static string PlatformBrokerCode(string brokerName)
+        {
+            if (string.IsNullOrWhiteSpace(brokerName))
+                return "-";
+
+            var builder = new System.Text.StringBuilder(brokerName.Length);
+            foreach (var character in brokerName.Trim().ToUpperInvariant())
+                if (char.IsLetterOrDigit(character) || character == '-' || character == '_')
+                    builder.Append(character);
+            return builder.Length == 0 ? "-" : builder.ToString();
+        }
+
         protected override void OnStart()
         {
+            DrawIdentity("Piootoo Datafeed Sync");
+
             Print("Piootoo Datafeed Sync v{0} — server {1}", BotVersion, ServerBaseUrl);
 
             // Le barre della piattaforma arrivano nel fuso dichiarato dall'attributo [Robot]. Qui e'

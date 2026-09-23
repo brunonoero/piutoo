@@ -30,7 +30,8 @@ namespace cAlgo.Robots
     public class PiootooBarCycleTestBot : Robot
     {
         private const string BotName = "PiootooBarCycleTestBot";
-        private const string BotVersion = "1.0.0";
+        // 1.1.0 (23/09/2026): nome, versione e broker sul grafico, come tutta la suite.
+        private const string BotVersion = "1.1.0";
 
         [Parameter("Simbolo 1", DefaultValue = "EURUSD", Group = "Stream 1")]
         public string Symbol1 { get; set; }
@@ -57,8 +58,44 @@ namespace cAlgo.Robots
 
         private readonly List<BarStream> _streams = new List<BarStream>();
 
+        /// <summary>
+        /// Nome, versione, broker e conto in alto a destra sul grafico: la prima cosa da vedere per
+        /// sapere quale bot gira e su quale broker, senza aprire il log. Il broker e' quello che
+        /// dichiara cTrader (<c>Account.BrokerName</c>) ripulito come in tutta la suite: "FTMO
+        /// Platform" -> <c>FTMOPLATFORM</c>. E' un'informazione, non una chiave: la cartella dei dati
+        /// la decide il registro dei broker del server.
+        /// </summary>
+        private void DrawIdentity(string title)
+        {
+            try
+            {
+                Chart.DrawStaticText("PiootooIdentity",
+                    string.Format("{0} v{1}\nBroker: {2}\nConto:  {3}",
+                        title, BotVersion, PlatformBrokerCode(Account.BrokerName), Account.Number),
+                    VerticalAlignment.Top, HorizontalAlignment.Right, Color.LightGray);
+            }
+            catch (System.Exception)
+            {
+                // Senza grafico (ottimizzazione) non c'e' dove scrivere: non e' un motivo per fermarsi.
+            }
+        }
+
+        private static string PlatformBrokerCode(string brokerName)
+        {
+            if (string.IsNullOrWhiteSpace(brokerName))
+                return "-";
+
+            var builder = new System.Text.StringBuilder(brokerName.Length);
+            foreach (var character in brokerName.Trim().ToUpperInvariant())
+                if (char.IsLetterOrDigit(character) || character == '-' || character == '_')
+                    builder.Append(character);
+            return builder.Length == 0 ? "-" : builder.ToString();
+        }
+
         protected override void OnStart()
         {
+            DrawIdentity("Piootoo Bar Cycle Test");
+
             Print("{0} v{1} - avvio.", BotName, BotVersion);
 
             _streams.Add(CreateStream(Symbol1, Timeframe1Minutes));

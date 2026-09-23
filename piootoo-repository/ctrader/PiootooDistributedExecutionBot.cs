@@ -294,7 +294,8 @@ namespace cAlgo.Robots
         // leggendo questo sorgente.
         // Il disallineamento non blocca nulla: entrambi stampano la propria versione all'avvio, e
         // il confronto si fa leggendo i due log.
-        private const string BotVersion = "7.6.0"; // major.minor deve seguire PiootooVersion
+        // 7.6.4 (23/09/2026): il pannello mostra il broker come lo dichiara cTrader. Solo grafico.
+        private const string BotVersion = "7.6.4"; // major.minor deve seguire PiootooVersion
         private const string StatusChartObjectName = "PiootooConnectionStatus";
 
         // Riquadro rosso al centro del grafico, separato dal pannello di stato: e' l'errore fatale
@@ -1236,11 +1237,30 @@ namespace cAlgo.Robots
         /// <para>Prima della connessione i campi risolti sono vuoti e si stampa "-": il pannello deve
         /// esistere fin dal primo istante, anche per dire che non si e' ancora collegato.</para>
         /// </summary>
+        /// <summary>
+        /// Il broker come lo dichiara cTrader (<c>Account.BrokerName</c>), ripulito come negli altri
+        /// bot della suite: solo lettere, cifre, <c>-</c> e <c>_</c>, in maiuscolo ("FTMO Platform" ->
+        /// <c>FTMOPLATFORM</c>). E' un'informazione per chi guarda il grafico, non una chiave: la
+        /// cartella dei dati la decide il registro dei broker del server.
+        /// </summary>
+        private static string PlatformBrokerCode(string brokerName)
+        {
+            if (string.IsNullOrWhiteSpace(brokerName))
+                return "-";
+
+            var builder = new StringBuilder(brokerName.Length);
+            foreach (var character in brokerName.Trim().ToUpperInvariant())
+                if (char.IsLetterOrDigit(character) || character == '-' || character == '_')
+                    builder.Append(character);
+            return builder.Length == 0 ? "-" : builder.ToString();
+        }
+
         private string BuildStatusText(bool connected)
         {
             var builder = new StringBuilder();
             builder.AppendLine("Piootoo " + BotVersion);
             builder.AppendLine("Account:   " + (string.IsNullOrEmpty(_accountNumber) ? "-" : _accountNumber));
+            builder.AppendLine("Broker:    " + PlatformBrokerCode(Account.BrokerName));
             builder.AppendLine("Piano:     " + (string.IsNullOrWhiteSpace(PlanCode) ? "-" : PlanCode.Trim()));
             // Sotto il nome del piano perche' e' una proprieta' del piano, ed e' la riga che spiega
             // le uscite che altrimenti sembrano della strategia: chi guarda il grafico deve poter

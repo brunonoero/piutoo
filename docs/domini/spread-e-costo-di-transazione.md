@@ -30,7 +30,8 @@ scegliere quella coppia che la misura esiste. Vedi `decisioni.md` 2026-08-06.
 
 ## La misura: `PiootooSpreadDumpBot`
 
-Il cBot prende gli strumenti di un piano (o un elenco a mano), scorre i tick di una finestra
+Il cBot prende gli strumenti di un piano (o un elenco di simboli Piootoo, `@FESX,@NQ`, tradotti
+dal server come nel raccoglitore), scorre i tick di una finestra
 — un mese di default — e ne scrive la **distribuzione**, non il dato grezzo:
 
 | File | Cosa contiene |
@@ -75,9 +76,29 @@ hanno lo stesso spread — è il confronto per cui la misura esiste. È la stess
 datafeed, con la stessa ragione.
 
 **Non in `datafeed-external/`**: quella è il feed di barre e tick che scrive il server, e
-mescolarci file di misura fa sembrare dati di feed quello che non lo è. Il bot scrive nella
-propria cartella di output (`%AppData%\PiootooSpreadDump` di default) e i CSV si copiano
-qui a mano.
+mescolarci file di misura fa sembrare dati di feed quello che non lo è.
+
+**Li scrive il server** (dalla 3.0.0 del bot, 23/09/2026). A fine giro il bot manda i due CSV a
+`POST api/spread/measurements`, e `SpreadMeasurementStore`:
+
+- sceglie la cartella dal **conto** con il registro dei broker
+  (`WorkspaceService.ResolveBrokerLabelForAccount`): è lo stesso nome di `datafeed-external/` e
+  `symbol-info/`. Il bot non ha più un parametro «Codice broker»: il nome dedotto da
+  `Account.BrokerName` era `FTMOPLATFORM` per FTMO e `RAWTRADINGLTD` per ICS, un secondo nome per
+  la stessa cosa. `spread/FTMOPLATFORM/` resta come storia, la sua misura è in `spread/FTMO/`;
+- **unisce** la misura a quella che c'era. `SpreadTable` legge il solo `spread-by-symbol` più
+  recente, quindi una misura dei soli simboli nuovi scritta accanto toglierebbe ai run lo spread di
+  tutti gli altri senza un errore. I simboli misurati adesso sostituiscono le proprie righe **in
+  tutti e due i file** — costante e ore di un simbolo vengono sempre dagli stessi tick — e gli altri
+  restano. Ogni riga porta la propria finestra (`firstTickUtc`/`lastTickUtc`), e una riga di
+  commento per misura dice quali simboli sono arrivati quando. Colonne diverse fra misura e file
+  fanno rifiutare l'unione (409);
+- mette in `storico/`, che il caricatore non guarda, la misura grezza (`misura-…`) e la coppia
+  sostituita (`sostituito-…`). Scrive prima il file per ora e poi quello per simbolo, così un run
+  che parte nel mezzo non trova il per-simbolo nuovo senza il suo gemello.
+
+I CSV restano anche nella cartella di output del bot (`%AppData%\PiootooSpreadDump`), come copia
+locale di una misura che il server non ha ricevuto.
 
 La radice è `PiootooSettings.SpreadPath`, con default `[BasePath]\spread`.
 
@@ -368,6 +389,8 @@ peggiore, ed è esattamente quello che è successo al primo confronto con cTrade
   specifiche degli strumenti (secondi, si rileggono ogni giorno) dalla misura dello spread (ore di
   tick): `SoloSpecifiche` è il giro da fare su un broker nuovo.
 - `Piootoo.Core/Services/SpreadTable.cs` — il caricamento del CSV.
+- `Piootoo.Core/Services/SpreadMeasurementStore.cs`, `POST api/spread/measurements` — la
+  ricezione della misura, la cartella dal conto e l'unione.
 - `Piootoo.Core/Services/SwapTable.cs` — le misure di finanziamento, e `Worst()` per il costo
   peggiore fra più broker (vedi [ricerca-parametri.md](ricerca-parametri.md)).
 - `Piootoo.Shared/Models/Trading/SwapSpec.cs` — quanti rollover attraversa una posizione.
@@ -382,5 +405,5 @@ peggiore, ed è esattamente quello che è successo al primo confronto con cTrade
   l'anagrafica e l'anteprima.
 - `piootooapp.clientform/Shell/Screens/BacktestingScreen.cs`,
   `Shell/Controls/SpreadPreviewDialog.cs` — le combo e la griglia.
-- `Piootoo.Strategies.Tests/EntrySpreadTests.cs`,
+- `Piootoo.Strategies.Tests/EntrySpreadTests.cs`, `SpreadMeasurementStoreTests.cs`,
   `Piootoo.Strategies.Tests/StopMoneyPolicyConformanceTests.cs`.

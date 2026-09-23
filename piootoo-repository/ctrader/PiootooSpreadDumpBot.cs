@@ -49,13 +49,16 @@ namespace cAlgo.Robots
     /// <c>{BROKER}_{SIMBOLO}_ticks_{da}-{a}.csv</c> per simbolo, che e' il dato grezzo da cui tutto
     /// il resto e' calcolato.</para>
     ///
-    /// <para><b>Cosa NON fa.</b> Non apre posizioni, non apre sessioni e non spedisce niente al
-    /// server: al server chiede soltanto gli strumenti del piano o dell'elenco, con il loro nome sul
-    /// broker (<c>GET api/datafeed-external/plan-instruments</c> e <c>listed-instruments</c>), che
-    /// sono letture pure. Non scrive
-    /// nemmeno in <c>datafeed-external/</c>: quello e' il feed di barre e tick del repository,
-    /// scritto dal raccoglitore attraverso il server, e non va contaminato con file di misura. Qui
-    /// i CSV finiscono nella cartella di output del bot. E non decide niente: misura e basta.</para>
+    /// <para><b>Cosa manda al server.</b> Al server chiede gli strumenti del piano o dell'elenco, con
+    /// il loro nome sul broker e la cartella del broker (<c>GET api/datafeed-external/plan-instruments</c>
+    /// e <c>listed-instruments</c>); gli manda le specifiche (<c>POST api/symbol-info</c>) e, a fine
+    /// giro, i due CSV (<c>POST api/spread/measurements</c>). Il server li scrive in
+    /// <c>spread/{BROKER}/</c> del repository unendoli alla misura che c'era, e la cartella la decide
+    /// lui dal conto: e' la stessa di <c>datafeed-external/</c> e <c>symbol-info/</c>. I CSV restano
+    /// anche nella cartella di output del bot, come copia locale.</para>
+    ///
+    /// <para><b>Cosa NON fa.</b> Non apre posizioni, non apre sessioni, non scrive in
+    /// <c>datafeed-external/</c> e non decide niente: misura e basta.</para>
     ///
     /// <para><b>Un simbolo alla volta, e per una ragione.</b> Un mese di tick di uno strumento
     /// liquido sono milioni di righe, e la serie tick sta in RAM per intero mentre la si carica.
@@ -118,7 +121,14 @@ namespace cAlgo.Robots
         // 2.1.0 (23/09/2026): l'elenco 'Simboli' e' di simboli Piootoo, tradotti dal server come nel
         // raccoglitore 7.6.3 (GET listed-instruments). Un elenco di soli nomi del broker non vale
         // piu': si scrive @SIMBOLO, o BROKER=@SIMBOLO per un simbolo fuori tabella.
-        private const string BotVersion = "2.1.0";
+        //
+        // 3.0.0 (23/09/2026): il broker lo dice il server, dal conto (registro dei broker), e la
+        // misura va al server (POST api/spread/measurements), che la unisce in spread/{BROKER}/ del
+        // repository. Sparisce il parametro 'Codice broker' — il nome dedotto da Account.BrokerName
+        // era FTMOPLATFORM e RAWTRADINGLTD, non FTMO e ICS — e l'elenco vuoto non vale piu' "il
+        // simbolo del grafico": serve il piano o l'elenco, come nel raccoglitore. I CSV si scrivono
+        // ancora anche nella cartella di output, come copia locale.
+        private const string BotVersion = "3.0.0";
 
         /// <summary>
         /// Tetto ai giri di <c>LoadMoreHistory</c> in un solo battito di timer. Senza, un simbolo con
@@ -154,19 +164,18 @@ namespace cAlgo.Robots
         /// Elenco di simboli Piootoo (<c>@FESX</c>), separati da virgola, usato solo se
         /// <see cref="PlanCode"/> e' vuoto: il nome sul broker lo dichiara il server con la tabella di
         /// conversione del conto, come nel raccoglitore, e lo stesso elenco si incolla nei due bot.
-        /// <c>EU50.cash=@FESX</c> serve solo per un simbolo che la tabella non mappa. Vuoto = solo il
-        /// simbolo del grafico.
+        /// <c>EU50.cash=@FESX</c> serve solo per un simbolo che la tabella non mappa. Uno fra piano ed
+        /// elenco e' obbligatorio.
         /// </summary>
         [Parameter("Simboli (@SIMBOLO o BROKER=@SIMBOLO, alternativa al piano)", DefaultValue = "", Group = "Cosa misurare")]
         public string SymbolList { get; set; }
 
         /// <summary>
-        /// Codice del broker: entra nel nome dei file, perche' due broker sullo stesso simbolo NON
-        /// hanno lo stesso spread — e' proprio il confronto per cui questo bot esiste. Vuoto =
-        /// dedotto da <c>Account.BrokerName</c>, con la stessa ripulitura del raccoglitore.
+        /// Manda la misura al server, che la scrive in <c>spread/{BROKER}/</c> del repository
+        /// unendola a quella che c'era. Spento, i CSV restano solo nella cartella di output.
         /// </summary>
-        [Parameter("Codice broker (vuoto = dedotto dal conto)", DefaultValue = "", Group = "Cosa misurare")]
-        public string BrokerCode { get; set; }
+        [Parameter("Invia la misura al server", DefaultValue = true, Group = "Output")]
+        public bool PublishToServer { get; set; }
 
         /// <summary>
         /// Ampiezza della finestra, contata all'indietro da <see cref="EndDateText"/>. Ignorata se si
@@ -281,8 +290,44 @@ namespace cAlgo.Robots
         // Avvio
         // -----------------------------------------------------------------------------------------
 
+        /// <summary>
+        /// Nome, versione, broker e conto in alto a destra sul grafico: la prima cosa da vedere per
+        /// sapere quale bot gira e su quale broker, senza aprire il log. Il broker e' quello che
+        /// dichiara cTrader (<c>Account.BrokerName</c>) ripulito come in tutta la suite: "FTMO
+        /// Platform" -> <c>FTMOPLATFORM</c>. E' un'informazione, non una chiave: la cartella dei dati
+        /// la decide il registro dei broker del server.
+        /// </summary>
+        private void DrawIdentity(string title)
+        {
+            try
+            {
+                Chart.DrawStaticText("PiootooIdentity",
+                    string.Format("{0} v{1}\nBroker: {2}\nConto:  {3}",
+                        title, BotVersion, PlatformBrokerCode(Account.BrokerName), Account.Number),
+                    VerticalAlignment.Top, HorizontalAlignment.Right, Color.LightGray);
+            }
+            catch (System.Exception)
+            {
+                // Senza grafico (ottimizzazione) non c'e' dove scrivere: non e' un motivo per fermarsi.
+            }
+        }
+
+        private static string PlatformBrokerCode(string brokerName)
+        {
+            if (string.IsNullOrWhiteSpace(brokerName))
+                return "-";
+
+            var builder = new System.Text.StringBuilder(brokerName.Length);
+            foreach (var character in brokerName.Trim().ToUpperInvariant())
+                if (char.IsLetterOrDigit(character) || character == '-' || character == '_')
+                    builder.Append(character);
+            return builder.Length == 0 ? "-" : builder.ToString();
+        }
+
         protected override void OnStart()
         {
+            DrawIdentity("Piootoo Spread Dump");
+
             Print("Piootoo Spread Dump v{0} — distribuzione dello spread per simbolo e per ora UTC, niente ordini.", BotVersion);
 
             // I tick arrivano nel fuso dichiarato dall'attributo [Robot] con Kind Unspecified: prima
@@ -306,15 +351,6 @@ namespace cAlgo.Robots
                     "L'attributo [Robot(TimeZone = TimeZones.UTC)] e' obbligatorio: gli istanti dei " +
                     "tick verrebbero scritti con un orario falso.",
                     serverTime, serverTimeUtc));
-                return;
-            }
-
-            _brokerCode = ResolveBrokerCode();
-            if (string.IsNullOrEmpty(_brokerCode))
-            {
-                StopWithError(string.Format(
-                    "Codice broker non ricavabile da '{0}': valorizzare a mano il parametro 'Codice broker'.",
-                    Account.BrokerName));
                 return;
             }
 
@@ -373,27 +409,6 @@ namespace cAlgo.Robots
                 _windowStartUtc, _windowEndUtc, _streams.Count, ChunkDays, _outputFolder);
 
             Timer.Start(TimeSpan.FromSeconds(Math.Max(1, SecondsBetweenChunks)));
-        }
-
-        /// <summary>
-        /// Stessa ripulitura del raccoglitore — solo lettere, cifre, <c>-</c> e <c>_</c> in maiuscolo —
-        /// perche' i file di questo bot e le cartelle di quello si confrontano a occhio: "IC Markets"
-        /// deve diventare <c>ICMARKETS</c> in entrambi.
-        /// </summary>
-        private string ResolveBrokerCode()
-        {
-            var source = string.IsNullOrWhiteSpace(BrokerCode) ? Account.BrokerName : BrokerCode;
-            if (string.IsNullOrWhiteSpace(source))
-                return string.Empty;
-
-            var builder = new StringBuilder(source.Length);
-            foreach (var character in source.Trim().ToUpperInvariant())
-            {
-                if (char.IsLetterOrDigit(character) || character == '-' || character == '_')
-                    builder.Append(character);
-            }
-
-            return builder.ToString();
         }
 
         /// <summary>
@@ -558,6 +573,7 @@ namespace cAlgo.Robots
             if (plan == null)
                 return null;
 
+            _brokerCode = plan.DatafeedBroker;
             var requests = ToRequests(plan);
             Print("Piano '{0}' ({1}), workspace '{2}', conto {3}: {4} simboli distinti dal masterfilter.",
                 plan.PlanCode, plan.PlanName, plan.WorkspaceId, plan.AccountNumber, requests.Count);
@@ -602,6 +618,16 @@ namespace cAlgo.Robots
                 return null;
             }
 
+            // Il broker e' la cartella del registro, la stessa di datafeed-external/ e symbol-info/.
+            // Un server che non la dichiara e' precedente alla 7.6.3 e non saprebbe nemmeno ricevere
+            // la misura: meglio fermarsi qui che misurare un mese per niente.
+            if (string.IsNullOrWhiteSpace(plan.DatafeedBroker))
+            {
+                error = string.Format("Il server non dichiara il broker del conto {0}: serve un server 7.6.3 " +
+                                      "o successivo, e il conto registrato con un broker.", Account.Number);
+                return null;
+            }
+
             return plan;
         }
 
@@ -643,17 +669,14 @@ namespace cAlgo.Robots
         {
             error = null;
 
-            // Elenco vuoto: il solo simbolo del grafico, che e' gia' un nome del broker.
+            // Senza piano ne' elenco non c'e' nessuno a cui chiedere il broker e i nomi: il simbolo
+            // del grafico e' un nome del broker, e il server non saprebbe a quale simbolo Piootoo
+            // corrisponde ne' in quale cartella metterlo.
             if (string.IsNullOrWhiteSpace(SymbolList))
             {
-                return new List<SpreadRequest>
-                {
-                    new SpreadRequest
-                    {
-                        BrokerSymbol = SymbolName,
-                        PiootooSymbol = NormalizePiootooSymbol(SymbolName)
-                    }
-                };
+                error = "Serve UNO fra 'Codice piano' e 'Simboli': e' da li' che il server dice quali " +
+                        "strumenti misurare, come si chiamano su questo conto e di quale broker e' la misura.";
+                return null;
             }
 
             var uri = string.Format("api/datafeed-external/listed-instruments?accountNumber={0}&symbols={1}",
@@ -663,6 +686,7 @@ namespace cAlgo.Robots
             if (listed == null)
                 return null;
 
+            _brokerCode = listed.DatafeedBroker;
             var requests = ToRequests(listed);
             Print("Elenco simboli, conto {0}: {1} simboli tradotti dal server.", Account.Number, requests.Count);
             foreach (var request in requests)
@@ -1151,9 +1175,11 @@ namespace cAlgo.Robots
 
         private void Finish()
         {
-            WriteSymbolFile();
-            if (WriteHourlyBreakdown)
-                WriteHourFile();
+            var symbolCsv = WriteSymbolFile();
+            var hourCsv = WriteHourlyBreakdown ? WriteHourFile() : null;
+
+            if (PublishToServer && symbolCsv != null)
+                PublishMeasurement(symbolCsv, hourCsv);
 
             Report();
             Print("Misura completata. Il bot si ferma.");
@@ -1171,7 +1197,7 @@ namespace cAlgo.Robots
         /// <c>spread / distanza di stop</c>; il tick e' l'unita' in cui il broker quota, quindi e'
         /// quella in cui la misura e' esatta e in cui due simboli si confrontano.</para>
         /// </summary>
-        private void WriteSymbolFile()
+        private string WriteSymbolFile()
         {
             var path = Path.Combine(_outputFolder, string.Format(CultureInfo.InvariantCulture,
                 "{0}_spread-by-symbol_{1:yyyyMMdd}-{2:yyyyMMdd}.csv",
@@ -1212,12 +1238,73 @@ namespace cAlgo.Robots
                         .Append(Csv(stream.Note)).Append('\n');
                 }
 
-                File.WriteAllText(path, text.ToString(), new UTF8Encoding(false));
-                Print("Spread per simbolo scritto in {0}", path);
+                var csv = text.ToString();
+                WriteLocalCopy(path, csv, "Spread per simbolo");
+                return csv;
             }
             catch (Exception failure)
             {
-                Print("Spread per simbolo NON scritto: {0}", failure.Message);
+                Print("Spread per simbolo NON prodotto: {0}", failure.Message);
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// La copia nella cartella di output. Un disco pieno o una cartella non scrivibile non devono
+        /// costare l'invio al server, che e' la copia che conta.
+        /// </summary>
+        private void WriteLocalCopy(string path, string csv, string what)
+        {
+            try
+            {
+                File.WriteAllText(path, csv, new UTF8Encoding(false));
+                Print("{0} scritto in {1}", what, path);
+            }
+            catch (Exception failure)
+            {
+                Print("{0} NON scritto in locale: {1}", what, failure.Message);
+            }
+        }
+
+        /// <summary>
+        /// Manda i due CSV al server, che li scrive in <c>spread/{BROKER}/</c> del repository unendoli
+        /// alla misura che c'era: i simboli misurati adesso sostituiscono le proprie righe, gli altri
+        /// restano. La cartella la decide il server dal conto. Un invio fallito non perde la misura:
+        /// la copia locale c'e', e la riga di log dice dove.
+        /// </summary>
+        private void PublishMeasurement(string symbolCsv, string hourCsv)
+        {
+            var payload = new StringBuilder();
+            payload.Append("{\"accountNumber\":").Append(JsonString(Account.Number.ToString(CultureInfo.InvariantCulture)))
+                .Append(",\"botVersion\":").Append(JsonString(BotVersion))
+                .Append(",\"windowFromUtc\":").Append(JsonString(_windowStartUtc.ToString("yyyy-MM-ddT00:00:00Z", CultureInfo.InvariantCulture)))
+                .Append(",\"windowToUtc\":").Append(JsonString(_windowEndUtc.AddDays(-1).ToString("yyyy-MM-ddT00:00:00Z", CultureInfo.InvariantCulture)))
+                .Append(",\"bySymbolCsv\":").Append(JsonString(symbolCsv))
+                .Append(",\"byHourCsv\":").Append(hourCsv == null ? "null" : JsonString(hourCsv))
+                .Append('}');
+
+            try
+            {
+                using (var request = new HttpRequestMessage(HttpMethod.Post, "api/spread/measurements"))
+                {
+                    request.Content = new StringContent(payload.ToString(), Encoding.UTF8, "application/json");
+                    using (var response = _http.Send(request))
+                    {
+                        var body = ReadBody(response);
+                        if (!response.IsSuccessStatusCode)
+                        {
+                            Print("Misura NON registrata sul server: {0} {1}. I CSV sono in {2}.",
+                                (int)response.StatusCode, Truncate(body, 600), _outputFolder);
+                            return;
+                        }
+
+                        Print("Misura registrata sul server in spread/{0}/. Risposta: {1}", _brokerCode, Truncate(body, 800));
+                    }
+                }
+            }
+            catch (Exception failure)
+            {
+                Print("Misura NON registrata sul server ({0}). I CSV sono in {1}.", failure.Message, _outputFolder);
             }
         }
 
@@ -1229,7 +1316,7 @@ namespace cAlgo.Robots
         /// conosce (<c>docs/domini/orari-di-sessione-e-fusi.md</c>), non in un bot che le strategie
         /// non le vede nemmeno.
         /// </summary>
-        private void WriteHourFile()
+        private string WriteHourFile()
         {
             var path = Path.Combine(_outputFolder, string.Format(CultureInfo.InvariantCulture,
                 "{0}_spread-by-hour_{1:yyyyMMdd}-{2:yyyyMMdd}.csv",
@@ -1268,12 +1355,14 @@ namespace cAlgo.Robots
                     }
                 }
 
-                File.WriteAllText(path, text.ToString(), new UTF8Encoding(false));
-                Print("Spread per ora UTC scritto in {0}", path);
+                var csv = text.ToString();
+                WriteLocalCopy(path, csv, "Spread per ora UTC");
+                return csv;
             }
             catch (Exception failure)
             {
-                Print("Spread per ora UTC NON scritto: {0}", failure.Message);
+                Print("Spread per ora UTC NON prodotto: {0}", failure.Message);
+                return null;
             }
         }
 
@@ -1581,6 +1670,7 @@ namespace cAlgo.Robots
             public string PlanName { get; set; }
             public string WorkspaceId { get; set; }
             public string AccountNumber { get; set; }
+            public string DatafeedBroker { get; set; }
             public List<PlanInstrumentDto> Instruments { get; set; }
         }
     }
