@@ -36,6 +36,10 @@ state fatte tutte e tre la mattina del 23/09. Voci in `decisioni.md` 2026-09-23.
    minimo 120. Il riferimento è `PTS_NQ_TFU_003_15`, la sola TF coerente del catalogo ai costi veri
    (IS +16.578 su 195 trade, OOS +41.872 su 128, 4/4). Cella `nq-15m-tfu`; resoconto in
    `ricerca/nq-15m-tfu-ics-costo-peggiore-per-ora-peggior-tratto.md`.
+   **Esito, 15:09** (`ricerca/nq-15m-tfu-sweep.md`): **zero ammissibili in ogni fase**, la sweep non è
+   mai partita. La configurazione iniziale fa −21.923 in campione e −67.346 fuori, e nessun passo
+   singolo arriva a PF 1,25 e 120 per trade. Non è un verdetto sul motore. In coda dopo le griglie la
+   stessa cella senza quelle due soglie nelle fasi (`tools/coda-nq-tfu-senza-soglie-2026-09-23.ps1`).
 
 Le due ricerche girano **in sequenza** da `tools/lancia-ricerche-2026-09-23.ps1`, log in
 `ricerca/lancio-2026-09-23.log`. Quando finiscono: leggere i due resoconti con i criteri di
