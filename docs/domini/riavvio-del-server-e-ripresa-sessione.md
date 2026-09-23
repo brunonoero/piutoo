@@ -244,6 +244,17 @@ risolvibile, la sessione era `Stopped` — riprenderla in esecuzione la rimetter
 a mercato senza che nessuno l'abbia chiesto — o non è realtime. Un rifiuto non
 lascia mezza sessione in memoria.
 
+**Un contenitore di ricerca acceso non è un motivo di rifiuto.** L'apertura di una
+sessione nuova lo rifiuta (`CreateCore`), la ripresa no: una sessione nata prima di
+quel controllo può avere posizioni aperte dal contenitore, e scartarla le lasciava
+senza sorveglianza — il cBot, con un session id nuovo, butta anche break-even,
+trailing e uscite a tempo. È successo il 23/09/2026 con `PT3B_NQ_PCH_001_15`, uno
+short su US100 rimasto orfano dopo il deploy della 7.6.1. La sessione si riprende
+quindi com'era, impronta compresa, ma il contenitore finisce in
+`Session.EntriesBlocked`: continua a essere valutato, le sue uscite passano e i suoi
+ingressi si scartano con una riga nel monitor. L'esito della ripresa lo nomina, e va
+spento nel piano quando non ha più posizioni aperte.
+
 Sul percorso di scrittura resta una conseguenza da conoscere: su una sessione
 ripresa `session.Intents` contiene i **soli ordini in volo** del dump, non la
 storia. La scrittura autorevole degli artefatti diventa quindi un `Upsert` invece

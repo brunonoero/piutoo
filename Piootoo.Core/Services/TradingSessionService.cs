@@ -329,6 +329,13 @@ public sealed class TradingSessionService : ITradingSessionService
         /// </summary>
         public bool StateDumpSuspended { get; set; }
 
+        /// <summary>
+        /// Strategie (per <c>StrategyCode</c>) che la sessione valuta ma a cui non lascia aprire
+        /// posizioni nuove: passano le sole uscite. Sono i contenitori di ricerca di una sessione
+        /// ripresa dal dump, nata prima che il server li rifiutasse. Vedi <c>CreateCore</c>.
+        /// </summary>
+        public HashSet<string> EntriesBlocked { get; init; } = new(StringComparer.OrdinalIgnoreCase);
+
         public TradingSessionStatus Status { get; set; }
         public required DateTime CreatedAtUtc { get; init; }
         public object Gate { get; } = new();
@@ -1224,8 +1231,14 @@ public sealed class TradingSessionService : ITradingSessionService
         // di quel controllo sono ancora su disco: la sessione e' l'ultimo punto prima che un
         // contenitore mandi ordini veri, e qui non si prosegue in silenzio. Spegnerlo nel piano e'
         // sufficiente, perche' il controllo guarda cio' che resta acceso.
+        //
+        // Sulla RIPRESA dal dump invece non si rifiuta: la sessione e' nata prima del controllo e
+        // puo' avere posizioni a mercato aperte dal contenitore. Scartarla le lascerebbe senza
+        // sorveglianza — il cBot, con un session id nuovo, butta anche break-even, trailing e uscite
+        // a tempo — e toglierlo dalla sessione cambierebbe l'impronta. Si riprende quindi com'era,
+        // ma il contenitore non apre piu' niente: vedi Session.EntriesBlocked.
         var containers = selectedIds.Where(id => byId[id].IsResearchContainer).ToArray();
-        if (containers.Length != 0)
+        if (containers.Length != 0 && restore is null)
             throw new ArgumentException(
                 "Contenitori di ricerca accesi nel masterfilter: " + string.Join(", ", containers) +
                 ". Sono classi che danno a uno studio un simbolo e un timeframe, con i pattern alle " +
@@ -1317,6 +1330,9 @@ public sealed class TradingSessionService : ITradingSessionService
             Mode = request.ExecutionMode,
             InitialCapital = request.InitialCapital,
             Strategies = strategies,
+            EntriesBlocked = new HashSet<string>(
+                strategies.Where(strategy => strategy.IsResearchContainer).Select(strategy => strategy.Name),
+                StringComparer.OrdinalIgnoreCase),
             SimulatedEngine = engine,
             Store = store,
             ClientRunMode = request.ClientRunMode,
@@ -1964,6 +1980,28 @@ public sealed class TradingSessionService : ITradingSessionService
             strategy => GetExecution(session, strategy, bar.BarTimeUtc),
             (strategy, runtimeState) => session.SimulatedEngine.CaptureStrategyRuntimeState(
                 strategy.Name, strategy.Symbol, runtimeState));
+
+        // Un contenitore di ricerca ripreso dal dump resta in sessione per le posizioni che ha gia'
+        // a mercato, non per aprirne di nuove: i suoi ingressi si scartano qui, le uscite passano.
+        if (signals.Count > 0 && session.EntriesBlocked.Count > 0)
+        {
+            var ammessi = new List<TradeSignal>(signals.Count);
+            foreach (var signal in signals)
+            {
+                if (!signal.ExitOnly && session.EntriesBlocked.Contains(signal.StrategyCode))
+                {
+                    RecordActivity(session, SessionActivityKind.IntentCreato,
+                        "scartato: contenitore di ricerca ripreso dopo il riavvio del server solo per " +
+                        "sorvegliare le posizioni aperte, non apre posizioni nuove",
+                        strategyCode: signal.StrategyCode, symbol: Normalize(signal.Symbol));
+                    continue;
+                }
+
+                ammessi.Add(signal);
+            }
+
+            signals = ammessi;
+        }
 
         // Un ingresso valido dentro una finestra di flat del conto non diventa un intent: e' lo
         // stesso scarto che fa il backtest alla sorgente (PiootooBacktestingService.
@@ -4367,9 +4405,16 @@ public sealed class TradingSessionService : ITradingSessionService
         var ordini = state.Intents.Count(intent => !intent.IsClose &&
             intent.Status is OrderIntentStatus.Pending or OrderIntentStatus.Accepted
                 or OrderIntentStatus.PartiallyFilled);
+        var contenitori = session.EntriesBlocked.Count == 0
+            ? string.Empty
+            : $"; contenitori di ricerca ripresi SOLO in uscita, senza nuovi ingressi: " +
+              $"{string.Join(", ", session.EntriesBlocked.Order(StringComparer.OrdinalIgnoreCase))} " +
+              "— spegnerli nel piano quando non hanno piu' posizioni aperte";
+        if (contenitori.Length != 0)
+            RecordActivity(session, SessionActivityKind.Sessione, "ripresa" + contenitori);
         return new SessionRestoreOutcome(state.SessionId, state.PlanCode, true,
             $"{posizioni} posizione/i e {ordini} ordine/i ripresi; storia candele da ricostruire " +
-            "col riscaldamento del cBot");
+            "col riscaldamento del cBot" + contenitori);
     }
 
     /// <summary>

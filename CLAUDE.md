@@ -319,7 +319,9 @@ sbaglia più spesso:
  a uno studio un simbolo, un timeframe e un `Initialize` che legga ogni leva — pattern alle
  sentinelle, `PriceChannelEngine.HasBlankPatterns` — dichiarano
  `ITradingStrategy.IsResearchContainer`. Il server **rifiuta** di salvarle in un masterfilter
- (`WorkspaceService.RejectResearchContainers`) e di aprirci una sessione; il backtest le ammette e
+ (`WorkspaceService.RejectResearchContainers`) e di aprirci una sessione — ma **non** di riprendere
+ dopo un riavvio una sessione che ne aveva già uno: la riprende con il contenitore in sola uscita
+ (`Session.EntriesBlocked`), perché scartarla lascerebbe orfane le sue posizioni; il backtest le ammette e
  scrive `[contenitore]` nel summary, perche' li' non ci sono ordini veri. Gli studi le istanziano
  per Id e non passano dal masterfilter: e' il loro mestiere. Fino al 22/09/2026 la distinzione
  stava nel solo commento XML, che nessuna schermata mostra, e `PT3B_NQ_PCH_001_15` e' finito in un
