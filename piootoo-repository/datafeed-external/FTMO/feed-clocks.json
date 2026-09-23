@@ -7,19 +7,33 @@
     "Correggere a mano una voce e\u0027 lecito: il codice non sovrascrive quelle esistenti."
   ],
   "orologi": {
+    "AP": "UTC",
     "BP": "UTC",
+    "BRN": "UTC",
     "BTC": "UTC",
+    "C": "UTC",
     "CC": "UTC",
     "CL": "UTC",
     "CT": "UTC",
     "ES": "UTC",
+    "ETH": "UTC",
+    "FCE": "UTC",
     "FDAX": "UTC",
+    "FESX": "UTC",
     "GC": "UTC",
     "KC": "UTC",
     "NG": "UTC",
+    "NIY": "UTC",
     "NQ": "UTC",
     "PL": "UTC",
+    "RTY": "UTC",
+    "S": "UTC",
     "SB": "UTC",
-    "YM": "UTC"
+    "SI": "UTC",
+    "SOL": "UTC",
+    "W": "UTC",
+    "XRP": "UTC",
+    "YM": "UTC",
+    "Z": "UTC"
   }
 }
