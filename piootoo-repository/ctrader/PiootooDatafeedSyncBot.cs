@@ -4,6 +4,7 @@ using System.Globalization;
 using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Headers;
+using System.Reflection;
 using System.Text;
 using System.Text.Json;
 using cAlgo.API;
@@ -72,6 +73,14 @@ namespace cAlgo.Robots
     /// l'archivio con il solo minuto e i backtest a mani vuote. Quali timeframe derivare lo dice il
     /// masterfilter del piano, o il parametro apposito quando un piano non c'e'.</para>
     ///
+    /// <para><b>Anche spread e schede, ogni giorno, da solo.</b> Dalla 7.6.5 il raccoglitore e' l'unico
+    /// bot da tenere acceso: cinque minuti dopo ogni mezzanotte UTC — e all'avvio — registra le schede
+    /// dei simboli (<c>POST api/symbol-info</c>, da cui il server ricava le righe automatiche di swap)
+    /// e misura lo spread dei giorni che il server non ha ancora, sui tick storici del broker
+    /// (<c>POST api/spread/daily</c>). Il server tiene le giornate e riscrive la finestra mobile che il
+    /// backtest legge. Al primo avvio recupera gli ultimi <c>Giorni di spread</c>, poi un giorno per
+    /// notte. Il bot degli spread resta per le misure fuori giro, non serve piu' al lavoro normale.</para>
+    ///
     /// <para><b>Finestra di date.</b> <c>Data inizio</c> e <c>Data fine</c> limitano cosa si
     /// raccoglie in questo run. Sono il modo previsto per spezzare un backfill lungo in piu'
     /// sessioni corte — un anno per volta, magari di notte — senza che i pezzi si pestino: quello
@@ -121,7 +130,12 @@ namespace cAlgo.Robots
         //   dichiara il server (GET listed-instruments), come per il piano. Richiede un server
         //   7.6.3 o successivo. Le istanze con il codice piano non cambiano comportamento.
         // - 7.6.4 (23/09/2026): nome, versione e broker sul grafico, come tutta la suite.
-        private const string BotVersion = "7.6.4";
+        // - 7.6.5 (23/09/2026): lavori giornalieri. Registra le schede dei simboli e misura lo spread
+        //   dei giorni che mancano al server (POST api/spread/daily), cosi' il raccoglitore e' l'unico
+        //   bot da tenere acceso. Richiede un server 7.6.5; con uno piu' vecchio le due chiamate
+        //   falliscono, lo dice a log e le barre continuano. Quattro parametri nuovi, tutti con un
+        //   default: le istanze esistenti partono senza riconfigurarle.
+        private const string BotVersion = "7.6.5";
 
         /// <summary>
         /// Tetto ai giri di <c>LoadMoreHistory</c> in un solo battito di timer. Il broker risponde a
@@ -262,6 +276,36 @@ namespace cAlgo.Robots
         [Parameter("Secondi massimi fra due invii di tick", DefaultValue = 10, MinValue = 1, Group = "Tick")]
         public int TickFlushSeconds { get; set; }
 
+        /// <summary>
+        /// Ogni giorno misura lo spread dei giorni che il server non ha ancora, sui tick storici del
+        /// broker, e glielo manda (<c>POST api/spread/daily</c>). Il server tiene le giornate e
+        /// riscrive da solo la finestra mobile che il backtest legge: il bot degli spread non serve
+        /// piu' lanciarlo a mano.
+        /// </summary>
+        [Parameter("Misura lo spread ogni giorno", DefaultValue = true, Group = "Spread e schede")]
+        public bool MeasureSpread { get; set; }
+
+        /// <summary>
+        /// Quanti giorni all'indietro tenere misurati. Al primo avvio li recupera tutti — un mese di
+        /// tick per simbolo, un simbolo alla volta — poi ogni giorno solo quello appena chiuso.
+        /// </summary>
+        [Parameter("Giorni di spread da tenere misurati", DefaultValue = 30, MinValue = 1, MaxValue = 90, Group = "Spread e schede")]
+        public int SpreadDays { get; set; }
+
+        /// <summary>
+        /// Tetto ai tick in memoria per il simbolo che si sta misurando. Raggiunto, si misurano i soli
+        /// giorni interamente caricati e gli altri restano da fare al giro dopo.
+        /// </summary>
+        [Parameter("Tick massimi in memoria per simbolo (milioni)", DefaultValue = 20, MinValue = 1, MaxValue = 500, Group = "Spread e schede")]
+        public int MaxMillionTicksPerSymbol { get; set; }
+
+        /// <summary>
+        /// Ogni giorno registra al server le schede dei simboli (<c>POST api/symbol-info</c>): tariffe
+        /// di swap, tick, lotti. Il server ne ricava le righe automatiche della tabella di swap.
+        /// </summary>
+        [Parameter("Registra le schede dei simboli ogni giorno", DefaultValue = true, Group = "Spread e schede")]
+        public bool PublishSymbolInfoDaily { get; set; }
+
         [Parameter("Http Timeout (secondi)", DefaultValue = 60, MinValue = 5, Group = "Server")]
         public int HttpTimeoutSeconds { get; set; }
 
@@ -294,6 +338,17 @@ namespace cAlgo.Robots
         private int _roundRobin;
         private bool _backfillReported;
         private bool _stopped;
+
+        /// <summary>Giorno UTC per cui i lavori giornalieri sono gia' stati avviati.</summary>
+        private DateTime _dailyStartedForUtc = DateTime.MinValue;
+
+        /// <summary>Dopo un tentativo fallito (server spento) non si riprova a ogni battito.</summary>
+        private DateTime _nextDailyAttemptUtc = DateTime.MinValue;
+
+        private bool _symbolInfoDue;
+        private readonly Queue<SpreadJob> _spreadJobs = new Queue<SpreadJob>();
+        private SpreadJob _spreadJob;
+        private long _beat;
 
         /// <summary>Gli strumenti vengono dall'elenco e non da un piano.</summary>
         private bool UsesSymbolList => string.IsNullOrWhiteSpace(PlanCode);
@@ -770,11 +825,21 @@ namespace cAlgo.Robots
                 return;
             }
 
+            _beat++;
+            StartDailyJobsIfDue();
+
             var stream = NextStreamNeedingWork();
+
+            // I lavori giornalieri si alternano con le barre, un battito ciascuno: il backfill del
+            // minuto di trenta simboli puo' durare ore, e lo spread di un mese altrettanto. In fila,
+            // uno dei due aspetterebbe l'altro per mezza giornata.
+            if ((stream == null || _beat % 2 == 0) && DoOneDailyStep())
+                return;
+
             if (stream == null)
             {
                 ReportBackfillOnce();
-                if (!KeepInSync && !SyncTicks)
+                if (!KeepInSync && !SyncTicks && !HasDailyWork)
                 {
                     Print("Backfill completato e nessun compito a regime: il bot si ferma.");
                     _stopped = true;
@@ -1441,6 +1506,421 @@ namespace cAlgo.Robots
         }
 
         // -----------------------------------------------------------------------------------------
+        // Lavori giornalieri: schede dei simboli e spread
+        // -----------------------------------------------------------------------------------------
+
+        /// <summary>C'e' ancora qualcosa da fare oggi, o i lavori di oggi non sono ancora partiti.</summary>
+        private bool HasDailyWork =>
+            (MeasureSpread || PublishSymbolInfoDaily) &&
+            (_dailyStartedForUtc < Server.TimeInUtc.Date || _symbolInfoDue || _spreadJob != null || _spreadJobs.Count > 0);
+
+        /// <summary>
+        /// Una volta al giorno, cinque minuti dopo la mezzanotte UTC — e subito all'avvio — mette in
+        /// fila i lavori del giorno. I cinque minuti lasciano al broker il tempo di chiudere la
+        /// giornata: misurare un giorno a cui mancano gli ultimi tick ne darebbe uno incompleto.
+        /// </summary>
+        private void StartDailyJobsIfDue()
+        {
+            if (!MeasureSpread && !PublishSymbolInfoDaily)
+                return;
+
+            var now = Server.TimeInUtc;
+            var today = now.Date;
+            if (_dailyStartedForUtc >= today || now < today.AddMinutes(5) || now < _nextDailyAttemptUtc)
+                return;
+
+            if (MeasureSpread && !PlanSpreadJobs(today))
+            {
+                // Server spento o conto non in anagrafica: si riprova fra dieci minuti, non a ogni
+                // battito, e intanto le barre continuano.
+                _nextDailyAttemptUtc = now.AddMinutes(10);
+                return;
+            }
+
+            _dailyStartedForUtc = today;
+            _symbolInfoDue = PublishSymbolInfoDaily;
+        }
+
+        /// <summary>Un solo passo di lavoro giornaliero. Falso se non c'era niente da fare.</summary>
+        private bool DoOneDailyStep()
+        {
+            if (_symbolInfoDue)
+            {
+                _symbolInfoDue = false;
+                PublishSymbolInfo();
+                return true;
+            }
+
+            if (_spreadJob == null)
+            {
+                if (_spreadJobs.Count == 0)
+                    return false;
+
+                _spreadJob = _spreadJobs.Dequeue();
+            }
+
+            SpreadStep(_spreadJob);
+            return true;
+        }
+
+        /// <summary>
+        /// Chiede al server quali giornate ha gia' e mette in fila, per ogni simbolo, quelle che
+        /// mancano negli ultimi <see cref="SpreadDays"/> giorni chiusi. E' cio' che rende la misura
+        /// riprendibile e senza doppioni: un riavvio non rimisura niente di gia' registrato.
+        /// </summary>
+        private bool PlanSpreadJobs(DateTime today)
+        {
+            var since = today.AddDays(-SpreadDays);
+            SpreadDailyStatusDto status;
+            try
+            {
+                var uri = string.Format(CultureInfo.InvariantCulture,
+                    "api/spread/daily/status?accountNumber={0}&sinceUtc={1:yyyy-MM-dd}",
+                    Uri.EscapeDataString(Account.Number.ToString(CultureInfo.InvariantCulture)), since);
+                using (var response = _http.Send(BuildRequest(HttpMethod.Get, uri)))
+                {
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        Print("Spread: stato delle giornate non ottenibile ({0}). Si riprova fra dieci minuti.", ReadError(response));
+                        return false;
+                    }
+
+                    status = JsonSerializer.Deserialize<SpreadDailyStatusDto>(ReadBody(response), _json);
+                }
+            }
+            catch (Exception failure)
+            {
+                Print("Spread: stato delle giornate non ottenibile ({0}). Si riprova fra dieci minuti.", failure.Message);
+                return false;
+            }
+
+            var present = status?.Days ?? new Dictionary<string, List<string>>();
+            var planned = 0;
+            foreach (var stream in _streams)
+            {
+                if (_spreadJobs.Any(job => string.Equals(job.BrokerSymbol, stream.BrokerSymbol, StringComparison.OrdinalIgnoreCase)) ||
+                    (_spreadJob != null && string.Equals(_spreadJob.BrokerSymbol, stream.BrokerSymbol, StringComparison.OrdinalIgnoreCase)))
+                    continue;
+
+                List<string> have;
+                if (!present.TryGetValue(stream.PiootooSymbol, out have))
+                    have = new List<string>();
+                var haveSet = new HashSet<string>(have, StringComparer.Ordinal);
+
+                var missing = new List<DateTime>();
+                for (var day = since; day < today; day = day.AddDays(1))
+                    if (!haveSet.Contains(day.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)))
+                        missing.Add(day);
+
+                if (missing.Count == 0)
+                    continue;
+
+                _spreadJobs.Enqueue(new SpreadJob(stream.BrokerSymbol, stream.PiootooSymbol, missing, today));
+                planned += missing.Count;
+            }
+
+            if (LogOperativo)
+                Print("Spread: {0} giornate da misurare su {1} simboli (finestra {2:yyyy-MM-dd} -> {3:yyyy-MM-dd}).",
+                    planned, _spreadJobs.Count, since, today.AddDays(-1));
+            return true;
+        }
+
+        /// <summary>
+        /// Un passo sul simbolo in misura: un blocco di caricamento all'indietro, oppure una fetta di
+        /// tick, oppure l'invio. La stessa tecnica del bot degli spread — un passo corto per battito —
+        /// perche' un mese di tick di uno strumento liquido sono milioni di righe.
+        /// </summary>
+        private void SpreadStep(SpreadJob job)
+        {
+            switch (job.Stage)
+            {
+                case SpreadStage.Load:
+                    LoadTicks(job);
+                    break;
+                case SpreadStage.Measure:
+                    MeasureTicks(job);
+                    break;
+                default:
+                    PublishSpreadDays(job);
+                    _spreadJob = null;
+                    break;
+            }
+        }
+
+        private void LoadTicks(SpreadJob job)
+        {
+            if (job.Series == null)
+            {
+                Symbol symbol = null;
+                try
+                {
+                    symbol = Symbols.GetSymbol(job.BrokerSymbol);
+                    job.Series = MarketData.GetTicks(job.BrokerSymbol);
+                }
+                catch (Exception failure)
+                {
+                    Print("Spread {0}: tick non disponibili ({1}). Simbolo saltato per oggi.", job.PiootooSymbol, failure.Message);
+                }
+
+                if (symbol == null || job.Series == null)
+                {
+                    job.Stage = SpreadStage.Done;
+                    job.Skipped = true;
+                    return;
+                }
+
+                job.TickSize = symbol.TickSize;
+                job.PipSize = symbol.PipSize;
+                job.Digits = symbol.Digits;
+            }
+
+            var maxTicks = (long)MaxMillionTicksPerSymbol * 1000000L;
+            for (var loads = 0; loads < 20; loads++)
+            {
+                if (job.Series.Count > 0 && TickTime(job.Series, 0) <= job.Earliest)
+                {
+                    job.Stage = SpreadStage.Measure;
+                    return;
+                }
+
+                if (job.Series.Count >= maxTicks)
+                {
+                    Print("Spread {0}: raggiunto il tetto di {1} milioni di tick; si misurano i giorni caricati per intero.",
+                        job.PiootooSymbol, MaxMillionTicksPerSymbol);
+                    job.Stage = SpreadStage.Measure;
+                    return;
+                }
+
+                int loaded;
+                try
+                {
+                    loaded = job.Series.LoadMoreHistory();
+                }
+                catch (Exception failure)
+                {
+                    Print("Spread {0}: caricamento fallito ({1}); si misura quello che c'e'.", job.PiootooSymbol, failure.Message);
+                    job.Stage = SpreadStage.Measure;
+                    return;
+                }
+
+                if (loaded <= 0)
+                {
+                    // Il broker non ha tick piu' vecchi: i giorni prima del primo tick sono vuoti per
+                    // lui, e registrarli vuoti evita di cercarli di nuovo ogni notte.
+                    job.Exhausted = true;
+                    job.Stage = SpreadStage.Measure;
+                    return;
+                }
+            }
+        }
+
+        private void MeasureTicks(SpreadJob job)
+        {
+            var examined = 0;
+            while (job.Cursor < job.Series.Count && examined < 200000)
+            {
+                var index = job.Cursor++;
+                examined++;
+
+                var time = TickTime(job.Series, index);
+                if (time < job.Earliest || time >= job.Today)
+                    continue;
+
+                SpreadDayAccumulator day;
+                if (!job.Days.TryGetValue(time.Date, out day))
+                    continue;
+
+                var tick = job.Series[index];
+                var ticks = job.TickSize > 0
+                    ? (int)Math.Round((tick.Ask - tick.Bid) / job.TickSize, MidpointRounding.AwayFromZero)
+                    : 0;
+                day.Add(time, ticks);
+            }
+
+            if (job.Cursor >= job.Series.Count)
+                job.Stage = SpreadStage.Publish;
+        }
+
+        /// <summary>
+        /// Manda le giornate misurate. Un giorno conta come misurato solo se i tick caricati lo
+        /// coprono dall'inizio — altrimenti sarebbe mezza giornata registrata per intera — oppure se il
+        /// broker non ha niente di piu' vecchio. I giorni senza tick si mandano vuoti: dicono che il
+        /// mercato era chiuso, e senza il bot li cercherebbe di nuovo ogni notte.
+        /// </summary>
+        private void PublishSpreadDays(SpreadJob job)
+        {
+            if (job.Skipped)
+                return;
+
+            var oldest = job.Series.Count > 0 ? TickTime(job.Series, 0) : DateTime.MaxValue;
+            var days = new List<SpreadDayPayload>();
+            foreach (var entry in job.Days.OrderBy(pair => pair.Key))
+            {
+                if (!job.Exhausted && oldest > entry.Key)
+                    continue;
+
+                days.Add(entry.Value.ToPayload(job));
+            }
+
+            // Il tick, i punti e le serie sono gia' misurati: la serie si lascia andare subito, un
+            // mese di tick di un simbolo e' la RAM che serve al prossimo.
+            job.Series = null;
+
+            if (days.Count == 0)
+            {
+                Print("Spread {0}: nessun giorno interamente coperto dai tick caricati; si riprova domani.", job.PiootooSymbol);
+                return;
+            }
+
+            try
+            {
+                var payload = new SpreadDailyRequestDto
+                {
+                    AccountNumber = Account.Number.ToString(CultureInfo.InvariantCulture),
+                    BotVersion = BotVersion,
+                    Days = days
+                };
+
+                using (var response = PostJson("api/spread/daily", payload))
+                {
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        Print("Spread {0}: giornate NON registrate ({1}). Si riprova domani.", job.PiootooSymbol, ReadError(response));
+                        return;
+                    }
+                }
+
+                if (LogOperativo)
+                    Print("Spread {0}: registrate {1} giornate ({2} con tick) dal {3:yyyy-MM-dd} al {4:yyyy-MM-dd}.",
+                        job.PiootooSymbol, days.Count, days.Count(day => day.Hours.Count > 0),
+                        days[0].DayUtc, days[days.Count - 1].DayUtc);
+            }
+            catch (Exception failure)
+            {
+                Print("Spread {0}: giornate NON registrate ({1}). Si riprova domani.", job.PiootooSymbol, failure.Message);
+            }
+        }
+
+        private static DateTime TickTime(Ticks series, int index)
+        {
+            return DateTime.SpecifyKind(series[index].Time, DateTimeKind.Utc);
+        }
+
+        /// <summary>
+        /// Registra al server cosa questo broker dichiara sugli strumenti: tutte le proprieta' del
+        /// simbolo, per reflection, come il bot degli spread. Il server ne archivia la successione e
+        /// ne ricava le righe automatiche di swap. Un invio fallito non ferma niente: si riprova domani.
+        /// </summary>
+        private void PublishSymbolInfo()
+        {
+            var payload = new StringBuilder();
+            payload.Append("{\"broker\":").Append(JsonString(_brokerCode))
+                .Append(",\"accountNumber\":").Append(JsonString(Account.Number.ToString(CultureInfo.InvariantCulture)))
+                .Append(",\"botVersion\":").Append(JsonString(BotVersion))
+                .Append(",\"takenUtc\":").Append(JsonString(Server.TimeInUtc.ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture)))
+                .Append(",\"symbols\":[");
+
+            var written = 0;
+            foreach (var stream in _streams)
+            {
+                Symbol symbol;
+                try
+                {
+                    symbol = Symbols.GetSymbol(stream.BrokerSymbol);
+                }
+                catch (Exception)
+                {
+                    continue;
+                }
+
+                if (symbol == null)
+                    continue;
+
+                if (written > 0)
+                    payload.Append(',');
+
+                AppendSymbolInfo(payload, stream, symbol);
+                written++;
+            }
+
+            payload.Append("]}");
+            if (written == 0)
+                return;
+
+            try
+            {
+                using (var request = BuildRequest(HttpMethod.Post, "api/symbol-info"))
+                {
+                    request.Content = new StringContent(payload.ToString(), Encoding.UTF8, "application/json");
+                    using (var response = _http.Send(request))
+                    {
+                        if (!response.IsSuccessStatusCode)
+                        {
+                            Print("Schede NON registrate ({0}). Si riprova domani.", ReadError(response));
+                            return;
+                        }
+                    }
+                }
+
+                if (LogOperativo)
+                    Print("Schede registrate per {0} strumenti su {1}.", written, _brokerCode);
+            }
+            catch (Exception failure)
+            {
+                Print("Schede NON registrate ({0}). Si riprova domani.", failure.Message);
+            }
+        }
+
+        /// <summary>Un elemento di <c>symbols</c>: tutte le proprieta' pubbliche leggibili del simbolo.</summary>
+        private static void AppendSymbolInfo(StringBuilder payload, SyncStream stream, Symbol symbol)
+        {
+            payload.Append("{\"brokerSymbol\":").Append(JsonString(stream.BrokerSymbol))
+                .Append(",\"piootooSymbol\":").Append(JsonString(stream.PiootooSymbol))
+                .Append(",\"properties\":{");
+
+            var written = 0;
+            var warnings = new List<string>();
+            foreach (var property in symbol.GetType()
+                         .GetProperties(BindingFlags.Public | BindingFlags.Instance)
+                         .Where(candidate => candidate.CanRead && candidate.GetIndexParameters().Length == 0)
+                         .OrderBy(candidate => candidate.Name, StringComparer.Ordinal))
+            {
+                string value;
+                try
+                {
+                    var raw = property.GetValue(symbol);
+                    value = raw == null ? string.Empty : Convert.ToString(raw, CultureInfo.InvariantCulture);
+                }
+                catch (Exception failure)
+                {
+                    warnings.Add(property.Name + " non leggibile: " + failure.Message);
+                    continue;
+                }
+
+                if (written > 0)
+                    payload.Append(',');
+
+                payload.Append(JsonString(property.Name)).Append(':').Append(JsonString(value));
+                written++;
+            }
+
+            payload.Append("},\"warnings\":[");
+            for (var index = 0; index < warnings.Count; index++)
+            {
+                if (index > 0)
+                    payload.Append(',');
+                payload.Append(JsonString(warnings[index]));
+            }
+
+            payload.Append("]}");
+        }
+
+        private static string JsonString(string value)
+        {
+            return value == null ? "null" : JsonSerializer.Serialize(value);
+        }
+
+        // -----------------------------------------------------------------------------------------
         // Supporto
         // -----------------------------------------------------------------------------------------
 
@@ -1734,6 +2214,140 @@ namespace cAlgo.Robots
         private sealed class RebuildResponseDto
         {
             public List<RebuildStreamDto> Streams { get; set; }
+        }
+
+        // --- Spread giornaliero (allineati per forma JSON a Piootoo.Shared.Models.SpreadDailyContracts)
+
+        private enum SpreadStage
+        {
+            Load,
+            Measure,
+            Publish,
+            Done
+        }
+
+        /// <summary>La misura dei giorni mancanti di un simbolo: dal caricamento dei tick all'invio.</summary>
+        private sealed class SpreadJob
+        {
+            public SpreadJob(string brokerSymbol, string piootooSymbol, List<DateTime> missingDays, DateTime today)
+            {
+                BrokerSymbol = brokerSymbol;
+                PiootooSymbol = piootooSymbol;
+                Today = today;
+                Earliest = missingDays.Min();
+                foreach (var day in missingDays)
+                    Days[day] = new SpreadDayAccumulator(day);
+            }
+
+            public readonly string BrokerSymbol;
+            public readonly string PiootooSymbol;
+
+            /// <summary>Mezzanotte del giorno in corso: i suoi tick non si misurano, il giorno non e' chiuso.</summary>
+            public readonly DateTime Today;
+
+            /// <summary>Mezzanotte del giorno mancante piu' vecchio: fin li' si caricano i tick.</summary>
+            public readonly DateTime Earliest;
+
+            public readonly Dictionary<DateTime, SpreadDayAccumulator> Days = new Dictionary<DateTime, SpreadDayAccumulator>();
+
+            public SpreadStage Stage = SpreadStage.Load;
+            public Ticks Series;
+            public int Cursor;
+            public bool Exhausted;
+            public bool Skipped;
+            public double TickSize;
+            public double PipSize;
+            public int Digits;
+        }
+
+        /// <summary>Un giorno di un simbolo: per ogni ora UTC, quante volte si e' visto ogni spread in tick.</summary>
+        private sealed class SpreadDayAccumulator
+        {
+            private readonly Dictionary<int, long>[] _hours = new Dictionary<int, long>[24];
+            private readonly DateTime _day;
+            private DateTime? _first;
+            private DateTime? _last;
+
+            public SpreadDayAccumulator(DateTime day)
+            {
+                _day = day;
+            }
+
+            public void Add(DateTime timeUtc, int spreadTicks)
+            {
+                var bins = _hours[timeUtc.Hour];
+                if (bins == null)
+                    _hours[timeUtc.Hour] = bins = new Dictionary<int, long>();
+
+                long count;
+                bins.TryGetValue(spreadTicks, out count);
+                bins[spreadTicks] = count + 1;
+
+                if (_first == null || timeUtc < _first) _first = timeUtc;
+                if (_last == null || timeUtc > _last) _last = timeUtc;
+            }
+
+            public SpreadDayPayload ToPayload(SpreadJob job)
+            {
+                var payload = new SpreadDayPayload
+                {
+                    Symbol = job.PiootooSymbol,
+                    BrokerSymbol = job.BrokerSymbol,
+                    DayUtc = DateTime.SpecifyKind(_day, DateTimeKind.Utc),
+                    TickSize = (decimal)job.TickSize,
+                    PipSize = (decimal)job.PipSize,
+                    Digits = job.Digits,
+                    FirstTickUtc = _first,
+                    LastTickUtc = _last,
+                    Hours = new List<SpreadHourPayload>()
+                };
+
+                for (var hour = 0; hour < 24; hour++)
+                {
+                    if (_hours[hour] == null)
+                        continue;
+
+                    payload.Hours.Add(new SpreadHourPayload
+                    {
+                        Hour = hour,
+                        Bins = _hours[hour].OrderBy(pair => pair.Key).Select(pair => new[] { (long)pair.Key, pair.Value }).ToList()
+                    });
+                }
+
+                return payload;
+            }
+        }
+
+        private sealed class SpreadDailyRequestDto
+        {
+            public string AccountNumber { get; set; }
+            public string BotVersion { get; set; }
+            public List<SpreadDayPayload> Days { get; set; }
+        }
+
+        private sealed class SpreadDayPayload
+        {
+            public string Symbol { get; set; }
+            public string BrokerSymbol { get; set; }
+            public DateTime DayUtc { get; set; }
+            public decimal TickSize { get; set; }
+            public decimal PipSize { get; set; }
+            public int Digits { get; set; }
+            public DateTime? FirstTickUtc { get; set; }
+            public DateTime? LastTickUtc { get; set; }
+            public List<SpreadHourPayload> Hours { get; set; }
+        }
+
+        private sealed class SpreadHourPayload
+        {
+            public int Hour { get; set; }
+            public List<long[]> Bins { get; set; }
+        }
+
+        private sealed class SpreadDailyStatusDto
+        {
+            public string Broker { get; set; }
+            public Dictionary<string, List<string>> Days { get; set; }
         }
 
         private sealed class TickDto

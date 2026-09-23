@@ -97,6 +97,11 @@ builder.Services.AddSingleton<ExternalDatafeedStore>();
 // Stessa ragione: tiene i lock per strumento che serializzano due rilevazioni dello stesso simbolo.
 builder.Services.AddSingleton<SymbolInfoStore>();
 builder.Services.AddSingleton<SymbolConversionReconciler>();
+// Singleton per i lock: serializzano le scritture dell'archivio giornaliero di spread e del file di
+// swap, che due consegne concorrenti altrimenti si sovrascriverebbero.
+builder.Services.AddSingleton<SpreadDailyStore>();
+builder.Services.AddSingleton<SwapFromSymbolInfo>();
+builder.Services.AddSingleton<BrokerDataStatusService>();
 // Export della scheda di una strategia. Senza stato proprio: singleton come il resto, e perche'
 // non ha senso ricostruirlo a ogni richiesta.
 builder.Services.AddSingleton<StrategyExportService>();

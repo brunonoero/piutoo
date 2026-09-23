@@ -4513,3 +4513,23 @@ che il motore fa. Difetto di artefatto, non di esecuzione, ma e' costato mezza i
   rivisto prima della prima cella su EU50/FRA40: la griglia 4h di FDAX e' ancorata all'01:00.
   **Escluso il rame**: `XCUUSD` quota in centesimi per libbra (651 il 23/09) e `HG` in dollari, quindi
   il feed raccolto come `@HG` falserebbe il P&L di cento volte senza errori.
+
+- **2026-09-23** — **7.6.5: i dati di un broker arrivano da soli; il raccoglitore e' l'unico bot da
+  tenere acceso.** Fino a oggi spread e swap erano giri a mano: il bot degli spread da lanciare su un
+  mese di tick, la tabella di swap da ricopiare dalla scheda di cTrader. Per aprire la cella EU50
+  mancavano entrambi, e ogni cella nuova li avrebbe richiesti di nuovo. Ora il raccoglitore, oltre
+  alle barre, ogni notte registra le schede e misura lo spread dei giorni che il server non ha, sui
+  tick storici. **Istogrammi giornalieri e non percentili**: i percentili di due giorni non si
+  sommano, gli istogrammi si', e il server (`SpreadDailyStore`) ricalcola esatta la finestra mobile
+  di 30 giorni scrivendola con la stessa unione delle misure del bot (`IngestForBroker`), quindi
+  backtest e caricatore non cambiano. **Swap dalle schede con la mediana pesata di 30 giorni**
+  (`SwapFromSymbolInfo`), perche' lo swap di un indice CFD il giorno dello stacco porta dentro il
+  dividendo: EU50 il 23/09 dava -4,71 punti a notte sullo short, il 27% annuo, contro un tasso base
+  di -0,01. Le righe scritte a mano vincono, e l'ora del rollover — che la scheda non dichiara — si
+  prende da loro; lo swap in percentuale (le cripto) resta senza riga, e un run che lo chiede fallisce
+  come deve. **Stato dei dati** (`GET api/data-status`): per ogni simbolo di un broker, cosa c'e' e
+  cosa manca, e `ready`. Su quello gira la **coda di ricerca** (`tools/coda-ricerca.ps1`,
+  `ricerca/coda.json`): una cella parte da sola quando i suoi simboli sono pronti, una alla volta e
+  mai insieme a una sweep. Cosa resta a mano: avviare il raccoglitore una volta in cTrader (serve il
+  login), riavviarlo dopo un rilascio che lo tocca, e decidere cosa va nel piano. Test:
+  `SpreadDailyStoreTests`, `SwapFromSymbolInfoTests`, `BrokerDataStatusServiceTests`.

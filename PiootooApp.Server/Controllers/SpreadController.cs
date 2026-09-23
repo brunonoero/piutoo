@@ -16,14 +16,61 @@ public class SpreadController : ControllerBase
 {
     private readonly ISpreadCatalog _catalog;
     private readonly SpreadMeasurementStore _measurements;
+    private readonly SpreadDailyStore _daily;
     private readonly ILogger<SpreadController> _logger;
 
     public SpreadController(
-        ISpreadCatalog catalog, SpreadMeasurementStore measurements, ILogger<SpreadController> logger)
+        ISpreadCatalog catalog, SpreadMeasurementStore measurements, SpreadDailyStore daily, ILogger<SpreadController> logger)
     {
         _catalog = catalog;
         _measurements = measurements;
+        _daily = daily;
         _logger = logger;
+    }
+
+    /// <summary>
+    /// Giornate di spread dal raccoglitore: il server le archivia e riscrive la finestra mobile dei
+    /// simboli toccati. Vedi <see cref="SpreadDailyStore"/>.
+    /// </summary>
+    [HttpPost("daily")]
+    public ActionResult<SpreadDailyResponse> PostDaily([FromBody] SpreadDailyRequest request)
+    {
+        try
+        {
+            var response = _daily.Ingest(request);
+            _logger.LogInformation(
+                "[spread] {Broker}: {Days} giornate registrate, finestra riscritta in {File}.",
+                response.Broker, response.Stored.Count, response.SymbolFile ?? "(nessun file)");
+            foreach (var warning in response.Warnings)
+                _logger.LogWarning("[spread] {Broker}: {Warning}", response.Broker, warning);
+            return Ok(response);
+        }
+        catch (ArgumentException error)
+        {
+            return Problem(title: "Giornate non valide", detail: error.Message, statusCode: 400);
+        }
+        catch (InvalidOperationException error)
+        {
+            return Problem(title: "Conto non utilizzabile", detail: error.Message, statusCode: 400);
+        }
+        catch (InvalidDataException error)
+        {
+            return Problem(title: "Misura non unibile", detail: error.Message, statusCode: 409);
+        }
+    }
+
+    /// <summary>Quali giornate il server ha gia', dal giorno indicato: il raccoglitore misura il resto.</summary>
+    [HttpGet("daily/status")]
+    public ActionResult<SpreadDailyStatus> GetDailyStatus([FromQuery] string accountNumber, [FromQuery] DateTime sinceUtc)
+    {
+        try
+        {
+            return Ok(_daily.GetStatus(accountNumber, DateTime.SpecifyKind(sinceUtc, DateTimeKind.Utc)));
+        }
+        catch (InvalidOperationException error)
+        {
+            return Problem(title: "Conto non utilizzabile", detail: error.Message, statusCode: 400);
+        }
     }
 
     /// <summary>

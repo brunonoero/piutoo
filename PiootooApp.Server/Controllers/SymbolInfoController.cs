@@ -24,15 +24,18 @@ public class SymbolInfoController : ControllerBase
 {
     private readonly SymbolInfoStore _store;
     private readonly SymbolConversionReconciler _reconciler;
+    private readonly SwapFromSymbolInfo _swap;
     private readonly ILogger<SymbolInfoController> _logger;
 
     public SymbolInfoController(
         SymbolInfoStore store,
         SymbolConversionReconciler reconciler,
+        SwapFromSymbolInfo swap,
         ILogger<SymbolInfoController> logger)
     {
         _store = store;
         _reconciler = reconciler;
+        _swap = swap;
         _logger = logger;
     }
 
@@ -59,6 +62,22 @@ public class SymbolInfoController : ControllerBase
                 _logger.LogWarning(
                     "[symbol-info] {Broker}/{Symbol}: specifiche CAMBIATE — {Changes}",
                     response.Broker, symbol.BrokerSymbol, string.Join("; ", symbol.ChangedProperties));
+            }
+
+            // Le schede nuove aggiornano le righe automatiche di swap. Un calcolo che non riesce non
+            // fa perdere la rilevazione, che e' gia' archiviata: si dice e basta.
+            try
+            {
+                var swap = _swap.Rebuild(response.Broker);
+                _logger.LogInformation(
+                    "[swap] {Broker}: {Auto} righe automatiche, {Manual} a mano in {File}.",
+                    swap.Broker, swap.Auto.Count, swap.Manual.Count, swap.File ?? "(nessun file)");
+                foreach (var warning in swap.Warnings)
+                    _logger.LogWarning("[swap] {Broker}: {Warning}", swap.Broker, warning);
+            }
+            catch (Exception error) when (error is IOException or InvalidDataException or UnauthorizedAccessException)
+            {
+                _logger.LogWarning("[swap] {Broker}: righe automatiche NON aggiornate: {Error}", response.Broker, error.Message);
             }
 
             return Ok(response);

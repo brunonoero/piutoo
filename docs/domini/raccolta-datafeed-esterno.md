@@ -369,6 +369,33 @@ chiamata fallisce si perdono dei tick, ma tenerli accumulerebbe memoria senza
 limite finché il server è giù. Le barre — che sono il dato che conta — non si
 perdono mai, perché quelle si rileggono dal broker.
 
+## Lavori giornalieri: spread e schede (7.6.5)
+
+Il raccoglitore è l'**unico bot da tenere acceso** per i dati di un broker. Oltre alle barre, cinque
+minuti dopo ogni mezzanotte UTC — e all'avvio — fa due lavori, alternati alle barre un battito
+ciascuno perché nessuno dei due aspetti l'altro:
+
+- **Schede dei simboli** (`Registra le schede dei simboli ogni giorno`): tutte le proprietà del
+  simbolo per reflection a `POST api/symbol-info`, come il bot degli spread. Il server le archivia
+  in `symbol-info/{BROKER}/` e a ogni rilevazione riscrive le **righe automatiche di swap**
+  (`SwapFromSymbolInfo`): mediana pesata delle schede degli ultimi 30 giorni, perché lo swap di un
+  indice CFD porta dentro, il giorno dello stacco, l'aggiustamento per il dividendo (EU50 il
+  23/09/2026: short −4,71 punti a notte contro un tasso base di −0,01). Le righe scritte a mano
+  vincono sul calcolo; l'ora del rollover, che la scheda non dichiara, si prende da loro. Lo swap in
+  percentuale del nozionale (le cripto) non si esprime in punti: quei simboli restano senza riga.
+- **Spread** (`Misura lo spread ogni giorno`, `Giorni di spread da tenere misurati` = 30): chiede
+  al server quali giornate ha già (`GET api/spread/daily/status`), carica all'indietro i tick del
+  broker fino al giorno mancante più vecchio, un simbolo alla volta, e manda per ogni giorno
+  l'istogramma dello spread in tick ora per ora (`POST api/spread/daily`). Un giorno conta solo se i
+  tick caricati lo coprono dall'inizio; un giorno senza tick si manda vuoto, così non lo si cerca più.
+  Il server riscrive `spread/{BROKER}/` con la finestra mobile degli ultimi 30 giorni
+  (`SpreadDailyStore`), passando dalla stessa unione delle misure del bot degli spread.
+
+Cosa manca a un broker per lavorarci lo dice `GET api/data-status?broker=…`
+(`BrokerDataStatusService`): per ogni simbolo mappato o raccolto, barre da un minuto, aggregati con
+la finestra, spread, swap, scheda, contratto, e `ready`. È la domanda con cui
+`tools/coda-ricerca.ps1` decide se una cella della coda (`ricerca/coda.json`) può partire.
+
 ## Scaricare i tick prima di raccoglierli
 
 `piootoo-repository/ctrader/PiootooTickDownloaderBot.cs` fa **una cosa sola**: chiede a cTrader
@@ -410,3 +437,10 @@ tappe.
   cache di cTrader, senza inviarli a nessuno.
 - `Piootoo.Strategies.Tests/ExternalDatafeedStoreTests.cs` — cucitura,
   deduplica, buchi, separazione per broker.
+- `Piootoo.Core/Services/SpreadDailyStore.cs` — giornate di spread e finestra mobile
+  (`SpreadDailyStoreTests`).
+- `Piootoo.Core/Services/SwapFromSymbolInfo.cs` — righe automatiche di swap dalle schede
+  (`SwapFromSymbolInfoTests`).
+- `Piootoo.Core/Services/BrokerDataStatusService.cs` — lo stato dei dati di un broker
+  (`BrokerDataStatusServiceTests`).
+- `tools/coda-ricerca.ps1`, `piootoo-repository/ricerca/coda.json` — la coda delle celle.

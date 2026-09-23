@@ -12,6 +12,14 @@ spread/
     ...
 ```
 
+**Dal 23/09/2026 (7.6.5) arrivano da soli.** Il raccoglitore (`PiootooDatafeedSyncBot`), sempre
+acceso, ogni notte misura lo spread dei giorni che mancano sui tick storici del broker e lo manda a
+`POST api/spread/daily`. Il server archivia gli istogrammi in `giornaliero/{SIMBOLO}_{yyyy-MM}.json`
+e riscrive i due CSV qui sotto con la **finestra mobile degli ultimi 30 giorni** di ogni simbolo:
+gli istogrammi si sommano esattamente, quindi il risultato vale una misura sull'intera finestra. Al
+primo avvio il raccoglitore recupera i 30 giorni, poi un giorno per notte. Il bot degli spread resta
+per le misure fuori giro.
+
 **Li scrive il server**, non si copiano a mano. Dalla 3.0.0 il bot manda la misura a
 `POST api/spread/measurements` e il server:
 

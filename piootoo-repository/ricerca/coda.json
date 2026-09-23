@@ -1,0 +1,18 @@
+{
+  "_leggimi": [
+    "La coda delle celle di ricerca. La esegue tools/coda-ricerca.ps1: ogni dieci minuti chiede al server",
+    "lo stato dei dati del broker (GET api/data-status) e lancia la prima cella non ancora fatta i cui",
+    "simboli sono tutti pronti (barre, spread, swap, contratto). Una cella alla volta, mai insieme a una",
+    "sweep. Fatta la cella, lo script scrive ricerca/coda/<cella>.fatto con l'esito e il log in",
+    "ricerca/<cella>.log. Per aggiungere una cella: una riga qui, con la classe di test che la lancia.",
+    "Per rifarla: si cancella il suo file .fatto."
+  ],
+  "celle": [
+    {
+      "cella": "eu50-4h-griglia-grossa",
+      "test": "Eu50CoarseGridTests",
+      "broker": "FTMO",
+      "simboli": [ "@FESX" ]
+    }
+  ]
+}

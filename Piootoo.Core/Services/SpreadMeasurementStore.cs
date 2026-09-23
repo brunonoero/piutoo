@@ -27,6 +27,21 @@ public sealed class SpreadMeasurementStore
 {
     public const string ArchiveFolder = "storico";
 
+    /// <summary>Intestazione del file per simbolo: la scrivono il bot degli spread e
+    /// <see cref="SpreadDailyStore"/>, e l'unione rifiuta file con colonne diverse.</summary>
+    public const string SymbolHeader =
+        "broker,symbol,brokerSymbol,ticks,firstTickUtc,lastTickUtc,tickSize,pipSize," +
+        "minSpread,p50Spread,avgSpread,p90Spread,p99Spread,maxSpread," +
+        "minSpreadTicks,p50SpreadTicks,avgSpreadTicks,p90SpreadTicks,p99SpreadTicks,maxSpreadTicks," +
+        "nonPositiveTicks,truncated,note";
+
+    /// <summary>Intestazione del file per ora UTC, gemello di <see cref="SymbolHeader"/>.</summary>
+    public const string HourHeader =
+        "broker,symbol,hourUtc,ticks,tickSize," +
+        "minSpread,p50Spread,avgSpread,p90Spread,p99Spread,maxSpread," +
+        "minSpreadTicks,p50SpreadTicks,avgSpreadTicks,p90SpreadTicks,p99SpreadTicks,maxSpreadTicks," +
+        "nonPositiveTicks";
+
     private const string SymbolToken = "spread-by-symbol";
     private const string HourToken = "spread-by-hour";
 
@@ -44,6 +59,8 @@ public sealed class SpreadMeasurementStore
     {
         ArgumentNullException.ThrowIfNull(request);
 
+        // Prima la forma, poi il conto: una misura malformata e' un errore della misura, qualunque
+        // conto la porti.
         if (string.IsNullOrWhiteSpace(request.BySymbolCsv))
             throw new ArgumentException("La misura non contiene il file spread-by-symbol.");
         if (request.WindowToUtc < request.WindowFromUtc)
@@ -59,8 +76,27 @@ public sealed class SpreadMeasurementStore
         var broker = _workspaces.ResolveBrokerLabelForAccount(account)
                      ?? throw new InvalidOperationException(
                          $"Il conto '{accountNumber}' non ha un broker in anagrafica: non c'e' una cartella in cui scrivere la misura.");
+
+        return IngestForBroker(broker, request);
+    }
+
+    /// <summary>
+    /// L'unione vera e propria, con il broker gia' risolto. La usa anche
+    /// <see cref="SpreadDailyStore"/>, che scrive la finestra mobile dei giorni raccolti con le
+    /// stesse regole di una misura del bot: un solo punto che sa unire, archiviare e scrivere.
+    /// </summary>
+    public SpreadMeasurementResponse IngestForBroker(string broker, SpreadMeasurementRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
         EnsureFolderName(broker);
 
+        if (string.IsNullOrWhiteSpace(request.BySymbolCsv))
+            throw new ArgumentException("La misura non contiene il file spread-by-symbol.");
+        if (request.WindowToUtc < request.WindowFromUtc)
+            throw new ArgumentException(
+                $"Finestra rovesciata: {request.WindowFromUtc:yyyy-MM-dd} viene dopo {request.WindowToUtc:yyyy-MM-dd}.");
+
+        var accountNumber = request.AccountNumber?.Trim() ?? string.Empty;
         var incomingSymbols = CsvTable.Parse(request.BySymbolCsv, SymbolToken);
         if (incomingSymbols.Rows.Count == 0)
             throw new ArgumentException("Il file spread-by-symbol della misura non ha righe.");
