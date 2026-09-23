@@ -377,6 +377,16 @@ Solo se la scheda non basta si rifa' il run con `PIOOTOO_PERSIST_ALL_INTENTS=1`,
 filtro e tiene ogni intent: e' molto piu' caro e serve solo per guardare i singoli record.
 Vedi `docs/decisioni.md` 2026-09-01.
 
+## Skill di lavoro
+
+In `.claude/skills/` stanno le **procedure** con cui si lavora su questo progetto, distinte dai
+`docs/` che dicono come funziona il codice: `griglia-grossa` (aprire una cella), `sweep-cella`
+(cercare dentro una cella), `lettura-risultati` (il verdetto con le soglie del metodo),
+`passo-a-mano` (un parametro con un'ipotesi a priori), `promuovi-finalista` (da configurazione a
+classe PT3B), `deploy-piootoo` (il rilascio). Sono bozze del 23/09/2026, da completare a fine
+percorso di messa a punto; le soglie numeriche stanno in `lettura-risultati` e in nessun altro
+skill.
+
 ## Convenzioni
 
 - **Console WinForms**: le regole delle schermate stanno in
