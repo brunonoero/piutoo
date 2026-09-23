@@ -50,8 +50,9 @@ namespace cAlgo.Robots
     /// il resto e' calcolato.</para>
     ///
     /// <para><b>Cosa NON fa.</b> Non apre posizioni, non apre sessioni e non spedisce niente al
-    /// server: al server chiede soltanto l'elenco degli strumenti del piano
-    /// (<c>GET api/datafeed-external/plan-instruments</c>), che e' una lettura pura. Non scrive
+    /// server: al server chiede soltanto gli strumenti del piano o dell'elenco, con il loro nome sul
+    /// broker (<c>GET api/datafeed-external/plan-instruments</c> e <c>listed-instruments</c>), che
+    /// sono letture pure. Non scrive
     /// nemmeno in <c>datafeed-external/</c>: quello e' il feed di barre e tick del repository,
     /// scritto dal raccoglitore attraverso il server, e non va contaminato con file di misura. Qui
     /// i CSV finiscono nella cartella di output del bot. E non decide niente: misura e basta.</para>
@@ -113,7 +114,11 @@ namespace cAlgo.Robots
         // simbolo e per ora UTC. Cambio maggiore perche' i file di uscita sono altri: chi leggeva
         // "{BROKER}_{SIMBOLO}_{da}-{a}.csv" non lo trova piu' (ora e' "..._ticks_...", e solo se il
         // dump e' acceso) e "spread-summary" e' diventato "spread-by-symbol" con altre colonne.
-        private const string BotVersion = "2.0.1";
+        //
+        // 2.1.0 (23/09/2026): l'elenco 'Simboli' e' di simboli Piootoo, tradotti dal server come nel
+        // raccoglitore 7.6.3 (GET listed-instruments). Un elenco di soli nomi del broker non vale
+        // piu': si scrive @SIMBOLO, o BROKER=@SIMBOLO per un simbolo fuori tabella.
+        private const string BotVersion = "2.1.0";
 
         /// <summary>
         /// Tetto ai giri di <c>LoadMoreHistory</c> in un solo battito di timer. Senza, un simbolo con
@@ -146,12 +151,13 @@ namespace cAlgo.Robots
         public string PlanCode { get; set; }
 
         /// <summary>
-        /// Elenco dei simboli, separati da virgola, usato solo se <see cref="PlanCode"/> e' vuoto. Si
-        /// accetta anche la forma <c>NAS100=@NQ</c> del raccoglitore, cosi' lo stesso elenco si
-        /// incolla nei due bot: la parte a sinistra e' il nome sul broker, quella a destra il nome
-        /// Piootoo con cui si chiama il file. Vuoto = solo il simbolo del grafico.
+        /// Elenco di simboli Piootoo (<c>@FESX</c>), separati da virgola, usato solo se
+        /// <see cref="PlanCode"/> e' vuoto: il nome sul broker lo dichiara il server con la tabella di
+        /// conversione del conto, come nel raccoglitore, e lo stesso elenco si incolla nei due bot.
+        /// <c>EU50.cash=@FESX</c> serve solo per un simbolo che la tabella non mappa. Vuoto = solo il
+        /// simbolo del grafico.
         /// </summary>
-        [Parameter("Simboli (broker[=@PIOOTOO], separati da virgola)", DefaultValue = "", Group = "Cosa misurare")]
+        [Parameter("Simboli (@SIMBOLO o BROKER=@SIMBOLO, alternativa al piano)", DefaultValue = "", Group = "Cosa misurare")]
         public string SymbolList { get; set; }
 
         /// <summary>
@@ -468,7 +474,7 @@ namespace cAlgo.Robots
 
             List<SpreadRequest> requests;
             if (string.IsNullOrWhiteSpace(PlanCode))
-                requests = BuildRequestsFromParameters();
+                requests = BuildRequestsFromParameters(out error);
             else
                 requests = BuildRequestsFromPlan(out error);
 
@@ -548,6 +554,26 @@ namespace cAlgo.Robots
             var uri = string.Format("api/datafeed-external/plan-instruments?planCode={0}&accountNumber={1}",
                 Uri.EscapeDataString(PlanCode.Trim()), Uri.EscapeDataString(Account.Number.ToString()));
 
+            var plan = FetchInstruments(uri, string.Format("del piano '{0}'", PlanCode), out error);
+            if (plan == null)
+                return null;
+
+            var requests = ToRequests(plan);
+            Print("Piano '{0}' ({1}), workspace '{2}', conto {3}: {4} simboli distinti dal masterfilter.",
+                plan.PlanCode, plan.PlanName, plan.WorkspaceId, plan.AccountNumber, requests.Count);
+            foreach (var request in requests)
+                Print("   {0} -> {1}", request.BrokerSymbol, request.PiootooSymbol);
+
+            return requests;
+        }
+
+        /// <summary>
+        /// Gli strumenti di <c>plan-instruments</c> o <c>listed-instruments</c>: le due risposte hanno
+        /// la stessa forma, e il nome sul broker lo dichiara sempre il server.
+        /// </summary>
+        private PlanInstrumentsDto FetchInstruments(string uri, string what, out string error)
+        {
+            error = null;
             PlanInstrumentsDto plan;
             try
             {
@@ -556,8 +582,8 @@ namespace cAlgo.Robots
                     var body = ReadBody(response);
                     if (!response.IsSuccessStatusCode)
                     {
-                        error = string.Format("Strumenti del piano '{0}' non ottenibili: {1} {2}",
-                            PlanCode, (int)response.StatusCode, Truncate(body, 300));
+                        error = string.Format("Strumenti {0} non ottenibili: {1} {2}",
+                            what, (int)response.StatusCode, Truncate(body, 300));
                         return null;
                     }
 
@@ -566,16 +592,21 @@ namespace cAlgo.Robots
             }
             catch (Exception failure)
             {
-                error = string.Format("Strumenti del piano '{0}' non ottenibili: {1}", PlanCode, failure.Message);
+                error = string.Format("Strumenti {0} non ottenibili: {1}", what, failure.Message);
                 return null;
             }
 
             if (plan == null || plan.Instruments == null || plan.Instruments.Count == 0)
             {
-                error = string.Format("Il piano '{0}' non dichiara alcuno strumento.", PlanCode);
+                error = string.Format("Nessuno strumento {0}.", what);
                 return null;
             }
 
+            return plan;
+        }
+
+        private static List<SpreadRequest> ToRequests(PlanInstrumentsDto plan)
+        {
             var requests = new List<SpreadRequest>();
             foreach (var instrument in plan.Instruments)
             {
@@ -598,56 +629,44 @@ namespace cAlgo.Robots
                 });
             }
 
-            Print("Piano '{0}' ({1}), workspace '{2}', conto {3}: {4} simboli distinti dal masterfilter.",
-                plan.PlanCode, plan.PlanName, plan.WorkspaceId, plan.AccountNumber, requests.Count);
-            foreach (var request in requests)
-                Print("   {0} -> {1}", request.BrokerSymbol, request.PiootooSymbol);
-
             return requests;
         }
 
-        /// <summary>I simboli li dichiara il parametro, nella stessa forma del raccoglitore.</summary>
-        private List<SpreadRequest> BuildRequestsFromParameters()
+        /// <summary>
+        /// I simboli li dichiara il parametro, come nel raccoglitore: simboli Piootoo (<c>@FESX</c>),
+        /// che il server traduce nel nome sul broker con la tabella di conversione del conto
+        /// (<c>GET listed-instruments</c>). <c>EU50.cash=@FESX</c> resta per un simbolo che la tabella
+        /// non mappa. Fino alla 2.0.1 le voci erano nomi del broker e il bot non chiedeva niente al
+        /// server: lo stesso elenco nei due bot voleva due forme diverse.
+        /// </summary>
+        private List<SpreadRequest> BuildRequestsFromParameters(out string error)
         {
-            var requests = new List<SpreadRequest>();
+            error = null;
 
-            foreach (var piece in (SymbolList ?? string.Empty).Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries))
+            // Elenco vuoto: il solo simbolo del grafico, che e' gia' un nome del broker.
+            if (string.IsNullOrWhiteSpace(SymbolList))
             {
-                var entry = piece.Trim();
-                if (entry.Length == 0)
-                    continue;
-
-                string brokerName, piootooSymbol;
-                var separator = entry.IndexOf('=');
-                if (separator > 0)
+                return new List<SpreadRequest>
                 {
-                    brokerName = entry.Substring(0, separator).Trim();
-                    piootooSymbol = entry.Substring(separator + 1).Trim();
-                }
-                else
-                {
-                    brokerName = entry;
-                    piootooSymbol = entry;
-                }
-
-                if (requests.Any(existing => string.Equals(existing.BrokerSymbol, brokerName, StringComparison.OrdinalIgnoreCase)))
-                    continue;
-
-                requests.Add(new SpreadRequest
-                {
-                    BrokerSymbol = brokerName,
-                    PiootooSymbol = NormalizePiootooSymbol(piootooSymbol)
-                });
+                    new SpreadRequest
+                    {
+                        BrokerSymbol = SymbolName,
+                        PiootooSymbol = NormalizePiootooSymbol(SymbolName)
+                    }
+                };
             }
 
-            if (requests.Count == 0)
-            {
-                requests.Add(new SpreadRequest
-                {
-                    BrokerSymbol = SymbolName,
-                    PiootooSymbol = NormalizePiootooSymbol(SymbolName)
-                });
-            }
+            var uri = string.Format("api/datafeed-external/listed-instruments?accountNumber={0}&symbols={1}",
+                Uri.EscapeDataString(Account.Number.ToString()), Uri.EscapeDataString(SymbolList.Trim()));
+
+            var listed = FetchInstruments(uri, "dell'elenco simboli", out error);
+            if (listed == null)
+                return null;
+
+            var requests = ToRequests(listed);
+            Print("Elenco simboli, conto {0}: {1} simboli tradotti dal server.", Account.Number, requests.Count);
+            foreach (var request in requests)
+                Print("   {0} -> {1}", request.BrokerSymbol, request.PiootooSymbol);
 
             return requests;
         }
