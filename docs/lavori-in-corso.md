@@ -25,6 +25,11 @@ state fatte tutte e tre la mattina del 23/09. Voci in `decisioni.md` 2026-09-23.
    avg trade 167/194 contro soglie 266/365. Una finalista deve battere **questo**, non lo zero. Cella
    `fdax-4h-003` in `tools/sweep-paniere.ps1`; resoconto in
    `ricerca/fdax-4h-003-ics-costo-peggiore-per-ora-peggior-tratto-regione.md`.
+   **Esito, 13:25** (`ricerca/fdax-4h-regione-sweep.md`): una finalista passa (130 trade, +47.113 IS,
+   +26.938 OOS, tenuta 51%) ma **non batte la regione nuda** sugli stessi costi (+75.815 / +87.567):
+   i pattern alzano il netto su drawdown in campione (3,37 → 5,71) e lo abbassano fuori (3,51 →
+   2,90). Average trade 362 IS (sopra soglia) e 190 OOS (metà). Passa solo la variante con trailing
+   2.000, terza in campione. **Nessuna classe 004**: si aspetta la misura A.
 3. **Il trend following, seconda prova, tre cose cambiate insieme**: unmirrored, 15 minuti, pattern
    cercati dalla sweep (`SweepSpaces.TrendFollowingUnmirrored`, `--engine TFU`, fasi pattern
    spezzate). Contenitore `PT3B_NQ_TFU_001_15`. 2022-01 → 2025-01 → 2026-09, feed ICS, utile medio
