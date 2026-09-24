@@ -6,7 +6,8 @@
 # aggregati costruiti con la finestra, spread, swap, contratto e calendario. Il server deve essere
 # acceso: se non risponde, la cella aspetta.
 #
-# Una cella fatta lascia ricerca/coda/<cella>.fatto (data, esito) e il log in ricerca/<cella>.log.
+# Una cella finita bene lascia ricerca/coda/<cella>.fatto e il log in ricerca/<cella>.log; una fallita
+# accoda una riga a ricerca/coda/<cella>.errore e si riprova dopo mezz'ora, al massimo tre volte.
 # Mai insieme a una sweep o a un'altra griglia: stessi core, tempi raddoppiati per entrambe.
 #
 # Uso: powershell -NoProfile -ExecutionPolicy Bypass -File tools\coda-ricerca.ps1 [-Server http://localhost:5000] [-UnGiro]
@@ -14,6 +15,7 @@
 param(
     [string]$Server = 'http://localhost:5000',
     [int]$MinutiFraGiri = 10,
+    [double]$MinimoGbLiberi = 6,
     [switch]$UnGiro
 )
 
@@ -54,6 +56,16 @@ while ($true) {
         $marcatore = Join-Path $fatte "$($cella.cella).fatto"
         if (Test-Path $marcatore) { continue }
 
+        # Un fallimento non chiude la cella: il caso che l'ha insegnato e' la compilazione morta per
+        # memoria esaurita mentre il raccoglitore caricava un mese di tick (24/09/2026). Si riprova
+        # dopo mezz'ora, fino a tre volte; poi la cella si ferma e il file .errore dice perche'.
+        $errore = Join-Path $fatte "$($cella.cella).errore"
+        if (Test-Path $errore) {
+            $tentativi = @(Get-Content $errore).Count
+            if ($tentativi -ge 3) { continue }
+            if ((Get-Item $errore).LastWriteTime -gt (Get-Date).AddMinutes(-30)) { continue }
+        }
+
         $pronti = Get-Pronti $cella.broker
         if ($null -eq $pronti) {
             Write-Log "$($cella.cella): server non raggiungibile, riprovo al prossimo giro"
@@ -76,6 +88,15 @@ while ($true) {
             break
         }
 
+        # Una griglia compila la solution e poi tiene in RAM il minuto di sei anni: sotto questa soglia
+        # muore a meta' (24/09/2026, raccoglitore che caricava un mese di tick). Aspettare non conta
+        # come tentativo.
+        $liberaGb = (Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory / 1MB
+        if ($liberaGb -lt $MinimoGbLiberi) {
+            Write-Log ("{0}: pronta, ma liberi solo {1:N1} GB di RAM (servono {2}): aspetto" -f $cella.cella, $liberaGb, $MinimoGbLiberi)
+            break
+        }
+
         $log = Join-Path $ricerca "$($cella.cella).log"
         Write-Log "$($cella.cella): parte ($($cella.test))"
         Set-Location $repo
@@ -86,8 +107,14 @@ while ($true) {
         $esito = $LASTEXITCODE
         Remove-Item Env:\PIOOTOO_STUDI -ErrorAction SilentlyContinue
 
-        Set-Content -Path $marcatore -Value ("{0:yyyy-MM-dd HH:mm:ss} exit {1}" -f (Get-Date), $esito) -Encoding utf8
-        Write-Log "$($cella.cella): finita (exit $esito), log in $log"
+        $riga = "{0:yyyy-MM-dd HH:mm:ss} exit {1}" -f (Get-Date), $esito
+        if ($esito -eq 0) {
+            Set-Content -Path $marcatore -Value $riga -Encoding utf8
+            Write-Log "$($cella.cella): finita, log in $log"
+        } else {
+            Add-Content -Path $errore -Value $riga -Encoding utf8
+            Write-Log "$($cella.cella): FALLITA (exit $esito), riprovo fra mezz'ora; log in $log"
+        }
         $lanciata = $true
         break
     }

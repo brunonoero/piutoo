@@ -13,6 +13,36 @@
       "test": "Eu50CoarseGridTests",
       "broker": "FTMO",
       "simboli": [ "@FESX" ]
+    },
+    {
+      "cella": "uk100-4h-griglia-grossa",
+      "test": "Uk100CoarseGridTests",
+      "broker": "FTMO",
+      "simboli": [ "@Z" ]
+    },
+    {
+      "cella": "fra40-4h-griglia-grossa",
+      "test": "Fra40CoarseGridTests",
+      "broker": "FTMO",
+      "simboli": [ "@FCE" ]
+    },
+    {
+      "cella": "jp225-4h-griglia-grossa",
+      "test": "Jp225CoarseGridTests",
+      "broker": "FTMO",
+      "simboli": [ "@NIY" ]
+    },
+    {
+      "cella": "us2000-4h-griglia-grossa",
+      "test": "Us2000CoarseGridTests",
+      "broker": "FTMO",
+      "simboli": [ "@RTY" ]
+    },
+    {
+      "cella": "xag-4h-griglia-grossa",
+      "test": "XagCoarseGridTests",
+      "broker": "FTMO",
+      "simboli": [ "@SI" ]
     }
   ]
 }
