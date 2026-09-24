@@ -56,7 +56,7 @@ public sealed class StrategyExportHttpTests : IDisposable
     [Fact]
     public async Task Export_DiPiuStrategie_RestituisceUnArrayNellOrdineChiesto()
     {
-        var ids = new[] { "PTS_NQ_TFM_002_15", "PTS_ES_PCH_001_60", "PTS_FDAX_MAC_001_240" };
+        var ids = new[] { "PT3B_FDAX_PCH_002_240", "PT3B_FDAX_PCH_001_240" };
 
         using var response = await _client.PostAsJsonAsync("api/strategies/export", ids);
         response.EnsureSuccessStatusCode();
@@ -102,7 +102,7 @@ public sealed class StrategyExportHttpTests : IDisposable
     public async Task Export_ConUnIdSconosciuto_Fallisce()
     {
         using var response = await _client.PostAsJsonAsync(
-            "api/strategies/export", new[] { "PTS_ES_PCH_001_60", "PTS_NON_ESISTE_000_1" });
+            "api/strategies/export", new[] { "PT3B_FDAX_PCH_002_240", "PTS_NON_ESISTE_000_1" });
 
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
     }
@@ -118,13 +118,13 @@ public sealed class StrategyExportHttpTests : IDisposable
     [Fact]
     public async Task Export_DiUnaSolaStrategia_RestaRaggiungibileSullaRisorsa()
     {
-        using var response = await _client.GetAsync("api/strategies/PTS_ES_PCH_001_60/export");
+        using var response = await _client.GetAsync("api/strategies/PT3B_FDAX_PCH_002_240/export");
         response.EnsureSuccessStatusCode();
 
         using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         Assert.Equal(JsonValueKind.Object, document.RootElement.ValueKind);
         Assert.Equal(
-            "PTS_ES_PCH_001_60",
+            "PT3B_FDAX_PCH_002_240",
             document.RootElement.GetProperty("identity").GetProperty("id").GetString());
     }
 

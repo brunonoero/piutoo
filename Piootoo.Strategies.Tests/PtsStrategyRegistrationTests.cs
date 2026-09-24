@@ -1,49 +1,15 @@
 using Piootoo.Core.Services;
 using Piootoo.Shared.Models.Trading;
-using Piootoo.Strategies.PiutooStrategies;
 using Xunit;
 
 namespace Piootoo.Strategies.Tests;
 
+/// <summary>
+/// La registrazione delle serie di catalogo. I casi sulla serie PTS sono stati tolti il 24/09/2026
+/// insieme alle classi.
+/// </summary>
 public class PtsStrategyRegistrationTests
 {
-    [Fact]
-    public void PtsTfm001_IsRegisteredWithExpectedMetadata()
-    {
-        var definition = Assert.Single(
-            StrategyFactory.GetRegisteredStrategies(),
-            strategy => strategy.Id == nameof(PTS_NQ_TFM_001_60));
-
-        Assert.Equal("PTS_NQ_TFM_001_60", definition.Name);
-        Assert.Equal("@NQ", definition.Symbol);
-        Assert.Equal(60, definition.TimeframeMinutes);
-        Assert.True(definition.IsActive);
-    }
-
-    [Fact]
-    public void PtsTfm001_CanBeCreatedByCatalogId()
-    {
-        var strategy = StrategyFactory.CreateStrategy(nameof(PTS_NQ_TFM_001_60), "@NQ", 60);
-
-        Assert.NotNull(strategy);
-        Assert.IsType<PTS_NQ_TFM_001_60>(strategy);
-        Assert.False(strategy.IsPositionCloseDependent);
-    }
-
-    [Theory]
-    [InlineData(nameof(PTS_NQ_PCH_001_15))]
-    [InlineData(nameof(PTS_NQ_PCH_002_15))]
-    public void PcPtsStrategies_AreRegisteredWithExpectedMetadata(string id)
-    {
-        var definition = Assert.Single(
-            StrategyFactory.GetRegisteredStrategies(),
-            strategy => strategy.Id == id);
-
-        Assert.Equal("@NQ", definition.Symbol);
-        Assert.Equal(15, definition.TimeframeMinutes);
-        Assert.True(definition.IsActive);
-    }
-
     /// <summary>
     /// Le classi della serie PT3B stanno in un namespace proprio: il catalogo le deve trovare come
     /// le PTS, con Id e Name coincidenti, il simbolo e il timeframe dichiarati e la tenuta giusta.

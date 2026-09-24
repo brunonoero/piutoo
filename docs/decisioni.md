@@ -4533,3 +4533,23 @@ che il motore fa. Difetto di artefatto, non di esecuzione, ma e' costato mezza i
   mai insieme a una sweep. Cosa resta a mano: avviare il raccoglitore una volta in cTrader (serve il
   login), riavviarlo dopo un rilascio che lo tocca, e decidere cosa va nel piano. Test:
   `SpreadDailyStoreTests`, `SwapFromSymbolInfoTests`, `BrokerDataStatusServiceTests`.
+
+- **2026-09-24** — **Eliminata la serie PTS.** Le 103 classi `PTS_*` (`PiutooStrategies/`) erano
+  obsolete e sono state cancellate su richiesta. I test che le usavano come esempio ora usano le PT3B
+  equivalenti o una classe di test locale; `StopMoneyPolicy` ha l'elenco vuoto (il fattore era gia' 1
+  dall'11/09); lo studio della griglia GC, legato a `PTS_GC_PCH_004_240`, e' stato tolto. Resta il
+  workspace `raccolta-ics`, il cui masterfilter elenca ancora 7 PTS: non toccato.
+
+- **2026-09-24** — **Nuova serie PT5DAV, dalla ricerca v5.0 fatta su un altro server.** 135 delle
+  224 strategie della consegna (`piootoo-repository/PT5DAV/`): quelle che non tengono piu' di una
+  notte, contate sui rollover veri. 132 classi, le 3 FDAX a 4 ore restano fuori (griglia 08-12-16-20
+  non disponibile). **Motori propri** sulla base `Pt5DavEngineBase`, perche' i motori condivisi con le
+  PT3B non si toccano e non sanno dichiarare cio' che la ricerca fa: ATR50 di Wilder per stop, target
+  e offset (stato incrementale), rodaggio, sessione di Roma con la domenica accodata al lunedi' e il
+  DAX 08-22, uscita intraday al limite del CFD in ora di New York, nessun ingresso a CFD chiuso. E'
+  un **secondo punto** che definisce il confine di sessione, accanto a `EasyLib.ClassifySessionBar`,
+  voluto: lo impone il modo in cui la ricerca ha tagliato le sessioni. Le regole trovate riconciliando
+  il pilota NQ con i trade Python (Bollinger su N, `max_bars` senza la barra d'ingresso, niente
+  rientro sulla barra dell'uscita, CFD aperto all'apertura e — per le intraday — alla chiusura della
+  barra) sono nel codice con la loro misura. Classi generate dal CSV (`tools/pt5dav/gen_pt5dav.py`).
+  Vedi `docs/domini/mappa-strategie-pt5dav.md`.

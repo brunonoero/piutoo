@@ -100,46 +100,14 @@ public static class StopMoneyPolicy
     /// <para>Sta <b>prima</b> di <see cref="WidenedStrategies"/> e non in fondo alla classe perche'
     /// gli inizializzatori statici girano nell'ordine in cui sono scritti: dichiararlo dopo lo
     /// farebbe leggere ancora nullo.</para>
+    ///
+    /// <para><b>Vuoto dal 24/09/2026.</b> Conteneva 33 strategie della serie PTS, eliminata dal
+    /// progetto quel giorno; con <see cref="Multiplier"/> a 1 non allargava gia' nulla dall'11/09.
+    /// Il meccanismo resta come leva per rimisurare: una strategia nuova si aggiunge qui per
+    /// <c>StrategyCode</c>.</para>
     /// </summary>
-    private static readonly FrozenSet<string> Selection = new[]
-    {
-        // In utile con l'allargamento.
-        "PTS_NQ_TFU_002_15",
-        "PTS_NQ_TFU_005_60",
-        "PTS_FDAX_TFU_001_1440",
-        "PTS_NQ_TFU_001_15",
-        "PTS_ES_BSW_003_15",
-        "PTS_GC_RHL_001_60",
-        "PTS_GC_RHL_002_60",
-        "PTS_NQ_TFM_014_240",
-        "PTS_ES_BSW_002_15",
-        "PTS_NQ_SBO_003_15",
-        "PTS_NQ_TFM_001_60",
-        "PTS_ES_BSW_001_60",
-        "PTS_GC_PCH_001_60",
-        "PTS_FDAX_TFU_002_1440",
-        "PTS_NG_TFM_002_240",
-        "PTS_YM_TFM_001_240",
-        "PTS_CC_TFM_002_60",
-        "PTS_ES_TFM_001_1440",
-        "PTS_YM_SBO_002_240",
-        "PTS_GC_PCH_005_240",
-        "PTS_BP_TFM_002_15",
-        "PTS_NQ_PCH_001_15",
-        "PTS_NQ_PCH_002_15",
-        "PTS_NQ_TFM_009_60",
-        "PTS_CT_TFU_001_240",
-
-        // In perdita, ma l'allargamento la riduce.
-        "PTS_NQ_TFM_011_60",
-        "PTS_YM_TFM_003_240",
-        "PTS_ES_PCH_004_240",
-        "PTS_YM_TFM_002_240",
-        "PTS_NQ_TFM_012_1440",
-        "PTS_NQ_TFM_005_15",
-        "PTS_ES_PCH_003_1440",
-        "PTS_GC_TFU_001_30",
-    }.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
+    private static readonly FrozenSet<string> Selection =
+        Array.Empty<string>().ToFrozenSet(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// Le strategie a cui l'allargamento si applica, per <c>StrategyCode</c>. Confronto senza

@@ -2,7 +2,7 @@
 using Piootoo.Shared.Configuration;
 using Piootoo.Shared.Interfaces;
 using Piootoo.Shared.MarketData;
-using Piootoo.Strategies.PiutooStrategies;
+using Piootoo.Strategies.PT3BStrategies;
 using Xunit;
 using Xunit.Abstractions;
 
@@ -37,18 +37,21 @@ public sealed class SessionCloseAtAnchorTests(ITestOutputHelper output)
     /// che il difetto tocca: <c>IntradayOnly = true</c> più un motore che chiama
     /// <c>ResolveCloseAtUtc(validFrom, SessionEndTime)</c>.
     /// </summary>
+    /// <remarks>
+    /// Fino al 24/09/2026 i casi erano quattro PTS (FDAX PC e VBO, CC PC, KC SBO), eliminate con la
+    /// serie: al loro posto le PT3B intraday a fine sessione sugli stessi tre motori.
+    /// </remarks>
     public static TheoryData<Type> AnchorOneWithSessionExit =>
     [
-        typeof(PTS_FDAX_PCH_001_240),
-        typeof(PTS_FDAX_VBO_001_240),
-        typeof(PTS_CC_PCH_001_240),
-        typeof(PTS_KC_SBO_001_240),
+        typeof(PT3B_FDAX_PCH_001_240),
+        typeof(PT3B_FDAX_VBO_001_240),
+        typeof(PT3B_FDAX_SBO_001_240),
     ];
 
     public static TheoryData<Type> AnchorZeroWithSessionExit =>
     [
-        typeof(PTS_NQ_PCH_001_15),
-        typeof(PTS_ES_PCH_001_60),
+        typeof(PT3B_NQ_PCH_001_15),
+        typeof(PT3B_CL_PCH_001_30),
     ];
 
     /// <summary>

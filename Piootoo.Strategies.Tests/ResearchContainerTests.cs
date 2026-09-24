@@ -73,6 +73,12 @@ public sealed class ResearchContainerTests : IDisposable
     /// aveva scelto alcun pattern. La serie PT2 e' stata rimossa e il controesempio con lei. Se ne
     /// ricompare uno, la risposta giusta e' <b>togliere questo test</b>, non marcare contenitore una
     /// strategia vera per farlo tacere.</para>
+    ///
+    /// <para><b>Vale per la sola serie PT3B</b> (24/09/2026). Le PT5DAV sono il controesempio che la
+    /// nota prevedeva: vengono dalla consegna esterna con i parametri verbatim, e dove la scheda dice
+    /// "Nessun filtro pattern" i gate stanno alle sentinelle perche' la ricerca non ne ha scelto
+    /// nessuno — quattro solo sul pilota NQ. Per loro l'euristica non ha fondamento; per le PT3B, che
+    /// nascono dall'ottimizzatore interno insieme ai loro contenitori, si'.</para>
     /// </summary>
     [Fact]
     public void AStrategyWithBlankPatternsDeclaresItselfAContainer()
@@ -82,6 +88,7 @@ public sealed class ResearchContainerTests : IDisposable
         foreach (var definition in StrategyFactory.GetRegisteredStrategies(includeResearchContainers: true))
         {
             if (definition.IsResearchContainer) continue;
+            if (!definition.Id.StartsWith("PT3B_", StringComparison.Ordinal)) continue;
 
             var instance = StrategyFactory.CreateStrategy(
                 definition.Id, definition.Symbol, definition.TimeframeMinutes);

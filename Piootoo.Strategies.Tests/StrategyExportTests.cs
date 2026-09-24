@@ -15,8 +15,11 @@ namespace Piootoo.Strategies.Tests;
 /// </summary>
 public sealed class StrategyExportTests
 {
-    /// <summary>La strategia di riferimento dei test: PC su ES, con parametri di tutte le famiglie.</summary>
-    private const string StrategiaCampione = "PTS_ES_PCH_001_60";
+    /// <summary>
+    /// La strategia di riferimento dei test: PC su FDAX 4 ore. Fino al 24/09/2026 era
+    /// <c>PTS_ES_PCH_001_60</c>, eliminata con la serie PTS.
+    /// </summary>
+    private const string StrategiaCampione = "PT3B_FDAX_PCH_002_240";
 
     private static StrategyExportService CreateService() =>
         new(new PiootooSettings { BasePath = Path.Combine(FindRepositoryRoot(), "piootoo-repository") });
@@ -29,12 +32,12 @@ public sealed class StrategyExportTests
         // I parametri sono campi protected impostati nel costruttore: se la riflessione smette di
         // vederli l'export resta valido e diventa inutile, perche' e' proprio questa la parte da
         // confrontare con il report di sweep.
-        Assert.Equal(20, Assert.Contains("ChannelBars", export.Parameters).Value);
-        Assert.Equal(4000, Assert.Contains("StopMoney", export.Parameters).Value);
-        Assert.Equal(7500, Assert.Contains("ProfitMoney", export.Parameters).Value);
-        Assert.Equal(1000, Assert.Contains("TrailingStopMoney", export.Parameters).Value);
-        Assert.Equal(4, Assert.Contains("SkipDay", export.Parameters).Value);
-        Assert.Equal(false, Assert.Contains("IntradayOnly", export.Parameters).Value);
+        Assert.Equal(1, Assert.Contains("ChannelBars", export.Parameters).Value);
+        Assert.Equal(5000, Assert.Contains("StopMoney", export.Parameters).Value);
+        Assert.Equal(4500, Assert.Contains("ProfitMoney", export.Parameters).Value);
+        Assert.Equal(12, Assert.Contains("MaxBars", export.Parameters).Value);
+        Assert.Equal(-1, Assert.Contains("SkipDay", export.Parameters).Value);
+        Assert.Equal(true, Assert.Contains("IntradayOnly", export.Parameters).Value);
 
         // La provenienza del parametro conta: dice se il numero e' una scelta di questa strategia,
         // del motore, o della base comune.
@@ -52,7 +55,7 @@ public sealed class StrategyExportTests
         // gia' pagato una volta. Vedi docs/domini/orari-di-sessione-e-fusi.md.
         var finestra = Assert.IsType<ZonedWindow>(export.Parameters["TradingWindow"].Value);
         Assert.Equal(new TimeOnly(3, 0), finestra.Start);
-        Assert.Equal(new TimeOnly(2, 0), finestra.End);
+        Assert.Equal(new TimeOnly(18, 0), finestra.End);
         Assert.Equal(InstrumentClock.Research, finestra.Clock);
     }
 
@@ -65,11 +68,11 @@ public sealed class StrategyExportTests
         Assert.DoesNotContain("Symbol", export.Parameters.Keys);
         Assert.DoesNotContain("TimeframeMinutes", export.Parameters.Keys);
 
-        Assert.Equal("PTS_ES_PCH_001_60", export.Identity.Id);
-        Assert.Equal("PTS_ES_PCH_001_60", export.Identity.ExecutionCode);
-        Assert.Equal("@ES", export.Identity.Symbol);
-        Assert.Equal(60, export.Identity.TimeframeMinutes);
-        Assert.True(export.Identity.Overnight, "La PC ES 60m e' multiday: IntradayOnly = false.");
+        Assert.Equal("PT3B_FDAX_PCH_002_240", export.Identity.Id);
+        Assert.Equal("PT3B_FDAX_PCH_002_240", export.Identity.ExecutionCode);
+        Assert.Equal("@FDAX", export.Identity.Symbol);
+        Assert.Equal(240, export.Identity.TimeframeMinutes);
+        Assert.False(export.Identity.Overnight, "La PC FDAX 4h e' intraday: IntradayOnly = true.");
     }
 
     [Fact]
@@ -77,12 +80,12 @@ public sealed class StrategyExportTests
     {
         var export = CreateService().Build(StrategiaCampione);
 
-        // Senza il valore del punto, "StopMoney = 4000" non e' confrontabile con i "200.0 pt" del
-        // dossier: sono 80 punti su ES e 200 su NQ.
+        // Senza il valore del punto, "StopMoney = 5000" non e' confrontabile con i punti della
+        // ricerca: sono 200 punti su FDAX e 100 su ES.
         var strumento = Assert.IsType<StrategyExportInstrument>(export.Instrument);
-        Assert.Equal("ES", strumento.Symbol);
-        Assert.Equal(50m, strumento.PointValue);
-        Assert.Equal(0.25m, strumento.TickSize);
+        Assert.Equal("FDAX", strumento.Symbol);
+        Assert.Equal(25m, strumento.PointValue);
+        Assert.Equal(1m, strumento.TickSize);
     }
 
     [Fact]
@@ -92,8 +95,8 @@ public sealed class StrategyExportTests
 
         var sorgente = Assert.Single(export.Sources, document => document.Role == "strategy");
         Assert.True(sorgente.FromAssembly, "Il sorgente della strategia viene dall'assembly in esecuzione.");
-        Assert.Contains("Codice sorgente", sorgente.Text);
-        Assert.Contains("channel_len", sorgente.Text);
+        Assert.Contains("start_hour 3, end_hour 18", sorgente.Text);
+        Assert.Contains("SessionExitTime = new TimeOnly(21, 0)", sorgente.Text);
 
         var motore = Assert.Single(export.Sources, document => document.Role == "engine");
         Assert.True(motore.FromAssembly);
@@ -114,67 +117,9 @@ public sealed class StrategyExportTests
         Assert.Contains("name = \"PC\"", python.Text);
     }
 
-    /// <summary>
-    /// La scheda si aggancia per <b>impronta numerica</b>, non per l'S-ID scritto nel sorgente.
-    ///
-    /// <para>Questo test è il motivo per cui l'aggancio non passa dall'S-ID: la classe campione
-    /// dichiara <c>S43</c>, che nell'edizione corrente del dossier è una NQ 15m TF_M — un'altra
-    /// strategia. Allegare quella scheda avrebbe prodotto un export che si legge come completo e
-    /// descrive il run sbagliato. Vedi <c>docs/domini/mappa-strategie-pts.md</c>.</para>
-    /// </summary>
-    [Fact]
-    public void Export_AgganciaLaSchedaPerImprontaENonPerLSIdDichiarato()
-    {
-        var export = CreateService().Build(StrategiaCampione);
-
-        Assert.Equal("S43", export.Conversion.DeclaredDossierId);
-        Assert.Equal("S63", export.Conversion.DossierId);
-
-        var scheda = Assert.Single(export.Sources, document => document.Role == "dossier");
-        Assert.StartsWith("### S63 · ES 1h", scheda.Text);
-        Assert.Contains("| Motore | PC |", scheda.Text);
-        Assert.Contains("Stop loss: **$4,000**", scheda.Text);
-
-        Assert.Contains(export.Warnings, warning => warning.Contains("S43") && warning.Contains("S63"));
-    }
-
-    /// <summary>
-    /// L'impronta è fatta di cinque numeri e nel dossier corrente quattro coppie di schede li
-    /// condividono. Su quelle l'export non deve inventare un vincitore: allega entrambe e lo dice.
-    /// </summary>
-    [Fact]
-    public void Export_ConImprontaAmbiguaAllegaTutteLeSchedeCandidate()
-    {
-        // GC 1h RHL stop $2.000 target $5.000: S78 e S97 coincidono anche su trailing e uscita a tempo.
-        var export = CreateService().Build("PTS_GC_RHL_001_60");
-
-        var schede = export.Sources.Where(document => document.Role == "dossier").ToList();
-        Assert.Equal(2, schede.Count);
-        Assert.Null(export.Conversion.DossierId);
-        Assert.Contains(export.Warnings, warning => warning.Contains("2 schede"));
-    }
-
-    /// <summary>
-    /// L'export deve trovare la scheda di quasi tutte le strategie del catalogo: se l'aggancio si
-    /// rompesse — un formato del dossier cambiato, una sigla di motore nuova — i singoli export
-    /// continuerebbero a uscire, solo senza la parte che spiega da dove vengono.
-    /// </summary>
-    [Fact]
-    public void Export_TrovaLaSchedaDiRicercaPerQuasiTutteLeStrategie()
-    {
-        var service = CreateService();
-        var totali = StrategyFactory.GetRegisteredStrategies();
-        var senzaScheda = totali
-            .Select(definizione => service.Build(definizione.Id))
-            .Where(export => export.Sources.All(document => document.Role != "dossier"))
-            .Select(export => export.Identity.Id)
-            .ToList();
-
-        Assert.True(
-            senzaScheda.Count * 10 <= totali.Count,
-            $"{senzaScheda.Count} strategie su {totali.Count} senza scheda di dossier: " +
-            string.Join(", ", senzaScheda));
-    }
+    // I tre casi sull'aggancio della scheda del dossier di settembre (impronta contro S-ID, impronta
+    // ambigua, copertura del catalogo) sono stati tolti il 24/09/2026 con la serie PTS: erano le
+    // sole strategie che quel dossier descriveva.
 
     /// <summary>
     /// Ogni motore C# che ha sottoclassi nel catalogo dev'essere nella mappa dei motori, altrimenti

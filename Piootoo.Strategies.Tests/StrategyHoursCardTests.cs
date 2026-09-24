@@ -24,7 +24,7 @@ public sealed class StrategyHoursCardTests
     [Fact]
     public void FdaxSessionAnchorIsOneAmRomeInBothSeasons()
     {
-        var card = _service.Build("PTS_FDAX_PCH_001_240");
+        var card = _service.Build("PT3B_FDAX_PCH_001_240");
 
         Assert.Equal(new TimeOnly(1, 0), card.SessionAnchor);
         Assert.Equal(new TimeOnly(1, 0), card.CalendarSessionStart);
@@ -42,16 +42,16 @@ public sealed class StrategyHoursCardTests
     [Fact]
     public void TradingWindowIsReportedInTheResearchClock()
     {
-        var card = _service.Build("PTS_FDAX_PCH_001_240");
+        var card = _service.Build("PT3B_FDAX_PCH_001_240");
 
         Assert.NotNull(card.TradingWindow);
-        Assert.Equal(new TimeOnly(7, 0), card.TradingWindow!.Start);
-        Assert.Equal(new TimeOnly(13, 0), card.TradingWindow.End);
+        Assert.Equal(new TimeOnly(3, 0), card.TradingWindow!.Start);
+        Assert.Equal(new TimeOnly(18, 0), card.TradingWindow.End);
         Assert.Equal("ricerca", card.TradingWindow.Clock);
         Assert.Equal("Europe/Rome", card.TradingWindow.TimeZoneId);
         Assert.Equal("Europe/Berlin", card.ExchangeTimeZone);
-        Assert.Equal("06:00Z → 12:00Z", card.TradingWindow.WinterUtc);
-        Assert.Equal("05:00Z → 11:00Z", card.TradingWindow.SummerUtc);
+        Assert.Equal("02:00Z → 17:00Z", card.TradingWindow.WinterUtc);
+        Assert.Equal("01:00Z → 16:00Z", card.TradingWindow.SummerUtc);
     }
 
     /// <summary>
@@ -62,7 +62,7 @@ public sealed class StrategyHoursCardTests
     [Fact]
     public void InstrumentWindowKeepsTheAnchorOfEachEdge()
     {
-        var card = _service.Build("PTS_FDAX_PCH_001_240");
+        var card = _service.Build("PT3B_FDAX_PCH_001_240");
 
         var window = Assert.Single(card.InstrumentTradingWindows);
         Assert.Equal("00:15 UTC", window.Open);
@@ -78,7 +78,7 @@ public sealed class StrategyHoursCardTests
     [Fact]
     public void MidnightAnchoredSessionStartsOnThePreviousUtcDay()
     {
-        var card = _service.Build("PTS_NQ_TFM_014_240");
+        var card = _service.Build("PT3B_NQ_TFM_001_240");
 
         Assert.Equal(TimeOnly.MinValue, card.SessionAnchor);
         Assert.Equal("inizio 23:00Z (giorno prima)", card.Session.WinterUtc);
@@ -94,7 +94,7 @@ public sealed class StrategyHoursCardTests
     [Fact]
     public void FullDayWindowIsReportedAsNoFilter()
     {
-        var card = _service.Build("PTS_CT_TFU_001_240");
+        var card = _service.Build("PT3B_NQ_TFU_001_15");
 
         Assert.NotNull(card.TradingWindow);
         Assert.Equal(TimeOnly.MinValue, card.TradingWindow!.Start);

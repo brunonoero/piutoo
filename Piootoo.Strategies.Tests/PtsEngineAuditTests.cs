@@ -4,7 +4,7 @@ using Piootoo.Shared.Enums;
 using Piootoo.Shared.Models;
 using Piootoo.Shared.Models.Trading;
 using Piootoo.Shared.Models.Workspaces;
-using Piootoo.Strategies.PiutooStrategies;
+using Piootoo.Strategies.Easy.Engines;
 using Xunit;
 
 namespace Piootoo.Strategies.Tests;
@@ -13,6 +13,10 @@ namespace Piootoo.Strategies.Tests;
 /// Audit deterministico di PTS_NQ_TFM_001_60 + motore interno: forma del segnale,
 /// conversione $/contratto → punti NQ, fill stop, SL/TP e P&amp;L.
 /// Nessuna correzione: i test documentano anche i comportamenti errati confermati.
+///
+/// <para>La classe PTS e' stata eliminata il 24/09/2026: la sua configurazione vive qui come
+/// <see cref="AuditTfmStrategy"/>, perche' l'audit riguarda il motore TF_M e l'engine, non la
+/// strategia di catalogo.</para>
 /// </summary>
 public sealed class PtsEngineAuditTests
 {
@@ -391,20 +395,35 @@ public sealed class PtsEngineAuditTests
         Assert.True(conversion.IsSymbolEnabled("@GC")); // assente → non bloccato
     }
 
-    private static PTS_NQ_TFM_001_60 CreatePtsWithNeutralPatterns()
+    private static AuditTfmStrategy CreatePtsWithNeutralPatterns() => new();
+
+    /// <summary>
+    /// La configurazione di PTS_NQ_TFM_001_60 (TF_M su NQ 60, finestra 16:00–03:00 della ricerca,
+    /// multiday) con i pattern alle sentinelle, come la inizializzava l'audit.
+    /// </summary>
+    private sealed class AuditTfmStrategy : TfMirroredEngine
     {
-        var strategy = new PTS_NQ_TFM_001_60();
-        strategy.Initialize(new Dictionary<string, object>
+        public override string Name => "PTS_NQ_TFM_001_60";
+        public override string Description => "TF_M NQ 60 dell'audit";
+        public override string Symbol => "@NQ";
+        public override int TimeframeMinutes => 60;
+
+        public AuditTfmStrategy()
         {
-            ["PtnNeutYes"] = 55, // sempre true
-            ["PtnNeutNo"] = 99,  // sempre false
-            ["PtnDirYes"] = 52,  // sempre true
-            ["PtnDirNo"] = 99,   // sempre false
-            ["StopLoss"] = 1000,
-            ["TakeProfit"] = 3000,
-            ["Contracts"] = 1
-        });
-        return strategy;
+            Contracts = 1;
+            TradingWindow = ZonedWindow.ResearchHours(16, 3);
+            SkipDay = -1;
+
+            NeutralYes = 55;     // sempre true
+            NeutralNo = 99;      // sempre false
+            DirectionalYes = 52; // sempre true
+            DirectionalNo = 99;  // sempre false
+
+            IntradayOnly = false;
+
+            StopMoney = 1000;
+            ProfitMoney = 3000;
+        }
     }
 
     private static TradeSignal PtsStopSignal(

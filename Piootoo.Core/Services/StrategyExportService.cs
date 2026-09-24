@@ -76,11 +76,34 @@ public sealed class StrategyExportService
             ["MovingAverageCrossoverEngine"] = new("MAC", "ma_crossover.py"),
             // Motori senza controparte nel motore di ricerca Python.
             ["AroonCrossoverEngine"] = new(null, null),
-            ["TrendDeveloperEngine"] = new(null, null)
+            ["TrendDeveloperEngine"] = new(null, null),
+
+            // Serie PT5DAV (24/09/2026): la ricerca v5.0 e' stata fatta su un altro server e il suo
+            // motore Python non e' nel repository dati, quindi non si allega. La sigla e' quella
+            // della consegna (piootoo-repository/PT5DAV/strategie_224.csv, colonna motore).
+            ["Pt5DavTfMirroredEngine"] = new("TF_M", null, ExternalResearch: true),
+            ["Pt5DavTfUnmirroredEngine"] = new("TF_U", null, ExternalResearch: true),
+            ["Pt5DavPriceChannelEngine"] = new("PC", null, ExternalResearch: true),
+            ["Pt5DavSessionBreakoutEngine"] = new("BO", null, ExternalResearch: true),
+            ["Pt5DavCurrentSessionBreakoutEngine"] = new("BO_S", null, ExternalResearch: true),
+            ["Pt5DavVolatilityBreakoutEngine"] = new("VBO", null, ExternalResearch: true),
+            ["Pt5DavPivotFaderEngine"] = new("LF", null, ExternalResearch: true),
+            ["Pt5DavHighLowFaderEngine"] = new("LF_HL", null, ExternalResearch: true),
+            ["Pt5DavRhlEngine"] = new("RHL", null, ExternalResearch: true),
+            ["Pt5DavBollingerMirroredEngine"] = new("RBB_M", null, ExternalResearch: true),
+            ["Pt5DavBollingerUnmirroredEngine"] = new("RBB_U", null, ExternalResearch: true),
+            ["Pt5DavBiasMarketEngine"] = new("BIAS", null, ExternalResearch: true),
+            ["Pt5DavBiasRetracementEngine"] = new("BIAS_RT", null, ExternalResearch: true),
+            ["Pt5DavBiasBreakoutEngine"] = new("BIAS_BO", null, ExternalResearch: true),
+            ["Pt5DavMovingAverageCrossoverEngine"] = new("MAC", null, ExternalResearch: true)
         };
 
-    /// <summary>Sigla del motore e file Python corrispondente; <c>null</c> quando non esiste.</summary>
-    private sealed record EngineOrigin(string? Code, string? PythonFile);
+    /// <summary>
+    /// Sigla del motore e file Python corrispondente; <c>null</c> quando non esiste.
+    /// <paramref name="ExternalResearch"/>: motore della ricerca PT5DAV, fatta su un altro server —
+    /// il Python c'e' ma non e' qui, e la scheda di ricerca sta gia' nel commento della classe.
+    /// </summary>
+    private sealed record EngineOrigin(string? Code, string? PythonFile, bool ExternalResearch = false);
 
     /// <summary>
     /// Membri che non sono taratura e non vanno fra i parametri: l'identità della strategia, che sta
@@ -373,6 +396,15 @@ public sealed class StrategyExportService
                 FromAssembly = true,
                 Text = engineSource
             });
+        }
+
+        if (origin.ExternalResearch)
+        {
+            warnings.Add(
+                $"'{type.Name}' viene dalla ricerca PT5DAV, fatta su un altro server: il motore Python non " +
+                "e' nel repository. La scheda di ricerca e' nel commento della classe; i trade di riferimento " +
+                "in piootoo-repository/PT5DAV/trades_per_strategia/.");
+            return;
         }
 
         AppendPythonEngine(export, origin, warnings);

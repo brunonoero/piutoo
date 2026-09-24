@@ -14,19 +14,22 @@
     Il sorgente delle strategie e dei motori viaggia DENTRO l'assembly, oltre che essere compilato.
 
     Serve all'export di una strategia (`StrategyExportService`), che deve restituire i commenti di
-    conversione — l'XMLdoc di ogni classe PTS e' l'unico posto dove sta il ragionamento della
+    conversione — l'XMLdoc di ogni classe di catalogo e' l'unico posto dove sta il ragionamento della
     traduzione. Leggerli dal checkout accanto al server sarebbe piu' economico e sbagliato: il
     server puo' girare senza sorgenti, e soprattutto un checkout aggiornato descriverebbe codice
     diverso da quello in esecuzione. Incorporati qui, il testo esportato e' per costruzione lo
     stesso che il binario esegue.
 
     Costo: circa 1,6 MB sull'assembly. Il nome della risorsa lo deriva MSBuild dal percorso
-    (`Piootoo.Strategies.PiutooStrategies.PTS_ES_PCH_001_60.cs`), quindi resta univoco senza
+    (`Piootoo.Strategies.PT3BStrategies.PT3B_FDAX_PCH_002_240.cs`), quindi resta univoco senza
     doverlo dichiarare.
+
+    La serie PTS (`PiutooStrategies/`) e' stata eliminata dal progetto il 24/09/2026, la PT2 il
+    22/09/2026.
   -->
   <ItemGroup>
-    <EmbeddedResource Include="PiutooStrategies\**\*.cs" Exclude="$(DefaultItemExcludes)" />
-    <EmbeddedResource Include="PT2Strategies\**\*.cs" Exclude="$(DefaultItemExcludes)" />
+    <EmbeddedResource Include="PT3BStrategies\**\*.cs" Exclude="$(DefaultItemExcludes)" />
+    <EmbeddedResource Include="PT5DAVStrategies\**\*.cs" Exclude="$(DefaultItemExcludes)" />
     <EmbeddedResource Include="Easy\**\*.cs" Exclude="$(DefaultItemExcludes)" />
     <EmbeddedResource Include="*.cs" Exclude="$(DefaultItemExcludes)" />
   </ItemGroup>

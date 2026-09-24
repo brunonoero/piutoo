@@ -1,41 +1,19 @@
-using System.Reflection;
 using Piootoo.Core.Services;
 using Piootoo.Shared.Enums;
 using Piootoo.Shared.Models;
 using Piootoo.Shared.Models.Trading;
-using Piootoo.Strategies.Easy.Engines;
-using Piootoo.Strategies.PiutooStrategies;
 using Xunit;
 
 namespace Piootoo.Strategies.Tests;
 
 /// <summary>
-/// Verifica la specifica PC di PTS_NQ_PCH_001: canale inclusivo della barra corrente, buffer NQ,
-/// condizioni di uscita autocontenute e trailing stop monetario per contratto.
+/// Il motore interno sui segnali della specifica PC nata con PTS_NQ_PCH_001: trailing stop
+/// monetario per contratto, priorita' dello stop sulla barra di fill, un fill per sessione. I codici
+/// strategia sono solo etichette: la classe PTS e' stata eliminata il 24/09/2026, e con lei il caso
+/// che verificava il suo <c>IntradayOnly</c>.
 /// </summary>
 public sealed class PtsPriceChannelTests
 {
-
-    /// <summary>
-    /// <c>PriceChannelEngine.IntradayOnly</c> vale <c>true</c> per default: le PC multiday devono
-    /// disattivarlo esplicitamente. Dimenticarlo mette <c>CloseAtUtc</c> alle 16:00 su ogni segnale
-    /// senza rompere nessun contratto, quindi la regressione passerebbe inosservata nei test e si
-    /// vedrebbe solo nei risultati.
-    /// </summary>
-    [Theory]
-    [InlineData(typeof(PTS_NQ_PCH_001_15))]
-    [InlineData(typeof(PTS_NQ_PCH_002_15))]
-    public void PcPtsStrategies_DoNotDeclareSessionEndClose(Type strategyType)
-    {
-        var strategy = Activator.CreateInstance(strategyType)!;
-        var field = typeof(PriceChannelEngine).GetField(
-            "IntradayOnly",
-            BindingFlags.Instance | BindingFlags.NonPublic);
-
-        Assert.NotNull(field);
-        Assert.False((bool)field!.GetValue(strategy)!);
-    }
-
     [Fact]
     public void Engine_ClosesLongAtTrailingStopFromFavorableHigh()
     {

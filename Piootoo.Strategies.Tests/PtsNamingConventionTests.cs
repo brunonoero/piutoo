@@ -2,7 +2,7 @@ using System.Reflection;
 using System.Text.RegularExpressions;
 using Piootoo.Shared.Interfaces;
 using Piootoo.Strategies.Easy.Engines;
-using Piootoo.Strategies.PiutooStrategies;
+using Piootoo.Strategies.PT5DAVStrategies.Engines;
 using Xunit;
 
 namespace Piootoo.Strategies.Tests;
@@ -44,7 +44,26 @@ public sealed class PtsNamingConventionTests
         [typeof(BiasWeeklyEngine)] = "BSW",
         [typeof(BiasBarCountEngine)] = "BIA",
         [typeof(VolatilityBreakoutEngine)] = "VBO",
-        [typeof(MovingAverageCrossoverEngine)] = "MAC"
+        [typeof(MovingAverageCrossoverEngine)] = "MAC",
+
+        // Serie PT5DAV (24/09/2026): motori propri, sulla base comune Pt5DavEngineBase. Le sigle
+        // seguono i motori della ricerca v5.0; dove il motore esiste gia' fra quelli condivisi la
+        // sigla e' la stessa.
+        [typeof(Pt5DavTfMirroredEngine)] = "TFM",
+        [typeof(Pt5DavTfUnmirroredEngine)] = "TFU",
+        [typeof(Pt5DavPriceChannelEngine)] = "PCH",
+        [typeof(Pt5DavSessionBreakoutEngine)] = "SBO",
+        [typeof(Pt5DavCurrentSessionBreakoutEngine)] = "BOS",
+        [typeof(Pt5DavVolatilityBreakoutEngine)] = "VBO",
+        [typeof(Pt5DavPivotFaderEngine)] = "LFD",
+        [typeof(Pt5DavHighLowFaderEngine)] = "LFH",
+        [typeof(Pt5DavRhlEngine)] = "RHL",
+        [typeof(Pt5DavBollingerMirroredEngine)] = "RBM",
+        [typeof(Pt5DavBollingerUnmirroredEngine)] = "RBU",
+        [typeof(Pt5DavBiasMarketEngine)] = "BIA",
+        [typeof(Pt5DavBiasRetracementEngine)] = "BRT",
+        [typeof(Pt5DavBiasBreakoutEngine)] = "BBO",
+        [typeof(Pt5DavMovingAverageCrossoverEngine)] = "MAC"
     };
 
     /// <summary>
@@ -54,17 +73,19 @@ public sealed class PtsNamingConventionTests
     /// </summary>
     private static readonly IReadOnlyDictionary<string, string> Series = new Dictionary<string, string>
     {
-        ["PTS"] = typeof(PTS_NQ_TFM_001_60).Namespace!,
-        // PT2 rimossa dal progetto il 22/09/2026: le sue quattro classi non avevano superato la
-        // validazione ai costi veri e restavano selezionabili nelle schermate.
+        // PTS eliminata dal progetto il 24/09/2026, perche' obsoleta. PT2 rimossa il 22/09/2026: le
+        // sue quattro classi non avevano superato la validazione ai costi veri e restavano
+        // selezionabili nelle schermate.
         // PT3B: non viene da un dossier ma dall'ottimizzatore interno (piootoo-sweep). Numera per
         // conto proprio come le altre due — PT3B_FDAX_PCH_001 non e' la seconda PCH su FDAX, e' la
         // prima della sua serie.
-        ["PT3B"] = typeof(PT3BStrategies.PT3B_FDAX_PCH_001_240).Namespace!
+        ["PT3B"] = typeof(PT3BStrategies.PT3B_FDAX_PCH_001_240).Namespace!,
+        // PT5DAV: dalla ricerca v5.0 fatta su un altro server (piootoo-repository/PT5DAV/), 24/09/2026.
+        ["PT5DAV"] = typeof(Pt5DavEngineBase).Namespace!.Replace(".Engines", string.Empty)
     };
 
     private static readonly Regex NamePattern = new(
-        @"^(?<series>PTS|PT3B)_(?<symbol>[A-Z0-9]+)_(?<engine>[A-Z]{3})_(?<number>\d{3})_(?<timeframe>\d+)$",
+        @"^(?<series>PTS|PT3B|PT5DAV)_(?<symbol>[A-Z0-9]+)_(?<engine>[A-Z]{3})_(?<number>\d{3})_(?<timeframe>\d+)$",
         RegexOptions.Compiled);
 
     public static TheoryData<Type> PtsStrategyTypes
@@ -157,7 +178,7 @@ public sealed class PtsNamingConventionTests
     }
 
     private static IEnumerable<Type> EnumeratePtsTypes() =>
-        Assembly.GetAssembly(typeof(PTS_NQ_TFM_001_60))!
+        Assembly.GetAssembly(typeof(PT3BStrategies.PT3B_FDAX_PCH_001_240))!
             .GetTypes()
             .Where(type => type is { IsAbstract: false, IsClass: true }
                            && type.Namespace is { } ns && Series.Values.Contains(ns)

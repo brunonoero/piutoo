@@ -111,10 +111,14 @@ non esiste più, si tiene per il perché.
   veloce non può scegliere gli stop, il criterio sul peggior tratto, la validazione
   fuori campione e il costo peggiore fra più broker. È da qui che vengono le
   `PT3B_*`, mentre il file sopra copre i parametri che arrivano da fuori. *Bozza.*
+- [`domini/mappa-strategie-pt5dav.md`](domini/mappa-strategie-pt5dav.md) — la serie
+  `PT5DAV_*` dalla ricerca v5.0 fatta su un altro server: perimetro (le 135 che non
+  tengono più di una notte), motori propri e base comune (ATR50 di Wilder, sessione
+  della ricerca, orari del CFD), regole misurate riconciliando il pilota NQ con i
+  trade Python, elenco classe → codice. *Bozza: riconciliato il solo NQ.*
 - [`domini/mappa-strategie-pts.md`](domini/mappa-strategie-pts.md) — da quale
-  run e da quale riga approvata viene ogni classe `PTS_*`, sigle dei motori,
-  strategie disabilitate perché doppioni, motori senza più sottoclassi.
-  *Stabile.*
+  run e da quale riga approvata veniva ogni classe `PTS_*`. **Serie eliminata dal
+  progetto il 24/09/2026.** *Storia: non descrive più il codice.*
 - [`domini/mappa-strategie-pt2.md`](domini/mappa-strategie-pt2.md) — la serie
   `PT2_*`, porting del paniere rifatto di `run-engine-v2/DOSSIER_PANIERE_001.md`:
   scheda → classe e parametri. **Serie rimossa dal progetto il 22/09/2026**

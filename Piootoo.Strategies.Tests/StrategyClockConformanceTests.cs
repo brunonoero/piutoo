@@ -3,7 +3,6 @@ using System.Text.RegularExpressions;
 using Piootoo.Shared.MarketData;
 using Piootoo.Shared.Configuration;
 using Piootoo.Shared.Interfaces;
-using Piootoo.Strategies.PiutooStrategies;
 using Xunit;
 
 namespace Piootoo.Strategies.Tests;
@@ -137,16 +136,17 @@ public sealed class StrategyClockConformanceTests
     }
 
     /// <summary>
-    /// I namespace delle serie di catalogo: <c>PTS_*</c> e <c>PT3B_*</c>. Una serie nuova si dichiara
+    /// I namespace delle serie di catalogo: oggi <c>PT3B_*</c>. Una serie nuova si dichiara
     /// qui, altrimenti le sue classi non passano da questi controlli.
     ///
     /// <para>La serie <c>PT2_*</c> stava qui dal 16/09/2026 ed e' stata rimossa dal progetto il
-    /// 22/09: le sue quattro classi non avevano superato la validazione ai costi veri.</para>
+    /// 22/09: le sue quattro classi non avevano superato la validazione ai costi veri. La serie
+    /// <c>PTS_*</c> e' stata eliminata il 24/09/2026.</para>
     /// </summary>
     private static readonly string[] CatalogNamespaces =
     [
-        typeof(PTS_NQ_TFM_001_60).Namespace!,
-        typeof(PT3BStrategies.PT3B_FDAX_PCH_001_240).Namespace!
+        typeof(PT3BStrategies.PT3B_FDAX_PCH_001_240).Namespace!,
+        typeof(PT5DAVStrategies.PT5DAV_NQ_BOS_001_15).Namespace!
     ];
 
     public static TheoryData<Type> PtsStrategyTypes
@@ -154,7 +154,7 @@ public sealed class StrategyClockConformanceTests
         get
         {
             var data = new TheoryData<Type>();
-            foreach (var type in Assembly.GetAssembly(typeof(PTS_NQ_TFM_001_60))!
+            foreach (var type in Assembly.GetAssembly(typeof(PT3BStrategies.PT3B_FDAX_PCH_001_240))!
                          .GetTypes()
                          .Where(t => t is { IsAbstract: false, IsClass: true }
                                      && t.Namespace is { } ns && CatalogNamespaces.Contains(ns)

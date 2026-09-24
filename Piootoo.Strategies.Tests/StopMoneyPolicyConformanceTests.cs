@@ -97,7 +97,9 @@ public sealed class StopMoneyPolicyConformanceTests(ITestOutputHelper output)
     [Fact]
     public void NoDeclaredStopStaysWithoutStop()
     {
-        var widened = StopMoneyPolicy.WidenedStrategies[0];
+        // Con l'elenco vuoto (dal 24/09/2026) si prova su un codice qualunque: il risultato atteso
+        // e' lo stesso, dentro o fuori elenco.
+        var widened = StopMoneyPolicy.WidenedStrategies.FirstOrDefault() ?? "ANY_CODE";
 
         Assert.Null(StopMoneyPolicy.Widen(widened, null));
         Assert.Equal(0m, StopMoneyPolicy.Widen(widened, 0m));
@@ -117,7 +119,11 @@ public sealed class StopMoneyPolicyConformanceTests(ITestOutputHelper output)
             StopMoneyPolicy.Enabled ? StopMoneyPolicy.Multiplier : 1m,
             StopMoneyPolicy.EffectiveMultiplier);
 
-        var widened = StopMoneyPolicy.WidenedStrategies[0];
+        // Con l'elenco vuoto (dal 24/09/2026) non c'e' una strategia su cui provare l'allargamento:
+        // resta verificata la dichiarazione del fattore qui sopra.
+        var widened = StopMoneyPolicy.WidenedStrategies.FirstOrDefault();
+        if (widened is null)
+            return;
 
         Assert.Equal(StopMoneyPolicy.Enabled, StopMoneyPolicy.AppliesTo(widened));
         Assert.Equal(
