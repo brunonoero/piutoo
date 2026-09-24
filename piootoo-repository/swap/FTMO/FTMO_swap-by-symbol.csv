@@ -15,7 +15,29 @@
 #
 # NON MODELLATO: FTMO dichiara "P&L conversion fee rate 0.70%" su entrambi i simboli, mentre ICS
 # dichiara 0,00%. E' un costo proporzionale al P&L che il motore oggi non applica.
+# Le righe con source 'auto:' le scrive il server dalle schede del raccoglitore (mediana pesata degli ultimi 30 giorni); le altre sono scritte a mano e vincono.
 broker,symbol,longPipsPerNight,shortPipsPerNight,pipInPoints,rolloverUtc,tripleDay,source
 FTMO,@FDAX,-4.5288,-0.0457,1,20:59,Friday,scheda GER40.cash cTrader 2026-09-21
 FTMO,@NQ,-6.7098,0.3292,1,20:59,Friday,scheda US100.cash cTrader 2026-09-21
 FTMO,@FESX,-1.1327,-0.0114,1,20:59,Friday,pagina simboli FTMO 2026-09-23 (-113.27/-1.14 in centesimi di punto; la scheda cTrader dello stesso giorno dava +3.5637/-4.7107 con dentro l'aggiustamento dividendo; su GER40 pagina e scheda coincidono)
+FTMO,@FCE,-1.4568,-0.0147,1,20:59,Friday,pagina simboli FTMO 2026-09-23 mattina (-145.68/-1.47 in centesimi di punto; dalla sera del 23/09 pagina e scheda danno +13.7632/-15.24 con dentro l'aggiustamento dividendo e il 24/09 ancora; tasso base in rapporto al prezzo uguale a GER40 ed EU50)
+FTMO,@AP,-2.2025,0.1426,1,20:59,Friday,auto: mediana pesata di 7 schede AUS200.cash dal 2026-09-23 al 2026-09-24
+FTMO,@BP,-0.59,-0.435,0.0001,20:59,Wednesday,auto: mediana pesata di 1 schede GBPUSD dal 2026-09-24 al 2026-09-24
+FTMO,@BRN,0.0148,-0.0745,1,20:59,Friday,auto: mediana pesata di 1 schede UKOIL.cash dal 2026-09-23 al 2026-09-24
+FTMO,@C,-0.3775,0.0743,1,20:59,Friday,auto: mediana pesata di 1 schede CORN.c dal 2026-09-23 al 2026-09-24
+FTMO,@CC,-1.802,0.284,1,20:59,Friday,auto: mediana pesata di 1 schede COCOA.c dal 2026-09-24 al 2026-09-24
+FTMO,@CL,0.0497,-0.2253,1,20:59,Friday,auto: mediana pesata di 1 schede USOIL.cash dal 2026-09-24 al 2026-09-24
+FTMO,@CT,-0.0409,0.0074,1,20:59,Friday,auto: mediana pesata di 1 schede COTTON.c dal 2026-09-24 al 2026-09-24
+FTMO,@ES,-1.6673,-0.002,1,20:59,Friday,auto: mediana pesata di 1 schede US500.cash dal 2026-09-24 al 2026-09-24
+FTMO,@GC,-0.83,-0.083,1,20:59,Wednesday,auto: mediana pesata di 1 schede XAUUSD dal 2026-09-24 al 2026-09-24
+FTMO,@KC,0.0459,-0.2289,1,20:59,Friday,auto: mediana pesata di 1 schede COFFEE.c dal 2026-09-24 al 2026-09-24
+FTMO,@NG,-0.0058,0.0013,1,20:59,Friday,auto: mediana pesata di 1 schede NATGAS.cash dal 2026-09-24 al 2026-09-24
+FTMO,@NIY,-8.4766,-3.6329,1,20:59,Friday,auto: mediana pesata di 6 schede JP225.cash dal 2026-09-23 al 2026-09-24
+FTMO,@PL,-0.6341,-0.1995,1,20:59,Wednesday,auto: mediana pesata di 1 schede XPTUSD dal 2026-09-24 al 2026-09-24
+FTMO,@RTY,-0.5699,-0.0524,1,20:59,Friday,auto: mediana pesata di 1 schede US2000.cash dal 2026-09-23 al 2026-09-24
+FTMO,@S,-0.2668,0.029,1,20:59,Friday,auto: mediana pesata di 1 schede SOYBEAN.c dal 2026-09-23 al 2026-09-24
+FTMO,@SB,-0.0086,0.0016,1,20:59,Friday,auto: mediana pesata di 1 schede SUGAR.c dal 2026-09-24 al 2026-09-24
+FTMO,@SI,-0.0165,0.0007,1,20:59,Wednesday,auto: mediana pesata di 1 schede XAGUSD dal 2026-09-23 al 2026-09-24
+FTMO,@W,-0.2316,0.036,1,20:59,Friday,auto: mediana pesata di 1 schede WHEAT.c dal 2026-09-23 al 2026-09-24
+FTMO,@YM,-11.7286,0.5754,1,20:59,Friday,auto: mediana pesata di 1 schede US30.cash dal 2026-09-24 al 2026-09-24
+FTMO,@Z,-1.4749,-0.8384,1,20:59,Friday,auto: mediana pesata di 6 schede UK100.cash dal 2026-09-23 al 2026-09-24

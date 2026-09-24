@@ -1,0 +1,3 @@
+# spread = ask - bid. Le colonne *Ticks sono la stessa misura in tick di strumento (spread / tickSize).
+broker,symbol,brokerSymbol,ticks,firstTickUtc,lastTickUtc,tickSize,pipSize,minSpread,p50Spread,avgSpread,p90Spread,p99Spread,maxSpread,minSpreadTicks,p50SpreadTicks,avgSpreadTicks,p90SpreadTicks,p99SpreadTicks,maxSpreadTicks,nonPositiveTicks,truncated,note
+FTMO,@W,WHEAT.c,328107,2026-08-25T00:05:00Z,2026-09-23T18:19:36Z,0.01,1,1.26,1.82,1.66,2.00,2.00,3.66,126,182,166.50,200,200,366,0,false,finestra mobile di 30 giorni raccolti (21 con tick) dal 2026-08-25 al 2026-09-23

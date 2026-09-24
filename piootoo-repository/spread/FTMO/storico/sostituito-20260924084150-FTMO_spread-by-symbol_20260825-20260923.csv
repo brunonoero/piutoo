@@ -1,0 +1,55 @@
+# Misure di spread del broker FTMO, unite dal server Piootoo. Ogni simbolo porta la finestra in cui
+# e' stato misurato (firstTickUtc/lastTickUtc): i simboli non si confrontano fra loro su periodi diversi.
+# Il backtest legge solo il file spread-by-symbol piu' recente: le misure non rifatte restano qui, gli originali in storico/.
+# Piootoo Spread Dump v2.0.1 — broker FTMOPLATFORM (conto 17188650), finestra UTC 2026-08-01 -> 2026-09-01
+# spread = ask - bid. Le colonne *Ticks sono la stessa misura in tick di strumento (spread / tickSize).
+# 2026-09-24 07:34Z: @AP dalla misura 2026-08-25 -> 2026-09-23 (bot v7.6.5, conto 17202911).
+# 2026-09-24 07:35Z: @BP dalla misura 2026-08-25 -> 2026-09-23 (bot v7.6.5, conto 17202911).
+# 2026-09-24 07:36Z: @BRN dalla misura 2026-08-25 -> 2026-09-23 (bot v7.6.5, conto 17202911).
+# 2026-09-24 07:42Z: @BTC dalla misura 2026-08-25 -> 2026-09-23 (bot v7.6.5, conto 17202911).
+# 2026-09-24 07:42Z: @C dalla misura 2026-08-25 -> 2026-09-23 (bot v7.6.5, conto 17202911).
+# 2026-09-24 07:42Z: @CC dalla misura 2026-08-25 -> 2026-09-23 (bot v7.6.5, conto 17202911).
+# 2026-09-24 07:43Z: @CL dalla misura 2026-08-25 -> 2026-09-23 (bot v7.6.5, conto 17202911).
+# 2026-09-24 07:43Z: @CT dalla misura 2026-08-25 -> 2026-09-23 (bot v7.6.5, conto 17202911).
+# 2026-09-24 07:44Z: @ES dalla misura 2026-08-25 -> 2026-09-23 (bot v7.6.5, conto 17202911).
+# 2026-09-24 07:45Z: @ETH dalla misura 2026-08-25 -> 2026-09-23 (bot v7.6.5, conto 17202911).
+# 2026-09-24 07:45Z: @FCE dalla misura 2026-08-25 -> 2026-09-23 (bot v7.6.5, conto 17202911).
+# 2026-09-24 07:47Z: @FDAX dalla misura 2026-08-25 -> 2026-09-23 (bot v7.6.5, conto 17202911).
+# 2026-09-24 07:47Z: @FESX dalla misura 2026-08-25 -> 2026-09-23 (bot v7.6.5, conto 17202911).
+# 2026-09-24 08:28Z: @GC dalla misura 2026-08-25 -> 2026-09-23 (bot v7.6.5, conto 17202911).
+# 2026-09-24 08:28Z: @KC dalla misura 2026-08-25 -> 2026-09-23 (bot v7.6.5, conto 17202911).
+# 2026-09-24 08:28Z: @NG dalla misura 2026-08-25 -> 2026-09-23 (bot v7.6.5, conto 17202911).
+# 2026-09-24 08:29Z: @NIY dalla misura 2026-08-25 -> 2026-09-23 (bot v7.6.5, conto 17202911).
+# 2026-09-24 08:33Z: @NQ dalla misura 2026-08-25 -> 2026-09-23 (bot v7.6.5, conto 17202911).
+# 2026-09-24 08:36Z: @PL dalla misura 2026-08-25 -> 2026-09-23 (bot v7.6.5, conto 17202911).
+# 2026-09-24 08:37Z: @RTY dalla misura 2026-08-25 -> 2026-09-23 (bot v7.6.5, conto 17202911).
+# 2026-09-24 08:37Z: @S dalla misura 2026-08-25 -> 2026-09-23 (bot v7.6.5, conto 17202911).
+# 2026-09-24 08:37Z: @SB dalla misura 2026-08-25 -> 2026-09-23 (bot v7.6.5, conto 17202911).
+# 2026-09-24 08:41Z: @SI dalla misura 2026-08-25 -> 2026-09-23 (bot v7.6.5, conto 17202911).
+broker,symbol,brokerSymbol,ticks,firstTickUtc,lastTickUtc,tickSize,pipSize,minSpread,p50Spread,avgSpread,p90Spread,p99Spread,maxSpread,minSpreadTicks,p50SpreadTicks,avgSpreadTicks,p90SpreadTicks,p99SpreadTicks,maxSpreadTicks,nonPositiveTicks,truncated,note
+FTMOPLATFORM,@HK,HK50.cash,1589464,2026-08-03T01:20:00Z,2026-09-01T18:59:44Z,0.01,1,6.00,6.00,6.61,8.24,9.84,24.94,600,600,661.45,824,984,2494,0,false,
+FTMOPLATFORM,@HO,HEATOIL.c,923474,2026-08-02T22:05:00Z,2026-09-01T23:59:51Z,0.001,1,0.033,0.034,0.034,0.035,0.035,0.066,33,34,33.80,35,35,66,0,false,
+FTMOPLATFORM,@YM,US30.cash,2418835,2026-08-02T22:05:00Z,2026-09-01T23:59:50Z,0.01,1,2.10,2.10,2.17,2.38,2.63,18.08,210,210,216.65,238,263,1808,0,false,
+FTMO,@AP,AUS200.cash,351347,2026-08-25T00:00:00Z,2026-09-23T23:59:59Z,0.01,1,1.00,1.00,1.01,1.00,1.17,15.92,100,100,100.67,100,117,1592,0,false,finestra mobile di 30 giorni raccolti (26 con tick) dal 2026-08-25 al 2026-09-23
+FTMO,@BP,GBPUSD,2539285,2026-08-25T00:00:00Z,2026-09-23T23:59:59Z,0.00001,0.0001,0.00000,0.00003,0.00005,0.00008,0.00013,0.00198,0,3,5.10,8,13,198,3,false,finestra mobile di 30 giorni raccolti (26 con tick) dal 2026-08-25 al 2026-09-23
+FTMO,@BRN,UKOIL.cash,1821511,2026-08-25T00:05:00Z,2026-09-23T20:49:59Z,0.001,1,0.060,0.074,0.073,0.080,0.080,0.160,60,74,73.09,80,80,160,0,false,finestra mobile di 30 giorni raccolti (22 con tick) dal 2026-08-25 al 2026-09-23
+FTMO,@BTC,BTCUSD,9032980,2026-08-25T00:00:00Z,2026-09-23T23:59:59Z,0.01,1,-6.87,1.00,1.29,2.17,4.09,66.05,-687,100,129.44,217,409,6605,2,false,finestra mobile di 30 giorni raccolti (30 con tick) dal 2026-08-25 al 2026-09-23
+FTMO,@C,CORN.c,102305,2026-08-25T00:05:00Z,2026-09-23T18:19:25Z,0.01,1,0.96,1.05,1.02,1.05,1.05,2.14,96,105,101.86,105,105,214,0,false,finestra mobile di 30 giorni raccolti (21 con tick) dal 2026-08-25 al 2026-09-23
+FTMO,@CC,COCOA.c,354949,2026-08-25T08:50:00Z,2026-09-23T17:30:00Z,0.1,1,15.6,19.6,19.4,21.6,21.6,38.3,156,196,194.50,216,216,383,0,false,finestra mobile di 30 giorni raccolti (21 con tick) dal 2026-08-25 al 2026-09-23
+FTMO,@CL,USOIL.cash,2189536,2026-08-25T00:00:00Z,2026-09-23T23:59:59Z,0.001,1,0.068,0.081,0.080,0.088,0.088,0.178,68,81,79.90,88,88,178,0,false,finestra mobile di 30 giorni raccolti (26 con tick) dal 2026-08-25 al 2026-09-23
+FTMO,@CT,COTTON.c,270047,2026-08-25T01:05:00Z,2026-09-23T18:19:33Z,0.01,1,0.35,0.44,0.42,0.45,0.45,0.83,35,44,42.38,45,45,83,0,false,finestra mobile di 30 giorni raccolti (21 con tick) dal 2026-08-25 al 2026-09-23
+FTMO,@ES,US500.cash,1358683,2026-08-25T00:00:00Z,2026-09-23T23:59:59Z,0.01,1,0.60,0.60,0.60,0.60,0.63,1.90,60,60,60.08,60,63,190,0,false,finestra mobile di 30 giorni raccolti (26 con tick) dal 2026-08-25 al 2026-09-23
+FTMO,@ETH,ETHUSD,2209021,2026-08-25T00:00:00Z,2026-09-23T23:59:56Z,0.01,1,0.60,0.60,0.62,0.69,0.78,8.39,60,60,62.41,69,78,839,0,false,finestra mobile di 30 giorni raccolti (30 con tick) dal 2026-08-25 al 2026-09-23
+FTMO,@FCE,FRA40.cash,519166,2026-08-25T06:05:00Z,2026-09-23T19:59:43Z,0.01,1,1.11,1.61,1.62,1.61,2.03,5.59,111,161,162.32,161,203,559,0,false,finestra mobile di 30 giorni raccolti (22 con tick) dal 2026-08-25 al 2026-09-23
+FTMO,@FDAX,GER40.cash,1753805,2026-08-25T00:00:00Z,2026-09-23T23:59:59Z,0.01,1,1.13,1.33,1.66,3.03,3.79,12.43,113,133,166.04,303,379,1243,0,false,finestra mobile di 30 giorni raccolti (26 con tick) dal 2026-08-25 al 2026-09-23
+FTMO,@FESX,EU50.cash,220164,2026-08-25T06:05:00Z,2026-09-23T19:59:36Z,0.01,1,0.86,1.46,1.34,1.66,1.66,6.56,86,146,134.09,166,166,656,0,false,finestra mobile di 30 giorni raccolti (22 con tick) dal 2026-08-25 al 2026-09-23
+FTMO,@GC,XAUUSD,5698929,2026-08-25T00:00:00Z,2026-09-23T23:59:59Z,0.01,1,0.33,0.45,0.45,0.50,0.53,5.84,33,45,44.72,50,53,584,0,false,finestra mobile di 30 giorni raccolti (26 con tick) dal 2026-08-25 al 2026-09-23
+FTMO,@KC,COFFEE.c,278039,2026-08-25T08:20:00Z,2026-09-23T17:29:44Z,0.01,1,0.31,0.31,0.32,0.34,0.34,0.94,31,31,32.18,34,34,94,0,false,finestra mobile di 30 giorni raccolti (21 con tick) dal 2026-08-25 al 2026-09-23
+FTMO,@NG,NATGAS.cash,165494,2026-08-25T00:00:00Z,2026-09-23T23:57:06Z,0.001,1,0.057,0.061,0.060,0.061,0.064,0.115,57,61,60.25,61,64,115,0,false,finestra mobile di 30 giorni raccolti (26 con tick) dal 2026-08-25 al 2026-09-23
+FTMO,@NIY,JP225.cash,1799043,2026-08-25T00:00:00Z,2026-09-23T23:59:59Z,0.01,1,10.00,10.00,10.42,10.00,20.54,50.54,1000,1000,1042.07,1000,2054,5054,0,false,finestra mobile di 30 giorni raccolti (26 con tick) dal 2026-08-25 al 2026-09-23
+FTMO,@NQ,US100.cash,7926783,2026-08-25T00:00:00Z,2026-09-23T23:59:59Z,0.01,1,1.45,1.45,1.55,1.85,1.95,8.45,145,145,155.22,185,195,845,0,false,finestra mobile di 30 giorni raccolti (26 con tick) dal 2026-08-25 al 2026-09-23
+FTMO,@PL,XPTUSD,4063554,2026-08-25T00:00:00Z,2026-09-23T23:59:59Z,0.01,1,0.67,7.05,6.81,8.80,9.73,43.08,67,705,681.48,880,973,4308,0,false,finestra mobile di 30 giorni raccolti (26 con tick) dal 2026-08-25 al 2026-09-23
+FTMO,@RTY,US2000.cash,2274381,2026-08-25T00:00:00Z,2026-09-23T23:59:59Z,0.01,1,0.84,0.99,1.00,1.16,1.30,3.58,84,99,99.83,116,130,358,0,false,finestra mobile di 30 giorni raccolti (26 con tick) dal 2026-08-25 al 2026-09-23
+FTMO,@S,SOYBEAN.c,276881,2026-08-25T00:05:00Z,2026-09-23T18:19:36Z,0.01,1,2.04,2.04,2.11,2.20,2.20,4.14,204,204,210.98,220,220,414,0,false,finestra mobile di 30 giorni raccolti (21 con tick) dal 2026-08-25 al 2026-09-23
+FTMO,@SB,SUGAR.c,68503,2026-08-25T07:35:00Z,2026-09-23T16:59:36Z,0.01,1,0.11,0.13,0.14,0.15,0.15,0.27,11,13,13.66,15,15,27,0,false,finestra mobile di 30 giorni raccolti (21 con tick) dal 2026-08-25 al 2026-09-23
+FTMO,@SI,XAGUSD,5309356,2026-08-25T00:00:00Z,2026-09-23T23:59:59Z,0.001,1,0.031,0.056,0.056,0.067,0.074,0.447,31,56,56.44,67,74,447,0,false,finestra mobile di 30 giorni raccolti (26 con tick) dal 2026-08-25 al 2026-09-23
