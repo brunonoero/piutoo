@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 
 namespace Piootoo.Core.Optimization.Sweep;
@@ -28,6 +29,24 @@ public sealed record SweepValidationOptions
     /// finestre, tre: una negativa e' normale, due sono meta' del periodo.
     /// </summary>
     public int MinProfitableWindows { get; init; } = 3;
+
+    /// <summary>
+    /// Applica i cancelli della ricerca Python (<see cref="ResearchCriteria"/>): costanza negli anni
+    /// sull'intero periodo, trade migliore non oltre il 30% del netto dentro e fuori campione, e — se
+    /// la validazione conosce lo spazio — pattern utile e test dei pattern casuali fuori campione.
+    /// Acceso dal 24/09/2026: dei 224 della consegna v5.0 ne reggono 41 sul periodo mai visto, e quelli
+    /// che reggono si separano per regolarita', non per netto.
+    /// </summary>
+    public bool ResearchGates { get; init; } = true;
+
+    /// <summary>
+    /// Estrazioni del test dei pattern casuali (v4.0: 200). Zero lo salta. Costano un run al minuto
+    /// ciascuna sul fuori campione, e si fanno solo sulle finaliste che hanno superato il resto.
+    /// </summary>
+    public int RandomPatternDraws { get; init; } = 200;
+
+    /// <summary>Seme delle estrazioni: fisso, perche' il verdetto sia riproducibile.</summary>
+    public int RandomPatternSeed { get; init; }
 }
 
 /// <summary>Come e' andata una finestra del walk-forward di stabilita'.</summary>
@@ -57,6 +76,22 @@ public sealed record SweepValidation
 
     /// <summary>Quante finestre del walk-forward sono in utile.</summary>
     public int ProfitableWindows => StabilityWindows.Count(window => window.NetProfit > 0m);
+
+    /// <summary>Costanza negli anni su campione e validazione insieme. Null a cancelli spenti.</summary>
+    public YearConsistency? Years { get; init; }
+
+    /// <summary>Quota del netto dal trade migliore, in campione e fuori. Null se il netto non e' positivo.</summary>
+    public decimal? BestTradeShareInSample { get; init; }
+    public decimal? BestTradeShareOutOfSample { get; init; }
+
+    /// <summary>
+    /// Average trade fuori campione con tutti i pattern alla sentinella. Null se la configurazione non
+    /// ha pattern accesi o la validazione non conosce lo spazio.
+    /// </summary>
+    public decimal? AverageTradeWithoutPatterns { get; init; }
+
+    /// <summary>Il test dei pattern casuali fuori campione. Null se non e' stato fatto.</summary>
+    public RandomPatternTest? RandomPatterns { get; init; }
 
     /// <summary>Se la configurazione ha superato tutti i criteri.</summary>
     public required bool Passed { get; init; }
@@ -89,7 +124,8 @@ public sealed class SweepValidator(
     SweepSeries outOfSample,
     ISweepObjective? objective = null,
     SweepValidationOptions? options = null,
-    int? accurateClockMinutes = 1)
+    int? accurateClockMinutes = 1,
+    SweepSpace? space = null)
 {
     private readonly ISweepObjective _objective = objective ?? new NetOverDrawdownObjective();
     private readonly SweepValidationOptions _options = options ?? new SweepValidationOptions();
@@ -132,7 +168,131 @@ public sealed class SweepValidator(
             Verdict = string.Empty
         };
 
-        return validation with { Passed = Judge(validation, out var verdict), Verdict = verdict };
+        if (!Judge(validation, out var verdict))
+            return validation with { Verdict = verdict };
+
+        if (!_options.ResearchGates)
+            return validation with { Passed = true, Verdict = verdict };
+
+        validation = validation with
+        {
+            Years = ResearchCriteria.Years(
+                inside.ClosedTrades.Concat(outside.ClosedTrades), inSample.StartUtc, outOfSample.EndUtc),
+            BestTradeShareInSample = ResearchCriteria.BestTradeShare(inside.ClosedTrades),
+            BestTradeShareOutOfSample = ResearchCriteria.BestTradeShare(outside.ClosedTrades)
+        };
+
+        var patternsOn = space is null
+            ? []
+            : space.PatternSentinels
+                .Where(entry => parameters.TryGetValue(entry.Key, out var value) && !Equals(value, entry.Value))
+                .Select(entry => entry.Key)
+                .ToList();
+
+        if (patternsOn.Count > 0 && Gates(validation, out _))
+        {
+            var bare = new Dictionary<string, object>(parameters, StringComparer.OrdinalIgnoreCase);
+            foreach (var key in patternsOn)
+                bare[key] = space!.PatternSentinels[key];
+            validation = validation with
+            {
+                AverageTradeWithoutPatterns = outsideRunner.Run(job with { Parameters = bare }).AverageTrade
+            };
+
+            if (_options.RandomPatternDraws > 0 && Gates(validation, out _))
+            {
+                validation = validation with
+                {
+                    RandomPatterns = ResearchCriteria.RandomPatterns(
+                        outside.AverageTrade, outside.Trades, Draw(job, parameters, cancellationToken))
+                };
+            }
+        }
+
+        var passed = Gates(validation, out var gateVerdict);
+        return validation with { Passed = passed, Verdict = passed ? $"{verdict}; {gateVerdict}" : gateVerdict };
+    }
+
+    /// <summary>
+    /// I cancelli della ricerca, sui numeri gia' misurati: quelli non ancora misurati (pattern) passano.
+    /// </summary>
+    private static bool Gates(SweepValidation validation, out string verdict)
+    {
+        if (validation.Years is { Passes: false } years)
+        {
+            verdict = $"anni irregolari: {years.YearsWithTrades} anni con trade, minimo {years.MinTradesInYear} in un anno, " +
+                      $"{years.TradesPerYear:N1} all'anno, {years.ProfitableYears} in utile";
+            return false;
+        }
+
+        if (validation.BestTradeShareInSample > ResearchCriteria.MaxBestTradeShare ||
+            validation.BestTradeShareOutOfSample > ResearchCriteria.MaxBestTradeShare)
+        {
+            verdict = $"outlier: il trade migliore vale {validation.BestTradeShareInSample:P0} del netto in campione " +
+                      $"e {validation.BestTradeShareOutOfSample:P0} fuori";
+            return false;
+        }
+
+        if (validation.AverageTradeWithoutPatterns is { } bare && validation.OutOfSample.AverageTrade <= bare)
+        {
+            verdict = $"pattern inutili: fuori campione average trade {validation.OutOfSample.AverageTrade:N0} " +
+                      $"con i pattern, {bare:N0} senza";
+            return false;
+        }
+
+        if (validation.RandomPatterns is { Passes: false } random)
+        {
+            verdict = $"pattern casuali: {random.DrawsAtLeastAsGood} estrazioni su {random.ValidDraws} fanno almeno " +
+                      $"altrettanto (p {random.P:N2}, Wilson {random.WilsonLower:N2})";
+            return false;
+        }
+
+        verdict = "cancelli della ricerca superati" +
+                  (validation.RandomPatterns is { } test ? $" (pattern casuali p {test.P:N2})" : string.Empty);
+        return true;
+    }
+
+    /// <summary>
+    /// Le estrazioni del test dei pattern casuali: ogni parametro pattern prende un valore a caso della
+    /// propria griglia, tutto il resto resta com'e'. Il seme e' fisso e le estrazioni si generano prima
+    /// di girare, quindi il risultato non dipende dall'ordine in cui il parallelismo le esegue.
+    /// </summary>
+    private List<(int Trades, decimal AverageTrade)> Draw(
+        SweepJob job, IReadOnlyDictionary<string, object> parameters, CancellationToken cancellationToken)
+    {
+        var random = new Random(_options.RandomPatternSeed);
+        var keys = space!.PatternSentinels.Keys.Where(key => space.ByKey.ContainsKey(key)).ToArray();
+        var draws = new Dictionary<string, object>[_options.RandomPatternDraws];
+        for (var index = 0; index < draws.Length; index++)
+        {
+            var draw = new Dictionary<string, object>(parameters, StringComparer.OrdinalIgnoreCase);
+            foreach (var key in keys)
+            {
+                var values = space.ByKey[key].Values;
+                draw[key] = values[random.Next(values.Count)];
+            }
+
+            draws[index] = draw;
+        }
+
+        var results = new (int Trades, decimal AverageTrade)[draws.Length];
+        var runners = new ConcurrentBag<SweepRunner>();
+        Parallel.For(0, draws.Length, new ParallelOptions { CancellationToken = cancellationToken }, index =>
+        {
+            if (!runners.TryTake(out var runner))
+                runner = new SweepRunner(outOfSample);
+            try
+            {
+                var outcome = runner.Run(job with { Parameters = draws[index] });
+                results[index] = (outcome.Trades, outcome.AverageTrade);
+            }
+            finally
+            {
+                runners.Add(runner);
+            }
+        });
+
+        return results.ToList();
     }
 
     /// <summary>
@@ -293,7 +453,7 @@ public static class SweepSearch
         var validator = new SweepValidator(
             inSample, outOfSample,
             validationObjective ?? new NetOverDrawdownObjective(),
-            validationOptions, options.AccurateClockMinutes);
+            validationOptions, options.AccurateClockMinutes, space);
         var validations = validator.Validate(template, finalists, cancellationToken);
 
         started.Stop();

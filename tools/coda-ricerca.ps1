@@ -76,7 +76,16 @@ while ($true) {
         foreach ($simbolo in $cella.simboli) {
             $riga = $pronti[$simbolo]
             if ($null -eq $riga) { $mancano += "$simbolo (sconosciuto al broker $($cella.broker))"; continue }
-            if (-not $riga.ready) { $mancano += "$simbolo ($($riga.missing -join ', '))" }
+            if (-not $riga.ready) { $mancano += "$simbolo ($($riga.missing -join ', '))"; continue }
+            # La cella dichiara da quando le serve il minuto (l'inizio del suo campione): un feed piu'
+            # corto farebbe una griglia su un campione diverso da quello delle altre celle, e le celle
+            # non si confronterebbero piu'. Quindici giorni di tolleranza per il primo lunedi' utile.
+            if ($cella.da) {
+                $serve = [datetime]::Parse($cella.da, [Globalization.CultureInfo]::InvariantCulture).AddDays(15)
+                if ($null -eq $riga.minuteFromUtc -or ([datetime]$riga.minuteFromUtc).ToUniversalTime() -gt $serve) {
+                    $mancano += "$simbolo (minuto dal $($riga.minuteFromUtc), serve dal $($cella.da))"
+                }
+            }
         }
         if ($mancano.Count -gt 0) {
             Write-Log "$($cella.cella): in attesa di $($mancano -join '; ')"
@@ -98,14 +107,26 @@ while ($true) {
         }
 
         $log = Join-Path $ricerca "$($cella.cella).log"
+        if ($cella.cella -like 'matrice-*') {
+            # Centinaia di celle: i log stanno in una cartella loro, accanto ai CSV della matrice.
+            $cartellaLog = Join-Path $ricerca 'matrice\log'
+            New-Item -ItemType Directory -Force -Path $cartellaLog | Out-Null
+            $log = Join-Path $cartellaLog "$($cella.cella).log"
+        }
         Write-Log "$($cella.cella): parte ($($cella.test))"
         Set-Location $repo
         $env:PIOOTOO_STUDI = '1'
+        # Le celle della matrice dicono quale combinazione lanciare con una variabile d'ambiente.
+        $variabili = @()
+        if ($cella.env) {
+            foreach ($p in $cella.env.PSObject.Properties) { Set-Item -Path "Env:\$($p.Name)" -Value $p.Value; $variabili += $p.Name }
+        }
         dotnet test Piootoo.Strategies.Tests/Piootoo.Strategies.Tests.csproj -o Piootoo.Strategies.Tests/bin/coda-ricerca `
             --filter "FullyQualifiedName~$($cella.test)" --logger "console;verbosity=detailed" *>&1 |
             Out-File -FilePath $log -Encoding utf8
         $esito = $LASTEXITCODE
         Remove-Item Env:\PIOOTOO_STUDI -ErrorAction SilentlyContinue
+        foreach ($nome in $variabili) { Remove-Item "Env:\$nome" -ErrorAction SilentlyContinue }
 
         $riga = "{0:yyyy-MM-dd HH:mm:ss} exit {1}" -f (Get-Date), $esito
         if ($esito -eq 0) {

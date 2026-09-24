@@ -927,7 +927,22 @@ public abstract class EasyEngineBase : StatelessEasyStrategyBase
     /// riparte da zero a ogni valutazione: con una finestra più corta le sessioni più vecchie
     /// risultano troncate e i pattern che leggono d4/d5 lavorano su valori parziali.
     /// </summary>
-    public virtual int RequiredCandles => SessionsToCandles(6);
+    public virtual int RequiredCandles => Math.Max(SessionsToCandles(6), AtrWarmupCandles);
+
+    /// <summary>
+    /// Barre che servono allo stop o al target in ATR: le <see cref="AtrSessions"/> sessioni chiuse
+    /// piu' quella in corso, e una di margine. Zero se la strategia non ne usa.
+    ///
+    /// <para><b>Perche' esiste.</b> Dal 22/09/2026 al 24/09/2026 la finestra minima era di sei sessioni,
+    /// e chi valuta la strategia le passa poco piu' di quelle: <see cref="ClosedSessionAtrPoints"/> non
+    /// trovava mai quindici sessioni chiuse, restituiva null, e lo stop ripiegava sul denaro fisso — che
+    /// nelle configurazioni in ATR e' zero. Nessuno stop, nessun target, nessun errore: la prima
+    /// griglia in ATR (RHL su UK100 a 4 ore) dava lo stesso netto al centesimo per tre stop e tre target.
+    /// Un motore che ridefinisce <see cref="RequiredCandles"/> senza passare dalla base deve includere
+    /// questo numero.</para>
+    /// </summary>
+    protected int AtrWarmupCandles =>
+        StopAtrMultiplier > 0m || TargetAtrMultiplier > 0m ? SessionsToCandles(AtrSessions + 2) : 0;
 
     /// <summary>Barre necessarie a coprire <paramref name="sessions"/> sessioni piene.</summary>
     protected int SessionsToCandles(int sessions)

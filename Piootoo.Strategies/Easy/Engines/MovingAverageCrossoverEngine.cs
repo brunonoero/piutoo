@@ -105,7 +105,8 @@ public abstract class MovingAverageCrossoverEngine : EasyEngineBase
             var averageLookback = Math.Max(1, Math.Max(FastPeriod, SlowPeriod));
             var gradientLookback = GradientPeriod > 0 ? GradientPeriod + averageLookback : averageLookback;
             var dailyLookback = UseDailyFilter ? Math.Max(1, 1440 / Math.Max(1, TimeframeMinutes)) + 1 : 0;
-            return Math.Max(gradientLookback + 1, dailyLookback);
+            // Non passa dalla base: lo stop in ATR va incluso a mano (vedi AtrWarmupCandles).
+            return Math.Max(Math.Max(gradientLookback + 1, dailyLookback), AtrWarmupCandles);
         }
     }
 

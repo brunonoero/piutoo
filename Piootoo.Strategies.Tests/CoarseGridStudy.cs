@@ -77,15 +77,40 @@ public sealed record CoarseGridSpec(
     /// griglia passa <c>StopAtr</c>/<c>TargetAtr</c> e azzera il denaro fisso. Stesse colonne nel
     /// CSV, con l'unita' dichiarata nell'intestazione.
     /// </summary>
-    bool AtrStops = false);
+    bool AtrStops = false,
+    /// <summary>
+    /// Giornate di tenuta: 0 = intraday (chiude a fine sessione, com'era sempre stata la griglia),
+    /// N = puo' restare aperta fino a N sessioni. La v5.0 le cercava tutte (1, 2, 3, 5, 10) e la
+    /// griglia le teneva ferme a zero, quindi un motore che vive di movimenti di piu' giorni qui
+    /// risultava senza edge per costruzione. Una tenuta oltre la notte esclude l'ora di uscita: le
+    /// due insieme sarebbero la stessa combinazione intraday. Null = solo intraday.
+    /// </summary>
+    int[]? HoldDays = null,
+    /// <summary>
+    /// Parametri fissi in piu', per ogni combinazione: la variante del motore (il breakout della
+    /// sessione in corso invece di N sessioni) e, per i contenitori generici, simbolo e timeframe.
+    /// </summary>
+    IReadOnlyDictionary<string, object>? ExtraParameters = null);
 
 public static class CoarseGridStudy
 {
     private const string RepositoryPath = @"C:\piootoo-dev\piootoo-repository";
 
     public sealed record Cell(
-        int ChannelBars, int StopLoss, int TakeProfit, int ExitHour, int Direction,
+        int ChannelBars, int StopLoss, int TakeProfit, int ExitHour, int Direction, int HoldDays,
         SweepOutcome InSample, SweepOutcome OutOfSample, int OosWindowsInProfit);
+
+    /// <summary>
+    /// I criteri di una cella, calcolati sull'ammissibile: costanza negli anni su tutto il periodo,
+    /// quota del trade migliore dentro e fuori, average trade e UngerFit nel campione.
+    /// </summary>
+    private sealed record Judged(Cell Cell, YearConsistency Years, decimal? BestShareIn, decimal? BestShareOut,
+        decimal AverageTrade, decimal? UngerFit)
+    {
+        public bool OutlierPasses =>
+            BestShareIn is { } inside && inside <= ResearchCriteria.MaxBestTradeShare &&
+            (BestShareOut is null || BestShareOut <= ResearchCriteria.MaxBestTradeShare);
+    }
 
     public static async Task<List<Cell>?> RunAsync(CoarseGridSpec spec, ITestOutputHelper output)
     {
@@ -156,9 +181,17 @@ public static class CoarseGridStudy
         // MaxBars resta fisso a zero solo quando non e' la prima leva: altrimenti lo scrive il combo.
         if (!string.Equals(spec.FirstLeverKey, "MaxBars", StringComparison.Ordinal))
             fixedParameters["MaxBars"] = 0;
+        foreach (var (name, value) in spec.ExtraParameters ?? new Dictionary<string, object>())
+            fixedParameters[name] = value;
 
+        // Una tenuta oltre la notte con un'ora di uscita sarebbe la stessa combinazione intraday.
+        var holds = spec.HoldDays is { Length: > 0 } ? spec.HoldDays : [0];
         var combos = (from c in spec.Channels from s in spec.Stops from t in spec.Targets from e in spec.ExitHours from d in spec.Directions
-                      select (c, s, t, e, d)).ToList();
+                      from h in holds
+                      where h == 0 || e == -1
+                      select (c, s, t, e, d, h)).ToList();
+        // Barre di una sessione (23 ore, come la ricerca Python): la tenuta di N giornate e' N volte tanto.
+        var barsPerSession = Math.Max(1, 1380 / spec.TimeframeMinutes);
         output.WriteLine($"{combos.Count} combinazioni, orologio al minuto, {Environment.ProcessorCount} core\n");
 
         var cells = new ConcurrentBag<Cell>();
@@ -178,6 +211,13 @@ public static class CoarseGridStudy
                     ["ExitHour"] = combo.e
                 };
                 if (spec.VariesDirection) parameters["Direction"] = combo.d;
+                if (combo.h > 0)
+                {
+                    parameters["IntradayOnly"] = 0;
+                    // Con MaxBars come prima leva la durata la decide gia' la leva: si apre solo la notte.
+                    if (!string.Equals(spec.FirstLeverKey, "MaxBars", StringComparison.Ordinal))
+                        parameters["MaxBars"] = combo.h * barsPerSession;
+                }
                 if (spec.AtrStops)
                 {
                     // Decimi di ATR: 10 = 1,0. Il denaro fisso va a zero, cosi' un target a 0 ATR
@@ -192,7 +232,7 @@ public static class CoarseGridStudy
                 var job = template with { Parameters = parameters };
                 var isOutcome = runners.In.Run(job);
                 var oosOutcome = runners.Out.Run(job);
-                cells.Add(new Cell(combo.c, combo.s, combo.t, combo.e, combo.d, isOutcome, oosOutcome,
+                cells.Add(new Cell(combo.c, combo.s, combo.t, combo.e, combo.d, combo.h, isOutcome, oosOutcome,
                     WindowsInProfit(oosOutcome, spec.SplitUtc, series.EndUtc, 4)));
 
                 var n = Interlocked.Increment(ref done);
@@ -203,12 +243,33 @@ public static class CoarseGridStudy
 
         output.WriteLine($"\nfinito in {started.Elapsed.TotalMinutes:N1} minuti");
         var list = cells.ToList();
-        WriteCsv(spec, list);
-        Report(spec, list, output);
+
+        // La soglia si misura sulle barre del campione della cella, non si eredita.
+        var instrument = InstrumentRegistry.Get(spec.Symbol);
+        var threshold = ResearchCriteria.AverageTradeThreshold(
+            inSample.Bars(spec.TimeframeMinutes), instrument.PointValue, instrument.TickSize);
+        var judged = list.ToDictionary(c => c, c => Judge(c, spec, series.StartUtc, series.EndUtc, threshold));
+
+        WriteCsv(spec, list, judged);
+        Report(spec, list, judged, threshold, output);
         return list;
     }
 
-    private static void Report(CoarseGridSpec spec, List<Cell> cells, ITestOutputHelper output)
+    private static Judged Judge(Cell c, CoarseGridSpec spec, DateTime fromUtc, DateTime toUtc, decimal threshold)
+    {
+        var all = c.InSample.ClosedTrades.Concat(c.OutOfSample.ClosedTrades).ToList();
+        var average = c.InSample.Trades > 0 ? c.InSample.NetProfit / c.InSample.Trades : 0m;
+        return new Judged(
+            c,
+            ResearchCriteria.Years(all, fromUtc, toUtc),
+            ResearchCriteria.BestTradeShare(c.InSample.ClosedTrades),
+            ResearchCriteria.BestTradeShare(c.OutOfSample.ClosedTrades),
+            average,
+            ResearchCriteria.UngerFit(average, threshold, c.InSample.MaxClosedTradeDrawdown));
+    }
+
+    private static void Report(CoarseGridSpec spec, List<Cell> cells, Dictionary<Cell, Judged> judged, decimal threshold,
+        ITestOutputHelper output)
     {
         var admissible = cells
             .Where(c => c.InSample.Trades >= spec.MinInSampleTrades && c.InSample.NetProfit > 0m)
@@ -220,7 +281,7 @@ public static class CoarseGridStudy
         if (admissible.Count == 0) return;
 
         output.WriteLine("\nle 15 migliori fuori campione fra le ammissibili (netto OOS / DD OOS):");
-        output.WriteLine($"  {spec.FirstLeverLabel,-4} stop  targ  exit dir |   IS n    IS netto    IS DD |  OOS n   OOS netto   OOS DD  fin");
+        output.WriteLine($"  {spec.FirstLeverLabel,-4} stop  targ  exit dir ten |   IS n    IS netto    IS DD |  OOS n   OOS netto   OOS DD  fin");
         foreach (var c in admissible.OrderByDescending(c => Ratio(c.OutOfSample)).Take(15))
             output.WriteLine(Row(c));
 
@@ -233,6 +294,35 @@ public static class CoarseGridStudy
         output.WriteLine($"\nequilibrate (netto/DD ≥ 1 sia dentro sia fuori, ≥ 3 finestre): {balanced.Count}");
         foreach (var c in balanced.OrderByDescending(c => Math.Min(Ratio(c.InSample), Ratio(c.OutOfSample))).Take(10))
             output.WriteLine(Row(c));
+
+        // I criteri della ricerca Python v4/v5 sopra le equilibrate: regolarita' negli anni e nessun
+        // trade che faccia da solo il risultato. Poi le soglie del metodo, dentro il campione.
+        var regular = balanced.Where(c => judged[c].Years.Passes && judged[c].OutlierPasses).ToList();
+        output.WriteLine(
+            $"\nrobuste (equilibrate + anni: ≥ {ResearchCriteria.MinTradesPerYearWithTrades} trade ogni anno, " +
+            $"≥ {ResearchCriteria.MinAverageTradesPerYear} all'anno, ≥ meta' anni in utile; " +
+            $"trade migliore ≤ {ResearchCriteria.MaxBestTradeShare:P0} del netto dentro e fuori): {regular.Count}");
+        var failedYears = balanced.Count(c => !judged[c].Years.Passes);
+        var failedOutlier = balanced.Count(c => !judged[c].OutlierPasses);
+        if (balanced.Count > 0)
+            output.WriteLine($"  delle equilibrate: {failedYears} bocciate sugli anni, {failedOutlier} sull'outlier");
+
+        output.WriteLine(
+            $"\nsoglia di average trade nel campione: {threshold:N2} per contratto " +
+            $"({ResearchCriteria.RangeShareThreshold:P0} del range medio della barra, minimo {ResearchCriteria.MinTicksThreshold} tick)");
+        var passing = regular
+            .Where(c => judged[c].AverageTrade >= threshold && judged[c].UngerFit is >= 1m)
+            .ToList();
+        output.WriteLine($"sopra soglia (robuste + average trade ≥ soglia + UngerFit ≥ 1): {passing.Count}");
+        foreach (var c in regular.OrderByDescending(c => judged[c].UngerFit ?? 0m).Take(10))
+            output.WriteLine($"{Row(c)}  avg {judged[c].AverageTrade,8:N0}  UF {judged[c].UngerFit ?? 0m,5:N2}");
+
+        if (spec.HoldDays is { Length: > 1 })
+        {
+            output.WriteLine("\ntenuta, media del netto sulle ammissibili:");
+            foreach (var g in admissible.GroupBy(c => c.HoldDays).OrderBy(g => g.Key))
+                output.WriteLine($"  giorni={g.Key,3}: {g.Count(),3} celle, IS medio {g.Average(c => c.InSample.NetProfit),10:N0}, OOS medio {g.Average(c => c.OutOfSample.NetProfit),10:N0}");
+        }
 
         output.WriteLine("\nora di uscita, media del netto sulle ammissibili:");
         foreach (var g in admissible.GroupBy(c => c.ExitHour).OrderBy(g => g.Key))
@@ -256,7 +346,7 @@ public static class CoarseGridStudy
         o.MaxClosedTradeDrawdown > 0m ? o.NetProfit / o.MaxClosedTradeDrawdown : (o.NetProfit > 0m ? 999m : -999m);
 
     private static string Row(Cell c) =>
-        $"  {c.ChannelBars,3} {c.StopLoss,5} {c.TakeProfit,5} {c.ExitHour,5} {c.Direction,3} | " +
+        $"  {c.ChannelBars,3} {c.StopLoss,5} {c.TakeProfit,5} {c.ExitHour,5} {c.Direction,3} {c.HoldDays,2}g | " +
         $"{c.InSample.Trades,5} {c.InSample.NetProfit,11:N0} {c.InSample.MaxClosedTradeDrawdown,8:N0} | " +
         $"{c.OutOfSample.Trades,5} {c.OutOfSample.NetProfit,11:N0} {c.OutOfSample.MaxClosedTradeDrawdown,8:N0}  {c.OosWindowsInProfit}/4";
 
@@ -273,9 +363,10 @@ public static class CoarseGridStudy
         return count;
     }
 
-    private static void WriteCsv(CoarseGridSpec spec, List<Cell> cells)
+    private static void WriteCsv(CoarseGridSpec spec, List<Cell> cells, Dictionary<Cell, Judged> judged)
     {
         var path = Path.Combine(RepositoryPath, "ricerca", spec.CsvName);
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         var sb = new StringBuilder();
         sb.AppendLine($"# Griglia grossa {spec.Symbol} {spec.TimeframeMinutes}m {spec.EngineName}, motore nudo (pattern spenti, nessun filtro orario), {cells.Count} combinazioni.");
         if (spec.AtrStops)
@@ -283,14 +374,18 @@ public static class CoarseGridStudy
         if (spec.FirstLeverDivisor != 1m)
             sb.AppendLine($"# {spec.FirstLeverLabel} e' un intero da dividere per {spec.FirstLeverDivisor}: il valore passato alla classe e' {spec.FirstLeverLabel}/{spec.FirstLeverDivisor}.");
         sb.AppendLine($"# Feed {spec.FeedBroker}, spread peggiore fra {string.Join("/", spec.SpreadBrokers)}, swap peggiore fra {string.Join("/", spec.SwapBrokers)}, commissione {spec.CommissionPerSide}/lato, orologio al minuto. Campione {spec.StartUtc:yyyy-MM-dd} -> {spec.SplitUtc:yyyy-MM-dd}, fuori campione -> {spec.EndUtc:yyyy-MM-dd}.");
-        sb.AppendLine($"{spec.FirstLeverLabel};stopLoss;takeProfit;exitHour;direction;isTrades;isNet;isDD;isPF;oosTrades;oosNet;oosDD;oosPF;oosWindowsInProfit");
-        foreach (var c in cells.OrderBy(c => c.ChannelBars).ThenBy(c => c.StopLoss).ThenBy(c => c.TakeProfit).ThenBy(c => c.ExitHour).ThenBy(c => c.Direction))
+        sb.AppendLine("# holdDays: 0 = intraday, N = fino a N sessioni. yearsOk: costanza negli anni su tutto il periodo. bestShare*: trade migliore / netto. avgIS e ungerFit: nel campione, contro la soglia della cella.");
+        sb.AppendLine($"{spec.FirstLeverLabel};stopLoss;takeProfit;exitHour;direction;holdDays;isTrades;isNet;isDD;isPF;oosTrades;oosNet;oosDD;oosPF;oosWindowsInProfit;yearsOk;minTradesYear;tradesPerYear;profitableYears;yearsWithTrades;bestShareIS;bestShareOOS;avgIS;ungerFit");
+        foreach (var c in cells.OrderBy(c => c.ChannelBars).ThenBy(c => c.StopLoss).ThenBy(c => c.TakeProfit).ThenBy(c => c.ExitHour).ThenBy(c => c.Direction).ThenBy(c => c.HoldDays))
         {
+            var j = judged[c];
             sb.Append(string.Join(';',
-                c.ChannelBars, c.StopLoss, c.TakeProfit, c.ExitHour, c.Direction,
+                c.ChannelBars, c.StopLoss, c.TakeProfit, c.ExitHour, c.Direction, c.HoldDays,
                 c.InSample.Trades, F(c.InSample.NetProfit), F(c.InSample.MaxClosedTradeDrawdown), F(c.InSample.ProfitFactor),
                 c.OutOfSample.Trades, F(c.OutOfSample.NetProfit), F(c.OutOfSample.MaxClosedTradeDrawdown), F(c.OutOfSample.ProfitFactor),
-                c.OosWindowsInProfit));
+                c.OosWindowsInProfit,
+                j.Years.Passes ? 1 : 0, j.Years.MinTradesInYear, F(j.Years.TradesPerYear), j.Years.ProfitableYears, j.Years.YearsWithTrades,
+                F(j.BestShareIn), F(j.BestShareOut), F(j.AverageTrade), F(j.UngerFit)));
             sb.AppendLine();
         }
         File.WriteAllText(path, sb.ToString(), Encoding.UTF8);

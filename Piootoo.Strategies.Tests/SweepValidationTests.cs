@@ -89,7 +89,10 @@ public sealed class SweepValidationTests(ITestOutputHelper output)
                 validation.InSampleScore is null or <= 0m ||
                 validation.OutOfSample.Trades < 20 ||
                 validation.ScoreRetention < 0.5m ||
-                validation.ProfitableWindows < 3);
+                validation.ProfitableWindows < 3 ||
+                validation.Years is { Passes: false } ||
+                validation.BestTradeShareInSample > ResearchCriteria.MaxBestTradeShare ||
+                validation.BestTradeShareOutOfSample > ResearchCriteria.MaxBestTradeShare);
         }
     }
 
@@ -123,7 +126,9 @@ public sealed class SweepValidationTests(ITestOutputHelper output)
                 MinScoreRetention = 0.8m,
                 // Due finestre bastano a questo test e costano due run al minuto invece di quattro.
                 StabilityWindows = 2,
-                MinProfitableWindows = 2
+                MinProfitableWindows = 2,
+                // Il test riguarda tenuta e finestre; i cancelli della ricerca hanno i propri test.
+                ResearchGates = false
             });
 
         var scartata = validator.Validate(Template(),
