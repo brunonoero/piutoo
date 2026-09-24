@@ -169,13 +169,14 @@ sbaglia più spesso:
  `api/datafeed-external`, vedi `docs/domini/raccolta-datafeed-esterno.md`).
  Regole complete in `docs/domini/finestra-candele-e-riscaldamento.md`.
 - **Le barre nei giorni senza sessione non esistono per le strategie.** Un feed CFD quota
- anche quando il future è chiuso (FTMO apre il DAX la domenica sera, BTC quota il sabato) e ne
+ anche quando il future è chiuso (FTMO apre il DAX la domenica sera) e ne
  escono sessioni che la ricerca non ha: il dossier §2.1.1 le misura all'11% del P&L e prescrive
  di scartarle. La regola sta nel **calendario** (`SessionGrid.DropNonSessionDays`, sui
  `sessionDays` del simbolo) e la applicano allo stesso modo il backtest, prima che la serie entri
  nei cursori, e la sessione live su riscaldamento, `PushBars` e `PushBarWindow`. Un simbolo che
  non dichiara i giorni non scarta nulla; NQ dichiara la domenica perché sui CME è una sessione
- vera. Il summary dichiara quante barre ha tolto (`nonSessionBarsDropped`). Vedi `decisioni.md`
+ vera. **BP e BTC seguono il CFD dal 24/09/2026** (BP senza la pausa CME, BTC 24/7 senza giorni
+ dichiarati), perché la serie PT5DAV è stata verificata sul broker così. Il summary dichiara quante barre ha tolto (`nonSessionBarsDropped`). Vedi `decisioni.md`
  2026-09-16. **Un livello piu' sotto vale la stessa regola sulle ore** (7.5.0): le barre fuori
  dalla finestra di negoziazione del future (`SessionMask`, i `tradingWindows` del calendario:
  FDAX 00:15 UTC → 22:00 Berlino) non esistono per le strategie. FTMO quota il DAX dalle 22:00

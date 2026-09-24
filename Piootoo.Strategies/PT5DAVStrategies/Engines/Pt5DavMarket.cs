@@ -59,6 +59,13 @@ public static class Pt5DavMarket
     };
 
     /// <summary>
+    /// Vero se il CFD quota anche il fine settimana, e sabato e domenica sono quindi sessioni vere:
+    /// solo BTC (CONVENZIONI.md §6, "BTC tratta 7 giorni su 7"). Per gli altri le barre della
+    /// domenica sera sono la riapertura della settimana e stanno nella sessione del lunedi'.
+    /// </summary>
+    public static bool TradesOnWeekends(string symbol) => InstrumentRegistry.Normalize(symbol) == "BTC";
+
+    /// <summary>
     /// La fascia del DAX della ricerca v5.0: le barre esistono solo fra le 08:00 e le 22:00 di Roma,
     /// e la sessione comincia alle 08:00 (<c>ORARIO_MERCATO.md</c>). <c>null</c> per gli altri
     /// simboli, dove la ricerca non taglia le barre.

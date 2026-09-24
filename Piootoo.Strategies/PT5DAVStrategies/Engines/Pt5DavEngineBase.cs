@@ -19,9 +19,10 @@ namespace Piootoo.Strategies.PT5DAVStrategies.Engines;
 ///   chiuse — i motori condivisi hanno un ATR a 14 sessioni a media semplice, costante;</item>
 ///   <item><b>rodaggio</b>: nessun ingresso finche' l'ATR50 non esiste, invece del ripiego sul
 ///   denaro fisso (che qui vale zero, cioe' un ingresso senza stop);</item>
-///   <item>la <b>sessione della ricerca</b>: le barre della domenica sera stanno nella sessione del
-///   lunedi' (misurato sui trade BIAS: gli indici di barra del lunedi' sono spostati), e il DAX esiste
-///   solo fra le 08:00 e le 22:00 con la sessione che parte alle 08:00;</item>
+///   <item>la <b>sessione della ricerca</b>: la data di Roma dall'ancoraggio, con le barre della
+///   domenica sera nella sessione del lunedi' (misurato sui trade BIAS: gli indici di barra del
+///   lunedi' sono spostati); il DAX esiste solo fra le 08:00 e le 22:00 con la sessione che parte
+///   alle 08:00;</item>
 ///   <item>l'<b>uscita intraday al limite del CFD</b>, un orario di New York: alla chiusura
 ///   dell'ultima barra che finisce entro le 16:50 NY (17:00 per BP e BTC, 13:30 per CC e KC), non a
 ///   fine sessione della ricerca;</item>
@@ -99,7 +100,7 @@ public abstract class Pt5DavEngineBase : EasyEngineBase
 
     /// <summary>
     /// La tenuta la dichiara <c>intraday_only</c>: intraday chiude al limite del CFD, altrimenti la
-    /// strategia tiene al massimo una notte (vedi <see cref="Finish"/>). Il piano resta sopra.
+    /// strategia tiene quanto dice la ricerca (vedi <see cref="Finish"/>). Il piano resta sopra.
     /// </summary>
     public override StrategyHolding Holding =>
         IntradayOnly ? StrategyHolding.Intraday : StrategyHolding.Multiday;
@@ -277,9 +278,8 @@ public abstract class Pt5DavEngineBase : EasyEngineBase
     ///   riempirebbe proprio su quella barra non nasce; uno che si riempie dopo (una 4h delle 20:00,
     ///   la riapertura delle 18:05 NY nelle settimane in cui l'ora legale non e' allineata) chiude a
     ///   fine sessione, come nei trade della ricerca;</item>
-    ///   <item>overnight: al massimo una notte (decisione del 24/09/2026, le 135 strategie
-    ///   compatibili): chiusura al limite del CFD della sessione seguente, oltre al
-    ///   <c>max_bars</c> della ricerca.</item>
+    ///   <item>overnight: il <c>max_bars</c> della ricerca e le uscite proprie del motore; le notti le
+    ///   limita il piano.</item>
     /// </list>
     /// </summary>
     protected TradeSignal? Finish(TradeSignal? signal, bool oneEntryPerSessionPerSide)
@@ -304,9 +304,9 @@ public abstract class Pt5DavEngineBase : EasyEngineBase
         //    NQ-4H-TFM, che tiene la notte, si' (47 ingressi).
         var fill = signal.ValidFromUtc!.Value;
         var hours = Pt5DavMarket.Hours(Symbol);
-        if (!hours.IsOpenAt(NewYork.TimeOfDay(fill)) || !InResearchMarket(fill))
+        if (!hours.IsOpenAt(NewYorkClock.TimeOfDay(fill)) || !InResearchMarket(fill))
             return null;
-        if (IntradayOnly && !hours.IsOpenAt(NewYork.TimeOfDay(fill.AddMinutes(TimeframeMinutes))))
+        if (IntradayOnly && !hours.IsOpenAt(NewYorkClock.TimeOfDay(fill.AddMinutes(TimeframeMinutes))))
             return null;
 
         var atr = EntrySessionAtr(fill);
@@ -328,17 +328,17 @@ public abstract class Pt5DavEngineBase : EasyEngineBase
             signal.EntrySessionStartUtc = SessionOpenUtc(day);
         }
 
-        var exit = IntradayExitUtc(day);
+        // Overnight: nessuna chiusura oltre a max_bars e alle uscite del motore, come la ricerca.
+        // Quante notti un conto possa tenere lo decide il piano (AllowOvernight/AllowOverweek): fino
+        // al 24/09/2026 qui c'era un tetto di una notte, tolto quando la serie e' stata estesa alle
+        // strategie da 2-10 giornate.
         if (IntradayOnly)
         {
+            var exit = IntradayExitUtc(day);
             if (fill.AddMinutes(TimeframeMinutes) == exit)
                 return null;
 
             signal.CloseAtUtc = (fill < exit ? exit : SessionEndUtc(day)).AddMinutes(-1);
-        }
-        else
-        {
-            signal.CloseAtUtc = IntradayExitUtc(NextResearchDay(day)).AddMinutes(-1);
         }
 
         // max_bars della ricerca NON conta la barra d'ingresso: con max_bars = 46 si esce alla
@@ -354,11 +354,19 @@ public abstract class Pt5DavEngineBase : EasyEngineBase
     /// <summary>
     /// Il giorno di sessione della ricerca per una barra: la data di Roma dall'ancoraggio, con
     /// sabato e domenica accodati al lunedi'.
+    ///
+    /// <para><b>Non e' la giornata di New York</b>, ed e' stato misurato il 24/09/2026: con la
+    /// sessione dalle 17:00 NY, BP-15M-BIAS (che conta le barre della sessione) passava dal 93% al
+    /// 3% dei trade della ricerca ritrovati sul broker; con la mezzanotte di Roma torna. Lo scarto di
+    /// BP-30M-RHL che l'aveva fatto pensare era un'altra cosa: l'ora 17-18 NY mancava nel feed.</para>
     /// </summary>
     protected DateTime ResearchSessionDay(DateTime barUtc)
     {
         var shifted = barUtc - SessionStart.ToTimeSpan();
         var day = Clock.SessionDay(shifted);
+        if (Pt5DavMarket.TradesOnWeekends(Symbol))
+            return day;
+
         return Clock.SessionDay(shifted).DayOfWeek switch
         {
             DayOfWeek.Saturday => day.AddDays(2),
@@ -402,7 +410,7 @@ public abstract class Pt5DavEngineBase : EasyEngineBase
     /// </summary>
     protected DateTime IntradayExitUtc(DateTime day)
     {
-        var limitUtc = NewYork.ToUtc(day.Add(Pt5DavMarket.Hours(Symbol).IntradayLimit.ToTimeSpan()));
+        var limitUtc = NewYorkClock.ToUtc(day.Add(Pt5DavMarket.Hours(Symbol).IntradayLimit.ToTimeSpan()));
         var openLocal = day.Add(SessionStart.ToTimeSpan());
         var limitLocal = Clock.ToSessionTime(limitUtc);
         var bars = Math.Floor((limitLocal - openLocal).TotalMinutes / TimeframeMinutes);
@@ -421,7 +429,7 @@ public abstract class Pt5DavEngineBase : EasyEngineBase
         return time >= hours.Opens && time < hours.Closes;
     }
 
-    private SessionClock NewYork => _newYork ??= new SessionClock(Pt5DavMarket.NewYorkTimeZone);
+    private SessionClock NewYorkClock => _newYork ??= new SessionClock(Pt5DavMarket.NewYorkTimeZone);
 
     // ------------------------------------------------------------------ aggiornamento dello stato
 

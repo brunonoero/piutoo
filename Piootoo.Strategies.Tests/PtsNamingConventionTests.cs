@@ -63,7 +63,8 @@ public sealed class PtsNamingConventionTests
         [typeof(Pt5DavBiasMarketEngine)] = "BIA",
         [typeof(Pt5DavBiasRetracementEngine)] = "BRT",
         [typeof(Pt5DavBiasBreakoutEngine)] = "BBO",
-        [typeof(Pt5DavMovingAverageCrossoverEngine)] = "MAC"
+        [typeof(Pt5DavMovingAverageCrossoverEngine)] = "MAC",
+        [typeof(Pt5DavBiasWeeklyEngine)] = "BSW"
     };
 
     /// <summary>

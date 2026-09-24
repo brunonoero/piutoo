@@ -717,23 +717,15 @@
       "exchangeTz": "America/Chicago",
       "researchTz": "Europe/Rome",
       "sessionStartHour": 0,
-      "sessionDays": [
-        "Sun",
-        "Mon",
-        "Tue",
-        "Wed",
-        "Thu",
-        "Fri"
-      ],
-      "note": "CME BTC: quota 24/7 sul CFD ma la ricerca ha le sessioni del future",
+      "note": "Dal 24/09/2026 24/7 come il CFD (BTCUSD), non piu' con le sessioni del future CME: la serie PT5DAV e' stata verificata sul broker con il CFD sempre aperto, fine settimana compreso (CONVENZIONI.md §6 della consegna). Giorni NON dichiarati, come ETH, SOL e XRP. Prima: sessionDays Dom-Ven e la pausa CME 16:00-17:00 Chicago.",
       "tradingWindows": [
         {
           "open": {
-            "at": "17:00",
+            "at": "00:00",
             "anchor": "local"
           },
           "close": {
-            "at": "16:00",
+            "at": "00:00",
             "anchor": "local"
           },
           "opensOn": [
@@ -741,11 +733,13 @@
             "Mon",
             "Tue",
             "Wed",
-            "Thu"
+            "Thu",
+            "Fri",
+            "Sat"
           ],
           "from": null,
           "to": null,
-          "source": "misurata: @NQ_15/@ES_15/@BP_15/@EC_15 2024+, pausa unica 16:00-17:00 Chicago"
+          "source": "24/7 come il CFD (24/09/2026): 43.945 minuti di sabato e domenica nel minuto FTMO"
         }
       ]
     },
@@ -900,11 +894,11 @@
         "Thu",
         "Fri"
       ],
-      "note": "valute CME: sorgenti 1700->1600, ora di Chicago",
+      "note": "valute CME: sorgenti 1700->1600, ora di Chicago. Dal 24/09/2026 la finestra e' quella del CFD (GBPUSD), continua dalla domenica alle 17:00 NY al venerdi' alle 17:00 NY senza la pausa CME: la serie PT5DAV e' stata verificata sul broker con il CFD sempre aperto (CONVENZIONI.md §6 della consegna), e BP-30M-RHL opera solo nell'ora 17-18 NY. Prima: pausa 16:00-17:00 Chicago.",
       "tradingWindows": [
         {
           "open": {
-            "at": "17:00",
+            "at": "16:00",
             "anchor": "local"
           },
           "close": {
@@ -920,7 +914,7 @@
           ],
           "from": null,
           "to": null,
-          "source": "misurata: @NQ_15/@ES_15/@BP_15/@EC_15 2024+, pausa unica 16:00-17:00 Chicago"
+          "source": "CFD sempre aperto (24/09/2026): 5.438 minuti fra le 17:00 e le 18:00 NY nel minuto FTMO"
         }
       ]
     },

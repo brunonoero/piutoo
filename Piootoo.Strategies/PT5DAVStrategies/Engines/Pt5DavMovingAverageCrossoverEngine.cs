@@ -43,18 +43,30 @@ public abstract class Pt5DavMovingAverageCrossoverEngine : Pt5DavEngineBase
     protected override TradeSignal Evaluate(OhlcvData[] data, OhlcvData bar, decimal[] ohlc)
     {
         var barTime = bar.DateTime;
-        var lookback = Math.Max(FastPeriod, SlowPeriod) + Math.Max(1, GradientPeriod);
+        var lookback = Math.Max(FastPeriod, SlowPeriod) + Math.Max(2, GradientPeriod);
         if (FastPeriod <= 0 || SlowPeriod <= 0 || RecentMarketBars(data, lookback + 1) is not { } bars)
             return Hold(bar.Close, barTime, "Storia insufficiente per le medie");
 
         var fast = Average(bars, FastPeriod, 0);
         var slow = Average(bars, SlowPeriod, 0);
-        var crossesOver = fast > slow && Average(bars, FastPeriod, 1) <= Average(bars, SlowPeriod, 1);
-        var crossesUnder = fast < slow && Average(bars, FastPeriod, 1) >= Average(bars, SlowPeriod, 1);
+        var previousFast = Average(bars, FastPeriod, 1);
+        var previousSlow = Average(bars, SlowPeriod, 1);
+        var crossesOver = fast > slow && previousFast <= previousSlow;
+        var crossesUnder = fast < slow && previousFast >= previousSlow;
 
-        if (CurrentMP == 1 && crossesUnder)
+        // L'uscita per incrocio inverso la ricerca la esegue alla CHIUSURA della barra dopo quella
+        // dell'incrocio, una barra piu' tardi dell'ingresso sull'incrocio (che e' all'apertura).
+        // Misurato su NQ-15M-MAC, periodo broker FTMO: 74 uscite su 74 al close della barra dopo il
+        // segnale, ingressi invece al tick. Quindi l'uscita guarda l'incrocio della barra PRECEDENTE
+        // ed esce all'apertura della prossima, cioe' alla chiusura di questa.
+        var crossedUnderBefore = previousFast < previousSlow &&
+                                 Average(bars, FastPeriod, 2) >= Average(bars, SlowPeriod, 2);
+        var crossedOverBefore = previousFast > previousSlow &&
+                                Average(bars, FastPeriod, 2) <= Average(bars, SlowPeriod, 2);
+
+        if (CurrentMP == 1 && crossedUnderBefore)
             return ExitNextBar(SignalType.Sell, bar, data, "LX MAC incrocio inverso");
-        if (CurrentMP == -1 && crossesOver)
+        if (CurrentMP == -1 && crossedOverBefore)
             return ExitNextBar(SignalType.Buy, bar, data, "SX MAC incrocio inverso");
 
         if ((!crossesOver && !crossesUnder) || !PassesGradient(bars, fast, slow))
@@ -75,21 +87,39 @@ public abstract class Pt5DavMovingAverageCrossoverEngine : Pt5DavEngineBase
         return Combine(entries, Hold(bar.Close, barTime));
     }
 
-    /// <summary>Chiusura al limite del CFD del venerdi' della settimana d'ingresso, se prima di quella gia' dichiarata.</summary>
+    /// <summary>
+    /// L'uscita di fine settimana, dichiarata all'ingresso. Misurata sui trade di tutte le 23 MAC:
+    /// <list type="bullet">
+    ///   <item>fino a 60 minuti, alla chiusura dell'ultima barra del venerdi' entro il limite del CFD
+    ///   (17:00 NY);</item>
+    ///   <item>a 4 ore, alla chiusura della barra di giovedi' 20:00-24:00 di Roma, cioe' all'apertura
+    ///   della sessione di venerdi' — su tutte e sette le MAC a 4 ore (BP 140 uscite forzate su 266, GC
+    ///   106 su 122). La scheda non lo spiega: e' la regola misurata, non dedotta.</item>
+    /// </list>
+    /// Un ingresso che nasce dopo l'uscita della propria settimana prende quella della settimana dopo.
+    /// </summary>
     private TradeSignal? WithWeekendExit(TradeSignal? signal)
     {
         if (signal is null)
             return null;
 
-        var friday = ResearchSessionDay(signal.ValidFromUtc!.Value);
+        var fill = signal.ValidFromUtc!.Value;
+        var friday = ResearchSessionDay(fill);
         while (DaysSinceMonday(friday) != 4)
             friday = friday.AddDays(1);
 
-        var weekend = IntradayExitUtc(friday).AddMinutes(-1);
+        var weekend = WeekendExitUtc(friday);
+        if (weekend <= fill)
+            weekend = WeekendExitUtc(friday.AddDays(7));
+
+        weekend = weekend.AddMinutes(-1);
         if (signal.CloseAtUtc is not { } declared || weekend < declared)
             signal.CloseAtUtc = weekend;
         return signal;
     }
+
+    private DateTime WeekendExitUtc(DateTime friday) =>
+        TimeframeMinutes >= 240 ? SessionOpenUtc(friday) : IntradayExitUtc(friday);
 
     private TradeSignal ExitNextBar(SignalType side, OhlcvData bar, OhlcvData[] data, string reason)
     {

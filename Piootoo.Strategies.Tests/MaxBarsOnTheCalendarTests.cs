@@ -60,33 +60,36 @@ public sealed class MaxBarsOnTheCalendarTests
     }
 
     /// <summary>
-    /// Il sabato di BTC: il CFD quota, il future no. Ventiquattro barre vere non consumano nemmeno
-    /// una barra di posizione, e la seconda barra della posizione è quella della domenica.
+    /// Il sabato su un simbolo che il calendario non dichiara di sabato: ventiquattro barre vere non
+    /// consumano nemmeno una barra di posizione, e la seconda barra della posizione è quella della
+    /// domenica. Fino al 24/09/2026 il caso era BTC (il CFD quota il sabato, il future no); da quel
+    /// giorno BTC segue il CFD 24/7, e il caso è NQ, che ha gli stessi giorni di sessione che BTC
+    /// aveva — domenica-venerdì.
     /// </summary>
     [Fact]
     public void MaxBars_DoesNotAdvanceOnADayTheCalendarHasNoSessionFor()
     {
-        // Venerdì 21:00 UTC: sessione di venerdì, perché il giorno di sessione di BTC è quello
+        // Venerdì 21:00 UTC: sessione di venerdì, perché il giorno di sessione di NQ è quello
         // europeo e la mezzanotte locale cade alle 23:00 UTC.
         var entry = new DateTime(2025, 2, 7, 21, 0, 0, DateTimeKind.Utc);
-        var service = OpenedPosition("BTC", entry, timeframeMinutes: 60, maxBars: 2);
+        var service = OpenedPosition("NQ", entry, timeframeMinutes: 60, maxBars: 2);
 
         // Ultima barra del venerdì: prima barra della posizione.
         var friday = entry.AddHours(1);
-        service.UpdateMarketPrices(Prices("BTC", 96_000m), Bars("BTC", friday), friday);
-        Assert.NotNull(PositionOf(service, "BTC", friday));
+        service.UpdateMarketPrices(Prices("NQ", 21_000m), Bars("NQ", friday), friday);
+        Assert.NotNull(PositionOf(service, "NQ", friday));
 
         // Tutto il sabato — dalle 23:00 di venerdì alle 22:00 di sabato UTC — non conta.
         for (var bar = friday.AddHours(1); bar <= new DateTime(2025, 2, 8, 22, 0, 0, DateTimeKind.Utc); bar = bar.AddHours(1))
         {
-            service.UpdateMarketPrices(Prices("BTC", 96_000m), Bars("BTC", bar), bar);
-            Assert.NotNull(PositionOf(service, "BTC", bar));
+            service.UpdateMarketPrices(Prices("NQ", 21_000m), Bars("NQ", bar), bar);
+            Assert.NotNull(PositionOf(service, "NQ", bar));
         }
 
         // Prima barra della domenica: seconda barra della posizione, MaxBars raggiunto.
         var sunday = new DateTime(2025, 2, 8, 23, 0, 0, DateTimeKind.Utc);
-        service.UpdateMarketPrices(Prices("BTC", 96_000m), Bars("BTC", sunday), sunday);
-        Assert.Null(PositionOf(service, "BTC", sunday));
+        service.UpdateMarketPrices(Prices("NQ", 21_000m), Bars("NQ", sunday), sunday);
+        Assert.Null(PositionOf(service, "NQ", sunday));
     }
 
     /// <summary>

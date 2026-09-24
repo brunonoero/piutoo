@@ -95,7 +95,8 @@ public sealed class StrategyExportService
             ["Pt5DavBiasMarketEngine"] = new("BIAS", null, ExternalResearch: true),
             ["Pt5DavBiasRetracementEngine"] = new("BIAS_RT", null, ExternalResearch: true),
             ["Pt5DavBiasBreakoutEngine"] = new("BIAS_BO", null, ExternalResearch: true),
-            ["Pt5DavMovingAverageCrossoverEngine"] = new("MAC", null, ExternalResearch: true)
+            ["Pt5DavMovingAverageCrossoverEngine"] = new("MAC", null, ExternalResearch: true),
+            ["Pt5DavBiasWeeklyEngine"] = new("BIASW", null, ExternalResearch: true)
         };
 
     /// <summary>

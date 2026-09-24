@@ -2,8 +2,11 @@
 
 uso: python tools/pt5dav/gen_pt5dav.py SIMBOLO [SIMBOLO...]   (ALL = tutti)
 
-keep135.txt e' il perimetro deciso il 24/09/2026: le strategie che non tengono piu' di una notte
-(vedi docs/domini/mappa-strategie-pt5dav.md). Le classi si cambiano rigenerandole, non a mano.
+keep135.txt e' il primo perimetro (24/09/2026): le strategie che non tengono piu' di una notte. Lo
+stesso giorno la serie e' stata estesa a tutte le 224; le altre 89 sono numerate DOPO le 135, per non
+rinominare le classi gia' fatte. Le FDAX a 4 ore sono numerate ma non generate (griglia 08-12-16-20
+non disponibile). Vedi docs/domini/mappa-strategie-pt5dav.md. Le classi si cambiano rigenerandole,
+non a mano.
 """
 import csv, re, sys, os, html
 
@@ -27,6 +30,7 @@ ENGINES = {
     "BIAS_RT": ("BRT", "Pt5DavBiasRetracementEngine"),
     "BIAS_BO": ("BBO", "Pt5DavBiasBreakoutEngine"),
     "MAC": ("MAC", "Pt5DavMovingAverageCrossoverEngine"),
+    "BIASW": ("BSW", "Pt5DavBiasWeeklyEngine"),
 }
 TF = {"15m": 15, "30m": 30, "1h": 60, "4h": 240}
 
@@ -53,13 +57,29 @@ def d(v):
     return s + "m"
 
 
-# Numerazione: per (simbolo, sigla), in ordine di timeframe e poi di codice, sulle 135.
-order = sorted(KEEP, key=lambda c: (rows[c]["simbolo"], ENGINES[rows[c]["motore"]][0], TF[rows[c]["timeframe"]], c))
+def is_fdax_4h(c):
+    return rows[c]["simbolo"] == "FDAX" and rows[c]["timeframe"] == "4h"
+
+
+def sort_key(c):
+    return (rows[c]["simbolo"], ENGINES[rows[c]["motore"]][0], TF[rows[c]["timeframe"]], c)
+
+
+# Numerazione per (simbolo, sigla), in ordine di timeframe e codice, a fasi: prima le 135 del primo
+# perimetro, poi le altre 89, infine le FDAX a 4 ore (che non si generano). Cosi' un'estensione non
+# rinomina mai una classe esistente, e i buchi possono stare solo in coda al gruppo.
+ALL = list(rows)
+phases = [
+    [c for c in KEEP if not is_fdax_4h(c)],
+    [c for c in ALL if c not in KEEP and not is_fdax_4h(c)],
+    [c for c in ALL if is_fdax_4h(c)],
+]
 numbers, counters = {}, {}
-for c in order:
-    key = (rows[c]["simbolo"], ENGINES[rows[c]["motore"]][0])
-    counters[key] = counters.get(key, 0) + 1
-    numbers[c] = counters[key]
+for phase in phases:
+    for c in sorted(phase, key=sort_key):
+        key = (rows[c]["simbolo"], ENGINES[rows[c]["motore"]][0])
+        counters[key] = counters.get(key, 0) + 1
+        numbers[c] = counters[key]
 
 
 def class_name(c):
@@ -215,6 +235,22 @@ def body(r):
             f"NotEntryDayLong = {i(r['not_le_day'])};".ljust(40) + "// not_le_day, pandas",
             f"NotEntryDayShort = {i(r['not_se_day'])};".ljust(40) + "// not_se_day, pandas",
         ]
+    elif m == "BIASW":
+        assert i(r["entrata_inizio"]) == 1, r["codice"]
+        def hhmm(v):
+            n = i(v)
+            return f"new TimeOnly({n // 100}, {n % 100})"
+        lines += [
+            f"EntryDayLong = {i(r['le_day'])};".ljust(40) + "// le_day, pandas (-1 = long spento)",
+            f"EntryTimeLong = {hhmm(r['le_time'])};".ljust(40) + f"// le_time {i(r['le_time'])}: apre la barra d'ingresso",
+            f"ExitDayLong = {i(r['lx_day'])};".ljust(40) + "// lx_day, pandas",
+            f"ExitTimeLong = {hhmm(r['lx_time'])};".ljust(40) + f"// lx_time {i(r['lx_time'])}: chiude la barra d'uscita",
+            f"EntryDayShort = {i(r['se_day'])};".ljust(40) + "// se_day, pandas (-1 = short spento)",
+            f"EntryTimeShort = {hhmm(r['se_time'])};".ljust(40) + f"// se_time {i(r['se_time'])}",
+            f"ExitDayShort = {i(r['sx_day'])};".ljust(40) + "// sx_day, pandas",
+            f"ExitTimeShort = {hhmm(r['sx_time'])};".ljust(40) + f"// sx_time {i(r['sx_time'])}",
+        ]
+        lines += gates_fast(r, names=("PatternLongYes", "PatternLongNo", "PatternShortYes", "PatternShortNo"))
     elif m == "MAC":
         assert num(r["trailing_stop"]) in (None, 0), r["codice"]
         lines += [
@@ -278,11 +314,10 @@ public sealed class {name} : {base}
 
 def main():
     wanted = sys.argv[1:]
-    todo = [c for c in KEEP if "ALL" in wanted or rows[c]["simbolo"] in wanted]
+    todo = [c for c in ALL if "ALL" in wanted or rows[c]["simbolo"] in wanted]
     # Le FDAX a 4 ore restano fuori: la ricerca le ha su barre 08-12/12-16/16-20/20-22, che il feed
-    # (ancorato all'01:00) e il cBot non costruiscono. La numerazione le conta comunque, cosi' quando
-    # entreranno non sposteranno i numeri delle altre.
-    skipped = [c for c in todo if rows[c]["simbolo"] == "FDAX" and rows[c]["timeframe"] == "4h"]
+    # (ancorato all'01:00) e il cBot non costruiscono. La numerazione le conta comunque, in coda.
+    skipped = [c for c in todo if is_fdax_4h(c)]
     todo = [c for c in todo if c not in skipped]
     for c in skipped:
         print(f"SALTATA {class_name(c):28} <- {c} (FDAX 4h: griglia 08-12-16-20-22 non disponibile)")

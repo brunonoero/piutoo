@@ -100,12 +100,15 @@ public abstract class Pt5DavBiasEngineBase : Pt5DavEngineBase
             return Combine(entries, Hold(bar.Close, barTime));
         }
 
-        // Una finestra che non attraversa il cambio di sessione si disarma all'apertura della
-        // sessione; una che lo attraversa resta armata fino alla sua fine.
+        // Ogni direzione si disarma all'apertura della sessione, anche quando la finestra "attraversa
+        // il cambio di sessione" (start > end): la scheda lo dice, ma i trade no. FDAX-15M-BIASRT
+        // (finestra long 41 -> 28) entra solo fra la barra 42 e la fine della sessione, mai la
+        // mattina dopo: portare l'armamento oltre la sessione dava 188 ingressi alle 08:15-09:00 che
+        // la ricerca non ha.
         if (index == 0)
         {
-            if (ArmBarLong < EndLong) _armedLong = false;
-            if (ArmBarShort < EndShort) _armedShort = false;
+            _armedLong = false;
+            _armedShort = false;
         }
 
         if (index == ArmBarLong)

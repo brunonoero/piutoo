@@ -50,6 +50,55 @@ public sealed class Pt5DavParityStudy(ITestOutputHelper output)
         new DateTime(2025, 8, 27, 0, 0, 0, DateTimeKind.Utc),
         new DateTime(2026, 9, 10, 0, 0, 0, DateTimeKind.Utc));
 
+    /// <summary>
+    /// Gli altri simboli sullo stesso periodo e sullo stesso archivio FTMO. Il feed interno non si
+    /// usa qui: per questi simboli copre pochi timeframe e non e' detto che sia la serie della ricerca.
+    /// </summary>
+    [Theory]
+    [Trait("Category", ResearchStudy.Category)]
+    [InlineData("BP")]
+    [InlineData("BTC")]
+    [InlineData("CC")]
+    [InlineData("CL")]
+    [InlineData("ES")]
+    [InlineData("FDAX")]
+    [InlineData("GC")]
+    [InlineData("KC")]
+    [InlineData("YM")]
+    public Task OtherSymbolsMatchThePythonTradesOnFtmo(string symbol) => RunAsync(symbol, broker: "FTMO", source: "broker",
+        new DateTime(2025, 8, 27, 0, 0, 0, DateTimeKind.Utc),
+        new DateTime(2026, 9, 10, 0, 0, 0, DateTimeKind.Utc));
+
+    /// <summary>
+    /// Ricostruisce dal minuto gli aggregati FTMO di BP e BTC con il calendario corrente. Serve dopo
+    /// il 24/09/2026, quando il calendario dei due simboli e' passato agli orari del CFD: gli aggregati
+    /// sono cache derivata e quelli su disco erano mascherati con la pausa CME (e, per BTC, senza fine
+    /// settimana). Si fa in-process e non dal server perche' il server acceso ha il calendario vecchio
+    /// in memoria e riavviarlo fermerebbe le sessioni live.
+    /// </summary>
+    [Fact]
+    [Trait("Category", ResearchStudy.Category)]
+    public async Task RebuildFtmoAggregatesForCfdCalendars()
+    {
+        if (ResearchStudy.IsSkipped(output)) return;
+
+        var store = new ExternalDatafeedStore(new PiootooSettings
+        {
+            BasePath = RepositoryPath,
+            ExternalRepositoryPath = @"[BasePath]\datafeed-external"
+        });
+
+        foreach (var symbol in new[] { "@BP", "@BTC" })
+        {
+            var response = await store.RebuildFromMinutesAsync("FTMO", symbol, [15, 30, 60, 240]);
+            foreach (var stream in response.Streams)
+            {
+                output.WriteLine(
+                    $"{stream.Symbol} {stream.TimeframeMinutes}m: barre {stream.BarsBefore} -> {stream.BarsAfter}, {stream.Grid}");
+            }
+        }
+    }
+
     private async Task RunAsync(string symbol, string? broker, string source, DateTime start, DateTime end)
     {
         if (ResearchStudy.IsSkipped(output)) return;
@@ -153,7 +202,7 @@ public sealed class Pt5DavParityStudy(ITestOutputHelper output)
             var f = raw.Split(',');
             if (f[fonte] != source) continue;
 
-            var entry = rome.ToUtc(DateTime.ParseExact(f[entryTime], "yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture));
+            var entry = rome.ToUtc(ParseResearchTime(f[entryTime]));
             if (entry < start || entry >= end) continue;
 
             trades.Add(new Trade(
@@ -161,12 +210,19 @@ public sealed class Pt5DavParityStudy(ITestOutputHelper output)
                 f[side] == "L" ? 1 : -1,
                 decimal.Parse(f[entryPrice], CultureInfo.InvariantCulture),
                 decimal.Parse(f[exitPrice], CultureInfo.InvariantCulture),
-                rome.ToUtc(DateTime.ParseExact(f[exitTime], "yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture)),
+                rome.ToUtc(ParseResearchTime(f[exitTime])),
                 f[reason]));
         }
 
         return trades;
     }
+
+    /// <summary>
+    /// Un orario dei CSV della ricerca. pandas scrive la sola data quando tutta la colonna cade a
+    /// mezzanotte (le uscite BIASW di NQ, sempre giovedi' alle 00:00): e' la mezzanotte, non un errore.
+    /// </summary>
+    private static DateTime ParseResearchTime(string text) =>
+        DateTime.ParseExact(text, ["yyyy-MM-dd HH:mm:ss", "yyyy-MM-dd"], CultureInfo.InvariantCulture, DateTimeStyles.None);
 
     /// <summary>
     /// L'apertura della barra della strategia che contiene l'istante: la griglia e' ancorata alla

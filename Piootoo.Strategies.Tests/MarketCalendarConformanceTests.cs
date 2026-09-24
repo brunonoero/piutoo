@@ -87,7 +87,9 @@ public sealed class MarketCalendarConformanceTests
         { "RB", NyComexNymex, 0, null },
 
         // --- Cripto
-        { "BTC", CmeChicago, 0, MonToFriPlusSunday },
+        // Dal 24/09/2026 24/7 come il CFD, giorni non dichiarati come ETH/SOL/XRP: la serie PT5DAV
+        // e' stata verificata sul broker con il fine settimana. Prima: MonToFriPlusSunday.
+        { "BTC", CmeChicago, 0, null },
 
         // --- Softs ICE US
         { "KC", IceNewYork, 1, MonToFri },

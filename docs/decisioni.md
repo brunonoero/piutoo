@@ -4553,3 +4553,18 @@ che il motore fa. Difetto di artefatto, non di esecuzione, ma e' costato mezza i
   rientro sulla barra dell'uscita, CFD aperto all'apertura e — per le intraday — alla chiusura della
   barra) sono nel codice con la loro misura. Classi generate dal CSV (`tools/pt5dav/gen_pt5dav.py`).
   Vedi `docs/domini/mappa-strategie-pt5dav.md`.
+
+- **2026-09-24** — **PT5DAV estesa a tutte le 224 strategie (218 classi) e calendario di BP e BTC agli
+  orari del CFD.** Su richiesta, anche le 89 che tengono piu' di una notte: tolto il tetto di una notte
+  dalla base, le notti le limita il piano. Nuovo motore BIASW e uscite MAC misurate (incrocio inverso
+  alla chiusura della barra dopo il segnale, fine settimana a 4 ore il giovedi' alle 20:00 di Roma).
+  **Calendario**: BP senza la pausa CME (dalla domenica 17:00 NY al venerdi' 17:00 NY) e BTC 24/7 senza
+  giorni dichiarati. La ricerca ha verificato le strategie sul broker con il CFD sempre aperto, e con la
+  maschera del future BP-30M-RHL (che opera solo fra le 17 e le 18 NY) ritrovava lo 0% dei trade; dopo,
+  la mediana di BP va dal 63% al 97% e quella di BTC dal 30% al 92%. E' per simbolo e non per
+  strategia perche' il calendario si applica per simbolo in sei punti; oggi nessun'altra strategia
+  eseguibile gira su BP o BTC (`PT3B_BP_PCH_001_60` e' un contenitore). Il calendario e' incorporato
+  nell'assembly: entra nel server al prossimo deploy, e gli aggregati FTMO di BP e BTC sono stati
+  ricostruiti. **Provata e scartata la sessione dalle 17:00 NY**: BP-15M-BIAS passava dal 93% al 3%.
+  Riconciliazione sul periodo broker FTMO, mediana per strategia: CL e YM 100%, GC 99%, ES e FDAX 98%,
+  BP 97%, NQ 96%, BTC 92%.

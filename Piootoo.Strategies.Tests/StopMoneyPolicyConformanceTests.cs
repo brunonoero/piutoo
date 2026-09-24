@@ -214,6 +214,17 @@ public sealed class StopMoneyPolicyConformanceTests(ITestOutputHelper output)
                 if (emitted.Type is not (SignalType.Buy or SignalType.Sell)) continue;
                 seenEntry = true;
 
+                // Le PT5DAV dichiarano lo stop in multipli di ATR50 (StopAtr), non in denaro: il
+                // valore dipende dalla storia e non si legge da un campo. Qui si verifica che lo stop
+                // ci sia quando e' dichiarato; che sia quello giusto lo misura Pt5DavParityStudy
+                // contro i trade della ricerca.
+                if (ReadField(strategy, "StopAtr") is > 0m)
+                {
+                    if (emitted.StopLossMoneyPerFutureContract is not > 0m)
+                        violations.Add($"{id}: stop in ATR dichiarato, nessuno stop emesso.");
+                    continue;
+                }
+
                 var declared = ReadDeclaredStop(strategy, emitted.Type);
                 var factor = StopMoneyPolicy.AppliesTo(emitted.StrategyCode)
                     ? StopMoneyPolicy.EffectiveMultiplier
