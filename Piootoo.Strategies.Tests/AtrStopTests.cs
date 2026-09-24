@@ -50,17 +50,21 @@ public sealed class AtrStopTests(ITestOutputHelper output)
     }
 
     /// <summary>
-    /// Senza 15 sessioni chiuse di storia l'ATR non esiste e si ripiega sul denaro fisso: un
-    /// segnale senza stop non deve mai nascere per una questione di riscaldamento.
+    /// Senza le sessioni chiuse dell'ATR la strategia non si valuta: <c>RequiredCandles</c> le
+    /// include (<c>AtrWarmupCandles</c>), e un segnale senza stop non deve mai nascere per una
+    /// questione di riscaldamento. Fino al 24/09/2026 qui si ripiegava sul denaro fisso, che nelle
+    /// configurazioni in ATR vale zero.
     /// </summary>
     [Fact]
-    public void WithoutEnoughHistoryTheFixedMoneyIsTheFallback()
+    public void WithoutEnoughHistoryNoSignalIsEmitted()
     {
+        var strategy = new AtrPriceChannel { StopAtr = 2m };
         var bars = BuildFourHourBars(new DateTime(2026, 1, 15, 8, 0, 0, DateTimeKind.Utc)).TakeLast(36).ToArray();
-        var signal = Evaluate(new AtrPriceChannel { StopAtr = 2m }, bars);
+        Assert.True(bars.Length < strategy.RequiredCandles);
 
-        Assert.Equal(SignalType.Buy, signal.Type);
-        Assert.Equal(5000m, signal.StopLossMoneyPerFutureContract);
+        var signal = Evaluate(strategy, bars);
+
+        Assert.Equal(SignalType.Hold, signal.Type);
     }
 
     private static TradeSignal Evaluate(PriceChannelEngine strategy, OhlcvData[] bars) =>
