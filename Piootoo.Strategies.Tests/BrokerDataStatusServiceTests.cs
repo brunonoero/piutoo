@@ -1,5 +1,6 @@
 using Piootoo.Core.Services;
 using Piootoo.Shared.Configuration;
+using Piootoo.Shared.Models.Brokers;
 using Piootoo.Shared.Models.Workspaces;
 using Xunit;
 
@@ -13,6 +14,7 @@ public sealed class BrokerDataStatusServiceTests : IDisposable
 {
     private readonly string _root = Path.Combine(Path.GetTempPath(), "piootoo-data-status", Guid.NewGuid().ToString("N"));
     private readonly PiootooSettings _settings;
+    private readonly SymbolInfoStore _symbolInfo;
     private readonly BrokerDataStatusService _service;
 
     public BrokerDataStatusServiceTests()
@@ -32,12 +34,24 @@ public sealed class BrokerDataStatusServiceTests : IDisposable
             Name = "CFD test",
             Mappings =
             [
-                new AccountSymbolMapping { Symbol = "@FESX", AccountSymbol = "EU50.cash", Enabled = true },
-                new AccountSymbolMapping { Symbol = "@FCE", AccountSymbol = "FRA40.cash", Enabled = true }
+                new AccountSymbolMapping
+                {
+                    Symbol = "@FESX", AccountSymbol = "EU50.cash", ContractMultiplier = 10,
+                    MinimumQuantity = 0.01m, QuantityStep = 0.01m, Enabled = true
+                },
+                new AccountSymbolMapping
+                {
+                    Symbol = "@FCE", AccountSymbol = "FRA40.cash", ContractMultiplier = 10,
+                    MinimumQuantity = 0.01m, QuantityStep = 0.01m, Enabled = true
+                }
             ]
         });
         workspaces.CreateBroker(new TradingBroker { Code = "FTMO", Name = "FTMO", SymbolConversionCode = "cfd-test" });
-        _service = new BrokerDataStatusService(_settings, workspaces, new SymbolInfoStore(_settings));
+        _symbolInfo = new SymbolInfoStore(_settings);
+        _service = new BrokerDataStatusService(_settings, workspaces, _symbolInfo);
+
+        // La scheda di EU50 conferma la riga: 10 euro al punto del FESX su un lotto da 1 = 10.
+        Scheda("EU50.cash", "@FESX", lotSize: "1");
 
         var feeds = Path.Combine(_settings.GetExternalRepositoryPath(), "FTMO");
         Directory.CreateDirectory(feeds);
@@ -78,7 +92,54 @@ public sealed class BrokerDataStatusServiceTests : IDisposable
         Assert.Equal([240], eu50.Aggregates);
         Assert.Equal("1.36", eu50.SpreadMedian);
         Assert.Equal("manuale", eu50.Swap);
+        Assert.Equal("confermata", eu50.Conversion);
     }
+
+    /// <summary>
+    /// Un moltiplicatore che la scheda smentisce blocca il simbolo: la size di ogni ordine sarebbe
+    /// sbagliata senza un errore. Qui il broker dichiara un lotto da 2, quindi 5 e non 10.
+    /// </summary>
+    [Fact]
+    public void AMultiplierTheSymbolInfoContradictsIsNotReady()
+    {
+        Scheda("FRA40.cash", "@FCE", lotSize: "2");
+
+        var fra40 = _service.Get("FTMO").Symbols.Single(row => row.Symbol == "@FCE");
+
+        Assert.Equal("divergente", fra40.Conversion);
+        Assert.Contains(fra40.Missing, missing => missing.Contains("moltiplicatore"));
+    }
+
+    /// <summary>Senza nessuna scheda la riga non e' verificabile, e non conta come pronta.</summary>
+    [Fact]
+    public void ARowWithoutSymbolInfoIsNotVerifiable()
+    {
+        var fra40 = _service.Get("FTMO").Symbols.Single(row => row.Symbol == "@FCE");
+
+        Assert.Equal("non verificabile", fra40.Conversion);
+        Assert.False(fra40.Ready);
+    }
+
+    private void Scheda(string brokerSymbol, string piootooSymbol, string lotSize) =>
+        _symbolInfo.IngestAsync(new SymbolInfoIngestRequestDto
+        {
+            Broker = "FTMO",
+            TakenUtc = new DateTime(2026, 9, 23, 17, 0, 0, DateTimeKind.Utc),
+            Symbols =
+            [
+                new SymbolInfoDto
+                {
+                    BrokerSymbol = brokerSymbol,
+                    PiootooSymbol = piootooSymbol,
+                    Properties = new Dictionary<string, string>
+                    {
+                        ["LotSize"] = lotSize,
+                        ["VolumeInUnitsMin"] = "0.01",
+                        ["VolumeInUnitsStep"] = "0.01"
+                    }
+                }
+            ]
+        }).GetAwaiter().GetResult();
 
     /// <summary>Un simbolo senza spread ne' swap non e' pronto, e dice cosa gli manca.</summary>
     [Fact]

@@ -393,7 +393,9 @@ ciascuno perché nessuno dei due aspetti l'altro:
 
 Cosa manca a un broker per lavorarci lo dice `GET api/data-status?broker=…`
 (`BrokerDataStatusService`): per ogni simbolo mappato o raccolto, barre da un minuto, aggregati con
-la finestra, spread, swap, scheda, contratto, e `ready`. È la domanda con cui
+la finestra, spread, swap, scheda, contratto, la riga della tabella di conversione confrontata con la
+scheda (7.6.6: `SymbolConversionReconciler`, un moltiplicatore o un lotto che la scheda smentisce
+rende il simbolo non pronto, e cosi' una riga non verificabile), e `ready`. È la domanda con cui
 `tools/coda-ricerca.ps1` decide se una cella della coda (`ricerca/coda.json`) può partire.
 
 ## Scaricare i tick prima di raccoglierli

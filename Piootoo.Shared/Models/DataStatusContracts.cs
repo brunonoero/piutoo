@@ -50,6 +50,17 @@ public sealed class SymbolDataStatus
 
     public DateTime? SymbolInfoSeenUtc { get; set; }
 
+    /// <summary>
+    /// La riga della tabella di conversione confrontata con la scheda del broker: <c>confermata</c>,
+    /// <c>divergente</c>, <c>non verificabile</c>, o null se il simbolo non e' mappato. Un
+    /// moltiplicatore sbagliato sposta la size di ogni ordine senza un errore, quindi solo una riga
+    /// confermata conta come pronta.
+    /// </summary>
+    public string? Conversion { get; set; }
+
+    /// <summary>Cosa non torna nella riga, a parole: vuoto se confermata.</summary>
+    public List<string> ConversionFindings { get; set; } = new();
+
     /// <summary>Tutto cio' che serve a un run su questo broker c'e'.</summary>
     public bool Ready { get; set; }
 

@@ -1,4 +1,4 @@
-﻿namespace Piootoo.Shared;
+namespace Piootoo.Shared;
 
 /// <summary>
 /// Versione del progetto Piootoo, condivisa fra server, console WinForms e cBot distribuito.
@@ -51,7 +51,7 @@
 public static class PiootooVersion
 {
     /// <summary>Versione corrente del server. Vedi la nota della classe: va mossa insieme a quella del cBot.</summary>
-    public const string Current = "7.6.5";
+    public const string Current = "7.6.6";
 
     /// <summary>
     /// Parte del numero che vale come contratto: <c>major.minor</c>. È ciò che console e cBot

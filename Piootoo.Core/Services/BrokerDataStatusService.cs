@@ -4,6 +4,7 @@ using System.Text.RegularExpressions;
 using Piootoo.Shared.Configuration;
 using Piootoo.Shared.MarketData;
 using Piootoo.Shared.Models;
+using Piootoo.Shared.Models.Workspaces;
 
 namespace Piootoo.Core.Services;
 
@@ -39,7 +40,15 @@ public sealed class BrokerDataStatusService
         var name = ExternalDatafeedStore.NormalizeBroker(broker);
         var status = new BrokerDataStatus { Broker = name, GeneratedUtc = DateTime.UtcNow };
 
-        var mapped = MappedSymbols(name);
+        var conversion = ConversionOf(name);
+        var mapped = conversion.Mappings
+            .Where(mapping => mapping.Enabled)
+            .GroupBy(mapping => Normalize(mapping.Symbol), StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.First().AccountSymbol, StringComparer.OrdinalIgnoreCase);
+        var archives = _symbolInfo.GetArchives(name);
+        var reconciliation = SymbolConversionReconciler.Reconcile(name, conversion, archives).Rows
+            .GroupBy(row => Normalize(row.Symbol), StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
         var feedFolder = Path.Combine(_settings.GetExternalRepositoryPath(), name);
         var feeds = Directory.Exists(feedFolder)
             ? Directory.EnumerateFiles(feedFolder, "@*_*.json", SearchOption.TopDirectoryOnly)
@@ -55,7 +64,7 @@ public sealed class BrokerDataStatusService
         var spreadDays = CountSpreadDays(name);
         var swap = ReadSwap(name, out var swapFile);
         status.SwapFile = swapFile;
-        var seen = _symbolInfo.GetArchives(name)
+        var seen = archives
             .Where(archive => !string.IsNullOrWhiteSpace(archive.PiootooSymbol) && archive.Snapshots.Count > 0)
             .GroupBy(archive => Normalize(archive.PiootooSymbol!), StringComparer.OrdinalIgnoreCase)
             .ToDictionary(group => group.Key, group => group.Max(archive => archive.Snapshots[^1].LastSeenUtc), StringComparer.OrdinalIgnoreCase);
@@ -102,8 +111,16 @@ public sealed class BrokerDataStatusService
             row.Swap = swap.TryGetValue(symbol, out var swapKind) ? swapKind : null;
             row.SymbolInfoSeenUtc = seen.TryGetValue(symbol, out var lastSeen) ? lastSeen : null;
 
+            if (reconciliation.TryGetValue(symbol, out var check))
+            {
+                row.Conversion = check.Unverifiable ? "non verificabile" : check.Findings.Count > 0 ? "divergente" : "confermata";
+                row.ConversionFindings = check.Findings;
+            }
+
             if (!row.Registered) row.Missing.Add("contratto o calendario");
             if (row.BrokerSymbol is null) row.Missing.Add("riga nella tabella di conversione");
+            else if (row.Conversion == "divergente") row.Missing.Add("tabella di conversione divergente dalla scheda: " + string.Join(" ", row.ConversionFindings));
+            else if (row.Conversion == "non verificabile") row.Missing.Add("tabella di conversione non verificabile: " + string.Join(" ", row.ConversionFindings));
             if (row.MinuteToUtc is null) row.Missing.Add("barre da un minuto");
             if (row.AggregatesWithoutWindow.Count > 0)
                 row.Missing.Add("aggregati da ricostruire (" + string.Join(",", row.AggregatesWithoutWindow) + ")");
@@ -117,19 +134,14 @@ public sealed class BrokerDataStatusService
         return status;
     }
 
-    /// <summary>Simbolo Piootoo -> nome sul broker, dalla tabella del broker nel registro.</summary>
-    private Dictionary<string, string> MappedSymbols(string broker)
+    /// <summary>La tabella di conversione del broker nel registro; vuota se il broker non ne ha una.</summary>
+    private SymbolConversion ConversionOf(string broker)
     {
         var entry = _workspaces.ListBrokers().FirstOrDefault(candidate =>
             string.Equals(ExternalDatafeedStore.NormalizeBroker(string.IsNullOrWhiteSpace(candidate.DatafeedFolder) ? candidate.Code : candidate.DatafeedFolder),
                 broker, StringComparison.OrdinalIgnoreCase));
-        if (entry is null || string.IsNullOrWhiteSpace(entry.SymbolConversionCode))
-            return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
-        return _workspaces.ResolveSymbolConversionMappings(entry.SymbolConversionCode)
-            .Where(mapping => mapping.Enabled)
-            .GroupBy(mapping => Normalize(mapping.Symbol), StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(group => group.Key, group => group.First().AccountSymbol, StringComparer.OrdinalIgnoreCase);
+        return _workspaces.ResolveSymbolConversion(entry?.SymbolConversionCode);
     }
 
     private Dictionary<string, (string Median, DateTime? From, DateTime? To)> ReadSpread(string broker, out string? fileName)
