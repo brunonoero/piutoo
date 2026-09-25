@@ -308,8 +308,15 @@ L'idea diversa non basta, la scorrelazione **si misura**:
 4. Un piano per conto, un'istanza di cBot per piano. Piani con famiglie diverse proteggono anche dal
    rischio di modello: se una famiglia smette di funzionare muore un conto, non tutti.
 
-Lo strumento che lo fa non esiste ancora (nome di lavoro `piootoo-plan-builder`): legge i
-`trades.json` di un run di catalogo e propone i piani con la loro matrice di correlazione.
+**Lo strumento c'e' dal 25/09/2026**: `piootoo-plan-builder` (`Piootoo.PlanBuilder`, logica in
+`Piootoo.Core/Planning/PlanBuilder.cs`, procedura nella skill `piani-scorrelati`). Legge i trade dei run
+passando da `TradingJsonStore` (un journal aperto si fonde, non si legge a meta'), costruisce il P&L per
+giorno UTC di uscita sui soli giorni con almeno un trade, calcola la correlazione e quella nelle code, e
+compone piani disgiunti e golosi con i vincoli sopra. Scrive `plan-builder.md`, `plans.json` e le due
+matrici in CSV. Provato sul run delle 41 PT5DAV: 24 candidate, tre piani, il primo di 8 strategie con
+correlazione massima 0,12 fra i membri e 0,04 con il secondo. **Limiti**: somma il denaro dei trade senza
+normalizzare il rischio (GC pesa piu' di BP), e la scelta golosa puo' aggiungere un membro debole se
+migliora il netto/DD del piano.
 
 ## Ordine di lavoro proposto
 

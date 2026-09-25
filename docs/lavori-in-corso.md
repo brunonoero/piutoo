@@ -6,6 +6,74 @@ ragione il codice.
 
 ---
 
+# ⇦ PT6EXO — RIPRENDERE DA QUI (sera del 25/09/2026)
+
+La serie `PT6EXO_*` cerca strategie **scorrelate** con famiglie di motori nuove, da comporre in piani
+diversi, uno per conto. Catalogo, scelte di ogni motore e trappole:
+[`domini/catalogo-idee-pt6exo.md`](domini/catalogo-idee-pt6exo.md). Procedure: skill `motore-pt6exo`,
+`controllo-ran`, `piani-scorrelati`.
+
+**Cosa c'e'** (commit `91bf822`, `06d2281`, `7a6d5db` e quello del plan-builder):
+
+- 18 motori in `Piootoo.Strategies/PT6EXOStrategies/Engines/`, ognuno con contenitore `RC_{SIGLA}` e
+  test: RAN (controllo), FBO, IBS, HOD, RUN, NRX, REG, CAL, GAP, CDL, MTF, VLM, RNM, FIB, LUN, MOD, DXH,
+  XMK. **Nessuna classe `PT6EXO_*` esiste ancora**: nascono solo da una cella che risponde
+  (`promuovi-finalista`).
+- Il controllo RAN sulla 002: `Pt3b002RandomControlStudy`.
+- Matrice delle griglie: FBO, IBS, RUN, NRX, HOD aggiunti a `CoarseGridMatrixTests.Engines`.
+- XMK: contratto `IMultiSymbolTradingStrategy`, servito dalla **sola sweep** e dalla griglia grossa
+  (`CoarseGridSpec.ReferenceSymbols`); studio `NqGcCrossMarketStudy`.
+- `piootoo-plan-builder` (`Piootoo.PlanBuilder`, logica in `Piootoo.Core/Planning/`): dai trade dei run
+  alle correlazioni giornaliere e nelle code, e ai piani disgiunti. Provato sul run delle 41 PT5DAV
+  (`ftmo-pt5dav-41/backtests/pt5dav-41-a-mercato-770`): 24 candidate, tre piani, il primo di 8
+  strategie con correlazione massima 0,12 fra i membri e 0,04 con il secondo.
+
+**Cosa gira e in che ordine** (una cosa alla volta sulla macchina):
+
+1. `ResearchPathStudy` di un'altra sessione, partito alle 10:22.
+2. Lo studio RAN sulla 002, lanciato da uno script d'attesa che vive **solo nella sessione del 25/09**
+   (`scratchpad\attendi-e-lancia-ran.ps1`). Se quella sessione e' chiusa prima che parta, lo studio non
+   parte: lanciarlo a mano con il comando della skill `controllo-ran`, **prima** che la coda prenda la
+   macchina (la coda guarda ogni 10 minuti se gira un `testhost`). Log e CSV:
+   `ricerca/fdax-4h-pch-002-controllo-ran.{log,csv}`.
+3. La coda (`tools/coda-ricerca.ps1`, viva): il lotto PT6EXO di 18 celle FTMO — FBO, IBS, RUN, NRX su
+   FDAX e NQ a 240 e 60, HOD su FDAX e NQ a 60 — CSV in `ricerca/matrice/{sim}-{tf}-{motore}.csv`, log
+   in `ricerca/matrice/log/`; poi `xmk-nq-gc-griglie` (CSV `ricerca/matrice/nq-{tf}-xmk-gc-{modo}.csv`);
+   poi la matrice vecchia. NQ 60/240 FTMO sono aggregati del 16-17/09: se la coda li dichiara non pronti,
+   vanno ricostruiti (`rebuild-from-minutes`).
+
+**Cosa fare quando escono i risultati**, in quest'ordine:
+
+1. **RAN**: il percentile della 002 fra i 100 semi **fuori campione** (netto, average trade, netto/DD).
+   Scrivere `ricerca/fdax-4h-pch-002-controllo-ran.md`. Se la 002 sta nel mezzo, il suo guadagno lo
+   farebbe una moneta con le stesse uscite: da dire prima di metterla in un piano.
+2. **Le 18 celle**, con `lettura-risultati`, cella per cella, con il rapporto nella forma di
+   `griglia-grossa`. Per le celle che rispondono: il controllo RAN con le stesse uscite, e la
+   correlazione giornaliera con il PCH sulla stessa cella (FBO su FDAX 4h e' costruito per essere
+   anti-correlato: va misurato).
+3. **XMK NQ/GC**: stessa lettura; se un modo risponde, decidere se vale il lavoro di portare gli altri
+   simboli nel backtest completo, nella sessione e nel cBot.
+4. Le finaliste diventano classi `PT6EXO_*` (`promuovi-finalista`), un backtest neutro del catalogo le
+   mette insieme alle PT3B e PT5DAV, e `piootoo-plan-builder` compone i piani (`piani-scorrelati`).
+
+**Limiti noti, da non riscoprire**:
+
+- **MTF** gira solo in backtest, e il backtest le da' 8 barre giornaliere: con `TrendBars` 50 sul
+  giornaliero non scatta mai. Sessione live, sweep e cBot non passano la serie alta.
+- **XMK** gira solo nella sweep; altrove si ferma con un errore.
+- **CAL** fissa `ValidFromUtc` piu' avanti della barra dopo (per non entrare nel fine settimana): da
+  verificare che il cBot lo accetti prima di metterla in un piano. Il modo 2 (vigilia di festivo) non
+  scatta finche' i calendari non dichiarano festivi.
+- **LUN** chiude una barra prima del confine di fase, per poter rientrare nel mezzo ciclo dopo.
+- **HOD** nella matrice solo a 60 minuti: sulle 4 ore la barra non apre a ogni ora.
+- **VLM** declassata: il tick volume dei CFD e' quasi un doppione della volatilita'; ammessa solo se
+  batte la stessa cella con `ActivitySource = 1` (ampiezza della barra).
+- **Il plan-builder somma il denaro dei trade**: i simboli a contratto grande pesano di piu' (GC contro
+  BP), e la scelta golosa puo' aggiungere un membro debole se migliora il netto/DD del piano. Una
+  normalizzazione per rischio e' la prossima cosa da decidere se i piani risultano sbilanciati.
+
+---
+
 # ⇦ RIPRENDERE DA QUI: le tre decisioni del 23/09, tutte prese e in corsa
 
 Le tre cose lasciate aperte la sera del 22/09 (in fondo alla sezione «sei griglie grosse») sono

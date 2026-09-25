@@ -29,6 +29,7 @@ dotnet build PiootooApp.sln
 dotnet test Piootoo.Strategies.Tests/Piootoo.Strategies.Tests.csproj
 dotnet run --project PiootooApp.Server            # http://localhost:5142, swagger su /swagger
 dotnet run --project piootooapp.clientform        # console WinForms (richiede il server attivo)
+dotnet run --project Piootoo.PlanBuilder -- --run <cartella di backtest> --out <cartella>   # piani scorrelati
 ```
 
 Il profilo di avvio della solution lancia insieme `PiootooApp.Server` e
@@ -47,6 +48,7 @@ client WinForms, `net9.0-windows` per il progetto di test. Test con xUnit +
 | `Piootoo.Domain` | Repository di base, in particolare `DataSourceRepository` (lettura feed). |
 | `Piootoo.Core` | Tutti i servizi applicativi: `Services/` (workspace, backtesting, trading, sizing, sessioni) e `Optimization/`. |
 | `Piootoo.Strategies` | Catalogo strategie (`ITradingStrategy`): i motori in `Easy/`, la serie `PT3B_*` in `PT3BStrategies/` (ricerca interna con `piootoo-sweep`, dal 21/09/2026) e la serie `PT5DAV_*` in `PT5DAVStrategies/` (ricerca v5.0 fatta su un altro server, dal 24/09/2026), con **motori propri** in `PT5DAVStrategies/Engines/` che non toccano quelli condivisi. La serie `PT6EXO_*` in `PT6EXOStrategies/` (dal 25/09/2026) raccoglie famiglie di motori **nuove**, cercate per essere scorrelate dal resto, con motori propri in `PT6EXOStrategies/Engines/`: il catalogo di idee e' `docs/domini/catalogo-idee-pt6exo.md`. Le serie numerano per conto proprio; mappa in `docs/domini/mappa-strategie-pt5dav.md`. La serie `PTS_*` e' stata **eliminata il 24/09/2026**: `mappa-strategie-pts.md` resta come storia. La serie `PT2_*` e' stata **rimossa il 22/09/2026** (nessuna delle quattro aveva superato la validazione ai costi veri): `mappa-strategie-pt2.md` resta come storia. |
+| `Piootoo.PlanBuilder` | `piootoo-plan-builder`: dai trade chiusi di uno o piu' run alle correlazioni giornaliere (anche nelle code) e ai piani disgiunti di strategie scorrelate, uno per conto. Logica in `Piootoo.Core/Planning/`. Skill `piani-scorrelati`. |
 | `PiootooApp.Server` | API HTTP. Solo controller sottili + DI. |
 | `Piootoo.FeedWorker` | Worker che alimenta le sessioni live con barre chiuse. |
 | `piootooapp.clientform` | Console WinForms. Client HTTP puro. Due interfacce: la nuova `Shell/MainShellForm` (menu a sinistra, lista → dettaglio, schermate designer-first) e la storica `WorkspaceBacktestingForm` a tab, raggiungibile da *File → Console legacy*. |
@@ -393,7 +395,10 @@ In `.claude/skills/` stanno le **procedure** con cui si lavora su questo progett
 `docs/` che dicono come funziona il codice: `griglia-grossa` (aprire una cella), `sweep-cella`
 (cercare dentro una cella), `lettura-risultati` (il verdetto con le soglie del metodo),
 `passo-a-mano` (un parametro con un'ipotesi a priori), `promuovi-finalista` (da configurazione a
-classe PT3B), `deploy-piootoo` (il rilascio). Sono bozze del 23/09/2026, da completare a fine
+classe PT3B), `deploy-piootoo` (il rilascio). Dal 25/09/2026, per la serie PT6EXO: `motore-pt6exo`
+(scrivere un motore di una famiglia nuova), `controllo-ran` (una strategia contro l'ingresso casuale
+con le stesse uscite), `piani-scorrelati` (comporre i piani con `piootoo-plan-builder`). Lo stato dei
+lavori PT6EXO e da dove riprendere sta in cima a `docs/lavori-in-corso.md`. Sono bozze del 23/09/2026, da completare a fine
 percorso di messa a punto; le soglie numeriche stanno in `lettura-risultati` e in nessun altro
 skill.
 

@@ -4596,3 +4596,14 @@ che il motore fa. Difetto di artefatto, non di esecuzione, ma e' costato mezza i
   Motori propri in `PT6EXOStrategies/Engines/`, contenitori `RC_{SIGLA}`, percorso di ricerca normale
   piu' il confronto con un controllo a ingresso casuale (RAN) con le stesse uscite. Catalogo e ordine
   di lavoro in `domini/catalogo-idee-pt6exo.md`.
+- **2026-09-25** — **Due strumenti per la serie PT6EXO: il contratto tra mercati e il costruttore di
+  piani.** XMK legge un secondo mercato: `IMultiSymbolTradingStrategy` (la strategia dichiara
+  `ReferenceSymbols`, la richiesta porta `ReferenceOhlcv`) e' servito solo dalla sweep e dalla griglia
+  grossa (`CoarseGridSpec.ReferenceSymbols`); backtest completo, sessione e cBot non portano gli altri
+  simboli e li' una strategia XMK si ferma con un errore invece di tacere. Portarcela vuol dire toccare il
+  contratto con il bot: si fa solo se una cella XMK risponde. `piootoo-plan-builder` compone piani
+  disgiunti di strategie scorrelate misurando la correlazione giornaliera **e quella nelle code** (i
+  giorni peggiori dell'una o dell'altra), perche' strategie scorrelate in media perdono spesso insieme nei
+  crash, ed e' li' che un conto salta. Non giudica le strategie e non normalizza il rischio: le candidate
+  arrivano gia' passate dal metodo, da un run neutro con le stesse size. Skill `motore-pt6exo`,
+  `controllo-ran`, `piani-scorrelati`.
