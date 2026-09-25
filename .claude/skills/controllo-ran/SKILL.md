@@ -40,8 +40,9 @@ Lancio, come ogni studio:
 $env:PIOOTOO_STUDI='1'; dotnet test Piootoo.Strategies.Tests/Piootoo.Strategies.Tests.csproj --filter "FullyQualifiedName~<ClasseStudio>" --logger "console;verbosity=detailed" *>&1 | Out-File piootoo-repository/ricerca/<nome>.log -Encoding utf8
 ```
 
-Mai insieme a un'altra griglia, sweep o studio (la coda guarda i `testhost` e aspetta). Durata: ore
-(un backtest per seme e per periodo, orologio al minuto).
+Mai insieme a un'altra griglia, sweep o studio (la coda guarda i `testhost` e aspetta). Durata: la 002
+su dodici anni di FDAX 4h, orologio al minuto, 100 semi per due periodi, ha chiesto **13 minuti** su 8
+core: il controllo si puo' fare su ogni cella che risponde.
 
 ## Lettura
 

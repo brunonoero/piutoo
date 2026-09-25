@@ -31,11 +31,11 @@ diversi, uno per conto. Catalogo, scelte di ogni motore e trappole:
 **Cosa gira e in che ordine** (una cosa alla volta sulla macchina):
 
 1. `ResearchPathStudy` di un'altra sessione, partito alle 10:22.
-2. Lo studio RAN sulla 002, lanciato da uno script d'attesa che vive **solo nella sessione del 25/09**
-   (`scratchpad\attendi-e-lancia-ran.ps1`). Se quella sessione e' chiusa prima che parta, lo studio non
-   parte: lanciarlo a mano con il comando della skill `controllo-ran`, **prima** che la coda prenda la
-   macchina (la coda guarda ogni 10 minuti se gira un `testhost`). Log e CSV:
-   `ricerca/fdax-4h-pch-002-controllo-ran.{log,csv}`.
+2. ~~Lo studio RAN sulla 002~~ **fatto il 25/09 alle 18:09** (13 minuti):
+   `ricerca/fdax-4h-pch-002-controllo-ran.md`. Fuori campione la 002 sta al **97° percentile** dei cento
+   semi su ogni metrica, e i semi perdono in mediana −111.306: il segnale porta informazione e le uscite
+   da sole su FDAX 4h non regalano niente. Resta sotto la soglia di average trade del metodo (70 contro
+   365).
 3. La coda (`tools/coda-ricerca.ps1`, viva): il lotto PT6EXO di 18 celle FTMO — FBO, IBS, RUN, NRX su
    FDAX e NQ a 240 e 60, HOD su FDAX e NQ a 60 — CSV in `ricerca/matrice/{sim}-{tf}-{motore}.csv`, log
    in `ricerca/matrice/log/`; poi `xmk-nq-gc-griglie` (CSV `ricerca/matrice/nq-{tf}-xmk-gc-{modo}.csv`);
@@ -44,9 +44,7 @@ diversi, uno per conto. Catalogo, scelte di ogni motore e trappole:
 
 **Cosa fare quando escono i risultati**, in quest'ordine:
 
-1. **RAN**: il percentile della 002 fra i 100 semi **fuori campione** (netto, average trade, netto/DD).
-   Scrivere `ricerca/fdax-4h-pch-002-controllo-ran.md`. Se la 002 sta nel mezzo, il suo guadagno lo
-   farebbe una moneta con le stesse uscite: da dire prima di metterla in un piano.
+1. ~~RAN sulla 002~~: fatto, vedi sopra.
 2. **Le 18 celle**, con `lettura-risultati`, cella per cella, con il rapporto nella forma di
    `griglia-grossa`. Per le celle che rispondono: il controllo RAN con le stesse uscite, e la
    correlazione giornaliera con il PCH sulla stessa cella (FBO su FDAX 4h e' costruito per essere
