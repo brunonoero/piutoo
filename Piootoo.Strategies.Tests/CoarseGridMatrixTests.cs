@@ -117,7 +117,10 @@ public sealed class CoarseGridMatrixTests(ITestOutputHelper output)
             VariesDirection: engine.VariesDirection,
             AtrStops: true,
             HoldDays: HoldDays,
-            ExtraParameters: fixedParameters);
+            ExtraParameters: fixedParameters,
+            // 190 sul campione di tre anni (circa 63 all'anno) invece dei 250 del metodo: deciso il
+            // 25/09/2026 dopo LFHL su FDAX 4h, 81 configurazioni su 81 in utile con 197-231 trade.
+            MinInSampleTrades: 190);
     }
 }
 
