@@ -172,6 +172,40 @@ public sealed class CrossMarketEngineTests
     }
 
     /// <summary>
+    /// Lo studio NQ/GC passa al contenitore le chiavi fisse della griglia grossa, le sue e la leva: il
+    /// contenitore le deve leggere tutte, per ogni modo e timeframe. Una chiave che non legge fermerebbe
+    /// lo studio dopo ore di caricamento, invece che qui.
+    /// </summary>
+    [Theory]
+    [InlineData(0, 60)]
+    [InlineData(1, 60)]
+    [InlineData(2, 240)]
+    public void TheNqGcStudyParametersAreAllReadByTheContainer(int mode, int timeframe)
+    {
+        var spec = NqGcCrossMarketStudy.Spec(mode, timeframe);
+        var parameters = new Dictionary<string, object>
+        {
+            ["PtnNeutYes"] = 55, ["PtnNeutNo"] = 56, ["PtnDirYes"] = 52, ["PtnDirNo"] = 53,
+            ["StartHour"] = -1, ["EndHour"] = -1, ["DvolMin"] = 0, ["SkipDay"] = -1,
+            ["IntradayOnly"] = 1, ["OffsetTicks"] = 0, ["TrailingStop"] = 0, ["BreakEven"] = 0,
+            ["MaxBars"] = 0, ["ExitHour"] = 21, ["Direction"] = 1,
+            ["StopLoss"] = 0, ["TakeProfit"] = 0, ["StopAtr"] = 1.5m, ["TargetAtr"] = 3m,
+            [spec.FirstLeverKey] = spec.Channels[1]
+        };
+        foreach (var (key, value) in spec.ExtraParameters!)
+            parameters[key] = value;
+
+        var strategy = new RC_XMK();
+        strategy.Initialize(parameters);
+
+        Assert.Equal(new[] { "@GC" }, strategy.ReferenceSymbols);
+        Assert.Equal(timeframe, strategy.TimeframeMinutes);
+        Assert.Equal(mode, Read<int>(strategy, "Mode"));
+        Assert.Equal(spec.Channels[1], Read<int>(strategy, "LookbackBars"));
+        Assert.Equal(new[] { "@GC" }, spec.ReferenceSymbols);
+    }
+
+    /// <summary>
     /// La sweep vera: con la serie di ES il contenitore viene valutato e produce trade; senza, il run si
     /// ferma e dice quale simbolo manca.
     /// </summary>

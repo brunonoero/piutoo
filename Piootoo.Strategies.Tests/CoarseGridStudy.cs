@@ -90,7 +90,13 @@ public sealed record CoarseGridSpec(
     /// Parametri fissi in piu', per ogni combinazione: la variante del motore (il breakout della
     /// sessione in corso invece di N sessioni) e, per i contenitori generici, simbolo e timeframe.
     /// </summary>
-    IReadOnlyDictionary<string, object>? ExtraParameters = null);
+    IReadOnlyDictionary<string, object>? ExtraParameters = null,
+    /// <summary>
+    /// Altri simboli da caricare per le strategie tra mercati (XMK), dallo stesso feed e sullo stesso
+    /// periodo, sul timeframe della cella. Si leggono e basta: costi, trade e resoconto restano quelli
+    /// di <see cref="Symbol"/>. Null = cella su un simbolo solo, come tutte le altre.
+    /// </summary>
+    string[]? ReferenceSymbols = null);
 
 public static class CoarseGridStudy
 {
@@ -158,6 +164,19 @@ public static class CoarseGridStudy
         var outOfSample = series.Between(spec.SplitUtc, series.EndUtc);
         output.WriteLine($"feed {series.StartUtc:yyyy-MM-dd} → {series.EndUtc:yyyy-MM-dd}, split {spec.SplitUtc:yyyy-MM-dd}\n");
 
+        // Le serie degli altri mercati, per le strategie tra mercati: stesso feed, stesso periodo,
+        // tagliate allo stesso split. Il minuto non serve, perche' su quei simboli non si opera.
+        var referencesIn = new Dictionary<string, SweepSeries>(StringComparer.OrdinalIgnoreCase);
+        var referencesOut = new Dictionary<string, SweepSeries>(StringComparer.OrdinalIgnoreCase);
+        foreach (var reference in spec.ReferenceSymbols ?? [])
+        {
+            var loaded = await SweepSeries.LoadAsync(
+                dataFeed, reference, [spec.TimeframeMinutes], spec.StartUtc, spec.EndUtc, warmupDays: 30d, broker: spec.FeedBroker);
+            referencesIn[reference] = loaded.Between(loaded.StartUtc, spec.SplitUtc);
+            referencesOut[reference] = loaded.Between(spec.SplitUtc, loaded.EndUtc);
+            output.WriteLine($"riferimento {reference}: {loaded.Bars(spec.TimeframeMinutes).Length} barre da {spec.TimeframeMinutes}m");
+        }
+
         var template = new SweepJob(spec.StrategyId)
         {
             InitialCapital = 1_000_000m,
@@ -202,7 +221,7 @@ public static class CoarseGridStudy
         Parallel.ForEach(
             combos,
             new ParallelOptions { MaxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount - 1) },
-            () => (In: new SweepRunner(inSample), Out: new SweepRunner(outOfSample)),
+            () => (In: new SweepRunner(inSample, referencesIn), Out: new SweepRunner(outOfSample, referencesOut)),
             (combo, _, runners) =>
             {
                 var parameters = new Dictionary<string, object>(fixedParameters)

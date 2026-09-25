@@ -273,6 +273,16 @@
                               }
                   },
                   {
+                      "cella":  "xmk-nq-gc-griglie",
+                      "test":  "NqGcCrossMarketStudy",
+                      "broker":  "FTMO",
+                      "simboli":  [
+                                      "@NQ",
+                                      "@GC"
+                                  ],
+                      "da":  "2022-01-01"
+                  },
+                  {
                       "cella":  "matrice-fdax-240-pch",
                       "test":  "CoarseGridMatrixTests",
                       "broker":  "FTMO",

@@ -287,6 +287,11 @@ non valuta.
   simbolo nel backtest, storia per simbolo nella sessione, sottoscrizione ai simboli nel descriptor e
   nel cBot, con la versione minore del contratto — e si fa solo se una cella XMK risponde.
 - Test in `CrossMarketEngineTests`, compresa la sweep con un feed in memoria.
+- **Primo studio**: `NqGcCrossMarketStudy`, NQ operato guardando GC, i tre modi a 60 e 240 minuti,
+  leva `LookbackBars` 10/20/50 e la griglia di rischio della matrice FTMO. Usa la griglia grossa con
+  `CoarseGridSpec.ReferenceSymbols`, che carica le serie di riferimento dallo stesso feed e le passa ai
+  runner. CSV in `ricerca/matrice/nq-{tf}-xmk-gc-{modo}.csv`. In coda (`xmk-nq-gc-griglie`) dopo il
+  lotto PT6EXO.
 
 ## Dalle strategie ai piani
 
