@@ -36,6 +36,20 @@ public abstract class Pt5DavPatternGatedEngine : Pt5DavEngineBase
     protected bool LongAllowed => Direction != 2;
 
     protected bool ShortAllowed => Direction != 1;
+
+    protected override bool ApplyResearchParameter(string key, object value)
+    {
+        switch (key)
+        {
+            case "ptn_neut_yes": NeutralYes = ResearchInt(value); return true;
+            case "ptn_neut_no": NeutralNo = ResearchInt(value); return true;
+            case "ptn_dir_yes": DirectionalYes = ResearchInt(value); return true;
+            case "ptn_dir_no": DirectionalNo = ResearchInt(value); return true;
+            case "direction": Direction = ResearchInt(value); return true;
+            case "skip_day": return ApplyDayParameter(key, value);
+            default: return base.ApplyResearchParameter(key, value);
+        }
+    }
 }
 
 /// <summary>
@@ -51,6 +65,16 @@ public abstract class Pt5DavPriceChannelEngine : Pt5DavPatternGatedEngine
 
     /// <summary><c>breakout_offset_atr</c>: distanza del livello oltre il canale, in ATR50.</summary>
     protected decimal OffsetAtr;
+
+    protected override bool ApplyResearchParameter(string key, object value)
+    {
+        switch (key)
+        {
+            case "channel_len": ChannelBars = ResearchInt(value); return true;
+            case "breakout_offset_atr": OffsetAtr = ResearchDecimal(value); return true;
+            default: return base.ApplyResearchParameter(key, value);
+        }
+    }
 
     protected override TradeSignal Evaluate(OhlcvData[] data, OhlcvData bar, decimal[] ohlc)
     {
@@ -95,6 +119,19 @@ public abstract class Pt5DavSessionBreakoutEngine : Pt5DavPatternGatedEngine
     /// <summary><c>breakout_offset_atr</c>.</summary>
     protected decimal OffsetAtr;
 
+    protected override bool ApplyResearchParameter(string key, object value)
+    {
+        switch (key)
+        {
+            case "n_sess": Sessions = ResearchInt(value); return true;
+            case "lev_include_sess0": IncludeCurrentSession = ResearchInt(value) != 0; return true;
+            case "breakout_offset_atr": OffsetAtr = ResearchDecimal(value); return true;
+            // BO e' il breakout su sessioni chiuse: la sorgente del livello e' la sua identita'.
+            case "level_source": return ResearchInt(value) == 0;
+            default: return base.ApplyResearchParameter(key, value);
+        }
+    }
+
     protected override TradeSignal Evaluate(OhlcvData[] data, OhlcvData bar, decimal[] ohlc)
     {
         var barTime = bar.DateTime;
@@ -132,6 +169,20 @@ public abstract class Pt5DavCurrentSessionBreakoutEngine : Pt5DavPatternGatedEng
 {
     /// <summary><c>breakout_offset_atr</c>.</summary>
     protected decimal OffsetAtr;
+
+    protected override bool ApplyResearchParameter(string key, object value)
+    {
+        switch (key)
+        {
+            case "breakout_offset_atr": OffsetAtr = ResearchDecimal(value); return true;
+            // BO_S e' il breakout sulla sessione in corso: la sorgente del livello e' la sua identita',
+            // e il canale e' per costruzione quella sola sessione (la consegna scrive n_sess = 1).
+            case "level_source": return ResearchInt(value) == 1;
+            case "n_sess": return ResearchInt(value) == 1;
+            case "lev_include_sess0": return ResearchInt(value) == 0;
+            default: return base.ApplyResearchParameter(key, value);
+        }
+    }
 
     protected override TradeSignal Evaluate(OhlcvData[] data, OhlcvData bar, decimal[] ohlc)
     {
@@ -178,6 +229,19 @@ public abstract class Pt5DavVolatilityBreakoutEngine : Pt5DavPatternGatedEngine
 
     /// <summary><c>momentum</c>: 0 = spento, 1 = C_d1 contro C_d2, 2 = O_d0 contro C_d1.</summary>
     protected int Momentum;
+
+    protected override bool ApplyResearchParameter(string key, object value)
+    {
+        switch (key)
+        {
+            case "vol_source": VolatilitySource = ResearchInt(value); return true;
+            case "atr_len": AtrLength = ResearchInt(value); return true;
+            case "vol_mult": MultiplierLong = ResearchDecimal(value); return true;
+            case "vol_mult_short": MultiplierShort = ResearchDecimal(value); return true;
+            case "momentum": Momentum = ResearchInt(value); return true;
+            default: return base.ApplyResearchParameter(key, value);
+        }
+    }
 
     protected override TradeSignal Evaluate(OhlcvData[] data, OhlcvData bar, decimal[] ohlc)
     {

@@ -36,6 +36,23 @@ public abstract class Pt5DavLevelFaderEngineBase : Pt5DavEngineBase
     /// <summary>Livello long e short della sessione in corso, da d1.</summary>
     protected abstract (decimal Long, decimal Short) Levels(decimal[] ohlc, decimal shift);
 
+    protected override bool ApplyResearchParameter(string key, object value)
+    {
+        switch (key)
+        {
+            case "level_shift_atr": LevelShiftAtr = ResearchDecimal(value); return true;
+            case "ptn_neut_yes": NeutralYes = ResearchInt(value); return true;
+            case "ptn_neut_no": NeutralNo = ResearchInt(value); return true;
+            case "ptn_dir_yes": DirectionalYes = ResearchInt(value); return true;
+            case "ptn_ly_yes": BaseYesLong = ResearchInt(value); return true;
+            case "ptn_ly_no": BaseNoLong = ResearchInt(value); return true;
+            case "ptn_sy_yes": BaseYesShort = ResearchInt(value); return true;
+            case "ptn_sy_no": BaseNoShort = ResearchInt(value); return true;
+            case "not_le_day" or "not_se_day": return ApplyDayParameter(key, value);
+            default: return base.ApplyResearchParameter(key, value);
+        }
+    }
+
     protected override TradeSignal Evaluate(OhlcvData[] data, OhlcvData bar, decimal[] ohlc)
     {
         var barTime = bar.DateTime;
@@ -79,6 +96,9 @@ public abstract class Pt5DavLevelFaderEngineBase : Pt5DavEngineBase
 /// </summary>
 public abstract class Pt5DavPivotFaderEngine : Pt5DavLevelFaderEngineBase
 {
+    protected override bool ApplyResearchParameter(string key, object value) =>
+        key == "level_choice" ? ResearchInt(value) == 1 : base.ApplyResearchParameter(key, value);
+
     protected override (decimal Long, decimal Short) Levels(decimal[] ohlc, decimal shift)
     {
         var (high, low, close) = (ohlc[5], ohlc[6], ohlc[7]);
@@ -90,6 +110,9 @@ public abstract class Pt5DavPivotFaderEngine : Pt5DavLevelFaderEngineBase
 /// <summary>LF_HL (<c>level_choice = 2</c>): estremi della sessione precedente. Long su <c>L_d1 − shift</c>, short su <c>H_d1 + shift</c>.</summary>
 public abstract class Pt5DavHighLowFaderEngine : Pt5DavLevelFaderEngineBase
 {
+    protected override bool ApplyResearchParameter(string key, object value) =>
+        key == "level_choice" ? ResearchInt(value) == 2 : base.ApplyResearchParameter(key, value);
+
     protected override (decimal Long, decimal Short) Levels(decimal[] ohlc, decimal shift) =>
         (ohlc[6] - shift, ohlc[5] + shift);
 }
@@ -116,6 +139,22 @@ public abstract class Pt5DavRhlEngine : Pt5DavEngineBase
     protected int NeutralNo = 56;
     protected int DirectionalYes = 52;
     protected int DirectionalNo = 53;
+
+    protected override bool ApplyResearchParameter(string key, object value)
+    {
+        switch (key)
+        {
+            case "long_offset_atr": LongOffsetAtr = ResearchDecimal(value); return true;
+            case "short_offset_atr": ShortOffsetAtr = ResearchDecimal(value); return true;
+            case "direction": Direction = ResearchInt(value); return true;
+            case "ptn_neut_yes": NeutralYes = ResearchInt(value); return true;
+            case "ptn_neut_no": NeutralNo = ResearchInt(value); return true;
+            case "ptn_dir_yes": DirectionalYes = ResearchInt(value); return true;
+            case "ptn_dir_no": DirectionalNo = ResearchInt(value); return true;
+            case "skip_day": return ApplyDayParameter(key, value);
+            default: return base.ApplyResearchParameter(key, value);
+        }
+    }
 
     protected override TradeSignal Evaluate(OhlcvData[] data, OhlcvData bar, decimal[] ohlc)
     {
@@ -192,6 +231,17 @@ public abstract class Pt5DavBollingerEngineBase : Pt5DavEngineBase
 
     protected virtual bool PassesCommonGates(decimal[] ohlc) => true;
 
+    protected override bool ApplyResearchParameter(string key, object value)
+    {
+        switch (key)
+        {
+            case "bb_length": BollingerLength = ResearchInt(value); return true;
+            case "bb_num_devs": BollingerNumDevs = ResearchDecimal(value); return true;
+            case "skip_day": return ApplyDayParameter(key, value);
+            default: return base.ApplyResearchParameter(key, value);
+        }
+    }
+
     protected abstract bool PassesLongGates(decimal[] ohlc);
 
     protected abstract bool PassesShortGates(decimal[] ohlc);
@@ -232,6 +282,18 @@ public abstract class Pt5DavBollingerMirroredEngine : Pt5DavBollingerEngineBase
     protected override bool PassesCommonGates(decimal[] ohlc) =>
         EasyLib.PatternNeutralFast(NeutralYes, ohlc) && !EasyLib.PatternNeutralFast(NeutralNo, ohlc);
 
+    protected override bool ApplyResearchParameter(string key, object value)
+    {
+        switch (key)
+        {
+            case "ptn_neut_yes": NeutralYes = ResearchInt(value); return true;
+            case "ptn_neut_no": NeutralNo = ResearchInt(value); return true;
+            case "ptn_dir_yes": DirectionalYes = ResearchInt(value); return true;
+            case "ptn_dir_no": DirectionalNo = ResearchInt(value); return true;
+            default: return base.ApplyResearchParameter(key, value);
+        }
+    }
+
     protected override bool PassesLongGates(decimal[] ohlc) =>
         EasyLib.PatternDirectionalFast(-DirectionalYes, ohlc) &&
         !EasyLib.PatternDirectionalFast(-DirectionalNo, ohlc);
@@ -248,6 +310,18 @@ public abstract class Pt5DavBollingerUnmirroredEngine : Pt5DavBollingerEngineBas
     protected int FastNoLong = 153;
     protected int FastYesShort = 152;
     protected int FastNoShort = 153;
+
+    protected override bool ApplyResearchParameter(string key, object value)
+    {
+        switch (key)
+        {
+            case "ptn_ly_yes": FastYesLong = ResearchInt(value); return true;
+            case "ptn_ly_no": FastNoLong = ResearchInt(value); return true;
+            case "ptn_sy_yes": FastYesShort = ResearchInt(value); return true;
+            case "ptn_sy_no": FastNoShort = ResearchInt(value); return true;
+            default: return base.ApplyResearchParameter(key, value);
+        }
+    }
 
     protected override bool PassesLongGates(decimal[] ohlc) =>
         EasyLib.PatternFast(FastYesLong, ohlc) && !EasyLib.PatternFast(FastNoLong, ohlc);

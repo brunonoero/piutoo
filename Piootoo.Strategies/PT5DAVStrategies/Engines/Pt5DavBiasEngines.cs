@@ -59,6 +59,30 @@ public abstract class Pt5DavBiasEngineBase : Pt5DavEngineBase
     /// <summary>Il tipo d'ingresso della variante (<c>entry_type</c>).</summary>
     protected abstract BiasEntryType EntryType { get; }
 
+    protected override bool ApplyResearchParameter(string key, object value)
+    {
+        switch (key)
+        {
+            case "le_bar": ArmBarLong = ResearchInt(value); return true;
+            case "lx_bar": ExitBarLong = ResearchInt(value); return true;
+            case "end_long": EndLong = ResearchInt(value); return true;
+            case "se_bar": ArmBarShort = ResearchInt(value); return true;
+            case "sx_bar": ExitBarShort = ResearchInt(value); return true;
+            case "end_short": EndShort = ResearchInt(value); return true;
+            case "nhigh": BreakoutBarsHigh = ResearchInt(value); return true;
+            case "nlow": BreakoutBarsLow = ResearchInt(value); return true;
+            case "ptn_ly_yes": PatternLongYes = ResearchInt(value); return true;
+            case "ptn_ly_no": PatternLongNo = ResearchInt(value); return true;
+            case "ptn_sy_yes": PatternShortYes = ResearchInt(value); return true;
+            case "ptn_sy_no": PatternShortNo = ResearchInt(value); return true;
+            case "not_le_day" or "not_se_day": return ApplyDayParameter(key, value);
+            // Il tipo d'ingresso e' l'identita' della variante: mercato, breakout o ritracciamento.
+            case "entry_type": return ResearchInt(value) == (int)EntryType;
+            // Il motore non ha finestra oraria ne' tenuta variabile: la consegna le lascia vuote.
+            case "start_hour" or "end_hour" or "intraday_only" or "max_bars": return false;            default: return base.ApplyResearchParameter(key, value);
+        }
+    }
+
     // Persistiti fra le barre come RuntimeState.
     private bool _armedLong;
     private bool _armedShort;

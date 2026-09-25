@@ -97,6 +97,28 @@ Scarti noti: a parita' di ingressi stop e target scattano a volte in un minuto d
 del minuto fra i due feed; su NQ-15M-BOS in FTMO +878 punti Python contro −67 nostri); e le strategie
 che tengono a lungo senza filtri si separano a catena da una sola uscita diversa (GC-4H-BO_S 45%).
 
+## Rifare la ricerca con la sweep
+
+La consegna ha ottimizzato su tutta la storia 2012-2025: l'unico periodo fuori campione rimasto e'
+l'anno broker, gia' usato per scegliere. Per ottimizzare su una parte della storia e verificare sul
+resto i motori PT5DAV sono entrati nella sweep (25/09/2026).
+
+- **Contenitori `RC5_*`** (`PT5DAVStrategies/ResearchContainers/`), uno per motore: simbolo e
+  timeframe dai parametri, le leve con il **nome della colonna** di `strategie_224.csv`
+  (`Pt5DavEngineBase.ApplyResearchParameter`). Una colonna che il motore non legge ferma la
+  configurazione, salvo al suo valore spento. `Pt5DavResearchContainerTests` impone che la riga della
+  consegna dia al contenitore la stessa configurazione della classe generata, campo per campo, per
+  tutte le 218.
+- **Spazi `P5-*`** (`Pt5DavSweepSpaces`): `piootoo-sweep --engine P5-BOS --strategy RC5_BOS ...`. Le
+  fasi sono i giri delle schede (trigger, finestra, stop, tenuta, pattern, lati, calendario, target,
+  stop finale). **Le griglie sono ricostruite** dai valori delle 224, non quelle del codice della
+  ricerca, che non e' nella consegna: e' una deviazione dichiarata, e il lancio la stampa. Le librerie
+  fast e base non si cercano: nessuna delle 224 le accende, servono solo a spegnere un lato.
+- **Tempi**: una configurazione su NQ 15m, 2008-2025 al minuto, si misura in circa 4 minuti; uno
+  spazio completo sono circa mille combinazioni per fase su 8 core.
+- **Primo riscontro**: `NQ-15M-BOS` con i parametri della consegna, feed interno, perde 22.587 nel
+  2008-2016 (1.595 trade) e guadagna 208.460 nel 2017-2025 (1.410 trade).
+
 ## Le classi
 
 | classe | codice della ricerca | motore | tenuta | trade storia | trade broker |

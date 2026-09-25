@@ -33,6 +33,9 @@ public abstract class Pt5DavTfEngineBase : Pt5DavEngineBase
     protected abstract bool PassesLongGates(decimal[] ohlc);
 
     protected abstract bool PassesShortGates(decimal[] ohlc);
+
+    protected override bool ApplyResearchParameter(string key, object value) =>
+        key == "skip_day" ? ApplyDayParameter(key, value) : base.ApplyResearchParameter(key, value);
 }
 
 /// <summary>TF_M: neutri comuni, direzionali speculari (+n long, −n short).</summary>
@@ -63,6 +66,18 @@ public abstract class Pt5DavTfMirroredEngine : Pt5DavTfEngineBase
     private bool PassesNeutralGates(decimal[] ohlc) =>
         EasyLib.PatternNeutralFast(NeutralYes, ohlc) &&
         !EasyLib.PatternNeutralFast(NeutralNo, ohlc);
+
+    protected override bool ApplyResearchParameter(string key, object value)
+    {
+        switch (key)
+        {
+            case "ptn_neut_yes": NeutralYes = ResearchInt(value); return true;
+            case "ptn_neut_no": NeutralNo = ResearchInt(value); return true;
+            case "ptn_dir_yes": DirectionalYes = ResearchInt(value); return true;
+            case "ptn_dir_no": DirectionalNo = ResearchInt(value); return true;
+            default: return base.ApplyResearchParameter(key, value);
+        }
+    }
 }
 
 /// <summary>TF_U: quattro gate <c>PatternFast</c> indipendenti per lato (152 = sempre vero, 153 = sempre falso).</summary>
@@ -85,4 +100,16 @@ public abstract class Pt5DavTfUnmirroredEngine : Pt5DavTfEngineBase
 
     protected override bool PassesShortGates(decimal[] ohlc) =>
         EasyLib.PatternFast(FastYesShort, ohlc) && !EasyLib.PatternFast(FastNoShort, ohlc);
+
+    protected override bool ApplyResearchParameter(string key, object value)
+    {
+        switch (key)
+        {
+            case "ptn_ly_yes": FastYesLong = ResearchInt(value); return true;
+            case "ptn_ly_no": FastNoLong = ResearchInt(value); return true;
+            case "ptn_sy_yes": FastYesShort = ResearchInt(value); return true;
+            case "ptn_sy_no": FastNoShort = ResearchInt(value); return true;
+            default: return base.ApplyResearchParameter(key, value);
+        }
+    }
 }

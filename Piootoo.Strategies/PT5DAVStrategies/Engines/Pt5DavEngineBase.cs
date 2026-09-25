@@ -82,11 +82,16 @@ public abstract class Pt5DavEngineBase : EasyEngineBase
     private Pt5DavSessionState _pt5;
     private SessionClock? _newYork;
 
-    protected Pt5DavEngineBase()
+    protected Pt5DavEngineBase() => ApplyResearchMarketAnchor();
+
+    /// <summary>
+    /// La fascia del DAX della ricerca v5.0 sposta anche l'inizio della sessione: d0, d1, i pattern e
+    /// l'ATR sono calcolati sulla giornata 08:00-22:00, non su quella del calendario (01:00), con cui
+    /// sono state trovate le PT3B su FDAX. Le classi la ricevono dal costruttore; i contenitori di
+    /// ricerca, il cui simbolo arriva dai parametri, la richiamano dopo averlo impostato.
+    /// </summary>
+    protected void ApplyResearchMarketAnchor()
     {
-        // La fascia del DAX della ricerca v5.0 sposta anche l'inizio della sessione: d0, d1, i
-        // pattern e l'ATR sono calcolati sulla giornata 08:00-22:00, non su quella del calendario
-        // (01:00), con cui sono state trovate le PT3B su FDAX.
         if (Pt5DavMarket.ResearchMarketHours(Symbol) is { } hours)
         {
             OverrideSessionAnchor(
@@ -108,10 +113,141 @@ public abstract class Pt5DavEngineBase : EasyEngineBase
 
     /// <summary>
     /// Le PT5DAV non leggono parametri a runtime: sono configurazioni della ricerca, riportate
-    /// verbatim nel costruttore. Il metodo esiste perche' il catalogo lo cerca per riflessione.
+    /// verbatim nel costruttore. Il metodo esiste perche' il catalogo lo cerca per riflessione; lo
+    /// ridefiniscono solo i contenitori di ricerca (<c>RC5_*</c>), che le leve le ricevono da qui.
     /// </summary>
-    public void Initialize(Dictionary<string, object>? parameters = null)
+    public virtual void Initialize(Dictionary<string, object>? parameters = null)
     {
+    }
+
+    // ------------------------------------------------------------------ leve per nome (contenitori)
+
+    private int _researchStartHour = -1;
+    private int _researchEndHour = -1;
+
+    /// <summary>
+    /// L'<c>Initialize</c> dei contenitori di ricerca (<c>RC5_*</c>): simbolo e timeframe dai
+    /// parametri, poi ogni leva con il <b>nome della colonna</b> di <c>strategie_224.csv</c>
+    /// (<c>stop_atr</c>, <c>ptn_neut_yes</c>, <c>channel_len</c>...). Una riga della consegna si
+    /// riesegue cosi' com'e', e le griglie della sweep parlano la lingua delle schede.
+    ///
+    /// <para>Una colonna che il motore non ha <b>ferma</b> la configurazione: variarla non
+    /// cambierebbe niente, e una griglia che gira tre volte la stessa strategia non se ne accorge.</para>
+    /// </summary>
+    protected void InitializeResearchContainer(
+        Piootoo.Strategies.ResearchContainers.ResearchContainerIdentity identity, IDictionary<string, object>? parameters)
+    {
+        if (parameters is null)
+            return;
+
+        if (parameters.TryGetValue("Symbol", out var symbol) && symbol is string text && !string.IsNullOrWhiteSpace(text))
+            identity.Symbol = "@" + text.Trim().TrimStart('@').ToUpperInvariant();
+        if (parameters.TryGetValue("TimeframeMinutes", out var timeframe) && ResearchInt(timeframe) > 0)
+            identity.TimeframeMinutes = ResearchInt(timeframe);
+
+        // Il DAX della ricerca v5.0 ha la sessione dalle 08:00: il simbolo e' arrivato solo ora.
+        ApplyResearchMarketAnchor();
+
+        foreach (var (key, value) in parameters)
+        {
+            if (key is "Symbol" or "TimeframeMinutes")
+                continue;
+
+            if (!ApplyResearchParameter(key, value) && !IsOffValue(key, value))
+            {
+                throw new ArgumentException(
+                    $"{GetType().Name} non ha la leva '{key}' = {value}: la griglia la varierebbe senza effetto.");
+            }
+        }
+    }
+
+    /// <summary>
+    /// Le colonne comuni al loro valore spento: un motore che non le ha le ignora, perche' spente non
+    /// cambierebbero niente. Senza, una riga della consegna non si potrebbe rieseguire intera.
+    /// </summary>
+    private static bool IsOffValue(string key, object value)
+    {
+        var number = ResearchDecimal(value);
+        return key switch
+        {
+            "start_hour" or "end_hour" or "skip_day" or "not_le_day" or "not_se_day" => number == -1m,
+            "max_bars" or "stop_atr" or "take_profit_atr" => number == 0m,
+            "ptn_neut_yes" => number == 55m,
+            "ptn_neut_no" => number == 56m,
+            "ptn_dir_yes" => number == 52m,
+            "ptn_dir_no" => number == 53m,
+            "ptn_ly_yes" or "ptn_sy_yes" => number == 152m,
+            "ptn_ly_no" or "ptn_sy_no" => number == 153m,
+            _ => false
+        };
+    }
+
+    /// <summary>
+    /// Imposta una leva dal nome della sua colonna nella consegna. <c>false</c> = il motore non la
+    /// ha. Le colonne comuni stanno qui; ogni motore aggiunge le proprie e rimanda alla base il resto.
+    /// Le conversioni sono quelle del generatore delle classi (<c>tools/pt5dav/gen_pt5dav.py</c>).
+    /// </summary>
+    protected virtual bool ApplyResearchParameter(string key, object value)
+    {
+        switch (key)
+        {
+            case "start_hour":
+                _researchStartHour = ResearchInt(value);
+                TradingWindow = ResearchWindow(_researchStartHour, _researchEndHour);
+                return true;
+            case "end_hour":
+                _researchEndHour = ResearchInt(value);
+                TradingWindow = ResearchWindow(_researchStartHour, _researchEndHour);
+                return true;
+            case "stop_atr":
+                StopAtr = ResearchDecimal(value);
+                return true;
+            case "take_profit_atr":
+                TargetAtr = ResearchDecimal(value);
+                return true;
+            case "intraday_only":
+                IntradayOnly = ResearchInt(value) != 0;
+                return true;
+            case "max_bars":
+                MaxBars = ResearchInt(value);
+                return true;
+            // Colonne che la consegna porta su tutte le righe ma che nessuna strategia accende: a zero
+            // non cambiano niente, accese sarebbero un motore diverso.
+            case "trailing_stop" or "breakeven" or "dvol_min":
+                return ResearchDecimal(value) == 0m;
+            default:
+                return false;
+        }
+    }
+
+    /// <summary>Un intero della consegna: il CSV scrive gli interi anche come <c>5.0</c>.</summary>
+    protected static int ResearchInt(object value) =>
+        (int)Convert.ToDecimal(value, System.Globalization.CultureInfo.InvariantCulture);
+
+    /// <summary>Un decimale della consegna, letto senza cultura.</summary>
+    protected static decimal ResearchDecimal(object value) =>
+        Convert.ToDecimal(value, System.Globalization.CultureInfo.InvariantCulture);
+
+    /// <summary>
+    /// <c>skip_day</c>, <c>not_le_day</c> e <c>not_se_day</c> li leggono solo alcuni motori: chi non li
+    /// ha non li dichiara, e la colonna ferma la configurazione come ogni altra leva inerte.
+    /// </summary>
+    protected bool ApplyDayParameter(string key, object value)
+    {
+        switch (key)
+        {
+            case "skip_day":
+                SkipDay = ResearchInt(value);
+                return true;
+            case "not_le_day":
+                NotEntryDayLong = ResearchInt(value);
+                return true;
+            case "not_se_day":
+                NotEntryDayShort = ResearchInt(value);
+                return true;
+            default:
+                return false;
+        }
     }
 
     // ------------------------------------------------------------------ valutazione

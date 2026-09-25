@@ -60,6 +60,29 @@ public abstract class Pt5DavBiasWeeklyEngine : Pt5DavEngineBase
         IntradayOnly = false;
     }
 
+    protected override bool ApplyResearchParameter(string key, object value)
+    {
+        switch (key)
+        {
+            case "le_day": EntryDayLong = ResearchInt(value); return true;
+            case "le_time": EntryTimeLong = TimeFromLegacyHhmm(ResearchInt(value)); return true;
+            case "lx_day": ExitDayLong = ResearchInt(value); return true;
+            case "lx_time": ExitTimeLong = TimeFromLegacyHhmm(ResearchInt(value)); return true;
+            case "se_day": EntryDayShort = ResearchInt(value); return true;
+            case "se_time": EntryTimeShort = TimeFromLegacyHhmm(ResearchInt(value)); return true;
+            case "sx_day": ExitDayShort = ResearchInt(value); return true;
+            case "sx_time": ExitTimeShort = TimeFromLegacyHhmm(ResearchInt(value)); return true;
+            case "ptn_ly_yes": PatternLongYes = ResearchInt(value); return true;
+            case "ptn_ly_no": PatternLongNo = ResearchInt(value); return true;
+            case "ptn_sy_yes": PatternShortYes = ResearchInt(value); return true;
+            case "ptn_sy_no": PatternShortNo = ResearchInt(value); return true;
+            // La settimana della ricerca parte sempre dall'inizio della barra (entrata_inizio = 1).
+            case "entrata_inizio": return ResearchInt(value) == 1;
+            // Il motore non ha finestra oraria ne' tenuta variabile: la consegna le lascia vuote.
+            case "start_hour" or "end_hour" or "intraday_only" or "max_bars": return false;            default: return base.ApplyResearchParameter(key, value);
+        }
+    }
+
     protected override TradeSignal Evaluate(OhlcvData[] data, OhlcvData bar, decimal[] ohlc)
     {
         var barTime = bar.DateTime;

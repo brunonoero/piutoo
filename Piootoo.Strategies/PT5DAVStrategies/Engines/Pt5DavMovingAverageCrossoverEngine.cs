@@ -40,6 +40,21 @@ public abstract class Pt5DavMovingAverageCrossoverEngine : Pt5DavEngineBase
         IntradayOnly = false;
     }
 
+    protected override bool ApplyResearchParameter(string key, object value)
+    {
+        switch (key)
+        {
+            case "fast": FastPeriod = ResearchInt(value); return true;
+            case "slow": SlowPeriod = ResearchInt(value); return true;
+            case "gradient_length": GradientPeriod = ResearchInt(value); return true;
+            case "gradient_factor": GradientFactor = ResearchDecimal(value); return true;
+            case "daily_factor": DailyFactor = ResearchDecimal(value); return true;
+            case "direction": Direction = ResearchInt(value); return true;
+            // Il motore non ha finestra oraria ne' tenuta variabile: la consegna le lascia vuote.
+            case "start_hour" or "end_hour" or "intraday_only" or "max_bars": return false;            default: return base.ApplyResearchParameter(key, value);
+        }
+    }
+
     protected override TradeSignal Evaluate(OhlcvData[] data, OhlcvData bar, decimal[] ohlc)
     {
         var barTime = bar.DateTime;

@@ -165,13 +165,27 @@ public static class Program
                 $"{dropped.OutsideWindow:N0} fuori finestra)");
         }
 
+        // I motori PT5DAV (P5-*) cercano sui contenitori RC5_*, con le colonne della consegna come
+        // chiavi e griglie RICOSTRUITE: vedi Pt5DavSweepSpaces.
+        if (Pt5DavSweepSpaces.IsPt5Dav(options.Engine) &&
+            !string.Equals(Pt5DavSweepSpaces.Containers[options.Engine], options.Strategy, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ArgumentException(
+                $"--engine {options.Engine} cerca sul contenitore {Pt5DavSweepSpaces.Containers[options.Engine]}, " +
+                $"non su {options.Strategy}.");
+        }
+
         var space = options.Engine switch
         {
             "PC" => SweepSpaces.PriceChannel(options.Timeframe),
             "TFU" => SweepSpaces.TrendFollowingUnmirrored(options.Timeframe),
             "BIASW" => SweepSpaces.BiasWeekly(),
+            _ when Pt5DavSweepSpaces.IsPt5Dav(options.Engine) => Pt5DavSweepSpaces.For(options.Engine, options.Timeframe),
             _ => throw new ArgumentException($"motore sconosciuto: {options.Engine}")
         };
+        if (Pt5DavSweepSpaces.IsPt5Dav(options.Engine))
+            Console.WriteLine("[sweep] motore PT5DAV: griglie RICOSTRUITE dai valori della consegna, non quelle " +
+                              "del codice della ricerca v5.0 (deviazione dichiarata, vedi Pt5DavSweepSpaces).");
 
         // Una regione gia' scelta da una misura piu' grossa: i parametri fissati non si cercano.
         if (options.FixedParameters is not null)
@@ -477,7 +491,8 @@ public static class Program
     {
         public const string Usage = """
             piootoo-sweep --strategy <Id> --symbol <@SYM> --timeframe <minuti> --split <yyyy-MM-dd>
-                          [--engine PC|TFU|BIASW] [--broker <BROKER>] [--spread-broker <BROKER>]
+                          [--engine PC|TFU|BIASW|P5-<SIGLA>] [--broker <BROKER>] [--spread-broker <BROKER>]
+                          (P5-TFM, P5-PCH, P5-RHL... cercano sul contenitore RC5_<SIGLA>)
                           [--from <yyyy-MM-dd>] [--to <yyyy-MM-dd>] [--beam N] [--top N]
                           [--min-trades N] [--commission N] [--max-combinations N] [--out <file.md>]
                           [--split-pattern-phases] [--clock <minuti, default 1>]
@@ -609,10 +624,15 @@ public static class Program
                 var parts = entry.Split('=', 2, StringSplitOptions.TrimEntries);
                 if (parts.Length != 2)
                     throw new ArgumentException($"parametro malformato: '{entry}' (serve Chiave=valore)");
-                if (!int.TryParse(parts[1], out var value))
-                    throw new ArgumentException($"il valore di {parts[0]} non e' un intero: '{parts[1]}'");
-
-                parameters[parts[0]] = value;
+                // Interi, e decimali solo con il punto: le leve in ATR dei motori PT5DAV (stop_atr 0.4)
+                // non sono intere, e un valore non numerico resta un errore di battitura.
+                if (int.TryParse(parts[1], out var value))
+                    parameters[parts[0]] = value;
+                else if (decimal.TryParse(parts[1], System.Globalization.NumberStyles.Float,
+                             System.Globalization.CultureInfo.InvariantCulture, out var decimalValue))
+                    parameters[parts[0]] = decimalValue;
+                else
+                    throw new ArgumentException($"il valore di {parts[0]} non e' un numero: '{parts[1]}'");
             }
 
             return parameters;
