@@ -2631,7 +2631,11 @@ public sealed class TradingSessionService : ITradingSessionService
                 .OrderBy(i => i.CreatedAtUtc)
                 .ToList();
 
-            var pendingClose = pendingForAccount.FirstOrDefault(i => i.Kind == OrderIntentKind.Close);
+            //    Ma solo se la posizione che chiudono esiste ancora: una chiusura rimasta orfana — la
+            //    posizione e' uscita per un'altra via, target o stop del broker — tornerebbe a ogni
+            //    poll, e dietro di lei nessun ingresso verrebbe piu' consegnato.
+            var pendingClose = pendingForAccount.FirstOrDefault(i =>
+                i.Kind == OrderIntentKind.Close && !CancelIfOrphanClose(session, i, accountNumber));
             if (pendingClose != null)
                 return new AccountSignalResponse { Intent = pendingClose };
 
@@ -3210,6 +3214,36 @@ public sealed class TradingSessionService : ITradingSessionService
                 signal.Date));
         }
         return closes;
+    }
+
+    /// <summary>
+    /// Annulla una chiusura assegnata al conto che non ha piu' una posizione da chiudere, e dice se
+    /// lo ha fatto.
+    ///
+    /// <para><b>Perche' esiste.</b> Una chiusura chiesta dalla strategia (ExitOnly) nasce su una
+    /// posizione aperta, ma la posizione puo' chiudersi prima per un'altra via — target o stop del
+    /// broker, riportati con una chiusura esterna. La chiusura della strategia restava allora
+    /// <c>Pending</c> per sempre; il claim la riproponeva per prima a ogni poll, il cBot la teneva gia'
+    /// in gestione e aspettava un esito che non sarebbe arrivato, e nessun ingresso veniva piu'
+    /// consegnato. Backtest cTrader di PT5DAV-S-INDICI, 25/09/2026: la MAC su ES chiede l'uscita il
+    /// 12/09/2025, la posizione esce sul target, e le 17 strategie non aprono piu' niente per il resto
+    /// del run. Vedi <c>OrphanCloseIntentTests</c>.</para>
+    /// </summary>
+    private static bool CancelIfOrphanClose(Session session, OrderIntent close, string accountNumber)
+    {
+        var stillOpen = session.ExternalPositions.Values.Any(position =>
+            string.Equals(position.StrategyCode, close.StrategyCode, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(position.Symbol, close.Symbol, StringComparison.OrdinalIgnoreCase) &&
+            (string.IsNullOrWhiteSpace(position.AccountNumber) ||
+             string.Equals(position.AccountNumber, accountNumber, StringComparison.OrdinalIgnoreCase)));
+        if (stillOpen)
+            return false;
+
+        close.Status = OrderIntentStatus.Cancelled;
+        RecordActivity(session, SessionActivityKind.IntentScaduto,
+            "chiusura annullata: la posizione non c'e' piu' (uscita per un'altra via, target o stop del broker)",
+            accountNumber, strategyCode: close.StrategyCode, symbol: close.Symbol, intentId: close.IntentId);
+        return true;
     }
 
     private static bool HasPendingCloseIntent(
