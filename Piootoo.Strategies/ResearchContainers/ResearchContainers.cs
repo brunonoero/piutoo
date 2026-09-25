@@ -1,3 +1,5 @@
+using Piootoo.Shared.Enums;
+using Piootoo.Shared.Models;
 using Piootoo.Strategies.Easy.Engines;
 
 namespace Piootoo.Strategies.ResearchContainers;
@@ -246,6 +248,87 @@ public sealed class RC_LFD : LevelFaderEngine
         ResearchContainerSettings.Prepare(this);
         LevelChoice = LevelFaderLevel.PreviousSessionPivot;
         LevelShift = 0m;
+    }
+
+    /// <summary>
+    /// Filtro di regime di volatilita': sessioni chiuse su cui si misura il true range medio di lungo
+    /// periodo. 0 = spento. Nato il 25/09/2026 da un'ipotesi scritta prima della misura: su FDAX 4h il
+    /// level fader sugli estremi di ieri guadagna negli anni agitati (2016, 2020-2022) e perde in quelli
+    /// calmi, quindi si opera solo quando la volatilita' recente e' sopra quella di lungo periodo.
+    /// Blocca i soli ingressi: le uscite passano sempre.
+    ///
+    /// <para>Campi <b>non pubblici</b>, come ogni leva di un motore: la valutazione gira su un clone che
+    /// copia i soli campi non pubblici (<c>StatelessEasyStrategyBase.GetInstanceFields</c>). Dichiarato
+    /// pubblico, il filtro restava spento nel clone e la prima misura ha solo allungato il riscaldamento.</para>
+    /// </summary>
+    protected int VolatilityRegimeSessions;
+
+    /// <summary>ATR a 14 sessioni chiuse diviso true range medio delle ultime <see cref="VolatilityRegimeSessions"/>: si entra da qui in su.</summary>
+    protected decimal VolatilityRegimeRatio = 1m;
+
+    public override int RequiredCandles =>
+        VolatilityRegimeSessions > 0 ? Math.Max(base.RequiredCandles, SessionsToCandles(VolatilityRegimeSessions + 2)) : base.RequiredCandles;
+
+    public new TradeSignal GenerateSignal(OhlcvData[] data, DateTime currentDate)
+    {
+        var signal = base.GenerateSignal(data, currentDate);
+        if (VolatilityRegimeSessions <= 0 || signal.Type == SignalType.Hold || data.Length == 0 || HighVolatility(data))
+            return signal;
+
+        // Regime calmo: restano le sole uscite.
+        var legs = new List<TradeSignal> { signal };
+        if (signal.CompanionSignals is { } companions) legs.AddRange(companions);
+        var exits = legs.Where(leg => leg.ExitOnly).ToList();
+        foreach (var leg in exits) leg.CompanionSignals = null;
+        return Combine(exits, Hold(data[^1].Close, data[^1].DateTime, "Regime di volatilita' calmo"));
+    }
+
+    private bool HighVolatility(OhlcvData[] data)
+    {
+        var barTime = data[^1].DateTime;
+        var current = ClosedSessionAtrPoints(data, barTime);
+        if (current is null)
+            return false;
+
+        // True range delle sessioni chiuse, con la stessa griglia dell'ATR.
+        var currentSession = ResolveEntrySessionStartUtc(barTime);
+        var ranges = new List<decimal>();
+        DateTime? key = null;
+        decimal high = 0m, low = 0m, close = 0m, previousClose = 0m;
+        var hasPrevious = false;
+        foreach (var candidate in data)
+        {
+            var candidateKey = ResolveEntrySessionStartUtc(candidate.DateTime);
+            if (candidateKey >= currentSession) break;
+            if (key != candidateKey)
+            {
+                if (key.HasValue)
+                {
+                    if (hasPrevious) ranges.Add(Math.Max(high - low, Math.Max(Math.Abs(high - previousClose), Math.Abs(low - previousClose))));
+                    previousClose = close;
+                    hasPrevious = true;
+                }
+
+                key = candidateKey;
+                high = candidate.High;
+                low = candidate.Low;
+            }
+            else
+            {
+                high = Math.Max(high, candidate.High);
+                low = Math.Min(low, candidate.Low);
+            }
+
+            close = candidate.Close;
+        }
+
+        if (key.HasValue && hasPrevious)
+            ranges.Add(Math.Max(high - low, Math.Max(Math.Abs(high - previousClose), Math.Abs(low - previousClose))));
+        if (ranges.Count < VolatilityRegimeSessions)
+            return false;
+
+        var longTerm = ranges.Skip(ranges.Count - VolatilityRegimeSessions).Average();
+        return longTerm > 0m && current.Value / longTerm >= VolatilityRegimeRatio;
     }
 
     public void Initialize(Dictionary<string, object>? parameters = null) =>
