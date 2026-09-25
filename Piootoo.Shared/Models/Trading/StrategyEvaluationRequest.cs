@@ -26,6 +26,15 @@ public sealed class StrategyEvaluationRequest
     /// </summary>
     public IReadOnlyDictionary<int, OhlcvData[]> AdditionalOhlcv { get; init; }
         = new Dictionary<int, OhlcvData[]>();
+
+    /// <summary>
+    /// Serie di altri simboli, per le strategie tra mercati (<c>IMultiSymbolTradingStrategy</c>),
+    /// indicizzate per simbolo normalizzato e sullo stesso timeframe della strategia. Vuoto per tutte
+    /// le altre. Un simbolo dichiarato dalla strategia e assente da qui e' un errore, non un "niente
+    /// segnale": vedi l'interfaccia.
+    /// </summary>
+    public IReadOnlyDictionary<string, OhlcvData[]> ReferenceOhlcv { get; init; }
+        = new Dictionary<string, OhlcvData[]>();
 }
 
 /// <summary>

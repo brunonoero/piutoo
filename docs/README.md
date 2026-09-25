@@ -120,7 +120,7 @@ non esiste più, si tiene per il perché.
   `PT6EXO_*`: famiglie di motori nuove, scelte per essere scorrelate dal catalogo
   (orologio, volume, forma della barra, regime, calendario, idee bizzarre), il
   controllo a ingresso casuale, come si compongono i piani, ordine di lavoro.
-  *Bozza: scritti tutti i motori tranne XMK, nessuno ancora misurato.*
+  *Bozza: scritti tutti i motori (XMK solo per la sweep), nessuno ancora misurato.*
 - [`domini/mappa-strategie-pts.md`](domini/mappa-strategie-pts.md) — da quale
   run e da quale riga approvata veniva ogni classe `PTS_*`. **Serie eliminata dal
   progetto il 24/09/2026.** *Storia: non descrive più il codice.*

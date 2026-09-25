@@ -70,9 +70,15 @@ public abstract class StatelessEasyStrategyBase : ITradingStrategy
         // Le strategie multi-timeframe ricevono anche le serie aggiuntive, ma passano dallo
         // stesso clone effimero delle altre: è l'unico modo perché vedano posizione corrente e
         // memoria di sessione.
-        var signal = evaluationInstance is IMultiTimeframeTradingStrategy multiTimeframe
-            ? multiTimeframe.GenerateSignal(request.Ohlcv, request.AdditionalOhlcv, request.BarTimeUtc)
-            : InvokeGenerateSignal(evaluationInstance, request.Ohlcv, request.BarTimeUtc);
+        // Lo stesso vale per le strategie tra mercati, che ricevono le serie degli altri simboli.
+        var signal = evaluationInstance switch
+        {
+            IMultiSymbolTradingStrategy multiSymbol =>
+                multiSymbol.GenerateSignal(request.Ohlcv, request.ReferenceOhlcv, request.BarTimeUtc),
+            IMultiTimeframeTradingStrategy multiTimeframe =>
+                multiTimeframe.GenerateSignal(request.Ohlcv, request.AdditionalOhlcv, request.BarTimeUtc),
+            _ => InvokeGenerateSignal(evaluationInstance, request.Ohlcv, request.BarTimeUtc)
+        };
 
         signal.RuntimeState = CaptureRuntimeState(fields, evaluationInstance);
 

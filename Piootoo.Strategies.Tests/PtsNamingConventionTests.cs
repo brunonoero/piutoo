@@ -85,7 +85,8 @@ public sealed class PtsNamingConventionTests
         [typeof(FibonacciTimeEngine)] = "FIB",
         [typeof(LunarPhaseEngine)] = "LUN",
         [typeof(TimeModuloEngine)] = "MOD",
-        [typeof(DayHourGridEngine)] = "DXH"
+        [typeof(DayHourGridEngine)] = "DXH",
+        [typeof(CrossMarketEngine)] = "XMK"
     };
 
     /// <summary>

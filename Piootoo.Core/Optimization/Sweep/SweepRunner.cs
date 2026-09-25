@@ -27,11 +27,21 @@ namespace Piootoo.Core.Optimization.Sweep;
 ///
 /// <para>Una istanza per thread: <see cref="PiootooTradingService"/> e i cursori non sono thread
 /// safe. Le serie invece sono di sola lettura e si condividono.</para>
+///
+/// <para><b>Strategie tra mercati.</b> <paramref name="references"/> porta le serie degli altri
+/// simboli, per simbolo normalizzato, e serve solo a chi implementa
+/// <see cref="IMultiSymbolTradingStrategy"/>: a ogni valutazione riceve la finestra di ciascun
+/// simbolo di riferimento fino allo stesso istante, dallo stesso tipo di cursore della serie primaria.
+/// Un simbolo dichiarato dalla strategia e non caricato ferma il run.</para>
 /// </summary>
-public sealed class SweepRunner(SweepSeries series)
+public sealed class SweepRunner(SweepSeries series, IReadOnlyDictionary<string, SweepSeries>? references = null)
 {
     /// <summary>Le barre su cui questo runner misura.</summary>
     public SweepSeries Series { get; } = series;
+
+    /// <summary>Le serie degli altri simboli, per le strategie tra mercati. Vuoto per tutte le altre.</summary>
+    public IReadOnlyDictionary<string, SweepSeries> References { get; } =
+        references ?? new Dictionary<string, SweepSeries>(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// Esegue una combinazione e restituisce le sue metriche. Solleva se la strategia non esiste,
@@ -84,6 +94,10 @@ public sealed class SweepRunner(SweepSeries series)
             foreach (var (swapSymbol, spec) in job.Swap)
                 trading.SwapSpecs[StrategyKeys.NormalizeSymbol(swapSymbol)] = spec;
         }
+
+        var referenceCursors = strategy is IMultiSymbolTradingStrategy multiSymbol
+            ? ReferenceCursors(job, multiSymbol)
+            : null;
 
         var strategyCursor = new CandleWindowCursor(strategyBars);
         var markCursor = clock == strategy.TimeframeMinutes ? strategyCursor : new CandleWindowCursor(markBars);
@@ -145,7 +159,8 @@ public sealed class SweepRunner(SweepSeries series)
                         }
 
                         evaluations++;
-                        Evaluate(strategy, trading, candles, currentDate, symbol, job.Holding, signals);
+                        Evaluate(strategy, trading, candles, currentDate, symbol, job.Holding, signals,
+                            ReferenceWindows(referenceCursors, currentDate, window));
                         signalsEmitted += signals.Count;
                     }
                 }
@@ -192,14 +207,16 @@ public sealed class SweepRunner(SweepSeries series)
         DateTime currentDate,
         string symbol,
         AccountHoldingPolicy holding,
-        List<TradeSignal> signals)
+        List<TradeSignal> signals,
+        IReadOnlyDictionary<string, OhlcvData[]>? referenceWindows)
     {
         var execution = trading.GetExecutionSnapshot(strategy.Name, strategy.Symbol, currentDate);
         var signal = strategy.Evaluate(new StrategyEvaluationRequest
         {
             Ohlcv = candles,
             BarTimeUtc = currentDate,
-            Execution = execution
+            Execution = execution,
+            ReferenceOhlcv = referenceWindows ?? EmptyReferences
         });
 
         if (signal?.RuntimeState is not null)
@@ -231,6 +248,62 @@ public sealed class SweepRunner(SweepSeries series)
             PiootooBacktestingService.ApplyAccountHolding(accepted, holding);
             signals.Add(accepted);
         }
+    }
+
+    private static readonly IReadOnlyDictionary<string, OhlcvData[]> EmptyReferences =
+        new Dictionary<string, OhlcvData[]>();
+
+    /// <summary>
+    /// Un cursore per simbolo di riferimento, sul timeframe della strategia. Un simbolo non caricato,
+    /// o caricato senza quel timeframe, ferma il run: la strategia valuterebbe senza il dato su cui
+    /// decide, e nessun numero lo direbbe.
+    /// </summary>
+    private Dictionary<string, CandleWindowCursor> ReferenceCursors(SweepJob job, IMultiSymbolTradingStrategy strategy)
+    {
+        // Le chiavi si confrontano normalizzate da tutte e due le parti ("@ES" e "ES" sono lo stesso
+        // simbolo); la finestra arriva alla strategia sotto il nome con cui l'ha dichiarata.
+        var cursors = new Dictionary<string, CandleWindowCursor>(StringComparer.OrdinalIgnoreCase);
+        foreach (var reference in strategy.ReferenceSymbols)
+        {
+            var wanted = StrategyKeys.NormalizeSymbol(reference);
+            SweepSeries? series = null;
+            foreach (var (loadedSymbol, loaded) in References)
+            {
+                if (string.Equals(StrategyKeys.NormalizeSymbol(loadedSymbol), wanted, StringComparison.OrdinalIgnoreCase))
+                    series = loaded;
+            }
+
+            if (series is null)
+            {
+                throw new InvalidOperationException(
+                    $"{job.StrategyId}: la strategia legge {reference}, che non e' fra le serie di riferimento caricate " +
+                    $"({(References.Count == 0 ? "nessuna" : string.Join(", ", References.Keys))}).");
+            }
+
+            var bars = series.Bars(strategy.TimeframeMinutes);
+            if (bars.Length == 0)
+            {
+                throw new InvalidOperationException(
+                    $"{job.StrategyId}: la serie di riferimento {reference} non ha il timeframe {strategy.TimeframeMinutes}m.");
+            }
+
+            cursors[reference] = new CandleWindowCursor(bars);
+        }
+
+        return cursors;
+    }
+
+    /// <summary>La finestra di ogni simbolo di riferimento fino all'istante corrente, come quella primaria.</summary>
+    private static IReadOnlyDictionary<string, OhlcvData[]>? ReferenceWindows(
+        Dictionary<string, CandleWindowCursor>? cursors, DateTime currentDate, int window)
+    {
+        if (cursors is null)
+            return null;
+
+        var windows = new Dictionary<string, OhlcvData[]>(cursors.Count, StringComparer.OrdinalIgnoreCase);
+        foreach (var (symbol, cursor) in cursors)
+            windows[symbol] = cursor.Window(currentDate, window);
+        return windows;
     }
 
     private ITradingStrategy CreateStrategy(SweepJob job)

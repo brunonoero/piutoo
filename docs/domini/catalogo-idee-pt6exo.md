@@ -4,7 +4,7 @@ La serie `PT6EXO_*` raccoglie motori di **famiglie nuove**, separate per concett
 esiste. Lo scopo non e' migliorare le strategie che ci sono ma trovarne di **scorrelate**, da
 raggruppare in piani diversi, uno per conto e per istanza di cBot. Le idee possono essere classiche,
 strane o assurde: non si chiede loro un perche', si chiede di passare il metodo. Stato al 25/09/2026:
-**scritti tutti i motori del catalogo tranne XMK**, ognuno con contenitore `RC_{SIGLA}` e test;
+**scritti tutti i motori del catalogo** (XMK per la sola sweep), ognuno con contenitore `RC_{SIGLA}` e test;
 nessuno e' ancora stato misurato su una griglia. Le scelte di dettaglio di ciascun motore stanno nel
 commento della sua classe in `PT6EXOStrategies/Engines/`. Questo file si aggiorna man mano che una famiglia diventa
 codice; quando la serie avra' classi, l'elenco classe → cella andra' in una `mappa-strategie-pt6exo.md`.
@@ -270,6 +270,24 @@ descriptor e cBot (sottoscrizione ai simboli aggiuntivi) — e una regola esplic
 simbolo di riferimento non ha stampato la barra, la strategia non valuta, non usa la barra vecchia.
 Si apre solo dopo che le famiglie sopra hanno dato qualcosa.
 
+**Scritto il 25/09/2026, per la sola ricerca**: `CrossMarketEngine` in `PT6EXOStrategies/Engines/`,
+contenitore `RC_XMK`, sul contratto nuovo `IMultiSymbolTradingStrategy` (`Piootoo.Shared/Interfaces`):
+la strategia dichiara `ReferenceSymbols`, la richiesta di valutazione porta `ReferenceOhlcv` per
+simbolo, sullo stesso timeframe. Tre modi: 0 anticipo (il riferimento chiude oltre il proprio canale →
+stesso verso), 1 divergenza (il riferimento si muove di `MoveThresholdPct` per cento, il simbolo operato
+al contrario → si segue il riferimento), 2 rapporto (z-score del log del rapporto oltre `ZEntry`). Le
+barre si accoppiano per istante di apertura; se il riferimento non ha la barra di segnale la strategia
+non valuta.
+
+- **Dove arrivano le serie**: solo nella sweep, `SweepRunner(serie, riferimenti)`, che confronta i
+  simboli normalizzati e ferma il run se un riferimento dichiarato non e' caricato. La matrice e la
+  coda non le passano ancora: per una cella XMK serve uno studio che carichi le due serie.
+- **Dove non arrivano**: backtest completo, sessione live, cBot. Li' una strategia XMK si ferma con un
+  errore (`InvalidOperationException`) invece di tacere; portarcela e' il lavoro vero — cursori per
+  simbolo nel backtest, storia per simbolo nella sessione, sottoscrizione ai simboli nel descriptor e
+  nel cBot, con la versione minore del contratto — e si fa solo se una cella XMK risponde.
+- Test in `CrossMarketEngineTests`, compresa la sweep con un feed in memoria.
+
 ## Dalle strategie ai piani
 
 L'idea diversa non basta, la scorrelazione **si misura**:
@@ -326,7 +344,7 @@ chiusure con uscita alla prima contraria; NRX NR-4/7/10 con stop validi una barr
 | MOD | modulo del tempo | indice temporale | `TimeModuloEngine`, `RC_MOD`; manca la griglia |
 | DXH | griglia giorno × ora | orologio | `DayHourGridEngine`, `RC_DXH`; per ultima |
 | RAN | ingresso casuale (controllo) | niente | motore e contenitore `RC_RAN` scritti; manca lo studio dei semi |
-| XMK | tra mercati | altri simboli | richiede contratto nuovo |
+| XMK | tra mercati | altri simboli | `CrossMarketEngine`, `RC_XMK`; **solo sweep**: backtest completo, live e cBot si fermano con un errore |
 
 ## Riferimenti codice
 
