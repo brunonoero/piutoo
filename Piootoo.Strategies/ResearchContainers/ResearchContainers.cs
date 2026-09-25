@@ -115,6 +115,10 @@ public sealed class RC_RBM : RbbMirroredEngine
         DayToFilter = -1;
     }
 
+    // Il motore non espone GenerateSignal: la valutazione comune e' EvaluateCore, come nelle PT3B.
+    public Piootoo.Shared.Models.TradeSignal GenerateSignal(Piootoo.Shared.Models.OhlcvData[] data, DateTime currentDate) =>
+        EvaluateCore(data, currentDate);
+
     public void Initialize(Dictionary<string, object>? parameters = null) =>
         ResearchContainerSettings.Apply(this, _identity, parameters);
 }
@@ -136,6 +140,10 @@ public sealed class RC_RBU : RbbUnmirroredEngine
         BollingerNumDevs = 2m;
         DayToFilter = -1;
     }
+
+    // Il motore non espone GenerateSignal: la valutazione comune e' EvaluateCore, come nelle PT3B.
+    public Piootoo.Shared.Models.TradeSignal GenerateSignal(Piootoo.Shared.Models.OhlcvData[] data, DateTime currentDate) =>
+        EvaluateCore(data, currentDate);
 
     public void Initialize(Dictionary<string, object>? parameters = null) =>
         ResearchContainerSettings.Apply(this, _identity, parameters);
@@ -186,6 +194,10 @@ public sealed class RC_VBO : VolatilityBreakoutEngine
         SkipDay = -1;
         MaxEntriesPerSession = 1;
     }
+
+    // Il motore non espone GenerateSignal: la valutazione comune e' EvaluateCore, come nelle PT3B.
+    public Piootoo.Shared.Models.TradeSignal GenerateSignal(Piootoo.Shared.Models.OhlcvData[] data, DateTime currentDate) =>
+        EvaluateCore(data, currentDate);
 
     public void Initialize(Dictionary<string, object>? parameters = null) =>
         ResearchContainerSettings.Apply(this, _identity, parameters);

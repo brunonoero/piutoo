@@ -85,6 +85,22 @@ public sealed class ResearchContainerSettingsTests
         Assert.True(withoutAtr.RequiredCandles <= withAtr.RequiredCandles);
     }
 
+    /// <summary>
+    /// Ogni contenitore espone il <c>GenerateSignal</c> che la base cerca per riflessione. RBM, RBU e VBO
+    /// non lo ereditano dal motore (hanno <c>EvaluateCore</c>): il 25/09/2026 le loro celle sono fallite
+    /// al primo run della matrice.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(MatrixEngines))]
+    public void EveryContainerExposesGenerateSignal(string key)
+    {
+        var strategy = Create(CoarseGridMatrixTests.Engines[key].Container, new Dictionary<string, object>());
+
+        Assert.NotNull(strategy.GetType().GetMethod(
+            "GenerateSignal", BindingFlags.Instance | BindingFlags.Public,
+            [typeof(Piootoo.Shared.Models.OhlcvData[]), typeof(DateTime)]));
+    }
+
     /// <summary>Una leva che il motore non ha ferma la configurazione invece di restare inerte.</summary>
     [Fact]
     public void ALeverTheEngineDoesNotHaveIsRejected()
