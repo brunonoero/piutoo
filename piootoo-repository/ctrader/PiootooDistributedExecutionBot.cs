@@ -295,7 +295,7 @@ namespace cAlgo.Robots
         // Il disallineamento non blocca nulla: entrambi stampano la propria versione all'avvio, e
         // il confronto si fa leggendo i due log.
         // 7.6.4 (23/09/2026): il pannello mostra il broker come lo dichiara cTrader. Solo grafico.
-        private const string BotVersion = "7.7.0"; // major.minor deve seguire PiootooVersion
+        private const string BotVersion = "7.8.0"; // major.minor deve seguire PiootooVersion
         private const string StatusChartObjectName = "PiootooConnectionStatus";
 
         // Riquadro rosso al centro del grafico, separato dal pannello di stato: e' l'errore fatale
