@@ -116,6 +116,11 @@ non esiste più, si tiene per il perché.
   tengono più di una notte), motori propri e base comune (ATR50 di Wilder, sessione
   della ricerca, orari del CFD), regole misurate riconciliando il pilota NQ con i
   trade Python, elenco classe → codice. *Bozza: riconciliato il solo NQ.*
+- [`domini/catalogo-idee-pt6exo.md`](domini/catalogo-idee-pt6exo.md) — la serie
+  `PT6EXO_*`: famiglie di motori nuove, scelte per essere scorrelate dal catalogo
+  (orologio, volume, forma della barra, regime, calendario, idee bizzarre), il
+  controllo a ingresso casuale, come si compongono i piani, ordine di lavoro.
+  *Bozza: scritti tutti i motori tranne XMK, nessuno ancora misurato.*
 - [`domini/mappa-strategie-pts.md`](domini/mappa-strategie-pts.md) — da quale
   run e da quale riga approvata veniva ogni classe `PTS_*`. **Serie eliminata dal
   progetto il 24/09/2026.** *Storia: non descrive più il codice.*

@@ -251,3 +251,118 @@ public sealed class RC_LFD : LevelFaderEngine
     public void Initialize(Dictionary<string, object>? parameters = null) =>
         ResearchContainerSettings.Apply(this, _identity, parameters);
 }
+
+/// <summary>
+/// Ingresso casuale con seme fisso (serie PT6EXO): il controllo con cui si misura quanto di una
+/// strategia viene dal segnale e quanto dalle uscite. Leve proprie: <c>Seed</c>,
+/// <c>EntryProbability</c>, <c>Direction</c>; le uscite sono quelle comuni.
+/// </summary>
+public sealed class RC_RAN : PT6EXOStrategies.Engines.RandomEntryEngine
+{
+    private readonly ResearchContainerIdentity _identity = new();
+    public override string Name => "RC_RAN";
+    public override string Description => "Contenitore generico di ricerca: ingresso casuale (controllo)";
+    public override string Symbol => _identity.Symbol;
+    public override int TimeframeMinutes => _identity.TimeframeMinutes;
+    public override bool IsResearchContainer => true;
+
+    public RC_RAN()
+    {
+        ResearchContainerSettings.Prepare(this);
+        Seed = 1;
+        EntryProbability = 0.05m;
+        Direction = 0;
+    }
+
+    public void Initialize(Dictionary<string, object>? parameters = null) =>
+        ResearchContainerSettings.Apply(this, _identity, parameters);
+}
+
+/// <summary>
+/// Falso breakout (serie PT6EXO): rottura del canale e rientro, ingresso contro la rottura. Leve
+/// proprie: <c>ChannelBars</c>, <c>ReentryBars</c>, <c>MinBreakAtr</c>, <c>StopAtExtreme</c>,
+/// <c>ExtremeBufferTicks</c>, <c>Direction</c>.
+/// </summary>
+public sealed class RC_FBO : PT6EXOStrategies.Engines.FailedBreakoutEngine
+{
+    private readonly ResearchContainerIdentity _identity = new();
+    public override string Name => "RC_FBO";
+    public override string Description => "Contenitore generico di ricerca: falso breakout";
+    public override string Symbol => _identity.Symbol;
+    public override int TimeframeMinutes => _identity.TimeframeMinutes;
+    public override bool IsResearchContainer => true;
+
+    public RC_FBO()
+    {
+        ResearchContainerSettings.Prepare(this);
+        ChannelBars = 20;
+        ReentryBars = 1;
+        MinBreakAtr = 0m;
+        StopAtExtreme = 0;
+        ExtremeBufferTicks = 0;
+        Direction = 0;
+        MaxEntriesPerSession = 1;
+    }
+
+    public void Initialize(Dictionary<string, object>? parameters = null) =>
+        ResearchContainerSettings.Apply(this, _identity, parameters);
+}
+
+/// <summary>
+/// Forza interna della barra (serie PT6EXO): chiusura sul minimo compra, sul massimo vende. Leve
+/// proprie: <c>LowThreshold</c>, <c>HighThreshold</c>, <c>TrendBars</c>, <c>ExitIbs</c>, <c>Direction</c>.
+/// Il motore nudo non ha uscita a segnale (<c>ExitIbs = 0</c>): la griglia la accende.
+/// </summary>
+public sealed class RC_IBS : PT6EXOStrategies.Engines.InternalBarStrengthEngine
+{
+    private readonly ResearchContainerIdentity _identity = new();
+    public override string Name => "RC_IBS";
+    public override string Description => "Contenitore generico di ricerca: forza interna della barra";
+    public override string Symbol => _identity.Symbol;
+    public override int TimeframeMinutes => _identity.TimeframeMinutes;
+    public override bool IsResearchContainer => true;
+
+    public RC_IBS()
+    {
+        ResearchContainerSettings.Prepare(this);
+        LowThreshold = 0.2m;
+        HighThreshold = 0.8m;
+        TrendBars = 0;
+        ExitIbs = 0m;
+        Direction = 0;
+    }
+
+    public void Initialize(Dictionary<string, object>? parameters = null) =>
+        ResearchContainerSettings.Apply(this, _identity, parameters);
+}
+
+/// <summary>
+/// Deriva oraria (serie PT6EXO): entra a un'ora fissa e tiene per un numero fisso di ore. Leve
+/// proprie: <c>EntryHour</c>, <c>HoldHours</c>, <c>ScheduleClock</c> (0 ricerca, 1 borsa),
+/// <c>Direction</c>, <c>MomentumMode</c>, <c>MomentumBars</c>, <c>SkipDay</c>.
+/// </summary>
+public sealed class RC_HOD : PT6EXOStrategies.Engines.HourOfDayEngine
+{
+    private readonly ResearchContainerIdentity _identity = new();
+    public override string Name => "RC_HOD";
+    public override string Description => "Contenitore generico di ricerca: deriva oraria";
+    public override string Symbol => _identity.Symbol;
+    public override int TimeframeMinutes => _identity.TimeframeMinutes;
+    public override bool IsResearchContainer => true;
+
+    public RC_HOD()
+    {
+        ResearchContainerSettings.Prepare(this);
+        EntryTime = new TimeOnly(10, 0);
+        HoldHours = 4;
+        ScheduleClock = Piootoo.Shared.Configuration.InstrumentClock.Research;
+        Direction = 1;
+        MomentumMode = 0;
+        MomentumBars = 1;
+        SkipDay = -1;
+        MaxEntriesPerSession = 1;
+    }
+
+    public void Initialize(Dictionary<string, object>? parameters = null) =>
+        ResearchContainerSettings.Apply(this, _identity, parameters);
+}

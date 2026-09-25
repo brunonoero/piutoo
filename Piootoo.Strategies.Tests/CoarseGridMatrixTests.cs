@@ -58,7 +58,23 @@ public sealed class CoarseGridMatrixTests(ITestOutputHelper output)
         ["LF"] = new("RC_LFD", "Level fader sul pivot di ieri", "LevelShift", "shiftTicks", [0, 5, 20], VariesDirection: false,
             Fixed: new() { ["LevelChoice"] = 1 }),
         ["LFHL"] = new("RC_LFD", "Level fader sugli estremi di ieri", "LevelShift", "shiftTicks", [0, 5, 20], VariesDirection: false,
-            Fixed: new() { ["LevelChoice"] = 2 })
+            Fixed: new() { ["LevelChoice"] = 2 }),
+
+        // Serie PT6EXO (25/09/2026), famiglie cercate per essere scorrelate dal resto: vedi
+        // docs/domini/catalogo-idee-pt6exo.md. Primo lotto su FDAX e NQ, davanti alla matrice vecchia.
+        ["FBO"] = new("RC_FBO", "Falso breakout (rientro nella stessa barra)", "ChannelBars", "channelBars", [5, 10, 20, 50],
+            Fixed: new() { ["ReentryBars"] = 1 }),
+        // Uscita classica accesa: il long chiude alla prima chiusura con IBS >= 0,5, lo short specchio.
+        ["IBS"] = new("RC_IBS", "Forza interna della barra (uscita a IBS 0,5)", "SymmetricThreshold", "thresholdPct", [10, 20, 30],
+            Divisor: 100m, Fixed: new() { ["ExitIbs"] = 0.5m }),
+        ["RUN"] = new("RC_RUN", "Serie di chiusure (uscita alla prima chiusura contraria)", "RunBars", "runBars", [2, 3, 4, 5],
+            Fixed: new() { ["Mode"] = 0, ["ExitOnFirstOppositeClose"] = 1 }),
+        ["NRX"] = new("RC_NRX", "Compressione NR-N, stop sugli estremi", "LookbackBars", "lookbackBars", [4, 7, 10],
+            Fixed: new() { ["CompressionKind"] = 0, ["ValidBars"] = 1 }),
+        // Deriva pura: verso fisso long o short, niente momentum. Le ore sono di Roma e valgono sulle celle
+        // a 60 minuti: su quelle a 4 ore la barra non apre a ogni ora e l'ingresso non scatterebbe mai.
+        ["HOD"] = new("RC_HOD", "Deriva oraria (4 ore, verso fisso)", "EntryHour", "entryHour", [8, 9, 10, 14, 15, 16],
+            Fixed: new() { ["MomentumMode"] = 0, ["HoldHours"] = 4 }, Directions: [1, 2])
     };
 
     [Fact]
@@ -108,7 +124,7 @@ public sealed class CoarseGridMatrixTests(ITestOutputHelper output)
             Stops: AtrStops,
             Targets: AtrTargets,
             ExitHours: ExitHours,
-            Directions: engine.VariesDirection ? [0, 1, 2] : [0],
+            Directions: engine.Directions ?? (engine.VariesDirection ? [0, 1, 2] : [0]),
             CsvName: Path.Combine("matrice", $"{symbol.TrimStart('@').ToLowerInvariant()}-{timeframe}-{parts[0].ToLowerInvariant()}.csv"),
             EngineName: engine.Label,
             FirstLeverKey: engine.LeverKey,
@@ -133,4 +149,6 @@ public sealed record MatrixEngine(
     int[] Levers,
     bool VariesDirection = true,
     decimal Divisor = 1m,
-    Dictionary<string, object>? Fixed = null);
+    Dictionary<string, object>? Fixed = null,
+    // Le direzioni da permutare quando non sono 0/1/2: HOD senza momentum non ha un "entrambi".
+    int[]? Directions = null);

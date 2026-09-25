@@ -4587,3 +4587,12 @@ che il motore fa. Difetto di artefatto, non di esecuzione, ma e' costato mezza i
   ricompilato. `CL_RHL_001_30` e' uscita dal piano `PT5DAV-COMM-FX` prima di questa modifica, e con
   questa torna eseguibile (17 trade, +5,9 k contro i 23 k di Python): resta fuori finche' non si
   rimisura. Test: `CrossedLevelPolicyTests`.
+- **2026-09-25** — Nasce la serie **`PT6EXO_*`** (`Piootoo.Strategies/PT6EXOStrategies/`), separata per
+  concetto da PT3B e PT5DAV: famiglie di motori **nuove** (gap, IBS, serie di chiusure, falso
+  breakout, compressione, deriva oraria, calendario, volume, regime, candele, multi-timeframe, e idee
+  bizzarre come numeri tondi, fasi lunari, conte di Fibonacci), cercate per essere **scorrelate** dal
+  catalogo e composte in piani diversi, uno per conto. Motivo: tutti i motori esistenti leggono la
+  sola geometria del prezzo e cambiarne i parametri da' strategie che perdono negli stessi giorni.
+  Motori propri in `PT6EXOStrategies/Engines/`, contenitori `RC_{SIGLA}`, percorso di ricerca normale
+  piu' il confronto con un controllo a ingresso casuale (RAN) con le stesse uscite. Catalogo e ordine
+  di lavoro in `domini/catalogo-idee-pt6exo.md`.

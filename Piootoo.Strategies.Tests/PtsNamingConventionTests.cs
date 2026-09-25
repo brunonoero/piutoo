@@ -3,6 +3,7 @@ using System.Text.RegularExpressions;
 using Piootoo.Shared.Interfaces;
 using Piootoo.Strategies.Easy.Engines;
 using Piootoo.Strategies.PT5DAVStrategies.Engines;
+using Piootoo.Strategies.PT6EXOStrategies.Engines;
 using Xunit;
 
 namespace Piootoo.Strategies.Tests;
@@ -64,7 +65,27 @@ public sealed class PtsNamingConventionTests
         [typeof(Pt5DavBiasRetracementEngine)] = "BRT",
         [typeof(Pt5DavBiasBreakoutEngine)] = "BBO",
         [typeof(Pt5DavMovingAverageCrossoverEngine)] = "MAC",
-        [typeof(Pt5DavBiasWeeklyEngine)] = "BSW"
+        [typeof(Pt5DavBiasWeeklyEngine)] = "BSW",
+
+        // Serie PT6EXO (25/09/2026): famiglie nuove, cercate per essere scorrelate dal resto. Sigle in
+        // docs/domini/catalogo-idee-pt6exo.md.
+        [typeof(RandomEntryEngine)] = "RAN",
+        [typeof(FailedBreakoutEngine)] = "FBO",
+        [typeof(InternalBarStrengthEngine)] = "IBS",
+        [typeof(HourOfDayEngine)] = "HOD",
+        [typeof(RunOfClosesEngine)] = "RUN",
+        [typeof(CompressionEngine)] = "NRX",
+        [typeof(VolatilityRegimeEngine)] = "REG",
+        [typeof(CalendarAnomalyEngine)] = "CAL",
+        [typeof(SessionGapEngine)] = "GAP",
+        [typeof(RejectionCandleEngine)] = "CDL",
+        [typeof(TimeframeDisagreementEngine)] = "MTF",
+        [typeof(VolumeSpikeEngine)] = "VLM",
+        [typeof(RoundNumberEngine)] = "RNM",
+        [typeof(FibonacciTimeEngine)] = "FIB",
+        [typeof(LunarPhaseEngine)] = "LUN",
+        [typeof(TimeModuloEngine)] = "MOD",
+        [typeof(DayHourGridEngine)] = "DXH"
     };
 
     /// <summary>
@@ -82,11 +103,13 @@ public sealed class PtsNamingConventionTests
         // prima della sua serie.
         ["PT3B"] = typeof(PT3BStrategies.PT3B_FDAX_PCH_001_240).Namespace!,
         // PT5DAV: dalla ricerca v5.0 fatta su un altro server (piootoo-repository/PT5DAV/), 24/09/2026.
-        ["PT5DAV"] = typeof(Pt5DavEngineBase).Namespace!.Replace(".Engines", string.Empty)
+        ["PT5DAV"] = typeof(Pt5DavEngineBase).Namespace!.Replace(".Engines", string.Empty),
+        // PT6EXO: motori di famiglie nuove (catalogo-idee-pt6exo.md), 25/09/2026.
+        ["PT6EXO"] = typeof(RandomEntryEngine).Namespace!.Replace(".Engines", string.Empty)
     };
 
     private static readonly Regex NamePattern = new(
-        @"^(?<series>PTS|PT3B|PT5DAV)_(?<symbol>[A-Z0-9]+)_(?<engine>[A-Z]{3})_(?<number>\d{3})_(?<timeframe>\d+)$",
+        @"^(?<series>PTS|PT3B|PT5DAV|PT6EXO)_(?<symbol>[A-Z0-9]+)_(?<engine>[A-Z]{3})_(?<number>\d{3})_(?<timeframe>\d+)$",
         RegexOptions.Compiled);
 
     public static TheoryData<Type> PtsStrategyTypes

@@ -52,10 +52,19 @@ public sealed class ResearchContainerSettingsTests
         Assert.True(strategy.IsResearchContainer);
         Assert.Equal(1.5m, Read<decimal>(strategy, "StopAtrMultiplier"));
 
+        // Due leve PT6EXO sono proprieta' di sola scrittura che convertono il valore della griglia: si
+        // legge il campo che scrivono.
+        if (spec.FirstLeverKey == "EntryHour")
+        {
+            Assert.Equal(new TimeOnly(lever, 0), Read<TimeOnly>(strategy, "EntryTime"));
+            return;
+        }
+
         var member = spec.FirstLeverKey switch
         {
             "BbLength" => "BollingerLength",
             "LevelOffsetTicks" => "LongLevelOffsetTicks",
+            "SymmetricThreshold" => "LowThreshold",
             var name => name
         };
         Assert.Equal(

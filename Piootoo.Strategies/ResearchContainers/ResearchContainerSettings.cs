@@ -3,7 +3,6 @@ using System.Globalization;
 using System.Reflection;
 using Piootoo.Shared.Configuration;
 using Piootoo.Strategies.Easy.Engines;
-
 namespace Piootoo.Strategies.ResearchContainers;
 
 /// <summary>
@@ -138,11 +137,24 @@ public static class ResearchContainerSettings
                 return;
 
             case "StartHour" or "EndHour":
-                if (System.Convert.ToDecimal(value, CultureInfo.InvariantCulture) == -1m)
-                    return;
-                throw new ArgumentException(
-                    $"{type.Name}: '{key}' diverso da -1 non e' supportato dai contenitori generici. La finestra oraria si cerca " +
-                    "con la sweep, sui contenitori della cella.");
+                var hour = System.Convert.ToInt32(value, CultureInfo.InvariantCulture);
+                // Level fader e incrocio di medie non leggono la TradingWindow: impostarla li' sarebbe
+                // una leva inerte, quindi solo -1 passa.
+                if (engine is LevelFaderEngine or MovingAverageCrossoverEngine)
+                {
+                    if (hour == -1)
+                        return;
+                    throw new ArgumentException(
+                        $"{type.Name}: il motore non legge la finestra oraria, '{key}' = {hour} non avrebbe effetto.");
+                }
+
+                // Orari della ricerca verbatim, come nelle PT3B: -1 = nessun limite da quel lato.
+                var window = engine.TradingWindow ?? ZonedWindow.AllDay;
+                window = key == "StartHour"
+                    ? window with { Start = hour < 0 ? TimeOnly.MinValue : new TimeOnly(hour, 0) }
+                    : window with { End = hour < 0 ? ZonedWindow.EndOfDay : new TimeOnly(hour, 0) };
+                Set(engine, "TradingWindow", window);
+                return;
         }
 
         var member = Aliases.TryGetValue(key, out var alias) ? alias : key;
