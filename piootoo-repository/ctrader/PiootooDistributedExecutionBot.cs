@@ -295,7 +295,7 @@ namespace cAlgo.Robots
         // Il disallineamento non blocca nulla: entrambi stampano la propria versione all'avvio, e
         // il confronto si fa leggendo i due log.
         // 7.6.4 (23/09/2026): il pannello mostra il broker come lo dichiara cTrader. Solo grafico.
-        private const string BotVersion = "7.6.4"; // major.minor deve seguire PiootooVersion
+        private const string BotVersion = "7.7.0"; // major.minor deve seguire PiootooVersion
         private const string StatusChartObjectName = "PiootooConnectionStatus";
 
         // Riquadro rosso al centro del grafico, separato dal pannello di stato: e' l'errore fatale
@@ -2856,8 +2856,34 @@ namespace cAlgo.Robots
             // spread troppo pesante sullo stop. Stanno DOPO la riga diagnostica di proposito, cosi'
             // di un ingresso scartato resta comunque la fotografia del mercato che lo ha fatto
             // scartare, e prima di qualunque effetto sul broker.
-            if (RejectUnsoundIntent(intent, symbol))
+            // Livello gia' superato e strategia che lo vuole eseguito comunque: l'ordine parte a
+            // mercato adesso, cioe' all'apertura della barra su cui e' valido, come nel simulatore
+            // della ricerca PT5DAV. Lo decide la strategia (intent.CrossedLevel), non un parametro
+            // del bot: il motore interno legge lo stesso campo e i due run restano confrontabili.
+            var livelloSuperatoAMercato = intent.CrossedLevel == CrossedLevelPolicyDto.Market &&
+                                          IsLevelCrossed(intent, symbol);
+
+            if (RejectUnsoundIntent(intent, symbol, livelloSuperatoAMercato))
                 return;
+
+            if (livelloSuperatoAMercato)
+            {
+                Print("Ingresso {0}/{1}: livello {2} {3} {4:0.#####} gia' superato (Bid {5:0.#####} / Ask {6:0.#####}), " +
+                      "eseguito a mercato come chiede la strategia.",
+                    intent.Symbol, intent.StrategyCode, intent.OrderType, intent.Side, intent.Price, symbol.Bid, symbol.Ask);
+                LogJsonEvent("intent/livello-superato-a-mercato", new
+                {
+                    intent.IntentId,
+                    intent.StrategyCode,
+                    intent.Symbol,
+                    Side = intent.Side.ToString(),
+                    OrderType = intent.OrderType.ToString(),
+                    IntentPrice = intent.Price,
+                    symbol.Bid,
+                    symbol.Ask,
+                    ServerTimeUtc = Server.TimeInUtc
+                });
+            }
 
             // Solo per gli ordini a mercato. Uno Stop o un Limit sta per definizione LONTANO dal
             // prezzo corrente — è il livello a cui si vuole entrare, non quello a cui si è — quindi
@@ -2994,7 +3020,7 @@ namespace cAlgo.Robots
             LogRischioDichiarato(intent, symbol, volume, stopLossPips);
 
             TradeResult result;
-            switch (intent.OrderType)
+            switch (livelloSuperatoAMercato ? TradeOrderTypeDto.Market : intent.OrderType)
             {
                 case TradeOrderTypeDto.Stop:
                     result = PlaceStopOrder(tradeType, brokerSymbolName, volume, (double)intent.Price, label, stopLossPips, takeProfitPips);
@@ -3285,6 +3311,29 @@ namespace cAlgo.Robots
                 StringComparison.OrdinalIgnoreCase);
 
         /// <summary>
+        /// Vero quando il livello di uno Stop o di un Limit e' gia' dalla parte sbagliata del mercato:
+        /// uno Stop long non sopra l'Ask (o uno Stop short non sotto il Bid) si riempirebbe
+        /// all'istante, e cosi' un Limit long non sotto l'Ask. Falso per gli ordini a mercato e per i
+        /// livelli non valorizzati.
+        /// </summary>
+        private static bool IsLevelCrossed(OrderIntentDto intent, Symbol symbol)
+        {
+            var prezzo = (double)intent.Price;
+            if (prezzo <= 0)
+                return false;
+
+            switch (intent.OrderType)
+            {
+                case TradeOrderTypeDto.Stop:
+                    return intent.Side == SignalTypeDto.Buy ? !(prezzo > symbol.Ask) : !(prezzo < symbol.Bid);
+                case TradeOrderTypeDto.Limit:
+                    return intent.Side == SignalTypeDto.Buy ? !(prezzo < symbol.Ask) : !(prezzo > symbol.Bid);
+                default:
+                    return false;
+            }
+        }
+
+        /// <summary>
         /// Scarta gli intent che non sono eseguibili come la strategia li ha pensati. Restituisce
         /// true quando l'intent e' stato rifiutato e riportato al server, e il chiamante deve
         /// fermarsi.
@@ -3308,25 +3357,22 @@ namespace cAlgo.Robots
         /// non fare il trade e' ancora un'opzione.</item>
         /// </list>
         /// </summary>
-        private bool RejectUnsoundIntent(OrderIntentDto intent, Symbol symbol)
+        private bool RejectUnsoundIntent(OrderIntentDto intent, Symbol symbol, bool livelloSuperatoAMercato)
         {
             var bid = symbol.Bid;
             var ask = symbol.Ask;
             var prezzo = (double)intent.Price;
-            var isPending = intent.OrderType == TradeOrderTypeDto.Stop ||
-                            intent.OrderType == TradeOrderTypeDto.Limit;
+            // Un livello gia' superato che la strategia vuole a mercato non e' piu' un pending: ne' il
+            // lato del livello ne' la sua distanza dal prezzo dicono qualcosa sull'ordine che parte.
+            var isPending = !livelloSuperatoAMercato &&
+                            (intent.OrderType == TradeOrderTypeDto.Stop ||
+                             intent.OrderType == TradeOrderTypeDto.Limit);
 
             string motivo = null;
 
-            if (RejectWrongSideLevels && isPending && prezzo > 0)
-            {
-                var coerente = intent.OrderType == TradeOrderTypeDto.Stop
-                    ? (intent.Side == SignalTypeDto.Buy ? prezzo > ask : prezzo < bid)
-                    : (intent.Side == SignalTypeDto.Buy ? prezzo < ask : prezzo > bid);
-                if (!coerente)
-                    motivo = $"livello {intent.OrderType} {intent.Side} {prezzo:0.#####} dal lato sbagliato " +
-                             $"(Bid {bid:0.#####} / Ask {ask:0.#####})";
-            }
+            if (RejectWrongSideLevels && isPending && IsLevelCrossed(intent, symbol))
+                motivo = $"livello {intent.OrderType} {intent.Side} {prezzo:0.#####} dal lato sbagliato " +
+                         $"(Bid {bid:0.#####} / Ask {ask:0.#####})";
 
             // Attivazione oltre la barra corrente, e solo IN AVANTI. Non e' discrezionale: come il
             // lato del livello e' un errore di sistema, non una scelta di strategia. Un ordine
@@ -4805,6 +4851,9 @@ namespace cAlgo.Robots
         private enum TradeOrderTypeDto { Market, Stop, Limit }
 
         [JsonConverter(typeof(JsonStringEnumConverter))]
+        private enum CrossedLevelPolicyDto { Reject, Market }
+
+        [JsonConverter(typeof(JsonStringEnumConverter))]
         private enum ExecutionReportStatusDto { Accepted, PartiallyFilled, Filled, Rejected, Cancelled }
 
         [JsonConverter(typeof(JsonStringEnumConverter))]
@@ -5207,6 +5256,12 @@ namespace cAlgo.Robots
             public string AccountSymbol { get; set; }
             public SignalTypeDto Side { get; set; }
             public TradeOrderTypeDto OrderType { get; set; }
+
+            /// <summary>
+            /// Cosa fare di uno Stop o Limit che arriva con il livello gia' superato: lo decide la
+            /// strategia. Un server che non lo manda vale Reject, il comportamento di sempre.
+            /// </summary>
+            public CrossedLevelPolicyDto CrossedLevel { get; set; }
             public decimal FinalQuantity { get; set; }
             public decimal Price { get; set; }
             /// <summary>"Entry" oppure "Close"; Close può essere emesso per un segnale ExitOnly.</summary>

@@ -4568,3 +4568,22 @@ che il motore fa. Difetto di artefatto, non di esecuzione, ma e' costato mezza i
   ricostruiti. **Provata e scartata la sessione dalle 17:00 NY**: BP-15M-BIAS passava dal 93% al 3%.
   Riconciliazione sul periodo broker FTMO, mediana per strategia: CL e YM 100%, GC 99%, ES e FDAX 98%,
   BP 97%, NQ 96%, BTC 92%.
+
+- **2026-09-25** — **Livello gia' superato: lo decide la strategia (7.7.0). Le PT5DAV lo eseguono a
+  mercato, le PT3B continuano a scartarlo.** Un ordine Stop o Limit che nasce con il livello gia'
+  superato (stop buy sotto l'Ask, limit buy sopra) fino a oggi lo scartavano sempre sia il cBot sia il
+  motore interno (`RejectWrongSideLevels`). Il simulatore della ricerca PT5DAV invece lo riempie
+  all'apertura della barra dopo, e la serie e' stata misurata cosi' per tredici anni: sulle 41 con
+  tenuta >= 1,5 lo scarto toglieva 229 trade e 235 k sull'anno broker (2.571 trade e 2.082 k contro
+  2.800 e 2.291 k; Python 2.695 e 2.236 k). Caso tipico: `PT5DAV_GC_TFU_001_15` mette lo stop buy sul
+  massimo di ieri alle 10:00 di Roma, e l'oro lo rompe di notte (il 03/09/2026 alle 01:00 UTC, 31 punti
+  sotto il prezzo al momento del segnale); 71 dei suoi 81 trade sono di questo tipo. Ora il segnale
+  dichiara `CrossedLevel` (`CrossedLevelPolicy.Reject`, default, o `Market`), l'intent lo porta al cBot,
+  e i due esecutori applicano la stessa regola: `Market` = ingresso a mercato all'apertura della barra
+  su cui l'ordine e' valido, con gli stessi stop, target e uscite; i filtri sul lato del livello e
+  sulla distanza massima non si applicano, quello sullo spread si'. `Pt5DavEngineBase.Finish` lo
+  imposta su tutte le PT5DAV. Rimisurato sulle 41: 2.800 trade e 2.290.631, nessuno scartato, 359
+  eseguiti a mercato. Cambio di contratto con il bot (campo nuovo nell'intent): 7.7.0, bot
+  ricompilato. `CL_RHL_001_30` e' uscita dal piano `PT5DAV-COMM-FX` prima di questa modifica, e con
+  questa torna eseguibile (17 trade, +5,9 k contro i 23 k di Python): resta fuori finche' non si
+  rimisura. Test: `CrossedLevelPolicyTests`.

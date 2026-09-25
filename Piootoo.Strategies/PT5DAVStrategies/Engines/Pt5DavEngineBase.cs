@@ -1,4 +1,5 @@
 using Piootoo.Shared.Configuration;
+using Piootoo.Shared.Enums;
 using Piootoo.Shared.Models;
 using Piootoo.Shared.Models.Trading;
 using Piootoo.Strategies.Easy.Engines;
@@ -312,6 +313,13 @@ public abstract class Pt5DavEngineBase : EasyEngineBase
         var atr = EntrySessionAtr(fill);
         if (atr is not > 0m)
             return null;
+
+        // Un livello gia' superato quando l'ordine nasce si esegue a mercato all'apertura della
+        // barra, come fa il simulatore della ricerca. Scartarlo, la regola delle serie PT3B, toglieva
+        // sull'anno broker 229 ingressi alle 41 con tenuta >= 1,5 e 235 k: su GC-15M-TFU 71 trade su
+        // 81, perche' il livello e' il massimo di ieri e il prezzo lo rompe spesso prima della
+        // finestra delle 10:00. Vedi CrossedLevelPolicy.
+        signal.CrossedLevel = CrossedLevelPolicy.Market;
 
         var pointValue = InstrumentRegistry.PointValue(Symbol);
         signal.StopLoss = null;

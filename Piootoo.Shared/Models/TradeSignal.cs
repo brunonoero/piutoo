@@ -49,6 +49,12 @@ public class TradeSignal
     /// </summary>
     public TradeOrderType OrderType { get; set; } = TradeOrderType.Market;
 
+    /// <summary>
+    /// Cosa fare se questo Stop o Limit nasce con il livello gia' superato. Lo decide la strategia,
+    /// non chi esegue: vedi <see cref="CrossedLevelPolicy"/>. Ignorato sugli ordini a mercato.
+    /// </summary>
+    public CrossedLevelPolicy CrossedLevel { get; set; } = CrossedLevelPolicy.Reject;
+
     /// <summary>Da quando l'ordine può essere attivato. Null = barra corrente.</summary>
     public DateTime? ValidFromUtc { get; set; }
 

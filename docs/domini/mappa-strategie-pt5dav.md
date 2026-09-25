@@ -73,6 +73,7 @@ Ognuna e' nel codice con il numero che la giustifica.
 | estremi BIAS_BO/RT su barre chiuse **prima** della barra di segnale | BIAS | 2.506/2.511 ingressi |
 | la finestra BIAS si disarma a ogni inizio sessione, anche se "attraversa il cambio di sessione" | BIAS | FDAX-15M-BIASRT: 188 ingressi la mattina dopo senza |
 | nessun ingresso emesso mentre si e' in posizione (niente rientro sulla barra dell'uscita) | base | NQ-15M-BOS da 91% a 98% |
+| livello gia' superato quando l'ordine nasce: ingresso **a mercato** all'apertura della barra (`CrossedLevelPolicy.Market`, 7.7.0), non scarto | base | 41 con tenuta >= 1,5: 2.571 trade scartando, 2.800 a mercato, Python 2.695; GC-15M-TFU 10 contro 81 |
 | CFD aperto all'**apertura** della barra d'ingresso; per le intraday anche alla **chiusura** | base | NQ 4h: prima barra mai (salvo ora legale sfasata); 20:00 vietata alle intraday, permessa a TF_M 4h (47 ingressi) |
 | MAC: uscita per incrocio inverso alla **chiusura** della barra dopo il segnale (l'ingresso e' all'apertura) | MAC | NQ-15M-MAC: 74/74 uscite |
 | MAC: uscita di fine settimana al limite del CFD del venerdi'; a 4 ore alla chiusura della barra di giovedi' 20:00 | MAC | tutte le 23 MAC; a 4 ore BP 140/266, GC 106/122 (regola misurata, la scheda non la spiega) |

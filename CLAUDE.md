@@ -256,13 +256,20 @@ sbaglia più spesso:
  (invertirlo portava `PT2_FDAX_PCH_001_240` da 850 trade e +274k, scheda 884 e $265k, a 969 e
  +100k). Chi lo cambia rimisura. Vedi `docs/domini/orologio-barre-e-fill.md` e `decisioni.md`
  2026-09-16.
-- **Un livello gia' scavalcato non e' un ordine.** Uno stop buy sotto il prezzo si
- riempirebbe all'apertura, ma il cBot lo scarta al piazzamento
- (`RejectWrongSideLevels`) e quel trade nel conto vero non esiste. L'engine interno ha
- lo stesso filtro, acceso di default: spegnerlo serve solo a misurare la fedelta' del
- porting rispetto al motore di ricerca. Per il lato che compra il riferimento e' l'**Ask**,
- apertura piu' spread, quando il run ha una tabella di spread: un livello dentro lo spread
- e' un ordine che il broker rifiuta.
+- **Un livello gia' scavalcato: lo decide la strategia, e il default e' scartarlo.** Uno stop
+ buy sotto il prezzo, o un limit buy sopra, e' un ordine che il broker non accetta come pending.
+ Cosa farne lo dichiara il segnale (`TradeSignal.CrossedLevel`, `CrossedLevelPolicy`), l'intent
+ lo porta al cBot, e motore interno e cBot eseguono la stessa regola: **`Reject`** (default, le
+ PT3B) l'ordine non nasce e quel trade nel conto vero non esiste; **`Market`** (tutte le PT5DAV,
+ dal 7.7.0) diventa un ingresso a mercato all'apertura della barra su cui e' valido, che e' la
+ semantica del simulatore della ricerca PT5DAV. Scartarli toglieva alle 41 PT5DAV con tenuta
+ >= 1,5 il 9% dei trade e 235 k sull'anno broker: su `GC_TFU_001_15` il livello e' il massimo di
+ ieri e l'oro lo rompe di notte, prima della finestra delle 10:00. `RejectWrongSideLevels`
+ spento resta lo strumento per misurare la fedelta' del porting. Per il lato che compra il
+ riferimento e' l'**Ask**, apertura piu' spread, quando il run ha una tabella di spread: un
+ livello dentro lo spread e' gia' superato. Il summary conta i due esiti
+ (`wrongSideLevelsRejected`, `wrongSideLevelsExecutedAtMarket`), il log del cBot scrive
+ `intent/scartato-filtro` o `intent/livello-superato-a-mercato`.
 - **Le uscite protettive hanno le stesse convenzioni degli ingressi.** Uno stop
  originale su una barra che *apre* oltre il livello si riempie all'apertura, come fa da
  sempre l'ingresso; un trailing o un break-even no, perche' possono essere nati

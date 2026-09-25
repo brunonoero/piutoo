@@ -58,6 +58,13 @@ public class PiootooTradingService : IPiootooTradingService
         public bool Placed { get; set; }
 
         /// <summary>
+        /// Il livello era gia' superato quando l'ordine e' nato e la strategia ha chiesto di eseguirlo
+        /// a mercato (<see cref="CrossedLevelPolicy.Market"/>): si riempie all'apertura della barra su
+        /// cui e' valido, senza guardare il livello.
+        /// </summary>
+        public bool FillAtOpen { get; set; }
+
+        /// <summary>
         /// Apertura della <b>prima barra vera</b> su cui l'ordine e' risultato attivo, cioe' la
         /// barra che <c>next bar</c> nomina. Finche' e' <c>null</c> quella barra non e' ancora
         /// arrivata e l'ordine non puo' scadere: vedi <see cref="IsPendingExpired"/>.
@@ -213,6 +220,12 @@ public class PiootooTradingService : IPiootooTradingService
     /// <summary>Quanti pending sono stati scartati da <see cref="RejectWrongSideLevels"/>.</summary>
     public int WrongSideLevelsRejected { get; private set; }
 
+    /// <summary>
+    /// Quanti pending nati con il livello gia' superato sono stati eseguiti a mercato, perche' la
+    /// strategia lo chiedeva (<see cref="CrossedLevelPolicy.Market"/>).
+    /// </summary>
+    public int WrongSideLevelsExecutedAtMarket { get; private set; }
+
     public void Initialize(decimal initialCapital, decimal commissionPerContract = 2.0m)
     {
         _commissionPerContract = commissionPerContract;
@@ -233,6 +246,7 @@ public class PiootooTradingService : IPiootooTradingService
         _entriesByDay.Clear();
         _entriesBySession.Clear();
         WrongSideLevelsRejected = 0;
+        WrongSideLevelsExecutedAtMarket = 0;
     }
 
     public TradingSnapshot ProcessSignals(List<TradeSignal> signals, decimal currentPrice, DateTime currentTime)
@@ -592,9 +606,18 @@ public class PiootooTradingService : IPiootooTradingService
                 if (RejectWrongSideLevels &&
                     IsWrongSideLevel(signal, bar.Open, ResolveSpread(signalSymbol, currentTime)))
                 {
-                    WrongSideLevelsRejected++;
-                    _pendingOrders.Remove(pendingKey);
-                    continue;
+                    // Lo decide la strategia, come fa il cBot con lo stesso campo dell'intent.
+                    if (signal.CrossedLevel == CrossedLevelPolicy.Market)
+                    {
+                        pending.FillAtOpen = true;
+                        WrongSideLevelsExecutedAtMarket++;
+                    }
+                    else
+                    {
+                        WrongSideLevelsRejected++;
+                        _pendingOrders.Remove(pendingKey);
+                        continue;
+                    }
                 }
             }
 
@@ -605,9 +628,9 @@ public class PiootooTradingService : IPiootooTradingService
                     continue;
                 }
 
-                var touched = signal.Type == SignalType.Buy
+                var touched = pending.FillAtOpen || (signal.Type == SignalType.Buy
                     ? bar.High >= signal.Price
-                    : bar.Low <= signal.Price;
+                    : bar.Low <= signal.Price);
 
                 if (!touched)
                 {
@@ -620,9 +643,11 @@ public class PiootooTradingService : IPiootooTradingService
                     continue;
                 }
 
-                var fillPrice = signal.Type == SignalType.Buy
-                    ? Math.Max(bar.Open, signal.Price)
-                    : Math.Min(bar.Open, signal.Price);
+                var fillPrice = pending.FillAtOpen
+                    ? bar.Open
+                    : signal.Type == SignalType.Buy
+                        ? Math.Max(bar.Open, signal.Price)
+                        : Math.Min(bar.Open, signal.Price);
 
                 // Posizione già aperta = niente reverse fill (compare-0041): la gamba opposta è OCO
                 // e il pending viene cancellato, non usato per invertire. Blocca sia lo stesso verso
@@ -649,9 +674,9 @@ public class PiootooTradingService : IPiootooTradingService
                 // Un limit deve essere penetrato: il solo contatto non basta, come nel
                 // simulatore Python degli engine RBB. In caso di gap il prezzo di fill è
                 // migliorativo rispetto al limite.
-                var penetrated = signal.Type == SignalType.Buy
+                var penetrated = pending.FillAtOpen || (signal.Type == SignalType.Buy
                     ? bar.Low < signal.Price
-                    : bar.High > signal.Price;
+                    : bar.High > signal.Price);
                 if (!penetrated)
                 {
                     continue;
@@ -663,9 +688,11 @@ public class PiootooTradingService : IPiootooTradingService
                     continue;
                 }
 
-                var fillPrice = signal.Type == SignalType.Buy
-                    ? Math.Min(bar.Open, signal.Price)
-                    : Math.Max(bar.Open, signal.Price);
+                var fillPrice = pending.FillAtOpen
+                    ? bar.Open
+                    : signal.Type == SignalType.Buy
+                        ? Math.Min(bar.Open, signal.Price)
+                        : Math.Max(bar.Open, signal.Price);
 
                 // Posizione già aperta = niente reverse fill (compare-0041): vedi il ramo Stop sopra.
                 if (_state.OpenPositions.ContainsKey(pending.PositionKey))
@@ -1312,6 +1339,7 @@ public class PiootooTradingService : IPiootooTradingService
         _entriesByDay.Clear();
         _entriesBySession.Clear();
         WrongSideLevelsRejected = 0;
+        WrongSideLevelsExecutedAtMarket = 0;
     }
 
     private void OpenPosition(string positionKey, string strategyName, string strategyCode, string symbol, SignalType direction, decimal entryPrice, DateTime entryTime, decimal quantity, decimal? stopLoss, decimal? takeProfit, decimal? breakEven = null, decimal? trailingStop = null, int? maxBarsInPosition = null, DateTime? closeAtUtc = null, string? reason = null, decimal? timeExitOnlyIfProfitBelow = null, DateTime? profitStallAfterUtc = null, bool timeExitFromAccountPolicy = false, int? timeframeMinutes = null)

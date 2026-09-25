@@ -345,6 +345,13 @@ public sealed class BacktestRunSummary
     public int WrongSideLevelsRejected { get; set; }
 
     /// <summary>
+    /// Quanti ingressi nati con il livello gia' oltrepassato sono stati eseguiti a mercato,
+    /// all'apertura della barra, perche' la strategia lo dichiarava (<c>CrossedLevelPolicy.Market</c>,
+    /// la serie PT5DAV). Nel cBot sono le righe <c>intent/livello-superato-a-mercato</c>.
+    /// </summary>
+    public int WrongSideLevelsExecutedAtMarket { get; set; }
+
+    /// <summary>
     /// Cosa il conto simulato permetteva di tenere, e a che ora tagliava.
     ///
     /// <para>Sta nel summary perche' e' una regola che cambia i risultati senza comparire nei

@@ -551,6 +551,13 @@ public sealed class OrderIntent
     public required DateTime CreatedAtUtc { get; init; }
     public SignalType Side { get; init; }
     public TradeOrderType OrderType { get; init; }
+
+    /// <summary>
+    /// Cosa fare se lo Stop o il Limit arriva al client con il livello gia' superato: scartarlo
+    /// (<see cref="CrossedLevelPolicy.Reject"/>) o eseguirlo a mercato. Copiato dal segnale.
+    /// </summary>
+    public CrossedLevelPolicy CrossedLevel { get; init; } = CrossedLevelPolicy.Reject;
+
     /// <summary>
     /// Simbolo con cui inoltrare l'ordine sull'account assegnato. È il simbolo su cui il client
     /// deve fare match: <see cref="Symbol"/> resta quello Piootoo, con cui il server indicizza

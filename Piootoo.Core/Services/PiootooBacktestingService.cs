@@ -1675,6 +1675,16 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                             tradingService.WrongSideLevelsRejected.ToString(CultureInfo.InvariantCulture)
                     });
 
+            if (tradingService.WrongSideLevelsExecutedAtMarket > 0)
+                diagnostics.LogRun(
+                    $"Livelli gia' superati eseguiti a mercato, come chiede la strategia: " +
+                    $"{tradingService.WrongSideLevelsExecutedAtMarket}.",
+                    new Dictionary<string, string>(StringComparer.Ordinal)
+                    {
+                        ["wrongSideLevelsExecutedAtMarket"] =
+                            tradingService.WrongSideLevelsExecutedAtMarket.ToString(CultureInfo.InvariantCulture)
+                    });
+
             var summary = diagnostics.Complete(new BacktestRunSummary
             {
                 JobId = job.JobId,
@@ -1694,6 +1704,7 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                 MaxDrawdown = result.MaxDrawdown,
                 OpenPositionsAtEnd = finalSnapshot.OpenPositionsCount,
                 WrongSideLevelsRejected = tradingService.WrongSideLevelsRejected,
+                WrongSideLevelsExecutedAtMarket = tradingService.WrongSideLevelsExecutedAtMarket,
                 Holding = holding,
                 DatafeedBroker = NormalizeBroker(request.DatafeedBroker),
                 PlanCode = plan?.Code,
