@@ -1,7 +1,7 @@
-# Lancia le sweep PT5DAV del pilota NQ DOPO la coda delle griglie (tools/coda-ricerca.ps1), una alla
-# volta. Aspetta che ogni cella di piootoo-repository/ricerca/coda.json sia chiusa (.fatto, oppure tre
-# tentativi falliti) e che non giri nessuno studio ne' altra sweep: stessi core, tempi raddoppiati.
-# Mentre una sweep gira e' la coda delle griglie ad aspettare: la riconosce dal processo piootoo-sweep.
+# Lancia le sweep PT5DAV del pilota NQ una alla volta, nei momenti in cui non gira nessuno studio ne'
+# altra sweep (stessi core, tempi raddoppiati), alternandosi con la coda delle griglie
+# (tools/coda-ricerca.ps1). Mentre una sweep gira e' la coda delle griglie ad aspettare: la riconosce
+# dal processo piootoo-sweep.
 #
 # Il pilota: ottimizzare sulla storia 2008-2016 del feed interno al minuto e verificare sul 2017 ->
 # 05/2025, con le griglie RICOSTRUITE di Pt5DavSweepSpaces (vedi docs/domini/mappa-strategie-pt5dav.md).
@@ -29,18 +29,6 @@ function Write-Log($testo) {
     Add-Content -Path $logCoda -Value ("{0:yyyy-MM-dd HH:mm:ss} {1}" -f (Get-Date), $testo) -Encoding utf8
 }
 
-function Test-CodaGriglieChiusa {
-    $coda = Get-Content (Join-Path $ricerca 'coda.json') -Raw | ConvertFrom-Json
-    $fatte = Join-Path $ricerca 'coda'
-    foreach ($cella in $coda.celle) {
-        if (Test-Path (Join-Path $fatte "$($cella.cella).fatto")) { continue }
-        $errore = Join-Path $fatte "$($cella.cella).errore"
-        if ((Test-Path $errore) -and @(Get-Content $errore).Count -ge 3) { continue }
-        return $false
-    }
-    return $true
-}
-
 function Test-AltroInCorso {
     if (Get-Process piootoo-sweep -ErrorAction SilentlyContinue) { return $true }
     return [bool](Get-CimInstance Win32_Process -Filter "Name='testhost.exe'" -ErrorAction SilentlyContinue)
@@ -52,7 +40,17 @@ foreach ($cella in $celle) {
     $marcatore = Join-Path $stato "$($cella.nome).fatto"
     if (Test-Path $marcatore) { continue }
 
-    while (-not (Test-CodaGriglieChiusa) -or (Test-AltroInCorso)) {
+    # Dal 26/09/2026 si parte nei momenti liberi, non a matrice chiusa: la matrice finiva sei celle
+    # al giorno (si ferma a ogni studio) e ha celle che non saranno mai pronte (NQ chiede il minuto
+    # FTMO dal 01/01/2022, l'archivio parte dal 16/05/2022), quindi "dopo la matrice" voleva dire
+    # mai. Le due code si alternano: ciascuna parte solo se non gira gia' una sweep o uno studio.
+    # Il secondo controllo, mezzo minuto dopo, evita di partire nello stesso istante della coda
+    # delle griglie, che guarda ogni dieci minuti.
+    while ($true) {
+        if (-not (Test-AltroInCorso)) {
+            Start-Sleep -Seconds 30
+            if (-not (Test-AltroInCorso)) { break }
+        }
         Start-Sleep -Seconds ($MinutiFraControlli * 60)
     }
 
