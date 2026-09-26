@@ -41,7 +41,18 @@ public sealed class TradingPlansController : ControllerBase
         }
         catch (KeyNotFoundException ex) { return Problem(statusCode: 404, title: "Risorsa non trovata", detail: ex.Message); }
         catch (ArgumentException ex) { return Problem(statusCode: 400, title: "Richiesta non valida", detail: ex.Message); }
+        catch (InvalidOperationException ex) { return Problem(statusCode: 409, title: "Operazione non consentita", detail: ex.Message); }
     }
+
+    /// <summary>Blocca il piano: non si modifica ne' si elimina piu'. Idempotente.</summary>
+    [HttpPost("{code}/lock")]
+    public ActionResult<TradingPlan> Lock(string workspaceId, string code) =>
+        Execute<TradingPlan>(() => Ok(_plans.Lock(workspaceId, code)));
+
+    /// <summary>Copia il piano con un codice nuovo; la copia nasce sbloccata.</summary>
+    [HttpPost("{code}/duplicate")]
+    public ActionResult<TradingPlan> Duplicate(string workspaceId, string code, DuplicateTradingPlanRequest request) =>
+        Execute<TradingPlan>(() => Ok(_plans.Duplicate(workspaceId, code, request)));
 
     private ActionResult<T> Execute<T>(Func<ActionResult<T>> action)
     {

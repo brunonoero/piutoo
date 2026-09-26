@@ -63,6 +63,10 @@ public static class NavigationRegistry
             // La voce apre la lista, non il form di avvio: quest'ultimo è la destinazione di
             // "Nuovo backtest" nella lista, come per le altre anagrafiche.
             new NavigationEntry("Backtesting", () => new BacktestListScreen()),
+            // Eccezione voluta alla regola "tutto vive dentro il workspace corrente": i best plan
+            // sono trasversali, e il workspace di ogni riga e' una colonna. Si alimentano dal
+            // dettaglio backtest ("Promuovi a best plan"), non da un pulsante "Nuovo".
+            new NavigationEntry("Best plans", () => new BestPlanListScreen()),
             // Stessa forma delle altre due: la voce apre la lista, "Apri da piano"/"Sessione diretta"
             // portano a TradingSessionsScreen — include anche le sessioni aperte da un cBot.
             new NavigationEntry("Sessioni di trading", () => new TradingSessionListScreen()),

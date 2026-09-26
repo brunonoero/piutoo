@@ -49,6 +49,13 @@ public class PiootooSettings
     /// </summary>
     public string ComparePath { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Cartella dei best plan, le fotografie dei backtest messi in evidenza. Sta fuori dai workspace
+    /// perche' l'elenco e' trasversale e deve sopravvivere alla pulizia delle cartelle di backtest.
+    /// Quando manca, vale <c>[BasePath]\best-plans</c>, accanto a <c>workspaces</c>.
+    /// </summary>
+    public string BestPlansPath { get; set; } = string.Empty;
+
     public string SettingsPath { get; set; } = string.Empty;
     public string Workspaces { get; set; } = string.Empty;
     public string Accounts { get; set; } = string.Empty;
@@ -67,6 +74,7 @@ public class PiootooSettings
             SwapPath = ResolvePath(SwapPath);
             SymbolInfoPath = ResolvePath(SymbolInfoPath);
             ComparePath = ResolvePath(ComparePath);
+            BestPlansPath = ResolvePath(BestPlansPath);
             SettingsPath = ResolvePath(SettingsPath);
             Workspaces = ResolvePath(Workspaces);
             Accounts = ResolvePath(Accounts);
@@ -126,6 +134,12 @@ public class PiootooSettings
         => string.IsNullOrWhiteSpace(ComparePath)
             ? Path.Combine(string.IsNullOrWhiteSpace(BasePath) ? "." : BasePath, "compare")
             : ResolvePath(ComparePath);
+
+    /// <summary>Cartella dei best plan. Il default e' <c>[BasePath]\best-plans</c>.</summary>
+    public string GetBestPlansPath()
+        => string.IsNullOrWhiteSpace(BestPlansPath)
+            ? Path.Combine(string.IsNullOrWhiteSpace(BasePath) ? "." : BasePath, "best-plans")
+            : ResolvePath(BestPlansPath);
 
     /// <summary>
     /// Ottiene il path completo dei settings

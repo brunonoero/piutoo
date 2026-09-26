@@ -152,6 +152,26 @@ public sealed class TradingPlan
     public PositionSizingConfig PositionSizing { get; init; } = new();
     public DateTime CreatedUtc { get; init; }
     public DateTime UpdatedUtc { get; init; }
+
+    /// <summary>
+    /// Piano bloccato: non si modifica e non si elimina piu'. Serve a congelare un piano che ha dei
+    /// run e delle sessioni alle spalle, cosi' il suo codice continua a nominare una configurazione
+    /// sola. Per cambiarlo se ne fa una copia (<c>TradingPlanService.Duplicate</c>), che nasce
+    /// sbloccata con un codice nuovo. Il blocco non si toglie dalla console di proposito: un piano
+    /// sbloccabile e' un piano che puo' cambiare sotto i run che lo citano.
+    /// </summary>
+    public bool Locked { get; init; }
+
+    public DateTime? LockedUtc { get; init; }
+}
+
+/// <summary>Copia di un piano con codice e nome nuovi. La copia nasce sbloccata.</summary>
+public sealed class DuplicateTradingPlanRequest
+{
+    public required string NewCode { get; init; }
+
+    /// <summary>Vuoto = il nome del piano originale con il suffisso "(copia)".</summary>
+    public string? NewName { get; init; }
 }
 
 public sealed class SaveTradingPlanRequest

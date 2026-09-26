@@ -88,6 +88,12 @@ builder.Services.AddSingleton(sp => new Piootoo.Core.Services.Compare.CompareSer
     sp.GetRequiredService<WorkspaceService>(),
     sp.GetRequiredService<PiootooSettings>()));
 builder.Services.AddSingleton<TradingPlanService>();
+// Singleton per il lock che serializza le promozioni: due copie nella stessa cartella si
+// sovrascriverebbero a vicenda.
+builder.Services.AddSingleton(sp => new Piootoo.Core.Services.BestPlans.BestPlanService(
+    sp.GetRequiredService<WorkspaceService>(),
+    sp.GetRequiredService<TradingPlanService>(),
+    sp.GetRequiredService<PiootooSettings>()));
 builder.Services.AddSingleton<IStrategyEvaluationService, StrategyEvaluationService>();
 builder.Services.AddSingleton<IPositionSizingService, PositionSizingService>();
 builder.Services.AddSingleton<ITradingSessionService, TradingSessionService>();

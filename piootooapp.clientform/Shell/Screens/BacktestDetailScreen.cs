@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.IO.Compression;
 using System.Text.Json;
+using Piootoo.Shared.Models.BestPlans;
 using Piootoo.Shared.Models.Trading;
 using Piootoo.Shared.Models.Workspaces;
 using piootooapp.clientform.Shell.Controls;
@@ -107,6 +108,10 @@ public partial class BacktestDetailScreen : UserControl, IShellScreen
             // interno completo il server rifiuta, perché sostituirebbe la curva del motore con
             // quella ricostruita dai soli trade.
             _generateReportButton.Enabled = _origin != BacktestOrigin.Internal && _trades.Count > 0;
+
+            // Senza trade non c'e' niente da mettere in evidenza; un run interno con la sola curva
+            // e zero trade lo rifiuta comunque il server, con le sue parole.
+            _promoteButton.Enabled = _trades.Count > 0;
         }
         catch (OperationCanceledException)
         {
@@ -258,6 +263,55 @@ public partial class BacktestDetailScreen : UserControl, IShellScreen
         }
         finally
         {
+            _toolbar.SetBusy(false);
+        }
+    }
+
+    /// <summary>
+    /// Mette il backtest fra i best plan. Il server ne copia cifre per anno, curva di equity,
+    /// strategie e artefatti sotto <c>best-plans</c>, cosi' la fotografia sopravvive alla pulizia
+    /// delle cartelle di backtest. Se il backtest e' gia' promosso si chiede prima di sostituirla.
+    /// </summary>
+    private async void OnPromoteClick(object? sender, EventArgs e)
+    {
+        if (_context == null || _workspaceId.Length == 0 || _folderName.Length == 0)
+        {
+            return;
+        }
+
+        _toolbar.SetBusy(true);
+        UseWaitCursor = true;
+        _context.Navigation.SetStatus($"Promozione di '{_folderName}' a best plan…");
+        try
+        {
+            BestPlan plan;
+            try
+            {
+                plan = await _context.Services.BestPlans.PromoteAsync(_workspaceId, _folderName, overwrite: false);
+            }
+            catch (InvalidOperationException ex) when (ex.Message.Contains(BestPlan.AlreadyPromotedMessage, StringComparison.Ordinal))
+            {
+                if (MessageBox.Show(this, ex.Message + Environment.NewLine + Environment.NewLine + "Sostituire la fotografia?",
+                        "Promuovi a best plan", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
+                {
+                    _context.Navigation.SetStatus("Promozione annullata.");
+                    return;
+                }
+
+                plan = await _context.Services.BestPlans.PromoteAsync(_workspaceId, _folderName, overwrite: true);
+            }
+
+            _context.Navigation.SetStatus(
+                $"'{_folderName}' e' fra i best plan: P&L {plan.NetProfit:N2} ({plan.NetProfitPercent:N1}%), " +
+                $"DD {plan.MaxDrawdownPercent:N1}%, {plan.Years.Count} anni, {plan.Strategies.Count} strategie.");
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, ex.Message, "Promuovi a best plan", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+        finally
+        {
+            UseWaitCursor = false;
             _toolbar.SetBusy(false);
         }
     }

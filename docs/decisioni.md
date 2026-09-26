@@ -4607,3 +4607,12 @@ che il motore fa. Difetto di artefatto, non di esecuzione, ma e' costato mezza i
   crash, ed e' li' che un conto salta. Non giudica le strategie e non normalizza il rischio: le candidate
   arrivano gia' passate dal metodo, da un run neutro con le stesse size. Skill `motore-pt6exo`,
   `controllo-ran`, `piani-scorrelati`.
+- **2026-09-26** — **Best plans e piani bloccati.** Un backtest che ha funzionato si promuove a
+  best plan dal suo dettaglio: il server ne fotografa cifre per anno, curva di equity, strategie e
+  artefatti in `[BasePath]\best-plans\`, fuori dai workspace, cosi' la pulizia delle cartelle di
+  backtest non li tocca (`domini/best-plans.md`). La promozione **blocca il piano** del run: un
+  piano bloccato (`TradingPlan.Locked`) non si salva e non si elimina, e per cambiarlo si duplica
+  (`TradingPlanService.Duplicate`, la copia nasce sbloccata). Il blocco non si toglie dalla console
+  di proposito: il codice di un best plan deve continuare a nominare la configurazione misurata.
+  Primo best plan: PT5DAV-P1 su FTMO via cBot, 01/09/2025-24/09/2026, +81.699 (81,7%), DD 2,2%
+  sulla curva realizzata.

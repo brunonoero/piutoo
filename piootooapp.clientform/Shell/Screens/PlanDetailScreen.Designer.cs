@@ -22,6 +22,10 @@ partial class PlanDetailScreen
         this._groupsBindingSource = new System.Windows.Forms.BindingSource(this.components);
         this._accountsBindingSource = new System.Windows.Forms.BindingSource(this.components);
         this._toolbar = new piootooapp.clientform.Shell.Controls.DetailToolbar();
+        this._commandPanel = new System.Windows.Forms.FlowLayoutPanel();
+        this._duplicateButton = new System.Windows.Forms.Button();
+        this._lockButton = new System.Windows.Forms.Button();
+        this._lockedBanner = new System.Windows.Forms.Label();
         this._tabs = new System.Windows.Forms.TabControl();
         this._generalTab = new System.Windows.Forms.TabPage();
         this._generalLayout = new System.Windows.Forms.TableLayoutPanel();
@@ -118,6 +122,53 @@ partial class PlanDetailScreen
         this._toolbar.BackRequested += new System.EventHandler(this.OnBackRequested);
         this._toolbar.SaveRequested += new System.EventHandler(this.OnSaveRequested);
         this._toolbar.RevertRequested += new System.EventHandler(this.OnRevertRequested);
+        //
+        // _commandPanel
+        //
+        this._commandPanel.AutoSize = true;
+        this._commandPanel.Controls.Add(this._duplicateButton);
+        this._commandPanel.Controls.Add(this._lockButton);
+        this._commandPanel.Dock = System.Windows.Forms.DockStyle.Top;
+        this._commandPanel.Name = "_commandPanel";
+        this._commandPanel.Padding = new System.Windows.Forms.Padding(12, 6, 12, 6);
+        this._commandPanel.Size = new System.Drawing.Size(900, 37);
+        this._commandPanel.TabIndex = 1;
+        //
+        // _duplicateButton
+        //
+        this._duplicateButton.AutoSize = true;
+        this._duplicateButton.Enabled = false;
+        this._duplicateButton.Margin = new System.Windows.Forms.Padding(0, 0, 6, 0);
+        this._duplicateButton.Name = "_duplicateButton";
+        this._duplicateButton.Size = new System.Drawing.Size(110, 25);
+        this._duplicateButton.TabIndex = 0;
+        this._duplicateButton.Text = "Duplica…";
+        this._duplicateButton.Click += new System.EventHandler(this.OnDuplicateClick);
+        //
+        // _lockButton
+        //
+        this._lockButton.AutoSize = true;
+        this._lockButton.Enabled = false;
+        this._lockButton.Margin = new System.Windows.Forms.Padding(0, 0, 6, 0);
+        this._lockButton.Name = "_lockButton";
+        this._lockButton.Size = new System.Drawing.Size(110, 25);
+        this._lockButton.TabIndex = 1;
+        this._lockButton.Text = "🔒 Blocca piano";
+        this._lockButton.Click += new System.EventHandler(this.OnLockClick);
+        //
+        // _lockedBanner
+        //
+        this._lockedBanner.AutoSize = false;
+        this._lockedBanner.BackColor = System.Drawing.Color.FromArgb(255, 236, 204);
+        this._lockedBanner.Dock = System.Windows.Forms.DockStyle.Top;
+        this._lockedBanner.Font = new System.Drawing.Font("Segoe UI", 10F, System.Drawing.FontStyle.Bold);
+        this._lockedBanner.ForeColor = System.Drawing.Color.FromArgb(150, 70, 0);
+        this._lockedBanner.Name = "_lockedBanner";
+        this._lockedBanner.Padding = new System.Windows.Forms.Padding(14, 0, 12, 0);
+        this._lockedBanner.Size = new System.Drawing.Size(900, 34);
+        this._lockedBanner.TabIndex = 2;
+        this._lockedBanner.TextAlign = System.Drawing.ContentAlignment.MiddleLeft;
+        this._lockedBanner.Visible = false;
         //
         // _tabs
         //
@@ -845,6 +896,8 @@ partial class PlanDetailScreen
         this.AutoScaleDimensions = new System.Drawing.SizeF(7F, 15F);
         this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
         this.Controls.Add(this._tabs);
+        this.Controls.Add(this._lockedBanner);
+        this.Controls.Add(this._commandPanel);
         this.Controls.Add(this._toolbar);
         this.Name = "PlanDetailScreen";
         this.Size = new System.Drawing.Size(900, 600);
@@ -879,6 +932,10 @@ partial class PlanDetailScreen
     private System.Windows.Forms.BindingSource _groupsBindingSource;
     private System.Windows.Forms.BindingSource _accountsBindingSource;
     private piootooapp.clientform.Shell.Controls.DetailToolbar _toolbar;
+    private System.Windows.Forms.FlowLayoutPanel _commandPanel;
+    private System.Windows.Forms.Button _duplicateButton;
+    private System.Windows.Forms.Button _lockButton;
+    private System.Windows.Forms.Label _lockedBanner;
     private System.Windows.Forms.TabControl _tabs;
     private System.Windows.Forms.TabPage _generalTab;
     private System.Windows.Forms.TableLayoutPanel _generalLayout;

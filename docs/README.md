@@ -40,6 +40,9 @@ non esiste più, si tiene per il perché.
   contratto, effetto su size e `signals.json`. *Stabile.*
 - [`domini/backtesting.md`](domini/backtesting.md) — `signals.json`/
   `trades.json`, contratto cross-engine. *Bozza.*
+- [`domini/best-plans.md`](domini/best-plans.md) — backtest messi in evidenza,
+  fotografati fuori dai workspace in `best-plans/`: cosa si copia, da dove viene
+  la curva, cifre per anno. *Bozza.*
 - [`domini/orologio-barre-e-fill.md`](domini/orologio-barre-e-fill.md) —
   orologio sintetico del loop, buchi del feed, fill fantasma e come validare i
   fill di un run. *Stabile.*

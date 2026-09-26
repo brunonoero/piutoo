@@ -21,6 +21,7 @@ partial class PlanListScreen
         this.components = new System.ComponentModel.Container();
         this._bindingSource = new System.Windows.Forms.BindingSource(this.components);
         this._grid = new System.Windows.Forms.DataGridView();
+        this._colStatus = new System.Windows.Forms.DataGridViewTextBoxColumn();
         this._colCode = new System.Windows.Forms.DataGridViewTextBoxColumn();
         this._colName = new System.Windows.Forms.DataGridViewTextBoxColumn();
         this._colAccounts = new System.Windows.Forms.DataGridViewTextBoxColumn();
@@ -41,6 +42,7 @@ partial class PlanListScreen
         this._grid.BorderStyle = System.Windows.Forms.BorderStyle.None;
         this._grid.ColumnHeadersHeightSizeMode = System.Windows.Forms.DataGridViewColumnHeadersHeightSizeMode.AutoSize;
         this._grid.Columns.AddRange(new System.Windows.Forms.DataGridViewColumn[] {
+            this._colStatus,
             this._colCode,
             this._colName,
             this._colAccounts,
@@ -60,7 +62,17 @@ partial class PlanListScreen
         this._grid.CellDoubleClick += new System.Windows.Forms.DataGridViewCellEventHandler(this.OnGridCellDoubleClick);
         this._grid.SelectionChanged += new System.EventHandler(this.OnSelectionChanged);
         this._grid.KeyDown += new System.Windows.Forms.KeyEventHandler(this.OnGridKeyDown);
-        // 
+        this._grid.CellFormatting += new System.Windows.Forms.DataGridViewCellFormattingEventHandler(this.OnGridCellFormatting);
+        //
+        // _colStatus
+        //
+        this._colStatus.DataPropertyName = "Status";
+        this._colStatus.FillWeight = 55F;
+        this._colStatus.HeaderText = "Stato";
+        this._colStatus.Name = "_colStatus";
+        this._colStatus.ReadOnly = true;
+        this._colStatus.ToolTipText = "Un piano bloccato non si modifica e non si elimina: per cambiarlo si duplica";
+        //
         // _colCode
         // 
         this._colCode.DataPropertyName = "Code";
@@ -106,6 +118,9 @@ partial class PlanListScreen
         // 
         // _toolbar
         // 
+        this._toolbar.CanExport = true;
+        this._toolbar.ExportButtonText = "Duplica…";
+        this._toolbar.ExportRequested += new System.EventHandler(this.OnDuplicateRequested);
         this._toolbar.CreateButtonText = "Nuovo piano";
         this._toolbar.Dock = System.Windows.Forms.DockStyle.Top;
         this._toolbar.FilterPlaceholder = "Filtra per codice o nome…";
@@ -137,6 +152,7 @@ partial class PlanListScreen
 
     private System.Windows.Forms.BindingSource _bindingSource;
     private System.Windows.Forms.DataGridView _grid;
+    private System.Windows.Forms.DataGridViewTextBoxColumn _colStatus;
     private System.Windows.Forms.DataGridViewTextBoxColumn _colCode;
     private System.Windows.Forms.DataGridViewTextBoxColumn _colName;
     private System.Windows.Forms.DataGridViewTextBoxColumn _colAccounts;

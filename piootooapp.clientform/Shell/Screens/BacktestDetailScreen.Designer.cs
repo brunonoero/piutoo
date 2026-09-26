@@ -25,6 +25,7 @@ partial class BacktestDetailScreen
         this._reportButton = new System.Windows.Forms.Button();
         this._exportButton = new System.Windows.Forms.Button();
         this._generateReportButton = new System.Windows.Forms.Button();
+        this._promoteButton = new System.Windows.Forms.Button();
         this._tabs = new System.Windows.Forms.TabControl();
         this._summaryTab = new System.Windows.Forms.TabPage();
         this._summaryJsonBox = new System.Windows.Forms.TextBox();
@@ -78,6 +79,7 @@ partial class BacktestDetailScreen
         this._commandPanel.Controls.Add(this._reportButton);
         this._commandPanel.Controls.Add(this._exportButton);
         this._commandPanel.Controls.Add(this._generateReportButton);
+        this._commandPanel.Controls.Add(this._promoteButton);
         this._commandPanel.Dock = System.Windows.Forms.DockStyle.Top;
         this._commandPanel.Location = new System.Drawing.Point(0, 44);
         this._commandPanel.Name = "_commandPanel";
@@ -117,6 +119,17 @@ partial class BacktestDetailScreen
         this._generateReportButton.TabIndex = 2;
         this._generateReportButton.Text = "Genera report";
         this._generateReportButton.Click += new System.EventHandler(this.OnGenerateReportClick);
+        //
+        // _promoteButton
+        //
+        this._promoteButton.AutoSize = true;
+        this._promoteButton.Enabled = false;
+        this._promoteButton.Margin = new System.Windows.Forms.Padding(18, 0, 6, 0);
+        this._promoteButton.Name = "_promoteButton";
+        this._promoteButton.Size = new System.Drawing.Size(160, 25);
+        this._promoteButton.TabIndex = 3;
+        this._promoteButton.Text = "★ Promuovi a best plan";
+        this._promoteButton.Click += new System.EventHandler(this.OnPromoteClick);
         //
         // _tabs
         //
@@ -444,6 +457,7 @@ partial class BacktestDetailScreen
     private System.Windows.Forms.Button _reportButton;
     private System.Windows.Forms.Button _exportButton;
     private System.Windows.Forms.Button _generateReportButton;
+    private System.Windows.Forms.Button _promoteButton;
     private System.Windows.Forms.TabControl _tabs;
     private System.Windows.Forms.TabPage _summaryTab;
     private System.Windows.Forms.Label _headlineLabel;

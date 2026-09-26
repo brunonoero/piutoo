@@ -295,6 +295,8 @@ public sealed class TradingPlanService
 
             var plans = Read(workspaceId);
             var existing = Find(plans, code);
+            if (existing is { Locked: true })
+                throw new InvalidOperationException(LockedMessage(existing));
             var now = DateTime.UtcNow;
             var plan = new TradingPlan
             {
@@ -329,10 +331,97 @@ public sealed class TradingPlanService
             var plans = Read(workspaceId);
             var existing = Find(plans, code)
                 ?? throw new KeyNotFoundException($"Piano '{code}' non trovato nel workspace '{workspaceId}'.");
+            if (existing.Locked)
+                throw new InvalidOperationException(LockedMessage(existing));
             plans.Remove(existing);
             Write(workspaceId, plans);
         }
     }
+
+    /// <summary>
+    /// Blocca il piano: da qui in avanti <see cref="Save"/> e <see cref="Delete"/> lo rifiutano.
+    /// Bloccare un piano gia' bloccato non cambia nulla, nemmeno la data del blocco.
+    /// </summary>
+    public TradingPlan Lock(string workspaceId, string code)
+    {
+        lock (_gate)
+        {
+            var plans = Read(workspaceId);
+            var existing = Find(plans, code)
+                ?? throw new KeyNotFoundException($"Piano '{code}' non trovato nel workspace '{workspaceId}'.");
+            if (existing.Locked)
+                return existing;
+
+            var locked = Copy(existing, existing.Code, existing.Name, locked: true,
+                lockedUtc: DateTime.UtcNow, existing.CreatedUtc, existing.UpdatedUtc);
+            plans.Remove(existing);
+            plans.Add(locked);
+            Write(workspaceId, plans);
+            return locked;
+        }
+    }
+
+    /// <summary>
+    /// Copia il piano, nello stesso workspace, con un codice nuovo. E' il modo di modificare un
+    /// piano bloccato, e vale anche per quelli sbloccati: la copia nasce sbloccata, con date nuove,
+    /// e tutto il resto — conti, tenuta, strategie spente, size — uguale all'originale.
+    /// </summary>
+    public TradingPlan Duplicate(string workspaceId, string code, DuplicateTradingPlanRequest request)
+    {
+        var newCode = NormalizeCode(request.NewCode);
+        lock (_gate)
+        {
+            var plans = Read(workspaceId);
+            var source = Find(plans, code)
+                ?? throw new KeyNotFoundException($"Piano '{code}' non trovato nel workspace '{workspaceId}'.");
+
+            // Il codice e' globale (Resolve lo cerca in tutti i workspace): la copia non puo'
+            // riusarne uno, nemmeno di un altro workspace.
+            var collision = _workspaces.List()
+                .SelectMany(workspace => Read(workspace.Id))
+                .FirstOrDefault(plan => plan.Code.Equals(newCode, StringComparison.OrdinalIgnoreCase));
+            if (collision is not null)
+                throw new InvalidOperationException(
+                    $"Il codice piano '{newCode}' è già usato nel workspace '{collision.WorkspaceId}'.");
+
+            var name = string.IsNullOrWhiteSpace(request.NewName) ? $"{source.Name} (copia)" : request.NewName.Trim();
+            var now = DateTime.UtcNow;
+            var copy = Copy(source, newCode, name, locked: false, lockedUtc: null, now, now);
+            plans.Add(copy);
+            Write(workspaceId, plans);
+            return copy;
+        }
+    }
+
+    private static string LockedMessage(TradingPlan plan)
+        => $"Il piano '{plan.Code}' è bloccato" +
+           (plan.LockedUtc is { } at ? $" dal {at:yyyy-MM-dd HH:mm} UTC" : string.Empty) +
+           ": non si modifica e non si elimina. Per cambiarlo duplicalo e modifica la copia.";
+
+    /// <summary>Tutti i campi del piano, con identita', blocco e date scelti dal chiamante.</summary>
+    private static TradingPlan Copy(
+        TradingPlan plan, string code, string name, bool locked, DateTime? lockedUtc, DateTime createdUtc, DateTime updatedUtc)
+        => new()
+        {
+            WorkspaceId = plan.WorkspaceId,
+            Code = code,
+            Name = name,
+            BrokerCode = plan.BrokerCode,
+            Accounts = plan.Accounts.ToList(),
+            AccountNumber = plan.AccountNumber,
+            MaxConcurrentTrades = plan.MaxConcurrentTrades,
+            ConcurrencyCountMode = plan.ConcurrencyCountMode,
+            EnforceConcurrencyLimits = plan.EnforceConcurrencyLimits,
+            CommissionPerContract = plan.CommissionPerContract,
+            Holding = plan.Holding,
+            SizeMultiplier = plan.SizeMultiplier,
+            DisabledStrategies = plan.DisabledStrategies.ToList(),
+            PositionSizing = plan.PositionSizing,
+            CreatedUtc = createdUtc,
+            UpdatedUtc = updatedUtc,
+            Locked = locked,
+            LockedUtc = lockedUtc
+        };
 
     private List<TradingPlan> Read(string workspaceId)
     {
@@ -526,7 +615,9 @@ public sealed class TradingPlanService
             DisabledStrategies = NormalizeDisabledStrategies(plan.DisabledStrategies),
             PositionSizing = plan.PositionSizing,
             CreatedUtc = plan.CreatedUtc,
-            UpdatedUtc = plan.UpdatedUtc
+            UpdatedUtc = plan.UpdatedUtc,
+            Locked = plan.Locked,
+            LockedUtc = plan.LockedUtc
         };
     }
 

@@ -144,6 +144,7 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
     private string _workspaceId = string.Empty;
     private string? _code;
     private bool _isNew;
+    private bool _locked;
     private bool _suspendDirtyTracking;
     private bool _isDirty;
 
@@ -228,11 +229,11 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
             }
 
             var plan = await _context.Services.Plans.GetAsync(_workspaceId, _code!, cancellationToken);
-            _toolbar.Title = $"Piano {plan.Code}";
             _codeTextBox.ReadOnly = true;
             Fill(plan);
             await RefreshGroupChoicesAsync(cancellationToken);
             await RefreshHoldingImpactAsync(cancellationToken);
+            ApplyLockState(plan);
             _context.Navigation.SetStatus(
                 $"Piano '{plan.Code}' su {plan.Accounts.Count} conti, " +
                 $"aggiornato il {plan.UpdatedUtc:yyyy-MM-dd HH:mm} UTC.");
@@ -1047,7 +1048,7 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
 
     private async void OnSaveRequested(object? sender, EventArgs e)
     {
-        if (_context == null)
+        if (_context == null || _locked)
         {
             return;
         }
@@ -1176,7 +1177,7 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
             await RefreshGroupChoicesAsync(CancellationToken.None);
             _suspendDirtyTracking = false;
             SetDirty(false);
-            _toolbar.Title = $"Piano {saved.Code}";
+            ApplyLockState(saved);
             _context.Navigation.SetStatus($"Piano '{saved.Code}' salvato nel workspace '{targetWorkspaceId}'.");
         }
         catch (Exception ex)
@@ -1192,4 +1193,159 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
 
     private static string? NullIfEmpty(string value)
         => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    // --- blocco e duplicazione --------------------------------------------
+
+    /// <summary>
+    /// Un piano bloccato si vede da tre parti: il lucchetto nel titolo, il banner arancione sopra i
+    /// tab e l'assenza di Salva. I campi restano leggibili ma non modificabili; le lenti del tab
+    /// Strategie (ricerca, simbolo, prefisso) restano attive perche' non cambiano il piano. Il
+    /// server rifiuta comunque ogni salvataggio: questa e' la forma, la regola e' la'.
+    /// </summary>
+    private void ApplyLockState(TradingPlan plan)
+    {
+        _locked = plan.Locked;
+        _toolbar.Title = plan.Locked ? $"🔒 Piano {plan.Code} — bloccato" : $"Piano {plan.Code}";
+        _toolbar.CanSave = !plan.Locked;
+        _lockedBanner.Visible = plan.Locked;
+        _lockedBanner.Text = plan.Locked
+            ? "🔒 Piano bloccato" +
+              (plan.LockedUtc is { } at ? $" dal {at:yyyy-MM-dd HH:mm} UTC" : string.Empty) +
+              " — in sola lettura. Per modificarlo usa \"Duplica…\" e lavora sulla copia."
+            : string.Empty;
+        _duplicateButton.Enabled = true;
+        _lockButton.Enabled = !plan.Locked;
+        _lockButton.Text = plan.Locked ? "🔒 Bloccato" : "🔒 Blocca piano";
+        SetEditable(_tabs, !plan.Locked);
+    }
+
+    private void SetEditable(Control root, bool editable)
+    {
+        foreach (Control control in root.Controls)
+        {
+            if (control == _strategyFilterBox || control == _strategySymbolCombo
+                || control == _strategyPrefixBox || control == _onlySelectedStrategiesCheck)
+            {
+                continue;
+            }
+
+            switch (control)
+            {
+                case TabControl or TabPage or Panel or GroupBox:
+                    SetEditable(control, editable);
+                    break;
+                case DataGridView grid:
+                    grid.ReadOnly = !editable;
+                    break;
+                case TextBox box:
+                    // Il codice resta sempre in sola lettura su un piano esistente.
+                    box.ReadOnly = !editable || box == _codeTextBox;
+                    break;
+                case Label:
+                    break;
+                default:
+                    control.Enabled = editable;
+                    break;
+            }
+        }
+
+        if (editable)
+        {
+            // Le griglie non editabili per natura tornano come le vuole il designer.
+            _conflictsGrid.ReadOnly = true;
+            ApplyHoldingEnablement();
+        }
+    }
+
+    private async void OnLockClick(object? sender, EventArgs e)
+    {
+        if (_context == null || _isNew || _code is null)
+        {
+            return;
+        }
+
+        if (_isDirty)
+        {
+            MessageBox.Show(this, "Ci sono modifiche non salvate: salvale o annullale prima di bloccare il piano.",
+                "Blocca piano", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        if (MessageBox.Show(
+                this,
+                $"Bloccare il piano '{_code}'?{Environment.NewLine}{Environment.NewLine}" +
+                "Un piano bloccato non si modifica e non si elimina piu', nemmeno da qui: per cambiarlo " +
+                "si duplica e si lavora sulla copia. Il blocco non si toglie dalla console.",
+                "Blocca piano",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Warning) != DialogResult.Yes)
+        {
+            return;
+        }
+
+        _toolbar.SetBusy(true);
+        try
+        {
+            var plan = await _context.Services.Plans.LockAsync(_workspaceId, _code);
+            ApplyLockState(plan);
+            _context.Navigation.SetStatus($"Piano '{plan.Code}' bloccato.");
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, ex.Message, "Blocca piano", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+        finally
+        {
+            _toolbar.SetBusy(false);
+        }
+    }
+
+    /// <summary>
+    /// Copia il piano con un codice nuovo e apre la copia, che nasce sbloccata. Si copia il piano
+    /// come e' sul server: le modifiche non salvate di questa schermata non entrano nella copia.
+    /// </summary>
+    private async void OnDuplicateClick(object? sender, EventArgs e)
+    {
+        if (_context == null || _isNew || _code is null)
+        {
+            return;
+        }
+
+        if (_isDirty && MessageBox.Show(
+                this,
+                "Ci sono modifiche non salvate: la copia parte dal piano salvato, senza queste modifiche. Continuare?",
+                "Duplica piano", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
+        {
+            return;
+        }
+
+        using var dialog = new TextPromptDialog
+        {
+            Text = "Duplica piano",
+            Prompt = $"Codice del nuovo piano (copia di '{_code}'):",
+            Value = _code + "-B"
+        };
+        if (dialog.ShowDialog(this) != DialogResult.OK)
+        {
+            return;
+        }
+
+        _toolbar.SetBusy(true);
+        try
+        {
+            var copy = await _context.Services.Plans.DuplicateAsync(_workspaceId, _code, dialog.Value, null);
+            _context.Navigation.SetStatus($"Piano '{_code}' duplicato in '{copy.Code}'.");
+            var detail = new PlanDetailScreen();
+            detail.SetPlan(_workspaceId, copy.Code);
+            _context.Navigation.Push(detail);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, ex.Message, "Duplica piano", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+        finally
+        {
+            _toolbar.SetBusy(false);
+        }
+    }
 }

@@ -42,4 +42,25 @@ public sealed class TradingPlanApiClient : ApiClientBase
             cancellationToken);
         _ = response;
     }
+
+    /// <summary>Blocca il piano: il server rifiutera' ogni modifica e l'eliminazione.</summary>
+    public Task<TradingPlan> LockAsync(string workspaceId, string code, CancellationToken cancellationToken = default)
+        => SendForAsync<TradingPlan>(
+            HttpMethod.Post,
+            $"api/v1/workspaces/{Escape(workspaceId)}/trading-plans/{Escape(code)}/lock",
+            null,
+            cancellationToken);
+
+    /// <summary>Copia il piano con un codice nuovo, nello stesso workspace. La copia e' sbloccata.</summary>
+    public Task<TradingPlan> DuplicateAsync(
+        string workspaceId,
+        string code,
+        string newCode,
+        string? newName,
+        CancellationToken cancellationToken = default)
+        => SendForAsync<TradingPlan>(
+            HttpMethod.Post,
+            $"api/v1/workspaces/{Escape(workspaceId)}/trading-plans/{Escape(code)}/duplicate",
+            new DuplicateTradingPlanRequest { NewCode = newCode, NewName = newName },
+            cancellationToken);
 }
