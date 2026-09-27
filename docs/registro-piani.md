@@ -131,6 +131,29 @@ Il piano `PT3B-FDAX` (ICS) ha backtest cTrader in archivio ma non esiste piu' in
   di crollo; la 002 ha il drawdown piu' largo (53k da sola).
 - Backtest cTrader: da fare.
 
+- **Best plan** dal 27/09/2026 (run cBot 01/08/2025 → 24/09/2026: 372 trade, +14.604, DD 2.704,
+  giorno peggiore −1.651), con la scheda completa nel best plan. Il piano e' quindi bloccato.
+
+### `FTMO-PT3B-INDICI-X15` — workspace `ftmo-pt3b-indici` (27/09/2026)
+
+- Duplicato di `FTMO-PT3B-INDICI` con **`SizeMultiplier` 1,5**, tutto il resto identico. Atteso sul
+  conto, dal run a × 1: DD ~4.300, giorno peggiore ~−2.500. × 2 e' stato scartato: con la regola
+  prudente del drawdown futuro doppio di quello visto supererebbe il limite FTMO di 10.000.
+- Backtest cTrader: da fare, poi promozione con la sua scheda.
+
+### `PT5DAV-C2` — workspace `ftmo-pt5dav-congelato-p2` (27/09/2026)
+
+- Il piano 2 dei piani congelati (`ricerca/piani-congelati-2025-09-01`): 8 PT5DAV scelte e composte
+  sui soli trade fino al 01/09/2025. Tenuta dei piani PT5DAV (overnight e overweek ammessi, flat 20:45
+  UTC), commissione 2, `SizeMultiplier` 1.
+- **Backtest interno** (`pt5dav-c2-2022-2026`, FTMO 06/2022 → 26/09/2026): prima del 01/09/2025 net/DD
+  14,50, **dopo 3,87** (514 trade, +90.884, DD 23.515, giorno peggiore −12.946; sul conto ~+9,1k,
+  DD ~2,4k). **Riserva forte**: dopo il congelamento 4 strategie su 8 perdono (`BP_PCH_001_30`,
+  `ES_VBO_001_30`, `YM_LFH_002_30`, e `GC_RHL_002_240` quasi pari con DD 30k); il netto viene quasi
+  tutto da `NQ_TFM_001_60` (+57,6k) e `GC_VBO_002_240` (+32,1k). Non si toglie niente a posteriori:
+  sarebbe di nuovo selezione sul periodo di prova.
+- Backtest cTrader: da fare.
+
 ### `FTMO-PT3B-002-RHL` — workspace `ftmo-pt3b-paniere` (27/09/2026)
 
 - `PT3B_FDAX_PCH_002_240` + `PT3B_FDAX_RHL_001_240`, stessa tenuta di `FTMO-PT3-DAX`.
