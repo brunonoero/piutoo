@@ -58,10 +58,14 @@ public sealed class ResearchPathStudy(ITestOutputHelper output)
         var engines = parts[0] == "*" ? ResearchPathEngines.Keys.ToList() : parts[0].Split(',', StringSplitOptions.TrimEntries).ToList();
         var symbol = "@" + parts[1].TrimStart('@').ToUpperInvariant();
         var timeframe = int.Parse(parts[2], CultureInfo.InvariantCulture);
-        await RunAsync(engines, symbol, timeframe);
+        // Quarta parte opzionale "FTMO": si cerca sul feed del broker anche dove c'e' la storia lunga
+        // interna (ricerca nov 2020 → set 2024, prova fino a set 2026). Serve a misurare se sul DAX
+        // conviene cercare solo nel regime dopo il 2020.
+        var brokerOnly = parts.Length > 3 && string.Equals(parts[3], Broker, StringComparison.OrdinalIgnoreCase);
+        await RunAsync(engines, symbol, timeframe, brokerOnly);
     }
 
-    private async Task RunAsync(List<string> engines, string symbol, int timeframe)
+    private async Task RunAsync(List<string> engines, string symbol, int timeframe, bool brokerOnly = false)
     {
         var settings = new PiootooSettings
         {
@@ -83,7 +87,7 @@ public sealed class ResearchPathStudy(ITestOutputHelper output)
             Holding = AccountHoldingPolicy.Default with { AllowOvernight = true, AllowOverweek = true }
         };
 
-        var periods = LongHistory.TryGetValue(symbol, out var longHistory)
+        var periods = !brokerOnly && LongHistory.TryGetValue(symbol, out var longHistory)
             ? longHistory
             : new Periods(Broker, Utc(2020, 11, 9), Utc(2024, 9, 1), Utc(2024, 9, 1), End);
 
@@ -203,7 +207,7 @@ public sealed class ResearchPathStudy(ITestOutputHelper output)
             Write(section.ToString());
             report.AppendLine($"## {definition.Engine}").AppendLine().Append(section).AppendLine();
             summary.Add(verdict);
-            SaveReport(symbol, timeframe, report, summary);
+            SaveReport(symbol, timeframe, report, summary, brokerOnly ? "-ricerca-ftmo" : string.Empty);
         }
     }
 
@@ -321,14 +325,14 @@ public sealed class ResearchPathStudy(ITestOutputHelper output)
     }
 
     /// <summary>Il resoconto si riscrive a ogni motore: un run interrotto lascia quello che ha fatto.</summary>
-    private static void SaveReport(string symbol, int timeframe, StringBuilder report, List<string> summary)
+    private static void SaveReport(string symbol, int timeframe, StringBuilder report, List<string> summary, string suffix)
     {
         var folder = Path.Combine(RepositoryPath, "ricerca", "percorso");
         Directory.CreateDirectory(folder);
         var text = new StringBuilder(report.ToString());
         text.AppendLine("## Riepilogo").AppendLine();
         foreach (var line in summary) text.AppendLine($"- {line}");
-        File.WriteAllText(Path.Combine(folder, $"{symbol.TrimStart('@').ToLowerInvariant()}-{timeframe}.md"), text.ToString(), Encoding.UTF8);
+        File.WriteAllText(Path.Combine(folder, $"{symbol.TrimStart('@').ToLowerInvariant()}-{timeframe}{suffix}.md"), text.ToString(), Encoding.UTF8);
     }
 
     /// <summary>Un valore del passo: le leve di un trigger scelto insieme sono un dizionario.</summary>

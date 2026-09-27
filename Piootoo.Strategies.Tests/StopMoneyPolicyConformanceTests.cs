@@ -218,7 +218,9 @@ public sealed class StopMoneyPolicyConformanceTests(ITestOutputHelper output)
                 // valore dipende dalla storia e non si legge da un campo. Qui si verifica che lo stop
                 // ci sia quando e' dichiarato; che sia quello giusto lo misura Pt5DavParityStudy
                 // contro i trade della ricerca.
-                if (ReadField(strategy, "StopAtr") is > 0m)
+                // Lo stesso per i motori condivisi, che lo dichiarano in StopAtrMultiplier (ATR delle
+                // 14 sessioni chiuse): PT3B_FDAX_RHL_001_240 dal 27/09/2026.
+                if (ReadField(strategy, "StopAtr") is > 0m || ReadField(strategy, "StopAtrMultiplier") is > 0m)
                 {
                     if (emitted.StopLossMoneyPerFutureContract is not > 0m)
                         violations.Add($"{id}: stop in ATR dichiarato, nessuno stop emesso.");

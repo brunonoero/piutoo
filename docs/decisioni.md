@@ -4569,6 +4569,29 @@ che il motore fa. Difetto di artefatto, non di esecuzione, ma e' costato mezza i
   Riconciliazione sul periodo broker FTMO, mediana per strategia: CL e YM 100%, GC 99%, ES e FDAX 98%,
   BP 97%, NQ 96%, BTC 92%.
 
+- **2026-09-24** — **Criteri della ricerca Python nella griglia e nella sweep; contenitori per ogni
+  motore; stop in ATR che non funzionava.** Letta la consegna v5.0 (41 dei 224 reggono sul periodo
+  mai visto), i criteri che separano chi regge sono di regolarita', non di netto. Portati come
+  funzioni pure in `ResearchCriteria`: costanza negli anni (>= 5 trade in ogni anno che ne ha, >= 12
+  all'anno, meta' degli anni in utile), outlier (trade migliore <= 30% del netto, dentro e fuori),
+  soglia di average trade e UngerFit, test dei pattern casuali (200 estrazioni, estremo inferiore di
+  Wilson al 90% <= 0,20). La **griglia grossa** li stampa e li usa per le "robuste"; la **sweep** li
+  applica in validazione (`SweepValidationOptions.ResearchGates`, acceso), con in piu' "pattern
+  utile" (fuori campione l'average trade con i pattern batte quello con i pattern alla sentinella) e
+  il test casuale sulle sole finaliste che hanno passato il resto. Non portati ancora: la regola D2
+  dello stop e la conferma di ogni passo sull'ultimo terzo, che cambiano la scelta dentro le fasi e non
+  il giudizio finale. **Contenitori generici** `RC_*` (`ResearchContainers/`), uno per motore: simbolo,
+  timeframe e ogni leva dai parametri, con gli alias dei report (`StopAtr`, `PtnNeutYes`...); una
+  chiave che il motore non ha **ferma** la configurazione invece di restare inerte, salvo le chiavi
+  comuni al valore spento. Su questi gira la **matrice** (`CoarseGridMatrixTests`, cella da
+  `PIOOTOO_CELLA`, coda da `tools/genera-coda-matrice.ps1`). **Difetto trovato dalla prima cella**:
+  con stop o target in ATR la finestra minima dei motori era di sei sessioni e l'ATR a quattordici non
+  si calcolava mai, quindi stop e target restavano a zero in silenzio (RHL UK100 4h: netto identico al
+  centesimo per tre stop e tre target). Ora `EasyEngineBase.RequiredCandles` copre le sessioni dell'ATR
+  (`AtrWarmupCandles`), anche nel MAC che non passava dalla base. Nessuna griglia precedente usava stop
+  in ATR: nessuna conclusione passata cambia. Test: `ResearchCriteriaTests`,
+  `ResearchContainerSettingsTests`.
+
 - **2026-09-25** — **Livello gia' superato: lo decide la strategia (7.7.0). Le PT5DAV lo eseguono a
   mercato, le PT3B continuano a scartarlo.** Un ordine Stop o Limit che nasce con il livello gia'
   superato (stop buy sotto l'Ask, limit buy sopra) fino a oggi lo scartavano sempre sia il cBot sia il
@@ -4607,6 +4630,22 @@ che il motore fa. Difetto di artefatto, non di esecuzione, ma e' costato mezza i
   crash, ed e' li' che un conto salta. Non giudica le strategie e non normalizza il rischio: le candidate
   arrivano gia' passate dal metodo, da un run neutro con le stesse size. Skill `motore-pt6exo`,
   `controllo-ran`, `piani-scorrelati`.
+- **2026-09-25** — **Ripresa dopo il riavvio del server: robusta lato server, prima del cBot.** Una
+  revisione dei due scenari di riavvio (server, cTrader) ha trovato che la sessione ripresa restava
+  **muta**: senza storia, riceveva per prima la finestra da venti barre e `Backfill` scartava tutto il
+  riscaldamento profondo rimandato dal bot, perche' accodava solo candele piu' recenti dell'ultima nota.
+  Ora la ripresa si riscalda dal disco come un'apertura nuova, il riscaldamento del cBot antepone le
+  candele piu' vecchie e **sostituisce** una storia staccata invece di farsi rifiutare (la finestra da
+  valutare con un buco resta rifiutata). Una ripresa rifiutata non azzera piu' la cartella: il run
+  precedente si copia in `archivio/` e la sessione nuova porta nel presidio `RipresaRifiutata` con le
+  posizioni del dump. Una sessione `Stopped` si riprende ferma invece di essere rifiutata, perche' il
+  rifiuto faceva aprire al cBot una sessione nuova e cieca. Alla ripresa si scartano i template la cui
+  barra e' finita secondo l'orologio vero: l'orologio dello stream e' fermo al dump e un segnale di ore
+  prima diventava un ordine. Dump illeggibile e dump che non si scrive non sono piu' silenzi (esito di
+  avvio, rilievo `DumpDiRipresaNonAggiornato`). L'impronta **non** si allarga a sizing e moltiplicatore:
+  piu' rifiuti vuol dire piu' posizioni senza governo, per cambi che non toccano l'uscita di cio' che e'
+  a mercato. Il resto — riconciliazione all'avvio del bot, outbox, lock di istanza, uscite che perdono il
+  buco — tocca il cBot ed e' elencato in `domini/riavvio-del-server-e-ripresa-sessione.md` §9.
 - **2026-09-26** — **Best plans e piani bloccati.** Un backtest che ha funzionato si promuove a
   best plan dal suo dettaglio: il server ne fotografa cifre per anno, curva di equity, strategie e
   artefatti in `[BasePath]\best-plans\`, fuori dai workspace, cosi' la pulizia delle cartelle di
@@ -4616,3 +4655,22 @@ che il motore fa. Difetto di artefatto, non di esecuzione, ma e' costato mezza i
   di proposito: il codice di un best plan deve continuare a nominare la configurazione misurata.
   Primo best plan: PT5DAV-P1 su FTMO via cBot, 01/09/2025-24/09/2026, +81.699 (81,7%), DD 2,2%
   sulla curva realizzata.
+
+- **2026-09-27** — **Percorso v4 in C#, tre controlli dopo la prova, prima finalista: PT3B_FDAX_RHL_001_240.**
+  Il percorso di ricerca della v4.0 (`ResearchPath`, un passo alla volta con regole di accettazione e
+  conferma sull'ultimo terzo) cerca sulla storia lunga interna e prova sul feed FTMO mai visto. Su FDAX
+  4h e 1h e su NQ 4h (36 motori) trova configurazioni ottime in ricerca che su FTMO non reggono, e tre
+  controlli, ora automatici in `ResearchPathStudy`, le fanno cadere: **due feed** (stesso periodo,
+  interno e FTMO: LFHL viveva di 75 trade decisi da pochi punti di differenza fra future e CFD),
+  **anni** (almeno il 60% in utile, nessun anno oltre il 40% del netto: LFHL faceva meta' del netto
+  nel 2022), **altri mercati** (stessa regola su meta' della famiglia: il filtro di volatilita' su LFHL
+  valeva sul solo DAX). Cercando **solo su FTMO** (nov 2020 → set 2024, prova fino a set 2026) il
+  percorso trova RHL long: limit 20 punti sotto il minimo di ieri fino alle 10, pattern 34, stop e
+  target 1 ATR. Prova +62.519 net/DD 3,20; feed interno 2008-2020 mai visto +64.716 net/DD 1,44, 10
+  anni su 13; 6 indici su 7 con net/DD ≥ 1; controllo RAN al 96° percentile sulla prova e al 100° sul
+  2008-2020, dove il caso con le stesse uscite perde. Riserva: circa 12 trade all'anno. Classe accanto
+  al contenitore, riprodotta trade per trade (`Pt3bFdaxRhl001ReproductionStudy`); nessun piano.
+  Trovati e corretti per strada: il feed interno del DAX finisce a maggio 2025; gli aggregati FTMO del
+  Nasdaq (e platino 4h, 30m di CL/ES/GC/NG/CC) partivano da luglio 2025 e sono stati ricostruiti dal
+  minuto; le leve di un contenitore devono essere campi non pubblici (`ResearchContainerFieldsTests`).
+  Resoconti in `ricerca/percorso/`.
