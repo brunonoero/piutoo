@@ -17,6 +17,58 @@ public sealed class Pt3bFdaxRhl001PlanHoldingStudy(ITestOutputHelper output)
 {
     private const string RepositoryPath = @"C:\piootoo-dev\piootoo-repository";
 
+    /// <summary>
+    /// Il periodo del primo backtest cBot (12/08/2025 → 26/09/2026) con il filtro dei livelli gia'
+    /// scavalcati spento (come la ricerca) e acceso (come il cBot): nel cBot RHL ha emesso 54 intent,
+    /// 25 rifiutati, 2 riempiti.
+    /// </summary>
+    [Fact]
+    [Trait("Category", ResearchStudy.Category)]
+    public async Task WrongSideLevelsOnTheCbotPeriod()
+    {
+        if (ResearchStudy.IsSkipped(output)) return;
+
+        var settings = new PiootooSettings
+        {
+            BasePath = RepositoryPath,
+            RepositoryPath = @"[BasePath]\datafeed",
+            ExternalRepositoryPath = @"[BasePath]\datafeed-external",
+            SpreadPath = @"[BasePath]\spread"
+        };
+        var spread = SpreadTable.Load(settings.GetSpreadPath(), "FTMO", SpreadStatistic.Median, SpreadResolution.PerSymbol).Points["FDAX"];
+        var swap = SwapTable.Load(settings.GetSwapPath(), "FTMO").Specs["FDAX"];
+        var series = await SweepSeries.LoadAsync(new PiootooDataFeedService(new DatafeedCatalog(settings)), "@FDAX", [240, 1],
+            new DateTime(2025, 8, 12, 0, 0, 0, DateTimeKind.Utc), new DateTime(2026, 9, 26, 0, 0, 0, DateTimeKind.Utc), "FTMO", warmupDays: 60d);
+
+        foreach (var reject in new[] { false, true })
+        {
+            var job = new SweepJob("PT3B_FDAX_RHL_001_240")
+            {
+                InitialCapital = 1_000_000m,
+                CommissionPerContract = 0m,
+                ClockTimeframeMinutes = 1,
+                SpreadPoints = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase) { ["FDAX"] = spread },
+                Swap = new Dictionary<string, SwapSpec>(StringComparer.OrdinalIgnoreCase) { ["FDAX"] = swap },
+                RejectWrongSideLevels = reject,
+                Holding = AccountHoldingPolicy.Default with
+                {
+                    AllowOvernight = false, AllowOverweek = false,
+                    SessionFlatUtc = new TimeOnly(20, 45), SessionFlatWindowMinutes = 30
+                }
+            };
+            var outcome = new SweepRunner(series).Run(job);
+            var line = $"livelli scavalcati {(reject ? "SCARTATI (cBot)" : "eseguiti (ricerca)")}: {outcome.Trades} trade, netto {outcome.NetProfit:N0}";
+            output.WriteLine(line);
+            Console.WriteLine(line);
+            foreach (var trade in outcome.ClosedTrades)
+            {
+                var detail = $"  {trade.EntryDate:yyyy-MM-dd HH:mm} → {trade.ExitDate:yyyy-MM-dd HH:mm} {trade.EntryPrice} → {trade.ExitPrice} {trade.NetProfit:N0} {trade.ExitReason}";
+                output.WriteLine(detail);
+                Console.WriteLine(detail);
+            }
+        }
+    }
+
     [Fact]
     [Trait("Category", ResearchStudy.Category)]
     public async Task TheResearchHoldingAgainstThePlanHolding()

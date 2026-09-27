@@ -1,4 +1,6 @@
 using Piootoo.Shared.Configuration;
+using Piootoo.Shared.Enums;
+using Piootoo.Shared.Models;
 using Piootoo.Strategies.Easy.Engines;
 
 namespace Piootoo.Strategies.PT3BStrategies;
@@ -80,6 +82,26 @@ public sealed class PT3B_FDAX_RHL_001_240 : RhlEngine
         TrailingStopMoney = 0;
         BreakEvenMoney = 0;
         MaxBars = 0;                    // nessuna uscita a tempo
+    }
+
+    /// <summary>
+    /// Il limit nasce spesso con il livello gia' superato: il DAX apre la barra sotto il minimo di ieri
+    /// meno 20 punti. La ricerca, la prova 2024-2026, il 2008-2020 e il controllo RAN hanno eseguito quei
+    /// casi all'apertura della barra, e sono 20 trade su 22 nel periodo del primo backtest cBot
+    /// (12/08/2025 → 26/09/2026): con il default (<see cref="CrossedLevelPolicy.Reject"/>) il cBot li
+    /// scartava tutti e la strategia ne faceva 2. Si dichiara quindi <see cref="CrossedLevelPolicy.Market"/>,
+    /// come le PT5DAV: stesso comportamento in ricerca, motore interno e cBot.
+    /// </summary>
+    public new TradeSignal GenerateSignal(OhlcvData[] data, DateTime currentDate)
+    {
+        var signal = base.GenerateSignal(data, currentDate);
+        foreach (var leg in signal.CompanionSignals is { } companions ? companions.Prepend(signal) : [signal])
+        {
+            if (leg.Type is SignalType.Buy or SignalType.Sell && !leg.ExitOnly)
+                leg.CrossedLevel = CrossedLevelPolicy.Market;
+        }
+
+        return signal;
     }
 
     public void Initialize(Dictionary<string, object>? parameters = null)
