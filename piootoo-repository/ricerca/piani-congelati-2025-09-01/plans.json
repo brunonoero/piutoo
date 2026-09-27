@@ -1,0 +1,74 @@
+﻿[
+  {
+    "plan": 1,
+    "strategies": [
+      "PT5DAV_FDAX_PCH_002_60",
+      "PT5DAV_NQ_VBO_001_15",
+      "PT5DAV_GC_LFH_002_60",
+      "PT5DAV_GC_SBO_002_60",
+      "PT5DAV_BP_MAC_003_240",
+      "PT5DAV_BP_PCH_002_60",
+      "PT5DAV_CL_RBM_001_15",
+      "PT5DAV_YM_TFM_002_240"
+    ],
+    "net": 282012.89959988668665000,
+    "maxDrawdown": 13075.86000000000000000,
+    "worstDay": -8788.5600,
+    "maxPairCorrelation": 0.07771542894934058,
+    "maxPairTailCorrelation": -0.1539916514019416
+  },
+  {
+    "plan": 2,
+    "strategies": [
+      "PT5DAV_YM_LFH_002_30",
+      "PT5DAV_ES_VBO_001_30",
+      "PT5DAV_GC_RHL_002_240",
+      "PT5DAV_ES_MAC_002_60",
+      "PT5DAV_BP_LFD_001_60",
+      "PT5DAV_GC_VBO_002_240",
+      "PT5DAV_BP_PCH_001_30",
+      "PT5DAV_NQ_TFM_001_60"
+    ],
+    "net": 177992.93900000,
+    "maxDrawdown": 12279.10375000,
+    "worstDay": -5208.43000,
+    "maxPairCorrelation": 0.2837478066639215,
+    "maxPairTailCorrelation": -0.35533694698797036
+  },
+  {
+    "plan": 3,
+    "strategies": [
+      "PT5DAV_BTC_MAC_002_60",
+      "PT5DAV_GC_LFD_001_15",
+      "PT5DAV_NQ_VBO_002_240",
+      "PT5DAV_ES_RBU_001_30",
+      "PT5DAV_BTC_MAC_003_240",
+      "PT5DAV_ES_RHL_001_30",
+      "PT5DAV_NQ_RBU_002_60",
+      "PT5DAV_FDAX_LFD_002_30"
+    ],
+    "net": 782952.76289741715721931794729,
+    "maxDrawdown": 25421.53439618067375000000000,
+    "worstDay": -12748.98254331547500,
+    "maxPairCorrelation": 0.07175631392021936,
+    "maxPairTailCorrelation": -0.2193680920869977
+  },
+  {
+    "plan": 4,
+    "strategies": [
+      "PT5DAV_YM_VBO_002_30",
+      "PT5DAV_BP_LFD_004_30",
+      "PT5DAV_GC_SBO_001_15",
+      "PT5DAV_BTC_LFD_002_30",
+      "PT5DAV_BTC_LFH_001_15",
+      "PT5DAV_FDAX_MAC_001_15",
+      "PT5DAV_NQ_BOS_002_30",
+      "PT5DAV_GC_LFH_001_30"
+    ],
+    "net": 514281.72370450532651903600512,
+    "maxDrawdown": 25407.08750000000000000000000,
+    "worstDay": -22967.6930,
+    "maxPairCorrelation": 0.2580756782439465,
+    "maxPairTailCorrelation": -0.23390073277098405
+  }
+]

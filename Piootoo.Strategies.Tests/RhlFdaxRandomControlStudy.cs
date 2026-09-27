@@ -31,10 +31,17 @@ public sealed class RhlFdaxRandomControlStudy(ITestOutputHelper output)
     private const int FirstSeed = 1001;
     private const int CalibrationSeeds = 8;
 
+    /// <summary>
+    /// Simbolo del controllo. Default <c>@FDAX</c>, dove la regola e' stata trovata; con
+    /// <c>PIOOTOO_RAN_SIMBOLO</c> la stessa regola, identica, su un altro indice (27/09/2026): li' tutto il
+    /// feed FTMO e' fuori campione per la regola, che nessuno ha scelto su quel mercato.
+    /// </summary>
+    private static string Symbol => "@" + (Environment.GetEnvironmentVariable("PIOOTOO_RAN_SIMBOLO") ?? "@FDAX").TrimStart('@').ToUpperInvariant();
+
     /// <summary>La strategia nelle chiavi di RC_RHL.</summary>
     private static Dictionary<string, object> Strategy() => new(StringComparer.OrdinalIgnoreCase)
     {
-        ["Symbol"] = "@FDAX", ["TimeframeMinutes"] = 240,
+        ["Symbol"] = Symbol, ["TimeframeMinutes"] = 240,
         ["StopLoss"] = 0, ["TakeProfit"] = 0, ["TrailingStop"] = 0, ["BreakEven"] = 0,
         ["StopAtr"] = 1.0m, ["TargetAtr"] = 1.0m, ["MaxBars"] = 0, ["IntradayOnly"] = 1, ["ExitHour"] = -1,
         ["StartHour"] = -1, ["EndHour"] = 10,
@@ -45,7 +52,7 @@ public sealed class RhlFdaxRandomControlStudy(ITestOutputHelper output)
     /// <summary>Le uscite e i vincoli della strategia nelle chiavi di RC_RAN: il segnale e' l'unica cosa che manca.</summary>
     private static Dictionary<string, object> Exits() => new(StringComparer.OrdinalIgnoreCase)
     {
-        ["Symbol"] = "@FDAX", ["TimeframeMinutes"] = 240,
+        ["Symbol"] = Symbol, ["TimeframeMinutes"] = 240,
         ["StopLoss"] = 0, ["TakeProfit"] = 0, ["TrailingStop"] = 0, ["BreakEven"] = 0,
         ["StopAtr"] = 1.0m, ["TargetAtr"] = 1.0m, ["MaxBars"] = 0, ["IntradayOnly"] = 1, ["ExitHour"] = -1,
         ["StartHour"] = -1, ["EndHour"] = 10, ["MaxEntriesPerSession"] = 1, ["Direction"] = 1
@@ -64,32 +71,43 @@ public sealed class RhlFdaxRandomControlStudy(ITestOutputHelper output)
             ExternalRepositoryPath = @"[BasePath]\datafeed-external",
             SpreadPath = @"[BasePath]\spread"
         };
-        var spread = SpreadTable.Load(settings.GetSpreadPath(), "FTMO", SpreadStatistic.Median, SpreadResolution.PerSymbol).Points["FDAX"];
-        var swap = SwapTable.Load(settings.GetSwapPath(), "FTMO").Specs["FDAX"];
+        var key = Symbol.TrimStart('@');
+        var spread = SpreadTable.Load(settings.GetSpreadPath(), "FTMO", SpreadStatistic.Median, SpreadResolution.PerSymbol).Points[key];
+        var swap = SwapTable.Load(settings.GetSwapPath(), "FTMO").Specs[key];
         var dataFeed = new PiootooDataFeedService(new DatafeedCatalog(settings));
         static DateTime Utc(int y, int m, int d) => new(y, m, d, 0, 0, 0, DateTimeKind.Utc);
 
-        var broker = await SweepSeries.LoadAsync(dataFeed, "@FDAX", [240, 1], Utc(2020, 11, 9), Utc(2026, 9, 1), "FTMO", warmupDays: 30d);
-        var internalFeed = await SweepSeries.LoadAsync(dataFeed, "@FDAX", [240, 1], Utc(2008, 1, 1), Utc(2020, 11, 9), null, warmupDays: 30d);
-        var periods = new[]
+        var broker = await SweepSeries.LoadAsync(dataFeed, Symbol, [240, 1], Utc(2020, 11, 9), Utc(2026, 9, 1), "FTMO", warmupDays: 30d);
+        var periods = new List<(string Name, SweepSeries Series)>();
+        if (key == "FDAX")
         {
-            (Name: "ricerca FTMO 2020-2024", Series: broker.Between(broker.StartUtc, Utc(2024, 9, 1))),
-            (Name: "prova FTMO 2024-2026", Series: broker.Between(Utc(2024, 9, 1), broker.EndUtc)),
-            (Name: "interno 2008-2020, mai visto", Series: internalFeed)
-        };
+            // Il mercato su cui la regola e' stata trovata: la ricerca, la prova e la storia mai vista.
+            periods.Add(("ricerca FTMO 2020-2024", broker.Between(broker.StartUtc, Utc(2024, 9, 1))));
+            periods.Add(("prova FTMO 2024-2026", broker.Between(Utc(2024, 9, 1), broker.EndUtc)));
+        }
+        else
+        {
+            // Un altro mercato: la regola non e' stata scelta qui, tutto il feed FTMO e' fuori campione.
+            periods.Add(("FTMO dal 2020, fuori campione per la regola", broker));
+        }
+
+        if (File.Exists(Path.Combine(RepositoryPath, "datafeed", $"{Symbol}_1.json")))
+            periods.Add(("interno 2008-2020, mai visto",
+                await SweepSeries.LoadAsync(dataFeed, Symbol, [240, 1], Utc(2008, 1, 1), Utc(2020, 11, 9), null, warmupDays: 30d)));
 
         SweepJob Job(string id, IReadOnlyDictionary<string, object> parameters) => new(id, parameters)
         {
             InitialCapital = 1_000_000m,
             CommissionPerContract = 0m,
             ClockTimeframeMinutes = 1,
-            SpreadPoints = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase) { ["FDAX"] = spread },
-            Swap = new Dictionary<string, SwapSpec>(StringComparer.OrdinalIgnoreCase) { ["FDAX"] = swap },
+            SpreadPoints = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase) { [key] = spread },
+            Swap = new Dictionary<string, SwapSpec>(StringComparer.OrdinalIgnoreCase) { [key] = swap },
             Holding = AccountHoldingPolicy.Default with { AllowOvernight = true, AllowOverweek = true }
         };
 
         var csv = new StringBuilder("periodo,seme,p,trade,netto,dd,pf,avg\n");
-        var report = new StringBuilder("# RHL FDAX 4h contro 100 ingressi long casuali con le stesse uscite\n\n");
+        var report = new StringBuilder($"# RHL {key} 4h contro 100 ingressi long casuali con le stesse uscite\n\n");
+        report.AppendLine("Regola identica a PT3B_FDAX_RHL_001_240 (trovata sul DAX), nessun parametro ritoccato.\n");
         report.AppendLine($"Costi FTMO (spread {spread} punti, swap), orologio al minuto, semi {FirstSeed}-{FirstSeed + Seeds - 1}. Percentile = quota di semi che fa peggio della strategia.\n");
 
         foreach (var (name, series) in periods)
@@ -115,8 +133,8 @@ public sealed class RhlFdaxRandomControlStudy(ITestOutputHelper output)
         }
 
         var folder = Path.Combine(RepositoryPath, "ricerca", "percorso");
-        File.WriteAllText(Path.Combine(folder, "fdax-240-rhl-controllo-ran.csv"), csv.ToString(), Encoding.UTF8);
-        File.WriteAllText(Path.Combine(folder, "fdax-240-rhl-controllo-ran.md"), report.ToString(), Encoding.UTF8);
+        File.WriteAllText(Path.Combine(folder, $"{key.ToLowerInvariant()}-240-rhl-controllo-ran.csv"), csv.ToString(), Encoding.UTF8);
+        File.WriteAllText(Path.Combine(folder, $"{key.ToLowerInvariant()}-240-rhl-controllo-ran.md"), report.ToString(), Encoding.UTF8);
     }
 
     private decimal Calibrate(SweepSeries series, int target, Func<IReadOnlyDictionary<string, object>, SweepJob> job, string name)
