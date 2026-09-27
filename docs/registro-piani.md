@@ -26,6 +26,30 @@ prova, gli stessi piani girano tutti li'), commissione **2** per contratto, over
 **ammessi**, flat di sessione **20:45 UTC** per 30 minuti, flat di fine settimana 20:45 → 23:00 UTC,
 sizing di portafoglio spento.
 
+## Compatibilita' fra piani sulla stessa prop (aggiornata al 27/09/2026)
+
+Dentro una stessa prop una strategia sta su **un conto solo** (copy trading); su prop diverse si puo'
+ripetere. Piani correlati ma con strategie diverse si possono mettere su conti diversi della stessa prop.
+I setup sulle prop si gestiscono a mano: qui c'e' solo chi esclude chi. Strategie attive = masterfilter
+meno le spente del piano.
+
+| piani incompatibili | strategia in comune |
+|---|---|
+| `FTMO-PT3B-INDICI` × `FTMO-PT3B-EUROPA` | FDAX_PCH_002_240, FDAX_RHL_001_240, FESX_RHL_001_240 |
+| `FTMO-PT3B-INDICI` × `FTMO-PT3B-USA` | NQ_RHL_001_240, ES_RHL_001_240, YM_RHL_001_240 |
+| `PT5DAV-O4` × `PT5DAV-P1` | NQ_BSW_001_240 |
+| `PT5DAV-O4` × `PT5DAV-ORO` | GC_LFD_002_60 |
+| `PT5DAV-P1` × `PT5DAV-ORO` | GC_BOS_002_240 |
+| `PT5DAV-ORO` × `PT5DAV-O3` | GC_PCH_001_15 |
+
+Tutte le altre coppie fra INDICI, EUROPA, USA, O1-O4, P1, P2 e ORO sono compatibili. I duplicati
+(`-W1`, `-X15`, `-X05`) hanno le stesse strategie dell'originale: valgono le stesse incompatibilita', e
+originale e duplicato non stanno mai insieme. `NQ_RHL_001_30` (P1) e `NQ_RHL_001_240` (USA) sono strategie
+diverse ma comprano gli stessi ritorni sul Nasdaq.
+
+Combinazione consigliata su una prop: **EUROPA + USA + O4 a size 0,5** (tre conti); con due conti
+**INDICI + O4 a size 0,5**.
+
 ## Piani da conto (composti per essere scorrelati)
 
 Nati il 25/09/2026 da `piootoo-plan-builder` sul run neutro delle 41 PT5DAV
