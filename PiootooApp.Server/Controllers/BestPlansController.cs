@@ -41,6 +41,15 @@ public sealed class BestPlansController(BestPlanService bestPlans) : ControllerB
         catch (ArgumentException exception) { return BadRequest(new { error = exception.Message }); }
     }
 
+    /// <summary>Riscrive la scheda del piano: perche' e' stato scelto e come ripeterlo. Le cifre non cambiano.</summary>
+    [HttpPut("{id}/description")]
+    public ActionResult<BestPlan> UpdateDescription(string id, [FromBody] UpdateBestPlanDescriptionRequest request)
+    {
+        try { return Ok(bestPlans.UpdateDescription(id, request.Description)); }
+        catch (DirectoryNotFoundException exception) { return NotFound(new { error = exception.Message }); }
+        catch (ArgumentException exception) { return BadRequest(new { error = exception.Message }); }
+    }
+
     /// <summary>Toglie il best plan dall'elenco, con la sua copia degli artefatti. Il backtest non si tocca.</summary>
     [HttpDelete("{id}")]
     public IActionResult Delete(string id)

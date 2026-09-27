@@ -98,6 +98,24 @@ public sealed class BestPlanService
         }
     }
 
+    /// <summary>
+    /// Riscrive la scheda del piano (<see cref="BestPlan.Description"/>). Le cifre della fotografia non
+    /// si toccano: e' il solo campo modificabile dopo la promozione.
+    /// </summary>
+    public BestPlan UpdateDescription(string id, string? description)
+    {
+        var directory = ResolveDirectory(id);
+        lock (_gate)
+        {
+            var plan = TryRead(directory)
+                       ?? throw new DirectoryNotFoundException($"Best plan '{id}' non trovato.");
+            plan.Description = (description ?? string.Empty).Trim();
+            plan.DescriptionUpdatedUtc = DateTime.UtcNow;
+            AtomicFileWriter.WriteAllText(Path.Combine(directory, BestPlan.FileName), JsonSerializer.Serialize(plan, Json));
+            return plan;
+        }
+    }
+
     /// <summary>Il report HTML copiato alla promozione.</summary>
     public string GetHtmlReportPath(string id)
     {
@@ -138,6 +156,20 @@ public sealed class BestPlanService
                     $"Il backtest '{folder}' {BestPlan.AlreadyPromotedMessage}. Promuoverlo di nuovo sostituisce la fotografia.");
 
             var plan = Snapshot(id, workspaceId, folder, backtestPath);
+
+            // La scheda e' l'unica parte scritta da una persona: una fotografia nuova dello stesso
+            // backtest non la cancella, se la richiesta non ne porta una nuova.
+            var previous = Directory.Exists(directory) ? TryRead(directory) : null;
+            if (!string.IsNullOrWhiteSpace(request.Description))
+            {
+                plan.Description = request.Description.Trim();
+                plan.DescriptionUpdatedUtc = DateTime.UtcNow;
+            }
+            else if (previous is not null)
+            {
+                plan.Description = previous.Description;
+                plan.DescriptionUpdatedUtc = previous.DescriptionUpdatedUtc;
+            }
 
             // Si costruisce accanto e si sostituisce alla fine: una promozione che fallisce a meta'
             // non deve lasciare una cartella a mezzo, ne' cancellare la fotografia precedente.

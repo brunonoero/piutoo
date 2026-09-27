@@ -34,6 +34,14 @@ public sealed class BestPlansApiClient : ApiClientBase
             new PromoteBestPlanRequest { WorkspaceId = workspaceId, BacktestFolder = backtestFolder, Overwrite = overwrite },
             cancellationToken);
 
+    /// <summary>Riscrive la scheda del piano (<see cref="BestPlan.Description"/>).</summary>
+    public Task<BestPlan> UpdateDescriptionAsync(string id, string description, CancellationToken cancellationToken = default)
+        => SendForAsync<BestPlan>(
+            HttpMethod.Put,
+            $"api/BestPlans/{Escape(id)}/description",
+            new UpdateBestPlanDescriptionRequest { Description = description },
+            cancellationToken);
+
     public async Task DeleteAsync(string id, CancellationToken cancellationToken = default)
     {
         using var _ = await SendAsync(HttpMethod.Delete, $"api/BestPlans/{Escape(id)}", null, cancellationToken);

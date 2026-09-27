@@ -17,6 +17,7 @@ public partial class BestPlanDetailScreen : UserControl, IShellScreen
     private ShellContext? _context;
     private BestPlan? _plan;
     private string _id = string.Empty;
+    private string _savedDescription = string.Empty;
     private string _title = "Best plan";
 
     public BestPlanDetailScreen()
@@ -88,6 +89,54 @@ public partial class BestPlanDetailScreen : UserControl, IShellScreen
         Fill(_years, plan.Years);
         Fill(_strategies, plan.Strategies);
         _infoBox.Text = DescribeProvenance(plan);
+        BindDescription(plan);
+    }
+
+    /// <summary>
+    /// La scheda del piano: l'unica parte modificabile di un best plan. Il testo arriva con i ritorni a
+    /// capo del server (<c>\n</c>) e la casella li vuole Windows.
+    /// </summary>
+    private void BindDescription(BestPlan plan)
+    {
+        _savedDescription = plan.Description;
+        _descriptionBox.Text = plan.Description.Replace("\r\n", "\n").Replace("\n", Environment.NewLine);
+        _descriptionStatusLabel.Text = plan.DescriptionUpdatedUtc is { } updated
+            ? $"Scheda aggiornata il {updated:yyyy-MM-dd HH:mm} UTC. Perche' e' stato scelto, da dove vengono le strategie, campione e fuori campione, riserve, come ripeterlo."
+            : "Scheda vuota: scrivi perche' il piano e' stato scelto, da dove vengono le strategie, campione e fuori campione, riserve, come ripeterlo.";
+        _saveDescriptionButton.Enabled = false;
+    }
+
+    private void OnDescriptionChanged(object? sender, EventArgs e)
+        => _saveDescriptionButton.Enabled = _plan != null && Normalize(_descriptionBox.Text) != Normalize(_savedDescription);
+
+    private static string Normalize(string text) => text.Replace("\r\n", "\n").Trim();
+
+    private async void OnSaveDescriptionClick(object? sender, EventArgs e)
+    {
+        if (_context == null || _plan == null)
+        {
+            return;
+        }
+
+        _toolbar.SetBusy(true);
+        _saveDescriptionButton.Enabled = false;
+        UseWaitCursor = true;
+        try
+        {
+            _plan = await _context.Services.BestPlans.UpdateDescriptionAsync(_plan.Id, Normalize(_descriptionBox.Text));
+            BindDescription(_plan);
+            _context.Navigation.SetStatus($"Scheda di {_title} salvata.");
+        }
+        catch (Exception ex)
+        {
+            _saveDescriptionButton.Enabled = true;
+            MessageBox.Show(this, ex.Message, "Salva scheda", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+        finally
+        {
+            UseWaitCursor = false;
+            _toolbar.SetBusy(false);
+        }
     }
 
     private static string Describe(BestPlan plan)

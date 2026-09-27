@@ -163,6 +163,34 @@ public sealed class BestPlanServiceTests : IDisposable
         Assert.Equal(100m, plan.Years[1].MaxDrawdown);
     }
 
+    /// <summary>
+    /// La scheda del piano si scrive dopo la promozione, si rilegge, e una nuova fotografia dello stesso
+    /// backtest non la cancella: e' la memoria del perche' il piano e' stato scelto.
+    /// </summary>
+    [Fact]
+    public void TheDescriptionIsSavedAndSurvivesARepeatedPromotion()
+    {
+        var (workspaces, service, workspaceId) = Create();
+        ExternalBacktest(workspaces, workspaceId, "run-cbot");
+        var request = new PromoteBestPlanRequest { WorkspaceId = workspaceId, BacktestFolder = "run-cbot" };
+        var plan = service.Promote(request);
+        Assert.Equal(string.Empty, plan.Description);
+        Assert.Null(plan.DescriptionUpdatedUtc);
+
+        service.UpdateDescription(plan.Id, "  Scelto perche' regge dopo il congelamento.\nRiserve: tutti indici.  ");
+        var read = service.Get(plan.Id);
+        Assert.Equal("Scelto perche' regge dopo il congelamento.\nRiserve: tutti indici.", read.Description);
+        Assert.NotNull(read.DescriptionUpdatedUtc);
+
+        request.Overwrite = true;
+        var again = service.Promote(request);
+        Assert.Equal(read.Description, again.Description);
+        Assert.Equal(read.DescriptionUpdatedUtc, again.DescriptionUpdatedUtc);
+
+        request.Description = "Scheda nuova.";
+        Assert.Equal("Scheda nuova.", service.Promote(request).Description);
+    }
+
     [Fact]
     public void FolderWithoutTradesOrCurveIsRejected()
     {

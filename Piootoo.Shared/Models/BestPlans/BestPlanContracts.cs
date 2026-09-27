@@ -104,6 +104,24 @@ public sealed class BestPlan
 
     /// <summary>True quando fra gli artefatti c'e' il report HTML del run.</summary>
     public bool HasHtmlReport { get; set; }
+
+    /// <summary>
+    /// La scheda del piano, testo libero: perche' e' stato scelto, da quale ricerca vengono le
+    /// strategie, cosa e' in campione e cosa fuori, costi e tenuta, riserve, cosa rifare per ripeterlo
+    /// o correggerlo. E' l'unica parte del best plan scritta da una persona: le cifre sono la
+    /// fotografia del backtest, questa e' la memoria del perche'. Una promozione ripetuta sullo stesso
+    /// backtest la conserva.
+    /// </summary>
+    public string Description { get; set; } = string.Empty;
+
+    /// <summary>Ultima modifica di <see cref="Description"/>; null se non e' mai stata scritta.</summary>
+    public DateTime? DescriptionUpdatedUtc { get; set; }
+}
+
+/// <summary>Nuovo testo della scheda di un best plan. Vedi <see cref="BestPlan.Description"/>.</summary>
+public sealed class UpdateBestPlanDescriptionRequest
+{
+    public string Description { get; set; } = string.Empty;
 }
 
 /// <summary>Resoconto di un anno solare, con la stessa aritmetica del report HTML.</summary>
@@ -168,4 +186,10 @@ public sealed class PromoteBestPlanRequest
     /// e' un <c>409</c>: la console chiede prima di sovrascrivere.
     /// </summary>
     public bool Overwrite { get; set; }
+
+    /// <summary>
+    /// Scheda del piano da scrivere alla promozione. Vuota su una promozione ripetuta: si tiene quella
+    /// gia' scritta.
+    /// </summary>
+    public string? Description { get; set; }
 }

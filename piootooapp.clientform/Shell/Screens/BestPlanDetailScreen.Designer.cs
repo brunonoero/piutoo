@@ -35,6 +35,10 @@ partial class BestPlanDetailScreen
         this._strategiesGrid = new System.Windows.Forms.DataGridView();
         this._infoTab = new System.Windows.Forms.TabPage();
         this._infoBox = new System.Windows.Forms.TextBox();
+        this._saveDescriptionButton = new System.Windows.Forms.Button();
+        this._descriptionTab = new System.Windows.Forms.TabPage();
+        this._descriptionBox = new System.Windows.Forms.TextBox();
+        this._descriptionStatusLabel = new System.Windows.Forms.Label();
         ((System.ComponentModel.ISupportInitialize)(this._yearsBindingSource)).BeginInit();
         ((System.ComponentModel.ISupportInitialize)(this._strategiesBindingSource)).BeginInit();
         ((System.ComponentModel.ISupportInitialize)(this._yearsGrid)).BeginInit();
@@ -45,6 +49,7 @@ partial class BestPlanDetailScreen
         this._yearsTab.SuspendLayout();
         this._strategiesTab.SuspendLayout();
         this._infoTab.SuspendLayout();
+        this._descriptionTab.SuspendLayout();
         this.SuspendLayout();
         //
         // _toolbar
@@ -63,6 +68,7 @@ partial class BestPlanDetailScreen
         this._commandPanel.AutoSize = true;
         this._commandPanel.Controls.Add(this._reportButton);
         this._commandPanel.Controls.Add(this._removeButton);
+        this._commandPanel.Controls.Add(this._saveDescriptionButton);
         this._commandPanel.Dock = System.Windows.Forms.DockStyle.Top;
         this._commandPanel.Name = "_commandPanel";
         this._commandPanel.Padding = new System.Windows.Forms.Padding(12, 6, 12, 6);
@@ -91,6 +97,17 @@ partial class BestPlanDetailScreen
         this._removeButton.Text = "Rimuovi dai best plan";
         this._removeButton.Click += new System.EventHandler(this.OnRemoveClick);
         //
+        // _saveDescriptionButton
+        //
+        this._saveDescriptionButton.AutoSize = true;
+        this._saveDescriptionButton.Enabled = false;
+        this._saveDescriptionButton.Margin = new System.Windows.Forms.Padding(0, 0, 6, 0);
+        this._saveDescriptionButton.Name = "_saveDescriptionButton";
+        this._saveDescriptionButton.Size = new System.Drawing.Size(120, 25);
+        this._saveDescriptionButton.TabIndex = 2;
+        this._saveDescriptionButton.Text = "Salva scheda";
+        this._saveDescriptionButton.Click += new System.EventHandler(this.OnSaveDescriptionClick);
+        //
         // _headlineLabel
         //
         this._headlineLabel.AutoSize = true;
@@ -104,6 +121,7 @@ partial class BestPlanDetailScreen
         // _tabs
         //
         this._tabs.Controls.Add(this._equityTab);
+        this._tabs.Controls.Add(this._descriptionTab);
         this._tabs.Controls.Add(this._yearsTab);
         this._tabs.Controls.Add(this._strategiesTab);
         this._tabs.Controls.Add(this._infoTab);
@@ -192,6 +210,35 @@ partial class BestPlanDetailScreen
         this._infoBox.ScrollBars = System.Windows.Forms.ScrollBars.Both;
         this._infoBox.WordWrap = false;
         //
+        // _descriptionTab
+        //
+        this._descriptionTab.Controls.Add(this._descriptionBox);
+        this._descriptionTab.Controls.Add(this._descriptionStatusLabel);
+        this._descriptionTab.Name = "_descriptionTab";
+        this._descriptionTab.Padding = new System.Windows.Forms.Padding(8);
+        this._descriptionTab.Text = "Scheda del piano";
+        this._descriptionTab.UseVisualStyleBackColor = true;
+        //
+        // _descriptionStatusLabel
+        //
+        this._descriptionStatusLabel.AutoSize = true;
+        this._descriptionStatusLabel.Dock = System.Windows.Forms.DockStyle.Top;
+        this._descriptionStatusLabel.Name = "_descriptionStatusLabel";
+        this._descriptionStatusLabel.Padding = new System.Windows.Forms.Padding(0, 0, 0, 6);
+        this._descriptionStatusLabel.Text = "Perche' il piano e' stato scelto, da dove vengono le strategie, campione e fuori campione, riserve, come ripeterlo.";
+        //
+        // _descriptionBox
+        //
+        this._descriptionBox.AcceptsReturn = true;
+        this._descriptionBox.AcceptsTab = true;
+        this._descriptionBox.Dock = System.Windows.Forms.DockStyle.Fill;
+        this._descriptionBox.Font = new System.Drawing.Font("Consolas", 9.5F);
+        this._descriptionBox.Multiline = true;
+        this._descriptionBox.Name = "_descriptionBox";
+        this._descriptionBox.ScrollBars = System.Windows.Forms.ScrollBars.Vertical;
+        this._descriptionBox.WordWrap = true;
+        this._descriptionBox.TextChanged += new System.EventHandler(this.OnDescriptionChanged);
+        //
         // BestPlanDetailScreen
         //
         this.AutoScaleDimensions = new System.Drawing.SizeF(7F, 15F);
@@ -214,6 +261,8 @@ partial class BestPlanDetailScreen
         this._strategiesTab.ResumeLayout(false);
         this._infoTab.ResumeLayout(false);
         this._infoTab.PerformLayout();
+        this._descriptionTab.ResumeLayout(false);
+        this._descriptionTab.PerformLayout();
         this.ResumeLayout(false);
         this.PerformLayout();
     }
@@ -236,4 +285,8 @@ partial class BestPlanDetailScreen
     private System.Windows.Forms.DataGridView _strategiesGrid;
     private System.Windows.Forms.TabPage _infoTab;
     private System.Windows.Forms.TextBox _infoBox;
+    private System.Windows.Forms.Button _saveDescriptionButton;
+    private System.Windows.Forms.TabPage _descriptionTab;
+    private System.Windows.Forms.TextBox _descriptionBox;
+    private System.Windows.Forms.Label _descriptionStatusLabel;
 }
