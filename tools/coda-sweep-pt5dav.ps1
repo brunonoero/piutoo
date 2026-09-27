@@ -18,7 +18,18 @@ $logCoda = Join-Path $ricerca 'coda-sweep-pt5dav.log'
 $bin = Join-Path $repo 'Piootoo.Sweep\bin\coda-sweep-pt5dav'
 New-Item -ItemType Directory -Force -Path $stato | Out-Null
 
-# Le tre celle NQ 15m del piano scelto sulla storia. Costi del paniere FTMO, soglie della skill sweep-cella.
+# Le tre celle NQ 15m del piano scelto sulla storia. Costi del paniere FTMO.
+#
+# Niente --min-profit-factor e --min-average-trade nella RICERCA: i motori PT5DAV partono nudi, senza
+# stop ne' target, e una fase cambia un gruppo di parametri alla volta, quindi nessuna variante
+# arrivava da sola a PF 1,25 e 120 a trade. Il 27/09/2026 la prima sweep P5-BOS ha fatto sette fasi
+# su undici con zero ammissibili e il seme mai spostato: tre ore senza cercare niente. Durante la
+# ricerca si sceglie per criterio (peggior tratto, con 250 trade e 10 perdite minimi), come fa la
+# ricerca Python passo per passo; la qualita' si giudica alla fine, nella validazione e fuori campione.
+# E serve anche --min-average-trade molto negativo: l'obiettivo scarta di default l'utile medio sotto
+# zero, e il BOS nudo a costi veri perde sul 2008-2016 in tutte le varianti del trigger (seconda prova,
+# 27/09: zero ammissibili gia' alla fase 1). La ricerca Python prende a ogni passo il migliore anche in
+# perdita; qui lo stesso, e il giudizio resta alla validazione.
 $celle = @(
     @{ nome = 'pt5dav-sweep-nq-15-bos'; engine = 'P5-BOS'; strategia = 'RC5_BOS' },
     @{ nome = 'pt5dav-sweep-nq-15-vbo'; engine = 'P5-VBO'; strategia = 'RC5_VBO' },
@@ -60,7 +71,7 @@ foreach ($cella in $celle) {
     & (Join-Path $bin 'piootoo-sweep.exe') --strategy $cella.strategia --engine $cella.engine `
         --symbol '@NQ' --timeframe 15 --from 2008-01-01 --split 2017-01-01 --to 2025-05-30 `
         --spread-broker FTMO --spread-per-hour --swap-broker FTMO --commission 2 `
-        --min-profit-factor 1.25 --min-average-trade 120 --out $out *>&1 |
+        --min-average-trade -1000000000 --out $out *>&1 |
         Out-File -FilePath $log -Encoding utf8
     $esito = $LASTEXITCODE
     $riga = "{0:yyyy-MM-dd HH:mm:ss} exit {1}" -f (Get-Date), $esito
