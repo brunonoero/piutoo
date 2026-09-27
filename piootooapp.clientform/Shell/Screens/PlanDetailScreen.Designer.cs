@@ -61,6 +61,7 @@ partial class PlanDetailScreen
         this._colStrategySymbol = new System.Windows.Forms.DataGridViewTextBoxColumn();
         this._colStrategyTimeframe = new System.Windows.Forms.DataGridViewTextBoxColumn();
         this._colStrategyHolding = new System.Windows.Forms.DataGridViewTextBoxColumn();
+        this._colStrategyWeight = new System.Windows.Forms.DataGridViewTextBoxColumn();
         this._colStrategyNote = new System.Windows.Forms.DataGridViewTextBoxColumn();
         this._strategiesSummaryLabel = new System.Windows.Forms.Label();
         this._strategiesButtons = new System.Windows.Forms.FlowLayoutPanel();
@@ -614,6 +615,7 @@ partial class PlanDetailScreen
             this._colStrategySymbol,
             this._colStrategyTimeframe,
             this._colStrategyHolding,
+            this._colStrategyWeight,
             this._colStrategyNote});
         this._strategiesGrid.DataSource = this._strategiesBindingSource;
         this._strategiesGrid.Dock = System.Windows.Forms.DockStyle.Fill;
@@ -624,6 +626,7 @@ partial class PlanDetailScreen
         this._strategiesGrid.TabIndex = 2;
         this._strategiesGrid.CellValueChanged += new System.Windows.Forms.DataGridViewCellEventHandler(this.OnStrategiesGridCellValueChanged);
         this._strategiesGrid.CurrentCellDirtyStateChanged += new System.EventHandler(this.OnStrategiesGridCurrentCellDirtyStateChanged);
+        this._strategiesGrid.DataError += new System.Windows.Forms.DataGridViewDataErrorEventHandler(this.OnStrategiesGridDataError);
         //
         // _colStrategyActive
         //
@@ -663,6 +666,16 @@ partial class PlanDetailScreen
         this._colStrategyHolding.HeaderText = "Tenuta";
         this._colStrategyHolding.Name = "_colStrategyHolding";
         this._colStrategyHolding.ReadOnly = true;
+        //
+        // _colStrategyWeight
+        //
+        this._colStrategyWeight.DataPropertyName = "Weight";
+        this._colStrategyWeight.DefaultCellStyle.Alignment = System.Windows.Forms.DataGridViewContentAlignment.MiddleRight;
+        this._colStrategyWeight.DefaultCellStyle.Format = "0.##";
+        this._colStrategyWeight.FillWeight = 40F;
+        this._colStrategyWeight.HeaderText = "Peso";
+        this._colStrategyWeight.Name = "_colStrategyWeight";
+        this._colStrategyWeight.ToolTipText = "Moltiplica la size degli ingressi della strategia in questo piano (0,1-10; 1 = neutro). Vale nel backtest con piano e nel live.";
         //
         // _colStrategyNote
         //
@@ -971,6 +984,7 @@ partial class PlanDetailScreen
     private System.Windows.Forms.DataGridViewTextBoxColumn _colStrategySymbol;
     private System.Windows.Forms.DataGridViewTextBoxColumn _colStrategyTimeframe;
     private System.Windows.Forms.DataGridViewTextBoxColumn _colStrategyHolding;
+    private System.Windows.Forms.DataGridViewTextBoxColumn _colStrategyWeight;
     private System.Windows.Forms.DataGridViewTextBoxColumn _colStrategyNote;
     private System.Windows.Forms.Label _strategiesSummaryLabel;
     private System.Windows.Forms.FlowLayoutPanel _strategiesButtons;

@@ -662,6 +662,27 @@ public class PiootooBacktestingService : IPiootooBacktestingService
 
             Console.WriteLine($"[Backtesting] Totale strategie create: {strategyInstances.Count}");
 
+            // I pesi del piano (TradingPlan.StrategyWeights): per Id di catalogo nel piano, per
+            // StrategyCode nell'esecuzione. A differenza di SizeMultiplier valgono anche qui — sono la
+            // composizione del piano, non quanto si opera — e un run che li ignorasse misurerebbe un
+            // piano diverso da quello che il conto esegue.
+            var planWeights = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
+            if (plan is not null)
+            {
+                foreach (var (definition, instance) in createdStrategies)
+                {
+                    var weight = TradingPlanService.WeightOf(plan, definition.Id);
+                    if (weight != 1m)
+                        planWeights[instance.Name] = weight;
+                }
+
+                if (planWeights.Count > 0)
+                    Console.WriteLine(
+                        $"[Backtesting] Piano '{plan.Code}': pesi su {planWeights.Count} strategie — " +
+                        string.Join(", ", planWeights.OrderBy(entry => entry.Key, StringComparer.OrdinalIgnoreCase)
+                            .Select(entry => $"{entry.Key}={entry.Value.ToString("0.####", CultureInfo.InvariantCulture)}")));
+            }
+
             // Calcola il minimo timeframe tra tutte le strategie
             var strategyMinTimeframe = strategyInstances.Min(s => s.TimeframeMinutes);
             Console.WriteLine($"Timeframe minimo calcolato: {strategyMinTimeframe} minuti per {strategyInstances.Count} strategie");
@@ -881,6 +902,10 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                 ["planCode"] = plan?.Code ?? "-",
                 ["planBroker"] = planUniverse.BrokerCode ?? "-",
                 ["planDisabledStrategies"] = disabledByPlan.Count.ToString(CultureInfo.InvariantCulture),
+                ["planStrategyWeights"] = planWeights.Count == 0
+                    ? "-"
+                    : string.Join(",", planWeights.OrderBy(entry => entry.Key, StringComparer.OrdinalIgnoreCase)
+                        .Select(entry => entry.Key + "=" + entry.Value.ToString("0.####", CultureInfo.InvariantCulture))),
                 ["symbolConversionCode"] = planUniverse.SymbolConversionCode ?? "-",
                 ["symbolConversionSymbols"] = planUniverse.MappedSymbols.ToString(CultureInfo.InvariantCulture),
                 ["catalogStrategies"] = catalogStrategies.Count.ToString(CultureInfo.InvariantCulture),
@@ -1431,6 +1456,11 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                             // strategia avrebbe voluto se il piano gliela avesse concessa.
                             ApplyAccountHolding(accepted, holding);
 
+                            // Il peso del piano, prima che il segnale sia accodato e persistito: motore
+                            // e signals.json vedono la stessa size. Le uscite non si pesano.
+                            if (!accepted.ExitOnly && planWeights.TryGetValue(strategyCode, out var planWeight))
+                                accepted.Quantity *= planWeight;
+
                             signals.Add(accepted);
                             emittedTradeSignals.Add(CloneTradeSignal(accepted));
                             diagnostics.LogSignal(accepted, strategyCode, strategySymbol, strategy.TimeframeMinutes, currentDate);
@@ -1711,6 +1741,7 @@ public class PiootooBacktestingService : IPiootooBacktestingService
                 BrokerCode = planUniverse.BrokerCode,
                 StrategiesNotSupportedByBroker = excludedByBroker,
                 StrategiesDisabledByPlan = disabledByPlan,
+                StrategyWeights = planWeights,
                 PlanUniverse = planUniverse,
                 FillConventions = new BacktestFillConventions
                 {

@@ -412,6 +412,13 @@ public sealed class BacktestRunSummary
     public IReadOnlyList<string> StrategiesDisabledByPlan { get; init; } = [];
 
     /// <summary>
+    /// I pesi del piano applicati alla quantita' degli ingressi (<c>TradingPlan.StrategyWeights</c>),
+    /// per nome di esecuzione; le strategie assenti pesano 1. Due run dello stesso piano con pesi
+    /// diversi non sono confrontabili, e senza questo campo avrebbero lo stesso summary.
+    /// </summary>
+    public IReadOnlyDictionary<string, decimal> StrategyWeights { get; init; } = new Dictionary<string, decimal>();
+
+    /// <summary>
     /// Quale tabella di conversione il run ha davvero risolto per il broker di
     /// <see cref="PlanCode"/>.
     ///

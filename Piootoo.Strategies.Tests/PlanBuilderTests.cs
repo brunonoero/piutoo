@@ -122,6 +122,25 @@ public sealed class PlanBuilderTests
         Assert.Equal(4, members.Count);
     }
 
+    /// <summary>
+    /// Meglio meno piani che piani striminziti: con il minimo a 2 il secondo piano, che avrebbe la sola
+    /// gemella, non nasce e la gemella resta fra le non assegnate.
+    /// </summary>
+    [Fact]
+    public void APlanBelowTheMinimumIsNotBuilt()
+    {
+        var pattern = Pattern(60);
+        var trades = new List<PlanTrade>();
+        trades.AddRange(Daily("S_NQ_AAA_001_60", "NQ", pattern.Select(v => v * 2 + 3).ToArray()));
+        trades.AddRange(Daily("S_ES_BBB_001_60", "ES", pattern.Select(v => v * 2 + 2).ToArray()));    // gemella
+        trades.AddRange(Daily("S_GC_CCC_001_60", "GC", pattern.Select(v => -v + 2).ToArray()));       // specchio
+
+        var result = PlanBuilder.Build(trades, new PlanBuilderOptions { MinTrades = 10, Plans = 2, MinStrategiesPerPlan = 2 });
+
+        Assert.Equal(2, result.Plans.Single().Members.Count);
+        Assert.Equal(new[] { "S_ES_BBB_001_60" }, result.Unassigned);
+    }
+
     /// <summary>La perdita giornaliera del conto e' un vincolo del piano: una candidata che la sforerebbe non entra.</summary>
     [Fact]
     public void TheDailyLossLimitKeepsAStrategyOut()

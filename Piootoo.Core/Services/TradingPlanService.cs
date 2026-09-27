@@ -276,6 +276,7 @@ public sealed class TradingPlanService
         if (request.MaxConcurrentTrades < 0)
             throw new ArgumentException("MaxConcurrentTrades non può essere negativo.");
 
+        var strategyWeights = ValidateStrategyWeights(request.StrategyWeights);
         var brokerCode = ValidateBrokerAndAccounts(request.BrokerCode, accounts);
 
         // Una policy incoerente (overweek senza overnight) va rifiutata qui: se
@@ -313,6 +314,7 @@ public sealed class TradingPlanService
                 Holding = holding,
                 SizeMultiplier = sizeMultiplier,
                 DisabledStrategies = NormalizeDisabledStrategies(request.DisabledStrategies),
+                StrategyWeights = strategyWeights,
                 PositionSizing = request.PositionSizing,
                 CreatedUtc = existing?.CreatedUtc ?? now,
                 UpdatedUtc = now
@@ -416,6 +418,7 @@ public sealed class TradingPlanService
             Holding = plan.Holding,
             SizeMultiplier = plan.SizeMultiplier,
             DisabledStrategies = plan.DisabledStrategies.ToList(),
+            StrategyWeights = new Dictionary<string, decimal>(plan.StrategyWeights, StringComparer.OrdinalIgnoreCase),
             PositionSizing = plan.PositionSizing,
             CreatedUtc = createdUtc,
             UpdatedUtc = updatedUtc,
@@ -613,6 +616,7 @@ public sealed class TradingPlanService
             Holding = ResolveLoadedHolding(plan),
             SizeMultiplier = NormalizeSizeMultiplier(plan.SizeMultiplier),
             DisabledStrategies = NormalizeDisabledStrategies(plan.DisabledStrategies),
+            StrategyWeights = NormalizeStrategyWeights(plan.StrategyWeights),
             PositionSizing = plan.PositionSizing,
             CreatedUtc = plan.CreatedUtc,
             UpdatedUtc = plan.UpdatedUtc,
@@ -653,6 +657,60 @@ public sealed class TradingPlanService
         .Distinct(StringComparer.OrdinalIgnoreCase)
         .OrderBy(id => id, StringComparer.OrdinalIgnoreCase)
         .ToArray();
+
+    /// <summary>Peso minimo e massimo di una strategia nel piano. Vedi <see cref="TradingPlan.StrategyWeights"/>.</summary>
+    public const decimal MinimumStrategyWeight = 0.1m;
+    public const decimal MaximumStrategyWeight = 10m;
+
+    /// <summary>
+    /// I pesi di una richiesta di salvataggio: fuori da [<see cref="MinimumStrategyWeight"/>,
+    /// <see cref="MaximumStrategyWeight"/>] si rifiuta invece di correggere. Sotto il minimo e'
+    /// uno spegnimento mascherato — per spegnere c'e' <see cref="TradingPlan.DisabledStrategies"/>, che
+    /// si vede —, sopra il massimo e' quasi sempre una virgola sbagliata, e su un conto vero costa.
+    /// Un Id ripetuto con due pesi diversi e' ambiguo e si rifiuta.
+    /// </summary>
+    public static IReadOnlyDictionary<string, decimal> ValidateStrategyWeights(IReadOnlyDictionary<string, decimal>? weights)
+    {
+        var seen = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (rawId, weight) in weights ?? new Dictionary<string, decimal>())
+        {
+            var id = rawId?.Trim() ?? string.Empty;
+            if (id.Length == 0)
+                throw new ArgumentException("Un peso di strategia senza Id.");
+            if (weight < MinimumStrategyWeight || weight > MaximumStrategyWeight)
+                throw new ArgumentException(
+                    $"Il peso di '{id}' deve stare fra {MinimumStrategyWeight:0.###} e {MaximumStrategyWeight:0.###}, " +
+                    $"non {weight:0.####}. Per spegnere una strategia si usa l'elenco delle spente.");
+            if (seen.TryGetValue(id, out var previous) && previous != weight)
+                throw new ArgumentException($"'{id}' ha due pesi diversi ({previous:0.####} e {weight:0.####}).");
+            seen[id] = weight;
+        }
+
+        return NormalizeStrategyWeights(seen);
+    }
+
+    /// <summary>
+    /// I pesi come vanno scritti: Id senza spazi, senza i pesi a 1 (che sono il default e non vanno
+    /// dichiarati), in ordine. Come per le spente, un Id fuori dal masterfilter <b>resta</b>: se la
+    /// strategia vi rientra ritrova il suo peso. Un peso non positivo letto da disco non e' un peso
+    /// e si scarta; i controlli di intervallo stanno in <see cref="ValidateStrategyWeights"/>.
+    /// </summary>
+    public static IReadOnlyDictionary<string, decimal> NormalizeStrategyWeights(IReadOnlyDictionary<string, decimal>? weights)
+    {
+        var normalized = new SortedDictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (rawId, weight) in weights ?? new Dictionary<string, decimal>())
+        {
+            var id = rawId?.Trim() ?? string.Empty;
+            if (id.Length > 0 && weight > 0m && weight != 1m)
+                normalized[id] = weight;
+        }
+
+        return new Dictionary<string, decimal>(normalized, StringComparer.OrdinalIgnoreCase);
+    }
+
+    /// <summary>Il peso di una strategia del piano, per Id di catalogo: 1 se il piano non lo dichiara.</summary>
+    public static decimal WeightOf(TradingPlan plan, string strategyId) =>
+        plan.StrategyWeights.TryGetValue(strategyId, out var weight) && weight > 0m ? weight : 1m;
 
     /// <summary>Valore minimo del moltiplicatore di size di un piano.</summary>
     public const decimal MinimumSizeMultiplier = 0.1m;

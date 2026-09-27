@@ -215,7 +215,11 @@ public class BacktestingRequest
     /// <c>SizeMultiplier</c> del piano non entrano da qui e restano fissi a 1. Il motivo e' quello
     /// di <c>docs/decisioni.md</c> (2026-08-05) e non e' cambiato: una size legata al conto
     /// farebbe dipendere il campione dal capitale invece che dalle strategie. Quello che cambia e'
-    /// <i>quali</i> strategie girano, che e' una domanda diversa da <i>con che size</i>.</para>
+    /// <i>quali</i> strategie girano, che e' una domanda diversa da <i>con che size</i>.
+    /// <b>Eccezione voluta, i pesi</b> (<c>TradingPlan.StrategyWeights</c>, dal 27/09/2026): non
+    /// dipendono dal conto ma dicono la composizione del piano, e un run che li ignorasse misurerebbe
+    /// un piano diverso da quello che il conto esegue. Moltiplicano la quantita' degli ingressi della
+    /// strategia, e il summary li dichiara (<c>strategyWeights</c>).</para>
     ///
     /// <para><b>Il datafeed resta una scelta a parte</b> (<see cref="DatafeedBroker"/>): il broker
     /// del piano dice con che tabella si opera, non da quale archivio di barre si legge. Misurare

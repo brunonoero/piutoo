@@ -32,7 +32,7 @@ public static class PlanBuilderReport
             sb.AppendLine($"Asse dei giorni: {result.Days.Count} giorni con almeno un trade, dal {result.Days[0]:yyyy-MM-dd} al {result.Days[^1]:yyyy-MM-dd} (UTC, giorno di uscita).");
         sb.AppendLine();
         sb.AppendLine(
-            $"Vincoli: fino a {options.Plans} piani disgiunti da {options.MaxStrategiesPerPlan} strategie; al massimo " +
+            $"Vincoli: fino a {options.Plans} piani disgiunti da {options.MinStrategiesPerPlan} a {options.MaxStrategiesPerPlan} strategie; al massimo " +
             $"{options.MaxPerSymbol} per simbolo e {options.MaxPerFamily} per famiglia; correlazione <= {F(options.MaxCorrelation)}, " +
             $"nelle code (peggior {options.TailQuantile:P0} dei giorni) <= {F(options.MaxTailCorrelation)}; " +
             $"drawdown del piano {(options.MaxPlanDrawdown is { } dd ? M(dd) : "libero")}, perdita giornaliera " +

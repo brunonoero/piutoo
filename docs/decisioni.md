@@ -4674,3 +4674,12 @@ che il motore fa. Difetto di artefatto, non di esecuzione, ma e' costato mezza i
   Nasdaq (e platino 4h, 30m di CL/ES/GC/NG/CC) partivano da luglio 2025 e sono stati ricostruiti dal
   minuto; le leve di un contenitore devono essere campi non pubblici (`ResearchContainerFieldsTests`).
   Resoconti in `ricerca/percorso/`.
+- **2026-09-27** — **Il peso di una strategia sta nel piano** (`TradingPlan.StrategyWeights`, per Id di
+  catalogo, assente = 1, estremi 0,1-10 rifiutati e non corretti), non nella classe: le classi portate
+  dalla ricerca restano verbatim e il peso e' una scelta di portafoglio. Entra accanto a `SizeMultiplier`
+  in `ScaledSizeFactor` (claim ed esecuzione diretta, mai sul template) e, **a differenza di `k`, anche
+  nel backtest con piano**, sulla quantita' degli ingressi: `k` dice quanto si opera, il peso la
+  composizione del piano, e un run che lo ignorasse misurerebbe un altro piano. Il summary lo dichiara
+  (`strategyWeights`). Colonna *Peso* nel tab Strategie del piano. Motivo: sull'anno broker i pesi
+  portavano sei piani da netto/DD 0,8 a 1,7; senza, GC e NQ dominavano il denaro. Insieme,
+  `piootoo-plan-builder --min-strategies` (default 6): meglio meno piani che piani da due strategie.

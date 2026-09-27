@@ -285,6 +285,12 @@ public sealed class TradingSessionService : ITradingSessionService
         /// </summary>
         public decimal SizeMultiplier { get; init; } = 1m;
 
+        /// <summary>
+        /// Pesi del piano per <b>StrategyCode</b> (tradotti dagli Id in <c>CreateCore</c>): una strategia
+        /// assente pesa 1. Si applicano accanto a <see cref="SizeMultiplier"/>, in <see cref="ScaledSizeFactor"/>.
+        /// </summary>
+        public IReadOnlyDictionary<string, decimal> StrategyWeights { get; init; } = new Dictionary<string, decimal>();
+
         public required Dictionary<string, InstrumentMetadata> InstrumentMetadata { get; init; }
 
         /// <summary>
@@ -1014,6 +1020,7 @@ public sealed class TradingSessionService : ITradingSessionService
             // sessione e' lo snapshot del piano al momento in cui nasce, e una ripresa deve
             // ricostruire lo stesso insieme di strategie (BuildConfigurationFingerprint lo verifica).
             DisabledStrategies = plan.DisabledStrategies,
+            StrategyWeights = plan.StrategyWeights,
             PositionSizing = plan.PositionSizing
         };
 
@@ -1252,6 +1259,16 @@ public sealed class TradingSessionService : ITradingSessionService
             return StrategyFactory.CreateStrategy(d.Id, d.Symbol, d.TimeframeMinutes, d.Parameters)
                    ?? throw new InvalidOperationException($"Impossibile creare la strategia '{id}'.");
         }).ToList();
+
+        // Il piano pesa per Id di catalogo, l'esecuzione conosce lo StrategyCode (CLAUDE.md, «Id ≠
+        // Name»): la traduzione si fa qui, dove l'uno e l'altro sono in mano, e una volta sola.
+        var planWeights = TradingPlanService.NormalizeStrategyWeights(request.StrategyWeights);
+        var strategyWeights = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
+        for (var index = 0; index < selectedIds.Length; index++)
+        {
+            if (planWeights.TryGetValue(selectedIds[index], out var weight))
+                strategyWeights[strategies[index].Name] = weight;
+        }
         // Il valore punto è del contratto Piootoo, non del piano: viene dal registro strumenti, che
         // lancia sui simboli non verificati (errore esplicito voluto, vedi PROGETTO.md §7). La
         // granularità di volume (min/step/rounding) non è più qui: per ExternalBroker è quella del
@@ -1349,6 +1366,7 @@ public sealed class TradingSessionService : ITradingSessionService
             // il campo lo manda a 0, e 0 qui significherebbe nessun ordine. La validazione del
             // minimo sta dove il numero viene scelto, cioe' sul piano.
             SizeMultiplier = TradingPlanService.NormalizeSizeMultiplier(request.SizeMultiplier),
+            StrategyWeights = strategyWeights,
             InstrumentMetadata = instrumentMetadata,
             PeakEquity = request.InitialCapital,
             Status = TradingSessionStatus.Created,
@@ -3469,13 +3487,21 @@ public sealed class TradingSessionService : ITradingSessionService
     /// <para>Un simbolo non operativo sull'account vale zero e non viene scalato: non è una size
     /// piccola, è un segnale che su quel conto non si esegue.</para>
     /// </summary>
+    ///
+    /// <para>Il <b>peso della strategia</b> nel piano (<see cref="TradingPlan.StrategyWeights"/>)
+    /// segue la stessa regola di <c>k</c> e per lo stesso motivo: entra qui e solo qui, quando la
+    /// quantita' esce verso il conto.</para>
     private static decimal ScaledSizeFactor(
-        Session session, AccountSymbolConversion conversion, string? symbol, bool applyMultiplier)
+        Session session, AccountSymbolConversion conversion, string? symbol, string? strategyCode, bool applyMultiplier)
     {
         if (!conversion.IsSymbolEnabled(symbol)) return 0m;
         var factor = conversion.GetSizeFactor(symbol);
-        return applyMultiplier ? factor * session.SizeMultiplier : factor;
+        return applyMultiplier ? factor * session.SizeMultiplier * StrategyWeight(session, strategyCode) : factor;
     }
+
+    /// <summary>Il peso del piano per uno StrategyCode della sessione: 1 se il piano non lo dichiara.</summary>
+    private static decimal StrategyWeight(Session session, string? strategyCode) =>
+        strategyCode is not null && session.StrategyWeights.TryGetValue(strategyCode, out var weight) ? weight : 1m;
 
     private static OrderIntent AddIntent(
         Session session, TradeSignal signal, PositionSizingResult? sizing, bool addToIntents = true,
@@ -3486,7 +3512,7 @@ public sealed class TradingSessionService : ITradingSessionService
         // template, dove il conto si conosce solo al claim (vedi CloneForClaim).
         var assegnato = conversion is not null;
         conversion ??= AccountSymbolConversion.Identity;
-        var sizeFactor = ScaledSizeFactor(session, conversion, signal.Symbol, applyMultiplier: assegnato);
+        var sizeFactor = ScaledSizeFactor(session, conversion, signal.Symbol, signal.StrategyCode, applyMultiplier: assegnato);
         var quantityBeforeConversion = sizing?.FinalQuantity ?? signal.Quantity;
 
         // Arrotondamento alla granularità del broker (o al contratto intero se il simbolo non è
@@ -3901,7 +3927,7 @@ public sealed class TradingSessionService : ITradingSessionService
         var enabled = conversion.IsSymbolEnabled(template.Symbol);
         // Il moltiplicatore del piano entra qui e non sul template: il template non ha ancora un
         // conto, e applicarlo prima lo farebbe entrare due volte (vedi ScaledSizeFactor).
-        var sizeFactor = ScaledSizeFactor(session, conversion, template.Symbol, applyMultiplier: true);
+        var sizeFactor = ScaledSizeFactor(session, conversion, template.Symbol, template.StrategyCode, applyMultiplier: true);
         var convertedQuantity = enabled
             ? conversion.RoundQuantity(template.Symbol, quantity * sizeFactor)
             : 0m;
@@ -3939,7 +3965,8 @@ public sealed class TradingSessionService : ITradingSessionService
             PortfolioRiskMultiplier = template.PortfolioRiskMultiplier,
             FinalQuantity = convertedQuantity,
             SizingReason = BuildClaimSizingReason(
-                template.SizingReason, enabled, sizeFactor, session.SizeMultiplier),
+                template.SizingReason, enabled, sizeFactor, session.SizeMultiplier,
+                StrategyWeight(session, template.StrategyCode)),
             Price = template.Price,
             Kind = OrderIntentKind.Entry,
             StopLoss = Scale(template.StopLoss),
@@ -4011,7 +4038,7 @@ public sealed class TradingSessionService : ITradingSessionService
     /// quale delle due ha cambiato la size.
     /// </summary>
     private static string? BuildClaimSizingReason(
-        string? templateReason, bool symbolEnabled, decimal sizeFactor, decimal sizeMultiplier)
+        string? templateReason, bool symbolEnabled, decimal sizeFactor, decimal sizeMultiplier, decimal strategyWeight)
     {
         var reason = templateReason;
 
@@ -4020,6 +4047,9 @@ public sealed class TradingSessionService : ITradingSessionService
 
         if (sizeMultiplier != 1m)
             reason = $"{reason} | moltiplicatore piano: {sizeMultiplier:0.####}";
+
+        if (strategyWeight != 1m)
+            reason = $"{reason} | peso strategia: {strategyWeight:0.####}";
 
         return sizeFactor == 1m
             ? reason

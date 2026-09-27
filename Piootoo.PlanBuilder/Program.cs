@@ -20,6 +20,7 @@ public static class Program
         uso: piootoo-plan-builder --run <cartella o trades.json> [--run ...] --out <cartella>
           --plans N              piani da costruire, disgiunti (default 3)
           --max-strategies N     strategie per piano (default 8)
+          --min-strategies N     strategie minime per piano: sotto, il piano non nasce e ci si ferma (default 6)
           --max-per-symbol N     strategie per simbolo in un piano (default 2)
           --max-per-family N     strategie per famiglia di motore in un piano (default 2)
           --max-corr X           correlazione giornaliera massima con ogni membro (default 0.3)
@@ -115,6 +116,7 @@ public static class Program
         {
             Plans = Number("plans", 3),
             MaxStrategiesPerPlan = Number("max-strategies", 8),
+            MinStrategiesPerPlan = Number("min-strategies", 6),
             MaxPerSymbol = Number("max-per-symbol", 2),
             MaxPerFamily = Number("max-per-family", 2),
             MaxCorrelation = Real("max-corr", 0.3),

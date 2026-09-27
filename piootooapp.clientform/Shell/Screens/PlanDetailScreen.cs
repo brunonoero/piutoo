@@ -47,6 +47,12 @@ public sealed class PlanStrategyEditRow
 
     public string Holding { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Peso della strategia nel piano (<see cref="TradingPlan.StrategyWeights"/>): 1 = neutro. Si
+    /// edita in griglia; l'insieme autorevole e' <c>PlanDetailScreen._weights</c>, non la riga.
+    /// </summary>
+    public decimal Weight { get; set; } = 1m;
+
     public string Note { get; set; } = string.Empty;
 }
 
@@ -129,6 +135,17 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
     /// deve sopravvivere a un ricalcolo delle righe.
     /// </summary>
     private readonly HashSet<string> _disabled = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// I pesi diversi da 1, per Id: e' cio' che finisce in <c>StrategyWeights</c>. Autorevole come
+    /// <see cref="_disabled"/>, e per lo stesso motivo: le righe si ricostruiscono, e un peso su una
+    /// strategia uscita dal masterfilter resta scritto nel piano.
+    /// </summary>
+    private readonly Dictionary<string, decimal> _weights = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Estremi del peso, gli stessi che il server impone al salvataggio.</summary>
+    private const decimal MinimumWeight = 0.1m;
+    private const decimal MaximumWeight = 10m;
 
     /// <summary>
     /// Il <c>PositionSizing</c> del piano come letto dal server, riproposto tale e quale al
@@ -458,6 +475,7 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
         _loadedPositionSizing = new PositionSizingConfig();
 
         _disabled.Clear();
+        _weights.Clear();
         RebuildStrategyRows();
 
         _accounts.Clear();
@@ -491,6 +509,16 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
             if (!string.IsNullOrWhiteSpace(id))
             {
                 _disabled.Add(id.Trim());
+            }
+        }
+
+        // Un server che non conosce ancora i pesi manda null: il piano, per lui, non ne ha.
+        _weights.Clear();
+        foreach (var (id, weight) in plan.StrategyWeights ?? new Dictionary<string, decimal>())
+        {
+            if (!string.IsNullOrWhiteSpace(id) && weight > 0m && weight != 1m)
+            {
+                _weights[id.Trim()] = weight;
             }
         }
 
@@ -801,6 +829,7 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
         Symbol = item?.Symbol ?? string.Empty,
         Timeframe = item is { TimeframeMinutes: > 0 } ? $"{item.TimeframeMinutes}m" : "—",
         Holding = item?.HoldingLabel ?? string.Empty,
+        Weight = _weights.GetValueOrDefault(id, 1m),
         Note = !inMasterFilter
             ? "fuori dal masterfilter: lo spegnimento resta scritto nel piano"
             : item is null
@@ -846,7 +875,21 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
         _strategiesSummaryLabel.Text =
             $"Il piano fa girare {attive} strategie sulle {nelFiltro} del masterfilter " +
             $"({nelFiltro - attive} spente). Il masterfilter decide cosa esiste nel workspace, " +
-            "il piano ne spegne un sottoinsieme." + coda + ricerca;
+            "il piano ne spegne un sottoinsieme." + PesiLabel() + coda + ricerca;
+    }
+
+    /// <summary>Quante strategie hanno un peso diverso da 1: detto, perche' la griglia ne mostra una pagina alla volta.</summary>
+    private string PesiLabel()
+    {
+        if (_weights.Count == 0)
+        {
+            return " Nessun peso: tutte a 1.";
+        }
+
+        var fuori = _weights.Keys.Count(id => !_allStrategies.Any(row => row.InMasterFilter
+            && string.Equals(row.Id, id, StringComparison.OrdinalIgnoreCase)));
+        return $" {_weights.Count} con peso diverso da 1" +
+               (fuori == 0 ? "." : $", di cui {fuori} fuori dal masterfilter (restano scritti nel piano).");
     }
 
     /// <summary>Senza questa una spunta di griglia notifica il cambio solo all'uscita dalla cella.</summary>
@@ -860,7 +903,18 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
 
     private void OnStrategiesGridCellValueChanged(object? sender, DataGridViewCellEventArgs e)
     {
-        if (e.RowIndex < 0 || e.RowIndex >= _strategies.Count || e.ColumnIndex != _colStrategyActive.Index)
+        if (e.RowIndex < 0 || e.RowIndex >= _strategies.Count)
+        {
+            return;
+        }
+
+        if (e.ColumnIndex == _colStrategyWeight.Index)
+        {
+            SetStrategyWeight(_strategies[e.RowIndex]);
+            return;
+        }
+
+        if (e.ColumnIndex != _colStrategyActive.Index)
         {
             return;
         }
@@ -873,6 +927,58 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
         // Una strategia spenta non e' piu' tagliata da nulla: l'avviso delle chiusure forzate
         // conta solo cio' che il piano fa girare davvero.
         UpdateHoldingImpact();
+    }
+
+    /// <summary>
+    /// Il peso scritto in griglia: fuori dagli estremi si rifiuta e la cella torna al valore di prima,
+    /// invece di correggerlo — un 50 al posto di 0,5 e' una virgola sbagliata, non un peso da tagliare
+    /// a 10. Un peso a 1 esce dal dizionario: e' il default e non si dichiara.
+    /// </summary>
+    private void SetStrategyWeight(PlanStrategyEditRow row)
+    {
+        if (row.Weight < MinimumWeight || row.Weight > MaximumWeight)
+        {
+            var previous = _weights.GetValueOrDefault(row.Id, 1m);
+            MessageBox.Show(
+                this,
+                $"Il peso di {row.Strategy} deve stare fra {MinimumWeight:0.#} e {MaximumWeight:0} " +
+                $"(1 = neutro), non {row.Weight:0.####}. Per non far girare una strategia si toglie la spunta.",
+                "Peso non valido",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Warning);
+            row.Weight = previous;
+            _strategiesGrid.InvalidateRow(_strategies.IndexOf(row));
+            return;
+        }
+
+        if (row.Weight == 1m)
+        {
+            _weights.Remove(row.Id);
+        }
+        else
+        {
+            _weights[row.Id] = row.Weight;
+        }
+
+        MarkDirty();
+        UpdateStrategiesSummary();
+    }
+
+    /// <summary>Un peso che non e' un numero: si annulla la modifica e si dice perche', senza la finestra d'errore di WinForms.</summary>
+    private void OnStrategiesGridDataError(object? sender, DataGridViewDataErrorEventArgs e)
+    {
+        e.ThrowException = false;
+        e.Cancel = false;
+        _strategiesGrid.CancelEdit();
+        if (e.ColumnIndex == _colStrategyWeight.Index)
+        {
+            MessageBox.Show(
+                this,
+                $"Il peso e' un numero fra {MinimumWeight:0.#} e {MaximumWeight:0} (1 = neutro).",
+                "Peso non valido",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Warning);
+        }
     }
 
     /// <summary>L'unica negazione fra la spunta "Attiva" e l'elenco delle spente del contratto.</summary>
@@ -1161,6 +1267,7 @@ public partial class PlanDetailScreen : UserControl, IShellScreen, IDirtyAware
             // Le spente, non le accese: vedi TradingPlan.DisabledStrategies. Comprende gli Id che
             // il masterfilter non contiene piu', che il server conserva senza validarli.
             DisabledStrategies = _disabled.OrderBy(id => id, StringComparer.OrdinalIgnoreCase).ToList(),
+            StrategyWeights = new Dictionary<string, decimal>(_weights, StringComparer.OrdinalIgnoreCase),
             PositionSizing = _loadedPositionSizing
         };
 

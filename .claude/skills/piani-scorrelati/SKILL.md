@@ -32,7 +32,9 @@ logica in `Piootoo.Core/Planning/PlanBuilder.cs`, test in `PlanBuilderTests`. Il
 dotnet run --project Piootoo.PlanBuilder -- --run <cartella di backtest> [--run ...] --out piootoo-repository\ricerca\piani-<data> --plans 3 --max-strategies 8 --max-daily-loss <denaro>
 ```
 
-Vincoli (default fra parentesi): `--plans` (3), `--max-strategies` (8), `--max-per-symbol` (2),
+Vincoli (default fra parentesi): `--plans` (3), `--max-strategies` (8), `--min-strategies` (6: un piano
+che non ci arriva non nasce e la costruzione si ferma — meglio meno piani che piani striminziti, regola
+dell'utente del 27/09/2026), `--max-per-symbol` (2),
 `--max-per-family` (2, la sigla del motore nel nome), `--max-corr` (0.3), `--max-tail-corr` (0.3),
 `--tail` (0.10, la quota dei giorni peggiori), `--max-dd` e `--max-daily-loss` (le regole del conto, in
 denaro: per FTMO la perdita giornaliera massima), `--min-trades` (30), `--from`/`--to`.

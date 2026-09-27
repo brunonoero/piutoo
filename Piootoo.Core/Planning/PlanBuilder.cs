@@ -27,6 +27,14 @@ public sealed record PlanBuilderOptions
     /// <summary>Strategie al massimo per piano.</summary>
     public int MaxStrategiesPerPlan { get; init; } = 8;
 
+    /// <summary>
+    /// Strategie al minimo per piano. Un piano che non ci arriva non si costruisce e la costruzione si
+    /// ferma li': meglio meno piani che piani striminziti, perche' il drawdown basso di un conto viene dal
+    /// numero di membri scorrelati. Le sue strategie restano fra le non assegnate. Qui 1 (nessun vincolo);
+    /// l'eseguibile parte da 6.
+    /// </summary>
+    public int MinStrategiesPerPlan { get; init; } = 1;
+
     /// <summary>Strategie al massimo per simbolo dentro un piano.</summary>
     public int MaxPerSymbol { get; init; } = 2;
 
@@ -142,6 +150,8 @@ public static class PlanBuilder
     {
         if (options.Plans < 1 || options.MaxStrategiesPerPlan < 1 || options.MaxPerSymbol < 1 || options.MaxPerFamily < 1)
             throw new ArgumentOutOfRangeException(nameof(options), "piani, strategie per piano e tetti devono valere almeno 1.");
+        if (options.MinStrategiesPerPlan < 1 || options.MinStrategiesPerPlan > options.MaxStrategiesPerPlan)
+            throw new ArgumentOutOfRangeException(nameof(options), "il minimo di strategie per piano va da 1 al massimo.");
         if (options.TailQuantile is <= 0 or > 0.5)
             throw new ArgumentOutOfRangeException(nameof(options), "la coda e' una quota fra 0 e 0,5 dei giorni.");
 
@@ -284,6 +294,11 @@ public static class PlanBuilder
                 members.Add(best);
                 daily = bestDaily!;
             }
+
+            // Sotto il minimo il piano non nasce, e i successivi, costruiti con cio' che resta, ne avrebbero
+            // ancora meno a disposizione: ci si ferma.
+            if (members.Count < options.MinStrategiesPerPlan)
+                break;
 
             foreach (var member in members)
                 remaining.Remove(member);

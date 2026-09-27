@@ -147,6 +147,12 @@ public sealed class CreateTradingSessionRequest
     /// </summary>
     public IReadOnlyList<string> DisabledStrategies { get; init; } = [];
 
+    /// <summary>
+    /// Peso per Id di catalogo, dal piano (<see cref="TradingPlan.StrategyWeights"/>): moltiplica
+    /// la quantita' consegnata al client insieme a <see cref="SizeMultiplier"/>. Assente = 1.
+    /// </summary>
+    public IReadOnlyDictionary<string, decimal> StrategyWeights { get; init; } = new Dictionary<string, decimal>();
+
     public PositionSizingConfig PositionSizing { get; init; } = new();
 }
 

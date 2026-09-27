@@ -75,6 +75,38 @@ di più, il confronto con `BacktestStaticFilter` misurerebbe la differenza fra d
 strategie invece dell'effetto del tetto di concorrenza, che è l'unica cosa che quel confronto esiste
 per misurare.
 
+## Il peso di una strategia nel piano (2026-09-27)
+
+`TradingPlan.StrategyWeights` associa a un `Id` di catalogo un **peso** che moltiplica la quantità di
+ogni ingresso di quella strategia. Una strategia che non compare pesa 1, e il file porta solo i pesi
+diversi da 1. Si edita nella colonna *Peso* del tab *Strategie*.
+
+**Sta sul piano, non nella strategia.** Le classi portate dalla ricerca dichiarano i numeri della
+ricerca verbatim; il peso è una scelta di portafoglio che dipende da con chi la strategia sta. Serve a
+bilanciare il rischio: senza pesi un piano è dominato dai simboli a contratto grande (GC, NQ), perché
+il plan-builder somma il denaro dei trade così come lo trova. Sull'anno broker, con lo stesso bacino di
+132 PT5DAV, i pesi portavano sei piani da netto/DD 0,8 a 1,7
+(`ricerca/piani-pesati-2026-09-27/`). Il calcolo è fuori dal codice: rischio di riferimento diviso il
+rischio della strategia (deviazione del P&L giornaliero sui giorni attivi), limitato 0,2–5.
+
+**Estremi 0,1–10, rifiutati e non corretti.** Sotto 0,1 è uno spegnimento mascherato — per spegnere
+c'è `DisabledStrategies`, che si vede —, sopra 10 è quasi sempre una virgola sbagliata. Un Id fuori
+dal masterfilter resta scritto, come per le spente.
+
+**Dove entra.**
+
+- **Sessione**: `CreateCore` traduce gli Id in `StrategyCode` (è l'unico punto dove li ha in mano
+  entrambi) e `ScaledSizeFactor` applica il peso insieme a `SizeMultiplier`: `k × peso × fattore del
+  conto`, nel claim e nell'esecuzione diretta, **mai sul template**, altrimenti il claim lo
+  applicherebbe due volte. Il `SizingReason` dell'intent lo nomina («peso strategia»). Il cBot riceve
+  la quantità già pesata e non cambia.
+- **Backtest con piano**: moltiplica `TradeSignal.Quantity` degli ingressi prima che il segnale sia
+  accodato e persistito. È l'eccezione alla neutralità delle size del backtest: vedi
+  [backtesting](backtesting.md) §"Il piano di un run".
+
+Una sessione ripresa dopo un riavvio rilegge il piano, e con lui i pesi correnti, come già fa per
+`SizeMultiplier`.
+
 ## Overnight e overweek
 
 Il piano porta `Holding` (`AccountHoldingPolicy`): se il conto può tenere oltre la sessione, se può
@@ -205,7 +237,9 @@ due righe con lo stesso `GroupId` dichiarano coppie setup/cartella diverse.
 
 `Piootoo.Shared/Models/Trading/TradingPlanContracts.cs`,
 `Piootoo.Core/Services/TradingPlanService.cs`,
-`Piootoo.Core/Services/TradingSessionService.cs` (`ResolveRunIdForFolder`, risoluzione dinamica),
+`Piootoo.Core/Services/TradingSessionService.cs` (`ResolveRunIdForFolder`, risoluzione dinamica,
+`ScaledSizeFactor` per `SizeMultiplier` e pesi), `Piootoo.Core/Services/PiootooBacktestingService.cs`
+(pesi nel backtest con piano), `Piootoo.Strategies.Tests/StrategyWeightTests.cs`,
 `Piootoo.Core/Services/TitanoRotationService.cs` (`ResolveLatestRun`, `GetFreshness`),
 `PiootooApp.Server/Controllers/TradingPlansController.cs`,
 `piootoo-repository/ctrader/PiootooDistributedExecutionBot.cs` (distribuzione),

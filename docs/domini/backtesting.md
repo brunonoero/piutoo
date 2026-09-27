@@ -46,13 +46,19 @@ Quando lo fa, dal piano vengono *tutte* le regole che governano il run:
 | Strategie spente | `TradingPlan.DisabledStrategies` (Id di catalogo) | tolte dal masterfilter prima di istanziarle |
 | Tenuta | `TradingPlan.Holding` | sovrascrive `BacktestingRequest.Holding` |
 | Commissione | `TradingPlan.CommissionPerContract` | sovrascrive quella della richiesta |
+| Pesi | `TradingPlan.StrategyWeights` (Id di catalogo) | moltiplicano la quantita' degli ingressi della strategia (dal 27/09/2026) |
 
 Il **conto** non entra: la tabella dei simboli e' dichiarata sul broker
 (`TradingBroker.SymbolConversionCode`) e tutti i conti di un piano sono di quel
 broker, quindi nominarne uno significava sceglierlo a caso fra conti che danno la
 stessa risposta. La lettura per sola tabella e' `AccountSymbolConversion.FromTable`:
 lascia `BalanceScale` a 1, perche' il backtest interno resta neutro sulle size —
-`SizeMultiplier` e `PositionSizing` del piano non toccano un solo contratto.
+`SizeMultiplier` e `PositionSizing` del piano non toccano un solo contratto. I **pesi**
+sono l'eccezione, e voluta: non dicono quanto si opera ma con che proporzioni stanno
+insieme le strategie del piano, e un run che li ignorasse misurerebbe un altro piano.
+Il log di avvio li scrive (`planStrategyWeights`) e il summary li dichiara
+(`strategyWeights`, per nome di esecuzione): due run con pesi diversi non sono
+confrontabili.
 
 Il **datasource resta una scelta a parte** (`DatafeedBroker`): il broker del piano
 dice con che tabella si opera, non da quale archivio di barre si legge. Misurare lo

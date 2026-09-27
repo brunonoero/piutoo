@@ -142,7 +142,10 @@ sbaglia più spesso:
  stessa risposta —, le strategie spente, la `Holding` e la commissione, e quei campi della
  richiesta li **sovrascrive**: un run e il live dello stesso piano devono essere confrontabili per
  costruzione, non per disciplina di chi compila la richiesta. Le size restano neutre
- (`AccountSymbolConversion.FromTable` lascia `BalanceScale` a 1). Il **datasource resta una scelta
+ (`AccountSymbolConversion.FromTable` lascia `BalanceScale` a 1), **tranne i pesi del piano**
+ (`TradingPlan.StrategyWeights`, per Id di catalogo): sono la composizione del piano, non quanto si
+ opera, e valgono nel backtest come nel live, dove entrano accanto a `SizeMultiplier` in
+ `ScaledSizeFactor` e mai sul template. Il summary li dichiara (`strategyWeights`). Il **datasource resta una scelta
  separata** (`DatafeedBroker`): lo stesso piano sul feed interno e su quello del suo broker e' il
  confronto che misura lo spread. Piano o broker inesistenti fanno fallire l'avvio.
  Vedi `docs/domini/backtesting.md`.

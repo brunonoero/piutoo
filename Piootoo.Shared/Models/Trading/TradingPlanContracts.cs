@@ -149,6 +149,23 @@ public sealed class TradingPlan
     /// </summary>
     public IReadOnlyList<string> DisabledStrategies { get; init; } = [];
 
+    /// <summary>
+    /// Il peso di ciascuna strategia nel piano, per <c>Id</c> di catalogo come
+    /// <see cref="DisabledStrategies"/>: moltiplica la quantita' di ogni ingresso di quella strategia.
+    /// Una strategia che non compare pesa 1, e il file porta solo i pesi diversi da 1.
+    ///
+    /// <para><b>Sta sul piano e non nella strategia</b> (decisione del 27/09/2026): le classi portate
+    /// dalla ricerca dichiarano i numeri della ricerca verbatim, e il peso e' una scelta di
+    /// portafoglio che dipende da con chi la strategia sta. Serve a bilanciare il rischio: senza pesi
+    /// GC e NQ dominano il denaro di un piano solo perche' il loro contratto vale di piu'.</para>
+    ///
+    /// <para>Si compone con <see cref="SizeMultiplier"/> (<c>k × peso × fattore del conto</c>) e,
+    /// a differenza di quello, <b>vale anche nel backtest con piano</b>: <c>k</c> dice quanto si opera
+    /// e il backtest resta neutro, il peso dice la composizione del piano, e un run che la ignorasse
+    /// non misurerebbe il piano che il conto esegue. Vedi <c>docs/domini/trading-plans.md</c>.</para>
+    /// </summary>
+    public IReadOnlyDictionary<string, decimal> StrategyWeights { get; init; } = new Dictionary<string, decimal>();
+
     public PositionSizingConfig PositionSizing { get; init; } = new();
     public DateTime CreatedUtc { get; init; }
     public DateTime UpdatedUtc { get; init; }
@@ -220,6 +237,12 @@ public sealed class SaveTradingPlanRequest
     /// che non conosce il campo manda una lista vuota, cioè «tutte attive», che è il piano com'era.
     /// </summary>
     public IReadOnlyList<string> DisabledStrategies { get; init; } = [];
+
+    /// <summary>
+    /// Peso per Id di catalogo. Vedi <see cref="TradingPlan.StrategyWeights"/>: assente = 1, e un
+    /// client che non conosce il campo manda un dizionario vuoto, cioe' il piano senza pesi.
+    /// </summary>
+    public IReadOnlyDictionary<string, decimal> StrategyWeights { get; init; } = new Dictionary<string, decimal>();
 
     public PositionSizingConfig PositionSizing { get; init; } = new();
 }
