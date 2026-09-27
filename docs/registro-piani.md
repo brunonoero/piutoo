@@ -168,6 +168,27 @@ Il piano `PT3B-FDAX` (ICS) ha backtest cTrader in archivio ma non esiste piu' in
   sarebbe di nuovo selezione sul periodo di prova.
 - Backtest cTrader: da fare.
 
+### `PT5DAV-C2-W1` — workspace `ftmo-pt5dav-congelato-p2` (27/09/2026) — **scartato**
+
+- `PT5DAV-C2` con i pesi dai dati fino al 01/09/2025 (BP_LFD 3,28, BP_PCH 4,47, ES_VBO 1,36, ES_MAC
+  0,98, NQ_TFM 0,96, GC_RHL 0,85, YM_LFH 0,59, GC_VBO 1).
+- **Backtest cTrader** 01/08/2025 → 24/09/2026: 579 trade, **+4.275**, DD 4.229, net/DD 1,01, 6 mesi
+  negativi su 14. `BP_PCH_001_30`, la meno volatile e quindi col peso piu' alto, perde −5.375: il peso
+  ha moltiplicato proprio la strategia che dopo il congelamento non funziona. A pesi uguali il motore
+  interno dava ~+9k con DD ~2,4k sul conto.
+- Lezione sui pesi (da decidere come regola, non da applicare a posteriori qui): pesare per volatilita'
+  da' molta size alle strategie tranquille; un tetto piu' basso di 5 (per esempio 2) limiterebbe il danno.
+
+### `PT5DAV-ORO` fuori campione (analisi del 27/09/2026)
+
+- Backtest cTrader 23/06/2025 → 24/09/2026 (size 0,5): +30.744, DD 3.314, ma l'82% del netto e' in
+  gennaio-aprile 2026 (rally dell'oro) e `GC_BOS_002_240` ne fa il 54%.
+- Con la data di congelamento al 01/09/2025 (run neutro delle 218, filtro pre-congelamento) solo
+  `GC_PCH_001_15` e `GC_TFU_001_15` sarebbero state scelte; `GC_BOS_002_240` aveva net/DD 1,55 e un terzo
+  su tre in utile, `GC_MAC_002_240` e `GC_RBU_001_15` erano in perdita. La versione onesta avrebbe reso
+  circa un quarto (~+7k sul conto invece di ~+30k). Per anno, a size neutra: 2022 +0,6k, 2023 −13k,
+  2024 +152k, 2025 +99k, 2026 +579k.
+
 ### `FTMO-PT3B-002-RHL` — workspace `ftmo-pt3b-paniere` (27/09/2026)
 
 - `PT3B_FDAX_PCH_002_240` + `PT3B_FDAX_RHL_001_240`, stessa tenuta di `FTMO-PT3-DAX`.
