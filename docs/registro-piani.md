@@ -168,6 +168,28 @@ Il piano `PT3B-FDAX` (ICS) ha backtest cTrader in archivio ma non esiste piu' in
   sarebbe di nuovo selezione sul periodo di prova.
 - Backtest cTrader: da fare.
 
+### `FTMO-PT3B-EUROPA` e `FTMO-PT3B-USA` — workspace `ftmo-pt3b-indici` (27/09/2026)
+
+- Il piano indici diviso in due piani **disgiunti**, per due conti diversi (stesse regole di tenuta e
+  costi di `FTMO-PT3B-INDICI`, size 1, nessun peso). Non si usano insieme a `FTMO-PT3B-INDICI`: hanno le
+  stesse strategie.
+- **EUROPA**: 002 DAX, RHL DAX, RHL EuroStoxx. Backtest interno 06/2022 → 09/2026 sul conto (× 0,1):
+  1.275 trade, +25.542, DD 5.407, net/DD 4,72, giorno peggiore −1.449; dopo il 01/09/2025 +7.852, DD
+  2.977. Tutti gli anni in utile.
+- **USA**: RHL Nasdaq, S&P, Dow. Backtest interno sul conto: 77 trade in 4 anni, +8.281, DD 2.084,
+  net/DD 3,97; dopo il 01/09/2025 +5.063, DD 1.054; il 2024 in perdita (−930). Opera pochissimo.
+- Backtest cTrader: da fare, poi best plan.
+
+### Piani `PT5DAV-O1`..`O4` (altra sessione), letti il 27/09/2026
+
+- Composti sulla storia della ricerca fino al 30/05/2025 da un bacino di 33: il periodo del broker e'
+  fuori campione per la composizione. Backtest cTrader (dal 06-08/2025): O1 +3.659 DD 3.468 (1,06), O2
+  +4.981 DD 3.413 (1,46), O3 +13.165 DD 8.112 (1,62, cinque strategie su otto in perdita), **O4 +24.329
+  DD 8.382 (2,90)**.
+- **`PT5DAV-O4` promosso a best plan** con la scheda: DD vicino al limite FTMO a size 1, NQ_BSW_001_240
+  fa il 70% del netto. Creato **`PT5DAV-O4-X05`** (size 0,5) come versione da conto; backtest cTrader da
+  fare. Attenzione: O4 e `PT5DAV-P1` condividono `NQ_BSW_001_240`, non si usano su due conti insieme.
+
 ### `PT5DAV-C2-W1` — workspace `ftmo-pt5dav-congelato-p2` (27/09/2026) — **scartato**
 
 - `PT5DAV-C2` con i pesi dai dati fino al 01/09/2025 (BP_LFD 3,28, BP_PCH 4,47, ES_VBO 1,36, ES_MAC
