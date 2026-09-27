@@ -6,6 +6,21 @@ ragione il codice.
 
 ---
 
+# ⚠ Il server installato si blocca sulla console (25/09/2026, da correggere)
+
+Durante un backtest cTrader il server sulla 5000 smetteva di rispondere dopo circa un minuto e mezzo,
+anche su `/api/v1/version`, senza crash e con la CPU a zero. E' successo tre volte con
+`PT5DAV-P1`, sempre in punti diversi del tempo simulato; due thread erano fermi in attesa `Executive`.
+Riavviato con l'output rediretto su file (`C:\piootoo\server\logs\server-*.out.log`, finestra
+nascosta), lo stesso backtest gira. La causa e' quindi la scrittura su console (Windows Terminal),
+non il piano. **Fatto il 27/09/2026**: `tools/aggiorna-installazione.ps1` riavvia ora il server senza
+console, con l'output in `C:\piootoo\server\logs\server-{data}.out.log` (e `.err.log`). Il blocco si era
+ripresentato lo stesso giorno dopo il rilascio 7.8.6, avviato ancora con la console. Resta aperta la
+causa (i log per barra delle sessioni sulla console), che con l'output su file non blocca piu'. Chi
+avvia il server a mano fa lo stesso: `Start-Process ... -WindowStyle Hidden -RedirectStandardOutput`.
+
+---
+
 # ⇦ PT6EXO — RIPRENDERE DA QUI (sera del 25/09/2026)
 
 La serie `PT6EXO_*` cerca strategie **scorrelate** con famiglie di motori nuove, da comporre in piani
@@ -736,6 +751,17 @@ motivazioni in [`decisioni.md`](decisioni.md) 2026-09-04.
 
 **Fatto il 04/09/2026:** il dump (`session-state.json`), la reidratazione all'avvio con id e token
 conservati, il riscaldamento autoguarente sul cBot distribuito, il presidio dalla console.
+
+**Fatto il 25/09/2026 (pacchetto A, solo server):** storia ricostruita dopo la ripresa (disco +
+riscaldamento che antepone o sostituisce), ripresa rifiutata archiviata e segnalata, sessione ferma
+ripresa ferma, template scaduti scartati alla ripresa, esito per ogni cartella, dump che non si scrive
+segnalato. Vedi il §4bis del documento.
+
+**Prossimi, sul cBot** (pacchetti B e C della revisione, elenco completo nel §9 del documento):
+riconciliazione all'avvio del bot con adozione delle posizioni e cancellazione dei pending ignoti,
+quarantena della sessione ripresa fino alla prima riconciliazione, avvio del bot a server spento senza
+`StopWithError`, stato locale illeggibile messo da parte, lock di istanza, outbox dei report, uscite
+ricostruite sulle barre del buco.
 
 **Aperto**, in ordine:
 

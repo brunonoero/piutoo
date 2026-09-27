@@ -126,8 +126,22 @@ foreach ($inst in $installazioni) {
 if (-not $NoRestart) {
     foreach ($inst in $fermati) {
         $exe = Join-Path $inst.Destinazione $inst.Eseguibile
-        Write-Host "  riavvio $exe"
-        Start-Process -FilePath $exe -WorkingDirectory $inst.Destinazione | Out-Null
+        if ($inst.Nome -eq 'server') {
+            # Il server senza console, con l'output su file: scrivendo sulla console si bloccava (API muta,
+            # CPU a zero) dopo un minuto e mezzo di backtest cTrader, e di nuovo il 27/09/2026 dopo un
+            # rilascio. I log stanno in C:\piootoo\server\logs, uno per avvio.
+            $logs = Join-Path (Split-Path -Parent $inst.Destinazione) 'logs'
+            New-Item -ItemType Directory -Force -Path $logs | Out-Null
+            $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+            $out = Join-Path $logs "server-$stamp.out.log"
+            Write-Host "  riavvio $exe (senza console, log in $out)"
+            Start-Process -FilePath $exe -WorkingDirectory $inst.Destinazione -WindowStyle Hidden `
+                -RedirectStandardOutput $out -RedirectStandardError (Join-Path $logs "server-$stamp.err.log") | Out-Null
+        }
+        else {
+            Write-Host "  riavvio $exe"
+            Start-Process -FilePath $exe -WorkingDirectory $inst.Destinazione | Out-Null
+        }
     }
 }
 Write-Host 'fatto.'
