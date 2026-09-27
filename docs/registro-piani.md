@@ -141,6 +141,20 @@ Il piano `PT3B-FDAX` (ICS) ha backtest cTrader in archivio ma non esiste piu' in
   prudente del drawdown futuro doppio di quello visto supererebbe il limite FTMO di 10.000.
 - Backtest cTrader: da fare, poi promozione con la sua scheda.
 
+- **Attenzione, corretto lo stesso giorno**: sul periodo 06/2022 → 09/2025 il piano a × 1 ha un DD sul
+  conto di **5.407**, non i 2.700 dei 14 mesi del cBot; a × 1,5 arriva a **8.111**, troppo vicino al
+  limite di 10.000. X15 resta solo come confronto, non per un conto vero.
+
+### `FTMO-PT3B-INDICI-W1` — workspace `ftmo-pt3b-indici` (27/09/2026)
+
+- Duplicato di `FTMO-PT3B-INDICI` a `SizeMultiplier` 1 con **pesi per strategia** (7.8.6), calcolati
+  sui soli trade del run interno **prima del 01/09/2025**: peso = rischio della mediana / rischio della
+  strategia, rischio = deviazione del P&L giornaliero annualizzata, limitato 0,2-5. `FDAX_RHL` 0,61,
+  `NQ_RHL` 0,56, `ES_RHL` 0,87, `YM_RHL` 1,19, `FESX_RHL` 5, la 002 1.
+- Sul conto, 06/2022 → 09/2025: netto 18.109, DD 5.161, giorno peggiore −1.537 (a pesi uguali 20.908,
+  5.407, −1.967). E' il candidato per un conto vero.
+- Backtest cTrader: da fare.
+
 ### `PT5DAV-C2` — workspace `ftmo-pt5dav-congelato-p2` (27/09/2026)
 
 - Il piano 2 dei piani congelati (`ricerca/piani-congelati-2025-09-01`): 8 PT5DAV scelte e composte
