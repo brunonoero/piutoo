@@ -196,7 +196,7 @@ public partial class BrokerWorkspaceDetailScreen : UserControl, IShellScreen
                 $"Ritirare {plan.Code}?{nl}{nl}" +
                 $"Il conto {string.Join(", ", plan.Accounts)} non potra' aprire sessioni realtime nuove su questo piano. " +
                 $"Una sessione gia' aperta resta: il cBot ci rientra e le sue posizioni restano sorvegliate.{nl}{nl}" +
-                $"Le strategie ({plan.EnabledStrategies?.Count ?? 0}) e il conto tornano liberi per un altro piano. " +
+                $"Le sue {plan.EnabledStrategies?.Count ?? 0} strategie tornano libere per un altro piano. " +
                 "Il ritiro non si annulla.",
                 "Ritira piano",
                 MessageBoxButtons.YesNo,

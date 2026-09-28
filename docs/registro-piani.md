@@ -59,9 +59,10 @@ Produzione*). Regole in [`domini/broker-workspace.md`](domini/broker-workspace.m
 - **Codice** `FTMO-NOME`, senza la serie (per esempio `FTMO-EUROPA`), diverso dal codice di ricerca.
   A ogni cambio di conto si duplica con `-2`, `-3`: il piano vecchio si ritira e il cBot del conto
   nuovo prende il codice nuovo. Da demo a conto vero e' lo stesso passaggio.
-- **Un conto, un piano; una strategia, un piano** dentro FTMO: il server lo impone, e la tabella delle
-  compatibilita' qui sotto diventa un controllo alla promozione invece di una regola da ricordare.
-  I piani di ricerca girano tutti sul demo 17202911: in produzione i conti si scelgono alla promozione.
+- **Una strategia, un piano** dentro FTMO: il server lo impone, e la tabella delle compatibilita' qui
+  sotto diventa un controllo alla promozione invece di una regola da ricordare. Un conto invece puo'
+  eseguire piu' piani (regola tolta il 28/09): i conti si scelgono alla promozione, e il demo 17202911
+  puo' tenerli tutti.
 - **Il piano e' quello misurato**: strategie dal run del best plan, il resto dalla copia del piano,
   valida solo se non salvata dopo l'avvio del run. Prova in anteprima del 28/09: sette best plan su
   otto sono promuovibili; `ftmo-combo-europa-o4` no (piano salvato tre minuti dopo l'avvio del run),

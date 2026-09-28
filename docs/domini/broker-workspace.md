@@ -31,11 +31,13 @@ Il percorso diventa lineare: ricerca nel workspace → backtest con piano → be
    seconda meta' la controlla gia' `ValidateBrokerAndAccounts`).
 5. **Una strategia sta in un solo piano attivo** del broker workspace. E' la regola "una strategia su
    un conto solo per prop" che oggi vive nella tabella di `registro-piani.md`.
-6. **Un conto sta in un solo piano attivo** del broker workspace: il piano e' gia' quello del conto.
+6. ~~Un conto sta in un solo piano attivo.~~ **Tolta il 28/09/2026**: un conto puo' eseguire piu'
+   piani, come girano oggi i piani sul demo. La protezione che conta resta la regola 5, nessuna
+   strategia doppia sullo stesso broker.
 7. **Nessun contenitore di ricerca** (`IsResearchContainer`).
 8. **Immutabile.** Un piano promosso non si modifica: una modifica e' un piano nuovo, promosso da un
    best plan nuovo. Non si cancella: si **ritira** (`RetiredUtc`). Un piano ritirato resta leggibile,
-   le sue sessioni restano, non apre sessioni nuove e libera strategie e conti per le regole 5 e 6.
+   le sue sessioni restano, non apre sessioni nuove e libera le sue strategie per la regola 5.
 9. **Codice unico a livello globale**, workspace e broker workspace insieme. E' quello che lascia i
    cBot come sono: il bot conosce solo `PlanCode` e il server lo cerca ovunque
    (`TradingPlanService.Resolve`, :239).
@@ -60,7 +62,7 @@ quella giusta, e la vecchia non va continuata.
 
 Nel broker workspace il duplica e' **l'unica eccezione** alla regola 2, e fa una cosa sola:
 - crea il piano nuovo identico al vecchio salvo i conti;
-- **ritira** il vecchio nello stesso passaggio, cosi' le regole 5 e 6 restano vere;
+- **ritira** il vecchio nello stesso passaggio, cosi' la regola 5 resta vera;
 - porta nella provenienza il piano precedente e lo stesso best plan.
 
 Il legame fra i due piani resta quindi scritto. Endpoint:
@@ -92,8 +94,8 @@ Tutti i best plan di oggi vengono da run del cBot, quindi la regola deve reggere
   promozione.
 
 **I conti si scelgono alla promozione.** `PromoteToProductionRequest.Accounts` sostituisce i conti del
-piano di origine; vuota vuol dire tenerli. Serve perche' i piani di ricerca girano tutti sul conto di
-prova comune (oggi 17202911), e per la regola 6 in produzione ognuno vuole il suo. I conti non cambiano
+piano di origine; vuota vuol dire tenerli. I piani di ricerca girano tutti sul conto di prova comune
+(oggi 17202911): in produzione si possono tenere li' o spostare su un conto proprio. I conti non cambiano
 cio' che il run ha misurato: le size scalano con il capitale del conto. Un conto disattivato in
 anagrafica non entra in un piano nuovo.
 

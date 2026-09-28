@@ -4688,7 +4688,8 @@ che il motore fa. Difetto di artefatto, non di esecuzione, ma e' costato mezza i
   `PRD_`: un workspace che raccogliesse piani diversi avrebbe un solo masterfilter, e ogni strategia
   aggiunta per un piano nuovo si accenderebbe in silenzio nei piani gia' sui conti. Ci si entra solo
   da best plan; il piano dichiara le strategie attive, e' immutabile (si ritira, non si modifica), e
-  una strategia o un conto stanno in un solo piano attivo del broker. Sessioni e backtest risolvono
+  una strategia sta in un solo piano attivo del broker (la regola gemella "un conto, un piano" e' stata
+  tolta lo stesso giorno: un conto puo' eseguire piu' piani, come sul demo). Sessioni e backtest risolvono
   qualsiasi piano da un punto solo (`PlanResolver`), invece di un secondo percorso per la produzione.
   I codici restano unici a livello globale, cosi' i cBot non cambiano. Quando FTMO cambia il numero
   di conto non si tocca il modello dei conti: si crea il conto nuovo e si duplica il piano con un

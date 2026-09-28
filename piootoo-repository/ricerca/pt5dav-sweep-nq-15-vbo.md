@@ -218,6 +218,7 @@ Stessa misura della BOS: **85 trade e +4.333 in campione, 248 trade e +106.289 f
 sweep trova, e **non e' smentita**: in campione e' in utile. Ma 85 trade in nove anni sono sotto i 250
 con cui si giudica, e fuori campione i trade triplicano (28 → 81 per finestra) mentre l'utile medio
 resta fra 250 e 480: la frequenza segue la volatilita' del Nasdaq, e il campione in cui la strategia
-non e' stata scelta e' troppo piccolo per dire se il vantaggio c'era gia'. **Proposta (da confermare):
-resta nel piano 2, a peso ridotto quando si pesano i piani, non come membro portante.** Log in
+non e' stata scelta e' troppo piccolo per dire se il vantaggio c'era gia'. **Decisione (confermata
+dall'utente il 28/09/2026): resta nel piano 2, a peso ridotto quando si pesano i piani, non come
+membro portante.** Log in
 `pt5dav-nq-vbo-001-15-classe.log`.

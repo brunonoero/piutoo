@@ -275,7 +275,7 @@ public partial class BestPlanDetailScreen : UserControl, IShellScreen
                     "Codice nella forma BROKER-NOME, per esempio FTMO-EUROPA.",
             ConfirmText = "Promuovi",
             PlanName = bestPlan.PlanName,
-            AccountsHint = "vuoto = i conti del piano di origine; in produzione ogni piano ha il suo conto"
+            AccountsHint = "vuoto = i conti del piano di origine"
         };
         var services = _context.Services;
         dialog.SetSubmit(dryRun => services.BrokerWorkspaces.PromoteAsync(new Piootoo.Shared.Models.BrokerWorkspaces.PromoteToProductionRequest

@@ -116,7 +116,7 @@ partial class BrokerWorkspaceListScreen
         this._colAccounts.HeaderText = "Conti";
         this._colAccounts.Name = "_colAccounts";
         this._colAccounts.ReadOnly = true;
-        this._colAccounts.ToolTipText = "Conti dei piani attivi: ognuno esegue un piano solo.";
+        this._colAccounts.ToolTipText = "Conti dei piani attivi, contati una volta per piano: un conto puo' eseguire piu' piani.";
         //
         // _colCreated
         //

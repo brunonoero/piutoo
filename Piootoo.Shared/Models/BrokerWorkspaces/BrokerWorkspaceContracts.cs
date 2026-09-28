@@ -30,7 +30,7 @@ public sealed class BrokerWorkspaceSummary
     /// <summary>Strategie dei piani attivi: per costruzione ognuna sta in un piano solo.</summary>
     public int ActiveStrategies { get; set; }
 
-    /// <summary>Conti dei piani attivi: per costruzione ognuno sta in un piano solo.</summary>
+    /// <summary>Conti dei piani attivi, contati una volta per piano: un conto puo' eseguire piu' piani.</summary>
     public int ActiveAccounts { get; set; }
 }
 

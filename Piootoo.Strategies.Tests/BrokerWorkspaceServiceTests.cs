@@ -14,7 +14,7 @@ namespace Piootoo.Strategies.Tests;
 
 /// <summary>
 /// I piani in produzione: si entra da un best plan con le strategie che il run ha eseguito, dentro
-/// un broker una strategia e un conto stanno in un solo piano attivo, e il cambio di conto e' un
+/// un broker una strategia sta in un solo piano attivo (un conto ne puo' eseguire piu'), e il cambio di conto e' un
 /// duplicato che ritira l'originale. Vedi docs/domini/broker-workspace.md.
 /// </summary>
 public sealed class BrokerWorkspaceServiceTests : IDisposable
@@ -156,23 +156,21 @@ public sealed class BrokerWorkspaceServiceTests : IDisposable
         Assert.Equal(1, summary.RetiredPlans);
     }
 
+    /// <summary>
+    /// Un conto puo' eseguire piu' piani (decisione del 28/09/2026): e' come girano i piani sul demo.
+    /// Resta vietata la strategia doppia, che il test sopra copre.
+    /// </summary>
     [Fact]
-    public void AnAccountRunsOneActivePlan()
+    public void AnAccountCanRunSeveralPlans()
     {
         var europa = PromotableBestPlan("EUROPA", [_strategies[0]]);
         var usa = PromotableBestPlan("USA", [_strategies[1]]);
+
         _service.Promote(Broker, new PromoteToProductionRequest { BestPlanId = europa, PlanCode = "FTMO-EUROPA" });
+        var plan = _service.Promote(Broker, new PromoteToProductionRequest { BestPlanId = usa, PlanCode = "FTMO-USA" });
 
-        // Il piano di ricerca girava sul conto di prova comune: senza un conto proprio non entra.
-        var error = Assert.Throws<InvalidOperationException>(() =>
-            _service.Promote(Broker, new PromoteToProductionRequest { BestPlanId = usa, PlanCode = "FTMO-USA" }));
-        Assert.Contains("111", error.Message);
-
-        var plan = _service.Promote(Broker, new PromoteToProductionRequest
-        {
-            BestPlanId = usa, PlanCode = "FTMO-USA", Accounts = ["222"]
-        });
-        Assert.Equal(new[] { "222" }, plan.Accounts);
+        Assert.Equal(new[] { "111" }, plan.Accounts);
+        Assert.Equal(2, Assert.Single(_service.List()).ActivePlans);
     }
 
     [Fact]

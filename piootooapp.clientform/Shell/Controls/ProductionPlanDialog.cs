@@ -8,8 +8,8 @@ namespace piootooapp.clientform.Shell.Controls;
 /// si scelgono solo codice, nome e conti.
 ///
 /// <para><b>Prima si verifica, poi si conferma.</b> <i>Verifica</i> chiede al server il piano che
-/// nascerebbe senza scriverlo (<c>DryRun</c>): le regole del broker workspace — una strategia e un
-/// conto in un solo piano attivo, piano non cambiato dopo il run — rispondono li', con le parole del
+/// nascerebbe senza scriverlo (<c>DryRun</c>): le regole del broker workspace — una strategia in un
+/// solo piano attivo, piano non cambiato dopo il run — rispondono li', con le parole del
 /// server. La conferma si abilita solo dopo una verifica riuscita e si spegne a ogni modifica dei
 /// campi: si conferma sempre cio' che si e' appena visto.</para>
 /// </summary>

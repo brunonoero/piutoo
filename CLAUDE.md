@@ -348,7 +348,7 @@ sbaglia più spesso:
  sono quelle che il run ha eseguito, il resto dalla copia del piano, valida solo se non salvata dopo
  l'avvio del run — o duplicando un piano di produzione per cambiarne i conti. Il piano dichiara le
  strategie (`EnabledStrategies`), nasce bloccato, si ritira e non si modifica; dentro un broker una
- strategia e un conto stanno in un solo piano attivo. Il codice e' unico fra workspace e broker
+ strategia sta in un solo piano attivo (un conto invece puo' eseguirne piu'). Il codice e' unico fra workspace e broker
  workspace, cosi' il cBot resta con il solo `PlanCode`. Sessioni, ripresa, backtest con piano,
  datafeed e presidio passano da **`PlanResolver`**: il masterfilter di un workspace si legge li' e,
  per un piano, in nessun altro posto (`PlanResolutionConformanceTests`). Un piano ritirato non apre

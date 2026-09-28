@@ -9,7 +9,8 @@ namespace Piootoo.Core.Services.BrokerWorkspaces;
 /// <summary>
 /// I piani in produzione, uno spazio per broker. Qui stanno le regole: ci si entra solo da un best
 /// plan (o duplicando un piano di produzione per cambiarne i conti), il piano dichiara le strategie
-/// attive, e dentro lo stesso broker una strategia o un conto stanno in un solo piano attivo.
+/// attive, e dentro lo stesso broker una strategia sta in un solo piano attivo. Un conto puo'
+/// eseguire piu' piani.
 /// Vedi <c>docs/domini/broker-workspace.md</c>.
 /// </summary>
 /// <remarks>
@@ -207,7 +208,7 @@ public sealed class BrokerWorkspaceService
 
     /// <summary>
     /// Aggiunge il piano applicando le regole che dipendono dagli altri piani: codice unico, una
-    /// strategia e un conto in un solo piano attivo. <paramref name="replaces"/> e' il piano che
+    /// strategia in un solo piano attivo. <paramref name="replaces"/> e' il piano che
     /// questo sostituisce e che viene ritirato nello stesso passaggio: non conta come conflitto.
     /// </summary>
     private TradingPlan Add(string brokerCode, TradingPlan plan, string? replaces, bool dryRun)
@@ -243,13 +244,9 @@ public sealed class BrokerWorkspaceService
                         $"'{brokerCode}': dentro un broker una strategia sta su un conto solo. Ritirare '{other.Code}' " +
                         "o promuovere un piano senza quelle strategie.");
 
-                var sharedAccounts = other.Accounts
-                    .Intersect(plan.Accounts, StringComparer.OrdinalIgnoreCase)
-                    .ToList();
-                if (sharedAccounts.Count > 0)
-                    throw new InvalidOperationException(
-                        $"Il conto {string.Join(", ", sharedAccounts)} esegue già il piano attivo '{other.Code}' del " +
-                        $"broker '{brokerCode}': un conto esegue un piano solo.");
+                // Un conto invece puo' eseguire piu' piani (decisione del 28/09/2026): e' come girano
+                // oggi i piani sul demo, e la regola che conta — nessuna strategia doppia sullo stesso
+                // broker — e' quella sopra.
             }
 
             if (dryRun)
