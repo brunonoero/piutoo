@@ -216,6 +216,18 @@ Il piano `PT3B-FDAX` (ICS) ha backtest cTrader in archivio ma non esiste piu' in
   sarebbe di nuovo selezione sul periodo di prova.
 - Backtest cTrader: da fare.
 
+### `FTMO-EUROPA-O4` — workspace `ftmo-combo-europa-o4` (28/09/2026)
+
+- EUROPA e O4 su **un conto solo**: le 3 strategie di `FTMO-PT3B-EUROPA` a peso 1 e le 7 di `PT5DAV-O4`
+  a peso 0,5, `SizeMultiplier` **0,75**. Overnight e overweek ammessi (servono a O4; le strategie di
+  EUROPA sono intraday e chiudono in giornata), flat 20:45 UTC per 30 minuti, commissione 2.
+- Backtest interno 06/2022 → 09/2026 a size 1 (sul conto, × 0,1): 2.690 trade, +57.806, **DD 7.594**,
+  giorno peggiore −1.698; dal 01/09/2025 +17.395, DD 5.342. Troppo vicino al limite: portato a 0,75
+  (atteso DD ~5.700). La parte O4 prima del 06/2025 e' in campione.
+- Incompatibile sulla stessa prop con `FTMO-PT3B-EUROPA`, `FTMO-PT3B-INDICI`, `PT5DAV-O4`,
+  `PT5DAV-O4-X05`, `PT5DAV-P1` e `PT5DAV-ORO`. Compatibile con `FTMO-PT3B-USA`.
+- Backtest cTrader: da fare.
+
 ### `FTMO-PT3B-EUROPA` e `FTMO-PT3B-USA` — workspace `ftmo-pt3b-indici` (27/09/2026)
 
 - Il piano indici diviso in due piani **disgiunti**, per due conti diversi (stesse regole di tenuta e
