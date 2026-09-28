@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Piootoo.Core.Services;
 using Piootoo.Core.Services.Interfaces;
+using Piootoo.Core.Services.Plans;
 using Piootoo.Shared.Models.Backtesting;
 using Piootoo.Shared.Models.Trading;
 using Piootoo.Shared.Utilities;
@@ -17,15 +18,18 @@ public class BacktestingController : ControllerBase
     private readonly ILogger<BacktestingController> _logger;
     private readonly IPiootooBacktestingService _backtestingService;
     private readonly WorkspaceService _workspaceService;
+    private readonly PlanResolver _planResolver;
 
     public BacktestingController(
         ILogger<BacktestingController> logger,
         IPiootooBacktestingService backtestingService,
-        WorkspaceService workspaceService)
+        WorkspaceService workspaceService,
+        PlanResolver planResolver)
     {
         _logger = logger;
         _backtestingService = backtestingService;
         _workspaceService = workspaceService;
+        _planResolver = planResolver;
     }
 
     /// <summary>
@@ -49,8 +53,28 @@ public class BacktestingController : ControllerBase
                 return BadRequest(new { error = "La data finale deve essere successiva alla data iniziale." });
             }
 
-            var masterFilter = _workspaceService.GetMasterFilter(request.WorkspaceId);
-            if (masterFilter.StrategiesFilter.Count == 0)
+            // Con un piano l'universo del run e' quello del piano, risolto dove lo risolve la sessione
+            // (PlanResolver): un run e il live dello stesso piano devono partire dalle stesse strategie.
+            // Senza piano e' il run neutro, sull'intero masterfilter del workspace.
+            var planCode = string.IsNullOrWhiteSpace(request.PlanCode) ? null : request.PlanCode.Trim();
+            IReadOnlyList<string> universe;
+            if (planCode is null)
+            {
+                universe = _workspaceService.GetMasterFilter(request.WorkspaceId).StrategiesFilter;
+            }
+            else
+            {
+                try
+                {
+                    universe = _planResolver.Resolve(request.WorkspaceId, planCode).UniverseStrategyIds;
+                }
+                catch (KeyNotFoundException ex)
+                {
+                    return Conflict(new { error = ex.Message });
+                }
+            }
+
+            if (universe.Count == 0)
             {
                 return BadRequest(new { error = "Il workspace non contiene strategie abilitate." });
             }
@@ -58,7 +82,7 @@ public class BacktestingController : ControllerBase
             var catalogIds = StrategyFactory.GetRegisteredStrategies()
                 .Select(strategy => strategy.Id)
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
-            var invalidIds = masterFilter.StrategiesFilter
+            var invalidIds = universe
                 .Where(id => !catalogIds.Contains(id))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .OrderBy(id => id)
@@ -72,8 +96,8 @@ public class BacktestingController : ControllerBase
                 });
             }
 
-            // Il payload client non è mai una fonte di selezione: si usa soltanto il masterfilter server-side.
-            request.SelectedStrategyIds = masterFilter.StrategiesFilter.ToList();
+            // Il payload client non è mai una fonte di selezione: si usa soltanto l'universo server-side.
+            request.SelectedStrategyIds = universe.ToList();
             request.SelectedSymbols = new List<string>();
             var jobId = _backtestingService.StartBacktesting(request);
             return Ok(new { jobId });

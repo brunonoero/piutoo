@@ -101,21 +101,26 @@ anagrafica non entra in un piano nuovo.
 Un servizio solo risponde a "dammi il piano con questo codice":
 
 ```
-ResolvedPlan PlanResolver.Resolve(string planCode)
+ResolvedPlan PlanResolver.Resolve(string planCode)                     // globale: cBot, ripresa, datafeed
+ResolvedPlan PlanResolver.Resolve(string workspaceId, string planCode) // backtest con piano
+IReadOnlyList<string> PlanResolver.SessionDirectories()                // dove la ripresa cerca
+IReadOnlyList<string> PlanResolver.PlanCodesForAccount(string number)  // presidio del conto
 
 record ResolvedPlan(
     TradingPlan Plan,
     PlanHome Home,                              // dove vivono sessioni e backtest del piano
-    IReadOnlyList<string> ActiveStrategyIds,    // cosa gira
-    IReadOnlyList<string> DatafeedStrategyIds)  // cosa si raccoglie
+    IReadOnlyList<string> UniverseStrategyIds)  // da cui si parte; e' anche cio' che si raccoglie
+{
+    IReadOnlyList<string> ActiveStrategyIds;    // universo − spente: cosa gira
+}
 
 record PlanHome(PlanHomeKind Kind, string Id, string RootPath)   // Workspace | Broker
 ```
 
 | | piano di workspace | piano di broker workspace |
 |---|---|---|
-| `ActiveStrategyIds` | masterfilter − spente (come oggi) | `EnabledStrategies` |
-| `DatafeedStrategyIds` | masterfilter intero (come oggi) | `EnabledStrategies` |
+| `UniverseStrategyIds` | masterfilter intero (come prima) | `EnabledStrategies` |
+| `ActiveStrategyIds` | masterfilter − spente (come prima) | `EnabledStrategies` (nessuna spenta) |
 | `Home.RootPath` | `workspaces\{ws}` | `broker-workspaces\{BROKER}` |
 
 Per i piani di workspace il comportamento non cambia di una virgola. In particolare l'impronta di
@@ -200,9 +205,15 @@ incompatibilita' diventa una regola del server.
    cambio di conto, API `api/v1/broker-workspaces`. L'unicita' del codice vale anche dal lato dei
    workspace (`TradingPlanService.Save` e `Duplicate`). Test in `BrokerWorkspaceServiceTests`.
    Nessun effetto sul runtime: un piano di produzione non apre ancora sessioni.
-2. **Risolutore unico, solo per i piani di workspace.** I sette punti passano da `PlanResolver`,
-   con comportamento identico. La suite resta verde, l'impronta di ripresa resta invariata (test su
-   `SessionRestoreTests`) e c'e' il test di conformita'.
+2. **Risolutore unico, solo per i piani di workspace.** *Fatta il 28/09/2026.* `PlanResolver` in
+   `Piootoo.Core/Services/Plans/`. Ci passano apertura da piano e ripresa (`CreateCore` riceve il
+   piano risolto e non legge piu' il masterfilter per un piano), cartelle della sessione (la
+   `Session` porta `HomePath`, usata anche da `PromoteToBacktest`), strumenti del datafeed, backtest
+   con piano (controller e servizio, cartella di uscita compresa) e presidio del conto. L'unicita'
+   del codice era gia' nella fase 1. Comportamento invariato: la suite passa senza toccare i test
+   esistenti, ripresa compresa. `PlanResolverTests` fissa cosa il risolutore restituisce per un piano
+   di workspace, `PlanResolutionConformanceTests` ammette `GetMasterFilter` solo nel risolutore,
+   nella sessione manuale, nel backtest neutro, in `WorkspaceService` e nel suo controller.
 3. **Piani di produzione nel runtime:** `open-plan`, ripresa, strumenti del datafeed, backtest con
    piano che scrive sotto il broker workspace. Test HTTP sul modello di `TradingSessionsHttpTests`.
 4. **Console.**
@@ -234,6 +245,7 @@ dopo la 3 i piani di produzione funzionano da API.
   promozione e duplica.
 - `Piootoo.Core/Services/BrokerWorkspaces/`: `BrokerWorkspaceStore` (deposito), `BrokerWorkspaceService`
   (regole). `PiootooApp.Server/Controllers/BrokerWorkspacesController.cs`.
+- `Piootoo.Core/Services/Plans/PlanResolver.cs`: `PlanResolver`, `ResolvedPlan`, `PlanHome`.
 - `Piootoo.Shared/Configuration/PiootooSettings.cs`: `BrokerWorkspacesPath`, `GetBrokerWorkspacesPath`.
 - `Piootoo.Shared/Models/Trading/TradingPlanContracts.cs`: `TradingPlan` (`EnabledStrategies`,
   `Provenance`, `RetiredUtc`), `PlanProvenance`, `DisabledStrategies`, `StrategyWeights`.

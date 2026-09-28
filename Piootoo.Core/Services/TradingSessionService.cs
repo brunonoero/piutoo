@@ -1,4 +1,5 @@
 ﻿using System.Collections.Concurrent;
+using Piootoo.Core.Services.Plans;
 using Piootoo.Shared;
 using Piootoo.Shared.Configuration;
 using Piootoo.Shared.Enums;
@@ -246,6 +247,13 @@ public sealed class TradingSessionService : ITradingSessionService
         public required string Id { get; init; }
         public required string Token { get; init; }
         public required string WorkspaceId { get; init; }
+
+        /// <summary>
+        /// La cartella sotto cui stanno <c>sessions/</c> e <c>backtests/</c> della sessione: il
+        /// workspace, o la casa del piano risolto (<see cref="PlanHome"/>).
+        /// </summary>
+        public required string HomePath { get; init; }
+
         public string? PlanCode { get; init; }
         public string? ExecutionKey { get; init; }
         public required ExecutionMode Mode { get; init; }
@@ -604,6 +612,12 @@ public sealed class TradingSessionService : ITradingSessionService
     private readonly IPositionSizingService _positionSizing;
 
     /// <summary>
+    /// Il solo punto da cui una sessione da piano ricava piano, strategie e cartella. Vedi
+    /// <see cref="PlanResolver"/>.
+    /// </summary>
+    private readonly PlanResolver _planResolver;
+
+    /// <summary>
     /// L'archivio del datafeed esterno, da cui una sessione <c>ExternalBroker</c> si riscalda
     /// all'apertura. <c>null</c> = non collegato: il riscaldamento resta quello del client, e la
     /// sessione lo <b>dichiara</b> invece di sembrare riscaldata.
@@ -616,6 +630,7 @@ public sealed class TradingSessionService : ITradingSessionService
     {
         _workspaces = workspaces;
         _plans = plans;
+        _planResolver = new PlanResolver(workspaces, plans);
         _evaluation = evaluation;
         _positionSizing = positionSizing ?? new PositionSizingService();
         _externalFeeds = externalFeeds;
@@ -689,31 +704,12 @@ public sealed class TradingSessionService : ITradingSessionService
     }
 
     /// <summary>
-    /// I piani che nominano il conto, su tutti i workspace. Serve a distinguere "nessuna sessione
+    /// I piani che nominano il conto, ovunque stiano. Serve a distinguere "nessuna sessione
     /// perché il conto non opera" da "nessuna sessione e invece dovrebbe averne una", che è il caso
-    /// dopo un riavvio del server. Un workspace illeggibile si salta invece di far fallire la
-    /// lettura di tutti gli altri.
+    /// dopo un riavvio del server.
     /// </summary>
     private IReadOnlyList<string> ResolvePlanCodesForAccount(string accountNumber)
-    {
-        var codici = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var workspace in _workspaces.List())
-        {
-            try
-            {
-                foreach (var plan in _plans.List(workspace.Id))
-                    if (plan.Accounts.Any(numero =>
-                            string.Equals(numero?.Trim(), accountNumber, StringComparison.OrdinalIgnoreCase)))
-                        codici.Add(plan.Code);
-            }
-            catch (Exception)
-            {
-                // Un piano illeggibile non è il problema che questa schermata sta cercando.
-            }
-        }
-
-        return codici.ToList();
-    }
+        => _planResolver.PlanCodesForAccount(accountNumber);
 
     /// <summary>
     /// Il conto partecipa alla sessione: la esegue direttamente, l'ha aperta con <c>open-plan</c>,
@@ -860,7 +856,8 @@ public sealed class TradingSessionService : ITradingSessionService
                 $"{request.ClientRunMode}. In realtime usa '{TradingRunProfile.DalPiano}': " +
                 "la configurazione operativa la porta il piano.");
 
-        var plan = _plans.Resolve(request.PlanCode);
+        var resolved = _planResolver.Resolve(request.PlanCode);
+        var plan = resolved.Plan;
         if (plan.Accounts.Count == 0)
             throw new InvalidOperationException($"Il piano '{plan.Code}' non contiene conti.");
 
@@ -959,7 +956,8 @@ public sealed class TradingSessionService : ITradingSessionService
         var descriptor = CreateCore(
             BuildPlanSessionRequest(plan, request.ClientRunMode, enforceConcurrency, token: null),
             plan.Code, request.ExecutionKey.Trim(), account,
-            clientVersion: NormalizeClientVersion(request.ClientVersion));
+            clientVersion: NormalizeClientVersion(request.ClientVersion),
+            resolvedPlan: resolved);
         AccountSymbolConversion conversion;
         lock (_sessions[descriptor.SessionId].Gate)
         {
@@ -1081,11 +1079,10 @@ public sealed class TradingSessionService : ITradingSessionService
     /// vanno confuse con i backtest. Prendono però un nome parlante al posto del GUID, perché una
     /// cartella che non dice a quale piano appartenga non è ispezionabile né ripulibile.</para>
     /// </summary>
-    private string ResolveSessionDirectory(
-        CreateTradingSessionRequest request, string? planCode, string? executionKey, string sessionId)
+    /// <param name="workspacePath">La casa della sessione: il workspace, o la casa del piano risolto.</param>
+    private static string ResolveSessionDirectory(
+        CreateTradingSessionRequest request, string workspacePath, string? planCode, string? executionKey, string sessionId)
     {
-        var workspacePath = _workspaces.GetWorkspacePath(request.WorkspaceId);
-
         // Senza piano non c'è un nome stabile da usare: resta il GUID, che almeno è univoco.
         if (string.IsNullOrWhiteSpace(planCode) || string.IsNullOrWhiteSpace(executionKey))
             return Path.Combine(workspacePath, "sessions", sessionId);
@@ -1197,12 +1194,19 @@ public sealed class TradingSessionService : ITradingSessionService
     /// Versione del cBot che apre la sessione, per il marcatore della cartella. Null quando il
     /// client non la dichiara o quando la sessione non nasce da un cBot.
     /// </param>
+    /// <param name="resolvedPlan">
+    /// Il piano da cui nasce la sessione, gia' risolto (<see cref="PlanResolver"/>): da li' vengono le
+    /// strategie e la cartella. Null per una sessione manuale, che parte dal masterfilter del workspace
+    /// della richiesta.
+    /// </param>
     private TradingSessionDescriptor CreateCore(
         CreateTradingSessionRequest request, string? planCode, string? executionKey,
-        string? accountNumber = null, RestoreContext? restore = null, string? clientVersion = null)
+        string? accountNumber = null, RestoreContext? restore = null, string? clientVersion = null,
+        ResolvedPlan? resolvedPlan = null)
     {
-        var filter = _workspaces.GetMasterFilter(request.WorkspaceId);
-        if (filter.StrategiesFilter.Count == 0)
+        var universe = resolvedPlan?.UniverseStrategyIds
+                       ?? _workspaces.GetMasterFilter(request.WorkspaceId).StrategiesFilter;
+        if (universe.Count == 0)
             throw new ArgumentException("Il masterfilter del workspace è vuoto.");
 
         // Con i contenitori: servono per NOMINARLI nel rifiuto poco piu' sotto. Senza, un masterfilter
@@ -1210,7 +1214,7 @@ public sealed class TradingSessionService : ITradingSessionService
         // battitura invece della cosa vera.
         var definitions = StrategyFactory.GetRegisteredStrategies(includeResearchContainers: true);
         var byId = definitions.ToDictionary(x => x.Id, StringComparer.OrdinalIgnoreCase);
-        var invalid = filter.StrategiesFilter.Where(id => !byId.ContainsKey(id)).ToArray();
+        var invalid = universe.Where(id => !byId.ContainsKey(id)).ToArray();
         if (invalid.Length != 0)
             throw new ArgumentException(
                 "ID strategia non eseguibili nel masterfilter: " +
@@ -1223,13 +1227,13 @@ public sealed class TradingSessionService : ITradingSessionService
         var disabled = new HashSet<string>(
             TradingPlanService.NormalizeDisabledStrategies(request.DisabledStrategies),
             StringComparer.OrdinalIgnoreCase);
-        var selectedIds = filter.StrategiesFilter.Where(id => !disabled.Contains(id)).ToArray();
+        var selectedIds = universe.Where(id => !disabled.Contains(id)).ToArray();
 
         // Spente tutte, la sessione partirebbe senza una strategia da valutare: sarebbe muta e
         // identica a una che non produce segnali. E' il silenzio che questo progetto non ammette.
         if (selectedIds.Length == 0)
             throw new ArgumentException(
-                $"Tutte le {filter.StrategiesFilter.Count} strategie del masterfilter del workspace " +
+                $"Tutte le {universe.Count} strategie del masterfilter del workspace " +
                 $"'{request.WorkspaceId}' sono spente: la sessione non avrebbe nulla da valutare. " +
                 "Riaccendine almeno una nel piano.");
 
@@ -1307,7 +1311,8 @@ public sealed class TradingSessionService : ITradingSessionService
         var engine = new PiootooTradingService();
         engine.Initialize(request.InitialCapital, request.CommissionPerContract);
         var sessionId = restore?.SessionId ?? Guid.NewGuid().ToString("N");
-        var sessionDirectory = ResolveSessionDirectory(request, planCode, executionKey, sessionId);
+        var homePath = resolvedPlan?.Home.RootPath ?? _workspaces.GetWorkspacePath(request.WorkspaceId);
+        var sessionDirectory = ResolveSessionDirectory(request, homePath, planCode, executionKey, sessionId);
 
         // Una sessione di backtest scrive sotto backtests/ accanto ai run del motore interno:
         // senza marcatore le due origini sarebbero indistinguibili in elenco.
@@ -1342,6 +1347,7 @@ public sealed class TradingSessionService : ITradingSessionService
                 ? Convert.ToHexString(Guid.NewGuid().ToByteArray())
                 : request.ClientSessionToken),
             WorkspaceId = request.WorkspaceId,
+            HomePath = homePath,
             PlanCode = planCode,
             ExecutionKey = executionKey,
             Mode = request.ExecutionMode,
@@ -2516,7 +2522,7 @@ public sealed class TradingSessionService : ITradingSessionService
                 "backtest vuota, indistinguibile da un run mai eseguito.");
         }
 
-        var destination = _workspaces.GetBacktestPath(session.WorkspaceId, request.BacktestFolderName);
+        var destination = WorkspaceBacktestPaths.ResolveBacktestPath(session.HomePath, request.BacktestFolderName);
         if (Directory.Exists(destination) && !request.OverwriteExisting)
         {
             throw new InvalidOperationException(
@@ -4352,20 +4358,8 @@ public sealed class TradingSessionService : ITradingSessionService
     {
         var esiti = new List<SessionRestoreOutcome>();
 
-        foreach (var workspace in _workspaces.List())
+        foreach (var cartellaSessioni in _planResolver.SessionDirectories())
         {
-            string cartellaSessioni;
-            try
-            {
-                cartellaSessioni = Path.Combine(_workspaces.GetWorkspacePath(workspace.Id), "sessions");
-            }
-            catch (Exception)
-            {
-                continue;
-            }
-
-            if (!Directory.Exists(cartellaSessioni)) continue;
-
             foreach (var cartella in Directory.EnumerateDirectories(cartellaSessioni))
             {
                 var percorso = Path.Combine(cartella, SessionStateSchema.FileName);
@@ -4400,10 +4394,10 @@ public sealed class TradingSessionService : ITradingSessionService
             return new SessionRestoreOutcome(state.SessionId, state.PlanCode, false,
                 "già in memoria");
 
-        TradingPlan plan;
+        ResolvedPlan resolved;
         try
         {
-            plan = _plans.Resolve(state.PlanCode);
+            resolved = _planResolver.Resolve(state.PlanCode);
         }
         catch (Exception ex)
         {
@@ -4411,6 +4405,7 @@ public sealed class TradingSessionService : ITradingSessionService
                 $"piano non risolvibile: {ex.Message}");
         }
 
+        var plan = resolved.Plan;
         var account = string.IsNullOrWhiteSpace(state.DirectAccountNumber)
             ? state.JoinedAccounts.FirstOrDefault() ?? plan.AccountNumber
             : state.DirectAccountNumber;
@@ -4423,7 +4418,8 @@ public sealed class TradingSessionService : ITradingSessionService
             var descriptor = CreateCore(
                 BuildPlanSessionRequest(plan, state.ClientRunMode, enforceConcurrency, state.SessionToken),
                 plan.Code, state.ExecutionKey, account,
-                new RestoreContext(state.SessionId, state.SessionToken));
+                new RestoreContext(state.SessionId, state.SessionToken),
+                resolvedPlan: resolved);
             session = _sessions[descriptor.SessionId];
         }
         catch (Exception ex)

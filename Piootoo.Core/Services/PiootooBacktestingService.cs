@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using Piootoo.Core.Services.Interfaces;
+using Piootoo.Core.Services.Plans;
 using Piootoo.Shared.Configuration;
 using Piootoo.Shared.Enums;
 using Piootoo.Shared.Interfaces;
@@ -117,7 +118,8 @@ public class PiootooBacktestingService : IPiootooBacktestingService
         // invece che a run avviato. Quello che porta entra SUBITO nella richiesta, cosi' il log di
         // avvio e il summary dichiarano i valori che hanno davvero governato l'esecuzione e non
         // quelli che il client aveva proposto.
-        var plan = ResolvePlan(request);
+        var resolvedPlan = ResolvePlan(request);
+        var plan = resolvedPlan?.Plan;
         if (plan is not null)
         {
             request.Holding = plan.Holding;
@@ -125,7 +127,8 @@ public class PiootooBacktestingService : IPiootooBacktestingService
         }
 
         request.BacktestFolderName = WorkspaceBacktestPaths.NormalizeFolderName(request.BacktestFolderName);
-        var workspacePath = ResolveWorkspacePath(request.WorkspaceId);
+        // Il run di un piano scrive nella casa del piano, come le sessioni del cBot dello stesso piano.
+        var workspacePath = resolvedPlan?.Home.RootPath ?? ResolveWorkspacePath(request.WorkspaceId);
         var outputPath = WorkspaceBacktestPaths.ResolveBacktestPath(workspacePath, request.BacktestFolderName);
         var jobId = Guid.NewGuid().ToString();
         if (!_activeOutputPaths.TryAdd(outputPath, jobId))
@@ -197,7 +200,7 @@ public class PiootooBacktestingService : IPiootooBacktestingService
     /// plausibile e sbagliato — piu' strategie di quante il piano ne opererebbe, e per giunta con
     /// la tenuta e la commissione della richiesta invece che le sue.</para>
     /// </summary>
-    private TradingPlan? ResolvePlan(BacktestingRequest request)
+    private ResolvedPlan? ResolvePlan(BacktestingRequest request)
     {
         request.PlanCode = string.IsNullOrWhiteSpace(request.PlanCode) ? null : request.PlanCode.Trim();
         if (request.PlanCode is null) return null;
@@ -208,7 +211,8 @@ public class PiootooBacktestingService : IPiootooBacktestingService
 
         try
         {
-            return plans.Get(request.WorkspaceId, request.PlanCode);
+            return new PlanResolver(_workspaces ?? new WorkspaceService(_settings), plans)
+                .Resolve(request.WorkspaceId, request.PlanCode);
         }
         catch (KeyNotFoundException ex)
         {

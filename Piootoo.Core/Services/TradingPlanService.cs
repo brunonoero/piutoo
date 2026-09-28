@@ -1,6 +1,7 @@
 ﻿using System.Text.Json;
 using System.Text.Json.Nodes;
 using Piootoo.Core.Services.BrokerWorkspaces;
+using Piootoo.Core.Services.Plans;
 using Piootoo.Shared.MarketData;
 using Piootoo.Shared.Models.Datafeed;
 using Piootoo.Shared.Models.Trading;
@@ -63,11 +64,14 @@ public sealed class TradingPlanService
     /// Conto di cui usare la tabella di conversione simboli. Vuoto = quello dichiarato dal piano.
     /// </param>
     public PlanDatafeedInstrumentsDto ResolveDatafeedInstruments(string code, string? accountNumber)
-    {
-        var plan = Resolve(code);
+        => ResolveDatafeedInstruments(new PlanResolver(_workspaces, this).Resolve(code), accountNumber);
 
-        var filter = _workspaces.GetMasterFilter(plan.WorkspaceId);
-        if (filter.StrategiesFilter.Count == 0)
+    /// <summary>Vedi l'overload per codice: qui il piano e' gia' risolto, universo compreso.</summary>
+    public PlanDatafeedInstrumentsDto ResolveDatafeedInstruments(ResolvedPlan resolved, string? accountNumber)
+    {
+        var plan = resolved.Plan;
+        var universe = resolved.UniverseStrategyIds;
+        if (universe.Count == 0)
             throw new InvalidOperationException(
                 $"Il masterfilter del workspace '{plan.WorkspaceId}' è vuoto: il piano '{plan.Code}' " +
                 "non tocca alcuno strumento.");
@@ -79,7 +83,7 @@ public sealed class TradingPlanService
         // significherebbe operare con meno strategie di quante il piano ne dichiara, qui al
         // massimo si raccoglie un simbolo in meno — e fermare la raccolta di venti strumenti per
         // una voce sbagliata del masterfilter è un prezzo che non vale la pena pagare.
-        var pairs = filter.StrategiesFilter
+        var pairs = universe
             .Where(byId.ContainsKey)
             .Select(id => byId[id])
             .Where(definition => !string.IsNullOrWhiteSpace(definition.Symbol) && definition.TimeframeMinutes > 0)

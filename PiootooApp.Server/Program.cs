@@ -100,6 +100,8 @@ builder.Services.AddSingleton(sp => new Piootoo.Core.Services.BestPlans.BestPlan
     sp.GetRequiredService<WorkspaceService>(),
     sp.GetRequiredService<TradingPlanService>(),
     sp.GetRequiredService<PiootooSettings>()));
+// L'unico punto che risolve un piano: strategie, cartella, ripresa. Senza stato proprio.
+builder.Services.AddSingleton<Piootoo.Core.Services.Plans.PlanResolver>();
 // Singleton per lo stesso motivo: il lock serializza promozioni, duplicati e ritiri dello stesso broker.
 builder.Services.AddSingleton<Piootoo.Core.Services.BrokerWorkspaces.BrokerWorkspaceService>();
 builder.Services.AddSingleton<IStrategyEvaluationService, StrategyEvaluationService>();
