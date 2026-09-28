@@ -67,9 +67,17 @@ Produzione*). Regole in [`domini/broker-workspace.md`](domini/broker-workspace.m
   valida solo se non salvata dopo l'avvio del run. Prova in anteprima del 28/09: sette best plan su
   otto sono promuovibili; `ftmo-combo-europa-o4` no (piano salvato tre minuti dopo l'avvio del run),
   va rifatto il backtest.
-- Il **broker workspace FTMO e' ancora vuoto**: la migrazione dei piani sui conti si fa a mercato
-  chiuso, conto per conto, con il cBot fermato e riavviato con il codice nuovo. Quando un piano entra
-  in produzione, la sua scheda qui riporta il codice di produzione accanto a quello di ricerca.
+- **In produzione dal 28/09/2026, tutti sul demo 17202911** (server 7.8.9):
+
+  | produzione | dal piano di ricerca | strategie | size | best plan |
+  |---|---|---:|---:|---|
+  | `FTMO-EUROPA` | `FTMO-PT3B-EUROPA` | 3 (FDAX PCH_002, FDAX RHL, FESX RHL, 240) | 1 | run cBot del 28/09 05:13 |
+  | `FTMO-USA` | `FTMO-PT3B-USA` | 3 (ES, NQ, YM RHL, 240) | 1 | run cBot del 28/09 05:25 |
+  | `FTMO-O4-X05` | `PT5DAV-O4-X05` | 7 PT5DAV | 0,5 | run cBot del 28/09 05:27 |
+
+  Per farli girare davvero si mette sull'istanza cTrader il **codice di produzione** al posto di
+  quello di ricerca, a mercato chiuso: la sessione nuova nasce in `broker-workspaces\FTMO\sessions\`.
+  Fino ad allora le istanze restano sui codici di ricerca.
 
 ## Perdita giornaliera alla FTMO sui run cBot (28/09/2026)
 
