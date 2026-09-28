@@ -26,6 +26,30 @@ prova, gli stessi piani girano tutti li'), commissione **2** per contratto, over
 **ammessi**, flat di sessione **20:45 UTC** per 30 minuti, flat di fine settimana 20:45 → 23:00 UTC,
 sizing di portafoglio spento.
 
+## Come usare i best plan sui conti (28/09/2026)
+
+| best plan | conto 100k: netto run cBot (periodo) | DD run cBot | DD periodo lungo | size | ruolo |
+|---|---|---:|---:|---:|---|
+| `FTMO-PT3B-EUROPA` | +10.073 (06/2025-09/2026) | 3.505 | ~5.400 (2022-2025) | 1 | conto 1 |
+| `FTMO-PT3B-USA` | +5.064 (10/2025-09/2026, 19 trade) | 1.030 | ~2.100 | 1 | conto 2, pochi trade |
+| `PT5DAV-O4-X05` | +12.118 (08/2025-09/2026) | 4.109 | n/d | 0,5 | conto 3, irregolare |
+| `FTMO-PT3B-INDICI` | +14.604 (08/2025-09/2026) | 2.704 | ~5.400 | 1 | alternativa a EUROPA + USA su un conto solo |
+| `PT5DAV-O4` | +24.329 | 8.382 | n/d | 1 | NON su conto vero a size 1: usare X05 |
+| `PT5DAV-P1` | +81.699 | 3.965 | n/d | 1 | in campione: non per un conto vero |
+
+- **Combinazioni su una prop**: EUROPA + USA + O4-X05 (tre conti), oppure INDICI + O4-X05 (due conti).
+  Mai INDICI con EUROPA o USA, mai O4/O4-X05 con P1 o ORO (vedi la tabella sotto).
+- **Prima un conto demo** per 1-2 mesi per piano, stessi parametri; si passa al conto vero solo se il
+  demo resta dentro i numeri del backtest.
+- **Setup cTrader**: un'istanza del cBot operativo per conto, con server del piano, workspace e codice del
+  piano; server installato su `http://localhost:5000`, senza console (vedi `lavori-in-corso.md`).
+- **Controllo settimanale**: netto e drawdown del conto contro la colonna "DD periodo lungo". Allarme
+  quando il drawdown del conto supera il DD del periodo lungo; **stop del piano** a 1,5 volte quel valore
+  o a 7.000, quello che viene prima (limite FTMO 10.000, perdita giornaliera 5.000). Un piano fermato si
+  rimisura prima di ripartire, non si ritocca.
+- **Non cambiare parametri o pesi durante l'uso**: una modifica e' un piano nuovo, da duplicare e
+  rimisurare.
+
 ## Compatibilita' fra piani sulla stessa prop (aggiornata al 27/09/2026)
 
 Dentro una stessa prop una strategia sta su **un conto solo** (copy trading); su prop diverse si puo'
