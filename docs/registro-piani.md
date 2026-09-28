@@ -70,6 +70,7 @@ aperte: la perdita non realizzata che una multiday porta dentro la giornata cont
 | PT5DAV-P1 | 433 | 81.699 | 3.965 | 5.373 | 2.309 | 3.026 | 19/08/2026 | 1 |
 | EUROPA-O4 (run a size 1) | 748 | 21.266 | 4.821 | 5.866 | 1.738 | 2.502 | 29/07/2026 | 1 |
 | EUROPA-O4 a 0,75 (stima) | 748 | 15.949 | 3.616 | 4.399 | 1.304 | 1.876 | 29/07/2026 | 0 |
+| **EUROPA-O4 a 0,75 (run)** | 748 | 15.679 | 3.679 | 4.456 | 1.296 | 1.873 | 29/07/2026 | 0 |
 
 **O4 a size 1 supera il limite giornaliero** il 29/07/2026: quattro long aperti in un ribasso, fra cui
 `NQ_BSW_001_240` senza stop, aperto dal 27/07. Sul chiuso quel giorno perde 1.785: il numero vero e' tre
@@ -293,8 +294,12 @@ Il piano `PT3B-FDAX` (ICS) ha backtest cTrader in archivio ma non esiste piu' in
   su 14 (giugno 2026 −2.843). E' la somma dei due run separati EUROPA + O4-X05 (+20.271, DD 4.780): su
   un conto solo non si guadagna diversificazione, si risparmia un conto. Atteso a 0,75: ~+16k, DD ~3,6k.
   Riserve ereditate da O4: marzo-maggio 2026 fanno due terzi del netto, `NQ_BSW_001_240` il 38%.
-- **Best plan** dal 28/09/2026, con la scheda completa. Alternativa a EUROPA + O4-X05 su due conti, mai
-  insieme a loro.
+- **Backtest cTrader a 0,75** (`ftmo-europa-o4-bt-20250801-0000-v7.8.6-20260928-0956`, stesso periodo):
+  748 trade, **+15.679, DD 3.679**, net/DD 4,26, peggior giorno FTMO 1.873, DD con le posizioni aperte
+  4.456. Conferma la stima dal run a size 1 (+15.949, DD 3.616): le quantita' scalano linearmente, salvo
+  l'arrotondamento al passo di lotto su GC e KC.
+- **Best plan** dal 28/09/2026 sul run a 0,75, con la scheda completa; il best plan sul run a size 1
+  resta, con la scheda segnata "superata". Alternativa a EUROPA + O4-X05 su due conti, mai insieme a loro.
 
 ### `FTMO-PT3B-EUROPA` e `FTMO-PT3B-USA` — workspace `ftmo-pt3b-indici` (27/09/2026)
 
