@@ -222,10 +222,16 @@ public partial class BestPlanListScreen : UserControl, IShellScreen
         _ => "ignota"
     };
 
+    /// <summary>
+    /// La riga si legge dalla binding source, non da <c>DataBoundItem</c>: quando la sorgente si
+    /// stacca (<see cref="BuildColumns"/>, o lo smontaggio della schermata cambiando voce di menu) il
+    /// grid tiene ancora le righe, rilancia <c>SelectionChanged</c> e <c>DataBoundItem</c> chiede al
+    /// CurrencyManager un indice che non ha piu'.
+    /// </summary>
     private BestPlan? PlanAt(int rowIndex)
         => rowIndex >= 0
-           && rowIndex < _grid.Rows.Count
-           && _grid.Rows[rowIndex].DataBoundItem is DataRowView view
+           && rowIndex < _bindingSource.Count
+           && _bindingSource[rowIndex] is DataRowView view
            && view[IdColumn] is string id
            && _plans.TryGetValue(id, out var plan)
             ? plan

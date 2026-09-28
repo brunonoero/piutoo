@@ -84,6 +84,7 @@ public partial class BestPlanDetailScreen : UserControl, IShellScreen
             $"Max DD {plan.MaxDrawdown:N2} ({plan.MaxDrawdownPercent:N1}%)   ·   " +
             $"{plan.TotalTrades} trade, {winRate:P0} vincenti   ·   curva {plan.EquitySource}";
 
+        _planCodeBox.Text = plan.PlanCode;
         _chart.SetData(plan.Equity, plan.InitialCapital);
 
         Fill(_years, plan.Years);
@@ -288,6 +289,9 @@ public partial class BestPlanDetailScreen : UserControl, IShellScreen
     }
 
     private void OnBackRequested(object? sender, EventArgs e) => _context?.Navigation.GoBack();
+
+    /// <summary>Il codice si copia intero: entrando nella casella e' gia' tutto selezionato.</summary>
+    private void OnPlanCodeBoxEnter(object? sender, EventArgs e) => BeginInvoke(_planCodeBox.SelectAll);
 
     // --- costruzione delle griglie (usate da InitializeComponent) ---------
 

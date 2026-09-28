@@ -23,6 +23,8 @@ partial class BestPlanDetailScreen
         this._strategiesBindingSource = new System.Windows.Forms.BindingSource(this.components);
         this._toolbar = new piootooapp.clientform.Shell.Controls.DetailToolbar();
         this._commandPanel = new System.Windows.Forms.FlowLayoutPanel();
+        this._planCodeLabel = new System.Windows.Forms.Label();
+        this._planCodeBox = new System.Windows.Forms.TextBox();
         this._reportButton = new System.Windows.Forms.Button();
         this._removeButton = new System.Windows.Forms.Button();
         this._headlineLabel = new System.Windows.Forms.Label();
@@ -66,6 +68,8 @@ partial class BestPlanDetailScreen
         // _commandPanel
         //
         this._commandPanel.AutoSize = true;
+        this._commandPanel.Controls.Add(this._planCodeLabel);
+        this._commandPanel.Controls.Add(this._planCodeBox);
         this._commandPanel.Controls.Add(this._reportButton);
         this._commandPanel.Controls.Add(this._removeButton);
         this._commandPanel.Controls.Add(this._saveDescriptionButton);
@@ -74,6 +78,23 @@ partial class BestPlanDetailScreen
         this._commandPanel.Padding = new System.Windows.Forms.Padding(12, 6, 12, 6);
         this._commandPanel.Size = new System.Drawing.Size(900, 37);
         this._commandPanel.TabIndex = 1;
+        //
+        // _planCodeLabel
+        //
+        this._planCodeLabel.AutoSize = true;
+        this._planCodeLabel.Margin = new System.Windows.Forms.Padding(0, 5, 4, 0);
+        this._planCodeLabel.Name = "_planCodeLabel";
+        this._planCodeLabel.Text = "Codice piano";
+        //
+        // _planCodeBox
+        //
+        this._planCodeBox.Font = new System.Drawing.Font("Consolas", 9.5F);
+        this._planCodeBox.Margin = new System.Windows.Forms.Padding(0, 1, 18, 0);
+        this._planCodeBox.Name = "_planCodeBox";
+        this._planCodeBox.ReadOnly = true;
+        this._planCodeBox.Size = new System.Drawing.Size(260, 23);
+        this._planCodeBox.TabIndex = 0;
+        this._planCodeBox.Enter += new System.EventHandler(this.OnPlanCodeBoxEnter);
         //
         // _reportButton
         //
@@ -273,6 +294,8 @@ partial class BestPlanDetailScreen
     private System.Windows.Forms.BindingSource _strategiesBindingSource;
     private piootooapp.clientform.Shell.Controls.DetailToolbar _toolbar;
     private System.Windows.Forms.FlowLayoutPanel _commandPanel;
+    private System.Windows.Forms.Label _planCodeLabel;
+    private System.Windows.Forms.TextBox _planCodeBox;
     private System.Windows.Forms.Button _reportButton;
     private System.Windows.Forms.Button _removeButton;
     private System.Windows.Forms.Label _headlineLabel;
