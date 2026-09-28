@@ -1,5 +1,6 @@
 ﻿using System.Text.Json;
 using System.Text.Json.Nodes;
+using Piootoo.Core.Services.BrokerWorkspaces;
 using Piootoo.Shared.MarketData;
 using Piootoo.Shared.Models.Datafeed;
 using Piootoo.Shared.Models.Trading;
@@ -14,10 +15,19 @@ public sealed class TradingPlanService
     private const string PlansDirectoryName = "plans";
     private const string PlansFileName = "plans.json";
     private readonly WorkspaceService _workspaces;
+    private readonly BrokerWorkspaceStore? _brokerWorkspaces;
     private readonly object _gate = new();
     private readonly JsonSerializerOptions _json = new() { WriteIndented = true };
 
-    public TradingPlanService(WorkspaceService workspaces) => _workspaces = workspaces;
+    /// <param name="brokerWorkspaces">
+    /// I piani di produzione, per tenere il codice unico anche rispetto a loro. Null nei test che non
+    /// li usano: il controllo di unicita' resta allora sui soli workspace.
+    /// </param>
+    public TradingPlanService(WorkspaceService workspaces, BrokerWorkspaceStore? brokerWorkspaces = null)
+    {
+        _workspaces = workspaces;
+        _brokerWorkspaces = brokerWorkspaces;
+    }
 
     public IReadOnlyList<TradingPlan> List(string workspaceId)
     {
@@ -293,6 +303,7 @@ public sealed class TradingPlanService
             if (collision is not null)
                 throw new InvalidOperationException(
                     $"Il codice piano '{code}' è già usato dal workspace '{collision.WorkspaceId}'.");
+            ThrowIfUsedByBrokerWorkspace(code);
 
             var plans = Read(workspaceId);
             var existing = Find(plans, code);
@@ -385,6 +396,7 @@ public sealed class TradingPlanService
             if (collision is not null)
                 throw new InvalidOperationException(
                     $"Il codice piano '{newCode}' è già usato nel workspace '{collision.WorkspaceId}'.");
+            ThrowIfUsedByBrokerWorkspace(newCode);
 
             var name = string.IsNullOrWhiteSpace(request.NewName) ? $"{source.Name} (copia)" : request.NewName.Trim();
             var now = DateTime.UtcNow;
@@ -393,6 +405,32 @@ public sealed class TradingPlanService
             Write(workspaceId, plans);
             return copy;
         }
+    }
+
+    /// <summary>
+    /// Il workspace che ha un piano con quel codice, o null. Per l'unicita' del codice dal lato dei
+    /// broker workspace, che non possono chiamare <see cref="Resolve"/>: fallisce anche sui doppioni.
+    /// </summary>
+    internal string? FindWorkspaceUsingCode(string code)
+    {
+        var normalized = NormalizeCode(code);
+        lock (_gate)
+            return _workspaces.List()
+                .SelectMany(workspace => Read(workspace.Id))
+                .FirstOrDefault(plan => plan.Code.Equals(normalized, StringComparison.OrdinalIgnoreCase))
+                ?.WorkspaceId;
+    }
+
+    private void ThrowIfUsedByBrokerWorkspace(string code)
+    {
+        if (_brokerWorkspaces is null)
+            return;
+
+        var owner = _brokerWorkspaces.ReadAllPlans()
+            .FirstOrDefault(entry => entry.Plan.Code.Equals(code, StringComparison.OrdinalIgnoreCase));
+        if (owner.Plan is not null)
+            throw new InvalidOperationException(
+                $"Il codice piano '{code}' è già usato da un piano di produzione del broker '{owner.BrokerCode}'.");
     }
 
     private static string LockedMessage(TradingPlan plan)
@@ -423,7 +461,10 @@ public sealed class TradingPlanService
             CreatedUtc = createdUtc,
             UpdatedUtc = updatedUtc,
             Locked = locked,
-            LockedUtc = lockedUtc
+            LockedUtc = lockedUtc,
+            EnabledStrategies = plan.EnabledStrategies?.ToList(),
+            Provenance = plan.Provenance,
+            RetiredUtc = plan.RetiredUtc
         };
 
     private List<TradingPlan> Read(string workspaceId)
@@ -507,7 +548,7 @@ public sealed class TradingPlanService
     /// eseguire lo stesso segnale su due serie di prezzi diverse, e il risultato non corrisponde a
     /// nessuno dei due conti.</para>
     /// </summary>
-    private string ValidateBrokerAndAccounts(string? brokerCode, IReadOnlyList<string> accounts)
+    internal string ValidateBrokerAndAccounts(string? brokerCode, IReadOnlyList<string> accounts)
     {
         var normalized = brokerCode?.Trim() ?? string.Empty;
         if (normalized.Length == 0)
@@ -621,7 +662,10 @@ public sealed class TradingPlanService
             CreatedUtc = plan.CreatedUtc,
             UpdatedUtc = plan.UpdatedUtc,
             Locked = plan.Locked,
-            LockedUtc = plan.LockedUtc
+            LockedUtc = plan.LockedUtc,
+            EnabledStrategies = plan.EnabledStrategies,
+            Provenance = plan.Provenance,
+            RetiredUtc = plan.RetiredUtc
         };
     }
 
@@ -728,7 +772,7 @@ public sealed class TradingPlanService
     /// </summary>
     public static decimal NormalizeSizeMultiplier(decimal value) => value <= 0m ? 1m : value;
 
-    private static string NormalizeCode(string code)
+    internal static string NormalizeCode(string code)
     {
         var normalized = code?.Trim().ToUpperInvariant() ?? string.Empty;
         if (normalized.Length == 0) throw new ArgumentException("Il codice piano è obbligatorio.");

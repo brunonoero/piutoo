@@ -87,13 +87,21 @@ builder.Services.AddSingleton<ExternalBacktestReportService>();
 builder.Services.AddSingleton(sp => new Piootoo.Core.Services.Compare.CompareService(
     sp.GetRequiredService<WorkspaceService>(),
     sp.GetRequiredService<PiootooSettings>()));
-builder.Services.AddSingleton<TradingPlanService>();
+// I piani in produzione. Il deposito sta prima dei piani di workspace perche' il codice di un piano e'
+// unico fra i due, e TradingPlanService lo controlla anche li'. Vedi docs/domini/broker-workspace.md.
+builder.Services.AddSingleton(sp => new Piootoo.Core.Services.BrokerWorkspaces.BrokerWorkspaceStore(
+    sp.GetRequiredService<PiootooSettings>()));
+builder.Services.AddSingleton(sp => new TradingPlanService(
+    sp.GetRequiredService<WorkspaceService>(),
+    sp.GetRequiredService<Piootoo.Core.Services.BrokerWorkspaces.BrokerWorkspaceStore>()));
 // Singleton per il lock che serializza le promozioni: due copie nella stessa cartella si
 // sovrascriverebbero a vicenda.
 builder.Services.AddSingleton(sp => new Piootoo.Core.Services.BestPlans.BestPlanService(
     sp.GetRequiredService<WorkspaceService>(),
     sp.GetRequiredService<TradingPlanService>(),
     sp.GetRequiredService<PiootooSettings>()));
+// Singleton per lo stesso motivo: il lock serializza promozioni, duplicati e ritiri dello stesso broker.
+builder.Services.AddSingleton<Piootoo.Core.Services.BrokerWorkspaces.BrokerWorkspaceService>();
 builder.Services.AddSingleton<IStrategyEvaluationService, StrategyEvaluationService>();
 builder.Services.AddSingleton<IPositionSizingService, PositionSizingService>();
 builder.Services.AddSingleton<ITradingSessionService, TradingSessionService>();

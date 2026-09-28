@@ -24,11 +24,13 @@ namespace Piootoo.Core.Services.BestPlans;
 /// </remarks>
 public sealed class BestPlanService
 {
-    private const string PlanSnapshotFileName = "plan.json";
+    /// <summary>Il piano come era alla promozione, fra gli artefatti.</summary>
+    public const string PlanSnapshotFileName = "plan.json";
     private const string RealizedEquity = "realizzata";
     private const string MarkToMarketEquity = "mark-to-market";
 
-    private static readonly JsonSerializerOptions Json = new()
+    /// <summary>Opzioni dei file del best plan, <see cref="PlanSnapshotFileName"/> compreso.</summary>
+    internal static readonly JsonSerializerOptions Json = new()
     {
         WriteIndented = true,
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
@@ -114,6 +116,18 @@ public sealed class BestPlanService
             AtomicFileWriter.WriteAllText(Path.Combine(directory, BestPlan.FileName), JsonSerializer.Serialize(plan, Json));
             return plan;
         }
+    }
+
+    /// <summary>
+    /// La cartella degli artefatti copiati alla promozione: summary, <c>origin.json</c> e il piano.
+    /// E' da qui che nasce un piano di produzione (<c>BrokerWorkspaceService.Promote</c>).
+    /// </summary>
+    public string GetArtifactsDirectory(string id)
+    {
+        var directory = ResolveDirectory(id);
+        if (!Directory.Exists(directory))
+            throw new DirectoryNotFoundException($"Best plan '{id}' non trovato.");
+        return Path.Combine(directory, BestPlan.ArtifactsDirectoryName);
     }
 
     /// <summary>Il report HTML copiato alla promozione.</summary>

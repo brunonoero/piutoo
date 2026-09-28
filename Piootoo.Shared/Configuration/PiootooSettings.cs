@@ -56,6 +56,13 @@ public class PiootooSettings
     /// </summary>
     public string BestPlansPath { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Cartella dei broker workspace, i piani in produzione: uno per broker, in
+    /// <c>{BrokerWorkspacesPath}\{BROKER}\</c>. Quando manca, vale <c>[BasePath]\broker-workspaces</c>.
+    /// Vedi <c>docs/domini/broker-workspace.md</c>.
+    /// </summary>
+    public string BrokerWorkspacesPath { get; set; } = string.Empty;
+
     public string SettingsPath { get; set; } = string.Empty;
     public string Workspaces { get; set; } = string.Empty;
     public string Accounts { get; set; } = string.Empty;
@@ -75,6 +82,7 @@ public class PiootooSettings
             SymbolInfoPath = ResolvePath(SymbolInfoPath);
             ComparePath = ResolvePath(ComparePath);
             BestPlansPath = ResolvePath(BestPlansPath);
+            BrokerWorkspacesPath = ResolvePath(BrokerWorkspacesPath);
             SettingsPath = ResolvePath(SettingsPath);
             Workspaces = ResolvePath(Workspaces);
             Accounts = ResolvePath(Accounts);
@@ -140,6 +148,12 @@ public class PiootooSettings
         => string.IsNullOrWhiteSpace(BestPlansPath)
             ? Path.Combine(string.IsNullOrWhiteSpace(BasePath) ? "." : BasePath, "best-plans")
             : ResolvePath(BestPlansPath);
+
+    /// <summary>Cartella dei broker workspace. Il default e' <c>[BasePath]\broker-workspaces</c>.</summary>
+    public string GetBrokerWorkspacesPath()
+        => string.IsNullOrWhiteSpace(BrokerWorkspacesPath)
+            ? Path.Combine(string.IsNullOrWhiteSpace(BasePath) ? "." : BasePath, "broker-workspaces")
+            : ResolvePath(BrokerWorkspacesPath);
 
     /// <summary>
     /// Ottiene il path completo dei settings

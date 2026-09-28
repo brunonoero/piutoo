@@ -180,6 +180,47 @@ public sealed class TradingPlan
     public bool Locked { get; init; }
 
     public DateTime? LockedUtc { get; init; }
+
+    /// <summary>
+    /// Le strategie che il piano esegue, per <c>Id</c> di catalogo. Valorizzato solo nei piani di un
+    /// broker workspace, che non hanno masterfilter: li' l'elenco e' dichiarato e completo, e
+    /// <see cref="DisabledStrategies"/> resta vuoto. Null nei piani di workspace, dove le strategie
+    /// sono ancora <c>masterfilter − DisabledStrategies</c>. Vedi <c>docs/domini/broker-workspace.md</c>.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<string>? EnabledStrategies { get; init; }
+
+    /// <summary>Da dove viene un piano di produzione. Null nei piani di workspace.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public PlanProvenance? Provenance { get; init; }
+
+    /// <summary>
+    /// Piano di produzione ritirato: resta leggibile con le sue sessioni, ma non ne apre di nuove e
+    /// non occupa piu' strategie e conti del broker workspace.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public DateTime? RetiredUtc { get; init; }
+}
+
+/// <summary>
+/// La provenienza di un piano di produzione: il best plan da cui e' stato promosso e, per un
+/// duplicato con cambio di conto, il piano che sostituisce. E' cio' che lega il piano al run che lo
+/// ha misurato quando il backtest vive in un altro workspace.
+/// </summary>
+public sealed class PlanProvenance
+{
+    public string BestPlanId { get; init; } = string.Empty;
+    public string SourceWorkspaceId { get; init; } = string.Empty;
+    public string SourcePlanCode { get; init; } = string.Empty;
+    public string BacktestFolder { get; init; } = string.Empty;
+
+    /// <summary>Quando e' partito il run misurato (<c>origin.json</c>).</summary>
+    public DateTime RunCreatedUtc { get; init; }
+
+    public DateTime PromotedUtc { get; init; }
+
+    /// <summary>Il piano di produzione sostituito da questo, per un duplicato; null per una promozione.</summary>
+    public string? PreviousPlanCode { get; init; }
 }
 
 /// <summary>Copia di un piano con codice e nome nuovi. La copia nasce sbloccata.</summary>
