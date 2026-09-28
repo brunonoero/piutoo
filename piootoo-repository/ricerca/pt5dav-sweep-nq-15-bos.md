@@ -189,3 +189,12 @@ fuori campione: lo stop a 3 ATR probabilmente non scatta mai, da verificare.
 scelta non ha vantaggio. `BOS_002_30` e `BOS_003_60` non sono misurate qui e non vanno date per buone.
 Si aspetta la sweep P5-VBO sullo stesso NQ 15m prima di toccare O3: se ripete la forma, il problema
 e' di tutta la serie PT5DAV su NQ, non del solo motore BOS.
+
+### La classe `PT5DAV_NQ_BOS_001_15`, misurata verbatim (28/09/2026)
+
+`piootoo-sweep --strategy PT5DAV_NQ_BOS_001_15 --params "TimeframeMinutes=15"`, stessi feed, split e
+costi: **1.595 trade e -22.587 in campione, 1.410 trade e +208.460 fuori**, cioe' esattamente la
+replica della configurazione della consegna. Fuori campione 4 finestre su 4 in utile (+14.209,
++70.717, +28.546, +96.916), ma sui nove anni in cui non e' stata scelta perde su 1.595 trade: non e'
+un campione piccolo, e' l'assenza di vantaggio. **Confermato: fuori dal bacino dei piani bilanciati.**
+Log in `pt5dav-nq-bos-001-15-classe.log`.

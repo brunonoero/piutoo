@@ -210,3 +210,14 @@ sugli stessi anni: il confronto con la consegna qui non c'e', va fatto a parte.
 di `piani-onesti-2026-09-27` e in `piani-congelati-2025-09-01`: prima di toglierla va misurata la sua
 configurazione, verbatim, sul 2008-2016 del feed interno (la sweep misura il motore, non la classe).
 La sweep P5-RHL decide il secondo membro NQ di O3 (`PT5DAV_NQ_RHL_002_15`).
+
+### La classe `PT5DAV_NQ_VBO_001_15`, misurata verbatim (28/09/2026)
+
+Stessa misura della BOS: **85 trade e +4.333 in campione, 248 trade e +106.289 fuori**, 4 finestre su
+4 in utile (+7.210, +28.115, +36.190, +35.137). La classe sta in una regione diversa da quella che la
+sweep trova, e **non e' smentita**: in campione e' in utile. Ma 85 trade in nove anni sono sotto i 250
+con cui si giudica, e fuori campione i trade triplicano (28 → 81 per finestra) mentre l'utile medio
+resta fra 250 e 480: la frequenza segue la volatilita' del Nasdaq, e il campione in cui la strategia
+non e' stata scelta e' troppo piccolo per dire se il vantaggio c'era gia'. **Proposta (da confermare):
+resta nel piano 2, a peso ridotto quando si pesano i piani, non come membro portante.** Log in
+`pt5dav-nq-vbo-001-15-classe.log`.
