@@ -43,6 +43,10 @@ non esiste più, si tiene per il perché.
 - [`domini/best-plans.md`](domini/best-plans.md) — backtest messi in evidenza,
   fotografati fuori dai workspace in `best-plans/`: cosa si copia, da dove viene
   la curva, cifre per anno. *Bozza.*
+- [`domini/broker-workspace.md`](domini/broker-workspace.md) — i piani in
+  produzione, uno per broker, promossi solo da best plan con le strategie attive
+  dichiarate; il risolutore unico dei piani e le fasi di implementazione.
+  *Progetto.*
 - [`domini/orologio-barre-e-fill.md`](domini/orologio-barre-e-fill.md) —
   orologio sintetico del loop, buchi del feed, fill fantasma e come validare i
   fill di un run. *Stabile.*

@@ -83,7 +83,8 @@ public sealed class BrokerWorkspaceService
 
     /// <summary>
     /// Promuove un best plan a piano di produzione del broker <paramref name="brokerCode"/>, che deve
-    /// essere il broker del piano di origine. Il broker workspace nasce alla prima promozione.
+    /// essere il broker del piano di origine. Null = il broker del piano di origine: e' come promuove
+    /// la console, che dal best plan non vede il broker. Il broker workspace nasce alla prima promozione.
     /// </summary>
     /// <remarks>
     /// <para><b>Il piano e' quello che il run ha misurato.</b> Le strategie attive vengono dal summary
@@ -92,7 +93,7 @@ public sealed class BrokerWorkspaceService
     /// se e' stato salvato dopo l'inizio del run non si puo' sapere che cosa il run abbia eseguito, e la
     /// promozione si rifiuta.</para>
     /// </remarks>
-    public TradingPlan Promote(string brokerCode, PromoteToProductionRequest request)
+    public TradingPlan Promote(string? brokerCode, PromoteToProductionRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
         if (string.IsNullOrWhiteSpace(request.BestPlanId))
@@ -337,7 +338,7 @@ public sealed class BrokerWorkspaceService
         RetiredUtc = retiredUtc
     };
 
-    private TradingBroker ResolveBroker(string brokerCode, TradingPlan source)
+    private TradingBroker ResolveBroker(string? brokerCode, TradingPlan source)
     {
         if (string.IsNullOrWhiteSpace(source.BrokerCode))
             throw new InvalidOperationException(
@@ -347,7 +348,8 @@ public sealed class BrokerWorkspaceService
         var broker = _workspaces.FindBroker(source.BrokerCode)
             ?? throw new InvalidOperationException($"Il broker '{source.BrokerCode}' del piano '{source.Code}' non è in anagrafica.");
 
-        if (!broker.Code.Equals(brokerCode?.Trim(), StringComparison.OrdinalIgnoreCase))
+        if (!string.IsNullOrWhiteSpace(brokerCode)
+            && !broker.Code.Equals(brokerCode.Trim(), StringComparison.OrdinalIgnoreCase))
             throw new ArgumentException(
                 $"Il piano '{source.Code}' è del broker '{broker.Code}', non di '{brokerCode}': un piano va nel broker workspace del proprio broker.");
 

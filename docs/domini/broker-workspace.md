@@ -171,6 +171,7 @@ e' il test a dirlo, non il conto.
   | `GET {broker}` | dettaglio con i piani |
   | `GET {broker}/plans/{code}` | un piano |
   | `POST {broker}/plans` | promozione da best plan; il broker del piano deve essere `{broker}` |
+  | `POST plans` | promozione nel broker workspace del broker del piano (la usa la console) |
   | `POST {broker}/plans/{code}/retire` | ritiro |
   | `POST {broker}/plans/{code}/duplicate` | duplica con cambio di conto; ritira l'originale |
 
@@ -179,13 +180,21 @@ e' il test a dirlo, non il conto.
 ## Console
 
 - **Menu *Operativita'* → *Produzione*.** `BrokerWorkspaceListScreen` mostra una riga per broker:
-  piani attivi, piani ritirati, strategie, conti. Il dettaglio e' la griglia dei piani, ordinabile.
-  Il dettaglio del piano riusa `PlanDetailScreen` in sola lettura, secondo la regola "una schermata
-  nuova che duplica assorbe l'esistente", con in piu' la provenienza e il pulsante *Ritira*. Come i
-  best plan, non dipende dal workspace corrente.
-- **`BestPlanDetailScreen`**: pulsante *Promuovi in produzione…*. Chiede codice e nome, chiama il
-  dry-run, mostra broker, strategie, pesi, conti ed eventuali conflitti, poi conferma.
-- **`TradingSessionsScreen`**: il workspace del piano (:358) diventa la casa del piano.
+  piani attivi, piani ritirati, strategie, conti. Il dettaglio (`BrokerWorkspaceDetailScreen`) e' la
+  griglia dei piani, ordinabile, con sotto la scheda del piano selezionato (conti, size, tenuta,
+  strategie con i pesi, provenienza), e i due comandi *Duplica con altri conti…* e *Ritira piano*.
+  Non riusa `PlanDetailScreen`: quello e' l'editor di un piano di workspace, costruito sul
+  masterfilter e sulle spente, e un piano di produzione non ha ne' l'uno ne' le altre. Come i best
+  plan, la voce non dipende dal workspace corrente.
+- **`BestPlanDetailScreen`**: pulsante *Promuovi in produzione…* (spento per un run neutro).
+- **`ProductionPlanDialog`**, lo stesso per promozione e duplica: chiede codice, nome e conti,
+  *Verifica* chiama il dry-run e mostra la scheda del piano che nascerebbe o il conflitto con le
+  parole del server; la conferma si accende solo dopo una verifica riuscita e si rispegne a ogni
+  modifica dei campi. La scheda la scrive `ProductionPlanText`, la stessa del dettaglio.
+- La promozione dalla console usa `POST api/v1/broker-workspaces/plans`, senza broker nel percorso:
+  il best plan non lo porta, e il server lo prende dal piano di origine.
+- **`TradingSessionsScreen`** resta sui piani del workspace corrente: una sessione su un piano di
+  produzione la apre il cBot, non la console.
 
 ## Migrazione dei piani sui conti
 
@@ -224,7 +233,10 @@ incompatibilita' diventa una regola del server.
    rientra in quella che ha gia', la ripresa la riprende e un backtest resta possibile; il presidio
    non lo conta fra i piani del conto. Per un piano di produzione `WorkspaceId` e' vuoto nel
    descriptor, nello stato di ripresa e nel summary del backtest. Test in `ProductionPlanRuntimeTests`.
-4. **Console.**
+4. **Console.** *Fatta il 28/09/2026*, vedi sopra. Prova in anteprima (dry-run) sui best plan del
+   28/09: sette su otto danno un piano FTMO con le strategie del run; `ftmo-combo-europa-o4` viene
+   rifiutato perche' il piano e' stato salvato dopo l'avvio del run. Le schermate compilano ma non
+   sono state provate a video.
 5. **Documentazione:**
    - questo file diventa *Stabile*;
    - `trading-plans.md` e `best-plans.md`;
@@ -265,5 +277,6 @@ dopo la 3 i piani di produzione funzionano da API.
 - `PiootooApp.Server/Controllers/BacktestingController.cs`, `TradingSessionsController.cs`,
   `DatafeedExternalController.cs`, `BestPlansController.cs`.
 - `Piootoo.Shared/Models/Trading/BacktestDiagnosticsContracts.cs`: i campi del summary da cui nasce il piano.
-- `piootooapp.clientform/Shell/NavigationRegistry.cs`, `Screens/BestPlanDetailScreen.cs`,
-  `Screens/PlanDetailScreen.cs`, `Screens/TradingSessionsScreen.cs`.
+- `piootooapp.clientform/Shell/`: `NavigationRegistry.cs`, `Api/BrokerWorkspacesApiClient.cs`,
+  `Screens/BrokerWorkspaceListScreen.cs`, `Screens/BrokerWorkspaceDetailScreen.cs`,
+  `Screens/BestPlanDetailScreen.cs`, `Controls/ProductionPlanDialog.cs`, `Controls/ProductionPlanText.cs`.

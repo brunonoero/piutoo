@@ -67,6 +67,9 @@ public static class NavigationRegistry
             // sono trasversali, e il workspace di ogni riga e' una colonna. Si alimentano dal
             // dettaglio backtest ("Promuovi a best plan"), non da un pulsante "Nuovo".
             new NavigationEntry("Best plans", () => new BestPlanListScreen()),
+            // I piani in produzione, uno spazio per broker. Trasversale come i best plan, da cui si
+            // alimenta ("Promuovi in produzione…" nel dettaglio del best plan).
+            new NavigationEntry("Produzione", () => new BrokerWorkspaceListScreen()),
             // Stessa forma delle altre due: la voce apre la lista, "Apri da piano"/"Sessione diretta"
             // portano a TradingSessionsScreen — include anche le sessioni aperte da un cBot.
             new NavigationEntry("Sessioni di trading", () => new TradingSessionListScreen()),

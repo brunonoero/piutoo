@@ -30,6 +30,7 @@ public sealed class AppServices : IDisposable
         Spread = new SpreadApiClient(_httpClient, JsonOptions);
         ServerInfo = new ServerInfoApiClient(_httpClient, JsonOptions);
         BestPlans = new BestPlansApiClient(_httpClient, JsonOptions);
+        BrokerWorkspaces = new BrokerWorkspacesApiClient(_httpClient, JsonOptions);
         Workspaces = new WorkspaceSelection(Api);
         SetServerUrl(DefaultServerUrl);
     }
@@ -49,6 +50,9 @@ public sealed class AppServices : IDisposable
     public ServerInfoApiClient ServerInfo { get; }
 
     public BestPlansApiClient BestPlans { get; }
+
+    /// <summary>I piani in produzione, uno spazio per broker. Vedi <c>docs/domini/broker-workspace.md</c>.</summary>
+    public BrokerWorkspacesApiClient BrokerWorkspaces { get; }
 
     /// <summary>Workspace corrente, scelto una volta nella barra in alto e valido per tutte le schermate.</summary>
     public WorkspaceSelection Workspaces { get; }

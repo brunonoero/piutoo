@@ -123,6 +123,18 @@ public sealed class BrokerWorkspaceServiceTests : IDisposable
             _service.Promote("ICS", new PromoteToProductionRequest { BestPlanId = bestPlanId, PlanCode = "ICS-EUROPA" }));
     }
 
+    /// <summary>La console promuove senza broker: il broker workspace e' quello del piano di origine.</summary>
+    [Fact]
+    public void WithoutABrokerThePlanGoesToTheWorkspaceOfItsOwnBroker()
+    {
+        var bestPlanId = PromotableBestPlan("EUROPA", [_strategies[0]]);
+
+        var plan = _service.Promote(brokerCode: null, new PromoteToProductionRequest { BestPlanId = bestPlanId, PlanCode = "FTMO-EUROPA" });
+
+        Assert.Equal(Broker, plan.BrokerCode);
+        Assert.Equal("FTMO-EUROPA", Assert.Single(_service.Get(Broker).Plans).Code);
+    }
+
     [Fact]
     public void AStrategyStaysInOneActivePlanUntilThatPlanIsRetired()
     {

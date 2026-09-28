@@ -34,6 +34,14 @@ public sealed class BrokerWorkspacesController(BrokerWorkspaceService brokerWork
     public ActionResult<TradingPlan> Promote(string brokerCode, [FromBody] PromoteToProductionRequest request) =>
         Execute<TradingPlan>(() => Ok(brokerWorkspaces.Promote(brokerCode, request)));
 
+    /// <summary>
+    /// Come la promozione per broker, con il broker del piano di origine: la console promuove dal best
+    /// plan, che il broker non lo porta.
+    /// </summary>
+    [HttpPost("plans")]
+    public ActionResult<TradingPlan> PromoteToItsBroker([FromBody] PromoteToProductionRequest request) =>
+        Execute<TradingPlan>(() => Ok(brokerWorkspaces.Promote(brokerCode: null, request)));
+
     /// <summary>Duplica il piano con conti nuovi e ritira l'originale: il cambio di numero di conto.</summary>
     [HttpPost("{brokerCode}/plans/{code}/duplicate")]
     public ActionResult<TradingPlan> Duplicate(

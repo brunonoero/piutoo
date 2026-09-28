@@ -57,6 +57,8 @@ public partial class BestPlanDetailScreen : UserControl, IShellScreen
             Bind(_plan);
             _reportButton.Enabled = _plan.HasHtmlReport;
             _removeButton.Enabled = true;
+            // Un run neutro sul masterfilter non ha un piano da mettere in produzione.
+            _promoteButton.Enabled = _plan.PlanCode.Length > 0;
             _context.Navigation.SetStatus($"Best plan {_title}: {_plan.Strategies.Count} strategie, {_plan.TotalTrades} trade.");
         }
         catch (OperationCanceledException)
@@ -249,6 +251,47 @@ public partial class BestPlanDetailScreen : UserControl, IShellScreen
         finally
         {
             _toolbar.SetBusy(false);
+        }
+    }
+
+    /// <summary>
+    /// Il best plan diventa un piano di produzione nel broker workspace del suo broker. Strategie,
+    /// pesi e tenuta vengono dal run: qui si scelgono solo codice, nome e conti, e il server verifica
+    /// le regole prima della conferma. Vedi <c>docs/domini/broker-workspace.md</c>.
+    /// </summary>
+    private void OnPromoteClick(object? sender, EventArgs e)
+    {
+        if (_context == null || _plan == null || _plan.PlanCode.Length == 0)
+        {
+            return;
+        }
+
+        var bestPlan = _plan;
+        using var dialog = new ProductionPlanDialog
+        {
+            Text = $"Promuovi {bestPlan.PlanCode} in produzione",
+            Intro = $"Nasce un piano di produzione dal run di {bestPlan.PlanCode}, nel broker workspace del suo broker: " +
+                    "le strategie sono quelle che il run ha eseguito, pesi e tenuta quelli del piano. " +
+                    "Codice nella forma BROKER-NOME, per esempio FTMO-EUROPA.",
+            ConfirmText = "Promuovi",
+            PlanName = bestPlan.PlanName,
+            AccountsHint = "vuoto = i conti del piano di origine; in produzione ogni piano ha il suo conto"
+        };
+        var services = _context.Services;
+        dialog.SetSubmit(dryRun => services.BrokerWorkspaces.PromoteAsync(new Piootoo.Shared.Models.BrokerWorkspaces.PromoteToProductionRequest
+        {
+            BestPlanId = bestPlan.Id,
+            PlanCode = dialog.PlanCode,
+            Name = dialog.PlanName,
+            Accounts = dialog.Accounts,
+            DryRun = dryRun
+        }));
+
+        if (dialog.ShowDialog(this) == DialogResult.OK && dialog.Result is { } created)
+        {
+            _context.Navigation.SetStatus(
+                $"{created.Code} in produzione nel broker workspace {created.BrokerCode}, conti {string.Join(", ", created.Accounts)}. " +
+                $"Sull'istanza cTrader il codice piano e' {created.Code}.");
         }
     }
 

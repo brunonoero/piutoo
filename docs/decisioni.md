@@ -4683,3 +4683,19 @@ che il motore fa. Difetto di artefatto, non di esecuzione, ma e' costato mezza i
   (`strategyWeights`). Colonna *Peso* nel tab Strategie del piano. Motivo: sull'anno broker i pesi
   portavano sei piani da netto/DD 0,8 a 1,7; senza, GC e NQ dominavano il denaro. Insieme,
   `piootoo-plan-builder --min-strategies` (default 6): meglio meno piani che piani da due strategie.
+- **2026-09-28** — **I piani in produzione stanno in un broker workspace**, uno per broker
+  (`[BasePath]\broker-workspaces\{BROKER}\`), entita' propria e non un workspace con prefisso
+  `PRD_`: un workspace che raccogliesse piani diversi avrebbe un solo masterfilter, e ogni strategia
+  aggiunta per un piano nuovo si accenderebbe in silenzio nei piani gia' sui conti. Ci si entra solo
+  da best plan; il piano dichiara le strategie attive, e' immutabile (si ritira, non si modifica), e
+  una strategia o un conto stanno in un solo piano attivo del broker. Sessioni e backtest risolvono
+  qualsiasi piano da un punto solo (`PlanResolver`), invece di un secondo percorso per la produzione.
+  I codici restano unici a livello globale, cosi' i cBot non cambiano. Quando FTMO cambia il numero
+  di conto non si tocca il modello dei conti: si crea il conto nuovo e si duplica il piano con un
+  codice nuovo. Nel broker workspace il duplica e' l'unica eccezione al "solo da best plan": ritira
+  l'originale e ne tiene la provenienza. Scartato il codice interno del conto al posto del numero: il
+  cBot va comunque rimesso sul conto nuovo, quindi il piano nuovo non costa niente di piu'. Le
+  strategie del piano di produzione sono quelle eseguite dal run del best plan; il resto viene dalla
+  copia del piano, che vale solo se non e' stata salvata dopo l'avvio del run (tutti i best plan di
+  oggi sono run del cBot, il cui summary non porta pesi e tenuta). I conti si scelgono alla
+  promozione. Progetto e fasi in `domini/broker-workspace.md`.

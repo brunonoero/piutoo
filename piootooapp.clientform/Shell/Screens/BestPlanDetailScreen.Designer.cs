@@ -27,6 +27,7 @@ partial class BestPlanDetailScreen
         this._planCodeBox = new System.Windows.Forms.TextBox();
         this._reportButton = new System.Windows.Forms.Button();
         this._removeButton = new System.Windows.Forms.Button();
+        this._promoteButton = new System.Windows.Forms.Button();
         this._headlineLabel = new System.Windows.Forms.Label();
         this._tabs = new System.Windows.Forms.TabControl();
         this._equityTab = new System.Windows.Forms.TabPage();
@@ -71,6 +72,7 @@ partial class BestPlanDetailScreen
         this._commandPanel.Controls.Add(this._planCodeLabel);
         this._commandPanel.Controls.Add(this._planCodeBox);
         this._commandPanel.Controls.Add(this._reportButton);
+        this._commandPanel.Controls.Add(this._promoteButton);
         this._commandPanel.Controls.Add(this._removeButton);
         this._commandPanel.Controls.Add(this._saveDescriptionButton);
         this._commandPanel.Dock = System.Windows.Forms.DockStyle.Top;
@@ -117,6 +119,17 @@ partial class BestPlanDetailScreen
         this._removeButton.TabIndex = 1;
         this._removeButton.Text = "Rimuovi dai best plan";
         this._removeButton.Click += new System.EventHandler(this.OnRemoveClick);
+        //
+        // _promoteButton
+        //
+        this._promoteButton.AutoSize = true;
+        this._promoteButton.Enabled = false;
+        this._promoteButton.Margin = new System.Windows.Forms.Padding(0, 0, 6, 0);
+        this._promoteButton.Name = "_promoteButton";
+        this._promoteButton.Size = new System.Drawing.Size(170, 25);
+        this._promoteButton.TabIndex = 2;
+        this._promoteButton.Text = "Promuovi in produzione…";
+        this._promoteButton.Click += new System.EventHandler(this.OnPromoteClick);
         //
         // _saveDescriptionButton
         //
@@ -298,6 +311,7 @@ partial class BestPlanDetailScreen
     private System.Windows.Forms.TextBox _planCodeBox;
     private System.Windows.Forms.Button _reportButton;
     private System.Windows.Forms.Button _removeButton;
+    private System.Windows.Forms.Button _promoteButton;
     private System.Windows.Forms.Label _headlineLabel;
     private System.Windows.Forms.TabControl _tabs;
     private System.Windows.Forms.TabPage _equityTab;
