@@ -50,6 +50,26 @@ sizing di portafoglio spento.
 - **Non cambiare parametri o pesi durante l'uso**: una modifica e' un piano nuovo, da duplicare e
   rimisurare.
 
+## Piani in produzione: il broker workspace FTMO (28/09/2026)
+
+Dalla 28/09 i piani che vanno su un conto si **promuovono** da un best plan nel broker workspace del
+broker (console: dettaglio del best plan, *Promuovi in produzione…*; elenco in *Operativita' →
+Produzione*). Regole in [`domini/broker-workspace.md`](domini/broker-workspace.md):
+
+- **Codice** `FTMO-NOME`, senza la serie (per esempio `FTMO-EUROPA`), diverso dal codice di ricerca.
+  A ogni cambio di conto si duplica con `-2`, `-3`: il piano vecchio si ritira e il cBot del conto
+  nuovo prende il codice nuovo. Da demo a conto vero e' lo stesso passaggio.
+- **Un conto, un piano; una strategia, un piano** dentro FTMO: il server lo impone, e la tabella delle
+  compatibilita' qui sotto diventa un controllo alla promozione invece di una regola da ricordare.
+  I piani di ricerca girano tutti sul demo 17202911: in produzione i conti si scelgono alla promozione.
+- **Il piano e' quello misurato**: strategie dal run del best plan, il resto dalla copia del piano,
+  valida solo se non salvata dopo l'avvio del run. Prova in anteprima del 28/09: sette best plan su
+  otto sono promuovibili; `ftmo-combo-europa-o4` no (piano salvato tre minuti dopo l'avvio del run),
+  va rifatto il backtest.
+- Il **broker workspace FTMO e' ancora vuoto**: la migrazione dei piani sui conti si fa a mercato
+  chiuso, conto per conto, con il cBot fermato e riavviato con il codice nuovo. Quando un piano entra
+  in produzione, la sua scheda qui riporta il codice di produzione accanto a quello di ricerca.
+
 ## Perdita giornaliera alla FTMO sui run cBot (28/09/2026)
 
 Saldo a mezzanotte di Praga contro l'equity piu' bassa della giornata, con le posizioni aperte valutate

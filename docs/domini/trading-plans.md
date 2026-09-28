@@ -75,6 +75,22 @@ di più, il confronto con `BacktestStaticFilter` misurerebbe la differenza fra d
 strategie invece dell'effetto del tetto di concorrenza, che è l'unica cosa che quel confronto esiste
 per misurare.
 
+## Piani di workspace e piani di produzione (2026-09-28)
+
+Tutto quanto sopra vale per i piani **di workspace**, quelli della ricerca. I piani che girano sui
+conti stanno invece in un **broker workspace**, uno per broker (`broker-workspaces\{BROKER}\`), e ci
+arrivano solo promuovendo un best plan. Un piano di produzione non ha masterfilter: dichiara le
+strategie che esegue (`TradingPlan.EnabledStrategies`), `DisabledStrategies` resta vuoto, nasce
+bloccato e non si modifica — si duplica con altri conti o si ritira. Regole, promozione e console in
+[`broker-workspace.md`](broker-workspace.md).
+
+Per il cBot non cambia niente: il codice resta unico fra workspace e broker workspace, e
+`open-plan` lo trova ovunque stia. **Le strategie di un piano si ricavano in un punto solo**,
+`PlanResolver`: per un piano di workspace l'universo e' il masterfilter e le attive sono
+`masterfilter − DisabledStrategies`, per uno di produzione entrambi sono `EnabledStrategies`. Ci
+passano apertura e ripresa delle sessioni, backtest con piano, raccolta del datafeed e presidio del
+conto, e `PlanResolutionConformanceTests` impedisce di leggere il masterfilter altrove per un piano.
+
 ## Il peso di una strategia nel piano (2026-09-27)
 
 `TradingPlan.StrategyWeights` associa a un `Id` di catalogo un **peso** che moltiplica la quantità di
@@ -237,6 +253,7 @@ due righe con lo stesso `GroupId` dichiarano coppie setup/cartella diverse.
 
 `Piootoo.Shared/Models/Trading/TradingPlanContracts.cs`,
 `Piootoo.Core/Services/TradingPlanService.cs`,
+`Piootoo.Core/Services/Plans/PlanResolver.cs` (risoluzione unica, piani di workspace e di produzione),
 `Piootoo.Core/Services/TradingSessionService.cs` (`ResolveRunIdForFolder`, risoluzione dinamica,
 `ScaledSizeFactor` per `SizeMultiplier` e pesi), `Piootoo.Core/Services/PiootooBacktestingService.cs`
 (pesi nel backtest con piano), `Piootoo.Strategies.Tests/StrategyWeightTests.cs`,

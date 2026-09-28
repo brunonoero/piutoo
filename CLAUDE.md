@@ -341,6 +341,18 @@ sbaglia più spesso:
  piano eseguito: 334 trade e -17.612 con parametri che nessuna validazione aveva visto. Una cella
  che produce una finalista non cancella il contenitore: nasce una classe accanto, e il contenitore
  serve al giro dopo. Vedi `ResearchContainerTests`.
+- **I piani in produzione stanno nel broker workspace, e le strategie di un piano si ricavano in un
+ punto solo.** Uno spazio per broker (`broker-workspaces\{BROKER}\`, `BrokerWorkspaceService`), non
+ un workspace con un prefisso: un workspace ha un masterfilter solo, e ogni strategia aggiunta per un
+ piano si accenderebbe in silenzio negli altri. Ci si entra **solo da un best plan** — le strategie
+ sono quelle che il run ha eseguito, il resto dalla copia del piano, valida solo se non salvata dopo
+ l'avvio del run — o duplicando un piano di produzione per cambiarne i conti. Il piano dichiara le
+ strategie (`EnabledStrategies`), nasce bloccato, si ritira e non si modifica; dentro un broker una
+ strategia e un conto stanno in un solo piano attivo. Il codice e' unico fra workspace e broker
+ workspace, cosi' il cBot resta con il solo `PlanCode`. Sessioni, ripresa, backtest con piano,
+ datafeed e presidio passano da **`PlanResolver`**: il masterfilter di un workspace si legge li' e,
+ per un piano, in nessun altro posto (`PlanResolutionConformanceTests`). Un piano ritirato non apre
+ sessioni realtime nuove, ma la sua sessione si riprende. Vedi `docs/domini/broker-workspace.md`.
 - **Il server decide *cosa*, il broker decide *se e a che prezzo*.** Non
   assumere mai un fill.
 

@@ -1,7 +1,8 @@
 # Broker workspace: i piani in produzione
 
-*Progetto, 28/09/2026. Niente di questo esiste ancora nel codice: i riferimenti di riga sono lo stato
-di oggi e servono a chi implementa.*
+*Stabile per le fasi 1-5, 28/09/2026: deposito, risolutore unico, esecuzione e console sono nel
+codice. Resta la fase 6, deploy e migrazione dei piani sui conti. I riferimenti di riga sono quelli
+del progetto e possono essersi spostati.*
 
 ## Cosa e' e perche'
 
@@ -237,11 +238,9 @@ incompatibilita' diventa una regola del server.
    28/09: sette su otto danno un piano FTMO con le strategie del run; `ftmo-combo-europa-o4` viene
    rifiutato perche' il piano e' stato salvato dopo l'avvio del run. Le schermate compilano ma non
    sono state provate a video.
-5. **Documentazione:**
-   - questo file diventa *Stabile*;
-   - `trading-plans.md` e `best-plans.md`;
-   - un invariante in `CLAUDE.md`;
-   - `README.md`, `decisioni.md`, `registro-piani.md`.
+5. **Documentazione.** *Fatta il 28/09/2026*: questo file *Stabile* per quanto implementato,
+   sezioni in `trading-plans.md` e `best-plans.md`, invariante in `CLAUDE.md`, voce in `README.md`,
+   decisione del 28/09 in `decisioni.md`, sezione nel `registro-piani.md`.
 6. **Deploy e migrazione** dei piani sui conti, insieme, a mercato chiuso.
 
 Ogni fase e' un commit che si puo' rilasciare da solo: dopo la 2 il sistema e' identico a oggi,

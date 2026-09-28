@@ -30,6 +30,17 @@ dettaglio, senza Salva. Per cambiarlo si usa *Duplica…* (lista o dettaglio): l
 codice nuovo, nasce sbloccata e porta tutto il resto dell'originale. Il blocco non si toglie
 dalla console.
 
+## Dal best plan alla produzione
+
+Un best plan e' l'unica porta verso un piano di produzione: *Promuovi in produzione…* nel suo
+dettaglio lo mette nel broker workspace del broker del piano (vedi
+[`broker-workspace.md`](broker-workspace.md)). Le **strategie** del piano di produzione sono quelle
+che il run ha eseguito, dal summary copiato fra gli artefatti; pesi, tenuta, commissione, tetti e
+size vengono da `plan.json`. Per questo `plan.json` vale solo se il piano **non e' stato salvato
+dopo l'avvio del run** (`UpdatedUtc` contro il `CreatedUtc` di `origin.json`): altrimenti non si sa
+quale configurazione il run abbia misurato, e la promozione si rifiuta. Il rimedio e' rifare il
+backtest del piano e promuovere quello. Un best plan di un run neutro, senza piano, non si promuove.
+
 ## Da dove viene la curva
 
 - **Run interno** con `backtest_*.json`: `HourlyResults`, mark-to-market. Lo legge
@@ -55,3 +66,6 @@ del report dello stesso run dicono lo stesso numero.
 - `piootooapp.clientform/Shell/Screens/BestPlanListScreen.cs`, `BestPlanDetailScreen.cs`,
   `Shell/Controls/EquityChart.cs`; pulsante in `BacktestDetailScreen`
 - Test: `BestPlanServiceTests`
+- Promozione in produzione: `Piootoo.Core/Services/BrokerWorkspaces/BrokerWorkspaceService.cs`
+  (`Promote`), `BestPlanService.GetArtifactsDirectory`, `Shell/Controls/ProductionPlanDialog.cs`;
+  test in `BrokerWorkspaceServiceTests`
