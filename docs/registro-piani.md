@@ -4,7 +4,7 @@ Scheda di ogni `TradingPlan` esistente: a cosa serve, cosa contiene, com'e' anda
 ogni piano creato, modificato o abbandonato.** La fonte vera resta `plans/plans.json` del workspace:
 se questa pagina e il file non concordano, ha ragione il file.
 
-Stato al **25/09/2026**. Server acceso: `GET api/v1/workspaces/{ws}/trading-plans` elenca i piani
+Stato al **28/09/2026**. Server acceso: `GET api/v1/workspaces/{ws}/trading-plans` elenca i piani
 di un workspace.
 
 ## Come leggere i numeri
@@ -76,6 +76,34 @@ aperte: la perdita non realizzata che una multiday porta dentro la giornata cont
 volte tanto. O4 si usa solo a 0,5 (O4-X05) o dentro EUROPA-O4. Per rifarlo su un run nuovo:
 `dotnet run --project tools/dd-giornaliero-ftmo -c Release -- "<trades.json>|<etichetta>|<scala>"` (piu'
 run di seguito; la scala stima un'altra size, il feed a un minuto e' letto dal 05/2025 al 09/2026).
+
+## Rendimento in 4 mesi contro la soglia del 10% (28/09/2026)
+
+La soglia per l'aumento di capitale e' **+10% in 4 mesi** (10.000 su 100k). Netto sul conto di ogni
+finestra di 4 mesi, con l'inizio spostato di una settimana alla volta, sui run interni FTMO 06/2022 →
+09/2026 (× 0,1, sui soli trade chiusi). EUROPA-O4 ha girato a size 1 ed e' scalato a mano a 0,75; O4-X05
+e P1 sono le loro strategie filtrate dal run neutro `ftmo-pt5dav-congelato/pt5dav-tutte-2022-2026`, non
+un run del piano.
+
+| piano | finestre | mediana | migliore | peggiore | finestre >= 10k | DD chiuso |
+|---|---:|---:|---:|---:|---:|---:|
+| `FTMO-PT3B-INDICI` | 208 | 2.475 | 8.253 | −3.933 | 0 | 5.407 |
+| `FTMO-PT3B-EUROPA` | 208 | 1.880 | 7.124 | −3.933 | 0 | 5.407 |
+| `FTMO-PT3B-USA` | 197 | 607 | 4.866 | −1.724 | 0 | 3.088 |
+| `FTMO-EUROPA-O4` a 0,75 | 208 | 3.131 | 11.004 | −4.403 | 3 (1%) | 5.903 |
+| `PT5DAV-O4-X05` | 205 | 2.026 | 11.188 | −2.234 | 4 (2%) | 3.742 |
+| `PT5DAV-C2` | 208 | 1.352 | 6.726 | −1.195 | 0 | 2.820 |
+| `PT5DAV-P1` | 205 | 4.696 | 58.105 | −7.170 | 61 (30%) | 8.763 |
+
+- **Nessun piano fa il 10% in 4 mesi con regolarita'.** I PT3B e C2 non ci arrivano mai; O4-X05 ed
+  EUROPA-O4 solo nelle finestre gennaio-aprile 2025 e 2026. Il 2023 e il 2024 sono deboli per tutti.
+- **P1**: le finestre sopra soglia sono tutte da fine 2024 in poi. Fuori dal periodo di composizione
+  (finestre chiuse prima del 27/08/2025) sono 21 su 152, fra 12/2024 e 04/2025 (rally dell'oro), con
+  mediana 2.982; nel 2022 perde. DD chiuso vicino al limite FTMO.
+- Sui run cBot (08/2025 → 09/2026) il quadro e' lo stesso: INDICI mediana 4.336 e mai sopra soglia,
+  O4-X05 12 finestre su 41, EUROPA-O4 a 0,75 7 su 43, P1 37 su 38 ma in campione.
+- Il 10% in 4 mesi oggi lo danno solo oro e Nasdaq negli anni di tendenza forte: con questi piani
+  dipende da quando si parte, non dal piano.
 
 ## Compatibilita' fra piani sulla stessa prop (aggiornata al 27/09/2026)
 
