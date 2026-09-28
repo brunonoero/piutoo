@@ -125,6 +125,8 @@ public static class RealtimeWatchRules
         }
 
         ValutaRipresa(sessione, nowUtc, rilievi);
+        ValutaRipresaRifiutata(sessione, rilievi);
+        ValutaDump(sessione, conPosizioni, rilievi);
         ValutaFlusso(sessione, nowUtc, conPosizioni, rilievi);
 
         if (!sessione.RiceveStatoBroker && conPosizioni)
@@ -188,6 +190,61 @@ public static class RealtimeWatchRules
                   "il silenzio non distingue un cBot acceso da uno spento."
                 : "Verificare che il cBot sia acceso e stia spingendo le barre; finché tace, " +
                   "il server non valuta nessuna uscita."
+        });
+    }
+
+    /// <summary>
+    /// La sessione è nata al posto di una che all'avvio non si è potuta riprendere. Le posizioni di
+    /// quella sono ancora a mercato, se nessuno le ha chiuse, e questa sessione non le conosce: non
+    /// le sorveglia, non ne riceve le chiusure, e — se il cBot è stato riavviato — il bot ne ha
+    /// buttato anche break-even, trailing e uscite a tempo. Il rilievo dura quanto il processo: la
+    /// traccia su disco resta nella cartella di archivio.
+    /// </summary>
+    private static void ValutaRipresaRifiutata(RealtimeWatchSession sessione, List<RealtimeWatchItem> rilievi)
+    {
+        if (sessione.RipresaRifiutata is not { } rifiutata) return;
+
+        var conPosizioni = rifiutata.Posizioni.Count > 0;
+        rilievi.Add(new RealtimeWatchItem
+        {
+            Finding = RealtimeWatchFinding.RipresaRifiutata,
+            Severity = conPosizioni ? RealtimeWatchSeverity.Intervento : RealtimeWatchSeverity.Attenzione,
+            SessionId = sessione.SessionId,
+            Message = $"All'avvio del server la sessione precedente {rifiutata.SessionId} non è stata " +
+                      $"ripresa ({rifiutata.Motivo}) e questa è nata al suo posto. " +
+                      (conPosizioni
+                          ? $"Per il server aveva {rifiutata.Posizioni.Count} posizione/i aperte: " +
+                            $"{string.Join("; ", rifiutata.Posizioni)}."
+                          : "Non aveva posizioni aperte per il server.") +
+                      (string.IsNullOrEmpty(rifiutata.ArchiviataIn)
+                          ? " I suoi file non sono stati archiviati."
+                          : $" I suoi file sono in {rifiutata.ArchiviataIn}."),
+            Action = conPosizioni
+                ? "Controllare su cTrader quelle posizioni: nessuno le governa più, se sono ancora " +
+                  "aperte vanno chiuse a mano o lasciate ai soli SL/TP nativi sapendolo."
+                : string.Empty
+        });
+    }
+
+    /// <summary>
+    /// Il dump di ripresa è fermo: la sessione opera normalmente, ma un riavvio del server adesso la
+    /// riprenderebbe da uno stato vecchio — posizioni, ordini e progressivo degli intent di quando il
+    /// dump ha smesso di scriversi.
+    /// </summary>
+    private static void ValutaDump(RealtimeWatchSession sessione, bool conPosizioni, List<RealtimeWatchItem> rilievi)
+    {
+        if (sessione.DumpNonScrittoDaUtc is not { } dal) return;
+
+        rilievi.Add(new RealtimeWatchItem
+        {
+            Finding = RealtimeWatchFinding.DumpDiRipresaNonAggiornato,
+            Severity = conPosizioni ? RealtimeWatchSeverity.Intervento : RealtimeWatchSeverity.Attenzione,
+            SessionId = sessione.SessionId,
+            Message = $"session-state.json non si riesce a scrivere dalle {dal:yyyy-MM-dd HH:mm} UTC " +
+                      $"({sessione.DumpErrore}). La sessione opera, ma un riavvio del server adesso la " +
+                      "riprenderebbe dallo stato di quel momento.",
+            Action = "Controllare spazio su disco e permessi della cartella della sessione; non " +
+                     "riavviare il server finché il rilievo non sparisce."
         });
     }
 

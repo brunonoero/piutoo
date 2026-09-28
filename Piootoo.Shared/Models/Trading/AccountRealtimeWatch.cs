@@ -61,7 +61,19 @@ public enum RealtimeWatchFinding
     /// La sessione è stata ripresa da un dump dopo un riavvio del server e da allora non ha
     /// ricevuto una sola barra: il cBot non si è ancora riagganciato.
     /// </summary>
-    SessioneRipresaSenzaFlusso
+    SessioneRipresaSenzaFlusso,
+
+    /// <summary>
+    /// Il dump di ripresa (<c>session-state.json</c>) non si riesce a scrivere: un riavvio del
+    /// server adesso riprenderebbe la sessione da uno stato vecchio.
+    /// </summary>
+    DumpDiRipresaNonAggiornato,
+
+    /// <summary>
+    /// All'avvio del server la sessione che occupava questa cartella non è stata ripresa, e questa
+    /// è nata al suo posto: le posizioni che quella aveva a mercato non le governa nessuno.
+    /// </summary>
+    RipresaRifiutata
 }
 
 /// <summary>
@@ -164,6 +176,22 @@ public sealed class RealtimeWatchPending
     public DateTime? ExpiresAtUtc { get; init; }
 }
 
+/// <summary>Una sessione che all'avvio del server non è stata ripresa dal proprio dump.</summary>
+public sealed class RealtimeWatchRejectedRestore
+{
+    public required string SessionId { get; init; }
+
+    public required string Motivo { get; init; }
+
+    /// <summary>Le posizioni che il dump elencava, una riga ciascuna: strategia, lato, simbolo, conto.</summary>
+    public IReadOnlyList<string> Posizioni { get; init; } = [];
+
+    public DateTime RifiutataAtUtc { get; init; }
+
+    /// <summary>Dove sono stati copiati i file della sessione rifiutata; vuoto se la copia non è riuscita.</summary>
+    public string ArchiviataIn { get; init; } = string.Empty;
+}
+
 /// <summary>Una sessione realtime del conto, come il server la vede in questo istante.</summary>
 public sealed class RealtimeWatchSession
 {
@@ -213,6 +241,18 @@ public sealed class RealtimeWatchSession
     /// posizioni e ordini elencati vengono da un dump e nessun client li ha ancora confermati.
     /// </summary>
     public DateTime? RipresaDaDumpAtUtc { get; init; }
+
+    /// <summary>Da quando il dump di ripresa non si riesce a scrivere; null se è aggiornato.</summary>
+    public DateTime? DumpNonScrittoDaUtc { get; init; }
+
+    /// <summary>L'ultimo errore di scrittura del dump; vuoto se è aggiornato.</summary>
+    public string DumpErrore { get; init; } = string.Empty;
+
+    /// <summary>
+    /// La sessione che occupava questa cartella prima del riavvio e che non è stata ripresa. Null
+    /// nel caso normale.
+    /// </summary>
+    public RealtimeWatchRejectedRestore? RipresaRifiutata { get; init; }
 
     public IReadOnlyList<RealtimeWatchPosition> Posizioni { get; init; } = [];
 

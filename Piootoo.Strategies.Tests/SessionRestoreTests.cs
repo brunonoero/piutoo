@@ -185,21 +185,32 @@ public sealed class SessionRestoreTests : IDisposable
     }
 
     /// <summary>
-    /// Una sessione fermata a mano resta ferma: riprenderla in esecuzione la rimetterebbe a mercato
-    /// senza che nessuno l'abbia chiesto.
+    /// Una sessione fermata a mano si riprende FERMA: rimetterla in esecuzione la riporterebbe a
+    /// mercato senza che nessuno l'abbia chiesto, ma rifiutarla — come fino alla 7.8.0 — faceva
+    /// aprire al cBot una sessione nuova, cieca sulle posizioni della fermata. Ripresa ferma, il cBot
+    /// che si riaggancia rientra in lei, esattamente come senza riavvio.
     /// </summary>
     [Fact]
-    public void UnaSessioneFermataNonSiRiprende()
+    public void AStoppedSessionIsRestoredStoppedAndTheBotRejoinsIt()
     {
         var primo = NewService();
         var aperta = Open(primo);
+        var intent = PushBarAndClaim(primo, aperta);
+        Fill(primo, aperta, intent);
         primo.SetStatus(aperta.SessionId, aperta.SessionToken, TradingSessionStatus.Stopped);
 
         var secondo = NewService();
         var esito = Assert.Single(secondo.RestoreSessions());
 
-        Assert.False(esito.Restored);
-        Assert.Empty(secondo.ListSessions());
+        Assert.True(esito.Restored, esito.Reason);
+        Assert.Equal(TradingSessionStatus.Stopped,
+            secondo.GetSnapshot(aperta.SessionId, aperta.SessionToken).Status);
+
+        var riagganciata = Open(secondo);
+        Assert.Equal(aperta.SessionId, riagganciata.SessionId);
+        var snapshot = secondo.GetSnapshot(aperta.SessionId, aperta.SessionToken);
+        Assert.Equal(TradingSessionStatus.Running, snapshot.Status);
+        Assert.Single(snapshot.Positions);
     }
 
     /// <summary>

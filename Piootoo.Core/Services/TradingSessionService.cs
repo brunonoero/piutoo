@@ -344,6 +344,24 @@ public sealed class TradingSessionService : ITradingSessionService
         public bool StateDumpSuspended { get; set; }
 
         /// <summary>
+        /// Da quando il dump di ripresa non si riesce a scrivere; null se l'ultima scrittura è
+        /// riuscita. Il fallimento non ferma la sessione (vedi <c>PersistState</c>), ma una sessione
+        /// il cui dump è fermo riprenderebbe, dopo un riavvio, da uno stato vecchio senza saperlo:
+        /// il presidio lo dichiara finché dura.
+        /// </summary>
+        public DateTime? StateDumpFailingSinceUtc { get; set; }
+
+        /// <summary>Il motivo dell'ultimo fallimento del dump, per il presidio.</summary>
+        public string? StateDumpError { get; set; }
+
+        /// <summary>
+        /// La sessione che occupava la stessa cartella prima del riavvio e che <b>non</b> è stata
+        /// ripresa: perché, quante posizioni aveva per il server e dove sono finiti i suoi file.
+        /// Null nel caso normale. Vedi <c>RestoreSessions</c> e <c>ArchivePreviousRealtimeRun</c>.
+        /// </summary>
+        public RejectedRestore? PreviousRunNotRestored { get; set; }
+
+        /// <summary>
         /// Strategie (per <c>StrategyCode</c>) che la sessione valuta ma a cui non lascia aprire
         /// posizioni nuove: passano le sole uscite. Sono i contenitori di ricerca di una sessione
         /// ripresa dal dump, nata prima che il server li rifiutasse. Vedi <c>CreateCore</c>.
@@ -603,8 +621,27 @@ public sealed class TradingSessionService : ITradingSessionService
         public Dictionary<string, int> StrategyHolderCounts { get; } = new(StringComparer.OrdinalIgnoreCase);
     }
 
+    /// <summary>
+    /// Una sessione il cui dump c'era ma che all'avvio non è stata ripresa. Resta in memoria finché
+    /// qualcuno non riapre una sessione nella stessa cartella: è quella nuova a portarla nel
+    /// presidio, perché le posizioni elencate qui sono ancora a mercato e nessuno le governa più.
+    /// </summary>
+    private sealed record RejectedRestore(
+        string SessionId, string Reason, IReadOnlyList<string> Positions, DateTime RejectedAtUtc)
+    {
+        /// <summary>Cartella in cui i file della sessione rifiutata sono stati spostati.</summary>
+        public string? ArchivedTo { get; set; }
+    }
+
     private readonly ConcurrentDictionary<string, Session> _sessions = new();
     private readonly ConcurrentDictionary<string, string> _planExecutions =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Le riprese rifiutate all'avvio, per cartella di sessione (percorso pieno). Vedi
+    /// <see cref="RejectedRestore"/>.
+    /// </summary>
+    private readonly ConcurrentDictionary<string, RejectedRestore> _rejectedRestores =
         new(StringComparer.OrdinalIgnoreCase);
     private readonly WorkspaceService _workspaces;
     private readonly TradingPlanService _plans;
@@ -812,6 +849,18 @@ public sealed class TradingSessionService : ITradingSessionService
                     : null,
                 Holding = session.Holding,
                 RipresaDaDumpAtUtc = session.RestoredAtUtc,
+                DumpNonScrittoDaUtc = session.StateDumpFailingSinceUtc,
+                DumpErrore = session.StateDumpError ?? string.Empty,
+                RipresaRifiutata = session.PreviousRunNotRestored is { } rifiutata
+                    ? new RealtimeWatchRejectedRestore
+                    {
+                        SessionId = rifiutata.SessionId,
+                        Motivo = rifiutata.Reason,
+                        Posizioni = rifiutata.Positions,
+                        RifiutataAtUtc = rifiutata.RejectedAtUtc,
+                        ArchiviataIn = rifiutata.ArchivedTo ?? string.Empty
+                    }
+                    : null,
                 // Solo il percorso di claim manda al server lo stato del broker
                 // (AccountSignalPollRequest → ReconcileVanishedPositions). In esecuzione diretta
                 // non arriva mai, e ciò che il server crede non è mai stato verificato.
@@ -1339,7 +1388,18 @@ public sealed class TradingSessionService : ITradingSessionService
         // Initialize() azzera signals.json e trades.json. Su una ripresa sono esattamente i file da
         // NON toccare: contengono tutto ciò che la sessione ha prodotto prima del riavvio, e il
         // dump non li duplica proprio perché sono già lì.
-        if (restore is null) store.Initialize();
+        //
+        // Su una sessione realtime NUOVA la cartella ha nome stabile ({piano}-{executionKey}),
+        // quindi può contenere il run di prima: quello di una ripresa rifiutata (piano cambiato,
+        // dump illeggibile). Azzerarla cancellava la sua storia e, col primo dump della sessione
+        // nuova, l'unica traccia delle posizioni che aveva a mercato. Si sposta da parte, intera.
+        RejectedRestore? precedente = null;
+        if (restore is null)
+        {
+            if (request.ClientRunMode == ClientRunMode.Realtime)
+                precedente = ArchivePreviousRealtimeRun(sessionDirectory);
+            store.Initialize();
+        }
         var session = new Session
         {
             Id = sessionId,
@@ -1380,15 +1440,28 @@ public sealed class TradingSessionService : ITradingSessionService
             RestoredFromDump = restore is not null,
             // Il dump resta congelato finché la ripresa non ha finito di riapplicare lo stato:
             // vedi Session.StateDumpSuspended.
-            StateDumpSuspended = restore is not null
+            StateDumpSuspended = restore is not null,
+            PreviousRunNotRestored = precedente
         };
         _sessions[session.Id] = session;
+        if (precedente is not null)
+            RecordActivity(session, SessionActivityKind.Sessione,
+                $"La sessione precedente {precedente.SessionId} non è stata ripresa ({precedente.Reason}). " +
+                $"Aveva {precedente.Positions.Count} posizione/i per il server" +
+                (precedente.Positions.Count == 0 ? string.Empty : $" ({string.Join(", ", precedente.Positions)})") +
+                $"; i suoi file sono in {precedente.ArchivedTo ?? "(archiviazione non riuscita)"}.");
 
         // Il riscaldamento dal disco prima di consegnare il descriptor: il client deve sapere
         // gia' nella risposta di apertura quanta storia il server ha e fino a quando, altrimenti
         // non puo' che rispedirla tutta — che e' esattamente il problema che il disco risolve.
-        // Su una ripresa non si rifa': la storia della sessione e' quella che aveva.
-        if (restore is null) WarmUpFromDisk(session, accountNumber);
+        //
+        // Vale anche sulla ripresa, e fino alla 7.8.0 non lo faceva credendo che la sessione avesse
+        // ancora la sua storia: non ce l'ha, il dump non porta candele. Una sessione ripresa partiva
+        // quindi vuota, riceveva per prima la finestra incrementale da venti barre e restava muta
+        // (docs/domini/riavvio-del-server-e-ripresa-sessione.md §1). Con l'archivio aggiornato la
+        // prima barra dopo il riavvio si valuta gia' sulla storia piena; con l'archivio fermo la
+        // finestra non si sovrappone, il cBot riaggancia e il suo riscaldamento sostituisce la storia.
+        WarmUpFromDisk(session, accountNumber);
 
         return Describe(session);
     }
@@ -1728,11 +1801,36 @@ public sealed class TradingSessionService : ITradingSessionService
                 // sovrapposizione e non l'aritmetica sui timestamp perché gli stream hanno buchi
                 // legittimi — fine settimana, festivi, mercati chiusi — che una differenza in minuti
                 // scambierebbe per barre perse.
+                //
+                // Il RISCALDAMENTO fa eccezione, perché è la finestra che esiste proprio per ricucire:
+                // è profonda quanto le strategie chiedono e contigua da sola, quindi la storia staccata
+                // che il server ha in RAM non le serve a niente e si sostituisce. È il caso di un
+                // riscaldamento dal disco con l'archivio fermo da giorni, o di una caduta lunga: senza
+                // sostituzione ogni finestra successiva verrebbe rifiutata per sempre.
                 if (lastKnownUtc is { } lastKnown && candles[0].DateTime > lastKnown)
-                    throw new ArgumentException(
-                        $"Buco nella storia di {stream}: la finestra parte da {candles[0].DateTime:O} " +
-                        $"ma il server è fermo a {lastKnown:O}. Il client deve includere almeno una candela " +
-                        "già nota, oppure ricaricare dal broker abbastanza storia da coprire l'intervallo.");
+                {
+                    if (window.EvaluateLastCandle)
+                        throw new ArgumentException(
+                            $"Buco nella storia di {stream}: la finestra parte da {candles[0].DateTime:O} " +
+                            $"ma il server è fermo a {lastKnown:O}. Il client deve includere almeno una candela " +
+                            "già nota, oppure ricaricare dal broker abbastanza storia da coprire l'intervallo.");
+
+                    RecordActivity(session, SessionActivityKind.Sessione,
+                        $"{stream}: il riscaldamento parte da {candles[0].DateTime:O}, dopo l'ultima candela " +
+                        $"nota ({lastKnown:O}). Le {history.Count} candele staccate sono state sostituite " +
+                        $"dalle {candles.Length} del riscaldamento.",
+                        symbol: window.Symbol);
+                    history.Clear();
+                    lastKnownUtc = null;
+                }
+
+                // Le candele PIÙ VECCHIE della storia entrano in testa. Senza, una storia che parte
+                // corta — la sessione ripresa dopo un riavvio del server, che riceve per prima la
+                // finestra incrementale da venti barre — non si allunga più: il riscaldamento profondo
+                // che il cBot rimanda subito dopo verrebbe scartato tutto, perché ogni sua candela è
+                // precedente all'ultima nota, e le strategie resterebbero mute finché la storia non
+                // cresce da sola di una barra per barra. Settimane su uno stream a 240 minuti.
+                backfilled += PrependOlder(history, candles);
 
                 // Riscaldamento: si accoda e basta. Niente idempotency key consumata e niente sequence
                 // avanzata, perché la stessa barra può tornare più tardi come barra da valutare e in
@@ -1744,6 +1842,7 @@ public sealed class TradingSessionService : ITradingSessionService
                     !TouchesTradingWindow(window.Symbol, closedBar.BarTimeUtc, window.TimeframeMinutes))
                 {
                     backfilled += Backfill(history, candles, lastKnownUtc);
+                    TrimHistory(session, window.Symbol, window.TimeframeMinutes, history);
                     streams.Add(BuildStreamStatus(session, window.Symbol, window.TimeframeMinutes, history.Count, evaluated: 0));
                     continue;
                 }
@@ -1887,6 +1986,34 @@ public sealed class TradingSessionService : ITradingSessionService
             added++;
         }
         return added;
+    }
+
+    /// <summary>
+    /// Mette in testa alla storia le candele della finestra più vecchie della prima nota, e
+    /// restituisce quante ne ha aggiunte. Lo fa solo se la finestra <b>arriva</b> fino alla storia —
+    /// ne contiene almeno la prima candela o una successiva — perché solo allora fra le due non c'è
+    /// un buco: una finestra tutta anteriore lascerebbe un vuoto in mezzo alla serie, che è
+    /// esattamente ciò che il controllo di sovrapposizione esiste per impedire.
+    ///
+    /// <para>Non tocca le candele già note, e non riguarda la finestra incrementale di ogni barra,
+    /// che parte sempre dentro la storia: scatta sul riscaldamento profondo arrivato dopo una storia
+    /// iniziata corta.</para>
+    /// </summary>
+    private static int PrependOlder(List<OhlcvData> history, IReadOnlyList<OhlcvData> candles)
+    {
+        if (history.Count == 0)
+            return 0;
+
+        var first = history[0].DateTime;
+        if (candles[0].DateTime >= first || candles[^1].DateTime < first)
+            return 0;
+
+        var older = 0;
+        while (older < candles.Count && candles[older].DateTime < first)
+            older++;
+
+        history.InsertRange(0, candles.Take(older));
+        return older;
     }
 
     /// <summary>
@@ -4195,11 +4322,30 @@ public sealed class TradingSessionService : ITradingSessionService
         try
         {
             session.Store.WriteSessionState(BuildSessionState(session));
+            if (session.StateDumpFailingSinceUtc is { } dal)
+            {
+                RecordActivity(session, SessionActivityKind.Sessione,
+                    $"Dump di ripresa di nuovo scritto, dopo un fallimento iniziato alle {dal:yyyy-MM-dd HH:mm:ss} UTC.");
+                session.StateDumpFailingSinceUtc = null;
+                session.StateDumpError = null;
+            }
         }
-        catch (Exception)
+        catch (Exception ex)
         {
-            // Silenzioso di proposito: vedi sopra. Che il dump manchi si vede al riavvio, dove la
-            // sessione semplicemente non riprende ed è un evento rumoroso.
+            // La sessione continua: vedi sopra. Ma il fallimento non resta muto — fino alla 7.8.0 lo
+            // era, e un disco pieno o un antivirus sul file lasciavano il dump fermo mentre le
+            // risposte continuavano a partire: al riavvio la sessione riprendeva da uno stato vecchio
+            // (progressivo degli intent compreso) senza che niente lo dicesse. Una riga al primo
+            // fallimento, e il presidio lo mostra finché dura.
+            session.StateDumpError = ex.Message;
+            if (session.StateDumpFailingSinceUtc is null)
+            {
+                session.StateDumpFailingSinceUtc = DateTime.UtcNow;
+                Console.WriteLine($"[Sessione {session.Id}] Dump di ripresa NON scritto: {ex.Message}");
+                RecordActivity(session, SessionActivityKind.Sessione,
+                    $"Dump di ripresa non scritto ({ex.Message}): un riavvio del server adesso riprenderebbe " +
+                    "la sessione da uno stato vecchio.");
+            }
         }
     }
 
@@ -4358,19 +4504,133 @@ public sealed class TradingSessionService : ITradingSessionService
     {
         var esiti = new List<SessionRestoreOutcome>();
 
-        foreach (var cartellaSessioni in _planResolver.SessionDirectories())
+        IReadOnlyList<string> cartelleSessioni;
+        try
         {
-            foreach (var cartella in Directory.EnumerateDirectories(cartellaSessioni))
+            cartelleSessioni = _planResolver.SessionDirectories();
+        }
+        catch (Exception ex)
+        {
+            return [new SessionRestoreOutcome(string.Empty, string.Empty, false,
+                $"elenco dei workspace non leggibile: {ex.Message}")];
+        }
+
+        foreach (var cartellaSessioni in cartelleSessioni)
+        {
+            IEnumerable<string> cartelle;
+            try
+            {
+                cartelle = Directory.GetDirectories(cartellaSessioni);
+            }
+            catch (Exception ex)
+            {
+                esiti.Add(new SessionRestoreOutcome(string.Empty, string.Empty, false,
+                    $"cartella {cartellaSessioni} non leggibile: {ex.Message}"));
+                continue;
+            }
+
+            // Ogni cartella da sola, davvero: un'eccezione che sfugge ai controlli interni non deve
+            // saltare le cartelle che vengono dopo. Una sessione non ripresa è una posizione senza
+            // sorveglianza lato server, e una che non viene nemmeno tentata lo è senza una riga di log.
+            foreach (var cartella in cartelle)
             {
                 var percorso = Path.Combine(cartella, SessionStateSchema.FileName);
-                var state = TradingJsonStore.ReadSessionState(percorso);
-                if (state is null) continue;
+                SessionRestoreOutcome esito;
+                try
+                {
+                    if (!File.Exists(percorso)) continue;
+                    esito = TradingJsonStore.TryReadSessionState(percorso, out var state, out var errore)
+                        ? RestoreSession(state!)
+                        : new SessionRestoreOutcome(Path.GetFileName(cartella), string.Empty, false,
+                            $"dump illeggibile ({errore}): posizioni e ordini di quella sessione non sono " +
+                            "più noti al server. Controllare su cTrader.");
+                }
+                catch (Exception ex)
+                {
+                    esito = new SessionRestoreOutcome(Path.GetFileName(cartella), string.Empty, false,
+                        $"ripresa fallita: {ex.Message}");
+                }
 
-                esiti.Add(RestoreSession(state));
+                if (!esito.Restored && !_sessions.ContainsKey(esito.SessionId))
+                    NoteRejectedRestore(cartella, esito, percorso);
+                esiti.Add(esito);
             }
         }
 
         return esiti;
+    }
+
+    /// <summary>
+    /// Tiene traccia di una ripresa rifiutata perché la sessione che nascerà nella stessa cartella
+    /// la porti nel presidio. Le posizioni si rileggono dal dump quando è leggibile: sono l'unico
+    /// elenco di ciò che quella sessione aveva a mercato.
+    /// </summary>
+    private void NoteRejectedRestore(string cartella, SessionRestoreOutcome esito, string percorsoDump)
+    {
+        IReadOnlyList<string> posizioni = [];
+        if (TradingJsonStore.TryReadSessionState(percorsoDump, out var state, out _))
+            posizioni = state!.Positions
+                .Select(p => $"{p.Snapshot.StrategyCode} {p.Snapshot.Direction} {p.Snapshot.Symbol}" +
+                             (string.IsNullOrEmpty(p.Snapshot.AccountNumber) ? string.Empty : $" conto {p.Snapshot.AccountNumber}"))
+                .ToList();
+
+        _rejectedRestores[Path.GetFullPath(cartella)] = new RejectedRestore(
+            esito.SessionId, esito.Reason, posizioni, DateTime.UtcNow);
+    }
+
+    /// <summary>
+    /// Mette da parte il run che occupava la cartella di una sessione realtime prima che la sessione
+    /// nuova la azzeri, e restituisce la ripresa rifiutata che lo riguarda, se c'è.
+    ///
+    /// <para><b>Copia, non sposta.</b> Se la copia fallisce la sessione si apre lo stesso: un cBot
+    /// che non riesce ad aprire resta senza descriptor, cioè peggio. Il fallimento finisce nel log e
+    /// nel monitor della sessione nuova.</para>
+    /// </summary>
+    private RejectedRestore? ArchivePreviousRealtimeRun(string sessionDirectory)
+    {
+        var cartella = Path.GetFullPath(sessionDirectory);
+        _rejectedRestores.TryRemove(cartella, out var rifiutata);
+
+        string[] file;
+        try
+        {
+            file = Directory.Exists(cartella) ? Directory.GetFiles(cartella) : [];
+        }
+        catch (Exception)
+        {
+            return rifiutata;
+        }
+
+        // Una cartella con i soli due array vuoti è quella che Initialize lascia: niente da salvare.
+        var daSalvare = file.Where(path =>
+        {
+            var nome = Path.GetFileName(path);
+            var arrayVuoto = (nome.Equals(TradingPersistenceSchema.SignalsFileName, StringComparison.OrdinalIgnoreCase) ||
+                              nome.Equals(TradingPersistenceSchema.TradesFileName, StringComparison.OrdinalIgnoreCase)) &&
+                             new FileInfo(path).Length <= 16;
+            return !arrayVuoto;
+        }).ToArray();
+        if (daSalvare.Length == 0)
+            return rifiutata;
+
+        try
+        {
+            var destinazione = Path.Combine(cartella, "archivio", DateTime.UtcNow.ToString("yyyyMMdd-HHmmss"));
+            for (var n = 2; Directory.Exists(destinazione); n++)
+                destinazione = Path.Combine(cartella, "archivio", $"{DateTime.UtcNow:yyyyMMdd-HHmmss}-{n}");
+            Directory.CreateDirectory(destinazione);
+            foreach (var path in file)
+                File.Copy(path, Path.Combine(destinazione, Path.GetFileName(path)));
+
+            Console.WriteLine($"[Sessioni] Run precedente di {cartella} archiviato in {destinazione}.");
+            if (rifiutata is not null) rifiutata.ArchivedTo = destinazione;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[Sessioni] Archiviazione del run precedente di {cartella} non riuscita: {ex.Message}");
+        }
+
+        return rifiutata;
     }
 
     private SessionRestoreOutcome RestoreSession(SessionStateFile state)
@@ -4383,12 +4643,11 @@ public sealed class TradingSessionService : ITradingSessionService
             return new SessionRestoreOutcome(state.SessionId, state.PlanCode, false,
                 "non è una sessione realtime");
 
-        // Una sessione fermata resta ferma. Il dump si tiene comunque — /resume esiste — ma
-        // riprenderla in esecuzione significherebbe rimetterla a mercato senza che nessuno l'abbia
-        // chiesto.
-        if (state.Status == TradingSessionStatus.Stopped)
-            return new SessionRestoreOutcome(state.SessionId, state.PlanCode, false,
-                "era stata fermata");
+        // Una sessione fermata si riprende FERMA. Fino alla 7.8.0 la si rifiutava, e il primo
+        // open-plan del cBot apriva allora una sessione NUOVA nella stessa cartella: ripartita da
+        // zero, cieca sulle posizioni che la fermata aveva ancora a mercato, e comunque in
+        // esecuzione. Ripresa ferma, resta ferma finché il cBot non la riapre — esattamente come
+        // sarebbe andata senza riavvio (OpenFromPlan rimette Running una sessione esistente).
 
         if (_sessions.ContainsKey(state.SessionId))
             return new SessionRestoreOutcome(state.SessionId, state.PlanCode, false,
@@ -4438,6 +4697,7 @@ public sealed class TradingSessionService : ITradingSessionService
                 "sono nate. Controllare su cTrader e chiudere a mano se serve.");
         }
 
+        var templateScaduti = 0;
         try
         {
             if (state.Distributed)
@@ -4450,6 +4710,7 @@ public sealed class TradingSessionService : ITradingSessionService
             lock (session.Gate)
             {
                 ApplySessionState(session, state);
+                templateScaduti = DropTemplatesPastTheirBar(session, DateTime.UtcNow);
                 session.StateDumpSuspended = false;
                 PersistState(session);
             }
@@ -4463,6 +4724,12 @@ public sealed class TradingSessionService : ITradingSessionService
 
         _planExecutions[state.ExecutionIndexKey] = session.Id;
 
+        var ferma = state.Status == TradingSessionStatus.Stopped
+            ? "; era FERMA e resta ferma finché il cBot non la riapre"
+            : string.Empty;
+        var scartati = templateScaduti == 0
+            ? string.Empty
+            : $"; {templateScaduti} segnale/i non reclamati scartati perché la loro barra è finita durante il riavvio";
         var posizioni = state.Positions.Count;
         var ordini = state.Intents.Count(intent => !intent.IsClose &&
             intent.Status is OrderIntentStatus.Pending or OrderIntentStatus.Accepted
@@ -4474,9 +4741,48 @@ public sealed class TradingSessionService : ITradingSessionService
               "— spegnerli nel piano quando non hanno piu' posizioni aperte";
         if (contenitori.Length != 0)
             RecordActivity(session, SessionActivityKind.Sessione, "ripresa" + contenitori);
+        var dalDisco = session.WarmUp.Count(w => w.Value.Skipped is null);
+        var storia = dalDisco == session.WarmUp.Count && dalDisco > 0
+            ? $"storia candele di {dalDisco} stream dal disco"
+            : $"storia candele di {dalDisco} stream su {session.WarmUp.Count} dal disco, le altre dal " +
+              "riscaldamento del cBot" +
+              (session.WarmUp.Values.FirstOrDefault(w => w.Skipped is not null)?.Skipped is { } motivo
+                  ? $" ({motivo.TrimEnd('.')})"
+                  : string.Empty);
         return new SessionRestoreOutcome(state.SessionId, state.PlanCode, true,
-            $"{posizioni} posizione/i e {ordini} ordine/i ripresi; storia candele da ricostruire " +
-            "col riscaldamento del cBot" + contenitori);
+            $"{posizioni} posizione/i e {ordini} ordine/i ripresi; {storia}" + ferma + scartati + contenitori);
+    }
+
+    /// <summary>
+    /// Toglie dai template non reclamati quelli la cui barra di validità è già finita secondo
+    /// l'<b>orologio vero</b>, e ne restituisce il numero. Solo alla ripresa.
+    ///
+    /// <para><b>Perché serve.</b> A regime la scadenza di un template si misura sulle barre del suo
+    /// stream (<see cref="IsTemplateBarOver"/>), ed è giusto: attraverso un buco il template vive. Ma
+    /// dopo un riavvio l'orologio dello stream è fermo all'ultima barra del dump, e il cBot fa il suo
+    /// primo claim prima che ne arrivi una nuova: un segnale di ore prima risultava ancora valido e
+    /// diventava un ordine vero, con la scadenza contata dal momento del piazzamento.</para>
+    ///
+    /// <para>Il prezzo è un template valido attraverso un fine settimana e perso se il server
+    /// riparte proprio in quel buco. A regime un template si reclama nella propria barra, quindi
+    /// quelli ancora in lista al riavvio sono per lo più segnali che il conto non poteva prendere.</para>
+    /// </summary>
+    private static int DropTemplatesPastTheirBar(Session session, DateTime nowUtc)
+    {
+        var scaduti = session.EntryTemplates
+            .Where(t => t.ExpiresAtUtc is { } scadenza &&
+                        scadenza.AddMinutes(Math.Max(1, t.TimeframeMinutes)) <= nowUtc)
+            .ToList();
+        foreach (var template in scaduti)
+        {
+            session.EntryTemplates.Remove(template);
+            session.TemplateClaimedAccounts.Remove(template.IntentId);
+            RecordActivity(session, SessionActivityKind.IntentScaduto,
+                $"{template.Side} non reclamato, valido fino alla barra delle {template.ExpiresAtUtc:O}: " +
+                "scartato alla ripresa, la sua barra è finita mentre il server era fermo",
+                strategyCode: template.StrategyCode, symbol: template.Symbol, intentId: template.IntentId);
+        }
+        return scaduti.Count;
     }
 
     /// <summary>
@@ -4558,8 +4864,7 @@ public sealed class TradingSessionService : ITradingSessionService
         RecordActivity(session, SessionActivityKind.Sessione,
             $"Sessione ripresa dal dump dopo un riavvio del server: {state.Positions.Count} " +
             $"posizione/i e {session.LiveIntents.Count} ordine/i in volo. La storia delle candele " +
-            "non è stata reidratata: le strategie restano mute finché il cBot non rimanda il " +
-            "riscaldamento.");
+            "viene dall'archivio del broker, dove c'è, e dal riscaldamento del cBot per il resto.");
     }
 
     /// <summary>

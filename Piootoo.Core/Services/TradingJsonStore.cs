@@ -165,24 +165,30 @@ public sealed class TradingJsonStore
     /// Rilegge un dump di ripresa. Statico perché all'avvio del processo si scandiscono cartelle,
     /// non sessioni: lo store di quella cartella non esiste ancora.
     ///
-    /// <para>Un file illeggibile torna <c>null</c> invece di lanciare. La ripresa è opportunistica:
-    /// un dump rotto costa una sessione da riaprire a mano, un'eccezione all'avvio costa il server.
-    /// </para>
+    /// <para>Non lancia: un file mancante o illeggibile torna <c>false</c> con il motivo. La ripresa
+    /// è opportunistica — un dump rotto costa una sessione da riaprire a mano, un'eccezione
+    /// all'avvio costa il server — ma il motivo deve arrivare al log di avvio: un dump che sparisce
+    /// in silenzio è una sessione con posizioni a mercato che nessuno sa di aver perso.</para>
     /// </summary>
-    public static SessionStateFile? ReadSessionState(string path)
+    public static bool TryReadSessionState(string path, out SessionStateFile? state, out string error)
     {
+        state = null;
         try
         {
-            if (!File.Exists(path)) return null;
-            return JsonSerializer.Deserialize<SessionStateFile>(File.ReadAllText(path), JsonOptions);
+            if (!File.Exists(path))
+            {
+                error = "file assente";
+                return false;
+            }
+
+            state = JsonSerializer.Deserialize<SessionStateFile>(File.ReadAllText(path), JsonOptions);
+            error = state is null ? "il file contiene null" : string.Empty;
+            return state is not null;
         }
-        catch (JsonException)
+        catch (Exception ex)
         {
-            return null;
-        }
-        catch (IOException)
-        {
-            return null;
+            error = ex.Message;
+            return false;
         }
     }
 

@@ -14,13 +14,16 @@ di vita, [`finestra-candele-e-riscaldamento.md`](finestra-candele-e-riscaldament
 per la storia delle candele, [`distribuzione-multi-account.md`](distribuzione-multi-account.md)
 per lo stato di gruppo.
 
-> **Stato al 04/09/2026.** Implementate: la **fase 0** (dump), la **fase 1**
+> **Stato al 25/09/2026.** Implementate: la **fase 0** (dump), la **fase 1**
 > (reidratazione con id e token stabili), il riscaldamento autoguarente del §4
-> fase 2, e il presidio della §8. Restano da scrivere: l'epoca esplicita, la
-> quarantena e la riconciliazione (fasi 2 e 3) — la §4 fase 1 spiega **perché la
-> quarantena non è stata implementata insieme alla reidratazione**. La §1
-> descrive il comportamento *prima* di questo lavoro, e vale ancora per il cBot
-> diretto. Le voci aperte stanno in [`lavori-in-corso.md`](../lavori-in-corso.md).
+> fase 2, il presidio della §8, e la **ripresa robusta lato server** del §4bis
+> (revisione del 25/09). Restano da scrivere: l'epoca esplicita, la quarantena e
+> la riconciliazione (fasi 2 e 3), l'outbox dei report e il riavvio pulito del
+> cBot — la §4 fase 1 spiega **perché la quarantena non è stata implementata
+> insieme alla reidratazione**, il §9 elenca le lacune ancora aperte. La §1
+> descrive il comportamento *prima* di questo lavoro. Il cBot diretto non esiste
+> più: il solo bot operativo è `PiootooDistributedExecutionBot`. Le voci aperte
+> stanno in [`lavori-in-corso.md`](../lavori-in-corso.md).
 
 ---
 
@@ -52,13 +55,19 @@ minuti, cioè **settimane** di silenzio senza un messaggio. È lo stesso silenzi
 che descrive [`finestra-candele-e-riscaldamento.md`](finestra-candele-e-riscaldamento.md),
 con la differenza che qui non lo causa un run corto ma un riavvio.
 
-> **Chiuso sul percorso distribuito.** `PiootooDistributedExecutionBot` ora
+> **Chiuso sul percorso distribuito — davvero dal 25/09/2026.** `PiootooDistributedExecutionBot`
 > confronta le candele che il server dichiara di avere con quante il
 > riscaldamento gliene aveva spedite: se ne ha meno, le ha perse, e il bot
 > rimanda la storia profonda da sé. Il confronto è con `WarmUpBarsSent` e non con
 > `RequiredCandles` perché su uno stream di cui il broker non ha tutta la storia i
 > due numeri non coincidono, e usare il secondo rimanderebbe la finestra a ogni
-> barra per sempre. Il cBot **diretto** non ha riscaldamento e resta come prima.
+> barra per sempre.
+>
+> Fino alla 7.8.0 però il rimedio **non funzionava**: la sessione ripresa riceveva
+> per prima la finestra incrementale da venti barre, e `Backfill` accodava solo le
+> candele *più recenti* dell'ultima nota, quindi il riscaldamento profondo che il
+> bot rimandava subito dopo veniva scartato intero. La storia cresceva di una barra
+> per barra e il messaggio «le ha perse» si ripeteva a ogni barra. Vedi §4bis.
 
 **Quello che succede durante il buco è perso.** `TrySendReport` e
 `RegisterExternalCloseAndReport` sono fire-and-forget: se la POST fallisce, il
@@ -176,7 +185,7 @@ di record per sessione:
 | Ordini in volo | `LiveIntents` con la loro copia in `Intents`/`IntentsById`, `UnsettledIntents` |
 | Posizioni | `ExternalPositions`, `ExternalPositionDetails`, `BrokerConfirmedPositions`, `CanonicalPositions`, `StrategyHolderCounts` |
 | Contatori | `Entries`, `Fills`, `IntentSequence`, `ActivitySequence`, `PeakEquity`, `EntryFills`, `StrategyNetPnl`, `HistoryHighWater`, `FirstBarUtc`, `LastBarUtc`, `LastEvaluatedBarTimeUtc` |
-| Deduplica | `LastSequence` per stream, `BarKeys` e `ReportIds` **potati a finestra** (24h): senza potatura crescono per tutta la vita della sessione |
+| Deduplica | `LastSequence` per stream e `ReportIds`. `BarKeys` **non** c'è: cresce per barra, e dalla rivalutazione protegge già `LastSequence`. `ReportIds` non è potato: cresce con gli eventi del broker, non con le barre |
 | Multi-account | `EntryTemplates`, `TemplateClaimedGroups`, `GroupStrategySlots`, `AccountGroups`, `AccountMaxConcurrentTrades`, `AccountConcurrencyCountMode` |
 | Impronta | hash di piano, masterfilter e codici strategia risolti |
 
@@ -211,10 +220,11 @@ sempre una sessione nuova per costruzione e non ha niente da riprendere; una
 sessione creata a mano senza piano non ha una configurazione da cui ricostruirsi,
 quindi il suo dump sarebbe un file che nessuno potrà mai rileggere.
 
-Un errore di scrittura è silenzioso di proposito: il dump è una rete di
-sicurezza, e far fallire un execution report perché il disco è pieno rovescia la
-priorità. Che manchi si vede al riavvio, dove la sessione semplicemente non
-riprende — ed è un evento rumoroso.
+Un errore di scrittura non ferma la sessione: il dump è una rete di sicurezza, e
+far fallire un execution report perché il disco è pieno rovescia la priorità. Ma
+non è più muto (dal 25/09/2026): una riga nel log e nel monitor al primo
+fallimento, e il presidio mostra `DumpDiRipresaNonAggiornato` finché dura, perché
+un riavvio in quel momento riprenderebbe uno stato vecchio.
 
 ### Fase 1 — Reidratazione *(implementata)*
 
@@ -240,9 +250,9 @@ che non riprende è una posizione che resta senza sorveglianza lato server: deve
 essere rumorosa, non un silenzio.
 
 Si rifiuta di riprendere quando: l'impronta non torna (§3), il piano non è più
-risolvibile, la sessione era `Stopped` — riprenderla in esecuzione la rimetterebbe
-a mercato senza che nessuno l'abbia chiesto — o non è realtime. Un rifiuto non
-lascia mezza sessione in memoria.
+risolvibile, il dump è illeggibile o non è realtime. Un rifiuto non lascia mezza
+sessione in memoria, e cosa succede dopo lo dice il §4bis. Una sessione `Stopped`
+**si riprende ferma** (fino alla 7.8.0 si rifiutava: vedi §4bis).
 
 **Un contenitore di ricerca acceso non è un motivo di rifiuto.** L'apertura di una
 sessione nuova lo rifiuta (`CreateCore`), la ripresa no: una sessione nata prima di
@@ -337,6 +347,63 @@ ripetere: una riconciliazione fallita a metà si rifà, non lascia residui.
 Nella risposta il server **rispedisce al client la specifica di uscita completa**
 degli intent riagganciati e adottati. Serve al terzo scenario della §6, dove il
 file locale del bot non c'è più.
+
+---
+
+## 4bis. Ripresa robusta lato server (25/09/2026)
+
+La revisione del 25/09/2026 ha riletto la ripresa sul percorso che il cBot usa davvero —
+sessione distribuita, `PushBarWindow`, claim — e ha trovato cinque punti in cui un riavvio
+del server degradava la sessione senza dirlo. Sono stati chiusi tutti lato server, senza
+toccare il cBot.
+
+**La storia si ricostruisce da due parti.** La sessione ripresa fa lo stesso
+riscaldamento dal disco di una sessione nuova (`WarmUpFromDisk`, dall'archivio del broker
+del conto): con l'archivio aggiornato la prima barra dopo il riavvio si valuta già sulla
+storia piena. E `PushBarWindow` accetta dal riscaldamento del cBot le candele **più
+vecchie** della storia (`PrependOlder`), purché la finestra arrivi fino alla storia: una
+storia partita corta non resta corta. Il riscaldamento che parte **dopo** l'ultima candela
+nota non si può ricucire, ma è contiguo da solo e profondo quanto serve, quindi
+**sostituisce** la storia staccata invece di essere rifiutato — altrimenti un archivio
+fermo da giorni, o una caduta lunga, farebbero rifiutare ogni finestra successiva per
+sempre. La finestra da **valutare** con un buco resta rifiutata come prima. Il costo
+residuo è al più una barra non valutata per stream, quella su cui il cBot si accorge di
+dover rimandare il riscaldamento.
+
+**Una ripresa rifiutata non cancella più niente.** La cartella di una sessione realtime ha
+nome stabile, quindi la sessione nuova che il cBot apre dopo un rifiuto nasce nella
+stessa cartella. Prima la azzerava (`Initialize`) e col primo dump sovrascriveva
+`session-state.json`: sparivano la storia e l'unico elenco delle posizioni che la
+vecchia aveva a mercato. Adesso i file del run precedente si **copiano** in
+`archivio/{yyyyMMdd-HHmmss}/` prima dell'azzeramento (`ArchivePreviousRealtimeRun`), e la
+sessione nuova porta nel presidio il rilievo `RipresaRifiutata`, con il motivo, le
+posizioni del dump e il percorso dell'archivio: `Intervento` se aveva posizioni. Il
+rilievo dura quanto il processo; la traccia su disco resta.
+
+**Una sessione ferma si riprende ferma.** Rifiutarla, come si faceva, non la teneva
+ferma: il primo `open-plan` del cBot apriva una sessione nuova al suo posto, in
+esecuzione e cieca sulle posizioni della vecchia. Ripresa in stato `Stopped`, resta ferma
+finché il cBot non la riapre, esattamente come senza riavvio (`OpenFromPlan` rimette
+`Running` una sessione esistente).
+
+**I segnali scaduti durante il riavvio non diventano ordini.** A regime un template scade
+sulle barre del suo stream (`IsTemplateBarOver`), ed è giusto. Ma dopo un riavvio
+l'orologio dello stream è fermo all'ultima barra del dump e il cBot reclama prima che ne
+arrivi una nuova: un segnale di ore prima risultava valido, e il bot contava la scadenza
+dal piazzamento. Alla ripresa si scartano quindi i template non reclamati la cui barra è
+finita secondo l'orologio vero (`DropTemplatesPastTheirBar`), e l'esito lo conta. Il prezzo
+è un template valido attraverso un fine settimana perso se il server riparte proprio in
+quel buco.
+
+**Nessuna cartella salta in silenzio.** Ogni cartella si tenta in un proprio blocco: un
+dump illeggibile produce un esito («dump illeggibile», con il motivo) invece di essere
+saltato senza una riga, e un'eccezione su una cartella non ferma più quelle successive.
+
+**Cosa resta com'è, di proposito.** L'impronta copre ancora solo codici strategia e
+holding. Allargarla a sizing e moltiplicatore aumenterebbe i rifiuti — cioè i casi di
+posizioni senza governo — per cambiamenti che toccano solo la size degli ingressi futuri,
+non l'uscita di ciò che è a mercato; e cambiare il suo contenuto farebbe rifiutare al
+primo avvio tutte le sessioni salvate con la formula vecchia.
 
 ---
 
@@ -442,6 +509,8 @@ in un verdetto. Le regole, in ordine di gravità:
 | `FlussoFermo` | ultima barra più vecchia di un multiplo del timeframe più fitto, **fuori** dalla finestra di fine settimana | verificare che il cBot giri: il server è cieco, e con lui la sorveglianza lato server |
 | `PendingScaduto` | intent `Pending` la cui barra di validità è passata senza report | l'ordine può essere ancora a mercato: cancellarlo a mano |
 | `SessioneRipresaSenzaFlusso` | sessione reidratata dopo un riavvio, e da allora nessuna barra | verificare che il cBot sia acceso: posizioni e ordini elencati vengono dal dump, non da una lettura del conto |
+| `RipresaRifiutata` | la sessione è nata al posto di una che all'avvio non si è potuta riprendere (§4bis) | controllare su cTrader le posizioni elencate: nessuno le governa più |
+| `DumpDiRipresaNonAggiornato` | `session-state.json` non si riesce a scrivere | spazio su disco e permessi; non riavviare il server finché il rilievo non sparisce |
 | `Presidiata` | sessione viva, ultima barra recente, nessuna anomalia | niente |
 
 I verdetti si calcolano sul server (`GET /api/v1/trading-sessions/accounts/{n}/watch`)
@@ -465,6 +534,38 @@ ogni settimana.
 
 ---
 
+## 9. Lacune ancora aperte (revisione del 25/09/2026)
+
+Tutte sul cBot o sul confine fra cBot e server; in ordine di rischio.
+
+1. **Pending dell'istanza morta.** Al riavvio di cTrader il bot non conosce gli ordini che
+   l'istanza precedente aveva a mercato (`_pendingOrderBar` riparte vuoto): non li fa
+   scadere e non li cancella. Se uno si riempie, la posizione ha i soli SL/TP nativi e il
+   server non la conosce.
+2. **Posizioni senza contesto.** Una posizione `PiootooLive:` aperta durante il buco, o con
+   il report di fill mai partito, non viene adottata: nessuna uscita a tempo, nessun
+   break-even o trailing, e il server annulla l'intent alla scadenza.
+3. **Chiusure del buco senza prezzo.** `RestoreLocalState` scarta il contesto delle
+   posizioni sparite senza leggerne la chiusura dalla `History`; il server le toglie con
+   «P&L non registrato».
+4. **Bot che parte prima del server.** `OnStart` chiama `StopWithError` se `open-plan`
+   fallisce: dopo un riavvio della macchina il bot resta spento e nessuno applica le uscite.
+5. **Report fire-and-forget.** Nessun outbox: un execution report che non parte non viene
+   ritentato, e `_unregisteredCloses` vive solo in RAM.
+6. **Stato locale illeggibile o di un'altra sessione.** Il bot riparte vuoto e alla prima
+   scrittura sovrascrive il file.
+7. **Nessun lock di istanza.** Due bot sullo stesso conto si cancellano i pending a vicenda.
+8. **Uscite che perdono il buco.** `MaxBarsInPosition` conta +1 per chiamata, non i bucket
+   veri; trailing, break-even e picco di stallo toccati durante il buco si perdono.
+9. **Ingresso bloccato riconsegnato** (`stalledEntry`, a tetto pieno) a un bot riavviato,
+   che lo riesegue senza controllarne l'età.
+
+I punti 1-4 e 6-7 sono la riconciliazione all'avvio del bot (fase 3, `POST /reconcile`),
+con la quarantena che finalmente ha un'uscita; il 5 è l'outbox del §7; l'8 è la
+ricostruzione delle uscite dalle barre base.
+
+---
+
 ## Riferimenti codice
 
 - `Piootoo.Core/Services/TradingSessionService.cs` — `Session`, `_sessions`,
@@ -475,14 +576,18 @@ ogni settimana.
 - `Piootoo.Core/Services/TradingSessionService.cs` — `PersistState`,
   `BuildSessionState`, `BuildExecutionIndexKey`, `BuildConfigurationFingerprint`,
   `RestoreSessions`, `RestoreSession`, `ApplySessionState`, `RestoreContext`,
-  `BuildPlanSessionRequest`
+  `BuildPlanSessionRequest`, `NoteRejectedRestore`, `ArchivePreviousRealtimeRun`,
+  `DropTemplatesPastTheirBar`, `PrependOlder`, `WarmUpFromDisk`, `PushBarWindow`
 - `Piootoo.Shared/Models/Trading/SessionStateContracts.cs` — `SessionStateFile`,
   `SessionStatePosition`, `SessionStateEntryFill`, `SessionRestoreOutcome`
 - `Piootoo.Core/Services/TradingJsonStore.cs` — `WriteSessionState`,
   `ReadSessionState`, `WriteSessionSummary`, `CompactAll`
 - `PiootooApp.Server/Program.cs` — la chiamata a `RestoreSessions()` prima di `app.Run()`
 - `Piootoo.Strategies.Tests/SessionRestoreTests.cs` — il giro completo dump →
-  riavvio → ripresa → riaggancio del cBot
+  riavvio → ripresa → riaggancio del cBot, sul percorso diretto
+- `Piootoo.Strategies.Tests/SessionRestoreRecoveryTests.cs` — il percorso distribuito
+  con `PushBarWindow`: storia dopo la ripresa, riscaldamento staccato, template scaduti,
+  ripresa rifiutata archiviata, dump illeggibile, dump che non si scrive
 - `Piootoo.Shared/Models/Trading/TradingSessionContracts.cs` —
   `AccountSignalPollRequest`, `BrokerPositionSnapshot`, `BrokerOrderSnapshot`,
   `BrokerTradeSnapshot`
