@@ -65,6 +65,7 @@ meno le spente del piano.
 | `PT5DAV-O4` × `PT5DAV-ORO` | GC_LFD_002_60 |
 | `PT5DAV-P1` × `PT5DAV-ORO` | GC_BOS_002_240 |
 | `PT5DAV-ORO` × `PT5DAV-O3` | GC_PCH_001_15 |
+| `FTMO-EUROPA-O4` × `FTMO-PT3B-EUROPA`, `-INDICI`, `PT5DAV-O4`, `-O4-X05`, `-P1`, `-ORO` | le strategie di EUROPA e di O4 |
 
 Tutte le altre coppie fra INDICI, EUROPA, USA, O1-O4, P1, P2 e ORO sono compatibili. I duplicati
 (`-W1`, `-X15`, `-X05`) hanno le stesse strategie dell'originale: valgono le stesse incompatibilita', e
@@ -72,7 +73,7 @@ originale e duplicato non stanno mai insieme. `NQ_RHL_001_30` (P1) e `NQ_RHL_001
 diverse ma comprano gli stessi ritorni sul Nasdaq.
 
 Combinazione consigliata su una prop: **EUROPA + USA + O4 a size 0,5** (tre conti); con due conti
-**INDICI + O4 a size 0,5**.
+**INDICI + O4 a size 0,5**, oppure **EUROPA-O4 + USA**.
 
 ## Piani da conto (composti per essere scorrelati)
 
@@ -192,6 +193,11 @@ Il piano `PT3B-FDAX` (ICS) ha backtest cTrader in archivio ma non esiste piu' in
 - **Attenzione, corretto lo stesso giorno**: sul periodo 06/2022 → 09/2025 il piano a × 1 ha un DD sul
   conto di **5.407**, non i 2.700 dei 14 mesi del cBot; a × 1,5 arriva a **8.111**, troppo vicino al
   limite di 10.000. X15 resta solo come confronto, non per un conto vero.
+- **Backtest cTrader** (`ftmo-pt3b-indici-x15-bt-20250623-2105-v7.8.6-20260928-0752`, dal 23/06/2025,
+  ultimo trade ad agosto 2026): 382 trade, +22.698, DD 4.882, giorno peggiore −2.527. Sullo stesso
+  periodo del run a × 1 (dal 01/08/2025): +19.293, DD 4.129 contro +14.604, DD 2.704 — le quantita'
+  scalano di 1,5 e il net/DD scende (4,67 contro 5,40). Il run `...-0751` accanto e' un avvio interrotto
+  (20 trade): non va letto. **Non promosso**: il limite resta il DD 8.111 del periodo lungo.
 
 ### `FTMO-PT3B-INDICI-W1` — workspace `ftmo-pt3b-indici` (27/09/2026)
 
@@ -226,7 +232,14 @@ Il piano `PT3B-FDAX` (ICS) ha backtest cTrader in archivio ma non esiste piu' in
   (atteso DD ~5.700). La parte O4 prima del 06/2025 e' in campione.
 - Incompatibile sulla stessa prop con `FTMO-PT3B-EUROPA`, `FTMO-PT3B-INDICI`, `PT5DAV-O4`,
   `PT5DAV-O4-X05`, `PT5DAV-P1` e `PT5DAV-ORO`. Compatibile con `FTMO-PT3B-USA`.
-- Backtest cTrader: da fare.
+- **Backtest cTrader** (`ftmo-europa-o4-bt-20250801-0000-v7.8.6-20260928-0740`, 01/08/2025 →
+  25/09/2026): **girato a size 1**, perche' la size e' passata a 0,75 tre minuti dopo l'avvio (le quantita'
+  lo confermano). 748 trade, **+21.266, DD 4.821**, net/DD 4,41, giorno peggiore −1.738, mesi negativi 3
+  su 14 (giugno 2026 −2.843). E' la somma dei due run separati EUROPA + O4-X05 (+20.271, DD 4.780): su
+  un conto solo non si guadagna diversificazione, si risparmia un conto. Atteso a 0,75: ~+16k, DD ~3,6k.
+  Riserve ereditate da O4: marzo-maggio 2026 fanno due terzi del netto, `NQ_BSW_001_240` il 38%.
+- **Best plan** dal 28/09/2026, con la scheda completa. Alternativa a EUROPA + O4-X05 su due conti, mai
+  insieme a loro.
 
 ### `FTMO-PT3B-EUROPA` e `FTMO-PT3B-USA` — workspace `ftmo-pt3b-indici` (27/09/2026)
 
