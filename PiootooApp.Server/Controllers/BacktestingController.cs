@@ -40,9 +40,10 @@ public class BacktestingController : ControllerBase
     {
         try
         {
-            if (string.IsNullOrWhiteSpace(request.WorkspaceId))
+            // Un piano di produzione non ha workspace: il suo run si nomina con il solo codice.
+            if (string.IsNullOrWhiteSpace(request.WorkspaceId) && string.IsNullOrWhiteSpace(request.PlanCode))
             {
-                return BadRequest(new { error = "WorkspaceId è obbligatorio." });
+                return BadRequest(new { error = "WorkspaceId è obbligatorio, salvo per il backtest di un piano (PlanCode)." });
             }
 
             request.BacktestFolderName = WorkspaceBacktestPaths.NormalizeFolderName(
@@ -66,7 +67,7 @@ public class BacktestingController : ControllerBase
             {
                 try
                 {
-                    universe = _planResolver.Resolve(request.WorkspaceId, planCode).UniverseStrategyIds;
+                    universe = _planResolver.ResolveForBacktest(request.WorkspaceId, planCode).UniverseStrategyIds;
                 }
                 catch (KeyNotFoundException ex)
                 {

@@ -1,3 +1,4 @@
+using Piootoo.Core.Services.BrokerWorkspaces;
 using Piootoo.Shared.Models.Trading;
 
 namespace Piootoo.Core.Services.Plans;
@@ -62,11 +63,60 @@ public sealed class PlanResolver
     }
 
     /// <summary>
-    /// Il piano per codice, cercato ovunque: il codice e' globale, ed e' cio' che lascia al cBot un
-    /// solo parametro.
+    /// Il piano per codice, cercato ovunque, workspace e broker workspace: il codice e' globale, ed e'
+    /// cio' che lascia al cBot un solo parametro. Un piano di produzione ritirato si risolve lo stesso:
+    /// le sue sessioni vanno riprese e i suoi run si rimisurano. Chi apre sessioni nuove lo controlla
+    /// (<see cref="ThrowIfRetired"/>).
     /// </summary>
     /// <exception cref="KeyNotFoundException">Nessun piano con quel codice.</exception>
-    public ResolvedPlan Resolve(string planCode) => ForWorkspacePlan(_plans.Resolve(planCode));
+    /// <exception cref="InvalidOperationException">Il codice e' usato due volte.</exception>
+    public ResolvedPlan Resolve(string planCode)
+    {
+        var code = TradingPlanService.NormalizeCode(planCode);
+        var production = FindProductionPlan(code);
+
+        TradingPlan? workspacePlan = null;
+        try
+        {
+            workspacePlan = _plans.Resolve(code);
+        }
+        catch (KeyNotFoundException)
+        {
+            // Normale per un piano di produzione.
+        }
+
+        if (production is { } found)
+        {
+            if (workspacePlan is not null)
+                throw new InvalidOperationException(
+                    $"Il codice piano '{code}' è usato sia dal workspace '{workspacePlan.WorkspaceId}' sia dal " +
+                    $"broker workspace '{found.BrokerCode}'. Correggere i file: il codice deve essere unico.");
+            return ForProductionPlan(found.BrokerCode, found.Plan);
+        }
+
+        return workspacePlan is not null
+            ? ForWorkspacePlan(workspacePlan)
+            : throw new KeyNotFoundException($"Piano '{code}' non trovato.");
+    }
+
+    /// <summary>
+    /// Il piano da cui nasce il run di un backtest: nel workspace indicato, oppure ovunque se il
+    /// workspace non c'e' — e' come si nomina un piano di produzione, che un workspace non ce l'ha.
+    /// </summary>
+    public ResolvedPlan ResolveForBacktest(string? workspaceId, string planCode)
+        => string.IsNullOrWhiteSpace(workspaceId) ? Resolve(planCode) : Resolve(workspaceId, planCode);
+
+    /// <summary>
+    /// Un piano di produzione ritirato non apre sessioni nuove. Le sessioni che ha gia' si riprendono
+    /// e il cBot ci rientra: le sue posizioni devono restare sorvegliate.
+    /// </summary>
+    public static void ThrowIfRetired(TradingPlan plan)
+    {
+        if (plan.RetiredUtc is { } retired)
+            throw new InvalidOperationException(
+                $"Il piano '{plan.Code}' è stato ritirato il {retired:yyyy-MM-dd HH:mm} UTC: non apre sessioni " +
+                "nuove. Il cBot va messo sul piano che lo sostituisce.");
+    }
 
     /// <summary>
     /// Il piano di un workspace indicato: e' come lo nomina una richiesta di backtest, che porta il
@@ -96,6 +146,20 @@ public sealed class PlanResolver
             }
         }
 
+        foreach (var brokerWorkspace in ListBrokerWorkspaces())
+        {
+            try
+            {
+                var path = Path.Combine(Store!.GetPath(brokerWorkspace.BrokerCode), "sessions");
+                if (Directory.Exists(path))
+                    directories.Add(path);
+            }
+            catch (Exception)
+            {
+                // Come sopra: una casa illeggibile non ferma la ripresa delle altre.
+            }
+        }
+
         return directories;
     }
 
@@ -121,7 +185,57 @@ public sealed class PlanResolver
             }
         }
 
+        // Un piano ritirato non conta: il conto non deve piu' avere una sessione su di lui, e
+        // contarlo farebbe segnalare come mancante una sessione che nessuno deve aprire.
+        foreach (var brokerWorkspace in ListBrokerWorkspaces())
+        {
+            try
+            {
+                foreach (var plan in Store!.ReadPlans(brokerWorkspace.BrokerCode))
+                    if (plan.RetiredUtc is null && plan.Accounts.Any(number =>
+                            string.Equals(number?.Trim(), accountNumber, StringComparison.OrdinalIgnoreCase)))
+                        codes.Add(plan.Code);
+            }
+            catch (Exception)
+            {
+                // Come sopra.
+            }
+        }
+
         return codes.ToList();
+    }
+
+    private BrokerWorkspaceStore? Store => _plans.BrokerWorkspaces;
+
+    private IReadOnlyList<Shared.Models.BrokerWorkspaces.BrokerWorkspace> ListBrokerWorkspaces()
+    {
+        if (Store is null)
+            return [];
+        try
+        {
+            return Store.List();
+        }
+        catch (Exception)
+        {
+            return [];
+        }
+    }
+
+    private (string BrokerCode, TradingPlan Plan)? FindProductionPlan(string code)
+    {
+        if (Store is null)
+            return null;
+
+        var matches = Store.ReadAllPlans()
+            .Where(entry => entry.Plan.Code.Equals(code, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        return matches.Count switch
+        {
+            0 => null,
+            1 => matches[0],
+            _ => throw new InvalidOperationException(
+                $"Il codice piano '{code}' è usato da più broker workspace: correggere i file.")
+        };
     }
 
     private ResolvedPlan ForWorkspacePlan(TradingPlan plan)
@@ -129,5 +243,20 @@ public sealed class PlanResolver
         var home = new PlanHome(PlanHomeKind.Workspace, plan.WorkspaceId, _workspaces.GetWorkspacePath(plan.WorkspaceId));
         var universe = _workspaces.GetMasterFilter(plan.WorkspaceId).StrategiesFilter.ToArray();
         return new ResolvedPlan(plan, home, universe);
+    }
+
+    /// <summary>
+    /// Un piano di produzione: nessun masterfilter, le strategie sono quelle dichiarate. Un piano
+    /// senza l'elenco non e' un piano di produzione valido e non si esegue: ripiegare su un
+    /// masterfilter che qui non esiste vorrebbe dire non eseguire niente, o qualcos'altro.
+    /// </summary>
+    private ResolvedPlan ForProductionPlan(string brokerCode, TradingPlan plan)
+    {
+        if (plan.EnabledStrategies is not { Count: > 0 } enabled)
+            throw new InvalidOperationException(
+                $"Il piano di produzione '{plan.Code}' non dichiara le strategie da eseguire.");
+
+        var home = new PlanHome(PlanHomeKind.Broker, brokerCode, Store!.GetPath(brokerCode));
+        return new ResolvedPlan(plan, home, enabled.ToArray());
     }
 }

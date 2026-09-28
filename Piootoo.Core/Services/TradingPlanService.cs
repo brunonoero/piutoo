@@ -30,6 +30,12 @@ public sealed class TradingPlanService
         _brokerWorkspaces = brokerWorkspaces;
     }
 
+    /// <summary>
+    /// Il deposito dei piani di produzione, per <see cref="PlanResolver"/>: chi ha questo servizio ha
+    /// anche i piani di produzione, senza un secondo parametro da far arrivare a ogni costruttore.
+    /// </summary>
+    internal BrokerWorkspaceStore? BrokerWorkspaces => _brokerWorkspaces;
+
     public IReadOnlyList<TradingPlan> List(string workspaceId)
     {
         lock (_gate)

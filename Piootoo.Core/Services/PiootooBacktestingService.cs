@@ -95,9 +95,10 @@ public class PiootooBacktestingService : IPiootooBacktestingService
 
     public string StartBacktesting(BacktestingRequest request)
     {
-        if (string.IsNullOrWhiteSpace(request.WorkspaceId))
+        // Senza workspace si accetta solo il run di un piano: e' come si nomina un piano di produzione.
+        if (string.IsNullOrWhiteSpace(request.WorkspaceId) && string.IsNullOrWhiteSpace(request.PlanCode))
         {
-            throw new ArgumentException("WorkspaceId è obbligatorio.", nameof(request));
+            throw new ArgumentException("WorkspaceId è obbligatorio, salvo per il backtest di un piano.", nameof(request));
         }
 
         if (request.SelectedStrategyIds == null || request.SelectedStrategyIds.Count == 0)
@@ -212,7 +213,7 @@ public class PiootooBacktestingService : IPiootooBacktestingService
         try
         {
             return new PlanResolver(_workspaces ?? new WorkspaceService(_settings), plans)
-                .Resolve(request.WorkspaceId, request.PlanCode);
+                .ResolveForBacktest(request.WorkspaceId, request.PlanCode);
         }
         catch (KeyNotFoundException ex)
         {

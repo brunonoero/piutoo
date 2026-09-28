@@ -214,8 +214,16 @@ incompatibilita' diventa una regola del server.
    esistenti, ripresa compresa. `PlanResolverTests` fissa cosa il risolutore restituisce per un piano
    di workspace, `PlanResolutionConformanceTests` ammette `GetMasterFilter` solo nel risolutore,
    nella sessione manuale, nel backtest neutro, in `WorkspaceService` e nel suo controller.
-3. **Piani di produzione nel runtime:** `open-plan`, ripresa, strumenti del datafeed, backtest con
-   piano che scrive sotto il broker workspace. Test HTTP sul modello di `TradingSessionsHttpTests`.
+3. **Piani di produzione nel runtime.** *Fatta il 28/09/2026.* `PlanResolver.Resolve` cerca il codice
+   anche nei broker workspace, e un piano di produzione si risolve con le strategie dichiarate e la
+   casa `broker-workspaces\{BROKER}`. Senza altre modifiche ne seguono `open-plan` (sessioni in
+   `broker-workspaces\{BROKER}\sessions\`, backtest del cBot in `...\backtests\`), la ripresa (che
+   cerca anche li'), gli strumenti del datafeed e il presidio del conto. Il backtest interno nomina
+   un piano di produzione con il solo `PlanCode`, senza `WorkspaceId` (`ResolveForBacktest`), e
+   scrive nella sua casa. Un piano **ritirato** non apre sessioni realtime nuove (`409`), ma il cBot
+   rientra in quella che ha gia', la ripresa la riprende e un backtest resta possibile; il presidio
+   non lo conta fra i piani del conto. Per un piano di produzione `WorkspaceId` e' vuoto nel
+   descriptor, nello stato di ripresa e nel summary del backtest. Test in `ProductionPlanRuntimeTests`.
 4. **Console.**
 5. **Documentazione:**
    - questo file diventa *Stabile*;

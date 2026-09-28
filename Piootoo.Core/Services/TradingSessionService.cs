@@ -973,6 +973,12 @@ public sealed class TradingSessionService : ITradingSessionService
             }
         }
 
+        // Un piano di produzione ritirato non apre sessioni realtime nuove: il conto va messo sul piano
+        // che lo sostituisce. Il rientro in una sessione che gia' esiste e' passato sopra, perche' le
+        // sue posizioni vanno sorvegliate; un backtest resta possibile, e' una misura e non un ordine.
+        if (request.ClientRunMode == ClientRunMode.Realtime)
+            PlanResolver.ThrowIfRetired(plan);
+
         // MaxConcurrentTrades è applicato solo da GetNextSignalForAccount, cioè dal percorso di
         // claim. Senza gruppi quel percorso non esiste e il limite non avrebbe alcun punto di
         // applicazione: eseguire lo stesso il piano significherebbe operare senza il limite che
