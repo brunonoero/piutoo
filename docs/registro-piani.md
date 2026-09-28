@@ -50,6 +50,33 @@ sizing di portafoglio spento.
 - **Non cambiare parametri o pesi durante l'uso**: una modifica e' un piano nuovo, da duplicare e
   rimisurare.
 
+## Perdita giornaliera alla FTMO sui run cBot (28/09/2026)
+
+Saldo a mezzanotte di Praga contro l'equity piu' bassa della giornata, con le posizioni aperte valutate
+minuto per minuto sul feed FTMO a un minuto (long al minimo del minuto, short al massimo: prudente).
+Limiti FTMO su 100k: 5.000 al giorno, 10.000 in totale. "DD chiuso" e' il drawdown sui soli trade chiusi
+usato finora; "DD equity" conta le posizioni aperte. Il saldo di mezzanotte non comprende le posizioni
+aperte: la perdita non realizzata che una multiday porta dentro la giornata conta nel limite.
+
+| piano (run cBot) | trade | netto | DD chiuso | DD equity | peggior giorno chiuso | **peggior giorno FTMO** | data | giorni > 2.500 |
+|---|---:|---:|---:|---:|---:|---:|---|---:|
+| INDICI | 372 | 14.604 | 2.704 | 3.416 | 1.651 | 1.960 | 20/03/2026 | 0 |
+| INDICI-W1 | 372 | 11.786 | 2.579 | 3.372 | 1.478 | 1.815 | 20/03/2026 | 0 |
+| INDICI-X15 | 382 | 22.698 | 4.882 | 5.720 | 2.527 | 3.002 | 20/03/2026 | 2 |
+| EUROPA | 363 | 10.073 | 3.505 | 4.610 | 1.685 | 2.001 | 20/03/2026 | 0 |
+| USA | 19 | 5.064 | 1.030 | 1.735 | 780 | 1.133 | 23/06/2026 | 0 |
+| PT5DAV-O4 | 401 | 24.329 | 8.382 | 9.080 | 1.785 | **5.029** | 29/07/2026 | 3 |
+| PT5DAV-O4-X05 | 386 | 12.118 | 4.109 | 4.456 | 882 | 2.502 | 29/07/2026 | 1 |
+| PT5DAV-P1 | 433 | 81.699 | 3.965 | 5.373 | 2.309 | 3.026 | 19/08/2026 | 1 |
+| EUROPA-O4 (run a size 1) | 748 | 21.266 | 4.821 | 5.866 | 1.738 | 2.502 | 29/07/2026 | 1 |
+| EUROPA-O4 a 0,75 (stima) | 748 | 15.949 | 3.616 | 4.399 | 1.304 | 1.876 | 29/07/2026 | 0 |
+
+**O4 a size 1 supera il limite giornaliero** il 29/07/2026: quattro long aperti in un ribasso, fra cui
+`NQ_BSW_001_240` senza stop, aperto dal 27/07. Sul chiuso quel giorno perde 1.785: il numero vero e' tre
+volte tanto. O4 si usa solo a 0,5 (O4-X05) o dentro EUROPA-O4. Per rifarlo su un run nuovo:
+`dotnet run --project tools/dd-giornaliero-ftmo -c Release -- "<trades.json>|<etichetta>|<scala>"` (piu'
+run di seguito; la scala stima un'altra size, il feed a un minuto e' letto dal 05/2025 al 09/2026).
+
 ## Compatibilita' fra piani sulla stessa prop (aggiornata al 27/09/2026)
 
 Dentro una stessa prop una strategia sta su **un conto solo** (copy trading); su prop diverse si puo'
