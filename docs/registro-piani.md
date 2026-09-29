@@ -82,8 +82,9 @@ Produzione*). Regole in [`domini/broker-workspace.md`](domini/broker-workspace.m
   `FTMO-EUROPA` e di `FTMO-O4-X05`, quindi non puo' entrare in produzione accanto a loro. Si tengono i
   due piani separati sullo stesso conto; EUROPA-O4-B serve da termine di paragone. **Best plan** dal
   run cBot 7.8.8 del 28/09 19:37 (08/2025 → 09/2026): +15.679 (15,7%), DD max 4.008 (3,5%, curva
-  realizzata), 748 trade, 10 strategie; 2025 +1.886, 2026 +13.793. Il run del 29/09 09:56 e' ancora
-  promuovibile quando finisce (piano salvato prima dei run).
+  realizzata), 748 trade, 10 strategie; 2025 +1.886, 2026 +13.793. Anche il run del 29/09 09:56
+  (server 7.8.9) e' best plan, e da' gli stessi numeri: le versioni 7.8.8 e 7.8.9 non cambiano
+  l'esecuzione.
 
 ## Perdita giornaliera alla FTMO sui run cBot (28/09/2026)
 
