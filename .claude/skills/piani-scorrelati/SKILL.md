@@ -39,6 +39,11 @@ dell'utente del 27/09/2026), `--max-per-symbol` (2),
 `--tail` (0.10, la quota dei giorni peggiori), `--max-dd` e `--max-daily-loss` (le regole del conto, in
 denaro: per FTMO la perdita giornaliera massima), `--min-trades` (30), `--from`/`--to`.
 
+Controllo per regime: `--regime-feed <cartella di datafeed>`. La cartella deve essere la stessa dei run:
+`piootoo-repository\datafeed` per un run sul feed interno, `piootoo-repository\datafeed-external\FTMO`
+per un run FTMO. `--regime-min-trades` (10) e' il numero minimo di trade perche' una strategia conti in
+un regime. Senza `--regime-feed` il resoconto dice che il controllo non e' stato eseguito.
+
 ## Cosa fa
 
 - P&L per giorno UTC di uscita; l'asse sono i soli giorni con almeno un trade.
@@ -55,6 +60,14 @@ denaro: per FTMO la perdita giornaliera massima), `--min-trades` (30), `--from`/
 - **Correlazione fra i piani**: piani quasi scorrelati sono il punto — una famiglia che smette di
   funzionare deve toccare un conto, non tutti.
 - Le coppie piu' correlate nelle code: sono le strategie che non vanno mai nello stesso conto.
+- **Piani per regime di mercato**: per ogni piano, trade e netto in trend su, trend giu', laterale,
+  calma, normale e agitata, con il regime del mercato di ogni trade al giorno di ingresso. Il simbolo ⚠
+  segna un regime in cui il piano perde, o in cui perdono tutte le sue strategie misurabili. E' una
+  verifica: un piano segnalato si ricompone (strategie di un'altra famiglia, `--run` filtrati), non si
+  spegne a regime. Spegnere a regime e' stato misurato e toglie guadagno (`decisioni.md`, 29/09/2026).
+  `regimi.csv` contiene il profilo di ogni candidata.
+  Il profilo di una **singola** strategia per regime e' fragile, cambia anche con il confine del
+  giorno: e' una diagnosi, non un criterio di scelta.
 - Guardare i membri deboli: la scelta golosa puo' aggiungere una strategia con netto/DD basso se migliora
   quello del piano. Toglierla a mano e rilanciare con `--run` filtrati e' legittimo; dirlo nel rapporto.
 - **Limite noto**: nessuna normalizzazione per rischio. GC pesa piu' di BP perche' il suo contratto vale

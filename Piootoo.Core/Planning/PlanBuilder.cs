@@ -7,15 +7,16 @@ namespace Piootoo.Core.Planning;
 /// <summary>
 /// Un trade chiuso ridotto a cio' che serve per comporre i piani: chi, su cosa, quando e' uscito,
 /// quanto ha fatto. Si costruisce dagli artefatti di un run (<see cref="PersistedTrade"/>) o dai trade in
-/// memoria di una sweep (<see cref="TradingResult"/>).
+/// memoria di una sweep (<see cref="TradingResult"/>). L'ingresso serve solo al controllo per regime
+/// (<see cref="PlanRegimeCheck"/>), che etichetta il trade con il mercato del giorno in cui e' entrato.
 /// </summary>
-public sealed record PlanTrade(string StrategyCode, string Symbol, DateTime ExitUtc, decimal NetProfit)
+public sealed record PlanTrade(string StrategyCode, string Symbol, DateTime ExitUtc, decimal NetProfit, DateTime? EntryUtc = null)
 {
     public static PlanTrade From(PersistedTrade trade) =>
-        new(trade.StrategyCode, trade.Symbol, trade.ExitTimeUtc, trade.NetProfit);
+        new(trade.StrategyCode, trade.Symbol, trade.ExitTimeUtc, trade.NetProfit, trade.EntryTimeUtc);
 
     public static PlanTrade From(TradingResult trade) =>
-        new(trade.StrategyCode, trade.Symbol, trade.ExitDate, trade.NetProfit);
+        new(trade.StrategyCode, trade.Symbol, trade.ExitDate, trade.NetProfit, trade.EntryDate);
 }
 
 /// <summary>I vincoli con cui si compongono i piani. I default sono un punto di partenza, non una soglia del metodo.</summary>

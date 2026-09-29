@@ -4706,3 +4706,19 @@ che il motore fa. Difetto di artefatto, non di esecuzione, ma e' costato mezza i
   copia del piano, che vale solo se non e' stata salvata dopo l'avvio del run (tutti i best plan di
   oggi sono run del cBot, il cui summary non porta pesi e tenuta). I conti si scelgono alla
   promozione. Progetto e fasi in `domini/broker-workspace.md`.
+- **2026-09-29** — **Il regime di mercato si usa per verificare il piano, non per spegnere le
+  strategie.** La proposta era dare a ogni strategia il regime in cui rende (trend, laterale, calma,
+  agitazione) e spegnerla nei regimi sfavorevoli. Misurato sul run storico 2012-2025 delle 132
+  PT5DAV, con etichette note all'ingresso (efficiency ratio a 50 giorni, ATR/prezzo in percentile
+  sull'anno):
+  - la dipendenza dal regime supera di poco il caso: 11% dei confronti a |z|>2;
+  - non persiste fra le due meta' della storia: stesso segno nel 58% dei casi;
+  - spegnere i regimi dannosi visti prima di un taglio toglieva guadagno dopo il taglio, in tutti e
+    tre i tagli provati (2016 -874k, 2019 -918k, 2022 -318k).
+
+  Anche il confine del giorno pesa: contando il giorno di sessione invece del giorno UTC, la calma di
+  `PT5DAV_NQ_BOS_001_15` passa da -41k a +36k. Resta quindi il solo controllo sul piano:
+  `piootoo-plan-builder --regime-feed` segnala un piano che perde in un regime, o le cui strategie ci
+  perdono tutte (`PlanRegimeCheck`, `MarketRegimeClassifier`). Il controllo non entra nella
+  costruzione dei piani. Sui tre piani del demo e sui sei piani del 27/09 non segnala nulla. Studio in
+  `ricerca/regimi-2026-09-29/`.

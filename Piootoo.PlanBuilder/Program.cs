@@ -31,13 +31,16 @@ public static class Program
           --min-trades N         trade minimi per una candidata (default 30)
           --from AAAA-MM-GG      solo i trade usciti da questa data (UTC)
           --to AAAA-MM-GG        solo i trade usciti prima di questa data (UTC)
+          --regime-feed <cartella>  datafeed per il controllo per regime (es. piootoo-repository\datafeed-external\FTMO):
+                                 lo stesso dei run. Senza, il controllo non si fa
+          --regime-min-trades N  trade minimi di una strategia in un regime per contarla nel controllo (default 10)
         """;
 
     public static int Main(string[] args)
     {
         try
         {
-            var (runs, output, options, from, to) = Parse(args);
+            var (runs, output, options, from, to, regimeFeed, regimeMinTrades) = Parse(args);
 
             var trades = new List<PlanTrade>();
             var owner = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -59,11 +62,31 @@ public static class Program
             }
 
             var result = Core.Planning.PlanBuilder.Build(trades, options);
-            PlanBuilderReport.WriteAll(result, options, runs, output);
+
+            PlanRegimeReport? regimes = null;
+            if (regimeFeed is not null)
+            {
+                if (!Directory.Exists(regimeFeed))
+                    throw new ArgumentException($"--regime-feed: la cartella '{regimeFeed}' non esiste.");
+                var missing = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                var symbols = MarketRegimeClassifier
+                    .LoadAsync(regimeFeed, result.Candidates.Select(c => c.Symbol), missing).GetAwaiter().GetResult();
+                regimes = PlanRegimeCheck.Evaluate(result, trades, regimeFeed, symbols, missing, regimeMinTrades);
+                foreach (var (symbol, reason) in missing)
+                    Console.WriteLine($"[plan-builder] regime: {symbol} senza etichette ({reason})");
+            }
+
+            PlanBuilderReport.WriteAll(result, options, runs, output, regimes);
 
             Console.WriteLine($"[plan-builder] {result.Candidates.Count} candidate, {result.Excluded.Count} escluse, {result.Plans.Count} piani");
             foreach (var plan in result.Plans)
-                Console.WriteLine($"[plan-builder] piano {plan.Number}: {plan.Members.Count} strategie, netto {plan.Net:N0}, DD {plan.MaxDrawdown:N0}, giorno peggiore {plan.WorstDay:N0}");
+            {
+                var warnings = regimes?.Plans.Single(p => p.PlanNumber == plan.Number).Warnings.Select(w => w.Regime.Name).ToList();
+                var regimeNote = warnings is null ? string.Empty
+                    : warnings.Count == 0 ? ", nessun regime scoperto"
+                    : $", regimi scoperti: {string.Join(", ", warnings)}";
+                Console.WriteLine($"[plan-builder] piano {plan.Number}: {plan.Members.Count} strategie, netto {plan.Net:N0}, DD {plan.MaxDrawdown:N0}, giorno peggiore {plan.WorstDay:N0}{regimeNote}");
+            }
             Console.WriteLine($"[plan-builder] resoconto in {Path.Combine(output, "plan-builder.md")}");
             return 0;
         }
@@ -81,7 +104,8 @@ public static class Program
         }
     }
 
-    private static (List<string> Runs, string Output, PlanBuilderOptions Options, DateTime? From, DateTime? To) Parse(string[] args)
+    private static (List<string> Runs, string Output, PlanBuilderOptions Options, DateTime? From, DateTime? To, string? RegimeFeed, int RegimeMinTrades)
+        Parse(string[] args)
     {
         var runs = new List<string>();
         var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -127,6 +151,7 @@ public static class Program
             MinTrades = Number("min-trades", 30)
         };
 
-        return (runs, output, options, Date("from"), Date("to"));
+        return (runs, output, options, Date("from"), Date("to"),
+            values.TryGetValue("regime-feed", out var regimeFeed) ? regimeFeed : null, Number("regime-min-trades", 10));
     }
 }

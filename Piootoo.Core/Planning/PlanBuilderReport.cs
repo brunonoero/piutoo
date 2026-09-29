@@ -13,16 +13,20 @@ public static class PlanBuilderReport
 {
     private static readonly CultureInfo It = CultureInfo.GetCultureInfo("it-IT");
 
-    public static void WriteAll(PlanBuilderResult result, PlanBuilderOptions options, IReadOnlyList<string> sources, string directory)
+    public static void WriteAll(
+        PlanBuilderResult result, PlanBuilderOptions options, IReadOnlyList<string> sources, string directory, PlanRegimeReport? regimes = null)
     {
         Directory.CreateDirectory(directory);
-        File.WriteAllText(Path.Combine(directory, "plan-builder.md"), Markdown(result, options, sources), Encoding.UTF8);
+        File.WriteAllText(Path.Combine(directory, "plan-builder.md"), Markdown(result, options, sources, regimes), Encoding.UTF8);
         File.WriteAllText(Path.Combine(directory, "correlazioni.csv"), MatrixCsv(result.Candidates, result.Correlation), Encoding.UTF8);
         File.WriteAllText(Path.Combine(directory, "correlazioni-code.csv"), MatrixCsv(result.Candidates, result.TailCorrelation), Encoding.UTF8);
-        File.WriteAllText(Path.Combine(directory, "plans.json"), PlansJson(result), Encoding.UTF8);
+        File.WriteAllText(Path.Combine(directory, "plans.json"), PlansJson(result, regimes), Encoding.UTF8);
+        if (regimes is not null)
+            File.WriteAllText(Path.Combine(directory, "regimi.csv"), RegimeCsv(regimes), Encoding.UTF8);
     }
 
-    public static string Markdown(PlanBuilderResult result, PlanBuilderOptions options, IReadOnlyList<string> sources)
+    public static string Markdown(
+        PlanBuilderResult result, PlanBuilderOptions options, IReadOnlyList<string> sources, PlanRegimeReport? regimes = null)
     {
         var sb = new StringBuilder();
         sb.AppendLine("# Piani di strategie scorrelate");
@@ -66,6 +70,8 @@ public static class PlanBuilderReport
 
             sb.AppendLine();
         }
+
+        AppendRegimes(sb, result, regimes);
 
         if (result.Plans.Count > 1)
         {
@@ -119,6 +125,72 @@ public static class PlanBuilderReport
         return sb.ToString();
     }
 
+    private static void AppendRegimes(StringBuilder sb, PlanBuilderResult result, PlanRegimeReport? regimes)
+    {
+        sb.AppendLine("## Piani per regime di mercato");
+        sb.AppendLine();
+        if (regimes is null)
+        {
+            sb.AppendLine("Controllo non eseguito: manca `--regime-feed`.");
+            sb.AppendLine();
+            return;
+        }
+
+        sb.AppendLine(
+            $"Ogni trade prende il regime del proprio simbolo nel giorno di sessione in cui entra, calcolato con le sole barre " +
+            $"chiuse prima (`MarketRegimeClassifier`). Datafeed: `{regimes.DatafeedRoot}`. Un regime e' segnalato quando il piano " +
+            $"ci perde, o quando ci perdono tutte le sue strategie con almeno {regimes.MinTradesPerMember} trade in quel regime " +
+            "(almeno due). E' una verifica, non un vincolo: il regime non entra nella costruzione.");
+        sb.AppendLine();
+        sb.AppendLine("Etichette: " + string.Join(", ", regimes.Symbols.Values.OrderBy(s => s.Symbol, StringComparer.Ordinal)
+            .Select(s => $"{s.Symbol} `{s.Source}` ({s.FirstDay:yyyy-MM-dd} - {s.LastDay:yyyy-MM-dd})")) + ".");
+        foreach (var (symbol, reason) in regimes.MissingSymbols.OrderBy(m => m.Key, StringComparer.Ordinal))
+            sb.AppendLine($"- **{symbol} senza etichette**: {reason}.");
+        sb.AppendLine();
+
+        foreach (var profile in regimes.Plans)
+        {
+            var warnings = profile.Warnings.ToList();
+            sb.AppendLine($"### Piano {profile.PlanNumber}: " + (warnings.Count == 0
+                ? "nessun regime scoperto"
+                : string.Join("; ", warnings.Select(w =>
+                    $"**{w.Regime.Name}**: {(w.PlanLoses ? $"il piano perde {M(w.Net)}" : $"perdono tutte e {w.MembersMeasured}")}"))));
+            sb.AppendLine();
+            sb.AppendLine("| regime | trade | netto | netto per trade | strategie in perdita |");
+            sb.AppendLine("|---|---:|---:|---:|---:|");
+            foreach (var row in profile.Rows)
+            {
+                var mark = row.PlanLoses || row.AllLose ? " ⚠" : string.Empty;
+                sb.AppendLine(
+                    $"| {row.Regime.Name}{mark} | {row.Trades} | {M(row.Net)} | {M(row.Trades > 0 ? row.Net / row.Trades : 0m)} | " +
+                    $"{row.MembersLosing} su {row.MembersMeasured} |");
+            }
+
+            if (profile.UnlabeledTrades > 0)
+                sb.AppendLine($"\n{profile.UnlabeledTrades} trade senza etichetta (simbolo senza feed o prima dell'inizio delle etichette).");
+            sb.AppendLine();
+        }
+
+        sb.AppendLine("Profilo di ogni candidata per regime in `regimi.csv`.");
+        sb.AppendLine();
+    }
+
+    private static string RegimeCsv(PlanRegimeReport regimes)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("strategia;asse;regime;trade;netto;netto_per_trade");
+        foreach (var (code, cells) in regimes.Candidates.OrderBy(c => c.Key, StringComparer.Ordinal))
+        {
+            foreach (var cell in cells)
+            {
+                sb.AppendLine(string.Join(';', code, cell.Regime.Axis, cell.Regime.Name, cell.Trades.ToString(CultureInfo.InvariantCulture),
+                    cell.Net.ToString("0.00", CultureInfo.InvariantCulture), cell.AverageTrade.ToString("0.00", CultureInfo.InvariantCulture)));
+            }
+        }
+
+        return sb.ToString();
+    }
+
     private static string MatrixCsv(IReadOnlyList<StrategyProfile> candidates, double[,] matrix)
     {
         var sb = new StringBuilder();
@@ -134,7 +206,7 @@ public static class PlanBuilderReport
         return sb.ToString();
     }
 
-    private static string PlansJson(PlanBuilderResult result) =>
+    private static string PlansJson(PlanBuilderResult result, PlanRegimeReport? regimes) =>
         JsonSerializer.Serialize(
             result.Plans.Select(plan => new
             {
@@ -144,7 +216,9 @@ public static class PlanBuilderReport
                 maxDrawdown = plan.MaxDrawdown,
                 worstDay = plan.WorstDay,
                 maxPairCorrelation = double.IsNaN(plan.MaxPairCorrelation) ? (double?)null : plan.MaxPairCorrelation,
-                maxPairTailCorrelation = double.IsNaN(plan.MaxPairTailCorrelation) ? (double?)null : plan.MaxPairTailCorrelation
+                maxPairTailCorrelation = double.IsNaN(plan.MaxPairTailCorrelation) ? (double?)null : plan.MaxPairTailCorrelation,
+                // null = controllo non eseguito; lista vuota = nessun regime scoperto.
+                regimeWarnings = regimes?.Plans.Single(p => p.PlanNumber == plan.Number).Warnings.Select(w => w.Regime.Name).ToArray()
             }),
             new JsonSerializerOptions { WriteIndented = true });
 

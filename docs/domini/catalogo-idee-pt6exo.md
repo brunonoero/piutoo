@@ -345,6 +345,14 @@ correlazione massima 0,12 fra i membri e 0,04 con il secondo. **Limiti**: somma 
 normalizzare il rischio (GC pesa piu' di BP), e la scelta golosa puo' aggiungere un membro debole se
 migliora il netto/DD del piano.
 
+**Dal 29/09/2026 c'e' anche il controllo per regime di mercato** (`--regime-feed`,
+`Piootoo.Core/Planning/PlanRegimeCheck.cs` e `MarketRegimes.cs`). Ogni trade prende il regime del
+proprio simbolo al giorno di sessione di ingresso: direzione (trend su, trend giu', laterale) e
+volatilita' (calma, normale, agitata), calcolate con le sole barre chiuse prima. Il resoconto segnala un
+piano che perde in un regime, o le cui strategie ci perdono tutte. Il controllo non vincola la
+costruzione, e il regime non spegne le strategie: e' stato misurato e toglie guadagno
+(`ricerca/regimi-2026-09-29/esito.md`).
+
 ## Ordine di lavoro proposto
 
 **In coda dal 25/09/2026**: lo studio RAN sulla 002 (`Pt3b002RandomControlStudy`) e poi, davanti alla

@@ -1,6 +1,8 @@
 using Piootoo.Core.Planning;
 using Piootoo.Core.Services;
 using Piootoo.Shared.Enums;
+using Piootoo.Shared.MarketData;
+using Piootoo.Shared.Models;
 using Piootoo.Shared.Models.Trading;
 using Xunit;
 
@@ -215,7 +217,127 @@ public sealed class PlanBuilderTests
         }
     }
 
+    /// <summary>
+    /// La direzione: una serie a zig-zag e' laterale, una che sale ogni giorno e' trend su. La volatilita':
+    /// con il range costante e' calma, dopo un mese di range cinque volte piu' larghi e' agitata.
+    /// </summary>
+    [Fact]
+    public void TheClassifierSeesTrendSidewaysCalmAndAgitated()
+    {
+        var grid = SessionGrid.For("NQ");
+        var bars = new List<OhlcvData>();
+        var price = 1000m;
+        for (var i = 0; i < 400; i++)
+        {
+            price += i < 200 ? (i % 2 == 0 ? 5m : -5m) : 3m;
+            var range = i >= 330 ? 50m : 10m;
+            bars.Add(Bar(i, price, range));
+        }
+
+        var labels = MarketRegimeClassifier.Classify(bars, grid);
+
+        // Il 151 si etichetta con il 150, una chiusura alta dello zig-zag: ATR su prezzo al minimo della finestra.
+        var sideways = labels[DayOf(151)];
+        Assert.Equal(DirectionRegime.Sideways, sideways.Direction);
+        Assert.Equal(VolatilityRegime.Calm, sideways.Volatility);
+        Assert.Equal(DirectionRegime.TrendUp, labels[DayOf(320)].Direction);
+        Assert.Equal(VolatilityRegime.Agitated, labels[DayOf(360)].Volatility);
+    }
+
+    /// <summary>L'etichetta di un giorno si fa con le barre prima: cambiare la barra del giorno non la cambia.</summary>
+    [Fact]
+    public void TheLabelOfADayIgnoresThatDaysBar()
+    {
+        var grid = SessionGrid.For("NQ");
+        var bars = Enumerable.Range(0, 300).Select(i => Bar(i, 1000m + (i % 2 == 0 ? 5m : -5m), 10m)).ToList();
+        var before = MarketRegimeClassifier.Classify(bars, grid)[DayOf(250)];
+
+        bars[250] = Bar(250, 3000m, 800m);
+        var after = MarketRegimeClassifier.Classify(bars, grid);
+
+        Assert.Equal(before, after[DayOf(250)]);
+        Assert.NotEqual(before, after[DayOf(251)]);
+    }
+
+    /// <summary>
+    /// Il controllo per regime: due strategie scorrelate che perdono entrambe in calma fanno perdere il piano
+    /// in calma, e il regime e' segnalato; negli altri regimi il piano guadagna e non c'e' niente da dire.
+    /// </summary>
+    [Fact]
+    public void APlanThatLosesInOneRegimeIsFlagged()
+    {
+        var grid = SessionGrid.For("NQ");
+        var days = new SortedList<DateTime, DayRegime>();
+        for (var i = 0; i < 80; i++)
+        {
+            days[DayOf(i)] = new DayRegime(
+                DirectionRegime.Sideways, i % 2 == 0 ? VolatilityRegime.Calm : VolatilityRegime.Agitated);
+        }
+
+        var regimes = new Dictionary<string, SymbolRegimes>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["NQ"] = new("NQ", "@NQ_1440", grid, days),
+            ["ES"] = new("ES", "@ES_1440", grid, days)
+        };
+
+        // Nei giorni pari (calma) entrambe perdono; nei dispari guadagnano, in giorni diversi fra loro.
+        var trades = new List<PlanTrade>();
+        for (var i = 0; i < 80; i++)
+        {
+            var calm = i % 2 == 0;
+            trades.Add(Trade("S_NQ_AAA_001_60", "NQ", i, calm ? -4m : (i % 4 == 1 ? 20m : 1m)));
+            trades.Add(Trade("S_ES_BBB_001_60", "ES", i, calm ? -4m : (i % 4 == 3 ? 20m : 1m)));
+        }
+
+        var result = PlanBuilder.Build(trades, new PlanBuilderOptions { MinTrades = 10, Plans = 1, MaxCorrelation = 1, MaxTailCorrelation = 1 });
+        var check = PlanRegimeCheck.Evaluate(result, trades, "feed", regimes, new Dictionary<string, string>());
+
+        var plan = check.Plans.Single();
+        Assert.Equal(new[] { "calma" }, plan.Warnings.Select(w => w.Regime.Name));
+        var calmRow = plan.Rows.Single(r => r.Regime.Name == "calma");
+        Assert.True(calmRow.PlanLoses);
+        Assert.True(calmRow.AllLose);
+        Assert.Equal(2, calmRow.MembersMeasured);
+        Assert.Equal(0, plan.UnlabeledTrades);
+
+        var markdown = PlanBuilderReport.Markdown(result, new PlanBuilderOptions(), ["run"], check);
+        Assert.Contains("**calma**", markdown);
+    }
+
+    /// <summary>Senza feed per il controllo il resoconto lo dice, invece di tacere.</summary>
+    [Fact]
+    public void WithoutARegimeFeedTheReportSaysTheCheckDidNotRun()
+    {
+        var trades = Daily("S_NQ_AAA_001_60", "NQ", Enumerable.Repeat(10m, 40).ToArray()).ToList();
+        var result = PlanBuilder.Build(trades, new PlanBuilderOptions { MinTrades = 10 });
+
+        Assert.Contains("Controllo non eseguito", PlanBuilderReport.Markdown(result, new PlanBuilderOptions(), ["run"]));
+    }
+
     // ------------------------------------------------------------------ supporto
+
+    /// <summary>Giorno di sessione <paramref name="index"/>: le barre sono a mezzogiorno UTC, dentro il giorno di calendario.</summary>
+    private static DateTime DayOf(int index) => Start.AddDays(index).Date;
+
+    private static OhlcvData Bar(int index, decimal close, decimal range)
+    {
+        var time = Start.AddDays(index).AddHours(12);
+        return new OhlcvData
+        {
+            DateTime = time,
+            Timestamp = new DateTimeOffset(time).ToUnixTimeSeconds(),
+            Open = close,
+            High = close + range / 2,
+            Low = close - range / 2,
+            Close = close
+        };
+    }
+
+    private static PlanTrade Trade(string code, string symbol, int day, decimal net)
+    {
+        var entry = Start.AddDays(day).AddHours(10);
+        return new PlanTrade(code, symbol, entry.AddHours(5), net, entry);
+    }
 
     private static IEnumerable<PlanTrade> Daily(string code, string symbol, decimal[] values, int dayStep = 1, int firstDay = 0) =>
         values.Select((value, index) => new PlanTrade(code, symbol, Start.AddDays(firstDay + index * dayStep).AddHours(15), value));
