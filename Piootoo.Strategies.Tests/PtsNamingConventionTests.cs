@@ -86,7 +86,8 @@ public sealed class PtsNamingConventionTests
         [typeof(LunarPhaseEngine)] = "LUN",
         [typeof(TimeModuloEngine)] = "MOD",
         [typeof(DayHourGridEngine)] = "DXH",
-        [typeof(CrossMarketEngine)] = "XMK"
+        [typeof(CrossMarketEngine)] = "XMK",
+        [typeof(TrendEfficiencyEngine)] = "ERT"
     };
 
     /// <summary>

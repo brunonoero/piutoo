@@ -273,6 +273,54 @@
                               }
                   },
                   {
+                      "cella":  "matrice-fdax-240-ert",
+                      "test":  "CoarseGridMatrixTests",
+                      "broker":  "FTMO",
+                      "simboli":  [
+                                      "@FDAX"
+                                  ],
+                      "da":  "2022-01-01",
+                      "env":  {
+                                  "PIOOTOO_CELLA":  "ERT|@FDAX|240|FTMO"
+                              }
+                  },
+                  {
+                      "cella":  "matrice-nq-240-ert",
+                      "test":  "CoarseGridMatrixTests",
+                      "broker":  "FTMO",
+                      "simboli":  [
+                                      "@NQ"
+                                  ],
+                      "da":  "2022-05-16",
+                      "env":  {
+                                  "PIOOTOO_CELLA":  "ERT|@NQ|240|FTMO"
+                              }
+                  },
+                  {
+                      "cella":  "matrice-fdax-60-ert",
+                      "test":  "CoarseGridMatrixTests",
+                      "broker":  "FTMO",
+                      "simboli":  [
+                                      "@FDAX"
+                                  ],
+                      "da":  "2022-01-01",
+                      "env":  {
+                                  "PIOOTOO_CELLA":  "ERT|@FDAX|60|FTMO"
+                              }
+                  },
+                  {
+                      "cella":  "matrice-nq-60-ert",
+                      "test":  "CoarseGridMatrixTests",
+                      "broker":  "FTMO",
+                      "simboli":  [
+                                      "@NQ"
+                                  ],
+                      "da":  "2022-05-16",
+                      "env":  {
+                                  "PIOOTOO_CELLA":  "ERT|@NQ|60|FTMO"
+                              }
+                  },
+                  {
                       "cella":  "xmk-nq-gc-griglie",
                       "test":  "NqGcCrossMarketStudy",
                       "broker":  "FTMO",

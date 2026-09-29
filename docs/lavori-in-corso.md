@@ -75,6 +75,12 @@ diversi, uno per conto. Catalogo, scelte di ogni motore e trappole:
   giornaliero non scatta mai. Sessione live, sweep e cBot non passano la serie alta.
 - **XMK** gira solo nella sweep; altrove si ferma con un errore.
 - **CAL** fissa `ValidFromUtc` piu' avanti della barra dopo (per non entrare nel fine settimana): da
+**29/09/2026 — trend temporaneo.** Lo studio di persistenza
+(`ricerca/persistenza-2026-09-29/esito.md`) chiude la rotazione sulle strategie "in forma": nessuna
+persistenza sfruttabile. Scritto il motore **ERT** (`TrendEfficiencyEngine`, `RC_ERT`, efficiency ratio),
+e accodate davanti a `xmk-nq-gc-griglie` le celle `matrice-{fdax,nq}-{240,60}-ert`. Quando escono:
+`lettura-risultati`, poi RAN e correlazione giornaliera con TF/PCH della stessa cella.
+
   verificare che il cBot lo accetti prima di metterla in un piano. Il modo 2 (vigilia di festivo) non
   scatta finche' i calendari non dichiarano festivi.
 - **LUN** chiude una barra prima del confine di fase, per poter rientrare nel mezzo ciclo dopo.

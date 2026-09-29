@@ -420,6 +420,35 @@ public sealed class RC_IBS : PT6EXOStrategies.Engines.InternalBarStrengthEngine
 }
 
 /// <summary>
+/// Regime di trend temporaneo (serie PT6EXO): entra quando l'efficiency ratio si accende e segue il verso,
+/// esce quando si spegne. Leve proprie: <c>ErBars</c>, <c>EntryScore</c>, <c>ExitScore</c> (0 = nessuna
+/// uscita di regime), <c>FreshOnly</c>, <c>Direction</c>.
+/// </summary>
+public sealed class RC_ERT : PT6EXOStrategies.Engines.TrendEfficiencyEngine
+{
+    private readonly ResearchContainerIdentity _identity = new();
+    public override string Name => "RC_ERT";
+    public override string Description => "Contenitore generico di ricerca: regime di trend (efficiency ratio)";
+    public override string Symbol => _identity.Symbol;
+    public override int TimeframeMinutes => _identity.TimeframeMinutes;
+    public override bool IsResearchContainer => true;
+
+    public RC_ERT()
+    {
+        ResearchContainerSettings.Prepare(this);
+        ErBars = 20;
+        EntryScore = 2m;
+        ExitScore = 0.5m;
+        FreshOnly = 1;
+        Direction = 0;
+        MaxEntriesPerSession = 1;
+    }
+
+    public void Initialize(Dictionary<string, object>? parameters = null) =>
+        ResearchContainerSettings.Apply(this, _identity, parameters);
+}
+
+/// <summary>
 /// Deriva oraria (serie PT6EXO): entra a un'ora fissa e tiene per un numero fisso di ore. Leve
 /// proprie: <c>EntryHour</c>, <c>HoldHours</c>, <c>ScheduleClock</c> (0 ricerca, 1 borsa),
 /// <c>Direction</c>, <c>MomentumMode</c>, <c>MomentumBars</c>, <c>SkipDay</c>.

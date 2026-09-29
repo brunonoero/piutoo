@@ -74,7 +74,11 @@ public sealed class CoarseGridMatrixTests(ITestOutputHelper output)
         // Deriva pura: verso fisso long o short, niente momentum. Le ore sono di Roma e valgono sulle celle
         // a 60 minuti: su quelle a 4 ore la barra non apre a ogni ora e l'ingresso non scatterebbe mai.
         ["HOD"] = new("RC_HOD", "Deriva oraria (4 ore, verso fisso)", "EntryHour", "entryHour", [8, 9, 10, 14, 15, 16],
-            Fixed: new() { ["MomentumMode"] = 0, ["HoldHours"] = 4 }, Directions: [1, 2])
+            Fixed: new() { ["MomentumMode"] = 0, ["HoldHours"] = 4 }, Directions: [1, 2]),
+        // Regime di trend temporaneo (29/09/2026): la leva e' quanto e' "temporaneo", cioe' la finestra; il
+        // punteggio ER × √N tiene la soglia sulla stessa scala per ogni finestra. Uscita di regime accesa.
+        ["ERT"] = new("RC_ERT", "Regime di trend (efficiency ratio, uscita a trend spento)", "ErBars", "erBars", [10, 20, 40, 80],
+            Fixed: new() { ["EntryScore"] = 2m, ["ExitScore"] = 0.5m, ["FreshOnly"] = 1 })
     };
 
     [Fact]

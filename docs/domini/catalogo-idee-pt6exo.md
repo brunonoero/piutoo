@@ -180,6 +180,33 @@ regime sceglie la logica. Leve: finestra, i due percentili, i due sotto-motori, 
 *Trappole:* un anno di barre e' il `RequiredCandles`; in sessione `ExternalBroker` il riscaldamento
 deve portarlo, altrimenti `everEvaluable` resta falso per sempre.
 
+### ERT — regime di trend temporaneo
+
+Nasce dallo studio di persistenza del 29/09/2026 (`ricerca/persistenza-2026-09-29/esito.md`): su 132 e
+218 strategie, tre cadenze e quattro finestre, il rendimento recente di una strategia non predice quello
+dopo, e una rotazione sulle strategie "in forma" fa peggio della scelta casuale. Il trend temporaneo, se
+c'e', va letto nel **mercato**, non nella curva della strategia. ERT lo legge dalla **direzionalita'**,
+che nessun motore del catalogo misura: REG guarda la volatilita', i TF e i breakout un livello.
+
+**Scritto il 29/09/2026**: `TrendEfficiencyEngine` in `PT6EXOStrategies/Engines/`, contenitore `RC_ERT`.
+
+- **La misura**: efficiency ratio di Kaufman con segno sulle ultime `ErBars` barre,
+  `(C[t] − C[t−N]) / Σ|ΔC|`, e il **punteggio** `ER × √N`. In una passeggiata casuale |ER| vale circa
+  `1/√N`, quindi il punteggio ha la stessa scala per ogni finestra: la griglia varia `ErBars` da sola,
+  con le soglie ferme.
+- **Ingresso** a mercato sulla barra dopo quando il punteggio passa `EntryScore` (long) o `−EntryScore`
+  (short); con `FreshOnly` solo sulla barra in cui la soglia viene passata, cioe' quando il trend si
+  accende.
+- **Uscita di regime**: il long chiude quando il punteggio scende a `ExitScore`, lo short quando sale a
+  `−ExitScore`; un'inversione ci passa per forza. Segnale `ExitOnly`, come l'IBS. `ExitScore = 0` la
+  spegne.
+- Leve: `ErBars`, `EntryScore`, `ExitScore`, `FreshOnly`, `Direction`, piu' le uscite comuni. Test in
+  `TrendEfficiencyEngineTests`. In matrice con `ErBars` 10/20/40/80, punteggi 2 e 0,5, `FreshOnly` 1;
+  celle in coda FDAX e NQ a 240 e 60 FTMO (`matrice-{sim}-{tf}-ert`).
+- **Domande alla griglia**: se c'e' un edge, se batte il RAN con le stesse uscite (altrimenti il guadagno
+  e' dell'uscita di regime, non dell'ingresso) e, soprattutto, se e' **scorrelata dai TF e dai PCH** della
+  stessa cella: un ERT che guadagna negli stessi giorni di un canale e' un trend following travestito.
+
 ### CDL — candela di rifiuto su un livello
 
 Pin bar (ombra ≥ r volte il corpo) o engulfing che toccano un livello — massimo o minimo di ieri,
@@ -348,6 +375,7 @@ chiusure con uscita alla prima contraria; NRX NR-4/7/10 con stop validi una barr
 | CAL | anomalie di calendario | calendario di borsa | `CalendarAnomalyEngine`, `RC_CAL`; il modo "vigilia di festivo" non scatta finche' i calendari non dichiarano festivi |
 | VLM | anomalia di volume | tick volume del CFD | declassata; `VolumeSpikeEngine`, `RC_VLM`, con la leva di controllo `ActivitySource` (volume o ampiezza) |
 | REG | regime di volatilita' | percentile dell'ATR | `VolatilityRegimeEngine`, `RC_REG`; manca la griglia |
+| ERT | regime di trend temporaneo | efficiency ratio (direzionalita') | `TrendEfficiencyEngine`, `RC_ERT`; 4 celle in coda (FDAX, NQ a 240 e 60) |
 | CDL | candela di rifiuto | forma della barra su un livello | `RejectionCandleEngine`, `RC_CDL`; manca la griglia |
 | MTF | timeframe in disaccordo | due timeframe | `TimeframeDisagreementEngine`, `RC_MTF`; **solo backtest**: sessione live, sweep e cBot non passano la serie alta, e il backtest ne passa 8 barre per il giornaliero |
 | RNM | numeri tondi | prezzo vero | `RoundNumberEngine`, `RC_RNM`; solo feed del broker |
