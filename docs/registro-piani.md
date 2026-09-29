@@ -478,6 +478,23 @@ Il piano `PT3B-FDAX` (ICS) ha backtest cTrader in archivio ma non esiste piu' in
   −211), che fa il DD piu' largo. Finestre di 4 mesi sul run cTrader: 43, mediana 9.371, **19 su 43
   sopra 10k (44%)**, peggiore −2.276. Script `ricerca/due-piani-pieni-2026-09-28/confronto_ctrader.py`.
 
+### `FTMO-PT3B-USA-2` — workspace `ftmo-pt3b-usa2` (30/09/2026)
+
+- Le tre RHL a 4 ore di `FTMO-PT3B-USA` (`PT3B_{ES,NQ,YM}_RHL_001_240`) piu' **`PT3B_ES_RHL_002_60`**, la RHL
+  dell'S&P a 1 ora trovata dal percorso con il flat prima del rollover. Stessa tenuta, conto e commissione di USA:
+  broker FTMO, conto 17202911, commissione 2, niente overnight, flat 20:45 UTC per 30 minuti, size 1, nessun peso.
+  Workspace a parte perche' `ftmo-pt3b-indici` ha un masterfilter comune a INDICI, EUROPA e USA.
+- **La strategia nuova** (`ricerca/percorso/es-60-ricerca-ftmo-flat.md`, `es-60-rhl-flat-verifiche.md`): long a
+  limite 10 tick sotto il minimo di ieri, niente domenica ne' pattern direzionale 1, stop 0,8 ATR, uscita dopo 4
+  barre o alle 21. Prova FTMO 09/2024-09/2026: 50 trade, +15.688, net/DD 5,42. S&P interno 2006-2020: 14 anni su 15
+  in utile, net/DD 4,38. Contro il caso: 98-100° percentile. Riproduce il contenitore trade per trade. Con la RHL a
+  4 ore dello stesso mercato nessun ingresso entro 5 minuti. La stessa regola sul Nasdaq (storia 2008-2022 net/DD
+  0,36) e sul Dow (91° percentile) non regge: solo S&P.
+- **Compatibilita'**: con `PT5DAV_ES_RHL_001_30` di P1 il 7% degli ingressi e' gemello entro 5 minuti: **USA-2
+  non va accanto a P1** su conti diversi della stessa prop. Chi usa P1 tiene USA; chi non lo usa puo' passare a
+  USA-2. USA-2 e USA hanno le stesse tre RHL a 4 ore: mai insieme.
+- Server 7.8.12 (rilascio del 30/09 con la classe nuova). Backtest cTrader: da fare.
+
 ### `FTMO-PT3B-EUROPA` e `FTMO-PT3B-USA` — workspace `ftmo-pt3b-indici` (27/09/2026)
 
 - Il piano indici diviso in due piani **disgiunti**, per due conti diversi (stesse regole di tenuta e
