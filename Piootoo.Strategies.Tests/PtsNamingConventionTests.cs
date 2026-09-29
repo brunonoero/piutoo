@@ -4,6 +4,8 @@ using Piootoo.Shared.Interfaces;
 using Piootoo.Strategies.Easy.Engines;
 using Piootoo.Strategies.PT5DAVStrategies.Engines;
 using Piootoo.Strategies.PT6EXOStrategies.Engines;
+using Piootoo.Strategies.PT7CLPStrategies.Engines;
+using Piootoo.Strategies.PTARMStrategies.Engines;
 using Xunit;
 
 namespace Piootoo.Strategies.Tests;
@@ -87,7 +89,18 @@ public sealed class PtsNamingConventionTests
         [typeof(TimeModuloEngine)] = "MOD",
         [typeof(DayHourGridEngine)] = "DXH",
         [typeof(CrossMarketEngine)] = "XMK",
-        [typeof(TrendEfficiencyEngine)] = "ERT"
+        [typeof(TrendEfficiencyEngine)] = "ERT",
+
+        // Serie PT7CLP (29/09/2026): figure classiche dell'analisi tecnica, una sigla per figura. Sigle in
+        // docs/domini/catalogo-pattern-classici.md.
+        [typeof(FlagEngine)] = "FLG",
+
+        // Serie PTARM (29/09/2026): figure armoniche, una sigla per figura sulla base comune HarmonicEngine.
+        // Sigle in docs/domini/catalogo-armonici.md.
+        [typeof(GartleyEngine)] = "GAR",
+        [typeof(BatEngine)] = "BAT",
+        [typeof(ButterflyEngine)] = "BUT",
+        [typeof(CrabEngine)] = "CRB"
     };
 
     /// <summary>
@@ -107,11 +120,15 @@ public sealed class PtsNamingConventionTests
         // PT5DAV: dalla ricerca v5.0 fatta su un altro server (piootoo-repository/PT5DAV/), 24/09/2026.
         ["PT5DAV"] = typeof(Pt5DavEngineBase).Namespace!.Replace(".Engines", string.Empty),
         // PT6EXO: motori di famiglie nuove (catalogo-idee-pt6exo.md), 25/09/2026.
-        ["PT6EXO"] = typeof(RandomEntryEngine).Namespace!.Replace(".Engines", string.Empty)
+        ["PT6EXO"] = typeof(RandomEntryEngine).Namespace!.Replace(".Engines", string.Empty),
+        // PT7CLP: figure classiche (catalogo-pattern-classici.md), 29/09/2026.
+        ["PT7CLP"] = typeof(FlagEngine).Namespace!.Replace(".Engines", string.Empty),
+        // PTARM: figure armoniche (catalogo-armonici.md), 29/09/2026.
+        ["PTARM"] = typeof(HarmonicEngine).Namespace!.Replace(".Engines", string.Empty)
     };
 
     private static readonly Regex NamePattern = new(
-        @"^(?<series>PTS|PT3B|PT5DAV|PT6EXO)_(?<symbol>[A-Z0-9]+)_(?<engine>[A-Z]{3})_(?<number>\d{3})_(?<timeframe>\d+)$",
+        @"^(?<series>PTS|PT3B|PT5DAV|PT6EXO|PT7CLP|PTARM)_(?<symbol>[A-Z0-9]+)_(?<engine>[A-Z]{3})_(?<number>\d{3})_(?<timeframe>\d+)$",
         RegexOptions.Compiled);
 
     public static TheoryData<Type> PtsStrategyTypes

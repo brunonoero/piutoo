@@ -113,7 +113,37 @@ public sealed class CoarseGridMatrixTests(ITestOutputHelper output)
         ["VLM"] = new("RC_VLM", "Anomalia di tick volume (segue la barra)", "SpikeRatio", "spikeRatioTenths", [20, 30, 40], Divisor: 10m,
             Fixed: new() { ["LookbackBars"] = 20, ["Mode"] = 0, ["ActivitySource"] = 0 }),
         ["VLMA"] = new("RC_VLM", "Anomalia di ampiezza (controllo di VLM)", "SpikeRatio", "spikeRatioTenths", [20, 30, 40], Divisor: 10m,
-            Fixed: new() { ["LookbackBars"] = 20, ["Mode"] = 0, ["ActivitySource"] = 1 })
+            Fixed: new() { ["LookbackBars"] = 20, ["Mode"] = 0, ["ActivitySource"] = 1 }),
+
+        // Serie PT7CLP (29/09/2026), figure classiche: vedi docs/domini/catalogo-pattern-classici.md. La
+        // bandiera con la sua forma ferma ai valori da manuale; la leva e' quanto deve essere forte il palo, in
+        // ATR delle barre. Stop e target della matrice, non quelli della figura: lo stop sotto la bandiera e il
+        // target all'altezza del palo sono il secondo passo, su una cella che risponde.
+        ["FLG"] = new("RC_FLG", "Bandiera (palo in ATR, stop sulla rottura)", "PoleAtr", "poleAtrTenths", [20, 30, 50], Divisor: 10m,
+            Fixed: new()
+            {
+                ["PoleBars"] = 5, ["AtrBars"] = 20, ["FlagMinBars"] = 3, ["FlagMaxBars"] = 10,
+                ["MaxRetrace"] = 0.5m, ["ParallelTolerance"] = 0.1m, ["StopAtFlag"] = 0, ["TargetPole"] = 0m
+            }),
+
+        // Serie PTARM (29/09/2026), figure armoniche: vedi docs/domini/catalogo-armonici.md. I rapporti sono
+        // nella classe; la leva e' la scala degli swing (pivot a k barre), tolleranza ferma al 5%. Le righe
+        // "…F" sono il controllo con i rapporti falsati del 10%: si lanciano solo su una cella che risponde.
+        ["GAR"] = new("RC_GAR", "Gartley (limit su D)", "PivotBars", "pivotBars", [2, 3, 5, 8], Fixed: HarmonicFixed(1m)),
+        ["BAT"] = new("RC_BAT", "Bat (limit su D)", "PivotBars", "pivotBars", [2, 3, 5, 8], Fixed: HarmonicFixed(1m)),
+        ["BUT"] = new("RC_BUT", "Butterfly (limit su D)", "PivotBars", "pivotBars", [2, 3, 5, 8], Fixed: HarmonicFixed(1m)),
+        ["CRB"] = new("RC_CRB", "Crab (limit su D)", "PivotBars", "pivotBars", [2, 3, 5, 8], Fixed: HarmonicFixed(1m)),
+        ["GARF"] = new("RC_GAR", "Gartley a rapporti falsati (controllo)", "PivotBars", "pivotBars", [2, 3, 5, 8], Fixed: HarmonicFixed(0.9m)),
+        ["BATF"] = new("RC_BAT", "Bat a rapporti falsati (controllo)", "PivotBars", "pivotBars", [2, 3, 5, 8], Fixed: HarmonicFixed(0.9m)),
+        ["BUTF"] = new("RC_BUT", "Butterfly a rapporti falsati (controllo)", "PivotBars", "pivotBars", [2, 3, 5, 8], Fixed: HarmonicFixed(0.9m)),
+        ["CRBF"] = new("RC_CRB", "Crab a rapporti falsati (controllo)", "PivotBars", "pivotBars", [2, 3, 5, 8], Fixed: HarmonicFixed(0.9m))
+    };
+
+    /// <summary>La forma ferma delle figure armoniche in matrice; <paramref name="ratioScale"/> 1 = da manuale.</summary>
+    private static Dictionary<string, object> HarmonicFixed(decimal ratioScale) => new()
+    {
+        ["Tolerance"] = 0.05m, ["MaxDBars"] = 30, ["LookbackBars"] = 300, ["RatioScale"] = ratioScale,
+        ["StopStructure"] = 0, ["TargetAd"] = 0m
     };
 
     [Fact]

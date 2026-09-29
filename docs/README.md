@@ -131,6 +131,14 @@ non esiste più, si tiene per il perché.
   (orologio, volume, forma della barra, regime, calendario, idee bizzarre), il
   controllo a ingresso casuale, come si compongono i piani, ordine di lavoro.
   *Bozza: scritti tutti i motori (XMK solo per la sweep), nessuno ancora misurato.*
+- [`domini/catalogo-pattern-classici.md`](domini/catalogo-pattern-classici.md) — la serie
+  `PT7CLP_*`: figure classiche dell'analisi tecnica (bandiera, doppio massimo, testa e
+  spalle, triangoli) tradotte in regole in ATR, ingresso sulla rottura della conferma.
+  *Bozza: scritta la bandiera (FLG), in coda la griglia.*
+- [`domini/catalogo-armonici.md`](domini/catalogo-armonici.md) — la serie `PTARM_*`:
+  figure armoniche X-A-B-C-D (Gartley, Bat, Butterfly, Crab) con i rapporti di
+  Fibonacci fissati nella classe, pivot confermati, limit su D, controllo a rapporti
+  falsati. *Bozza: scritte le quattro figure, in coda la griglia.*
 - [`domini/mappa-strategie-pts.md`](domini/mappa-strategie-pts.md) — da quale
   run e da quale riga approvata veniva ogni classe `PTS_*`. **Serie eliminata dal
   progetto il 24/09/2026.** *Storia: non descrive più il codice.*

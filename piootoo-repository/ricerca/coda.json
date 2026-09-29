@@ -317,6 +317,138 @@
                               }
                   },
                   {
+                      "cella":  "matrice-fdax-60-flg-vendor",
+                      "test":  "CoarseGridMatrixTests",
+                      "broker":  "FTMO",
+                      "simboli":  [
+                                      "@FDAX"
+                                  ],
+                      "env":  {
+                                  "PIOOTOO_CELLA":  "FLG|@FDAX|60|VENDOR"
+                              }
+                  },
+                  {
+                      "cella":  "matrice-nq-60-flg-vendor",
+                      "test":  "CoarseGridMatrixTests",
+                      "broker":  "FTMO",
+                      "simboli":  [
+                                      "@NQ"
+                                  ],
+                      "env":  {
+                                  "PIOOTOO_CELLA":  "FLG|@NQ|60|VENDOR"
+                              }
+                  },
+                  {
+                      "cella":  "matrice-fdax-240-flg-vendor",
+                      "test":  "CoarseGridMatrixTests",
+                      "broker":  "FTMO",
+                      "simboli":  [
+                                      "@FDAX"
+                                  ],
+                      "env":  {
+                                  "PIOOTOO_CELLA":  "FLG|@FDAX|240|VENDOR"
+                              }
+                  },
+                  {
+                      "cella":  "matrice-nq-240-flg-vendor",
+                      "test":  "CoarseGridMatrixTests",
+                      "broker":  "FTMO",
+                      "simboli":  [
+                                      "@NQ"
+                                  ],
+                      "env":  {
+                                  "PIOOTOO_CELLA":  "FLG|@NQ|240|VENDOR"
+                              }
+                  },
+                  {
+                      "cella":  "matrice-fdax-60-gar-vendor",
+                      "test":  "CoarseGridMatrixTests",
+                      "broker":  "FTMO",
+                      "simboli":  [
+                                      "@FDAX"
+                                  ],
+                      "env":  {
+                                  "PIOOTOO_CELLA":  "GAR|@FDAX|60|VENDOR"
+                              }
+                  },
+                  {
+                      "cella":  "matrice-nq-60-gar-vendor",
+                      "test":  "CoarseGridMatrixTests",
+                      "broker":  "FTMO",
+                      "simboli":  [
+                                      "@NQ"
+                                  ],
+                      "env":  {
+                                  "PIOOTOO_CELLA":  "GAR|@NQ|60|VENDOR"
+                              }
+                  },
+                  {
+                      "cella":  "matrice-fdax-60-bat-vendor",
+                      "test":  "CoarseGridMatrixTests",
+                      "broker":  "FTMO",
+                      "simboli":  [
+                                      "@FDAX"
+                                  ],
+                      "env":  {
+                                  "PIOOTOO_CELLA":  "BAT|@FDAX|60|VENDOR"
+                              }
+                  },
+                  {
+                      "cella":  "matrice-nq-60-bat-vendor",
+                      "test":  "CoarseGridMatrixTests",
+                      "broker":  "FTMO",
+                      "simboli":  [
+                                      "@NQ"
+                                  ],
+                      "env":  {
+                                  "PIOOTOO_CELLA":  "BAT|@NQ|60|VENDOR"
+                              }
+                  },
+                  {
+                      "cella":  "matrice-fdax-60-but-vendor",
+                      "test":  "CoarseGridMatrixTests",
+                      "broker":  "FTMO",
+                      "simboli":  [
+                                      "@FDAX"
+                                  ],
+                      "env":  {
+                                  "PIOOTOO_CELLA":  "BUT|@FDAX|60|VENDOR"
+                              }
+                  },
+                  {
+                      "cella":  "matrice-nq-60-but-vendor",
+                      "test":  "CoarseGridMatrixTests",
+                      "broker":  "FTMO",
+                      "simboli":  [
+                                      "@NQ"
+                                  ],
+                      "env":  {
+                                  "PIOOTOO_CELLA":  "BUT|@NQ|60|VENDOR"
+                              }
+                  },
+                  {
+                      "cella":  "matrice-fdax-60-crb-vendor",
+                      "test":  "CoarseGridMatrixTests",
+                      "broker":  "FTMO",
+                      "simboli":  [
+                                      "@FDAX"
+                                  ],
+                      "env":  {
+                                  "PIOOTOO_CELLA":  "CRB|@FDAX|60|VENDOR"
+                              }
+                  },
+                  {
+                      "cella":  "matrice-nq-60-crb-vendor",
+                      "test":  "CoarseGridMatrixTests",
+                      "broker":  "FTMO",
+                      "simboli":  [
+                                      "@NQ"
+                                  ],
+                      "env":  {
+                                  "PIOOTOO_CELLA":  "CRB|@NQ|60|VENDOR"
+                              }
+                  },
+                  {
                       "cella":  "nq-240-nrx-controllo-ran",
                       "test":  "NrxRandomControlStudy",
                       "broker":  "FTMO",
