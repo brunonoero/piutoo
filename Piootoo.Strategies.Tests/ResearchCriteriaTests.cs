@@ -24,6 +24,24 @@ public sealed class ResearchCriteriaTests
         Assert.False(ResearchCriteria.Years(lucky, Utc(2022, 1, 1), Utc(2026, 1, 1)).Passes);
     }
 
+    /// <summary>
+    /// Due finestre su quattro bastano solo se le negative perdono poco: al massimo il 25% del netto della
+    /// prova e nessuna oltre il drawdown della ricerca. Tre su quattro passano sempre.
+    /// </summary>
+    [Fact]
+    public void TwoProfitableWindowsPassOnlyWithSmallLosses()
+    {
+        // La PCH DAX 1 ora con il flat (29/09/2026): perdono 24.667, il 21% di 117.277, peggiore sotto il DD 36.087.
+        Assert.True(ResearchCriteria.Windows([64_598m, -14_057m, -10_610m, 77_345m], 36_087m).Passes);
+        // Stesso netto, ma le negative perdono il 60%.
+        Assert.False(ResearchCriteria.Windows([150_000m, -50_000m, -20_000m, 37_000m], 200_000m).Passes);
+        // Perdite piccole sul netto, ma una finestra oltre il drawdown gia' accettato nella ricerca.
+        Assert.False(ResearchCriteria.Windows([300_000m, -40_000m, -5_000m, 100_000m], 30_000m).Passes);
+        // Una finestra sola in utile non basta mai.
+        Assert.False(ResearchCriteria.Windows([200_000m, -1_000m, -1_000m, -1_000m], 100_000m).Passes);
+        Assert.True(ResearchCriteria.Windows([10m, -500m, 20m, 30m], 1m).Passes);
+    }
+
     /// <summary>Un anno con quattro trade boccia: la regola e' "almeno cinque in ogni anno che ne ha".</summary>
     [Fact]
     public void AThinYearFailsTheConsistency()

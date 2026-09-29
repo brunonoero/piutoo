@@ -202,10 +202,11 @@ public sealed class ResearchPathStudy(ITestOutputHelper output)
                 // I controlli dopo la prova (25/09/2026): la ricerca su FDAX 4h ha consegnato configurazioni
                 // ottime in campione che i soli cancelli non fermavano — una viveva di un anno, una di pochi
                 // trade decisi da un feed, una di un mercato solo.
+                var windowRule = ResearchCriteria.Windows(windows, h.MaxClosedTradeDrawdown);
                 var checks = new List<PathGate>
                 {
-                    new("prova sul broker", probe.NetProfit > 0m && ratio >= 1m && probe.AverageTrade >= holdoutThreshold && windows.Count(net => net > 0m) >= 3,
-                        $"net/DD {ratio:N2} (serve 1), average trade {probe.AverageTrade:N0} (soglia {holdoutThreshold:N0}), finestre {windows.Count(net => net > 0m)}/4 (servono 3)")
+                    new("prova sul broker", probe.NetProfit > 0m && ratio >= 1m && probe.AverageTrade >= holdoutThreshold && windowRule.Passes,
+                        $"net/DD {ratio:N2} (serve 1), average trade {probe.AverageTrade:N0} (soglia {holdoutThreshold:N0}), {windowRule.Describe()}")
                 };
                 if (internalHoldout is not null)
                     checks.Add(TwoFeeds(job, result.Parameters, internalHoldout, holdout));

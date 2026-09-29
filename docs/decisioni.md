@@ -4732,3 +4732,14 @@ che il motore fa. Difetto di artefatto, non di esecuzione, ma e' costato mezza i
   considerate e rimandate: costano una griglia intera per serie, e il PBO si ottiene senza nessun run
   in più. Si fanno dopo, e solo sulle celle che il PBO non boccia. Vedi
   `domini/ricerca-parametri.md` §"La probabilità di sovra-adattamento".
+- **2026-09-29** — **Due finestre su quattro bastano se le negative perdono poco.** La prova sul broker
+  chiedeva almeno 3 finestre in utile su 4 e contava il solo segno: due trimestri piatti e due
+  trimestri in forte perdita salvati da una finestra sola pesavano uguale. Regola nuova, decisa
+  dall'utente: 3 su 4, oppure 2 su 4 se le finestre negative, sommate, perdono al massimo il 25% del
+  netto della prova e nessuna perde piu' del drawdown della ricerca (`ResearchCriteria.Windows`,
+  `ResearchCriteriaTests`). Le altre condizioni della prova (net/DD >= 1, average trade sopra
+  soglia) restano. Riapplicata ai 242 resoconti gia' scritti cambia l'esito della prova a una sola
+  configurazione valida, la RBM dell'oro a 4 ore, che cade comunque su ultimo terzo e plateau. La
+  stessa settimana il percorso e' passato alla tenuta dei piani PT3B: niente overnight e flat alle
+  20:45 UTC, perche' con l'overnight libero una configurazione intraday pagava lo swap e teneva le
+  ore serali del solo CFD (`ResearchPathStudy`, resoconti con suffisso `-flat`).

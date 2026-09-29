@@ -92,6 +92,33 @@ public static class ResearchCriteria
         return (decimal)Math.Sqrt((double)(e * 100m / r));
     }
 
+    /// <summary>Finestre della prova in utile che bastano da sole.</summary>
+    public const int MinProfitableWindows = 3;
+
+    /// <summary>Con due sole finestre in utile, quota massima del netto della prova che le negative possono perdere.</summary>
+    public const decimal MaxLosingWindowsShare = 0.25m;
+
+    /// <summary>
+    /// Le finestre della prova (29/09/2026, decisione dell'utente). Almeno tre su quattro in utile, oppure due
+    /// se le negative, sommate, perdono al massimo il 25% del netto della prova e nessuna perde piu' del
+    /// drawdown della ricerca. Contare il solo segno trattava allo stesso modo due trimestri piatti e due
+    /// trimestri in forte perdita salvati da una finestra sola; la tolleranza vale solo per perdite piccole
+    /// rispetto a quanto la strategia guadagna e a quanto gia' si era accettato nella ricerca.
+    /// </summary>
+    public static WindowConsistency Windows(IReadOnlyList<decimal> windows, decimal researchDrawdown)
+    {
+        var profitable = windows.Count(net => net > 0m);
+        var losses = -windows.Where(net => net < 0m).Sum();
+        var worst = windows.Count == 0 ? 0m : -Math.Min(0m, windows.Min());
+        var net = windows.Sum();
+
+        var passes = profitable >= MinProfitableWindows ||
+                     (profitable == MinProfitableWindows - 1 && net > 0m &&
+                      losses <= MaxLosingWindowsShare * net && worst <= researchDrawdown);
+
+        return new WindowConsistency(profitable, windows.Count, losses, net, worst, researchDrawdown, passes);
+    }
+
     /// <summary>Soglia del test dei pattern casuali sull'estremo inferiore di Wilson (v4.0 §10.8).</summary>
     public const double MaxRandomPatternP = 0.20;
 
@@ -145,4 +172,15 @@ public sealed record YearConsistency(int YearsWithTrades, int MinTradesInYear, d
         MinTradesInYear >= ResearchCriteria.MinTradesPerYearWithTrades &&
         TradesPerYear >= ResearchCriteria.MinAverageTradesPerYear &&
         ProfitableYears * 2 >= YearsWithTrades;
+}
+
+/// <summary>L'esito della regola delle finestre, con i numeri che la giustificano.</summary>
+public sealed record WindowConsistency(
+    int Profitable, int Count, decimal Losses, decimal Net, decimal WorstLoss, decimal ResearchDrawdown, bool Passes)
+{
+    public string Describe() => Profitable >= ResearchCriteria.MinProfitableWindows
+        ? $"finestre {Profitable}/{Count}"
+        : $"finestre {Profitable}/{Count} (servono 3, o 2 con le negative che perdono al massimo il 25% del netto " +
+          $"e nessuna oltre il DD della ricerca: perdono {Losses:N0}, {(Net > 0m ? Losses / Net : 0m):P0} del netto, " +
+          $"peggiore {WorstLoss:N0} contro DD {ResearchDrawdown:N0})";
 }

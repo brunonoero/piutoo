@@ -21,7 +21,9 @@ studi stampano numeri e non asseriscono.
    Fuori campione almeno 20 per finestra. Poche trade e nessuna perdita non sono qualità: sono un
    campione troppo piccolo.
 3. **Ammissibile**: campione in utile con ≥ 250 trade. **Equilibrata**: netto/drawdown ≥ 1 dentro
-   **e** fuori, ≥ 3 finestre su 4 in utile.
+   **e** fuori, ≥ 3 finestre su 4 in utile, **oppure 2 su 4** se le negative, sommate, perdono al
+   massimo il 25% del netto fuori campione e nessuna perde più del drawdown in campione (dal
+   29/09/2026, `ResearchCriteria.Windows`).
 4. **Le soglie del metodo, dentro il campione** (fuori è la conferma, non la scoperta):
    - **average trade** ≥ max(6-7 tick, **15% del range medio della barra in dollari**);
    - **UngerFit** = √(E × 100 / R) ≥ 1, con E = average trade / soglia e R = drawdown peggiore /
