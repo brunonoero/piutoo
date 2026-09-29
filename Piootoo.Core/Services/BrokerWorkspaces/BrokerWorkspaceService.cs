@@ -241,7 +241,7 @@ public sealed class BrokerWorkspaceService
                 if (shared.Count > 0)
                     throw new InvalidOperationException(
                         $"Le strategie {string.Join(", ", shared)} sono già nel piano attivo '{other.Code}' del broker " +
-                        $"'{brokerCode}': dentro un broker una strategia sta su un conto solo. Ritirare '{other.Code}' " +
+                        $"'{brokerCode}': dentro un broker una strategia sta in un solo piano attivo. Ritirare '{other.Code}' " +
                         "o promuovere un piano senza quelle strategie.");
 
                 // Un conto invece puo' eseguire piu' piani (decisione del 28/09/2026): e' come girano

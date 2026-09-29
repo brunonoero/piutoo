@@ -146,6 +146,7 @@ public sealed class BrokerWorkspaceServiceTests : IDisposable
         var error = Assert.Throws<InvalidOperationException>(() => _service.Promote(Broker, request));
         Assert.Contains(_strategies[1].Id, error.Message);
         Assert.Contains("FTMO-EUROPA", error.Message);
+        Assert.Contains("in un solo piano attivo", error.Message);
 
         _service.Retire(Broker, "FTMO-EUROPA");
         var indiciPlan = _service.Promote(Broker, request);
