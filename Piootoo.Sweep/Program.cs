@@ -431,6 +431,31 @@ public static class Program
             lines.Add(string.Empty);
         }
 
+        // Il numero di prove accanto ai risultati: il migliore di K prove supera il valore vero di
+        // circa sqrt(2 ln K) deviazioni standard, e una soglia fissa di profit factor vale uguale dopo
+        // 10 prove o dopo 100.000. Senza questo numero un average trade in campione non si legge.
+        var trials = result.Optimization.Trials;
+        lines.Add("## Prove e rumore");
+        lines.Add(string.Empty);
+        lines.Add($"- Prove in campione: **{trials:N0}** run" +
+                  (result.Optimization.AblationRuns > 0 ? $" (di cui {result.Optimization.AblationRuns} dell'ablation)" : string.Empty) +
+                  ". Contate grezze: le fasi sono correlate, quindi la soglia qui sotto e' prudente.");
+        lines.Add($"- Il migliore di {trials:N0} prove senza edge raggiunge in media **{DeflatedSharpe.ExpectedMaxOfNormals(trials):N2} deviazioni standard**: " +
+                  "lo Sharpe per trade che il rumore regala e' questo diviso la radice dei trade.");
+        lines.Add($"- Fuori campione si sono guardate {result.Validations.Count} finaliste: il riferimento di rumore e' {DeflatedSharpe.ExpectedMaxOfNormals(result.Validations.Count):N2} deviazioni standard.");
+        lines.Add($"- Colonne della tabella: *soglia* = average trade che il rumore da solo darebbe al migliore, con la dispersione dei trade di quella finalista; " +
+                  $"*P(edge)* = probabilita' che lo Sharpe vero superi quello del rumore (Sharpe deflazionato, Bailey e Lopez de Prado). " +
+                  $"Sotto {DeflatedSharpeResult.Confidence:P0} il risultato non si distingue dal caso. **Informativo, non e' un cancello del verdetto.**");
+        lines.Add(string.Empty);
+        lines.Add("| # | IS avg trade | IS soglia rumore | IS P(edge) | OOS avg trade | OOS soglia rumore | OOS P(edge) |");
+        lines.Add("|---:|---:|---:|---:|---:|---:|---:|");
+        for (var index = 0; index < result.Validations.Count; index++)
+        {
+            var validation = result.Validations[index];
+            lines.Add($"| {index + 1} | {DescribeDeflation(validation.InSampleDeflation)} | {DescribeDeflation(validation.OutOfSampleDeflation)} |");
+        }
+
+        lines.Add(string.Empty);
         lines.Add("## Finaliste");
         lines.Add(string.Empty);
         lines.Add("| # | esito | IS trade | IS netto | IS punteggio | OOS trade | OOS netto | OOS punteggio | tenuta | finestre |");
@@ -467,6 +492,14 @@ public static class Program
             : "## Esito: la finalista evidenziata sopravvive. Resta da verificarla in sessione con il cBot.");
 
         return string.Join(Environment.NewLine, lines);
+    }
+
+    private static string DescribeDeflation(DeflatedSharpeResult? deflation)
+    {
+        if (deflation is null) return "- | - | -";
+        if (double.IsNaN(deflation.NoiseSharpe)) return $"{deflation.AverageTrade:N0} | troppo pochi trade | -";
+        var probability = deflation.Distinguishable ? $"**{deflation.Probability:P0}**" : $"{deflation.Probability:P0}";
+        return $"{deflation.AverageTrade:N0} | {deflation.NoiseAverageTrade:N0} | {probability}";
     }
 
     /// <summary>

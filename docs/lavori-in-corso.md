@@ -60,6 +60,12 @@ diversi, uno per conto. Catalogo, scelte di ogni motore e trappole:
 **Cosa fare quando escono i risultati**, in quest'ordine:
 
 1. ~~RAN sulla 002~~: fatto, vedi sopra.
+   **28/09/2026**: lette le prime 7 celle (FBO, IBS, RUN su FDAX 4h/1h, FBO su NQ 4h),
+   `ricerca/matrice/pt6exo-prime-7-celle.md`: nessuna classe. Poi FBO FDAX 1h al RAN (74°/96° percentile,
+   ma il guadagno e' l'esposizione long) e FBO NQ 1h (88°/96°, poi **−245k sul 2008-2021** del vendor,
+   26° percentile contro il RAN): falso breakout chiuso. Tutte le 18 celle sono finite il 28/09 alle
+   17:18; le 11 dopo le prime 7 (IBS/RUN/NRX/HOD su NQ, NRX/HOD su FDAX) **non sono ancora lette**. Lo stesso giorno fermati `ResearchPathStudy` e le code `coda-sweep-pt5dav` e
+   `coda-sweep-p1` per dare la macchina alla matrice PT6EXO: vanno rilanciate a matrice finita.
 2. **Le 18 celle**, con `lettura-risultati`, cella per cella, con il rapporto nella forma di
    `griglia-grossa`. Per le celle che rispondono: il controllo RAN con le stesse uscite, e la
    correlazione giornaliera con il PCH sulla stessa cella (FBO su FDAX 4h e' costruito per essere

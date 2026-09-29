@@ -1,0 +1,40 @@
+{
+  "ctid": "tuo-ctrader-id@example.com",
+  "passwordFile": "C:\\Users\\Administrator\\piootoo-conti\\ctid.pwd",
+  "broker": null,
+  "cliPath": "C:\\Users\\Administrator\\AppData\\Local\\Spotware\\cTrader\\71dd452b763c6040bbae13b68c9ca250\\ctrader-cli.exe",
+  "logDirectory": null,
+  "instances": [
+    {
+      "name": "ftmo-1",
+      "account": 1234567,
+      "bot": "PiootooDistributedExecutionBot",
+      "symbol": "EURUSD",
+      "period": "h1",
+      "parameters": {
+        "ServerBaseUrl": "http://localhost:5000",
+        "PlanCode": "CODICE-PIANO"
+      }
+    },
+    {
+      "name": "ftmo-2",
+      "account": 7654321,
+      "bot": "PiootooDistributedExecutionBot",
+      "symbol": "EURUSD",
+      "period": "h1",
+      "parameters": {
+        "ServerBaseUrl": "http://localhost:5000",
+        "PlanCode": "CODICE-PIANO"
+      }
+    },
+    {
+      "name": "ftmo-raccoglitore",
+      "account": 1234567,
+      "bot": "PiootooDatafeedSyncBot",
+      "symbol": "EURUSD",
+      "period": "h1",
+      "enabled": false,
+      "parameters": {}
+    }
+  ]
+}

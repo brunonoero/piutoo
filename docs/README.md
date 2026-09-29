@@ -15,6 +15,9 @@ non esiste più, si tiene per il perché.
   compilato, questioni da decidere. **Deperibile**: le voci chiuse si cancellano, la motivazione
   resta in `decisioni.md`. Da leggere prima di riprendere un lavoro a metà.
 
+- [`registro-piani.md`](registro-piani.md) — scheda di ogni piano di trading: strategie, size,
+  conto, ultimi backtest. **Si aggiorna a ogni piano creato o modificato.**
+
 - [`PROGETTO.md`](PROGETTO.md) — descrizione del progetto: cosa fa il sistema,
   moduli, flussi, invarianti da non rompere, trappole note. *Stabile.*
 - [`verifica-codice-2026-07-27.md`](verifica-codice-2026-07-27.md) — audit del

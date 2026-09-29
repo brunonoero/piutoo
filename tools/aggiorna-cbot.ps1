@@ -16,7 +16,7 @@
     3. compila il progetto di cTrader.
 
   Le istanze del cBot gia' avviate in cTrader continuano con la versione vecchia: vanno fermate e
-  riavviate.
+  riavviate. Quelle che girano con cTrader CLI (tools\conti-ctrader.ps1) le riavvia -RestartInstances.
 
 .PARAMETER Nome
   Il cBot da aggiornare: il nome del file in piootoo-repository\ctrader e del progetto in cTrader.
@@ -28,6 +28,13 @@
 .PARAMETER NoBuild
   Aggiorna solo il sorgente, senza compilare.
 
+.PARAMETER RestartInstances
+  Finita la compilazione, riavvia con tools\conti-ctrader.ps1 le istanze CLI di questo cBot.
+  Quelle aperte in cTrader Desktop restano da riavviare a mano.
+
+.PARAMETER ContiConfig
+  Il file di configurazione delle istanze CLI; di default quello di tools\conti-ctrader.ps1.
+
 .EXAMPLE
   powershell -NoProfile -ExecutionPolicy Bypass -File tools\aggiorna-cbot.ps1
 #>
@@ -35,6 +42,8 @@ param(
     [string]$Nome = 'PiootooDistributedExecutionBot',
     [switch]$Force,
     [switch]$NoBuild,
+    [switch]$RestartInstances,
+    [string]$ContiConfig,
     [string]$CtraderRobots = (Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'cAlgo\Sources\Robots')
 )
 
@@ -125,4 +134,12 @@ finally {
     cmd /c "rd /s /q `"$build`"" | Out-Null
 }
 
-Write-Host "In cTrader ferma e riavvia le istanze del cBot perche' carichino la nuova versione."
+if ($RestartInstances) {
+    $conti = @{ Action = 'Restart'; Bot = $nome }
+    if ($ContiConfig) { $conti.Config = $ContiConfig }
+    & (Join-Path $PSScriptRoot 'conti-ctrader.ps1') @conti
+    Write-Host "Istanze CLI riavviate. Quelle aperte in cTrader Desktop vanno riavviate a mano."
+}
+else {
+    Write-Host "In cTrader ferma e riavvia le istanze del cBot perche' carichino la nuova versione."
+}

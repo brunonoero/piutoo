@@ -4674,6 +4674,12 @@ che il motore fa. Difetto di artefatto, non di esecuzione, ma e' costato mezza i
   Nasdaq (e platino 4h, 30m di CL/ES/GC/NG/CC) partivano da luglio 2025 e sono stati ricostruiti dal
   minuto; le leve di un contenitore devono essere campi non pubblici (`ResearchContainerFieldsTests`).
   Resoconti in `ricerca/percorso/`.
+- **2026-09-27** — La sweep **conta le prove** e mette accanto a ogni finalista lo Sharpe
+  deflazionato (`DeflatedSharpe`): l'average trade che il migliore di K prove raggiunge senza edge e
+  la probabilita' che la finalista stia sopra. K grezzo (tutte le run in campione, ablation compresa),
+  quindi prudente; fuori campione K = finaliste guardate. Informativo, non un cancello. Motivo: una
+  soglia fissa di profit factor valeva uguale dopo 10 prove o dopo 100.000, e il P1 (tutto in
+  campione) ha mostrato quanto il migliore di tante prove sembri una strategia.
 - **2026-09-27** — **Il peso di una strategia sta nel piano** (`TradingPlan.StrategyWeights`, per Id di
   catalogo, assente = 1, estremi 0,1-10 rifiutati e non corretti), non nella classe: le classi portate
   dalla ricerca restano verbatim e il peso e' una scelta di portafoglio. Entra accanto a `SizeMultiplier`

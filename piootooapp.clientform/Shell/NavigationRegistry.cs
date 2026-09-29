@@ -79,6 +79,9 @@ public static class NavigationRegistry
             // diventa semplicemente vuota mentre le posizioni restano aperte sul conto. Filtra per
             // conto, perché è il conto che si va ad aprire sulla piattaforma.
             new NavigationEntry("Presidio realtime", () => new RealtimeWatchScreen()),
+            // I processi dei cBot su cTrader CLI di questa macchina, accanto a cosa il server ne
+            // riceve. Non sono un dato del server: la lista li legge da tools\conti-ctrader.ps1.
+            new NavigationEntry("Istanze cTrader", () => new CtraderInstanceListScreen()),
             // Unica voce che non apre una lista, e la ragione è che non ha un'anagrafica dietro:
             // è uno strumento diagnostico che crea una propria sessione usa e getta da un piano.
             // Sta qui e non sotto le sessioni perché non osserva quelle esistenti, ne fabbrica una.

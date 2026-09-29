@@ -68,6 +68,16 @@ ferma se la copia in cTrader è più recente del repository: riportarla nel repo
 cTrader, lo script non lo fa, e finché non lo si fa il server nuovo parla con un bot vecchio. Se il
 contratto è cambiato, il bot vecchio viene rifiutato: è voluto.
 
+Le istanze che girano con **cTrader CLI**, un processo per conto (`tools\conti-ctrader.ps1`,
+configurazione in `%USERPROFILE%\piootoo-conti\conti.json`, modello in
+`tools\conti-ctrader.esempio.json`), le riavvia lo script stesso con `-RestartInstances`. Lo stop
+manda un Ctrl+C e dice se OnStop è girato, perché nel log compare `Chiamate al server:`; se non
+lo trova, avvisa. La stessa istanza (bot, piano, conto) non va tenuta aperta anche in cTrader
+Desktop: due bot operativi sullo stesso conto eseguono ogni intent due volte.
+Le stesse istanze si vedono e si comandano dalla console: *Operatività → Istanze cTrader*, che chiama
+lo script. La console installata non lo trova da sola: serve `CtraderInstancesScript` (ed
+eventualmente `CtraderInstancesConfig`) nel suo `appsettings.json`.
+
 ## Dove non applicarla
 
 - Con una sweep o una griglia in corso: la build fallisce a metà sulle DLL bloccate, e il run in

@@ -219,6 +219,25 @@ spesso quella che ha sfruttato meglio il rumore.
 `Survivor` può essere `null`. È un esito legittimo, da riportare come tale e non da aggirare
 abbassando le soglie finché qualcosa passa.
 
+### Il conteggio delle prove
+
+Il resoconto dichiara quante run ha fatto la ricerca in campione (`SweepOptimizationResult.Trials`:
+ogni combinazione di ogni fase, per ogni seme, più l'ablation). Accanto a ogni finalista mette lo
+**Sharpe deflazionato** (Bailey e López de Prado, `DeflatedSharpe`), sezione *Prove e rumore*:
+
+- *soglia rumore*: l'average trade che il migliore di K prove raggiunge in media **senza edge**, con
+  la dispersione dei trade di quella finalista. È E[max di K normali] / √(T−1) × deviazione standard
+  del trade;
+- *P(edge)*: la probabilità che lo Sharpe per trade vero stia sopra quello del rumore, corretta per
+  asimmetria e code. Sotto 95% il risultato non si distingue dal caso.
+
+In campione K sono le prove della ricerca; fuori campione K sono le finaliste guardate, perché anche
+scegliere la prima che passa è una selezione. Il K si conta **grezzo**: le prove di fasi successive
+sono correlate, quindi il K effettivo è più basso e la soglia è prudente. Il motivo: il massimo di K
+misure rumorose sta circa √(2 ln K) deviazioni standard sopra il vero, e una soglia fissa di profit
+factor vale uguale dopo 10 prove o dopo 100.000. **È informativo, non un cancello**: il verdetto
+della validazione non cambia.
+
 ## I costi sono misure, non parametri
 
 Vale la regola generale: finché un costo non è nel modello, la ricerca ci si infila. È successo tre
@@ -275,10 +294,10 @@ della ricerca**, prima del backtest e non dopo.
 ## Riferimenti codice
 
 `Piootoo.Core/Optimization/Sweep/` — `SweepRunner`, `SweepSeries`, `SweepSpace`, `SweepOptimizer`,
-`SweepObjective`, `SweepValidation`. `Piootoo.Core/Services/SwapTable.cs` e `SpreadTable.cs` per i
+`SweepObjective`, `SweepValidation`, `DeflatedSharpe`. `Piootoo.Core/Services/SwapTable.cs` e `SpreadTable.cs` per i
 costi. `Piootoo.Sweep/Program.cs` per la riga di comando, `tools/sweep-paniere.ps1` per i lanci.
 `Piootoo.Strategies/Easy/Engines/EasyEngineBase.cs` per `SessionExitTime`, `WithSessionExit`,
 `StopAtrMultiplier` e `ClosedSessionAtrPoints`; `Piootoo.Strategies.Tests/CoarseGridStudy.cs` per la
 griglia grossa. Test: `SweepRunnerParityTests`, `SweepOptimizerTests`, `SweepValidationTests`,
-`SweepSpaceTests`, `SwapSpecTests`, `SessionExitHourTests`, `AtrStopTests`.
+`SweepSpaceTests`, `DeflatedSharpeTests`, `SwapSpecTests`, `SessionExitHourTests`, `AtrStopTests`.
 Resoconti dei run in `piootoo-repository/ricerca/`.

@@ -160,6 +160,10 @@ public partial class RealtimeWatchScreen : UserControl, IShellScreen
 
     public void Initialize(ShellContext context) => _context = context;
 
+    /// <summary>Il conto da mostrare al primo caricamento: lo usa chi apre il presidio da una riga
+    /// che nomina già il conto, come la lista delle istanze cTrader.</summary>
+    public void SelectAccount(string accountNumber) => _selectedAccount = accountNumber;
+
     public async Task LoadAsync(CancellationToken cancellationToken)
     {
         if (_context == null)

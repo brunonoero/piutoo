@@ -42,8 +42,16 @@ public sealed record SweepOptimizationResult(
     IReadOnlyList<SweepPhaseReport> Phases,
     SweepCandidate? Best,
     IReadOnlyList<string> PatternsDroppedByAblation,
-    TimeSpan Elapsed)
+    TimeSpan Elapsed,
+    int AblationRuns = 0)
 {
+    /// <summary>
+    /// Le prove fra cui e' stata scelta la vincitrice: ogni run in campione, di ogni fase e
+    /// dell'ablation. E' il K dello Sharpe deflazionato (<see cref="DeflatedSharpe"/>), contato grezzo:
+    /// le prove di fasi successive sono correlate, quindi il K effettivo e' piu' basso.
+    /// </summary>
+    public long Trials => Phases.Sum(phase => (long)phase.Evaluated) + AblationRuns;
+
     /// <summary>I parametri vincenti, pronti per diventare una classe.</summary>
     public IReadOnlyDictionary<string, object> BestParameters =>
         Best?.Parameters ?? new Dictionary<string, object>();
@@ -240,12 +248,14 @@ public sealed class SweepOptimizer(
         }
 
         var dropped = new List<string>();
+        var ablationRuns = 0;
         if (best is not null && _options.PatternAblation)
-            best = Ablate(template, best, dropped, cancellationToken);
+            best = Ablate(template, best, dropped, ref ablationRuns, cancellationToken);
 
         started.Stop();
         return new SweepOptimizationResult(
-            space.Engine, template.StrategyId, _objective.Describe(), reports, best, dropped, started.Elapsed);
+            space.Engine, template.StrategyId, _objective.Describe(), reports, best, dropped, started.Elapsed,
+            ablationRuns);
     }
 
     /// <summary>
@@ -400,6 +410,7 @@ public sealed class SweepOptimizer(
         SweepJob template,
         SweepCandidate best,
         List<string> dropped,
+        ref int runs,
         CancellationToken cancellationToken)
     {
         var runner = new SweepRunner(series);
@@ -410,6 +421,7 @@ public sealed class SweepOptimizer(
         // motivo sbagliato.
         var accurate = template with { ClockTimeframeMinutes = _options.AccurateClockMinutes };
         var baseline = runner.Run(accurate with { Parameters = best.Parameters });
+        runs++;
         var current = best with { Outcome = baseline, Score = _objective.Score(baseline) };
 
         foreach (var (key, sentinel) in space.PatternSentinels)
@@ -425,6 +437,7 @@ public sealed class SweepOptimizer(
             };
 
             var outcome = runner.Run(accurate with { Parameters = parameters });
+            runs++;
             var score = _objective.Score(outcome);
 
             // "Non peggiora" basta a far cadere il pattern: a parita' di numeri si tiene la

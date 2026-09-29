@@ -9,11 +9,9 @@ namespace piootooapp.clientform.Shell.Screens;
 /// I best plan: i backtest messi in evidenza, di tutti i workspace. Unica lista del menu che non
 /// dipende dal workspace scelto in alto — il workspace di ogni riga e' una colonna.
 ///
-/// <para><b>Una colonna per anno.</b> P&amp;L e drawdown di ogni anno stanno in riga, cosi' i piani si
-/// confrontano senza aprirli; gli anni sono quelli coperti da almeno un piano, quindi le colonne si
-/// costruiscono a ogni caricamento. Per questo la sorgente e' una <see cref="DataTable"/> e non una
-/// <see cref="SortableBindingList{T}"/>: le proprieta' di un tipo non possono crescere con gli anni,
-/// e la <see cref="DataView"/> ordina per colonna da se'.</para>
+/// <para>P&amp;L e drawdown anno per anno stanno nel dettaglio, non in lista: le colonne per anno
+/// allargavano la griglia a ogni anno coperto. La sorgente e' una <see cref="DataTable"/>, la cui
+/// <see cref="DataView"/> ordina per colonna da se'.</para>
 ///
 /// <para>La miniatura della curva e' una colonna senza dato, disegnata in <c>CellPainting</c>: non si
 /// ordina, come ogni colonna senza <c>DataPropertyName</c>.</para>
@@ -79,9 +77,6 @@ public partial class BestPlanListScreen : UserControl, IShellScreen
         }
     }
 
-    private IReadOnlyList<int> Years
-        => _plans.Values.SelectMany(plan => plan.Years).Select(year => year.Year).Distinct().Order().ToList();
-
     /// <summary>
     /// Ricostruisce tabella e colonne. L'ordinamento scelto sopravvive: e' una proprieta' della
     /// vista, e si riapplica se la colonna esiste ancora.
@@ -104,14 +99,6 @@ public partial class BestPlanListScreen : UserControl, IShellScreen
         AddColumn("MaxDrawdownPercent", "DD %", typeof(decimal), 55, "N1",
             toolTip: "Drawdown massimo dal picco. Su una curva realizzata (run cBot) e' misurato fra chiusure: vedi la colonna Curva.");
         AddColumn("Trades", "Trade", typeof(int), 50);
-        foreach (var year in Years)
-        {
-            AddColumn($"Y{year}Profit", $"{year} P&&L", typeof(decimal), 80, "N0", ProfitTag,
-                $"P&L netto del {year}, dall'equity di fine {year - 1} (o dal capitale iniziale) a quella di fine {year}.");
-            AddColumn($"Y{year}Drawdown", $"{year} DD %", typeof(decimal), 65, "N1",
-                toolTip: $"Drawdown massimo del {year} in percentuale dal picco.");
-        }
-
         AddColumn("StartUtc", "Inizio", typeof(DateTime), 80, "yyyy-MM-dd");
         AddColumn("EndUtc", "Fine", typeof(DateTime), 80, "yyyy-MM-dd");
         AddColumn("ExecutedUtc", "Eseguito (UTC)", typeof(DateTime), 110, "yyyy-MM-dd HH:mm");
@@ -186,12 +173,6 @@ public partial class BestPlanListScreen : UserControl, IShellScreen
             row["NetProfitPercent"] = plan.NetProfitPercent;
             row["MaxDrawdownPercent"] = plan.MaxDrawdownPercent;
             row["Trades"] = plan.TotalTrades;
-            foreach (var year in plan.Years)
-            {
-                row[$"Y{year.Year}Profit"] = year.NetProfit;
-                row[$"Y{year.Year}Drawdown"] = year.MaxDrawdownPercent;
-            }
-
             row["StartUtc"] = (object?)plan.StartUtc ?? DBNull.Value;
             row["EndUtc"] = (object?)plan.EndUtc ?? DBNull.Value;
             row["ExecutedUtc"] = (object?)plan.ExecutedUtc ?? DBNull.Value;

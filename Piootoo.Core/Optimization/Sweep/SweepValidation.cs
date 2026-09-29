@@ -93,6 +93,19 @@ public sealed record SweepValidation
     /// <summary>Il test dei pattern casuali fuori campione. Null se non e' stato fatto.</summary>
     public RandomPatternTest? RandomPatterns { get; init; }
 
+    /// <summary>
+    /// Lo Sharpe deflazionato in campione, con K = tutte le prove della ricerca. Informativo, non un
+    /// cancello: dice se il risultato in campione si distingue dal migliore di K prove senza edge.
+    /// Null se la validazione non conosce le prove (validazione di una configurazione singola).
+    /// </summary>
+    public DeflatedSharpeResult? InSampleDeflation { get; init; }
+
+    /// <summary>
+    /// Lo stesso fuori campione, con K = le finaliste guardate: anche scegliere la prima che passa fra
+    /// sei e' una selezione, piccola ma non nulla.
+    /// </summary>
+    public DeflatedSharpeResult? OutOfSampleDeflation { get; init; }
+
     /// <summary>Se la configurazione ha superato tutti i criteri.</summary>
     public required bool Passed { get; init; }
 
@@ -454,7 +467,13 @@ public static class SweepSearch
             inSample, outOfSample,
             validationObjective ?? new NetOverDrawdownObjective(),
             validationOptions, options.AccurateClockMinutes, space);
-        var validations = validator.Validate(template, finalists, cancellationToken);
+        var validations = validator.Validate(template, finalists, cancellationToken)
+            .Select(validation => validation with
+            {
+                InSampleDeflation = DeflatedSharpe.Evaluate(validation.InSample.ClosedTrades, optimization.Trials),
+                OutOfSampleDeflation = DeflatedSharpe.Evaluate(validation.OutOfSample.ClosedTrades, finalists.Count)
+            })
+            .ToList();
 
         started.Stop();
         return new SweepSearchResult(optimization, validations, inSample.StartUtc, inSampleEndUtc,
@@ -494,6 +513,7 @@ public sealed record SweepSearchResult(
 
         foreach (var phase in Optimization.Phases)
             lines.Add($"  fase {phase.Phase}: {phase.Combinations:N0} combinazioni, {phase.Admissible:N0} ammissibili");
+        lines.Add($"  prove in campione: {Optimization.Trials:N0}");
 
         if (Optimization.PatternsDroppedByAblation.Count > 0)
             lines.Add("  ablation: " + string.Join("; ", Optimization.PatternsDroppedByAblation));

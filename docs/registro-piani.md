@@ -157,6 +157,15 @@ meno le spente del piano.
 | `PT5DAV-P1` × `PT5DAV-ORO` | GC_BOS_002_240 |
 | `PT5DAV-ORO` × `PT5DAV-O3` | GC_PCH_001_15 |
 | `FTMO-EUROPA-O4` × `FTMO-PT3B-EUROPA`, `-INDICI`, `PT5DAV-O4`, `-O4-X05`, `-P1`, `-ORO` | le strategie di EUROPA e di O4 |
+| `FTMO-PIENO-B` × `FTMO-PT3B-INDICI`, `-EUROPA`, `FTMO-EUROPA-O4` e i piani della sola 002 | FDAX_PCH_002_240 (e FESX_RHL_001_240 con INDICI ed EUROPA) |
+| `FTMO-PIENO-B` × `PT5DAV-C2` | GC_VBO_002_240, GC_RHL_002_240, NQ_TFM_001_60, ES_MAC_002_60, BP_PCH_001_30, BP_LFD_001_60 |
+| `FTMO-PIENO-B` × `PT5DAV-O1`, `-O2`, `-O3`, `-O4`, `-O4-X05`, `-ORO`, `-P2` | ES_MAC_002_60 (O1), GC_LFH_002_60 e NQ_VBO_001_15 (O2), BP_LFD_001_60 e GC_PCH_001_15 (O3), FDAX_PCH_002_60 (O4), GC_PCH_001_15 (ORO), NQ_TFM_001_60 (P2) |
+| `FTMO-PIENO-A` × `FTMO-PT3B-INDICI`, `-EUROPA`, `FTMO-PT3B-002-RHL`, `FTMO-EUROPA-O4` | FDAX_RHL_001_240 (e FDAX_BOS, NQ_BSW, NQ_LFD_004 con EUROPA-O4) |
+| `FTMO-PIENO-A` × `PT5DAV-O1`..`O4`, `-O4-X05`, `-P1`, `-C2` | BP_MAC_003_240 (O1), FDAX_LFD_002_30 (O2), BP_LFD_004_30, NQ_BOS_001_15, YM_RBM_002_30 (O3), FDAX_BOS, NQ_BSW, NQ_LFD_004 (O4), NQ_BSW (P1), ES_VBO_001_30 e YM_LFH_002_30 (C2) |
+
+`FTMO-PIENO-A` e `FTMO-PIENO-B` sono disgiunti: stanno insieme sulla stessa prop. Fra i piani operativi B
+e' compatibile solo con USA e P1, A con USA, P2 e ORO. Elenco completo, piani storici compresi:
+`python ricerca/due-piani-pieni-2026-09-28/incompatibili.py <CODICE>`.
 
 Tutte le altre coppie fra INDICI, EUROPA, USA, O1-O4, P1, P2 e ORO sono compatibili. I duplicati
 (`-W1`, `-X15`, `-X05`) hanno le stesse strategie dell'originale: valgono le stesse incompatibilita', e
@@ -335,6 +344,66 @@ Il piano `PT3B-FDAX` (ICS) ha backtest cTrader in archivio ma non esiste piu' in
   l'arrotondamento al passo di lotto su GC e KC.
 - **Best plan** dal 28/09/2026 sul run a 0,75, con la scheda completa; il best plan sul run a size 1
   resta, con la scheda segnata "superata". Alternativa a EUROPA + O4-X05 su due conti, mai insieme a loro.
+
+### `FTMO-PIENO-A` — workspace `ftmo-pieno-a` (28/09/2026) — **scartato**
+
+> **SCARTATO** (28/09/2026, decisione dell'utente) dopo il backtest interno: dopo il taglio sei strategie su
+> undici perdono, il netto viene quasi tutto da `NQ_BSW_001_240`, peggior giorno FTMO 3.739. Non va su
+> nessun conto; resta nel workspace come storia. Il secondo conto accanto a B aspetta le PT6EXO.
+
+- L'altra meta' della divisione di `ricerca/due-piani-pieni-2026-09-28/esito.md`, creata su richiesta
+  dell'utente dopo B. **11 strategie, nessun peso**: `PT3B_FDAX_RHL_001_240`, `PT5DAV_{NQ_BSW_001_240,
+  NQ_BOS_001_15, FDAX_BOS_001_15, NQ_LFD_004_240, YM_RBM_002_30, YM_LFH_002_30, FDAX_LFD_002_30,
+  ES_VBO_001_30, BP_LFD_004_30, BP_MAC_003_240}`. Stesse regole di tenuta e costi di B.
+- **`SizeMultiplier` 0,87**: porta a 7.000 il DD peggiore fra prima e dopo il taglio (qui e' quello dopo).
+- **Backtest interno** (`ftmo-pieno-a-2022-2026`, stessi parametri di B): 2.815 trade, netto neutro
+  752.496. **Sul conto a 0,87** (× 0,087): 2022 → 08/2025 +54.173, DD 5.401, mediana 4 mesi 4.555, ≥ 10k
+  13%; **09/2025 → 09/2026 +9.989, DD 7.094**, mediana 5.362, ≥ 10k 33%, finestra peggiore −4.274. Per
+  anno 12,2k / 4,2k / 13,7k / 21,4k / 13,9k. Script `run_piano_a.py`.
+- **Dopo il taglio perdono sei strategie su undici** (`NQ_BOS_001_15` −2.519, `FDAX_BOS_001_15` −661,
+  `YM_LFH_002_30`, `ES_VBO_001_30`, le due BP); `NQ_BSW_001_240` fa da sola piu' del netto (+12.276).
+- Controllo FTMO 05/2025 → 09/2026: DD con le posizioni aperte **7.605**, **peggior giorno 3.739**
+  (29/07/2026, lo stesso di O4: `NQ_BSW_001_240` senza stop), tre giorni oltre 2.500.
+- Diagnostica: `NQ_BOS_001_15` chiede 5.760 candele di riscaldamento, `NQ_BSW` e `NQ_LFD_004` 360 su 4h;
+  `BP_MAC_003_240` senza uscite protettive. Nel run cTrader controllare `everEvaluable`.
+- **Riserva**: e' la meta' debole, piu' dipendente da una strategia sola e con il giorno peggiore piu'
+  vicino al limite di B. Backtest cTrader: da fare.
+
+### `FTMO-PIENO-B` — workspace `ftmo-pieno-b` (28/09/2026)
+
+- Il «piano B» di `ricerca/due-piani-pieni-2026-09-28/esito.md`: dal bacino di 43 (6 PT3B di INDICI, 31
+  PT5DAV «onesti», 8 di C2) le 23 candidate sui soli trade **prima del 01/09/2025**, divise in due piani
+  per correlazione giornaliera. Questa e' la meta' migliore; l'altra (piano A, 11 strategie) non e' stata
+  creata perche' dopo il taglio rende la meta' con un DD piu' alto.
+- **12 strategie, nessun peso**: `PT3B_FDAX_PCH_002_240`, `PT3B_FESX_RHL_001_240`,
+  `PT5DAV_{FDAX_PCH_002_60, GC_PCH_001_15, NQ_VBO_001_15, GC_LFH_002_60, GC_VBO_002_240, GC_RHL_002_240,
+  NQ_TFM_001_60, ES_MAC_002_60, BP_PCH_001_30, BP_LFD_001_60}`. Broker FTMO, conto 17202911, commissione
+  2, overnight e overweek ammessi, flat 20:45 UTC per 30 minuti.
+- **`SizeMultiplier` 1,2**: il coefficiente che porta a 7.000 il DD peggiore fra prima e dopo il taglio
+  (5.830 prima, 3.817 dopo, a × 1 sul conto). Il DD del periodo di composizione e' quello che comanda.
+- Attese a 1,2, sui trade chiusi: 2022 → 08/2025 mediana di 4 mesi **5.757**, ≥ 10k nel **23%** delle
+  finestre; 09/2025 → 09/2026 mediana **9.746**, ≥ 10k nel **49%**, finestra peggiore +82. Giorno
+  peggiore ~2.300 (post) — da rifare con `tools/dd-giornaliero-ftmo` sul run vero.
+- Dopo il taglio perdono `BP_PCH_001_30` (−712) e restano quasi pari `GC_RHL_002_240` e le BP: **non si
+  tolgono**, sarebbe selezione sul periodo di prova.
+- **Backtest interno** (`ftmo-pieno-b-2022-2026`, `PlanCode`, feed/spread per ora/swap FTMO, 01/06/2022 →
+  26/09/2026, 7.8.6): 3.855 trade, netto neutro 809.696. **Sul conto a 1,2** (× 0,12): +97.295, DD chiuso
+  7.001 (tutto nel 2022-2025), per anno 2022 +15,2k, 2023 +4,2k, 2024 +21,0k, 2025 +17,0k, 2026 +39,7k.
+  Riproduce la ricombinazione dei run neutri (script `ricerca/due-piani-pieni-2026-09-28/run_piano_b.py`).
+  Controllo FTMO 05/2025 → 09/2026 (`tools/dd-giornaliero-ftmo`, scala 0,12): DD con le posizioni aperte
+  **6.126**, peggior giorno FTMO **2.403** (16/10/2025), nessun giorno oltre 2.500, equity mai sotto il
+  capitale iniziale di piu' di 217.
+- Diagnostica del run: `NQ_VBO_001_15` chiede 5.760 candele e `NQ_TFM_001_60` 1.440 di riscaldamento;
+  nel run cTrader controllare `everEvaluable` in `session-summary.json`. `ES_MAC_002_60` non ha uscite
+  protettive (esce solo con il segnale opposto e il flat).
+- **Backtest cTrader** (`ftmo-pieno-b-bt-20250801-0000-v7.8.6-20260928-1100`, 01/08/2025 → 25/09/2026, size
+  1,2): 1.097 trade, **+39.275**, DD chiuso **5.598** (09 → 25/03/2026), DD con le posizioni aperte 7.360,
+  peggior giorno FTMO **2.562** (10/03/2026), un solo giorno oltre 2.500, equity al minimo 1.308 sotto il
+  capitale iniziale. Tutte le 12 strategie `everEvaluable`, diagnostica vuota. Contro l'interno sullo
+  stesso periodo (1.063 trade, +40.185, DD 4.580) il netto differisce del 2% e ogni strategia e' entro
+  pochi trade; lo scarto maggiore e' `BP_PCH_001_30` (−1.394 contro −795) e marzo 2026 (−1.407 contro
+  −211), che fa il DD piu' largo. Finestre di 4 mesi sul run cTrader: 43, mediana 9.371, **19 su 43
+  sopra 10k (44%)**, peggiore −2.276. Script `ricerca/due-piani-pieni-2026-09-28/confronto_ctrader.py`.
 
 ### `FTMO-PT3B-EUROPA` e `FTMO-PT3B-USA` — workspace `ftmo-pt3b-indici` (27/09/2026)
 
