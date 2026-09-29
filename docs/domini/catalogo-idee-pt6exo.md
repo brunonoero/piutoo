@@ -383,7 +383,7 @@ chiusure con uscita alla prima contraria; NRX NR-4/7/10 con stop validi una barr
 | CAL | anomalie di calendario | calendario di borsa | `CalendarAnomalyEngine`, `RC_CAL`; il modo "vigilia di festivo" non scatta finche' i calendari non dichiarano festivi |
 | VLM | anomalia di volume | tick volume del CFD | declassata; `VolumeSpikeEngine`, `RC_VLM`, con la leva di controllo `ActivitySource` (volume o ampiezza) |
 | REG | regime di volatilita' | percentile dell'ATR | `VolatilityRegimeEngine`, `RC_REG`; manca la griglia |
-| ERT | regime di trend temporaneo | efficiency ratio (direzionalita') | `TrendEfficiencyEngine`, `RC_ERT`; 4 celle in coda (FDAX, NQ a 240 e 60) |
+| ERT | regime di trend temporaneo | efficiency ratio (direzionalita') | `TrendEfficiencyEngine`, `RC_ERT`; 4 celle vendor lette il 29/09 (`ricerca/matrice/ert-vendor-4-celle.md`): nessuna classe, resta lo spunto FDAX 1h short ER 10 sotto soglia |
 | CDL | candela di rifiuto | forma della barra su un livello | `RejectionCandleEngine`, `RC_CDL`; manca la griglia |
 | MTF | timeframe in disaccordo | due timeframe | `TimeframeDisagreementEngine`, `RC_MTF`; **solo backtest**: sessione live, sweep e cBot non passano la serie alta, e il backtest ne passa 8 barre per il giornaliero |
 | RNM | numeri tondi | prezzo vero | `RoundNumberEngine`, `RC_RNM`; solo feed del broker |

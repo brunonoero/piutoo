@@ -91,6 +91,9 @@ famiglie che non dipendono dal prezzo del broker si cercano sul **feed del vendo
 `MOTORE|@SIM|TF|VENDOR`, campione 2008-01 → 2022-01, verifica → 2025-06, costi FTMO, 250 trade, CSV
 `*-vendor.csv`); RNM e VLM restano su FTMO, dove i tondi e il tick volume sono quelli veri. Una cella che
 passa su FTMO va comunque al periodo lungo prima di una classe.
+Le 4 celle ERT sono passate anch'esse al vendor e sono state lanciate a mano la sera del 29/09
+(`ricerca/matrice/ert-vendor-4-celle.md`): nessuna classe. Unico spunto FDAX 1h, ER 10, solo short, 12
+robuste ma average trade sotto soglia e UngerFit 0,72; se si riapre, con `sweep-cella`.
 
 **Limiti noti, da non riscoprire**:
 
