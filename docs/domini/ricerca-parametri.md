@@ -238,6 +238,35 @@ misure rumorose sta circa √(2 ln K) deviazioni standard sopra il vero, e una s
 factor vale uguale dopo 10 prove o dopo 100.000. **È informativo, non un cancello**: il verdetto
 della validazione non cambia.
 
+La griglia grossa fa lo stesso conto su ogni combinazione, con K = combinazioni della griglia sia
+dentro sia fuori campione: il resoconto elenca anche le migliori *fuori* campione fra tutte le
+ammissibili, e anche quella è una selezione.
+
+### La probabilità di sovra-adattamento (PBO)
+
+Lo Sharpe deflazionato giudica **una** configurazione contro un modello di rumore gaussiano e
+indipendente. Il PBO (Bailey, Borwein, López de Prado e Zhu, `BacktestOverfitting`) giudica la
+**selezione** e non assume modelli: prende il P&L mensile di tutte le combinazioni, taglia i mesi in
+16 blocchi contigui e, per ognuna delle 12.870 scelte di otto blocchi come campione, guarda dove
+finisce fuori la migliore dentro. PBO è la quota di tagli in cui finisce sotto la mediana: 50% vuol
+dire che la classifica in campione non dice niente del fuori. Lo split dichiarato della griglia è uno
+di quei tagli; il PBO dice se era rappresentativo o fortunato.
+
+Scelte e limiti:
+
+- il criterio è lo **Sharpe dei mesi** (zeri compresi), non il netto su drawdown della griglia:
+  serve una misura che si ricomponga per blocchi senza rifare i run. Misura la stabilità della
+  classifica, non il verdetto;
+- entrano le combinazioni con almeno `MinInSampleTrades` trade **sull'intero periodo**: si conta il
+  numero di trade, non il risultato, quindi il filtro non guarda l'esito;
+- il P&L va nel mese di chiusura, e una posizione a cavallo di due blocchi porta un po' di
+  informazione dall'uno all'altro: trascurabile finché si tiene per giorni e non per mesi;
+- sotto tre mesi per blocco i blocchi calano; sotto quattro blocchi non c'è numero.
+
+La griglia scrive la matrice in `ricerca/<CsvName>-mensile.csv`. Le serie sintetiche (bootstrap di
+sessioni sulla `SweepSeries`) sono il passo successivo, non ancora fatto: costano una griglia intera
+per serie e vanno riservate alle celle che il PBO non boccia.
+
 ## I costi sono misure, non parametri
 
 Vale la regola generale: finché un costo non è nel modello, la ricerca ci si infila. È successo tre
@@ -294,10 +323,10 @@ della ricerca**, prima del backtest e non dopo.
 ## Riferimenti codice
 
 `Piootoo.Core/Optimization/Sweep/` — `SweepRunner`, `SweepSeries`, `SweepSpace`, `SweepOptimizer`,
-`SweepObjective`, `SweepValidation`, `DeflatedSharpe`. `Piootoo.Core/Services/SwapTable.cs` e `SpreadTable.cs` per i
+`SweepObjective`, `SweepValidation`, `DeflatedSharpe`, `BacktestOverfitting`. `Piootoo.Core/Services/SwapTable.cs` e `SpreadTable.cs` per i
 costi. `Piootoo.Sweep/Program.cs` per la riga di comando, `tools/sweep-paniere.ps1` per i lanci.
 `Piootoo.Strategies/Easy/Engines/EasyEngineBase.cs` per `SessionExitTime`, `WithSessionExit`,
 `StopAtrMultiplier` e `ClosedSessionAtrPoints`; `Piootoo.Strategies.Tests/CoarseGridStudy.cs` per la
 griglia grossa. Test: `SweepRunnerParityTests`, `SweepOptimizerTests`, `SweepValidationTests`,
-`SweepSpaceTests`, `DeflatedSharpeTests`, `SwapSpecTests`, `SessionExitHourTests`, `AtrStopTests`.
+`SweepSpaceTests`, `DeflatedSharpeTests`, `BacktestOverfittingTests`, `SwapSpecTests`, `SessionExitHourTests`, `AtrStopTests`.
 Resoconti dei run in `piootoo-repository/ricerca/`.

@@ -37,6 +37,15 @@ studi stampano numeri e non asseriscono.
    rally che rallenta.
 7. **Sconto walk-forward**: l'average trade in campione × 0,2-0,5 deve restare sopra soglia. La 002
    non passa questo filtro da sola: è una componente di paniere, non una strategia da conto.
+8. **Il rumore della selezione** (griglia grossa dal 29/09/2026, sezione *rumore della griglia*;
+   sweep, sezione *Prove e rumore*). Informativo, non un cancello, ma si dice sempre:
+   - **PBO** (quota di tagli della storia in cui la migliore in campione finisce fuori sotto la
+     mediana): ≤ 20% la classifica della griglia porta informazione; 20-40% debole; **≥ 50% la
+     classifica è rumore**, e le celle «migliori» della griglia vanno lette come fortunate finché il
+     `controllo-ran` non dice il contrario. Soglie provvisorie, da tarare sulle prime matrici.
+   - **P(edge)** dello Sharpe deflazionato, K = combinazioni della griglia: una finalista sotto 95%
+     in campione non si distingue dal migliore di tante prove senza edge. La colonna `noiseAvgIS`
+     dice l'average trade che il rumore da solo le avrebbe regalato: va letta accanto ad `avgIS`.
 
 ## Soglie di average trade misurate (15% del range medio della barra, 1 contratto)
 

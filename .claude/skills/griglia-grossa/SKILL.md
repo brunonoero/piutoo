@@ -73,6 +73,12 @@ equilibrate (netto/DD ≥ 1 dentro e fuori, ≥ 3 finestre su 4), e poi le sogli
 il campione**: average trade ≥ 15% del range medio della barra in dollari, UngerFit ≥ 1. Le medie per
 leva dicono quale leva conta (finora: uscita alle 21 sì, short no, canale 1 no).
 
+Prima delle migliori il resoconto stampa il **rumore della griglia**: quante combinazioni si
+distinguono dal migliore di K prove senza edge (Sharpe deflazionato, colonne `noiseAvgIS`, `pEdgeIS`,
+`pEdgeOOS` del CSV) e il **PBO** per validazione incrociata combinatoria sui mesi. La matrice dei mesi
+da cui esce sta in `ricerca/<CsvName senza estensione>-mensile.csv`: serve a rifare il conto con un
+altro criterio senza rilanciare la griglia. Come leggerli: punto 8 di `/lettura-risultati`.
+
 ## Rapporto
 
 Un file `ricerca/<simbolo>-<tf>-<motore>-griglia-grossa[-lunga].md`, con questa forma:

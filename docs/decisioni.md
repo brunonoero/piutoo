@@ -4722,3 +4722,13 @@ che il motore fa. Difetto di artefatto, non di esecuzione, ma e' costato mezza i
   perdono tutte (`PlanRegimeCheck`, `MarketRegimeClassifier`). Il controllo non entra nella
   costruzione dei piani. Sui tre piani del demo e sui sei piani del 27/09 non segnala nulla. Studio in
   `ricerca/regimi-2026-09-29/`.
+- **2026-09-29** — **La griglia grossa misura il rumore della propria selezione.** Una griglia prova
+  centinaia o migliaia di combinazioni e il resoconto elenca le migliori: il massimo di tante prove
+  sta sopra il vero anche senza edge, e lo split dichiarato è un taglio della storia fra tanti. Due
+  misure, entrambe **informative e non cancelli**: lo Sharpe deflazionato di ogni combinazione con
+  K = combinazioni della griglia (lo stesso della sweep, che la griglia non usava) e il PBO per
+  validazione incrociata combinatoria sul P&L mensile (`BacktestOverfitting`, 16 blocchi, 12.870
+  tagli). Le serie sintetiche per misurare la distribuzione del massimo sotto la nulla sono state
+  considerate e rimandate: costano una griglia intera per serie, e il PBO si ottiene senza nessun run
+  in più. Si fanno dopo, e solo sulle celle che il PBO non boccia. Vedi
+  `domini/ricerca-parametri.md` §"La probabilità di sovra-adattamento".

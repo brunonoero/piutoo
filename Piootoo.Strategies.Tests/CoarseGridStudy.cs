@@ -108,10 +108,11 @@ public static class CoarseGridStudy
 
     /// <summary>
     /// I criteri di una cella, calcolati sull'ammissibile: costanza negli anni su tutto il periodo,
-    /// quota del trade migliore dentro e fuori, average trade e UngerFit nel campione.
+    /// quota del trade migliore dentro e fuori, average trade e UngerFit nel campione, e lo Sharpe
+    /// deflazionato dentro e fuori contro il numero di combinazioni della griglia.
     /// </summary>
     private sealed record Judged(Cell Cell, YearConsistency Years, decimal? BestShareIn, decimal? BestShareOut,
-        decimal AverageTrade, decimal? UngerFit)
+        decimal AverageTrade, decimal? UngerFit, DeflatedSharpeResult DeflationIn, DeflatedSharpeResult DeflationOut)
     {
         public bool OutlierPasses =>
             BestShareIn is { } inside && inside <= ResearchCriteria.MaxBestTradeShare &&
@@ -267,14 +268,15 @@ public static class CoarseGridStudy
         var instrument = InstrumentRegistry.Get(spec.Symbol);
         var threshold = ResearchCriteria.AverageTradeThreshold(
             inSample.Bars(spec.TimeframeMinutes), instrument.PointValue, instrument.TickSize);
-        var judged = list.ToDictionary(c => c, c => Judge(c, spec, series.StartUtc, series.EndUtc, threshold));
+        var judged = list.ToDictionary(c => c, c => Judge(c, spec, series.StartUtc, series.EndUtc, threshold, list.Count));
+        var overfitting = Overfitting(spec, list, series.StartUtc, series.EndUtc);
 
         WriteCsv(spec, list, judged);
-        Report(spec, list, judged, threshold, output);
+        Report(spec, list, judged, threshold, overfitting, output);
         return list;
     }
 
-    private static Judged Judge(Cell c, CoarseGridSpec spec, DateTime fromUtc, DateTime toUtc, decimal threshold)
+    private static Judged Judge(Cell c, CoarseGridSpec spec, DateTime fromUtc, DateTime toUtc, decimal threshold, long trials)
     {
         var all = c.InSample.ClosedTrades.Concat(c.OutOfSample.ClosedTrades).ToList();
         var average = c.InSample.Trades > 0 ? c.InSample.NetProfit / c.InSample.Trades : 0m;
@@ -284,12 +286,37 @@ public static class CoarseGridStudy
             ResearchCriteria.BestTradeShare(c.InSample.ClosedTrades),
             ResearchCriteria.BestTradeShare(c.OutOfSample.ClosedTrades),
             average,
-            ResearchCriteria.UngerFit(average, threshold, c.InSample.MaxClosedTradeDrawdown));
+            ResearchCriteria.UngerFit(average, threshold, c.InSample.MaxClosedTradeDrawdown),
+            // K e' la griglia intera anche fuori campione: il resoconto sceglie le migliori fuori
+            // campione fra tutte le ammissibili, e anche quella e' una selezione.
+            DeflatedSharpe.Evaluate(c.InSample.ClosedTrades, trials),
+            DeflatedSharpe.Evaluate(c.OutOfSample.ClosedTrades, trials));
+    }
+
+    /// <summary>
+    /// Il PBO della griglia sulle combinazioni con almeno <see cref="CoarseGridSpec.MinInSampleTrades"/>
+    /// trade su tutto il periodo — si conta il numero, non il risultato, quindi non e' una scelta fatta
+    /// guardando l'esito — e la matrice dei mesi da cui esce, scritta accanto al CSV.
+    /// </summary>
+    private static (OverfittingResult? Result, int Excluded) Overfitting(
+        CoarseGridSpec spec, List<Cell> cells, DateTime fromUtc, DateTime toUtc)
+    {
+        var active = Ordered(cells)
+            .Where(c => c.InSample.Trades + c.OutOfSample.Trades >= spec.MinInSampleTrades)
+            .ToList();
+        var profits = active
+            .Select(c => BacktestOverfitting.MonthlyProfit(c.InSample.ClosedTrades.Concat(c.OutOfSample.ClosedTrades), fromUtc, toUtc))
+            .ToList();
+
+        WriteMonthlyCsv(spec, active, profits, fromUtc);
+        return (BacktestOverfitting.Evaluate(profits), cells.Count - active.Count);
     }
 
     private static void Report(CoarseGridSpec spec, List<Cell> cells, Dictionary<Cell, Judged> judged, decimal threshold,
-        ITestOutputHelper output)
+        (OverfittingResult? Result, int Excluded) overfitting, ITestOutputHelper output)
     {
+        ReportNoise(spec, cells, judged, overfitting, output);
+
         var admissible = cells
             .Where(c => c.InSample.Trades >= spec.MinInSampleTrades && c.InSample.NetProfit > 0m)
             .ToList();
@@ -333,8 +360,14 @@ public static class CoarseGridStudy
             .Where(c => judged[c].AverageTrade >= threshold && judged[c].UngerFit is >= 1m)
             .ToList();
         output.WriteLine($"sopra soglia (robuste + average trade ≥ soglia + UngerFit ≥ 1): {passing.Count}");
+        output.WriteLine(
+            $"  di cui distinguibili dal rumore di {cells.Count} prove (P(edge) ≥ {DeflatedSharpeResult.Confidence:P0}): " +
+            $"{passing.Count(c => judged[c].DeflationIn.Distinguishable)} in campione, " +
+            $"{passing.Count(c => judged[c].DeflationIn.Distinguishable && judged[c].DeflationOut.Distinguishable)} anche fuori — informativo, non e' un cancello");
         foreach (var c in regular.OrderByDescending(c => judged[c].UngerFit ?? 0m).Take(10))
-            output.WriteLine($"{Row(c)}  avg {judged[c].AverageTrade,8:N0}  UF {judged[c].UngerFit ?? 0m,5:N2}");
+            output.WriteLine(
+                $"{Row(c)}  avg {judged[c].AverageTrade,8:N0}  UF {judged[c].UngerFit ?? 0m,5:N2}  " +
+                $"rumore {judged[c].DeflationIn.NoiseAverageTrade,7:N0}  P(edge) {judged[c].DeflationIn.Probability,4:P0}/{judged[c].DeflationOut.Probability,4:P0}");
 
         if (spec.HoldDays is { Length: > 1 })
         {
@@ -360,6 +393,39 @@ public static class CoarseGridStudy
         foreach (var g in admissible.GroupBy(c => c.StopLoss).OrderBy(g => g.Key))
             output.WriteLine($"  Stop={g.Key,5}: {g.Count(),3} celle, IS medio {g.Average(c => c.InSample.NetProfit),10:N0}, OOS medio {g.Average(c => c.OutOfSample.NetProfit),10:N0}");
     }
+
+    /// <summary>
+    /// Il rumore della griglia prima delle migliori: quanto il massimo di tante prove regala senza
+    /// edge, e quanto la classifica in campione regge fuori sui tagli della storia (PBO).
+    /// </summary>
+    private static void ReportNoise(CoarseGridSpec spec, List<Cell> cells, Dictionary<Cell, Judged> judged,
+        (OverfittingResult? Result, int Excluded) overfitting, ITestOutputHelper output)
+    {
+        output.WriteLine($"\nrumore della griglia ({cells.Count} prove):");
+        output.WriteLine(
+            $"  il migliore di {cells.Count} prove senza edge sta in media {DeflatedSharpe.ExpectedMaxOfNormals(cells.Count):N2} " +
+            $"deviazioni standard sopra lo zero; distinguibili dal rumore in campione " +
+            $"(P(edge) ≥ {DeflatedSharpeResult.Confidence:P0}): {cells.Count(c => judged[c].DeflationIn.Distinguishable)}, " +
+            $"anche fuori: {cells.Count(c => judged[c].DeflationIn.Distinguishable && judged[c].DeflationOut.Distinguishable)}");
+
+        if (overfitting.Result is not { } pbo)
+        {
+            output.WriteLine($"  PBO: non calcolabile (servono almeno due combinazioni con ≥ {spec.MinInSampleTrades} trade e " +
+                             $"{4 * BacktestOverfitting.MinPeriodsPerBlock} mesi)");
+            return;
+        }
+
+        output.WriteLine(
+            $"  PBO {pbo.Probability:P0} su {pbo.Configurations} combinazioni con ≥ {spec.MinInSampleTrades} trade " +
+            $"({overfitting.Excluded} escluse), {pbo.Periods} mesi in {pbo.Blocks} blocchi, {pbo.Splits:N0} tagli: " +
+            $"la migliore in campione sta fuori al percentile mediano {pbo.MedianOutOfSamplePercentile:P0}, " +
+            $"in perdita nel {pbo.LossProbability:P0} dei tagli");
+        output.WriteLine("  (50% = la classifica in campione non dice niente del fuori; criterio: Sharpe mensile, non netto/DD)");
+    }
+
+    private static IEnumerable<Cell> Ordered(IEnumerable<Cell> cells) =>
+        cells.OrderBy(c => c.ChannelBars).ThenBy(c => c.StopLoss).ThenBy(c => c.TakeProfit).ThenBy(c => c.ExitHour)
+            .ThenBy(c => c.Direction).ThenBy(c => c.HoldDays);
 
     private static decimal Ratio(SweepOutcome o) =>
         o.MaxClosedTradeDrawdown > 0m ? o.NetProfit / o.MaxClosedTradeDrawdown : (o.NetProfit > 0m ? 999m : -999m);
@@ -394,8 +460,9 @@ public static class CoarseGridStudy
             sb.AppendLine($"# {spec.FirstLeverLabel} e' un intero da dividere per {spec.FirstLeverDivisor}: il valore passato alla classe e' {spec.FirstLeverLabel}/{spec.FirstLeverDivisor}.");
         sb.AppendLine($"# Feed {spec.FeedBroker}, spread peggiore fra {string.Join("/", spec.SpreadBrokers)}, swap peggiore fra {string.Join("/", spec.SwapBrokers)}, commissione {spec.CommissionPerSide}/lato, orologio al minuto. Campione {spec.StartUtc:yyyy-MM-dd} -> {spec.SplitUtc:yyyy-MM-dd}, fuori campione -> {spec.EndUtc:yyyy-MM-dd}.");
         sb.AppendLine("# holdDays: 0 = intraday, N = fino a N sessioni. yearsOk: costanza negli anni su tutto il periodo. bestShare*: trade migliore / netto. avgIS e ungerFit: nel campione, contro la soglia della cella.");
-        sb.AppendLine($"{spec.FirstLeverLabel};stopLoss;takeProfit;exitHour;direction;holdDays;isTrades;isNet;isDD;isPF;oosTrades;oosNet;oosDD;oosPF;oosWindowsInProfit;yearsOk;minTradesYear;tradesPerYear;profitableYears;yearsWithTrades;bestShareIS;bestShareOOS;avgIS;ungerFit");
-        foreach (var c in cells.OrderBy(c => c.ChannelBars).ThenBy(c => c.StopLoss).ThenBy(c => c.TakeProfit).ThenBy(c => c.ExitHour).ThenBy(c => c.Direction).ThenBy(c => c.HoldDays))
+        sb.AppendLine($"# noiseAvgIS: average trade che il migliore di {cells.Count} prove raggiunge senza edge, con la dispersione dei trade della combinazione. pEdgeIS/pEdgeOOS: Sharpe deflazionato, K = {cells.Count} (informativo).");
+        sb.AppendLine($"{spec.FirstLeverLabel};stopLoss;takeProfit;exitHour;direction;holdDays;isTrades;isNet;isDD;isPF;oosTrades;oosNet;oosDD;oosPF;oosWindowsInProfit;yearsOk;minTradesYear;tradesPerYear;profitableYears;yearsWithTrades;bestShareIS;bestShareOOS;avgIS;ungerFit;noiseAvgIS;pEdgeIS;pEdgeOOS");
+        foreach (var c in Ordered(cells))
         {
             var j = judged[c];
             sb.Append(string.Join(';',
@@ -404,11 +471,42 @@ public static class CoarseGridStudy
                 c.OutOfSample.Trades, F(c.OutOfSample.NetProfit), F(c.OutOfSample.MaxClosedTradeDrawdown), F(c.OutOfSample.ProfitFactor),
                 c.OosWindowsInProfit,
                 j.Years.Passes ? 1 : 0, j.Years.MinTradesInYear, F(j.Years.TradesPerYear), j.Years.ProfitableYears, j.Years.YearsWithTrades,
-                F(j.BestShareIn), F(j.BestShareOut), F(j.AverageTrade), F(j.UngerFit)));
+                F(j.BestShareIn), F(j.BestShareOut), F(j.AverageTrade), F(j.UngerFit),
+                F(j.DeflationIn.NoiseAverageTrade), P(j.DeflationIn.Probability), P(j.DeflationOut.Probability)));
             sb.AppendLine();
         }
         File.WriteAllText(path, sb.ToString(), Encoding.UTF8);
     }
+
+    /// <summary>
+    /// La matrice da cui esce il PBO: una riga per combinazione (le sole che vi entrano), una colonna
+    /// per mese, il netto dei trade chiusi nel mese. Serve a rifare il conto con un criterio o un
+    /// taglio diversi senza rilanciare la griglia.
+    /// </summary>
+    private static void WriteMonthlyCsv(CoarseGridSpec spec, List<Cell> cells, List<double[]> profits, DateTime fromUtc)
+    {
+        var path = Path.Combine(RepositoryPath, "ricerca", Path.ChangeExtension(spec.CsvName, null) + "-mensile.csv");
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        var months = profits.Count > 0 ? profits[0].Length : 0;
+        var sb = new StringBuilder();
+        sb.AppendLine($"# Netto mensile (per mese di chiusura, UTC, campione e fuori campione insieme) delle {cells.Count} combinazioni con ≥ {spec.MinInSampleTrades} trade della griglia {spec.CsvName}.");
+        sb.Append($"{spec.FirstLeverLabel};stopLoss;takeProfit;exitHour;direction;holdDays");
+        for (var month = 0; month < months; month++)
+            sb.Append(';').Append(BacktestOverfitting.MonthStart(fromUtc, month).ToString("yyyy-MM", CultureInfo.InvariantCulture));
+        sb.AppendLine();
+        for (var index = 0; index < cells.Count; index++)
+        {
+            var c = cells[index];
+            sb.Append(string.Join(';', c.ChannelBars, c.StopLoss, c.TakeProfit, c.ExitHour, c.Direction, c.HoldDays));
+            foreach (var value in profits[index])
+                sb.Append(';').Append(value.ToString("0.##", CultureInfo.InvariantCulture));
+            sb.AppendLine();
+        }
+        File.WriteAllText(path, sb.ToString(), Encoding.UTF8);
+    }
+
+    private static string P(double probability) =>
+        double.IsNaN(probability) ? string.Empty : probability.ToString("0.###", CultureInfo.InvariantCulture);
 
     private static string F(decimal? v) => v.HasValue ? v.Value.ToString("0.##", CultureInfo.InvariantCulture) : string.Empty;
 }
