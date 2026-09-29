@@ -85,6 +85,9 @@ Produzione*). Regole in [`domini/broker-workspace.md`](domini/broker-workspace.m
   realizzata), 748 trade, 10 strategie; 2025 +1.886, 2026 +13.793. Anche il run del 29/09 09:56
   (server 7.8.9) e' best plan, e da' gli stessi numeri: le versioni 7.8.8 e 7.8.9 non cambiano
   l'esecuzione.
+- **`FTMO-PT3B-INDICI` resta di ricerca** (decisione del 29/09/2026): le sue 6 strategie sono quelle
+  di `FTMO-EUROPA` piu' quelle di `FTMO-USA`, e la promozione viene rifiutata finche' quei due sono
+  attivi. Si tengono EUROPA e USA separati.
 
 ## Perdita giornaliera alla FTMO sui run cBot (28/09/2026)
 
