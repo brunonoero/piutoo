@@ -34,6 +34,29 @@ public sealed class ResearchPathStudy(ITestOutputHelper output)
 
     private static readonly DateTime End = Utc(2026, 9, 1);
 
+    /// <summary>
+    /// <c>PIOOTOO_PERCORSO_OVERNIGHT=1</c> riporta la tenuta di prima del 29/09/2026: overnight e overweek liberi.
+    /// </summary>
+    private static bool OvernightAllowed => Environment.GetEnvironmentVariable("PIOOTOO_PERCORSO_OVERNIGHT") == "1";
+
+    /// <summary>
+    /// La tenuta della ricerca (29/09/2026): quella dei piani PT3B, niente overnight e flat alle 20:45 UTC per
+    /// 30 minuti, che copre il rollover FTMO delle 20:59. Con l'overnight libero una configurazione "intraday"
+    /// chiudeva a fine sessione della ricerca, dopo il rollover: pagava lo swap ogni notte e teneva le ore
+    /// serali in cui il future e' chiuso e quota il solo CFD. La 002 del DAX ha misurato quanto costa
+    /// (netto da 14.653 a 56.782 chiudendo alle 21), e lo swap in punti fissi pesa ancora di piu' sugli anni
+    /// lontani del feed interno (<c>ricerca/pt5dav/nq-bsw-stop-target.md</c>).
+    /// </summary>
+    private static AccountHoldingPolicy Holding => OvernightAllowed
+        ? AccountHoldingPolicy.Default with { AllowOvernight = true, AllowOverweek = true }
+        : AccountHoldingPolicy.Default with
+        {
+            AllowOvernight = false,
+            AllowOverweek = false,
+            SessionFlatUtc = new TimeOnly(20, 45),
+            SessionFlatWindowMinutes = 30
+        };
+
     /// <summary>Storia lunga del feed interno, fino all'inizio del minuto FTMO.</summary>
     private static readonly Dictionary<string, Periods> LongHistory = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -84,7 +107,7 @@ public sealed class ResearchPathStudy(ITestOutputHelper output)
             ClockTimeframeMinutes = 1,
             SpreadPoints = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase) { [key] = spreadValue },
             Swap = new Dictionary<string, SwapSpec>(StringComparer.OrdinalIgnoreCase) { [key] = swapSpec },
-            Holding = AccountHoldingPolicy.Default with { AllowOvernight = true, AllowOverweek = true }
+            Holding = Holding
         };
 
         var periods = !brokerOnly && LongHistory.TryGetValue(symbol, out var longHistory)
@@ -122,6 +145,9 @@ public sealed class ResearchPathStudy(ITestOutputHelper output)
                           $"({history.Bars(timeframe).Length:N0} barre); scelta sui primi 2/3, conferma sull'ultimo terzo");
         report.AppendLine($"- prova sul broker: feed {Broker} {periods.HoldoutFrom:yyyy-MM-dd} → {periods.HoldoutTo:yyyy-MM-dd} ({holdout.Bars(timeframe).Length:N0} barre), mai vista dal percorso");
         report.AppendLine($"- costi {Broker}: spread {spreadValue} punti (mediana), swap long {swapSpec.LongPointsPerNight} short {swapSpec.ShortPointsPerNight} pt/notte; orologio al minuto");
+        report.AppendLine(OvernightAllowed
+            ? "- tenuta: overnight e overweek liberi (PIOOTOO_PERCORSO_OVERNIGHT=1)"
+            : $"- tenuta: niente overnight, flat alle {Holding.SessionFlatUtc:HH\\:mm} UTC per {Holding.SessionFlatWindowMinutes} minuti (copre il rollover {Broker}), come i piani PT3B");
         report.AppendLine($"- soglia di average trade (15% del range medio della barra): {threshold:N0} nella ricerca, {holdoutThreshold:N0} nella prova");
         report.AppendLine();
         Write(report.ToString());
@@ -207,7 +233,8 @@ public sealed class ResearchPathStudy(ITestOutputHelper output)
             Write(section.ToString());
             report.AppendLine($"## {definition.Engine}").AppendLine().Append(section).AppendLine();
             summary.Add(verdict);
-            SaveReport(symbol, timeframe, report, summary, brokerOnly ? "-ricerca-ftmo" : string.Empty);
+            SaveReport(symbol, timeframe, report, summary,
+                (brokerOnly ? "-ricerca-ftmo" : string.Empty) + (OvernightAllowed ? string.Empty : "-flat"));
         }
     }
 
