@@ -78,6 +78,10 @@ Produzione*). Regole in [`domini/broker-workspace.md`](domini/broker-workspace.m
   Per farli girare davvero si mette sull'istanza cTrader il **codice di produzione** al posto di
   quello di ricerca, a mercato chiuso: la sessione nuova nasce in `broker-workspaces\FTMO\sessions\`.
   Fino ad allora le istanze restano sui codici di ricerca.
+- **`FTMO-EUROPA-O4-B` resta di ricerca** (decisione del 29/09/2026): contiene le strategie di
+  `FTMO-EUROPA` e di `FTMO-O4-X05`, quindi non puo' entrare in produzione accanto a loro. Si tengono i
+  due piani separati sullo stesso conto; EUROPA-O4-B serve da termine di paragone (run cBot completi
+  del 28/09 19:37 e del 29/09 09:56, entrambi promuovibili a best plan: piano salvato prima dei run).
 
 ## Perdita giornaliera alla FTMO sui run cBot (28/09/2026)
 
