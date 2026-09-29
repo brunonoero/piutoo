@@ -321,6 +321,15 @@
                               }
                   },
                   {
+                      "cella":  "nq-240-nrx-controllo-ran",
+                      "test":  "NrxRandomControlStudy",
+                      "broker":  "FTMO",
+                      "simboli":  [
+                                      "@NQ"
+                                  ],
+                      "da":  "2022-05-16"
+                  },
+                  {
                       "cella":  "xmk-nq-gc-griglie",
                       "test":  "NqGcCrossMarketStudy",
                       "broker":  "FTMO",

@@ -69,18 +69,22 @@ diversi, uno per conto. Catalogo, scelte di ogni motore e trappole:
 4. Le finaliste diventano classi `PT6EXO_*` (`promuovi-finalista`), un backtest neutro del catalogo le
    mette insieme alle PT3B e PT5DAV, e `piootoo-plan-builder` compone i piani (`piani-scorrelati`).
 
+**29/09/2026 — trend temporaneo.** Lo studio di persistenza
+(`ricerca/persistenza-2026-09-29/esito.md`) chiude la rotazione sulle strategie "in forma": nessuna
+persistenza sfruttabile. Scritto il motore **ERT** (`TrendEfficiencyEngine`, `RC_ERT`, efficiency ratio),
+e accodate davanti a `xmk-nq-gc-griglie` le celle `matrice-{fdax,nq}-{240,60}-ert`. Quando escono:
+`lettura-risultati`, poi RAN e correlazione giornaliera con TF/PCH della stessa cella.
+Lette lo stesso giorno le altre 10 celle PT6EXO (`ricerca/matrice/pt6exo-altre-10-celle.md`): passa la
+griglia solo **NRX NQ 4h** (10 sopra soglia, tutte solo long, NR-7). In coda dopo le ERT il suo controllo
+RAN (`NrxRandomControlStudy`, cella `nq-240-nrx-controllo-ran`); se sta sopra il 90° percentile dentro e
+fuori, il periodo lungo del vendor come `NqFboLongPeriodStudy`.
+
 **Limiti noti, da non riscoprire**:
 
 - **MTF** gira solo in backtest, e il backtest le da' 8 barre giornaliere: con `TrendBars` 50 sul
   giornaliero non scatta mai. Sessione live, sweep e cBot non passano la serie alta.
 - **XMK** gira solo nella sweep; altrove si ferma con un errore.
 - **CAL** fissa `ValidFromUtc` piu' avanti della barra dopo (per non entrare nel fine settimana): da
-**29/09/2026 — trend temporaneo.** Lo studio di persistenza
-(`ricerca/persistenza-2026-09-29/esito.md`) chiude la rotazione sulle strategie "in forma": nessuna
-persistenza sfruttabile. Scritto il motore **ERT** (`TrendEfficiencyEngine`, `RC_ERT`, efficiency ratio),
-e accodate davanti a `xmk-nq-gc-griglie` le celle `matrice-{fdax,nq}-{240,60}-ert`. Quando escono:
-`lettura-risultati`, poi RAN e correlazione giornaliera con TF/PCH della stessa cella.
-
   verificare che il cBot lo accetti prima di metterla in un piano. Il modo 2 (vigilia di festivo) non
   scatta finche' i calendari non dichiarano festivi.
 - **LUN** chiude una barra prima del confine di fase, per poter rientrare nel mezzo ciclo dopo.
