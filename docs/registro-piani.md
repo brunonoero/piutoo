@@ -80,8 +80,10 @@ Produzione*). Regole in [`domini/broker-workspace.md`](domini/broker-workspace.m
   Fino ad allora le istanze restano sui codici di ricerca.
 - **`FTMO-EUROPA-O4-B` resta di ricerca** (decisione del 29/09/2026): contiene le strategie di
   `FTMO-EUROPA` e di `FTMO-O4-X05`, quindi non puo' entrare in produzione accanto a loro. Si tengono i
-  due piani separati sullo stesso conto; EUROPA-O4-B serve da termine di paragone (run cBot completi
-  del 28/09 19:37 e del 29/09 09:56, entrambi promuovibili a best plan: piano salvato prima dei run).
+  due piani separati sullo stesso conto; EUROPA-O4-B serve da termine di paragone. **Best plan** dal
+  run cBot 7.8.8 del 28/09 19:37 (08/2025 → 09/2026): +15.679 (15,7%), DD max 4.008 (3,5%, curva
+  realizzata), 748 trade, 10 strategie; 2025 +1.886, 2026 +13.793. Il run del 29/09 09:56 e' ancora
+  promuovibile quando finisce (piano salvato prima dei run).
 
 ## Perdita giornaliera alla FTMO sui run cBot (28/09/2026)
 
