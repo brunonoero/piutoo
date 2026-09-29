@@ -148,3 +148,6 @@ Desktop.ini
 !/piootoo-repository/compare/**/backtest-summary*.json
 !/piootoo-repository/compare/**/origin.json
 !/piootoo-repository/compare/**/run-*.json
+
+# Configurazione delle istanze cTrader CLI: cTrader ID e numeri di conto, mai in git (tools\conti-ctrader.ps1)
+piootoo-repository/conti/

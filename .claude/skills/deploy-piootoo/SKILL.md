@@ -69,7 +69,7 @@ cTrader, lo script non lo fa, e finché non lo si fa il server nuovo parla con u
 contratto è cambiato, il bot vecchio viene rifiutato: è voluto.
 
 Le istanze che girano con **cTrader CLI**, un processo per conto (`tools\conti-ctrader.ps1`,
-configurazione in `%USERPROFILE%\piootoo-conti\conti.json`, modello in
+configurazione in `piootoo-repository\conti\conti.json`, esclusa da git, modello in
 `tools\conti-ctrader.esempio.json`), le riavvia lo script stesso con `-RestartInstances`. Lo stop
 manda un Ctrl+C e dice se OnStop è girato, perché nel log compare `Chiamate al server:`; se non
 lo trova, avvisa. La stessa istanza (bot, piano, conto) non va tenuta aperta anche in cTrader

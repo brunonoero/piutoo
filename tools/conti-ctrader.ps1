@@ -4,9 +4,10 @@
 
 .DESCRIPTION
   cTrader Desktop tiene un conto per finestra; per piu' conti dello stesso broker sulla stessa
-  macchina si usa ctrader-cli, un processo per istanza, senza interfaccia. Le istanze stanno in un
-  file di configurazione FUORI dal repository (contiene cTrader ID e numeri di conto), accanto al file
-  con la password del cTrader ID. Il modello e' tools\conti-ctrader.esempio.json.
+  macchina si usa ctrader-cli, un processo per istanza, senza interfaccia. Le istanze stanno in
+  piootoo-repository\conti\conti.json, cartella esclusa da git (.gitignore): contiene cTrader ID e
+  numeri di conto e non va mai committata. La password del cTrader ID resta fuori dal checkout, nel
+  profilo utente (passwordFile). Il modello e' tools\conti-ctrader.esempio.json.
 
   Ogni istanza gira in un cmd nascosto che scrive l'output del cBot in <logDirectory>\<nome>.log;
   il PID sta in <logDirectory>\<nome>.pid.
@@ -30,7 +31,7 @@
   riavvia solo le istanze del bot appena ricompilato.
 
 .PARAMETER Config
-  Il file di configurazione. Default: %USERPROFILE%\piootoo-conti\conti.json.
+  Il file di configurazione. Default: piootoo-repository\conti\conti.json nel checkout di questo script.
 
 .PARAMETER Json
   Con Status: scrive su stdout un array JSON con TUTTE le istanze, spente comprese. E' il formato che
@@ -46,7 +47,7 @@ param(
     [string]$Action = 'Status',
     [string[]]$Instance,
     [string]$Bot,
-    [string]$Config = (Join-Path $env:USERPROFILE 'piootoo-conti\conti.json'),
+    [string]$Config = (Join-Path $PSScriptRoot '..\piootoo-repository\conti\conti.json'),
     [int]$StopTimeoutSeconds = 30,
     [switch]$Json
 )
