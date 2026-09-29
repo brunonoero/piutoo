@@ -37,8 +37,8 @@ sizing di portafoglio spento.
 | `PT5DAV-O4` | +24.329 | 8.382 | n/d | 1 | NON su conto vero a size 1: usare X05 |
 | `PT5DAV-P1` | +81.699 | 3.965 | n/d | 1 | in campione: non per un conto vero |
 
-- **Combinazioni su una prop**: EUROPA + USA + O4-X05 (tre conti), oppure INDICI + O4-X05 (due conti).
-  Mai INDICI con EUROPA o USA, mai O4/O4-X05 con P1 o ORO (vedi la tabella sotto).
+- **Combinazioni su una prop**: vedi la sezione seguente, verificata anche sui trade il 29/09/2026.
+  La combinazione EUROPA + USA + O4-X05 consigliata prima ha trade simultanei fra EUROPA e O4-X05.
 - **Prima un conto demo** per 1-2 mesi per piano, stessi parametri; si passa al conto vero solo se il
   demo resta dentro i numeri del backtest.
 - **Setup cTrader**: un'istanza del cBot operativo per conto, con server del piano, workspace e codice del
@@ -49,6 +49,67 @@ sizing di portafoglio spento.
   rimisura prima di ripartire, non si ritocca.
 - **Non cambiare parametri o pesi durante l'uso**: una modifica e' un piano nuovo, da duplicare e
   rimisurare.
+
+## Combinazioni di best plan sulla stessa prop, verificate sui trade (29/09/2026)
+
+Due controlli per ogni coppia di best plan: **strategie in comune** (masterfilter del workspace meno le
+spente del piano) e **trade quasi identici** sui run cBot dei best plan (stesso simbolo, stesso lato,
+ingresso entro 5 minuti). Il secondo controllo serve perche' strategie diverse possono aprire gli stessi
+trade: un controllo di copy trading guarda i trade, non i nomi. Coppia **compatibile** = nessuna
+strategia in comune e meno del 5% di trade simili.
+
+**Trovato il 29/09: EUROPA e O4-X05 non hanno strategie in comune ma aprono trade simultanei.** Tre
+breakout del DAX scattano sulle stesse rotture: `PT3B_FDAX_PCH_002_240` (EUROPA) con
+`PT5DAV_FDAX_BOS_001_15` e `PT5DAV_FDAX_PCH_002_60` (O4). Sui 326 trade di EUROPA dal 12/08/2025:
+
+| tolleranza sull'ingresso | trade EUROPA con un gemello in O4-X05 | di cui con BOS_001_15 | di cui con PCH_002_60 |
+|---|---:|---:|---:|
+| 30 secondi | 26 (8%) | 17 | 9 |
+| 1 minuto | 34 (10%) | 23 | 11 |
+| 5 minuti | 65 (20%) | 53 | 12 |
+
+Lo stesso vale per INDICI e per EUROPA-O4 con O4 (16-20% entro 5 minuti). **Su conti diversi della stessa
+prop questi piani non vanno insieme.** Sullo stesso conto non e' copy trading ma e' concentrazione: la
+stessa rottura del DAX presa due o tre volte, ed e' gia' dentro `FTMO-EUROPA-O4`.
+
+**Coppie** (tutte le altre fra best plan diversi sono incompatibili per strategie in comune):
+
+| coppia | strategie in comune | trade simili entro 5 min | esito |
+|---|---|---:|---|
+| EUROPA × USA | - | 0% | ok |
+| EUROPA × P1 | - | 0% | ok |
+| INDICI × P1 | - | 0% | ok |
+| USA × O4 / O4-X05 | - | 0% | ok |
+| USA × P1 | - | 0% | ok |
+| USA × EUROPA-O4 (e -B) | - | 0% | ok |
+| EUROPA × O4-X05 | - | **18%** | **no** (breakout DAX) |
+| INDICI × O4-X05 | - | **20%** | **no** (breakout DAX) |
+| O4 / O4-X05 / EUROPA-O4 × P1 | NQ_BSW_001_240 | 13-15% | no |
+
+**Combinazioni massimali di best plan compatibili su una prop:**
+
+| conti | combinazione | note |
+|---:|---|---|
+| **3** | **EUROPA + USA + P1** | l'unica a tre conti; **P1 e' in campione** (composto sullo stesso periodo del run): da demo prima |
+| 2 | INDICI + P1 | INDICI = EUROPA + USA su un conto; stessa riserva su P1 |
+| 2 | EUROPA-O4 + USA | EUROPA-O4 = EUROPA + O4 a meta' su un conto; niente P1 |
+| 2 | O4-X05 + USA | senza EUROPA |
+
+Senza P1 (per chi non vuole un piano in campione su un conto vero) i conti su una prop sono **due**:
+EUROPA-O4 + USA, oppure O4-X05 + USA, oppure EUROPA + USA. Per il terzo conto con EUROPA e O4-X05
+separati servirebbe una variante di O4-X05 **senza le due strategie di breakout del DAX**
+(`FDAX_BOS_001_15`, `FDAX_PCH_002_60`: +2.048 dei +12.118 del run), da rimisurare con il cBot prima di
+usarla. Su prop diverse ogni best plan si puo' ripetere: le regole di copy trading della seconda prop
+vanno lette prima (alcune guardano anche i trade identici fra firm diverse).
+
+`FTMO-EUROPA-O4-B` e' la copia di `FTMO-EUROPA-O4` (stesse strategie, pesi, size e tenuta): conta come lo
+stesso piano. I piani in produzione `FTMO-EUROPA`, `FTMO-USA`, `FTMO-O4-X05` sono sullo **stesso** conto
+demo: li' la sovrapposizione EUROPA/O4-X05 e' concentrazione, non copy trading; su conti separati della
+stessa prop EUROPA e O4-X05 non vanno.
+
+Per rifare il controllo quando cambia un best plan: lo script legge l'elenco da `api/BestPlans`, le
+strategie da masterfilter e piano, i trade dal run del best plan
+(`ricerca/combinazioni-best-plan.ps1`).
 
 ## Piani in produzione: il broker workspace FTMO (28/09/2026)
 
