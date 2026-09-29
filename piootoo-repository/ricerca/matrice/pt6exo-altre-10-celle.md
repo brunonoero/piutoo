@@ -84,6 +84,37 @@ intraday e un giorno; fra le equilibrate c'e' anche NR-10 (+85,6k dentro, +84,3k
   2. se sta sopra il 90° percentile in campione **e** fuori, la configurazione fissa sul **periodo lungo**
      del vendor (NQ dal 2008), come `NqFboLongPeriodStudy`.
   Solo se regge a entrambe: classe `PT6EXO_NQ_NRX_001_240` e correlazione giornaliera con le NQ dei piani.
-- **NRX NQ 1h** e **HOD NQ 1h**: nessun passo ora. NRX NQ 1h si riapre solo se la 4h regge al periodo
+- **NRX NQ 1h** e **HOD NQ 1h**: nessun passo ora.
+
+## Controllo RAN su NRX NQ 4h (29/09/2026)
+
+`NrxRandomControlStudy`, log `nq-240-nrx-controllo-ran.log`, CSV `nq-240-nrx-controllo-ran.csv`. Stessa
+configurazione (NR-7, stop 0,8 ATR, nessun target, un giorno, solo long), stessi costi e split della
+matrice, riprodotta esattamente (267 trade, +126.110). RAN **solo long** con le stesse uscite, 100 semi da
+1001, p tarata sul numero di trade (265 e 181 in media contro 267 e 182). Lanciato a mano in parallelo
+a due `ResearchPathStudy`: tempi piu' lunghi, stessi numeri.
+
+| | NRX | RAN p5 | mediana | p95 | percentile NRX |
+|---|---:|---:|---:|---:|---:|
+| campione: netto | 126.110 | −43.772 | 17.541 | 85.308 | **97%** |
+| campione: average trade | 472 | −159 | 62 | 332 | 96% |
+| campione: netto / DD | 4,00 | −0,63 | 0,31 | 3,21 | 95% |
+| validazione: netto | 121.104 | −68.837 | 34.981 | 134.824 | **92%** |
+| validazione: average trade | 665 | −363 | 192 | 745 | 91% |
+| validazione: netto / DD | 4,34 | −0,71 | 0,68 | 3,19 | 97% |
+
+**Lettura.** Come per FBO NQ 1h, e al contrario di FBO FDAX 1h, le uscite da sole valgono poco: comprare a
+caso con stop 0,8 ATR e un giorno di tenuta fa +17,5k in mediana dentro e +35k fuori, con code da −44k/−69k
+a +85k/+135k. Il guadagno quindi **non e' l'esposizione long**: la barra stretta sceglie ingressi migliori
+del caso, al 97° percentile dentro e al 92° fuori, su tutte le metriche. Passa la soglia che ci eravamo
+dati (sopra il 90° dentro e fuori).
+
+**Cosa non dice.** Il 97% in campione e' gonfiato dalla scelta: la configurazione e' la migliore per
+UngerFit fra 243. Il numero onesto e' il 92% fuori campione, cioe' un seme su dodici fa meglio. FBO NQ 1h
+stava all'88°/96° e sul 2008-2021 ha perso −245k: il RAN su tre anni e mezzo non basta.
+
+**Decisione**: passa al **periodo lungo** sul feed del vendor (NQ dal 2008), che lo fa la sessione "Nuove
+strategie e motori" generalizzando `NqFboLongPeriodStudy`. Solo se regge li': classe
+`PT6EXO_NQ_NRX_001_240`. NRX NQ 1h si riapre solo se la 4h regge al periodo
   lungo (stessa idea su un altro timeframe); HOD NQ alle 16 ha un average trade che non paga i costi veri.
 - IBS e RUN sono chiusi anche su NQ; NRX e HOD chiusi su FDAX.
