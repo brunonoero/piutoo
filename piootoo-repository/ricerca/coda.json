@@ -330,6 +330,502 @@
                       "da":  "2022-05-16"
                   },
                   {
+                      "cella":  "matrice-fdax-240-reg-vendor",
+                      "test":  "CoarseGridMatrixTests",
+                      "broker":  "FTMO",
+                      "simboli":  [
+                                      "@FDAX"
+                                  ],
+                      "env":  {
+                                  "PIOOTOO_CELLA":  "REG|@FDAX|240|VENDOR"
+                              }
+                  },
+                  {
+                      "cella":  "matrice-fdax-240-gap-vendor",
+                      "test":  "CoarseGridMatrixTests",
+                      "broker":  "FTMO",
+                      "simboli":  [
+                                      "@FDAX"
+                                  ],
+                      "env":  {
+                                  "PIOOTOO_CELLA":  "GAP|@FDAX|240|VENDOR"
+                              }
+                  },
+                  {
+                      "cella":  "matrice-fdax-240-gapgo-vendor",
+                      "test":  "CoarseGridMatrixTests",
+                      "broker":  "FTMO",
+                      "simboli":  [
+                                      "@FDAX"
+                                  ],
+                      "env":  {
+                                  "PIOOTOO_CELLA":  "GAPGO|@FDAX|240|VENDOR"
+                              }
+                  },
+                  {
+                      "cella":  "matrice-fdax-240-cdl-vendor",
+                      "test":  "CoarseGridMatrixTests",
+                      "broker":  "FTMO",
+                      "simboli":  [
+                                      "@FDAX"
+                                  ],
+                      "env":  {
+                                  "PIOOTOO_CELLA":  "CDL|@FDAX|240|VENDOR"
+                              }
+                  },
+                  {
+                      "cella":  "matrice-fdax-240-rnm",
+                      "test":  "CoarseGridMatrixTests",
+                      "broker":  "FTMO",
+                      "simboli":  [
+                                      "@FDAX"
+                                  ],
+                      "da":  "2022-01-01",
+                      "env":  {
+                                  "PIOOTOO_CELLA":  "RNM|@FDAX|240|FTMO"
+                              }
+                  },
+                  {
+                      "cella":  "matrice-fdax-240-fib-vendor",
+                      "test":  "CoarseGridMatrixTests",
+                      "broker":  "FTMO",
+                      "simboli":  [
+                                      "@FDAX"
+                                  ],
+                      "env":  {
+                                  "PIOOTOO_CELLA":  "FIB|@FDAX|240|VENDOR"
+                              }
+                  },
+                  {
+                      "cella":  "matrice-fdax-240-mod-vendor",
+                      "test":  "CoarseGridMatrixTests",
+                      "broker":  "FTMO",
+                      "simboli":  [
+                                      "@FDAX"
+                                  ],
+                      "env":  {
+                                  "PIOOTOO_CELLA":  "MOD|@FDAX|240|VENDOR"
+                              }
+                  },
+                  {
+                      "cella":  "matrice-fdax-240-vlm",
+                      "test":  "CoarseGridMatrixTests",
+                      "broker":  "FTMO",
+                      "simboli":  [
+                                      "@FDAX"
+                                  ],
+                      "da":  "2022-01-01",
+                      "env":  {
+                                  "PIOOTOO_CELLA":  "VLM|@FDAX|240|FTMO"
+                              }
+                  },
+                  {
+                      "cella":  "matrice-fdax-240-vlma",
+                      "test":  "CoarseGridMatrixTests",
+                      "broker":  "FTMO",
+                      "simboli":  [
+                                      "@FDAX"
+                                  ],
+                      "da":  "2022-01-01",
+                      "env":  {
+                                  "PIOOTOO_CELLA":  "VLMA|@FDAX|240|FTMO"
+                              }
+                  },
+                  {
+                      "cella":  "matrice-fdax-240-cal-vendor",
+                      "test":  "CoarseGridMatrixTests",
+                      "broker":  "FTMO",
+                      "simboli":  [
+                                      "@FDAX"
+                                  ],
+                      "env":  {
+                                  "PIOOTOO_CELLA":  "CAL|@FDAX|240|VENDOR"
+                              }
+                  },
+                  {
+                      "cella":  "matrice-fdax-240-lun-vendor",
+                      "test":  "CoarseGridMatrixTests",
+                      "broker":  "FTMO",
+                      "simboli":  [
+                                      "@FDAX"
+                                  ],
+                      "env":  {
+                                  "PIOOTOO_CELLA":  "LUN|@FDAX|240|VENDOR"
+                              }
+                  },
+                  {
+                      "cella":  "matrice-nq-240-reg-vendor",
+                      "test":  "CoarseGridMatrixTests",
+                      "broker":  "FTMO",
+                      "simboli":  [
+                                      "@NQ"
+                                  ],
+                      "env":  {
+                                  "PIOOTOO_CELLA":  "REG|@NQ|240|VENDOR"
+                              }
+                  },
+                  {
+                      "cella":  "matrice-nq-240-gap-vendor",
+                      "test":  "CoarseGridMatrixTests",
+                      "broker":  "FTMO",
+                      "simboli":  [
+                                      "@NQ"
+                                  ],
+                      "env":  {
+                                  "PIOOTOO_CELLA":  "GAP|@NQ|240|VENDOR"
+                              }
+                  },
+                  {
+                      "cella":  "matrice-nq-240-gapgo-vendor",
+                      "test":  "CoarseGridMatrixTests",
+                      "broker":  "FTMO",
+                      "simboli":  [
+                                      "@NQ"
+                                  ],
+                      "env":  {
+                                  "PIOOTOO_CELLA":  "GAPGO|@NQ|240|VENDOR"
+                              }
+                  },
+                  {
+                      "cella":  "matrice-nq-240-cdl-vendor",
+                      "test":  "CoarseGridMatrixTests",
+                      "broker":  "FTMO",
+                      "simboli":  [
+                                      "@NQ"
+                                  ],
+                      "env":  {
+                                  "PIOOTOO_CELLA":  "CDL|@NQ|240|VENDOR"
+                              }
+                  },
+                  {
+                      "cella":  "matrice-nq-240-rnm",
+                      "test":  "CoarseGridMatrixTests",
+                      "broker":  "FTMO",
+                      "simboli":  [
+                                      "@NQ"
+                                  ],
+                      "da":  "2022-05-16",
+                      "env":  {
+                                  "PIOOTOO_CELLA":  "RNM|@NQ|240|FTMO"
+                              }
+                  },
+                  {
+                      "cella":  "matrice-nq-240-fib-vendor",
+                      "test":  "CoarseGridMatrixTests",
+                      "broker":  "FTMO",
+                      "simboli":  [
+                                      "@NQ"
+                                  ],
+                      "env":  {
+                                  "PIOOTOO_CELLA":  "FIB|@NQ|240|VENDOR"
+                              }
+                  },
+                  {
+                      "cella":  "matrice-nq-240-mod-vendor",
+                      "test":  "CoarseGridMatrixTests",
+                      "broker":  "FTMO",
+                      "simboli":  [
+                                      "@NQ"
+                                  ],
+                      "env":  {
+                                  "PIOOTOO_CELLA":  "MOD|@NQ|240|VENDOR"
+                              }
+                  },
+                  {
+                      "cella":  "matrice-nq-240-vlm",
+                      "test":  "CoarseGridMatrixTests",
+                      "broker":  "FTMO",
+                      "simboli":  [
+                                      "@NQ"
+                                  ],
+                      "da":  "2022-05-16",
+                      "env":  {
+                                  "PIOOTOO_CELLA":  "VLM|@NQ|240|FTMO"
+                              }
+                  },
+                  {
+                      "cella":  "matrice-nq-240-vlma",
+                      "test":  "CoarseGridMatrixTests",
+                      "broker":  "FTMO",
+                      "simboli":  [
+                                      "@NQ"
+                                  ],
+                      "da":  "2022-05-16",
+                      "env":  {
+                                  "PIOOTOO_CELLA":  "VLMA|@NQ|240|FTMO"
+                              }
+                  },
+                  {
+                      "cella":  "matrice-nq-240-cal-vendor",
+                      "test":  "CoarseGridMatrixTests",
+                      "broker":  "FTMO",
+                      "simboli":  [
+                                      "@NQ"
+                                  ],
+                      "env":  {
+                                  "PIOOTOO_CELLA":  "CAL|@NQ|240|VENDOR"
+                              }
+                  },
+                  {
+                      "cella":  "matrice-nq-240-lun-vendor",
+                      "test":  "CoarseGridMatrixTests",
+                      "broker":  "FTMO",
+                      "simboli":  [
+                                      "@NQ"
+                                  ],
+                      "env":  {
+                                  "PIOOTOO_CELLA":  "LUN|@NQ|240|VENDOR"
+                              }
+                  },
+                  {
+                      "cella":  "matrice-fdax-60-reg-vendor",
+                      "test":  "CoarseGridMatrixTests",
+                      "broker":  "FTMO",
+                      "simboli":  [
+                                      "@FDAX"
+                                  ],
+                      "env":  {
+                                  "PIOOTOO_CELLA":  "REG|@FDAX|60|VENDOR"
+                              }
+                  },
+                  {
+                      "cella":  "matrice-fdax-60-gap-vendor",
+                      "test":  "CoarseGridMatrixTests",
+                      "broker":  "FTMO",
+                      "simboli":  [
+                                      "@FDAX"
+                                  ],
+                      "env":  {
+                                  "PIOOTOO_CELLA":  "GAP|@FDAX|60|VENDOR"
+                              }
+                  },
+                  {
+                      "cella":  "matrice-fdax-60-gapgo-vendor",
+                      "test":  "CoarseGridMatrixTests",
+                      "broker":  "FTMO",
+                      "simboli":  [
+                                      "@FDAX"
+                                  ],
+                      "env":  {
+                                  "PIOOTOO_CELLA":  "GAPGO|@FDAX|60|VENDOR"
+                              }
+                  },
+                  {
+                      "cella":  "matrice-fdax-60-cdl-vendor",
+                      "test":  "CoarseGridMatrixTests",
+                      "broker":  "FTMO",
+                      "simboli":  [
+                                      "@FDAX"
+                                  ],
+                      "env":  {
+                                  "PIOOTOO_CELLA":  "CDL|@FDAX|60|VENDOR"
+                              }
+                  },
+                  {
+                      "cella":  "matrice-fdax-60-rnm",
+                      "test":  "CoarseGridMatrixTests",
+                      "broker":  "FTMO",
+                      "simboli":  [
+                                      "@FDAX"
+                                  ],
+                      "da":  "2022-01-01",
+                      "env":  {
+                                  "PIOOTOO_CELLA":  "RNM|@FDAX|60|FTMO"
+                              }
+                  },
+                  {
+                      "cella":  "matrice-fdax-60-fib-vendor",
+                      "test":  "CoarseGridMatrixTests",
+                      "broker":  "FTMO",
+                      "simboli":  [
+                                      "@FDAX"
+                                  ],
+                      "env":  {
+                                  "PIOOTOO_CELLA":  "FIB|@FDAX|60|VENDOR"
+                              }
+                  },
+                  {
+                      "cella":  "matrice-fdax-60-mod-vendor",
+                      "test":  "CoarseGridMatrixTests",
+                      "broker":  "FTMO",
+                      "simboli":  [
+                                      "@FDAX"
+                                  ],
+                      "env":  {
+                                  "PIOOTOO_CELLA":  "MOD|@FDAX|60|VENDOR"
+                              }
+                  },
+                  {
+                      "cella":  "matrice-fdax-60-vlm",
+                      "test":  "CoarseGridMatrixTests",
+                      "broker":  "FTMO",
+                      "simboli":  [
+                                      "@FDAX"
+                                  ],
+                      "da":  "2022-01-01",
+                      "env":  {
+                                  "PIOOTOO_CELLA":  "VLM|@FDAX|60|FTMO"
+                              }
+                  },
+                  {
+                      "cella":  "matrice-fdax-60-vlma",
+                      "test":  "CoarseGridMatrixTests",
+                      "broker":  "FTMO",
+                      "simboli":  [
+                                      "@FDAX"
+                                  ],
+                      "da":  "2022-01-01",
+                      "env":  {
+                                  "PIOOTOO_CELLA":  "VLMA|@FDAX|60|FTMO"
+                              }
+                  },
+                  {
+                      "cella":  "matrice-fdax-60-cal-vendor",
+                      "test":  "CoarseGridMatrixTests",
+                      "broker":  "FTMO",
+                      "simboli":  [
+                                      "@FDAX"
+                                  ],
+                      "env":  {
+                                  "PIOOTOO_CELLA":  "CAL|@FDAX|60|VENDOR"
+                              }
+                  },
+                  {
+                      "cella":  "matrice-fdax-60-lun-vendor",
+                      "test":  "CoarseGridMatrixTests",
+                      "broker":  "FTMO",
+                      "simboli":  [
+                                      "@FDAX"
+                                  ],
+                      "env":  {
+                                  "PIOOTOO_CELLA":  "LUN|@FDAX|60|VENDOR"
+                              }
+                  },
+                  {
+                      "cella":  "matrice-nq-60-reg-vendor",
+                      "test":  "CoarseGridMatrixTests",
+                      "broker":  "FTMO",
+                      "simboli":  [
+                                      "@NQ"
+                                  ],
+                      "env":  {
+                                  "PIOOTOO_CELLA":  "REG|@NQ|60|VENDOR"
+                              }
+                  },
+                  {
+                      "cella":  "matrice-nq-60-gap-vendor",
+                      "test":  "CoarseGridMatrixTests",
+                      "broker":  "FTMO",
+                      "simboli":  [
+                                      "@NQ"
+                                  ],
+                      "env":  {
+                                  "PIOOTOO_CELLA":  "GAP|@NQ|60|VENDOR"
+                              }
+                  },
+                  {
+                      "cella":  "matrice-nq-60-gapgo-vendor",
+                      "test":  "CoarseGridMatrixTests",
+                      "broker":  "FTMO",
+                      "simboli":  [
+                                      "@NQ"
+                                  ],
+                      "env":  {
+                                  "PIOOTOO_CELLA":  "GAPGO|@NQ|60|VENDOR"
+                              }
+                  },
+                  {
+                      "cella":  "matrice-nq-60-cdl-vendor",
+                      "test":  "CoarseGridMatrixTests",
+                      "broker":  "FTMO",
+                      "simboli":  [
+                                      "@NQ"
+                                  ],
+                      "env":  {
+                                  "PIOOTOO_CELLA":  "CDL|@NQ|60|VENDOR"
+                              }
+                  },
+                  {
+                      "cella":  "matrice-nq-60-rnm",
+                      "test":  "CoarseGridMatrixTests",
+                      "broker":  "FTMO",
+                      "simboli":  [
+                                      "@NQ"
+                                  ],
+                      "da":  "2022-05-16",
+                      "env":  {
+                                  "PIOOTOO_CELLA":  "RNM|@NQ|60|FTMO"
+                              }
+                  },
+                  {
+                      "cella":  "matrice-nq-60-fib-vendor",
+                      "test":  "CoarseGridMatrixTests",
+                      "broker":  "FTMO",
+                      "simboli":  [
+                                      "@NQ"
+                                  ],
+                      "env":  {
+                                  "PIOOTOO_CELLA":  "FIB|@NQ|60|VENDOR"
+                              }
+                  },
+                  {
+                      "cella":  "matrice-nq-60-mod-vendor",
+                      "test":  "CoarseGridMatrixTests",
+                      "broker":  "FTMO",
+                      "simboli":  [
+                                      "@NQ"
+                                  ],
+                      "env":  {
+                                  "PIOOTOO_CELLA":  "MOD|@NQ|60|VENDOR"
+                              }
+                  },
+                  {
+                      "cella":  "matrice-nq-60-vlm",
+                      "test":  "CoarseGridMatrixTests",
+                      "broker":  "FTMO",
+                      "simboli":  [
+                                      "@NQ"
+                                  ],
+                      "da":  "2022-05-16",
+                      "env":  {
+                                  "PIOOTOO_CELLA":  "VLM|@NQ|60|FTMO"
+                              }
+                  },
+                  {
+                      "cella":  "matrice-nq-60-vlma",
+                      "test":  "CoarseGridMatrixTests",
+                      "broker":  "FTMO",
+                      "simboli":  [
+                                      "@NQ"
+                                  ],
+                      "da":  "2022-05-16",
+                      "env":  {
+                                  "PIOOTOO_CELLA":  "VLMA|@NQ|60|FTMO"
+                              }
+                  },
+                  {
+                      "cella":  "matrice-nq-60-cal-vendor",
+                      "test":  "CoarseGridMatrixTests",
+                      "broker":  "FTMO",
+                      "simboli":  [
+                                      "@NQ"
+                                  ],
+                      "env":  {
+                                  "PIOOTOO_CELLA":  "CAL|@NQ|60|VENDOR"
+                              }
+                  },
+                  {
+                      "cella":  "matrice-nq-60-lun-vendor",
+                      "test":  "CoarseGridMatrixTests",
+                      "broker":  "FTMO",
+                      "simboli":  [
+                                      "@NQ"
+                                  ],
+                      "env":  {
+                                  "PIOOTOO_CELLA":  "LUN|@NQ|60|VENDOR"
+                              }
+                  },
+                  {
                       "cella":  "xmk-nq-gc-griglie",
                       "test":  "NqGcCrossMarketStudy",
                       "broker":  "FTMO",

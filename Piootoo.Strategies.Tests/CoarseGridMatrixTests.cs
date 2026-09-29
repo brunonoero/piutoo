@@ -78,7 +78,42 @@ public sealed class CoarseGridMatrixTests(ITestOutputHelper output)
         // Regime di trend temporaneo (29/09/2026): la leva e' quanto e' "temporaneo", cioe' la finestra; il
         // punteggio ER × √N tiene la soglia sulla stessa scala per ogni finestra. Uscita di regime accesa.
         ["ERT"] = new("RC_ERT", "Regime di trend (efficiency ratio, uscita a trend spento)", "ErBars", "erBars", [10, 20, 40, 80],
-            Fixed: new() { ["EntryScore"] = 2m, ["ExitScore"] = 0.5m, ["FreshOnly"] = 1 })
+            Fixed: new() { ["EntryScore"] = 2m, ["ExitScore"] = 0.5m, ["FreshOnly"] = 1 }),
+
+        // Il resto del catalogo PT6EXO (29/09/2026), sulle stesse quattro celle. Fuori: DXH (la leva e' una
+        // tabella di regole, e il catalogo la vuole solo dove HOD ha risposto), MTF (solo backtest) e XMK
+        // (studio proprio). CAL e LUN fanno pochi trade per costruzione: sul campione di tre anni non
+        // arrivano all'ammissibilita' e vanno lette sul CSV grezzo.
+        // Percentili 20/80. Il regime piu' lungo e' di 500 barre: a 4 ore sono quasi tre mesi, e con i 30
+        // giorni di riscaldamento della griglia l'inizio del campione resta muto.
+        ["REG"] = new("RC_REG", "Regime di volatilita' (breakout calmo, fade agitato)", "RegimeBars", "regimeBars", [100, 250, 500]),
+        // Turn-of-month, entrata l'N-esimo ultimo giorno e quattro sessioni di tenuta. Multiday: niente ora di
+        // uscita (il motore la rifiuta) e niente tenuta della matrice, che la taglierebbe.
+        ["CAL"] = new("RC_CAL", "Turn-of-month (4 sessioni)", "DaysBeforeMonthEnd", "daysBeforeMonthEnd", [1, 2, 3],
+            Fixed: new() { ["Mode"] = 0, ["HoldSessions"] = 4 }, Directions: [1, 2], ExitHours: [-1], HoldDays: [0]),
+        // Gap all'ancoraggio: fade con target al riempimento, e go a favore.
+        ["GAP"] = new("RC_GAP", "Gap di sessione, fade al riempimento", "GapAtr", "gapAtrTenths", [1, 3, 5, 10], Divisor: 10m,
+            Fixed: new() { ["Mode"] = 0, ["TargetAtGapFill"] = 1 }),
+        ["GAPGO"] = new("RC_GAP", "Gap di sessione, a favore", "GapAtr", "gapAtrTenths", [1, 3, 5, 10], Divisor: 10m,
+            Fixed: new() { ["Mode"] = 1, ["TargetAtGapFill"] = 0 }),
+        // Pin bar sugli estremi di ieri, stop comune.
+        ["CDL"] = new("RC_CDL", "Pin bar sugli estremi di ieri", "WickRatio", "wickRatioTenths", [15, 20, 30], Divisor: 10m,
+            Fixed: new() { ["LevelKind"] = 0, ["CandleKind"] = 0, ["ToleranceTicks"] = 0, ["StopAtExtreme"] = 0 }),
+        // Magnete dei numeri tondi, target sul livello. Ha senso solo sul prezzo vero: il feed FTMO lo e'.
+        ["RNM"] = new("RC_RNM", "Numeri tondi, magnete con target sul livello", "RoundStep", "roundStep", [50, 100, 250, 500],
+            Fixed: new() { ["Mode"] = 0, ["DistanceTicks"] = 20, ["TargetAtLevel"] = 1 }),
+        // Contro il movimento partito dall'ultimo pivot di 3 barre, dopo N barre.
+        ["FIB"] = new("RC_FIB", "Conte di Fibonacci dal pivot (contro)", "CountBars", "countBars", [8, 13, 21, 34],
+            Fixed: new() { ["PivotBars"] = 3, ["Mode"] = 0 }),
+        // La leva e' il verso del ciclo: 0 long dalla nuova alla piena, 1 il contrario.
+        ["LUN"] = new("RC_LUN", "Fasi lunari", "Mode", "mode", [0, 1]),
+        ["MOD"] = new("RC_MOD", "Modulo del tempo (nel verso della barra)", "ModuloBars", "moduloBars", [5, 7, 11, 13],
+            Fixed: new() { ["Remainder"] = 0, ["Mode"] = 0 }),
+        // Il volume e il suo controllo: la cella sul tick volume vale solo se batte la stessa sull'ampiezza.
+        ["VLM"] = new("RC_VLM", "Anomalia di tick volume (segue la barra)", "SpikeRatio", "spikeRatioTenths", [20, 30, 40], Divisor: 10m,
+            Fixed: new() { ["LookbackBars"] = 20, ["Mode"] = 0, ["ActivitySource"] = 0 }),
+        ["VLMA"] = new("RC_VLM", "Anomalia di ampiezza (controllo di VLM)", "SpikeRatio", "spikeRatioTenths", [20, 30, 40], Divisor: 10m,
+            Fixed: new() { ["LookbackBars"] = 20, ["Mode"] = 0, ["ActivitySource"] = 1 })
     };
 
     [Fact]
@@ -107,6 +142,13 @@ public sealed class CoarseGridMatrixTests(ITestOutputHelper output)
 
         var symbol = "@" + parts[1].TrimStart('@').ToUpperInvariant();
         var broker = parts[3].ToUpperInvariant();
+
+        // VENDOR = il future del vendor su 14 anni (29/09/2026): FBO NQ 1h e NRX NQ 4h sembravano buone sui
+        // tre anni e mezzo FTMO, anche contro il RAN, e sul 2008-2021 hanno perso tutti gli anni. Il
+        // campione lungo attraversa regimi che il FTMO non ha. Costi FTMO, gli stessi del conto: lo spread
+        // di oggi su un indice che nel 2008 valeva un decimo pesa di piu', e va letto come prudenza.
+        var vendor = broker == CoarseGridStudy.VendorFeed;
+        var costBroker = vendor ? "FTMO" : broker;
         var fixedParameters = new Dictionary<string, object>(engine.Fixed ?? [])
         {
             ["Symbol"] = symbol,
@@ -118,29 +160,31 @@ public sealed class CoarseGridMatrixTests(ITestOutputHelper output)
             Symbol: symbol,
             TimeframeMinutes: timeframe,
             FeedBroker: broker,
-            SpreadBrokers: [broker],
-            SwapBrokers: [broker],
+            SpreadBrokers: [costBroker],
+            SwapBrokers: [costBroker],
             CommissionPerSide: 0m,
-            StartUtc: new DateTime(2022, 1, 1, 0, 0, 0, DateTimeKind.Utc),
-            SplitUtc: new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc),
-            EndUtc: new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc),
+            // Il minuto del vendor parte dal 2008 per FDAX (2006 per NQ) e finisce il 30/05/2025.
+            StartUtc: vendor ? new DateTime(2008, 1, 1, 0, 0, 0, DateTimeKind.Utc) : new DateTime(2022, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+            SplitUtc: vendor ? new DateTime(2022, 1, 1, 0, 0, 0, DateTimeKind.Utc) : new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+            EndUtc: vendor ? new DateTime(2025, 6, 1, 0, 0, 0, DateTimeKind.Utc) : new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc),
             Channels: engine.Levers,
             Stops: AtrStops,
             Targets: AtrTargets,
-            ExitHours: ExitHours,
+            ExitHours: engine.ExitHours ?? ExitHours,
             Directions: engine.Directions ?? (engine.VariesDirection ? [0, 1, 2] : [0]),
-            CsvName: Path.Combine("matrice", $"{symbol.TrimStart('@').ToLowerInvariant()}-{timeframe}-{parts[0].ToLowerInvariant()}.csv"),
+            CsvName: Path.Combine("matrice", $"{symbol.TrimStart('@').ToLowerInvariant()}-{timeframe}-{parts[0].ToLowerInvariant()}{(vendor ? "-vendor" : "")}.csv"),
             EngineName: engine.Label,
             FirstLeverKey: engine.LeverKey,
             FirstLeverLabel: engine.LeverLabel,
             FirstLeverDivisor: engine.Divisor,
             VariesDirection: engine.VariesDirection,
             AtrStops: true,
-            HoldDays: HoldDays,
+            HoldDays: engine.HoldDays ?? HoldDays,
             ExtraParameters: fixedParameters,
             // 190 sul campione di tre anni (circa 63 all'anno) invece dei 250 del metodo: deciso il
-            // 25/09/2026 dopo LFHL su FDAX 4h, 81 configurazioni su 81 in utile con 197-231 trade.
-            MinInSampleTrades: 190);
+            // 25/09/2026 dopo LFHL su FDAX 4h, 81 configurazioni su 81 in utile con 197-231 trade. Sui 14
+            // anni del vendor torna la soglia del metodo.
+            MinInSampleTrades: vendor ? 250 : 190);
     }
 }
 
@@ -155,4 +199,8 @@ public sealed record MatrixEngine(
     decimal Divisor = 1m,
     Dictionary<string, object>? Fixed = null,
     // Le direzioni da permutare quando non sono 0/1/2: HOD senza momentum non ha un "entrambi".
-    int[]? Directions = null);
+    int[]? Directions = null,
+    // Ore di uscita e tenute proprie, quando quelle della matrice non hanno senso: CAL e' multiday per natura
+    // e rifiuta un'ora di uscita di sessione, e la sua tenuta la dichiara HoldSessions.
+    int[]? ExitHours = null,
+    int[]? HoldDays = null);

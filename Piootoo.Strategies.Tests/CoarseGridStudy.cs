@@ -119,6 +119,12 @@ public static class CoarseGridStudy
             (BestShareOut is null || BestShareOut <= ResearchCriteria.MaxBestTradeShare);
     }
 
+    /// <summary>
+    /// <see cref="CoarseGridSpec.FeedBroker"/> che chiede il feed del vendor (<c>datafeed/</c>, il future)
+    /// invece di quello di un broker. I costi restano quelli dei broker dichiarati.
+    /// </summary>
+    public const string VendorFeed = "VENDOR";
+
     public static async Task<List<Cell>?> RunAsync(CoarseGridSpec spec, ITestOutputHelper output)
     {
         // L'interruttore sta QUI e non nelle singole celle: una cella nuova e' un file di dieci
@@ -132,7 +138,12 @@ public static class CoarseGridStudy
             ExternalRepositoryPath = @"[BasePath]\datafeed-external",
             SpreadPath = @"[BasePath]\spread"
         };
-        if (!Directory.Exists(Path.Combine(RepositoryPath, "datafeed-external", spec.FeedBroker)))
+        // Il feed del vendor (future, serie continua) sta in datafeed/ e si carica senza broker.
+        var feedBroker = spec.FeedBroker == VendorFeed ? null : spec.FeedBroker;
+        var feedDirectory = feedBroker is null
+            ? Path.Combine(RepositoryPath, "datafeed")
+            : Path.Combine(RepositoryPath, "datafeed-external", feedBroker);
+        if (!Directory.Exists(feedDirectory))
         {
             output.WriteLine("feed assente: saltato.");
             return null;
@@ -160,7 +171,7 @@ public static class CoarseGridStudy
 
         var dataFeed = new PiootooDataFeedService(new DatafeedCatalog(settings));
         var series = await SweepSeries.LoadAsync(
-            dataFeed, spec.Symbol, [spec.TimeframeMinutes, 1], spec.StartUtc, spec.EndUtc, warmupDays: 30d, broker: spec.FeedBroker);
+            dataFeed, spec.Symbol, [spec.TimeframeMinutes, 1], spec.StartUtc, spec.EndUtc, warmupDays: 30d, broker: feedBroker);
         var inSample = series.Between(series.StartUtc, spec.SplitUtc);
         var outOfSample = series.Between(spec.SplitUtc, series.EndUtc);
         output.WriteLine($"feed {series.StartUtc:yyyy-MM-dd} → {series.EndUtc:yyyy-MM-dd}, split {spec.SplitUtc:yyyy-MM-dd}\n");
@@ -172,7 +183,7 @@ public static class CoarseGridStudy
         foreach (var reference in spec.ReferenceSymbols ?? [])
         {
             var loaded = await SweepSeries.LoadAsync(
-                dataFeed, reference, [spec.TimeframeMinutes], spec.StartUtc, spec.EndUtc, warmupDays: 30d, broker: spec.FeedBroker);
+                dataFeed, reference, [spec.TimeframeMinutes], spec.StartUtc, spec.EndUtc, warmupDays: 30d, broker: feedBroker);
             referencesIn[reference] = loaded.Between(loaded.StartUtc, spec.SplitUtc);
             referencesOut[reference] = loaded.Between(spec.SplitUtc, loaded.EndUtc);
             output.WriteLine($"riferimento {reference}: {loaded.Bars(spec.TimeframeMinutes).Length} barre da {spec.TimeframeMinutes}m");

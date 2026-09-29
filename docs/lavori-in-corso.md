@@ -84,6 +84,13 @@ Lette lo stesso giorno le altre 10 celle PT6EXO (`ricerca/matrice/pt6exo-altre-1
 griglia solo **NRX NQ 4h** (10 sopra soglia, tutte solo long, NR-7). In coda dopo le ERT il suo controllo
 RAN (`NrxRandomControlStudy`, cella `nq-240-nrx-controllo-ran`); se sta sopra il 90° percentile dentro e
 fuori, il periodo lungo del vendor come `NqFboLongPeriodStudy`.
+Stesso giorno: in matrice il **resto del catalogo** (REG, CAL, GAP fade e go, CDL, RNM, FIB, LUN, MOD, VLM
+con il suo controllo sull'ampiezza), 44 celle su FDAX e NQ a 240 e 60, in coda dopo le ERT. Fuori DXH,
+MTF e XMK. Dopo FBO e NRX, entrambe buone sui tre anni FTMO e in perdita ogni anno sul 2008-2021, le
+famiglie che non dipendono dal prezzo del broker si cercano sul **feed del vendor** (celle
+`MOTORE|@SIM|TF|VENDOR`, campione 2008-01 → 2022-01, verifica → 2025-06, costi FTMO, 250 trade, CSV
+`*-vendor.csv`); RNM e VLM restano su FTMO, dove i tondi e il tick volume sono quelli veri. Una cella che
+passa su FTMO va comunque al periodo lungo prima di una classe.
 
 **Limiti noti, da non riscoprire**:
 
