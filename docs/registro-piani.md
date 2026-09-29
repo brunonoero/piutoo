@@ -85,6 +85,13 @@ stessa rottura del DAX presa due o tre volte, ed e' gia' dentro `FTMO-EUROPA-O4`
 | EUROPA × O4-X05 | - | **18%** | **no** (breakout DAX) |
 | INDICI × O4-X05 | - | **20%** | **no** (breakout DAX) |
 | O4 / O4-X05 / EUROPA-O4 × P1 | NQ_BSW_001_240 | 13-15% | no |
+| `FTMO-PIENO-B` × USA | - | 0% | ok |
+| `FTMO-PIENO-B` × P1 | - | **12%** dei trade di P1 | **no**: `GC_PCH_001_15` (B) e `GC_PCH_003_60` (P1), 47 ingressi entro 30 secondi |
+
+`FTMO-PIENO-B` non e' un best plan: misurato a parte il 29/09 sul suo run cTrader
+(`ricerca/due-piani-pieni-2026-09-28/gemelli_piano_b.py`). **Dentro** il piano i gemelli sono il 3,5% dei
+trade entro 30 secondi: la 002 con `FDAX_PCH_002_60` (13 ingressi entro 5 minuti, un quinto dei trade della
+60) e `NQ_TFM_001_60` con `NQ_VBO_001_15` (9). E' concentrazione sullo stesso conto, non copy trading.
 
 **Combinazioni massimali di best plan compatibili su una prop:**
 
@@ -96,10 +103,10 @@ stessa rottura del DAX presa due o tre volte, ed e' gia' dentro `FTMO-EUROPA-O4`
 | 2 | O4-X05 + USA | senza EUROPA |
 
 Senza P1 (per chi non vuole un piano in campione su un conto vero) i conti su una prop sono **due**:
-EUROPA-O4 + USA, oppure O4-X05 + USA, oppure EUROPA + USA. Per il terzo conto con EUROPA e O4-X05
-separati servirebbe una variante di O4-X05 **senza le due strategie di breakout del DAX**
-(`FDAX_BOS_001_15`, `FDAX_PCH_002_60`: +2.048 dei +12.118 del run), da rimisurare con il cBot prima di
-usarla. Su prop diverse ogni best plan si puo' ripetere: le regole di copy trading della seconda prop
+EUROPA-O4 + USA, oppure O4-X05 + USA, oppure EUROPA + USA. Una variante di O4-X05 senza i due
+breakout del DAX, per metterla accanto a EUROPA, e' stata **scartata** (29/09/2026): restano cinque
+strategie e `NQ_BSW_001_240` fa il 74% del netto, cioe' un long Nasdaq tre giorni a settimana senza stop
+con un contorno. Su prop diverse ogni best plan si puo' ripetere: le regole di copy trading della seconda prop
 vanno lette prima (alcune guardano anche i trade identici fra firm diverse).
 
 `FTMO-EUROPA-O4-B` e' la copia di `FTMO-EUROPA-O4` (stesse strategie, pesi, size e tenuta): conta come lo
@@ -229,7 +236,8 @@ meno le spente del piano.
 | `FTMO-PIENO-A` × `PT5DAV-O1`..`O4`, `-O4-X05`, `-P1`, `-C2` | BP_MAC_003_240 (O1), FDAX_LFD_002_30 (O2), BP_LFD_004_30, NQ_BOS_001_15, YM_RBM_002_30 (O3), FDAX_BOS, NQ_BSW, NQ_LFD_004 (O4), NQ_BSW (P1), ES_VBO_001_30 e YM_LFH_002_30 (C2) |
 
 `FTMO-PIENO-A` e `FTMO-PIENO-B` sono disgiunti: stanno insieme sulla stessa prop. Fra i piani operativi B
-e' compatibile solo con USA e P1, A con USA, P2 e ORO. Elenco completo, piani storici compresi:
+e' compatibile **solo con USA**: con P1 non ha strategie in comune ma il 12% dei trade di P1 ha un gemello
+in B (oro, vedi la tabella dei trade simili sopra). A con USA, P2 e ORO (non verificato sui trade). Elenco completo, piani storici compresi:
 `python ricerca/due-piani-pieni-2026-09-28/incompatibili.py <CODICE>`.
 
 Tutte le altre coppie fra INDICI, EUROPA, USA, O1-O4, P1, P2 e ORO sono compatibili. I duplicati
