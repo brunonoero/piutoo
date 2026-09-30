@@ -118,6 +118,54 @@ Per rifare il controllo quando cambia un best plan: lo script legge l'elenco da 
 strategie da masterfilter e piano, i trade dal run del best plan
 (`ricerca/combinazioni-best-plan.ps1`).
 
+## Piani Fintokei (30/09/2026)
+
+Conto **4302718**, 100.000 USD, broker `FINTOKEI` (tabella `cfd-ctrader-fintokei`, simboli `_P`). Regole del conto
+dette dall'utente: perdita giornaliera 5% **sull'equity**, ora del reset ignota; perdita massima 10%; overnight e
+overweek ammessi; le stesse strategie in uso su FTMO si possono usare anche qui. Commissione **provvisoria 2**, come
+FTMO: il valore vero e' da trovare.
+
+**Cosa cambia rispetto a FTMO.** Manca il caffe' (`KC`), quindi O4 perde `PT5DAV_KC_LFH_001_60` (+322 nel run cBot).
+Spread mediano migliore su DAX (1,16 contro 1,33), Nasdaq (1,38 / 1,45), S&P (0,50 / 0,60), peggiore su Dow (3,03 /
+2,10) ed EuroStoxx (2,10 / 1,46). Swap in **percentuale annua**: tabella `swap/FINTOKEI/FINTOKEI_swap-by-symbol.csv`
+scritta a mano convertendo in punti al prezzo del 21/09/2026 (Nasdaq long 4,65 punti a notte contro 6,71 di FTMO);
+rollover messo alle 21:00 UTC, da verificare. Il feed Fintokei va da fine 2025 (DAX, S&P, Nasdaq, Dow, oro) o da un
+mese (EuroStoxx e gli altri): troppo corto per scegliere o per il periodo lungo, serve solo al cBot.
+
+**Piani**: `fintokei` (EUROPA, USA-2, INDICI), `fintokei-pt5dav` (O4-X05 senza KC, P1), `fintokei-europa-o4`. Stessa
+tenuta dei gemelli FTMO.
+
+**Periodo lungo** (feed FTMO 06/2022 → 09/2026, spread orario e swap Fintokei, sul conto a 100k; *gg equity* = perdita
+giornaliera peggiore dal maggiore fra saldo ed equity, sull'ora di reset peggiore delle 24,
+`tools/dd-giornaliero-ftmo`):
+
+| piano | size | trade | netto | DD chiuso | DD equity | gg equity | giorni > 2.500 | minimo sotto 100k | gemello FTMO |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---|
+| FINTOKEI-EUROPA | 1 | 1.275 | 25.674 | 5.389 | 5.714 | 1.723 | 0 | -3.229 | 25.542 / DD eq 5.732 |
+| FINTOKEI-USA-2 | 1 | 215 | 11.916 | 1.887 | 4.008 | 2.017 | 0 | -1.720 | 11.852 / 4.018 |
+| FINTOKEI-INDICI | 1 | 1.490 | 37.590 | 4.931 | 5.400 | 3.193 | 2 | -2.757 | (INDICI FTMO senza ES 1h: 33.823 / 5.732) |
+| FINTOKEI-O4-X05 | 0,5 | 1.405 | 34.431 | 3.656 | 3.933 | 2.418 | 0 | -125 | nessun run lungo |
+| FINTOKEI-P1 | 1 | 1.673 | 128.450 | 8.060 | **9.101** | **4.971** | 3 | **-8.731** | nessun run lungo |
+| FINTOKEI-EUROPA-O4 | 0,75 | 2.680 | 45.090 | 5.433 | 6.134 | 2.056 | 0 | -433 | 43.354 / 6.389 |
+
+- I piani PT3B danno su Fintokei quasi esattamente i numeri di FTMO: lo spread piu' stretto sul DAX compensa quello
+  piu' largo su Dow ed EuroStoxx.
+- **P1 a size 1 non va**: il 09/04/2025 perde 4.971 in un giorno sull'equity, il limite e' 5.000, e il conto scende a
+  -8.731 dal capitale. A **size 0,5** i numeri si dimezzano (DD equity ~4.550, giorno peggiore ~2.500). E' anche il
+  solo piano composto sullo stesso periodo su cui e' stato misurato (in campione nel 2025-2026).
+- Lo swap dei piani multiday e' in punti al prezzo di oggi: sul 2022-2023 e' sovrastimato, quindi O4 e P1 sono qui
+  un po' pessimisti.
+
+**Combinazioni su Fintokei** (le strategie sono quelle di FTMO, valgono le stesse compatibilita'):
+- **2 conti**: EUROPA-O4 + USA-2.
+- **3 conti con P1**: EUROPA + USA + P1 a 0,5. Serve un `FINTOKEI-USA` senza la RHL S&P 1 ora, perche' USA-2 e P1
+  hanno il 7% di ingressi gemelli (`PT3B_ES_RHL_002_60` con `PT5DAV_ES_RHL_001_30`). Non ancora creato.
+- EUROPA e O4-X05 mai su due conti (18% di trade gemelli sulle rotture del DAX).
+- Su FTMO e Fintokei si possono usare gli stessi piani.
+
+**Da fare**: commissione vera; ora del rollover; backtest cBot sul feed Fintokei (da 11/2025) per ogni piano da usare,
+poi best plan con la scheda.
+
 ## Piani in produzione: il broker workspace FTMO (28/09/2026)
 
 Dalla 28/09 i piani che vanno su un conto si **promuovono** da un best plan nel broker workspace del

@@ -1,0 +1,24 @@
+# Finanziamento overnight per simbolo, broker FINTOKEI (conto 4302718), 30/09/2026.
+# Dalle schede cTrader dei simboli _P registrate dal raccoglitore (piootoo-repository/symbol-info/FINTOKEI).
+#
+# Gli indici Fintokei dichiarano lo swap in PERCENTUALE annua del nozionale (SwapCalculationType =
+# Percentage), che la tabella non sa esprimere: qui e' convertito in punti per notte al prezzo del
+# 21/09/2026 del feed Fintokei, come prezzo x tasso / 100 / 360. Su prezzi lontani da quelli di oggi
+# il costo in punti fissi e' sbagliato in proporzione al prezzo (vedi ricerca/pt5dav/nq-bsw-stop-target.md):
+# per i run sul periodo lungo 2022-2026 lo swap e' sovrastimato negli anni con prezzi piu' bassi.
+#   @NQ   US100_P  -5,4750% / +2,4333%  a 30.574,68  ->  -4,6499 / +2,0666 punti
+#   @FDAX GER40_P  -3,9947% / +0,9531%  a 25.637,58  ->  -2,8448 / +0,6787 punti
+#   @YM   US30_P   -5,4750% / +2,4333%  a 52.071,49  ->  -7,9192 / +3,5196 punti
+#   @ES   US500_P  -5,4750% / +2,4333%  a  7.771,71  ->  -1,1819 / +0,5253 punti
+#   @FESX EU50_P   -3,9947% / +0,9531%  a  6.336,81  ->  -0,7032 / +0,1678 punti
+#   @GC   XAUUSD_P in pip: -6,186 / +4,255 pip da 0,1 punti, triplo il mercoledi'
+# Gli short in credito il caricatore li porta a zero, come per FTMO.
+# ROLLOVER: l'ora non sta nella scheda; 21:00 UTC e' un'ipotesi da verificare sul conto (FTMO 20:59).
+# Il flat dei piani (20:45 UTC per 30 minuti) la copre in entrambi i casi.
+broker,symbol,longPipsPerNight,shortPipsPerNight,pipInPoints,rolloverUtc,tripleDay,source
+FINTOKEI,@NQ,-4.6499,2.0666,1,21:00,Friday,scheda US100_P cTrader 2026-09-30 (Percentage -5.475/+2.4333 convertita al prezzo 30574.68)
+FINTOKEI,@FDAX,-2.8448,0.6787,1,21:00,Friday,scheda GER40_P cTrader 2026-09-30 (Percentage -3.9947/+0.9531 convertita al prezzo 25637.58)
+FINTOKEI,@YM,-7.9192,3.5196,1,21:00,Friday,scheda US30_P cTrader 2026-09-30 (Percentage -5.475/+2.4333 convertita al prezzo 52071.49)
+FINTOKEI,@ES,-1.1819,0.5253,1,21:00,Friday,scheda US500_P cTrader 2026-09-30 (Percentage -5.475/+2.4333 convertita al prezzo 7771.71)
+FINTOKEI,@FESX,-0.7032,0.1678,1,21:00,Friday,scheda EU50_P cTrader 2026-09-30 (Percentage -3.9947/+0.9531 convertita al prezzo 6336.81)
+FINTOKEI,@GC,-6.186,4.255,0.1,21:00,Wednesday,scheda XAUUSD_P cTrader 2026-09-30 (Pips)
