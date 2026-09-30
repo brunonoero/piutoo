@@ -139,6 +139,10 @@ non esiste più, si tiene per il perché.
   figure armoniche X-A-B-C-D (Gartley, Bat, Butterfly, Crab) con i rapporti di
   Fibonacci fissati nella classe, pivot confermati, limit su D, controllo a rapporti
   falsati. *Bozza: scritte le quattro figure, in coda la griglia.*
+- [`domini/studio-apertura.md`](domini/studio-apertura.md) — lo studio dell'apertura di
+  borsa: opening range (breakout e fade) e bandiera in una finestra in ora di borsa, tutto
+  in `Piootoo.Strategies/OpeningStudy/` per toglierlo in un colpo. *Bozza: scritto, in coda
+  la griglia.*
 - [`domini/mappa-strategie-pts.md`](domini/mappa-strategie-pts.md) — da quale
   run e da quale riga approvata veniva ogni classe `PTS_*`. **Serie eliminata dal
   progetto il 24/09/2026.** *Storia: non descrive più il codice.*

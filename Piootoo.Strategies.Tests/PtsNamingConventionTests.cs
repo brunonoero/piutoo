@@ -2,6 +2,7 @@ using System.Reflection;
 using System.Text.RegularExpressions;
 using Piootoo.Shared.Interfaces;
 using Piootoo.Strategies.Easy.Engines;
+using Piootoo.Strategies.OpeningStudy.Engines;
 using Piootoo.Strategies.PT5DAVStrategies.Engines;
 using Piootoo.Strategies.PT6EXOStrategies.Engines;
 using Piootoo.Strategies.PT7CLPStrategies.Engines;
@@ -100,7 +101,11 @@ public sealed class PtsNamingConventionTests
         [typeof(GartleyEngine)] = "GAR",
         [typeof(BatEngine)] = "BAT",
         [typeof(ButterflyEngine)] = "BUT",
-        [typeof(CrabEngine)] = "CRB"
+        [typeof(CrabEngine)] = "CRB",
+
+        // Studio dell'apertura (30/09/2026), tutto in Piootoo.Strategies/OpeningStudy/: vedi
+        // docs/domini/studio-apertura.md. Nessuna serie ancora: la decide la prima finalista.
+        [typeof(OpeningRangeEngine)] = "ORB"
     };
 
     /// <summary>

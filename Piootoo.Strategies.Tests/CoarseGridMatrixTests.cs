@@ -136,7 +136,42 @@ public sealed class CoarseGridMatrixTests(ITestOutputHelper output)
         ["GARF"] = new("RC_GAR", "Gartley a rapporti falsati (controllo)", "PivotBars", "pivotBars", [2, 3, 5, 8], Fixed: HarmonicFixed(0.9m)),
         ["BATF"] = new("RC_BAT", "Bat a rapporti falsati (controllo)", "PivotBars", "pivotBars", [2, 3, 5, 8], Fixed: HarmonicFixed(0.9m)),
         ["BUTF"] = new("RC_BUT", "Butterfly a rapporti falsati (controllo)", "PivotBars", "pivotBars", [2, 3, 5, 8], Fixed: HarmonicFixed(0.9m)),
-        ["CRBF"] = new("RC_CRB", "Crab a rapporti falsati (controllo)", "PivotBars", "pivotBars", [2, 3, 5, 8], Fixed: HarmonicFixed(0.9m))
+        ["CRBF"] = new("RC_CRB", "Crab a rapporti falsati (controllo)", "PivotBars", "pivotBars", [2, 3, 5, 8], Fixed: HarmonicFixed(0.9m)),
+
+        // Studio dell'apertura (30/09/2026): docs/domini/studio-apertura.md, codice in
+        // Piootoo.Strategies/OpeningStudy/. L'apertura e' in ora di borsa e dipende dal mercato, quindi una
+        // riga per mercato: "…EU" vale per FDAX (09:00 Berlino), "…US" per NQ (08:30 Chicago = 09:30 New
+        // York). Una riga EU su NQ misurerebbe le 09:00 di Chicago: non si lancia. Solo sotto l'ora; la leva
+        // RangeMinutes 15 vuole le celle a 15 minuti.
+        ["ORBEU"] = new("RC_ORB", "Opening range breakout, apertura Xetra 09:00", "RangeMinutes", "rangeMinutes", [15, 30, 60],
+            Fixed: OpeningFixed(900, mode: 0, entryWindowMinutes: 120)),
+        ["ORBUS"] = new("RC_ORB", "Opening range breakout, apertura New York 09:30", "RangeMinutes", "rangeMinutes", [15, 30, 60],
+            Fixed: OpeningFixed(830, mode: 0, entryWindowMinutes: 120)),
+        ["ORFEU"] = new("RC_ORB", "Fade della rottura del range, apertura Xetra 09:00", "RangeMinutes", "rangeMinutes", [15, 30, 60],
+            Fixed: OpeningFixed(900, mode: 1, entryWindowMinutes: 60)),
+        ["ORFUS"] = new("RC_ORB", "Fade della rottura del range, apertura New York 09:30", "RangeMinutes", "rangeMinutes", [15, 30, 60],
+            Fixed: OpeningFixed(830, mode: 1, entryWindowMinutes: 60)),
+        // La bandiera della riga FLG, cercata solo nelle due ore dopo l'apertura. Il controllo e' la riga FLG
+        // sulla stessa cella: la finestra vale se batte la bandiera a tutta giornata.
+        ["FLGEU"] = new("RC_FLGW", "Bandiera solo 09:00-11:00 Berlino", "PoleAtr", "poleAtrTenths", [20, 30, 50], Divisor: 10m,
+            Fixed: FlagWindowFixed(900, 1100)),
+        ["FLGUS"] = new("RC_FLGW", "Bandiera solo 08:30-10:30 Chicago", "PoleAtr", "poleAtrTenths", [20, 30, 50], Divisor: 10m,
+            Fixed: FlagWindowFixed(830, 1030))
+    };
+
+    /// <summary>La forma ferma dell'opening range in matrice: apertura in ora di borsa, stop e target della matrice.</summary>
+    private static Dictionary<string, object> OpeningFixed(int openHhmm, int mode, int entryWindowMinutes) => new()
+    {
+        ["OpenHhmm"] = openHhmm, ["OpenClock"] = 1, ["Mode"] = mode, ["EntryWindowMinutes"] = entryWindowMinutes,
+        ["MaxRangeAtr"] = 0m, ["StructureStop"] = 0, ["TargetRange"] = 0m
+    };
+
+    /// <summary>La bandiera della riga FLG, con la finestra in ora di borsa.</summary>
+    private static Dictionary<string, object> FlagWindowFixed(int startHhmm, int endHhmm) => new()
+    {
+        ["PoleBars"] = 5, ["AtrBars"] = 20, ["FlagMinBars"] = 3, ["FlagMaxBars"] = 10,
+        ["MaxRetrace"] = 0.5m, ["ParallelTolerance"] = 0.1m, ["StopAtFlag"] = 0, ["TargetPole"] = 0m,
+        ["WindowStartHhmm"] = startHhmm, ["WindowEndHhmm"] = endHhmm
     };
 
     /// <summary>La forma ferma delle figure armoniche in matrice; <paramref name="ratioScale"/> 1 = da manuale.</summary>
