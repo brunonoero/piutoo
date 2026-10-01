@@ -179,10 +179,38 @@ trade). I trade **non** dipendono dal fuso impostato in cTrader: il cBot lavora 
   peggior giorno 2.073; i trade per strategia coincidono quasi uno a uno. Swap pagato -226, commissioni 2,52. Il campo
   commissione del piano resta 2: nel cBot conta quella del broker (0), e cambiarlo dopo il run renderebbe il run non
   promuovibile in produzione.
-- `FINTOKEI-USA`: run brevi coerenti con il backtest interno (0 trade attesi e 0 fatti dal 01/07 al 14/09/2025, 1 e 1
-  dal 25/12/2025 al 25/02/2026). Serve un run completo da dicembre 2025.
+  Contro il gemello interno sullo stesso feed (`compare-0050`): 454 contro 454, 444 abbinati; per contratto 260.652
+  cBot contro 255.836, ma sul DAX il cBot e' gonfiato del 16,5% dal cambio (conto USD, GER40 in EUR): al netto il cBot
+  sta circa il 5% sotto. Lo scarto e' quasi tutto in `PT3B_FDAX_PCH_002_240` (-22.598/ctr): 10 trade solo interni,
+  fra cui tre take profit da 4.496 entrati all'apertura delle 07:00/08:00 che sul cBot non nascono (probabile livello
+  scavalcato in apertura e scartato; senza `log.txt` del cBot non si conferma). `PT3B_FDAX_RHL_001_240` sta +14.551 sul
+  cBot quasi per un trade solo: il take profit del 23/03/2026 riempito in cTrader 480 punti oltre il livello, da non
+  contare nel live.
+- **`FINTOKEI-USA`, run completo** `fintokei-usa-bt-20250801-0000-v7.8.12-20261001-0608` (01/08/2025 → 25/09/2026,
+  primo trade 14/10/2025): 19 trade, +5.154. Contro il gemello interno (`compare-0049`): 19 su 19 abbinati, scarto 8
+  per contratto su 51.529. Il cBot paga 61 di commissione (612/ctr) che il broker non ha: e' l'impostazione del
+  backtest in cTrader di quell'istanza, da azzerare. I run brevi di prima erano gia' coerenti (0 e 0 dal 01/07 al
+  14/09/2025, 1 e 1 dal 25/12/2025 al 25/02/2026).
+- **`FINTOKEI-USA-2`, best plan dal 01/10/2026** (run `fintokei-usa-2-bt-20250801-0000-v7.8.12-20261001-1034`,
+  01/08/2025 → 25/09/2026, **con l'overnight**, avviato 16 secondi dopo il salvataggio del piano): 49 trade (30 della
+  RHL S&P a 1 ora, 19 a 4 ore, primo il 14/10/2025), **+6.500**, DD chiuso 885, peggior giorno -724, minimo -94, 30
+  vincenti. Il gemello intraday delle 10:00 (`…-1000`) da' gli stessi 49 trade e +6.349: l'overnight sposta l'uscita
+  dal flat delle 20:45 alla fine della sessione della strategia (21:59 / 22:59 UTC), restano al flat i soli venerdi'.
+  Swap pagato -20 (le uscite oltre il rollover delle 21:00), commissioni 130 che il broker non ha (impostazione del
+  backtest in cTrader, come per USA): numeri un po' prudenti.
+  Contro l'interno sul feed FTMO dallo stesso giorno (stesso piano, per contratto e lordo di commissioni, il cBot per
+  10): 43 trade abbinati su 49 / 50, **61.562 cBot contro 57.764 FTMO**. I trade a 4 ore coincidono quasi tutti (NQ
+  40.705 / 37.832, ES 7.552 / 7.253; YM il 02/04 entra alle 06:00 su Fintokei e alle 10:00 su FTMO); le divergenze
+  stanno nella RHL S&P a 1 ora (26 abbinati su 30 / 31, 10.088 / 8.465), dove i prezzi del feed spostano i livelli.
 
-**Da fare**: backtest cBot completi da dicembre 2025 di USA-2 (o EUROPA + USA + P1), poi best plan con la scheda.
+**Overnight su FINTOKEI-USA e USA-2 dal 01/10/2026** (overweek resta spento). Periodo lungo interno, feed FTMO, per
+contratto: USA 82.924 → 84.683, DD 34,5% → 32,2%; USA-2 119.160 → 121.472, DD 25,0% → 22,9%. Stessi trade, cambia
+solo l'uscita: il flat di sessione scende da 56 a 13 trade (restano i venerdi'), il resto esce per tempo della
+strategia. Nei trade interni lo swap e' 0 e il summary non lo dichiara: il guadagno va riletto sul run cBot, dove
+lo swap si paga. Il run cBot USA del mattino e' intraday e non e' piu' promuovibile.
+
+**Da fare**: backtest cBot di USA con l'overnight, poi best plan (USA-2 fatto il 01/10/2026, vedi sopra); backtest
+cBot di EUROPA + P1, poi best plan con la scheda; azzerare la commissione del backtest nell'istanza cTrader.
 
 ## Piani in produzione: il broker workspace FTMO (28/09/2026)
 
