@@ -13,8 +13,9 @@
 #   @FESX EU50_P   -3,9947% / +0,9531%  a  6.336,81  ->  -0,7032 / +0,1678 punti
 #   @GC   XAUUSD_P in pip: -6,186 / +4,255 pip da 0,1 punti, triplo il mercoledi'
 # Gli short in credito il caricatore li porta a zero, come per FTMO.
-# ROLLOVER: l'ora non sta nella scheda; 21:00 UTC e' un'ipotesi da verificare sul conto (FTMO 20:59).
-# Il flat dei piani (20:45 UTC per 30 minuti) la copre in entrambi i casi.
+# ROLLOVER 21:00 UTC: "Swap time 21:00" nelle schede cTrader di US100_P e GER40_P, piattaforma in UTC+0
+# (confermato dall'utente il 01/10/2026). Il flat dei piani (20:45 UTC per 30 minuti) lo copre.
+# Le righe con source 'auto:' le scrive il server dalle schede del raccoglitore (mediana pesata degli ultimi 30 giorni); le altre sono scritte a mano e vincono.
 broker,symbol,longPipsPerNight,shortPipsPerNight,pipInPoints,rolloverUtc,tripleDay,source
 FINTOKEI,@NQ,-4.6499,2.0666,1,21:00,Friday,scheda US100_P cTrader 2026-09-30 (Percentage -5.475/+2.4333 convertita al prezzo 30574.68)
 FINTOKEI,@FDAX,-2.8448,0.6787,1,21:00,Friday,scheda GER40_P cTrader 2026-09-30 (Percentage -3.9947/+0.9531 convertita al prezzo 25637.58)
@@ -22,3 +23,6 @@ FINTOKEI,@YM,-7.9192,3.5196,1,21:00,Friday,scheda US30_P cTrader 2026-09-30 (Per
 FINTOKEI,@ES,-1.1819,0.5253,1,21:00,Friday,scheda US500_P cTrader 2026-09-30 (Percentage -5.475/+2.4333 convertita al prezzo 7771.71)
 FINTOKEI,@FESX,-0.7032,0.1678,1,21:00,Friday,scheda EU50_P cTrader 2026-09-30 (Percentage -3.9947/+0.9531 convertita al prezzo 6336.81)
 FINTOKEI,@GC,-6.186,4.255,0.1,21:00,Wednesday,scheda XAUUSD_P cTrader 2026-09-30 (Pips)
+FINTOKEI,@BP,-0.282,-0.142,0.0001,21:00,Wednesday,auto: mediana pesata di 1 schede GBPUSD_P dal 2026-09-30 al 2026-10-01
+FINTOKEI,@CL,160.6,-168.3,0.001,21:00,Friday,auto: mediana pesata di 1 schede USOIL_P dal 2026-09-30 al 2026-10-01
+FINTOKEI,@SI,-1.0653,0.5047,0.01,21:00,Wednesday,auto: mediana pesata di 1 schede XAGUSD_P dal 2026-09-30 al 2026-10-01
