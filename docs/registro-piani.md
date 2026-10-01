@@ -169,8 +169,20 @@ giornaliera peggiore dal maggiore fra saldo ed equity, sull'ora di reset peggior
 - EUROPA e O4-X05 mai su due conti (18% di trade gemelli sulle rotture del DAX).
 - Su FTMO e Fintokei si possono usare gli stessi piani.
 
-**Da fare**: commissione vera; ora del rollover; backtest cBot sul feed Fintokei (da 11/2025) per ogni piano da usare,
-poi best plan con la scheda.
+**Backtest cBot.** Partire da **dicembre 2025**: prima cTrader non ha lo storico degli indici `_P`, e uno stream senza
+storia all'avvio resta muto per tutto il run (il primo run di EUROPA-O4 dal 21/08/2024 ha operato solo sull'oro, 29
+trade). I trade **non** dipendono dal fuso impostato in cTrader: il cBot lavora in UTC e costruisce le barre da se'.
+
+- **`FINTOKEI-EUROPA-O4`, best plan dal 01/10/2026** (run `fintokei-europa-o4-bt-20251225-2206-v7.8.12-20261001-0555`,
+  25/12/2025 → 31/08/2026): 454 trade, **+11.214**, DD chiuso 4.872, DD equity 5.674, peggior giorno sull'equity 2.304,
+  nessun giorno oltre 2.500, minimo -642. FTMO-EUROPA-O4 sullo stesso periodo: 452 trade, +12.097, DD equity 4.456,
+  peggior giorno 2.073; i trade per strategia coincidono quasi uno a uno. Swap pagato -226, commissioni 2,52. Il campo
+  commissione del piano resta 2: nel cBot conta quella del broker (0), e cambiarlo dopo il run renderebbe il run non
+  promuovibile in produzione.
+- `FINTOKEI-USA`: run brevi coerenti con il backtest interno (0 trade attesi e 0 fatti dal 01/07 al 14/09/2025, 1 e 1
+  dal 25/12/2025 al 25/02/2026). Serve un run completo da dicembre 2025.
+
+**Da fare**: backtest cBot completi da dicembre 2025 di USA-2 (o EUROPA + USA + P1), poi best plan con la scheda.
 
 ## Piani in produzione: il broker workspace FTMO (28/09/2026)
 
