@@ -122,8 +122,11 @@ strategie da masterfilter e piano, i trade dal run del best plan
 
 Conto **4302718**, 100.000 USD, broker `FINTOKEI` (tabella `cfd-ctrader-fintokei`, simboli `_P`). Regole del conto
 dette dall'utente: perdita giornaliera 5% **sull'equity**, ora del reset ignota; perdita massima 10%; overnight e
-overweek ammessi; le stesse strategie in uso su FTMO si possono usare anche qui. Commissione **provvisoria 2**, come
-FTMO: il valore vero e' da trovare.
+overweek ammessi; le stesse strategie in uso su FTMO si possono usare anche qui. Dalla scheda cTrader di US100_P
+(01/10/2026): **commissione 0**, commissione di conversione del P&L 0%, swap alle 21:00 (nel fuso della piattaforma,
+da confermare se UTC), triplo il venerdi', niente swap nel fine settimana. Commissione portata da 2 a 0 su tutti i
+piani Fintokei il 01/10/2026 (EUROPA-O4 dopo il suo backtest cBot); i numeri del periodo lungo qui sotto sono con
+commissione 2, quindi prudenti.
 
 **Cosa cambia rispetto a FTMO.** Manca il caffe' (`KC`), quindi O4 perde `PT5DAV_KC_LFH_001_60` (+322 nel run cBot).
 Spread mediano migliore su DAX (1,16 contro 1,33), Nasdaq (1,38 / 1,45), S&P (0,50 / 0,60), peggiore su Dow (3,03 /
