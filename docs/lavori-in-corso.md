@@ -21,6 +21,26 @@ avvia il server a mano fa lo stesso: `Start-Process ... -WindowStyle Hidden -Red
 
 ---
 
+# PT8DAV — cosa manca dopo il porting (01/10/2026)
+
+La consegna v5.1 (`run-engine-v3`, 111 strategie) e' portata e riconciliata: stato, regole e numeri in
+[`domini/mappa-strategie-pt8dav.md`](domini/mappa-strategie-pt8dav.md). Aperto:
+
+1. **cBot e FDAX a 4 ore.** Le cinque `PT8DAV_FDAX_*_240` ricevono lo stream a 60 minuti e piegano le
+   barre in motore; l'ordine nasce con una vita di 240 minuti. Provare su un backtest cTrader che il
+   pending viva una barra della ricerca e non una dello stream. Fino ad allora le tre con ordine stop
+   (`SBO_004`, `BOS_002`, `VBO_003`) non vanno in un piano live; le due a mercato (`LFD_002`,
+   `LFH_003`) non hanno pending.
+2. **Backtest interno ai costi veri** delle 111 (spread FTMO, swap), sui tre anni fuori campione e
+   sull'anno broker: la riconciliazione e' senza costi e misura la fedelta', non il rendimento.
+3. **Piani** con `piootoo-plan-builder`, mettendo in correlazione anche le PT5DAV della stessa cella
+   (72 celle in comune, parametri diversi). `PT8DAV_YM_BSW_001_60` tiene il long per mesi: leggere le
+   avvertenze prima di metterla in un piano.
+4. **Rigirare la riconciliazione PT5DAV sul feed interno di NQ** (`NqPilotMatchesThePythonTrades`):
+   dopo le correzioni al motore condiviso e' stata rigirata la sola parte FTMO.
+
+---
+
 # ⇦ PT6EXO — RIPRENDERE DA QUI (sera del 25/09/2026)
 
 La serie `PT6EXO_*` cerca strategie **scorrelate** con famiglie di motori nuove, da comporre in piani

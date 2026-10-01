@@ -4743,3 +4743,30 @@ che il motore fa. Difetto di artefatto, non di esecuzione, ma e' costato mezza i
   stessa settimana il percorso e' passato alla tenuta dei piani PT3B: niente overnight e flat alle
   20:45 UTC, perche' con l'overnight libero una configurazione intraday pagava lo swap e teneva le
   ore serali del solo CFD (`ResearchPathStudy`, resoconti con suffisso `-flat`).
+- **2026-10-01** — **La consegna v5.1 della ricerca esterna entra come serie `PT8DAV_*`, sui motori
+  delle PT5DAV, e la riconciliazione ne corregge i motori.** 111 classi generate verbatim da
+  `run-engine-v3/strategie_111.csv` (`tools/pt8dav/gen_pt8dav.py`), che derivano dai motori di
+  `PT5DAVStrategies/Engines/`: copiarli avrebbe voluto dire due versioni delle stesse regole. Il
+  prefisso e' `PT8` e non `PT6`, che e' gia' della serie PT6EXO. Riconciliate con i trade del
+  simulatore sul minuto FTMO: 97,3% dei 6.882 trade, 98 strategie su 111 sopra il 90%.
+  Le regole che la riconciliazione ha trovato sbagliate o mancanti sono state corrette **nel motore
+  condiviso**, quindi cambiano anche le PT5DAV — scelta consapevole: sono misure sui trade della
+  stessa ricerca, e lasciare alle PT5DAV la regola sbagliata per non toccarle avrebbe tenuto in
+  produzione un porting che si sa infedele. Sono: l'ATR della VBO (di Wilder, sulle sessioni per
+  `vol_source` 2 e sulle barre per il 3, dove era una media semplice); un ordine stop o limit non
+  attraversa il cambio di sessione ne' il fine settimana, uno a mercato si'; sul DAX l'ordine a
+  mercato dell'ultima barra si esegue alle 08:00 e `max_bars` conta le sole barre 08-22; l'uscita
+  BIASW vale solo se la sua barra esiste negli orari del CFD; l'uscita del venerdi' della MAC e'
+  alla chiusura del CFD. Dettaglio e misure in `domini/mappa-strategie-pt8dav.md`.
+  **Il DAX a 4 ore.** La prima scelta era farle girare sulla griglia del simbolo (01:00, quella
+  delle PT3B). Misurata: con i parametri verbatim tre su cinque non aprono mai un trade e le altre
+  due ritrovano il 25% e il 67%. La griglia resta una per simbolo; le cinque classi ricevono la
+  serie a 60 minuti e il motore piega le barre della ricerca (`Pt5DavEngineBase.BarMinutes`).
+  Riconciliano al 75-100%. Resta da provare che il cBot faccia vivere il pending 240 minuti su uno
+  stream a 60: fino ad allora le tre con ordine stop non vanno in un piano live.
+  **Non corretto, per scelta:** la MAC della ricerca inverte la posizione sull'incrocio contrario,
+  il sistema non inverte (compare-0041) e quel trade manca; i limit della ricerca chiedono che il
+  prezzo passi il livello, il motore riempie al tocco.
+  **Sul riferimento:** nella prova sul broker della ricerca l'ATR50 non e' rodato (75% del valore
+  vero a settembre 2025, 100% ad agosto 2026): i numeri dell'anno broker della consegna hanno stop
+  e livelli piu' stretti di quelli che la strategia dichiara.

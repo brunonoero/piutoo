@@ -126,6 +126,14 @@ non esiste più, si tiene per il perché.
   tengono più di una notte), motori propri e base comune (ATR50 di Wilder, sessione
   della ricerca, orari del CFD), regole misurate riconciliando il pilota NQ con i
   trade Python, elenco classe → codice. *Bozza: riconciliato il solo NQ.*
+- [`domini/mappa-strategie-pt8dav.md`](domini/mappa-strategie-pt8dav.md) — la serie
+  `PT8DAV_*`: la consegna v5.1 della stessa ricerca (111 strategie, parametri scelti
+  fino al 2022 e filtro sui tre anni dopo), sugli stessi motori delle PT5DAV. Cosa
+  promette la selezione, le regole dei motori corrette riconciliando (ATR di Wilder
+  della VBO, ordini e cambio di sessione, `max_bars` e ordini sul DAX, BIASW, MAC),
+  il DAX a 4 ore con le barre piegate dal motore, l'ATR50 non rodato della prova
+  sul broker della ricerca, differenze note, elenco classe → codice con i trade
+  ritrovati. *Bozza: manca la verifica del cBot per le FDAX a 4 ore.*
 - [`domini/catalogo-idee-pt6exo.md`](domini/catalogo-idee-pt6exo.md) — la serie
   `PT6EXO_*`: famiglie di motori nuove, scelte per essere scorrelate dal catalogo
   (orologio, volume, forma della barra, regime, calendario, idee bizzarre), il

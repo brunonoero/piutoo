@@ -129,11 +129,14 @@ public sealed class PtsNamingConventionTests
         // PT7CLP: figure classiche (catalogo-pattern-classici.md), 29/09/2026.
         ["PT7CLP"] = typeof(FlagEngine).Namespace!.Replace(".Engines", string.Empty),
         // PTARM: figure armoniche (catalogo-armonici.md), 29/09/2026.
-        ["PTARM"] = typeof(HarmonicEngine).Namespace!.Replace(".Engines", string.Empty)
+        ["PTARM"] = typeof(HarmonicEngine).Namespace!.Replace(".Engines", string.Empty),
+        // PT8DAV: la consegna v5.1 della stessa ricerca delle PT5DAV (piootoo-repository/run-engine-v3/),
+        // 01/10/2026. Motori PT5DAV, classi e numerazione proprie (mappa-strategie-pt8dav.md).
+        ["PT8DAV"] = typeof(PT8DAVStrategies.PT8DAV_NQ_BSW_001_240).Namespace!
     };
 
     private static readonly Regex NamePattern = new(
-        @"^(?<series>PTS|PT3B|PT5DAV|PT6EXO|PT7CLP|PTARM)_(?<symbol>[A-Z0-9]+)_(?<engine>[A-Z]{3})_(?<number>\d{3})_(?<timeframe>\d+)$",
+        @"^(?<series>PTS|PT3B|PT5DAV|PT6EXO|PT7CLP|PTARM|PT8DAV)_(?<symbol>[A-Z0-9]+)_(?<engine>[A-Z]{3})_(?<number>\d{3})_(?<timeframe>\d+)$",
         RegexOptions.Compiled);
 
     public static TheoryData<Type> PtsStrategyTypes
@@ -184,8 +187,12 @@ public sealed class PtsNamingConventionTests
         var expectedSymbol = strategy.Symbol.TrimStart('@').ToUpperInvariant();
         Assert.Equal(expectedSymbol, match.Groups["symbol"].Value);
 
+        // Il nome porta la barra su cui la strategia RAGIONA. Coincide con la serie che riceve
+        // (TimeframeMinutes) salvo dove il motore se la costruisce: le FDAX a 4 ore della serie
+        // PT8DAV ricevono l'oraria e la piegano in barre da 240 (Pt5DavEngineBase.BarMinutes).
+        var barMinutes = strategy is Pt5DavEngineBase folding ? folding.BarMinutes : strategy.TimeframeMinutes;
         Assert.Equal(
-            strategy.TimeframeMinutes.ToString(),
+            barMinutes.ToString(),
             match.Groups["timeframe"].Value);
 
         var engineType = ResolveEngineType(type);

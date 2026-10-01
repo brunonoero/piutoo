@@ -146,7 +146,8 @@ public sealed class StrategyClockConformanceTests
     private static readonly string[] CatalogNamespaces =
     [
         typeof(PT3BStrategies.PT3B_FDAX_PCH_001_240).Namespace!,
-        typeof(PT5DAVStrategies.PT5DAV_NQ_BOS_001_15).Namespace!
+        typeof(PT5DAVStrategies.PT5DAV_NQ_BOS_001_15).Namespace!,
+        typeof(PT8DAVStrategies.PT8DAV_NQ_BSW_001_240).Namespace!
     ];
 
     public static TheoryData<Type> PtsStrategyTypes
