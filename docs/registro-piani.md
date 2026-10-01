@@ -202,6 +202,43 @@ trade). I trade **non** dipendono dal fuso impostato in cTrader: il cBot lavora 
   10): 43 trade abbinati su 49 / 50, **61.562 cBot contro 57.764 FTMO**. I trade a 4 ore coincidono quasi tutti (NQ
   40.705 / 37.832, ES 7.552 / 7.253; YM il 02/04 entra alle 06:00 su Fintokei e alle 10:00 su FTMO); le divergenze
   stanno nella RHL S&P a 1 ora (26 abbinati su 30 / 31, 10.088 / 8.465), dove i prezzi del feed spostano i livelli.
+- **`FINTOKEI-P1`, best plan dal 01/10/2026** (run `fintokei-p1-bt-20250801-0000-v7.8.12-20261001-1344`, 01/08/2025 →
+  01/10/2026, size 0,5, overnight e overweek; piano salvato alle 05:52, run avviato alle 13:44): 466 trade, **+39.203**,
+  DD chiuso 1.841, peggior giorno sul chiuso -1.164 (10/09/2026), nessun giorno oltre 2.500, minimo -517, 243 vincenti.
+  Swap -666, commissioni 623 che il broker non ha. Mesi negativi solo agosto (-297) e dicembre 2025 (-346). Per
+  strategia: GC_BOS_002_240 +16.278, NQ_BSW_001_240 +7.920, GC_PCH_003_60 +6.282, NQ_RHL_001_30 +3.414,
+  ES_RHL_001_30 +2.700, ES_RBM_001_30 +2.609. Tutte valutabili, nessun intent rifiutato.
+  Contro l'interno sul feed FTMO (`fintokei-p1-2022-2026`, 01/08/2025 → 25/09/2026, abbinati per lato e ingresso
+  entro 3 ore; il fattore fra cBot e contratto, misurato e costante, e' circa 19): sui trade abbinati **778.596 cBot
+  contro 780.489 FTMO**. Gli indici coincidono quasi uno a uno (NQ_BSW 60 su 60, NQ_RHL 39 su 40, ES_RHL 35 su 37,
+  ES_RBM 94 su 99). Lo scarto sta tutto in **GC_BOS_002_240**: 41 trade solo cBot (-550) e 39 solo FTMO (+36.721
+  per contratto), le rotture dell'oro cadono diverse sui due broker; sul totale il cBot sta il 7% sotto (758k contro
+  817k). E' la strategia da guardare nel live. Il periodo e' quello su cui P1 e' stato composto: il run conferma
+  l'esecuzione, non e' fuori campione. Per la perdita giornaliera sull'equity vale il periodo lungo (2.486 a size 0,5).
+- **`FINTOKEI-EUROPA`, run cBot promuovibile** (run `fintokei-europa-bt-20251225-2206-v7.8.12-20261001-1607`,
+  25/12/2025 → 01/10/2026, size 1; piano salvato alle 05:52, run avviato alle 16:07; il primo tentativo era partito sul
+  conto FTMO 17202911 ed e' stato rifiutato dal server): 244 trade, **+5.248**, DD chiuso 4.036, peggior giorno -1.674
+  (20/03/2026), nessun giorno oltre 2.500, minimo -173, 128 vincenti, swap e commissioni 0. Per strategia:
+  FDAX_RHL_001_240 +2.525 (15), FDAX_PCH_002_240 +2.375 (216), FESX_RHL_001_240 +347 (13); 16 intent rifiutati, tutti
+  PCH_002 (livello gia' scavalcato, `Reject` delle PT3B). **Da togliere** il take profit di FDAX_RHL del 23/03/2026,
+  riempito a 23.051 contro il livello 22.576 (lo stesso fill anomalo di EUROPA-O4): circa +1.380 che nel live non ci
+  sono, al netto il run fa circa +3.870 in nove mesi, in linea con il periodo lungo (25.674 in quattro anni) ma con un
+  DD chiuso dello stesso ordine.
+  Contro il cBot di EUROPA-O4 (stesse tre strategie, fino al 31/08): 218 trade su 218 abbinati, rapporto 0,75 = la size
+  di O4, esecuzione identica. Contro l'interno sul feed FTMO: FDAX coincide (PCH 199 abbinati, 12 e 12 da una parte
+  sola; RHL 15 su 15), il cBot sta un po' sotto come in `compare-0050`; FESX abbinata 4 su 13, le rotture di EU50 cadono
+  diverse sui due broker (pesa +347).
+- **`FINTOKEI-USA`, best plan dal 01/10/2026** (run `fintokei-usa-bt-20251225-2206-v7.8.12-20261001-1615`, 25/12/2025 →
+  01/10/2026, con l'overnight; piano salvato alle 10:33, run avviato alle 16:15): **15 trade, +3.893**, DD chiuso 971,
+  peggior giorno -718, mai sotto il capitale, 11 vincenti, swap -5, commissioni 0. NQ_RHL_001_240 +2.564 (10),
+  ES_RHL_001_240 +755 (3), YM_RHL_001_240 +574 (2). I 15 trade sono **identici** a quelli delle stesse strategie nel run
+  di USA-2 (ingresso, uscita, P&L entro 0,1; USA-2 al lordo delle commissioni fa 3.893). Partendo dal 25/12 mancano i 4
+  trade di ottobre-dicembre 2025; l'esecuzione su tutto il periodo la conferma il run di USA-2. Fa pochi trade (77 in
+  quattro anni nel periodo lungo): e' un piano di diversificazione, non di volume.
+
+Con EUROPA, USA e P1 la combinazione a **3 conti** ha tutti i run cBot. In produzione su Fintokei si porta **una sola**
+delle due combinazioni (2 conti EUROPA-O4 + USA-2, 3 conti EUROPA + USA + P1): dentro un broker una strategia sta in
+un solo piano attivo, ed EUROPA / EUROPA-O4, USA / USA-2 condividono le strategie.
 
 **Overnight su FINTOKEI-USA e USA-2 dal 01/10/2026** (overweek resta spento). Periodo lungo interno, feed FTMO, per
 contratto: USA 82.924 → 84.683, DD 34,5% → 32,2%; USA-2 119.160 → 121.472, DD 25,0% → 22,9%. Stessi trade, cambia
@@ -209,8 +246,8 @@ solo l'uscita: il flat di sessione scende da 56 a 13 trade (restano i venerdi'),
 strategia. Nei trade interni lo swap e' 0 e il summary non lo dichiara: il guadagno va riletto sul run cBot, dove
 lo swap si paga. Il run cBot USA del mattino e' intraday e non e' piu' promuovibile.
 
-**Da fare**: backtest cBot di USA con l'overnight, poi best plan (USA-2 fatto il 01/10/2026, vedi sopra); backtest
-cBot di EUROPA + P1, poi best plan con la scheda; azzerare la commissione del backtest nell'istanza cTrader.
+**Da fare**: scegliere la combinazione da portare in produzione su Fintokei (2 o 3 conti, vedi sopra) e promuoverla
+nel broker workspace FINTOKEI.
 
 ## Piani in produzione: il broker workspace FTMO (28/09/2026)
 
