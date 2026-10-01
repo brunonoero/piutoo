@@ -92,6 +92,9 @@ public abstract class Pt5DavBiasEngineBase : Pt5DavEngineBase
         IntradayOnly = true;
     }
 
+    /// <inheritdoc />
+    protected override bool SupportsFoldedBars => false;
+
     protected override TradeSignal Evaluate(OhlcvData[] data, OhlcvData bar, decimal[] ohlc)
     {
         var barTime = bar.DateTime;
@@ -100,7 +103,7 @@ public abstract class Pt5DavBiasEngineBase : Pt5DavEngineBase
 
         if (EntryType == BiasEntryType.MarketOnArmBar)
         {
-            var nextBar = EasyLib.EstimateNextBarUtc(data, barTime, TimeframeMinutes);
+            var nextBar = EasyLib.EstimateNextBarUtc(data, barTime, BarMinutes);
             if (ResearchSessionDay(nextBar) != ResearchSessionDay(barTime))
                 return Hold(bar.Close, barTime);
 

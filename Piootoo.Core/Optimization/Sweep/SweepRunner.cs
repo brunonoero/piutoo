@@ -161,6 +161,11 @@ public sealed class SweepRunner(SweepSeries series, IReadOnlyDictionary<string, 
                         evaluations++;
                         Evaluate(strategy, trading, candles, currentDate, symbol, job.Holding, signals,
                             ReferenceWindows(referenceCursors, currentDate, window));
+
+                        // Riscaldamento: la strategia ha aggiornato il proprio stato, ma non opera.
+                        if (job.EntriesFromUtc is { } entriesFrom && currentDate < entriesFrom)
+                            signals.Clear();
+
                         signalsEmitted += signals.Count;
                     }
                 }

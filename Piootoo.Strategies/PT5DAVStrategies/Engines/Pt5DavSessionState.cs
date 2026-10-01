@@ -68,6 +68,34 @@ public struct Pt5DavSessionState
     /// <summary>ATR50 di Wilder sulle sessioni chiuse. Vale solo con <see cref="SessionsClosed"/> ≥ 50.</summary>
     public decimal Atr;
 
+    /// <summary>
+    /// Sessioni entrate nell'ATR giornaliero del motore (<see cref="Pt5DavEngineBase.DailyAtrPeriod"/>),
+    /// seme e valore. Vale solo con <see cref="DailyAtrSessions"/> ≥ periodo; resta a zero per i
+    /// motori che non lo chiedono.
+    /// </summary>
+    public int DailyAtrSessions;
+    public decimal DailyTrueRangeSum;
+    public decimal DailyAtr;
+
+    /// <summary>
+    /// ATR di Wilder sulle <b>barre</b> di mercato (<see cref="Pt5DavEngineBase.BarAtrPeriod"/>):
+    /// barre entrate, seme e valore con la barra corrente, e gli stessi due prima di essa — il
+    /// motore legge l'ATR «fino alla barra precedente». A zero per i motori che non lo chiedono.
+    /// </summary>
+    public int BarAtrBars;
+    public decimal BarTrueRangeSum;
+    public decimal BarAtr;
+    public int BarAtrBarsBeforeBar;
+    public decimal BarAtrBeforeBar;
+
+    /// <summary>
+    /// Barre di mercato chiuse con la posizione aperta, barra d'ingresso inclusa, e l'apertura
+    /// dell'ultima contata. Serve dove <c>max_bars</c> non lo puo' contare chi esegue
+    /// (<see cref="Pt5DavEngineBase"/>, il DAX): a zero quando si e' piatti.
+    /// </summary>
+    public int MarketBarsInPosition;
+    public DateTime MarketBarsCountedUtc;
+
     /// <summary>Close dell'ultima sessione chiusa, per il range vero della prossima.</summary>
     public decimal PreviousSessionClose;
 

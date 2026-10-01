@@ -22,9 +22,11 @@ namespace Piootoo.Strategies.PT5DAVStrategies.Engines;
 /// </list>
 ///
 /// <para><b>Cosa non si replica.</b> La ricerca salta la settimana se la barra d'ingresso non esiste
-/// (festivo) e rinvia l'uscita di una settimana se manca quella d'uscita. Qui l'ingresso resta un
-/// market "next bar", che il motore esegue sulla prima barra vera, e l'uscita e' una deadline che
-/// scatta al primo prezzo utile: nei festivi i due comportamenti divergono.</para>
+/// e rinvia l'uscita di una settimana se manca quella d'uscita. Qui l'ingresso resta un market
+/// "next bar", che il motore esegue sulla prima barra vera; l'uscita e' una deadline dichiarata
+/// all'ingresso, sulla prima barra d'uscita che il CFD <b>tratta</b> secondo i suoi orari
+/// (<c>WithScheduledExit</c>). Nei festivi, che gli orari non conoscono, i due comportamenti
+/// divergono.</para>
 /// </summary>
 public abstract class Pt5DavBiasWeeklyEngine : Pt5DavEngineBase
 {
@@ -60,6 +62,9 @@ public abstract class Pt5DavBiasWeeklyEngine : Pt5DavEngineBase
         IntradayOnly = false;
     }
 
+    /// <inheritdoc />
+    protected override bool SupportsFoldedBars => false;
+
     protected override bool ApplyResearchParameter(string key, object value)
     {
         switch (key)
@@ -86,7 +91,7 @@ public abstract class Pt5DavBiasWeeklyEngine : Pt5DavEngineBase
     protected override TradeSignal Evaluate(OhlcvData[] data, OhlcvData bar, decimal[] ohlc)
     {
         var barTime = bar.DateTime;
-        var nextBar = EasyLib.EstimateNextBarUtc(data, barTime, TimeframeMinutes);
+        var nextBar = EasyLib.EstimateNextBarUtc(data, barTime, BarMinutes);
         var entries = new List<TradeSignal>(2);
 
         if (IsScheduled(nextBar, EntryDayLong, EntryTimeLong) &&
@@ -114,9 +119,23 @@ public abstract class Pt5DavBiasWeeklyEngine : Pt5DavEngineBase
         ((int)Clock.SessionDay(barOpenUtc).DayOfWeek + 6) % 7 == day &&
         Clock.TimeOfDay(barOpenUtc) == time;
 
+    /// <summary>Quanti giorni avanti si cerca la barra d'uscita: un anno di settimane.</summary>
+    private const int ExitSearchDays = 371;
+
     /// <summary>
     /// L'uscita alla chiusura della barra che termina a <paramref name="time"/> del giorno
-    /// <paramref name="day"/>, la prima dopo l'ingresso.
+    /// <paramref name="day"/>, la prima dopo l'ingresso <b>che esiste</b>.
+    ///
+    /// <para><b>Una barra che il CFD non tratta non fa uscire</b>, e la posizione resta fino alla
+    /// stessa barra di una settimana in cui c'e' («se quella barra non esiste la posizione resta
+    /// aperta fino alla stessa barra della settimana successiva», scheda). Non e' un caso da festivo:
+    /// YM-1H-BIASW-6e55f4 (consegna v5.1) esce dal long «giovedi' alle 00:00», cioe' alla chiusura
+    /// della barra 23:00-00:00 di Roma, che sono le 17:00-18:00 di New York — la pausa giornaliera
+    /// del CFD. Quella barra esiste solo nelle settimane in cui l'ora legale americana e quella
+    /// europea sono sfasate: nell'anno broker la ricerca ha 11 long, di cui due tenuti 108 e 163
+    /// notti, contro i 51 che uscivano ogni giovedi' con la deadline incondizionata (01/10/2026:
+    /// 101 trade nostri contro 22). I festivi restano fuori: qui si conoscono gli orari del CFD,
+    /// non il suo calendario.</para>
     /// </summary>
     private TradeSignal? WithScheduledExit(TradeSignal? signal, int day, TimeOnly time)
     {
@@ -125,13 +144,14 @@ public abstract class Pt5DavBiasWeeklyEngine : Pt5DavEngineBase
 
         var fill = signal.ValidFromUtc!.Value;
         var candidate = Clock.SessionDay(fill);
-        for (var step = 0; step < 15; step++, candidate = candidate.AddDays(1))
+        for (var step = 0; step < ExitSearchDays; step++, candidate = candidate.AddDays(1))
         {
             if (DaysSinceMonday(candidate) != day)
                 continue;
 
             var exitUtc = Clock.ToUtc(candidate.Add(time.ToTimeSpan()));
-            if (exitUtc > fill.AddMinutes(TimeframeMinutes))
+            if (exitUtc > fill.AddMinutes(BarMinutes) &&
+                CfdTradesWithin(exitUtc.AddMinutes(-BarMinutes), exitUtc))
             {
                 signal.CloseAtUtc = exitUtc.AddMinutes(-1);
                 return signal;

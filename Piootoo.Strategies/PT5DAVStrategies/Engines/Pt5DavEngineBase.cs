@@ -1,7 +1,9 @@
 using Piootoo.Shared.Configuration;
 using Piootoo.Shared.Enums;
+using Piootoo.Shared.MarketData;
 using Piootoo.Shared.Models;
 using Piootoo.Shared.Models.Trading;
+using Piootoo.Strategies.Easy;
 using Piootoo.Strategies.Easy.Engines;
 
 namespace Piootoo.Strategies.PT5DAVStrategies.Engines;
@@ -261,15 +263,165 @@ public abstract class Pt5DavEngineBase : EasyEngineBase
         if (data is null || data.Length == 0)
             return Hold(0m, currentDate, "Dati insufficienti");
 
+        if (FoldsBars)
+        {
+            if (!SupportsFoldedBars)
+            {
+                throw new NotSupportedException(
+                    $"{Name}: questo motore dichiara uscite a barre che conta chi esegue, sulla serie " +
+                    "ricevuta, e non puo' ragionare su barre piegate (BarMinutes diverso da TimeframeMinutes).");
+            }
+
+            // Si ragiona sulle barre della ricerca, e solo quando una si chiude: le altre barre della
+            // serie non sono un momento in cui la strategia esiste.
+            var received = data[^1];
+            if (FoldToResearchBars(data) is not { } folded)
+                return Hold(received.Close, received.DateTime, "La barra della ricerca non e' ancora chiusa");
+
+            data = folded;
+        }
+
         var bar = data[^1];
         Advance(data);
 
         if (!_pt5.LastBarInMarket)
             return Hold(bar.Close, bar.DateTime, "Barra fuori dalla fascia di mercato della ricerca");
+
+        if (CountsMarketBarsInPosition && bar.DateTime > _pt5.MarketBarsCountedUtc)
+        {
+            _pt5.MarketBarsCountedUtc = bar.DateTime;
+            _pt5.MarketBarsInPosition = CurrentMP != 0 ? _pt5.MarketBarsInPosition + 1 : 0;
+
+            // La barra d'ingresso e' la prima contata e max_bars non la conta: si esce alla chiusura
+            // della barra numero max_bars + 1, cioe' a mercato all'apertura della successiva.
+            if (_pt5.MarketBarsInPosition > MaxBars)
+            {
+                var exit = EntryMarketNextBar(
+                    CurrentMP > 0 ? SignalType.Sell : SignalType.Buy, bar.Close, data, bar.DateTime,
+                    $"max_bars {MaxBars}: uscita a barre di mercato");
+                exit.ExitOnly = true;
+                RetimeToResearchBar(exit);
+                return exit;
+            }
+        }
+
         if (_pt5.SessionsClosed < AtrPeriod)
             return Hold(bar.Close, bar.DateTime, "Rodaggio: ATR50 non ancora disponibile");
 
         return Evaluate(data, bar, BuildOhlc());
+    }
+
+    // ------------------------------------------------------------------ barre della ricerca
+
+    /// <summary>
+    /// L'ampiezza, in minuti, della barra <b>su cui il motore ragiona</b>. Coincide con
+    /// <see cref="EasyEngineBase.TimeframeMinutes"/>, che e' la serie che la strategia riceve, salvo
+    /// quando la barra della ricerca non esiste nel feed e il motore se la costruisce.
+    ///
+    /// <para><b>L'unico caso: il DAX a 4 ore.</b> La ricerca v5 lo taglia alla fascia 08-22 e fa
+    /// partire sessione e barre dalle 08:00: 08-12, 12-16, 16-20, 20-22. La griglia del feed oltre
+    /// l'ora e' una per <i>simbolo</i> ed e' ancorata all'inizio sessione del calendario (01:00:
+    /// 01-05, 05-09, 09-13…), quella su cui sono state trovate e girano le PT3B su FDAX. Le due
+    /// griglie danno barre diverse, e nessuna aritmetica ricava le une dalle altre. Provato il
+    /// 01/10/2026 a far girare le cinque FDAX a 4 ore della consegna v5.1 sulla griglia 01:00 con i
+    /// parametri verbatim: tre non aprono mai un trade (la loro finestra chiede una barra che chiuda
+    /// entro le 12:00, e li' le barre chiudono alle 13, 17 e 21), le altre due ritrovano il 25% e il
+    /// 67% dei trade della ricerca. La classe dichiara allora la serie a 60 minuti, che e' allineata
+    /// all'ora su qualunque griglia, e il motore piega quattro barre orarie nella barra della
+    /// ricerca (<see cref="FoldToResearchBars"/>).</para>
+    ///
+    /// <para><b>Cosa ne segue.</b> La strategia e' valutata a ogni barra oraria ma decide solo su
+    /// quella che chiude una barra della ricerca; l'ordine nasce valido per una barra della ricerca
+    /// e non per una della serie (<see cref="RetimeToResearchBar"/>); finestra, giorni, uscite e
+    /// <c>max_bars</c> si leggono sulle barre della ricerca.</para>
+    /// </summary>
+    public virtual int BarMinutes => TimeframeMinutes;
+
+    private bool FoldsBars => BarMinutes != TimeframeMinutes;
+
+    /// <summary>
+    /// Falso per i motori che non possono ragionare su barre piegate: quelli che lasciano contare
+    /// un'uscita a chi esegue (<c>MaxBarsInPosition</c> del BIAS, sulle barre della serie) o che
+    /// emettono uscite proprie con i tempi della serie (MAC). Oggi li usano solo PC, BO, BO_S, VBO,
+    /// LF e LF_HL, cioe' le cinque FDAX a 4 ore.
+    /// </summary>
+    protected virtual bool SupportsFoldedBars => true;
+
+    /// <summary>
+    /// Le barre della ricerca ricavate dalla finestra ricevuta, o <c>null</c> se la barra corrente
+    /// non ne chiude una (e' fuori fascia, o non e' l'ultima del suo gruppo). I gruppi partono
+    /// dall'apertura della sessione della ricerca; l'ultimo della sessione e' tronco dove la fascia
+    /// finisce (20-22 sul DAX), come nella ricerca.
+    /// </summary>
+    private OhlcvData[]? FoldToResearchBars(OhlcvData[] data)
+    {
+        var current = data[^1];
+        if (!InResearchMarket(current.DateTime))
+            return null;
+
+        var bucket = ResearchBarOpenUtc(current.DateTime);
+        var sessionEnd = SessionEndUtc(ResearchSessionDay(current.DateTime));
+        var bucketEnd = bucket.AddMinutes(BarMinutes);
+        if (bucketEnd > sessionEnd)
+            bucketEnd = sessionEnd;
+        if (current.DateTime.AddMinutes(TimeframeMinutes) != bucketEnd)
+            return null;
+
+        var folded = new List<OhlcvData>(data.Length * TimeframeMinutes / BarMinutes + 2);
+        OhlcvData? open = null;
+        foreach (var candle in data)
+        {
+            if (!InResearchMarket(candle.DateTime))
+                continue;
+
+            var start = ResearchBarOpenUtc(candle.DateTime);
+            if (open is null || open.DateTime != start)
+            {
+                open = new OhlcvData
+                {
+                    DateTime = start,
+                    Open = candle.Open,
+                    High = candle.High,
+                    Low = candle.Low,
+                    Close = candle.Close,
+                    Volume = candle.Volume
+                };
+                folded.Add(open);
+            }
+            else
+            {
+                open.High = Math.Max(open.High, candle.High);
+                open.Low = Math.Min(open.Low, candle.Low);
+                open.Close = candle.Close;
+                open.Volume += candle.Volume;
+            }
+        }
+
+        return folded.ToArray();
+    }
+
+    /// <summary>Apertura della barra della ricerca che contiene la barra della serie indicata.</summary>
+    private DateTime ResearchBarOpenUtc(DateTime barUtc)
+    {
+        var first = SessionOpenUtc(ResearchSessionDay(barUtc));
+        var index = Math.Floor((barUtc - first).TotalMinutes / BarMinutes);
+        return first.AddMinutes(index * BarMinutes);
+    }
+
+    /// <summary>
+    /// Un segnale costruito dai costruttori comuni vale "dalla barra successiva" della <i>serie</i>;
+    /// dove il motore piega le barre deve valere dalla chiusura della barra della ricerca, e vivere
+    /// quanto una di quelle.
+    /// </summary>
+    private void RetimeToResearchBar(TradeSignal signal)
+    {
+        if (!FoldsBars)
+            return;
+
+        var next = signal.Date.AddMinutes(BarMinutes);
+        signal.ValidFromUtc = next;
+        signal.ExpiresAtUtc = next;
+        signal.TimeframeMinutes = BarMinutes;
     }
 
     /// <summary>
@@ -329,9 +481,49 @@ public abstract class Pt5DavEngineBase : EasyEngineBase
             return _pt5.SessionsClosed >= AtrPeriod ? _pt5.Atr : null;
 
         var trueRange = TrueRange(_pt5.H0, _pt5.L0, _pt5.HasPreviousSessionClose ? _pt5.PreviousSessionClose : null);
-        var (count, _, atr) = AddTrueRange(_pt5.SessionsClosed, _pt5.TrueRangeSum, _pt5.Atr, trueRange);
+        var (count, _, atr) = AddTrueRange(_pt5.SessionsClosed, _pt5.TrueRangeSum, _pt5.Atr, trueRange, AtrPeriod);
         return count >= AtrPeriod ? atr : null;
     }
+
+    /// <summary>
+    /// Sessioni dell'<b>ATR giornaliero del motore</b>, 0 = il motore non ne usa. E' un secondo ATR di
+    /// Wilder sulle sessioni chiuse, con un periodo suo: lo chiede la VBO con <c>vol_source = 2</c>
+    /// (consegna v5.1), che misura la volatilita' con «l'ATR giornaliero a <c>atr_len</c> periodi,
+    /// calcolato sulla serie delle sessioni complete».
+    /// </summary>
+    protected virtual int DailyAtrPeriod => 0;
+
+    /// <summary>
+    /// L'ATR giornaliero del motore per la sessione in corso: le sessioni chiuse prima di essa.
+    /// <c>null</c> finche' non ne sono entrate <see cref="DailyAtrPeriod"/>.
+    ///
+    /// <para><b>Wilder, non media semplice</b>, misurato il 01/10/2026 sui prezzi d'ingresso della
+    /// ricerca (livello = O_d0 + k × VOL): VOL implicito / Wilder vale 1,0000 in mediana e al primo
+    /// decile su NQ-4H-VBO-cc305f (52 trade) e NQ-15M-VBO-806050; con la media semplice del range
+    /// vero 0,93-0,99, con quella dei range 0,94-1,02.</para>
+    /// </summary>
+    protected decimal? DailySessionsAtr =>
+        DailyAtrPeriod > 0 && _pt5.DailyAtrSessions >= DailyAtrPeriod ? _pt5.DailyAtr : null;
+
+    /// <summary>
+    /// Barre dell'<b>ATR di barra del motore</b>, 0 = il motore non ne usa: un ATR di Wilder sulle
+    /// barre di mercato del timeframe. Lo chiede la VBO con <c>vol_source = 3</c>.
+    /// </summary>
+    protected virtual int BarAtrPeriod => 0;
+
+    /// <summary>
+    /// L'ATR di barra del motore <b>fino alla barra prima di quella corrente</b>
+    /// (<c>atr(df, n).shift(1)</c> della ricerca); <c>null</c> finche' non sono entrate
+    /// <see cref="BarAtrPeriod"/> barre.
+    ///
+    /// <para><b>Wilder, e senza la barra di segnale</b>, misurato il 01/10/2026 sui 120 ingressi long
+    /// dell'anno broker di ES-1H-VBO-0b900e (livello = O_d0 + 0,7 × VOL): con Wilder fino alla barra
+    /// prima del segnale 104 livelli tornano entro il 2 per mille (mediana e primo decile 1,0000);
+    /// con la media semplice del range vero, che il motore usava fino a quel giorno, 1 su 120
+    /// (mediana 1,05). Era il motivo per cui ES-1H-VBO-195d04 della v5.0 ritrovava l'82% dei trade.</para>
+    /// </summary>
+    protected decimal? BarAtrBeforeCurrentBar =>
+        BarAtrPeriod > 0 && _pt5.BarAtrBarsBeforeBar >= BarAtrPeriod ? _pt5.BarAtrBeforeBar : null;
 
     /// <summary>
     /// Massimo e minimo delle ultime <paramref name="bars"/> barre di mercato, barra corrente
@@ -387,11 +579,18 @@ public abstract class Pt5DavEngineBase : EasyEngineBase
     /// La finestra operativa dichiarata, estremi inclusi, letta sulla chiusura della barra. Una
     /// PT5DAV la dichiara sempre, anche a giornata piena.
     /// </summary>
-    protected bool InTradingWindow(DateTime barTime) => InDeclaredWindow(barTime) ?? true;
+    protected bool InTradingWindow(DateTime barTime) =>
+        FoldsBars
+            ? EasyLib.TimeWindowInclusive(
+                TradingWindow!.Start, TradingWindow.End, WindowClock.BarLabelTime(barTime, BarMinutes))
+            : InDeclaredWindow(barTime) ?? true;
 
     /// <summary>Il giorno pandas della barra (0 = lunedi'), letto sulla chiusura come la ricerca.</summary>
     protected bool IsExcludedDay(DateTime barTime, int excludedDay) =>
-        excludedDay >= 0 && PythonWeekday(barTime) == excludedDay;
+        excludedDay >= 0 &&
+        (FoldsBars
+            ? ((int)WindowClock.BarLabelDay(barTime, BarMinutes).DayOfWeek + 6) % 7
+            : PythonWeekday(barTime)) == excludedDay;
 
     /// <summary>
     /// Finestra della ricerca da <c>start_hour</c>/<c>end_hour</c> verbatim; -1 = nessun limite da
@@ -439,11 +638,51 @@ public abstract class Pt5DavEngineBase : EasyEngineBase
         //    il CFD e' chiuso. La 4h delle 20:00 di Roma chiude alle 18:00 NY: NQ-4H-RBBU non vi
         //    entra mai (salvo le 20 volte, tutte a ora legale sfasata, in cui chiude alle 19:00 NY),
         //    NQ-4H-TFM, che tiene la notte, si' (47 ingressi).
+        RetimeToResearchBar(signal);
         var fill = signal.ValidFromUtc!.Value;
-        var hours = Pt5DavMarket.Hours(Symbol);
-        if (!hours.IsOpenAt(NewYorkClock.TimeOfDay(fill)) || !InResearchMarket(fill))
+        var signalDay = ResearchSessionDay(signal.Date);
+
+        // Un ordine STOP o LIMIT non attraversa il cambio di sessione: nato sull'ultima barra, muore
+        // con lei. Un ordine A MERCATO si': si esegue all'apertura della prima barra della sessione
+        // dopo. Misurato il 01/10/2026 sui trade della consegna v5.1, dove il mercato non chiude fra
+        // una sessione e l'altra (la sterlina, 24 ore): sulla barra delle 00:00 i motori stop e
+        // limit hanno 0 ingressi su 6.572 trade (PC, VBO, BO, RHL, RBB_M, BIAS_BO), LF a mercato 70
+        // su 183. Senza la regola BP-15M-RHL-579220, che compra al minimo della sessione prima e
+        // tiene fino a 10 giornate, eseguiva alle 00:00 l'ordine delle 23:45 e la domenica alle
+        // 23:00 quello del venerdi': ritrovava il 53% dei trade.
+        //
+        // Sul DAX il cambio di sessione e' la notte: la barra dopo l'ultima della fascia e' quella
+        // delle 08:00 del giorno dopo (ORARIO_MERCATO.md §3). Gli ingressi sulla barra delle 08:00
+        // sono solo di motori a mercato — 52 su 475 di FDAX-1H-LFHL-1b7ca6, tutti i 98 e 120 delle
+        // due FDAX a 4 ore LF e LF_HL, 74 delle MAC e LF della v5.0. Fino al 01/10/2026 li' l'ordine
+        // non nasceva nemmeno a mercato.
+        if (!InResearchMarket(fill))
+        {
+            if (signal.OrderType != TradeOrderType.Market)
+                return null;
+
+            fill = FirstMarketBarUtc(NextResearchDay(signalDay));
+            signal.ValidFromUtc = fill;
+            signal.ExpiresAtUtc = fill;
+        }
+
+        // Lo stesso vale per il fine settimana, che sulla sterlina non e' un cambio di sessione: la
+        // barra dopo l'ultima del venerdi' (23:00 di Roma, le 17:00 di New York) porta ancora la data
+        // di venerdi', ma il mercato e' chiuso e la prima barra vera e' quella della domenica sera.
+        // La ricerca li' non esegue lo stop o il limit del venerdi': i suoi ingressi della domenica
+        // sono alle 23:15, dall'ordine nato sulla prima barra della settimana (3 su 3 nell'anno
+        // broker di BP-15M-RHL-579220; i nostri erano alle 23:00). Un ordine a mercato invece passa:
+        // YM-4H-LFHL-addb33 entra sulla prima barra del lunedi' dal segnale del venerdi'.
+        if (signal.OrderType != TradeOrderType.Market &&
+            (ResearchSessionDay(fill) != signalDay || IsWeekendClose(fill)))
+        {
             return null;
-        if (IntradayOnly && !hours.IsOpenAt(NewYorkClock.TimeOfDay(fill.AddMinutes(TimeframeMinutes))))
+        }
+
+        var hours = Pt5DavMarket.Hours(Symbol);
+        if (!hours.IsOpenAt(NewYorkClock.TimeOfDay(fill)))
+            return null;
+        if (IntradayOnly && !hours.IsOpenAt(NewYorkClock.TimeOfDay(fill.AddMinutes(BarMinutes))))
             return null;
 
         var atr = EntrySessionAtr(fill);
@@ -479,7 +718,7 @@ public abstract class Pt5DavEngineBase : EasyEngineBase
         if (IntradayOnly)
         {
             var exit = IntradayExitUtc(day);
-            if (fill.AddMinutes(TimeframeMinutes) == exit)
+            if (fill.AddMinutes(BarMinutes) == exit)
                 return null;
 
             signal.CloseAtUtc = (fill < exit ? exit : SessionEndUtc(day)).AddMinutes(-1);
@@ -490,8 +729,57 @@ public abstract class Pt5DavEngineBase : EasyEngineBase
         // Misurato sulla riconciliazione NQ: senza, 105 uscite su 116 (NQ-30M-LF) e 9 su 9
         // (NQ-4H-LFHL) cadevano esattamente una barra prima.
         signal.MaxBarsInPosition = MaxBars > 0 ? MaxBars + 1 : null;
+
+        // Dove la ricerca taglia le barre a una fascia (il DAX, 08-22) le barre le conta il motore e
+        // non chi esegue: vedi CountsMarketBarsInPosition.
+        if (CountsMarketBarsInPosition)
+            signal.MaxBarsInPosition = null;
+
         return signal;
     }
+
+    /// <summary>
+    /// Vero se l'istante cade nella chiusura di fine settimana del CFD: dalle 17:00 di New York del
+    /// venerdi' alle 17:00 della domenica. Non vale per chi tratta 7 giorni su 7 (BTC). Gli orari
+    /// del CFD sono orari del giorno e non lo dicono: la sterlina non ne ha («24 ore su 24 nei giorni
+    /// di mercato»).
+    /// </summary>
+    private bool IsWeekendClose(DateTime instantUtc)
+    {
+        if (Pt5DavMarket.TradesOnWeekends(Symbol))
+            return false;
+
+        var weekClose = new TimeOnly(17, 0);
+        var time = NewYorkClock.TimeOfDay(instantUtc);
+        return NewYorkClock.SessionDay(instantUtc).DayOfWeek switch
+        {
+            DayOfWeek.Friday => time >= weekClose,
+            DayOfWeek.Saturday => true,
+            DayOfWeek.Sunday => time < weekClose,
+            _ => false
+        };
+    }
+
+    /// <summary>
+    /// Vero dove <c>max_bars</c> lo conta il motore, sulle barre di mercato che valuta, e non chi
+    /// esegue: i simboli di cui la ricerca taglia le barre a una fascia (il DAX, 08-22) con una
+    /// tenuta a barre.
+    ///
+    /// <para><b>Perche'.</b> <c>MaxBarsInPosition</c> conta le barre che il simbolo stampa, e sul DAX
+    /// il feed ne ha anche di notte, quando il future e il CFD trattano e la ricerca no: la
+    /// posizione scadeva ore prima. Misurato il 01/10/2026 sulle FDAX overnight della v5.1: stessa
+    /// barra d'uscita della ricerca nel 4-27% dei trade appaiati (FDAX-1H-LFHL 4%, FDAX-15M-BO 6%,
+    /// FDAX-30M-LF 10%) contro il 90-100% degli altri simboli.</para>
+    ///
+    /// <para><b>Perche' contate e non una data.</b> Una scadenza calcolata all'ingresso sulla
+    /// griglia 08-22 non conosce i festivi, e la ricerca conta le barre che esistono: provata, usciva
+    /// una giornata prima a Capodanno, a Pasqua e al Primo maggio (3 uscite diverse su 29 trade di
+    /// FDAX-30M-LF-b84c31, una delle quali a 345 punti di distanza). L'uscita e' un segnale
+    /// <c>ExitOnly</c> a mercato, come l'incrocio inverso della MAC: senza server la posizione
+    /// resta al piano, che ha il suo flat.</para>
+    /// </summary>
+    private bool CountsMarketBarsInPosition =>
+        MaxBars > 0 && Pt5DavMarket.ResearchMarketHours(Symbol) is not null;
 
     // ------------------------------------------------------------------ sessioni della ricerca
 
@@ -555,12 +843,47 @@ public abstract class Pt5DavEngineBase : EasyEngineBase
     protected DateTime IntradayExitUtc(DateTime day)
     {
         var limitUtc = NewYorkClock.ToUtc(day.Add(Pt5DavMarket.Hours(Symbol).IntradayLimit.ToTimeSpan()));
-        var openLocal = day.Add(SessionStart.ToTimeSpan());
+        // Le barre si contano dalla prima della sessione sulla griglia del feed: coincide con
+        // l'apertura della sessione ovunque, tranne sul DAX a 4 ore (vedi FirstMarketBarUtc).
+        var openLocal = Clock.ToSessionTime(FirstMarketBarUtc(day));
         var limitLocal = Clock.ToSessionTime(limitUtc);
-        var bars = Math.Floor((limitLocal - openLocal).TotalMinutes / TimeframeMinutes);
-        var exitUtc = Clock.ToUtc(openLocal.AddMinutes(bars * TimeframeMinutes));
+        var bars = Math.Floor((limitLocal - openLocal).TotalMinutes / BarMinutes);
+        var exitUtc = Clock.ToUtc(openLocal.AddMinutes(bars * BarMinutes));
         var end = SessionEndUtc(day);
         return exitUtc < end ? exitUtc : end;
+    }
+
+    /// <summary>
+    /// Apertura della prima barra della sessione <paramref name="day"/> <b>sulla griglia su cui il
+    /// motore ragiona</b>. E' l'apertura della sessione, salvo quando la griglia del feed e l'inizio
+    /// della sessione della ricerca non sono allineati: la griglia oltre l'ora e' ancorata all'inizio
+    /// sessione del <i>simbolo</i> (il calendario: 01:00 per il DAX), la sessione della ricerca v5 sul
+    /// DAX comincia alle 08:00, e una serie a 240 minuti del feed avrebbe la prima barra dentro la
+    /// fascia alle 09:00. Dove il motore piega le barre (<see cref="BarMinutes"/>) la griglia e' la
+    /// sua, e parte dall'apertura della sessione.
+    /// </summary>
+    protected DateTime FirstMarketBarUtc(DateTime day)
+    {
+        if (FoldsBars)
+            return SessionOpenUtc(day);
+
+        var gridAnchor = MarketCalendarRegistry.Current.Get(Symbol).SessionStart;
+        var offset = (int)(SessionStart.ToTimeSpan() - gridAnchor.ToTimeSpan()).TotalMinutes % TimeframeMinutes;
+        if (offset < 0)
+            offset += TimeframeMinutes;
+
+        var shift = (TimeframeMinutes - offset) % TimeframeMinutes;
+        return Clock.ToUtc(day.Add(SessionStart.ToTimeSpan()).AddMinutes(shift));
+    }
+
+    /// <summary>
+    /// La chiusura del CFD nel giorno indicato (ora di New York), o il suo limite intraday dove il
+    /// CFD non chiude mai (la sterlina, alle 17:00).
+    /// </summary>
+    protected DateTime CfdCloseUtc(DateTime day)
+    {
+        var hours = Pt5DavMarket.Hours(Symbol);
+        return NewYorkClock.ToUtc(day.Add((hours.Closes ?? hours.IntradayLimit).ToTimeSpan()));
     }
 
     /// <summary>Vero se la barra che apre in <paramref name="barUtc"/> sta nella fascia di mercato della ricerca.</summary>
@@ -571,6 +894,24 @@ public abstract class Pt5DavEngineBase : EasyEngineBase
 
         var time = Clock.TimeOfDay(barUtc);
         return time >= hours.Opens && time < hours.Closes;
+    }
+
+    /// <summary>
+    /// Vero se il CFD tratta almeno un minuto fra <paramref name="fromUtc"/> (incluso) e
+    /// <paramref name="toUtc"/> (escluso), secondo gli orari misurati sul broker: cioe' se una barra
+    /// con quegli estremi <b>esiste</b>. Una barra tutta dentro la pausa giornaliera (16:50-18:05 di
+    /// New York per indici, oro e petrolio) non ha minuti e la ricerca non la vede.
+    /// </summary>
+    protected bool CfdTradesWithin(DateTime fromUtc, DateTime toUtc)
+    {
+        var hours = Pt5DavMarket.Hours(Symbol);
+        for (var minute = fromUtc; minute < toUtc; minute = minute.AddMinutes(1))
+        {
+            if (hours.IsOpenAt(NewYorkClock.TimeOfDay(minute)))
+                return true;
+        }
+
+        return false;
     }
 
     private SessionClock NewYorkClock => _newYork ??= new SessionClock(Pt5DavMarket.NewYorkTimeZone);
@@ -607,6 +948,16 @@ public abstract class Pt5DavEngineBase : EasyEngineBase
 
         _pt5.LastBarInMarket = true;
         var day = ResearchSessionDay(bar.DateTime);
+
+        if (BarAtrPeriod > 0)
+        {
+            // C0 e' ancora la chiusura della barra di mercato precedente, anche se di un'altra sessione.
+            var trueRange = TrueRange(bar.High, bar.Low, _pt5.CurrentDay == default ? null : _pt5.C0);
+            _pt5.BarAtrBarsBeforeBar = _pt5.BarAtrBars;
+            _pt5.BarAtrBeforeBar = _pt5.BarAtr;
+            (_pt5.BarAtrBars, _pt5.BarTrueRangeSum, _pt5.BarAtr) =
+                AddTrueRange(_pt5.BarAtrBars, _pt5.BarTrueRangeSum, _pt5.BarAtr, trueRange, BarAtrPeriod);
+        }
 
         if (_pt5.CurrentDay == default)
         {
@@ -656,7 +1007,13 @@ public abstract class Pt5DavEngineBase : EasyEngineBase
             var trueRange = TrueRange(_pt5.H0, _pt5.L0,
                 _pt5.HasPreviousSessionClose ? _pt5.PreviousSessionClose : null);
             (_pt5.SessionsClosed, _pt5.TrueRangeSum, _pt5.Atr) =
-                AddTrueRange(_pt5.SessionsClosed, _pt5.TrueRangeSum, _pt5.Atr, trueRange);
+                AddTrueRange(_pt5.SessionsClosed, _pt5.TrueRangeSum, _pt5.Atr, trueRange, AtrPeriod);
+
+            if (DailyAtrPeriod > 0)
+            {
+                (_pt5.DailyAtrSessions, _pt5.DailyTrueRangeSum, _pt5.DailyAtr) =
+                    AddTrueRange(_pt5.DailyAtrSessions, _pt5.DailyTrueRangeSum, _pt5.DailyAtr, trueRange, DailyAtrPeriod);
+            }
         }
 
         _pt5.PreviousSessionClose = _pt5.C0;
@@ -676,24 +1033,24 @@ public abstract class Pt5DavEngineBase : EasyEngineBase
             : high - low;
 
     /// <summary>
-    /// Wilder: media semplice dei primi <see cref="AtrPeriod"/> range veri, poi
-    /// <c>atr += (tr − atr) / 50</c>. Sulla storia lunga il seme non si distingue piu' da
-    /// <c>ewm(alpha=1/50, adjust=False)</c>: misurato sui 6.728 trade SL di NQ, mediana
+    /// Wilder: media semplice dei primi <paramref name="period"/> range veri, poi
+    /// <c>atr += (tr − atr) / period</c>. Sulla storia lunga il seme non si distingue piu' da
+    /// <c>ewm(alpha=1/period, adjust=False)</c>: misurato sui 6.728 trade SL di NQ, mediana
     /// distanza di stop / (stop_atr × ATR50) = 1,0045 con entrambi (lo scarto e' lo slippage).
     /// </summary>
     private static (int Count, decimal Sum, decimal Atr) AddTrueRange(
-        int count, decimal sum, decimal atr, decimal trueRange)
+        int count, decimal sum, decimal atr, decimal trueRange, int period)
     {
         count++;
-        if (count <= AtrPeriod)
+        if (count <= period)
         {
             sum += trueRange;
-            if (count == AtrPeriod)
-                atr = sum / AtrPeriod;
+            if (count == period)
+                atr = sum / period;
         }
         else
         {
-            atr += (trueRange - atr) / AtrPeriod;
+            atr += (trueRange - atr) / period;
         }
 
         return (count, sum, atr);

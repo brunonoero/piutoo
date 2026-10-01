@@ -40,6 +40,9 @@ public abstract class Pt5DavMovingAverageCrossoverEngine : Pt5DavEngineBase
         IntradayOnly = false;
     }
 
+    /// <inheritdoc />
+    protected override bool SupportsFoldedBars => false;
+
     protected override bool ApplyResearchParameter(string key, object value)
     {
         switch (key)
@@ -90,6 +93,14 @@ public abstract class Pt5DavMovingAverageCrossoverEngine : Pt5DavEngineBase
         var (open1, high1, low1, close1) = (ohlc[4], ohlc[5], ohlc[6], ohlc[7]);
         var undecided = Math.Abs(close1 - open1) <= DailyFactor * (high1 - low1);
 
+        // DIFFERENZA NOTA con la ricerca: la sua MAC INVERTE. L'incrocio che chiude una posizione,
+        // se passa i filtri del lato opposto, apre anche quella contraria sulla barra dopo (nuovo
+        // ingresso all'apertura, uscita della vecchia alla chiusura: i due trade si sovrappongono
+        // per una barra). Qui quel trade non nasce: mentre una strategia e' in posizione un ingresso
+        // opposto non esiste, e non per una regola di questo motore ma del sistema — engine, server e
+        // cBot non invertono (PiootooTradingService.ProcessSignals, decisione di compare-0041), e
+        // un motore che emettesse l'ordine lo vedrebbe scartato. Misurato il 01/10/2026 sull'anno
+        // broker: 9 ingressi su 48 di YM-4H-MAC-0f5aea sono inversioni, e sono i soli che mancano.
         var entries = new List<TradeSignal>(1);
         if (crossesOver && Direction != 2 && undecided && close1 > open1)
             AddEntry(entries, WithWeekendExit(Finish(
@@ -105,8 +116,11 @@ public abstract class Pt5DavMovingAverageCrossoverEngine : Pt5DavEngineBase
     /// <summary>
     /// L'uscita di fine settimana, dichiarata all'ingresso. Misurata sui trade di tutte le 23 MAC:
     /// <list type="bullet">
-    ///   <item>fino a 60 minuti, alla chiusura dell'ultima barra del venerdi' entro il limite del CFD
-    ///   (17:00 NY);</item>
+    ///   <item>fino a 60 minuti, alla <b>chiusura del CFD</b> del venerdi' (16:50 NY; 17:00 su BP),
+    ///   cioe' sull'ultima barra del venerdi' anche se e' tronca: la ricerca la etichetta 22:30 a 30
+    ///   minuti e 22:45 a 15. Fino al 01/10/2026 qui si usciva alla chiusura dell'ultima barra
+    ///   <i>intera</i> (il limite delle intraday), una barra prima: 12 uscite su 69 di
+    ///   GC-30M-MAC-0992dc nell'anno broker;</item>
     ///   <item>a 4 ore, alla chiusura della barra di giovedi' 20:00-24:00 di Roma, cioe' all'apertura
     ///   della sessione di venerdi' — su tutte e sette le MAC a 4 ore (BP 140 uscite forzate su 266, GC
     ///   106 su 122). La scheda non lo spiega: e' la regola misurata, non dedotta.</item>
@@ -133,8 +147,17 @@ public abstract class Pt5DavMovingAverageCrossoverEngine : Pt5DavEngineBase
         return signal;
     }
 
-    private DateTime WeekendExitUtc(DateTime friday) =>
-        TimeframeMinutes >= 240 ? SessionOpenUtc(friday) : IntradayExitUtc(friday);
+    private DateTime WeekendExitUtc(DateTime friday)
+    {
+        if (BarMinutes >= 240)
+            return SessionOpenUtc(friday);
+
+        // Sul DAX l'ultima barra del venerdi' e' quella che chiude la fascia (22:00), prima della
+        // chiusura del CFD: altrove la sessione finisce dopo, e vale la chiusura del CFD.
+        var cfdClose = CfdCloseUtc(friday);
+        var sessionEnd = SessionEndUtc(friday);
+        return cfdClose < sessionEnd ? cfdClose : sessionEnd;
+    }
 
     private TradeSignal ExitNextBar(SignalType side, OhlcvData bar, OhlcvData[] data, string reason)
     {

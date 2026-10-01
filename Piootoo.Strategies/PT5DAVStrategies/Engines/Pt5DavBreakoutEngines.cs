@@ -208,18 +208,33 @@ public abstract class Pt5DavCurrentSessionBreakoutEngine : Pt5DavPatternGatedEng
 
 /// <summary>
 /// VBO della ricerca PT5DAV: stop a <c>O_d0 ± k × VOL</c>. VOL e' il range della sessione precedente
-/// (<c>vol_source = 1</c>) o l'ATR a media semplice delle ultime <c>atr_len</c> barre chiuse prima
-/// della corrente (<c>vol_source = 3</c>, <c>atr(df, n).shift(1)</c>); <c>vol_mult_short = -1</c>
-/// vuol dire lo stesso moltiplicatore del long. Come il VBO condiviso, non riemette nel verso gia'
-/// in posizione.
+/// (<c>vol_source = 1</c>), l'ATR di Wilder delle ultime <c>atr_len</c> <b>sessioni</b> chiuse
+/// (<c>vol_source = 2</c>, usato solo dalla consegna v5.1: vedi
+/// <see cref="Pt5DavEngineBase.DailySessionsAtr"/>) o l'ATR di Wilder delle <c>atr_len</c>
+/// <b>barre</b> fino a quella prima della corrente (<c>vol_source = 3</c>,
+/// <c>atr(df, n).shift(1)</c>: vedi <see cref="Pt5DavEngineBase.BarAtrBeforeCurrentBar"/>; fino al
+/// 01/10/2026 era una media semplice e i livelli non tornavano); <c>vol_mult_short = -1</c> vuol
+/// dire lo stesso moltiplicatore del long. Come il VBO condiviso, non riemette nel verso gia' in
+/// posizione.
+///
+/// <para>Un <c>vol_source</c> che il motore non conosce <b>ferma la strategia alla costruzione del
+/// primo segnale</b>: fino al 01/10/2026 dava "volatilita' non disponibile" a ogni barra, e le tre
+/// VBO della v5.1 con <c>vol_source = 2</c> erano classi verbatim, corrette campo per campo, che non
+/// aprivano mai un trade.</para>
 /// </summary>
 public abstract class Pt5DavVolatilityBreakoutEngine : Pt5DavPatternGatedEngine
 {
-    /// <summary><c>vol_source</c>: 1 = range d1, 3 = ATR di barra.</summary>
+    /// <summary><c>vol_source</c>: 1 = range d1, 2 = ATR di Wilder sulle sessioni, 3 = ATR di barra.</summary>
     protected int VolatilitySource = 1;
 
-    /// <summary><c>atr_len</c>, per <c>vol_source = 3</c>.</summary>
+    /// <summary><c>atr_len</c>: sessioni per <c>vol_source = 2</c>, barre per <c>vol_source = 3</c>.</summary>
     protected int AtrLength;
+
+    /// <inheritdoc />
+    protected override int DailyAtrPeriod => VolatilitySource == 2 ? AtrLength : 0;
+
+    /// <inheritdoc />
+    protected override int BarAtrPeriod => VolatilitySource == 3 ? AtrLength : 0;
 
     /// <summary><c>vol_mult</c>.</summary>
     protected decimal MultiplierLong;
@@ -252,8 +267,10 @@ public abstract class Pt5DavVolatilityBreakoutEngine : Pt5DavPatternGatedEngine
         var volatility = VolatilitySource switch
         {
             1 => ohlc[5] - ohlc[6],
-            3 => PreviousBarsAtr(data),
-            _ => (decimal?)null
+            2 => DailySessionsAtr,
+            3 => BarAtrBeforeCurrentBar,
+            _ => throw new InvalidOperationException(
+                $"{Name}: vol_source {VolatilitySource} non e' fra quelli che il motore VBO conosce (1, 2, 3).")
         };
         if (volatility is not > 0m)
             return Hold(bar.Close, barTime, "Volatilita' non disponibile");
@@ -275,17 +292,5 @@ public abstract class Pt5DavVolatilityBreakoutEngine : Pt5DavPatternGatedEngine
                 oneEntryPerSessionPerSide: true));
 
         return Combine(entries, Hold(bar.Close, barTime));
-    }
-
-    /// <summary>Media semplice del range vero delle <see cref="AtrLength"/> barre prima della corrente.</summary>
-    private decimal? PreviousBarsAtr(OhlcvData[] data)
-    {
-        if (AtrLength <= 0 || RecentMarketBars(data, AtrLength + 1, barsAgo: 1) is not { } bars)
-            return null;
-
-        decimal sum = 0m;
-        for (var index = 1; index < bars.Length; index++)
-            sum += EasyLib.TrueRange(bars[index], bars[index - 1]);
-        return sum / AtrLength;
     }
 }

@@ -79,6 +79,16 @@ Ognuna e' nel codice con il numero che la giustifica.
 | MAC: uscita di fine settimana al limite del CFD del venerdi'; a 4 ore alla chiusura della barra di giovedi' 20:00 | MAC | tutte le 23 MAC; a 4 ore BP 140/266, GC 106/122 (regola misurata, la scheda non la spiega) |
 | BIASW: ingresso all'apertura della barra che **apre** a `le_time`, uscita alla chiusura di quella che **finisce** a `lx_time` | BIASW | 676/676 su NQ-4H; la scheda scrive l'ingresso una barra prima |
 
+**Corrette il 01/10/2026**, riconciliando la consegna v5.1 sugli stessi motori (serie `PT8DAV_*`): le
+misure e la tabella completa stanno in [`mappa-strategie-pt8dav.md`](mappa-strategie-pt8dav.md)
+§"Cosa e' cambiato nei motori". Valgono anche per le classi di questa serie: l'ATR di barra della
+VBO (`vol_source` 3) e' di Wilder e non una media semplice; un ordine stop o limit non attraversa il
+cambio di sessione ne' il fine settimana, uno a mercato si'; sul DAX l'ordine a mercato dell'ultima
+barra si esegue alle 08:00 e `max_bars` conta le sole barre 08-22; l'uscita BIASW chiede che la sua
+barra esista negli orari del CFD; l'uscita del venerdi' della MAC e' alla chiusura del CFD, una barra
+dopo. La riga qui sopra sulla MAC ("al limite del CFD del venerdi'") descriveva l'uscita una barra
+prima.
+
 ## Riconciliazione
 
 `Pt5DavParityStudy` (studio, `PIOOTOO_STUDI=1`) esegue le strategie con il motore vero, orologio al

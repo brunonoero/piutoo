@@ -73,6 +73,18 @@ public sealed record SweepJob(
     /// misurare le finaliste. Confrontare un risultato dell'uno con uno dell'altro non ha senso.</para>
     /// </summary>
     public int? ClockTimeframeMinutes { get; init; }
+
+    /// <summary>
+    /// Prima di questo istante la strategia viene <b>valutata ma non opera</b>: i suoi segnali si
+    /// scartano. <c>null</c> = opera dall'inizio delle serie, che e' il comportamento di sempre.
+    ///
+    /// <para><b>A cosa serve.</b> A scaldare lo stato che una strategia porta fra le barre — per le
+    /// PT5DAV l'ATR50 di Wilder, che a ridosso dell'inizio ha ancora un terzo del peso sul seme —
+    /// senza arrivare alla data di confronto gia' in posizione. Far partire il run prima non basta:
+    /// una strategia che tiene a lungo (un ciclo settimanale, dieci giornate) entra nel tratto di
+    /// riscaldamento e il suo primo trade "vero" nasce da un percorso che il riferimento non ha.</para>
+    /// </summary>
+    public DateTime? EntriesFromUtc { get; init; }
 }
 
 /// <summary>Il risultato di una combinazione. Metriche sui trade <b>chiusi</b>.</summary>

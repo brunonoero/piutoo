@@ -70,6 +70,27 @@ public sealed class Pt5DavParityStudy(ITestOutputHelper output)
         new DateTime(2026, 9, 10, 0, 0, 0, DateTimeKind.Utc));
 
     /// <summary>
+    /// La serie <c>PT8DAV_*</c> (consegna v5.1, <c>piootoo-repository/run-engine-v3/</c>, 01/10/2026):
+    /// stessi motori, stesso confronto, contro i trade fonte <c>broker</c> di quella consegna, che
+    /// cominciano il 16/09/2025. E' il test di <c>run-engine-v3/VERIFICA.md</c>: almeno il 90% dei
+    /// trade appaiati, strategia per strategia. Resoconti in <c>run-engine-v3/verifica/</c>.
+    /// </summary>
+    [Theory]
+    [Trait("Category", ResearchStudy.Category)]
+    [InlineData("BP")]
+    [InlineData("CL")]
+    [InlineData("ES")]
+    [InlineData("FDAX")]
+    [InlineData("GC")]
+    [InlineData("KC")]
+    [InlineData("NQ")]
+    [InlineData("YM")]
+    public Task Pt8DavMatchesThePythonTradesOnFtmo(string symbol) => RunAsync(symbol, broker: "FTMO", source: "broker",
+        new DateTime(2025, 9, 16, 0, 0, 0, DateTimeKind.Utc),
+        new DateTime(2026, 9, 10, 0, 0, 0, DateTimeKind.Utc),
+        prefix: "PT8DAV", delivery: "run-engine-v3", leadDays: 300);
+
+    /// <summary>
     /// Ricostruisce dal minuto gli aggregati FTMO di BP e BTC con il calendario corrente. Serve dopo
     /// il 24/09/2026, quando il calendario dei due simboli e' passato agli orari del CFD: gli aggregati
     /// sono cache derivata e quelli su disco erano mascherati con la pausa CME (e, per BTC, senza fine
@@ -99,12 +120,24 @@ public sealed class Pt5DavParityStudy(ITestOutputHelper output)
         }
     }
 
-    private async Task RunAsync(string symbol, string? broker, string source, DateTime start, DateTime end)
+    /// <param name="prefix">Prefisso delle classi da eseguire (<c>PT5DAV</c> o <c>PT8DAV</c>).</param>
+    /// <param name="delivery">Cartella della consegna sotto <c>piootoo-repository</c>, con i trade di riferimento.</param>
+    /// <param name="leadDays">
+    /// Giorni di run <b>prima</b> di <paramref name="start"/> in cui le strategie si valutano senza
+    /// operare (<c>SweepJob.EntriesFromUtc</c>). Servono all'ATR50: e' una media di Wilder, e
+    /// partendo a ridosso del periodo un terzo del suo peso resta sul seme (la media semplice delle
+    /// prime 50 sessioni della finestra). I livelli con un offset in ATR50 uscivano allora diversi da
+    /// quelli della ricerca, che l'ATR lo porta dalla sua storia: su CL-1H-BOS-3616b7 0,02-0,03 su un
+    /// livello a 61, e 5 ingressi su 21 mancati; le quattro KC ritrovavano il 60-87% dei trade e con
+    /// il riscaldamento il 92-100%.
+    /// </param>
+    private async Task RunAsync(string symbol, string? broker, string source, DateTime start, DateTime end,
+        string prefix = "PT5DAV", string delivery = "PT5DAV", int leadDays = 0)
     {
         if (ResearchStudy.IsSkipped(output)) return;
 
         var strategies = StrategyFactory.GetRegisteredStrategies(includeResearchContainers: true)
-            .Where(d => d.Id.StartsWith($"PT5DAV_{symbol}_", StringComparison.Ordinal))
+            .Where(d => d.Id.StartsWith($"{prefix}_{symbol}_", StringComparison.Ordinal))
             .OrderBy(d => d.Id, StringComparer.Ordinal)
             .ToList();
         Assert.NotEmpty(strategies);
@@ -117,13 +150,13 @@ public sealed class Pt5DavParityStudy(ITestOutputHelper output)
             ExternalRepositoryPath = @"[BasePath]\datafeed-external"
         };
         var series = await SweepSeries.LoadAsync(
-            new PiootooDataFeedService(new DatafeedCatalog(settings)), $"@{symbol}", timeframes, start, end, broker, warmupDays: 150d);
+            new PiootooDataFeedService(new DatafeedCatalog(settings)), $"@{symbol}", timeframes, start.AddDays(-leadDays), end, broker, warmupDays: 150d);
         var runner = new SweepRunner(series);
         var rome = new SessionClock("Europe/Rome");
         var label = broker is null ? symbol : $"{symbol}-{broker}";
 
         var report = new StringBuilder();
-        report.AppendLine($"# Riconciliazione PT5DAV {symbol} — feed {broker ?? "interno"}, {start:yyyy-MM-dd} → {end:yyyy-MM-dd}");
+        report.AppendLine($"# Riconciliazione {prefix} {symbol} — feed {broker ?? "interno"}, {start:yyyy-MM-dd} → {end:yyyy-MM-dd}");
         report.AppendLine();
         report.AppendLine("Motore vero (SweepRunner) con orologio al minuto, senza costi, `RejectWrongSideLevels` spento, overnight e overweek permessi. " +
                           $"Confronto con `trades_per_strategia/<codice>.csv`, fonte `{source}`, sullo stesso periodo. Un trade corrisponde se ha " +
@@ -136,7 +169,7 @@ public sealed class Pt5DavParityStudy(ITestOutputHelper output)
         {
             var strategy = StrategyFactory.CreateStrategy(definition.Id, definition.Symbol, definition.TimeframeMinutes)!;
             var code = ((Pt5DavEngineBase)strategy).ResearchCode;
-            var python = LoadPython(code, source, rome, start, end);
+            var python = LoadPython(delivery, code, source, rome, start, end);
 
             var outcome = runner.Run(new SweepJob(definition.Id)
             {
@@ -144,16 +177,21 @@ public sealed class Pt5DavParityStudy(ITestOutputHelper output)
                 CommissionPerContract = 0m,
                 ClockTimeframeMinutes = 1,
                 RejectWrongSideLevels = false,
-                Holding = AccountHoldingPolicy.Default with { AllowOvernight = true, AllowOverweek = true }
+                Holding = AccountHoldingPolicy.Default with { AllowOvernight = true, AllowOverweek = true },
+                // Il tratto prima di start scalda l'ATR50 e basta: la ricerca parte piatta.
+                EntriesFromUtc = leadDays > 0 ? start : null
             });
 
+            // Le barre del confronto sono quelle su cui la strategia ragiona, che sono quelle dei
+            // trade della ricerca: per le FDAX a 4 ore la serie ricevuta e' l'oraria.
+            var barMinutes = ((Pt5DavEngineBase)strategy).BarMinutes;
             var ours = outcome.ClosedTrades
                 .Where(t => t.EntryDate >= start && t.EntryDate < end)
                 .Select(t => new Trade(
-                    BarStart(t.EntryDate, definition.TimeframeMinutes, rome),
+                    BarStart(t.EntryDate, barMinutes, rome),
                     t.Direction == SignalType.Buy ? 1 : -1,
                     t.EntryPrice, t.ExitPrice,
-                    BarStart(t.ExitDate.AddMinutes(-1), definition.TimeframeMinutes, rome),
+                    ExitBar(symbol, t.ExitDate.AddMinutes(-1), barMinutes, rome),
                     t.ExitReason.ToString()))
                 .ToList();
 
@@ -174,10 +212,10 @@ public sealed class Pt5DavParityStudy(ITestOutputHelper output)
             report.AppendLine(line);
             output.WriteLine(line);
 
-            WriteDetail(label, definition.Id, python, ours);
+            WriteDetail(delivery, label, definition.Id, python, ours);
         }
 
-        var folder = Path.Combine(RepositoryPath, "PT5DAV", "verifica");
+        var folder = Path.Combine(RepositoryPath, delivery, "verifica");
         Directory.CreateDirectory(folder);
         await File.WriteAllTextAsync(Path.Combine(folder, $"riconciliazione-{label}.md"), report.ToString(), Encoding.UTF8);
     }
@@ -187,9 +225,9 @@ public sealed class Pt5DavParityStudy(ITestOutputHelper output)
         public decimal Points => (Exit - Entry) * Side;
     }
 
-    private static List<Trade> LoadPython(string code, string source, SessionClock rome, DateTime start, DateTime end)
+    private static List<Trade> LoadPython(string delivery, string code, string source, SessionClock rome, DateTime start, DateTime end)
     {
-        var path = Path.Combine(RepositoryPath, "PT5DAV", "trades_per_strategia", code + ".csv");
+        var path = Path.Combine(RepositoryPath, delivery, "trades_per_strategia", code + ".csv");
         var lines = File.ReadAllLines(path);
         var header = lines[0].Split(',');
         int Col(string name) => Array.IndexOf(header, name);
@@ -236,9 +274,32 @@ public sealed class Pt5DavParityStudy(ITestOutputHelper output)
         return rome.ToUtc(floored);
     }
 
-    private void WriteDetail(string symbol, string id, List<Trade> python, List<Trade> ours)
+    /// <summary>
+    /// La barra a cui la ricerca attribuisce un'uscita. Dove la ricerca taglia le barre a una fascia
+    /// (il DAX, 08-22) uno stop o un target che scatta fuori fascia — di notte il CFD tratta e lo
+    /// stop e' attivo, <c>ORARIO_MERCATO.md</c> §5 — non ha una barra sua, e nei trade della ricerca
+    /// porta l'etichetta della prima barra della sessione dopo. Senza questo ogni stop notturno
+    /// risultava un'uscita diversa pur essendo la stessa.
+    /// </summary>
+    private static DateTime ExitBar(string symbol, DateTime instantUtc, int timeframeMinutes, SessionClock rome)
     {
-        var folder = Path.Combine(RepositoryPath, "PT5DAV", "verifica", symbol);
+        if (Pt5DavMarket.ResearchMarketHours(symbol) is not { } hours)
+            return BarStart(instantUtc, timeframeMinutes, rome);
+
+        var local = rome.ToSessionTime(instantUtc);
+        var time = TimeOnly.FromDateTime(local);
+        if (time >= hours.Opens && time < hours.Closes)
+            return BarStart(instantUtc, timeframeMinutes, rome);
+
+        var day = time >= hours.Closes ? local.Date.AddDays(1) : local.Date;
+        while (day.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday)
+            day = day.AddDays(1);
+        return rome.ToUtc(day.Add(hours.Opens.ToTimeSpan()));
+    }
+
+    private void WriteDetail(string delivery, string symbol, string id, List<Trade> python, List<Trade> ours)
+    {
+        var folder = Path.Combine(RepositoryPath, delivery, "verifica", symbol);
         Directory.CreateDirectory(folder);
         var sb = new StringBuilder("fonte,ingresso_utc,lato,prezzo_ingresso,uscita_utc,prezzo_uscita,motivo\n");
         foreach (var (source, list) in new[] { ("python", python), ("nostro", ours) })
