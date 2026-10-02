@@ -45,12 +45,14 @@ ritirato, e a ogni nuova misura di trade gemelli. La fonte dei numeri resta
 `docs/registro-piani.md`; se pagina e file su disco non concordano, hanno ragione i file.
 
 **Pubblicazione**: il sito servito è una copia in `C:\piootoo-web` (IIS, sito `piootoo-doc`, porta 81).
-Dopo aver rigenerato i dati: `robocopy . C:\piootoo-web /MIR /XD __pycache__`. La procedura intera è la
-skill `aggiorna-sito` (`.claude/skills/aggiorna-sito`).
+Dopo aver rigenerato i dati: `robocopy . C:\piootoo-web /MIR /XD __pycache__ .claude`, **prima con `/L`**
+per vedere cosa sovrascrive: se in `C:\piootoo-web` c'è lavoro che il sorgente non ha, va riportato qui
+prima di pubblicare. La procedura intera è la skill `aggiorna-sito` (`.claude/skills/aggiorna-sito`).
 
 ## File
 
 - `assets/style.css`: stile, tema chiaro e scuro.
+- `assets/logo.svg`: il logo, usato nella barra in alto, nella home e come icona della scheda.
 - `assets/site.js`: barra in alto e tema; `assets/piani.js`: pagina dei piani;
   `assets/manuale.js`: indice e ricerca del manuale.
 - `data/piani.js`: **generato**, non si modifica a mano. È un `.js` e non un `.json` perché da

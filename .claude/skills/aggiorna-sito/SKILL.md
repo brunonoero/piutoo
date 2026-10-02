@@ -19,7 +19,7 @@ nello stesso giro di lavoro, non dopo.
 | | |
 |---|---|
 | Sorgente (in git) | `piootoo-repository\web\` — `LEGGIMI.md` dice come è fatto |
-| Sito servito | `C:\piootoo-web`, sito IIS `piootoo-doc`, **http://localhost:81**. È una copia: non è un repository e non si modifica lì |
+| Sito servito | `C:\piootoo-web`, sito IIS `piootoo-doc`, **http://localhost:81**. È una copia e non è un repository. Chi ci lavora direttamente (capita) riporta le modifiche nel sorgente: vedi il passo 5 |
 | Dati generati | `web\data\piani.js`, da `aggiorna-dati.py`. Mai a mano |
 | Dati scritti a mano | `web\data\compatibilita.json`: trade gemelli, avvertenze per piano, note e combinazioni per broker |
 | Fonte dei numeri | `docs\registro-piani.md`. Se sito e file su disco non concordano, hanno ragione i file |
@@ -57,20 +57,31 @@ nello stesso giro di lavoro, non dopo.
    due, «produzione» sale di due e «best-plan» scende di due (un best plan promosso non fa più riga a
    sé). Se non torna, il server ha scritto altrove o la promozione non è avvenuta: `GET
    api/v1/broker-workspaces/{BROKER}`.
-5. **Pubblicare** la copia servita:
+5. **Pubblicare** la copia servita, **in due tempi**. Prima la prova, che non scrive nulla:
 
    ```powershell
-   robocopy C:\piootoo-dev\piootoo-repository\web C:\piootoo-web /MIR /XD __pycache__ /NFL /NDL /NJH /NP
+   robocopy C:\piootoo-dev\piootoo-repository\web C:\piootoo-web /MIR /XD __pycache__ .claude /L /NJH /NP /NDL
    ```
 
+   L'elenco deve contenere **solo i file toccati in questo giro** (di norma `data\compatibilita.json` e
+   `data\piani.js`). Qualsiasi altra riga — un file `Newer`/`Older` che non si è toccato, un `*EXTRA File`
+   — vuol dire che qualcuno ha lavorato direttamente in `C:\piootoo-web`: l'utente ci apre sessioni
+   (lo stile e il logo del 02/10/2026 sono nati lì). Allora **non si pubblica sopra**: prima si porta
+   quel lavoro nel sorgente (copia del file da `C:\piootoo-web` a `piootoo-repository\web`, o unione a
+   mano se il file è cambiato da entrambe le parti), si ripete la prova, e solo quando l'elenco è
+   pulito si lancia lo stesso comando senza `/L`.
+
    Exit sotto 8 = riuscito (1 = file copiati; il wrapper lo riporta come errore, fa fede il numero).
-   `/MIR` cancella da `C:\piootoo-web` ciò che non sta nel sorgente: se nel riepilogo la colonna *Extras*
-   non è 0, guardare cosa prima di rilanciare.
+   `/MIR` **cancella** da `C:\piootoo-web` ciò che non sta nel sorgente e sovrascrive senza chiedere:
+   il 02/10/2026, lanciato senza prova, ha tolto il logo e lo stile che un'altra sessione aveva scritto
+   tre minuti prima (recuperati dal suo transcript). `.claude` è escluso perché è la configurazione
+   delle sessioni aperte in quella cartella, non parte del sito.
 6. **Verificare quello che IIS serve**, non il file: `Invoke-WebRequest
    http://localhost:81/data/piani.js -UseBasicParsing` e cercarci il codice del piano nuovo.
 7. **Commit dei soli propri file** (`git` di Visual Studio, percorsi espliciti): `docs/registro-piani.md`,
    `piootoo-repository/web/data/compatibilita.json`, `piootoo-repository/web/data/piani.js`, e
-   `manuale.html` se toccato. `broker-workspaces/` e `best-plans/` non sono in git.
+   `manuale.html` se toccato. `broker-workspaces/` e `best-plans/` non sono in git. Il lavoro riportato
+   da `C:\piootoo-web` va in un commit a parte, che dice di chi è.
 
 ## A fine lavoro, da dire all'utente
 
