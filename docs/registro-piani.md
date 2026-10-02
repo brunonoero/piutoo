@@ -174,9 +174,37 @@ stesso lato, ingresso entro 3 ore, interno portato sul conto × 0,05):
   swap −19. I tre run delle 05:58, 06:00 e 06:02 sono tentativi vuoti, da cancellare.
 - In entrambi l'oro fa l'82-86% del netto: e' il piano sull'oro, come atteso.
 
-**Da fare**: backtest cBot di **P2** su FTMO e Fintokei, e il controllo dei trade gemelli con i best plan PT5DAV/PT3B prima di metterli su conti diversi della stessa
-prop: `GC_PCH_002_60` con `PT5DAV_GC_PCH_003_60` (P1 PT5DAV) e `FDAX_RHL_002_60` con le RHL del DAX sono
-i candidati ovvi. Non sono best plan finche' non hanno un run cBot.
+**Backtest cBot di P2** (02/10/2026, stesso confronto, interno × 0,1):
+
+| run cBot | periodo | trade | netto | DD chiuso | giorno peggiore | interno stesso periodo | abbinati |
+|---|---|---:|---:|---:|---:|---|---:|
+| `ftmo-pt8dav-p2-bt-20250803-2105-v7.8.13-20261002-0756` | 04/08/2025 → 25/09/2026 | 307 | **+26.858** | 2.410 | −1.330 | 299 trade, +25.545 | 96% |
+| `fintokei-pt8dav-p2-bt-20251225-2206-v7.8.13-20261002-0756` | 26/12/2025 → 29/09/2026 | 209 | **+15.848** | 2.458 | −1.641 | 193 trade, +18.885 (feed FTMO) | 80% |
+
+- **FTMO**: tutti e quattordici i mesi in utile (il peggiore novembre 2025, +227). Per strategia cBot e
+  interno coincidono: GC_VBO 11.792 / 11.518, NQ_VBO 5.114 / 5.998, FDAX_RHL 4.959 / 3.449 (un trade in piu'
+  sul cBot), YM_RBU 2.451 / 2.311, ES_MAC 1.474 / 971, ES_LFH 984 / 1.305. Le due sterline in pari.
+  Commissioni 722, swap −62.
+- **Fintokei**: i trade abbinati sono meno (80%) perche' il feed e' un altro: `GC_VBO_001_15` 24 trade contro
+  17, `NQ_VBO_003_240` 50 contro 44. Sugli abbinati 17.712 cBot contro 16.690 interno. Dicembre 2025 in
+  perdita (−1.722, la prima settimana del run), settembre 2026 −251. Commissioni 26, swap −29.
+
+**Trade gemelli** (`ricerca/pt8dav-piani/gemelli.py`: stesso simbolo e lato, ingresso entro 5 minuti, sui run
+cBot):
+
+| | PT3B EUROPA / USA / INDICI | PT5DAV-O4, O4-X05, EUROPA-O4 | PT5DAV-P1 | fra P1 e P2 |
+|---|---:|---:|---:|---:|
+| **PT8DAV-P1** | 0% | 4-7% (`GC_LFD_001_60` con `PT5DAV_GC_LFD_002_60`) | **13-17%** (`GC_PCH_002_60` con `PT5DAV_GC_PCH_003_60`) | 2-3% |
+| **PT8DAV-P2** | 0-1% | 1-2% | 1-2% | 2-3% |
+
+- **P2 e' compatibile con tutti** i best plan esistenti, e con P1.
+- **P1 non va accanto a `PT5DAV-P1`** su un altro conto della stessa prop (le due PCH dell'oro aprono gli
+  stessi trade), ed e' al limite con O4 / O4-X05 / EUROPA-O4. Va bene con EUROPA, USA, INDICI e con P2.
+- P1 e P2 **sullo stesso conto** (cBot, chiuso): FTMO +41.465 con DD 5.108 e giorno peggiore −1.446;
+  Fintokei +26.783 con DD 3.054 e giorno peggiore −1.622.
+
+**Da fare**: promozione a best plan (non ancora fatta al 02/10/2026), poi il demo. I quattro run sono
+promuovibili: i piani sono stati salvati prima dell'avvio dei run.
 
 ## Piani Fintokei (30/09/2026)
 
