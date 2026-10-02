@@ -157,8 +157,24 @@ FTMO, spread per ora e swap del broker del piano), **sul conto da 100k** (`tools
 Correlazione giornaliera fra P1 e P2 nel fuori campione: 0,08. Sul periodo di composizione (06/2022 →
 05/2025, per contratto): P1 314.565 con DD 20.027, P2 249.040 con DD 23.778.
 
-**Da fare**: backtest cBot (FTMO dal 01/06/2025, Fintokei dal 25/12/2025), confronto con l'interno, e il
-controllo dei trade gemelli con i best plan PT5DAV/PT3B prima di metterli su conti diversi della stessa
+**Backtest cBot di P1** (02/10/2026, cBot 7.7.0, confronto con `ricerca/pt8dav-piani/confronto_cbot.py`:
+stesso lato, ingresso entro 3 ore, interno portato sul conto × 0,05):
+
+| run cBot | periodo | trade | netto | DD chiuso | giorno peggiore | interno stesso periodo | abbinati |
+|---|---|---:|---:|---:|---:|---|---:|
+| `ftmo-pt8dav-p1-bt-20250803-2105-v7.8.13-20261002-0600` | 04/08/2025 → 25/09/2026 | 531 | **+14.607** | 3.214 | −540 | 524 trade, +14.538 | 98% |
+| `fintokei-pt8dav-p1-bt-20251225-2206-v7.8.13-20261002-0604` | 26/12/2025 → 01/10/2026 | 339 | **+10.935** | 1.222 | −530 | 334 trade, +14.100 (feed FTMO) | 92% |
+
+- **FTMO**: cBot e interno coincidono strategia per strategia (GC_LFD 4.839 / 4.817, GC_PCH 7.198 / 7.077,
+  NQ_VBO 1.182 / 1.152, NQ_SBO 950 / 911). Mesi in perdita novembre e dicembre 2025 (−898, −1.307), il
+  drawdown dell'oro gia' visto nell'interno. Commissioni 851, swap −137.
+- **Fintokei**: sui trade abbinati 10.499 cBot contro 11.036 interno. Lo scarto sul totale e' un trade
+  dell'oro: `GC_LFD_001_60` fa 2.187 sul cBot e 4.165 nell'interno con un trade in piu' (21 contro 20); il
+  resto e' il feed diverso sul Nasdaq (`NQ_VBO_001_15` 23 trade contro 19, 14 abbinati). Commissioni 32,
+  swap −19. I tre run delle 05:58, 06:00 e 06:02 sono tentativi vuoti, da cancellare.
+- In entrambi l'oro fa l'82-86% del netto: e' il piano sull'oro, come atteso.
+
+**Da fare**: backtest cBot di **P2** su FTMO e Fintokei, e il controllo dei trade gemelli con i best plan PT5DAV/PT3B prima di metterli su conti diversi della stessa
 prop: `GC_PCH_002_60` con `PT5DAV_GC_PCH_003_60` (P1 PT5DAV) e `FDAX_RHL_002_60` con le RHL del DAX sono
 i candidati ovvi. Non sono best plan finche' non hanno un run cBot.
 
