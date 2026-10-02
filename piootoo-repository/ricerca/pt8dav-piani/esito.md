@@ -101,12 +101,29 @@ terzo conto chiede strategie che qui non ci sono.
 - `PT8DAV_ES_MAC_001_30` (piano 2): la MAC della ricerca inverte, la nostra no. Qui si misura la
   nostra.
 
-## Prossimi passi
+## Fatto il 02/10/2026
 
-1. Rilascio del server con le PT8DAV (cambia anche il comportamento delle PT5DAV nei piani attivi).
-2. Workspace `ftmo-pt8dav` e `fintokei-pt8dav`, piani `…-P1` (size 0,5) e `…-P2` (size 1), tenuta e
-   commissione dei gemelli PT5DAV.
-3. Backtest interno con il piano, perdita giornaliera sull'equity.
+1. Rilascio **7.8.13** del server con le PT8DAV (cambia anche il comportamento delle PT5DAV nei piani
+   attivi).
+2. Workspace `ftmo-pt8dav` e `fintokei-pt8dav`, piani `FTMO-PT8DAV-P1` / `-P2` e `FINTOKEI-PT8DAV-P1` /
+   `-P2` (`crea_piani.py`): P1 a size 0,5, P2 a size 1, tenuta dei piani PT5DAV, commissione 2 su FTMO e
+   0 su Fintokei.
+3. Backtest interno con il piano sul tratto B (`backtest_piani.py`, cartelle `bt-…-fuori-campione`): il
+   server ridà i numeri dello studio (P1 601 trade, P2 358). **Sul conto da 100 k**, con la perdita
+   giornaliera sull'equity (`tools/dd-giornaliero-ftmo`):
+
+   | piano | netto | DD chiuso | DD equity | giorno peggiore sull'equity | minimo sotto 100 k |
+   |---|---:|---:|---:|---:|---:|
+   | FTMO-PT8DAV-P1 (0,5) | 14.351 | 3.152 | 3.615 | 1.368 | −1.278 |
+   | FTMO-PT8DAV-P2 (1) | 27.668 | 2.292 | 2.684 | 1.680 | −481 |
+   | FINTOKEI-PT8DAV-P1 (0,5) | 14.493 | 3.127 | 3.590 | 1.398 | −1.264 |
+   | FINTOKEI-PT8DAV-P2 (1) | 28.206 | 2.261 | 2.652 | 1.679 | −470 |
+
+   Nessun giorno oltre 2.500 in nessuno dei quattro.
+
+## Resta da fare
+
 4. Backtest cBot in cTrader: FTMO dal 01/06/2025, Fintokei dal 25/12/2025 (prima cTrader non ha lo
    storico degli indici `_P`).
-5. Confronto cBot contro interno, e solo dopo il demo.
+5. Confronto cBot contro interno, controllo dei trade gemelli con i best plan in produzione, e solo
+   dopo il demo.

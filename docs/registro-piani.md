@@ -118,6 +118,50 @@ Per rifare il controllo quando cambia un best plan: lo script legge l'elenco da 
 strategie da masterfilter e piano, i trade dal run del best plan
 (`ricerca/combinazioni-best-plan.ps1`).
 
+## Piani PT8DAV (02/10/2026)
+
+Dalla serie `PT8DAV_*` (consegna v5.1, [`domini/mappa-strategie-pt8dav.md`](domini/mappa-strategie-pt8dav.md)).
+Composti **senza guardare il periodo su cui sono misurati**: candidate scelte e piani composti sul
+06/2022 → 05/2025, verifica sul 06/2025 → 09/2026 che nessuna scelta ha visto, ne' della ricerca ne'
+nostra. Metodo, candidate e piano scartato in `piootoo-repository/ricerca/pt8dav-piani/esito.md`. Server
+**7.8.13**.
+
+| piano | workspace | broker / conto | size | commissione |
+|---|---|---|---:|---:|
+| `FTMO-PT8DAV-P1` | ftmo-pt8dav | FTMO / 17202911 | 0,5 | 2 |
+| `FTMO-PT8DAV-P2` | ftmo-pt8dav | FTMO / 17202911 | 1 | 2 |
+| `FINTOKEI-PT8DAV-P1` | fintokei-pt8dav | FINTOKEI / 4302718 | 0,5 | 0 |
+| `FINTOKEI-PT8DAV-P2` | fintokei-pt8dav | FINTOKEI / 4302718 | 1 | 0 |
+
+Tenuta dei piani PT5DAV: overnight e overweek ammessi, flat di sessione 20:45 UTC per 30 minuti. I due
+workspace hanno le stesse 16 strategie nel masterfilter; ogni piano spegne le 8 dell'altro.
+
+- **P1** (8): `FDAX_BRT_001_15`, `NQ_VBO_001_15`, `NQ_SBO_003_60`, `GC_LFD_001_60`, `GC_PCH_002_60`,
+  `ES_RHL_002_60`, `BP_VBO_001_15`, `BP_SBO_001_15`. **E' un piano sull'oro**: nel fuori campione le due
+  GC fanno l'83% del netto, e il drawdown e' quasi tutto di `GC_PCH_002_60` (novembre-dicembre 2025).
+  Per questo va a size 0,5.
+- **P2** (8): `NQ_VBO_003_240`, `GC_VBO_001_15`, `ES_LFH_001_15`, `ES_MAC_001_30`, `FDAX_RHL_002_60`,
+  `YM_RBU_001_60`, `BP_PCH_001_60`, `BP_RBM_001_30`. Il piu' equilibrato: oro al 42%, tutti i trimestri del
+  fuori campione in utile; le due sterline sono in pari.
+
+**Backtest interno con il piano, fuori campione** (`bt-…-fuori-campione`, 01/06/2025 → 25/09/2026, feed
+FTMO, spread per ora e swap del broker del piano), **sul conto da 100k** (`tools/dd-giornaliero-ftmo`):
+
+| piano | trade | netto | DD chiuso | DD equity | giorno peggiore FTMO | giorno peggiore equity | giorni > 2.500 | minimo sotto 100k |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| FTMO-PT8DAV-P1 (0,5) | 601 | 14.351 | 3.152 | 3.615 | 556 | 1.368 | 0 | −1.278 |
+| FTMO-PT8DAV-P2 (1) | 358 | 27.668 | 2.292 | 2.684 | 1.200 | 1.680 | 0 | −481 |
+| FINTOKEI-PT8DAV-P1 (0,5) | 601 | 14.493 | 3.127 | 3.590 | 556 | 1.398 | 0 | −1.264 |
+| FINTOKEI-PT8DAV-P2 (1) | 358 | 28.206 | 2.261 | 2.652 | 1.200 | 1.679 | 0 | −470 |
+
+Correlazione giornaliera fra P1 e P2 nel fuori campione: 0,08. Sul periodo di composizione (06/2022 →
+05/2025, per contratto): P1 314.565 con DD 20.027, P2 249.040 con DD 23.778.
+
+**Da fare**: backtest cBot (FTMO dal 01/06/2025, Fintokei dal 25/12/2025), confronto con l'interno, e il
+controllo dei trade gemelli con i best plan PT5DAV/PT3B prima di metterli su conti diversi della stessa
+prop: `GC_PCH_002_60` con `PT5DAV_GC_PCH_003_60` (P1 PT5DAV) e `FDAX_RHL_002_60` con le RHL del DAX sono
+i candidati ovvi. Non sono best plan finche' non hanno un run cBot.
+
 ## Piani Fintokei (30/09/2026)
 
 Conto **4302718**, 100.000 USD, broker `FINTOKEI` (tabella `cfd-ctrader-fintokei`, simboli `_P`). Regole del conto
