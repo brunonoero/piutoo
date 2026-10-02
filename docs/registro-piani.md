@@ -203,8 +203,14 @@ cBot):
 - P1 e P2 **sullo stesso conto** (cBot, chiuso): FTMO +41.465 con DD 5.108 e giorno peggiore −1.446;
   Fintokei +26.783 con DD 3.054 e giorno peggiore −1.622.
 
-**Da fare**: promozione a best plan (non ancora fatta al 02/10/2026), poi il demo. I quattro run sono
-promuovibili: i piani sono stati salvati prima dell'avvio dei run.
+**Best plan dal 02/10/2026**, tutti e quattro (decisione dell'utente dopo i run cBot;
+`ricerca/pt8dav-piani/promuovi.py`): `FTMO-PT8DAV-P1`, `FTMO-PT8DAV-P2`, `FINTOKEI-PT8DAV-P1`,
+`FINTOKEI-PT8DAV-P2`, ognuno sul proprio run cBot della tabella sopra. La scheda di ogni best plan porta
+le incompatibilita' di P1.
+
+**Da fare**: il passaggio in produzione nel broker workspace (non fatto) e il demo. Regole d'uso come per
+gli altri best plan: demo 1-2 mesi, allarme quando il drawdown del conto supera quello del run, nessun
+parametro ritoccato durante l'uso.
 
 ## Piani Fintokei (30/09/2026)
 
