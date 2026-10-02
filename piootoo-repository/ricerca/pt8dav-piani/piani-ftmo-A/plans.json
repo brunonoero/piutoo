@@ -1,0 +1,57 @@
+﻿[
+  {
+    "plan": 1,
+    "strategies": [
+      "PT8DAV_FDAX_BRT_001_15",
+      "PT8DAV_NQ_VBO_001_15",
+      "PT8DAV_GC_LFD_001_60",
+      "PT8DAV_ES_RHL_002_60",
+      "PT8DAV_BP_VBO_001_15",
+      "PT8DAV_BP_SBO_001_15",
+      "PT8DAV_GC_PCH_002_60",
+      "PT8DAV_NQ_SBO_003_60"
+    ],
+    "net": 314565.108175363205227,
+    "maxDrawdown": 20027.354279148533000,
+    "worstDay": -7744.4475,
+    "maxPairCorrelation": 0.17511889574104694,
+    "maxPairTailCorrelation": -0.2406012559138024,
+    "regimeWarnings": []
+  },
+  {
+    "plan": 2,
+    "strategies": [
+      "PT8DAV_NQ_VBO_003_240",
+      "PT8DAV_GC_VBO_001_15",
+      "PT8DAV_ES_LFH_001_15",
+      "PT8DAV_FDAX_RHL_002_60",
+      "PT8DAV_ES_MAC_001_30",
+      "PT8DAV_YM_RBU_001_60",
+      "PT8DAV_BP_PCH_001_60",
+      "PT8DAV_BP_RBM_001_30"
+    ],
+    "net": 249040.490691411564634,
+    "maxDrawdown": 23777.849979794350305,
+    "worstDay": -14432.79,
+    "maxPairCorrelation": 0.07201114444653252,
+    "maxPairTailCorrelation": -0.1817201610545867,
+    "regimeWarnings": []
+  },
+  {
+    "plan": 3,
+    "strategies": [
+      "PT8DAV_YM_VBO_001_15",
+      "PT8DAV_FDAX_BOS_002_240",
+      "PT8DAV_FDAX_LFH_001_15",
+      "PT8DAV_NQ_LFD_002_60",
+      "PT8DAV_NQ_BSW_001_240",
+      "PT8DAV_GC_TFM_001_15"
+    ],
+    "net": 290795.6635,
+    "maxDrawdown": 44660.0640,
+    "worstDay": -22215.208,
+    "maxPairCorrelation": 0.2490003296920837,
+    "maxPairTailCorrelation": -0.22006894269303462,
+    "regimeWarnings": []
+  }
+]
