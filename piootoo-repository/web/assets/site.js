@@ -36,10 +36,13 @@
     }).join("");
 
     bar.innerHTML =
-      '<a class="brand" href="index.html"><span class="mark">P</span>Piootoo <small>manuale e piani</small></a>' +
+      '<a class="brand" href="index.html"><img class="mark" src="assets/logo.svg" alt="" width="30" height="30">' +
+      '<span class="word">Pi<span class="oo">oo</span>t<span class="oo">oo</span></span> <small>manuale e piani</small></a>' +
       '<nav class="topnav">' + links + "</nav>" +
       '<span class="spacer"></span>' +
-      '<button class="theme-toggle" type="button" title="Cambia tema chiaro / scuro">Tema</button>';
+      '<button class="theme-toggle" type="button" title="Cambia tema chiaro / scuro" aria-label="Cambia tema chiaro / scuro">' +
+      '<svg viewBox="0 0 20 20" width="17" height="17" aria-hidden="true"><circle cx="10" cy="10" r="7.25" fill="none" stroke="currentColor" stroke-width="1.5"/>' +
+      '<path d="M10 2.75a7.25 7.25 0 0 1 0 14.5z" fill="currentColor"/></svg></button>';
     document.body.insertBefore(bar, document.body.firstChild);
 
     bar.querySelector(".theme-toggle").addEventListener("click", function () {
