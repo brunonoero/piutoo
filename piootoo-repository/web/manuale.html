@@ -1,0 +1,988 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Manuale d'uso — Piootoo</title>
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<div class="manual">
+  <nav class="toc" id="toc" aria-label="Indice del manuale"></nav>
+
+  <article class="doc" id="doc">
+    <h1>Manuale d'uso di Piootoo</h1>
+    <p class="lead">Come si usa il sistema: dalla scelta delle strategie al piano che gira su un conto,
+      e cosa guardare ogni giorno. È scritto per chi opera, non per chi sviluppa.</p>
+    <p class="stamp">Riferito alla versione 7.8.13 (ottobre 2026). Le etichette fra «virgolette» sono
+      quelle della console. Il funzionamento interno sta nei documenti di progetto, elencati in fondo.</p>
+
+    <!-- ═══════════════════════════ PARTE 1 ═══════════════════════════ -->
+    <section data-part="Orientarsi" id="cose">
+      <h2>Cos'è Piootoo</h2>
+      <p>Piootoo è un sistema di trading sui future. Fa due cose: <b>misura</b> le strategie sui dati
+        storici (backtest) e le <b>esegue</b> su un conto vero attraverso cTrader. Le strategie
+        girano sempre sul server; cTrader esegue soltanto gli ordini.</p>
+
+      <div class="pieces">
+        <div class="piece"><b>Server</b><span>Il cervello: valuta le strategie, decide gli ordini,
+          scrive i risultati. Non ha finestre. Installato in <code>C:\piootoo\server</code>, risponde
+          su <code>http://localhost:5000</code>.</span></div>
+        <div class="piece"><b>Console</b><span>Il programma che si usa: anagrafiche, backtest, piani,
+          sorveglianza. Parla solo con il server. Installata in <code>C:\piootoo\client</code>.</span></div>
+        <div class="piece"><b>cBot in cTrader</b><span>Il braccio sul broker: manda al server le barre
+          del mercato, riceve gli ordini e li esegue sul conto. Uno per piano e per conto.</span></div>
+        <div class="piece"><b>Repository dei dati</b><span>La cartella <code>piootoo-repository</code>:
+          barre storiche, workspace, piani, best plan, misure di spread. Tutto su file.</span></div>
+      </div>
+
+      <div class="callout">
+        <span class="t">La regola che spiega tutto il resto</span>
+        Il server decide <em>cosa</em> fare, il broker decide <em>se</em> e <em>a che prezzo</em>.
+        Il server non dà mai per eseguito un ordine: aspetta che il cBot glielo confermi.
+      </div>
+    </section>
+
+    <section data-part="Orientarsi" id="parole">
+      <h2>Le parole da conoscere</h2>
+      <table class="wrap">
+        <thead><tr><th>Parola</th><th>Cosa vuol dire</th></tr></thead>
+        <tbody>
+          <tr><td><b>Strategia</b></td><td>Una regola di ingresso e uscita su un simbolo e un timeframe, per esempio
+            <code>PT3B_FDAX_PCH_002_240</code>: serie, simbolo, famiglia, progressivo, minuti della barra.
+            Le strategie sono scritte nel programma: dalla console si scelgono, non si modificano.</td></tr>
+          <tr><td><b>Workspace</b></td><td>Lo spazio di lavoro della ricerca: un elenco di strategie (il
+            <b>masterfilter</b>), i suoi piani, i suoi backtest. Se ne possono avere molti.</td></tr>
+          <tr><td><b>Piano di trading</b></td><td>La configurazione operativa: quali strategie del workspace girano,
+            su quale broker e quali conti, con che size, commissione e regole di tenuta. Ha un
+            <b>codice</b> unico: è l'unica cosa che si scrive nel cBot.</td></tr>
+          <tr><td><b>Backtest interno</b></td><td>La simulazione fatta dal server sulle barre storiche. Veloce, copre
+            anni.</td></tr>
+          <tr><td><b>Backtest cBot</b></td><td>La stessa simulazione fatta dentro cTrader, con il cBot vero e i prezzi
+            del broker. È la prova più vicina al conto.</td></tr>
+          <tr><td><b>Best plan</b></td><td>Un backtest messo in evidenza perché è andato bene. È una fotografia: da
+            quel momento il piano è <b>bloccato</b> e non si modifica più.</td></tr>
+          <tr><td><b>Produzione</b><br>(broker workspace)</td><td>Il posto dei piani che vanno sui conti, uno spazio
+            per broker. Ci si entra solo promuovendo un best plan.</td></tr>
+          <tr><td><b>Sessione</b></td><td>Un piano in esecuzione: nasce quando il cBot si collega al server e vive
+            finché il piano gira.</td></tr>
+          <tr><td><b>Broker, conto,<br>tabella simboli</b></td><td>Il broker è chi quota (FTMO, Fintokei). Il conto è
+            il numero cTrader con il suo capitale. La tabella di conversione traduce i simboli di Piootoo
+            (<code>@NQ</code>) in quelli del broker e dice quanto vale un loro lotto.</td></tr>
+          <tr><td><b>Datafeed</b></td><td>Le barre storiche. Ce ne sono due specie: l'archivio <b>interno</b> (future)
+            e un archivio <b>per broker</b>, raccolto dai suoi prezzi. Un backtest ne usa uno solo.</td></tr>
+          <tr><td><b>Tenuta</b></td><td>Se una posizione può restare aperta di notte (<b>overnight</b>) e nel fine
+            settimana (<b>overweek</b>). Quando non può, il piano la chiude a un'ora fissa: il <b>flat</b>.</td></tr>
+          <tr><td><b>Size</b></td><td>Il moltiplicatore del piano: 1 è la size di riferimento, 0,5 la metà.</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section data-part="Orientarsi" id="percorso">
+      <h2>Il percorso di un piano</h2>
+      <p>Ogni piano fa la stessa strada, e ogni passaggio ha una schermata della console.</p>
+      <div class="flow">
+        <div class="box"><b>1 · Workspace</b><span>Scelgo le strategie</span></div><div class="arrow">→</div>
+        <div class="box"><b>2 · Piano</b><span>Broker, conti, size, tenuta</span></div><div class="arrow">→</div>
+        <div class="box"><b>3 · Backtest</b><span>Interno, poi con il cBot</span></div><div class="arrow">→</div>
+        <div class="box key"><b>4 · Best plan</b><span>Il piano si blocca</span></div><div class="arrow">→</div>
+        <div class="box key"><b>5 · Produzione</b><span>Codice nuovo, conti scelti</span></div><div class="arrow">→</div>
+        <div class="box"><b>6 · Conto</b><span>cBot con il codice del piano</span></div>
+      </div>
+      <p>Due conseguenze da tenere a mente:</p>
+      <ul>
+        <li><b>Un piano promosso non si ritocca.</b> Per cambiare qualcosa si duplica, si rimisura e si
+          promuove la copia. Così quello che gira sul conto è sempre quello che è stato misurato.</li>
+        <li><b>Dentro un broker una strategia sta in un solo piano attivo.</b> Lo impone il server alla
+          promozione. La pagina <a href="piani.html">Piani per broker</a> mostra chi può stare con chi.</li>
+      </ul>
+      <p>I due passaggi evidenziati hanno un capitolo ciascuno:
+        <a href="#come-best-plan">come funzionano i best plan</a> e
+        <a href="#come-produzione">come funzionano i piani di produzione</a>.</p>
+    </section>
+
+    <!-- ═══════════════════════ COME FUNZIONA ═══════════════════════ -->
+    <section data-part="Come funziona" id="come-best-plan">
+      <h2>Come funzionano i best plan</h2>
+      <p>Un best plan è un <b>backtest messo in evidenza</b> perché ha funzionato bene. Non è un tipo di piano
+        diverso: è la prova, conservata, che un certo piano in un certo run ha dato certi numeri. Ed è
+        l'unica porta verso la produzione.</p>
+
+      <h3>È una fotografia, non un collegamento</h3>
+      <p>Quando si preme <span class="ui">★ Promuovi a best plan</span> nel dettaglio di un backtest, il server
+        <b>copia</b> il run in una cartella a parte, fuori dai workspace
+        (<code>best-plans\WORKSPACE__CARTELLA</code>). Nella copia finiscono:</p>
+      <table class="wrap">
+        <thead><tr><th>Cosa</th><th>A cosa serve</th></tr></thead>
+        <tbody>
+          <tr><td>Le cifre del run</td><td>P&amp;L, drawdown, trade, periodo, una riga per anno, i trade e il P&amp;L di ogni strategia.</td></tr>
+          <tr><td>La curva di equity</td><td>Il grafico della lista e del dettaglio.</td></tr>
+          <tr><td>I trade (<code>trades.json</code>)</td><td>Per rifare i conti: drawdown giornaliero, trade gemelli con altri piani.</td></tr>
+          <tr><td>Il riepilogo del run</td><td>Dice quali strategie il run ha <b>eseguito davvero</b>.</td></tr>
+          <tr><td>Il piano (<code>plan.json</code>)</td><td>Size, pesi, tenuta, commissione, conti: il piano com'era <b>al momento della promozione</b>.</td></tr>
+          <tr><td>Il report HTML</td><td>Se il run ne aveva uno.</td></tr>
+        </tbody>
+      </table>
+      <p>Da lì le due cose vivono separate: cancellare il backtest nel workspace non tocca il best plan, e
+        togliere il best plan non tocca il backtest. Promuovere una seconda volta lo stesso backtest chiede se
+        sostituire la fotografia.</p>
+
+      <h3>La promozione blocca il piano</h3>
+      <p>Subito dopo la copia, il piano del run viene <b>bloccato</b>: non si salva e non si elimina più. Nella
+        lista dei piani compare con il lucchetto e la riga color ambra; nel dettaglio c'è un banner e manca
+        <span class="ui">Salva</span>.</p>
+      <ul>
+        <li>Per cambiare qualcosa si usa <span class="ui">Duplica…</span>: la copia ha un codice nuovo, nasce
+          sbloccata e porta tutto il resto dell'originale. Poi va rimisurata con un backtest suo.</li>
+        <li>Il blocco <b>non si toglie</b>: né dalla console, né rimuovendo il best plan.</li>
+      </ul>
+      <p>Il motivo: se il piano si potesse ritoccare, i numeri della fotografia non sarebbero più quelli di quel piano.</p>
+
+      <h3>Un piano può avere più schede</h3>
+      <p>Ogni backtest promosso è una scheda a sé, anche se il piano è lo stesso: un run a size 1 e uno a size
+        0,75, oppure lo stesso run rifatto con una versione più recente. La scheda superata non si cancella: ci
+        si scrive che è superata e resta come confronto. La pagina <a href="piani.html">Piani per broker</a>
+        mostra, per ogni piano, la scheda promossa per ultima.</p>
+
+      <h3>Due tipi di curva, e non si confrontano</h3>
+      <table class="wrap">
+        <thead><tr><th>Colonna «Curva»</th><th>Da dove viene</th><th>Come leggerla</th></tr></thead>
+        <tbody>
+          <tr><td><b>mark-to-market</b></td><td>Run interno completo: equity ora per ora, con le posizioni aperte valutate al prezzo del momento.</td>
+            <td>Il drawdown è quello vero, comprese le perdite non ancora chiuse.</td></tr>
+          <tr><td><b>realizzata</b></td><td>Run del cBot, o run interno interrotto: un gradino a ogni trade chiuso.</td>
+            <td>Il drawdown è misurato fra una chiusura e l'altra ed esce <b>più basso</b> del vero.</td></tr>
+        </tbody>
+      </table>
+      <p>Tutti i best plan di oggi vengono da run del cBot, quindi hanno la curva realizzata. Il drawdown che
+        conta per le regole del broker (la perdita giornaliera con le posizioni aperte) si calcola a parte sui
+        trade, e sta nel registro dei piani.</p>
+
+      <h3>Le cifre per anno</h3>
+      <p>Nella scheda <span class="ui">Per anno</span> ogni anno parte dall'equity di fine anno precedente (il
+        capitale iniziale per il primo); il drawdown si misura da un picco che riparte da lì; i trade sono
+        contati sull'anno di <b>uscita</b>. Sono gli stessi numeri della tabella del report HTML.</p>
+
+      <h3>La scheda del piano</h3>
+      <p>È l'unica parte che si scrive a mano, e l'unica che si può modificare dopo. Va compilata subito, finché
+        il ragionamento è fresco: perché il piano è stato scelto, da dove vengono le strategie, qual è il campione
+        e quale il fuori campione, le riserve, come ripetere il run.</p>
+
+      <h3>Cosa un best plan non è</h3>
+      <ul>
+        <li><b>Non è un piano in produzione.</b> Essere best plan non mette niente su un conto: serve la promozione
+          in produzione, che è un passo separato.</li>
+        <li><b>Non garantisce la compatibilità.</b> Due best plan possono avere strategie in comune: lo si scopre
+          alla promozione in produzione, o prima nella pagina dei piani.</li>
+        <li><b>Un run senza piano</b> (neutro, su tutto il masterfilter) può essere best plan, ma non si può
+          promuovere in produzione: non c'è un piano da promuovere.</li>
+      </ul>
+    </section>
+
+    <section data-part="Come funziona" id="come-produzione">
+      <h2>Come funzionano i piani di produzione</h2>
+      <p>I piani che girano sui conti non stanno nei workspace della ricerca: stanno nel <b>broker workspace</b>,
+        uno spazio per broker (<code>broker-workspaces\FTMO</code>, <code>broker-workspaces\FINTOKEI</code>…).
+        Lo spazio di un broker nasce da solo alla prima promozione: non c'è un «Nuovo».</p>
+      <p>Il motivo è il masterfilter. In un workspace un piano gira «tutte le strategie del masterfilter meno
+        quelle spente»: aggiungere una strategia per un piano nuovo la accenderebbe in silenzio anche negli altri.
+        Un piano di produzione invece <b>dichiara una per una le strategie che esegue</b>, e nient'altro può entrarci.</p>
+
+      <table class="wrap">
+        <thead><tr><th></th><th>Piano di workspace (ricerca)</th><th>Piano di produzione</th></tr></thead>
+        <tbody>
+          <tr><td><b>Dove sta</b></td><td>Nel workspace</td><td>Nel broker workspace del suo broker</td></tr>
+          <tr><td><b>Come nasce</b></td><td><span class="ui">Nuovo piano</span></td><td>Solo da un best plan, o duplicando un piano di produzione</td></tr>
+          <tr><td><b>Strategie</b></td><td>Masterfilter meno le spente</td><td>L'elenco scritto nel piano</td></tr>
+          <tr><td><b>Si modifica</b></td><td>Sì, finché non è bloccato</td><td>Mai</td></tr>
+          <tr><td><b>Si elimina</b></td><td>Sì, finché non è bloccato</td><td>No: si ritira</td></tr>
+          <tr><td><b>Codice</b></td><td>Con la serie: <code>FTMO-PT3B-EUROPA</code></td><td><code>BROKER-NOME</code>: <code>FTMO-EUROPA</code></td></tr>
+        </tbody>
+      </table>
+
+      <h3>Cosa entra nel piano alla promozione</h3>
+      <p>Il piano di produzione è <b>quello che è stato misurato</b>, non quello che c'è scritto oggi nel workspace.
+        Il server lo compone da due fonti del best plan:</p>
+      <ul>
+        <li>le <b>strategie</b> sono quelle che il run ha eseguito davvero (dal riepilogo del run);</li>
+        <li><b>tutto il resto</b> — size, pesi, tenuta, commissione, tetto di posizioni — viene dal piano copiato
+          nel best plan.</li>
+      </ul>
+      <p>Per questo la promozione si rifiuta quando le due fonti non possono coincidere:</p>
+      <table class="wrap">
+        <thead><tr><th>Il server rifiuta se…</th><th>Perché</th></tr></thead>
+        <tbody>
+          <tr><td>il piano è stato salvato dopo l'avvio del run</td><td>Non si sa più quale configurazione il run abbia misurato. Si rifà il backtest e si promuove quello.</td></tr>
+          <tr><td>una strategia eseguita dal run risulta spenta nel piano</td><td>È una contraddizione fra run e piano.</td></tr>
+          <tr><td>una strategia non esiste più, o è un contenitore di ricerca</td><td>Non è eseguibile su un conto.</td></tr>
+          <tr><td>una strategia è già in un altro piano attivo del broker</td><td>Vedi la regola qui sotto.</td></tr>
+          <tr><td>un conto è disattivato, o è di un altro broker</td><td>I conti di un piano sono tutti del suo broker.</td></tr>
+        </tbody>
+      </table>
+      <p>Il dialogo <span class="ui">Promuovi in produzione…</span> ha per questo il pulsante
+        <span class="ui">Verifica</span>: mostra il piano che nascerebbe, o il rifiuto con il motivo, senza scrivere niente.</p>
+
+      <h3>I conti si scelgono alla promozione</h3>
+      <p>I piani di ricerca girano tutti sul conto di prova. Alla promozione si indicano i conti veri del piano;
+        lasciando vuoto restano quelli di origine. Cambiare conto non cambia ciò che il run ha misurato: la size
+        di ogni ordine si scala sul capitale del conto.</p>
+
+      <h3>Una strategia, un solo piano attivo</h3>
+      <p>Dentro un broker una strategia può stare in <b>un solo piano attivo</b>. È la regola contro il copy
+        trading: due conti della stessa prop non devono aprire gli stessi trade. Il server la impone alla
+        promozione e nomina il piano e la strategia in conflitto.</p>
+      <p>Un conto, invece, <b>può eseguire più piani</b>: sono più cBot sullo stesso conto, uno per piano. È così
+        che i tre piani FTMO girano oggi sul demo.</p>
+      <div class="callout warn">
+        <span class="t">Il server controlla i nomi, non i trade</span>
+        Due strategie diverse possono aprire gli stessi trade (due breakout sullo stesso mercato). Questo il
+        server non lo vede: si misura sui run, e sta nella pagina <a href="piani.html">Piani per broker</a> come
+        «trade gemelli». Prima di mettere due piani su due conti dello stesso broker si guarda lì.
+      </div>
+
+      <h3>Non si modifica: si duplica o si ritira</h3>
+      <ul>
+        <li><b>Modificare</b> non esiste. Una modifica è un piano nuovo: si duplica il piano di ricerca, si
+          rimisura, si promuove a best plan e poi in produzione.</li>
+        <li><b>Duplica con altri conti</b> è l'unica eccezione, e cambia solo i conti: crea un piano identico con
+          un codice nuovo (<code>FTMO-EUROPA-2</code>) e <b>ritira il vecchio nello stesso passaggio</b>. Serve
+          quando il broker cambia il numero di conto, e per passare da demo a conto vero.</li>
+        <li><b>Ritirare</b> è definitivo. Il piano ritirato resta leggibile, con le sue sessioni e i suoi
+          risultati, e libera le sue strategie per un altro piano.</li>
+      </ul>
+      <p>Cosa succede a un piano ritirato:</p>
+      <table class="wrap">
+        <thead><tr><th>Può ancora</th><th>Non può più</th></tr></thead>
+        <tbody>
+          <tr><td>Tenere la sessione già aperta: il cBot ci rientra e le posizioni restano sorvegliate.<br>
+            Essere ripreso dopo un riavvio del server.<br>Essere usato per un backtest.</td>
+            <td>Aprire una sessione realtime nuova.<br>Comparire fra i piani del conto nel presidio.</td></tr>
+        </tbody>
+      </table>
+
+      <h3>Il codice è tutto ciò che il cBot conosce</h3>
+      <p>Il codice di un piano è unico fra tutti i workspace e tutti i broker workspace. Il cBot ha solo quello:
+        quando si collega, il server cerca il codice ovunque e gli consegna strategie, simboli, size e tenuta.
+        Per passare un conto dalla ricerca alla produzione basta quindi <b>cambiare il codice piano
+        sull'istanza</b>, a mercato chiuso: nasce una sessione nuova nel broker workspace, e la vecchia resta nel
+        workspace di origine.</p>
+
+      <h3>Si sa sempre da dove viene</h3>
+      <p>Ogni piano di produzione porta scritta la sua provenienza: best plan, workspace e piano di origine,
+        cartella del backtest, data della promozione e, per un duplicato, il piano che sostituisce. Nella schermata
+        <span class="path">Produzione</span> sono le colonne <span class="ui">Dal piano</span> e
+        <span class="ui">Sostituisce</span>. Il piano di ricerca di origine resta nel suo workspace, bloccato.</p>
+
+      <h3>In sintesi</h3>
+      <div class="flow">
+        <div class="box"><b>Piano di ricerca</b><span>Si modifica, si misura</span></div><div class="arrow">→</div>
+        <div class="box key"><b>Best plan</b><span>Fotografia del run. Il piano si blocca</span></div><div class="arrow">→</div>
+        <div class="box key"><b>Piano di produzione</b><span>Strategie dal run, conti scelti. Immutabile</span></div><div class="arrow">→</div>
+        <div class="box"><b>Duplicato o ritirato</b><span>Cambio di conto, o fine</span></div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════ PARTE 2 ═══════════════════════════ -->
+    <section data-part="La console" id="avvio">
+      <h2>Avviare server e console</h2>
+      <h3>Il server</h3>
+      <p>Il server installato sta in <code>C:\piootoo\server\publish_run</code> e ascolta su
+        <code>http://localhost:5000</code>. Va avviato <b>senza finestra</b>, con l'output su file:
+        con la finestra aperta, dopo un po' si blocca e smette di rispondere.</p>
+      <pre><code>Start-Process C:\piootoo\server\publish_run\PiootooApp.Server.exe `
+  -WorkingDirectory C:\piootoo\server\publish_run -WindowStyle Hidden `
+  -RedirectStandardOutput C:\piootoo\server\logs\server.out.log `
+  -RedirectStandardError  C:\piootoo\server\logs\server.err.log</code></pre>
+      <p>Lo script di aggiornamento (<a href="#aggiornare">vedi sotto</a>) lo riavvia già in questo modo.
+        Per sapere se è vivo basta aprire <code>http://localhost:5000/api/v1/version</code> nel browser.</p>
+
+      <h3>La console</h3>
+      <p>Si avvia da <code>C:\piootoo\client\win-x64\piootooapp.clientform.exe</code>. In alto c'è
+        <span class="ui">Server API</span>: l'indirizzo del server. Se è diverso da quello giusto, lo si
+        corregge e si preme <span class="ui">Applica</span>.</p>
+      <p>All'avvio la console confronta la propria versione con quella del server e lo scrive nella barra
+        di stato in fondo:</p>
+      <table class="wrap">
+        <thead><tr><th>Messaggio</th><th>Cosa fare</th></tr></thead>
+        <tbody>
+          <tr><td>Console e server allineati sulla v…</td><td>Niente.</td></tr>
+          <tr><td>…stesso contratto, cambia solo la patch</td><td>Niente: si lavora normalmente.</td></tr>
+          <tr><td><b>Versione disallineata</b> (in rosso, con una finestra di avviso)</td><td>Server o console sono
+            di una versione vecchia: aggiornare l'installazione prima di operare.</td></tr>
+          <tr><td>Versione server non verificata</td><td>Il server non risponde: controllare che sia acceso e che
+            <span class="ui">Server API</span> sia giusto.</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section data-part="La console" id="finestra">
+      <h2>Com'è fatta la finestra</h2>
+      <ul>
+        <li><b>In alto</b>: i menu <span class="ui">File</span> e <span class="ui">Visualizza</span>, l'indirizzo del
+          server e il <b>workspace corrente</b>, con accanto <span class="ui">Gestisci workspace…</span>.</li>
+        <li><b>A sinistra</b>: il menu, in due gruppi, <span class="path">Anagrafiche</span> e
+          <span class="path">Operatività</span>.</li>
+        <li><b>Al centro</b>: la schermata. In cima il percorso (per esempio
+          <em>Piani di trading › Piano FTMO-EUROPA</em>), in fondo la barra di stato. Gli errori compaiono lì, <b>in rosso</b>.</li>
+      </ul>
+
+      <h3>Regole che valgono ovunque</h3>
+      <ul>
+        <li><b>Lista → dettaglio</b>: doppio clic su una riga, o <kbd>Invio</kbd>. Si torna con <span class="ui">← Indietro</span>.</li>
+        <li><b>Ordinare</b>: clic sull'intestazione di una colonna. <b>Filtrare</b>: la casella in alto nella lista.</li>
+        <li><kbd>F5</kbd> ricarica la schermata. <kbd>F9</kbd> apre lo <a href="#stato-server">Stato server</a>.</li>
+        <li><b>Modifiche non salvate</b>: nel dettaglio compare la scritta accanto a <span class="ui">Salva</span>, e
+          uscendo la console chiede conferma.</li>
+        <li><b>Il workspace corrente conta</b>: Piani di trading, Strategie, Backtesting e Verifica concorrenza
+          mostrano solo le cose di quel workspace. Cambiandolo, la console torna alla lista.</li>
+        <li><span class="path">File → Console legacy…</span> apre la vecchia console a schede. Non serve per il
+          lavoro normale, e <b>i piani non si modificano mai da lì</b>.</li>
+      </ul>
+
+      <h3>Il menu</h3>
+      <table>
+        <thead><tr><th>Voce</th><th>A cosa serve</th></tr></thead>
+        <tbody>
+          <tr><td colspan="2"><b>Anagrafiche</b></td></tr>
+          <tr><td><a href="#broker-conti">Broker</a></td><td>Chi quota: tabella dei simboli e archivio delle barre.</td></tr>
+          <tr><td><a href="#broker-conti">Account</a></td><td>I conti cTrader, con capitale e broker.</td></tr>
+          <tr><td><a href="#piani">Piani di trading</a></td><td>I piani del workspace corrente.</td></tr>
+          <tr><td><a href="#strategie">Strategie</a></td><td>Le strategie del workspace corrente, in sola lettura.</td></tr>
+          <tr><td><a href="#broker-conti">Conversioni simbolo</a></td><td>Le tabelle che traducono i simboli per il broker.</td></tr>
+          <tr><td><a href="#datafeed">Datafeed</a></td><td>Quali barre ci sono, e fino a che data.</td></tr>
+          <tr><td colspan="2"><b>Operatività</b></td></tr>
+          <tr><td><a href="#backtesting">Backtesting</a></td><td>I backtest del workspace: lanciarli, leggerli, confrontarli.</td></tr>
+          <tr><td><a href="#best-plans">Best plans</a></td><td>I backtest messi in evidenza, di tutti i workspace.</td></tr>
+          <tr><td><a href="#produzione">Produzione</a></td><td>I piani che vanno sui conti, per broker.</td></tr>
+          <tr><td><a href="#sessioni">Sessioni di trading</a></td><td>Le sessioni vive sul server.</td></tr>
+          <tr><td><a href="#presidio">Presidio realtime</a></td><td>Per un conto: cosa crede il server, e cosa non torna.</td></tr>
+          <tr><td><a href="#istanze">Istanze cTrader</a></td><td>I cBot accesi su questa macchina: avviare, fermare, log.</td></tr>
+          <tr><td><a href="#concorrenza">Verifica concorrenza</a></td><td>Banco di prova per il tetto di posizioni.</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section data-part="La console" id="workspace">
+      <h2>Workspace e masterfilter</h2>
+      <p>Si apre da <span class="ui">Gestisci workspace…</span>, in alto (non è nel menu di sinistra).</p>
+      <ul>
+        <li><span class="ui">Nuovo workspace</span>: si scrive il nome (diventa il nome della cartella e non si cambia
+          più) e si spuntano le strategie. Le spunte sono il <b>masterfilter</b>.</li>
+        <li>L'elenco si restringe con la casella di ricerca, <span class="ui">Simbolo</span>,
+          <span class="ui">Inizia con</span> e <span class="ui">Solo selezionate</span>.
+          <span class="ui">Seleziona mostrate</span> e <span class="ui">Deseleziona mostrate</span> agiscono solo
+          sulle righe visibili: prima si filtra, poi si seleziona.</li>
+        <li>Una voce <em>(!) fuori catalogo</em> in cima è una strategia che non esiste più: togliere la spunta e salvare.</li>
+        <li><span class="ui">Elimina</span> cancella il workspace <b>con tutti i suoi backtest, piani e sessioni</b>.</li>
+      </ul>
+      <div class="callout warn">
+        <span class="t">Il masterfilter è comune a tutti i piani del workspace</span>
+        Una strategia aggiunta al masterfilter si accende in ogni piano del workspace che non la spegne
+        esplicitamente. Per un insieme di strategie nuovo conviene un workspace nuovo.
+      </div>
+    </section>
+
+    <section data-part="La console" id="broker-conti">
+      <h2>Broker, conti e conversioni simbolo</h2>
+      <p>Tre anagrafiche legate fra loro, da compilare in quest'ordine.</p>
+      <h3>Conversioni simbolo</h3>
+      <p>Una tabella per listino. Ogni riga dice: <span class="ui">Simbolo Piootoo</span>,
+        <span class="ui">Simbolo account</span> (il nome sul broker), <span class="ui">Moltiplicatore contratto</span>
+        (quanto vale un lotto del broker rispetto a un contratto future), <span class="ui">Quantità minima</span>,
+        <span class="ui">Passo quantità</span>, <span class="ui">Abilitato</span>.</p>
+      <div class="callout warn">
+        <span class="t">Una tabella non si copia da un broker all'altro</span>
+        Lo stesso strumento ha lotti diversi su broker diversi (il petrolio vale 10 su FTMO e 1 su Fintokei).
+        I numeri si ricavano dalle specifiche che il broker dichiara, con <code>PiootooSpreadDumpBot</code>
+        (<a href="#broker-nuovo">vedi la procedura</a>).
+      </div>
+      <h3>Broker</h3>
+      <p><span class="ui">Nome</span>, <span class="ui">Codice</span> (non si cambia dopo il primo salvataggio: è il
+        nome con cui piani e conti lo citano), <span class="ui">Tabella simboli</span>,
+        <span class="ui">Cartella datafeed</span> (vuota = il codice).</p>
+      <h3>Account</h3>
+      <p><span class="ui">Nome</span>, <span class="ui">Codice account</span> (il numero di conto cTrader),
+        <span class="ui">Broker</span>, <span class="ui">Valuta</span>, <span class="ui">Balance iniziale</span>,
+        <span class="ui">Abilitato</span>. La size di ogni ordine si calcola sul balance del conto.</p>
+      <p>Le schede <span class="ui">Strategie</span> e <span class="ui">Strategie escluse</span> rispondono alla
+        domanda «questo conto può operare le strategie del workspace corrente?». Una strategia è esclusa quando
+        il suo simbolo manca dalla tabella del broker o vi è disabilitato.</p>
+      <p>Un conto sostituito dal broker non si elimina: si toglie la spunta <span class="ui">Abilitato</span>,
+        perché sessioni e risultati vecchi citano il suo numero.</p>
+    </section>
+
+    <section data-part="La console" id="strategie">
+      <h2>Strategie</h2>
+      <p><span class="path">Anagrafiche → Strategie</span> mostra le strategie del workspace corrente, in sola
+        lettura. Le colonne che contano: <span class="ui">Simbolo</span>, <span class="ui">TF</span>,
+        <span class="ui">Tenuta</span> (cosa la strategia vorrebbe tenere: intraday, overnight, overnight + overweek;
+        il piano può tagliarla).</p>
+      <p>Il dettaglio di una strategia ha il riquadro <span class="ui">Orari e finestre</span>: sessione, finestra
+        in cui può nascere un ingresso, orari di negoziazione dello strumento e <b>riscaldamento</b>, cioè quante
+        barre servono prima che la strategia cominci a essere valutata.</p>
+      <p><span class="ui">Esporta griglia…</span> salva in un file le schede delle strategie visibili.</p>
+    </section>
+
+    <section data-part="La console" id="datafeed">
+      <h2>Datafeed</h2>
+      <p><span class="path">Anagrafiche → Datafeed</span> elenca ogni serie di barre disponibile: una riga per
+        archivio, simbolo e timeframe, con <span class="ui">Prima barra (UTC)</span>,
+        <span class="ui">Ultima barra (UTC)</span>, <span class="ui">Barre</span> e <span class="ui">Note</span>.</p>
+      <p><b>Si guarda prima di lanciare un backtest</b>: dice fin dove arrivano i dati. L'archivio è
+        <code>interno</code> oppure <code>esterno/BROKER</code>. Se le date di un backtest escono dall'archivio, il run
+        lo segnala nella diagnostica: conviene saperlo prima di lanciarlo.</p>
+    </section>
+
+    <section data-part="La console" id="piani">
+      <h2>Piani di trading</h2>
+      <p><span class="path">Anagrafiche → Piani di trading</span> mostra i piani del workspace corrente. Le righe
+        color ambra con <span class="ui">🔒 Bloccato</span> sono piani promossi a best plan: non si modificano e non
+        si eliminano.</p>
+
+      <h3>Scheda «Generale»</h3>
+      <table class="wrap">
+        <thead><tr><th>Campo</th><th>Significato</th></tr></thead>
+        <tbody>
+          <tr><td><span class="ui">Codice</span></td><td>L'identificativo del piano: unico fra tutti i workspace, non si
+            cambia dopo il salvataggio. È ciò che si scrive nel cBot.</td></tr>
+          <tr><td><span class="ui">Broker</span></td><td>Su quale broker opera. I conti del piano devono essere suoi.</td></tr>
+          <tr><td><span class="ui">Moltiplicatore size</span></td><td>La size del piano: 1 di riferimento, 0,5 la metà.</td></tr>
+          <tr><td><span class="ui">Commissione per contratto</span></td><td>La commissione usata nei backtest del piano.</td></tr>
+          <tr><td><span class="ui">Max posizioni per conto</span></td><td>Tetto di posizioni contemporanee per conto;
+            0 = nessun tetto. <span class="ui">Il massimo conta</span> dice se nel conto entrano anche gli ordini in attesa.</td></tr>
+        </tbody>
+      </table>
+
+      <h3>Scheda «Account»</h3>
+      <p>I conti che eseguono il piano: <span class="ui">Aggiungi riga</span>, poi si sceglie il conto. Serve almeno
+        un conto. Ogni conto riceve tutti i segnali del piano, con la size del proprio capitale.</p>
+
+      <h3>Scheda «Strategie»</h3>
+      <p>Le righe sono le strategie del masterfilter. La spunta <span class="ui">Attiva</span> decide se la strategia
+        gira in questo piano. La colonna <span class="ui">Peso</span> moltiplica la size di quella sola strategia
+        (da 0,1 a 10; 1 = neutro): serve a bilanciare il rischio fra strategie, e vale sia nel backtest sia sul conto.</p>
+      <p>Per spegnere una strategia si toglie la spunta: un peso minuscolo non è il modo di spegnerla, e la console lo rifiuta.</p>
+
+      <h3>Scheda «Chiusure forzate»</h3>
+      <p>Qui il piano decide la <b>tenuta</b>. Le spunte sono al contrario di come si pensa: spuntata vuol dire <b>vieta</b>.</p>
+      <table class="wrap">
+        <thead><tr><th>Campo</th><th>Effetto</th></tr></thead>
+        <tbody>
+          <tr><td><span class="ui">Forza chiusura night</span></td><td>Accesa: niente posizioni oltre la fine della sessione.
+            Si chiude al <span class="ui">Flat di sessione</span> (di norma 20:45 UTC) e per i minuti indicati
+            non nascono ingressi. La finestra deve coprire il rollover del broker.</td></tr>
+          <tr><td><span class="ui">Forza chiusura week</span></td><td>Accesa: niente posizioni nel fine settimana. Si chiude il
+            venerdì all'ora indicata e si riparte la domenica.</td></tr>
+        </tbody>
+      </table>
+      <p>Sotto, la console elenca le strategie che il piano <b>taglierebbe</b>: quelle misurate dalla ricerca su più
+        giorni che qui verrebbero chiuse prima. Va letto prima di salvare, non dopo nei trade.</p>
+      <div class="callout">
+        <span class="t">Chi decide la tenuta</span>
+        Una posizione resta aperta solo se il piano lo permette <em>e</em> la strategia lo vuole. Il piano non può
+        forzare un overnight che la strategia non prevede. Il cBot non ha parametri su questo: esegue quello che dice il piano.
+      </div>
+
+      <h3>Duplicare e bloccare</h3>
+      <ul>
+        <li><span class="ui">Duplica…</span> crea una copia con un codice nuovo, sbloccata. È il modo di cambiare un piano bloccato.</li>
+        <li><span class="ui">🔒 Blocca piano</span> blocca a mano. Il blocco non si toglie più dalla console.</li>
+      </ul>
+    </section>
+
+    <section data-part="La console" id="backtesting">
+      <h2>Backtesting</h2>
+      <p><span class="path">Operatività → Backtesting</span> elenca i backtest del workspace corrente, sia quelli
+        interni sia quelli fatti dal cBot. La colonna <span class="ui">Origine</span> li distingue
+        (<em>interno</em>, <em>cBot PIANO</em>); <span class="ui">Equity %</span> e <span class="ui">DD %</span> danno
+        il risultato a colpo d'occhio.</p>
+
+      <h3>Nuovo backtest</h3>
+      <table class="wrap">
+        <thead><tr><th>Campo</th><th>Cosa scegliere</th></tr></thead>
+        <tbody>
+          <tr><td><span class="ui">Datasource</span></td><td>L'archivio di barre: <em>Interno</em> (future, storia lunga) oppure
+            quello di un broker (i prezzi che il conto vede davvero). Due run su archivi diversi non sono confrontabili.</td></tr>
+          <tr><td><span class="ui">Piano</span></td><td><em>Nessun piano</em>: run neutro su tutto il masterfilter, a size 1.
+            Con un piano: il run usa strategie, pesi, tenuta, commissione e simboli del piano, e quei campi si bloccano.</td></tr>
+          <tr><td><span class="ui">Nome backtest</span></td><td>Il nome della cartella dei risultati.</td></tr>
+          <tr><td><span class="ui">Inizio (UTC)</span>, <span class="ui">Fine (UTC)</span></td><td>Il periodo, in ora UTC.</td></tr>
+          <tr><td><span class="ui">Capitale iniziale</span></td><td>Cambia solo le percentuali di equity e drawdown, non le quantità.</td></tr>
+          <tr><td><span class="ui">Spread</span></td><td><em>Nessuno</em>, oppure la misura di un broker. Con
+            <span class="ui">Statistica</span> si sceglie mediana, media o caso brutto (p90); con
+            <span class="ui">Risoluzione</span> se usare un valore fisso per simbolo o quello dell'ora di ingresso.
+            <span class="ui">Vedi gli spread…</span> mostra i numeri che il run applicherebbe.</td></tr>
+        </tbody>
+      </table>
+      <p><span class="ui">Avvia backtest</span> lancia il run; la barra e il <span class="ui">Log del client</span>
+        mostrano l'avanzamento. A fine run compare la scheda <span class="ui">Report</span>. Questa schermata non ha
+        «Indietro»: alla lista si torna dal menu di sinistra.</p>
+      <div class="callout">
+        <span class="t">Piano, datasource e spread sono tre scelte separate</span>
+        Lo stesso piano sul feed interno e sul feed del suo broker è proprio il confronto che misura quanto costa il broker.
+        Lo spread peggiora solo il prezzo di ingresso: non è un costo fisso per trade, sposta insieme stop e target.
+      </div>
+
+      <h3>Leggere un backtest</h3>
+      <p>Doppio clic sulla riga. La scheda <span class="ui">Riepilogo</span> ha in testa esito, periodo, trade, P&amp;L e
+        drawdown, e subito sotto la <span class="ui">Diagnostica</span>: è lì che il server scrive cosa non è andato
+        (strategia mai valutata, nessun segnale, dati mancanti). La scheda <span class="ui">Operazioni</span> elenca i trade.</p>
+      <table class="wrap">
+        <thead><tr><th>Pulsante</th><th>Cosa fa</th></tr></thead>
+        <tbody>
+          <tr><td><span class="ui">Report HTML</span></td><td>Apre il report con le curve per strategia.</td></tr>
+          <tr><td><span class="ui">Genera report</span></td><td>Per i run del cBot, che non producono il report: lo ricostruisce dai trade.</td></tr>
+          <tr><td><span class="ui">★ Promuovi a best plan</span></td><td>Mette il run fra i best plan e <b>blocca il piano</b>.</td></tr>
+          <tr><td><span class="ui">Esporta per confronto</span></td><td>Salva gli artefatti del run in una cartella a scelta.</td></tr>
+        </tbody>
+      </table>
+      <p>Nella lista, selezionando <b>due</b> righe si accende <span class="ui">Confronta…</span>: il server mette a
+        confronto i due run trade per trade (tipicamente interno contro cBot) in una cartella <code>compare-NNNN</code>.</p>
+    </section>
+
+    <section data-part="La console" id="best-plans">
+      <h2>Best plans</h2>
+      <p>Cosa sia un best plan e cosa comporti è spiegato in <a href="#come-best-plan">Come funzionano i best plan</a>;
+        qui c'è la schermata.</p>
+      <p><span class="path">Operatività → Best plans</span> è l'unica lista che attraversa tutti i workspace.
+        Ogni riga ha la miniatura della curva, P&amp;L, <span class="ui">DD %</span>, trade, periodo e
+        <span class="ui">Curva</span>: <em>realizzata</em> (dai trade chiusi, tipica dei run cBot) o
+        <em>mark-to-market</em>. Due best plan con curve di tipo diverso non si confrontano sul drawdown.</p>
+      <p>Nel dettaglio: <span class="ui">Equity</span>, <span class="ui">Per anno</span>, <span class="ui">Strategie</span>,
+        <span class="ui">Provenienza</span> e la <span class="ui">Scheda del piano</span>, l'unico testo modificabile:
+        ci si scrive perché il piano è stato scelto, le riserve, come ripeterlo.</p>
+      <ul>
+        <li><span class="ui">Promuovi in produzione…</span> porta il piano nel broker workspace (<a href="#in-produzione">procedura</a>).
+          È spento se il run non aveva un piano.</li>
+        <li><span class="ui">Rimuovi dai best plan</span> cancella la fotografia; il backtest nel workspace resta.</li>
+      </ul>
+    </section>
+
+    <section data-part="La console" id="produzione">
+      <h2>Produzione</h2>
+      <p>Le regole dei piani di produzione sono in <a href="#come-produzione">Come funzionano i piani di produzione</a>;
+        qui c'è la schermata.</p>
+      <p><span class="path">Operatività → Produzione</span> ha una riga per broker con piani attivi, ritirati,
+        strategie e conti. Il dettaglio è la griglia dei piani del broker, con sotto la scheda del piano
+        selezionato: conti, size, tenuta, strategie con i pesi, provenienza.</p>
+      <p>Qui <b>non si modifica niente</b>. I comandi sono due:</p>
+      <ul>
+        <li><span class="ui">Duplica con altri conti…</span>: crea un piano identico su altri conti e ritira il vecchio.</li>
+        <li><span class="ui">Ritira piano</span>: il piano non apre più sessioni nuove e libera le sue strategie.
+          Il ritiro non si annulla.</li>
+      </ul>
+    </section>
+
+    <section data-part="La console" id="sessioni">
+      <h2>Sessioni di trading</h2>
+      <p><span class="path">Operatività → Sessioni di trading</span> elenca le sessioni vive sul server, comprese
+        quelle aperte dai cBot: piano, <span class="ui">Contesto</span> (Backtest o Realtime),
+        <span class="ui">Stato</span>. Di norma si guarda e basta: le sessioni dei piani le apre il cBot, non la console.</p>
+      <p>I pulsanti <span class="ui">Apri da piano</span> e <span class="ui">Sessione diretta (senza piano)…</span>
+        servono per prove manuali.</p>
+      <h3 id="stato-server">Stato server (F9)</h3>
+      <p><span class="path">Visualizza → Stato server (sessioni)…</span> scatta un'istantanea testuale di tutte le
+        sessioni: versione, ultima barra, posizioni, ordini, segnali. <span class="ui">Copia tutto</span> e
+        <span class="ui">Salva su file…</span> servono per tenerla o mandarla a chi deve guardarci dentro.</p>
+    </section>
+
+    <section data-part="La console" id="presidio">
+      <h2>Presidio realtime</h2>
+      <p><span class="path">Operatività → Presidio realtime</span> si usa per conto: si sceglie il
+        <span class="ui">Conto</span> e la console dice in grande <b>OK</b>, <b>ATTENZIONE</b> o <b>INTERVENTO</b>.</p>
+      <div class="callout warn">
+        <span class="t">La console non vede cTrader</span>
+        Qui c'è solo ciò che il server crede. Nessuna riga dice che una posizione <em>è</em> aperta: dice che lo è
+        «per il server». La verifica vera si fa in cTrader.
+      </div>
+      <p>La griglia in alto elenca i <b>rilievi</b>, con <span class="ui">Cosa risulta al server</span> e
+        <span class="ui">Cosa fare</span>. Sotto, tre schede: <span class="ui">Sessioni</span>,
+        <span class="ui">Posizioni per il server</span>, <span class="ui">Ordini in volo</span>.
+        Il significato di ogni rilievo è nella <a href="#sorveglianza">tabella della sorveglianza</a>.</p>
+    </section>
+
+    <section data-part="La console" id="istanze">
+      <h2>Istanze cTrader</h2>
+      <p><span class="path">Operatività → Istanze cTrader</span> mostra i cBot che girano <b>su questa macchina</b>
+        senza cTrader aperto (con cTrader CLI), uno per piano e per conto. È l'unica schermata che non parla solo con il server.</p>
+      <table class="wrap">
+        <thead><tr><th>Colonna «Stato»</th><th>Vuol dire</th></tr></thead>
+        <tbody>
+          <tr><td>ok</td><td>Processo acceso, sessione viva, barre che arrivano.</td></tr>
+          <tr><td>spento / disattivata</td><td>Il cBot non gira. Su un'istanza abilitata la riga è rossa.</td></tr>
+          <tr><td>processo morto, sessione ancora sul server</td><td>Il cBot è caduto: le posizioni restano sul broker con i loro stop, ma nessuno le governa. Riavviare.</td></tr>
+          <tr><td>nessuna sessione sul server</td><td>Il cBot gira ma non si è collegato: guardare il log.</td></tr>
+          <tr><td>nessuna barra da N min</td><td>Il flusso è fermo: mercato chiuso, oppure problema di collegamento.</td></tr>
+          <tr><td>server non raggiungibile</td><td>Il server è spento o bloccato.</td></tr>
+        </tbody>
+      </table>
+      <p>Comandi: <span class="ui">Avvia</span>, <span class="ui">Ferma…</span>, <span class="ui">Riavvia…</span>,
+        <span class="ui">Apri log</span>, <span class="ui">Presidio del conto</span> (o doppio clic) per passare al presidio di quel conto.</p>
+      <div class="callout bad">
+        <span class="t">Mai due cBot sullo stesso piano e conto</span>
+        La stessa istanza non va avviata sia da qui sia in cTrader Desktop: ogni ordine verrebbe eseguito due volte.
+      </div>
+    </section>
+
+    <section data-part="La console" id="concorrenza">
+      <h2>Verifica concorrenza</h2>
+      <p>Uno strumento di prova, non operativo. Apre una sessione usa e getta da un piano vero, le dà le barre
+        storiche e mostra, ordine per ordine, a quale conto il server lo assegna e quando il tetto di posizioni lo nega.
+        Serve a controllare <span class="ui">Max posizioni per conto</span> prima di fidarsene. Non tocca le sessioni dei cBot veri.</p>
+    </section>
+
+    <!-- ═══════════════════════════ PARTE 3 ═══════════════════════════ -->
+    <section data-part="Come si fa" id="broker-nuovo">
+      <h2>Preparare un broker e un conto nuovi</h2>
+      <ol class="steps">
+        <li><span class="path">Anagrafiche → Broker → Nuovo broker</span>: nome e codice (per esempio <code>FINTOKEI</code>).</li>
+        <li><span class="path">Anagrafiche → Account → Nuovo account</span>: numero di conto cTrader, broker, valuta, balance.</li>
+        <li>In cTrader, sul conto nuovo, lanciare <code>PiootooSpreadDumpBot</code> con <em>Lavori</em> =
+          <code>SoloSpecifiche</code> e l'elenco dei simboli nella forma <code>NOMEBROKER=@SIMBOLO</code>:
+          manda al server le specifiche di ogni strumento.</li>
+        <li><span class="path">Anagrafiche → Conversioni simbolo → Nuova tabella</span>: una riga per simbolo, con nome
+          sul broker, moltiplicatore, quantità minima e passo ricavati dalle specifiche. Poi assegnarla al broker.</li>
+        <li>Raccogliere le barre e misurare lo spread (<a href="#raccolta">vedi sotto</a>).</li>
+        <li>Nel dettaglio del conto, scheda <span class="ui">Strategie escluse</span>: controllare che non ci siano
+          esclusioni inattese.</li>
+      </ol>
+    </section>
+
+    <section data-part="Come si fa" id="nuovo-piano">
+      <h2>Creare un workspace e un piano</h2>
+      <ol class="steps">
+        <li><span class="ui">Gestisci workspace…</span> → <span class="ui">Nuovo workspace</span>: nome, spunte sulle strategie,
+          <span class="ui">Salva</span>. Il workspace nuovo diventa quello corrente.</li>
+        <li><span class="path">Anagrafiche → Piani di trading → Nuovo piano</span>.</li>
+        <li><b>Generale</b>: codice, nome, broker, size, commissione.</li>
+        <li><b>Account</b>: almeno un conto del broker scelto. Per la ricerca si usa il conto di prova.</li>
+        <li><b>Strategie</b>: togliere la spunta a quelle che non devono girare; eventuali pesi.</li>
+        <li><b>Chiusure forzate</b>: decidere overnight e overweek, e leggere l'elenco delle strategie tagliate.</li>
+        <li><span class="ui">Salva</span>.</li>
+      </ol>
+      <div class="callout">
+        <span class="t">Come si chiamano i piani</span>
+        Di ricerca: con la serie, per esempio <code>FTMO-PT8DAV-P1</code>. Di produzione: <code>BROKER-NOME</code> senza la serie,
+        per esempio <code>FTMO-EUROPA</code>; a ogni cambio di conto si aggiunge <code>-2</code>, <code>-3</code>.
+      </div>
+    </section>
+
+    <section data-part="Come si fa" id="fare-backtest">
+      <h2>Misurare un piano: backtest interno</h2>
+      <ol class="steps">
+        <li><span class="path">Anagrafiche → Datafeed</span>: controllare fin dove arrivano le barre dell'archivio che si vuole usare.</li>
+        <li><span class="path">Operatività → Backtesting → Nuovo backtest</span>.</li>
+        <li>Scegliere il <span class="ui">Piano</span>, il <span class="ui">Datasource</span> (di solito l'archivio del broker del piano)
+          e lo <span class="ui">Spread</span> dello stesso broker, <em>Mediana</em>, <em>Per ora UTC</em>.</li>
+        <li>Nome, date, <span class="ui">Avvia backtest</span>.</li>
+        <li>A fine run: scheda <span class="ui">Report</span>; poi, dalla lista, il dettaglio con la <span class="ui">Diagnostica</span>.</li>
+      </ol>
+      <p>Il risultato di un backtest con piano è a <b>size neutra</b>: un contratto per strategia (per i pesi del piano),
+        senza il moltiplicatore di size. Per portarlo sul conto FTMO si moltiplica per 0,1 × la size del piano.</p>
+    </section>
+
+    <section data-part="Come si fa" id="backtest-cbot">
+      <h2>Misurare un piano: backtest con il cBot</h2>
+      <p>È la prova con il programma che andrà sul conto, sui prezzi del broker. È il run che di solito diventa best plan.</p>
+      <ol class="steps">
+        <li>Server acceso su <code>http://localhost:5000</code>.</li>
+        <li>In cTrader, sul conto del broker del piano, aprire il backtest di <code>PiootooDistributedExecutionBot</code>
+          su un grafico qualsiasi (il bot si prende da solo simboli e timeframe del piano).</li>
+        <li>Parametri: <span class="ui">Server Base Url</span> = <code>http://localhost:5000</code>,
+          <span class="ui">Codice piano</span> = il codice del piano. Il resto ai valori di default.</li>
+        <li>Impostare il periodo e, nelle impostazioni del backtest di cTrader, la <b>commissione del broker vero</b>
+          (zero se il broker non ne ha).</li>
+        <li>Avviare. Il cBot apre da sé una sessione sul server e, a fine run, i risultati compaiono in
+          <span class="path">Backtesting</span> con origine <em>cBot PIANO</em>.</li>
+        <li>Nel dettaglio: <span class="ui">Genera report</span> per avere il report HTML.</li>
+      </ol>
+      <div class="callout warn">
+        <span class="t">Tre cose che fanno perdere un run</span>
+        <ul>
+          <li><b>Non salvare il piano dopo aver avviato il run</b>: il server non saprebbe più quale configurazione è
+            stata misurata e rifiuterebbe la promozione in produzione.</li>
+          <li><b>Partire da una data in cui il broker ha lo storico</b>: uno strumento senza storia all'avvio resta muto
+            per tutto il run (su Fintokei gli indici partono da dicembre 2025).</li>
+          <li><b>Un run interrotto dopo pochi trade non va letto</b>: si cancella e si rifà.</li>
+        </ul>
+      </div>
+    </section>
+
+    <section data-part="Come si fa" id="a-best-plan">
+      <h2>Promuovere a best plan</h2>
+      <ol class="steps">
+        <li><span class="path">Operatività → Backtesting</span>, doppio clic sul run.</li>
+        <li><span class="ui">★ Promuovi a best plan</span>. Il run viene copiato fra i best plan e il piano <b>si blocca</b>.</li>
+        <li><span class="path">Operatività → Best plans</span>, aprire il piano e compilare la
+          <span class="ui">Scheda del piano</span>: perché è stato scelto, campione e fuori campione, riserve. <span class="ui">Salva scheda</span>.</li>
+        <li>Aggiornare il registro dei piani e questa pagina: <a href="#sito">vedi come</a>.</li>
+      </ol>
+    </section>
+
+    <section data-part="Come si fa" id="in-produzione">
+      <h2>Mettere un piano in produzione</h2>
+      <ol class="steps">
+        <li>Controllare nella pagina <a href="piani.html">Piani per broker</a> che il piano sia compatibile con quelli
+          già in produzione sullo stesso broker.</li>
+        <li><span class="path">Operatività → Best plans</span>, aprire il best plan, <span class="ui">Promuovi in produzione…</span>.</li>
+        <li><span class="ui">Codice</span>: nella forma <code>BROKER-NOME</code>. <span class="ui">Conti</span>: i numeri di conto,
+          oppure vuoto per tenere quelli del piano di origine.</li>
+        <li><span class="ui">Verifica</span>: il server mostra il piano che nascerebbe, senza scriverlo. Se c'è un conflitto lo dice qui.</li>
+        <li><span class="ui">Promuovi</span>.</li>
+      </ol>
+      <table class="wrap">
+        <thead><tr><th>Se la verifica rifiuta</th><th>Motivo e rimedio</th></tr></thead>
+        <tbody>
+          <tr><td>Una strategia è già in un altro piano attivo</td><td>Dentro un broker una strategia sta in un piano solo. Ritirare l'altro piano, o rinunciare.</td></tr>
+          <tr><td>Il piano è stato salvato dopo l'avvio del run</td><td>Rifare il backtest, promuoverlo a best plan e ripartire da quello.</td></tr>
+          <tr><td>Il best plan non ha un piano</td><td>Era un run neutro: non si promuove.</td></tr>
+          <tr><td>Un conto è disattivato o di un altro broker</td><td>Correggere l'elenco dei conti.</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section data-part="Come si fa" id="sul-conto">
+      <h2>Far girare il piano su un conto</h2>
+      <p>Serve <b>un cBot per piano e per conto</b>. Un conto può eseguire più piani: sono più istanze sullo stesso conto.</p>
+      <ol class="steps">
+        <li><b>A mercato chiuso</b>, e con il conto senza posizioni di quel piano.</li>
+        <li>Avviare <code>PiootooDistributedExecutionBot</code> sul conto con
+          <span class="ui">Server Base Url</span> = <code>http://localhost:5000</code> e
+          <span class="ui">Codice piano</span> = il <b>codice di produzione</b>.</li>
+        <li>Con più conti sulla stessa macchina: aggiungere l'istanza a
+          <code>piootoo-repository\conti\conti.json</code> e avviarla da <span class="path">Operatività → Istanze cTrader</span>.</li>
+        <li>Controllare in <span class="path">Sessioni di trading</span> che sia nata la sessione, e in
+          <span class="path">Presidio realtime</span> che il conto sia <b>OK</b>.</li>
+      </ol>
+      <div class="callout ok">
+        <span class="t">Prima il demo</span>
+        Ogni piano fa uno o due mesi su un conto demo con gli stessi parametri. Passa al conto vero solo se il demo
+        resta dentro i numeri del backtest. Da demo a conto vero è un «duplica con altri conti».
+      </div>
+      <p>All'avvio ogni strategia va scaldata con la sua storia di barre. Finché non ne ha abbastanza il server non
+        la valuta, e non lo segnala come errore: se un piano resta muto, è la prima cosa da controllare
+        (<a href="#problemi">vedi sotto</a>).</p>
+    </section>
+
+    <section data-part="Come si fa" id="cambio-conto">
+      <h2>Cambiare conto o ritirare un piano</h2>
+      <p>Il broker cambia il numero di conto a ogni passaggio di fase o reset. Un numero nuovo è un conto nuovo.</p>
+      <ol class="steps">
+        <li><span class="path">Anagrafiche → Account</span>: creare il conto nuovo; al vecchio togliere <span class="ui">Abilitato</span>, senza eliminarlo.</li>
+        <li><span class="path">Operatività → Produzione</span>, broker, piano: <span class="ui">Duplica con altri conti…</span>.
+          Codice nuovo (<code>FTMO-EUROPA-2</code>) e conti nuovi; <span class="ui">Verifica</span>, poi <span class="ui">Duplica e ritira</span>.</li>
+        <li>A conto piatto, avviare il cBot sul conto nuovo con il codice nuovo.</li>
+      </ol>
+      <p>Per togliere un piano senza sostituirlo: <span class="ui">Ritira piano</span>. La sua sessione aperta resta
+        sorvegliata fino alla chiusura delle posizioni, ma non ne nascono di nuove.</p>
+    </section>
+
+    <section data-part="Come si fa" id="raccolta">
+      <h2>Raccogliere le barre del broker e misurare lo spread</h2>
+      <p>Due cBot di servizio, da tenere accesi sul conto del broker. Non operano.</p>
+      <table class="wrap">
+        <thead><tr><th>cBot</th><th>Cosa fa</th><th>Dove finisce</th></tr></thead>
+        <tbody>
+          <tr><td><code>PiootooDatafeedSyncBot</code></td><td>Raccoglie le barre a un minuto del broker, recupera lo storico e poi resta in ascolto.
+            Con il <span class="ui">Codice piano</span> raccoglie i simboli di quel piano. Ogni giorno misura anche lo spread.</td>
+            <td><code>datafeed-external\BROKER\</code></td></tr>
+          <tr><td><code>PiootooSpreadDumpBot</code></td><td>Misura lo spread su un periodo (per simbolo e per ora) e registra le specifiche degli strumenti.</td>
+            <td><code>spread\BROKER\</code></td></tr>
+        </tbody>
+      </table>
+      <p>Senza la raccolta, il <span class="ui">Datasource</span> del broker non compare nel backtest; senza la misura,
+        non compare il suo <span class="ui">Spread</span>.</p>
+      <div class="callout warn">
+        <span class="t">Attenzione all'indirizzo del server</span>
+        Il raccoglitore ha come default <code>http://localhost:5142</code>, l'indirizzo di sviluppo. Sul server
+        installato va messo <code>http://localhost:5000</code>.
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════ PARTE 4 ═══════════════════════════ -->
+    <section data-part="Tutti i giorni" id="sorveglianza">
+      <h2>Sorveglianza</h2>
+      <h3>Il giro quotidiano</h3>
+      <ol class="steps">
+        <li><span class="path">Istanze cTrader</span>: tutte le istanze abilitate su <em>ok</em>.</li>
+        <li><span class="path">Presidio realtime</span>, per ogni conto: <b>OK</b>.</li>
+        <li>In cTrader: posizioni e ordini corrispondono a quelli che il presidio elenca.</li>
+      </ol>
+
+      <h3>I rilievi del presidio</h3>
+      <table class="wrap">
+        <thead><tr><th>Rilievo</th><th>Quando</th><th>Cosa fare</th></tr></thead>
+        <tbody>
+          <tr><td>Presidiata</td><td>Sessione viva, barre recenti.</td><td>Niente.</td></tr>
+          <tr><td>Sessione assente</td><td>Il piano prevede una sessione ma non c'è.</td><td>Aprire cTrader: le posizioni del piano sono fuori controllo. Riavviare il cBot.</td></tr>
+          <tr><td>Sessione non in esecuzione</td><td>Sessione ferma con posizioni aperte.</td><td>Farla ripartire, o chiudere a mano.</td></tr>
+          <tr><td>Chiusura attesa non avvenuta</td><td>L'ora di uscita è passata e la posizione risulta aperta.</td><td>Controllare in cTrader e chiudere a mano.</td></tr>
+          <tr><td>Oltre il flat di conto</td><td>Posizione aperta oltre il flat permesso dal piano.</td><td>Come sopra, stessa urgenza.</td></tr>
+          <tr><td>Flusso fermo</td><td>Niente barre da troppo tempo, fuori dal fine settimana.</td><td>Verificare che il cBot giri: il server è cieco.</td></tr>
+          <tr><td>Pending scaduto</td><td>Un ordine in attesa è scaduto senza risposta.</td><td>Può essere ancora a mercato: cancellarlo in cTrader.</td></tr>
+          <tr><td>Sessione ripresa senza flusso</td><td>Dopo un riavvio del server, nessuna barra.</td><td>Verificare che il cBot sia acceso.</td></tr>
+          <tr><td>Ripresa rifiutata</td><td>Una sessione non si è potuta riprendere al riavvio.</td><td>Controllare in cTrader le posizioni elencate: nessuno le governa.</td></tr>
+          <tr><td>Dump di ripresa non aggiornato</td><td>Il server non riesce a salvare lo stato.</td><td>Spazio su disco e permessi. Non riavviare il server finché non sparisce.</td></tr>
+        </tbody>
+      </table>
+      <p>Nel fine settimana il presidio abbassa la voce: a mercato chiuso il silenzio delle barre è normale.</p>
+
+      <h3>Il controllo settimanale</h3>
+      <p>Per ogni conto, netto e drawdown contro i numeri del best plan.</p>
+      <table class="wrap">
+        <thead><tr><th>Soglia</th><th>Azione</th></tr></thead>
+        <tbody>
+          <tr><td>Il drawdown del conto supera quello del periodo lungo del piano</td><td><b>Allarme</b>: si guarda da vicino.</td></tr>
+          <tr><td>Arriva a 1,5 volte quel valore, o a 7.000 su un conto da 100.000</td><td><b>Stop del piano</b>. Un piano fermato si rimisura prima di ripartire: non si ritocca.</td></tr>
+        </tbody>
+      </table>
+      <div class="callout bad">
+        <span class="t">Durante l'uso non si cambia niente</span>
+        Parametri, pesi e size non si toccano su un piano che gira. Una modifica è un piano nuovo: si duplica, si misura, si promuove.
+      </div>
+    </section>
+
+    <section data-part="Tutti i giorni" id="problemi">
+      <h2>Quando qualcosa non va</h2>
+      <h3>Un backtest senza trade, o con pochi</h3>
+      <p>Aprire il dettaglio del backtest: la <span class="ui">Diagnostica</span> lo dice a parole. Le cause più frequenti:</p>
+      <ul>
+        <li><b>Mancano le barre</b> di quel simbolo e timeframe nell'archivio scelto: controllare in <span class="path">Datafeed</span>.</li>
+        <li><b>Il periodo è fuori dall'archivio</b>.</li>
+        <li><b>Riscaldamento</b>: la strategia chiede più barre di quante ce ne siano prima dell'inizio del run.</li>
+        <li>Se i trade ci sono ma il risultato non torna con la ricerca, cercare la riga <em>[fine settimana]</em>:
+          dice a quali strategie il flat del piano ha tagliato i trade.</li>
+      </ul>
+
+      <h3>Un piano sul conto che non opera</h3>
+      <p>Nella cartella della sessione c'è <code>session-summary.json</code>. Le domande, in ordine:</p>
+      <ol>
+        <li><code>everEvaluable</code> è falso? La strategia non ha mai avuto abbastanza barre: è un problema di storia, non di segnale.</li>
+        <li>Segnali emessi ma mai eseguiti? L'ordine nasce e il broker non lo prende: livello già superato o ordine scaduto.</li>
+        <li>Nessun segnale con la strategia valutabile? Semplicemente le condizioni non si sono verificate.</li>
+      </ol>
+
+      <h3>Problemi noti</h3>
+      <table class="wrap">
+        <thead><tr><th>Sintomo</th><th>Causa probabile</th><th>Rimedio</th></tr></thead>
+        <tbody>
+          <tr><td>La console non carica niente, errori in rosso</td><td>Server spento, o <span class="ui">Server API</span> sbagliato.</td><td>Avviare il server; correggere l'indirizzo e <span class="ui">Applica</span>.</td></tr>
+          <tr><td>Il server c'è ma non risponde, CPU a zero</td><td>Avviato con la finestra: si è bloccato scrivendo a video.</td><td>Chiuderlo e riavviarlo senza finestra.</td></tr>
+          <tr><td>Finestra «Versioni disallineate»</td><td>Server o console non aggiornati.</td><td><a href="#aggiornare">Aggiornare l'installazione</a>.</td></tr>
+          <tr><td>Il cBot si ferma subito con un riquadro rosso</td><td>Il server ha rifiutato l'apertura: codice piano inesistente, conto che non è del piano, piano ritirato.</td><td>Leggere il messaggio nel riquadro e nel log del cBot.</td></tr>
+          <tr><td>cBot acceso, nessun ordine da ore</td><td>Riscaldamento non completato, o flusso fermo.</td><td>Presidio realtime; poi <code>session-summary.json</code>.</td></tr>
+          <tr><td>Dopo un riavvio del server le sessioni sono «riprese»</td><td>Normale: il server le ricarica dal suo salvataggio.</td><td>Controllare il presidio: le posizioni elencate vengono dal salvataggio, non dal conto.</td></tr>
+          <tr><td>Backtest cBot e interno danno numeri diversi</td><td>Feed diverso, spread, ordini scartati dal broker.</td><td>Selezionare i due run e <span class="ui">Confronta…</span>.</td></tr>
+          <tr><td>«Promuovi in produzione…» è spento</td><td>Il best plan viene da un run senza piano.</td><td>Rifare il backtest scegliendo il piano.</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section data-part="Tutti i giorni" id="aggiornare">
+      <h2>Aggiornare l'installazione</h2>
+      <p>Tre script nella cartella <code>tools</code> del progetto, da PowerShell.</p>
+      <table class="wrap">
+        <thead><tr><th>Cosa</th><th>Comando</th><th>Note</th></tr></thead>
+        <tbody>
+          <tr><td>Server e console</td><td><code>tools\aggiorna-installazione.ps1</code></td><td>Ferma, aggiorna e riavvia da solo.
+            <code>-Target server</code> o <code>client</code> per uno solo.</td></tr>
+          <tr><td>cBot</td><td><code>tools\aggiorna-cbot.ps1</code></td><td>Compila e installa il cBot in cTrader.
+            <b>Le istanze già accese restano sulla versione vecchia</b>: vanno riavviate (<code>-RestartInstances</code> per quelle CLI).</td></tr>
+          <tr><td>Istanze CLI</td><td><code>tools\conti-ctrader.ps1 -Action Status</code></td><td>Anche <code>Start</code>, <code>Stop</code>,
+            <code>Restart</code>, <code>DryRun</code>. È ciò che usa la schermata Istanze cTrader.</td></tr>
+        </tbody>
+      </table>
+      <pre><code>powershell -NoProfile -ExecutionPolicy Bypass -File tools\aggiorna-installazione.ps1</code></pre>
+      <p>Server, console e cBot devono avere le prime due cifre della versione uguali (7.8): la terza può differire.
+        Gli aggiornamenti si fanno a mercato chiuso.</p>
+    </section>
+
+    <!-- ═══════════════════════════ PARTE 5 ═══════════════════════════ -->
+    <section data-part="Riferimenti" id="parametri-cbot">
+      <h2>I parametri del cBot operativo</h2>
+      <p><code>PiootooDistributedExecutionBot</code>. In uso normale si compilano solo i primi due.</p>
+      <table class="wrap">
+        <thead><tr><th>Parametro</th><th>Default</th><th>Significato</th></tr></thead>
+        <tbody>
+          <tr><td><span class="ui">Server Base Url</span></td><td><code>http://localhost:5000</code></td><td>Dove sta il server.</td></tr>
+          <tr><td><span class="ui">Codice piano</span></td><td>—</td><td>Il piano da eseguire. Tutto il resto (strategie, size, tenuta, simboli) viene dal piano.</td></tr>
+          <tr><td><span class="ui">Profilo di esecuzione</span></td><td>Dal piano</td><td>Quale tipo di backtest; in live non si tocca.</td></tr>
+          <tr><td><span class="ui">Scarta livelli dal lato sbagliato</span></td><td>acceso</td><td>Non piazza un ordine il cui livello è già stato superato dal mercato.</td></tr>
+          <tr><td><span class="ui">Distanza max pending (punti)</span></td><td>500</td><td>Scarta un ordine troppo lontano dal prezzo. 0 = nessun limite.</td></tr>
+          <tr><td><span class="ui">Spread max sullo stop (%)</span></td><td>20</td><td>Non entra se lo spread del momento pesa più di tanto sullo stop. 0 = nessun limite.</td></tr>
+          <tr><td><span class="ui">Max Entry Slippage (Pips)</span></td><td>5</td><td>Scostamento massimo accettato sull'ingresso.</td></tr>
+          <tr><td><span class="ui">Passo minimo trailing</span>, <span class="ui">Intervallo minimo trailing</span></td><td>0,10 · 5 s</td><td>Ogni quanto lo stop che segue il prezzo viene spostato.</td></tr>
+          <tr><td><span class="ui">Livello di log</span></td><td>Diagnostico</td><td>Quanto scrive nel log.</td></tr>
+          <tr><td><span class="ui">Log JSON risposte server su file</span></td><td>spento</td><td>Per diagnosi: salva ogni risposta del server.</td></tr>
+        </tbody>
+      </table>
+      <p>Il cBot non ha parametri per le chiusure di fine giornata o fine settimana: le decide il piano. Resta però lui a
+        eseguirle, anche se il server non risponde.</p>
+    </section>
+
+    <section data-part="Riferimenti" id="cartelle">
+      <h2>Dove stanno le cose</h2>
+      <table class="wrap">
+        <thead><tr><th>Cartella o file</th><th>Contenuto</th></tr></thead>
+        <tbody>
+          <tr><td><code>C:\piootoo\server\publish_run</code></td><td>Il server installato. Log in <code>C:\piootoo\server\logs</code>.</td></tr>
+          <tr><td><code>C:\piootoo\client\win-x64</code></td><td>La console installata; <code>appsettings.json</code> ha l'indirizzo del server.</td></tr>
+          <tr><td><code>piootoo-repository\workspaces\NOME</code></td><td>Un workspace: <code>masterfilter.json</code>, <code>plans\</code>, <code>backtests\</code>, <code>sessions\</code>.</td></tr>
+          <tr><td><code>piootoo-repository\best-plans</code></td><td>Le fotografie dei best plan.</td></tr>
+          <tr><td><code>piootoo-repository\broker-workspaces\BROKER</code></td><td>I piani in produzione di un broker e le loro sessioni.</td></tr>
+          <tr><td><code>piootoo-repository\accounts</code></td><td>Broker, conti e tabelle di conversione.</td></tr>
+          <tr><td><code>piootoo-repository\datafeed</code></td><td>Le barre dell'archivio interno.</td></tr>
+          <tr><td><code>piootoo-repository\datafeed-external\BROKER</code></td><td>Le barre raccolte da un broker.</td></tr>
+          <tr><td><code>piootoo-repository\spread\BROKER</code></td><td>Le misure di spread.</td></tr>
+          <tr><td><code>piootoo-repository\conti\conti.json</code></td><td>Le istanze cTrader CLI di questa macchina.</td></tr>
+          <tr><td><code>piootoo-repository\web</code></td><td>Questo sito.</td></tr>
+        </tbody>
+      </table>
+      <p>Dentro la cartella di un backtest: <code>backtest-summary.json</code> (contatori e diagnostica),
+        <code>trades.json</code> (i trade chiusi), il report HTML. Dentro quella di una sessione:
+        <code>session-summary.json</code>, <code>trades.json</code>, <code>signals.json</code>.</p>
+    </section>
+
+    <section data-part="Riferimenti" id="sito">
+      <h2>Tenere aggiornato questo sito</h2>
+      <p>La pagina <a href="piani.html">Piani per broker</a> legge i dati da un file che si rigenera con un comando,
+        dalla cartella <code>piootoo-repository\web</code>:</p>
+      <pre><code>python aggiorna-dati.py</code></pre>
+      <p>Il comando rilegge da disco i piani in produzione, i best plan e i conti: codici, nomi, strategie, size e
+        numeri del run sono sempre quelli veri. Le strategie in comune fra due piani le trova da solo.</p>
+      <p>A mano si scrive solo ciò che nessun file dichiara, in <code>data\compatibilita.json</code>:</p>
+      <ul>
+        <li>i <b>trade gemelli</b> misurati fra due piani, con la quota e l'esito;</li>
+        <li>una riga di <b>avvertenza</b> per piano;</li>
+        <li>le <b>combinazioni</b> su più conti e le note per broker.</li>
+      </ul>
+      <p>Quando si rigenera: a ogni piano promosso a best plan, messo in produzione, duplicato o ritirato, e a ogni
+        nuova misura di trade gemelli. La fonte dei numeri resta <code>docs\registro-piani.md</code>.</p>
+      <p>Il manuale è il file <code>manuale.html</code>: si corregge direttamente.</p>
+    </section>
+
+    <section data-part="Riferimenti" id="approfondire">
+      <h2>Per approfondire</h2>
+      <p>I documenti di progetto, nella cartella <code>docs</code>, spiegano il perché di ogni regola.</p>
+      <table class="wrap">
+        <thead><tr><th>Argomento</th><th>Documento</th></tr></thead>
+        <tbody>
+          <tr><td>Il sistema nel suo insieme</td><td><code>docs\PROGETTO.md</code></td></tr>
+          <tr><td>Tutti i piani, con i numeri</td><td><code>docs\registro-piani.md</code></td></tr>
+          <tr><td>Piani di trading, pesi, tenuta</td><td><code>docs\domini\trading-plans.md</code>, <code>overnight-e-overweek.md</code></td></tr>
+          <tr><td>Best plan e produzione</td><td><code>docs\domini\best-plans.md</code>, <code>broker-workspace.md</code></td></tr>
+          <tr><td>Broker, conti, tabelle dei simboli</td><td><code>docs\domini\account-e-conversione-symbol.md</code></td></tr>
+          <tr><td>Spread e costi</td><td><code>docs\domini\spread-e-costo-di-transazione.md</code></td></tr>
+          <tr><td>Raccolta delle barre del broker</td><td><code>docs\domini\raccolta-datafeed-esterno.md</code></td></tr>
+          <tr><td>Riavvio del server e presidio</td><td><code>docs\domini\riavvio-del-server-e-ripresa-sessione.md</code></td></tr>
+          <tr><td>Sessione che non produce segnali</td><td><code>docs\domini\finestra-candele-e-riscaldamento.md</code></td></tr>
+        </tbody>
+      </table>
+    </section>
+  </article>
+</div>
+
+<script src="assets/site.js"></script>
+<script src="assets/manuale.js"></script>
+</body>
+</html>

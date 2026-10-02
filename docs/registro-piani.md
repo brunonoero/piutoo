@@ -7,6 +7,12 @@ se questa pagina e il file non concordano, ha ragione il file.
 Stato al **28/09/2026**. Server acceso: `GET api/v1/workspaces/{ws}/trading-plans` elenca i piani
 di un workspace.
 
+**Il colpo d'occhio sta nel sito** `piootoo-repository/web/piani.html`: per ogni broker i piani in
+produzione e i best plan, con strategie e compatibilita' fra conti. Dopo ogni piano promosso, messo in
+produzione, duplicato o ritirato si rilancia `python aggiorna-dati.py` da `piootoo-repository/web`; le
+misure di trade gemelli, le note e le combinazioni di questa pagina si riportano a mano in
+`web/data/compatibilita.json` (vedi `web/LEGGIMI.md`).
+
 ## Come leggere i numeri
 
 - **Backtest interno** = run con `PlanCode`, feed e spread FTMO (mediana per ora UTC), 27/08/2025 →

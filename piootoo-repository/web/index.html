@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Piootoo — manuale e piani</title>
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+  <main class="page">
+    <div class="hero">
+      <h1>Piootoo</h1>
+      <p>Il manuale d'uso del sistema e il resoconto dei piani promossi, broker per broker.</p>
+    </div>
+
+    <div class="doors">
+      <a class="door" href="manuale.html">
+        <span class="kicker">Manuale d'uso</span>
+        <h2>Come si usa Piootoo</h2>
+        <p>La console schermata per schermata, le procedure dal workspace al conto, la sorveglianza
+          di ogni giorno e cosa fare quando qualcosa non va.</p>
+        <span class="go">Apri il manuale →</span>
+      </a>
+      <a class="door" href="piani.html">
+        <span class="kicker">Resoconto</span>
+        <h2>Piani per broker</h2>
+        <p>Per ogni broker i piani promossi con codice e nome, le strategie che contengono e con chi
+          possono stare su un altro conto dello stesso broker.</p>
+        <span class="go">Apri il resoconto →</span>
+      </a>
+    </div>
+
+    <div class="section-title">Situazione dei piani</div>
+    <div class="tiles" id="tiles"></div>
+    <p class="stamp" id="stamp"></p>
+  </main>
+
+  <script src="assets/site.js"></script>
+  <script src="data/piani.js"></script>
+  <script>
+    (function () {
+      "use strict";
+      var data = window.PIOOTOO_PIANI, P = window.Piootoo;
+      var tiles = document.getElementById("tiles");
+      if (!data) {
+        tiles.innerHTML = '<div class="tile">Dati non generati: lancia <code>python aggiorna-dati.py</code>.</div>';
+        return;
+      }
+      function count(broker, state) {
+        return broker.plans.filter(function (plan) { return plan.state === state; }).length;
+      }
+      tiles.innerHTML = data.brokers.map(function (broker) {
+        var production = broker.plans.filter(function (plan) { return plan.state === "produzione"; });
+        var list = production.length
+          ? "<ul>" + production.map(function (plan) { return "<li>" + P.escapeHtml(plan.code) + "</li>"; }).join("") + "</ul>"
+          : '<ul><li>' + (broker.plans.length ? "nessun piano in produzione" : "nessun piano promosso") + "</li></ul>";
+        return '<a class="tile" style="text-decoration:none;color:inherit" href="piani.html#' + encodeURIComponent(broker.code) + '">' +
+          "<h3>" + P.escapeHtml(broker.name) + "<span>" + broker.accounts.length + (broker.accounts.length === 1 ? " conto" : " conti") + "</span></h3>" +
+          '<div class="nums"><div class="num"><b>' + production.length + "</b><span>in produzione</span></div>" +
+          '<div class="num"><b>' + count(broker, "best-plan") + "</b><span>best plan</span></div></div>" + list + "</a>";
+      }).join("");
+      document.getElementById("stamp").textContent = "Dati letti dal disco il " + P.formatDateTime(data.generatedUtc) + ".";
+    })();
+  </script>
+</body>
+</html>

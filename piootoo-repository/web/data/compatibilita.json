@@ -1,0 +1,97 @@
+{
+  "_leggimi": [
+    "Parte scritta A MANO del resoconto dei piani. Tutto il resto (codici, nomi, strategie, conti, size,",
+    "numeri del run) lo legge aggiorna-dati.py da broker-workspaces/, best-plans/ e accounts/.",
+    "Qui stanno solo le cose che nessun file dichiara: i trade gemelli misurati, le note e le combinazioni.",
+    "Dopo ogni modifica: python aggiorna-dati.py (dalla cartella web).",
+    "La fonte dei numeri è docs/registro-piani.md: se cambia lì, si aggiorna qui."
+  ],
+
+  "criterio": "Due piani stanno su conti diversi dello stesso broker solo se non hanno strategie in comune e se meno del 5% dei trade ha un gemello nell'altro piano (stesso simbolo, stesso lato, ingresso entro 5 minuti, misurato sui run cBot).",
+
+  "_equivalenti": "Un piano che eredita le misure di un altro pur avendo strategie diverse (il gemello Fintokei senza il caffè). I piani con le STESSE strategie le ereditano da soli.",
+  "equivalenti": {
+    "FINTOKEI-EUROPA-O4": "FTMO-EUROPA-O4"
+  },
+
+  "_gemelli": "esito: ok | limite | no. I codici sono quelli di ricerca: copie, versioni a size diversa e piani di produzione con le stesse strategie prendono lo stesso esito.",
+  "gemelli": [
+    { "a": "FTMO-PT3B-EUROPA", "b": "FTMO-PT3B-USA", "esito": "ok", "quota": "0%", "data": "2026-09-29" },
+    { "a": "FTMO-PT3B-EUROPA", "b": "PT5DAV-P1", "esito": "ok", "quota": "0%", "data": "2026-09-29" },
+    { "a": "FTMO-PT3B-INDICI", "b": "PT5DAV-P1", "esito": "ok", "quota": "0%", "data": "2026-09-29" },
+    { "a": "FTMO-PT3B-USA", "b": "PT5DAV-O4", "esito": "ok", "quota": "0%", "data": "2026-09-29" },
+    { "a": "FTMO-PT3B-USA", "b": "PT5DAV-P1", "esito": "ok", "quota": "0%", "data": "2026-09-29",
+      "nota": "NQ_RHL_001_30 (P1) e NQ_RHL_001_240 (USA) sono strategie diverse ma comprano gli stessi ritorni sul Nasdaq." },
+    { "a": "FTMO-PT3B-USA", "b": "FTMO-EUROPA-O4", "esito": "ok", "quota": "0%", "data": "2026-09-29" },
+    { "a": "FTMO-PT3B-EUROPA", "b": "PT5DAV-O4", "esito": "no", "quota": "18%", "data": "2026-09-29",
+      "nota": "Breakout del DAX: PT3B_FDAX_PCH_002_240 scatta sulle stesse rotture di PT5DAV_FDAX_BOS_001_15 e PT5DAV_FDAX_PCH_002_60." },
+    { "a": "FTMO-PT3B-INDICI", "b": "PT5DAV-O4", "esito": "no", "quota": "20%", "data": "2026-09-29",
+      "nota": "Breakout del DAX: PT3B_FDAX_PCH_002_240 scatta sulle stesse rotture di PT5DAV_FDAX_BOS_001_15 e PT5DAV_FDAX_PCH_002_60." },
+
+    { "a": "FTMO-PT8DAV-P1", "b": "FTMO-PT3B-EUROPA", "esito": "ok", "quota": "0%", "data": "2026-10-02" },
+    { "a": "FTMO-PT8DAV-P1", "b": "FTMO-PT3B-USA", "esito": "ok", "quota": "0%", "data": "2026-10-02" },
+    { "a": "FTMO-PT8DAV-P1", "b": "FTMO-PT3B-INDICI", "esito": "ok", "quota": "0%", "data": "2026-10-02" },
+    { "a": "FTMO-PT8DAV-P1", "b": "PT5DAV-O4", "esito": "limite", "quota": "4-7%", "data": "2026-10-02",
+      "nota": "PT8DAV_GC_LFD_001_60 apre gli stessi trade di PT5DAV_GC_LFD_002_60." },
+    { "a": "FTMO-PT8DAV-P1", "b": "FTMO-EUROPA-O4", "esito": "limite", "quota": "4-7%", "data": "2026-10-02",
+      "nota": "PT8DAV_GC_LFD_001_60 apre gli stessi trade di PT5DAV_GC_LFD_002_60." },
+    { "a": "FTMO-PT8DAV-P1", "b": "PT5DAV-P1", "esito": "no", "quota": "13-17%", "data": "2026-10-02",
+      "nota": "Le due PCH dell'oro aprono gli stessi trade: PT8DAV_GC_PCH_002_60 e PT5DAV_GC_PCH_003_60." },
+    { "a": "FTMO-PT8DAV-P1", "b": "FTMO-PT8DAV-P2", "esito": "ok", "quota": "2-3%", "data": "2026-10-02" },
+
+    { "a": "FTMO-PT8DAV-P2", "b": "FTMO-PT3B-EUROPA", "esito": "ok", "quota": "0-1%", "data": "2026-10-02" },
+    { "a": "FTMO-PT8DAV-P2", "b": "FTMO-PT3B-USA", "esito": "ok", "quota": "0-1%", "data": "2026-10-02" },
+    { "a": "FTMO-PT8DAV-P2", "b": "FTMO-PT3B-INDICI", "esito": "ok", "quota": "0-1%", "data": "2026-10-02" },
+    { "a": "FTMO-PT8DAV-P2", "b": "PT5DAV-O4", "esito": "ok", "quota": "1-2%", "data": "2026-10-02" },
+    { "a": "FTMO-PT8DAV-P2", "b": "FTMO-EUROPA-O4", "esito": "ok", "quota": "1-2%", "data": "2026-10-02" },
+    { "a": "FTMO-PT8DAV-P2", "b": "PT5DAV-P1", "esito": "ok", "quota": "1-2%", "data": "2026-10-02" }
+  ],
+
+  "_piani": "Una riga di avvertenza per piano, per codice di ricerca (il piano di produzione la eredita dal piano di origine).",
+  "piani": {
+    "FTMO-PT3B-EUROPA": "Indici europei, intraday (niente overnight).",
+    "FTMO-PT3B-USA": "Pochi trade (77 in quattro anni): piano di diversificazione, non di volume.",
+    "FTMO-PT3B-INDICI": "EUROPA + USA su un conto solo. Resta di ricerca finché FTMO-EUROPA e FTMO-USA sono in produzione.",
+    "PT5DAV-O4": "Non su un conto vero a size 1: peggior giorno FTMO 5.029 contro il limite di 5.000. Si usa O4-X05.",
+    "PT5DAV-O4-X05": "O4 a size 0,5, la versione da conto. NQ_BSW_001_240 fa gran parte del netto.",
+    "PT5DAV-P1": "In campione: composto sullo stesso periodo del run. Prima un demo, non un conto vero.",
+    "FTMO-EUROPA-O4": "EUROPA + O4 a metà su un conto solo, size 0,75. Alternativa a EUROPA e O4-X05 separati, mai insieme a loro.",
+    "FTMO-EUROPA-O4-B": "Copia di FTMO-EUROPA-O4: resta di ricerca, come termine di paragone.",
+    "FTMO-PT8DAV-P1": "Piano sull'oro: le due GC fanno l'83% del netto nel fuori campione. Per questo va a size 0,5.",
+    "FTMO-PT8DAV-P2": "Il più equilibrato dei PT8DAV: tutti i mesi del run cBot in utile.",
+    "FINTOKEI-EUROPA-O4": "Gemello di FTMO-EUROPA-O4 senza PT5DAV_KC_LFH_001_60: Fintokei non quota il caffè.",
+    "FINTOKEI-PT8DAV-P1": "Piano sull'oro, size 0,5. Stesse strategie di FTMO-PT8DAV-P1.",
+    "FINTOKEI-PT8DAV-P2": "Stesse strategie di FTMO-PT8DAV-P2. Sul feed Fintokei i trade abbinati all'interno scendono all'80%."
+  },
+
+  "broker": {
+    "FTMO": {
+      "regole": "Conto da 100.000: perdita giornaliera massima 5.000, perdita totale massima 10.000.",
+      "note": [
+        "I tre piani in produzione girano tutti sul conto demo 17202911: lì la sovrapposizione fra EUROPA e O4-X05 è concentrazione sulla stessa rottura del DAX, non copy trading. Su due conti separati di FTMO, EUROPA e O4-X05 non vanno insieme.",
+        "I quattro piani PT8DAV sono best plan dal 02/10/2026: il passaggio in produzione e il demo sono ancora da fare."
+      ],
+      "combinazioni": [
+        { "conti": 3, "piani": ["FTMO-PT3B-EUROPA", "FTMO-PT3B-USA", "PT5DAV-P1"], "nota": "L'unica a tre conti fra i piani PT3B e PT5DAV. P1 è in campione: da demo prima." },
+        { "conti": 2, "piani": ["FTMO-PT3B-INDICI", "PT5DAV-P1"], "nota": "INDICI = EUROPA + USA su un conto. Stessa riserva su P1." },
+        { "conti": 2, "piani": ["FTMO-EUROPA-O4", "FTMO-PT3B-USA"], "nota": "Senza P1, per chi non vuole un piano in campione su un conto vero." },
+        { "conti": 2, "piani": ["PT5DAV-O4-X05", "FTMO-PT3B-USA"], "nota": "Senza EUROPA." },
+        { "conti": 1, "piani": ["FTMO-PT8DAV-P2"], "nota": "Un conto in più accanto a qualsiasi combinazione: P2 è compatibile con tutti gli altri best plan." },
+        { "conti": 1, "piani": ["FTMO-PT8DAV-P1"], "nota": "Un conto in più solo accanto a EUROPA, USA, INDICI e PT8DAV-P2. Non con PT5DAV-P1; al limite con O4, O4-X05 ed EUROPA-O4." }
+      ]
+    },
+    "FINTOKEI": {
+      "regole": "Conto da 100.000 USD: perdita giornaliera 5% sull'equity, perdita massima 10%. Commissione 0.",
+      "note": [
+        "Nessun piano è ancora in produzione su Fintokei: va scelta la combinazione da promuovere nel broker workspace (2 o 3 conti).",
+        "Le strategie sono quelle di FTMO e valgono le stesse compatibilità: le quote di trade gemelli sono misurate sui run dei piani FTMO con le stesse strategie.",
+        "Da chiarire (02/10/2026): il registro dei piani dà come best plan dal 01/10/2026 anche FINTOKEI-USA, FINTOKEI-USA-2 e FINTOKEI-P1, ma nella cartella best-plans non ci sono e i tre piani non risultano bloccati. Finché non tornano best plan, qui non compaiono."
+      ],
+      "combinazioni": [
+        { "conti": 2, "piani": ["FINTOKEI-EUROPA-O4", "FINTOKEI-USA-2"], "nota": "USA-2 non è (ancora) fra i best plan su disco." },
+        { "conti": 3, "piani": ["FINTOKEI-EUROPA", "FINTOKEI-USA", "FINTOKEI-P1"], "nota": "Si usa USA e non USA-2: USA-2 e P1 hanno il 7% di ingressi gemelli. Nessuno dei tre è fra i best plan su disco." },
+        { "conti": 1, "piani": ["FINTOKEI-PT8DAV-P2"], "nota": "Compatibile con tutti gli altri piani, come su FTMO." }
+      ]
+    }
+  }
+}

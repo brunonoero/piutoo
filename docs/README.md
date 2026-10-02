@@ -18,6 +18,11 @@ non esiste più, si tiene per il perché.
 - [`registro-piani.md`](registro-piani.md) — scheda di ogni piano di trading: strategie, size,
   conto, ultimi backtest. **Si aggiorna a ogni piano creato o modificato.**
 
+- [`../piootoo-repository/web/`](../piootoo-repository/web/LEGGIMI.md) — il sito per chi opera:
+  **manuale d'uso** (`manuale.html`) e **piani per broker** (`piani.html`: piani promossi, strategie,
+  compatibilità fra conti dello stesso broker). La pagina dei piani si rigenera dal disco con
+  `python aggiorna-dati.py`; il manuale si corregge a mano quando cambia una schermata.
+
 - [`PROGETTO.md`](PROGETTO.md) — descrizione del progetto: cosa fa il sistema,
   moduli, flussi, invarianti da non rompere, trappole note. *Stabile.*
 - [`verifica-codice-2026-07-27.md`](verifica-codice-2026-07-27.md) — audit del

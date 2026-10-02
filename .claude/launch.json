@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "piootoo-web",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "http.server", "8377", "--bind", "127.0.0.1", "--directory", "C:\\piootoo-dev\\piootoo-repository\\web"],
+      "port": 8377
+    }
+  ]
+}
