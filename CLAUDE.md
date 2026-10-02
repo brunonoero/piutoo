@@ -412,7 +412,9 @@ In `.claude/skills/` stanno le **procedure** con cui si lavora su questo progett
 `passo-a-mano` (un parametro con un'ipotesi a priori), `promuovi-finalista` (da configurazione a
 classe PT3B), `deploy-piootoo` (il rilascio). Dal 25/09/2026, per la serie PT6EXO: `motore-pt6exo`
 (scrivere un motore di una famiglia nuova), `controllo-ran` (una strategia contro l'ingresso casuale
-con le stesse uscite), `piani-scorrelati` (comporre i piani con `piootoo-plan-builder`). Lo stato dei
+con le stesse uscite), `piani-scorrelati` (comporre i piani con `piootoo-plan-builder`). Dal 02/10/2026
+`aggiorna-sito`: a ogni piano promosso a best plan, messo in produzione, duplicato o ritirato si
+aggiorna il sito (`piootoo-repository/web`, servito da `C:\piootoo-web` sulla porta 81). Lo stato dei
 lavori PT6EXO e da dove riprendere sta in cima a `docs/lavori-in-corso.md`. Sono bozze del 23/09/2026, da completare a fine
 percorso di messa a punto; le soglie numeriche stanno in `lettura-risultati` e in nessun altro
 skill.

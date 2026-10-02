@@ -1,6 +1,6 @@
 // Generato da aggiorna-dati.py: non modificare a mano.
 window.PIOOTOO_PIANI = {
- "generatedUtc": "2026-10-02T08:43:11Z",
+ "generatedUtc": "2026-10-02T10:15:12Z",
  "criterion": "Due piani stanno su conti diversi dello stesso broker solo se non hanno strategie in comune e se meno del 5% dei trade ha un gemello nell'altro piano (stesso simbolo, stesso lato, ingresso entro 5 minuti, misurato sui run cBot).",
  "brokers": [
   {
@@ -18,8 +18,9 @@ window.PIOOTOO_PIANI = {
    ],
    "rules": "Conto da 100.000: perdita giornaliera massima 5.000, perdita totale massima 10.000.",
    "notes": [
-    "I tre piani in produzione girano tutti sul conto demo 17202911: lì la sovrapposizione fra EUROPA e O4-X05 è concentrazione sulla stessa rottura del DAX, non copy trading. Su due conti separati di FTMO, EUROPA e O4-X05 non vanno insieme.",
-    "I quattro piani PT8DAV sono best plan dal 02/10/2026: il passaggio in produzione e il demo sono ancora da fare."
+    "I cinque piani in produzione girano tutti sul conto demo 17202911: lì la sovrapposizione fra EUROPA e O4-X05 è concentrazione sulla stessa rottura del DAX, non copy trading. Su due conti separati di FTMO, EUROPA e O4-X05 non vanno insieme.",
+    "FTMO-PT8-P1 e FTMO-PT8-P2 (da FTMO-PT8DAV-P1 e -P2) sono in produzione dal 02/10/2026, in demo. Sullo stesso conto PT8-P1 e O4-X05 prendono gli stessi trade sull'oro nel 4-7% dei casi (GC_LFD): è concentrazione, e su conti separati sarebbe al limite.",
+    "Demo di 1-2 mesi prima di un conto vero: i PT8DAV sono stati composti sul 2022-2025 e verificati sul 06/2025-09/2026, ma il fuori campione è uno solo."
    ],
    "combinations": [
     {
@@ -154,6 +155,96 @@ window.PIOOTOO_PIANI = {
       "equitySource": "realizzata"
      },
      "note": "O4 a size 0,5, la versione da conto. NQ_BSW_001_240 fa gran parte del netto."
+    },
+    {
+     "code": "FTMO-PT8-P1",
+     "name": "ftmo-pt8dav-p1 (piano 1, 8 strategie, oro all'83% nel fuori campione, size 0,5)",
+     "broker": "FTMO",
+     "state": "produzione",
+     "strategies": [
+      "PT8DAV_BP_SBO_001_15",
+      "PT8DAV_BP_VBO_001_15",
+      "PT8DAV_ES_RHL_002_60",
+      "PT8DAV_FDAX_BRT_001_15",
+      "PT8DAV_GC_LFD_001_60",
+      "PT8DAV_GC_PCH_002_60",
+      "PT8DAV_NQ_SBO_003_60",
+      "PT8DAV_NQ_VBO_001_15"
+     ],
+     "promotedUtc": "2026-10-02T10:14:50.1027122Z",
+     "retiredUtc": null,
+     "origin": {
+      "planCode": "FTMO-PT8DAV-P1",
+      "workspace": "ftmo-pt8dav",
+      "bestPlanId": "ftmo-pt8dav__ftmo-pt8dav-p1-bt-20250803-2105-v7.8.13-20261002-0600",
+      "backtestFolder": "ftmo-pt8dav-p1-bt-20250803-2105-v7.8.13-20261002-0600",
+      "previousPlanCode": null
+     },
+     "accounts": [
+      "17202911"
+     ],
+     "size": 0.5,
+     "commission": 2,
+     "overnight": true,
+     "overweek": true,
+     "sessionFlatUtc": "20:45",
+     "weights": {},
+     "measureCode": "FTMO-PT8DAV-P1",
+     "run": {
+      "startUtc": "2025-08-03T21:05:00Z",
+      "endUtc": "2026-09-25T20:30:00Z",
+      "trades": 531,
+      "netProfit": 14606.58,
+      "maxDrawdown": 3242.76,
+      "priceSource": "CFD FTMO (datafeed-external/FTMO)",
+      "equitySource": "realizzata"
+     },
+     "note": "Piano sull'oro: le due GC fanno l'83% del netto nel fuori campione. Per questo va a size 0,5."
+    },
+    {
+     "code": "FTMO-PT8-P2",
+     "name": "ftmo-pt8dav-p2 (piano 2, 8 strategie, size 1)",
+     "broker": "FTMO",
+     "state": "produzione",
+     "strategies": [
+      "PT8DAV_BP_PCH_001_60",
+      "PT8DAV_BP_RBM_001_30",
+      "PT8DAV_ES_LFH_001_15",
+      "PT8DAV_ES_MAC_001_30",
+      "PT8DAV_FDAX_RHL_002_60",
+      "PT8DAV_GC_VBO_001_15",
+      "PT8DAV_NQ_VBO_003_240",
+      "PT8DAV_YM_RBU_001_60"
+     ],
+     "promotedUtc": "2026-10-02T10:14:50.1465981Z",
+     "retiredUtc": null,
+     "origin": {
+      "planCode": "FTMO-PT8DAV-P2",
+      "workspace": "ftmo-pt8dav",
+      "bestPlanId": "ftmo-pt8dav__ftmo-pt8dav-p2-bt-20250803-2105-v7.8.13-20261002-0756",
+      "backtestFolder": "ftmo-pt8dav-p2-bt-20250803-2105-v7.8.13-20261002-0756",
+      "previousPlanCode": null
+     },
+     "accounts": [
+      "17202911"
+     ],
+     "size": 1,
+     "commission": 2,
+     "overnight": true,
+     "overweek": true,
+     "sessionFlatUtc": "20:45",
+     "weights": {},
+     "measureCode": "FTMO-PT8DAV-P2",
+     "run": {
+      "startUtc": "2025-08-03T21:05:00Z",
+      "endUtc": "2026-09-25T20:30:00Z",
+      "trades": 307,
+      "netProfit": 26858.08,
+      "maxDrawdown": 2409.69,
+      "priceSource": "CFD FTMO (datafeed-external/FTMO)",
+      "equitySource": "realizzata"
+     },
+     "note": "Il più equilibrato dei PT8DAV: tutti i mesi del run cBot in utile."
     },
     {
      "code": "FTMO-USA",
@@ -346,94 +437,6 @@ window.PIOOTOO_PIANI = {
      "note": "EUROPA + USA su un conto solo. Resta di ricerca finché FTMO-EUROPA e FTMO-USA sono in produzione."
     },
     {
-     "code": "FTMO-PT8DAV-P1",
-     "name": "ftmo-pt8dav-p1 (piano 1, 8 strategie, oro all'83% nel fuori campione, size 0,5)",
-     "broker": "FTMO",
-     "state": "best-plan",
-     "strategies": [
-      "PT8DAV_BP_SBO_001_15",
-      "PT8DAV_BP_VBO_001_15",
-      "PT8DAV_ES_RHL_002_60",
-      "PT8DAV_FDAX_BRT_001_15",
-      "PT8DAV_GC_LFD_001_60",
-      "PT8DAV_GC_PCH_002_60",
-      "PT8DAV_NQ_SBO_003_60",
-      "PT8DAV_NQ_VBO_001_15"
-     ],
-     "promotedUtc": "2026-10-02T08:24:55.4494089Z",
-     "origin": {
-      "planCode": "FTMO-PT8DAV-P1",
-      "workspace": "ftmo-pt8dav",
-      "bestPlanId": "ftmo-pt8dav__ftmo-pt8dav-p1-bt-20250803-2105-v7.8.13-20261002-0600",
-      "backtestFolder": "ftmo-pt8dav-p1-bt-20250803-2105-v7.8.13-20261002-0600"
-     },
-     "run": {
-      "startUtc": "2025-08-03T21:05:00Z",
-      "endUtc": "2026-09-25T20:30:00Z",
-      "trades": 531,
-      "netProfit": 14606.58,
-      "maxDrawdown": 3242.76,
-      "priceSource": "CFD FTMO (datafeed-external/FTMO)",
-      "equitySource": "realizzata"
-     },
-     "accounts": [
-      "17202911"
-     ],
-     "size": 0.5,
-     "commission": 2,
-     "overnight": true,
-     "overweek": true,
-     "sessionFlatUtc": "20:45",
-     "weights": {},
-     "olderCards": 0,
-     "measureCode": "FTMO-PT8DAV-P1",
-     "note": "Piano sull'oro: le due GC fanno l'83% del netto nel fuori campione. Per questo va a size 0,5."
-    },
-    {
-     "code": "FTMO-PT8DAV-P2",
-     "name": "ftmo-pt8dav-p2 (piano 2, 8 strategie, size 1)",
-     "broker": "FTMO",
-     "state": "best-plan",
-     "strategies": [
-      "PT8DAV_BP_PCH_001_60",
-      "PT8DAV_BP_RBM_001_30",
-      "PT8DAV_ES_LFH_001_15",
-      "PT8DAV_ES_MAC_001_30",
-      "PT8DAV_FDAX_RHL_002_60",
-      "PT8DAV_GC_VBO_001_15",
-      "PT8DAV_NQ_VBO_003_240",
-      "PT8DAV_YM_RBU_001_60"
-     ],
-     "promotedUtc": "2026-10-02T08:24:55.6393323Z",
-     "origin": {
-      "planCode": "FTMO-PT8DAV-P2",
-      "workspace": "ftmo-pt8dav",
-      "bestPlanId": "ftmo-pt8dav__ftmo-pt8dav-p2-bt-20250803-2105-v7.8.13-20261002-0756",
-      "backtestFolder": "ftmo-pt8dav-p2-bt-20250803-2105-v7.8.13-20261002-0756"
-     },
-     "run": {
-      "startUtc": "2025-08-03T21:05:00Z",
-      "endUtc": "2026-09-25T20:30:00Z",
-      "trades": 307,
-      "netProfit": 26858.08,
-      "maxDrawdown": 2409.69,
-      "priceSource": "CFD FTMO (datafeed-external/FTMO)",
-      "equitySource": "realizzata"
-     },
-     "accounts": [
-      "17202911"
-     ],
-     "size": 1,
-     "commission": 2,
-     "overnight": true,
-     "overweek": true,
-     "sessionFlatUtc": "20:45",
-     "weights": {},
-     "olderCards": 0,
-     "measureCode": "FTMO-PT8DAV-P2",
-     "note": "Il più equilibrato dei PT8DAV: tutti i mesi del run cBot in utile."
-    },
-    {
      "code": "PT5DAV-O4",
      "name": "pt5dav-onesto-4",
      "broker": "FTMO",
@@ -528,6 +531,20 @@ window.PIOOTOO_PIANI = {
      "note": "Breakout del DAX: PT3B_FDAX_PCH_002_240 scatta sulle stesse rotture di PT5DAV_FDAX_BOS_001_15 e PT5DAV_FDAX_PCH_002_60.",
      "measuredOn": "FTMO-PT3B-EUROPA × PT5DAV-O4"
     },
+    "FTMO-EUROPA|FTMO-PT8-P1": {
+     "verdict": "ok",
+     "reason": "Nessuna strategia in comune, trade gemelli 0%.",
+     "twins": "0%",
+     "measured": "2026-10-02",
+     "measuredOn": "FTMO-PT8DAV-P1 × FTMO-PT3B-EUROPA"
+    },
+    "FTMO-EUROPA|FTMO-PT8-P2": {
+     "verdict": "ok",
+     "reason": "Nessuna strategia in comune, trade gemelli 0-1%.",
+     "twins": "0-1%",
+     "measured": "2026-10-02",
+     "measuredOn": "FTMO-PT8DAV-P2 × FTMO-PT3B-EUROPA"
+    },
     "FTMO-EUROPA|FTMO-USA": {
      "verdict": "ok",
      "reason": "Nessuna strategia in comune, trade gemelli 0%.",
@@ -562,20 +579,6 @@ window.PIOOTOO_PIANI = {
       "PT3B_FESX_RHL_001_240"
      ]
     },
-    "FTMO-EUROPA|FTMO-PT8DAV-P1": {
-     "verdict": "ok",
-     "reason": "Nessuna strategia in comune, trade gemelli 0%.",
-     "twins": "0%",
-     "measured": "2026-10-02",
-     "measuredOn": "FTMO-PT8DAV-P1 × FTMO-PT3B-EUROPA"
-    },
-    "FTMO-EUROPA|FTMO-PT8DAV-P2": {
-     "verdict": "ok",
-     "reason": "Nessuna strategia in comune, trade gemelli 0-1%.",
-     "twins": "0-1%",
-     "measured": "2026-10-02",
-     "measuredOn": "FTMO-PT8DAV-P2 × FTMO-PT3B-EUROPA"
-    },
     "FTMO-EUROPA|PT5DAV-O4": {
      "verdict": "no",
      "reason": "Nessuna strategia in comune, ma trade gemelli 18%.",
@@ -590,6 +593,21 @@ window.PIOOTOO_PIANI = {
      "twins": "0%",
      "measured": "2026-09-29",
      "measuredOn": "FTMO-PT3B-EUROPA × PT5DAV-P1"
+    },
+    "FTMO-O4-X05|FTMO-PT8-P1": {
+     "verdict": "limite",
+     "reason": "Nessuna strategia in comune, ma trade gemelli 4-7%: al limite del 5%.",
+     "twins": "4-7%",
+     "measured": "2026-10-02",
+     "note": "PT8DAV_GC_LFD_001_60 apre gli stessi trade di PT5DAV_GC_LFD_002_60.",
+     "measuredOn": "FTMO-PT8DAV-P1 × PT5DAV-O4"
+    },
+    "FTMO-O4-X05|FTMO-PT8-P2": {
+     "verdict": "ok",
+     "reason": "Nessuna strategia in comune, trade gemelli 1-2%.",
+     "twins": "1-2%",
+     "measured": "2026-10-02",
+     "measuredOn": "FTMO-PT8DAV-P2 × PT5DAV-O4"
     },
     "FTMO-O4-X05|FTMO-USA": {
      "verdict": "ok",
@@ -632,21 +650,6 @@ window.PIOOTOO_PIANI = {
      "note": "Breakout del DAX: PT3B_FDAX_PCH_002_240 scatta sulle stesse rotture di PT5DAV_FDAX_BOS_001_15 e PT5DAV_FDAX_PCH_002_60.",
      "measuredOn": "FTMO-PT3B-INDICI × PT5DAV-O4"
     },
-    "FTMO-O4-X05|FTMO-PT8DAV-P1": {
-     "verdict": "limite",
-     "reason": "Nessuna strategia in comune, ma trade gemelli 4-7%: al limite del 5%.",
-     "twins": "4-7%",
-     "measured": "2026-10-02",
-     "note": "PT8DAV_GC_LFD_001_60 apre gli stessi trade di PT5DAV_GC_LFD_002_60.",
-     "measuredOn": "FTMO-PT8DAV-P1 × PT5DAV-O4"
-    },
-    "FTMO-O4-X05|FTMO-PT8DAV-P2": {
-     "verdict": "ok",
-     "reason": "Nessuna strategia in comune, trade gemelli 1-2%.",
-     "twins": "1-2%",
-     "measured": "2026-10-02",
-     "measuredOn": "FTMO-PT8DAV-P2 × PT5DAV-O4"
-    },
     "FTMO-O4-X05|PT5DAV-O4": {
      "verdict": "stesso",
      "reason": "Stesse strategie: è lo stesso piano, mai su due conti.",
@@ -666,6 +669,101 @@ window.PIOOTOO_PIANI = {
      "shared": [
       "PT5DAV_NQ_BSW_001_240"
      ]
+    },
+    "FTMO-PT8-P1|FTMO-PT8-P2": {
+     "verdict": "ok",
+     "reason": "Nessuna strategia in comune, trade gemelli 2-3%.",
+     "twins": "2-3%",
+     "measured": "2026-10-02",
+     "measuredOn": "FTMO-PT8DAV-P1 × FTMO-PT8DAV-P2"
+    },
+    "FTMO-PT8-P1|FTMO-USA": {
+     "verdict": "ok",
+     "reason": "Nessuna strategia in comune, trade gemelli 0%.",
+     "twins": "0%",
+     "measured": "2026-10-02",
+     "measuredOn": "FTMO-PT8DAV-P1 × FTMO-PT3B-USA"
+    },
+    "FTMO-PT8-P1|FTMO-EUROPA-O4": {
+     "verdict": "limite",
+     "reason": "Nessuna strategia in comune, ma trade gemelli 4-7%: al limite del 5%.",
+     "twins": "4-7%",
+     "measured": "2026-10-02",
+     "note": "PT8DAV_GC_LFD_001_60 apre gli stessi trade di PT5DAV_GC_LFD_002_60.",
+     "measuredOn": "FTMO-PT8DAV-P1 × FTMO-EUROPA-O4"
+    },
+    "FTMO-PT8-P1|FTMO-EUROPA-O4-B": {
+     "verdict": "limite",
+     "reason": "Nessuna strategia in comune, ma trade gemelli 4-7%: al limite del 5%.",
+     "twins": "4-7%",
+     "measured": "2026-10-02",
+     "note": "PT8DAV_GC_LFD_001_60 apre gli stessi trade di PT5DAV_GC_LFD_002_60.",
+     "measuredOn": "FTMO-PT8DAV-P1 × FTMO-EUROPA-O4"
+    },
+    "FTMO-PT8-P1|FTMO-PT3B-INDICI": {
+     "verdict": "ok",
+     "reason": "Nessuna strategia in comune, trade gemelli 0%.",
+     "twins": "0%",
+     "measured": "2026-10-02",
+     "measuredOn": "FTMO-PT8DAV-P1 × FTMO-PT3B-INDICI"
+    },
+    "FTMO-PT8-P1|PT5DAV-O4": {
+     "verdict": "limite",
+     "reason": "Nessuna strategia in comune, ma trade gemelli 4-7%: al limite del 5%.",
+     "twins": "4-7%",
+     "measured": "2026-10-02",
+     "note": "PT8DAV_GC_LFD_001_60 apre gli stessi trade di PT5DAV_GC_LFD_002_60.",
+     "measuredOn": "FTMO-PT8DAV-P1 × PT5DAV-O4"
+    },
+    "FTMO-PT8-P1|PT5DAV-P1": {
+     "verdict": "no",
+     "reason": "Nessuna strategia in comune, ma trade gemelli 13-17%.",
+     "twins": "13-17%",
+     "measured": "2026-10-02",
+     "note": "Le due PCH dell'oro aprono gli stessi trade: PT8DAV_GC_PCH_002_60 e PT5DAV_GC_PCH_003_60.",
+     "measuredOn": "FTMO-PT8DAV-P1 × PT5DAV-P1"
+    },
+    "FTMO-PT8-P2|FTMO-USA": {
+     "verdict": "ok",
+     "reason": "Nessuna strategia in comune, trade gemelli 0-1%.",
+     "twins": "0-1%",
+     "measured": "2026-10-02",
+     "measuredOn": "FTMO-PT8DAV-P2 × FTMO-PT3B-USA"
+    },
+    "FTMO-PT8-P2|FTMO-EUROPA-O4": {
+     "verdict": "ok",
+     "reason": "Nessuna strategia in comune, trade gemelli 1-2%.",
+     "twins": "1-2%",
+     "measured": "2026-10-02",
+     "measuredOn": "FTMO-PT8DAV-P2 × FTMO-EUROPA-O4"
+    },
+    "FTMO-PT8-P2|FTMO-EUROPA-O4-B": {
+     "verdict": "ok",
+     "reason": "Nessuna strategia in comune, trade gemelli 1-2%.",
+     "twins": "1-2%",
+     "measured": "2026-10-02",
+     "measuredOn": "FTMO-PT8DAV-P2 × FTMO-EUROPA-O4"
+    },
+    "FTMO-PT8-P2|FTMO-PT3B-INDICI": {
+     "verdict": "ok",
+     "reason": "Nessuna strategia in comune, trade gemelli 0-1%.",
+     "twins": "0-1%",
+     "measured": "2026-10-02",
+     "measuredOn": "FTMO-PT8DAV-P2 × FTMO-PT3B-INDICI"
+    },
+    "FTMO-PT8-P2|PT5DAV-O4": {
+     "verdict": "ok",
+     "reason": "Nessuna strategia in comune, trade gemelli 1-2%.",
+     "twins": "1-2%",
+     "measured": "2026-10-02",
+     "measuredOn": "FTMO-PT8DAV-P2 × PT5DAV-O4"
+    },
+    "FTMO-PT8-P2|PT5DAV-P1": {
+     "verdict": "ok",
+     "reason": "Nessuna strategia in comune, trade gemelli 1-2%.",
+     "twins": "1-2%",
+     "measured": "2026-10-02",
+     "measuredOn": "FTMO-PT8DAV-P2 × PT5DAV-P1"
     },
     "FTMO-USA|FTMO-EUROPA-O4": {
      "verdict": "ok",
@@ -689,20 +787,6 @@ window.PIOOTOO_PIANI = {
       "PT3B_NQ_RHL_001_240",
       "PT3B_YM_RHL_001_240"
      ]
-    },
-    "FTMO-USA|FTMO-PT8DAV-P1": {
-     "verdict": "ok",
-     "reason": "Nessuna strategia in comune, trade gemelli 0%.",
-     "twins": "0%",
-     "measured": "2026-10-02",
-     "measuredOn": "FTMO-PT8DAV-P1 × FTMO-PT3B-USA"
-    },
-    "FTMO-USA|FTMO-PT8DAV-P2": {
-     "verdict": "ok",
-     "reason": "Nessuna strategia in comune, trade gemelli 0-1%.",
-     "twins": "0-1%",
-     "measured": "2026-10-02",
-     "measuredOn": "FTMO-PT8DAV-P2 × FTMO-PT3B-USA"
     },
     "FTMO-USA|PT5DAV-O4": {
      "verdict": "ok",
@@ -744,19 +828,6 @@ window.PIOOTOO_PIANI = {
       "PT3B_FESX_RHL_001_240"
      ]
     },
-    "FTMO-EUROPA-O4|FTMO-PT8DAV-P1": {
-     "verdict": "limite",
-     "reason": "Nessuna strategia in comune, ma trade gemelli 4-7%: al limite del 5%.",
-     "twins": "4-7%",
-     "measured": "2026-10-02",
-     "note": "PT8DAV_GC_LFD_001_60 apre gli stessi trade di PT5DAV_GC_LFD_002_60."
-    },
-    "FTMO-EUROPA-O4|FTMO-PT8DAV-P2": {
-     "verdict": "ok",
-     "reason": "Nessuna strategia in comune, trade gemelli 1-2%.",
-     "twins": "1-2%",
-     "measured": "2026-10-02"
-    },
     "FTMO-EUROPA-O4|PT5DAV-O4": {
      "verdict": "no",
      "reason": "Strategie in comune.",
@@ -786,21 +857,6 @@ window.PIOOTOO_PIANI = {
       "PT3B_FESX_RHL_001_240"
      ]
     },
-    "FTMO-EUROPA-O4-B|FTMO-PT8DAV-P1": {
-     "verdict": "limite",
-     "reason": "Nessuna strategia in comune, ma trade gemelli 4-7%: al limite del 5%.",
-     "twins": "4-7%",
-     "measured": "2026-10-02",
-     "note": "PT8DAV_GC_LFD_001_60 apre gli stessi trade di PT5DAV_GC_LFD_002_60.",
-     "measuredOn": "FTMO-PT8DAV-P1 × FTMO-EUROPA-O4"
-    },
-    "FTMO-EUROPA-O4-B|FTMO-PT8DAV-P2": {
-     "verdict": "ok",
-     "reason": "Nessuna strategia in comune, trade gemelli 1-2%.",
-     "twins": "1-2%",
-     "measured": "2026-10-02",
-     "measuredOn": "FTMO-PT8DAV-P2 × FTMO-EUROPA-O4"
-    },
     "FTMO-EUROPA-O4-B|PT5DAV-O4": {
      "verdict": "no",
      "reason": "Strategie in comune.",
@@ -821,18 +877,6 @@ window.PIOOTOO_PIANI = {
       "PT5DAV_NQ_BSW_001_240"
      ]
     },
-    "FTMO-PT3B-INDICI|FTMO-PT8DAV-P1": {
-     "verdict": "ok",
-     "reason": "Nessuna strategia in comune, trade gemelli 0%.",
-     "twins": "0%",
-     "measured": "2026-10-02"
-    },
-    "FTMO-PT3B-INDICI|FTMO-PT8DAV-P2": {
-     "verdict": "ok",
-     "reason": "Nessuna strategia in comune, trade gemelli 0-1%.",
-     "twins": "0-1%",
-     "measured": "2026-10-02"
-    },
     "FTMO-PT3B-INDICI|PT5DAV-O4": {
      "verdict": "no",
      "reason": "Nessuna strategia in comune, ma trade gemelli 20%.",
@@ -845,38 +889,6 @@ window.PIOOTOO_PIANI = {
      "reason": "Nessuna strategia in comune, trade gemelli 0%.",
      "twins": "0%",
      "measured": "2026-09-29"
-    },
-    "FTMO-PT8DAV-P1|FTMO-PT8DAV-P2": {
-     "verdict": "ok",
-     "reason": "Nessuna strategia in comune, trade gemelli 2-3%.",
-     "twins": "2-3%",
-     "measured": "2026-10-02"
-    },
-    "FTMO-PT8DAV-P1|PT5DAV-O4": {
-     "verdict": "limite",
-     "reason": "Nessuna strategia in comune, ma trade gemelli 4-7%: al limite del 5%.",
-     "twins": "4-7%",
-     "measured": "2026-10-02",
-     "note": "PT8DAV_GC_LFD_001_60 apre gli stessi trade di PT5DAV_GC_LFD_002_60."
-    },
-    "FTMO-PT8DAV-P1|PT5DAV-P1": {
-     "verdict": "no",
-     "reason": "Nessuna strategia in comune, ma trade gemelli 13-17%.",
-     "twins": "13-17%",
-     "measured": "2026-10-02",
-     "note": "Le due PCH dell'oro aprono gli stessi trade: PT8DAV_GC_PCH_002_60 e PT5DAV_GC_PCH_003_60."
-    },
-    "FTMO-PT8DAV-P2|PT5DAV-O4": {
-     "verdict": "ok",
-     "reason": "Nessuna strategia in comune, trade gemelli 1-2%.",
-     "twins": "1-2%",
-     "measured": "2026-10-02"
-    },
-    "FTMO-PT8DAV-P2|PT5DAV-P1": {
-     "verdict": "ok",
-     "reason": "Nessuna strategia in comune, trade gemelli 1-2%.",
-     "twins": "1-2%",
-     "measured": "2026-10-02"
     },
     "PT5DAV-O4|PT5DAV-P1": {
      "verdict": "no",
@@ -902,7 +914,7 @@ window.PIOOTOO_PIANI = {
    ],
    "rules": "Conto da 100.000 USD: perdita giornaliera 5% sull'equity, perdita massima 10%. Commissione 0.",
    "notes": [
-    "Nessun piano è ancora in produzione su Fintokei: va scelta la combinazione da promuovere nel broker workspace (2 o 3 conti).",
+    "In produzione dal 02/10/2026, in demo sul conto 4302718: FINTOKEI-PT8-P1 (size 0,5) e FINTOKEI-PT8-P2 (size 1), da FINTOKEI-PT8DAV-P1 e -P2. Dei piani PT3B e PT5DAV nessuno è ancora in produzione su Fintokei: va scelta la combinazione da promuovere (2 o 3 conti).",
     "Le strategie sono quelle di FTMO e valgono le stesse compatibilità: le quote di trade gemelli sono misurate sui run dei piani FTMO con le stesse strategie.",
     "Da chiarire (02/10/2026): il registro dei piani dà come best plan dal 01/10/2026 anche FINTOKEI-USA, FINTOKEI-USA-2 e FINTOKEI-P1, ma nella cartella best-plans non ci sono e i tre piani non risultano bloccati. Finché non tornano best plan, qui non compaiono."
    ],
@@ -933,6 +945,96 @@ window.PIOOTOO_PIANI = {
     }
    ],
    "plans": [
+    {
+     "code": "FINTOKEI-PT8-P1",
+     "name": "fintokei-pt8dav-p1 (piano 1, 8 strategie, oro all'83% nel fuori campione, size 0,5)",
+     "broker": "FINTOKEI",
+     "state": "produzione",
+     "strategies": [
+      "PT8DAV_BP_SBO_001_15",
+      "PT8DAV_BP_VBO_001_15",
+      "PT8DAV_ES_RHL_002_60",
+      "PT8DAV_FDAX_BRT_001_15",
+      "PT8DAV_GC_LFD_001_60",
+      "PT8DAV_GC_PCH_002_60",
+      "PT8DAV_NQ_SBO_003_60",
+      "PT8DAV_NQ_VBO_001_15"
+     ],
+     "promotedUtc": "2026-10-02T10:14:50.1860175Z",
+     "retiredUtc": null,
+     "origin": {
+      "planCode": "FINTOKEI-PT8DAV-P1",
+      "workspace": "fintokei-pt8dav",
+      "bestPlanId": "fintokei-pt8dav__fintokei-pt8dav-p1-bt-20251225-2206-v7.8.13-20261002-0604",
+      "backtestFolder": "fintokei-pt8dav-p1-bt-20251225-2206-v7.8.13-20261002-0604",
+      "previousPlanCode": null
+     },
+     "accounts": [
+      "4302718"
+     ],
+     "size": 0.5,
+     "commission": 0,
+     "overnight": true,
+     "overweek": true,
+     "sessionFlatUtc": "20:45",
+     "weights": {},
+     "measureCode": "FINTOKEI-PT8DAV-P1",
+     "run": {
+      "startUtc": "2025-12-25T22:06:00Z",
+      "endUtc": "2026-10-01T23:30:00Z",
+      "trades": 339,
+      "netProfit": 10934.64,
+      "maxDrawdown": 1577.26,
+      "priceSource": "CFD FINTOKEI (datafeed-external/FINTOKEI)",
+      "equitySource": "realizzata"
+     },
+     "note": "Piano sull'oro, size 0,5. Stesse strategie di FTMO-PT8DAV-P1."
+    },
+    {
+     "code": "FINTOKEI-PT8-P2",
+     "name": "fintokei-pt8dav-p2 (piano 2, 8 strategie, size 1)",
+     "broker": "FINTOKEI",
+     "state": "produzione",
+     "strategies": [
+      "PT8DAV_BP_PCH_001_60",
+      "PT8DAV_BP_RBM_001_30",
+      "PT8DAV_ES_LFH_001_15",
+      "PT8DAV_ES_MAC_001_30",
+      "PT8DAV_FDAX_RHL_002_60",
+      "PT8DAV_GC_VBO_001_15",
+      "PT8DAV_NQ_VBO_003_240",
+      "PT8DAV_YM_RBU_001_60"
+     ],
+     "promotedUtc": "2026-10-02T10:14:50.2076664Z",
+     "retiredUtc": null,
+     "origin": {
+      "planCode": "FINTOKEI-PT8DAV-P2",
+      "workspace": "fintokei-pt8dav",
+      "bestPlanId": "fintokei-pt8dav__fintokei-pt8dav-p2-bt-20251225-2206-v7.8.13-20261002-0756",
+      "backtestFolder": "fintokei-pt8dav-p2-bt-20251225-2206-v7.8.13-20261002-0756",
+      "previousPlanCode": null
+     },
+     "accounts": [
+      "4302718"
+     ],
+     "size": 1,
+     "commission": 0,
+     "overnight": true,
+     "overweek": true,
+     "sessionFlatUtc": "20:45",
+     "weights": {},
+     "measureCode": "FINTOKEI-PT8DAV-P2",
+     "run": {
+      "startUtc": "2025-12-25T22:06:00Z",
+      "endUtc": "2026-10-01T23:30:00Z",
+      "trades": 209,
+      "netProfit": 15848.02,
+      "maxDrawdown": 2458.03,
+      "priceSource": "CFD FINTOKEI (datafeed-external/FINTOKEI)",
+      "equitySource": "realizzata"
+     },
+     "note": "Stesse strategie di FTMO-PT8DAV-P2. Sul feed Fintokei i trade abbinati all'interno scendono all'80%."
+    },
     {
      "code": "FINTOKEI-EUROPA-O4",
      "name": "fintokei-europa-o4 (EUROPA + O4 a meta', senza KC_LFH, size 0,75)",
@@ -984,98 +1086,17 @@ window.PIOOTOO_PIANI = {
      "olderCards": 0,
      "measureCode": "FINTOKEI-EUROPA-O4",
      "note": "Gemello di FTMO-EUROPA-O4 senza PT5DAV_KC_LFH_001_60: Fintokei non quota il caffè."
-    },
-    {
-     "code": "FINTOKEI-PT8DAV-P1",
-     "name": "fintokei-pt8dav-p1 (piano 1, 8 strategie, oro all'83% nel fuori campione, size 0,5)",
-     "broker": "FINTOKEI",
-     "state": "best-plan",
-     "strategies": [
-      "PT8DAV_BP_SBO_001_15",
-      "PT8DAV_BP_VBO_001_15",
-      "PT8DAV_ES_RHL_002_60",
-      "PT8DAV_FDAX_BRT_001_15",
-      "PT8DAV_GC_LFD_001_60",
-      "PT8DAV_GC_PCH_002_60",
-      "PT8DAV_NQ_SBO_003_60",
-      "PT8DAV_NQ_VBO_001_15"
-     ],
-     "promotedUtc": "2026-10-02T08:24:55.8407448Z",
-     "origin": {
-      "planCode": "FINTOKEI-PT8DAV-P1",
-      "workspace": "fintokei-pt8dav",
-      "bestPlanId": "fintokei-pt8dav__fintokei-pt8dav-p1-bt-20251225-2206-v7.8.13-20261002-0604",
-      "backtestFolder": "fintokei-pt8dav-p1-bt-20251225-2206-v7.8.13-20261002-0604"
-     },
-     "run": {
-      "startUtc": "2025-12-25T22:06:00Z",
-      "endUtc": "2026-10-01T23:30:00Z",
-      "trades": 339,
-      "netProfit": 10934.64,
-      "maxDrawdown": 1577.26,
-      "priceSource": "CFD FINTOKEI (datafeed-external/FINTOKEI)",
-      "equitySource": "realizzata"
-     },
-     "accounts": [
-      "4302718"
-     ],
-     "size": 0.5,
-     "commission": 0,
-     "overnight": true,
-     "overweek": true,
-     "sessionFlatUtc": "20:45",
-     "weights": {},
-     "olderCards": 0,
-     "measureCode": "FINTOKEI-PT8DAV-P1",
-     "note": "Piano sull'oro, size 0,5. Stesse strategie di FTMO-PT8DAV-P1."
-    },
-    {
-     "code": "FINTOKEI-PT8DAV-P2",
-     "name": "fintokei-pt8dav-p2 (piano 2, 8 strategie, size 1)",
-     "broker": "FINTOKEI",
-     "state": "best-plan",
-     "strategies": [
-      "PT8DAV_BP_PCH_001_60",
-      "PT8DAV_BP_RBM_001_30",
-      "PT8DAV_ES_LFH_001_15",
-      "PT8DAV_ES_MAC_001_30",
-      "PT8DAV_FDAX_RHL_002_60",
-      "PT8DAV_GC_VBO_001_15",
-      "PT8DAV_NQ_VBO_003_240",
-      "PT8DAV_YM_RBU_001_60"
-     ],
-     "promotedUtc": "2026-10-02T08:24:56.0174605Z",
-     "origin": {
-      "planCode": "FINTOKEI-PT8DAV-P2",
-      "workspace": "fintokei-pt8dav",
-      "bestPlanId": "fintokei-pt8dav__fintokei-pt8dav-p2-bt-20251225-2206-v7.8.13-20261002-0756",
-      "backtestFolder": "fintokei-pt8dav-p2-bt-20251225-2206-v7.8.13-20261002-0756"
-     },
-     "run": {
-      "startUtc": "2025-12-25T22:06:00Z",
-      "endUtc": "2026-10-01T23:30:00Z",
-      "trades": 209,
-      "netProfit": 15848.02,
-      "maxDrawdown": 2458.03,
-      "priceSource": "CFD FINTOKEI (datafeed-external/FINTOKEI)",
-      "equitySource": "realizzata"
-     },
-     "accounts": [
-      "4302718"
-     ],
-     "size": 1,
-     "commission": 0,
-     "overnight": true,
-     "overweek": true,
-     "sessionFlatUtc": "20:45",
-     "weights": {},
-     "olderCards": 0,
-     "measureCode": "FINTOKEI-PT8DAV-P2",
-     "note": "Stesse strategie di FTMO-PT8DAV-P2. Sul feed Fintokei i trade abbinati all'interno scendono all'80%."
     }
    ],
    "pairs": {
-    "FINTOKEI-EUROPA-O4|FINTOKEI-PT8DAV-P1": {
+    "FINTOKEI-PT8-P1|FINTOKEI-PT8-P2": {
+     "verdict": "ok",
+     "reason": "Nessuna strategia in comune, trade gemelli 2-3%.",
+     "twins": "2-3%",
+     "measured": "2026-10-02",
+     "measuredOn": "FTMO-PT8DAV-P1 × FTMO-PT8DAV-P2"
+    },
+    "FINTOKEI-PT8-P1|FINTOKEI-EUROPA-O4": {
      "verdict": "limite",
      "reason": "Nessuna strategia in comune, ma trade gemelli 4-7%: al limite del 5%.",
      "twins": "4-7%",
@@ -1083,19 +1104,12 @@ window.PIOOTOO_PIANI = {
      "note": "PT8DAV_GC_LFD_001_60 apre gli stessi trade di PT5DAV_GC_LFD_002_60.",
      "measuredOn": "FTMO-PT8DAV-P1 × FTMO-EUROPA-O4"
     },
-    "FINTOKEI-EUROPA-O4|FINTOKEI-PT8DAV-P2": {
+    "FINTOKEI-PT8-P2|FINTOKEI-EUROPA-O4": {
      "verdict": "ok",
      "reason": "Nessuna strategia in comune, trade gemelli 1-2%.",
      "twins": "1-2%",
      "measured": "2026-10-02",
      "measuredOn": "FTMO-PT8DAV-P2 × FTMO-EUROPA-O4"
-    },
-    "FINTOKEI-PT8DAV-P1|FINTOKEI-PT8DAV-P2": {
-     "verdict": "ok",
-     "reason": "Nessuna strategia in comune, trade gemelli 2-3%.",
-     "twins": "2-3%",
-     "measured": "2026-10-02",
-     "measuredOn": "FTMO-PT8DAV-P1 × FTMO-PT8DAV-P2"
     }
    }
   },

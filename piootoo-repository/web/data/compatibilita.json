@@ -68,8 +68,9 @@
     "FTMO": {
       "regole": "Conto da 100.000: perdita giornaliera massima 5.000, perdita totale massima 10.000.",
       "note": [
-        "I tre piani in produzione girano tutti sul conto demo 17202911: lì la sovrapposizione fra EUROPA e O4-X05 è concentrazione sulla stessa rottura del DAX, non copy trading. Su due conti separati di FTMO, EUROPA e O4-X05 non vanno insieme.",
-        "I quattro piani PT8DAV sono best plan dal 02/10/2026: il passaggio in produzione e il demo sono ancora da fare."
+        "I cinque piani in produzione girano tutti sul conto demo 17202911: lì la sovrapposizione fra EUROPA e O4-X05 è concentrazione sulla stessa rottura del DAX, non copy trading. Su due conti separati di FTMO, EUROPA e O4-X05 non vanno insieme.",
+        "FTMO-PT8-P1 e FTMO-PT8-P2 (da FTMO-PT8DAV-P1 e -P2) sono in produzione dal 02/10/2026, in demo. Sullo stesso conto PT8-P1 e O4-X05 prendono gli stessi trade sull'oro nel 4-7% dei casi (GC_LFD): è concentrazione, e su conti separati sarebbe al limite.",
+        "Demo di 1-2 mesi prima di un conto vero: i PT8DAV sono stati composti sul 2022-2025 e verificati sul 06/2025-09/2026, ma il fuori campione è uno solo."
       ],
       "combinazioni": [
         { "conti": 3, "piani": ["FTMO-PT3B-EUROPA", "FTMO-PT3B-USA", "PT5DAV-P1"], "nota": "L'unica a tre conti fra i piani PT3B e PT5DAV. P1 è in campione: da demo prima." },
@@ -83,7 +84,7 @@
     "FINTOKEI": {
       "regole": "Conto da 100.000 USD: perdita giornaliera 5% sull'equity, perdita massima 10%. Commissione 0.",
       "note": [
-        "Nessun piano è ancora in produzione su Fintokei: va scelta la combinazione da promuovere nel broker workspace (2 o 3 conti).",
+        "In produzione dal 02/10/2026, in demo sul conto 4302718: FINTOKEI-PT8-P1 (size 0,5) e FINTOKEI-PT8-P2 (size 1), da FINTOKEI-PT8DAV-P1 e -P2. Dei piani PT3B e PT5DAV nessuno è ancora in produzione su Fintokei: va scelta la combinazione da promuovere (2 o 3 conti).",
         "Le strategie sono quelle di FTMO e valgono le stesse compatibilità: le quote di trade gemelli sono misurate sui run dei piani FTMO con le stesse strategie.",
         "Da chiarire (02/10/2026): il registro dei piani dà come best plan dal 01/10/2026 anche FINTOKEI-USA, FINTOKEI-USA-2 e FINTOKEI-P1, ma nella cartella best-plans non ci sono e i tre piani non risultano bloccati. Finché non tornano best plan, qui non compaiono."
       ],

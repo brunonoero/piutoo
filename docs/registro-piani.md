@@ -11,7 +11,8 @@ di un workspace.
 produzione e i best plan, con strategie e compatibilita' fra conti. Dopo ogni piano promosso, messo in
 produzione, duplicato o ritirato si rilancia `python aggiorna-dati.py` da `piootoo-repository/web`; le
 misure di trade gemelli, le note e le combinazioni di questa pagina si riportano a mano in
-`web/data/compatibilita.json` (vedi `web/LEGGIMI.md`).
+`web/data/compatibilita.json` (vedi `web/LEGGIMI.md`). La procedura intera, pubblicazione su
+`C:\piootoo-web` compresa, e' la skill `aggiorna-sito`.
 
 ## Come leggere i numeri
 
@@ -214,9 +215,26 @@ cBot):
 `FINTOKEI-PT8DAV-P2`, ognuno sul proprio run cBot della tabella sopra. La scheda di ogni best plan porta
 le incompatibilita' di P1.
 
-**Da fare**: il passaggio in produzione nel broker workspace (non fatto) e il demo. Regole d'uso come per
-gli altri best plan: demo 1-2 mesi, allarme quando il drawdown del conto supera quello del run, nessun
-parametro ritoccato durante l'uso.
+**In produzione dal 02/10/2026, in demo** (`ricerca/pt8dav-piani/produzione.py`, server 7.8.13), ognuno
+dal proprio best plan, bloccato, 8 strategie:
+
+| produzione | dal piano di ricerca | broker / conto demo | size | commissione |
+|---|---|---|---:|---:|
+| `FTMO-PT8-P1` | `FTMO-PT8DAV-P1` | FTMO / 17202911 | 0,5 | 2 |
+| `FTMO-PT8-P2` | `FTMO-PT8DAV-P2` | FTMO / 17202911 | 1 | 2 |
+| `FINTOKEI-PT8-P1` | `FINTOKEI-PT8DAV-P1` | FINTOKEI / 4302718 | 0,5 | 0 |
+| `FINTOKEI-PT8-P2` | `FINTOKEI-PT8DAV-P2` | FINTOKEI / 4302718 | 1 | 0 |
+
+- Il broker workspace `FINTOKEI` nasce con questi due piani: sono i primi in produzione su Fintokei.
+- Sul demo FTMO girano accanto a `FTMO-EUROPA`, `FTMO-USA` e `FTMO-O4-X05`. `FTMO-PT8-P1` e `FTMO-O4-X05`
+  sullo stesso conto prendono gli stessi trade sull'oro nel 4-7% dei casi (le due `GC_LFD`): li' e'
+  concentrazione, non copy trading; su due conti veri separati sarebbe al limite.
+- **Da fare a mano**: un'istanza cTrader per piano, con il **codice di produzione**, sul conto demo del suo
+  broker, avviata a mercato chiuso. Finche' non parte, il piano e' in produzione ma non esegue.
+
+Regole d'uso come per gli altri best plan: demo 1-2 mesi, allarme quando il drawdown del conto supera
+quello del run, nessun parametro ritoccato durante l'uso. Il sito (`web/piani.html`) e' aggiornato con la
+skill `aggiorna-sito`.
 
 ## Piani Fintokei (30/09/2026)
 
@@ -347,7 +365,8 @@ strategia. Nei trade interni lo swap e' 0 e il summary non lo dichiara: il guada
 lo swap si paga. Il run cBot USA del mattino e' intraday e non e' piu' promuovibile.
 
 **Da fare**: scegliere la combinazione da portare in produzione su Fintokei (2 o 3 conti, vedi sopra) e promuoverla
-nel broker workspace FINTOKEI.
+nel broker workspace FINTOKEI. Dal 02/10/2026 il broker workspace esiste, con i soli due piani PT8DAV (vedi
+"Piani PT8DAV").
 
 ## Piani in produzione: il broker workspace FTMO (28/09/2026)
 
@@ -377,6 +396,8 @@ Produzione*). Regole in [`domini/broker-workspace.md`](domini/broker-workspace.m
   Per farli girare davvero si mette sull'istanza cTrader il **codice di produzione** al posto di
   quello di ricerca, a mercato chiuso: la sessione nuova nasce in `broker-workspaces\FTMO\sessions\`.
   Fino ad allora le istanze restano sui codici di ricerca.
+- **Dal 02/10/2026** sullo stesso demo anche `FTMO-PT8-P1` (0,5) e `FTMO-PT8-P2` (1), e nel broker
+  workspace `FINTOKEI` `FINTOKEI-PT8-P1` e `FINTOKEI-PT8-P2`: scheda in "Piani PT8DAV".
 - **`FTMO-EUROPA-O4-B` resta di ricerca** (decisione del 29/09/2026): contiene le strategie di
   `FTMO-EUROPA` e di `FTMO-O4-X05`, quindi non puo' entrare in produzione accanto a loro. Si tengono i
   due piani separati sullo stesso conto; EUROPA-O4-B serve da termine di paragone. **Best plan** dal

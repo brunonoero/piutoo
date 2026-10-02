@@ -44,6 +44,10 @@ piani promossi, un best plan senza `plan.json`) e la pagina li mostra in testa.
 ritirato, e a ogni nuova misura di trade gemelli. La fonte dei numeri resta
 `docs/registro-piani.md`; se pagina e file su disco non concordano, hanno ragione i file.
 
+**Pubblicazione**: il sito servito è una copia in `C:\piootoo-web` (IIS, sito `piootoo-doc`, porta 81).
+Dopo aver rigenerato i dati: `robocopy . C:\piootoo-web /MIR /XD __pycache__`. La procedura intera è la
+skill `aggiorna-sito` (`.claude/skills/aggiorna-sito`).
+
 ## File
 
 - `assets/style.css`: stile, tema chiaro e scuro.
